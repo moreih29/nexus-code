@@ -1,0 +1,35 @@
+{
+  "name": "nexus",
+  "panels": [
+    {
+      "id": "consult",
+      "title": "Consultation",
+      "position": "right",
+      "dataSource": {
+        "type": "file-watch",
+        "path": ".nexus/branches/{branch}/consult.json"
+      },
+      "renderer": "tree"
+    },
+    {
+      "id": "decisions",
+      "title": "Decisions",
+      "position": "right",
+      "dataSource": {
+        "type": "file-watch",
+        "path": ".nexus/branches/{branch}/decisions.json"
+      },
+      "renderer": "tree"
+    },
+    {
+      "id": "tasks",
+      "title": "Tasks",
+      "position": "right",
+      "dataSource": {
+        "type": "file-watch",
+        "path": ".nexus/branches/{branch}/tasks.json"
+      },
+      "renderer": "tree"
+    }
+  ]
+}

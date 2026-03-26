@@ -1,0 +1,140 @@
+import { create } from 'zustand'
+import type { SessionStatus, ToolCallEvent } from '../../shared/types'
+
+export interface ToolCallRecord {
+  toolUseId: string
+  name: string
+  input: Record<string, unknown>
+  result?: string
+  isError?: boolean
+}
+
+export interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  toolCalls?: ToolCallRecord[]
+  timestamp: number
+}
+
+interface SessionState {
+  sessionId: string | null
+  status: SessionStatus
+  messages: Message[]
+  /** Accumulates streamed text for the current assistant turn */
+  streamBuffer: string
+
+  // Actions
+  startSession: (sessionId: string) => void
+  setStatus: (status: SessionStatus) => void
+  addUserMessage: (content: string) => void
+  appendTextChunk: (text: string) => void
+  flushStreamBuffer: () => void
+  addToolCall: (event: ToolCallEvent) => void
+  resolveToolCall: (toolUseId: string, content: string, isError?: boolean) => void
+  endSession: () => void
+  reset: () => void
+}
+
+let msgCounter = 0
+const nextId = (): string => `msg-${++msgCounter}`
+
+export const useSessionStore = create<SessionState>((set, get) => ({
+  sessionId: null,
+  status: 'idle',
+  messages: [],
+  streamBuffer: '',
+
+  startSession: (sessionId) =>
+    set((s) => ({ sessionId, status: 'running', messages: s.messages, streamBuffer: '' })),
+
+  setStatus: (status) => set({ status }),
+
+  addUserMessage: (content) =>
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        { id: nextId(), role: 'user', content, timestamp: Date.now() },
+      ],
+    })),
+
+  appendTextChunk: (text) => {
+    const { streamBuffer, messages } = get()
+    const newBuffer = streamBuffer + text
+    const lastMsg = messages[messages.length - 1]
+
+    if (lastMsg?.role === 'assistant' && !lastMsg.toolCalls?.length) {
+      // Update the last assistant message in place
+      set({
+        streamBuffer: newBuffer,
+        messages: messages.map((m, i) =>
+          i === messages.length - 1 ? { ...m, content: newBuffer } : m,
+        ),
+      })
+    } else {
+      // Start a new assistant message
+      set({
+        streamBuffer: newBuffer,
+        messages: [
+          ...messages,
+          { id: nextId(), role: 'assistant', content: newBuffer, timestamp: Date.now() },
+        ],
+      })
+    }
+  },
+
+  flushStreamBuffer: () => set({ streamBuffer: '' }),
+
+  addToolCall: (event) => {
+    const { messages } = get()
+    const lastMsg = messages[messages.length - 1]
+    const toolCall: ToolCallRecord = {
+      toolUseId: event.toolUseId,
+      name: event.name,
+      input: event.input,
+    }
+
+    if (lastMsg?.role === 'assistant') {
+      set({
+        streamBuffer: '',
+        messages: messages.map((m, i) =>
+          i === messages.length - 1
+            ? { ...m, toolCalls: [...(m.toolCalls ?? []), toolCall] }
+            : m,
+        ),
+      })
+    } else {
+      set({
+        streamBuffer: '',
+        messages: [
+          ...messages,
+          {
+            id: nextId(),
+            role: 'assistant',
+            content: '',
+            toolCalls: [toolCall],
+            timestamp: Date.now(),
+          },
+        ],
+      })
+    }
+  },
+
+  resolveToolCall: (toolUseId, content, isError) =>
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.toolCalls?.some((tc) => tc.toolUseId === toolUseId)
+          ? {
+              ...m,
+              toolCalls: m.toolCalls.map((tc) =>
+                tc.toolUseId === toolUseId ? { ...tc, result: content, isError } : tc,
+              ),
+            }
+          : m,
+      ),
+    })),
+
+  endSession: () => set({ status: 'ended', streamBuffer: '' }),
+
+  reset: () => set({ sessionId: null, status: 'idle', messages: [], streamBuffer: '' }),
+}))

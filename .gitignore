@@ -25,8 +25,12 @@ Thumbs.db
 # Electron
 release/
 
-# Nexus
-.nexus/
+# E2E
+e2e/screenshots/
+test-results/
+
+# Nexus (branches/ is runtime-only; rest is git-tracked)
+.nexus/branches/
 
 # Logs
 *.log
