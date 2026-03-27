@@ -12,6 +12,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, onStop, disabled = false, isRunning = false }: ChatInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isComposingRef = useRef(false)
 
   const submit = (): void => {
     const trimmed = value.trim()
@@ -24,7 +25,7 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) {
       e.preventDefault()
       submit()
     }
@@ -45,6 +46,8 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
+        onCompositionStart={() => { isComposingRef.current = true }}
+        onCompositionEnd={() => { isComposingRef.current = false }}
         onInput={handleInput}
         disabled={disabled && !isRunning}
         placeholder="메시지 입력 (Enter 전송 / Shift+Enter 줄바꿈)"
