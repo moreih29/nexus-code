@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { ReactElement } from 'react'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import type { ToolCallRecord } from '../../stores/session-store'
@@ -101,15 +101,24 @@ function ToolCard({
 }) {
   // done 상태만 토글 가능, running/error는 강제 펼침
   const forcedOpen = status === 'running' || status === 'error'
-  const [open, setOpen] = useState(forcedOpen)
+  const [userToggled, setUserToggled] = useState(false)
+
+  // status가 running/error → done으로 바뀌면 사용자 토글 초기화
+  useEffect(() => {
+    if (status === 'done') {
+      setUserToggled(false)
+    }
+  }, [status])
+
+  const isOpen = forcedOpen || (status === 'done' && userToggled)
 
   const handleOpenChange = (next: boolean) => {
-    if (!forcedOpen) setOpen(next)
+    if (!forcedOpen) setUserToggled(next)
   }
 
   return (
     <Collapsible
-      open={forcedOpen || open}
+      open={isOpen}
       onOpenChange={handleOpenChange}
       className={cn(
         'mt-2 rounded-lg border overflow-hidden',
@@ -128,7 +137,7 @@ function ToolCard({
         >
           {icon && <span className="shrink-0">{icon}</span>}
           <span className="font-mono text-xs text-blue-400 shrink-0">{name}</span>
-          {summary && !(forcedOpen || open) && (
+          {summary && !isOpen && (
             <span className="text-xs text-gray-400 truncate min-w-0">{summary}</span>
           )}
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -137,7 +146,7 @@ function ToolCard({
               <ChevronRight
                 className={cn(
                   'size-3.5 text-gray-500 transition-transform duration-150',
-                  open && 'rotate-90',
+                  isOpen && 'rotate-90',
                 )}
               />
             )}
