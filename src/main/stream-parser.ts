@@ -1,10 +1,12 @@
 import { EventEmitter } from 'events'
+import log from './logger'
 import type {
   TextChunkEvent,
   ToolCallEvent,
   ToolResultEvent,
   PermissionRequestEvent,
   SessionEndEvent,
+  TurnEndEvent,
   ErrorEvent,
 } from '../shared/types'
 
@@ -34,13 +36,6 @@ interface ToolResultMessage {
   is_error?: boolean
 }
 
-interface ResultMessage {
-  type: 'result'
-  session_id?: string
-  result?: string
-  is_error?: boolean
-}
-
 interface SystemMessage {
   type: 'system'
   subtype?: string
@@ -56,12 +51,14 @@ export declare interface StreamParser {
     listener: (data: Omit<PermissionRequestEvent, 'sessionId'>) => void
   ): this
   on(event: 'session_end', listener: (data: Omit<SessionEndEvent, 'sessionId'>) => void): this
+  on(event: 'turn_end', listener: (data: Omit<TurnEndEvent, 'sessionId'>) => void): this
   on(event: 'error', listener: (data: Omit<ErrorEvent, 'sessionId'>) => void): this
   on(event: 'session_id', listener: (sessionId: string) => void): this
 }
 
 export class StreamParser extends EventEmitter {
   private buffer: string = ''
+  private streamedTextLength = 0
 
   feed(chunk: string): void {
     this.buffer += chunk
@@ -82,6 +79,7 @@ export class StreamParser extends EventEmitter {
       this.parseLine(trimmed)
     }
     this.buffer = ''
+    this.streamedTextLength = 0
   }
 
   private parseLine(line: string): void {
@@ -89,14 +87,16 @@ export class StreamParser extends EventEmitter {
     try {
       msg = JSON.parse(line)
     } catch {
+      log.warn('[StreamParser] JSON parse failed:', line.slice(0, 120))
       this.emit('error', { message: `JSON 파싱 실패: ${line.slice(0, 120)}` })
       return
     }
 
     try {
-      console.log('[StreamParser]', msg.type, (msg as Record<string, unknown>).subtype ?? '')
+      log.debug('[StreamParser]', msg.type, (msg as Record<string, unknown>).subtype ?? '')
       this.handleMessage(msg)
     } catch (err) {
+      log.error('[StreamParser] handle error:', String(err))
       this.emit('error', { message: `메시지 처리 오류: ${String(err)}` })
     }
   }
@@ -112,10 +112,20 @@ export class StreamParser extends EventEmitter {
       }
 
       case 'assistant': {
-        // stream_event에서 이미 실시간 텍스트를 받았으므로 text는 무시
-        // tool_use만 처리
         const m = msg as unknown as AssistantMessage
         const content = m.message?.content ?? []
+
+        // stream_event로 텍스트가 이미 전달되지 않은 경우에만 fallback emit
+        if (this.streamedTextLength === 0) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              this.emit('text_chunk', { text: block.text })
+            }
+          }
+        }
+        this.streamedTextLength = 0  // 다음 턴을 위해 리셋
+
+        // tool_use 처리 (기존 로직 유지)
         for (const block of content) {
           if (block.type === 'tool_use') {
             this.emit('tool_call', {
@@ -148,8 +158,13 @@ export class StreamParser extends EventEmitter {
       }
 
       case 'result': {
-        const m = msg as unknown as ResultMessage
-        this.emit('session_end', { exitCode: m.is_error ? 1 : 0 })
+        const costUsd = typeof (msg as Record<string, unknown>).total_cost_usd === 'number'
+          ? (msg as Record<string, unknown>).total_cost_usd as number
+          : undefined
+        const durationMs = typeof (msg as Record<string, unknown>).duration_ms === 'number'
+          ? (msg as Record<string, unknown>).duration_ms as number
+          : undefined
+        this.emit('turn_end', { costUsd, durationMs })
         break
       }
 
@@ -161,6 +176,7 @@ export class StreamParser extends EventEmitter {
         if (inner.type === 'content_block_delta') {
           const delta = inner.delta as Record<string, unknown> | undefined
           if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            this.streamedTextLength += delta.text.length
             this.emit('text_chunk', { text: delta.text })
           }
         }

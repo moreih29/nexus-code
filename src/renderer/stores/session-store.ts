@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { SessionStatus, ToolCallEvent } from '../../shared/types'
+import log from 'electron-log/renderer'
+import type { SessionStatus, ToolCallEvent, LoadHistoryResponse } from '../../shared/types'
+import { IpcChannel } from '../../shared/ipc'
 
 export interface ToolCallRecord {
   toolUseId: string
@@ -33,6 +35,7 @@ interface SessionState {
   addToolCall: (event: ToolCallEvent) => void
   resolveToolCall: (toolUseId: string, content: string, isError?: boolean) => void
   endSession: () => void
+  restoreSession: (sessionId: string) => Promise<void>
   reset: () => void
 }
 
@@ -134,7 +137,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       ),
     })),
 
-  endSession: () => set({ status: 'ended', streamBuffer: '' }),
+  endSession: () => set({ status: 'idle', streamBuffer: '' }),
+
+  restoreSession: async (sessionId: string) => {
+    set({ sessionId, status: 'idle', messages: [], streamBuffer: '' })
+
+    try {
+      const res = await window.electronAPI.invoke<LoadHistoryResponse>(
+        IpcChannel.LOAD_HISTORY,
+        { sessionId }
+      )
+      if (res.ok && res.messages.length > 0) {
+        set({
+          messages: res.messages.map((m, i) => ({
+            id: `history-${i}`,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            toolCalls: m.toolCalls,
+            timestamp: m.timestamp,
+          })),
+        })
+      }
+    } catch (err) {
+      log.error('[restoreSession] LOAD_HISTORY failed:', err)
+    }
+  },
 
   reset: () => set({ sessionId: null, status: 'idle', messages: [], streamBuffer: '' }),
 }))

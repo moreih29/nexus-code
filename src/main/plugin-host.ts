@@ -4,6 +4,7 @@ import { execSync } from 'child_process'
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type { PluginDataEvent } from '../shared/types'
+import log from './logger'
 
 // ─── Manifest 스키마 ───────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ export class PluginHost {
         const manifest = JSON.parse(raw) as PluginManifest
         this.loadPlugin(manifest)
       } catch {
-        // 파싱 실패한 플러그인은 건너뜀
+        log.warn('[PluginHost] manifest load failed:', entry)
       }
     }
   }
@@ -114,6 +115,7 @@ export class PluginHost {
           }
         })
       } catch {
+        log.debug('[PluginHost] watch failed:', resolvedPath)
         return
       }
     }
@@ -127,6 +129,7 @@ export class PluginHost {
       const raw = fs.readFileSync(filePath, 'utf8')
       data = JSON.parse(raw)
     } catch {
+      log.debug('[PluginHost] file read failed:', filePath)
       return // 파일 없거나 파싱 실패 시 전송하지 않음
     }
 

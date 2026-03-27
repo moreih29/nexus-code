@@ -1,3 +1,4 @@
+import log from 'electron-log/renderer'
 import type { PendingPermission } from '../../stores/permission-store'
 import { IpcChannel } from '../../../shared/ipc'
 import type { RespondPermissionResponse } from '../../../shared/types'
@@ -17,7 +18,7 @@ export function PermissionCard({ permission }: PermissionCardProps): JSX.Element
         { requestId: permission.requestId, approved },
       )
     } catch (err) {
-      console.error('RESPOND_PERMISSION error:', err)
+      log.error('[PermissionCard] RESPOND_PERMISSION error:', err)
     } finally {
       remove(permission.requestId)
     }

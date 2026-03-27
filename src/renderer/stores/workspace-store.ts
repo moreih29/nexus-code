@@ -1,3 +1,4 @@
+import log from 'electron-log/renderer'
 import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
 import type {
@@ -5,6 +6,7 @@ import type {
   WorkspaceListResponse,
   WorkspaceAddResponse,
   WorkspaceRemoveResponse,
+  WorkspaceUpdateSessionResponse,
 } from '../../shared/types'
 
 interface WorkspaceState {
@@ -17,6 +19,7 @@ interface WorkspaceState {
   addWorkspace: () => Promise<void>
   removeWorkspace: (path: string) => Promise<void>
   setActiveWorkspace: (path: string | null) => void
+  saveSessionId: (path: string, sessionId: string) => Promise<void>
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -30,7 +33,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const res = await window.electronAPI.invoke<WorkspaceListResponse>(IpcChannel.WORKSPACE_LIST)
       set({ workspaces: res.workspaces })
     } catch (err) {
-      console.error('WORKSPACE_LIST error:', err)
+      log.error('[WorkspaceStore] WORKSPACE_LIST error:', err)
     } finally {
       set({ loading: false })
     }
@@ -55,4 +58,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveWorkspace: (path) => set({ activeWorkspace: path }),
+
+  saveSessionId: async (path, sessionId) => {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => w.path === path ? { ...w, sessionId } : w),
+    }))
+    try {
+      await window.electronAPI.invoke<WorkspaceUpdateSessionResponse>(
+        IpcChannel.WORKSPACE_UPDATE_SESSION,
+        { path, sessionId }
+      )
+    } catch (err) {
+      log.error('[WorkspaceStore] WORKSPACE_UPDATE_SESSION error:', err)
+    }
+  },
 }))

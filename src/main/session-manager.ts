@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import type { SessionInfo } from '../shared/types'
+import log from './logger'
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 
@@ -104,7 +105,8 @@ export class SessionManager {
     let projectDirs: string[]
     try {
       projectDirs = await fs.promises.readdir(CLAUDE_DIR)
-    } catch {
+    } catch (err) {
+      log.debug('[SessionManager] scan error:', String(err))
       return []
     }
 

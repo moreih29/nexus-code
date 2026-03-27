@@ -1,35 +1,8 @@
-import { useEffect } from 'react'
-import { IpcChannel } from '../../../shared/ipc'
-import type { PermissionRequestEvent } from '../../../shared/types'
 import { usePermissionStore } from '../../stores/permission-store'
 import { PermissionCard } from './PermissionCard'
 
 export function PermissionList(): JSX.Element | null {
-  const { queue, add } = usePermissionStore()
-
-  useEffect(() => {
-    const onPermissionRequest = (event: PermissionRequestEvent): void => {
-      add({
-        requestId: event.requestId,
-        toolName: event.toolName,
-        input: event.input,
-        agentId: event.agentId,
-        timestamp: Date.now(),
-      })
-    }
-
-    window.electronAPI.on(
-      IpcChannel.PERMISSION_REQUEST,
-      onPermissionRequest as (...args: unknown[]) => void,
-    )
-
-    return () => {
-      window.electronAPI.off(
-        IpcChannel.PERMISSION_REQUEST,
-        onPermissionRequest as (...args: unknown[]) => void,
-      )
-    }
-  }, [add])
+  const queue = usePermissionStore((s) => s.queue)
 
   if (queue.length === 0) return null
 

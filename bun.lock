@@ -6,6 +6,7 @@
       "name": "nexus-code",
       "dependencies": {
         "@ark-ui/react": "^5.0.0",
+        "electron-log": "^5.4.3",
         "lucide-react": "^0.487.0",
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
@@ -507,6 +508,8 @@
     "devlop": ["devlop@1.1.0", "", { "dependencies": { "dequal": "^2.0.0" } }, "sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA=="],
 
     "electron": ["electron@41.0.4", "", { "dependencies": { "@electron/get": "^2.0.0", "@types/node": "^24.9.0", "extract-zip": "^2.0.1" }, "bin": { "electron": "cli.js" } }, "sha512-rO08CxnAsAkKPFj3OZnxFkKrlnpSL3OCOewMDj5kaohVo++7e8hIT5Sl+tNl9WkNKiLvfZSW180ueA9s5zh9dg=="],
+
+    "electron-log": ["electron-log@5.4.3", "", {}, "sha512-sOUsM3LjZdugatazSQ/XTyNcw8dfvH1SYhXWiJyfYodAAKOZdHs0txPiLDXFzOZbhXgAgshQkshH2ccq0feyLQ=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.325", "", {}, "sha512-PwfIw7WQSt3xX7yOf5OE/unLzsK9CaN2f/FvV3WjPR1Knoc1T9vePRVV4W1EM301JzzysK51K7FNKcusCr0zYA=="],
 

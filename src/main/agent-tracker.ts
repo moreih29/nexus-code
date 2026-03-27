@@ -2,6 +2,7 @@ import { EventEmitter } from 'events'
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentTimelineData } from '../shared/types'
+import log from './logger'
 
 export type { AgentToolEvent, AgentNode, AgentTimelineData }
 
@@ -11,6 +12,7 @@ export class AgentTracker extends EventEmitter {
 
   /** HookServer의 pre-tool-use 페이로드 처리 */
   onPreToolUse(agentId: string, toolName: string, toolInput: Record<string, unknown>, toolUseId: string): void {
+    log.debug('[AgentTracker] pre-tool-use:', agentId, toolName)
     if (!this.agents.has(agentId)) {
       this.agents.set(agentId, { agentId, events: [], lastSeen: Date.now() })
     }

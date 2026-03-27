@@ -28,6 +28,8 @@ export const IpcChannel = {
   PERMISSION_REQUEST: 'stream:permission-request',
   /** Session has finished */
   SESSION_END: 'stream:session-end',
+  /** A single turn (response) has completed; process stays alive */
+  TURN_END: 'stream:turn-end',
   /** An error occurred in the session */
   ERROR: 'stream:error',
 
@@ -38,6 +40,18 @@ export const IpcChannel = {
   WORKSPACE_ADD: 'ipc:workspace-add',
   /** Remove a workspace by path */
   WORKSPACE_REMOVE: 'ipc:workspace-remove',
+  /** Update the sessionId stored for a workspace */
+  WORKSPACE_UPDATE_SESSION: 'ipc:workspace-update-session',
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+  /** Read global and project settings.json */
+  SETTINGS_READ: 'ipc:settings-read',
+  /** Write to global or project settings.json */
+  SETTINGS_WRITE: 'ipc:settings-write',
+
+  // ── History ───────────────────────────────────────────────────────────────
+  /** Load conversation history for a session from its JSONL file */
+  LOAD_HISTORY: 'ipc:load-history',
 
   // ── PluginHost ────────────────────────────────────────────────────────────
   /** Plugin data update pushed from main to a renderer panel */

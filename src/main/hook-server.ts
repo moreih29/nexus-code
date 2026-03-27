@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type { PermissionRequestEvent } from '../shared/types'
 import { PermissionHandler } from './permission-handler'
+import log from './logger'
 
 export interface HookServerOptions {
   permissionHandler: PermissionHandler
@@ -132,6 +133,8 @@ export class HookServer extends EventEmitter {
         const agentId = payload.agent_id
         const toolUseId = randomUUID()
 
+        log.info('[HookServer] request:', toolName, 'agent:', agentId ?? 'main')
+
         // AgentTracker용 이벤트 emit (구독자가 없어도 안전)
         this.emit('pre-tool-use', {
           sessionId,
@@ -143,6 +146,7 @@ export class HookServer extends EventEmitter {
 
         // 자동 승인 여부 먼저 확인
         if (this.permissionHandler.isAutoApproved(toolName, toolInput)) {
+          log.info('[HookServer] auto-approved:', toolName)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ decision: 'allow' }))
           return
@@ -158,6 +162,8 @@ export class HookServer extends EventEmitter {
           agentId
         }
 
+        log.info('[HookServer] awaiting permission:', requestId, toolName)
+
         const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
         if (win) {
           win.webContents.send(IpcChannel.PERMISSION_REQUEST, event)
@@ -165,6 +171,7 @@ export class HookServer extends EventEmitter {
 
         // Renderer 응답 대기 (60초 타임아웃)
         const approved = await this.permissionHandler.waitForResponse(requestId)
+        log.info('[HookServer] responded:', requestId, approved ? 'allow' : 'deny')
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ decision: approved ? 'allow' : 'deny' }))
       } catch {

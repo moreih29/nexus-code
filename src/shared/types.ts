@@ -6,6 +6,8 @@ export interface StartRequest {
   prompt: string
   cwd: string
   permissionMode: 'auto' | 'manual'
+  sessionId?: string  // 후속 메시지 시 --resume에 사용
+  model?: string
 }
 
 export interface StartResponse {
@@ -109,6 +111,12 @@ export interface SessionEndEvent {
   exitCode?: number
 }
 
+export interface TurnEndEvent {
+  sessionId: string
+  costUsd?: number
+  durationMs?: number
+}
+
 export interface ErrorEvent {
   sessionId: string
   message: string
@@ -120,6 +128,16 @@ export interface ErrorEvent {
 export interface WorkspaceEntry {
   path: string
   name: string
+  sessionId?: string
+}
+
+export interface WorkspaceUpdateSessionRequest {
+  path: string
+  sessionId: string
+}
+
+export interface WorkspaceUpdateSessionResponse {
+  ok: boolean
 }
 
 export interface WorkspaceListResponse {
@@ -167,6 +185,64 @@ export interface AgentNode {
 
 export interface AgentTimelineData {
   agents: AgentNode[]
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export interface ClaudeSettings {
+  permissions?: {
+    allow?: string[]
+    deny?: string[]
+    defaultMode?: string
+  }
+  enabledPlugins?: Record<string, boolean>
+  env?: Record<string, string>
+  language?: string
+  effortLevel?: string
+  autoMemoryEnabled?: boolean
+  skipDangerousModePermissionPrompt?: boolean
+  teammateMode?: string
+  statusLine?: unknown
+  extraKnownMarketplaces?: unknown
+  [key: string]: unknown
+}
+
+export interface ReadSettingsResponse {
+  global: ClaudeSettings
+  project: ClaudeSettings
+}
+
+export interface WriteSettingsRequest {
+  scope: 'global' | 'project'
+  settings: ClaudeSettings
+}
+
+export interface WriteSettingsResponse {
+  ok: boolean
+}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+export interface LoadHistoryRequest {
+  sessionId: string
+}
+
+export interface HistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+  toolCalls?: Array<{
+    toolUseId: string
+    name: string
+    input: Record<string, unknown>
+    result?: string
+    isError?: boolean
+  }>
+  timestamp: number
+}
+
+export interface LoadHistoryResponse {
+  ok: boolean
+  messages: HistoryMessage[]
 }
 
 // ─── Window augmentation ────────────────────────────────────────────────────

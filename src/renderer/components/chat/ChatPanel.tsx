@@ -1,13 +1,7 @@
+import log from 'electron-log/renderer'
 import { useEffect, useRef } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
-import type {
-  StartResponse,
-  PromptResponse,
-  TextChunkEvent,
-  ToolCallEvent,
-  ToolResultEvent,
-  SessionEndEvent,
-} from '../../../shared/types'
+import type { StartResponse, PromptResponse } from '../../../shared/types'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ChatInput } from './ChatInput'
@@ -19,15 +13,12 @@ export function ChatPanel(): JSX.Element {
     status,
     messages,
     startSession,
+    setStatus,
     addUserMessage,
-    appendTextChunk,
-    flushStreamBuffer,
-    addToolCall,
-    resolveToolCall,
-    endSession,
   } = useSessionStore()
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll on new messages
@@ -35,46 +26,15 @@ export function ChatPanel(): JSX.Element {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Subscribe to stream events
-  useEffect(() => {
-    const onTextChunk = (event: TextChunkEvent): void => {
-      appendTextChunk(event.text)
-    }
-
-    const onToolCall = (event: ToolCallEvent): void => {
-      addToolCall(event)
-    }
-
-    const onToolResult = (event: ToolResultEvent): void => {
-      resolveToolCall(event.toolUseId, event.content, event.isError)
-    }
-
-    const onSessionEnd = (_event: SessionEndEvent): void => {
-      flushStreamBuffer()
-      endSession()
-    }
-
-    window.electronAPI.on(IpcChannel.TEXT_CHUNK, onTextChunk as (...args: unknown[]) => void)
-    window.electronAPI.on(IpcChannel.TOOL_CALL, onToolCall as (...args: unknown[]) => void)
-    window.electronAPI.on(IpcChannel.TOOL_RESULT, onToolResult as (...args: unknown[]) => void)
-    window.electronAPI.on(IpcChannel.SESSION_END, onSessionEnd as (...args: unknown[]) => void)
-
-    return () => {
-      window.electronAPI.off(IpcChannel.TEXT_CHUNK, onTextChunk as (...args: unknown[]) => void)
-      window.electronAPI.off(IpcChannel.TOOL_CALL, onToolCall as (...args: unknown[]) => void)
-      window.electronAPI.off(IpcChannel.TOOL_RESULT, onToolResult as (...args: unknown[]) => void)
-      window.electronAPI.off(IpcChannel.SESSION_END, onSessionEnd as (...args: unknown[]) => void)
-    }
-  }, [appendTextChunk, addToolCall, resolveToolCall, flushStreamBuffer, endSession])
-
   const handleSend = async (text: string): Promise<void> => {
     if (!activeWorkspace) {
-      console.warn('[ChatPanel] 워크스페이스가 선택되지 않음')
+      log.warn('[ChatPanel] 워크스페이스가 선택되지 않음')
       return
     }
 
     addUserMessage(text)
-    console.log('[ChatPanel] 전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId })
+    setStatus('running')
+    log.info('[ChatPanel] 전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId })
 
     try {
       if (!sessionId) {
@@ -83,16 +43,30 @@ export function ChatPanel(): JSX.Element {
           cwd: activeWorkspace,
           permissionMode: 'auto',
         })
-        console.log('[ChatPanel] 세션 시작:', res.sessionId)
+        log.info('[ChatPanel] 세션 시작:', res.sessionId)
         startSession(res.sessionId)
+        await saveSessionId(activeWorkspace, res.sessionId)
       } else {
-        await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
+        const res = await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
           sessionId,
           message: text,
         })
+        if (!res.ok) {
+          // 프로세스가 죽었음 → START + --resume로 자동 복구
+          log.warn('[ChatPanel] PROMPT failed — resuming session:', sessionId)
+          const resumed = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
+            prompt: text,
+            cwd: activeWorkspace,
+            permissionMode: 'auto',
+            sessionId,
+          })
+          log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
+          startSession(resumed.sessionId)
+        }
       }
     } catch (err) {
-      console.error('[ChatPanel] IPC error:', err)
+      log.error('[ChatPanel] IPC error:', err)
+      setStatus('idle')
     }
   }
 
