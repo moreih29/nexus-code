@@ -7,7 +7,7 @@ interface WorkspaceItemProps {
   workspace: WorkspaceEntry
 }
 
-export function WorkspaceItem({ workspace }: WorkspaceItemProps): JSX.Element {
+export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
   const { activeWorkspace, setActiveWorkspace } = useWorkspaceStore()
   const restoreSession = useSessionStore((s) => s.restoreSession)
   const resetSession = useSessionStore((s) => s.reset)

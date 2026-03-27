@@ -1,7 +1,7 @@
 import { usePermissionStore } from '../../stores/permission-store'
 import { PermissionCard } from './PermissionCard'
 
-export function PermissionList(): JSX.Element | null {
+export function PermissionList() {
   const queue = usePermissionStore((s) => s.queue)
 
   if (queue.length === 0) return null

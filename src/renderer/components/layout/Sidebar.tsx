@@ -3,7 +3,7 @@ import { Settings } from 'lucide-react'
 import { WorkspaceList } from '../workspace/WorkspaceList'
 import { SettingsModal } from '../settings/SettingsModal'
 
-export function Sidebar(): JSX.Element {
+export function Sidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (

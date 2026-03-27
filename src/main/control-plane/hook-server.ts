@@ -2,10 +2,10 @@ import http from 'http'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import { BrowserWindow } from 'electron'
-import { IpcChannel } from '../shared/ipc'
-import type { PermissionRequestEvent } from '../shared/types'
+import { IpcChannel } from '../../shared/ipc'
+import type { PermissionRequestEvent } from '../../shared/types'
 import { PermissionHandler } from './permission-handler'
-import log from './logger'
+import log from '../logger'
 
 export interface HookServerOptions {
   permissionHandler: PermissionHandler

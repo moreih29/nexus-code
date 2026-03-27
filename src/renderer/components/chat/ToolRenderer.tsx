@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactElement } from 'react'
 import type { ToolCallRecord } from '../../stores/session-store'
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ function truncateLines(text: string, maxLines: number): { lines: string[]; total
 
 // ─── CollapsibleResult ───────────────────────────────────────────────────────
 
-function CollapsibleResult({ result }: { result: string }): JSX.Element {
+function CollapsibleResult({ result }: { result: string }) {
   const MAX = 10
   const { lines, total } = truncateLines(result, MAX)
   const [expanded, setExpanded] = useState(false)
@@ -63,7 +64,7 @@ function ToolCard({
   status: Status
   icon?: string
   children: React.ReactNode
-}): JSX.Element {
+}) {
   return (
     <div className="mt-2 rounded-lg border border-gray-700 bg-gray-800/40 overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-700/50">
@@ -90,7 +91,7 @@ function resolveStatus(tc: ToolCallRecord): Status {
 
 // ─── individual renderers ─────────────────────────────────────────────────────
 
-function BashRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function BashRenderer({ tc }: { tc: ToolCallRecord }) {
   const command = str(tc.input.command)
   const description = tc.input.description ? str(tc.input.description) : undefined
   const status = resolveStatus(tc)
@@ -107,7 +108,7 @@ function BashRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function ReadRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function ReadRenderer({ tc }: { tc: ToolCallRecord }) {
   const filePath = str(tc.input.file_path)
   const offset = tc.input.offset !== undefined ? Number(tc.input.offset) : undefined
   const limit = tc.input.limit !== undefined ? Number(tc.input.limit) : undefined
@@ -127,7 +128,7 @@ function ReadRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function WriteRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function WriteRenderer({ tc }: { tc: ToolCallRecord }) {
   const filePath = str(tc.input.file_path)
   const status = resolveStatus(tc)
   const lineCount =
@@ -156,7 +157,7 @@ function truncateText(text: string, maxLines = 3): { preview: string; truncated:
   return { preview: lines.slice(0, maxLines).join('\n'), truncated: true }
 }
 
-function EditRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function EditRenderer({ tc }: { tc: ToolCallRecord }) {
   const filePath = str(tc.input.file_path)
   const oldString = str(tc.input.old_string)
   const newString = str(tc.input.new_string)
@@ -195,7 +196,7 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function GlobRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
   const pattern = str(tc.input.pattern)
   const path = tc.input.path ? str(tc.input.path) : undefined
   const status = resolveStatus(tc)
@@ -216,7 +217,7 @@ function GlobRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function GrepRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function GrepRenderer({ tc }: { tc: ToolCallRecord }) {
   const pattern = str(tc.input.pattern)
   const path = tc.input.path ? str(tc.input.path) : undefined
   const status = resolveStatus(tc)
@@ -251,7 +252,7 @@ const TODO_ICONS: Record<string, string> = {
   pending: '☐',
 }
 
-function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }) {
   const todos = Array.isArray(tc.input.todos) ? (tc.input.todos as TodoItem[]) : []
   const status = resolveStatus(tc)
 
@@ -277,7 +278,7 @@ function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function TaskRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function TaskRenderer({ tc }: { tc: ToolCallRecord }) {
   const subject = tc.input.subject ? str(tc.input.subject) : undefined
   const title = tc.input.title ? str(tc.input.title) : undefined
   const status = resolveStatus(tc)
@@ -294,7 +295,7 @@ function TaskRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function ToolSearchRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function ToolSearchRenderer({ tc }: { tc: ToolCallRecord }) {
   const query = str(tc.input.query)
   const status = resolveStatus(tc)
 
@@ -317,7 +318,7 @@ function formatOption(opt: unknown): string {
   return String(opt)
 }
 
-function AskRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function AskRenderer({ tc }: { tc: ToolCallRecord }) {
   const questions = Array.isArray(tc.input.questions)
     ? (tc.input.questions as Array<{ question?: string; options?: unknown[] }>)
     : []
@@ -346,7 +347,7 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function AgentRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function AgentRenderer({ tc }: { tc: ToolCallRecord }) {
   const subagentType = tc.input.subagent_type ? str(tc.input.subagent_type) : undefined
   const prompt = tc.input.prompt ? str(tc.input.prompt) : undefined
   const { preview } = prompt ? truncateText(prompt, 2) : { preview: '' }
@@ -365,7 +366,7 @@ function AgentRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function WebSearchRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function WebSearchRenderer({ tc }: { tc: ToolCallRecord }) {
   const query = str(tc.input.query)
   const status = resolveStatus(tc)
 
@@ -379,7 +380,7 @@ function WebSearchRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function WebFetchRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function WebFetchRenderer({ tc }: { tc: ToolCallRecord }) {
   const url = str(tc.input.url)
   const status = resolveStatus(tc)
 
@@ -393,7 +394,7 @@ function WebFetchRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
   )
 }
 
-function GenericRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+function GenericRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
   const inputStr = JSON.stringify(tc.input)
   const preview = inputStr.length > 120 ? inputStr.slice(0, 120) + '…' : inputStr
@@ -410,7 +411,7 @@ function GenericRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
 
 // ─── dispatcher ───────────────────────────────────────────────────────────────
 
-type Renderer = (props: { tc: ToolCallRecord }) => JSX.Element
+type Renderer = (props: { tc: ToolCallRecord }) => ReactElement
 
 const TOOL_RENDERERS: Record<string, Renderer> = {
   Bash: BashRenderer,
@@ -430,7 +431,7 @@ const TOOL_RENDERERS: Record<string, Renderer> = {
   WebFetch: WebFetchRenderer,
 }
 
-export function ToolRenderer({ tc }: { tc: ToolCallRecord }): JSX.Element {
+export function ToolRenderer({ tc }: { tc: ToolCallRecord }) {
   const Renderer = TOOL_RENDERERS[tc.name] ?? GenericRenderer
   return <Renderer tc={tc} />
 }

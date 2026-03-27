@@ -8,7 +8,7 @@ interface PermissionCardProps {
   permission: PendingPermission
 }
 
-export function PermissionCard({ permission }: PermissionCardProps): JSX.Element {
+export function PermissionCard({ permission }: PermissionCardProps) {
   const remove = usePermissionStore((s) => s.remove)
 
   const respond = async (approved: boolean): Promise<void> => {

@@ -1,7 +1,7 @@
 import { FolderPlus } from 'lucide-react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 
-export function AddWorkspaceButton(): JSX.Element {
+export function AddWorkspaceButton() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
 
   const handleClick = async (): Promise<void> => {

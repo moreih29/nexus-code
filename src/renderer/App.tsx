@@ -40,7 +40,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
-function App(): JSX.Element {
+function App() {
   return (
     <ErrorBoundary>
       <AppLayout />

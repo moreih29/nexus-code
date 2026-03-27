@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { execSync } from 'child_process'
 import { StreamParser } from './stream-parser'
-import log from './logger'
+import log from '../logger'
 import { startSession, appendLine } from './cli-raw-logger'
 import type {
   TextChunkEvent,
@@ -19,7 +19,7 @@ import type {
   RestartFailedEvent,
   TimeoutEvent,
   RateLimitEvent,
-} from '../shared/types'
+} from '../../shared/types'
 
 /** 마지막 stdout 출력으로부터 이 시간(ms)이 지나면 timeout 이벤트를 emit */
 const ACTIVITY_TIMEOUT_MS = 120_000

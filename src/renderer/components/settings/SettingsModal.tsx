@@ -36,7 +36,7 @@ function TagList({
   onRemove: (idx: number) => void
   onAdd: (value: string) => void
   placeholder: string
-}): JSX.Element {
+}) {
   const [input, setInput] = useState('')
 
   const commit = (): void => {
@@ -87,7 +87,7 @@ function EnvEditor({
 }: {
   env: Record<string, string>
   onChange: (env: Record<string, string>) => void
-}): JSX.Element {
+}) {
   const [newKey, setNewKey] = useState('')
   const [newVal, setNewVal] = useState('')
 
@@ -154,7 +154,7 @@ function Toggle({
 }: {
   checked: boolean
   onChange: (v: boolean) => void
-}): JSX.Element {
+}) {
   return (
     <button
       type="button"
@@ -172,11 +172,11 @@ function Toggle({
   )
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }): JSX.Element {
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-2 block text-sm font-medium text-gray-400">{children}</label>
 }
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps): JSX.Element | null {
+export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { model, setModel } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<Tab>('general')
 

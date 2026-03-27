@@ -23,7 +23,7 @@ function cwdLabel(cwd: string): string {
   return parts[parts.length - 1] || cwd
 }
 
-export function SessionItem({ session }: SessionItemProps): JSX.Element {
+export function SessionItem({ session }: SessionItemProps) {
   const { activeSessionId, resumeSession } = useHistoryStore()
   const startSession = useSessionStore((s) => s.startSession)
   const isActive = activeSessionId === session.id
