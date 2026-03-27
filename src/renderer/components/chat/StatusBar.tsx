@@ -1,0 +1,86 @@
+import { Check, Circle, Loader2, Minus } from 'lucide-react'
+import { useSessionStore } from '../../stores/session-store'
+import { useStatusBarStore } from '../../stores/status-bar-store'
+import type { TodoItem } from '../../stores/status-bar-store'
+
+function TodoChecklist({ todos }: { todos: TodoItem[] }) {
+  return (
+    <div className="flex flex-col gap-1">
+      {todos.map((todo, idx) => (
+        <div key={idx} className="flex items-center gap-2 text-sm">
+          {todo.status === 'completed' ? (
+            <Check className="h-3.5 w-3.5 shrink-0 text-green-500" />
+          ) : todo.status === 'in_progress' ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+          ) : (
+            <Minus className="h-3.5 w-3.5 shrink-0 text-gray-600" />
+          )}
+          <span
+            className={
+              todo.status === 'completed'
+                ? 'text-gray-600 line-through'
+                : todo.status === 'in_progress'
+                  ? 'text-gray-200'
+                  : 'text-gray-500'
+            }
+          >
+            {todo.content}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function StatusBar() {
+  const status = useSessionStore((s) => s.status)
+  const sendResponse = useSessionStore((s) => s.sendResponse)
+  const { todos, askQuestion, setAskQuestion } = useStatusBarStore()
+
+  const isRunning = status === 'running'
+  const hasTodos = todos.length > 0
+  const hasAskQuestion = askQuestion !== null
+
+  // running 상태이거나 표시할 데이터가 있을 때만 렌더링
+  if (!isRunning && !hasTodos && !hasAskQuestion) {
+    return null
+  }
+
+  return (
+    <div className="border-t border-gray-800 bg-gray-950/50 px-4 py-2">
+      {/* 생각 중 인디케이터: todos/askQuestion 없을 때만 표시 */}
+      {isRunning && !hasTodos && !hasAskQuestion && (
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>응답 중...</span>
+        </div>
+      )}
+
+      {/* Todo 체크리스트 */}
+      {hasTodos && <TodoChecklist todos={todos} />}
+
+      {/* 질문 */}
+      {hasAskQuestion && askQuestion && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm text-gray-300">
+            <Circle className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
+            <span>{askQuestion.question}</span>
+          </div>
+          {askQuestion.options.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pl-5">
+              {askQuestion.options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => { sendResponse(`[AskUserQuestion] ${askQuestion.question} → ${opt}`); setAskQuestion(null) }}
+                  className="rounded border border-blue-700/60 bg-blue-950/40 px-2 py-0.5 text-xs text-blue-300 hover:bg-blue-900/60 hover:border-blue-500 cursor-pointer transition-colors"
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

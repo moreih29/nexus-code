@@ -39,6 +39,8 @@ interface SessionState {
   reset: () => void
   /** 타임아웃 상태에서 계속 대기 (타이머는 RunManager가 자동 재시작) */
   dismissTimeout: () => void
+  /** AskUserQuestion 응답 전송 */
+  sendResponse: (text: string) => void
 }
 
 let msgCounter = 0
@@ -168,4 +170,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   reset: () => set({ sessionId: null, status: 'idle', messages: [], streamBuffer: '' }),
+
+  sendResponse: (text) => {
+    const { sessionId, addUserMessage, setStatus } = get()
+    if (!sessionId) return
+    addUserMessage(text)
+    setStatus('running')
+    window.electronAPI.invoke(IpcChannel.PROMPT, { sessionId, message: text }).catch(() => {})
+  },
 }))

@@ -76,7 +76,36 @@ system (init)
 
 **주의:** `tool_result`는 별도 NDJSON 타입이 아니라, `type: "user"` 메시지의 `message.content[]` 배열 안에 `type: "tool_result"` 블록으로 포함된다.
 
-### 2.3 rate limit 발생 시
+### 2.3 AskUserQuestion 동작 (-p 모드)
+
+`-p` (print) 모드에서 `AskUserQuestion` 도구는 인터랙티브 입력이 불가능하므로, CLI가 즉시 에러로 반환한다:
+
+```
+assistant (tool_use: AskUserQuestion, input: { questions: [...] })
+  → user (content: [{ type: "tool_result", tool_use_id, content: "Answer questions?", is_error: true }])
+  → assistant (후속 응답 — 에러를 인지하고 계속 진행)
+```
+
+**GUI 래퍼 대응 (우회 방식):**
+
+이 에러는 예상된 동작이므로 에러로 표시하지 않는다. StatusBar에서 질문+옵션 버튼을 표시하고, 사용자 클릭 시 `sendResponse()`로 새 메시지를 전송한다. 대화 영역에는 AskUserQuestion ToolCard를 표시하지 않는다 (TodoWrite와 동일 패턴).
+
+전송 포맷: `"[AskUserQuestion] {질문} → {선택한 옵션}"` — Claude가 맥락을 이해할 수 있도록 질문과 답변을 함께 전송.
+
+**stdin tool_result 직접 주입은 불가능:**
+
+`--resume` + `--input-format stream-json`으로 tool_use 대기 세션을 재개하면, CLI가 stdin을 읽기 전에 `"No response requested."` 합성 메시지를 자동 주입 → API가 `"unexpected tool_use_id found in tool_result blocks"` 에러 반환. ([GitHub #16712](https://github.com/anthropics/claude-code/issues/16712), Open)
+
+`--input-format stream-json` 프로토콜 자체가 미문서화 상태. ([GitHub #24594](https://github.com/anthropics/claude-code/issues/24594), Not Planned으로 종료)
+
+**근본적 해결:** Claude Agent SDK (TypeScript)의 `canUseTool` 콜백을 사용하면 AskUserQuestion을 네이티브로 처리 가능. CLI 프로세스 스폰 방식 자체를 SDK로 전환해야 하므로 별도 마일스톤 필요.
+
+### 2.4 TURN_END vs SESSION_END 상태 관리
+
+- **TURN_END**: 턴 종료. 세션은 계속될 수 있으므로 StatusBar 상태(todos, askQuestion)를 유지한다. `clearAll()` 호출하지 않음.
+- **SESSION_END**: 세션 완전 종료. StatusBar `clearAll()` 호출하여 모든 상태 초기화.
+
+### 2.5 rate limit 발생 시
 
 ```
 stream_event × N

@@ -1,4 +1,3 @@
-<!-- tags: tech-stack, dependencies, versions, vite, electron, react, typescript, tailwind -->
 <!-- tags: tech-stack, dependencies, versions, build, vite, electron -->
 # Tech Stack
 
@@ -22,8 +21,20 @@
 | zustand | ^5.0.0 | 경량 상태 관리 |
 | react-markdown | ^10.1.0 | 마크다운 렌더링 |
 | remark-gfm | ^4.0.1 | GFM 마크다운 확장 |
+| react-syntax-highlighter | ^15.6.1 | 코드 구문 강조 (PrismLight + oneDark) |
 | lucide-react | ^0.487.0 | 아이콘 |
 | @ark-ui/react | ^5.0.0 | 보조 UI (Tree 등 shadcn 미지원 컴포넌트) |
+
+## shadcn/ui 관련
+
+| 패키지 | 역할 |
+|--------|------|
+| @radix-ui/react-collapsible | Collapsible 프리미티브 |
+| class-variance-authority | 컴포넌트 variant 관리 |
+| clsx | 조건부 클래스 결합 |
+| tailwind-merge | Tailwind 클래스 충돌 해결 |
+
+현재 사용 중인 shadcn 컴포넌트: **button**, **badge**, **card**, **collapsible** (`src/renderer/components/ui/`)
 
 ## Build & Dev
 
@@ -59,6 +70,6 @@
 
 ## UI 구성
 
-- **shadcn/ui** (components.json 설정 존재): 컴포넌트 소유 모델, `npx shadcn add` 방식
+- **shadcn/ui** (components.json 설정 존재): 컴포넌트 소유 모델, `npx shadcn add` 방식. 현재 button, badge, card, collapsible 4개 컴포넌트 사용
 - **Ark UI**: shadcn 미지원 컴포넌트(Tree 등) 보완
-- **디자인 방향**: 다크 테마(gray-950 배경), 미니멀 클린
+- **디자인 방향**: 다크 테마(gray-950 배경), 미니멀 클린. StatusBar로 대화 외 상호작용(TodoWrite, AskUserQuestion) 분리

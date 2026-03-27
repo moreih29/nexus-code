@@ -45,6 +45,16 @@ function AgentCard({ agent }: { agent: AgentTimelineData['agents'][number] }) {
     <div className="rounded border border-gray-700 bg-gray-800/30">
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-gray-700 px-3 py-1.5">
+        <span
+          className={[
+            'h-2 w-2 shrink-0 rounded-full',
+            agent.status === 'running'
+              ? 'animate-pulse bg-blue-400'
+              : agent.status === 'error'
+                ? 'bg-red-400'
+                : 'bg-gray-500',
+          ].join(' ')}
+        />
         <span className="text-xs font-semibold text-blue-300">{agent.agentId}</span>
         <span className="ml-auto text-xs text-gray-600">{agent.events.length} calls</span>
       </div>
