@@ -1,11 +1,15 @@
+import { Square } from 'lucide-react'
 import { useRef, useState, type KeyboardEvent } from 'react'
+import { Button } from '@renderer/components/ui/button'
 
 interface ChatInputProps {
   onSend: (text: string) => void
+  onStop?: () => void
   disabled?: boolean
+  isRunning?: boolean
 }
 
-export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, disabled = false, isRunning = false }: ChatInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -14,7 +18,6 @@ export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
     if (!trimmed || disabled) return
     onSend(trimmed)
     setValue('')
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -43,17 +46,32 @@ export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onInput={handleInput}
-        disabled={disabled}
+        disabled={disabled && !isRunning}
         placeholder="메시지 입력 (Enter 전송 / Shift+Enter 줄바꿈)"
         className="max-h-[200px] flex-1 resize-none rounded-xl bg-gray-800 px-4 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
       />
-      <button
-        onClick={submit}
-        disabled={disabled || !value.trim()}
-        className="shrink-0 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        전송
-      </button>
+      {isRunning ? (
+        <Button
+          size="sm"
+          variant="destructive"
+          className="shrink-0"
+          onClick={onStop}
+          type="button"
+        >
+          <Square className="h-4 w-4" />
+          중지
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          className="shrink-0"
+          onClick={submit}
+          disabled={disabled || !value.trim()}
+          type="button"
+        >
+          전송
+        </Button>
+      )}
     </div>
   )
 }

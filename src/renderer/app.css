@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+@keyframes slideDown {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+
+@layer utilities {
+  .animate-slideDown {
+    animation: slideDown 150ms ease-out;
+    overflow: hidden;
+  }
+  .animate-slideUp {
+    animation: slideUp 150ms ease-out;
+    overflow: hidden;
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 3.9%;

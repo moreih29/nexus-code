@@ -2,6 +2,7 @@ import log from 'electron-log/renderer'
 import type { PendingPermission } from '../../stores/permission-store'
 import { IpcChannel } from '../../../shared/ipc'
 import type { RespondPermissionResponse } from '../../../shared/types'
+import { Button } from '@renderer/components/ui/button'
 import { usePermissionStore } from '../../stores/permission-store'
 
 interface PermissionCardProps {
@@ -51,18 +52,12 @@ export function PermissionCard({ permission }: PermissionCardProps) {
 
       {/* Actions */}
       <div className="mt-3 flex gap-2">
-        <button
-          onClick={() => respond(true)}
-          className="rounded-lg bg-green-700 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-600"
-        >
-          Allow
-        </button>
-        <button
-          onClick={() => respond(false)}
-          className="rounded-lg bg-red-800 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
-        >
-          Deny
-        </button>
+        <Button size="sm" variant="default" onClick={() => respond(true)}>
+          허용
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => respond(false)}>
+          거부
+        </Button>
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CodeBlock } from './CodeBlock'
 
 interface MarkdownRendererProps {
   content: string
@@ -21,18 +22,22 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           <h3 className="mb-2 mt-3 text-base font-semibold text-gray-200">{children}</h3>
         ),
         code: ({ children, className }) => {
-          const isBlock = className?.includes('language-')
-          return isBlock ? (
-            <code className="block overflow-x-auto rounded bg-gray-800 p-3 font-mono text-sm text-gray-200">
-              {children}
-            </code>
-          ) : (
+          const match = /language-(\w+)/.exec(className || '')
+          if (match) {
+            return (
+              <CodeBlock
+                language={match[1]}
+                code={String(children).replace(/\n$/, '')}
+              />
+            )
+          }
+          return (
             <code className="rounded bg-gray-800 px-1 py-0.5 font-mono text-sm text-blue-300">
               {children}
             </code>
           )
         },
-        pre: ({ children }) => <pre className="mb-3 last:mb-0">{children}</pre>,
+        pre: ({ children }) => <pre className="mb-0">{children}</pre>,
         ul: ({ children }) => (
           <ul className="mb-2 list-disc pl-5 text-gray-300">{children}</ul>
         ),
