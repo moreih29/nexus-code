@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 import type { ToolCallRecord } from '../../stores/session-store'
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../ui/collapsible'
+import { Badge } from '../ui/badge'
+import { cn } from '../../lib/utils'
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
@@ -50,36 +54,100 @@ function CollapsibleResult({ result }: { result: string }) {
   )
 }
 
-// ─── ToolCard ─────────────────────────────────────────────────────────────────
+// ─── StatusBadge ─────────────────────────────────────────────────────────────
 
 type Status = 'running' | 'done' | 'error'
+
+function StatusBadge({ status }: { status: Status }) {
+  if (status === 'running') {
+    return (
+      <Badge
+        className="border-blue-700/50 bg-blue-950/60 text-blue-300 gap-1"
+        variant="outline"
+      >
+        <Loader2 className="size-3 animate-spin" />
+        실행 중
+      </Badge>
+    )
+  }
+  if (status === 'error') {
+    return (
+      <Badge className="border-red-700/50 bg-red-950/60 text-red-300" variant="outline">
+        에러
+      </Badge>
+    )
+  }
+  return (
+    <Badge className="border-green-700/50 bg-green-950/60 text-green-300" variant="outline">
+      완료
+    </Badge>
+  )
+}
+
+// ─── ToolCard ─────────────────────────────────────────────────────────────────
 
 function ToolCard({
   name,
   status,
   icon,
+  summary,
   children,
 }: {
   name: string
   status: Status
   icon?: string
+  summary?: string
   children: React.ReactNode
 }) {
+  // done 상태만 토글 가능, running/error는 강제 펼침
+  const forcedOpen = status === 'running' || status === 'error'
+  const [open, setOpen] = useState(forcedOpen)
+
+  const handleOpenChange = (next: boolean) => {
+    if (!forcedOpen) setOpen(next)
+  }
+
   return (
-    <div className="mt-2 rounded-lg border border-gray-700 bg-gray-800/40 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-700/50">
-        {icon && <span>{icon}</span>}
-        <span className="font-mono text-xs text-blue-400">{name}</span>
-        <span className="ml-auto">
-          {status === 'running' && (
-            <span className="animate-pulse text-xs text-gray-500">running…</span>
+    <Collapsible
+      open={forcedOpen || open}
+      onOpenChange={handleOpenChange}
+      className={cn(
+        'mt-2 rounded-lg border overflow-hidden',
+        status === 'error'
+          ? 'border-red-700/50 bg-red-950/30'
+          : 'border-gray-700 bg-gray-800/40',
+      )}
+    >
+      <CollapsibleTrigger asChild>
+        <div
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 border-b select-none',
+            status === 'error' ? 'border-red-700/30' : 'border-gray-700/50',
+            !forcedOpen && 'cursor-pointer hover:bg-gray-700/30',
           )}
-          {status === 'done' && <span className="text-xs text-green-400">done</span>}
-          {status === 'error' && <span className="text-xs text-red-400">error</span>}
-        </span>
-      </div>
-      <div className="px-3 py-2 text-xs">{children}</div>
-    </div>
+        >
+          {icon && <span className="shrink-0">{icon}</span>}
+          <span className="font-mono text-xs text-blue-400 shrink-0">{name}</span>
+          {summary && !(forcedOpen || open) && (
+            <span className="text-xs text-gray-400 truncate min-w-0">{summary}</span>
+          )}
+          <span className="ml-auto flex items-center gap-1.5 shrink-0">
+            <StatusBadge status={status} />
+            {!forcedOpen && (
+              <ChevronRight
+                className={cn(
+                  'size-3.5 text-gray-500 transition-transform duration-150',
+                  open && 'rotate-90',
+                )}
+              />
+            )}
+          </span>
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="data-[state=closed]:animate-slideUp data-[state=open]:animate-slideDown">
+        <div className="px-3 py-2 text-xs">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -87,6 +155,45 @@ function resolveStatus(tc: ToolCallRecord): Status {
   if (tc.result === undefined) return 'running'
   if (tc.isError) return 'error'
   return 'done'
+}
+
+// ─── one-line summaries ───────────────────────────────────────────────────────
+
+function bashSummary(tc: ToolCallRecord): string {
+  const cmd = str(tc.input.command)
+  const firstLine = cmd.split('\n')[0]
+  return `$ ${firstLine}`
+}
+
+function readSummary(tc: ToolCallRecord): string {
+  const filePath = str(tc.input.file_path)
+  if (tc.result !== undefined) {
+    const lineCount = tc.result.split('\n').length
+    return `${filePath} (${lineCount}줄)`
+  }
+  return filePath
+}
+
+function editSummary(tc: ToolCallRecord): string {
+  return str(tc.input.file_path)
+}
+
+function globSummary(tc: ToolCallRecord): string {
+  const pattern = str(tc.input.pattern)
+  if (tc.result !== undefined) {
+    const count = tc.result.trim() === '' ? 0 : tc.result.trim().split('\n').length
+    return `${pattern} — ${count} files`
+  }
+  return pattern
+}
+
+function grepSummary(tc: ToolCallRecord): string {
+  const pattern = str(tc.input.pattern)
+  if (tc.result !== undefined) {
+    const count = tc.result.trim() === '' ? 0 : tc.result.trim().split('\n').length
+    return `"${pattern}" — ${count} matches`
+  }
+  return `"${pattern}"`
 }
 
 // ─── individual renderers ─────────────────────────────────────────────────────
@@ -97,7 +204,7 @@ function BashRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="Bash" status={status} icon="$">
+    <ToolCard name="Bash" status={status} icon="$" summary={bashSummary(tc)}>
       {description && <p className="text-gray-500 mb-1">{description}</p>}
       <pre className="font-mono text-gray-200 whitespace-pre-wrap break-all">
         <span className="text-gray-500">$ </span>
@@ -120,7 +227,7 @@ function ReadRenderer({ tc }: { tc: ToolCallRecord }) {
   else if (limit !== undefined) range = ` (first ${limit})`
 
   return (
-    <ToolCard name="Read" status={status} icon="📄">
+    <ToolCard name="Read" status={status} icon="📄" summary={readSummary(tc)}>
       <span className="font-mono text-gray-300">{filePath}</span>
       {range && <span className="text-gray-500">{range}</span>}
       {tc.result !== undefined && <CollapsibleResult result={tc.result} />}
@@ -139,7 +246,7 @@ function WriteRenderer({ tc }: { tc: ToolCallRecord }) {
         : undefined
 
   return (
-    <ToolCard name="Write" status={status} icon="✏️">
+    <ToolCard name="Write" status={status} icon="✏️" summary={filePath}>
       <span className="font-mono text-gray-300">{filePath}</span>
       {lineCount !== undefined && (
         <p className="text-gray-500 mt-0.5">{lineCount} lines</p>
@@ -167,7 +274,7 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }) {
   const new_ = truncateText(newString)
 
   return (
-    <ToolCard name="Edit" status={status} icon="✏️">
+    <ToolCard name="Edit" status={status} icon="✏️" summary={editSummary(tc)}>
       <span className="font-mono text-gray-300">{filePath}</span>
       <div className="mt-1.5 rounded border border-gray-700 overflow-hidden font-mono">
         <pre className="bg-red-950/40 px-2 py-1 text-red-300 whitespace-pre-wrap break-all">
@@ -209,7 +316,7 @@ function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
       : undefined
 
   return (
-    <ToolCard name="Glob" status={status} icon="🔍">
+    <ToolCard name="Glob" status={status} icon="🔍" summary={globSummary(tc)}>
       <span className="font-mono text-gray-300">{pattern}</span>
       {path && <span className="text-gray-500"> in {path}</span>}
       {resultSummary && <p className="text-gray-400 mt-0.5">{resultSummary}</p>}
@@ -230,7 +337,7 @@ function GrepRenderer({ tc }: { tc: ToolCallRecord }) {
       : undefined
 
   return (
-    <ToolCard name="Grep" status={status} icon="🔍">
+    <ToolCard name="Grep" status={status} icon="🔍" summary={grepSummary(tc)}>
       <span className="font-mono text-gray-300">"{pattern}"</span>
       {path && <span className="text-gray-500"> in {path}</span>}
       {resultSummary && <p className="text-gray-400 mt-0.5">{resultSummary}</p>}
@@ -255,9 +362,10 @@ const TODO_ICONS: Record<string, string> = {
 function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }) {
   const todos = Array.isArray(tc.input.todos) ? (tc.input.todos as TodoItem[]) : []
   const status = resolveStatus(tc)
+  const summary = `${todos.length}개 항목`
 
   return (
-    <ToolCard name="TodoWrite" status={status} icon="☑">
+    <ToolCard name="TodoWrite" status={status} icon="☑" summary={summary}>
       {todos.length === 0 && <span className="text-gray-500">no todos</span>}
       <ul className="space-y-0.5">
         {todos.map((todo, i) => {
@@ -282,9 +390,10 @@ function TaskRenderer({ tc }: { tc: ToolCallRecord }) {
   const subject = tc.input.subject ? str(tc.input.subject) : undefined
   const title = tc.input.title ? str(tc.input.title) : undefined
   const status = resolveStatus(tc)
+  const summary = subject ?? title ?? ''
 
   return (
-    <ToolCard name={tc.name} status={status} icon="📋">
+    <ToolCard name={tc.name} status={status} icon="📋" summary={summary}>
       {(subject ?? title) && (
         <span className="text-gray-300">"{subject ?? title}"</span>
       )}
@@ -300,7 +409,7 @@ function ToolSearchRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="ToolSearch" status={status} icon="🔧">
+    <ToolCard name="ToolSearch" status={status} icon="🔧" summary={`"${query}"`}>
       <span className="font-mono text-gray-300">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
@@ -328,7 +437,7 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="AskUserQuestion" status={status} icon="❓">
+    <ToolCard name="AskUserQuestion" status={status} icon="❓" summary={question}>
       {question && <p className="text-gray-300">{question}</p>}
       {options.length > 0 && (
         <ul className="mt-1 space-y-0.5">
@@ -352,9 +461,10 @@ function AgentRenderer({ tc }: { tc: ToolCallRecord }) {
   const prompt = tc.input.prompt ? str(tc.input.prompt) : undefined
   const { preview } = prompt ? truncateText(prompt, 2) : { preview: '' }
   const status = resolveStatus(tc)
+  const summary = subagentType ?? ''
 
   return (
-    <ToolCard name="Agent" status={status} icon="🤖">
+    <ToolCard name="Agent" status={status} icon="🤖" summary={summary}>
       {subagentType && (
         <p className="font-mono text-blue-300">{subagentType}</p>
       )}
@@ -371,7 +481,7 @@ function WebSearchRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="WebSearch" status={status} icon="🌐">
+    <ToolCard name="WebSearch" status={status} icon="🌐" summary={`"${query}"`}>
       <span className="font-mono text-gray-300">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
@@ -385,7 +495,7 @@ function WebFetchRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="WebFetch" status={status} icon="🌐">
+    <ToolCard name="WebFetch" status={status} icon="🌐" summary={url}>
       <span className="font-mono text-gray-300 break-all">{url}</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
@@ -400,7 +510,7 @@ function GenericRenderer({ tc }: { tc: ToolCallRecord }) {
   const preview = inputStr.length > 120 ? inputStr.slice(0, 120) + '…' : inputStr
 
   return (
-    <ToolCard name={tc.name} status={status}>
+    <ToolCard name={tc.name} status={status} summary={preview}>
       <pre className="font-mono text-gray-400 whitespace-pre-wrap break-all">{preview}</pre>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />

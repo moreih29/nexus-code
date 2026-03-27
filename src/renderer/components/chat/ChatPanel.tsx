@@ -1,7 +1,9 @@
 import log from 'electron-log/renderer'
+import { Loader2 } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { StartResponse, PromptResponse, CancelResponse } from '../../../shared/types'
+import { Button } from '@renderer/components/ui/button'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ChatInput } from './ChatInput'
@@ -82,23 +84,35 @@ export function ChatPanel() {
     }
   }
 
-  const handleTimeoutCancel = async (): Promise<void> => {
+  const handleStop = async (): Promise<void> => {
     if (!sessionId) return
     try {
       await window.electronAPI.invoke<CancelResponse>(IpcChannel.CANCEL, { sessionId })
     } catch (err) {
-      log.error('[ChatPanel] timeout cancel error:', err)
+      log.error('[ChatPanel] cancel error:', err)
     }
     setStatus('idle')
   }
 
-  const isInputDisabled = !activeWorkspace || status === 'running' || status === 'waiting_permission' || status === 'timeout'
+  const handleTimeoutCancel = async (): Promise<void> => {
+    await handleStop()
+  }
+
+  const handleRetry = (): void => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    if (lastUserMsg) {
+      void handleSend(lastUserMsg.content)
+    }
+  }
+
+  const isInputDisabled = !activeWorkspace || status === 'waiting_permission' || status === 'timeout'
+  const isRunning = status === 'running'
 
   return (
     <div className="flex h-full flex-col">
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !isRunning && status !== 'error' ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-gray-600">
               {activeWorkspace
@@ -111,6 +125,22 @@ export function ChatPanel() {
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
+            {/* 로딩 스피너 */}
+            {isRunning && (
+              <div className="flex items-center gap-2 px-1 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>응답 중...</span>
+              </div>
+            )}
+            {/* 에러 CTA */}
+            {status === 'error' && (
+              <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">
+                <span className="text-sm text-red-300">오류가 발생했습니다.</span>
+                <Button size="sm" variant="outline" onClick={handleRetry}>
+                  재시도
+                </Button>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
         )}
@@ -140,7 +170,7 @@ export function ChatPanel() {
       )}
 
       {/* Input */}
-      <ChatInput onSend={handleSend} disabled={isInputDisabled} />
+      <ChatInput onSend={handleSend} onStop={handleStop} disabled={isInputDisabled} isRunning={isRunning} />
     </div>
   )
 }
