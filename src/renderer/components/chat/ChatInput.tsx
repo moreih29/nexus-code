@@ -39,7 +39,7 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
   }
 
   return (
-    <div className="flex items-end gap-2 border-t border-gray-800 bg-gray-950 px-4 py-3">
+    <div className="flex items-end gap-2 border-t border-border bg-background px-4 py-3">
       <textarea
         ref={textareaRef}
         rows={1}
@@ -51,7 +51,7 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
         onInput={handleInput}
         disabled={disabled && !isRunning}
         placeholder="메시지 입력 (Enter 전송 / Shift+Enter 줄바꿈)"
-        className="max-h-[200px] flex-1 resize-none rounded-xl bg-gray-800 px-4 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+        className="max-h-[200px] flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
       />
       {isRunning ? (
         <Button

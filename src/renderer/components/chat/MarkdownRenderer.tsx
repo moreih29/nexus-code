@@ -13,13 +13,13 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
       components={{
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
         h1: ({ children }) => (
-          <h1 className="mb-3 mt-4 text-xl font-bold text-gray-100">{children}</h1>
+          <h1 className="mb-3 mt-4 text-xl font-bold text-foreground">{children}</h1>
         ),
         h2: ({ children }) => (
-          <h2 className="mb-2 mt-3 text-lg font-semibold text-gray-200">{children}</h2>
+          <h2 className="mb-2 mt-3 text-lg font-semibold text-foreground">{children}</h2>
         ),
         h3: ({ children }) => (
-          <h3 className="mb-2 mt-3 text-base font-semibold text-gray-200">{children}</h3>
+          <h3 className="mb-2 mt-3 text-base font-semibold text-foreground">{children}</h3>
         ),
         code: ({ children, className }) => {
           const match = /language-(\w+)/.exec(className || '')
@@ -32,21 +32,21 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             )
           }
           return (
-            <code className="rounded bg-gray-800 px-1 py-0.5 font-mono text-sm text-blue-300">
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-sm text-blue-300">
               {children}
             </code>
           )
         },
         pre: ({ children }) => <pre className="mb-0">{children}</pre>,
         ul: ({ children }) => (
-          <ul className="mb-2 list-disc pl-5 text-gray-300">{children}</ul>
+          <ul className="mb-2 list-disc pl-5 text-foreground">{children}</ul>
         ),
         ol: ({ children }) => (
-          <ol className="mb-2 list-decimal pl-5 text-gray-300">{children}</ol>
+          <ol className="mb-2 list-decimal pl-5 text-foreground">{children}</ol>
         ),
         li: ({ children }) => <li className="mb-1">{children}</li>,
         blockquote: ({ children }) => (
-          <blockquote className="mb-2 border-l-2 border-gray-600 pl-3 text-gray-400">
+          <blockquote className="mb-2 border-l-2 border-border pl-3 text-muted-foreground">
             {children}
           </blockquote>
         ),
@@ -66,12 +66,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           </div>
         ),
         th: ({ children }) => (
-          <th className="border border-gray-700 bg-gray-800 px-3 py-2 text-left font-semibold text-gray-200">
+          <th className="border border-border bg-muted px-3 py-2 text-left font-semibold text-foreground">
             {children}
           </th>
         ),
         td: ({ children }) => (
-          <td className="border border-gray-700 px-3 py-2 text-gray-300">{children}</td>
+          <td className="border border-border px-3 py-2 text-foreground">{children}</td>
         ),
       }}
     >

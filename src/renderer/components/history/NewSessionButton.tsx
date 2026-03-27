@@ -14,7 +14,7 @@ export function NewSessionButton() {
   return (
     <button
       onClick={handleClick}
-      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       <Plus size={14} />
       <span>새 세션</span>

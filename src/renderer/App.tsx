@@ -18,7 +18,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render(): ReactNode {
     if (this.state.error) {
       return (
-        <div className="flex h-screen w-screen items-center justify-center bg-gray-950 p-8">
+        <div className="flex h-screen w-screen items-center justify-center bg-background p-8">
           <div className="max-w-lg rounded-xl border border-red-800 bg-red-950/50 p-6">
             <h2 className="text-lg font-bold text-red-400">Rendering Error</h2>
             <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap text-xs text-red-300">

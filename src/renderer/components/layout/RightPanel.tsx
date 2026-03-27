@@ -15,9 +15,9 @@ export function RightPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('nexus')
 
   return (
-    <aside className="flex h-full w-[350px] shrink-0 flex-col border-l border-gray-800 bg-gray-900">
+    <aside className="flex h-full w-[350px] shrink-0 flex-col border-l border-border bg-card">
       {/* Tab bar */}
-      <div className="flex h-12 shrink-0 items-center border-b border-gray-800">
+      <div className="flex h-12 shrink-0 items-center border-b border-border">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -26,7 +26,7 @@ export function RightPanel() {
               'flex h-full flex-1 items-center justify-center text-xs font-medium transition-colors',
               activeTab === tab.id
                 ? 'border-b-2 border-blue-500 text-blue-400'
-                : 'text-gray-500 hover:text-gray-300',
+                : 'text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
             {tab.label}

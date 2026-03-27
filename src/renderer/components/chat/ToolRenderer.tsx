@@ -30,13 +30,13 @@ function CollapsibleResult({ result }: { result: string }) {
   const hasMore = total > MAX
 
   return (
-    <div className="mt-2 border-t border-gray-700/50 pt-2">
-      <pre className="whitespace-pre-wrap break-all font-mono text-gray-300">
+    <div className="mt-2 border-t border-border/50 pt-2">
+      <pre className="whitespace-pre-wrap break-all font-mono text-foreground">
         {displayLines.join('\n')}
       </pre>
       {hasMore && !expanded && (
         <button
-          className="mt-1 text-gray-500 hover:text-gray-300 cursor-pointer"
+          className="mt-1 text-muted-foreground hover:text-foreground cursor-pointer"
           onClick={() => setExpanded(true)}
         >
           … {total - MAX} more lines
@@ -44,7 +44,7 @@ function CollapsibleResult({ result }: { result: string }) {
       )}
       {hasMore && expanded && (
         <button
-          className="mt-1 text-gray-500 hover:text-gray-300 cursor-pointer"
+          className="mt-1 text-muted-foreground hover:text-foreground cursor-pointer"
           onClick={() => setExpanded(false)}
         >
           collapse
@@ -124,28 +124,28 @@ function ToolCard({
         'mt-2 rounded-lg border overflow-hidden',
         status === 'error'
           ? 'border-red-700/50 bg-red-950/30'
-          : 'border-gray-700 bg-gray-800/40',
+          : 'border-border bg-muted/40',
       )}
     >
       <CollapsibleTrigger asChild>
         <div
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 border-b select-none',
-            status === 'error' ? 'border-red-700/30' : 'border-gray-700/50',
-            !forcedOpen && 'cursor-pointer hover:bg-gray-700/30',
+            status === 'error' ? 'border-red-700/30' : 'border-border/50',
+            !forcedOpen && 'cursor-pointer hover:bg-accent/30',
           )}
         >
           {icon && <span className="shrink-0">{icon}</span>}
           <span className="font-mono text-xs text-blue-400 shrink-0">{name}</span>
           {summary && !isOpen && (
-            <span className="text-xs text-gray-400 truncate min-w-0">{summary}</span>
+            <span className="text-xs text-muted-foreground truncate min-w-0">{summary}</span>
           )}
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
             <StatusBadge status={status} />
             {!forcedOpen && (
               <ChevronRight
                 className={cn(
-                  'size-3.5 text-gray-500 transition-transform duration-150',
+                  'size-3.5 text-muted-foreground transition-transform duration-150',
                   isOpen && 'rotate-90',
                 )}
               />
@@ -214,9 +214,9 @@ function BashRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Bash" status={status} icon="$" summary={bashSummary(tc)}>
-      {description && <p className="text-gray-500 mb-1">{description}</p>}
-      <pre className="font-mono text-gray-200 whitespace-pre-wrap break-all">
-        <span className="text-gray-500">$ </span>
+      {description && <p className="text-muted-foreground mb-1">{description}</p>}
+      <pre className="font-mono text-foreground whitespace-pre-wrap break-all">
+        <span className="text-muted-foreground">$ </span>
         {command}
       </pre>
       {tc.result !== undefined && <CollapsibleResult result={tc.result} />}
@@ -237,8 +237,8 @@ function ReadRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Read" status={status} icon="📄" summary={readSummary(tc)}>
-      <span className="font-mono text-gray-300">{filePath}</span>
-      {range && <span className="text-gray-500">{range}</span>}
+      <span className="font-mono text-foreground">{filePath}</span>
+      {range && <span className="text-muted-foreground">{range}</span>}
       {tc.result !== undefined && <CollapsibleResult result={tc.result} />}
     </ToolCard>
   )
@@ -256,9 +256,9 @@ function WriteRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Write" status={status} icon="✏️" summary={filePath}>
-      <span className="font-mono text-gray-300">{filePath}</span>
+      <span className="font-mono text-foreground">{filePath}</span>
       {lineCount !== undefined && (
-        <p className="text-gray-500 mt-0.5">{lineCount} lines</p>
+        <p className="text-muted-foreground mt-0.5">{lineCount} lines</p>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
@@ -284,8 +284,8 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Edit" status={status} icon="✏️" summary={editSummary(tc)}>
-      <span className="font-mono text-gray-300">{filePath}</span>
-      <div className="mt-1.5 rounded border border-gray-700 overflow-hidden font-mono">
+      <span className="font-mono text-foreground">{filePath}</span>
+      <div className="mt-1.5 rounded border border-border overflow-hidden font-mono">
         <pre className="bg-red-950/40 px-2 py-1 text-red-300 whitespace-pre-wrap break-all">
           {old_.preview.split('\n').map((l, i) => (
             <span key={i} className="block">
@@ -293,7 +293,7 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }) {
               {l}
             </span>
           ))}
-          {old_.truncated && <span className="text-gray-500">…</span>}
+          {old_.truncated && <span className="text-muted-foreground">…</span>}
         </pre>
         <pre className="bg-green-950/40 px-2 py-1 text-green-300 whitespace-pre-wrap break-all">
           {new_.preview.split('\n').map((l, i) => (
@@ -302,7 +302,7 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }) {
               {l}
             </span>
           ))}
-          {new_.truncated && <span className="text-gray-500">…</span>}
+          {new_.truncated && <span className="text-muted-foreground">…</span>}
         </pre>
       </div>
       {tc.result !== undefined && tc.result.length > 0 && (
@@ -326,9 +326,9 @@ function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Glob" status={status} icon="🔍" summary={globSummary(tc)}>
-      <span className="font-mono text-gray-300">{pattern}</span>
-      {path && <span className="text-gray-500"> in {path}</span>}
-      {resultSummary && <p className="text-gray-400 mt-0.5">{resultSummary}</p>}
+      <span className="font-mono text-foreground">{pattern}</span>
+      {path && <span className="text-muted-foreground"> in {path}</span>}
+      {resultSummary && <p className="text-muted-foreground mt-0.5">{resultSummary}</p>}
     </ToolCard>
   )
 }
@@ -347,9 +347,9 @@ function GrepRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="Grep" status={status} icon="🔍" summary={grepSummary(tc)}>
-      <span className="font-mono text-gray-300">"{pattern}"</span>
-      {path && <span className="text-gray-500"> in {path}</span>}
-      {resultSummary && <p className="text-gray-400 mt-0.5">{resultSummary}</p>}
+      <span className="font-mono text-foreground">"{pattern}"</span>
+      {path && <span className="text-muted-foreground"> in {path}</span>}
+      {resultSummary && <p className="text-muted-foreground mt-0.5">{resultSummary}</p>}
     </ToolCard>
   )
 }
@@ -375,17 +375,17 @@ function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="TodoWrite" status={status} icon="☑" summary={summary}>
-      {todos.length === 0 && <span className="text-gray-500">no todos</span>}
+      {todos.length === 0 && <span className="text-muted-foreground">no todos</span>}
       <ul className="space-y-0.5">
         {todos.map((todo, i) => {
           const icon = TODO_ICONS[todo.status ?? ''] ?? '☐'
           const label = todo.subject ?? todo.content ?? str(todo)
           return (
             <li key={i} className="flex items-start gap-1.5">
-              <span className="shrink-0 text-gray-400">{icon}</span>
-              <span className="text-gray-300">{label}</span>
+              <span className="shrink-0 text-muted-foreground">{icon}</span>
+              <span className="text-foreground">{label}</span>
               {todo.status && (
-                <span className="ml-auto text-gray-600 shrink-0">{todo.status}</span>
+                <span className="ml-auto text-dim-foreground shrink-0">{todo.status}</span>
               )}
             </li>
           )
@@ -404,7 +404,7 @@ function TaskRenderer({ tc }: { tc: ToolCallRecord }) {
   return (
     <ToolCard name={tc.name} status={status} icon="📋" summary={summary}>
       {(subject ?? title) && (
-        <span className="text-gray-300">"{subject ?? title}"</span>
+        <span className="text-foreground">"{subject ?? title}"</span>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
@@ -419,7 +419,7 @@ function ToolSearchRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="ToolSearch" status={status} icon="🔧" summary={`"${query}"`}>
-      <span className="font-mono text-gray-300">"{query}"</span>
+      <span className="font-mono text-foreground">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
       )}
@@ -447,13 +447,13 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="AskUserQuestion" status={status} icon="❓" summary={question}>
-      {question && <p className="text-gray-300">{question}</p>}
+      {question && <p className="text-foreground">{question}</p>}
       {options.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {options.map((opt, i) => (
             <span
               key={i}
-              className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-500"
+              className="rounded border border-border px-2.5 py-1 text-xs text-muted-foreground"
             >
               {formatOption(opt)}
             </span>
@@ -479,7 +479,7 @@ function AgentRenderer({ tc }: { tc: ToolCallRecord }) {
       {subagentType && (
         <p className="font-mono text-blue-300">{subagentType}</p>
       )}
-      {preview && <p className="text-gray-400 mt-0.5 italic">"{preview}"</p>}
+      {preview && <p className="text-muted-foreground mt-0.5 italic">"{preview}"</p>}
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
       )}
@@ -493,7 +493,7 @@ function WebSearchRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="WebSearch" status={status} icon="🌐" summary={`"${query}"`}>
-      <span className="font-mono text-gray-300">"{query}"</span>
+      <span className="font-mono text-foreground">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
       )}
@@ -507,7 +507,7 @@ function WebFetchRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name="WebFetch" status={status} icon="🌐" summary={url}>
-      <span className="font-mono text-gray-300 break-all">{url}</span>
+      <span className="font-mono text-foreground break-all">{url}</span>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
       )}
@@ -522,7 +522,7 @@ function GenericRenderer({ tc }: { tc: ToolCallRecord }) {
 
   return (
     <ToolCard name={tc.name} status={status} summary={preview}>
-      <pre className="font-mono text-gray-400 whitespace-pre-wrap break-all">{preview}</pre>
+      <pre className="font-mono text-muted-foreground whitespace-pre-wrap break-all">{preview}</pre>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />
       )}
