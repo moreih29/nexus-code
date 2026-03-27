@@ -3,7 +3,7 @@ import { MainPanel } from './MainPanel'
 
 export function AppLayout() {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gray-950 text-white">
+    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
       <MainPanel />
     </div>

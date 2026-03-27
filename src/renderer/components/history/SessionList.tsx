@@ -13,7 +13,7 @@ export function SessionList() {
   return (
     <div className="flex h-full flex-col">
       {/* New session button */}
-      <div className="border-b border-gray-800 px-2 py-2">
+      <div className="border-b border-border px-2 py-2">
         <NewSessionButton />
       </div>
 
@@ -21,11 +21,11 @@ export function SessionList() {
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <span className="text-xs text-gray-600">불러오는 중...</span>
+            <span className="text-xs text-dim-foreground">불러오는 중...</span>
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <span className="text-xs text-gray-600">세션 없음</span>
+            <span className="text-xs text-dim-foreground">세션 없음</span>
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">

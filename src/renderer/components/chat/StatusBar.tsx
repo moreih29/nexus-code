@@ -13,15 +13,15 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
           ) : todo.status === 'in_progress' ? (
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
           ) : (
-            <Minus className="h-3.5 w-3.5 shrink-0 text-gray-600" />
+            <Minus className="h-3.5 w-3.5 shrink-0 text-dim-foreground" />
           )}
           <span
             className={
               todo.status === 'completed'
-                ? 'text-gray-600 line-through'
+                ? 'text-dim-foreground line-through'
                 : todo.status === 'in_progress'
-                  ? 'text-gray-200'
-                  : 'text-gray-500'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground'
             }
           >
             {todo.content}
@@ -47,10 +47,10 @@ export function StatusBar() {
   }
 
   return (
-    <div className="border-t border-gray-800 bg-gray-950/50 px-4 py-2">
+    <div className="border-t border-border bg-background/50 px-4 py-2">
       {/* 생각 중 인디케이터: todos/askQuestion 없을 때만 표시 */}
       {isRunning && !hasTodos && !hasAskQuestion && (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           <span>응답 중...</span>
         </div>
@@ -62,7 +62,7 @@ export function StatusBar() {
       {/* 질문 */}
       {hasAskQuestion && askQuestion && (
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-sm text-gray-300">
+          <div className="flex items-center gap-2 text-sm text-foreground">
             <Circle className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
             <span>{askQuestion.question}</span>
           </div>

@@ -52,10 +52,10 @@ function TagList({
       {items.map((entry, idx) => (
         <div
           key={idx}
-          className="flex items-center justify-between rounded bg-gray-800 px-3 py-1.5"
+          className="flex items-center justify-between rounded bg-muted px-3 py-1.5"
         >
-          <span className="text-sm text-gray-300">{entry}</span>
-          <button onClick={() => onRemove(idx)} className="ml-2 text-gray-500 hover:text-gray-300">
+          <span className="text-sm text-foreground">{entry}</span>
+          <button onClick={() => onRemove(idx)} className="ml-2 text-muted-foreground hover:text-foreground">
             <X size={14} />
           </button>
         </div>
@@ -67,11 +67,11 @@ function TagList({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && commit()}
           placeholder={placeholder}
-          className="flex-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+          className="flex-1 rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
         />
         <button
           onClick={commit}
-          className="flex items-center gap-1 rounded-md bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+          className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm text-foreground hover:bg-accent"
         >
           <Plus size={14} />
           추가
@@ -112,10 +112,10 @@ function EnvEditor({
   return (
     <div className="flex flex-col gap-1">
       {entries.map(([k, v]) => (
-        <div key={k} className="flex items-center gap-2 rounded bg-gray-800 px-3 py-1.5">
+        <div key={k} className="flex items-center gap-2 rounded bg-muted px-3 py-1.5">
           <span className="w-40 shrink-0 truncate text-sm font-medium text-blue-300">{k}</span>
-          <span className="flex-1 truncate text-sm text-gray-300">{v}</span>
-          <button onClick={() => remove(k)} className="text-gray-500 hover:text-gray-300">
+          <span className="flex-1 truncate text-sm text-foreground">{v}</span>
+          <button onClick={() => remove(k)} className="text-muted-foreground hover:text-foreground">
             <Trash2 size={14} />
           </button>
         </div>
@@ -126,7 +126,7 @@ function EnvEditor({
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           placeholder="KEY"
-          className="w-36 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+          className="w-36 rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
         />
         <input
           type="text"
@@ -134,11 +134,11 @@ function EnvEditor({
           onChange={(e) => setNewVal(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && add()}
           placeholder="value"
-          className="flex-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+          className="flex-1 rounded-md border border-border bg-muted px-3 py-1.5 text-sm text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
         />
         <button
           onClick={add}
-          className="flex items-center gap-1 rounded-md bg-gray-700 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-600"
+          className="flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm text-foreground hover:bg-accent"
         >
           <Plus size={14} />
           추가
@@ -160,7 +160,7 @@ function Toggle({
       type="button"
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-        checked ? 'bg-blue-600' : 'bg-gray-600'
+        checked ? 'bg-blue-600' : 'bg-muted'
       }`}
     >
       <span
@@ -173,7 +173,7 @@ function Toggle({
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <label className="mb-2 block text-sm font-medium text-gray-400">{children}</label>
+  return <label className="mb-2 block text-sm font-medium text-muted-foreground">{children}</label>
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
@@ -293,20 +293,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="flex w-[560px] max-h-[85vh] flex-col rounded-xl bg-gray-900 shadow-2xl">
+      <div className="flex w-[560px] max-h-[85vh] flex-col rounded-xl bg-card shadow-2xl">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-800 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-100">Settings</h2>
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">Settings</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex shrink-0 gap-1 border-b border-gray-800 px-6 pt-3">
+        <div className="flex shrink-0 gap-1 border-b border-border px-6 pt-3">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -314,7 +314,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               className={`rounded-t px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'border-b-2 border-blue-500 text-blue-400'
-                  : 'text-gray-500 hover:text-gray-300'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {tab.label}
@@ -325,7 +325,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {loading ? (
-            <div className="py-8 text-center text-sm text-gray-500">Loading...</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
           ) : (
             <>
               {/* ── 일반 탭 ── */}
@@ -336,7 +336,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <select
                       value={model}
                       onChange={(e) => setModel(e.target.value as ModelId)}
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none"
                     >
                       {AVAILABLE_MODELS.map((m) => (
                         <option key={m} value={m}>
@@ -353,7 +353,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
                       placeholder="한글, English, ..."
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
                     />
                   </section>
 
@@ -363,7 +363,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {EFFORT_LEVELS.map((level) => (
                         <label
                           key={level}
-                          className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-300"
+                          className="flex cursor-pointer items-center gap-1.5 text-sm text-foreground"
                         >
                           <input
                             type="radio"
@@ -385,7 +385,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {TEAMMATE_MODES.map((mode) => (
                         <label
                           key={mode}
-                          className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-300"
+                          className="flex cursor-pointer items-center gap-1.5 text-sm text-foreground"
                         >
                           <input
                             type="radio"
@@ -404,11 +404,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <section className="flex flex-col gap-3">
                     <SectionLabel>옵션</SectionLabel>
                     <label className="flex cursor-pointer items-center justify-between">
-                      <span className="text-sm text-gray-300">자동 메모리 (autoMemoryEnabled)</span>
+                      <span className="text-sm text-foreground">자동 메모리 (autoMemoryEnabled)</span>
                       <Toggle checked={autoMemoryEnabled} onChange={setAutoMemoryEnabled} />
                     </label>
                     <label className="flex cursor-pointer items-center justify-between">
-                      <span className="text-sm text-gray-300">
+                      <span className="text-sm text-foreground">
                         위험 모드 퍼미션 프롬프트 생략 (skipDangerousModePermissionPrompt)
                       </span>
                       <Toggle checked={skipDangerousPrompt} onChange={setSkipDangerousPrompt} />
@@ -425,7 +425,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <select
                       value={permissionMode}
                       onChange={(e) => setPermissionMode(e.target.value)}
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 focus:border-gray-500 focus:outline-none"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none"
                     >
                       {PERMISSION_MODES.map((m) => (
                         <option key={m.value} value={m.value}>
@@ -462,7 +462,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         {knownPlugins.map((id) => (
                           <label
                             key={id}
-                            className="flex cursor-pointer items-center gap-2 text-sm text-gray-300"
+                            className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
                           >
                             <input
                               type="checkbox"
@@ -496,7 +496,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(e) => setStatusLineJson(e.target.value)}
                       rows={4}
                       spellCheck={false}
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
                       placeholder={'{\n  "type": "command",\n  "command": "..."\n}'}
                     />
                   </section>
@@ -508,7 +508,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(e) => setMarketplacesJson(e.target.value)}
                       rows={6}
                       spellCheck={false}
-                      className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-xs text-gray-200 placeholder-gray-600 focus:border-gray-500 focus:outline-none"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-foreground placeholder-dim-foreground focus:border-ring focus:outline-none"
                       placeholder={'{\n  "mymarket": { "source": { ... } }\n}'}
                     />
                   </section>
@@ -519,17 +519,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         {/* Actions */}
-        <div className="flex shrink-0 justify-end gap-3 border-t border-gray-800 px-6 py-4">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-border px-6 py-4">
           <button
             onClick={onClose}
-            className="rounded-md px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200"
+            className="rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             취소
           </button>
           <button
             onClick={handleSave}
             disabled={loading || saving}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
           >
             {saving ? '저장 중...' : '저장'}
           </button>

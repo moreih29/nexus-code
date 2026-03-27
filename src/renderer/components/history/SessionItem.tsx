@@ -41,8 +41,8 @@ export function SessionItem({ session }: SessionItemProps) {
       className={[
         'flex w-full flex-col gap-0.5 rounded-md px-3 py-2 text-left transition-colors',
         isActive
-          ? 'bg-blue-900/40 text-gray-100'
-          : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200',
+          ? 'bg-blue-900/40 text-foreground'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       ].join(' ')}
     >
       {/* Preview text */}
@@ -51,7 +51,7 @@ export function SessionItem({ session }: SessionItemProps) {
       </span>
 
       {/* Meta row */}
-      <div className="flex items-center gap-2 text-[10px] text-gray-600">
+      <div className="flex items-center gap-2 text-[10px] text-dim-foreground">
         <span className="truncate max-w-[100px]" title={session.cwd}>
           {cwdLabel(session.cwd)}
         </span>

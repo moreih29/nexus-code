@@ -114,7 +114,7 @@ export function ChatPanel() {
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-dim-foreground">
               {activeWorkspace
                 ? '메시지를 입력하여 세션을 시작하세요.'
                 : '좌측에서 워크스페이스를 선택하세요.'}

@@ -28,11 +28,11 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
     <div
       className={[
         'flex w-full items-center gap-1 rounded-md px-2 py-2 text-left transition-colors cursor-pointer',
-        isActive ? 'bg-blue-900/40 text-gray-100' : 'text-gray-300 hover:bg-gray-800 hover:text-gray-100',
+        isActive ? 'bg-blue-900/40 text-foreground' : 'text-foreground hover:bg-muted hover:text-foreground',
       ].join(' ')}
       onClick={handleWorkspaceClick}
     >
-      <Folder size={14} className="shrink-0 text-gray-400" />
+      <Folder size={14} className="shrink-0 text-muted-foreground" />
 
       <span className="flex-1 truncate text-sm font-medium" title={workspace.path}>
         {workspace.name}

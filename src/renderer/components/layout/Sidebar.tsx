@@ -8,12 +8,12 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="flex h-full w-[250px] shrink-0 flex-col border-r border-gray-800 bg-gray-900">
-        <div className="flex h-12 items-center justify-between border-b border-gray-800 px-4">
-          <span className="text-sm font-semibold text-gray-300">Workspaces</span>
+      <aside className="flex h-full w-[250px] shrink-0 flex-col border-r border-border bg-card">
+        <div className="flex h-12 items-center justify-between border-b border-border px-4">
+          <span className="text-sm font-semibold text-foreground">Workspaces</span>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Settings"
           >
             <Settings size={16} />

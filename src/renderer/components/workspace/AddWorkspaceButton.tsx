@@ -11,7 +11,7 @@ export function AddWorkspaceButton() {
   return (
     <button
       onClick={handleClick}
-      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-800 hover:text-gray-300"
+      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
       <FolderPlus size={14} />
       <span>폴더 추가</span>

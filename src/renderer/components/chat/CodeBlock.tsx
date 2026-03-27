@@ -55,11 +55,11 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
 
   return (
     <div className="relative mb-3 overflow-hidden rounded-lg last:mb-0">
-      <div className="flex items-center justify-between bg-gray-900 px-4 py-1.5">
-        <span className="text-xs font-medium text-gray-400">{language}</span>
+      <div className="flex items-center justify-between bg-card px-4 py-1.5">
+        <span className="text-xs font-medium text-muted-foreground">{language}</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           aria-label="코드 복사"
         >
           {copied ? (

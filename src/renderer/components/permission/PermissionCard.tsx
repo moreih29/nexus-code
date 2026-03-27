@@ -34,7 +34,7 @@ export function PermissionCard({ permission }: PermissionCardProps) {
           <span className="font-semibold text-yellow-200">도구 실행 승인 요청</span>
         </div>
         {permission.agentId && (
-          <span className="rounded bg-gray-800 px-2 py-0.5 font-mono text-xs text-gray-400">
+          <span className="rounded bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
             {permission.agentId}
           </span>
         )}
@@ -45,7 +45,7 @@ export function PermissionCard({ permission }: PermissionCardProps) {
 
       {/* Input params */}
       {Object.keys(permission.input).length > 0 && (
-        <pre className="mt-2 max-h-40 overflow-auto rounded bg-gray-900 p-2 text-xs text-gray-300">
+        <pre className="mt-2 max-h-40 overflow-auto rounded bg-card p-2 text-xs text-foreground">
           {JSON.stringify(permission.input, null, 2)}
         </pre>
       )}
