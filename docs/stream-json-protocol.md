@@ -67,11 +67,14 @@ system (init)
 system (init)
   → stream_event (text_delta) × N          ← 텍스트 부분
   → assistant (text + tool_use 블록)        ← 완성된 메시지
-  → tool_result                             ← 도구 실행 결과
+  → user (content: [{ type: "tool_result", tool_use_id, content, is_error }])
+                                            ← 도구 실행 결과 (type:"user" 안에 포함!)
   → stream_event (text_delta) × N          ← 후속 텍스트
   → assistant                               ← 후속 완성 메시지
   → result
 ```
+
+**주의:** `tool_result`는 별도 NDJSON 타입이 아니라, `type: "user"` 메시지의 `message.content[]` 배열 안에 `type: "tool_result"` 블록으로 포함된다.
 
 ### 2.3 rate limit 발생 시
 

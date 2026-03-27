@@ -37,6 +37,19 @@ interface ToolResultMessage {
   is_error?: boolean
 }
 
+interface UserMessage {
+  type: 'user'
+  message?: {
+    role?: string
+    content?: Array<{
+      type: string
+      tool_use_id?: string
+      content?: string | Array<{ type: string; text?: string }>
+      is_error?: boolean
+    }>
+  }
+}
+
 interface SystemMessage {
   type: 'system'
   subtype?: string
@@ -156,6 +169,31 @@ export class StreamParser extends EventEmitter {
           content,
           isError: m.is_error,
         })
+        break
+      }
+
+      case 'user': {
+        // CLI stream-json에서 tool_result는 type:"user" 메시지의 content 배열에 포함됨
+        const m = msg as unknown as UserMessage
+        const blocks = m.message?.content ?? []
+        for (const block of blocks) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            let content = ''
+            if (typeof block.content === 'string') {
+              content = block.content
+            } else if (Array.isArray(block.content)) {
+              content = block.content
+                .filter((b) => b.type === 'text')
+                .map((b) => b.text ?? '')
+                .join('')
+            }
+            this.emit('tool_result', {
+              toolUseId: block.tool_use_id,
+              content,
+              isError: block.is_error,
+            })
+          }
+        }
         break
       }
 
