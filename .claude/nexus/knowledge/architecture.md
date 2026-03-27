@@ -1,36 +1,52 @@
 <!-- tags: architecture, electron, main-process, renderer, ipc, plugin, data-flow -->
-<!-- tags: architecture, electron, main-process, renderer, ipc, plugin -->
 # Architecture
 
 ## Overview
 
-Nexus Code는 Claude Code CLI를 GUI로 래핑하는 Electron 데스크톱 앱이다. `claude -p --output-format stream-json` subprocess를 실행하여 NDJSON 스트림을 파싱하고, HTTP 훅 서버로 퍼미션을 인터셉트한다.
+Nexus Code는 Claude Code CLI를 GUI로 래핑하는 Electron 데스크톱 앱이다. `claude -p --output-format stream-json --verbose` subprocess를 실행하여 NDJSON 스트림을 파싱하고, HTTP 훅 서버로 퍼미션을 인터셉트한다.
 
 ## 3-Process Model
 
 ### Main Process (`src/main/`)
 
-CLI 통신과 시스템 자원을 관장하는 ControlPlane + 플러그인 시스템.
+CLI 통신과 시스템 자원을 관장하는 ControlPlane + 플러그인 시스템 + IPC 핸들러.
+
+#### control-plane/
 
 | 모듈 | 파일 | 역할 |
 |------|------|------|
-| **RunManager** | `run-manager.ts` | CLI subprocess spawn, StreamParser와 연동, 세션 라이프사이클 관리. 자동 재시작(최대 3회, exponential backoff 1/2/4초), 120초 activity timer, rate limit 시 타이머 일시정지 |
-| **StreamParser** | `stream-parser.ts` | NDJSON 라인 파싱, `stream_event`(실시간 텍스트), `assistant`(tool_use), `tool_result`, `result`, `rate_limit_event` 등 메시지 타입 분류. 미처리 타입 debug 로깅 |
-| **HookServer** | `hook-server.ts` | 로컬 HTTP 서버(포트 0 자동 할당). `POST /hook/pre-tool-use/{appSecret}/{runToken}` 엔드포인트. 이중 토큰 인증 |
-| **PermissionHandler** | `permission-handler.ts` | 읽기 전용 도구 자동 승인(Read, Glob, Grep, LS + Bash 화이트리스트), 수동 승인 시 Promise 기반 대기(60초 타임아웃) |
-| **SessionManager** | `session-manager.ts` | `~/.claude/projects/` 하위 JSONL 파일 스캔, 세션 목록/프리뷰 제공, fs.watch 기반 캐시 무효화 |
-| **PluginHost** | `plugin-host.ts` | `plugins/` 하위 `manifest.json` 로드, file-watch 데이터소스 → Renderer에 `PLUGIN_DATA` IPC 이벤트 전송 |
-| **AgentTracker** | `agent-tracker.ts` | HookServer의 `pre-tool-use` 이벤트로 에이전트별 tool call 추적, 타임라인 데이터를 `PLUGIN_DATA`로 broadcast |
-| **Logger** | `logger.ts` | electron-log 기반 구조화 로깅 설정 |
-| **CliRawLogger** | `cli-raw-logger.ts` | CLI stdout 원본 로그를 세션별 파일로 기록 |
+| **RunManager** | `control-plane/run-manager.ts` | CLI subprocess spawn, StreamParser와 연동, 세션 라이프사이클 관리. 자동 재시작(최대 3회, exponential backoff 1/2/4초), 120초 activity timer, rate limit 시 타이머 일시정지 |
+| **StreamParser** | `control-plane/stream-parser.ts` | NDJSON 라인 파싱, `stream_event`(실시간 텍스트), `assistant`(tool_use), `user`(tool_result), `result`, `rate_limit_event` 등 메시지 타입 분류. tool_result는 `type:"user"` 메시지 내부에 포함됨 |
+| **HookServer** | `control-plane/hook-server.ts` | 로컬 HTTP 서버(포트 0 자동 할당). `POST /hook/pre-tool-use/{appSecret}/{runToken}` 엔드포인트. 이중 토큰 인증 |
+| **PermissionHandler** | `control-plane/permission-handler.ts` | 읽기 전용 도구 자동 승인(Read, Glob, Grep, LS + Bash 화이트리스트), 수동 승인 시 Promise 기반 대기(60초 타임아웃) |
+| **SessionManager** | `control-plane/session-manager.ts` | `~/.claude/projects/` 하위 JSONL 파일 스캔, 세션 목록/프리뷰 제공, fs.watch 기반 캐시 무효화 |
+| **AgentTracker** | `control-plane/agent-tracker.ts` | HookServer의 `pre-tool-use` 이벤트로 에이전트별 tool call 추적, `computeStatus(agentId)`로 idle/running/error 상태 파생, 타임라인 데이터를 `PLUGIN_DATA`로 broadcast |
+| **CliRawLogger** | `control-plane/cli-raw-logger.ts` | CLI stdout 원본 로그를 세션별 파일로 기록 |
 
-진입점: `index.ts` — 위 모듈 초기화, IPC 핸들러 등록, BrowserWindow 생성.
+#### plugin-host/
+
+| 모듈 | 파일 | 역할 |
+|------|------|------|
+| **PluginHost** | `plugin-host/index.ts` | `plugins/` 하위 `manifest.json` 로드, file-watch 데이터소스 → Renderer에 `PLUGIN_DATA` IPC 이벤트 전송 |
+| **Loader** | `plugin-host/loader.ts` | 플러그인 manifest 파싱 및 검증 |
+
+#### ipc/
+
+| 모듈 | 파일 | 역할 |
+|------|------|------|
+| **IPC Handlers** | `ipc/handlers.ts` | `IpcDeps` 인터페이스로 의존성 주입받아 모든 IPC 핸들러 등록 + stream event 포워딩 |
+
+#### 기타
+
+| 모듈 | 파일 | 역할 |
+|------|------|------|
+| **Logger** | `logger.ts` | electron-log 기반 구조화 로깅 설정 |
+
+진입점: `index.ts` (94줄) — 모듈 초기화, `IpcDeps` 조립, `registerIpcHandlers(deps)` 호출, BrowserWindow 생성.
 
 ### Preload (`src/preload/`)
 
 `contextBridge.exposeInMainWorld('electronAPI', api)` — `invoke`, `on`, `off` 3개 메서드. WeakMap으로 리스너 매핑 관리.
-
-`ipc-bridge.ts` — Renderer 측 IPC stream 이벤트 구독 중앙화 모듈. Main에서 전송하는 TEXT_CHUNK, TOOL_CALL, TOOL_RESULT, TIMEOUT, RATE_LIMIT 등의 이벤트를 Zustand 스토어에 연결.
 
 ### Renderer (`src/renderer/`)
 
@@ -44,16 +60,38 @@ AppLayout (flex h-screen)
 └── RightPanel (w-350px) — Nexus | Markdown | Timeline 탭
 ```
 
-**Zustand 스토어 6개:**
+**ChatPanel 내부 구조:**
+```
+ChatPanel
+├── 메시지 목록 (MessageBubble × N)
+├── StatusBar (메시지와 입력 사이 고정 영역)
+└── ChatInput (입력 + 전송/중지 버튼)
+```
+
+**ipc-bridge.ts** — Renderer 측 IPC stream 이벤트 구독 중앙화 모듈. Main에서 전송하는 TEXT_CHUNK, TOOL_CALL, TOOL_RESULT, TURN_END, SESSION_END 등의 이벤트를 Zustand 스토어에 연결. TOOL_CALL에서 TodoWrite/AskUserQuestion을 감지하여 StatusBar 스토어에 라우팅.
+
+**Zustand 스토어 7개:**
 
 | 스토어 | 파일 | 관리 대상 |
 |--------|------|-----------|
-| `useSessionStore` | `session-store.ts` | 현재 세션 ID, 상태(idle/running/restarting/timeout/error/ended), 메시지 목록, 스트림 버퍼, dismissTimeout |
+| `useSessionStore` | `session-store.ts` | 현재 세션 ID, 상태(idle/running/restarting/timeout/error/ended), 메시지 목록, 스트림 버퍼, dismissTimeout, `sendResponse()` (AskUserQuestion 응답) |
+| `useStatusBarStore` | `status-bar-store.ts` | StatusBar 상태 — todos(TodoWrite 체크리스트), askQuestion(AskUserQuestion 질문+옵션). TURN_END 시 유지, SESSION_END 시 clearAll |
 | `usePermissionStore` | `permission-store.ts` | 퍼미션 요청 큐 |
 | `usePluginStore` | `plugin-store.ts` | 플러그인 패널 데이터 (`pluginId → panelId → data`) |
 | `useWorkspaceStore` | `workspace-store.ts` | 워크스페이스 목록, 활성 워크스페이스 |
 | `useHistoryStore` | `history-store.ts` | 세션 히스토리, 세션 복원 |
 | `useSettingsStore` | `settings-store.ts` | 앱 설정 (모델, 퍼미션 모드 등) |
+
+**주요 컴포넌트:**
+
+| 컴포넌트 | 파일 | 역할 |
+|----------|------|------|
+| StatusBar | `chat/StatusBar.tsx` | 대화 외 상호작용 영역. TodoWrite 체크리스트 + AskUserQuestion 질문 버튼 표시. running 상태이거나 데이터 있을 때만 표시 |
+| ToolRenderer | `chat/ToolRenderer.tsx` | 도구별 특화 ToolCard 렌더링. Collapsible + StatusBadge. TodoWrite/AskUserQuestion은 대화 영역에서 필터링됨 |
+| CodeBlock | `chat/CodeBlock.tsx` | PrismLight + oneDark 구문 강조. 20개 언어 지원, 복사 버튼 |
+| AgentTimeline | `plugins/AgentTimeline.tsx` | 에이전트별 상태 도트(idle=회색, running=파란색 점멸, error=빨간색) + 도구 사용 타임라인 |
+
+**shadcn/ui 컴포넌트** (`components/ui/`): button, badge, card, collapsible — Radix 기반, `cn()` 유틸(`lib/utils.ts`) 사용.
 
 ## IPC 채널
 
@@ -66,10 +104,18 @@ AppLayout (flex h-screen)
 ## 데이터 흐름
 
 1. User → ChatInput → `ipc:start` (첫 메시지) 또는 `ipc:prompt` (후속)
-2. Main → RunManager.start() → `claude -p --output-format stream-json` spawn
+2. Main → RunManager.start() → `claude -p --output-format stream-json --verbose` spawn
 3. CLI stdout → StreamParser.feed() → 이벤트 emit → IPC로 Renderer에 전달
-4. Renderer → Zustand 스토어 업데이트 → React 리렌더링
+4. Renderer → ipc-bridge.ts → Zustand 스토어 업데이트 → React 리렌더링
 5. 퍼미션: CLI → HTTP POST → HookServer → PermissionHandler → IPC → PermissionCard UI → 사용자 응답 → HTTP 200
+6. StatusBar: TOOL_CALL(TodoWrite) → statusBarStore.setTodos() / TOOL_CALL(AskUserQuestion) → statusBarStore.setAskQuestion() → StatusBar UI
+
+### AskUserQuestion 우회 흐름 (-p 모드)
+
+`-p` 모드에서 AskUserQuestion은 즉시 에러(`is_error:true`, `"Answer questions?"`)를 반환. GUI 래퍼에서 우회 처리:
+1. tool_call → StatusBar에 질문+옵션 버튼 표시 (대화 영역에서 필터링)
+2. 사용자 버튼 클릭 → `sendResponse("[AskUserQuestion] {질문} → {선택}")` → 새 메시지로 전송
+3. TURN_END 시 StatusBar 상태 유지, SESSION_END 시 clearAll
 
 ## PluginHost 프로토콜
 

@@ -449,14 +449,16 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }) {
     <ToolCard name="AskUserQuestion" status={status} icon="❓" summary={question}>
       {question && <p className="text-gray-300">{question}</p>}
       {options.length > 0 && (
-        <ul className="mt-1 space-y-0.5">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {options.map((opt, i) => (
-            <li key={i} className="flex items-center gap-1.5 text-gray-400">
-              <span className="text-gray-600">○</span>
+            <span
+              key={i}
+              className="rounded border border-gray-700 px-2.5 py-1 text-xs text-gray-500"
+            >
               {formatOption(opt)}
-            </li>
+            </span>
           ))}
-        </ul>
+        </div>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />

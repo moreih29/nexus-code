@@ -16,6 +16,8 @@ import type {
 import { useSessionStore } from './stores/session-store'
 import { usePermissionStore } from './stores/permission-store'
 import { usePluginStore } from './stores/plugin-store'
+import { useStatusBarStore } from './stores/status-bar-store'
+import type { TodoItem } from './stores/status-bar-store'
 
 let initialized = false
 
@@ -26,6 +28,7 @@ export function initIpcBridge(): void {
   const sessionStore = useSessionStore.getState
   const permissionStore = usePermissionStore.getState
   const pluginStore = usePluginStore.getState
+  const statusBarStore = useStatusBarStore.getState
 
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
@@ -34,10 +37,37 @@ export function initIpcBridge(): void {
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
     sessionStore().addToolCall(event)
+    if (event.name === 'TodoWrite') {
+      const todos = event.input.todos as TodoItem[] | undefined
+      if (Array.isArray(todos)) {
+        statusBarStore().setTodos(todos)
+      }
+    }
+    if (event.name === 'AskUserQuestion') {
+      const questions = Array.isArray(event.input.questions)
+        ? (event.input.questions as Array<{ question?: string; options?: unknown[] }>)
+        : []
+      const firstQ = questions[0]
+      const question =
+        typeof firstQ?.question === 'string'
+          ? firstQ.question
+          : typeof event.input.question === 'string'
+            ? event.input.question
+            : ''
+      const rawOptions: unknown[] = firstQ?.options ?? []
+      const options = rawOptions.map((o) =>
+        typeof o === 'string' ? o : (o as Record<string, unknown>)?.label ? String((o as Record<string, unknown>).label) : JSON.stringify(o),
+      )
+      statusBarStore().setAskQuestion({ toolUseId: event.toolUseId, question, options })
+    }
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_RESULT, ((event: ToolResultEvent) => {
     sessionStore().resolveToolCall(event.toolUseId, event.content, event.isError)
+    const current = statusBarStore().askQuestion
+    if (current && current.toolUseId === event.toolUseId && !event.isError) {
+      statusBarStore().setAskQuestion(null)
+    }
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TURN_END, ((_event: TurnEndEvent) => {
@@ -48,6 +78,7 @@ export function initIpcBridge(): void {
   window.electronAPI.on(IpcChannel.SESSION_END, ((_event: SessionEndEvent) => {
     sessionStore().flushStreamBuffer()
     sessionStore().endSession()
+    statusBarStore().clearAll()
   }) as (...args: unknown[]) => void)
 
   // Permission events → permission store

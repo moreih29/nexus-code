@@ -56,9 +56,23 @@ export class AgentTracker extends EventEmitter {
     this.broadcast()
   }
 
+  private computeStatus(agentId: string): 'idle' | 'running' | 'error' {
+    for (const { agentId: id } of this.pendingTools.values()) {
+      if (id === agentId) return 'running'
+    }
+    const agent = this.agents.get(agentId)
+    if (agent && agent.events.length > 0) {
+      const last = agent.events[agent.events.length - 1]
+      if (last.isError) return 'error'
+    }
+    return 'idle'
+  }
+
   getTimelineData(): AgentTimelineData {
     return {
-      agents: Array.from(this.agents.values()).sort((a, b) => a.lastSeen - b.lastSeen),
+      agents: Array.from(this.agents.values())
+        .sort((a, b) => a.lastSeen - b.lastSeen)
+        .map((agent) => ({ ...agent, status: this.computeStatus(agent.agentId) })),
     }
   }
 

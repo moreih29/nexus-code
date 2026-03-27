@@ -1,5 +1,4 @@
 import log from 'electron-log/renderer'
-import { Loader2 } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { StartResponse, PromptResponse, CancelResponse } from '../../../shared/types'
@@ -8,6 +7,7 @@ import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
+import { StatusBar } from './StatusBar'
 
 export function ChatPanel() {
   const {
@@ -125,13 +125,6 @@ export function ChatPanel() {
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-            {/* 로딩 스피너 */}
-            {isRunning && (
-              <div className="flex items-center gap-2 px-1 text-sm text-gray-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>응답 중...</span>
-              </div>
-            )}
             {/* 에러 CTA */}
             {status === 'error' && (
               <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">
@@ -168,6 +161,9 @@ export function ChatPanel() {
           </div>
         </div>
       )}
+
+      {/* StatusBar: 메시지 목록과 입력창 사이 */}
+      <StatusBar />
 
       {/* Input */}
       <ChatInput onSend={handleSend} onStop={handleStop} disabled={isInputDisabled} isRunning={isRunning} />

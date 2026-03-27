@@ -203,6 +203,7 @@ export interface AgentNode {
   agentId: string
   events: AgentToolEvent[]
   lastSeen: number
+  status?: 'idle' | 'running' | 'error'
 }
 
 export interface AgentTimelineData {
