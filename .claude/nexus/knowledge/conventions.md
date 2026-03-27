@@ -9,7 +9,7 @@ src/
 ├── main/           # Electron Main Process 모듈 (flat, 서브디렉토리 없음)
 ├── preload/        # contextBridge (단일 파일)
 ├── renderer/       # React UI
-│   ├── components/ # 기능별 그룹: chat/, history/, layout/, permission/, plugins/, workspace/
+│   ├── components/ # 기능별 그룹: chat/, history/, layout/, permission/, plugins/, settings/, workspace/
 │   ├── stores/     # Zustand 스토어 (기능별 분리)
 │   ├── App.tsx     # 루트 컴포넌트
 │   ├── main.tsx    # React 엔트리

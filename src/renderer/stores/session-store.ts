@@ -37,6 +37,8 @@ interface SessionState {
   endSession: () => void
   restoreSession: (sessionId: string) => Promise<void>
   reset: () => void
+  /** 타임아웃 상태에서 계속 대기 (타이머는 RunManager가 자동 재시작) */
+  dismissTimeout: () => void
 }
 
 let msgCounter = 0
@@ -138,6 +140,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })),
 
   endSession: () => set({ status: 'idle', streamBuffer: '' }),
+
+  dismissTimeout: () => set({ status: 'running' }),
 
   restoreSession: async (sessionId: string) => {
     set({ sessionId, status: 'idle', messages: [], streamBuffer: '' })

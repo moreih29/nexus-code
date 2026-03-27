@@ -56,6 +56,18 @@ export const IpcChannel = {
   // ── PluginHost ────────────────────────────────────────────────────────────
   /** Plugin data update pushed from main to a renderer panel */
   PLUGIN_DATA: 'plugin:data',
+
+  // ── Error Recovery ────────────────────────────────────────────────────────
+  /** CLI process is being restarted after crash */
+  RESTART_ATTEMPT: 'stream:restart-attempt',
+  /** CLI process restart has exhausted all retries */
+  RESTART_FAILED: 'stream:restart-failed',
+
+  // ── Timeout ───────────────────────────────────────────────────────────────
+  /** No activity from CLI for ACTIVITY_TIMEOUT_MS */
+  TIMEOUT: 'stream:timeout',
+  /** CLI is rate-limited and will auto-retry */
+  RATE_LIMIT: 'stream:rate-limit',
 } as const
 
 export type IpcChannelName = (typeof IpcChannel)[keyof typeof IpcChannel]

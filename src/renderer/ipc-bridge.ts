@@ -8,6 +8,10 @@ import type {
   SessionEndEvent,
   TurnEndEvent,
   PluginDataEvent,
+  RestartAttemptEvent,
+  RestartFailedEvent,
+  TimeoutEvent,
+  RateLimitEvent,
 } from '../shared/types'
 import { useSessionStore } from './stores/session-store'
 import { usePermissionStore } from './stores/permission-store'
@@ -60,5 +64,25 @@ export function initIpcBridge(): void {
   // Plugin events → plugin store
   window.electronAPI.on(IpcChannel.PLUGIN_DATA, ((event: PluginDataEvent) => {
     pluginStore().handlePluginData(event)
+  }) as (...args: unknown[]) => void)
+
+  // Error recovery events → session store
+  window.electronAPI.on(IpcChannel.RESTART_ATTEMPT, ((event: RestartAttemptEvent) => {
+    log.info('[ipc-bridge] restart_attempt', event)
+    sessionStore().setStatus('restarting')
+  }) as (...args: unknown[]) => void)
+
+  window.electronAPI.on(IpcChannel.RESTART_FAILED, ((_event: RestartFailedEvent) => {
+    log.warn('[ipc-bridge] restart_failed')
+    sessionStore().setStatus('error')
+  }) as (...args: unknown[]) => void)
+
+  window.electronAPI.on(IpcChannel.TIMEOUT, ((_event: TimeoutEvent) => {
+    log.warn('[ipc-bridge] timeout')
+    sessionStore().setStatus('timeout')
+  }) as (...args: unknown[]) => void)
+
+  window.electronAPI.on(IpcChannel.RATE_LIMIT, ((_event: RateLimitEvent) => {
+    log.warn('[ipc-bridge] rate_limit')
   }) as (...args: unknown[]) => void)
 }

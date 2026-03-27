@@ -343,6 +343,10 @@ function registerIpcHandlers(): void {
       log.error('[RunManager error]', data)
       win?.webContents.send(IpcChannel.ERROR, data)
     })
+    manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
+    manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
+    manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
+    manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
 
     try {
       const sessionId = await manager.start({
@@ -521,11 +525,16 @@ function registerIpcHandlers(): void {
       manager.on('permission_request', (data) =>
         win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
       )
+      manager.on('turn_end', (data) => win?.webContents.send(IpcChannel.TURN_END, data))
       manager.on('session_end', (data) => {
         win?.webContents.send(IpcChannel.SESSION_END, data)
         sessions.delete(data.sessionId)
       })
       manager.on('error', (data) => win?.webContents.send(IpcChannel.ERROR, data))
+      manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
+      manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
+      manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
+      manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
 
       const sessionId = await manager.start({
         prompt: '',

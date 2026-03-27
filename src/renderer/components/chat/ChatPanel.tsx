@@ -1,7 +1,7 @@
 import log from 'electron-log/renderer'
 import { useEffect, useRef } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { StartResponse, PromptResponse } from '../../../shared/types'
+import type { StartResponse, PromptResponse, CancelResponse } from '../../../shared/types'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ChatInput } from './ChatInput'
@@ -15,6 +15,7 @@ export function ChatPanel(): JSX.Element {
     startSession,
     setStatus,
     addUserMessage,
+    dismissTimeout,
   } = useSessionStore()
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
@@ -25,6 +26,17 @@ export function ChatPanel(): JSX.Element {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // timeout IPC 이벤트 수신
+  useEffect(() => {
+    const onTimeout = (): void => {
+      setStatus('timeout')
+    }
+    window.electronAPI.on(IpcChannel.TIMEOUT, onTimeout)
+    return () => {
+      window.electronAPI.off(IpcChannel.TIMEOUT, onTimeout)
+    }
+  }, [setStatus])
 
   const handleSend = async (text: string): Promise<void> => {
     if (!activeWorkspace) {
@@ -70,7 +82,17 @@ export function ChatPanel(): JSX.Element {
     }
   }
 
-  const isInputDisabled = !activeWorkspace || status === 'running' || status === 'waiting_permission'
+  const handleTimeoutCancel = async (): Promise<void> => {
+    if (!sessionId) return
+    try {
+      await window.electronAPI.invoke<CancelResponse>(IpcChannel.CANCEL, { sessionId })
+    } catch (err) {
+      log.error('[ChatPanel] timeout cancel error:', err)
+    }
+    setStatus('idle')
+  }
+
+  const isInputDisabled = !activeWorkspace || status === 'running' || status === 'waiting_permission' || status === 'timeout'
 
   return (
     <div className="flex h-full flex-col">
@@ -93,6 +115,29 @@ export function ChatPanel(): JSX.Element {
           </div>
         )}
       </div>
+
+      {/* 타임아웃 알림 */}
+      {status === 'timeout' && (
+        <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-4 py-3">
+          <p className="text-sm text-yellow-300">
+            응답 없음 — CLI가 2분 이상 반응하지 않습니다.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={dismissTimeout}
+              className="rounded px-3 py-1 text-xs text-yellow-300 hover:bg-yellow-800/40"
+            >
+              계속 대기
+            </button>
+            <button
+              onClick={handleTimeoutCancel}
+              className="rounded bg-yellow-700/60 px-3 py-1 text-xs text-yellow-100 hover:bg-yellow-700"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <ChatInput onSend={handleSend} disabled={isInputDisabled} />
