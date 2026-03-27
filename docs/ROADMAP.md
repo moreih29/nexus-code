@@ -423,16 +423,22 @@ stream-json 프로토콜을 프로덕션 수준으로 안정화하고, Claude Co
 
 ### M2b: 인터랙션 기초
 
-에이전트 상태 시각화와 AskUserQuestion 응답 연동을 구현한다.
+에이전트 상태 시각화, 대화 외 상호작용 영역(StatusBar), AskUserQuestion 응답 연동을 구현한다.
 
 | 기능 | 설명 |
 |------|------|
 | AgentNode 상태 인디케이터 | 색상 도트로 idle/running/error 3가지 이상 상태 구분 |
 | AskUserQuestion 인라인 버튼 | 옵션 클릭 시 `sendPrompt()` 연동으로 응답 전달 |
+| StatusBar (영속 상태 바) | ChatPanel 상단/하단 고정 영역. thinking 상태 + TodoWrite 체크리스트 표시 |
+| TodoWrite in-place 업데이트 | ToolCard 대신 StatusBar에서 체크리스트 렌더링. 호출마다 in-place 갱신 (카드 반복 방지) |
+
+StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 상호작용 영역' 컨셉. AskUserQuestion, TodoWrite 등 사용자/상태 인터랙션을 대화 흐름과 분리한다.
 
 **완료 기준:**
 - AskUserQuestion 버튼 클릭 → CLI로 응답 전달 동작 확인
 - AgentNode 3가지 이상 상태 색상 구분 확인
+- StatusBar에 TodoWrite 체크리스트 in-place 업데이트 확인
+- TodoWrite가 대화 영역에 반복 카드로 쌓이지 않는지 확인
 
 ---
 
