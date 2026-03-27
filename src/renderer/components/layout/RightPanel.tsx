@@ -11,7 +11,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
 ]
 
-export function RightPanel(): JSX.Element {
+export function RightPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('nexus')
 
   return (

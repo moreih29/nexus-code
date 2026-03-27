@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { MarkdownRenderer } from '../chat/MarkdownRenderer'
 
-export function MarkdownViewer(): JSX.Element {
+export function MarkdownViewer() {
   const [filePath, setFilePath] = useState('')
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

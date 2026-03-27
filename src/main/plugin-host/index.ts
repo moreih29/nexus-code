@@ -1,37 +1,11 @@
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'child_process'
 import { BrowserWindow } from 'electron'
-import { IpcChannel } from '../shared/ipc'
-import type { PluginDataEvent } from '../shared/types'
-import log from './logger'
-
-// ─── Manifest 스키마 ───────────────────────────────────────────────────────
-
-interface DataSourceFileWatch {
-  type: 'file-watch'
-  path: string // {branch} 플레이스홀더 포함 가능
-}
-
-interface DataSourceHookEvents {
-  type: 'hook-events'
-  filter?: string
-}
-
-type DataSource = DataSourceFileWatch | DataSourceHookEvents
-
-interface PanelManifest {
-  id: string
-  title: string
-  position: 'right' | 'left' | 'bottom'
-  dataSource: DataSource
-  renderer: 'tree' | 'markdown' | 'timeline'
-}
-
-interface PluginManifest {
-  name: string
-  panels: PanelManifest[]
-}
+import { IpcChannel } from '../../shared/ipc'
+import type { PluginDataEvent } from '../../shared/types'
+import log from '../logger'
+import { loadManifest, resolvePath } from './loader'
+import type { PluginManifest, PanelManifest, DataSourceFileWatch } from './loader'
 
 // ─── PluginHost ────────────────────────────────────────────────────────────
 
@@ -61,8 +35,7 @@ export class PluginHost {
     for (const entry of entries) {
       const manifestPath = path.join(this.pluginsDir, entry, 'manifest.json')
       try {
-        const raw = await fs.promises.readFile(manifestPath, 'utf8')
-        const manifest = JSON.parse(raw) as PluginManifest
+        const manifest = await loadManifest(manifestPath)
         this.loadPlugin(manifest)
       } catch {
         log.warn('[PluginHost] manifest load failed:', entry)
@@ -94,33 +67,33 @@ export class PluginHost {
     const key = `${pluginId}:${panel.id}`
     if (this.watchers.has(key)) return
 
-    const resolvedPath = this.resolvePath(source.path)
+    const resolvedFilePath = resolvePath(source.path)
 
     // 초기 데이터 전송 (파일이 존재하면)
-    this.sendFileData(pluginId, panel.id, resolvedPath)
+    this.sendFileData(pluginId, panel.id, resolvedFilePath)
 
     let watcher: fs.FSWatcher
     try {
-      watcher = fs.watch(resolvedPath, () => {
-        this.sendFileData(pluginId, panel.id, resolvedPath)
+      watcher = fs.watch(resolvedFilePath, () => {
+        this.sendFileData(pluginId, panel.id, resolvedFilePath)
       })
     } catch {
       // 파일이 아직 없을 수 있음 — 부모 디렉토리를 감시
-      const dir = path.dirname(resolvedPath)
-      const filename = path.basename(resolvedPath)
+      const dir = path.dirname(resolvedFilePath)
+      const filename = path.basename(resolvedFilePath)
       try {
         watcher = fs.watch(dir, (_eventType, changedFile) => {
           if (changedFile === filename) {
-            this.sendFileData(pluginId, panel.id, resolvedPath)
+            this.sendFileData(pluginId, panel.id, resolvedFilePath)
           }
         })
       } catch {
-        log.debug('[PluginHost] watch failed:', resolvedPath)
+        log.debug('[PluginHost] watch failed:', resolvedFilePath)
         return
       }
     }
 
-    this.watchers.set(key, { watcher, resolvedPath })
+    this.watchers.set(key, { watcher, resolvedPath: resolvedFilePath })
   }
 
   private sendFileData(pluginId: string, panelId: string, filePath: string): void {
@@ -138,23 +111,5 @@ export class PluginHost {
 
     const event: PluginDataEvent = { pluginId, panelId, data }
     win.webContents.send(IpcChannel.PLUGIN_DATA, event)
-  }
-
-  /** {branch} 플레이스홀더를 현재 git 브랜치 이름으로 치환한다 */
-  private resolvePath(rawPath: string): string {
-    if (!rawPath.includes('{branch}')) return rawPath
-
-    let branch = 'main'
-    try {
-      branch = execSync('git rev-parse --abbrev-ref HEAD', {
-        encoding: 'utf8',
-        timeout: 3000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim()
-    } catch {
-      // git 실패 시 폴백
-    }
-
-    return rawPath.replace(/\{branch\}/g, branch)
   }
 }

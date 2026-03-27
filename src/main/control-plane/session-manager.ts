@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import type { SessionInfo } from '../shared/types'
-import log from './logger'
+import type { SessionInfo } from '../../shared/types'
+import log from '../logger'
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 

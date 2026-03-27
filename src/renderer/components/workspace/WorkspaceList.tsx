@@ -4,7 +4,7 @@ import { useHistoryStore } from '../../stores/history-store'
 import { WorkspaceItem } from './WorkspaceItem'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 
-export function WorkspaceList(): JSX.Element {
+export function WorkspaceList() {
   const { workspaces, loading, loadWorkspaces } = useWorkspaceStore()
   const loadSessions = useHistoryStore((s) => s.loadSessions)
 

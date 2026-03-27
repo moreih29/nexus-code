@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
 import { useHistoryStore } from '../../stores/history-store'
 
-export function NewSessionButton(): JSX.Element {
+export function NewSessionButton() {
   const reset = useSessionStore((s) => s.reset)
   const setActiveSessionId = useHistoryStore((s) => s.setActiveSessionId)
 

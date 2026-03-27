@@ -3,7 +3,7 @@ import { useHistoryStore } from '../../stores/history-store'
 import { SessionItem } from './SessionItem'
 import { NewSessionButton } from './NewSessionButton'
 
-export function SessionList(): JSX.Element {
+export function SessionList() {
   const { sessions, loading, loadSessions } = useHistoryStore()
 
   useEffect(() => {

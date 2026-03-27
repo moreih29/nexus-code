@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import log from './logger'
+import log from '../logger'
 import type {
   TextChunkEvent,
   ToolCallEvent,
@@ -9,7 +9,7 @@ import type {
   TurnEndEvent,
   ErrorEvent,
   RateLimitEvent,
-} from '../shared/types'
+} from '../../shared/types'
 
 // Claude CLI stream-json 출력의 메시지 타입
 interface ClaudeStreamMessage {

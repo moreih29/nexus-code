@@ -28,7 +28,7 @@ interface TaskEntry {
 
 // ─── 공통 서브컴포넌트 ─────────────────────────────────────────────────────
 
-function SectionHeader({ title }: { title: string }): JSX.Element {
+function SectionHeader({ title }: { title: string }) {
   return (
     <div className="mb-2 border-b border-gray-700 pb-1">
       <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{title}</span>
@@ -36,13 +36,13 @@ function SectionHeader({ title }: { title: string }): JSX.Element {
   )
 }
 
-function EmptyState({ label }: { label: string }): JSX.Element {
+function EmptyState({ label }: { label: string }) {
   return <p className="text-xs text-gray-600">{label}</p>
 }
 
 // ─── Consult 패널 ──────────────────────────────────────────────────────────
 
-function ConsultSection(): JSX.Element {
+function ConsultSection() {
   const data = usePanelData<ConsultData>('nexus', 'consult')
 
   if (!data) return <EmptyState label="consult.json 없음" />
@@ -74,7 +74,7 @@ function ConsultSection(): JSX.Element {
 
 // ─── Decisions 패널 ────────────────────────────────────────────────────────
 
-function DecisionsSection(): JSX.Element {
+function DecisionsSection() {
   const raw = usePanelData<unknown>('nexus', 'decisions')
 
   const entries: DecisionEntry[] = Array.isArray(raw)
@@ -111,7 +111,7 @@ const STATUS_COLORS: Record<string, string> = {
   deleted: 'text-red-400',
 }
 
-function TasksSection(): JSX.Element {
+function TasksSection() {
   const raw = usePanelData<unknown>('nexus', 'tasks')
 
   const entries: TaskEntry[] = Array.isArray(raw)
@@ -144,7 +144,7 @@ function TasksSection(): JSX.Element {
 
 // ─── NexusPanel (메인) ─────────────────────────────────────────────────────
 
-export function NexusPanel(): JSX.Element {
+export function NexusPanel() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <section>

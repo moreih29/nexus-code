@@ -7,7 +7,7 @@ function formatDuration(ms?: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function ToolRow({ event }: { event: AgentToolEvent }): JSX.Element {
+function ToolRow({ event }: { event: AgentToolEvent }) {
   const isRunning = event.result === undefined
   const isError = event.isError === true
 
@@ -40,7 +40,7 @@ function ToolRow({ event }: { event: AgentToolEvent }): JSX.Element {
   )
 }
 
-function AgentCard({ agent }: { agent: AgentTimelineData['agents'][number] }): JSX.Element {
+function AgentCard({ agent }: { agent: AgentTimelineData['agents'][number] }) {
   return (
     <div className="rounded border border-gray-700 bg-gray-800/30">
       {/* 헤더 */}
@@ -60,7 +60,7 @@ function AgentCard({ agent }: { agent: AgentTimelineData['agents'][number] }): J
   )
 }
 
-export function AgentTimeline(): JSX.Element {
+export function AgentTimeline() {
   const data = usePanelData<AgentTimelineData>('nexus', 'timeline')
 
   if (!data || data.agents.length === 0) {

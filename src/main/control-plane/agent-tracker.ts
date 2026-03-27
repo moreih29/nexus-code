@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events'
 import { BrowserWindow } from 'electron'
-import { IpcChannel } from '../shared/ipc'
-import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentTimelineData } from '../shared/types'
-import log from './logger'
+import { IpcChannel } from '../../shared/ipc'
+import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentTimelineData } from '../../shared/types'
+import log from '../logger'
 
 export type { AgentToolEvent, AgentNode, AgentTimelineData }
 

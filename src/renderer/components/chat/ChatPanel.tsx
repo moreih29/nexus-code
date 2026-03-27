@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace-store'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 
-export function ChatPanel(): JSX.Element {
+export function ChatPanel() {
   const {
     sessionId,
     status,
