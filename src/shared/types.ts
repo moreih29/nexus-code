@@ -67,7 +67,29 @@ export interface StatusRequest {
   sessionId: string
 }
 
-export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error'
+export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error' | 'restarting' | 'timeout'
+
+export interface RestartAttemptEvent {
+  sessionId: string
+  attempt: number
+  maxAttempts: number
+  reason: string
+}
+
+export interface RestartFailedEvent {
+  sessionId: string
+  reason: string
+}
+
+export interface TimeoutEvent {
+  sessionId: string
+  timeoutMs: number
+}
+
+export interface RateLimitEvent {
+  sessionId: string
+  retryAfterMs?: number
+}
 
 export interface StatusResponse {
   status: SessionStatus

@@ -8,6 +8,7 @@ import type {
   SessionEndEvent,
   TurnEndEvent,
   ErrorEvent,
+  RateLimitEvent,
 } from '../shared/types'
 
 // Claude CLI stream-json 출력의 메시지 타입
@@ -54,6 +55,7 @@ export declare interface StreamParser {
   on(event: 'turn_end', listener: (data: Omit<TurnEndEvent, 'sessionId'>) => void): this
   on(event: 'error', listener: (data: Omit<ErrorEvent, 'sessionId'>) => void): this
   on(event: 'session_id', listener: (sessionId: string) => void): this
+  on(event: 'rate_limit', listener: (data: Omit<RateLimitEvent, 'sessionId'>) => void): this
 }
 
 export class StreamParser extends EventEmitter {
@@ -115,7 +117,7 @@ export class StreamParser extends EventEmitter {
         const m = msg as unknown as AssistantMessage
         const content = m.message?.content ?? []
 
-        // stream_event로 텍스트가 이미 전달되지 않은 경우에만 fallback emit
+        // stream_event로 텍스트가 이미 전달되지 않은 경우에만 fallback emit (비스트리밍 응답 대비)
         if (this.streamedTextLength === 0) {
           for (const block of content) {
             if (block.type === 'text' && block.text) {
@@ -125,7 +127,7 @@ export class StreamParser extends EventEmitter {
         }
         this.streamedTextLength = 0  // 다음 턴을 위해 리셋
 
-        // tool_use 처리 (기존 로직 유지)
+        // tool_use 처리
         for (const block of content) {
           if (block.type === 'tool_use') {
             this.emit('tool_call', {
@@ -183,6 +185,15 @@ export class StreamParser extends EventEmitter {
         break
       }
 
+      case 'rate_limit_event': {
+        const retryAfterMs = typeof (msg as Record<string, unknown>).retry_after_ms === 'number'
+          ? (msg as Record<string, unknown>).retry_after_ms as number
+          : undefined
+        log.debug('[StreamParser] rate_limit_event, retryAfterMs:', retryAfterMs)
+        this.emit('rate_limit', { retryAfterMs })
+        break
+      }
+
       // 최상위에 직접 오는 경우 (fallback)
       case 'content_block_start':
       case 'content_block_delta':
@@ -193,6 +204,8 @@ export class StreamParser extends EventEmitter {
         break
 
       default:
+        log.debug('[StreamParser] unhandled message type:', msg.type,
+          (msg as Record<string, unknown>).subtype ?? '')
         break
     }
   }
