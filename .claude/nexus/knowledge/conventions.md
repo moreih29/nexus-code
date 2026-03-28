@@ -13,7 +13,7 @@ src/
 │   └── plugin-host/     # 플러그인 시스템 (index.ts, loader.ts)
 ├── preload/             # contextBridge (단일 파일)
 ├── renderer/            # React UI
-│   ├── components/      # 기능별 그룹: chat/, history/, layout/, permission/, plugins/, settings/, ui/, workspace/
+│   ├── components/      # 기능별 그룹: chat/, history/, layout/, permission/, plugins/, settings/, shared/, ui/, workspace/
 │   ├── stores/          # Zustand 스토어 (기능별 분리)
 │   ├── lib/             # 유틸리티 (utils.ts — cn 함수)
 │   ├── App.tsx          # 루트 컴포넌트
@@ -62,6 +62,7 @@ src/
 ## 스타일링
 
 - Tailwind CSS v4: `@import "tailwindcss"` 만으로 동작, 별도 config 없음
-- 다크 테마 고정: `bg-gray-950` 배경, `text-white`/`text-gray-*` 텍스트
+- 다크 테마 고정: CSS 변수 기반 (@theme block in app.css). `bg-background`, `text-foreground`, `border-border` 등 shadcn 변수 사용. 직접 Tailwind 색상(bg-gray-950 등) 대신 CSS 변수 우선
 - shadcn/ui 컴포넌트: `cn()` 유틸로 조건부 클래스 조합 (clsx + tailwind-merge)
+- shadcn/ui CSS 변수: --color-background, --color-foreground, --color-card, --color-muted, --color-accent, --color-border, --color-ring, --color-primary, --color-dim-foreground
 - 일반 컴포넌트: 배열 + `.join(' ')` 또는 직접 작성
