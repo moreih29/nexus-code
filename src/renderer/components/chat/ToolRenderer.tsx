@@ -5,6 +5,7 @@ import type { ToolCallRecord } from '../../stores/session-store'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../ui/collapsible'
 import { Badge } from '../ui/badge'
 import { cn } from '../../lib/utils'
+import { DiffView } from '../shared/DiffView'
 
 // ─── shared helpers ──────────────────────────────────────────────────────────
 
@@ -279,31 +280,11 @@ function EditRenderer({ tc }: { tc: ToolCallRecord }) {
   const newString = str(tc.input.new_string)
   const status = resolveStatus(tc)
 
-  const old_ = truncateText(oldString)
-  const new_ = truncateText(newString)
-
   return (
     <ToolCard name="Edit" status={status} icon="✏️" summary={editSummary(tc)}>
       <span className="font-mono text-foreground">{filePath}</span>
-      <div className="mt-1.5 rounded border border-border overflow-hidden font-mono">
-        <pre className="bg-red-950/40 px-2 py-1 text-red-300 whitespace-pre-wrap break-all">
-          {old_.preview.split('\n').map((l, i) => (
-            <span key={i} className="block">
-              <span className="text-red-500 select-none">- </span>
-              {l}
-            </span>
-          ))}
-          {old_.truncated && <span className="text-muted-foreground">…</span>}
-        </pre>
-        <pre className="bg-green-950/40 px-2 py-1 text-green-300 whitespace-pre-wrap break-all">
-          {new_.preview.split('\n').map((l, i) => (
-            <span key={i} className="block">
-              <span className="text-green-500 select-none">+ </span>
-              {l}
-            </span>
-          ))}
-          {new_.truncated && <span className="text-muted-foreground">…</span>}
-        </pre>
+      <div className="mt-1.5">
+        <DiffView oldString={oldString} newString={newString} />
       </div>
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} />

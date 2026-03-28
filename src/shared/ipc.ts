@@ -57,6 +57,20 @@ export const IpcChannel = {
   /** Plugin data update pushed from main to a renderer panel */
   PLUGIN_DATA: 'plugin:data',
 
+  // ── Checkpoint ────────────────────────────────────────────────────────────
+  /** Create a git stash-based checkpoint for a session */
+  CHECKPOINT_CREATE: 'ipc:checkpoint-create',
+  /** Restore working tree to a previously created checkpoint */
+  CHECKPOINT_RESTORE: 'ipc:checkpoint-restore',
+  /** List checkpoints for the current workspace */
+  CHECKPOINT_LIST: 'ipc:checkpoint-list',
+
+  // ── Git ───────────────────────────────────────────────────────────────────
+  /** Check whether a directory is a git repository */
+  GIT_CHECK: 'ipc:git-check',
+  /** Initialize a git repository in the given directory */
+  GIT_INIT: 'ipc:git-init',
+
   // ── Error Recovery ────────────────────────────────────────────────────────
   /** CLI process is being restarted after crash */
   RESTART_ATTEMPT: 'stream:restart-attempt',

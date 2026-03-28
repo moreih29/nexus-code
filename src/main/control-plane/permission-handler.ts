@@ -1,3 +1,5 @@
+import type { ApprovalRule, ApprovalScope } from '../../shared/types'
+
 const TIMEOUT_MS = 60_000
 
 // 읽기 전용으로 자동 승인할 Bash 명령어 패턴
@@ -24,17 +26,41 @@ const AUTO_APPROVE_BASH_PATTERNS: RegExp[] = [
 const AUTO_APPROVE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS'])
 
 interface PendingRequest {
-  resolve: (approved: boolean) => void
+  resolve: (result: { approved: boolean; scope?: ApprovalScope }) => void
   timer: ReturnType<typeof setTimeout>
 }
 
 export class PermissionHandler {
   private pending = new Map<string, PendingRequest>()
+  private sessionRules: ApprovalRule[] = []
+  private permanentRules: ApprovalRule[] = []
+
+  /** 앱 시작 시 영구 룰을 주입한다 (approval-store에서 로드 후 호출) */
+  setPermanentRules(rules: ApprovalRule[]): void {
+    this.permanentRules = rules
+  }
+
+  addSessionRule(toolName: string): void {
+    if (!this.sessionRules.some((r) => r.toolName === toolName)) {
+      this.sessionRules.push({ toolName, scope: 'session' })
+    }
+  }
+
+  addPermanentRule(toolName: string): void {
+    if (!this.permanentRules.some((r) => r.toolName === toolName)) {
+      this.permanentRules.push({ toolName, scope: 'permanent' })
+    }
+  }
+
+  clearSessionRules(): void {
+    this.sessionRules = []
+  }
 
   /**
    * 도구 호출이 자동 승인 대상인지 판단한다.
    * - 읽기 전용 도구 목록에 있으면 true
    * - Bash 도구이면서 화이트리스트 명령어이면 true
+   * - session/permanent 룰에 포함되어 있으면 true
    * - 그 외 모두 false (수동 승인 필요)
    */
   isAutoApproved(toolName: string, input: Record<string, unknown>): boolean {
@@ -42,21 +68,24 @@ export class PermissionHandler {
 
     if (toolName === 'Bash') {
       const command = typeof input['command'] === 'string' ? input['command'] : ''
-      return AUTO_APPROVE_BASH_PATTERNS.some((re) => re.test(command))
+      if (AUTO_APPROVE_BASH_PATTERNS.some((re) => re.test(command))) return true
     }
+
+    if (this.sessionRules.some((r) => r.toolName === toolName)) return true
+    if (this.permanentRules.some((r) => r.toolName === toolName)) return true
 
     return false
   }
 
   /**
    * requestId에 대한 Renderer 응답을 기다린다.
-   * 60초 내에 응답이 없으면 false(deny)를 반환한다.
+   * 60초 내에 응답이 없으면 deny를 반환한다.
    */
-  waitForResponse(requestId: string): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
+  waitForResponse(requestId: string): Promise<{ approved: boolean; scope?: ApprovalScope }> {
+    return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId)
-        resolve(false) // 타임아웃 → deny
+        resolve({ approved: false })
       }, TIMEOUT_MS)
 
       this.pending.set(requestId, { resolve, timer })
@@ -65,15 +94,14 @@ export class PermissionHandler {
 
   /**
    * Renderer에서 RESPOND_PERMISSION IPC를 수신했을 때 호출한다.
-   * 대기 중인 요청이 없으면 no-op.
    */
-  respond(requestId: string, approved: boolean): boolean {
+  respond(requestId: string, approved: boolean, scope?: ApprovalScope): boolean {
     const entry = this.pending.get(requestId)
     if (!entry) return false
 
     clearTimeout(entry.timer)
     this.pending.delete(requestId)
-    entry.resolve(approved)
+    entry.resolve({ approved, scope })
     return true
   }
 
@@ -81,7 +109,7 @@ export class PermissionHandler {
   rejectAll(): void {
     for (const [id, entry] of this.pending) {
       clearTimeout(entry.timer)
-      entry.resolve(false)
+      entry.resolve({ approved: false })
       this.pending.delete(id)
     }
   }

@@ -3,7 +3,7 @@
 
 ## Overview
 
-Nexus Code는 Claude Code CLI를 GUI로 래핑하는 Electron 데스크톱 앱이다. `claude -p --output-format stream-json --verbose` subprocess를 실행하여 NDJSON 스트림을 파싱하고, HTTP 훅 서버로 퍼미션을 인터셉트한다.
+Nexus Code는 Claude Code CLI를 GUI로 래핑하는 Electron 데스크톱 앱이다. `claude -p --output-format stream-json --verbose` subprocess를 실행하여 NDJSON 스트림을 파싱한다. 퍼미션 처리는 PermissionRequest 훅 기반으로 재구현 예정 (기존 HookServer 방식은 `--permission-prompt-tool`의 잘못된 사용으로 동작하지 않음).
 
 ## 3-Process Model
 
@@ -107,7 +107,7 @@ ChatPanel
 2. Main → RunManager.start() → `claude -p --output-format stream-json --verbose` spawn
 3. CLI stdout → StreamParser.feed() → 이벤트 emit → IPC로 Renderer에 전달
 4. Renderer → ipc-bridge.ts → Zustand 스토어 업데이트 → React 리렌더링
-5. 퍼미션: CLI → HTTP POST → HookServer → PermissionHandler → IPC → PermissionCard UI → 사용자 응답 → HTTP 200
+5. 퍼미션 (재구현 필요): 기존 HookServer + `--permission-prompt-tool Bash(curl ...)` 방식은 CLI v2.1.86+에서 동작하지 않음. `--permission-prompt-tool`은 MCP 도구 이름(`mcp__{server}__{tool}`)만 수용. **PermissionRequest 훅** 기반 재구현 예정 (settings.json hooks → 셸 커맨드 → Electron IPC 연동)
 6. StatusBar: TOOL_CALL(TodoWrite) → statusBarStore.setTodos() / TOOL_CALL(AskUserQuestion) → statusBarStore.setAskQuestion() → StatusBar UI
 
 ### AskUserQuestion 우회 흐름 (-p 모드)

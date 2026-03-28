@@ -12,6 +12,7 @@ export interface StartRequest {
 
 export interface StartResponse {
   sessionId: string
+  checkpoint?: Checkpoint
 }
 
 export interface PromptRequest {
@@ -54,9 +55,17 @@ export interface LoadSessionResponse {
   ok: boolean
 }
 
+export type ApprovalScope = 'once' | 'session' | 'permanent'
+
+export interface ApprovalRule {
+  toolName: string
+  scope: 'session' | 'permanent'
+}
+
 export interface RespondPermissionRequest {
   requestId: string
   approved: boolean
+  scope?: ApprovalScope
 }
 
 export interface RespondPermissionResponse {
@@ -266,6 +275,64 @@ export interface HistoryMessage {
 export interface LoadHistoryResponse {
   ok: boolean
   messages: HistoryMessage[]
+}
+
+// ─── Git ─────────────────────────────────────────────────────────────────────
+
+export interface GitCheckRequest {
+  cwd: string
+}
+
+export interface GitCheckResponse {
+  isGitRepo: boolean
+}
+
+export interface GitInitRequest {
+  cwd: string
+}
+
+export interface GitInitResponse {
+  ok: boolean
+}
+
+// ─── Checkpoint ──────────────────────────────────────────────────────────────
+
+export interface Checkpoint {
+  stashRef?: string
+  headHash: string
+  sessionId: string
+  timestamp: number
+}
+
+export interface CheckpointCreateRequest {
+  cwd: string
+  sessionId: string
+}
+
+export interface CheckpointCreateResponse {
+  ok: boolean
+  checkpoint?: Checkpoint
+  isGitRepo: boolean
+}
+
+export interface CheckpointRestoreRequest {
+  cwd: string
+  checkpoint: Checkpoint
+}
+
+export interface CheckpointRestoreResponse {
+  ok: boolean
+  error?: string
+}
+
+export interface CheckpointListRequest {
+  cwd: string
+  sessionId?: string
+}
+
+export interface CheckpointListResponse {
+  ok: boolean
+  checkpoints: Checkpoint[]
 }
 
 // ─── Window augmentation ────────────────────────────────────────────────────

@@ -3,7 +3,11 @@ import { join } from 'path'
 import { readFile, writeFile, mkdir, readdir, access } from 'fs/promises'
 import { createReadStream } from 'fs'
 import { createInterface } from 'readline'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import os from 'os'
+
+const execFileAsync = promisify(execFile)
 import { app } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
 import type {
@@ -35,12 +39,23 @@ import type {
   LoadHistoryRequest,
   LoadHistoryResponse,
   HistoryMessage,
+  CheckpointCreateRequest,
+  CheckpointCreateResponse,
+  CheckpointRestoreRequest,
+  CheckpointRestoreResponse,
+  CheckpointListRequest,
+  CheckpointListResponse,
+  GitCheckRequest,
+  GitCheckResponse,
+  GitInitRequest,
+  GitInitResponse,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
 import { SessionManager } from '../control-plane/session-manager'
 import { PermissionHandler } from '../control-plane/permission-handler'
 import { PluginHost } from '../plugin-host'
+import { isGitRepo, createCheckpoint, restoreCheckpoint, listCheckpoints } from '../control-plane/checkpoint-manager'
 import log from '../logger'
 
 export interface IpcDeps {
@@ -287,7 +302,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(
     IpcChannel.RESPOND_PERMISSION,
     (_event, req: RespondPermissionRequest): RespondPermissionResponse => {
-      const ok = permissionHandler.respond(req.requestId, req.approved)
+      const ok = permissionHandler.respond(req.requestId, req.approved, req.scope)
       return { ok }
     }
   )
@@ -318,17 +333,54 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
 
     try {
+      if (req.permissionMode !== 'auto') {
+        const hookUrl = hookServer.permissionHookUrl()
+        const settingsDir = join(req.cwd, '.claude')
+        const settingsPath = join(settingsDir, 'settings.local.json')
+
+        let settings: Record<string, unknown> = {}
+        try {
+          const existing = await readFile(settingsPath, 'utf8')
+          settings = JSON.parse(existing) as Record<string, unknown>
+        } catch { /* 파일 없음 또는 파싱 오류 */ }
+
+        const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+        settings.hooks = {
+          ...existingHooks,
+          PreToolUse: [{
+            matcher: '.*',
+            hooks: [{
+              type: 'command',
+              command: `curl -sf -X POST '${hookUrl}' -H 'Content-Type: application/json' -d @-`,
+            }],
+          }],
+        }
+
+        await mkdir(settingsDir, { recursive: true })
+        await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+      }
+
       const sessionId = await manager.start({
         prompt: req.prompt,
         cwd: req.cwd,
         permissionMode: req.permissionMode,
         sessionId: req.sessionId,
-        hookUrl: req.permissionMode === 'manual' ? hookServer.hookUrl(req.sessionId ?? '') : undefined,
       })
 
       log.info('[START]', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
       sessions.set(sessionId, manager)
-      return { sessionId }
+
+      // git 저장소이면 체크포인트 자동 생성 (새 세션 + resume 모두)
+      let checkpoint
+      if (await isGitRepo(req.cwd)) {
+        try {
+          checkpoint = await createCheckpoint(req.cwd, sessionId)
+        } catch (err) {
+          log.warn('[START] 체크포인트 생성 실패', err)
+        }
+      }
+
+      return { sessionId, checkpoint: checkpoint ?? undefined }
     } catch (err) {
       log.error('[START failed]', err)
       throw err
@@ -479,6 +531,74 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
+  // ── CHECKPOINT_CREATE ────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.CHECKPOINT_CREATE,
+    async (_event, req: CheckpointCreateRequest): Promise<CheckpointCreateResponse> => {
+      const gitRepo = await isGitRepo(req.cwd)
+      if (!gitRepo) return { ok: false, isGitRepo: false }
+      try {
+        const checkpoint = await createCheckpoint(req.cwd, req.sessionId)
+        if (!checkpoint) return { ok: false, isGitRepo: true }
+        return { ok: true, checkpoint, isGitRepo: true }
+      } catch (err) {
+        log.error('[CHECKPOINT_CREATE]', err)
+        return { ok: false, isGitRepo: true }
+      }
+    }
+  )
+
+  // ── CHECKPOINT_RESTORE ───────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.CHECKPOINT_RESTORE,
+    async (_event, req: CheckpointRestoreRequest): Promise<CheckpointRestoreResponse> => {
+      try {
+        await restoreCheckpoint(req.cwd, req.checkpoint)
+        return { ok: true }
+      } catch (err) {
+        log.error('[CHECKPOINT_RESTORE]', err)
+        return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  // ── CHECKPOINT_LIST ──────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.CHECKPOINT_LIST,
+    async (_event, req: CheckpointListRequest): Promise<CheckpointListResponse> => {
+      try {
+        const checkpoints = await listCheckpoints(req.cwd, req.sessionId)
+        return { ok: true, checkpoints }
+      } catch (err) {
+        log.error('[CHECKPOINT_LIST]', err)
+        return { ok: false, checkpoints: [] }
+      }
+    }
+  )
+
+  // ── GIT_CHECK ────────────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.GIT_CHECK,
+    async (_event, req: GitCheckRequest): Promise<GitCheckResponse> => {
+      const gitRepo = await isGitRepo(req.cwd)
+      return { isGitRepo: gitRepo }
+    }
+  )
+
+  // ── GIT_INIT ─────────────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.GIT_INIT,
+    async (_event, req: GitInitRequest): Promise<GitInitResponse> => {
+      try {
+        await execFileAsync('git', ['init'], { cwd: req.cwd })
+        return { ok: true }
+      } catch (err) {
+        log.error('[GIT_INIT]', err)
+        return { ok: false }
+      }
+    }
+  )
+
   // ── LOAD_SESSION (--resume) ───────────────────────────────────────────────
   ipcMain.handle(
     IpcChannel.LOAD_SESSION,
@@ -510,7 +630,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         cwd: process.cwd(),
         permissionMode: 'manual',
         sessionId: req.sessionId,
-        hookUrl: hookServer.hookUrl(req.sessionId),
       })
       sessions.set(sessionId, manager)
       return { ok: true }

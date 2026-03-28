@@ -1,13 +1,17 @@
 import log from 'electron-log/renderer'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { StartResponse, PromptResponse, CancelResponse } from '../../../shared/types'
+import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useCheckpointStore } from '../../stores/checkpoint-store'
+import { useSettingsStore } from '../../stores/settings-store'
 import { ChatInput } from './ChatInput'
+import { CheckpointBar } from './CheckpointBar'
 import { MessageBubble } from './MessageBubble'
 import { StatusBar } from './StatusBar'
+import { PermissionList } from '../permission/PermissionList'
 
 export function ChatPanel() {
   const {
@@ -22,7 +26,10 @@ export function ChatPanel() {
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
+  const { setCheckpoint, listCheckpoints, reset: resetCheckpoints } = useCheckpointStore()
+  const permissionMode = useSettingsStore((s) => s.permissionMode)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [isGitRepo, setIsGitRepo] = useState(true)
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -40,6 +47,18 @@ export function ChatPanel() {
     }
   }, [setStatus])
 
+  // 워크스페이스 변경 시 git 저장소 여부 확인
+  useEffect(() => {
+    if (!activeWorkspace) {
+      setIsGitRepo(true)
+      return
+    }
+    window.electronAPI
+      .invoke<GitCheckResponse>(IpcChannel.GIT_CHECK, { cwd: activeWorkspace })
+      .then((res) => setIsGitRepo(res.isGitRepo))
+      .catch(() => setIsGitRepo(true))
+  }, [activeWorkspace])
+
   const handleSend = async (text: string): Promise<void> => {
     if (!activeWorkspace) {
       log.warn('[ChatPanel] 워크스페이스가 선택되지 않음')
@@ -52,30 +71,41 @@ export function ChatPanel() {
 
     try {
       if (!sessionId) {
+        resetCheckpoints()
         const res = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
           prompt: text,
           cwd: activeWorkspace,
-          permissionMode: 'auto',
+          permissionMode,
         })
         log.info('[ChatPanel] 세션 시작:', res.sessionId)
         startSession(res.sessionId)
         await saveSessionId(activeWorkspace, res.sessionId)
+        if (res.checkpoint) {
+          setCheckpoint(res.checkpoint)
+        }
       } else {
         const res = await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
           sessionId,
           message: text,
         })
+        // 기존 세션: 체크포인트 미로드 상태면 조회
+        if (useCheckpointStore.getState().checkpoints.length === 0 && activeWorkspace) {
+          void listCheckpoints(activeWorkspace, sessionId)
+        }
         if (!res.ok) {
           // 프로세스가 죽었음 → START + --resume로 자동 복구
           log.warn('[ChatPanel] PROMPT failed — resuming session:', sessionId)
           const resumed = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
             prompt: text,
             cwd: activeWorkspace,
-            permissionMode: 'auto',
+            permissionMode,
             sessionId,
           })
           log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
           startSession(resumed.sessionId)
+          if (resumed.checkpoint) {
+            setCheckpoint(resumed.checkpoint)
+          }
         }
       }
     } catch (err) {
@@ -105,11 +135,38 @@ export function ChatPanel() {
     }
   }
 
+  const handleGitInit = async (): Promise<void> => {
+    if (!activeWorkspace) return
+    try {
+      const res = await window.electronAPI.invoke<GitInitResponse>(IpcChannel.GIT_INIT, { cwd: activeWorkspace })
+      if (res.ok) setIsGitRepo(true)
+    } catch (err) {
+      log.error('[ChatPanel] git init error:', err)
+    }
+  }
+
   const isInputDisabled = !activeWorkspace || status === 'waiting_permission' || status === 'timeout'
   const isRunning = status === 'running'
 
   return (
     <div className="flex h-full flex-col">
+      {/* git 저장소 아님 배너 / 체크포인트 바 */}
+      {!isGitRepo ? (
+        <div className="mx-4 mt-2 flex items-center justify-between rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-4 py-3">
+          <p className="text-sm text-yellow-300">
+            ⚠ 이 폴더는 git 저장소가 아닙니다. 체크포인트와 퍼미션 기능을 사용하려면 초기화가 필요합니다.
+          </p>
+          <button
+            onClick={() => void handleGitInit()}
+            className="ml-4 shrink-0 rounded bg-yellow-700/60 px-3 py-1 text-xs text-yellow-100 hover:bg-yellow-700"
+          >
+            초기화
+          </button>
+        </div>
+      ) : (
+        <CheckpointBar />
+      )}
+
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
@@ -161,6 +218,9 @@ export function ChatPanel() {
           </div>
         </div>
       )}
+
+      {/* 퍼미션 카드: 입력창 위 */}
+      <PermissionList />
 
       {/* StatusBar: 메시지 목록과 입력창 사이 */}
       <StatusBar />

@@ -6,7 +6,7 @@ import type {
   ReadSettingsResponse,
   WriteSettingsResponse,
 } from '../../../shared/types'
-import { useSettingsStore, AVAILABLE_MODELS, type ModelId } from '../../stores/settings-store'
+import { useSettingsStore, AVAILABLE_MODELS, type ModelId, type PermissionMode } from '../../stores/settings-store'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -219,7 +219,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setSkipDangerousPrompt(s.skipDangerousModePermissionPrompt ?? false)
         setTeammateMode(s.teammateMode ?? 'auto')
 
-        setPermissionMode(s.permissions?.defaultMode ?? 'default')
+        const mode = s.permissions?.defaultMode ?? 'default'
+        setPermissionMode(mode)
+        useSettingsStore.getState().setPermissionMode(
+          mode === 'auto' ? 'auto' : 'default',
+        )
         setAllowList(s.permissions?.allow ?? [])
         setDenyList(s.permissions?.deny ?? [])
 
@@ -279,6 +283,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       scope: 'global',
       settings: updated,
     })
+    // settings-store 동기화 (ChatPanel이 읽을 수 있도록)
+    const mode = permissionMode === 'auto' ? 'auto' : 'default'
+    useSettingsStore.getState().setPermissionMode(mode as PermissionMode)
     setSaving(false)
     onClose()
   }

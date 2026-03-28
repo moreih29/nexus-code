@@ -8,6 +8,7 @@ import { SessionManager } from './control-plane/session-manager'
 import { PluginHost } from './plugin-host'
 import { AgentTracker } from './control-plane/agent-tracker'
 import { registerIpcHandlers } from './ipc/handlers'
+import { loadPermanentRules } from './control-plane/approval-store'
 
 const permissionHandler = new PermissionHandler()
 const hookServer = new HookServer({ permissionHandler })
@@ -57,6 +58,9 @@ hookServer.on('pre-tool-use', (payload) => {
 })
 
 app.whenReady().then(async () => {
+  const permanentRules = await loadPermanentRules()
+  permissionHandler.setPermanentRules(permanentRules)
+
   await hookServer.start()
   sessionManager.startWatching()
   await pluginHost.start()

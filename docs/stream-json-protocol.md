@@ -44,9 +44,71 @@ CLI가 stdout으로 출력하는 NDJSON 메시지 타입. 한 줄에 하나의 J
 
 `content_block_start`, `content_block_delta`, `content_block_stop`, `message_start`, `message_delta`, `message_stop`이 `stream_event` 래핑 없이 최상위에 직접 올 수 있다. 현재 무시 처리.
 
-### 1.5 퍼미션 관련 (HookServer 경유)
+### 1.5 퍼미션 처리
 
-`control_request` / `control_response`는 `--permission-prompt-tool` 훅을 통해 HTTP로 처리되며, stdout stream-json에는 나타나지 않는다.
+퍼미션 처리는 stdout stream-json에 나타나지 않으며, 별도 메커니즘으로 동작한다.
+
+#### 퍼미션 결정 우선순위
+
+```
+1. settings.json / --allowedTools / --disallowedTools  (정적 규칙, 매칭되면 2번 미호출)
+2. --permission-prompt-tool 또는 PermissionRequest 훅  (정적 규칙 미매칭 시만 호출)
+3. 기본: 인터랙티브 모드는 사용자에게 묻기, -p 모드는 거부
+```
+
+#### --permission-prompt-tool (MCP 기반)
+
+**MCP 도구 이름**을 `mcp__{server_name}__{tool_name}` 형식으로 전달해야 한다. 셸 명령이 아님.
+
+```bash
+claude -p "task" \
+  --mcp-config '{"mcpServers": {"myserver": {"command": "node", "args": ["server.mjs"]}}}' \
+  --permission-prompt-tool mcp__myserver__permission_prompt
+```
+
+MCP 도구 입력/출력 (커뮤니티 역공학, 공식 문서 미비):
+- 입력: `{ tool_use_id, tool_name, input }`
+- 출력: `{ behavior: "allow" | "deny", updatedInput?, message? }`
+
+#### PreToolUse 훅
+
+settings.json의 `hooks.PreToolUse`로 설정. 도구 실행 전에 호출됨.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": ".*",
+      "hooks": [{ "type": "command", "command": "curl -sf -X POST '...' -d @-" }]
+    }]
+  }
+}
+```
+
+훅 입력 (stdin): `{ hook_event_name, session_id, tool_name, tool_input, tool_use_id, permission_mode, cwd }`
+
+**검증된 사실:**
+- `PermissionRequest`는 유효한 훅 이벤트가 아님 (호출되지 않음)
+- `PreToolUse` 훅은 `--dangerously-skip-permissions`와 함께 사용 시 호출됨
+- `-p` 모드의 기본 퍼미션 시스템은 훅보다 먼저 동작하여, 퍼미션 거부 시 훅이 호출되지 않음
+- 따라서 `--dangerously-skip-permissions`로 내장 퍼미션을 우회한 뒤, PreToolUse 훅에서 자체 퍼미션 로직을 실행하는 구조
+
+#### 현재 Nexus Code 상태 — 퍼미션 enforcement 미해결
+
+**현재 구현:**
+- `--dangerously-skip-permissions` + `PreToolUse` 훅(settings.local.json) + HookServer
+- HookServer가 auto-approve 또는 PermissionCard UI 표시 → 사용자 승인/거부
+- 퍼미션 카드 UI, diff 뷰, Split Button 승인 범위(once/session/permanent)는 모두 동작
+
+**미해결 한계:**
+- settings.json의 PreToolUse 훅은 도구 실행을 **차단할 수 없음** (exit code non-zero 또는 block 응답을 반환해도 CLI가 무시)
+- 반면 **플러그인 훅**(예: Nexus 게이트)은 차단 가능 — 플러그인 훅과 settings 훅의 enforcement 수준이 다름
+- 결과: 사용자가 거부해도 도구가 실행됨 (HookServer에는 deny 기록되지만 CLI가 무시)
+
+**해결 방향 (미구현, 추가 조사 필요):**
+1. **플러그인 훅으로 전환** — Nexus MCP 플러그인에 퍼미션 PreToolUse 훅을 추가 (플러그인 훅은 차단 가능)
+2. **--permission-prompt-tool + MCP 도구** — Nexus 플러그인에 permission_prompt 도구 추가
+3. **Agent SDK 전환** — CLI 프로세스 대신 Agent SDK(TypeScript) 사용 (canUseTool 콜백으로 네이티브 처리)
 
 ---
 
