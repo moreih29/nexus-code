@@ -57,6 +57,7 @@ export interface ListSessionsResponse {
 
 export interface LoadSessionRequest {
   sessionId: string
+  cwd?: string
   notificationsEnabled?: boolean
 }
 
@@ -207,6 +208,7 @@ export interface PluginDataEvent {
   pluginId: string
   panelId: string
   data: unknown
+  sessionId?: string
 }
 
 // ─── AgentTracker Types ──────────────────────────────────────────────────────

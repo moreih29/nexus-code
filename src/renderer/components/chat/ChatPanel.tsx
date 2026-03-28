@@ -13,11 +13,10 @@ import { StatusBar } from './StatusBar'
 import { PermissionList } from '../permission/PermissionList'
 
 export function ChatPanel() {
-  const activeTab = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId] : null)
-  const sessionId = activeTab?.sessionId ?? null
-  const status = activeTab?.status ?? 'idle'
-  const messages = activeTab?.messages ?? []
-  const systemEvents = activeTab?.systemEvents ?? []
+  const sessionId = useSessionStore((s) => s.sessionId)
+  const status = useSessionStore((s) => s.status)
+  const messages = useSessionStore((s) => s.messages)
+  const systemEvents = useSessionStore((s) => s.systemEvents)
   const { startSession, setStatus, addUserMessage, dismissTimeout } = useSessionStore()
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)

@@ -28,7 +28,7 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
   const [sizeError, setSizeError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isComposingRef = useRef(false)
-  const prefillText = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.prefillText ?? '' : '')
+  const prefillText = useSessionStore((s) => s.prefillText)
   const setPrefillText = useSessionStore((s) => s.setPrefillText)
 
   // prefillText가 설정되면 입력창에 채우기

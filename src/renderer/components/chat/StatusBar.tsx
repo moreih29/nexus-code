@@ -52,10 +52,12 @@ function formatTokens(n: number): string {
 }
 
 export function StatusBar() {
-  const status = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.status : 'idle')
+  const status = useSessionStore((s) => s.status)
   const sendResponse = useSessionStore((s) => s.sendResponse)
-  const lastTurnStats = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.lastTurnStats ?? null : null)
-  const { todos, askQuestion, setAskQuestion } = useStatusBarStore()
+  const lastTurnStats = useSessionStore((s) => s.lastTurnStats)
+  const todos = useStatusBarStore((s) => s.todos)
+  const askQuestion = useStatusBarStore((s) => s.askQuestion)
+  const setAskQuestion = useStatusBarStore((s) => s.setAskQuestion)
 
   const isRunning = status === 'running'
   const hasTodos = todos.length > 0

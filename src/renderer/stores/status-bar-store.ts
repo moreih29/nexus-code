@@ -26,6 +26,8 @@ export const useStatusBarStore = create<StatusBarState>((set) => ({
   askQuestion: null,
 
   setTodos: (todos) => set({ todos }),
+
   setAskQuestion: (askQuestion) => set({ askQuestion }),
+
   clearAll: () => set({ todos: [], askQuestion: null }),
 }))
