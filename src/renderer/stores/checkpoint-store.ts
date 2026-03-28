@@ -11,7 +11,7 @@ interface CheckpointState {
   // Actions
   setCheckpoint: (checkpoint: Checkpoint) => void
   createCheckpoint: (cwd: string, sessionId: string) => Promise<Checkpoint | null>
-  restoreCheckpoint: (cwd: string, checkpoint: Checkpoint) => Promise<boolean>
+  restoreCheckpoint: (cwd: string, checkpoint: Checkpoint) => Promise<{ ok: boolean; changedFiles: string[]; shortHash: string }>
   listCheckpoints: (cwd: string, sessionId?: string) => Promise<void>
   reset: () => void
 }
@@ -51,11 +51,12 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
       )
       if (!res.ok) {
         log.error('[CheckpointStore] restoreCheckpoint 실패:', res.error)
+        return { ok: false, changedFiles: [], shortHash: '' }
       }
-      return res.ok
+      return { ok: true, changedFiles: res.changedFiles ?? [], shortHash: res.shortHash ?? '' }
     } catch (err) {
       log.error('[CheckpointStore] restoreCheckpoint 오류:', err)
-      return false
+      return { ok: false, changedFiles: [], shortHash: '' }
     } finally {
       set({ isRestoring: false })
     }

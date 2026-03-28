@@ -52,6 +52,7 @@ interface SessionState {
   addToolCall: (event: ToolCallEvent) => void
   resolveToolCall: (toolUseId: string, content: string, isError?: boolean) => void
   addSystemEvent: (event: Omit<SystemEvent, 'id'>) => void
+  removeMessagesAfter: (timestamp: number) => void
   setLastTurnStats: (stats: TurnStats) => void
   endSession: () => void
   restoreSession: (sessionId: string) => Promise<void>
@@ -167,6 +168,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   addSystemEvent: (event) =>
     set((s) => ({
       systemEvents: [...s.systemEvents, { ...event, id: nextEvtId() }],
+    })),
+
+  removeMessagesAfter: (timestamp) =>
+    set((s) => ({
+      messages: s.messages.filter((m) => m.timestamp <= timestamp),
+      systemEvents: s.systemEvents.filter((e) => e.timestamp <= timestamp),
     })),
 
   setLastTurnStats: (stats) => set({ lastTurnStats: stats }),

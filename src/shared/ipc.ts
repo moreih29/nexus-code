@@ -48,6 +48,8 @@ export const IpcChannel = {
   SETTINGS_READ: 'ipc:settings-read',
   /** Write to global or project settings.json */
   SETTINGS_WRITE: 'ipc:settings-write',
+  /** Sync in-app settings (e.g. notificationsEnabled) to main process */
+  SETTINGS_SYNC: 'ipc:settings-sync',
 
   // ── History ───────────────────────────────────────────────────────────────
   /** Load conversation history for a session from its JSONL file */

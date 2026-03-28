@@ -5,7 +5,7 @@ import { useSessionStore } from '../../stores/session-store'
 export function CheckpointBar() {
   const { checkpoints, isGitRepo, isRestoring, restoreCheckpoint } = useCheckpointStore()
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
-  const addSystemEvent = useSessionStore((s) => s.addSystemEvent)
+  const { addSystemEvent, removeMessagesAfter } = useSessionStore()
 
   if (!isGitRepo || checkpoints.length === 0 || !activeWorkspace) return null
 
@@ -18,12 +18,17 @@ export function CheckpointBar() {
       `현재 변경사항을 버리고 ${timeLabel} 시점으로 되돌리시겠습니까?`
     )
     if (!confirmed) return
-    const ok = await restoreCheckpoint(activeWorkspace, latest)
+    const { ok, changedFiles, shortHash } = await restoreCheckpoint(activeWorkspace, latest)
     if (ok) {
+      removeMessagesAfter(latest.timestamp)
+      const fileCount = changedFiles.length
+      const label = fileCount > 0
+        ? `${shortHash} · ${timeLabel} 시점으로 복원 (${fileCount}개 파일)`
+        : `${shortHash} · ${timeLabel} 시점으로 복원`
       addSystemEvent({
         type: 'checkpoint_restore',
-        timestamp: Date.now(),
-        label: `${timeLabel} 시점으로 되돌림`,
+        timestamp: latest.timestamp + 1,
+        label,
       })
     }
   }

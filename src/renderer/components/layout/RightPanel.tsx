@@ -14,9 +14,17 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
 ]
 
-export function RightPanel() {
+interface RightPanelProps {
+  forceCollapsed?: boolean
+}
+
+export function RightPanel({ forceCollapsed = false }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('nexus')
   const [collapsed, setCollapsed] = useState(false)
+
+  if (forceCollapsed) {
+    return null
+  }
 
   if (collapsed) {
     return (

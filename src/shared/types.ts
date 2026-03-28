@@ -9,6 +9,7 @@ export interface StartRequest {
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
   notificationsEnabled?: boolean
+  images?: ImageAttachment[]
 }
 
 export interface StartResponse {
@@ -16,9 +17,15 @@ export interface StartResponse {
   checkpoint?: Checkpoint
 }
 
+export interface ImageAttachment {
+  mediaType: string
+  data: string
+}
+
 export interface PromptRequest {
   sessionId: string
   message: string
+  images?: ImageAttachment[]
 }
 
 export interface PromptResponse {
@@ -333,6 +340,8 @@ export interface CheckpointRestoreRequest {
 export interface CheckpointRestoreResponse {
   ok: boolean
   error?: string
+  changedFiles?: string[]
+  shortHash?: string
 }
 
 export interface CheckpointListRequest {
