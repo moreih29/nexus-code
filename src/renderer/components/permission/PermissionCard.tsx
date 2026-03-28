@@ -182,11 +182,12 @@ export function PermissionCard({ permission }: PermissionCardProps) {
       <PermissionInputView toolName={permission.toolName} input={permission.input} />
 
       {/* Actions */}
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <SplitApproveButton onApprove={(scope) => respond(true, scope)} />
-        <Button size="sm" variant="outline" onClick={() => respond(false)}>
-          거부
+        <Button size="sm" variant="outline" onClick={() => remove(permission.requestId)}>
+          닫기
         </Button>
+        <span className="ml-auto text-[11px] text-yellow-600">관찰 전용 — 도구 실행은 차단되지 않습니다</span>
       </div>
     </div>
   )
