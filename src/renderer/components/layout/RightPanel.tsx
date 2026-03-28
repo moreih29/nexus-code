@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { NexusPanel } from '../plugins/NexusPanel'
 import { AgentTimeline } from '../plugins/AgentTimeline'
@@ -16,38 +15,34 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 interface RightPanelProps {
-  forceCollapsed?: boolean
+  onToggle?: () => void
+  isCollapsed?: boolean
 }
 
-export function RightPanel({ forceCollapsed = false }: RightPanelProps) {
+export function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
   const activeTab = useRightPanelUIStore((s) => s.activeTab)
   const setActiveTab = useRightPanelUIStore((s) => s.setActiveTab)
-  const [collapsed, setCollapsed] = useState(false)
 
-  if (forceCollapsed) {
-    return null
-  }
-
-  if (collapsed) {
+  if (isCollapsed) {
     return (
-      <aside className="flex h-full shrink-0 flex-col border-l border-border bg-card">
+      <aside className="flex h-full w-full flex-col items-center border-l border-border bg-card py-2">
         <button
-          onClick={() => setCollapsed(false)}
-          className="flex h-12 w-10 items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-          title="패널 펼치기"
+          onClick={onToggle}
+          className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="패널 열기"
         >
-          <PanelRightOpen className="h-4 w-4" />
+          <PanelRightOpen size={18} />
         </button>
       </aside>
     )
   }
 
   return (
-    <aside className="flex h-full w-[350px] shrink-0 flex-col border-l border-border bg-card">
+    <aside className="flex h-full flex-col border-l border-border bg-card">
       {/* Tab bar */}
       <div className="flex h-12 shrink-0 items-center border-b border-border">
         <button
-          onClick={() => setCollapsed(true)}
+          onClick={onToggle}
           className="flex h-full w-10 items-center justify-center text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="패널 접기"
         >
