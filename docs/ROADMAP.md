@@ -521,16 +521,19 @@ StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 
 
 ---
 
-### M6b: 구조 변경
+### M6b: 구조 변경 (완료)
 
 세션 관리 및 체크포인트 아키텍처 변경이 필요한 기능을 구현한다.
 
-| 기능 | 설명 | 비고 |
+| 기능 | 설명 | 상태 |
 |------|------|------|
-| 멀티탭 (Phase 1: 탭 전환) | 탭 UI로 세션 빠른 전환. 실행은 한 번에 하나. session-store 구조 최소 변경 | Phase 2(병렬 세션)는 후속 |
-| 멀티탭 (Phase 2: 병렬 세션) | 여러 세션 동시 실행. RunManager 멀티 인스턴스, 메모리 관리 | Phase 1 완료 후 |
-| 체크포인트 재설계 | 기존 CheckpointBar(상단 고정) 폐기. 프롬프트마다 `git stash create`로 스냅샷, 코드 변경이 있는 대화 턴에 인라인 "되돌리기" 버튼. 복원 시 코드만 되돌리고 대화 메시지는 유지, 입력창에 복원 컨텍스트 프리필. CLI 컨텍스트 제어 불가 수용 | 상담 완료 (D1-D3) |
-| Co-Planning 뷰 | TodoWrite → Plan 뷰 + NexusPanel 연계 | |
+| 멀티탭 (Phase 1: 탭 전환) | session-store Record 구조 재설계, TabBar UI, sessionTabMap O(1) 라우팅 | 완료 |
+| 멀티탭 (Phase 2: 병렬 세션) | 최대 5개 동시 실행, 탭 상태 인디케이터(running/idle/error), 비활성 탭 메시지 트리밍(100개) | 완료 |
+| 체크포인트 재설계 | CheckpointBar 폐기 → 인라인 되돌리기 버튼. git stash create, Message.checkpointRef, 입력창 프리필 | 완료 (D1-D3 반영) |
+| Co-Planning 뷰 | StatusBar 축약(3개+더보기) + NexusPanel Tasks 통합 | 완료 |
+
+**후속 과제:**
+- Running 탭 닫기 시 IPC CANCEL 미호출 — 프로세스가 계속 실행될 수 있음. 별도 수정 필요
 
 ---
 
