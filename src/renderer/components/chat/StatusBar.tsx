@@ -2,11 +2,18 @@ import { Check, Circle, Loader2, Minus } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
 import { useStatusBarStore } from '../../stores/status-bar-store'
 import type { TodoItem } from '../../stores/status-bar-store'
+import { useRightPanelUIStore } from '../../stores/plugin-store'
+
+const TODO_PREVIEW_LIMIT = 3
 
 function TodoChecklist({ todos }: { todos: TodoItem[] }) {
+  const setActiveTab = useRightPanelUIStore((s) => s.setActiveTab)
+  const preview = todos.slice(0, TODO_PREVIEW_LIMIT)
+  const remaining = todos.length - TODO_PREVIEW_LIMIT
+
   return (
     <div className="flex flex-col gap-1">
-      {todos.map((todo, idx) => (
+      {preview.map((todo, idx) => (
         <div key={idx} className="flex items-center gap-2 text-sm">
           {todo.status === 'completed' ? (
             <Check className="h-3.5 w-3.5 shrink-0 text-green-500" />
@@ -28,6 +35,14 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
           </span>
         </div>
       ))}
+      {remaining > 0 && (
+        <button
+          onClick={() => setActiveTab('nexus')}
+          className="self-start pl-5 text-xs text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors"
+        >
+          {remaining}개 더 보기 →
+        </button>
+      )}
     </div>
   )
 }
@@ -37,9 +52,9 @@ function formatTokens(n: number): string {
 }
 
 export function StatusBar() {
-  const status = useSessionStore((s) => s.status)
+  const status = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.status : 'idle')
   const sendResponse = useSessionStore((s) => s.sendResponse)
-  const lastTurnStats = useSessionStore((s) => s.lastTurnStats)
+  const lastTurnStats = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.lastTurnStats ?? null : null)
   const { todos, askQuestion, setAskQuestion } = useStatusBarStore()
 
   const isRunning = status === 'running'

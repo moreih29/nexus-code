@@ -1,4 +1,7 @@
+import { Check, Loader2, Minus } from 'lucide-react'
 import { usePanelData } from '../../stores/plugin-store'
+import { useStatusBarStore } from '../../stores/status-bar-store'
+import type { TodoItem } from '../../stores/status-bar-store'
 
 // ─── 타입 정의 ─────────────────────────────────────────────────────────────
 
@@ -111,33 +114,85 @@ const STATUS_COLORS: Record<string, string> = {
   deleted: 'text-red-400',
 }
 
+function TodoItemRow({ todo }: { todo: TodoItem }) {
+  return (
+    <div className="flex items-start gap-2 rounded px-1 py-1 hover:bg-muted/40">
+      {todo.status === 'completed' ? (
+        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+      ) : todo.status === 'in_progress' ? (
+        <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+      ) : (
+        <Minus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-dim-foreground" />
+      )}
+      <span
+        className={`text-xs ${
+          todo.status === 'completed'
+            ? 'text-dim-foreground line-through'
+            : todo.status === 'in_progress'
+              ? 'text-foreground'
+              : 'text-muted-foreground'
+        }`}
+      >
+        {todo.content}
+      </span>
+    </div>
+  )
+}
+
+function SubSectionHeader({ title }: { title: string }) {
+  return (
+    <p className="mb-1 text-xs font-semibold text-muted-foreground">{title}</p>
+  )
+}
+
 function TasksSection() {
+  const todos = useStatusBarStore((s) => s.todos)
   const raw = usePanelData<unknown>('nexus', 'tasks')
 
-  const entries: TaskEntry[] = Array.isArray(raw)
+  const projectTasks: TaskEntry[] = Array.isArray(raw)
     ? (raw as TaskEntry[])
     : raw && typeof raw === 'object' && 'tasks' in (raw as object)
       ? ((raw as { tasks: TaskEntry[] }).tasks ?? [])
       : []
 
-  if (entries.length === 0) return <EmptyState label="태스크 없음" />
+  const hasTodos = todos.length > 0
+  const hasProjectTasks = projectTasks.length > 0
+
+  if (!hasTodos && !hasProjectTasks) return <EmptyState label="태스크 없음" />
 
   return (
-    <div className="space-y-1">
-      {entries.map((t, i) => {
-        const statusColor = STATUS_COLORS[t.status ?? ''] ?? 'text-muted-foreground'
-        return (
-          <div key={t.id ?? i} className="flex items-start gap-2 rounded px-1 py-1 hover:bg-muted/40">
-            <span className={`mt-0.5 shrink-0 text-xs font-mono ${statusColor}`}>
-              [{t.status ?? '?'}]
-            </span>
-            <span className="text-xs text-foreground">{t.subject ?? `Task #${i + 1}`}</span>
-            {t.owner && (
-              <span className="ml-auto shrink-0 text-xs text-dim-foreground">{String(t.owner)}</span>
-            )}
+    <div className="space-y-3">
+      {hasTodos && (
+        <div>
+          <SubSectionHeader title="현재 작업" />
+          <div className="space-y-0.5">
+            {todos.map((todo, i) => (
+              <TodoItemRow key={i} todo={todo} />
+            ))}
           </div>
-        )
-      })}
+        </div>
+      )}
+      {hasProjectTasks && (
+        <div>
+          <SubSectionHeader title="프로젝트 태스크" />
+          <div className="space-y-0.5">
+            {projectTasks.map((t, i) => {
+              const statusColor = STATUS_COLORS[t.status ?? ''] ?? 'text-muted-foreground'
+              return (
+                <div key={t.id ?? i} className="flex items-start gap-2 rounded px-1 py-1 hover:bg-muted/40">
+                  <span className={`mt-0.5 shrink-0 text-xs font-mono ${statusColor}`}>
+                    [{t.status ?? '?'}]
+                  </span>
+                  <span className="text-xs text-foreground">{t.subject ?? `Task #${i + 1}`}</span>
+                  {t.owner && (
+                    <span className="ml-auto shrink-0 text-xs text-dim-foreground">{String(t.owner)}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

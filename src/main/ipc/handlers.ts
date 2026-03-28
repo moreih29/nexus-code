@@ -43,8 +43,6 @@ import type {
   CheckpointCreateResponse,
   CheckpointRestoreRequest,
   CheckpointRestoreResponse,
-  CheckpointListRequest,
-  CheckpointListResponse,
   GitCheckRequest,
   GitCheckResponse,
   GitInitRequest,
@@ -55,7 +53,7 @@ import { HookServer } from '../control-plane/hook-server'
 import { SessionManager } from '../control-plane/session-manager'
 import { PermissionHandler } from '../control-plane/permission-handler'
 import { PluginHost } from '../plugin-host'
-import { isGitRepo, createCheckpoint, restoreCheckpoint, listCheckpoints } from '../control-plane/checkpoint-manager'
+import { isGitRepo, createCheckpoint, restoreCheckpoint } from '../control-plane/checkpoint-manager'
 import log from '../logger'
 
 export interface IpcDeps {
@@ -404,17 +402,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       log.info('[START]', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
       sessions.set(sessionId, manager)
 
-      // git 저장소이면 체크포인트 자동 생성 (새 세션 + resume 모두)
-      let checkpoint
-      if (await isGitRepo(req.cwd)) {
-        try {
-          checkpoint = await createCheckpoint(req.cwd, sessionId)
-        } catch (err) {
-          log.warn('[START] 체크포인트 생성 실패', err)
-        }
-      }
-
-      return { sessionId, checkpoint: checkpoint ?? undefined }
+      return { sessionId }
     } catch (err) {
       log.error('[START failed]', err)
       throw err
@@ -572,7 +560,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       const gitRepo = await isGitRepo(req.cwd)
       if (!gitRepo) return { ok: false, isGitRepo: false }
       try {
-        const checkpoint = await createCheckpoint(req.cwd, req.sessionId)
+        const checkpoint = await createCheckpoint(req.cwd, req.sessionId, req.messageId)
         if (!checkpoint) return { ok: false, isGitRepo: true }
         return { ok: true, checkpoint, isGitRepo: true }
       } catch (err) {
@@ -592,20 +580,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       } catch (err) {
         log.error('[CHECKPOINT_RESTORE]', err)
         return { ok: false, error: (err as Error).message }
-      }
-    }
-  )
-
-  // ── CHECKPOINT_LIST ──────────────────────────────────────────────────────
-  ipcMain.handle(
-    IpcChannel.CHECKPOINT_LIST,
-    async (_event, req: CheckpointListRequest): Promise<CheckpointListResponse> => {
-      try {
-        const checkpoints = await listCheckpoints(req.cwd, req.sessionId)
-        return { ok: true, checkpoints }
-      } catch (err) {
-        log.error('[CHECKPOINT_LIST]', err)
-        return { ok: false, checkpoints: [] }
       }
     }
   )

@@ -32,13 +32,25 @@ export function initIpcBridge(): void {
   const statusBarStore = useStatusBarStore.getState
   const changesStore = useChangesStore.getState
 
-  // Stream events → session store
+  /** sessionId로 tabId를 조회 — 없으면 activeTabId로 폴백 */
+  const resolveTabId = (sessionId: string): string | null => {
+    const state = sessionStore()
+    const tabId = state.sessionTabMap[sessionId]
+    if (tabId) return tabId
+    return state.activeTabId
+  }
+
+  // Stream events → session store (탭별 라우팅)
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
-    sessionStore().appendTextChunk(event.text)
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().appendTextChunkToTab(tabId, event.text)
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
-    sessionStore().addToolCall(event)
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().addToolCallToTab(tabId, event)
 
     if (event.name === 'Edit' || event.name === 'MultiEdit') {
       changesStore().trackChange({
@@ -85,7 +97,9 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_RESULT, ((event: ToolResultEvent) => {
-    sessionStore().resolveToolCall(event.toolUseId, event.content, event.isError)
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().resolveToolCallInTab(tabId, event.toolUseId, event.content, event.isError)
     const current = statusBarStore().askQuestion
     if (current && current.toolUseId === event.toolUseId && !event.isError) {
       statusBarStore().setAskQuestion(null)
@@ -93,20 +107,25 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TURN_END, ((event: TurnEndEvent) => {
-    sessionStore().flushStreamBuffer()
-    sessionStore().setLastTurnStats({
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+
+    sessionStore().flushStreamBufferInTab(tabId)
+    sessionStore().setLastTurnStatsInTab(tabId, {
       costUsd: event.costUsd,
       inputTokens: event.inputTokens,
       outputTokens: event.outputTokens,
       durationApiMs: event.durationApiMs,
       numTurns: event.numTurns,
     })
-    sessionStore().endSession()
+    sessionStore().endSessionInTab(tabId)
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.SESSION_END, ((_event: SessionEndEvent) => {
-    sessionStore().flushStreamBuffer()
-    sessionStore().endSession()
+  window.electronAPI.on(IpcChannel.SESSION_END, ((event: SessionEndEvent) => {
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().flushStreamBufferInTab(tabId)
+    sessionStore().endSessionInTab(tabId)
     statusBarStore().clearAll()
     changesStore().clear()
   }) as (...args: unknown[]) => void)
@@ -130,17 +149,23 @@ export function initIpcBridge(): void {
   // Error recovery events → session store
   window.electronAPI.on(IpcChannel.RESTART_ATTEMPT, ((event: RestartAttemptEvent) => {
     log.info('[ipc-bridge] restart_attempt', event)
-    sessionStore().setStatus('restarting')
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().setStatusInTab(tabId, 'restarting')
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.RESTART_FAILED, ((_event: RestartFailedEvent) => {
+  window.electronAPI.on(IpcChannel.RESTART_FAILED, ((event: RestartFailedEvent) => {
     log.warn('[ipc-bridge] restart_failed')
-    sessionStore().setStatus('error')
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().setStatusInTab(tabId, 'error')
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.TIMEOUT, ((_event: TimeoutEvent) => {
+  window.electronAPI.on(IpcChannel.TIMEOUT, ((event: TimeoutEvent) => {
     log.warn('[ipc-bridge] timeout')
-    sessionStore().setStatus('timeout')
+    const tabId = resolveTabId(event.sessionId)
+    if (!tabId) return
+    sessionStore().setStatusInTab(tabId, 'timeout')
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.RATE_LIMIT, ((_event: RateLimitEvent) => {

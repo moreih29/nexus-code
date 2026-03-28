@@ -1,7 +1,8 @@
 import { Square, X } from 'lucide-react'
-import { useRef, useState, type KeyboardEvent, type DragEvent } from 'react'
+import { useRef, useState, useEffect, type KeyboardEvent, type DragEvent } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import type { ImageAttachment } from '../../../shared/types'
+import { useSessionStore } from '../../stores/session-store'
 
 const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
@@ -27,6 +28,24 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
   const [sizeError, setSizeError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isComposingRef = useRef(false)
+  const prefillText = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.prefillText ?? '' : '')
+  const setPrefillText = useSessionStore((s) => s.setPrefillText)
+
+  // prefillText가 설정되면 입력창에 채우기
+  useEffect(() => {
+    if (prefillText) {
+      setValue(prefillText)
+      setPrefillText('')
+      // 높이 자동 조정
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (el) {
+          el.style.height = 'auto'
+          el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+        }
+      })
+    }
+  }, [prefillText, setPrefillText])
 
   const submit = (): void => {
     const trimmed = value.trim()

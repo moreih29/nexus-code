@@ -1,46 +1,24 @@
 import { create } from 'zustand'
 import log from 'electron-log/renderer'
-import type { Checkpoint, CheckpointCreateResponse, CheckpointRestoreResponse, CheckpointListResponse } from '../../shared/types'
+import type { Checkpoint, CheckpointRestoreResponse } from '../../shared/types'
 import { IpcChannel } from '../../shared/ipc'
+import { useSessionStore } from './session-store'
 
 interface CheckpointState {
-  checkpoints: Checkpoint[]
   isGitRepo: boolean
   isRestoring: boolean
 
   // Actions
-  setCheckpoint: (checkpoint: Checkpoint) => void
-  createCheckpoint: (cwd: string, sessionId: string) => Promise<Checkpoint | null>
-  restoreCheckpoint: (cwd: string, checkpoint: Checkpoint) => Promise<{ ok: boolean; changedFiles: string[]; shortHash: string }>
-  listCheckpoints: (cwd: string, sessionId?: string) => Promise<void>
+  restoreCheckpoint: (
+    cwd: string,
+    checkpoint: Checkpoint
+  ) => Promise<{ ok: boolean; changedFiles: string[]; shortHash: string }>
   reset: () => void
 }
 
 export const useCheckpointStore = create<CheckpointState>((set) => ({
-  checkpoints: [],
   isGitRepo: false,
   isRestoring: false,
-
-  setCheckpoint: (checkpoint) => {
-    set((s) => ({ checkpoints: [checkpoint, ...s.checkpoints], isGitRepo: true }))
-  },
-
-  createCheckpoint: async (cwd, sessionId) => {
-    try {
-      const res = await window.electronAPI.invoke<CheckpointCreateResponse>(
-        IpcChannel.CHECKPOINT_CREATE,
-        { cwd, sessionId }
-      )
-      set({ isGitRepo: res.isGitRepo })
-      if (res.ok && res.checkpoint) {
-        set((s) => ({ checkpoints: [res.checkpoint!, ...s.checkpoints] }))
-        return res.checkpoint
-      }
-    } catch (err) {
-      log.error('[CheckpointStore] createCheckpoint 실패:', err)
-    }
-    return null
-  },
 
   restoreCheckpoint: async (cwd, checkpoint) => {
     set({ isRestoring: true })
@@ -53,7 +31,22 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
         log.error('[CheckpointStore] restoreCheckpoint 실패:', res.error)
         return { ok: false, changedFiles: [], shortHash: '' }
       }
-      return { ok: true, changedFiles: res.changedFiles ?? [], shortHash: res.shortHash ?? '' }
+
+      const changedFiles = res.changedFiles ?? []
+      const shortHash = res.shortHash ?? ''
+
+      // 입력창 프리필 세팅
+      const timeLabel = new Date(checkpoint.timestamp).toLocaleTimeString('ko-KR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+      const fileList = changedFiles.length > 0
+        ? changedFiles.map((f) => f.split('/').pop() ?? f).join(', ')
+        : '없음'
+      const prefill = `[체크포인트 ${shortHash} (${timeLabel})로 코드 복원됨. 변경 파일: ${fileList}]`
+      useSessionStore.getState().setPrefillText(prefill)
+
+      return { ok: true, changedFiles, shortHash }
     } catch (err) {
       log.error('[CheckpointStore] restoreCheckpoint 오류:', err)
       return { ok: false, changedFiles: [], shortHash: '' }
@@ -62,19 +55,5 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
     }
   },
 
-  listCheckpoints: async (cwd, sessionId) => {
-    try {
-      const res = await window.electronAPI.invoke<CheckpointListResponse>(
-        IpcChannel.CHECKPOINT_LIST,
-        { cwd, sessionId }
-      )
-      if (res.ok) {
-        set({ checkpoints: res.checkpoints, isGitRepo: true })
-      }
-    } catch (err) {
-      log.error('[CheckpointStore] listCheckpoints 실패:', err)
-    }
-  },
-
-  reset: () => set({ checkpoints: [], isGitRepo: false, isRestoring: false }),
+  reset: () => set({ isGitRepo: false, isRestoring: false }),
 }))
