@@ -514,7 +514,7 @@ StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 
 | 파일 첨부 | 이미지 드래그앤드롭 (png/jpg/gif/webp), base64, 5MB 제한, 썸네일 미리보기 | 완료 (썸네일 비율 + 드롭 영역 확대 → 후속) |
 
 **후속 과제:**
-- 체크포인트 복원 UX 심층 상담 필요: "어디로 돌아가는지" 명확화 + CLI 컨텍스트 잔존 문제
+- 체크포인트 재설계 (M6b로 이동 — 상담 완료)
 - 반응형 전환 CSS transition 최적화
 - 파일 첨부 썸네일 비율 보정 + 드롭 영역 전체 채팅 영역으로 확대
 - 알림 독립 빌드 검증
@@ -529,7 +529,7 @@ StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 
 |------|------|------|
 | 멀티탭 (Phase 1: 탭 전환) | 탭 UI로 세션 빠른 전환. 실행은 한 번에 하나. session-store 구조 최소 변경 | Phase 2(병렬 세션)는 후속 |
 | 멀티탭 (Phase 2: 병렬 세션) | 여러 세션 동시 실행. RunManager 멀티 인스턴스, 메모리 관리 | Phase 1 완료 후 |
-| 체크포인트 다중 시점 | 프롬프트 전송 시마다 `git stash create`로 스냅샷. 사용자 커밋 불필요. 타임라인 UI에서 시점 선택 복원 | |
+| 체크포인트 재설계 | 기존 CheckpointBar(상단 고정) 폐기. 프롬프트마다 `git stash create`로 스냅샷, 코드 변경이 있는 대화 턴에 인라인 "되돌리기" 버튼. 복원 시 코드만 되돌리고 대화 메시지는 유지, 입력창에 복원 컨텍스트 프리필. CLI 컨텍스트 제어 불가 수용 | 상담 완료 (D1-D3) |
 | Co-Planning 뷰 | TodoWrite → Plan 뷰 + NexusPanel 연계 | |
 
 ---
