@@ -40,11 +40,29 @@ CLI가 stdout으로 출력하는 NDJSON 메시지 타입. 한 줄에 하나의 J
 | `message_delta` | 메시지 메타데이터 업데이트 |
 | `message_stop` | 메시지 종료 |
 
-### 1.4 최상위 fallback 이벤트
+### 1.4 result 이벤트 usage 필드 (M5 T8 확인)
+
+`result` 이벤트는 턴 레벨 집계 정보만 제공한다:
+
+```json
+{
+  "type": "result",
+  "total_cost_usd": 0.0234,
+  "duration_ms": 12500,
+  "usage": {
+    "input_tokens": 1234,
+    "output_tokens": 567
+  }
+}
+```
+
+**제약:** 개별 LLM API 호출별 토큰/비용 세분화는 불가능하다. `result` 이벤트는 전체 턴의 집계값만 제공하며, 멀티-에이전트 세션에서 개별 sub-agent 호출별 비용을 분리할 수 없다.
+
+### 1.6 최상위 fallback 이벤트
 
 `content_block_start`, `content_block_delta`, `content_block_stop`, `message_start`, `message_delta`, `message_stop`이 `stream_event` 래핑 없이 최상위에 직접 올 수 있다. 현재 무시 처리.
 
-### 1.5 퍼미션 처리
+### 1.7 퍼미션 처리
 
 퍼미션 처리는 stdout stream-json에 나타나지 않으며, 별도 메커니즘으로 동작한다.
 
@@ -100,13 +118,18 @@ settings.json의 `hooks.PreToolUse`로 설정. 도구 실행 전에 호출됨.
 - HookServer가 auto-approve 또는 PermissionCard UI 표시 → 사용자 승인/거부
 - 퍼미션 카드 UI, diff 뷰, Split Button 승인 범위(once/session/permanent)는 모두 동작
 
-**미해결 한계:**
-- settings.json의 PreToolUse 훅은 도구 실행을 **차단할 수 없음** (exit code non-zero 또는 block 응답을 반환해도 CLI가 무시)
-- 반면 **플러그인 훅**(예: Nexus 게이트)은 차단 가능 — 플러그인 훅과 settings 훅의 enforcement 수준이 다름
-- 결과: 사용자가 거부해도 도구가 실행됨 (HookServer에는 deny 기록되지만 CLI가 무시)
+**M5 실험에서 검증된 사실 (exit code 2 차단):**
+- settings.json의 PreToolUse 훅에서 **exit code 2를 반환하면 도구 실행이 차단됨** (M5 T8 실험으로 직접 확인)
+- `--dangerously-skip-permissions` 모드에서도 exit code 2 차단이 정상 동작함
+- 차단 시 Claude는 "Edit 도구가 사용자 설정 hook에 의해 차단되었습니다" 메시지를 반환
+- exit code 0 = 허용, exit code 2 = 차단, 기타 non-zero = 에러 (무시 가능성 있음)
 
-**해결 방향 (미구현, 추가 조사 필요):**
-1. **플러그인 훅으로 전환** — Nexus MCP 플러그인에 퍼미션 PreToolUse 훅을 추가 (플러그인 훅은 차단 가능)
+**훅 형식 주의사항 (M5 T8 실험 확인):**
+- 올바른 형식 (중첩 배열): `{"matcher": "...", "hooks": [{"type": "command", "command": "..."}]}`
+- 구 형식 (인식 안 됨): `{"matcher": "...", "command": "..."}` — hooks 배열 없이 command 직접 지정 시 미동작
+
+**해결 방향:**
+1. **exit code 2 기반 차단** — HookServer가 deny 결정 시 exit code 2로 응답 (M5에서 구현 가능 확인)
 2. **--permission-prompt-tool + MCP 도구** — Nexus 플러그인에 permission_prompt 도구 추가
 3. **Agent SDK 전환** — CLI 프로세스 대신 Agent SDK(TypeScript) 사용 (canUseTool 콜백으로 네이티브 처리)
 
@@ -349,7 +372,68 @@ stream-json stdin으로 전송 가능한 메시지는 `user` 타입뿐:
 
 ---
 
-## 7. IPC 채널 매핑
+## 7. Sub-Agent 훅 이벤트 (M5 T8 실험 검증)
+
+### 7.1 stream-json에 sub-agent 구분 정보 없음
+
+stream-json 출력은 단일 플랫 스트림으로, parent/sub-agent 계층 정보를 포함하지 않는다. GitHub Issue #14859 (OPEN)에서 `agent_id` 필드 추가가 요청 중이나 미구현 상태. Sub-agent 구분은 훅 이벤트 기반으로만 가능하다.
+
+### 7.2 PreToolUse 훅의 agent_id 필드
+
+PreToolUse 훅 payload에서 `agent_id` 필드로 parent/sub-agent를 구분할 수 있다:
+
+| 호출 주체 | agent_id 필드 | session_id |
+|-----------|---------------|------------|
+| Parent agent | 없음 (필드 미포함) | 세션 고유값 |
+| Sub-agent 내부 도구 호출 | 포함 (예: `"aba8e55c512c5d4a5"`) | Parent와 동일 값 공유 |
+
+```json
+// sub-agent가 도구를 호출할 때의 PreToolUse payload 예시
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "abc123",
+  "agent_id": "aba8e55c512c5d4a5",
+  "tool_name": "Edit",
+  "tool_input": { ... },
+  "tool_use_id": "toolu_xxx",
+  "permission_mode": "dangerouslySkipPermissions",
+  "cwd": "/path/to/project"
+}
+```
+
+### 7.3 SubagentStart / SubagentStop 훅
+
+Sub-agent 생명주기를 추적하는 훅 이벤트. `--dangerously-skip-permissions` 모드에서도 정상 호출됨.
+
+**SubagentStart payload:**
+```json
+{
+  "hook_event_name": "SubagentStart",
+  "session_id": "abc123",
+  "agent_id": "aba8e55c512c5d4a5",
+  "agent_type": "subagent"
+}
+```
+
+**SubagentStop payload** (SubagentStart 필드 + 추가):
+```json
+{
+  "hook_event_name": "SubagentStop",
+  "session_id": "abc123",
+  "agent_id": "aba8e55c512c5d4a5",
+  "agent_type": "subagent",
+  "permission_mode": "dangerouslySkipPermissions",
+  "agent_transcript_path": "/path/to/transcript.jsonl",
+  "last_assistant_message": "작업이 완료되었습니다.",
+  "stop_hook_active": false
+}
+```
+
+**활용:** AgentTimeline에서 sub-agent 노드 분리 시 `SubagentStart` → `SubagentStop` 구간을 `agent_id`로 그룹핑하고, 해당 구간의 PreToolUse `agent_id`와 매칭하면 sub-agent 도구 호출을 계층적으로 분리할 수 있다.
+
+---
+
+## 8. IPC 채널 매핑
 
 CLI stdout 이벤트가 renderer에 전달되는 경로:
 
@@ -367,7 +451,7 @@ CLI stdout 이벤트가 renderer에 전달되는 경로:
 
 ---
 
-## 8. 데이터 흐름 요약
+## 9. 데이터 흐름 요약
 
 ```
                           ┌─────────────────────────────────────────────────┐

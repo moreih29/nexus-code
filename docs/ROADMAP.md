@@ -46,7 +46,7 @@ Claude Code CLI(`claude -p --output-format stream-json`)를 subprocess로 실행
 | Agent SDK | 공식 API, 타입 안전 | API 키 필수 - 구독 인증 기반 사용 불가 |
 | **stream-json + HTTP Hook** | **구조화된 NDJSON, 퍼미션 관찰** | **CLI 버전 의존성** |
 
-**결정: stream-json subprocess + HTTP 훅 서버.** `claude -p --output-format stream-json`으로 NDJSON 스트림 수신, HTTP 훅 서버(PreToolUse)로 퍼미션 관찰 및 UI 표시. 실제 차단은 M5+ 과제. PTY는 파싱 불안정으로 제외, Agent SDK는 API 키 필수라 구독 인증 기반 사용 목적에 부적합하다.
+**결정: stream-json subprocess + HTTP 훅 서버.** `claude -p --output-format stream-json`으로 NDJSON 스트림 수신, HTTP 훅 서버(PreToolUse)로 퍼미션 관찰 및 UI 표시. 실제 차단은 exit code 2 기반으로 M5에서 구현 가능함이 확인됨. PTY는 파싱 불안정으로 제외, Agent SDK는 API 키 필수라 구독 인증 기반 사용 목적에 부적합하다.
 
 MVP 구현에서 `--input-format stream-json --output-format stream-json` 조합으로 양방향 통신이 가능함이 확인되었다. stdin으로 user message를 NDJSON 형식으로 전송하고, stdout에서 동일 포맷으로 수신한다.
 
@@ -338,7 +338,7 @@ nexus-code/
 ### CLI 통신
 
 - **Subprocess**: `claude -p --input-format stream-json --output-format stream-json` spawn. stdin으로 NDJSON 메시지 전송, stdout에서 NDJSON 수신. 양방향 통신 가능.
-- **HTTP Hook**: 로컬 HTTP 서버로 PreToolUse/PostToolUse 이벤트 수신, UI 표시. 현재는 관찰 전용 (차단 미구현, M5+ 과제).
+- **HTTP Hook**: 로컬 HTTP 서버로 PreToolUse/PostToolUse 이벤트 수신, UI 표시. exit code 2 반환으로 도구 차단 가능 (M5에서 구현 가능 확인).
 
 ---
 
@@ -481,7 +481,7 @@ StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 
 
 ---
 
-### M5: 안전성 완성 + 핵심 UX (Tier 1)
+### M5: 안전성 완성 + 핵심 UX (Tier 1) (완료)
 
 퍼미션 enforcement를 실제로 동작하게 하고, 체크포인트 UX를 고도화한다.
 
@@ -589,9 +589,13 @@ idle → running → [paused/waiting] → completed | error
 
 tool_result를 직접 주입할 수 없다. AskUserQuestion 응답은 다음 user prompt로 우회 전달해야 한다. 이로 인해 인라인 응답 주입 방식의 인터랙션 패턴은 구현 불가하다.
 
-### 제약 2: settings.json PreToolUse 훅은 도구 차단 불가
+### 제약 2: settings.json PreToolUse 훅은 exit code 2로 도구 차단 가능 (M5에서 해결됨)
 
-`--dangerously-skip-permissions` 환경에서 settings.json의 PreToolUse 훅은 도구 실행을 관찰만 할 수 있고, HTTP 403 응답을 반환해도 CLI가 무시하고 도구를 실행한다. 플러그인 훅(Nexus gate.ts 등)만 실제 차단이 가능하다. 퍼미션 enforcement 구현은 플러그인 훅 또는 MCP 도구 기반으로 접근해야 한다 (M5 과제).
+**M5 T8 실험으로 검증:** `--dangerously-skip-permissions` 환경에서도 settings.json의 PreToolUse 훅이 **exit code 2를 반환하면 도구 실행이 차단된다**. Claude는 "Edit 도구가 사용자 설정 hook에 의해 차단되었습니다" 메시지를 반환한다.
+
+단, 훅 형식은 중첩 배열 형식이어야 한다: `{"matcher": "...", "hooks": [{"type": "command", "command": "..."}]}`. 구 형식(`{"matcher": "...", "command": "..."}`)은 인식되지 않는다.
+
+HookServer가 deny 결정 시 exit code 2로 응답하면 실제 차단이 가능하다. 상세는 [stream-json-protocol.md §1.7](./stream-json-protocol.md) 참조.
 
 ### 제약 3: 에디터 없는 채팅 래퍼
 
