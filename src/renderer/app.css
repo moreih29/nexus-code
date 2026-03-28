@@ -21,27 +21,17 @@
   }
 }
 
-/* 반응형 레이아웃 */
-@media (max-width: 900px) {
-  .right-panel-force-hidden {
-    display: none;
-  }
+.resize-handle {
+  width: 1px;
+  background-color: hsl(var(--border));
+  transition: background-color 150ms, width 150ms;
+  cursor: col-resize;
 }
-
-@media (max-width: 700px) {
-  .sidebar-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 50;
-    height: 100%;
-  }
-  .sidebar-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background-color: rgba(0, 0, 0, 0.5);
-  }
+.resize-handle:hover,
+.resize-handle[data-separator="hover"],
+.resize-handle[data-separator="active"] {
+  width: 3px;
+  background-color: hsl(var(--primary));
 }
 
 @layer base {
