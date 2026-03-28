@@ -12,8 +12,8 @@ interface CommandPaletteProps {
 export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPaletteProps) {
   const [search, setSearch] = useState('')
 
-  const sessionId = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.sessionId ?? null : null)
-  const status = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId]?.status ?? 'idle' : 'idle')
+  const sessionId = useSessionStore((s) => s.sessionId)
+  const status = useSessionStore((s) => s.status)
   const { reset } = useSessionStore()
   const { addWorkspace } = useWorkspaceStore()
 

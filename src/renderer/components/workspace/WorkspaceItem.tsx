@@ -2,6 +2,9 @@ import { Folder, X } from 'lucide-react'
 import type { WorkspaceEntry } from '../../../shared/types'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useSessionStore } from '../../stores/session-store'
+import { usePluginStore } from '../../stores/plugin-store'
+import { useChangesStore } from '../../stores/changes-store'
+import { useStatusBarStore } from '../../stores/status-bar-store'
 
 interface WorkspaceItemProps {
   workspace: WorkspaceEntry
@@ -14,17 +17,25 @@ function shortenPath(path: string): string {
 export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
   const { activeWorkspace, setActiveWorkspace, removeWorkspace } = useWorkspaceStore()
   const restoreSession = useSessionStore((s) => s.restoreSession)
-  const resetSession = useSessionStore((s) => s.reset)
+  const reset = useSessionStore((s) => s.reset)
+  const clearPlugin = usePluginStore((s) => s.clear)
+  const clearChanges = useChangesStore((s) => s.clear)
+  const clearStatusBar = useStatusBarStore((s) => s.clearAll)
 
   const isActive = activeWorkspace === workspace.path
 
   const handleWorkspaceClick = async (): Promise<void> => {
     if (activeWorkspace === workspace.path) return
     setActiveWorkspace(workspace.path)
+
+    // 세션 초기화 및 관련 스토어 정리
+    reset()
+    clearPlugin()
+    clearChanges()
+    clearStatusBar()
+
     if (workspace.sessionId) {
       await restoreSession(workspace.sessionId)
-    } else {
-      resetSession()
     }
   }
 

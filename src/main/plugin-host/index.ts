@@ -17,9 +17,19 @@ interface ActiveWatcher {
 export class PluginHost {
   private watchers = new Map<string, ActiveWatcher>() // `${pluginId}:${panelId}` → watcher
   private pluginsDir: string
+  private currentCwd: string | undefined
+  private currentSessionId: string | undefined
 
   constructor(pluginsDir: string) {
     this.pluginsDir = pluginsDir
+  }
+
+  /** 워크스페이스 CWD가 변경될 때 호출 — 기존 watcher를 재시작한다 */
+  async setCwd(cwd: string, sessionId?: string): Promise<void> {
+    this.currentCwd = cwd
+    this.currentSessionId = sessionId
+    this.stop()
+    await this.start()
   }
 
   /** plugins/ 디렉토리 아래 모든 플러그인을 로드하고 감시를 시작한다 */
@@ -67,7 +77,7 @@ export class PluginHost {
     const key = `${pluginId}:${panel.id}`
     if (this.watchers.has(key)) return
 
-    const resolvedFilePath = resolvePath(source.path)
+    const resolvedFilePath = resolvePath(source.path, this.currentCwd)
 
     // 초기 데이터 전송 (파일이 존재하면)
     this.sendFileData(pluginId, panel.id, resolvedFilePath)
@@ -109,7 +119,7 @@ export class PluginHost {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     if (!win) return
 
-    const event: PluginDataEvent = { pluginId, panelId, data }
+    const event: PluginDataEvent = { pluginId, panelId, data, sessionId: this.currentSessionId }
     win.webContents.send(IpcChannel.PLUGIN_DATA, event)
   }
 }

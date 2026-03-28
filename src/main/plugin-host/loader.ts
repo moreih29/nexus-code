@@ -36,20 +36,28 @@ export async function loadManifest(manifestPath: string): Promise<PluginManifest
   return JSON.parse(raw) as PluginManifest
 }
 
-/** {branch} 플레이스홀더를 현재 git 브랜치 이름으로 치환한다 */
-export function resolvePath(rawPath: string): string {
-  if (!rawPath.includes('{branch}')) return rawPath
+/** {branch} 플레이스홀더를 현재 git 브랜치 이름으로 치환하고, baseCwd가 있으면 절대경로로 변환한다 */
+export function resolvePath(rawPath: string, baseCwd?: string): string {
+  let resolved = rawPath
 
-  let branch = 'main'
-  try {
-    branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      encoding: 'utf8',
-      timeout: 3000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    // git 실패 시 폴백
+  if (resolved.includes('{branch}')) {
+    let branch = 'main'
+    try {
+      branch = execSync('git rev-parse --abbrev-ref HEAD', {
+        encoding: 'utf8',
+        timeout: 3000,
+        cwd: baseCwd,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+    } catch {
+      // git 실패 시 폴백
+    }
+    resolved = resolved.replace(/\{branch\}/g, branch)
   }
 
-  return rawPath.replace(/\{branch\}/g, branch)
+  if (baseCwd && !path.isAbsolute(resolved)) {
+    return path.resolve(baseCwd, resolved)
+  }
+
+  return resolved
 }

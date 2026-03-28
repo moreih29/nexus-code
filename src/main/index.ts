@@ -50,6 +50,7 @@ function createWindow(): void {
 // HookServer pre-tool-use → AgentTracker 연결
 hookServer.on('pre-tool-use', (payload) => {
   agentTracker.onPreToolUse(
+    payload.sessionId,
     payload.agentId ?? 'main',
     payload.toolName,
     payload.toolInput,
@@ -60,9 +61,9 @@ hookServer.on('pre-tool-use', (payload) => {
 // HookServer subagent-lifecycle → AgentTracker 연결
 hookServer.on('subagent-lifecycle', (payload) => {
   if (payload.event === 'start') {
-    agentTracker.onSubagentStart(payload.agentId, payload.agentType)
+    agentTracker.onSubagentStart(payload.sessionId, payload.agentId, payload.agentType)
   } else {
-    agentTracker.onSubagentStop(payload.agentId)
+    agentTracker.onSubagentStop(payload.sessionId, payload.agentId)
   }
 })
 

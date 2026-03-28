@@ -401,6 +401,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
       log.info('[START]', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
       sessions.set(sessionId, manager)
+      deps.pluginHost.setCwd(req.cwd, sessionId).catch((err) => log.warn('[PluginHost setCwd]', err))
 
       return { sessionId }
     } catch (err) {
@@ -643,13 +644,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
       manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
 
+      const cwd = req.cwd ?? process.cwd()
       const sessionId = await manager.start({
         prompt: '',
-        cwd: process.cwd(),
+        cwd,
         permissionMode: 'manual',
         sessionId: req.sessionId,
       })
       sessions.set(sessionId, manager)
+      deps.pluginHost.setCwd(cwd, sessionId).catch((err) => log.warn('[PluginHost setCwd]', err))
       return { ok: true }
     }
   )

@@ -5,6 +5,7 @@ interface PluginState {
   /** pluginId → panelId → data */
   panels: Record<string, Record<string, unknown>>
   handlePluginData: (event: PluginDataEvent) => void
+  clear: () => void
 }
 
 export const usePluginStore = create<PluginState>((set) => ({
@@ -20,6 +21,8 @@ export const usePluginStore = create<PluginState>((set) => ({
         },
       },
     })),
+
+  clear: () => set({ panels: {} }),
 }))
 
 /** 특정 플러그인/패널 데이터 셀렉터 */
