@@ -315,15 +315,19 @@ export interface GitInitResponse {
 // ─── Checkpoint ──────────────────────────────────────────────────────────────
 
 export interface Checkpoint {
-  stashRef?: string
+  /** git stash create로 생성된 commit object hash. 빈 문자열이면 클린 트리 */
+  hash: string
   headHash: string
   sessionId: string
   timestamp: number
+  /** 체크포인트와 연결된 메시지 ID */
+  messageId?: string
 }
 
 export interface CheckpointCreateRequest {
   cwd: string
   sessionId: string
+  messageId?: string
 }
 
 export interface CheckpointCreateResponse {

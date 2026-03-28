@@ -1,33 +1,28 @@
 import log from 'electron-log/renderer'
 import { useEffect, useRef, useState } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment } from '../../../shared/types'
+import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment, CheckpointCreateResponse } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
 import { useSettingsStore } from '../../stores/settings-store'
 import { ChatInput } from './ChatInput'
-import { CheckpointBar } from './CheckpointBar'
 import { MessageBubble } from './MessageBubble'
 import { StatusBar } from './StatusBar'
 import { PermissionList } from '../permission/PermissionList'
 
 export function ChatPanel() {
-  const {
-    sessionId,
-    status,
-    messages,
-    systemEvents,
-    startSession,
-    setStatus,
-    addUserMessage,
-    dismissTimeout,
-  } = useSessionStore()
+  const activeTab = useSessionStore((s) => s.activeTabId ? s.tabs[s.activeTabId] : null)
+  const sessionId = activeTab?.sessionId ?? null
+  const status = activeTab?.status ?? 'idle'
+  const messages = activeTab?.messages ?? []
+  const systemEvents = activeTab?.systemEvents ?? []
+  const { startSession, setStatus, addUserMessage, dismissTimeout } = useSessionStore()
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
-  const { setCheckpoint, listCheckpoints, reset: resetCheckpoints } = useCheckpointStore()
+  const { reset: resetCheckpoints } = useCheckpointStore()
   const permissionMode = useSettingsStore((s) => s.permissionMode)
   const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -37,17 +32,6 @@ export function ChatPanel() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  // timeout IPC 이벤트 수신
-  useEffect(() => {
-    const onTimeout = (): void => {
-      setStatus('timeout')
-    }
-    window.electronAPI.on(IpcChannel.TIMEOUT, onTimeout)
-    return () => {
-      window.electronAPI.off(IpcChannel.TIMEOUT, onTimeout)
-    }
-  }, [setStatus])
 
   // 워크스페이스 변경 시 git 저장소 여부 확인
   useEffect(() => {
@@ -67,12 +51,29 @@ export function ChatPanel() {
       return
     }
 
-    addUserMessage(text)
+    // 프롬프트 전송 직전 체크포인트 생성 (git stash create)
+    let checkpointRef: string | undefined
+    const currentSessionId = sessionId
+    if (currentSessionId) {
+      try {
+        const cpRes = await window.electronAPI.invoke<CheckpointCreateResponse>(
+          IpcChannel.CHECKPOINT_CREATE,
+          { cwd: activeWorkspace, sessionId: currentSessionId }
+        )
+        if (cpRes.ok && cpRes.checkpoint?.hash) {
+          checkpointRef = cpRes.checkpoint.hash
+        }
+      } catch (err) {
+        log.warn('[ChatPanel] 체크포인트 생성 실패:', err)
+      }
+    }
+
+    addUserMessage(text, checkpointRef)
     setStatus('running')
-    log.info('[ChatPanel] 전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId })
+    log.info('[ChatPanel] 전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId: currentSessionId })
 
     try {
-      if (!sessionId) {
+      if (!currentSessionId) {
         resetCheckpoints()
         const res = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
           prompt: text,
@@ -84,35 +85,25 @@ export function ChatPanel() {
         log.info('[ChatPanel] 세션 시작:', res.sessionId)
         startSession(res.sessionId)
         await saveSessionId(activeWorkspace, res.sessionId)
-        if (res.checkpoint) {
-          setCheckpoint(res.checkpoint)
-        }
       } else {
         const res = await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
-          sessionId,
+          sessionId: currentSessionId,
           message: text,
           images,
         })
-        // 기존 세션: 체크포인트 미로드 상태면 조회
-        if (useCheckpointStore.getState().checkpoints.length === 0 && activeWorkspace) {
-          void listCheckpoints(activeWorkspace, sessionId)
-        }
         if (!res.ok) {
           // 프로세스가 죽었음 → START + --resume로 자동 복구
-          log.warn('[ChatPanel] PROMPT failed — resuming session:', sessionId)
+          log.warn('[ChatPanel] PROMPT failed — resuming session:', currentSessionId)
           const resumed = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
             prompt: text,
             cwd: activeWorkspace,
             permissionMode,
-            sessionId,
+            sessionId: currentSessionId,
             notificationsEnabled,
             images,
           })
           log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
           startSession(resumed.sessionId)
-          if (resumed.checkpoint) {
-            setCheckpoint(resumed.checkpoint)
-          }
         }
       }
     } catch (err) {
@@ -157,8 +148,8 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* git 저장소 아님 배너 / 체크포인트 바 */}
-      {!isGitRepo ? (
+      {/* git 저장소 아님 배너 */}
+      {!isGitRepo && (
         <div className="mx-4 mt-2 flex items-center justify-between rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-4 py-3">
           <p className="text-sm text-yellow-300">
             ⚠ 이 폴더는 git 저장소가 아닙니다. 체크포인트와 퍼미션 기능을 사용하려면 초기화가 필요합니다.
@@ -170,8 +161,6 @@ export function ChatPanel() {
             초기화
           </button>
         </div>
-      ) : (
-        <CheckpointBar />
       )}
 
       {/* Message list */}
@@ -186,24 +175,42 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {[
-              ...messages.map((m) => ({ kind: 'message' as const, timestamp: m.timestamp, data: m })),
-              ...systemEvents.map((e) => ({ kind: 'event' as const, timestamp: e.timestamp, data: e })),
-            ]
-              .sort((a, b) => a.timestamp - b.timestamp)
-              .map((item) =>
-                item.kind === 'message' ? (
-                  <MessageBubble key={item.data.id} message={item.data} />
-                ) : (
-                  <div key={item.data.id} className="relative flex items-center py-1">
-                    <div className="flex-1 border-t border-border" />
-                    <span className="mx-2 shrink-0 bg-background px-2 text-xs text-muted-foreground">
-                      {item.data.label}
-                    </span>
-                    <div className="flex-1 border-t border-border" />
-                  </div>
+            {(() => {
+              const sorted = [
+                ...messages.map((m) => ({ kind: 'message' as const, timestamp: m.timestamp, data: m })),
+                ...systemEvents.map((e) => ({ kind: 'event' as const, timestamp: e.timestamp, data: e })),
+              ].sort((a, b) => a.timestamp - b.timestamp)
+
+              return sorted.map((item, idx) => {
+                if (item.kind === 'event') {
+                  return (
+                    <div key={item.data.id} className="relative flex items-center py-1">
+                      <div className="flex-1 border-t border-border" />
+                      <span className="mx-2 shrink-0 bg-background px-2 text-xs text-muted-foreground">
+                        {item.data.label}
+                      </span>
+                      <div className="flex-1 border-t border-border" />
+                    </div>
+                  )
+                }
+
+                // assistant 메시지의 경우 직전 user 메시지의 checkpointRef 전달
+                let checkpointRef: string | undefined
+                if (item.data.role === 'assistant') {
+                  for (let i = idx - 1; i >= 0; i--) {
+                    const prev = sorted[i]
+                    if (prev.kind === 'message' && prev.data.role === 'user') {
+                      checkpointRef = prev.data.checkpointRef
+                      break
+                    }
+                  }
+                }
+
+                return (
+                  <MessageBubble key={item.data.id} message={item.data} checkpointRef={checkpointRef} />
                 )
-              )}
+              })
+            })()}
             {/* 에러 CTA */}
             {status === 'error' && (
               <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">

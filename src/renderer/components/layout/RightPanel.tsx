@@ -4,8 +4,9 @@ import { NexusPanel } from '../plugins/NexusPanel'
 import { AgentTimeline } from '../plugins/AgentTimeline'
 import { MarkdownViewer } from '../plugins/MarkdownViewer'
 import { ChangesPanel } from '../plugins/ChangesPanel'
+import { useRightPanelUIStore, type RightPanelTab } from '../../stores/plugin-store'
 
-type Tab = 'nexus' | 'markdown' | 'timeline' | 'changes'
+type Tab = RightPanelTab
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'nexus', label: 'Nexus' },
@@ -19,7 +20,8 @@ interface RightPanelProps {
 }
 
 export function RightPanel({ forceCollapsed = false }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('nexus')
+  const activeTab = useRightPanelUIStore((s) => s.activeTab)
+  const setActiveTab = useRightPanelUIStore((s) => s.setActiveTab)
   const [collapsed, setCollapsed] = useState(false)
 
   if (forceCollapsed) {
