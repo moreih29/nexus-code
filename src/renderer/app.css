@@ -21,6 +21,29 @@
   }
 }
 
+/* 반응형 레이아웃 */
+@media (max-width: 900px) {
+  .right-panel-force-hidden {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .sidebar-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 50;
+    height: 100%;
+  }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 3.9%;

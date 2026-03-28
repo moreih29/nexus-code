@@ -60,8 +60,27 @@ export async function createCheckpoint(cwd: string, sessionId: string): Promise<
   return { stashRef, headHash, sessionId, timestamp }
 }
 
-export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Promise<void> {
+export interface CheckpointRestoreInfo {
+  changedFiles: string[]
+  shortHash: string
+}
+
+export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Promise<CheckpointRestoreInfo> {
   log.info('[CheckpointManager] 복원 시작', checkpoint)
+
+  // 복원 전 stash에서 변경 파일 목록 획득
+  let changedFiles: string[] = []
+  if (checkpoint.stashRef) {
+    try {
+      const nameOnly = await git(cwd, ['stash', 'show', '--name-only', checkpoint.stashRef])
+      changedFiles = nameOnly.split('\n').filter((f) => f.trim().length > 0)
+    } catch {
+      // stash가 이미 drop된 경우 등 — 빈 배열 유지
+    }
+  }
+
+  // shortHash: stashRef에서 추출하거나 headHash 앞 7자리 사용
+  const shortHash = checkpoint.headHash ? checkpoint.headHash.slice(0, 7) : (checkpoint.stashRef ?? 'unknown')
 
   // 현재 변경사항 제거
   await git(cwd, ['checkout', '.'])
@@ -74,7 +93,8 @@ export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Pr
     await git(cwd, ['checkout', checkpoint.headHash, '--', '.'])
   }
 
-  log.info('[CheckpointManager] 복원 완료', { stashRef: checkpoint.stashRef })
+  log.info('[CheckpointManager] 복원 완료', { stashRef: checkpoint.stashRef, changedFiles: changedFiles.length })
+  return { changedFiles, shortHash }
 }
 
 export async function listCheckpoints(cwd: string, sessionId?: string): Promise<Checkpoint[]> {

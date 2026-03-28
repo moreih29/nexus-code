@@ -1,7 +1,7 @@
 import log from 'electron-log/renderer'
 import { useEffect, useRef, useState } from 'react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse } from '../../../shared/types'
+import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
@@ -61,7 +61,7 @@ export function ChatPanel() {
       .catch(() => setIsGitRepo(true))
   }, [activeWorkspace])
 
-  const handleSend = async (text: string): Promise<void> => {
+  const handleSend = async (text: string, images?: ImageAttachment[]): Promise<void> => {
     if (!activeWorkspace) {
       log.warn('[ChatPanel] 워크스페이스가 선택되지 않음')
       return
@@ -79,6 +79,7 @@ export function ChatPanel() {
           cwd: activeWorkspace,
           permissionMode,
           notificationsEnabled,
+          images,
         })
         log.info('[ChatPanel] 세션 시작:', res.sessionId)
         startSession(res.sessionId)
@@ -90,6 +91,7 @@ export function ChatPanel() {
         const res = await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
           sessionId,
           message: text,
+          images,
         })
         // 기존 세션: 체크포인트 미로드 상태면 조회
         if (useCheckpointStore.getState().checkpoints.length === 0 && activeWorkspace) {
@@ -104,6 +106,7 @@ export function ChatPanel() {
             permissionMode,
             sessionId,
             notificationsEnabled,
+            images,
           })
           log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
           startSession(resumed.sessionId)

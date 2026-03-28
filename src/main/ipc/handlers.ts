@@ -295,8 +295,16 @@ async function parseSessionHistory(filePath: string): Promise<HistoryMessage[]> 
   return messages
 }
 
+// 설정 변경이 클로저에 캡처되지 않도록 모듈 스코프에서 관리
+let notificationsEnabled = true
+
 export function registerIpcHandlers(deps: IpcDeps): void {
   const { getWindow, sessions, hookServer, sessionManager, permissionHandler } = deps
+
+  // ── SETTINGS_SYNC ─────────────────────────────────────────────────────────
+  ipcMain.handle(IpcChannel.SETTINGS_SYNC, (_event, payload: { notificationsEnabled: boolean }) => {
+    notificationsEnabled = payload.notificationsEnabled
+  })
 
   // Renderer → Main: 퍼미션 응답
   ipcMain.handle(
@@ -318,7 +326,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('permission_request', (data) =>
       win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
     )
-    const notificationsEnabled = req.notificationsEnabled !== false
     manager.on('turn_end', (data) => {
       win?.webContents.send(IpcChannel.TURN_END, data)
       if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
@@ -391,6 +398,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         cwd: req.cwd,
         permissionMode: req.permissionMode,
         sessionId: req.sessionId,
+        images: req.images,
       })
 
       log.info('[START]', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
@@ -417,7 +425,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IpcChannel.PROMPT, (_event, req: PromptRequest): PromptResponse => {
     const manager = sessions.get(req.sessionId)
     if (!manager) return { ok: false }
-    return { ok: manager.sendPrompt(req.message) }
+    return { ok: manager.sendPrompt(req.message, req.images) }
   })
 
   // ── CANCEL ───────────────────────────────────────────────────────────────
@@ -579,8 +587,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     IpcChannel.CHECKPOINT_RESTORE,
     async (_event, req: CheckpointRestoreRequest): Promise<CheckpointRestoreResponse> => {
       try {
-        await restoreCheckpoint(req.cwd, req.checkpoint)
-        return { ok: true }
+        const { changedFiles, shortHash } = await restoreCheckpoint(req.cwd, req.checkpoint)
+        return { ok: true, changedFiles, shortHash }
       } catch (err) {
         log.error('[CHECKPOINT_RESTORE]', err)
         return { ok: false, error: (err as Error).message }
@@ -640,7 +648,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       manager.on('permission_request', (data) =>
         win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
       )
-      const notificationsEnabled = req.notificationsEnabled !== false
       manager.on('turn_end', (data) => {
         win?.webContents.send(IpcChannel.TURN_END, data)
         if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {

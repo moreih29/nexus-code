@@ -19,6 +19,7 @@ import type {
   RestartFailedEvent,
   TimeoutEvent,
   RateLimitEvent,
+  ImageAttachment,
 } from '../../shared/types'
 
 /** 마지막 stdout 출력으로부터 이 시간(ms)이 지나면 timeout 이벤트를 emit */
@@ -55,6 +56,7 @@ export interface RunOptions {
   permissionMode: 'auto' | 'manual'
   sessionId?: string // --resume 용
   model?: string
+  images?: ImageAttachment[]
 }
 
 export declare interface RunManager {
@@ -133,7 +135,7 @@ export class RunManager extends EventEmitter {
 
     // stream-json 입력 모드: 프롬프트를 먼저 보내야 CLI가 init을 반환함
     if (options.prompt) {
-      this.sendPrompt(options.prompt)
+      this.sendPrompt(options.prompt, options.images)
     }
 
     if (!options.sessionId) {
@@ -156,12 +158,21 @@ export class RunManager extends EventEmitter {
     return this.sessionId
   }
 
-  sendPrompt(message: string): boolean {
+  sendPrompt(message: string, images?: ImageAttachment[]): boolean {
     if (!this.proc || !this.proc.stdin || this.proc.killed) return false
     try {
+      const content: unknown[] = [{ type: 'text', text: message }]
+      if (images && images.length > 0) {
+        for (const img of images) {
+          content.push({
+            type: 'image',
+            source: { type: 'base64', media_type: img.mediaType, data: img.data },
+          })
+        }
+      }
       const jsonMsg = JSON.stringify({
         type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text: message }] },
+        message: { role: 'user', content },
       })
       this.proc.stdin.write(jsonMsg + '\n')
       this.setStatus('running')
