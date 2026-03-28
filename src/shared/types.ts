@@ -8,6 +8,7 @@ export interface StartRequest {
   permissionMode: 'auto' | 'manual'
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
+  notificationsEnabled?: boolean
 }
 
 export interface StartResponse {
@@ -49,6 +50,7 @@ export interface ListSessionsResponse {
 
 export interface LoadSessionRequest {
   sessionId: string
+  notificationsEnabled?: boolean
 }
 
 export interface LoadSessionResponse {
@@ -146,6 +148,10 @@ export interface TurnEndEvent {
   sessionId: string
   costUsd?: number
   durationMs?: number
+  inputTokens?: number
+  outputTokens?: number
+  durationApiMs?: number
+  numTurns?: number
 }
 
 export interface ErrorEvent {
@@ -210,9 +216,13 @@ export interface AgentToolEvent {
 
 export interface AgentNode {
   agentId: string
+  parentAgentId?: string
+  agentType?: string
   events: AgentToolEvent[]
   lastSeen: number
-  status?: 'idle' | 'running' | 'error'
+  startedAt?: number
+  stoppedAt?: number
+  status?: 'idle' | 'running' | 'error' | 'stopped'
 }
 
 export interface AgentTimelineData {

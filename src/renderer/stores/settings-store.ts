@@ -12,15 +12,19 @@ export type PermissionMode = 'auto' | 'default'
 interface SettingsState {
   model: ModelId
   permissionMode: PermissionMode
+  notificationsEnabled: boolean
 
   setModel: (model: ModelId) => void
   setPermissionMode: (mode: PermissionMode) => void
+  setNotificationsEnabled: (enabled: boolean) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   model: 'claude-sonnet-4-6',
   permissionMode: 'default',
+  notificationsEnabled: true,
 
   setModel: (model) => set({ model }),
   setPermissionMode: (mode) => set({ permissionMode: mode }),
+  setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
 }))

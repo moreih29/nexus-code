@@ -6,9 +6,45 @@ import log from '../logger'
 
 export type { AgentToolEvent, AgentNode, AgentTimelineData }
 
+// main agent의 고정 agentId
+const MAIN_AGENT_ID = 'main'
+
 export class AgentTracker extends EventEmitter {
   private agents = new Map<string, AgentNode>()
   private pendingTools = new Map<string, { agentId: string; startMs: number }>()
+
+  /** SubagentStart 훅 처리 */
+  onSubagentStart(agentId: string, agentType?: string): void {
+    log.debug('[AgentTracker] subagent start:', agentId, agentType)
+    if (!this.agents.has(agentId)) {
+      this.agents.set(agentId, {
+        agentId,
+        parentAgentId: MAIN_AGENT_ID,
+        agentType,
+        events: [],
+        lastSeen: Date.now(),
+        startedAt: Date.now(),
+        status: 'running',
+      })
+    } else {
+      const agent = this.agents.get(agentId)!
+      agent.status = 'running'
+      agent.startedAt = agent.startedAt ?? Date.now()
+    }
+    this.broadcast()
+  }
+
+  /** SubagentStop 훅 처리 */
+  onSubagentStop(agentId: string): void {
+    log.debug('[AgentTracker] subagent stop:', agentId)
+    const agent = this.agents.get(agentId)
+    if (agent) {
+      agent.status = 'stopped'
+      agent.stoppedAt = Date.now()
+      agent.lastSeen = Date.now()
+    }
+    this.broadcast()
+  }
 
   /** HookServer의 pre-tool-use 페이로드 처리 */
   onPreToolUse(agentId: string, toolName: string, toolInput: Record<string, unknown>, toolUseId: string): void {
@@ -56,11 +92,13 @@ export class AgentTracker extends EventEmitter {
     this.broadcast()
   }
 
-  private computeStatus(agentId: string): 'idle' | 'running' | 'error' {
+  private computeStatus(agentId: string): 'idle' | 'running' | 'error' | 'stopped' {
+    const agent = this.agents.get(agentId)
+    // SubagentStop으로 명시적으로 중단된 경우
+    if (agent?.stoppedAt !== undefined) return 'stopped'
     for (const { agentId: id } of this.pendingTools.values()) {
       if (id === agentId) return 'running'
     }
-    const agent = this.agents.get(agentId)
     if (agent && agent.events.length > 0) {
       const last = agent.events[agent.events.length - 1]
       if (last.isError) return 'error'

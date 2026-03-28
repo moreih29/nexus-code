@@ -32,19 +32,35 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
   )
 }
 
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
 export function StatusBar() {
   const status = useSessionStore((s) => s.status)
   const sendResponse = useSessionStore((s) => s.sendResponse)
+  const lastTurnStats = useSessionStore((s) => s.lastTurnStats)
   const { todos, askQuestion, setAskQuestion } = useStatusBarStore()
 
   const isRunning = status === 'running'
   const hasTodos = todos.length > 0
   const hasAskQuestion = askQuestion !== null
+  const hasStats = !isRunning && lastTurnStats !== null && (
+    lastTurnStats.inputTokens !== undefined ||
+    lastTurnStats.outputTokens !== undefined ||
+    lastTurnStats.costUsd !== undefined
+  )
 
   // running 상태이거나 표시할 데이터가 있을 때만 렌더링
-  if (!isRunning && !hasTodos && !hasAskQuestion) {
+  if (!isRunning && !hasTodos && !hasAskQuestion && !hasStats) {
     return null
   }
+
+  const statParts: string[] = []
+  if (lastTurnStats?.inputTokens !== undefined) statParts.push(`${formatTokens(lastTurnStats.inputTokens)} 입력`)
+  if (lastTurnStats?.outputTokens !== undefined) statParts.push(`${formatTokens(lastTurnStats.outputTokens)} 출력`)
+  if (lastTurnStats?.costUsd !== undefined) statParts.push(`$${lastTurnStats.costUsd.toFixed(4)}`)
+  if (lastTurnStats?.numTurns !== undefined) statParts.push(`${lastTurnStats.numTurns}턴`)
 
   return (
     <div className="border-t border-border bg-background/50 px-4 py-2">
@@ -79,6 +95,13 @@ export function StatusBar() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 턴 통계 */}
+      {hasStats && statParts.length > 0 && (
+        <div className="mt-1 text-xs text-muted-foreground">
+          {statParts.join(' · ')}
         </div>
       )}
     </div>

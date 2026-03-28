@@ -18,6 +18,7 @@ export function ChatPanel() {
     sessionId,
     status,
     messages,
+    systemEvents,
     startSession,
     setStatus,
     addUserMessage,
@@ -28,6 +29,7 @@ export function ChatPanel() {
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
   const { setCheckpoint, listCheckpoints, reset: resetCheckpoints } = useCheckpointStore()
   const permissionMode = useSettingsStore((s) => s.permissionMode)
+  const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [isGitRepo, setIsGitRepo] = useState(true)
 
@@ -76,6 +78,7 @@ export function ChatPanel() {
           prompt: text,
           cwd: activeWorkspace,
           permissionMode,
+          notificationsEnabled,
         })
         log.info('[ChatPanel] 세션 시작:', res.sessionId)
         startSession(res.sessionId)
@@ -100,6 +103,7 @@ export function ChatPanel() {
             cwd: activeWorkspace,
             permissionMode,
             sessionId,
+            notificationsEnabled,
           })
           log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
           startSession(resumed.sessionId)
@@ -179,9 +183,24 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
+            {[
+              ...messages.map((m) => ({ kind: 'message' as const, timestamp: m.timestamp, data: m })),
+              ...systemEvents.map((e) => ({ kind: 'event' as const, timestamp: e.timestamp, data: e })),
+            ]
+              .sort((a, b) => a.timestamp - b.timestamp)
+              .map((item) =>
+                item.kind === 'message' ? (
+                  <MessageBubble key={item.data.id} message={item.data} />
+                ) : (
+                  <div key={item.data.id} className="relative flex items-center py-1">
+                    <div className="flex-1 border-t border-border" />
+                    <span className="mx-2 shrink-0 bg-background px-2 text-xs text-muted-foreground">
+                      {item.data.label}
+                    </span>
+                    <div className="flex-1 border-t border-border" />
+                  </div>
+                )
+              )}
             {/* 에러 CTA */}
             {status === 'error' && (
               <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">

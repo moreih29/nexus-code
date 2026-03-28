@@ -20,8 +20,17 @@ export interface PreToolUsePayload {
   toolUseId: string
 }
 
+export interface SubagentLifecyclePayload {
+  sessionId: string
+  agentId: string
+  agentType?: string
+  event: 'start' | 'stop'
+  lastMessage?: string
+}
+
 export declare interface HookServer {
   on(event: 'pre-tool-use', listener: (payload: PreToolUsePayload) => void): this
+  on(event: 'subagent-lifecycle', listener: (payload: SubagentLifecyclePayload) => void): this
 }
 
 export class HookServer extends EventEmitter {
@@ -63,6 +72,11 @@ export class HookServer extends EventEmitter {
   /** PermissionRequest 훅용 URL */
   permissionHookUrl(): string {
     return `http://127.0.0.1:${this.port}/permission/${this.appSecret}/${this.runToken}`
+  }
+
+  /** SubagentStart/Stop 훅용 URL */
+  subagentHookUrl(): string {
+    return `http://127.0.0.1:${this.port}/hook/subagent/${this.appSecret}/${this.runToken}`
   }
 
   start(): Promise<void> {
@@ -133,6 +147,22 @@ export class HookServer extends EventEmitter {
       return
     }
 
+    // POST /hook/subagent/<appSecret>/<runToken>
+    if (
+      pathParts.length >= 4 &&
+      pathParts[0] === 'hook' &&
+      pathParts[1] === 'subagent'
+    ) {
+      const [, , reqAppSecret, reqRunToken] = pathParts
+      if (reqAppSecret !== this.appSecret || reqRunToken !== this.runToken) {
+        res.writeHead(401)
+        res.end('Unauthorized')
+        return
+      }
+      this.handleSubagentLifecycle(req, res)
+      return
+    }
+
     res.writeHead(404)
     res.end('Not Found')
   }
@@ -158,15 +188,16 @@ export class HookServer extends EventEmitter {
         const toolInput = payload.tool_input ?? {}
         const toolUseId = payload.tool_use_id ?? randomUUID()
         const sessionId = payload.session_id ?? ''
+        const agentId = (payload as { agent_id?: string }).agent_id ?? 'main'
 
-        log.info('[HookServer] PreToolUse:', toolName)
+        log.info('[HookServer] PreToolUse:', toolName, 'agent:', agentId)
 
         // AgentTracker용 이벤트 emit
         this.emit('pre-tool-use', {
           sessionId,
           toolName,
           toolInput,
-          agentId: undefined,
+          agentId,
           toolUseId,
         } satisfies PreToolUsePayload)
 
@@ -184,7 +215,7 @@ export class HookServer extends EventEmitter {
           requestId,
           toolName,
           input: toolInput,
-          agentId: undefined,
+          agentId,
         }
 
         log.info('[HookServer] awaiting permission (PreToolUse):', requestId, toolName)
@@ -223,6 +254,48 @@ export class HookServer extends EventEmitter {
     req.on('error', () => {
       res.writeHead(403, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: '서버 오류' }))
+    })
+  }
+
+  private handleSubagentLifecycle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body) as {
+          session_id?: string
+          agent_id?: string
+          agent_type?: string
+          hook_event_name?: string
+          last_assistant_message?: string
+        }
+
+        const sessionId = payload.session_id ?? ''
+        const agentId = payload.agent_id ?? ''
+        const agentType = payload.agent_type
+        const hookEvent = payload.hook_event_name ?? ''
+        const event = hookEvent === 'SubagentStart' ? 'start' : 'stop'
+
+        log.info('[HookServer] subagent lifecycle:', event, agentId)
+
+        this.emit('subagent-lifecycle', {
+          sessionId,
+          agentId,
+          agentType,
+          event,
+          lastMessage: payload.last_assistant_message,
+        } satisfies SubagentLifecyclePayload)
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({}))
+      } catch {
+        res.writeHead(400)
+        res.end('Bad Request')
+      }
+    })
+    req.on('error', () => {
+      res.writeHead(500)
+      res.end('Internal Server Error')
     })
   }
 

@@ -318,9 +318,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('permission_request', (data) =>
       win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
     )
+    const notificationsEnabled = req.notificationsEnabled !== false
     manager.on('turn_end', (data) => {
       win?.webContents.send(IpcChannel.TURN_END, data)
-      if (!win?.isFocused() && Notification.isSupported()) {
+      if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
         new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
       }
     })
@@ -331,7 +332,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('error', (data) => {
       log.error('[RunManager error]', data)
       win?.webContents.send(IpcChannel.ERROR, data)
-      if (!win?.isFocused() && Notification.isSupported()) {
+      if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
         new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
       }
     })
@@ -341,32 +342,49 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
 
     try {
+      const settingsDir = join(req.cwd, '.claude')
+      const settingsPath = join(settingsDir, 'settings.local.json')
+
+      let settings: Record<string, unknown> = {}
+      try {
+        const existing = await readFile(settingsPath, 'utf8')
+        settings = JSON.parse(existing) as Record<string, unknown>
+      } catch { /* 파일 없음 또는 파싱 오류 */ }
+
+      const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+      const subagentUrl = hookServer.subagentHookUrl()
+      const subagentHook = [{
+        matcher: '',
+        hooks: [{
+          type: 'command',
+          command: `curl -sf -X POST '${subagentUrl}' -H 'Content-Type: application/json' -d @-`,
+        }],
+      }]
+
       if (req.permissionMode !== 'auto') {
         const hookUrl = hookServer.permissionHookUrl()
-        const settingsDir = join(req.cwd, '.claude')
-        const settingsPath = join(settingsDir, 'settings.local.json')
-
-        let settings: Record<string, unknown> = {}
-        try {
-          const existing = await readFile(settingsPath, 'utf8')
-          settings = JSON.parse(existing) as Record<string, unknown>
-        } catch { /* 파일 없음 또는 파싱 오류 */ }
-
-        const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
         settings.hooks = {
           ...existingHooks,
           PreToolUse: [{
             matcher: '.*',
             hooks: [{
               type: 'command',
-              command: `curl -sf -X POST '${hookUrl}' -H 'Content-Type: application/json' -d @-`,
+              command: `curl -sf -X POST '${hookUrl}' -H 'Content-Type: application/json' -d @- || exit 2`,
             }],
           }],
+          SubagentStart: subagentHook,
+          SubagentStop: subagentHook,
         }
-
-        await mkdir(settingsDir, { recursive: true })
-        await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+      } else {
+        settings.hooks = {
+          ...existingHooks,
+          SubagentStart: subagentHook,
+          SubagentStop: subagentHook,
+        }
       }
+
+      await mkdir(settingsDir, { recursive: true })
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
 
       const sessionId = await manager.start({
         prompt: req.prompt,
@@ -622,9 +640,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       manager.on('permission_request', (data) =>
         win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
       )
+      const notificationsEnabled = req.notificationsEnabled !== false
       manager.on('turn_end', (data) => {
         win?.webContents.send(IpcChannel.TURN_END, data)
-        if (!win?.isFocused() && Notification.isSupported()) {
+        if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
           new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
         }
       })
@@ -634,7 +653,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       })
       manager.on('error', (data) => {
         win?.webContents.send(IpcChannel.ERROR, data)
-        if (!win?.isFocused() && Notification.isSupported()) {
+        if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
           new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
         }
       })
