@@ -533,7 +533,10 @@ StatusBar는 Claude Code TUI의 `*puttering...` 영역을 참고한 '대화 외 
 | Co-Planning 뷰 | StatusBar 축약(3개+더보기) + NexusPanel Tasks 통합 | 완료 |
 
 **후속 과제:**
-- Running 탭 닫기 시 IPC CANCEL 미호출 — 프로세스가 계속 실행될 수 있음. 별도 수정 필요
+- Running 탭 닫기 시 IPC CANCEL 미호출 — 프로세스가 계속 실행될 수 있음
+- 멀티탭 방향 재검토 — 현재는 같은 워크스페이스 내 멀티세션이지만, 실제 니즈는 **워크스페이스 간 탭 전환** (A 작업 중 B로 전환, 세션 유지). 같은 워크스페이스 내 멀티세션 수요도 별도 조사 필요
+- 우측 패널(RightPanel) 데이터 초기화 버그 — M6b store 재구조화 이후 기존 Nexus/Changes/Timeline 데이터가 사라지는 현상
+- 체크포인트 되돌리기 UX 심도 논의 — 현재 기본 컨셉만 구현, 실사용 피드백 기반 보완 필요
 
 ---
 
