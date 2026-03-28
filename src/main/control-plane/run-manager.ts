@@ -54,7 +54,6 @@ export interface RunOptions {
   cwd: string
   permissionMode: 'auto' | 'manual'
   sessionId?: string // --resume 용
-  hookUrl?: string   // HookServer의 pre-tool-use 훅 URL
   model?: string
 }
 
@@ -198,14 +197,8 @@ export class RunManager extends EventEmitter {
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
       '--verbose',
+      '--dangerously-skip-permissions',
     ]
-
-    if (options.permissionMode === 'auto') {
-      args.push('--dangerously-skip-permissions')
-    } else if (options.hookUrl) {
-      // HookServer 경유 퍼미션 처리
-      args.push('--permission-prompt-tool', `Bash(curl -s -X POST '${options.hookUrl}' -H 'Content-Type: application/json' -d @-)`)
-    }
 
     if (options.model) {
       args.push('--model', options.model)

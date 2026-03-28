@@ -7,15 +7,20 @@ export const AVAILABLE_MODELS = [
 ] as const
 
 export type ModelId = (typeof AVAILABLE_MODELS)[number]
+export type PermissionMode = 'auto' | 'default'
 
 interface SettingsState {
   model: ModelId
+  permissionMode: PermissionMode
 
   setModel: (model: ModelId) => void
+  setPermissionMode: (mode: PermissionMode) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   model: 'claude-sonnet-4-6',
+  permissionMode: 'default',
 
   setModel: (model) => set({ model }),
+  setPermissionMode: (mode) => set({ permissionMode: mode }),
 }))

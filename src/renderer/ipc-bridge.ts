@@ -18,6 +18,7 @@ import { usePermissionStore } from './stores/permission-store'
 import { usePluginStore } from './stores/plugin-store'
 import { useStatusBarStore } from './stores/status-bar-store'
 import type { TodoItem } from './stores/status-bar-store'
+import { useChangesStore } from './stores/changes-store'
 
 let initialized = false
 
@@ -29,6 +30,7 @@ export function initIpcBridge(): void {
   const permissionStore = usePermissionStore.getState
   const pluginStore = usePluginStore.getState
   const statusBarStore = useStatusBarStore.getState
+  const changesStore = useChangesStore.getState
 
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
@@ -37,6 +39,26 @@ export function initIpcBridge(): void {
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
     sessionStore().addToolCall(event)
+
+    if (event.name === 'Edit' || event.name === 'MultiEdit') {
+      changesStore().trackChange({
+        filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
+        toolName: event.name,
+        toolUseId: event.toolUseId,
+        timestamp: Date.now(),
+        oldString: typeof event.input.old_string === 'string' ? event.input.old_string : undefined,
+        newString: typeof event.input.new_string === 'string' ? event.input.new_string : undefined,
+      })
+    } else if (event.name === 'Write') {
+      changesStore().trackChange({
+        filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
+        toolName: event.name,
+        toolUseId: event.toolUseId,
+        timestamp: Date.now(),
+        content: typeof event.input.content === 'string' ? event.input.content : undefined,
+      })
+    }
+
     if (event.name === 'TodoWrite') {
       const todos = event.input.todos as TodoItem[] | undefined
       if (Array.isArray(todos)) {
@@ -79,6 +101,7 @@ export function initIpcBridge(): void {
     sessionStore().flushStreamBuffer()
     sessionStore().endSession()
     statusBarStore().clearAll()
+    changesStore().clear()
   }) as (...args: unknown[]) => void)
 
   // Permission events → permission store

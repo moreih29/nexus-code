@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
 import type { PermissionRequestEvent } from '../../shared/types'
 import { PermissionHandler } from './permission-handler'
+import { savePermanentRule } from './approval-store'
 import log from '../logger'
 
 export interface HookServerOptions {
@@ -54,9 +55,14 @@ export class HookServer extends EventEmitter {
     return addr.port
   }
 
-  /** 현재 실행에 사용할 훅 URL */
+  /** 현재 실행에 사용할 훅 URL (구 pre-tool-use 방식, 내부용) */
   hookUrl(sessionId: string): string {
     return `http://127.0.0.1:${this.port}/hook/pre-tool-use/${this.appSecret}/${this.runToken}?sessionId=${sessionId}`
+  }
+
+  /** PermissionRequest 훅용 URL */
+  permissionHookUrl(): string {
+    return `http://127.0.0.1:${this.port}/permission/${this.appSecret}/${this.runToken}`
   }
 
   start(): Promise<void> {
@@ -92,29 +98,135 @@ export class HookServer extends EventEmitter {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`)
     const pathParts = url.pathname.split('/').filter(Boolean)
 
-    // POST /hook/pre-tool-use/<appSecret>/<runToken>
-    if (
-      req.method !== 'POST' ||
-      pathParts.length < 4 ||
-      pathParts[0] !== 'hook' ||
-      pathParts[1] !== 'pre-tool-use'
-    ) {
+    if (req.method !== 'POST') {
       res.writeHead(404)
       res.end('Not Found')
       return
     }
 
-    const [, , reqAppSecret, reqRunToken] = pathParts
-
-    // 이중 토큰 인증
-    if (reqAppSecret !== this.appSecret || reqRunToken !== this.runToken) {
-      res.writeHead(401)
-      res.end('Unauthorized')
+    // POST /permission/<appSecret>/<runToken>
+    if (pathParts.length === 3 && pathParts[0] === 'permission') {
+      const [, reqAppSecret, reqRunToken] = pathParts
+      if (reqAppSecret !== this.appSecret || reqRunToken !== this.runToken) {
+        res.writeHead(401)
+        res.end('Unauthorized')
+        return
+      }
+      this.handlePermissionRequest(req, res)
       return
     }
 
-    const sessionId = url.searchParams.get('sessionId') ?? ''
+    // POST /hook/pre-tool-use/<appSecret>/<runToken>
+    if (
+      pathParts.length >= 4 &&
+      pathParts[0] === 'hook' &&
+      pathParts[1] === 'pre-tool-use'
+    ) {
+      const [, , reqAppSecret, reqRunToken] = pathParts
+      if (reqAppSecret !== this.appSecret || reqRunToken !== this.runToken) {
+        res.writeHead(401)
+        res.end('Unauthorized')
+        return
+      }
+      const sessionId = url.searchParams.get('sessionId') ?? ''
+      this.handlePreToolUse(req, res, sessionId)
+      return
+    }
 
+    res.writeHead(404)
+    res.end('Not Found')
+  }
+
+  private handlePermissionRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = ''
+    req.on('data', (chunk) => {
+      body += chunk
+    })
+
+    req.on('end', async () => {
+      try {
+        // PreToolUse 훅 입력 포맷
+        const payload = JSON.parse(body) as {
+          hook_event_name?: string
+          session_id?: string
+          tool_name?: string
+          tool_input?: Record<string, unknown>
+          tool_use_id?: string
+        }
+
+        const toolName = payload.tool_name ?? ''
+        const toolInput = payload.tool_input ?? {}
+        const toolUseId = payload.tool_use_id ?? randomUUID()
+        const sessionId = payload.session_id ?? ''
+
+        log.info('[HookServer] PreToolUse:', toolName)
+
+        // AgentTracker용 이벤트 emit
+        this.emit('pre-tool-use', {
+          sessionId,
+          toolName,
+          toolInput,
+          agentId: undefined,
+          toolUseId,
+        } satisfies PreToolUsePayload)
+
+        // 자동 승인 여부 먼저 확인
+        if (this.permissionHandler.isAutoApproved(toolName, toolInput)) {
+          log.info('[HookServer] auto-approved:', toolName)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({}))
+          return
+        }
+
+        const requestId = randomUUID()
+        const event: PermissionRequestEvent = {
+          sessionId,
+          requestId,
+          toolName,
+          input: toolInput,
+          agentId: undefined,
+        }
+
+        log.info('[HookServer] awaiting permission (PreToolUse):', requestId, toolName)
+
+        const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+        if (win) {
+          win.webContents.send(IpcChannel.PERMISSION_REQUEST, event)
+        }
+
+        const { approved, scope } = await this.permissionHandler.waitForResponse(requestId)
+        log.info('[HookServer] responded (PreToolUse):', requestId, approved ? 'allow' : 'deny', scope ?? 'once')
+
+        if (approved && scope === 'session') {
+          this.permissionHandler.addSessionRule(toolName)
+        } else if (approved && scope === 'permanent') {
+          this.permissionHandler.addPermanentRule(toolName)
+          savePermanentRule(toolName).catch((err) =>
+            log.warn('[HookServer] savePermanentRule failed:', err)
+          )
+        }
+
+        if (approved) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({}))
+        } else {
+          // HTTP 403 → curl --fail이 exit code non-zero 반환 → CLI가 도구 차단
+          res.writeHead(403, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: '사용자 거부' }))
+        }
+      } catch {
+        res.writeHead(403, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: '요청 파싱 실패' }))
+      }
+    })
+
+    req.on('error', () => {
+      res.writeHead(403, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: '서버 오류' }))
+    })
+  }
+
+  private handlePreToolUse(req: http.IncomingMessage, res: http.ServerResponse, sessionId: string): void {
     let body = ''
     req.on('data', (chunk) => {
       body += chunk
@@ -170,8 +282,18 @@ export class HookServer extends EventEmitter {
         }
 
         // Renderer 응답 대기 (60초 타임아웃)
-        const approved = await this.permissionHandler.waitForResponse(requestId)
-        log.info('[HookServer] responded:', requestId, approved ? 'allow' : 'deny')
+        const { approved, scope } = await this.permissionHandler.waitForResponse(requestId)
+        log.info('[HookServer] responded:', requestId, approved ? 'allow' : 'deny', scope ?? 'once')
+
+        if (approved && scope === 'session') {
+          this.permissionHandler.addSessionRule(toolName)
+        } else if (approved && scope === 'permanent') {
+          this.permissionHandler.addPermanentRule(toolName)
+          savePermanentRule(toolName).catch((err) =>
+            log.warn('[HookServer] savePermanentRule failed:', err)
+          )
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ decision: approved ? 'allow' : 'deny' }))
       } catch {
