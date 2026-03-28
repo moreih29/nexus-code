@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
 import { readFile, writeFile, mkdir, readdir, access } from 'fs/promises'
 import { createReadStream } from 'fs'
@@ -318,7 +318,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('permission_request', (data) =>
       win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
     )
-    manager.on('turn_end', (data) => win?.webContents.send(IpcChannel.TURN_END, data))
+    manager.on('turn_end', (data) => {
+      win?.webContents.send(IpcChannel.TURN_END, data)
+      if (!win?.isFocused() && Notification.isSupported()) {
+        new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
+      }
+    })
     manager.on('session_end', (data) => {
       win?.webContents.send(IpcChannel.SESSION_END, data)
       sessions.delete(data.sessionId)
@@ -326,6 +331,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     manager.on('error', (data) => {
       log.error('[RunManager error]', data)
       win?.webContents.send(IpcChannel.ERROR, data)
+      if (!win?.isFocused() && Notification.isSupported()) {
+        new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
+      }
     })
     manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
     manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
@@ -614,12 +622,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       manager.on('permission_request', (data) =>
         win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
       )
-      manager.on('turn_end', (data) => win?.webContents.send(IpcChannel.TURN_END, data))
+      manager.on('turn_end', (data) => {
+        win?.webContents.send(IpcChannel.TURN_END, data)
+        if (!win?.isFocused() && Notification.isSupported()) {
+          new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
+        }
+      })
       manager.on('session_end', (data) => {
         win?.webContents.send(IpcChannel.SESSION_END, data)
         sessions.delete(data.sessionId)
       })
-      manager.on('error', (data) => win?.webContents.send(IpcChannel.ERROR, data))
+      manager.on('error', (data) => {
+        win?.webContents.send(IpcChannel.ERROR, data)
+        if (!win?.isFocused() && Notification.isSupported()) {
+          new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
+        }
+      })
       manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
       manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
       manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
