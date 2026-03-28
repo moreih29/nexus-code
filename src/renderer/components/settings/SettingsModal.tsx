@@ -177,7 +177,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { model, setModel } = useSettingsStore()
+  const { model, setModel, notificationsEnabled, setNotificationsEnabled } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<Tab>('general')
 
   const [globalSettings, setGlobalSettings] = useState<ClaudeSettings>({})
@@ -419,6 +419,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         위험 모드 퍼미션 프롬프트 생략 (skipDangerousModePermissionPrompt)
                       </span>
                       <Toggle checked={skipDangerousPrompt} onChange={setSkipDangerousPrompt} />
+                    </label>
+                    <label className="flex cursor-pointer items-center justify-between">
+                      <span className="text-sm text-foreground">완료/오류 시스템 알림</span>
+                      <Toggle checked={notificationsEnabled} onChange={setNotificationsEnabled} />
                     </label>
                   </section>
                 </div>

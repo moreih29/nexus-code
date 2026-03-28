@@ -92,8 +92,15 @@ export function initIpcBridge(): void {
     }
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.TURN_END, ((_event: TurnEndEvent) => {
+  window.electronAPI.on(IpcChannel.TURN_END, ((event: TurnEndEvent) => {
     sessionStore().flushStreamBuffer()
+    sessionStore().setLastTurnStats({
+      costUsd: event.costUsd,
+      inputTokens: event.inputTokens,
+      outputTokens: event.outputTokens,
+      durationApiMs: event.durationApiMs,
+      numTurns: event.numTurns,
+    })
     sessionStore().endSession()
   }) as (...args: unknown[]) => void)
 

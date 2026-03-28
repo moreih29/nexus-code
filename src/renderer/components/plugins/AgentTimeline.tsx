@@ -51,33 +51,43 @@ function ToolRow({ event }: { event: AgentToolEvent }) {
   )
 }
 
+function statusDot(status: AgentTimelineData['agents'][number]['status']): string {
+  if (status === 'running') return 'animate-pulse bg-blue-400'
+  if (status === 'error') return 'bg-red-400'
+  if (status === 'stopped') return 'bg-muted-foreground/40'
+  return 'bg-muted-foreground'
+}
+
 function AgentCard({
   agent,
   activeFilters,
+  children,
 }: {
   agent: AgentTimelineData['agents'][number]
   activeFilters: Set<string>
+  children?: React.ReactNode
 }) {
   const filteredEvents =
     activeFilters.size === 0
       ? agent.events
       : agent.events.filter((e) => activeFilters.has(e.toolName))
 
+  const isMain = agent.agentId === 'main'
+  const label = isMain ? 'main' : (agent.agentType ?? agent.agentId)
+  const subLabel = isMain ? null : agent.agentId.slice(0, 12)
+
   return (
-    <div className="rounded border border-border bg-muted/30">
+    <div className={['rounded border border-border bg-muted/30', isMain ? '' : 'ml-4 border-l-2 border-l-blue-500/30'].join(' ')}>
       {/* 헤더 */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <span
-          className={[
-            'h-2 w-2 shrink-0 rounded-full',
-            agent.status === 'running'
-              ? 'animate-pulse bg-blue-400'
-              : agent.status === 'error'
-                ? 'bg-red-400'
-                : 'bg-muted-foreground',
-          ].join(' ')}
-        />
-        <span className="text-xs font-semibold text-blue-300">{agent.agentId}</span>
+        <span className={['h-2 w-2 shrink-0 rounded-full', statusDot(agent.status)].join(' ')} />
+        <span className="text-xs font-semibold text-blue-300">{label}</span>
+        {subLabel && (
+          <span className="text-xs text-dim-foreground font-mono">{subLabel}</span>
+        )}
+        {agent.status === 'stopped' && (
+          <span className="text-xs text-dim-foreground">(종료)</span>
+        )}
         <span className="ml-auto text-xs text-dim-foreground">{filteredEvents.length} calls</span>
       </div>
       {/* 이벤트 목록 */}
@@ -88,7 +98,47 @@ function AgentCard({
           filteredEvents.map((e) => <ToolRow key={e.toolUseId} event={e} />)
         )}
       </div>
+      {/* 자식 에이전트 (중첩) */}
+      {children && <div className="p-2">{children}</div>}
     </div>
+  )
+}
+
+type AgentWithChildren = AgentTimelineData['agents'][number] & { children: AgentWithChildren[] }
+
+function buildTree(agents: AgentTimelineData['agents']): AgentWithChildren[] {
+  const map = new Map<string, AgentWithChildren>()
+  for (const a of agents) {
+    map.set(a.agentId, { ...a, children: [] })
+  }
+  const roots: AgentWithChildren[] = []
+  for (const node of map.values()) {
+    if (node.parentAgentId && map.has(node.parentAgentId)) {
+      map.get(node.parentAgentId)!.children.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+  return roots
+}
+
+function AgentTree({
+  node,
+  activeFilters,
+}: {
+  node: AgentWithChildren
+  activeFilters: Set<string>
+}) {
+  return (
+    <AgentCard agent={node} activeFilters={activeFilters}>
+      {node.children.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {node.children.map((child) => (
+            <AgentTree key={child.agentId} node={child} activeFilters={activeFilters} />
+          ))}
+        </div>
+      )}
+    </AgentCard>
   )
 }
 
@@ -120,6 +170,8 @@ export function AgentTimeline() {
     })
   }
 
+  const roots = buildTree(data.agents)
+
   return (
     <div className="flex h-full flex-col gap-0 overflow-hidden">
       {/* 필터 바 */}
@@ -141,10 +193,10 @@ export function AgentTimeline() {
           ))}
         </div>
       )}
-      {/* 에이전트 목록 */}
+      {/* 에이전트 트리 */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
-        {data.agents.map((agent) => (
-          <AgentCard key={agent.agentId} agent={agent} activeFilters={activeFilters} />
+        {roots.map((node) => (
+          <AgentTree key={node.agentId} node={node} activeFilters={activeFilters} />
         ))}
       </div>
     </div>

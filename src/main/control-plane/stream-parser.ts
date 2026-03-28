@@ -198,13 +198,15 @@ export class StreamParser extends EventEmitter {
       }
 
       case 'result': {
-        const costUsd = typeof (msg as Record<string, unknown>).total_cost_usd === 'number'
-          ? (msg as Record<string, unknown>).total_cost_usd as number
-          : undefined
-        const durationMs = typeof (msg as Record<string, unknown>).duration_ms === 'number'
-          ? (msg as Record<string, unknown>).duration_ms as number
-          : undefined
-        this.emit('turn_end', { costUsd, durationMs })
+        const r = msg as Record<string, unknown>
+        const costUsd = typeof r.total_cost_usd === 'number' ? r.total_cost_usd as number : undefined
+        const durationMs = typeof r.duration_ms === 'number' ? r.duration_ms as number : undefined
+        const durationApiMs = typeof r.duration_api_ms === 'number' ? r.duration_api_ms as number : undefined
+        const numTurns = typeof r.num_turns === 'number' ? r.num_turns as number : undefined
+        const usage = r.usage as Record<string, unknown> | undefined
+        const inputTokens = typeof usage?.input_tokens === 'number' ? usage.input_tokens as number : undefined
+        const outputTokens = typeof usage?.output_tokens === 'number' ? usage.output_tokens as number : undefined
+        this.emit('turn_end', { costUsd, durationMs, durationApiMs, numTurns, inputTokens, outputTokens })
         break
       }
 

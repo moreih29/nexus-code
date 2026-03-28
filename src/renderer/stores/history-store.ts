@@ -2,6 +2,7 @@ import log from 'electron-log/renderer'
 import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
 import type { SessionInfo, ListSessionsResponse, LoadSessionResponse } from '../../shared/types'
+import { useSettingsStore } from './settings-store'
 
 interface HistoryState {
   sessions: SessionInfo[]
@@ -33,8 +34,10 @@ export const useHistoryStore = create<HistoryState>((set) => ({
 
   resumeSession: async (sessionId: string) => {
     try {
+      const notificationsEnabled = useSettingsStore.getState().notificationsEnabled
       const res = await window.electronAPI.invoke<LoadSessionResponse>(IpcChannel.LOAD_SESSION, {
         sessionId,
+        notificationsEnabled,
       })
       if (res.ok) {
         set({ activeSessionId: sessionId })

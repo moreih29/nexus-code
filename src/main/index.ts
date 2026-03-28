@@ -57,6 +57,15 @@ hookServer.on('pre-tool-use', (payload) => {
   )
 })
 
+// HookServer subagent-lifecycle → AgentTracker 연결
+hookServer.on('subagent-lifecycle', (payload) => {
+  if (payload.event === 'start') {
+    agentTracker.onSubagentStart(payload.agentId, payload.agentType)
+  } else {
+    agentTracker.onSubagentStop(payload.agentId)
+  }
+})
+
 app.whenReady().then(async () => {
   const permanentRules = await loadPermanentRules()
   permissionHandler.setPermanentRules(permanentRules)
