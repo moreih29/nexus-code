@@ -9,17 +9,28 @@ export const AVAILABLE_MODELS = [
 
 export type ModelId = (typeof AVAILABLE_MODELS)[number]
 export type PermissionMode = 'auto' | 'default'
-export type Theme = 'terracotta'
+export type Theme = 'terracotta' | 'github-dark' | 'amethyst' | 'rose-pine' | 'nord' | 'midnight-green'
+
+export const THEMES: { id: Theme; label: string; swatches: [string, string, string] }[] = [
+  { id: 'terracotta', label: 'Terracotta', swatches: ['#0d0d0d', '#cc785c', '#1c1a18'] },
+  { id: 'github-dark', label: 'GitHub Dark', swatches: ['#0d1117', '#1f6feb', '#161b22'] },
+  { id: 'amethyst', label: 'Amethyst', swatches: ['#110d19', '#a855f6', '#1a1624'] },
+  { id: 'rose-pine', label: 'Rosé Pine', swatches: ['#191724', '#c4a7e7', '#1f1d2e'] },
+  { id: 'nord', label: 'Nord', swatches: ['#1f2430', '#88c0d0', '#232b3a'] },
+  { id: 'midnight-green', label: 'Midnight Green', swatches: ['#0e1516', '#2dc57a', '#171f1e'] },
+]
 export type ToolDensity = 'compact' | 'normal' | 'verbose'
 
 const STORAGE_KEY_NOTIFICATIONS = 'nexus:notificationsEnabled'
 const STORAGE_KEY_THEME = 'nexus:theme'
 const STORAGE_KEY_TOOL_DENSITY = 'nexus:toolDensity'
 
+const VALID_THEMES: Theme[] = ['terracotta', 'github-dark', 'amethyst', 'rose-pine', 'nord', 'midnight-green']
+
 function readTheme(): Theme {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_THEME)
-    if (raw === 'terracotta') return raw
+    if (raw && VALID_THEMES.includes(raw as Theme)) return raw as Theme
     return 'terracotta'
   } catch {
     return 'terracotta'

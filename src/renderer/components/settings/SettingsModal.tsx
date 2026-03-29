@@ -6,7 +6,7 @@ import type {
   ReadSettingsResponse,
   WriteSettingsResponse,
 } from '../../../shared/types'
-import { useSettingsStore, AVAILABLE_MODELS, type ModelId, type PermissionMode, type ToolDensity } from '../../stores/settings-store'
+import { useSettingsStore, AVAILABLE_MODELS, THEMES, type ModelId, type PermissionMode, type ToolDensity } from '../../stores/settings-store'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -177,7 +177,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { model, setModel, notificationsEnabled, setNotificationsEnabled, toolDensity, setToolDensity } = useSettingsStore()
+  const { model, setModel, notificationsEnabled, setNotificationsEnabled, toolDensity, setToolDensity, theme, setTheme } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<Tab>('general')
 
   const [globalSettings, setGlobalSettings] = useState<ClaudeSettings>({})
@@ -355,14 +355,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                   <section>
                     <SectionLabel>테마</SectionLabel>
-                    <div className="flex gap-2">
-                      {(['terracotta'] as const).map((t) => (
+                    <div className="grid grid-cols-3 gap-2">
+                      {THEMES.map((t) => (
                         <button
-                          key={t}
-                          disabled
-                          className="rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm text-primary"
+                          key={t.id}
+                          onClick={() => setTheme(t.id)}
+                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                            theme === t.id
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                          }`}
                         >
-                          {t}
+                          <span className="flex gap-0.5">
+                            {t.swatches.map((color, i) => (
+                              <span
+                                key={i}
+                                className="h-3 w-3 rounded-full border border-white/10"
+                                style={{ backgroundColor: color }}
+                              />
+                            ))}
+                          </span>
+                          <span className="text-xs">{t.label}</span>
                         </button>
                       ))}
                     </div>
