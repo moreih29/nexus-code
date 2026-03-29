@@ -8,3 +8,5 @@
 - **영향**: UI 표시 문제만. 기능 동작에는 영향 없음.
 - **재현**: 워크스페이스 선택 → 이전 세션 대화 표시 시 도구 블록 확인.
 - **관련 파일**: session-store.ts (restoreSession), ToolRenderer.tsx (resolveStatus)
+- **해결**: Phase 7에서 수정. restoreSession에서 result === undefined인 toolCall에 빈 문자열 할당하여 resolveStatus가 'done' 반환하도록 보정.
+- **해결일**: 2026-03-29

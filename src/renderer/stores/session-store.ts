@@ -339,7 +339,10 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
             id: `history-${i}`,
             role: m.role as 'user' | 'assistant',
             content: m.content,
-            toolCalls: m.toolCalls,
+            toolCalls: m.toolCalls?.map(tc => ({
+              ...tc,
+              result: tc.result ?? '',
+            })),
             timestamp: m.timestamp,
           })),
         })

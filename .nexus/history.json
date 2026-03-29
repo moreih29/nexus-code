@@ -226,6 +226,135 @@
           "created_at": "2026-03-29T12:55:50.311Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-29T14:02:16.844Z",
+      "branch": "feat/phase7-themes",
+      "consult": {
+        "topic": "Phase 7 — 테마 확장 + 툴 상태 버그 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "테마 CSS 구조 — 6개 테마 변수를 단일 파일에 넣을지 분리할지, 변수 일관성 관리",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "테마 선택 UI — 설정 화면에서 어떻게 선택/미리보기할지 (색상 스와치, 라이브 전환 등)",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "툴 상태 '실행 중' 버그 — restoreSession 시 result 미매칭 toolCall 처리 전략",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "Nexus 전용 IPC(B안). PluginHost 우회하여 NexusPanel이 직접 .nexus/state/*.json을 읽는 전용 IPC 채널 추가. 워크스페이스 선택만으로 데이터 즉시 로드. 세션 상태에 영향 없음. file-watch도 독립적 설정.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "워크스페이스 전환 문제는 이번에 안 건드림(A안). Phase 8로 미룸. 이번 Phase에서는 Nexus 전용 IPC만 추가.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "단일 파일(app.css)에 6개 테마 CSS 변수 블록 모두 정의. @theme 블록은 공유. 테마 10개 이상 확장 시 파일 분리 재검토.",
+          "consult": 1
+        },
+        {
+          "id": 4,
+          "summary": "색상 스와치(background/primary/card 3색) + 테마 이름 버튼. 클릭 즉시 라이브 전환. 스와치 데이터는 JS 상수로 관리.",
+          "consult": 2
+        },
+        {
+          "id": 5,
+          "summary": "restoreSession에서 보정(A안). 히스토리 로드 시 result === undefined인 toolCall에 빈 문자열 할당. 데이터 레벨에서 해결, 하위 컴포넌트 변경 불필요.",
+          "consult": 3
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "5개 테마 CSS 변수 추가",
+          "context": "app.css에 GitHub Dark, Amethyst, Rosé Pine, Nord, Midnight Green 테마 CSS 변수 블록 추가. 기존 Terracotta 블록과 동일한 17개 변수 구조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            3
+          ],
+          "owner": "engineer-theme",
+          "created_at": "2026-03-29T13:43:56.066Z"
+        },
+        {
+          "id": 2,
+          "title": "Theme 타입 확장 + 스와치 데이터",
+          "context": "settings-store.ts의 Theme 타입을 6개로 확장. readTheme 검증 로직 업데이트. 스와치 미리보기용 색상 상수(background/primary/card 3색) 정의.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            3,
+            4
+          ],
+          "owner": "engineer-theme",
+          "created_at": "2026-03-29T13:43:58.725Z"
+        },
+        {
+          "id": 3,
+          "title": "테마 선택 UI 구현",
+          "context": "SettingsModal.tsx의 테마 섹션을 색상 스와치 + 이름 버튼으로 교체. 클릭 즉시 라이브 전환. 현재 disabled 버튼 1개 → 6개 스와치 버튼.",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "decisions": [
+            4
+          ],
+          "owner": "engineer-theme",
+          "created_at": "2026-03-29T13:44:01.085Z"
+        },
+        {
+          "id": 4,
+          "title": "툴 상태 버그 수정",
+          "context": "session-store.ts restoreSession에서 로드된 toolCall 중 result === undefined인 항목에 빈 문자열 할당. known-bugs.md에서 해당 항목 resolved 처리.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            5
+          ],
+          "owner": "engineer-bugfix",
+          "created_at": "2026-03-29T13:44:03.140Z"
+        },
+        {
+          "id": 5,
+          "title": "QA 스와치 색상 보정",
+          "context": "Nord swatch[0] #2e3440 → #1f2430, swatch[2] #3b4252 → #232b3a. Midnight Green swatch[1] #26a269 → #2dc57a, swatch[0] #0d1714 → #0e1516, swatch[2] #152520 → #171f1e. CSS 변수 실제 색상과 일치시키기.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            4
+          ],
+          "owner": "lead",
+          "created_at": "2026-03-29T13:48:52.701Z"
+        },
+        {
+          "id": 6,
+          "title": "GitHub Dark 테마 실제 색상으로 보정",
+          "context": "app.css의 github-dark 테마 CSS 변수를 실제 GitHub Dark 색상으로 교체. settings-store.ts 스와치도 갱신.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            3
+          ],
+          "owner": "lead",
+          "created_at": "2026-03-29T13:52:28.223Z"
+        }
+      ]
     }
   ]
 }
