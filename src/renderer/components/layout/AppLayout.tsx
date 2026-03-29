@@ -5,6 +5,9 @@ import { MainPanel } from './MainPanel'
 import { RightPanel } from './RightPanel'
 import { CommandPalette } from '../shared/CommandPalette'
 import { SettingsModal } from '../settings/SettingsModal'
+import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
+
+const DENSITY_CYCLE: ToolDensity[] = ['compact', 'normal', 'verbose']
 
 function ResizeHandle({ onDoubleClick }: { onDoubleClick?: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -44,6 +47,14 @@ export function AppLayout() {
         } else {
           sidebarRef.current?.collapse()
         }
+      }
+
+      if (modKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault()
+        const current = useSettingsStore.getState().toolDensity
+        const idx = DENSITY_CYCLE.indexOf(current)
+        const next = DENSITY_CYCLE[(idx + 1) % DENSITY_CYCLE.length]
+        useSettingsStore.getState().setToolDensity(next)
       }
 
       if (e.key === 'Escape') {

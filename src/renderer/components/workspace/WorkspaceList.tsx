@@ -1,10 +1,10 @@
-import { useEffect } from 'react'
+import { memo, useEffect } from 'react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useHistoryStore } from '../../stores/history-store'
 import { WorkspaceItem } from './WorkspaceItem'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 
-export function WorkspaceList() {
+export const WorkspaceList = memo(function WorkspaceList() {
   const { workspaces, loading, loadWorkspaces } = useWorkspaceStore()
   const loadSessions = useHistoryStore((s) => s.loadSessions)
 
@@ -40,4 +40,4 @@ export function WorkspaceList() {
       </div>
     </div>
   )
-}
+})

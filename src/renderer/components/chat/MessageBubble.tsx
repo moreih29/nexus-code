@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ToolRenderer } from './ToolRenderer'
 import type { Message } from '../../stores/session-store'
@@ -14,7 +15,7 @@ interface MessageBubbleProps {
 const HIDDEN_TOOLS = new Set(['TodoWrite', 'AskUserQuestion'])
 const CODE_CHANGE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 
-export function MessageBubble({ message, checkpointRef }: MessageBubbleProps) {
+function MessageBubbleInner({ message, checkpointRef }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
   // assistant 메시지에서 표시할 toolCalls 필터링
@@ -34,7 +35,7 @@ export function MessageBubble({ message, checkpointRef }: MessageBubbleProps) {
         className={[
           'max-w-[80%] rounded-2xl px-4 py-3 text-sm',
           isUser
-            ? 'bg-blue-600 text-white'
+            ? 'bg-primary text-primary-foreground'
             : 'bg-muted text-foreground',
         ].join(' ')}
       >
@@ -55,6 +56,13 @@ export function MessageBubble({ message, checkpointRef }: MessageBubbleProps) {
     </div>
   )
 }
+
+export const MessageBubble = memo(MessageBubbleInner, (prev, next) =>
+  prev.message.id === next.message.id &&
+  prev.message.content === next.message.content &&
+  prev.message.toolCalls?.length === next.message.toolCalls?.length &&
+  prev.checkpointRef === next.checkpointRef
+)
 
 function RestoreButton({ checkpointRef, timestamp }: { checkpointRef: string; timestamp: number }) {
   const { restoreCheckpoint, isRestoring } = useCheckpointStore()

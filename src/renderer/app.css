@@ -35,28 +35,35 @@
 }
 
 @layer base {
-  :root {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 93%;
-    --card: 0 0% 11%;
-    --card-foreground: 0 0% 93%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 93%;
-    --primary: 217 91% 60%;
+  :root,
+  [data-theme="terracotta"] {
+    --background: 0 0% 5.1%;
+    --foreground: 30 10% 91%;
+    --card: 24 6% 10%;
+    --card-foreground: 30 10% 91%;
+    --popover: 0 0% 5.1%;
+    --popover-foreground: 30 10% 91%;
+    --primary: 18 56% 58%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 93%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 25%;
-    --accent-foreground: 0 0% 93%;
+    --secondary: 24 5% 15%;
+    --secondary-foreground: 30 10% 91%;
+    --muted: 24 5% 15%;
+    --muted-foreground: 0 0% 53%;
+    --accent: 24 5% 22%;
+    --accent-foreground: 30 10% 91%;
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 93%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --destructive-foreground: 30 10% 91%;
+    --border: 24 7% 16%;
+    --input: 24 7% 16%;
+    --ring: 18 56% 58%;
     --radius: 0.5rem;
     --dim-foreground: 0 0% 40%;
+    --success: 142 69% 58%;
+    --success-foreground: 0 0% 100%;
+    --error: 0 79% 63%;
+    --error-foreground: 0 0% 100%;
+    --warning: 43 96% 56%;
+    --warning-foreground: 0 0% 10%;
   }
 }
 
@@ -81,5 +88,11 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
   --color-dim-foreground: hsl(var(--dim-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-error: hsl(var(--error));
+  --color-error-foreground: hsl(var(--error-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
   --radius: var(--radius);
 }

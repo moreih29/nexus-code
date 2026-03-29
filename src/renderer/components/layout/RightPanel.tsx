@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { NexusPanel } from '../plugins/NexusPanel'
 import { AgentTimeline } from '../plugins/AgentTimeline'
@@ -19,7 +20,7 @@ interface RightPanelProps {
   isCollapsed?: boolean
 }
 
-export function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
+export const RightPanel = memo(function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
   const activeTab = useRightPanelUIStore((s) => s.activeTab)
   const setActiveTab = useRightPanelUIStore((s) => s.setActiveTab)
 
@@ -55,7 +56,7 @@ export function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
             className={[
               'flex h-full flex-1 items-center justify-center text-xs font-medium transition-colors',
               activeTab === tab.id
-                ? 'border-b-2 border-blue-500 text-blue-400'
+                ? 'border-b-2 border-primary text-primary'
                 : 'text-muted-foreground hover:text-foreground',
             ].join(' ')}
           >
@@ -73,4 +74,4 @@ export function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
       </div>
     </aside>
   )
-}
+})

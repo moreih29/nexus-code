@@ -1,0 +1,119 @@
+{
+  "cycles": [
+    {
+      "completed_at": "2026-03-29T12:33:07.062Z",
+      "branch": "feat/phase5-foundation",
+      "consult": {
+        "topic": "Phase 5 구현 세부 설계",
+        "issues": [
+          {
+            "id": 1,
+            "title": "테마 인프라 설계 — CSS 변수 구조 + 테마 전환 메커니즘 + 파일 구성",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "Compact 모드 디자인 — 완료 블록 축약 형태 + 모드 전환 UI 위치 + 저장 범위",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "성능 최적화 실행 순서 — streamBuffer 디바운스 주기 + memo 적용 범위 + 가상 스크롤 임계값",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "테마 인프라: CSS 파일 분리(A안) + data-theme 속성 전환. 파일 구성: themes/terracotta.css 등 분리. 상태 색상(success/error/warning)은 6개 테마 공통 유지, Tailwind 직접 참조를 CSS 변수(--success, --error, --warning)로 래핑. 현행 플랫 구조에 상태 색상 변수 추가.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "Compact 모드: 완료 블록은 인라인 한 줄(A안, ~24px, \"✓ Read src/main/index.ts\"). 클릭 시 해당 블록만 펼침. 모드 전환: ChatPanel 헤더 아이콘 토글 + 키보드 단축키(Cmd+Shift+D) 병행. 저장 범위: 글로벌 (settings-store).",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "성능 최적화: streamBuffer 디바운스 50ms. React.memo 적용 순서: 1순위(MessageBubble, ToolCard) → 2순위(Sidebar/WorkspaceList, RightPanel 탭) → 3순위(StatusBar, ChatInput). useMemo(sorted), checkpointRef 사전 계산, toolCall Map 인덱싱 포함. 가상 스크롤은 이번 Phase에서 제외 — 실사용 피드백 후 도입.",
+          "consult": 3
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: 테마 인프라 기반",
+          "context": "app.css: (1) 현행 :root를 [data-theme=\"terracotta\"]로 전환, (2) 상태 색상 CSS 변수 추가 (--success, --error, --warning + foreground), (3) Terracotta 색상값 적용 (#0d0d0d 배경, #e8e6e1 텍스트, #cc785c 강조). settings-store.ts: theme + toolDensity 상태 추가, localStorage 영속화. main.tsx: document.documentElement.setAttribute('data-theme', ...) 초기화.",
+          "status": "pending",
+          "deps": [],
+          "decisions": [
+            1,
+            2
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-29T12:22:41.329Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: session-store 성능 최적화",
+          "context": "session-store.ts: (1) appendTextChunk 50ms 디바운스 — streamBuffer 즉시 갱신, messages 배열 갱신만 50ms 지연. (2) toolCallIndex: Map&lt;toolUseId, messageIndex&gt; 도입 — addToolCall 시 Map 구축, resolveToolCall O(1) 조회. removeMessagesAfter에서 Map 정리 포함.",
+          "status": "pending",
+          "deps": [],
+          "decisions": [
+            3
+          ],
+          "owner": "engineer-2",
+          "created_at": "2026-03-29T12:22:44.884Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: ChatPanel useMemo + React.memo 1순위",
+          "context": "ChatPanel.tsx: (1) sorted 배열을 useMemo로 감싸기 (deps: [messages, systemEvents]), (2) checkpointRef 사전 계산을 useMemo 내부로 이동. MessageBubble.tsx: React.memo() 래핑 + props 비교 함수 (message.id + content.length + toolCalls?.length). T2 완료 후 진행 (store 변경이 memo에 영향).",
+          "status": "pending",
+          "deps": [
+            2
+          ],
+          "decisions": [
+            3
+          ],
+          "owner": "engineer-2",
+          "created_at": "2026-03-29T12:22:48.945Z"
+        },
+        {
+          "id": 4,
+          "title": "T4: ToolRenderer 리팩토링 — 색상 변수화 + Compact/Verbose + memo",
+          "context": "ToolRenderer.tsx: (1) 하드코딩 색상(blue-/green-/red- 12곳+) → CSS 변수 기반 교체, (2) ToolCard에 density prop, compact 모드 early return (done 상태: 인라인 한 줄 ~24px, 아이콘+name+summary), verbose 모드 result 기본 펼침, running/error는 항상 Normal 이상, (3) ToolCard React.memo. StatusBar.tsx: 상태 색상 하드코딩 교체. MessageBubble.tsx: user bubble bg-blue-600 → var(--primary) 교체. T1 완료 후 진행 (CSS 변수 존재 필요).",
+          "status": "pending",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            1,
+            2
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-29T12:22:54.498Z"
+        },
+        {
+          "id": 5,
+          "title": "T5: UI 마무리 — 설정/토글/키바인딩 + React.memo 2순위",
+          "context": "SettingsModal.tsx: 테마 선택 + 밀도 모드 UI 추가. ChatPanel.tsx: 헤더 영역에 밀도 토글 아이콘 버튼 (Compact/Normal/Verbose 순환). AppLayout.tsx: Cmd+Shift+D 키바인딩 추가 (밀도 순환). React.memo 2순위: Sidebar.tsx, WorkspaceList.tsx, RightPanel.tsx 래핑.",
+          "status": "completed",
+          "deps": [
+            1,
+            3,
+            4
+          ],
+          "decisions": [
+            1,
+            2,
+            3
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-29T12:22:58.355Z"
+        }
+      ]
+    }
+  ]
+}

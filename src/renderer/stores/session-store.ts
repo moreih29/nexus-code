@@ -79,6 +79,12 @@ const nextId = (): string => `msg-${++msgCounter}`
 let evtCounter = 0
 const nextEvtId = (): string => `evt-${++evtCounter}`
 
+// appendTextChunk 디바운스용 모듈 레벨 상태
+let _textBuffer = ''
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null
+// toolUseId → messages 배열 인덱스 (O(1) resolveToolCall 조회)
+const _toolCallIndex = new Map<string, number>()
+
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessionId: null,
@@ -103,32 +109,74 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     })),
 
   appendTextChunk: (text) => {
-    set((s) => {
-      const newBuffer = s.streamBuffer + text
-      const lastMsg = s.messages[s.messages.length - 1]
+    // 텍스트 버퍼에 즉시 누적
+    _textBuffer += text
 
-      if (lastMsg?.role === 'assistant' && !lastMsg.toolCalls?.length) {
-        return {
-          streamBuffer: newBuffer,
-          messages: s.messages.map((m, i) =>
-            i === s.messages.length - 1 ? { ...m, content: newBuffer } : m,
-          ),
+    // 기존 타이머 취소 후 50ms 디바운스로 messages 갱신
+    if (_debounceTimer !== null) {
+      clearTimeout(_debounceTimer)
+    }
+    _debounceTimer = setTimeout(() => {
+      _debounceTimer = null
+      const buffered = _textBuffer
+      set((s) => {
+        const newBuffer = s.streamBuffer + buffered
+        // 버퍼를 소비했으므로 초기화 (다음 청크가 쌓이기 전)
+        _textBuffer = ''
+        const lastMsg = s.messages[s.messages.length - 1]
+
+        if (lastMsg?.role === 'assistant' && !lastMsg.toolCalls?.length) {
+          return {
+            streamBuffer: newBuffer,
+            messages: s.messages.map((m, i) =>
+              i === s.messages.length - 1 ? { ...m, content: newBuffer } : m,
+            ),
+          }
+        } else {
+          return {
+            streamBuffer: newBuffer,
+            messages: [
+              ...s.messages,
+              { id: nextId(), role: 'assistant', content: newBuffer, timestamp: Date.now() },
+            ],
+          }
         }
-      } else {
-        return {
-          streamBuffer: newBuffer,
-          messages: [
-            ...s.messages,
-            { id: nextId(), role: 'assistant', content: newBuffer, timestamp: Date.now() },
-          ],
-        }
-      }
-    })
+      })
+    }, 50)
   },
 
   flushStreamBuffer: () => set({ streamBuffer: '' }),
 
   addToolCall: (event) => {
+    // 디바운스된 청크가 있다면 즉시 flush
+    if (_debounceTimer !== null) {
+      clearTimeout(_debounceTimer)
+      _debounceTimer = null
+      const buffered = _textBuffer
+      _textBuffer = ''
+      set((s) => {
+        if (!buffered) return s
+        const newBuffer = s.streamBuffer + buffered
+        const lastMsg = s.messages[s.messages.length - 1]
+        if (lastMsg?.role === 'assistant' && !lastMsg.toolCalls?.length) {
+          return {
+            streamBuffer: newBuffer,
+            messages: s.messages.map((m, i) =>
+              i === s.messages.length - 1 ? { ...m, content: newBuffer } : m,
+            ),
+          }
+        } else {
+          return {
+            streamBuffer: newBuffer,
+            messages: [
+              ...s.messages,
+              { id: nextId(), role: 'assistant', content: newBuffer, timestamp: Date.now() },
+            ],
+          }
+        }
+      })
+    }
+
     set((s) => {
       const lastMsg = s.messages[s.messages.length - 1]
       const toolCall: ToolCallRecord = {
@@ -138,15 +186,19 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       }
 
       if (lastMsg?.role === 'assistant') {
+        const msgIndex = s.messages.length - 1
+        _toolCallIndex.set(event.toolUseId, msgIndex)
         return {
           streamBuffer: '',
           messages: s.messages.map((m, i) =>
-            i === s.messages.length - 1
+            i === msgIndex
               ? { ...m, toolCalls: [...(m.toolCalls ?? []), toolCall] }
               : m,
           ),
         }
       } else {
+        const msgIndex = s.messages.length
+        _toolCallIndex.set(event.toolUseId, msgIndex)
         return {
           streamBuffer: '',
           messages: [
@@ -165,18 +217,34 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   resolveToolCall: (toolUseId, content, isError) =>
-    set((s) => ({
-      messages: s.messages.map((m) =>
-        m.toolCalls?.some((tc) => tc.toolUseId === toolUseId)
-          ? {
-              ...m,
-              toolCalls: m.toolCalls.map((tc) =>
-                tc.toolUseId === toolUseId ? { ...tc, result: content, isError } : tc,
-              ),
-            }
-          : m,
-      ),
-    })),
+    set((s) => {
+      const msgIndex = _toolCallIndex.get(toolUseId)
+      if (msgIndex === undefined) {
+        // fallback: 선형 탐색
+        return {
+          messages: s.messages.map((m) =>
+            m.toolCalls?.some((tc) => tc.toolUseId === toolUseId)
+              ? {
+                  ...m,
+                  toolCalls: m.toolCalls.map((tc) =>
+                    tc.toolUseId === toolUseId ? { ...tc, result: content, isError } : tc,
+                  ),
+                }
+              : m,
+          ),
+        }
+      }
+      const messages = s.messages.slice()
+      const msg = messages[msgIndex]
+      if (!msg?.toolCalls) return s
+      messages[msgIndex] = {
+        ...msg,
+        toolCalls: msg.toolCalls.map((tc) =>
+          tc.toolUseId === toolUseId ? { ...tc, result: content, isError } : tc,
+        ),
+      }
+      return { messages }
+    }),
 
   addSystemEvent: (event) =>
     set((s) => ({
@@ -184,10 +252,19 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     })),
 
   removeMessagesAfter: (timestamp) =>
-    set((s) => ({
-      messages: s.messages.filter((m) => m.timestamp <= timestamp),
-      systemEvents: s.systemEvents.filter((e) => e.timestamp <= timestamp),
-    })),
+    set((s) => {
+      const filteredMessages = s.messages.filter((m) => m.timestamp <= timestamp)
+      // toolCallIndex에서 제거된 메시지의 엔트리 삭제
+      for (const [toolUseId, idx] of _toolCallIndex) {
+        if (idx >= filteredMessages.length) {
+          _toolCallIndex.delete(toolUseId)
+        }
+      }
+      return {
+        messages: filteredMessages,
+        systemEvents: s.systemEvents.filter((e) => e.timestamp <= timestamp),
+      }
+    }),
 
   setLastTurnStats: (stats) => set({ lastTurnStats: stats }),
 
@@ -222,6 +299,10 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   reset: () => {
+    // 디바운스/인덱스 상태 초기화
+    _toolCallIndex.clear()
+    _textBuffer = ''
+    if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null }
     // 순환 의존성 방지: lazy import로 pluginStore 접근
     import('./plugin-store').then(({ usePluginStore }) => {
       usePluginStore.getState().clear()

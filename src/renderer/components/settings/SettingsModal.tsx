@@ -6,7 +6,7 @@ import type {
   ReadSettingsResponse,
   WriteSettingsResponse,
 } from '../../../shared/types'
-import { useSettingsStore, AVAILABLE_MODELS, type ModelId, type PermissionMode } from '../../stores/settings-store'
+import { useSettingsStore, AVAILABLE_MODELS, type ModelId, type PermissionMode, type ToolDensity } from '../../stores/settings-store'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -113,7 +113,7 @@ function EnvEditor({
     <div className="flex flex-col gap-1">
       {entries.map(([k, v]) => (
         <div key={k} className="flex items-center gap-2 rounded bg-muted px-3 py-1.5">
-          <span className="w-40 shrink-0 truncate text-sm font-medium text-blue-300">{k}</span>
+          <span className="w-40 shrink-0 truncate text-sm font-medium text-primary">{k}</span>
           <span className="flex-1 truncate text-sm text-foreground">{v}</span>
           <button onClick={() => remove(k)} className="text-muted-foreground hover:text-foreground">
             <Trash2 size={14} />
@@ -160,7 +160,7 @@ function Toggle({
       type="button"
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
-        checked ? 'bg-blue-600' : 'bg-muted'
+        checked ? 'bg-primary' : 'bg-muted'
       }`}
     >
       <span
@@ -177,7 +177,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { model, setModel, notificationsEnabled, setNotificationsEnabled } = useSettingsStore()
+  const { model, setModel, notificationsEnabled, setNotificationsEnabled, toolDensity, setToolDensity } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<Tab>('general')
 
   const [globalSettings, setGlobalSettings] = useState<ClaudeSettings>({})
@@ -320,7 +320,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               onClick={() => setActiveTab(tab.id)}
               className={`rounded-t px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'border-b-2 border-blue-500 text-blue-400'
+                  ? 'border-b-2 border-primary text-primary'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -354,6 +354,43 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
+                    <SectionLabel>테마</SectionLabel>
+                    <div className="flex gap-2">
+                      {(['terracotta'] as const).map((t) => (
+                        <button
+                          key={t}
+                          disabled
+                          className="rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm text-primary"
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section>
+                    <SectionLabel>도구 표시 밀도</SectionLabel>
+                    <div className="flex gap-2">
+                      {(['compact', 'normal', 'verbose'] as ToolDensity[]).map((d) => (
+                        <button
+                          key={d}
+                          onClick={() => setToolDensity(d)}
+                          className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                            toolDensity === d
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                          }`}
+                        >
+                          {d === 'compact' ? '간략' : d === 'normal' ? '보통' : '상세'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-dim-foreground">
+                      간략: 완료된 도구를 한 줄로 · 보통: 접힘/펼침 · 상세: 결과 기본 펼침
+                    </p>
+                  </section>
+
+                  <section>
                     <SectionLabel>언어 (language)</SectionLabel>
                     <input
                       type="text"
@@ -378,7 +415,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             value={level}
                             checked={effortLevel === level}
                             onChange={(e) => setEffortLevel(e.target.value)}
-                            className="accent-blue-500"
+                            className="accent-primary"
                           />
                           {level}
                         </label>
@@ -400,7 +437,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             value={mode}
                             checked={teammateMode === mode}
                             onChange={(e) => setTeammateMode(e.target.value)}
-                            className="accent-blue-500"
+                            className="accent-primary"
                           />
                           {mode}
                         </label>
@@ -481,7 +518,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               onChange={() =>
                                 setEnabledPlugins((prev) => ({ ...prev, [id]: !prev[id] }))
                               }
-                              className="accent-blue-500"
+                              className="accent-primary"
                             />
                             {id}
                           </label>

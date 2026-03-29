@@ -16,9 +16,9 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
       {preview.map((todo, idx) => (
         <div key={idx} className="flex items-center gap-2 text-sm">
           {todo.status === 'completed' ? (
-            <Check className="h-3.5 w-3.5 shrink-0 text-green-500" />
+            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
           ) : todo.status === 'in_progress' ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
           ) : (
             <Minus className="h-3.5 w-3.5 shrink-0 text-dim-foreground" />
           )}
@@ -38,7 +38,7 @@ function TodoChecklist({ todos }: { todos: TodoItem[] }) {
       {remaining > 0 && (
         <button
           onClick={() => setActiveTab('nexus')}
-          className="self-start pl-5 text-xs text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors"
+          className="self-start pl-5 text-xs text-primary hover:text-primary/80 hover:underline cursor-pointer transition-colors"
         >
           {remaining}개 더 보기 →
         </button>
@@ -96,7 +96,7 @@ export function StatusBar() {
       {hasAskQuestion && askQuestion && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-sm text-foreground">
-            <Circle className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
+            <Circle className="h-3.5 w-3.5 shrink-0 text-warning" />
             <span>{askQuestion.question}</span>
           </div>
           {askQuestion.options.length > 0 && (
@@ -105,7 +105,7 @@ export function StatusBar() {
                 <button
                   key={idx}
                   onClick={() => { sendResponse(`[AskUserQuestion] ${askQuestion.question} → ${opt}`); setAskQuestion(null) }}
-                  className="rounded border border-blue-700/60 bg-blue-950/40 px-2 py-0.5 text-xs text-blue-300 hover:bg-blue-900/60 hover:border-blue-500 cursor-pointer transition-colors"
+                  className="rounded border border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.1)] px-2 py-0.5 text-xs text-primary hover:bg-[hsl(var(--primary)/0.2)] hover:border-primary cursor-pointer transition-colors"
                 >
                   {opt}
                 </button>

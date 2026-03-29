@@ -1,16 +1,29 @@
 import log from 'electron-log/renderer'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlignJustify, AlignLeft, List } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment, CheckpointCreateResponse } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useSessionStore } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
-import { useSettingsStore } from '../../stores/settings-store'
+import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { StatusBar } from './StatusBar'
 import { PermissionList } from '../permission/PermissionList'
+
+const DENSITY_CYCLE: ToolDensity[] = ['compact', 'normal', 'verbose']
+const DENSITY_ICONS = {
+  compact: AlignLeft,
+  normal: List,
+  verbose: AlignJustify,
+}
+const DENSITY_LABELS = {
+  compact: '간략',
+  normal: '보통',
+  verbose: '상세',
+}
 
 export function ChatPanel() {
   const sessionId = useSessionStore((s) => s.sessionId)
@@ -23,9 +36,37 @@ export function ChatPanel() {
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
   const { reset: resetCheckpoints } = useCheckpointStore()
   const permissionMode = useSettingsStore((s) => s.permissionMode)
+  const toolDensity = useSettingsStore((s) => s.toolDensity)
+  const setToolDensity = useSettingsStore((s) => s.setToolDensity)
   const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [isGitRepo, setIsGitRepo] = useState(true)
+
+  // sorted 아이템 + checkpointRef 사전 계산 (messages/systemEvents 변경 시에만 재계산)
+  type SortedItem =
+    | { kind: 'message'; timestamp: number; data: (typeof messages)[number]; checkpointRef?: string }
+    | { kind: 'event'; timestamp: number; data: (typeof systemEvents)[number]; checkpointRef?: undefined }
+
+  const sortedWithCheckpoints = useMemo((): SortedItem[] => {
+    const sorted: SortedItem[] = [
+      ...messages.map((m) => ({ kind: 'message' as const, timestamp: m.timestamp, data: m, checkpointRef: undefined as string | undefined })),
+      ...systemEvents.map((e) => ({ kind: 'event' as const, timestamp: e.timestamp, data: e, checkpointRef: undefined as undefined })),
+    ].sort((a, b) => a.timestamp - b.timestamp)
+
+    // 각 assistant 메시지의 checkpointRef 사전 계산
+    let lastUserCheckpointRef: string | undefined
+    for (const item of sorted) {
+      if (item.kind === 'message') {
+        if (item.data.role === 'user') {
+          lastUserCheckpointRef = item.data.checkpointRef
+        } else {
+          item.checkpointRef = lastUserCheckpointRef
+        }
+      }
+    }
+
+    return sorted
+  }, [messages, systemEvents])
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -162,6 +203,21 @@ export function ChatPanel() {
         </div>
       )}
 
+      {/* Density toggle */}
+      <div className="flex shrink-0 items-center justify-end border-b border-border px-4 py-1.5">
+        <button
+          onClick={() => {
+            const idx = DENSITY_CYCLE.indexOf(toolDensity)
+            setToolDensity(DENSITY_CYCLE[(idx + 1) % DENSITY_CYCLE.length])
+          }}
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={DENSITY_LABELS[toolDensity]}
+        >
+          {(() => { const Icon = DENSITY_ICONS[toolDensity]; return <Icon size={14} /> })()}
+          <span>{DENSITY_LABELS[toolDensity]}</span>
+        </button>
+      </div>
+
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
@@ -174,42 +230,23 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {(() => {
-              const sorted = [
-                ...messages.map((m) => ({ kind: 'message' as const, timestamp: m.timestamp, data: m })),
-                ...systemEvents.map((e) => ({ kind: 'event' as const, timestamp: e.timestamp, data: e })),
-              ].sort((a, b) => a.timestamp - b.timestamp)
-
-              return sorted.map((item, idx) => {
-                if (item.kind === 'event') {
-                  return (
-                    <div key={item.data.id} className="relative flex items-center py-1">
-                      <div className="flex-1 border-t border-border" />
-                      <span className="mx-2 shrink-0 bg-background px-2 text-xs text-muted-foreground">
-                        {item.data.label}
-                      </span>
-                      <div className="flex-1 border-t border-border" />
-                    </div>
-                  )
-                }
-
-                // assistant 메시지의 경우 직전 user 메시지의 checkpointRef 전달
-                let checkpointRef: string | undefined
-                if (item.data.role === 'assistant') {
-                  for (let i = idx - 1; i >= 0; i--) {
-                    const prev = sorted[i]
-                    if (prev.kind === 'message' && prev.data.role === 'user') {
-                      checkpointRef = prev.data.checkpointRef
-                      break
-                    }
-                  }
-                }
-
+            {sortedWithCheckpoints.map((item) => {
+              if (item.kind === 'event') {
                 return (
-                  <MessageBubble key={item.data.id} message={item.data} checkpointRef={checkpointRef} />
+                  <div key={item.data.id} className="relative flex items-center py-1">
+                    <div className="flex-1 border-t border-border" />
+                    <span className="mx-2 shrink-0 bg-background px-2 text-xs text-muted-foreground">
+                      {item.data.label}
+                    </span>
+                    <div className="flex-1 border-t border-border" />
+                  </div>
                 )
-              })
-            })()}
+              }
+
+              return (
+                <MessageBubble key={item.data.id} message={item.data} checkpointRef={item.checkpointRef} />
+              )
+            })}
             {/* 에러 CTA */}
             {status === 'error' && (
               <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">

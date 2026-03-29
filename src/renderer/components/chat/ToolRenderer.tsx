@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { memo, useState, useEffect } from 'react'
 import type { ReactElement } from 'react'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import type { ToolCallRecord } from '../../stores/session-store'
+import type { ToolDensity } from '../../stores/settings-store'
+import { useSettingsStore } from '../../stores/settings-store'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../ui/collapsible'
 import { Badge } from '../ui/badge'
 import { cn } from '../../lib/utils'
@@ -22,10 +24,10 @@ function truncateLines(text: string, maxLines: number): { lines: string[]; total
 
 // ─── CollapsibleResult ───────────────────────────────────────────────────────
 
-function CollapsibleResult({ result }: { result: string }) {
+function CollapsibleResult({ result, defaultExpanded = false }: { result: string; defaultExpanded?: boolean }) {
   const MAX = 10
   const { lines, total } = truncateLines(result, MAX)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(defaultExpanded)
 
   const displayLines = expanded ? result.split('\n') : lines
   const hasMore = total > MAX
@@ -63,7 +65,7 @@ function StatusBadge({ status }: { status: Status }) {
   if (status === 'running') {
     return (
       <Badge
-        className="border-blue-700/50 bg-blue-950/60 text-blue-300 gap-1"
+        className="border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] gap-1"
         variant="outline"
       >
         <Loader2 className="size-3 animate-spin" />
@@ -73,13 +75,19 @@ function StatusBadge({ status }: { status: Status }) {
   }
   if (status === 'error') {
     return (
-      <Badge className="border-red-700/50 bg-red-950/60 text-red-300" variant="outline">
+      <Badge
+        className="border-[hsl(var(--error)/0.4)] bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]"
+        variant="outline"
+      >
         에러
       </Badge>
     )
   }
   return (
-    <Badge className="border-green-700/50 bg-green-950/60 text-green-300" variant="outline">
+    <Badge
+      className="border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
+      variant="outline"
+    >
       완료
     </Badge>
   )
@@ -87,29 +95,48 @@ function StatusBadge({ status }: { status: Status }) {
 
 // ─── ToolCard ─────────────────────────────────────────────────────────────────
 
-function ToolCard({
+const ToolCard = memo(function ToolCard({
   name,
   status,
   icon,
   summary,
+  density,
   children,
 }: {
   name: string
   status: Status
   icon?: string
   summary?: string
+  density: ToolDensity
   children: React.ReactNode
 }) {
-  // done 상태만 토글 가능, running/error는 강제 펼침
+  // running/error는 항상 Normal 이상으로 강제 펼침
   const forcedOpen = status === 'running' || status === 'error'
-  const [userToggled, setUserToggled] = useState(false)
+
+  // compact + done → 인라인 한 줄 early return
+  if (density === 'compact' && status === 'done') {
+    return (
+      <div className="mt-1 flex items-center gap-1.5 px-1 h-6 text-xs text-muted-foreground">
+        {icon && <span className="shrink-0">{icon}</span>}
+        <span className="font-mono text-[hsl(var(--primary))] shrink-0">{name}</span>
+        {summary && (
+          <span className="truncate min-w-0 text-dim-foreground">{summary}</span>
+        )}
+        <span className="ml-auto shrink-0">
+          <StatusBadge status={status} />
+        </span>
+      </div>
+    )
+  }
+
+  const [userToggled, setUserToggled] = useState(density === 'verbose')
 
   // status가 running/error → done으로 바뀌면 사용자 토글 초기화
   useEffect(() => {
     if (status === 'done') {
-      setUserToggled(false)
+      setUserToggled(density === 'verbose')
     }
-  }, [status])
+  }, [status, density])
 
   const isOpen = forcedOpen || (status === 'done' && userToggled)
 
@@ -124,7 +151,7 @@ function ToolCard({
       className={cn(
         'mt-2 rounded-lg border overflow-hidden',
         status === 'error'
-          ? 'border-red-700/50 bg-red-950/30'
+          ? 'border-[hsl(var(--error)/0.4)] bg-[hsl(var(--error)/0.08)]'
           : 'border-border bg-muted/40',
       )}
     >
@@ -132,12 +159,12 @@ function ToolCard({
         <div
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 border-b select-none',
-            status === 'error' ? 'border-red-700/30' : 'border-border/50',
+            status === 'error' ? 'border-[hsl(var(--error)/0.2)]' : 'border-border/50',
             !forcedOpen && 'cursor-pointer hover:bg-accent/30',
           )}
         >
           {icon && <span className="shrink-0">{icon}</span>}
-          <span className="font-mono text-xs text-blue-400 shrink-0">{name}</span>
+          <span className="font-mono text-xs text-[hsl(var(--primary))] shrink-0">{name}</span>
           {summary && !isOpen && (
             <span className="text-xs text-muted-foreground truncate min-w-0">{summary}</span>
           )}
@@ -159,7 +186,7 @@ function ToolCard({
       </CollapsibleContent>
     </Collapsible>
   )
-}
+})
 
 function resolveStatus(tc: ToolCallRecord): Status {
   if (tc.result === undefined) return 'running'
@@ -208,24 +235,26 @@ function grepSummary(tc: ToolCallRecord): string {
 
 // ─── individual renderers ─────────────────────────────────────────────────────
 
-function BashRenderer({ tc }: { tc: ToolCallRecord }) {
+function BashRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const command = str(tc.input.command)
   const description = tc.input.description ? str(tc.input.description) : undefined
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="Bash" status={status} icon="$" summary={bashSummary(tc)}>
+    <ToolCard name="Bash" status={status} icon="$" summary={bashSummary(tc)} density={density}>
       {description && <p className="text-muted-foreground mb-1">{description}</p>}
       <pre className="font-mono text-foreground whitespace-pre-wrap break-all">
         <span className="text-muted-foreground">$ </span>
         {command}
       </pre>
-      {tc.result !== undefined && <CollapsibleResult result={tc.result} />}
+      {tc.result !== undefined && (
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
+      )}
     </ToolCard>
   )
 }
 
-function ReadRenderer({ tc }: { tc: ToolCallRecord }) {
+function ReadRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const filePath = str(tc.input.file_path)
   const offset = tc.input.offset !== undefined ? Number(tc.input.offset) : undefined
   const limit = tc.input.limit !== undefined ? Number(tc.input.limit) : undefined
@@ -237,15 +266,17 @@ function ReadRenderer({ tc }: { tc: ToolCallRecord }) {
   else if (limit !== undefined) range = ` (first ${limit})`
 
   return (
-    <ToolCard name="Read" status={status} icon="📄" summary={readSummary(tc)}>
+    <ToolCard name="Read" status={status} icon="📄" summary={readSummary(tc)} density={density}>
       <span className="font-mono text-foreground">{filePath}</span>
       {range && <span className="text-muted-foreground">{range}</span>}
-      {tc.result !== undefined && <CollapsibleResult result={tc.result} />}
+      {tc.result !== undefined && (
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
+      )}
     </ToolCard>
   )
 }
 
-function WriteRenderer({ tc }: { tc: ToolCallRecord }) {
+function WriteRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const filePath = str(tc.input.file_path)
   const status = resolveStatus(tc)
   const lineCount =
@@ -256,44 +287,38 @@ function WriteRenderer({ tc }: { tc: ToolCallRecord }) {
         : undefined
 
   return (
-    <ToolCard name="Write" status={status} icon="✏️" summary={filePath}>
+    <ToolCard name="Write" status={status} icon="✏️" summary={filePath} density={density}>
       <span className="font-mono text-foreground">{filePath}</span>
       {lineCount !== undefined && (
         <p className="text-muted-foreground mt-0.5">{lineCount} lines</p>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function truncateText(text: string, maxLines = 3): { preview: string; truncated: boolean } {
-  const lines = text.split('\n')
-  if (lines.length <= maxLines) return { preview: text, truncated: false }
-  return { preview: lines.slice(0, maxLines).join('\n'), truncated: true }
-}
-
-function EditRenderer({ tc }: { tc: ToolCallRecord }) {
+function EditRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const filePath = str(tc.input.file_path)
   const oldString = str(tc.input.old_string)
   const newString = str(tc.input.new_string)
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="Edit" status={status} icon="✏️" summary={editSummary(tc)}>
+    <ToolCard name="Edit" status={status} icon="✏️" summary={editSummary(tc)} density={density}>
       <span className="font-mono text-foreground">{filePath}</span>
       <div className="mt-1.5">
         <DiffView oldString={oldString} newString={newString} />
       </div>
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
+function GlobRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const pattern = str(tc.input.pattern)
   const path = tc.input.path ? str(tc.input.path) : undefined
   const status = resolveStatus(tc)
@@ -306,7 +331,7 @@ function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
       : undefined
 
   return (
-    <ToolCard name="Glob" status={status} icon="🔍" summary={globSummary(tc)}>
+    <ToolCard name="Glob" status={status} icon="🔍" summary={globSummary(tc)} density={density}>
       <span className="font-mono text-foreground">{pattern}</span>
       {path && <span className="text-muted-foreground"> in {path}</span>}
       {resultSummary && <p className="text-muted-foreground mt-0.5">{resultSummary}</p>}
@@ -314,7 +339,7 @@ function GlobRenderer({ tc }: { tc: ToolCallRecord }) {
   )
 }
 
-function GrepRenderer({ tc }: { tc: ToolCallRecord }) {
+function GrepRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const pattern = str(tc.input.pattern)
   const path = tc.input.path ? str(tc.input.path) : undefined
   const status = resolveStatus(tc)
@@ -327,7 +352,7 @@ function GrepRenderer({ tc }: { tc: ToolCallRecord }) {
       : undefined
 
   return (
-    <ToolCard name="Grep" status={status} icon="🔍" summary={grepSummary(tc)}>
+    <ToolCard name="Grep" status={status} icon="🔍" summary={grepSummary(tc)} density={density}>
       <span className="font-mono text-foreground">"{pattern}"</span>
       {path && <span className="text-muted-foreground"> in {path}</span>}
       {resultSummary && <p className="text-muted-foreground mt-0.5">{resultSummary}</p>}
@@ -349,13 +374,13 @@ const TODO_ICONS: Record<string, string> = {
   pending: '☐',
 }
 
-function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }) {
+function TodoWriteRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const todos = Array.isArray(tc.input.todos) ? (tc.input.todos as TodoItem[]) : []
   const status = resolveStatus(tc)
   const summary = `${todos.length}개 항목`
 
   return (
-    <ToolCard name="TodoWrite" status={status} icon="☑" summary={summary}>
+    <ToolCard name="TodoWrite" status={status} icon="☑" summary={summary} density={density}>
       {todos.length === 0 && <span className="text-muted-foreground">no todos</span>}
       <ul className="space-y-0.5">
         {todos.map((todo, i) => {
@@ -376,33 +401,33 @@ function TodoWriteRenderer({ tc }: { tc: ToolCallRecord }) {
   )
 }
 
-function TaskRenderer({ tc }: { tc: ToolCallRecord }) {
+function TaskRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const subject = tc.input.subject ? str(tc.input.subject) : undefined
   const title = tc.input.title ? str(tc.input.title) : undefined
   const status = resolveStatus(tc)
   const summary = subject ?? title ?? ''
 
   return (
-    <ToolCard name={tc.name} status={status} icon="📋" summary={summary}>
+    <ToolCard name={tc.name} status={status} icon="📋" summary={summary} density={density}>
       {(subject ?? title) && (
         <span className="text-foreground">"{subject ?? title}"</span>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function ToolSearchRenderer({ tc }: { tc: ToolCallRecord }) {
+function ToolSearchRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const query = str(tc.input.query)
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="ToolSearch" status={status} icon="🔧" summary={`"${query}"`}>
+    <ToolCard name="ToolSearch" status={status} icon="🔧" summary={`"${query}"`} density={density}>
       <span className="font-mono text-foreground">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
@@ -417,7 +442,7 @@ function formatOption(opt: unknown): string {
   return String(opt)
 }
 
-function AskRenderer({ tc }: { tc: ToolCallRecord }) {
+function AskRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const questions = Array.isArray(tc.input.questions)
     ? (tc.input.questions as Array<{ question?: string; options?: unknown[] }>)
     : []
@@ -427,7 +452,7 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }) {
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="AskUserQuestion" status={status} icon="❓" summary={question}>
+    <ToolCard name="AskUserQuestion" status={status} icon="❓" summary={question} density={density}>
       {question && <p className="text-foreground">{question}</p>}
       {options.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -442,13 +467,19 @@ function AskRenderer({ tc }: { tc: ToolCallRecord }) {
         </div>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function AgentRenderer({ tc }: { tc: ToolCallRecord }) {
+function truncateText(text: string, maxLines = 3): { preview: string; truncated: boolean } {
+  const lines = text.split('\n')
+  if (lines.length <= maxLines) return { preview: text, truncated: false }
+  return { preview: lines.slice(0, maxLines).join('\n'), truncated: true }
+}
+
+function AgentRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const subagentType = tc.input.subagent_type ? str(tc.input.subagent_type) : undefined
   const prompt = tc.input.prompt ? str(tc.input.prompt) : undefined
   const { preview } = prompt ? truncateText(prompt, 2) : { preview: '' }
@@ -456,56 +487,56 @@ function AgentRenderer({ tc }: { tc: ToolCallRecord }) {
   const summary = subagentType ?? ''
 
   return (
-    <ToolCard name="Agent" status={status} icon="🤖" summary={summary}>
+    <ToolCard name="Agent" status={status} icon="🤖" summary={summary} density={density}>
       {subagentType && (
-        <p className="font-mono text-blue-300">{subagentType}</p>
+        <p className="font-mono text-[hsl(var(--primary))]">{subagentType}</p>
       )}
       {preview && <p className="text-muted-foreground mt-0.5 italic">"{preview}"</p>}
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function WebSearchRenderer({ tc }: { tc: ToolCallRecord }) {
+function WebSearchRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const query = str(tc.input.query)
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="WebSearch" status={status} icon="🌐" summary={`"${query}"`}>
+    <ToolCard name="WebSearch" status={status} icon="🌐" summary={`"${query}"`} density={density}>
       <span className="font-mono text-foreground">"{query}"</span>
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function WebFetchRenderer({ tc }: { tc: ToolCallRecord }) {
+function WebFetchRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const url = str(tc.input.url)
   const status = resolveStatus(tc)
 
   return (
-    <ToolCard name="WebFetch" status={status} icon="🌐" summary={url}>
+    <ToolCard name="WebFetch" status={status} icon="🌐" summary={url} density={density}>
       <span className="font-mono text-foreground break-all">{url}</span>
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
 }
 
-function GenericRenderer({ tc }: { tc: ToolCallRecord }) {
+function GenericRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensity }) {
   const status = resolveStatus(tc)
   const inputStr = JSON.stringify(tc.input)
   const preview = inputStr.length > 120 ? inputStr.slice(0, 120) + '…' : inputStr
 
   return (
-    <ToolCard name={tc.name} status={status} summary={preview}>
+    <ToolCard name={tc.name} status={status} summary={preview} density={density}>
       <pre className="font-mono text-muted-foreground whitespace-pre-wrap break-all">{preview}</pre>
       {tc.result !== undefined && tc.result.length > 0 && (
-        <CollapsibleResult result={tc.result} />
+        <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
       )}
     </ToolCard>
   )
@@ -513,7 +544,7 @@ function GenericRenderer({ tc }: { tc: ToolCallRecord }) {
 
 // ─── dispatcher ───────────────────────────────────────────────────────────────
 
-type Renderer = (props: { tc: ToolCallRecord }) => ReactElement
+type Renderer = (props: { tc: ToolCallRecord; density: ToolDensity }) => ReactElement
 
 const TOOL_RENDERERS: Record<string, Renderer> = {
   Bash: BashRenderer,
@@ -533,7 +564,8 @@ const TOOL_RENDERERS: Record<string, Renderer> = {
   WebFetch: WebFetchRenderer,
 }
 
-export function ToolRenderer({ tc }: { tc: ToolCallRecord }) {
+export const ToolRenderer = memo(function ToolRenderer({ tc }: { tc: ToolCallRecord }) {
+  const density = useSettingsStore((s) => s.toolDensity)
   const Renderer = TOOL_RENDERERS[tc.name] ?? GenericRenderer
-  return <Renderer tc={tc} />
-}
+  return <Renderer tc={tc} density={density} />
+})
