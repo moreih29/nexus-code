@@ -55,6 +55,7 @@ export function StatusBar() {
   const status = useSessionStore((s) => s.status)
   const sendResponse = useSessionStore((s) => s.sendResponse)
   const lastTurnStats = useSessionStore((s) => s.lastTurnStats)
+  const turnHistory = useSessionStore((s) => s.turnHistory)
   const todos = useStatusBarStore((s) => s.todos)
   const askQuestion = useStatusBarStore((s) => s.askQuestion)
   const setAskQuestion = useStatusBarStore((s) => s.setAskQuestion)
@@ -121,6 +122,16 @@ export function StatusBar() {
           {statParts.join(' · ')}
         </div>
       )}
+
+      {/* 세션 누적 비용 */}
+      {turnHistory.length > 0 && (() => {
+        const totalCost = turnHistory.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)
+        return (
+          <div className="mt-0.5 text-xs text-dim-foreground">
+            세션 누적: ${totalCost.toFixed(2)} ({turnHistory.length}턴)
+          </div>
+        )
+      })()}
     </div>
   )
 }

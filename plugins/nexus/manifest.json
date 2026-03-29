@@ -7,7 +7,7 @@
       "position": "right",
       "dataSource": {
         "type": "file-watch",
-        "path": ".nexus/branches/{branch}/consult.json"
+        "path": ".nexus/state/consult.json"
       },
       "renderer": "tree"
     },
@@ -17,7 +17,7 @@
       "position": "right",
       "dataSource": {
         "type": "file-watch",
-        "path": ".nexus/branches/{branch}/decisions.json"
+        "path": ".nexus/state/decisions.json"
       },
       "renderer": "tree"
     },
@@ -27,7 +27,7 @@
       "position": "right",
       "dataSource": {
         "type": "file-watch",
-        "path": ".nexus/branches/{branch}/tasks.json"
+        "path": ".nexus/state/tasks.json"
       },
       "renderer": "tree"
     }

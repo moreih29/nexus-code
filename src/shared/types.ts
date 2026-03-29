@@ -202,6 +202,25 @@ export interface WorkspaceRemoveResponse {
   ok: boolean
 }
 
+// ─── Nexus State ────────────────────────────────────────────────────────
+
+export interface NexusStateReadRequest {
+  cwd: string
+}
+
+export interface NexusStateReadResponse {
+  consult: unknown
+  decisions: unknown
+  tasks: unknown
+}
+
+export interface NexusStateChangedEvent {
+  cwd: string
+  consult: unknown
+  decisions: unknown
+  tasks: unknown
+}
+
 // ─── PluginHost Events ───────────────────────────────────────────────────────
 
 export interface PluginDataEvent {

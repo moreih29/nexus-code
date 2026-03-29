@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
 import { readFile, writeFile, mkdir, readdir, access } from 'fs/promises'
+import { watch, readFileSync, existsSync } from 'fs'
 import { createReadStream } from 'fs'
 import { createInterface } from 'readline'
 import { execFile } from 'child_process'
@@ -47,6 +48,8 @@ import type {
   GitCheckResponse,
   GitInitRequest,
   GitInitResponse,
+  NexusStateReadRequest,
+  NexusStateReadResponse,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
@@ -654,6 +657,59 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       sessions.set(sessionId, manager)
       deps.pluginHost.setCwd(cwd, sessionId).catch((err) => log.warn('[PluginHost setCwd]', err))
       return { ok: true }
+    }
+  )
+
+
+  // ── Nexus State (PluginHost 독립) ──────────────────────────────────────────
+
+  const nexusWatchers = new Map<string, ReturnType<typeof watch>>()
+
+  function readNexusState(cwd: string): NexusStateReadResponse {
+    const stateDir = join(cwd, '.nexus', 'state')
+    const readJson = (file: string): unknown => {
+      const p = join(stateDir, file)
+      try {
+        if (!existsSync(p)) return null
+        return JSON.parse(readFileSync(p, 'utf8'))
+      } catch {
+        return null
+      }
+    }
+    return {
+      consult: readJson('consult.json'),
+      decisions: readJson('decisions.json'),
+      tasks: readJson('tasks.json'),
+    }
+  }
+
+  function watchNexusState(cwd: string): void {
+    // 기존 watcher 정리
+    const existing = nexusWatchers.get(cwd)
+    if (existing) { try { existing.close() } catch {} }
+
+    const stateDir = join(cwd, '.nexus', 'state')
+    try {
+      const watcher = watch(stateDir, (_event, filename) => {
+        if (!filename?.endsWith('.json')) return
+        const win = deps.getWindow()
+        if (!win) return
+        const data = readNexusState(cwd)
+        win.webContents.send(IpcChannel.NEXUS_STATE_CHANGED, { cwd, ...data })
+      })
+      nexusWatchers.set(cwd, watcher)
+    } catch {
+      // .nexus/state/ 디렉토리 없으면 무시
+      log.debug('[NexusState] watch failed:', stateDir)
+    }
+  }
+
+  ipcMain.handle(
+    IpcChannel.NEXUS_STATE_READ,
+    (_event, req: NexusStateReadRequest): NexusStateReadResponse => {
+      // 읽기 + 감시 시작
+      watchNexusState(req.cwd)
+      return readNexusState(req.cwd)
     }
   )
 }

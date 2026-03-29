@@ -22,7 +22,7 @@ interface RightPanelProps {
 
 export const RightPanel = memo(function RightPanel({ onToggle, isCollapsed }: RightPanelProps) {
   const activeTab = useRightPanelUIStore((s) => s.activeTab)
-  const setActiveTab = useRightPanelUIStore((s) => s.setActiveTab)
+  const pinTab = useRightPanelUIStore((s) => s.pinTab)
 
   if (isCollapsed) {
     return (
@@ -52,7 +52,7 @@ export const RightPanel = memo(function RightPanel({ onToggle, isCollapsed }: Ri
         {TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => pinTab(tab.id)}
             className={[
               'flex h-full flex-1 items-center justify-center text-xs font-medium transition-colors',
               activeTab === tab.id

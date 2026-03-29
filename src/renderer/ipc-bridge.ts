@@ -15,7 +15,7 @@ import type {
 } from '../shared/types'
 import { useSessionStore } from './stores/session-store'
 import { usePermissionStore } from './stores/permission-store'
-import { usePluginStore } from './stores/plugin-store'
+import { usePluginStore, useRightPanelUIStore } from './stores/plugin-store'
 import { useStatusBarStore } from './stores/status-bar-store'
 import type { TodoItem } from './stores/status-bar-store'
 import { useChangesStore } from './stores/changes-store'
@@ -49,6 +49,7 @@ export function initIpcBridge(): void {
         oldString: typeof event.input.old_string === 'string' ? event.input.old_string : undefined,
         newString: typeof event.input.new_string === 'string' ? event.input.new_string : undefined,
       })
+      useRightPanelUIStore.getState().requestAutoSwitch('changes')
     } else if (event.name === 'Write') {
       changesStore().trackChange({
         filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
@@ -57,6 +58,7 @@ export function initIpcBridge(): void {
         timestamp: Date.now(),
         content: typeof event.input.content === 'string' ? event.input.content : undefined,
       })
+      useRightPanelUIStore.getState().requestAutoSwitch('changes')
     }
 
     if (event.name === 'TodoWrite') {
@@ -94,13 +96,15 @@ export function initIpcBridge(): void {
 
   window.electronAPI.on(IpcChannel.TURN_END, ((event: TurnEndEvent) => {
     sessionStore().flushStreamBuffer()
-    sessionStore().setLastTurnStats({
+    const stats = {
       costUsd: event.costUsd,
       inputTokens: event.inputTokens,
       outputTokens: event.outputTokens,
       durationApiMs: event.durationApiMs,
       numTurns: event.numTurns,
-    })
+    }
+    sessionStore().setLastTurnStats(stats)
+    sessionStore().addTurnToHistory(stats)
     sessionStore().endSession()
   }) as (...args: unknown[]) => void)
 
@@ -123,9 +127,21 @@ export function initIpcBridge(): void {
     })
   }) as (...args: unknown[]) => void)
 
-  // Plugin events → plugin store
+  // Plugin events → plugin store + auto-switch
   window.electronAPI.on(IpcChannel.PLUGIN_DATA, ((event: PluginDataEvent) => {
     pluginStore().handlePluginData(event)
+
+    if (event.pluginId === 'nexus') {
+      if (event.panelId === 'timeline') {
+        useRightPanelUIStore.getState().requestAutoSwitch('timeline')
+      } else if (
+        event.panelId === 'consult' ||
+        event.panelId === 'decisions' ||
+        event.panelId === 'tasks'
+      ) {
+        useRightPanelUIStore.getState().requestAutoSwitch('nexus')
+      }
+    }
   }) as (...args: unknown[]) => void)
 
   // Error recovery events → session store

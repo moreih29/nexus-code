@@ -79,6 +79,12 @@ export const IpcChannel = {
   /** CLI process restart has exhausted all retries */
   RESTART_FAILED: 'stream:restart-failed',
 
+  // ── Nexus State ────────────────────────────────────────────────────────
+  /** Read .nexus/state/*.json from a workspace (PluginHost 독립) */
+  NEXUS_STATE_READ: 'ipc:nexus-state-read',
+  /** .nexus/state/ 파일 변경 시 Renderer에 알림 */
+  NEXUS_STATE_CHANGED: 'stream:nexus-state-changed',
+
   // ── Timeout ───────────────────────────────────────────────────────────────
   /** No activity from CLI for ACTIVITY_TIMEOUT_MS */
   TIMEOUT: 'stream:timeout',

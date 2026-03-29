@@ -53,6 +53,7 @@ interface SessionStoreState {
   messages: Message[]
   systemEvents: SystemEvent[]
   lastTurnStats: TurnStats | null
+  turnHistory: TurnStats[]
   streamBuffer: string
   prefillText: string
 
@@ -66,6 +67,7 @@ interface SessionStoreState {
   addSystemEvent: (event: Omit<SystemEvent, 'id'>) => void
   removeMessagesAfter: (timestamp: number) => void
   setLastTurnStats: (stats: TurnStats) => void
+  addTurnToHistory: (stats: TurnStats) => void
   setPrefillText: (text: string) => void
   endSession: () => void
   restoreSession: (sessionId: string) => Promise<void>
@@ -85,6 +87,37 @@ let _debounceTimer: ReturnType<typeof setTimeout> | null = null
 // toolUseId → messages 배열 인덱스 (O(1) resolveToolCall 조회)
 const _toolCallIndex = new Map<string, number>()
 
+function turnHistoryStorageKey(sessionId: string): string {
+  return `nexus-turns-${sessionId}`
+}
+
+function saveTurnHistory(sessionId: string, history: TurnStats[]): void {
+  try {
+    localStorage.setItem(turnHistoryStorageKey(sessionId), JSON.stringify(history))
+  } catch {
+    // localStorage 접근 실패 시 무시
+  }
+}
+
+function loadTurnHistory(sessionId: string): TurnStats[] {
+  try {
+    const raw = localStorage.getItem(turnHistoryStorageKey(sessionId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as TurnStats[]) : []
+  } catch {
+    return []
+  }
+}
+
+function deleteTurnHistory(sessionId: string): void {
+  try {
+    localStorage.removeItem(turnHistoryStorageKey(sessionId))
+  } catch {
+    // 무시
+  }
+}
+
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessionId: null,
@@ -92,11 +125,19 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   messages: [],
   systemEvents: [],
   lastTurnStats: null,
+  turnHistory: [],
   streamBuffer: '',
   prefillText: '',
 
-  startSession: (sessionId) =>
-    set({ sessionId, status: 'running', streamBuffer: '' }),
+  startSession: (sessionId) => {
+    const existingHistory = loadTurnHistory(sessionId)
+    set({
+      sessionId,
+      status: 'running',
+      streamBuffer: '',
+      turnHistory: existingHistory,
+    })
+  },
 
   setStatus: (status) => set({ status }),
 
@@ -268,6 +309,15 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
 
   setLastTurnStats: (stats) => set({ lastTurnStats: stats }),
 
+  addTurnToHistory: (stats) =>
+    set((s) => {
+      const newHistory = [...s.turnHistory, stats]
+      if (s.sessionId) {
+        saveTurnHistory(s.sessionId, newHistory)
+      }
+      return { turnHistory: newHistory }
+    }),
+
   setPrefillText: (text) => set({ prefillText: text }),
 
   endSession: () => set({ status: 'idle', streamBuffer: '' }),
@@ -275,7 +325,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   dismissTimeout: () => set({ status: 'running' }),
 
   restoreSession: async (sessionId: string) => {
-    set({ sessionId, status: 'idle', messages: [], streamBuffer: '' })
+    const restoredHistory = loadTurnHistory(sessionId)
+    set({ sessionId, status: 'idle', messages: [], streamBuffer: '', turnHistory: restoredHistory })
 
     try {
       const res = await window.electronAPI.invoke<LoadHistoryResponse>(
@@ -303,6 +354,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     _toolCallIndex.clear()
     _textBuffer = ''
     if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null }
+    // turnHistory localStorage 삭제
+    const { sessionId } = get()
+    if (sessionId) {
+      deleteTurnHistory(sessionId)
+    }
     // 순환 의존성 방지: lazy import로 pluginStore 접근
     import('./plugin-store').then(({ usePluginStore }) => {
       usePluginStore.getState().clear()
@@ -313,6 +369,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       messages: [],
       systemEvents: [],
       lastTurnStats: null,
+      turnHistory: [],
       streamBuffer: '',
       prefillText: '',
     })
