@@ -42,7 +42,7 @@ function CollapsibleResult({ result, defaultExpanded = false }: { result: string
           className="mt-1 text-muted-foreground hover:text-foreground cursor-pointer"
           onClick={() => setExpanded(true)}
         >
-          … {total - MAX} more lines
+          … {total - MAX}줄 더
         </button>
       )}
       {hasMore && expanded && (
@@ -50,7 +50,7 @@ function CollapsibleResult({ result, defaultExpanded = false }: { result: string
           className="mt-1 text-muted-foreground hover:text-foreground cursor-pointer"
           onClick={() => setExpanded(false)}
         >
-          collapse
+          접기
         </button>
       )}
     </div>
@@ -65,7 +65,7 @@ function StatusBadge({ status }: { status: Status }) {
   if (status === 'running') {
     return (
       <Badge
-        className="border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] gap-1"
+        className="border-primary/40 bg-primary-muted text-primary gap-1"
         variant="outline"
       >
         <Loader2 className="size-3 animate-spin" />
@@ -76,7 +76,7 @@ function StatusBadge({ status }: { status: Status }) {
   if (status === 'error') {
     return (
       <Badge
-        className="border-[hsl(var(--error)/0.4)] bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]"
+        className="border-error/40 bg-error-muted text-error"
         variant="outline"
       >
         에러
@@ -85,7 +85,7 @@ function StatusBadge({ status }: { status: Status }) {
   }
   return (
     <Badge
-      className="border-[hsl(var(--success)/0.4)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]"
+      className="border-success/40 bg-success-muted text-success"
       variant="outline"
     >
       완료
@@ -118,7 +118,7 @@ const ToolCard = memo(function ToolCard({
     return (
       <div className="mt-1 flex items-center gap-1.5 px-1 h-6 text-xs text-muted-foreground">
         {icon && <span className="shrink-0">{icon}</span>}
-        <span className="font-mono text-[hsl(var(--primary))] shrink-0">{name}</span>
+        <span className="font-mono text-primary shrink-0">{name}</span>
         {summary && (
           <span className="truncate min-w-0 text-dim-foreground">{summary}</span>
         )}
@@ -151,7 +151,7 @@ const ToolCard = memo(function ToolCard({
       className={cn(
         'mt-2 rounded-lg border overflow-hidden',
         status === 'error'
-          ? 'border-[hsl(var(--error)/0.4)] bg-[hsl(var(--error)/0.08)]'
+          ? 'border-error/40 bg-error-muted'
           : 'border-border bg-muted/40',
       )}
     >
@@ -159,12 +159,12 @@ const ToolCard = memo(function ToolCard({
         <div
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 border-b select-none',
-            status === 'error' ? 'border-[hsl(var(--error)/0.2)]' : 'border-border/50',
+            status === 'error' ? 'border-error/20' : 'border-border/50',
             !forcedOpen && 'cursor-pointer hover:bg-accent/30',
           )}
         >
           {icon && <span className="shrink-0">{icon}</span>}
-          <span className="font-mono text-xs text-[hsl(var(--primary))] shrink-0">{name}</span>
+          <span className="font-mono text-xs text-primary shrink-0">{name}</span>
           {summary && !isOpen && (
             <span className="text-xs text-muted-foreground truncate min-w-0">{summary}</span>
           )}
@@ -219,7 +219,7 @@ function globSummary(tc: ToolCallRecord): string {
   const pattern = str(tc.input.pattern)
   if (tc.result !== undefined) {
     const count = tc.result.trim() === '' ? 0 : tc.result.trim().split('\n').length
-    return `${pattern} — ${count} files`
+    return `${pattern} — ${count}개 파일`
   }
   return pattern
 }
@@ -228,7 +228,7 @@ function grepSummary(tc: ToolCallRecord): string {
   const pattern = str(tc.input.pattern)
   if (tc.result !== undefined) {
     const count = tc.result.trim() === '' ? 0 : tc.result.trim().split('\n').length
-    return `"${pattern}" — ${count} matches`
+    return `"${pattern}" — ${count}건 일치`
   }
   return `"${pattern}"`
 }
@@ -290,7 +290,7 @@ function WriteRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensi
     <ToolCard name="Write" status={status} icon="✏️" summary={filePath} density={density}>
       <span className="font-mono text-foreground">{filePath}</span>
       {lineCount !== undefined && (
-        <p className="text-muted-foreground mt-0.5">{lineCount} lines</p>
+        <p className="text-muted-foreground mt-0.5">{lineCount}줄</p>
       )}
       {tc.result !== undefined && tc.result.length > 0 && (
         <CollapsibleResult result={tc.result} defaultExpanded={density === 'verbose'} />
@@ -326,8 +326,8 @@ function GlobRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensit
   const resultSummary =
     tc.result !== undefined
       ? tc.result.trim() === ''
-        ? '0 files found'
-        : `${tc.result.trim().split('\n').length} files found`
+        ? '0개 파일'
+        : `${tc.result.trim().split('\n').length}개 파일`
       : undefined
 
   return (
@@ -347,8 +347,8 @@ function GrepRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensit
   const resultSummary =
     tc.result !== undefined
       ? tc.result.trim() === ''
-        ? '0 matches'
-        : `${tc.result.trim().split('\n').length} matches`
+        ? '0건 일치'
+        : `${tc.result.trim().split('\n').length}건 일치`
       : undefined
 
   return (
@@ -381,7 +381,7 @@ function TodoWriteRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolD
 
   return (
     <ToolCard name="TodoWrite" status={status} icon="☑" summary={summary} density={density}>
-      {todos.length === 0 && <span className="text-muted-foreground">no todos</span>}
+      {todos.length === 0 && <span className="text-muted-foreground">할 일 없음</span>}
       <ul className="space-y-0.5">
         {todos.map((todo, i) => {
           const icon = TODO_ICONS[todo.status ?? ''] ?? '☐'
@@ -489,7 +489,7 @@ function AgentRenderer({ tc, density }: { tc: ToolCallRecord; density: ToolDensi
   return (
     <ToolCard name="Agent" status={status} icon="🤖" summary={summary} density={density}>
       {subagentType && (
-        <p className="font-mono text-[hsl(var(--primary))]">{subagentType}</p>
+        <p className="font-mono text-primary">{subagentType}</p>
       )}
       {preview && <p className="text-muted-foreground mt-0.5 italic">"{preview}"</p>}
       {tc.result !== undefined && tc.result.length > 0 && (

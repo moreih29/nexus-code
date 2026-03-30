@@ -48,7 +48,7 @@ function PermissionInputView({
         {filePath && (
           <div className="mb-1 font-mono text-xs text-muted-foreground">
             {filePath}
-            <span className="ml-2 text-yellow-400">파일 생성/덮어쓰기</span>
+            <span className="ml-2 text-warning">파일 생성/덮어쓰기</span>
           </div>
         )}
         <pre className="max-h-60 overflow-auto rounded border border-border bg-card p-2 font-mono text-xs text-foreground whitespace-pre-wrap break-all">
@@ -163,12 +163,12 @@ export function PermissionCard({ permission }: PermissionCardProps) {
   }
 
   return (
-    <div className="rounded-xl border border-yellow-700/50 bg-yellow-950/40 px-4 py-3 text-sm">
+    <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-yellow-400" />
-          <span className="font-semibold text-yellow-200">도구 실행 승인 요청</span>
+          <span className="h-2 w-2 rounded-full bg-warning" />
+          <span className="font-semibold text-warning">도구 실행 승인 요청</span>
         </div>
         {permission.agentId && (
           <span className="rounded bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
@@ -178,7 +178,7 @@ export function PermissionCard({ permission }: PermissionCardProps) {
       </div>
 
       {/* Tool name */}
-      <div className="mt-2 font-mono text-blue-300">{permission.toolName}</div>
+      <div className="mt-2 font-mono text-primary">{permission.toolName}</div>
 
       {/* Input params */}
       <PermissionInputView toolName={permission.toolName} input={permission.input} />

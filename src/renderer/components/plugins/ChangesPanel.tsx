@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useChangesStore } from '../../stores/changes-store'
 import type { FileChange } from '../../stores/changes-store'
 import { DiffView } from '../shared/DiffView'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, FileCode } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { EmptyState } from '../ui/empty-state'
 
 function ChangeEntry({ change }: { change: FileChange }) {
   const [open, setOpen] = useState(false)
@@ -64,7 +65,7 @@ function FileGroup({ filePath, changes }: { filePath: string; changes: FileChang
           className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
         />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{filePath}</span>
-        <span className="shrink-0 rounded-full bg-blue-900/60 px-1.5 py-0.5 text-xs text-blue-300">
+        <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-xs text-primary">
           {changes.length}
         </span>
       </button>
@@ -86,9 +87,11 @@ export function ChangesPanel() {
 
   if (changes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <span className="text-sm text-muted-foreground">변경된 파일 없음</span>
-      </div>
+      <EmptyState
+        size="sm"
+        icon={<FileCode className="h-full w-full" />}
+        title="변경된 파일 없음"
+      />
     )
   }
 

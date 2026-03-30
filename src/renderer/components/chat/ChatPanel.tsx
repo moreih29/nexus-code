@@ -2,7 +2,7 @@ import log from 'electron-log/renderer'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const rlog = log.scope('renderer:chat-panel')
-import { AlignJustify, AlignLeft, List } from 'lucide-react'
+import { AlignJustify, AlignLeft, List, Hexagon } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { ImageAttachment } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
@@ -37,7 +37,10 @@ export function ChatPanel() {
   const addUserMessage = useActiveSession((s) => s.addUserMessage)
   const dismissTimeout = useActiveSession((s) => s.dismissTimeout)
 
+  const setPrefillText = useActiveSession((s) => s.setPrefillText)
+
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
   const { reset: resetCheckpoints } = useCheckpointStore()
   const model = useSettingsStore((s) => s.model)
@@ -198,13 +201,13 @@ export function ChatPanel() {
     <div className="flex h-full flex-col">
       {/* git 저장소 아님 배너 */}
       {!isGitRepo && (
-        <div className="mx-4 mt-2 flex items-center justify-between rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-4 py-3">
-          <p className="text-sm text-yellow-300">
+        <div className="mx-4 mt-2 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+          <p className="text-sm text-warning">
             ⚠ 이 폴더는 git 저장소가 아닙니다. 체크포인트와 퍼미션 기능을 사용하려면 초기화가 필요합니다.
           </p>
           <button
             onClick={() => void handleGitInit()}
-            className="ml-4 shrink-0 rounded bg-yellow-700/60 px-3 py-1 text-xs text-yellow-100 hover:bg-yellow-700"
+            className="ml-4 shrink-0 rounded bg-warning/60 px-3 py-1 text-xs text-warning-foreground hover:bg-warning/80"
           >
             초기화
           </button>
@@ -229,13 +232,51 @@ export function ChatPanel() {
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-dim-foreground">
-              {activeWorkspace
-                ? '메시지를 입력하여 세션을 시작하세요.'
-                : '좌측에서 워크스페이스를 선택하세요.'}
-            </p>
-          </div>
+          activeWorkspace === null ? (
+            /* 워크스페이스 미선택 상태 */
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <Hexagon className="h-8 w-8 opacity-30 text-primary" />
+              <p className="text-base text-foreground">워크스페이스를 선택하세요</p>
+              <p className="text-sm text-muted-foreground">좌측에서 폴더를 선택하거나 새로 추가하세요</p>
+              <button
+                onClick={() => void addWorkspace()}
+                className="mt-1 rounded-md px-3 py-1.5 text-sm text-primary hover:bg-primary/10 transition-colors"
+              >
+                + 폴더 추가
+              </button>
+              <span className="text-xs text-dim-foreground">
+                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs font-mono">⌘B</kbd>
+                {' '}사이드바 열기
+              </span>
+            </div>
+          ) : (
+            /* 세션 없음 상태 */
+            <div className="flex h-full flex-col items-center justify-center gap-4">
+              <p className="text-lg font-medium text-foreground" style={{ marginTop: '-20%' }}>
+                무엇을 도와드릴까요?
+              </p>
+              <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+                {[
+                  { title: '코드 리뷰', prompt: '이 코드를 리뷰해줘' },
+                  { title: '버그 수정', prompt: '에러 원인을 찾아줘' },
+                  { title: '기능 추가', prompt: '새 기능을 구현해줘' },
+                  { title: '코드 설명', prompt: '이 함수가 뭘 하는지 설명해줘' },
+                ].map(({ title, prompt }) => (
+                  <button
+                    key={title}
+                    onClick={() => setPrefillText(prompt)}
+                    className="rounded-xl border border-border bg-card hover:bg-accent/50 p-3 cursor-pointer transition-colors text-left"
+                  >
+                    <p className="text-sm font-medium text-foreground">{title}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{prompt}</p>
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-dim-foreground">
+                Enter 전송 · ⌘K 명령 팔레트
+              </span>
+            </div>
+          )
         ) : (
           <div className="flex flex-col gap-4">
             {sortedWithCheckpoints.map((item) => {
@@ -266,8 +307,8 @@ export function ChatPanel() {
             })}
             {/* 에러 CTA */}
             {status === 'error' && (
-              <div className="flex items-center gap-3 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3">
-                <span className="text-sm text-red-300">오류가 발생했습니다.</span>
+              <div className="flex items-center gap-3 rounded-lg border border-error/30 bg-error/10 px-4 py-3">
+                <span className="text-sm text-error">오류가 발생했습니다.</span>
                 <Button size="sm" variant="outline" onClick={handleRetry}>
                   재시도
                 </Button>
@@ -280,20 +321,20 @@ export function ChatPanel() {
 
       {/* 타임아웃 알림 */}
       {status === 'timeout' && (
-        <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-4 py-3">
-          <p className="text-sm text-yellow-300">
+        <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+          <p className="text-sm text-warning">
             응답 없음 — CLI가 2분 이상 반응하지 않습니다.
           </p>
           <div className="flex gap-2">
             <button
               onClick={dismissTimeout}
-              className="rounded px-3 py-1 text-xs text-yellow-300 hover:bg-yellow-800/40"
+              className="rounded px-3 py-1 text-xs text-warning hover:bg-warning/20"
             >
               계속 대기
             </button>
             <button
               onClick={handleTimeoutCancel}
-              className="rounded bg-yellow-700/60 px-3 py-1 text-xs text-yellow-100 hover:bg-yellow-700"
+              className="rounded bg-warning/60 px-3 py-1 text-xs text-warning-foreground hover:bg-warning/80"
             >
               취소
             </button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, Clock, Loader2, Minus } from 'lucide-react'
+import { EmptyState } from '../ui/empty-state'
 import { useStatusBarStore } from '../../stores/status-bar-store'
 import type { TodoItem } from '../../stores/status-bar-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
@@ -279,12 +280,11 @@ export function NexusPanel() {
         </section>
       ) : (
         !hasTodos && (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="flex flex-col items-center gap-2 text-dim-foreground">
-              <Clock className="h-8 w-8 opacity-30" />
-              <p className="text-xs">Nexus 데이터 없음</p>
-            </div>
-          </div>
+          <EmptyState
+            size="sm"
+            icon={<Clock className="h-full w-full" />}
+            title="Nexus 데이터 없음"
+          />
         )
       )}
     </div>

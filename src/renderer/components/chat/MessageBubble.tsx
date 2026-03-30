@@ -1,4 +1,5 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
+import { Bot, User } from 'lucide-react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { StreamingMessage } from './streaming-message'
 import { ToolRenderer } from './ToolRenderer'
@@ -6,6 +7,7 @@ import type { Message } from '../../stores/session-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import type { Checkpoint } from '../../../shared/types'
+import { ConfirmDialog } from '../ui/confirm-dialog'
 
 interface MessageBubbleProps {
   message: Message
@@ -32,7 +34,13 @@ function MessageBubbleInner({ message, checkpointRef, isStreaming = false }: Mes
   const hasCodeChanges = message.toolCalls?.some((tc) => CODE_CHANGE_TOOLS.has(tc.name)) ?? false
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {!isUser && (
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <Bot className="h-3.5 w-3.5" />
+        </div>
+      )}
+
       <div
         className={[
           'max-w-[80%] rounded-2xl px-4 py-3 text-sm',
@@ -55,6 +63,12 @@ function MessageBubbleInner({ message, checkpointRef, isStreaming = false }: Mes
           </>
         )}
       </div>
+
+      {isUser && (
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <User className="h-3.5 w-3.5" />
+        </div>
+      )}
     </div>
   )
 }
@@ -70,17 +84,14 @@ export const MessageBubble = memo(MessageBubbleInner, (prev, next) =>
 function RestoreButton({ checkpointRef, timestamp }: { checkpointRef: string; timestamp: number }) {
   const { restoreCheckpoint, isRestoring } = useCheckpointStore()
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   if (!activeWorkspace) return null
 
   const timeLabel = new Date(timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 
-  const handleRestore = async (): Promise<void> => {
-    const confirmed = window.confirm(
-      `현재 변경사항을 버리고 ${timeLabel} 시점으로 코드를 되돌리시겠습니까?\n(대화 메시지는 유지됩니다)`
-    )
-    if (!confirmed) return
-
+  const handleConfirm = async (): Promise<void> => {
+    setConfirmOpen(false)
     // checkpointRef(hash)로 Checkpoint 객체 구성
     const checkpoint: Checkpoint = {
       hash: checkpointRef,
@@ -92,14 +103,26 @@ function RestoreButton({ checkpointRef, timestamp }: { checkpointRef: string; ti
   }
 
   return (
-    <div className="mt-2 flex justify-end">
-      <button
-        onClick={() => void handleRestore()}
-        disabled={isRestoring}
-        className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-      >
-        {isRestoring ? '복원 중...' : '되돌리기'}
-      </button>
-    </div>
+    <>
+      <div className="mt-2 flex justify-end">
+        <button
+          onClick={() => setConfirmOpen(true)}
+          disabled={isRestoring}
+          className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          {isRestoring ? '복원 중...' : '되돌리기'}
+        </button>
+      </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        onConfirm={() => void handleConfirm()}
+        onCancel={() => setConfirmOpen(false)}
+        title="코드 되돌리기"
+        description={`현재 변경사항을 버리고 ${timeLabel} 시점으로 코드를 되돌립니다.`}
+        detail="대화 메시지는 유지됩니다."
+        variant="destructive"
+        confirmLabel="되돌리기"
+      />
+    </>
   )
 }

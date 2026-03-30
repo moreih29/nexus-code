@@ -1,11 +1,13 @@
 import { memo, useEffect } from 'react'
+import { FolderPlus } from 'lucide-react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useHistoryStore } from '../../stores/history-store'
 import { WorkspaceItem } from './WorkspaceItem'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
+import { EmptyState } from '../ui/empty-state'
 
 export const WorkspaceList = memo(function WorkspaceList() {
-  const { workspaces, loading, loadWorkspaces } = useWorkspaceStore()
+  const { workspaces, loading, loadWorkspaces, addWorkspace } = useWorkspaceStore()
   const loadSessions = useHistoryStore((s) => s.loadSessions)
 
   useEffect(() => {
@@ -22,9 +24,12 @@ export const WorkspaceList = memo(function WorkspaceList() {
             <span className="text-xs text-dim-foreground">불러오는 중...</span>
           </div>
         ) : workspaces.length === 0 ? (
-          <div className="flex items-center justify-center py-8">
-            <span className="text-xs text-dim-foreground">워크스페이스 없음</span>
-          </div>
+          <EmptyState
+            size="sm"
+            icon={<FolderPlus className="h-full w-full text-dim-foreground" />}
+            title="프로젝트 폴더를 추가하세요"
+            action={{ label: '+ 폴더 추가', onClick: () => void addWorkspace() }}
+          />
         ) : (
           <div className="flex flex-col gap-0.5">
             {workspaces.map((workspace) => (

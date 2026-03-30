@@ -5,6 +5,7 @@ import { MainPanel } from './MainPanel'
 import { RightPanel } from './RightPanel'
 import { CommandPalette } from '../shared/CommandPalette'
 import { SettingsModal } from '../settings/SettingsModal'
+import { ToastContainer } from '../ui/toast'
 import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
 
 const DENSITY_CYCLE: ToolDensity[] = ['compact', 'normal', 'verbose']
@@ -93,7 +94,7 @@ export function AppLayout() {
           collapsedSize={COLLAPSED_SIZE}
           onResize={(size) => setSidebarCollapsed(size.inPixels <= COLLAPSED_SIZE)}
         >
-          <Sidebar onToggle={toggleSidebar} isCollapsed={sidebarCollapsed} />
+          <Sidebar onToggle={toggleSidebar} isCollapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
         </Panel>
         <ResizeHandle onDoubleClick={toggleSidebar} />
         <Panel minSize={400}>
@@ -117,6 +118,7 @@ export function AppLayout() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ToastContainer />
     </div>
   )
 }
