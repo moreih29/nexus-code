@@ -951,6 +951,190 @@
           "created_at": "2026-03-30T13:02:10.020Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-30T13:45:08.357Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "sandbox:true에서 electron-log/preload 로딩 실패 수정",
+          "context": "sandbox:true 환경에서 preload의 require 폴리필이 npm 패키지(electron-log/preload)를 지원하지 않아 앱 시작 실패. preload에서 import 제거 → main에서 log.initialize()로 대체. [파일: src/preload/index.ts, src/main/logger.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T13:44:48.130Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T14:06:14.755Z",
+      "branch": "main",
+      "consult": {
+        "topic": "테스트 결과 이슈 5건 논의",
+        "issues": [
+          {
+            "id": 1,
+            "title": "이슈1: 스트리밍 이중 버퍼링 — StreamingMessage 타자 애니메이션 제거 vs 유지",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "이슈2: 체크포인트 미표시 — hash 빈 문자열 falsy 문제",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "이슈3/6: 마크다운 뷰어 경로 제한 — 워크스페이스 내부만 vs 전체 허용",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "이슈4: 모델 설정 미전달 — ChatPanel+handlers 2곳 단절",
+            "status": "decided"
+          },
+          {
+            "id": 5,
+            "title": "이슈5: sandbox 이후 로그 정상 동작 확인",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "sandbox:true 이후 로그 정상 동작 확인. main.log + sessions/ 세션별 분리 모두 정상. log.initialize()로 preload 대체 성공.",
+          "consult": 5
+        },
+        {
+          "id": 2,
+          "summary": "체크포인트 미표시 버그 수정. ChatPanel.tsx의 조건을 cpRes.ok && cpRes.checkpoint?.hash → cpRes.ok && cpRes.checkpoint 으로 변경. 클린 트리(hash='')도 유효한 체크포인트로 처리.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "모델 설정 미전달 버그 수정. ChatPanel.tsx START 호출에 model 필드 추가 + handlers.ts manager.start()에 req.model 전달. 2곳 단절 해소.",
+          "consult": 4
+        },
+        {
+          "id": 4,
+          "summary": "마크다운 뷰어 경로 제한 완화. 워크스페이스 내부만 → .md 확장자면 전체 허용. 워크스페이스 경로 검증 제거, .md 확장자 필터만 유지. 로컬 앱이므로 OS 권한 내에서 읽기만 가능.",
+          "consult": 3
+        },
+        {
+          "id": 5,
+          "summary": "별도 사이클로 분리. 이중 rAF 버퍼링이 근본 원인으로 확인됨. charsPerFrame 튜닝이 아닌 구조적 해결이 필요. 사용자가 별도로 다루겠다고 결정.",
+          "consult": 1
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "completed_at": "2026-03-30T14:07:41.866Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "체크포인트 미표시 + 모델 미전달 + 마크다운 경로 완화",
+          "context": "1) ChatPanel.tsx:108 — cpRes.checkpoint?.hash → cpRes.checkpoint 조건 변경. 2) ChatPanel.tsx START 호출에 model 추가 + handlers.ts manager.start()에 req.model 전달. 3) handlers.ts READ_FILE 핸들러 워크스페이스 경로 검증 제거, .md 확장자 필터만 유지. [파일: src/renderer/components/chat/ChatPanel.tsx, src/main/ipc/handlers.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2,
+            3,
+            4
+          ],
+          "created_at": "2026-03-30T14:06:22.708Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T14:18:06.594Z",
+      "branch": "main",
+      "consult": {
+        "topic": "스트리밍 타이핑 효과 원인 조사 전략",
+        "issues": [
+          {
+            "id": 1,
+            "title": "조사 접근법 — 아키텍트 단일 vs 병렬 vs 단계적 조사",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "조사 전략 확정: 아키텍트 1명에게 런타임 로그 데이터를 제공하여 데이터 기반 분석. 핵심 발견 — 타이핑이 \"따라잡지 못하는\" 것이 아니라 \"너무 빨리 소진 후 빈 시간 발생\"이 실제 원인. 아키텍트에게 \"청크 간 빈 시간을 매끄럽게 채우는 방법\" 설계를 요청.",
+          "consult": 1
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "completed_at": "2026-03-30T14:45:36.591Z",
+      "branch": "fix/streaming-typing-effect",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "charsPerFrame 계수 조정 (아키텍트+디자이너 합의안)",
+          "context": "원인: 타이핑이 청크를 너무 빨리 소진 → 다음 청크까지 유휴 시간 발생 → 뚝뚝 끊김. 해결: charsPerFrame 함수를 gap*0.06 기반으로 전체 40% 감속. 큰 청크 95%+ 유휴 제거, 작은 청크 320ms 잔여(커서로 커버). [파일: src/renderer/components/chat/streaming-message.tsx] [변경: charsPerFrame 함수 3줄]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:24:02.478Z"
+        },
+        {
+          "id": 2,
+          "title": "charsPerFrame 계수 미세 조정 (0.06 → 0.04)",
+          "context": "Sonnet 모델에서 출력 속도가 빨라 여전히 끊김. 계수를 0.06에서 0.04로 낮춰 타이핑 속도를 추가 감속. [파일: src/renderer/components/chat/streaming-message.tsx]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:28:31.801Z"
+        },
+        {
+          "id": 3,
+          "title": "StreamingMessage 즉시 렌더링 전환",
+          "context": "타이핑 애니메이션 제거. displayedLength, rAF 루프, charsPerFrame 전부 제거. content를 즉시 MarkdownRenderer에 전달. isStreaming일 때만 커서 표시. [파일: src/renderer/components/chat/streaming-message.tsx]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:32:23.448Z"
+        },
+        {
+          "id": 4,
+          "title": "커서 색상 --muted-foreground → --primary 변경",
+          "context": "디자이너 추천 미세 조정. 스트리밍 커서 색상을 accent로 변경하여 \"진행 중\" 상태 명확화. [파일: src/renderer/app.css]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:37:36.372Z"
+        },
+        {
+          "id": 5,
+          "title": "커서 색상 복원 + 스트리밍 진행 표시 디자인 논의",
+          "context": "사용자 피드백: primary보다 muted-foreground가 나음. 커서가 텍스트 다음 줄에 위치하는 문제. 텍스트 마지막 위치 또는 로딩 스피너 등 대안 검토. [파일: src/renderer/app.css, src/renderer/components/chat/streaming-message.tsx]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:39:29.535Z"
+        },
+        {
+          "id": 6,
+          "title": "dead CSS 정리 (streaming-cursor)",
+          "context": "streaming-cursor::after와 cursor-blink keyframes가 더 이상 사용되지 않음. 인라인 ▍ 문자로 대체됨. [파일: src/renderer/app.css]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T14:45:22.747Z"
+        }
+      ]
     }
   ]
 }

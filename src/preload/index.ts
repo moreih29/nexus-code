@@ -1,4 +1,3 @@
-import 'electron-log/preload'
 import { contextBridge, ipcRenderer } from 'electron'
 import { IpcChannel } from '../shared/ipc'
 import type { IpcMap, ElectronAPI } from '../shared/ipc'

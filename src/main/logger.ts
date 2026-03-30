@@ -1,5 +1,9 @@
 import log from 'electron-log/main'
 import { app } from 'electron'
+
+// sandbox:true 환경에서 renderer 로깅 지원
+// preload에서 직접 import 대신 main에서 IPC 브릿지 자동 주입
+log.initialize()
 import { join } from 'path'
 import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, WriteStream } from 'fs'
 
