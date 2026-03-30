@@ -5,7 +5,7 @@
 export interface StartRequest {
   prompt: string
   cwd: string
-  permissionMode: 'auto' | 'manual'
+  permissionMode: 'auto' | 'default'
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
   notificationsEnabled?: boolean
@@ -380,16 +380,33 @@ export interface CheckpointListResponse {
   checkpoints: Checkpoint[]
 }
 
-// ─── Window augmentation ────────────────────────────────────────────────────
+// ─── Settings Sync ───────────────────────────────────────────────────────────
 
-export interface ElectronAPI {
-  invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>
-  on(channel: string, callback: (...args: unknown[]) => void): void
-  off(channel: string, callback: (...args: unknown[]) => void): void
+export interface SettingsSyncRequest {
+  notificationsEnabled: boolean
 }
+
+// ─── File ────────────────────────────────────────────────────────────────────
+
+export interface ReadFileRequest {
+  path: string
+  workspacePath: string
+}
+
+export interface ReadFileResponse {
+  ok: boolean
+  content?: string
+  error?: string
+}
+
+// ─── Window augmentation ────────────────────────────────────────────────────
+// ElectronAPI is defined in ipc.ts to avoid circular imports (ipc.ts → types.ts → ipc.ts).
+// Re-exported here for backwards compatibility.
+export type { ElectronAPI } from './ipc'
 
 declare global {
   interface Window {
-    electronAPI: ElectronAPI
+    // Import from ipc.ts at callsite — kept here only for Window augmentation reference
+    electronAPI: import('./ipc').ElectronAPI
   }
 }

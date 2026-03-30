@@ -60,7 +60,7 @@ function findClaudeBinary(): string {
 export interface RunOptions {
   prompt: string
   cwd: string
-  permissionMode: 'auto' | 'manual'
+  permissionMode: 'auto' | 'default'
   sessionId?: string // --resume 용
   model?: string
   images?: ImageAttachment[]

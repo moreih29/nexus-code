@@ -390,7 +390,7 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
       set({ sessionId, status: 'idle', messages: [], streamBuffer: '', turnHistory: restoredHistory })
 
       try {
-        const res = await window.electronAPI.invoke<LoadHistoryResponse>(
+        const res = await window.electronAPI.invoke(
           IpcChannel.LOAD_HISTORY,
           { sessionId }
         )

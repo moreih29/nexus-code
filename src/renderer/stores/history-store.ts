@@ -25,7 +25,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
   loadSessions: async () => {
     set({ loading: true })
     try {
-      const res = await window.electronAPI.invoke<ListSessionsResponse>(IpcChannel.LIST_SESSIONS, {})
+      const res = await window.electronAPI.invoke(IpcChannel.LIST_SESSIONS)
       set({ sessions: res.sessions })
     } catch (err) {
       rlog.error('LIST_SESSIONS error:', err)
@@ -37,7 +37,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
   resumeSession: async (sessionId: string) => {
     try {
       const notificationsEnabled = useSettingsStore.getState().notificationsEnabled
-      const res = await window.electronAPI.invoke<LoadSessionResponse>(IpcChannel.LOAD_SESSION, {
+      const res = await window.electronAPI.invoke(IpcChannel.LOAD_SESSION, {
         sessionId,
         notificationsEnabled,
       })

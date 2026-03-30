@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react'
 import { MarkdownRenderer } from '../chat/MarkdownRenderer'
+import { IpcChannel } from '../../../shared/ipc'
+import { useWorkspaceStore } from '../../stores/workspace-store'
 
 export function MarkdownViewer() {
   const [filePath, setFilePath] = useState('')
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
 
   const loadFile = async (p: string): Promise<void> => {
     if (!p.trim()) return
     setLoading(true)
     setError(null)
     try {
-      const result = await window.electronAPI.invoke<{ ok: boolean; content?: string; error?: string }>(
-        'ipc:read-file',
-        { path: p.trim() },
+      const result = await window.electronAPI.invoke(
+        IpcChannel.READ_FILE,
+        { path: p.trim(), workspacePath: activeWorkspace ?? '' },
       )
       if (result.ok && result.content !== undefined) {
         setContent(result.content)
