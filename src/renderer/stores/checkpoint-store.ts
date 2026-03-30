@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import log from 'electron-log/renderer'
 import type { Checkpoint, CheckpointRestoreResponse } from '../../shared/types'
 import { IpcChannel } from '../../shared/ipc'
-import { useSessionStore } from './session-store'
+import { getActiveStore } from './session-store'
 
 interface CheckpointState {
   isGitRepo: boolean
@@ -44,7 +44,10 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
         ? changedFiles.map((f) => f.split('/').pop() ?? f).join(', ')
         : '없음'
       const prefill = `[체크포인트 ${shortHash} (${timeLabel})로 코드 복원됨. 변경 파일: ${fileList}]`
-      useSessionStore.getState().setPrefillText(prefill)
+      const store = getActiveStore()
+      if (store) {
+        store.getState().setPrefillText(prefill)
+      }
 
       return { ok: true, changedFiles, shortHash }
     } catch (err) {

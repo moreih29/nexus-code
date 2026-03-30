@@ -1,9 +1,9 @@
 import { Plus } from 'lucide-react'
-import { useSessionStore } from '../../stores/session-store'
+import { useActiveSession } from '../../stores/session-store'
 import { useHistoryStore } from '../../stores/history-store'
 
 export function NewSessionButton() {
-  const reset = useSessionStore((s) => s.reset)
+  const reset = useActiveSession((s) => s.reset)
   const setActiveSessionId = useHistoryStore((s) => s.setActiveSessionId)
 
   const handleClick = (): void => {

@@ -27,15 +27,17 @@ bun run test:e2e     # E2E 테스트 (빌드 선행 필요)
 
 병렬 작업이나 다른 관점이 필요할 때 에이전트를 활용하라.
 
-| Task | Agent |
-|------|-------|
-| Architecture, technical design, code review | architect |
-| Project direction, scope, priorities | director |
-| Code implementation, edits, debugging | engineer |
-| Research methodology, evidence synthesis | postdoc |
-| Research direction, agenda, bias prevention | principal |
-| Testing, verification, security review | qa |
-| Web search, independent investigation | researcher |
+| 이름 | Category | Task | Agent |
+|------|----------|------|-------|
+| 아키텍트 | HOW | Architecture, technical design, code review | architect |
+| 디자이너 | HOW | UI/UX design, interaction patterns, user experience | designer |
+| 포닥 | HOW | Research methodology, evidence synthesis | postdoc |
+| 전략가 | HOW | Business strategy, market analysis, competitive positioning | strategist |
+| 엔지니어 | DO | Code implementation, edits, debugging | engineer |
+| 리서처 | DO | Web search, independent investigation | researcher |
+| 라이터 | DO | Technical writing, documentation, presentations | writer |
+| QA | CHECK | Testing, verification, security review | qa |
+| 리뷰어 | CHECK | Content verification, fact-checking, grammar review | reviewer |
 
 단순 작업(파일 1-2개 읽기/수정)은 직접 처리하라.
 
@@ -44,19 +46,16 @@ bun run test:e2e     # E2E 테스트 (빌드 선행 필요)
 | Skill | Trigger | Purpose |
 |-------|---------|---------|
 | nx-consult | [consult] | Interactive discovery — understand intent before executing |
-| nx-dev | [dev] / [dev!] | Development execution — sub-agent or team mode |
-| nx-research | [research] / [research!] | Research execution — principal+postdoc+researcher team |
+| nx-init | /claude-nexus:nx-init | Full project onboarding: scan codebase, establish identity, generate core knowledge |
+| nx-run | nx-run | Execution — user-directed agent composition |
 | nx-setup | /claude-nexus:nx-setup | Configure Nexus interactively |
-| nx-sync | /claude-nexus:nx-sync | Sync knowledge docs with source files (first run = auto-generate) |
 
 ### Tags
 
 | Tag | Purpose |
 |-----|---------|
 | [consult] | 상담 — 실행 전 의도 파악 |
-| [dev] | 개발 — Lead 자율 판단 (sub 또는 team) |
-| [dev!] | 개발 팀 강제 — 반드시 팀 구성 |
-| [research] | 리서치 — Lead 자율 판단 (sub 또는 team) |
-| [research!] | 리서치 팀 강제 — 반드시 팀 구성 |
 | [d] | 결정 기록 (nx_decision_add 호출) |
+| [run] | 실행 — nx-run 풀 파이프라인 강제 |
+| [rule] | 규칙 저장 — [rule:태그] 형식 지원 |
 <!-- NEXUS:END -->

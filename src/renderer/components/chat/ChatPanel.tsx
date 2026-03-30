@@ -4,7 +4,7 @@ import { AlignJustify, AlignLeft, List } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment, CheckpointCreateResponse } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
-import { useSessionStore } from '../../stores/session-store'
+import { useActiveSession } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
 import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
@@ -26,11 +26,14 @@ const DENSITY_LABELS = {
 }
 
 export function ChatPanel() {
-  const sessionId = useSessionStore((s) => s.sessionId)
-  const status = useSessionStore((s) => s.status)
-  const messages = useSessionStore((s) => s.messages)
-  const systemEvents = useSessionStore((s) => s.systemEvents)
-  const { startSession, setStatus, addUserMessage, dismissTimeout } = useSessionStore()
+  const sessionId = useActiveSession((s) => s.sessionId)
+  const status = useActiveSession((s) => s.status)
+  const messages = useActiveSession((s) => s.messages)
+  const systemEvents = useActiveSession((s) => s.systemEvents)
+  const startSession = useActiveSession((s) => s.startSession)
+  const setStatus = useActiveSession((s) => s.setStatus)
+  const addUserMessage = useActiveSession((s) => s.addUserMessage)
+  const dismissTimeout = useActiveSession((s) => s.dismissTimeout)
 
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
@@ -244,7 +247,16 @@ export function ChatPanel() {
               }
 
               return (
-                <MessageBubble key={item.data.id} message={item.data} checkpointRef={item.checkpointRef} />
+                <MessageBubble
+                  key={item.data.id}
+                  message={item.data}
+                  checkpointRef={item.checkpointRef}
+                  isStreaming={
+                    item.data.role === 'assistant' &&
+                    item.data.id === messages[messages.length - 1]?.id &&
+                    status === 'running'
+                  }
+                />
               )
             })}
             {/* 에러 CTA */}

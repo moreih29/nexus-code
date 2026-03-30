@@ -13,7 +13,7 @@ import type {
   TimeoutEvent,
   RateLimitEvent,
 } from '../shared/types'
-import { useSessionStore } from './stores/session-store'
+import { getStoreBySessionId, getActiveStore } from './stores/session-store'
 import { usePermissionStore } from './stores/permission-store'
 import { usePluginStore, useRightPanelUIStore } from './stores/plugin-store'
 import { useStatusBarStore } from './stores/status-bar-store'
@@ -26,7 +26,6 @@ export function initIpcBridge(): void {
   if (initialized) return
   initialized = true
 
-  const sessionStore = useSessionStore.getState
   const permissionStore = usePermissionStore.getState
   const pluginStore = usePluginStore.getState
   const statusBarStore = useStatusBarStore.getState
@@ -34,60 +33,78 @@ export function initIpcBridge(): void {
 
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
-    sessionStore().appendTextChunk(event.text)
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    log.debug('[DEBUG:ipc] TEXT_CHUNK len=%d store=%s', event.text.length, store ? 'found' : 'NULL')
+    if (store) {
+      store.getState().appendTextChunk(event.text)
+    }
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
-    sessionStore().addToolCall(event)
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().addToolCall(event)
 
-    if (event.name === 'Edit' || event.name === 'MultiEdit') {
-      changesStore().trackChange({
-        filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
-        toolName: event.name,
-        toolUseId: event.toolUseId,
-        timestamp: Date.now(),
-        oldString: typeof event.input.old_string === 'string' ? event.input.old_string : undefined,
-        newString: typeof event.input.new_string === 'string' ? event.input.new_string : undefined,
-      })
-      useRightPanelUIStore.getState().requestAutoSwitch('changes')
-    } else if (event.name === 'Write') {
-      changesStore().trackChange({
-        filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
-        toolName: event.name,
-        toolUseId: event.toolUseId,
-        timestamp: Date.now(),
-        content: typeof event.input.content === 'string' ? event.input.content : undefined,
-      })
-      useRightPanelUIStore.getState().requestAutoSwitch('changes')
-    }
+      // auto-switch는 활성 세션일 때만
+      const activeStore = getActiveStore()
+      const isActive = store === activeStore
 
-    if (event.name === 'TodoWrite') {
-      const todos = event.input.todos as TodoItem[] | undefined
-      if (Array.isArray(todos)) {
-        statusBarStore().setTodos(todos)
+      if (event.name === 'Edit' || event.name === 'MultiEdit') {
+        changesStore().trackChange({
+          filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
+          toolName: event.name,
+          toolUseId: event.toolUseId,
+          timestamp: Date.now(),
+          oldString: typeof event.input.old_string === 'string' ? event.input.old_string : undefined,
+          newString: typeof event.input.new_string === 'string' ? event.input.new_string : undefined,
+        })
+        if (isActive) {
+          useRightPanelUIStore.getState().requestAutoSwitch('changes')
+        }
+      } else if (event.name === 'Write') {
+        changesStore().trackChange({
+          filePath: typeof event.input.file_path === 'string' ? event.input.file_path : '',
+          toolName: event.name,
+          toolUseId: event.toolUseId,
+          timestamp: Date.now(),
+          content: typeof event.input.content === 'string' ? event.input.content : undefined,
+        })
+        if (isActive) {
+          useRightPanelUIStore.getState().requestAutoSwitch('changes')
+        }
       }
-    }
-    if (event.name === 'AskUserQuestion') {
-      const questions = Array.isArray(event.input.questions)
-        ? (event.input.questions as Array<{ question?: string; options?: unknown[] }>)
-        : []
-      const firstQ = questions[0]
-      const question =
-        typeof firstQ?.question === 'string'
-          ? firstQ.question
-          : typeof event.input.question === 'string'
-            ? event.input.question
-            : ''
-      const rawOptions: unknown[] = firstQ?.options ?? []
-      const options = rawOptions.map((o) =>
-        typeof o === 'string' ? o : (o as Record<string, unknown>)?.label ? String((o as Record<string, unknown>).label) : JSON.stringify(o),
-      )
-      statusBarStore().setAskQuestion({ toolUseId: event.toolUseId, question, options })
+
+      if (event.name === 'TodoWrite') {
+        const todos = event.input.todos as TodoItem[] | undefined
+        if (Array.isArray(todos)) {
+          statusBarStore().setTodos(todos)
+        }
+      }
+      if (event.name === 'AskUserQuestion') {
+        const questions = Array.isArray(event.input.questions)
+          ? (event.input.questions as Array<{ question?: string; options?: unknown[] }>)
+          : []
+        const firstQ = questions[0]
+        const question =
+          typeof firstQ?.question === 'string'
+            ? firstQ.question
+            : typeof event.input.question === 'string'
+              ? event.input.question
+              : ''
+        const rawOptions: unknown[] = firstQ?.options ?? []
+        const options = rawOptions.map((o) =>
+          typeof o === 'string' ? o : (o as Record<string, unknown>)?.label ? String((o as Record<string, unknown>).label) : JSON.stringify(o),
+        )
+        statusBarStore().setAskQuestion({ toolUseId: event.toolUseId, question, options })
+      }
     }
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_RESULT, ((event: ToolResultEvent) => {
-    sessionStore().resolveToolCall(event.toolUseId, event.content, event.isError)
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().resolveToolCall(event.toolUseId, event.content, event.isError)
+    }
     const current = statusBarStore().askQuestion
     if (current && current.toolUseId === event.toolUseId && !event.isError) {
       statusBarStore().setAskQuestion(null)
@@ -95,22 +112,30 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TURN_END, ((event: TurnEndEvent) => {
-    sessionStore().flushStreamBuffer()
-    const stats = {
-      costUsd: event.costUsd,
-      inputTokens: event.inputTokens,
-      outputTokens: event.outputTokens,
-      durationApiMs: event.durationApiMs,
-      numTurns: event.numTurns,
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      const state = store.getState()
+      const stats = {
+        costUsd: event.costUsd,
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        durationApiMs: event.durationApiMs,
+        numTurns: event.numTurns,
+      }
+      state.flushStreamBuffer()
+      state.setLastTurnStats(stats)
+      state.addTurnToHistory(stats)
+      state.endSession()
     }
-    sessionStore().setLastTurnStats(stats)
-    sessionStore().addTurnToHistory(stats)
-    sessionStore().endSession()
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.SESSION_END, ((_event: SessionEndEvent) => {
-    sessionStore().flushStreamBuffer()
-    sessionStore().endSession()
+  window.electronAPI.on(IpcChannel.SESSION_END, ((event: SessionEndEvent) => {
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      const state = store.getState()
+      state.flushStreamBuffer()
+      state.endSession()
+    }
     statusBarStore().clearAll()
     changesStore().clear()
     pluginStore().clear()
@@ -147,17 +172,26 @@ export function initIpcBridge(): void {
   // Error recovery events → session store
   window.electronAPI.on(IpcChannel.RESTART_ATTEMPT, ((event: RestartAttemptEvent) => {
     log.info('[ipc-bridge] restart_attempt', event)
-    sessionStore().setStatus('restarting')
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().setStatus('restarting')
+    }
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.RESTART_FAILED, ((_event: RestartFailedEvent) => {
+  window.electronAPI.on(IpcChannel.RESTART_FAILED, ((event: RestartFailedEvent) => {
     log.warn('[ipc-bridge] restart_failed')
-    sessionStore().setStatus('error')
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().setStatus('error')
+    }
   }) as (...args: unknown[]) => void)
 
-  window.electronAPI.on(IpcChannel.TIMEOUT, ((_event: TimeoutEvent) => {
+  window.electronAPI.on(IpcChannel.TIMEOUT, ((event: TimeoutEvent) => {
     log.warn('[ipc-bridge] timeout')
-    sessionStore().setStatus('timeout')
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().setStatus('timeout')
+    }
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.RATE_LIMIT, ((_event: RateLimitEvent) => {

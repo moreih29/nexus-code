@@ -48,6 +48,7 @@ interface RightPanelUIState {
   requestAutoSwitch: (tab: RightPanelTab) => void
   pinTab: (tab: RightPanelTab) => void
   unpinTab: () => void
+  cleanup: () => void
 }
 
 // 모듈 레벨 타이머 변수
@@ -101,6 +102,18 @@ export const useRightPanelUIStore = create<RightPanelUIState>((set, get) => ({
   },
 
   unpinTab: () => {
+    if (_unpinTimer !== null) {
+      clearTimeout(_unpinTimer)
+      _unpinTimer = null
+    }
+    set({ isPinned: false })
+  },
+
+  cleanup: () => {
+    if (_autoSwitchTimer !== null) {
+      clearTimeout(_autoSwitchTimer)
+      _autoSwitchTimer = null
+    }
     if (_unpinTimer !== null) {
       clearTimeout(_unpinTimer)
       _unpinTimer = null

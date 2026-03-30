@@ -1,5 +1,5 @@
 import { Check, Circle, Loader2, Minus } from 'lucide-react'
-import { useSessionStore } from '../../stores/session-store'
+import { useActiveSession } from '../../stores/session-store'
 import { useStatusBarStore } from '../../stores/status-bar-store'
 import type { TodoItem } from '../../stores/status-bar-store'
 import { useRightPanelUIStore } from '../../stores/plugin-store'
@@ -52,10 +52,10 @@ function formatTokens(n: number): string {
 }
 
 export function StatusBar() {
-  const status = useSessionStore((s) => s.status)
-  const sendResponse = useSessionStore((s) => s.sendResponse)
-  const lastTurnStats = useSessionStore((s) => s.lastTurnStats)
-  const turnHistory = useSessionStore((s) => s.turnHistory)
+  const status = useActiveSession((s) => s.status)
+  const sendResponse = useActiveSession((s) => s.sendResponse)
+  const lastTurnStats = useActiveSession((s) => s.lastTurnStats)
+  const turnHistory = useActiveSession((s) => s.turnHistory)
   const todos = useStatusBarStore((s) => s.todos)
   const askQuestion = useStatusBarStore((s) => s.askQuestion)
   const setAskQuestion = useStatusBarStore((s) => s.setAskQuestion)
