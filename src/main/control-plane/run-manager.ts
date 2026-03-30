@@ -4,8 +4,8 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { execSync } from 'child_process'
 import { StreamParser } from './stream-parser'
-import log from '../logger'
-import { startSession, appendLine } from './cli-raw-logger'
+import { logger, closeSessionStream } from '../logger'
+import { startSession, appendLine, endSession as endRawSession } from './cli-raw-logger'
 import type {
   TextChunkEvent,
   ToolCallEvent,
@@ -34,19 +34,26 @@ const CLAUDE_CANDIDATE_PATHS = [
 function findClaudeBinary(): string {
   // 고정 경로 탐색
   for (const p of CLAUDE_CANDIDATE_PATHS) {
-    if (existsSync(p)) return p
+    if (existsSync(p)) {
+      logger.cli.info('claude binary found', { path: p })
+      return p
+    }
   }
 
   // npm global bin 경로 탐색
   try {
     const npmPrefix = execSync('npm config get prefix', { encoding: 'utf8', timeout: 3000 }).trim()
     const npmBin = join(npmPrefix, 'bin', 'claude')
-    if (existsSync(npmBin)) return npmBin
+    if (existsSync(npmBin)) {
+      logger.cli.info('claude binary found', { path: npmBin })
+      return npmBin
+    }
   } catch {
     // npm 명령이 없거나 실패하면 무시
   }
 
   // 최종 폴백: PATH에서 찾도록 셸에 위임
+  logger.cli.error('claude binary not found', { searchedPaths: [...CLAUDE_CANDIDATE_PATHS] })
   return 'claude'
 }
 
@@ -115,10 +122,10 @@ export class RunManager extends EventEmitter {
     const binary = findClaudeBinary()
     const args = this.buildArgs(options)
 
-    log.info('[RunManager] spawn:', binary, args.join(' '))
-    log.info('[RunManager] cwd:', options.cwd)
+    logger.cli.info('spawn', { binary, args: args.join(' ') })
+    logger.cli.info('cwd', { cwd: options.cwd })
 
-    this.parser = new StreamParser()
+    this.parser = new StreamParser(this.sessionId)
     this.bindParserEvents(options.sessionId)
 
     this.proc = spawn(binary, args, {
@@ -127,7 +134,7 @@ export class RunManager extends EventEmitter {
       env: { ...process.env },
     })
 
-    log.info('[RunManager] pid:', this.proc.pid)
+    logger.cli.info('spawned', { pid: this.proc.pid })
 
     this.setStatus('running')
     this.resetActivityTimer()
@@ -141,7 +148,7 @@ export class RunManager extends EventEmitter {
     if (!options.sessionId) {
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          log.warn('[RunManager] session_id 대기 타임아웃 (15s)')
+          logger.cli.warn('session_id 대기 타임아웃 (15s)')
           resolve()
         }, 15_000)
 
@@ -252,7 +259,7 @@ export class RunManager extends EventEmitter {
     })
 
     this.parser.on('rate_limit', (data) => {
-      log.info('[RunManager] rate_limit, retryAfterMs:', data.retryAfterMs)
+      logger.cli.info('rate_limit', { retryAfterMs: data.retryAfterMs })
       this.rateLimited = true
       this.clearActivityTimer()
       this.emit('rate_limit', { sessionId: this.sessionId, ...data } satisfies RateLimitEvent)
@@ -283,8 +290,8 @@ export class RunManager extends EventEmitter {
 
     this.proc.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8')
-      log.debug('[DEBUG:stdout] ts=%d len=%d', Date.now(), text.length)
-      appendLine(text)
+      logger.cli.debug('stdout chunk', { len: text.length, sessionId: this.sessionId })
+      appendLine(this.sessionId, text)
       // rate limit이 해제된 경우 타이머 재시작
       if (this.rateLimited) {
         this.rateLimited = false
@@ -296,7 +303,7 @@ export class RunManager extends EventEmitter {
     this.proc.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
       if (text) {
-        log.warn('[claude stderr]', text)
+        logger.cli.warn('stderr', { text, sessionId: this.sessionId })
       }
     })
 
@@ -311,7 +318,7 @@ export class RunManager extends EventEmitter {
         const attempt = this.restartCount + 1
         const reason = `프로세스가 비정상 종료되었습니다 (exit ${exitCode})`
 
-        log.warn(`[RunManager] 크래시 감지 (exit ${exitCode}), 재시작 시도 ${attempt}/${MAX_RESTART_ATTEMPTS}`)
+        logger.cli.warn('크래시 감지, 재시작 시도', { exitCode, attempt, maxAttempts: MAX_RESTART_ATTEMPTS, sessionId: this.sessionId })
 
         this.emit('restart_attempt', {
           sessionId: this.sessionId,
@@ -327,23 +334,27 @@ export class RunManager extends EventEmitter {
 
         setTimeout(() => {
           this.doRestart().catch((err: Error) => {
-            log.error('[RunManager] 재시작 실패:', err)
+            logger.cli.error('재시작 실패', { error: String(err), sessionId: this.sessionId })
           })
         }, delay)
         return
       }
 
       if (!this.cancelled && shouldRestart(exitCode) && this.restartCount >= MAX_RESTART_ATTEMPTS) {
-        log.error(`[RunManager] 재시작 ${MAX_RESTART_ATTEMPTS}회 초과, 포기`)
+        logger.cli.error('재시작 횟수 초과, 포기', { maxAttempts: MAX_RESTART_ATTEMPTS, exitCode, sessionId: this.sessionId })
         this.emit('restart_failed', {
           sessionId: this.sessionId,
           reason: `${MAX_RESTART_ATTEMPTS}회 재시작 후에도 계속 실패 (exit ${exitCode})`,
         } satisfies RestartFailedEvent)
         this.setStatus('error')
         this.cleanup()
+        closeSessionStream(this.sessionId)
+        endRawSession(this.sessionId)
         return
       }
 
+      closeSessionStream(this.sessionId)
+      endRawSession(this.sessionId)
       this.emit('session_end', {
         sessionId: this.sessionId,
         exitCode,
@@ -354,6 +365,8 @@ export class RunManager extends EventEmitter {
 
     this.proc.on('error', (err: Error) => {
       this.clearKillTimer()
+      closeSessionStream(this.sessionId)
+      endRawSession(this.sessionId)
       this.emit('error', {
         sessionId: this.sessionId,
         message: err.message,
@@ -383,9 +396,9 @@ export class RunManager extends EventEmitter {
     const binary = findClaudeBinary()
     const args = this.buildArgs(restartOptions)
 
-    log.info('[RunManager] 재시작 spawn:', binary, args.join(' '))
+    logger.cli.info('재시작 spawn', { binary, args: args.join(' '), sessionId: this.sessionId })
 
-    this.parser = new StreamParser()
+    this.parser = new StreamParser(this.sessionId)
     this.bindParserEvents(restartOptions.sessionId)
 
     this.proc = spawn(binary, args, {
@@ -394,7 +407,7 @@ export class RunManager extends EventEmitter {
       env: { ...process.env },
     })
 
-    log.info('[RunManager] 재시작 pid:', this.proc.pid)
+    logger.cli.info('재시작 spawned', { pid: this.proc.pid, sessionId: this.sessionId })
 
     this.setStatus('running')
     this.resetActivityTimer()
@@ -444,7 +457,7 @@ export class RunManager extends EventEmitter {
     if (this.rateLimited) return  // rate limit 중에는 타이머 시작 안 함
     this.activityTimer = setTimeout(() => {
       this.activityTimer = null
-      log.warn(`[RunManager] activity timeout (${ACTIVITY_TIMEOUT_MS}ms)`)
+      logger.cli.warn('activity timeout', { timeoutMs: ACTIVITY_TIMEOUT_MS, sessionId: this.sessionId })
       this.setStatus('timeout')
       this.emit('timeout', {
         sessionId: this.sessionId,

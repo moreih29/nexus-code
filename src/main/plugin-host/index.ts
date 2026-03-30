@@ -3,7 +3,7 @@ import path from 'path'
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
 import type { PluginDataEvent } from '../../shared/types'
-import log from '../logger'
+import { logger } from '../logger'
 import { loadManifest, resolvePath } from './loader'
 import type { PluginManifest, PanelManifest, DataSourceFileWatch } from './loader'
 
@@ -48,7 +48,7 @@ export class PluginHost {
         const manifest = await loadManifest(manifestPath)
         this.loadPlugin(manifest)
       } catch {
-        log.warn('[PluginHost] manifest load failed:', entry)
+        logger.plugin.warn('manifest load failed', { entry })
       }
     }
   }
@@ -98,7 +98,7 @@ export class PluginHost {
           }
         })
       } catch {
-        log.debug('[PluginHost] watch failed:', resolvedFilePath)
+        logger.plugin.debug('watch failed', { resolvedFilePath })
         return
       }
     }
@@ -112,7 +112,7 @@ export class PluginHost {
       const raw = fs.readFileSync(filePath, 'utf8')
       data = JSON.parse(raw)
     } catch {
-      log.debug('[PluginHost] file read failed:', filePath)
+      logger.plugin.debug('file read failed', { filePath })
       return // 파일 없거나 파싱 실패 시 전송하지 않음
     }
 

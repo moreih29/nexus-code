@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
 import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentTimelineData } from '../../shared/types'
-import log from '../logger'
+import { logger } from '../logger'
 
 export type { AgentToolEvent, AgentNode, AgentTimelineData }
 
@@ -28,7 +28,7 @@ export class AgentTracker extends EventEmitter {
 
   /** SubagentStart 훅 처리 */
   onSubagentStart(sessionId: string, agentId: string, agentType?: string): void {
-    log.debug('[AgentTracker] subagent start:', sessionId, agentId, agentType)
+    logger.agent.debug('subagent start', { sessionId, agentId, agentType })
     const { agents } = this.getOrCreateSession(sessionId)
     if (!agents.has(agentId)) {
       agents.set(agentId, {
@@ -50,7 +50,7 @@ export class AgentTracker extends EventEmitter {
 
   /** SubagentStop 훅 처리 */
   onSubagentStop(sessionId: string, agentId: string): void {
-    log.debug('[AgentTracker] subagent stop:', sessionId, agentId)
+    logger.agent.debug('subagent stop', { sessionId, agentId })
     const { agents } = this.getOrCreateSession(sessionId)
     const agent = agents.get(agentId)
     if (agent) {
@@ -63,17 +63,24 @@ export class AgentTracker extends EventEmitter {
 
   /** HookServer의 pre-tool-use 페이로드 처리 */
   onPreToolUse(sessionId: string, agentId: string, toolName: string, toolInput: Record<string, unknown>, toolUseId: string): void {
-    log.debug('[AgentTracker] pre-tool-use:', sessionId, agentId, toolName)
+    logger.agent.debug('pre-tool-use', { sessionId, agentId, toolName })
     const { agents, pendingTools } = this.getOrCreateSession(sessionId)
     if (!agents.has(agentId)) {
       agents.set(agentId, { agentId, events: [], lastSeen: Date.now() })
     }
 
+    const INPUT_SIZE_LIMIT = 10 * 1024 // 10KB
+    const serialized = JSON.stringify(toolInput)
+    const safeInput: Record<string, unknown> =
+      serialized.length > INPUT_SIZE_LIMIT
+        ? { truncated: true, originalSize: serialized.length }
+        : toolInput
+
     const agent = agents.get(agentId)!
     const event: AgentToolEvent = {
       toolUseId,
       toolName,
-      input: toolInput,
+      input: safeInput,
       timestamp: Date.now(),
     }
     agent.events.push(event)

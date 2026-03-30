@@ -1,5 +1,7 @@
 import { Component, type ReactNode, useMemo, useLayoutEffect } from 'react'
 import log from 'electron-log/renderer'
+
+const rlog = log.scope('renderer:app')
 import { AppLayout } from './components/layout/AppLayout'
 import { SessionStoreContext, getOrCreateWorkspaceStore, setActiveStore } from './stores/session-store'
 import { useWorkspaceStore } from './stores/workspace-store'
@@ -12,9 +14,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 
   componentDidCatch(error: Error, info: { componentStack?: string | null }): void {
-    log.error('[ErrorBoundary] React rendering crash:', error.message)
-    log.error('[ErrorBoundary] Stack:', error.stack)
-    log.error('[ErrorBoundary] Component:', info.componentStack)
+    rlog.error('React rendering crash:', error.message)
+    rlog.error('Stack:', error.stack)
+    rlog.error('Component:', info.componentStack)
   }
 
   render(): ReactNode {

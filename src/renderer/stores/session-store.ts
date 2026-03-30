@@ -1,6 +1,8 @@
 import { createStore, useStore, type StoreApi } from 'zustand'
 import { createContext, useContext } from 'react'
 import log from 'electron-log/renderer'
+
+const rlog = log.scope('renderer:session-store')
 import type { SessionStatus, ToolCallEvent, LoadHistoryResponse } from '../../shared/types'
 import { IpcChannel } from '../../shared/ipc'
 
@@ -165,6 +167,7 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
   const nextEvtId = (): string => `evt-${++evtCounter}`
   let _textBuffer = ''
   let _rafId: number | null = null
+  let _lastFlushTime = 0
   // toolUseId → messages 배열 인덱스 (O(1) resolveToolCall 조회)
   const _toolCallIndex = new Map<string, number>()
 
@@ -205,7 +208,7 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
     appendTextChunk: (text) => {
       // 텍스트 버퍼에 즉시 누적
       _textBuffer += text
-      log.debug('[DEBUG:store] appendTextChunk len=%d bufTotal=%d', text.length, _textBuffer.length)
+      rlog.debug('appendTextChunk len=%d bufTotal=%d', text.length, _textBuffer.length)
 
       // 기존 타이머 취소 후 50ms 디바운스로 messages 갱신
       if (_rafId !== null) {
@@ -214,6 +217,9 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
       _rafId = requestAnimationFrame(() => {
         _rafId = null
         const buffered = _textBuffer
+        const now = Date.now()
+        rlog.debug('flush', { flushedLen: buffered.length, timeSinceLastFlush: now - _lastFlushTime })
+        _lastFlushTime = now
         set((s) => {
           const newBuffer = s.streamBuffer + buffered
           // 버퍼를 소비했으므로 초기화 (다음 청크가 쌓이기 전)
@@ -403,7 +409,7 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
           })
         }
       } catch (err) {
-        log.error('[restoreSession] LOAD_HISTORY failed:', err)
+        rlog.error('restoreSession LOAD_HISTORY failed:', err)
       }
     },
 

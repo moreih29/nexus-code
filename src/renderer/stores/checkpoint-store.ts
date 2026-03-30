@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import log from 'electron-log/renderer'
+
+const rlog = log.scope('renderer:checkpoint-store')
 import type { Checkpoint, CheckpointRestoreResponse } from '../../shared/types'
 import { IpcChannel } from '../../shared/ipc'
 import { getActiveStore } from './session-store'
@@ -28,7 +30,7 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
         { cwd, checkpoint }
       )
       if (!res.ok) {
-        log.error('[CheckpointStore] restoreCheckpoint 실패:', res.error)
+        rlog.error('restoreCheckpoint 실패:', res.error)
         return { ok: false, changedFiles: [], shortHash: '' }
       }
 
@@ -51,7 +53,7 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
 
       return { ok: true, changedFiles, shortHash }
     } catch (err) {
-      log.error('[CheckpointStore] restoreCheckpoint 오류:', err)
+      rlog.error('restoreCheckpoint 오류:', err)
       return { ok: false, changedFiles: [], shortHash: '' }
     } finally {
       set({ isRestoring: false })

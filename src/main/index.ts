@@ -9,6 +9,7 @@ import { PluginHost } from './plugin-host'
 import { AgentTracker } from './control-plane/agent-tracker'
 import { registerIpcHandlers } from './ipc/handlers'
 import { loadPermanentRules } from './control-plane/approval-store'
+import { logger, cleanupOldSessionLogs } from './logger'
 
 const permissionHandler = new PermissionHandler()
 const hookServer = new HookServer({ permissionHandler })
@@ -20,16 +21,19 @@ const agentTracker = new AgentTracker()
 const sessions = new Map<string, RunManager>()
 
 function createWindow(): void {
+  const width = 1280
+  const height = 800
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width,
+    height,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
+  logger.app.info('window created', { width, height })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -68,6 +72,15 @@ hookServer.on('subagent-lifecycle', (payload) => {
 })
 
 app.whenReady().then(async () => {
+  logger.app.info('app ready', { electronVersion: process.versions.electron, nodeVersion: process.versions.node })
+
+  // 오래된 세션 로그 정리
+  try {
+    cleanupOldSessionLogs()
+  } catch (e) {
+    logger.app.warn('failed to cleanup old session logs', { error: String(e) })
+  }
+
   const permanentRules = await loadPermanentRules()
   permissionHandler.setPermanentRules(permanentRules)
 
@@ -81,15 +94,18 @@ app.whenReady().then(async () => {
     sessionManager,
     permissionHandler,
     pluginHost,
+    agentTracker,
   })
   createWindow()
 
   app.on('activate', function () {
+    logger.app.info('app activated')
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', async () => {
+  logger.app.info('all windows closed')
   // 실행 중인 CLI 프로세스 모두 정리
   for (const manager of sessions.values()) {
     manager.cancel()

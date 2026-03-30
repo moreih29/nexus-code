@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import log from '../logger'
+import { logger } from '../logger'
 
 const execFileAsync = promisify(execFile)
 
@@ -33,7 +33,7 @@ export async function createCheckpoint(cwd: string, sessionId: string, messageId
     headHash = await git(cwd, ['rev-parse', 'HEAD'])
   } catch {
     // 커밋이 없는 repo (git init 직후) — 체크포인트 생성 불가
-    log.info('[CheckpointManager] 커밋 없는 repo, 체크포인트 스킵', { sessionId })
+    logger.checkpoint.info('커밋 없는 repo, 체크포인트 스킵', { sessionId })
     return null
   }
   const timestamp = Date.now()
@@ -42,14 +42,14 @@ export async function createCheckpoint(cwd: string, sessionId: string, messageId
   const statusOut = await git(cwd, ['status', '--porcelain'])
   if (!statusOut) {
     // 클린 트리 — HEAD 해시만 기록, hash 빈 문자열
-    log.info('[CheckpointManager] 클린 트리, HEAD만 기록', { sessionId, headHash })
+    logger.checkpoint.info('클린 트리, HEAD만 기록', { sessionId, headHash })
     return { hash: '', headHash, sessionId, timestamp, messageId }
   }
 
   // git stash create: working tree 변경 없이 commit object만 생성
   const hash = await git(cwd, ['stash', 'create'])
 
-  log.info('[CheckpointManager] 체크포인트 생성', { sessionId, headHash, hash })
+  logger.checkpoint.info('체크포인트 생성', { sessionId, headHash, hash })
   return { hash, headHash, sessionId, timestamp, messageId }
 }
 
@@ -59,7 +59,7 @@ export interface CheckpointRestoreInfo {
 }
 
 export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Promise<CheckpointRestoreInfo> {
-  log.info('[CheckpointManager] 복원 시작', checkpoint)
+  logger.checkpoint.info('복원 시작', { ...checkpoint })
 
   // 복원 전 stash에서 변경 파일 목록 획득
   let changedFiles: string[] = []
@@ -93,6 +93,6 @@ export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Pr
     await git(cwd, ['checkout', checkpoint.headHash, '--', '.'])
   }
 
-  log.info('[CheckpointManager] 복원 완료', { hash: checkpoint.hash, changedFiles: changedFiles.length })
+  logger.checkpoint.info('복원 완료', { hash: checkpoint.hash, changedFiles: changedFiles.length, sessionId: checkpoint.sessionId })
   return { changedFiles, shortHash }
 }

@@ -1,9 +1,15 @@
 import 'electron-log/preload'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ElectronAPI } from '../shared/types'
+import { IpcChannel } from '../shared/ipc'
+
+const ALLOWED_CHANNELS = new Set<string>(Object.values(IpcChannel))
 
 const api: ElectronAPI = {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
+    if (!ALLOWED_CHANNELS.has(channel)) {
+      return Promise.reject(new Error(`Blocked IPC channel: ${channel}`))
+    }
     return ipcRenderer.invoke(channel, ...args)
   },
 

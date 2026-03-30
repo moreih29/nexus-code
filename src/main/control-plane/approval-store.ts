@@ -2,7 +2,7 @@ import { join } from 'path'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { app } from 'electron'
 import type { ApprovalRule } from '../../shared/types'
-import log from '../logger'
+import { logger } from '../logger'
 
 function permissionsFilePath(): string {
   return join(app.getPath('home'), '.nexus-code', 'permissions-global.json')
@@ -27,7 +27,7 @@ export async function savePermanentRule(toolName: string): Promise<void> {
       await writeFile(filePath, JSON.stringify(rules, null, 2), 'utf8')
     }
   } catch (err) {
-    log.error('[ApprovalStore] savePermanentRule failed:', err)
+    logger.permission.error('savePermanentRule failed', { error: String(err) })
   }
 }
 
@@ -38,6 +38,6 @@ export async function removePermanentRule(toolName: string): Promise<void> {
     const filtered = rules.filter((r) => r.toolName !== toolName)
     await writeFile(filePath, JSON.stringify(filtered, null, 2), 'utf8')
   } catch (err) {
-    log.error('[ApprovalStore] removePermanentRule failed:', err)
+    logger.permission.error('removePermanentRule failed', { error: String(err) })
   }
 }

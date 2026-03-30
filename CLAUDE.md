@@ -49,6 +49,7 @@ bun run test:e2e     # E2E 테스트 (빌드 선행 필요)
 | nx-init | /claude-nexus:nx-init | Full project onboarding: scan codebase, establish identity, generate core knowledge |
 | nx-run | nx-run | Execution — user-directed agent composition |
 | nx-setup | /claude-nexus:nx-setup | Configure Nexus interactively |
+| nx-sync | /claude-nexus:nx-sync | Synchronize core knowledge with current project state |
 
 ### Tags
 
