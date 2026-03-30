@@ -609,8 +609,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     IpcChannel.CHECKPOINT_RESTORE,
     async (_event, req: CheckpointRestoreRequest): Promise<CheckpointRestoreResponse> => {
       try {
-        const { changedFiles, shortHash } = await restoreCheckpoint(req.cwd, req.checkpoint)
-        return { ok: true, changedFiles, shortHash }
+        const { changedFiles, shortHash, untrackedFiles } = await restoreCheckpoint(req.cwd, req.checkpoint)
+        return { ok: true, changedFiles, shortHash, untrackedFiles }
       } catch (err) {
         logger.ipc.error('CHECKPOINT_RESTORE failed', { err, sessionId: req.checkpoint.sessionId })
         return { ok: false, error: (err as Error).message }

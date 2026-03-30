@@ -10,12 +10,12 @@ interface StreamingMessageProps {
 }
 
 function charsPerFrame(gap: number, draining: boolean): number {
-  if (draining) return Math.max(12, Math.ceil(gap / 8))
-  if (gap <= 3) return 1
-  if (gap <= 10) return 1
-  if (gap <= 30) return 2
-  if (gap <= 60) return 3
-  return Math.min(5, Math.ceil(gap / 12))
+  if (draining) return Math.max(20, Math.ceil(gap / 4))
+  if (gap <= 5) return 1
+  if (gap <= 15) return 2
+  if (gap <= 40) return 3
+  if (gap <= 80) return Math.ceil(gap / 15)
+  return Math.ceil(gap / 10)
 }
 
 export function StreamingMessage({ content, isStreaming }: StreamingMessageProps) {
