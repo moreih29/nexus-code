@@ -1135,6 +1135,145 @@
           "created_at": "2026-03-30T14:45:22.747Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-30T16:48:12.633Z",
+      "branch": "main",
+      "consult": {
+        "topic": "Nexus Code 디자인 개편",
+        "issues": [
+          {
+            "id": 1,
+            "title": "빈 상태/온보딩 UX — 채팅 빈 화면, 워크스페이스 없음 시 가이드 부재",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "테마 색상 일관성 — 하드코딩 blue, 인라인 HSL, 테마 변수 미사용",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "시각적 계층 강화 — 활성 탭/워크스페이스 강조, 메시지 역할 구분, 정보 밀도 차등",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "앱 아이덴티티/브랜딩 — 사이드바 로고 부재, 접힌 사이드바 빈약",
+            "status": "decided"
+          },
+          {
+            "id": 5,
+            "title": "인터랙션 안전장치 — 삭제 확인, window.confirm 네이티브 대체, 전송 힌트",
+            "status": "decided"
+          },
+          {
+            "id": 6,
+            "title": "언어 통일 — 영어/한글 혼재 정책 확립",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "B+ 접근: 채팅 + 사이드바 빈 상태 우선 개선 + 공용 EmptyState 컴포넌트 도입. 채팅은 워크스페이스 미선택(앱 아이콘+안내+폴더추가 버튼)과 세션 없음(제안 프롬프트 칩 2x2 그리드, 클릭시 prefill) 두 상태 구분. 사이드바는 중앙 CTA 추가하되 하단 폴더추가 버튼도 유지. 우측 패널 4곳은 EmptyState 컴포넌트로 스타일 통일. 일러스트 불필요, 타이포그래피 중심.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "40+곳 하드코딩 색상을 테마 변수로 전환. opacity 3단계 표준화(muted 8%, subtle 15%, 원색 100%, 보더 30%). primary-subtle/error-subtle/warning-subtle/success-subtle 시맨틱 토큰 추가. hsl(var(--)) 인라인 11곳 정리. DiffView는 예외 — diff 전용 토큰으로 분리하되 빨강/초록 관용색 유지. 6개 테마 일관성은 시맨틱 변수 사용으로 자동 보장.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "시각적 계층 강화 4개 항목 + 워크스페이스 실행 상태 표시. (1) 우측 패널 탭: 활성에 bg-primary/8 + font-semibold, 비활성에 hover:bg-muted/50. (2) 워크스페이스 accent bar: 좌측 2px primary 수직 바 + bg-primary/15. (3) 워크스페이스 실행 상태 dot: 폴더 아이콘 우하단 오버레이 — running=bg-primary+animate-pulse, idle=bg-success, error=bg-error, 세션없음=dot없음. accent bar와 독립적으로 동작. 추가 IPC 없이 getOrCreateWorkspaceStore로 구독 가능. (4) 메시지 아이콘: lucide Bot(assistant)+User(사용자) 6x6, items-start 정렬. (5) StatusBar 계층화: 비용=foreground+font-medium, 토큰=muted, 턴=dim.",
+          "consult": 3
+        },
+        {
+          "id": 4,
+          "summary": "사이드바 헤더: \"Workspaces\" → 텍스트 로고 \"Nexus\"(primary, bold) + \"Code\"(dim, 작게). 접힌 사이드바: 워크스페이스 이니셜 32x32 버튼 목록 추가, 활성=bg-primary/15 text-primary, 실행 상태 dot 이니셜 우하단 오버레이. Settings 중복: 진입점은 유지(펼침=헤더, 접힘=하단), SettingsModal 인스턴스를 AppLayout 1곳으로 통합, Sidebar는 onOpenSettings 콜백만 호출.",
+          "consult": 4
+        },
+        {
+          "id": 5,
+          "summary": "워크스페이스 삭제: Undo toast(3초, 하단 중앙) — 가역적 작업이므로 흐름 유지. 코드 복원: 커스텀 ConfirmDialog(destructive 버튼) — window.confirm 대체, 비가역적 작업이므로 명시적 확인. 전송 버튼: kbd ↵ 힌트 내장, 중지 버튼에도 Esc 힌트. 공용 컴포넌트 2개 신규: ui/confirm-dialog.tsx(variant: default|destructive) + ui/toast.tsx(action 옵션으로 undo 지원).",
+          "consult": 5
+        },
+        {
+          "id": 6,
+          "summary": "B안: 기술 용어/고유명사만 영어, 나머지 한글. 영어 유지: Nexus, Changes, Timeline, Markdown, API 도구명. 한글 사용: 버튼, 상태 메시지, 에러/경고, 설정 라벨. 병기 제거 7곳(설정 라벨에서 영문 키 이름 제거). \"퍼미션\"→\"권한\" 변경. ToolRenderer 내부 영어 6곳 한글화. 총 17곳 문자열 교체.",
+          "consult": 6
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "D2: 테마 색상 일관성 — 시맨틱 토큰 + 하드코딩 40곳 전환",
+          "context": "Phase 0 (선행). app.css에 시맨틱 토큰 추가 + 10개 파일 40+곳 하드코딩 색상을 테마 변수로 전환. opacity 3단계(muted 8%, subtle 15%, 원색 100%, 보더 30%). DiffView는 예외(빨강/초록 유지). hsl(var(--)) 인라인 11곳 정리.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "created_at": "2026-03-30T15:26:25.552Z"
+        },
+        {
+          "id": 2,
+          "title": "D1: 빈 상태/온보딩 UX — EmptyState + 채팅 빈 화면 + 사이드바",
+          "context": "Phase 1. 공용 EmptyState 컴포넌트 생성(icon, title, description, action, size props). 채팅 빈 화면: 워크스페이스 미선택(앱 아이콘+안내+폴더추가 버튼), 세션 없음(제안 프롬프트 칩 2x2). 사이드바 빈 상태: FolderPlus 아이콘+CTA. 우측 패널 4곳 EmptyState 적용.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            1
+          ],
+          "created_at": "2026-03-30T15:26:33.718Z"
+        },
+        {
+          "id": 3,
+          "title": "D3+D4: 시각적 계층 + 브랜딩 — 탭/accent bar/dot/아이콘/StatusBar/로고/이니셜/Settings통합",
+          "context": "Phase 1. D3: 우측 패널 탭 활성 스타일(bg-primary/8+font-semibold), 워크스페이스 accent bar(좌측 2px primary), 실행 상태 dot(폴더 아이콘 우하단 오버레이, running=primary+pulse, idle=success, error=error), 메시지 아이콘(Bot+User 6x6), StatusBar 계층화(비용 강조). D4: 사이드바 헤더 텍스트 로고 \"Nexus\"(primary)+Code(dim), 접힌 사이드바 이니셜 32x32 버튼+dot, SettingsModal AppLayout 통합. 파일: WorkspaceItem.tsx, SessionItem.tsx, StatusBar.tsx, MessageBubble.tsx, RightPanel.tsx, Sidebar.tsx, AppLayout.tsx, SettingsModal.tsx",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            3,
+            4
+          ],
+          "created_at": "2026-03-30T15:26:47.944Z"
+        },
+        {
+          "id": 4,
+          "title": "D5: 안전장치 — Toast + ConfirmDialog + kbd 힌트",
+          "context": "Phase 1 (독립). 공용 컴포넌트 2개 신규: ui/toast.tsx(message, action, duration props), ui/confirm-dialog.tsx(open, title, description, confirmLabel, variant: default|destructive). 워크스페이스 삭제에 Undo toast 적용(3초). RestoreButton의 window.confirm→ConfirmDialog 교체. 전송 버튼에 kbd ↵ 힌트, 중지 버튼에 Esc 힌트.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            5
+          ],
+          "created_at": "2026-03-30T15:26:57.546Z"
+        },
+        {
+          "id": 5,
+          "title": "D6: 언어 통일 — 17곳 문자열 교체",
+          "context": "Phase 2 (마무리). 기술 용어만 영어, 나머지 한글. 변경 대상: Sidebar.tsx(\"Workspaces\"는 이슈4에서 로고로 대체됨, Settings title→설정), SettingsModal.tsx(Settings→설정, Loading...→불러오는 중, 병기 7곳 제거, 퍼미션→권한), ToolRenderer.tsx(more lines→줄 더, collapse→접기, files found→개 파일, matches→건 일치, no todos→할 일 없음), AgentTimeline.tsx(calls→건 호출). 전부 단순 문자열 교체.",
+          "status": "completed",
+          "deps": [
+            2,
+            3,
+            4
+          ],
+          "decisions": [
+            6
+          ],
+          "created_at": "2026-03-30T15:27:06.025Z"
+        }
+      ]
     }
   ]
 }
