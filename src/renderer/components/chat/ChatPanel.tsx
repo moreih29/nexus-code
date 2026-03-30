@@ -40,6 +40,7 @@ export function ChatPanel() {
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const saveSessionId = useWorkspaceStore((s) => s.saveSessionId)
   const { reset: resetCheckpoints } = useCheckpointStore()
+  const model = useSettingsStore((s) => s.model)
   const permissionMode = useSettingsStore((s) => s.permissionMode)
   const toolDensity = useSettingsStore((s) => s.toolDensity)
   const setToolDensity = useSettingsStore((s) => s.setToolDensity)
@@ -105,7 +106,7 @@ export function ChatPanel() {
           IpcChannel.CHECKPOINT_CREATE,
           { cwd: activeWorkspace, sessionId: currentSessionId }
         )
-        if (cpRes.ok && cpRes.checkpoint?.hash) {
+        if (cpRes.ok && cpRes.checkpoint) {
           checkpointRef = cpRes.checkpoint.hash
         }
       } catch (err) {
@@ -123,6 +124,7 @@ export function ChatPanel() {
         const res = await window.electronAPI.invoke(IpcChannel.START, {
           prompt: text,
           cwd: activeWorkspace,
+          model,
           permissionMode,
           notificationsEnabled,
           images,
@@ -142,6 +144,7 @@ export function ChatPanel() {
           const resumed = await window.electronAPI.invoke(IpcChannel.START, {
             prompt: text,
             cwd: activeWorkspace,
+            model,
             permissionMode,
             sessionId: currentSessionId,
             notificationsEnabled,

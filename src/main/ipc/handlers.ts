@@ -412,6 +412,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       const sessionId = await manager.start({
         prompt: req.prompt,
         cwd: req.cwd,
+        model: req.model,
         permissionMode: req.permissionMode,
         sessionId: req.sessionId,
         images: req.images,
@@ -556,14 +557,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     try {
       // .md 파일만 허용
       if (!req.path.endsWith('.md')) {
-        return { ok: false, error: 'Access denied' }
+        return { ok: false, error: 'Access denied: .md 파일만 허용됩니다' }
       }
-      // path traversal 방지: 워크스페이스 경로 내부인지 확인
       const resolved = path.resolve(req.path)
-      const workspaceResolved = path.resolve(req.workspacePath)
-      if (!resolved.startsWith(workspaceResolved + path.sep) && resolved !== workspaceResolved) {
-        return { ok: false, error: 'Access denied' }
-      }
       const content = await readFile(resolved, 'utf8')
       return { ok: true, content }
     } catch (err) {
