@@ -32,7 +32,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   loadWorkspaces: async () => {
     set({ loading: true })
     try {
-      const res = await window.electronAPI.invoke<WorkspaceListResponse>(IpcChannel.WORKSPACE_LIST)
+      const res = await window.electronAPI.invoke(IpcChannel.WORKSPACE_LIST)
       set({ workspaces: res.workspaces })
     } catch (err) {
       rlog.error('WORKSPACE_LIST error:', err)
@@ -42,7 +42,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   addWorkspace: async () => {
-    const res = await window.electronAPI.invoke<WorkspaceAddResponse>(IpcChannel.WORKSPACE_ADD)
+    const res = await window.electronAPI.invoke(IpcChannel.WORKSPACE_ADD)
     if (!res.cancelled && res.workspace) {
       const { workspaces } = get()
       if (!workspaces.some((w) => w.path === res.workspace!.path)) {
@@ -52,7 +52,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   removeWorkspace: async (path: string) => {
-    await window.electronAPI.invoke<WorkspaceRemoveResponse>(IpcChannel.WORKSPACE_REMOVE, { path })
+    await window.electronAPI.invoke(IpcChannel.WORKSPACE_REMOVE, { path })
     set((s) => ({
       workspaces: s.workspaces.filter((w) => w.path !== path),
       activeWorkspace: s.activeWorkspace === path ? null : s.activeWorkspace,
@@ -66,7 +66,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspaces: s.workspaces.map((w) => w.path === path ? { ...w, sessionId } : w),
     }))
     try {
-      await window.electronAPI.invoke<WorkspaceUpdateSessionResponse>(
+      await window.electronAPI.invoke(
         IpcChannel.WORKSPACE_UPDATE_SESSION,
         { path, sessionId }
       )

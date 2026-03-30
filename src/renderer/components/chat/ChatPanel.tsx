@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 const rlog = log.scope('renderer:chat-panel')
 import { AlignJustify, AlignLeft, List } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment, CheckpointCreateResponse } from '../../../shared/types'
+import type { ImageAttachment } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useActiveSession } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
@@ -85,7 +85,7 @@ export function ChatPanel() {
       return
     }
     window.electronAPI
-      .invoke<GitCheckResponse>(IpcChannel.GIT_CHECK, { cwd: activeWorkspace })
+      .invoke(IpcChannel.GIT_CHECK, { cwd: activeWorkspace })
       .then((res) => setIsGitRepo(res.isGitRepo))
       .catch(() => setIsGitRepo(true))
   }, [activeWorkspace])
@@ -101,7 +101,7 @@ export function ChatPanel() {
     const currentSessionId = sessionId
     if (currentSessionId) {
       try {
-        const cpRes = await window.electronAPI.invoke<CheckpointCreateResponse>(
+        const cpRes = await window.electronAPI.invoke(
           IpcChannel.CHECKPOINT_CREATE,
           { cwd: activeWorkspace, sessionId: currentSessionId }
         )
@@ -120,7 +120,7 @@ export function ChatPanel() {
     try {
       if (!currentSessionId) {
         resetCheckpoints()
-        const res = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
+        const res = await window.electronAPI.invoke(IpcChannel.START, {
           prompt: text,
           cwd: activeWorkspace,
           permissionMode,
@@ -131,7 +131,7 @@ export function ChatPanel() {
         startSession(res.sessionId)
         await saveSessionId(activeWorkspace, res.sessionId)
       } else {
-        const res = await window.electronAPI.invoke<PromptResponse>(IpcChannel.PROMPT, {
+        const res = await window.electronAPI.invoke(IpcChannel.PROMPT, {
           sessionId: currentSessionId,
           message: text,
           images,
@@ -139,7 +139,7 @@ export function ChatPanel() {
         if (!res.ok) {
           // 프로세스가 죽었음 → START + --resume로 자동 복구
           rlog.warn('PROMPT failed — resuming session:', currentSessionId)
-          const resumed = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
+          const resumed = await window.electronAPI.invoke(IpcChannel.START, {
             prompt: text,
             cwd: activeWorkspace,
             permissionMode,
@@ -160,7 +160,7 @@ export function ChatPanel() {
   const handleStop = async (): Promise<void> => {
     if (!sessionId) return
     try {
-      await window.electronAPI.invoke<CancelResponse>(IpcChannel.CANCEL, { sessionId })
+      await window.electronAPI.invoke(IpcChannel.CANCEL, { sessionId })
     } catch (err) {
       rlog.error('cancel error:', err)
     }
@@ -181,7 +181,7 @@ export function ChatPanel() {
   const handleGitInit = async (): Promise<void> => {
     if (!activeWorkspace) return
     try {
-      const res = await window.electronAPI.invoke<GitInitResponse>(IpcChannel.GIT_INIT, { cwd: activeWorkspace })
+      const res = await window.electronAPI.invoke(IpcChannel.GIT_INIT, { cwd: activeWorkspace })
       if (res.ok) setIsGitRepo(true)
     } catch (err) {
       rlog.error('git init error:', err)

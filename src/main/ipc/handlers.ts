@@ -657,7 +657,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       const sessionId = await manager.start({
         prompt: '',
         cwd,
-        permissionMode: 'manual',
+        permissionMode: 'default',
         sessionId: req.sessionId,
       })
       sessions.set(sessionId, manager)

@@ -225,7 +225,7 @@ export function NexusPanel() {
     }
 
     // 초기 로드
-    window.electronAPI.invoke<NexusStateReadResponse>(IpcChannel.NEXUS_STATE_READ, { cwd: activeWorkspace })
+    window.electronAPI.invoke(IpcChannel.NEXUS_STATE_READ, { cwd: activeWorkspace })
       .then(setNexusState)
       .catch(() => {})
 

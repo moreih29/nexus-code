@@ -1,4 +1,28 @@
 // IPC channel name constants — used by both main and renderer processes
+import type {
+  StartRequest, StartResponse,
+  PromptRequest, PromptResponse,
+  CancelRequest, CancelResponse,
+  ListSessionsResponse,
+  LoadSessionRequest, LoadSessionResponse,
+  RespondPermissionRequest, RespondPermissionResponse,
+  StatusRequest, StatusResponse,
+  WorkspaceListResponse,
+  WorkspaceAddResponse,
+  WorkspaceRemoveRequest, WorkspaceRemoveResponse,
+  WorkspaceUpdateSessionRequest, WorkspaceUpdateSessionResponse,
+  ReadSettingsResponse,
+  WriteSettingsRequest, WriteSettingsResponse,
+  SettingsSyncRequest,
+  ReadFileRequest, ReadFileResponse,
+  LoadHistoryRequest, LoadHistoryResponse,
+  CheckpointCreateRequest, CheckpointCreateResponse,
+  CheckpointRestoreRequest, CheckpointRestoreResponse,
+  CheckpointListRequest, CheckpointListResponse,
+  GitCheckRequest, GitCheckResponse,
+  GitInitRequest, GitInitResponse,
+  NexusStateReadRequest, NexusStateReadResponse,
+} from './types'
 
 export const IpcChannel = {
   // ── Request-Response ──────────────────────────────────────────────────────
@@ -97,3 +121,38 @@ export const IpcChannel = {
 } as const
 
 export type IpcChannelName = (typeof IpcChannel)[keyof typeof IpcChannel]
+
+export type IpcMap = {
+  [IpcChannel.START]: { req: StartRequest; res: StartResponse }
+  [IpcChannel.PROMPT]: { req: PromptRequest; res: PromptResponse }
+  [IpcChannel.CANCEL]: { req: CancelRequest; res: CancelResponse }
+  [IpcChannel.LIST_SESSIONS]: { req: void; res: ListSessionsResponse }
+  [IpcChannel.LOAD_SESSION]: { req: LoadSessionRequest; res: LoadSessionResponse }
+  [IpcChannel.RESPOND_PERMISSION]: { req: RespondPermissionRequest; res: RespondPermissionResponse }
+  [IpcChannel.STATUS]: { req: StatusRequest; res: StatusResponse }
+  [IpcChannel.WORKSPACE_LIST]: { req: void; res: WorkspaceListResponse }
+  [IpcChannel.WORKSPACE_ADD]: { req: void; res: WorkspaceAddResponse }
+  [IpcChannel.WORKSPACE_REMOVE]: { req: WorkspaceRemoveRequest; res: WorkspaceRemoveResponse }
+  [IpcChannel.WORKSPACE_UPDATE_SESSION]: { req: WorkspaceUpdateSessionRequest; res: WorkspaceUpdateSessionResponse }
+  [IpcChannel.SETTINGS_READ]: { req: void; res: ReadSettingsResponse }
+  [IpcChannel.SETTINGS_WRITE]: { req: WriteSettingsRequest; res: WriteSettingsResponse }
+  [IpcChannel.SETTINGS_SYNC]: { req: SettingsSyncRequest; res: void }
+  [IpcChannel.READ_FILE]: { req: ReadFileRequest; res: ReadFileResponse }
+  [IpcChannel.LOAD_HISTORY]: { req: LoadHistoryRequest; res: LoadHistoryResponse }
+  [IpcChannel.CHECKPOINT_CREATE]: { req: CheckpointCreateRequest; res: CheckpointCreateResponse }
+  [IpcChannel.CHECKPOINT_RESTORE]: { req: CheckpointRestoreRequest; res: CheckpointRestoreResponse }
+  [IpcChannel.CHECKPOINT_LIST]: { req: CheckpointListRequest; res: CheckpointListResponse }
+  [IpcChannel.GIT_CHECK]: { req: GitCheckRequest; res: GitCheckResponse }
+  [IpcChannel.GIT_INIT]: { req: GitInitRequest; res: GitInitResponse }
+  [IpcChannel.NEXUS_STATE_READ]: { req: NexusStateReadRequest; res: NexusStateReadResponse }
+}
+
+export interface ElectronAPI {
+  invoke<C extends keyof IpcMap>(
+    channel: C,
+    ...args: IpcMap[C]['req'] extends void ? [] : [req: IpcMap[C]['req']]
+  ): Promise<IpcMap[C]['res']>
+
+  on(channel: string, callback: (...args: unknown[]) => void): void
+  off(channel: string, callback: (...args: unknown[]) => void): void
+}

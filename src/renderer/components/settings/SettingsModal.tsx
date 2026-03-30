@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, Plus, Trash2 } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
-import type {
-  ClaudeSettings,
-  ReadSettingsResponse,
-  WriteSettingsResponse,
-} from '../../../shared/types'
+import type { ClaudeSettings } from '../../../shared/types'
 import { useSettingsStore, AVAILABLE_MODELS, THEMES, type ModelId, type PermissionMode, type ToolDensity } from '../../stores/settings-store'
 
 interface SettingsModalProps {
@@ -208,7 +204,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     if (!isOpen) return
     setLoading(true)
     window.electronAPI
-      .invoke<ReadSettingsResponse>(IpcChannel.SETTINGS_READ)
+      .invoke(IpcChannel.SETTINGS_READ)
       .then((res) => {
         const s = res.global
         setGlobalSettings(s)
@@ -279,7 +275,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       extraKnownMarketplaces: parsedMarketplaces,
     }
 
-    await window.electronAPI.invoke<WriteSettingsResponse>(IpcChannel.SETTINGS_WRITE, {
+    await window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
       scope: 'global',
       settings: updated,
     })

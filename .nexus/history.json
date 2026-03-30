@@ -830,6 +830,127 @@
           "created_at": "2026-03-30T12:38:15.948Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-30T12:53:28.139Z",
+      "branch": "main",
+      "consult": {
+        "topic": "미수정 코드 리뷰 항목 우선순위 결정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "M-1 IPC 타입 매핑 도입 — 실행 시점/범위",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "T9 스트리밍 이중 rAF vs M-4 checkpoint 경고 — 순서 결정",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "실행 전략 — 단일 run vs 분할 run",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "미수정 항목 우선순위 확정: 1)T9 스트리밍 rAF, 2)M-1 IPC 타입 매핑, 3)M-4 checkpoint 경고, 4)L-3 모델 ID, 5)L-4 캐스팅, 6)L-2 listenerMap, 7)L-1 Store 의존성",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "T9를 M-1보다 먼저 수행. T9는 2파일 집중 수정으로 빠른 UX 개선, M-1은 20+파일 대규모 리팩토링이므로 이후 전용 사이클에서 진행.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "2 run 분할 실행 확정. Run 1: T9+M-4+L-3 (퀵윈, 병렬 처리). Run 2: M-1 (IPC 타입 매핑, 아키텍트 설계+전용 사이클). L-1/L-2/L-4는 이번 사이클에서 제외.",
+          "consult": 3
+        }
+      ],
+      "tasks": []
+    },
+    {
+      "completed_at": "2026-03-30T12:58:36.349Z",
+      "branch": "fix/quickwin-t9-m4-l3",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T9: 스트리밍 이중 rAF 문제 수정",
+          "context": "문제: store rAF이 ~50자를 한번에 flush → StreamingMessage의 charsPerFrame 최대 5로는 따라잡지 못함 → 청크 단위 뚝뚝 끊김. 수정: charsPerFrame 로직 개선 — gap 크기에 비례한 적응형 step 증가. gap>100이면 공격적 catch-up. 또한 store flush와 streaming tick 간 경쟁 완화. [파일: src/renderer/components/chat/streaming-message.tsx, src/renderer/stores/session-store.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2
+          ],
+          "created_at": "2026-03-30T12:55:14.197Z"
+        },
+        {
+          "id": 2,
+          "title": "M-4: checkpoint git clean -fd 경고 추가",
+          "context": "문제: restoreCheckpoint()에서 git clean -fd로 untracked 파일 삭제 시 사용자 경고 없음. 수정: 복원 전 git clean -fd --dry-run으로 삭제 대상 파일 목록을 반환하여 UI에서 확인 가능하게. restoreCheckpoint 반환값에 untrackedFiles 목록 추가. [파일: src/main/control-plane/checkpoint-manager.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T12:55:17.289Z"
+        },
+        {
+          "id": 3,
+          "title": "L-3: 하드코딩된 모델 ID 개선",
+          "context": "문제: AVAILABLE_MODELS가 settings-store.ts에 하드코딩. 모델 추가/제거 시 코드 수정 필요. 수정: shared/constants.ts 또는 유사 위치에 모델 목록을 분리하여 한 곳에서 관리. 최소한 상수를 shared/로 이동하여 main/renderer 양쪽에서 참조 가능하게. [파일: src/renderer/stores/settings-store.ts, (필요시 src/shared/constants.ts 신규)]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T12:55:21.026Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T13:41:16.157Z",
+      "branch": "feat/ipc-type-mapping",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase 1+2: IpcMap 타입 정의 + ElectronAPI + preload 수정",
+          "context": "Phase 1: shared/types.ts에 SettingsSyncRequest, ReadFileRequest, ReadFileResponse 신규 타입 추가. shared/ipc.ts에 IpcMap 타입 정의 (22개 채널 매핑). Phase 2: shared/types.ts의 ElectronAPI 인터페이스를 IpcMap 기반으로 수정 — invoke 시그니처에 조건부 rest 파라미터 (void 채널은 인자 없이). preload/index.ts의 invoke를 IpcMap 기반으로 수정. [파일: src/shared/types.ts, src/shared/ipc.ts, src/preload/index.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1
+          ],
+          "created_at": "2026-03-30T13:02:05.914Z"
+        },
+        {
+          "id": 2,
+          "title": "Phase 3a: renderer stores invoke 마이그레이션 (5파일)",
+          "context": "session-store.ts(2곳), workspace-store.ts(4곳), history-store.ts(2곳), settings-store.ts(1곳), checkpoint-store.ts(1곳) — 수동 제네릭 제거. invoke<ResponseType>(channel, req) → invoke(channel, req) 변환. IpcMap으로 자동 추론됨. [파일: src/renderer/stores/ 하위 5개 파일]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T13:02:08.562Z"
+        },
+        {
+          "id": 3,
+          "title": "Phase 3b: renderer components invoke 마이그레이션 (5파일)",
+          "context": "ChatPanel.tsx(5곳), SettingsModal.tsx(2곳), PermissionCard.tsx(1곳), MarkdownViewer.tsx(1곳, 문자열→IpcChannel.READ_FILE 전환 포함), NexusPanel.tsx(1곳) — 수동 제네릭 제거. [파일: src/renderer/components/ 하위 5개 파일]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T13:02:10.020Z"
+        }
+      ]
     }
   ]
 }

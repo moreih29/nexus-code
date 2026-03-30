@@ -25,7 +25,7 @@ export const useCheckpointStore = create<CheckpointState>((set) => ({
   restoreCheckpoint: async (cwd, checkpoint) => {
     set({ isRestoring: true })
     try {
-      const res = await window.electronAPI.invoke<CheckpointRestoreResponse>(
+      const res = await window.electronAPI.invoke(
         IpcChannel.CHECKPOINT_RESTORE,
         { cwd, checkpoint }
       )

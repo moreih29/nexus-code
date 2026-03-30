@@ -4,7 +4,7 @@ import log from 'electron-log/renderer'
 const rlog = log.scope('renderer:permission')
 import type { PendingPermission } from '../../stores/permission-store'
 import { IpcChannel } from '../../../shared/ipc'
-import type { ApprovalScope, RespondPermissionResponse } from '../../../shared/types'
+import type { ApprovalScope } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { usePermissionStore } from '../../stores/permission-store'
 import { DiffView } from '../shared/DiffView'
@@ -151,7 +151,7 @@ export function PermissionCard({ permission }: PermissionCardProps) {
 
   const respond = async (approved: boolean, scope?: ApprovalScope): Promise<void> => {
     try {
-      await window.electronAPI.invoke<RespondPermissionResponse>(
+      await window.electronAPI.invoke(
         IpcChannel.RESPOND_PERMISSION,
         { requestId: permission.requestId, approved, scope },
       )
