@@ -1,6 +1,6 @@
 import type { SessionInfo } from '../../../shared/types'
 import { useHistoryStore } from '../../stores/history-store'
-import { useSessionStore } from '../../stores/session-store'
+import { useActiveSession } from '../../stores/session-store'
 
 interface SessionItemProps {
   session: SessionInfo
@@ -25,7 +25,7 @@ function cwdLabel(cwd: string): string {
 
 export function SessionItem({ session }: SessionItemProps) {
   const { activeSessionId, resumeSession } = useHistoryStore()
-  const startSession = useSessionStore((s) => s.startSession)
+  const startSession = useActiveSession((s) => s.startSession)
   const isActive = activeSessionId === session.id
 
   const handleClick = async (): Promise<void> => {

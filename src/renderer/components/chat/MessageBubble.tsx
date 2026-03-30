@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { StreamingMessage } from './streaming-message'
 import { ToolRenderer } from './ToolRenderer'
 import type { Message } from '../../stores/session-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
@@ -10,12 +11,13 @@ interface MessageBubbleProps {
   message: Message
   /** assistant 버블에만 전달 — 직전 user 메시지의 checkpointRef */
   checkpointRef?: string
+  isStreaming?: boolean
 }
 
 const HIDDEN_TOOLS = new Set(['TodoWrite', 'AskUserQuestion'])
 const CODE_CHANGE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 
-function MessageBubbleInner({ message, checkpointRef }: MessageBubbleProps) {
+function MessageBubbleInner({ message, checkpointRef, isStreaming = false }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
   // assistant 메시지에서 표시할 toolCalls 필터링
@@ -43,7 +45,7 @@ function MessageBubbleInner({ message, checkpointRef }: MessageBubbleProps) {
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
           <>
-            {message.content && <MarkdownRenderer content={message.content} />}
+            {message.content && <StreamingMessage content={message.content} isStreaming={isStreaming && !message.toolCalls?.length} />}
             {visibleToolCalls?.map((tc) => (
               <ToolRenderer key={tc.toolUseId} tc={tc} />
             ))}
@@ -61,7 +63,8 @@ export const MessageBubble = memo(MessageBubbleInner, (prev, next) =>
   prev.message.id === next.message.id &&
   prev.message.content === next.message.content &&
   prev.message.toolCalls?.length === next.message.toolCalls?.length &&
-  prev.checkpointRef === next.checkpointRef
+  prev.checkpointRef === next.checkpointRef &&
+  prev.isStreaming === next.isStreaming
 )
 
 function RestoreButton({ checkpointRef, timestamp }: { checkpointRef: string; timestamp: number }) {

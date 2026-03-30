@@ -1,6 +1,8 @@
-import { Component, type ReactNode } from 'react'
+import { Component, type ReactNode, useMemo, useLayoutEffect } from 'react'
 import log from 'electron-log/renderer'
 import { AppLayout } from './components/layout/AppLayout'
+import { SessionStoreContext, getOrCreateWorkspaceStore, setActiveStore } from './stores/session-store'
+import { useWorkspaceStore } from './stores/workspace-store'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -40,10 +42,32 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
+function SessionStoreProvider({ children }: { children: ReactNode }) {
+  const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+
+  const store = useMemo(() => {
+    if (!activeWorkspace) return null
+    return getOrCreateWorkspaceStore(activeWorkspace)
+  }, [activeWorkspace])
+
+  // 비React 코드용 activeStore 동기화
+  useLayoutEffect(() => {
+    setActiveStore(store)
+  }, [store])
+
+  return (
+    <SessionStoreContext.Provider value={store}>
+      {children}
+    </SessionStoreContext.Provider>
+  )
+}
+
 function App() {
   return (
     <ErrorBoundary>
-      <AppLayout />
+      <SessionStoreProvider>
+        <AppLayout />
+      </SessionStoreProvider>
     </ErrorBoundary>
   )
 }

@@ -355,6 +355,187 @@
           "created_at": "2026-03-29T13:52:28.223Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-30T01:30:40.038Z",
+      "branch": "fix/workspace-session-switching",
+      "consult": {
+        "topic": "워크스페이스 세션 전환 안정화",
+        "issues": [
+          {
+            "id": 1,
+            "title": "RunManager 프로세스 정리 — 워크스페이스 전환 시 이전 CLI 프로세스 미정리 (메모리 누수)",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "이벤트 버퍼 타이밍 — reset() 직전 50ms 디바운스 중인 텍스트 데이터 손실/오염",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "UI 타이머 미정리 — RightPanelUIStore의 autoSwitch/unpin 타이머가 전환 후에도 작동",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "전환 시퀀스 원자성 — setActiveWorkspace→reset→restore 사이 race condition",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "IPC 레벨 버퍼링(B안). RunManager는 전환 시 cancel하지 않고 계속 실행. renderer에서 비활성 세션 상태를 메모리 스냅샷으로 보관. IPC bridge에 sessionId 필터 추가. 전환 시 save/restore 패턴.",
+          "consult": 1,
+          "status": "revoked"
+        },
+        {
+          "id": 2,
+          "summary": "Store Factory 패턴(E안). createStore + Context로 워크스페이스별 독립 sessionStore 인스턴스 생성. 모듈 레벨 상태(_textBuffer, _debounceTimer, _toolCallIndex)는 클로저로 자연 격리. IPC bridge에서 sessionId로 해당 store 인스턴스에 라우팅. Always-Live 방식으로 모든 세션 항상 라이브. RunManager cancel 안 함.",
+          "consult": 1
+        },
+        {
+          "id": 3,
+          "summary": "자연 해소. Store Factory 패턴에서 각 세션이 독립 클로저로 _textBuffer/_debounceTimer를 보유하므로 전환 시 버퍼 타이밍 문제 없음. 별도 조치 불필요.",
+          "consult": 2
+        },
+        {
+          "id": 4,
+          "summary": "RightPanelUIStore에 cleanup() 함수 추가. 워크스페이스 전환 시 _autoSwitchTimer, _unpinTimer를 clearTimeout. RightPanelUIStore 자체는 워크스페이스별 분리 불필요 (UI 레이아웃 상태).",
+          "consult": 3
+        },
+        {
+          "id": 5,
+          "summary": "자연 해소. Store Factory 패턴에서 전환은 activeWorkspace 포인터 변경뿐. 각 store가 항상 라이브이므로 reset/restore 불필요. race condition 구조적 제거.",
+          "consult": 4
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "session-store.ts 팩토리 패턴 리팩토링",
+          "context": "create → createStore 팩토리 전환. 모듈 레벨 상태 클로저 격리. 워크스페이스별 스토어 레지스트리 (byWorkspace, bySession). SessionStoreContext + useActiveSession 훅 + getActiveStore (비React용). registerSession/getStoreBySessionId 유틸.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "owner": "engineer-core",
+          "created_at": "2026-03-29T14:27:06.786Z"
+        },
+        {
+          "id": 2,
+          "title": "IPC 이벤트에 sessionId 추가",
+          "context": "handlers.ts의 START 핸들러 내 모든 manager.on 리스너에서 sessionId를 이벤트 페이로드에 포함. TEXT_CHUNK, TOOL_CALL, TOOL_RESULT, TURN_END, RESTART_*, TIMEOUT, RATE_LIMIT 등. shared/types.ts도 타입 갱신.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "owner": "engineer-ipc",
+          "created_at": "2026-03-29T14:27:09.950Z"
+        },
+        {
+          "id": 3,
+          "title": "ipc-bridge.ts sessionId 기반 라우팅",
+          "context": "initIpcBridge()에서 이벤트 수신 시 getStoreBySessionId(sessionId)로 해당 store에 디스패치. 세션 무관 이벤트(PERMISSION, PLUGIN_DATA)는 기존 유지.",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "decisions": [
+            2
+          ],
+          "owner": "engineer-bridge",
+          "created_at": "2026-03-29T14:27:12.672Z"
+        },
+        {
+          "id": 4,
+          "title": "소비자 컴포넌트 마이그레이션",
+          "context": "ChatPanel, ChatInput, StatusBar, CommandPalette, SessionItem, NewSessionButton, checkpoint-store → useSessionStore를 useActiveSession으로 교체. 타입 import는 유지.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            2
+          ],
+          "owner": "engineer-consumers",
+          "created_at": "2026-03-29T14:27:15.202Z"
+        },
+        {
+          "id": 5,
+          "title": "WorkspaceItem 전환 로직 + App Provider + RightPanel cleanup",
+          "context": "WorkspaceItem: reset() 제거, getOrCreateWorkspaceStore + restoreSession 조건부 호출. App.tsx: SessionStoreProvider 래핑. plugin-store: RightPanelUIStore.cleanup() 추가, WorkspaceItem에서 호출.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            2,
+            4
+          ],
+          "owner": "engineer-integration",
+          "created_at": "2026-03-29T14:27:17.216Z"
+        },
+        {
+          "id": 6,
+          "title": "SessionStoreContext null crash 수정",
+          "context": "activeWorkspace가 null일 때 store=null → useActiveSession throw. App.tsx SessionStoreProvider에서 store null일 때 children 렌더 차단.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "owner": "lead",
+          "created_at": "2026-03-30T01:22:38.784Z"
+        },
+        {
+          "id": 7,
+          "title": "빈 화면 버그 수정 — useActiveSession null-safe + App.tsx 복원",
+          "context": "store=null일 때 children 렌더 차단으로 데드락 발생. useActiveSession에 _emptyStore fallback 추가 + App.tsx에서 {store ? children : null} → {children} 복원.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "owner": "lead",
+          "created_at": "2026-03-30T01:29:49.853Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T02:24:03.860Z",
+      "branch": "fix/workspace-session-switching",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "스트리밍 미작동 버그 — 원인 분석 + 수정 + QA",
+          "context": "Store Factory 리팩토링 후 TEXT_CHUNK가 silent drop되어 스트리밍 효과 없음. registerSession이 invoke 응답 후 호출되는데 TEXT_CHUNK가 먼저 도착하는 race condition 추정.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "owner": "team",
+          "created_at": "2026-03-30T01:53:19.904Z"
+        },
+        {
+          "id": 2,
+          "title": "setActiveStore 동기화 — useEffect → useLayoutEffect",
+          "context": "App.tsx의 setActiveStore가 useEffect(비동기)에서 실행되어 TEXT_CHUNK 도착 시 store=null. useLayoutEffect로 변경하여 동기 실행 보장.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-30T02:12:14.103Z"
+        }
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
-import { useSessionStore } from '../../stores/session-store'
+import { useActiveSession } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 
 interface CommandPaletteProps {
@@ -12,9 +12,9 @@ interface CommandPaletteProps {
 export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPaletteProps) {
   const [search, setSearch] = useState('')
 
-  const sessionId = useSessionStore((s) => s.sessionId)
-  const status = useSessionStore((s) => s.status)
-  const { reset } = useSessionStore()
+  const sessionId = useActiveSession((s) => s.sessionId)
+  const status = useActiveSession((s) => s.status)
+  const reset = useActiveSession((s) => s.reset)
   const { addWorkspace } = useWorkspaceStore()
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
   const handleRestartSession = () => {
     handleSelect(() => {
       if (sessionId) {
-        useSessionStore.getState().reset()
+        reset()
       }
     })
   }

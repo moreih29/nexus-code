@@ -208,6 +208,7 @@ export class RunManager extends EventEmitter {
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
       '--verbose',
+      '--include-partial-messages',
       '--dangerously-skip-permissions',
     ]
 
@@ -282,6 +283,7 @@ export class RunManager extends EventEmitter {
 
     this.proc.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8')
+      log.debug('[DEBUG:stdout] ts=%d len=%d', Date.now(), text.length)
       appendLine(text)
       // rate limit이 해제된 경우 타이머 재시작
       if (this.rateLimited) {
