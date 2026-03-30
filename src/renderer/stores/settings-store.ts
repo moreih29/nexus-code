@@ -1,13 +1,8 @@
 import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
+import { AVAILABLE_MODELS, type ModelId } from '../../shared/models'
 
-export const AVAILABLE_MODELS = [
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-] as const
-
-export type ModelId = (typeof AVAILABLE_MODELS)[number]
+export { AVAILABLE_MODELS, type ModelId }
 export type PermissionMode = 'auto' | 'default'
 export type Theme = 'terracotta' | 'github-dark' | 'amethyst' | 'rose-pine' | 'nord' | 'midnight-green'
 

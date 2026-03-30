@@ -56,6 +56,7 @@ export async function createCheckpoint(cwd: string, sessionId: string, messageId
 export interface CheckpointRestoreInfo {
   changedFiles: string[]
   shortHash: string
+  untrackedFiles: string[]
 }
 
 export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Promise<CheckpointRestoreInfo> {
@@ -82,6 +83,19 @@ export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Pr
     ? checkpoint.hash.slice(0, 7)
     : checkpoint.headHash.slice(0, 7)
 
+  // dry-run으로 삭제될 untracked 파일 목록 획득
+  let untrackedFiles: string[] = []
+  try {
+    const dryRunResult = await git(cwd, ['clean', '-fd', '--dry-run'])
+    untrackedFiles = dryRunResult
+      .split('\n')
+      .filter(line => line.startsWith('Would remove '))
+      .map(line => line.replace('Would remove ', '').trim())
+      .filter(f => f.length > 0)
+  } catch {
+    // 오류 시 빈 배열 유지
+  }
+
   // 현재 변경사항 제거
   await git(cwd, ['checkout', '.'])
   await git(cwd, ['clean', '-fd'])
@@ -93,6 +107,6 @@ export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Pr
     await git(cwd, ['checkout', checkpoint.headHash, '--', '.'])
   }
 
-  logger.checkpoint.info('복원 완료', { hash: checkpoint.hash, changedFiles: changedFiles.length, sessionId: checkpoint.sessionId })
-  return { changedFiles, shortHash }
+  logger.checkpoint.info('복원 완료', { hash: checkpoint.hash, changedFiles: changedFiles.length, untrackedFiles: untrackedFiles.length, sessionId: checkpoint.sessionId })
+  return { changedFiles, shortHash, untrackedFiles }
 }

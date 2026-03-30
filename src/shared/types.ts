@@ -367,6 +367,7 @@ export interface CheckpointRestoreResponse {
   error?: string
   changedFiles?: string[]
   shortHash?: string
+  untrackedFiles?: string[]
 }
 
 export interface CheckpointListRequest {
