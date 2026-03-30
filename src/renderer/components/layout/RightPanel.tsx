@@ -54,10 +54,10 @@ export const RightPanel = memo(function RightPanel({ onToggle, isCollapsed }: Ri
             key={tab.id}
             onClick={() => pinTab(tab.id)}
             className={[
-              'flex h-full flex-1 items-center justify-center text-xs font-medium transition-colors',
+              'flex h-full flex-1 items-center justify-center text-xs transition-colors',
               activeTab === tab.id
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'border-b-2 border-primary bg-primary/8 text-primary font-semibold'
+                : 'font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50',
             ].join(' ')}
           >
             {tab.label}

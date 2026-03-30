@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { FileText } from 'lucide-react'
 import { MarkdownRenderer } from '../chat/MarkdownRenderer'
 import { IpcChannel } from '../../../shared/ipc'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { EmptyState } from '../ui/empty-state'
 
 export function MarkdownViewer() {
   const [filePath, setFilePath] = useState('')
@@ -61,19 +63,23 @@ export function MarkdownViewer() {
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           placeholder="파일 경로 입력 후 Enter..."
-          className="w-full rounded bg-muted px-2 py-1 text-xs text-foreground placeholder-dim-foreground outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded bg-muted px-2 py-1 text-xs text-foreground placeholder-dim-foreground outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
 
       {/* 콘텐츠 영역 */}
       <div className="flex-1 overflow-y-auto p-3 text-sm text-foreground">
         {loading && <p className="text-xs text-muted-foreground">불러오는 중...</p>}
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="text-xs text-error">{error}</p>}
         {content !== null && !loading && (
           <MarkdownRenderer content={content} />
         )}
         {content === null && !loading && !error && (
-          <p className="text-xs text-dim-foreground">마크다운 파일 경로를 입력하세요</p>
+          <EmptyState
+            size="sm"
+            icon={<FileText className="h-full w-full" />}
+            title="마크다운 파일 경로를 입력하세요"
+          />
         )}
       </div>
     </div>

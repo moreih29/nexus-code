@@ -254,5 +254,15 @@
   --color-error-foreground: hsl(var(--error-foreground));
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-primary-subtle: hsl(var(--primary) / 0.15);
+  --color-primary-muted: hsl(var(--primary) / 0.08);
+  --color-error-subtle: hsl(var(--error) / 0.15);
+  --color-error-muted: hsl(var(--error) / 0.08);
+  --color-success-subtle: hsl(var(--success) / 0.15);
+  --color-success-muted: hsl(var(--success) / 0.08);
+  --color-warning-subtle: hsl(var(--warning) / 0.15);
+  --color-warning-muted: hsl(var(--warning) / 0.08);
+  --color-link: hsl(var(--primary));
+  --color-link-hover: hsl(var(--primary) / 0.8);
   --radius: var(--radius);
 }

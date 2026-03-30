@@ -1,8 +1,11 @@
 import { Folder, X } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import type { WorkspaceEntry } from '../../../shared/types'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-store'
 import { useRightPanelUIStore } from '../../stores/plugin-store'
+import { useToast } from '../ui/toast'
 
 interface WorkspaceItemProps {
   workspace: WorkspaceEntry
@@ -14,8 +17,17 @@ function shortenPath(path: string): string {
 
 export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
   const { activeWorkspace, setActiveWorkspace, removeWorkspace } = useWorkspaceStore()
+  const showToast = useToast()
+  const [removed, setRemoved] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isActive = activeWorkspace === workspace.path
+
+  const workspaceStore = getOrCreateWorkspaceStore(workspace.path)
+  const sessionStatus = useStore(workspaceStore, (s) => s.status)
+  const sessionId = useStore(workspaceStore, (s) => s.sessionId)
+
+  if (removed) return null
 
   const handleWorkspaceClick = async (): Promise<void> => {
     if (activeWorkspace === workspace.path) return
@@ -38,18 +50,53 @@ export function WorkspaceItem({ workspace }: WorkspaceItemProps) {
 
   const handleRemove = (e: React.MouseEvent): void => {
     e.stopPropagation()
-    removeWorkspace(workspace.path)
+
+    // 낙관적 삭제: 화면에서 즉시 숨김
+    setRemoved(true)
+
+    // 3초 후 실제 삭제 확정
+    timerRef.current = setTimeout(() => {
+      void removeWorkspace(workspace.path)
+    }, 3000)
+
+    // Undo toast 표시
+    showToast(
+      `'${workspace.name}' 워크스페이스를 제거했습니다.`,
+      {
+        label: '되돌리기',
+        onClick: () => {
+          if (timerRef.current) clearTimeout(timerRef.current)
+          setRemoved(false)
+        },
+      },
+      3000,
+    )
   }
 
   return (
     <div
       className={[
-        'group flex w-full items-center gap-1 rounded-md px-2 py-2 text-left transition-colors cursor-pointer',
-        isActive ? 'bg-blue-900/40 text-foreground' : 'text-foreground hover:bg-muted hover:text-foreground',
+        'group relative flex w-full items-center gap-1 rounded-md px-2 py-2 text-left transition-colors cursor-pointer',
+        isActive ? 'bg-primary/15 text-foreground' : 'text-foreground hover:bg-muted hover:text-foreground',
       ].join(' ')}
       onClick={handleWorkspaceClick}
     >
-      <Folder size={14} className="shrink-0 text-muted-foreground" />
+      {isActive && (
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary" />
+      )}
+
+      <div className="relative shrink-0">
+        <Folder size={14} className="text-muted-foreground" />
+        {sessionStatus === 'running' && (
+          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary animate-pulse" />
+        )}
+        {sessionStatus === 'idle' && sessionId && (
+          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-success" />
+        )}
+        {sessionStatus === 'error' && (
+          <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-error" />
+        )}
+      </div>
 
       <div className="flex-1 min-w-0">
         <div className="truncate text-sm font-medium" title={workspace.path}>

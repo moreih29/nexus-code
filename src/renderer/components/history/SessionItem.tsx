@@ -41,7 +41,7 @@ export function SessionItem({ session }: SessionItemProps) {
       className={[
         'flex w-full flex-col gap-0.5 rounded-md px-3 py-2 text-left transition-colors',
         isActive
-          ? 'bg-blue-900/40 text-foreground'
+          ? 'bg-primary/15 text-foreground'
           : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       ].join(' ')}
     >

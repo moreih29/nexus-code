@@ -74,11 +74,9 @@ export function StatusBar() {
     return null
   }
 
-  const statParts: string[] = []
-  if (lastTurnStats?.inputTokens !== undefined) statParts.push(`${formatTokens(lastTurnStats.inputTokens)} 입력`)
-  if (lastTurnStats?.outputTokens !== undefined) statParts.push(`${formatTokens(lastTurnStats.outputTokens)} 출력`)
-  if (lastTurnStats?.costUsd !== undefined) statParts.push(`$${lastTurnStats.costUsd.toFixed(4)}`)
-  if (lastTurnStats?.numTurns !== undefined) statParts.push(`${lastTurnStats.numTurns}턴`)
+  const tokenParts: string[] = []
+  if (lastTurnStats?.inputTokens !== undefined) tokenParts.push(`${formatTokens(lastTurnStats.inputTokens)} 입력`)
+  if (lastTurnStats?.outputTokens !== undefined) tokenParts.push(`${formatTokens(lastTurnStats.outputTokens)} 출력`)
 
   return (
     <div className="border-t border-border bg-background/50 px-4 py-2">
@@ -106,7 +104,7 @@ export function StatusBar() {
                 <button
                   key={idx}
                   onClick={() => { sendResponse(`[AskUserQuestion] ${askQuestion.question} → ${opt}`); setAskQuestion(null) }}
-                  className="rounded border border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.1)] px-2 py-0.5 text-xs text-primary hover:bg-[hsl(var(--primary)/0.2)] hover:border-primary cursor-pointer transition-colors"
+                  className="rounded border border-primary/50 bg-primary-muted px-2 py-0.5 text-xs text-primary hover:bg-primary/20 hover:border-primary cursor-pointer transition-colors"
                 >
                   {opt}
                 </button>
@@ -117,9 +115,17 @@ export function StatusBar() {
       )}
 
       {/* 턴 통계 */}
-      {hasStats && statParts.length > 0 && (
-        <div className="mt-1 text-xs text-muted-foreground">
-          {statParts.join(' · ')}
+      {hasStats && (
+        <div className="mt-1 flex items-baseline gap-3 text-xs">
+          {lastTurnStats?.costUsd !== undefined && (
+            <span className="font-medium text-foreground">${lastTurnStats.costUsd.toFixed(4)}</span>
+          )}
+          {tokenParts.length > 0 && (
+            <span className="text-muted-foreground">{tokenParts.join(' · ')}</span>
+          )}
+          {lastTurnStats?.numTurns !== undefined && (
+            <span className="text-dim-foreground">{lastTurnStats.numTurns}턴</span>
+          )}
         </div>
       )}
 
@@ -127,7 +133,7 @@ export function StatusBar() {
       {turnHistory.length > 0 && (() => {
         const totalCost = turnHistory.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)
         return (
-          <div className="mt-0.5 text-xs text-dim-foreground">
+          <div className="mt-0.5 text-xs font-medium text-muted-foreground">
             세션 누적: ${totalCost.toFixed(2)} ({turnHistory.length}턴)
           </div>
         )

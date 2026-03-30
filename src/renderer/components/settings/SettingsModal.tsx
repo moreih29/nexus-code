@@ -290,7 +290,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: '일반' },
-    { id: 'permissions', label: '퍼미션' },
+    { id: 'permissions', label: '권한' },
     { id: 'advanced', label: '고급' },
   ]
 
@@ -299,7 +299,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       <div className="flex w-[560px] max-h-[85vh] flex-col rounded-xl bg-card shadow-2xl">
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-semibold text-foreground">Settings</h2>
+          <h2 className="text-lg font-semibold text-foreground">설정</h2>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -328,7 +328,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {loading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">불러오는 중...</div>
           ) : (
             <>
               {/* ── 일반 탭 ── */}
@@ -400,7 +400,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
-                    <SectionLabel>언어 (language)</SectionLabel>
+                    <SectionLabel>언어</SectionLabel>
                     <input
                       type="text"
                       value={language}
@@ -411,7 +411,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
-                    <SectionLabel>처리 강도 (effortLevel)</SectionLabel>
+                    <SectionLabel>처리 강도</SectionLabel>
                     <div className="flex gap-2">
                       {EFFORT_LEVELS.map((level) => (
                         <label
@@ -433,7 +433,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
-                    <SectionLabel>팀원 모드 (teammateMode)</SectionLabel>
+                    <SectionLabel>팀원 모드</SectionLabel>
                     <div className="flex gap-4">
                       {TEAMMATE_MODES.map((mode) => (
                         <label
@@ -457,13 +457,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <section className="flex flex-col gap-3">
                     <SectionLabel>옵션</SectionLabel>
                     <label className="flex cursor-pointer items-center justify-between">
-                      <span className="text-sm text-foreground">자동 메모리 (autoMemoryEnabled)</span>
+                      <span className="text-sm text-foreground">자동 메모리</span>
                       <Toggle checked={autoMemoryEnabled} onChange={setAutoMemoryEnabled} />
                     </label>
                     <label className="flex cursor-pointer items-center justify-between">
-                      <span className="text-sm text-foreground">
-                        위험 모드 퍼미션 프롬프트 생략 (skipDangerousModePermissionPrompt)
-                      </span>
+                      <span className="text-sm text-foreground">위험 모드 확인 생략</span>
                       <Toggle checked={skipDangerousPrompt} onChange={setSkipDangerousPrompt} />
                     </label>
                     <label className="flex cursor-pointer items-center justify-between">
@@ -547,7 +545,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
-                    <SectionLabel>상태표시줄 (statusLine) — JSON</SectionLabel>
+                    <SectionLabel>상태표시줄 (JSON)</SectionLabel>
                     <textarea
                       value={statusLineJson}
                       onChange={(e) => setStatusLineJson(e.target.value)}
@@ -559,7 +557,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </section>
 
                   <section>
-                    <SectionLabel>추가 마켓플레이스 (extraKnownMarketplaces) — JSON</SectionLabel>
+                    <SectionLabel>추가 마켓플레이스 (JSON)</SectionLabel>
                     <textarea
                       value={marketplacesJson}
                       onChange={(e) => setMarketplacesJson(e.target.value)}

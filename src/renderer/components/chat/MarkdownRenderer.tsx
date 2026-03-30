@@ -32,7 +32,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             )
           }
           return (
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-sm text-blue-300">
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-sm text-primary">
               {children}
             </code>
           )
@@ -55,7 +55,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="text-blue-400 underline hover:text-blue-300"
+            className="text-primary underline hover:text-primary/80"
           >
             {children}
           </a>

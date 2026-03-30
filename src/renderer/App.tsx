@@ -23,16 +23,16 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     if (this.state.error) {
       return (
         <div className="flex h-screen w-screen items-center justify-center bg-background p-8">
-          <div className="max-w-lg rounded-xl border border-red-800 bg-red-950/50 p-6">
-            <h2 className="text-lg font-bold text-red-400">Rendering Error</h2>
-            <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap text-xs text-red-300">
+          <div className="max-w-lg rounded-xl border border-error/50 bg-error/10 p-6">
+            <h2 className="text-lg font-bold text-error">Rendering Error</h2>
+            <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap text-xs text-error">
               {this.state.error.message}
               {'\n\n'}
               {this.state.error.stack}
             </pre>
             <button
               onClick={() => this.setState({ error: null })}
-              className="mt-4 rounded bg-red-800 px-4 py-2 text-sm text-white hover:bg-red-700"
+              className="mt-4 rounded bg-error/80 px-4 py-2 text-sm text-white hover:bg-error"
             >
               재시도
             </button>
