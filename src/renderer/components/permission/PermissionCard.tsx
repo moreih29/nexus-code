@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import log from 'electron-log/renderer'
+
+const rlog = log.scope('renderer:permission')
 import type { PendingPermission } from '../../stores/permission-store'
 import { IpcChannel } from '../../../shared/ipc'
 import type { ApprovalScope, RespondPermissionResponse } from '../../../shared/types'
@@ -154,7 +156,7 @@ export function PermissionCard({ permission }: PermissionCardProps) {
         { requestId: permission.requestId, approved, scope },
       )
     } catch (err) {
-      log.error('[PermissionCard] RESPOND_PERMISSION error:', err)
+      rlog.error('RESPOND_PERMISSION error:', err)
     } finally {
       remove(permission.requestId)
     }

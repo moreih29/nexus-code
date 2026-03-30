@@ -536,6 +536,300 @@
           "created_at": "2026-03-30T02:12:14.103Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-30T09:03:53.786Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "run-manager.ts buildArgs에 --include-partial-messages 플래그 추가",
+          "context": "buildArgs의 --verbose 뒤에 --include-partial-messages 플래그 1줄 추가",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T02:24:13.855Z"
+        },
+        {
+          "id": 2,
+          "title": "이중 버퍼 스트리밍 UX 구현 (5개 파일)",
+          "context": "session-store rAF 교체, streaming-message 신규, MessageBubble isStreaming prop, ChatPanel 연결, CSS 커서 애니메이션",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T02:39:31.869Z"
+        },
+        {
+          "id": 3,
+          "title": "streaming-message.tsx 전체 교체 — 타이핑 애니메이션 버전",
+          "context": "rAF 기반 글자 단위 타이핑 효과 + 드레인 모드 구현",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T03:03:33.271Z"
+        },
+        {
+          "id": 4,
+          "title": "streaming-message hooks 순서 버그 수정",
+          "context": "useMemo가 early return 뒤에서 호출되어 React hooks 규칙 위반. useMemo를 early return 위로 이동.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-30T04:31:57.182Z"
+        },
+        {
+          "id": 5,
+          "title": "streaming-message.tsx 간소화 — stable/tail 분리 제거",
+          "context": "useMemo 제거, displayedContent를 MarkdownRenderer에 직접 전달, hooks early return 위로 이동",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T07:55:12.051Z"
+        },
+        {
+          "id": 6,
+          "title": "스트리밍 디버그 로깅 추가",
+          "context": "ipc-bridge, session-store, streaming-message에 console.log 추가하여 실제 데이터 흐름 확인",
+          "status": "in_progress",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-30T08:12:04.051Z"
+        },
+        {
+          "id": 7,
+          "title": "charsPerFrame 속도 튜닝 — 느리게 소비",
+          "context": "streaming-message.tsx charsPerFrame 함수 교체",
+          "status": "in_progress",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T08:27:43.342Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T12:35:19.969Z",
+      "branch": "feat/log-session-split",
+      "consult": null,
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "IPC 타입 매핑 도입: 현재 invoke() 시그니처(string, unknown[])를 채널-페이로드 타입 맵 기반으로 리팩토링. 현재 22개 invoke 호출로 비용이 적은 시점에 선제적으로 도입. 코드 리뷰 완료 후 엔지니어 태스크로 진행.",
+          "consult": null
+        },
+        {
+          "id": 2,
+          "summary": "sandbox: true 전환 결정. electron-log v5.4.3이 sandbox 호환이므로 장벽 없음. preload 코드도 contextBridge + ipcRenderer만 사용 중이라 변경 불필요. Electron 20+ 기본값 복원으로 보안 강화.",
+          "consult": null
+        },
+        {
+          "id": 3,
+          "summary": "로그 파일 세션별 분리: 하이브리드 접근 확정. electron-log hooks로 main.log에서 세션 메시지 필터링 + createCategoryLogger 내부에서 세션별 WriteStream 라우팅. 글로벌(app/settings/plugin)→main.log, 세션별(cli/stream/hook/permission/agent/checkpoint)→session-{id}.log, 하이브리드(ipc/session)→sessionId 유무로 자동 분기.",
+          "consult": null
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. logger.ts 경로 수정 + 카테고리 서브로거 추가",
+          "context": "process.cwd() → app.getPath('logs')/nexus-code/ 경로 수정. createCategoryLogger() 팩토리 함수와 11개 카테고리 서브로거(app, ipc, session, cli, stream, hook, permission, agent, plugin, checkpoint, settings) 추가. JSON 구조화 포맷. 10MB 로테이션/5파일 보존. 기존 export default log 유지하여 하위 호환. [파일: src/main/logger.ts] [난이도: S]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2
+          ],
+          "created_at": "2026-03-30T11:39:14.837Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. cli-raw-logger.ts 비동기 전환 + 로테이션",
+          "context": "appendFileSync → createWriteStream 비동기 전환. process.cwd() → app.getPath('logs')/nexus-code/ 경로 수정. 50MB 로테이션 + 최대 3파일 보존. startSession() 세션 구분 헤더 유지. [파일: src/main/control-plane/cli-raw-logger.ts] [난이도: S]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2
+          ],
+          "created_at": "2026-03-30T11:39:17.368Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. control-plane 핵심 모듈 로그 마이그레이션 (RunManager, StreamParser)",
+          "context": "RunManager 14개 호출 → logger.cli, StreamParser 5개 호출 → logger.stream 으로 전환. 메타데이터를 구조화된 객체로 변경 (sessionId, pid, chunkSize 등). [파일: src/main/control-plane/run-manager.ts, src/main/control-plane/stream-parser.ts] [난이도: M]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:21.057Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. HookServer + 권한 관련 로그 마이그레이션",
+          "context": "HookServer 13개 호출 → logger.hook, ApprovalStore 2개 호출 → logger.permission, AgentTracker 3개 호출 → logger.agent 로 전환. [파일: src/main/control-plane/hook-server.ts, src/main/control-plane/approval-store.ts, src/main/control-plane/agent-tracker.ts] [난이도: M]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:23.212Z"
+        },
+        {
+          "id": 5,
+          "title": "T5. IPC 핸들러 + 부가 모듈 로그 마이그레이션",
+          "context": "handlers.ts 10개 호출 → logger.ipc/logger.session, SessionManager 1개 → logger.session, CheckpointManager 4개 → logger.checkpoint, PluginHost 3개 → logger.plugin 으로 전환. [파일: src/main/ipc/handlers.ts, src/main/control-plane/session-manager.ts, src/main/control-plane/checkpoint-manager.ts, src/main/plugin-host/index.ts] [난이도: M]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:26.377Z"
+        },
+        {
+          "id": 6,
+          "title": "T6. 누락된 로깅 포인트 추가 (main)",
+          "context": "앱 생명주기(app ready, window created, window-all-closed), 미로깅 IPC 핸들러(PROMPT, CANCEL, STATUS, WORKSPACE_*, SETTINGS_*) 진입/완료, HookServer start/stop 포트 번호, findClaudeBinary() 결과, 권한 타임아웃 결과. [파일: src/main/index.ts, src/main/ipc/handlers.ts, src/main/control-plane/hook-server.ts, src/main/control-plane/run-manager.ts] [난이도: M]",
+          "status": "completed",
+          "deps": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:30.917Z"
+        },
+        {
+          "id": 7,
+          "title": "T7. renderer 로그 scope 정리",
+          "context": "renderer 측 9개 파일(ipc-bridge, App, ChatPanel, PermissionCard, session-store, history-store, workspace-store, checkpoint-store, streaming-message)에서 log.scope('renderer') 기반 일관된 scope 적용. main/renderer 로그 구분 가능하게. [파일: src/renderer/ 하위 9개 파일, 총 27개 호출] [난이도: M]",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:34.976Z"
+        },
+        {
+          "id": 8,
+          "title": "T8. renderer 스트리밍 파이프라인 진단 로그 추가",
+          "context": "청크 단위 끊김 문제 진단용 로그 3곳: (1) session-store appendTextChunk rAF flush: flushedLen, newBufferLen, timeSinceLastFlush (2) streaming-message tick: displayedLen, targetLen, gap, step, draining (매 10번째만) (3) streaming-message isStreaming 변화: isStreaming, contentLen, displayedLen. [파일: src/renderer/stores/session-store.ts, src/renderer/components/chat/streaming-message.tsx] [난이도: S]",
+          "status": "completed",
+          "deps": [
+            7
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:39.503Z"
+        },
+        {
+          "id": 9,
+          "title": "T9. 스트리밍 렌더링 이중 rAF 문제 수정",
+          "context": "이중 rAF 경쟁(store rAF 디바운스 + StreamingMessage rAF 타이핑)으로 타이핑 효과 무력화 문제 수정. charsPerFrame 최대값 5가 CLI 출력 속도를 따라잡지 못함. store 디바운스 유지하되 StreamingMessage 버퍼링/타이핑 전략 재설계. T8 진단 로그 활용하여 원인 확인 후 수정. [파일: src/renderer/stores/session-store.ts, src/renderer/components/chat/streaming-message.tsx] [난이도: L] [로그 시스템과 독립된 엔지니어링 태스크]",
+          "status": "pending",
+          "deps": [
+            8
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T11:39:44.836Z"
+        },
+        {
+          "id": 10,
+          "title": "T1. logger.ts 세션 라우팅 리팩토링",
+          "context": "SESSION_CATEGORIES Set 추가. sessionStreams Map + getOrCreateSessionStream() + closeSessionStream() export. log.hooks.push()로 main.log에서 세션 메시지 필터(return false). createCategoryLogger()에 logAndRoute() 내부 함수로 세션별 WriteStream 라우팅. cleanupOldSessionLogs() export(30일/100개 초과 삭제). sessions/ 서브디렉토리 사용. [파일: src/main/logger.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            3
+          ],
+          "created_at": "2026-03-30T12:17:31.963Z"
+        },
+        {
+          "id": 11,
+          "title": "T2. cli-raw-logger.ts 세션별 분리",
+          "context": "단일 stream → sessionRawStreams Map. appendLine(sessionId, line) 시그니처 변경. endSession(sessionId) 추가. 파일 경로를 sessions/cli-raw-{sessionId}.log로 변경. [파일: src/main/control-plane/cli-raw-logger.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            3
+          ],
+          "created_at": "2026-03-30T12:17:34.613Z"
+        },
+        {
+          "id": 12,
+          "title": "T3. run-manager.ts 수정 — 세션 cleanup + sessionId 전달",
+          "context": "appendLine(text) → appendLine(this.sessionId, text) 변경. close 이벤트에 closeSessionStream(sessionId) + cliRawLogger.endSession(sessionId) 추가. StreamParser 생성자에 sessionId 전달. 세션 컨텍스트 logger 호출에 sessionId meta 추가. [파일: src/main/control-plane/run-manager.ts]",
+          "status": "completed",
+          "deps": [
+            10,
+            11
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T12:17:37.488Z"
+        },
+        {
+          "id": 13,
+          "title": "T4. 나머지 파일 sessionId meta 보강",
+          "context": "hook-server.ts(~12곳), agent-tracker.ts(3곳), ipc/handlers.ts(~8곳), checkpoint-manager.ts(4곳)의 logger 호출 meta에 sessionId 추가. stream-parser.ts 생성자에 sessionId? 추가 후 5곳 logger 호출에 sessionId meta 추가. [파일: hook-server.ts, agent-tracker.ts, handlers.ts, checkpoint-manager.ts, stream-parser.ts]",
+          "status": "completed",
+          "deps": [
+            10
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T12:17:40.070Z"
+        },
+        {
+          "id": 14,
+          "title": "T5. 앱 시작 시 세션 로그 정리 호출",
+          "context": "index.ts의 app.whenReady() 콜백에 cleanupOldSessionLogs() 호출 추가. [파일: src/main/index.ts]",
+          "status": "completed",
+          "deps": [
+            10
+          ],
+          "decisions": [],
+          "created_at": "2026-03-30T12:17:40.913Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-30T12:47:41.848Z",
+      "branch": "fix/code-review-vulnerabilities",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Group A: handlers.ts + agent-tracker.ts (H-1, H-3, H-4)",
+          "context": "3건 통합 수정. [H-1] handlers.ts:534 ipc:read-file 경로 검증 — 워크스페이스 루트 범위 제한 + .md 확장자 필터 + IpcChannel 상수 등록. [H-3] handlers.ts:324-350 vs 623-648 RunManager 이벤트 리스너 30줄 중복 → 공유 함수 추출. [H-4] agent-tracker.ts:79 메모리 누수 — session_end 이벤트에 clearSession() 연결 (handlers.ts에서), input 크기 상한 설정, sessions Map 세션 종료 시 정리. [파일: src/main/ipc/handlers.ts, src/main/control-plane/agent-tracker.ts, src/shared/ipc.ts(IpcChannel 등록)]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T12:38:02.298Z"
+        },
+        {
+          "id": 2,
+          "title": "Group B: session-manager.ts (M-2, M-5)",
+          "context": "2건 통합 수정. [M-2] session-manager.ts:40 extractPreview() 동기 I/O → createReadStream 비동기 스트리밍으로 전환. 첫 user 메시지 발견 시 스트림 중단. [M-5] session-manager.ts:160-163 projectDirToCwd() 역변환 버그 — '-'를 '/'로 단순 치환하는 로직을 안전한 인코딩/디코딩으로 변경. [파일: src/main/control-plane/session-manager.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-03-30T12:38:13.205Z"
+        },
+        {
+          "id": 3,
+          "title": "Group C: 독립 보안 수정 3건 (D-2, QA-1, M-3)",
+          "context": "3건 독립 수정. [D-2] index.ts:30 sandbox:false → sandbox:true 전환 (1줄). [QA-1] preload/index.ts — invoke()에 허용 채널 화이트리스트 적용. IpcChannel 상수의 모든 채널 + 'ipc:read-file'만 허용, 그 외 reject. [M-3] hook-server.ts:173 body 크기 무제한 → 1MB 상한 설정, 초과 시 413 응답. [파일: src/main/index.ts, src/preload/index.ts, src/main/control-plane/hook-server.ts]",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            2
+          ],
+          "created_at": "2026-03-30T12:38:15.948Z"
+        }
+      ]
     }
   ]
 }

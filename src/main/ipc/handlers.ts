@@ -1,5 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import { join } from 'path'
+import path from 'path'
 import { readFile, writeFile, mkdir, readdir, access } from 'fs/promises'
 import { watch, readFileSync, existsSync } from 'fs'
 import { createReadStream } from 'fs'
@@ -56,8 +57,9 @@ import { HookServer } from '../control-plane/hook-server'
 import { SessionManager } from '../control-plane/session-manager'
 import { PermissionHandler } from '../control-plane/permission-handler'
 import { PluginHost } from '../plugin-host'
+import { AgentTracker } from '../control-plane/agent-tracker'
 import { isGitRepo, createCheckpoint, restoreCheckpoint } from '../control-plane/checkpoint-manager'
-import log from '../logger'
+import { logger } from '../logger'
 
 export interface IpcDeps {
   getWindow: () => BrowserWindow | null
@@ -66,6 +68,7 @@ export interface IpcDeps {
   sessionManager: SessionManager
   permissionHandler: PermissionHandler
   pluginHost: PluginHost
+  agentTracker: AgentTracker
 }
 
 // ── Workspace persistence ─────────────────────────────────────────────────
@@ -299,8 +302,45 @@ async function parseSessionHistory(filePath: string): Promise<HistoryMessage[]> 
 // 설정 변경이 클로저에 캡처되지 않도록 모듈 스코프에서 관리
 let notificationsEnabled = true
 
+function bindManagerToWindow(
+  manager: RunManager,
+  webContents: Electron.WebContents,
+  sessions: Map<string, RunManager>,
+  agentTracker: AgentTracker,
+  getNotificationsEnabled: () => boolean,
+): void {
+  manager.on('text_chunk', (data) => webContents.send(IpcChannel.TEXT_CHUNK, data))
+  manager.on('tool_call', (data) => webContents.send(IpcChannel.TOOL_CALL, data))
+  manager.on('tool_result', (data) => webContents.send(IpcChannel.TOOL_RESULT, data))
+  manager.on('permission_request', (data) => webContents.send(IpcChannel.PERMISSION_REQUEST, data))
+  manager.on('turn_end', (data) => {
+    webContents.send(IpcChannel.TURN_END, data)
+    const win = BrowserWindow.fromWebContents(webContents)
+    if (getNotificationsEnabled() && !win?.isFocused() && Notification.isSupported()) {
+      new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
+    }
+  })
+  manager.on('session_end', (data) => {
+    webContents.send(IpcChannel.SESSION_END, data)
+    sessions.delete(data.sessionId)
+    agentTracker.clearSession(data.sessionId)
+  })
+  manager.on('error', (data) => {
+    logger.ipc.error('RunManager error', { data })
+    webContents.send(IpcChannel.ERROR, data)
+    const win = BrowserWindow.fromWebContents(webContents)
+    if (getNotificationsEnabled() && !win?.isFocused() && Notification.isSupported()) {
+      new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
+    }
+  })
+  manager.on('restart_attempt', (data) => webContents.send(IpcChannel.RESTART_ATTEMPT, data))
+  manager.on('restart_failed', (data) => webContents.send(IpcChannel.RESTART_FAILED, data))
+  manager.on('timeout', (data) => webContents.send(IpcChannel.TIMEOUT, data))
+  manager.on('rate_limit', (data) => webContents.send(IpcChannel.RATE_LIMIT, data))
+}
+
 export function registerIpcHandlers(deps: IpcDeps): void {
-  const { getWindow, sessions, hookServer, sessionManager, permissionHandler } = deps
+  const { getWindow, sessions, hookServer, sessionManager, permissionHandler, agentTracker } = deps
 
   // ── SETTINGS_SYNC ─────────────────────────────────────────────────────────
   ipcMain.handle(IpcChannel.SETTINGS_SYNC, (_event, payload: { notificationsEnabled: boolean }) => {
@@ -320,34 +360,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(IpcChannel.START, async (_event, req: StartRequest): Promise<StartResponse> => {
     const manager = new RunManager()
     const win = getWindow()
-
-    manager.on('text_chunk', (data) => win?.webContents.send(IpcChannel.TEXT_CHUNK, data))
-    manager.on('tool_call', (data) => win?.webContents.send(IpcChannel.TOOL_CALL, data))
-    manager.on('tool_result', (data) => win?.webContents.send(IpcChannel.TOOL_RESULT, data))
-    manager.on('permission_request', (data) =>
-      win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
-    )
-    manager.on('turn_end', (data) => {
-      win?.webContents.send(IpcChannel.TURN_END, data)
-      if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
-        new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
-      }
-    })
-    manager.on('session_end', (data) => {
-      win?.webContents.send(IpcChannel.SESSION_END, data)
-      sessions.delete(data.sessionId)
-    })
-    manager.on('error', (data) => {
-      log.error('[RunManager error]', data)
-      win?.webContents.send(IpcChannel.ERROR, data)
-      if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
-        new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
-      }
-    })
-    manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
-    manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
-    manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
-    manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
+    if (win) {
+      bindManagerToWindow(manager, win.webContents, sessions, agentTracker, () => notificationsEnabled)
+    }
 
     try {
       const settingsDir = join(req.cwd, '.claude')
@@ -402,19 +417,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         images: req.images,
       })
 
-      log.info('[START]', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
+      logger.ipc.info('session started', { sessionId, cwd: req.cwd, prompt: req.prompt.slice(0, 50), resume: !!req.sessionId })
       sessions.set(sessionId, manager)
-      deps.pluginHost.setCwd(req.cwd, sessionId).catch((err) => log.warn('[PluginHost setCwd]', err))
+      deps.pluginHost.setCwd(req.cwd, sessionId).catch((err) => logger.ipc.warn('PluginHost setCwd failed', { err }))
 
       return { sessionId }
     } catch (err) {
-      log.error('[START failed]', err)
+      logger.ipc.error('START failed', { err })
       throw err
     }
   })
 
   // ── PROMPT ───────────────────────────────────────────────────────────────
   ipcMain.handle(IpcChannel.PROMPT, (_event, req: PromptRequest): PromptResponse => {
+    logger.ipc.debug('prompt sent', { sessionId: req.sessionId })
     const manager = sessions.get(req.sessionId)
     if (!manager) return { ok: false }
     return { ok: manager.sendPrompt(req.message, req.images) }
@@ -422,6 +438,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // ── CANCEL ───────────────────────────────────────────────────────────────
   ipcMain.handle(IpcChannel.CANCEL, (_event, req: CancelRequest): CancelResponse => {
+    logger.ipc.info('cancel requested', { sessionId: req.sessionId })
     const manager = sessions.get(req.sessionId)
     if (!manager) return { ok: false }
     return { ok: manager.cancel() }
@@ -429,6 +446,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   // ── STATUS ───────────────────────────────────────────────────────────────
   ipcMain.handle(IpcChannel.STATUS, (_event, req: StatusRequest): StatusResponse => {
+    logger.ipc.debug('status requested', { sessionId: req.sessionId })
     const manager = sessions.get(req.sessionId)
     return { status: manager ? manager.getStatus() : 'ended', sessionId: req.sessionId }
   })
@@ -470,6 +488,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       await writeWorkspaces(workspaces)
     }
 
+    logger.ipc.info('workspace added', { path: folderPath })
     return { workspace: { path: folderPath, name }, cancelled: false }
   })
 
@@ -477,6 +496,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(
     IpcChannel.WORKSPACE_REMOVE,
     async (_event, req: WorkspaceRemoveRequest): Promise<WorkspaceRemoveResponse> => {
+      logger.ipc.info('workspace removed', { path: req.path })
       const workspaces = await readWorkspaces()
       const filtered = workspaces.filter((w) => w.path !== req.path)
       await writeWorkspaces(filtered)
@@ -512,6 +532,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(
     IpcChannel.SETTINGS_WRITE,
     async (_event, req: WriteSettingsRequest): Promise<WriteSettingsResponse> => {
+      logger.ipc.debug('settings updated', { scope: req.scope })
       try {
         if (req.scope === 'global') {
           await writeSettingsFile(globalSettingsPath(), req.settings)
@@ -524,17 +545,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         }
         return { ok: true }
       } catch (err) {
-        log.error('[SETTINGS_WRITE]', err)
+        logger.ipc.error('SETTINGS_WRITE failed', { err })
         return { ok: false }
       }
     }
   )
 
   // ── READ_FILE (MarkdownViewer용) ─────────────────────────────────────────
-  ipcMain.handle('ipc:read-file', async (_event, req: { path: string }) => {
+  ipcMain.handle(IpcChannel.READ_FILE, async (_event, req: { path: string; workspacePath: string }) => {
     try {
-      const { readFile } = await import('fs/promises')
-      const content = await readFile(req.path, 'utf8')
+      // .md 파일만 허용
+      if (!req.path.endsWith('.md')) {
+        return { ok: false, error: 'Access denied' }
+      }
+      // path traversal 방지: 워크스페이스 경로 내부인지 확인
+      const resolved = path.resolve(req.path)
+      const workspaceResolved = path.resolve(req.workspacePath)
+      if (!resolved.startsWith(workspaceResolved + path.sep) && resolved !== workspaceResolved) {
+        return { ok: false, error: 'Access denied' }
+      }
+      const content = await readFile(resolved, 'utf8')
       return { ok: true, content }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -551,7 +581,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         const messages = await parseSessionHistory(filePath)
         return { ok: true, messages }
       } catch (err) {
-        log.error('[LOAD_HISTORY]', err)
+        logger.ipc.error('LOAD_HISTORY failed', { err, sessionId: req.sessionId })
         return { ok: false, messages: [] }
       }
     }
@@ -568,7 +598,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         if (!checkpoint) return { ok: false, isGitRepo: true }
         return { ok: true, checkpoint, isGitRepo: true }
       } catch (err) {
-        log.error('[CHECKPOINT_CREATE]', err)
+        logger.ipc.error('CHECKPOINT_CREATE failed', { err, sessionId: req.sessionId })
         return { ok: false, isGitRepo: true }
       }
     }
@@ -582,7 +612,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         const { changedFiles, shortHash } = await restoreCheckpoint(req.cwd, req.checkpoint)
         return { ok: true, changedFiles, shortHash }
       } catch (err) {
-        log.error('[CHECKPOINT_RESTORE]', err)
+        logger.ipc.error('CHECKPOINT_RESTORE failed', { err, sessionId: req.checkpoint.sessionId })
         return { ok: false, error: (err as Error).message }
       }
     }
@@ -605,7 +635,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         await execFileAsync('git', ['init'], { cwd: req.cwd })
         return { ok: true }
       } catch (err) {
-        log.error('[GIT_INIT]', err)
+        logger.ipc.error('GIT_INIT failed', { err })
         return { ok: false }
       }
     }
@@ -619,33 +649,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
       const win = getWindow()
       const manager = new RunManager()
-
-      manager.on('text_chunk', (data) => win?.webContents.send(IpcChannel.TEXT_CHUNK, data))
-      manager.on('tool_call', (data) => win?.webContents.send(IpcChannel.TOOL_CALL, data))
-      manager.on('tool_result', (data) => win?.webContents.send(IpcChannel.TOOL_RESULT, data))
-      manager.on('permission_request', (data) =>
-        win?.webContents.send(IpcChannel.PERMISSION_REQUEST, data)
-      )
-      manager.on('turn_end', (data) => {
-        win?.webContents.send(IpcChannel.TURN_END, data)
-        if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
-          new Notification({ title: 'Nexus Code', body: '작업이 완료되었습니다.' }).show()
-        }
-      })
-      manager.on('session_end', (data) => {
-        win?.webContents.send(IpcChannel.SESSION_END, data)
-        sessions.delete(data.sessionId)
-      })
-      manager.on('error', (data) => {
-        win?.webContents.send(IpcChannel.ERROR, data)
-        if (notificationsEnabled && !win?.isFocused() && Notification.isSupported()) {
-          new Notification({ title: 'Nexus Code', body: '오류가 발생했습니다.' }).show()
-        }
-      })
-      manager.on('restart_attempt', (data) => win?.webContents.send(IpcChannel.RESTART_ATTEMPT, data))
-      manager.on('restart_failed', (data) => win?.webContents.send(IpcChannel.RESTART_FAILED, data))
-      manager.on('timeout', (data) => win?.webContents.send(IpcChannel.TIMEOUT, data))
-      manager.on('rate_limit', (data) => win?.webContents.send(IpcChannel.RATE_LIMIT, data))
+      if (win) {
+        bindManagerToWindow(manager, win.webContents, sessions, agentTracker, () => notificationsEnabled)
+      }
 
       const cwd = req.cwd ?? process.cwd()
       const sessionId = await manager.start({
@@ -655,7 +661,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         sessionId: req.sessionId,
       })
       sessions.set(sessionId, manager)
-      deps.pluginHost.setCwd(cwd, sessionId).catch((err) => log.warn('[PluginHost setCwd]', err))
+      deps.pluginHost.setCwd(cwd, sessionId).catch((err) => logger.ipc.warn('PluginHost setCwd failed', { err }))
       return { ok: true }
     }
   )
@@ -700,7 +706,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       nexusWatchers.set(cwd, watcher)
     } catch {
       // .nexus/state/ 디렉토리 없으면 무시
-      log.debug('[NexusState] watch failed:', stateDir)
+      logger.ipc.debug('NexusState watch failed', { stateDir })
     }
   }
 

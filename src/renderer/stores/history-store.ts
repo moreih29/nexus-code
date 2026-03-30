@@ -1,5 +1,7 @@
 import log from 'electron-log/renderer'
 import { create } from 'zustand'
+
+const rlog = log.scope('renderer:history-store')
 import { IpcChannel } from '../../shared/ipc'
 import type { SessionInfo, ListSessionsResponse, LoadSessionResponse } from '../../shared/types'
 import { useSettingsStore } from './settings-store'
@@ -26,7 +28,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       const res = await window.electronAPI.invoke<ListSessionsResponse>(IpcChannel.LIST_SESSIONS, {})
       set({ sessions: res.sessions })
     } catch (err) {
-      log.error('[HistoryStore] LIST_SESSIONS error:', err)
+      rlog.error('LIST_SESSIONS error:', err)
     } finally {
       set({ loading: false })
     }
@@ -44,7 +46,7 @@ export const useHistoryStore = create<HistoryState>((set) => ({
       }
       return res.ok
     } catch (err) {
-      log.error('[HistoryStore] LOAD_SESSION error:', err)
+      rlog.error('LOAD_SESSION error:', err)
       return false
     }
   },

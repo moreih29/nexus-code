@@ -1,5 +1,7 @@
 import log from 'electron-log/renderer'
 import { create } from 'zustand'
+
+const rlog = log.scope('renderer:workspace-store')
 import { IpcChannel } from '../../shared/ipc'
 import type {
   WorkspaceEntry,
@@ -33,7 +35,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const res = await window.electronAPI.invoke<WorkspaceListResponse>(IpcChannel.WORKSPACE_LIST)
       set({ workspaces: res.workspaces })
     } catch (err) {
-      log.error('[WorkspaceStore] WORKSPACE_LIST error:', err)
+      rlog.error('WORKSPACE_LIST error:', err)
     } finally {
       set({ loading: false })
     }
@@ -69,7 +71,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         { path, sessionId }
       )
     } catch (err) {
-      log.error('[WorkspaceStore] WORKSPACE_UPDATE_SESSION error:', err)
+      rlog.error('WORKSPACE_UPDATE_SESSION error:', err)
     }
   },
 }))

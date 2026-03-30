@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import log from 'electron-log/renderer'
+
+const rlog = log.scope('renderer:streaming-message')
 import { MarkdownRenderer } from './MarkdownRenderer'
 
 interface StreamingMessageProps {
@@ -21,11 +23,16 @@ export function StreamingMessage({ content, isStreaming }: StreamingMessageProps
   const contentRef = useRef(content)
   const rafRef = useRef<number | null>(null)
   const drainingRef = useRef(false)
+  const tickCountRef = useRef(0)
 
   contentRef.current = content
 
   useEffect(() => {
     if (!isStreaming) drainingRef.current = true
+  }, [isStreaming])
+
+  useEffect(() => {
+    rlog.debug('streaming-state', { isStreaming, contentLen: content.length, displayedLen: displayedLength })
   }, [isStreaming])
 
   useEffect(() => {
@@ -37,8 +44,14 @@ export function StreamingMessage({ content, isStreaming }: StreamingMessageProps
           return prev
         }
         const gap = target - prev
-        const step = charsPerFrame(gap, drainingRef.current)
+        const draining = drainingRef.current
+        const step = charsPerFrame(gap, draining)
         const next = Math.min(prev + step, target)
+
+        tickCountRef.current += 1
+        if (tickCountRef.current % 10 === 0) {
+          rlog.debug('tick', { displayed: prev, target, gap, step, draining })
+        }
 
         if (next < target) {
           rafRef.current = requestAnimationFrame(tick)
@@ -62,7 +75,7 @@ export function StreamingMessage({ content, isStreaming }: StreamingMessageProps
     }
   }, [content])
 
-  log.debug('[DEBUG:stream] content=%d displayed=%d gap=%d streaming=%s draining=%s', content.length, displayedLength, content.length - displayedLength, isStreaming, drainingRef.current)
+  rlog.debug('content=%d displayed=%d gap=%d streaming=%s draining=%s', content.length, displayedLength, content.length - displayedLength, isStreaming, drainingRef.current)
 
   if (!isStreaming && displayedLength >= content.length) {
     return <MarkdownRenderer content={content} />

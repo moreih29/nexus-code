@@ -6,7 +6,7 @@ import { IpcChannel } from '../../shared/ipc'
 import type { PermissionRequestEvent } from '../../shared/types'
 import { PermissionHandler } from './permission-handler'
 import { savePermanentRule } from './approval-store'
-import log from '../logger'
+import { logger } from '../logger'
 
 export interface HookServerOptions {
   permissionHandler: PermissionHandler
@@ -90,6 +90,7 @@ export class HookServer extends EventEmitter {
       // 포트 0 → OS가 빈 포트 자동 할당
       server.listen(0, '127.0.0.1', () => {
         this.server = server
+        logger.hook.info('server started', { port: this.port })
         resolve()
       })
     })
@@ -101,6 +102,7 @@ export class HookServer extends EventEmitter {
         resolve()
         return
       }
+      logger.hook.info('server stopped')
       this.server.close(() => {
         this.server = null
         resolve()
@@ -168,8 +170,17 @@ export class HookServer extends EventEmitter {
   }
 
   private handlePermissionRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const MAX_BODY_SIZE = 1024 * 1024 // 1MB
     let body = ''
+    let bodySize = 0
     req.on('data', (chunk) => {
+      bodySize += chunk.length
+      if (bodySize > MAX_BODY_SIZE) {
+        res.writeHead(413)
+        res.end('Payload Too Large')
+        req.destroy()
+        return
+      }
       body += chunk
     })
 
@@ -190,7 +201,7 @@ export class HookServer extends EventEmitter {
         const sessionId = payload.session_id ?? ''
         const agentId = (payload as { agent_id?: string }).agent_id ?? 'main'
 
-        log.info('[HookServer] PreToolUse:', toolName, 'agent:', agentId)
+        logger.hook.info('PreToolUse', { toolName, agentId, sessionId })
 
         // AgentTracker용 이벤트 emit
         this.emit('pre-tool-use', {
@@ -203,7 +214,7 @@ export class HookServer extends EventEmitter {
 
         // 자동 승인 여부 먼저 확인
         if (this.permissionHandler.isAutoApproved(toolName, toolInput)) {
-          log.info('[HookServer] auto-approved:', toolName)
+          logger.hook.info('auto-approved', { toolName, sessionId })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({}))
           return
@@ -218,7 +229,7 @@ export class HookServer extends EventEmitter {
           agentId,
         }
 
-        log.info('[HookServer] awaiting permission (PreToolUse):', requestId, toolName)
+        logger.hook.info('awaiting permission (PreToolUse)', { requestId, toolName, sessionId })
 
         const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
         if (win) {
@@ -226,14 +237,14 @@ export class HookServer extends EventEmitter {
         }
 
         const { approved, scope } = await this.permissionHandler.waitForResponse(requestId)
-        log.info('[HookServer] responded (PreToolUse):', requestId, approved ? 'allow' : 'deny', scope ?? 'once')
+        logger.hook.info('responded (PreToolUse)', { requestId, decision: approved ? 'allow' : 'deny', scope: scope ?? 'once', sessionId })
 
         if (approved && scope === 'session') {
           this.permissionHandler.addSessionRule(toolName)
         } else if (approved && scope === 'permanent') {
           this.permissionHandler.addPermanentRule(toolName)
           savePermanentRule(toolName).catch((err) =>
-            log.warn('[HookServer] savePermanentRule failed:', err)
+            logger.hook.warn('savePermanentRule failed', { error: String(err) })
           )
         }
 
@@ -258,8 +269,19 @@ export class HookServer extends EventEmitter {
   }
 
   private handleSubagentLifecycle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const MAX_BODY_SIZE = 1024 * 1024 // 1MB
     let body = ''
-    req.on('data', (chunk) => { body += chunk })
+    let bodySize = 0
+    req.on('data', (chunk) => {
+      bodySize += chunk.length
+      if (bodySize > MAX_BODY_SIZE) {
+        res.writeHead(413)
+        res.end('Payload Too Large')
+        req.destroy()
+        return
+      }
+      body += chunk
+    })
     req.on('end', () => {
       try {
         const payload = JSON.parse(body) as {
@@ -276,7 +298,7 @@ export class HookServer extends EventEmitter {
         const hookEvent = payload.hook_event_name ?? ''
         const event = hookEvent === 'SubagentStart' ? 'start' : 'stop'
 
-        log.info('[HookServer] subagent lifecycle:', event, agentId)
+        logger.hook.info('subagent lifecycle', { event, agentId, sessionId })
 
         this.emit('subagent-lifecycle', {
           sessionId,
@@ -300,8 +322,17 @@ export class HookServer extends EventEmitter {
   }
 
   private handlePreToolUse(req: http.IncomingMessage, res: http.ServerResponse, sessionId: string): void {
+    const MAX_BODY_SIZE = 1024 * 1024 // 1MB
     let body = ''
+    let bodySize = 0
     req.on('data', (chunk) => {
+      bodySize += chunk.length
+      if (bodySize > MAX_BODY_SIZE) {
+        res.writeHead(413)
+        res.end('Payload Too Large')
+        req.destroy()
+        return
+      }
       body += chunk
     })
 
@@ -318,7 +349,7 @@ export class HookServer extends EventEmitter {
         const agentId = payload.agent_id
         const toolUseId = randomUUID()
 
-        log.info('[HookServer] request:', toolName, 'agent:', agentId ?? 'main')
+        logger.hook.info('request', { toolName, agentId: agentId ?? 'main', sessionId })
 
         // AgentTracker용 이벤트 emit (구독자가 없어도 안전)
         this.emit('pre-tool-use', {
@@ -331,7 +362,7 @@ export class HookServer extends EventEmitter {
 
         // 자동 승인 여부 먼저 확인
         if (this.permissionHandler.isAutoApproved(toolName, toolInput)) {
-          log.info('[HookServer] auto-approved:', toolName)
+          logger.hook.info('auto-approved', { toolName, sessionId })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ decision: 'allow' }))
           return
@@ -347,7 +378,7 @@ export class HookServer extends EventEmitter {
           agentId
         }
 
-        log.info('[HookServer] awaiting permission:', requestId, toolName)
+        logger.hook.info('awaiting permission', { requestId, toolName, sessionId })
 
         const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
         if (win) {
@@ -356,14 +387,14 @@ export class HookServer extends EventEmitter {
 
         // Renderer 응답 대기 (60초 타임아웃)
         const { approved, scope } = await this.permissionHandler.waitForResponse(requestId)
-        log.info('[HookServer] responded:', requestId, approved ? 'allow' : 'deny', scope ?? 'once')
+        logger.hook.info('responded', { requestId, decision: approved ? 'allow' : 'deny', scope: scope ?? 'once', sessionId })
 
         if (approved && scope === 'session') {
           this.permissionHandler.addSessionRule(toolName)
         } else if (approved && scope === 'permanent') {
           this.permissionHandler.addPermanentRule(toolName)
           savePermanentRule(toolName).catch((err) =>
-            log.warn('[HookServer] savePermanentRule failed:', err)
+            logger.hook.warn('savePermanentRule failed', { error: String(err) })
           )
         }
 

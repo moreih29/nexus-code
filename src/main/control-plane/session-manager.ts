@@ -1,8 +1,9 @@
 import fs from 'fs'
+import { createInterface } from 'readline'
 import path from 'path'
 import os from 'os'
 import type { SessionInfo } from '../../shared/types'
-import log from '../logger'
+import { logger } from '../logger'
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 
@@ -34,21 +35,36 @@ function parseFirstLine(filePath: string): SessionFileEntry | null {
   }
 }
 
-/** JSONL 파일에서 첫 번째 user 메시지 텍스트를 preview로 추출한다 */
-function extractPreview(filePath: string): string | undefined {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8')
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue
+/** JSONL 파일에서 첫 번째 user 메시지 텍스트를 preview로 추출한다 (스트림 방식) */
+async function extractPreview(filePath: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let resolved = false
+    const done = (value: string | undefined) => {
+      if (!resolved) {
+        resolved = true
+        stream.destroy()
+        resolve(value)
+      }
+    }
+
+    const stream = fs.createReadStream(filePath, { encoding: 'utf8' })
+    const rl = createInterface({ input: stream, crlfDelay: Infinity })
+
+    rl.on('line', (line: string) => {
+      if (!line.trim()) return
       try {
         const entry = JSON.parse(line) as SessionFileEntry
         if (entry.type === 'user' && entry.message?.role === 'user') {
           const c = entry.message.content
-          if (typeof c === 'string') return c.slice(0, 120)
+          if (typeof c === 'string') {
+            done(c.slice(0, 120))
+            return
+          }
           if (Array.isArray(c)) {
             for (const block of c as Array<{ type?: string; text?: string }>) {
               if (block.type === 'text' && typeof block.text === 'string') {
-                return block.text.slice(0, 120)
+                done(block.text.slice(0, 120))
+                return
               }
             }
           }
@@ -56,11 +72,12 @@ function extractPreview(filePath: string): string | undefined {
       } catch {
         // 파싱 실패한 줄은 건너뜀
       }
-    }
-  } catch {
-    // 파일 읽기 실패
-  }
-  return undefined
+    })
+
+    rl.on('close', () => done(undefined))
+    rl.on('error', () => done(undefined))
+    stream.on('error', () => done(undefined))
+  })
 }
 
 export interface ListSessionsOptions {
@@ -106,7 +123,7 @@ export class SessionManager {
     try {
       projectDirs = await fs.promises.readdir(CLAUDE_DIR)
     } catch (err) {
-      log.debug('[SessionManager] scan error:', String(err))
+      logger.session.debug('scan error', { err: String(err) })
       return []
     }
 
@@ -140,7 +157,7 @@ export class SessionManager {
               firstEntry.sessionId ?? path.basename(file, '.jsonl')
             const cwd = firstEntry.cwd ?? this.projectDirToCwd(projectDir)
             const createdAt = firstEntry.timestamp ?? stat.mtime.toISOString()
-            const preview = extractPreview(filePath)
+            const preview = await extractPreview(filePath)
 
             sessions.push({ id: sessionId, createdAt, cwd, preview })
           })
@@ -156,10 +173,20 @@ export class SessionManager {
     return sessions
   }
 
-  /** projectDir 이름(-로 구분된 경로)을 실제 cwd로 역변환 */
+  /**
+   * projectDir 이름(-로 구분된 경로)을 실제 cwd로 역변환.
+   *
+   * Claude CLI 인코딩 방식: 경로의 모든 `/`를 `-`로 치환하고 맨 앞 `/`도 `-`로 변환.
+   * 예) `/Users/kih/my-project` → `-Users-kih-my-project`
+   *
+   * 한계: 원래 경로에 `-`가 포함된 경우(예: `my-project`)와 경로 구분자(`/`)를
+   * 구별할 수 없으므로 완전한 역변환은 불가능하다. 이 함수는 JSONL 파일에서
+   * cwd를 읽지 못했을 때의 폴백으로만 사용되며, 실제 경로와 다를 수 있다.
+   */
   private projectDirToCwd(dirName: string): string {
-    // '-Users-kih-...' → '/Users/kih/...'
-    return dirName.replace(/^-/, '/').replace(/-/g, '/')
+    // 맨 앞 '-'를 '/'로 교체 후 나머지 '-'를 '/'로 치환
+    // 주의: 원래 경로에 '-'가 있으면 잘못 복원될 수 있음 (CLI 측 한계)
+    return '/' + dirName.replace(/^-/, '').replace(/-/g, '/')
   }
 
   /** fs.watch로 세션 디렉토리 변경 감지, 캐시 무효화 */

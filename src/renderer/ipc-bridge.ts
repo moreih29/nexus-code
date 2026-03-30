@@ -1,5 +1,7 @@
 import log from 'electron-log/renderer'
 import { IpcChannel } from '../shared/ipc'
+
+const rlog = log.scope('renderer:ipc-bridge')
 import type {
   TextChunkEvent,
   ToolCallEvent,
@@ -34,7 +36,7 @@ export function initIpcBridge(): void {
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
     const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
-    log.debug('[DEBUG:ipc] TEXT_CHUNK len=%d store=%s', event.text.length, store ? 'found' : 'NULL')
+    rlog.debug('TEXT_CHUNK len=%d store=%s', event.text.length, store ? 'found' : 'NULL')
     if (store) {
       store.getState().appendTextChunk(event.text)
     }
@@ -171,7 +173,7 @@ export function initIpcBridge(): void {
 
   // Error recovery events → session store
   window.electronAPI.on(IpcChannel.RESTART_ATTEMPT, ((event: RestartAttemptEvent) => {
-    log.info('[ipc-bridge] restart_attempt', event)
+    rlog.info('restart_attempt', event)
     const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
     if (store) {
       store.getState().setStatus('restarting')
@@ -179,7 +181,7 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.RESTART_FAILED, ((event: RestartFailedEvent) => {
-    log.warn('[ipc-bridge] restart_failed')
+    rlog.warn('restart_failed')
     const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
     if (store) {
       store.getState().setStatus('error')
@@ -187,7 +189,7 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TIMEOUT, ((event: TimeoutEvent) => {
-    log.warn('[ipc-bridge] timeout')
+    rlog.warn('timeout')
     const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
     if (store) {
       store.getState().setStatus('timeout')
@@ -195,6 +197,6 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.RATE_LIMIT, ((_event: RateLimitEvent) => {
-    log.warn('[ipc-bridge] rate_limit')
+    rlog.warn('rate_limit')
   }) as (...args: unknown[]) => void)
 }

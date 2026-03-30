@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import log from '../logger'
+import { logger } from '../logger'
 import type {
   TextChunkEvent,
   ToolCallEvent,
@@ -74,6 +74,12 @@ export declare interface StreamParser {
 export class StreamParser extends EventEmitter {
   private buffer: string = ''
   private streamedTextLength = 0
+  private sessionId?: string
+
+  constructor(sessionId?: string) {
+    super()
+    this.sessionId = sessionId
+  }
 
   feed(chunk: string): void {
     this.buffer += chunk
@@ -102,16 +108,16 @@ export class StreamParser extends EventEmitter {
     try {
       msg = JSON.parse(line)
     } catch {
-      log.warn('[StreamParser] JSON parse failed:', line.slice(0, 120))
+      logger.stream.warn('JSON parse failed', { line: line.slice(0, 120), sessionId: this.sessionId })
       this.emit('error', { message: `JSON 파싱 실패: ${line.slice(0, 120)}` })
       return
     }
 
     try {
-      log.debug('[StreamParser]', msg.type, (msg as Record<string, unknown>).subtype ?? '')
+      logger.stream.debug('parsed message', { type: msg.type, subtype: (msg as Record<string, unknown>).subtype ?? '', sessionId: this.sessionId })
       this.handleMessage(msg)
     } catch (err) {
-      log.error('[StreamParser] handle error:', String(err))
+      logger.stream.error('handle error', { error: String(err), sessionId: this.sessionId })
       this.emit('error', { message: `메시지 처리 오류: ${String(err)}` })
     }
   }
@@ -229,7 +235,7 @@ export class StreamParser extends EventEmitter {
         const retryAfterMs = typeof (msg as Record<string, unknown>).retry_after_ms === 'number'
           ? (msg as Record<string, unknown>).retry_after_ms as number
           : undefined
-        log.debug('[StreamParser] rate_limit_event, retryAfterMs:', retryAfterMs)
+        logger.stream.debug('rate_limit_event', { retryAfterMs, sessionId: this.sessionId })
         this.emit('rate_limit', { retryAfterMs })
         break
       }
@@ -244,8 +250,7 @@ export class StreamParser extends EventEmitter {
         break
 
       default:
-        log.debug('[StreamParser] unhandled message type:', msg.type,
-          (msg as Record<string, unknown>).subtype ?? '')
+        logger.stream.debug('unhandled message type', { type: msg.type, subtype: (msg as Record<string, unknown>).subtype ?? '', sessionId: this.sessionId })
         break
     }
   }

@@ -1,5 +1,7 @@
 import log from 'electron-log/renderer'
 import { useEffect, useMemo, useRef, useState } from 'react'
+
+const rlog = log.scope('renderer:chat-panel')
 import { AlignJustify, AlignLeft, List } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
 import type { StartResponse, PromptResponse, CancelResponse, GitCheckResponse, GitInitResponse, ImageAttachment, CheckpointCreateResponse } from '../../../shared/types'
@@ -90,7 +92,7 @@ export function ChatPanel() {
 
   const handleSend = async (text: string, images?: ImageAttachment[]): Promise<void> => {
     if (!activeWorkspace) {
-      log.warn('[ChatPanel] 워크스페이스가 선택되지 않음')
+      rlog.warn('워크스페이스가 선택되지 않음')
       return
     }
 
@@ -107,13 +109,13 @@ export function ChatPanel() {
           checkpointRef = cpRes.checkpoint.hash
         }
       } catch (err) {
-        log.warn('[ChatPanel] 체크포인트 생성 실패:', err)
+        rlog.warn('체크포인트 생성 실패:', err)
       }
     }
 
     addUserMessage(text, checkpointRef)
     setStatus('running')
-    log.info('[ChatPanel] 전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId: currentSessionId })
+    rlog.info('전송:', { text: text.slice(0, 50), cwd: activeWorkspace, sessionId: currentSessionId })
 
     try {
       if (!currentSessionId) {
@@ -125,7 +127,7 @@ export function ChatPanel() {
           notificationsEnabled,
           images,
         })
-        log.info('[ChatPanel] 세션 시작:', res.sessionId)
+        rlog.info('세션 시작:', res.sessionId)
         startSession(res.sessionId)
         await saveSessionId(activeWorkspace, res.sessionId)
       } else {
@@ -136,7 +138,7 @@ export function ChatPanel() {
         })
         if (!res.ok) {
           // 프로세스가 죽었음 → START + --resume로 자동 복구
-          log.warn('[ChatPanel] PROMPT failed — resuming session:', currentSessionId)
+          rlog.warn('PROMPT failed — resuming session:', currentSessionId)
           const resumed = await window.electronAPI.invoke<StartResponse>(IpcChannel.START, {
             prompt: text,
             cwd: activeWorkspace,
@@ -145,12 +147,12 @@ export function ChatPanel() {
             notificationsEnabled,
             images,
           })
-          log.info('[ChatPanel] 세션 복구:', resumed.sessionId)
+          rlog.info('세션 복구:', resumed.sessionId)
           startSession(resumed.sessionId)
         }
       }
     } catch (err) {
-      log.error('[ChatPanel] IPC error:', err)
+      rlog.error('IPC error:', err)
       setStatus('idle')
     }
   }
@@ -160,7 +162,7 @@ export function ChatPanel() {
     try {
       await window.electronAPI.invoke<CancelResponse>(IpcChannel.CANCEL, { sessionId })
     } catch (err) {
-      log.error('[ChatPanel] cancel error:', err)
+      rlog.error('cancel error:', err)
     }
     setStatus('idle')
   }
@@ -182,7 +184,7 @@ export function ChatPanel() {
       const res = await window.electronAPI.invoke<GitInitResponse>(IpcChannel.GIT_INIT, { cwd: activeWorkspace })
       if (res.ok) setIsGitRepo(true)
     } catch (err) {
-      log.error('[ChatPanel] git init error:', err)
+      rlog.error('git init error:', err)
     }
   }
 

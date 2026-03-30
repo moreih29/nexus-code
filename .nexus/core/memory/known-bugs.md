@@ -1,4 +1,4 @@
-<!-- tags: bug, resolved, streaming -->
+<!-- tags: bug, resolved, streaming, security, memory-leak -->
 # Known Bugs
 
 ## 해결됨
@@ -7,36 +7,40 @@
 - **현상**: LOAD_HISTORY 후 도구 블록이 "실행 중" 표시
 - **원인**: restoreSession에서 toolCalls의 result 미매칭
 - **해결**: Phase 7에서 수정. result === undefined인 toolCall에 빈 문자열 할당
-- **해결일**: 2026-03-29
 
 ### 2026-03-30 — SessionStoreContext null crash
 - **현상**: 앱 시작 시 useActiveSession이 throw → Rendering Error
 - **원인**: Store Factory 리팩토링 후 activeWorkspace=null일 때 store=null → throw
-- **해결**: _emptyStore fallback 도입. store ?? _emptyStore로 null-safe 처리
-- **해결일**: 2026-03-30
+- **해결**: _emptyStore fallback 도입
 
-### 2026-03-30 — SessionStoreProvider children 미렌더 (빈 화면)
-- **현상**: {store ? children : null} 적용 후 앱 시작 시 완전히 빈 화면
-- **원인**: Sidebar(워크스페이스 목록)도 children에 포함되어 워크스페이스 선택 불가 → 데드락
-- **해결**: {store ? children : null} → {children} 복원 + _emptyStore fallback으로 해결
-- **해결일**: 2026-03-30
-
-### 2026-03-30 — 스트리밍 미작동 (전체 텍스트 한 번에 표시)
+### 2026-03-30 — 스트리밍 미작동
 - **현상**: 대화 응답이 스트리밍되지 않고 전체 결과가 한 번에 나옴
-- **원인**: run-manager.ts에서 --include-partial-messages 플래그 누락 (커밋 6441d13에서 제거됨)
-- **해결**: --include-partial-messages 플래그 복원. StreamParser의 기존 stream_event 처리 코드가 정상 동작
-- **해결일**: 2026-03-30
+- **원인**: --include-partial-messages 플래그 누락
+- **해결**: 플래그 복원
 
-### 2026-03-30 — React hooks 순서 위반 (streaming-message.tsx)
-- **현상**: 워크스페이스 선택 시 React rendering error
-- **원인**: useMemo가 early return 뒤에서 조건부 호출 → hooks 규칙 위반
-- **해결**: useMemo를 early return 위로 이동
-- **해결일**: 2026-03-30
+### 2026-03-30 — process.cwd() 로그 경로 (코드리뷰 H-2)
+- **현상**: 프로덕션 .app 번들에서 EACCES 오류로 로깅 실패
+- **원인**: logger.ts, cli-raw-logger.ts에서 process.cwd() 의존
+- **해결**: app.getPath('logs') 기반으로 전환
+
+### 2026-03-30 — ipc:read-file 경로 미검증 (코드리뷰 H-1)
+- **현상**: 임의 파일 읽기 가능한 보안 취약점
+- **원인**: handlers.ts에서 경로 검증 없이 readFile 호출
+- **해결**: 워크스페이스 범위 제한 + .md 확장자 필터 + IpcChannel 등록
+
+### 2026-03-30 — AgentTracker 메모리 누수 (코드리뷰 H-4)
+- **현상**: events 배열 무한 증가, clearSession 미호출
+- **원인**: session_end 이벤트와 AgentTracker 정리 미연결
+- **해결**: session_end에 clearSession 연결 + input 10KB 크기 제한
+
+### 2026-03-30 — sandbox:false 보안 약화 (코드리뷰 D-2)
+- **현상**: Electron 보안 모범사례 위배
+- **해결**: sandbox:true 전환 (electron-log v5.4.3 sandbox 호환 확인)
 
 ## 진행 중
 
 ### 2026-03-30 — 스트리밍 UX 청크 단위 표시
 - **현상**: 스트리밍은 작동하지만 청크 단위로 뚝뚝 끊겨 보임
-- **원인**: CLI가 ~400-500ms 간격으로 청크 전달 (모델 토큰 생성 속도에 의존) + 드레인 소비 속도가 빨라 대기 시간이 김
-- **현재 상태**: 적응형 charsPerFrame 튜닝 적용 (소비 속도 감소로 분산), 추가 확인 필요
-- **관련 파일**: streaming-message.tsx (charsPerFrame), session-store.ts (appendTextChunk rAF)
+- **원인**: 이중 rAF 경쟁 (store rAF + StreamingMessage rAF)
+- **현재 상태**: T8 진단 로그 추가 완료, T9(rAF 수정)는 다음 사이클
+- **관련 파일**: streaming-message.tsx, session-store.ts
