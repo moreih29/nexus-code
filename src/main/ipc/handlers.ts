@@ -102,7 +102,7 @@ function globalSettingsPath(): string {
 }
 
 function projectSettingsPath(cwd: string): string {
-  return join(cwd, '.claude', 'settings.json')
+  return join(cwd, '.claude', 'settings.local.json')
 }
 
 async function readSettingsFile(filePath: string): Promise<ClaudeSettings> {
