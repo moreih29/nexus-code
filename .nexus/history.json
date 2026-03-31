@@ -1796,6 +1796,24 @@
           "created_at": "2026-03-31T07:12:59.491Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-31T07:27:52.371Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: ModelSwitcher restart + restart 후 idle 상태 처리",
+          "context": "(1) ModelSwitcher/CommandPalette에서 모델/effort 변경 시에도 restart+resume 적용 필요. 현재는 updateSetting만 호출하고 restart 안 함. (2) restart+resume 후 CLI가 시작되면서 status가 running으로 표시되는데, 실제 사용자 메시지 없이 대기 상태여야 함. --resume 후 CLI가 보내는 init 메시지 처리 확인 필요.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-31T07:26:06.786Z"
+        }
+      ]
     }
   ]
 }
