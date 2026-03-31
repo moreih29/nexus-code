@@ -5,6 +5,7 @@ import type { WorkspaceEntry } from '../../../shared/types'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-store'
 import { useRightPanelUIStore } from '../../stores/plugin-store'
+import { useSettingsStore } from '../../stores/settings-store'
 import { useToast } from '../ui/toast'
 import { cn } from '../../lib/utils'
 
@@ -61,6 +62,9 @@ export function WorkspaceItem({ workspace, onOpenWorkspaceSettings }: WorkspaceI
     if (workspace.sessionId && !store.getState().sessionId) {
       await store.getState().restoreSession(workspace.sessionId)
     }
+
+    // 워크스페이스 설정 재로드
+    await useSettingsStore.getState().initialize(workspace.path)
   }
 
   const handleRemove = (): void => {

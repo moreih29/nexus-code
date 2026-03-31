@@ -286,6 +286,10 @@ export interface ClaudeSettings {
   [key: string]: unknown
 }
 
+export interface ReadSettingsRequest {
+  workspacePath?: string
+}
+
 export interface ReadSettingsResponse {
   global: ClaudeSettings
   project: ClaudeSettings
@@ -294,6 +298,7 @@ export interface ReadSettingsResponse {
 export interface WriteSettingsRequest {
   scope: 'global' | 'project'
   settings: ClaudeSettings
+  workspacePath?: string
 }
 
 export interface WriteSettingsResponse {
@@ -303,6 +308,7 @@ export interface WriteSettingsResponse {
 export interface DeleteSettingsKeyRequest {
   scope: 'global' | 'project'
   key: string
+  workspacePath?: string
 }
 
 export interface DeleteSettingsKeyResponse {

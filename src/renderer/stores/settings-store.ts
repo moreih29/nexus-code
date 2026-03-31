@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
 import type { ClaudeSettings } from '../../shared/types'
 import { AVAILABLE_MODELS, type ModelId } from '../../shared/models'
+import { useWorkspaceStore } from './workspace-store'
 
 export { AVAILABLE_MODELS, type ModelId }
 export type PermissionMode = 'auto' | 'default'
@@ -66,7 +67,7 @@ interface SettingsState {
   permissionMode: PermissionMode
 
   // 액션
-  initialize: () => Promise<void>
+  initialize: (workspacePath?: string) => Promise<void>
   updateSetting: (scope: 'global' | 'project', key: string, value: unknown) => Promise<void>
   resetProjectSetting: (key: string) => Promise<void>
   setTheme: (theme: Theme) => void
@@ -135,9 +136,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   model: 'claude-sonnet-4-6',
   permissionMode: 'default',
 
-  initialize: async () => {
+  initialize: async (workspacePath?: string) => {
     try {
-      const res = await window.electronAPI.invoke(IpcChannel.SETTINGS_READ)
+      const res = await window.electronAPI.invoke(IpcChannel.SETTINGS_READ, { workspacePath })
       const global = res.global ?? {}
       const project = res.project ?? {}
       set({ global, project, ...deriveFromEffective(global, project), isLoaded: true })
@@ -155,9 +156,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const newProject = scope === 'project' ? updated : current.project
     set({ [scope]: updated, ...deriveFromEffective(newGlobal, newProject) })
 
+    const workspacePath = scope === 'project'
+      ? (useWorkspaceStore.getState().activeWorkspace ?? undefined)
+      : undefined
     await window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
       scope,
       settings: { [key]: value },
+      workspacePath,
     })
   },
 
@@ -167,9 +172,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     delete updatedProject[key]
     set({ project: updatedProject, ...deriveFromEffective(current.global, updatedProject) })
 
+    const workspacePath = useWorkspaceStore.getState().activeWorkspace ?? undefined
     await window.electronAPI.invoke(IpcChannel.SETTINGS_DELETE_KEY, {
       scope: 'project',
       key,
+      workspacePath,
     })
   },
 

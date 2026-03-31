@@ -48,6 +48,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (!workspaces.some((w) => w.path === res.workspace!.path)) {
         set({ workspaces: [...workspaces, res.workspace] })
       }
+      set({ activeWorkspace: res.workspace.path })
     }
   },
 

@@ -11,7 +11,7 @@ import type {
   WorkspaceAddResponse,
   WorkspaceRemoveRequest, WorkspaceRemoveResponse,
   WorkspaceUpdateSessionRequest, WorkspaceUpdateSessionResponse,
-  ReadSettingsResponse,
+  ReadSettingsRequest, ReadSettingsResponse,
   WriteSettingsRequest, WriteSettingsResponse,
   DeleteSettingsKeyRequest, DeleteSettingsKeyResponse,
   SettingsSyncRequest,
@@ -137,7 +137,7 @@ export type IpcMap = {
   [IpcChannel.WORKSPACE_ADD]: { req: void; res: WorkspaceAddResponse }
   [IpcChannel.WORKSPACE_REMOVE]: { req: WorkspaceRemoveRequest; res: WorkspaceRemoveResponse }
   [IpcChannel.WORKSPACE_UPDATE_SESSION]: { req: WorkspaceUpdateSessionRequest; res: WorkspaceUpdateSessionResponse }
-  [IpcChannel.SETTINGS_READ]: { req: void; res: ReadSettingsResponse }
+  [IpcChannel.SETTINGS_READ]: { req: ReadSettingsRequest; res: ReadSettingsResponse }
   [IpcChannel.SETTINGS_WRITE]: { req: WriteSettingsRequest; res: WriteSettingsResponse }
   [IpcChannel.SETTINGS_DELETE_KEY]: { req: DeleteSettingsKeyRequest; res: DeleteSettingsKeyResponse }
   [IpcChannel.SETTINGS_SYNC]: { req: SettingsSyncRequest; res: void }

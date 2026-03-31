@@ -1,11 +1,21 @@
 import { FolderPlus } from 'lucide-react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-store'
+import { useSettingsStore } from '../../stores/settings-store'
+import { useRightPanelUIStore } from '../../stores/plugin-store'
 
 export function AddWorkspaceButton() {
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
 
   const handleClick = async (): Promise<void> => {
     await addWorkspace()
+    const { activeWorkspace } = useWorkspaceStore.getState()
+    if (activeWorkspace) {
+      useRightPanelUIStore.getState().cleanup()
+      const store = getOrCreateWorkspaceStore(activeWorkspace)
+      setActiveStore(store)
+      await useSettingsStore.getState().initialize(activeWorkspace)
+    }
   }
 
   return (

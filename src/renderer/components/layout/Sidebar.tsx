@@ -7,6 +7,7 @@ import { WorkspaceList } from '../workspace/WorkspaceList'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-store'
 import { useRightPanelUIStore } from '../../stores/plugin-store'
+import { useSettingsStore } from '../../stores/settings-store'
 
 interface SidebarProps {
   onToggle?: () => void
@@ -33,6 +34,7 @@ function CollapsedWorkspaceButton({ workspace, activeWorkspace }: {
     if (workspace.sessionId && !store.getState().sessionId) {
       await store.getState().restoreSession(workspace.sessionId)
     }
+    await useSettingsStore.getState().initialize(workspace.path)
   }
 
   return (

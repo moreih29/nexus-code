@@ -35,6 +35,7 @@ import type {
   WorkspaceUpdateSessionRequest,
   WorkspaceUpdateSessionResponse,
   ClaudeSettings,
+  ReadSettingsRequest,
   ReadSettingsResponse,
   WriteSettingsRequest,
   WriteSettingsResponse,
@@ -522,13 +523,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   )
 
   // ── SETTINGS_READ ────────────────────────────────────────────────────────
-  ipcMain.handle(IpcChannel.SETTINGS_READ, async (): Promise<ReadSettingsResponse> => {
-    const workspaces = await readWorkspaces()
-    const activeWorkspace = workspaces.find((w) => w.sessionId) ?? workspaces[0]
+  ipcMain.handle(IpcChannel.SETTINGS_READ, async (_event, req: ReadSettingsRequest): Promise<ReadSettingsResponse> => {
     const globalSettings = await readSettingsFile(globalSettingsPath())
-    const projectSettings = activeWorkspace
-      ? await readSettingsFile(projectSettingsPath(activeWorkspace.path))
-      : {}
+    let projectSettings: ClaudeSettings = {}
+    if (req?.workspacePath) {
+      projectSettings = await readSettingsFile(projectSettingsPath(req.workspacePath))
+    }
     return { global: globalSettings, project: projectSettings }
   })
 
@@ -540,12 +540,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       try {
         if (req.scope === 'global') {
           await writeSettingsFile(globalSettingsPath(), req.settings)
+        } else if (req.workspacePath) {
+          await writeSettingsFile(projectSettingsPath(req.workspacePath), req.settings)
         } else {
-          const workspaces = await readWorkspaces()
-          const activeWorkspace = workspaces.find((w) => w.sessionId) ?? workspaces[0]
-          if (activeWorkspace) {
-            await writeSettingsFile(projectSettingsPath(activeWorkspace.path), req.settings)
-          }
+          logger.ipc.warn('project write without workspacePath')
         }
         return { ok: true }
       } catch (err) {
@@ -563,11 +561,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       try {
         const filePath = req.scope === 'global'
           ? globalSettingsPath()
-          : await (async () => {
-              const workspaces = await readWorkspaces()
-              const activeWorkspace = workspaces.find((w) => w.sessionId) ?? workspaces[0]
-              return activeWorkspace ? projectSettingsPath(activeWorkspace.path) : null
-            })()
+          : req.workspacePath ? projectSettingsPath(req.workspacePath) : null
         if (!filePath) return { ok: false }
         const existing = await readSettingsFile(filePath)
         delete (existing as Record<string, unknown>)[req.key]

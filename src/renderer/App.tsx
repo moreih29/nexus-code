@@ -67,7 +67,18 @@ function SessionStoreProvider({ children }: { children: ReactNode }) {
 
 function App() {
   useEffect(() => {
-    useSettingsStore.getState().initialize().catch(() => { /* preload not ready */ })
+    // 앱 시작 시 global settings 로드 (project는 워크스페이스 로드 후 재로드)
+    useSettingsStore.getState().initialize(undefined).catch(() => { /* preload not ready */ })
+
+    // loadWorkspaces 완료 후 activeWorkspace가 세팅되면 project settings 재로드
+    const unsubscribe = useWorkspaceStore.subscribe((state) => {
+      const activeWs = state.activeWorkspace
+      if (activeWs) {
+        unsubscribe()
+        useSettingsStore.getState().initialize(activeWs).catch(() => {})
+      }
+    })
+    return unsubscribe
   }, [])
 
   return (
