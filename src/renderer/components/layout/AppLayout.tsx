@@ -27,6 +27,7 @@ export function AppLayout() {
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsScope, setSettingsScope] = useState<'global' | 'project'>('global')
+  const [settingsWorkspacePath, setSettingsWorkspacePath] = useState<string | undefined>(undefined)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const sidebarRef = usePanelRef()
@@ -99,7 +100,7 @@ export function AppLayout() {
             onToggle={toggleSidebar}
             isCollapsed={sidebarCollapsed}
             onOpenSettings={() => { setSettingsScope('global'); setSettingsOpen(true) }}
-            onOpenWorkspaceSettings={() => { setSettingsScope('project'); setSettingsOpen(true) }}
+            onOpenWorkspaceSettings={(path: string) => { setSettingsScope('project'); setSettingsWorkspacePath(path); setSettingsOpen(true) }}
           />
         </Panel>
         <ResizeHandle onDoubleClick={toggleSidebar} />
@@ -123,7 +124,7 @@ export function AppLayout() {
         onClose={() => setCmdPaletteOpen(false)}
         onOpenSettings={() => { setSettingsScope('global'); setSettingsOpen(true) }}
       />
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} initialScope={settingsScope} />
+      <SettingsModal isOpen={settingsOpen} onClose={() => { setSettingsOpen(false); setSettingsWorkspacePath(undefined) }} initialScope={settingsScope} workspacePath={settingsWorkspacePath} />
       <ToastContainer />
     </div>
   )

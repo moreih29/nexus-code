@@ -16,6 +16,7 @@ interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
   initialScope?: 'global' | 'project'
+  workspacePath?: string
 }
 
 type Category = 'model' | 'appearance' | 'permissions' | 'plugins' | 'environment' | 'advanced'
@@ -29,13 +30,27 @@ const CATEGORIES: { id: Category; label: string; icon: React.ElementType; scopes
   { id: 'advanced', label: '고급', icon: Settings2, scopes: ['global', 'project'] as const },
 ]
 
-export function SettingsModal({ isOpen, onClose, initialScope = 'global' }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialScope = 'global', workspacePath }: SettingsModalProps) {
   const [activeCategory, setActiveCategory] = useState<Category>('model')
 
   const store = useSettingsStore()
   const { workspaces, activeWorkspace } = useWorkspaceStore()
 
-  const activeWorkspaceEntry = workspaces.find((w) => w.path === activeWorkspace)
+  // 대상 워크스페이스: 명시적 경로 > 활성 워크스페이스
+  const targetWorkspacePath = workspacePath ?? activeWorkspace
+  const targetWorkspaceEntry = workspaces.find((w) => w.path === targetWorkspacePath)
+
+  // 워크스페이스 설정 모달이 열릴 때 해당 워크스페이스의 settings를 로드
+  useEffect(() => {
+    if (!isOpen || initialScope !== 'project' || !targetWorkspacePath) return
+    useSettingsStore.getState().initialize(targetWorkspacePath).catch(() => {})
+    return () => {
+      // 모달 닫힐 때 활성 워크스페이스의 settings로 복원
+      if (activeWorkspace && activeWorkspace !== targetWorkspacePath) {
+        useSettingsStore.getState().initialize(activeWorkspace).catch(() => {})
+      }
+    }
+  }, [isOpen, initialScope, targetWorkspacePath, activeWorkspace])
 
   const {
     global: globalSettings,
@@ -75,11 +90,11 @@ export function SettingsModal({ isOpen, onClose, initialScope = 'global' }: Sett
   if (!isOpen) return null
 
   const handleUpdate = (key: keyof ClaudeSettings, value: unknown): void => {
-    void updateSetting(scope, key as string, value)
+    void updateSetting(scope, key as string, value, targetWorkspacePath ?? undefined)
   }
 
   const handleReset = (key: string): void => {
-    void resetProjectSetting(key)
+    void resetProjectSetting(key, targetWorkspacePath ?? undefined)
   }
 
   const panelProps = {
@@ -106,9 +121,9 @@ export function SettingsModal({ isOpen, onClose, initialScope = 'global' }: Sett
             <h2 className="text-lg font-semibold text-foreground">
               {scope === 'project' ? '워크스페이스 설정' : '전역 설정'}
             </h2>
-            {scope === 'project' && activeWorkspaceEntry && (
+            {scope === 'project' && targetWorkspaceEntry && (
               <span className="text-sm text-muted-foreground">
-                워크스페이스: {activeWorkspaceEntry.path.split('/').pop()}
+                워크스페이스: {targetWorkspaceEntry.path.split('/').pop()}
               </span>
             )}
           </div>

@@ -13,7 +13,7 @@ interface SidebarProps {
   onToggle?: () => void
   isCollapsed?: boolean
   onOpenSettings?: () => void
-  onOpenWorkspaceSettings?: () => void
+  onOpenWorkspaceSettings?: (workspacePath: string) => void
 }
 
 function CollapsedWorkspaceButton({ workspace, activeWorkspace }: {

@@ -68,8 +68,8 @@ interface SettingsState {
 
   // 액션
   initialize: (workspacePath?: string) => Promise<void>
-  updateSetting: (scope: 'global' | 'project', key: string, value: unknown) => Promise<void>
-  resetProjectSetting: (key: string) => Promise<void>
+  updateSetting: (scope: 'global' | 'project', key: string, value: unknown, workspacePath?: string) => Promise<void>
+  resetProjectSetting: (key: string, workspacePath?: string) => Promise<void>
   setTheme: (theme: Theme) => void
   setToolDensity: (density: ToolDensity) => void
   setNotificationsEnabled: (enabled: boolean) => void
@@ -149,7 +149,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     syncNotificationsToMain(get().notificationsEnabled)
   },
 
-  updateSetting: async (scope, key, value) => {
+  updateSetting: async (scope, key, value, explicitPath?) => {
     const current = get()
     const updated = { ...current[scope], [key]: value }
     const newGlobal = scope === 'global' ? updated : current.global
@@ -157,7 +157,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ [scope]: updated, ...deriveFromEffective(newGlobal, newProject) })
 
     const workspacePath = scope === 'project'
-      ? (useWorkspaceStore.getState().activeWorkspace ?? undefined)
+      ? (explicitPath ?? useWorkspaceStore.getState().activeWorkspace ?? undefined)
       : undefined
     await window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
       scope,
@@ -166,13 +166,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     })
   },
 
-  resetProjectSetting: async (key) => {
+  resetProjectSetting: async (key, explicitPath?) => {
     const current = get()
     const updatedProject = { ...current.project }
     delete updatedProject[key]
     set({ project: updatedProject, ...deriveFromEffective(current.global, updatedProject) })
 
-    const workspacePath = useWorkspaceStore.getState().activeWorkspace ?? undefined
+    const workspacePath = explicitPath ?? useWorkspaceStore.getState().activeWorkspace ?? undefined
     await window.electronAPI.invoke(IpcChannel.SETTINGS_DELETE_KEY, {
       scope: 'project',
       key,

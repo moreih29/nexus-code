@@ -7,7 +7,7 @@ import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { EmptyState } from '../ui/empty-state'
 
 interface WorkspaceListProps {
-  onOpenWorkspaceSettings?: () => void
+  onOpenWorkspaceSettings?: (workspacePath: string) => void
 }
 
 export const WorkspaceList = memo(function WorkspaceList({ onOpenWorkspaceSettings }: WorkspaceListProps) {

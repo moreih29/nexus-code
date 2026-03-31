@@ -11,7 +11,7 @@ import { cn } from '../../lib/utils'
 
 interface WorkspaceItemProps {
   workspace: WorkspaceEntry
-  onOpenWorkspaceSettings?: () => void
+  onOpenWorkspaceSettings?: (workspacePath: string) => void
 }
 
 function shortenPath(path: string): string {
@@ -101,7 +101,7 @@ export function WorkspaceItem({ workspace, onOpenWorkspaceSettings }: WorkspaceI
   const handleSettingsClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
     setContextMenu(null)
-    onOpenWorkspaceSettings?.()
+    onOpenWorkspaceSettings?.(workspace.path)
   }
 
   return (
