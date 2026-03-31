@@ -1684,6 +1684,42 @@
           "created_at": "2026-03-31T05:05:32.299Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-31T05:29:48.291Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "비활성 워크스페이스 설정 모달 — 해당 워크스페이스 설정 로드",
+          "context": "WorkspaceItem의 onOpenWorkspaceSettings가 workspace.path를 전달하지 않음. SettingsModal이 항상 activeWorkspace 기준으로 project 표시. 수정: onOpenWorkspaceSettings(path) 콜백에 경로 전달 → SettingsModal이 해당 경로의 settings를 로드.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-31T05:26:52.776Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-31T05:42:33.004Z",
+      "branch": "main",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "워크스페이스 오버라이드 저장 대상 settings.json → settings.local.json 변경",
+          "context": "워크스페이스 설정 오버라이드를 .claude/settings.json(git 추적됨) 대신 .claude/settings.local.json(gitignore)에 저장. handlers.ts의 SETTINGS_READ/WRITE/DELETE_KEY에서 project scope 경로를 settings.local.json으로 변경.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-31T05:41:48.111Z"
+        }
+      ]
     }
   ]
 }

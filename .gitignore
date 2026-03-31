@@ -29,9 +29,6 @@ release/
 e2e/screenshots/
 test-results/
 
-# Nexus (branches/ is runtime-only; rest is git-tracked)
-.nexus/branches/
-
 # Logs
 logs/
 *.log
@@ -41,3 +38,6 @@ yarn-error.log*
 
 # Bun
 bun.lockb
+
+# Playwright
+.playwright-mcp
