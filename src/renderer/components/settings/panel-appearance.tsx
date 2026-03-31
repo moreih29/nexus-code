@@ -1,5 +1,5 @@
 import type { ClaudeSettings } from '../../../shared/types'
-import { THEMES, type Theme, type ToolDensity, useSettingsStore } from '../../stores/settings-store'
+import { THEMES, type Theme, type ToolDensity } from '../../stores/settings-store'
 import { Toggle, SectionLabel } from './settings-shared'
 import type { Scope } from './settings-shared'
 import { cn } from '../../lib/utils'
@@ -27,6 +27,7 @@ export function PanelAppearance({
   onThemeChange,
   onToolDensityChange,
   onNotificationsChange,
+  onUpdate,
 }: Props) {
   const prefersReducedMotion = effective.prefersReducedMotion ?? false
 
@@ -102,7 +103,7 @@ export function PanelAppearance({
           <span className="text-sm text-foreground">모션 줄이기</span>
           <Toggle
             checked={prefersReducedMotion}
-            onChange={(v) => void useSettingsStore.getState().updateSetting('global', 'prefersReducedMotion', v)}
+            onChange={(v) => onUpdate('prefersReducedMotion', v)}
           />
         </label>
       </section>

@@ -23,6 +23,7 @@ import type {
   GitCheckRequest, GitCheckResponse,
   GitInitRequest, GitInitResponse,
   NexusStateReadRequest, NexusStateReadResponse,
+  RestartSessionRequest, RestartSessionResponse,
 } from './types'
 
 export const IpcChannel = {
@@ -112,6 +113,10 @@ export const IpcChannel = {
   /** .nexus/state/ 파일 변경 시 Renderer에 알림 */
   NEXUS_STATE_CHANGED: 'stream:nexus-state-changed',
 
+  // ── Restart Session ───────────────────────────────────────────────────────
+  /** Kill existing session and restart with --resume + new flags */
+  RESTART_SESSION: 'ipc:restart-session',
+
   // ── File ──────────────────────────────────────────────────────────────────
   /** Read a file by path (MarkdownViewer용, .md 파일만 허용) */
   READ_FILE: 'ipc:read-file',
@@ -149,6 +154,7 @@ export type IpcMap = {
   [IpcChannel.GIT_CHECK]: { req: GitCheckRequest; res: GitCheckResponse }
   [IpcChannel.GIT_INIT]: { req: GitInitRequest; res: GitInitResponse }
   [IpcChannel.NEXUS_STATE_READ]: { req: NexusStateReadRequest; res: NexusStateReadResponse }
+  [IpcChannel.RESTART_SESSION]: { req: RestartSessionRequest; res: RestartSessionResponse }
 }
 
 export interface ElectronAPI {

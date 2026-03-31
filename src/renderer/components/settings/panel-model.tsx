@@ -84,7 +84,6 @@ export function PanelModel({ scope, global: g, project, effective, onUpdate, onR
             {String(g['model'] ?? 'claude-sonnet-4-6')}
           </div>
         )}
-        <p className="mt-1 text-xs text-muted-foreground/70">다음 세션부터 적용됩니다</p>
       </section>
 
       {/* 처리 강도 */}
@@ -120,7 +119,6 @@ export function PanelModel({ scope, global: g, project, effective, onUpdate, onR
         ) : (
           <p className="text-sm text-muted-foreground">{String(g.effortLevel ?? 'high')}</p>
         )}
-        <p className="mt-1 text-xs text-muted-foreground/70">다음 세션부터 적용됩니다</p>
       </section>
 
       {/* 언어 */}

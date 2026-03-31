@@ -6,6 +6,13 @@ const rlog = log.scope('renderer:session-store')
 import type { SessionStatus, ToolCallEvent, LoadHistoryResponse } from '../../shared/types'
 import { IpcChannel } from '../../shared/ipc'
 
+export interface RestartSessionOptions {
+  cwd: string
+  model?: string
+  effortLevel?: string
+  permissionMode?: string
+}
+
 export interface TurnStats {
   costUsd?: number
   inputTokens?: number
@@ -77,6 +84,7 @@ export interface SessionStoreState {
   reset: () => void
   dismissTimeout: () => void
   sendResponse: (text: string) => void
+  restartSession: (options: RestartSessionOptions) => Promise<void>
 }
 
 // ─── turnHistory 유틸 ───────────────────────────────────────────────────────
@@ -443,6 +451,28 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
       addUserMessage(text)
       setStatus('running')
       window.electronAPI.invoke(IpcChannel.PROMPT, { sessionId, message: text }).catch(() => {})
+    },
+
+    restartSession: async (options: RestartSessionOptions) => {
+      const { sessionId } = get()
+      if (!sessionId) return
+      set({ status: 'restarting' })
+      try {
+        const res = await window.electronAPI.invoke(IpcChannel.RESTART_SESSION, {
+          sessionId,
+          cwd: options.cwd,
+          model: options.model,
+          effortLevel: options.effortLevel,
+          permissionMode: options.permissionMode,
+        })
+        if (res.ok) {
+          set({ status: 'running' })
+        } else {
+          set({ status: 'error' })
+        }
+      } catch {
+        set({ status: 'error' })
+      }
     },
   }))
 

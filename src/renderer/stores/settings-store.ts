@@ -46,6 +46,11 @@ function migrateFromLocalStorage(): { theme: Theme; toolDensity: ToolDensity; no
   return { theme, toolDensity, notificationsEnabled }
 }
 
+interface SettingsSnapshot {
+  theme: Theme
+  toolDensity: ToolDensity
+}
+
 interface SettingsState {
   // Claude Code settings (settings.json에서 로드)
   global: Partial<ClaudeSettings>
@@ -57,6 +62,9 @@ interface SettingsState {
   theme: Theme
   toolDensity: ToolDensity
   notificationsEnabled: boolean
+
+  // 스냅샷 (모달 열릴 때 저장 — 취소 시 원복용)
+  snapshot: SettingsSnapshot | null
 
   // 상태
   isLoaded: boolean
@@ -73,6 +81,11 @@ interface SettingsState {
   setTheme: (theme: Theme) => void
   setToolDensity: (density: ToolDensity) => void
   setNotificationsEnabled: (enabled: boolean) => void
+
+  // 스냅샷 액션
+  takeSnapshot: () => void
+  restoreSnapshot: () => void
+  clearSnapshot: () => void
 
   // 기존 호환 액션
   setModel: (model: ModelId) => void
@@ -129,6 +142,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: migrated.theme,
   toolDensity: migrated.toolDensity,
   notificationsEnabled: migrated.notificationsEnabled,
+  snapshot: null,
   isLoaded: false,
   activeScope: 'global',
 
@@ -192,6 +206,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setNotificationsEnabled: (enabled) => {
     set({ notificationsEnabled: enabled })
     syncNotificationsToMain(enabled)
+  },
+
+  takeSnapshot: () => {
+    const { theme, toolDensity } = get()
+    set({ snapshot: { theme, toolDensity } })
+  },
+
+  restoreSnapshot: () => {
+    const { snapshot } = get()
+    if (!snapshot) return
+    document.documentElement.setAttribute('data-theme', snapshot.theme)
+    set({ theme: snapshot.theme, toolDensity: snapshot.toolDensity })
+  },
+
+  clearSnapshot: () => {
+    set({ snapshot: null })
   },
 
   // 기존 호환 액션 — effective 경유 설정 업데이트

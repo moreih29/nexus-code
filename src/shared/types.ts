@@ -404,6 +404,21 @@ export interface CheckpointListResponse {
   checkpoints: Checkpoint[]
 }
 
+// ─── Restart Session ─────────────────────────────────────────────────────────
+
+export interface RestartSessionRequest {
+  sessionId: string
+  cwd: string
+  model?: string
+  effortLevel?: string
+  permissionMode?: string
+}
+
+export interface RestartSessionResponse {
+  ok: boolean
+  sessionId?: string
+}
+
 // ─── Settings Sync ───────────────────────────────────────────────────────────
 
 export interface SettingsSyncRequest {

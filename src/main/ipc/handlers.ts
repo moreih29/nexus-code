@@ -54,6 +54,8 @@ import type {
   GitInitResponse,
   NexusStateReadRequest,
   NexusStateReadResponse,
+  RestartSessionRequest,
+  RestartSessionResponse,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
@@ -685,6 +687,93 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     }
   )
 
+
+  // ── RESTART_SESSION ───────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.RESTART_SESSION,
+    async (_event, req: RestartSessionRequest): Promise<RestartSessionResponse> => {
+      logger.ipc.info('restart_session requested', { sessionId: req.sessionId, cwd: req.cwd })
+
+      const existingManager = sessions.get(req.sessionId)
+      if (existingManager) {
+        // 기존 프로세스 종료 대기
+        await existingManager.cancelAndWait()
+        sessions.delete(req.sessionId)
+      }
+
+      const win = getWindow()
+      const manager = new RunManager()
+      if (win) {
+        bindManagerToWindow(manager, win.webContents, sessions, agentTracker, () => notificationsEnabled)
+      }
+
+      try {
+        // hooks 주입 (START 핸들러와 동일한 로직)
+        const settingsDir = join(req.cwd, '.claude')
+        const settingsPath = join(settingsDir, 'settings.local.json')
+
+        let settings: Record<string, unknown> = {}
+        try {
+          const existing = await readFile(settingsPath, 'utf8')
+          settings = JSON.parse(existing) as Record<string, unknown>
+        } catch { /* 파일 없음 또는 파싱 오류 */ }
+
+        const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+        const subagentUrl = hookServer.subagentHookUrl()
+        const subagentHook = [{
+          matcher: '',
+          hooks: [{
+            type: 'command',
+            command: `curl -sf -X POST '${subagentUrl}' -H 'Content-Type: application/json' -d @-`,
+          }],
+        }]
+
+        const permissionMode = (req.permissionMode ?? 'default') as 'auto' | 'default'
+        if (permissionMode !== 'auto') {
+          const hookUrl = hookServer.permissionHookUrl()
+          settings.hooks = {
+            ...existingHooks,
+            PreToolUse: [{
+              matcher: '.*',
+              hooks: [{
+                type: 'command',
+                command: `curl -sf -X POST '${hookUrl}' -H 'Content-Type: application/json' -d @- || exit 2`,
+              }],
+            }],
+            SubagentStart: subagentHook,
+            SubagentStop: subagentHook,
+          }
+        } else {
+          settings.hooks = {
+            ...existingHooks,
+            SubagentStart: subagentHook,
+            SubagentStop: subagentHook,
+          }
+        }
+
+        await mkdir(settingsDir, { recursive: true })
+        await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+
+        const newSessionId = await manager.start({
+          prompt: '',
+          cwd: req.cwd,
+          model: req.model,
+          effortLevel: req.effortLevel,
+          permissionMode,
+          sessionId: req.sessionId,
+        })
+
+        logger.ipc.info('session restarted', { newSessionId, cwd: req.cwd, resume: req.sessionId })
+        sessions.set(newSessionId, manager)
+        deps.pluginHost.setCwd(req.cwd, newSessionId).catch((err) => logger.ipc.warn('PluginHost setCwd failed', { err }))
+
+        return { ok: true, sessionId: newSessionId }
+      } catch (err) {
+        logger.ipc.error('RESTART_SESSION failed', { err })
+        return { ok: false }
+      }
+    }
+  )
 
   // ── Nexus State (PluginHost 독립) ──────────────────────────────────────────
 

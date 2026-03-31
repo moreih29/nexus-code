@@ -210,6 +210,22 @@ export class RunManager extends EventEmitter {
     return true
   }
 
+  /** cancel() 후 프로세스 종료까지 대기 */
+  cancelAndWait(): Promise<void> {
+    if (!this.proc || this.proc.killed) {
+      return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve) => {
+      const onClose = (): void => resolve()
+      this.proc!.once('close', onClose)
+      this.proc!.once('error', onClose)
+      this.cancel()
+      // 안전망: 8초 후 강제 resolve
+      setTimeout(resolve, 8000)
+    })
+  }
+
   private buildArgs(options: RunOptions): string[] {
     const args: string[] = [
       '-p',
