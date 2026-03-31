@@ -1,4 +1,5 @@
-<!-- tags: architecture, main-process, renderer, data-flow, store-factory -->
+<!-- tags: architecture, main-process, renderer, data-flow, store-factory, settings -->
+<!-- tags: architecture, main-process, renderer, data-flow, store-factory, settings -->
 # Architecture Overview
 
 ## 3계층 구조
@@ -7,7 +8,7 @@
 Electron Application
 ├── Main Process (Node.js)
 │   ├── ControlPlane — CLI 통신 관장
-│   │   ├── RunManager      — CLI spawn, NDJSON 스트림 파싱 (--include-partial-messages로 실시간 스트리밍)
+│   │   ├── RunManager      — CLI spawn, NDJSON 스트림 파싱 (--include-partial-messages로 실시간 스트리밍, --effort 플래그 지원)
 │   │   ├── StreamParser     — NDJSON 라인별 메시지 타입 처리 (streamedTextLength로 중복 방지)
 │   │   ├── HookServer       — HTTP 훅 서버 (PreToolUse/PostToolUse)
 │   │   ├── PermissionHandler — 퍼미션 요청/응답 UI 연동
@@ -39,6 +40,25 @@ createSessionStore() — 워크스페이스별 독립 인스턴스 생성
 - Always-Live: 모든 세션 스토어가 동시에 활성
 - IPC 라우팅: getStoreBySessionId(sessionId) ?? getActiveStore()
 
+## Settings Store SSOT 구조
+
+```
+useSettingsStore (Zustand SSOT)
+├── global: Partial<ClaudeSettings>   — ~/.claude/settings.json
+├── project: Partial<ClaudeSettings>  — {workspace}/.claude/settings.json
+├── effective: Partial<ClaudeSettings> — computeEffective(global, project)
+│   └── deep merge: permissions, sandbox 객체는 spread merge (project가 global 오버라이드)
+├── model: ModelId        — plain property (reactive selector용)
+├── permissionMode: PermissionMode — plain property
+├── GUI 전용: theme, toolDensity, notificationsEnabled
+└── 액션: initialize, updateSetting(scope, key, value), resetProjectSetting(key)
+         setModel, setPermissionMode, setTheme, setToolDensity, setNotificationsEnabled
+```
+
+- `computeEffective` — permissions/sandbox deep merge, project 우선
+- `deriveFromEffective` — effective 계산 후 model/permissionMode plain property 동기화
+- `SETTINGS_DELETE_KEY` IPC — 프로젝트 설정 키 단위 삭제 (resetProjectSetting 사용)
+
 ## 데이터 흐름
 
 1. **User → CLI**: ChatInput → useActiveSession → IPC → RunManager.send() → CLI stdin (NDJSON)
@@ -46,6 +66,8 @@ createSessionStore() — 워크스페이스별 독립 인스턴스 생성
 3. **Permission**: CLI → HTTP POST /hook → HookServer → PermissionHandler → IPC → PermissionCard → 사용자 응답 → HTTP response
 4. **Plugin**: PluginHost file-watch → IPC plugin:data → plugin-store → NexusPanel/ChangesPanel
 5. **Nexus 독립 IPC**: NEXUS_STATE_READ + NEXUS_STATE_CHANGED → .nexus/state/ 직접 읽기 (PluginHost 우회)
+6. **Settings**: App.tsx initialize() → SETTINGS_READ IPC → { global, project } → computeEffective → store. updateSetting(scope, key, value) → SETTINGS_WRITE IPC → 즉시 반영 (저장 버튼 없음)
+7. **Model 빠른 전환**: ModelSwitcher (ChatInput 영역) → setModel() → global settings.json 업데이트. CommandPalette 모델/effort 전환 명령도 동일 경로.
 
 ## 스트리밍 파이프라인
 

@@ -1,10 +1,11 @@
-import { Component, type ReactNode, useMemo, useLayoutEffect } from 'react'
+import { Component, type ReactNode, useMemo, useLayoutEffect, useEffect } from 'react'
 import log from 'electron-log/renderer'
 
 const rlog = log.scope('renderer:app')
 import { AppLayout } from './components/layout/AppLayout'
 import { SessionStoreContext, getOrCreateWorkspaceStore, setActiveStore } from './stores/session-store'
 import { useWorkspaceStore } from './stores/workspace-store'
+import { useSettingsStore } from './stores/settings-store'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -65,6 +66,10 @@ function SessionStoreProvider({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  useEffect(() => {
+    useSettingsStore.getState().initialize().catch(() => { /* preload not ready */ })
+  }, [])
+
   return (
     <ErrorBoundary>
       <SessionStoreProvider>

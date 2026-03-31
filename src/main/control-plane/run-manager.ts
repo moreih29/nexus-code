@@ -63,6 +63,7 @@ export interface RunOptions {
   permissionMode: 'auto' | 'default'
   sessionId?: string // --resume 용
   model?: string
+  effortLevel?: string
   images?: ImageAttachment[]
 }
 
@@ -221,6 +222,10 @@ export class RunManager extends EventEmitter {
 
     if (options.model) {
       args.push('--model', options.model)
+    }
+
+    if (options.effortLevel) {
+      args.push('--effort', options.effortLevel)
     }
 
     if (options.sessionId) {

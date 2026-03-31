@@ -3,6 +3,7 @@ import { useRef, useState, useEffect, type KeyboardEvent, type DragEvent } from 
 import { Button } from '@renderer/components/ui/button'
 import type { ImageAttachment } from '../../../shared/types'
 import { useActiveSession } from '../../stores/session-store'
+import { ModelSwitcher } from './model-switcher'
 
 const SUPPORTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
@@ -168,6 +169,10 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
           ))}
         </div>
       )}
+
+      <div className="mb-1.5 flex items-center">
+        <ModelSwitcher />
+      </div>
 
       <div className="flex items-end gap-2">
         <textarea

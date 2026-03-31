@@ -12,6 +12,7 @@ interface SidebarProps {
   onToggle?: () => void
   isCollapsed?: boolean
   onOpenSettings?: () => void
+  onOpenWorkspaceSettings?: () => void
 }
 
 function CollapsedWorkspaceButton({ workspace, activeWorkspace }: {
@@ -59,7 +60,7 @@ function CollapsedWorkspaceButton({ workspace, activeWorkspace }: {
   )
 }
 
-export const Sidebar = memo(function Sidebar({ onToggle, isCollapsed, onOpenSettings }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ onToggle, isCollapsed, onOpenSettings, onOpenWorkspaceSettings }: SidebarProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
 
@@ -112,7 +113,7 @@ export const Sidebar = memo(function Sidebar({ onToggle, isCollapsed, onOpenSett
           </button>
         </div>
         <div className="min-h-0 flex-1">
-          <WorkspaceList />
+          <WorkspaceList onOpenWorkspaceSettings={onOpenWorkspaceSettings} />
         </div>
       </aside>
     </>

@@ -6,7 +6,11 @@ import { WorkspaceItem } from './WorkspaceItem'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { EmptyState } from '../ui/empty-state'
 
-export const WorkspaceList = memo(function WorkspaceList() {
+interface WorkspaceListProps {
+  onOpenWorkspaceSettings?: () => void
+}
+
+export const WorkspaceList = memo(function WorkspaceList({ onOpenWorkspaceSettings }: WorkspaceListProps) {
   const { workspaces, loading, loadWorkspaces, addWorkspace } = useWorkspaceStore()
   const loadSessions = useHistoryStore((s) => s.loadSessions)
 
@@ -33,7 +37,11 @@ export const WorkspaceList = memo(function WorkspaceList() {
         ) : (
           <div className="flex flex-col gap-0.5">
             {workspaces.map((workspace) => (
-              <WorkspaceItem key={workspace.path} workspace={workspace} />
+              <WorkspaceItem
+                key={workspace.path}
+                workspace={workspace}
+                onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+              />
             ))}
           </div>
         )}

@@ -38,6 +38,8 @@ import type {
   ReadSettingsResponse,
   WriteSettingsRequest,
   WriteSettingsResponse,
+  DeleteSettingsKeyRequest,
+  DeleteSettingsKeyResponse,
   LoadHistoryRequest,
   LoadHistoryResponse,
   HistoryMessage,
@@ -413,6 +415,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         prompt: req.prompt,
         cwd: req.cwd,
         model: req.model,
+        effortLevel: req.effortLevel,
         permissionMode: req.permissionMode,
         sessionId: req.sessionId,
         images: req.images,
@@ -547,6 +550,32 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         return { ok: true }
       } catch (err) {
         logger.ipc.error('SETTINGS_WRITE failed', { err })
+        return { ok: false }
+      }
+    }
+  )
+
+  // ── SETTINGS_DELETE_KEY ──────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.SETTINGS_DELETE_KEY,
+    async (_event, req: DeleteSettingsKeyRequest): Promise<DeleteSettingsKeyResponse> => {
+      logger.ipc.debug('settings key deleted', { scope: req.scope, key: req.key })
+      try {
+        const filePath = req.scope === 'global'
+          ? globalSettingsPath()
+          : await (async () => {
+              const workspaces = await readWorkspaces()
+              const activeWorkspace = workspaces.find((w) => w.sessionId) ?? workspaces[0]
+              return activeWorkspace ? projectSettingsPath(activeWorkspace.path) : null
+            })()
+        if (!filePath) return { ok: false }
+        const existing = await readSettingsFile(filePath)
+        delete (existing as Record<string, unknown>)[req.key]
+        await mkdir(join(filePath, '..'), { recursive: true })
+        await writeFile(filePath, JSON.stringify(existing, null, 2), 'utf8')
+        return { ok: true }
+      } catch (err) {
+        logger.ipc.error('SETTINGS_DELETE_KEY failed', { err })
         return { ok: false }
       }
     }

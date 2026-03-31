@@ -1,4 +1,5 @@
-<!-- tags: roadmap, phases, priorities, themes -->
+<!-- tags: roadmap, phases, priorities, themes, settings -->
+<!-- tags: roadmap, phases, priorities, themes, settings -->
 # Roadmap
 
 ## 완료된 단계
@@ -10,6 +11,7 @@
 - **Phase 5: 기반 정비** — Terracotta 테마 + 렌더링 성능 최적화 + 도구 블록 밀도 모드
 - **Phase 6: 패널 고도화** — 우측 패널 자동 전환 + Nexus 타임라인 + 비용 추적
 - **Phase 7: 테마 확장** — 6개 테마 (GitHub Dark, Amethyst, Rosé Pine, Nord, Midnight Green) + 테마 선택 UI + 툴 상태 버그 수정
+- **Phase 8: 설정 기능 고도화** — settings-store SSOT 리팩토링, SettingsModal 전면 재작성(6카테고리 좌측 네비), 모델 빠른 전환(ModelSwitcher + CommandPalette), buildArgs --effort 확장, ClaudeSettings 필드 확장
 
 ## 현재 진행
 
@@ -23,13 +25,18 @@
 
 ## 향후 계획
 
-### Phase 8: 확장 기능
+### Phase 9: 확장 기능
 - 파일 브라우저 — 프로젝트 파일 트리 탐색
 - 간단 에디터 — 기본 코드 편집
 - 브라우저 내장 — Electron webview 기반 크로미움
 
-### Phase 9: Agent Flow Chart
+### Phase 10: Agent Flow Chart
 - reactflow 기반 에이전트 도구 호출 시퀀스 시각화
+
+### 후속 과제 (설정 기능 기반)
+- MCP 서버 관리 UI — settings 패널 내 MCP 탭
+- 에이전트 GUI — teammateMode 설정 연동 UI
+- hooks 편집기 — PreToolUse/PostToolUse 훅 설정
 
 ## 후속 과제
 - Phase 3: 체크포인트 되돌리기 CLI 컨텍스트 잔존 문제

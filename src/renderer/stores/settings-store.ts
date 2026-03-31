@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
+import type { ClaudeSettings } from '../../shared/types'
 import { AVAILABLE_MODELS, type ModelId } from '../../shared/models'
 
 export { AVAILABLE_MODELS, type ModelId }
@@ -16,114 +17,198 @@ export const THEMES: { id: Theme; label: string; swatches: [string, string, stri
 ]
 export type ToolDensity = 'compact' | 'normal' | 'verbose'
 
+// localStorage 마이그레이션용 키 (읽기 전용 — 마이그레이션 후 삭제)
 const STORAGE_KEY_NOTIFICATIONS = 'nexus:notificationsEnabled'
 const STORAGE_KEY_THEME = 'nexus:theme'
 const STORAGE_KEY_TOOL_DENSITY = 'nexus:toolDensity'
 
 const VALID_THEMES: Theme[] = ['terracotta', 'github-dark', 'amethyst', 'rose-pine', 'nord', 'midnight-green']
 
-function readTheme(): Theme {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_THEME)
-    if (raw && VALID_THEMES.includes(raw as Theme)) return raw as Theme
-    return 'terracotta'
-  } catch {
-    return 'terracotta'
-  }
-}
+function migrateFromLocalStorage(): { theme: Theme; toolDensity: ToolDensity; notificationsEnabled: boolean } {
+  let theme: Theme = 'terracotta'
+  let toolDensity: ToolDensity = 'compact'
+  let notificationsEnabled = true
 
-function writeTheme(theme: Theme): void {
   try {
-    localStorage.setItem(STORAGE_KEY_THEME, theme)
-  } catch {
-    // localStorage unavailable — ignore
-  }
-}
+    const rawTheme = localStorage.getItem(STORAGE_KEY_THEME)
+    if (rawTheme && VALID_THEMES.includes(rawTheme as Theme)) theme = rawTheme as Theme
 
-function readToolDensity(): ToolDensity {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_TOOL_DENSITY)
-    if (raw === 'compact' || raw === 'normal' || raw === 'verbose') return raw
-    return 'compact'
-  } catch {
-    return 'compact'
-  }
-}
+    const rawDensity = localStorage.getItem(STORAGE_KEY_TOOL_DENSITY)
+    if (rawDensity === 'compact' || rawDensity === 'normal' || rawDensity === 'verbose') toolDensity = rawDensity
 
-function writeToolDensity(density: ToolDensity): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_TOOL_DENSITY, density)
+    const rawNotif = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS)
+    if (rawNotif !== null) notificationsEnabled = rawNotif === 'true'
   } catch {
-    // localStorage unavailable — ignore
+    // localStorage 불가 — 기본값 사용
   }
-}
 
-function readNotificationsEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS)
-    if (raw === null) return true
-    return raw === 'true'
-  } catch {
-    return true
-  }
-}
-
-function writeNotificationsEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, String(enabled))
-  } catch {
-    // localStorage unavailable — ignore
-  }
+  return { theme, toolDensity, notificationsEnabled }
 }
 
 interface SettingsState {
-  model: ModelId
-  permissionMode: PermissionMode
-  notificationsEnabled: boolean
+  // Claude Code settings (settings.json에서 로드)
+  global: Partial<ClaudeSettings>
+  project: Partial<ClaudeSettings>
+  // effective = deep-merged(global, project) — project가 global을 오버라이드
+  effective: Partial<ClaudeSettings>
+
+  // GUI 전용 settings (store에 통합 — localStorage 불필요)
   theme: Theme
   toolDensity: ToolDensity
+  notificationsEnabled: boolean
 
-  setModel: (model: ModelId) => void
-  setPermissionMode: (mode: PermissionMode) => void
-  setNotificationsEnabled: (enabled: boolean) => void
+  // 상태
+  isLoaded: boolean
+  activeScope: 'global' | 'project'
+
+  // 기존 호환 plain property (reactive)
+  model: ModelId
+  permissionMode: PermissionMode
+
+  // 액션
+  initialize: () => Promise<void>
+  updateSetting: (scope: 'global' | 'project', key: string, value: unknown) => Promise<void>
+  resetProjectSetting: (key: string) => Promise<void>
   setTheme: (theme: Theme) => void
   setToolDensity: (density: ToolDensity) => void
+  setNotificationsEnabled: (enabled: boolean) => void
+
+  // 기존 호환 액션
+  setModel: (model: ModelId) => void
+  setPermissionMode: (mode: PermissionMode) => void
 }
 
-const initialNotificationsEnabled = readNotificationsEnabled()
-const initialTheme = readTheme()
-const initialToolDensity = readToolDensity()
+// [M1] 중첩 객체(permissions, sandbox)를 deep merge
+function computeEffective(
+  global: Partial<ClaudeSettings>,
+  project: Partial<ClaudeSettings>,
+): Partial<ClaudeSettings> {
+  const result: Partial<ClaudeSettings> = { ...global, ...project }
+  if (global.permissions || project.permissions) {
+    result.permissions = { ...global.permissions, ...project.permissions }
+  }
+  if (global.sandbox || project.sandbox) {
+    result.sandbox = { ...global.sandbox, ...project.sandbox }
+  }
+  return result
+}
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  model: 'claude-sonnet-4-6',
-  permissionMode: 'default',
-  notificationsEnabled: initialNotificationsEnabled,
-  theme: initialTheme,
-  toolDensity: initialToolDensity,
+function extractModel(effective: Partial<ClaudeSettings>): ModelId {
+  const m = effective.model
+  if (typeof m === 'string' && AVAILABLE_MODELS.includes(m as ModelId)) return m as ModelId
+  return 'claude-sonnet-4-6'
+}
 
-  setModel: (model) => set({ model }),
-  setPermissionMode: (mode) => set({ permissionMode: mode }),
-  setNotificationsEnabled: (enabled) => {
-    writeNotificationsEnabled(enabled)
-    set({ notificationsEnabled: enabled })
-    syncNotificationsToMain(enabled)
-  },
-  setTheme: (theme) => {
-    writeTheme(theme)
-    document.documentElement.setAttribute('data-theme', theme)
-    set({ theme })
-  },
-  setToolDensity: (density) => {
-    writeToolDensity(density)
-    set({ toolDensity: density })
-  },
-}))
+function extractPermissionMode(effective: Partial<ClaudeSettings>): PermissionMode {
+  const mode = effective.permissions?.defaultMode
+  return mode === 'auto' ? 'auto' : 'default'
+}
+
+// [H1] effective 계산 후 plain property로 포함하는 헬퍼
+function deriveFromEffective(global: Partial<ClaudeSettings>, project: Partial<ClaudeSettings>) {
+  const effective = computeEffective(global, project)
+  return {
+    effective,
+    model: extractModel(effective),
+    permissionMode: extractPermissionMode(effective),
+  }
+}
 
 function syncNotificationsToMain(enabled: boolean): void {
-  window.electronAPI
-    .invoke(IpcChannel.SETTINGS_SYNC, { notificationsEnabled: enabled })
+  window.electronAPI?.invoke(IpcChannel.SETTINGS_SYNC, { notificationsEnabled: enabled })
     .catch(() => { /* preload not ready or channel missing */ })
 }
 
-// 앱 시작 시 저장된 설정을 main process에 동기화
-syncNotificationsToMain(initialNotificationsEnabled)
+const migrated = migrateFromLocalStorage()
+
+export const useSettingsStore = create<SettingsState>((set, get) => ({
+  global: {},
+  project: {},
+  effective: {},
+  theme: migrated.theme,
+  toolDensity: migrated.toolDensity,
+  notificationsEnabled: migrated.notificationsEnabled,
+  isLoaded: false,
+  activeScope: 'global',
+
+  // [H1] plain property — Zustand selector에서 reactive하게 동작
+  model: 'claude-sonnet-4-6',
+  permissionMode: 'default',
+
+  initialize: async () => {
+    try {
+      const res = await window.electronAPI.invoke(IpcChannel.SETTINGS_READ)
+      const global = res.global ?? {}
+      const project = res.project ?? {}
+      set({ global, project, ...deriveFromEffective(global, project), isLoaded: true })
+    } catch {
+      set({ isLoaded: true })
+    }
+    // 앱 시작 시 notifications 상태를 main process에 동기화
+    syncNotificationsToMain(get().notificationsEnabled)
+  },
+
+  updateSetting: async (scope, key, value) => {
+    const current = get()
+    const updated = { ...current[scope], [key]: value }
+    const newGlobal = scope === 'global' ? updated : current.global
+    const newProject = scope === 'project' ? updated : current.project
+    set({ [scope]: updated, ...deriveFromEffective(newGlobal, newProject) })
+
+    await window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
+      scope,
+      settings: { [key]: value },
+    })
+  },
+
+  resetProjectSetting: async (key) => {
+    const current = get()
+    const updatedProject = { ...current.project }
+    delete updatedProject[key]
+    set({ project: updatedProject, ...deriveFromEffective(current.global, updatedProject) })
+
+    await window.electronAPI.invoke(IpcChannel.SETTINGS_DELETE_KEY, {
+      scope: 'project',
+      key,
+    })
+  },
+
+  setTheme: (theme) => {
+    document.documentElement.setAttribute('data-theme', theme)
+    set({ theme })
+  },
+
+  setToolDensity: (density) => {
+    set({ toolDensity: density })
+  },
+
+  setNotificationsEnabled: (enabled) => {
+    set({ notificationsEnabled: enabled })
+    syncNotificationsToMain(enabled)
+  },
+
+  // 기존 호환 액션 — effective 경유 설정 업데이트
+  setModel: (model) => {
+    const current = get()
+    const updatedGlobal = { ...current.global, model }
+    set({ global: updatedGlobal, ...deriveFromEffective(updatedGlobal, current.project) })
+    window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
+      scope: 'global',
+      settings: { model },
+    }).catch(() => { /* 저장 실패 무시 */ })
+  },
+
+  setPermissionMode: (mode) => {
+    const current = get()
+    const permissions = { ...current.global.permissions, defaultMode: mode }
+    const updatedGlobal = { ...current.global, permissions }
+    set({ global: updatedGlobal, ...deriveFromEffective(updatedGlobal, current.project) })
+    window.electronAPI.invoke(IpcChannel.SETTINGS_WRITE, {
+      scope: 'global',
+      settings: { permissions },
+    }).catch(() => { /* 저장 실패 무시 */ })
+  },
+}))
+
+// 앱 시작 시 초기 notifications 동기화 (initialize() 호출 전)
+syncNotificationsToMain(migrated.notificationsEnabled)

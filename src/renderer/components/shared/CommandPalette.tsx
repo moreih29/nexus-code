@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import { useActiveSession } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useSettingsStore } from '../../stores/settings-store'
+import type { ModelId } from '../../stores/settings-store'
+import { MODEL_ALIASES } from '../../lib/models'
+
+const EFFORT_LEVELS = ['auto', 'low', 'medium', 'high', 'max'] as const
 
 interface CommandPaletteProps {
   isOpen: boolean
@@ -16,6 +21,8 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
   const status = useActiveSession((s) => s.status)
   const reset = useActiveSession((s) => s.reset)
   const { addWorkspace } = useWorkspaceStore()
+  const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
 
   useEffect(() => {
     if (!isOpen) {
@@ -55,6 +62,17 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
       const sidebar = document.querySelector<HTMLElement>('[data-sidebar-sessions]')
       sidebar?.focus()
     })
+  }
+
+  // 워크스페이스 활성 시 project scope, 미활성 시 global scope
+  const scope = activeWorkspace ? 'project' : 'global'
+
+  const handleModelSwitch = (model: ModelId) => {
+    handleSelect(() => updateSetting(scope, 'model', model))
+  }
+
+  const handleEffortSwitch = (effort: (typeof EFFORT_LEVELS)[number]) => {
+    handleSelect(() => updateSetting(scope, 'effortLevel', effort))
   }
 
   return (
@@ -148,6 +166,49 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
                   <div className="text-xs text-muted-foreground">새 폴더를 워크스페이스로 추가</div>
                 </div>
               </Command.Item>
+            </Command.Group>
+
+            <Command.Separator className="my-1 h-px bg-border" />
+
+            <Command.Group
+              heading="모델 전환"
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
+            >
+              {(Object.entries(MODEL_ALIASES) as [ModelId, string][]).map(([modelId, alias]) => (
+                <Command.Item
+                  key={modelId}
+                  value={`모델 ${alias} model ${alias}`}
+                  onSelect={() => handleModelSwitch(modelId)}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-accent"
+                >
+                  <span className="text-base">◎</span>
+                  <div>
+                    <div className="font-medium">모델: {alias}</div>
+                    <div className="text-xs text-muted-foreground">{modelId}</div>
+                  </div>
+                </Command.Item>
+              ))}
+            </Command.Group>
+
+            <Command.Separator className="my-1 h-px bg-border" />
+
+            <Command.Group
+              heading="Effort 전환"
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
+            >
+              {EFFORT_LEVELS.map((effort) => (
+                <Command.Item
+                  key={effort}
+                  value={`effort ${effort} 에포트`}
+                  onSelect={() => handleEffortSwitch(effort)}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-accent"
+                >
+                  <span className="text-base">⚡</span>
+                  <div>
+                    <div className="font-medium">Effort: {effort}</div>
+                  </div>
+                </Command.Item>
+              ))}
             </Command.Group>
 
             <Command.Separator className="my-1 h-px bg-border" />

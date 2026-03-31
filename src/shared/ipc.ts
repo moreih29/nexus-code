@@ -13,6 +13,7 @@ import type {
   WorkspaceUpdateSessionRequest, WorkspaceUpdateSessionResponse,
   ReadSettingsResponse,
   WriteSettingsRequest, WriteSettingsResponse,
+  DeleteSettingsKeyRequest, DeleteSettingsKeyResponse,
   SettingsSyncRequest,
   ReadFileRequest, ReadFileResponse,
   LoadHistoryRequest, LoadHistoryResponse,
@@ -72,6 +73,8 @@ export const IpcChannel = {
   SETTINGS_READ: 'ipc:settings-read',
   /** Write to global or project settings.json */
   SETTINGS_WRITE: 'ipc:settings-write',
+  /** Delete a single key from global or project settings.json */
+  SETTINGS_DELETE_KEY: 'ipc:settings-delete-key',
   /** Sync in-app settings (e.g. notificationsEnabled) to main process */
   SETTINGS_SYNC: 'ipc:settings-sync',
 
@@ -136,6 +139,7 @@ export type IpcMap = {
   [IpcChannel.WORKSPACE_UPDATE_SESSION]: { req: WorkspaceUpdateSessionRequest; res: WorkspaceUpdateSessionResponse }
   [IpcChannel.SETTINGS_READ]: { req: void; res: ReadSettingsResponse }
   [IpcChannel.SETTINGS_WRITE]: { req: WriteSettingsRequest; res: WriteSettingsResponse }
+  [IpcChannel.SETTINGS_DELETE_KEY]: { req: DeleteSettingsKeyRequest; res: DeleteSettingsKeyResponse }
   [IpcChannel.SETTINGS_SYNC]: { req: SettingsSyncRequest; res: void }
   [IpcChannel.READ_FILE]: { req: ReadFileRequest; res: ReadFileResponse }
   [IpcChannel.LOAD_HISTORY]: { req: LoadHistoryRequest; res: LoadHistoryResponse }

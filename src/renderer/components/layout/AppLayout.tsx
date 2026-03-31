@@ -26,6 +26,7 @@ const COLLAPSED_SIZE = 48
 export function AppLayout() {
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsScope, setSettingsScope] = useState<'global' | 'project'>('global')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const sidebarRef = usePanelRef()
@@ -94,7 +95,12 @@ export function AppLayout() {
           collapsedSize={COLLAPSED_SIZE}
           onResize={(size) => setSidebarCollapsed(size.inPixels <= COLLAPSED_SIZE)}
         >
-          <Sidebar onToggle={toggleSidebar} isCollapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
+          <Sidebar
+            onToggle={toggleSidebar}
+            isCollapsed={sidebarCollapsed}
+            onOpenSettings={() => { setSettingsScope('global'); setSettingsOpen(true) }}
+            onOpenWorkspaceSettings={() => { setSettingsScope('project'); setSettingsOpen(true) }}
+          />
         </Panel>
         <ResizeHandle onDoubleClick={toggleSidebar} />
         <Panel minSize={400}>
@@ -115,9 +121,9 @@ export function AppLayout() {
       <CommandPalette
         isOpen={cmdPaletteOpen}
         onClose={() => setCmdPaletteOpen(false)}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => { setSettingsScope('global'); setSettingsOpen(true) }}
       />
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} initialScope={settingsScope} />
       <ToastContainer />
     </div>
   )

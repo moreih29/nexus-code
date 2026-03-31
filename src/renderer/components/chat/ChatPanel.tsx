@@ -45,6 +45,7 @@ export function ChatPanel() {
   const { reset: resetCheckpoints } = useCheckpointStore()
   const model = useSettingsStore((s) => s.model)
   const permissionMode = useSettingsStore((s) => s.permissionMode)
+  const effortLevel = useSettingsStore((s) => s.effective.effortLevel)
   const toolDensity = useSettingsStore((s) => s.toolDensity)
   const setToolDensity = useSettingsStore((s) => s.setToolDensity)
   const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
@@ -128,6 +129,7 @@ export function ChatPanel() {
           prompt: text,
           cwd: activeWorkspace,
           model,
+          effortLevel,
           permissionMode,
           notificationsEnabled,
           images,
@@ -148,6 +150,7 @@ export function ChatPanel() {
             prompt: text,
             cwd: activeWorkspace,
             model,
+            effortLevel,
             permissionMode,
             sessionId: currentSessionId,
             notificationsEnabled,

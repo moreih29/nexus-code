@@ -8,6 +8,7 @@ export interface StartRequest {
   permissionMode: 'auto' | 'default'
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
+  effortLevel?: string
   notificationsEnabled?: boolean
   images?: ImageAttachment[]
 }
@@ -260,6 +261,7 @@ export interface AgentTimelineData {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 export interface ClaudeSettings {
+  model?: string
   permissions?: {
     allow?: string[]
     deny?: string[]
@@ -268,12 +270,19 @@ export interface ClaudeSettings {
   enabledPlugins?: Record<string, boolean>
   env?: Record<string, string>
   language?: string
-  effortLevel?: string
+  effortLevel?: 'low' | 'medium' | 'high' | 'max' | 'auto'
   autoMemoryEnabled?: boolean
   skipDangerousModePermissionPrompt?: boolean
-  teammateMode?: string
+  teammateMode?: 'auto' | 'in-process' | 'tmux'
   statusLine?: unknown
   extraKnownMarketplaces?: unknown
+  outputStyle?: string
+  sandbox?: { enabled?: boolean }
+  defaultShell?: string
+  prefersReducedMotion?: boolean
+  includeGitInstructions?: boolean
+  cleanupPeriodDays?: number
+  alwaysThinkingEnabled?: boolean
   [key: string]: unknown
 }
 
@@ -288,6 +297,15 @@ export interface WriteSettingsRequest {
 }
 
 export interface WriteSettingsResponse {
+  ok: boolean
+}
+
+export interface DeleteSettingsKeyRequest {
+  scope: 'global' | 'project'
+  key: string
+}
+
+export interface DeleteSettingsKeyResponse {
   ok: boolean
 }
 

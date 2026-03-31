@@ -1274,6 +1274,386 @@
           "created_at": "2026-03-30T15:27:06.025Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-03-31T03:00:22.481Z",
+      "branch": "feat/settings",
+      "consult": {
+        "topic": "Nexus Code 설정 기능 추가 — Claude Code 전체 설정의 GUI 통합",
+        "issues": [
+          {
+            "id": 1,
+            "title": "설정 UI 구조 — 모달 확장 vs 별도 페이지 vs 패널",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "전역/워크스페이스 설정 분리 UX",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "모델 빠른 전환 UI 배치",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "설정 적용 방식 — 즉시 적용 vs 저장 버튼 vs 재시작",
+            "status": "decided"
+          },
+          {
+            "id": 5,
+            "title": "settings-store 아키텍처 — 이중 상태 문제 해결",
+            "status": "decided"
+          },
+          {
+            "id": 6,
+            "title": "설정 카테고리 구조 (Information Architecture)",
+            "status": "decided"
+          },
+          {
+            "id": 7,
+            "title": "1차 구현 범위 — 어떤 설정까지 포함할 것인가",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "모달 확장 (A안) — 현재 560px 모달을 640~720px로 넓히고 좌측 카테고리 세로 네비게이션 추가 (macOS 환경설정 스타일). 탭 구조에서 카테고리 네비로 전환.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "세그먼트 컨트롤 + 오버라이드 표시 (C안) — 모달 상단에 \"전역/워크스페이스\" 세그먼트 컨트롤. 워크스페이스 탭에서 전역 값은 회색 placeholder로 표시, 오버라이드된 항목은 시각적 강조 + \"초기화\" 버튼으로 전역 값 복원.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "ChatInput 영역 모델 뱃지 + 드롭다운 + 커맨드 팔레트 (A+C 결합) — 채팅 입력 근처에 현재 모델명 뱃지 표시, 클릭 시 드롭다운 전환. 커맨드 팔레트에도 모델 전환 명령 추가. effort level도 모델 뱃지 옆 또는 드롭다운 내에서 함께 조절 가능하게.",
+          "consult": 3
+        },
+        {
+          "id": 4,
+          "summary": "즉시 적용 (A안) — 저장 버튼 제거, 변경 즉시 반영. 위험 설정만 confirm-dialog로 확인. 세션 재시작 필요 항목은 \"다음 세션부터 적용됩니다\" 인라인 안내 표시.",
+          "consult": 4
+        },
+        {
+          "id": 5,
+          "summary": "settings-store를 SSOT로 격상 (A안) — 앱 시작 시 settings.json → store 로드. SettingsModal은 store만 읽고 쓰기. store 변경 시 IPC로 파일 쓰기. GUI 전용 설정(theme 등)도 store 통합. store 구조: { global, project, effective }. 근본적 문제 해결 우선.",
+          "consult": 5
+        },
+        {
+          "id": 6,
+          "summary": "기능 중심 6카테고리 (A안) — 모델 및 응답 / 외관 / 권한 / 플러그인 / 환경 / 고급. 순서는 자주 쓰는 것 → 드물게 쓰는 것. 초보자는 상단 카테고리만으로 충분.",
+          "consult": 6
+        },
+        {
+          "id": 7,
+          "summary": "핵심 + 주요 누락 항목 (B안) — store SSOT 리팩토링 + 모달 좌측 네비 + 전역/워크스페이스 분리 + 모델 빠른 전환 + 즉시 적용 + effort/outputStyle/teammateMode buildArgs 연결 + sandbox/defaultShell/prefersReducedMotion/includeGitInstructions/cleanupPeriodDays 신규 추가. hooks/MCP/에이전트/CLAUDE.md 편집은 추후 별도 피처로.",
+          "consult": 7
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: Foundation — types + settings-store SSOT + IPC 리팩토링",
+          "context": "types.ts에 ClaudeSettings 확장 (effort, outputStyle, teammateMode, sandbox, defaultShell 등 신규 키 추가). settings-store.ts를 SSOT로 격상 — { global, project, effective } 구조. GUI 전용 설정(theme, toolDensity, notifications)도 store 통합. IPC handlers에서 scope별 읽기/쓰기 지원 강화. 앱 시작 시 settings.json → store 자동 로드.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2,
+            4,
+            5,
+            7
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-31T02:05:00.002Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: SettingsModal 리팩토링 — 좌측 네비 + 6카테고리 + 전역/워크스페이스 분리 + 즉시 적용",
+          "context": "SettingsModal.tsx를 640~720px 모달로 확장. 상단 탭 → 좌측 카테고리 세로 네비 전환. 6카테고리: 모델및응답/외관/권한/플러그인/환경/고급. 상단에 전역/워크스페이스 세그먼트 컨트롤. 워크스페이스 탭에서 전역값 회색 placeholder + 오버라이드 표시 + 초기화 버튼. 저장 버튼 제거 → 즉시 적용. 위험 설정만 confirm-dialog. 재시작 필요 항목에 인라인 안내. 신규 설정 항목 UI 포함 (effort, outputStyle, teammateMode, sandbox, defaultShell, prefersReducedMotion, includeGitInstructions, cleanupPeriodDays).",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            1,
+            2,
+            4,
+            6,
+            7
+          ],
+          "owner": "engineer-2",
+          "created_at": "2026-03-31T02:05:07.326Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: 모델 빠른 전환 UI — ChatInput 뱃지 + 드롭다운 + 커맨드 팔레트",
+          "context": "ChatInput 영역 하단 또는 내부에 현재 모델명 뱃지 표시. 클릭 시 드롭다운으로 모델 전환. effort level도 드롭다운 내에서 조절 가능. 커맨드 팔레트(CommandPalette.tsx)에 \"모델 전환\" 명령 추가. settings-store의 model/effortLevel 상태와 연동.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            3
+          ],
+          "owner": "engineer-3",
+          "created_at": "2026-03-31T02:05:10.881Z"
+        },
+        {
+          "id": 4,
+          "title": "T4: buildArgs 연결 — 누락된 CLI 플래그 전달",
+          "context": "run-manager.ts의 buildArgs()에 누락된 플래그 추가: --effort (effortLevel), --permission-mode (permissionMode 활용 검토), --allowedTools/--disallowedTools (permissions.allow/deny에서 추출). teammateMode는 settings.json에 저장되므로 CLI가 자체 로드 — buildArgs 불필요할 수 있음. outputStyle도 동일 검토.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [
+            7
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-31T02:05:14.938Z"
+        },
+        {
+          "id": 5,
+          "title": "T5: QA 검증 — typecheck + 런타임 스크린샷 + 전체 기능 검증",
+          "context": "bun run typecheck 통과 확인. bun run dev 실행 후 Playwright MCP로 주요 시나리오 스크린샷: (1) 설정 모달 열기 — 6카테고리 네비 확인, (2) 전역/워크스페이스 전환, (3) 모델 빠른 전환 뱃지+드롭다운, (4) 즉시 적용 동작, (5) cold-start 시나리오. Context null 전파 경로 확인. hooks 순서 위반 확인.",
+          "status": "completed",
+          "deps": [
+            2,
+            3,
+            4
+          ],
+          "decisions": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "owner": "qa",
+          "created_at": "2026-03-31T02:05:18.892Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-31T03:58:04.734Z",
+      "branch": "feat/settings",
+      "consult": {
+        "topic": "설정 기능 UX 문제 수정 — 카테고리 높이, 워크스페이스 scope 모델 재설계",
+        "issues": [
+          {
+            "id": 1,
+            "title": "모달 높이 고정 — 카테고리 전환 시 네비 위치 안정화",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "전역/워크스페이스 scope UX 재설계 — 세그먼트 컨트롤 vs 인라인 오버라이드",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "워크스페이스 오버라이드 생성/초기화 UX + 전역 전용 항목 구분",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "ModelSwitcher scope 동작 — 워크스페이스 활성 시 어떤 scope로 쓸 것인가",
+            "status": "decided"
+          }
+        ]
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "고정 높이 (A안) — max-h-[85vh]를 h-[70vh] 고정으로 변경. 우측 콘텐츠만 스크롤. 카테고리 전환 시 네비 위치 안정화.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "B+C 결합 — 세그먼트 컨트롤 제거, 인라인 오버라이드 + 워크스페이스 사이드바 기어 진입점. 기존 톱니바퀴 = 전역 설정 뷰(오버라이드 토글 없음). 워크스페이스 기어 = 해당 워크스페이스 뷰(인라인 오버라이드 토글 + 모달 상단에 워크스페이스명 표시). 진입점이 맥락을 결정.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "오버라이드 생성: 토글 방식 (A안) — 오버라이드 가능 항목 우측에 \"오버라이드\" 토글. on → 편집 가능 + 파란 인디케이터 + 초기화 버튼. off/초기화 → 전역값 복귀. 전역 전용 구분: 자연스러운 구분 (C안) — 전역 전용 항목(테마, 밀도, 알림)은 토글 자체가 없음으로 구분.",
+          "consult": 3
+        },
+        {
+          "id": 4,
+          "summary": "항상 project scope (A안) — ModelSwitcher에서 워크스페이스 활성 시 무조건 project에 오버라이드 생성. 드롭다운 하단에 \"이 워크스페이스에만 적용\" 안내 텍스트. 전역 모델 변경은 톱니바퀴(전역 설정)에서. \"진입점이 맥락 결정\" 원칙 준수.",
+          "consult": 4
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: 모달 높이 고정 + scope UX 재설계 + 오버라이드 토글 + 워크스페이스 기어 진입점",
+          "context": "결정 1~3 통합 구현. (1) SettingsModal 높이 h-[70vh] 고정. (2) 세그먼트 컨트롤 제거. 톱니바퀴=전역 뷰(오버라이드 토글 없음), 워크스페이스 기어=워크스페이스 뷰(인라인 오버라이드 + 모달 상단 워크스페이스명). SettingsModal에 initialScope prop 추가. (3) 오버라이드 가능 항목에 토글 스위치. on→편집+파란인디케이터+초기화버튼. 전역전용 항목(테마,밀도,알림)은 토글 없음. (4) 워크스페이스 사이드바에 기어 아이콘 추가→클릭 시 SettingsModal을 workspace scope로 열기.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2,
+            3
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-31T03:44:10.104Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: ModelSwitcher + CommandPalette scope 변경",
+          "context": "결정 4 구현. ModelSwitcher에서 워크스페이스 활성 시 무조건 project scope로 오버라이드 생성. 드롭다운 하단에 \"이 워크스페이스에만 적용\" 안내 텍스트. CommandPalette 모델/effort 전환도 동일 로직. 워크스페이스 미활성 시에만 global scope.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            4
+          ],
+          "owner": "engineer-2",
+          "created_at": "2026-03-31T03:44:12.616Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: QA 검증 — typecheck + 런타임 검증",
+          "context": "typecheck 통과. 런타임: (1) 모달 높이 고정 확인, (2) 톱니바퀴→전역 뷰(오버라이드 토글 없음), (3) 워크스페이스 기어→워크스페이스 뷰(오버라이드 토글 있음, 워크스페이스명 표시), (4) 오버라이드 토글 on/off 동작, (5) ModelSwitcher가 project scope로 저장, (6) cold-start crash 없음.",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "decisions": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "owner": "qa",
+          "created_at": "2026-03-31T03:44:16.224Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-31T04:26:57.087Z",
+      "branch": "feat/settings",
+      "consult": {
+        "topic": "설정 UX 2차 이슈 — 오버라이드 토글, 워크스페이스 설정 범위, 모델 체크, 기어 발견성",
+        "issues": [
+          {
+            "id": 1,
+            "title": "오버라이드 토글 미동작 항목 수정 + 불가능 항목 제거",
+            "status": "decided"
+          },
+          {
+            "id": 2,
+            "title": "워크스페이스 설정에서 전역 전용 카테고리/항목 숨김",
+            "status": "decided"
+          },
+          {
+            "id": 3,
+            "title": "모델 드롭다운 체크표시 누락",
+            "status": "decided"
+          },
+          {
+            "id": 4,
+            "title": "기어 아이콘 발견성 개선",
+            "status": "decided"
+          },
+          {
+            "id": 5,
+            "title": "설정 모달 외부 클릭/ESC 닫기",
+            "status": "decided"
+          }
+        ],
+        "researchSummary": "아키텍트 코드 분석 완료. (1) 오버라이드 토글: effectiveValue가 undefined인 항목에서 onUpdate(key, undefined) 호출 → project[key]가 undefined로 설정되어 isEnabled가 false 유지. 처리 강도 등 기존 기본값이 있는 항목만 동작. (2) 워크스페이스 설정: CATEGORIES에 scope 필터 없음, 외관 카테고리가 전역 전용임에도 표시됨. (3) 모델 체크: effective.model이 undefined일 때 체크마크 조건 불일치. store.model(정규화됨)을 써야 함. (4) 기어 아이콘: opacity-0 group-hover:opacity-100으로 hover 전까지 완전 비가시."
+      },
+      "decisions": [
+        {
+          "id": 1,
+          "summary": "버그 수정 — OverrideToggle에 effectiveValue 전달 시 undefined 대신 defaulted 값 사용. 각 패널에서 이미 쓰는 기본값(alwaysThinkingEnabled ?? false 등)을 effectiveValue로 전달. 제거할 항목 없음.",
+          "consult": 1
+        },
+        {
+          "id": 2,
+          "summary": "외관 카테고리만 숨김 (A안) — CATEGORIES에 scopes 플래그 추가, scope='project'일 때 외관 카테고리 필터링. activeCategory 리셋 처리 포함.",
+          "consult": 2
+        },
+        {
+          "id": 3,
+          "summary": "버그 수정 — model-switcher.tsx에서 effective.model 대신 useSettingsStore((s) => s.model) 사용. 정규화된 ModelId로 체크마크 비교 정상화.",
+          "consult": 3
+        },
+        {
+          "id": 4,
+          "summary": "A+B 결합 — 활성 워크스페이스 기어 상시 표시(opacity-60) + 모든 워크스페이스 우클릭 컨텍스트 메뉴(\"설정\"/\"삭제\"). X 버튼은 hover에서 컨텍스트 메뉴로 이동하여 사이드바 정리.",
+          "consult": 4
+        },
+        {
+          "id": 5,
+          "summary": "설정 모달 외부 영역 클릭 시 닫기 + ESC 키 닫기 추가. backdrop onClick + useEffect keydown 'Escape' 핸들러.",
+          "consult": 5
+        }
+      ],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: 버그 수정 + UX 개선 5건 통합",
+          "context": "(1) OverrideToggle 버그: 각 패널에서 effectiveValue에 defaulted 값 전달 (undefined 방지). (2) 워크스페이스 설정에서 외관 카테고리 숨김: CATEGORIES에 scopes 플래그, scope='project' 필터링. (3) 모델 체크표시: model-switcher.tsx에서 effective.model → useSettingsStore(s => s.model). (4) 기어 발견성: 활성 워크스페이스 기어 opacity-60 상시 + 우클릭 컨텍스트 메뉴(\"설정\"/\"삭제\") + X 버튼 hover 제거. (5) 모달 외부 클릭/ESC 닫기.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": "engineer-1",
+          "created_at": "2026-03-31T04:23:55.160Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-31T04:43:24.199Z",
+      "branch": "feat/settings",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "전역/워크스페이스 설정값 분리 + WorkspaceItem 기어/컨텍스트 메뉴",
+          "context": "(1) 전역 뷰에서 effective 대신 global 값 표시 — 모든 패널에서 scope='global'일 때 source를 g로 전환. (2) WorkspaceItem 활성 워크스페이스 기어 상시 표시 + 우클릭 컨텍스트 메뉴 + X 버튼 제거. (3) 모델 체크표시 수정.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-31T04:42:08.265Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-03-31T04:46:31.515Z",
+      "branch": "feat/settings",
+      "consult": null,
+      "decisions": [],
+      "tasks": [
+        {
+          "id": 1,
+          "title": "컨텍스트 메뉴 삭제 버튼에 Trash2 아이콘 추가",
+          "context": "WorkspaceItem.tsx 컨텍스트 메뉴의 삭제 버튼에 Trash2 아이콘 추가",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "lead",
+          "created_at": "2026-03-31T04:46:11.940Z"
+        }
+      ]
     }
   ]
 }
