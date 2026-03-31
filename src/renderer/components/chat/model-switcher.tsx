@@ -3,6 +3,7 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings-store'
 import type { ModelId } from '../../stores/settings-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useActiveSession } from '../../stores/session-store'
 import { MODEL_ALIASES, getModelAlias } from '../../lib/models'
 
 const EFFORT_LEVELS = ['auto', 'low', 'medium', 'high', 'max'] as const
@@ -23,6 +24,8 @@ export function ModelSwitcher() {
   const effective = useSettingsStore((s) => s.effective)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const restartSession = useActiveSession((s) => s.restartSession)
+  const sessionId = useActiveSession((s) => s.sessionId)
 
   const currentModel = useSettingsStore((s) => s.model)
   const currentEffort = effective.effortLevel
@@ -44,12 +47,21 @@ export function ModelSwitcher() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
 
-  const handleModelSelect = (model: ModelId) => {
-    updateSetting(scope, 'model', model)
+  const triggerRestart = async (overrides: { model?: string; effortLevel?: string }) => {
+    if (!sessionId || !activeWorkspace) return
+    await restartSession({ cwd: activeWorkspace, ...overrides })
   }
 
-  const handleEffortSelect = (effort: EffortLevel) => {
-    updateSetting(scope, 'effortLevel', effort)
+  const handleModelSelect = async (model: ModelId) => {
+    await updateSetting(scope, 'model', model)
+    setOpen(false)
+    void triggerRestart({ model })
+  }
+
+  const handleEffortSelect = async (effort: EffortLevel) => {
+    await updateSetting(scope, 'effortLevel', effort)
+    setOpen(false)
+    void triggerRestart({ effortLevel: effort })
   }
 
   return (

@@ -466,7 +466,7 @@ export function createSessionStore(): StoreApi<SessionStoreState> {
           permissionMode: options.permissionMode,
         })
         if (res.ok) {
-          set({ status: 'running' })
+          set({ status: 'idle' })
         } else {
           set({ status: 'error' })
         }

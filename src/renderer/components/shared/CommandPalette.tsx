@@ -20,6 +20,7 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
   const sessionId = useActiveSession((s) => s.sessionId)
   const status = useActiveSession((s) => s.status)
   const reset = useActiveSession((s) => s.reset)
+  const restartSession = useActiveSession((s) => s.restartSession)
   const { addWorkspace } = useWorkspaceStore()
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
@@ -68,11 +69,23 @@ export function CommandPalette({ isOpen, onClose, onOpenSettings }: CommandPalet
   const scope = activeWorkspace ? 'project' : 'global'
 
   const handleModelSwitch = (model: ModelId) => {
-    handleSelect(() => updateSetting(scope, 'model', model))
+    handleSelect(() => {
+      void updateSetting(scope, 'model', model).then(() => {
+        if (sessionId && activeWorkspace) {
+          void restartSession({ cwd: activeWorkspace, model })
+        }
+      })
+    })
   }
 
   const handleEffortSwitch = (effort: (typeof EFFORT_LEVELS)[number]) => {
-    handleSelect(() => updateSetting(scope, 'effortLevel', effort))
+    handleSelect(() => {
+      void updateSetting(scope, 'effortLevel', effort).then(() => {
+        if (sessionId && activeWorkspace) {
+          void restartSession({ cwd: activeWorkspace, effortLevel: effort })
+        }
+      })
+    })
   }
 
   return (
