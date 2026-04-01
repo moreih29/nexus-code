@@ -440,6 +440,32 @@ export interface ReadFileResponse {
   error?: string
 }
 
+// ─── Panel Layout ────────────────────────────────────────────────────────────
+
+export type PanelType = 'chat' | 'editor' | 'browser' | 'markdown-preview' | 'timeline'
+
+export interface PanelConfig {
+  id: string
+  type: PanelType
+  props: Record<string, unknown>
+}
+
+export interface PanelLayoutNode {
+  panels: Array<{ id: string; type: PanelType; size: number }>
+  orientation: 'horizontal' | 'vertical'
+  children?: PanelLayoutNode[]
+}
+
+export interface WorkspaceLayout {
+  root: PanelLayoutNode
+  openFiles: string[]
+  activeFile: string | null
+  browserUrl: string | null
+  chatScrollPosition: number
+  bottomPanelVisible: boolean
+  bottomPanelHeight: number
+}
+
 // ─── Window augmentation ────────────────────────────────────────────────────
 // ElectronAPI is defined in ipc.ts to avoid circular imports (ipc.ts → types.ts → ipc.ts).
 // Re-exported here for backwards compatibility.

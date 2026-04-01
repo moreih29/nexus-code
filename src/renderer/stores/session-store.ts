@@ -165,6 +165,17 @@ export function getActiveStore(): StoreApi<SessionStoreState> | null {
   return _activeStore
 }
 
+/** 현재 포커스된 워크스페이스 경로 (layout-store 연동용) */
+let _focusedWorkspace: string | null = null
+
+export function setFocusedWorkspace(workspacePath: string | null): void {
+  _focusedWorkspace = workspacePath
+}
+
+export function getFocusedWorkspace(): string | null {
+  return _focusedWorkspace
+}
+
 // ─── 스토어 팩토리 ────────────────────────────────────────────────────────────
 
 export function createSessionStore(): StoreApi<SessionStoreState> {
