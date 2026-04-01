@@ -56,6 +56,7 @@ import type {
   NexusStateReadResponse,
   RestartSessionRequest,
   RestartSessionResponse,
+  PermissionMode,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
@@ -389,7 +390,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         }],
       }]
 
-      if (req.permissionMode !== 'auto') {
+      const isBypass = req.permissionMode === 'bypassPermissions' || req.permissionMode === 'auto'
+      if (!isBypass) {
         const hookUrl = hookServer.permissionHookUrl()
         settings.hooks = {
           ...existingHooks,
@@ -728,8 +730,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           }],
         }]
 
-        const permissionMode = (req.permissionMode ?? 'default') as 'auto' | 'default'
-        if (permissionMode !== 'auto') {
+        const permissionMode: PermissionMode = (req.permissionMode ?? 'default') as PermissionMode
+        const isBypass = permissionMode === 'bypassPermissions' || permissionMode === 'auto'
+        if (!isBypass) {
           const hookUrl = hookServer.permissionHookUrl()
           settings.hooks = {
             ...existingHooks,

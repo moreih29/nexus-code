@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 import { IpcChannel } from '../../shared/ipc'
-import type { ClaudeSettings } from '../../shared/types'
+import type { ClaudeSettings, PermissionMode } from '../../shared/types'
 import { AVAILABLE_MODELS, type ModelId } from '../../shared/models'
 import { useWorkspaceStore } from './workspace-store'
 
 export { AVAILABLE_MODELS, type ModelId }
-export type PermissionMode = 'auto' | 'default'
+export type { PermissionMode }
 export type Theme = 'terracotta' | 'github-dark' | 'amethyst' | 'rose-pine' | 'nord' | 'midnight-green'
 
 export const THEMES: { id: Theme; label: string; swatches: [string, string, string] }[] = [
@@ -115,7 +115,8 @@ function extractModel(effective: Partial<ClaudeSettings>): ModelId {
 
 function extractPermissionMode(effective: Partial<ClaudeSettings>): PermissionMode {
   const mode = effective.permissions?.defaultMode
-  return mode === 'auto' ? 'auto' : 'default'
+  const valid: PermissionMode[] = ['bypassPermissions', 'acceptEdits', 'default', 'dontAsk', 'plan', 'auto']
+  return valid.includes(mode as PermissionMode) ? (mode as PermissionMode) : 'default'
 }
 
 // [H1] effective 계산 후 plain property로 포함하는 헬퍼

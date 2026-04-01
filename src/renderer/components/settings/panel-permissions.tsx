@@ -6,11 +6,12 @@ import { ConfirmDialog } from '../ui/confirm-dialog'
 import { cn } from '../../lib/utils'
 
 const PERMISSION_MODES = [
-  { value: 'bypassPermissions', label: '자동 (위험 가능)' },
-  { value: 'acceptEdits', label: '편집 자동 허용' },
   { value: 'default', label: '기본' },
-  { value: 'dontAsk', label: '묻지 않기' },
+  { value: 'acceptEdits', label: '편집 자동 허용' },
   { value: 'plan', label: '계획 모드' },
+  { value: 'dontAsk', label: '묻지 않기' },
+  { value: 'auto', label: '자동' },
+  { value: 'bypassPermissions', label: '권한 검사 건너뛰기' },
 ]
 
 interface Props {
@@ -50,7 +51,7 @@ export function PanelPermissions({ scope, global: g, project, effective, onUpdat
   }
 
   const handlePermissionModeChange = (newMode: string): void => {
-    if (newMode === 'bypassPermissions' || newMode === 'dontAsk') {
+    if (newMode === 'bypassPermissions' || newMode === 'auto' || newMode === 'dontAsk') {
       setPendingMode(newMode)
     } else {
       const updated = { ...permissions, defaultMode: newMode }

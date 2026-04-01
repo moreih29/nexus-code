@@ -1,11 +1,13 @@
 // IPC channel types shared between main and renderer processes
 
+export type PermissionMode = 'bypassPermissions' | 'acceptEdits' | 'default' | 'dontAsk' | 'plan' | 'auto'
+
 // ─── Request-Response Channels ───────────────────────────────────────────────
 
 export interface StartRequest {
   prompt: string
   cwd: string
-  permissionMode: 'auto' | 'default'
+  permissionMode: PermissionMode
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
   effortLevel?: string

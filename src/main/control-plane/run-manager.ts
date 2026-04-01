@@ -20,6 +20,7 @@ import type {
   TimeoutEvent,
   RateLimitEvent,
   ImageAttachment,
+  PermissionMode,
 } from '../../shared/types'
 
 /** 마지막 stdout 출력으로부터 이 시간(ms)이 지나면 timeout 이벤트를 emit */
@@ -60,7 +61,7 @@ function findClaudeBinary(): string {
 export interface RunOptions {
   prompt: string
   cwd: string
-  permissionMode: 'auto' | 'default'
+  permissionMode: PermissionMode
   sessionId?: string // --resume 용
   model?: string
   effortLevel?: string
