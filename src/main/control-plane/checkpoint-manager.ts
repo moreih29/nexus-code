@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { logger } from '../logger'
+import type { CheckpointDiffResponse, CheckpointDiffFile } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
 
@@ -109,4 +110,71 @@ export async function restoreCheckpoint(cwd: string, checkpoint: Checkpoint): Pr
 
   logger.checkpoint.info('복원 완료', { hash: checkpoint.hash, changedFiles: changedFiles.length, untrackedFiles: untrackedFiles.length, sessionId: checkpoint.sessionId })
   return { changedFiles, shortHash, untrackedFiles }
+}
+
+export async function diffCheckpoints(cwd: string, fromHash: string, toHash: string | null): Promise<CheckpointDiffResponse> {
+  try {
+    // 파일 상태 목록 획득: --name-status는 status(A/M/D) + filename 출력
+    const nameStatusArgs = toHash
+      ? ['diff', '--name-status', fromHash, toHash]
+      : ['diff', '--name-status', fromHash]
+    const nameStatusOut = await git(cwd, nameStatusArgs)
+
+    if (!nameStatusOut) {
+      return { ok: true, files: [] }
+    }
+
+    const fileEntries = nameStatusOut
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => {
+        const [statusCode, ...rest] = l.split('\t')
+        const filePath = rest.join('\t').trim()
+        let status: CheckpointDiffFile['status'] = 'modified'
+        if (statusCode?.startsWith('A')) status = 'added'
+        else if (statusCode?.startsWith('D')) status = 'deleted'
+        return { path: filePath, status }
+      })
+      .filter((e) => e.path.length > 0)
+
+    const files: CheckpointDiffFile[] = await Promise.all(
+      fileEntries.map(async ({ path: filePath, status }) => {
+        let oldContent = ''
+        let newContent = ''
+
+        try {
+          if (status !== 'added') {
+            // fromHash 기준 파일 내용
+            oldContent = await git(cwd, ['show', `${fromHash}:${filePath}`])
+          }
+        } catch {
+          oldContent = ''
+        }
+
+        try {
+          if (status === 'deleted') {
+            newContent = ''
+          } else if (toHash) {
+            newContent = await git(cwd, ['show', `${toHash}:${filePath}`])
+          } else {
+            // 현재 working tree 내용
+            const { readFile } = await import('fs/promises')
+            const { join } = await import('path')
+            const absPath = filePath.startsWith('/') ? filePath : join(cwd, filePath)
+            newContent = await readFile(absPath, 'utf8')
+          }
+        } catch {
+          newContent = ''
+        }
+
+        return { path: filePath, oldContent, newContent, status }
+      })
+    )
+
+    logger.checkpoint.info('diff 완료', { fromHash, toHash, fileCount: files.length })
+    return { ok: true, files }
+  } catch (err) {
+    logger.checkpoint.error('diffCheckpoints 실패', { err, fromHash, toHash })
+    return { ok: false, files: [], error: (err as Error).message }
+  }
 }

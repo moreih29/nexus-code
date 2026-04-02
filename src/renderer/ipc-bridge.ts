@@ -209,17 +209,27 @@ export function initIpcBridge(): void {
     }
     statusBarStore().clearAll()
     changesStore().clear()
-    pluginStore().clear()
   }) as (...args: unknown[]) => void)
 
   // Permission events → permission store
   window.electronAPI.on(IpcChannel.PERMISSION_REQUEST, ((event: PermissionRequestEvent) => {
+    const destructiveBash =
+      event.toolName === 'Bash' &&
+      typeof event.input.command === 'string' &&
+      /rm\s|rmdir|del\s|format\s|mkfs|dd\s|truncate/.test(event.input.command)
+    const priority =
+      event.toolName === 'Write' || destructiveBash
+        ? 'high'
+        : event.toolName === 'Edit' || event.toolName === 'MultiEdit' || event.toolName === 'Bash'
+          ? 'normal'
+          : 'low'
     permissionStore().add({
       requestId: event.requestId,
       toolName: event.toolName,
       input: event.input,
       agentId: event.agentId,
       timestamp: Date.now(),
+      priority,
     })
   }) as (...args: unknown[]) => void)
 

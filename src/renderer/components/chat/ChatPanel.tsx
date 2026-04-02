@@ -7,6 +7,7 @@ import { IpcChannel } from '../../../shared/ipc'
 import type { ImageAttachment, AgentTimelineData } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useActiveSession } from '../../stores/session-store'
+import { useContextStore } from '../../stores/context-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
 import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
@@ -202,6 +203,10 @@ export function ChatPanel() {
   const isInputDisabled = !activeWorkspace || status === 'waiting_permission' || status === 'timeout'
   const isRunning = status === 'running'
 
+  // 컨텍스트 필터링
+  const filterMode = useContextStore((s) => s.binding.filterMode)
+  const selectedAgentIds = useContextStore((s) => s.binding.selectedAgentIds)
+
   // 에이전트 타임라인 데이터 (서브에이전트가 있을 때만 카드 표시)
   const timelineData = usePanelData<AgentTimelineData>('nexus', 'timeline')
   const subAgents = useMemo(() => {
@@ -210,6 +215,32 @@ export function ChatPanel() {
   }, [timelineData])
   // 실행 중이거나 방금 완료(에이전트가 1명 이상)일 때 카드 표시
   const showAgentCard = subAgents.length > 0 && isRunning
+
+  // 선택된 에이전트의 toolUseId 집합
+  const agentToolUseIds = useMemo(() => {
+    if (filterMode !== 'agent' || !selectedAgentIds || !timelineData) return null
+    const ids = new Set<string>()
+    for (const agent of timelineData.agents) {
+      if (selectedAgentIds.includes(agent.agentId)) {
+        for (const event of agent.events) {
+          ids.add(event.toolUseId)
+        }
+      }
+    }
+    return ids
+  }, [filterMode, selectedAgentIds, timelineData])
+
+  // 메시지 필터링 — filterMode='agent'일 때 해당 에이전트 toolUseId 기준으로 필터
+  const filteredItems = useMemo(() => {
+    if (!agentToolUseIds) return sortedWithCheckpoints
+    return sortedWithCheckpoints.filter((item) => {
+      if (item.kind === 'event') return true
+      const msg = item.data
+      if (msg.role === 'user') return true
+      if (!msg.toolCalls || msg.toolCalls.length === 0) return true
+      return msg.toolCalls.some((tc) => agentToolUseIds.has(tc.toolUseId))
+    })
+  }, [sortedWithCheckpoints, agentToolUseIds])
 
   return (
     <div className="flex h-full flex-col">
@@ -303,7 +334,7 @@ export function ChatPanel() {
           )
         ) : (
           <div className="flex flex-col gap-4">
-            {sortedWithCheckpoints.map((item) => {
+            {filteredItems.map((item) => {
               if (item.kind === 'event') {
                 return (
                   <div key={item.data.id} className="relative flex items-center py-1">

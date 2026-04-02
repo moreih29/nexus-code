@@ -20,6 +20,7 @@ import type {
   CheckpointCreateRequest, CheckpointCreateResponse,
   CheckpointRestoreRequest, CheckpointRestoreResponse,
   CheckpointListRequest, CheckpointListResponse,
+  CheckpointDiffRequest, CheckpointDiffResponse,
   GitCheckRequest, GitCheckResponse,
   GitInitRequest, GitInitResponse,
   NexusStateReadRequest, NexusStateReadResponse,
@@ -94,6 +95,8 @@ export const IpcChannel = {
   CHECKPOINT_RESTORE: 'ipc:checkpoint-restore',
   /** List checkpoints for the current workspace */
   CHECKPOINT_LIST: 'ipc:checkpoint-list',
+  /** Get diff between two checkpoints or checkpoint vs working tree */
+  CHECKPOINT_DIFF: 'ipc:checkpoint-diff',
 
   // ── Git ───────────────────────────────────────────────────────────────────
   /** Check whether a directory is a git repository */
@@ -155,6 +158,7 @@ export type IpcMap = {
   [IpcChannel.CHECKPOINT_CREATE]: { req: CheckpointCreateRequest; res: CheckpointCreateResponse }
   [IpcChannel.CHECKPOINT_RESTORE]: { req: CheckpointRestoreRequest; res: CheckpointRestoreResponse }
   [IpcChannel.CHECKPOINT_LIST]: { req: CheckpointListRequest; res: CheckpointListResponse }
+  [IpcChannel.CHECKPOINT_DIFF]: { req: CheckpointDiffRequest; res: CheckpointDiffResponse }
   [IpcChannel.GIT_CHECK]: { req: GitCheckRequest; res: GitCheckResponse }
   [IpcChannel.GIT_INIT]: { req: GitInitRequest; res: GitInitResponse }
   [IpcChannel.NEXUS_STATE_READ]: { req: NexusStateReadRequest; res: NexusStateReadResponse }
