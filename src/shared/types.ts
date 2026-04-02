@@ -254,10 +254,26 @@ export interface AgentNode {
   startedAt?: number
   stoppedAt?: number
   status?: 'idle' | 'running' | 'error' | 'stopped'
+  // 신규 필드
+  label?: string
+  currentTask?: string
+  teamId?: string
+  model?: string
+  tokenUsage?: { input: number; output: number }
+}
+
+export interface AgentMessage {
+  id: string
+  fromAgentId: string
+  toAgentId: string | '*'
+  content: string
+  timestamp: number
+  type: 'discuss' | 'decide' | 'delegate' | 'report'
 }
 
 export interface AgentTimelineData {
   agents: AgentNode[]
+  messages?: AgentMessage[]
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────

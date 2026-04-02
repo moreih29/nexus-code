@@ -32,6 +32,23 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
   const prefillText = useActiveSession((s) => s.prefillText)
   const setPrefillText = useActiveSession((s) => s.setPrefillText)
 
+  // 브라우저 스크린샷 이벤트 수신
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { mediaType: string; data: string } | undefined
+      if (!detail) return
+      const blob = new Blob(
+        [Uint8Array.from(atob(detail.data), (c) => c.charCodeAt(0))],
+        { type: detail.mediaType },
+      )
+      const file = new File([blob], `screenshot-${Date.now()}.png`, { type: detail.mediaType })
+      const preview = `data:${detail.mediaType};base64,${detail.data}`
+      setAttachments((prev) => [...prev, { file, preview, mediaType: detail.mediaType, data: detail.data }])
+    }
+    window.addEventListener('browser-screenshot', handler)
+    return () => window.removeEventListener('browser-screenshot', handler)
+  }, [])
+
   // prefillText가 설정되면 입력창에 채우기
   useEffect(() => {
     if (prefillText) {

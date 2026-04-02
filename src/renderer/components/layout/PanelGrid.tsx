@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace-store'
 import type { PanelType, PanelLayoutNode } from '../../../shared/types'
 import { ChatPanel } from '../chat/ChatPanel'
 import { EditorPanel } from '../editor/EditorPanel'
+import { BrowserPanel } from '../browser/BrowserPanel'
 
 // ─── 패널 타입 레지스트리 ─────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ const PANEL_LABELS: Record<PanelType, string> = {
 function PanelContent({ type }: { type: PanelType }) {
   if (type === 'chat') return <ChatPanel />
   if (type === 'editor') return <EditorPanel />
+  if (type === 'browser') return <BrowserPanel />
   return (
     <div className="flex h-full items-center justify-center">
       <span className="text-sm text-dim-foreground">{PANEL_LABELS[type]} — 준비 중</span>
