@@ -388,7 +388,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         settings = JSON.parse(existing) as Record<string, unknown>
       } catch { /* 파일 없음 또는 파싱 오류 */ }
 
+      // 기존 훅에서 앱 관리 훅(PreToolUse, SubagentStart/Stop)을 제거하고 사용자 훅만 보존
       const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+      const { PreToolUse: _oldPre, SubagentStart: _oldStart, SubagentStop: _oldStop, ...userHooks } = existingHooks
+
       const subagentUrl = hookServer.subagentHookUrl()
       const subagentHook = [{
         matcher: '',
@@ -402,7 +405,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       if (!isBypass) {
         const hookUrl = hookServer.permissionHookUrl()
         settings.hooks = {
-          ...existingHooks,
+          ...userHooks,
           PreToolUse: [{
             matcher: '.*',
             hooks: [{
@@ -414,8 +417,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           SubagentStop: subagentHook,
         }
       } else {
+        // bypass 모드: PreToolUse 훅을 명시적으로 제거 (이전 세션 잔존 방지)
         settings.hooks = {
-          ...existingHooks,
+          ...userHooks,
           SubagentStart: subagentHook,
           SubagentStop: subagentHook,
         }
@@ -728,7 +732,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           settings = JSON.parse(existing) as Record<string, unknown>
         } catch { /* 파일 없음 또는 파싱 오류 */ }
 
+        // 기존 훅에서 앱 관리 훅을 제거하고 사용자 훅만 보존
         const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+        const { PreToolUse: _oldPre, SubagentStart: _oldStart, SubagentStop: _oldStop, ...userHooks } = existingHooks
+
         const subagentUrl = hookServer.subagentHookUrl()
         const subagentHook = [{
           matcher: '',
@@ -743,7 +750,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         if (!isBypass) {
           const hookUrl = hookServer.permissionHookUrl()
           settings.hooks = {
-            ...existingHooks,
+            ...userHooks,
             PreToolUse: [{
               matcher: '.*',
               hooks: [{
@@ -755,8 +762,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
             SubagentStop: subagentHook,
           }
         } else {
+          // bypass 모드: PreToolUse 훅을 명시적으로 제거
           settings.hooks = {
-            ...existingHooks,
+            ...userHooks,
             SubagentStart: subagentHook,
             SubagentStop: subagentHook,
           }
