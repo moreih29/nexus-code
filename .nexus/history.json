@@ -1915,6 +1915,517 @@
           "created_at": "2026-04-01T05:57:37.256Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-02T02:55:07.520Z",
+      "branch": "feat/structural-redesign",
+      "meet": {
+        "id": 2,
+        "topic": "Nexus Code 전체 UI 레이아웃 재설계 — VSCode급 코드편집 + 브라우저 + 다중워크스페이스 + 에이전트 시각화",
+        "attendees": [
+          {
+            "role": "designer",
+            "name": "디자이너",
+            "joined_at": "2026-04-01T06:14:53.102Z"
+          },
+          {
+            "role": "architect",
+            "name": "아키텍트",
+            "joined_at": "2026-04-01T06:14:53.102Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": 1,
+            "title": "전체 레이아웃 구조: 현재 3패널(사이드바-채팅-우측패널) → 다중 워크스페이스/에디터/브라우저를 수용하는 새 레이아웃",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "lead",
+                "content": "디자이너의 Activity Bar + 패널 그리드 제안은 현재 collapsed Sidebar와 자연스럽게 연결됨. 다만, 패널 자유 배치의 복잡도 vs 정형화된 레이아웃 프리셋 중 선택 필요. 아키텍트가 확인한 싱글윈도우 제약도 반영 필요.",
+                "timestamp": "2026-04-01T06:18:42.097Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "현재 3패널(Sidebar-Main-RightPanel) 고정 구조 폐기 제안. Activity Bar(44px) + 유동 패널 그리드 2단 구조로 전환. RightPanel 해체하여 각 탭을 독립 패널로 승격. 모든 패널(Chat, Editor, Browser)을 동등한 1급 시민으로 취급. react-resizable-panels 중첩 Group으로 자유 분할.",
+                "timestamp": "2026-04-01T06:18:47.743Z"
+              },
+              {
+                "speaker": "architect",
+                "content": "싱글윈도우 + 탭/분할 권장. 멀티윈도우는 Zustand 스토어 IPC 브릿지 비용 큼. react-resizable-panels 유지 가능. webview도 패널 그리드 통합에 기술적 문제 없음. 다만 패널 자유 배치 시 레이아웃 상태 직렬화/복원 로직 필요.",
+                "timestamp": "2026-04-01T06:18:49.548Z"
+              }
+            ],
+            "decision": "A안(자유 패널 그리드) 채택. Activity Bar(44px) + 유동 패널 그리드 구조로 전환. 현재 3패널 고정 구조 폐기. RightPanel 해체하여 각 탭을 독립 패널로 승격. Chat/Editor/Browser를 동등한 1급 패널로 취급. 기본 프리셋 레이아웃 제공하되 내부는 자유 분할 시스템. 점진적 구현 (Phase 1: Activity Bar + RightPanel 해체 → Phase 4: 워크스페이스 분할 뷰). Hard blocker 없음 확인됨."
+          },
+          {
+            "id": 2,
+            "title": "코드 에디터 통합: Monaco 에디터 배치 위치 및 채팅과의 관계",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "Monaco는 단일 인스턴스 + 탭 전환 권장 (모델만 전환, VSCode 패턴). 분할 뷰 시에만 2번째 인스턴스. automaticLayout:true로 리사이즈 자동 처리. Edit/Write 도구는 tool_result 확인 후 에디터 반영. Monaco의 DiffEditor로 변경 전/후 표시 가능. 현재 DiffView를 Monaco 기반으로 교체 제안. 포커스 충돌(키보드 캡처) 주의 필요.",
+                "timestamp": "2026-04-01T06:26:38.920Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "좌우 분할 제안: Chat 좌측 45% 고정, Editor 우측 55%. 에디터 미사용 시 Chat 전체 너비. Edit/Write 성공 시에만 에디터 자동 열림 (Read는 기존 열린 경우 탭 전환만). 파일 탭 바 36px, dirty/임시 상태 인디케이터. CodeBlock에 [에디터] 버튼 추가 — 파일 경로 있으면 해당 파일, 없으면 임시 탭. Escape로 Monaco→Chat 포커스 전환.",
+                "timestamp": "2026-04-01T06:28:57.625Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "양쪽 의견 수렴. 아키텍트: 단일 Monaco 인스턴스 + 모델 전환(VSCode 패턴), DiffEditor로 변경사항 표시. 디자이너: Chat 좌측 고정 + Editor 우측, 자동 열림 규칙 정의. 쟁점: 에디터 자동 열림의 트리거 범위(Edit/Write만 vs Read 포함), 채팅과 에디터의 좌우 고정 vs 사용자 자유 배치.",
+                "timestamp": "2026-04-01T06:29:02.971Z"
+              }
+            ],
+            "decision": "B안(자유 배치) 채택. Chat과 Editor를 사용자가 자유롭게 배치 가능 (좌우/상하/탭 모두 허용). 기본 프리셋으로 Chat 좌측 + Editor 우측 제공. Monaco 단일 인스턴스 + 모델 전환 패턴. Edit/Write 성공 시에만 에디터 자동 열림, Read는 기존 열린 경우 탭 전환만. CodeBlock에 [에디터] 버튼 추가. Escape로 Monaco→Chat 포커스 전환. DiffEditor로 변경 전/후 표시."
+          },
+          {
+            "id": 3,
+            "title": "다중 워크스페이스/세션 동시 작업 UX: 탭 vs 분할뷰 vs 독립 윈도우",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "Activity Bar에 워크스페이스 통합 지지. 워크스페이스별 독립 레이아웃 보존 필수 — _workspaceStores Map에 panelLayout 추가로 구현 가능. 워크스페이스 간 분할 뷰는 권장하지 않음 — 두 워크스페이스의 SessionStore를 하나의 패널 그리드에 혼합하면 상태 관리 급격히 복잡. 대신 워크스페이스 단위 전환이 충분히 빠르면(~50ms) 분할 필요성 감소. Status Bar에 모든 활성 세션 상태 요약 제안. waiting_permission 시 Activity Bar dot 주황 + 클릭 시 전환.",
+                "timestamp": "2026-04-01T06:31:34.055Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "Activity Bar에 워크스페이스 통합, 상단 별도 탭 바 불필요. hover 시 플라이아웃으로 세션 히스토리 표시. 패널 레이아웃 워크스페이스별 독립 보존. 분할 뷰: 아이콘을 Panel Grid로 드래그하여 최대 4분할. 3단계 알림: Activity Bar dot + 미확인 배지 + 글로벌 상태 바. 전환 시 애니메이션 없이 즉시 전환.",
+                "timestamp": "2026-04-01T06:31:36.881Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "핵심 쟁점: 워크스페이스 분할 뷰의 범위. 아키텍트는 워크스페이스 간 분할을 반대(상태 관리 복잡도), 디자이너는 드래그로 최대 4분할 제안. 나머지(Activity Bar 통합, 독립 레이아웃 보존, 상태 표시)는 합의됨.",
+                "timestamp": "2026-04-01T06:31:39.159Z"
+              },
+              {
+                "speaker": "architect",
+                "content": "분할 뷰 기술적으로 가능 확인 — SessionStoreContext.Provider를 패널 단위로 감싸면 됨. _sessionStores Map이 sessionId별 이벤트 라우팅 처리. 주의: _activeStore 싱글턴 의존 코드 수정 필요. 동시 활성 5개 권장(~1.3GB). 레이아웃 상태는 SessionStore와 분리하여 별도 layout-store로 관리 제안. 비활성 프로세스는 자동 suspend 비권장 — 30분 idle 시 자동 정리 + resume 패턴.",
+                "timestamp": "2026-04-01T06:32:13.021Z"
+              }
+            ],
+            "decision": "A안(워크스페이스 분할 허용) 채택. Activity Bar에 워크스페이스 통합, 별도 탭 바 불필요. 각 워크스페이스 패널 레이아웃 독립 보존. 아이콘 드래그로 분할, 최대 2분할. SessionStoreContext.Provider 패널 단위 격리로 구현. 동시 활성 세션 권장 5개. 상태 표시: Activity Bar dot + 미확인 배지 + 글로벌 Status Bar. waiting_permission 시 주황 dot. 비활성 30분 idle 시 자동 정리 + resume. 레이아웃 상태는 별도 layout-store로 관리. Phase 4로 후순위 구현."
+          },
+          {
+            "id": 4,
+            "title": "에이전트팀/서브에이전트 시각화: 팀 구조, 실행 상태, 메시지 흐름 표현 방식",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "AgentNode에 label, currentTask, teamId, model, tokenUsage 추가 제안. 간트 차트는 현재 events 배열의 timestamp+durationMs로 충분. 에이전트 간 메시지를 위해 AgentMessage 타입 신규 추가 필요 (fromAgentId, toAgentId, content, type:discuss|decide|delegate|report). AgentTimelineData에 messages[] 배열 추가. 목업 데이터 4에이전트 팀 구조 제시.",
+                "timestamp": "2026-04-01T06:37:22.488Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "에이전트 시각화 3곳 배치: (A) 채팅 내 인라인 카드 — 접힌 상태(진행률 바+이름 나열) / 펼친 상태(도구 호출 상세). (B) 전용 간트 차트 — 시간축 기반, 에이전트 간 화살표로 관계 표현, Bottom Panel 탭 기본. (C) Activity Bar 플라이아웃 — 에이전트 트리 요약. 미팅 세션은 에이전트별 메시지 버블 + [d] 결정 강조. 간트 차트에서 [MEET] 마커.",
+                "timestamp": "2026-04-01T06:37:25.977Z"
+              }
+            ],
+            "decision": "A안(Bottom Panel 탭) 채택. 에이전트 시각화 3곳: (1) 채팅 내 인라인 카드 — 접힌/펼친 상태, 진행률 바 + 에이전트 dot. (2) 전용 간트 차트 — Bottom Panel 탭 기본 위치, 독립 패널로도 분리 가능. 시간축 기반, 에이전트 간 화살표, [MEET] 마커. (3) Activity Bar 에이전트 플라이아웃 — 트리 요약 + 타임라인 진입점. AgentNode에 label/currentTask/teamId 추가. AgentMessage 타입 신규 추가 (discuss/decide/delegate/report). 미팅 세션은 에이전트별 메시지 버블 + [d] 결정 강조. Bottom Panel은 Cmd+J 토글, Terminal/Problems 등 확장 가능."
+          },
+          {
+            "id": 5,
+            "title": "내장 브라우저 패널: 위치, 크기 조절, 개발자도구 연동",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "webview 태그 사용 확정. capturePage()→base64→ChatInput 이미지 첨부 흐름. DevTools는 브라우저 패널 내 하단 분할(openDevTools mode:bottom). webview 패널당 1개 권장(다중 인스턴스 ~80-100MB). 보안: contextIsolation=yes 필수, 외부 URL 기본 차단. 리사이즈 시 CSS 100%로 자동 추적.",
+                "timestamp": "2026-04-01T06:43:15.256Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "브라우저는 Panel Grid 독립 패널. 상단 네비게이션 바(36px) + 하단 액션 바(28px). 스크린샷 캡처→ChatInput 이미지 첨부. 자동 열림 반대 — Claude 응답 내 인라인 [브라우저에서 열기] 버튼 클릭 시 열기. DevTools는 브라우저 패널 내부 하단 분할.",
+                "timestamp": "2026-04-01T06:43:17.529Z"
+              },
+              {
+                "speaker": "architect",
+                "content": "사용자 의견 수용. webContentsView 하이브리드 구조 제안: 웹 페이지와 DevTools를 각각 별도 webContentsView로 생성, setDevToolsWebContents()로 연결하여 같은 패널 내부에 인라인 배치. URL 바/네비게이션은 React로 렌더링. 리사이즈는 IPC + requestAnimationFrame 디바운싱. 첫 버전부터 이 방식 권장.",
+                "timestamp": "2026-04-01T06:49:53.265Z"
+              }
+            ],
+            "decision": "webContentsView 하이브리드 구조 채택. URL바/네비게이션은 React, 웹콘텐츠+DevTools는 webContentsView. DevTools는 setDevToolsWebContents()로 패널 내부 하단 인라인 배치 (별도 창 불가). 열림 방식: URL 텍스트 언급 → 인라인 버튼 클릭, browser_navigate 도구 호출 → 자동 열림. 스크린샷: capturePage() visible 영역 → ChatInput 이미지 첨부. 워크스페이스당 webview 최대 1개. Electron 41 = Chromium 136 번들링으로 Chrome과 동일 렌더링 보장. 보안: contextIsolation=yes, partition 분리, 외부 URL 기본 차단."
+          },
+          {
+            "id": 6,
+            "title": "마크다운 렌더링 고도화: 인라인 vs 전용 패널 vs 에디터 프리뷰",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "채팅 내 MarkdownRenderer 유지, 변경 불필요. .md 프리뷰는 Monaco onDidChangeModelContent 구독으로 실시간 업데이트 가능, IPC 왕복 없음. MarkdownViewer는 패널 타입으로 등록하여 독립/Monaco 연동 2모드 지원 제안.",
+                "timestamp": "2026-04-01T06:43:20.135Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "채팅 내 MarkdownRenderer 유지 + 코드블록 에디터 버튼 추가. .md 편집 시 에디터 내 분할 프리뷰 (편집만/분할/프리뷰만 3모드). 스크롤 동기화. MarkdownViewer 폐기 — 에디터 프리뷰로 대체. MarkdownRenderer 컴포넌트는 채팅 + 에디터 프리뷰 양쪽에서 재사용.",
+                "timestamp": "2026-04-01T06:43:22.447Z"
+              },
+              {
+                "speaker": "architect",
+                "content": "이전 의견 수정 — 별도 패널이 아니라 에디터 탭 내부 처리가 맞다. EditorTab 컴포넌트에서 .md 파일일 때 편집/분할/프리뷰 3모드 토글. Monaco + MarkdownRenderer 조합으로 에디터 레벨에서 완결. MarkdownViewer 컴포넌트 제거 가능.",
+                "timestamp": "2026-04-01T06:49:55.376Z"
+              }
+            ],
+            "decision": "에디터 탭 내부 마크다운 프리뷰 채택. .md 파일 열 때 EditorTab 컴포넌트에서 편집만/분할/프리뷰만 3모드 토글. Monaco + MarkdownRenderer 조합으로 에디터 레벨에서 완결. onDidChangeContent로 실시간 동기화 + 스크롤 동기화. 채팅 내 MarkdownRenderer는 유지 (변경 없음). MarkdownViewer 컴포넌트 폐기 — 에디터 프리뷰 모드가 대체. MarkdownRenderer를 채팅 + 에디터 프리뷰 양쪽에서 재사용."
+          }
+        ],
+        "research_summary": "현재 Nexus Code는 3패널 레이아웃(좌측 사이드바 18% - 중앙 ChatPanel - 우측 RightPanel 25%)으로 구성. react-resizable-panels 사용, 각 패널 collapse/expand 가능. 좌측 사이드바: 워크스페이스 목록 + 세션 히스토리. 중앙: 채팅(MessageBubble + ToolRenderer + ChatInput). 우측: 탭 기반(Nexus/Changes/Markdown/Timeline). 9개 Zustand 스토어로 상태 관리. 워크스페이스별 독립 세션 스토어. 에이전트는 AgentTimeline 컴포넌트에서 도구 실행 기록만 표시. 코드 에디터, 브라우저 패널은 현재 없음. 마크다운은 MarkdownRenderer(채팅 내) + MarkdownViewer(우측 패널)로 분리.",
+        "created_at": "2026-04-01T06:14:53.102Z"
+      },
+      "tasks": []
+    },
+    {
+      "completed_at": "2026-04-02T03:46:01.320Z",
+      "branch": "feat/structural-redesign",
+      "meet": {
+        "id": 2,
+        "topic": "Nexus Code 프로젝트 아이덴티티 재설계",
+        "attendees": [
+          {
+            "role": "architect",
+            "name": "아키텍트",
+            "joined_at": "2026-04-02T02:55:07.555Z"
+          },
+          {
+            "role": "designer",
+            "name": "디자이너",
+            "joined_at": "2026-04-02T02:55:07.555Z"
+          },
+          {
+            "role": "strategist",
+            "name": "전략가",
+            "joined_at": "2026-04-02T02:55:07.555Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": 1,
+            "title": "프로젝트 정체성 — CLI 래퍼 vs Fork vs 독립 도구, Nexus Code는 무엇인가",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "세 선택지 분석: A(래핑)는 구조적 천장 명확 — CLI 출력 포맷 변경 시 깨짐, 내부 상태 접근 불가, 양방향 제어 한계. B(Fork)는 기술적 자유도 최대이나 1,884파일 upstream 동기화 비용이 프로젝트를 죽일 수 있음. C(독립)는 Claude Code 재구현이 되어 범위 초과. 권고: AgentBackend 추상 인터페이스로 분리 후, 단기 A 유지 → 중기 점진적 API 직접 호출 도입의 하이브리드 전략. Fork는 장기적으로도 피해야 함.",
+                "timestamp": "2026-04-02T02:57:27.198Z"
+              },
+              {
+                "speaker": "strategist",
+                "content": "래퍼는 commodity화되어 진입장벽 0. 정체성 전환 필요: \"Claude Code GUI\" → \"Agent Orchestration Workstation\". Claude Code는 런타임, Nexus는 워크플로우 레이어(Docker vs K8s 비유). Nexus의 역할 기반 팀 오케스트레이션([meet]→[d]→[run])은 현재 어디에도 없는 차별점. 단, Anthropic의 Claude Cowork/Agent Skills가 오케스트레이션 흡수 리스크 있으므로 \"개발 워크플로우 특화 opinionated 오케스트레이션\"으로 좁혀야 함.",
+                "timestamp": "2026-04-02T02:59:46.871Z"
+              },
+              {
+                "speaker": "designer",
+                "content": "CLI 래핑의 UX 한계: 상태 불일치, 도구 출력 제어권 부재, 멀티에이전트 평면화. API 직접 호출은 \"더 빠르다\"가 아니라 \"UX 제어권을 갖는다\"는 의미. 핵심 가치제안: \"에이전트 오케스트레이션의 가시성과 제어\". 타겟 사용자: 복수 에이전트를 감독하는 시니어 개발자(\"Agent Supervisor\"). 초보 타겟 병행은 비추 — 파워유저 도구로 정체성 확립 후 온보딩 개선 순서.",
+                "timestamp": "2026-04-02T02:59:50.494Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "후속 논의: 결과물 검증 도구(코드 에디터, 브라우저, 파일탐색기)와 오케스트레이션 워크스테이션의 호환성 확인. 세 도구 모두 AgentBackend과 독립적으로 동작 — 아키텍처적으로 건강한 분리. 브라우저는 Electron 내장 Chromium 기반으로 Chrome과 렌더링 동일(WebContentsView 권장). 코드 에디터는 Monaco 기반 diff view 추가 필요. 파일 탐색기는 신규 구현 필요(중 규모). 디자이너 제안: 검증 도구는 별도 탭이 아니라 에이전트 컨텍스트에 바인딩 — \"결과가 찾아오는 UX\".",
+                "timestamp": "2026-04-02T03:08:28.687Z"
+              }
+            ],
+            "decision": "프로젝트 정체성 = \"에이전트 오케스트레이션 워크스테이션\". CLI 래퍼가 아닌 AI 에이전트 팀을 설계·감독·운영하는 독자적 개발 도구. 기술 전환 경로: AgentBackend 추상화 → 점진적 API 직접 호출(Fork 배제). 검증 도구(코드 뷰어, 브라우저, 파일탐색기)는 에이전트 컨텍스트에 바인딩. 타겟 사용자: 복수 에이전트를 감독하는 시니어 개발자(Agent Supervisor). 플랫폼(Electron/TUI 등)은 안건 2에서 별도 결정."
+          },
+          {
+            "id": 2,
+            "title": "기술 아키텍처 방향 — Electron GUI vs TUI vs 하이브리드",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "lead",
+                "content": "팀 전원 A(Electron GUI) 권고로 수렴. 핵심 논거: (1) 안건 1의 UX 정체성이 이미 GUI를 전제 — Gantt 타임라인, diff, 브라우저 프리뷰, 에이전트 컨텍스트 바인딩은 TUI에서 불가능하거나 열등. (2) TUI는 Claude Code CLI와 차별화 약화. (3) 하이브리드는 개인 프로젝트에서 비현실적. (4) C-2(내장 터미널)를 부분 채택하면 터미널 선호 사용자도 커버 가능. 리서처 추가 관찰: TUI를 원하는 사용자는 Claude Code CLI를 직접 씀 — Nexus Code를 쓰는 이유는 시각적 감독 레이어.",
+                "timestamp": "2026-04-02T03:13:29.361Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "프레임워크 비교 후속 논의. Tauri는 유일한 진지한 대안이나 두 가지 킬러 문제: (1) 시스템 WebView 사용 → macOS WebKit에서 브라우저 프리뷰 렌더링이 Chrome과 다름, 안건 1의 \"일반 브라우저와 렌더링이 같아야 함\" 요구사항 미충족. (2) control-plane(RunManager, HookServer) Rust 재작성 필요. Flutter/Neutralino는 고려 대상 아님. 전략가: \"프레임워크를 바꿔서 얻는 것은 기술적 만족감, 잃는 것은 기능 개발 시간.\" 팀 전원 Electron 유지 권고.",
+                "timestamp": "2026-04-02T03:16:05.949Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "Tauri v2 재조사 결과: 이전 분석에서 \"Tauri v2가 내장 Chromium 지원하면 재검토\"라 했으나, Tauri v2는 이미 정식 릴리스(2.10.3)이고 멀티 WebView, subprocess 스트리밍 등 기술 요구사항 대부분 충족. 단, 내장 Chromium은 Tauri 철학상 미지원 — macOS는 여전히 WebKit. 전체 프레임워크 조사에서도 Electron 외에는 Chrome 동일 렌더링 불가. 핵심 분기점: \"브라우저 프리뷰 = Chrome 렌더링\"이 hard requirement인가.",
+                "timestamp": "2026-04-02T03:23:02.077Z"
+              }
+            ],
+            "decision": "플랫폼: Electron GUI 확정. GUI 선택(TUI/하이브리드 배제) — 오케스트레이션 워크스테이션 UX가 GUI를 전제. 프레임워크: Electron — 내장 Chromium으로 Chrome 동일 렌더링 보장. 브라우저 프리뷰는 hard requirement (CMUX의 WebKit/WKWebView 렌더링 문제 실경험 근거). Tauri/Swift 네이티브/Flutter 등 비-Electron 프레임워크는 macOS에서 WebKit 사용하여 동일 문제 재현되므로 배제. 내장 터미널(xterm.js)은 향후 부가 기능으로 고려."
+          },
+          {
+            "id": 3,
+            "title": "차별화 전략 — 기존 래퍼/경쟁 도구 대비 Nexus만의 가치",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "lead",
+                "content": "팀 전원 수렴. 핵심 차별점 2개: (1) 미팅 기반 의사결정 워크플로우 [meet]→[d]→[run] — 방법론이라 플랫폼 벤더가 흡수하지 않는 영역. (2) 에이전트 감독 대시보드(Mission Control) — 타임라인+통합 승인 큐+컨텍스트 바인딩 검증. 테이블 스테이크: 멀티워크스페이스. 기술적 해자는 없으나 통합 UX 완성도가 현실적 방어선. 킬러 인터랙션: 통합 승인 큐(멀티에이전트 권한 요청을 하나로 모아 우선순위 정렬+일괄 승인). 기존 자산(AgentTracker, GanttTimeline, HookServer, CheckpointManager) 연결만으로 감독 워크플로우 상당 부분 완성 가능.",
+                "timestamp": "2026-04-02T03:28:43.456Z"
+              }
+            ],
+            "decision": "차별화 = 2가지 집중. (1) 미팅 기반 의사결정 워크플로우 [meet]→[d]→[run] — 방법론이라 플랫폼 벤더 흡수 불가 영역, \"혼자 개발하지만 팀처럼 검토받는 경험\". (2) 에이전트 감독 대시보드(Mission Control) — 실시간 오케스트레이션 맵 + 통합 승인 큐(킬러 인터랙션) + 컨텍스트 바인딩 검증. 방어 전략: 기술적 해자 아닌 통합 UX 완성도 선점 + dogfooding 품질. 테이블 스테이크(멀티WS, 에디터, 브라우저, 파일탐색기)는 유지하되 투자 최소화. 기존 자산(AgentTracker, GanttTimeline, HookServer, CheckpointManager) 연결로 빠르게 구현."
+          },
+          {
+            "id": 4,
+            "title": "실행 범위 — 개인 프로젝트로서의 현실적 스코프와 로드맵",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "lead",
+                "content": "팀 전원 수렴. MVP 원칙: \"오케스트레이션이 아닌 것은 안 만든다.\" Phase 1 MVP = 에이전트 사이드바(상태 카드) + 통합 승인 큐 + 컨텍스트 바인딩(에이전트 선택→diff+채팅 전환). 현재 코드 84파일 중 버릴 것 없음, control-plane 전체 그대로 사용, 레이아웃만 리팩토링. AgentBackend 추상화는 Phase 2로 연기(시기상조). 전략가 경고: IDE 재발명 유혹, 기술부채 완벽주의, \"기능 하나 더\" 중독, 출시 지연 — 4대 함정 회피. 디자이너 제안: 첫 30초 킬러 경험 = \"에이전트 3개 동시 실행, 승인 큐 클릭→diff 표시→승인→다음 건 자동 이동\".",
+                "timestamp": "2026-04-02T03:31:59.302Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "풀 로드맵 종합. 5 Phase, 18-28주(4.5-7개월). Phase 1: 감독 루프 MVP(에이전트 사이드바+승인 큐+컨텍스트 바인딩+체크포인트 diff). Phase 2: 검증 도구(파일탐색기, 도구 상세, Mission Control 대시보드, Gantt 고도화). Phase 3: 워크플로우(미팅 GUI, 내장 터미널, 멀티WS). Phase 4: 백엔드 진화(AgentBackend 추상화, API 직접 호출, 토큰 시각화). Phase 5: 안정화(성능, 에러 복구, 배포, 테스트). UX 진화: \"한 화면에서 다 보인다\"→\"알아서 보여준다\"→\"전체 그림이 보인다\"→\"이 안에서 다 된다\". 각 Phase는 독립적 가치 전달, 순서 의존.",
+                "timestamp": "2026-04-02T03:38:15.010Z"
+              }
+            ],
+            "decision": "풀 로드맵 5 Phase 확정. Phase 1(MVP): 에이전트 사이드바+통합 승인 큐+컨텍스트 바인딩+체크포인트 diff. Phase 2: 파일탐색기+도구 상세+Mission Control 대시보드+Gantt 고도화. Phase 3: 미팅 워크플로우 GUI([meet]→[d]→[run])+내장 터미널(xterm.js)+멀티워크스페이스. Phase 4: AgentBackend 추상화+API 직접 호출 백엔드+토큰/컨텍스트 시각화. Phase 5: 성능 최적화+에러 복구+배포 파이프라인+E2E 테스트. 총 5-7개월. 원칙: \"오케스트레이션이 아닌 것은 안 만든다\", Phase 범위 엄수, 4대 함정(IDE 재발명, 기술부채 완벽주의, 기능 추가 중독, 출시 지연) 회피."
+          }
+        ],
+        "research_summary": "## 리서치 요약\n\n### Claude Code 소스 분석\n- TypeScript + React(Ink TUI), Zustand, ~1884파일\n- 핵심: main.tsx(800KB), query.ts(68KB) — API 스트리밍+도구 오케스트레이션\n- 확장 포인트: MCP(4종 프로토콜), Hooks(8이벤트), Plugins/Skills\n- Fork 후 자체 도구 추가, 권한 모드 수정 가능\n- 멀티에이전트 리더-워커 아키텍처, 토큰 비용 추적/자동 압축\n\n### 현재 Nexus Code 구조\n- Electron(Main/Preload/Renderer) + React + Zustand\n- child_process.spawn()으로 Claude CLI 실행, stdout 파싱(StreamParser)\n- HTTP Hook Server로 pre-tool-use, permission, subagent 이벤트 수신\n- 멀티워크스페이스(워크스페이스별 SessionStore), Monaco 에디터, 웹뷰 브라우저\n- 플러그인 시스템(manifest.json file-watch), 에이전트 타임라인(AgentTracker)\n- 체크포인트(git stash), 커맨드 팔레트(cmdk), 권한 자동승인\n\n### 시장 현황\n- Claude Code GUI 래퍼 다수 존재: CodePilot, claudecodeui, claude-code-webui, opcode\n- Cursor(1M+유저), Windsurf($250M인수) 등 IDE 기반 강자\n- 78% 개발자 AI 코딩 도구 사용, 멀티플랫폼 수렴 트렌드\n- Anthropic 방향: Claude Cowork(지식작업 확장), Agent Skills beta\n- 소스 공개로 래퍼 프로젝트 더 증가 예상",
+        "created_at": "2026-04-02T02:55:07.555Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "layout-store + 타입 기반 구축",
+          "context": "layout-store.ts 신규 생성 + shared/types.ts에 PanelType, PanelConfig, PanelLayoutNode, WorkspaceLayout 타입 추가. _activeStore 싱글턴 → focusedWorkspace + SessionStoreContext.Provider 패널 단위 주입으로 전환. 설계서: docs/ui-redesign-spec.md 섹션 9 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 1,
+          "created_at": "2026-04-01T07:34:28.025Z"
+        },
+        {
+          "id": 2,
+          "title": "ActivityBar + FlyoutPanel 신규 생성",
+          "context": "ActivityBar.tsx: 좌측 44px 고정, 워크스페이스 이니셜 아이콘(상태 dot 포함) + 기능 아이콘(탐색기/에이전트/설정). FlyoutPanel.tsx: Activity Bar 클릭 시 우측 오버레이(240px), 현재 Sidebar expanded 콘텐츠를 플라이아웃으로 이동. 현재 Sidebar.tsx의 CollapsedWorkspaceButton 코드 참조. 설계서 섹션 2 참조.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "meet_issue": 1,
+          "created_at": "2026-04-01T07:34:32.521Z"
+        },
+        {
+          "id": 3,
+          "title": "PanelGrid + BottomPanel + GlobalStatusBar 신규 생성",
+          "context": "PanelGrid.tsx: 패널 타입 레지스트리 + 동적 렌더링, react-resizable-panels 중첩 Group, Panel Tab Bar(36px). BottomPanel.tsx: Cmd+J 토글, Timeline탭(기존 AgentTimeline 이동) + Terminal탭(Bash 도구 출력 로그) + Problems탭. GlobalStatusBar.tsx: 최하단 24px, 워크스페이스 상태 요약 + 모델/토큰. 활성 패널 포커스 피드백(2px primary 보더). 설계서 섹션 2 참조.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "decisions": [],
+          "meet_issue": 1,
+          "created_at": "2026-04-01T07:34:37.609Z"
+        },
+        {
+          "id": 4,
+          "title": "AppLayout 전면 재작성 + MainPanel/RightPanel 삭제",
+          "context": "AppLayout.tsx를 Activity Bar + PanelGrid + BottomPanel + GlobalStatusBar 구조로 전면 재작성. MainPanel.tsx 삭제(ChatPanel이 PanelGrid의 일반 패널로 직접 등록). RightPanel.tsx 삭제(NexusPanel은 Activity Bar 플라이아웃으로, AgentTimeline은 BottomPanel로, ChangesPanel/MarkdownViewer는 Phase 2에서 처리). 기본 프리셋: Chat Only. 설계서 섹션 2 + 섹션 8 마이그레이션 맵 참조.",
+          "status": "completed",
+          "deps": [
+            2,
+            3
+          ],
+          "decisions": [],
+          "meet_issue": 1,
+          "created_at": "2026-04-01T07:34:41.611Z"
+        },
+        {
+          "id": 5,
+          "title": "Monaco 패키지 설치 + EditorPanel + EditorTabBar 기본 구조",
+          "context": "@monaco-editor/react 패키지 추가. EditorPanel.tsx 신규 생성 (Monaco 에디터 + 파일 탭 관리 + PanelGrid 패널 타입 'editor' 연동). EditorTabBar.tsx 신규 생성 (파일 탭 바 36px, dirty/임시 상태 인디케이터). Monaco 테마 nexus-dark 정의 (Tailwind v4 다크 테마 매칭). PanelGrid의 'editor' placeholder를 EditorPanel로 교체. layout-store에 에디터 관련 상태 연동. 설계서 섹션 3 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 2,
+          "created_at": "2026-04-02T00:06:15.323Z"
+        },
+        {
+          "id": 6,
+          "title": "Edit/Write 도구 → 에디터 자동 연동 + CodeBlock [에디터] 버튼 + 포커스 관리",
+          "context": "Edit/Write tool_result 성공 시 에디터 자동 열림 (파일 탭 열기 + diff 하이라이트). Read는 이미 열린 경우 탭 전환만. CodeBlock.tsx에 [에디터] 버튼 추가 (파일 경로 있으면 해당 파일, 없으면 임시 탭). 포커스 관리: Escape로 Monaco→Chat 전환, ChatInput 포커스 시 Monaco 비활성, Cmd+K 등 전역 단축키 Monaco보다 우선. 설계서 섹션 3 참조.",
+          "status": "completed",
+          "deps": [
+            5
+          ],
+          "decisions": [],
+          "meet_issue": 2,
+          "created_at": "2026-04-02T00:06:20.229Z"
+        },
+        {
+          "id": 7,
+          "title": ".md 프리뷰 모드 + ChangesPanel/DiffView/MarkdownViewer 삭제",
+          "context": "EditorPanel에서 .md 파일 열 때 편집만/분할/프리뷰만 3모드 토글. Monaco + MarkdownRenderer 조합. onDidChangeContent 실시간 동기화. ChangesPanel.tsx 삭제 (Monaco DiffEditor로 대체). DiffView.tsx 삭제 (Monaco DiffEditor로 대체). MarkdownViewer.tsx 삭제 (에디터 프리뷰 모드가 대체). import 정리. 설계서 섹션 7 + 섹션 8 참조.",
+          "status": "completed",
+          "deps": [
+            5
+          ],
+          "decisions": [],
+          "meet_issue": 6,
+          "created_at": "2026-04-02T00:06:23.369Z"
+        },
+        {
+          "id": 8,
+          "title": "BrowserPanel + main 프로세스 webContentsView IPC",
+          "context": "BrowserPanel.tsx 신규 생성 (URL 바 + 네비게이션 + 스크린샷 캡처 버튼). main 프로세스에 webContentsView 생성/관리 + DevTools 연동 IPC 구현. BrowserNavigateRequest, BrowserResizeRequest, BrowserCaptureRequest 등 IPC 채널 추가. ResizeObserver로 bounds 초기 배치 + display:none→visible 전환 시 재계산. 스크린샷 → ChatInput 이미지 첨부 연동. PanelGrid의 browser placeholder를 BrowserPanel로 교체. 설계서 섹션 6 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 5,
+          "created_at": "2026-04-02T00:19:07.942Z"
+        },
+        {
+          "id": 9,
+          "title": "AgentNode/AgentMessage 타입 확장 + InlineAgentCard 신규",
+          "context": "AgentNode에 label, currentTask, teamId, model, tokenUsage 필드 추가. AgentMessage 타입 신규 추가. AgentTimelineData에 messages[] 추가. InlineAgentCard.tsx 신규 생성 — 채팅 내 인라인 에이전트 카드 (접힌/펼친 상태, 진행률 바, 에이전트 dot). 에이전트 spawn 시점에 채팅 메시지 흐름에 삽입. main 프로세스 agent-tracker에서 SendMessage 도구 호출 감지 → AgentMessage 수집. 설계서 섹션 5 + 섹션 9 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 4,
+          "created_at": "2026-04-02T00:19:12.221Z"
+        },
+        {
+          "id": 10,
+          "title": "GanttTimeline 신규 + BottomPanel Timeline 탭 교체",
+          "context": "GanttTimeline.tsx 신규 생성 — 시간축 기반 간트 차트 (에이전트별 행, 바 색상 상태별, 에이전트 간 화살표, [MEET] 마커). BottomPanel의 Timeline 탭을 기존 AgentTimeline에서 GanttTimeline으로 교체 (또는 탭 내에서 뷰 전환). 바 hover 팝오버, 클릭 필터, 시간축 스크롤/줌. 설계서 섹션 5 참조.",
+          "status": "completed",
+          "deps": [
+            9
+          ],
+          "decisions": [],
+          "meet_issue": 4,
+          "created_at": "2026-04-02T00:19:17.098Z"
+        },
+        {
+          "id": 11,
+          "title": "워크스페이스 분할 뷰 + 드래그 인터랙션 + 이름 바",
+          "context": "Activity Bar에서 워크스페이스 아이콘을 Panel Grid로 드래그하여 분할. 최대 2분할(좌우/상하). 분할 영역 상단에 워크스페이스 이름 바(24px). SessionStoreContext.Provider를 분할 영역별로 감싸기. 각 분할 영역이 독립 패널 레이아웃. AppLayout에서 분할 상태 관리. 설계서 섹션 4 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 3,
+          "created_at": "2026-04-02T00:27:40.699Z"
+        },
+        {
+          "id": 12,
+          "title": "미확인 배지 + waiting_permission 알림 + 동시 세션 soft limit",
+          "context": "Activity Bar 워크스페이스 아이콘에 미확인 메시지 배지 (비활성 워크스페이스에서 Claude 응답 완료 시 카운트 증가, 전환 시 리셋). waiting_permission 시 주황 dot + 클릭 시 해당 워크스페이스 전환 + 권한 카드 포커스. 동시 활성 세션 5개 초과 시 UI 경고. 설계서 섹션 4 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 3,
+          "created_at": "2026-04-02T00:27:44.207Z"
+        },
+        {
+          "id": 13,
+          "title": "30분 idle 자동 정리 + resume 패턴",
+          "context": "비활성 워크스페이스의 CLI 프로세스가 30분 이상 idle이면 자동 종료. 재활성화 시 --resume으로 자동 재개. 현재 ACTIVITY_TIMEOUT_MS(120초, run-manager.ts:27)와 별도의 장기 idle 타이머 추가. 프로세스 종료 시 UI에 \"세션 일시정지됨\" 상태 표시. 설계서 섹션 4 참조.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 3,
+          "created_at": "2026-04-02T00:27:47.612Z"
+        },
+        {
+          "id": 14,
+          "title": "설정 패널 UI 개편 — PermissionMode 라디오 카드",
+          "context": "panel-permissions.tsx의 퍼미션 모드 선택 UI를 select dropdown에서 라디오 버튼 카드 형태로 교체. 각 카드에 모드 이름 + 설명 텍스트 표시, 위험 모드(bypassPermissions/auto/dontAsk) 선택 시 ConfirmDialog 유지. settings-store.ts의 permissionMode 타입이 shared/types.ts PermissionMode와 일치하는지 확인. bun run typecheck 통과 acceptance.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "엔지니어",
+          "created_at": "2026-04-02T00:37:49.957Z"
+        },
+        {
+          "id": 15,
+          "title": "FlyoutPanel z-index 버그 수정 — Activity Bar 가림 현상",
+          "context": "FlyoutPanel이 -translate-x-full로 숨겨져도 z-50 + bg-card로 Activity Bar 전체를 가림. opacity-0 + pointer-events-none 추가 필요.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-04-02T00:39:40.290Z"
+        },
+        {
+          "id": 16,
+          "title": "세션 시작/종료 시 settings.local.json 훅 정리 버그 수정",
+          "context": "1) bypass 모드에서 기존 PreToolUse 훅이 제거되지 않음 (existingHooks 스프레드로 잔존). 2) 세션 종료 시 훅 정리 없음 → 앱 재시작 후 만료 포트의 훅이 남아 모든 도구 차단. handlers.ts START/RESUME 핸들러의 hooks 주입 로직 수정 + 세션 종료 시 hooks 정리 추가 필요.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "created_at": "2026-04-02T00:47:02.804Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-04-02T03:48:22.214Z",
+      "branch": "feat/structural-redesign",
+      "meet": null,
+      "tasks": [
+        {
+          "id": 1,
+          "title": "mission.md 재작성",
+          "context": "팀 미팅 결정사항에 따라 mission.md를 \"에이전트 오케스트레이션 워크스테이션\" 정체성으로 재작성. CLI 래퍼 프레이밍 탈피, 핵심 차별화 2가지 포함.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "owner": "engineer",
+          "created_at": "2026-04-02T03:46:17.584Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-04-02T03:49:46.424Z",
+      "branch": "feat/structural-redesign",
+      "meet": null,
+      "tasks": [
+        {
+          "id": 1,
+          "title": "design.md 재작성 — 오케스트레이션 워크스테이션 정체성 반영",
+          "context": "미팅 결정사항(정체성, 플랫폼, 차별화)을 반영하여 .nexus/core/identity/design.md를 재작성. 제품 정체성을 \"CLI 래퍼\"에서 \"에이전트 오케스트레이션 워크스테이션\"으로 변경, AgentBackend 추상화 계획, Electron 선택 근거 업데이트, Mission Control 레이아웃 추가.",
+          "status": "pending",
+          "deps": [],
+          "decisions": [],
+          "owner": "writer",
+          "created_at": "2026-04-02T03:48:51.951Z"
+        },
+        {
+          "id": 2,
+          "title": "mission.md 재작성",
+          "context": "미팅 결정사항 반영: 정체성=에이전트 오케스트레이션 워크스테이션, CLI 래퍼 프레이밍 탈피, 타겟=Agent Supervisor, 차별화=미팅 워크플로우+감독 대시보드",
+          "status": "pending",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 1,
+          "created_at": "2026-04-02T03:48:59.156Z"
+        },
+        {
+          "id": 3,
+          "title": "design.md 재작성",
+          "context": "미팅 결정사항 반영: 제품 정체성, AgentBackend 추상화 계획, Electron 선택 근거(CMUX WebKit 문제), Mission Control 레이아웃, 설계 원칙 업데이트",
+          "status": "pending",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 2,
+          "created_at": "2026-04-02T03:49:01.478Z"
+        },
+        {
+          "id": 4,
+          "title": "roadmap.md 재작성",
+          "context": "미팅 결정사항 반영: 기존 Phase 1-8을 v1으로 정리, 새 5 Phase 로드맵(감독 루프 MVP→검증 도구→워크플로우→백엔드 진화→안정화)을 구체적 산출물과 완료 기준 포함하여 작성",
+          "status": "pending",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 4,
+          "created_at": "2026-04-02T03:49:04.251Z"
+        }
+      ]
     }
   ]
 }
