@@ -84,8 +84,8 @@ export function FlyoutPanel({ isOpen, contentType, onClose, onOpenSettings, onOp
       ref={panelRef}
       className={cn(
         'absolute left-11 top-0 z-50 flex h-full w-60 flex-col border-r border-border bg-card shadow-lg',
-        'transition-transform duration-200 ease-in-out',
-        isOpen ? 'translate-x-0' : '-translate-x-full',
+        'transition-all duration-200 ease-in-out',
+        isOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 pointer-events-none',
       )}
     >
       {/* 헤더 닫기 버튼 */}
