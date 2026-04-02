@@ -89,7 +89,7 @@ export interface StatusRequest {
   sessionId: string
 }
 
-export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error' | 'restarting' | 'timeout'
+export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error' | 'restarting' | 'timeout' | 'suspended'
 
 export interface RestartAttemptEvent {
   sessionId: string
@@ -119,6 +119,11 @@ export interface StatusResponse {
 }
 
 // ─── Stream Events (Main → Renderer) ────────────────────────────────────────
+
+export interface StatusChangeEvent {
+  sessionId: string
+  status: SessionStatus
+}
 
 export interface TextChunkEvent {
   sessionId: string

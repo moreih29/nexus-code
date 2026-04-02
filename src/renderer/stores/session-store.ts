@@ -157,6 +157,16 @@ export function getStoreBySessionId(sessionId: string): StoreApi<SessionStoreSta
   return _sessionStores.get(sessionId)
 }
 
+/** sessionId로 해당 워크스페이스 경로를 역방향 조회 */
+export function getWorkspacePathBySessionId(sessionId: string): string | undefined {
+  const store = _sessionStores.get(sessionId)
+  if (!store) return undefined
+  for (const [path, ws] of _workspaceStores) {
+    if (ws === store) return path
+  }
+  return undefined
+}
+
 export function setActiveStore(store: StoreApi<SessionStoreState> | null): void {
   _activeStore = store
 }

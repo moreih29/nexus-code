@@ -14,14 +14,18 @@ import type {
   RestartFailedEvent,
   TimeoutEvent,
   RateLimitEvent,
+  StatusChangeEvent,
 } from '../shared/types'
-import { getStoreBySessionId, getActiveStore } from './stores/session-store'
+import { getStoreBySessionId, getActiveStore, getWorkspacePathBySessionId } from './stores/session-store'
 import { usePermissionStore } from './stores/permission-store'
 import { usePluginStore, useRightPanelUIStore } from './stores/plugin-store'
 import { useStatusBarStore } from './stores/status-bar-store'
 import type { TodoItem } from './stores/status-bar-store'
 import { useChangesStore } from './stores/changes-store'
 import { useEditorStore } from './stores/editor-store'
+import { useNotificationStore } from './stores/notification-store'
+import { useWorkspaceStore } from './stores/workspace-store'
+import { useToastStore } from './components/ui/toast'
 
 let initialized = false
 
@@ -37,6 +41,27 @@ export function initIpcBridge(): void {
   const statusBarStore = useStatusBarStore.getState
   const changesStore = useChangesStore.getState
   const editorStore = useEditorStore.getState
+  const notificationStore = useNotificationStore.getState
+  const toastStore = useToastStore.getState
+
+  // 동시 세션 soft limit 체크
+  const SESSION_SOFT_LIMIT = 5
+  function checkSessionLimit() {
+    const ws = useWorkspaceStore.getState().workspaces
+    let runningCount = 0
+    for (const w of ws) {
+      try {
+        const store = getStoreBySessionId(w.sessionId ?? '')
+        if (store?.getState().status === 'running') runningCount++
+      } catch { /* ignore */ }
+    }
+    if (runningCount > SESSION_SOFT_LIMIT && !notificationStore().sessionLimitWarned) {
+      notificationStore().setSessionLimitWarned(true)
+      toastStore().show(
+        `동시 활성 세션이 ${SESSION_SOFT_LIMIT}개를 초과했습니다. 메모리 사용량이 증가할 수 있습니다.`,
+      )
+    }
+  }
 
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
@@ -45,6 +70,8 @@ export function initIpcBridge(): void {
     if (store) {
       store.getState().appendTextChunk(event.text)
     }
+    // 동시 세션 수 체크
+    checkSessionLimit()
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
@@ -163,6 +190,13 @@ export function initIpcBridge(): void {
       state.setLastTurnStats(stats)
       state.addTurnToHistory(stats)
       state.endSession()
+
+      // 미확인 배지: 비활성 워크스페이스에서 턴 완료 시 카운트 증가
+      const wsPath = getWorkspacePathBySessionId(event.sessionId)
+      const activeWs = useWorkspaceStore.getState().activeWorkspace
+      if (wsPath && wsPath !== activeWs) {
+        useNotificationStore.getState().incrementUnread(wsPath)
+      }
     }
   }) as (...args: unknown[]) => void)
 
@@ -233,5 +267,13 @@ export function initIpcBridge(): void {
 
   window.electronAPI.on(IpcChannel.RATE_LIMIT, ((_event: RateLimitEvent) => {
     rlog.warn('rate_limit')
+  }) as (...args: unknown[]) => void)
+
+  // STATUS_CHANGE → session store (suspended 포함 모든 상태 변경)
+  window.electronAPI.on(IpcChannel.STATUS_CHANGE, ((event: StatusChangeEvent) => {
+    const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
+    if (store) {
+      store.getState().setStatus(event.status)
+    }
   }) as (...args: unknown[]) => void)
 }

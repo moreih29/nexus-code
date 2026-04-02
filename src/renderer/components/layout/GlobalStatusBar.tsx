@@ -25,6 +25,9 @@ function WorkspaceStatusDot({ workspacePath }: { workspacePath: string }) {
   if (status === 'error') {
     return <span className="h-1.5 w-1.5 rounded-full bg-error" />
   }
+  if (status === 'suspended') {
+    return <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+  }
   return null
 }
 
@@ -80,14 +83,25 @@ function TokenDisplay({ workspacePath }: { workspacePath: string }) {
   return <span>{(totalTokens / 1000).toFixed(1)}k 토큰</span>
 }
 
+// ─── suspended 배지 ───────────────────────────────────────────────────────────
+
+function SuspendedBadge({ workspacePath }: { workspacePath: string }) {
+  const store = getOrCreateWorkspaceStore(workspacePath)
+  const status = useStore(store, (s) => s.status)
+  if (status !== 'suspended') return null
+  return (
+    <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+      일시정지
+    </span>
+  )
+}
+
 // ─── GlobalStatusBar ──────────────────────────────────────────────────────────
 
 export function GlobalStatusBar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const model = useSettingsStore((s) => s.model)
-
-  // 토큰 사용량은 별도 컴포넌트에서 구독 (조건부 useStore 회피)
 
   return (
     <div className="flex h-6 shrink-0 items-center justify-between border-t border-border bg-card px-2">
@@ -102,8 +116,9 @@ export function GlobalStatusBar() {
         ))}
       </div>
 
-      {/* 우측: 모델 + 토큰 */}
+      {/* 우측: 일시정지 배지 + 모델 + 토큰 */}
       <div className="flex shrink-0 items-center gap-2 text-xs text-dim-foreground">
+        {activeWorkspace && <SuspendedBadge workspacePath={activeWorkspace} />}
         {activeWorkspace && <TokenDisplay workspacePath={activeWorkspace} />}
         <span className="text-muted-foreground">{model}</span>
       </div>

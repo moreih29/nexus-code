@@ -57,6 +57,8 @@ import type {
   RestartSessionRequest,
   RestartSessionResponse,
   PermissionMode,
+  SessionStatus,
+  StatusChangeEvent,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
@@ -343,6 +345,12 @@ function bindManagerToWindow(
   manager.on('restart_failed', (data) => webContents.send(IpcChannel.RESTART_FAILED, data))
   manager.on('timeout', (data) => webContents.send(IpcChannel.TIMEOUT, data))
   manager.on('rate_limit', (data) => webContents.send(IpcChannel.RATE_LIMIT, data))
+  manager.on('status_change', (status: SessionStatus) => {
+    webContents.send(IpcChannel.STATUS_CHANGE, {
+      sessionId: manager.getSessionId(),
+      status,
+    } satisfies StatusChangeEvent)
+  })
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {

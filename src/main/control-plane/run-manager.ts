@@ -25,6 +25,8 @@ import type {
 
 /** 마지막 stdout 출력으로부터 이 시간(ms)이 지나면 timeout 이벤트를 emit */
 const ACTIVITY_TIMEOUT_MS = 120_000
+/** idle 상태로 이 시간(ms)이 지나면 CLI 프로세스를 자동 종료 (suspended) */
+const LONG_IDLE_TIMEOUT_MS = 30 * 60 * 1000
 
 // Claude CLI 바이너리 탐색 경로 목록
 const CLAUDE_CANDIDATE_PATHS = [
@@ -104,6 +106,7 @@ export class RunManager extends EventEmitter {
   private cancelled: boolean = false
   private activityTimer: ReturnType<typeof setTimeout> | null = null
   private rateLimited: boolean = false
+  private longIdleTimer: ReturnType<typeof setTimeout> | null = null
 
   getSessionId(): string {
     return this.sessionId
@@ -336,6 +339,12 @@ export class RunManager extends EventEmitter {
 
       const exitCode = code ?? 0
 
+      // suspended 상태로 인한 종료 — 크래시 재시작 없이 상태 유지
+      if (this.status === 'suspended') {
+        this.cleanup()
+        return
+      }
+
       if (!this.cancelled && shouldRestart(exitCode) && this.restartCount < MAX_RESTART_ATTEMPTS) {
         const attempt = this.restartCount + 1
         const reason = `프로세스가 비정상 종료되었습니다 (exit ${exitCode})`
@@ -464,7 +473,47 @@ export class RunManager extends EventEmitter {
     if (this.status !== status) {
       this.status = status
       this.emit('status_change', status)
+
+      if (status === 'idle') {
+        // idle 진입 → 30분 타이머 시작
+        this.resetLongIdleTimer()
+      } else if (status === 'running' || status === 'waiting_permission') {
+        // 활성 상태 → 타이머 취소
+        this.clearLongIdleTimer()
+      }
     }
+  }
+
+  private resetLongIdleTimer(): void {
+    this.clearLongIdleTimer()
+    this.longIdleTimer = setTimeout(() => {
+      this.longIdleTimer = null
+      if (this.status !== 'idle') return
+      logger.cli.info('long idle timeout — suspending session', { timeoutMs: LONG_IDLE_TIMEOUT_MS, sessionId: this.sessionId })
+      this.suspend()
+    }, LONG_IDLE_TIMEOUT_MS)
+  }
+
+  private clearLongIdleTimer(): void {
+    if (this.longIdleTimer !== null) {
+      clearTimeout(this.longIdleTimer)
+      this.longIdleTimer = null
+    }
+  }
+
+  /** 30분 idle로 인한 자동 프로세스 종료 */
+  private suspend(): void {
+    if (!this.proc || this.proc.killed) {
+      // 프로세스가 없어도 상태는 suspended로 전환
+      this.setStatus('suspended')
+      return
+    }
+    // suspended 상태로 전환 후 프로세스 종료
+    this.status = 'suspended'
+    this.emit('status_change', 'suspended' as SessionStatus)
+    this.cancelled = true
+    this.proc.kill('SIGTERM')
+    logger.cli.info('session suspended (long idle)', { sessionId: this.sessionId })
   }
 
   private clearKillTimer(): void {
@@ -496,6 +545,7 @@ export class RunManager extends EventEmitter {
   }
 
   private cleanup(): void {
+    this.clearLongIdleTimer()
     this.proc = null
     this.parser = null
   }

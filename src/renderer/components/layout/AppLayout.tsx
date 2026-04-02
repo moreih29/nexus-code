@@ -5,12 +5,16 @@ import { FlyoutPanel, type FlyoutContentType } from './FlyoutPanel'
 import { PanelGrid } from './PanelGrid'
 import { BottomPanel } from './BottomPanel'
 import { GlobalStatusBar } from './GlobalStatusBar'
+import { WorkspaceNameBar } from './WorkspaceNameBar'
 import { CommandPalette } from '../shared/CommandPalette'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ToastContainer } from '../ui/toast'
 import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
+import { useWorkspaceStore } from '../../stores/workspace-store'
+import { SessionStoreContext, getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-store'
 
 const DENSITY_CYCLE: ToolDensity[] = ['compact', 'normal', 'verbose']
+const DRAG_DATA_TYPE = 'application/nexus-workspace-path'
 
 export function AppLayout() {
   // ─── 오버레이 상태 ──────────────────────────────────────────────────────────
@@ -29,25 +33,71 @@ export function AppLayout() {
   // ─── Bottom Panel ───────────────────────────────────────────────────────────
   const [bottomPanelVisible, setBottomPanelVisible] = useState(false)
 
+  // ─── 분할 뷰 상태 ──────────────────────────────────────────────────────────
+  const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const [splitWorkspaces, setSplitWorkspaces] = useState<[string] | [string, string] | null>(null)
+  const [splitDirection, setSplitDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [dragOverSlot, setDragOverSlot] = useState<'left' | 'right' | null>(null)
+
+  // activeWorkspace가 변경되면 splitWorkspaces의 첫 번째를 동기화
+  useEffect(() => {
+    if (activeWorkspace && (!splitWorkspaces || splitWorkspaces.length === 1)) {
+      setSplitWorkspaces([activeWorkspace])
+    }
+  }, [activeWorkspace, splitWorkspaces])
+
+  const handleSplitDrop = useCallback((droppedPath: string) => {
+    if (!activeWorkspace || droppedPath === activeWorkspace) return
+    setSplitWorkspaces([activeWorkspace, droppedPath])
+    setDragOverSlot(null)
+  }, [activeWorkspace])
+
+  const handleCloseSplit = useCallback((pathToClose: string) => {
+    if (!splitWorkspaces || splitWorkspaces.length !== 2) return
+    const remaining = splitWorkspaces.find((p) => p !== pathToClose)
+    if (remaining) {
+      setSplitWorkspaces([remaining])
+      useWorkspaceStore.getState().setActiveWorkspace(remaining)
+      setActiveStore(getOrCreateWorkspaceStore(remaining))
+    }
+  }, [splitWorkspaces])
+
+  // ─── 드래그 이벤트 핸들러 ───────────────────────────────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.types.includes(DRAG_DATA_TYPE)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverSlot('right')
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverSlot(null)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const path = e.dataTransfer.getData(DRAG_DATA_TYPE)
+    if (path) handleSplitDrop(path)
+    setDragOverSlot(null)
+  }, [handleSplitDrop])
+
   // ─── 키보드 단축키 ──────────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().includes('MAC')
       const modKey = isMac ? e.metaKey : e.ctrlKey
 
-      // Cmd+K — 커맨드 팔레트
       if (modKey && e.key === 'k') {
         e.preventDefault()
         setCmdPaletteOpen((prev) => !prev)
       }
 
-      // Cmd+B — 플라이아웃(탐색기) 토글
       if (modKey && e.key === 'b') {
         e.preventDefault()
         setFlyout((prev) => (prev === 'workspace' ? null : 'workspace'))
       }
 
-      // Cmd+Shift+D — 도구 밀도 전환
       if (modKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
         e.preventDefault()
         const current = useSettingsStore.getState().toolDensity
@@ -56,7 +106,23 @@ export function AppLayout() {
         useSettingsStore.getState().setToolDensity(next)
       }
 
-      // Escape — 팔레트 닫기
+      // Cmd+Shift+\ — 분할 토글
+      if (modKey && e.shiftKey && e.key === '\\') {
+        e.preventDefault()
+        if (splitWorkspaces && splitWorkspaces.length === 2) {
+          // 분할 해제
+          handleCloseSplit(splitWorkspaces[1])
+        } else if (activeWorkspace && workspaces.length > 1) {
+          // 다음 워크스페이스로 분할
+          const currentIdx = workspaces.findIndex((ws) => ws.path === activeWorkspace)
+          const nextIdx = (currentIdx + 1) % workspaces.length
+          const nextWs = workspaces[nextIdx]
+          if (nextWs && nextWs.path !== activeWorkspace) {
+            setSplitWorkspaces([activeWorkspace, nextWs.path])
+          }
+        }
+      }
+
       if (e.key === 'Escape') {
         setCmdPaletteOpen(false)
       }
@@ -64,16 +130,49 @@ export function AppLayout() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [activeWorkspace, workspaces, splitWorkspaces, handleCloseSplit])
+
+  // ─── 분할 여부 ──────────────────────────────────────────────────────────────
+  const isSplit = splitWorkspaces != null && splitWorkspaces.length === 2
+
+  // ─── 워크스페이스 패널 렌더러 ───────────────────────────────────────────────
+  function renderWorkspacePanel(wsPath: string, showNameBar: boolean) {
+    const ws = workspaces.find((w) => w.path === wsPath)
+    const wsName = ws?.name ?? wsPath.split('/').pop() ?? wsPath
+
+    return (
+      <SessionStoreContext.Provider value={getOrCreateWorkspaceStore(wsPath)}>
+        <div className="flex h-full flex-col overflow-hidden">
+          {showNameBar && (
+            <WorkspaceNameBar
+              name={wsName}
+              onClose={() => handleCloseSplit(wsPath)}
+            />
+          )}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <PanelGrid
+              workspacePath={wsPath}
+              isDragOver={!isSplit && dragOverSlot === 'right'}
+              onDragOver={!isSplit ? handleDragOver : undefined}
+              onDragLeave={!isSplit ? handleDragLeave : undefined}
+              onDrop={!isSplit ? handleDrop : undefined}
+            />
+          </div>
+        </div>
+      </SessionStoreContext.Provider>
+    )
+  }
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* 메인 영역: ActivityBar + Flyout + PanelGrid + BottomPanel */}
+      {/* 메인 영역 */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Activity Bar (좌측 고정 44px) */}
-        <ActivityBar activeFlyout={flyout} onFlyoutToggle={handleFlyoutToggle} />
+        <ActivityBar
+          activeFlyout={flyout}
+          onFlyoutToggle={handleFlyoutToggle}
+          dragDataType={DRAG_DATA_TYPE}
+        />
 
-        {/* Flyout (absolute 오버레이) */}
         <FlyoutPanel
           contentType={flyout}
           isOpen={flyout !== null}
@@ -82,11 +181,29 @@ export function AppLayout() {
           onOpenWorkspaceSettings={(path: string) => { setSettingsScope('project'); setSettingsWorkspacePath(path); setSettingsOpen(true) }}
         />
 
-        {/* PanelGrid + BottomPanel (수직 분할) */}
+        {/* PanelGrid (분할 또는 단일) + BottomPanel */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Group orientation="vertical">
             <Panel minSize={20}>
-              <PanelGrid />
+              {isSplit ? (
+                <Group orientation={splitDirection}>
+                  <Panel minSize={20}>
+                    {renderWorkspacePanel(splitWorkspaces[0], true)}
+                  </Panel>
+                  <Separator className="resize-handle" />
+                  <Panel minSize={20}>
+                    {renderWorkspacePanel(splitWorkspaces[1], true)}
+                  </Panel>
+                </Group>
+              ) : (
+                activeWorkspace
+                  ? renderWorkspacePanel(activeWorkspace, false)
+                  : (
+                    <div className="flex h-full items-center justify-center">
+                      <span className="text-sm text-dim-foreground">워크스페이스를 선택하세요</span>
+                    </div>
+                  )
+              )}
             </Panel>
             {bottomPanelVisible && (
               <>
@@ -103,7 +220,6 @@ export function AppLayout() {
         </div>
       </div>
 
-      {/* Global Status Bar (최하단 24px) */}
       <GlobalStatusBar />
 
       {/* 오버레이 */}

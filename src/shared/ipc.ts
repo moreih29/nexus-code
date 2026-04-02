@@ -126,6 +126,10 @@ export const IpcChannel = {
   TIMEOUT: 'stream:timeout',
   /** CLI is rate-limited and will auto-retry */
   RATE_LIMIT: 'stream:rate-limit',
+
+  // ── Session Status ─────────────────────────────────────────────────────────
+  /** 세션 상태 변경 이벤트 (suspended 포함) — Main → Renderer */
+  STATUS_CHANGE: 'stream:status-change',
 } as const
 
 export type IpcChannelName = (typeof IpcChannel)[keyof typeof IpcChannel]

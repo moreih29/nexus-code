@@ -200,13 +200,25 @@ function PanelNode({ node, workspacePath, focusedPanel, onFocusPanel }: PanelNod
 
 // ─── PanelGrid ────────────────────────────────────────────────────────────────
 
-export function PanelGrid() {
+interface PanelGridProps {
+  /** 명시적 워크스페이스 경로 (분할 뷰에서 전달). 없으면 activeWorkspace 사용 */
+  workspacePath?: string
+  /** 드롭 존 오버레이용 — 드래그 오버 중일 때 true */
+  isDragOver?: boolean
+  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void
+  onDragLeave?: (e: React.DragEvent<HTMLDivElement>) => void
+  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void
+}
+
+export function PanelGrid({ workspacePath: workspacePathProp, isDragOver, onDragOver, onDragLeave, onDrop }: PanelGridProps) {
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const getOrCreateLayout = useLayoutStore((s) => s.getOrCreateLayout)
   const focusedPanel = useLayoutStore((s) => s.focusedPanel)
   const setFocusedPanel = useLayoutStore((s) => s.setFocusedPanel)
 
-  if (!activeWorkspace) {
+  const workspacePath = workspacePathProp ?? activeWorkspace
+
+  if (!workspacePath) {
     return (
       <div className="flex h-full items-center justify-center">
         <span className="text-sm text-dim-foreground">워크스페이스를 선택하세요</span>
@@ -214,16 +226,25 @@ export function PanelGrid() {
     )
   }
 
-  const layout = getOrCreateLayout(activeWorkspace)
+  const layout = getOrCreateLayout(workspacePath)
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
+    <div
+      className="relative flex h-full w-full flex-col overflow-hidden"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <PanelNode
         node={layout.root}
-        workspacePath={activeWorkspace}
+        workspacePath={workspacePath}
         focusedPanel={focusedPanel}
         onFocusPanel={setFocusedPanel}
       />
+      {/* 드래그 오버 오버레이 */}
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-50 rounded border-2 border-primary bg-primary/10" />
+      )}
     </div>
   )
 }

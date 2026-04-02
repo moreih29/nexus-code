@@ -246,7 +246,17 @@ export function ChatPanel() {
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
-          activeWorkspace === null ? (
+          status === 'suspended' ? (
+            /* 일시정지 상태 */
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <span className="text-3xl opacity-40">⏸</span>
+              <p className="text-base text-foreground">세션이 일시정지되었습니다</p>
+              <p className="text-sm text-muted-foreground text-center">
+                30분 동안 활동이 없어 프로세스가 종료되었습니다.<br />
+                메시지를 보내면 자동으로 재개됩니다.
+              </p>
+            </div>
+          ) : activeWorkspace === null ? (
             /* 워크스페이스 미선택 상태 */
             <div className="flex h-full flex-col items-center justify-center gap-3">
               <Hexagon className="h-8 w-8 opacity-30 text-primary" />
