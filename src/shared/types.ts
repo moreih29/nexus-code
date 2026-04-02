@@ -1,11 +1,13 @@
 // IPC channel types shared between main and renderer processes
 
+export type PermissionMode = 'bypassPermissions' | 'acceptEdits' | 'default' | 'dontAsk' | 'plan' | 'auto'
+
 // ─── Request-Response Channels ───────────────────────────────────────────────
 
 export interface StartRequest {
   prompt: string
   cwd: string
-  permissionMode: 'auto' | 'default'
+  permissionMode: PermissionMode
   sessionId?: string  // 후속 메시지 시 --resume에 사용
   model?: string
   effortLevel?: string
@@ -87,7 +89,7 @@ export interface StatusRequest {
   sessionId: string
 }
 
-export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error' | 'restarting' | 'timeout'
+export type SessionStatus = 'idle' | 'running' | 'waiting_permission' | 'ended' | 'error' | 'restarting' | 'timeout' | 'suspended'
 
 export interface RestartAttemptEvent {
   sessionId: string
@@ -117,6 +119,11 @@ export interface StatusResponse {
 }
 
 // ─── Stream Events (Main → Renderer) ────────────────────────────────────────
+
+export interface StatusChangeEvent {
+  sessionId: string
+  status: SessionStatus
+}
 
 export interface TextChunkEvent {
   sessionId: string
@@ -252,10 +259,26 @@ export interface AgentNode {
   startedAt?: number
   stoppedAt?: number
   status?: 'idle' | 'running' | 'error' | 'stopped'
+  // 신규 필드
+  label?: string
+  currentTask?: string
+  teamId?: string
+  model?: string
+  tokenUsage?: { input: number; output: number }
+}
+
+export interface AgentMessage {
+  id: string
+  fromAgentId: string
+  toAgentId: string | '*'
+  content: string
+  timestamp: number
+  type: 'discuss' | 'decide' | 'delegate' | 'report'
 }
 
 export interface AgentTimelineData {
   agents: AgentNode[]
+  messages?: AgentMessage[]
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
@@ -436,6 +459,42 @@ export interface ReadFileResponse {
   ok: boolean
   content?: string
   error?: string
+}
+
+// ─── Panel Layout ────────────────────────────────────────────────────────────
+
+export type PanelType = 'chat' | 'editor' | 'browser' | 'markdown-preview' | 'timeline'
+
+export interface PanelConfig {
+  id: string
+  type: PanelType
+  props: Record<string, unknown>
+}
+
+export interface PanelLayoutNode {
+  panels: Array<{ id: string; type: PanelType; size: number }>
+  orientation: 'horizontal' | 'vertical'
+  children?: PanelLayoutNode[]
+}
+
+export interface WorkspaceLayout {
+  root: PanelLayoutNode
+  openFiles: string[]
+  activeFile: string | null
+  browserUrl: string | null
+  chatScrollPosition: number
+  bottomPanelVisible: boolean
+  bottomPanelHeight: number
+}
+
+// ─── Editor ─────────────────────────────────────────────────────────────────
+
+export interface EditorFile {
+  path: string
+  content: string
+  language: string
+  isDirty: boolean
+  isTemporary: boolean
 }
 
 // ─── Window augmentation ────────────────────────────────────────────────────

@@ -56,6 +56,9 @@ import type {
   NexusStateReadResponse,
   RestartSessionRequest,
   RestartSessionResponse,
+  PermissionMode,
+  SessionStatus,
+  StatusChangeEvent,
 } from '../../shared/types'
 import { RunManager } from '../control-plane/run-manager'
 import { HookServer } from '../control-plane/hook-server'
@@ -342,6 +345,12 @@ function bindManagerToWindow(
   manager.on('restart_failed', (data) => webContents.send(IpcChannel.RESTART_FAILED, data))
   manager.on('timeout', (data) => webContents.send(IpcChannel.TIMEOUT, data))
   manager.on('rate_limit', (data) => webContents.send(IpcChannel.RATE_LIMIT, data))
+  manager.on('status_change', (status: SessionStatus) => {
+    webContents.send(IpcChannel.STATUS_CHANGE, {
+      sessionId: manager.getSessionId(),
+      status,
+    } satisfies StatusChangeEvent)
+  })
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
@@ -379,7 +388,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         settings = JSON.parse(existing) as Record<string, unknown>
       } catch { /* 파일 없음 또는 파싱 오류 */ }
 
+      // 기존 훅에서 앱 관리 훅(PreToolUse, SubagentStart/Stop)을 제거하고 사용자 훅만 보존
       const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+      const { PreToolUse: _oldPre, SubagentStart: _oldStart, SubagentStop: _oldStop, ...userHooks } = existingHooks
+
       const subagentUrl = hookServer.subagentHookUrl()
       const subagentHook = [{
         matcher: '',
@@ -389,10 +401,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
         }],
       }]
 
-      if (req.permissionMode !== 'auto') {
+      const isBypass = req.permissionMode === 'bypassPermissions' || req.permissionMode === 'auto'
+      if (!isBypass) {
         const hookUrl = hookServer.permissionHookUrl()
         settings.hooks = {
-          ...existingHooks,
+          ...userHooks,
           PreToolUse: [{
             matcher: '.*',
             hooks: [{
@@ -404,8 +417,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           SubagentStop: subagentHook,
         }
       } else {
+        // bypass 모드: PreToolUse 훅을 명시적으로 제거 (이전 세션 잔존 방지)
         settings.hooks = {
-          ...existingHooks,
+          ...userHooks,
           SubagentStart: subagentHook,
           SubagentStop: subagentHook,
         }
@@ -718,7 +732,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           settings = JSON.parse(existing) as Record<string, unknown>
         } catch { /* 파일 없음 또는 파싱 오류 */ }
 
+        // 기존 훅에서 앱 관리 훅을 제거하고 사용자 훅만 보존
         const existingHooks = (settings.hooks as Record<string, unknown> | undefined) ?? {}
+        const { PreToolUse: _oldPre, SubagentStart: _oldStart, SubagentStop: _oldStop, ...userHooks } = existingHooks
+
         const subagentUrl = hookServer.subagentHookUrl()
         const subagentHook = [{
           matcher: '',
@@ -728,11 +745,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           }],
         }]
 
-        const permissionMode = (req.permissionMode ?? 'default') as 'auto' | 'default'
-        if (permissionMode !== 'auto') {
+        const permissionMode: PermissionMode = (req.permissionMode ?? 'default') as PermissionMode
+        const isBypass = permissionMode === 'bypassPermissions' || permissionMode === 'auto'
+        if (!isBypass) {
           const hookUrl = hookServer.permissionHookUrl()
           settings.hooks = {
-            ...existingHooks,
+            ...userHooks,
             PreToolUse: [{
               matcher: '.*',
               hooks: [{
@@ -744,8 +762,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
             SubagentStop: subagentHook,
           }
         } else {
+          // bypass 모드: PreToolUse 훅을 명시적으로 제거
           settings.hooks = {
-            ...existingHooks,
+            ...userHooks,
             SubagentStart: subagentHook,
             SubagentStop: subagentHook,
           }

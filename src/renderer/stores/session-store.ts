@@ -157,12 +157,33 @@ export function getStoreBySessionId(sessionId: string): StoreApi<SessionStoreSta
   return _sessionStores.get(sessionId)
 }
 
+/** sessionId로 해당 워크스페이스 경로를 역방향 조회 */
+export function getWorkspacePathBySessionId(sessionId: string): string | undefined {
+  const store = _sessionStores.get(sessionId)
+  if (!store) return undefined
+  for (const [path, ws] of _workspaceStores) {
+    if (ws === store) return path
+  }
+  return undefined
+}
+
 export function setActiveStore(store: StoreApi<SessionStoreState> | null): void {
   _activeStore = store
 }
 
 export function getActiveStore(): StoreApi<SessionStoreState> | null {
   return _activeStore
+}
+
+/** 현재 포커스된 워크스페이스 경로 (layout-store 연동용) */
+let _focusedWorkspace: string | null = null
+
+export function setFocusedWorkspace(workspacePath: string | null): void {
+  _focusedWorkspace = workspacePath
+}
+
+export function getFocusedWorkspace(): string | null {
+  return _focusedWorkspace
 }
 
 // ─── 스토어 팩토리 ────────────────────────────────────────────────────────────

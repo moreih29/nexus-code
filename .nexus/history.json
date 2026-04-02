@@ -1814,6 +1814,107 @@
           "created_at": "2026-03-31T07:26:06.786Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-01T05:59:05.082Z",
+      "branch": "feat/design-redesign",
+      "meet": {
+        "id": 1,
+        "topic": "권한 설정 \"자동 (위험 가능)\" 모드가 실제로 bypassPermissions로 동작하지 않는 버그",
+        "attendees": [
+          {
+            "role": "architect",
+            "name": "아키텍트",
+            "joined_at": "2026-04-01T05:47:34.252Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": 1,
+            "title": "UI값 'bypassPermissions'와 내부 로직의 'auto' 값 불일치 수정 방향",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "UI 값을 'auto'로 통일 권고. 이유: (1) CLI와의 일관성 — CLI 내부적으로 auto 모드 사용, (2) 영향 범위 최소화 — 'auto' 기대하는 코드 3곳 vs 'bypassPermissions' 사용 1곳, (3) 타입 정합성 — StartRequest/RunOptions가 이미 'auto' | 'default' 타입. 최소 수정: panel-permissions.tsx의 value를 'auto'로 변경 + 조건문의 'bypassPermissions' → 'auto'.",
+                "timestamp": "2026-04-01T05:48:46.640Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "핵심 구조 분석: nexus-code는 CLI에 항상 --dangerously-skip-permissions를 전달함. 즉 CLI 레벨 권한 체크는 무조건 꺼져있음. 실제 권한 제어는 settings.local.json에 PreToolUse hook을 설치하는 방식. permissionMode=auto일 때만 hook 미설치 → 전체 bypass. 따라서 nexus-code의 'auto'는 CLI의 --dangerously-skip-permissions와 같은 효과이지만, 메커니즘이 다름: CLI는 플래그로 직접 제어, nexus-code는 플래그+hook 조합으로 제어.",
+                "timestamp": "2026-04-01T05:51:32.598Z"
+              },
+              {
+                "speaker": "lead",
+                "content": "CLI --permission-mode 확인 결과, 공식 선택지: acceptEdits, bypassPermissions, default, dontAsk, plan, auto — 총 6개. 현재 UI의 5개 모드(bypassPermissions, acceptEdits, default, dontAsk, plan)에서 'auto'가 빠져있음. 사용자가 CLI와 동일하게 맞추길 원하므로, UI 값을 CLI 값 그대로 사용하고 내부 로직에서 이를 올바르게 처리하는 방향으로 전환 필요.",
+                "timestamp": "2026-04-01T05:52:33.320Z"
+              }
+            ],
+            "decision": "UI 값은 CLI 공식 값(bypassPermissions, acceptEdits, default, dontAsk, plan)을 그대로 유지. 내부 로직(extractPermissionMode, handlers.ts)을 수정하여 'bypassPermissions'를 bypass로 올바르게 인식하도록 변경. CLI의 --permission-mode 값을 SSOT로 삼고, UI 표현도 Claude Code CLI와 동일하게 맞춤."
+          },
+          {
+            "id": 2,
+            "title": "PermissionMode 타입이 'auto' | 'default' 2가지로만 축약된 구조의 적절성",
+            "status": "decided",
+            "discussion": [
+              {
+                "speaker": "architect",
+                "content": "5개 모드를 2개(auto/default)로 축약하는 현 구조는 구조적 문제. acceptEdits/dontAsk/plan이 모두 default와 동일하게 동작하므로 사용자에게 거짓 선택지를 제공하는 셈. 두 가지 방향: (1) 미구현 모드 제거하고 auto/default만 노출 — 정직한 설계, (2) 향후 구현 예정이면 passthrough로 바꾸고 IPC에서 모드별 hook 분기 — 단 YAGNI 원칙상 실제 요구 시점에 하는 것이 적절.",
+                "timestamp": "2026-04-01T05:48:47.700Z"
+              }
+            ],
+            "decision": "PermissionMode 타입을 CLI 공식 6개 값(bypassPermissions, acceptEdits, default, dontAsk, plan, auto)으로 확장. 실제 hook 동작은 현재 구조 유지: bypassPermissions → hook 미설치(전체 bypass), 나머지 → hook 설치(HookServer 제어). 모드별 세밀한 동작 분기는 향후 필요 시 확장."
+          }
+        ],
+        "research_summary": "## 조사 결과\\n\\n### 버그 원인: 값 불일치\\n- **UI (panel-permissions.tsx:9)**: `value: 'bypassPermissions'` → settings.json에 `permissions.defaultMode = 'bypassPermissions'`로 저장\\n- **Store (settings-store.ts:117-118)**: `extractPermissionMode()`가 `mode === 'auto'`만 체크 → 저장된 값 `'bypassPermissions'`는 매칭 안됨 → 항상 `'default'` 반환\\n- **IPC (handlers.ts:392, 731-732)**: `req.permissionMode !== 'auto'`로 분기 → 항상 true → PreToolUse hook 항상 설치\\n\\n### 결과\\n사용자가 '자동 (위험 가능)' 선택해도 실제로는 default 모드로 동작. 권한 프롬프트가 계속 뜸.\\n\\n### 관련 구조\\n- `PermissionMode` 타입: `'auto' | 'default'` 단 2가지\\n- UI에는 5개 모드(bypassPermissions, acceptEdits, default, dontAsk, plan) 표시\\n- CLI에는 항상 `--dangerously-skip-permissions` 전달, 실제 권한 제어는 HookServer의 PreToolUse hook 설치 여부로 결정",
+        "created_at": "2026-04-01T05:47:34.252Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PermissionMode 타입을 CLI 공식 6개 값으로 확장",
+          "context": "shared/types.ts와 settings-store.ts의 PermissionMode 타입을 'bypassPermissions' | 'acceptEdits' | 'default' | 'dontAsk' | 'plan' | 'auto'로 변경. extractPermissionMode() 함수에서 'bypassPermissions'를 bypass로 인식하도록 수정.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-01T05:54:52.570Z"
+        },
+        {
+          "id": 2,
+          "title": "IPC handler에서 bypassPermissions 모드 인식",
+          "context": "handlers.ts의 START/RESTART 핸들러에서 req.permissionMode !== 'auto' 체크를 'bypassPermissions'도 bypass로 처리하도록 수정. bypassPermissions일 때 PreToolUse hook 미설치.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-01T05:54:52.605Z"
+        },
+        {
+          "id": 3,
+          "title": "UI 퍼미션 모드에 'auto' 옵션 추가",
+          "context": "panel-permissions.tsx의 PERMISSION_MODES 배열에 CLI의 'auto' 모드 추가. CLI 공식 6개 모드 완전 일치. auto와 bypassPermissions 차이 라벨로 표현.",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-01T05:54:54.922Z"
+        },
+        {
+          "id": 4,
+          "title": "타입 체크 에러 수정",
+          "context": "handlers.ts:764에서 permissionMode 변수가 string 타입으로 추론되어 PermissionMode 타입 캐스트 필요",
+          "status": "completed",
+          "deps": [],
+          "decisions": [],
+          "meet_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-01T05:57:37.256Z"
+        }
+      ]
     }
   ]
 }

@@ -30,7 +30,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true
+      sandbox: true,
+      webviewTag: true,
     }
   })
   logger.app.info('window created', { width, height })

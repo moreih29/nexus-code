@@ -1,10 +1,10 @@
 import { EventEmitter } from 'events'
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../../shared/ipc'
-import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentTimelineData } from '../../shared/types'
+import type { PluginDataEvent, AgentToolEvent, AgentNode, AgentMessage, AgentTimelineData } from '../../shared/types'
 import { logger } from '../logger'
 
-export type { AgentToolEvent, AgentNode, AgentTimelineData }
+export type { AgentToolEvent, AgentNode, AgentMessage, AgentTimelineData }
 
 // main agent의 고정 agentId
 const MAIN_AGENT_ID = 'main'
@@ -12,6 +12,8 @@ const MAIN_AGENT_ID = 'main'
 interface SessionData {
   agents: Map<string, AgentNode>
   pendingTools: Map<string, { agentId: string; startMs: number }>
+  messages: AgentMessage[]
+  messageCounter: number
 }
 
 export class AgentTracker extends EventEmitter {
@@ -20,7 +22,7 @@ export class AgentTracker extends EventEmitter {
   private getOrCreateSession(sessionId: string): SessionData {
     let data = this.sessions.get(sessionId)
     if (!data) {
-      data = { agents: new Map(), pendingTools: new Map() }
+      data = { agents: new Map(), pendingTools: new Map(), messages: [], messageCounter: 0 }
       this.sessions.set(sessionId, data)
     }
     return data
@@ -61,10 +63,37 @@ export class AgentTracker extends EventEmitter {
     this.broadcast(sessionId)
   }
 
+  /** SendMessage 도구 호출 감지 → AgentMessage 수집 */
+  private onSendMessage(sessionId: string, agentId: string, toolInput: Record<string, unknown>): void {
+    const session = this.getOrCreateSession(sessionId)
+    const to = typeof toolInput.to === 'string' ? toolInput.to : '*'
+    const content = typeof toolInput.message === 'string' ? toolInput.message : JSON.stringify(toolInput.message ?? '')
+    const msgType = (() => {
+      const t = typeof toolInput.type === 'string' ? toolInput.type : ''
+      if (t === 'discuss' || t === 'decide' || t === 'delegate' || t === 'report') return t
+      return 'discuss' as const
+    })()
+    const msg: AgentMessage = {
+      id: `msg-${sessionId}-${++session.messageCounter}`,
+      fromAgentId: agentId,
+      toAgentId: to,
+      content,
+      timestamp: Date.now(),
+      type: msgType,
+    }
+    session.messages.push(msg)
+    logger.agent.debug('SendMessage captured', { from: agentId, to, type: msgType })
+  }
+
   /** HookServer의 pre-tool-use 페이로드 처리 */
   onPreToolUse(sessionId: string, agentId: string, toolName: string, toolInput: Record<string, unknown>, toolUseId: string): void {
     logger.agent.debug('pre-tool-use', { sessionId, agentId, toolName })
     const { agents, pendingTools } = this.getOrCreateSession(sessionId)
+
+    // SendMessage 도구 → 별도 메시지 수집 후 broadcast
+    if (toolName === 'SendMessage') {
+      this.onSendMessage(sessionId, agentId, toolInput)
+    }
     if (!agents.has(agentId)) {
       agents.set(agentId, { agentId, events: [], lastSeen: Date.now() })
     }
@@ -138,11 +167,12 @@ export class AgentTracker extends EventEmitter {
 
   getTimelineData(sessionId: string): AgentTimelineData {
     const data = this.sessions.get(sessionId)
-    if (!data) return { agents: [] }
+    if (!data) return { agents: [], messages: [] }
     return {
       agents: Array.from(data.agents.values())
         .sort((a, b) => a.lastSeen - b.lastSeen)
         .map((agent) => ({ ...agent, status: this.computeStatus(sessionId, agent.agentId) })),
+      messages: [...data.messages],
     }
   }
 

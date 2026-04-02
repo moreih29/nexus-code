@@ -4,16 +4,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 const rlog = log.scope('renderer:chat-panel')
 import { AlignJustify, AlignLeft, List, Hexagon } from 'lucide-react'
 import { IpcChannel } from '../../../shared/ipc'
-import type { ImageAttachment } from '../../../shared/types'
+import type { ImageAttachment, AgentTimelineData } from '../../../shared/types'
 import { Button } from '@renderer/components/ui/button'
 import { useActiveSession } from '../../stores/session-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useCheckpointStore } from '../../stores/checkpoint-store'
 import { useSettingsStore, type ToolDensity } from '../../stores/settings-store'
+import { usePanelData } from '../../stores/plugin-store'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { StatusBar } from './StatusBar'
 import { PermissionList } from '../permission/PermissionList'
+import { InlineAgentCard } from '../agent/InlineAgentCard'
 
 const DENSITY_CYCLE: ToolDensity[] = ['compact', 'normal', 'verbose']
 const DENSITY_ICONS = {
@@ -200,6 +202,15 @@ export function ChatPanel() {
   const isInputDisabled = !activeWorkspace || status === 'waiting_permission' || status === 'timeout'
   const isRunning = status === 'running'
 
+  // 에이전트 타임라인 데이터 (서브에이전트가 있을 때만 카드 표시)
+  const timelineData = usePanelData<AgentTimelineData>('nexus', 'timeline')
+  const subAgents = useMemo(() => {
+    if (!timelineData) return []
+    return timelineData.agents.filter((a) => a.agentId !== 'main')
+  }, [timelineData])
+  // 실행 중이거나 방금 완료(에이전트가 1명 이상)일 때 카드 표시
+  const showAgentCard = subAgents.length > 0 && isRunning
+
   return (
     <div className="flex h-full flex-col">
       {/* git 저장소 아님 배너 */}
@@ -235,7 +246,17 @@ export function ChatPanel() {
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && !isRunning && status !== 'error' ? (
-          activeWorkspace === null ? (
+          status === 'suspended' ? (
+            /* 일시정지 상태 */
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <span className="text-3xl opacity-40">⏸</span>
+              <p className="text-base text-foreground">세션이 일시정지되었습니다</p>
+              <p className="text-sm text-muted-foreground text-center">
+                30분 동안 활동이 없어 프로세스가 종료되었습니다.<br />
+                메시지를 보내면 자동으로 재개됩니다.
+              </p>
+            </div>
+          ) : activeWorkspace === null ? (
             /* 워크스페이스 미선택 상태 */
             <div className="flex h-full flex-col items-center justify-center gap-3">
               <Hexagon className="h-8 w-8 opacity-30 text-primary" />
@@ -308,6 +329,10 @@ export function ChatPanel() {
                 />
               )
             })}
+            {/* 인라인 에이전트 카드: 서브에이전트 실행 중일 때 표시 */}
+            {showAgentCard && (
+              <InlineAgentCard agents={subAgents} />
+            )}
             {/* 에러 CTA */}
             {status === 'error' && (
               <div className="flex items-center gap-3 rounded-lg border border-error/30 bg-error/10 px-4 py-3">
