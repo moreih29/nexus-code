@@ -21,8 +21,12 @@ import { usePluginStore, useRightPanelUIStore } from './stores/plugin-store'
 import { useStatusBarStore } from './stores/status-bar-store'
 import type { TodoItem } from './stores/status-bar-store'
 import { useChangesStore } from './stores/changes-store'
+import { useEditorStore } from './stores/editor-store'
 
 let initialized = false
+
+/** tool_call 이벤트를 추적하여 tool_result에서 파일 경로를 참조 */
+const _pendingToolCalls = new Map<string, ToolCallEvent>()
 
 export function initIpcBridge(): void {
   if (initialized) return
@@ -32,6 +36,7 @@ export function initIpcBridge(): void {
   const pluginStore = usePluginStore.getState
   const statusBarStore = useStatusBarStore.getState
   const changesStore = useChangesStore.getState
+  const editorStore = useEditorStore.getState
 
   // Stream events → session store
   window.electronAPI.on(IpcChannel.TEXT_CHUNK, ((event: TextChunkEvent) => {
@@ -43,6 +48,11 @@ export function initIpcBridge(): void {
   }) as (...args: unknown[]) => void)
 
   window.electronAPI.on(IpcChannel.TOOL_CALL, ((event: ToolCallEvent) => {
+    // Edit/Write/Read 추적 — tool_result에서 에디터 열기에 사용
+    if (event.name === 'Edit' || event.name === 'MultiEdit' || event.name === 'Write' || event.name === 'Read') {
+      _pendingToolCalls.set(event.toolUseId, event)
+    }
+
     const store = getStoreBySessionId(event.sessionId) ?? getActiveStore()
     if (store) {
       store.getState().addToolCall(event)
@@ -110,6 +120,31 @@ export function initIpcBridge(): void {
     const current = statusBarStore().askQuestion
     if (current && current.toolUseId === event.toolUseId && !event.isError) {
       statusBarStore().setAskQuestion(null)
+    }
+
+    // Edit/Write 성공 → 에디터에 파일 열기 요청
+    const trackedCall = _pendingToolCalls.get(event.toolUseId)
+    if (trackedCall && !event.isError) {
+      const filePath = typeof trackedCall.input.file_path === 'string' ? trackedCall.input.file_path : ''
+      if (filePath) {
+        if (trackedCall.name === 'Edit' || trackedCall.name === 'MultiEdit') {
+          editorStore().requestOpenFile({
+            filePath,
+            diffHighlight: {
+              oldString: typeof trackedCall.input.old_string === 'string' ? trackedCall.input.old_string : '',
+              newString: typeof trackedCall.input.new_string === 'string' ? trackedCall.input.new_string : '',
+            },
+          })
+        } else if (trackedCall.name === 'Write') {
+          editorStore().requestOpenFile({ filePath })
+        } else if (trackedCall.name === 'Read') {
+          // Read: 에디터가 이미 열려있는 경우에만 탭 전환
+          if (editorStore().editorVisible) {
+            editorStore().requestOpenFile({ filePath })
+          }
+        }
+      }
+      _pendingToolCalls.delete(event.toolUseId)
     }
   }) as (...args: unknown[]) => void)
 

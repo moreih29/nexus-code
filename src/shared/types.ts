@@ -466,6 +466,16 @@ export interface WorkspaceLayout {
   bottomPanelHeight: number
 }
 
+// ─── Editor ─────────────────────────────────────────────────────────────────
+
+export interface EditorFile {
+  path: string
+  content: string
+  language: string
+  isDirty: boolean
+  isTemporary: boolean
+}
+
 // ─── Window augmentation ────────────────────────────────────────────────────
 // ElectronAPI is defined in ipc.ts to avoid circular imports (ipc.ts → types.ts → ipc.ts).
 // Re-exported here for backwards compatibility.

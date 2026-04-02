@@ -186,6 +186,7 @@ export function ChatInput({ onSend, onStop, disabled = false, isRunning = false 
           onInput={handleInput}
           disabled={disabled && !isRunning}
           placeholder="메시지 입력 (Enter 전송 / Shift+Enter 줄바꿈)"
+          data-chat-input=""
           className="max-h-[200px] flex-1 resize-none rounded-xl bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
         />
         {isRunning ? (
