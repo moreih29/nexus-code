@@ -1,18 +1,20 @@
 import { useState } from 'react'
 import type { ClaudeSettings } from '../../../shared/types'
-import { Toggle, SectionLabel, TagList, SELECT_CLASS, OverrideToggle } from './settings-shared'
+import { Toggle, SectionLabel, TagList, OverrideToggle } from './settings-shared'
 import type { Scope } from './settings-shared'
 import { ConfirmDialog } from '../ui/confirm-dialog'
 import { cn } from '../../lib/utils'
 
 const PERMISSION_MODES = [
-  { value: 'default', label: '기본' },
-  { value: 'acceptEdits', label: '편집 자동 허용' },
-  { value: 'plan', label: '계획 모드' },
-  { value: 'dontAsk', label: '묻지 않기' },
-  { value: 'auto', label: '자동' },
-  { value: 'bypassPermissions', label: '권한 검사 건너뛰기' },
+  { value: 'default', label: '기본', description: '각 도구 사용마다 허용 여부를 묻습니다' },
+  { value: 'acceptEdits', label: '편집 자동 허용', description: '파일 편집은 자동 허용, 나머지는 확인' },
+  { value: 'plan', label: '계획 모드', description: '실행 전 계획만 수립, 직접 수행 안 함' },
+  { value: 'dontAsk', label: '묻지 않기', description: '모든 도구를 확인 없이 실행합니다' },
+  { value: 'auto', label: '자동', description: '안전한 작업은 자동, 위험 작업은 확인' },
+  { value: 'bypassPermissions', label: '권한 검사 건너뛰기', description: '모든 권한 검사를 생략합니다 (위험)' },
 ]
+
+const DANGEROUS_MODES = new Set(['bypassPermissions', 'auto', 'dontAsk'])
 
 interface Props {
   scope: Scope
@@ -51,7 +53,7 @@ export function PanelPermissions({ scope, global: g, project, effective, onUpdat
   }
 
   const handlePermissionModeChange = (newMode: string): void => {
-    if (newMode === 'bypassPermissions' || newMode === 'auto' || newMode === 'dontAsk') {
+    if (DANGEROUS_MODES.has(newMode)) {
       setPendingMode(newMode)
     } else {
       const updated = { ...permissions, defaultMode: newMode }
@@ -93,20 +95,50 @@ export function PanelPermissions({ scope, global: g, project, effective, onUpdat
             />
           )}
         </div>
-        {permissionsEditable ? (
-          <select
-            value={permissionMode}
-            onChange={(e) => handlePermissionModeChange(e.target.value)}
-            className={SELECT_CLASS}
-          >
-            {PERMISSION_MODES.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        ) : (
-          <div className={cn(SELECT_CLASS, 'text-muted-foreground')}>
-            {PERMISSION_MODES.find((m) => m.value === (g.permissions?.defaultMode ?? 'default'))?.label ?? '기본'}
-          </div>
+        <div className="grid grid-cols-2 gap-2">
+          {PERMISSION_MODES.map((m) => {
+            const isSelected = permissionMode === m.value
+            const isDangerous = DANGEROUS_MODES.has(m.value)
+            return (
+              <button
+                key={m.value}
+                type="button"
+                disabled={!permissionsEditable}
+                onClick={() => permissionsEditable && handlePermissionModeChange(m.value)}
+                className={cn(
+                  'flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                  isSelected
+                    ? isDangerous
+                      ? 'border-warning/60 bg-warning/10 text-foreground'
+                      : 'border-primary/60 bg-primary/10 text-foreground'
+                    : 'border-border bg-card text-foreground hover:border-border/80 hover:bg-muted/50',
+                  !permissionsEditable && 'cursor-not-allowed opacity-50',
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      'h-3 w-3 rounded-full border-2 transition-colors',
+                      isSelected
+                        ? isDangerous
+                          ? 'border-warning bg-warning'
+                          : 'border-primary bg-primary'
+                        : 'border-muted-foreground bg-transparent',
+                    )}
+                  />
+                  <span className={cn('text-sm font-medium', isDangerous && isSelected && 'text-warning')}>
+                    {m.label}
+                  </span>
+                </div>
+                <p className="ml-4.5 text-xs text-muted-foreground leading-tight">{m.description}</p>
+              </button>
+            )
+          })}
+        </div>
+        {!permissionsEditable && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            현재 값: {PERMISSION_MODES.find((m) => m.value === (g.permissions?.defaultMode ?? 'default'))?.label ?? '기본'}
+          </p>
         )}
       </section>
 
