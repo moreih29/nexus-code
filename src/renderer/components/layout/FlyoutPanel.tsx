@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { X, Settings } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { WorkspaceList } from '../workspace/WorkspaceList'
+import { AgentSidebar } from '../agent/AgentSidebar'
+import { useContextStore } from '../../stores/context-store'
 
 export type FlyoutContentType = 'workspace' | 'agents' | 'settings'
 
@@ -11,6 +13,7 @@ interface FlyoutPanelProps {
   onClose: () => void
   onOpenSettings?: () => void
   onOpenWorkspaceSettings?: (workspacePath: string) => void
+  sessionId?: string | null
 }
 
 // ─── 콘텐츠 영역 ─────────────────────────────────────────────────────────────
@@ -28,14 +31,23 @@ function WorkspaceContent({ onOpenWorkspaceSettings }: { onOpenWorkspaceSettings
   )
 }
 
-function AgentsContent() {
+function AgentsContent({
+  sessionId,
+  onAgentSelect,
+}: {
+  sessionId: string | null
+  onAgentSelect: (agentId: string) => void
+}) {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-dim-foreground">에이전트</span>
       </div>
-      <div className="flex flex-1 items-center justify-center">
-        <span className="text-xs text-dim-foreground">에이전트 뷰 준비 중</span>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <AgentSidebar
+          sessionId={sessionId}
+          onAgentSelect={onAgentSelect}
+        />
       </div>
     </div>
   )
@@ -63,20 +75,18 @@ function SettingsContent({ onOpenSettings }: { onOpenSettings?: () => void }) {
 
 // ─── FlyoutPanel ─────────────────────────────────────────────────────────────
 
-export function FlyoutPanel({ isOpen, contentType, onClose, onOpenSettings, onOpenWorkspaceSettings }: FlyoutPanelProps) {
+export function FlyoutPanel({ isOpen, contentType, onClose, onOpenSettings, onOpenWorkspaceSettings, sessionId = null }: FlyoutPanelProps) {
+  const selectAgents = useContextStore((s) => s.selectAgents)
   const panelRef = useRef<HTMLDivElement>(null)
 
+  // Esc 키로 닫기 (clickOutside 대신 명시적 닫기만 사용)
   useEffect(() => {
     if (!isOpen) return
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose()
-      }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
     }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
 
   return (
@@ -102,7 +112,12 @@ export function FlyoutPanel({ isOpen, contentType, onClose, onOpenSettings, onOp
         {contentType === 'workspace' && (
           <WorkspaceContent onOpenWorkspaceSettings={onOpenWorkspaceSettings} />
         )}
-        {contentType === 'agents' && <AgentsContent />}
+        {contentType === 'agents' && (
+          <AgentsContent
+            sessionId={sessionId}
+            onAgentSelect={(agentId) => selectAgents([agentId])}
+          />
+        )}
         {contentType === 'settings' && <SettingsContent onOpenSettings={onOpenSettings} />}
       </div>
     </div>

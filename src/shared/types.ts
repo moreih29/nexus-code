@@ -427,6 +427,25 @@ export interface CheckpointListResponse {
   checkpoints: Checkpoint[]
 }
 
+export interface CheckpointDiffRequest {
+  cwd: string
+  fromHash: string
+  toHash: string | null
+}
+
+export interface CheckpointDiffFile {
+  path: string
+  oldContent: string
+  newContent: string
+  status: 'added' | 'modified' | 'deleted'
+}
+
+export interface CheckpointDiffResponse {
+  ok: boolean
+  files: CheckpointDiffFile[]
+  error?: string
+}
+
 // ─── Restart Session ─────────────────────────────────────────────────────────
 
 export interface RestartSessionRequest {

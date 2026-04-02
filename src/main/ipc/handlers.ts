@@ -48,6 +48,8 @@ import type {
   CheckpointCreateResponse,
   CheckpointRestoreRequest,
   CheckpointRestoreResponse,
+  CheckpointDiffRequest,
+  CheckpointDiffResponse,
   GitCheckRequest,
   GitCheckResponse,
   GitInitRequest,
@@ -66,7 +68,7 @@ import { SessionManager } from '../control-plane/session-manager'
 import { PermissionHandler } from '../control-plane/permission-handler'
 import { PluginHost } from '../plugin-host'
 import { AgentTracker } from '../control-plane/agent-tracker'
-import { isGitRepo, createCheckpoint, restoreCheckpoint } from '../control-plane/checkpoint-manager'
+import { isGitRepo, createCheckpoint, restoreCheckpoint, diffCheckpoints } from '../control-plane/checkpoint-manager'
 import { logger } from '../logger'
 
 export interface IpcDeps {
@@ -331,7 +333,7 @@ function bindManagerToWindow(
   manager.on('session_end', (data) => {
     webContents.send(IpcChannel.SESSION_END, data)
     sessions.delete(data.sessionId)
-    agentTracker.clearSession(data.sessionId)
+    // agentTracker.clearSession(data.sessionId) — 에이전트 데이터는 세션 종료 후에도 유지
   })
   manager.on('error', (data) => {
     logger.ipc.error('RunManager error', { data })
@@ -649,6 +651,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       } catch (err) {
         logger.ipc.error('CHECKPOINT_RESTORE failed', { err, sessionId: req.checkpoint.sessionId })
         return { ok: false, error: (err as Error).message }
+      }
+    }
+  )
+
+  // ── CHECKPOINT_DIFF ──────────────────────────────────────────────────────
+  ipcMain.handle(
+    IpcChannel.CHECKPOINT_DIFF,
+    async (_event, req: CheckpointDiffRequest): Promise<CheckpointDiffResponse> => {
+      const hexPattern = /^[0-9a-f]{4,40}$/i
+      if (!hexPattern.test(req.fromHash) || (req.toHash && !hexPattern.test(req.toHash))) {
+        return { ok: false, files: [], error: 'Invalid git hash format' }
+      }
+      try {
+        return await diffCheckpoints(req.cwd, req.fromHash, req.toHash)
+      } catch (err) {
+        logger.ipc.error('CHECKPOINT_DIFF failed', { err })
+        return { ok: false, files: [], error: (err as Error).message }
       }
     }
   )

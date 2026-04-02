@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Plus, FolderOpen, Users, Settings } from 'lucide-react'
+import { Plus, FolderOpen, Users, Settings, LayoutDashboard } from 'lucide-react'
 import { useStore } from 'zustand'
 import type { WorkspaceEntry } from '../../../shared/types'
 import { cn } from '../../lib/utils'
@@ -8,11 +8,13 @@ import { getOrCreateWorkspaceStore, setActiveStore } from '../../stores/session-
 import { useRightPanelUIStore } from '../../stores/plugin-store'
 import { useSettingsStore } from '../../stores/settings-store'
 import { useNotificationStore } from '../../stores/notification-store'
+import { useLayoutStore } from '../../stores/layout-store'
 import type { FlyoutContentType } from './FlyoutPanel'
 
 interface ActivityBarProps {
   activeFlyout: FlyoutContentType | null
   onFlyoutToggle: (type: FlyoutContentType) => void
+  onFlyoutOpen: (type: FlyoutContentType) => void
   /** HTML5 drag data type (AppLayout에서 지정) */
   dragDataType?: string
 }
@@ -100,11 +102,13 @@ function WorkspaceButton({
 
 const SESSION_SOFT_LIMIT = 5
 
-export const ActivityBar = memo(function ActivityBar({ activeFlyout, onFlyoutToggle, dragDataType }: ActivityBarProps) {
+export const ActivityBar = memo(function ActivityBar({ activeFlyout, onFlyoutToggle, onFlyoutOpen, dragDataType }: ActivityBarProps) {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const sessionLimitWarned = useNotificationStore((s) => s.sessionLimitWarned)
+  const layoutMode = useLayoutStore((s) => s.layoutMode)
+  const setLayoutMode = useLayoutStore((s) => s.setLayoutMode)
 
   // 활성 세션 수 (sessionId가 있는 워크스페이스)
   const activeSessionCount = workspaces.filter((ws) => {
@@ -123,7 +127,7 @@ export const ActivityBar = memo(function ActivityBar({ activeFlyout, onFlyoutTog
     )
 
   return (
-    <aside className="flex h-full w-11 flex-shrink-0 flex-col items-center border-r border-border bg-card py-2">
+    <aside data-activity-bar className="flex h-full w-11 flex-shrink-0 flex-col items-center border-r border-border bg-card py-2">
       {/* 로고 */}
       <div className="flex h-8 w-8 items-center justify-center">
         <span className="text-sm font-bold text-primary">N</span>
@@ -139,7 +143,7 @@ export const ActivityBar = memo(function ActivityBar({ activeFlyout, onFlyoutTog
             key={ws.path}
             workspace={ws}
             activeWorkspace={activeWorkspace}
-            onHover={() => onFlyoutToggle('workspace')}
+            onHover={() => onFlyoutOpen('workspace')}
             dragDataType={dragDataType}
           />
         ))}
@@ -186,6 +190,13 @@ export const ActivityBar = memo(function ActivityBar({ activeFlyout, onFlyoutTog
           title="에이전트"
         >
           <Users size={16} />
+        </button>
+        <button
+          onClick={() => setLayoutMode(layoutMode === 'mission-control' ? 'chat' : 'mission-control')}
+          className={iconButtonCls(layoutMode === 'mission-control')}
+          title={layoutMode === 'chat' ? 'Mission Control' : '채팅 모드'}
+        >
+          <LayoutDashboard size={16} />
         </button>
         <button
           onClick={() => onFlyoutToggle('settings')}

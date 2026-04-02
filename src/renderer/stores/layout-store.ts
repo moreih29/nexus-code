@@ -18,6 +18,8 @@ function createDefaultLayout(): WorkspaceLayout {
   }
 }
 
+export type LayoutMode = 'chat' | 'mission-control'
+
 // ─── 스토어 상태 타입 ────────────────────────────────────────────────────────
 
 interface LayoutStoreState {
@@ -25,11 +27,14 @@ interface LayoutStoreState {
   layouts: Map<string, WorkspaceLayout>
   /** 현재 포커스된 패널 ID */
   focusedPanel: string | null
+  /** 레이아웃 모드 */
+  layoutMode: LayoutMode
 
   getOrCreateLayout: (workspacePath: string) => WorkspaceLayout
   updateLayout: (workspacePath: string, partial: Partial<WorkspaceLayout>) => void
   setFocusedPanel: (panelId: string | null) => void
   removeLayout: (workspacePath: string) => void
+  setLayoutMode: (mode: LayoutMode) => void
 }
 
 // ─── 스토어 ──────────────────────────────────────────────────────────────────
@@ -37,6 +42,7 @@ interface LayoutStoreState {
 export const useLayoutStore = create<LayoutStoreState>()((set, get) => ({
   layouts: new Map(),
   focusedPanel: null,
+  layoutMode: 'chat',
 
   getOrCreateLayout: (workspacePath) => {
     const { layouts } = get()
@@ -66,4 +72,6 @@ export const useLayoutStore = create<LayoutStoreState>()((set, get) => ({
     newLayouts.delete(workspacePath)
     set({ layouts: newLayouts })
   },
+
+  setLayoutMode: (mode) => set({ layoutMode: mode }),
 }))
