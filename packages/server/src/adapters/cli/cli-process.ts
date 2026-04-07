@@ -20,6 +20,7 @@ export interface CliStartOptions {
   permissionMode?: 'default' | 'auto' | 'bypassPermissions'
   sessionId?: string
   model?: string
+  effortLevel?: string
   maxTurns?: number
   continueSession?: boolean
 }
@@ -39,6 +40,7 @@ export class CliProcess {
   private _status: CliProcessStatus = 'idle'
   private _process: ChildProcess | null = null
   private _parser: StreamParser | null = null
+  private _sessionId: string | null = null
   private readonly _store = new DisposableStore()
   private readonly _listeners: ListenerMap = new Map()
   private _cancelTimer: ReturnType<typeof setTimeout> | null = null
@@ -56,6 +58,16 @@ export class CliProcess {
 
   getStatus(): CliProcessStatus {
     return this._status
+  }
+
+  isAlive(): boolean {
+    if (!this._process || this._status === 'stopped' || this._status === 'error') return false
+    try {
+      process.kill(this._process.pid!, 0)
+      return true
+    } catch {
+      return false
+    }
   }
 
   async start(options: CliStartOptions): Promise<Result<void>> {
@@ -100,11 +112,16 @@ export class CliProcess {
       args.push('--dangerously-skip-permissions')
     }
 
+    const spawnEnv = options.effortLevel
+      ? { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: options.effortLevel }
+      : process.env
+
     let child: ChildProcess
     try {
       child = spawn('claude', args, {
         cwd: options.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: spawnEnv,
       })
     } catch (cause) {
       this._setStatus('error')
@@ -118,7 +135,12 @@ export class CliProcess {
     this._wireParserEvents(this._parser)
     this._wireProcessEvents(child, this._parser)
 
-    const initialPrompt = JSON.stringify({ type: 'user', message: options.prompt })
+    const initialPrompt = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: options.prompt },
+      parent_tool_use_id: null,
+      session_id: '',
+    })
     const writeResult = this._writeStdin(child, initialPrompt + '\n')
     if (!writeResult.ok) {
       this._setStatus('error')
@@ -131,7 +153,7 @@ export class CliProcess {
   }
 
   sendPrompt(message: string, images?: string[]): Result<void> {
-    if (this._status !== 'running' && this._status !== 'waiting_permission') {
+    if (this._status !== 'running' && this._status !== 'idle' && this._status !== 'waiting_permission') {
       return err(
         appError(
           'CLI_NOT_RUNNING',
@@ -143,9 +165,18 @@ export class CliProcess {
       return err(appError('CLI_NOT_RUNNING', 'Process not initialized'))
     }
 
-    const payload: Record<string, unknown> = { type: 'user', message }
+    const content: unknown[] = [{ type: 'text', text: message }]
     if (images && images.length > 0) {
-      payload['images'] = images
+      for (const img of images) {
+        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: img } })
+      }
+    }
+
+    const payload = {
+      type: 'user',
+      message: { role: 'user', content: content.length === 1 ? message : content },
+      parent_tool_use_id: null,
+      session_id: this._sessionId ?? '',
     }
 
     return this._writeStdin(this._process, JSON.stringify(payload) + '\n')
@@ -218,6 +249,10 @@ export class CliProcess {
       const unsub = parser.on(event, (data) => {
         this._emit(event as CliEventName, data as CliProcessEvents[CliEventName])
 
+        if (event === 'init') {
+          const initData = data as { sessionId?: string }
+          if (initData.sessionId) this._sessionId = initData.sessionId
+        }
         if (event === 'permission_request') {
           this._setStatus('waiting_permission')
         }

@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
+import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 
-export function createApprovalRouter(approvalBridge: ApprovalBridge) {
+export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore?: ApprovalPolicyStore) {
   const router = new Hono()
 
   router.get('/', (c) => {
@@ -38,7 +39,19 @@ export function createApprovalRouter(approvalBridge: ApprovalBridge) {
       )
     }
 
-    const settled = approvalBridge.respond(id, decision)
+    const scopeRaw = (body as Record<string, unknown>)['scope']
+    let scope: 'once' | 'session' | 'permanent' | undefined
+    if (scopeRaw !== undefined) {
+      if (scopeRaw !== 'once' && scopeRaw !== 'session' && scopeRaw !== 'permanent') {
+        return c.json(
+          { error: { code: 'VALIDATION_ERROR', message: 'Field "scope" must be "once", "session", or "permanent"' } },
+          400,
+        )
+      }
+      scope = scopeRaw
+    }
+
+    const settled = approvalBridge.respond(id, decision, scope)
     if (!settled) {
       return c.json(
         { error: { code: 'APPROVAL_NOT_FOUND', message: `Approval '${id}' not found` } },
@@ -46,7 +59,37 @@ export function createApprovalRouter(approvalBridge: ApprovalBridge) {
       )
     }
 
-    return c.json({ id, decision })
+    return c.json({ id, decision, scope: scope ?? 'once' })
+  })
+
+  // Rules endpoints (require policyStore)
+  router.get('/rules', (c) => {
+    if (!policyStore) {
+      return c.json({ error: { code: 'NOT_AVAILABLE', message: 'Policy store not configured' } }, 503)
+    }
+    const workspacePath = c.req.query('workspacePath')
+    const rules = policyStore.listPermanentRules(workspacePath)
+    return c.json({ rules })
+  })
+
+  router.delete('/rules/:id', (c) => {
+    if (!policyStore) {
+      return c.json({ error: { code: 'NOT_AVAILABLE', message: 'Policy store not configured' } }, 503)
+    }
+    const id = c.req.param('id')
+    policyStore.removePermanentRule(id)
+    return c.json({ success: true })
+  })
+
+  router.get('/logs', (c) => {
+    if (!policyStore) {
+      return c.json({ error: { code: 'NOT_AVAILABLE', message: 'Policy store not configured' } }, 503)
+    }
+    const workspacePath = c.req.query('workspacePath')
+    const limitParam = c.req.query('limit')
+    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : 100
+    const logs = policyStore.getAuditLog(workspacePath, limit)
+    return c.json({ logs })
   })
 
   return router

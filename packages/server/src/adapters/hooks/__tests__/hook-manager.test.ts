@@ -196,4 +196,72 @@ describe('HookManager', () => {
       await rm(dir2, { recursive: true, force: true })
     })
   })
+
+  describe('cleanupOrphanHooks', () => {
+    it('removes hooks from a previous server instance (different token/port)', async () => {
+      // Inject hooks with a "previous" manager (different port => different token)
+      const previousManager = new HookManager(9999)
+      await previousManager.injectHooks(tempDir)
+
+      // Current manager cleans up orphans
+      await manager.cleanupOrphanHooks([tempDir])
+
+      const settingsPath = join(tempDir, '.claude', 'settings.local.json')
+      const raw = await readFile(settingsPath, 'utf8')
+      const settings = JSON.parse(raw) as Record<string, unknown>
+      expect(settings['hooks']).toBeUndefined()
+    })
+
+    it('does not remove hooks that belong to the current server', async () => {
+      await manager.injectHooks(tempDir)
+
+      // Cleanup should not remove our own hooks
+      await manager.cleanupOrphanHooks([tempDir])
+
+      const settingsPath = join(tempDir, '.claude', 'settings.local.json')
+      const raw = await readFile(settingsPath, 'utf8')
+      const settings = JSON.parse(raw) as Record<string, unknown>
+      const hooks = settings['hooks'] as Record<string, unknown>
+      expect(Array.isArray(hooks['PreToolUse'])).toBe(true)
+      const preToolUse = hooks['PreToolUse'] as unknown[]
+      expect(preToolUse.length).toBe(1)
+    })
+
+    it('preserves non-nexus hooks while removing orphans', async () => {
+      const { writeFile: wf } = await import('node:fs/promises')
+      const settingsDir = join(tempDir, '.claude')
+      await mkdir(settingsDir, { recursive: true })
+      const settingsPath = join(settingsDir, 'settings.local.json')
+
+      // Write a mix: a user hook and a stale nexus hook from another instance
+      const previousManager = new HookManager(9999)
+      const orphanUrl = previousManager.getHookUrl()
+      const existing = {
+        hooks: {
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo hi' }] },
+            { matcher: '', hooks: [{ type: 'http', url: orphanUrl, timeout: 60 }] },
+          ],
+        },
+      }
+      await wf(settingsPath, JSON.stringify(existing), 'utf8')
+
+      await manager.cleanupOrphanHooks([tempDir])
+
+      const raw = await readFile(settingsPath, 'utf8')
+      const settings = JSON.parse(raw) as Record<string, unknown>
+      const hooks = settings['hooks'] as Record<string, unknown>
+      const preToolUse = hooks['PreToolUse'] as unknown[]
+      // Only the user 'Bash' hook remains
+      expect(preToolUse.length).toBe(1)
+      const group = preToolUse[0] as Record<string, unknown>
+      const hookEntries = group['hooks'] as Array<Record<string, unknown>>
+      expect(hookEntries[0]!['type']).toBe('command')
+    })
+
+    it('does nothing when workspace has no settings file', async () => {
+      // Should not throw
+      await expect(manager.cleanupOrphanHooks([tempDir])).resolves.toBeUndefined()
+    })
+  })
 })

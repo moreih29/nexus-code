@@ -3182,6 +3182,117 @@
           "created_at": "2026-04-07T04:07:02.102Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-07T04:57:53.787Z",
+      "branch": "feat/main-process-redesign",
+      "plan": {
+        "id": 4,
+        "topic": "서버 기능 갭 보완 — 입출력 기록, 권한 세분화, 설정 변경, 기타",
+        "issues": [
+          {
+            "id": 1,
+            "title": "CLI 입출력 기록 — 대화 이력 저장/조회, 서버 재시작 후에도 지난 세션 대화 확인 가능",
+            "status": "decided",
+            "decision": "CLI JSONL 파일 활용 (A안). ~/.claude/projects/ 의 JSONL이 진실의 원천. GET /sessions/:id/history로 파싱하여 반환. 이중 저장 없음. SessionStore의 cli_session_id + workspace_path로 경로 유추."
+          },
+          {
+            "id": 2,
+            "title": "권한 세분화 — session/permanent scope, bypass API 노출, 권한 정책 저장",
+            "status": "decided",
+            "decision": "서버 측 자동 승인 정책 (A안). 훅 요청 → 정책 DB 매칭 시 즉시 allow, 미매칭 시 클라이언트에 전달. 3단계 scope: 일회성(즉시), session(인메모리), permanent(SQLite approval_rules). bypass는 permissionMode API 노출. 감사 로그 기록."
+          },
+          {
+            "id": 3,
+            "title": "런타임 설정 변경 — 모델/effort/max-turns 등 세션 중 변경 방법",
+            "status": "decided",
+            "decision": "재시작 방식 (A안). PUT /sessions/:id/settings로 설정 변경 → 내부적으로 기존 프로세스 dispose + --resume + 새 인자로 재시작. 대화 컨텍스트 유지. SSE session_restarting → session_restarted 이벤트로 UX. 변경 가능: model, max-turns, permissionMode, effortLevel."
+          },
+          {
+            "id": 4,
+            "title": "기타 서버 부족한 점 — 워크스페이스 영속화, CORS, 경로 검증, 건강 모니터링 등",
+            "status": "decided",
+            "decision": "전부 구현 (A안). 5개 항목: 1) 워크스페이스 SQLite 영속화, 2) CORS 미들웨어, 3) 경로 검증 (디렉토리 존재/범위), 4) 서버 시작 시 orphan 훅 정리, 5) 프로세스 건강 모니터링 (alive 체크 + 상태 반영)."
+          }
+        ],
+        "research_summary": "직전 검증 결과: 1) 입출력 기록 불가 — SSE 스트리밍만, SessionStore에 메타데이터만, raw 로그 없음. 2) 멀티턴/resume 가능. 3) 권한 allow/deny만, session/permanent scope 미구현, bypass API 미노출. 4) 설정 변경 불가 — SettingsManager 죽은 코드, CLI는 프로세스 시작 시에만 인자 수용, stdin으로 모델 변경 불가.",
+        "created_at": "2026-04-07T04:38:34.644Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "대화 이력 조회 (CLI JSONL 파싱)",
+          "context": "GET /sessions/:id/history 엔드포인트 — CLI가 저장한 JSONL 파일을 읽어 파싱하여 반환",
+          "approach": "1) SessionStore의 cli_session_id + workspace_path로 ~/.claude/projects/{encodedPath}/{cliSessionId}.jsonl 경로 유추. 2) JSONL 파일 읽기 + 라인별 JSON 파싱. 3) 메시지 타입별 정리: user 메시지, assistant 메시지(텍스트+도구), tool_result. 4) GET /sessions/:id/history 엔드포인트 추가. 5) 페이지네이션 지원 (offset, limit). 6) 테스트: mock JSONL 파일로 파싱 검증.",
+          "acceptance": "GET /sessions/:id/history가 대화 메시지 목록 반환, user/assistant 메시지 구분, 도구 호출 포함, 실제 CLI 세션의 JSONL 파일과 일치 확인. 테스트 통과.",
+          "risk": "CLI JSONL 포맷이 미문서이므로 업데이트 시 파싱 깨질 수 있음. 경로 유추 로직이 CLI 내부 규칙에 의존.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:43:37.730Z"
+        },
+        {
+          "id": 2,
+          "title": "권한 정책 DB + 자동 승인 로직",
+          "context": "approval_rules 테이블, 3단계 scope, 훅 핸들러에 정책 매칭 로직, bypass API 노출",
+          "approach": "1) SQLite approval_rules 테이블: (id, tool_name, scope 'session'|'permanent', workspace_path, created_at). 2) ApprovalPolicyStore 클래스: addRule, removeRule, matchRule(toolName, workspacePath). 3) hooks.ts 수정: 훅 요청 수신 → ApprovalPolicyStore.matchRule() → 매칭 시 즉시 allow. 4) POST /approvals/:id/respond에 scope 파라미터 추가: 'once'|'session'|'permanent'. session scope는 인메모리 Set, permanent는 SQLite. 5) 세션 시작 API에 permissionMode 선택지 확장: 'default'|'auto'|'plan'|'bypassPermissions'. 6) 감사 로그: approval_logs 테이블에 모든 결정 기록.",
+          "acceptance": "permanent 규칙 저장 후 서버 재시작해도 자동 승인 동작, session 규칙은 세션 종료 시 소멸, bypass 모드 세션 시작 가능, 감사 로그 기록 확인. 테스트 통과.",
+          "risk": "정책 매칭 로직 복잡도 (도구명 패턴 매칭 필요할 수 있음). 기존 ApprovalBridge와의 통합.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:43:51.579Z"
+        },
+        {
+          "id": 3,
+          "title": "런타임 설정 변경 (PUT /sessions/:id/settings)",
+          "context": "설정 변경 → --resume + 새 인자로 재시작, SSE session_restarting/restarted 이벤트",
+          "approach": "1) PUT /sessions/:id/settings 엔드포인트: body에 model?, effortLevel?, maxTurns?, permissionMode?. 2) 내부적으로 기존 프로세스 dispose → 새 CliProcess --resume {cliSessionId} + 새 인자로 시작. 3) SessionStore 업데이트 (model, permission_mode). 4) SSE 이벤트: session_restarting → session_restarted. 5) 기존 restart 엔드포인트와 로직 공유 (리팩토링). 6) CliStartOptions에 effortLevel 추가, 환경변수 CLAUDE_CODE_EFFORT_LEVEL 전달.",
+          "acceptance": "PUT /sessions/:id/settings { model: \"sonnet\" } → 세션 재시작 + 모델 변경 확인, SSE에 restarting/restarted 이벤트, 대화 컨텍스트 유지(--resume), SessionStore에 새 모델 기록. 테스트 통과.",
+          "risk": "재시작 1-3초 공백. --resume 시 이전 컨텍스트 완벽 복원 보장은 CLI에 의존.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:44:07.005Z"
+        },
+        {
+          "id": 4,
+          "title": "워크스페이스 SQLite 영속화",
+          "context": "workspaces 테이블 추가, 서버 시작 시 복원, WorkspaceRegistry 연동",
+          "approach": "1) SessionStore와 같은 DB에 workspaces 테이블 추가: (id, path, name, created_at). 2) WorkspaceStore 클래스 또는 SessionStore 확장. 3) 서버 시작 시 DB에서 워크스페이스 목록 로드 → WorkspaceRegistry에 등록. 4) 워크스페이스 추가/삭제 시 DB 동기화.",
+          "acceptance": "워크스페이스 추가 후 서버 재시작 → GET /workspaces에 여전히 표시. 테스트 통과.",
+          "risk": "WorkspaceRegistry와 DB 동기화 타이밍.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:44:14.982Z"
+        },
+        {
+          "id": 5,
+          "title": "CORS + 경로 검증 + orphan 훅 정리 + 프로세스 모니터링",
+          "context": "4가지 소규모 서버 안정성 작업",
+          "approach": "1) CORS: Hono cors() 미들웨어 추가, 개발 시 origin: '*'. 2) 경로 검증: 워크스페이스 path가 절대경로이고 실제 디렉토리인지 fs.stat 확인, path traversal 방지. 3) orphan 훅 정리: 서버 시작 시 등록된 워크스페이스의 settings.local.json을 스캔하여 이전 서버 훅 URL 제거. 4) 프로세스 모니터링: CliProcess에 isAlive() 메서드 (process.kill(0) 체크), 주기적 체크 또는 상태 요청 시 확인.",
+          "acceptance": "웹 클라이언트(localhost:5173)에서 서버(localhost:3000) CORS 통과, 잘못된 경로로 워크스페이스 생성 시 에러 반환, 서버 재시작 시 이전 훅 잔존 없음, 죽은 프로세스 감지 시 상태 반영. 테스트 통과.",
+          "risk": "orphan 훅 감지 로직이 서버 URL 패턴에 의존. 프로세스 alive 체크의 false positive.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:44:36.857Z"
+        }
+      ]
     }
   ]
 }

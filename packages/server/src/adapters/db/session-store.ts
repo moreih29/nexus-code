@@ -16,7 +16,7 @@ export interface SessionRow {
 }
 
 export class SessionStore {
-  private db: Database.Database
+  readonly db: Database.Database
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath)
@@ -81,6 +81,25 @@ export class SessionStore {
 
   updateStatus(id: string, status: string): void {
     this.db.prepare('UPDATE sessions SET status = ? WHERE id = ?').run(status, id)
+  }
+
+  updateSettings(id: string, settings: { model?: string; permissionMode?: string }): void {
+    const parts: string[] = []
+    const values: unknown[] = []
+
+    if (settings.model !== undefined) {
+      parts.push('model = ?')
+      values.push(settings.model)
+    }
+    if (settings.permissionMode !== undefined) {
+      parts.push('permission_mode = ?')
+      values.push(settings.permissionMode)
+    }
+
+    if (parts.length === 0) return
+
+    values.push(id)
+    this.db.prepare(`UPDATE sessions SET ${parts.join(', ')} WHERE id = ?`).run(...values)
   }
 
   markEnded(id: string, exitCode: number | null, errorMessage: string | null): void {

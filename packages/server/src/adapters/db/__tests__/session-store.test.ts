@@ -147,6 +147,41 @@ describe('SessionStore', () => {
     })
   })
 
+  describe('updateSettings', () => {
+    it('updates model field', () => {
+      store.create({ id: 'sess-1', workspacePath: '/p', agentId: 'a-1', model: 'claude-opus-4' })
+      store.updateSettings('sess-1', { model: 'claude-sonnet-4' })
+
+      const row = store.findById('sess-1')
+      expect(row!.model).toBe('claude-sonnet-4')
+    })
+
+    it('updates permission_mode field', () => {
+      store.create({ id: 'sess-1', workspacePath: '/p', agentId: 'a-1', permissionMode: 'default' })
+      store.updateSettings('sess-1', { permissionMode: 'auto' })
+
+      const row = store.findById('sess-1')
+      expect(row!.permission_mode).toBe('auto')
+    })
+
+    it('updates both model and permissionMode together', () => {
+      store.create({ id: 'sess-1', workspacePath: '/p', agentId: 'a-1' })
+      store.updateSettings('sess-1', { model: 'claude-sonnet-4', permissionMode: 'bypassPermissions' })
+
+      const row = store.findById('sess-1')
+      expect(row!.model).toBe('claude-sonnet-4')
+      expect(row!.permission_mode).toBe('bypassPermissions')
+    })
+
+    it('does nothing when called with empty settings', () => {
+      store.create({ id: 'sess-1', workspacePath: '/p', agentId: 'a-1', model: 'claude-opus-4' })
+      store.updateSettings('sess-1', {})
+
+      const row = store.findById('sess-1')
+      expect(row!.model).toBe('claude-opus-4')
+    })
+  })
+
   describe('close', () => {
     it('closes the database without throwing', () => {
       expect(() => store.close()).not.toThrow()

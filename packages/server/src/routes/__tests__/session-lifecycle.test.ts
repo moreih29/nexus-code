@@ -337,6 +337,147 @@ describe('session lifecycle', () => {
     })
   })
 
+  // ----------- PUT /sessions/:id/settings -----------
+
+  describe('PUT /sessions/:id/settings', () => {
+    async function createSessionWithCliId(): Promise<{ sessionId: string }> {
+      const createRes = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+      const sessionId = createBody.id
+
+      currentMockProcess.emit('init', { sessionId: 'cli-session-xyz' })
+
+      return { sessionId }
+    }
+
+    it('returns 404 for non-existent session (not in sessions map)', async () => {
+      const res = await app.request('/sessions/does-not-exist/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+      expect(res.status).toBe(404)
+      const body = await res.json() as { error: { code: string } }
+      expect(body.error.code).toBe('SESSION_NOT_FOUND')
+    })
+
+    it('returns 400 when session has no cli_session_id', async () => {
+      const createRes = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+
+      // Do NOT fire init event — no cli_session_id
+      const res = await app.request(`/sessions/${createBody.id}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+      expect(res.status).toBe(400)
+      const body = await res.json() as { error: { code: string } }
+      expect(body.error.code).toBe('SESSION_NOT_RESUMABLE')
+    })
+
+    it('returns 200 with restarted status when settings applied', async () => {
+      const { sessionId } = await createSessionWithCliId()
+
+      const res = await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+      expect(res.status).toBe(200)
+      const body = await res.json() as { id: string; status: string; settings: { model: string } }
+      expect(body.id).toBe(sessionId)
+      expect(body.status).toBe('restarted')
+      expect(body.settings.model).toBe('claude-sonnet-4')
+    })
+
+    it('calls start with --resume using the stored cli_session_id', async () => {
+      const { sessionId } = await createSessionWithCliId()
+
+      await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+
+      expect(currentMockProcess.start).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'cli-session-xyz', prompt: '' }),
+      )
+    })
+
+    it('passes effortLevel to start', async () => {
+      const { sessionId } = await createSessionWithCliId()
+
+      await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ effortLevel: 'high' }),
+      })
+
+      expect(currentMockProcess.start).toHaveBeenCalledWith(
+        expect.objectContaining({ effortLevel: 'high' }),
+      )
+    })
+
+    it('updates model in SessionStore', async () => {
+      const { sessionId } = await createSessionWithCliId()
+
+      await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+
+      const row = store.findById(sessionId)
+      expect(row!.model).toBe('claude-sonnet-4')
+      expect(row!.status).toBe('running')
+    })
+
+    it('disposes old process when applying new settings', async () => {
+      const createRes = await app.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+      const sessionId = createBody.id
+
+      const oldProcess = currentMockProcess
+      oldProcess.emit('init', { sessionId: 'cli-session-old' })
+
+      await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+
+      expect(oldProcess.dispose).toHaveBeenCalled()
+    })
+
+    it('updates cli_session_id when init event fires after settings restart', async () => {
+      const { sessionId } = await createSessionWithCliId()
+
+      await app.request(`/sessions/${sessionId}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+      })
+
+      currentMockProcess.emit('init', { sessionId: 'cli-session-new' })
+
+      const row = store.findById(sessionId)
+      expect(row!.cli_session_id).toBe('cli-session-new')
+    })
+  })
+
   // ----------- SSE event forwarding (structural checks) -----------
 
   describe('SSE event forwarding — events.ts coverage', () => {

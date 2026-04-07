@@ -85,9 +85,11 @@ describe('CliProcess', () => {
       await process_.start({ prompt: 'Test prompt', cwd: '/tmp' })
 
       expect(writes.length).toBeGreaterThan(0)
-      const parsed = JSON.parse(writes[0].trim()) as { type: string; message: string }
+      const parsed = JSON.parse(writes[0].trim()) as { type: string; message: { role: string; content: string }; parent_tool_use_id: null; session_id: string }
       expect(parsed.type).toBe('user')
-      expect(parsed.message).toBe('Test prompt')
+      expect(parsed.message.role).toBe('user')
+      expect(parsed.message.content).toBe('Test prompt')
+      expect(parsed.parent_tool_use_id).toBeNull()
     })
 
     it('returns error when process is already running', async () => {
@@ -169,6 +171,20 @@ describe('CliProcess', () => {
       const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
       expect(args).not.toContain('--continue')
     })
+
+    it('sets CLAUDE_CODE_EFFORT_LEVEL env var when effortLevel is provided', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp', effortLevel: 'high' })
+
+      const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: Record<string, string> }]
+      expect(options.env?.['CLAUDE_CODE_EFFORT_LEVEL']).toBe('high')
+    })
+
+    it('does not set CLAUDE_CODE_EFFORT_LEVEL when effortLevel is not provided', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+
+      const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: Record<string, string> }]
+      expect(options.env).toBe(process.env)
+    })
   })
 
   describe('sendPrompt()', () => {
@@ -186,8 +202,10 @@ describe('CliProcess', () => {
 
       expect(result.ok).toBe(true)
       expect(writes.length).toBeGreaterThan(0)
-      const parsed = JSON.parse(writes[0].trim()) as { type: string; message: string }
-      expect(parsed.message).toBe('Follow-up')
+      const lastWrite = writes[writes.length - 1]
+      const parsed = JSON.parse(lastWrite.trim()) as { type: string; message: { role: string; content: string } }
+      expect(parsed.message.role).toBe('user')
+      expect(parsed.message.content).toBe('Follow-up')
     })
 
     it('returns error when not running', () => {
@@ -303,6 +321,38 @@ describe('CliProcess', () => {
 
       await new Promise((r) => setTimeout(r, 10))
       expect(handler).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('isAlive()', () => {
+    it('returns false when process has not started', () => {
+      expect(process_.isAlive()).toBe(false)
+    })
+
+    it('returns false when process is in stopped state', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+      child.emit('exit', 0)
+      expect(process_.isAlive()).toBe(false)
+    })
+
+    it('returns false when process is in error state', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+      child.emit('exit', 1)
+      expect(process_.isAlive()).toBe(false)
+    })
+
+    it('returns true when process is running and pid is accessible', async () => {
+      Object.defineProperty(child, 'pid', { value: process.pid, writable: true })
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+      // process.pid is our own pid — signal 0 succeeds
+      expect(process_.isAlive()).toBe(true)
+    })
+
+    it('returns false when process pid is not alive', async () => {
+      // Use a pid that is very unlikely to exist
+      Object.defineProperty(child, 'pid', { value: 2147483647, writable: true })
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+      expect(process_.isAlive()).toBe(false)
     })
   })
 })

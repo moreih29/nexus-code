@@ -12,7 +12,7 @@ export const SessionStatusSchema = z.enum([
 export const StartSessionRequestSchema = z.object({
   workspacePath: z.string(),
   prompt: z.string(),
-  permissionMode: z.enum(['auto', 'manual']).optional(),
+  permissionMode: z.enum(['default', 'auto', 'plan', 'bypassPermissions']).optional(),
   model: z.string().optional(),
 })
 

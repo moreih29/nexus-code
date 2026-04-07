@@ -148,4 +148,64 @@ export class HookManager {
     const workspaces = Array.from(this.activeWorkspaces)
     await Promise.allSettled(workspaces.map((ws) => this.removeHooks(ws)))
   }
+
+  async cleanupOrphanHooks(workspacePaths: string[]): Promise<void> {
+    await Promise.allSettled(workspacePaths.map((wsPath) => this._cleanupOrphanHooksForWorkspace(wsPath)))
+  }
+
+  private async _cleanupOrphanHooksForWorkspace(workspacePath: string): Promise<void> {
+    const settingsPath = join(workspacePath, '.claude', 'settings.local.json')
+
+    let settings: Record<string, unknown>
+    try {
+      const raw = await readFile(settingsPath, 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (typeof parsed !== 'object' || parsed === null) return
+      settings = parsed as Record<string, unknown>
+    } catch {
+      return
+    }
+
+    const existingHooks = settings['hooks']
+    if (typeof existingHooks !== 'object' || existingHooks === null || Array.isArray(existingHooks)) {
+      return
+    }
+
+    const hooks = existingHooks as Record<string, unknown>
+    const preToolUse = hooks['PreToolUse']
+    if (!Array.isArray(preToolUse)) return
+
+    const currentHookUrl = this.getHookUrl()
+
+    const filtered = preToolUse.filter((entry) => {
+      if (typeof entry !== 'object' || entry === null) return true
+      const e = entry as Record<string, unknown>
+      if (!Array.isArray(e['hooks'])) return true
+      const hasOrphanNexusHook = (e['hooks'] as unknown[]).some((h) => {
+        if (typeof h !== 'object' || h === null) return false
+        const hh = h as Record<string, unknown>
+        if (typeof hh['url'] !== 'string') return false
+        return hh['url'].includes(HOOK_URL_MARKER) && hh['url'] !== currentHookUrl
+      })
+      return !hasOrphanNexusHook
+    })
+
+    if (filtered.length === preToolUse.length) return
+
+    if (filtered.length === 0) {
+      delete hooks['PreToolUse']
+    } else {
+      hooks['PreToolUse'] = filtered
+    }
+
+    if (Object.keys(hooks).length === 0) {
+      delete settings['hooks']
+    }
+
+    try {
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+    } catch {
+      // Best-effort cleanup — ignore write failures
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -14,6 +15,8 @@ import { WorkspaceRegistry } from './domain/workspace/workspace-registry.js'
 import { ProcessSupervisor } from './adapters/cli/process-supervisor.js'
 import { EventEmitterAdapter } from './adapters/events/event-emitter-adapter.js'
 import { SessionStore } from './adapters/db/session-store.js'
+import { WorkspaceStore } from './adapters/db/workspace-store.js'
+import { ApprovalPolicyStore } from './adapters/db/approval-policy-store.js'
 import { HookManager } from './adapters/hooks/hook-manager.js'
 import { ApprovalBridge } from './adapters/hooks/approval-bridge.js'
 import type { SessionRecord } from './routes/session.js'
@@ -27,16 +30,28 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const supervisor = new ProcessSupervisor()
   const sessions = new Map<string, SessionRecord>()
   const store = new SessionStore(dbPath)
+  const workspaceStore = new WorkspaceStore(store.db)
+  const policyStore = new ApprovalPolicyStore(store.db)
   const hookManager = new HookManager(port)
-  const approvalBridge = new ApprovalBridge()
+  const approvalBridge = new ApprovalBridge(policyStore)
+
+  const workspaceRows = workspaceStore.list()
+  for (const row of workspaceRows) {
+    registry.add({ id: row.id, path: row.path, name: row.name ?? undefined })
+  }
+
+  hookManager.cleanupOrphanHooks(workspaceRows.map((r) => r.path)).catch(() => {
+    // Best-effort cleanup — do not block startup
+  })
 
   const app = new Hono()
 
+  app.use('*', cors())
   app.use('*', loggingMiddleware)
   app.onError(errorBoundary)
 
   app.route('/api/health', health)
-  app.route('/api/workspaces', createWorkspaceRouter(registry))
+  app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
   app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager))
   app.route('/api/approvals', createApprovalRouter(approvalBridge))
   app.route('/api/workspaces', createEventsRouter(supervisor))
