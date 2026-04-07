@@ -1,0 +1,151 @@
+import { randomUUID } from 'node:crypto'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
+import { ok, err, appError } from '@nexus/shared'
+import type { Result } from '@nexus/shared'
+
+const HOOK_URL_MARKER = 'nexus-server-hook'
+
+export class HookManager {
+  private readonly hookToken: string
+  private readonly activeWorkspaces = new Set<string>()
+  private readonly port: number
+
+  constructor(port: number) {
+    this.hookToken = randomUUID()
+    this.port = port
+  }
+
+  getHookUrl(): string {
+    return `http://localhost:${this.port}/hooks/pre-tool-use?token=${this.hookToken}&marker=${HOOK_URL_MARKER}`
+  }
+
+  validateToken(token: string): boolean {
+    return token === this.hookToken
+  }
+
+  async injectHooks(workspacePath: string): Promise<Result<void>> {
+    const settingsPath = join(workspacePath, '.claude', 'settings.local.json')
+
+    let settings: Record<string, unknown> = {}
+    try {
+      const raw = await readFile(settingsPath, 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) {
+        settings = parsed as Record<string, unknown>
+      }
+    } catch {
+      // File doesn't exist or is invalid JSON — start fresh
+    }
+
+    const hookEntry = {
+      type: 'http',
+      url: this.getHookUrl(),
+      timeout: 60,
+    }
+
+    const existingHooks = settings['hooks']
+    let hooks: Record<string, unknown[]> = {}
+    if (typeof existingHooks === 'object' && existingHooks !== null && !Array.isArray(existingHooks)) {
+      hooks = existingHooks as Record<string, unknown[]>
+    }
+
+    const preToolUse = hooks['PreToolUse']
+    const existingGroup = Array.isArray(preToolUse) ? preToolUse : []
+
+    // Check if our hook is already present
+    const alreadyInjected = existingGroup.some((entry) => {
+      if (typeof entry !== 'object' || entry === null) return false
+      const e = entry as Record<string, unknown>
+      if (!Array.isArray(e['hooks'])) return false
+      return (e['hooks'] as unknown[]).some((h) => {
+        if (typeof h !== 'object' || h === null) return false
+        const hh = h as Record<string, unknown>
+        return typeof hh['url'] === 'string' && hh['url'].includes(HOOK_URL_MARKER)
+      })
+    })
+
+    if (!alreadyInjected) {
+      existingGroup.push({ matcher: '', hooks: [hookEntry] })
+    }
+
+    hooks['PreToolUse'] = existingGroup
+    settings['hooks'] = hooks
+
+    try {
+      await mkdir(dirname(settingsPath), { recursive: true })
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+    } catch (cause) {
+      return err(appError('HOOK_INJECT_FAILED', `Failed to write settings at '${settingsPath}'`, { cause }))
+    }
+
+    this.activeWorkspaces.add(workspacePath)
+    return ok(undefined)
+  }
+
+  async removeHooks(workspacePath: string): Promise<Result<void>> {
+    const settingsPath = join(workspacePath, '.claude', 'settings.local.json')
+
+    let settings: Record<string, unknown> = {}
+    try {
+      const raw = await readFile(settingsPath, 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) {
+        settings = parsed as Record<string, unknown>
+      }
+    } catch {
+      // Nothing to clean up
+      this.activeWorkspaces.delete(workspacePath)
+      return ok(undefined)
+    }
+
+    const existingHooks = settings['hooks']
+    if (typeof existingHooks !== 'object' || existingHooks === null || Array.isArray(existingHooks)) {
+      this.activeWorkspaces.delete(workspacePath)
+      return ok(undefined)
+    }
+
+    const hooks = existingHooks as Record<string, unknown>
+    const preToolUse = hooks['PreToolUse']
+    if (!Array.isArray(preToolUse)) {
+      this.activeWorkspaces.delete(workspacePath)
+      return ok(undefined)
+    }
+
+    const filtered = preToolUse.filter((entry) => {
+      if (typeof entry !== 'object' || entry === null) return true
+      const e = entry as Record<string, unknown>
+      if (!Array.isArray(e['hooks'])) return true
+      const hasOurHook = (e['hooks'] as unknown[]).some((h) => {
+        if (typeof h !== 'object' || h === null) return false
+        const hh = h as Record<string, unknown>
+        return typeof hh['url'] === 'string' && hh['url'].includes(HOOK_URL_MARKER)
+      })
+      return !hasOurHook
+    })
+
+    if (filtered.length === 0) {
+      delete hooks['PreToolUse']
+    } else {
+      hooks['PreToolUse'] = filtered
+    }
+
+    if (Object.keys(hooks).length === 0) {
+      delete settings['hooks']
+    }
+
+    try {
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
+    } catch (cause) {
+      return err(appError('HOOK_REMOVE_FAILED', `Failed to write settings at '${settingsPath}'`, { cause }))
+    }
+
+    this.activeWorkspaces.delete(workspacePath)
+    return ok(undefined)
+  }
+
+  async removeAllHooks(): Promise<void> {
+    const workspaces = Array.from(this.activeWorkspaces)
+    await Promise.allSettled(workspaces.map((ws) => this.removeHooks(ws)))
+  }
+}

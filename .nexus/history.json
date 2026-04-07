@@ -3042,6 +3042,146 @@
           "created_at": "2026-04-07T03:10:27.801Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-07T04:30:40.834Z",
+      "branch": "feat/main-process-redesign",
+      "plan": {
+        "id": 4,
+        "topic": "서버 기능 단계적 완성 — CLI 통신부터 세션 관리까지",
+        "issues": [
+          {
+            "id": 1,
+            "title": "서버 조립 + 기본 기동 — composition root, health check 동작 확인",
+            "status": "decided",
+            "decision": "직접 구현. Hono 앱 조립, 미들웨어 등록, 인스턴스 생성(WorkspaceRegistry, ProcessSupervisor, approvals Map), 라우터 마운트, Port 구현체(EventPort in-memory, StoragePort fs), listen + graceful shutdown."
+          },
+          {
+            "id": 2,
+            "title": "CLI 프로토콜 정확성 — stdin/stdout 포맷 실제 CLI와 일치시키고 실험으로 검증",
+            "status": "decided",
+            "decision": "역공학 기반 구현 + 실제 CLI 실험 검증. stdin 포맷 수정(message를 object 구조로), --include-partial-messages 추가, stream_event/api_retry/compact_boundary 파싱 추가, 누락 CLI 플래그(--max-turns, --continue, --fallback-model) 지원. 통합 테스트로 CLI 업데이트 시 감지."
+          },
+          {
+            "id": 3,
+            "title": "단일 세션 기본 플로우 — 세션 시작 → SSE 응답 수신 → 프롬프트 전송 → 응답 수신",
+            "status": "decided",
+            "decision": "워크스페이스별 SSE (GET /workspaces/:path/events). 워크스페이스당 1개 SSE 연결로 해당 워크스페이스 모든 에이전트 이벤트 수신. 각 이벤트에 sessionId/agentId 포함. 글로벌 SSE(GET /events)도 크로스 워크스페이스 알림용 추가 가능. CliProcess 이벤트 → SSE 중계 구현."
+          },
+          {
+            "id": 4,
+            "title": "권한 처리 전략 — HTTP 훅 vs stdin control 방식 결정 및 구현",
+            "status": "decided",
+            "decision": "HTTP 훅 방식 (settings.json 공식 지원). 워크스페이스별 settings.local.json에 훅 URL 주입. 워크스페이스 닫힐 때 settings.local.json에서 훅 설정 반드시 정리 — Claude TUI 직접 사용 시 훅 에러 방지. graceful cleanup 필수."
+          },
+          {
+            "id": 5,
+            "title": "세션 관리 고도화 — resume, continue, 종료, ID 영속화",
+            "status": "decided",
+            "decision": "SQLite 파일 영속화. CLI session_id 저장하여 서버 재시작 후에도 --resume 가능. 활성/과거 세션 목록 조회, 워크스페이스별 마지막 세션 추적(--continue), 세션 정상 종료 + 레코드 정리. better-sqlite3 또는 drizzle 등 사용."
+          },
+          {
+            "id": 6,
+            "title": "에러 처리 및 복구 — rate limit, crash, restart, api_retry 처리",
+            "status": "decided",
+            "decision": "클라이언트 통보 + 수동 재시작. api_retry 이벤트 SSE 전달(rate limit 진행 표시), CLI 종료 시 exit code + 에러를 SSE error 이벤트로 전달, POST /sessions/:id/restart 엔드포인트 제공, 에러 이력 SQLite 기록. 자동 재시작 없음 — CLI 내장 재시도로 충분, 영구 에러는 사용자 판단."
+          }
+        ],
+        "research_summary": "코드 갭 분석: 서버 진입점 비어있음, SSE 없음, 권한 흐름 단절, 세션 ID 미저장, 8개 시나리오 모두 미동작. CLI 프로토콜: 현재 stdin 포맷 불일치(message 필드가 string이 아닌 object여야 함), --input-format stream-json은 공식 미문서(NOT_PLANNED), 실시간 스트리밍에 --include-partial-messages 필요(stream_event 타입), 권한은 HTTP 훅(settings.json) 방식이 공식 지원, 세션 재개는 --resume/--continue 지원, rate limit 시 system/api_retry 이벤트 emit.",
+        "created_at": "2026-04-07T03:56:20.315Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "서버 조립 (Composition Root)",
+          "context": "index.ts에 Hono 앱 조립, 미들웨어, 인스턴스 생성, 라우터 마운트, Port 구현체, graceful shutdown",
+          "approach": "app.ts에 createApp() 팩토리: WorkspaceRegistry + ProcessSupervisor + approvals Map 생성, EventPort(in-memory EventEmitter) + StoragePort(fs) 구현체, 미들웨어 등록(logging→error-boundary), 라우터 마운트. index.ts는 createApp() 호출 + listen. graceful shutdown: SIGTERM → supervisor.dispose() → server.close().",
+          "acceptance": "node/tsx로 서버 기동, GET /api/health 200 응답, POST /api/workspaces 동작, graceful shutdown 시 프로세스 정리. curl로 검증.",
+          "risk": "Port 구현체가 초기 버전이라 나중에 리팩토링 필요할 수 있음.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:05:53.209Z"
+        },
+        {
+          "id": 2,
+          "title": "CLI 프로토콜 수정 + 실험 검증",
+          "context": "stdin 포맷 수정(message object), stdout 파서에 stream_event/api_retry/compact_boundary 추가, --include-partial-messages 플래그, 실제 CLI로 검증",
+          "approach": "1) CliProcess.start()의 stdin 초기 메시지를 {type:\"user\",message:{role:\"user\",content:...},parent_tool_use_id:null,session_id:...} 형태로 수정. 2) spawn 인자에 --include-partial-messages 추가. 3) StreamParser에 stream_event, system/api_retry, system/compact_boundary 타입 추가. 4) 실제 claude CLI로 단순 프롬프트 테스트하여 stdin/stdout 포맷 검증. 5) 기존 테스트 업데이트.",
+          "acceptance": "실제 claude CLI와 stream-json 통신 성공 (프롬프트 전송 → 응답 수신), stream_event 토큰 스트리밍 수신 확인, api_retry 파싱 테스트 통과, 기존 79개 테스트 + 신규 테스트 통과.",
+          "risk": "미문서 포맷이므로 CLI 업데이트로 깨질 수 있음. 실험 중 예상치 못한 메시지 타입 발견 가능.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:06:06.853Z"
+        },
+        {
+          "id": 3,
+          "title": "워크스페이스별 SSE 이벤트 스트리밍",
+          "context": "CliProcess 이벤트 → SSE 중계. GET /workspaces/:path/events 엔드포인트. 이벤트에 sessionId/agentId 포함.",
+          "approach": "1) events 라우터 수정: GET /workspaces/:path/events로 변경, Hono streamSSE 사용. 2) WorkspaceGroup의 모든 CliProcess 이벤트를 구독하고 SSE로 중계. 3) 각 SSE 이벤트에 {type, sessionId, agentId, data} 구조. 4) 연결 종료 시 Disposable 패턴으로 구독 해제. 5) 세션 시작/종료 이벤트도 SSE로 전달.",
+          "acceptance": "curl로 SSE 엔드포인트 연결 후 세션 시작하면 text_chunk/tool_call/turn_end 이벤트 실시간 수신. 다중 세션의 이벤트가 하나의 SSE로 수신됨. 연결 끊김 시 리스너 정리 확인.",
+          "risk": "SSE 연결 수명 관리, 재연결 시 놓친 이벤트 처리. Hono streamSSE API 호환성.",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:06:17.369Z"
+        },
+        {
+          "id": 4,
+          "title": "HTTP 훅 권한 처리",
+          "context": "세션 시작 시 settings.local.json에 훅 URL 주입, CLI PreToolUse → 서버 → SSE → 클라이언트 → 서버 → CLI 응답. 워크스페이스 닫힐 때 훅 정리.",
+          "approach": "1) HookServer: Hono 앱에 /hooks/pre-tool-use 엔드포인트 추가, 토큰 인증. 2) 세션 시작 시 {cwd}/.claude/settings.local.json에 PreToolUse HTTP 훅 URL 주입. 3) 훅 요청 수신 → approvals Map에 추가 → SSE로 permission_request 전달 → Promise 대기(60초 타임아웃). 4) POST /approvals/:id/respond → Promise resolve → HTTP 응답으로 allow/deny 반환. 5) 워크스페이스 닫힐 때(removeGroup) settings.local.json에서 훅 설정 제거. 6) 서버 종료 시에도 모든 워크스페이스의 settings.local.json 정리.",
+          "acceptance": "세션 실행 중 CLI가 도구 사용 시 SSE로 permission_request 수신, POST /approvals/:id/respond로 승인하면 CLI 실행 계속, 거부하면 CLI 도구 스킵. 워크스페이스 닫은 후 settings.local.json에 훅 설정 없음 확인. 실제 CLI로 검증.",
+          "risk": "settings.local.json 동시 접근 (서버 + CLI). 서버 비정상 종료 시 훅 잔존 — 시작 시 orphan 훅 정리 로직 필요.",
+          "status": "completed",
+          "deps": [
+            3
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:06:32.807Z"
+        },
+        {
+          "id": 5,
+          "title": "SQLite 세션 영속화",
+          "context": "세션 메타데이터 SQLite 저장. CLI session_id 저장, resume/continue/목록 조회, 에러 이력.",
+          "approach": "1) better-sqlite3 설치. 2) SessionStore 클래스: create, update, findById, listByWorkspace, getLatest(워크스페이스별). 3) 테이블: sessions(id, cli_session_id, workspace_path, agent_id, status, model, created_at, ended_at, error_message, exit_code). 4) CliProcess의 system/init에서 cli_session_id 추출 → SessionStore에 저장. 5) 세션 라우터에 GET /sessions (목록), POST /sessions/:id/resume (--resume로 재개) 추가. 6) 서버 시작 시 DB 마이그레이션 자동 실행.",
+          "acceptance": "세션 시작 → CLI session_id가 DB에 저장됨, 서버 재시작 후 GET /sessions로 과거 세션 조회 가능, POST /sessions/:id/resume로 이전 세션 재개 동작, 에러 종료 시 exit_code/error_message 기록됨. 테스트 작성.",
+          "risk": "better-sqlite3 네이티브 모듈 빌드 이슈. 마이그레이션 전략.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:06:49.073Z"
+        },
+        {
+          "id": 6,
+          "title": "에러 처리 + SSE 전달 + 재시작 엔드포인트",
+          "context": "CLI 에러/종료를 SSE로 클라이언트에 전달, api_retry 이벤트 중계, 수동 재시작 엔드포인트, 에러 이력 SQLite 기록",
+          "approach": "1) CliProcess exit 이벤트에서 exit code + 에러 메시지 추출 → SSE error 이벤트 전달 + SessionStore에 기록. 2) StreamParser의 api_retry 이벤트 → SSE rate_limit 이벤트로 중계. 3) POST /sessions/:id/restart 엔드포인트: 기존 프로세스 정리 → 새 CliProcess로 --resume 재시작. 4) 세션 상태를 error/stopped로 업데이트하여 클라이언트가 상태 확인 가능.",
+          "acceptance": "CLI 비정상 종료 시 SSE error 이벤트 수신, rate limit 시 SSE rate_limit 이벤트 수신, POST /sessions/:id/restart로 세션 재시작 동작, SQLite에 에러 이력 기록 확인. 테스트 작성.",
+          "risk": "restart 시 이전 세션 상태 복원 범위. rate limit 중 SSE 이벤트 빈도 과다 가능.",
+          "status": "completed",
+          "deps": [
+            3,
+            5
+          ],
+          "plan_issue": 6,
+          "owner": "engineer",
+          "created_at": "2026-04-07T04:07:02.102Z"
+        }
+      ]
     }
   ]
 }

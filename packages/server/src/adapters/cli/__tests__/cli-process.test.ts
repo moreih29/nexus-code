@@ -132,6 +132,43 @@ describe('CliProcess', () => {
       }
       expect(process_.getStatus()).toBe('error')
     })
+
+    it('includes --include-partial-messages in spawn args', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      expect(args).toContain('--include-partial-messages')
+    })
+
+    it('includes --max-turns when maxTurns option is provided', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp', maxTurns: 5 })
+
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      const idx = args.indexOf('--max-turns')
+      expect(idx).toBeGreaterThan(-1)
+      expect(args[idx + 1]).toBe('5')
+    })
+
+    it('does not include --max-turns when maxTurns is not provided', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      expect(args).not.toContain('--max-turns')
+    })
+
+    it('includes --continue when continueSession is true', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp', continueSession: true })
+
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      expect(args).toContain('--continue')
+    })
+
+    it('does not include --continue when continueSession is false or absent', async () => {
+      await process_.start({ prompt: 'Hello', cwd: '/tmp' })
+
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      expect(args).not.toContain('--continue')
+    })
   })
 
   describe('sendPrompt()', () => {

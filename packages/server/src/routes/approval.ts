@@ -1,40 +1,52 @@
 import { Hono } from 'hono'
-import { ApprovalResponseSchema } from '@nexus/shared'
-import type { ApprovalRequest } from '@nexus/shared'
-import { validateBody } from '../middleware/validation.js'
+import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
 
-export interface PendingApproval extends ApprovalRequest {
-  sessionId: string
-}
-
-type Env = { Variables: { validatedBody: unknown } }
-
-export function createApprovalRouter(approvals: Map<string, PendingApproval>) {
-  const router = new Hono<Env>()
+export function createApprovalRouter(approvalBridge: ApprovalBridge) {
+  const router = new Hono()
 
   router.get('/', (c) => {
-    const list = Array.from(approvals.values())
+    const list = approvalBridge.listPending()
     return c.json({ approvals: list })
   })
 
-  router.post('/:id/respond', validateBody(ApprovalResponseSchema), (c) => {
+  router.post('/:id/respond', async (c) => {
     const id = c.req.param('id')
-    const approval = approvals.get(id)
-    if (!approval) {
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON' } }, 400)
+    }
+
+    if (
+      typeof body !== 'object' ||
+      body === null ||
+      typeof (body as Record<string, unknown>)['decision'] !== 'string'
+    ) {
+      return c.json(
+        { error: { code: 'VALIDATION_ERROR', message: 'Field "decision" is required and must be a string' } },
+        400,
+      )
+    }
+
+    const decision = (body as Record<string, unknown>)['decision'] as string
+    if (decision !== 'allow' && decision !== 'deny') {
+      return c.json(
+        { error: { code: 'VALIDATION_ERROR', message: 'Field "decision" must be "allow" or "deny"' } },
+        400,
+      )
+    }
+
+    const settled = approvalBridge.respond(id, decision)
+    if (!settled) {
       return c.json(
         { error: { code: 'APPROVAL_NOT_FOUND', message: `Approval '${id}' not found` } },
         404,
       )
     }
 
-    const body = c.get('validatedBody') as {
-      permissionId: string
-      approved: boolean
-      scope?: 'session' | 'permanent'
-    }
-
-    approvals.delete(id)
-    return c.json({ permissionId: body.permissionId, approved: body.approved, scope: body.scope })
+    return c.json({ id, decision })
   })
 
   return router

@@ -20,6 +20,8 @@ export interface CliStartOptions {
   permissionMode?: 'default' | 'auto' | 'bypassPermissions'
   sessionId?: string
   model?: string
+  maxTurns?: number
+  continueSession?: boolean
 }
 
 type Handler<T> = (data: T) => void
@@ -40,6 +42,7 @@ export class CliProcess {
   private readonly _store = new DisposableStore()
   private readonly _listeners: ListenerMap = new Map()
   private _cancelTimer: ReturnType<typeof setTimeout> | null = null
+  meta: Record<string, unknown> = {}
 
   on<E extends CliEventName>(event: E, handler: Handler<CliProcessEvents[E]>): () => void {
     if (!this._listeners.has(event)) {
@@ -72,6 +75,7 @@ export class CliProcess {
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
       '--verbose',
+      '--include-partial-messages',
     ]
 
     if (options.model) {
@@ -80,6 +84,14 @@ export class CliProcess {
 
     if (options.sessionId) {
       args.push('--resume', options.sessionId)
+    }
+
+    if (options.continueSession) {
+      args.push('--continue')
+    }
+
+    if (options.maxTurns !== undefined) {
+      args.push('--max-turns', String(options.maxTurns))
     }
 
     if (options.permissionMode === 'auto') {
@@ -223,13 +235,18 @@ export class CliProcess {
     }
 
     forward('session_id')
+    forward('init')
     forward('text_chunk')
+    forward('text_delta')
+    forward('stream_event')
     forward('tool_call')
     forward('tool_result')
     forward('permission_request')
     forward('turn_end')
     forward('error')
     forward('rate_limit')
+    forward('rate_limit_info')
+    forward('hook_event')
   }
 
   private _wireProcessEvents(child: ChildProcess, parser: StreamParser): void {

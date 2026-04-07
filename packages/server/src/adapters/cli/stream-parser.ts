@@ -1,14 +1,48 @@
 type Handler<T> = (data: T) => void
 
+export interface StreamEventPayload {
+  type: string
+  event: {
+    type: string
+    index?: number
+    delta?: {
+      type: string
+      text?: string
+    }
+  }
+  session_id?: string
+  parent_tool_use_id?: string | null
+  uuid?: string
+}
+
+export interface InitPayload {
+  sessionId: string
+  model?: string
+  permissionMode?: string
+  tools?: unknown[]
+}
+
+export interface TurnEndPayload {
+  totalCostUsd?: number
+  usage?: Record<string, unknown>
+  modelUsage?: Record<string, unknown>
+}
+
 export interface StreamParserEvents {
+  /** @deprecated use 'init' — kept for backward compatibility */
   session_id: { sessionId: string }
+  init: InitPayload
   text_chunk: { text: string }
-  tool_call: { toolCallId: string; toolName: string; toolInput: Record<string, unknown> }
+  text_delta: { text: string }
+  stream_event: StreamEventPayload
+  tool_call: { toolCallId: string; toolName: string; toolInput: Record<string, unknown> | string }
   tool_result: { toolCallId: string; result: string; isError?: boolean }
   permission_request: { permissionId: string; toolName: string; toolInput: Record<string, unknown> }
-  turn_end: Record<string, never>
+  turn_end: TurnEndPayload
   error: { message: string; raw?: string }
   rate_limit: { message: string }
+  rate_limit_info: { status: string; resetsAt?: number; [key: string]: unknown }
+  hook_event: { subtype: string; [key: string]: unknown }
 }
 
 type EventName = keyof StreamParserEvents
@@ -67,10 +101,59 @@ export class StreamParser {
 
     const type = msg['type']
 
-    if (type === 'system' && msg['subtype'] === 'init') {
-      const sessionId = msg['session_id']
-      if (typeof sessionId === 'string') {
-        this._emit('session_id', { sessionId })
+    if (type === 'system') {
+      const subtype = msg['subtype']
+
+      if (subtype === 'init') {
+        const sessionId = msg['session_id']
+        if (typeof sessionId === 'string') {
+          // backward compat
+          this._emit('session_id', { sessionId })
+
+          const initPayload: InitPayload = { sessionId }
+          if (typeof msg['model'] === 'string') {
+            initPayload.model = msg['model']
+          }
+          if (typeof msg['permissionMode'] === 'string') {
+            initPayload.permissionMode = msg['permissionMode']
+          }
+          if (Array.isArray(msg['tools'])) {
+            initPayload.tools = msg['tools'] as unknown[]
+          }
+          this._emit('init', initPayload)
+        }
+        return
+      }
+
+      if (
+        subtype === 'hook_started' ||
+        subtype === 'hook_response' ||
+        subtype === 'hook_progress'
+      ) {
+        this._emit('hook_event', { ...msg, subtype: String(subtype) })
+        return
+      }
+
+      return
+    }
+
+    if (type === 'stream_event') {
+      const event = msg['event']
+      if (isObject(event)) {
+        const payload = msg as unknown as StreamEventPayload
+        this._emit('stream_event', payload)
+
+        if (
+          isObject(event) &&
+          event['type'] === 'content_block_delta' &&
+          isObject(event['delta']) &&
+          (event['delta'] as Record<string, unknown>)['type'] === 'text_delta'
+        ) {
+          const text = (event['delta'] as Record<string, unknown>)['text']
+          if (typeof text === 'string') {
+            this._emit('text_delta', { text })
+          }
+        }
       }
       return
     }
@@ -94,11 +177,16 @@ export class StreamParser {
           const id = block['id']
           const name = block['name']
           const input = block['input']
-          if (typeof id === 'string' && typeof name === 'string' && isObject(input)) {
+          if (typeof id === 'string' && typeof name === 'string') {
+            const toolInput: Record<string, unknown> | string = isObject(input)
+              ? (input as Record<string, unknown>)
+              : typeof input === 'string'
+                ? input
+                : {}
             this._emit('tool_call', {
               toolCallId: id,
               toolName: name,
-              toolInput: input as Record<string, unknown>,
+              toolInput,
             })
           }
         } else if (blockType === 'tool_result') {
@@ -129,7 +217,18 @@ export class StreamParser {
     if (type === 'result') {
       const subtype = msg['subtype']
       if (subtype === 'success' || subtype === 'error_max_turns' || subtype === 'error_during_execution') {
-        this._emit('turn_end', {})
+        const payload: TurnEndPayload = {}
+        const cost = msg['total_cost_usd']
+        if (typeof cost === 'number') {
+          payload.totalCostUsd = cost
+        }
+        if (isObject(msg['usage'])) {
+          payload.usage = msg['usage'] as Record<string, unknown>
+        }
+        if (isObject(msg['modelUsage'])) {
+          payload.modelUsage = msg['modelUsage'] as Record<string, unknown>
+        }
+        this._emit('turn_end', payload)
       }
       if (subtype === 'error_max_turns' || subtype === 'error_during_execution') {
         const errorMsg = typeof msg['error'] === 'string' ? msg['error'] : String(subtype)
@@ -152,6 +251,14 @@ export class StreamParser {
           toolName,
           toolInput: toolInput as Record<string, unknown>,
         })
+      }
+      return
+    }
+
+    if (type === 'rate_limit_event') {
+      const rateLimitInfo = msg['rate_limit_info']
+      if (isObject(rateLimitInfo)) {
+        this._emit('rate_limit_info', rateLimitInfo as { status: string; resetsAt?: number })
       }
       return
     }
