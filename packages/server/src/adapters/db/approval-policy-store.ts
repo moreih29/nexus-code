@@ -118,7 +118,7 @@ export class ApprovalPolicyStore {
     // permanent rules first
     type RuleRow = { id: string; tool_name: string; scope: string; workspace_path: string | null; created_at: string }
     const row = this.db
-      .prepare<[string, string, string], RuleRow>(
+      .prepare<[string, string], RuleRow>(
         `SELECT * FROM approval_rules
          WHERE (tool_name = ? OR tool_name = '*')
            AND (workspace_path = ? OR workspace_path IS NULL)
@@ -127,7 +127,7 @@ export class ApprovalPolicyStore {
            CASE WHEN tool_name != '*' THEN 0 ELSE 1 END
          LIMIT 1`,
       )
-      .get(toolName, workspacePath, toolName)
+      .get(toolName, workspacePath)
 
     if (row) {
       return {

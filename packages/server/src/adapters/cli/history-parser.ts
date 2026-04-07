@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs'
+import { createReadStream, realpathSync } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { ok, err, appError } from '@nexus/shared'
@@ -47,7 +47,13 @@ export interface HistoryMessage {
 }
 
 export function getSessionFilePath(workspacePath: string, cliSessionId: string): string {
-  const encodedPath = workspacePath.replace(/\//g, '-')
+  let resolvedPath = workspacePath
+  try {
+    resolvedPath = realpathSync(workspacePath)
+  } catch {
+    // Fall back to original path if realpath fails
+  }
+  const encodedPath = resolvedPath.replace(/\//g, '-')
   return `${process.env['HOME'] ?? '~'}/.claude/projects/${encodedPath}/${cliSessionId}.jsonl`
 }
 
