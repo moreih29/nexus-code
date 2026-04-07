@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-dim: var(--accent-dim);
+  --color-green: var(--green);
+  --color-yellow: var(--yellow);
+  --color-red: var(--red);
+  --color-purple: var(--purple);
+
+  /* shadcn/ui compatibility */
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-elevated);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--bg-base);
+  --color-secondary: var(--bg-elevated);
+  --color-secondary-foreground: var(--text-secondary);
+  --color-muted: var(--bg-surface);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent-color: var(--accent);
+  --color-accent-foreground: var(--bg-base);
+  --color-destructive: var(--red);
+  --color-border-color: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+}
+
+/* GitHub Dark (default) */
+:root,
+[data-theme="github-dark"] {
+  --bg-base: #0d1117;
+  --bg-surface: #161b22;
+  --bg-elevated: #1c2128;
+  --bg-hover: #21262d;
+  --bg-active: #263040;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --accent: #58a6ff;
+  --accent-dim: #1f3a5f;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+}
+
+[data-theme="midnight-blue"] {
+  --bg-base: #0f0f1a;
+  --bg-surface: #16161e;
+  --bg-elevated: #1a1b26;
+  --bg-hover: #24283b;
+  --bg-active: #283457;
+  --border: #2f3549;
+  --text-primary: #c0caf5;
+  --text-secondary: #9aa5ce;
+  --text-muted: #565f89;
+  --accent: #7aa2f7;
+  --accent-dim: #1a2744;
+  --green: #9ece6a;
+  --yellow: #e0af68;
+  --red: #f7768e;
+  --purple: #bb9af7;
+}
+
+[data-theme="monokai-pro"] {
+  --bg-base: #19181a;
+  --bg-surface: #221f22;
+  --bg-elevated: #2d2a2e;
+  --bg-hover: #383539;
+  --bg-active: #423f46;
+  --border: #403e41;
+  --text-primary: #fcfcfa;
+  --text-secondary: #c1bdb3;
+  --text-muted: #727072;
+  --accent: #ffd866;
+  --accent-dim: #3d3520;
+  --green: #a9dc76;
+  --yellow: #ffd866;
+  --red: #ff6188;
+  --purple: #ab9df2;
+}
+
+[data-theme="nord-aurora"] {
+  --bg-base: #2e3440;
+  --bg-surface: #3b4252;
+  --bg-elevated: #434c5e;
+  --bg-hover: #4c566a;
+  --bg-active: #4c6085;
+  --border: #4c566a;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #7b88a1;
+  --accent: #88c0d0;
+  --accent-dim: #2e4450;
+  --green: #a3be8c;
+  --yellow: #ebcb8b;
+  --red: #bf616a;
+  --purple: #b48ead;
+}
+
+[data-theme="catppuccin-mocha"] {
+  --bg-base: #1e1e2e;
+  --bg-surface: #24243e;
+  --bg-elevated: #313244;
+  --bg-hover: #45475a;
+  --bg-active: #394264;
+  --border: #45475a;
+  --text-primary: #cdd6f4;
+  --text-secondary: #a6adc8;
+  --text-muted: #6c7086;
+  --accent: #89b4fa;
+  --accent-dim: #1e2d4a;
+  --green: #a6e3a1;
+  --yellow: #f9e2af;
+  --red: #f38ba8;
+  --purple: #cba6f7;
+}
+
+[data-theme="obsidian"] {
+  --bg-base: #080808;
+  --bg-surface: #121212;
+  --bg-elevated: #1a1a1a;
+  --bg-hover: #242424;
+  --bg-active: #2a2a1e;
+  --border: #2a2a2a;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a0a0a0;
+  --text-muted: #555555;
+  --accent: #e2b714;
+  --accent-dim: #2e2810;
+  --green: #5ac85a;
+  --yellow: #e2b714;
+  --red: #e74c3c;
+  --purple: #9b59b6;
+}
+
+[data-theme="claude"] {
+  --bg-base: #1a1410;
+  --bg-surface: #231e18;
+  --bg-elevated: #2c2620;
+  --bg-hover: #38302a;
+  --bg-active: #3d3028;
+  --border: #3e362e;
+  --text-primary: #ece3d9;
+  --text-secondary: #b5a899;
+  --text-muted: #6e6355;
+  --accent: #d4a27f;
+  --accent-dim: #3a2a1e;
+  --green: #8fba7f;
+  --yellow: #d4a27f;
+  --red: #c47060;
+  --purple: #a890c0;
+}
+
+[data-theme="gpt"] {
+  --bg-base: #0d0d0d;
+  --bg-surface: #171717;
+  --bg-elevated: #212121;
+  --bg-hover: #2a2a2a;
+  --bg-active: #1a3a30;
+  --border: #2f2f2f;
+  --text-primary: #ececec;
+  --text-secondary: #9b9b9b;
+  --text-muted: #565656;
+  --accent: #10a37f;
+  --accent-dim: #0d2e24;
+  --green: #10a37f;
+  --yellow: #f5c542;
+  --red: #ef4444;
+  --purple: #8b5cf6;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+  }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background: var(--accent);
+  animation: cursor-blink 1s step-end infinite;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.status-dot-running {
+  animation: status-pulse 2s infinite;
+}
+
+.status-dot-waiting {
+  animation: status-pulse 1s infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

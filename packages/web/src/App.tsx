@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { WorkspaceList } from './components/workspace-list'
+import { AppLayout } from './components/layout/app-layout'
+import { WorkspaceNav } from './components/workspace/workspace-nav'
+import { ChatArea } from './components/chat/chat-area'
+import { RightPanel } from './components/panel/right-panel'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,10 +16,7 @@ const queryClient = new QueryClient({
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <main>
-        <h1>Nexus Code</h1>
-        <WorkspaceList />
-      </main>
+      <AppLayout left={<WorkspaceNav />} center={<ChatArea />} right={<RightPanel />} />
     </QueryClientProvider>
   )
 }

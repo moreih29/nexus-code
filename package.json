@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "Nexus Code — Claude Code GUI orchestration workstation",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "pnpm -r run build",
-    "typecheck": "pnpm -r run typecheck",
-    "dev": "pnpm -r run dev",
-    "clean": "pnpm -r run clean"
+    "build": "bun run --filter '*' build",
+    "typecheck": "bun run --filter '*' typecheck",
+    "dev": "bun run --filter '*' dev",
+    "clean": "bun run --filter '*' clean"
   },
   "devDependencies": {
     "typescript": "^5.7.3"
