@@ -77,7 +77,7 @@ interface FileTreeNodeProps {
 }
 
 function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
-  const { openFilePath } = usePanelStore()
+  const openFilePath = usePanelStore((s) => s.openFilePath)
   const [collapsed, setCollapsed] = useState(false)
   const indent = depth * 16
 
@@ -88,6 +88,7 @@ function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
       onFileClick(node.path)
     } else {
       setCollapsed((prev) => !prev)
+      usePanelStore.setState({ openFilePath: null })
     }
   }
 
