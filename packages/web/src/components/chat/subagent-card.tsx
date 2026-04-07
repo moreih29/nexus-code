@@ -1,5 +1,4 @@
-import { type MockSubagent } from '../../mock/data.js'
-import { useChatStore } from '../../stores/chat-store.js'
+import { useChatStore, type UnifiedSubagent } from '../../stores/chat-store.js'
 
 const TYPE_BADGE_COLORS: Record<string, string> = {
   Explore: 'text-[#8b949e]',
@@ -10,7 +9,7 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 }
 
 interface SubagentCardProps {
-  subagent: MockSubagent
+  subagent: UnifiedSubagent
 }
 
 export function SubagentCard({ subagent }: SubagentCardProps) {

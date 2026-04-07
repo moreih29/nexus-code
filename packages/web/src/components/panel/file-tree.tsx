@@ -1,20 +1,56 @@
-import type { MockFileNode } from '../../mock/data'
 import { usePanelStore } from '../../stores/panel-store'
+import { useWorkspaceStore } from '../../stores/workspace-store'
+import { useWorkspaces, useFiles } from '../../hooks/use-workspaces'
+import type { FileEntry } from '../../api/workspace'
+
+interface FileTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  children?: FileTreeNode[]
+  status?: 'M' | 'A' | 'D'
+}
+
+function buildTree(files: FileEntry[]): FileTreeNode[] {
+  const root: FileTreeNode[] = []
+  const dirMap = new Map<string, FileTreeNode>()
+
+  for (const file of files) {
+    const parts = file.path.split('/')
+    let currentChildren = root
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dirPath = parts.slice(0, i + 1).join('/')
+      let dir = dirMap.get(dirPath)
+      if (!dir) {
+        dir = { name: parts[i]!, path: dirPath, type: 'directory', children: [] }
+        dirMap.set(dirPath, dir)
+        currentChildren.push(dir)
+      }
+      currentChildren = dir.children!
+    }
+
+    const fileName = parts[parts.length - 1]!
+    currentChildren.push({ name: fileName, path: file.path, type: 'file', status: file.status })
+  }
+
+  return root
+}
 
 interface FileTreeNodeProps {
-  node: MockFileNode
+  node: FileTreeNode
   depth: number
 }
 
-function FileTreeNode({ node, depth }: FileTreeNodeProps) {
+function FileTreeNodeItem({ node, depth }: FileTreeNodeProps) {
   const { openFile, openFilePath } = usePanelStore()
   const indent = depth * 16
 
-  const isActive = node.type === 'file' && openFilePath?.endsWith(node.name)
+  const isActive = node.type === 'file' && openFilePath === node.path
 
   function handleClick() {
     if (node.type === 'file') {
-      openFile(node.name)
+      openFile(node.path)
     }
   }
 
@@ -39,17 +75,17 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
         <span className="flex-1 truncate">{node.name}</span>
 
         {/* Change badge */}
-        {node.changeStatus === 'modified' && (
+        {node.status === 'M' && (
           <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(210,153,34,0.2)] text-[#d29922]">
             M
           </span>
         )}
-        {node.changeStatus === 'added' && (
+        {node.status === 'A' && (
           <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(63,185,80,0.2)] text-[#3fb950]">
             A
           </span>
         )}
-        {node.changeStatus === 'deleted' && (
+        {node.status === 'D' && (
           <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(248,81,73,0.15)] text-[#f85149]">
             D
           </span>
@@ -57,21 +93,31 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
       </div>
 
       {/* Children */}
-      {node.type === 'directory' && node.children?.map((child) => (
-        <FileTreeNode key={child.name} node={child} depth={depth + 1} />
-      ))}
+      {node.type === 'directory' &&
+        node.children?.map((child) => (
+          <FileTreeNodeItem key={child.path} node={child} depth={depth + 1} />
+        ))}
     </>
   )
 }
 
 export function FileTree() {
-  const { fileTree } = usePanelStore()
+  const { activeWorkspaceId } = useWorkspaceStore()
+  const { data: workspaces } = useWorkspaces()
+
+  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
+  const workspacePath = activeWorkspace?.path ?? null
+
+  const { data: files, isLoading, isError } = useFiles(workspacePath)
+
+  const tree = files ? buildTree(files) : []
+  const workspaceName = workspacePath?.split('/').filter(Boolean).pop() ?? '파일'
 
   return (
     <div className="flex flex-col overflow-hidden flex-1">
       {/* Toolbar */}
       <div className="flex items-center px-3 py-2 gap-1.5 border-b border-border-light text-[11px] text-text-secondary">
-        <span className="flex-1 font-medium text-text-primary">nexus-code</span>
+        <span className="flex-1 font-medium text-text-primary">{workspaceName}</span>
         <button className="hover:text-text-primary hover:bg-bg-hover px-1.5 py-0.5 rounded transition-colors">
           ⤢
         </button>
@@ -79,8 +125,20 @@ export function FileTree() {
 
       {/* Tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {fileTree.map((node) => (
-          <FileTreeNode key={node.name} node={node} depth={0} />
+        {isLoading && (
+          <div className="px-3 py-2 text-[12px] text-text-secondary">로딩 중...</div>
+        )}
+        {isError && (
+          <div className="px-3 py-2 text-[12px] text-text-secondary">파일 목록을 불러올 수 없습니다.</div>
+        )}
+        {!isLoading && !isError && !workspacePath && (
+          <div className="px-3 py-2 text-[12px] text-text-secondary">워크스페이스를 선택하세요.</div>
+        )}
+        {!isLoading && !isError && workspacePath && tree.length === 0 && (
+          <div className="px-3 py-2 text-[12px] text-text-secondary">파일이 없습니다.</div>
+        )}
+        {tree.map((node) => (
+          <FileTreeNodeItem key={node.path} node={node} depth={0} />
         ))}
       </div>
     </div>

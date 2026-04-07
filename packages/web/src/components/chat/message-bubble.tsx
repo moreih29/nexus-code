@@ -2,6 +2,7 @@ import type { ToolCallState, PermissionRequestState } from '../../adapters/sessi
 import { ToolGroup } from './tool-group.js'
 import { SubagentResultBlock } from './subagent-result-block.js'
 import { PermissionBlock } from './permission-block.js'
+import { MarkdownRenderer } from './markdown-renderer.js'
 
 // DisplayMessage covers both MockMessage and ChatMessage shapes
 interface DisplayMessage {
@@ -45,7 +46,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
       {message.text && (
         <div className="text-[13px] leading-[1.6] text-text-primary">
-          {message.text}
+          <MarkdownRenderer>{message.text}</MarkdownRenderer>
           {message.isStreaming && <span className="streaming-cursor" />}
         </div>
       )}

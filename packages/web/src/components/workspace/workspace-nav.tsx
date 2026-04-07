@@ -52,6 +52,13 @@ export function WorkspaceNav() {
     }
   }
 
+  // 워크스페이스 로드 시 첫 번째 자동 선택
+  useEffect(() => {
+    if (resolvedActiveId && activeWorkspaceId !== resolvedActiveId) {
+      setActiveWorkspace(resolvedActiveId)
+    }
+  }, [resolvedActiveId, activeWorkspaceId, setActiveWorkspace])
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.metaKey) return

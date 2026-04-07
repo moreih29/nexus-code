@@ -11,6 +11,8 @@ import { createSessionRouter } from './routes/session.js'
 import { createApprovalRouter } from './routes/approval.js'
 import { createEventsRouter } from './routes/events.js'
 import { createHooksRouter } from './routes/hooks.js'
+import { createFilesRouter } from './routes/files.js'
+import { createGitRouter } from './routes/git.js'
 import { WorkspaceRegistry } from './domain/workspace/workspace-registry.js'
 import { ProcessSupervisor } from './adapters/cli/process-supervisor.js'
 import { EventEmitterAdapter } from './adapters/events/event-emitter-adapter.js'
@@ -55,6 +57,8 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager))
   app.route('/api/approvals', createApprovalRouter(approvalBridge))
   app.route('/api/workspaces', createEventsRouter(supervisor))
+  app.route('/api/workspaces', createFilesRouter())
+  app.route('/api/workspaces', createGitRouter())
   app.route('/hooks', createHooksRouter(hookManager, approvalBridge))
 
   return { app, supervisor, registry, store, hookManager }

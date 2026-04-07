@@ -24,12 +24,23 @@ export interface ChatMessage {
   isStreaming?: boolean
 }
 
+export interface SubagentState {
+  id: string // toolCallId of the Task call
+  name: string
+  type: string
+  status: 'running' | 'done' | 'waiting_permission'
+  summary: string
+  durationSec?: number
+  spawnedAt: number // timestamp ms
+}
+
 export interface SessionState {
   messages: ChatMessage[]
   currentStreamingText: string
   isStreaming: boolean
   pendingToolCalls: Map<string, ToolCallState>
   sessionId: string | null
+  subagents: SubagentState[]
 }
 
 let _idCounter = 0
@@ -44,6 +55,7 @@ export function createInitialState(): SessionState {
     isStreaming: false,
     pendingToolCalls: new Map(),
     sessionId: null,
+    subagents: [],
   }
 }
 
@@ -79,6 +91,29 @@ function commitStreamingText(state: SessionState): SessionState {
   }
 }
 
+function inferSubagentType(input: Record<string, unknown>): string {
+  const text = [
+    typeof input['description'] === 'string' ? input['description'] : '',
+    typeof input['prompt'] === 'string' ? input['prompt'] : '',
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  if (text.includes('engineer') || text.includes('implement') || text.includes('코드') || text.includes('구현')) {
+    return 'Engineer'
+  }
+  if (text.includes('research') || text.includes('search') || text.includes('리서치') || text.includes('검색')) {
+    return 'Researcher'
+  }
+  if (text.includes('write') || text.includes('document') || text.includes('문서') || text.includes('작성')) {
+    return 'Writer'
+  }
+  if (text.includes('test') || text.includes('verify') || text.includes('테스트') || text.includes('검증')) {
+    return 'Tester'
+  }
+  return 'Explore'
+}
+
 export function applyEvent(state: SessionState, event: SessionEvent): SessionState {
   switch (event.type) {
     case 'text_chunk': {
@@ -112,10 +147,11 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
     }
 
     case 'tool_call': {
+      const toolInput = typeof event.toolInput === 'string' ? {} : event.toolInput
       const toolCall: ToolCallState = {
         id: event.toolCallId,
         name: event.toolName,
-        input: event.toolInput,
+        input: toolInput,
         status: 'running',
       }
 
@@ -125,6 +161,25 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
       let nextState = state
       if (state.currentStreamingText) {
         nextState = commitStreamingText(state)
+      }
+
+      // Track subagent if this is a Task tool call
+      let newSubagents = nextState.subagents
+      if (event.toolName === 'Task') {
+        const description =
+          typeof toolInput['description'] === 'string' ? toolInput['description'] : ''
+        const prompt =
+          typeof toolInput['prompt'] === 'string' ? toolInput['prompt'] : ''
+        const name = description || prompt.slice(0, 40) || `서브에이전트 #${nextState.subagents.length + 1}`
+        const subagent: SubagentState = {
+          id: event.toolCallId,
+          name,
+          type: inferSubagentType(toolInput),
+          status: 'running',
+          summary: prompt.slice(0, 80) || description,
+          spawnedAt: Date.now(),
+        }
+        newSubagents = [...nextState.subagents, subagent]
       }
 
       const last = lastMessage(nextState.messages)
@@ -139,6 +194,7 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
           sessionId: nextState.sessionId ?? event.sessionId,
           messages: [...nextState.messages.slice(0, -1), updatedLast],
           pendingToolCalls: newPending,
+          subagents: newSubagents,
         }
       }
 
@@ -153,6 +209,7 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
         sessionId: nextState.sessionId ?? event.sessionId,
         messages: [...nextState.messages, newMsg],
         pendingToolCalls: newPending,
+        subagents: newSubagents,
       }
     }
 
@@ -178,11 +235,20 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
         return { ...msg, toolCalls: newToolCalls }
       })
 
+      // Mark subagent as done when its Task tool_result arrives
+      const newSubagents = state.subagents.map((sa) => {
+        if (sa.id !== event.toolCallId) return sa
+        const durationSec = Math.round((Date.now() - sa.spawnedAt) / 1000)
+        const resultSummary = event.result.slice(0, 80) || sa.summary
+        return { ...sa, status: 'done' as const, durationSec, summary: resultSummary }
+      })
+
       return {
         ...state,
         sessionId: state.sessionId ?? event.sessionId,
         messages,
         pendingToolCalls: newPending,
+        subagents: newSubagents,
       }
     }
 

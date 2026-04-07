@@ -33,7 +33,7 @@ export const ToolCallEventSchema = z.object({
   type: z.literal('tool_call'),
   sessionId: z.string(),
   toolName: z.string(),
-  toolInput: z.record(z.string(), z.unknown()),
+  toolInput: z.union([z.record(z.string(), z.unknown()), z.string()]),
   toolCallId: z.string(),
 })
 
@@ -50,7 +50,7 @@ export const PermissionRequestEventSchema = z.object({
   sessionId: z.string(),
   permissionId: z.string(),
   toolName: z.string(),
-  toolInput: z.record(z.string(), z.unknown()),
+  toolInput: z.union([z.record(z.string(), z.unknown()), z.string()]),
 })
 
 export const TurnEndEventSchema = z.object({
