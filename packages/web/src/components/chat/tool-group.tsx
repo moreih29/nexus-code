@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FileText, Pencil, FileOutput, Terminal, Search, FolderSearch, Bot, Wrench } from 'lucide-react'
 import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { ToolBlock } from './tool-block.js'
 
@@ -27,17 +28,21 @@ interface CollapsedGroupProps {
 function CollapsedGroup({ group }: CollapsedGroupProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  const TOOL_ICONS: Record<string, string> = {
-    Read: '📖',
-    Edit: '✏️',
-    Write: '📝',
-    Bash: '💻',
-    Grep: '🔍',
-    Glob: '🔍',
-    Agent: '🤖',
+  function getGroupIcon(name: string) {
+    switch (name) {
+      case 'Read': return <FileText size={14} />
+      case 'Edit': return <Pencil size={14} />
+      case 'Write': return <FileOutput size={14} />
+      case 'Bash': return <Terminal size={14} />
+      case 'Grep': return <Search size={14} />
+      case 'Glob': return <FolderSearch size={14} />
+      case 'Agent':
+      case 'Task': return <Bot size={14} />
+      default: return <Wrench size={14} />
+    }
   }
 
-  const icon = TOOL_ICONS[group.name] ?? '🔧'
+  const icon = getGroupIcon(group.name)
 
   const hasError = group.items.some((tc) => tc.isError || tc.status === 'error')
   const allDone = group.items.every((tc) => tc.status === 'success')
@@ -53,7 +58,7 @@ function CollapsedGroup({ group }: CollapsedGroupProps) {
         className="w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-bg-hover transition-colors cursor-pointer text-left"
         onClick={() => setIsExpanded((prev) => !prev)}
       >
-        <span className="text-[13px] leading-none">{icon}</span>
+        <span className="flex-shrink-0 text-text-secondary">{icon}</span>
         <span className="font-semibold text-text-primary">{group.name}</span>
         <span
           className="text-[10px] px-1.5 py-0.5 rounded font-medium"

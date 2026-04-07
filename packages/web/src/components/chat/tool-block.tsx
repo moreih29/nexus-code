@@ -1,19 +1,20 @@
 import { useState } from 'react'
+import { FileText, Pencil, FileOutput, Terminal, Search, FolderSearch, Bot, Wrench, Check, X } from 'lucide-react'
 import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { DiffView } from './diff-view.js'
 
-const TOOL_ICONS: Record<string, string> = {
-  Read: '📖',
-  Edit: '✏️',
-  Write: '📝',
-  Bash: '💻',
-  Grep: '🔍',
-  Glob: '🔍',
-  Agent: '🤖',
-}
-
-function getToolIcon(name: string): string {
-  return TOOL_ICONS[name] ?? '🔧'
+function getToolIcon(name: string) {
+  switch (name) {
+    case 'Read': return <FileText size={14} />
+    case 'Edit': return <Pencil size={14} />
+    case 'Write': return <FileOutput size={14} />
+    case 'Bash': return <Terminal size={14} />
+    case 'Grep': return <Search size={14} />
+    case 'Glob': return <FolderSearch size={14} />
+    case 'Agent':
+    case 'Task': return <Bot size={14} />
+    default: return <Wrench size={14} />
+  }
 }
 
 function getFilePath(input: Record<string, unknown>): string | null {
@@ -44,16 +45,6 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
   const filePath = getFilePath(toolCall.input)
   const icon = getToolIcon(toolCall.name)
 
-  const statusColor =
-    toolCall.status === 'success'
-      ? 'text-green'
-      : toolCall.status === 'error'
-        ? 'text-red'
-        : 'text-yellow'
-
-  const statusLabel =
-    toolCall.status === 'success' ? '완료' : toolCall.status === 'error' ? '오류' : '실행 중'
-
   const hasDiff = isDiffResult(toolCall.name, toolCall.result)
   const hasBody = toolCall.result !== undefined
 
@@ -68,21 +59,22 @@ export function ToolBlock({ toolCall }: ToolBlockProps) {
         onClick={() => hasBody && setIsOpen((prev) => !prev)}
         disabled={!hasBody}
       >
-        <span className="text-[13px] leading-none">{icon}</span>
+        <span className="flex-shrink-0 text-text-secondary">{icon}</span>
         <span className="font-semibold text-text-primary">{toolCall.name}</span>
         {filePath && (
           <span className="text-text-muted font-mono text-[11px] truncate min-w-0 flex-1">
             {filePath}
           </span>
         )}
-        <span className={`ml-auto flex-shrink-0 text-[11px] font-medium ${statusColor}`}>
+        <span className="ml-auto flex-shrink-0 flex items-center">
           {toolCall.status === 'running' && (
             <span
-              className="inline-block w-2.5 h-2.5 rounded-full border-2 border-border mr-1 flex-shrink-0"
+              className="inline-block w-3.5 h-3.5 rounded-full border-2 border-border flex-shrink-0"
               style={{ borderTopColor: 'var(--green)', animation: 'spin .8s linear infinite' }}
             />
           )}
-          {statusLabel}
+          {toolCall.status === 'success' && <Check size={12} className="text-green" />}
+          {toolCall.status === 'error' && <X size={12} className="text-red" />}
         </span>
         {hasBody && (
           <span className="text-text-muted text-[10px] ml-1 flex-shrink-0">

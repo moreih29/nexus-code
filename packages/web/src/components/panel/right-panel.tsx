@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import { FolderTree, GitBranch, Globe } from 'lucide-react'
 import { usePanelStore } from '../../stores/panel-store'
 import { FileTree } from './file-tree'
 import { GitView } from './git-view'
@@ -6,10 +8,10 @@ import { EditorView } from './editor-view'
 
 type RightTab = 'files' | 'git' | 'browser'
 
-const tabs: { id: RightTab; label: string }[] = [
-  { id: 'files', label: '📁 파일' },
-  { id: 'git', label: '🔀 Git' },
-  { id: 'browser', label: '🌐 브라우저' },
+const tabs: { id: RightTab; label: string; icon: ReactNode }[] = [
+  { id: 'files', label: '파일', icon: <FolderTree size={14} /> },
+  { id: 'git', label: 'Git', icon: <GitBranch size={14} /> },
+  { id: 'browser', label: '브라우저', icon: <Globe size={14} /> },
 ]
 
 export function RightPanel() {
@@ -31,11 +33,12 @@ export function RightPanel() {
               className={[
                 'flex-1 flex items-center justify-center gap-1.5 text-[11px] cursor-pointer border-b-2 transition-colors',
                 isActive
-                  ? 'text-text-primary border-[#58a6ff]'
+                  ? 'text-text-primary border-[var(--accent)]'
                   : 'text-text-secondary border-transparent hover:text-text-primary hover:bg-bg-hover',
               ].join(' ')}
               onClick={() => handleTabClick(tab.id)}
             >
+              {tab.icon}
               {tab.label}
             </button>
           )

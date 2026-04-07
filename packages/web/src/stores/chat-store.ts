@@ -26,6 +26,7 @@ interface ChatState {
   isConnected: boolean
   activeTab: ActiveTab
   isLoadingHistory: boolean
+  isWaitingResponse: boolean
 
   // Actions
   applyServerEvent: (event: SessionEvent) => void
@@ -49,17 +50,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isConnected: false,
   activeTab: 'main',
   isLoadingHistory: false,
+  isWaitingResponse: false,
 
   applyServerEvent: (event) => {
     set((state) => ({
       sessionState: applyEvent(state.sessionState, event),
       sessionId: state.sessionId ?? event.sessionId,
+      isWaitingResponse: false,
     }))
   },
 
   sendMessage: (text) => {
     set((state) => ({
       sessionState: addUserMessage(state.sessionState, text),
+      isWaitingResponse: true,
     }))
   },
 
@@ -77,6 +81,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isConnected: false,
       activeTab: 'main',
       isLoadingHistory: false,
+      isWaitingResponse: false,
     }),
 
   restoreFromHistory: (restorableId, messages) => {
@@ -88,6 +93,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages,
       },
       isLoadingHistory: false,
+      isWaitingResponse: false,
     })
   },
 

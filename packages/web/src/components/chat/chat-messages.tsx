@@ -49,8 +49,26 @@ function ToolCallRow({ tc }: { tc: ToolCallState }) {
   )
 }
 
+function ThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-1 px-1">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="block w-1.5 h-1.5 rounded-full"
+          style={{
+            background: 'var(--text-muted)',
+            animation: `bounce-dot 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function ChatMessages() {
   const { activeTab, getActiveMessages, getActiveSubagent } = useChatStore()
+  const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
   const rawMessages = getActiveMessages()
   const messages = rawMessages as DisplayMessage[]
   const activeSubagent = getActiveSubagent()
@@ -115,6 +133,8 @@ export function ChatMessages() {
 
         return <MessageBubble key={msg.id} message={msg} />
       })}
+
+      {isWaitingResponse && <ThinkingIndicator />}
 
       <div ref={bottomRef} />
     </div>

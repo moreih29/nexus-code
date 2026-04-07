@@ -39,7 +39,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className="flex flex-col gap-2 pl-3"
+      style={{ borderLeft: '2px solid var(--accent)' }}
+    >
       {message.label && (
         <span className="text-[11px] text-text-secondary font-medium">{message.label}</span>
       )}

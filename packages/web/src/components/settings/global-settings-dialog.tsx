@@ -45,6 +45,7 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wider">
               테마
             </label>
+            <p className="text-[11px] text-[var(--text-muted)] mb-2">앱의 색상 테마를 선택합니다</p>
             <div className="grid grid-cols-4 gap-2">
               {THEMES.map((t) => (
                 <button
@@ -63,11 +64,14 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </div>
           </section>
 
+          <div className="border-t border-[var(--border)]" />
+
           {/* Default Model */}
           <section>
             <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wider">
               기본 모델
             </label>
+            <p className="text-[11px] text-[var(--text-muted)] mb-2">새 세션 시작 시 사용할 기본 모델</p>
             <div className="flex gap-2">
               {MODELS.map((m) => (
                 <button
@@ -86,11 +90,14 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </div>
           </section>
 
+          <div className="border-t border-[var(--border)]" />
+
           {/* Permission Mode */}
           <section>
             <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wider">
               기본 권한 모드
             </label>
+            <p className="text-[11px] text-[var(--text-muted)] mb-2">Default: 매번 확인 · Auto: 안전한 도구 자동 승인 · Bypass: 모두 자동 승인</p>
             <div className="flex gap-2">
               {(
                 [
@@ -115,11 +122,14 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </div>
           </section>
 
+          <div className="border-t border-[var(--border)]" />
+
           {/* Effort Level */}
           <section>
             <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wider">
               기본 Effort
             </label>
+            <p className="text-[11px] text-[var(--text-muted)] mb-2">Low: 빠르지만 간략 · Medium: 균형 · High: 느리지만 상세</p>
             <div className="flex gap-2">
               {(
                 [
@@ -144,11 +154,14 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </div>
           </section>
 
+          <div className="border-t border-[var(--border)]" />
+
           {/* Max Turns */}
           <section>
             <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wider">
               최대 턴 수
             </label>
+            <p className="text-[11px] text-[var(--text-muted)] mb-2">한 세션에서 허용할 최대 대화 턴 수</p>
             <div className="flex items-center gap-3">
               <input
                 type="number"
@@ -175,6 +188,8 @@ export function GlobalSettingsDialog({ open, onOpenChange }: GlobalSettingsDialo
             </div>
           </section>
         </div>
+
+        <p className="text-[10px] text-[var(--text-muted)] text-center pt-1">설정은 즉시 적용됩니다</p>
       </DialogContent>
     </Dialog>
   )

@@ -13,6 +13,7 @@ export function ChatInput() {
   const { data: workspaces } = useWorkspaces()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const { sessionId, restorableSessionId, sendMessage, setSessionId } = useChatStore()
+  const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
   const workspacePath = activeWorkspace?.path ?? ''
@@ -81,17 +82,24 @@ export function ChatInput() {
   }
 
   const isSending = startSession.isPending || sendPrompt.isPending
+  const showSpinner = isSending || isWaitingResponse
+
+  const placeholder = sessionId
+    ? '메시지 입력...'
+    : restorableSessionId
+      ? '이전 대화를 이어가세요...'
+      : '새 대화를 시작하세요...'
 
   return (
-    <div className="px-4 pt-1.5 pb-1 border-t border-border flex-shrink-0">
+    <div className="px-4 pt-3 pb-2.5 border-t border-border flex-shrink-0">
       <div
-        className="flex items-end gap-2 rounded-[10px] px-3 py-2 border border-border transition-colors duration-200 focus-within:border-accent"
+        className="flex items-end gap-2 rounded-xl px-4 py-2.5 border border-border transition-colors duration-200 focus-within:border-accent"
         style={{ background: 'var(--bg-surface)' }}
       >
         <textarea
           ref={textareaRef}
           className="flex-1 bg-transparent border-none text-[13px] text-text-primary placeholder:text-text-muted outline-none resize-none min-h-5 leading-5 font-[inherit]"
-          placeholder="메시지 입력..."
+          placeholder={placeholder}
           rows={1}
           value={value}
           onChange={handleInput}
@@ -101,15 +109,27 @@ export function ChatInput() {
         <button
           className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-opacity duration-150 hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: 'var(--accent)' }}
-          disabled={!value.trim() || isSending}
+          disabled={!value.trim() || isSending || isWaitingResponse}
           onClick={() => void handleSend()}
           aria-label="전송"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1L7 13M7 1L2 6M7 1L12 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          {showSpinner ? (
+            <span
+              className="block w-3.5 h-3.5 rounded-full border-2"
+              style={{
+                borderColor: 'rgba(255,255,255,0.3)',
+                borderTopColor: 'white',
+                animation: 'spin 0.7s linear infinite',
+              }}
+            />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1L7 13M7 1L2 6M7 1L12 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
         </button>
       </div>
+      <p className="text-[10px] text-text-muted mt-1 px-1">Enter 전송 · Shift+Enter 줄바꿈</p>
     </div>
   )
 }

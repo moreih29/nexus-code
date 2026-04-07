@@ -25,6 +25,15 @@ export function StatusBar() {
   const { defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode } =
     useSettingsStore()
   const sessionId = useChatStore((s) => s.sessionId)
+  const isConnected = useChatStore((s) => s.isConnected)
+  const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
+  const isStreaming = useChatStore((s) => s.sessionState.isStreaming)
+
+  const statusText = isWaitingResponse
+    ? '응답 대기 중...'
+    : isStreaming
+      ? '스트리밍 중...'
+      : '준비'
 
   const currentModelLabel =
     MODELS.find((m) => m.id === defaultModel)?.label ?? defaultModel
@@ -61,7 +70,13 @@ export function StatusBar() {
         <div className="flex items-center gap-2">
           <span className="text-text-secondary">Nexus Code</span>
           <span className="mx-1 text-border">|</span>
-          <span>준비</span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className="block w-1 h-1 rounded-full flex-shrink-0"
+              style={{ background: isConnected ? 'var(--green)' : 'var(--red)' }}
+            />
+            <span>{statusText}</span>
+          </div>
         </div>
 
         {/* Right side */}

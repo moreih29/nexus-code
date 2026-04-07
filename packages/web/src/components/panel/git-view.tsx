@@ -142,20 +142,18 @@ export function GitView() {
                 <div
                   key={`staged-${change.path}`}
                   onClick={() => void openDiff(change.path, true)}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  className="group flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                 >
                   <span
                     className={[
-                      'text-[11px] font-bold w-4 text-center',
-                      change.status === 'M' ? 'text-[#d29922]' : '',
-                      change.status === 'A' ? 'text-[#3fb950]' : '',
-                      change.status === 'D' ? 'text-[#f85149]' : '',
+                      'w-2 h-2 rounded-full flex-shrink-0',
+                      change.status === 'M' ? 'bg-[var(--yellow)]' : '',
+                      change.status === 'A' ? 'bg-[var(--green)]' : '',
+                      change.status === 'D' ? 'bg-[var(--red)]' : '',
                     ].join(' ')}
-                  >
-                    {change.status}
-                  </span>
+                  />
                   <span className="flex-1 truncate">{change.path}</span>
-                  <span className="text-[10px] font-mono">
+                  <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <span className="text-[#3fb950]">+{change.additions}</span>{' '}
                     <span className="text-[#f85149]">-{change.deletions}</span>
                   </span>
@@ -176,20 +174,18 @@ export function GitView() {
                 <div
                   key={`changes-${change.path}`}
                   onClick={() => void openDiff(change.path, false)}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  className="group flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                 >
                   <span
                     className={[
-                      'text-[11px] font-bold w-4 text-center',
-                      change.status === 'M' ? 'text-[#d29922]' : '',
-                      change.status === 'A' ? 'text-[#3fb950]' : '',
-                      change.status === 'D' ? 'text-[#f85149]' : '',
+                      'w-2 h-2 rounded-full flex-shrink-0',
+                      change.status === 'M' ? 'bg-[var(--yellow)]' : '',
+                      change.status === 'A' ? 'bg-[var(--green)]' : '',
+                      change.status === 'D' ? 'bg-[var(--red)]' : '',
                     ].join(' ')}
-                  >
-                    {change.status}
-                  </span>
+                  />
                   <span className="flex-1 truncate">{change.path}</span>
-                  <span className="text-[10px] font-mono">
+                  <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <span className="text-[#3fb950]">+{change.additions}</span>{' '}
                     <span className="text-[#f85149]">-{change.deletions}</span>
                   </span>
