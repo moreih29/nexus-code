@@ -3,6 +3,7 @@ import { usePanelStore } from '../../stores/panel-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useWorkspaces, useFiles } from '../../hooks/use-workspaces'
 import type { FileEntry } from '../../api/workspace'
+import { File, FileCode, FileJson, FileText, Folder, FolderOpen, ChevronRight, ChevronDown, Image, Settings } from 'lucide-react'
 
 interface FileTreeNode {
   name: string
@@ -36,6 +37,37 @@ function buildTree(files: FileEntry[]): FileTreeNode[] {
   }
 
   return root
+}
+
+function FileIcon({ name }: { name: string }) {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  switch (ext) {
+    case 'ts':
+    case 'tsx':
+    case 'js':
+    case 'jsx':
+      return <FileCode size={14} />
+    case 'json':
+      return <FileJson size={14} />
+    case 'md':
+    case 'txt':
+    case 'csv':
+      return <FileText size={14} />
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'svg':
+    case 'webp':
+      return <Image size={14} />
+    case 'toml':
+    case 'yaml':
+    case 'yml':
+    case 'env':
+      return <Settings size={14} />
+    default:
+      return <File size={14} />
+  }
 }
 
 interface FileTreeNodeProps {
@@ -72,9 +104,16 @@ function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
         onClick={handleClick}
       >
         {/* Icon */}
-        <span className="w-4 text-center flex-shrink-0 text-[14px]">
-          {node.type === 'directory' ? (collapsed ? '▸' : '▾') : '📄'}
-        </span>
+        {node.type === 'directory' ? (
+          <span className="flex items-center gap-0.5 flex-shrink-0 text-text-muted">
+            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            {collapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+          </span>
+        ) : (
+          <span className="w-4 flex items-center justify-center flex-shrink-0 text-text-muted ml-[14px]">
+            <FileIcon name={node.name} />
+          </span>
+        )}
 
         {/* Name */}
         <span className="flex-1 truncate">{node.name}</span>
