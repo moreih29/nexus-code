@@ -17,8 +17,8 @@ export function fetchSessionStatus(sessionId: string): Promise<{ status: Session
   return apiClient.get<{ status: SessionStatus }>(`/api/sessions/${sessionId}/status`)
 }
 
-export function resumeSession(sessionId: string): Promise<SessionResponse> {
-  return apiClient.post<SessionResponse>(`/api/sessions/${sessionId}/resume`)
+export function resumeSession(sessionId: string, prompt = ''): Promise<SessionResponse> {
+  return apiClient.post<SessionResponse>(`/api/sessions/${sessionId}/resume`, { prompt })
 }
 
 export interface SessionRow {

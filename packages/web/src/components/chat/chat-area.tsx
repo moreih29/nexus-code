@@ -3,7 +3,7 @@ import { useChatStore } from '../../stores/chat-store.js'
 import { useWorkspaceStore } from '../../stores/workspace-store.js'
 import { useWorkspaces } from '../../hooks/use-workspaces.js'
 import { useSse } from '../../api/use-sse.js'
-import { fetchSessions, fetchHistory, resumeSession } from '../../api/session.js'
+import { fetchSessions, fetchHistory } from '../../api/session.js'
 import type { SessionEvent } from '@nexus/shared'
 import type { ChatMessage } from '../../adapters/session-adapter.js'
 import { AgentTabs } from './agent-tabs.js'
@@ -88,19 +88,8 @@ function useChatSession() {
           .filter((m) => m.text)
 
         if (chatMessages.length > 0) {
-          // 히스토리만 먼저 표시 (sessionId는 아직 설정하지 않음)
-          restoreFromHistory('', chatMessages)
-
-          // resume으로 서버 메모리에 세션 등록 → 성공 시에만 sessionId 설정
-          try {
-            const resumed = await resumeSession(latest.id)
-            console.log('[chat-area] session resumed', resumed)
-            setSessionId(resumed.id)
-          } catch {
-            // resume 실패해도 히스토리는 표시됨
-            // 다음 메시지 전송 시 새 세션 생성됨
-            console.log('[chat-area] resume skipped, new session on next message')
-          }
+          // 히스토리 표시 + resume용 세션 ID 저장 (메시지 전송 시 resume 호출됨)
+          restoreFromHistory(latest.id, chatMessages)
         }
       } catch {
         // 서버 미연결 — 무시

@@ -22,6 +22,7 @@ export type UnifiedSubagent = {
 interface ChatState {
   sessionState: SessionState
   sessionId: string | null
+  restorableSessionId: string | null // DB 세션 ID (resume용)
   isConnected: boolean
   activeTab: ActiveTab
   isLoadingHistory: boolean
@@ -33,7 +34,7 @@ interface ChatState {
   setConnected: (connected: boolean) => void
   setActiveTab: (tab: ActiveTab) => void
   resetSession: () => void
-  restoreFromHistory: (sessionId: string, messages: ChatMessage[]) => void
+  restoreFromHistory: (restorableId: string, messages: ChatMessage[]) => void
 
   // Selectors
   getSubagents: () => UnifiedSubagent[]
@@ -44,6 +45,7 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
   sessionState: createInitialState(),
   sessionId: null,
+  restorableSessionId: null,
   isConnected: false,
   activeTab: 'main',
   isLoadingHistory: false,
@@ -71,17 +73,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       sessionState: createInitialState(),
       sessionId: null,
+      restorableSessionId: null,
       isConnected: false,
       activeTab: 'main',
       isLoadingHistory: false,
     }),
 
-  restoreFromHistory: (sessionId, messages) => {
+  restoreFromHistory: (restorableId, messages) => {
     set({
-      sessionId: sessionId || null,
+      sessionId: null,
+      restorableSessionId: restorableId || null,
       sessionState: {
         ...createInitialState(),
-        sessionId: sessionId || null,
         messages,
       },
       isLoadingHistory: false,

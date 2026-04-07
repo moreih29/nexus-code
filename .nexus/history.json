@@ -3881,6 +3881,96 @@
           "created_at": "2026-04-07T12:03:48.431Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-07T13:29:06.665Z",
+      "branch": "feat/phase4-bugfix-data-connect",
+      "plan": {
+        "id": 5,
+        "topic": "세션 복원 버그 + 우측 패널 기능 완성 + UI 개선",
+        "issues": [
+          {
+            "id": 1,
+            "title": "세션 복원 후 prompt 404 — 히스토리 복원된 세션에 후속 메시지 전송 시 실패",
+            "status": "decided",
+            "decision": "chat-area.tsx에서 히스토리 복원 후 POST /api/sessions/:id/resume 자동 호출하여 서버 메모리 Map에 세션 등록. resume이 반환하는 새 sessionId로 교체 후 SSE 연결. 서버 수정 없이 클라이언트만 수정."
+          },
+          {
+            "id": 2,
+            "title": "우측 파일 탭 — 파일 브라우저 기능 완성 (클릭 시 내용 표시, 트리 탐색)",
+            "status": "decided",
+            "decision": "서버에 GET /api/workspaces/:path/files/content 엔드포인트 추가. 파일 클릭 시 실제 내용 표시 (읽기 전용 뷰어). 트리 접기/펼치기 인터랙션 개선."
+          },
+          {
+            "id": 3,
+            "title": "우측 Git 탭 — 인터랙션 연결 (파일 클릭, diff 표시 등)",
+            "status": "decided",
+            "decision": "서버에 GET /api/workspaces/:path/git/diff 엔드포인트 추가. staged/changes 파일 클릭 시 diff 표시, commits 클릭 시 상세 표시. 인터랙션 연결."
+          },
+          {
+            "id": 4,
+            "title": "채팅 영역 UI 개선 — 하단 빈공간, 전체적 레이아웃 정리",
+            "status": "decided",
+            "decision": "chat-input 하단 불필요한 패딩 제거, 서브에이전트 패널 위치 정리, 전체 레이아웃 간격 조정."
+          }
+        ],
+        "research_summary": "Phase 4 완료 후 실제 사용 테스트에서 발견된 문제: (1) 히스토리에서 복원된 세션 ID로 prompt 전송 시 404 — resume API 미연결 가능성, (2) 파일 탭은 목록만 표시되고 클릭 시 내용 미표시, (3) Git 탭 클릭 불가, (4) 채팅 입력 영역 하단 불필요한 빈 공간.",
+        "created_at": "2026-04-07T13:12:30.819Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "세션 복원 후 resume API 자동 호출",
+          "context": "히스토리 복원된 세션은 서버 메모리 Map에 없어서 prompt 시 404. POST /api/sessions/:id/resume 호출 필요.",
+          "approach": "chat-area.tsx에서 히스토리 복원 후 resume API 호출, 반환된 새 sessionId로 교체, SSE 연결",
+          "acceptance": "앱 새로고침 후 이전 대화 표시 + 후속 메시지 전송 정상 동작 (404 없음)",
+          "risk": "resume이 새 sessionId를 반환하므로 ID 교체 로직 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-07T13:21:12.055Z"
+        },
+        {
+          "id": 2,
+          "title": "파일 브라우저 완성 — 내용 표시 API + 클릭 인터랙션",
+          "context": "파일 목록은 표시되지만 클릭 시 잘못된 내용 표시. 서버에 파일 내용 조회 API 없음.",
+          "approach": "서버에 GET /api/workspaces/:path/files/content?filePath=... 엔드포인트 추가. 웹에서 파일 클릭 시 내용 표시 (읽기 전용 코드 뷰어). 트리 접기/펼치기 개선.",
+          "acceptance": "파일 클릭 시 실제 파일 내용이 우측 패널에 표시됨",
+          "risk": "대용량 파일 처리 (바이너리 파일 등)",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-07T13:21:28.870Z"
+        },
+        {
+          "id": 3,
+          "title": "Git 탭 인터랙션 — diff API + 클릭 연결",
+          "context": "Git 탭에서 staged/changes/commits 항목 클릭 반응 없음",
+          "approach": "서버에 GET /api/workspaces/:path/git/diff?file=... 엔드포인트 추가. staged/changes 파일 클릭 시 diff 표시, commits 클릭 시 상세 표시.",
+          "acceptance": "Git 변경 파일 클릭 시 diff가 우측에 표시됨, 커밋 클릭 시 상세 정보 표시",
+          "risk": "diff 포맷 파싱",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T13:21:32.935Z"
+        },
+        {
+          "id": 4,
+          "title": "채팅 영역 UI 개선 — 하단 빈공간 제거 + 레이아웃 정리",
+          "context": "채팅 입력창과 상태바 사이 불필요한 빈 공간, 서브에이전트 패널 위치 정리 필요",
+          "approach": "chat-input.tsx 하단 패딩 축소, 서브에이전트 패널이 없을 때 빈 공간 제거, 전체 레이아웃 간격 조정",
+          "acceptance": "채팅 입력창이 하단에 밀착, 불필요한 빈 공간 없음",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "lead",
+          "created_at": "2026-04-07T13:21:36.724Z"
+        }
+      ]
     }
   ]
 }

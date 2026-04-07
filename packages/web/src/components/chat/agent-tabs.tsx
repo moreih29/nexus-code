@@ -9,8 +9,9 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 }
 
 export function AgentTabs() {
-  const { activeTab, setActiveTab, getSubagents } = useChatStore()
-  const subagents = getSubagents()
+  const activeTab = useChatStore((s) => s.activeTab)
+  const setActiveTab = useChatStore((s) => s.setActiveTab)
+  const subagents = useChatStore((s) => s.sessionState.subagents)
 
   return (
     <div
