@@ -76,7 +76,7 @@ export function ChatInput() {
   const isSending = startSession.isPending || sendPrompt.isPending
 
   return (
-    <div className="px-5 py-2 border-t border-border flex-shrink-0">
+    <div className="px-4 pt-1.5 pb-1 border-t border-border flex-shrink-0">
       <div
         className="flex items-end gap-2 rounded-[10px] px-3 py-2 border border-border transition-colors duration-200 focus-within:border-accent"
         style={{ background: 'var(--bg-surface)' }}

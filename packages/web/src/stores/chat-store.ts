@@ -78,10 +78,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   restoreFromHistory: (sessionId, messages) => {
     set({
-      sessionId,
+      sessionId: sessionId || null,
       sessionState: {
         ...createInitialState(),
-        sessionId,
+        sessionId: sessionId || null,
         messages,
       },
       isLoadingHistory: false,

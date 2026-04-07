@@ -88,15 +88,18 @@ function useChatSession() {
           .filter((m) => m.text)
 
         if (chatMessages.length > 0) {
-          restoreFromHistory(latest.id, chatMessages)
+          // 히스토리만 먼저 표시 (sessionId는 아직 설정하지 않음)
+          restoreFromHistory('', chatMessages)
 
-          // resume으로 서버 메모리에 세션 등록 → 후속 prompt 가능
+          // resume으로 서버 메모리에 세션 등록 → 성공 시에만 sessionId 설정
           try {
             const resumed = await resumeSession(latest.id)
             console.log('[chat-area] session resumed', resumed)
             setSessionId(resumed.id)
           } catch {
-            console.warn('[chat-area] resume failed, will create new session on next message')
+            // resume 실패해도 히스토리는 표시됨
+            // 다음 메시지 전송 시 새 세션 생성됨
+            console.log('[chat-area] resume skipped, new session on next message')
           }
         }
       } catch {
