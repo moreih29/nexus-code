@@ -56,7 +56,7 @@ export function StatusBar() {
 
   return (
     <>
-      <div className="flex items-center justify-between px-3 h-7 bg-bg-surface border-t border-border text-xs text-text-muted select-none col-span-2">
+      <div className="flex items-center justify-between px-3 h-7 bg-bg-surface border-t border-border text-xs text-text-muted select-none">
         {/* Left side */}
         <div className="flex items-center gap-2">
           <span className="text-text-secondary">Nexus Code</span>
