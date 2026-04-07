@@ -232,7 +232,8 @@ export function GitView() {
           disabled
         />
         <button
-          className="mt-2 w-full py-1.5 bg-[#58a6ff] border-none text-white rounded text-[12px] font-medium cursor-not-allowed opacity-40 transition-opacity"
+          className="mt-2 w-full py-1.5 border-none text-white rounded text-[12px] font-medium cursor-not-allowed opacity-40 transition-opacity"
+          style={{ background: 'var(--accent)' }}
           disabled
         >
           Commit &amp; Push
