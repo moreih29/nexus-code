@@ -16,3 +16,40 @@ export function cancelSession(sessionId: string): Promise<void> {
 export function fetchSessionStatus(sessionId: string): Promise<{ status: SessionStatus }> {
   return apiClient.get<{ status: SessionStatus }>(`/api/sessions/${sessionId}/status`)
 }
+
+export interface SessionRow {
+  id: string
+  cli_session_id: string | null
+  workspace_path: string
+  agent_id: string
+  status: string
+  model: string | null
+  permission_mode: string | null
+  prompt: string | null
+  created_at: string
+  ended_at: string | null
+  error_message: string | null
+  exit_code: number | null
+}
+
+export function fetchSessions(workspacePath: string): Promise<SessionRow[]> {
+  return apiClient.get<SessionRow[]>(`/api/sessions?workspacePath=${encodeURIComponent(workspacePath)}`)
+}
+
+export interface HistoryMessage {
+  type: 'user' | 'assistant'
+  uuid: string
+  content: unknown
+  isSidechain: boolean
+}
+
+export function fetchHistory(
+  sessionId: string,
+  opts?: { offset?: number; limit?: number },
+): Promise<{ messages: HistoryMessage[]; offset: number; limit: number }> {
+  const params = new URLSearchParams()
+  if (opts?.offset !== undefined) params.set('offset', String(opts.offset))
+  if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
+  const qs = params.toString()
+  return apiClient.get(`/api/sessions/${sessionId}/history${qs ? `?${qs}` : ''}`)
+}
