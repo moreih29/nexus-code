@@ -52,7 +52,8 @@ function parseDiffNumstat(cwd: string, cached: boolean): GitFileEntry[] {
 function parseStatus(cwd: string): { staged: GitFileEntry[]; changes: GitFileEntry[] } {
   let raw: string
   try {
-    raw = runGit(cwd, 'status --porcelain')
+    // trim하면 선행 공백이 날아가므로 trimEnd만 사용
+    raw = execSync('git status --porcelain', { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trimEnd()
   } catch {
     return { staged: [], changes: [] }
   }
