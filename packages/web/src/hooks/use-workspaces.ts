@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { CreateWorkspaceRequest } from '@nexus/shared'
-import { fetchWorkspaces, createWorkspace, deleteWorkspace, fetchFiles, fetchGitInfo } from '../api/workspace'
+import { fetchWorkspaces, createWorkspace, deleteWorkspace, fetchFiles, fetchGitInfo, fetchFileContent } from '../api/workspace'
 
 export const workspacesQueryKey = ['workspaces'] as const
 
@@ -45,5 +45,14 @@ export function useGitInfo(workspacePath: string | null | undefined) {
     queryFn: () => fetchGitInfo(workspacePath!),
     enabled: !!workspacePath,
     refetchInterval: 5000,
+  })
+}
+
+export function useFileContent(workspacePath: string | null | undefined, filePath: string | null | undefined) {
+  return useQuery({
+    queryKey: ['file-content', workspacePath, filePath],
+    queryFn: () => fetchFileContent(workspacePath!, filePath!),
+    enabled: !!workspacePath && !!filePath,
+    staleTime: 30_000,
   })
 }

@@ -53,3 +53,50 @@ export async function fetchGitInfo(workspacePath: string): Promise<GitInfo | Git
   const encoded = workspacePath.replace(/^\//, '')
   return apiClient.get<GitInfo | GitErrorResponse>(`/api/workspaces/${encoded}/git`)
 }
+
+export interface GitDiffResponse {
+  diff: string
+}
+
+export interface GitShowResponse {
+  message: string
+  files: string[]
+  stat: string
+}
+
+export async function fetchGitDiff(
+  workspacePath: string,
+  file: string,
+  staged: boolean,
+): Promise<GitDiffResponse> {
+  const encoded = workspacePath.replace(/^\//, '')
+  const params = new URLSearchParams({ file, staged: staged ? 'true' : 'false' })
+  return apiClient.get<GitDiffResponse>(`/api/workspaces/${encoded}/git/diff?${params}`)
+}
+
+export async function fetchGitShow(workspacePath: string, hash: string): Promise<GitShowResponse> {
+  const encoded = workspacePath.replace(/^\//, '')
+  const params = new URLSearchParams({ hash })
+  return apiClient.get<GitShowResponse>(`/api/workspaces/${encoded}/git/show?${params}`)
+}
+
+export interface FileContentResponse {
+  content: string
+  language: string
+}
+
+export interface BinaryFileResponse {
+  binary: true
+  size: number
+}
+
+export async function fetchFileContent(
+  workspacePath: string,
+  filePath: string,
+): Promise<FileContentResponse | BinaryFileResponse> {
+  const encoded = workspacePath.replace(/^\//, '')
+  const params = new URLSearchParams({ filePath })
+  return apiClient.get<FileContentResponse | BinaryFileResponse>(
+    `/api/workspaces/${encoded}/files/content?${params.toString()}`,
+  )
+}

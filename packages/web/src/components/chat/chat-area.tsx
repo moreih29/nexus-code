@@ -3,7 +3,7 @@ import { useChatStore } from '../../stores/chat-store.js'
 import { useWorkspaceStore } from '../../stores/workspace-store.js'
 import { useWorkspaces } from '../../hooks/use-workspaces.js'
 import { useSse } from '../../api/use-sse.js'
-import { fetchSessions, fetchHistory } from '../../api/session.js'
+import { fetchSessions, fetchHistory, resumeSession } from '../../api/session.js'
 import type { SessionEvent } from '@nexus/shared'
 import type { ChatMessage } from '../../adapters/session-adapter.js'
 import { AgentTabs } from './agent-tabs.js'
@@ -89,6 +89,15 @@ function useChatSession() {
 
         if (chatMessages.length > 0) {
           restoreFromHistory(latest.id, chatMessages)
+
+          // resume으로 서버 메모리에 세션 등록 → 후속 prompt 가능
+          try {
+            const resumed = await resumeSession(latest.id)
+            console.log('[chat-area] session resumed', resumed)
+            setSessionId(resumed.id)
+          } catch {
+            console.warn('[chat-area] resume failed, will create new session on next message')
+          }
         }
       } catch {
         // 서버 미연결 — 무시

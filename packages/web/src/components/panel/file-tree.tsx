@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { usePanelStore } from '../../stores/panel-store'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useWorkspaces, useFiles } from '../../hooks/use-workspaces'
@@ -40,17 +41,21 @@ function buildTree(files: FileEntry[]): FileTreeNode[] {
 interface FileTreeNodeProps {
   node: FileTreeNode
   depth: number
+  onFileClick: (filePath: string) => void
 }
 
-function FileTreeNodeItem({ node, depth }: FileTreeNodeProps) {
-  const { openFile, openFilePath } = usePanelStore()
+function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
+  const { openFilePath } = usePanelStore()
+  const [collapsed, setCollapsed] = useState(false)
   const indent = depth * 16
 
   const isActive = node.type === 'file' && openFilePath === node.path
 
   function handleClick() {
     if (node.type === 'file') {
-      openFile(node.path)
+      onFileClick(node.path)
+    } else {
+      setCollapsed((prev) => !prev)
     }
   }
 
@@ -68,7 +73,7 @@ function FileTreeNodeItem({ node, depth }: FileTreeNodeProps) {
       >
         {/* Icon */}
         <span className="w-4 text-center flex-shrink-0 text-[14px]">
-          {node.type === 'directory' ? '▾' : '📄'}
+          {node.type === 'directory' ? (collapsed ? '▸' : '▾') : '📄'}
         </span>
 
         {/* Name */}
@@ -92,10 +97,10 @@ function FileTreeNodeItem({ node, depth }: FileTreeNodeProps) {
         )}
       </div>
 
-      {/* Children */}
-      {node.type === 'directory' &&
+      {/* Children (hidden when collapsed) */}
+      {node.type === 'directory' && !collapsed &&
         node.children?.map((child) => (
-          <FileTreeNodeItem key={child.path} node={child} depth={depth + 1} />
+          <FileTreeNodeItem key={child.path} node={child} depth={depth + 1} onFileClick={onFileClick} />
         ))}
     </>
   )
@@ -104,6 +109,7 @@ function FileTreeNodeItem({ node, depth }: FileTreeNodeProps) {
 export function FileTree() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { data: workspaces } = useWorkspaces()
+  const { openFile } = usePanelStore()
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
   const workspacePath = activeWorkspace?.path ?? null
@@ -112,6 +118,10 @@ export function FileTree() {
 
   const tree = files ? buildTree(files) : []
   const workspaceName = workspacePath?.split('/').filter(Boolean).pop() ?? '파일'
+
+  function handleFileClick(filePath: string) {
+    openFile(filePath)
+  }
 
   return (
     <div className="flex flex-col overflow-hidden flex-1">
@@ -138,7 +148,7 @@ export function FileTree() {
           <div className="px-3 py-2 text-[12px] text-text-secondary">파일이 없습니다.</div>
         )}
         {tree.map((node) => (
-          <FileTreeNodeItem key={node.path} node={node} depth={0} />
+          <FileTreeNodeItem key={node.path} node={node} depth={0} onFileClick={handleFileClick} />
         ))}
       </div>
     </div>

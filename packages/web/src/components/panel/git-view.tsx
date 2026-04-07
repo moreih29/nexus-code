@@ -1,5 +1,25 @@
+import { useState } from 'react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
 import { useWorkspaces, useGitInfo } from '../../hooks/use-workspaces'
+import { fetchGitDiff, fetchGitShow } from '../../api/workspace'
+import type { GitDiffResponse, GitShowResponse } from '../../api/workspace'
+
+type DiffView = {
+  kind: 'diff'
+  file: string
+  staged: boolean
+  data: GitDiffResponse | null
+  loading: boolean
+}
+
+type ShowView = {
+  kind: 'show'
+  hash: string
+  data: GitShowResponse | null
+  loading: boolean
+}
+
+type DetailView = DiffView | ShowView
 
 export function GitView() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -9,6 +29,8 @@ export function GitView() {
 
   const { data: gitData, isLoading } = useGitInfo(workspacePath)
 
+  const [detail, setDetail] = useState<DetailView | null>(null)
+
   const isError = gitData && 'error' in gitData
   const info = gitData && !('error' in gitData) ? gitData : null
 
@@ -16,6 +38,30 @@ export function GitView() {
   const staged = info?.staged ?? []
   const changes = info?.changes ?? []
   const commits = info?.commits ?? []
+
+  async function openDiff(file: string, isStagedDiff: boolean) {
+    if (!workspacePath) return
+    const view: DiffView = { kind: 'diff', file, staged: isStagedDiff, data: null, loading: true }
+    setDetail(view)
+    try {
+      const data = await fetchGitDiff(workspacePath, file, isStagedDiff)
+      setDetail((prev) => (prev?.kind === 'diff' && prev.file === file ? { ...view, data, loading: false } : prev))
+    } catch {
+      setDetail((prev) => (prev?.kind === 'diff' && prev.file === file ? { ...view, data: { diff: '' }, loading: false } : prev))
+    }
+  }
+
+  async function openShow(hash: string) {
+    if (!workspacePath) return
+    const view: ShowView = { kind: 'show', hash, data: null, loading: true }
+    setDetail(view)
+    try {
+      const data = await fetchGitShow(workspacePath, hash)
+      setDetail((prev) => (prev?.kind === 'show' && prev.hash === hash ? { ...view, data, loading: false } : prev))
+    } catch {
+      setDetail((prev) => (prev?.kind === 'show' && prev.hash === hash ? { ...view, data: { message: '', files: [], stat: '' }, loading: false } : prev))
+    }
+  }
 
   if (isLoading) {
     return (
@@ -38,6 +84,36 @@ export function GitView() {
       <div className="flex flex-col flex-1 overflow-hidden items-center justify-center gap-1">
         <span className="text-[12px] text-text-muted">Git 저장소가 아닙니다</span>
         <span className="text-[11px] text-text-muted opacity-60">{workspacePath}</span>
+      </div>
+    )
+  }
+
+  if (detail) {
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-light">
+          <button
+            onClick={() => setDetail(null)}
+            className="text-[11px] text-text-secondary hover:text-text-primary px-1.5 py-0.5 rounded hover:bg-bg-hover transition-colors"
+          >
+            ← 뒤로
+          </button>
+          <span className="text-[11px] text-text-muted truncate">
+            {detail.kind === 'diff'
+              ? `${detail.staged ? '[staged] ' : ''}${detail.file}`
+              : detail.hash}
+          </span>
+        </div>
+
+        {detail.loading ? (
+          <div className="flex flex-1 items-center justify-center">
+            <span className="text-[12px] text-text-muted">불러오는 중...</span>
+          </div>
+        ) : detail.kind === 'diff' ? (
+          <DiffViewer diff={detail.data?.diff ?? ''} />
+        ) : (
+          <ShowViewer data={detail.data} />
+        )}
       </div>
     )
   }
@@ -65,6 +141,7 @@ export function GitView() {
               {staged.map((change) => (
                 <div
                   key={`staged-${change.path}`}
+                  onClick={() => void openDiff(change.path, true)}
                   className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                 >
                   <span
@@ -98,6 +175,7 @@ export function GitView() {
               {changes.map((change) => (
                 <div
                   key={`changes-${change.path}`}
+                  onClick={() => void openDiff(change.path, false)}
                   className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                 >
                   <span
@@ -135,6 +213,7 @@ export function GitView() {
               {commits.map((commit) => (
                 <div
                   key={commit.hash}
+                  onClick={() => void openShow(commit.hash)}
                   className="flex flex-col gap-0.5 px-2 py-2 rounded cursor-pointer hover:bg-bg-hover"
                 >
                   <span className="text-[12px] text-text-primary">{commit.message}</span>
@@ -163,6 +242,75 @@ export function GitView() {
           Commit &amp; Push
         </button>
       </div>
+    </div>
+  )
+}
+
+function DiffViewer({ diff }: { diff: string }) {
+  if (!diff) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <span className="text-[12px] text-text-muted">diff 없음</span>
+      </div>
+    )
+  }
+
+  const lines = diff.split('\n')
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <pre className="text-[11px] font-mono leading-5 px-3 py-2 min-w-0">
+        {lines.map((line, i) => {
+          let colorClass = 'text-text-secondary'
+          if (line.startsWith('+') && !line.startsWith('+++')) colorClass = 'text-[#3fb950]'
+          else if (line.startsWith('-') && !line.startsWith('---')) colorClass = 'text-[#f85149]'
+          else if (line.startsWith('@@')) colorClass = 'text-[#58a6ff]'
+          else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) colorClass = 'text-text-muted'
+
+          return (
+            <div key={i} className={colorClass}>
+              {line || ' '}
+            </div>
+          )
+        })}
+      </pre>
+    </div>
+  )
+}
+
+function ShowViewer({ data }: { data: GitShowResponse | null }) {
+  if (!data || (!data.message && data.files.length === 0)) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <span className="text-[12px] text-text-muted">정보 없음</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-3 py-2">
+      {data.message && (
+        <div className="mb-3">
+          <div className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.3px] mb-1">
+            Message
+          </div>
+          <pre className="text-[12px] text-text-primary font-sans whitespace-pre-wrap">{data.message.trim()}</pre>
+        </div>
+      )}
+      {data.files.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.3px] mb-1">
+            Changed Files ({data.files.length})
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {data.files.map((f, i) => (
+              <span key={i} className="text-[12px] text-text-primary font-mono truncate">
+                {f}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

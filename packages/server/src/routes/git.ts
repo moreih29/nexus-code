@@ -129,6 +129,8 @@ function parseCommits(cwd: string): GitCommit[] {
   }
 }
 
+const DIFF_LINE_LIMIT = 5000
+
 export function createGitRouter() {
   const router = new Hono()
 
@@ -149,6 +151,53 @@ export function createGitRouter() {
 
     const info: GitInfo = { branch, staged, changes, commits }
     return c.json(info)
+  })
+
+  router.get('/:path{.+}/git/diff', (c) => {
+    const rawPath = c.req.param('path')
+    const workspacePath = '/' + rawPath
+    const file = c.req.query('file') ?? ''
+    const stagedParam = c.req.query('staged')
+    const staged = stagedParam === 'true' || stagedParam === '1'
+
+    if (!file) {
+      return c.json({ error: 'file param required' }, 400)
+    }
+
+    try {
+      const stagedFlag = staged ? '--staged' : ''
+      const raw = runGit(workspacePath, `diff ${stagedFlag} -- ${JSON.stringify(file)}`)
+      const lines = raw.split('\n')
+      const truncated = lines.length > DIFF_LINE_LIMIT ? lines.slice(0, DIFF_LINE_LIMIT) : lines
+      return c.json({ diff: truncated.join('\n') })
+    } catch {
+      return c.json({ diff: '' })
+    }
+  })
+
+  router.get('/:path{.+}/git/show', (c) => {
+    const rawPath = c.req.param('path')
+    const workspacePath = '/' + rawPath
+    const hash = c.req.query('hash') ?? ''
+
+    if (!hash) {
+      return c.json({ error: 'hash param required' }, 400)
+    }
+
+    try {
+      const stat = runGit(workspacePath, `show --stat ${hash}`)
+      const messageRaw = runGit(workspacePath, `log -1 --pretty=format:%B ${hash}`)
+      const nameOnlyRaw = runGit(workspacePath, `show --name-only --pretty=format: ${hash}`)
+      const files = nameOnlyRaw
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+      const statLines = stat.split('\n')
+      const truncated = statLines.length > DIFF_LINE_LIMIT ? statLines.slice(0, DIFF_LINE_LIMIT) : statLines
+      return c.json({ message: messageRaw, files, stat: truncated.join('\n') })
+    } catch {
+      return c.json({ message: '', files: [], stat: '' })
+    }
   })
 
   return router
