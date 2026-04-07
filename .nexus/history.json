@@ -2810,6 +2810,44 @@
           "created_at": "2026-04-02T06:16:11.871Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-07T01:37:26.040Z",
+      "branch": "main",
+      "plan": {
+        "id": 4,
+        "topic": "서버(Main Process) 구현 문제점 감사 및 수정 계획",
+        "issues": [
+          {
+            "id": 1,
+            "title": "IPC 입력 검증 및 경로 보안 — path traversal, cwd 미검증, shell.openExternal",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "이벤트 리스너 및 메모리 누수 — bindManagerToWindow 리스너 미해제, webContents 소멸 후 send, watcher 누수",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "에러 처리 사각지대 — stdin 쓰기 실패 무시, JSON 파싱 실패 은폐, empty catch",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "레이스 컨디션 및 상태 불일치 — 설정 파일 TOCTOU, permission timeout 경쟁, 재시작 타이밍",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "CLI 통신 백프레셔 — stdout 백프레셔 미처리, stdin 버퍼 오버플로우, token 갱신 타이밍",
+            "status": "pending"
+          }
+        ],
+        "research_summary": "3개 Explore 에이전트 병렬 스캔 결과 종합. 대상: src/main/ 전체 (index.ts, ipc/handlers.ts, control-plane/*.ts, plugin-host/*.ts, preload/index.ts). 핵심 모듈: RunManager(CLI spawn/lifecycle), HookServer(HTTP hook 3엔드포인트), PermissionHandler(auto-approve + 60s timeout), SessionManager(~/.claude/projects/ 캐싱), AgentTracker(서브에이전트 추적), StreamParser(NDJSON 파싱), PluginHost(manifest 로드). 발견: 25+ 잠재 문제를 5개 안건으로 수렴. Critical 2건(보안+리소스), High 2건(에러+동시성), Medium 1건(통신).",
+        "created_at": "2026-04-07T01:28:17.795Z"
+      },
+      "tasks": []
     }
   ]
 }

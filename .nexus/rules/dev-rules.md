@@ -1,17 +1,26 @@
-<!-- tags: rules, git, qa, workflow, team -->
+<!-- tags: rules, conventions, tdd, architecture -->
 # 개발 규칙
 
-## Git / 배포
-- 커밋/푸시는 사용자 명시적 지시 시에만 실행
-- 브랜치: `feat/{scope}`, `fix/{scope}`, `chore/{scope}`
-- 커밋 형식: `{type}: {scope} — {description}`
+## 코드 스타일
+- TypeScript strict mode
+- kebab-case 파일명
+- 한글 UI 텍스트, 한글 주석 허용
 
-## QA / 검증
-- 구현 후 반드시 QA 검증 진행
-- `bun run typecheck` 통과 확인
-- `bun run dev` 실행하여 런타임 동작 확인
-- Context Provider의 value에 null이 가능한 경우, 소비자 컴포넌트의 null-guard + 렌더 트리 경로 검증 필수
+## 테스트
+- TDD: 기능 구현 전 테스트 먼저 작성
+- 각 모듈은 독립적으로 테스트 가능해야 함
+- 외부 의존(CLI, 파일시스템 등)은 테스트에서 격리
 
-## 구현 원칙
-- 느리더라도 안정적인 구현 우선
-- 확실하게 확인하고 수정한 뒤 QA
+## 커밋
+- conventional commits (구체 접두어는 프레임워크 결정 후)
+- 한 커밋에 한 관심사
+
+## 아키텍처
+- 모듈 간 결합도 최소화
+- 명시적 의존성 주입 (글로벌 상태 금지)
+- 모든 외부 입력에 런타임 검증
+- 이벤트 리스너는 반드시 해제 함수 제공
+
+## 에러 처리
+- empty catch 금지
+- 에러는 삼키지 않고 명시적으로 처리
