@@ -43,7 +43,7 @@ const components: Components = {
         className="rounded-[6px] px-[12px] py-[10px] my-[0.6em] overflow-x-auto text-[12px] leading-[1.5]"
         style={{
           background: 'var(--bg-elevated)',
-          border: '1px solid var(--border)',
+          border: '1px solid color-mix(in srgb, var(--text-muted) 30%, var(--border))',
         }}
       >
         {children}
