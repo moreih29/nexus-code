@@ -1,24 +1,16 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { SessionEvent } from '@nexus/shared'
 import {
   createInitialState,
   applyEvent,
   addUserMessage,
   type SessionState,
-  type SubagentState,
 } from '../adapters/session-adapter.js'
-import {
-  mockMessages,
-  mockSubagents,
-  mockSubagentLog,
-  mockEngineerLog,
-  type MockSubagent,
-  type MockMessage,
-} from '../mock/data.js'
 
 type ActiveTab = 'main' | string // 'main' or subagent id
 
-// Unified subagent shape that works for both mock and live data
+// Unified subagent shape for live data
 export type UnifiedSubagent = {
   id: string
   name: string
@@ -35,105 +27,109 @@ interface ChatState {
   isConnected: boolean
   activeTab: ActiveTab
 
-  // Mock fallback
-  useMock: boolean
-  mockSubagents: MockSubagent[]
-  mockSubagentLogs: Record<string, MockMessage[]>
-
   // Actions
   applyServerEvent: (event: SessionEvent) => void
   sendMessage: (text: string) => void
   setSessionId: (id: string) => void
   setConnected: (connected: boolean) => void
-  setUseMock: (useMock: boolean) => void
   setActiveTab: (tab: ActiveTab) => void
   resetSession: () => void
 
   // Selectors
   getSubagents: () => UnifiedSubagent[]
   getActiveSubagent: () => UnifiedSubagent | null
-  getActiveMessages: () => MockMessage[] | SessionState['messages']
+  getActiveMessages: () => SessionState['messages']
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  sessionState: createInitialState(),
-  sessionId: null,
-  isConnected: false,
-  activeTab: 'main',
-
-  useMock: true,
-  mockSubagents: mockSubagents,
-  mockSubagentLogs: {
-    'sa-2': mockSubagentLog,
-    'sa-3': mockEngineerLog,
-  },
-
-  applyServerEvent: (event) => {
-    set((state) => ({
-      sessionState: applyEvent(state.sessionState, event),
-      sessionId: state.sessionId ?? event.sessionId,
-    }))
-  },
-
-  sendMessage: (text) => {
-    set((state) => ({
-      sessionState: addUserMessage(state.sessionState, text),
-    }))
-  },
-
-  setSessionId: (id) => set({ sessionId: id }),
-
-  setConnected: (connected) => set({ isConnected: connected }),
-
-  setUseMock: (useMock) => set({ useMock }),
-
-  setActiveTab: (tab) => set({ activeTab: tab }),
-
-  resetSession: () =>
-    set({
+export const useChatStore = create<ChatState>()(
+  persist(
+    (set, get) => ({
       sessionState: createInitialState(),
       sessionId: null,
       isConnected: false,
       activeTab: 'main',
-      useMock: true,
+
+      applyServerEvent: (event) => {
+        set((state) => ({
+          sessionState: applyEvent(state.sessionState, event),
+          sessionId: state.sessionId ?? event.sessionId,
+        }))
+      },
+
+      sendMessage: (text) => {
+        set((state) => ({
+          sessionState: addUserMessage(state.sessionState, text),
+        }))
+      },
+
+      setSessionId: (id) => set({ sessionId: id }),
+
+      setConnected: (connected) => set({ isConnected: connected }),
+
+      setActiveTab: (tab) => set({ activeTab: tab }),
+
+      resetSession: () =>
+        set({
+          sessionState: createInitialState(),
+          sessionId: null,
+          isConnected: false,
+          activeTab: 'main',
+        }),
+
+      getSubagents: () => {
+        const { sessionState } = get()
+        return sessionState.subagents.map((sa) => ({
+          id: sa.id,
+          name: sa.name,
+          type: sa.type,
+          status: sa.status,
+          summary: sa.summary,
+          durationSec: sa.durationSec,
+        }))
+      },
+
+      getActiveSubagent: () => {
+        const { activeTab } = get()
+        if (activeTab === 'main') return null
+        const subagents = get().getSubagents()
+        return subagents.find((sa) => sa.id === activeTab) ?? null
+      },
+
+      getActiveMessages: () => {
+        const { sessionState } = get()
+        return sessionState.messages
+      },
     }),
-
-  getSubagents: () => {
-    const { sessionState, useMock, mockSubagents: mocks } = get()
-    if (useMock && sessionState.subagents.length === 0) {
-      return mocks.map((m) => ({
-        id: m.id,
-        name: m.name,
-        type: m.type,
-        status: m.status as UnifiedSubagent['status'],
-        summary: m.summary,
-      }))
-    }
-    return sessionState.subagents.map((sa) => ({
-      id: sa.id,
-      name: sa.name,
-      type: sa.type,
-      status: sa.status,
-      summary: sa.summary,
-      durationSec: sa.durationSec,
-    }))
-  },
-
-  getActiveSubagent: () => {
-    const { activeTab } = get()
-    if (activeTab === 'main') return null
-    const subagents = get().getSubagents()
-    return subagents.find((sa) => sa.id === activeTab) ?? null
-  },
-
-  getActiveMessages: () => {
-    const { sessionState, useMock, mockSubagentLogs, activeTab } = get()
-    if (activeTab !== 'main') {
-      return mockSubagentLogs[activeTab] ?? []
-    }
-    if (useMock && sessionState.messages.length === 0) {
-      return mockMessages
-    }
-    return sessionState.messages
-  },
-}))
+    {
+      name: 'nexus-chat',
+      partialize: (state) => ({
+        sessionId: state.sessionId,
+        sessionState: {
+          ...state.sessionState,
+          // Map → plain object for JSON serialization
+          pendingToolCalls: Object.fromEntries(state.sessionState.pendingToolCalls),
+        },
+      }),
+      merge: (persisted, current): ChatState => {
+        const p = persisted as Record<string, unknown> | undefined
+        if (!p?.sessionId) return current
+        const savedState = p.sessionState as Record<string, unknown> | undefined
+        return {
+          ...current,
+          sessionId: p.sessionId as string,
+          sessionState: savedState
+            ? {
+                ...current.sessionState,
+                ...(savedState as object),
+                pendingToolCalls: new Map(
+                  Object.entries(
+                    (savedState.pendingToolCalls ?? {}) as Record<string, import('../adapters/session-adapter.js').ToolCallState>,
+                  ),
+                ),
+              }
+            : current.sessionState,
+        }
+      },
+    },
+  ),
+)

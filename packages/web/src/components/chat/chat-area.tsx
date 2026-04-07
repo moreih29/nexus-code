@@ -12,7 +12,7 @@ import { ChatInput } from './chat-input.js'
 function useChatSession() {
   const { data: workspaces } = useWorkspaces()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { sessionId, applyServerEvent, setConnected, setUseMock } = useChatStore()
+  const { sessionId, applyServerEvent, setConnected } = useChatStore()
   const connectedRef = useRef(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
@@ -40,14 +40,11 @@ function useChatSession() {
     }
   }, [workspacePath, setConnected])
 
-  // Track connection health via SSE onerror — useSse closes on error
-  // We reset to mock mode if we never had a session and server is unreachable
   useEffect(() => {
     if (!workspacePath) {
-      setUseMock(true)
       setConnected(false)
     }
-  }, [workspacePath, setUseMock, setConnected])
+  }, [workspacePath, setConnected])
 
   return { workspacePath }
 }

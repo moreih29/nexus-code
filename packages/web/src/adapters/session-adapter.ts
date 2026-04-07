@@ -256,7 +256,7 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
       const permRequest: PermissionRequestState = {
         id: event.permissionId,
         toolName: event.toolName,
-        toolInput: event.toolInput,
+        toolInput: typeof event.toolInput === 'string' ? {} : event.toolInput,
       }
 
       const last = lastMessage(state.messages)

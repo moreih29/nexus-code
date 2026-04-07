@@ -11,7 +11,7 @@ export function ChatInput() {
 
   const { data: workspaces } = useWorkspaces()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { sessionId, sendMessage, setSessionId, setUseMock } = useChatStore()
+  const { sessionId, sendMessage, setSessionId } = useChatStore()
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
   const workspacePath = activeWorkspace?.path ?? ''
@@ -39,7 +39,6 @@ export function ChatInput() {
     try {
       if (!sessionId) {
         // First message — start a new session
-        setUseMock(false)
         console.log('[chat-input] starting session', { workspacePath, prompt: trimmed })
         const { defaultModel, defaultPermissionMode } = useSettingsStore.getState()
         const response = await startSession.mutateAsync({
@@ -55,8 +54,7 @@ export function ChatInput() {
         await sendPrompt.mutateAsync(trimmed)
       }
     } catch {
-      // Server unreachable — fall back to mock mode silently
-      setUseMock(true)
+      // Server unreachable — silently ignore
     }
   }
 
