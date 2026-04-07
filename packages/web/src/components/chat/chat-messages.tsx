@@ -77,6 +77,16 @@ export function ChatMessages() {
         </div>
       )}
 
+      {messages.length === 0 && !isSubagentTab && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-text-muted">
+            <div className="text-[32px] mb-3 opacity-40">💬</div>
+            <div className="text-[13px] font-medium">새 대화를 시작하세요</div>
+            <div className="text-[11px] mt-1 opacity-60">메시지를 입력하면 세션이 자동으로 생성됩니다</div>
+          </div>
+        </div>
+      )}
+
       {messages.map((msg) => {
         if (isSubagentTab && msg.toolCalls && msg.toolCalls.length > 0) {
           return (
