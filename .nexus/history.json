@@ -3971,6 +3971,128 @@
           "created_at": "2026-04-07T13:21:36.724Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-07T14:19:42.561Z",
+      "branch": "feat/phase4-bugfix-data-connect",
+      "plan": {
+        "id": 5,
+        "topic": "UI/UX 디테일 개선 — 디자이너 리뷰 기반",
+        "issues": [
+          {
+            "id": 1,
+            "title": "스트리밍/로딩 상태 표시 — 메시지 전송 후 응답 대기 중 시각적 피드백 없음",
+            "status": "decided",
+            "decision": "thinking indicator (3점 펄스), isWaitingResponse 상태 추가, 전송 버튼 스피너 전환, 상태바 동적 텍스트 (\"응답 대기 중...\"/\"스트리밍 중...\")"
+          },
+          {
+            "id": 2,
+            "title": "채팅 입력창 + 패딩 개선 — 힌트 텍스트, placeholder, 여유 공간",
+            "status": "decided",
+            "decision": "입력창 하단 힌트 \"Enter 전송 · Shift+Enter 줄바꿈\", 세션 상태별 placeholder 3종, 패딩 pt-3 pb-2.5, 내부 px-4 py-2.5 + border-radius 12px"
+          },
+          {
+            "id": 3,
+            "title": "Git 탭 파일명 잘림 + 우측 패널 탭 아이콘 개선",
+            "status": "decided",
+            "decision": "Git status badge를 colored dot으로 축소, additions hover 시에만 표시, gap 축소, 파일명 tooltip. 탭 아이콘 이모지→Lucide, active border var(--accent)로 통일."
+          },
+          {
+            "id": 4,
+            "title": "색상 대비 + 타이포그래피 정리 — WCAG 미달 + 폰트 크기 체계화",
+            "status": "decided",
+            "decision": "색상 대비 우선 수정: text-muted #484f58→#6e7681, Obsidian #555→#707070, placeholder text-secondary로. 타이포그래피 체계화는 점진적으로 별도 진행."
+          },
+          {
+            "id": 5,
+            "title": "설정 모달 + 툴콜 블록 + 메시지 구분 — 디자인 디테일",
+            "status": "decided",
+            "decision": "설정 모달: 섹션별 설명 + 구분선 + 즉시 적용 안내. 툴콜: 이모지→Lucide 아이콘, 상태를 아이콘으로, 스피너 14px. 어시스턴트 메시지: 좌측 accent bar 2px + pl-3."
+          }
+        ],
+        "research_summary": "디자이너가 30개 이상 컴포넌트를 분석하여 19개 개선 항목 도출. HIGH 6개: (1) 스트리밍 상태 표시 부재 — 사용자가 앱 멈춤으로 오해, (2) Git 파일명 짤림 — status badge+additions가 공간 차지, (3) 입력창 힌트/패딩 부족, (4) text-muted 색상 WCAG AA 미달 (대비비 3.2:1), (5) 패딩 답답함, (6) 설정 모달 설명 없음. MEDIUM 9개: 메시지 구분, 빈 상태, 이모지→아이콘, 워크스페이스 카드, 상태바 동적화, 인터랙션 피드백 등.",
+        "created_at": "2026-04-07T14:03:59.659Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "스트리밍/로딩 상태 표시",
+          "context": "메시지 전송 후 첫 text_chunk까지 시각적 피드백 없음. 앱이 멈춘 것처럼 보임.",
+          "approach": "chat-store에 isWaitingResponse 상태 추가 (sendMessage→true, 첫 applyServerEvent→false). ChatMessages에서 thinking indicator (3점 펄스) 렌더링. 전송 버튼 스피너 전환. 상태바에 동적 텍스트.",
+          "acceptance": "메시지 전송 직후 thinking indicator 표시, 응답 시작 시 사라짐. 상태바에 \"응답 대기 중...\"/\"스트리밍 중...\" 표시.",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-07T14:11:08.402Z"
+        },
+        {
+          "id": 2,
+          "title": "채팅 입력창 + 패딩 개선",
+          "context": "placeholder \"메시지 입력...\"만으로 사용법 불분명, 패딩 답답함",
+          "approach": "하단 힌트 \"Enter 전송 · Shift+Enter 줄바꿈\" 추가. 세션 상태별 placeholder 3종 (새 대화/복원/활성). 외부 pt-3 pb-2.5, 내부 px-4 py-2.5 + rounded-xl.",
+          "acceptance": "힌트 텍스트 표시, placeholder가 세션 상태에 따라 변경, 입력창 여유 있는 패딩",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-07T14:11:27.830Z"
+        },
+        {
+          "id": 3,
+          "title": "Git 파일명 짤림 + 우측 패널 탭 아이콘",
+          "context": "Git status badge(M) w-4 + additions가 파일명 공간 압축. 탭 이모지가 OS별 렌더링 불일치.",
+          "approach": "status badge를 colored dot(w-1.5)로 축소, additions hover 시에만 표시, gap 축소. 탭 이모지→Lucide 아이콘(FolderTree/GitBranch/Globe), active border var(--accent).",
+          "acceptance": "hello.py 같은 짧은 파일명이 잘리지 않음. 탭 아이콘이 Lucide로 표시.",
+          "risk": "lucide-react 이미 의존성에 포함 확인 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T14:11:34.585Z"
+        },
+        {
+          "id": 4,
+          "title": "색상 대비 WCAG 보정",
+          "context": "text-muted #484f58 on bg-base #0d1117 → 대비비 3.2:1 (AA 4.5:1 미달)",
+          "approach": "globals.css에서 GitHub Dark text-muted #484f58→#6e7681, Obsidian #555→#707070 등 테마별 보정. placeholder에 text-secondary 사용.",
+          "acceptance": "text-muted가 bg-base 위에서 WCAG AA (4.5:1) 충족",
+          "risk": "시각적 변화가 커서 기존 디자인 톤 변경 가능",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "lead",
+          "created_at": "2026-04-07T14:11:39.711Z"
+        },
+        {
+          "id": 5,
+          "title": "설정 모달 설명 + 구분선",
+          "context": "각 설정 옵션의 의미 설명 없음, 섹션 구분 불명확",
+          "approach": "각 섹션 라벨 아래 1줄 설명, 섹션 사이 border-t 구분선, 하단 \"설정은 즉시 적용됩니다\" 안내",
+          "acceptance": "권한 모드, Effort 등의 의미가 모달 내에서 설명됨",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-07T14:11:43.905Z"
+        },
+        {
+          "id": 6,
+          "title": "툴콜 블록 아이콘 + 어시스턴트 메시지 구분",
+          "context": "툴콜 아이콘이 이모지, 어시스턴트 메시지에 시각적 구분 없음",
+          "approach": "툴콜 이모지→Lucide 아이콘(FileText/Pencil/Terminal/Search/Bot), 상태를 아이콘으로(체크/X/스피너), 스피너 14px. 어시스턴트 메시지에 좌측 accent bar 2px + pl-3.",
+          "acceptance": "툴콜이 Lucide 아이콘으로 표시, 어시스턴트 메시지에 좌측 accent 바 표시",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-07T14:11:48.530Z"
+        }
+      ]
     }
   ]
 }
