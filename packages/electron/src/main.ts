@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { isDev, serverPort, webDevUrl } from './env'
@@ -79,6 +79,7 @@ function createWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   })
 
@@ -98,11 +99,18 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  spawnServer()
-
   if (!isDev) {
+    spawnServer()
     await waitForServer()
   }
+  // dev 모드: 서버는 별도 터미널에서 실행 (bun run --filter @nexus/server dev)
+  // Electron은 웹 dev 서버(localhost:5173)만 로드
+
+  ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
 
   createWindow()
 
