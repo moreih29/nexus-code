@@ -3,7 +3,8 @@ import { usePanelStore } from '../../stores/panel-store.js'
 import { SubagentCard } from './subagent-card.js'
 
 export function SubagentPanel() {
-  const subagents = useChatStore((s) => s.getSubagents())
+  const getSubagents = useChatStore((s) => s.getSubagents)
+  const subagents = getSubagents()
   const { subagentPanelCollapsed, subagentPanelHidden, toggleSubagentPanel } = usePanelStore()
 
   if (subagents.length === 0 || subagentPanelHidden) {
