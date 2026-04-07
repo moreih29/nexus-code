@@ -2848,6 +2848,200 @@
         "created_at": "2026-04-07T01:28:17.795Z"
       },
       "tasks": []
+    },
+    {
+      "completed_at": "2026-04-07T03:36:48.741Z",
+      "branch": "feat/main-process-redesign",
+      "plan": {
+        "id": 4,
+        "topic": "Nexus Code v2 아키텍처 설계",
+        "issues": [
+          {
+            "id": 1,
+            "title": "프레임워크 선정 — Electron vs Tauri vs 기타",
+            "status": "decided",
+            "decision": "Electron v41 선정. Tauri는 stdout 스트리밍 버그(#7684), HTTP 서버 미내장, WKWebView 제약으로 부적합. Hexagonal 아키텍처로 adapters 계층 분리하여 추후 프레임워크 전환 가능성 확보."
+          },
+          {
+            "id": 2,
+            "title": "모듈 구조 — Hexagonal vs Feature Modules vs Layered",
+            "status": "decided",
+            "decision": "Server + Web + Electron Shell 분리 구조. server(Node.js 독립 서버, Hexagonal 아키텍처) + web(React SPA) + electron(thin shell). TDD 원칙 구조적 부합 — Electron 없이 서버/웹 각각 독립 테스트 가능. 통신은 HTTP/WebSocket. monorepo 구조."
+          },
+          {
+            "id": 3,
+            "title": "IPC 통신 설계 — 라우터 패턴, 채널 분해, 타입 안전성",
+            "status": "decided",
+            "decision": "REST + SSE 선정. 요청-응답은 REST, 실시간 스트림(에이전트 이벤트)은 SSE(서버→클라이언트 단방향). 의존성 제로, curl/DevTools 직접 테스트 가능, 단순함 우선. 타입은 monorepo shared 패키지로 공유. Zod 검증 직접 구성."
+          },
+          {
+            "id": 4,
+            "title": "CLI 프로세스 관리 — Supervisor Tree vs Flat Pool, Disposable 패턴",
+            "status": "decided",
+            "decision": "Supervisor Tree + Disposable 패턴. ProcessSupervisor → WorkspaceGroup → CliProcess 계층 구조. 모든 subscribe가 해제 함수 반환, dispose()로 일괄 정리. 워크스페이스/앱 종료 시 계층적 정리. v1 리스너 누수 구조적 해결."
+          },
+          {
+            "id": 5,
+            "title": "상태 관리 — 워크스페이스 격리, 설정 TOCTOU 해결",
+            "status": "decided",
+            "decision": "서버: Domain Aggregates (WorkspaceRegistry → Workspace → Agent[], SettingsManager write queue로 TOCTOU 해결). 웹: React Query로 서버 상태 캐시 + SSE 실시간 갱신, UI 전용 상태는 useState/소규모 zustand 별도 관리. 서버 상태와 UI 상태 혼재 금지."
+          },
+          {
+            "id": 6,
+            "title": "에러 처리 전략 — Result type, 검증 계층, 구조화 로깅",
+            "status": "decided",
+            "decision": "Result Type + Middleware. domain에서 throw 금지, Result<T, E> 반환으로 타입 시스템이 에러 처리 강제. API 계층에서 Zod 검증 + 에러 경계 + 구조화 로깅 미들웨어 일괄 적용."
+          },
+          {
+            "id": 7,
+            "title": "로깅 전략 — 구조화 로깅, 레벨, 세션별 분리, 로그 저장",
+            "status": "decided",
+            "decision": "구조화 JSON 로깅(pino) + 워크스페이스/세션별 파일 분리. child logger로 workspaceId/sessionId 자동 주입. 개발 시 pino-pretty, 프로덕션은 JSON. API 미들웨어에서 요청/응답/에러 자동 로깅. CLI raw 출력 별도 파일. 4단계 레벨(error/warn/info/debug)."
+          }
+        ],
+        "research_summary": "아키텍트: v1 6대 문제(IPC 모놀리스, 리스너 누수, 입력 검증 부재, TOCTOU, 강결합, 에러 비일관) 확인. Modular Hexagonal + Supervisor Tree + Result type + middleware 체인 추천. 리서처: Electron v41이 subprocess/HTTP/생태계에서 우위. Tauri v2.10은 경량이나 stdout 버그(#7684), HTTP 서버 미내장, WKWebView 제약. Neutralinojs/Wails v3는 프로덕션 부적합.",
+        "created_at": "2026-04-07T02:11:33.157Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Monorepo 프로젝트 셋업",
+          "context": "packages/server, packages/web, packages/electron, packages/shared 구조의 monorepo 초기화",
+          "approach": "pnpm workspace + turborepo. 각 패키지의 package.json, tsconfig, 빌드 스크립트 구성. shared 패키지는 다른 패키지에서 참조.",
+          "acceptance": "pnpm install 성공, 각 패키지에서 TypeScript 컴파일 성공, shared 패키지 import 동작 확인",
+          "risk": "monorepo 도구 선정 필요 (turborepo vs nx vs pnpm alone). 빌드 설정 복잡도.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:14.056Z"
+        },
+        {
+          "id": 2,
+          "title": "shared 타입 패키지",
+          "context": "Result 타입, AppError, API 요청/응답 타입, Zod 스키마를 shared 패키지에 정의",
+          "approach": "packages/shared에 Result<T,E> 타입, AppError 인터페이스, API 엔드포인트별 요청/응답 Zod 스키마 정의. 서버/웹 모두에서 import.",
+          "acceptance": "Result/AppError 타입 정의 완료, 주요 API 스키마(workspace, session, approval) 정의, 서버/웹에서 import하여 타입 체크 통과",
+          "risk": "스키마 변경 시 서버/웹 동시 수정 필요. 초기에 API가 확정되지 않아 스키마가 자주 바뀔 수 있음.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 6,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:22.648Z"
+        },
+        {
+          "id": 3,
+          "title": "서버 기반 프레임워크 + 미들웨어",
+          "context": "HTTP 서버 프레임워크 선정, Zod 검증 미들웨어, 에러 경계 미들웨어, 구조화 ���깅(pino) 셋업",
+          "approach": "Hono 또는 Express로 HTTP 서버. 미들웨어 체인: zodValidation → errorBoundary → structuredLogging. pino 로�� + child logger 패턴. 개발 시 pino-pretty.",
+          "acceptance": "서버 기동, 헬스체크 엔드포인트 응답, 잘못된 입력에 Zod 검증 에러 반환, unhandled throw에 구조화 에러 응답, 요청/응답 자동 로깅 확인. 테스트 작성.",
+          "risk": "HTTP 프레임워크 선정 필요. SSE 지원 품질 차이.",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:32.306Z"
+        },
+        {
+          "id": 4,
+          "title": "도메인 모델 구현",
+          "context": "Hexagonal domain 계층 — WorkspaceRegistry, Workspace, Agent, Session, SettingsManager",
+          "approach": "domain/ 디렉토리에 순수 비즈니스 로직. Workspace가 집합체 루트(Agent[], Session 소유). SettingsManager에 write queue로 TOCTOU 해결. 모든 메서드 Result<T,E> 반환. port 인터페이스만 의존.",
+          "acceptance": "WorkspaceRegistry CRUD 동작, Workspace-Agent 계층 관리, SettingsManager 동시 쓰기 테스트 통과, domain 코드에서 Electron/Node API import 없음 확인",
+          "risk": "집합체 경계 설계가 초기에 완벽하지 않을 수 있음 — 리팩토링 여지 필요.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:41.274Z"
+        },
+        {
+          "id": 5,
+          "title": "CLI 통신 모듈 (CliProcess + StreamParser)",
+          "context": "Claude Code CLI subprocess와 stream-json NDJSON 양방향 통신. Disposable 패턴 적용.",
+          "approach": "CliProcess 클래스: spawn, sendPrompt, cancel, dispose. StreamParser: NDJSON 라인별 파싱, 타입별 이벤트 emit. 모든 on()이 unsubscribe 반환. stdin 쓰기 에러 핸들링. 상태 머신(idle→running→stopping→stopped).",
+          "acceptance": "CLI spawn/통신/종료 동작, StreamParser가 text_chunk/tool_call/tool_result/permission_request 이벤트 정확히 파싱, dispose() 호출 시 모든 리스너 해제 확인, stdin 쓰기 실패 시 에러 전파. 테스트 작성.",
+          "risk": "Claude CLI 업데이트로 stream-json 포맷이 변경될 수 있음. mock CLI로 테스트 격리 필요.",
+          "status": "completed",
+          "deps": [
+            2,
+            4
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:50.872Z"
+        },
+        {
+          "id": 6,
+          "title": "Supervisor Tree 구현",
+          "context": "ProcessSupervisor → WorkspaceGroup → CliProcess 계층적 프로세스 관리",
+          "approach": "ProcessSupervisor: 전역 프로세스 제한, graceful shutdown. WorkspaceGroup: 워크스페이스별 프로세스 관리, 일괄 중지. 계층적 dispose() — supervisor.dispose()가 하위 전체 정리.",
+          "acceptance": "워크스페이스 추가/제거 시 프로세스 그룹 생성/정리, 전역/워크스페이스별 프로세스 제한 동작, supervisor.dispose()로 전체 정리 확인. 테스트 작성.",
+          "risk": "초기에는 워크스페이스당 단일 에이전트일 수 있어 과설계 느낌 — 하지만 멀티 에이전트 대비 필요.",
+          "status": "completed",
+          "deps": [
+            5
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:09:59.630Z"
+        },
+        {
+          "id": 7,
+          "title": "REST API + SSE 엔드포인트",
+          "context": "도메인 모델을 REST API로 노출. 실시간 이벤트는 SSE로 스트리밍.",
+          "approach": "도메인별 라우터 분리: /api/workspace/*, /api/session/*, /api/approval/*. SSE 엔드포인트: /api/events/:workspaceId (에이전트 이벤트 스트림). 모든 엔드포인트에 Zod 검증 미들웨어 적용.",
+          "acceptance": "워크스페이스 CRUD API 동작, 세션 시작/취소/상태 API 동작, SSE로 에이전트 이벤트 실시간 수신, 잘못된 입력에 검증 에러 반환. curl로 전체 플로우 테스트.",
+          "risk": "SSE 연결 관리(재연결, 다수 클라이언트). 엔드포인트 설계가 초기에 확정되지 않을 수 있음.",
+          "status": "completed",
+          "deps": [
+            3,
+            4,
+            6
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:10:08.523Z"
+        },
+        {
+          "id": 8,
+          "title": "웹 클라이언트 기반",
+          "context": "React SPA + React Query 셋업. 서버 REST/SSE와 연동하는 기반 구조.",
+          "approach": "Vite + React. React Query로 서버 상태 캐시, SSE EventSource로 실시간 이벤트 수신 → queryClient.setQueryData로 반영. UI 전용 상태는 useState. 브라우��에서 독립 실행 가능하도록 서버 URL 설정 가능.",
+          "acceptance": "브라우저���서 독립 실행, 서버 API 호출하여 워크스페이스 목록 표시, SSE로 실시간 이벤트 수신 확인. Playwright 테스트.",
+          "risk": "React Query + SSE 연동 패턴 검증 필요. UI 컴포넌트는 이 태스크에서 최소한만.",
+          "status": "completed",
+          "deps": [
+            1,
+            7
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:10:19.163Z"
+        },
+        {
+          "id": 9,
+          "title": "Electron Shell",
+          "context": "서버 프로세스 spawn + BrowserWindow로 웹 UI 표시하는 thin shell",
+          "approach": "packages/electron에 main.ts — 서버 프로세스를 child_process로 spawn, 서버 준비 대기 후 BrowserWindow에서 localhost:PORT 로드. 앱 종료 시 서버 프로세스 정리.",
+          "acceptance": "Electron 앱 기동 시 서버 자동 시작, BrowserWindow에서 웹 UI 표시, 앱 종료 시 서버 프로세스 정리 확인.",
+          "risk": "서버 프로세스 spawn/health check 타이밍. 개발 모드(HMR)와 프로덕션 모드 분기.",
+          "status": "completed",
+          "deps": [
+            8
+          ],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-07T03:10:27.801Z"
+        }
+      ]
     }
   ]
 }
