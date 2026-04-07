@@ -93,7 +93,7 @@ export function ChatInput() {
   return (
     <div className="px-4 pt-3 pb-2.5 border-t border-border flex-shrink-0">
       <div
-        className="flex items-end gap-2 rounded-xl px-4 py-2.5 border border-border transition-colors duration-200 focus-within:border-accent"
+        className="flex items-center gap-2 rounded-xl px-4 py-2 border border-border transition-colors duration-200 focus-within:border-accent"
         style={{ background: 'var(--bg-surface)' }}
       >
         <textarea
