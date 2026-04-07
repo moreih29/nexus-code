@@ -1,12 +1,24 @@
-import type { MockWorkspace } from '../../mock/data'
+import { useDeleteWorkspace } from '../../hooks/use-workspaces'
+
+export interface DisplayWorkspace {
+  id: string
+  name: string
+  path: string
+  gitBranch: string
+  model: string
+  status: 'active' | 'idle' | 'warning'
+  activeSubagents: number
+  totalSubagents: number
+  pendingApprovals: number
+}
 
 interface WorkspaceCardProps {
-  workspace: MockWorkspace
+  workspace: DisplayWorkspace
   isActive: boolean
   onClick: () => void
 }
 
-function StatusDot({ status }: { status: MockWorkspace['status'] }) {
+function StatusDot({ status }: { status: DisplayWorkspace['status'] }) {
   if (status === 'active') {
     return (
       <span
@@ -35,25 +47,40 @@ function GitBranchIcon() {
 }
 
 export function WorkspaceCard({ workspace, isActive, onClick }: WorkspaceCardProps) {
+  const deleteWorkspace = useDeleteWorkspace()
+
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!window.confirm(`"${workspace.name}" 워크스페이스를 삭제하시겠습니까?`)) return
+    deleteWorkspace.mutate(workspace.path)
+  }
+
   return (
     <div
       className={[
-        'px-3 py-2.5 rounded-md cursor-pointer mb-1 transition-colors',
+        'group px-3 py-2.5 rounded-md cursor-pointer mb-1 transition-colors relative',
         isActive ? 'bg-bg-active' : 'hover:bg-bg-hover',
       ].join(' ')}
       onClick={onClick}
     >
-      {/* Header row: status dot + name + pending badge */}
+      {/* Header row: status dot + name + pending badge + delete button */}
       <div className="flex items-center gap-2 mb-1.5">
         <StatusDot status={workspace.status} />
         <span className="text-[13px] font-semibold flex-1 truncate text-text-primary">
           {workspace.name}
         </span>
         {workspace.pendingApprovals > 0 && (
-          <span className="bg-[#f85149] text-white text-[10px] font-semibold px-1.5 py-px rounded-full leading-none ml-auto">
+          <span className="bg-[#f85149] text-white text-[10px] font-semibold px-1.5 py-px rounded-full leading-none">
             {workspace.pendingApprovals}
           </span>
         )}
+        <button
+          onClick={handleDelete}
+          className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-[#f85149] text-[13px] leading-none transition-opacity ml-1"
+          title="워크스페이스 삭제"
+        >
+          ×
+        </button>
       </div>
 
       {/* Branch row */}

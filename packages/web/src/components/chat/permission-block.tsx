@@ -1,4 +1,6 @@
-import type { MockPermissionRequest } from '../../mock/data.js'
+import { useState } from 'react'
+import type { PermissionRequestState } from '../../adapters/session-adapter.js'
+import { useRespondApproval } from '../../hooks/use-approval.js'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,12 +9,12 @@ import {
 } from '../ui/dropdown-menu.js'
 
 interface PermissionBlockProps {
-  permission: MockPermissionRequest
+  permission: PermissionRequestState
 }
 
 type ApproveScope = 'once' | 'session' | 'permanent'
 
-function getDetail(permission: MockPermissionRequest): string {
+function getDetail(permission: PermissionRequestState): string {
   if (permission.toolName === 'Bash' && typeof permission.toolInput.command === 'string') {
     return permission.toolInput.command
   }
@@ -20,12 +22,33 @@ function getDetail(permission: MockPermissionRequest): string {
 }
 
 export function PermissionBlock({ permission }: PermissionBlockProps) {
+  const [responded, setResponded] = useState<'allow' | 'deny' | null>(null)
+  const { mutate } = useRespondApproval()
+
   function handleApprove(scope: ApproveScope) {
-    console.log('approve', scope)
+    mutate(
+      { id: permission.id, decision: 'allow', scope },
+      {
+        onSuccess: () => setResponded('allow'),
+        onError: () => {
+          console.log('approve', scope, permission.id)
+          setResponded('allow')
+        },
+      },
+    )
   }
 
   function handleDeny() {
-    console.log('deny', permission.id)
+    mutate(
+      { id: permission.id, decision: 'deny' },
+      {
+        onSuccess: () => setResponded('deny'),
+        onError: () => {
+          console.log('deny', permission.id)
+          setResponded('deny')
+        },
+      },
+    )
   }
 
   return (
@@ -53,52 +76,63 @@ export function PermissionBlock({ permission }: PermissionBlockProps) {
         {getDetail(permission)}
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* Split approve button */}
-        <div className="flex" style={{ border: '1px solid rgba(63,185,80,0.40)', borderRadius: '6px', overflow: 'hidden' }}>
-          <button
-            onClick={() => handleApprove('once')}
-            className="px-3 py-1 text-xs font-medium transition-colors hover:opacity-80"
-            style={{ background: 'rgba(63,185,80,0.15)', color: 'var(--color-green, #3fb950)', borderRight: '1px solid rgba(63,185,80,0.40)' }}
-          >
-            승인
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="px-1.5 py-1 text-xs transition-colors hover:opacity-80"
-                style={{ background: 'rgba(63,185,80,0.15)', color: 'var(--color-green, #3fb950)' }}
-              >
-                ▾
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => handleApprove('once')}>
-                이번만 승인
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleApprove('session')}>
-                이 세션 동안 허용
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleApprove('permanent')}>
-                영구 허용
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        <button
-          onClick={handleDeny}
-          className="px-3 py-1 text-xs font-medium rounded transition-colors hover:opacity-80"
+      {responded !== null ? (
+        <div
+          className="px-3 py-1 text-xs font-medium rounded"
           style={{
-            background: 'rgba(248,81,73,0.10)',
-            border: '1px solid rgba(248,81,73,0.30)',
-            color: 'var(--color-red, #f85149)',
-            borderRadius: '6px',
+            color: responded === 'allow' ? 'var(--color-green, #3fb950)' : 'var(--color-red, #f85149)',
           }}
         >
-          거부
-        </button>
-      </div>
+          {responded === 'allow' ? '승인됨' : '거부됨'}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          {/* Split approve button */}
+          <div className="flex" style={{ border: '1px solid rgba(63,185,80,0.40)', borderRadius: '6px', overflow: 'hidden' }}>
+            <button
+              onClick={() => handleApprove('once')}
+              className="px-3 py-1 text-xs font-medium transition-colors hover:opacity-80"
+              style={{ background: 'rgba(63,185,80,0.15)', color: 'var(--color-green, #3fb950)', borderRight: '1px solid rgba(63,185,80,0.40)' }}
+            >
+              승인
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="px-1.5 py-1 text-xs transition-colors hover:opacity-80"
+                  style={{ background: 'rgba(63,185,80,0.15)', color: 'var(--color-green, #3fb950)' }}
+                >
+                  ▾
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => handleApprove('once')}>
+                  이번만 승인
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleApprove('session')}>
+                  이 세션 동안 허용
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleApprove('permanent')}>
+                  영구 허용
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <button
+            onClick={handleDeny}
+            className="px-3 py-1 text-xs font-medium rounded transition-colors hover:opacity-80"
+            style={{
+              background: 'rgba(248,81,73,0.10)',
+              border: '1px solid rgba(248,81,73,0.30)',
+              color: 'var(--color-red, #f85149)',
+              borderRadius: '6px',
+            }}
+          >
+            거부
+          </button>
+        </div>
+      )}
     </div>
   )
 }

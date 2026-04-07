@@ -1,13 +1,41 @@
 import { useEffect } from 'react'
 import { useWorkspaceStore } from '../../stores/workspace-store'
-import { WorkspaceCard } from './workspace-card'
+import { WorkspaceCard, type DisplayWorkspace } from './workspace-card'
 import { selectFolder } from '../../lib/electron'
-import { useCreateWorkspace } from '../../hooks/use-workspaces'
+import { useWorkspaces, useCreateWorkspace } from '../../hooks/use-workspaces'
+import { mockWorkspaces } from '../../mock/data'
+import type { WorkspaceResponse } from '@nexus/shared'
+
+function toDisplayWorkspace(ws: WorkspaceResponse): DisplayWorkspace {
+  return {
+    id: ws.id,
+    name: ws.name ?? ws.path.split('/').filter(Boolean).pop() ?? ws.path,
+    path: ws.path,
+    gitBranch: 'main',
+    model: 'sonnet-4',
+    status: 'idle',
+    activeSubagents: 0,
+    totalSubagents: 0,
+    pendingApprovals: 0,
+  }
+}
 
 export function WorkspaceNav() {
-  const { workspaces, activeWorkspaceId, setActiveWorkspace, setActiveByIndex, addMockWorkspace } =
-    useWorkspaceStore()
+  const { activeWorkspaceId, setActiveWorkspace, setActiveByIndex } = useWorkspaceStore()
+  const { data: serverWorkspaces, isError } = useWorkspaces()
   const createWorkspace = useCreateWorkspace()
+
+  const workspaces: DisplayWorkspace[] =
+    serverWorkspaces && !isError
+      ? serverWorkspaces.map(toDisplayWorkspace)
+      : mockWorkspaces
+
+  const workspaceIds = workspaces.map((ws) => ws.id)
+
+  const resolvedActiveId =
+    activeWorkspaceId !== null && workspaces.some((ws) => ws.id === activeWorkspaceId)
+      ? activeWorkspaceId
+      : (workspaces[0]?.id ?? null)
 
   async function handleAddWorkspace() {
     const folderPath = await selectFolder()
@@ -20,8 +48,7 @@ export function WorkspaceNav() {
     try {
       await createWorkspace.mutateAsync({ path: folderPath, name })
     } catch (err) {
-      console.error('[WorkspaceNav] 서버 등록 실패, 목업 스토어에 추가:', err)
-      addMockWorkspace({ path: folderPath, name })
+      console.error('[WorkspaceNav] 서버 등록 실패:', err)
     }
   }
 
@@ -31,13 +58,13 @@ export function WorkspaceNav() {
       const digit = parseInt(e.key, 10)
       if (digit >= 1 && digit <= 9) {
         e.preventDefault()
-        setActiveByIndex(digit - 1)
+        setActiveByIndex(digit - 1, workspaceIds)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [setActiveByIndex])
+  }, [setActiveByIndex, workspaceIds])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -60,7 +87,7 @@ export function WorkspaceNav() {
           <WorkspaceCard
             key={ws.id}
             workspace={ws}
-            isActive={ws.id === activeWorkspaceId}
+            isActive={ws.id === resolvedActiveId}
             onClick={() => setActiveWorkspace(ws.id)}
           />
         ))}

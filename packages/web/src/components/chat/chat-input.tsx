@@ -1,23 +1,69 @@
 import { useRef, useState } from 'react'
+import { useChatStore } from '../../stores/chat-store.js'
+import { useWorkspaceStore } from '../../stores/workspace-store.js'
+import { useWorkspaces } from '../../hooks/use-workspaces.js'
+import { useStartSession, useSendPrompt } from '../../hooks/use-session.js'
+import { useSettingsStore } from '../../stores/settings-store.js'
 
 export function ChatInput() {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  function handleSend() {
+  const { data: workspaces } = useWorkspaces()
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { sessionId, sendMessage, setSessionId, setUseMock } = useChatStore()
+
+  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
+  const workspacePath = activeWorkspace?.path ?? ''
+
+  const startSession = useStartSession()
+  const sendPrompt = useSendPrompt(sessionId ?? '')
+
+  async function handleSend() {
     const trimmed = value.trim()
     if (!trimmed) return
-    console.log('send:', trimmed)
+
     setValue('')
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
+    }
+
+    // Optimistically add user message to store
+    sendMessage(trimmed)
+
+    if (!workspacePath) {
+      // No server connection — stay in mock mode
+      return
+    }
+
+    try {
+      if (!sessionId) {
+        // First message — start a new session
+        setUseMock(false)
+        console.log('[chat-input] starting session', { workspacePath, prompt: trimmed })
+        const { defaultModel, defaultPermissionMode } = useSettingsStore.getState()
+        const response = await startSession.mutateAsync({
+          workspacePath,
+          prompt: trimmed,
+          model: defaultModel,
+          permissionMode: defaultPermissionMode === 'default' ? undefined : defaultPermissionMode,
+        })
+        console.log('[chat-input] session started', response)
+        setSessionId(response.id)
+      } else {
+        // Subsequent messages — send prompt to existing session
+        await sendPrompt.mutateAsync(trimmed)
+      }
+    } catch {
+      // Server unreachable — fall back to mock mode silently
+      setUseMock(true)
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -28,6 +74,8 @@ export function ChatInput() {
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`
   }
+
+  const isSending = startSession.isPending || sendPrompt.isPending
 
   return (
     <div className="px-5 py-3 pb-4 border-t border-border flex-shrink-0">
@@ -43,12 +91,13 @@ export function ChatInput() {
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
+          disabled={isSending}
         />
         <button
           className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-opacity duration-150 hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: 'var(--accent)' }}
-          disabled={!value.trim()}
-          onClick={handleSend}
+          disabled={!value.trim() || isSending}
+          onClick={() => void handleSend()}
           aria-label="전송"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

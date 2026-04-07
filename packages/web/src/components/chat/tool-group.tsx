@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import type { MockToolCall } from '../../mock/data.js'
+import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { ToolBlock } from './tool-block.js'
 
 interface ToolCallGroup {
   name: string
-  items: MockToolCall[]
+  items: ToolCallState[]
 }
 
-function groupConsecutive(toolCalls: MockToolCall[]): ToolCallGroup[] {
+function groupConsecutive(toolCalls: ToolCallState[]): ToolCallGroup[] {
   const groups: ToolCallGroup[] = []
   for (const tc of toolCalls) {
     const last = groups[groups.length - 1]
@@ -79,7 +79,7 @@ function CollapsedGroup({ group }: CollapsedGroupProps) {
 }
 
 interface ToolGroupProps {
-  toolCalls: MockToolCall[]
+  toolCalls: ToolCallState[]
 }
 
 export function ToolGroup({ toolCalls }: ToolGroupProps) {

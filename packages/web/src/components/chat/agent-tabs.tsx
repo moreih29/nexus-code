@@ -9,7 +9,7 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 }
 
 export function AgentTabs() {
-  const { subagents, activeTab, setActiveTab } = useChatStore()
+  const { mockSubagents: subagents, activeTab, setActiveTab } = useChatStore()
 
   return (
     <div

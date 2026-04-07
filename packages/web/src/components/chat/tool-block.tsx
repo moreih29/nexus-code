@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { MockToolCall } from '../../mock/data.js'
+import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { DiffView } from './diff-view.js'
 
 const TOOL_ICONS: Record<string, string> = {
@@ -34,7 +34,7 @@ function isDiffResult(toolName: string, result: string | undefined): boolean {
 }
 
 interface ToolBlockProps {
-  toolCall: MockToolCall
+  toolCall: ToolCallState
 }
 
 export function ToolBlock({ toolCall }: ToolBlockProps) {

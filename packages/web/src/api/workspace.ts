@@ -1,8 +1,9 @@
 import type { CreateWorkspaceRequest, WorkspaceResponse } from '@nexus/shared'
 import { apiClient } from './client'
 
-export function fetchWorkspaces(): Promise<WorkspaceResponse[]> {
-  return apiClient.get<WorkspaceResponse[]>('/api/workspaces')
+export async function fetchWorkspaces(): Promise<WorkspaceResponse[]> {
+  const res = await apiClient.get<{ workspaces: WorkspaceResponse[] }>('/api/workspaces')
+  return res.workspaces
 }
 
 export function createWorkspace(body: CreateWorkspaceRequest): Promise<WorkspaceResponse> {

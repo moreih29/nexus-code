@@ -1,10 +1,23 @@
-import type { MockMessage } from '../../mock/data.js'
+import type { ToolCallState, PermissionRequestState } from '../../adapters/session-adapter.js'
 import { ToolGroup } from './tool-group.js'
 import { SubagentResultBlock } from './subagent-result-block.js'
 import { PermissionBlock } from './permission-block.js'
 
+// DisplayMessage covers both MockMessage and ChatMessage shapes
+interface DisplayMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  label?: string
+  toolCalls?: ToolCallState[]
+  permissionRequest?: PermissionRequestState
+  subagentSpawn?: { count: number }
+  subagentResult?: { name: string; type: string; summary: string }
+  isStreaming?: boolean
+}
+
 interface MessageBubbleProps {
-  message: MockMessage
+  message: DisplayMessage
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {

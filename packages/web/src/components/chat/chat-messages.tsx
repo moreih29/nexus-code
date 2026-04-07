@@ -1,9 +1,22 @@
 import { useEffect, useRef } from 'react'
 import { useChatStore } from '../../stores/chat-store.js'
 import { MessageBubble } from './message-bubble.js'
-import type { MockToolCall } from '../../mock/data.js'
+import type { ToolCallState } from '../../adapters/session-adapter.js'
 
-function ToolCallRow({ tc }: { tc: MockToolCall }) {
+// DisplayMessage covers both MockMessage and ChatMessage shapes
+interface DisplayMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  label?: string
+  toolCalls?: ToolCallState[]
+  permissionRequest?: { id: string; toolName: string; toolInput: Record<string, unknown> }
+  subagentSpawn?: { count: number }
+  subagentResult?: { name: string; type: string; summary: string }
+  isStreaming?: boolean
+}
+
+function ToolCallRow({ tc }: { tc: ToolCallState }) {
   const inputStr = JSON.stringify(tc.input)
   const statusColor =
     tc.status === 'success'
@@ -38,7 +51,8 @@ function ToolCallRow({ tc }: { tc: MockToolCall }) {
 
 export function ChatMessages() {
   const { activeTab, getActiveMessages, getActiveSubagent } = useChatStore()
-  const messages = getActiveMessages()
+  const rawMessages = getActiveMessages()
+  const messages = rawMessages as DisplayMessage[]
   const activeSubagent = getActiveSubagent()
   const bottomRef = useRef<HTMLDivElement>(null)
 
