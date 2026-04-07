@@ -153,7 +153,7 @@ export function GitView() {
                     ].join(' ')}
                   />
                   <span className="flex-1 truncate">{change.path}</span>
-                  <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <span className="text-[10px] font-mono hidden group-hover:inline flex-shrink-0">
                     <span className="text-[#3fb950]">+{change.additions}</span>{' '}
                     <span className="text-[#f85149]">-{change.deletions}</span>
                   </span>
@@ -185,7 +185,7 @@ export function GitView() {
                     ].join(' ')}
                   />
                   <span className="flex-1 truncate">{change.path}</span>
-                  <span className="text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <span className="text-[10px] font-mono hidden group-hover:inline flex-shrink-0">
                     <span className="text-[#3fb950]">+{change.additions}</span>{' '}
                     <span className="text-[#f85149]">-{change.deletions}</span>
                   </span>
