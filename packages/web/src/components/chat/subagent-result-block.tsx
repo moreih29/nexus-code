@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { TYPE_BADGE_COLORS } from '../../lib/subagent-theme.js'
 
 interface SubagentResultBlockProps {
   name: string
@@ -6,17 +7,9 @@ interface SubagentResultBlockProps {
   summary: string
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  Explore: 'text-[#8b949e]',
-  Engineer: 'text-[#bc8cff]',
-  Researcher: 'text-[#58a6ff]',
-  Writer: 'text-[#3fb950]',
-  Tester: 'text-[#f0883e]',
-}
-
 export function SubagentResultBlock({ name, type, summary }: SubagentResultBlockProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const typeColor = TYPE_COLORS[type] ?? 'text-text-muted'
+  const typeColor = TYPE_BADGE_COLORS[type] ?? 'text-text-muted'
 
   return (
     <div

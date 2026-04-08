@@ -41,7 +41,7 @@ export function fetchSessions(workspacePath: string): Promise<SessionRow[]> {
 }
 
 export interface HistoryMessage {
-  type: 'user' | 'assistant'
+  type: 'user' | 'assistant' | 'tool_result'
   uuid: string
   content: unknown
   isSidechain: boolean

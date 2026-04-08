@@ -2,19 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useChatStore } from '../../stores/chat-store.js'
 import { MessageBubble } from './message-bubble.js'
 import type { ToolCallState } from '../../adapters/session-adapter.js'
-
-// DisplayMessage covers both MockMessage and ChatMessage shapes
-interface DisplayMessage {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  label?: string
-  toolCalls?: ToolCallState[]
-  permissionRequest?: { id: string; toolName: string; toolInput: Record<string, unknown> }
-  subagentSpawn?: { count: number }
-  subagentResult?: { name: string; type: string; summary: string }
-  isStreaming?: boolean
-}
+import type { DisplayMessage } from '../../lib/display-message.js'
 
 function ToolCallRow({ tc }: { tc: ToolCallState }) {
   const inputStr = JSON.stringify(tc.input)

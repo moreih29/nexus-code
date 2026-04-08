@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { SessionEvent } from '@nexus/shared'
 import { SessionEventSchema } from '@nexus/shared'
+import { encodeWorkspacePath } from '../lib/workspace-path'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -22,10 +23,9 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let backoffMs = 2000
 
-    // workspacePath는 절대경로 (/Users/...) — 서버가 /:path{.+}로 받으므로 선행 / 제거
-    const pathParam = workspacePath.startsWith('/') ? workspacePath.slice(1) : workspacePath
-    const url = `${BASE_URL}/api/workspaces/${pathParam}/events`
+    const url = `${BASE_URL}/api/workspaces/${encodeWorkspacePath(workspacePath)}/events`
 
     const eventTypes = [
       'session_init', 'text_delta', 'tool_call', 'tool_result',
@@ -62,7 +62,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       const event = result.data
       onEventRef.current?.(event)
 
-      if (event.type === 'turn_end') {
+      if (event.type === 'turn_end' && event.sessionId) {
         void queryClient.invalidateQueries({ queryKey: ['sessions', event.sessionId, 'status'] })
       }
     }
@@ -86,9 +86,14 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
         es.close()
         esRef.current = null
         if (!disposed) {
-          console.log('[sse] disconnected, reconnecting in 2s...')
-          reconnectTimer = setTimeout(connect, 2000)
+          console.log(`[sse] disconnected, reconnecting in ${backoffMs / 1000}s...`)
+          reconnectTimer = setTimeout(connect, backoffMs)
+          backoffMs = Math.min(backoffMs * 2, 60000) // exponential backoff, max 60s
         }
+      }
+
+      es.onopen = () => {
+        backoffMs = 2000 // reset on successful connection
       }
     }
 

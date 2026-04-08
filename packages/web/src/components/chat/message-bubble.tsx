@@ -1,21 +1,8 @@
-import type { ToolCallState, PermissionRequestState } from '../../adapters/session-adapter.js'
 import { ToolGroup } from './tool-group.js'
 import { SubagentResultBlock } from './subagent-result-block.js'
 import { PermissionBlock } from './permission-block.js'
 import { MarkdownRenderer } from './markdown-renderer.js'
-
-// DisplayMessage covers both MockMessage and ChatMessage shapes
-interface DisplayMessage {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  label?: string
-  toolCalls?: ToolCallState[]
-  permissionRequest?: PermissionRequestState
-  subagentSpawn?: { count: number }
-  subagentResult?: { name: string; type: string; summary: string }
-  isStreaming?: boolean
-}
+import type { DisplayMessage } from '../../lib/display-message.js'
 
 interface MessageBubbleProps {
   message: DisplayMessage

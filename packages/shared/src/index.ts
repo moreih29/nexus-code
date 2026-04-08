@@ -16,6 +16,7 @@ export {
 } from './schemas/workspace.js'
 
 export type {
+  PromptBody,
   SessionStatus,
   StartSessionRequest,
   SessionResponse,
@@ -28,6 +29,7 @@ export type {
   SessionEvent,
 } from './schemas/session.js'
 export {
+  PromptBodySchema,
   SessionStatusSchema,
   StartSessionRequestSchema,
   SessionResponseSchema,

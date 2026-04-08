@@ -14,6 +14,16 @@ export type CliProcessStatus =
   | 'stopped'
   | 'error'
 
+const VALID_TRANSITIONS: Record<CliProcessStatus, CliProcessStatus[]> = {
+  idle: ['starting', 'error', 'stopped'],
+  starting: ['running', 'error', 'stopped'],
+  running: ['waiting_permission', 'stopping', 'idle', 'error', 'stopped'],
+  waiting_permission: ['running', 'stopping', 'error', 'stopped'],
+  stopping: ['stopped', 'error'],
+  stopped: [],
+  error: ['stopped'],
+}
+
 export interface CliStartOptions {
   prompt: string
   cwd: string
@@ -254,6 +264,10 @@ export class CliProcess {
   }
 
   private _setStatus(status: CliProcessStatus): void {
+    const allowed = VALID_TRANSITIONS[this._status]
+    if (!allowed.includes(status)) {
+      return
+    }
     this._status = status
     this._emit('status_change', { status })
   }

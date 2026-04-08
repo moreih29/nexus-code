@@ -4335,6 +4335,546 @@
           "created_at": "2026-04-08T07:22:49.146Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-08T10:32:26.441Z",
+      "branch": "chore/architecture-refactor",
+      "plan": {
+        "id": 5,
+        "topic": "코드 리팩토링 — 서버/웹 아키텍처 리뷰 기반",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[서버] session.ts 811줄 God Handler — 중복 보일러플레이트 6회 반복, 서비스 레이어 추출 필요",
+            "status": "decided",
+            "decision": "채택. session.ts에서 SessionLifecycleService 추출. supervisor.getGroup/createGroup 13회, hookManager.injectHooks 5회, permissionMode 정규화 4회 copy-paste 확인. 811줄→약 250줄+서비스 200줄 예상. 각 핸들러의 엣지케이스 보존에 주의 필요.",
+            "how_agents": [
+              "architect-server"
+            ],
+            "how_summary": {
+              "architect-server": "session.ts가 서버 최대 문제. 7개 엔드포인트가 동일한 supervisor+hook+start 패턴을 수동 반복. SessionLifecycleService로 추출하면 핸들러가 5-15줄로 축소."
+            }
+          },
+          {
+            "id": 2,
+            "title": "[서버] domain/agent, domain/session — 프로덕션 미사용 Dead Code 정리",
+            "status": "decided",
+            "decision": "채택 (방향: 제거 + 상태전이만 보존). Agent, Session 클래스는 프로덕션 미사용 확인. 단, Session의 VALID_TRANSITIONS 로직은 유용하므로 CliProcess._setStatus()에 상태검증으로 통합 후 도메인 파일 삭제. Workspace 클래스의 agent 메서드도 함께 정리.",
+            "how_agents": [
+              "architect-server"
+            ],
+            "how_summary": {
+              "architect-server": "domain/agent, domain/session이 설계되었으나 실제 시스템과 미연결. 테스트에서만 사용. 현 규모에서는 제거가 현실적이며, 상태전이 규칙만 CliProcess에 직접 내장 권장."
+            }
+          },
+          {
+            "id": 3,
+            "title": "[서버] 미사용 ports/adapters (StoragePort, FsStorageAdapter, EventPort 무구독) 정리",
+            "status": "decided",
+            "decision": "채택. StoragePort, FsStorageAdapter는 외부 사용처 0건으로 완전한 Dead Code. EventPort/EventEmitterAdapter는 WorkspaceRegistry에서만 사용되나 이벤트 구독자가 없어 실질적 효과 없음. 모두 삭제. 필요 시 재도입.",
+            "how_agents": [
+              "architect-server"
+            ],
+            "how_summary": {
+              "architect-server": "Hexagonal 패턴 도입 시도의 미완성 잔재. DB는 better-sqlite3 직접 사용 중. 포트 추상화가 실제 구현과 괴리."
+            }
+          },
+          {
+            "id": 4,
+            "title": "[웹] useActiveWorkspace 패턴 8곳 중복 — 커스텀 훅 추출",
+            "status": "decided",
+            "decision": "채택. 8개 파일에서 동일한 activeWorkspaceId→find() 패턴 반복 확인. useActiveWorkspace() 커스텀 훅으로 추출. 리스크 최소 — 순수 리팩토링이며 불필요한 리렌더링도 감소. 가장 작업량 대비 효과가 큰 항목.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "6곳 이상에서 동일 3단계 패턴 반복. 전체 workspace 목록 구독으로 불필요한 리렌더링 유발. useActiveWorkspace() 훅으로 한 곳에서 관리하면 변경지점 단일화 + 성능 개선."
+            }
+          },
+          {
+            "id": 5,
+            "title": "[웹] 하드코딩 hex 색상 33건 — CSS 변수로 통일",
+            "status": "decided",
+            "decision": "채택. 7개 파일 33건의 하드코딩 hex 확인. 8개 테마 지원 앱에서 이는 테마 전환을 사실상 무력화. CSS 변수(--green, --red 등)가 이미 globals.css에 정의되어 있으므로 교체 가능. 단, orange 등 미정의 색상은 CSS 변수 추가 선행 필요.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "globals.css에 테마 변수가 정의되어 있으나 다수 컴포넌트가 동일 값을 hex로 직접 사용. 테마 전환 시 해당 요소가 고정 색상으로 남음. Tailwind 유틸리티(text-green 등)가 이미 매핑되어 있어 전환 용이."
+            }
+          },
+          {
+            "id": 6,
+            "title": "[웹] settings-modal.tsx 790줄 — 탭별 분할",
+            "status": "decided",
+            "decision": "채택. 790줄에 공용 서브컴포넌트(SectionHeader, FieldRow, TagInput, DisallowedToolsInput) + 3개 탭 콘텐츠가 인라인. 탭별 분할은 순수 구조 리팩토링으로 리스크 최소. settings/tabs/app-tab.tsx, nexus-tab.tsx, claude-code-tab.tsx로 분리하고, 공용 폼 요소는 settings/components/로 추출.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "790줄 단일 파일. 설정 기능은 계속 확장될 영역. 탭 하나 수정에도 전체 파일 이해 필요. 탭별 + 공용 컴포넌트 분리 권장."
+            }
+          },
+          {
+            "id": 7,
+            "title": "[웹] useChatSession 과도한 책임 — 히스토리 복원 로직 추출",
+            "status": "decided",
+            "decision": "채택. useChatSession 내 65줄 async IIFE가 useEffect 안에 인라인 — 4단 중첩 구조(컴포넌트→훅→useEffect→IIFE). 히스토리 복원 로직을 hooks/use-session-restore.ts로, 메시지 변환을 adapters/history-adapter.ts로 분리. 테스트 가능성 확보가 핵심 이점.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "useChatSession이 workspace 조회 + SSE 연결 + 세션 히스토리 복원을 모두 담당. 특히 히스토리 복원의 async IIFE가 65줄로 디버깅 병목. 분리하면 테스트 가능해지고 책임이 명확해짐."
+            }
+          },
+          {
+            "id": 8,
+            "title": "[웹] mock 데이터 프로덕션 번들 혼입 — panel-store, workspace-nav",
+            "status": "decided",
+            "decision": "채택. panel-store.ts와 workspace-nav.tsx가 mock/data.ts를 프로덕션에서 import — 281줄의 mock 데이터가 번들에 포함. panel-store에서 mock 초기값 제거(이미 react-query로 fetch), workspace-nav의 fallback은 빈 배열로 대체. mock은 test 전용으로 이동.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "panel-store의 fileTree/gitChanges/gitCommits는 컴포넌트에서 react-query로 가져오므로 store에 중복 보관 불필요. mock 데이터가 프로덕션 번들에 281줄 분량으로 혼입됨."
+            }
+          },
+          {
+            "id": 9,
+            "title": "[웹] 중복 상수/타입 통합 — TYPE_COLORS 3중, DisplayMessage 2중, getToolIcon 2중",
+            "status": "decided",
+            "decision": "채택. TYPE_COLORS 3중(agent-tabs/subagent-card/subagent-result-block), DisplayMessage 2중(chat-messages/message-bubble), getToolIcon 2중(tool-block/tool-group) 확인. 각각 lib/subagent-theme.ts, types/display-message.ts, lib/tool-icons.ts로 단일 소스 추출. 작업량 소.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "색상/타입/함수가 각각 2-3곳에 복제. 현재는 관리 가능하지만 타입이 늘어나면 누락 위험. 공유 모듈로 통합 권장."
+            }
+          },
+          {
+            "id": 10,
+            "title": "[서버] Zod 검증 미들웨어 일관성 — resume/restart/prompt 미적용",
+            "status": "decided",
+            "decision": "채택 (낮은 우선순위). POST /만 Zod validateBody() 사용, resume/restart/prompt는 수동 JSON 파싱. 기능 문제는 아니나 패턴 불일치. 안건 #1의 SessionLifecycleService 추출 시 함께 정리하면 효율적.",
+            "how_agents": [
+              "architect-server"
+            ],
+            "how_summary": {
+              "architect-server": "Zod 스키마가 @nexus/shared에 정의되어 있으나 일부 엔드포인트만 적용. 나머지는 수동 typeof 체크. 에러 응답 형식도 미묘하게 다를 수 있음."
+            }
+          }
+        ],
+        "research_summary": "## 사전조사 결과\n\n### 검증 방법\n2명의 아키텍트 에이전트가 각각 서버(packages/server) 55개 파일, 웹(packages/web) 55개 파일을 전수 조사. Lead가 주요 제안을 grep/wc로 크로스체크 완료.\n\n### 서버 핵심 발견 (아키텍트 A)\n1. **session.ts 811줄** — supervisor.getGroup/createGroup 13회 등장, hookManager.injectHooks 5회, permissionMode 정규화 4회 copy-paste 확인\n2. **domain/agent, domain/session** — `new Agent`, `new Session` grep 결과 테스트에서만 사용. 프로덕션 import 없음 확인\n3. **StoragePort/FsStorageAdapter** — 자기 참조만 존재, 외부 사용처 0건 확인\n4. **isObject 중복** — stream-parser.ts:274, history-parser.ts:219에 동일 함수\n5. **stream-parser.ts _dispatch** — 175줄 if-else 체인\n\n### 웹 핵심 발견 (아키텍트 B)\n1. **activeWorkspaceId 패턴** — 8개 파일에서 동일 3단계 패턴 반복 확인\n2. **하드코딩 hex** — 7개 파일에서 33건의 bg-[#...]/text-[#...] 확인\n3. **settings-modal.tsx 790줄** — SectionHeader, FieldRow, TagInput 등 공용 서브컴포넌트 + 3개 탭 인라인\n4. **mock 데이터** — panel-store.ts, workspace-nav.tsx에서 프로덕션 import 확인\n5. **TYPE_COLORS 3중 중복** — agent-tabs.tsx, subagent-card.tsx, subagent-result-block.tsx\n6. **DisplayMessage 2중 선언** — chat-messages.tsx, message-bubble.tsx\n7. **useChatSession** — 65줄 async IIFE가 useEffect 안에 인라인",
+        "created_at": "2026-04-08T10:11:19.010Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[서버] session.ts → SessionLifecycleService 추출",
+          "context": "811줄 God Handler에서 반복되는 supervisor.getGroup/createGroup(13회), hookManager.injectHooks(5회), permissionMode 정규화(4회) 패턴을 서비스 레이어로 추출",
+          "approach": "1) SessionLifecycleService 클래스 생성 (ensureGroup, resolvePermissionMode, wireAndStart 메서드) 2) 각 라우트 핸들러에서 서비스 호출로 교체 3) session-lifecycle.test.ts 통과 확인",
+          "acceptance": "session.ts 300줄 이하, 기존 테스트 전체 통과, 엔드포인트 동작 변경 없음",
+          "risk": "각 핸들러의 미묘한 엣지케이스(resume vs restart vs prompt) 누락 가능 — 테스트 커버리지 확인 필수",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:30.682Z"
+        },
+        {
+          "id": 2,
+          "title": "[웹] useActiveWorkspace() 커스텀 훅 추출",
+          "context": "8개 파일에서 activeWorkspaceId → find() 동일 3단계 패턴 반복. 불필요한 전체 workspace 목록 구독으로 리렌더링 유발",
+          "approach": "1) hooks/use-active-workspace.ts 생성 2) 8개 파일(chat-area, chat-input, editor-view, file-tree, git-view, settings-modal, status-bar, workspace-nav)에서 훅 사용으로 교체",
+          "acceptance": "중복 패턴 0건, 기존 동작 동일, typecheck 통과",
+          "risk": "낮음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:34.578Z"
+        },
+        {
+          "id": 3,
+          "title": "[웹] 하드코딩 hex 33건 → CSS 변수/Tailwind 토큰 교체",
+          "context": "7개 파일에서 bg-[#3fb950], text-[#f85149] 등 33건. globals.css에 이미 --green, --red 등 정의됨. 8개 테마 지원인데 색상 고정 = 테마 무력화",
+          "approach": "1) globals.css에 누락 색상 변수(--orange 등) 추가 2) 7개 파일의 하드코딩 hex를 var(--xxx) 또는 Tailwind 토큰(text-green 등)으로 교체 3) 전 테마에서 시각 확인",
+          "acceptance": "bg-[#...]/text-[#...] grep 결과 0건, 전 테마 색상 정상",
+          "risk": "orange 등 미정의 색상 변수 추가 선행 필요. 테마별 시각 확인 필수",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:40.450Z"
+        },
+        {
+          "id": 4,
+          "title": "[웹] settings-modal.tsx 790줄 → 탭별 분할",
+          "context": "SectionHeader, FieldRow, TagInput, DisallowedToolsInput 공용 서브컴포넌트 + 3개 탭(앱/넥서스/Claude Code) 콘텐츠가 단일 파일에 인라인",
+          "approach": "1) settings/components/{field-row,tag-input,disallowed-tools-input}.tsx 추출 2) settings/tabs/{app-tab,nexus-tab,claude-code-tab}.tsx 추출 3) settings-modal.tsx는 모달 프레임+탭 전환만 담당",
+          "acceptance": "settings-modal.tsx 200줄 이하, 설정 기능 동작 동일, typecheck 통과",
+          "risk": "낮음 — 순수 구조 분할",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 6,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:45.583Z"
+        },
+        {
+          "id": 5,
+          "title": "[웹] useChatSession 히스토리 복원 로직 추출",
+          "context": "chat-area.tsx의 useChatSession 내 65줄 async IIFE가 useEffect 안에 인라인 — 4단 중첩, 테스트 불가",
+          "approach": "1) hooks/use-session-restore.ts로 히스토리 복원 로직 추출 2) 메시지 변환 로직을 adapters/history-adapter.ts로 분리 3) useChatSession은 훅 합성만 담당",
+          "acceptance": "chat-area.tsx의 useChatSession 30줄 이하, 세션 복원 동작 동일",
+          "risk": "낮음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 7,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:49.418Z"
+        },
+        {
+          "id": 6,
+          "title": "[웹] 중복 상수/타입/함수 통합",
+          "context": "TYPE_COLORS 3중(agent-tabs/subagent-card/subagent-result-block), DisplayMessage 2중(chat-messages/message-bubble), getToolIcon 2중(tool-block/tool-group)",
+          "approach": "1) lib/subagent-theme.ts — TYPE_COLORS 단일 소스 2) types/display-message.ts — DisplayMessage 단일 정의 3) lib/tool-icons.ts — getToolIcon export 후 재사용",
+          "acceptance": "중복 정의 0건, typecheck 통과",
+          "risk": "낮음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 9,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:52.704Z"
+        },
+        {
+          "id": 7,
+          "title": "[웹] mock 데이터 프로덕션 번들 제거",
+          "context": "panel-store.ts와 workspace-nav.tsx가 mock/data.ts(281줄)를 프로덕션에서 import. react-query가 이미 데이터 fetch 담당",
+          "approach": "1) panel-store에서 mock import 제거, fileTree/gitChanges/gitCommits 필드 삭제 2) workspace-nav fallback을 빈 배열로 교체 3) mock/data.ts를 __mocks__/로 이동 또는 삭제",
+          "acceptance": "프로덕션 코드에서 mock import 0건, 빌드 정상",
+          "risk": "panel-store 필드 제거 시 참조하는 곳 확인 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 8,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:17:56.818Z"
+        },
+        {
+          "id": 8,
+          "title": "[서버] Dead Code 정리 — domain 엔티티 + 미사용 ports/adapters",
+          "context": "domain/agent, domain/session 프로덕션 미사용. StoragePort, FsStorageAdapter 사용처 0. EventPort 구독자 0. VALID_TRANSITIONS만 CliProcess로 이관",
+          "approach": "1) Session.VALID_TRANSITIONS를 CliProcess._setStatus에 상태검증으로 통합 2) domain/agent/, domain/session/ 삭제 3) ports/storage-port.ts, adapters/fs/storage-adapter.ts 삭제 4) Workspace에서 agent 관련 메서드 제거 5) 관련 테스트 업데이트",
+          "acceptance": "삭제된 모듈 import 0건, typecheck 통과, 기존 테스트 통과",
+          "risk": "Workspace 클래스 단순화 시 테스트 파일(workspace-registry.test.ts) 수정 필요",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:18:02.116Z"
+        },
+        {
+          "id": 9,
+          "title": "[서버] Zod 검증 미들웨어 일관 적용",
+          "context": "POST /만 validateBody(Zod) 사용. resume/restart/prompt는 수동 JSON 파싱 + typeof 체크",
+          "approach": "1) @nexus/shared에 ResumeSessionSchema, RestartSessionSchema, PromptSchema 정의 2) 해당 엔드포인트에 validateBody() 적용 3) 수동 파싱 코드 제거",
+          "acceptance": "수동 c.req.json() + typeof 패턴 0건, Zod 검증 일관 적용",
+          "risk": "낮음. #1 서비스 추출과 함께 처리하면 효율적",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 10,
+          "owner": "engineer",
+          "created_at": "2026-04-08T10:18:05.973Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-04-08T11:20:41.222Z",
+      "branch": "fix/settings-sync-bugs",
+      "plan": {
+        "id": 5,
+        "topic": "설정 동기화 + 대화 복원 버그 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Bug 1: quickSave가 legacy state(defaultModel) 동기화 누락 — 상태바 모델 미반영",
+            "status": "decided",
+            "decision": "quickSave에 legacy state 동기화 추가. quickSave 끝에 loadSettings처럼 effective settings에서 defaultModel/defaultPermissionMode/defaultEffortLevel를 set하는 코드 추가. 근본 해결은 legacy state 제거지만 범위가 크므로 현 단계에서는 sync 추가로 해결.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "quickSave(line 272-293)가 projectSettings/globalSettings만 업데이트하고 legacy state는 미갱신. saveSettings(line 258-265)의 동기화 로직을 quickSave에도 추가해야 함."
+            }
+          },
+          {
+            "id": 2,
+            "title": "Bug 2: useTheme가 컴포넌트 로컬 상태로 매번 DEFAULT_THEME으로 초기화 — 테마 리셋 + 미저장",
+            "status": "decided",
+            "decision": "useTheme을 settings-store 기반으로 전환. useState 제거 → settings-store의 globalSettings.theme을 source of truth로 사용. applyTheme은 store subscribe의 side effect로 실행. app-tab은 store에서 직접 읽기.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "useTheme이 컴포넌트 로컬 useState로 매번 DEFAULT_THEME으로 초기화. 설정 모달 열릴 때 app-tab 마운트 → applyTheme('github-dark') → 테마 리셋. settings-store를 truth로 사용하면 해결."
+            }
+          },
+          {
+            "id": 3,
+            "title": "Bug 3: quickSave가 defaultPermissionMode 동기화 누락 + 세션 시작 시 권한모드 전달 검증 필요",
+            "status": "decided",
+            "decision": "Bug 1과 동일 원인 — quickSave에 legacy sync 추가로 함께 해결. 추가로 세션 시작 시 permissionMode 전달 경로를 검증하여 'default'가 서버→CLI에 올바르게 전달되는지 확인.",
+            "how_agents": [
+              "architect-web",
+              "architect-server"
+            ],
+            "how_summary": {
+              "architect-web": "quickSave의 legacy sync 누락이 근본 원인. Bug 1과 함께 수정.",
+              "architect-server": "세션 시작 시 permissionMode 전달 경로 검증 필요 — 'default'가 CLI에 올바르게 도달하는지 확인."
+            }
+          },
+          {
+            "id": 4,
+            "title": "Bug 4: historyMessagesToChatMessages가 tool_use/tool_result 콘텐츠 블록 완전 무시",
+            "status": "decided",
+            "decision": "historyMessagesToChatMessages에서 tool_use 콘텐츠 블록을 toolCalls로 변환하는 로직 추가. assistant 메시지의 content.blocks에서 type='tool_use'인 블록을 추출하여 ChatMessage.toolCalls에 매핑. text가 없어도 toolCalls가 있으면 메시지 유지.",
+            "how_agents": [
+              "architect-web"
+            ],
+            "how_summary": {
+              "architect-web": "historyMessagesToChatMessages가 text 블록만 추출하고 tool_use 무시. ChatMessage.toolCalls 필드가 존재하지만 히스토리 복원 시 미활용. 추가로 text가 없어도 toolCalls가 있으면 메시지 유지해야 함."
+            }
+          }
+        ],
+        "research_summary": "## 근본 원인 분석 결과\n\n### Bug 1 & 3: quickSave의 legacy state 동기화 누락 (공통 원인)\n- **settings-store.ts quickSave** (line 272-293): `projectSettings`/`globalSettings`만 업데이트, `defaultModel`/`defaultPermissionMode` legacy state 미갱신\n- **saveSettings** (line 258-265)과 **loadSettings** (line 183-186)는 legacy 동기화를 수행하지만, quickSave는 이를 누락\n- nexus-tab.tsx의 모든 설정 변경이 `autoSave` → `quickSave`를 사용하므로 설정 변경 즉시 상태바에 반영 안됨\n- status-bar.tsx (line 52): `MODELS.find((m) => m.id === defaultModel)?.label` — legacy state만 참조\n\n### Bug 2: useTheme의 구조적 결함\n- **use-theme.ts**: `useState<Theme>(DEFAULT_THEME)` — 컴포넌트 로컬 상태, 인스턴스마다 독립\n- **app-tab.tsx** (line 7): `const { theme, setTheme } = useTheme()` — 마운트 시 'github-dark'로 초기화\n- **useEffect** (use-theme.ts line 33-35): 마운트 즉시 `applyTheme('github-dark')` 실행 → DOM 테마 리셋\n- **status-bar.tsx** (line 36-40): `globalSettings.theme` 변경 시 `syncFromSettings` 호출하지만, app-tab 마운트가 먼저 발생하여 즉시 덮어씀\n- 저장은 quickSave로 서버에 전달되지만, 다음 열기 시 useTheme이 다시 'github-dark'로 시작\n\n### Bug 4: 히스토리 메시지 변환의 불완전성\n- **session-adapter.ts historyMessagesToChatMessages** (line 21-23):\n  ```\n  const textBlocks = content?.blocks?.filter((b) => b.type === 'text') ?? []\n  ```\n  tool_use 블록 완전 무시\n- line 30: `.filter((m) => m.text.length > 0)` — 텍스트 없는 tool-only 메시지 삭제\n- ChatMessage 인터페이스에 `toolCalls?: ToolCallState[]`가 있지만 히스토리 변환에서 미활용\n- 실시간 SSE의 `applyEvent`는 tool_call/tool_result를 올바르게 처리하지만, 히스토리 복원 경로는 완전 별도 코드",
+        "created_at": "2026-04-08T11:16:21.569Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Bug 1+3: quickSave에 legacy state 동기화 추가",
+          "context": "quickSave(line 272-293)가 projectSettings/globalSettings만 업데이트하고 defaultModel/defaultPermissionMode/defaultEffortLevel을 갱신하지 않음. 상태바가 legacy state만 참조하므로 설정 변경이 미반영.",
+          "approach": "quickSave 끝에 effective settings 계산 후 legacy sync 추가: const { globalSettings: gs, projectSettings: ps } = get(); const effective = { ...gs, ...ps }; set({ defaultModel: normalizeModelId(effective.model), defaultPermissionMode: ..., defaultEffortLevel: ... })",
+          "acceptance": "모델/권한/effort 변경 시 상태바 즉시 반영, typecheck 통과",
+          "risk": "낮음 — saveSettings의 기존 패턴 복사",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:16:59.593Z"
+        },
+        {
+          "id": 2,
+          "title": "Bug 2: useTheme을 settings-store 기반으로 전환",
+          "context": "useTheme이 useState(DEFAULT_THEME)로 매번 github-dark로 초기화. app-tab 마운트 시 applyTheme('github-dark') 실행되어 테마 리셋. 복수 컴포넌트에서 독립 state 생성.",
+          "approach": "1) settings-store에 theme 관련 derived state + action 추가: currentTheme computed from effective settings, setTheme action that updates draft+quickSave+applyTheme. 2) useTheme 훅을 settings-store 래퍼로 변환 — useState 제거, store에서 읽기. 3) store subscribe에서 theme 변경 시 applyTheme 호출. 4) app-tab.tsx가 store의 theme을 직접 사용. 5) status-bar의 syncFromSettings 제거 (불필요해짐)",
+          "acceptance": "설정 열기/닫기 시 테마 유지, 앱 재시작 후 서버에서 테마 복원, typecheck 통과",
+          "risk": "useTheme을 사용하는 모든 곳(app-tab, status-bar) 업데이트 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:17:06.720Z"
+        },
+        {
+          "id": 3,
+          "title": "Bug 4: historyMessagesToChatMessages에 tool_use 블록 복원 추가",
+          "context": "session-adapter.ts의 historyMessagesToChatMessages가 assistant 메시지에서 text 블록만 추출. tool_use 콘텐츠 블록 완전 무시. text 없는 tool-only 메시지는 삭제됨.",
+          "approach": "1) assistant 메시지의 content.blocks에서 type='tool_use' 블록 추출 2) ToolCallState로 변환 (id=block.id, name=block.name, input=block.input, status='success') 3) ChatMessage.toolCalls에 할당 4) 최종 필터를 text.length > 0 || toolCalls?.length > 0로 변경하여 tool-only 메시지도 유지 5) 서버 history-parser가 반환하는 content 구조 확인 후 매핑",
+          "acceptance": "앱 재시작 후 대화에서 tool 블록이 표시됨, typecheck 통과",
+          "risk": "서버가 반환하는 history content 구조와 클라이언트 기대 구조가 다를 수 있음 — 실제 데이터 확인 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:17:13.181Z"
+        },
+        {
+          "id": 4,
+          "title": "Bug 3 서버: hook 기반 권한 승인 SSE 릴레이 구현",
+          "context": "CLI는 항상 --dangerously-skip-permissions로 실행되므로 permission_request를 보내지 않음. 서버의 PreToolUse 훅이 ApprovalBridge에서 대기하지만, 이 대기 상태가 SSE로 클라이언트에 전달되지 않음. events.ts에 hook_event SSE 릴레이 누락.",
+          "approach": "이 이슈는 아키텍처 수준의 변경이 필요 — hook 기반 권한 시스템의 SSE 릴레이 구현. 현재 스코프에서는 조사 결과만 기록하고, 별도 계획으로 처리 권장.",
+          "acceptance": "클라이언트가 hook 기반 승인 요청을 SSE로 수신하고 UI에 표시",
+          "risk": "아키텍처 수준 변경 필요 — events.ts, hook-manager, approval-bridge 전체 수정",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "lead",
+          "created_at": "2026-04-08T11:18:45.542Z"
+        }
+      ]
+    },
+    {
+      "completed_at": "2026-04-08T12:02:47.711Z",
+      "branch": "fix/settings-sync-bugs",
+      "plan": {
+        "id": 5,
+        "topic": "프로젝트 정상화 — 구조적 문제 진단 및 해결 계획",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[A1] Legacy 이중 상태 — defaultModel/globalSettings.model 3중 중복, 수동 sync 3곳 분산",
+            "status": "decided",
+            "decision": "채택. LegacySettingsState 전체 제거. defaultModel/defaultPermissionMode/defaultEffortLevel/defaultMaxTurns를 독립 필드에서 computed selector로 전환. persist 미들웨어도 제거 (legacy 필드만 persist 대상이었으므로). 소비자(status-bar, chat-input)가 effective settings에서 직접 파생하도록 변경.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "동일 데이터 3중 복제(legacy/globalSettings/draftGlobal)가 수동 sync 3곳에 분산. 하나라도 누락 시 불일치. computed selector로 전환하면 sync 코드 자체가 불필요해짐."
+            }
+          },
+          {
+            "id": 2,
+            "title": "[A2] quickSave/loadSettings 경합 조건 — PUT 완료 전에 GET이 stale 데이터로 덮어쓈",
+            "status": "decided",
+            "decision": "채택. quickSave에 in-flight 키 추적 추가. loadSettings가 GET 응답 적용 시 pending 키는 낙관적 값 유지. 또한 quickSave의 PUT 응답(서버 merge 결과)으로 store를 갱신하여 서버 상태와 확실히 동기화.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "quickSave PUT과 loadSettings GET 사이에 동기화 없음. fire-and-forget PUT이 완료 전 GET이 stale 데이터로 덮어씀. in-flight 추적으로 pending 키 보호 필요."
+            }
+          },
+          {
+            "id": 3,
+            "title": "[A3] workspace 경로 URL 인코딩 불일치 — SSE 404 버그 근본 원인",
+            "status": "decided",
+            "decision": "채택. encodeWorkspacePath 유틸리티 함수를 만들어 모든 API 호출에서 일관 사용. use-sse.ts, workspace.ts API 함수들의 path.replace/path.slice 패턴을 encodeURIComponent로 통일.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "경로 인코딩이 3가지 방식으로 혼재. encodeURIComponent 사용하는 곳(안전)과 replace/slice 사용하는 곳(위험)이 공존. SSE 404가 이 불일치에서 발생."
+            }
+          },
+          {
+            "id": 4,
+            "title": "[A4] 공유 스키마(@nexus/shared)와 실제 전송 데이터 괴리",
+            "status": "decided",
+            "decision": "채택. @nexus/shared의 Zod 스키마를 서버 실제 전송 데이터와 정합. TurnEndEvent에 totalCostUsd/usage 추가, HistoryMessage type에 tool_result 추가, sessionId를 z.string().nullable()로 변경.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "공유 스키마가 서버 실제 전송 데이터의 superset을 정의하지 않음. TurnEndEvent, HistoryMessage, sessionId에서 괴리. 스키마가 계약 역할을 못하고 있음."
+            }
+          },
+          {
+            "id": 5,
+            "title": "[A5] 웹 테스트 1건 — settings-store/use-theme/컴포넌트 테스트 전무",
+            "status": "decided",
+            "decision": "채택 (이번 사이클에서는 #1-3 수정 후 핵심 시나리오만 추가). settings-store의 quickSave→loadSettings 시나리오, useTheme 시나리오에 대한 최소 단위 테스트 작성.",
+            "how_agents": [
+              "tester"
+            ],
+            "how_summary": {
+              "tester": "웹 테스트 1개 파일. settings-store/use-theme 테스트 0건. 비동기 경합 시나리오는 단위 테스트로만 검증 가능."
+            }
+          },
+          {
+            "id": 6,
+            "title": "[P1] 검증 없는 대규모 커밋 — 43개 파일 변경 후 13초 만에 다음 커밋",
+            "status": "decided",
+            "decision": "채택 (규칙 기록). 에이전트 작업 프로세스 규칙: 10파일 이상 변경 시 분할 커밋, 각 단계 typecheck+dev 확인, 비동기 흐름 변경 시 race condition 시나리오 명시 검토. CLAUDE.md에 기록.",
+            "how_agents": [
+              "postdoc"
+            ],
+            "how_summary": {
+              "postdoc": "43파일 변경 후 13초 만에 다음 커밋. typecheck만으로 검증 완료 선언. 증상 치료 반복 패턴. 프로세스 규칙 부재가 가중치 50%의 근본 원인."
+            }
+          }
+        ],
+        "research_summary": "## 종합 조사 결과 (4명 전문가 병렬 투입)\n\n### 아키텍트 A: 상태 관리 심층 진단\n**동일 설정 데이터에 5개 독립 저장소 존재**: 서버 SQLite, 파일시스템, Zustand server-copy(globalSettings), Zustand draft(draftGlobal), Zustand legacy(defaultModel). 모든 동기화가 수동(imperative). 파생 상태(derived state) 없이 복제 상태(duplicated state) 사용.\n\n**테마 버그 정확한 원인**: quickSave({ theme }, null)이 PUT을 fire-and-forget으로 전송 → 사용자가 모달 재열기 → loadSettings가 GET을 먼저 보냄 → PUT 미완료 시 구 데이터로 globalSettings 덮어씀 → useTheme이 구 theme 읽음 → DOM 리셋. 이것은 race condition이며, 타이밍에 따라 재현율이 달라짐.\n\n**Legacy 이중 상태가 근본 원인**: defaultModel과 globalSettings.model이 독립 필드로 존재. loadSettings, saveSettings, quickSave 3곳에서 수동 동기화. 하나라도 누락되면 불일치. 실제로 quickSave에서 누락이 있었고(Bug 1), 수정 후에도 race condition 문제는 남음.\n\n### 아키텍트 B: 서버-클라이언트 데이터 흐름 감사\n**HistoryMessage 타입 불일치**: 서버는 'user'|'assistant'|'tool_result' 3종 반환, 클라이언트는 'user'|'assistant' 2종만 정의. tool_result 메시지가 assistant 분기로 빠져 content 구조 불일치로 빈 메시지 됨.\n\n**SSE 404 버그 원인**: use-sse.ts에서 workspace 경로를 URL에 삽입 시 encodeURIComponent 미사용. `/api/workspaces/Users/kih/.../events`에서 경로 내 `/`가 URL 세그먼트 구분자와 혼동. 동일 패턴이 fetchFiles, fetchGitInfo 등 5곳에서 반복.\n\n**경로 인코딩 3가지 방식 혼재**: (1) encodeURIComponent(안전) — deleteWorkspace, settings APIs, (2) path.replace(/^\\//, '')(위험) — file/git APIs, (3) path.slice(1)(위험) — SSE. 통일 유틸리티 함수 부재.\n\n**Zod 스키마 괴리**: TurnEndEvent에 totalCostUsd/usage 누락. sessionId가 null일 수 있는데 z.string()으로 정의 → 초기 이벤트 드롭 가능.\n\n### 포닥: 회귀 패턴 분석\n**핵심 발견**: \"대규모 변경을 검증 없이 연쇄 투입하는 프로세스\"와 \"이중 상태 관리 + 비동기 레이스 방치 아키텍처\"의 결합.\n\n**커밋 타임스탬프 증거**: 리팩토링(43파일 변경)과 버그 수정 사이 간격 13초. 수동 테스트도 없이 진행.\n\n**반복 수정 패턴**: SubagentPanel 무한 루프 2회 수정, Git 파일명 짤림 2회 수정 — 증상 치료 반복, 근본 원인 미파악.\n\n**가중치 분석**: 프로세스 결함 50%, 아키텍처 결함 30%, 에이전트 행동 패턴 20%.\n\n### 테스터: 테스트 감사\n**웹 테스트 1개 파일**: session-adapter.test.ts만 존재 (applyEvent 순수 함수만 테스트). settings-store, use-theme, 컴포넌트 — 테스트 0건.\n**서버 테스트 10개**: 있지만 네이티브 모듈(better-sqlite3) 문제로 104건 실패.\n**E2E**: 설정/테마 관련 테스트 없음.\n**\"테스트 통과\"가 무의미한 이유**: 테스트가 거의 없으므로 항상 통과.",
+        "created_at": "2026-04-08T11:51:05.303Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "A1: Legacy 이중 상태 제거 → computed selector 전환",
+          "context": "settings-store.ts의 LegacySettingsState(defaultModel, defaultPermissionMode, defaultEffortLevel, defaultMaxTurns)를 제거하고, effective settings에서 파생하는 selector로 전환. persist 미들웨어도 제거.",
+          "approach": "1) settings-store.ts: LegacySettingsState 인터페이스/필드/setter 제거, persist 제거. useEffectiveModel/useEffectivePermission 등 selector 헬퍼 export. loadSettings/saveSettings/quickSave에서 수동 sync 3곳 제거. 2) status-bar.tsx: legacy 필드→selector 전환. setDefaultModel+quickSave 이중호출→quickSave만. 3) chat-input.tsx: getState().defaultModel→effective selector 전환.",
+          "acceptance": "1) LegacySettingsState 인터페이스 삭제됨 2) defaultModel/defaultPermissionMode grep 결과 0건 3) persist 미들웨어 제거됨 4) typecheck 통과 5) bun run dev로 상태바 모델/권한 표시 정상 확인",
+          "risk": "status-bar, chat-input 외에 legacy 필드를 참조하는 곳이 없는지 재확인 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:02.686Z"
+        },
+        {
+          "id": 2,
+          "title": "A2: quickSave/loadSettings 경합 방지 — in-flight 추적 + PUT 응답 활용",
+          "context": "quickSave PUT이 fire-and-forget. loadSettings GET이 PUT 완료 전 stale 데이터로 store 덮어씀. 테마 리셋 버그의 직접 원인.",
+          "approach": "1) settings-store에 _pendingSaveKeys: Set<string> 추가. quickSave 시작 시 키 등록, 완료/실패 시 제거. 2) loadSettings에서 서버 응답 적용 시 _pendingSaveKeys에 있는 키는 낙관적 값 유지. 3) quickSave의 PUT 응답(서버 merge 결과)으로 해당 scope의 settings를 갱신하여 확정.",
+          "acceptance": "1) 테마 변경→모달 재열기 시 리셋 없음 2) 모델 변경→모달 재열기 시 리셋 없음 3) typecheck 통과 4) bun run dev로 실제 확인",
+          "risk": "A1 완료 후 진행해야 함 (legacy 제거 후 store 구조가 변경되므로). loadSettings에서 pending 키 보호 로직이 정확해야 함.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:10.469Z"
+        },
+        {
+          "id": 3,
+          "title": "A3: workspace 경로 인코딩 유틸리티 통합",
+          "context": "workspace 경로를 URL에 삽입하는 방식이 3가지 혼재. SSE 404 버그의 근본 원인. encodeURIComponent 사용(안전) vs path.replace/slice(위험) 공존.",
+          "approach": "1) api/client.ts 또는 lib/에 encodeWorkspacePath(path: string): string 유틸리티 생성. 2) use-sse.ts의 pathParam 구성을 encodeURIComponent 기반으로 변경. 3) workspace.ts의 fetchFiles/fetchGitInfo/fetchGitDiff/fetchGitShow/fetchFileContent에서 path.replace 패턴을 유틸리티로 교체. 4) 서버측 /:path{.+} 라우트가 디코딩을 올바르게 처리하는지 확인.",
+          "acceptance": "1) grep 'replace(/^\\\\//' packages/web/src/api/ 결과 0건 2) SSE 연결 404 해소 3) 파일/git API 정상 동작 4) typecheck 통과",
+          "risk": "서버 라우트의 path 디코딩 방식 확인 필요. Hono가 자동 디코딩하는지 여부.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:19.637Z"
+        },
+        {
+          "id": 4,
+          "title": "A4: @nexus/shared 스키마 실제 데이터와 정합",
+          "context": "TurnEndEvent에 totalCostUsd/usage 누락, sessionId가 null 가능한데 z.string()으로 정의, HistoryMessage type에 tool_result 미포함.",
+          "approach": "1) shared/schemas/session.ts: TurnEndEventSchema에 totalCostUsd, usage optional 추가. sessionId를 z.string().or(z.null())로 변경. 2) web/api/session.ts: HistoryMessage type에 'tool_result' 추가. 3) 서버 events.ts가 보내는 모든 필드를 스키마에 반영되었는지 대조.",
+          "acceptance": "1) 서버가 보내는 모든 SSE 이벤트가 Zod 파싱 통과 2) 초기 이벤트 드롭 해소 3) typecheck 통과",
+          "risk": "sessionId nullable 변경 시 클라이언트 소비자 코드에서 null 처리 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:25.642Z"
+        },
+        {
+          "id": 5,
+          "title": "A5: settings-store 핵심 시나리오 단위 테스트 작성",
+          "context": "웹 테스트 1개 파일(applyEvent만). settings-store, use-theme 테스트 0건. 비동기 경합은 단위 테스트로만 검증 가능.",
+          "approach": "1) settings-store.test.ts 생성: quickSave→loadSettings 시나리오, in-flight 보호 시나리오, effective selector 정확성. 2) use-theme.test.ts 생성: store theme 변경→applyTheme 호출 확인, 초기값 동작. 3) apiClient를 mock하여 네트워크 타이밍 시뮬레이션.",
+          "acceptance": "1) settings-store.test.ts에 최소 5개 시나리오 2) use-theme.test.ts에 최소 3개 시나리오 3) bun test 통과",
+          "risk": "A1+A2 완료 후 진행해야 store 구조가 확정됨",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:31.756Z"
+        },
+        {
+          "id": 6,
+          "title": "P1: CLAUDE.md에 작업 프로세스 규칙 추가",
+          "context": "43파일 변경 후 13초 만에 다음 커밋. typecheck만으로 검증 완료 선언. 증상 치료 반복 패턴.",
+          "approach": "CLAUDE.md의 Code Style 섹션 아래에 Quality Gates 규칙 추가: 1) 10파일 이상 변경 시 분할 커밋 2) UI 변경 시 bun run dev로 실제 확인 필수 3) 비동기 흐름 변경 시 race condition 시나리오 명시 검토 4) \"완료\" 선언 전 acceptance criteria 각각 확인",
+          "acceptance": "CLAUDE.md에 Quality Gates 섹션 존재",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 6,
+          "owner": "lead",
+          "created_at": "2026-04-08T11:54:36.343Z"
+        }
+      ]
     }
   ]
 }

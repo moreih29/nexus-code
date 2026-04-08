@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useWorkspaceStore } from '../../stores/workspace-store'
-import { useWorkspaces, useGitInfo } from '../../hooks/use-workspaces'
+import { useActiveWorkspace } from '../../hooks/use-active-workspace'
+import { useGitInfo } from '../../hooks/use-workspaces'
 import { fetchGitDiff, fetchGitShow } from '../../api/workspace'
 import type { GitDiffResponse, GitShowResponse } from '../../api/workspace'
 
@@ -22,10 +22,7 @@ type ShowView = {
 type DetailView = DiffView | ShowView
 
 export function GitView() {
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { data: workspaces } = useWorkspaces()
-  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
-  const workspacePath = activeWorkspace?.path ?? null
+  const { workspacePath } = useActiveWorkspace()
 
   const { data: gitData, isLoading } = useGitInfo(workspacePath)
 
@@ -154,8 +151,8 @@ export function GitView() {
                   />
                   <span className="flex-1 truncate">{change.path}</span>
                   <span className="text-[10px] font-mono hidden group-hover:inline flex-shrink-0">
-                    <span className="text-[#3fb950]">+{change.additions}</span>{' '}
-                    <span className="text-[#f85149]">-{change.deletions}</span>
+                    <span className="text-green">+{change.additions}</span>{' '}
+                    <span className="text-red">-{change.deletions}</span>
                   </span>
                 </div>
               ))}
@@ -186,8 +183,8 @@ export function GitView() {
                   />
                   <span className="flex-1 truncate">{change.path}</span>
                   <span className="text-[10px] font-mono hidden group-hover:inline flex-shrink-0">
-                    <span className="text-[#3fb950]">+{change.additions}</span>{' '}
-                    <span className="text-[#f85149]">-{change.deletions}</span>
+                    <span className="text-green">+{change.additions}</span>{' '}
+                    <span className="text-red">-{change.deletions}</span>
                   </span>
                 </div>
               ))}
@@ -226,7 +223,7 @@ export function GitView() {
       {/* Commit input area — placeholder only */}
       <div className="p-3 border-t border-border mt-auto">
         <textarea
-          className="w-full bg-bg-base border border-border rounded px-2.5 py-2 text-text-primary text-[12px] font-sans resize-none outline-none placeholder:text-text-muted focus:border-[#58a6ff] transition-colors"
+          className="w-full bg-bg-base border border-border rounded px-2.5 py-2 text-text-primary text-[12px] font-sans resize-none outline-none placeholder:text-text-muted focus:border-accent transition-colors"
           placeholder="커밋 메시지..."
           rows={2}
           disabled
@@ -259,9 +256,9 @@ function DiffViewer({ diff }: { diff: string }) {
       <pre className="text-[11px] font-mono leading-5 px-3 py-2 min-w-0">
         {lines.map((line, i) => {
           let colorClass = 'text-text-secondary'
-          if (line.startsWith('+') && !line.startsWith('+++')) colorClass = 'text-[#3fb950]'
-          else if (line.startsWith('-') && !line.startsWith('---')) colorClass = 'text-[#f85149]'
-          else if (line.startsWith('@@')) colorClass = 'text-[#58a6ff]'
+          if (line.startsWith('+') && !line.startsWith('+++')) colorClass = 'text-green'
+          else if (line.startsWith('-') && !line.startsWith('---')) colorClass = 'text-red'
+          else if (line.startsWith('@@')) colorClass = 'text-accent'
           else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) colorClass = 'text-text-muted'
 
           return (

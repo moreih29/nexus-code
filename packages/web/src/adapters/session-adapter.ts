@@ -1,4 +1,45 @@
 import type { SessionEvent } from '@nexus/shared'
+import type { HistoryMessage } from '../api/session.js'
+
+let _historyIdCounter = 1000
+function genHistoryId(): string {
+  return `h-${++_historyIdCounter}`
+}
+
+export function historyMessagesToChatMessages(messages: HistoryMessage[]): ChatMessage[] {
+  return messages
+    .filter((m) => !m.isSidechain)
+    .map((m): ChatMessage => {
+      if (m.type === 'user') {
+        const content = m.content as { text?: string; kind?: string }
+        return {
+          id: m.uuid ?? genHistoryId(),
+          role: 'user',
+          text: content?.text ?? '',
+        }
+      }
+      const content = m.content as {
+        blocks?: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> | string }>
+      }
+      const textBlocks = content?.blocks?.filter((b) => b.type === 'text') ?? []
+      const text = textBlocks.map((b) => b.text ?? '').join('\n')
+      const toolUseBlocks = content?.blocks?.filter((b) => b.type === 'tool_use') ?? []
+      const toolCalls: ToolCallState[] = toolUseBlocks.map((b) => ({
+        id: b.id ?? '',
+        name: b.name ?? '',
+        input: (typeof b.input === 'object' && b.input !== null ? b.input : {}) as Record<string, unknown>,
+        status: 'success' as const,
+      }))
+      const msg: ChatMessage = {
+        id: m.uuid ?? genHistoryId(),
+        role: 'assistant',
+        text,
+      }
+      if (toolCalls.length > 0) msg.toolCalls = toolCalls
+      return msg
+    })
+    .filter((m) => m.text.length > 0 || (m.toolCalls && m.toolCalls.length > 0))
+}
 
 export interface ToolCallState {
   id: string

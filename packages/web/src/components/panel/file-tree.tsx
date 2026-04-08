@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { usePanelStore } from '../../stores/panel-store'
-import { useWorkspaceStore } from '../../stores/workspace-store'
-import { useWorkspaces, useFiles } from '../../hooks/use-workspaces'
+import { useActiveWorkspace } from '../../hooks/use-active-workspace'
+import { useFiles } from '../../hooks/use-workspaces'
 import type { FileEntry } from '../../api/workspace'
 import { File, FileCode, FileJson, FileText, Folder, FolderOpen, ChevronRight, ChevronDown, Image, Settings } from 'lucide-react'
 
@@ -121,17 +121,17 @@ function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
 
         {/* Change badge */}
         {node.status === 'M' && (
-          <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(210,153,34,0.2)] text-[#d29922]">
+          <span className="text-[10px] px-1.5 rounded-full font-medium bg-yellow/20 text-yellow">
             M
           </span>
         )}
         {node.status === 'A' && (
-          <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(63,185,80,0.2)] text-[#3fb950]">
+          <span className="text-[10px] px-1.5 rounded-full font-medium bg-green/20 text-green">
             A
           </span>
         )}
         {node.status === 'D' && (
-          <span className="text-[10px] px-1.5 rounded-full font-medium bg-[rgba(248,81,73,0.15)] text-[#f85149]">
+          <span className="text-[10px] px-1.5 rounded-full font-medium bg-red/15 text-red">
             D
           </span>
         )}
@@ -147,12 +147,8 @@ function FileTreeNodeItem({ node, depth, onFileClick }: FileTreeNodeProps) {
 }
 
 export function FileTree() {
-  const { activeWorkspaceId } = useWorkspaceStore()
-  const { data: workspaces } = useWorkspaces()
+  const { workspacePath } = useActiveWorkspace()
   const { openFile } = usePanelStore()
-
-  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
-  const workspacePath = activeWorkspace?.path ?? null
 
   const { data: files, isLoading, isError } = useFiles(workspacePath)
 

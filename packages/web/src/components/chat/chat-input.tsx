@@ -1,22 +1,18 @@
 import { useRef, useState } from 'react'
 import { useChatStore } from '../../stores/chat-store.js'
-import { useWorkspaceStore } from '../../stores/workspace-store.js'
-import { useWorkspaces } from '../../hooks/use-workspaces.js'
+import { useActiveWorkspace } from '../../hooks/use-active-workspace.js'
 import { useStartSession, useSendPrompt } from '../../hooks/use-session.js'
 import { resumeSession } from '../../api/session.js'
-import { useSettingsStore } from '../../stores/settings-store.js'
+import { getEffectiveSettings, normalizeModelId } from '../../stores/settings-store.js'
 
 export function ChatInput() {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { data: workspaces } = useWorkspaces()
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { workspacePath: rawWorkspacePath } = useActiveWorkspace()
+  const workspacePath = rawWorkspacePath ?? ''
   const { sessionId, restorableSessionId, sendMessage, setSessionId } = useChatStore()
   const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
-
-  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
-  const workspacePath = activeWorkspace?.path ?? ''
 
   const startSession = useStartSession()
   const sendPrompt = useSendPrompt(sessionId ?? '')
@@ -48,12 +44,12 @@ export function ChatInput() {
       } else if (!sessionId) {
         // First message — start a new session
         console.log('[chat-input] starting session', { workspacePath, prompt: trimmed })
-        const { defaultModel, defaultPermissionMode } = useSettingsStore.getState()
+        const { model, permissionMode } = getEffectiveSettings()
         const response = await startSession.mutateAsync({
           workspacePath,
           prompt: trimmed,
-          model: defaultModel,
-          permissionMode: defaultPermissionMode === 'default' ? undefined : defaultPermissionMode,
+          model: normalizeModelId(model),
+          permissionMode: permissionMode === 'default' ? undefined : (permissionMode as 'auto' | 'bypassPermissions' | undefined),
         })
         console.log('[chat-input] session started', response)
         setSessionId(response.id)

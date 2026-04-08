@@ -1,14 +1,10 @@
 import { usePanelStore } from '../../stores/panel-store'
-import { useWorkspaceStore } from '../../stores/workspace-store'
-import { useWorkspaces, useFileContent } from '../../hooks/use-workspaces'
+import { useActiveWorkspace } from '../../hooks/use-active-workspace'
+import { useFileContent } from '../../hooks/use-workspaces'
 
 export function EditorView() {
   const { openFilePath, setRightTab } = usePanelStore()
-  const { activeWorkspaceId } = useWorkspaceStore()
-  const { data: workspaces } = useWorkspaces()
-
-  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
-  const workspacePath = activeWorkspace?.path ?? null
+  const { workspacePath } = useActiveWorkspace()
 
   const { data, isLoading, isError, error } = useFileContent(workspacePath, openFilePath)
 
@@ -32,7 +28,7 @@ export function EditorView() {
           ← 목록
         </button>
         <div className="flex items-center gap-1.5 px-2 text-[11px] text-text-primary bg-bg-surface border border-border-light rounded h-6 cursor-default whitespace-nowrap overflow-hidden">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#58a6ff] flex-shrink-0" />
+          <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />
           <span className="truncate">{displayName}</span>
         </div>
       </div>
@@ -57,7 +53,7 @@ export function EditorView() {
           <div className="px-4 py-3 text-text-secondary">불러오는 중...</div>
         )}
         {isError && (
-          <div className="px-4 py-3 text-[#f85149]">
+          <div className="px-4 py-3 text-red">
             파일을 불러올 수 없습니다: {error instanceof Error ? error.message : '알 수 없는 오류'}
           </div>
         )}
@@ -92,7 +88,7 @@ function FileContent({ content }: { content: string }) {
           >
             {i + 1}
           </span>
-          <span className="flex-1 whitespace-pre text-[#e6edf3]">{line}</span>
+          <span className="flex-1 whitespace-pre text-text-primary">{line}</span>
         </div>
       ))}
     </>
