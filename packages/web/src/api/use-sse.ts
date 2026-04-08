@@ -46,8 +46,6 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
         return
       }
 
-      console.log('[sse]', eventName, parsed)
-
       const mappedType = eventName === 'text_delta' ? 'text_chunk'
         : eventName === 'error' ? 'session_error'
         : eventName

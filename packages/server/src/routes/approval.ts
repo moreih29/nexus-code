@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
+import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 
-export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore?: ApprovalPolicyStore) {
+export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore?: ApprovalPolicyStore, workspaceLogger?: WorkspaceLogger) {
   const router = new Hono()
 
   router.get('/', (c) => {
@@ -51,12 +52,18 @@ export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore
       scope = scopeRaw
     }
 
+    const pendingEntry = approvalBridge.listPending().find((p) => p.id === id)
+
     const settled = approvalBridge.respond(id, decision, scope)
     if (!settled) {
       return c.json(
         { error: { code: 'APPROVAL_NOT_FOUND', message: `Approval '${id}' not found` } },
         404,
       )
+    }
+
+    if (pendingEntry) {
+      workspaceLogger?.log(pendingEntry.workspacePath, { type: 'approval_respond', sessionId: pendingEntry.sessionId, data: { id, decision, scope: scope ?? 'once' } })
     }
 
     return c.json({ id, decision, scope: scope ?? 'once' })

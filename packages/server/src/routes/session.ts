@@ -44,6 +44,7 @@ function settingsChanged(a: object, b: object): boolean {
 }
 
 import type { SessionRecord } from '../services/session-lifecycle-service.js'
+import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 // SessionRecord is re-exported above; this local import is for the Map<string, SessionRecord> param type
 
 export function createSessionRouter(
@@ -53,6 +54,7 @@ export function createSessionRouter(
   store: SessionStore,
   hookManager?: HookManager,
   settingsStore?: SettingsStore,
+  workspaceLogger?: WorkspaceLogger,
 ) {
   const svc = new SessionLifecycleService(supervisor, registry, sessions, store, hookManager, settingsStore)
   const router = new Hono<Env>()
@@ -107,6 +109,8 @@ export function createSessionRouter(
       permissionMode: body.permissionMode,
       prompt: body.prompt,
     })
+
+    workspaceLogger?.log(body.workspacePath, { type: 'session_start', sessionId, data: { workspacePath: body.workspacePath, prompt: body.prompt, permissionMode: body.permissionMode } })
 
     const record = sessions.get(sessionId)!
 
@@ -194,6 +198,8 @@ export function createSessionRouter(
       permissionMode: dbRow.permission_mode ?? undefined,
       prompt,
     })
+
+    workspaceLogger?.log(dbRow.workspace_path, { type: 'session_resume', sessionId: newSessionId, data: { sessionId: newSessionId, prompt } })
 
     const record = sessions.get(newSessionId)!
 
@@ -413,6 +419,8 @@ export function createSessionRouter(
       return c.json({ error: { code: result.error.code, message: result.error.message } }, 400)
     }
 
+    workspaceLogger?.log(record.workspacePath, { type: 'session_prompt', sessionId: id, data: { sessionId: id, prompt } })
+
     return c.json({ success: true })
   })
 
@@ -424,6 +432,7 @@ export function createSessionRouter(
     }
 
     await record.process.cancel()
+    workspaceLogger?.log(record.workspacePath, { type: 'session_cancel', sessionId: id, data: { sessionId: id } })
     return c.json({ success: true })
   })
 

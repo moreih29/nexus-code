@@ -24,6 +24,7 @@ import { ApprovalPolicyStore } from './adapters/db/approval-policy-store.js'
 import { SettingsStore } from './adapters/db/settings-store.js'
 import { HookManager } from './adapters/hooks/hook-manager.js'
 import { ApprovalBridge } from './adapters/hooks/approval-bridge.js'
+import { WorkspaceLogger } from './adapters/logging/workspace-logger.js'
 import type { SessionRecord } from './routes/session.js'
 
 export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
@@ -40,6 +41,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
   const approvalBridge = new ApprovalBridge(policyStore, settingsStore)
+  const workspaceLogger = new WorkspaceLogger()
 
   const workspaceRows = workspaceStore.list()
   for (const row of workspaceRows) {
@@ -58,14 +60,14 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
 
   app.route('/api/health', createHealthRouter(hookManager))
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
-  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore))
-  app.route('/api/approvals', createApprovalRouter(approvalBridge))
-  app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge))
+  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore, workspaceLogger))
+  app.route('/api/approvals', createApprovalRouter(approvalBridge, policyStore, workspaceLogger))
+  app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge, workspaceLogger))
   app.route('/api/workspaces', createFilesRouter())
   app.route('/api/workspaces', createGitRouter())
   app.route('/api/settings', createSettingsRouter(settingsStore))
   app.route('/api/cli-settings', createCliSettingsRouter())
-  app.route('/hooks', createHooksRouter(hookManager, approvalBridge))
+  app.route('/hooks', createHooksRouter(hookManager, approvalBridge, workspaceLogger))
 
-  return { app, supervisor, registry, store, hookManager }
+  return { app, supervisor, registry, store, hookManager, workspaceLogger }
 }

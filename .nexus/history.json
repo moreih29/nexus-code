@@ -4967,6 +4967,94 @@
           "created_at": "2026-04-08T14:31:10.720Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-08T16:10:42.561Z",
+      "branch": "fix/permission-hook-reliability",
+      "plan": {
+        "id": 5,
+        "topic": "서버 워크스페이스별 디버그 로깅 시스템 구축",
+        "issues": [
+          {
+            "id": 1,
+            "title": "클라이언트 디버그 로그 삭제 + 서버 로깅 전환",
+            "status": "decided",
+            "decision": "클라이언트 use-sse.ts의 디버그 console.log('[sse]', ...) 제거. schema validation 실패, 연결/재연결 로그는 개발 중 유용하므로 유지하되, 모든 이벤트를 로깅하는 line 49만 삭제. 대안(전체 삭제)은 기각 — 연결 상태 로그는 프론트 디버깅에 여전히 필요."
+          },
+          {
+            "id": 2,
+            "title": "워크스페이스별 파일 로거 구현 — API 요청, SSE 이벤트, hook 이벤트를 워크스페이스별 파일에 기록",
+            "status": "decided",
+            "decision": "워크스페이스별 파일 로거(WorkspaceLogger) 구현. dev 모드에서만 활성. 저장 위치: {workspacePath}/.nexus/logs/{date}.jsonl (JSONL 형식, 날짜별 회전). 기존 pino와 별개 — pino는 서버 전체 로그(stdout), WorkspaceLogger는 워크스페이스별 상세 기록(파일). 각 로그 항목: { timestamp, type, sessionId?, toolName?, data }. 대안(pino file transport)은 기각 — pino는 워크스페이스 분리 로직이 없고, 구조 변경이 큼."
+          },
+          {
+            "id": 3,
+            "title": "기존 코드에 로깅 포인트 삽입 — events.ts, hooks.ts, session.ts 등",
+            "status": "decided",
+            "decision": "로깅 포인트 삽입 위치: (1) events.ts — 모든 SSE 이벤트 발송 시 (tool_call, tool_result, text_delta, permission_request, permission_settled, turn_end 등), (2) hooks.ts — hook 요청 수신 + 응답 반환 시, (3) session.ts — 세션 시작/resume/prompt/cancel 시, (4) approval.ts — 승인 요청/응답 시. app.ts에서 WorkspaceLogger 인스턴스 생성 후 각 라우터에 주입. 대안(미들웨어 레벨만)은 기각 — 미들웨어는 request/response만 기록하고 SSE 이벤트 내용은 못 잡음."
+          }
+        ],
+        "research_summary": "Pino 로거 이미 존재(stdout, dev에서 pretty-print). 파일 로깅 없음. SSE 이벤트는 events.ts에서 10+ 타입 발생. 워크스페이스 경로는 DB와 hooks에서 이미 사용. dev 모드 감지: NODE_ENV !== 'production'. 클라이언트 use-sse.ts에 console.log 4곳(line 49, 60, 79, 91). 로깅 미들웨어는 method/path/status/duration만 기록.",
+        "created_at": "2026-04-08T16:04:43.782Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "클라이언트 디버그 로그 삭제",
+          "context": "use-sse.ts에 추가된 디버그 console.log 중 line 49 (모든 SSE 이벤트 로깅)만 삭제. 연결/재연결/스키마 검증 실패 로그는 유지.",
+          "approach": "use-sse.ts에서 console.log('[sse]', eventName, parsed) 라인만 제거",
+          "acceptance": "use-sse.ts에 모든 SSE 이벤트를 로깅하는 console.log가 없음. 연결 상태 로그는 유지.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-08T16:05:21.152Z"
+        },
+        {
+          "id": 2,
+          "title": "WorkspaceLogger 어댑터 구현",
+          "context": "워크스페이스별 파일 로거. dev 모드에서만 활성. JSONL 형식으로 {workspacePath}/.nexus/logs/{date}.jsonl에 기록. 각 항목: { ts, type, sessionId?, data }.",
+          "approach": "packages/server/src/adapters/logging/workspace-logger.ts 생성. dev 모드 감지(NODE_ENV), appendFile로 JSONL 쓰기, 날짜별 파일 회전. log(workspacePath, entry) 메서드. non-blocking(fire-and-forget). app.ts에서 인스턴스 생성.",
+          "acceptance": "WorkspaceLogger가 dev 모드에서 JSONL 파일에 기록. production에서는 no-op. 워크스페이스별 분리 저장.",
+          "risk": "파일 I/O 성능 — appendFile은 non-blocking이지만 대량 이벤트 시 주의. 로그 파일 크기 관리 필요할 수 있음.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T16:05:30.241Z"
+        },
+        {
+          "id": 3,
+          "title": "라우트에 로깅 포인트 삽입",
+          "context": "events.ts(SSE 이벤트), hooks.ts(hook 요청/응답), session.ts(세션 라이프사이클), approval.ts(승인 요청/응답)에 WorkspaceLogger 호출 추가. app.ts에서 logger 주입.",
+          "approach": "각 라우터 팩토리에 workspaceLogger 파라미터 추가. (1) events.ts — SSE 이벤트 발송 시 logger.log(), (2) hooks.ts — hook 수신/응답 시, (3) session.ts — 세션 start/resume/prompt/cancel 시, (4) approval.ts — respond 시. app.ts에서 WorkspaceLogger 생성 후 각 라우터에 주입.",
+          "acceptance": "dev 모드에서 세션 실행 시 해당 워크스페이스의 .nexus/logs/ 에 JSONL 파일 생성됨. SSE 이벤트, hook 요청/응답, 세션 이벤트, 승인 이벤트가 기록됨.",
+          "risk": "라우터 팩토리 시그니처 변경 — 기존 테스트에 mock 추가 필요할 수 있음",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-08T16:05:35.947Z"
+        },
+        {
+          "id": 4,
+          "title": "로깅 시스템 통합 검증",
+          "context": "Task 1~3의 결과물이 실제 동작하는지 검증. typecheck, 테스트, 실제 로그 파일 생성 확인.",
+          "approach": "typecheck 통과, 기존 테스트 regression 없음, WorkspaceLogger 유닛 테스트 추가.",
+          "acceptance": "typecheck 통과. 기존 테스트 regression 없음.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-08T16:05:39.079Z"
+        }
+      ]
     }
   ]
 }
