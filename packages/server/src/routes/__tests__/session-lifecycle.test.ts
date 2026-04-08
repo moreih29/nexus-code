@@ -15,8 +15,10 @@ import type { CliProcessFactory } from '../../adapters/cli/workspace-group.js'
 type EventHandler = (data: unknown) => void
 
 interface MockProcess {
-  meta: Record<string, unknown>
+  nexusSessionId: string | null
+  nexusAgentId: string | null
   getStatus: ReturnType<typeof vi.fn>
+  isAlive: ReturnType<typeof vi.fn>
   start: ReturnType<typeof vi.fn>
   sendPrompt: ReturnType<typeof vi.fn>
   cancel: ReturnType<typeof vi.fn>
@@ -29,8 +31,10 @@ function makeMockProcess(): MockProcess {
   const handlers = new Map<string, Set<EventHandler>>()
 
   const process_: MockProcess = {
-    meta: {},
+    nexusSessionId: null,
+    nexusAgentId: null,
     getStatus: vi.fn().mockReturnValue('running'),
+    isAlive: vi.fn().mockReturnValue(true),
     start: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
     sendPrompt: vi.fn().mockReturnValue({ ok: true }),
     cancel: vi.fn().mockResolvedValue(undefined),
@@ -52,6 +56,14 @@ function makeMockProcess(): MockProcess {
     },
   }
   return process_
+}
+
+// ----------- Mock SettingsStore factory -----------
+
+function makeMockSettingsStore(overrides: Record<string, unknown> = {}): { getEffectiveSettings: ReturnType<typeof vi.fn> } {
+  return {
+    getEffectiveSettings: vi.fn().mockReturnValue(overrides),
+  }
 }
 
 // ----------- Test setup -----------
@@ -385,12 +397,24 @@ describe('session lifecycle', () => {
     })
 
     it('returns 200 with restarted status when settings applied', async () => {
-      const { sessionId } = await createSessionWithCliId()
+      const mockSettingsStore = makeMockSettingsStore({ model: 'claude-sonnet-4' })
+      const routerWithSettings = createSessionRouter(supervisor, registry, sessions, store, undefined, mockSettingsStore as never)
+      const appWithSettings = new Hono()
+      appWithSettings.route('/sessions', routerWithSettings)
 
-      const res = await app.request(`/sessions/${sessionId}/settings`, {
+      const createRes = await appWithSettings.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+      const sessionId = createBody.id
+      currentMockProcess.emit('init', { sessionId: 'cli-session-xyz' })
+
+      const res = await appWithSettings.request(`/sessions/${sessionId}/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+        body: JSON.stringify({}),
       })
       expect(res.status).toBe(200)
       const body = await res.json() as { id: string; status: string; settings: { model: string } }
@@ -414,12 +438,24 @@ describe('session lifecycle', () => {
     })
 
     it('passes effortLevel to start', async () => {
-      const { sessionId } = await createSessionWithCliId()
+      const mockSettingsStore = makeMockSettingsStore({ effortLevel: 'high' })
+      const routerWithSettings = createSessionRouter(supervisor, registry, sessions, store, undefined, mockSettingsStore as never)
+      const appWithSettings = new Hono()
+      appWithSettings.route('/sessions', routerWithSettings)
 
-      await app.request(`/sessions/${sessionId}/settings`, {
+      const createRes = await appWithSettings.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+      const sessionId = createBody.id
+      currentMockProcess.emit('init', { sessionId: 'cli-session-xyz' })
+
+      await appWithSettings.request(`/sessions/${sessionId}/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ effortLevel: 'high' }),
+        body: JSON.stringify({}),
       })
 
       expect(currentMockProcess.start).toHaveBeenCalledWith(
@@ -428,12 +464,24 @@ describe('session lifecycle', () => {
     })
 
     it('updates model in SessionStore', async () => {
-      const { sessionId } = await createSessionWithCliId()
+      const mockSettingsStore = makeMockSettingsStore({ model: 'claude-sonnet-4' })
+      const routerWithSettings = createSessionRouter(supervisor, registry, sessions, store, undefined, mockSettingsStore as never)
+      const appWithSettings = new Hono()
+      appWithSettings.route('/sessions', routerWithSettings)
 
-      await app.request(`/sessions/${sessionId}/settings`, {
+      const createRes = await appWithSettings.request('/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspacePath, prompt: 'Initial' }),
+      })
+      const createBody = await createRes.json() as { id: string }
+      const sessionId = createBody.id
+      currentMockProcess.emit('init', { sessionId: 'cli-session-xyz' })
+
+      await appWithSettings.request(`/sessions/${sessionId}/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4' }),
+        body: JSON.stringify({}),
       })
 
       const row = store.findById(sessionId)

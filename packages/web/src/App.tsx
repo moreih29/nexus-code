@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppLayout } from './components/layout/app-layout'
 import { CommandPalette, type Command } from './components/layout/command-palette'
-import { GlobalSettingsDialog } from './components/settings/global-settings-dialog'
 import { WorkspaceNav } from './components/workspace/workspace-nav'
 import { ChatArea } from './components/chat/chat-area'
 import { RightPanel } from './components/panel/right-panel'
 import { useChatStore } from './stores/chat-store'
+import { useSettingsStore } from './stores/settings-store'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,8 +19,8 @@ const queryClient = new QueryClient({
 
 function AppWithCommands() {
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const resetSession = useChatStore((s) => s.resetSession)
+  const setModalOpen = useSettingsStore((s) => s.setModalOpen)
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -52,7 +52,7 @@ function AppWithCommands() {
       description: '모델, 권한 모드, 테마 등 전역 설정',
       shortcut: '⌘,',
       action: () => {
-        setSettingsOpen(true)
+        setModalOpen(true)
       },
     },
     {
@@ -60,7 +60,7 @@ function AppWithCommands() {
       label: '테마 변경',
       description: '앱 테마를 변경합니다',
       action: () => {
-        setSettingsOpen(true)
+        setModalOpen(true)
       },
     },
   ]
@@ -73,7 +73,6 @@ function AppWithCommands() {
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
-      <GlobalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   )
 }

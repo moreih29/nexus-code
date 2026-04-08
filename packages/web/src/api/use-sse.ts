@@ -14,24 +14,19 @@ type SseOptions = {
 export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): void {
   const queryClient = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
+  const onEventRef = useRef(onEvent)
+  onEventRef.current = onEvent
 
   useEffect(() => {
     if (!enabled) return
 
+    let disposed = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
     // workspacePath는 절대경로 (/Users/...) — 서버가 /:path{.+}로 받으므로 선행 / 제거
     const pathParam = workspacePath.startsWith('/') ? workspacePath.slice(1) : workspacePath
     const url = `${BASE_URL}/api/workspaces/${pathParam}/events`
-    const es = new EventSource(url)
-    esRef.current = es
 
-    console.log('[sse] connecting to', url)
-
-    es.onopen = () => {
-      console.log('[sse] connected')
-    }
-
-    // 서버가 named events (event: 'text_chunk' 등)로 보내므로 각 이벤트 타입별 리스너 등록
-    // text_delta(증분)만 사용, text_chunk(누적)는 무시 — 둘 다 수신하면 중복
     const eventTypes = [
       'session_init', 'text_delta', 'tool_call', 'tool_result',
       'permission_request', 'turn_end', 'error', 'rate_limit', 'hook_event',
@@ -40,7 +35,6 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
     function handleSseEvent(e: MessageEvent) {
       const eventName = (e as Event).type
 
-      // 무시할 이벤트
       if (eventName === 'session_init' || eventName === 'rate_limit' || eventName === 'hook_event') {
         return
       }
@@ -52,8 +46,9 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
         return
       }
 
-      // text_delta → text_chunk로 매핑 (어댑터가 text_chunk 타입을 기대)
-      const mappedType = eventName === 'text_delta' ? 'text_chunk' : eventName
+      const mappedType = eventName === 'text_delta' ? 'text_chunk'
+        : eventName === 'error' ? 'session_error'
+        : eventName
       const withType = typeof parsed === 'object' && parsed !== null
         ? { type: mappedType, ...parsed as Record<string, unknown> }
         : parsed
@@ -65,30 +60,45 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       }
 
       const event = result.data
-      console.log('[sse] event', event.type)
-      onEvent?.(event)
+      onEventRef.current?.(event)
 
       if (event.type === 'turn_end') {
         void queryClient.invalidateQueries({ queryKey: ['sessions', event.sessionId, 'status'] })
       }
     }
 
-    for (const type of eventTypes) {
-      es.addEventListener(type, handleSseEvent)
+    function connect() {
+      if (disposed) return
+
+      const es = new EventSource(url)
+      esRef.current = es
+
+      es.onopen = () => {
+        console.log('[sse] connected')
+      }
+
+      for (const type of eventTypes) {
+        es.addEventListener(type, handleSseEvent)
+      }
+      es.onmessage = handleSseEvent
+
+      es.onerror = () => {
+        es.close()
+        esRef.current = null
+        if (!disposed) {
+          console.log('[sse] disconnected, reconnecting in 2s...')
+          reconnectTimer = setTimeout(connect, 2000)
+        }
+      }
     }
 
-    // fallback: unnamed events도 처리
-    es.onmessage = handleSseEvent
-
-    es.onerror = (err) => {
-      console.log('[sse] error, closing', err)
-      es.close()
-      esRef.current = null
-    }
+    connect()
 
     return () => {
-      es.close()
+      disposed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      esRef.current?.close()
       esRef.current = null
     }
-  }, [workspacePath, enabled, onEvent, queryClient])
+  }, [workspacePath, enabled, queryClient])
 }

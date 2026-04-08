@@ -22,6 +22,12 @@ export interface CliStartOptions {
   model?: string
   effortLevel?: string
   maxTurns?: number
+  maxBudgetUsd?: number
+
+  appendSystemPrompt?: string
+  addDirs?: string[]
+  disallowedTools?: string[]
+  chromeEnabled?: boolean
   continueSession?: boolean
 }
 
@@ -44,7 +50,10 @@ export class CliProcess {
   private readonly _store = new DisposableStore()
   private readonly _listeners: ListenerMap = new Map()
   private _cancelTimer: ReturnType<typeof setTimeout> | null = null
-  meta: Record<string, unknown> = {}
+
+  /** Typed metadata — set before start() to avoid SSE race conditions */
+  nexusSessionId: string | null = null
+  nexusAgentId: string | null = null
 
   on<E extends CliEventName>(event: E, handler: Handler<CliProcessEvents[E]>): () => void {
     if (!this._listeners.has(event)) {
@@ -102,26 +111,51 @@ export class CliProcess {
       args.push('--continue')
     }
 
+    if (options.effortLevel) {
+      args.push('--effort', options.effortLevel)
+    }
+
     if (options.maxTurns !== undefined) {
       args.push('--max-turns', String(options.maxTurns))
     }
 
-    if (options.permissionMode === 'auto') {
-      args.push('--allowedTools', 'all')
-    } else if (options.permissionMode === 'bypassPermissions') {
-      args.push('--dangerously-skip-permissions')
+    if (options.maxBudgetUsd !== undefined) {
+      args.push('--max-budget-usd', String(options.maxBudgetUsd))
     }
 
-    const spawnEnv = options.effortLevel
-      ? { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: options.effortLevel }
-      : process.env
+
+    if (options.appendSystemPrompt) {
+      args.push('--append-system-prompt', options.appendSystemPrompt)
+    }
+
+    if (options.addDirs && options.addDirs.length > 0) {
+      for (const dir of options.addDirs) {
+        args.push('--add-dir', dir)
+      }
+    }
+
+    if (options.disallowedTools && options.disallowedTools.length > 0) {
+      for (const tool of options.disallowedTools) {
+        args.push('--disallowedTools', tool)
+      }
+    }
+
+    if (options.chromeEnabled === true) {
+      args.push('--chrome')
+    } else if (options.chromeEnabled === false) {
+      args.push('--no-chrome')
+    }
+
+    // 항상 bypass — 비대화형 모드(-p)에서는 권한 프롬프트 불가.
+    // 권한 필터링은 서버 훅(hook-manager)이 담당.
+    args.push('--dangerously-skip-permissions')
 
     let child: ChildProcess
     try {
       child = spawn('claude', args, {
         cwd: options.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: spawnEnv,
+        env: process.env,
       })
     } catch (cause) {
       this._setStatus('error')

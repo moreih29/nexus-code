@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { Settings, ChevronDown, GitBranch } from 'lucide-react'
 import {
   DropdownMenu,
@@ -8,10 +8,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { GlobalSettingsDialog } from '@/components/settings/global-settings-dialog'
+import { SettingsModal } from '@/components/settings/settings-modal'
 import { MODELS, useSettingsStore, type ModelId, type PermissionMode } from '@/stores/settings-store'
 import { useChatStore } from '@/stores/chat-store'
-import { updateSessionSettings } from '@/api/settings'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useWorkspaces } from '@/hooks/use-workspaces'
+import { useTheme } from '@/hooks/use-theme'
 
 const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
   { id: 'default', label: 'Default' },
@@ -20,11 +22,25 @@ const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
 ]
 
 export function StatusBar() {
-  const [settingsOpen, setSettingsOpen] = useState(false)
-
-  const { defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode } =
+  const { modalOpen, setModalOpen, defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode, quickSave, loadSettings, globalSettings } =
     useSettingsStore()
-  const sessionId = useChatStore((s) => s.sessionId)
+
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { data: workspaces } = useWorkspaces()
+  const workspacePath = workspaces?.find((w) => w.id === activeWorkspaceId)?.path ?? null
+  const { syncFromSettings } = useTheme()
+
+  // Load settings from server on mount and when workspace changes
+  useEffect(() => {
+    void loadSettings(workspacePath)
+  }, [workspacePath]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync theme from server settings after load
+  useEffect(() => {
+    if (globalSettings.theme) {
+      syncFromSettings(globalSettings.theme)
+    }
+  }, [globalSettings.theme]) // eslint-disable-line react-hooks/exhaustive-deps
   const isConnected = useChatStore((s) => s.isConnected)
   const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
   const isStreaming = useChatStore((s) => s.sessionState.isStreaming)
@@ -42,25 +58,12 @@ export function StatusBar() {
 
   function handleModelChange(modelId: ModelId) {
     setDefaultModel(modelId)
-    if (sessionId) {
-      updateSessionSettings(sessionId, { model: modelId }).catch((err) => {
-        console.error('[settings] model update failed', err)
-      })
-    } else {
-      console.log('[settings] model changed (no active session):', modelId)
-    }
+    void quickSave({ model: modelId }, workspacePath)
   }
 
   function handlePermissionChange(mode: PermissionMode) {
     setDefaultPermissionMode(mode)
-    if (sessionId) {
-      const apiMode = mode === 'default' ? undefined : mode
-      updateSessionSettings(sessionId, { permissionMode: apiMode }).catch((err) => {
-        console.error('[settings] permission mode update failed', err)
-      })
-    } else {
-      console.log('[settings] permission mode changed (no active session):', mode)
-    }
+    void quickSave({ permissionMode: mode }, workspacePath)
   }
 
   return (
@@ -129,9 +132,9 @@ export function StatusBar() {
 
           {/* Settings icon */}
           <button
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => setModalOpen(true)}
             className="p-0.5 rounded hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
-            title="전역 설정"
+            title="설정"
           >
             <Settings className="size-3.5" />
           </button>
@@ -144,7 +147,7 @@ export function StatusBar() {
         </div>
       </div>
 
-      <GlobalSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsModal />
     </>
   )
 }

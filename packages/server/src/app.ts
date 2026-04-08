@@ -13,12 +13,15 @@ import { createEventsRouter } from './routes/events.js'
 import { createHooksRouter } from './routes/hooks.js'
 import { createFilesRouter } from './routes/files.js'
 import { createGitRouter } from './routes/git.js'
+import { createSettingsRouter } from './routes/settings.js'
+import { createCliSettingsRouter } from './routes/cli-settings.js'
 import { WorkspaceRegistry } from './domain/workspace/workspace-registry.js'
 import { ProcessSupervisor } from './adapters/cli/process-supervisor.js'
 import { EventEmitterAdapter } from './adapters/events/event-emitter-adapter.js'
 import { SessionStore } from './adapters/db/session-store.js'
 import { WorkspaceStore } from './adapters/db/workspace-store.js'
 import { ApprovalPolicyStore } from './adapters/db/approval-policy-store.js'
+import { SettingsStore } from './adapters/db/settings-store.js'
 import { HookManager } from './adapters/hooks/hook-manager.js'
 import { ApprovalBridge } from './adapters/hooks/approval-bridge.js'
 import type { SessionRecord } from './routes/session.js'
@@ -34,6 +37,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const store = new SessionStore(dbPath)
   const workspaceStore = new WorkspaceStore(store.db)
   const policyStore = new ApprovalPolicyStore(store.db)
+  const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
   const approvalBridge = new ApprovalBridge(policyStore)
 
@@ -54,11 +58,13 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
 
   app.route('/api/health', health)
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
-  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager))
+  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore))
   app.route('/api/approvals', createApprovalRouter(approvalBridge))
   app.route('/api/workspaces', createEventsRouter(supervisor))
   app.route('/api/workspaces', createFilesRouter())
   app.route('/api/workspaces', createGitRouter())
+  app.route('/api/settings', createSettingsRouter(settingsStore))
+  app.route('/api/cli-settings', createCliSettingsRouter())
   app.route('/hooks', createHooksRouter(hookManager, approvalBridge))
 
   return { app, supervisor, registry, store, hookManager }

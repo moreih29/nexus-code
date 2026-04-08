@@ -34,7 +34,7 @@ function useChatSession() {
   useSse({
     workspacePath,
     onEvent: handleEvent,
-    enabled: !!workspacePath && !!sessionId,
+    enabled: !!workspacePath,
   })
 
   // 워크스페이스 변경 시 최근 세션의 히스토리 복원
@@ -56,12 +56,27 @@ function useChatSession() {
         const sessions = await fetchSessions(workspacePath)
         if (sessions.length === 0) return
 
-        // 가장 최근 세션 (created_at DESC 정렬 가정, 아니면 수동 정렬)
-        const latest = sessions.sort(
+        // 가장 최근 세션부터 시도, 히스토리 없으면 다음 세션으로 폴백
+        const sorted = sessions.sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        )[0]
+        )
 
-        const { messages } = await fetchHistory(latest.id, { limit: 100 })
+        let latest: (typeof sorted)[number] | undefined
+        let messages: Awaited<ReturnType<typeof fetchHistory>>['messages'] = []
+
+        for (const session of sorted.slice(0, 5)) {
+          try {
+            const result = await fetchHistory(session.id, { limit: 100 })
+            latest = session
+            messages = result.messages
+            break
+          } catch {
+            // 이 세션은 히스토리 불가 — 다음 세션 시도
+            continue
+          }
+        }
+
+        if (!latest) return
 
         // 히스토리 메시지를 ChatMessage 형식으로 변환
         const chatMessages: ChatMessage[] = messages
@@ -91,8 +106,14 @@ function useChatSession() {
           // 히스토리 표시 + resume용 세션 ID 저장 (메시지 전송 시 resume 호출됨)
           restoreFromHistory(latest.id, chatMessages)
         }
-      } catch {
-        // 서버 미연결 — 무시
+      } catch (err) {
+        console.warn('[chat] 히스토리 복원 실패:', err)
+        // 에러 시 시스템 메시지로 표시
+        restoreFromHistory('', [{
+          id: `err-${Date.now()}`,
+          role: 'assistant',
+          text: '⚠️ 이전 대화를 불러올 수 없습니다. 새 대화를 시작해주세요.',
+        }])
       }
     })()
   }, [workspacePath, setConnected, setSessionId, restoreFromHistory, resetSession])
