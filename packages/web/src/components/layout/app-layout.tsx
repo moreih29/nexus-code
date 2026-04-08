@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useLayoutStore } from '../../stores/layout-store'
+import { HealthWarningBanner } from './health-warning-banner'
 import { ResizeHandle } from './resize-handle'
 import { StatusBar } from './status-bar'
 
@@ -37,6 +38,7 @@ export function AppLayout({ left, center, right }: AppLayoutProps) {
 
       {/* Center — chat area */}
       <div className="bg-bg-base flex flex-col overflow-hidden min-w-0">
+        <HealthWarningBanner />
         {center ?? (
           <div className="flex flex-col h-full items-center justify-center text-text-muted text-xs gap-2">
             <span>채팅 영역</span>

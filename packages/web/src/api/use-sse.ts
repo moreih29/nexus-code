@@ -29,7 +29,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     const eventTypes = [
       'session_init', 'text_delta', 'tool_call', 'tool_result',
-      'permission_request', 'turn_end', 'error', 'rate_limit', 'hook_event',
+      'permission_request', 'permission_settled', 'turn_end', 'error', 'rate_limit', 'hook_event',
     ]
 
     function handleSseEvent(e: MessageEvent) {
@@ -45,6 +45,8 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       } catch {
         return
       }
+
+      console.log('[sse]', eventName, parsed)
 
       const mappedType = eventName === 'text_delta' ? 'text_chunk'
         : eventName === 'error' ? 'session_error'

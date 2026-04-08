@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { loggingMiddleware } from './middleware/logging.js'
 import { errorBoundary } from './middleware/error-boundary.js'
-import health from './routes/health.js'
+import { createHealthRouter } from './routes/health.js'
 import { createWorkspaceRouter } from './routes/workspace.js'
 import { createSessionRouter } from './routes/session.js'
 import { createApprovalRouter } from './routes/approval.js'
@@ -39,7 +39,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const policyStore = new ApprovalPolicyStore(store.db)
   const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
-  const approvalBridge = new ApprovalBridge(policyStore)
+  const approvalBridge = new ApprovalBridge(policyStore, settingsStore)
 
   const workspaceRows = workspaceStore.list()
   for (const row of workspaceRows) {
@@ -56,11 +56,11 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   app.use('*', loggingMiddleware)
   app.onError(errorBoundary)
 
-  app.route('/api/health', health)
+  app.route('/api/health', createHealthRouter(hookManager))
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
   app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore))
   app.route('/api/approvals', createApprovalRouter(approvalBridge))
-  app.route('/api/workspaces', createEventsRouter(supervisor))
+  app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge))
   app.route('/api/workspaces', createFilesRouter())
   app.route('/api/workspaces', createGitRouter())
   app.route('/api/settings', createSettingsRouter(settingsStore))

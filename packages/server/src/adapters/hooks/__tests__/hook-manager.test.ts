@@ -151,6 +151,38 @@ describe('HookManager', () => {
       const preToolUse = hooks['PreToolUse'] as unknown[]
       expect(preToolUse.length).toBe(2)
     })
+
+    it('replaces stale token hook with current token on second call — only current token remains', async () => {
+      // Simulate a previous server instance (different token) injecting its hook
+      const previousManager = new HookManager(3000)
+      await previousManager.injectHooks(tempDir)
+
+      // Verify the old hook is present
+      const settingsPath = join(tempDir, '.claude', 'settings.local.json')
+      const rawBefore = await readFile(settingsPath, 'utf8')
+      const settingsBefore = JSON.parse(rawBefore) as Record<string, unknown>
+      const hooksBefore = settingsBefore['hooks'] as Record<string, unknown>
+      const preToolUseBefore = hooksBefore['PreToolUse'] as unknown[]
+      expect(preToolUseBefore.length).toBe(1)
+      const oldUrl = ((preToolUseBefore[0] as Record<string, unknown>)['hooks'] as Array<Record<string, unknown>>)[0]!['url']
+      expect(oldUrl).not.toBe(manager.getHookUrl())
+
+      // Current manager (different token) injects — should replace the stale hook
+      await manager.injectHooks(tempDir)
+
+      const rawAfter = await readFile(settingsPath, 'utf8')
+      const settingsAfter = JSON.parse(rawAfter) as Record<string, unknown>
+      const hooksAfter = settingsAfter['hooks'] as Record<string, unknown>
+      const preToolUseAfter = hooksAfter['PreToolUse'] as unknown[]
+
+      // Only one hook group must remain
+      expect(preToolUseAfter.length).toBe(1)
+
+      // That single entry must use the current (new) token's URL
+      const group = preToolUseAfter[0] as Record<string, unknown>
+      const hookEntries = group['hooks'] as Array<Record<string, unknown>>
+      expect(hookEntries[0]!['url']).toBe(manager.getHookUrl())
+    })
   })
 
   describe('removeHooks', () => {

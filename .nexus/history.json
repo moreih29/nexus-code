@@ -4875,6 +4875,98 @@
           "created_at": "2026-04-08T11:54:36.343Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-08T14:44:35.015Z",
+      "branch": "fix/permission-hook-reliability",
+      "plan": {
+        "id": 5,
+        "topic": "CLI 권한 제어 전략 — hooks 기반 서버 권한 제어의 실제 동작 검증 및 버그 대응",
+        "issues": [
+          {
+            "id": 1,
+            "title": "hooks 기반 deny가 실제로 작동하는지 실험 검증 — 어떤 tool에서 되고 안 되는지",
+            "status": "decided",
+            "decision": "현재 아키텍처(bypassPermissions + HTTP PreToolUse hook → 서버 deny/allow)는 CLI v2.1.96에서 정상 작동 확인. Read, Edit, Bash, HTTP hook 모두 deny 시 차단됨. 이전 세션의 \"안된다\"는 오류. 현재 앱에서 권한이 안 되는 문제가 있다면 아키텍처 자체가 아닌 구현 버그로 판단하고 추적해야 함."
+          },
+          {
+            "id": 2,
+            "title": "알려진 버그(deny 무시, bypassPermissions 깨짐)가 현재 앱에 영향을 주는지 + 대응 전략",
+            "status": "decided",
+            "decision": "외부 GitHub 버그(#4669, #37210, #36168)는 CLI v2.1.96에서 재현 안 됨 — 현재 앱에 영향 없음. 실제 문제는 3가지 구현 결함: (1) HTTP hook fail-open — 서버 응답 실패 시 tool 무조건 통과 (CLI 구조적 한계), (2) 토큰 불일치 — 서버 재시작 시 orphan hook 발생으로 401 → tool 통과, (3) UI permission mode가 실제 CLI 동작에 반영되지 않음. 증상: \"tool이 오래 걸리다가 승인 없이 실행됨\"은 서버 미실행/토큰 불일치로 60초 타임아웃 후 fail-open된 것."
+          },
+          {
+            "id": 3,
+            "title": "Permission mode 최적 조합 — bypassPermissions 유지 vs 다른 mode + hooks 조합",
+            "status": "decided",
+            "decision": "A안 채택 — 현재 구조(bypass + HTTP hook) 유지 + 결함 보완. 보완 항목: (1) 세션 시작 시 hook 재주입 보장 (토큰 불일치 해소), (2) 서버 health check로 fail-open 감지 → 경고 UI, (3) UI permission mode 설정이 approval bridge 동작에 실제 반영되도록 수정. bypass 제거 및 CLI permission mode 직접 활용(B안)은 -p 모드에서의 stdin prompt 처리 복잡도 때문에 기각."
+          }
+        ],
+        "research_summary": "코드베이스: CLI를 --dangerously-skip-permissions로 실행, PreToolUse HTTP hook을 settings.local.json에 주입하여 서버로 연결, approval-bridge가 정책 스토어 확인 후 allow/deny 결정. 외부 리서치: 공식 문서상 PreToolUse hook이 permission 평가 최우선, bypassPermissions에서도 hooks 실행됨, HTTP hook으로 deny 반환 시 tool 차단 가능. 단, GitHub issues #4669(deny 무시), #37210(Edit deny 무시), #36168(bypassPermissions 깨짐), #12232(allowedTools 충돌) 등 버그 보고 존재.",
+        "created_at": "2026-04-08T14:07:26.197Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "세션 시작 시 hook 재주입 보장 (토큰 불일치 해소)",
+          "context": "서버 재시작 시 새 토큰이 생성되지만 settings.local.json의 토큰이 이전 것으로 남아 401 → tool 통과. 세션 시작 시점에 항상 hook을 재주입하여 토큰을 갱신해야 함.",
+          "approach": "session route에서 세션 시작 시 injectHooks()가 이미 호출되는지 확인. 호출되고 있다면 기존 hook을 제거 후 재주입하는 로직 보강. cleanupOrphanHooks가 서버 시작 시 자동 실행되도록 보장.",
+          "acceptance": "서버 재시작 후 세션 시작 시 settings.local.json의 토큰이 현재 서버 토큰과 일치. orphan hook이 자동 정리됨.",
+          "risk": "settings.local.json에 사용자 커스텀 hook이 있을 경우 덮어쓰지 않도록 주의",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T14:30:44.381Z"
+        },
+        {
+          "id": 2,
+          "title": "fail-open 감지 및 경고 UI",
+          "context": "HTTP hook이 실패(서버 미실행, 네트워크 오류)하면 CLI가 tool을 무조건 통과시킴. 사용자에게 이 상태를 알려야 함.",
+          "approach": "두 가지 경로: (1) 서버 측 — 세션 활성 상태에서 hook 요청이 일정 시간 안 오면 비정상 감지. (2) 프론트 측 — 서버 health check 주기적 실행, 서버 비응답 시 \"권한 제어 비활성\" 경고 배너 표시. 우선 프론트 health check 방식이 간단.",
+          "acceptance": "서버 비정상 시 웹 UI에 경고 배너가 표시됨. 사용자가 권한 제어가 작동하지 않음을 인지 가능.",
+          "risk": "false positive — 서버가 잠깐 느린 것과 실제 다운을 구분해야 함",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-08T14:30:53.848Z"
+        },
+        {
+          "id": 3,
+          "title": "UI permission mode가 approval bridge에 실제 반영",
+          "context": "현재 UI에서 default/auto/bypass 선택 가능하지만 approval bridge는 mode를 참조하지 않음. 예: auto 모드면 bridge가 자동 allow, default면 사용자 승인 대기.",
+          "approach": "hooks route에서 permission_mode를 approval bridge에 전달. bridge에서 mode에 따라 분기: (1) auto → 즉시 allow, (2) default → 기존 로직(pending + 사용자 승인 대기), (3) bypassPermissions → 즉시 allow. mode는 세션 시작 시 설정에서 가져와 hook 요청에 포함되거나, bridge가 세션별 mode를 알 수 있도록 전달.",
+          "acceptance": "UI에서 auto 선택 시 승인 UI 없이 tool 실행. default 선택 시 승인 UI 표시. 설정 변경이 다음 세션부터 적용됨.",
+          "risk": "auto 모드에서도 위험한 tool(rm -rf 등)은 차단해야 할 수 있음 — 추후 disallowedTools와 연동 필요",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-08T14:31:01.711Z"
+        },
+        {
+          "id": 4,
+          "title": "권한 제어 보완 통합 테스트",
+          "context": "Task 1~3의 보완 사항이 실제로 작동하는지 검증. 실험에서 검증한 시나리오(deny 작동, 토큰 갱신, fail-open 감지, mode별 동작)를 재현.",
+          "approach": "시나리오별 수동/자동 테스트: (1) 서버 재시작 후 세션 시작 → 토큰 일치 확인, (2) 서버 중단 시 경고 UI 표시 확인, (3) default 모드에서 tool 승인 UI 표시 확인, (4) auto 모드에서 tool 자동 통과 확인.",
+          "acceptance": "4개 시나리오 모두 통과. 서버 재시작/중단 시에도 권한 제어가 예측 가능하게 동작.",
+          "risk": "E2E 환경에서 서버 중단 시뮬레이션이 까다로울 수 있음",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-08T14:31:10.720Z"
+        }
+      ]
     }
   ]
 }

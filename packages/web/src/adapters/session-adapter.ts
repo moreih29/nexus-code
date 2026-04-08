@@ -323,11 +323,40 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
       }
     }
 
+    case 'permission_settled': {
+      const messages = state.messages.map((msg) => {
+        if (msg.permissionRequest?.id === event.permissionId) {
+          return { ...msg, permissionRequest: undefined }
+        }
+        return msg
+      })
+      return { ...state, messages }
+    }
+
     case 'turn_end': {
       let nextState = state
       if (state.currentStreamingText) {
         nextState = commitStreamingText(state)
       }
+
+      // Force-complete any pending tool calls — turn_end means CLI is done
+      if (nextState.pendingToolCalls.size > 0) {
+        const completedPending = new Map(nextState.pendingToolCalls)
+        const messages = nextState.messages.map((msg) => {
+          if (!msg.toolCalls) return msg
+          const updated = msg.toolCalls.map((tc) => {
+            if (tc.status === 'running') {
+              const completed = { ...tc, status: 'success' as const }
+              completedPending.set(tc.id, completed)
+              return completed
+            }
+            return tc
+          })
+          return { ...msg, toolCalls: updated }
+        })
+        nextState = { ...nextState, messages, pendingToolCalls: completedPending }
+      }
+
       const last = lastMessage(nextState.messages)
       if (last && last.isStreaming) {
         const updatedLast: ChatMessage = { ...last, isStreaming: false }

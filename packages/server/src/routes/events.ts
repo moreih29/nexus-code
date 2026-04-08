@@ -2,8 +2,9 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ProcessSupervisor } from '../adapters/cli/process-supervisor.js'
 import type { CliProcess } from '../adapters/cli/cli-process.js'
+import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
 
-export function createEventsRouter(supervisor: ProcessSupervisor) {
+export function createEventsRouter(supervisor: ProcessSupervisor, approvalBridge: ApprovalBridge) {
   const router = new Hono()
 
   router.get('/:path{.+}/events', async (c) => {
@@ -90,6 +91,29 @@ export function createEventsRouter(supervisor: ProcessSupervisor) {
       disposables.push(
         group.onProcessAdded((agentId, process_) => {
           subscribeProcess(agentId, process_)
+        }),
+      )
+
+      // Subscribe to approval bridge pending events for this workspace
+      disposables.push(
+        approvalBridge.onPendingAdded((info) => {
+          if (info.workspacePath !== workspacePath) return
+          void stream.writeSSE({
+            event: 'permission_request',
+            data: JSON.stringify({
+              sessionId: info.sessionId,
+              agentId: null,
+              permissionId: info.id,
+              toolName: info.toolName,
+              toolInput: info.toolInput,
+            }),
+          })
+        }),
+        approvalBridge.onPendingSettled((id, decision) => {
+          void stream.writeSSE({
+            event: 'permission_settled',
+            data: JSON.stringify({ sessionId: null, permissionId: id, decision }),
+          })
         }),
       )
 
