@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { readFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -98,6 +98,34 @@ describe('HookManager', () => {
       const hooks = settings['hooks'] as Record<string, unknown>
       const preToolUse = hooks['PreToolUse'] as unknown[]
       expect(preToolUse.length).toBe(1)
+    })
+
+    it('treats broken JSON in settings.local.json as empty settings and injects hook', async () => {
+      const settingsDir = join(tempDir, '.claude')
+      await mkdir(settingsDir, { recursive: true })
+      const settingsPath = join(settingsDir, 'settings.local.json')
+
+      // Write deliberately broken JSON
+      await writeFile(settingsPath, '{ this is not valid json }', 'utf8')
+
+      const result = await manager.injectHooks(tempDir)
+      expect(result.ok).toBe(true)
+
+      const raw = await readFile(settingsPath, 'utf8')
+      const settings = JSON.parse(raw) as Record<string, unknown>
+      expect(settings['hooks']).toBeDefined()
+      const hooks = settings['hooks'] as Record<string, unknown>
+      expect(Array.isArray(hooks['PreToolUse'])).toBe(true)
+    })
+
+    it('returns err result when the .claude path is blocked by a file', async () => {
+      // Create a file at the .claude path — mkdir({recursive:true}) will succeed
+      // but writeFile to .claude/settings.local.json will fail because .claude is a file
+      const claudePath = join(tempDir, '.claude')
+      await writeFile(claudePath, 'block', 'utf8')
+
+      const result = await manager.injectHooks(tempDir)
+      expect(result.ok).toBe(false)
     })
 
     it('merges with existing PreToolUse hooks', async () => {
@@ -262,6 +290,21 @@ describe('HookManager', () => {
     it('does nothing when workspace has no settings file', async () => {
       // Should not throw
       await expect(manager.cleanupOrphanHooks([tempDir])).resolves.toBeUndefined()
+    })
+
+    it('removes orphan hooks from a previous instance on the same port but different token', async () => {
+      // Simulate two managers sharing the same port — different tokens due to randomUUID()
+      const previousManager = new HookManager(manager['port'])
+      await previousManager.injectHooks(tempDir)
+
+      // Current manager cleans up orphans — URL differs only in token param
+      await manager.cleanupOrphanHooks([tempDir])
+
+      const settingsPath = join(tempDir, '.claude', 'settings.local.json')
+      const raw = await readFile(settingsPath, 'utf8')
+      const settings = JSON.parse(raw) as Record<string, unknown>
+      // All nexus hooks from the previous instance should be gone
+      expect(settings['hooks']).toBeUndefined()
     })
   })
 })
