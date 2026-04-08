@@ -1,12 +1,5 @@
 import { useChatStore } from '../../stores/chat-store.js'
-
-const TYPE_BADGE_COLORS: Record<string, string> = {
-  Explore: 'text-[#8b949e]',
-  Engineer: 'text-[#bc8cff]',
-  Researcher: 'text-[#58a6ff]',
-  Writer: 'text-[#3fb950]',
-  Tester: 'text-[#f0883e]',
-}
+import { TYPE_BADGE_COLORS } from '../../lib/subagent-theme.js'
 
 export function AgentTabs() {
   const activeTab = useChatStore((s) => s.activeTab)

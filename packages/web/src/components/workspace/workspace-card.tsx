@@ -22,16 +22,16 @@ function StatusDot({ status }: { status: DisplayWorkspace['status'] }) {
   if (status === 'active') {
     return (
       <span
-        className="w-2 h-2 rounded-full flex-shrink-0 bg-[#3fb950]"
-        style={{ boxShadow: '0 0 6px #3fb950' }}
+        className="w-2 h-2 rounded-full flex-shrink-0 bg-green"
+        style={{ boxShadow: '0 0 6px var(--green)' }}
       />
     )
   }
   if (status === 'warning') {
     return (
       <span
-        className="w-2 h-2 rounded-full flex-shrink-0 bg-[#d29922]"
-        style={{ boxShadow: '0 0 6px #d29922' }}
+        className="w-2 h-2 rounded-full flex-shrink-0 bg-yellow"
+        style={{ boxShadow: '0 0 6px var(--yellow)' }}
       />
     )
   }
@@ -70,13 +70,13 @@ export function WorkspaceCard({ workspace, isActive, onClick }: WorkspaceCardPro
           {workspace.name}
         </span>
         {workspace.pendingApprovals > 0 && (
-          <span className="bg-[#f85149] text-white text-[10px] font-semibold px-1.5 py-px rounded-full leading-none">
+          <span className="bg-red text-white text-[10px] font-semibold px-1.5 py-px rounded-full leading-none">
             {workspace.pendingApprovals}
           </span>
         )}
         <button
           onClick={handleDelete}
-          className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-[#f85149] text-[13px] leading-none transition-opacity ml-1"
+          className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red text-[13px] leading-none transition-opacity ml-1"
           title="워크스페이스 삭제"
         >
           ×

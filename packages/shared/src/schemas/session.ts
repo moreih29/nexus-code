@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+export const PromptBodySchema = z.object({
+  prompt: z.string(),
+})
+
 export const SessionStatusSchema = z.enum([
   'idle',
   'running',
@@ -73,6 +77,7 @@ export const SessionEventSchema = z.discriminatedUnion('type', [
   SessionErrorEventSchema,
 ])
 
+export type PromptBody = z.infer<typeof PromptBodySchema>
 export type SessionStatus = z.infer<typeof SessionStatusSchema>
 export type StartSessionRequest = z.infer<typeof StartSessionRequestSchema>
 export type SessionResponse = z.infer<typeof SessionResponseSchema>

@@ -3,7 +3,6 @@ import { useWorkspaceStore } from '../../stores/workspace-store'
 import { WorkspaceCard, type DisplayWorkspace } from './workspace-card'
 import { selectFolder } from '../../lib/electron'
 import { useWorkspaces, useCreateWorkspace } from '../../hooks/use-workspaces'
-import { mockWorkspaces } from '../../mock/data'
 import type { WorkspaceResponse } from '@nexus/shared'
 
 function toDisplayWorkspace(ws: WorkspaceResponse): DisplayWorkspace {
@@ -26,9 +25,7 @@ export function WorkspaceNav() {
   const createWorkspace = useCreateWorkspace()
 
   const workspaces: DisplayWorkspace[] =
-    serverWorkspaces && !isError
-      ? serverWorkspaces.map(toDisplayWorkspace)
-      : mockWorkspaces
+    serverWorkspaces && !isError ? serverWorkspaces.map(toDisplayWorkspace) : []
 
   const workspaceIds = workspaces.map((ws) => ws.id)
 

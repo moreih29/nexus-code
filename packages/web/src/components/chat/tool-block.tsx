@@ -1,21 +1,8 @@
 import { useState } from 'react'
-import { FileText, Pencil, FileOutput, Terminal, Search, FolderSearch, Bot, Wrench, Check, X } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { DiffView } from './diff-view.js'
-
-function getToolIcon(name: string) {
-  switch (name) {
-    case 'Read': return <FileText size={14} />
-    case 'Edit': return <Pencil size={14} />
-    case 'Write': return <FileOutput size={14} />
-    case 'Bash': return <Terminal size={14} />
-    case 'Grep': return <Search size={14} />
-    case 'Glob': return <FolderSearch size={14} />
-    case 'Agent':
-    case 'Task': return <Bot size={14} />
-    default: return <Wrench size={14} />
-  }
-}
+import { getToolIcon } from '../../lib/tool-icons.js'
 
 function getFilePath(input: Record<string, unknown>): string | null {
   const path = input.file_path ?? input.path ?? input.command

@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { FileText, Pencil, FileOutput, Terminal, Search, FolderSearch, Bot, Wrench } from 'lucide-react'
 import type { ToolCallState } from '../../adapters/session-adapter.js'
 import { ToolBlock } from './tool-block.js'
+import { getToolIcon } from '../../lib/tool-icons.js'
 
 interface ToolCallGroup {
   name: string
@@ -28,21 +28,7 @@ interface CollapsedGroupProps {
 function CollapsedGroup({ group }: CollapsedGroupProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  function getGroupIcon(name: string) {
-    switch (name) {
-      case 'Read': return <FileText size={14} />
-      case 'Edit': return <Pencil size={14} />
-      case 'Write': return <FileOutput size={14} />
-      case 'Bash': return <Terminal size={14} />
-      case 'Grep': return <Search size={14} />
-      case 'Glob': return <FolderSearch size={14} />
-      case 'Agent':
-      case 'Task': return <Bot size={14} />
-      default: return <Wrench size={14} />
-    }
-  }
-
-  const icon = getGroupIcon(group.name)
+  const icon = getToolIcon(group.name)
 
   const hasError = group.items.some((tc) => tc.isError || tc.status === 'error')
   const allDone = group.items.every((tc) => tc.status === 'success')

@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { useChatStore } from '../../stores/chat-store.js'
-import { useWorkspaceStore } from '../../stores/workspace-store.js'
-import { useWorkspaces } from '../../hooks/use-workspaces.js'
+import { useActiveWorkspace } from '../../hooks/use-active-workspace.js'
 import { useStartSession, useSendPrompt } from '../../hooks/use-session.js'
 import { resumeSession } from '../../api/session.js'
 import { useSettingsStore } from '../../stores/settings-store.js'
@@ -10,13 +9,10 @@ export function ChatInput() {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { data: workspaces } = useWorkspaces()
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const { workspacePath: rawWorkspacePath } = useActiveWorkspace()
+  const workspacePath = rawWorkspacePath ?? ''
   const { sessionId, restorableSessionId, sendMessage, setSessionId } = useChatStore()
   const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
-
-  const activeWorkspace = workspaces?.find((ws) => ws.id === activeWorkspaceId)
-  const workspacePath = activeWorkspace?.path ?? ''
 
   const startSession = useStartSession()
   const sendPrompt = useSendPrompt(sessionId ?? '')

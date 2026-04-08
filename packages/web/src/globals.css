@@ -16,6 +16,7 @@
   --color-yellow: var(--yellow);
   --color-red: var(--red);
   --color-purple: var(--purple);
+  --color-orange: var(--orange);
 
   /* shadcn/ui compatibility */
   --color-background: var(--bg-base);
@@ -56,6 +57,7 @@
   --yellow: #d29922;
   --red: #f85149;
   --purple: #bc8cff;
+  --orange: #f0883e;
 }
 
 [data-theme="midnight-blue"] {
@@ -74,6 +76,7 @@
   --yellow: #e0af68;
   --red: #f7768e;
   --purple: #bb9af7;
+  --orange: #ff9e64;
 }
 
 [data-theme="monokai-pro"] {
@@ -92,6 +95,7 @@
   --yellow: #ffd866;
   --red: #ff6188;
   --purple: #ab9df2;
+  --orange: #fc9867;
 }
 
 [data-theme="nord-aurora"] {
@@ -110,6 +114,7 @@
   --yellow: #ebcb8b;
   --red: #bf616a;
   --purple: #b48ead;
+  --orange: #d08770;
 }
 
 [data-theme="catppuccin-mocha"] {
@@ -128,6 +133,7 @@
   --yellow: #f9e2af;
   --red: #f38ba8;
   --purple: #cba6f7;
+  --orange: #fab387;
 }
 
 [data-theme="obsidian"] {
@@ -146,6 +152,7 @@
   --yellow: #e2b714;
   --red: #e74c3c;
   --purple: #9b59b6;
+  --orange: #e67e22;
 }
 
 [data-theme="claude"] {
@@ -164,6 +171,7 @@
   --yellow: #d4a27f;
   --red: #c47060;
   --purple: #a890c0;
+  --orange: #c8855a;
 }
 
 [data-theme="gpt"] {
@@ -182,6 +190,7 @@
   --yellow: #f5c542;
   --red: #ef4444;
   --purple: #8b5cf6;
+  --orange: #f97316;
 }
 
 @layer base {
