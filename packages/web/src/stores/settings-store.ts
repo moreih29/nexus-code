@@ -287,6 +287,15 @@ export const useSettingsStore = create<SettingsState>()(
             // Send only the partial — server merges with existing
             await apiClient.put<AppSettings>('/api/settings?scope=global', partial)
           }
+
+          // Sync legacy state for status bar after quickSave
+          const { globalSettings: gs, projectSettings: ps } = get()
+          const effective = { ...gs, ...ps }
+          set({
+            defaultModel: normalizeModelId(effective.model),
+            defaultPermissionMode: (effective.permissionMode as PermissionMode) ?? 'default',
+            defaultEffortLevel: (effective.effortLevel as EffortLevel) ?? 'medium',
+          })
         } catch (err) {
           console.error('[settings] quickSave failed', err)
         }

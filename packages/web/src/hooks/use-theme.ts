@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useSettingsStore } from '@/stores/settings-store'
 
 export type Theme =
   | 'github-dark'
@@ -23,29 +24,28 @@ export const THEMES: { id: Theme; label: string; palette: [string, string, strin
 
 const DEFAULT_THEME: Theme = 'github-dark'
 
-function applyTheme(theme: Theme) {
+export function applyTheme(theme: Theme) {
   document.documentElement.setAttribute('data-theme', theme)
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(DEFAULT_THEME)
+  const storeTheme = useSettingsStore((s) => s.globalSettings.theme)
+  const quickSave = useSettingsStore((s) => s.quickSave)
 
+  const theme: Theme =
+    storeTheme && THEMES.some((t) => t.id === storeTheme)
+      ? (storeTheme as Theme)
+      : DEFAULT_THEME
+
+  // Apply theme to DOM whenever it changes in the store
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
 
   function setTheme(next: Theme) {
-    setThemeState(next)
     applyTheme(next)
+    void quickSave({ theme: next }, null)
   }
 
-  /** Sync theme from server-loaded settings */
-  function syncFromSettings(serverTheme: string | undefined) {
-    if (serverTheme && THEMES.some((t) => t.id === serverTheme)) {
-      setThemeState(serverTheme as Theme)
-      applyTheme(serverTheme as Theme)
-    }
-  }
-
-  return { theme, setTheme, syncFromSettings, themes: THEMES }
+  return { theme, setTheme, themes: THEMES }
 }

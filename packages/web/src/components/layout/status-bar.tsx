@@ -11,8 +11,7 @@ import {
 import { SettingsModal } from '@/components/settings/settings-modal'
 import { MODELS, useSettingsStore, type ModelId, type PermissionMode } from '@/stores/settings-store'
 import { useChatStore } from '@/stores/chat-store'
-import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useWorkspaces } from '@/hooks/use-workspaces'
+import { useActiveWorkspace } from '@/hooks/use-active-workspace'
 import { useTheme } from '@/hooks/use-theme'
 
 const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
@@ -22,25 +21,19 @@ const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
 ]
 
 export function StatusBar() {
-  const { modalOpen, setModalOpen, defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode, quickSave, loadSettings, globalSettings } =
+  const { modalOpen, setModalOpen, defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode, quickSave, loadSettings } =
     useSettingsStore()
 
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { data: workspaces } = useWorkspaces()
-  const workspacePath = workspaces?.find((w) => w.id === activeWorkspaceId)?.path ?? null
-  const { syncFromSettings } = useTheme()
+  const { workspacePath } = useActiveWorkspace()
+
+  // useTheme subscribes to globalSettings.theme and applies it to the DOM automatically
+  useTheme()
 
   // Load settings from server on mount and when workspace changes
   useEffect(() => {
     void loadSettings(workspacePath)
   }, [workspacePath]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync theme from server settings after load
-  useEffect(() => {
-    if (globalSettings.theme) {
-      syncFromSettings(globalSettings.theme)
-    }
-  }, [globalSettings.theme]) // eslint-disable-line react-hooks/exhaustive-deps
   const isConnected = useChatStore((s) => s.isConnected)
   const isWaitingResponse = useChatStore((s) => s.isWaitingResponse)
   const isStreaming = useChatStore((s) => s.sessionState.isStreaming)
