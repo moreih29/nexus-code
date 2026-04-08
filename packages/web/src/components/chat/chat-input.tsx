@@ -3,7 +3,7 @@ import { useChatStore } from '../../stores/chat-store.js'
 import { useActiveWorkspace } from '../../hooks/use-active-workspace.js'
 import { useStartSession, useSendPrompt } from '../../hooks/use-session.js'
 import { resumeSession } from '../../api/session.js'
-import { useSettingsStore } from '../../stores/settings-store.js'
+import { getEffectiveSettings, normalizeModelId } from '../../stores/settings-store.js'
 
 export function ChatInput() {
   const [value, setValue] = useState('')
@@ -44,12 +44,12 @@ export function ChatInput() {
       } else if (!sessionId) {
         // First message — start a new session
         console.log('[chat-input] starting session', { workspacePath, prompt: trimmed })
-        const { defaultModel, defaultPermissionMode } = useSettingsStore.getState()
+        const { model, permissionMode } = getEffectiveSettings()
         const response = await startSession.mutateAsync({
           workspacePath,
           prompt: trimmed,
-          model: defaultModel,
-          permissionMode: defaultPermissionMode === 'default' ? undefined : defaultPermissionMode,
+          model: normalizeModelId(model),
+          permissionMode: permissionMode === 'default' ? undefined : (permissionMode as 'auto' | 'bypassPermissions' | undefined),
         })
         console.log('[chat-input] session started', response)
         setSessionId(response.id)

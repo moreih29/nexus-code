@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import { apiClient } from '@/api/client'
 
 export type PermissionMode = 'default' | 'auto' | 'bypassPermissions'
@@ -23,7 +22,7 @@ const LEGACY_MODEL_MAP: Record<string, ModelId> = {
   'claude-haiku-4-6': 'haiku',
 }
 
-function normalizeModelId(value: unknown): ModelId {
+export function normalizeModelId(value: unknown): ModelId {
   if (typeof value === 'string') {
     if (LEGACY_MODEL_MAP[value]) return LEGACY_MODEL_MAP[value]
     if (MODELS.some((m) => m.id === value)) return value as ModelId
@@ -85,6 +84,9 @@ interface DrawerSettingsState {
   // Loading state
   isLoading: boolean
 
+  // Internal: tracks keys with in-flight quickSave requests
+  _pendingSaveKeys: Set<string>
+
   // Actions
   loadSettings: (workspacePath: string | null) => Promise<void>
   updateDraft: (scope: SettingsScope, partial: Partial<AppSettings>) => void
@@ -95,229 +97,224 @@ interface DrawerSettingsState {
   quickSave: (partial: Partial<AppSettings>, workspacePath: string | null) => Promise<void>
 }
 
-// Legacy state kept for status bar backward compat
-interface LegacySettingsState {
-  defaultModel: ModelId
-  defaultPermissionMode: PermissionMode
-  defaultEffortLevel: EffortLevel
-  defaultMaxTurns: number | null
+type SettingsState = DrawerSettingsState
 
-  setDefaultModel: (model: ModelId) => void
-  setDefaultPermissionMode: (mode: PermissionMode) => void
-  setDefaultEffortLevel: (level: EffortLevel) => void
-  setDefaultMaxTurns: (turns: number | null) => void
+export const useSettingsStore = create<SettingsState>()((set, get) => ({
+  // Modal
+  modalOpen: false,
+  setModalOpen: (open) => set({ modalOpen: open }),
+
+  scope: 'global',
+  setScope: (scope) => set({ scope }),
+
+  globalSettings: {},
+  projectSettings: {},
+  globalCliSettings: {},
+  projectCliSettings: {},
+
+  draftGlobal: {},
+  draftProject: {},
+  draftGlobalCli: {},
+  draftProjectCli: {},
+
+  isDirtyGlobal: false,
+  isDirtyProject: false,
+  isLoading: false,
+  _pendingSaveKeys: new Set<string>(),
+
+  loadSettings: async (workspacePath) => {
+    set({ isLoading: true })
+    try {
+      const [globalSettings, globalCliSettings] = await Promise.all([
+        apiClient.get<AppSettings>('/api/settings?scope=global'),
+        apiClient.get<CliSettings>('/api/cli-settings?scope=global'),
+      ])
+
+      let projectSettings: AppSettings = {}
+      let projectCliSettings: CliSettings = {}
+
+      if (workspacePath) {
+        const encoded = encodeURIComponent(workspacePath)
+        ;[projectSettings, projectCliSettings] = await Promise.all([
+          apiClient.get<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`),
+          apiClient.get<CliSettings>(`/api/cli-settings?scope=project&workspace=${encoded}`),
+        ])
+      }
+
+      // Protect keys with in-flight quickSave requests from being overwritten
+      const { _pendingSaveKeys, globalSettings: currentGlobal, projectSettings: currentProject } = get()
+      if (_pendingSaveKeys.size > 0) {
+        for (const key of _pendingSaveKeys) {
+          if (key in currentGlobal) (globalSettings as Record<string, unknown>)[key] = currentGlobal[key as keyof AppSettings]
+          if (key in currentProject) (projectSettings as Record<string, unknown>)[key] = currentProject[key as keyof AppSettings]
+        }
+      }
+
+      set({
+        globalSettings,
+        projectSettings,
+        globalCliSettings,
+        projectCliSettings,
+        draftGlobal: { ...globalSettings },
+        draftProject: { ...projectSettings },
+        draftGlobalCli: { ...globalCliSettings },
+        draftProjectCli: { ...projectCliSettings },
+        isDirtyGlobal: false,
+        isDirtyProject: false,
+        isLoading: false,
+      })
+    } catch (err) {
+      console.error('[settings] loadSettings failed', err)
+      set({ isLoading: false })
+    }
+  },
+
+  updateDraft: (scope, partial) => {
+    if (scope === 'global') {
+      set((s) => ({
+        draftGlobal: { ...s.draftGlobal, ...partial },
+        isDirtyGlobal: true,
+      }))
+    } else {
+      set((s) => ({
+        draftProject: { ...s.draftProject, ...partial },
+        isDirtyProject: true,
+      }))
+    }
+  },
+
+  updateDraftCli: (scope, partial) => {
+    if (scope === 'global') {
+      set((s) => ({
+        draftGlobalCli: { ...s.draftGlobalCli, ...partial },
+        isDirtyGlobal: true,
+      }))
+    } else {
+      set((s) => ({
+        draftProjectCli: { ...s.draftProjectCli, ...partial },
+        isDirtyProject: true,
+      }))
+    }
+  },
+
+  resetProjectKey: (key) => {
+    set((s) => {
+      const next = { ...s.draftProject }
+      delete next[key]
+      return { draftProject: next, isDirtyProject: true }
+    })
+  },
+
+  saveSettings: async (workspacePath) => {
+    const {
+      scope,
+      draftGlobal,
+      draftProject,
+      draftGlobalCli,
+      draftProjectCli,
+      isDirtyGlobal,
+      isDirtyProject,
+    } = get()
+
+    try {
+      if (scope === 'global' && isDirtyGlobal) {
+        await Promise.all([
+          apiClient.put<AppSettings>('/api/settings?scope=global', draftGlobal),
+          apiClient.put<CliSettings>('/api/cli-settings?scope=global', draftGlobalCli),
+        ])
+        set({ globalSettings: { ...draftGlobal }, globalCliSettings: { ...draftGlobalCli }, isDirtyGlobal: false })
+      }
+
+      if (scope === 'project' && isDirtyProject && workspacePath) {
+        const encoded = encodeURIComponent(workspacePath)
+        await Promise.all([
+          apiClient.put<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`, draftProject),
+          apiClient.put<CliSettings>(`/api/cli-settings?scope=project&workspace=${encoded}`, draftProjectCli),
+        ])
+        set({ projectSettings: { ...draftProject }, projectCliSettings: { ...draftProjectCli }, isDirtyProject: false })
+      }
+    } catch (err) {
+      console.error('[settings] saveSettings failed', err)
+      throw err
+    }
+  },
+
+  quickSave: async (partial, workspacePath) => {
+    const keys = Object.keys(partial)
+
+    // Save previous values for rollback on failure
+    const current = workspacePath ? get().projectSettings : get().globalSettings
+    const prevValues: Partial<AppSettings> = {}
+    for (const k of keys) (prevValues as Record<string, unknown>)[k] = current[k as keyof AppSettings]
+
+    // Register keys as pending before the API call
+    set((s) => ({ _pendingSaveKeys: new Set([...s._pendingSaveKeys, ...keys]) }))
+
+    try {
+      if (workspacePath) {
+        const encoded = encodeURIComponent(workspacePath)
+        // Optimistic update
+        set((s) => ({
+          projectSettings: { ...s.projectSettings, ...partial },
+          draftProject: { ...s.draftProject, ...partial },
+        }))
+        // Server merges and returns the full merged result
+        const merged = await apiClient.put<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`, partial)
+        // Confirm with authoritative server response
+        set((s) => ({
+          projectSettings: merged,
+          draftProject: { ...s.draftProject, ...merged },
+        }))
+      } else {
+        // Optimistic update
+        set((s) => ({
+          globalSettings: { ...s.globalSettings, ...partial },
+          draftGlobal: { ...s.draftGlobal, ...partial },
+        }))
+        // Server merges and returns the full merged result
+        const merged = await apiClient.put<AppSettings>('/api/settings?scope=global', partial)
+        // Confirm with authoritative server response
+        set((s) => ({
+          globalSettings: merged,
+          draftGlobal: { ...s.draftGlobal, ...merged },
+        }))
+      }
+    } catch (err) {
+      // Rollback optimistic update to previous values
+      if (workspacePath) {
+        set((s) => ({
+          projectSettings: { ...s.projectSettings, ...prevValues },
+          draftProject: { ...s.draftProject, ...prevValues },
+        }))
+      } else {
+        set((s) => ({
+          globalSettings: { ...s.globalSettings, ...prevValues },
+          draftGlobal: { ...s.draftGlobal, ...prevValues },
+        }))
+      }
+      console.error('[settings] quickSave failed', err)
+    } finally {
+      // Always remove pending keys after the request settles
+      set((s) => {
+        const next = new Set(s._pendingSaveKeys)
+        keys.forEach((k) => next.delete(k))
+        return { _pendingSaveKeys: next }
+      })
+    }
+  },
+}))
+
+/** Effective model from merged global+project settings */
+export function useEffectiveModel(): ModelId {
+  return useSettingsStore((s) => normalizeModelId({ ...s.globalSettings, ...s.projectSettings }.model))
 }
 
-type SettingsState = LegacySettingsState & DrawerSettingsState
+export function useEffectivePermissionMode(): PermissionMode {
+  return useSettingsStore((s) => (({ ...s.globalSettings, ...s.projectSettings }.permissionMode as PermissionMode) ?? 'default'))
+}
 
-export const useSettingsStore = create<SettingsState>()(
-  persist(
-    (set, get) => ({
-      // Legacy
-      defaultModel: 'sonnet',
-      defaultPermissionMode: 'default',
-      defaultEffortLevel: 'high',
-      defaultMaxTurns: null,
-
-      setDefaultModel: (model) => set({ defaultModel: model }),
-      setDefaultPermissionMode: (mode) => set({ defaultPermissionMode: mode }),
-      setDefaultEffortLevel: (level) => set({ defaultEffortLevel: level }),
-      setDefaultMaxTurns: (turns) => set({ defaultMaxTurns: turns }),
-
-      // Modal
-      modalOpen: false,
-      setModalOpen: (open) => set({ modalOpen: open }),
-
-      scope: 'global',
-      setScope: (scope) => set({ scope }),
-
-      globalSettings: {},
-      projectSettings: {},
-      globalCliSettings: {},
-      projectCliSettings: {},
-
-      draftGlobal: {},
-      draftProject: {},
-      draftGlobalCli: {},
-      draftProjectCli: {},
-
-      isDirtyGlobal: false,
-      isDirtyProject: false,
-      isLoading: false,
-
-      loadSettings: async (workspacePath) => {
-        set({ isLoading: true })
-        try {
-          const [globalSettings, globalCliSettings] = await Promise.all([
-            apiClient.get<AppSettings>('/api/settings?scope=global'),
-            apiClient.get<CliSettings>('/api/cli-settings?scope=global'),
-          ])
-
-          let projectSettings: AppSettings = {}
-          let projectCliSettings: CliSettings = {}
-
-          if (workspacePath) {
-            const encoded = encodeURIComponent(workspacePath)
-            ;[projectSettings, projectCliSettings] = await Promise.all([
-              apiClient.get<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`),
-              apiClient.get<CliSettings>(`/api/cli-settings?scope=project&workspace=${encoded}`),
-            ])
-          }
-
-          // Compute effective settings for status bar sync
-          const effective = { ...globalSettings, ...projectSettings }
-
-          set({
-            globalSettings,
-            projectSettings,
-            globalCliSettings,
-            projectCliSettings,
-            draftGlobal: { ...globalSettings },
-            draftProject: { ...projectSettings },
-            draftGlobalCli: { ...globalCliSettings },
-            draftProjectCli: { ...projectCliSettings },
-            isDirtyGlobal: false,
-            isDirtyProject: false,
-            isLoading: false,
-            // Sync legacy state for status bar
-            defaultModel: normalizeModelId(effective.model),
-            defaultPermissionMode: (effective.permissionMode as PermissionMode) ?? 'default',
-            defaultEffortLevel: (effective.effortLevel as EffortLevel) ?? 'medium',
-          })
-        } catch (err) {
-          console.error('[settings] loadSettings failed', err)
-          set({ isLoading: false })
-        }
-      },
-
-      updateDraft: (scope, partial) => {
-        if (scope === 'global') {
-          set((s) => ({
-            draftGlobal: { ...s.draftGlobal, ...partial },
-            isDirtyGlobal: true,
-          }))
-        } else {
-          set((s) => ({
-            draftProject: { ...s.draftProject, ...partial },
-            isDirtyProject: true,
-          }))
-        }
-      },
-
-      updateDraftCli: (scope, partial) => {
-        if (scope === 'global') {
-          set((s) => ({
-            draftGlobalCli: { ...s.draftGlobalCli, ...partial },
-            isDirtyGlobal: true,
-          }))
-        } else {
-          set((s) => ({
-            draftProjectCli: { ...s.draftProjectCli, ...partial },
-            isDirtyProject: true,
-          }))
-        }
-      },
-
-      resetProjectKey: (key) => {
-        set((s) => {
-          const next = { ...s.draftProject }
-          delete next[key]
-          return { draftProject: next, isDirtyProject: true }
-        })
-      },
-
-      saveSettings: async (workspacePath) => {
-        const {
-          scope,
-          draftGlobal,
-          draftProject,
-          draftGlobalCli,
-          draftProjectCli,
-          isDirtyGlobal,
-          isDirtyProject,
-        } = get()
-
-        try {
-          if (scope === 'global' && isDirtyGlobal) {
-            await Promise.all([
-              apiClient.put<AppSettings>('/api/settings?scope=global', draftGlobal),
-              apiClient.put<CliSettings>('/api/cli-settings?scope=global', draftGlobalCli),
-            ])
-            set({ globalSettings: { ...draftGlobal }, globalCliSettings: { ...draftGlobalCli }, isDirtyGlobal: false })
-          }
-
-          if (scope === 'project' && isDirtyProject && workspacePath) {
-            const encoded = encodeURIComponent(workspacePath)
-            await Promise.all([
-              apiClient.put<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`, draftProject),
-              apiClient.put<CliSettings>(`/api/cli-settings?scope=project&workspace=${encoded}`, draftProjectCli),
-            ])
-            set({ projectSettings: { ...draftProject }, projectCliSettings: { ...draftProjectCli }, isDirtyProject: false })
-          }
-
-          // Sync legacy state for status bar after save
-          const { globalSettings: gs, projectSettings: ps } = get()
-          const effective = { ...gs, ...ps }
-          set({
-            defaultModel: normalizeModelId(effective.model),
-            defaultPermissionMode: (effective.permissionMode as PermissionMode) ?? 'default',
-            defaultEffortLevel: (effective.effortLevel as EffortLevel) ?? 'medium',
-          })
-        } catch (err) {
-          console.error('[settings] saveSettings failed', err)
-          throw err
-        }
-      },
-
-      quickSave: async (partial, workspacePath) => {
-        try {
-          if (workspacePath) {
-            const encoded = encodeURIComponent(workspacePath)
-            set((s) => ({
-              projectSettings: { ...s.projectSettings, ...partial },
-              draftProject: { ...s.draftProject, ...partial },
-            }))
-            // Send only the partial — server merges with existing
-            await apiClient.put<AppSettings>(`/api/settings?scope=project&workspace=${encoded}`, partial)
-          } else {
-            set((s) => ({
-              globalSettings: { ...s.globalSettings, ...partial },
-              draftGlobal: { ...s.draftGlobal, ...partial },
-            }))
-            // Send only the partial — server merges with existing
-            await apiClient.put<AppSettings>('/api/settings?scope=global', partial)
-          }
-
-          // Sync legacy state for status bar after quickSave
-          const { globalSettings: gs, projectSettings: ps } = get()
-          const effective = { ...gs, ...ps }
-          set({
-            defaultModel: normalizeModelId(effective.model),
-            defaultPermissionMode: (effective.permissionMode as PermissionMode) ?? 'default',
-            defaultEffortLevel: (effective.effortLevel as EffortLevel) ?? 'medium',
-          })
-        } catch (err) {
-          console.error('[settings] quickSave failed', err)
-        }
-      },
-    }),
-    {
-      name: 'nexus-settings',
-      // Only persist legacy UI state — server-fetched settings are not persisted
-      partialize: (state) => ({
-        defaultModel: state.defaultModel,
-        defaultPermissionMode: state.defaultPermissionMode,
-        defaultEffortLevel: state.defaultEffortLevel,
-        defaultMaxTurns: state.defaultMaxTurns,
-      }),
-      merge: (persisted, current) => {
-        const p = persisted as Partial<LegacySettingsState>
-        return {
-          ...current,
-          ...p,
-          defaultModel: normalizeModelId(p.defaultModel),
-        }
-      },
-    }
-  )
-)
+/** For non-React contexts (e.g., chat-input onSubmit) */
+export function getEffectiveSettings() {
+  const { globalSettings, projectSettings } = useSettingsStore.getState()
+  return { ...globalSettings, ...projectSettings }
+}

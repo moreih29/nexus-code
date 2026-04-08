@@ -71,13 +71,17 @@ export class SettingsStore {
   updateGlobalSettings(partial: Partial<AppSettings>): AppSettings {
     const current = this.getGlobalSettings()
     const merged = { ...current, ...partial }
-    this.db
-      .prepare(`
-        INSERT INTO settings (scope, workspace_path, settings_json)
-        VALUES ('global', NULL, ?)
-        ON CONFLICT(scope, workspace_path) DO UPDATE SET settings_json = excluded.settings_json
-      `)
-      .run(JSON.stringify(merged))
+    const json = JSON.stringify(merged)
+    // SQLite treats NULL as unique in UNIQUE constraints, so ON CONFLICT won't trigger.
+    // Use explicit UPDATE-or-INSERT pattern instead.
+    const updated = this.db
+      .prepare(`UPDATE settings SET settings_json = ? WHERE scope = 'global' AND workspace_path IS NULL`)
+      .run(json)
+    if (updated.changes === 0) {
+      this.db
+        .prepare(`INSERT INTO settings (scope, workspace_path, settings_json) VALUES ('global', NULL, ?)`)
+        .run(json)
+    }
     return merged
   }
 

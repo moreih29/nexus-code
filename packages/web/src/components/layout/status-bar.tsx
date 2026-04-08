@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SettingsModal } from '@/components/settings/settings-modal'
-import { MODELS, useSettingsStore, type ModelId, type PermissionMode } from '@/stores/settings-store'
+import { MODELS, useSettingsStore, useEffectiveModel, useEffectivePermissionMode, type ModelId, type PermissionMode } from '@/stores/settings-store'
 import { useChatStore } from '@/stores/chat-store'
 import { useActiveWorkspace } from '@/hooks/use-active-workspace'
 import { useTheme } from '@/hooks/use-theme'
@@ -21,8 +21,9 @@ const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
 ]
 
 export function StatusBar() {
-  const { modalOpen, setModalOpen, defaultModel, defaultPermissionMode, setDefaultModel, setDefaultPermissionMode, quickSave, loadSettings } =
-    useSettingsStore()
+  const { modalOpen, setModalOpen, quickSave, loadSettings } = useSettingsStore()
+  const defaultModel = useEffectiveModel()
+  const defaultPermissionMode = useEffectivePermissionMode()
 
   const { workspacePath } = useActiveWorkspace()
 
@@ -50,12 +51,10 @@ export function StatusBar() {
     PERMISSION_MODES.find((m) => m.id === defaultPermissionMode)?.label ?? defaultPermissionMode
 
   function handleModelChange(modelId: ModelId) {
-    setDefaultModel(modelId)
     void quickSave({ model: modelId }, workspacePath)
   }
 
   function handlePermissionChange(mode: PermissionMode) {
-    setDefaultPermissionMode(mode)
     void quickSave({ permissionMode: mode }, workspacePath)
   }
 

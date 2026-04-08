@@ -1,5 +1,6 @@
 import type { CreateWorkspaceRequest, WorkspaceResponse } from '@nexus/shared'
 import { apiClient } from './client'
+import { encodeWorkspacePath } from '../lib/workspace-path'
 
 export interface FileEntry {
   path: string
@@ -20,8 +21,7 @@ export function deleteWorkspace(path: string): Promise<void> {
 }
 
 export async function fetchFiles(workspacePath: string): Promise<FileEntry[]> {
-  const encoded = workspacePath.replace(/^\//, '')
-  const res = await apiClient.get<{ files: FileEntry[] }>(`/api/workspaces/${encoded}/files`)
+  const res = await apiClient.get<{ files: FileEntry[] }>(`/api/workspaces/${encodeWorkspacePath(workspacePath)}/files`)
   return res.files
 }
 
@@ -50,8 +50,7 @@ export interface GitErrorResponse {
 }
 
 export async function fetchGitInfo(workspacePath: string): Promise<GitInfo | GitErrorResponse> {
-  const encoded = workspacePath.replace(/^\//, '')
-  return apiClient.get<GitInfo | GitErrorResponse>(`/api/workspaces/${encoded}/git`)
+  return apiClient.get<GitInfo | GitErrorResponse>(`/api/workspaces/${encodeWorkspacePath(workspacePath)}/git`)
 }
 
 export interface GitDiffResponse {
@@ -69,15 +68,13 @@ export async function fetchGitDiff(
   file: string,
   staged: boolean,
 ): Promise<GitDiffResponse> {
-  const encoded = workspacePath.replace(/^\//, '')
   const params = new URLSearchParams({ file, staged: staged ? 'true' : 'false' })
-  return apiClient.get<GitDiffResponse>(`/api/workspaces/${encoded}/git/diff?${params}`)
+  return apiClient.get<GitDiffResponse>(`/api/workspaces/${encodeWorkspacePath(workspacePath)}/git/diff?${params}`)
 }
 
 export async function fetchGitShow(workspacePath: string, hash: string): Promise<GitShowResponse> {
-  const encoded = workspacePath.replace(/^\//, '')
   const params = new URLSearchParams({ hash })
-  return apiClient.get<GitShowResponse>(`/api/workspaces/${encoded}/git/show?${params}`)
+  return apiClient.get<GitShowResponse>(`/api/workspaces/${encodeWorkspacePath(workspacePath)}/git/show?${params}`)
 }
 
 export interface FileContentResponse {
@@ -94,9 +91,8 @@ export async function fetchFileContent(
   workspacePath: string,
   filePath: string,
 ): Promise<FileContentResponse | BinaryFileResponse> {
-  const encoded = workspacePath.replace(/^\//, '')
   const params = new URLSearchParams({ filePath })
   return apiClient.get<FileContentResponse | BinaryFileResponse>(
-    `/api/workspaces/${encoded}/files/content?${params.toString()}`,
+    `/api/workspaces/${encodeWorkspacePath(workspacePath)}/files/content?${params.toString()}`,
   )
 }

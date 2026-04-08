@@ -18,6 +18,7 @@ bun run test:e2e     # E2E 테스트 (빌드 선행 필요)
 - React 함수 컴포넌트, Zustand 상태 관리
 - Tailwind CSS v4 다크 테마, 한글 UI 텍스트
 
+
 <!-- NEXUS:START -->
 ## Nexus Agent Orchestration
 

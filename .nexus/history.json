@@ -4706,6 +4706,175 @@
           "created_at": "2026-04-08T11:18:45.542Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-08T12:02:47.711Z",
+      "branch": "fix/settings-sync-bugs",
+      "plan": {
+        "id": 5,
+        "topic": "프로젝트 정상화 — 구조적 문제 진단 및 해결 계획",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[A1] Legacy 이중 상태 — defaultModel/globalSettings.model 3중 중복, 수동 sync 3곳 분산",
+            "status": "decided",
+            "decision": "채택. LegacySettingsState 전체 제거. defaultModel/defaultPermissionMode/defaultEffortLevel/defaultMaxTurns를 독립 필드에서 computed selector로 전환. persist 미들웨어도 제거 (legacy 필드만 persist 대상이었으므로). 소비자(status-bar, chat-input)가 effective settings에서 직접 파생하도록 변경.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "동일 데이터 3중 복제(legacy/globalSettings/draftGlobal)가 수동 sync 3곳에 분산. 하나라도 누락 시 불일치. computed selector로 전환하면 sync 코드 자체가 불필요해짐."
+            }
+          },
+          {
+            "id": 2,
+            "title": "[A2] quickSave/loadSettings 경합 조건 — PUT 완료 전에 GET이 stale 데이터로 덮어쓈",
+            "status": "decided",
+            "decision": "채택. quickSave에 in-flight 키 추적 추가. loadSettings가 GET 응답 적용 시 pending 키는 낙관적 값 유지. 또한 quickSave의 PUT 응답(서버 merge 결과)으로 store를 갱신하여 서버 상태와 확실히 동기화.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "quickSave PUT과 loadSettings GET 사이에 동기화 없음. fire-and-forget PUT이 완료 전 GET이 stale 데이터로 덮어씀. in-flight 추적으로 pending 키 보호 필요."
+            }
+          },
+          {
+            "id": 3,
+            "title": "[A3] workspace 경로 URL 인코딩 불일치 — SSE 404 버그 근본 원인",
+            "status": "decided",
+            "decision": "채택. encodeWorkspacePath 유틸리티 함수를 만들어 모든 API 호출에서 일관 사용. use-sse.ts, workspace.ts API 함수들의 path.replace/path.slice 패턴을 encodeURIComponent로 통일.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "경로 인코딩이 3가지 방식으로 혼재. encodeURIComponent 사용하는 곳(안전)과 replace/slice 사용하는 곳(위험)이 공존. SSE 404가 이 불일치에서 발생."
+            }
+          },
+          {
+            "id": 4,
+            "title": "[A4] 공유 스키마(@nexus/shared)와 실제 전송 데이터 괴리",
+            "status": "decided",
+            "decision": "채택. @nexus/shared의 Zod 스키마를 서버 실제 전송 데이터와 정합. TurnEndEvent에 totalCostUsd/usage 추가, HistoryMessage type에 tool_result 추가, sessionId를 z.string().nullable()로 변경.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "공유 스키마가 서버 실제 전송 데이터의 superset을 정의하지 않음. TurnEndEvent, HistoryMessage, sessionId에서 괴리. 스키마가 계약 역할을 못하고 있음."
+            }
+          },
+          {
+            "id": 5,
+            "title": "[A5] 웹 테스트 1건 — settings-store/use-theme/컴포넌트 테스트 전무",
+            "status": "decided",
+            "decision": "채택 (이번 사이클에서는 #1-3 수정 후 핵심 시나리오만 추가). settings-store의 quickSave→loadSettings 시나리오, useTheme 시나리오에 대한 최소 단위 테스트 작성.",
+            "how_agents": [
+              "tester"
+            ],
+            "how_summary": {
+              "tester": "웹 테스트 1개 파일. settings-store/use-theme 테스트 0건. 비동기 경합 시나리오는 단위 테스트로만 검증 가능."
+            }
+          },
+          {
+            "id": 6,
+            "title": "[P1] 검증 없는 대규모 커밋 — 43개 파일 변경 후 13초 만에 다음 커밋",
+            "status": "decided",
+            "decision": "채택 (규칙 기록). 에이전트 작업 프로세스 규칙: 10파일 이상 변경 시 분할 커밋, 각 단계 typecheck+dev 확인, 비동기 흐름 변경 시 race condition 시나리오 명시 검토. CLAUDE.md에 기록.",
+            "how_agents": [
+              "postdoc"
+            ],
+            "how_summary": {
+              "postdoc": "43파일 변경 후 13초 만에 다음 커밋. typecheck만으로 검증 완료 선언. 증상 치료 반복 패턴. 프로세스 규칙 부재가 가중치 50%의 근본 원인."
+            }
+          }
+        ],
+        "research_summary": "## 종합 조사 결과 (4명 전문가 병렬 투입)\n\n### 아키텍트 A: 상태 관리 심층 진단\n**동일 설정 데이터에 5개 독립 저장소 존재**: 서버 SQLite, 파일시스템, Zustand server-copy(globalSettings), Zustand draft(draftGlobal), Zustand legacy(defaultModel). 모든 동기화가 수동(imperative). 파생 상태(derived state) 없이 복제 상태(duplicated state) 사용.\n\n**테마 버그 정확한 원인**: quickSave({ theme }, null)이 PUT을 fire-and-forget으로 전송 → 사용자가 모달 재열기 → loadSettings가 GET을 먼저 보냄 → PUT 미완료 시 구 데이터로 globalSettings 덮어씀 → useTheme이 구 theme 읽음 → DOM 리셋. 이것은 race condition이며, 타이밍에 따라 재현율이 달라짐.\n\n**Legacy 이중 상태가 근본 원인**: defaultModel과 globalSettings.model이 독립 필드로 존재. loadSettings, saveSettings, quickSave 3곳에서 수동 동기화. 하나라도 누락되면 불일치. 실제로 quickSave에서 누락이 있었고(Bug 1), 수정 후에도 race condition 문제는 남음.\n\n### 아키텍트 B: 서버-클라이언트 데이터 흐름 감사\n**HistoryMessage 타입 불일치**: 서버는 'user'|'assistant'|'tool_result' 3종 반환, 클라이언트는 'user'|'assistant' 2종만 정의. tool_result 메시지가 assistant 분기로 빠져 content 구조 불일치로 빈 메시지 됨.\n\n**SSE 404 버그 원인**: use-sse.ts에서 workspace 경로를 URL에 삽입 시 encodeURIComponent 미사용. `/api/workspaces/Users/kih/.../events`에서 경로 내 `/`가 URL 세그먼트 구분자와 혼동. 동일 패턴이 fetchFiles, fetchGitInfo 등 5곳에서 반복.\n\n**경로 인코딩 3가지 방식 혼재**: (1) encodeURIComponent(안전) — deleteWorkspace, settings APIs, (2) path.replace(/^\\//, '')(위험) — file/git APIs, (3) path.slice(1)(위험) — SSE. 통일 유틸리티 함수 부재.\n\n**Zod 스키마 괴리**: TurnEndEvent에 totalCostUsd/usage 누락. sessionId가 null일 수 있는데 z.string()으로 정의 → 초기 이벤트 드롭 가능.\n\n### 포닥: 회귀 패턴 분석\n**핵심 발견**: \"대규모 변경을 검증 없이 연쇄 투입하는 프로세스\"와 \"이중 상태 관리 + 비동기 레이스 방치 아키텍처\"의 결합.\n\n**커밋 타임스탬프 증거**: 리팩토링(43파일 변경)과 버그 수정 사이 간격 13초. 수동 테스트도 없이 진행.\n\n**반복 수정 패턴**: SubagentPanel 무한 루프 2회 수정, Git 파일명 짤림 2회 수정 — 증상 치료 반복, 근본 원인 미파악.\n\n**가중치 분석**: 프로세스 결함 50%, 아키텍처 결함 30%, 에이전트 행동 패턴 20%.\n\n### 테스터: 테스트 감사\n**웹 테스트 1개 파일**: session-adapter.test.ts만 존재 (applyEvent 순수 함수만 테스트). settings-store, use-theme, 컴포넌트 — 테스트 0건.\n**서버 테스트 10개**: 있지만 네이티브 모듈(better-sqlite3) 문제로 104건 실패.\n**E2E**: 설정/테마 관련 테스트 없음.\n**\"테스트 통과\"가 무의미한 이유**: 테스트가 거의 없으므로 항상 통과.",
+        "created_at": "2026-04-08T11:51:05.303Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "A1: Legacy 이중 상태 제거 → computed selector 전환",
+          "context": "settings-store.ts의 LegacySettingsState(defaultModel, defaultPermissionMode, defaultEffortLevel, defaultMaxTurns)를 제거하고, effective settings에서 파생하는 selector로 전환. persist 미들웨어도 제거.",
+          "approach": "1) settings-store.ts: LegacySettingsState 인터페이스/필드/setter 제거, persist 제거. useEffectiveModel/useEffectivePermission 등 selector 헬퍼 export. loadSettings/saveSettings/quickSave에서 수동 sync 3곳 제거. 2) status-bar.tsx: legacy 필드→selector 전환. setDefaultModel+quickSave 이중호출→quickSave만. 3) chat-input.tsx: getState().defaultModel→effective selector 전환.",
+          "acceptance": "1) LegacySettingsState 인터페이스 삭제됨 2) defaultModel/defaultPermissionMode grep 결과 0건 3) persist 미들웨어 제거됨 4) typecheck 통과 5) bun run dev로 상태바 모델/권한 표시 정상 확인",
+          "risk": "status-bar, chat-input 외에 legacy 필드를 참조하는 곳이 없는지 재확인 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:02.686Z"
+        },
+        {
+          "id": 2,
+          "title": "A2: quickSave/loadSettings 경합 방지 — in-flight 추적 + PUT 응답 활용",
+          "context": "quickSave PUT이 fire-and-forget. loadSettings GET이 PUT 완료 전 stale 데이터로 store 덮어씀. 테마 리셋 버그의 직접 원인.",
+          "approach": "1) settings-store에 _pendingSaveKeys: Set<string> 추가. quickSave 시작 시 키 등록, 완료/실패 시 제거. 2) loadSettings에서 서버 응답 적용 시 _pendingSaveKeys에 있는 키는 낙관적 값 유지. 3) quickSave의 PUT 응답(서버 merge 결과)으로 해당 scope의 settings를 갱신하여 확정.",
+          "acceptance": "1) 테마 변경→모달 재열기 시 리셋 없음 2) 모델 변경→모달 재열기 시 리셋 없음 3) typecheck 통과 4) bun run dev로 실제 확인",
+          "risk": "A1 완료 후 진행해야 함 (legacy 제거 후 store 구조가 변경되므로). loadSettings에서 pending 키 보호 로직이 정확해야 함.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:10.469Z"
+        },
+        {
+          "id": 3,
+          "title": "A3: workspace 경로 인코딩 유틸리티 통합",
+          "context": "workspace 경로를 URL에 삽입하는 방식이 3가지 혼재. SSE 404 버그의 근본 원인. encodeURIComponent 사용(안전) vs path.replace/slice(위험) 공존.",
+          "approach": "1) api/client.ts 또는 lib/에 encodeWorkspacePath(path: string): string 유틸리티 생성. 2) use-sse.ts의 pathParam 구성을 encodeURIComponent 기반으로 변경. 3) workspace.ts의 fetchFiles/fetchGitInfo/fetchGitDiff/fetchGitShow/fetchFileContent에서 path.replace 패턴을 유틸리티로 교체. 4) 서버측 /:path{.+} 라우트가 디코딩을 올바르게 처리하는지 확인.",
+          "acceptance": "1) grep 'replace(/^\\\\//' packages/web/src/api/ 결과 0건 2) SSE 연결 404 해소 3) 파일/git API 정상 동작 4) typecheck 통과",
+          "risk": "서버 라우트의 path 디코딩 방식 확인 필요. Hono가 자동 디코딩하는지 여부.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:19.637Z"
+        },
+        {
+          "id": 4,
+          "title": "A4: @nexus/shared 스키마 실제 데이터와 정합",
+          "context": "TurnEndEvent에 totalCostUsd/usage 누락, sessionId가 null 가능한데 z.string()으로 정의, HistoryMessage type에 tool_result 미포함.",
+          "approach": "1) shared/schemas/session.ts: TurnEndEventSchema에 totalCostUsd, usage optional 추가. sessionId를 z.string().or(z.null())로 변경. 2) web/api/session.ts: HistoryMessage type에 'tool_result' 추가. 3) 서버 events.ts가 보내는 모든 필드를 스키마에 반영되었는지 대조.",
+          "acceptance": "1) 서버가 보내는 모든 SSE 이벤트가 Zod 파싱 통과 2) 초기 이벤트 드롭 해소 3) typecheck 통과",
+          "risk": "sessionId nullable 변경 시 클라이언트 소비자 코드에서 null 처리 필요",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:25.642Z"
+        },
+        {
+          "id": 5,
+          "title": "A5: settings-store 핵심 시나리오 단위 테스트 작성",
+          "context": "웹 테스트 1개 파일(applyEvent만). settings-store, use-theme 테스트 0건. 비동기 경합은 단위 테스트로만 검증 가능.",
+          "approach": "1) settings-store.test.ts 생성: quickSave→loadSettings 시나리오, in-flight 보호 시나리오, effective selector 정확성. 2) use-theme.test.ts 생성: store theme 변경→applyTheme 호출 확인, 초기값 동작. 3) apiClient를 mock하여 네트워크 타이밍 시뮬레이션.",
+          "acceptance": "1) settings-store.test.ts에 최소 5개 시나리오 2) use-theme.test.ts에 최소 3개 시나리오 3) bun test 통과",
+          "risk": "A1+A2 완료 후 진행해야 store 구조가 확정됨",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-08T11:54:31.756Z"
+        },
+        {
+          "id": 6,
+          "title": "P1: CLAUDE.md에 작업 프로세스 규칙 추가",
+          "context": "43파일 변경 후 13초 만에 다음 커밋. typecheck만으로 검증 완료 선언. 증상 치료 반복 패턴.",
+          "approach": "CLAUDE.md의 Code Style 섹션 아래에 Quality Gates 규칙 추가: 1) 10파일 이상 변경 시 분할 커밋 2) UI 변경 시 bun run dev로 실제 확인 필수 3) 비동기 흐름 변경 시 race condition 시나리오 명시 검토 4) \"완료\" 선언 전 acceptance criteria 각각 확인",
+          "acceptance": "CLAUDE.md에 Quality Gates 섹션 존재",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 6,
+          "owner": "lead",
+          "created_at": "2026-04-08T11:54:36.343Z"
+        }
+      ]
     }
   ]
 }
