@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
 import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
+import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 
 interface HookRequestBody {
   session_id: string
@@ -12,7 +13,7 @@ interface HookRequestBody {
   permission_mode?: string
 }
 
-export function createHooksRouter(hookManager: HookManager, approvalBridge: ApprovalBridge) {
+export function createHooksRouter(hookManager: HookManager, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
   const router = new Hono()
 
   router.post('/pre-tool-use', async (c) => {
@@ -40,6 +41,8 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
       )
     }
 
+    workspaceLogger?.log(body.cwd, { type: 'hook_request', sessionId: body.session_id, data: { tool_name: body.tool_name, tool_use_id: body.tool_use_id, session_id: body.session_id } })
+
     const decision = await approvalBridge.addPending({
       id: body.tool_use_id,
       sessionId: body.session_id,
@@ -47,6 +50,8 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
       toolInput: body.tool_input,
       workspacePath: body.cwd,
     })
+
+    workspaceLogger?.log(body.cwd, { type: 'hook_response', sessionId: body.session_id, data: { tool_use_id: body.tool_use_id, decision, reason: decision === 'allow' ? '사용자 승인' : '사용자 거부' } })
 
     return c.json({
       hookSpecificOutput: {

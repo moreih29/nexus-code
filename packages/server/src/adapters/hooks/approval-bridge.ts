@@ -1,6 +1,7 @@
 import type { ApprovalPolicyStore } from '../db/approval-policy-store.js'
+import type { SettingsStore } from '../db/settings-store.js'
 
-const APPROVAL_TIMEOUT_MS = 60_000
+const APPROVAL_TIMEOUT_MS = 300_000
 
 export interface PendingApproval {
   id: string
@@ -20,14 +21,40 @@ export class ApprovalBridge {
   private readonly pending = new Map<string, PendingApproval>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly policyStore: ApprovalPolicyStore | null
+  private readonly settingsStore: SettingsStore | null
+  private readonly pendingAddedCallbacks = new Set<(info: PendingApprovalInfo) => void>()
+  private readonly pendingSettledCallbacks = new Set<(id: string, decision: 'allow' | 'deny') => void>()
 
-  constructor(policyStore?: ApprovalPolicyStore) {
+  constructor(policyStore?: ApprovalPolicyStore, settingsStore?: SettingsStore) {
     this.policyStore = policyStore ?? null
+    this.settingsStore = settingsStore ?? null
+  }
+
+  onPendingAdded(callback: (info: PendingApprovalInfo) => void): () => void {
+    this.pendingAddedCallbacks.add(callback)
+    return () => {
+      this.pendingAddedCallbacks.delete(callback)
+    }
+  }
+
+  onPendingSettled(callback: (id: string, decision: 'allow' | 'deny') => void): () => void {
+    this.pendingSettledCallbacks.add(callback)
+    return () => {
+      this.pendingSettledCallbacks.delete(callback)
+    }
   }
 
   addPending(
     approval: Omit<PendingApproval, 'resolve' | 'createdAt'>,
   ): Promise<'allow' | 'deny'> {
+    if (this.settingsStore) {
+      const settings = this.settingsStore.getEffectiveSettings(approval.workspacePath)
+      const mode = settings.permissionMode
+      if (mode === 'auto' || mode === 'bypassPermissions') {
+        return Promise.resolve('allow')
+      }
+    }
+
     if (this.policyStore) {
       const match = this.policyStore.matchRule(approval.toolName, approval.workspacePath)
       if (match) {
@@ -50,6 +77,11 @@ export class ApprovalBridge {
         resolve,
       }
       this.pending.set(approval.id, entry)
+
+      const { resolve: _resolve, ...info } = entry
+      for (const cb of this.pendingAddedCallbacks) {
+        cb(info)
+      }
 
       const timer = setTimeout(() => {
         this._settle(approval.id, 'deny')
@@ -101,5 +133,9 @@ export class ApprovalBridge {
 
     this.pending.delete(id)
     entry.resolve(decision)
+
+    for (const cb of this.pendingSettledCallbacks) {
+      cb(id, decision)
+    }
   }
 }

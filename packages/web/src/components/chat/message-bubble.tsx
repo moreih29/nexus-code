@@ -54,7 +54,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       )}
 
       {message.permissionRequest && (
-        <PermissionBlock permission={message.permissionRequest} />
+        <PermissionBlock key={message.permissionRequest.id} permission={message.permissionRequest} />
       )}
     </div>
   )

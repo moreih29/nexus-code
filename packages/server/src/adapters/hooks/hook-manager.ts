@@ -24,6 +24,10 @@ export class HookManager {
     return token === this.hookToken
   }
 
+  getActiveWorkspaceCount(): number {
+    return this.activeWorkspaces.size
+  }
+
   async injectHooks(workspacePath: string): Promise<Result<void>> {
     const settingsPath = join(workspacePath, '.claude', 'settings.local.json')
 
@@ -41,7 +45,7 @@ export class HookManager {
     const hookEntry = {
       type: 'http',
       url: this.getHookUrl(),
-      timeout: 60,
+      timeout: 300,
     }
 
     const existingHooks = settings['hooks']
@@ -53,24 +57,48 @@ export class HookManager {
     const preToolUse = hooks['PreToolUse']
     const existingGroup = Array.isArray(preToolUse) ? preToolUse : []
 
-    // Check if our hook is already present
-    const alreadyInjected = existingGroup.some((entry) => {
+    const currentHookUrl = this.getHookUrl()
+
+    // Remove any nexus hook entries that don't match the current token (stale from previous server run)
+    const withoutStaleNexusHooks = existingGroup.filter((entry) => {
+      if (typeof entry !== 'object' || entry === null) return true
+      const e = entry as Record<string, unknown>
+      if (!Array.isArray(e['hooks'])) return true
+      const hasStaleNexusHook = (e['hooks'] as unknown[]).some((h) => {
+        if (typeof h !== 'object' || h === null) return false
+        const hh = h as Record<string, unknown>
+        return typeof hh['url'] === 'string' && hh['url'].includes(HOOK_URL_MARKER) && hh['url'] !== currentHookUrl
+      })
+      return !hasStaleNexusHook
+    })
+
+    // Check if the current-token hook is already present
+    const alreadyInjected = withoutStaleNexusHooks.some((entry) => {
       if (typeof entry !== 'object' || entry === null) return false
       const e = entry as Record<string, unknown>
       if (!Array.isArray(e['hooks'])) return false
       return (e['hooks'] as unknown[]).some((h) => {
         if (typeof h !== 'object' || h === null) return false
         const hh = h as Record<string, unknown>
-        return typeof hh['url'] === 'string' && hh['url'].includes(HOOK_URL_MARKER)
+        return typeof hh['url'] === 'string' && hh['url'] === currentHookUrl
       })
     })
 
     if (!alreadyInjected) {
-      existingGroup.push({ matcher: '', hooks: [hookEntry] })
+      withoutStaleNexusHooks.push({ matcher: '', hooks: [hookEntry] })
     }
 
-    hooks['PreToolUse'] = existingGroup
-    settings['hooks'] = hooks
+    if (withoutStaleNexusHooks.length === 0) {
+      delete hooks['PreToolUse']
+    } else {
+      hooks['PreToolUse'] = withoutStaleNexusHooks
+    }
+
+    if (Object.keys(hooks).length === 0) {
+      delete settings['hooks']
+    } else {
+      settings['hooks'] = hooks
+    }
 
     try {
       await mkdir(dirname(settingsPath), { recursive: true })

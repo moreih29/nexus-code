@@ -57,6 +57,13 @@ export const PermissionRequestEventSchema = z.object({
   toolInput: z.union([z.record(z.string(), z.unknown()), z.string()]),
 })
 
+export const PermissionSettledEventSchema = z.object({
+  type: z.literal('permission_settled'),
+  sessionId: z.string().nullable(),
+  permissionId: z.string(),
+  decision: z.enum(['allow', 'deny']),
+})
+
 export const TurnEndEventSchema = z.object({
   type: z.literal('turn_end'),
   sessionId: z.string().nullable(),
@@ -75,6 +82,7 @@ export const SessionEventSchema = z.discriminatedUnion('type', [
   ToolCallEventSchema,
   ToolResultEventSchema,
   PermissionRequestEventSchema,
+  PermissionSettledEventSchema,
   TurnEndEventSchema,
   SessionErrorEventSchema,
 ])
@@ -89,4 +97,5 @@ export type ToolResultEvent = z.infer<typeof ToolResultEventSchema>
 export type PermissionRequestEvent = z.infer<typeof PermissionRequestEventSchema>
 export type TurnEndEvent = z.infer<typeof TurnEndEventSchema>
 export type SessionErrorEvent = z.infer<typeof SessionErrorEventSchema>
+export type PermissionSettledEvent = z.infer<typeof PermissionSettledEventSchema>
 export type SessionEvent = z.infer<typeof SessionEventSchema>

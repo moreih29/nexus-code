@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { loggingMiddleware } from './middleware/logging.js'
 import { errorBoundary } from './middleware/error-boundary.js'
-import health from './routes/health.js'
+import { createHealthRouter } from './routes/health.js'
 import { createWorkspaceRouter } from './routes/workspace.js'
 import { createSessionRouter } from './routes/session.js'
 import { createApprovalRouter } from './routes/approval.js'
@@ -24,6 +24,7 @@ import { ApprovalPolicyStore } from './adapters/db/approval-policy-store.js'
 import { SettingsStore } from './adapters/db/settings-store.js'
 import { HookManager } from './adapters/hooks/hook-manager.js'
 import { ApprovalBridge } from './adapters/hooks/approval-bridge.js'
+import { WorkspaceLogger } from './adapters/logging/workspace-logger.js'
 import type { SessionRecord } from './routes/session.js'
 
 export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
@@ -39,7 +40,8 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const policyStore = new ApprovalPolicyStore(store.db)
   const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
-  const approvalBridge = new ApprovalBridge(policyStore)
+  const approvalBridge = new ApprovalBridge(policyStore, settingsStore)
+  const workspaceLogger = new WorkspaceLogger()
 
   const workspaceRows = workspaceStore.list()
   for (const row of workspaceRows) {
@@ -56,16 +58,16 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   app.use('*', loggingMiddleware)
   app.onError(errorBoundary)
 
-  app.route('/api/health', health)
+  app.route('/api/health', createHealthRouter(hookManager))
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
-  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore))
-  app.route('/api/approvals', createApprovalRouter(approvalBridge))
-  app.route('/api/workspaces', createEventsRouter(supervisor))
+  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore, workspaceLogger))
+  app.route('/api/approvals', createApprovalRouter(approvalBridge, policyStore, workspaceLogger))
+  app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge, workspaceLogger))
   app.route('/api/workspaces', createFilesRouter())
   app.route('/api/workspaces', createGitRouter())
   app.route('/api/settings', createSettingsRouter(settingsStore))
   app.route('/api/cli-settings', createCliSettingsRouter())
-  app.route('/hooks', createHooksRouter(hookManager, approvalBridge))
+  app.route('/hooks', createHooksRouter(hookManager, approvalBridge, workspaceLogger))
 
-  return { app, supervisor, registry, store, hookManager }
+  return { app, supervisor, registry, store, hookManager, workspaceLogger }
 }

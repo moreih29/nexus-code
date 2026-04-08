@@ -158,7 +158,7 @@ export class StreamParser {
       return
     }
 
-    if (type === 'assistant') {
+    if (type === 'assistant' || type === 'user') {
       const message = msg['message']
       if (!isObject(message)) return
       const content = message['content']
@@ -169,9 +169,11 @@ export class StreamParser {
         const blockType = block['type']
 
         if (blockType === 'text') {
-          const text = block['text']
-          if (typeof text === 'string') {
-            this._emit('text_chunk', { text })
+          if (type === 'assistant') {
+            const text = block['text']
+            if (typeof text === 'string') {
+              this._emit('text_chunk', { text })
+            }
           }
         } else if (blockType === 'tool_use') {
           const id = block['id']
