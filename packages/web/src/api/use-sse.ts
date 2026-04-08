@@ -23,6 +23,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let backoffMs = 2000
 
     const url = `${BASE_URL}/api/workspaces/${encodeWorkspacePath(workspacePath)}/events`
 
@@ -85,9 +86,14 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
         es.close()
         esRef.current = null
         if (!disposed) {
-          console.log('[sse] disconnected, reconnecting in 2s...')
-          reconnectTimer = setTimeout(connect, 2000)
+          console.log(`[sse] disconnected, reconnecting in ${backoffMs / 1000}s...`)
+          reconnectTimer = setTimeout(connect, backoffMs)
+          backoffMs = Math.min(backoffMs * 2, 60000) // exponential backoff, max 60s
         }
+      }
+
+      es.onopen = () => {
+        backoffMs = 2000 // reset on successful connection
       }
     }
 

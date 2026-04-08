@@ -26,7 +26,10 @@ function useChatSession() {
     [applyServerEvent],
   )
 
-  useSse({ workspacePath, onEvent: handleEvent, enabled: !!workspacePath })
+  // Only connect SSE when there's an active or restorable session — prevents 404 spam
+  // before a session is started (server creates WorkspaceGroup on first session)
+  const hasSession = useChatStore((s) => !!(s.sessionId || s.restorableSessionId))
+  useSse({ workspacePath, onEvent: handleEvent, enabled: !!workspacePath && hasSession })
   useSessionRestore(workspacePath)
 
   return { workspacePath }

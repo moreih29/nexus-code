@@ -17,7 +17,7 @@ export function createWorkspace(body: CreateWorkspaceRequest): Promise<Workspace
 }
 
 export function deleteWorkspace(path: string): Promise<void> {
-  return apiClient.delete<void>(`/api/workspaces/${encodeURIComponent(path)}`)
+  return apiClient.delete<void>(`/api/workspaces/${encodeWorkspacePath(path)}`)
 }
 
 export async function fetchFiles(workspacePath: string): Promise<FileEntry[]> {

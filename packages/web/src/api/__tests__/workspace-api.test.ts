@@ -67,13 +67,13 @@ describe('createWorkspace', () => {
 // ---------------------------------------------------------------------------
 
 describe('deleteWorkspace', () => {
-  it('uses encodeURIComponent for the workspace path in URL', async () => {
+  it('uses encodeWorkspacePath for the workspace path in URL', async () => {
     mockDelete.mockResolvedValue(undefined)
 
-    await deleteWorkspace('/my/work space')
+    await deleteWorkspace('/my/workspace')
 
-    const encoded = encodeURIComponent('/my/work space')
-    expect(mockDelete).toHaveBeenCalledWith(`/api/workspaces/${encoded}`)
+    // encodeWorkspacePath strips leading slash, keeps rest as-is
+    expect(mockDelete).toHaveBeenCalledWith('/api/workspaces/my/workspace')
   })
 })
 
@@ -168,13 +168,13 @@ describe('encoding consistency', () => {
     await deleteWorkspace(path)
     await fetchFiles(path)
 
-    // deleteWorkspace encodes with encodeURIComponent: '/' becomes '%2F'
+    // Both now use encodeWorkspacePath consistently: leading '/' stripped, rest passed through
     const deleteCall = (mockDelete as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
-    expect(deleteCall).toContain('%2F')
+    expect(deleteCall).toContain('/api/workspaces/some/workspace')
+    expect(deleteCall).not.toContain('%2F')
 
-    // fetchFiles uses encodeWorkspacePath: leading '/' stripped, rest passed through
     const getCall = (mockGet as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
-    expect(getCall).not.toContain('%2F')
     expect(getCall).toContain('/api/workspaces/some/workspace/files')
+    expect(getCall).not.toContain('%2F')
   })
 })
