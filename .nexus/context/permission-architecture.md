@@ -223,7 +223,7 @@ WHERE (tool_name = ? OR tool_name = '*')
 | 컴포넌트 | 역할 |
 |---------|------|
 | status-bar | 현재 permissionMode 표시 및 전환 |
-| Settings 탭 | permissionMode 선택 + disallowedTools 관리 |
+| 넥서스 탭 (설정 모달) | permissionMode 선택 + disallowedTools 관리 |
 | `permission-block` | ask 상태 도구 승인/거부 UI (once / session / permanent 스코프 선택) |
 | `permission-deny-block` | deny 결정 결과 표시 (plan 모드 edit 차단 등) |
 
