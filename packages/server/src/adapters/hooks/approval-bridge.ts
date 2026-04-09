@@ -46,7 +46,12 @@ export class ApprovalBridge {
 
   addPending(
     approval: Omit<PendingApproval, 'resolve' | 'createdAt'>,
+    // T8: Bridge가 이 메타데이터를 소비하도록 수정 예정
+    meta?: { protectedHint?: string[]; parseReason?: string },
   ): Promise<'allow' | 'deny'> {
+    if (meta?.protectedHint && meta.protectedHint.length > 0) {
+      // TODO(T8): 파이프라인 Step 0-7에서 처리
+    }
     if (this.settingsStore) {
       const settings = this.settingsStore.getEffectiveSettings(approval.workspacePath)
       const mode = settings.permissionMode
