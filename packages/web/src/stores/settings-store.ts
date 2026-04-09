@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { apiClient } from '@/api/client'
 
-export type PermissionMode = 'default' | 'bypassPermissions'
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
 
 export const MODELS = [

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Settings, ChevronDown, GitBranch } from 'lucide-react'
+import { Settings, ChevronDown, GitBranch, ShieldCheck, FileCheck2, Telescope, ShieldOff, type LucideIcon } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,9 +14,31 @@ import { useChatStore } from '@/stores/chat-store'
 import { useActiveWorkspace } from '@/hooks/use-active-workspace'
 import { useTheme } from '@/hooks/use-theme'
 
-const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
-  { id: 'default', label: 'Default' },
-  { id: 'bypassPermissions', label: 'Bypass' },
+const PERMISSION_MODES: { id: PermissionMode; label: string; icon: LucideIcon; description: string }[] = [
+  {
+    id: 'default',
+    label: '기본',
+    icon: ShieldCheck,
+    description: '위험 작업은 매번 확인',
+  },
+  {
+    id: 'acceptEdits',
+    label: '편집 허용',
+    icon: FileCheck2,
+    description: '편집은 자동, 실행은 확인',
+  },
+  {
+    id: 'plan',
+    label: '계획',
+    icon: Telescope,
+    description: '읽기·탐색만, 편집 차단',
+  },
+  {
+    id: 'bypassPermissions',
+    label: '전체 허용',
+    icon: ShieldOff,
+    description: '모든 확인 건너뜀 (주의)',
+  },
 ]
 
 export function StatusBar() {
@@ -46,8 +68,8 @@ export function StatusBar() {
 
   const currentModelLabel =
     MODELS.find((m) => m.id === defaultModel)?.label ?? defaultModel
-  const currentPermLabel =
-    PERMISSION_MODES.find((m) => m.id === defaultPermissionMode)?.label ?? defaultPermissionMode
+  const currentMode = PERMISSION_MODES.find((m) => m.id === defaultPermissionMode) ?? PERMISSION_MODES[0]
+  const CurrentPermIcon = currentMode.icon
 
   function handleModelChange(modelId: ModelId) {
     void quickSave({ model: modelId }, workspacePath)
@@ -102,22 +124,28 @@ export function StatusBar() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-0.5 px-2 py-0.5 rounded hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors">
-                <span>{currentPermLabel}</span>
+                <CurrentPermIcon className="w-3 h-3" />
+                <span className="ml-0.5">{currentMode.label}</span>
                 <ChevronDown className="size-3 ml-0.5" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top">
               <DropdownMenuLabel>권한 모드</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {PERMISSION_MODES.map((m) => (
-                <DropdownMenuItem
-                  key={m.id}
-                  onClick={() => handlePermissionChange(m.id)}
-                  className={defaultPermissionMode === m.id ? 'text-[var(--accent)]' : ''}
-                >
-                  {m.label}
-                </DropdownMenuItem>
-              ))}
+              {PERMISSION_MODES.map((m) => {
+                const Icon = m.icon
+                return (
+                  <DropdownMenuItem
+                    key={m.id}
+                    onClick={() => handlePermissionChange(m.id)}
+                    className={defaultPermissionMode === m.id ? 'text-[var(--accent)]' : ''}
+                  >
+                    <Icon className="w-3 h-3 shrink-0" />
+                    <span>{m.label}</span>
+                    <span className="text-[10px] text-[var(--text-muted)] ml-1">{m.description}</span>
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
 
