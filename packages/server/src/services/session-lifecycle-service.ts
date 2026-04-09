@@ -6,6 +6,7 @@ import type { WorkspaceRegistry } from '../domain/workspace/workspace-registry.j
 import type { SessionStore } from '../adapters/db/session-store.js'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
 import type { SettingsStore, AppSettings } from '../adapters/db/settings-store.js'
+import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 import type { WorkspaceGroup } from '../adapters/cli/workspace-group.js'
 import type { CliProcess, CliStartOptions } from '../adapters/cli/cli-process.js'
 
@@ -65,11 +66,12 @@ export interface WireSessionProcessOpts {
   sessions: Map<string, SessionRecord>
   createdAt: Date
   settings?: object
+  policyStore?: ApprovalPolicyStore
 }
 
 /** Wire a CLI process to session infrastructure: set meta, register event handlers, create record */
 export function wireSessionProcess(opts: WireSessionProcessOpts): SessionRecord {
-  const { sessionId, agentId, workspacePath, cliProcess, store, sessions, createdAt, settings } = opts
+  const { sessionId, agentId, workspacePath, cliProcess, store, sessions, createdAt, settings, policyStore } = opts
 
   // Set meta BEFORE start() to avoid race condition with SSE events
   cliProcess.nexusSessionId = sessionId
@@ -82,6 +84,7 @@ export function wireSessionProcess(opts: WireSessionProcessOpts): SessionRecord 
   cliProcess.on('status_change', ({ status }) => {
     if (status === 'stopped' || status === 'error') {
       store.markEnded(sessionId, status === 'stopped' ? 0 : 1, status === 'error' ? 'Process exited with error' : null)
+      policyStore?.deleteSessionRules(sessionId)
     } else {
       store.updateStatus(sessionId, status)
     }
@@ -121,6 +124,7 @@ export class SessionLifecycleService {
     private readonly store: SessionStore,
     private readonly hookManager?: HookManager,
     private readonly settingsStore?: SettingsStore,
+    private readonly policyStore?: ApprovalPolicyStore,
   ) {}
 
   /** Returns an existing group or creates one. Returns an error result if creation fails. */
@@ -179,6 +183,7 @@ export class SessionLifecycleService {
       sessions: this.sessions,
       createdAt,
       settings,
+      policyStore: this.policyStore,
     })
 
     const startResult = await cliProcess.start({ cwd: workspacePath, ...startOpts })

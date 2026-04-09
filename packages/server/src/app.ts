@@ -60,7 +60,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
 
   app.route('/api/health', createHealthRouter(hookManager))
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
-  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore, workspaceLogger))
+  app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore, workspaceLogger, policyStore))
   app.route('/api/approvals', createApprovalRouter(approvalBridge, policyStore, workspaceLogger))
   app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge, workspaceLogger))
   app.route('/api/workspaces', createFilesRouter())
