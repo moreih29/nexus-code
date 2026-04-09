@@ -16,7 +16,6 @@ import { useTheme } from '@/hooks/use-theme'
 
 const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
   { id: 'default', label: 'Default' },
-  { id: 'auto', label: 'Auto' },
   { id: 'bypassPermissions', label: 'Bypass' },
 ]
 

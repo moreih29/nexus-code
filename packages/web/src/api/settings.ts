@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 export interface SessionSettings {
   model?: string
-  permissionMode?: 'auto' | 'bypassPermissions'
+  permissionMode?: 'bypassPermissions'
   effortLevel?: string
   maxTurns?: number
 }

@@ -77,7 +77,6 @@ export function NexusTab({
           <div className="flex rounded bg-[var(--bg-base)] border border-[var(--border)] overflow-hidden">
             {([
               { id: 'default', label: 'Default' },
-              { id: 'auto', label: 'Auto' },
               { id: 'bypassPermissions', label: 'Bypass' },
             ] as const).map((mode) => (
               <button
