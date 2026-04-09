@@ -120,12 +120,12 @@ export function createEventsRouter(supervisor: ProcessSupervisor, approvalBridge
           })
           workspaceLogger?.log(workspacePath, { type: 'sse_event', sessionId: info.sessionId, data: { event: 'permission_request', permissionId: info.id, toolName: info.toolName } })
         }),
-        approvalBridge.onPendingSettled((id, decision) => {
+        approvalBridge.onPendingSettled((id, result) => {
           void stream.writeSSE({
             event: 'permission_settled',
-            data: JSON.stringify({ sessionId: null, permissionId: id, decision }),
+            data: JSON.stringify({ sessionId: null, permissionId: id, decision: result.decision, reason: result.reason, source: result.source }),
           })
-          workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: 'permission_settled', permissionId: id, decision } })
+          workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: 'permission_settled', permissionId: id, decision: result.decision, source: result.source } })
         }),
       )
 

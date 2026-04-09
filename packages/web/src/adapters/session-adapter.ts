@@ -56,12 +56,19 @@ export interface PermissionRequestState {
   toolInput: Record<string, unknown>
 }
 
+export interface PermissionSettledState {
+  decision: 'allow' | 'deny'
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
   toolCalls?: ToolCallState[]
   permissionRequest?: PermissionRequestState
+  permissionSettled?: PermissionSettledState
   isStreaming?: boolean
 }
 
@@ -324,9 +331,14 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
     }
 
     case 'permission_settled': {
+      const settled: PermissionSettledState = {
+        decision: event.decision,
+        reason: event.reason,
+        source: event.source,
+      }
       const messages = state.messages.map((msg) => {
         if (msg.permissionRequest?.id === event.permissionId) {
-          return { ...msg, permissionRequest: undefined }
+          return { ...msg, permissionRequest: undefined, permissionSettled: settled }
         }
         return msg
       })

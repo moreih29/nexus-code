@@ -98,6 +98,12 @@ export type PendingApprovalInfo = Omit<PendingApproval, 'resolve'>
 
 export type ApprovalScope = 'once' | 'session' | 'permanent'
 
+export interface SettleResult {
+  decision: 'allow' | 'deny'
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+}
+
 // ---------------------------------------------------------------------------
 // ApprovalBridge
 // ---------------------------------------------------------------------------
@@ -108,7 +114,7 @@ export class ApprovalBridge {
   private readonly policyStore: ApprovalPolicyStore | null
   private readonly settingsStore: SettingsStore | null
   private readonly pendingAddedCallbacks = new Set<(info: PendingApprovalInfo) => void>()
-  private readonly pendingSettledCallbacks = new Set<(id: string, decision: 'allow' | 'deny') => void>()
+  private readonly pendingSettledCallbacks = new Set<(id: string, result: SettleResult) => void>()
 
   constructor(policyStore?: ApprovalPolicyStore, settingsStore?: SettingsStore) {
     this.policyStore = policyStore ?? null
@@ -122,7 +128,7 @@ export class ApprovalBridge {
     }
   }
 
-  onPendingSettled(callback: (id: string, decision: 'allow' | 'deny') => void): () => void {
+  onPendingSettled(callback: (id: string, result: SettleResult) => void): () => void {
     this.pendingSettledCallbacks.add(callback)
     return () => {
       this.pendingSettledCallbacks.delete(callback)
@@ -205,7 +211,7 @@ export class ApprovalBridge {
       }
 
       const timer = setTimeout(() => {
-        this._settle(approval.id, 'deny')
+        this._settle(approval.id, { decision: 'deny', source: 'user', reason: 'timeout' })
       }, APPROVAL_TIMEOUT_MS)
       this.timers.set(approval.id, timer)
     })
@@ -234,7 +240,7 @@ export class ApprovalBridge {
       })
     }
 
-    this._settle(toolUseId, decision)
+    this._settle(toolUseId, { decision, source: 'user' })
     return true
   }
 
@@ -242,7 +248,7 @@ export class ApprovalBridge {
     return Array.from(this.pending.values()).map(({ resolve: _resolve, ...rest }) => rest)
   }
 
-  private _settle(id: string, decision: 'allow' | 'deny'): void {
+  private _settle(id: string, result: SettleResult): void {
     const entry = this.pending.get(id)
     if (!entry) return
 
@@ -253,10 +259,10 @@ export class ApprovalBridge {
     }
 
     this.pending.delete(id)
-    entry.resolve(decision)
+    entry.resolve(result.decision)
 
     for (const cb of this.pendingSettledCallbacks) {
-      cb(id, decision)
+      cb(id, result)
     }
   }
 }

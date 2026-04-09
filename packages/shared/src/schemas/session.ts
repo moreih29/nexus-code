@@ -62,6 +62,8 @@ export const PermissionSettledEventSchema = z.object({
   sessionId: z.string().nullable(),
   permissionId: z.string(),
   decision: z.enum(['allow', 'deny']),
+  reason: z.string().optional(),
+  source: z.enum(['bypass', 'mode', 'rule', 'protected', 'user']).optional(),
 })
 
 export const TurnEndEventSchema = z.object({
