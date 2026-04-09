@@ -37,28 +37,47 @@ SSE로 전달되는 주요 이벤트(모두 `@nexus/shared`의 `SessionEvent` Zo
 
 Claude Code CLI는 도구 실행 전 Pre-tool-use hook을 호출할 수 있다. Nexus Code는 이 훅을 서버의 `/hooks/pre-tool-use` 엔드포인트로 라우팅해 **사전 승인 정책 레이어**를 구현한다.
 
-### 평가 흐름
+### 평가 흐름 (Step 1-7)
+
+`ApprovalBridge.addPending()`이 단일 진입점이며 아래 순서로 평가한다.
 
 ```
 CLI ──[pre-tool-use]──▶ Server(/hooks/pre-tool-use)
                            │
-                           ▼
-                      ApprovalBridge
-                      ├─ approval-policy-store (워크스페이스 정책)
-                      └─ settings-store (permissionMode, disallowedTools)
+                           ▼ path-guard 실행 (extractPaths + isProtected)
+                      { protectedHint, parseReason, bashFsSubset }
                            │
-                      ┌────┴────┐
-                      ▼         ▼
-                   [allow]   [deny | ask]
-                      │         │
-                      ▼         ▼
-                  CLI 실행   permission_request SSE → 사용자 UI
-                                 │
-                                 ▼
-                             사용자 응답 (Approval)
-                                 │
-                                 ▼
-                         permission_settled SSE → CLI 재개
+                           ▼
+                      ApprovalBridge.addPending()
+                      │
+                      ├─ Step 1: bypassPermissions 모드?
+                      │    protected → enqueueForUser (prompt)
+                      │    나머지   → allow (즉시)
+                      │
+                      ├─ Step 2: protected path? → enqueueForUser (모든 모드)
+                      │
+                      ├─ Step 3: MODE_TOOL_MATRIX[mode][category] === 'deny'?
+                      │    → deny (plan 모드의 edit 등 원천 차단)
+                      │
+                      ├─ Step 4: policyStore.matchRule() → decision === 'deny'?
+                      │    → deny
+                      │
+                      ├─ Step 5: policyStore.matchRule() → decision === 'allow'?
+                      │    → allow (규칙 명시 허용)
+                      │
+                      ├─ Step 6: MODE_TOOL_MATRIX[mode][category] === 'allow'?
+                      │    → allow (모드 자동 허용)
+                      │
+                      └─ Step 7: ask → enqueueForUser (pending 큐)
+                                        │
+                                        ▼
+                              permission_request SSE → Web UI
+                                        │
+                                        ▼
+                              사용자 응답 (allow / deny + scope)
+                                        │
+                                        ▼
+                              permission_settled SSE → CLI 재개
 ```
 
 ### 핵심 규칙
@@ -77,7 +96,7 @@ CLI ──[pre-tool-use]──▶ Server(/hooks/pre-tool-use)
 `SettingsStore`(DB)는 UI가 편집하는 설정의 원본이다. 변경은 `PUT /api/workspaces/{path}/settings`로 저장되고, 활성 세션에는 다음 CLI 실행 시점에 반영된다. 즉시 반영이 필요한 설정(예: permissionMode)은 `ApprovalBridge`가 매 훅 호출 시 최신 값을 읽어오므로 별도 동기화 없이 반영된다.
 
 - **CLI_SETTINGS_KEYS**: UI 전용 필드(theme)를 제외한 9개 키만 CLI에 전달된다.
-- **session-scoped vs workspace-scoped**: permissionMode는 세션 단위, 나머지 설정은 워크스페이스 단위로 관리한다.
+- **permissionMode 스코프**: permissionMode는 workspace(global/project) 단위로 관리된다. `sessions.permission_mode` 컬럼은 세션 시작 시점의 스냅샷 역할을 하며, 런타임 세션 스코프 전환은 지원하지 않는다. `ApprovalBridge`는 매 훅 호출 시 `SettingsStore.getEffectiveSettings(workspacePath)`로 최신 워크스페이스 설정을 읽어 즉시 반영한다.
 
 ## 복원 / 재개 경로
 
