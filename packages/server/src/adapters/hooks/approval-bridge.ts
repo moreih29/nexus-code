@@ -50,7 +50,7 @@ export class ApprovalBridge {
     if (this.settingsStore) {
       const settings = this.settingsStore.getEffectiveSettings(approval.workspacePath)
       const mode = settings.permissionMode
-      if (mode === 'auto' || mode === 'bypassPermissions') {
+      if (mode === 'bypassPermissions') {
         return Promise.resolve('allow')
       }
     }

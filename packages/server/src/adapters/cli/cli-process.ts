@@ -27,7 +27,7 @@ const VALID_TRANSITIONS: Record<CliProcessStatus, CliProcessStatus[]> = {
 export interface CliStartOptions {
   prompt: string
   cwd: string
-  permissionMode?: 'default' | 'auto' | 'bypassPermissions'
+  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
   sessionId?: string
   model?: string
   effortLevel?: string

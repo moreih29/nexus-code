@@ -51,8 +51,7 @@ export interface SessionRecord {
 export type PermissionModeInput = string | null | undefined
 
 /** Normalizes a raw permissionMode value to what the CLI accepts */
-export function resolvePermissionMode(mode: PermissionModeInput): 'auto' | 'bypassPermissions' | undefined {
-  if (mode === 'auto') return 'auto'
+export function resolvePermissionMode(mode: PermissionModeInput): 'bypassPermissions' | undefined {
   if (mode === 'bypassPermissions') return 'bypassPermissions'
   return undefined
 }

@@ -63,7 +63,7 @@ export function createSessionRouter(
     const body = c.get('validatedBody') as {
       workspacePath: string
       prompt: string
-      permissionMode?: 'default' | 'auto' | 'plan' | 'bypassPermissions'
+      permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
       model?: string
     }
 

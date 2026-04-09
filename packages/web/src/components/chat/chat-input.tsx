@@ -49,7 +49,7 @@ export function ChatInput() {
           workspacePath,
           prompt: trimmed,
           model: normalizeModelId(model),
-          permissionMode: permissionMode === 'default' ? undefined : (permissionMode as 'auto' | 'bypassPermissions' | undefined),
+          permissionMode: permissionMode === 'default' ? undefined : (permissionMode as 'bypassPermissions' | undefined),
         })
         console.log('[chat-input] session started', response)
         setSessionId(response.id)
