@@ -6,6 +6,7 @@ import { FieldRow } from '../components/field-row'
 import { TagInput } from '../components/tag-input'
 import { DisallowedToolsInput } from '../components/disallowed-tools-input'
 import { inputClass, selectClass } from '../components/form-utils'
+import { PERMISSION_MODES } from '@/constants/permission-modes'
 
 interface NexusTabProps {
   scope: SettingsScope
@@ -74,24 +75,41 @@ export function NexusTab({
           onReset={() => resetProjectKey('permissionMode')}
           hasOverride={hasProjectOverride('permissionMode')}
         >
-          <div className="flex rounded bg-[var(--bg-base)] border border-[var(--border)] overflow-hidden">
-            {([
-              { id: 'default', label: 'Default' },
-              { id: 'bypassPermissions', label: 'Bypass' },
-            ] as const).map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => autoSave({ permissionMode: mode.id })}
-                className={cn(
-                  'px-2 py-1 text-[10px] font-medium transition-colors border-r border-[var(--border)] last:border-r-0',
-                  (draft.permissionMode ?? 'default') === mode.id
-                    ? 'bg-[var(--accent)] text-[var(--bg-base)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-                )}
-              >
-                {mode.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-1">
+            {PERMISSION_MODES.map((mode) => {
+              const Icon = mode.icon
+              const selected = (draft.permissionMode ?? 'default') === mode.id
+              return (
+                <label
+                  key={mode.id}
+                  className={cn(
+                    'flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border',
+                    selected
+                      ? 'bg-[var(--accent-muted)] border-[var(--accent)]'
+                      : 'border-transparent hover:bg-[var(--bg-hover)]'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="permissionMode"
+                    value={mode.id}
+                    checked={selected}
+                    onChange={() => autoSave({ permissionMode: mode.id })}
+                    className="sr-only"
+                  />
+                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-medium">{mode.label}</div>
+                    <div className="text-[10px] text-[var(--text-muted)]">{mode.description}</div>
+                  </div>
+                  {!hasProjectOverride('permissionMode') && selected && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-[var(--bg-muted)] text-[var(--text-muted)]">
+                      전역 (상속)
+                    </span>
+                  )}
+                </label>
+              )
+            })}
           </div>
         </FieldRow>
 

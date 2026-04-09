@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Settings, ChevronDown, GitBranch, ShieldCheck, FileCheck2, Telescope, ShieldOff, type LucideIcon } from 'lucide-react'
+import { Settings, ChevronDown, GitBranch } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,33 +13,7 @@ import { MODELS, useSettingsStore, useEffectiveModel, useEffectivePermissionMode
 import { useChatStore } from '@/stores/chat-store'
 import { useActiveWorkspace } from '@/hooks/use-active-workspace'
 import { useTheme } from '@/hooks/use-theme'
-
-const PERMISSION_MODES: { id: PermissionMode; label: string; icon: LucideIcon; description: string }[] = [
-  {
-    id: 'default',
-    label: '기본',
-    icon: ShieldCheck,
-    description: '위험 작업은 매번 확인',
-  },
-  {
-    id: 'acceptEdits',
-    label: '편집 허용',
-    icon: FileCheck2,
-    description: '편집은 자동, 실행은 확인',
-  },
-  {
-    id: 'plan',
-    label: '계획',
-    icon: Telescope,
-    description: '읽기·탐색만, 편집 차단',
-  },
-  {
-    id: 'bypassPermissions',
-    label: '전체 허용',
-    icon: ShieldOff,
-    description: '모든 확인 건너뜀 (주의)',
-  },
-]
+import { PERMISSION_MODES } from '@/constants/permission-modes'
 
 export function StatusBar() {
   const { modalOpen, setModalOpen, quickSave, loadSettings } = useSettingsStore()
