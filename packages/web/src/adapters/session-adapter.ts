@@ -54,6 +54,9 @@ export interface PermissionRequestState {
   id: string
   toolName: string
   toolInput: Record<string, unknown>
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+  protectedHint?: string[]
 }
 
 export interface PermissionSettledState {
