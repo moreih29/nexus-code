@@ -5055,6 +5055,404 @@
           "created_at": "2026-04-08T16:05:39.079Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-09T14:22:04.074Z",
+      "branch": "feat/permission-mode-redesign",
+      "plan": {
+        "id": 5,
+        "topic": "권한 모드 재설계: 4개 모드(default/acceptEdits/plan/bypassPermissions) 정렬",
+        "issues": [
+          {
+            "id": 1,
+            "title": "auto 모드 처리 방향 결정 (제거 vs 재정의 vs 보류) + 기존 설정값 마이그레이션",
+            "status": "decided",
+            "decision": "Option A 완전 제거 채택. 기존 DB `permissionMode='auto'` 값은 `'bypassPermissions'`로 매핑하여 사용자 경험 보존(현재 auto 사용자는 classifier 기대가 아니라 \"팝업 없이 진행\"을 원했던 것이므로 동치). 구현 조건: (1) Zod `StartSessionRequestSchema` enum에서 `'auto'` 삭제, 4개 모드로 축소 (2) `settings-store.ts` DB 읽기 경계에서 Zod 파싱 이전 lazy 매핑 + one-shot `UPDATE settings SET permission_mode='bypassPermissions' WHERE permission_mode='auto'` 병행 (3) `approval-bridge.ts:53`의 `mode === 'auto'` 분기 제거 (4) UI 3곳(status-bar, nexus-tab, settings-store의 useEffectivePermissionMode) Auto 버튼 제거. 기각 사유: B안(acceptEdits 별칭)은 조용한 안전 강화가 되어 기존 사용자 Bash/MCP/Task가 갑자기 묻기 시작 → 신뢰 저하. C안(자리 보존)은 허위 라벨 영속화 + 미래 classifier 이름 소진으로 기술부채.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "Option A 권장. 현재 auto 사용자 의도의 동치는 bypassPermissions이므로 매핑 시 행동 변경 제로, 라벨만 정직해짐. B안은 조용한 안전 강화로 신뢰 저하. C안은 허위 동작 영속화 + 미래 classifier 이름 재사용 불가. settings-store의 Zod 파싱 경계에서 마이그레이션 필수(lazy 매핑 + one-shot UPDATE 이중 방어). critical 없음, warning은 Zod 파싱 이전 매핑 순서."
+            }
+          },
+          {
+            "id": 2,
+            "title": "모드별 도구 허용 매트릭스 정의 (Edit/Write/MultiEdit/Bash/Read 등 모드×도구 교차표)",
+            "status": "decided",
+            "decision": "Option C (실용 혼합) 채택. 매트릭스:\n- Read/Grep/Glob/NotebookRead: 전 모드 allow\n- Edit/Write/MultiEdit/NotebookEdit: default=ask, acceptEdits=allow(*protected 제외), plan=**deny(원천 차단)**, bypass=allow\n- Bash fs subset(`mkdir/touch/rm/rmdir/mv/cp/sed`, cwd 내부): default=ask, acceptEdits=allow, plan=ask, bypass=allow\n- Bash other: default/acceptEdits/plan=ask, bypass=allow\n- WebFetch/WebSearch: default/acceptEdits/plan=ask, bypass=allow\n- Task(서브에이전트 spawn): 전 모드 **allow**(하위 도구 호출에서 재차 체크됨)\n- `mcp__*` 모든 MCP 도구: default/acceptEdits/plan=ask, bypass=allow (allowlist 세밀 관리 포기 — 유지보수 비용 회피)\n- 매트릭스 미정의 도구 기본값: default/acceptEdits/plan=ask(fail-closed), bypass=allow\n\n세부 결정 포인트:\n- Bash fs subset 리스트는 공식 Claude Code와 동일 유지\n- plan 모드의 Edit/Write/MultiEdit/NotebookEdit은 사용자가 승인 버튼 눌러도 통과 불가 (deny)\n- MCP는 도구 이름만으로 read/write 구분 어려워 allowlist 포기, 일괄 ask\n- Task는 parent와 동일 ApprovalBridge를 거치므로 Task 자체에서 ask하면 이중 프롬프트 → 항상 allow\n\n기각 사유:\n- A(공식 충실): MCP 도구 카탈로그 수동 유지 비용이 플러그인 추가마다 쌓임, Nexus MCP는 공식 docs 범위 밖이라 \"충실\" 개념 자체가 성립 안 함\n- B(간소화): acceptEdits/plan이 default와 체감 차이 거의 없어져 4개 모드 존재 의미 희박"
+          },
+          {
+            "id": 3,
+            "title": "Bash 명령 파싱 전략 (acceptEdits의 filesystem 명령 자동 허용 판정 로직)",
+            "status": "decided",
+            "decision": "Option C (수작업 마이크로 파서 + fail-closed) 전체 채택.\n\n**6개 하위결정**:\n1. 파서: 수작업 마이크로 파서(~100줄). `shared`는 zero-runtime-dep 원칙(zod만 의존), `shell-quote`/`tree-sitter-bash` 추가 금지. 인식 토큰: `&&`, `;`, `||`, 따옴표(`'`, `\"`), 백슬래시 이스케이프, 화이트스페이스\n2. 체이닝: `&&/;/||` 분해 후 AND 판정. 모든 세그먼트가 (허용 명령 + cwd 내부) → allow, 하나라도 실패하면 전체 ask\n3. 셸 확장/우회 강력 fail-closed: `$(`, backtick, `${`, `<(`, `>(`, 글롭(`*`, `?`, `[`), `|`, `>`, `>>`, `<`, `<<`, `2>`, `&>`, `$VAR`, `${VAR}`, `sudo`, `doas`, `su`, `env`, `exec`, `eval`, `source`, `.`, 절대경로 명령(`/bin/rm`, `./cmd`, `../cmd`) 중 하나라도 등장하면 즉시 ask. **허용 명령은 정확히 리터럴 문자열**(`mkdir|touch|rm|rmdir|mv|cp|sed`)만 인정 → PATH 조작/심볼릭 링크/env 래퍼 일괄 차단\n4. 경로 추출: `-`로 시작 토큰=flag, `--` 이후는 모두 경로(Option F). sed는 `sed -i [<suffix>] [-e <script>] [-f <file>] <path>` 형태라 **전용 미니 핸들러 필수**\n5. cwd 내부 판정: Issue #4의 `normalizePath` 재사용, `isWithinAllowedRoots(absPath, roots)` 헬퍼 신규. roots = [cwd, ...additionalDirectories] union. realpath 해석 승계\n6. 폴백: 무조건 ask (Option P, fail-closed user-friendly)\n\n**sed in-place 처리**: A안 (공식 동일, 전용 핸들러 구현)\n\n**공유 모듈 인터페이스** (`@nexus/shared/src/path-guard.ts`): `ExtractPathsResult = { kind: 'paths'; paths: string[] } | { kind: 'unparseable'; reason: UnparseReason } | { kind: 'empty' }`. union sentinel로 호출자가 빈 배열을 안전으로 오판 못 하게 구조적 강제\n\n**기각 사유**:\n- A(tree-sitter-bash): Electron 번들 WASM/네이티브 바이너리 → shared zero-dep 위반\n- B(단순 prefix): `mkdir foo && touch bar` 전부 ask → acceptEdits가 default와 동일 UX로 축소",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "shared zero-runtime-dep 원칙으로 shell-quote/tree-sitter-bash 제외, 수작 마이크로 파서(~100줄) 권장. 리터럴 허용 명령만 인정 원칙(/bin/rm도 차단)으로 PATH 조작·심볼릭 링크·env 래퍼 일괄 차단. 체이닝 AND 판정으로 일상 복합 fs 명령(mkdir foo && touch bar) 지원. sed in-place는 전용 핸들러 필수(-i [<suffix>] 특수 argv). ExtractPathsResult union sentinel로 파싱 상태·경로 결과 분리 — 호출자가 빈 배열을 안전으로 오판 불가. realpath 동기 비용은 훅 응답에 미미하나 async API 필수. Unresolved: mv $(find ...) 같은 확장 필요 명령이 자주 ask로 뜨면 acceptEdits 체감이 default와 비슷해져 telemetry 관측 권고. Critical: 절대경로 명령·sudo·env 래퍼 차단 필수, sed in-place 포함 여부 재확인 필요."
+            }
+          },
+          {
+            "id": 4,
+            "title": "Protected paths 가드 구현 범위 (.git/.claude.json 등 보호 레이어 도입)",
+            "status": "decided",
+            "decision": "Option C (실용 균형) + architect 설계 세부 채택.\n\n**보호 리스트 최종**:\n- 유지(공식 정렬): `.git`, `.claude`(예외: commands/agents/skills/worktrees), `.gitconfig`, `.gitmodules`, `.bashrc`, `.bash_profile`, `.zshrc`, `.zprofile`, `.profile`, `.mcp.json`, `.claude.json`, `.husky`\n- 제거(Nexus 환경): `.vscode`, `.idea`, `.ripgreprc`\n- 추가(Nexus 필수): `.env*`(glob — `.env`, `.env.local`, `.env.production` 등 모두 포함), `.nexus/state/`\n- 제외: `~/.ssh/` 등 HOME 바깥 경로는 Nexus 워크스테이션 범위 밖 → 사용자 책임\n\n**체크 시점**: hooks.ts의 `/hooks/pre-tool-use` 엔드포인트에서 preflight 분리. `PathGuard.preflight(toolName, toolInput, cwd) → { protectedPaths }` 호출 후 결과를 `addPending(approval, { protectedHint })` 메타데이터로 전달. Bridge는 protectedHint 있으면 모드/정책 판정과 무관하게 pending 큐 진입(= 사용자 승인 UI).\n\n**bypass 동작**: 공식 일치 — bypassPermissions에서도 protected path는 prompt. UI에 \"Protected path\" 배지 구분(Issue #7). 승인 시 scope는 강제 `once`(permanent/session 저장 금지, Issue #5에서 반영).\n\n**경로 파싱**:\n1. `~` 전개 (`os.homedir()`)\n2. `path.resolve(cwd, input)` 절대경로화\n3. 존재하는 파일: `fs.realpathSync.native()` 심볼릭 링크 해석\n4. 존재하지 않는 write target: 부모 디렉토리만 realpath + basename 재조립\n5. 부모도 없으면 resolve 결과 그대로\n\n**매칭 방식**: 정규화 후 `rel === protected || rel.startsWith(protected + path.sep)` 엄격 prefix. `.claude` whitelist(commands/agents/skills/worktrees) 우선 체크. glob 엔진 사용 안 함.\n\n**Read 가드 예외**: 공식은 write만 가드하지만 Read 계열도 `.env*`는 ask로 강제(시크릿 LLM 컨텍스트 유입 방지). \"write-only 원칙\"의 예외로 \"sensitive read\" 규칙 별도 분리.\n\n**공유 모듈**: `@nexus/shared/src/path-guard.ts`에 `extractPaths(toolName, toolInput)`, `normalizePath(input, cwd)`, `isProtected(absPath, workspaceRoot)`, PROTECTED_LIST 통합. Issue #3의 Bash 파서가 여기에 합류하여 중복 구현 없음.\n\n**Critical 제약 (Issue #3/#5로 넘김)**:\n- Issue #3: Bash 파서는 반드시 `path-guard.ts`에 통합될 것\n- Issue #5: protected path에 대한 policyStore permanent/session allow rule 저장 금지. `respond()` 메서드에서 protectedHint 있으면 scope 강제 다운그레이드.\n\n**기각 사유**:\n- A(공식 완전 준수): `.vscode`/`.idea` 오탐 + `.env` 구멍(공식 리스트 미포함)으로 실질 보안/UX 모두 약함\n- B(보안 강화): `~/.ssh/` 등 HOME 바깥 추적은 `/etc/`, `~/.aws/` 등 끝없이 확장됨 → 격리 컨테이너가 아닌 로컬 GUI에서는 비현실적\n\n**논쟁 지점 처리**: Lead 권장 전부 채택 — `.husky` 포함, `~/.ssh/` 제거, `.nexus/state/`만, `.env*` glob, Read `.env*` 가드.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "preflight 분리(hooks.ts)로 Bridge god-object 회피. 심볼릭 링크 realpath 필수(`ln -s ~/.bashrc innocent` 우회 상련). 존재하지 않는 write target은 부모 디렉토리 realpath+basename 재조립. policyStore permanent/session rule 저장 금지 원칙(한 번 허용하면 가드 무력화). glob 엔진은 오버킴 — 경로 리스트가 고정이라 문자열 prefix로 충분. `@nexus/shared/path-guard.ts`에 Issue #3 Bash 파서와 통합 필수(중복 구현 시 가드 구멍). Critical: Bash 파서 공유, 심볼릭 링크 해석, protected path permanent rule 금지. Unresolved: `rm -rf $(find . -name '.zshrc')` 형 간접 참조는 완벽 방어 비용 불합리—흔한 직접 경로는 막고 우회는 사용자 책임이 균형선. bypass에서 prompt로 전환 시 UI 배지/설명 없으면 사용자 혼란 — Issue #7에서 반영."
+            }
+          },
+          {
+            "id": 5,
+            "title": "모드와 policyStore 규칙의 우선순위 체계 (deny 규칙 도입 여부 포함)",
+            "status": "decided",
+            "decision": "Option A (공식 정렬 + 개선) 전체 채택 + 세션 rule 재시작 경계는 DB 복원.\n\n**평가 파이프라인 확정**:\n```\nStep 0: protectedHint = pathGuard.preflight(toolName, toolInput, workspacePath)\nStep 1: if mode === 'bypassPermissions':\n          protectedHint 있으면 Step 7, 없으면 return {allow, source: 'bypass'}\nStep 2: protectedHint 있으면 Step 7 (prompt + rule 저장 금지)\nStep 3: matrix[mode][toolName] === 'deny' → return {deny, source: 'mode'}\nStep 4: policyStore deny rule 매칭 → return {deny, source: 'rule'}\nStep 5: policyStore allow rule 매칭 → return {allow, source: 'rule'}\nStep 6: matrix === 'allow' → return {allow, source: 'mode'}\nStep 7: matrix === 'ask' | undefined(fail-closed) | protected → pending 큐 진입\n```\n\n**5개 하위결정**:\n1. 평가 순서: 모드 deny가 rule보다 우선 (plan 컨테이너 의미 보존). bypass 분기만 파이프라인 최상단에서 layer skip\n2. deny rule 도입: `approval_rules.decision` 컬럼 추가(`DEFAULT 'allow'` 무손실 마이그레이션). `matchRule` 반환에 decision 포함\n3. 반환 타입: `{ decision: 'allow'|'deny', reason: string, source: 'bypass'|'mode'|'rule'|'protected'|'user' }`. SSE `PermissionSettledEventSchema`에 `reason`/`source`를 optional로 추가(점진 마이그레이션)\n4. Protected path 저장 금지: 이중 방어. Layer 1=`respond()`가 protectedHint 있으면 scope 강제 `once` 다운그레이드. Layer 2=`addRule()` 진입 가드가 workspace-level 보호 경로(`.git` 등)만 거부(file-level `.env`는 runtime preflight에만 의존)\n5. bypass의 policyStore 완전 skip: 공식 일치. bypass 분기는 protected만 확인, deny rule조차 무시. \"bypass도 protected는 prompt\"는 공식과 다른 유일한 지점 → 명시적 문서화\n\n**세션 rule 재시작 경계**: DB 복원 선택. `sessionRules`도 `approval_rules` 테이블에 `session_id` 컬럼으로 저장. 근거: Nexus는 resume로 앱 재시작 후에도 세션을 이어가므로, 세션 스코프 권한도 함께 복원되어야 일관성 유지. 세션 종료 시 해당 session_id의 rule 정리.\n\n**Wildcard deny UX 가드**: Issue #7(UI) Designer 논의로 뒤로 미룸.\n\n**specificity 규칙 명문화 필요**(Issue #8 테스트 커버): workspace-specific > global, specific-tool > wildcard, deny > allow(동일 specificity 내). matchRule unit test 10개 이상.\n\n**PR 분리**:\n- PR 1: schema sync (session.ts:19 enum auto→제거 + acceptEdits 추가 + settings-store sync)\n- PR 2: deny rule DB 마이그레이션 + matchRule 확장\n- PR 3: 반환 타입 변경 + SSE optional 필드 + 웹 어댑터 reason 소비 (스키마/서버/웹 동기)\n\n**기각 사유**:\n- B(최소 변경): deny rule 없으면 \"프로젝트별 세밀 거부\" 대응 불가, 매트릭스 단독으론 부족\n- C(완전 유연): plan 모드에서 rule allow가 모드 deny를 override하면 \"플랜 컨테이너\" 의미 붕괴 + \"plan인데 편집됨\" 버그 구조적 발생",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "5개 하위결정 권장: 평가 순서 B(모드 deny > rule) / deny rule 도입 / 결과 객체 반환 / 이중 방어 / bypass layer skip. plan 모드 deny를 rule로 우회 가능하게 하면 '잊은 allow rule이 plan 진입 시 조용히 발동' 놓람 원칙 위반. protected path에 대한 permanent/session rule 저장 금지는 Layer 1(respond 다운그레이드) + Layer 2(addRule workspace-level 가드)로 이중 방어 — Layer 2는 file-level 가드 불가능(rule 저장 시점에 file_path 모름)이므로 conservative. 반환 타입은 `{decision, reason, source}`로 객체화 — SSE reason/source는 optional로 점진 마이그레이션. matchRule specificity 명문화 필요(deny > allow, workspace > global, specific > wildcard). Wildcard deny UX 리스크(`tool_name='*'` deny 실수 저장 시 전체 차단) — Designer 논의 필요. 세션 rule 재시작 경계는 Lead 판단 — Nexus resume 철학상 DB 복원이 자연. PR 3개 분리(schema sync / deny rule 마이그레이션 / 반환 타입 변경)."
+            }
+          },
+          {
+            "id": 6,
+            "title": "저장 스코프와 런타임 전환 방식 (global/project/session + Shift+Tab 유사 런타임 전환)",
+            "status": "decided",
+            "decision": "Option A (단순 유지) + bypass 자동 리셋 없음(A0).\n\n**저장 구조**: 기존 `defaults → global → project` 2-scope 머지 그대로 유지. `sessions.permission_mode` 컬럼은 기존대로 \"세션 시작 시점 스냅샷\" 역할.\n\n**UI 동기화**: status-bar 드롭다운과 settings 탭의 permissionMode 필드가 **같은 값**(project 또는 global scope)을 편집. 두 진입점이 단일 SoT를 공유.\n\n**런타임 반영**: ApprovalBridge가 매 훅 호출마다 `getEffectiveSettings`로 재조회(현재 동작 유지). 새 API/SSE 이벤트/DB 마이그레이션 불필요.\n\n**bypassPermissions 처리**: 사용자가 관리. A0 선택 — 세션 종료 시 자동 리셋 없음. 사용자가 bypass 켰다 잊으면 다음 세션도 계속 bypass(사용자 책임).\n\n**Option C 기각 근거**: Nexus는 \"한 워크스페이스 = 한 활성 세션\" 1:1 모델이라 Option C의 \"세션 경계 자동 리셋\" 이득이 1:1 맥락에서 실익이 좁음. C의 구현 비용(컬럼 의미 재정의 + 런타임 변경 API + SSE 이벤트 + 이중 관리)이 얻는 가치보다 큼. \"공식 Claude Code 정렬\"은 기능적 모방이지 구조적 필수가 아니며, Nexus 고유 1:1 모델이라는 맥락에서 A가 본질에 더 가까움. 향후 Nexus가 탭 기반 동시 다중 세션 모델로 확장되면 그때 Option C 재검토.\n\n**Issue #5 세션 rule과의 관계**: 권한 모드는 project 영속, 세션 rule은 세션 단위 DB 저장 유지. 두 스코프는 독립이라 충돌 없음.\n\n**session-flow.md:80** \"session-scoped\" 주석은 실제와 불일치 — 구현 단계에서 \"permissionMode는 workspace(project/global) 단위\" 로 정정."
+          },
+          {
+            "id": 7,
+            "title": "UI/UX 변경 범위 (status-bar 4-seg, plan 모드 편집 차단 피드백, 라벨/툴팁)",
+            "status": "decided",
+            "decision": "Option A (Designer 권장 전부 채택).\n\n**중요 정정**: status-bar는 이미 드롭다운 형태(기존 3-seg 아님). 승인 UI는 모달이 아니라 채팅 인라인 말풍선(`permission-block.tsx`). wildcard deny rule 생성 경로 **현재 없음**(permission-block은 allow 전용).\n\n**7개 하위결정**:\n1. 레이아웃: status-bar 드롭다운 유지(4개 옵션 + 드롭다운 내부 한 줄 설명 툴팁). settings 탭은 3-seg → **라디오 리스트 + 한 줄 설명**으로 변경(4개 세그먼트에 한글 라벨 넣으면 찢어짐, 권한은 안전 민감 영역이라 세그먼트 패턴 부적합)\n2. 한글 라벨 + lucide 아이콘: **기본**(ShieldCheck) / **편집 허용**(FileCheck2) / **계획**(Telescope 또는 Map) / **전체 허용**(ShieldOff). 전부 한글 통일(한글 UI 원칙), 내부 코드값(`default/acceptEdits/plan/bypassPermissions`)은 유지하여 TUI 사용자 디버깅 연속성 확보. \"편집 허용\"이 \"자동 편집\"보다 우수(\"자동\"은 bypass와 혼동 유발)\n3. plan 모드 편집 차단 피드백: **채팅 인라인 차단 카드** (Option D). `permission-block` 패턴 재활용하되 승인 버튼 대신 [편집 허용으로 전환] + [무시하고 계속] CTA. 배너(E)는 플로우 과인터럽트, 모달(F)은 피로도, 토스트(G)는 히스토리 미보존. 차단은 대화 내 사건이지 전역 상태 변화 아님. 전환 후 자동 재시도 금지(사용자 의식적 전환이 안전 원칙)\n4. Protected path 배지: 빨간 `🔒 보호 경로` 배지(H) + 카드 좌측 2px red 라인 + **scope 선택 버튼 숨김**(비활성화 아님). 보호 경로는 아예 split 버튼을 단일 \"승인(1회)\" 버튼으로 축소 + 작은 설명 \"보호 경로는 매번 확인합니다\". 배경색 전체(J)는 공포 유발\n5. reason/source 표시: reason 한 줄(최대 40자 한글, **UI 가이드라인 — Zod max 강제 안 함, overflow 처리**) + 툴팁에 전체. source는 **색상/아이콘으로만 암시** — mode=노란색, protected=빨간색, rule=회색, bypass=미표시(통과), user=이전 승인 배지. 톤: \"거부\"→\"차단\"(정책 자동 차단 뉘앙스 정확). i18n은 **후속 이슈로 분리**(현재 한글 고정이니 상수로 충분)\n6. Wildcard deny 가드: 현재 경로 없음 → **방어적 예방 수준**. 향후 \"거부 규칙\" UI 추가 시 input validation `*` 금지(Option M). settings에 \"저장된 규칙 전체 초기화\" 버튼 추가(복구 경로). 확인 다이얼로그(L)와 Panic button(N) 기각(전자는 기계적 클릭 패턴, 후자는 버튼 자체가 실수 경로)\n7. settings ↔ status-bar 동기화: 값은 정확히 같음(Zustand 이미 해결). 즉시 저장 비대칭 유지(권한 모드는 이산값, 클릭=선택=저장이 자연). settings 탭은 \"설명 + global 상속 배지\"로 차별화, status-bar는 \"빠른 전환\"\n\n**\"편집 허용으로 전환\" CTA의 scope**: Issue #6 Option A 결정에 따라 **project 영속 변경**. 사용자가 다시 plan으로 돌아가려면 수동 전환 필요. 툴팁에 \"이 변경은 유지됩니다. 계획 모드로 돌아가려면 수동 전환\" 안내\n\n**Shift+Tab 단축키**: MVP 제외. textarea 포커스 이동 충돌 해결은 이번 이슈 scope 초과. 후속 이슈\n\n**기존 구조 유지**:\n- status-bar: 드롭다운 그대로, 옵션만 4개로 확장 + 한글 라벨/아이콘\n- permission-block: 인라인 카드 그대로, 배지/reason/scope 처리만 확장\n- settings 탭: 3-seg → 라디오 리스트(유일한 큰 변경)\n- 새로 추가: 차단 카드 컴포넌트(permission-block 패턴 재활용)\n\n**기각 사유**:\n- B(최소 변경): 한글 UI 원칙 위반 + 4-seg에 한글 넣으면 찢어짐, 권한 안전 민감도 부족\n- C(공격적): Shift+Tab textarea 충돌 해결 이번 scope 초과, 배경 틴트 등 과장된 시각화 공포 유발",
+            "how_agents": [
+              "designer"
+            ],
+            "how_summary": {
+              "designer": "status-bar는 이미 드롭다운(3-seg 아님), 승인 UI는 인라인 permission-block(모달 아님) 정정. settings 탭 4-seg는 라디오 리스트로 전환(한글 라벨 찢김 방지). 한글 라벨 '기본/편집 허용/계획/전체 허용' + lucide 아이콘 '행동 계열'(편집 허용/계획)과 '방패 계열'(기본/전체 허용) 시각 구분. plan 차단은 채팅 인라인 패턴 재활용 — 히스토리 보존 + 복구 CTA. Protected는 scope 선택 숨김(비활성화 아님 — '왜 못 쓰지?' 의문 제거). source는 텍스트 노출 금지(사용자 개념 아님) — 색상/아이콘으로만 암시. reason 40자 가이드라인 + 툴팁 overflow. Heuristic #4(consistency) + #5(error prevention) + #6(recognition over recall). wildcard deny는 생성 경로 부재가 현 상황 — 방어적 예방만. Shift+Tab TUI 친밀도는 좋나 textarea 충돌 해결이 scope 초과. Lead 확인 요청: reason 문자열 i18n 구조, '편집 허용으로 전환' CTA의 scope(project 영속 변경), 한글 라벨 최종 경정."
+            }
+          },
+          {
+            "id": 8,
+            "title": "테스트 전략 (approval-bridge 시나리오 확장, Bash 파서 단위, E2E 모드 전환)",
+            "status": "decided",
+            "decision": "Option C (피라미드 균형) 전체 채택. 총 ~90-100개 테스트 (Unit 75, Integration 3, E2E 3, UI 5, settings 5, approval-bridge 20, path-guard 40, policy-store 15).\n\n**A. approval-bridge.test.ts 확장 (20개)**:\n- 모드×도구 매트릭스 샘플링: default(Read/Edit/Bash/Task), acceptEdits(Edit/Bash fs/Bash other/WebFetch), plan(Edit deny/Read/Bash), bypass(Edit/Bash/mcp) = 14개\n- 파이프라인 순서: protected→mode, mode deny override, rule deny>allow, bypass skip policyStore = 4개\n- 반환 타입: 객체 구조, source 분기, reason 전달 = 3개\n- permissionMode 폴백: sessions null, effectiveDefault null = 2개\n\n**B. path-guard.test.ts 신규 (40개)**:\n- Bash 파서 corpus 30개(allow 12 + unparseable 15 + 경로 외부 3)\n- sed 전용 핸들러 6개\n- normalizePath 6개\n- isProtected 10개(whitelist 예외, 제거 리스트, glob 포함)\n- isWithinAllowedRoots 4개\n\n**C. approval-policy-store.test.ts 확장 (15개)**:\n- deny rule 매칭 4개\n- specificity 10개 이상(workspace>global, specific>wildcard, deny>allow 조합)\n- 세션 rule DB 복원 3개\n\n**D. settings-store.test.ts 확장 (5개)**:\n- auto→bypass 마이그레이션(lazy + one-shot + Zod 파싱 경계) 3개\n- Zod enum 축소 호환 2개\n\n**E. hooks.ts integration (3개)**:\n- /hooks/pre-tool-use round-trip, protectedHint 전달, tool_result 회귀\n\n**F. E2E Playwright (3개 핵심 플로우)**:\n- 권한 모드 전환 즉시 반영\n- plan 모드 차단 카드 + \"편집 허용으로 전환\" CTA\n- protected path 배지 + scope 숨김\n\n**G. UI 컴포넌트 단위 (5개)**:\n- status-bar, nexus-tab, permission-block, permission-deny-block(신규), useEffectivePermissionMode 훅\n\n**커버리지 목표**: path-guard 95%+, approval-bridge/policy-store 90%+, settings-store 85%+, UI 70%(기존).\n\n**Corpus 관리**: Bash 파서 fixture는 `packages/shared/src/__tests__/bash-parser-fixtures.ts`에 배열로 관리. `.nexus/context/`는 설계 문서 영역이라 fixture 저장 부적합. `it.each()` 패턴으로 단일 함수에서 돌림.\n\n**CI 정책**: Unit/Integration은 PR마다 필수, E2E는 권한 관련 파일 변경 시 강제, 기존 테스트 회귀 시 블록.\n\n**기각 사유**:\n- A(포괄 커버리지): 매트릭스 전체 조합 테스트는 유지보수 지옥\n- B(핵심만): Bash 파서/path-guard는 보안 경계라 70% 커버리지로 부족, 우회 경로 뚫리면 acceptEdits/bypass 무력화\n\n**논쟁 지점 판단**:\n- 테스트 수 90-100개 유지 (축소 안 함)\n- E2E 3개만\n- property-based testing MVP 제외 (shared zero-dep 원칙 + learning curve)\n- 마이그레이션 테스트 기존 `:memory:` SQLite 패턴 재사용"
+          }
+        ],
+        "research_summary": "## 공식 Claude Code 권한 모드 (code.claude.com/docs/en/permission-modes 확인)\n\n6개 공식 모드: default / acceptEdits / plan / auto / dontAsk / bypassPermissions\n\n- **default**: 읽기만 자동. 나머지 프롬프트\n- **acceptEdits**: 읽기 + 파일 편집(Edit/Write/MultiEdit) + filesystem Bash(mkdir/touch/rm/rmdir/mv/cp/sed) 자동. 작업 디렉토리 내부 경로에 한함. 기타 Bash는 프롬프트\n- **plan**: 읽기만 자동, 편집 자체가 차단 (Edit/Write/MultiEdit 원천 금지). 분석→계획 제시\n- **auto**: 전부 자동 실행 + 별도 classifier(Sonnet 4.6)가 각 액션 검증. Team/Enterprise/API + Sonnet4.6/Opus4.6 + Anthropic API 전용. Research preview\n- **dontAsk**: pre-approved allow 규칙만 허용, 나머지 거부 (CI용)\n- **bypassPermissions**: 전부 스킵, protected paths 제외. --dangerously-skip-permissions와 등가\n\n**Protected paths** (모든 모드 공통, bypass/auto 예외 처리): .git, .vscode, .idea, .husky, .claude(commands/agents/skills/worktrees 제외), .gitconfig, .gitmodules, .bashrc, .zshrc, .profile 등 shell rc, .ripgreprc, .mcp.json, .claude.json\n\n**원칙**: \"Modes set the baseline. Layer permission rules on top to pre-approve or block specific tools in any mode except bypassPermissions.\"\n\n## Nexus Code 현재 상태\n\n**파이프라인**: CLI는 항상 `--dangerously-skip-permissions`로 실행 (cli-process.ts:161). 권한 제어는 서버의 `/hooks/pre-tool-use`로 올라오는 hook 요청을 `ApprovalBridge.addPending()`(approval-bridge.ts:47-91)이 단일 진입점으로 처리.\n\n**현재 모드 처리** (approval-bridge.ts:52-55):\n```\nif (mode === 'auto' || mode === 'bypassPermissions') return Promise.resolve('allow')\n```\n→ auto와 bypassPermissions가 동일하게 즉시 allow. classifier 없음.\n\n**policyStore** (approval-policy-store.ts): allow rule만 지원. deny rule 없음. `{toolName, scope: 'session'|'permanent', workspacePath}` 구조. 와일드카드 `*` 지원. matchRule()이 workspace→global→session 순 매칭.\n\n**settings 스코프**: `defaults → global → project` 2-scope 머지 (settings-store.ts:59-69). permissionMode는 DB의 settings 테이블. `resolvePermissionMode()`(session-lifecycle-service.ts:54-58)가 'default' → undefined, 'auto'/'bypassPermissions'만 그대로 반환.\n\n**Zod 스키마** (shared/schemas/session.ts:19): `z.enum(['default', 'auto', 'plan', 'bypassPermissions'])` — 'plan'이 이미 포함되어 있으나 실제 처리는 미구현.\n\n**도구 이름**: CLI hook 페이로드의 `tool_name`은 Claude Code 표준 이름 그대로(Edit/Write/MultiEdit/Bash/Read 등). Nexus 내부 정규화 없음.\n\n**Protected paths 가드**: 현재 코드에 **완전히 없음**.\n\n**UI 진입점**: status-bar.tsx(세그먼트 드롭다운), nexus-tab.tsx(설정 탭), chat-input.tsx(세션 시작 시 'default' → undefined 변환), settings-store.ts(useEffectivePermissionMode 훅).\n\n**설정 전달 경로**: UI quickSave → PUT /api/settings → settingsStore.updateGlobal/Project → ApprovalBridge가 매 훅 호출 시 getEffectiveSettings()로 최신 값 읽음 → 런타임 즉시 반영.\n\n**기존 테스트**: approval-bridge.test.ts에 default/bypassPermissions/undefined 시나리오 있음. acceptEdits/plan 시나리오 없음.",
+        "created_at": "2026-04-09T10:32:44.451Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Zod enum `'auto'` 제거 + settings-store 마이그레이션",
+          "context": "Issue #1 결정: `'auto'` 모드 완전 제거, 기존 DB 값은 `'bypassPermissions'`로 매핑. shared 먼저 빌드되어야 server/web 컴파일됨(architecture.md 빌드 순서).",
+          "approach": "1) `packages/shared/src/schemas/session.ts:19`의 `StartSessionRequestSchema.permissionMode` enum에서 `'auto'` 제거, 4개 모드(`'default'|'acceptEdits'|'plan'|'bypassPermissions'`)로 축소. 2) `packages/server/src/adapters/db/settings-store.ts`의 DB 읽기 경계에서 Zod 파싱 이전에 `if (raw.permissionMode === 'auto') raw.permissionMode = 'bypassPermissions'` lazy 매핑. 3) 서버 기동 시 one-shot `UPDATE settings SET permission_mode='bypassPermissions' WHERE permission_mode='auto'` 실행. 4) `approval-bridge.ts:52-55`의 `mode === 'auto'` 분기 제거. 5) session-lifecycle-service.ts의 `resolvePermissionMode`에서 `'auto'` 처리 제거.",
+          "acceptance": "구 DB의 `'auto'` 값 로드 성공(Zod 파싱 에러 없음). `UPDATE`로 실제 컬럼 변경됨. approval-bridge의 `mode === 'auto'` 분기 제거됨. Zod enum이 정확히 4개 모드만 포함. shared → server 빌드 성공.",
+          "risk": "매핑이 Zod 파싱 이후에 실행되면 런타임 에러. 반드시 DB 읽기 경계에서 파싱 이전에 수행해야 함. lazy 매핑만 하고 one-shot UPDATE 빼먹으면 `updateGlobalSettings`가 stale 값 덮어쓸 때 혼선.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:33:57.644Z"
+        },
+        {
+          "id": 2,
+          "title": "UI에서 Auto 옵션 제거 (status-bar / nexus-tab / settings-store)",
+          "context": "Issue #1 후속 UI 정리. 한글 라벨/아이콘 추가는 T13/T14에서 다루고, 이 태스크는 \"Auto 옵션 제거\"만 담당.",
+          "approach": "`packages/web/src/components/layout/status-bar.tsx:17-21`의 PERMISSION_MODES 배열에서 `{ id: 'auto', label: 'Auto' }` 제거. `packages/web/src/components/settings/tabs/nexus-tab.tsx:78-82`의 세그먼트 배열에서 Auto 제거. `packages/web/src/stores/settings-store.ts`의 `useEffectivePermissionMode` 훅이 'auto' 값을 반환할 가능성 확인 후 매핑 추가(이미 T1의 서버 매핑이 처리하지만 클라이언트 캐시 호환용).",
+          "acceptance": "UI 어디에도 Auto 선택지가 노출되지 않음. 구 설정값이 로드되어도 UI가 깨지지 않고 'bypassPermissions'로 표시됨.",
+          "risk": "Zustand 스토어 캐시에 구 'auto' 값이 남아있을 때 UI가 선택 상태를 그리지 못할 수 있음 → 매핑 필요.",
+          "status": "pending",
+          "deps": [
+            1
+          ],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:34:08.266Z"
+        },
+        {
+          "id": 3,
+          "title": "테스트: auto → bypassPermissions 마이그레이션 검증",
+          "context": "Issue #1/#8. T1의 DB 마이그레이션 안전성 검증. Zod 파싱 경계/lazy 매핑/one-shot UPDATE가 모두 의도대로 동작하는지 단위 테스트.",
+          "approach": "`packages/server/src/adapters/db/__tests__/settings-store.test.ts`에 시나리오 추가: (1) `:memory:` SQLite에 구 'auto' 값 insert → 읽기 시 'bypassPermissions' 반환, (2) Zod 스키마가 'auto' 값으로 raw 입력되면 파싱 전 매핑이 먼저 일어나야 성공, (3) one-shot UPDATE 실행 후 DB 컬럼이 실제로 변경됨, (4) 알 수 없는 값은 'default' 폴백, (5) 이미 'bypassPermissions'인 값은 변경 없이 유지.",
+          "acceptance": "5개 시나리오 vitest 통과. 기존 settings-store 테스트 회귀 없음.",
+          "risk": "SQLite `:memory:` 테스트가 프로덕션 WAL 모드와 동작 차이 있을 수 있음 — 기존 session-store.test.ts 패턴 재사용으로 완화.",
+          "status": "pending",
+          "deps": [
+            1
+          ],
+          "plan_issue": 1,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:34:17.830Z"
+        },
+        {
+          "id": 4,
+          "title": "`@nexus/shared/src/path-guard.ts` 신규 모듈 구축",
+          "context": "Issue #3/#4의 핵심 구현물. Bash 파서 + 경로 정규화 + protected 판정 + cwd 내부 판정을 한 모듈에 통합하여 server가 import. shared zero-runtime-dep 원칙(zod만)을 준수.",
+          "approach": "`packages/shared/src/path-guard.ts` 신규 파일. 포함 내용: (1) `PROTECTED_LIST` 상수 — `.git`/`.husky`/`.gitconfig`/`.gitmodules`/shell rc(`.bashrc`/`.zshrc`/`.zprofile`/`.bash_profile`/`.profile`)/`.mcp.json`/`.claude.json`/`.env*`/`.nexus/state/`/`.claude`(예외 whitelist: commands/agents/skills/worktrees). (2) `normalizePath(input, cwd)` — `~` 전개 → `path.resolve(cwd, input)` → 존재 시 `fs.realpathSync.native()`, 미존재 시 부모만 realpath + basename 재조립. (3) `isProtected(absPath, workspaceRoot)` — rel 경로 계산 후 whitelist 우선 체크 → PROTECTED_LIST와 `rel === protected || rel.startsWith(protected + path.sep)` 매칭. (4) `isWithinAllowedRoots(absPath, roots)` — cwd/additionalDirectories union에 포함되는지 검사. (5) `extractPaths(toolName, toolInput): ExtractPathsResult` — Edit/Write/MultiEdit/NotebookEdit의 `file_path` 추출, Bash는 수작업 마이크로 파서. (6) Bash 파서: `&&/;/||/따옴표/이스케이프` 토크나이즈, 허용 명령 리터럴 매칭(`mkdir/touch/rm/rmdir/mv/cp/sed`), 체이닝 AND 판정, 셸 확장/우회/변수/파이프/리다이렉션 fail-closed. (7) sed 전용 핸들러 — `sed -i [<suffix>] [-e <script>] [-f <file>] <path>` 마지막 non-flag 토큰을 경로로. (8) `ExtractPathsResult` union 타입 export.",
+          "acceptance": "모든 public API 구현(extractPaths/normalizePath/isProtected/isWithinAllowedRoots/PROTECTED_LIST). zero-runtime-dep 유지(package.json에 zod만). `bun run typecheck` 통과. server에서 import 가능.",
+          "risk": "Bash 파서 엣지 케이스 누락 시 보안 허점. 특히 sed 핸들러의 `-i` suffix 처리(`-i` vs `-i.bak`)와 `-e`/`-f` 값 인자 처리. 심볼릭 링크 realpath를 동기로 호출하면 훅 응답 지연(이미 async 경로이므로 문제 없음).",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:34:40.104Z"
+        },
+        {
+          "id": 5,
+          "title": "테스트: path-guard 단위 테스트 (Bash 파서 corpus + protected paths)",
+          "context": "Issue #3/#4/#8. T4의 핵심 보안 경계 모듈 검증. corpus fixture 기반 테이블 테스트로 회귀 방지.",
+          "approach": "`packages/shared/src/__tests__/bash-parser-fixtures.ts` 신규: allow 12개(`mkdir -p foo`, `touch foo/bar`, `rm -rf node_modules`, `mv a b`, `cp src dst`, `sed -i \"s/a/b/\" foo.txt`, `sed -i.bak \"s/a/b/\" foo.txt`, `mkdir foo && touch bar`, `mkdir a; mkdir b`, `mkdir a || mkdir b`, `rm -- -strangename`, `cp foo/bar foo/baz`) + unparseable 15개(chaining-mixed/shell-expansion/variable-expansion/bypass-wrapper/unknown-command/pipe-or-redirect/parse-error 각 종류) + 경로 외부 3개. sed 전용 핸들러 6개. `packages/shared/src/__tests__/protected-paths-fixtures.ts` 신규: isProtected 10개(.git/.env*/.claude.json/.claude/commands whitelist 예외/.vscode 제거 리스트 불매칭/.husky 포함 등). `path-guard.test.ts`에서 `it.each(fixtures)` 패턴으로 corpus 돌림. normalizePath 6개 + isWithinAllowedRoots 4개. 총 40개 시나리오.",
+          "acceptance": "40개 단위 테스트 통과. 커버리지 95%+. Bash 파서 corpus는 fixture 배열에 고립되어 회귀 시 케이스 추가가 1-라인 변경.",
+          "risk": "심볼릭 링크 테스트는 임시 파일시스템 조작이 필요해 CI 환경에 따라 flaky 가능 — `tmp.dirSync()` 또는 `fs.mkdtempSync()` 활용.",
+          "status": "pending",
+          "deps": [
+            4
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:34:55.117Z"
+        },
+        {
+          "id": 6,
+          "title": "policyStore 스키마 확장: deny rule + session_id 컬럼",
+          "context": "Issue #5. policyStore를 allow-only에서 deny/allow 양방향으로 확장 + 세션 rule을 in-memory에서 DB로 이전하여 resume 후 복원 가능하게 만듦.",
+          "approach": "(1) `packages/server/src/adapters/db/approval-policy-store.ts` 스키마 마이그레이션: `ALTER TABLE approval_rules ADD COLUMN decision TEXT NOT NULL DEFAULT 'allow' CHECK(decision IN ('allow','deny'))` + `ALTER TABLE approval_rules ADD COLUMN session_id TEXT`. 기존 레코드는 `DEFAULT 'allow'`로 무손실 마이그레이션. (2) `matchRule` 확장: 반환 객체에 `decision` 포함. 내부 구현은 deny/allow 쿼리 분리(`matchDenyRule` + `matchAllowRule`) 권장 — specificity 순서 `workspace>global, specific-tool>wildcard, deny>allow(동일 specificity 내)` 명문화. (3) `sessionRules` in-memory Map 제거, DB `session_id` 컬럼으로 이전. (4) `SessionLifecycleService`가 세션 종료 시 `DELETE FROM approval_rules WHERE session_id = ?` 호출. (5) Layer 2 `addRule()` 진입 가드 — `@nexus/shared/path-guard.ts`의 `PROTECTED_LIST`와 workspace-level 매칭 시 저장 거부(`.git` 등), file-level은 runtime preflight에 의존(rule 저장 시점에 file_path 모르니 conservative).",
+          "acceptance": "deny rule 매칭 동작, 기존 allow rule 동작 유지, specificity 순서 정확, 세션 rule이 DB에 저장되고 재시작 후 로드됨, 세션 종료 시 해당 session_id rule 정리, protected path workspace-level rule 저장 거부.",
+          "risk": "specificity 충돌 케이스가 복잡 — `workspace-specific allow vs global deny` 같은 충돌에서 예상치 못한 결과 가능. 기존 레코드 DEFAULT 'allow' 마이그레이션이 실패하면 기존 rule 전부 무력화.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:35:11.533Z"
+        },
+        {
+          "id": 7,
+          "title": "hooks.ts에 PathGuard preflight 통합",
+          "context": "Issue #4. ApprovalBridge의 god-object화 방지. tool_input 파싱은 hook 엔드포인트가 책임지고, Bridge는 결과를 메타데이터로 받음.",
+          "approach": "`packages/server/src/routes/hooks.ts`의 POST `/hooks/pre-tool-use` 핸들러 내부: `const protectedHint = await PathGuard.preflight({toolName: body.tool_name, toolInput: body.tool_input, workspacePath: body.cwd})` → 결과를 `approvalBridge.addPending(approval, { protectedHint })` 호출 시 메타데이터로 전달. `PathGuard.preflight` 함수는 `extractPaths` 결과가 `{kind: 'paths'}`일 때 각 경로에 `normalizePath` → `isProtected` 체크하여 protected 경로 리스트를 반환. `{kind: 'unparseable'}`이면 Bash라 해도 경로를 알 수 없으니 빈 배열 + reason 힌트 반환.",
+          "acceptance": "protected 경로를 건드리는 tool_input이 Bridge에 `protectedHint: string[]`와 함께 전달됨. Edit/Write/MultiEdit/NotebookEdit의 file_path와 Bash command의 경로 모두 파싱됨. 기존 hook 엔드포인트 계약(요청/응답 스키마) 유지.",
+          "risk": "preflight가 synchronous로 호출되면 훅 응답 지연 — 이미 async라 문제 없지만 realpath 호출이 fs I/O라 병목 가능. 회귀 방지를 위해 기존 tool_result 파싱 경로도 검증.",
+          "status": "pending",
+          "deps": [
+            4
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:35:24.213Z"
+        },
+        {
+          "id": 8,
+          "title": "approval-bridge 평가 파이프라인 재설계 (Step 0-7)",
+          "context": "Issue #2/#5/#6의 핵심 수렴점. 모든 권한 결정 로직이 ApprovalBridge의 addPending 한 곳에 집약.",
+          "approach": "(1) `packages/server/src/adapters/hooks/approval-bridge.ts`에 `MODE_TOOL_MATRIX: Record<PermissionMode, Record<ToolCategory, 'allow'|'deny'|'ask'>>` 상수 정의(Issue #2 매트릭스 전체). (2) `categorizeToolName(name): ToolCategory` 헬퍼 — 'Read'/'Grep'/'Glob'/'NotebookRead' → 'read', 'Edit'/'Write'/'MultiEdit'/'NotebookEdit' → 'edit', 'Bash' → 'bash'(fs-subset/other는 path-guard 결과로 구분), 'WebFetch'/'WebSearch' → 'web', 'Task' → 'task', `mcp__*` → 'mcp', 미정의 → 'unknown'(fail-closed). (3) `addPending(approval, {protectedHint})` 파이프라인: Step 1 bypassPermissions → protectedHint 있으면 Step 7로, 없으면 `{allow, source: 'bypass'}`. Step 2 protectedHint 있으면 Step 7. Step 3 `matrix[mode][category]==='deny'` → `{deny, source: 'mode', reason: '${mode} 모드에서 차단'}`. Step 4 policyStore deny rule → `{deny, source: 'rule'}`. Step 5 policyStore allow rule → `{allow, source: 'rule'}`. Step 6 `matrix==='allow'` → `{allow, source: 'mode'}`. Step 7 pending 큐 진입(사용자 승인). (4) `addPending` 반환 타입 `Promise<{decision: 'allow'|'deny', reason: string, source: 'bypass'|'mode'|'rule'|'protected'|'user'}>`. (5) `respond()`에서 `entry.protectedHint?.length > 0`이면 scope 강제 `once` 다운그레이드 + 경고 로그. (6) `ApprovalBridge`에 `SessionStore` 의존성 주입 — `sessions.permission_mode` 폴백 경로(Issue #6 Option A 단순 유지, 기존 컬럼 스냅샷 역할 유지). (7) 기존 `mode === 'auto'` 분기 제거(T1에서 처리되었지만 최종 파이프라인에서 재확인).",
+          "acceptance": "4 모드 × 주요 도구군(read/edit/bash/web/task/mcp) 매트릭스 셀이 올바르게 동작. deny rule이 allow rule보다 우선. plan 모드의 Edit이 rule allow로 override되지 않음. bypass가 policyStore 완전 skip(deny rule조차 무시). protected path는 모든 모드에서 pending 큐 진입. 반환 객체에 reason/source 포함.",
+          "risk": "대규모 리팩터 — 기존 테스트 회귀 + 호출부(hooks.ts, session-lifecycle-service.ts, events.ts) 파급. source enum 확장 시 UI/SSE 동기화 필요. MODE_TOOL_MATRIX 하드코딩이 Issue #2 결정과 정확히 일치해야 함.",
+          "status": "pending",
+          "deps": [
+            4,
+            6,
+            7
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:35:49.281Z"
+        },
+        {
+          "id": 9,
+          "title": "approval-bridge 단위 테스트 확장 (20개 시나리오)",
+          "context": "Issue #8. T8의 새 평가 파이프라인 검증. 기존 4개 테스트 → 20개로 확장.",
+          "approach": "`packages/server/src/adapters/hooks/__tests__/approval-bridge.test.ts` 확장: (1) 모드×도구 매트릭스 샘플링 14개 — default(Read allow, Edit ask, Bash ask, Task allow), acceptEdits(Edit allow, Bash fs-subset allow, Bash other ask, WebFetch ask), plan(Edit deny, Read allow, Bash ask), bypass(Edit allow, Bash allow, mcp allow). (2) 파이프라인 순서 4개 — protected가 mode보다 먼저(bypass에서도 prompt), mode deny가 rule allow override, rule deny가 rule allow보다 먼저, bypass가 policyStore 완전 skip. (3) 반환 타입 3개 — `{decision,reason,source}` 구조, source 분기 케이스, reason 전달. (4) sessions.permission_mode 폴백 2개 — null일 때 effectiveDefaultMode, effectiveDefault도 없으면 'default'.",
+          "acceptance": "20개 신규 시나리오 통과 + 기존 4개 유지. 모드×도구 매트릭스가 Issue #2 결정과 정확히 일치 검증.",
+          "risk": "MODE_TOOL_MATRIX 변경 시 테스트 수정 필요 — 하드코딩 테이블이라 리팩터 비용.",
+          "status": "pending",
+          "deps": [
+            8
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:36:11.172Z"
+        },
+        {
+          "id": 10,
+          "title": "approval-policy-store 단위 테스트 확장 (15개 시나리오, specificity 10+)",
+          "context": "Issue #5/#8. T6의 deny rule + session_id 컬럼 + specificity 규칙 검증. architect가 10+ 시나리오 요구.",
+          "approach": "`packages/server/src/adapters/db/__tests__/approval-policy-store.test.ts`(신규 또는 확장): (1) deny rule 매칭 4개 — matchRule 반환, deny 없으면 undefined, allow+deny 동시 시 deny 우선, workspace-specific deny가 global allow override. (2) specificity 10개 — workspace-specific > global, specific-tool > wildcard, deny > allow 동일 specificity 내, `Edit` specific + workspace-A allow vs `*` global deny → Edit allow(specific 우선), workspace-A `*` deny vs global `Edit` allow → deny(workspace 우선), 4 modes × 주요 tools 대표 조합, session rule이 permanent rule보다 우선. (3) 세션 rule DB 복원 3개 — session_id 컬럼 저장/조회, 재시작 후 매칭, 세션 종료 시 DELETE.",
+          "acceptance": "15개 시나리오 통과. specificity 규칙이 코드와 일치하고 문서화 가능한 수준으로 명문화.",
+          "risk": "specificity 조합 폭발 — 실제 프로덕션 케이스에서 예기치 않은 충돌 발견 시 corpus 확장 필요.",
+          "status": "pending",
+          "deps": [
+            6
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:36:22.834Z"
+        },
+        {
+          "id": 11,
+          "title": "hooks integration 테스트 (POST /hooks/pre-tool-use round-trip)",
+          "context": "Issue #8. T7/T8 통합 경로가 실제 HTTP 요청으로 올바르게 동작하는지 검증.",
+          "approach": "`packages/server/src/routes/__tests__/hooks.test.ts`(신규 또는 확장) 시나리오 3개: (1) POST `/hooks/pre-tool-use` round-trip — Edit 도구 tool_input → path-guard preflight → ApprovalBridge → 결정 반환 → CLI 응답 포맷 검증. (2) protectedHint가 Bridge에 전달되는 경로 — `.env` 쓰기 요청이 bypass 모드에서도 pending 큐 진입. (3) tool_result 파싱 경로 회귀 방지 — stream-parser와 hooks 흐름이 T8 리팩터 후에도 정상 동작.",
+          "acceptance": "3개 통합 시나리오 통과. 기존 hooks 관련 테스트 회귀 없음.",
+          "risk": "통합 테스트가 실제 SQLite + HTTP 서버를 띄우므로 느림. 병렬 실행 시 포트 충돌 가능.",
+          "status": "pending",
+          "deps": [
+            7,
+            8
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:36:31.217Z"
+        },
+        {
+          "id": 12,
+          "title": "SSE PermissionSettledEvent에 reason/source 전파 (shared → server → web)",
+          "context": "Issue #5. T8의 반환 타입 변경을 SSE 스키마와 웹 어댑터까지 전파. optional 필드로 점진 마이그레이션.",
+          "approach": "(1) `packages/shared/src/schemas/session.ts`의 `PermissionSettledEventSchema`에 `reason: z.string().optional()`, `source: z.enum(['bypass','mode','rule','protected','user']).optional()` 추가. optional이라 구버전 클라이언트 호환. (2) `packages/server/src/routes/events.ts`의 `permission_settled` 이벤트 발행부에서 Bridge 반환 객체의 `reason`/`source`를 SSE 페이로드에 포함. (3) `packages/web/src/adapters/session-adapter.ts`의 `permission_settled` 핸들러가 `reason`/`source`를 소비해 chat-store 메시지 상태에 저장. UI는 T15/T16에서 이 값을 읽음.",
+          "acceptance": "SSE 이벤트 페이로드에 reason/source가 optional로 포함. 웹 어댑터가 두 필드를 chat-store에 저장. Zod 스키마 검증 통과, 구버전 이벤트(필드 없음)도 에러 없이 파싱.",
+          "risk": "shared 스키마 변경은 server/web 모두 재빌드 필요 — 한 PR에 묶지 않으면 빌드 깨짐. optional로 해도 타입 전파 경로에서 타입 에러 발생 가능.",
+          "status": "pending",
+          "deps": [
+            8
+          ],
+          "plan_issue": 5,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:36:42.751Z"
+        },
+        {
+          "id": 13,
+          "title": "status-bar.tsx 4옵션 + 한글 라벨 + lucide 아이콘",
+          "context": "Issue #7. Designer 권장 — status-bar는 이미 드롭다운 형태이므로 옵션만 4개로 확장 + 라벨/아이콘 업데이트.",
+          "approach": "`packages/web/src/components/layout/status-bar.tsx`의 `PERMISSION_MODES`를 다음 4개로 변경: `{id:'default', label:'기본', icon: ShieldCheck, description:'위험 작업은 매번 확인'}`, `{id:'acceptEdits', label:'편집 허용', icon: FileCheck2, description:'편집은 자동, 실행은 확인'}`, `{id:'plan', label:'계획', icon: Telescope, description:'읽기·탐색만, 편집 차단'}`, `{id:'bypassPermissions', label:'전체 허용', icon: ShieldOff, description:'모든 확인 건너뜀 (주의)'}`. 드롭다운 아이템에 아이콘 + 라벨 + description 한 줄 표시. 현재 선택 상태는 상태바에 아이콘 + 라벨만 표시.",
+          "acceptance": "4개 옵션 드롭다운 렌더링. 한글 라벨 정확. lucide 아이콘 import 및 표시. description이 드롭다운 아이템에 한 줄로 노출. 내부 코드값(`default/acceptEdits/plan/bypassPermissions`)은 유지.",
+          "risk": "lucide-react가 이미 의존성에 있는지 확인 필요 — 없으면 추가. 아이콘 sizing 통일(12-14px).",
+          "status": "pending",
+          "deps": [
+            1
+          ],
+          "plan_issue": 7,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:36:57.437Z"
+        },
+        {
+          "id": 14,
+          "title": "nexus-tab.tsx settings 탭 3-seg → 라디오 리스트 전환",
+          "context": "Issue #7. Designer 권장 — 4개 옵션에 한글 라벨을 세그먼트에 넣으면 찢어져서 라디오 리스트로 패턴 변경. 각 옵션에 한 줄 설명 + global 상속 배지.",
+          "approach": "`packages/web/src/components/settings/tabs/nexus-tab.tsx:71-97` 블록을 라디오 리스트로 재작성. 각 항목은 라디오 버튼 + 한글 라벨(T13과 동일 상수 공유) + 아이콘 + 한 줄 설명. project scope에서 편집 중이고 global에서 상속받는 경우 옆에 `전역 (상속)` 배지. FieldRow 패턴은 그대로 유지.",
+          "acceptance": "4개 항목 라디오 리스트 렌더링. 각 항목에 아이콘 + 라벨 + 설명 표시. global 상속 상태가 배지로 구분. 클릭 시 즉시 저장(기존 autoSave 재사용).",
+          "risk": "라디오 리스트로 전환 시 수직 공간 증가 — nexus-tab의 다른 필드와 간격 조정 필요.",
+          "status": "pending",
+          "deps": [
+            13
+          ],
+          "plan_issue": 7,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:37:03.962Z"
+        },
+        {
+          "id": 15,
+          "title": "permission-block.tsx 확장 (protected 배지 + reason + scope 숨김)",
+          "context": "Issue #4/#5/#7. Designer 권장 — 기존 인라인 승인 말풍선에 protected 배지 + 이유 + source별 색상 암시 + scope 선택 조건부 숨김.",
+          "approach": "`packages/web/src/components/chat/permission-block.tsx` 수정: (1) props에 `reason?: string`, `source?: 'bypass'|'mode'|'rule'|'protected'|'user'`, `protectedHint?: string[]` 추가. (2) `protectedHint?.length > 0`이면 상단에 `🔒 보호 경로` 빨간 배지 표시 + 카드 좌측에 2px red 라인. (3) scope 선택 split 버튼(`permission-block.tsx:91-120`)을 protected일 때 단일 \"승인(1회)\" 버튼으로 조건부 교체 + 작은 설명 텍스트 \"보호 경로는 매번 확인합니다\". (4) reason이 있으면 \"이유: {reason}\" 한 줄 추가, `line-clamp-1` + 툴팁에 전체. (5) source별 색상 힌트 — `mode`=노란색 accent, `protected`=빨간색 accent, `rule`=회색, `user`=이전 승인 배지, `bypass`=표시 안 함(통과되므로). 톤: \"거부\" → \"차단\".",
+          "acceptance": "protected path 요청 시 빨간 배지 + 좌측 라인 + 단일 승인 버튼. reason 한 줄 렌더링 + overflow 시 툴팁. source별 색상이 시각적으로 구분됨. 기존 일반 승인 UI 동작 유지.",
+          "risk": "기존 permission-block 사용처(채팅 스트림)에서 새 props를 전달하지 못하면 undefined로 degrade — 하위 호환을 위해 모든 신규 props는 optional.",
+          "status": "pending",
+          "deps": [
+            12
+          ],
+          "plan_issue": 7,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:37:17.522Z"
+        },
+        {
+          "id": 16,
+          "title": "permission-deny-block.tsx 신규 컴포넌트 (plan 모드 차단 카드)",
+          "context": "Issue #7. Designer 권장 — plan 모드에서 Edit이 원천 차단될 때 사용자에게 보여줄 인라인 카드. permission-block 패턴 재활용, 승인 버튼 대신 모드 전환 CTA.",
+          "approach": "`packages/web/src/components/chat/permission-deny-block.tsx` 신규. props: `toolName`, `reason`, `targetPath?`, `source: 'mode'|'rule'`. 렌더링: 좌측 `⊘` 아이콘 + \"차단됨 — {toolName} 도구\" 헤더, \"이유: {reason}\" 한 줄, \"대상: {targetPath}\" 선택적. 하단에 두 CTA: `[편집 허용으로 전환]` 클릭 시 `settingsStore.autoSave({permissionMode: 'acceptEdits'})` 호출(Issue #6 Option A라 project 영속 변경), 툴팁 \"이 변경은 유지됩니다. 계획 모드로 돌아가려면 수동 전환\". `[무시하고 계속]` 클릭 시 모델이 다른 방식으로 응답하도록 차단 카드만 닫음. 스타일은 permission-block과 일관(동일 테두리/패딩/폰트), 다만 아이콘과 버튼 톤만 변경.",
+          "acceptance": "deny 메시지 렌더링, targetPath 조건부 표시, CTA 2개 동작, \"편집 허용으로 전환\" 클릭 시 settings 업데이트. 차단 카드가 세션 히스토리에 영속(채팅 스트림에 남음).",
+          "risk": "\"편집 허용으로 전환\" 후 자동 재시도 금지 원칙 — 사용자 의식적 전환이 안전. 클릭 후 모델이 같은 턴에서 재시도하면 의도와 다름.",
+          "status": "pending",
+          "deps": [
+            12,
+            13
+          ],
+          "plan_issue": 7,
+          "owner": "engineer",
+          "created_at": "2026-04-09T13:37:32.223Z"
+        },
+        {
+          "id": 17,
+          "title": "UI 컴포넌트 단위 테스트 (5개)",
+          "context": "Issue #8. T13-T16 UI 변경의 회귀 방지 + 핵심 동작 검증.",
+          "approach": "Vitest + React Testing Library로 5개: (1) `status-bar.test.tsx` — 4개 옵션 렌더링, 한글 라벨, 드롭다운 내부 설명 툴팁, 선택 시 store 업데이트. (2) `nexus-tab.test.tsx` — 라디오 리스트 렌더링, global 상속 배지. (3) `permission-block.test.tsx` — protected 배지 조건부, scope 버튼 조건부 숨김, reason 한 줄 + 툴팁. (4) `permission-deny-block.test.tsx` — CTA 2개 동작, settings 업데이트 호출. (5) `settings-store.test.ts`의 `useEffectivePermissionMode` 훅 — global/project 머지 결과가 올바른 값 반환.",
+          "acceptance": "5개 컴포넌트/훅 테스트 통과. 기존 web 테스트 회귀 없음.",
+          "risk": "React Testing Library로 Zustand 스토어 목킹이 필요 — 기존 chat-store 테스트 패턴 재사용.",
+          "status": "pending",
+          "deps": [
+            13,
+            14,
+            15,
+            16
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:37:39.898Z"
+        },
+        {
+          "id": 18,
+          "title": "E2E Playwright 시나리오 (3개 핵심 플로우)",
+          "context": "Issue #8. 핵심 사용자 플로우 검증. `bun run test:e2e`는 빌드 선행 필요.",
+          "approach": "`e2e/` 디렉토리에 3개 시나리오: (1) 권한 모드 전환 즉시 반영 — status-bar 드롭다운으로 default→acceptEdits 변경 → 다음 Edit 도구 호출이 prompt 없이 통과. (2) plan 모드 차단 카드 — plan 모드 진입 → chat에 편집 지시 → permission-deny-block 카드 표시 → \"편집 허용으로 전환\" CTA 클릭 → status-bar가 acceptEdits로 변경됨 확인. (3) protected path 배지 + scope 숨김 — `.env` 쓰기 시도 → permission-block에 🔒 빨간 배지 + 좌측 라인 + 단일 \"승인(1회)\" 버튼 확인.",
+          "acceptance": "3개 E2E 시나리오 `bun run test:e2e` 통과. 빌드 선행 조건 문서화.",
+          "risk": "E2E는 느리고 flaky할 수 있음. CI 시간 증가. 로컬 개발 중에는 수동 실행 권장.",
+          "status": "pending",
+          "deps": [
+            8,
+            13,
+            14,
+            15,
+            16
+          ],
+          "plan_issue": 8,
+          "owner": "tester",
+          "created_at": "2026-04-09T13:37:49.132Z"
+        },
+        {
+          "id": 19,
+          "title": ".nexus/context/ 문서 업데이트 (권한 아키텍처 + session-flow 정정)",
+          "context": "Issue #5/#6. 구현 완료 후 설계 문서가 실제 코드와 일치하도록 업데이트. architect가 Issue #5 논의에서 요구한 ADR/문서화 작업.",
+          "approach": "(1) `.nexus/context/session-flow.md:80` \"session-scoped\" 주석 정정: \"permissionMode는 workspace(global/project) 단위. `sessions.permission_mode` 컬럼은 세션 시작 시점 스냅샷 역할\". (2) 권한 평가 파이프라인 섹션 확장: Step 0-7 다이어그램 + 4개 모드 설명 + protected path 가드 + policyStore deny rule 도입. (3) `.nexus/context/permission-architecture.md` 신규(또는 session-flow에 통합): 모드×도구 매트릭스, Bash 파서 원칙(fail-closed 블랙리스트), ExtractPathsResult union sentinel 설계, specificity 규칙(workspace>global, specific>wildcard, deny>allow).",
+          "acceptance": "문서가 T8 구현과 정확히 일치. 아키텍처 다이어그램(ASCII 또는 Mermaid) 포함. `.nexus/rules/` 아래 custom rule이 있으면 참조 링크 추가.",
+          "risk": "구현 후 문서화라 구현 디테일이 문서에 누락될 가능성 — 리뷰어 검증 필수.",
+          "status": "pending",
+          "deps": [
+            8,
+            15
+          ],
+          "plan_issue": 6,
+          "owner": "writer",
+          "created_at": "2026-04-09T13:38:04.006Z"
+        },
+        {
+          "id": 20,
+          "title": "문서 리뷰 (writer 페어)",
+          "context": "Issue #6/#8. T19의 문서 정확성/문법/톤 검증. writer 태스크의 auto-paired reviewer.",
+          "approach": "T19가 작성한 `.nexus/context/session-flow.md` + `permission-architecture.md`를 코드베이스와 대조 검증: (1) 파이프라인 Step 0-7이 `approval-bridge.ts` 구현과 일치, (2) 보호 경로 리스트가 `path-guard.ts`의 `PROTECTED_LIST`와 일치, (3) 모드×도구 매트릭스가 `MODE_TOOL_MATRIX` 상수와 일치, (4) 한글 문법/맞춤법/톤 일관성, (5) 다이어그램 렌더링 확인.",
+          "acceptance": "문서의 모든 주장이 코드와 일치 검증. 문법/톤 수정 완료. reviewer 승인.",
+          "risk": "리뷰에서 발견된 불일치가 코드 버그를 의미할 수도 있음 — 그 경우 구현 태스크로 환원.",
+          "status": "pending",
+          "deps": [
+            19
+          ],
+          "plan_issue": 6,
+          "owner": "reviewer",
+          "created_at": "2026-04-09T13:38:12.720Z"
+        }
+      ]
     }
   ]
 }

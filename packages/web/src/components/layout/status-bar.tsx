@@ -13,12 +13,7 @@ import { MODELS, useSettingsStore, useEffectiveModel, useEffectivePermissionMode
 import { useChatStore } from '@/stores/chat-store'
 import { useActiveWorkspace } from '@/hooks/use-active-workspace'
 import { useTheme } from '@/hooks/use-theme'
-
-const PERMISSION_MODES: { id: PermissionMode; label: string }[] = [
-  { id: 'default', label: 'Default' },
-  { id: 'auto', label: 'Auto' },
-  { id: 'bypassPermissions', label: 'Bypass' },
-]
+import { PERMISSION_MODES } from '@/constants/permission-modes'
 
 export function StatusBar() {
   const { modalOpen, setModalOpen, quickSave, loadSettings } = useSettingsStore()
@@ -47,8 +42,8 @@ export function StatusBar() {
 
   const currentModelLabel =
     MODELS.find((m) => m.id === defaultModel)?.label ?? defaultModel
-  const currentPermLabel =
-    PERMISSION_MODES.find((m) => m.id === defaultPermissionMode)?.label ?? defaultPermissionMode
+  const currentMode = PERMISSION_MODES.find((m) => m.id === defaultPermissionMode) ?? PERMISSION_MODES[0]
+  const CurrentPermIcon = currentMode.icon
 
   function handleModelChange(modelId: ModelId) {
     void quickSave({ model: modelId }, workspacePath)
@@ -103,22 +98,28 @@ export function StatusBar() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-0.5 px-2 py-0.5 rounded hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors">
-                <span>{currentPermLabel}</span>
+                <CurrentPermIcon className="w-3 h-3" />
+                <span className="ml-0.5">{currentMode.label}</span>
                 <ChevronDown className="size-3 ml-0.5" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top">
               <DropdownMenuLabel>권한 모드</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {PERMISSION_MODES.map((m) => (
-                <DropdownMenuItem
-                  key={m.id}
-                  onClick={() => handlePermissionChange(m.id)}
-                  className={defaultPermissionMode === m.id ? 'text-[var(--accent)]' : ''}
-                >
-                  {m.label}
-                </DropdownMenuItem>
-              ))}
+              {PERMISSION_MODES.map((m) => {
+                const Icon = m.icon
+                return (
+                  <DropdownMenuItem
+                    key={m.id}
+                    onClick={() => handlePermissionChange(m.id)}
+                    className={defaultPermissionMode === m.id ? 'text-[var(--accent)]' : ''}
+                  >
+                    <Icon className="w-3 h-3 shrink-0" />
+                    <span>{m.label}</span>
+                    <span className="text-[10px] text-[var(--text-muted)] ml-1">{m.description}</span>
+                  </DropdownMenuItem>
+                )
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
 

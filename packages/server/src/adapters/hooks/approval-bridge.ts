@@ -3,6 +3,87 @@ import type { SettingsStore } from '../db/settings-store.js'
 
 const APPROVAL_TIMEOUT_MS = 300_000
 
+// ---------------------------------------------------------------------------
+// Mode × Tool matrix
+// ---------------------------------------------------------------------------
+
+type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+type ToolCategory = 'read' | 'edit' | 'bash-fs' | 'bash-other' | 'web' | 'task' | 'mcp' | 'unknown'
+type MatrixDecision = 'allow' | 'deny' | 'ask'
+
+const MODE_TOOL_MATRIX: Record<PermissionMode, Record<ToolCategory, MatrixDecision>> = {
+  default: {
+    read: 'allow',
+    edit: 'ask',
+    'bash-fs': 'ask',
+    'bash-other': 'ask',
+    web: 'ask',
+    task: 'allow',
+    mcp: 'ask',
+    unknown: 'ask',
+  },
+  acceptEdits: {
+    read: 'allow',
+    edit: 'allow',
+    'bash-fs': 'allow',
+    'bash-other': 'ask',
+    web: 'ask',
+    task: 'allow',
+    mcp: 'ask',
+    unknown: 'ask',
+  },
+  plan: {
+    read: 'allow',
+    edit: 'deny',
+    'bash-fs': 'ask',
+    'bash-other': 'ask',
+    web: 'ask',
+    task: 'allow',
+    mcp: 'ask',
+    unknown: 'ask',
+  },
+  bypassPermissions: {
+    read: 'allow',
+    edit: 'allow',
+    'bash-fs': 'allow',
+    'bash-other': 'allow',
+    web: 'allow',
+    task: 'allow',
+    mcp: 'allow',
+    unknown: 'allow',
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Tool category helper
+// ---------------------------------------------------------------------------
+
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'NotebookRead'])
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+const WEB_TOOLS = new Set(['WebFetch', 'WebSearch'])
+
+function categorizeToolName(
+  toolName: string,
+  parseReason?: string,
+  bashFsSubset?: boolean,
+): ToolCategory {
+  if (READ_TOOLS.has(toolName)) return 'read'
+  if (EDIT_TOOLS.has(toolName)) return 'edit'
+  if (WEB_TOOLS.has(toolName)) return 'web'
+  if (toolName === 'Task') return 'task'
+  if (toolName === 'Bash') {
+    if (parseReason) return 'bash-other' // 파싱 실패 → fail-closed
+    if (bashFsSubset) return 'bash-fs'
+    return 'bash-other'
+  }
+  if (toolName.startsWith('mcp__')) return 'mcp'
+  return 'unknown'
+}
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
 export interface PendingApproval {
   id: string
   sessionId: string
@@ -17,13 +98,23 @@ export type PendingApprovalInfo = Omit<PendingApproval, 'resolve'>
 
 export type ApprovalScope = 'once' | 'session' | 'permanent'
 
+export interface SettleResult {
+  decision: 'allow' | 'deny'
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+}
+
+// ---------------------------------------------------------------------------
+// ApprovalBridge
+// ---------------------------------------------------------------------------
+
 export class ApprovalBridge {
   private readonly pending = new Map<string, PendingApproval>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly policyStore: ApprovalPolicyStore | null
   private readonly settingsStore: SettingsStore | null
   private readonly pendingAddedCallbacks = new Set<(info: PendingApprovalInfo) => void>()
-  private readonly pendingSettledCallbacks = new Set<(id: string, decision: 'allow' | 'deny') => void>()
+  private readonly pendingSettledCallbacks = new Set<(id: string, result: SettleResult) => void>()
 
   constructor(policyStore?: ApprovalPolicyStore, settingsStore?: SettingsStore) {
     this.policyStore = policyStore ?? null
@@ -37,39 +128,75 @@ export class ApprovalBridge {
     }
   }
 
-  onPendingSettled(callback: (id: string, decision: 'allow' | 'deny') => void): () => void {
+  onPendingSettled(callback: (id: string, result: SettleResult) => void): () => void {
     this.pendingSettledCallbacks.add(callback)
     return () => {
       this.pendingSettledCallbacks.delete(callback)
     }
   }
 
-  addPending(
+  async addPending(
     approval: Omit<PendingApproval, 'resolve' | 'createdAt'>,
+    meta?: { protectedHint?: string[]; parseReason?: string; bashFsSubset?: boolean },
   ): Promise<'allow' | 'deny'> {
-    if (this.settingsStore) {
-      const settings = this.settingsStore.getEffectiveSettings(approval.workspacePath)
-      const mode = settings.permissionMode
-      if (mode === 'auto' || mode === 'bypassPermissions') {
-        return Promise.resolve('allow')
+    const mode = (
+      this.settingsStore?.getEffectiveSettings(approval.workspacePath).permissionMode ?? 'default'
+    ) as PermissionMode
+
+    const category = categorizeToolName(approval.toolName, meta?.parseReason, meta?.bashFsSubset)
+    const hasProtected = (meta?.protectedHint?.length ?? 0) > 0
+
+    // Step 1: bypassPermissions — protected는 prompt, 나머지 allow
+    if (mode === 'bypassPermissions') {
+      if (hasProtected) {
+        return this.enqueueForUser(approval)
       }
+      return Promise.resolve('allow')
     }
 
+    // Step 2: protected path는 모든 모드에서 prompt
+    if (hasProtected) {
+      return this.enqueueForUser(approval)
+    }
+
+    // Step 3: 모드 매트릭스 deny (plan의 edit 등 원천 차단)
+    const matrixDecision = MODE_TOOL_MATRIX[mode]?.[category] ?? 'ask'
+    if (matrixDecision === 'deny') {
+      return Promise.resolve('deny')
+    }
+
+    // Step 4 & 5: policyStore 룰 매칭 (deny 우선, then allow)
     if (this.policyStore) {
-      const match = this.policyStore.matchRule(approval.toolName, approval.workspacePath)
-      if (match) {
+      const ruleMatch = this.policyStore.matchRule(approval.toolName, approval.workspacePath, approval.sessionId)
+      if (ruleMatch) {
+        if (ruleMatch.decision === 'deny') {
+          return Promise.resolve('deny')
+        }
+        // decision === 'allow'
         this.policyStore.logDecision({
           toolName: approval.toolName,
           toolUseId: approval.id,
           sessionId: approval.sessionId,
           workspacePath: approval.workspacePath,
           decision: 'allow',
-          scope: match.scope,
+          scope: ruleMatch.scope,
         })
         return Promise.resolve('allow')
       }
     }
 
+    // Step 6: 모드 매트릭스 allow
+    if (matrixDecision === 'allow') {
+      return Promise.resolve('allow')
+    }
+
+    // Step 7: ask — pending 큐 진입
+    return this.enqueueForUser(approval)
+  }
+
+  private enqueueForUser(
+    approval: Omit<PendingApproval, 'resolve' | 'createdAt'>,
+  ): Promise<'allow' | 'deny'> {
     return new Promise<'allow' | 'deny'>((resolve) => {
       const entry: PendingApproval = {
         ...approval,
@@ -84,7 +211,7 @@ export class ApprovalBridge {
       }
 
       const timer = setTimeout(() => {
-        this._settle(approval.id, 'deny')
+        this._settle(approval.id, { decision: 'deny', source: 'user', reason: 'timeout' })
       }, APPROVAL_TIMEOUT_MS)
       this.timers.set(approval.id, timer)
     })
@@ -113,7 +240,7 @@ export class ApprovalBridge {
       })
     }
 
-    this._settle(toolUseId, decision)
+    this._settle(toolUseId, { decision, source: 'user' })
     return true
   }
 
@@ -121,7 +248,7 @@ export class ApprovalBridge {
     return Array.from(this.pending.values()).map(({ resolve: _resolve, ...rest }) => rest)
   }
 
-  private _settle(id: string, decision: 'allow' | 'deny'): void {
+  private _settle(id: string, result: SettleResult): void {
     const entry = this.pending.get(id)
     if (!entry) return
 
@@ -132,10 +259,10 @@ export class ApprovalBridge {
     }
 
     this.pending.delete(id)
-    entry.resolve(decision)
+    entry.resolve(result.decision)
 
     for (const cb of this.pendingSettledCallbacks) {
-      cb(id, decision)
+      cb(id, result)
     }
   }
 }

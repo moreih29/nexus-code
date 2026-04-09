@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
+import { PROTECTED_DIRS } from '@nexus/shared'
 
 export interface ApprovalRule {
   id: string
   toolName: string
   scope: 'session' | 'permanent'
   workspacePath: string | null
+  decision: 'allow' | 'deny'
+  sessionId: string | null
   createdAt: string
 }
 
@@ -22,7 +25,6 @@ export interface AuditLogEntry {
 
 export class ApprovalPolicyStore {
   private readonly db: Database.Database
-  private readonly sessionRules: ApprovalRule[] = []
 
   constructor(db: Database.Database) {
     this.db = db
@@ -51,26 +53,81 @@ export class ApprovalPolicyStore {
       );
       CREATE INDEX IF NOT EXISTS idx_approval_logs_workspace ON approval_logs(workspace_path);
     `)
+
+    // Idempotent column additions for schema migration
+    type ColumnInfo = { name: string }
+    const columns = this.db.prepare(`PRAGMA table_info(approval_rules)`).all() as ColumnInfo[]
+    const columnNames = new Set(columns.map((c) => c.name))
+
+    if (!columnNames.has('decision')) {
+      this.db.exec(`ALTER TABLE approval_rules ADD COLUMN decision TEXT NOT NULL DEFAULT 'allow' CHECK(decision IN ('allow', 'deny'))`)
+    }
+    if (!columnNames.has('session_id')) {
+      this.db.exec(`ALTER TABLE approval_rules ADD COLUMN session_id TEXT`)
+    }
   }
 
-  addPermanentRule(toolName: string, workspacePath?: string): ApprovalRule {
+  addRule(params: {
+    toolName: string
+    scope: 'session' | 'permanent'
+    workspacePath: string | null
+    decision?: 'allow' | 'deny'
+    sessionId?: string
+  }): ApprovalRule {
+    const decision = params.decision ?? 'allow'
+
+    // Layer 2 guard: reject rules targeting workspace-level protected directories
+    if (params.workspacePath !== null && params.workspacePath !== undefined) {
+      for (const protectedDir of PROTECTED_DIRS) {
+        if (
+          params.workspacePath === protectedDir ||
+          params.workspacePath.endsWith('/' + protectedDir)
+        ) {
+          throw new Error(`Cannot add rule for protected path: ${params.workspacePath}`)
+        }
+      }
+    }
+
     const id = randomUUID()
+    type RuleRow = {
+      id: string
+      tool_name: string
+      scope: string
+      workspace_path: string | null
+      decision: string
+      session_id: string | null
+      created_at: string
+    }
     const stmt = this.db.prepare<
-      [string, string, string | null],
-      { id: string; tool_name: string; scope: string; workspace_path: string | null; created_at: string }
+      [string, string, string, string | null, string, string | null],
+      RuleRow
     >(`
-      INSERT INTO approval_rules (id, tool_name, scope, workspace_path)
-      VALUES (?, ?, 'permanent', ?)
+      INSERT INTO approval_rules (id, tool_name, scope, workspace_path, decision, session_id)
+      VALUES (?, ?, ?, ?, ?, ?)
       RETURNING *
     `)
-    const row = stmt.get(id, toolName, workspacePath ?? null)!
+    const row = stmt.get(
+      id,
+      params.toolName,
+      params.scope,
+      params.workspacePath ?? null,
+      decision,
+      params.sessionId ?? null,
+    )!
     return {
       id: row.id,
       toolName: row.tool_name,
-      scope: 'permanent',
+      scope: row.scope as 'session' | 'permanent',
       workspacePath: row.workspace_path,
+      decision: row.decision as 'allow' | 'deny',
+      sessionId: row.session_id,
       createdAt: row.created_at,
     }
+  }
+
+  /** @deprecated Use addRule({ scope: 'permanent', ... }) instead */
+  addPermanentRule(toolName: string, workspacePath?: string): ApprovalRule {
+    return this.addRule({ toolName, scope: 'permanent', workspacePath: workspacePath ?? null })
   }
 
   removePermanentRule(id: string): void {
@@ -78,17 +135,25 @@ export class ApprovalPolicyStore {
   }
 
   listPermanentRules(workspacePath?: string): ApprovalRule[] {
-    type RuleRow = { id: string; tool_name: string; scope: string; workspace_path: string | null; created_at: string }
+    type RuleRow = {
+      id: string
+      tool_name: string
+      scope: string
+      workspace_path: string | null
+      decision: string
+      session_id: string | null
+      created_at: string
+    }
     let rows: RuleRow[]
     if (workspacePath !== undefined) {
       rows = this.db
         .prepare<[string | null], RuleRow>(
-          `SELECT * FROM approval_rules WHERE workspace_path = ? OR workspace_path IS NULL ORDER BY created_at ASC`,
+          `SELECT * FROM approval_rules WHERE (workspace_path = ? OR workspace_path IS NULL) AND scope = 'permanent' ORDER BY created_at ASC`,
         )
         .all(workspacePath)
     } else {
       rows = this.db
-        .prepare<[], RuleRow>(`SELECT * FROM approval_rules ORDER BY created_at ASC`)
+        .prepare<[], RuleRow>(`SELECT * FROM approval_rules WHERE scope = 'permanent' ORDER BY created_at ASC`)
         .all()
     }
     return rows.map((row) => ({
@@ -96,59 +161,62 @@ export class ApprovalPolicyStore {
       toolName: row.tool_name,
       scope: 'permanent' as const,
       workspacePath: row.workspace_path,
+      decision: (row.decision ?? 'allow') as 'allow' | 'deny',
+      sessionId: row.session_id,
       createdAt: row.created_at,
     }))
   }
 
-  addSessionRule(toolName: string, workspacePath?: string): void {
-    this.sessionRules.push({
-      id: randomUUID(),
-      toolName,
-      scope: 'session',
-      workspacePath: workspacePath ?? null,
-      createdAt: new Date().toISOString(),
-    })
+  /** @deprecated Use addRule({ scope: 'session', sessionId, ... }) instead */
+  addSessionRule(toolName: string, workspacePath?: string, sessionId?: string): void {
+    this.addRule({ toolName, scope: 'session', workspacePath: workspacePath ?? null, sessionId })
   }
 
+  deleteSessionRules(sessionId: string): number {
+    const result = this.db.prepare(`DELETE FROM approval_rules WHERE session_id = ?`).run(sessionId)
+    return result.changes
+  }
+
+  /** @deprecated No-op: session rules are now persisted in DB and cleaned up per-session via deleteSessionRules */
   clearSessionRules(): void {
-    this.sessionRules.length = 0
+    // intentional no-op — session rules live in DB, cleaned up by deleteSessionRules
   }
 
-  matchRule(toolName: string, workspacePath: string): ApprovalRule | null {
-    // permanent rules first
-    type RuleRow = { id: string; tool_name: string; scope: string; workspace_path: string | null; created_at: string }
+  matchRule(toolName: string, workspacePath: string | null, sessionId?: string): ApprovalRule | null {
+    type RuleRow = {
+      id: string
+      tool_name: string
+      scope: string
+      workspace_path: string | null
+      decision: string
+      session_id: string | null
+      created_at: string
+    }
     const row = this.db
-      .prepare<[string, string], RuleRow>(
+      .prepare<[string, string | null, string | null, string | null, string], RuleRow>(
         `SELECT * FROM approval_rules
          WHERE (tool_name = ? OR tool_name = '*')
            AND (workspace_path = ? OR workspace_path IS NULL)
+           AND (session_id IS NULL OR session_id = ?)
          ORDER BY
-           CASE WHEN workspace_path IS NOT NULL THEN 0 ELSE 1 END,
-           CASE WHEN tool_name != '*' THEN 0 ELSE 1 END
+           CASE WHEN workspace_path = ? THEN 1 ELSE 2 END,
+           CASE WHEN tool_name = ? THEN 1 ELSE 2 END,
+           CASE WHEN decision = 'deny' THEN 1 ELSE 2 END
          LIMIT 1`,
       )
-      .get(toolName, workspacePath)
+      .get(toolName, workspacePath, sessionId ?? null, workspacePath, toolName)
 
-    if (row) {
-      return {
-        id: row.id,
-        toolName: row.tool_name,
-        scope: 'permanent',
-        workspacePath: row.workspace_path,
-        createdAt: row.created_at,
-      }
+    if (!row) return null
+
+    return {
+      id: row.id,
+      toolName: row.tool_name,
+      scope: row.scope as 'session' | 'permanent',
+      workspacePath: row.workspace_path,
+      decision: (row.decision ?? 'allow') as 'allow' | 'deny',
+      sessionId: row.session_id,
+      createdAt: row.created_at,
     }
-
-    // session rules
-    for (const rule of this.sessionRules) {
-      const toolMatches = rule.toolName === toolName || rule.toolName === '*'
-      const pathMatches = rule.workspacePath === null || rule.workspacePath === workspacePath
-      if (toolMatches && pathMatches) {
-        return rule
-      }
-    }
-
-    return null
   }
 
   logDecision(entry: {

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
 import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
+import { preflightPaths } from '../adapters/hooks/path-guard-preflight.js'
 
 interface HookRequestBody {
   session_id: string
@@ -43,13 +44,30 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
 
     workspaceLogger?.log(body.cwd, { type: 'hook_request', sessionId: body.session_id, data: { tool_name: body.tool_name, tool_use_id: body.tool_use_id, session_id: body.session_id } })
 
-    const decision = await approvalBridge.addPending({
-      id: body.tool_use_id,
-      sessionId: body.session_id,
-      toolName: body.tool_name,
-      toolInput: body.tool_input,
-      workspacePath: body.cwd,
-    })
+    const preflight = await preflightPaths(body.tool_name, body.tool_input, body.cwd)
+
+    if (preflight.protectedPaths.length > 0) {
+      workspaceLogger?.log(body.cwd, {
+        type: 'protected_path_detected',
+        sessionId: body.session_id,
+        data: { toolName: body.tool_name, paths: preflight.protectedPaths },
+      })
+    }
+
+    const decision = await approvalBridge.addPending(
+      {
+        id: body.tool_use_id,
+        sessionId: body.session_id,
+        toolName: body.tool_name,
+        toolInput: body.tool_input,
+        workspacePath: body.cwd,
+      },
+      {
+        protectedHint: preflight.protectedPaths,
+        parseReason: preflight.parseReason,
+        bashFsSubset: preflight.bashFsSubset,
+      },
+    )
 
     workspaceLogger?.log(body.cwd, { type: 'hook_response', sessionId: body.session_id, data: { tool_use_id: body.tool_use_id, decision, reason: decision === 'allow' ? '사용자 승인' : '사용자 거부' } })
 

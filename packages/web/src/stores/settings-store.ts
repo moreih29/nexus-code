@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { apiClient } from '@/api/client'
 
-export type PermissionMode = 'default' | 'auto' | 'bypassPermissions'
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
 
 export const MODELS = [
@@ -310,7 +310,11 @@ export function useEffectiveModel(): ModelId {
 }
 
 export function useEffectivePermissionMode(): PermissionMode {
-  return useSettingsStore((s) => (({ ...s.globalSettings, ...s.projectSettings }.permissionMode as PermissionMode) ?? 'default'))
+  return useSettingsStore((s) => {
+    const mode = { ...s.globalSettings, ...s.projectSettings }.permissionMode
+    if (mode === 'auto') return 'bypassPermissions'
+    return (mode as PermissionMode) ?? 'default'
+  })
 }
 
 /** For non-React contexts (e.g., chat-input onSubmit) */

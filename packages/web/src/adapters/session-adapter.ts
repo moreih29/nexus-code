@@ -54,6 +54,22 @@ export interface PermissionRequestState {
   id: string
   toolName: string
   toolInput: Record<string, unknown>
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+  protectedHint?: string[]
+}
+
+export interface PermissionSettledState {
+  decision: 'allow' | 'deny'
+  reason?: string
+  source?: 'bypass' | 'mode' | 'rule' | 'protected' | 'user'
+}
+
+export interface PermissionDenyState {
+  toolName: string
+  reason: string
+  targetPath?: string
+  source: 'mode' | 'rule'
 }
 
 export interface ChatMessage {
@@ -62,6 +78,8 @@ export interface ChatMessage {
   text: string
   toolCalls?: ToolCallState[]
   permissionRequest?: PermissionRequestState
+  permissionSettled?: PermissionSettledState
+  permissionDeny?: PermissionDenyState
   isStreaming?: boolean
 }
 
@@ -324,9 +342,64 @@ export function applyEvent(state: SessionState, event: SessionEvent): SessionSta
     }
 
     case 'permission_settled': {
+      const settled: PermissionSettledState = {
+        decision: event.decision,
+        reason: event.reason,
+        source: event.source,
+      }
+
+      // When a deny comes from mode or rule, inject a PermissionDenyBlock card into the stream
+      if (
+        event.decision === 'deny' &&
+        (event.source === 'mode' || event.source === 'rule')
+      ) {
+        // Find the original permission request to get toolName and toolInput
+        const originMsg = state.messages.find((m) => m.permissionRequest?.id === event.permissionId)
+        const toolName = originMsg?.permissionRequest?.toolName ?? 'Unknown'
+        const toolInput = originMsg?.permissionRequest?.toolInput ?? {}
+        const targetPath =
+          typeof toolInput['file_path'] === 'string'
+            ? toolInput['file_path']
+            : typeof toolInput['path'] === 'string'
+              ? toolInput['path']
+              : undefined
+
+        const denyState: PermissionDenyState = {
+          toolName,
+          reason: event.reason ?? '현재 모드에서 허용되지 않는 도구입니다.',
+          targetPath,
+          source: event.source as 'mode' | 'rule',
+        }
+
+        const messages = state.messages.map((msg) => {
+          if (msg.permissionRequest?.id === event.permissionId) {
+            return { ...msg, permissionRequest: undefined, permissionSettled: settled, permissionDeny: denyState }
+          }
+          return msg
+        })
+
+        // If the origin message was not found (e.g., already cleared), append a standalone card
+        const found = messages.some((m) => m.permissionDeny === denyState)
+        if (!found) {
+          const denyMsg: ChatMessage = {
+            id: genId(),
+            role: 'assistant',
+            text: '',
+            permissionDeny: denyState,
+          }
+          return {
+            ...state,
+            sessionId: state.sessionId ?? event.sessionId,
+            messages: [...messages, denyMsg],
+          }
+        }
+
+        return { ...state, sessionId: state.sessionId ?? event.sessionId, messages }
+      }
+
       const messages = state.messages.map((msg) => {
         if (msg.permissionRequest?.id === event.permissionId) {
-          return { ...msg, permissionRequest: undefined }
+          return { ...msg, permissionRequest: undefined, permissionSettled: settled }
         }
         return msg
       })

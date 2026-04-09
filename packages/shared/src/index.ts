@@ -1,6 +1,18 @@
 export type { AppError } from './errors.js'
 export { appError } from './errors.js'
 
+export type { ExtractPathsResult, UnparseReason } from './path-guard.js'
+export {
+  normalizePath,
+  isProtected,
+  isWithinAllowedRoots,
+  extractPaths,
+  parseBashCommand,
+  parseSedArgs,
+  PROTECTED_DIRS,
+  PROTECTED_FILES,
+} from './path-guard.js'
+
 export type { Result } from './result.js'
 export { ok, err } from './result.js'
 

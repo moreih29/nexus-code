@@ -16,7 +16,7 @@ export const SessionStatusSchema = z.enum([
 export const StartSessionRequestSchema = z.object({
   workspacePath: z.string(),
   prompt: z.string(),
-  permissionMode: z.enum(['default', 'auto', 'plan', 'bypassPermissions']).optional(),
+  permissionMode: z.enum(['default', 'acceptEdits', 'plan', 'bypassPermissions']).optional(),
   model: z.string().optional(),
 })
 
@@ -62,6 +62,8 @@ export const PermissionSettledEventSchema = z.object({
   sessionId: z.string().nullable(),
   permissionId: z.string(),
   decision: z.enum(['allow', 'deny']),
+  reason: z.string().optional(),
+  source: z.enum(['bypass', 'mode', 'rule', 'protected', 'user']).optional(),
 })
 
 export const TurnEndEventSchema = z.object({

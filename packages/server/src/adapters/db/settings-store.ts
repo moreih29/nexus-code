@@ -38,6 +38,36 @@ export class SettingsStore {
         UNIQUE(scope, workspace_path)
       );
     `)
+    this.migrateAutoPermissionMode()
+  }
+
+  /** One-shot UPDATE: rewrite any persisted 'auto' permissionMode to 'bypassPermissions'. */
+  private migrateAutoPermissionMode(): void {
+    const rows = this.db
+      .prepare<[], SettingsRow>(`SELECT * FROM settings`)
+      .all()
+    for (const row of rows) {
+      let parsed: AppSettings
+      try {
+        parsed = JSON.parse(row.settings_json) as AppSettings
+      } catch {
+        continue
+      }
+      if (parsed.permissionMode === 'auto') {
+        parsed.permissionMode = 'bypassPermissions'
+        this.db
+          .prepare(`UPDATE settings SET settings_json = ? WHERE id = ?`)
+          .run(JSON.stringify(parsed), row.id)
+      }
+    }
+  }
+
+  /** Lazy mapping: rewrite 'auto' permissionMode to 'bypassPermissions' at read time. */
+  private normalizeSettings(settings: AppSettings): AppSettings {
+    if (settings.permissionMode === 'auto') {
+      return { ...settings, permissionMode: 'bypassPermissions' }
+    }
+    return settings
   }
 
   getGlobalSettings(): AppSettings {
@@ -45,7 +75,7 @@ export class SettingsStore {
       .prepare<[], SettingsRow>(`SELECT * FROM settings WHERE scope = 'global' AND workspace_path IS NULL`)
       .get()
     if (!row) return {}
-    return JSON.parse(row.settings_json) as AppSettings
+    return this.normalizeSettings(JSON.parse(row.settings_json) as AppSettings)
   }
 
   getProjectSettings(workspacePath: string): AppSettings {
@@ -53,7 +83,7 @@ export class SettingsStore {
       .prepare<[string], SettingsRow>(`SELECT * FROM settings WHERE scope = 'project' AND workspace_path = ?`)
       .get(workspacePath)
     if (!row) return {}
-    return JSON.parse(row.settings_json) as AppSettings
+    return this.normalizeSettings(JSON.parse(row.settings_json) as AppSettings)
   }
 
   getEffectiveSettings(workspacePath: string): AppSettings {

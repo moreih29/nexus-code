@@ -1,6 +1,7 @@
 import { ToolGroup } from './tool-group.js'
 import { SubagentResultBlock } from './subagent-result-block.js'
 import { PermissionBlock } from './permission-block.js'
+import { PermissionDenyBlock } from './permission-deny-block.js'
 import { MarkdownRenderer } from './markdown-renderer.js'
 import type { DisplayMessage } from '../../lib/display-message.js'
 
@@ -55,6 +56,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
       {message.permissionRequest && (
         <PermissionBlock key={message.permissionRequest.id} permission={message.permissionRequest} />
+      )}
+
+      {message.permissionDeny && (
+        <PermissionDenyBlock
+          toolName={message.permissionDeny.toolName}
+          reason={message.permissionDeny.reason}
+          targetPath={message.permissionDeny.targetPath}
+          source={message.permissionDeny.source}
+        />
       )}
     </div>
   )
