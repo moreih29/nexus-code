@@ -54,7 +54,6 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
       })
     }
 
-    // 두 번째 인자는 메타데이터 — T8에서 Bridge가 소비하도록 수정 예정
     const decision = await approvalBridge.addPending(
       {
         id: body.tool_use_id,
@@ -63,7 +62,11 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
         toolInput: body.tool_input,
         workspacePath: body.cwd,
       },
-      { protectedHint: preflight.protectedPaths, parseReason: preflight.parseReason },
+      {
+        protectedHint: preflight.protectedPaths,
+        parseReason: preflight.parseReason,
+        bashFsSubset: preflight.bashFsSubset,
+      },
     )
 
     workspaceLogger?.log(body.cwd, { type: 'hook_response', sessionId: body.session_id, data: { tool_use_id: body.tool_use_id, decision, reason: decision === 'allow' ? '사용자 승인' : '사용자 거부' } })
