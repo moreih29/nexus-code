@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "dev": "tsc && NODE_ENV=development electron dist/main.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"

@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs'
-import { extractPaths, normalizePath, isProtected, isWithinAllowedRoots } from '@nexus/shared'
+import { extractPaths, normalizePath, isProtected, isWithinAllowedRoots } from './path-guard.js'
 
 export interface PreflightResult {
   protectedPaths: string[]

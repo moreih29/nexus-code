@@ -48,7 +48,7 @@ permissionMode는 **workspace(global/project) 단위**로 관리된다. `Approva
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────┐
-│  path-guard (hooks.ts → @nexus/shared/path-guard)       │
+│  path-guard (hooks.ts → packages/server/src/adapters/hooks/path-guard.ts) │
 │  preflightPaths(toolName, toolInput, cwd, roots)        │
 │    ├─ extractPaths(toolName, toolInput)                 │
 │    │    → { kind:'paths' } | { kind:'unparseable' }    │
@@ -101,7 +101,7 @@ permissionMode는 **workspace(global/project) 단위**로 관리된다. `Approva
 
 ## 4. Protected Paths 가드
 
-`@nexus/shared/src/path-guard.ts`의 `isProtected(absPath, workspaceRoot)` 함수가 판별한다. workspace 외부 경로는 검사 대상이 아니다.
+`packages/server/src/adapters/hooks/path-guard.ts`의 `isProtected(absPath, workspaceRoot)` 함수가 판별한다. workspace 외부 경로는 검사 대상이 아니다.
 
 ### PROTECTED_DIRS (워크스페이스 상대 경로)
 
