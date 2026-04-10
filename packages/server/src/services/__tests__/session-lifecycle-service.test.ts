@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { resolvePermissionMode, settingsChanged } from '../session-lifecycle-service.js'
 
 describe('resolvePermissionMode', () => {
-  it("returns 'auto' when input is 'auto'", () => {
-    expect(resolvePermissionMode('auto')).toBe('auto')
-  })
-
   it("returns 'bypassPermissions' when input is 'bypassPermissions'", () => {
     expect(resolvePermissionMode('bypassPermissions')).toBe('bypassPermissions')
   })

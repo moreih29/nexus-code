@@ -172,18 +172,20 @@ describe('CliProcess', () => {
       expect(args).not.toContain('--continue')
     })
 
-    it('sets CLAUDE_CODE_EFFORT_LEVEL env var when effortLevel is provided', async () => {
+    it('includes --effort flag when effortLevel is provided', async () => {
       await process_.start({ prompt: 'Hello', cwd: '/tmp', effortLevel: 'high' })
 
-      const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: Record<string, string> }]
-      expect(options.env?.['CLAUDE_CODE_EFFORT_LEVEL']).toBe('high')
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      const idx = args.indexOf('--effort')
+      expect(idx).toBeGreaterThan(-1)
+      expect(args[idx + 1]).toBe('high')
     })
 
-    it('does not set CLAUDE_CODE_EFFORT_LEVEL when effortLevel is not provided', async () => {
+    it('does not include --effort when effortLevel is not provided', async () => {
       await process_.start({ prompt: 'Hello', cwd: '/tmp' })
 
-      const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: Record<string, string> }]
-      expect(options.env).toBe(process.env)
+      const [, args] = mockSpawn.mock.calls[0] as [string, string[], unknown]
+      expect(args).not.toContain('--effort')
     })
   })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getSessionFilePath, parseSessionHistory } from '../history-parser.js'
@@ -82,8 +82,11 @@ describe('getSessionFilePath', () => {
 
   it('handles path with trailing slash', () => {
     const home = process.env['HOME'] ?? '~'
-    const result = getSessionFilePath('/Users/kih/', 'abc')
-    expect(result).toBe(`${home}/.claude/projects/-Users-kih-/abc.jsonl`)
+    const base = tmpdir()
+    const withSlash = base.endsWith('/') ? base : base + '/'
+    const result = getSessionFilePath(withSlash, 'abc')
+    const expectedEncoded = realpathSync(base).replace(/\//g, '-')
+    expect(result).toBe(`${home}/.claude/projects/${expectedEncoded}/abc.jsonl`)
   })
 })
 

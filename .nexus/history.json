@@ -5721,6 +5721,132 @@
           "created_at": "2026-04-10T01:43:51.537Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-10T02:59:51.993Z",
+      "branch": "fix/server-test-regressions",
+      "plan": {
+        "id": 5,
+        "topic": "server test 회귀 4건 cleanup — 프로덕션 코드 변경 후 테스트 파일 미갱신",
+        "issues": [
+          {
+            "id": 1,
+            "title": "resolvePermissionMode('auto') 테스트 정리 — 'auto' 모드 제거 반영",
+            "status": "decided",
+            "decision": "옵션 A — 'auto' it 블록 전체 삭제. 이유: (1) 'auto'는 `0bf376c refactor(permissions): auto 모드 제거` 커밋으로 개념 자체가 사라져 undefined 반환이 정상이므로 `.toBe('auto')`는 stale assertion. (2) 파일에 이미 `'default'`, `'unknown'`, `undefined`, `null` 4개의 undefined 반환 케이스가 있고, `'auto'`를 `.toBeUndefined()`로 바꾸면 `'unknown'` 케이스와 의미가 완전히 동일한 중복. (3) B 옵션의 방어적 이점(\"auto 재도입 감지\")은 `'unknown'` 케이스가 이미 동일 커버리지로 대체한다. 실행: `session-lifecycle-service.test.ts:5-7`의 it 블록 삭제."
+          },
+          {
+            "id": 2,
+            "title": "hook-manager injectHooks timeout 테스트 정리 — 60s → 300s",
+            "status": "decided",
+            "decision": "옵션 A — 단순 값 업데이트. 실행: `hook-manager.test.ts:70`의 `.toBe(60)` → `.toBe(300)` 1줄 수정. 이유: (1) 이번 cycle은 regression cleanup이지 리팩터링이 아니므로 scope를 좁게 유지. (2) 상수 추출은 hook-manager의 다른 magic number(port, randomUUID)와 일관되게 다뤄야 하며 이는 별도 리팩터 cycle에서 처리. (3) 300s가 최종값일 가능성이 높아 B의 \"향후 자동 갱신\" ROI 낮음."
+          },
+          {
+            "id": 3,
+            "title": "cli-process effort level 테스트 리팩터 — env var → --effort CLI 인자",
+            "status": "decided",
+            "decision": "옵션 A — 테스트 2개를 args 검증 방식으로 리팩터. 실행: cli-process.test.ts의 line 175-187 두 it 블록을 `args.indexOf('--effort')` / `expect(args).not.toContain('--effort')` 패턴으로 교체. it 제목도 \"sets --effort flag...\" / \"does not include --effort...\"로 업데이트. 이유: (1) 프로덕션 코드가 `--effort <level>` CLI 인자 방식이며 이는 Claude Code CLI 최신 계약에 맞음. (2) 같은 파일 내 maxTurns(145-158)와 continueSession(161-172) 테스트가 이미 args.indexOf/args.not.toContain 패턴을 쓰고 있어 일관성. (3) B(env var 방식 rollback)는 프로덕션 코드 회귀로 배제."
+          },
+          {
+            "id": 4,
+            "title": "history-parser getSessionFilePath trailing slash 테스트 정정 — realpath 정규화 반영",
+            "status": "decided",
+            "decision": "옵션 B — 환경 독립 테스트로 재작성. 실행: history-parser.test.ts의 'handles path with trailing slash' it 블록을 `tmpdir()` 기반으로 재작성. 동적 기대값은 `realpathSync(base).replace(/\\//g, '-')`로 계산. 파일 상단에 `realpathSync` from 'node:fs', `tmpdir` from 'node:os' import 추가(이미 있으면 생략). 이유: (1) 현재 테스트는 `/Users/kih/` 절대경로 의존으로 CI/다른 사용자 환경에서 flaky — 사용자의 \"안정성 우선\" 방침과 직접 충돌. (2) A(단순 값 정정)는 증상만 치료하고 환경 의존 flakiness를 방치. (3) 같은 파일의 parseSessionHistory describe에서 이미 tmpDir 패턴을 쓰고 있어 유틸 재사용 자연스러움. (4) Claude Code CLI 실제 동작(`/Users/kih/.claude/projects/-Users-kih` 디렉토리) 확인으로 realpath 정규화 방식이 계약상 옳다는 게 실증됨."
+          }
+        ],
+        "research_summary": "**4건 전체 공통 패턴**: 프로덕션 코드 변경 후 관련 테스트 파일 cleanup 누락. 모두 `packages/server`의 vitest 회귀. 이전 cycle #64(path-guard 재배치)의 T12에서 처음 감지됐고, baseline `aeed85e`에서도 동일하게 발생하여 cycle 범위 밖으로 판정.\n\n**이슈 1 — resolvePermissionMode('auto')**\n- 원인 커밋: `0bf376c refactor(permissions): auto 모드 제거 + bypassPermissions 마이그레이션`\n- 현재 함수(`packages/server/src/services/session-lifecycle-service.ts:55-58`):\n  ```ts\n  export function resolvePermissionMode(mode): 'bypassPermissions' | undefined {\n    if (mode === 'bypassPermissions') return 'bypassPermissions'\n    return undefined\n  }\n  ```\n- 현재 테스트(`.test.ts:5-7`): `expect(resolvePermissionMode('auto')).toBe('auto')` — 'auto'는 이제 존재하지 않는 개념이므로 테스트 케이스를 아예 삭제하거나 `.toBeUndefined()`로 변경.\n\n**이슈 2 — hook-manager timeout**\n- 원인 커밋: `0be460d fix: 권한 제어 아키텍처 정상화 — hook 재주입, SSE push, tool_result 파싱`\n- 현재 코드(`hook-manager.ts:48`): `timeout: 300` (초). 긴 도구 실행 허용 위해 60→300으로 상향.\n- 현재 테스트(`.test.ts:70`): `expect(hookEntries[0]!['timeout']).toBe(60)` — 단순 값 업데이트 필요. 또는 상수 추출 고려.\n\n**이슈 3 — cli-process effort level 전달 방식**\n- 원인 커밋: `0bf376c refactor(permissions)` 또는 이후\n- 현재 코드(`cli-process.ts:124-126`): `if (options.effortLevel) { args.push('--effort', options.effortLevel) }` — env var 방식이 아닌 **CLI 인자 `--effort`** 방식 사용.\n- 현재 테스트(`.test.ts:175-187`): `options.env?.['CLAUDE_CODE_EFFORT_LEVEL']` 를 기대. env var 방식은 완전히 제거됐으므로 테스트를 `args` 검증으로 리팩터 필요. 2개 테스트(set/not set) 모두.\n\n**이슈 4 — history-parser trailing slash**\n- 원인 커밋: `fcfaa5b fix: E2E 검증 버그 수정 — realpath 경로 + matchRule 파라미터`\n- 현재 코드(`history-parser.ts:49-57`): `realpathSync(workspacePath)`로 경로 정규화 후 `.replace(/\\//g, '-')`. realpath는 trailing slash를 자동 제거.\n- 현재 테스트(`.test.ts:83-87`): `getSessionFilePath('/Users/kih/', 'abc')` → `-Users-kih-/abc.jsonl` 기대. 하지만 realpath 정규화 후 `-Users-kih/abc.jsonl` 반환 (끝 `-` 없음).\n- **Claude Code CLI 실제 동작 확인**: `/Users/kih/.claude/projects/` 에 `-Users-kih` (끝 `-` 없음) 디렉토리 존재. CLI 자체가 realpath 형식을 쓰므로 현재 코드가 옳고 테스트가 틀렸다.\n- 추가 리스크: 테스트가 `/Users/kih/` 절대경로에 의존하므로 CI/다른 사용자 환경에서 취약. 이번 범위 밖이지만 flag.\n\n**공통 특성**:\n- 4건 모두 source code는 의도된 변경이고 test 파일만 cleanup 누락\n- 4개 파일이 서로 독립적이라 병렬 수정 가능\n- HOW 서브에이전트 불필요 (각 이슈가 단순 test update 성격)\n- Lead가 직접 판단·실행 가능",
+        "created_at": "2026-04-10T02:14:09.167Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: resolvePermissionMode('auto') 테스트 it 블록 삭제",
+          "context": "packages/server/src/services/__tests__/session-lifecycle-service.test.ts의 line 5-7의 it 블록 `it(\"returns 'auto' when input is 'auto'\", () => { expect(resolvePermissionMode('auto')).toBe('auto') })` 전체를 삭제. 'auto' 모드는 `0bf376c refactor(permissions): auto 모드 제거` 커밋으로 개념 자체가 사라졌으며, 파일에 이미 `'unknown'`/`'default'`/`undefined`/`null` 케이스가 있어 undefined 반환 계약은 충분히 커버됨.",
+          "approach": "Read로 해당 파일 재확인 후 Edit. old_string은 it 블록 전체(빈 줄 포함)를 정확히 타겟팅. describe 블록 구조와 다른 테스트(settingsChanged 등)는 건드리지 않음.",
+          "acceptance": "session-lifecycle-service.test.ts에서 `'auto'` 리터럴 grep 결과 0건. describe('resolvePermissionMode') 내 it 블록 개수가 6 → 5로 감소. settingsChanged describe 블록은 무변경.",
+          "risk": "Edit old_string이 주변 공백/줄바꿈과 일치하지 않으면 실패. Read 후 exact match.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-10T02:53:13.523Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: hook-manager injectHooks timeout 테스트 .toBe(60) → .toBe(300)",
+          "context": "packages/server/src/adapters/hooks/__tests__/hook-manager.test.ts line 70의 `expect(hookEntries[0]!['timeout']).toBe(60)` 한 줄을 `.toBe(300)`으로 수정. hook-manager.ts:48의 프로덕션 코드는 `timeout: 300` (권한 제어 정상화 커밋 0be460d에서 상향).",
+          "approach": "Edit 1회: old_string은 해당 라인과 주변 컨텍스트 몇 줄 포함해 고유하게. 다른 test 블록(preserves existing / does not inject duplicate 등)은 건드리지 않음.",
+          "acceptance": "hook-manager.test.ts line 70이 `.toBe(300)`. 같은 파일 내 다른 timeout 리터럴(60) 없음. describe('injectHooks') 블록의 다른 it들 무변경.",
+          "risk": "`.toBe(60)`이 파일 내 유일하지 않으면 Edit 실패 — 주변 컨텍스트 포함한 old_string으로 방지.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-10T02:53:26.536Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: cli-process effortLevel 테스트 2개를 --effort args 방식으로 리팩터",
+          "context": "packages/server/src/adapters/cli/__tests__/cli-process.test.ts의 line 175-187 두 it 블록이 env var 방식(`options.env?.['CLAUDE_CODE_EFFORT_LEVEL']`)을 검증. 프로덕션 코드(cli-process.ts:124-126)는 `args.push('--effort', options.effortLevel)` CLI 인자 방식을 쓰므로 테스트도 args 검증으로 전환. 같은 파일의 maxTurns(145-158), continueSession(161-172) 테스트가 이미 `args.indexOf(...)` 패턴이므로 그 관례에 맞춤.",
+          "approach": "Edit 1회(두 it 블록을 하나의 연속 블록으로 한 번에 교체). 새 테스트:\n1. 'includes --effort flag when effortLevel is provided': `args.indexOf('--effort')` > -1, `args[idx + 1]` === 'high'\n2. 'does not include --effort when effortLevel is not provided': `expect(args).not.toContain('--effort')`\nmockSpawn.mock.calls destructuring은 `[, args]` 방식(env 불필요). 주변 describe/다른 it 블록 건드리지 않음.",
+          "acceptance": "cli-process.test.ts에서 `CLAUDE_CODE_EFFORT_LEVEL` 리터럴 grep 0건. 새 it 2개가 존재하며 title에 `--effort` 포함. maxTurns/continueSession 테스트 무변경.",
+          "risk": "두 it 블록의 정확한 old_string 매칭 — Read로 line 175-187 재확인 후 Edit. replace_all 금지.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-10T02:53:36.727Z"
+        },
+        {
+          "id": 4,
+          "title": "T4: history-parser trailing slash 테스트를 tmpdir() 환경 독립 방식으로 재작성",
+          "context": "packages/server/src/adapters/cli/__tests__/history-parser.test.ts line 83-87의 'handles path with trailing slash' it 블록이 `/Users/kih/` 절대경로에 의존해 flaky. realpathSync 정규화 결과와 환경 의존성 모두 반영한 재작성.",
+          "approach": "1) 파일 상단 import에 `realpathSync` from 'node:fs', `tmpdir` from 'node:os' 추가 (기존 import 확인 후 중복 방지). 2) it 블록 재작성:\n```ts\nit('handles path with trailing slash', () => {\n  const home = process.env['HOME'] ?? '~'\n  const base = tmpdir()\n  const withSlash = base.endsWith('/') ? base : base + '/'\n  const result = getSessionFilePath(withSlash, 'abc')\n  const expectedEncoded = realpathSync(base).replace(/\\//g, '-')\n  expect(result).toBe(`${home}/.claude/projects/${expectedEncoded}/abc.jsonl`)\n})\n```\n'encodes workspace path slashes as dashes'(line 77-81) 테스트는 건드리지 않음 — 환경 의존이 없어 정상.",
+          "acceptance": "history-parser.test.ts에서 `/Users/kih` 문자열 grep 0건. 재작성된 it 블록이 tmpdir + realpathSync 사용. parseSessionHistory describe 무변경. vitest 실행 시 macOS/Linux 환경에서 일관된 결과.",
+          "risk": "import 중복 추가 시 compile error — 기존 import 먼저 Read로 확인. 재작성된 테스트가 다른 환경(예: Windows)에서도 동작해야 하나 이 프로젝트는 darwin/linux 타깃이라 무관.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-10T02:53:47.717Z"
+        },
+        {
+          "id": 5,
+          "title": "T5: 검증 — server 테스트 전체 통과 (회귀 4건 → 0건)",
+          "context": "T1-T4 수정 후 `bun run --filter '@nexus/server' test`가 전체 pass여야 한다. 기존 baseline에서 4건 failing이던 상태를 0건으로 복구.",
+          "approach": "bun run --filter '@nexus/server' test 실행 → exit 0 확인. vitest 출력에서 Test Files / Tests 카운트 확인: 회귀 4건이 모두 pass로 전환됐는지, 기존 402 passed 카운트가 유지되는지 (total 406 passed).",
+          "acceptance": "server test exit 0. 'Tests 406 passed' 또는 이에 상응하는 메시지. 4건(resolvePermissionMode/hook-manager timeout/cli-process effortLevel x2/history-parser trailing slash)이 명시적으로 pass. 회귀 0.",
+          "risk": "T1-T4 중 하나라도 미완이면 부분 실패 — 실패 발생 시 어떤 테스트가 실패했는지 로그 발췌 후 해당 task 재개.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "plan_issue": 1,
+          "owner": "tester",
+          "created_at": "2026-04-10T02:53:55.340Z"
+        },
+        {
+          "id": 6,
+          "title": "T6: 검증 — 전체 typecheck 통과 (regression 없음)",
+          "context": "T1-T4 수정 중 history-parser.test.ts에 import가 추가되므로 typecheck에 영향 가능성. `bun run --filter '*' typecheck`로 shared/server/web/electron 4개 패키지 모두 확인.",
+          "approach": "bun run --filter '*' typecheck 실행 → exit 0 확인. 각 패키지별 tsc --noEmit 결과에서 에러 0.",
+          "acceptance": "4개 패키지 모두 typecheck exit 0. 새로운 TS 에러 없음.",
+          "risk": "history-parser.test.ts의 import 오타 또는 중복으로 인한 컴파일 에러 — T4 완료 후 스스로 한 번 grep으로 import 무결성 확인.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "plan_issue": 4,
+          "owner": "tester",
+          "created_at": "2026-04-10T02:54:00.575Z"
+        }
+      ]
     }
   ]
 }

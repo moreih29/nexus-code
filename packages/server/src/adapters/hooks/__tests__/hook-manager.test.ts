@@ -67,7 +67,7 @@ describe('HookManager', () => {
       const hookEntries = group['hooks'] as Array<Record<string, unknown>>
       expect(hookEntries[0]!['type']).toBe('http')
       expect(typeof hookEntries[0]!['url']).toBe('string')
-      expect(hookEntries[0]!['timeout']).toBe(60)
+      expect(hookEntries[0]!['timeout']).toBe(300)
     })
 
     it('preserves existing settings when injecting', async () => {
