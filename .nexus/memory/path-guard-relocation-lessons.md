@@ -40,3 +40,26 @@
 - 호출부가 2+ 패키지? → shared 후보
 - 호출부가 1 패키지? → 해당 패키지에 배치
 - 순수 타입/Zod 스키마/상수? → shared 허용
+
+## 4. dev 세션 정리는 PID가 아닌 port listener 기준으로
+
+`bun run dev` 등 dev orchestrator의 자식을 종료할 때 **부모 PID kill만으로는 자식이 함께 죽지 않는다**. `tsx --watch` 같은 Node `--watch` 계열은 자식을 별도 PID로 분리 spawn하므로 부모가 SIGTERM을 받아도 자식은 orphan화(`ppid=1`)되어 port를 계속 점유한다.
+
+**실사례**: cycle #64 dev smoke test 준비 중 cwd 를 `packages/server` 로 둔 채 `bun run dev` 를 background로 띄워 server 단독 dev(`tsx --watch src/index.ts`)가 실제 node server를 PID 46597로 spawn 했다. 부모 shell만 `kill -TERM` 했을 때 tsx wrapper는 죽었지만 **PID 46597이 `ppid=1` 로 재부모화되어 살아남아 cycle #64/#65 두 사이클이 모두 끝난 뒤까지 1시간 22분 동안 port 3000을 점유**. cycle #64 T14 에서 이 현상을 "사용자 기존 dev 세션" 탓으로 오진해 electron 프로세스만 정리하고 server orphan 을 놓친 게 직접 원인.
+
+### 체크리스트 — dev 세션 정리
+
+1. **port listener 우선 정리**: PID tree 를 쫓지 말고 실제 listener 부터. PID tree 탐색보다 빠르고 정확.
+   ```bash
+   lsof -nP -iTCP:3000 -sTCP:LISTEN   # @nexus/server (Hono)
+   lsof -nP -iTCP:5173 -sTCP:LISTEN   # @nexus/web (Vite)
+   ```
+   결과에 나온 PID 를 직접 `kill -TERM`.
+2. **tree kill 이 필요하면** `pkill -TERM -P <parent_pid>` (부모의 자식을 재귀 종료) 또는 `kill -- -<PGID>` (process group leader 기준).
+3. **orphan 감지**: `ps -p <pid> -o ppid=` 결과가 `1` 이면 재부모화된 잔존물. `nexus-code` 관련 프로세스 중 `ppid=1` 인 건 모두 정리 대상.
+4. **cwd 실수 방지**: background로 `bun run dev` 를 띄우기 전 `pwd` 로 root 확인. `bun run --filter '*' ...` 형식은 cwd 무관하므로 더 안전.
+
+### 재발 방지 원칙
+
+- 긴 실행(watch/서버) 프로세스를 background로 띄웠다면 작업 완료 전 **반드시 PID 와 port listener 둘 다로** 정리 확인.
+- dev orchestrator를 종료할 때 단순 `kill <parent>` 로 끝내지 말고 port listener가 해제됐는지 `lsof` 로 실증.
