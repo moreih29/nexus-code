@@ -6061,6 +6061,66 @@
           "created_at": "2026-04-12T02:52:29.628Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-12T14:55:38.064Z",
+      "branch": "chore/remove-nexus-core-consumer",
+      "plan": {
+        "id": 5,
+        "topic": "nexus-core consumer 관계 재평가 — 유지/축소/제거",
+        "issues": [
+          {
+            "id": 1,
+            "title": "nexus-core consumer 유지 여부 — 래퍼 프로젝트에 authoring layer 의존이 필요한가",
+            "status": "decided",
+            "decision": "nexus-core consumer 관계 제거 (옵션 A). nexus-code는 Supervision layer로서 Execution layer consumer가 아님. 에이전트 프롬프트/capability enforce/MCP 도구 구현을 하지 않으므로 CONSUMING.md가 정의하는 consumer 의무가 해당되지 않음. 세션 스트림 파싱 + 워크스페이스 파일 직접 읽기로 필요한 정보를 모두 얻을 수 있음. 에이전트 표시 정보가 UI에 필요해지면 로컬 상수 테이블로 충분. nexus-core UI 기능은 안정성 확보 후 재평가."
+          },
+          {
+            "id": 2,
+            "title": "소비 범위 재정의 — 유지 시 무엇을 소비하고 무엇을 버리는가",
+            "status": "decided",
+            "decision": "소비 범위 = 없음. Issue #1에서 nexus-core consumer 관계 자체를 제거하기로 결정했으므로 소비 범위 재정의는 해당 없음. 향후 nexus-core 데이터가 필요해지면 그 시점에 최소 범위로 재연결."
+          },
+          {
+            "id": 3,
+            "title": "현재 깨진 코드 처리 — v0.1.2 generated code vs v0.3.0 breaking changes",
+            "status": "decided",
+            "decision": "nexus-core 관련 코드 전량 제거. 대상: devDependency 삭제, generate-metadata.mjs 삭제, src/generated/ 디렉토리 삭제, bun.lock 정리(bun install), backlog.md의 nexus-core 메타데이터 활용 섹션 갱신. index.ts는 generated를 re-export하지 않으므로 수정 불필요."
+          }
+        ],
+        "research_summary": "nexus-core v0.3.0 (2026-04-12) 확인: v0.2.0에서 harness_mapping 삭제→X3 semantic schema 전환, v0.3.0에서 nx-setup 삭제. 현재 nexus-code의 generated/vocabulary.ts는 삭제된 harness_mapping 기반이라 깨진 상태. nexus-core가 제공하는 18개 파일 계약 중 nexus-code에 필요한 건 agent metadata, state schemas, tool contracts 정도이고, 프롬프트/conformance는 불필요. 현재 generated 파일은 아무 데서도 import되지 않음. CONSUMING.md는 consumers에게 conformance 통과와 upgrade protocol 준수를 의무화하지만, nexus-code는 도구를 구현하는 consumer가 아님.",
+        "created_at": "2026-04-12T14:49:14.139Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "nexus-core devDependency + 빌드 스크립트 + generated 코드 삭제",
+          "context": "packages/shared에서 @moreih29/nexus-core devDep 제거, scripts/generate-metadata.mjs 삭제, src/generated/ 디렉토리 삭제, bun install로 lock 정리",
+          "approach": "1. packages/shared/package.json에서 devDependencies의 @moreih29/nexus-core 항목 삭제. 2. packages/shared/scripts/generate-metadata.mjs 파일 삭제. 3. packages/shared/src/generated/ 디렉토리 전체 삭제. 4. .gitignore에 generated 관련 항목 있으면 제거. 5. bun install로 lock 파일 갱신.",
+          "acceptance": "@moreih29/nexus-core가 package.json, bun.lock 어디에도 없음. generate-metadata.mjs 없음. src/generated/ 없음. bun run typecheck 통과. bun run build 통과 (shared 패키지).",
+          "risk": "index.ts가 generated를 re-export하지 않음을 이미 확인했으므로 빌드 깨짐 위험 낮음. 단 다른 패키지(server/web/electron)에서 간접 참조 여부 최종 확인 필요.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "lead",
+          "created_at": "2026-04-12T14:53:44.403Z"
+        },
+        {
+          "id": 2,
+          "title": "backlog.md에서 nexus-core 관련 항목 갱신",
+          "context": "backlog.md의 \"nexus-core 메타데이터 활용 (미구현)\" 섹션과 \"UI hint 필드 소스\" 섹션을 제거 결정 반영으로 갱신",
+          "approach": "backlog.md에서 nexus-core 메타데이터 활용 6가지 항목과 UI hint 필드 소스 섹션을 삭제하고, \"nexus-core consumer 관계 제거됨 — 향후 필요 시 재연결\" 한 줄로 교체.",
+          "acceptance": "backlog.md에 nexus-core 미구현 활용 목록이 없음. 제거 결정이 기록됨.",
+          "risk": "없음",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 3,
+          "owner": "lead",
+          "created_at": "2026-04-12T14:53:51.979Z"
+        }
+      ]
     }
   ]
 }

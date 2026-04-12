@@ -16,10 +16,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "test": "vitest run",
-    "generate": "node scripts/generate-metadata.mjs"
+    "generate": "echo 'generate-metadata removed — see plan #5 issue #1'"
   },
   "devDependencies": {
-    "@moreih29/nexus-core": "^0.1.2",
     "typescript": "*",
     "vitest": "^4.1.4"
   },

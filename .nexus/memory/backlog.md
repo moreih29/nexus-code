@@ -12,24 +12,9 @@
 
 둘 다 구독제 호환. 경로 A가 증거 충분.
 
-### nexus-core 메타데이터 활용 (미구현)
+### nexus-core consumer 관계
 
-`packages/shared/src/generated/{agents,vocabulary}.ts`가 생성되지만 아무 데서도 import하지 않음. 02-DECISIONS에서 계획한 6가지 용도:
-
-1. 에이전트 카탈로그 UI — category 색상 구분, alias_ko 한국어 병기
-2. 태그 워크플로우 시각화 — [plan]/[run]/[d] 타임라인 렌더링
-3. capability 기반 권한 시각화 — 추상 capability vs 실제 권한 요청 매핑
-4. 이상 감지 — declared capability vs 실제 요청 불일치 플래그
-5. resume_tier 뱃지 — persistent/bounded/ephemeral UI 표시
-6. 멀티-하네스 일관성 — nexus-core 단일 소스로 하네스 간 메타데이터 통일
-
-**왜 이게 필요한지에 대한 구체 스펙은 없음. 철학에도 근거 없음.**
-
-### UI hint 필드 소스
-
-에이전트 아이콘/색상 정보:
-- 옵션 A: nexus-core에 UI hint 필드 추가 요청 → neutral metadata 원칙 침범 우려
-- 옵션 B: nexus-code 내부에서 category→색상 매핑 자체 관리 → 에이전트 추가 시 별도 업데이트 필요
+Plan #5 (2026-04-12) 결정: **제거됨**. nexus-code는 Supervision layer로서 CONSUMING.md가 정의하는 consumer가 아님. devDep, 빌드 스크립트, generated 코드 전량 삭제. 향후 UI에서 에이전트 메타데이터가 필요해지면 최소 범위로 재연결.
 
 ### 멀티-하네스 동시 감독
 

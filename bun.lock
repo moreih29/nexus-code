@@ -47,7 +47,6 @@
         "zod": "^4.3.6",
       },
       "devDependencies": {
-        "@moreih29/nexus-core": "^0.1.2",
         "typescript": "*",
         "vitest": "^4.1.4",
       },
@@ -198,8 +197,6 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
-
-    "@moreih29/nexus-core": ["@moreih29/nexus-core@0.1.2", "", {}, "sha512-4Rm7Uo/hULaybHHpuhDTV6luzCySU3ydu3mnJGVEwwy4lxjRh1Y3bv020Vjcixh95QRXLwx57FKZmJ0pYp5rXQ=="],
 
     "@nexus/electron": ["@nexus/electron@workspace:packages/electron"],
 
