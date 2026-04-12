@@ -5847,6 +5847,220 @@
           "created_at": "2026-04-10T02:54:00.575Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-12T03:17:59.978Z",
+      "branch": "feat/philosophy-and-agent-host",
+      "plan": {
+        "id": 5,
+        "topic": "nexus-code 중심 철학 정립과 실행 계획 수립 — Plan Session #1 + Plan #5 통합 반영",
+        "issues": [
+          {
+            "id": 1,
+            "title": "CLAUDE.md 보완 범위와 철학 진술 통합 — Plan #5 T1/T5 + Plan Session #1 결정을 어떤 형태로 녹여낼 것인가",
+            "status": "decided",
+            "decision": "옵션 D'' 채택 — CLAUDE.md는 ~17줄로 재작성(정체성 3줄 + Non-goals 1줄 축약 + philosophy.md 포인터 + 기존 Essentials 7줄), 상세 참조 섹션은 글로벌 CLAUDE.md에 `.nexus/` 구조 설명이 이미 있으므로 제거. 새로 `.nexus/context/philosophy.md`를 SoT로 신설하며 다음 7개 섹션을 담는다: (1) 정체성 — T1의 \"에이전트 감독자를 위한 통합 워크벤치\" + Core Job 두 축(도구 파편화/가시성 공백 해소), (2) Supervision 이중 성격 — 관찰자 + Policy Enforcement Point, (3) 민지 페르소나 요약, (4) Non-goals Top 7 전문, (5) 5 판단 규칙 — 단 T5의 \"Observer 원칙\"은 \"Read-default / Write-exception 원칙\"으로 재명시, (6) 쓸 단어/쓰지 말 단어, (7) Phase별 해제 타임라인. 기존 `plan-5-philosophy-snapshot.md`는 헤더에 \"T1/T5 결정 내용은 philosophy.md로 이관, 이 파일은 Plan #5 진행 상태(T3~ 11개 pending) 기록으로 역할 축소\" 주석 추가(삭제하지 않음). CLAUDE.md의 Non-goals 4항목 중 \"에이전트 빌드 UI\"는 LLM 오해 위험(워크벤치 본문의 \"에이전트 감독\"과 단어 충돌)으로 \"플러그인 편집(MCP·훅·스킬)\"로 교체 — Plan #5 T5 원문의 \"플러그인 영역\" 범주와 직접 연결. 3층위 용어(Authoring/Execution/Supervision)는 CLAUDE.md에 노출하지 않음(Primer §1.4 + 외부 가시성 원칙). 실제 파일 작업은 Issue #2에서 tasks.json으로 생성.",
+            "how_agents": [
+              "architect",
+              "designer"
+            ],
+            "how_summary": {
+              "architect": "5개 레이어 분리 기준(주입 ROI/변경 빈도/블라스트 반경/외부 가시성/반복 명시 가치) 제시. SoT + 포인터 원칙 강력 추천 — 'CLAUDE.md 중복은 drift 발생'. 소개 문구 후보 C(두 줄 분리, spawn·관찰·권한 중재 명시) 추천. 3층위 용어는 CLAUDE.md에 금지(Primer §1.4 + 리포 루트 외부 가시성). Observer→Supervision 재명시 파급 5개 파일 도출(snapshot, permission-architecture, architecture, CLAUDE.md, 01-BRIEFING). critical 2건: CLAUDE.md 소개 문구 교체 없이는 후속 세션 전체가 'GUI 래퍼' 프레임으로 drift / permission-architecture §0 Supervision 이중성 선언 섹션 부재. product-philosophy.md 신설 제안은 philosophy.md로 채택(이름만 변경).",
+              "designer": "현재 16줄 essentials-only 구조의 세 결핍 진단: (A) Non-goals 신호 부재로 '팀 기능/LSP' 등 확장 제안 매 세션 반복, (B) 'GUI 래퍼' 뉘앙스 잔존으로 정체성 드리프트, (C) top-down IA(정체성→배제→실행) 부재. sweet spot 30줄 권장 — 60줄+는 본문 중복. T3 미결 상태에서는 T1 언어('감독자 통합 워크벤치') 그대로 사용이 합리적(결정 하류 원칙). Non-goals는 '즉시 활성' 정보이므로 포인터 뒤 숨기면 안 됨 — LLM 회상 신뢰도 낮음(Nielsen recognition over recall). identity.md 신설은 반대. 최종 제안: 30줄 5섹션 구조(정체성 3 + Supervision 이중성 3 + Non-goals 축약 5 + 용어 3 + Essentials 7 + 참조 3)."
+            },
+            "how_agent_ids": {
+              "architect": "a3222a7d3c4febd59",
+              "designer": "aa3b8530d87a34633"
+            }
+          },
+          {
+            "id": 2,
+            "title": ".nexus/context/ 공식 문서 갱신 범위 — 3개 파일(architecture/permission-architecture/session-flow)의 재명시 처리 방식",
+            "status": "decided",
+            "decision": "옵션 C 채택 — 난이도별 분리. [Lead 직접 이번 세션 처리 = 3건] (1) CLAUDE.md 옵션 D'' 반영(~17줄 재작성), (2) `.nexus/memory/plan-5-philosophy-snapshot.md` 헤더에 \"T1/T5 이관 + 역할 축소\" 한 줄 주석 추가, (3) `.nexus/context/session-flow.md`에 AgentHost 본격 반영 대신 \"Future direction: AgentHost 인터페이스 도입 예정\" 짧은 박스/각주만 추가(Issue #3 결정 후 확장). [writer task로 분리 = 3건] (4) `.nexus/context/philosophy.md` 신설(7 섹션: 정체성 What/Where 2행 — T1 \"에이전트 감독자 통합 워크벤치\"는 What, Plan Session #1 \"Nexus 생태계 Supervision layer\"는 Where / Supervision 이중 성격 / 민지 페르소나 요약 / Non-goals Top 7 전문 / 5 판단 규칙 — Observer 원칙을 \"Read-default / Write-exception 원칙\"으로 재명시 / 쓸·쓰지 말 단어 / Phase 해제 타임라인), (5) `.nexus/context/architecture.md`에 \"Nexus ecosystem 3-layer 프레임\" 섹션 추가 + line 1 \"GUI로 오케스트레이션\" 소개 문구 교체(3층위 용어는 `.nexus/context/` 내부 문서이므로 사용 허용), (6) `.nexus/context/permission-architecture.md`에 **§0 Supervision 이중 성격 선언 섹션 신설**(아키텍트 critical finding — 권한 시스템 존재 이유 명시). [검증] 위 3개 writer task 완료 후 reviewer 단일 task로 통합 검증(특히 permission-architecture §0은 critical). session-flow.md의 AgentHost 본격 반영은 Issue #3에서 착수 순서 확정 후 post-implementation 업데이트로 미룸(아키텍트 warning: 미구현 인터페이스를 \"있는 것처럼\" 문서화하면 드리프트 유발)."
+          },
+          {
+            "id": 3,
+            "title": "코드 실행 우선순위 시퀀싱 — Plan Session #1의 6가지 과제 착수 순서와 현재 코드베이스와의 정합",
+            "status": "decided",
+            "decision": "옵션 δ' (architect 변형) 채택 — Phase 단계적 진행으로 Critical 2건 사전 해소 + dogfooding 회귀 리스크 최소화. [Phase 1 병렬 2트랙, 0.5일] (α1) A 초안 조정 미니 plan — architect+lead 협업, 코드 0줄. 해결 항목: (i) spawn() → Promise<Result<string>> 수정(레포 컨벤션 준수), (ii) AgentHostConfig에 resumeSessionId?·continueSession? 옵션 추가(cli-process.ts:116-122 기존 기능 dead letter 방지), (iii) AgentHostEvent에 error·tool_result 2종 추가, (iv) sessionId 반환 의미론 nexusSessionId(내부 ID) 고정. (α2) Q2 탐침 researcher task — @moreih29/nexus-core@0.1.2 tarball 구조 확인(agents/*/meta.yml, vocabulary/*.yml 실제 스키마), Bun workspace의 node_modules/@moreih29/nexus-core 실제 경로 실측, generate-metadata 필드 매핑 초안. [Phase 2 직렬, 1~2일] Task A: packages/shared/src/types/agent-host.ts 신규(Phase 1 조정안 반영) — engineer, acceptance: bun --filter @nexus/shared typecheck 통과. Task C-spike: packages/server/src/adapters/claude-code-host.ts 최소 구현 — engineer, UI 미연결 병렬 래퍼. acceptance 4개: (1) spawn/observe/dispose로 기존 CliProcess start 경로와 동등 세션 1건 완주, (2) 기존 session.ts/events.ts/hooks.ts 라우트 수정 0건, (3) bun run test:e2e Claude 세션 스모크 무회귀, (4) approve/reject와 ApprovalBridge.respond() 중복 trigger 없음. tester task: C-spike E2E 검증(Claude 세션 스모크 + 기존 경로 무회귀). [Phase 3 병렬 가능] Task B: packages/shared devDep @moreih29/nexus-core 추가 + scripts/generate-metadata.mjs 신규 + src/generated/ 디렉토리 — engineer. prebuild hook 보류(수동 bun run generate로 시작 → 1주 안정 후 prebuild 승격, dogfooding 안전장치). [Phase 4 별도 세션] Task D(opencode-host.ts 경로 A 초안)는 이번 tasks.json 범위에서 제외 — C가 UI 연결되어 실제 dogfooding 1주+ 통과 후 차기 plan 세션에서 착수. 경로 B(ACP)는 experiment-e4-acp-mode.md가 \"경로 A 기본 선택\" 명시 권고하여 재실험 불필요. [Unresolved risks — C 착수 전 확인] (1) permission_request 이벤트 permissionId ↔ approval.id namespace 일치 여부(routes/hooks.ts 1회 확인), (2) Bun workspace hoisting의 @moreih29/nexus-core 실제 경로(Phase 1 researcher 작업에 포함).",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "실제 코드 팛트 공개: ProcessSupervisor는 spawn 지점이 아님(CliProcess.start가 실제 spawn, process-supervisor.ts:70-94 반환 인스턴스만). ApprovalBridge는 Supervisor와 독립적 구조(app.ts:36-43 나란히 생성, events.ts에서 합쳐짐) → ClaudeCodeHost는 단순 래핑이 아니라 orchestration 수준. sessionId 문제: nexusSessionId(내부) vs Claude _sessionId(CLI init 이벤트로 비동기 도착) 두 체계 → AgentHost.spawn() 반환값은 nexus 내부 ID 권고. 세션 재개는 이미 cli-process.ts:116-122에 --resume/--continue 구현됨 → 초안에서 누락되면 C에서 dead letter. AgentHost 반환 타입 Promise<string>는 레포 Result<T> 컨벤션과 충돌(critical). StreamParserEvents 13종 → AgentHostEvent 5종 매핑 가능하나 error·tool_result 누락 시 왼곡 매핑 강요. @moreih29/nexus-core@0.1.2 npm 실제 배포 확인(ESM, Node 20+, subpath exports만 — '.' : null). exp-e4가 '경로 A 기본 선택' 명시 권고. 추천: 옵션 δ 변형 — A 초안 조정 후 C를 'UI 미연결 병렬 래퍼'로 vertical slice, B는 Phase 3, D는 Phase 4 별도 세션. Critical 2건(Result 반환 + 세션 재개 옷션)은 A 착수 전 해소 필수."
+            },
+            "how_agent_ids": {
+              "architect": "aad708f01bbd16168"
+            }
+          },
+          {
+            "id": 4,
+            "title": "Plan #5 T3(핵심 가치 제안) 이하 11개 철학 이슈의 재개 경로 — 이번 세션 범위 결정",
+            "status": "decided",
+            "decision": "옵션 D 채택 — Plan #5 T3~T13 11개 이슈는 이번 세션 범위에서 제외하고 3개 묶음의 재개 트리거를 명시. 근거: Issue #1에서 CLAUDE.md 정체성을 T1 언어(\"에이전트 감독자를 위한 통합 워크벤치\")로 잠정 확정한 것이 T3 지연의 기능적 문제를 해소 → T3를 지금 결정할 기능적 필요 없음. S 시리즈는 AgentHost 실구현 검증 후가 훨씬 정확(추상 원칙만 논의 시 실코드와 충돌 위험). D 시리즈는 T3 종속(가치 제안 없이 IA/인터랙션 공중 논쟁). [재개 트리거 3묶음] (묶음 1 — 가치 제안 계열): T3 핵심 가치 제안 + T2 차별화 포지셔닝 + T4 로드맵 우선순위. owner strategist. 트리거 Phase 2(Task A + C-spike + tester) 완료 후. 이 시점에 CLAUDE.md 정체성 문구를 최종 tagline으로 격상. (묶음 2 — 아키텍처 원칙 계열): S1 계층 경계와 의존 원칙 + S2 상태 소재 원칙 + S3 외부 경계 격리(헤드리스 보안 포함) + S4 오케스트레이션 기능 배치 전략. owner architect. 트리거 Phase 3(Task B nexus-core consumer) 완료 후. AgentHost/nexus-core 실구현을 전제로 원칙 도출 → philosophy.md 확장. (묶음 3 — 디자인 계열): D1 정보 구조 우선순위 + D4 미팅 워크플로우 UI + D2 인터랙션 원칙 + D3 시각 언어. owner designer. 트리거 묶음 1 완료 후. [저장 위치] philosophy.md 말미에 \"## Plan #5 재개 경로\" 섹션으로 3묶음 트리거 기록 + plan-5-philosophy-snapshot.md 헤더의 역할 축소 주석에 philosophy.md 포인터 추가. [기각된 대안] 옵션 B(T3만 이번 세션 포함)는 세션 과부하 + strategist 비교 작업 필요 + CLAUDE.md 잠정본 최종본 격상이라는 \"완성도\" 이익만 있고 기능적 필요 없음. 옵션 A(분리만 + 트리거 미명시)는 잊힘 위험."
+          }
+        ],
+        "research_summary": "[문서 확인]\n- `.nexus/memory/nexus-code/` 00~05 문서 세트 확인: Plan Session #1(생태계 세션, 2026-04-10) 5개 결정 파악 — (1) 3층위 멘탈 모델(Authoring/Execution/Supervision), nexus-code = Supervision layer with \"Supervisor 이중 성격\"(세션 관찰자 + Policy Enforcement Point), (2) nexus-core read-only consumer 합류 + 정체성 재프레이밍 \"감독자 워크벤치\", (3) 4개 독립 레포 유지 + forward-only 완화, (4) vocabulary/tags.yml 단일 소스, (5) 옵션 γ 확정 — AgentHost 인터페이스(spawn/observe/approve/reject/dispose) + Claude Code adapter(기존 ProcessSupervisor 보존 래핑) + OpenCode adapter(신규).\n- `plan-5-philosophy-snapshot.md` 확인: Plan #5(철학 세션)는 13 이슈 중 2건만 결정 — T1(민지=Indie Hacker 페르소나, Core Job \"도구 파편화 + 가시성 공백 해소\", 정체성 \"에이전트 감독자를 위한 통합 워크벤치\"), T5(Non-goals Top 7 + 5 판단 규칙 + Phase별 타임라인). T3 \"핵심 가치 제안\" 다음이며 11개 pending. **T5의 \"Observer 원칙\" 문구는 Plan Session #1의 \"Supervision 이중 성격\"과 구조적 충돌 — 재명시 필요 플래그.**\n- 핵심 고정 제약: Claude Pro/Max 구독제 호환 필수, `@anthropic-ai/claude-agent-sdk` 금지, ProcessSupervisor+stream-json+ApprovalBridge 제거 금지, ACP 단일 통합 금지, \"Observer\" 신규 사용 금지, nexus-core runtime 기여 금지, 에이전트 조립/빌드 UI 금지.\n\n[현재 상태]\n- 현재 CLAUDE.md는 essentials-only 간결 버전 (패키지/모노레포/통신/타입/스타일/권한/테스트 7줄). \"Claude Code CLI를 로컬 데스크톱 GUI로 오케스트레이션하는 워크스테이션\" 소개 문구는 \"GUI 래퍼\" 뉘앙스 잔존. NEXUS 블록은 384b4fa 커밋에서 제거됨.\n- `.nexus/context/` 3개 파일(architecture.md, permission-architecture.md, session-flow.md)은 Plan Session #1 이전 상태. 4계층 아키텍처(shared/server/web/electron) 서술, Observer/Supervisor 용어 검증 필요.\n- Plan Session #1의 6가지 해야 할 일(context 갱신, AgentHost 인터페이스 정의, nexus-core consumer 합류, ClaudeCodeHost 래퍼, philosophy-snapshot 업데이트, OpenCodeHost 초안)은 **모두 미실행**.\n- 기존 핵심 자산: packages/server/src/adapters/cli/process-supervisor.ts, hooks/approval-bridge.ts, hooks/path-guard.ts 건재. packages/shared/src/types/ 디렉토리 없음, generate-metadata 스크립트 없음, @moreih29/nexus-core 의존성 없음.\n- 최근 commit 흐름은 \"path-guard 재배치 + memory 정리\" 위주 — 생태계 결정을 코드에 반영하는 사이클은 아직 시작 안 됨.\n\n[이 세션의 성격]\n- 재결정이 아니라 **통합 서술 + 시퀀싱**. 정체성/Non-goals/AgentHost 방향은 이미 확정. CLAUDE.md에 어떻게 녹일지, context/ 갱신을 이번 세션에서 할지 task로 뺄지, 코드 실행 6과제 중 어느 것부터 착수할지, Plan #5 T3~ 11개를 어떻게 다룰지 결정이 필요.\n- Plan #5 T3(핵심 가치 제안)는 CLAUDE.md의 tagline에 직접 영향을 주므로, 이번 세션에서 처리 범위를 정해야 함.",
+        "created_at": "2026-04-12T02:03:22.752Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "CLAUDE.md 옵션 D'' 재작성 (정체성 + Non-goals 1줄 + Essentials)",
+          "context": "Plan #5 T1/T5 + Plan Session #1 결정 반영. 현재 'Claude Code CLI를 로컬 데스크톱 GUI로 오케스트레이션하는 워크스테이션' 소개 문구는 Plan Session #1에서 폐기된 'GUI 래퍼' 잔존 표현. 옵션 D''의 섹션 구조: # Nexus Code → 정체성 3줄(Supervisor 이중 성격 포함) → Non-goals 1줄 축약 → philosophy.md 포인터 → ## Essentials(7줄 + @moreih29/nexus-core 1단어 추가). 상세 참조 섹션은 글로벌 CLAUDE.md에 .nexus/ 구조 설명이 이미 있어 제거. 3층위 용어(Authoring/Execution/Supervision) CLAUDE.md 노출 금지(Primer §1.4 + 외부 가시성).",
+          "approach": "기존 <!-- PROJECT:START --> ~ <!-- PROJECT:END --> 블록 전체 교체. 정체성 3줄: '# Nexus Code' + '에이전트 감독자를 위한 통합 워크벤치. Claude Code(현재)·OpenCode(계획) 세션을 외부에서 spawn·관찰하고, 권한 요청은 Policy Enforcement Point가 중재한다.' Non-goals 1줄: '**Non-goals**: 팀 기능 · 플러그인 편집(MCP·훅·스킬) · IDE 풀기능 · CC override는 범위 밖.' 포인터: '상세는 `.nexus/context/philosophy.md` 참조.' Essentials 7줄은 기존 유지하되 Monorepo 줄에 '+ @moreih29/nexus-core (read-only consumer)' 추가. 3층위 용어 미등장.",
+          "acceptance": "CLAUDE.md가 ~17~20줄 범위. PROJECT:START/END 블록 유지. 'GUI 래퍼' 'Observer' 'Claude Code CLI를 ... 오케스트레이션' 표현 0건. 'Policy Enforcement Point', '감독자 워크벤치', '@moreih29/nexus-core (read-only consumer)' 모두 포함. 3층위 용어(Authoring/Execution/Supervision) 미등장. `.nexus/context/philosophy.md` 포인터 존재.",
+          "risk": "philosophy.md 신설(Task 2)이 완료되기 전에 CLAUDE.md만 수정하면 포인터가 dead link가 된다. 이 task와 Task 2는 같은 커밋에 묶거나 Task 2 완료 후 Task 1 커밋.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-12T02:48:24.006Z"
+        },
+        {
+          "id": 2,
+          "title": ".nexus/context/philosophy.md 신설 — Plan #5 T1/T5 + Plan Session #1 통합 SoT",
+          "context": "Plan #5(철학 세션) T1/T5 + Plan Session #1(생태계 세션)의 결정을 영속 문서로 정제. 스냅샷 파일(plan-5-philosophy-snapshot.md)은 Plan #5 진행 기록으로 역할 축소되고, 이 파일이 철학 SoT가 된다. 7 섹션 + Plan #5 재개 경로 섹션 구성. 3층위 용어(Authoring/Execution/Supervision)는 .nexus/context/ 내부 문서이므로 사용 허용(Primer §1.4).",
+          "approach": "신규 파일 작성. 섹션 구성: (1) **정체성** — What('에이전트 감독자를 위한 통합 워크벤치', T1, Core Job 두 축: 도구 파편화 해소 + 가시성 공백 해소) + Where('Nexus 생태계 Supervision layer', Plan Session #1, nexus-core read-only consumer, flip 외부). (2) **Supervision 이중 성격** — (a) 세션 상태·메시지·파일 변경 read-only 관찰, (b) 권한 요청 Policy Enforcement Point(Pre-tool-use hook으로 승인/거부). 구조적 기원: Claude Code CLI 비대화형. (3) **민지 페르소나** — Indie Hacker, 4~7 프로젝트 주 단위 스위칭, 3~6 세션 병렬, dogfooding, 개발자 본인 동일 프로필, 2순위 확장은 지민(솔로 CTO), 반대 페르소나는 Vibe Coder·대기업 백엔드·엔터프라이즈 보안. (4) **Non-goals Top 7** — 팀/조직 기능·비-에이전트 CLI 통합·에이전트 조립/빌드 UI(플러그인 영역)·안전성/권한 증강 차별화·클라우드/호스팅 SKU·IDE 풀 기능(경량 편집 OK)·플러그인 마켓플레이스. 범위 내 추가: 사용량 대시보드·알림·히스토리 export·CC 공식 기능 GUI 래핑·파일 검색·헤드리스 서버 모드. (5) **5 판단 규칙** — [1] **Read-default / Write-exception 원칙**(T5 'Observer 원칙' 재명시: read OK 기본, write NO 기본, 예외 경량 텍스트 편집), [2] Plugin boundary 원칙, [3] Existing seam 원칙, [4] Persona fit 원칙, [5] Claude Code override 원칙. (6) **쓸 단어 / 쓰지 말 단어** — 쓸: 가시화·감독·통합·워크벤치·지켜본다·파악한다·한 창에서·에이전트 중심. 쓰지 말: 통제·안전·Claude Code GUI·팀·엔터프라이즈·자동화·Observer. (7) **Phase 해제 타임라인** — Phase 1-2(민지 PMF, Claude Code 전용, non-goal 고정)/3(OpenCode 1급, 헤드리스 공식화)/4(지민 확장, 플러그인 API)/5+(팀 기능 제한적 논의). 말미 **## Plan #5 재개 경로** — 묶음 1(T3/T2/T4 가치 제안, strategist, trigger=Phase 2 완료)/묶음 2(S1~S4 아키텍처 원칙, architect, trigger=Phase 3 완료)/묶음 3(D1~D4 디자인, designer, trigger=묶음1 완료).",
+          "acceptance": ".nexus/context/philosophy.md 파일 생성. 7 섹션 + Plan #5 재개 경로 섹션 모두 포함. T5 판단 규칙 #1이 'Read-default / Write-exception 원칙'으로 명시(Observer 문구 아님). Supervision 이중 성격 섹션에 (a)(b) 구조 명시. 민지 페르소나 포함. Non-goals Top 7 전문 + 범위 내 추가 항목. 5 판단 규칙 5개 모두. 쓸·쓰지 말 단어 목록. 3묶음 재개 트리거(Phase 2 완료/Phase 3 완료/묶음1 완료) 명시.",
+          "risk": "snapshot 파일 내용을 그대로 복사 금지 — snapshot은 '다른 로컬에서 이어갈 때', 'T3부터 재개' 같은 진행 표지가 박혀 있음. philosophy.md는 영속 문서 톤(현재형 선언)으로 재작성. 여러 소스 통합 필요: snapshot(T1/T5), 01-BRIEFING.md(Supervisor 이중 성격), 02-DECISIONS.md Issue #1/#2(정체성 재프레이밍), 00-ECOSYSTEM_PRIMER.md §1.3/§3.1/§7(3층위 + Supervisor + 민지의 하루).",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "writer",
+          "created_at": "2026-04-12T02:49:10.478Z"
+        },
+        {
+          "id": 3,
+          "title": ".nexus/context/architecture.md 갱신 — 3-layer 프레임 추가 + 소개 문구 교체",
+          "context": "Plan Session #1 03-IMPLEMENTATION_GUIDE §1에 명시된 작업. architecture.md에 'Nexus ecosystem 3-layer 프레임' 섹션을 추가하고, line 1 'GUI로 오케스트레이션' 소개 문구를 Supervision layer 표현으로 교체. 이 파일은 .nexus/context/ 내부 문서이므로 3층위 용어(Authoring/Execution/Supervision) 사용 허용(Primer §1.4). 기존 4계층 구조(shared/server/web/electron)는 이 상위 생태계 프레임 아래 배치되는 '내부 패키지 구조'로 재서술.",
+          "approach": "기존 architecture.md 4계층 구조 설명은 유지하되 상위에 'Nexus ecosystem 3-layer 프레임' 섹션 신설. 섹션 내용: Authoring layer(nexus-core — 집행 semantics 없는 프롬프트/metadata/vocabulary, canonical source), Execution layer(claude-nexus ↔ opencode-nexus sibling, bidirectional flip 대상), Supervision layer(nexus-code — spawn·관찰·권한 중재, flip 외부). line 1 소개 문구 'Nexus Code는 Claude Code CLI를 GUI로 오케스트레이션하는 로컬 워크스테이션이다'를 'Nexus Code는 Nexus 생태계의 Supervision layer다. Claude Code(현재)와 OpenCode(계획) 세션을 외부에서 spawn·관찰하고, 권한 요청을 Policy Enforcement Point로 중재한다.'로 교체. 기존 '계층 구조'(shared/server/web/electron 4계층) 섹션을 'Supervision layer 내부 패키지 구조'로 재타이틀 또는 소제목으로 흡수. nexus-core read-only consumer 관계를 '의존성 방향' 섹션 또는 새 서브섹션으로 명시(build-time 소비, runtime import 없음).",
+          "acceptance": "architecture.md에 'Nexus ecosystem 3-layer 프레임' 섹션 존재. Authoring/Execution/Supervision 3개 layer 정의 포함. Supervision layer가 flip 외부임을 명시. 기존 4계층 구조(shared/server/web/electron)가 Supervision layer 아래 내부 패키지 구조로 배치됨이 위계적으로 드러남. line 1 소개 문구에 'GUI로 오케스트레이션' 표현 0건. nexus-core read-only consumer 관계 언급. Primer §1.4 주의(3층위는 내부 전용, 외부 포지셔닝에는 비사용) 반영.",
+          "risk": "기존 4계층 구조 설명을 삭제하지 말 것 — 4계층은 여전히 유효한 내부 패키지 구조. 3층위 프레임은 그 상위 생태계 프레임이다. 두 프레임이 혼동되지 않도록 섹션 위계(생태계 → 내부 패키지)를 명확히 할 것.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "writer",
+          "created_at": "2026-04-12T02:49:29.216Z"
+        },
+        {
+          "id": 4,
+          "title": ".nexus/context/permission-architecture.md §0 Supervision 이중 성격 선언 섹션 신설",
+          "context": "architect Issue #1 분석의 **critical finding**: 현재 permission-architecture.md는 §1 4개 권한 모드부터 시작하여 '이 권한 시스템이 왜 nexus-code 안에 존재하는가'의 구조적 이유가 부재. Plan Session #1이 확정한 Supervisor 이중 성격(관찰자 + Policy Enforcement Point)을 §0 신설로 선언. Plan #5 T5의 'Observer 원칙' 문구가 이 파일 본문에 있다면 함께 교체.",
+          "approach": "기존 §1 앞에 '## 0. Supervision 이중 성격 — 이 권한 시스템의 존재 이유' 섹션 신설. 내용 4단락: (1) nexus-code는 Nexus 생태계의 Supervision layer로, Execution layer(Claude Code CLI, OpenCode) 세션을 외부에서 감독한다. (2) 이 감독은 이중 성격을 갖는다 — **(a) 세션 상태·메시지 스트림·파일 변경 사항은 read-only로 관찰**, **(b) 권한 요청(파일 수정, 셸 명령 등)은 Pre-tool-use hook으로 승인/거부 결정(Policy Enforcement Point)**. (3) 이 이중성의 구조적 기원: Claude Code CLI는 비대화형이므로 권한 요청→승인→실행 흐름을 대화형으로 이을 수 없다. 외부 감독자(nexus-code)가 ApprovalBridge로 결정 지점을 담당하는 것이 구조적 필연. (4) 아래 §1~§7의 정책 평가·Step 1-7 파이프라인은 이 PEP의 구현 상세. 기존 §1~§7 내용은 그대로 유지. 문서 전체 스캔하여 'Observer' 문구가 본문에 있으면 'Supervision' 또는 'Supervisor'로 교체.",
+          "acceptance": "permission-architecture.md에 '## 0. Supervision 이중 성격' 섹션 존재, §1보다 앞. (a)(b) 이중성 명시. 구조적 기원(Claude Code CLI 비대화형) 설명 포함. 'Policy Enforcement Point' 용어 명시. 기존 §1~§7(4개 권한 모드, 모드×도구 매트릭스, Step 1-7 평가 파이프라인, Protected paths, Bash 파서, policyStore specificity, UI 진입점) 모두 보존. 본문에 'Observer' 문구 0건.",
+          "risk": "기존 §1~§7 구조·내용 손실 금지. §0 추가는 '선언적 서론' 성격이며 §1~§7 기술 상세는 단일 출처 유지. architect severity: critical — Plan #5 T3 재개 시 Supervision 정체성 혼선 차단의 핵심 작업.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "writer",
+          "created_at": "2026-04-12T02:49:48.772Z"
+        },
+        {
+          "id": 5,
+          "title": "Q2 탐침 — @moreih29/nexus-core@0.1.2 구조 + Bun workspace 경로 실측",
+          "context": "Issue #3 Phase 1 병렬 트랙 α2. Task B(nexus-core consumer 합류) 착수 전에 generate-metadata.mjs의 필드 매핑 초안과 실제 파일 경로를 확보. 04-OPEN_QUESTIONS.md Q2의 Blocking 항목(i)(iii) — 필드 매핑·파일 분할 구조 — 해소. architect의 warning 중 'nexus-core exports \\\".\\\":null이라 root import 불가' 관련 실측.",
+          "approach": "(1) @moreih29/nexus-core@0.1.2 tarball을 `npm view`/`npm pack` 또는 임시 디렉토리 dry install로 구조 탐색. 실제 agents/*/meta.yml의 필드 목록(id, name, alias_ko, description, task, category, tags, capabilities, resume_tier, body, model_tier 기준 실측), vocabulary/*.yml(capabilities, categories, resume-tiers, tags) 구조, schema/*.json JSON Schema 유무 확인. (2) Bun workspace hoisting에서 node_modules/@moreih29/nexus-core의 실제 경로 실측(packages/shared 기준). 03-IMPLEMENTATION_GUIDE.md 가정('packages/shared/../../node_modules/@moreih29/nexus-core')의 실재 여부를 `ls` 또는 dry install로 확인. (3) generate-metadata.mjs의 필드 매핑 초안 작성: 어떤 필드를 TypeScript 상수로 변환할지, 출력 파일 분할 구조(단일 index.ts vs agents.ts/vocabulary.ts/tags.ts 분리), subpath exports 사용 가능성(package.json의 '\\\".\\\":null' 확인). (4) 발견 사항을 `.nexus/memory/nexus-code/references/research-nexus-core-structure.md`로 기록.",
+          "acceptance": "research 메모 파일(`.nexus/memory/nexus-code/references/research-nexus-core-structure.md`) 신설. 다음 4개 팩트 명시: (a) agents/*/meta.yml 실제 필드 목록(실측), (b) vocabulary/*.yml 파일 목록 + 스키마, (c) Bun workspace hoisting에서 실제 node_modules 경로(`ls` 결과), (d) generate-metadata.mjs 필드 매핑 초안(TypeScript 타입 예시 코드 포함). Task B(Task 11) 착수자가 이 메모만 읽으면 필드 매핑 질문에 답할 수 있어야 함.",
+          "risk": "nexus-core 패키지를 packages/shared에 실제 install하지 말 것 — Task 11에서 devDep 추가가 공식 첫 install. 이 task는 read-only 조사(tarball 탐색, npm view, 임시 디렉토리 dry install)로만. 또 research 결과가 03-IMPLEMENTATION_GUIDE.md 가정과 다를 경우 플래그를 명시적으로 남길 것(Task 11 approach 보정 필요).",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "researcher",
+          "created_at": "2026-04-12T02:50:10.900Z"
+        },
+        {
+          "id": 6,
+          "title": "packages/shared/src/types/agent-host.ts 신설 — AgentHost 인터페이스 (Critical 2건 반영)",
+          "context": "Issue #3 Phase 2 Task A. Plan Session #1 Issue #5에서 확정된 AgentHost 인터페이스를 packages/shared에 정의. 03-IMPLEMENTATION_GUIDE.md §5 초안을 그대로 쓰지 않고 architect Issue #3 분석의 Critical 2건을 사전 반영: (1) spawn 반환 타입을 Promise<Result<string>>으로 변경하여 레포 Result<T> 컨벤션 준수, (2) AgentHostConfig에 resumeSessionId·continueSession 옵션 추가하여 cli-process.ts:116-122의 --resume/--continue 기능이 dead letter되지 않도록 함, (3) AgentHostEvent에 error·tool_result 2종 추가. sessionId 반환 의미론은 nexusSessionId(내부 ID) 고정.",
+          "approach": "packages/shared/src/types/ 디렉토리 신규 생성. agent-host.ts 파일 작성 — 타입 정의만, 런타임 로직 0줄. 내용: (a) **AgentHostEvent** 유니언 7종: session_started / message / tool_call / tool_result / permission_asked / error / session_ended. 각 variant는 sessionId 필드 공통. permission_asked={permissionId, toolName, toolInput}, tool_result={tool_use_id, result}, error={code, message, recoverable}. (b) **AgentHostConfig**: harnessType('claude-code' | 'opencode'), workingDirectory, model?, resumeSessionId?, continueSession?, extraArgs?. (c) **AgentHost** 인터페이스: spawn(config) → Promise<Result<string>>, observe(sessionId) → AsyncIterable<AgentHostEvent>, approve(permissionId, {allow}) → Promise<Result<void>>, reject(permissionId, reason) → Promise<Result<void>>, dispose(sessionId) → Promise<Result<void>>. Result<T>는 @nexus/shared의 기존 result.ts에서 import. packages/shared/src/index.ts에 export 추가. JSDoc에 nexusSessionId 반환 의미론 명시.",
+          "acceptance": "파일 생성. `bun --filter @nexus/shared typecheck` 통과. Result<T> 컨벤션 준수(spawn/approve/reject/dispose 모두 Promise<Result<...>>). AgentHostConfig에 resumeSessionId와 continueSession 옵션 존재. AgentHostEvent 7종 모두 존재(특히 error와 tool_result 포함). packages/shared/src/index.ts에서 export. 기존 shared 파일(errors.ts, result.ts, schemas/*) 수정 0건. 런타임 로직 0줄 — 순수 타입 정의. JSDoc에 nexusSessionId 의미론 주석.",
+          "risk": "architect warning 3건 중 2건 연결: (1) permission_asked의 permissionId namespace는 타입만 정의하고, Task 9(C-spike) 착수 전 routes/hooks.ts를 1회 확인하여 approval.id와 매핑 검증. (2) nexusSessionId vs Claude _sessionId 두 ID 체계 — 이 task에서 spawn 반환 ID를 nexusSessionId로 고정하고 JSDoc에 명시.",
+          "status": "pending",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-12T02:50:32.530Z"
+        },
+        {
+          "id": 7,
+          "title": "session-flow.md Future direction 박스 + plan-5-philosophy-snapshot.md 헤더 축소",
+          "context": "두 건 묶음, 둘 다 Lead 즉시 처리 가능한 짧은 편집. (1) session-flow.md: Plan Session #1 03-IMPLEMENTATION_GUIDE §3이 지목한 AgentHost 언급을 추가하되, AgentHost 인터페이스는 아직 코드에 없으므로(Task 6에서 작성 예정) '있는 것처럼' 서술 금지(아키텍트 warning). 짧은 'Future direction' 박스만 추가. (2) plan-5-philosophy-snapshot.md: T1/T5 결정 내용이 philosophy.md로 이관되었으므로 헤더에 역할 축소 주석 추가.",
+          "approach": "(1) session-flow.md 말미 또는 '권한 제어 아키텍처' 섹션 뒤에 '## Future direction (진행 중)' 박스 신설. 내용 3~5줄: 'Plan Session #1 결정에 따라 AgentHost 인터페이스(packages/shared/src/types/agent-host.ts)가 도입될 예정. 이후 기존 ProcessSupervisor + CliProcess + stream-parser + ApprovalBridge는 AgentHost 구현체(Claude Code adapter: packages/server/src/adapters/claude-code-host.ts)로 래핑된다. OpenCode adapter(packages/server/src/adapters/opencode-host.ts)도 동일 계약으로 추가 예정. 상세: .nexus/memory/nexus-code/03-IMPLEMENTATION_GUIDE.md §5/§9/§10. 진행 상태: Issue #3 Phase 2.' (2) plan-5-philosophy-snapshot.md 맨 위 헤더 아래에 '⚠️ T1/T5 결정 내용은 `.nexus/context/philosophy.md`로 이관. 이 파일은 Plan #5 진행 상태(T3~ 11개 pending) 기록으로 역할이 축소됩니다.' 주석 한 문단 추가. 실행 순서: philosophy.md 작성(Task 2) 완료 후 이 task 처리(snapshot 헤더가 philosophy.md 경로를 참조하므로).",
+          "acceptance": "session-flow.md에 'Future direction' 섹션 존재. AgentHost 인터페이스가 '예정' 상태로 명시(현재 존재하는 것처럼 서술 금지). Claude Code adapter와 OpenCode adapter 경로 언급. '진행 상태: Issue #3 Phase 2' 표지 포함. 기존 세션 생명주기/이벤트/권한 제어 섹션 모두 보존. plan-5-philosophy-snapshot.md 헤더에 philosophy.md 포인터가 포함된 역할 축소 주석 존재.",
+          "risk": "session-flow.md의 AgentHost 언급이 '현재 존재' 톤이 되면 아키텍트 warning('있는 것처럼 드리프트') 발생. '도입 예정', '진행 상태: Issue #3 Phase 2' 같은 임시 표지 필수. snapshot 본문(T1/T5 요약 내용)은 보존 — 헤더 주석만 추가.",
+          "status": "pending",
+          "deps": [
+            2
+          ],
+          "plan_issue": 2,
+          "owner": "lead",
+          "created_at": "2026-04-12T02:51:08.380Z"
+        },
+        {
+          "id": 8,
+          "title": "CLAUDE.md + philosophy.md + architecture.md + permission-architecture.md 통합 검증",
+          "context": "Issue #2 옵션 C의 reviewer 통합 검증 단계. Task 2/3/4(writer) 완료 후 4개 문서의 용어·정체성·SoT 일관성을 검증. 특히 critical 항목 2건(Plan Session #1 재프레이밍 완전 반영, permission-architecture §0 신설)의 품질.",
+          "approach": "검증 항목 6개: (1) 'Observer 원칙' 문구가 philosophy.md 판단 규칙 #1에서 'Read-default / Write-exception 원칙'으로 재명시되었는가. 'Observer' 단어가 CLAUDE.md / philosophy.md / architecture.md / permission-architecture.md 본문 어디에도 없는가(역사적 맥락 언급 제외). (2) Supervision 이중 성격 선언이 permission-architecture.md §0 + philosophy.md 두 곳에 일관되게 서술되는가. (a)(b) 구조와 '구조적 기원(Claude Code CLI 비대화형)' 설명이 일치. (3) 정체성 '에이전트 감독자를 위한 통합 워크벤치'(T1 언어)가 CLAUDE.md 정체성 문장·architecture.md line 1·philosophy.md §1 모두 등장. (4) CLAUDE.md에는 3층위 용어(Authoring/Execution/Supervision) 0건, 반면 architecture.md·philosophy.md에는 허용(내부 문서). (5) Non-goals Top 7이 philosophy.md에 전문 / CLAUDE.md에 축약 4개 / 둘 사이 항목 누락 없음(축약은 합당한 선택). (6) 각 문서의 포인터 링크(CLAUDE.md → philosophy.md, snapshot → philosophy.md, architecture.md → philosophy.md/permission-architecture.md 등) 경로 유효성. 검증 결과를 '통과/수정 요청' 형태로 보고.",
+          "acceptance": "4개 문서 간 용어·정체성·구조 일관성 확인 보고서 제출. 6개 검증 항목 각각에 대한 pass/fail + 근거 파일 경로·라인. 수정 필요 항목이 있으면 구체적 교정 제안 포함. 수정 필요 0건이면 Task 2/3/4 verified 기록.",
+          "risk": "reviewer는 새 내용을 '더 좋게' 바꾸려 하면 안 됨. 검증은 '계약 준수 여부'에 한정. 새 관점 도입은 Plan #5 T3~ 후속 세션 범위.",
+          "status": "pending",
+          "deps": [
+            2,
+            3,
+            4
+          ],
+          "plan_issue": 2,
+          "owner": "reviewer",
+          "created_at": "2026-04-12T02:51:27.490Z"
+        },
+        {
+          "id": 9,
+          "title": "packages/server/src/adapters/claude-code-host.ts C-spike — UI 미연결 병렬 래퍼",
+          "context": "Issue #3 Phase 2 Task C-spike. AgentHost 인터페이스를 기존 ProcessSupervisor + CliProcess + ApprovalBridge 위에 래핑. 핵심 원칙 3개: (1) 기존 코드 수정 0건 — 병렬 추가만, (2) UI에 연결하지 않음 — 계약 검증만, (3) dogfooding 회귀 제로. architect가 Pure wrapping 불가 판정 — ProcessSupervisor는 실제 spawn 지점이 아니고(CliProcess.start가 spawn), init 이벤트 Promise race, ApprovalBridge joinpoint를 래퍼 내부에서 조립해야 함.",
+          "approach": "신규 파일 packages/server/src/adapters/claude-code-host.ts. class ClaudeCodeHost implements AgentHost. 생성자에서 ProcessSupervisor·ApprovalBridge를 DI 주입. **spawn**: (a) processSupervisor.createGroup(workingDirectory) 보장 → createProcessInGroup → cliProcess.start({model, sessionId: resumeSessionId, continueSession}) → init 이벤트 Promise race → nexusSessionId 반환. **observe**: CliProcess.on 리스너를 AgentHostEvent로 변환하여 AsyncIterable yield. 매핑: init→session_started, text_chunk/text_delta→message, tool_call→tool_call, tool_result→tool_result, permission_request→permission_asked, 에러/rate_limit→error, turn_end/exit→session_ended. **approve/reject**: approvalBridge.respond(permissionId, decision) 경유. **dispose**: cliProcess.stop + processSupervisor.removeGroup. 기존 라우트(session.ts/events.ts/hooks.ts)에 ClaudeCodeHost를 **연결하지 않음** — 이 파일은 어디에서도 import되지 않는 격리된 래퍼. 단위 스모크 스크립트로 Task 10(tester)에서 E2E 테스트.",
+          "acceptance": "파일 생성. typecheck 통과. 기존 session.ts/events.ts/hooks.ts/app.ts 수정 0건(git diff 확인). 단위 스크립트(예: packages/server/src/adapters/__scripts__/claude-code-host-smoke.ts 또는 vitest)로 spawn→observe→dispose 1 세션 완주 확인. approve/reject 경로가 ApprovalBridge.respond()와 중복 trigger 없음(내부 단일 호출 보장). Task 10에서 bun run test:e2e 기존 Claude 세션 스모크 무회귀 확인.",
+          "risk": "**Critical**: 기존 라우트에 ClaudeCodeHost를 연결하지 말 것. '병렬 래퍼' 원칙 훼손 = dogfooding 회귀. UI 연결은 후속 세션(Phase 3 이후). architect warning: permission_request 이벤트의 permissionId가 ApprovalBridge approval.id와 동일 namespace인지 착수 전 routes/hooks.ts 1회 확인 필수 — 불일치 시 이 task의 approve/reject 구현 보정 필요.",
+          "status": "pending",
+          "deps": [
+            6
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-12T02:51:49.823Z"
+        },
+        {
+          "id": 10,
+          "title": "packages/shared nexus-core consumer 합류 — devDep + generate-metadata.mjs + src/generated/",
+          "context": "Issue #3 Phase 3 Task B. Plan Session #1 02-DECISIONS Issue #2 확정 — nexus-core read-only consumer 합류. Task 5(researcher Q2 탐침) 결과를 기반으로 generate-metadata.mjs 작성. 초기 수동 `bun run generate`로 시작, 일주일 안정 후 prebuild hook으로 승격(이 task 범위는 수동까지).",
+          "approach": "(1) packages/shared/package.json devDependencies에 `@moreih29/nexus-core: ^0.1.2` 추가. `bun install` 실행. (2) packages/shared/scripts/ 디렉토리 신규 생성. generate-metadata.mjs 작성 — Task 5 researcher의 필드 매핑 초안(research-nexus-core-structure.md) 반영. fs.readFileSync로 node_modules/@moreih29/nexus-core 서브디렉토리 직접 접근(subpath export '.': null 제약 우회). (3) packages/shared/src/generated/ 디렉토리 생성. generate-metadata.mjs 출력 경로. (4) packages/shared/package.json scripts에 `\\\"generate\\\": \\\"node scripts/generate-metadata.mjs\\\"` 추가. prebuild hook은 추가하지 않음(수동 실행 원칙). (5) packages/shared/src/generated/ 또는 .nexus-code 루트 .gitignore에 generated/ 추가(옵션 A: 빌드 시 재생성). (6) 첫 `bun run generate` 실행 및 결과 확인. (7) generated/*.ts는 이 task에서 어떤 기존 코드에서도 import되지 않음('dead generated' 상태 허용 — 런타임 영향 제로).",
+          "acceptance": "(a) @moreih29/nexus-core devDep 추가됨. `bun install` 성공. (b) packages/shared/scripts/generate-metadata.mjs 존재. `bun run generate` 실행 시 에러 없이 완료. (c) packages/shared/src/generated/ 디렉토리 생성 + 최소 1개 .ts 파일(agents.ts 또는 vocabulary.ts) 산출. (d) .gitignore에 packages/shared/src/generated/ 추가. (e) packages/shared/package.json scripts에 generate 명령 추가. prebuild hook 없음. (f) generated/*.ts가 런타임에 import되지 않음(dogfooding 회귀 제로). (g) `bun --filter @nexus/shared build` 통과.",
+          "risk": "Task 5(Q2 탐침)가 실패하거나 nexus-core 실제 구조가 가정과 다르면 generate-metadata.mjs 첫 줄을 쓸 수 없음 → 이 task 일시 block → Lead 에스컬레이션. Bun workspace에서 node_modules/@moreih29/nexus-core 실제 경로가 hoisting으로 다를 수 있음 — Task 5 결과로 확정. prebuild hook 즉시 추가 금지 — 첫 주 수동 generate로 안정성 확인 후에만 승격.",
+          "status": "pending",
+          "deps": [
+            5
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-12T02:52:08.943Z"
+        },
+        {
+          "id": 11,
+          "title": "ClaudeCodeHost C-spike E2E 검증 — Claude 세션 스모크 + 기존 경로 무회귀",
+          "context": "Issue #3 Phase 2 tester 검증. Task 9의 4개 acceptance 중 실행 기반 항목을 검증. 핵심 원칙: dogfooding 회귀 제로. 사용자는 매일 이 프로젝트를 dogfooding 중이므로 기존 Claude Code 세션 경로가 무회귀여야 한다.",
+          "approach": "(1) ClaudeCodeHost.spawn()으로 Claude 세션 1건 start → observe() 이벤트 스트림 수신 → message/tool_call/permission_asked/session_ended 이벤트 정상 흐름 확인 → dispose() 깨끗한 종료. (2) 같은 세션에서 permission_asked 이벤트 발생 시 approve() 호출 → CLI 재개 확인. (3) `bun run test:e2e` 전체 실행하여 기존 Claude 세션 E2E 무회귀 확인(기존 routes/session.ts 경로 변화 없음). (4) git diff로 기존 파일(session.ts/events.ts/hooks.ts/app.ts) 수정 0건 재확인. (5) 가능하면 dogfooding 세션 1회 직접 실행하여 기존 경로 정상 동작 확인. 실패 시 Task 9 수정 요청 + 재검증.",
+          "acceptance": "5개 검증 항목 각각 pass. Task 9의 4개 acceptance(spawn/observe/dispose 1 세션, 기존 라우트 0건 수정, E2E 무회귀, approve·reject 중복 trigger 없음) 충족 확인. 회귀 0건 보고. 실패 발견 시 구체적 수정 요청 보고서 제출.",
+          "risk": "tester는 새 기능 추가 금지. 검증 실패 시 fix는 engineer(Task 9 owner)에게 위임. architect warning(nexusSessionId 의미론, permission_request ID namespace) 관련 이상 행동 관찰 시 Lead에 에스컬레이션. 실제 dogfooding 세션 실행은 선택적이며, 실행 시 사용자 본인의 실제 워크스페이스를 건드리지 않는 격리된 테스트 워크스페이스 사용 권장.",
+          "status": "pending",
+          "deps": [
+            9
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-12T02:52:29.628Z"
+        }
+      ]
     }
   ]
 }

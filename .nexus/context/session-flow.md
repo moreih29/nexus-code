@@ -106,3 +106,10 @@ CLI ──[pre-tool-use]──▶ Server(/hooks/pre-tool-use)
 2. **CLI 히스토리 파일**: Claude Code CLI 자체가 디스크에 남기는 히스토리를 `SessionAdapter`가 파싱해 누락된 메시지를 재구성한다.
 
 두 소스의 합집합이 Zustand 스토어로 투영되면 UI가 "중단 없이 이어지는 것처럼" 보인다. 실패 모드를 디버깅할 때는 이 두 소스 중 어느 쪽이 결손인지 먼저 확인해야 한다.
+
+## Future direction (진행 중)
+
+Plan Session #1 결정에 따라 **AgentHost 인터페이스**(`packages/shared/src/types/agent-host.ts`)가 도입될 예정이다. 이후 기존 `ProcessSupervisor` + `CliProcess` + `stream-parser` + `ApprovalBridge`는 AgentHost 구현체인 **Claude Code adapter**(`packages/server/src/adapters/claude-code-host.ts`)로 래핑된다. **OpenCode adapter**(`packages/server/src/adapters/opencode-host.ts`)도 동일 계약으로 추가될 예정이다.
+
+상세: `.nexus/memory/nexus-code/03-IMPLEMENTATION_GUIDE.md` §5 / §9 / §10.
+진행 상태: Plan #5 Issue #3 Phase 2 — Task A(AgentHost 인터페이스 신설) → Task C-spike(Claude Code adapter UI 미연결 병렬 래퍼) → tester 검증.

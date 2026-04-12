@@ -54,3 +54,5 @@ export {
   ApprovalRequestSchema,
   ApprovalResponseSchema,
 } from './schemas/approval.js'
+
+export type { AgentHostEvent, AgentHostConfig, AgentHost } from './types/agent-host.js'

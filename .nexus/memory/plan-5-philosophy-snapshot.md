@@ -1,5 +1,7 @@
 # Plan #5 — Nexus Code 철학 설정 (진행 중 스냅샷, 2026-04-10)
 
+> ⚠️ **T1/T5 결정 내용은 `.nexus/context/philosophy.md`로 이관되었습니다.** 이 파일은 Plan #5의 **진행 상태 기록**(T3~ 11개 pending)으로 역할이 축소되었습니다. 영속 철학 SoT는 philosophy.md를 참조하세요.
+
 다른 로컬에서 이어갈 때 참고하는 스냅샷. `.nexus/state/plan.json`은 감사 로그고, 이 파일은 "지금까지 뭐 했고 다음에 뭐 할지"의 인간용 요약.
 
 ## 세션 개요

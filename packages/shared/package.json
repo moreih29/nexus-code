@@ -15,9 +15,11 @@
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate": "node scripts/generate-metadata.mjs"
   },
   "devDependencies": {
+    "@moreih29/nexus-core": "^0.1.2",
     "typescript": "*",
     "vitest": "^4.1.4"
   },

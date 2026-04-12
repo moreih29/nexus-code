@@ -4,6 +4,33 @@ Nexus Code의 권한 시스템은 Claude Code CLI의 Pre-tool-use hook을 서버
 
 ---
 
+## 0. Supervision 이중 성격 — 이 권한 시스템의 존재 이유
+
+nexus-code는 Nexus 생태계의 **Supervision layer**로, Execution layer의 세션 프로세스(Claude Code CLI, OpenCode는 계획)를 외부에서 spawn·관찰·감독한다. 이 문서가 설명하는 권한 시스템은 그 감독의 핵심 메커니즘이다.
+
+nexus-code의 감독은 **이중 성격**을 가진다:
+
+- **(a) 세션 관찰자 측면** — 세션 상태, 메시지 스트림, 파일 변경 사항을 **read-only로 관찰**한다. 세션 프로세스의 상태를 직접 조작하지 않는다.
+- **(b) Policy Enforcement Point(PEP) 측면** — 에이전트가 요청하는 권한(파일 수정, 셸 명령 실행 등)에 대해 **Pre-tool-use hook**으로 승인/거부 결정을 내린다. 실제 집행 결정 지점이다.
+
+이중 성격은 단순 관찰자가 아닌 **Supervisor**라는 용어로 표현된다. (a)만 있으면 Observer, (b)까지 포함하여 Supervisor다.
+
+이 이중성은 Claude Code CLI의 비대화형 권한 구조에서 **구조적으로 유래**한다. Claude Code CLI는 권한 요청→승인→실행 흐름을 대화형으로 이을 수 없는 구조이기 때문에, 외부 감독자(nexus-code)가 ApprovalBridge를 통해 이 결정 지점을 처리해야만 한다. 이것은 **우회로가 아니라 필연적 아키텍처**다 — 구독제 사용자가 Claude Code 세션을 외부에서 감독할 수 있는 유일한 경로이기 때문이다.
+
+아래 §1~§7의 내용은 모두 이 Policy Enforcement Point(PEP)의 **구현 상세**다:
+
+- §1 4개 권한 모드 — PEP의 정책 파라미터
+- §2 모드×도구 매트릭스 — PEP의 정적 규칙
+- §3 평가 파이프라인(Step 1-7) — PEP의 결정 알고리즘
+- §4 Protected Paths 가드 — PEP의 경로 기반 안전장치
+- §5 Bash 파서 원칙 — PEP의 명령 기반 안전장치
+- §6 policyStore 규칙 및 specificity — PEP의 동적 규칙 저장소
+- §7 UI 진입점 — PEP의 사용자 상호작용
+
+각 섹션을 읽을 때 이 §0의 이중 성격 맥락을 전제로 볼 것.
+
+---
+
 ## 1. 4개 권한 모드
 
 | 모드 | ID | 설명 |
