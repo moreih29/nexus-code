@@ -26,7 +26,7 @@ Claude Code + OpenCode 세션 동시 spawn·관찰 시: sessionId namespace, UI 
 
 ### Tauri 런타임 재평가 (Plan #6 I4)
 
-POC 결과 blocker 0건. Electron 잠정 유지. 재평가 trigger 4개 중 2개 이상 충족 시 새 plan 세션. 상세: `.nexus/context/philosophy.md` §Tauri 런타임 재평가 Trigger + `.nexus/memory/tauri-poc-report.md`
+POC 결과 blocker 0건. 2026-04-13 후속 교정으로 UI ↔ sidecar ↔ CC 실 왕복(approval full roundtrip 포함) 재현 완료 → "WKWebView SSE 미검증" 우려 해소. T4의 실질 난이도는 Rust proc macro 패닉 해소 + `.app` 번들 산출 한 건으로 축소. Electron 잠정 유지 기조는 그대로, 재평가 trigger 4개 중 2개 이상 충족 시 새 plan 세션. 상세: `.nexus/context/philosophy.md` §Tauri 런타임 재평가 Trigger + `.nexus/memory/tauri-poc-report.md` 부록 B
 
 ---
 

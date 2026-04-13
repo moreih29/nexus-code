@@ -6647,6 +6647,37 @@
           "created_at": "2026-04-13T02:11:00.458Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-13T08:18:51.934Z",
+      "branch": "main",
+      "plan": null,
+      "tasks": [
+        {
+          "id": 1,
+          "title": "POC UI ↔ sidecar 계약 정렬",
+          "context": "Tauri POC(/Users/kih/workspaces/tauri-poc-nexus)에서 UI와 sidecar 경로/이벤트 스키마가 불일치해 실행 시 SSE 무한 재연결 루프가 발생. 세 가지 권장 조치를 적용한다.",
+          "approach": "App.tsx를 (a) workspace 자동 등록→세션 시작 시에만 SSE 연결, (b) EventSource.addEventListener 이벤트명 기반 파서, (c) permission_* 명명으로 교정. events.ts의 sleep 루프를 onAbort Promise로 대체.",
+          "acceptance": "bun dev 실행 시 sidecar가 기동되고, UI에서 폴더 선택→CC 세션 시작 버튼 클릭 시 /api/workspaces/{path}/events SSE가 세션 시작 후 연결돼 text_delta/tool_call 수신. TimeoutOverflowWarning 스택 트레이스가 우리 코드에서 발생하지 않음.",
+          "status": "completed",
+          "deps": [],
+          "owner": "engineer",
+          "created_at": "2026-04-13T08:13:14.616Z"
+        },
+        {
+          "id": 2,
+          "title": "Smoke 검증: sidecar dev + UI SSE 왕복",
+          "context": "패치 후 실 동작 확인.",
+          "approach": "sidecar `bun run dev`, UI `bun run dev` 또는 사이드카 단독 curl로 /api/health, /api/workspaces POST, /api/sessions POST, /api/workspaces/{path}/events 구독 후 session_init 수신 확인.",
+          "acceptance": "/api/health 200, workspace 등록 201, session 시작 201, SSE 최초 이벤트 session_init 수신, stream 연결 유지.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "owner": "tester",
+          "created_at": "2026-04-13T08:13:18.131Z"
+        }
+      ]
     }
   ]
 }
