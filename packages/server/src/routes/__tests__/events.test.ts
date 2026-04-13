@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { createEventsRouter } from '../events.js'
 import type { ProcessSupervisor } from '../../adapters/claude-code/process-supervisor.js'
 import type { CliProcess } from '../../adapters/claude-code/cli-process.js'
-import type { ApprovalBridge } from '../../adapters/hooks/approval-bridge.js'
+import type { ApprovalBridge } from '../../adapters/approval/bridge.js'
 
 // ----------- Mock helpers -----------
 

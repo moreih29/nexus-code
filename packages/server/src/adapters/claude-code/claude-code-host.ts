@@ -3,7 +3,8 @@ import type { Result } from '@nexus/shared'
 import { ok, err, appError } from '@nexus/shared'
 import { randomUUID } from 'node:crypto'
 import type { ProcessSupervisor } from './process-supervisor.js'
-import type { ApprovalBridge } from '../hooks/approval-bridge.js'
+import type { WorkspaceGroup } from './workspace-group.js'
+import type { ApprovalBridge } from '../approval/bridge.js'
 import type { CliProcess } from './cli-process.js'
 
 // ---------------------------------------------------------------------------
@@ -278,5 +279,10 @@ export class ClaudeCodeHost implements AgentHost {
     } catch (e) {
       return err(appError('DISPOSE_FAILED', 'Failed to dispose session', { cause: e }))
     }
+  }
+
+  /** ProcessSupervisor.getGroup 위임 — routes/events.ts 전용 SSE 구독용 */
+  getGroup(workspacePath: string): WorkspaceGroup | undefined {
+    return this.processSupervisor.getGroup(workspacePath)
   }
 }

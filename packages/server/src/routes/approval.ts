@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
+import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 

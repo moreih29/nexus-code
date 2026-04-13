@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
-import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
+import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
-import { preflightPaths } from '../adapters/hooks/path-guard-preflight.js'
+import { preflightPaths } from '../adapters/security/path-guard-preflight.js'
 
 interface HookRequestBody {
   session_id: string

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
-import { PROTECTED_DIRS } from '../hooks/path-guard.js'
+import { PROTECTED_DIRS } from '../security/path-guard.js'
 
 export interface ApprovalRule {
   id: string

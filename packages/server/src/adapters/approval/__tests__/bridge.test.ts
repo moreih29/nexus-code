@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ApprovalBridge } from '../approval-bridge.js'
+import { ApprovalBridge } from '../bridge.js'
 import type { ApprovalPolicyStore, ApprovalRule } from '../../db/approval-policy-store.js'
 
 // ────────────────────────────────────────────────────────────────────────────

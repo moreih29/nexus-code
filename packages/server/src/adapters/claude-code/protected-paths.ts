@@ -1,4 +1,4 @@
-import type { HarnessProtectionRules } from '../hooks/path-guard.js'
+import type { HarnessProtectionRules } from '../security/path-guard.js'
 
 // ---------------------------------------------------------------------------
 // Claude Code harness — protected path constants
