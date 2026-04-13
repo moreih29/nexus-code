@@ -55,6 +55,7 @@ export const PermissionRequestEventSchema = z.object({
   permissionId: z.string(),
   toolName: z.string(),
   toolInput: z.union([z.record(z.string(), z.unknown()), z.string()]),
+  requestId: z.string().optional(),
 })
 
 export const PermissionSettledEventSchema = z.object({
@@ -64,6 +65,7 @@ export const PermissionSettledEventSchema = z.object({
   decision: z.enum(['allow', 'deny']),
   reason: z.string().optional(),
   source: z.enum(['bypass', 'mode', 'rule', 'protected', 'user']).optional(),
+  requestId: z.string().optional(),
 })
 
 export const TurnEndEventSchema = z.object({

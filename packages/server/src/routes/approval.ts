@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
+import type { AppVariables } from '../middleware/logging.js'
 
 export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore?: ApprovalPolicyStore, workspaceLogger?: WorkspaceLogger) {
-  const router = new Hono()
+  const router = new Hono<{ Variables: AppVariables }>()
 
   router.get('/', (c) => {
     const list = approvalBridge.listPending()
@@ -63,7 +64,7 @@ export function createApprovalRouter(approvalBridge: ApprovalBridge, policyStore
     }
 
     if (pendingEntry) {
-      workspaceLogger?.log(pendingEntry.workspacePath, { type: 'approval_respond', sessionId: pendingEntry.sessionId, data: { id, decision, scope: scope ?? 'once' } })
+      workspaceLogger?.log(pendingEntry.workspacePath, { type: 'approval_response', sessionId: pendingEntry.sessionId, requestId: pendingEntry.requestId ?? c.get('requestId'), data: { id, decision, scope: scope ?? 'once' } })
     }
 
     return c.json({ id, decision, scope: scope ?? 'once' })

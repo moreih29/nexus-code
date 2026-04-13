@@ -1,6 +1,8 @@
 import type { ApprovalPolicyStore } from '../db/approval-policy-store.js'
 import type { SettingsStore } from '../db/settings-store.js'
 import { type ToolCategory, categorizeClaudeCodeTool } from '../claude-code/tool-categorizer.js'
+import { logger } from '../../middleware/logging.js'
+import type { WorkspaceLogger } from '../logging/workspace-logger.js'
 
 const APPROVAL_TIMEOUT_MS = 300_000
 
@@ -64,6 +66,7 @@ export interface PendingApproval {
   toolName: string
   toolInput: unknown
   workspacePath: string
+  requestId?: string
   resolve: (decision: 'allow' | 'deny') => void
   createdAt: Date
 }
@@ -88,6 +91,7 @@ export class ApprovalBridge {
   private readonly policyStore: ApprovalPolicyStore | null
   private readonly settingsStore: SettingsStore | null
   private readonly categorize: (name: string, parseReason?: string, bashFsSubset?: boolean) => ToolCategory
+  private readonly workspaceLogger: WorkspaceLogger | null
   private readonly pendingAddedCallbacks = new Set<(info: PendingApprovalInfo) => void>()
   private readonly pendingSettledCallbacks = new Set<(id: string, result: SettleResult) => void>()
 
@@ -95,10 +99,12 @@ export class ApprovalBridge {
     policyStore?: ApprovalPolicyStore,
     settingsStore?: SettingsStore,
     categorize?: (name: string, parseReason?: string, bashFsSubset?: boolean) => ToolCategory,
+    workspaceLogger?: WorkspaceLogger,
   ) {
     this.policyStore = policyStore ?? null
     this.settingsStore = settingsStore ?? null
     this.categorize = categorize ?? categorizeClaudeCodeTool
+    this.workspaceLogger = workspaceLogger ?? null
   }
 
   onPendingAdded(callback: (info: PendingApprovalInfo) => void): () => void {
@@ -185,6 +191,13 @@ export class ApprovalBridge {
       }
       this.pending.set(approval.id, entry)
 
+      this.workspaceLogger?.log(approval.workspacePath, {
+        type: 'approval_request',
+        sessionId: approval.sessionId,
+        requestId: approval.requestId,
+        data: { id: approval.id, toolName: approval.toolName },
+      })
+
       const { resolve: _resolve, ...info } = entry
       for (const cb of this.pendingAddedCallbacks) {
         cb(info)
@@ -219,6 +232,16 @@ export class ApprovalBridge {
         scope: scope ?? 'once',
       })
     }
+
+    // hook 요청 requestId와 approval 응답을 페어링해 추적 가능하게 함
+    logger.info({ requestId: entry.requestId, toolUseId, decision, toolName: entry.toolName }, 'approval settled')
+
+    this.workspaceLogger?.log(entry.workspacePath, {
+      type: 'approval_response',
+      sessionId: entry.sessionId,
+      requestId: entry.requestId,
+      data: { id: toolUseId, decision, toolName: entry.toolName, scope: scope ?? 'once' },
+    })
 
     this._settle(toolUseId, { decision, source: 'user' })
     return true

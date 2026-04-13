@@ -52,7 +52,20 @@ Hono 기반 HTTP 서버. Layered 아키텍처로 책임을 분리한다.
   - `adapters/hooks/` — HTTP hook endpoint 라우팅 (hook-manager.ts)
   - `adapters/db/` — SessionStore / WorkspaceStore / SettingsStore / ApprovalPolicyStore
   - `adapters/events/` — EventEmitter pub/sub
-  - `adapters/logging/` — WorkspaceLogger
+  - `adapters/logging/` — WorkspaceLogger. 로그 기본 위치는 `~/.nexus-code/logs/`(`NEXUS_LOG_DIR` env로 재정의 가능). 디렉토리 구조:
+    ```
+    ~/.nexus-code/
+    ├── nexus.db                         # SQLite (NEXUS_DB_PATH)
+    └── logs/                            # NEXUS_LOG_DIR (기본)
+        ├── {workspace-sanitized}/
+        │   └── {date}.jsonl             # 워크스페이스별 (14 type)
+        └── _system/
+            ├── electron-main-{date}.log # Electron main 영속
+            └── dev-{date}.log           # dev orchestrator (NEXUS_LOG_DEV=1)
+    ```
+    `{workspace-sanitized}` 매핑은 `packages/server/src/utils/workspace-id.ts`의 `workspacePathToId()` 함수로 단일화되어 있다. `adapters/claude-code/history-parser.ts`도 동일 유틸을 사용하여 경로 → ID 변환이 한 곳에서만 이루어진다.
+
+    모든 HTTP 요청은 `request-id` → `logging` 미들웨어 순서로 처리되어 `AppVariables = { requestId, logger }`가 context에 주입된다. child logger는 `requestId`를 자동 bind하여 router → service → adapter → CLI hook → SSE event까지 동일 ID로 페어링된다. web 클라이언트는 `packages/web/src/api/client.ts`의 fetch util이 모든 outbound 요청에 `x-request-id` 헤더를 자동 부착하고, 응답 헤더의 서버 발급 ID를 캡처한다.
 - **Domain**: WorkspaceRegistry (메모리 레지스트리)
 
 서버는 **상태를 갖는 유일한 계층**이다. SQLite에 워크스페이스/세션/설정/승인 정책이 영속화되며, 다른 계층은 서버를 통하지 않고서는 상태를 변경하지 않는다.
@@ -72,6 +85,7 @@ BrowserWindow 호스팅 + 서버/웹 프로세스 오케스트레이션. 보안 
 | CLI → Server | HTTP POST (`/hooks/pre-tool-use`) | 권한 제어 훅 |
 | Server → CLI | stdin/stdout (ProcessSupervisor) | 프로세스 라이프사이클 |
 | Electron → Web | IPC (preload bridge) | 네이티브 기능(폴더 선택 등) |
+| Web → Server (dev only) | HTTP POST (`/api/dev/client-log`) | 클라이언트 console 로그 수집 |
 
 ## 설계 원칙
 

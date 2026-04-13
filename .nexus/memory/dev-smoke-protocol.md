@@ -39,7 +39,7 @@ Nexus Code dev 환경 수동 검증 체크리스트. 커밋 후 런타임 경로
 
 ---
 
-## 4. 수동 확인 항목 (4종)
+## 4. 수동 확인 항목 (5종)
 
 - [ ] **워크스페이스 열기** — `GET /api/workspaces` 200, 카드 렌더링 확인
   - 실패 신호: 빈 목록 = DB 초기화 미완 또는 server 미기동
@@ -49,6 +49,8 @@ Nexus Code dev 환경 수동 검증 체크리스트. 커밋 후 런타임 경로
   - 실패 신호: 버튼 무응답 = approval-bridge `respond()` 경로 또는 SSE push 누락
 - [ ] **브라우저 리로드** — 세션 restore, 히스토리 재표시 확인
   - 실패 신호: 빈 히스토리 = history-parser JSONL 경로 변경 또는 DB 쿼리 오류
+- [ ] **통합 로그 채널 점검** — `~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl` + `_system/electron-main-{date}.log` 영속 확인 (`NEXUS_LOG_DEV=1` 시 `_system/dev-{date}.log` 추가)
+  - 실패 신호: workspace-logger 경로 오탈자 (`.nexus-code` vs `.nexus`) 또는 sanitize 매핑 회귀. `workspace-id.test.ts` 재확인
 
 ---
 

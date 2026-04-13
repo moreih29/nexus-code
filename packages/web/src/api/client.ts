@@ -1,8 +1,14 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // 클라이언트 발급 ID를 전송하고, 서버가 echo-back한 ID를 캡처해 일관성 확보
+  const clientRequestId = crypto.randomUUID()
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-request-id': clientRequestId,
+      ...init?.headers,
+    },
     ...init,
   })
   if (!res.ok) {

@@ -3,6 +3,7 @@ import { access } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { ok, err, appError } from '@nexus/shared'
 import type { Result } from '@nexus/shared'
+import { workspacePathToId } from '../../utils/workspace-id.js'
 
 export interface TextBlock {
   type: 'text'
@@ -53,7 +54,7 @@ export function getSessionFilePath(workspacePath: string, cliSessionId: string):
   } catch {
     // Fall back to original path if realpath fails
   }
-  const encodedPath = resolvedPath.replace(/\//g, '-')
+  const encodedPath = workspacePathToId(resolvedPath)
   return `${process.env['HOME'] ?? '~'}/.claude/projects/${encodedPath}/${cliSessionId}.jsonl`
 }
 

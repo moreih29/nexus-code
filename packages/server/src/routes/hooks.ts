@@ -3,6 +3,7 @@ import type { HookManager } from '../adapters/hooks/hook-manager.js'
 import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 import { preflightPaths } from '../adapters/security/path-guard-preflight.js'
+import type { AppVariables } from '../middleware/logging.js'
 
 interface HookRequestBody {
   session_id: string
@@ -15,7 +16,7 @@ interface HookRequestBody {
 }
 
 export function createHooksRouter(hookManager: HookManager, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
-  const router = new Hono()
+  const router = new Hono<{ Variables: AppVariables }>()
 
   router.post('/pre-tool-use', async (c) => {
     const token = c.req.query('token')
@@ -42,7 +43,9 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
       )
     }
 
-    workspaceLogger?.log(body.cwd, { type: 'hook_request', sessionId: body.session_id, data: { tool_name: body.tool_name, tool_use_id: body.tool_use_id, session_id: body.session_id } })
+    const requestId = c.get('requestId') ?? c.req.header('x-request-id') ?? crypto.randomUUID()
+
+    workspaceLogger?.log(body.cwd, { type: 'hook_request', sessionId: body.session_id, requestId, data: { tool_name: body.tool_name, tool_use_id: body.tool_use_id, session_id: body.session_id } })
 
     const preflight = await preflightPaths(body.tool_name, body.tool_input, body.cwd)
 
@@ -61,6 +64,7 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
         toolName: body.tool_name,
         toolInput: body.tool_input,
         workspacePath: body.cwd,
+        requestId,
       },
       {
         protectedHint: preflight.protectedPaths,
@@ -69,7 +73,7 @@ export function createHooksRouter(hookManager: HookManager, approvalBridge: Appr
       },
     )
 
-    workspaceLogger?.log(body.cwd, { type: 'hook_response', sessionId: body.session_id, data: { tool_use_id: body.tool_use_id, decision, reason: decision === 'allow' ? '사용자 승인' : '사용자 거부' } })
+    workspaceLogger?.log(body.cwd, { type: 'hook_response', sessionId: body.session_id, requestId, data: { tool_use_id: body.tool_use_id, decision, reason: decision === 'allow' ? '사용자 승인' : '사용자 거부' } })
 
     return c.json({
       hookSpecificOutput: {

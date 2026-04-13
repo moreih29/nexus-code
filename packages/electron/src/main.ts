@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import * as path from 'path'
 import { isDev, serverPort, webDevUrl } from './env'
+import { logger } from './logger'
 
 let serverProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
@@ -33,6 +34,9 @@ async function waitForServer(timeoutMs = 10000, intervalMs = 500): Promise<void>
 function spawnServer(): void {
   const entry = resolveServerEntry()
 
+  console.log('[electron] spawning server:', entry)
+  logger.info('server spawn', { entry })
+
   serverProcess = spawn(process.execPath, [entry], {
     env: { ...process.env, NODE_ENV: isDev ? 'development' : 'production' },
     stdio: 'inherit',
@@ -40,10 +44,12 @@ function spawnServer(): void {
 
   serverProcess.on('error', (err) => {
     console.error('[electron] server process error:', err)
+    logger.error('server process error', { message: err.message, stack: err.stack })
   })
 
   serverProcess.on('exit', (code, signal) => {
     console.log(`[electron] server process exited — code=${code} signal=${signal}`)
+    logger.info('server process exited', { code, signal })
     serverProcess = null
   })
 }
@@ -98,7 +104,20 @@ function createWindow(): void {
   })
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[electron] uncaughtException:', err)
+  logger.error('uncaughtException', { message: err.message, stack: err.stack })
+})
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason)
+  const stack = reason instanceof Error ? reason.stack : undefined
+  console.error('[electron] unhandledRejection:', reason)
+  logger.error('unhandledRejection', { message, stack })
+})
+
 app.whenReady().then(async () => {
+  logger.info('app ready', { isDev, serverPort })
   if (!isDev) {
     spawnServer()
     await waitForServer()
@@ -130,5 +149,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async (event) => {
   event.preventDefault()
   await killServer()
+  logger.info('app before-quit: server killed, exiting')
+  await logger.flush()
   app.exit(0)
 })

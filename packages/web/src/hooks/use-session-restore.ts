@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { fetchSessions, fetchHistory } from '../api/session.js'
 import { historyMessagesToChatMessages } from '../adapters/session-adapter.js'
 import { useChatStore } from '../stores/chat-store.js'
+import { devLogger } from '../lib/dev-logger.js'
 
 export function useSessionRestore(workspacePath: string) {
   const { restoreFromHistory } = useChatStore()
@@ -42,7 +43,7 @@ export function useSessionRestore(workspacePath: string) {
           restoreFromHistory(latest.id, chatMessages)
         }
       } catch (err) {
-        console.warn('[chat] 히스토리 복원 실패:', err)
+        devLogger.error('use-session-restore', '히스토리 복원 실패', { error: err })
         restoreFromHistory('', [
           {
             id: `err-${Date.now()}`,

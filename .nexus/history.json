@@ -6678,6 +6678,162 @@
           "created_at": "2026-04-13T08:13:18.131Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-13T13:23:55.594Z",
+      "branch": "feat/logging-integration",
+      "plan": {
+        "id": 5,
+        "topic": "Tauri 전면 전환 타이밍 + 개발 로깅 디버깅 충분성 재평가",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Tauri 전면 전환 결정 — POC 성공(blocker 0, 실 왕복 검증)에도 Plan #6 I4 재평가 trigger(2/4 충족 기준) 미충족 상태에서 지금 전환할지",
+            "status": "decided",
+            "decision": "옵션 A — 즉시 전면 전환 채택. 사용자가 architect/strategist 일치 권고(옵션 C: 잠정 유지)와 critical 리스크 6항목(빌드 가능 셸 0개 구간 / Bun 마이그레이션 server 핵심 경로 회귀 / Plan #6 adapter import boundary canary 위협 / Plan #5·#6 진행 정지 / 부록 B 함정 8개 본 레포 재현 / trigger 자가 위반 거버넌스)을 명시적으로 인지한 후 강행 결정.\n\n채택 근거(사용자 의도): POC blocker 0건 + UI↔sidecar↔CC 실 왕복 검증 완료 시점이 전환 적기라는 직관 우선. POC 성공 활용을 T3+T4 동시 충족까지 유예하지 않음.\n\n기각: 옵션 C(잠정 유지) — 사용자가 거버넌스 자가 위반 비용을 감수하기로 결정. 옵션 B(병행) — A·B·C 표 비교에서 사용자가 A를 명시 선택, B는 묵시 기각.\n\n선결 필수 (전환 시작 전):\n1. Rust tauri::generate_handler![] proc macro 패닉 해소 (Tauri 2.10.1 + Rust 1.93.1 조합) — 전용 환경에서 Cargo.toml 버전 핀 또는 cargo update 시도, OpenCode Cargo.toml 참조\n2. macOS .app 번들 산출 검증\n3. POC 부록 B 8개 함정의 본 레포 적용 매핑(SSE heartbeat / sidecar 재빌드 파이프라인 / UI-sidecar 계약 정렬 / text_delta·text_chunk 중복 / CC binary 경로 주입 / sidecar 명시 종료 / bun:sqlite 파라미터 순서 / @nexus/shared workspace resolution)\n\n본 레포 변경 범위 (architect 추정 10–18일):\n- server: @hono/node-server → Bun.serve 교체, better-sqlite3 → bun:sqlite 4파일 패치, pino-pretty 번들 제외, execSync 비동기화, CC binary 경로 주입\n- 신규: packages/tauri (Rust src-tauri scaffolding) + packages/sidecar(또는 server를 sidecar 진입점 겸용으로 재배치)\n- 폐기: packages/electron\n- dev orchestrator: scripts/dev.ts 재설계 (electron spawn 경로 → tauri dev 경로)\n- AgentHost composition root는 server 내부라 셸 전환과 직교, Plan #6 adapter import boundary는 보존 필수\n\nPhase 정합: 본 결정으로 philosophy.md §Tauri 런타임 재평가 Trigger 표(T1-T4) 자체가 무효화됨 — 별도 cycle에서 문서 갱신 필요. Plan #6 I4 결정도 동일하게 supersede됨.\n\n후속 plan 세션 권장 (별도): 전환 단계화 + 회귀 방지 안전망(Plan #6 커밋 #-1 패턴) + Plan #5/#6 잔여 작업과의 순서. 본 cycle Issue #2(로깅)는 sidecar 통합 전제로 재해석.",
+            "how_agents": [
+              "architect",
+              "strategist"
+            ],
+            "how_summary": {
+              "architect": "옵션 C 강력 추천 — 옵션 A는 .app 번들 산출 실패 상태에서 electron 폐기 시 '빌드 가능 셸 0개' 구간 강제 발생, server 핵심 경로(ApprovalBridge/PathGuard/hook-manager) Bun 마이그레이션 회귀 위험, Plan #6 adapter import boundary canary 훼손 위험. 본 레포 통합 공수 10-18일. 부록 B 함정 8개 전부 본 레포에서 재현(POC와 코드 구조 다름). 옵션 B 기각: 두 셸 CI 매트릭스/계약 drift 상시 비용. 변형안: T4 선해소(.app 번들 산출 1-2일) 후 T3 합류 시 자연스러운 전환 타이밍.",
+              "strategist": "옵션 C 추천 — POC 성공은 전환을 앞당길 증거가 아니라 T3·T4 도달 시 전환 비용이 낮다는 보증서. 'T4 dev 수준 재현 = T4 충족'은 과대해석(POC 본문이 명시 분리). 자가 위반: 본인이 정의한 당일 trigger 해체 → 향후 구속력 훼손. 민지 가치 체감 0 (T2 미충족 = 불만 가시화 안 됨). 한 줄: 'POC 보증서를 지금 현금화하지 말 것.' 옵션 A 기각: 순환 논리. 옵션 B 기각: dogfood 경로 분기로 PMF 검증 훼손."
+            },
+            "how_agent_ids": {
+              "architect": "a2b647c683f615380",
+              "strategist": "ab488a10effa451f6"
+            }
+          },
+          {
+            "id": 2,
+            "title": "개발 중 로깅 디버깅 충분성 — request/correlation id 부재, web↔server↔CLI 왕복 단일 흐름 추적 불가, electron/web console 휘발 등 갭 보강 범위",
+            "status": "decided",
+            "decision": "옵션 B (구조화 + 영속화 강화) 5개 작업 전부 채택. 로그 저장 위치는 사용자 제안에 따라 워크스페이스 폴더가 아닌 서버 데이터 디렉토리(~/.nexus-code/logs/) 내부에 워크스페이스별 구분 — 사용자 워크스페이스 git 추적 오염 방지 + 헤드리스 모드(philosophy.md §4) 정합 + 워크스페이스 삭제와 운영 로그 수명 분리.\n\n위치 구조:\n~/.nexus-code/logs/\n├── {workspace-sanitized}/{date}.jsonl   # 워크스페이스별 (events/hooks/sessions/approvals/web-client)\n├── _system/electron-main-{date}.log     # electron main 영속\n└── _system/dev-{date}.log               # dev orchestrator 통합 (선택)\n\n워크스페이스 식별자: Claude Code 패턴 차용(`/Users/kih/foo` → `-Users-kih-foo`). history-parser가 이미 같은 변환 사용 중이라 코드 reuse. base path는 NEXUS_LOG_DIR env로 override 가능(기본 ~/.nexus-code/logs/, NEXUS_DB_PATH 패턴 따름).\n\n5개 작업:\n1. Correlation ID 미들웨어 (server) — X-Request-Id/requestId 미들웨어 + child logger 자동 주입 + SSE schema 전파 + CLI hook 왕복 페어링\n2. WorkspaceLogger 위치 변경 + 호출처 확대 — {workspacePath}/.nexus/logs/ 폐기, ~/.nexus-code/logs/{ws-sanitized}/로 이동. session/hooks/approval/events/lifecycle/bridge 6개 호출처 일관화\n3. Electron main file logger — console.log/error → ~/.nexus-code/logs/_system/electron-main-{date}.log\n4. Web SSE 클라이언트 로그 수집 — dev only, POST /api/dev/client-log → workspace-logger 통합. use-sse 우선 적용. production 비활성\n5. dev orchestrator 프로세스 prefix — scripts/dev.ts stdio inherit 교체, 라인 단위 [server]/[web]/[electron] prefix + 색상 + 선택적 _system/dev-*.log 영속\n\n기각: A(최소) 영속화 미해결, C(웹 dev 패널) Tauri 전면 전환 결정으로 폐기 risk + sidecar stdout 통합 자연 대체, D(결합) Phase 1-2 overkill.\n\nTauri 전환과의 관계: 본 보강은 양쪽 런타임 모두 유효(server pino + child logger + workspace-logger는 sidecar 환경 그대로 사용). electron file logger만 Tauri 전환 시 Rust main의 stdout sidecar forward 패턴으로 대체 — 그때까지 영속 가치 충분(전환 10-18일 동안 부록 B 함정 8개 디버깅 빈도 ↑).\n\n후속 implementation detail (이번 plan scope 외): log rotation/retention 정책, workspace 삭제 시 로그 정리 정책(보존 권장), web client log workspaceId 컨텍스트 부재 시 _system fallback 여부."
+          }
+        ],
+        "research_summary": "## 연구 핵심\n\n### Tauri 전환 측면\n- **Plan #6 I4(2026-04-13) 결정**: \"옵션 α — Electron 유지 잠정 + Tauri POC 최우선 task\" 채택. POC 결과 blocker 0건, UI↔sidecar↔CC 실 왕복(approval full roundtrip 포함) 재현 완료(`tauri-poc-report.md` 부록 B.1~B.4)\n- **본 레포 현황**: 여전히 Electron만 존재(`packages/electron/`). Tauri POC는 외부 위치에서 진행, 본 레포 미통합\n- **Bun 호환 패치**: server 5개 파일(@hono/node-server→Bun.serve, better-sqlite3→bun:sqlite × 4) → 58MB 단일 바이너리 검증\n- **WKWebView SSE 우려 해소**: 이전 plan 세션의 \"미검증\" 판단은 plugin-http vs native EventSource 혼동이었음. Safari 5.1+ 안정. OpenCode(142k stars) 동일 패턴 운영 증명\n- **재평가 trigger 4개 현 상태**: T1(모바일) 미충족 / T2(번들·메모리 실불만) 미충족 / T3(Phase 3 OpenCode 1급) 미충족 / T4(Rust toolchain 정비 + .app 번들 + 장시간 지표) 부분 충족(dev 모드 실 왕복까지). **2/4 충족 기준 미달**\n- **미해결 리스크**: Rust `tauri::generate_handler![]` proc macro 패닉(Tauri 2.10.1 + Rust 1.93.1), .app 번들 미산출, 30분+ SSE/Linux/Windows 미측정\n- **현재 진행 중인 작업**: Plan #5 잔여 11 이슈(가치 제안/아키텍처/디자인 3 묶음), Plan #6 멀티-하네스 리팩터링(6 커밋 분할). **Phase 1-2 PMF 구간 — 즉시 전환은 PMF 파괴 리스크**\n\n### 로깅 디버깅 측면\n- **서버**: `packages/server/src/logger.ts` — pino + pino-pretty(dev). HTTP 미들웨어(`middleware/logging.ts`)에서 요청 method/path/status/duration만 자동 로깅. createChildLogger 헬퍼 있으나 호출처 적음\n- **워크스페이스 로거**: `adapters/logging/workspace-logger.ts` — dev only, `{workspacePath}/.nexus/logs/{date}.jsonl` JSONL append. 호출처 식별 필요(events.ts/hooks.ts/session.ts/approval.ts에 삽입 결정 있음)\n- **Electron main**: `packages/electron/src/main.ts` — console.log/error만(휘발). 서버 spawn/exit 정보가 터미널 외 보존 안 됨\n- **Web**: console.log 산발 — use-sse의 schema validation 실패만 유지(`[sse] connected`, `[sse] disconnected, reconnecting in Xs`, `[sse] schema validation failed`). React Query/Zustand 액션 미트레이싱\n- **dev orchestrator**: `scripts/dev.ts`는 server/web/electron 3 프로세스 stdio inherit — **단일 터미널에 섞여 출력**, 어떤 프로세스 로그인지 prefix 없음(`[dev]` 자체 로그만 cyan)\n- **갭**:\n  1. request/correlation id 부재 → router → service → adapter → CLI → SSE 왕복을 한 흐름으로 추적 불가\n  2. SSE 이벤트 양쪽(서버 emit ↔ 클라이언트 receive) 페어링 불가\n  3. CLI hook 요청과 approval 응답을 같은 트레이스로 묶지 못함\n  4. dev 3 프로세스 stdout 통합 뷰 부재 — POC 부록 B의 \"12초 주기 SSE 끊김 → heartbeat\" 같은 디버깅이 어려웠던 패턴 재발 위험\n  5. electron main의 server crash 정보가 터미널 닫히면 사라짐\n\n### 두 이슈의 상호작용\nTauri 전환 시 dev 오케스트레이션 자체가 변경됨(electron→tauri dev, server→sidecar bun compile). 따라서 로깅 보강 결정은 \"어느 런타임에서든 유효한 추상화\"를 목표로 잡을지, \"현 Electron 환경 한정\"으로 갈지 분기점이 있음.",
+        "created_at": "2026-04-13T12:32:11.030Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Correlation ID 미들웨어 + 전 흐름 전파",
+          "context": "옵션 B 작업 #1. 한 요청이 router → service → adapter → CLI hook → SSE 응답까지 동일 ID로 추적 가능하게 만든다. 현재 server는 pino HTTP 미들웨어가 method/path/status/duration만 출력하고 child logger 호출처가 적어 한 요청 흐름을 따라갈 수 없다.</context>\n<parameter name=\"goal\">개발 디버깅 로깅 통합 보강 — 5개 채널(server 미들웨어 / workspace 파일 / electron main / web client / dev orchestrator) 영속화 + correlation id로 web↔server↔CLI hook 왕복 단일 흐름 추적. 위치 ~/.nexus-code/logs/ 통합 (워크스페이스 폴더 오염 방지 + 헤드리스 모드 정합).",
+          "approach": "1) shared/src/types/에 RequestId(brand string) 정의 또는 단순 string 합의. 2) server에 createRequestIdMiddleware 추가 — 들어오는 X-Request-Id 헤더가 있으면 그대로, 없으면 crypto.randomUUID() 생성. c.set('requestId', id) + c.header('X-Request-Id', id). 3) loggingMiddleware를 requestId 다음에 mount하고 child logger를 c.set('logger', baseLogger.child({ requestId }))로 주입. 4) routes는 c.get('logger')로 받아 사용. 5) ApprovalBridge.addPending/respond에 requestId 인자 받고 SSE permission_request/permission_settled 이벤트 schema에 requestId optional 필드 추가(zod). 6) hooks.ts는 hook POST 본문에 X-Request-Id 헤더 echo + ApprovalBridge에 전달. 7) cli-process가 stdin으로 hook 응답 재주입 시 requestId 보존(주석으로 명시). 8) web fetch 클라이언트는 모든 outbound에 X-Request-Id 자동 부착(또는 응답 헤더 캡처해서 후속 SSE와 매칭).",
+          "acceptance": "(1) `bun --filter @nexus/server test` 통과. (2) dev 환경에서 한 fetch → server log에 동일 requestId가 router/service/adapter 단계에서 출력. (3) hook 요청 + approval 응답이 같은 requestId로 페어링(workspace-logger jsonl에서 grep 가능). (4) 새 요청은 새 ID(반복 검증). (5) shared schema 변경은 PermissionAskedEvent/PermissionSettledEvent에만 limited, 기존 web 코드 회귀 없음(optional 필드).",
+          "risk": "SSE는 long-lived connection이므로 connection-id와 per-event-id 분리 필요할 수 있음 — implementation에서 결정. crypto.randomUUID()는 Node 19+/Bun 1.0+이므로 현 런타임 호환 OK. middleware 등록 순서 중요(requestId → logger → 나머지).",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T12:48:16.999Z"
+        },
+        {
+          "id": 2,
+          "title": "WorkspaceLogger 위치 변경 + 호출처 확대",
+          "context": "옵션 B 작업 #2. 현재 WorkspaceLogger는 {workspacePath}/.nexus/logs/{date}.jsonl에 쓰지만 (a) 사용자 워크스페이스 git 추적 오염 위험 (b) 워크스페이스 삭제 시 운영 로그 함께 손실 (c) 헤드리스 모드(philosophy.md §4)에서 서버 측 단일 base가 자연스러움. 위치를 ~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl로 이동하고 호출처를 6곳으로 확대.</context>\n<parameter name=\"approach\">1) packages/server/src/adapters/logging/workspace-logger.ts: dir 계산을 `join(homedir(), '.nexus-code', 'logs', sanitize(workspacePath))`로 변경. base는 `process.env['NEXUS_LOG_DIR'] ?? join(homedir(), '.nexus-code', 'logs')`. 2) sanitize 함수는 packages/server/src/adapters/claude-code/history-parser.ts의 변환을 추출해 공용 유틸로(packages/server/src/utils/workspace-id.ts 신설). history-parser도 같은 유틸 사용으로 단일화. 3) 호출처 추가: routes/session.ts(start/cancel/restart 시점), routes/hooks.ts(pre-tool-use 수신 + 응답), routes/approval.ts(respond), routes/events.ts(SSE 연결/해제는 이미 일부), services/session-lifecycle-service.ts(spawn/dispose), adapters/approval/bridge.ts(addPending/respond). 4) 각 호출처에서 logger.log(workspacePath, { type, sessionId?, requestId?, data })로 통일. type 표준화: 'session_start'|'session_cancel'|'session_restart'|'hook_request'|'hook_response'|'approval_request'|'approval_response'|'sse_connect'|'sse_disconnect'|'sse_event'. 5) requestId는 task #1에서 c.get('logger') 또는 c.get('requestId')로 받아 entry에 포함.",
+          "acceptance": "(1) ~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl 생성 및 6개 type 모두 수신 확인. (2) 기존 {workspacePath}/.nexus/logs/ 경로는 이번 cycle 후 미생성 (grep으로 확인). (3) NEXUS_LOG_DIR=/tmp/foo로 override 시 해당 경로 사용. (4) sanitize 결과가 history-parser와 동일 매핑(unit test 추가). (5) requestId가 task #1 작업 후 jsonl entry에 일관 포함. (6) workspace-logger.test.ts 회귀 없음.",
+          "risk": "기존 .nexus/logs/ 경로의 누적 jsonl은 사용자가 직접 정리(자동 마이그레이션 미포함, scope 외). workspace 삭제 시 ~/.nexus-code/logs/{ws-sanitized}/ 잔존 — 이번 cycle에선 보존 정책(implementation note에만 명시). sanitize 매핑 변경 시 history-parser 회귀 가능성 — utils 추출 시 동일 출력 보장 unit test 필수.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T12:48:49.390Z"
+        },
+        {
+          "id": 3,
+          "title": "Electron main file logger",
+          "context": "옵션 B 작업 #3. 현재 packages/electron/src/main.ts는 console.log/error만 사용해 server spawn/exit/error 정보가 터미널 닫히면 휘발된다. ~/.nexus-code/logs/_system/electron-main-{date}.log에 영속화. Tauri 전환 시 Rust main의 stdout sidecar forward 패턴으로 대체될 예정이지만 전환 10-18일 동안 디버깅 영속 가치 충분.</context>\n<parameter name=\"approach\">1) packages/electron/src/logger.ts 신설 — appendFile 기반 line writer. 위치 `process.env['NEXUS_LOG_DIR'] ?? join(homedir(), '.nexus-code', 'logs')` + `_system/electron-main-${date}.log`. mkdir recursive. 2) main.ts의 console.log/error 4-5곳 호출을 logger.info/error로 교체(현 console 출력은 dev에서 유지 — 이중 출력 OK, dev console + 영속 file). 3) 종료 시 file handle close 보장(app.on('before-quit')에서 logger.flush()). 4) process.on('uncaughtException')/('unhandledRejection') 핸들러 추가해서 crash도 영속.",
+          "acceptance": "(1) electron 시작/종료/server crash가 ~/.nexus-code/logs/_system/electron-main-{date}.log에 timestamped line으로 영속. (2) console 출력은 dev에서 유지(이중). (3) 디렉토리 자동 생성. (4) NEXUS_LOG_DIR override 동작. (5) uncaughtException/unhandledRejection 영속. (6) electron 정상 종료 시 file handle close 누락 없음.",
+          "risk": "electron renderer 프로세스 크래시는 main에서 못 잡음(별도 webContents.on('crashed') 필요 — 이번 scope 외 명시). file handle close 보장 위해 sync write 또는 await 필요. Tauri 전환 시 packages/electron 폐기되므로 이 코드 수명 짧음 — 그러나 전환 작업 자체의 디버깅에 가치 큼(부록 B 함정 8개).",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T12:49:03.438Z"
+        },
+        {
+          "id": 4,
+          "title": "Web SSE 클라이언트 로그 수집",
+          "context": "옵션 B 작업 #4. web의 console.log/error는 휘발되어 dev console 닫으면 사라지고, schema validation 실패·SSE 끊김·React Query 에러 등 디버깅 핵심 시그널이 사후 추적 불가. dev only로 server에 POST하여 workspace-logger로 통합. POC 부록 B의 12초 주기 SSE 끊김 같은 패턴이 사후 jsonl로 분석 가능해야 함.",
+          "approach": "1) server: POST /api/dev/client-log 신설. body: { workspacePath?, level, source, message, data?, requestId? }. workspacePath 있으면 workspace-logger, 없으면 _system/web-{date}.log로 fallback. import.meta.env.PROD 또는 별도 NODE_ENV 가드로 production 비활성. 2) web: packages/web/src/lib/dev-logger.ts 신설 — console.log/error/warn을 wrapping(또는 별도 함수 export). 우선 적용: api/use-sse.ts의 [sse] connected/disconnected/schema-failed, hooks/use-session-restore, components/chat에 산재된 console. 3) batching/throttling: 100ms 단위 또는 10건 단위 flush, sendBeacon 또는 fetch keepalive로 unload 안전. 4) workspaceId 컨텍스트는 zustand activeWorkspaceId 사용. 부재 시 _system fallback(implementation 결정).",
+          "acceptance": "(1) dev 모드에서 web console 메시지가 ~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl에 type='web_client'로 영속. (2) production 빌드(`bun run build` 후) 시 client-log POST 미발생 — 빌드 산출물에서 dev-logger 코드 dead-code elimination 확인. (3) server 부재(연결 실패) 시 throw 없이 swallow, UX 영향 0. (4) SSE 끊김/재연결 폭주 시 batching으로 100ms당 최대 1 POST. (5) sendBeacon 또는 keepalive로 페이지 unload 시에도 마지막 batch 전송.",
+          "risk": "workspaceId 컨텍스트 부재 시 fallback 정책 — _system 권장하지만 개인 정보 우려 시 drop. localhost 외 환경(헤드리스)에서 CORS 영향 — dev API는 origin 같으니 무관. console wrapping이 React DevTools 표시에 영향 가능 — wrapping 대신 별도 함수 export 권장.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T12:49:20.775Z"
+        },
+        {
+          "id": 5,
+          "title": "dev orchestrator 프로세스 prefix + 영속",
+          "context": "옵션 B 작업 #5. scripts/dev.ts는 server/web/electron 3 프로세스를 stdio inherit으로 spawn해 단일 터미널에 섞여 출력되며 어느 프로세스 라인인지 즉시 구분 불가. 라인 단위 prefix + 색상 + 선택적 _system/dev-{date}.log 영속. cycle 70 'fix(dev): stabilize dev orchestrator on Node 24 + Bun 1.3' 안정화는 보존.",
+          "approach": "1) scripts/dev.ts: spawn 시 stdio: 'inherit' → ['ignore', 'pipe', 'pipe']로 변경. 2) Bun.spawn의 stdout/stderr ReadableStream을 line splitter(예: TextLineStream 또는 단순 split('\\n'))로 처리해 각 라인에 `[server]`/`[web]`/`[electron]` prefix + ANSI 색(server=green, web=blue, electron=magenta)을 prepend 후 process.stdout.write. 3) pino-pretty가 server stdout에 ANSI 색을 이미 넣고 있으면 prefix만 prepend(중첩 OK). 4) 동일 라인을 ~/.nexus-code/logs/_system/dev-{date}.log에 ANSI 제거 버전으로 동시 append(선택 — NEXUS_LOG_DEV=1 env로 활성). 5) 기존 [dev] cyan 자체 로그는 유지. 6) cleanup() 호출 경로 무변경(기존 SIGTERM/SIGKILL 안전망 보존).",
+          "acceptance": "(1) `bun run dev` 시 server/web/electron 라인이 모두 prefix+색상으로 구분 출력. (2) NEXUS_LOG_DEV=1 시 ~/.nexus-code/logs/_system/dev-{date}.log에 ANSI 제거된 동일 출력 영속. (3) pino-pretty 색상 보존 또는 안전 처리(중첩 가독성 OK). (4) Ctrl+C 시 cleanup() 정상 동작(기존 회귀 없음). (5) buffering 깨짐 없음 — 라인 splitter가 부분 라인 보존(다음 chunk와 join).",
+          "risk": "stdio pipe 전환 시 child가 stdout TTY 감지 못해 일부 출력 비활성 가능(pino-pretty가 색상 끌 가능성) — FORCE_COLOR=1 env로 강제. child가 ReadableStream backpressure 무시하면 메모리 누적 가능 — 일반적이지 않지만 모니터링. 라인 splitter가 매우 긴 라인(예: error stack)에서 메모리 spike 가능 — max line length cap 권장.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T12:49:39.074Z"
+        },
+        {
+          "id": 6,
+          "title": "통합 dogfood 검증 — 5개 로깅 작업 acceptance 일괄 확인",
+          "context": "옵션 B 5개 작업의 acceptance를 dev 환경 1개에서 일괄 검증한다. 5개 채널이 한 흐름으로 추적 가능한지(correlation id로 web fetch → server route → adapter → CLI hook → SSE 응답까지 페어링)와 영속화가 모두 ~/.nexus-code/logs/ 아래에 통합되는지 확인. 부록 B의 12초 SSE 끊김 같은 패턴이 사후 jsonl 분석으로 추적 가능해야 함.",
+          "approach": "1) `bun run dev` 후 워크스페이스 1개 등록 → 세션 1개 spawn → bash 명령으로 approval 1회 → `turn_end`까지 1 turn 완주. 2) 검증 항목: (a) ~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl에서 한 fetch의 requestId가 router/service/adapter/SSE event 모두 동일하게 페어링 (`jq 'select(.requestId == \"...\")' | length > 5`). (b) hook 요청과 approval 응답이 같은 requestId 페어링. (c) ~/.nexus-code/logs/_system/electron-main-*.log 영속(시작/server spawn 라인). (d) NEXUS_LOG_DEV=1로 dev 재기동 후 ~/.nexus-code/logs/_system/dev-*.log 영속. (e) web에서 의도적 schema validation 실패 유발(또는 SSE 끊김 시뮬레이션) → workspace jsonl에 type='web_client' 영속. (f) production 빌드(`bun run build && bun run preview` 또는 electron prod) 시 client-log POST 미발생. (g) 기존 {workspacePath}/.nexus/logs/ 미생성. 3) NEXUS_LOG_DIR=/tmp/nexus-test로 override 후 동일 절차 → 해당 경로에 모든 채널 영속 확인. 4) Ctrl+C 후 lsof로 port 3000/5173 해제 + dev-smoke-protocol.md 6단계 회귀 없음.",
+          "acceptance": "(1) 위 7개 검증 항목 전부 ✅. (2) `bun --filter '*' typecheck` 0 errors. (3) `bun --filter '*' test` 회귀 없음(workspace-logger.test.ts + 신규 sanitize util test 포함). (4) dev-smoke-protocol.md 4종 수동 확인(워크스페이스 열기/세션 spawn/권한 허용/리로드 복원) 회귀 없음. (5) 측정 결과를 .nexus/memory/logging-integration-report.md에 수치/jsonl 샘플과 함께 기록(부록 B 패턴 사후 추적 가능성 입증 1건 포함).",
+          "risk": "production 빌드 가드 검증은 electron prod 환경 셋업이 추가로 필요할 수 있음 — 어렵다면 web 단독 vite preview로 대체. workspaceId 부재 시 fallback 정책이 implementation에서 결정되므로 검증 시 _system fallback 가정. ~/.nexus-code/logs/ 누적 jsonl이 dogfood 중 빠르게 쌓일 수 있음 — 검증 후 사용자 정리 권장 명시.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 2,
+          "owner": "tester",
+          "created_at": "2026-04-13T12:50:10.191Z"
+        },
+        {
+          "id": 7,
+          "title": "문서 갱신 — architecture.md logging 절 + philosophy.md 헤드리스 모드 + dev-smoke-protocol.md",
+          "context": "옵션 B 채택으로 로깅 기본 위치가 워크스페이스 폴더 → ~/.nexus-code/logs/로 이동. 이는 architecture.md의 adapter 카테고리, philosophy.md §4 헤드리스 모드 항목, dev-smoke-protocol.md의 검증 절차에 모두 반영되어야 한다.",
+          "approach": "1) .nexus/context/architecture.md: 기존 \"adapters/logging/ — WorkspaceLogger\" 라인을 확장해 (a) 위치 ~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl + _system/electron-main-*.log + _system/dev-*.log 디렉토리 트리, (b) NEXUS_LOG_DIR env override 명시, (c) requestId correlation 흐름(web → server → adapter → SSE) 한 단락, (d) sanitize 매핑이 history-parser와 단일화됨을 명시. 2) .nexus/context/philosophy.md §4 \"헤드리스 서버 모드\" 항목에 \"운영 로그도 서버 측 단일 base에 통합되어 헤드리스 시 자연 동작\" 한 줄 추가. 3) .nexus/memory/dev-smoke-protocol.md §4에 \"5종으로 확장: 기존 4종 + 통합 로그 채널 점검(~/.nexus-code/logs/{ws-sanitized}/, _system/electron-main, _system/dev) 영속 확인\" 항목 추가. 4) Tauri 전환 결정으로 philosophy.md §Tauri 런타임 재평가 Trigger 표가 supersede됨을 헤더에 1줄 명시(상세 갱신은 Tauri 전환 별도 plan에서).",
+          "acceptance": "(1) architecture.md에 logging 디렉토리 트리 + correlation 흐름 단락 추가. (2) philosophy.md §4 헤드리스 항목 1줄 추가 + Tauri 트리거 supersede 헤더 주석. (3) dev-smoke-protocol.md §4 5번째 항목 추가. (4) 기존 문서 톤/구조 보존(불필요 재작성 금지). (5) 새 정보가 task 1-5 acceptance와 정확히 일치(파일 경로/env 이름/sanitize 매핑).",
+          "risk": "philosophy.md §Tauri 트리거 표 자체를 이번 cycle에서 갱신하면 별도 Tauri 전환 plan과 충돌 — 헤더 1줄 supersede 주석만 추가하고 표 본체는 그대로 유지. dev-smoke-protocol.md는 path-guard-relocation-lessons §4에서 파생된 lineage 보존 필요.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 2,
+          "owner": "writer",
+          "created_at": "2026-04-13T12:50:27.058Z"
+        },
+        {
+          "id": 8,
+          "title": "문서 검증 — architecture.md / philosophy.md / dev-smoke-protocol.md 갱신본 reviewer",
+          "context": "writer가 갱신한 3개 문서가 task 1-3 구현 결정과 정확히 일치하는지, 톤/구조가 일관되는지, supersede 주석이 명확한지 검증.",
+          "approach": "writer 산출물을 task 1/2/3 acceptance 및 본 plan 결정 요약과 cross-check. 특히 (a) ~/.nexus-code/logs/ 경로 표기 일관성 (b) NEXUS_LOG_DIR env 이름 일관성 (c) sanitize 매핑이 history-parser와 단일화 명시 (d) Tauri 트리거 supersede 주석이 별도 plan과 충돌 안 함 (e) dev-smoke-protocol.md 5번째 항목이 4종과 형식 일관성. 한국어 문법 + .nexus/context/ 톤 일치 검토.",
+          "acceptance": "검증 결과를 4-5줄로 보고: ✅ 통과 항목 / ⚠️ 보완 필요 항목 / 추천 수정 diff. critical issue 없으면 approve.",
+          "risk": "writer가 task 1-3 acceptance를 잘못 인용하면 문서가 구현과 drift — 본 cycle 안에서 잡는 게 cheap, 누락 시 다음 cycle에서 architecture 문서 신뢰도 저하.",
+          "status": "completed",
+          "deps": [
+            7
+          ],
+          "plan_issue": 2,
+          "owner": "reviewer",
+          "created_at": "2026-04-13T12:50:36.455Z"
+        }
+      ]
     }
   ]
 }

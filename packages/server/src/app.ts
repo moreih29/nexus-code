@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { loggingMiddleware } from './middleware/logging.js'
+import { requestIdMiddleware } from './middleware/request-id.js'
 import { errorBoundary } from './middleware/error-boundary.js'
 import { createHealthRouter } from './routes/health.js'
 import { createWorkspaceRouter } from './routes/workspace.js'
@@ -15,6 +16,7 @@ import { createFilesRouter } from './routes/files.js'
 import { createGitRouter } from './routes/git.js'
 import { createSettingsRouter } from './routes/settings.js'
 import { createCliSettingsRouter } from './routes/cli-settings.js'
+import { createDevLogRouter } from './routes/dev-log.js'
 import { WorkspaceRegistry } from './domain/workspace/workspace-registry.js'
 import { ProcessSupervisor } from './adapters/claude-code/process-supervisor.js'
 import { ClaudeCodeHost } from './adapters/claude-code/claude-code-host.js'
@@ -42,8 +44,8 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const policyStore = new ApprovalPolicyStore(store.db)
   const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
-  const approvalBridge = new ApprovalBridge(policyStore, settingsStore, categorizeClaudeCodeTool)
   const workspaceLogger = new WorkspaceLogger()
+  const approvalBridge = new ApprovalBridge(policyStore, settingsStore, categorizeClaudeCodeTool, workspaceLogger)
   const agentHost = new ClaudeCodeHost(supervisor, approvalBridge)
 
   const workspaceRows = workspaceStore.list()
@@ -58,6 +60,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const app = new Hono()
 
   app.use('*', cors())
+  app.use('*', requestIdMiddleware)
   app.use('*', loggingMiddleware)
   app.onError(errorBoundary)
 
@@ -71,6 +74,10 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   app.route('/api/settings', createSettingsRouter(settingsStore))
   app.route('/api/cli-settings', createCliSettingsRouter())
   app.route('/hooks', createHooksRouter(hookManager, approvalBridge, workspaceLogger))
+
+  if (process.env['NODE_ENV'] !== 'production') {
+    app.route('/api/dev', createDevLogRouter(workspaceLogger))
+  }
 
   return { app, supervisor, agentHost, registry, store, hookManager, workspaceLogger }
 }

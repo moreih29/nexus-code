@@ -4,6 +4,7 @@ import type { WorkspaceGroup } from '../adapters/claude-code/workspace-group.js'
 import type { CliProcess } from '../adapters/claude-code/cli-process.js'
 import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
+import { logger } from '../middleware/logging.js'
 
 /** Minimal interface for resolving a workspace's process group. Satisfied by ProcessSupervisor and ClaudeCodeHost. */
 interface GroupLookup {
@@ -19,6 +20,10 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
     if (!group) {
       return c.json({ error: { code: 'GROUP_NOT_FOUND', message: `No active session group for workspace '${workspacePath}'` } }, 404)
     }
+
+    // connectionId는 SSE 연결 1회 발급 — 서버 로그에서 연결 생애주기 추적용
+    const connectionId = crypto.randomUUID()
+    logger.info({ connectionId, workspacePath }, 'sse connection opened')
 
     return streamSSE(c, async (stream) => {
       const disposables: (() => void)[] = []
@@ -109,10 +114,14 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         }),
       )
 
+      // permission_request → permission_settled requestId 전파를 위해 연결 단위 맵 유지
+      const pendingRequestIds = new Map<string, string>()
+
       // Subscribe to approval bridge pending events for this workspace
       disposables.push(
         approvalBridge.onPendingAdded((info) => {
           if (info.workspacePath !== workspacePath) return
+          if (info.requestId) pendingRequestIds.set(info.id, info.requestId)
           void stream.writeSSE({
             event: 'permission_request',
             data: JSON.stringify({
@@ -121,14 +130,24 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
               permissionId: info.id,
               toolName: info.toolName,
               toolInput: info.toolInput,
+              ...(info.requestId ? { requestId: info.requestId } : {}),
             }),
           })
           workspaceLogger?.log(workspacePath, { type: 'sse_event', sessionId: info.sessionId, data: { event: 'permission_request', permissionId: info.id, toolName: info.toolName } })
         }),
         approvalBridge.onPendingSettled((id, result) => {
+          const requestId = pendingRequestIds.get(id)
+          pendingRequestIds.delete(id)
           void stream.writeSSE({
             event: 'permission_settled',
-            data: JSON.stringify({ sessionId: null, permissionId: id, decision: result.decision, reason: result.reason, source: result.source }),
+            data: JSON.stringify({
+              sessionId: null,
+              permissionId: id,
+              decision: result.decision,
+              reason: result.reason,
+              source: result.source,
+              ...(requestId ? { requestId } : {}),
+            }),
           })
           workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: 'permission_settled', permissionId: id, decision: result.decision, source: result.source } })
         }),
@@ -138,6 +157,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         for (const dispose of disposables) {
           dispose()
         }
+        logger.info({ connectionId, workspacePath }, 'sse connection closed')
       })
 
       // Keep the connection alive until client disconnects

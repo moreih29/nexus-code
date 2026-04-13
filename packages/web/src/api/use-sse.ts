@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { SessionEvent } from '@nexus/shared'
 import { SessionEventSchema } from '@nexus/shared'
 import { encodeWorkspacePath } from '../lib/workspace-path'
+import { devLogger, setDevLoggerWorkspacePath } from '../lib/dev-logger'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -20,6 +21,8 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
   useEffect(() => {
     if (!enabled) return
+
+    setDevLoggerWorkspacePath(workspacePath)
 
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -55,7 +58,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
       const result = SessionEventSchema.safeParse(withType)
       if (!result.success) {
-        console.log('[sse] schema validation failed', eventName, withType, result.error)
+        devLogger.error('use-sse', 'schema validation failed', { eventName, data: withType, error: result.error })
         return
       }
 
@@ -74,7 +77,8 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       esRef.current = es
 
       es.onopen = () => {
-        console.log('[sse] connected')
+        backoffMs = 2000
+        devLogger.log('use-sse', 'connected', { workspacePath })
       }
 
       for (const type of eventTypes) {
@@ -86,14 +90,10 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
         es.close()
         esRef.current = null
         if (!disposed) {
-          console.log(`[sse] disconnected, reconnecting in ${backoffMs / 1000}s...`)
+          devLogger.warn('use-sse', 'disconnected', { backoffMs, workspacePath })
           reconnectTimer = setTimeout(connect, backoffMs)
           backoffMs = Math.min(backoffMs * 2, 60000) // exponential backoff, max 60s
         }
-      }
-
-      es.onopen = () => {
-        backoffMs = 2000 // reset on successful connection
       }
     }
 

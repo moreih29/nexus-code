@@ -27,7 +27,7 @@ function normalizeModel(model: string | null | undefined): string | undefined {
   return LEGACY_MODEL_MAP[model] ?? model
 }
 
-type Env = { Variables: { validatedBody: unknown } }
+type Env = { Variables: AppVariables & { validatedBody: unknown } }
 
 /** CLI-relevant settings keys for comparison (excludes theme which is UI-only) */
 const CLI_SETTINGS_KEYS = ['model', 'effortLevel', 'permissionMode', 'maxTurns', 'maxBudgetUsd', 'appendSystemPrompt', 'addDirs', 'disallowedTools', 'chromeEnabled'] as const
@@ -46,6 +46,7 @@ function settingsChanged(a: object, b: object): boolean {
 
 import type { SessionRecord } from '../services/session-lifecycle-service.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
+import type { AppVariables } from '../middleware/logging.js'
 // SessionRecord is re-exported above; this local import is for the Map<string, SessionRecord> param type
 
 export function createSessionRouter(
@@ -112,7 +113,7 @@ export function createSessionRouter(
       prompt: body.prompt,
     })
 
-    workspaceLogger?.log(body.workspacePath, { type: 'session_start', sessionId, data: { workspacePath: body.workspacePath, prompt: body.prompt, permissionMode: body.permissionMode } })
+    workspaceLogger?.log(body.workspacePath, { type: 'session_start', sessionId, requestId: c.get('requestId'), data: { workspacePath: body.workspacePath, prompt: body.prompt, permissionMode: body.permissionMode } })
 
     const record = sessions.get(sessionId)!
 
@@ -201,7 +202,7 @@ export function createSessionRouter(
       prompt,
     })
 
-    workspaceLogger?.log(dbRow.workspace_path, { type: 'session_resume', sessionId: newSessionId, data: { sessionId: newSessionId, prompt } })
+    workspaceLogger?.log(dbRow.workspace_path, { type: 'session_resume', sessionId: newSessionId, requestId: c.get('requestId'), data: { sessionId: newSessionId, prompt } })
 
     const record = sessions.get(newSessionId)!
 
@@ -270,6 +271,8 @@ export function createSessionRouter(
     }
 
     store.updateStatus(id, 'running')
+
+    workspaceLogger?.log(dbRow.workspace_path, { type: 'session_restart', sessionId: id, requestId: c.get('requestId'), data: { sessionId: id, prompt } })
 
     const record = sessions.get(id)!
 
