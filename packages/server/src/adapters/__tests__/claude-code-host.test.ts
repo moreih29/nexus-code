@@ -328,6 +328,8 @@ describe('ClaudeCodeHost', () => {
         permissionId: 'perm-001',
         toolName: 'Write',
         input: { file_path: '/tmp/test.txt', content: 'hi' },
+        harnessType: 'claude-code',
+        workingDirectory: '/test/workspace',
       })
     })
 

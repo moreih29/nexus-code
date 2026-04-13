@@ -55,4 +55,23 @@ export {
   ApprovalResponseSchema,
 } from './schemas/approval.js'
 
-export type { AgentHostEvent, AgentHostConfig, AgentHost } from './types/agent-host.js'
+export type {
+  HarnessType,
+  AgentHostEvent,
+  AgentHostConfig,
+  ClaudeCodeHostConfig,
+  AgentHost,
+} from './types/agent-host.js'
+export {
+  HarnessTypeSchema,
+  AgentHostEventSchema,
+  AgentHostConfigSchema,
+  ClaudeCodeHostConfigSchema,
+  SessionStartedEventSchema,
+  MessageEventSchema,
+  AgentHostToolCallEventSchema,
+  AgentHostToolResultEventSchema,
+  PermissionAskedEventSchema,
+  ErrorEventSchema,
+  SessionEndedEventSchema,
+} from './types/agent-host.js'

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { Result } from '../result.js'
 
 /**
@@ -16,32 +17,105 @@ import type { Result } from '../result.js'
  * - `observe/approve/reject/dispose`의 첫 인자는 모두 nexusSessionId다.
  */
 
-export type AgentHostEvent =
-  | { type: 'session_started'; sessionId: string; harnessType: 'claude-code' | 'opencode' }
-  | { type: 'message'; sessionId: string; role: 'assistant' | 'user'; content: string }
-  | { type: 'tool_call'; sessionId: string; toolName: string; input: Record<string, unknown> | string }
-  | { type: 'tool_result'; sessionId: string; toolUseId: string; result: unknown }
-  | {
-      type: 'permission_asked'
-      sessionId: string
-      permissionId: string
-      toolName: string
-      input: Record<string, unknown> | string
-    }
-  | { type: 'error'; sessionId: string; code: string; message: string; recoverable: boolean }
-  | { type: 'session_ended'; sessionId: string; exitCode: number | null }
+export const HarnessTypeSchema = z.enum(['claude-code', 'opencode'])
+export type HarnessType = z.infer<typeof HarnessTypeSchema>
 
-export interface AgentHostConfig {
-  harnessType: 'claude-code' | 'opencode'
-  workingDirectory: string
-  model?: string
+// ---------------------------------------------------------------------------
+// AgentHostEvent — Zod 스키마 (runtime-export)
+// ---------------------------------------------------------------------------
+
+export const SessionStartedEventSchema = z.object({
+  type: z.literal('session_started'),
+  sessionId: z.string(),
+  harnessType: HarnessTypeSchema,
+})
+
+export const MessageEventSchema = z.object({
+  type: z.literal('message'),
+  sessionId: z.string(),
+  role: z.enum(['assistant', 'user']),
+  content: z.string(),
+})
+
+// Prefixed to avoid collision with ToolCallEventSchema in schemas/session.ts
+export const AgentHostToolCallEventSchema = z.object({
+  type: z.literal('tool_call'),
+  sessionId: z.string(),
+  toolName: z.string(),
+  input: z.union([z.record(z.string(), z.unknown()), z.string()]),
+})
+
+// Prefixed to avoid collision with ToolResultEventSchema in schemas/session.ts
+export const AgentHostToolResultEventSchema = z.object({
+  type: z.literal('tool_result'),
+  sessionId: z.string(),
+  toolUseId: z.string(),
+  result: z.unknown(),
+})
+
+export const PermissionAskedEventSchema = z.object({
+  type: z.literal('permission_asked'),
+  sessionId: z.string(),
+  permissionId: z.string(),
+  toolName: z.string(),
+  input: z.union([z.record(z.string(), z.unknown()), z.string()]),
+  harnessType: HarnessTypeSchema,
+  workingDirectory: z.string(),
+})
+
+export const ErrorEventSchema = z.object({
+  type: z.literal('error'),
+  sessionId: z.string(),
+  code: z.string(),
+  message: z.string(),
+  recoverable: z.boolean(),
+})
+
+export const SessionEndedEventSchema = z.object({
+  type: z.literal('session_ended'),
+  sessionId: z.string(),
+  exitCode: z.number().nullable(),
+})
+
+export const AgentHostEventSchema = z.discriminatedUnion('type', [
+  SessionStartedEventSchema,
+  MessageEventSchema,
+  AgentHostToolCallEventSchema,
+  AgentHostToolResultEventSchema,
+  PermissionAskedEventSchema,
+  ErrorEventSchema,
+  SessionEndedEventSchema,
+])
+
+export type AgentHostEvent = z.infer<typeof AgentHostEventSchema>
+
+// ---------------------------------------------------------------------------
+// AgentHostConfig — base + per-harness extensions
+// ---------------------------------------------------------------------------
+
+export const AgentHostConfigSchema = z.object({
+  harnessType: HarnessTypeSchema,
+  workingDirectory: z.string(),
+  model: z.string().optional(),
   /** Claude CLI 외부 sessionId를 받아 `--resume` 플래그로 전달한다. nexusSessionId와 구분할 것. */
-  resumeSessionId?: string
+  resumeSessionId: z.string().optional(),
   /** 마지막 세션에 이어 붙인다(--continue). resumeSessionId와 함께 사용할 수 없다. */
-  continueSession?: boolean
-  /** 하네스별 추가 플래그. 각 어댑터가 해석한다. */
-  extraArgs?: readonly string[]
-}
+  continueSession: z.boolean().optional(),
+})
+
+export type AgentHostConfig = z.infer<typeof AgentHostConfigSchema>
+
+export const ClaudeCodeHostConfigSchema = AgentHostConfigSchema.extend({
+  harnessType: z.literal('claude-code'),
+  /** Claude CLI 전용 추가 플래그. 다른 어댑터에서는 사용 불가. */
+  extraArgs: z.array(z.string()).readonly().optional(),
+})
+
+export type ClaudeCodeHostConfig = z.infer<typeof ClaudeCodeHostConfigSchema>
+
+// ---------------------------------------------------------------------------
+// AgentHost interface
+// ---------------------------------------------------------------------------
 
 export interface AgentHost {
   /**

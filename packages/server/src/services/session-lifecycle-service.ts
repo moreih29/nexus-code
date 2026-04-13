@@ -9,6 +9,9 @@ import type { SettingsStore, AppSettings } from '../adapters/db/settings-store.j
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 import type { WorkspaceGroup } from '../adapters/cli/workspace-group.js'
 import type { CliProcess, CliStartOptions } from '../adapters/cli/cli-process.js'
+// resolvePermissionMode는 ClaudeCodeHost(adapter)로 이관됨. 하위 호환성을 위해 re-export.
+export type { PermissionModeInput } from '../adapters/claude-code-host.js'
+export { resolvePermissionMode } from '../adapters/claude-code-host.js'
 
 const LEGACY_MODEL_MAP: Record<string, string> = {
   'claude-opus-4-5': 'opus',
@@ -49,13 +52,6 @@ export interface SessionRecord {
   startedWithSettings?: object
 }
 
-export type PermissionModeInput = string | null | undefined
-
-/** Normalizes a raw permissionMode value to what the CLI accepts */
-export function resolvePermissionMode(mode: PermissionModeInput): 'bypassPermissions' | undefined {
-  if (mode === 'bypassPermissions') return 'bypassPermissions'
-  return undefined
-}
 
 export interface WireSessionProcessOpts {
   sessionId: string

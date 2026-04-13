@@ -6,6 +6,18 @@ import type { ProcessSupervisor } from './cli/process-supervisor.js'
 import type { ApprovalBridge } from './hooks/approval-bridge.js'
 import type { CliProcess } from './cli/cli-process.js'
 
+// ---------------------------------------------------------------------------
+// resolvePermissionMode — CC 어댑터 전용 (CC vocabulary: bypassPermissions)
+// ---------------------------------------------------------------------------
+
+export type PermissionModeInput = string | null | undefined
+
+/** Normalizes a raw permissionMode value to what the CLI accepts */
+export function resolvePermissionMode(mode: PermissionModeInput): 'bypassPermissions' | undefined {
+  if (mode === 'bypassPermissions') return 'bypassPermissions'
+  return undefined
+}
+
 /**
  * ClaudeCodeHost — AgentHost 인터페이스의 Claude Code 구현체.
  *
@@ -16,6 +28,8 @@ import type { CliProcess } from './cli/cli-process.js'
 export class ClaudeCodeHost implements AgentHost {
   /** nexusSessionId → CliProcess */
   private readonly sessions = new Map<string, CliProcess>()
+  /** nexusSessionId → workingDirectory (O(1) lookup for dispose) */
+  private readonly sessionDirs = new Map<string, string>()
 
   constructor(
     private readonly processSupervisor: ProcessSupervisor,
@@ -73,8 +87,9 @@ export class ClaudeCodeHost implements AgentHost {
         })
       })
 
-      // 6. sessions 맵에 등록
+      // 6. sessions 맵과 dirs 맵에 등록
       this.sessions.set(nexusSessionId, cliProcess)
+      this.sessionDirs.set(nexusSessionId, workingDirectory)
 
       return ok(nexusSessionId)
     } catch (e) {
@@ -85,6 +100,8 @@ export class ClaudeCodeHost implements AgentHost {
   async *observe(sessionId: string): AsyncIterable<AgentHostEvent> {
     const cliProcess = this.sessions.get(sessionId)
     if (!cliProcess) return
+
+    const workingDirectory = this.sessionDirs.get(sessionId) ?? ''
 
     // EventEmitter → AsyncGenerator 변환
     // 내부 큐로 이벤트를 버퍼링하고 yield
@@ -141,7 +158,7 @@ export class ClaudeCodeHost implements AgentHost {
       }),
     )
 
-    // permission_request → permission_asked
+    // permission_request → permission_asked (harnessType + workingDirectory 포함)
     unsubs.push(
       cliProcess.on('permission_request', (data) => {
         enqueue({
@@ -150,6 +167,8 @@ export class ClaudeCodeHost implements AgentHost {
           permissionId: data.permissionId,
           toolName: data.toolName,
           input: data.toolInput,
+          harnessType: 'claude-code',
+          workingDirectory,
         })
       }),
     )
@@ -245,11 +264,11 @@ export class ClaudeCodeHost implements AgentHost {
       await cliProcess.cancel()
       cliProcess.dispose()
 
-      const workingDirectory = cliProcess.nexusSessionId
-        ? this._findWorkingDirectory(sessionId)
-        : null
+      // O(1) lookup — sessionDirs 맵에서 직접 가져옴 (_findWorkingDirectory 선형 스캔 제거)
+      const workingDirectory = this.sessionDirs.get(sessionId) ?? null
 
       this.sessions.delete(sessionId)
+      this.sessionDirs.delete(sessionId)
 
       if (workingDirectory) {
         this.processSupervisor.getGroup(workingDirectory)?.removeProcess(sessionId)
@@ -259,18 +278,5 @@ export class ClaudeCodeHost implements AgentHost {
     } catch (e) {
       return err(appError('DISPOSE_FAILED', 'Failed to dispose session', { cause: e }))
     }
-  }
-
-  /**
-   * ProcessSupervisor의 그룹을 순회하여 sessionId에 해당하는 workingDirectory를 찾는다.
-   * dispose 시점에만 호출되므로 성능 비용은 무시 가능.
-   */
-  private _findWorkingDirectory(sessionId: string): string | null {
-    for (const group of this.processSupervisor.listGroups()) {
-      if (group.getProcess(sessionId)) {
-        return group.workspacePath
-      }
-    }
-    return null
   }
 }
