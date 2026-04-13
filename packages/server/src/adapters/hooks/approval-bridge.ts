@@ -1,5 +1,6 @@
 import type { ApprovalPolicyStore } from '../db/approval-policy-store.js'
 import type { SettingsStore } from '../db/settings-store.js'
+import { type ToolCategory, categorizeClaudeCodeTool } from '../cli/tool-categorizer.js'
 
 const APPROVAL_TIMEOUT_MS = 300_000
 
@@ -8,7 +9,6 @@ const APPROVAL_TIMEOUT_MS = 300_000
 // ---------------------------------------------------------------------------
 
 type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
-type ToolCategory = 'read' | 'edit' | 'bash-fs' | 'bash-other' | 'web' | 'task' | 'mcp' | 'unknown'
 type MatrixDecision = 'allow' | 'deny' | 'ask'
 
 const MODE_TOOL_MATRIX: Record<PermissionMode, Record<ToolCategory, MatrixDecision>> = {
@@ -55,32 +55,6 @@ const MODE_TOOL_MATRIX: Record<PermissionMode, Record<ToolCategory, MatrixDecisi
 }
 
 // ---------------------------------------------------------------------------
-// Tool category helper
-// ---------------------------------------------------------------------------
-
-const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'NotebookRead'])
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
-const WEB_TOOLS = new Set(['WebFetch', 'WebSearch'])
-
-function categorizeToolName(
-  toolName: string,
-  parseReason?: string,
-  bashFsSubset?: boolean,
-): ToolCategory {
-  if (READ_TOOLS.has(toolName)) return 'read'
-  if (EDIT_TOOLS.has(toolName)) return 'edit'
-  if (WEB_TOOLS.has(toolName)) return 'web'
-  if (toolName === 'Task') return 'task'
-  if (toolName === 'Bash') {
-    if (parseReason) return 'bash-other' // 파싱 실패 → fail-closed
-    if (bashFsSubset) return 'bash-fs'
-    return 'bash-other'
-  }
-  if (toolName.startsWith('mcp__')) return 'mcp'
-  return 'unknown'
-}
-
-// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -113,12 +87,18 @@ export class ApprovalBridge {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly policyStore: ApprovalPolicyStore | null
   private readonly settingsStore: SettingsStore | null
+  private readonly categorize: (name: string, parseReason?: string, bashFsSubset?: boolean) => ToolCategory
   private readonly pendingAddedCallbacks = new Set<(info: PendingApprovalInfo) => void>()
   private readonly pendingSettledCallbacks = new Set<(id: string, result: SettleResult) => void>()
 
-  constructor(policyStore?: ApprovalPolicyStore, settingsStore?: SettingsStore) {
+  constructor(
+    policyStore?: ApprovalPolicyStore,
+    settingsStore?: SettingsStore,
+    categorize?: (name: string, parseReason?: string, bashFsSubset?: boolean) => ToolCategory,
+  ) {
     this.policyStore = policyStore ?? null
     this.settingsStore = settingsStore ?? null
+    this.categorize = categorize ?? categorizeClaudeCodeTool
   }
 
   onPendingAdded(callback: (info: PendingApprovalInfo) => void): () => void {
@@ -143,7 +123,7 @@ export class ApprovalBridge {
       this.settingsStore?.getEffectiveSettings(approval.workspacePath).permissionMode ?? 'default'
     ) as PermissionMode
 
-    const category = categorizeToolName(approval.toolName, meta?.parseReason, meta?.bashFsSubset)
+    const category = this.categorize(approval.toolName, meta?.parseReason, meta?.bashFsSubset)
     const hasProtected = (meta?.protectedHint?.length ?? 0) > 0
 
     // Step 1: bypassPermissions — protected는 prompt, 나머지 allow

@@ -24,6 +24,7 @@ import { ApprovalPolicyStore } from './adapters/db/approval-policy-store.js'
 import { SettingsStore } from './adapters/db/settings-store.js'
 import { HookManager } from './adapters/hooks/hook-manager.js'
 import { ApprovalBridge } from './adapters/hooks/approval-bridge.js'
+import { categorizeClaudeCodeTool } from './adapters/cli/tool-categorizer.js'
 import { WorkspaceLogger } from './adapters/logging/workspace-logger.js'
 import type { SessionRecord } from './routes/session.js'
 
@@ -40,7 +41,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const policyStore = new ApprovalPolicyStore(store.db)
   const settingsStore = new SettingsStore(store.db)
   const hookManager = new HookManager(port)
-  const approvalBridge = new ApprovalBridge(policyStore, settingsStore)
+  const approvalBridge = new ApprovalBridge(policyStore, settingsStore, categorizeClaudeCodeTool)
   const workspaceLogger = new WorkspaceLogger()
 
   const workspaceRows = workspaceStore.list()
