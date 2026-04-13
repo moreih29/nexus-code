@@ -7,7 +7,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx --watch src/index.ts",
+    "dev": "tsx src/index.ts",
+    "dev:watch": "tsx --watch src/index.ts",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "lint": "eslint src"

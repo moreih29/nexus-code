@@ -11,33 +11,65 @@ const procs: Subprocess[] = []
 function cleanup() {
   for (const p of procs) {
     try {
-      p.kill()
+      p.kill('SIGTERM')
     } catch {}
   }
+  // 2초 후에도 살아있으면 SIGKILL (tsx --watch 등 자식을 orphan화하는 wrapper 대응)
+  setTimeout(() => {
+    for (const p of procs) {
+      try {
+        p.kill('SIGKILL')
+      } catch {}
+    }
+    process.exit(0)
+  }, 2_000).unref()
 }
 
 process.on('SIGINT', () => {
   cleanup()
-  process.exit(0)
 })
 process.on('SIGTERM', () => {
   cleanup()
-  process.exit(0)
 })
+
+async function assertPortFree(port: number, label: string): Promise<void> {
+  const controller = new AbortController()
+  const t = setTimeout(() => controller.abort(), 500)
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: controller.signal })
+    if (res.ok) {
+      console.error(`[dev] ${label} already listening on :${port} — kill orphan first`)
+      console.error(`      hint: pkill -f 'tsx.*src/index.ts' && lsof -nP -iTCP:${port} -sTCP:LISTEN`)
+      process.exit(1)
+    }
+  } catch {
+    // 기대 경로: 아무도 안 들음
+  } finally {
+    clearTimeout(t)
+  }
+}
 
 async function waitFor(url: string, timeout = 30_000): Promise<void> {
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), 2_000)
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: controller.signal })
       if (res.ok) return
     } catch {}
+    clearTimeout(t)
     await Bun.sleep(500)
   }
   throw new Error(`Timeout waiting for ${url}`)
 }
 
 const log = (msg: string) => console.log(`\x1b[36m[dev]\x1b[0m ${msg}`)
+
+// 0-pre. Pre-flight port check — orphan tsx/vite 프로세스 감지해서 조기 실패
+log('Checking ports 3000/5173...')
+await assertPortFree(3000, 'server')
+await assertPortFree(5173, 'web')
 
 // 0. Build shared (서버/웹이 @nexus/shared dist에 의존)
 log('Building shared...')
@@ -74,9 +106,10 @@ procs.push(web)
 
 // 2. 서버 + 웹 준비 대기
 log('Waiting for server + web...')
+// 127.0.0.1 명시: localhost가 IPv6(::1)로 resolve될 때 Bun fetch가 hang되는 이슈 회피
 await Promise.all([
-  waitFor('http://localhost:3000/api/health'),
-  waitFor('http://localhost:5173'),
+  waitFor('http://127.0.0.1:3000/api/health'),
+  waitFor('http://127.0.0.1:5173/'),
 ])
 log('Server + Web ready')
 
