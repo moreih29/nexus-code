@@ -6834,6 +6834,152 @@
           "created_at": "2026-04-13T12:50:36.455Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-13T13:58:12.404Z",
+      "branch": "feat/tauri-phase1",
+      "plan": {
+        "id": 5,
+        "topic": "Tauri 전면 전환 단계화 (Plan #5 Issue #1 실행) — Phase 1: 본 레포 통합 준비",
+        "issues": [
+          {
+            "id": 1,
+            "title": "전환 단계화 + Phase 1/2 범위 정의 + 커밋 순서",
+            "status": "decided",
+            "decision": "2-Phase 분할 채택. Phase 1(본 cycle, sandbox 가능) = ① tauri-migration-plan.md 및 문서 선행 ② server Bun 호환 5파일 패치 ③ sidecar bun compile 스크립트 ④ packages/tauri 파일 scaffolding ⑤ 부록 B 함정 Phase 1 적용. Phase 2(별도 cycle, 전용 환경) = Rust proc macro 패닉 해소, .app 번들 산출, dev orchestrator tauri dev 전환, electron 폐기, 30분+ SSE + Linux/Windows 빌드 검증. Phase 1 기간 동안 electron 병행 유지 — dev 환경 baseline 보장 목적(production electron은 Bun runtime 요구로 이 기간 깨짐 상태, Plan #5 Issue #1 강행 결정에서 이미 인지됨). 커밋은 단일 cycle commit로 합침(Plan #5 cycle 70 패턴). 기각: 단일 단계 즉시 전면 폐기(sandbox에서 Rust 빌드 불가로 '빌드 가능 셸 0개' critical 재발), 5단계 이상 분할(관리 오버헤드 > 이익)."
+          },
+          {
+            "id": 2,
+            "title": "server Bun 호환 마이그레이션 (@hono/node-server → Bun.serve + better-sqlite3 → bun:sqlite × 4 + bun compile 스크립트)",
+            "status": "decided",
+            "decision": "POC 검증 5파일 패치 그대로 적용 + bun compile 스크립트 신설. (1) packages/server/src/index.ts(또는 app.ts)에서 @hono/node-server serve → Bun.serve({ fetch: app.fetch, port }) 전환. (2) packages/server/src/adapters/db/session-store.ts·settings-store.ts·approval-policy-store.ts에서 better-sqlite3 Database → bun:sqlite Database 교체 + 파라미터 순서 반전(Row, Params) 적용. (3) packages/server/package.json에 \"compile\" script 추가 — `bun build ./src/index.ts --compile --outfile ../tauri/src-tauri/binaries/nexus-sidecar-<triple>` 패턴. 플랫폼 triple은 Bun --target으로 동적 생성 스크립트로 해결. dev 환경은 이미 bun runtime이므로 즉시 동작. electron production spawn은 Bun runtime 요구로 깨지지만 Phase 2에서 sidecar pattern으로 대체(본 cycle scope 외). 기각: @hono/node-server 유지(POC 결과 반영 실패), 런타임 이중 지원 어댑터(과도한 복잡도, YAGNI)."
+          },
+          {
+            "id": 3,
+            "title": "packages/tauri 슠정 scaffolding (src-tauri/Cargo.toml/tauri.conf.json/main.rs/capabilities + select_folder IPC)",
+            "status": "decided",
+            "decision": "packages/tauri 신설 (Tauri 2.x 표준 workspace 패키지). 구성: packages/tauri/package.json(\"@nexus/tauri\") + src-tauri/Cargo.toml + src-tauri/tauri.conf.json + src-tauri/capabilities/default.json + src-tauri/src/lib.rs + src-tauri/src/main.rs + src-tauri/build.rs + src-tauri/binaries/.gitkeep(sidecar compile 산출물 저장소). OpenCode packages/desktop/src-tauri/ 참조. Rust 버전 핀은 tauri-poc-report 부록 B의 알려진 조합으로 초안 작성 + 실제 `cargo build` 검증은 Phase 2 전용 환경에 위임. 초기 IPC: `invoke('select_folder')`(tauri-plugin-dialog) + `await_initialization`(sidecar port 알림 IPC). tauri.conf.json의 bundle.externalBin에 binaries/nexus-sidecar-{platform-triple} 등록. 기각: packages/server 안에 src-tauri 포함(adapter import boundary 및 monorepo 경계 훼손), root-level src-tauri(monorepo 일관성 깨짐)."
+          },
+          {
+            "id": 4,
+            "title": "부록 B 함정 Phase 1 사전 적용 (SSE heartbeat 점검 + CC binary 경로 env 주입 + workspace resolution 대비)",
+            "status": "decided",
+            "decision": "Phase 1에서 즉시 적용 가능한 함정 3건만 처리, 나머지 5건은 Phase 2 위임. (Phase 1 적용) ① SSE heartbeat — packages/server/src/routes/events.ts에서 핸들러 진입 즉시 `: connected` flush + 10초 주기 `: heartbeat\\n\\n` comment 라인을 setInterval로 전송, stream.onAbort에서 clearInterval 정리. ② CC binary 경로 env 주입 — packages/server/src/adapters/claude-code/cli-process.ts에서 `CLAUDE_BIN_PATH` env 지원 추가(없으면 기존 PATH 탐색 fallback). ③ @nexus/shared workspace resolution 대비 — packages/server/package.json에 `\"imports\": { \"#shared/*\": \"./node_modules/@nexus/shared/dist/*\" }` 등 alias 준비 (bun compile 단일 바이너리에서 필요). (Phase 2 위임) ④ sidecar binary 재빌드 파이프라인(binaries/ 동기화) ⑤ UI ↔ sidecar 계약 정렬 ⑥ text_delta/text_chunk 중복 ⑦ sidecar 명시 종료 Rust 핸들러 ⑧ pino-pretty 번들 제외 로직. 이유: Phase 2 항목은 Rust/Tauri 빌드 환경이 직접 필요하거나 계약 drift를 POC와 본 레포 실측으로 비교한 후에 결정 가능. 기각: 전부 Phase 2 위임(Phase 1 중 디버깅 효율 저하), 8개 모두 Phase 1 적용(환경 불가 항목 강행 위험)."
+          },
+          {
+            "id": 5,
+            "title": "문서 갱신 (philosophy.md Tauri 트리거 표 축하 + architecture.md 5 패키지 구조 반영 + .nexus/memory/tauri-migration-plan.md 신설)",
+            "status": "decided",
+            "decision": "3개 문서 갱신. (1) .nexus/memory/tauri-migration-plan.md 신설 — Phase 1/2 scope 명시표, 커밋 순서, 선결 필수(Rust proc macro 해소, Cargo.toml 버전 핀), 사용자 실측 위임 목록, 관련 파일 레퍼런스. (2) .nexus/context/philosophy.md의 §Tauri 런타임 재평가 Trigger 섹션을 \"[ARCHIVED 2026-04-13 Plan #5 Issue #1]\"로 헤더 교체 + 표 본체 보존(Plan #5 reviewer 권장 유지 — 이력 삭제 방지). 표 바로 아래에 '본 결정으로 trigger 기반 재평가 구조는 종료, Phase 1/2 실행 계획은 tauri-migration-plan.md 참조' 1줄 추가. (3) .nexus/context/architecture.md — 'Supervision layer 내부 패키지 구조'를 기존 4 패키지(shared/server/web/electron) → 5 패키지(shared/server/web/tauri + 전환 중 electron deprecated 표기)로 갱신. 빌드 순서도 `shared → server/web → tauri` 로 갱신(electron 폐기 예정 주석). adapters/logging 절은 Plan #5 cycle에서 이미 최신. 기각: Tauri 트리거 표 본체 삭제(이력 손실, reviewer 권장 위반), architecture.md에서 electron 즉시 제거(Phase 1 병행 기간 반영 안 됨)."
+          }
+        ],
+        "research_summary": "## Plan #5 Issue #1 결정 상속\n\n옵션 A (즉시 전면 전환) 강행. Plan #6 I4 supersede. architect/strategist 일치 권고(옵션 C 잠정 유지)와 critical 리스크 6항목 인지 후 강행. 본 cycle은 이 결정의 **Phase 1 실행**.\n\n## POC 결과 (tauri-poc-report.md)\n\n- blocker 0건, UI↔sidecar↔CC 실 왕복 재현 완료 (부록 B.1~B.4)\n- Bun 호환 5파일 패치 실측: @hono/node-server → Bun.serve(1) + better-sqlite3 → bun:sqlite(4)\n- 단일 바이너리 58MB (darwin-arm64) bun compile 산출\n- OpenCode(142k stars) 동일 패턴 운영 증명\n\n## POC 미완결 (Phase 2 prereq — 이번 cycle scope 외)\n\n- Rust `tauri::generate_handler![]` proc macro 패닉 (Tauri 2.10.1 + Rust 1.93.1)\n- macOS .app 번들 산출\n- 30분+ SSE 장시간 안정성\n- Linux webkit2gtk-4.1 + Windows .msi 빌드\n\n## 부록 B 함정 8개 매핑\n\n1. SSE heartbeat (Bun 10초 idle timeout) — 이미 Plan #5에서 events.ts 처리 가능성\n2. sidecar binary 재빌드 파이프라인 (binaries/ 동기화)\n3. UI ↔ sidecar 계약 정렬 (Plan #5 AppVariables 이후 일부 해결)\n4. text_delta / text_chunk 중복 수신\n5. CC binary 경로 주입 (env CLAUDE_BIN_PATH 또는 설정값)\n6. sidecar 명시 종료 (Arc<Mutex<CommandChild>> + RunEvent::Exit)\n7. bun:sqlite 파라미터 순서 반전 (Row, Params)\n8. @nexus/shared workspace resolution (bun compile 단일 바이너리 시 package.json imports alias)\n\n## 본 레포 현황\n\n- 4 패키지(shared/server/web/electron) monorepo\n- scripts/dev.ts: shared build → server+web 병렬 → electron. cycle 70 안정화, Plan #5 prefix 도입\n- Plan #6 adapter import boundary canary 보존 필수 (routes/services/domain → adapters/claude-code 직접 import 금지)\n- AgentHost composition root 무관 (server 내부, 셸 전환과 직교)\n\n## Phase 1 vs Phase 2 구분\n\n**Phase 1 (본 cycle — sandbox 가능)**:\n- server Bun 호환 마이그레이션 + bun compile 스크립트\n- packages/tauri 파일 scaffolding (Cargo.toml/tauri.conf.json/main.rs)\n- 부록 B 함정 중 SSE heartbeat 점검, CC binary 경로 env, workspace resolution 대비\n- 문서 갱신 (philosophy Tauri 트리거 표 축하, architecture 5 패키지 반영)\n- **electron 병행 유지** — Rust 빌드 검증 전까지 baseline 경로 보장\n\n**Phase 2 (별도 cycle — 전용 환경 필요)**:\n- Rust proc macro 패닉 해소 + .app 번들 산출\n- dev orchestrator tauri dev 전환\n- electron 폐기\n- 30분+ SSE + 크로스플랫폼 빌드 검증\n\nPlan #5/#6 잔여 11+ 작업은 Phase 2 완료 후 재개.",
+        "created_at": "2026-04-13T13:28:52.356Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase 1 문서 선행 — migration-plan 신설 + philosophy Tauri 표 ARCHIVED + architecture 5 패키지 전환",
+          "context": "Plan #5 Issue #1 옵션 A 강행 결정에 따른 Phase 1 실행 문서화. Phase 2 실행 시점에 참조될 migration plan + philosophy.md Tauri 트리거 표 공식 ARCHIVED 처리 + architecture.md 5 패키지(tauri 추가, electron deprecated 표기) 구조 반영.</context>\n<parameter name=\"goal\">Tauri 전면 전환 Phase 1 — 본 레포 통합 준비 완료. Phase 2(전용 환경) 진입 시 즉시 사용 가능한 sidecar Bun 호환 + packages/tauri scaffolding + 부록 B Phase 1 함정 사전 적용 + 문서. electron 병행 유지(production Bun runtime 요구 깨짐은 Plan #5 Issue #1 강행 결정에서 인지).",
+          "approach": "1) .nexus/memory/tauri-migration-plan.md 신설 — 섹션: (a) 결정 근거 (Plan #5 Issue #1) (b) Phase 1 scope 표(이번 cycle 작업 6항목) (c) Phase 2 scope 표(Rust proc macro 패닉 해소, .app 번들 산출, dev orchestrator tauri dev 전환, electron 폐기, dev orchestrator prefix [tauri] 라벨 전환, 30분+ SSE/Linux/Windows 빌드 검증) (d) 선결 필수 체크리스트 (Cargo.toml 버전 핀, OpenCode 참조, 전용 환경 확보) (e) user 실측 위임 항목 (Rust 빌드, .app 실행, cross-platform) (f) 파일 레퍼런스 (tauri-poc-report.md, philosophy.md, architecture.md) (g) 커밋 순서 — Phase 1 단일 cycle commit. 2) .nexus/context/philosophy.md의 '## Tauri 런타임 재평가 Trigger' 헤더를 '## Tauri 런타임 재평가 Trigger [ARCHIVED 2026-04-13 Plan #5 Issue #1]'로 교체 + 표 바로 아래 한 줄 추가: '본 결정으로 trigger 기반 재평가 구조는 종료. Phase 1/2 실행 계획은 .nexus/memory/tauri-migration-plan.md 참조.' 표 본체와 기존 Plan #5 supersede blockquote는 보존. 3) .nexus/context/architecture.md의 '## Supervision layer 내부 패키지 구조' 섹션에서 4 패키지 다이어그램을 5 패키지(Tauri 추가, Electron deprecated 표시)로 갱신. 빌드 순서를 'shared → server/web → tauri (electron 폐기 예정)' 로 갱신. `@nexus/tauri` 신설 서브 섹션 추가 (1-2문단 — Tauri 2.x src-tauri + Hono sidecar + WebView native EventSource 패턴). electron 서브 섹션은 'Phase 2에서 폐기 예정' 주석 추가(기존 본문 보존).",
+          "acceptance": "(1) .nexus/memory/tauri-migration-plan.md 파일 존재 + 7개 섹션 모두 포함. (2) philosophy.md Tauri trigger 섹션 헤더 [ARCHIVED] 라벨 + 표 본체 무변경(diff 최소) + 한 줄 추가. (3) architecture.md 5 패키지 표기 + `@nexus/tauri` 섹션 추가 + electron deprecated 주석. (4) 기존 문서 톤/구조 보존. (5) migration-plan.md의 Phase 1/2 scope가 task 2-5 acceptance와 정확히 일치.",
+          "risk": "philosophy.md는 Plan #5 cycle에서 이미 supersede 주석 추가된 상태 — 이번엔 표 자체를 ARCHIVED 라벨링으로 상승시키되 표 본체 및 기존 blockquote 유지. architecture.md의 5 패키지 표기는 Phase 2 완료 전까지 \"병행 상태\"라 독자 혼동 가능성 — 본문에서 명확히 표기. migration-plan.md와 실제 구현 drift 방지를 위해 파일 경로 참조를 명시적으로.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "writer",
+          "created_at": "2026-04-13T13:31:32.001Z"
+        },
+        {
+          "id": 2,
+          "title": "server Bun 호환 마이그레이션 — Bun.serve + bun:sqlite × 4 + compile 스크립트",
+          "context": "POC 검증(tauri-poc-report.md)된 5파일 패치를 본 레포에 적용. Bun 런타임 기반 sidecar 패턴의 기반 작업. dev 환경은 이미 bun으로 server 실행 중이라 즉시 작동. electron production spawn은 Node runtime 기반으로 Phase 1 기간 깨짐 상태 유지(Plan #5 Issue #1 강행 결정 인지).",
+          "approach": "1) packages/server/src/index.ts(composition root entry) 파일 존재 확인 후 `@hono/node-server`의 `serve({ fetch, port })`를 `Bun.serve({ fetch: app.fetch, port })`로 교체. `app.ts`가 entry이면 app.ts에서 처리. 2) packages/server/src/adapters/db/session-store.ts, settings-store.ts, approval-policy-store.ts 3개 파일에서 `import Database from 'better-sqlite3'` → `import { Database } from 'bun:sqlite'`. pragma 호출 + migrate 동일. 쿼리 함수 호출 시 파라미터 순서 반전(bun:sqlite는 `.get(params)` 스타일이지만 better-sqlite3는 `.get(...params)` — API 차이 테스트로 잡기). 4) package.json devDep `better-sqlite3` 유지(electron production fallback을 위해)이지만 import는 `bun:sqlite`만 사용. 5) packages/server/package.json에 `\"compile\": \"bun run scripts/compile-sidecar.ts\"` 스크립트 추가. scripts/compile-sidecar.ts 신설 — platform triple 자동 생성(process.platform + process.arch) + `bun build ./src/index.ts --compile --outfile ../tauri/src-tauri/binaries/nexus-sidecar-<triple>`. darwin-arm64 / darwin-x86_64 / linux-x86_64 / windows-x86_64 매핑.",
+          "acceptance": "(1) `bun --filter @nexus/server typecheck` 0 errors. (2) `bun --filter @nexus/server test` 회귀 없음(476 tests 기준). (3) `bun run dev`에서 server가 Bun.serve로 기동하여 `/api/health` 200 응답. (4) `bun --filter @nexus/server compile` 실행 시 `packages/tauri/src-tauri/binaries/nexus-sidecar-<triple>` 바이너리 생성(단, packages/tauri 폴더는 task #4에서 생성되므로 디렉토리 존재 시에만). (5) better-sqlite3 import 제거 확인 — `rg \"from 'better-sqlite3'\" packages/server/src/` 결과 0건. (6) bun:sqlite 파라미터 API 적용 — test 통과 자체가 검증.",
+          "risk": "bun:sqlite API는 better-sqlite3와 prepare/get/run 시그니처 미묘 차이 — unit test로 잡힘. bun:sqlite는 Node 환경에서 사용 불가 → electron production spawn 경로 이 기간 깨짐. compile 스크립트의 platform triple 매핑 실수 시 sidecar 파일명 불일치. better-sqlite3 devDep 유지는 설치/빌드 시간 낭비이나 Phase 2 electron 폐기 시 함께 제거 예정.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T13:31:53.196Z"
+        },
+        {
+          "id": 3,
+          "title": "sidecar compile 스크립트 통합 + binaries/ 출력 경로 정합",
+          "context": "task #2에서 packages/server/scripts/compile-sidecar.ts를 신설하지만, binaries/ 출력 경로가 packages/tauri/src-tauri/binaries/ (task #4에서 생성)와 정확히 일치해야 Tauri 번들 시 자동 탐색. platform triple 매핑 + 디렉토리 mkdir recursive + 재실행 시 overwrite.",
+          "approach": "1) packages/server/scripts/compile-sidecar.ts: (a) process.platform + process.arch로 tripleMap — 'darwin'+'arm64'→'aarch64-apple-darwin', 'darwin'+'x64'→'x86_64-apple-darwin', 'linux'+'x64'→'x86_64-unknown-linux-gnu', 'win32'+'x64'→'x86_64-pc-windows-msvc'. 미지원 조합은 throw. (b) outDir = resolve(import.meta.dir, '../../tauri/src-tauri/binaries'). mkdir recursive. (c) Bun.spawn으로 `bun build ./src/index.ts --compile --outfile ${outDir}/nexus-sidecar-${triple}` 실행(Windows는 .exe 접미사 추가). 완료 후 파일 크기 console.log. 2) packages/server/package.json의 scripts에 `\"compile\": \"bun run scripts/compile-sidecar.ts\"` 등록. 3) root scripts/dev.ts는 이번 cycle 변경 없음(Phase 2에서 tauri dev 전환 시 수정). 4) 단, task #4 scaffolding이 binaries/ 디렉토리를 만들지 않은 상태에서 compile이 먼저 실행되면 스크립트 자체가 mkdir -p 하므로 안전.",
+          "acceptance": "(1) packages/server/scripts/compile-sidecar.ts 파일 존재 + platform triple 매핑 4개(darwin-arm/darwin-x64/linux-x64/win-x64). (2) packages/server/package.json scripts에 \"compile\" 등록. (3) `bun --filter @nexus/server compile` 실행 시(task #4 완료 후) `packages/tauri/src-tauri/binaries/nexus-sidecar-<triple>` 파일 생성 확인. 실측 sandbox에서 compile 실행 불가하면 스크립트 구조와 triple 매핑 unit 검증으로 대체. (4) 디렉토리 부재 시 자동 mkdir.",
+          "risk": "sandbox에서 `bun build --compile` 실행은 가능하지만 산출물이 58MB이상이라 sandbox 저장 용량 제약 가능. 실패 시 스크립트 자체만 검증하고 실측은 user 전용 환경 위임. triple 매핑은 bun 공식 문서 기준으로 고정.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T13:32:07.142Z"
+        },
+        {
+          "id": 4,
+          "title": "packages/tauri 패키지 scaffolding (src-tauri + IPC 초안)",
+          "context": "Tauri 2.x workspace 패키지 신설. 파일 레벨 scaffolding만 — 실제 `cargo build`는 sandbox Rust 제약 + proc macro 패닉으로 Phase 2 전용 환경에 위임. OpenCode packages/desktop/src-tauri/ 패턴 참조.",
+          "approach": "1) packages/tauri/package.json 생성 — name \"@nexus/tauri\", private true, scripts { \"dev\": \"tauri dev\", \"build\": \"tauri build\" }, devDependency @tauri-apps/cli 2.x. 2) packages/tauri/src-tauri/ 하위 구조: (a) Cargo.toml — tauri/tauri-build 2.10.x 범위 버전(OpenCode 참조 pin 필요시 주석으로 표기), tauri-plugin-dialog, tauri-plugin-shell. workspace members 미포함(standalone). (b) tauri.conf.json — productName \"Nexus Code\", app.windows(1280×800), bundle.externalBin=[\"binaries/nexus-sidecar\"], bundle.resources 없음. (c) capabilities/default.json — core:default + dialog:allow-open + shell:allow-execute(sidecar). (d) src/main.rs — `fn main() { nexus_tauri_lib::run() }` 패턴. (e) src/lib.rs — tauri::Builder::default() + plugin_dialog + plugin_shell + tauri::generate_handler![select_folder, await_initialization] + setup(|app|) 안에 sidecar spawn(CommandChild → Arc<Mutex>) + TcpListener::bind(\"127.0.0.1:0\") 랜덤 포트 + webview로 IPC await_initialization. (f) build.rs — tauri_build::build() 표준. (g) binaries/.gitkeep — 빈 디렉토리 확보. 3) packages/tauri/tsconfig.json 불필요(순수 Rust + json). 4) root package.json workspaces에 \"packages/tauri\" 추가. 5) Rust proc macro 패닉 우려 — Cargo.toml의 tauri 버전을 2.10.1에서 2.7.x로 다운그레이드 시도 옵션 주석으로 기록(실 검증은 Phase 2).",
+          "acceptance": "(1) packages/tauri/package.json + src-tauri 전체 파일 생성. (2) OpenCode 유사 구조 — main.rs/lib.rs/build.rs/Cargo.toml/tauri.conf.json/capabilities/default.json/binaries/.gitkeep 7종 모두 존재. (3) root package.json workspaces 배열에 \"packages/tauri\" 포함. (4) `bun install` 실행 시 workspace 확인 성공(Cargo는 Bun 관여 안 함). (5) 실제 `cargo check` 통과 여부는 Phase 2 위임 — sandbox 제약 명시 주석. (6) tauri.conf.json externalBin 경로가 task #3 compile 출력과 일치(\"binaries/nexus-sidecar\"). (7) select_folder IPC의 lib.rs 초안에 tauri-plugin-dialog 사용 예시 작성.",
+          "risk": "Rust/Tauri 버전 조합이 sandbox에서 검증 불가 — proc macro 패닉 위험 유지. OpenCode Cargo.toml 참조 버전을 초기값으로 pin하되 주석에 \"Phase 2에서 cargo update 또는 다운그레이드 필요 가능성\" 명시. webview_name/window config 오류는 Phase 2 실측에서 발견.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-13T13:32:29.069Z"
+        },
+        {
+          "id": 5,
+          "title": "부록 B 함정 Phase 1 사전 적용 — SSE heartbeat + CC binary env + workspace resolution",
+          "context": "POC 부록 B에서 발견된 8개 함정 중 Phase 1에서 즉시 적용 가능한 3건만 선제 처리. 나머지 5건은 Rust/Tauri 환경 의존이라 Phase 2 위임. 현재 events.ts에 heartbeat 존재 여부 확인 + CC binary 경로 env + workspace resolution imports alias 대비.",
+          "approach": "1) packages/server/src/routes/events.ts: 핸들러 진입 직후 `stream.writeSSE({ event: 'connected', data: '' })` 또는 raw 프래그먼트 flush. 10초 주기 `: heartbeat\\n\\n` comment 라인을 setInterval로 전송. stream.onAbort에서 clearInterval 정리. 이미 구현되어 있으면 skip + 주석으로 명시. 2) packages/server/src/adapters/claude-code/cli-process.ts: CC binary 경로 결정 로직을 `process.env.CLAUDE_BIN_PATH ?? 'claude'`로 확장. 기존 하드코드 경로 또는 PATH 탐색 fallback 유지. cli-process 생성자 또는 spawn 로직 직전 적용. 3) packages/server/package.json에 `\"imports\": { \"#shared/*\": \"./node_modules/@nexus/shared/dist/*\" }` 추가 — bun compile 단일 바이너리 시 workspace alias fallback. workspace 환경에서는 기존 `@nexus/shared` import 그대로 작동(imports가 알려진 prefix만 매칭). 다만 Phase 1에서 실제 compile 테스트는 task #3 범위라 정합성은 #3에서 검증.",
+          "acceptance": "(1) events.ts에 heartbeat 전송 확인 — 기존 구현 있으면 주석 + 없으면 추가. (2) cli-process.ts에 `CLAUDE_BIN_PATH` env 지원 — test 추가 또는 code 레벨 확인. (3) packages/server/package.json imports 필드 추가 확인. (4) typecheck/test 전체 회귀 없음. (5) 실측 SSE heartbeat는 dev 실행 후 curl로 `: heartbeat\\n\\n` 주기 수신 확인 — sandbox 가능 시 자동, 불가 시 user 실측.",
+          "risk": "SSE heartbeat가 이미 Plan #5 task #1(events.ts connectionId 추가)에서 반영됐을 수 있음 — 중복 구현 방지를 위해 read 선행. `CLAUDE_BIN_PATH` env는 cli-process 호출 경로에 다수 분기 — 공통 헬퍼 1곳만 교체 후 테스트. imports alias는 workspace dev에서는 효과 0이므로 회귀 없음 예상.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-13T13:32:46.907Z"
+        },
+        {
+          "id": 6,
+          "title": "통합 정적 검증 — Phase 1 변경 전체 acceptance 일괄 확인",
+          "context": "Phase 1의 engineer 4개 task(2/3/4/5) acceptance를 정적 레벨에서 일괄 검증한다. Rust 빌드는 sandbox 제약으로 skip(Phase 2 위임). server typecheck/test + Bun 호환 확인 + scaffolding 파일 구조 + migration-plan 정합.",
+          "approach": "1) typecheck 전체: `bun --filter '*' typecheck` 0 errors. 2) test 전체: `bun --filter '*' test` 회귀 없음. 3) better-sqlite3 import 제거 확인: `rg \"from 'better-sqlite3'\" packages/server/src/` 0건. 4) Bun.serve 도입 확인: `rg \"Bun.serve\" packages/server/src/` hit 1+. 5) packages/tauri 파일 구조 7종 존재 검증 (package.json / Cargo.toml / tauri.conf.json / capabilities/default.json / src/main.rs / src/lib.rs / build.rs / binaries/.gitkeep). 6) packages/server/scripts/compile-sidecar.ts 존재 + platform triple 4종 확인. 7) CLAUDE_BIN_PATH env 검색: `rg 'CLAUDE_BIN_PATH' packages/server/src/` hit 1+. 8) events.ts heartbeat 확인: `rg 'heartbeat' packages/server/src/routes/events.ts` hit 1+. 9) root package.json workspaces에 packages/tauri 포함. 10) .nexus/memory/tauri-migration-plan.md의 Phase 1 scope가 task 2-5 acceptance 내용과 정합. 11) 결과를 .nexus/memory/tauri-phase1-verification.md에 기록 + Phase 2 위임 항목 체크리스트.",
+          "acceptance": "(1) 10개 정적 검증 항목 전부 ✅ 또는 ⏭(sandbox 제약 명시). (2) typecheck/test 전체 통과. (3) 파일 구조 grep 기반 확인. (4) `.nexus/memory/tauri-phase1-verification.md` 작성 — Phase 1 검증 결과 표 + Phase 2 위임 항목 리스트(cargo build, .app 산출, 실제 tauri dev 실행, 30분+ SSE, Linux/Windows 빌드). (5) Lead에게 PASS/FAIL 판정 5-6줄 보고.",
+          "risk": "Rust 관련 검증은 전부 skip 대상이므로 PASS 판정이 \"Phase 1 scope 안에서만\"임을 명확히. compile 스크립트 실측은 디스크/권한 제약 시 skip 가능. sandbox에서 `packages/web/dist` 같은 build 산출물 grep 실패 시 코드 레벨 확인으로 대체.",
+          "status": "completed",
+          "deps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 1,
+          "owner": "tester",
+          "created_at": "2026-04-13T13:33:02.890Z"
+        },
+        {
+          "id": 7,
+          "title": "문서 검증 — migration-plan + philosophy + architecture 갱신본 reviewer",
+          "context": "task #1에서 writer가 3개 문서(migration-plan 신설 + philosophy trigger ARCHIVED + architecture 5 패키지)를 갱신. Plan #5 Issue #1 결정 및 이번 cycle 5 decisions와 정확히 일치하는지, 표/본문 보존, supersede/ARCHIVED 라벨이 충돌 없는지 검증.",
+          "approach": "1) migration-plan.md: 7개 섹션 모두 존재 + Phase 1/2 분할이 plan.json decisions와 일치. 2) philosophy.md: Tauri trigger 섹션 헤더에 [ARCHIVED] 라벨 추가 + 표 본체 무변경(diff 최소) + 기존 Plan #5 supersede blockquote 보존 + 한 줄 추가. 3) architecture.md: 5 패키지 다이어그램 + `@nexus/tauri` 섹션 + electron deprecated 주석 + 빌드 순서 갱신. 4) 파일 경로/env 이름 cross-check: `packages/tauri/src-tauri/`, `NEXUS_LOG_DIR`, `CLAUDE_BIN_PATH`, `~/.nexus-code/`. 5) Plan #5 cycle 갱신본(logging 통합)이 훼손되지 않았는지 확인 (logging 디렉토리 트리 + correlation 흐름 단락 + 14 type). 4-6줄 보고 — ✅/⚠️/❌ + 권장.",
+          "acceptance": "검증 결과 4-6줄 보고. critical 없으면 approve. revision 필요 시 구체 수정 diff 제안.",
+          "risk": "philosophy.md의 기존 Plan #5 supersede blockquote와 이번 ARCHIVED 라벨 중복 표기 가능성 — 둘 다 존재해야 하는지, 통합해야 하는지 판단. architecture.md의 5 패키지 표기가 \"병행 상태\"라 독자 혼동 — 본문에서 명확히 표기됐는지 확인.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 5,
+          "owner": "reviewer",
+          "created_at": "2026-04-13T13:33:16.504Z"
+        }
+      ]
     }
   ]
 }

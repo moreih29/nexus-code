@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import { PROTECTED_DIRS } from '../security/path-guard.js'
 
 export interface ApprovalRule {
@@ -24,9 +24,9 @@ export interface AuditLogEntry {
 }
 
 export class ApprovalPolicyStore {
-  private readonly db: Database.Database
+  private readonly db: Database
 
-  constructor(db: Database.Database) {
+  constructor(db: Database) {
     this.db = db
     this.migrate()
   }
@@ -99,8 +99,8 @@ export class ApprovalPolicyStore {
       created_at: string
     }
     const stmt = this.db.prepare<
-      [string, string, string, string | null, string, string | null],
-      RuleRow
+      RuleRow,
+      [string, string, string, string | null, string, string | null]
     >(`
       INSERT INTO approval_rules (id, tool_name, scope, workspace_path, decision, session_id)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -147,13 +147,13 @@ export class ApprovalPolicyStore {
     let rows: RuleRow[]
     if (workspacePath !== undefined) {
       rows = this.db
-        .prepare<[string | null], RuleRow>(
+        .prepare<RuleRow, [string | null]>(
           `SELECT * FROM approval_rules WHERE (workspace_path = ? OR workspace_path IS NULL) AND scope = 'permanent' ORDER BY created_at ASC`,
         )
         .all(workspacePath)
     } else {
       rows = this.db
-        .prepare<[], RuleRow>(`SELECT * FROM approval_rules WHERE scope = 'permanent' ORDER BY created_at ASC`)
+        .prepare<RuleRow, []>(`SELECT * FROM approval_rules WHERE scope = 'permanent' ORDER BY created_at ASC`)
         .all()
     }
     return rows.map((row) => ({
@@ -193,7 +193,7 @@ export class ApprovalPolicyStore {
       created_at: string
     }
     const row = this.db
-      .prepare<[string, string | null, string | null, string | null, string], RuleRow>(
+      .prepare<RuleRow, [string, string | null, string | null, string | null, string]>(
         `SELECT * FROM approval_rules
          WHERE (tool_name = ? OR tool_name = '*')
            AND (workspace_path = ? OR workspace_path IS NULL)
@@ -256,13 +256,13 @@ export class ApprovalPolicyStore {
     let rows: LogRow[]
     if (workspacePath !== undefined) {
       rows = this.db
-        .prepare<[string, number], LogRow>(
+        .prepare<LogRow, [string, number]>(
           `SELECT * FROM approval_logs WHERE workspace_path = ? ORDER BY id DESC LIMIT ?`,
         )
         .all(workspacePath, limit)
     } else {
       rows = this.db
-        .prepare<[number], LogRow>(`SELECT * FROM approval_logs ORDER BY id DESC LIMIT ?`)
+        .prepare<LogRow, [number]>(`SELECT * FROM approval_logs ORDER BY id DESC LIMIT ?`)
         .all(limit)
     }
     return rows.map((row) => ({

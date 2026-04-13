@@ -1,0 +1,30 @@
+[package]
+name = "nexus-tauri"
+version = "0.0.0"
+description = "Nexus Code — Tauri shell"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "nexus_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# NOTE(Phase 2): tauri::generate_handler![] proc macro 패닉이 Tauri 2.10.1 + Rust 1.93.1 조합에서 발생(POC 부록 B).
+# Phase 2 진입 시 Cargo.lock 생성 후 `cargo update` 또는 tauri 2.x 마이너 버전 다운그레이드 검토.
+# OpenCode packages/desktop/src-tauri/Cargo.toml 참조.
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -160,9 +160,12 @@ export class CliProcess {
     // 권한 필터링은 서버 훅(hook-manager)이 담당.
     args.push('--dangerously-skip-permissions')
 
+    // 부록 B.2: CC binary 경로 env 주입 — nvm/volta 등 비표준 PATH 환경 대응
+    const claudeBin = process.env['CLAUDE_BIN_PATH'] ?? 'claude'
+
     let child: ChildProcess
     try {
-      child = spawn('claude', args, {
+      child = spawn(claudeBin, args, {
         cwd: options.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: process.env,

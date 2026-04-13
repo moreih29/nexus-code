@@ -44,3 +44,7 @@ bun.lockb
 
 # Playwright
 .playwright-mcp
+
+# Tauri sidecar compile artifacts
+packages/tauri/src-tauri/binaries/nexus-sidecar-*
+packages/tauri/src-tauri/target/

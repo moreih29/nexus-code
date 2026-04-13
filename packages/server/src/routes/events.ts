@@ -28,6 +28,12 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
     return streamSSE(c, async (stream) => {
       const disposables: (() => void)[] = []
 
+      // 부록 B.3: Bun 10초 idle timeout 방지 — 10초 주기 heartbeat
+      void stream.writeSSE({ event: 'connected', data: '' })
+      const heartbeatTimer = setInterval(() => {
+        void stream.write(': heartbeat\n\n')
+      }, 10000)
+
       function subscribeProcess(agentId: string, process_: CliProcess): void {
         // Read sessionId dynamically — may be set after process creation
         const getBase = () => ({
@@ -154,6 +160,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
       )
 
       stream.onAbort(() => {
+        clearInterval(heartbeatTimer)
         for (const dispose of disposables) {
           dispose()
         }

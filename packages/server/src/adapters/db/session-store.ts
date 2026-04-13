@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 
 export interface SessionRow {
   id: string
@@ -16,11 +16,11 @@ export interface SessionRow {
 }
 
 export class SessionStore {
-  readonly db: Database.Database
+  readonly db: Database
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath)
-    this.db.pragma('journal_mode = WAL')
+    this.db.exec('PRAGMA journal_mode = WAL')
     this.migrate()
   }
 
@@ -55,8 +55,8 @@ export class SessionStore {
     prompt?: string
   }): SessionRow {
     const stmt = this.db.prepare<
-      [string, string, string, string, string | null, string | null, string | null],
-      SessionRow
+      SessionRow,
+      [string, string, string, string, string | null, string | null, string | null]
     >(`
       INSERT INTO sessions (id, workspace_path, agent_id, status, model, permission_mode, prompt)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -85,7 +85,7 @@ export class SessionStore {
 
   updateSettings(id: string, settings: { model?: string; permissionMode?: string }): void {
     const parts: string[] = []
-    const values: unknown[] = []
+    const values: string[] = []
 
     if (settings.model !== undefined) {
       parts.push('model = ?')
@@ -112,13 +112,13 @@ export class SessionStore {
 
   findById(id: string): SessionRow | null {
     return (
-      this.db.prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?').get(id) ?? null
+      this.db.prepare<SessionRow, [string]>('SELECT * FROM sessions WHERE id = ?').get(id) ?? null
     )
   }
 
   listByWorkspace(workspacePath: string, limit = 50): SessionRow[] {
     return this.db
-      .prepare<[string, number], SessionRow>(
+      .prepare<SessionRow, [string, number]>(
         'SELECT * FROM sessions WHERE workspace_path = ? ORDER BY created_at DESC LIMIT ?',
       )
       .all(workspacePath, limit)
@@ -127,7 +127,7 @@ export class SessionStore {
   getLatest(workspacePath: string): SessionRow | null {
     return (
       this.db
-        .prepare<[string], SessionRow>(
+        .prepare<SessionRow, [string]>(
           'SELECT * FROM sessions WHERE workspace_path = ? ORDER BY created_at DESC LIMIT 1',
         )
         .get(workspacePath) ?? null

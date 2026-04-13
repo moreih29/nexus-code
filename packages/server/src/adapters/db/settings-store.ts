@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 
 export interface AppSettings {
   model?: string
@@ -21,9 +21,9 @@ interface SettingsRow {
 }
 
 export class SettingsStore {
-  private readonly db: Database.Database
+  private readonly db: Database
 
-  constructor(db: Database.Database) {
+  constructor(db: Database) {
     this.db = db
     this.migrate()
   }
@@ -44,7 +44,7 @@ export class SettingsStore {
   /** One-shot UPDATE: rewrite any persisted 'auto' permissionMode to 'bypassPermissions'. */
   private migrateAutoPermissionMode(): void {
     const rows = this.db
-      .prepare<[], SettingsRow>(`SELECT * FROM settings`)
+      .prepare<SettingsRow, []>(`SELECT * FROM settings`)
       .all()
     for (const row of rows) {
       let parsed: AppSettings
@@ -72,7 +72,7 @@ export class SettingsStore {
 
   getGlobalSettings(): AppSettings {
     const row = this.db
-      .prepare<[], SettingsRow>(`SELECT * FROM settings WHERE scope = 'global' AND workspace_path IS NULL`)
+      .prepare<SettingsRow, []>(`SELECT * FROM settings WHERE scope = 'global' AND workspace_path IS NULL`)
       .get()
     if (!row) return {}
     return this.normalizeSettings(JSON.parse(row.settings_json) as AppSettings)
@@ -80,7 +80,7 @@ export class SettingsStore {
 
   getProjectSettings(workspacePath: string): AppSettings {
     const row = this.db
-      .prepare<[string], SettingsRow>(`SELECT * FROM settings WHERE scope = 'project' AND workspace_path = ?`)
+      .prepare<SettingsRow, [string]>(`SELECT * FROM settings WHERE scope = 'project' AND workspace_path = ?`)
       .get(workspacePath)
     if (!row) return {}
     return this.normalizeSettings(JSON.parse(row.settings_json) as AppSettings)

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 
 export interface WorkspaceRow {
   id: string
@@ -8,9 +8,9 @@ export interface WorkspaceRow {
 }
 
 export class WorkspaceStore {
-  private db: Database.Database
+  private db: Database
 
-  constructor(db: Database.Database) {
+  constructor(db: Database) {
     this.db = db
     this.migrate()
   }
@@ -27,7 +27,7 @@ export class WorkspaceStore {
   }
 
   create(workspace: { id: string; path: string; name?: string }): WorkspaceRow {
-    const stmt = this.db.prepare<[string, string, string | null], WorkspaceRow>(`
+    const stmt = this.db.prepare<WorkspaceRow, [string, string, string | null]>(`
       INSERT INTO workspaces (id, path, name)
       VALUES (?, ?, ?)
       RETURNING *
@@ -37,7 +37,7 @@ export class WorkspaceStore {
 
   remove(path: string): boolean {
     const result = this.db
-      .prepare<[string]>('DELETE FROM workspaces WHERE path = ?')
+      .prepare<unknown, [string]>('DELETE FROM workspaces WHERE path = ?')
       .run(path)
     return result.changes > 0
   }
@@ -45,14 +45,14 @@ export class WorkspaceStore {
   findByPath(path: string): WorkspaceRow | null {
     return (
       this.db
-        .prepare<[string], WorkspaceRow>('SELECT * FROM workspaces WHERE path = ?')
+        .prepare<WorkspaceRow, [string]>('SELECT * FROM workspaces WHERE path = ?')
         .get(path) ?? null
     )
   }
 
   list(): WorkspaceRow[] {
     return this.db
-      .prepare<[], WorkspaceRow>('SELECT * FROM workspaces ORDER BY created_at ASC')
+      .prepare<WorkspaceRow, []>('SELECT * FROM workspaces ORDER BY created_at ASC')
       .all()
   }
 }
