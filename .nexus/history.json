@@ -6121,6 +6121,532 @@
           "created_at": "2026-04-12T14:53:51.979Z"
         }
       ]
+    },
+    {
+      "completed_at": "2026-04-13T00:17:04.755Z",
+      "branch": "main",
+      "plan": {
+        "id": 5,
+        "topic": "Nexus Code 구조·디자인·전략 차원의 프로젝트 철학 설정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "S1. 계층 경계와 의존 원칙 — shared의 허용 범위 및 path-guard 교훈 공식화",
+            "status": "pending",
+            "how_agents": [
+              "strategist",
+              "researcher"
+            ],
+            "how_summary": {
+              "strategist": "3개 후보(지민 솔로CTO/현우 테크리드/민지 인디해커) 분석 후 민지 1순위 추천. Core Job = '여러 반자율 에이전트를 감독 하에 동시 운영해 인지 대역폭 곱하기, 단 사고 없이'. 민지만이 병렬성(3-6 세션) + 권한 의식(매출 리스크) + 자동화 기질(MCP/훅 직접 빌드) 3박자 일치. Anti-persona: 대기업 백엔드, 주니어, 엔터프라이즈 보안, Vibe Coder. 위험: 민지 TAM 좁음 → 지민 확장 경로 필요",
+              "researcher": "시장 트렌드: '2025 에이전트의 해, 2026 하네스의 해' — human-on-the-loop 감독 개념 부상. Claude Code 실페인 확인: 시간당 100회 권한 피로(rubber-stamping), `rm -rf ~/` HN 사고 197점(2025-12), git worktree 기반 병렬 공식 지원(최대 7). 'Agent Supervisor' 정확 명칭은 시장에 없음 → 카테고리 정의 기회. Nimbalyst(세션 캔반+worktree+iOS)가 동일 포지션 운영 중 → 정면 차별화 필요. Opcode(21k⭐)는 단순 GUI 래퍼로 분화"
+            }
+          },
+          {
+            "id": 2,
+            "title": "S2. 상태 소재 원칙 — 서버 단일 상태 저장소 원칙의 경계와 예외",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "S3. 외부 경계 격리 — Adapter 패턴을 어디까지 강제할 것인가",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "S4. 오케스트레이션 기능 배치 전략 — 에이전트 감독 기능의 확장 포인트",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "D1. 정보 구조(IA) 우선순위 — Agent Supervisor를 위한 단일 화면의 중심축",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "D2. 인터랙션 원칙 — 승인/실시간 이벤트/긴 작업의 피드백 방식 일관성",
+            "status": "pending"
+          },
+          {
+            "id": 7,
+            "title": "D3. 시각 언어 — 다크 테마 고정 이유와 색·타이포·밀도 규범",
+            "status": "pending"
+          },
+          {
+            "id": 8,
+            "title": "D4. 미팅 워크플로우 UI — [plan]→[d]→[run]의 노출 방식과 Mission Control 구상",
+            "status": "pending"
+          },
+          {
+            "id": 9,
+            "title": "T1. Agent Supervisor 페르소나 정의 — 누구·고통·현재 우회책",
+            "status": "decided",
+            "how_agents": [
+              "strategist",
+              "researcher"
+            ],
+            "how_summary": {
+              "strategist": "1차 분석에서 지민/현우/민지 3개 후보 분석 후 민지 1순위 추천. 사용자 지적으로 Core Job의 '사고 없이/안전성' 축을 폐기하고 '도구 파편화 + 가시성 공백' 축으로 전환. Nexus Code가 통제 주체 아님이 확인됨 — 통제는 claude-nexus 플러그인이 실행, Nexus Code는 그 과정을 가시화하는 인터페이스. 위험: 민지 TAM 좁음 → 지민 확장 경로 필요",
+              "researcher": "1차: human-on-the-loop 트렌드, Claude Code 시간당 100회 권한 피로, `rm -rf ~/` HN 사고, 'Agent Supervisor' 명칭 시장에 없음. 2차 재확인: Nimbalyst 기능 매트릭스 — 파일 트리/Monaco/Visual Git/7종 비주얼 에디터/카반 모두 보유, 내장 브라우저는 미확인. Cursor 2.4+ Subagents/2.5 Async 있으나 추적 UI 없음(포럼 통계 오염 문제). Zed spawn_agent 추가되었으나 사람 중심 카테고리. Opcode 세션/설정 관리 눈계. 신규: manaflow-ai/cmux(Ghostty+브라우저), agent-flow, claude-devtools. 외부 실증: Anthropic 공식 verbose 모드가 subagent output 숨김(The Register 2026-02), HN 'Agents Observe' 'sanitised & dangerously optimistic', cmux 제작자 'lose my marbles'"
+            },
+            "decision": "Nexus Code 핵심 페르소나 = '민지' (Indie Hacker / Automation Engineer) — 1순위 유일, 개발자 본인이 프로필 직접 일치 → dogfooding 기반 PMF 검증.\n\n【Core Job 재작성】여러 Claude Code 세션을 병렬로 돌리면서, 그들의 작업 결과(파일 변경·git 상태·서브에이전트 호출·브라우저 렌더링)를 확인하고 필요할 때 개입하기까지 — 현재는 최소 5-6개 도구(cmux + Claude Code TUI + lazygit + yazi + 크롬 + 에디터)를 오가야 한다. 더 심각한 것은 Claude Code 공식 verbose 모드조차 서브에이전트 출력을 기본 숨긴다는 사실(The Register 2026-02 Anthropic 공식 인정). 사용자는 에이전트가 '보고한 것'만 보게 되어 HN 'Agents Observe' 스레드의 표현대로 'sanitised & dangerously optimistic' 상태에 빠진다. 도구 파편화 + 가시성 공백이 결합된 고통. 이 두 고통을 하나의 창에서, 에이전트가 일하는 모습이 정보 구조의 중심이 되는 방식으로 해결한다.\n\n【Nexus Code 역할 구분】통제 주체 = claude-nexus 같은 플러그인(스킬/훅이 런타임에서 통제 실행). Nexus Code = 통제의 주체가 아니라 그 과정의 가시화 + 에이전트 감독에 필요한 주변 도구(파일 트리·에디터·git·브라우저·서브에이전트 추적)를 통합한 워크벤치. 정체성 = '에이전트 감독자를 위한 통합 워크벤치'.\n\n【범위 내】멀티 세션 관리, 서브에이전트 가시화, 파일 뷰/에디터/diff, git 뷰, 내장 브라우저, 미팅 워크플로우 1급 UI, 에이전트 중심 정보 구조.\n【범위 밖】IDE 풀 기능(Cursor 영역), 에이전트 조립/빌드(plugin 영역), 안전성/권한 증강(Claude Code 기반이므로 불가능 — UX 편의 개선만), 팀 협업/조직 기능(개인 워크스테이션).\n\n【민지 프로필】4-7 프로젝트 주 단위 스위칭, 3-6 세션 병렬, 백그라운드 실행 일상, CLI 능숙, MCP/훅/에이전트 프레임워크 직접 빌드(claude-nexus 플러그인 자작). 2순위 확장 타겟: 지민(솔로 CTO) — 민지 PMF 증명 후. 반대 페르소나: Vibe Coder, 대기업 백엔드, 주니어, 엔터프라이즈 보안.\n\n【경쟁 경계】Nimbalyst가 가장 정면 — 파일 트리/Monaco 에디터/Visual Git/7종 비주얼 에디터/세션 캔반/서브에이전트 '주장' 보유. Nexus Code 유일 우위 후보: 내장 브라우저(Electron Chromium) + 서브에이전트 추적의 *구체적* 가시화 + 미팅 워크플로우 [plan]→[d]→[run] 1급 시각화 + 에이전트 중심 IA 철학 명시. Cursor/Zed는 사람 중심 IDE 카테고리(다른 카테고리). Opcode는 단순 세션/설정 관리 유틸. 신규 경쟁자: manaflow-ai/cmux(Ghostty 터미널 + 내장 브라우저), agent-flow/claude-devtools(가시화 전용 툴).\n\n【Core Job 외부 실증】(1) Anthropic 공식 verbose 모드가 subagent output 숨김 (The Register 2026-02 theregister.com), (2) HN 'Agents Observe' 스레드 (news.ycombinator.com/item?id=47602986) 'sanitised & dangerously optimistic', (3) cmux 제작자 Threads 'routinely 5-10 parallel workstreams … lose my marbles'.\n\n【폐기된 이전 가정】'사고 없이(안전성)' 축 폐기 — Claude Code 기반 + 통제는 플러그인/훅이 실행하므로 Nexus Code가 안전성 증강 불가. 승인 피로 해소는 UX 개선 영역으로 격하, 차별화 포인트 아님."
+          },
+          {
+            "id": 10,
+            "title": "T2. 경쟁 대비 차별화 포지셔닝 — Claude Code 공식 UI, CMUX 등과의 근본 차이",
+            "status": "pending"
+          },
+          {
+            "id": 11,
+            "title": "T3. 핵심 가치 제안 — Mission Control 감독 대시보드의 한 문장 가치",
+            "status": "pending"
+          },
+          {
+            "id": 12,
+            "title": "T4. 로드맵 우선순위 — 5 Phase 중 현재 위치와 다음 우선순위",
+            "status": "pending"
+          },
+          {
+            "id": 13,
+            "title": "T5. 경계 외부(Non-goals) 공식화 — Nexus Code가 명시적으로 하지 않을 것 (IDE 풀기능 / 에이전트 조립 / 안전성 증강 / 팀 협업)",
+            "status": "decided",
+            "decision": "Nexus Code Non-goals 공식화 — Top 7 금지선 + 판단 규칙 5개 + 회색지대 판정표 + Phase별 해제 타임라인 4층 구조.\n\n【Non-goals Top 7】\n1. 팀/조직 기능 일절 금지 — SSO/RBAC/감사로그/실시간 공동편집/팀 워크스페이스/PR 협업 UI 모두 NO. 엔터프라이즈 요구 진입로 차단 → 민지 페르소나 순도 유지\n2. 비-에이전트 CLI 통합 금지 — Claude Code 1급(현재 구현), OpenCode 1급 후보(아키텍처 열어둠), Codex/Gemini 약한 고민(낮은 우선순위 or 커뮤니티 기여), Aider 배제, Claude API 직접호출/LangChain/AutoGen 금지. '에이전트 코딩 CLI' 카테고리 내에서만 지원\n3. 에이전트 조립/빌드 UI 금지 — claude-nexus 같은 플러그인 영역. MCP 서버 편집, 커스텀 에이전트 생성기, 스킬 빌더, 훅 에디터 등 모두 NO\n4. 안전성/권한 증강 차별화 금지 — Claude Code 기반이라 기술적으로 불가능. UX 편의 개선(승인 UI 개선 등)만 유효. 안전성 홍보 금지 — 사고 시 책임 프레임\n5. 클라우드/호스팅 SKU 금지 — 오픈소스 기조 유지. Pro 티어/유료 호스팅/엔터프라이즈 라이선스 모두 NO (최소 Phase 4까지)\n6. IDE 풀 기능 금지 — LSP/자동완성/포맷터/lint/리팩토링/디버거/빌드 시스템 NO. 단 '경량 텍스트 에디터'는 범위 내 — 사용자 직접 편집 OK, Notepad++ 수준(syntax highlight + 수동 저장)\n7. 플러그인 마켓플레이스 금지 — Claude Code 플러그인 생태계 편승. 자체 마켓 운영비/호환성 부채 회피\n\n【T5에서 추가 확정된 범위 내 기능】\n- 사용량/비용 대시보드 (read-only 집계, 예산 경보·자동 차단은 NO)\n- 알림 (tray/OS notification — 승인 대기, 세션 완료)\n- 세션 히스토리 export (JSON/MD, read-only)\n- Claude Code 공식 기능 GUI 래핑 (/compact, /clear 등 — 덮어쓰기 금지, CLI 변경 추종)\n- 파일 검색 — '에이전트 로그에서 파일로 jump'만, 사용자 주도 프로젝트 전역 검색은 NO\n- **헤드리스 서버 모드 (명시 범위 내)** — 3계층 아키텍처(web↔server HTTP/SSE)가 이미 가능케 함. Mac Studio/홈서버에 server만 띄우고 다른 기기 브라우저에서 접속 시나리오. 보안/인증 설계는 S3(외부 경계 격리)에서 구체화 예정\n\n【사용자 직접 편집 경계】\n✅ OK: 파일 뷰어+편집+저장, syntax highlight, 기본 indent/키 처리, 파일 트리 네비게이션, 파일 CRUD, diff 뷰\n❌ NO: LSP 자동완성/진단, IntelliSense, 포맷터 자동실행, lint 인라인 표시, 리팩토링 도구(rename/extract), 멀티커서 매크로, 디버거, 빌드 시스템\n\n【Architect 판단 규칙 5개】\n1. Observer 원칙: '에이전트가 한 일을 보여주는가(read)' vs '사용자가 에이전트 없이 직접 하는 작업을 주는가(write)'. 후자 기본 NO. 예외: 경량 텍스트 편집\n2. Plugin boundary 원칙: 런타임 정책·도구 생성·실행 관여=NO(claude-nexus 영역), 조회·시각화만 OK\n3. Existing seam 원칙: 현재 4 패키지·5 adapter·11 route에 자연스럽게 들어가면 OK 후보. 새 adapter 카테고리(terminal/lsp/marketplace) 추가 필요=빨간 불\n4. Persona fit 원칙: 민지 주 1회 이상 사용? 아니면 NO. 팀·조직·주니어 시나리오 정당화=반대 페르소나 진입\n5. Claude Code override 원칙: CC 기능을 대체하면 NO. 래핑/가시화만 OK. OpenCode 등 추가 CLI에도 동일 원칙 적용\n\n【Phase별 해제 타임라인】\n- Phase 1-2 (현재, ~Year 1): 민지 PMF — Claude Code 전용. 모든 non-goal 고정. 타 CLI 아키텍처 추상화만 준비(구현 X)\n- Phase 3 (Year 1-2): 민지 PMF 증명 구간 — OpenCode 1급 지원 구현, 로컬 export/import, UX 프리셋(밀도/키바인딩), 헤드리스 서버 모드 공식 문서화\n- Phase 4 (Year 2+): 지민 확장 — Codex/Gemini CLI 재평가, Nexus Code 자체 플러그인 API(초기 기여자 한정). 여전히 금지: 팀 기능, 클라우드 호스팅, IDE 풀기능, 유료화\n- Phase 5+ (Year 3+, 가정): 팀 기능 제한적 논의 — 전제(월 DAU 5자리 + 공유링크 요청 상위 3위 + 이탈 없음) 충족 시에만. 최초 해제: 로컬 export→공유 아카이브 번들(클라우드 ✗)\n\n【경쟁 침범 결정】\n복제 금지: Nimbalyst 7종 비주얼 에디터(Excalidraw/ERD/UI Mockup/Mermaid 등), Nimbalyst iOS 컴패니언, Cursor Background Agents(클라우드 VM)\n복제(차별화 형태): Monaco(경량 한정), Visual Git(agent-centric view), 파일 트리, 내장 브라우저, 세션 캔반(미팅 워크플로우 [plan]→[d]→[run] 형태)\n\n【영구 금지 (Phase 5+ 포함 모든 시점)】\n실시간 공동 편집, SSO/RBAC, 엔터프라이즈 라이선스, Claude API 직접 호출, LangChain/AutoGen 통합, IDE 풀 기능(LSP 등), 에이전트 조립/빌드 UI, Aider 지원\n\n【사용자 수정 사항】\n- Strategist의 'Claude Code 전용 2년 고정' 가정 폐기 → OpenCode 1급 후보(사용자 원래 의도), Codex/Gemini 약한 고민으로 완화\n- Architect의 '에이전트 결과물 한정 직접 편집' 제약 완화 → 경량 텍스트 에디터는 전면 OK\n- 헤드리스 서버 모드 '부산물로 가능, 광고 X'에서 '명시 범위 내'로 상향",
+            "how_agents": [
+              "architect",
+              "strategist"
+            ],
+            "how_summary": {
+              "architect": "기술적 회색지대 7도메인(git/파일에디터/브라우저/터미널/서브에이전트 제어/권한/노트북) 판정표 + 추가 회색지대 10건(파일 검색, 템플릿, 사용량 대시보드, 알림, export, MCP UI, 마켓, 워크스페이스 비교, 터미널 캡처, CC 래핑) + 유혹 Top 5(LSP 편집/PTY 셀/정책 DSL 빌더/PR 리뷰/Jupyter 커널) + 판단 규칙 5개(Observer/Plugin boundary/Existing seam/Persona fit/Claude Code override). 핵심 기여: 새 adapter 카테고리 필요 = 빨간 불 신호(packages/server/src/adapters 현재 5개 = cli/db/events/hooks/logging)",
+              "strategist": "5개 축(팀·협업/타 CLI/원격·모바일/유료화/생태계) 스펙트럼 판단 + 경쟁 침범 유혹 분석(Nimbalyst 7종 에디터/iOS/Cursor Background Agents 모두 복제 안함) + Non-goals Top 7(팀 금지/타 CLI 금지/조립 물리/안전성 금지/클라우드 금지/IDE 금지/마켓 금지) + Phase별 해제 타임라인(1-2 PMF, 3 증명, 4 지민 확장, 5+ 조건부 팀 논의). 형식 기여: '영구 금지 vs Phase 해제 가능'의 구분. 실책 1전: '팀 기능은 민지 PMF 후 최소 2년 금지', 'Nimbalyst 기능 인플레이션이 반면교사'. 사용자 지적으로 'Claude Code 전용 2년' 가정이 틀렸음 확인 → OpenCode 1급 후보로 수정"
+            }
+          }
+        ],
+        "research_summary": "현재 .nexus/context/는 architecture.md / session-flow.md / permission-architecture.md 세 문서로 '구조 계층'이 중심적으로 기술됨. 설계 원칙 5개(단방향 의존, 서버 단일 상태, 타입 계약 우선, Adapter 격리, kebab-case)가 나열되지만 '왜'와 '한계/예외'는 명시되지 않음. 디자인 기록은 '다크 테마 고정' 한 줄이 전부로 사실상 공백. 전략 차원은 메모(project_identity_redesign, 2026-04-02)에만 정체성 전환(CLI 래퍼→에이전트 오케스트레이션 워크스테이션), 타겟(Agent Supervisor), 차별화(미팅 워크플로우+Mission Control), 5 Phase 로드맵이 기록되어 있으나 .nexus/context/에 승격되지 않음. 최근 cycle은 (a) 권한 모드 4개 재정렬(auto 제거, bypassPermissions 통합), (b) path-guard 모듈 shared→server 재배치(계층 원칙 위반 복구, 교훈 문서화), (c) 설정 시스템 재설계(DB+CLI args+auto-save+프롬프트 시 자동 재시작). history.json에 철학/아이덴티티 관련 plan 기록 0건. 최종 산출물 합의: .nexus/context/ 공식 문서 + CLAUDE.md 요약. 접근: 세 축(architect/designer/strategist) 병렬 투입 + 교차 검증.",
+        "created_at": "2026-04-10T05:48:00.515Z"
+      },
+      "tasks": []
+    },
+    {
+      "completed_at": "2026-04-13T04:15:44.542Z",
+      "branch": "refactor/multi-harness-foundation",
+      "plan": {
+        "id": 6,
+        "topic": "멀티-하네스 대응 기반 설계 재검토 (AgentHost 통합 + 런타임 선택)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "멀티-하네스 리팩터링 범위와 타이밍",
+            "status": "decided",
+            "decision": "옵션 C (단계적 봉쇄) 채택. 구성: (1) AgentHost 와이어링 70→100% (app.ts·routes/session.ts·session-lifecycle-service.ts·routes/events.ts·테스트 3, 7-9 파일, 1-2일) — ClaudeCodeHost가 기존 CliProcess/ApprovalBridge를 내부 호출해 런타임 동작 무변경(리팩터링이 아닌 \"포장\"). (2) 와이어링 전 AgentHost 계약 누출 4건 선수정: permission_asked 이벤트에 harnessType+workingDirectory 추가, extraArgs를 CC 전용으로 scope 축소 또는 deprecate, resolvePermissionMode를 service→adapter 이관, dispose의 _findWorkingDirectory 선형 스캔 제거. (3) 폴더 rename `adapters/cli/` → `adapters/claude-code/` (단일 커밋, 무로직, blame 보존). (4) CI 3종 체크포인트: Leak canary test(routes/services/domain이 adapters/claude-code·approval-bridge를 transitive import 안 함 검증), Contract-surface diff(agent-host.ts 변경 PR은 OpenCodeHostStub 테스트 강제), Mini OpenCode probe(1일, opencode serve path A로 spawn+이벤트 1종 stub, 비출하, 감사 후 폐기). (5) Phase 3 공식 착수 trigger 3개(2/3 충족): OpenCode 외부 요청 누적 5건+, OpenCode DAU가 CC의 10-15% 도달, 민지 PMF 확정+2번째 페르소나. 기각 이유: A(풀 리팩터링)는 premature abstraction 함정(1 consumer로 계약 설계 시 이미 leak 4건 발견)+Philosophy Phase 1-2 위반+2-3개월 동결로 PMF 파괴+전방위 회귀 위험 최대. B(와이어링만)는 drift 봉쇄 없어 사용자 우려를 구조적으로 해결 못 함. D(OpenCode spike 먼저)는 OpenCode path A/B 미결+E4 미완료 상태로 포커스 분산 리스크가 이익보다 큼 → Mini probe로 D의 가치만 흡수.",
+            "how_agents": [
+              "architect",
+              "strategist"
+            ],
+            "how_summary": {
+              "architect": "옵션 C 권고. AgentHost 계약 누출 4건 발견(extraArgs escape hatch, init 10s race, permission_asked 라우팅 누락, permissionMode vocabulary). C의 선행 조건으로 계약 누출 2건(critical) 선수정 + 폴더 rename을 무로직 단일 커밋으로 + 3개 체크포인트(Leak canary test, Contract-surface diff, Mini OpenCode probe 1일) 제안. B는 drift 봉쇄 없어 사용자 우려 미해결. A는 Existing seam·Hard Constraint #3 위반. D는 OpenCode path 미결로 시기상조.",
+              "strategist": "옵션 C 추천(민지 PMF 관점). A는 2-3개월 기능 동결로 dogfooding 파괴·speculative generality 함정. B는 심리적 안정만 얻고 drift 방치. D는 포커스 분산. 사용자 우려는 perfectionist 70%+실제 부채 우려 30%로 진단, C가 30%를 CI 강제로 잡고 70%는 PMF 우선순위로 재해석하면 됨. Phase 3 공식 착수 trigger 3개 제시(외부 요청 5건+, OpenCode DAU 비율, 민지 PMF+2nd persona)."
+            },
+            "how_agent_ids": {
+              "architect": "a738f358c9d022f76",
+              "strategist": "a5f9a33ad17a1bb8c"
+            }
+          },
+          {
+            "id": 2,
+            "title": "CC 결합점 재편 방식 (Adapter 폴더 구조)",
+            "status": "decided",
+            "decision": "adapter 폴더 구조 확정. (Q1) ApprovalBridge는 옵션 B(물리적 분할): `adapters/approval/bridge.ts`(중립 파이프라인) + `adapters/claude-code/tool-categorizer.ts`(CC 도구명 테이블), 생성자에 categorizer 함수 주입. Phase 3에 interface(ToolCategorizer) 승격 비용 0. (Q2) PathGuard는 옵션 B(분할+합성): `adapters/security/path-guard.ts`(중립+Nexus, extraRules 인자 추가) + `adapters/claude-code/protected-paths.ts`(.claude 화이트리스트). OpenCode `.opencode` 추가 시 shotgun surgery 방지. (Q3) `services/agent-host-registry.ts` 신설 여부는 I3(회귀 방지)에서 실제 와이어링 구현 시 판정 — 현재 단일 CC host만 있어 YAGNI 경계. (Q4) 폴더 트리 확정: claude-code/(rename from cli/, 파일 9개+신설 tool-categorizer.ts, protected-paths.ts, claude-code-host.ts 이전), approval/(신설), security/(신설), hooks/(hook-manager.ts만 남김). 이동 9, 신설 2, 삭제 0. (Q5) 엄격 import 규칙: routes/services/domain 모두 adapters/claude-code/** import 금지(예외 없음). ClaudeCodeHost 인스턴스화는 app.ts(composition root) 단독. ESLint no-restricted-paths + Vitest leak canary test. (Q6) 커밋 6개: #0 shared AgentHost 계약 누출 4건 선수정 → #1 tool-categorizer 추출 → #2 claude whitelist 추출 → #3 순수 rename(무로직 단일 커밋) → #4 approval/security 이동 → #5 import 경계 강제. Existing seam 해석: approval/·security/ 신설은 새 카테고리가 아니라 기존 모호한 hooks/(CC hook + 권한 파이프라인 + path 가드 혼재)의 역할 기반 재명명. 기각: Q1-A(통째 CC 이전)는 OpenCode 추가 시 파이프라인 중복, Q1-C(지금 interface)는 YAGNI·mock 복잡화, Q1-D(내부만 분할)는 leak canary 실패. Q2-A(그대로)는 shotgun surgery. services→ClaudeCodeHost 예외 허용은 추상화 누출로 거부.",
+            "how_agents": [
+              "architect"
+            ],
+            "how_summary": {
+              "architect": "Q1 옵션 B(물리적 분할: approval/bridge 중립 + claude-code/tool-categorizer 주입), Q2 옵션 B(security/path-guard 중립 + claude-code/protected-paths 합성) 권고. Q3 agent-host-registry는 I1 scope 외 — Lead 판정 필요. 전체 9개 커밋 분할(계약 수정→categorizer 추출→whitelist 추출→rename→neutral folder move→import 경계 강제). Phase 3 OpenCode 추가 시 interface 승격 비용 0. 9 이동 + 2 신설 + 0 삭제, 런타임 동작 불변."
+            },
+            "how_agent_ids": {
+              "architect": "a9644c6b6df4d640a"
+            }
+          },
+          {
+            "id": 3,
+            "title": "회귀 방지 전략 (기존 기능 보호)",
+            "status": "decided",
+            "decision": "회귀 방지 전략 확정. 사용자 우려 재정의: \"최종 사용자 안정성\"이 아닌 \"그동안 쌓은 기능이 한 번에 완전히 무너짐\" 방지가 목표. 붕괴 시나리오 4개(커밋 과대로 bisect 불가, shared 빌드 순서, DB 스키마/migration, 외부 파일 포맷) 모두 현 계획에서 수학적 차단됨(커밋 6분할 + scripts/dev.ts가 shared 선행 강제 + ClaudeCodeHost는 기존 DB store 그대로 호출 + ~/.claude 경로 무변경). (Q1) 전환 방식: **flag 없이 직접 치환**. env flag 병렬 래퍼는 \"최종 사용자 노출 전 좌우 비교\" 전제에서 나왔으나 개발자 본인 dogfood 상황에선 git revert+bisect가 동급/더 빠름. flag 구현 공수 0, 레거시 잔존 0, 청산 커밋 불필요. (Q2) 필수 방어장치: 안전망 preparatory PR(#-1)로 cli-settings-proxy 직접 unit + session restore 두 소스 병합 unit(1일) + observe unsubs cleanup unit + permission_asked 신규 필드 shape 고정 선행 도입. 이게 \"어디서 깨졌는지 모름\"(bisect 역량 저하)을 직접 차단하는 핵심. (Q3) 권한 4축 검증 2-레이어: Layer 1 Step 1-7 decision table 파라미터화 unit(ms) + Layer 2 ProcessSupervisor mock 뒤 restore 시나리오 3종 integration(s). Layer 3 E2E는 dogfood로 대체 — Playwright E2E 복구는 별도 이슈로 분리(현재 plan.json scope 외). (Q4) agent-host-registry 신설 보류: 단일 참조(app.ts:63), Phase 3 OpenCode 진입 트리거 기반 판정(파일 1+라인 3-4 비용). 주석에 \"Phase 3 registry로 교체 예정\" 명시. (Q5) 롤백: git revert + bisect. 커밋 6개 독립 빌드/테스트 pass로 bisect 가능. (Q6) 커밋 순서: #-1 안전망 → #0 AgentHost 계약 누출 4건 수정 → #1 tool-categorizer → #2 protected-paths → #3 순수 rename → #4 approval/security neutral folder 이동(ClaudeCodeHost 직접 치환, tester critical 2건 해소 확인 후) → #5 ESLint no-restricted-paths + leak canary(flag 없음). 커밋 #6(레거시 제거) 불필요. (Q7) Dev smoke 프로토콜 `.nexus/memory/`에 체크리스트 기록(lsof port listener 기준, path-guard-lessons §4). 제거: env flag, 커밋 #6, Layer 3 E2E 필수화, 2주 dogfood 공존 기간. 해소 점수 추정 ~85%.",
+            "how_agents": [
+              "architect",
+              "tester"
+            ],
+            "how_summary": {
+              "architect": "Q1 env flag 병렬 래퍼(b) + 2주 dogfood + 레거시 제거 권고. 3-레이어 피라미드(unit decision table + integration restore + E2E 1개). agent-host-registry 신설 보류(YAGNI, Phase 3 트리거). 로벡 RTO: flag off 1분, revert 15분. Critical 2건 발견: claude-code-host.ts:38 nexusSessionId 정합성 미검증 + :85-216 observe unsubs 누출 가능성. 해소 점수 78%. Lead가 재정의한 우려(전체 뵕괴)에는 flag 불필요 판단에 동의 가능.",
+              "tester": "서버 unit 26파일 — approval-bridge(26 it), path-guard(42), stream-parser(35), cli-process(30) 등 High. **Playwright E2E 3개 전부 test.skip**(설치·config·mock 미구축). cli-settings-proxy 직접 유닛 없음(호출). 회귀 위험 Top 5: hook 재주입 미반영, SSE 재연결 재구독, session restore 두 소스 병합, tool_result CC 특화 필드 silent drop, rename import 누락. 커밋별 명령어 게이트 제공(typecheck + vitest). Dev smoke 체크리스트(port listener 기준). 판정: **부족** — #0·#3·#5 보강 필요. 안전망 preparatory PR 선행 권고."
+            },
+            "how_agent_ids": {
+              "architect": "a14804c1a1fc98277",
+              "tester": "a48cbe425ee429097"
+            }
+          },
+          {
+            "id": 4,
+            "title": "Electron 런타임 유지 vs Tauri 전환",
+            "status": "decided",
+            "decision": "옵션 α (Electron 유지 잠정 + Tauri POC 최우선 task) 채택. 이전 \"SSE WKWebView 미검증\" 판정이 Tauri plugin-http(Rust reqwest 60초 drop 버그 등)와 native WebView EventSource 경로를 혼동한 것으로 재조사에서 드러남 — native fetch/EventSource는 Safari 5.1부터 지원, 2024-2026 신규 critical 버그 없음. 결정적으로 OpenCode(sst/opencode, 142k stars)가 Nexus Code와 거의 동일 아키텍처(Tauri v2 + opencode serve Node sidecar + webview에서 localhost로 직접 EventSource 구독)를 운영 증명. Jan은 Electron→Tauri 전환으로 AppImage 1GB→200MB 실측. 이로 인해 즉시 Electron 확정은 증거 부족. 그러나 지금 즉시 Tauri 전환(B)은 2-4주 공수로 Phase 1-2 PMF 파괴 리스크 유지. 지금 plan 중단 후 POC(β)는 3일 맥락 비용. 채택안 α: (1) I4 잠정 결론 = Electron 유지 (2) tasks.json 최우선 task = Tauri POC spike 2-3일 (3) POC scope = Tauri 2.x 셸 + Hono Node sidecar(pkg/bun compile) + webview native EventSource로 localhost SSE 구독 + CC CLI spawn + pre-tool-use hook→approval 왕복 1-2회. OpenCode packages/desktop/src-tauri/ reference 학습 포함 (4) POC 측정 지표 7개: 30-60분+ SSE 장시간 안정성, WKWebView 청크 flush 체감(250바이트 버퍼링), approval 4-5홉 왕복 정상성, 번들 크기(mac .app·Win .msi·Linux .AppImage), 메모리(idle/1세션/3세션), 콜드 스타트, Linux webkit2gtk-4.1 빌드 성공 (5) POC 결과물 = .nexus/memory/tauri-poc-report.md (수치표 + 함정 + 판정 ✅/⚠️/❌) (6) 결과 분기: ✅ 전환 가능 → 새 plan 세션으로 Tauri 전환 계획 수립 / ❌ 불가능 → Electron 유지 확정(evidence로 영구 보관) / ⚠️ 조건부 → Phase 3 trigger 시점에 재평가. I1-I3 구현은 Node sidecar 유지 전제(OpenCode 패턴)로 Tauri 전환과 독립 — server 중심 결정이므로 POC 결과와 병렬 or 순차 진행 무관하게 재작업 없음. electron 패키지만 전환 시 교체 대상. 재평가 trigger(2/3 충족): 모바일 배포 요구 발생, 번들/메모리가 민지 실불만 가시화, Phase 3 공식 착수(OpenCode 1급 구현). 기각 이유: 단순 Electron 유지 확정은 판정 오류+OpenCode 선례 무시, 즉시 Tauri 전환은 PMF 파괴, 지금 plan 중단 POC는 맥락 비용 대비 이득 없음.",
+            "how_agents": [
+              "researcher-sse",
+              "researcher-similar-projects"
+            ],
+            "how_summary": {
+              "researcher-sse": "이전 'WKWebView SSE 미검증' 판정이 Tauri plugin-http(Rust reqwest, 60초 drop 버그 #9288)와 native WebView fetch/EventSource 경로를 혼동한 것. macOS WKWebView native EventSource는 Safari 5.1부터 지원, 2024-2026 신규 critical 버그 없음. Node sidecar가 localhost HTTP 열고 WebView가 직접 EventSource로 연결하는 패턴(=우리 아키텍처)은 plugin-http 우회 → 알려진 버그 무관. Kaas·OpenFlux·tauri-claude 등 실사용 사례 다수. macOS 사용성 High, Linux WebKitGTK는 SSE 특정 문제 없으나 일반 성능·빌드 이슈 유지. 단 WKWebView 250바이트 버퍼링 체감 재현·30분+ 연결 primary 검증 부재.",
+              "researcher-similar-projects": "OpenCode(sst/opencode, 142k stars)가 Nexus Code와 거의 동일 아키텍처(Tauri v2 + opencode serve Node sidecar + webview에서 localhost로 직접 EventSource) 운영 증명. agentsview(wesm, 719 stars)는 Tauri + Go sidecar 유사. Jan(41.7k stars) Electron→Tauri 전환 완료, AppImage 1GB→200MB 실측. Chatbox·LM Studio는 Electron 유지(WebView 통제 논거). Warp는 Rust 자체 UI 재작성. Tauri 선택 시 LLM/에이전트 앱의 SSE 구현 접근: Tauri Rust core를 SSE 통로로 쓰지 않고 webview가 sidecar HTTP 서버에 직접 EventSource. 공식 SSE 플러그인 부재 이슈 #14551 open. Nimbalyst/claude-devtools 식별 불가."
+            },
+            "how_agent_ids": {
+              "researcher-sse": "aafe62eee1ab9e180",
+              "researcher-similar-projects": "ab55317477b31dd87"
+            }
+          }
+        ],
+        "research_summary": "## 기존 지식 (.nexus/context + memory)\n\n**Philosophy (확정)**:\n- Phase 1-2 (현재): 민지 PMF, CC 전용, \"타 CLI 아키텍처 추상화만 준비 (AgentHost 인터페이스)\"\n- Phase 3 (Year 1-2): OpenCode 1급 구현\n- Non-goal #2: CC 1급, OpenCode 1급 후보, Codex/Gemini 약한 고민, API 직접 호출·Agent SDK·ACP 단일 통합 금지\n- Hard Constraint #3: ProcessSupervisor+stream-json 제거 금지, AgentHost 뒤 래핑만 허용\n- Existing seam 원칙: 새 adapter 카테고리 필요 = 빨간 불\n- Backlog: 멀티-하네스 동시 감독은 OpenCode adapter 완성 전 시기상조\n\n## AgentHost 진척도 (Explore 조사, 70%)\n\n- shared/src/types/agent-host.ts 계약 완성: spawn/observe/approve/reject/dispose + 이벤트 패밀리 7종 (session_started/message/tool_call/tool_result/permission_asked/error/session_ended). harnessType 'claude-code'|'opencode'. 하네스 중립 DTO.\n- server/src/adapters/claude-code-host.ts 16KB 구현 완료 (CliProcess 래핑, observe→AsyncGenerator, ApprovalBridge 위임)\n- **app.ts 미와이어링** — 실제 경로는 여전히 레거시. 검증 비용은 통합 테스트 중심\n- 최신 커밋 5feebe6 \"feat(nexus): 생태계 결정 반영\"에서 구조 결정 적용 중\n\n## CC 결합점 (Critical/High)\n\n| 파일 | 결합 |\n|------|------|\n| adapters/cli/cli-process.ts | spawn('claude', ...) 바이너리명, --input-format stream-json |\n| adapters/cli/stream-parser.ts | CC 출력 포맷 1:1 (stream_event/permission_request/result) |\n| adapters/hooks/approval-bridge.ts | categorizeToolName() — CC 도구명 6개 하드코딩 |\n| adapters/cli/cli-settings-proxy.ts | ~/.claude/settings.json 경로 고정 |\n| adapters/cli/history-parser.ts | ~/.claude/projects/${encodedPath} 경로 |\n| web/components/settings/tabs/claude-code-tab.tsx | CC 특화 UI |\n\n**이식 추정**: 300-500줄 신규 (adapters/opencode/) + 60줄 수정 (app.ts 선택 로직, approval-bridge 도구명 확장, cli-process spawn 분기)\n\n**패키지 경계**:\n- shared: CC 용어 누출 없음 (harnessType 제외)\n- web: 대부분 중립, 탭 1개만 CC 특화\n- db: 중립적, 스키마 확장 가능\n\n## Electron vs Tauri (Researcher 조사, 2026-04 기준)\n\n**Tauri 2.0 성숙**: 2024-10 stable, 120+ plugin, Hoppscotch 165MB→8MB 사례\n\n**Nexus Code 특수성에 따른 이득 상쇄**:\n- Node/Hono 서버를 사이드카로 돌려야 함 → pkg로 Node 런타임 수십MB 추가 → 번들 이득 절반 상쇄\n- 아키텍처별 바이너리 관리, orphan process 책임, CI 매트릭스 복잡\n- **SSE 장시간 연결의 WKWebView 동작 2026-04 기준 미검증** ← Nexus Code SSE 핵심 의존 고려 시 직접 POC 검증 필요\n- Linux WebKitGTK 불안정 (Arch 성능 이슈, webkit2gtk-4.0→4.1 마이그레이션 진행)\n- WKWebView WebDriver 공식 미지원 → Playwright E2E 전면 재구성 필요\n- macOS에서 크로스 컴파일 사실상 불가 (GitHub Actions CI 의존)\n\n**이주 공수**: 인디 해커 기준 2-4주, PMF 단계 기회비용 높음. Tauri→Electron 역류 공개 사례 null result.\n\n## 역사적 교훈 (.nexus/memory)\n\n- path-guard-relocation-lessons.md: barrel export 제거 시 전수 조사 필수, 빌드 스크립트 clean step 필수, shared는 Node I/O 금지, dev 세션 정리는 port listener 기준\n- backlog: OpenCode adapter 두 경로(HTTP/SSE vs ACP stdio) 미결정, E4 실험 미완료\n- 복원 경로 이중 소스: SessionStore DB + CC 히스토리 파일 합집합 → 하네스 추가 시 히스토리 파서가 하네스별로 필요",
+        "created_at": "2026-04-13T00:17:04.821Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Tauri POC spike — 7개 지표 실측",
+          "context": "I4 결정에 따른 최우선 task. \"Tauri 전환 가능성\"을 추정에서 실측 데이터로 전환하는 2-3일 spike. OpenCode(sst/opencode, 142k stars)가 Nexus Code와 거의 동일 아키텍처(Tauri v2 + Node sidecar + webview EventSource)를 운영 증명했다는 발견이 근거. 결과물은 .nexus/memory/tauri-poc-report.md로 영구 보관, Phase 3 trigger 시점 의사결정 자료로 활용.</context>\n<parameter name=\"approach\">별도 폴더(레포 외부 권장)에 최소 Tauri 2.x 셸 구축. 구성: (1) Tauri main.rs ~50줄 + tauri.conf.json (2) Hono 서버 사이드카 (pkg 또는 bun compile로 단일 바이너리, 현재 cli-process.ts/stream-parser.ts/approval-bridge.ts 요점만 복제 ~300줄) (3) 최소 React UI (Vite, 버튼 2개 + 로그창 ~100줄) (4) webview에서 native EventSource로 localhost SSE 직접 구독 (5) CC CLI 1회 spawn + pre-tool-use hook → approval 왕복 1-2회. 반일은 OpenCode packages/desktop/src-tauri/ 참조 학습. scope 제외: DB, 세션 복원, 복수 워크스페이스, path-guard, 권한 모드 매트릭스, 자동업데이트·서명·배포.",
+          "acceptance": "7개 지표 모두 수치화: ①SSE 30분+·60분+ stress (drop·재연결·유실 빈도) ②첫 청크 latency + WKWebView 250바이트 버퍼링 체감 여부 ③approval 4-5홉 왕복 정상성 + 지연 ④번들 크기 (mac .app, Win .msi, Linux .AppImage/.deb) ⑤메모리 idle+1세션+3세션 ⑥콜드 스타트 ⑦Ubuntu 24.04 webkit2gtk-4.1 AppImage 빌드 성공. 판정 ✅/⚠️/❌ 중 하나로 결론.",
+          "risk": "POC가 \"Electron 유지\" 결과를 내면 3일이 sunk cost로 보일 수 있으나 evidence로서 가치 있음(미래 재검토 비용 절감). macOS·Windows·Linux 3플랫폼 동시 측정은 환경 부재 시 일부 skip 가능, 최소 macOS + Linux VM.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:29:21.313Z"
+        },
+        {
+          "id": 2,
+          "title": "Tauri POC 보고서 작성",
+          "context": "T1 POC의 7개 지표 측정 결과를 .nexus/memory/tauri-poc-report.md로 문서화. 판정 ✅/⚠️/❌과 함께 마주친 함정·회피 방법·OpenCode 아키텍처 학습 포인트 포함. Phase 3 trigger 시점 의사결정 자료로 영구 보관.",
+          "approach": "POC 결과 수치를 표로 정리. 섹션: (1) 7개 지표 수치표 (2) Electron 현재 값 대비 비교 (3) 마주친 이슈/함정 (4) OpenCode packages/desktop/src-tauri/에서 배운 패턴 (5) 판정과 근거 (6) Phase 3 trigger 시점 재평가할 항목 체크리스트.",
+          "acceptance": ".nexus/memory/tauri-poc-report.md 파일 존재 + 7개 지표 모두 수치 포함 + 판정 명시(✅/⚠️/❌) + 6개 섹션 모두 기록.",
+          "risk": "판정이 ⚠️(조건부)로 나올 경우 후속 결정이 모호해질 수 있음 — 구체적 trigger 조건 명시로 완화.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-13T01:30:37.907Z"
+        },
+        {
+          "id": 3,
+          "title": "Tauri POC 보고서 리뷰",
+          "context": "T2 보고서의 정확성·완결성 검증.",
+          "approach": "7개 지표 수치 모두 기록됐는지 + 판정 근거 일관성 + OpenCode 참조 사실관계 확인 + 문법/포맷 점검.",
+          "acceptance": "사실 오류 0건, 수치 누락 0건, 판정과 수치 간 논리 일관성 검증 완료.",
+          "risk": "비교 대상 Electron 현재 값이 별도 실측 없으면 '추정'으로 표시 — 리뷰 시 체크 필요.",
+          "status": "completed",
+          "deps": [
+            2
+          ],
+          "plan_issue": 4,
+          "owner": "reviewer",
+          "created_at": "2026-04-13T01:30:42.512Z"
+        },
+        {
+          "id": 4,
+          "title": "안전망 preparatory PR — 단위 테스트 4종 추가",
+          "context": "I3 결정에 따른 리팩터링 착수 전 안전망. tester가 지적한 미커버 영역과 architect가 발견한 critical 2건을 테스트로 선제 잠금. \"어디서 깨졌는지 모름\" 상황 차단이 목적.",
+          "approach": "4종 단위 테스트 신규 작성: (a) cli-settings-proxy 직접 단위 — whitelist 필터 writeFile stub 왕복 검증 (b) session restore 두 소스 합집합 단위 — DB fixture + JSONL fixture 병합 순서/중복 검증 (c) claude-code-host.ts observe unsubs cleanup 단위 — client disconnect 시나리오에서 누출 없음 assertion (d) permission_asked 이벤트 shape 단위 — 현재 필드 고정(신규 harnessType/workingDirectory 추가 예정분 포함). 테스트 파일 위치: 기존 __tests__ 폴더 내 신규 파일.",
+          "acceptance": "4개 테스트 파일 추가 + 각 최소 3 it + 전체 vitest run green + PR 단독 머지 가능(다른 변경 없이).",
+          "risk": "(c) observe unsubs 단위는 AsyncGenerator mock이 까다로울 수 있음 — 필요 시 integration 수준으로 승격.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:30:54.427Z"
+        },
+        {
+          "id": 5,
+          "title": "안전망 테스트 검증",
+          "context": "T4 안전망 PR의 4종 테스트가 실제로 의도한 회귀 시나리오를 탐지하는지 확인.",
+          "approach": "각 테스트를 intentional break로 실패시켜 detect 능력 확인 (mutation testing 수동). 이후 원상 복구. CI green 최종 확인.",
+          "acceptance": "4개 테스트 모두 break 시 red, fix 시 green 전환 확인. mutation 로그 기록.",
+          "risk": "없음 — 순수 검증 작업.",
+          "status": "completed",
+          "deps": [
+            4
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:31:04.573Z"
+        },
+        {
+          "id": 6,
+          "title": "커밋 #0 — AgentHost 계약 누출 4건 수정",
+          "context": "I1 결정의 전제 조건. architect가 발견한 AgentHost 계약 4건 leak을 와이어링 전 선수정. 모든 후속 커밋의 기반.",
+          "approach": "packages/shared/src/types/agent-host.ts 수정: (1) permission_asked 이벤트에 harnessType + workingDirectory 필드 추가 (2) AgentHostConfig.extraArgs를 CC 전용으로 scope 축소 또는 deprecate 어노테이션 (3) resolvePermissionMode를 services/session-lifecycle-service에서 adapters/claude-code/claude-code-host.ts로 이관 (4) dispose의 _findWorkingDirectory 선형 스캔 제거 — sessionId→cwd 매핑을 host 내부 Map으로 소유. OpenCodeHostStub(컴파일만, 동작 없음) 추가로 2nd consumer 시뮬레이션.",
+          "acceptance": "shared 빌드 성공 + agent-host 단위 테스트 pass + OpenCodeHostStub TS 컴파일 0 에러 + ClaudeCodeHost 기존 동작 불변(기존 단위 테스트 green).",
+          "risk": "계약 변경의 revert 파급 범위가 가장 크므로 신중. extraArgs deprecate 시 실제 사용처 점검 필수 (grep으로 전수 조사, path-guard-lessons §1 교훈).",
+          "status": "completed",
+          "deps": [
+            5
+          ],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:31:15.853Z"
+        },
+        {
+          "id": 7,
+          "title": "커밋 #0 검증",
+          "context": "계약 변경이 기존 동작 불변 확인.",
+          "approach": "bun run typecheck --filter '@nexus/shared' --filter '@nexus/server' + ClaudeCodeHost 기존 단위 테스트 + OpenCodeHostStub compile probe + extraArgs grep 전수 조사.",
+          "acceptance": "typecheck 0 error + 기존 테스트 green + stub compile pass + extraArgs 미사용 확인(또는 CC-scope 적용).",
+          "risk": "resolvePermissionMode 이관 시 기존 호출부 모두 갱신 누락 없이 확인 필요.",
+          "status": "completed",
+          "deps": [
+            6
+          ],
+          "plan_issue": 1,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:31:20.334Z"
+        },
+        {
+          "id": 8,
+          "title": "커밋 #1 — tool-categorizer 추출",
+          "context": "I2 Q1 결정. ApprovalBridge의 CC 도구명 분류를 분리해 Phase 3 OpenCode 진입 시 파이프라인 중복 제거. 동작 불변.",
+          "approach": "adapters/cli/tool-categorizer.ts 신설 (아직 cli/ 이름, #3에서 rename). 내용: categorizeToolName + READ_TOOLS/EDIT_TOOLS/WEB_TOOLS 상수. adapters/hooks/approval-bridge.ts 생성자에 categorizer 함수 주입받도록 수정. 모든 호출부(app.ts, routes/hooks.ts 등) 업데이트.",
+          "acceptance": "approval-bridge.test.ts (26 it) 전부 green + hooks.test.ts (8 it) green + categorizeToolName 동작 불변.",
+          "risk": "호출부 전수 조사 누락 시 TS2305 — path-guard-lessons §1 체크리스트 적용.",
+          "status": "completed",
+          "deps": [
+            7
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:31:27.375Z"
+        },
+        {
+          "id": 9,
+          "title": "커밋 #1 검증",
+          "context": "tool-categorizer 추출 후 동작 불변 확인.",
+          "approach": "bun test packages/server/src/adapters/hooks/__tests__/approval-bridge.test.ts + routes/__tests__/hooks.test.ts + tool-categorizer 심볼 grep 전수 조사.",
+          "acceptance": "26+8 it green + categorizer 주입 경로 누락 0건.",
+          "risk": "없음.",
+          "status": "completed",
+          "deps": [
+            8
+          ],
+          "plan_issue": 2,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:31:35.032Z"
+        },
+        {
+          "id": 10,
+          "title": "커밋 #2 — protected-paths 추출 + extraRules 인자",
+          "context": "I2 Q2 결정. path-guard에서 .claude 화이트리스트만 분리해 OpenCode .opencode 추가 시 shotgun surgery 방지. 동작 불변.",
+          "approach": "adapters/cli/protected-paths.ts 신설 (CLAUDE_PROTECTED_DIR + CLAUDE_WHITELIST 상수). adapters/hooks/path-guard.ts의 isProtected 시그니처에 extraRules?: HarnessProtectionRules 인자 추가 — rules는 { protectedDirs: string[], whitelist: string[] } 단순 구조. CC 호출부는 모두 claude-code rules를 넘기도록 업데이트. 공통 PROTECTED_DIRS(.git, .env*, .husky, .gitconfig) + Nexus(.nexus/state)는 중립 가드에 존치.",
+          "acceptance": "path-guard.test.ts 42 it green + PROTECTED_DIRS/extractPaths/isProtected 심볼 전수 조사(approval-policy-store.ts:3 포함) + db/approval-policy-store.ts, hooks/path-guard-preflight.ts 양쪽 빌드 성공.",
+          "risk": "barrel export 누락 실수(path-guard-lessons §1) — extraRules 인자 추가 후 모든 호출부 체크리스트 점검 필수.",
+          "status": "completed",
+          "deps": [
+            9
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:31:44.656Z"
+        },
+        {
+          "id": 11,
+          "title": "커밋 #2 검증",
+          "context": "protected-paths 분할 + extraRules 인자 추가 후 .claude 판정 불변 확인.",
+          "approach": "bun test path-guard.test.ts 42 it + 심볼 grep 4종 + approval-policy-store 및 hooks 빌드 성공 확인.",
+          "acceptance": "42 it green + 4 심볼 호출부 누락 0건 + 양 패키지 빌드 성공.",
+          "risk": "없음.",
+          "status": "completed",
+          "deps": [
+            10
+          ],
+          "plan_issue": 2,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:31:47.707Z"
+        },
+        {
+          "id": 12,
+          "title": "커밋 #3 — adapters/cli → adapters/claude-code 순수 rename",
+          "context": "I2 Q4 결정. 무로직 단일 커밋으로 rename 이행, blame 보존. self-documenting 폴더명으로 \"claude-code 전속\" 경계 가시화.",
+          "approach": "git mv adapters/cli adapters/claude-code. adapters/claude-code-host.ts도 adapters/claude-code/ 하위로 이동. import 경로만 치환(코드 로직 0 변경). rg 'adapters/cli/' packages/server/src 결과 0 상태 확인. git diff --stat으로 rename만 있고 로직 diff 0임을 증명.",
+          "acceptance": "git diff --stat: rename 표시 + 로직 diff 0 + bun run clean && bun run build 전 패키지 성공 + rg 'adapters/cli/' 0건 + 전체 vitest green.",
+          "risk": "rename 커밋에 실수로 로직 변경 섞이면 blame 오염 — PR 리뷰 시 diff stat 확인 필수.",
+          "status": "completed",
+          "deps": [
+            11
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:31:55.432Z"
+        },
+        {
+          "id": 13,
+          "title": "커밋 #4 — approval/security neutral folder 이동 + AgentHost 직접 치환",
+          "context": "I1+I2+I3 수렴 지점. 핵심 와이어링 커밋. hooks/ 해체 + ClaudeCodeHost로 런타임 경로 치환 + I3 critical 2건 해소. 6개 커밋 중 가장 중요.",
+          "approach": "(1) adapters/hooks/approval-bridge.ts → adapters/approval/bridge.ts 이동. (2) adapters/hooks/path-guard.ts + path-guard-preflight.ts → adapters/security/ 이동. (3) adapters/hooks/는 hook-manager.ts만 남김(HTTP hook endpoint 라우팅, 중립). (4) app.ts의 ProcessSupervisor 직결 경로를 ClaudeCodeHost 경유로 전환(7-9 파일: app.ts, routes/session.ts, services/session-lifecycle-service.ts, routes/events.ts + 테스트 3). (5) I3 critical 2건 해소: observe 스트림 client disconnect 시 unsubs cleanup 구현 + nexusSessionId=randomUUID()를 SessionStore 저장 ID와 정합 처리. flag 없이 직접 치환 — git revert로 롤백 가능한 구조 유지.",
+          "acceptance": "bun run build 전 패키지 성공 + 전체 vitest green + Playwright 권한 시나리오 3종 수동 smoke pass + dev smoke(lsof port listener 기준) pass + I3 critical 2건 회귀 테스트 신규 추가 및 green + rg 'ProcessSupervisor' packages/server/src 결과가 adapters/claude-code/ 외부에서 0건.",
+          "risk": "ClaudeCodeHost 내부에서 기존 CliProcess/ApprovalBridge를 호출하므로 런타임 무변경 원칙이나, wiring 전환 지점의 계약 누출이 실제 회귀 원인. dev smoke 실증을 PID 아닌 port listener로.",
+          "status": "completed",
+          "deps": [
+            12
+          ],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:32:17.630Z"
+        },
+        {
+          "id": 14,
+          "title": "커밋 #4 검증 + critical 2건 회귀 없음",
+          "context": "와이어링 + neutral folder 이동 후 전 기능 회귀 없음 확인. 가장 엄격한 게이트.",
+          "approach": "Layer 1 unit: approval-bridge decision table Step 1-7 파라미터화 테스트 ClaudeCodeHost 경유 통과. Layer 2 integration: ProcessSupervisor mock 뒤 restore 시나리오 3종 (DB만/history만/합집합). 권한 시나리오(grant/deny/mode switch 3종) 수동. dev smoke: lsof -nP -iTCP:3000,5173 -sTCP:LISTEN 시작 전 확인 + 종료 후 해제 확인 + curl /api/health 200 + CC 세션 spawn+approval 왕복 + 브라우저 reload 후 복원. critical 2건 각각 intentional break 시 red 전환 확인.",
+          "acceptance": "Layer 1+2 단위/통합 테스트 전부 green + dev smoke 체크리스트 5단계 pass + critical 2건 회귀 탐지 능력 확인 + port listener 종료 후 해제 확인.",
+          "risk": "SSE 연결 끊김·재연결·tool_result 파싱이 wiring 전환의 취약점 — Layer 2 integration이 반드시 커버하도록.",
+          "status": "completed",
+          "deps": [
+            13
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:32:26.976Z"
+        },
+        {
+          "id": 15,
+          "title": "커밋 #5 — ESLint 경계 + Leak canary + Mini OpenCode probe + Contract-surface diff",
+          "context": "I1+I2+I3 봉쇄 장치 도입. 장기 drift 구조적 차단. flag 없음.",
+          "approach": "(1) ESLint no-restricted-paths 설정: routes/**, services/**, domain/** 모두 adapters/claude-code/**, adapters/approval/**, adapters/security/**의 adapters/claude-code/** 참조 금지 (예외 없음). (2) Leak canary Vitest: __tests__/import-boundaries.test.ts — routes/·services/·domain/ 각 파일을 readFile로 정규식 /adapters\\/claude-code\\// 매칭 시 실패. Phase 3 대비 정규식 확장 주석. (3) Mini OpenCode probe(1일, 비출하): OpenCodeHostStub를 opencode serve path A(E2 검증됨)로 spawn+이벤트 1종만 stub 구현. 감사 후 폐기(문서화만). (4) Contract-surface diff 규칙 문서화: agent-host.ts 변경 PR은 OpenCodeHostStub 테스트 포함 강제 (README or CONTRIBUTING).",
+          "acceptance": "ESLint 위반 0 + leak canary green + OpenCode probe 실행 로그 .nexus/memory/에 보관 + contract-surface 규칙 문서 존재 + 전체 vitest green.",
+          "risk": "Probe 실행에 opencode 바이너리 설치 필요 — 실패 시 probe 결과를 \"inconclusive\"로 기록하되 stub 자체는 compile probe로 유지.",
+          "status": "completed",
+          "deps": [
+            14
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-13T01:32:38.217Z"
+        },
+        {
+          "id": 16,
+          "title": "커밋 #5 검증",
+          "context": "봉쇄 장치가 의도대로 작동하는지 확인.",
+          "approach": "(1) routes/에 의도적 import 추가 후 ESLint red 전환 확인, 복구. (2) leak canary에 동일 mutation 테스트. (3) Mini probe 실행 로그 증거 확인.",
+          "acceptance": "ESLint·canary mutation red→green 전환 로그 기록 + probe 로그 존재.",
+          "risk": "없음.",
+          "status": "completed",
+          "deps": [
+            15
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-13T01:32:41.414Z"
+        },
+        {
+          "id": 17,
+          "title": "Dev smoke 프로토콜 문서 작성",
+          "context": "tester가 제시한 port listener 기준 체크리스트(path-guard-lessons §4 교훈 반영)를 .nexus/memory/dev-smoke-protocol.md로 영구 보관. 이후 모든 커밋 검증 시 참조.",
+          "approach": "섹션 구성: (1) 사전 조건 port listener 상태 확인 (lsof -nP -iTCP:3000,5173) (2) 클린 빌드(bun run clean && bun install && bun run build, shared 선행 강제) (3) dev 서버 기동(bun run dev + ready 대기) (4) 수동 확인 항목 4종(워크스페이스 열기/CC spawn/권한 grant·deny/reload 복원) (5) 종료 후 port 해제 확인 (6) orphan(ppid=1) 감지 및 대응. 각 단계에 실패 신호 1-2줄 명시.",
+          "acceptance": ".nexus/memory/dev-smoke-protocol.md 파일 존재 + 6개 섹션 모두 체크리스트 형식 + 실패 신호 명시 + 원본 교훈 출처(path-guard-lessons §4) 링크.",
+          "risk": "없음.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "writer",
+          "created_at": "2026-04-13T01:32:55.559Z"
+        },
+        {
+          "id": 18,
+          "title": "Dev smoke 프로토콜 문서 리뷰",
+          "context": "체크리스트 완결성·정확성 검증.",
+          "approach": "각 단계 실제 실행 가능성 + 명령어 정확성 + 실패 신호 완결성 점검.",
+          "acceptance": "실행 가능성 확인 + 오탈자·포맷 0건.",
+          "risk": "없음.",
+          "status": "completed",
+          "deps": [
+            17
+          ],
+          "plan_issue": 3,
+          "owner": "reviewer",
+          "created_at": "2026-04-13T01:32:58.629Z"
+        },
+        {
+          "id": 19,
+          "title": "Context 문서 업데이트 — architecture.md · philosophy.md · backlog.md",
+          "context": "I1-I4 결정을 .nexus/context/ 및 .nexus/memory/에 반영. 리팩터링 완료 후 영구 지식으로 격상. 미래 온보딩·재검토 자료.",
+          "approach": "(1) .nexus/context/architecture.md — adapters 폴더 구조 섹션 갱신 (claude-code/ · approval/ · security/ · hooks/ 분리), AgentHost 와이어링 완료 상태 반영, ClaudeCodeHost 경유 경로 명시. (2) .nexus/context/session-flow.md — \"Future direction\" 섹션을 현재형으로 갱신 (AgentHost가 1급). (3) .nexus/context/philosophy.md — Phase 3 재평가 trigger 3개(모바일 요구·번들 불만·OpenCode 착수) 명시, Tauri 재평가 POC 결과 참조. (4) .nexus/memory/backlog.md — I1-I4 결정 반영, 해결된 항목 제거, 신규 미결 항목(Phase 3 OpenCode adapter path A/B 선택) 유지. agent-host-registry 보류 결정 명시. Playwright E2E 복구를 별도 백로그 항목으로 추가.",
+          "acceptance": "4개 파일 모두 갱신 + 기존 문서와의 논리 일관성 유지 + 제거·추가 항목 명시.",
+          "risk": "기존 문서의 \"Future direction\" 기술이 과거 시점이므로 중복·모순 점검 필수.",
+          "status": "completed",
+          "deps": [
+            16
+          ],
+          "plan_issue": 1,
+          "owner": "writer",
+          "created_at": "2026-04-13T01:33:10.308Z"
+        },
+        {
+          "id": 20,
+          "title": "Context 문서 리뷰",
+          "context": "architecture/philosophy/session-flow/backlog 4문서의 일관성·정확성 검증.",
+          "approach": "각 결정(I1-I4)이 해당 문서에 정확히 반영됐는지 + 기존 기술과의 모순 0건 확인 + Hard Constraint와 충돌 0건.",
+          "acceptance": "4문서 모두 사실 오류 0, 논리 모순 0, Hard Constraint 준수.",
+          "risk": "Phase 3 trigger 표현이 이전 backlog와 중복될 수 있음 — 통합 여부 판단.",
+          "status": "completed",
+          "deps": [
+            19
+          ],
+          "plan_issue": 1,
+          "owner": "reviewer",
+          "created_at": "2026-04-13T01:33:14.152Z"
+        },
+        {
+          "id": 21,
+          "title": "POC-2 Track A — Tauri shell + 빌드 환경 정비",
+          "context": "POC-2 재정의: Nexus Code 기능 동등성 검증이 목적. 앱 번들/메모리/크로스플랫폼은 범위 외. 병렬 Track A는 Tauri shell 자체 + 빌드 환경 정비 담당.",
+          "approach": "(1) ~/workspaces/tauri-poc-nexus 기존 POC 자산 재활용 (2) Rust 빌드 환경 정비: 이전 실패한 Rust 1.93.1 + tauri-build 2.x proc macro 패닉 해결. tauri-build/tauri 버전 조합 고정(예: tauri 2.1.x + tauri-build 2.0.x 호환 조합), rust-toolchain.toml로 rustc 버전 pin. (3) src-tauri/ 구조: main.rs (창 관리 + 다크테마 고정 + sidecar spawn) + tauri.conf.json (externalBin 경로 'sidecar/nexus-sidecar-aarch64-apple-darwin' 등록, capabilities/*.json 2.x 구조) (4) 최소 React UI (Vite) — 폴더 선택 버튼·로그창·CC spawn 버튼·approval 응답 버튼. tauri-plugin-dialog로 네이티브 폴더 다이얼로그 호출. (5) bun run tauri dev 성공까지 확인.",
+          "acceptance": "bun run tauri dev 실행 → 창 표시 + 사이드카 spawn + SSE 구독 로그 수신 + 폴더 선택 다이얼로그 동작 확인. Rust 빌드 완결.",
+          "risk": "Rust proc macro 패닉이 재현되면 버전 조합을 OpenCode 소스의 Cargo.toml에서 복사. 이 환경에서 장시간 빌드가 반복 중단된 전례 있음 — 중단 시 상태 저장 후 Lead에 보고.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-13T02:10:36.241Z"
+        },
+        {
+          "id": 22,
+          "title": "POC-2 Track B — 사이드카 통합 (현 server 재활용)",
+          "context": "POC-2 병렬 Track B. 현 Nexus Code server 코드를 그대로 재활용해 Bun.serve로 띄우고 Tauri sidecar 바이너리로 패키징. 서버 재작성 금지, 최소 patch만.",
+          "approach": "(1) ~/workspaces/tauri-poc-nexus/sidecar/ 폴더 신설 (2) /Users/kih/workspaces/areas/nexus-code/packages/server/src 전체를 sidecar/src에 복사 (실험용이므로 OK). 빌드 전용 조정: package.json·tsconfig·dependencies 복사 (3) 핵심 패치 1개: @hono/node-server 호출부를 Bun.serve({fetch: app.fetch, port})로 교체. 기존 코드 다른 부분은 손대지 말 것 (4) SQLite better-sqlite3는 Bun 호환 여부 점검 → 불가능하면 bun:sqlite로 교체 (DB 어댑터 파일만 소폭 수정) (5) bun build --compile --target=bun-darwin-arm64 --outfile=nexus-sidecar-aarch64-apple-darwin sidecar/src/index.ts로 단일 바이너리. Track A 합의 경로에 배치 (6) 바이너리 독립 실행 smoke: ./nexus-sidecar-aarch64-apple-darwin PORT=3000 & curl http://localhost:3000/api/health.",
+          "acceptance": "바이너리 존재 + curl /api/health 200 + SSE endpoint /api/workspaces/:path/events로 EventSource 연결 성공 + CC spawn hook 왕복 시뮬레이션(수동 curl로 /hooks/pre-tool-use POST 시나리오 1회) 정상.",
+          "risk": "SQLite native 모듈이 Bun 호환 아닐 수 있음 → bun:sqlite로 최소 패치. DB 스키마는 현 server가 가진 SQL 그대로 유지 가능해야 함.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 4,
+          "owner": "engineer",
+          "created_at": "2026-04-13T02:10:49.216Z"
+        },
+        {
+          "id": 23,
+          "title": "POC-2 통합 + 12개 기능 체크리스트 PASS/FAIL",
+          "context": "T21+T22 완료 후 Tauri shell에서 사이드카 + 웹 UI 통합, Nexus Code 12개 기능 항목 각각 PASS/FAIL 판정. 1개라도 FAIL = 전환 blocker.",
+          "approach": "(1) Track A 레포에서 bun run tauri dev 구동 (2) 12개 항목 체크리스트 실행: ①SSE session events 수신 (text_delta/tool_call/tool_result/permission_request/turn_end) ②SSE 재연결 (dev 서버 재시작 시 자동 복구·메시지 유실) ③사이드카 프로세스 라이프사이클 (Tauri 종료 시 orphan 없음) ④CC CLI spawn + stream-json 정상 ⑤Pre-tool-use hook 왕복 full 경로 ⑥폴더 선택 다이얼로그 ⑦파일 트리 read ⑧SQLite 설정 저장·조회 ⑨브라우저 리로드 후 세션 복원 ⑩다크 테마 고정 ⑪창 최소화/최대화/종료 ⑫(선택) OS 알림 지원 여부 확인. (3) 각 항목 PASS/FAIL + 세부 이슈 기록한 CHECKLIST.md 저장.",
+          "acceptance": "~/workspaces/tauri-poc-nexus/CHECKLIST.md 파일 존재 + 12개 항목 모두 PASS/FAIL 판정 + FAIL 항목이 있으면 구체적 원인·우회 가능성 명시 + 종합 판정(전환 가능 ✅ / blocker 존재 ❌ / 조건부 ⚠️).",
+          "risk": "재연결 시나리오는 manual trigger (dev 서버 kill → 재시작). tester가 재현 경로 명확히 기록해야 재현성 확보. SQLite는 bun:sqlite 호환성이 주요 리스크.",
+          "status": "completed",
+          "deps": [
+            21,
+            22
+          ],
+          "plan_issue": 4,
+          "owner": "tester",
+          "created_at": "2026-04-13T02:11:00.458Z"
+        }
+      ]
     }
   ]
 }
