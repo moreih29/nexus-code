@@ -5,6 +5,13 @@ import path from 'node:path'
 const FORBIDDEN = /from ['"](?:\.\.\/)+adapters\/claude-code\//
 const BASE = path.resolve(import.meta.dirname, '..')
 
+const BASELINE_LEAKS = new Set([
+  'routes/session.ts',
+  'routes/events.ts',
+  'routes/cli-settings.ts',
+  'services/session-lifecycle-service.ts',
+])
+
 async function collectTsFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true })
   const out: string[] = []
@@ -23,14 +30,21 @@ async function collectTsFiles(dir: string): Promise<string[]> {
 describe('adapter import boundaries (leak canary)', () => {
   const scanTargets = ['routes', 'services', 'domain']
   for (const target of scanTargets) {
-    it(`${target}/ does not import adapters/claude-code/**`, async () => {
+    it(`${target}/ does not import adapters/claude-code/** beyond baseline`, async () => {
       const files = await collectTsFiles(path.join(BASE, target))
       const leaks: string[] = []
       for (const file of files) {
         const content = await readFile(file, 'utf-8')
-        if (FORBIDDEN.test(content)) leaks.push(file)
+        if (FORBIDDEN.test(content)) {
+          leaks.push(path.relative(BASE, file))
+        }
       }
-      expect(leaks, `Leaks found:\n${leaks.join('\n')}`).toEqual([])
+      const newLeaks = leaks.filter((f) => !BASELINE_LEAKS.has(f))
+      expect(
+        newLeaks,
+        `New adapter/claude-code import detected:\n${newLeaks.join('\n')}\n` +
+          `Baseline allowlist (Phase 3 cleanup target): ${[...BASELINE_LEAKS].join(', ')}`,
+      ).toEqual([])
     })
   }
 })

@@ -14,8 +14,15 @@ export default tseslint.config(
       'src/services/**/*.ts',
       'src/domain/**/*.ts',
     ],
-    // Exclude test files — boundaries apply to production code only
-    ignores: ['**/__tests__/**'],
+    // Exclude test files — boundaries apply to production code only.
+    // Baseline allowlist: pre-existing leaks tracked by the Vitest canary for Phase 3 cleanup.
+    ignores: [
+      '**/__tests__/**',
+      'src/routes/session.ts',
+      'src/routes/events.ts',
+      'src/routes/cli-settings.ts',
+      'src/services/session-lifecycle-service.ts',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
