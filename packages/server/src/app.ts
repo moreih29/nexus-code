@@ -17,6 +17,7 @@ import { createSettingsRouter } from './routes/settings.js'
 import { createCliSettingsRouter } from './routes/cli-settings.js'
 import { WorkspaceRegistry } from './domain/workspace/workspace-registry.js'
 import { ProcessSupervisor } from './adapters/claude-code/process-supervisor.js'
+import { ClaudeCodeHost } from './adapters/claude-code/claude-code-host.js'
 import { EventEmitterAdapter } from './adapters/events/event-emitter-adapter.js'
 import { SessionStore } from './adapters/db/session-store.js'
 import { WorkspaceStore } from './adapters/db/workspace-store.js'
@@ -43,6 +44,7 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   const hookManager = new HookManager(port)
   const approvalBridge = new ApprovalBridge(policyStore, settingsStore, categorizeClaudeCodeTool)
   const workspaceLogger = new WorkspaceLogger()
+  const agentHost = new ClaudeCodeHost(supervisor, approvalBridge)
 
   const workspaceRows = workspaceStore.list()
   for (const row of workspaceRows) {
@@ -63,12 +65,12 @@ export function createApp(port = Number(process.env['PORT'] ?? 3000)) {
   app.route('/api/workspaces', createWorkspaceRouter(registry, workspaceStore))
   app.route('/api/sessions', createSessionRouter(supervisor, registry, sessions, store, hookManager, settingsStore, workspaceLogger, policyStore))
   app.route('/api/approvals', createApprovalRouter(approvalBridge, policyStore, workspaceLogger))
-  app.route('/api/workspaces', createEventsRouter(supervisor, approvalBridge, workspaceLogger))
+  app.route('/api/workspaces', createEventsRouter(agentHost, approvalBridge, workspaceLogger))
   app.route('/api/workspaces', createFilesRouter())
   app.route('/api/workspaces', createGitRouter())
   app.route('/api/settings', createSettingsRouter(settingsStore))
   app.route('/api/cli-settings', createCliSettingsRouter())
   app.route('/hooks', createHooksRouter(hookManager, approvalBridge, workspaceLogger))
 
-  return { app, supervisor, registry, store, hookManager, workspaceLogger }
+  return { app, supervisor, agentHost, registry, store, hookManager, workspaceLogger }
 }

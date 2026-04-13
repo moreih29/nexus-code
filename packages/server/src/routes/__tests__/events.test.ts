@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Hono } from 'hono'
 import { createEventsRouter } from '../events.js'
-import type { ProcessSupervisor } from '../../adapters/claude-code/process-supervisor.js'
 import type { CliProcess } from '../../adapters/claude-code/cli-process.js'
 import type { ApprovalBridge } from '../../adapters/approval/bridge.js'
 
@@ -40,7 +39,7 @@ function makeMockGroup(entries: [string, ReturnType<typeof makeMockProcess>][] =
 function makeMockSupervisor(group: ReturnType<typeof makeMockGroup> | undefined) {
   return {
     getGroup: vi.fn().mockReturnValue(group),
-  } as unknown as ProcessSupervisor & { getGroup: ReturnType<typeof vi.fn> }
+  }
 }
 
 function makeMockApprovalBridge() {
@@ -49,7 +48,7 @@ function makeMockApprovalBridge() {
   } as unknown as ApprovalBridge
 }
 
-function makeApp(supervisor: ProcessSupervisor, approvalBridge = makeMockApprovalBridge()): Hono {
+function makeApp(supervisor: { getGroup: ReturnType<typeof vi.fn> }, approvalBridge = makeMockApprovalBridge()): Hono {
   const router = createEventsRouter(supervisor, approvalBridge)
   const app = new Hono()
   app.route('/', router)

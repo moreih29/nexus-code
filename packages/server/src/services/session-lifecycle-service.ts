@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ok, err } from '@nexus/shared'
 import type { Result } from '@nexus/shared'
-import type { ProcessSupervisor } from '../adapters/claude-code/process-supervisor.js'
 import type { WorkspaceRegistry } from '../domain/workspace/workspace-registry.js'
 import type { SessionStore } from '../adapters/db/session-store.js'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
@@ -9,6 +8,12 @@ import type { SettingsStore, AppSettings } from '../adapters/db/settings-store.j
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
 import type { WorkspaceGroup } from '../adapters/claude-code/workspace-group.js'
 import type { CliProcess, CliStartOptions } from '../adapters/claude-code/cli-process.js'
+
+/** Minimal interface for workspace-group lifecycle management. Satisfied by ProcessSupervisor. */
+export interface WorkspaceGroupManager {
+  getGroup(workspacePath: string): WorkspaceGroup | undefined
+  createGroup(workspacePath: string): Result<WorkspaceGroup>
+}
 // resolvePermissionMode는 ClaudeCodeHost(adapter)로 이관됨. 하위 호환성을 위해 re-export.
 export type { PermissionModeInput } from '../adapters/claude-code/claude-code-host.js'
 export { resolvePermissionMode } from '../adapters/claude-code/claude-code-host.js'
@@ -114,7 +119,7 @@ export interface WireAndStartResult {
 
 export class SessionLifecycleService {
   constructor(
-    private readonly supervisor: ProcessSupervisor,
+    private readonly supervisor: WorkspaceGroupManager,
     private readonly registry: WorkspaceRegistry,
     private readonly sessions: Map<string, SessionRecord>,
     private readonly store: SessionStore,

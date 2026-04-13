@@ -1,11 +1,16 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { ProcessSupervisor } from '../adapters/claude-code/process-supervisor.js'
+import type { WorkspaceGroup } from '../adapters/claude-code/workspace-group.js'
 import type { CliProcess } from '../adapters/claude-code/cli-process.js'
 import type { ApprovalBridge } from '../adapters/approval/bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 
-export function createEventsRouter(supervisor: ProcessSupervisor, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
+/** Minimal interface for resolving a workspace's process group. Satisfied by ProcessSupervisor and ClaudeCodeHost. */
+interface GroupLookup {
+  getGroup(workspacePath: string): WorkspaceGroup | undefined
+}
+
+export function createEventsRouter(supervisor: GroupLookup, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
   const router = new Hono()
 
   router.get('/:path{.+}/events', async (c) => {

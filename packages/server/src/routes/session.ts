@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { StartSessionRequestSchema, PromptBodySchema } from '@nexus/shared'
 import { validateBody } from '../middleware/validation.js'
-import type { ProcessSupervisor } from '../adapters/claude-code/process-supervisor.js'
+import type { WorkspaceGroupManager } from '../services/session-lifecycle-service.js'
 import type { WorkspaceRegistry } from '../domain/workspace/workspace-registry.js'
 import type { SessionStore } from '../adapters/db/session-store.js'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
@@ -49,7 +49,7 @@ import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 // SessionRecord is re-exported above; this local import is for the Map<string, SessionRecord> param type
 
 export function createSessionRouter(
-  supervisor: ProcessSupervisor,
+  supervisor: WorkspaceGroupManager,
   registry: WorkspaceRegistry,
   sessions: Map<string, SessionRecord>,
   store: SessionStore,
