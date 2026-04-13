@@ -45,7 +45,14 @@ Hono 기반 HTTP 서버. Layered 아키텍처로 책임을 분리한다.
 
 - **Routes**: 엔드포인트 계약 (health, workspace, session, events, hooks, files, git, settings, approval, cli-settings)
 - **Services**: 세션 생명주기, 권한 평가 등 도메인 로직
-- **Adapters**: 외부 세계와의 경계 (ProcessSupervisor = CLI 프로세스, EventEmitter = pub/sub, HookManager = 사전 승인 정책, SessionStore/WorkspaceStore = Better-SQLite3 DB, WorkspaceLogger = 워크스페이스별 디버그 로그)
+- **Adapters**: 외부 세계와의 경계. Plan #6(2026-04) 결정으로 역할 기반 폴더로 재편됨:
+  - `adapters/claude-code/` — CC 전용 구현체 (cli-process, stream-parser, claude-code-host, cli-settings-proxy, history-parser, tool-categorizer, protected-paths, process-supervisor, workspace-group)
+  - `adapters/approval/` — 하네스 중립 권한 파이프라인 (bridge.ts. tool-categorizer는 CC 전용 분리)
+  - `adapters/security/` — 하네스 중립 경로 가드 (path-guard, path-guard-preflight)
+  - `adapters/hooks/` — HTTP hook endpoint 라우팅 (hook-manager.ts)
+  - `adapters/db/` — SessionStore / WorkspaceStore / SettingsStore / ApprovalPolicyStore
+  - `adapters/events/` — EventEmitter pub/sub
+  - `adapters/logging/` — WorkspaceLogger
 - **Domain**: WorkspaceRegistry (메모리 레지스트리)
 
 서버는 **상태를 갖는 유일한 계층**이다. SQLite에 워크스페이스/세션/설정/승인 정책이 영속화되며, 다른 계층은 서버를 통하지 않고서는 상태를 변경하지 않는다.
@@ -73,6 +80,7 @@ BrowserWindow 호스팅 + 서버/웹 프로세스 오케스트레이션. 보안 
 3. **타입 계약 우선**: 새 기능은 shared의 Zod 스키마부터 정의한 뒤 server → web 순으로 구현한다.
 4. **외부 경계는 Adapter로 격리**: CLI 프로세스, DB, 파일 시스템, 로거 등 I/O는 모두 adapter 계층에 배치한다. Services는 Adapter 인터페이스에만 의존.
 5. **kebab-case 파일명**: 모든 패키지에서 일관.
+6. **Adapter import 경계**: `routes/`·`services/`·`domain/`은 `adapters/claude-code/**`를 직접 import 금지(예외 없음). `ClaudeCodeHost`는 `app.ts`(composition root)에서만 인스턴스화하고 services에는 `AgentHost` interface로 주입한다. 이 경계는 Phase 3 OpenCode adapter 추가 시 shotgun surgery를 방지하는 핵심 봉쇄선이다. (ESLint `no-restricted-paths` + leak canary CI는 커밋 #5에서 적용 예정.)
 
 ## 빌드/개발 오케스트레이션
 

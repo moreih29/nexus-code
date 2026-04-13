@@ -107,9 +107,17 @@ CLI ──[pre-tool-use]──▶ Server(/hooks/pre-tool-use)
 
 두 소스의 합집합이 Zustand 스토어로 투영되면 UI가 "중단 없이 이어지는 것처럼" 보인다. 실패 모드를 디버깅할 때는 이 두 소스 중 어느 쪽이 결손인지 먼저 확인해야 한다.
 
-## Future direction (진행 중)
+## AgentHost 와이어링 현황 (Plan #6, 커밋 #0-#4, 2026-04)
 
-Plan Session #1 결정에 따라 **AgentHost 인터페이스**(`packages/shared/src/types/agent-host.ts`)가 도입될 예정이다. 이후 기존 `ProcessSupervisor` + `CliProcess` + `stream-parser` + `ApprovalBridge`는 AgentHost 구현체인 **Claude Code adapter**(`packages/server/src/adapters/claude-code-host.ts`)로 래핑된다. **OpenCode adapter**(`packages/server/src/adapters/opencode-host.ts`)도 동일 계약으로 추가될 예정이다.
+Plan #6 I1-I3 결정에 따라 **AgentHost 인터페이스**(`packages/shared/src/types/agent-host.ts`) 및 **Claude Code adapter**(`packages/server/src/adapters/claude-code/claude-code-host.ts`)가 구현 완료됐다.
 
-상세: `.nexus/memory/nexus-code/03-IMPLEMENTATION_GUIDE.md` §5 / §9 / §10.
-진행 상태: Plan #5 Issue #3 Phase 2 — Task A(AgentHost 인터페이스 신설) → Task C-spike(Claude Code adapter UI 미연결 병렬 래퍼) → tester 검증.
+완료된 작업:
+- **커밋 #0** — AgentHost 계약 누출 4건 선수정 (shared: `permission_asked` 이벤트 필드 보강, `extraArgs` CC 전용 scope 정리, `resolvePermissionMode` adapter 이관, `dispose` 선형 스캔 제거)
+- **커밋 #1** — `tool-categorizer.ts` 추출 (`adapters/cli/tool-categorizer.ts`, 커밋 #3 rename 이후 `adapters/claude-code/`). `ApprovalBridge`에 categorizer 함수 주입 방식으로 분리
+- **커밋 #2** — `protected-paths.ts` 추출 (`adapters/cli/protected-paths.ts`, 커밋 #3 rename 이후 `adapters/claude-code/`). CC 화이트리스트를 PathGuard에서 분리해 합성 (PathGuard 자체는 커밋 #4에서 `adapters/security/`로 이동)
+- **커밋 #3** — `adapters/cli/` → `adapters/claude-code/` 순수 rename (무로직, blame 보존)
+- **커밋 #4** — `approval/bridge.ts` + `security/path-guard*` 중립 폴더 이동 완료
+
+현재 상태: `app.ts` 와이어링(AgentHost 인터페이스 경유 서비스 주입)은 커밋 #4b(Phase 2 완성) 대상. `adapters/claude-code/`는 CC 전용 구현을 완전 격리한 상태다.
+
+**OpenCode adapter**(`adapters/opencode/`)는 Phase 3 공식 착수(trigger 3개 중 2/3 충족) 시점에 동일 AgentHost 계약으로 추가된다. 재작업 없이 Node sidecar(I1-I3 구현)는 그대로 재사용된다.
