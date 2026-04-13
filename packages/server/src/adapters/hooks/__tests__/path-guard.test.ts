@@ -12,6 +12,7 @@ import {
 import { allowFixtures } from './bash-parser-fixtures.js'
 import { unparseableFixtures } from './bash-parser-fixtures.js'
 import { protectedFixtures } from './protected-paths-fixtures.js'
+import { CLAUDE_PROTECTION_RULES } from '../../cli/protected-paths.js'
 
 // ---------------------------------------------------------------------------
 // Test workspace setup
@@ -90,7 +91,7 @@ describe('isProtected — fixture corpus', () => {
     const absPath = rel.startsWith('..')
       ? path.resolve(workspaceRoot, rel)
       : path.join(workspaceRoot, rel)
-    const result = isProtected(absPath, workspaceRoot)
+    const result = isProtected(absPath, workspaceRoot, CLAUDE_PROTECTION_RULES)
     expect(result).toBe(expected)
   })
 })

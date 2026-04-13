@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { extractPaths, normalizePath, isProtected, isWithinAllowedRoots } from './path-guard.js'
+import { CLAUDE_PROTECTION_RULES } from '../cli/protected-paths.js'
 
 export interface PreflightResult {
   protectedPaths: string[]
@@ -43,7 +44,7 @@ export async function preflightPaths(
     extracted.paths.map((p) => normalizePath(p, realWorkspace)),
   )
 
-  const protectedPaths = normalized.filter((abs) => isProtected(abs, realWorkspace))
+  const protectedPaths = normalized.filter((abs) => isProtected(abs, realWorkspace, CLAUDE_PROTECTION_RULES))
 
   // bashFsSubset 판정: Bash 도구이고 모든 경로가 cwd 내부
   const bashFsSubset =

@@ -3,6 +3,26 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 // ---------------------------------------------------------------------------
+// HarnessProtectionRules
+// ---------------------------------------------------------------------------
+
+/**
+ * Harness-specific protection rules composed into `isProtected` via the
+ * optional `extraRules` parameter.  Each harness (Claude Code, OpenCode, …)
+ * owns its own `HarnessProtectionRules` constant; the neutral path-guard
+ * applies them without hardcoding any harness-specific directory names.
+ */
+export interface HarnessProtectionRules {
+  /** Directories the harness considers protected (e.g. ['.claude']). */
+  readonly protectedDirs: readonly string[]
+  /**
+   * Relative path prefixes that are whitelisted within those directories
+   * (e.g. ['.claude/commands', '.claude/agents']).
+   */
+  readonly whitelist: readonly string[]
+}
+
+// ---------------------------------------------------------------------------
 // Protected list constants
 // ---------------------------------------------------------------------------
 
@@ -22,14 +42,6 @@ export const PROTECTED_FILES = [
   '.profile',
   '.mcp.json',
   '.claude.json',
-] as const
-
-// .claude is protected except for these subdirectory prefixes
-const CLAUDE_WHITELIST = [
-  '.claude/commands',
-  '.claude/agents',
-  '.claude/skills',
-  '.claude/worktrees',
 ] as const
 
 // Matches '.env' or '.env.<anything>'
@@ -83,8 +95,16 @@ export async function normalizePath(input: string, cwd: string): Promise<string>
  *
  * Only paths **inside** the workspace are guarded; anything outside is
  * considered out-of-scope and returns false.
+ *
+ * `extraRules` lets callers inject harness-specific protection rules (e.g.
+ * Claude Code's `.claude` directory rules) without hardcoding them here.
+ * When omitted, only the neutral common rules apply.
  */
-export function isProtected(absPath: string, workspaceRoot: string): boolean {
+export function isProtected(
+  absPath: string,
+  workspaceRoot: string,
+  extraRules?: HarnessProtectionRules,
+): boolean {
   const rel = path.relative(workspaceRoot, absPath)
 
   // Outside workspace or absolute — not our concern
@@ -95,13 +115,17 @@ export function isProtected(absPath: string, workspaceRoot: string): boolean {
   // Normalize separators for consistent comparison
   const relNorm = rel.split(path.sep).join('/')
 
-  // .claude special handling
-  if (relNorm === '.claude' || relNorm.startsWith('.claude/')) {
-    // Whitelist: specific subdirectory prefixes are allowed
-    const whitelisted = (CLAUDE_WHITELIST as readonly string[]).some(
-      (w) => relNorm === w || relNorm.startsWith(w + '/')
-    )
-    return !whitelisted
+  // Harness-specific directory rules (extraRules)
+  if (extraRules !== undefined) {
+    for (const dir of extraRules.protectedDirs) {
+      if (relNorm === dir || relNorm.startsWith(dir + '/')) {
+        // Within a harness-protected dir — check whitelist
+        const whitelisted = extraRules.whitelist.some(
+          (w) => relNorm === w || relNorm.startsWith(w + '/'),
+        )
+        return !whitelisted
+      }
+    }
   }
 
   // .env* file check (basename only)
@@ -112,13 +136,13 @@ export function isProtected(absPath: string, workspaceRoot: string): boolean {
 
   // Protected directories
   const protectedDirMatch = (PROTECTED_DIRS as readonly string[]).some(
-    (d) => relNorm === d || relNorm.startsWith(d + '/')
+    (d) => relNorm === d || relNorm.startsWith(d + '/'),
   )
   if (protectedDirMatch) return true
 
   // Protected files (exact rel match or exact basename match)
   const protectedFileMatch = (PROTECTED_FILES as readonly string[]).some(
-    (f) => relNorm === f || base === f
+    (f) => relNorm === f || base === f,
   )
   if (protectedFileMatch) return true
 
