@@ -15,8 +15,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseSessionHistory } from '../../adapters/cli/history-parser.js'
-import type { HistoryMessage } from '../../adapters/cli/history-parser.js'
+import { parseSessionHistory } from '../../adapters/claude-code/history-parser.js'
+import type { HistoryMessage } from '../../adapters/claude-code/history-parser.js'
 import type { SessionRow } from '../../adapters/db/session-store.js'
 
 // ---------------------------------------------------------------------------

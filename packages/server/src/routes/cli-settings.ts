@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getCliSettingsPath, readCliSettings, writeCliSettings, CLI_SETTINGS_WHITELIST } from '../adapters/cli/cli-settings-proxy.js'
+import { getCliSettingsPath, readCliSettings, writeCliSettings, CLI_SETTINGS_WHITELIST } from '../adapters/claude-code/cli-settings-proxy.js'
 
 export function createCliSettingsRouter() {
   const router = new Hono()

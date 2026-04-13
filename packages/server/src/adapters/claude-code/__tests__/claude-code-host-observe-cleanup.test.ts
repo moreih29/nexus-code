@@ -9,10 +9,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ClaudeCodeHost } from '../claude-code-host.js'
-import type { ProcessSupervisor } from '../cli/process-supervisor.js'
-import type { ApprovalBridge } from '../hooks/approval-bridge.js'
-import type { CliProcess } from '../cli/cli-process.js'
-import type { WorkspaceGroup } from '../cli/workspace-group.js'
+import type { ProcessSupervisor } from '../process-supervisor.js'
+import type { ApprovalBridge } from '../../hooks/approval-bridge.js'
+import type { CliProcess } from '../cli-process.js'
+import type { WorkspaceGroup } from '../workspace-group.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers — listener-counting CliProcess

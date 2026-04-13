@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Hono } from 'hono'
 import { createEventsRouter } from '../events.js'
-import type { ProcessSupervisor } from '../../adapters/cli/process-supervisor.js'
-import type { CliProcess } from '../../adapters/cli/cli-process.js'
+import type { ProcessSupervisor } from '../../adapters/claude-code/process-supervisor.js'
+import type { CliProcess } from '../../adapters/claude-code/cli-process.js'
 import type { ApprovalBridge } from '../../adapters/hooks/approval-bridge.js'
 
 // ----------- Mock helpers -----------

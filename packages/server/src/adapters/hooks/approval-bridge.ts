@@ -1,6 +1,6 @@
 import type { ApprovalPolicyStore } from '../db/approval-policy-store.js'
 import type { SettingsStore } from '../db/settings-store.js'
-import { type ToolCategory, categorizeClaudeCodeTool } from '../cli/tool-categorizer.js'
+import { type ToolCategory, categorizeClaudeCodeTool } from '../claude-code/tool-categorizer.js'
 
 const APPROVAL_TIMEOUT_MS = 300_000
 

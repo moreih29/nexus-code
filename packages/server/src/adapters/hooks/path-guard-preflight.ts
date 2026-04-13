@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { extractPaths, normalizePath, isProtected, isWithinAllowedRoots } from './path-guard.js'
-import { CLAUDE_PROTECTION_RULES } from '../cli/protected-paths.js'
+import { CLAUDE_PROTECTION_RULES } from '../claude-code/protected-paths.js'
 
 export interface PreflightResult {
   protectedPaths: string[]

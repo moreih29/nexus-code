@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import { SessionStore } from '../../adapters/db/session-store.js'
-import { ProcessSupervisor } from '../../adapters/cli/process-supervisor.js'
+import { ProcessSupervisor } from '../../adapters/claude-code/process-supervisor.js'
 import { WorkspaceRegistry } from '../../domain/workspace/workspace-registry.js'
 import { EventEmitterAdapter } from '../../adapters/events/event-emitter-adapter.js'
 import { createSessionRouter } from '../session.js'
 import type { SessionRecord } from '../session.js'
-import type { CliProcess } from '../../adapters/cli/cli-process.js'
-import type { CliProcessFactory } from '../../adapters/cli/workspace-group.js'
+import type { CliProcess } from '../../adapters/claude-code/cli-process.js'
+import type { CliProcessFactory } from '../../adapters/claude-code/workspace-group.js'
 
 // ----------- Mock helpers (same pattern as session-lifecycle.test.ts) -----------
 

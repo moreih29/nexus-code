@@ -2,9 +2,9 @@ import type { AgentHost, AgentHostConfig, AgentHostEvent } from '@nexus/shared'
 import type { Result } from '@nexus/shared'
 import { ok, err, appError } from '@nexus/shared'
 import { randomUUID } from 'node:crypto'
-import type { ProcessSupervisor } from './cli/process-supervisor.js'
-import type { ApprovalBridge } from './hooks/approval-bridge.js'
-import type { CliProcess } from './cli/cli-process.js'
+import type { ProcessSupervisor } from './process-supervisor.js'
+import type { ApprovalBridge } from '../hooks/approval-bridge.js'
+import type { CliProcess } from './cli-process.js'
 
 // ---------------------------------------------------------------------------
 // resolvePermissionMode — CC 어댑터 전용 (CC vocabulary: bypassPermissions)

@@ -12,7 +12,7 @@ import {
 import { allowFixtures } from './bash-parser-fixtures.js'
 import { unparseableFixtures } from './bash-parser-fixtures.js'
 import { protectedFixtures } from './protected-paths-fixtures.js'
-import { CLAUDE_PROTECTION_RULES } from '../../cli/protected-paths.js'
+import { CLAUDE_PROTECTION_RULES } from '../../claude-code/protected-paths.js'
 
 // ---------------------------------------------------------------------------
 // Test workspace setup

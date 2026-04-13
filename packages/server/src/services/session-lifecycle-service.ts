@@ -1,17 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { ok, err } from '@nexus/shared'
 import type { Result } from '@nexus/shared'
-import type { ProcessSupervisor } from '../adapters/cli/process-supervisor.js'
+import type { ProcessSupervisor } from '../adapters/claude-code/process-supervisor.js'
 import type { WorkspaceRegistry } from '../domain/workspace/workspace-registry.js'
 import type { SessionStore } from '../adapters/db/session-store.js'
 import type { HookManager } from '../adapters/hooks/hook-manager.js'
 import type { SettingsStore, AppSettings } from '../adapters/db/settings-store.js'
 import type { ApprovalPolicyStore } from '../adapters/db/approval-policy-store.js'
-import type { WorkspaceGroup } from '../adapters/cli/workspace-group.js'
-import type { CliProcess, CliStartOptions } from '../adapters/cli/cli-process.js'
+import type { WorkspaceGroup } from '../adapters/claude-code/workspace-group.js'
+import type { CliProcess, CliStartOptions } from '../adapters/claude-code/cli-process.js'
 // resolvePermissionMode는 ClaudeCodeHost(adapter)로 이관됨. 하위 호환성을 위해 re-export.
-export type { PermissionModeInput } from '../adapters/claude-code-host.js'
-export { resolvePermissionMode } from '../adapters/claude-code-host.js'
+export type { PermissionModeInput } from '../adapters/claude-code/claude-code-host.js'
+export { resolvePermissionMode } from '../adapters/claude-code/claude-code-host.js'
 
 const LEGACY_MODEL_MAP: Record<string, string> = {
   'claude-opus-4-5': 'opus',

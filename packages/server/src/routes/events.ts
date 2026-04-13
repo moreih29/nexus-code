@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { ProcessSupervisor } from '../adapters/cli/process-supervisor.js'
-import type { CliProcess } from '../adapters/cli/cli-process.js'
+import type { ProcessSupervisor } from '../adapters/claude-code/process-supervisor.js'
+import type { CliProcess } from '../adapters/claude-code/cli-process.js'
 import type { ApprovalBridge } from '../adapters/hooks/approval-bridge.js'
 import type { WorkspaceLogger } from '../adapters/logging/workspace-logger.js'
 
