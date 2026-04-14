@@ -41,6 +41,8 @@ pub fn run() {
     let sidecar_handle = Arc::new(Mutex::new(None::<CommandChild>));
     let sidecar_port = Arc::new(Mutex::new(None::<u16>));
 
+    let sidecar_handle_for_run = sidecar_handle.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -69,7 +71,7 @@ pub fn run() {
         .run(move |_app, event| {
             if let RunEvent::Exit = event {
                 // 앱 종료 시 sidecar 명시 kill (POC 부록 B #3 패턴)
-                if let Ok(mut guard) = sidecar_handle.lock() {
+                if let Ok(mut guard) = sidecar_handle_for_run.lock() {
                     if let Some(child) = guard.take() {
                         let _ = child.kill();
                     }
