@@ -57,7 +57,8 @@ pub fn run() {
             let sidecar = app.shell()
                 .sidecar("nexus-sidecar")
                 .map_err(|e| format!("sidecar resolve failed: {}", e))?
-                .env("PORT", port.to_string());
+                .env("PORT", port.to_string())
+                .env("NODE_ENV", "production");
 
             let (_rx, child) = sidecar.spawn()
                 .map_err(|e| format!("sidecar spawn failed: {}", e))?;

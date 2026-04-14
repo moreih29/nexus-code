@@ -40,9 +40,19 @@ console.log(`[compile-sidecar] triple=${triple}`)
 console.log(`[compile-sidecar] outfile=${outfile}`)
 
 const proc = Bun.spawn({
-  cmd: ['bun', 'build', entry, '--compile', '--outfile', outfile],
+  cmd: [
+    'bun',
+    'build',
+    entry,
+    '--compile',
+    '--outfile',
+    outfile,
+    '--define',
+    'process.env.NODE_ENV="production"',
+  ],
   stdout: 'inherit',
   stderr: 'inherit',
+  env: { ...process.env, NODE_ENV: 'production' },
 })
 
 const exit = await proc.exited
