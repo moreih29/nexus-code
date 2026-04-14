@@ -1,13 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::net::TcpListener;
-use tauri::{
-    Manager, RunEvent, Runtime, State,
-};
+use tauri::{RunEvent, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
-
-/// 현재 spawn된 sidecar 프로세스 핸들 — 앱 종료 시 kill 보장
-struct SidecarHandle(Arc<Mutex<Option<CommandChild>>>);
 
 /// Sidecar가 바인딩한 포트 — `await_initialization` IPC로 webview에 전달
 struct SidecarPort(Arc<Mutex<Option<u16>>>);
@@ -46,7 +41,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(SidecarHandle(sidecar_handle.clone()))
         .manage(SidecarPort(sidecar_port.clone()))
         .setup(move |app| {
             // 1) Free port 할당
