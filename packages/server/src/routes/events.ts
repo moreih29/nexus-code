@@ -26,6 +26,11 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
       const disposables: (() => void)[] = []
       let subscribedGroup: WorkspaceGroup | undefined
 
+      workspaceLogger?.log(workspacePath, {
+        type: 'sse_connect',
+        data: { connectionId, initialGroupExists: !!supervisor.getGroup(workspacePath) },
+      })
+
       // 부록 B.3: Bun 10초 idle timeout 방지 — 10초 주기 heartbeat
       void stream.writeSSE({ event: 'connected', data: '' })
       const heartbeatTimer = setInterval(() => {
@@ -113,12 +118,20 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         if (subscribedGroup) return
         subscribedGroup = group
 
-        for (const [agentId, process_] of group.listProcessEntries()) {
+        const entries = [...group.listProcessEntries()]
+        workspaceLogger?.log(workspacePath, {
+          type: 'sse_event',
+          data: { event: '_diag_subscribe_group', connectionId, initialProcessCount: entries.length, agentIds: entries.map(([id]) => id) },
+        })
+
+        for (const [agentId, process_] of entries) {
+          workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_subscribe_process_initial', connectionId, agentId } })
           subscribeProcess(agentId, process_)
         }
 
         disposables.push(
           group.onProcessAdded((agentId, process_) => {
+            workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_process_added_cb', connectionId, agentId } })
             subscribeProcess(agentId, process_)
           }),
         )
@@ -126,10 +139,13 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
       const existingGroup = supervisor.getGroup(workspacePath)
       if (existingGroup) {
+        workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_existed', connectionId } })
         subscribeGroup(existingGroup)
       } else {
+        workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_missing_subscribing_onCreate', connectionId } })
         disposables.push(
           supervisor.onGroupCreated((ws, group) => {
+            workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_created_cb', connectionId, ws, matches: ws === workspacePath } })
             if (ws !== workspacePath) return
             subscribeGroup(group)
           }),
@@ -180,6 +196,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         for (const dispose of disposables) {
           dispose()
         }
+        workspaceLogger?.log(workspacePath, { type: 'sse_disconnect', data: { connectionId } })
         logger.info({ connectionId, workspacePath }, 'sse connection closed')
       })
 
