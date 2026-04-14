@@ -16,10 +16,6 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
   router.get('/:path{.+}/events', async (c) => {
     const workspacePath = '/' + c.req.param('path')
-    const group = supervisor.getGroup(workspacePath)
-    if (!group) {
-      return c.json({ error: { code: 'GROUP_NOT_FOUND', message: `No active session group for workspace '${workspacePath}'` } }, 404)
-    }
 
     // connectionId는 SSE 연결 1회 발급 — 서버 로그에서 연결 생애주기 추적용
     const connectionId = crypto.randomUUID()
@@ -27,6 +23,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
     return streamSSE(c, async (stream) => {
       const disposables: (() => void)[] = []
+      let subscribedGroup: WorkspaceGroup | undefined
 
       // 부록 B.3: Bun 10초 idle timeout 방지 — 10초 주기 heartbeat
       void stream.writeSSE({ event: 'connected', data: '' })
@@ -108,17 +105,31 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         )
       }
 
-      // Subscribe to all currently tracked processes
-      for (const [agentId, process_] of group.listProcessEntries()) {
-        subscribeProcess(agentId, process_)
+      // group이 아직 없어도 SSE 연결을 유지한다 — client가 resume/start API를 호출하면
+      // group이 생성되므로, polling으로 감지해 그 시점에 subscribe. (race 방지)
+      function trySubscribeGroup(): void {
+        if (subscribedGroup) return
+        const group = supervisor.getGroup(workspacePath)
+        if (!group) return
+        subscribedGroup = group
+
+        // 초기 시점의 모든 process에 subscribe
+        for (const [agentId, process_] of group.listProcessEntries()) {
+          subscribeProcess(agentId, process_)
+        }
+
+        // 이후 추가되는 process에도 subscribe
+        disposables.push(
+          group.onProcessAdded((agentId, process_) => {
+            subscribeProcess(agentId, process_)
+          }),
+        )
       }
 
-      // Subscribe to new processes as they are added
-      disposables.push(
-        group.onProcessAdded((agentId, process_) => {
-          subscribeProcess(agentId, process_)
-        }),
-      )
+      trySubscribeGroup()
+      const groupPollTimer: ReturnType<typeof setInterval> | null = subscribedGroup
+        ? null
+        : setInterval(trySubscribeGroup, 500)
 
       // permission_request → permission_settled requestId 전파를 위해 연결 단위 맵 유지
       const pendingRequestIds = new Map<string, string>()
@@ -161,6 +172,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
       stream.onAbort(() => {
         clearInterval(heartbeatTimer)
+        if (groupPollTimer) clearInterval(groupPollTimer)
         for (const dispose of disposables) {
           dispose()
         }

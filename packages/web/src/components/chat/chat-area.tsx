@@ -32,11 +32,10 @@ function useChatSession() {
     [applyServerEvent],
   )
 
-  // Only connect SSE when there's an active session (not just restorable) —
-  // server creates WorkspaceGroup only when a session is actually started/resumed,
-  // so restorableSessionId alone doesn't mean the server has a group ready.
-  const hasSession = useChatStore((s) => !!s.sessionId)
-  useSse({ workspacePath, onEvent: handleEvent, enabled: !!workspacePath && hasSession })
+  // SSE를 workspace 선택 즉시 연결한다. 서버 events 라우트가 group 없어도 연결을 유지하고
+  // polling으로 group 생성을 감지해 subscribe하므로, resume/start 전에도 이벤트 수신이 가능하다.
+  // 이 설계는 resume API 응답과 SSE 연결 사이의 race로 첫 이벤트를 놓치던 문제를 제거한다.
+  useSse({ workspacePath, onEvent: handleEvent, enabled: !!workspacePath })
   useSessionRestore(workspacePath)
 
   return { workspacePath }
