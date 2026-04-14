@@ -7304,6 +7304,136 @@
           "created_at": "2026-04-14T02:19:18.970Z"
         }
       ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T03:26:18.307Z",
+      "branch": "feat/tauri-phase2-cycle-c",
+      "plan": {
+        "id": 9,
+        "topic": "Phase 2 Cycle C — packages/electron 폐기 + dev-smoke-protocol + architecture 재정의",
+        "issues": [
+          {
+            "id": 1,
+            "title": "packages/electron 디렉터리 제거 + bun install + 잔여 참조 확인",
+            "status": "decided",
+            "decision": "선택: **git rm -r packages/electron**로 tracking 해제 + 실제 파일 삭제 동시 처리 → `bun install` 1회 실행으로 workspace + bun.lock 재구성 → Grep으로 `@nexus/electron` + `packages/electron` 잔여 참조 재확인 (architecture.md, dev-smoke-protocol.md, 역사 문서 제외 런타임 코드 0건 목표). root package.json은 workspaces 와일드카드라 별도 수정 불필요. 기각: (A) `rm -rf`만 실행 후 개별 `git rm` — 비효율 (1 step vs 2 step), (B) 디렉터리 유지하고 tauri와 병행 — 사용자 결정(Cycle C 범위 = electron 폐기)에 배치, (C) packages/electron 유지 + deprecation 주석 — 문서 수준 유지라 본 cycle 목표(삭제) 미달성."
+          },
+          {
+            "id": 2,
+            "title": ".nexus/context/architecture.md 전환 (5→4 패키지, electron 블록 제거)",
+            "status": "decided",
+            "decision": "선택: .nexus/context/architecture.md in-place 수정. 6곳 변경: (a) 3행 \"다섯 개의 패키지(shared/server/web/tauri/electron)\" → \"네 개의 패키지(shared/server/web/tauri)\". (b) 22행 \"5개 패키지로 구성\" → \"4개 패키지로 구성\". (c) 24~38행 다이어그램에서 \"Electron (desktop shell) [deprecated]\" 행 제거. (d) 84~88행 `@nexus/electron` 섹션 전체 제거. (e) 82행 Tauri 섹션의 \"Phase 1(본 cycle): ... Phase 2(별도 cycle)에서 진행\" 문단을 \"Phase 2 Cycle A/B/C 완료: tauri 2.9.5 + .app 산출 + electron 폐기\" 수준으로 간결 갱신. (f) 95~99행 통신 경로 표에서 \"Electron → Web | IPC (preload bridge)\" 행 제거. (g) 103행 의존 규칙 \"shared ← server ← web ← electron\" → \"shared ← server ← web ← tauri\". (h) 114행 빌드 순서 \"shared → server/web → tauri (Phase 2 완료 후 확정; electron은 Phase 2 폐기 예정)\" → \"shared → server/web → tauri\". (i) 116행 Phase 1 기간 중 electron spawn 문단 제거. (j) 118~122행 빌드/개발 5단계 중 \"4. Electron 런치\" → \"4. Tauri dev 런치\", \"5. Electron 종료 시 cleanup\" → \"5. Tauri 종료 시 cleanup\". 나머지 섹션(Nexus ecosystem 3-layer, shared/server/web, 로깅 구조, request-id 플로우)은 본 cycle과 무관 — 보존. 기각: (A) 전체 재작성 — 보존 가치 높은 3-layer/logging 부분까지 위험, (B) Electron 섹션만 제거하고 다이어그램·통신·오케스트레이션은 다음 cycle — 중복 cycle 비용."
+          },
+          {
+            "id": 3,
+            "title": "dev-smoke-protocol.md 갱신 (tauri 경로 + 원수 제거)",
+            "status": "decided",
+            "decision": "선택: dev-smoke-protocol.md in-place 수정 3건. (a) §2 빌드 순서 문장 \"`shared → server/web → electron` 순서 강제\" → \"`shared → server/web → tauri` 순서 강제\". (b) §4 #5 로그 경로 \"`_system/electron-main-{date}.log` 영속\" → \"`_system/dev-{date}.log` 영속\"로 변경(electron 영속 채널 제거됨, dev orchestrator 영속은 NEXUS_LOG_DEV 옵션만). (c) §6 orphan 대응에서 \"`tsx --watch` 등 Node `--watch` 계열\" → \"`bun --watch` 계열\" 로 업데이트 (Cycle B에서 server dev가 tsx→bun 전환). 나머지 §1/3/5 구조는 tauri 전환에도 유효 — 보존. 기각: (A) 전면 재작성 — 대부분 섹션이 tauri에도 유효한 orphan/port 검증 프로토콜, (B) 파일 자체 삭제 — 수동 smoke 체크리스트는 여전히 필요."
+          },
+          {
+            "id": 4,
+            "title": "Cycle C 실행 기록 산출물 (cycle-c-report + migration-plan)",
+            "status": "decided",
+            "decision": "산출물 2종: (a) .nexus/memory/cycle-c-report.md 신규 — 삭제된 파일 6개 목록, bun install 결과, 잔여 `@nexus/electron` 참조 grep 결과, architecture.md/dev-smoke-protocol.md 갱신 요약, Cycle D 이관 항목 (Linux webkit2gtk, Windows .msi, 30분+ SSE). cycle-a/b 스타일 차용. (b) .nexus/memory/tauri-migration-plan.md (c)/(g) 갱신 — 항목 #4(packages/electron 폐기)를 \"**Cycle C 완료**\"로 마크, (g) Cycle C 줄을 \"완료(2026-04-14, commit 예정)\"로, Cycle D 줄에 \"크로스플랫폼 빌드 + 30분+ SSE 우선 착수\" 주석. 문서 버전 줄 갱신. 기각: context/architecture.md 갱신을 별도 writer task가 아닌 issue #2로 분리한 이유로 중복 방지."
+          }
+        ],
+        "research_summary": "현 상태: Cycle B commit 79f3436 기반, 브랜치 feat/tauri-phase2-cycle-c. dev orchestrator 프로세스 cleanup 완료.\n\npackages/electron (6파일): env.ts, preload.ts, main.ts, logger.ts, tsconfig.json, package.json. Phase 1 Electron 셸 구현체. Cycle B에서 scripts/dev.ts가 tauri dev로 전환되면서 실행 경로는 이미 제거됨.\n\nroot package.json: workspaces `packages/*` 와일드카드라 디렉터리 삭제만으로 자동 반영. scripts에 electron 전용 엔트리 없음.\n\n`@nexus/electron` 참조 파일 8개 중 수정 대상은 3건:\n- bun.lock (bun install로 자동 재생성)\n- .nexus/context/architecture.md (5개 패키지 → 4개 패키지 블록 다이어그램, electron 섹션 §4.5, 통신 경로 \"Electron → Web IPC\" 행, 빌드 오케스트레이션 \"4. Electron 런치\", \"5. Electron 종료 시 cleanup\" 문단 수정)\n- .nexus/memory/dev-smoke-protocol.md (§2 빌드 순서 \"electron\"→\"tauri\", §4 #5 로그 경로 \"_system/electron-main-{date}.log\"→\"_system/dev-{date}.log\", §6 tsx --watch → bun --watch orphan 가이드)\n\n역사 문서는 건드리지 않음: cycle-a/b-report, tauri-migration-plan.md 내 Cycle A/B 기록, history.json, logging-integration-report.\n\npackages/tauri/src-tauri/src/lib.rs의 select_folder IPC + capabilities/default.json `dialog:allow-open` 이미 Phase 1 완료. `tauri-plugin-dialog` 대체 작업 불필요.\n\npackages/web/src 등 다른 런타임은 이미 @nexus/electron 의존 없음 — Phase 1에서 분리 완료. 재확인만 필요.\n\n핵심 불확실성: 없음. 범위 명확, auto-decide 가능.",
+        "created_at": "2026-04-14T03:14:34.799Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "packages/electron 삭제 + bun install + 잔여 참조 확인",
+          "context": "packages/electron/ 하위 6파일을 git 추적 해제 + 삭제. bun.lock 재구성. @nexus/electron 잔여 참조 0건 확인.",
+          "approach": "(1) `git rm -r packages/electron` — tracking 해제 + 파일 삭제 동시. (2) `bun install` — workspace 재구성, bun.lock 갱신. (3) `Grep @nexus/electron packages/` 실행 → 런타임 코드에 0건 남음 확인 (architecture.md, dev-smoke-protocol.md는 T2/T3에서 처리되므로 grep 대상 외). (4) `Grep packages/electron packages/ scripts/` → 0건 확인.",
+          "acceptance": "(a) packages/electron/ 디렉터리 존재하지 않음. (b) bun install EXIT 0, bun.lock 변경 발생. (c) packages/ 런타임 코드 내 `@nexus/electron` 또는 `packages/electron` 참조 0건 (문서 제외).",
+          "risk": "bun install이 다른 의존성까지 갱신할 가능성 — 이 경우 별도 검증 필요. 단 본 cycle에서는 electron 제거 외 변경을 수용.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:15:46.198Z"
+        },
+        {
+          "id": 2,
+          "title": ".nexus/context/architecture.md 전환 (5→4 패키지 + electron 제거)",
+          "context": "architecture.md 10곳에서 electron 참조 제거 및 tauri로 재편. 3-layer 프레임, logging 상세 등 다른 섹션은 보존.",
+          "approach": "Edit 도구 in-place 수정 10건 (issue #2 결정에 명시된 (a)~(j) 순서대로): (a) 3행 \"다섯 개의 패키지\" → \"네 개의 패키지\", tauri/electron 나열에서 electron 제거. (b) 22행 \"5개 패키지\" → \"4개 패키지\". (c) 다이어그램 \"Electron (desktop shell) [deprecated]\" 행 제거. (d) `@nexus/electron` 섹션 전체 제거 (84~88행). (e) Tauri 섹션의 Phase 1 임시 문장을 Phase 2 완료 상태로 간결화. (f) 통신 경로 표 \"Electron → Web | IPC\" 행 제거. (g) 설계 원칙 단방향 의존 \"...electron\" → \"...tauri\". (h) 빌드 순서 \"electron 폐기 예정\" 표현 제거. (i) Phase 1 기간 electron spawn 문단 제거. (j) 개발 오케스트레이션 4~5단계 Electron → Tauri.",
+          "acceptance": "architecture.md에 `electron`, `Electron`, `@nexus/electron`, `5 패키지`, `5개 패키지`, `다섯 개` 문자열 0건 (단 \"electron 폐기\" 같은 제거된 표현 검증 목적). 4 패키지 (shared/server/web/tauri) 일관 기술. 3-layer 프레임·logging 섹션·Adapter 경계 섹션 보존.",
+          "risk": "일괄 Edit 중 일부 곳 누락 가능 — grep으로 최종 확인 단계 포함.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:15:58.551Z"
+        },
+        {
+          "id": 3,
+          "title": ".nexus/memory/dev-smoke-protocol.md 갱신 (tauri + bun --watch)",
+          "context": "dev-smoke-protocol.md 3건 수정: §2 빌드 순서, §4#5 로그 경로, §6 orphan 가이드 — Cycle B의 tauri 전환과 server dev bun 전환 반영.",
+          "approach": "Edit 도구 3건: (a) §2: `shared → server/web → electron` → `shared → server/web → tauri`. (b) §4#5: `_system/electron-main-{date}.log` 영속 언급 제거, `_system/dev-{date}.log` (NEXUS_LOG_DEV=1)만 명시. (c) §6: \"tsx --watch 등 Node --watch 계열\" 문장을 \"bun --watch 계열\"로 교체 (Cycle B에서 server dev tsx→bun 전환).",
+          "acceptance": "dev-smoke-protocol.md에 `electron` 문자열 0건, `tauri` 1건 이상 hit, `bun --watch` 또는 동등 표현 1건 hit.",
+          "risk": "§1/3/5 구조가 tauri에도 유효하므로 불필요한 수정 방지.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:04.330Z"
+        },
+        {
+          "id": 4,
+          "title": "cycle-c-report.md 신규 작성",
+          "context": "Cycle C 실행 기록 영구 보관. cycle-a/b-report 스타일 차용.",
+          "approach": ".nexus/memory/cycle-c-report.md 신규 생성. 섹션: (1) TL;DR — electron 폐기 + architecture/dev-smoke-protocol 재정의. (2) 범위. (3) 실행 단계별 결과 — T1~T3 PASS/수치. (4) 삭제된 파일 6개 (env/preload/main/logger/tsconfig/package.json). (5) 잔여 참조 grep 결과 — 런타임 코드 0건. (6) architecture.md 갱신 10곳 요약. (7) dev-smoke-protocol.md 갱신 3곳 요약. (8) Cycle D 이관 (Linux webkit2gtk, Windows .msi, 30분+ SSE). (9) 재현 단계.",
+          "acceptance": "파일 존재 + T1~T3 실측 수치 반영 + Cycle D 이관 cross-reference.",
+          "risk": "정보 중복 방지 — architecture.md/dev-smoke 갱신은 각 섹션에서 요약만.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:11.741Z"
+        },
+        {
+          "id": 5,
+          "title": "tauri-migration-plan.md Cycle C 체크리스트 갱신",
+          "context": "migration-plan 섹션 (c)/(g)에 Cycle C 완료 반영.",
+          "approach": "Edit in-place: (a) 섹션 (c) 항목 #4 (packages/electron 폐기) 선결 요건 칸에 \"**Cycle C 완료** (git rm -r + bun install + architecture.md/dev-smoke-protocol.md 갱신)\" 주석. (b) 섹션 (g) Cycle C 줄 → \"**완료(2026-04-14, commit 예정)** (electron 폐기 + architecture 4 패키지 + dev-smoke-protocol tauri 경로)\". (c) Cycle D 줄 → \"**크로스플랫폼 빌드 + 30분+ SSE 우선 착수**\" 주석. (d) 문서 버전 줄을 \"Phase 2 Cycle C 완료 반영, 2026-04-14. Cycle D 진입 시 Linux webkit2gtk + Windows .msi + 30분+ SSE 우선\"으로 갱신.",
+          "acceptance": "섹션 (c)#4 Cycle C 완료 주석, 섹션 (g) Cycle C 완료 + Cycle D 우선 명시, 문서 버전 줄 갱신. 기존 Phase 1/Cycle A/B 체크 표시 보존.",
+          "risk": "cycle-c-report와 정보 중복 방지 — migration-plan은 체크리스트 중심.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:19.615Z"
+        },
+        {
+          "id": 6,
+          "title": "Reviewer 검증 (writer 산출물 4건)",
+          "context": "architecture.md / dev-smoke-protocol.md / cycle-c-report.md / migration-plan.md 4건의 사실성·체크박스·일관성 검증.",
+          "approach": "각 산출물을 T1~T3의 실측 로그와 cross-check. architecture.md에 electron 잔존 여부, dev-smoke-protocol.md의 tauri/bun --watch 반영, cycle-c-report.md의 수치 정확성, migration-plan.md의 체크박스 일치. cycle-a/b 리뷰 스타일 차용 (CRITICAL/WARNING/INFO 분류).",
+          "acceptance": "4개 문서 사실·체크박스·cross-reference PASS. 문제 발견 시 구체적 위치+기대값 보고.",
+          "risk": "문체 수정 요구는 Lead가 사실성·일관성 범위로 한정.",
+          "status": "completed",
+          "deps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 4,
+          "owner": "reviewer",
+          "created_at": "2026-04-14T03:16:26.229Z"
+        }
+      ]
     }
   ]
 }
