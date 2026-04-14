@@ -17,6 +17,7 @@ function useChatSession() {
   // workspacePath 변경(전환 또는 전체 삭제로 null) 시 이전 세션 상태 클린업.
   // useSessionRestore가 이후 새 path의 히스토리를 시도한다.
   useEffect(() => {
+    console.log('[chat-area] resetSession effect fired, workspacePath=', workspacePath)
     useChatStore.getState().resetSession()
   }, [workspacePath])
 

@@ -9,6 +9,7 @@ import { logger } from '../middleware/logging.js'
 /** Minimal interface for resolving a workspace's process group. Satisfied by ProcessSupervisor and ClaudeCodeHost. */
 interface GroupLookup {
   getGroup(workspacePath: string): WorkspaceGroup | undefined
+  onGroupCreated(handler: (workspacePath: string, group: WorkspaceGroup) => void): () => void
 }
 
 export function createEventsRouter(supervisor: GroupLookup, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
@@ -105,20 +106,17 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         )
       }
 
-      // group이 아직 없어도 SSE 연결을 유지한다 — client가 resume/start API를 호출하면
-      // group이 생성되므로, polling으로 감지해 그 시점에 subscribe. (race 방지)
-      function trySubscribeGroup(): void {
+      // group이 아직 없어도 SSE 연결을 유지한다. resume/start API가 supervisor.createGroup을
+      // 호출하는 순간 `onGroupCreated` 콜백이 이 핸들러 안에서 동기적으로 실행되어
+      // process listener를 붙일 시간이 확보된다 (이전 polling race로 첫 이벤트 손실되던 문제 해소).
+      function subscribeGroup(group: WorkspaceGroup): void {
         if (subscribedGroup) return
-        const group = supervisor.getGroup(workspacePath)
-        if (!group) return
         subscribedGroup = group
 
-        // 초기 시점의 모든 process에 subscribe
         for (const [agentId, process_] of group.listProcessEntries()) {
           subscribeProcess(agentId, process_)
         }
 
-        // 이후 추가되는 process에도 subscribe
         disposables.push(
           group.onProcessAdded((agentId, process_) => {
             subscribeProcess(agentId, process_)
@@ -126,10 +124,17 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         )
       }
 
-      trySubscribeGroup()
-      const groupPollTimer: ReturnType<typeof setInterval> | null = subscribedGroup
-        ? null
-        : setInterval(trySubscribeGroup, 500)
+      const existingGroup = supervisor.getGroup(workspacePath)
+      if (existingGroup) {
+        subscribeGroup(existingGroup)
+      } else {
+        disposables.push(
+          supervisor.onGroupCreated((ws, group) => {
+            if (ws !== workspacePath) return
+            subscribeGroup(group)
+          }),
+        )
+      }
 
       // permission_request → permission_settled requestId 전파를 위해 연결 단위 맵 유지
       const pendingRequestIds = new Map<string, string>()
@@ -172,7 +177,6 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
       stream.onAbort(() => {
         clearInterval(heartbeatTimer)
-        if (groupPollTimer) clearInterval(groupPollTimer)
         for (const dispose of disposables) {
           dispose()
         }

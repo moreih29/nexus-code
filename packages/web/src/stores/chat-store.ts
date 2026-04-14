@@ -53,11 +53,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isWaitingResponse: false,
 
   applyServerEvent: (event) => {
-    set((state) => ({
-      sessionState: applyEvent(state.sessionState, event),
-      sessionId: state.sessionId ?? event.sessionId,
-      isWaitingResponse: false,
-    }))
+    set((state) => {
+      const nextSessionState = applyEvent(state.sessionState, event)
+      console.log('[chat-store] applyServerEvent', event.type, 'messages.len',
+        state.sessionState.messages.length, '→', nextSessionState.messages.length)
+      return {
+        sessionState: nextSessionState,
+        sessionId: state.sessionId ?? event.sessionId,
+        isWaitingResponse: false,
+      }
+    })
   },
 
   sendMessage: (text) => {

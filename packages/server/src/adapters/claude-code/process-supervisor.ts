@@ -4,11 +4,14 @@ import { WorkspaceGroup } from './workspace-group.js'
 import type { CliProcessFactory } from './workspace-group.js'
 import type { Disposable } from './disposable.js'
 
+type GroupCreatedHandler = (workspacePath: string, group: WorkspaceGroup) => void
+
 export class ProcessSupervisor implements Disposable {
   private readonly _groups: Map<string, WorkspaceGroup> = new Map()
   private readonly _maxGlobalProcesses: number
   private readonly _maxProcessesPerGroup: number
   private readonly _factory: CliProcessFactory | undefined
+  private readonly _onGroupCreated: Set<GroupCreatedHandler> = new Set()
 
   constructor(
     maxGlobalProcesses = 30,
@@ -36,7 +39,20 @@ export class ProcessSupervisor implements Disposable {
       this._factory,
     )
     this._groups.set(workspacePath, group)
+
+    // events.ts SSE 핸들러가 group 생성 즉시 subscribe 하도록 알린다 —
+    // 500ms polling race로 첫 이벤트를 놓치던 문제(cycle fix) 해소용.
+    for (const h of this._onGroupCreated) {
+      h(workspacePath, group)
+    }
     return ok(group)
+  }
+
+  onGroupCreated(handler: GroupCreatedHandler): () => void {
+    this._onGroupCreated.add(handler)
+    return () => {
+      this._onGroupCreated.delete(handler)
+    }
   }
 
   removeGroup(workspacePath: string): void {
