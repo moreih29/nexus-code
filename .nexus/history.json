@@ -7434,6 +7434,90 @@
           "created_at": "2026-04-14T03:16:26.229Z"
         }
       ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T03:40:16.565Z",
+      "branch": "fix/workspace-ui-reset",
+      "plan": {
+        "id": 10,
+        "topic": "워크스페이스 UI 버그 2건 fix — \"+\" 무반응 + 채팅 잔존",
+        "issues": [
+          {
+            "id": 1,
+            "title": "\"+\" 버튼 무반응 — selectFolder를 Tauri invoke로 전환",
+            "status": "decided",
+            "decision": "선택: packages/web/package.json에 @tauri-apps/api 의존성 추가 후, packages/web/src/lib/electron.ts의 selectFolder()를 Tauri invoke 기반으로 교체. 분기 순서: (1) `'__TAURI_INTERNALS__' in window` 감지 → `invoke<string | null>('select_folder')` 호출, (2) 순수 브라우저 환경이면 window.prompt fallback 유지 (dev 디버깅 용도). window.electronAPI 분기는 제거 (electron 폐기). 파일명은 electron.ts 유지 — rename은 별도 cycle에서 다룰 리팩토링(전역 import 경로 영향 큼). 기각: (A) prompt만으로 버텨내기 — Tauri WebView에서 불안정, (B) @tauri-apps/plugin-dialog로 직접 picker 호출 — Rust 측 select_folder command가 이미 있으므로 중복, (C) lib/electron.ts 삭제 + lib/dialog.ts 신규 생성 — import 경로 다수 수정 필요, fix cycle 범위 초과."
+          },
+          {
+            "id": 2,
+            "title": "워크스페이스 전체 삭제 시 채팅 잔존 — useChatSession에 reset effect 추가",
+            "status": "decided",
+            "decision": "선택: packages/web/src/components/chat/chat-area.tsx의 useChatSession 내부에 `useEffect([workspacePath])`를 추가하여 workspacePath 변경 시(전환 또는 null) `useChatStore.getState().resetSession()` 호출. 이후 useSessionRestore가 새 path의 히스토리를 시도. workspace 전환 시 기존 chat 잔존 이슈도 동일 패턴으로 해소됨. 기각: (A) useDeleteWorkspace 훅의 onSuccess에서 chat 리셋 — 전체 삭제 외 부분 삭제/전환 케이스 누락, (B) WorkspaceCard handleDelete에서 직접 resetSession — activeWorkspaceId와 비교 로직 추가 필요하고 chat-area와 결합도 낮아짐, (C) zustand subscribe 패턴 — 과잉 엔지니어링."
+          }
+        ],
+        "research_summary": "코드 점검 완료:\n\n버그 1 원인: packages/web/src/lib/electron.ts의 selectFolder()가 window.electronAPI 체크 → Cycle C로 electron 폐기 후 항상 undefined → window.prompt fallback이 Tauri WKWebView에서 block/UX불량. Tauri `#[tauri::command] select_folder`는 packages/tauri/src-tauri/src/lib.rs에 이미 구현 + invoke_handler 등록. @tauri-apps/api 의존성은 packages/web/package.json에 없음 — 추가 필요.\n\n버그 2 원인: packages/web/src/components/chat/chat-area.tsx의 useChatSession에 workspacePath 변경/null 감지 effect 없음. useSessionRestore는 `if (!workspacePath) return` early return으로 chat-store 그대로 유지. 또한 restoreFromHistory는 history 있을 때만 호출되므로 workspace 전환 시에도 이전 chat 잔존 가능.\n\n해결 설계:\n- 버그 1: lib/electron.ts의 selectFolder()를 `import { invoke } from '@tauri-apps/api/core'` 사용. window.__TAURI_INTERNALS__ 감지로 Tauri 분기. 브라우저 환경은 기존 prompt fallback 유지.\n- 버그 2: chat-area.tsx의 useChatSession에 `useEffect([workspacePath])` 추가로 resetSession() 호출. restore effect는 별도 훅이 이후 실행.\n\nfix는 단일 브랜치 fix/workspace-ui-reset에서 처리, 별도 cycle 기록 없이 소규모 fix commit.",
+        "created_at": "2026-04-14T03:38:29.185Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "@tauri-apps/api 의존성 추가",
+          "context": "packages/web/package.json에 @tauri-apps/api 추가. Tauri invoke 호출을 위한 런타임 의존성.",
+          "approach": "`bun add @tauri-apps/api` 실행 (packages/web 필터). bun.lock 자동 갱신. tauri CLI 버전(2.10.0)과 맞춰 ^2로 설치 — ^2.0.0 또는 그냥 ^2.",
+          "acceptance": "packages/web/package.json dependencies에 @tauri-apps/api 존재, bun.lock 갱신됨.",
+          "risk": "없음. 단일 패키지 추가.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:38:53.261Z"
+        },
+        {
+          "id": 2,
+          "title": "lib/electron.ts selectFolder Tauri invoke 전환",
+          "context": "packages/web/src/lib/electron.ts의 selectFolder()를 Tauri invoke로 교체. window.electronAPI 분기는 제거.",
+          "approach": "파일 전체 재작성: `import { invoke } from '@tauri-apps/api/core'` 추가. `isTauri()` 함수: `return '__TAURI_INTERNALS__' in window`. `selectFolder()`: Tauri면 `invoke<string | null>('select_folder')` 호출 (try/catch로 실패 시 null), 아니면 window.prompt fallback. `ElectronAPI` interface + `window.electronAPI` 선언 제거.",
+          "acceptance": "selectFolder가 Tauri 환경에서 invoke 사용. window.electronAPI 참조 0건 hit (grep). typecheck PASS.",
+          "risk": "__TAURI_INTERNALS__ 전역이 Tauri 2.x에서 실제로 제공되는지 확인 필요 (Tauri 1.x는 __TAURI__, 2.x는 __TAURI_INTERNALS__ 또는 __TAURI_IPC__).",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:38:59.401Z"
+        },
+        {
+          "id": 3,
+          "title": "chat-area useChatSession workspacePath reset effect 추가",
+          "context": "packages/web/src/components/chat/chat-area.tsx의 useChatSession 함수 내 workspacePath 변경 감지 effect 추가.",
+          "approach": "useChatSession 내부에 `useEffect(() => { useChatStore.getState().resetSession() }, [workspacePath])` 추가. 기존 useSessionRestore 호출은 유지 — reset 후 path 있으면 restore 시도.",
+          "acceptance": "chat-area.tsx grep `workspacePath`를 deps로 하는 effect + `resetSession` 호출 1건 hit. typecheck PASS.",
+          "risk": "useSessionRestore와 순서 — resetSession이 먼저 호출되고 restore가 후속이라 문제 없음. 하지만 activeMessages를 읽는 ChatMessages가 렌더 중 빈 상태로 깜빡일 수 있음(수용).",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:39:05.167Z"
+        },
+        {
+          "id": 4,
+          "title": "typecheck + web build 검증",
+          "context": "Task 1~3 적용 후 packages/web 타입체크 + vite 빌드로 runtime 에러 없는지 최소 검증.",
+          "approach": "`bun run --filter @nexus/web typecheck` 및 `bun run --filter @nexus/web build` 실행. 에러 시 분류.",
+          "acceptance": "typecheck EXIT 0 + build EXIT 0.",
+          "risk": "@tauri-apps/api 타입 미설치 시 invoke 타입 에러. 그 경우 devDependency로 타입 추가.",
+          "status": "completed",
+          "deps": [
+            2,
+            3
+          ],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:39:09.752Z"
+        }
+      ]
     }
   ]
 }
