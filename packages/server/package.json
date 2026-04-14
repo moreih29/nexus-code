@@ -11,8 +11,8 @@
     "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.scripts.json",
     "compile": "bun run scripts/compile-sidecar.ts",
-    "dev": "tsx src/index.ts",
-    "dev:watch": "tsx --watch src/index.ts",
+    "dev": "bun src/index.ts",
+    "dev:watch": "bun --watch src/index.ts",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "lint": "eslint src"

@@ -22,7 +22,7 @@ Nexus Code dev 환경 수동 검증 체크리스트. 커밋 후 런타임 경로
 ## 2. 클린 빌드
 
 - [ ] `bun run clean && bun install`
-- [ ] `bun run build` — `scripts/dev.ts` 가 `shared → server/web → electron` 순서 강제
+- [ ] `bun run build` — `scripts/dev.ts` 가 `shared → server/web → tauri` 순서 강제
 
 **실패 신호**: shared 빌드 실패 시 이후 패키지에 무작위 TS 오류 발생 → shared 먼저 확인.
 
@@ -49,7 +49,7 @@ Nexus Code dev 환경 수동 검증 체크리스트. 커밋 후 런타임 경로
   - 실패 신호: 버튼 무응답 = approval-bridge `respond()` 경로 또는 SSE push 누락
 - [ ] **브라우저 리로드** — 세션 restore, 히스토리 재표시 확인
   - 실패 신호: 빈 히스토리 = history-parser JSONL 경로 변경 또는 DB 쿼리 오류
-- [ ] **통합 로그 채널 점검** — `~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl` + `_system/electron-main-{date}.log` 영속 확인 (`NEXUS_LOG_DEV=1` 시 `_system/dev-{date}.log` 추가)
+- [ ] **통합 로그 채널 점검** — `~/.nexus-code/logs/{ws-sanitized}/{date}.jsonl` 영속 확인 (`NEXUS_LOG_DEV=1` 시 `_system/dev-{date}.log` 추가)
   - 실패 신호: workspace-logger 경로 오탈자 (`.nexus-code` vs `.nexus`) 또는 sanitize 매핑 회귀. `workspace-id.test.ts` 재확인
 
 ---
@@ -70,4 +70,4 @@ Nexus Code dev 환경 수동 검증 체크리스트. 커밋 후 런타임 경로
 - [ ] 부모의 자식 재귀 종료: `pkill -TERM -P <parent_pid>`
 - [ ] process group leader 기준 일괄 종료: `kill -- -<PGID>`
 
-`ppid=1` 인 nexus-code 관련 프로세스는 모두 정리 대상. `tsx --watch` 등 Node `--watch` 계열은 자식을 별도 PID로 spawn → 부모 kill만으로 자식 미종료. 실증 방법: port listener 기준(`lsof`)으로 확인. PID tree 탐색보다 빠르고 정확.
+`ppid=1` 인 nexus-code 관련 프로세스는 모두 정리 대상. `bun --watch` 계열은 자식을 별도 PID로 spawn → 부모 kill만으로 자식 미종료 가능. 실증 방법: port listener 기준(`lsof`)으로 확인. PID tree 탐색보다 빠르고 정확.

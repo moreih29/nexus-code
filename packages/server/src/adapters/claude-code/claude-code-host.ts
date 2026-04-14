@@ -285,4 +285,9 @@ export class ClaudeCodeHost implements AgentHost {
   getGroup(workspacePath: string): WorkspaceGroup | undefined {
     return this.processSupervisor.getGroup(workspacePath)
   }
+
+  /** ProcessSupervisor.onGroupCreated 위임 — SSE 연결 시점에 group이 없어도 생성 직후 subscribe 가능 */
+  onGroupCreated(handler: (workspacePath: string, group: WorkspaceGroup) => void): () => void {
+    return this.processSupervisor.onGroupCreated(handler)
+  }
 }

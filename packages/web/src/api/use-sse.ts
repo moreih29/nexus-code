@@ -23,9 +23,11 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
     if (!enabled) return
 
     setDevLoggerWorkspacePath(workspacePath)
+    console.log('[use-sse] effect mount', { workspacePath, enabled })
 
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null
     let backoffMs = 2000
 
     const url = `${BASE_URL}/api/workspaces/${encodeWorkspacePath(workspacePath)}/events`
@@ -37,6 +39,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     function handleSseEvent(e: MessageEvent) {
       const eventName = (e as Event).type
+      console.log('[use-sse] raw event', eventName, (e.data as string)?.slice(0, 120))
 
       if (eventName === 'session_init' || eventName === 'rate_limit' || eventName === 'hook_event') {
         return
@@ -45,7 +48,8 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       let parsed: unknown
       try {
         parsed = JSON.parse(e.data as string)
-      } catch {
+      } catch (err) {
+        console.warn('[use-sse] JSON parse failed', eventName, err)
         return
       }
 
@@ -58,11 +62,13 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
       const result = SessionEventSchema.safeParse(withType)
       if (!result.success) {
+        console.error('[use-sse] schema fail', eventName, withType, result.error?.issues)
         devLogger.error('use-sse', 'schema validation failed', { eventName, data: withType, error: result.error })
         return
       }
 
       const event = result.data
+      console.log('[use-sse] dispatch', event.type, 'sessionId=', (event as { sessionId?: string }).sessionId)
       onEventRef.current?.(event)
 
       if (event.type === 'turn_end' && event.sessionId) {
@@ -78,6 +84,7 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
       es.onopen = () => {
         backoffMs = 2000
+        console.log('[use-sse] connected', workspacePath)
         devLogger.log('use-sse', 'connected', { workspacePath })
       }
 
@@ -87,9 +94,11 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       es.onmessage = handleSseEvent
 
       es.onerror = () => {
+        const rs = es.readyState
         es.close()
         esRef.current = null
         if (!disposed) {
+          console.warn('[use-sse] onerror → reconnect in', backoffMs, 'ms, readyState was', rs)
           devLogger.warn('use-sse', 'disconnected', { backoffMs, workspacePath })
           reconnectTimer = setTimeout(connect, backoffMs)
           backoffMs = Math.min(backoffMs * 2, 60000) // exponential backoff, max 60s
@@ -99,9 +108,28 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     connect()
 
+    // Watchdog: EventSource가 CLOSED 상태로 빠졌는데 onerror가 호출되지 않아
+    // reconnect 미트리거되는 케이스 방어. 3초 주기로 체크.
+    watchdogTimer = setInterval(() => {
+      if (disposed) return
+      const es = esRef.current
+      if (!es || es.readyState === 2 /* CLOSED */) {
+        if (reconnectTimer) return // 이미 재연결 예약됨
+        console.warn('[use-sse] watchdog: readyState CLOSED or null, forcing reconnect')
+        es?.close()
+        esRef.current = null
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          connect()
+        }, 500)
+      }
+    }, 3000)
+
     return () => {
+      console.log('[use-sse] effect cleanup', { workspacePath })
       disposed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (watchdogTimer) clearInterval(watchdogTimer)
       esRef.current?.close()
       esRef.current = null
     }

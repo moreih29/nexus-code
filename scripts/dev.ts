@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Dev orchestrator — shared 빌드 → 서버 + 웹 시작 → 일렉트론 실행
+ * Dev orchestrator — shared 빌드 → 서버 + 웹 시작 → tauri dev 실행
  */
 import { spawn, type Subprocess } from 'bun'
 import { resolve } from 'path'
@@ -189,20 +189,20 @@ await Promise.all([
 ])
 log('Server + Web ready')
 
-// 3. 일렉트론 빌드 및 실행
-log('Launching electron...')
-const electron = spawn({
-  cmd: ['bun', 'run', 'dev'],
-  cwd: resolve(root, 'packages/electron'),
+// 3. tauri dev 실행
+log('Launching tauri...')
+const tauri = spawn({
+  cmd: ['bunx', 'tauri', 'dev'],
+  cwd: resolve(root, 'packages/tauri'),
   stdout: 'pipe',
   stderr: 'pipe',
   env: { ...process.env, FORCE_COLOR: '1' },
 })
-procs.push(electron)
-pipeLines(electron.stdout, '[electron]', '\x1b[35m')
-pipeLines(electron.stderr, '[electron]', '\x1b[35m')
+procs.push(tauri)
+pipeLines(tauri.stdout, '[tauri]', '\x1b[35m')
+pipeLines(tauri.stderr, '[tauri]', '\x1b[35m')
 
-// 일렉트론 종료 시 전체 정리
-await electron.exited
+// tauri 종료 시 전체 정리
+await tauri.exited
 log('Shutting down...')
 cleanup()

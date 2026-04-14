@@ -9,6 +9,7 @@ import { logger } from '../middleware/logging.js'
 /** Minimal interface for resolving a workspace's process group. Satisfied by ProcessSupervisor and ClaudeCodeHost. */
 interface GroupLookup {
   getGroup(workspacePath: string): WorkspaceGroup | undefined
+  onGroupCreated(handler: (workspacePath: string, group: WorkspaceGroup) => void): () => void
 }
 
 export function createEventsRouter(supervisor: GroupLookup, approvalBridge: ApprovalBridge, workspaceLogger?: WorkspaceLogger) {
@@ -16,10 +17,6 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
   router.get('/:path{.+}/events', async (c) => {
     const workspacePath = '/' + c.req.param('path')
-    const group = supervisor.getGroup(workspacePath)
-    if (!group) {
-      return c.json({ error: { code: 'GROUP_NOT_FOUND', message: `No active session group for workspace '${workspacePath}'` } }, 404)
-    }
 
     // connectionId는 SSE 연결 1회 발급 — 서버 로그에서 연결 생애주기 추적용
     const connectionId = crypto.randomUUID()
@@ -27,6 +24,12 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
 
     return streamSSE(c, async (stream) => {
       const disposables: (() => void)[] = []
+      let subscribedGroup: WorkspaceGroup | undefined
+
+      workspaceLogger?.log(workspacePath, {
+        type: 'sse_connect',
+        data: { connectionId, initialGroupExists: !!supervisor.getGroup(workspacePath) },
+      })
 
       // 부록 B.3: Bun 10초 idle timeout 방지 — 10초 주기 heartbeat
       void stream.writeSSE({ event: 'connected', data: '' })
@@ -108,17 +111,46 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         )
       }
 
-      // Subscribe to all currently tracked processes
-      for (const [agentId, process_] of group.listProcessEntries()) {
-        subscribeProcess(agentId, process_)
+      // group이 아직 없어도 SSE 연결을 유지한다. resume/start API가 supervisor.createGroup을
+      // 호출하는 순간 `onGroupCreated` 콜백이 이 핸들러 안에서 동기적으로 실행되어
+      // process listener를 붙일 시간이 확보된다 (이전 polling race로 첫 이벤트 손실되던 문제 해소).
+      function subscribeGroup(group: WorkspaceGroup): void {
+        if (subscribedGroup) return
+        subscribedGroup = group
+
+        const entries = [...group.listProcessEntries()]
+        workspaceLogger?.log(workspacePath, {
+          type: 'sse_event',
+          data: { event: '_diag_subscribe_group', connectionId, initialProcessCount: entries.length, agentIds: entries.map(([id]) => id) },
+        })
+
+        for (const [agentId, process_] of entries) {
+          workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_subscribe_process_initial', connectionId, agentId } })
+          subscribeProcess(agentId, process_)
+        }
+
+        disposables.push(
+          group.onProcessAdded((agentId, process_) => {
+            workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_process_added_cb', connectionId, agentId } })
+            subscribeProcess(agentId, process_)
+          }),
+        )
       }
 
-      // Subscribe to new processes as they are added
-      disposables.push(
-        group.onProcessAdded((agentId, process_) => {
-          subscribeProcess(agentId, process_)
-        }),
-      )
+      const existingGroup = supervisor.getGroup(workspacePath)
+      if (existingGroup) {
+        workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_existed', connectionId } })
+        subscribeGroup(existingGroup)
+      } else {
+        workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_missing_subscribing_onCreate', connectionId } })
+        disposables.push(
+          supervisor.onGroupCreated((ws, group) => {
+            workspaceLogger?.log(workspacePath, { type: 'sse_event', data: { event: '_diag_group_created_cb', connectionId, ws, matches: ws === workspacePath } })
+            if (ws !== workspacePath) return
+            subscribeGroup(group)
+          }),
+        )
+      }
 
       // permission_request → permission_settled requestId 전파를 위해 연결 단위 맵 유지
       const pendingRequestIds = new Map<string, string>()
@@ -164,6 +196,7 @@ export function createEventsRouter(supervisor: GroupLookup, approvalBridge: Appr
         for (const dispose of disposables) {
           dispose()
         }
+        workspaceLogger?.log(workspacePath, { type: 'sse_disconnect', data: { connectionId } })
         logger.info({ connectionId, workspacePath }, 'sse connection closed')
       })
 

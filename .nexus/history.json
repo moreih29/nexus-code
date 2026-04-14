@@ -6980,6 +6980,544 @@
           "created_at": "2026-04-13T13:33:16.504Z"
         }
       ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T02:10:29.376Z",
+      "branch": "feat/tauri-phase2-cycle-a",
+      "plan": {
+        "id": 7,
+        "topic": "Phase 2 Cycle A — Rust 툴체인 정비 + macOS .app 번들 산출",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Rust proc macro 패닉 해소 전략",
+            "status": "decided",
+            "decision": "선택: (C→A 2단계) — Cargo.toml의 `tauri = \"2\"` 플로팅 지정을 OpenCode 운영 버전인 `tauri = \"2.9.5\"`로 핀. `tauri-build`/`tauri-plugin-dialog`/`tauri-plugin-shell`은 `\"2\"` 유지(OpenCode와 동일). `cargo generate-lockfile` → `cargo check`로 proc macro 패닉 재현 여부 확인. 패닉 지속 시 `cargo update`로 transitive 의존 갱신 1회 재시도, 그래도 실패하면 `rustup toolchain install 1.92.0 && rustup override set 1.92.0`으로 본 레포 한정 다운그레이드. rust-version = \"1.77\"은 유지(OpenCode는 미명시지만 하한선은 유효). 기각: (a) 전면 Rust 다운그레이드 선행 — 비용 선결 낭비, (b) tauri 2.2.x 등 과도한 하향 — OpenCode 2.9.5 운영 증명 대비 근거 부족, (c) GitHub patch 차용 — 유지 부담 증가, Cycle A 범위 초과."
+          },
+          {
+            "id": 2,
+            "title": "Tauri 번들 선결 리소스 (아이콘 + 사이드카 바이너리)",
+            "status": "decided",
+            "decision": "선택: icons/는 Tauri CLI `bunx tauri icon <원본>` 명령으로 1024×1024 placeholder PNG 1장에서 5개 파일(32/128/128@2x/icns/ico) 자동 파생. 원본 PNG는 macOS `sips` 또는 Node/Bun 내장 수단으로 단색 검은 배경 1024px 생성. 사이드카 바이너리는 `bun --filter @nexus/server compile` 1회 실행으로 `packages/tauri/src-tauri/binaries/nexus-sidecar-aarch64-apple-darwin` 채움. web/dist는 `beforeBuildCommand`가 `cargo tauri build` 시 자동 빌드하므로 선결 불필요(Phase 1 typecheck PASS로 빌드 안정성 확보). 기각: (a) 정식 아이콘 디자인 — POC 단계 과잉, (b) icons/ 없이 bundle 스킵 — tauri.conf.json 수정 시 추가 위험, (c) web 수동 선빌드 — 자동화 경로 신뢰."
+          },
+          {
+            "id": 3,
+            "title": "cargo check → build → tauri build 단계별 실행 순서",
+            "status": "decided",
+            "decision": "실행 순서 고정: (1) Cargo.toml 버전 핀 수정 + 선결 리소스 준비(icons+sidecar) 병렬 → (2) `cd packages/tauri/src-tauri && cargo generate-lockfile` → (3) `cargo check` 1차 (패닉 재현 관측) → (4) 패닉 시 `cargo update` 재시도 → (5) 여전히 실패 시 `rustup override set 1.92.0` fallback → (6) `cargo build --release`를 `run_in_background`로 실행(394 crate, 5~15분 예상) → (7) `bunx tauri build`로 .app 번들 산출 → (8) 산출된 `.app` 실행 smoke(창 생성 + sidecar spawn 로그 확인). 각 단계 실패는 Lead가 HOW 에스컬레이션(Engineer→Architect). 기각: cargo build 포그라운드 실행(context window 낭비), tauri build 선행(cargo build 성공이 전제조건)."
+          },
+          {
+            "id": 4,
+            "title": "Cycle A 실행 기록 산출물 (migration plan 갱신 + cycle-a-report)",
+            "status": "decided",
+            "decision": "산출물 2종: (a) `.nexus/memory/cycle-a-report.md` 신규 — 실행 로그, 최종 적용된 버전 조합(Rust/Tauri), 각 단계 결과(PASS/FAIL), proc macro 패닉 재현 여부, `.app` 번들 경로/크기, Cycle B/C/D 이관 항목. POC 보고서(`tauri-poc-report.md`) 스타일 유지. (b) `.nexus/memory/tauri-migration-plan.md` 섹션 (c)/(d) 체크리스트 업데이트 — Cargo.toml 버전 핀 체크박스 완료, Rust 1.93.1/1.92.0 여부 기록, `.app` 번들 산출 체크박스 완료. Writer가 두 문서 모두 담당, Reviewer가 사실성·체크박스 정확성 검증. 기각: context/architecture.md 수정 — 구조 변경 없음, Cycle B의 `packages/electron` 폐기 시점에 이관."
+          }
+        ],
+        "research_summary": "현 환경: Rust/Cargo 1.93.1 + Xcode CLT + Cargo.lock 없음 + binaries/ 비어있음 + icons/ 비어있음 + web/dist 비어있음.\n\nOpenCode(sst/opencode) 참조: `tauri = \"2.9.5\"` 버전 핀 (+macos-private-api 기능, GitHub patch 적용) / `tauri-build = \"2\"` / rust-version 미명시. 우리 Cargo.toml은 `tauri = \"2\"` 플로팅으로 2.10.1(POC 패닉 유발 버전)까지 올라감.\n\nPOC 검증 완료: `.nexus/memory/tauri-poc-report.md` 부록 B.1~B.4에서 UI↔sidecar↔CC 실 왕복 재현 + SSE heartbeat/재빌드 파이프라인/사이드카 종료 패턴 검증. 잔여 blocker는 `tauri::generate_handler![]` proc macro 패닉 1건 + `.app` 번들 미산출 1건.\n\nPhase 1 완료: sidecar Bun 호환(`Bun.serve`+`bun:sqlite`×4) + compile-sidecar.ts + Tauri scaffolding 9파일. 정적 gates 4/4 + grep 10/10 + 회귀 5/5 PASS.\n\n사용자 승인 전략: (C) 1.93.1 유지 + `cargo update` 우선 → 실패 시 (A) `rustup override set 1.92.0`. OpenCode WebFetch 허용. 백그라운드 빌드 허용. 사이드카/target 산출물은 커밋 금지 (.gitignore 이미 배제 확인).\n\n선결 함정 발견: tauri.conf.json이 `icons/{32x32,128x128,128x128@2x}.png`, `icon.{icns,ico}` 5개 파일을 요구하지만 icons/ 디렉터리 자체가 없음. web/dist도 비어있음 (beforeBuildCommand가 자동 빌드하지만 TypeScript/Vite 실패 가능성 선결).",
+        "created_at": "2026-04-14T01:44:13.935Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Cargo.toml tauri crate 버전 2.9.5 핀 + 주석 정리",
+          "context": "packages/tauri/src-tauri/Cargo.toml의 `tauri = { version = \"2\", features = [] }`가 현재 2.10.1(POC proc macro 패닉 유발 버전)까지 플로팅. OpenCode(sst/opencode) 참조 운영 버전은 2.9.5.",
+          "approach": "Edit 도구로 Cargo.toml 11~24행만 수정: (1) `tauri = { version = \"2\", features = [] }` → `tauri = { version = \"2.9.5\", features = [] }`. `tauri-build`, `tauri-plugin-dialog`, `tauri-plugin-shell`은 `\"2\"` 유지(OpenCode와 동일). (2) 11~13행의 Phase 2 NOTE 주석을 Cycle A 착수 상태로 갱신(버전 핀 근거 OpenCode 2.9.5 참조 명시).",
+          "acceptance": "Cargo.toml의 tauri crate가 `\"2.9.5\"`로 정확히 명시. tauri-build/plugin-dialog/plugin-shell은 `\"2\"` 유지. NOTE 주석이 Phase 2 Cycle A 착수 상태를 반영(OpenCode 참조 명시).",
+          "risk": "2.9.5에서도 proc macro 패닉이 재현될 가능성(낮음). 재현 시 Task #3의 fallback 체인(cargo update → rustup 1.92)으로 흡수.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-14T01:46:16.870Z"
+        },
+        {
+          "id": 2,
+          "title": "선결 리소스 준비 (아이콘 5종 + 사이드카 바이너리)",
+          "context": "tauri.conf.json이 icons/{32x32,128x128,128x128@2x}.png + icon.icns + icon.ico 5개 파일을 요구하지만 icons/ 디렉터리 자체가 없음. packages/tauri/src-tauri/binaries/도 비어있음(POC 이후 clean 상태). .app 번들 산출의 선결 조건.",
+          "approach": "(1) 1024×1024 placeholder PNG 생성: macOS `sips`나 Bun 스크립트로 단색(검정 #111, 다크테마 기조 맞춤) PNG 원본 1장 생성. (2) src-tauri 디렉터리에서 `bunx tauri icon <원본경로>` 실행 → Tauri CLI가 icons/ 내 5개 파일 자동 파생. `bunx tauri icon`이 ImageMagick 의존 없이 `image` crate 내장 — 별도 설치 불필요. (3) 레포 루트에서 `bun --filter @nexus/server compile` 실행 → binaries/nexus-sidecar-aarch64-apple-darwin 생성(POC에서 62MB 확인된 경로). .gitignore에 이미 배제됨.",
+          "acceptance": "(a) icons/ 내 32x32.png, 128x128.png, 128x128@2x.png, icon.icns, icon.ico 5개 파일 모두 존재. (b) binaries/nexus-sidecar-aarch64-apple-darwin 파일 존재, 50MB 이상.",
+          "risk": "bunx tauri icon이 실패할 경우 sips + iconutil 수동 생성 fallback(macOS 기본 제공). icns/ico는 PNG 5개보다 부차적 — 최악의 경우 tauri.conf.json의 icons 배열에서 제외하는 우회도 가능하지만 번들 경고만 남고 .app 산출은 가능.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-14T01:46:28.329Z"
+        },
+        {
+          "id": 3,
+          "title": "cargo check → build → tauri build 단계별 실행 + fallback 체인",
+          "context": "Task 1(버전 핀) + Task 2(선결 리소스) 완료 후 실제 Rust 빌드 파이프라인을 돌려서 proc macro 패닉 해소 + .app 번들 산출까지 도달. 394 crate, 초기 빌드 5~15분 예상.",
+          "approach": "단계별: (1) cd packages/tauri/src-tauri && cargo generate-lockfile — Cargo.lock 신규 생성. (2) cargo check — 1차 패닉 재현 여부 관측(Rust 1.93.1 유지). (3) 패닉 시 cargo update 재시도. (4) 여전히 실패 시 `rustup toolchain install 1.92.0 && rustup override set 1.92.0 && cargo clean && cargo check` fallback. (5) cargo check PASS 확인 후 `cargo build --release`를 run_in_background로 실행. (6) build 완료 후 `bunx tauri build`(레포 루트 또는 packages/tauri에서). (7) target/release/bundle/macos/*.app 경로 + 크기 확인.",
+          "acceptance": "cargo check EXIT 0 + cargo build --release EXIT 0 + target/release/bundle/macos/ 내 .app 디렉터리 존재 + .app 크기 20MB+ + 최종 적용된 Rust/Tauri 버전 조합 기록 남김.",
+          "risk": "(a) rustup 1.92.0 다운로드 추가 시간, (b) fallback까지 실패 시 HOW 에스컬레이션(architect)으로 tauri patch 차용 검토 필요, (c) Gatekeeper 서명 없음(미인증 .app — 본 cycle 범위 밖).",
+          "status": "completed",
+          "deps": [
+            1,
+            2
+          ],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-14T01:46:37.247Z"
+        },
+        {
+          "id": 4,
+          "title": ".app 번들 산출물 검증 + 실행 smoke",
+          "context": "Task 3이 산출한 .app 번들이 POC 부록 B.4 수준의 UI 왕복을 재현할 수 있는지 기본 smoke. sidecar spawn, webview 창 생성, 로그 확인이 핵심.",
+          "approach": "(1) target/release/bundle/macos/*.app 경로 발견 + 크기 확인(du -sh). (2) codesign --verify 결과 기록(미서명 예상). (3) `open <.app>` 실행 후 10초 관찰 — 창 생성 여부, Console.app 또는 stderr 로그에서 sidecar spawn 확인. (4) ~/.nexus-code/logs/ 내 새 로그 파일 생성 확인(Phase 1에서 통합한 workspace-logger 경로). (5) 실패 시 패턴 분류 — Gatekeeper 차단/sidecar crash/webview blank 구분해 기록.",
+          "acceptance": ".app 경로 + 크기 + codesign 상태 + 창 생성 여부 + sidecar 로그 유무 5개 항목 모두 기록. 창 생성 성공 시 PASS, 실패 시 원인 분류.",
+          "risk": "Gatekeeper가 미서명 .app 차단 → `spctl --master-disable` 또는 우클릭 열기 우회 필요. smoke 목표는 창 뜨는 것까지, UI 실 왕복(approval)은 Cycle B 범위.",
+          "status": "completed",
+          "deps": [
+            3
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-14T01:46:47.456Z"
+        },
+        {
+          "id": 5,
+          "title": "cycle-a-report.md 신규 작성",
+          "context": "Cycle A 전 과정의 실행 기록을 영구 보관. POC 보고서(`.nexus/memory/tauri-poc-report.md`) 스타일과 일관성 유지.",
+          "approach": ".nexus/memory/cycle-a-report.md 신규 생성. 섹션: (1) TL;DR — Rust/Tauri 최종 버전 조합 + .app 산출 여부, (2) 실행 단계 로그 — cargo generate-lockfile/check/build/tauri build 각 단계 결과 PASS/FAIL, (3) proc macro 패닉 재현·해소 기록 — cargo update로 풀렸는지 rustup override로 풀렸는지, (4) .app 번들 메타데이터 — 경로/크기/codesign 상태, (5) Cycle B/C/D 이관 항목, (6) 재현 단계. Task 3/4의 실제 수치 반영.",
+          "acceptance": "파일 존재. 각 섹션이 Task 3/4의 실제 출력과 일치하는 수치를 포함. Cycle B deps가 tauri-migration-plan Phase 2 (c) 표와 cross-reference.",
+          "risk": "Task 3/4 실패 케이스 시 보고서가 실패 원인 분석 중심으로 전환 — 그 경우에도 미달성 항목을 명시적으로 기록.",
+          "status": "completed",
+          "deps": [
+            3,
+            4
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T01:46:56.910Z"
+        },
+        {
+          "id": 6,
+          "title": "tauri-migration-plan.md Phase 2 체크리스트 갱신",
+          "context": "기존 계획 문서 .nexus/memory/tauri-migration-plan.md에 Cycle A 결과 반영. 섹션 (c), (d), (e), (g)의 체크박스와 주석 업데이트.",
+          "approach": "Edit 도구로 기존 문서 in-place 수정: (a) 섹션 (c) Phase 2 Scope 표 항목 #1(proc macro 해소), #2(.app 번들) 상태 추가. (b) 섹션 (d) 선결 필수 체크리스트 [ ] → [x]로 전환(Cargo.toml 버전 핀, Rust 1.93.1 vs 1.92.x 결정). (c) 섹션 (e) user 실측 위임 항목 #1(cargo check/build), #5(.app 번들 실행) 상태 주석. (d) 섹션 (g) Cycle A 완료 표시 + Cycle B/C/D 잔여 명시.",
+          "acceptance": "체크박스가 실제 달성/미달성과 정확히 일치. 변경된 항목 외 나머지는 그대로 보존. 문서 버전 줄 업데이트(문서 버전: Phase 2 Cycle A, {날짜}).",
+          "risk": "cycle-a-report.md 신규 작성(task 5)과 정보 중복 가능 — migration-plan은 체크리스트 중심, cycle-a-report는 상세 로그 중심으로 역할 분담 유지.",
+          "status": "completed",
+          "deps": [
+            3,
+            4
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T01:47:05.676Z"
+        },
+        {
+          "id": 7,
+          "title": "Writer 산출물 검증 (cycle-a-report + migration-plan)",
+          "context": "Writer 산출물 2건의 사실성·일관성 검증. Writer → Reviewer는 nx-run 규정상 필수 pairing.",
+          "approach": "cycle-a-report.md와 tauri-migration-plan.md 수정본을 Task 3/4의 실제 로그·수치와 cross-check. 체크박스 표시와 실제 달성 상태 일치 여부, 버전 조합·.app 크기·경로 정확성, 오탈자·링크 깨짐 확인. 불일치 발견 시 Writer 재작성 요청(SubagentStop 에스컬레이션).",
+          "acceptance": "2개 문서 모두 사실·체크박스·링크 일관성 PASS. 발견된 문제가 있으면 명확히 기록하고 재작업 지시.",
+          "risk": "reviewer가 과도하게 엄격해 세부 문체 수정 요구 시 Cycle A 종료 지연 — Lead가 \"사실성·일관성\" 범위로 한정해 판단.",
+          "status": "completed",
+          "deps": [
+            5,
+            6
+          ],
+          "plan_issue": 4,
+          "owner": "reviewer",
+          "created_at": "2026-04-14T01:47:13.926Z"
+        },
+        {
+          "id": 8,
+          "title": "cycle-a-report.md §3.5 경로 표기 통일 (Reviewer WARNING 해결)",
+          "context": "Reviewer 검증(T7)에서 cycle-a-report.md의 §3.5 표 경로(`target/...`)와 §7 재현 단계 경로(`src-tauri/target/...`) 표기 불일치 WARNING 1건 발견. 사실 오류 아니나 독자 혼란 방지용 통일.",
+          "approach": "§3.5 표의 .app/.dmg 경로를 `packages/tauri/src-tauri/target/...` full path로 풀어서 통일. §7 Step 7/8은 `cd packages/tauri` 컨텍스트 내 상대 경로(`src-tauri/target/...`)이므로 그대로 유지 — 문맥상 정확.",
+          "acceptance": "§3.5 표 2행(`.app 경로`, `.dmg`)이 `packages/tauri/src-tauri/target/...` 형식으로 통일됨. §7 Step 7/8은 변경 안됨.",
+          "risk": "없음 — 단순 텍스트 Edit.",
+          "status": "completed",
+          "deps": [
+            7
+          ],
+          "plan_issue": 4,
+          "owner": "lead",
+          "created_at": "2026-04-14T02:10:04.211Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T02:33:21.658Z",
+      "branch": "feat/tauri-phase2-cycle-b",
+      "plan": {
+        "id": 8,
+        "topic": "Phase 2 Cycle B — pino-pretty 해소 + dev orchestrator tauri 전환",
+        "issues": [
+          {
+            "id": 1,
+            "title": "pino-pretty 번들 제외 전략 (sidecar 부팅 blocker)",
+            "status": "decided",
+            "decision": "선택: **A+B 이중 안전** — (A) packages/server/scripts/compile-sidecar.ts의 `bun build --compile` 호출에 `--define 'process.env.NODE_ENV=\\\"production\\\"'` 인자 추가로 빌드 시점 const 치환 + dead code elimination → pino-pretty import 체인 전체 번들 제거. (B) packages/tauri/src-tauri/src/lib.rs의 `app.shell().sidecar(\"nexus-sidecar\").env(\"PORT\", ...)` 체인에 `.env(\"NODE_ENV\", \"production\")` 추가 — 런타임 이중 안전 (사용자가 NODE_ENV를 실수로 override해도 Rust 측에서 덮어쓰기). 기각: (C) logger.ts 자체 수정(transport 라인 제거) — dev 사용성 해침, 빌드 분기만으로 해결 가능한데 소스 수정은 과도. (D) pino-pretty를 dependencies로 승격 — 번들 크기 증가, 근본 해결 아님, dead code elimination이 올바른 방향."
+          },
+          {
+            "id": 2,
+            "title": "sidecar 재빌드 파이프라인 + UI-sidecar 계약 회귀 확인",
+            "status": "decided",
+            "decision": "선택: 회귀 확인만 수행, 추가 수정 없음. (a) compile-sidecar.ts의 outDir 하드코딩 + platform triple 매핑이 packages/tauri/src-tauri/binaries/로 직접 출력하는 파이프라인이 Phase 1에서 이미 닫혔으므로 재확인만. (b) packages/web/src/api/ 하위 5개 모듈(use-sse, workspace, settings, session, approval)의 URL 경로와 이벤트명이 sidecar 계약(/api/sessions, /api/workspaces, /api/approvals/:id/respond, /api/sessions/:id/cancel, SSE 이벤트 session_init/text_delta/tool_call/tool_result/permission_request/permission_settled/turn_end/error/rate_limit)과 일치하는지 Grep + Read로 확인. (c) lib.rs의 RunEvent::Exit + Arc<Mutex<Option<CommandChild>>> 패턴이 Cycle A commit 후에도 정상인지 확인. 기각: (A) POC 계약을 다시 전체 재정렬 — 이미 Phase 1에서 api/ 모듈 refactor로 완성됨, 불필요. (B) 자동화 E2E 추가 — Cycle D(크로스플랫폼) 범위, 현 단계 과도."
+          },
+          {
+            "id": 3,
+            "title": "dev orchestrator [electron] → [tauri] prefix 전환",
+            "status": "decided",
+            "decision": "선택: scripts/dev.ts의 electron 실행 블록(193~208행)을 tauri dev로 교체, prefix `[electron]` → `[tauri]`, 색상도 유지(`\\x1b[35m`). `packages/tauri` cwd에서 `bunx tauri dev` 실행. tauri.conf.json의 beforeDevCommand(bun run --filter @nexus/web dev)는 dev.ts가 이미 web을 관리하므로 중복 방지 위해 **임시 null 또는 주석 처리**. 프로세스 라이프사이클: tauri dev가 exit하면 cleanup 트리거 (현 electron 동일 패턴 유지). electron 폐기는 Cycle C이므로 scripts/dev.ts에서 packages/electron 실행 코드만 제거하고 electron 패키지 자체는 유지. 기각: (A) dev.ts를 완전 재작성 — 기존 port check / pipeLines / cleanup 로직은 재사용 가치 큼. (B) beforeDevCommand 유지 + dev.ts의 web 제거 — tauri dev 내부 spawn은 dev.ts의 pipeLines/로깅 통합을 깸, 관측성 손해. (C) tauri dev와 electron 병행 지원 — 사용자가 요청한 [electron] → [tauri] 전환 방향과 배치."
+          },
+          {
+            "id": 4,
+            "title": "Cycle B 실행 기록 산출물 (cycle-b-report + migration-plan 업데이트)",
+            "status": "decided",
+            "decision": "산출물 2종: (a) .nexus/memory/cycle-b-report.md 신규 — pino-pretty 해결 경위, A+B 이중 안전 근거, 회귀 확인 결과(5 api 모듈 + RunEvent::Exit), dev orchestrator diff 요약, .app smoke 재검증(이번엔 sidecar 로그 생성 + curl /api/health 200 확인), Cycle C/D 이관 항목. cycle-a-report.md 섹션 스타일 차용. (b) .nexus/memory/tauri-migration-plan.md 섹션 (c) Phase 2 Scope 항목 #3(dev orchestrator)/#4(packages/electron 폐기 상태는 Cycle C라 미완)/#5(부록 B 함정 5건) 체크박스 갱신 — pino-pretty [x] 완료, sidecar 종료 핸들러 [x] 이미 Phase 1 완료, UI 계약 정렬 [x] 회귀 PASS, sidecar 재빌드 파이프라인 [x] 확인, text_delta 중복 [ ] backlog 이관. 섹션 (g) Cycle B 완료 + Cycle C 이관 명시. 기각: context/architecture.md 수정 — packages/electron 폐기는 Cycle C에서 일괄 반영이 자연스러움."
+          }
+        ],
+        "research_summary": "코드 점검 결과:\n\n1. **pino-pretty 근본 원인 확인**: packages/server/src/logger.ts 11~16행에서 `isDev = NODE_ENV !== 'production'`가 true이면 `pino.transport({ target: 'pino-pretty' })`를 설정. 번들 .app 실행 시 NODE_ENV가 미설정이므로 기본 true → pino가 worker thread로 pino-pretty를 require 시도하지만 bun compile이 동적 모듈 해소에 실패. Cycle A smoke에서 재현된 crash의 정확한 원인.\n\n2. **해결 방식 옵션 3종**:\n   - (A) compile-sidecar.ts에 `bun build --compile --define 'process.env.NODE_ENV=\\\"production\\\"'` 추가 → 빌드 시점 const 치환 + dead code elimination → pino-pretty 코드 자체가 번들에서 제거됨\n   - (B) lib.rs sidecar spawn 시 `.env(\"NODE_ENV\", \"production\")` 주입 → 런타임 NODE_ENV=production → logger.ts의 `isDev=false` → transport 파라미터 undefined → pino-pretty 미요청\n   - (C) logger.ts 자체 수정 (transport 제거) → 원천 차단\n   - **권장: A+B 이중 안전** (빌드 시점 + 런타임). C는 dev 사용성 해침\n\n3. **sidecar 재빌드 파이프라인** (POC B.2): packages/server/scripts/compile-sidecar.ts가 이미 bun compile → packages/tauri/src-tauri/binaries/nexus-sidecar-<triple>로 직접 출력. outDir 하드코딩 경로, platform triple 매핑. 자동화 닫힘 확인. 추가 자동화 불필요.\n\n4. **UI-sidecar 계약** (POC B.1): packages/web/src/api/ 하위 5개 모듈(use-sse, workspace, settings, session, approval)로 모듈화 완료. POC 시점 inline App.tsx 대비 구조 안정. 회귀 확인은 이 5개 파일의 URL 경로/이벤트명만 점검.\n\n5. **sidecar 종료 Rust 핸들러** (POC B 중 1건): Phase 1 lib.rs에 `Arc<Mutex<Option<CommandChild>>>` + `RunEvent::Exit → child.kill()` 패턴 이미 구현. Cycle A commit에서 ownership 보정까지 완료. 추가 작업 불필요 — Cycle B 스코프에서 확인만.\n\n6. **text_delta/text_chunk 중복** (POC B.6): 사소한 UX 이슈. 본 cycle에서는 skip, backlog.md에 이관.\n\n7. **dev orchestrator**: scripts/dev.ts가 packages/electron을 하드코딩해 실행. `[electron]` prefix, `bun run dev` (packages/electron)로 부팅. tauri 전환 필요: packages/tauri + `bunx tauri dev`로 교체, prefix `[tauri]`. 다만 tauri.conf.json의 beforeDevCommand가 web dev를 중복 실행 위험 → dev.ts가 이미 web을 관리하므로 beforeDevCommand 비활성 필요.\n\n8. **bun --define 검증**: Bun docs에 따르면 `--define 'process.env.NODE_ENV=\"production\"'`이 표준. compile 시점에 expr 치환 + dead code elimination으로 pino-pretty import 체인 전체 제거 가능.",
+        "created_at": "2026-04-14T02:16:37.173Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "pino-pretty 번들 제외 (compile-sidecar --define + lib.rs NODE_ENV)",
+          "context": "Cycle A 확정 blocker: `.app` 번들 실행 시 sidecar가 pino의 dynamic transport 로더로 pino-pretty worker를 require하다 즉사. logger.ts 11~16행은 NODE_ENV!==production일 때 pino.transport 설정. 번들에 NODE_ENV 미주입 상태라 dev 분기로 떨어짐.",
+          "approach": "2파일 동시 수정 (A+B 이중 안전): (a) packages/server/scripts/compile-sidecar.ts 42~46행의 `cmd: ['bun', 'build', entry, '--compile', '--outfile', outfile]`에 `'--define', 'process.env.NODE_ENV=\"production\"'` 2개 인자 추가 → 빌드 시점 const 치환 + dead code elimination (logger.ts isDev=false로 단정 → transport 분기 제거 → pino-pretty import 체인 자체가 번들에서 사라짐). (b) packages/tauri/src-tauri/src/lib.rs의 `app.shell().sidecar(\"nexus-sidecar\")?.env(\"PORT\", port.to_string())` 체인에 `.env(\"NODE_ENV\", \"production\")` 추가 — Rust 측에서 런타임 env 이중 주입 (사용자 실수 방지).",
+          "acceptance": "compile-sidecar.ts grep `--define.*NODE_ENV` 1건 hit. lib.rs grep `\"NODE_ENV\"` 1건 hit. Task 4 재빌드 smoke에서 sidecar crash 재현 안됨.",
+          "risk": "bun --define 동작: Bun 1.3.9 문서 기준 expr 치환 + tree-shake 지원. 혹 번들에 pino-pretty가 남아도 Rust env 주입이 isDev=false로 만들어 transport 파라미터 undefined로 해결. 2중 안전망이라 blocker 재발 가능성 극히 낮음.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-14T02:18:07.813Z"
+        },
+        {
+          "id": 2,
+          "title": "dev orchestrator [electron] → [tauri] 전환",
+          "context": "scripts/dev.ts 193~208행이 packages/electron을 spawn + prefix `[electron]`. Cycle B에서 tauri 경로로 전환. electron 패키지 자체는 Cycle C에서 폐기.",
+          "approach": "scripts/dev.ts 수정: (a) 로그 메시지 \"Launching electron...\" → \"Launching tauri...\". (b) spawn cmd를 `['bunx', 'tauri', 'dev']`로, cwd를 `packages/tauri`로. (c) pipeLines prefix `[electron]` → `[tauri]` (색상 \\x1b[35m 유지). (d) await electron.exited → await tauri.exited, 변수명도 tauri로. 병행 수정: packages/tauri/src-tauri/tauri.conf.json의 `\"beforeDevCommand\": \"bun run --filter @nexus/web dev\"`를 빈 문자열 `\"\"` 또는 속성 삭제 — dev.ts가 이미 web을 관리하므로 중복 방지. beforeBuildCommand는 유지(tauri build 경로).",
+          "acceptance": "scripts/dev.ts에 `packages/electron` 참조 0건, `packages/tauri` + `bunx tauri dev` 또는 동등 명령 hit. pipeLines prefix `[tauri]` hit, `[electron]` 0건. tauri.conf.json의 beforeDevCommand가 비활성화(빈 문자열 또는 미존재).",
+          "risk": "beforeDevCommand 비활성화 시 dev.ts 없이 `bunx tauri dev`만 실행하면 web이 안 뜰 수 있다 — 그 경우 운영상 dev.ts 필수가 됨. 본 cycle 범위에서는 dev.ts가 정답 엔트리이므로 수용 가능.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "engineer",
+          "created_at": "2026-04-14T02:18:17.870Z"
+        },
+        {
+          "id": 3,
+          "title": "회귀 확인 (sidecar 재빌드 파이프라인 + UI-sidecar 계약 + RunEvent::Exit)",
+          "context": "POC 부록 B.1/B.2 + sidecar 종료 핸들러 패턴이 Phase 1 이후 유지되는지 정적 회귀 확인. 추가 수정 없이 확인만.",
+          "approach": "3개 항목 확인: (1) packages/server/scripts/compile-sidecar.ts의 outDir = `packages/tauri/src-tauri/binaries/`로 출력 유지 확인 (Phase 1 스크립트 구조). (2) packages/web/src/api/ 하위 {use-sse, workspace, session, approval, settings}.ts의 URL 경로가 sidecar 실제 계약 `/api/{workspaces,sessions,approvals/:id/respond,sessions/:id/cancel}`와 일치, SSE 이벤트명이 session_init/text_delta/tool_call/tool_result/permission_request/permission_settled/turn_end/error/rate_limit 범위인지 Grep 확인. (3) packages/tauri/src-tauri/src/lib.rs에 `RunEvent::Exit` + `Arc<Mutex<Option<CommandChild>>>` + `child.kill()` 체인이 Cycle A commit 후에도 유지됨을 Grep 확인. 문제 발견 시 체크리스트에 기록, 수정은 별도 task 제안 후 사용자 판단.",
+          "acceptance": "3개 항목 모두 PASS/ISSUE 판정 리포트. API 경로 불일치나 RunEvent 핸들러 누락 등 regression 발견 시 Lead에게 에스컬레이션.",
+          "risk": "Phase 1 이후 api/ 모듈 refactor에서 경로 또는 이벤트명이 바뀌었을 경우 수정 범위가 커질 수 있음 — 그 경우 본 cycle 범위 재조정 필요.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "engineer",
+          "created_at": "2026-04-14T02:18:29.441Z"
+        },
+        {
+          "id": 4,
+          "title": "재빌드 + .app smoke 재실행 (sidecar crash 해소 검증)",
+          "context": "Task 1의 pino-pretty 패치 + Task 2의 lib.rs env 주입 후 .app 번들을 재빌드하고 Cycle A에서 실패한 smoke를 재실행. sidecar가 정상 부팅하고 API가 응답하는지 확정.",
+          "approach": "(1) `bun --filter @nexus/server compile` 재실행 → binaries/nexus-sidecar-aarch64-apple-darwin 갱신. (2) 직접 실행 smoke: `PORT=49901 ./binaries/nexus-sidecar-aarch64-apple-darwin &` 5초 대기 → `curl http://localhost:49901/api/health` → EXIT 200 확인 → kill. (3) `cd packages/tauri/src-tauri && cargo build --release` (background, incremental이라 빠름). (4) `bun run --filter @nexus/tauri build` (background) → .app 재생성. (5) `open \"target/release/bundle/macos/Nexus Code.app\"` → 8초 대기 → pgrep nexus-sidecar + ~/.nexus-code/logs/ 디렉터리 생성 확인 + `curl http://localhost:<port>/api/health`. (6) 결과 기록 후 정리 pkill.",
+          "acceptance": "(a) 번들된 sidecar 단독 실행 시 5초간 생존 + /api/health 200. (b) .app 실행 후 nexus-sidecar 프로세스 생존 + ~/.nexus-code/logs/ 디렉터리 생성 + 적어도 1개 로그 파일에 서버 부팅 엔트리 포함.",
+          "risk": "tauri가 spawn하는 sidecar는 랜덤 포트를 env로 받는다 — 실제 포트는 Tauri Rust가 결정하므로 curl 테스트는 sidecar 단독 실행이 더 검증 용이. .app 테스트는 프로세스 생존 + 로그 유무로 판정.",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 1,
+          "owner": "engineer",
+          "created_at": "2026-04-14T02:18:41.305Z"
+        },
+        {
+          "id": 5,
+          "title": "Tester 검증 (pino-pretty 해소 + dev orchestrator 정적 검증)",
+          "context": "Task 4의 .app smoke 결과 수용 가능성 + Task 2의 scripts/dev.ts 변경에 대한 정적 검증.",
+          "approach": "(1) Task 4 결과 검토: sidecar 프로세스 생존 + 로그 생성 + /api/health 응답 3항목을 tasks.json acceptance와 비교. (2) scripts/dev.ts Grep: `packages/electron` 0건, `packages/tauri` 존재, `[tauri]` prefix 존재. (3) tauri.conf.json Grep: beforeDevCommand 비활성(빈 문자열 또는 미존재). (4) 실 dev orchestrator smoke는 사용자 머신 GUI 점유하므로 skip 판단 — 정적 검증만. (5) 문제 발견 시 패턴 분류 + Lead 에스컬레이션.",
+          "acceptance": "PASS: Task 4 smoke 3항목 충족 + scripts/dev.ts 정적 검증 3항목 충족. 실패 시 원인 분류 + 재작업 지시.",
+          "risk": "dev orchestrator 실제 실행은 GUI 창 생성 포함이라 자동화된 smoke가 어려움 — 정적 검증으로 대체. 완전 e2e는 Cycle C/D로 이관.",
+          "status": "completed",
+          "deps": [
+            2,
+            4
+          ],
+          "plan_issue": 3,
+          "owner": "tester",
+          "created_at": "2026-04-14T02:18:49.583Z"
+        },
+        {
+          "id": 6,
+          "title": "cycle-b-report.md 신규 작성",
+          "context": "Cycle B 전 과정의 실행 기록 영구 보관. cycle-a-report.md 스타일 차용.",
+          "approach": ".nexus/memory/cycle-b-report.md 신규 생성. 섹션: (1) TL;DR — pino-pretty 해결 + dev orchestrator 전환 + .app smoke 재현. (2) 범위와 목표 — Cycle B 스코프, text_delta backlog 이관, Cycle C/D 경계. (3) 실행 단계별 결과 — T1~T5 PASS/FAIL 표 + 주요 수치. (4) pino-pretty 해결 상세 — A(compile-sidecar --define) + B(lib.rs NODE_ENV env) 이중 안전 근거, 빌드 전/후 번들 pino-pretty 포함 여부. (5) 회귀 확인 결과 — 5 api 모듈 + compile-sidecar + RunEvent::Exit 각각 PASS 표. (6) dev orchestrator diff — before/after scripts/dev.ts 요약. (7) .app smoke 재검증 — sidecar 프로세스, 로그 생성, /api/health 응답. (8) Cycle C/D 이관 항목 + backlog (text_delta 중복).",
+          "acceptance": "파일 존재 + 각 섹션이 T1~T5 실측 수치와 일치 + Cycle C/D 이관이 migration-plan과 cross-reference 가능.",
+          "risk": "T4 smoke가 여전히 FAIL 시 보고서가 원인 분석 중심으로 전환 — 그 경우에도 제출.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T02:18:59.977Z"
+        },
+        {
+          "id": 7,
+          "title": "tauri-migration-plan.md Cycle B 체크리스트 갱신",
+          "context": "기존 migration plan의 Cycle B 진행 상태를 체크리스트로 반영.",
+          "approach": "Edit in-place 수정: (a) 섹션 (c) Phase 2 Scope 표 항목 #3(dev orchestrator) → \"**Cycle B 완료**\" 주석. 항목 #4(packages/electron 폐기)는 유지 (Cycle C). 항목 #5(부록 B 함정 5건)에 sub-체크: [x] pino-pretty 번들 제외, [x] sidecar 재빌드 파이프라인, [x] UI-sidecar 계약 정렬, [x] sidecar 종료 Rust 핸들러(Phase 1 완료 확정), [ ] text_delta 중복(backlog). (b) 섹션 (g) 커밋 순서에서 Cycle B → \"완료(2026-04-14, commit 예정)\", Cycle C → \"electron 패키지 폐기 우선 착수\" 명시. (c) 문서 버전 줄을 \"Phase 2 Cycle B 완료 반영, 2026-04-14. Cycle C 진입 시 packages/electron 폐기 + dev-smoke-protocol 갱신 우선\"으로 갱신.",
+          "acceptance": "섹션 (c) #3 완료 주석, #5 sub-체크 5건, 섹션 (g) Cycle B 완료 + Cycle C 착수 명시, 문서 버전 줄 갱신. 변경된 항목 외 구조 보존.",
+          "risk": "cycle-b-report.md와 정보 중복 우려 — migration-plan은 체크리스트 중심, cycle-b-report는 상세 기록 중심으로 역할 분담.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T02:19:10.826Z"
+        },
+        {
+          "id": 8,
+          "title": "Reviewer 검증 (writer 산출물 2건)",
+          "context": "Writer 산출물 2건의 사실성·체크박스·수치 일관성 검증. Writer→Reviewer는 nx-run 규정상 필수 pairing.",
+          "approach": "cycle-b-report.md와 tauri-migration-plan.md 수정본을 T1~T5 실측 수치와 cross-check. 체크박스와 실제 달성 상태 일치, 이관 항목 명시 정확성, 오탈자·링크 확인. cycle-a-report 리뷰 방식 차용. 문제 발견 시 구체적 위치 + 기대값 보고.",
+          "acceptance": "2개 문서 사실·체크박스·cross-reference PASS. 발견 시 위치 + 기대값 보고. Cycle A 규모와 일관되게 CRITICAL 0 목표.",
+          "risk": "Cycle A와 동일 — 엄격한 문체 수정 요구는 Lead가 \"사실성·일관성\" 범위로 한정.",
+          "status": "completed",
+          "deps": [
+            6,
+            7
+          ],
+          "plan_issue": 4,
+          "owner": "reviewer",
+          "created_at": "2026-04-14T02:19:18.970Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T03:26:18.307Z",
+      "branch": "feat/tauri-phase2-cycle-c",
+      "plan": {
+        "id": 9,
+        "topic": "Phase 2 Cycle C — packages/electron 폐기 + dev-smoke-protocol + architecture 재정의",
+        "issues": [
+          {
+            "id": 1,
+            "title": "packages/electron 디렉터리 제거 + bun install + 잔여 참조 확인",
+            "status": "decided",
+            "decision": "선택: **git rm -r packages/electron**로 tracking 해제 + 실제 파일 삭제 동시 처리 → `bun install` 1회 실행으로 workspace + bun.lock 재구성 → Grep으로 `@nexus/electron` + `packages/electron` 잔여 참조 재확인 (architecture.md, dev-smoke-protocol.md, 역사 문서 제외 런타임 코드 0건 목표). root package.json은 workspaces 와일드카드라 별도 수정 불필요. 기각: (A) `rm -rf`만 실행 후 개별 `git rm` — 비효율 (1 step vs 2 step), (B) 디렉터리 유지하고 tauri와 병행 — 사용자 결정(Cycle C 범위 = electron 폐기)에 배치, (C) packages/electron 유지 + deprecation 주석 — 문서 수준 유지라 본 cycle 목표(삭제) 미달성."
+          },
+          {
+            "id": 2,
+            "title": ".nexus/context/architecture.md 전환 (5→4 패키지, electron 블록 제거)",
+            "status": "decided",
+            "decision": "선택: .nexus/context/architecture.md in-place 수정. 6곳 변경: (a) 3행 \"다섯 개의 패키지(shared/server/web/tauri/electron)\" → \"네 개의 패키지(shared/server/web/tauri)\". (b) 22행 \"5개 패키지로 구성\" → \"4개 패키지로 구성\". (c) 24~38행 다이어그램에서 \"Electron (desktop shell) [deprecated]\" 행 제거. (d) 84~88행 `@nexus/electron` 섹션 전체 제거. (e) 82행 Tauri 섹션의 \"Phase 1(본 cycle): ... Phase 2(별도 cycle)에서 진행\" 문단을 \"Phase 2 Cycle A/B/C 완료: tauri 2.9.5 + .app 산출 + electron 폐기\" 수준으로 간결 갱신. (f) 95~99행 통신 경로 표에서 \"Electron → Web | IPC (preload bridge)\" 행 제거. (g) 103행 의존 규칙 \"shared ← server ← web ← electron\" → \"shared ← server ← web ← tauri\". (h) 114행 빌드 순서 \"shared → server/web → tauri (Phase 2 완료 후 확정; electron은 Phase 2 폐기 예정)\" → \"shared → server/web → tauri\". (i) 116행 Phase 1 기간 중 electron spawn 문단 제거. (j) 118~122행 빌드/개발 5단계 중 \"4. Electron 런치\" → \"4. Tauri dev 런치\", \"5. Electron 종료 시 cleanup\" → \"5. Tauri 종료 시 cleanup\". 나머지 섹션(Nexus ecosystem 3-layer, shared/server/web, 로깅 구조, request-id 플로우)은 본 cycle과 무관 — 보존. 기각: (A) 전체 재작성 — 보존 가치 높은 3-layer/logging 부분까지 위험, (B) Electron 섹션만 제거하고 다이어그램·통신·오케스트레이션은 다음 cycle — 중복 cycle 비용."
+          },
+          {
+            "id": 3,
+            "title": "dev-smoke-protocol.md 갱신 (tauri 경로 + 원수 제거)",
+            "status": "decided",
+            "decision": "선택: dev-smoke-protocol.md in-place 수정 3건. (a) §2 빌드 순서 문장 \"`shared → server/web → electron` 순서 강제\" → \"`shared → server/web → tauri` 순서 강제\". (b) §4 #5 로그 경로 \"`_system/electron-main-{date}.log` 영속\" → \"`_system/dev-{date}.log` 영속\"로 변경(electron 영속 채널 제거됨, dev orchestrator 영속은 NEXUS_LOG_DEV 옵션만). (c) §6 orphan 대응에서 \"`tsx --watch` 등 Node `--watch` 계열\" → \"`bun --watch` 계열\" 로 업데이트 (Cycle B에서 server dev가 tsx→bun 전환). 나머지 §1/3/5 구조는 tauri 전환에도 유효 — 보존. 기각: (A) 전면 재작성 — 대부분 섹션이 tauri에도 유효한 orphan/port 검증 프로토콜, (B) 파일 자체 삭제 — 수동 smoke 체크리스트는 여전히 필요."
+          },
+          {
+            "id": 4,
+            "title": "Cycle C 실행 기록 산출물 (cycle-c-report + migration-plan)",
+            "status": "decided",
+            "decision": "산출물 2종: (a) .nexus/memory/cycle-c-report.md 신규 — 삭제된 파일 6개 목록, bun install 결과, 잔여 `@nexus/electron` 참조 grep 결과, architecture.md/dev-smoke-protocol.md 갱신 요약, Cycle D 이관 항목 (Linux webkit2gtk, Windows .msi, 30분+ SSE). cycle-a/b 스타일 차용. (b) .nexus/memory/tauri-migration-plan.md (c)/(g) 갱신 — 항목 #4(packages/electron 폐기)를 \"**Cycle C 완료**\"로 마크, (g) Cycle C 줄을 \"완료(2026-04-14, commit 예정)\"로, Cycle D 줄에 \"크로스플랫폼 빌드 + 30분+ SSE 우선 착수\" 주석. 문서 버전 줄 갱신. 기각: context/architecture.md 갱신을 별도 writer task가 아닌 issue #2로 분리한 이유로 중복 방지."
+          }
+        ],
+        "research_summary": "현 상태: Cycle B commit 79f3436 기반, 브랜치 feat/tauri-phase2-cycle-c. dev orchestrator 프로세스 cleanup 완료.\n\npackages/electron (6파일): env.ts, preload.ts, main.ts, logger.ts, tsconfig.json, package.json. Phase 1 Electron 셸 구현체. Cycle B에서 scripts/dev.ts가 tauri dev로 전환되면서 실행 경로는 이미 제거됨.\n\nroot package.json: workspaces `packages/*` 와일드카드라 디렉터리 삭제만으로 자동 반영. scripts에 electron 전용 엔트리 없음.\n\n`@nexus/electron` 참조 파일 8개 중 수정 대상은 3건:\n- bun.lock (bun install로 자동 재생성)\n- .nexus/context/architecture.md (5개 패키지 → 4개 패키지 블록 다이어그램, electron 섹션 §4.5, 통신 경로 \"Electron → Web IPC\" 행, 빌드 오케스트레이션 \"4. Electron 런치\", \"5. Electron 종료 시 cleanup\" 문단 수정)\n- .nexus/memory/dev-smoke-protocol.md (§2 빌드 순서 \"electron\"→\"tauri\", §4 #5 로그 경로 \"_system/electron-main-{date}.log\"→\"_system/dev-{date}.log\", §6 tsx --watch → bun --watch orphan 가이드)\n\n역사 문서는 건드리지 않음: cycle-a/b-report, tauri-migration-plan.md 내 Cycle A/B 기록, history.json, logging-integration-report.\n\npackages/tauri/src-tauri/src/lib.rs의 select_folder IPC + capabilities/default.json `dialog:allow-open` 이미 Phase 1 완료. `tauri-plugin-dialog` 대체 작업 불필요.\n\npackages/web/src 등 다른 런타임은 이미 @nexus/electron 의존 없음 — Phase 1에서 분리 완료. 재확인만 필요.\n\n핵심 불확실성: 없음. 범위 명확, auto-decide 가능.",
+        "created_at": "2026-04-14T03:14:34.799Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "packages/electron 삭제 + bun install + 잔여 참조 확인",
+          "context": "packages/electron/ 하위 6파일을 git 추적 해제 + 삭제. bun.lock 재구성. @nexus/electron 잔여 참조 0건 확인.",
+          "approach": "(1) `git rm -r packages/electron` — tracking 해제 + 파일 삭제 동시. (2) `bun install` — workspace 재구성, bun.lock 갱신. (3) `Grep @nexus/electron packages/` 실행 → 런타임 코드에 0건 남음 확인 (architecture.md, dev-smoke-protocol.md는 T2/T3에서 처리되므로 grep 대상 외). (4) `Grep packages/electron packages/ scripts/` → 0건 확인.",
+          "acceptance": "(a) packages/electron/ 디렉터리 존재하지 않음. (b) bun install EXIT 0, bun.lock 변경 발생. (c) packages/ 런타임 코드 내 `@nexus/electron` 또는 `packages/electron` 참조 0건 (문서 제외).",
+          "risk": "bun install이 다른 의존성까지 갱신할 가능성 — 이 경우 별도 검증 필요. 단 본 cycle에서는 electron 제거 외 변경을 수용.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:15:46.198Z"
+        },
+        {
+          "id": 2,
+          "title": ".nexus/context/architecture.md 전환 (5→4 패키지 + electron 제거)",
+          "context": "architecture.md 10곳에서 electron 참조 제거 및 tauri로 재편. 3-layer 프레임, logging 상세 등 다른 섹션은 보존.",
+          "approach": "Edit 도구 in-place 수정 10건 (issue #2 결정에 명시된 (a)~(j) 순서대로): (a) 3행 \"다섯 개의 패키지\" → \"네 개의 패키지\", tauri/electron 나열에서 electron 제거. (b) 22행 \"5개 패키지\" → \"4개 패키지\". (c) 다이어그램 \"Electron (desktop shell) [deprecated]\" 행 제거. (d) `@nexus/electron` 섹션 전체 제거 (84~88행). (e) Tauri 섹션의 Phase 1 임시 문장을 Phase 2 완료 상태로 간결화. (f) 통신 경로 표 \"Electron → Web | IPC\" 행 제거. (g) 설계 원칙 단방향 의존 \"...electron\" → \"...tauri\". (h) 빌드 순서 \"electron 폐기 예정\" 표현 제거. (i) Phase 1 기간 electron spawn 문단 제거. (j) 개발 오케스트레이션 4~5단계 Electron → Tauri.",
+          "acceptance": "architecture.md에 `electron`, `Electron`, `@nexus/electron`, `5 패키지`, `5개 패키지`, `다섯 개` 문자열 0건 (단 \"electron 폐기\" 같은 제거된 표현 검증 목적). 4 패키지 (shared/server/web/tauri) 일관 기술. 3-layer 프레임·logging 섹션·Adapter 경계 섹션 보존.",
+          "risk": "일괄 Edit 중 일부 곳 누락 가능 — grep으로 최종 확인 단계 포함.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:15:58.551Z"
+        },
+        {
+          "id": 3,
+          "title": ".nexus/memory/dev-smoke-protocol.md 갱신 (tauri + bun --watch)",
+          "context": "dev-smoke-protocol.md 3건 수정: §2 빌드 순서, §4#5 로그 경로, §6 orphan 가이드 — Cycle B의 tauri 전환과 server dev bun 전환 반영.",
+          "approach": "Edit 도구 3건: (a) §2: `shared → server/web → electron` → `shared → server/web → tauri`. (b) §4#5: `_system/electron-main-{date}.log` 영속 언급 제거, `_system/dev-{date}.log` (NEXUS_LOG_DEV=1)만 명시. (c) §6: \"tsx --watch 등 Node --watch 계열\" 문장을 \"bun --watch 계열\"로 교체 (Cycle B에서 server dev tsx→bun 전환).",
+          "acceptance": "dev-smoke-protocol.md에 `electron` 문자열 0건, `tauri` 1건 이상 hit, `bun --watch` 또는 동등 표현 1건 hit.",
+          "risk": "§1/3/5 구조가 tauri에도 유효하므로 불필요한 수정 방지.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 3,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:04.330Z"
+        },
+        {
+          "id": 4,
+          "title": "cycle-c-report.md 신규 작성",
+          "context": "Cycle C 실행 기록 영구 보관. cycle-a/b-report 스타일 차용.",
+          "approach": ".nexus/memory/cycle-c-report.md 신규 생성. 섹션: (1) TL;DR — electron 폐기 + architecture/dev-smoke-protocol 재정의. (2) 범위. (3) 실행 단계별 결과 — T1~T3 PASS/수치. (4) 삭제된 파일 6개 (env/preload/main/logger/tsconfig/package.json). (5) 잔여 참조 grep 결과 — 런타임 코드 0건. (6) architecture.md 갱신 10곳 요약. (7) dev-smoke-protocol.md 갱신 3곳 요약. (8) Cycle D 이관 (Linux webkit2gtk, Windows .msi, 30분+ SSE). (9) 재현 단계.",
+          "acceptance": "파일 존재 + T1~T3 실측 수치 반영 + Cycle D 이관 cross-reference.",
+          "risk": "정보 중복 방지 — architecture.md/dev-smoke 갱신은 각 섹션에서 요약만.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:11.741Z"
+        },
+        {
+          "id": 5,
+          "title": "tauri-migration-plan.md Cycle C 체크리스트 갱신",
+          "context": "migration-plan 섹션 (c)/(g)에 Cycle C 완료 반영.",
+          "approach": "Edit in-place: (a) 섹션 (c) 항목 #4 (packages/electron 폐기) 선결 요건 칸에 \"**Cycle C 완료** (git rm -r + bun install + architecture.md/dev-smoke-protocol.md 갱신)\" 주석. (b) 섹션 (g) Cycle C 줄 → \"**완료(2026-04-14, commit 예정)** (electron 폐기 + architecture 4 패키지 + dev-smoke-protocol tauri 경로)\". (c) Cycle D 줄 → \"**크로스플랫폼 빌드 + 30분+ SSE 우선 착수**\" 주석. (d) 문서 버전 줄을 \"Phase 2 Cycle C 완료 반영, 2026-04-14. Cycle D 진입 시 Linux webkit2gtk + Windows .msi + 30분+ SSE 우선\"으로 갱신.",
+          "acceptance": "섹션 (c)#4 Cycle C 완료 주석, 섹션 (g) Cycle C 완료 + Cycle D 우선 명시, 문서 버전 줄 갱신. 기존 Phase 1/Cycle A/B 체크 표시 보존.",
+          "risk": "cycle-c-report와 정보 중복 방지 — migration-plan은 체크리스트 중심.",
+          "status": "completed",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "plan_issue": 4,
+          "owner": "writer",
+          "created_at": "2026-04-14T03:16:19.615Z"
+        },
+        {
+          "id": 6,
+          "title": "Reviewer 검증 (writer 산출물 4건)",
+          "context": "architecture.md / dev-smoke-protocol.md / cycle-c-report.md / migration-plan.md 4건의 사실성·체크박스·일관성 검증.",
+          "approach": "각 산출물을 T1~T3의 실측 로그와 cross-check. architecture.md에 electron 잔존 여부, dev-smoke-protocol.md의 tauri/bun --watch 반영, cycle-c-report.md의 수치 정확성, migration-plan.md의 체크박스 일치. cycle-a/b 리뷰 스타일 차용 (CRITICAL/WARNING/INFO 분류).",
+          "acceptance": "4개 문서 사실·체크박스·cross-reference PASS. 문제 발견 시 구체적 위치+기대값 보고.",
+          "risk": "문체 수정 요구는 Lead가 사실성·일관성 범위로 한정.",
+          "status": "completed",
+          "deps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "plan_issue": 4,
+          "owner": "reviewer",
+          "created_at": "2026-04-14T03:16:26.229Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "0.5",
+      "completed_at": "2026-04-14T03:40:16.565Z",
+      "branch": "fix/workspace-ui-reset",
+      "plan": {
+        "id": 10,
+        "topic": "워크스페이스 UI 버그 2건 fix — \"+\" 무반응 + 채팅 잔존",
+        "issues": [
+          {
+            "id": 1,
+            "title": "\"+\" 버튼 무반응 — selectFolder를 Tauri invoke로 전환",
+            "status": "decided",
+            "decision": "선택: packages/web/package.json에 @tauri-apps/api 의존성 추가 후, packages/web/src/lib/electron.ts의 selectFolder()를 Tauri invoke 기반으로 교체. 분기 순서: (1) `'__TAURI_INTERNALS__' in window` 감지 → `invoke<string | null>('select_folder')` 호출, (2) 순수 브라우저 환경이면 window.prompt fallback 유지 (dev 디버깅 용도). window.electronAPI 분기는 제거 (electron 폐기). 파일명은 electron.ts 유지 — rename은 별도 cycle에서 다룰 리팩토링(전역 import 경로 영향 큼). 기각: (A) prompt만으로 버텨내기 — Tauri WebView에서 불안정, (B) @tauri-apps/plugin-dialog로 직접 picker 호출 — Rust 측 select_folder command가 이미 있으므로 중복, (C) lib/electron.ts 삭제 + lib/dialog.ts 신규 생성 — import 경로 다수 수정 필요, fix cycle 범위 초과."
+          },
+          {
+            "id": 2,
+            "title": "워크스페이스 전체 삭제 시 채팅 잔존 — useChatSession에 reset effect 추가",
+            "status": "decided",
+            "decision": "선택: packages/web/src/components/chat/chat-area.tsx의 useChatSession 내부에 `useEffect([workspacePath])`를 추가하여 workspacePath 변경 시(전환 또는 null) `useChatStore.getState().resetSession()` 호출. 이후 useSessionRestore가 새 path의 히스토리를 시도. workspace 전환 시 기존 chat 잔존 이슈도 동일 패턴으로 해소됨. 기각: (A) useDeleteWorkspace 훅의 onSuccess에서 chat 리셋 — 전체 삭제 외 부분 삭제/전환 케이스 누락, (B) WorkspaceCard handleDelete에서 직접 resetSession — activeWorkspaceId와 비교 로직 추가 필요하고 chat-area와 결합도 낮아짐, (C) zustand subscribe 패턴 — 과잉 엔지니어링."
+          }
+        ],
+        "research_summary": "코드 점검 완료:\n\n버그 1 원인: packages/web/src/lib/electron.ts의 selectFolder()가 window.electronAPI 체크 → Cycle C로 electron 폐기 후 항상 undefined → window.prompt fallback이 Tauri WKWebView에서 block/UX불량. Tauri `#[tauri::command] select_folder`는 packages/tauri/src-tauri/src/lib.rs에 이미 구현 + invoke_handler 등록. @tauri-apps/api 의존성은 packages/web/package.json에 없음 — 추가 필요.\n\n버그 2 원인: packages/web/src/components/chat/chat-area.tsx의 useChatSession에 workspacePath 변경/null 감지 effect 없음. useSessionRestore는 `if (!workspacePath) return` early return으로 chat-store 그대로 유지. 또한 restoreFromHistory는 history 있을 때만 호출되므로 workspace 전환 시에도 이전 chat 잔존 가능.\n\n해결 설계:\n- 버그 1: lib/electron.ts의 selectFolder()를 `import { invoke } from '@tauri-apps/api/core'` 사용. window.__TAURI_INTERNALS__ 감지로 Tauri 분기. 브라우저 환경은 기존 prompt fallback 유지.\n- 버그 2: chat-area.tsx의 useChatSession에 `useEffect([workspacePath])` 추가로 resetSession() 호출. restore effect는 별도 훅이 이후 실행.\n\nfix는 단일 브랜치 fix/workspace-ui-reset에서 처리, 별도 cycle 기록 없이 소규모 fix commit.",
+        "created_at": "2026-04-14T03:38:29.185Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "@tauri-apps/api 의존성 추가",
+          "context": "packages/web/package.json에 @tauri-apps/api 추가. Tauri invoke 호출을 위한 런타임 의존성.",
+          "approach": "`bun add @tauri-apps/api` 실행 (packages/web 필터). bun.lock 자동 갱신. tauri CLI 버전(2.10.0)과 맞춰 ^2로 설치 — ^2.0.0 또는 그냥 ^2.",
+          "acceptance": "packages/web/package.json dependencies에 @tauri-apps/api 존재, bun.lock 갱신됨.",
+          "risk": "없음. 단일 패키지 추가.",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:38:53.261Z"
+        },
+        {
+          "id": 2,
+          "title": "lib/electron.ts selectFolder Tauri invoke 전환",
+          "context": "packages/web/src/lib/electron.ts의 selectFolder()를 Tauri invoke로 교체. window.electronAPI 분기는 제거.",
+          "approach": "파일 전체 재작성: `import { invoke } from '@tauri-apps/api/core'` 추가. `isTauri()` 함수: `return '__TAURI_INTERNALS__' in window`. `selectFolder()`: Tauri면 `invoke<string | null>('select_folder')` 호출 (try/catch로 실패 시 null), 아니면 window.prompt fallback. `ElectronAPI` interface + `window.electronAPI` 선언 제거.",
+          "acceptance": "selectFolder가 Tauri 환경에서 invoke 사용. window.electronAPI 참조 0건 hit (grep). typecheck PASS.",
+          "risk": "__TAURI_INTERNALS__ 전역이 Tauri 2.x에서 실제로 제공되는지 확인 필요 (Tauri 1.x는 __TAURI__, 2.x는 __TAURI_INTERNALS__ 또는 __TAURI_IPC__).",
+          "status": "completed",
+          "deps": [
+            1
+          ],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:38:59.401Z"
+        },
+        {
+          "id": 3,
+          "title": "chat-area useChatSession workspacePath reset effect 추가",
+          "context": "packages/web/src/components/chat/chat-area.tsx의 useChatSession 함수 내 workspacePath 변경 감지 effect 추가.",
+          "approach": "useChatSession 내부에 `useEffect(() => { useChatStore.getState().resetSession() }, [workspacePath])` 추가. 기존 useSessionRestore 호출은 유지 — reset 후 path 있으면 restore 시도.",
+          "acceptance": "chat-area.tsx grep `workspacePath`를 deps로 하는 effect + `resetSession` 호출 1건 hit. typecheck PASS.",
+          "risk": "useSessionRestore와 순서 — resetSession이 먼저 호출되고 restore가 후속이라 문제 없음. 하지만 activeMessages를 읽는 ChatMessages가 렌더 중 빈 상태로 깜빡일 수 있음(수용).",
+          "status": "completed",
+          "deps": [],
+          "plan_issue": 2,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:39:05.167Z"
+        },
+        {
+          "id": 4,
+          "title": "typecheck + web build 검증",
+          "context": "Task 1~3 적용 후 packages/web 타입체크 + vite 빌드로 runtime 에러 없는지 최소 검증.",
+          "approach": "`bun run --filter @nexus/web typecheck` 및 `bun run --filter @nexus/web build` 실행. 에러 시 분류.",
+          "acceptance": "typecheck EXIT 0 + build EXIT 0.",
+          "risk": "@tauri-apps/api 타입 미설치 시 invoke 타입 에러. 그 경우 devDependency로 타입 추가.",
+          "status": "completed",
+          "deps": [
+            2,
+            3
+          ],
+          "plan_issue": 1,
+          "owner": "lead",
+          "created_at": "2026-04-14T03:39:09.752Z"
+        }
+      ]
     }
   ]
 }

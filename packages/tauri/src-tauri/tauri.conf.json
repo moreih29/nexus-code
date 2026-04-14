@@ -6,7 +6,7 @@
   "build": {
     "devUrl": "http://localhost:5173",
     "frontendDist": "../../web/dist",
-    "beforeDevCommand": "bun run --filter @nexus/web dev",
+    "beforeDevCommand": "",
     "beforeBuildCommand": "bun run --filter @nexus/web build"
   },
   "app": {

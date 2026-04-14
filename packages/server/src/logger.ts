@@ -1,6 +1,9 @@
 import pino from 'pino'
 
-const isDev = process.env['NODE_ENV'] !== 'production'
+// Bun `--compile` single-file executable 내에서는 pino-pretty worker의 dynamic
+// require가 실패(crash)한다. 번들 실행 환경(`/$bunfs/`)을 감지해 transport 자체를 비활성.
+const isBundled = import.meta.url.startsWith('file:///$bunfs/')
+const isDev = process.env['NODE_ENV'] !== 'production' && !isBundled
 
 export function createLogger(name?: string) {
   return pino(

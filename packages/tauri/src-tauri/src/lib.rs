@@ -1,13 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::net::TcpListener;
-use tauri::{
-    Manager, RunEvent, Runtime, State,
-};
+use tauri::{RunEvent, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
-
-/// 현재 spawn된 sidecar 프로세스 핸들 — 앱 종료 시 kill 보장
-struct SidecarHandle(Arc<Mutex<Option<CommandChild>>>);
 
 /// Sidecar가 바인딩한 포트 — `await_initialization` IPC로 webview에 전달
 struct SidecarPort(Arc<Mutex<Option<u16>>>);
@@ -41,10 +36,11 @@ pub fn run() {
     let sidecar_handle = Arc::new(Mutex::new(None::<CommandChild>));
     let sidecar_port = Arc::new(Mutex::new(None::<u16>));
 
+    let sidecar_handle_for_run = sidecar_handle.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(SidecarHandle(sidecar_handle.clone()))
         .manage(SidecarPort(sidecar_port.clone()))
         .setup(move |app| {
             // 1) Free port 할당
@@ -55,7 +51,8 @@ pub fn run() {
             let sidecar = app.shell()
                 .sidecar("nexus-sidecar")
                 .map_err(|e| format!("sidecar resolve failed: {}", e))?
-                .env("PORT", port.to_string());
+                .env("PORT", port.to_string())
+                .env("NODE_ENV", "production");
 
             let (_rx, child) = sidecar.spawn()
                 .map_err(|e| format!("sidecar spawn failed: {}", e))?;
@@ -69,7 +66,7 @@ pub fn run() {
         .run(move |_app, event| {
             if let RunEvent::Exit = event {
                 // 앱 종료 시 sidecar 명시 kill (POC 부록 B #3 패턴)
-                if let Ok(mut guard) = sidecar_handle.lock() {
+                if let Ok(mut guard) = sidecar_handle_for_run.lock() {
                     if let Some(child) = guard.take() {
                         let _ = child.kill();
                     }
