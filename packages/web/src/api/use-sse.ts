@@ -23,9 +23,11 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
     if (!enabled) return
 
     setDevLoggerWorkspacePath(workspacePath)
+    console.log('[use-sse] effect mount', { workspacePath, enabled })
 
     let disposed = false
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let watchdogTimer: ReturnType<typeof setInterval> | null = null
     let backoffMs = 2000
 
     const url = `${BASE_URL}/api/workspaces/${encodeWorkspacePath(workspacePath)}/events`
@@ -92,10 +94,11 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
       es.onmessage = handleSseEvent
 
       es.onerror = () => {
+        const rs = es.readyState
         es.close()
         esRef.current = null
         if (!disposed) {
-          console.warn('[use-sse] disconnected, reconnect in', backoffMs, 'ms')
+          console.warn('[use-sse] onerror → reconnect in', backoffMs, 'ms, readyState was', rs)
           devLogger.warn('use-sse', 'disconnected', { backoffMs, workspacePath })
           reconnectTimer = setTimeout(connect, backoffMs)
           backoffMs = Math.min(backoffMs * 2, 60000) // exponential backoff, max 60s
@@ -105,9 +108,28 @@ export function useSse({ workspacePath, onEvent, enabled = true }: SseOptions): 
 
     connect()
 
+    // Watchdog: EventSource가 CLOSED 상태로 빠졌는데 onerror가 호출되지 않아
+    // reconnect 미트리거되는 케이스 방어. 3초 주기로 체크.
+    watchdogTimer = setInterval(() => {
+      if (disposed) return
+      const es = esRef.current
+      if (!es || es.readyState === 2 /* CLOSED */) {
+        if (reconnectTimer) return // 이미 재연결 예약됨
+        console.warn('[use-sse] watchdog: readyState CLOSED or null, forcing reconnect')
+        es?.close()
+        esRef.current = null
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          connect()
+        }, 500)
+      }
+    }, 3000)
+
     return () => {
+      console.log('[use-sse] effect cleanup', { workspacePath })
       disposed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (watchdogTimer) clearInterval(watchdogTimer)
       esRef.current?.close()
       esRef.current = null
     }
