@@ -1,0 +1,453 @@
+{
+  "cycles": [
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-23T15:12:49.814Z",
+      "branch": "chore/initial-planning-docs",
+      "plan": {
+        "id": 1,
+        "topic": "nexus-code — VSCode급 IDE + cmux급 워크스페이스 전환 + 터미널 네이티브 AI 하네스 실행 환경 (기획·문서화 단계)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "프로덕트 비전·포지셔닝 정의",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "strategist",
+                "summary": "Jobs-to-be-Done 프레임. 3개 후보가 각기 다른 Job을 서비스하며 상호 배타적:\nA. Harness Hub — 복수 AI 에이전트 오케스트레이션. 차별화 상/실현성 하 (외부 harness 프로토콜 의존, Tauri 폐기 패턴 재발 위험)\nB. CJK-First Native IDE — CJK 일급 지원 네이티브. 타깃 명확/TAM 하 (지역 시장 천장, OSS 기부 수준)\nC. Session-Isolated Dev Cockpit — 워크스페이스={worktree+프로세스그룹+포트 네임스페이스+AI 세션+터미널 히스토리} 원자적 번들. 실현성 상/확장 여지 상 (외부 의존 최소, 중장기 SaaS 확장 가능)\n\n추천: C. 근거 — (1) 외부 API 재발 리스크 최저 (2) 1인 18개월 v0.1 실현성 최고 (3) 중장기 팀·원격 확장 여지 (4) 네이티브 기반 방어 가능 (5) CJK·multi-harness는 기능으로 흡수 가능.\n\n열린 질문 4개: 본인이 \"멀티 브랜치 병렬\" 패턴 dogfooding 가능? 수익화 진지함? macOS-only 18개월 각오? 실제 병행 harness 개수?\n\n조건부 승인: v0.1 스코프 5개 기능 하드 락, macOS 단일, 초기 유저 10명 피드백 루프, harness는 플러그인 경계로 격리.",
+                "recorded_at": "2026-04-23T13:30:27.082Z",
+                "agent_id": "a7072c633b4d2fbbd"
+              }
+            ],
+            "decision": "nexus-code는 여러 프로젝트를 오가며 작업하는 개발자를 위한 **단일 창 멀티 워크스페이스 IDE**다. VSCode처럼 풍부한 IDE 경험(에디터·LSP·파일트리·Git·마크다운 프리뷰·웹뷰)을 유지하면서, cmux처럼 창 하나에서 워크스페이스를 즉시 전환할 수 있고, 각 워크스페이스마다 독립된 AI 코딩 하네스가 네이티브 터미널 수준의 사용성으로 동작한다.\n\n핵심 4축:\n1. 단일 창·멀티 워크스페이스 전환 — 워크스페이스 = {에디터 상태 + 파일트리 + 터미널 + AI 세션 + git 상태} 묶음\n2. IDE급 기능 — VSCode 수준 에디팅·LSP·마크다운·웹뷰 (TUI 한계 극복)\n3. AI 하네스가 네이티브 터미널처럼 — claude-code/opencode/codex가 iTerm2처럼 동작 (한글 안 밀림 포함)\n4. 프로세스·포트 격리는 \"덤\" — 강조는 안 하되 결과적으로 워크스페이스 간 섞이지 않음\n\n의도적으로 포기: AI 에이전트 비교·오케스트레이션 UX(A 영역), CJK 1등 시민 마케팅 슬로건(B 영역 — 품질은 챙기되 정체성으로 쓰지 않음), 초기 단계 원격·협업·팀 기능."
+          },
+          {
+            "id": 2,
+            "title": "MVP 범위와 단계별 로드맵",
+            "status": "decided",
+            "decision": "## v0.1 MVP = 5 Epics\n\n**E1. Workspace Shell** — 폴더 열기→워크스페이스 등록, 사이드바 리스트, 단축키/클릭 전환, 세션 영속화, sidecar P1 idle 정책\n**E2. Terminal Native** — xterm.js + node-pty, 워크스페이스당 다중 탭, WebGL 렌더러, CJK 체크리스트 7개 통과, 스크롤백 보존\n**E3. AI Harness Observer** — 3개 어댑터(claude-code / opencode / codex), 탭 뱃지, 이벤트 사이드 패널, 파일 편집 diff 뷰, OS 알림\n**E4. Code Editor + LSP** — Monaco + **TypeScript LSP + Python LSP + Go LSP(gopls)**, 파일트리, 탭 기반 파일 편집, git status 표시, 기본 find/replace\n**E5. Preview Panel** — 마크다운 라이브 프리뷰 (분할 뷰), WebContentsView 기반 웹뷰 (localhost·정적 URL)\n\n> **Go LSP 추가 근거**: sidecar를 Go로 작성하므로 dogfooding. TS/Python/Go 3개 언어로 MVP 착수.\n\n## 명시적 비(非)MVP\nWindows/Linux 지원, 테마 커스터마이징, 세팅 UI 정교화, 국제화, 협업·공유·원격, 확장 스토어, Vim 모드·키바인딩 커스터마이징.\n\n## 마일스톤 순서\nM0 Foundation (Electron 스캐폴드 + Go sidecar 스캐폴드 + IPC 계약 셋업) → M1 Workspace Shell → M2 Terminal+CJK → M3 Harness Observer → M4 Editor+LSP(TS/Python/Go) → M5 Preview → M6 v0.1 Release(통합+CJK 회귀+유저 10명 dogfood)\n\n타임라인 가이드: Full-time 12-15개월 / Part-time 24-30개월 / 가끔 몰아서는 마일스톤 단위만. Go 셋업 오버헤드는 LLM 협업으로 경감.\n\n## 이전 프로젝트 자산\n코드 복붙 금지. 구조·인터페이스·회고만 흡수:\n- Bun supervisor → Go supervisor 재설계 시 개념 참고\n- workspace registry 스키마\n- path-guard 구조\n- SSE heartbeat watchdog 패턴\n- 폐기 회고록 실측 데이터\n\n## 포스트-MVP 우선순위 (유저 확정)\n\n**v0.2 (MVP 후 3-6개월)** — MVP에서 빠졌던 것 우선:\n1. 테마·UI 정교화 (커스터마이징, 세팅 UI)\n2. 협업·공유·원격 워크스페이스 (기초)\n3. 세션 비교 뷰, 워크스페이스 그룹, P2 suspend 정책\n\n**v0.5+** — 이후 확장:\n- Windows/Linux 지원 (Go 크로스컴파일 친화성)\n- 확장 API, 사용자 정의 hook\n\n**v1.0** — 유료 시그널 (팀 공유·원격 동기화)\n\n## 성공 기준 (v0.1 출시 판정)\n- CJK 체크리스트 7개 통과\n- 워크스페이스 3개 동시 열고 전환 끊김 없음\n- 3개 harness 모두 기본 시나리오 정상 동작\n- TS·Python·Go 3개 언어 LSP 연동 확인\n- 초기 유저 10명 \"일상에서 쓸 만하다\" 피드백\n- macOS codesign + notarized 배포"
+          },
+          {
+            "id": 3,
+            "title": "기술 스택 방향 (runtime/editor/terminal/git)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "Runtime 3안(Electron/Tauri/Rust 네이티브) 비교 후 Electron 선택. 근거: CJK 필수 품질에서 Chromium이 WKWebView보다 안전, node-pty+xterm.js가 VSCode 검증 표준, 이전 Tauri 폐기 경험 + OpenCode 2026-04 Tauri→Electron 역류 시그널, 1인 18개월 v0.1 실현성.\n\nSidecar 언어는 3안(Node.js/Bun/Rust) 정량 비교. Rust가 startup 10x, baseline 메모리 5-10x 우위(10 WS 기준 ~500MB 절약)이지만 타입 공유 codegen 부담+이중 언어 디버깅 비용. 유저 결정: Node.js로 시작, 기능적 성숙 후 성능 병목 측정되면 Rust 마이그레이션. Start-simple-optimize-later 패턴.\n\n전체 스택: Electron + TS + React + shadcn/ui + Tailwind + Zustand + Monaco + monaco-languageclient + xterm.js(WebGL addon) + node-pty + simple-git + Node.js sidecar + electron-builder + macOS 단일 타깃.",
+                "recorded_at": "2026-04-23T13:59:23.728Z",
+                "agent_id": "lead"
+              }
+            ],
+            "decision": "## Runtime & 스택\n\n**Main**: Electron + TypeScript + React + shadcn/ui + Tailwind + Zustand\n**Editor**: Monaco + monaco-languageclient (WebSocket 프록시)\n**Terminal**: xterm.js + @xterm/addon-webgl + node-pty (Electron main 프로세스에서 PTY 관리 — VSCode 패턴)\n**Git**: simple-git (main 프로세스) 또는 go-git (sidecar)\n**Markdown**: react-markdown + remark/rehype\n**Webview preview**: Electron WebContentsView (sandbox:true)\n**Packaging**: electron-builder (macOS codesign + notarization)\n\n## Sidecar — Go (Issue 8 결정 반영)\n\n**언어**: **Go (golang)**\n**근거**:\n- 동일 유즈케이스에서 Bun→Go 전환 성공 직접 증거 (이슈 #21560 원보고자)\n- Mattermost Desktop·Docker Desktop 등 Electron+Go 프로덕션 검증\n- 메모리 60-75% 감소, startup 5-10배 (Node.js 대비)\n- 장기 실행 안정성 검증, Bun류 누수 리스크 없음\n- 정적 binary + 크로스컴파일 + Mach-O codesign 표준\n- LLM 에이전트 협업으로 Go 학습 비용 실질 낮음\n\n**Sidecar 라이브러리 스택**:\n- PTY 감독(sidecar가 spawn하는 자식 PTY): `creack/pty`\n- 파일 와처: `fsnotify`\n- WebSocket IPC (main ↔ sidecar): `gorilla/websocket` or `nhooyr/websocket`\n- Git: `go-git` or `os/exec` git CLI\n- LSP JSON-RPC pass-through: `encoding/json` 표준\n\n**타입 계약 (main TS ↔ sidecar Go)**:\n- protobuf 또는 JSON schema로 메시지 계약 정의\n- 코드젠으로 양쪽 타입 동기화\n\n**PTY 위치 정리**:\n- xterm.js는 renderer 프로세스에서 동작\n- 터미널 탭의 PTY는 Electron **main 프로세스의 node-pty**로 관리 (VSCode 패턴)\n- sidecar(Go)는 **AI 하네스 감독·LSP 서버 감독·파일 와처·git·세션 관찰** 담당\n- 즉 터미널 PTY와 sidecar는 역할 분리\n\n## Rust 마이그레이션 조건 (이연 — 트리거 확률 매우 낮음)\n- 기능적 성숙 이후 + 20-30+ WS 시나리오 + Go sidecar 병목 측정\n- 현실적으로 Go 한계 도달 가능성 희박\n\n## 모노레포 구조\n\n```\nnexus-code/\n├── packages/\n│   ├── app/                # Electron main + renderer (TS)\n│   ├── shared/             # 공유 TS 타입 + 코드젠 생성물\n│   └── harness-adapters/   # claude-code, opencode, codex 어댑터\n├── sidecar/                # Go workspace (go.mod)\n│   ├── cmd/sidecar/\n│   ├── internal/\n│   │   ├── pty/\n│   │   ├── lsp/\n│   │   ├── harness/\n│   │   └── ipc/\n│   └── go.mod\n├── proto/ (또는 schema/)   # IPC 계약 정의\n└── package.json\n```\n\n## 플랫폼·배포\n- MVP 타깃: macOS arm64/x64\n- Windows/Linux: MVP 이후 (Go 크로스컴파일로 확장 부담 감소)\n- Tauri/네이티브 셸: v2.0 이후 (발동 확률 감소)\n\n## 관리 리스크\n1. xterm.js IME 위치 버그 #5734 — Issue 6 체크리스트로 선제 회피\n2. node-pty Electron 최신 호환성 — prebuilt binary 모니터링\n3. main(TS) ↔ sidecar(Go) IPC 계약 드리프트 — 코드젠 파이프라인 CI 필수\n4. macOS codesign·notarization — Go 정적 binary 포함 서명 파이프라인 구성\n5. sidecar × 3 harness × N 워크스페이스 리소스 — Go 덕에 Node 대비 상한 확장"
+          },
+          {
+            "id": 4,
+            "title": "워크스페이스 격리 모델",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "4개 모델 비교: M1 Hot-All(메모리 폭주), M2 Cold Switch(전환 지연), M3 Hybrid LRU(1인 튜닝 부담), M4 Per-Workspace Sidecar(cmux UX 정합+이전 프로젝트 경험). M4 선택.\n\nIdle 정책 3단 분석:\n- L1 대화 히스토리 — 세션 파일 기반(per-turn + --resume)이라 정책 무관하게 항상 보존\n- L2 PTY/스크롤백 — sidecar 생사에 종속\n- L3 진행중 stream — sidecar 생사에 종속\n\n정책 P1(always-on)/P2(SIGSTOP suspend)/P3(kill+resume) 비교 후 P1 기본, P2 옵션, P3은 명시적 close에만 적용하기로 확정.",
+                "recorded_at": "2026-04-23T13:43:29.723Z",
+                "agent_id": "lead"
+              }
+            ],
+            "decision": "**M4 Per-Workspace Sidecar 모델** 채택.\n\n아키텍처:\n- 메인 UI 프로세스 1개 + 워크스페이스당 독립 sidecar 프로세스 1개\n- 각 sidecar는 해당 워크스페이스의 PTY·LSP·AI harness를 묶어서 관리\n- UI는 현재 활성 sidecar에만 연결 표시, 비활성 sidecar도 계속 살아있음\n\nSidecar idle 정책 (3단):\n- **P1 Always-on** (기본값): 워크스페이스 열려있는 한 sidecar 계속 running. 전환 시 끊김 없음. 터미널 스크롤백·진행중 stream 모두 보존.\n- **P2 Suspend** (옵션): 설정으로 \"N시간 idle 후 SIGSTOP → 복귀 시 SIGCONT\" 활성화 가능. 20+ 워크스페이스 파워 유저용. CPU 0, 메모리 유지, 복귀 시 끊김 없음.\n- **P3 Kill + --resume** (명시적 close 시만): 사용자가 워크스페이스 닫기 버튼 누를 때만 적용. 메모리 해제, 다음 재진입 시 새 sidecar + AI 세션은 `--resume <sessionId>`로 이어붙임. PTY 스크롤백은 손실.\n\n핵심 보장:\n- 대화 히스토리(L1)는 정책 무관하게 항상 보존 (세션 파일 기반)\n- 터미널·진행중 stream(L2/L3)은 P1·P2에서 완전 보존\n- 워크스페이스 전환 체감: \"cmux처럼 즉시\""
+          },
+          {
+            "id": 5,
+            "title": "AI 하네스 통합 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "통합 깊이 4개 옵션(A1~A4) 비교 후 A2 \"터미널 + 이벤트 Observer\" 선택. cmux 철학 승계: TUI는 손대지 않고 IDE가 읽기 전용으로 관찰해 부가 UI(탭 뱃지, diff 뷰, 알림, 도구 호출 사이드패널)만 제공.\n\n관찰 메커니즘: claude-code는 hooks+세션파일, opencode는 SQLite 세션DB, codex는 세션파일+JSON 출력.\n\n핵심 아키텍처 결정:\n- HarnessAdapter 인터페이스만 코어, 각 harness는 플러그인 레이어로 격리 (이전 Tauri 폐기 교훈 — 프로토콜 변동에 정체성이 흔들리지 않도록)\n- per-turn spawn + --resume 패턴만 사용, 비공식 stream-json 다중 턴 금지\n\n유저 수정: MVP에 claude-code·opencode·codex 3개 모두 포함 (초기 제안은 claude-code 1순위로 시작, 나머지 점진 추가였음). codex는 세션 스키마가 가장 변동이 많아 어댑터 유지 부담이 높음 — Issue 2 MVP 범위 결정에서 일정·리스크에 반영 필요.",
+                "recorded_at": "2026-04-23T13:46:54.452Z",
+                "agent_id": "lead"
+              }
+            ],
+            "decision": "**A2 \"터미널 + 이벤트 Observer\" 통합 모델** 채택. TUI를 대체하지 않고 IDE가 읽기 전용으로 관찰해 부가 UI를 얹음.\n\n### 관찰·제공 기능\n- 워크스페이스 탭 뱃지 (도구 실행중 / 승인 대기 / 완료 / 에러)\n- 사이드 패널의 최근 tool 호출 리스트\n- 파일 편집 감지 시 에디터에 diff 뷰\n- 완료·승인 대기 시 OS 알림\n- 세션 히스토리 읽기 전용 열람\n\n### 관찰 메커니즘 (harness별)\n- **claude-code**: Hooks API (PreToolUse/PostToolUse/Notification/Stop) + 세션 파일 `.jsonl` tail\n- **opencode**: SQLite 세션 DB + 이벤트 스트림\n- **codex**: 세션 파일 / JSON 출력 (스키마 변동 많음 — 지속적 어댑터 보수 필요)\n\n### MVP 하네스 지원\n**claude-code · opencode · codex 3종 모두 MVP 범위에 포함** (유저 확정). 3개 어댑터를 동시에 출시 품질로 유지해야 하므로 Issue 2 MVP 일정 산정 시 각 어댑터 테스트·업데이트 부담을 명시적으로 반영.\n\n### 아키텍처 원칙\n- `HarnessAdapter` 인터페이스만 제품 코어에 고정\n- 각 harness 구현은 **플러그인 레이어**로 격리 — Anthropic/OpenAI 프로토콜 변경 시 제품 정체성에 영향 없음\n- per-turn spawn + `--resume <sessionId>` 패턴만 사용 (비공식 stream-json 다중 턴 금지 — 이전 프로젝트 폐기 교훈)\n\n### 명시적으로 하지 않는 것\n- 자체 AI 추론 엔진\n- 에이전트 비교·오케스트레이션 UX (Issue 1 포기 영역)\n- TUI 대체 chat UI"
+          },
+          {
+            "id": 6,
+            "title": "언어 지원 정책 (한국어 + 영어 baseline)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "CJK=Chinese/Japanese/Korean 공통 기술 특성(표의문자+IME, ambiguous width, double-width). 연구에서 Warp·Zed·Cursor·Claude Code CLI 모두 CJK 버그 미해결 다수 확인.\n\n개입 레벨 C1(기본 의존)/C2(품질 리그레션 방지)/C3(자체 레이어 구축) 비교 후 C2 선택. Issue 1에서 CJK를 정체성으로 쓰지 않기로 했으니 C3는 과도.\n\n테스트 타깃 범위는 K-primary(한국어 주 QA, 일·중 보조) — 1인 리소스 현실성 + 한국어 잡으면 대부분 일·중도 따라옴.",
+                "recorded_at": "2026-04-23T13:50:16.056Z",
+                "agent_id": "lead"
+              }
+            ],
+            "decision": "**Korean-quality baseline — 영어 + 한국어 공식 지원, 그 외 best-effort.**\n\n\"CJK 일급 시민\" 마케팅·프레이밍 제거. 언어 정책을 명확히 축소.\n\n### 지원 범위\n- **UI 언어**: 영어 단일 (한국어 UI 번역 없음)\n- **입력·렌더링·경로 처리**: 영어 + 한국어 **공식 보장**\n- **일본어·중국어**: best-effort. 리그레션은 블록커 아님\n- **한국어 리그레션은 블록커 이슈**로 분류\n\n### 반영 위치\n- **언어 정책 요지** → `.nexus/context/philosophy.md` (non-goals·트레이드오프 선호 섹션)\n- **체크리스트 상세** → `.nexus/context/korean-quality.md` (서브시스템 파일)\n\n### 릴리스 전 필수 통과 — 한국어 IME·렌더링 체크리스트 (7개)\n1. 한글 IME 조합 중 커서가 입력 위치에 정확히 표시 (xterm.js #5734 회피)\n2. 조합 중 Enter는 조합 확정만, 두 번째 Enter가 submit (Cursor·Warp 회피)\n3. 한글 double-width 정확히 계산 (`ㅎ`, `가`, 한글 일반)\n4. 파일명·경로 NFC 정규화 (macOS NFD → NFC)\n5. 조합 중 문자 소실 없음 (composing 텍스트 shell flush 금지)\n6. 한글 입력 lag 없음 (평균 키 입력 < 16ms)\n7. 기본 폰트 폴백 스택에 `Noto Sans KR`, `D2Coding` 포함\n\n### 구현 수단\n- xterm.js IME 이슈(#5734)는 composingstart/end 오버레이 패치로 회피, 필요 시 fork/업스트림 PR\n- Monaco는 VSCode 검증으로 상대적 안정, 폰트 폴백만 명시\n- sidecar(Go) 또는 main(TS)에서 파일 경로 NFC 정규화\n- 앱 번들에 기본 한글 폰트 포함 또는 OS 폴백 체인 명시\n\n### 투명성\n- `korean-quality.md`에 \"공식 보장 언어 / best-effort 범위\" 명시\n- 한국어 리그레션은 블록커로 분류한다고 공식화\n\n### 의도적으로 안 하는 것\n- CJK 중심 마케팅 카피·프레이밍 (전면 제거)\n- 일본어·중국어 공식 QA (best-effort만)\n- 한국어 UI 번역 (초기 영어 UI만, 커뮤니티 기여 허용)"
+          },
+          {
+            "id": 7,
+            "title": "기본 문서화 구조 결정",
+            "status": "decided",
+            "decision": "## 문서 체계 — lead.md 규칙 준수\n\n**모든 프로젝트 문서는 `.nexus/` 내부. 외부 `docs/` 없음. README는 간단.**\n\n### 파일 배치\n\n```\nnexus-code/\n├── README.md                                   # 간단, .nexus 링크 없음\n├── LICENSE\n└── .nexus/\n    ├── context/                                # Abstract only (코드에서 읽을 수 있는 디테일 금지)\n    │   ├── philosophy.md                       # Issue 1 본질 + 언어 정책(Issue 6)\n    │   ├── architecture.md                     # Issue 3/4/5/8 — 패키지·레이어·데이터 흐름·엔트리\n    │   ├── stack.md                            # Electron/Go/libs + build/test/deploy\n    │   ├── conventions.md                      # TBD 스텁 (규칙 확정 시 채움)\n    │   ├── roadmap.md                          # Issue 2 — MVP Epic + 마일스톤 + 포스트-MVP\n    │   ├── harness-integration.md              # Issue 5 — A2 observer 계약, 어댑터 인터페이스\n    │   └── korean-quality.md                   # Issue 6 — 한국어 체크리스트 7개\n    └── memory/                                 # prefix 규칙 필수 (external-/empirical-/pattern-)\n        ├── external-cmux.md\n        ├── external-warp.md\n        ├── external-zed.md\n        ├── external-cursor-windsurf.md\n        ├── external-nimbalyst.md\n        ├── external-claude-code.md\n        ├── external-opencode.md\n        ├── external-codex.md\n        ├── external-bun.md\n        ├── external-nodejs.md\n        ├── external-xterm-js.md\n        ├── external-node-pty.md\n        ├── external-electron-utility-process.md\n        ├── empirical-previous-tauri-retrospective.md\n        ├── pattern-per-turn-harness-spawn.md\n        ├── pattern-per-workspace-sidecar.md\n        └── pattern-harness-observer.md\n```\n\n### 분류 근거\n- **external-** (13개): 외부 제품·런타임·라이브러리, 우리가 제어 못 하는 사실 스냅샷\n- **empirical-** (1개): 이전 Tauri 프로젝트 폐기 교훈\n- **pattern-** (3개): per-turn harness spawn / per-workspace sidecar / harness observer\n\n### 결정·연구 이력\n- 별도 ADR 파일 없음\n- plan.json → history.json 흐름(MCP 자동 관리)이 결정 이력 담당\n- 결정 **결과**는 context/에 current truth로 반영\n- 결정 **과정·근거**는 plan session / history.json에서 조회\n\n### README.md 최종\n\n```markdown\n# nexus-code\n\n단일 창 멀티 워크스페이스 IDE.\n여러 프로젝트를 창 하나에서 오가며 각각의 AI 코딩 하네스를 네이티브 터미널처럼 돌린다.\n\n**Status**: 기획·설계 단계.\n\nLicensed under MIT.\n```\n\n### 작성 시점\n\n| 시점 | 산출물 |\n|---|---|\n| **P0 — 플랜 종료 직후** | README, LICENSE, context 7개(conventions는 스텁), memory 17개 |\n| **P1 — MVP M0** | `conventions.md` 규칙 확정 후 채움 |\n| **P2 — MVP 진행 중** | `memory/empirical-*` 누적 |\n\n### 의도적으로 안 하는 것\n- `docs/` 폴더\n- README 내 `.nexus` 문서 링크\n- CONTRIBUTING / SECURITY / GOVERNANCE (필요 시 추가)\n- 한국어 UI 번역 문서\n- 외부 공개 문서 사이트\n- 별도 ADR 포맷 파일"
+          },
+          {
+            "id": 8,
+            "title": "Sidecar 런타임 재평가 — Bun vs Node.js (Issue 3 일부 재검토)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "researcher",
+                "summary": "Bun 2026-04 조사 (agent id a22250cd098ca6384).\n\n**중대 팩터 — Anthropic의 Bun 인수 (2025-12)**: 최초 Anthropic M&A. Claude Code가 Bun 컴파일 바이너리로 배포됨. MIT 유지. 런타임 존속 리스크 소멸 + Claude Code 하네스 연계성 최고.\n\n**현재 최신 v1.3.13 (2026-04-20)**: 주요 배포 사례 Midjourney, Lovable, Trigger.dev, Claude Code. Trigger.dev는 Node→Bun 전환 후 처리량 5배 실측.\n\n**PTY — Bun.Terminal API**: v1.3.5(2025-12)에서 네이티브 PTY API 도입. node-pty 의존 제거 가능(macOS/Linux). Windows 미지원(#25593). API 4개월 미만이라 프로덕션 검증 얕음.\n\n**성능 실측**: Cold start 8-15ms vs Node 40-120ms (4-10배), idle RSS ~28MB vs ~55MB. 10 WS 기준 250-300MB vs 500-600MB.\n\n**핵심 리스크**:\n- Bun.spawn 자식 프로세스 장기 실행 RSS 점진 증가 미해결 (#21560, #18265) — M4 P1 always-on 정책과 정면 충돌\n- Electron + Bun sidecar 출시 사례 전무\n- Bun.Terminal 프로덕션 검증 부족\n- ws 패키지 일부 API 미구현 (createWebSocketStream, upgrade 이벤트)\n- v1.3.12 codesign 회귀 (v1.3.13 수정됨) — 동류 회귀 재발 가능성\n\n**번들링**: --compile 알려진 함정 다수 (동적 require 불가, worker thread 로더 실패). Bun 인터프리터 + extraResources 패턴 권장(Claude Code 방식).\n\n**판정**: 조건부 채택 가능. Bun.spawn RSS 증가 이슈가 long-running sidecar에 블로커.",
+                "recorded_at": "2026-04-23T14:15:51.294Z",
+                "agent_id": "a22250cd098ca6384"
+              },
+              {
+                "role": "researcher",
+                "summary": "Node.js 2026-04 조사 (agent id a01886b46f53620a7).\n\n**LTS 상태**: Node 24 Active LTS(권장), Node 22 Maintenance, Node 20 EOL(2026-04-30). Electron 35 내장 Node 22.15.0 → sidecar는 독립 Node 바이너리(24) 가능하지만 ABI 호환 주의.\n\n**TypeScript 네이티브**: Node 24.3+ type stripping stable(experimental 딱지 제거). decorator/const enum/tsconfig paths 미지원. Claude-depth 코드베이스는 tsx 또는 esbuild AOT 병행 필요.\n\n**SEA (Single Executable Apps)**: Node 25.5에서 `--build-sea` 단일 커맨드로 UX 개선. 하지만 Node 24 LTS에선 postject 방식. **native addon(node-pty) 포함 불가** — 치명적 한계.\n\n**node-pty**: Microsoft 유지보수 active(2026-02 업데이트). Electron 33에서 rebuild 실패 보고(#728), Electron 35 prebuilt 명시적 확인 없음. 매 Electron 메이저 업그레이드마다 rebuild 필요.\n\n**Electron 통합 패턴**: **Utility Process API(Electron 22+) 공식 권장** (child_process.fork 대비). MessagePort + crash isolation 우위. VSCode extension host 패턴이 사실상 표준.\n\n**성능**: Node 22/24 startup 회귀 (20→22: ~40% 증가, 19.6ms→27.5ms). Node 24 V8 13.6으로 일부 회복. HTTP throughput은 sidecar 용도 충분(Fastify 87K req/s).\n\n**생태계**: chokidar 5(2025-11) ESM-only 전환 + Node 20.19+ 필수 — CJS 마찰. simple-git 최근 업데이트 정상.\n\n**판정**: 가능(조건부). 조건: Node 24, @electron/rebuild + extraResources로 node-pty 처리, Utility Process API, SEA는 현재 비권장(Node 25 LTS 후 재평가). VSCode/Cursor 검증 레퍼런스 강력.",
+                "recorded_at": "2026-04-23T14:16:02.944Z",
+                "agent_id": "a01886b46f53620a7"
+              },
+              {
+                "role": "researcher",
+                "summary": "2차 검증 조사 (agent id a3d6d695d64c4aa2b) — Bun.spawn 메모리 이슈의 실제 현재 상태.\n\n**#21560 (idle RSS 증가)**: OPEN. 최초 2025-08, 최신 재현 보고 v1.3.6(2026-01-20). 미수정. 라벨 bug+performance. 원보고자는 Bun→Go gRPC 전환으로 해결.\n\n**#18265 (polling 누수)**: CLOSED 2025-05-31 with PR #18316 머지. 하지만 PR 이후 canary 빌드에서도 재현 확인됨. 동일 메커니즘 재수정이 PR #29416 (2026-04-17)에서 별도로 머지 — 아직 릴리스 미포함(v1.3.13 2026-04-20 출시가 이 PR 포함 안 함).\n\n**claude-code #36132 (교차 증거)**: v1.3.11 사용자가 8시간 idle 중 10.6GB commit + mimalloc panic. Node.js 전환 후 안정화. Anthropic 내부 claude-code 팀의 이슈 트래커라 높은 신뢰도.\n\n**v1.3.13 릴리스 위생 의심**: 블로그는 mimalloc v3 + 5% 메모리 절감 주장하지만, PR #29353 (mimalloc v3 revert, 2026-04-15)가 릴리스 전 머지됨. 실제 배포 바이너리는 v2 복귀 상태로 추정.\n\n**재현 조건별 영향**:\n- stdout=pipe + 장기 실행 + IPC + Linux → 직접 정면 충돌\n- stdio=ignore → 3시간 RSS 14-18MB 안정\n- macOS Linux 대비 증가 폭 작음 (MADV_DONTNEED vs MADV_FREE)\n\n**M4 P1 sidecar 예상 거동**: LSP/PTY/harness 3개 × 10 WS × 6-12시간 누적 = 수 GB RSS 누적 가능성. 정확한 수치는 실측 없이 확정 불가.\n\n**최종 판정**: 원래 우려가 과장이 아닌 정확한 평가로 재확인. Anthropic 인수 후 4개월 경과했지만 이슈 A는 여전히 OPEN. claude-code 팀 자체 이슈에서 Node.js 역전환이 실제 워크어라운드로 채택됨.",
+                "recorded_at": "2026-04-23T14:28:01.501Z",
+                "agent_id": "a3d6d695d64c4aa2b"
+              },
+              {
+                "role": "lead",
+                "summary": "Go sidecar(D안) 확정. 결정 근거:\n- 이슈 #21560 원보고자가 동일 유즈케이스에서 Bun→Go gRPC 전환으로 해결 — 직접 증거\n- Mattermost, Docker Desktop 등 Electron+Go 프로덕션 선례 다수\n- 메모리(10-20MB vs Node 50-60MB) + startup(5-20ms vs 40-120ms) 유의미한 우위\n- 장기 실행 안정성 검증됨, Bun 류 누수 리스크 없음\n- Rust 이연 필요성 거의 소멸 (Go가 충분히 효율)\n- Go 정적 binary + 크로스컴파일 + Mach-O codesign 표준 — Electron 통합 친화\n- creack/pty, fsnotify, gorilla/websocket 라이브러리 생태계 성숙\n\n유저 추가 결정:\n- LLM 에이전트와 협업 코딩이므로 Go 셋업·초기 학습 비용 낮음\n- Issue 2 MVP E4에 Go LSP(gopls) 추가 — sidecar 코드 dogfooding\n- Issue 3 sidecar 파트 Node.js → Go로 교체 필요\n\n부수 영향:\n- IPC 계약: protobuf 또는 JSON schema로 main(TS) ↔ sidecar(Go) 타입 동기화\n- 모노레포 구조에 Go workspace 추가\n- packages/sidecar는 Go 모듈화",
+                "recorded_at": "2026-04-23T14:33:52.816Z",
+                "agent_id": "lead"
+              }
+            ],
+            "decision": "**Go sidecar 채택** (D안).\n\n### 결정 근거\n- **직접 증거**: Bun 이슈 #21560 원보고자가 동일 유즈케이스(장기 실행 child process 감독)에서 Bun→Go gRPC 전환으로 메모리 누수 해결\n- **프로덕션 선례**: Mattermost Desktop, Docker Desktop 등 Electron + Go 백엔드 조합 검증\n- **성능**: Node.js 대비 메모리 60-75% 감소, startup 5-10배. Rust에 근접\n- **안정성**: Bun류 메모리 누수 리스크 없음, GC 있지만 I/O 중계 sidecar 특성상 영향 미미\n- **Rust 이연 거의 불필요**: Go가 충분히 효율적이라 v2.0 Rust 재검토 트리거가 크게 감소\n\n### 유저 보정 사항\n- LLM 에이전트 협업 코딩이므로 Go 셋업·초기 학습 비용 낮음으로 판단\n- Issue 2·3 파급 반영 필요 (Go LSP 추가, sidecar 런타임 교체)\n\n### 기술 스택 (sidecar 부분)\n- PTY: `creack/pty`\n- 파일 와처: `fsnotify`\n- WebSocket (Electron main ↔ sidecar IPC): `gorilla/websocket` 또는 `nhooyr/websocket`\n- Git: `go-git` 또는 `os/exec` git CLI\n- LSP JSON-RPC pass-through: 표준 `encoding/json`\n- 타입 계약: protobuf 또는 JSON schema로 TS ↔ Go 동기화\n\n### 포기·수용 항목\n- Main(TS)과 sidecar(Go) 언어 이원화 수용\n- 첫 2-4주 protobuf/JSON schema 셋업 + Go 도구 체인 구축 비용 수용\n- Go 런타임·도구 숙련은 LLM 에이전트와 함께 점진 축적\n\n### Rust 이연 조건 (여전히 유효하지만 발동 확률 매우 낮음)\n- 20-30+ 워크스페이스 동시 운영에서 Go sidecar 병목 측정될 때\n- 단, Go는 실제 수백 병렬 프로세스도 감당하므로 현실적 트리거 거의 없음"
+          }
+        ],
+        "research_summary": "## 경쟁 지형 (Researcher A)\n- cmux: macOS 네이티브(Swift+libghostty), IDE 기능 전무, 세션 지속성 약함. MIT.\n- Warp: Rust+Metal/wgpu 자체 렌더러, CJK 다수 미해결(자모 분리·IME lag·Enter 오작동), 독점. Warp Code로 IDE 확장 중이나 워크스페이스 격리 모델 없음.\n- Nimbalyst: Claude Code/Codex CLI를 감싸는 GUI 레이어. 세션 칸반+WYSIWYG 멀티 에디터. 기술 스택 불투명(Electron 추정), 터미널 네이티브 경험 약함.\n- Zed: Rust+GPUI+Alacritty 네이티브 IDE. ACP로 외부 에이전트 일급 지원. 멀티 워크스페이스 UX 미성숙(저장/전환 요청 상태), Windows CJK IME 다수 미해결.\n- Cursor/Windsurf: Electron+VSCode fork. 자체 AI 종속. 프로젝트 단위 세션 격리 모델 없음.\n- VSCode+Cline/Continue/Roo: 확장 아키텍처 한계로 deep integration 불가.\n- OpenCode/Claude Code CLI: TUI 한계(마크다운 raw 표시, 웹 콘텐츠 불가). Claude Code CLI IME 조합 문자 소실·커서 위치 불일치 미해결(#16372, #22732).\n\n## 차별화 포인트 5가지\n1. 프로젝트 격리 세션 모델 (Zed급 에디터 + tmux급 세션 분리)\n2. CJK 일급 지원 AI 코딩 환경\n3. 외부 AI 에이전트(claude-code/opencode/codex/gemini)를 일급 시민으로 오케스트레이션\n4. 마크다운·웹 프리뷰가 터미널 옆에서 살아있는 환경\n5. Tauri/네이티브 기반 경량 크로스플랫폼 IDE\n\n## 기술 스택 (Researcher B + 이전 프로젝트 히스토리)\n- 이전 Tauri 폐기 근본 원인: Anthropic 2026-02 OAuth 정책 변경 + stream-json 다중 턴 비공식 경로의 구조적 불안정. Tauri 자체 문제 아님.\n- **OpenCode Desktop이 2026-04-19 Tauri→Electron 전환 발표** — WKWebView 성능 열세 + 스타일 불일치 + Bun 제거 후 Node 통합 자연스러움.\n- 권장 3안:\n  - 안 A: Electron + node-pty + Monaco + monaco-languageclient + isomorphic-git. 가장 검증된 경로. 번들 120MB/RAM 200-300MB 단점.\n  - 안 B: Tauri v2(2.9.5 핀) + 자체 portable-pty 브리지 + Monaco + git2-rs. 번들<10MB/RAM 30-50MB. 단 SSE 60초 timeout(#9288)·sidecar 노터리제이션(#11992) 미해결.\n  - 안 C: Electron + Web Worker/WASM LSP + Monaco. 메모리 최적화 변형. 언어 서버별 WASM 포팅 부담.\n- Top 리스크: xterm.js #5734 (IME 조합창 위치), Tauri #11992 (sidecar 노터리제이션), Tauri #9288 (SSE 60초), stream-json 불안정, 워크스페이스×LSP 자원 충돌.\n\n## 이 프로젝트의 상태\n- 직전에 archive 해제 + 전체 소스 리셋. packages/server, packages/web, packages/tauri, packages/shared, .nexus/memory, .nexus/context 모두 삭제.\n- 이전 커밋 히스토리에 Tauri Phase 1·Phase 2 Cycle A/B/C 실측 결과 존재(proc macro 패닉, pino-pretty sidecar 미번들, SSE heartbeat 패턴, WKWebView EventSource 정상 확인).\n- 목적: 구현보다 전체 그림 + 기본 문서화.",
+        "created_at": "2026-04-23T13:19:28.248Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "리포 기본 파일 셋업 (README · LICENSE · conventions 스텁)",
+          "status": "completed",
+          "context": "nexus-code 리포 루트 파일과 .nexus/context/conventions.md 스텁 생성. 플랜 종료 직후 P0 산출물의 첫 태스크. 외부 docs/ 없이 모든 프로젝트 문서는 .nexus/ 내부로 수렴.",
+          "acceptance": "3개 파일 존재. README.md: 프로젝트 한 줄 요약 + Status + MIT 표기만, .nexus 경로 링크 없음, MVP/스택 상세 없음. LICENSE: MIT 라이선스 표준 텍스트. .nexus/context/conventions.md: TBD 플레이스홀더.",
+          "approach": "README.md는 프로젝트 정체성 한두 문단 + Status + 라이선스만. .nexus 내부 링크 금지, MVP·기술 스택 상세 금지. LICENSE는 MIT 표준 템플릿. conventions.md는 \"TBD — 규칙 확정 시 채움\" 플레이스홀더.",
+          "risk": "conventions.md 스텁이 lead.md starter file 규칙(\"abstract-level\")과 충돌 우려 없음 — placeholder는 허용.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "lead",
+            "agent_id": "lead",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-23T14:58:09.564Z"
+        },
+        {
+          "id": 2,
+          "title": "context/philosophy.md · roadmap.md 작성",
+          "status": "completed",
+          "context": "비전·원칙·non-goals·트레이드오프(Issue 1 본질 + Issue 6 언어 정책)를 philosophy.md에, MVP 5 Epic + 마일스톤 + 포스트-MVP + 성공 기준(Issue 2)을 roadmap.md에 담는다. context/는 abstract only — 코드에서 직접 읽을 수 있는 디테일 금지.",
+          "acceptance": ".nexus/context/philosophy.md 존재 + 위 섹션 포함. .nexus/context/roadmap.md 존재 + 5 Epic·마일스톤·포스트-MVP·성공 기준 포함. 둘 다 abstract 수준(코드 디테일·파일 경로 나열 금지). Issue 1·2·6 결정과 일치.",
+          "approach": "philosophy.md: 비전 한 문장, 핵심 4축(단일 창 멀티 워크스페이스 전환 / IDE급 기능 / 하네스 네이티브 터미널 / 격리는 덤), non-goals(AI 에이전트 오케스트레이션·CJK 마케팅·초기 협업), 기본 트레이드오프 선호, 언어 정책(영어+한국어 공식 / 일·중 best-effort / UI 영어 단일). roadmap.md: 5 Epic 요약, 마일스톤 M0~M6 순서, 포스트-MVP 우선순위(테마·UI→협업→Win/Linux→유료), 성공 기준.",
+          "risk": "roadmap의 타임라인 수치(\"12-15개월\") 포함 시 가이드라인임을 명시하지 않으면 강제 약속으로 오독될 수 있음. \"타임라인 가이드\" 라벨 필수.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a92a6c67056798d02",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:58:26.546Z"
+        },
+        {
+          "id": 3,
+          "title": "context/architecture.md · stack.md 작성",
+          "status": "completed",
+          "context": "시스템 아키텍처(Issue 3/4/5/8 종합)를 architecture.md에, 런타임·라이브러리·명령(Issue 3)을 stack.md에 담는다. context/는 abstract only — 패키지·레이어·데이터 흐름·엔트리 포인트만, 파일 경로 나열 금지.",
+          "acceptance": ".nexus/context/architecture.md 존재 + M4 sidecar·IPC·플러그인 경계·Idle 정책 요지 포함. .nexus/context/stack.md 존재 + main/sidecar 스택·주요 라이브러리·build/test/deploy 명령 슬롯 포함. 둘 다 abstract, 코드·파일 경로 상세 금지. Issue 3/4/5/8 결정과 일치.",
+          "approach": "architecture.md: Electron main + Go sidecar 프로세스 구성, M4 Per-Workspace Sidecar 모델, sidecar idle 정책(P1/P2/P3), HarnessAdapter 플러그인 경계, IPC(WebSocket + protobuf/JSON schema), 모노레포 4개 package + sidecar Go workspace + proto 경로만 요지로. stack.md: Electron/Node LTS + Go + TS/React/shadcn/ui/Tailwind/Zustand/Monaco/monaco-languageclient/xterm.js+WebGL+node-pty/simple-git/react-markdown/electron-builder. Go sidecar 라이브러리(creack/pty, fsnotify, gorilla/websocket, go-git). build/test/deploy 명령 기본 이름(추후 구체화).",
+          "risk": "architecture.md가 구현 상세까지 넘어가면 context abstract 규칙 위반. 각 결정의 \"왜\"와 \"무엇을\" 수준에서 멈춰야 함.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a1f88e5793a67d296",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:58:37.389Z"
+        },
+        {
+          "id": 4,
+          "title": "context/harness-integration.md · korean-quality.md 작성",
+          "status": "completed",
+          "context": "서브시스템 파일 2개. harness-integration.md는 Issue 5 A2 observer 모델과 HarnessAdapter 인터페이스 계약, korean-quality.md는 Issue 6 한국어 IME·렌더링 체크리스트 7개와 지원 범위.",
+          "acceptance": ".nexus/context/harness-integration.md 존재 + A2 모델·어댑터 계약·금지사항·per-turn 원칙 포함. .nexus/context/korean-quality.md 존재 + 지원 범위·체크리스트 7개·회피 이슈·블록커 정책 포함. 둘 다 abstract. Issue 5·6 결정과 일치.",
+          "approach": "harness-integration.md: A2 \"Terminal + Event Observer\" 원칙, 관찰 기능 5종(탭 뱃지·사이드 패널·diff 뷰·알림·히스토리 열람), HarnessAdapter 인터페이스 계약(read-only observer, hook/session-file tail), 금지 사항(TUI 대체·오케스트레이션·stream-json 다중 턴), per-turn spawn + --resume 원칙. korean-quality.md: 지원 범위(영어+한국어 공식 / 일·중 best-effort / UI 영어 단일), 릴리스 전 체크리스트 7개, 회피 대상 업스트림 이슈(xterm.js #5734 등), 한국어 리그레션 블록커 정책.",
+          "risk": "korean-quality.md에서 체크리스트를 구현 상세(구체 코드·설정 값)로 확장하면 context 규칙 위반. 기준(pass/fail) 수준에서 멈출 것.",
+          "plan_issue": 5,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a0a8a38713ff5a7df",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:58:47.970Z"
+        },
+        {
+          "id": 5,
+          "title": "memory/external-* 경쟁 제품 5개 작성 (cmux · warp · zed · cursor-windsurf · nimbalyst)",
+          "status": "completed",
+          "context": "Researcher A 결과를 제품별로 분해해 memory/에 external- prefix로 정리. 각 파일은 우리가 제어 못 하는 외부 사실의 2026-04 스냅샷.",
+          "acceptance": "5개 파일 모두 존재: external-cmux.md, external-warp.md, external-zed.md, external-cursor-windsurf.md, external-nimbalyst.md. 각 파일 위 공통 필드 9종 채움. prefix external- 준수. 출처 URL 1개 이상.",
+          "approach": "각 파일 공통 필드: 포지셔닝 한줄 요약 / 워크스페이스 모델 / AI 하네스 통합 방식 / IDE 기능 수준 / 터미널 통합 / CJK 렌더링 상태 / 기술 스택 / 오픈소스·라이선스 / 우리 비전 대비 미충족 점 / 출처 URL. Researcher A 보고서를 원본으로 참조하되 최신 사실만 보존. 추측·오래된 2024년 이전 데이터 배제.",
+          "risk": "Nimbalyst의 기술 스택 등 null result 항목을 과잉 추측으로 채우면 사실 왜곡. null은 \"미확인\"으로 명시.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a24a995591044201a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:58:57.433Z"
+        },
+        {
+          "id": 6,
+          "title": "memory/external-* AI 하네스 3개 작성 (claude-code · opencode · codex)",
+          "status": "completed",
+          "context": "MVP 타깃 3개 하네스의 관찰 인터페이스·세션 포맷·알려진 함정을 external- prefix로 정리. HarnessAdapter 플러그인 구현 시 1차 참조 자료.",
+          "acceptance": "3개 파일 모두 존재: external-claude-code.md, external-opencode.md, external-codex.md. 각 파일 위 필드 채움. prefix external- 준수. codex는 스키마 변동 많음을 명시. 출처 URL 1개 이상.",
+          "approach": "각 파일 공통 필드: 배포 방식 / 세션 저장 경로 및 포맷 / 관찰 가능한 이벤트(hook/session file/stdout) / per-turn spawn + --resume 지원 여부 / 알려진 IME·터미널 이슈 GitHub 번호 / 스키마 안정도(변동 빈도) / 라이선스. 각 어댑터 설계 시 참고할 인터페이스 수준에서 정리.",
+          "risk": "내부 구현 디테일까지 적으면 외부 변경에 리비전 폭주. \"관찰 가능 인터페이스\" 레이어만 기록.",
+          "plan_issue": 5,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a9792e50ed1ea5c25",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:59:05.565Z"
+        },
+        {
+          "id": 7,
+          "title": "memory/external-* 런타임·라이브러리 5개 작성 (bun · nodejs · xterm-js · node-pty · electron-utility-process)",
+          "status": "completed",
+          "context": "기술 스택 결정의 근거가 된 외부 런타임·라이브러리의 2026-04 스냅샷. 미래 재평가(Rust 이연·Bun 재전환 조건) 시 출발점.",
+          "acceptance": "5개 파일 모두 존재. 각 파일: 2026-04 현재 상태 + 알려진 구체 이슈(GitHub 번호 인용) + 우리 아키텍처에서의 역할. prefix external- 준수. 출처 URL 포함.",
+          "approach": "external-bun.md: 2026-04 최신 버전, Anthropic 인수, Bun.Terminal API, #21560·#18265 spawn 누수, macOS codesign 회귀 이력, 프로덕션 사례. external-nodejs.md: LTS 상태(24 active, 22 maintenance, 20 EOL), SEA 성숙도, type stripping, Node 22/24 startup 회귀, Utility Process API. external-xterm-js.md: 렌더러(WebGL 권장), IME #5734, ambiguous width, CJK 폭 이슈. external-node-pty.md: 유지보수 상태, Electron ABI rebuild 요구, prebuilt 가용성. external-electron-utility-process.md: 공식 권장 이유, MessagePort 통합, extraResources 패턴.",
+          "risk": "이 파일들은 시간 경과에 따라 빠르게 낡음. \"as of 2026-04\" 날짜 명시 필수.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a588b54f141c7df68",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:59:16.278Z"
+        },
+        {
+          "id": 8,
+          "title": "memory/empirical-previous-tauri-retrospective.md 작성",
+          "status": "completed",
+          "context": "이전 프로젝트(Tauri + Bun sidecar)의 폐기 교훈을 empirical- prefix로 기록. 다음 시도가 같은 함정을 피하기 위한 1차 참고자료.",
+          "acceptance": ".nexus/memory/empirical-previous-tauri-retrospective.md 존재. 폐기 원인·실측 함정·교훈 3개 섹션. prefix empirical- 준수. 교훈은 현재 결정(Go sidecar·A2 observer·per-turn spawn 등)과 연결된 근거로 읽히게.",
+          "approach": "폐기 원인(Anthropic OAuth 정책 2026-02 + stream-json 다중 턴 비공식 경로 불안정), 실측 함정(Tauri 2.10.1 proc macro 패닉→2.9.5 핀, pino-pretty bun --compile 번들 실패, WKWebView EventSource POC 검증), Cycle D 이관 상태, 얻은 교훈(per-turn + --resume만 / HarnessAdapter 플러그인 경계 / Runtime 선택 시 장기 실행 메모리 실측 우선 / CJK 체크리스트 릴리스 블로커 공식화). git log에 남아있는 회고 근거 활용.",
+          "risk": "교훈을 지나치게 감정적으로 기록하면 후대 객관성 훼손. 사실+배운 것 구조만.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "adf7913519216a60e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:59:27.041Z"
+        },
+        {
+          "id": 9,
+          "title": "memory/pattern-* 3개 작성 (per-turn-harness-spawn · per-workspace-sidecar · harness-observer)",
+          "status": "completed",
+          "context": "재사용 가능한 아키텍처 레시피·판단 축 3개를 pattern- prefix로 기록. 유사한 문제를 만났을 때 즉시 참고할 수 있는 간결한 가이드.",
+          "acceptance": "3개 파일 모두 존재. 각 파일: 패턴 이름·적용 조건·장단점·대안·근거(external/empirical 참조 링크). prefix pattern- 준수. 실제 판단이 필요한 순간 15분 안에 결정할 수 있는 밀도.",
+          "approach": "pattern-per-turn-harness-spawn.md: 왜 long-lived stream-json이 아니라 per-turn + --resume인가, 적용 조건, 장단점, 실패 사례(이전 Tauri 프로젝트). pattern-per-workspace-sidecar.md: M4 모델의 핵심(UI 단일 + sidecar N개), 대체 모델(M1~M3) 대비 장점, idle 정책 3단(P1/P2/P3) 결정 축, 트레이드오프. pattern-harness-observer.md: A2 Terminal+Event Observer 원칙, TUI를 대체하지 않는 근거, 관찰 메커니즘 다양성(hooks/session file/stdout), 플러그인 경계로 격리하는 이유.",
+          "risk": "패턴을 지나치게 일반화하면 실전에서 쓰기 어렵고, 지나치게 구체화하면 재사용성 약해짐. \"언제 쓰고 언제 안 쓰나\"의 판단 축을 포함.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "a4351ea08091e2faf",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-23T14:59:36.855Z"
+        },
+        {
+          "id": 10,
+          "title": "[Review] context/philosophy.md · roadmap.md",
+          "status": "completed",
+          "context": "Task 2의 writer 산출물 검증. context abstract 규칙 준수, Issue 1·2·6 결정 정합성, 언어 정책 정확성 확인.",
+          "acceptance": "Task 2의 acceptance 모두 통과 확인. context abstract 규칙 위반 없음. Issue 1·2·6 결정과 충돌 없음. 오탈자·용어 일관성 검토 완료.",
+          "approach": "philosophy.md는 비전 한 문장·4축·non-goals·언어 정책 모두 포함하는지 확인. roadmap.md는 5 Epic·M0~M6 마일스톤·포스트-MVP 우선순위·성공 기준 포함하는지 확인. 코드/파일 경로 상세가 들어갔으면 지적. Issue 결정문과 대조.",
+          "risk": "검토자가 쓰여진 것에만 집중해 \"빠진 것\"을 놓칠 수 있음. Issue 결정 체크리스트로 교차 검증.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "a4aa11e604077d59e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T14:59:54.685Z"
+        },
+        {
+          "id": 11,
+          "title": "[Review] context/architecture.md · stack.md",
+          "status": "completed",
+          "context": "Task 3 산출물 검증. Issue 3/4/5/8 결정 정합성, abstract 규칙 준수, 모노레포 구조 정확성.",
+          "acceptance": "Task 3 acceptance 통과 확인. Issue 3·4·5·8 결정과 정합. abstract 규칙 준수. 라이브러리 이름 오탈자 없음.",
+          "approach": "architecture.md는 M4 sidecar·P1/P2/P3 정책·HarnessAdapter 플러그인 경계·IPC 계약을 abstract로 기술했는지 확인. stack.md는 main/sidecar 스택·주요 라이브러리·build/test/deploy 명령 슬롯 존재 확인. 코드 상세·파일 경로 나열 위반 검출.",
+          "risk": "stack.md에 특정 버전 번호가 포함되면 시간 경과 후 낡음. 버전은 \"LTS\" 같은 서술로 추상화되었는지 확인.",
+          "plan_issue": 3,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "adeab999c53f133fd",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:00.908Z"
+        },
+        {
+          "id": 12,
+          "title": "[Review] context/harness-integration.md · korean-quality.md",
+          "status": "completed",
+          "context": "Task 4 산출물 검증. Issue 5·6 결정 정합성, abstract 규칙 준수, 체크리스트 완결성.",
+          "acceptance": "Task 4 acceptance 통과. Issue 5·6 결정과 정합. 체크리스트 7개 번호·내용 일치. abstract 규칙 준수.",
+          "approach": "harness-integration.md는 A2 모델·어댑터 계약·금지사항(TUI 대체·오케스트레이션·stream-json 다중턴)·per-turn 원칙 포함하는지 확인. korean-quality.md는 지원 범위·체크리스트 7개(빠짐없이)·회피 이슈·블록커 정책 포함하는지 확인. 체크리스트가 pass/fail 기준 수준인지, 구현 상세로 빠졌는지.",
+          "risk": "체크리스트 항목의 수치(16ms 등)가 구현 상세로 읽힐 수 있으나 \"pass 기준\"은 abstract 레벨에서도 허용 — 판단.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "a3aae6a9ac1249284",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:07.414Z"
+        },
+        {
+          "id": 13,
+          "title": "[Review] memory/external-* 경쟁 제품 5개",
+          "status": "completed",
+          "context": "Task 5 산출물 검증. prefix 규칙·필드 완결성·사실 정확성.",
+          "acceptance": "Task 5 acceptance 통과. prefix 규칙 위반 0. 9종 필드 모두 채움(null은 \"미확인\" 명시). 출처 URL 각 파일 1개 이상.",
+          "approach": "5개 파일 모두 external- prefix 준수 확인. 각 파일의 9종 공통 필드(포지셔닝·워크스페이스 모델·AI 통합·IDE 기능·터미널 통합·CJK·기술 스택·라이선스·미충족 점) 누락 여부. 출처 URL 유효성. Nimbalyst null result \"미확인\" 표기 확인. 추측·오래된 데이터 배제 확인.",
+          "risk": "사실 확인을 이 단계에서 100% 재검증하기 어려움. Researcher A 보고서와 대조 정도로 범위 제한.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "a25245745890ac46a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:14.737Z"
+        },
+        {
+          "id": 14,
+          "title": "[Review] memory/external-* AI 하네스 3개",
+          "status": "completed",
+          "context": "Task 6 산출물 검증. HarnessAdapter 설계 참조로 쓰이므로 필드 일관성이 특히 중요.",
+          "acceptance": "Task 6 acceptance 통과. 3개 파일 필드 일관, 출처 URL 포함.",
+          "approach": "3개 파일 external- prefix 준수, 공통 필드(배포·세션 경로·관찰 이벤트·resume 지원·알려진 이슈·스키마 안정도·라이선스) 누락 여부. codex의 \"스키마 변동 많음\" 표기. 인터페이스 레이어 범위 초과(내부 구현 상세로 빠짐) 여부 체크.",
+          "risk": "하네스 프로토콜은 변동이 잦음. 날짜 \"as of 2026-04\" 명시 여부 확인.",
+          "plan_issue": 5,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "aa0466e13a1790b77",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:21.093Z"
+        },
+        {
+          "id": 15,
+          "title": "[Review] memory/external-* 런타임·라이브러리 5개",
+          "status": "completed",
+          "context": "Task 7 산출물 검증. 기술 결정의 근거라 GitHub 이슈 번호 정확성 중요.",
+          "acceptance": "Task 7 acceptance 통과. 이슈 번호 오류 0. 날짜 명시 100%.",
+          "approach": "5개 파일 external- prefix 준수. bun의 #21560·#18265, xterm.js의 #5734, Node 22/24 startup 회귀 등 구체적 이슈 번호 정확성 확인. 각 파일 \"as of 2026-04\" 날짜 명시. 출처 URL 포함.",
+          "risk": "Researcher B·검증 리서처 보고서와 번호 불일치 시 즉시 수정 요청.",
+          "plan_issue": 3,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "a43cacc087d9008f4",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:25.586Z"
+        },
+        {
+          "id": 16,
+          "title": "[Review] memory/empirical-previous-tauri-retrospective.md",
+          "status": "completed",
+          "context": "Task 8 산출물 검증. 교훈이 현재 결정의 근거로 연결되는지, 사실·감정 경계 유지.",
+          "acceptance": "Task 8 acceptance 통과. 3 섹션 모두 채워짐. 교훈↔결정 매핑 1개 이상 명시.",
+          "approach": "empirical- prefix 준수. 폐기 원인·실측 함정·교훈 3 섹션 존재. 교훈이 현재 결정(Go sidecar·A2·per-turn)의 근거로 읽히는지. 감정적 표현·주관적 회한 배제.",
+          "risk": "과거 프로젝트 git log를 근거로 했으므로 사실 왜곡 가능성 낮음. 주관 톤만 점검.",
+          "plan_issue": 3,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "a0b8190a1181de4ec",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:30.735Z"
+        },
+        {
+          "id": 17,
+          "title": "[Review] memory/pattern-* 3개",
+          "status": "completed",
+          "context": "Task 9 산출물 검증. 패턴이 재사용 가능한 레시피 수준인지, 일반화·구체화 균형.",
+          "acceptance": "Task 9 acceptance 통과. 3개 파일 모두 판단 축 포함. external/empirical 참조 링크 1개 이상.",
+          "approach": "3개 파일 pattern- prefix 준수. 각 파일: 패턴 이름·적용 조건·장단점·대안·근거(external/empirical 참조) 포함. \"언제 쓰고 언제 안 쓰나\" 판단 축 포함 여부. 15분 내 결정 가능한 밀도인지 질적 판단.",
+          "risk": "패턴 검증은 정성적이라 리뷰어 주관 개입 가능성. 구조(5요소) 체크로 객관화.",
+          "plan_issue": 4,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "aa43a26634883ea01",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-23T15:00:35.463Z"
+        }
+      ]
+    }
+  ]
+}
