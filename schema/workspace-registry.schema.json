@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/workspace-registry.schema.json",
+  "title": "WorkspaceRegistry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "workspaces"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "workspaces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workspaceRegistryEntry"
+      }
+    }
+  },
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspaceRegistryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "absolutePath", "displayName", "createdAt", "lastOpenedAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "absolutePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastOpenedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

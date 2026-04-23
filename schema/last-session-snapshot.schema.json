@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/last-session-snapshot.schema.json",
+  "title": "LastSessionSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "openWorkspaceIds", "activeWorkspaceId", "capturedAt"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "openWorkspaceIds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workspaceId"
+      }
+    },
+    "activeWorkspaceId": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/workspaceId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

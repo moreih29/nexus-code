@@ -1,0 +1,81 @@
+import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { WorkspacePersistenceStore } from "./workspace-persistence";
+import { WorkspaceShellService } from "./workspace-shell-service";
+
+function createSteppedClock(isoTimestamps: string[]): () => Date {
+  let index = 0;
+  return () => {
+    const timestamp = isoTimestamps[Math.min(index, isoTimestamps.length - 1)];
+    index += 1;
+    return new Date(timestamp);
+  };
+}
+
+describe("WorkspaceShellService", () => {
+  test("open-folder flow persists open-session order and active workspace across relaunch", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nexus-shell-service-"));
+    const clock = createSteppedClock([
+      "2026-04-24T03:00:00.000Z",
+      "2026-04-24T03:00:05.000Z",
+      "2026-04-24T03:00:10.000Z",
+      "2026-04-24T03:00:15.000Z",
+      "2026-04-24T03:00:20.000Z",
+      "2026-04-24T03:00:25.000Z",
+      "2026-04-24T03:00:30.000Z",
+      "2026-04-24T03:00:35.000Z",
+      "2026-04-24T03:00:40.000Z",
+      "2026-04-24T03:00:45.000Z",
+    ]);
+
+    try {
+      const alphaPath = path.join(tempRoot, "alpha");
+      const betaPath = path.join(tempRoot, "beta");
+      await mkdir(alphaPath, { recursive: true });
+      await mkdir(betaPath, { recursive: true });
+
+      const firstLaunchStore = new WorkspacePersistenceStore({
+        storageDir: tempRoot,
+        now: clock,
+      });
+      const firstLaunchService = new WorkspaceShellService(firstLaunchStore);
+
+      await firstLaunchService.openFolderIntoSession({
+        absolutePath: alphaPath,
+        displayName: "Alpha",
+      });
+      await firstLaunchService.openFolderIntoSession({
+        absolutePath: betaPath,
+        displayName: "Beta",
+      });
+      const firstLaunchSidebar = await firstLaunchService.getSidebarState();
+      expect(firstLaunchSidebar.openWorkspaces.map((workspace) => workspace.displayName)).toEqual([
+        "Alpha",
+        "Beta",
+      ]);
+      expect(firstLaunchSidebar.activeWorkspaceId).toBe(firstLaunchSidebar.openWorkspaces[1]?.id);
+
+      await firstLaunchService.activateWorkspace(firstLaunchSidebar.openWorkspaces[0]!.id);
+
+      const relaunchedStore = new WorkspacePersistenceStore({
+        storageDir: tempRoot,
+        now: clock,
+      });
+      const relaunchedService = new WorkspaceShellService(relaunchedStore);
+      const relaunchedSidebar = await relaunchedService.getSidebarState();
+
+      expect(relaunchedSidebar.openWorkspaces.map((workspace) => workspace.displayName)).toEqual([
+        "Alpha",
+        "Beta",
+      ]);
+      expect(relaunchedSidebar.activeWorkspaceId).toBe(
+        relaunchedSidebar.openWorkspaces[0]!.id,
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});

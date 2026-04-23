@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/sidecar-lifecycle.schema.json",
+  "title": "SidecarLifecycleMessage",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/sidecarStartCommand"
+    },
+    {
+      "$ref": "#/$defs/sidecarStartedEvent"
+    },
+    {
+      "$ref": "#/$defs/sidecarStopCommand"
+    },
+    {
+      "$ref": "#/$defs/sidecarStoppedEvent"
+    }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sidecarStartCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "workspacePath", "reason"],
+      "properties": {
+        "type": {
+          "const": "sidecar/start"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "workspacePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["workspace-open", "session-restore"]
+        }
+      }
+    },
+    "sidecarStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "pid", "startedAt"],
+      "properties": {
+        "type": {
+          "const": "sidecar/started"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "sidecarStopCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "reason"],
+      "properties": {
+        "type": {
+          "const": "sidecar/stop"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["workspace-close", "app-shutdown"]
+        }
+      }
+    },
+    "sidecarStoppedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "reason", "stoppedAt", "exitCode"],
+      "properties": {
+        "type": {
+          "const": "sidecar/stopped"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["requested", "process-exit", "process-crash"]
+        },
+        "stoppedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

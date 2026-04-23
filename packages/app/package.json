@@ -1,0 +1,7 @@
+{
+  "name": "@nexus/app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Electron + React app scaffold for the E1 workspace shell"
+}

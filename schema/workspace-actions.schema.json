@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/workspace-actions.schema.json",
+  "title": "WorkspaceSessionAction",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/workspaceOpenAction"
+    },
+    {
+      "$ref": "#/$defs/workspaceActivateAction"
+    },
+    {
+      "$ref": "#/$defs/workspaceCloseAction"
+    }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspaceOpenAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "absolutePath", "displayName", "source"],
+      "properties": {
+        "type": {
+          "const": "workspace/open"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "absolutePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": ["folder-picker", "session-restore"]
+        }
+      }
+    },
+    "workspaceActivateAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "source"],
+      "properties": {
+        "type": {
+          "const": "workspace/activate"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["click", "keyboard", "session-restore"]
+        }
+      }
+    },
+    "workspaceCloseAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "source"],
+      "properties": {
+        "type": {
+          "const": "workspace/close"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["user-close", "app-shutdown"]
+        }
+      }
+    }
+  }
+}
