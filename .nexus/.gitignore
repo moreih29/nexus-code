@@ -5,7 +5,4 @@
 !context/**
 !memory/
 !memory/**
-!rules/
-!rules/**
-!config.json
 !history.json
