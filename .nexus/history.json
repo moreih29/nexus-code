@@ -2126,6 +2126,42 @@
           "created_at": "2026-04-24T14:47:53.468Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T14:55:19.086Z",
+      "branch": "feat/design-system-repaint",
+      "plan": {
+        "id": 11,
+        "topic": "리사이저 확장 제한 순차 진단 — Step 1 maxSize 증대",
+        "issues": [
+          {
+            "id": 1,
+            "title": "maxSize 28→50, 32→50 증대 실험",
+            "status": "decided",
+            "decision": "App.tsx\\uc5d0\\uc11c WORKSPACE_PANEL_MAX_SIZE 28\\u219250, SHARED_PANEL_MAX_SIZE 32\\u219250\\uc73c\\ub85c \\uc99d\\ub300. \\ubbf8\\ub2e8\\uacc4 \\ubcc0\\uacbd(\\ub2e4\\ub978 fallback \\ubd88\\uc801\\uc6a9). \\ubbf8\\uc801\\uc6a9 \\uc2dc \\uc0ac\\uc6a9\\uc790 \\uccb4\\uac10\\uc73c\\ub85c A\\u00b7B \\uad6c\\ubd84 \\ud6c4 Step 2(wrapper \\uc81c\\uac70) \\ud639\\uc740 Step 3(4.2.0 \\ub2e4\\uc6b4\\uadf8\\ub808\\uc774\\ub4dc) \\uacb0\\uc815."
+          }
+        ],
+        "research_summary": "사용자 재현: setState 제거(ba2fdf8) 후에도 확장 방향 제한 잔존. 가능성 A(maxSize 정상 동작이 제한으로 체감) vs B(library bug)를 구분하기 위한 저비용 첫 단계. maxSize를 workspace 28→50, shared 32→50으로 증대하여 확장 한계를 크게 벌림. A면 풀림, B면 여전함. Step 2 wrapper 제거, Step 3 다운그레이드 fallback 준비됨.",
+        "created_at": "2026-04-24T14:54:44.358Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "maxSize 증대 (Step 1)",
+          "status": "completed",
+          "context": "확장 제한 원인이 maxSize 상한인지 library bug인지 구분하는 최저비용 실험.",
+          "acceptance": "1. App.tsx WORKSPACE_PANEL_MAX_SIZE: 28 → 50\n2. App.tsx SHARED_PANEL_MAX_SIZE: 32 → 50\n3. test:unit·build PASS\n4. grep 확인: 28·32 기존 값 흔적 없음",
+          "approach": "Lead 직접 edit 1회.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T14:54:53.285Z"
+        }
+      ]
     }
   ]
 }
