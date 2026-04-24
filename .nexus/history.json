@@ -628,6 +628,404 @@
           "created_at": "2026-04-23T15:35:11.380Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T03:07:04.579Z",
+      "branch": "feat/e2-terminal-native",
+      "plan": {
+        "id": 3,
+        "topic": "로드맵 E2 Terminal Native 계획",
+        "issues": [
+          {
+            "id": 1,
+            "title": "E2 Terminal Native의 MVP 완료 범위(스코프 라인)를 어디까지로 확정할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "roadmap E2는 다중 탭/WebGL 렌더러/스크롤백 보존/한국어 체크리스트 7개 통과 네 요소를 명시한다. 이를 최소만 취하면 '있어도 답답한 터미널'이 돼 성공 기준 5번(dogfood 피드백)을 위협하고, 반대로 split pane·테마 UI·프로파일 UI까지 끌어오면 비MVP(테마 커스터마이징, 세팅 UI 정교화)와 충돌해 M2가 비대해진다. Tauri 회고의 '야심 > 실현성 금지' 원칙도 같은 방향이다. 따라서 roadmap 4요소 + '매일 쓸 만한 터미널이라면 있어야 할 최소 UX(검색, 표준 copy/paste, FitAddon 리사이즈, 탭 +/×/리네임, 폰트 폴백)'까지를 경계로 두는 B안이 적합하다. split pane·테마 UI·프로파일 UI는 포스트-MVP로 명시적으로 내보낸다.",
+                "recorded_at": "2026-04-24T00:24:09.042Z"
+              }
+            ],
+            "decision": "E2 Terminal Native의 MVP 완료 범위는 B안(문서 + 최소 쓸모 UX)으로 확정한다. 포함: 워크스페이스당 다중 탭 터미널(+/×/리네임/단축키), @xterm/addon-webgl 기반 WebGL 렌더러, 스크롤백 보존(구체 범위는 이슈 3에서 확정), 한국어 IME·렌더링 체크리스트 7개 전부 통과(릴리스 블로커), 터미널 내 검색, 표준 copy/paste UX 및 copy-on-select, FitAddon 기반 리사이즈, Noto Sans KR·D2Coding 포함 폰트 폴백 스택. 제외(포스트-MVP): split pane, 터미널 테마/색상 커스텀 UI, shell 프로파일 관리 UI, Vim 모드, 사용자 키바인딩 커스텀, 히스토리 검색 고급 기능, 터미널 세션 자체의 앱 재시작 복원(스크롤백 영속 여부는 이슈 3에서 결정)."
+          },
+          {
+            "id": 2,
+            "title": "터미널 탭과 워크스페이스의 바인딩 모델 및 PTY 생애주기(Electron main / renderer 경계)를 어떻게 정의할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "바인딩+PTY 생애주기 4안 비교. Opt1(독점+비활성유지+auto-create), Opt2(독점+suspend/resume), Opt3(전역풀+태그+이동), Opt4(독점+lazy+비활성유지). 공통 전제: PTY는 Electron main node-pty, 탭 ID는 워크스페이스 네임스페이스 종속. P1 always-on 정합성과 CJK 회귀 리스크(xterm IME composer 상태 보존), Tauri 교훈(장기 실행 누수 실측 용이성)을 기준으로 Opt4 추천. Opt2는 suspend 경로가 xterm 재초기화를 유발해 CJK 회귀 위험원, Opt3은 전역 풀 고아 처리로 MVP 복잡도 과잉. Opt1은 수용 가능하나 '터미널 패널 안 여는 시간' 가정 시 빈 셸 리소스 낭비. Opt4는 워크스페이스 종속 탭 ID(tt_<wsId>_<nonce>), 명시적 생성만, 비활성 워크스페이스 PTY 계속 실행(xterm 인스턴스는 display:none으로 유지해 WebGL context 재생성 회피), 워크스페이스 닫기 시 계층적 cleanup(SIGHUP→5s→SIGKILL), 앱 종료 시 일괄 kill. 새 계약: terminal-tab.ts(TerminalTabDescriptor), terminal-ipc.ts(open/input/resize/close commands + opened/stdout/exited events, seq 필드 예약, chunk 직렬화는 엔지니어 단계 벤치), terminal-lifecycle.ts(WorkspaceTerminalsClosedEvent). 방어층: main 측 링버퍼 scrollback 상한(탭당 10MB), SIGKILL 타임아웃, seq 기반 coalescing. v0.2 탭 이동 도입 시 ID 전역화 마이그레이션은 ADR로 예약.</summary>\n</invoke>",
+                "recorded_at": "2026-04-24T00:27:48.947Z",
+                "agent_id": "a69581dbcd283976e"
+              }
+            ],
+            "decision": "터미널 탭↔워크스페이스 바인딩과 PTY 생애주기는 Opt 4(독점 + lazy + 비활성 유지)로 확정한다. 탭은 워크스페이스에 N:1 독점 바인딩되며 ID 네임스페이스도 워크스페이스 종속(tt_<workspaceId>_<nonce>)이다. 탭은 사용자의 명시적 '새 터미널' 액션으로만 생성되며 워크스페이스 오픈 시 자동 생성하지 않는다(완전 lazy). 비활성 워크스페이스의 PTY는 계속 실행되고 renderer의 xterm 인스턴스는 unmount 대신 display:none 등으로 유지해 WebGL 컨텍스트 재생성과 IME composer 상태 리셋을 피한다. 워크스페이스 닫기 시 해당 워크스페이스의 모든 PTY를 계층적으로 정리(SIGHUP → 5s 타임아웃 → SIGKILL)하고 버퍼를 폐기한다. 탭 닫기·앱 종료 시에도 동일한 2단 kill 시퀀스를 적용한다. 새 계약은 packages/shared/src/contracts/ 아래 terminal-tab.ts(TerminalTabDescriptor), terminal-ipc.ts(renderer↔main의 open/input/resize/close 커맨드와 opened/stdout(seq 포함)/exited 이벤트 Discriminated Union), terminal-lifecycle.ts(WorkspaceTerminalsClosedEvent)로 신설하고 schema/ 아래 미러 JSON Schema를 둔다. 방어층으로 탭당 scrollback 링버퍼 상한(초기 10MB, 구체 수치는 구현 시 실측 후 확정)과 IPC stdout coalescing(10–16ms, seq 단조 증가)을 설계에 포함한다. 탭 이동·drag reassign은 MVP 범위 밖이며 v0.2에서 필요 시 ID 전역화 마이그레이션 ADR로 다룬다."
+          },
+          {
+            "id": 3,
+            "title": "터미널 스크롤백 보존 범위와 저장 매체를 어떻게 잡을지 (워크스페이스 전환/탭 전환/앱 재시작)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "스크롤백 보존 4안 비교. Opt A(xterm 단일층, 라인 기반), Opt B(xterm+main 2층, 바이트 상한, 복원 없음), Opt C(B+닫힌 탭 reopen·replay), Opt D(메모리+append-only 디스크 로그). 핵심 관찰: Opt 4 하에 xterm 인스턴스가 워크스페이스 수명 동안 살아있으므로 main 링버퍼는 'xterm 초기화 replay 소스'가 아니라 '누수 방어 상한 + 미래 훅'이 본 역할. (a)(b) 탭·워크스페이스 전환 보존은 이미 자동. (c) 재시작 복원은 Issue 1에서 제외 확정. 따라서 본질 결정은 ①main 링버퍼 존재·크기 ②닫힌 탭 복원 UX ③검색 스코프 ④CJK replay 경로 필요성. Opt B 추천: Issue 2 방어층 정합성, CJK 회귀 경로(main→xterm replay) 부재로 #5734 회피 패치 외 추가 벡터 없음, 바이트 상한(탭당 8MB)이 라인 기반보다 악성 긴 라인 방어에 유리, xterm scrollback은 라인(10,000 lines) 유지로 사용자 가시 영역과 직결. 가득 찼을 때 정책은 FIFO silent drop(UI 경고 없음, dev 로그만). 검색은 xterm SearchAddon 버퍼 내로 제한(main과의 이중 검색 UX 혼란 회피). Opt C는 closed-tab replay가 UTF-8 code-point 절단/ANSI 상태 재조립/double-width 재계산이라는 새 CJK 테스트 축 도입해 MVP 과잉. Opt D는 디버깅/감사 요구가 명시되기 전 과잉. terminal-ipc.ts 보강: TerminalOpenCommand에 scrollbackMainBufferBytes/scrollbackXtermLines 옵션, TerminalStdoutChunk에 mainBufferDroppedBytes 계측 필드, 신규 TerminalScrollbackStatsQuery/Reply(개발 계측용·MVP UI 미노출). Post-MVP 확장 경로: dogfood에서 닫힌 탭 reopen 요구 반복 시 Opt C ADR, 감사 필요 시 Opt D 로그 경로 선택적 추가.</summary>\n</invoke>",
+                "recorded_at": "2026-04-24T00:33:15.273Z",
+                "agent_id": "a69581dbcd283976e"
+              }
+            ],
+            "decision": "터미널 스크롤백 보존 정책은 Opt B(2층 메모리, 닫힌 탭 복원 없음, 바이트 상한)로 확정한다. 탭·워크스페이스 전환 시 스크롤백은 xterm 인스턴스가 워크스페이스 수명 동안 유지되는 Opt 4 구조 덕분에 자동 보존된다. 앱 재시작 시 터미널 세션 복원 및 닫힌 탭 reopen UX는 MVP 제외. 저장 매체는 renderer의 xterm scrollback과 Electron main의 탭별 링버퍼 두 층이며 둘 다 메모리 only(디스크 영속 없음). 용량 정책은 xterm은 라인 기반 10,000 lines(사용자 가시 UX와 직결), main 링버퍼는 바이트 기반 탭당 8MB(악성 긴 라인 방어). 가득 찬 뒤 정책은 FIFO silent drop으로 UI 경고 없이 처리하고 계측은 개발 로그로만 내보낸다. 검색은 xterm SearchAddon 버퍼 내로만 제한해 main 링버퍼와의 이중 검색 UX를 금지한다. 버퍼 꼬리 도달 시 \"더 이상 찾을 수 없음\" 명시 텍스트. main→xterm replay 경로는 MVP에서 사용하지 않으며 이로써 CJK 회귀 표면을 xterm.js #5734 회피 오버레이 패치 외로 넓히지 않는다. terminal-ipc.ts에 TerminalOpenCommand의 scrollbackMainBufferBytes/scrollbackXtermLines 옵션 필드, TerminalStdoutChunk의 mainBufferDroppedBytes 계측 필드, 그리고 개발 계측용 TerminalScrollbackStatsQuery/Reply 쌍을 Discriminated Union에 예약한다(MVP UI 미노출). Post-MVP 확장 경로로 ① dogfood에서 닫힌 탭 reopen 요구 반복 시 Opt C 채택과 UTF-8 code-point·ANSI 상태 절단 안전화 ADR, ② 감사/제보용 append-only 디스크 로그가 필요해지면 Opt D 경로만 선택적 추가(기본 OFF)를 예약한다."
+          },
+          {
+            "id": 4,
+            "title": "한국어 IME·렌더링 체크리스트 7개 통과를 위한 xterm.js 패치 전략을 어떻게 결정할지 (오버레이 패치 / fork / 업스트림 PR)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "IME 패치 전략 4안. Opt A(Pure Overlay + App Layer), Opt B(Fork 유지), Opt C(Upstream PR + Overlay Bridge), Opt D(Hybrid 이슈별 경로 분리). 체크리스트 7개 중 #4(NFC)는 E1 완료. 나머지 6개 담당 레이어 매핑: #1(#5734 조합창 위치) overlay DOM + compositionstart/update/end 가로채 xterm 커서 좌표로 재계산, xterm 내부 composition CSS hide; #2(Enter 두 번) 앱 레이어 전용, KeyboardEvent.isComposing=true면 swallow(Cursor/Warp 표준); #3(double-width) @xterm/addon-unicode11 + unicodeVersion=\"11\"; #5(조합 문자 소실) xterm 측은 앱 레이어 composition buffer로 compositionend에서 일괄 PTY write, 하네스 측 Claude Code #16372/#22732는 E3 스코프로 명시 분리; #6(16ms lag) WebGL + overlay GPU 합성 + CI 실측 게이트; #7(폰트 폴백) Noto Sans KR·D2Coding OFL extraResources 번들링 + CSS font-family 스택. Opt D 추천: 일정 리스크 절연(C는 upstream 머지 타임라인 종속), fork 유지 부담 회피(@electron/rebuild + node-pty + codesign 2차원 복잡도), Enter 두 번은 KeyboardEvent.isComposing W3C 표준으로 앱 레이어 완결 가능, 체크리스트 #5의 E2/E3 경계 명확화로 누가 뭘 고치는지 릴리스 게이트에서 투명, ejection cost 최저(overlay 제거 쉬움). Fork는 'escape hatch'로 조직 네임스페이스에 빈 repo만 선제 생성 + runbook 사전 작성, 평시 참조 없음. 버전 핀: @xterm/xterm 및 모든 addon 정확 버전 핀(캐럿/틸드 금지), 업그레이드 PR은 CJK 체크리스트 7개 + overlay 회귀 통과 조건, Electron 메이저 업그레이드와 동일 PR 금지(롤백 단위 분리). 리스크: Playwright IME 시뮬레이션 한계 → 수동 QA 체크리스트 병행(Tauri 교훈 '자동화 맹신 금지'). E3 전제: 현 설계는 E2/E3가 동일 xterm 컴포넌트 재사용 가정이며 Issue 6에서 분리되면 overlay 이식은 fork보다 비용 낮아 Opt D가 그 경우에도 안전.</summary>\n</invoke>",
+                "recorded_at": "2026-04-24T00:37:22.695Z",
+                "agent_id": "a69581dbcd283976e"
+              }
+            ],
+            "decision": "한국어 IME·렌더링 체크리스트 7개 통과 전략은 Opt D(Hybrid — 이슈별 담당 레이어 분리)로 확정한다. 체크리스트별 담당 경로: #1(조합창 커서 위치, #5734)은 renderer에서 compositionstart/update/end를 가로채는 앱 소유 overlay DOM으로 xterm 커서 좌표에 재렌더하고 xterm 내부 composition을 CSS로 숨긴다; #2(Enter 두 번)는 xterm 수정 없이 앱 입력 파이프라인에서 KeyboardEvent.isComposing 기반 swallow/submit 분기로 완결한다; #3(double-width)은 @xterm/addon-unicode11 활성화 + unicodeVersion=\"11\"로 처리한다; #4(NFC)는 E1에서 완료됨; #5(조합 문자 소실)는 xterm 측을 앱 composition buffer로 닫고 하네스 측 Claude Code #16372/#22732는 E3 스코프로 명시 분리한다; #6(입력 lag 16ms 미만)은 WebGL 애드온 + overlay GPU 합성으로 달성하고 CI 또는 릴리스 체크리스트에 실측 게이트를 추가한다; #7(폰트 폴백)은 Noto Sans KR과 D2Coding(OFL 1.1)을 extraResources로 번들링하고 CSS font-family 스택 고정(LICENSE에 폰트 라이선스 포함 명세). xterm.js fork는 유지하지 않되 조직 네임스페이스의 xterm.js-nexus 빈 escape-hatch repo와 runbook만 선제 준비한다. 버전 핀 정책으로 @xterm/xterm 및 모든 애드온은 정확 버전 핀(캐럿/틸드 금지), package.json과 lockfile을 동기 관리하며, 업그레이드는 분기 1회 또는 보안 패치 한정으로 CJK 체크리스트 7개와 overlay 회귀 전체 통과를 머지 조건으로 둔다. Electron 메이저 업그레이드 PR에 xterm 업그레이드를 동시 포함하지 않고 롤백 단위를 분리한다. .nexus/memory/external-xterm-js.md에서 #5734/#1453/#4753 상태를 분기마다 갱신한다. 검증 리스크 완화로 Playwright IME 시뮬레이션 자동화와 macOS 한국어 IME 수동 QA 체크리스트를 병행하며 릴리스 전 수기 기록을 남긴다."
+          },
+          {
+            "id": 5,
+            "title": "터미널 shell 실행 환경(기본 shell, cwd, env, 프로파일)과 기본값 정책을 어떻게 정할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "shell 실행 환경 3안. Opt T(Thin: $SHELL + -l -i + workspace cwd + 최소 env, PATH stripping 미처리), Opt M(Medium: $SHELL -lic 'env'로 login env headless 캡처·캐시 후 interactive shell 기동, PATH stripping 해소, LANG/LC_ALL UTF-8 폴백), Opt H(Heavy: M + direnv 앱 레벨 통합 + 탭별 cwd + hidden profile JSON). 핵심 관찰: macOS GUI 앱의 PATH stripping 실측 블로커는 Homebrew/nvm/pyenv/mise/asdf 사용자 전원을 첫 탭 command not found로 막음 → 성공 기준 5번('일상에서 쓸 만하다') 실패 지점. Opt M 추천: VSCode shell-env 표준 패턴, login env 1회 캡처 후 sanitize 머지, interactive shell 기동으로 사용자 .zshrc 자연 로드, direnv는 사용자 본인 hook 설정 시 자동 작동하므로 앱 레벨 통합 불필요(.envrc allow UX·보안 경고·재로딩 트리거는 MVP 과잉). TerminalOpenCommand 파라미터 정책: workspaceId/cols/rows 필수, shell/shellArgs/cwd/envOverrides 모두 optional로 main측 ShellEnvironmentResolver가 단일 진실 소스로 기본값 결정·캐시(shellArgs 기본 [\"-l\",\"-i\"], cwd 기본 workspace 루트, envOverrides 기본 {}). renderer는 기본값 정책 무지 — seam 명확. .envrc/direnv MVP 제외 명시하고 '사용자가 본인 shell의 direnv hook 설정 시 동작'을 문서화. 리스크 완화: shell env 캡처 5초 타임아웃 + process.env fallback, 릴리스 체크리스트에 signed .app Dock 실행 수동 검증 추가(개발 서버는 PATH 문제 은폐), fish/nushell은 best-effort·zsh/bash만 공식 보장, LC_ALL=C 환경 대비 LANG 미설정 시 en_US.UTF-8 강제. 미래 프로파일 UI는 계약 필드가 이미 열려 있어 마이그레이션 없이 필드 채우기만으로 전환.</summary>\n</invoke>",
+                "recorded_at": "2026-04-24T00:41:09.547Z",
+                "agent_id": "a69581dbcd283976e"
+              }
+            ],
+            "decision": "터미널 shell 실행 환경과 기본값 정책은 Opt M(Medium: shell-env 캡처 + workspace cwd + MVP 프로파일/direnv 제외)로 확정한다. 기본 shell은 process.env.SHELL 우선, 부재 또는 비실행이면 /bin/zsh 폴백. Main에 단일 진실 소스 ShellEnvironmentResolver를 두고 초기 1회 `$SHELL -lic 'env'` 헤드리스 실행으로 login env를 캡처·sanitize·캐시한 뒤 base env로 사용, 이후 사용자 세션은 interactive 모드(`-i`)로 기동해 `.zshrc`를 자연 로드한다. 캡처 지연은 5초 타임아웃 + process.env fallback + dev 로그로 방어한다. 파생 환경변수는 TERM=xterm-256color, COLORTERM=truecolor, LANG/LC_ALL이 비어 있으면 en_US.UTF-8 강제(체크리스트 #3과 연결), 이미 설정돼 있으면 보존. cwd 기본값은 워크스페이스 루트(E1의 NFC 정규화된 절대경로)로 고정하며 탭별 cwd 저장은 post-MVP. TerminalOpenCommand 계약은 workspaceId/cols/rows만 필수, shell·shellArgs·cwd·envOverrides는 optional로 두어 resolver가 기본값을 채우고 renderer는 기본값 정책을 모른다. shellArgs 기본값은 [\"-l\",\"-i\"], envOverrides 기본값은 {}. .envrc/direnv의 앱 레벨 통합은 MVP 제외이며 \"사용자가 본인 shell의 direnv hook(예: .zshrc의 eval \\\"$(direnv hook zsh)\\\")을 설정하면 자연 작동\"을 문서화한다. fish/nushell은 best-effort이며 MVP 공식 보장은 zsh/bash로 한정한다. 릴리스 체크리스트에 \"signed .app Dock 실행 시 PATH·사용자 env·Homebrew/mise 류가 정상 로드되는지 수동 검증\" 단계를 추가해 개발 서버가 은폐하는 PATH stripping 실측 함정을 게이트에서 차단한다. 미래 프로파일 UI는 동일 TerminalOpenCommand 필드를 채우는 형태로 계약 변경 없이 전환 가능하다."
+          },
+          {
+            "id": 6,
+            "title": "E2 일반 터미널과 E3 AI 하네스 터미널의 경계와 인터페이스 선긋기를 어떻게 잡을지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "E2/E3 경계 3안. Opt 1(Thick Reservation: E2에 kind discriminator + harness 필드 예약), Opt 2(Thin Reservation: xterm 컴포넌트만 공유·계약 분리), Opt 3(Complete Separation: xterm 재구현 경로까지 허용). 핵심 관찰: E2 PTY는 Electron main의 node-pty이고 E3 하네스 PTY는 sidecar creack/pty — 근본 레이어가 다름. 관찰 경로(hooks API/세션 파일 tail/SQLite)는 sidecar 책임이고 E2 TerminalStdoutChunk가 감당할 영역 아님. per-turn spawn 모델은 E2 탭의 lazy 유지 모델과 수명이 다름. Opt 2 추천: 플러그인 경계 원칙 직접 준수(Tauri 회고의 '외부 API 변경이 제품 코어에 파급되지 않게'), PTY 소유 레이어 분리 명시, per-turn spawn 모델과 E2 수명 모델 분리, xterm 공유는 renderer의 저수준 XtermView 컴포넌트 레이어로만(Issue 4 overlay/IME 자동 상속), TabKind discriminator 도입 안 함(shell 전용 단일 타입 유지·renderer UI에서만 TerminalTab|HarnessTab union으로 처리, 계약 파일은 손대지 않음). E2에서 확정하고 E3가 손대지 않을 것: TerminalTabDescriptor, TerminalOpenCommand/Input/Resize/Close, TerminalStdoutChunk/Exited, Scrollback stats, XtermView. E3에서 신규 정의: HarnessTabDescriptor, HarnessSpawnCommand(sidecar 대상), HarnessTurnStarted/Ended/ExitedEvent, HarnessObservationEvent(hooks·tail 통합 스트림), HarnessAdapter 인터페이스 및 어댑터 구현(plugin layer), renderer의 HarnessTerminalTab 래퍼(탭 뱃지 슬롯·tool 패널 트리거 등). 관찰 이벤트 파이프라인은 E2 stdout 경로와 완전 분리해야 함(stdout에 observation 태우면 스크롤백/검색/CJK 오염). MVP 작업량 최소 + E3 시점에 계약 '추가만' 필요.</summary>\n</invoke>",
+                "recorded_at": "2026-04-24T00:46:10.865Z",
+                "agent_id": "a69581dbcd283976e"
+              }
+            ],
+            "decision": "E2 일반 터미널과 E3 AI 하네스 터미널의 경계는 Opt 2(Thin Reservation — xterm 컴포넌트만 공유, 계약 완전 분리)로 확정한다. E2 계약 파일(packages/shared/src/contracts/terminal-*.ts)은 shell 터미널 전용으로 유지하고 하네스 관련 필드·discriminator(kind 등)·예약은 도입하지 않는다. 공유 지점은 renderer의 저수준 XtermView 컴포넌트(Issue 4 overlay/composition buffer/IME 처리 포함)로만 국한한다. E3 시점에 별도 파일로 HarnessTabDescriptor(HarnessTabId는 TerminalTabId와 별 네임스페이스), HarnessSpawnCommand(sidecar 대상), HarnessTurnStarted/Ended/ExitedEvent, HarnessObservationEvent(hooks API·세션 파일 tail·SQLite 등 통합 스트림), HarnessAdapter 인터페이스와 어댑터 구현(plugin layer)을 add-only로 신규 정의한다. 관찰 이벤트 파이프라인은 sidecar 내부 감지 → sidecar↔main 별도 채널 → main→renderer 별도 IPC 토픽으로 구성하며 E2의 TerminalStdoutChunk 경로와 완전 분리해 스크롤백·검색·CJK 경로 오염을 차단한다. Renderer UI 레이어에서 탭 목록이 TerminalTab | HarnessTab union을 받는 것은 app 내부 타입이며 schema 계약이 아니다. 탭 뱃지 슬롯·tool 사이드 패널 트리거 등 하네스 부가 UI는 HarnessTerminalTab 래퍼에 붙이고 ShellTerminalTab에는 추가하지 않는다. 이 결정은 아키텍처의 'HarnessAdapter 플러그인 경계 격리' 원칙과 Tauri 회고의 '외부 API 변경이 제품 코어에 파급되지 않게' 원칙을 직접 반영한다. 한국어 체크리스트 #5(조합 문자 소실)의 xterm 측과 하네스 측(Claude Code #16372/#22732) 분리도 이 경계에 따라 유지된다."
+          }
+        ],
+        "research_summary": "[이전 사이클] plan #2 'E1 Workspace Shell 계획' 6개 태스크 모두 완료. 핵심 결정: (1) persistent sidebar + 2-layer persistence(Workspace Registry + Last Session Snapshot), (2) open-session 범위에 한정된 P1 always-on sidecar, (3) 직접 슬롯 점프 + 이전/다음 순환 2축 키보드 모델, (4) 터미널 탭·에디터 탭 세부 상태는 E1 스코프 밖. 산출 코드: packages/app/src/main/{workspace-persistence,sidecar-lifecycle-manager,workspace-shell-service,sidecar-runtime}, packages/app/src/renderer/{workspace-shell-model,workspace-sidebar-html,workspace-switching-commands}, packages/shared/src/contracts/{workspace,sidecar,workspace-switching,workspace-shell}, schema/{workspace-registry,last-session-snapshot,sidecar-lifecycle,workspace-actions}, sidecar/{cmd/nexus-sidecar,internal/contracts/lifecycle}. [E2 roadmap 명시 요구사항] 워크스페이스마다 다중 탭 터미널, 하드웨어 가속 렌더러로 스크롤 성능 확보, 스크롤백 히스토리 보존, 한국어 IME·렌더링 체크리스트 7개 전부 통과가 릴리스 블로커. [architecture 제약] 터미널 PTY는 Electron main 프로세스 node-pty로 관리(VSCode 패턴), renderer는 xterm.js + @xterm/addon-webgl, Go sidecar는 LSP/하네스 자식 PTY만 관리(터미널 탭 PTY 미관여). [한국어 체크리스트 7개] IME 조합 중 커서 위치, 조합 확정 후 두 번째 Enter submit, 한글 double-width 정확 계산, 파일명 NFC 정규화(E1 구현됨), 조합 중 문자 소실 없음, 입력 lag 16ms 미만, Noto Sans KR/D2Coding 폰트 폴백. [알려진 업스트림 이슈] xterm.js #5734(IME 조합 위치 오류), #1453(ambiguous width), #4753(Unicode 버전); Claude Code CLI #16372·#22732(조합 문자 소실·커서 오위치); node-pty는 Electron 메이저마다 @electron/rebuild 필수, Electron 35 prebuilt 미확인. [Tauri 회고 교훈] 비공식 stream-json 경로 금지, 외부 의존 플러그인 경계 격리, 장기 실행 안정성 POC가 아닌 실측 사이클에서 선행 검증. [현재 저장소 상태] 터미널/에디터/LSP 코드는 아직 없음; 모든 E2 결정은 E1 산출물과 기존 계약 위에 얹는다. nx_history_search로 E2 관련 이전 결정 없음을 확인.",
+        "created_at": "2026-04-24T00:20:56.885Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Verify node-pty prebuilt binaries and configure @electron/rebuild pipeline",
+          "status": "completed",
+          "context": "external-node-pty.md warns that Electron 35 prebuilt binaries are not officially confirmed and #728 reported rebuild failures on Electron 33.2.0. E2 depends on node-pty running cleanly in Electron main. This must be resolved before any runtime terminal work.",
+          "acceptance": "node-pty loads successfully in the current pinned Electron version on macOS arm64 and x64; @electron/rebuild script is wired into the build pipeline; packaging via electron-builder places the rebuilt native addon in extraResources; codesign passes on the signed .app.",
+          "approach": "Pin node-pty to a known-good version; add @electron/rebuild as a postinstall or explicit script; confirm Electron version matches prebuilt availability or run rebuild; validate with a minimal spawn smoke test on both arm64 and x64.",
+          "risk": "prebuilt binary absence forces local build toolchain; ABI mismatch between Electron Node and node-pty; codesign drops unsigned native addon.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbcfc-c640-75f2-bac7-51edd29aef17",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:48:43.295Z"
+        },
+        {
+          "id": 2,
+          "title": "Define E2 shell-terminal shared contracts and schema mirrors",
+          "status": "completed",
+          "context": "Issue 2 + 3 + 6 jointly fix the E2 shared contract surface: shell-only terminal tabs, scrollback instrumentation fields, and explicit isolation from any future harness tab types. Contracts must follow the E1 pattern (Discriminated Union, schema/*.schema.json mirror, additionalProperties:false) and stay on the shell side of the E2/E3 boundary.",
+          "acceptance": "packages/shared/src/contracts/ contains terminal-tab.ts, terminal-ipc.ts, terminal-lifecycle.ts with shell-only fields (no kind discriminator, no harness fields); schema/terminal-tab.schema.json, schema/terminal-ipc.schema.json, schema/terminal-lifecycle.schema.json mirror the TS types; types include optional scrollbackMainBufferBytes / scrollbackXtermLines on TerminalOpenCommand, mainBufferDroppedBytes on TerminalStdoutChunk, and TerminalScrollbackStatsQuery/Reply pair; tests assert union exhaustiveness; no production code imports harness-related symbols from shell contracts.",
+          "approach": "Create the three contract files as Discriminated Unions keyed on `type`; define TerminalTabId string alias shaped as `tt_<workspaceId>_<nonce>`; add TerminalOpenCommand (workspaceId/cols/rows required; shell/shellArgs/cwd/envOverrides/scrollback* optional), TerminalInputCommand, TerminalResizeCommand, TerminalCloseCommand with reason enum; add TerminalOpenedEvent, TerminalStdoutChunk(seq, mainBufferDroppedBytes?), TerminalExitedEvent; add WorkspaceTerminalsClosedEvent in terminal-lifecycle.ts; add TerminalScrollbackStatsQuery/Reply; mirror each via JSON Schema using the existing schema/ pattern.",
+          "risk": "Contract drift between TS and JSON Schema; accidentally introducing harness-related fields or a kind discriminator and leaking E3 concepts into E2; missing additionalProperties:false.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd07-a0a3-7581-977b-fc845dcc251e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:50:02.806Z"
+        },
+        {
+          "id": 3,
+          "title": "Implement ShellEnvironmentResolver in Electron main",
+          "status": "completed",
+          "context": "Issue 5 fixed Opt M: a single source of truth in main that captures a login shell environment once via `$SHELL -lic 'env'`, sanitizes it, caches, and provides the base env for all terminal spawns. Without this, signed .app Dock launch hits macOS PATH stripping and breaks Homebrew/mise/nvm workflows — a dogfood blocker.",
+          "acceptance": "ShellEnvironmentResolver returns a cached base env within 5s or falls back to process.env with a dev log; TERM=xterm-256color and COLORTERM=truecolor are always set; LANG/LC_ALL default to en_US.UTF-8 only when unset; returned shell defaults to $SHELL with /bin/zsh fallback; resolver is unit-testable without spawning a real shell via an injectable spawn seam; tests confirm renderer cannot import main-only modules.",
+          "approach": "Add packages/app/src/main/shell-environment-resolver.ts with an async capture routine behind an injectable spawn seam; stage 1 runs `$SHELL -lic 'env'` with 5s timeout and newline-delimited parse; stage 2 merges onto process.env and overlays TERM/COLORTERM/LANG defaults; cache the result for the app session; expose getBaseEnv(), getDefaultShell(), getDefaultShellArgs() returning ['-l','-i'].",
+          "risk": ".zshrc errors or hangs; non-zsh shells with divergent flag semantics (fish/nushell best-effort); LC_ALL=C environments; Dock launch vs dev-server PATH differences hiding bugs until release.",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd12-8241-7973-ac58-7da952b5c604",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:50:18.418Z"
+        },
+        {
+          "id": 4,
+          "title": "Implement TerminalHost wrapping node-pty with safe kill sequencing",
+          "status": "completed",
+          "context": "Issue 2 requires PTY lifecycle isolated in Electron main with explicit SIGHUP→5s timeout→SIGKILL sequencing on close, plus a monotonic seq on stdout chunks to support IPC coalescing and main-side ring buffering from Issue 3.",
+          "acceptance": "TerminalHost spawns a PTY via node-pty using ShellEnvironmentResolver defaults (unless overridden), emits stdout with monotonically increasing seq, supports resize, and implements a 2-stage kill (SIGHUP → 5s → SIGKILL) on close; host tracks pid, exit code, and exit reason (process-exit | workspace-close | app-shutdown); host is tested without a real PTY via an injectable spawn factory; leaked-process detection logs an error if kill deadline is missed.",
+          "approach": "Add packages/app/src/main/terminal-host.ts as a thin, testable class per PTY; depend on ShellEnvironmentResolver for defaults; accept TerminalOpenCommand fields; emit events typed per terminal-ipc.ts; wrap node-pty kill with SIGHUP then setTimeout→SIGKILL; annotate each stdout chunk with a seq counter.",
+          "risk": "node-pty version/Electron ABI mismatch; macOS signal semantics around shell subprocess trees; event ordering regressions under high stdout rate.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd1c-15d0-73d3-9bf3-af02c946cbd7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:50:28.731Z"
+        },
+        {
+          "id": 5,
+          "title": "Implement WorkspaceTerminalRegistry with 8MB per-tab ring buffer and hierarchical cleanup",
+          "status": "completed",
+          "context": "Issue 2 requires a workspace-scoped registry that owns TerminalHost instances and cleans them up when a workspace closes. Issue 3 requires a byte-bounded FIFO ring buffer per tab (initial 8MB) with silent drop and mainBufferDroppedBytes instrumentation, without any main→renderer replay path (to keep the CJK surface minimal).",
+          "acceptance": "Registry maps workspaceId → TerminalTabId[] with stable insertion order; closing a workspace kills every owned TerminalHost using the 2-stage kill sequence and emits WorkspaceTerminalsClosedEvent with closedTabIds and reason; each host has an independent 8MB byte-capped ring buffer that drops oldest bytes on overflow (FIFO, silent) and exposes cumulative mainBufferDroppedBytesTotal via TerminalScrollbackStatsQuery/Reply; ring buffer never replays to renderer; renderer-agnostic unit tests cover overflow, cleanup, and stats.",
+          "approach": "Add packages/app/src/main/workspace-terminal-registry.ts; represent the ring buffer as a cyclic Uint8Array with write head and drop counter; hook into WorkspaceShellService.closeWorkspaceInSession symmetrically to sidecar-lifecycle-manager; expose stats handler for the dev instrumentation queries; keep the buffer purely internal (never replayed to renderer in MVP).",
+          "risk": "Memory leaks under many workspaces; off-by-one errors in ring-buffer drop accounting; silent drop masking pathological workloads during dogfood.",
+          "plan_issue": 3,
+          "deps": [
+            2,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd27-9bac-7e01-ad42-70c0bc4b5851",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:50:39.016Z"
+        },
+        {
+          "id": 6,
+          "title": "Wire terminal IPC handlers between main and renderer",
+          "status": "completed",
+          "context": "Issue 2 + 3 define command and event messages between renderer and main for terminal lifecycle and stdout streaming. This task glues TerminalHost, WorkspaceTerminalRegistry, and renderer across Electron IPC, preserving contextBridge isolation (renderer never touches sidecar directly).",
+          "acceptance": "Commands terminal/open, terminal/input, terminal/resize, terminal/close flow from renderer to main; events terminal/opened, terminal/stdout (with seq and optional mainBufferDroppedBytes), terminal/exited flow back; TerminalScrollbackStatsQuery/Reply round-trip works; IPC messages pass a discriminated-union runtime guard; stdout events are coalesced in main within a 10–16ms window before delivery; integration test spins up a host and exercises the full round-trip.",
+          "approach": "Add packages/app/src/main/terminal-ipc.ts that subscribes to contextBridge channels and dispatches to WorkspaceTerminalRegistry/TerminalHost; apply coalescing in a per-tab batcher; expose a renderer-side preload API that returns typed handles; keep types sourced from packages/shared/src/contracts/terminal-ipc.",
+          "risk": "Back-pressure under high stdout rate; missed seq gaps across coalescing boundaries; accidental exposure of main APIs to renderer beyond the preload surface.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd34-ba87-7243-ab6a-718d6e06da0e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:50:47.539Z"
+        },
+        {
+          "id": 7,
+          "title": "Build XtermView low-level renderer component with WebGL and CJK addons",
+          "status": "completed",
+          "context": "Issue 1 B안 fixes xterm.js + @xterm/addon-webgl + CJK-capable rendering as the renderer foundation. Issue 6 requires this component to be the single shared layer reusable by a future HarnessTerminalTab without any harness knowledge leaking into the shell contracts. Issue 4 requires @xterm/addon-unicode11 activation and FitAddon-driven resize.",
+          "acceptance": "packages/app/src/renderer/xterm-view.tsx (or .ts) renders an xterm.Terminal with @xterm/addon-webgl, @xterm/addon-unicode11 (unicodeVersion='11'), @xterm/addon-fit, and @xterm/addon-search attached; the component is harness-agnostic (no harness types imported) and exposes a typed API for input dispatch, resize, writes, and search; all xterm packages are pinned to exact versions in package.json; a basic render test confirms mount/unmount does not leak WebGL context.",
+          "approach": "Install @xterm/xterm, @xterm/addon-webgl, @xterm/addon-unicode11, @xterm/addon-fit, @xterm/addon-search with exact version pins; set the WebGL renderer and unicode11 handler on mount; expose refs/handles for parent components; keep the component free of any harness-specific imports to enforce the E2/E3 contract boundary.",
+          "risk": "WebGL context creation cost on fast tab churn; addon version drift vs core; inadvertent harness coupling.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd12-a563-78c1-b954-ebe44d889265",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:01.248Z"
+        },
+        {
+          "id": 8,
+          "title": "Implement IME overlay and composition buffer for Korean checklist items #1, #2, #5 (xterm side)",
+          "status": "completed",
+          "context": "Issue 4 (Opt D) assigns xterm.js #5734 (composition cursor position) to an app-owned overlay DOM, Enter-during-composition to an app-layer KeyboardEvent.isComposing branch, and xterm-side lost-character regressions to an app-layer composition buffer. All three live in the XtermView layer so they apply to both shell and future harness tabs.",
+          "acceptance": "Korean IME composition window renders at the xterm cursor position via an app-owned absolute-positioned DOM overlay; xterm's internal composition UI is CSS-hidden; Enter during composition only commits the composition and a second Enter submits; a composition buffer collects compositionupdate sequences and writes them to the PTY on compositionend as a single UTF-8 write; automated renderer tests cover the isComposing branching; hidden-xterm-composition CSS confirmed; no regression when the xterm package is upgraded through a CJK gate.",
+          "approach": "Intercept compositionstart/compositionupdate/compositionend on the xterm textarea; render an overlay DOM whose transform is computed from xterm cursor coordinates; block key events while isComposing; maintain a composition buffer reset on compositionend; hide xterm internal composition via targeted CSS inside XtermView; keep the overlay self-contained in packages/app/src/renderer/xterm-ime-overlay.ts so it can be removed if xterm.js merges #5734.",
+          "risk": "xterm.js internal coordinate APIs changing between versions; Enter swallowed during non-composition edge cases; platform-specific IME quirks outside zsh/bash defaults.",
+          "plan_issue": 4,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd1c-15fb-7702-ae2f-e29f9c6c420d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:12.393Z"
+        },
+        {
+          "id": 9,
+          "title": "Build ShellTerminalTab wrapper with tab controls, switching UX, search bar, and copy/paste",
+          "status": "completed",
+          "context": "Issue 1 B안 locks the MVP UX for shell terminals: multi-tab (+/×/rename/shortcuts), FitAddon-backed resize, Ctrl/Cmd+F search, copy-on-select and standard copy/paste shortcuts, and stable workspace switching using display:none to preserve the xterm instance. Issue 2 requires tabs to stay alive across workspace switches. Issue 6 requires this wrapper to carry no harness concerns.",
+          "acceptance": "ShellTerminalTab mounts an XtermView per TerminalTabId and persists DOM presence while the workspace is open (display:none when another workspace is active); Ctrl/Cmd+F opens an in-terminal search bar backed by SearchAddon restricted to the xterm buffer (with a clear \"no more matches\" state at the buffer tail); copy-on-select and standard Cmd+C/Cmd+V function; tab header supports new/close/rename actions; tab state reflects workspace ordering; no harness-specific imports are present; integration tests cover switching across at least 3 workspaces without xterm reinitialization.",
+          "approach": "Add packages/app/src/renderer/shell-terminal-tab.tsx that owns lifecycle of a single xterm instance via XtermView; manage tab list state in the workspace-shell-model; compose a search bar using SearchAddon; implement copy-on-select via selectionChange; wire keybindings for new/close/rename and next/prev tab; ensure display:none rather than unmount when the owning workspace is inactive.",
+          "risk": "Workspace switching unmounting xterm by accident and burning IME state; tab rename conflicts with unsaved input; search bar capturing keys during composition.",
+          "plan_issue": 1,
+          "deps": [
+            6,
+            7,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd44-1042-71b3-a97f-917c592eb8b6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:24.189Z"
+        },
+        {
+          "id": 10,
+          "title": "Bundle Noto Sans KR and D2Coding fonts and set default CSS font stack",
+          "status": "completed",
+          "context": "Issue 4 maps Korean checklist #7 to Electron extraResources bundling of Noto Sans KR and D2Coding (both OFL 1.1). A deterministic CSS font-family stack in the terminal ensures CJK glyph coverage and monospace stability on macOS without depending on user-installed fonts.",
+          "acceptance": "D2Coding and Noto Sans KR are shipped inside the app bundle via electron-builder extraResources; LICENSE files are present in the packaged app; terminal CSS uses `font-family: \"D2Coding\", \"Noto Sans KR\", ui-monospace, ...` as the default; the signed .app renders Korean glyphs without relying on user fonts; a visual check documents the resolved font on macOS 13+ and macOS 14+.",
+          "approach": "Place OFL 1.1 font files under packages/app/assets/fonts/ with their LICENSE; add electron-builder extraResources config; register the fonts at renderer boot via a small @font-face injection module; update xterm setOption('fontFamily', ...) accordingly; update the repository LICENSE note to reference bundled OFL fonts.",
+          "risk": "Licensing drift or missing LICENSE in the packaged app; font rendering differences between macOS releases; file size growth in the installer.",
+          "plan_issue": 4,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dbd27-9b79-7550-b0be-8f4f3aebb5e9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:32.670Z"
+        },
+        {
+          "id": 11,
+          "title": "Automate Korean IME/rendering checklist (items 1-3, 5, 6, 7) as a release gate",
+          "status": "completed",
+          "context": "Issue 4 promotes the 7-item Korean checklist to a release blocker, and Issue 3/4 require a 16ms input-to-paint measurement plus double-width assertions. Automated Playwright coverage must be paired with the manual QA task because Playwright cannot perfectly simulate macOS IME — so both layers exist.",
+          "acceptance": "A Playwright suite boots the Electron app, opens a workspace, spawns a shell terminal, and runs scripted IME compositions covering: composition cursor alignment (#1), Enter-during-composition double-Enter to submit (#2), double-width calculation for hangul, 'ㅎ', '가' (#3), no dropped characters across a long composition stream (#5), input-to-paint latency averaging below 16ms (#6), and default font stack resolution (#7); NFC (#4) has an existing E1 test and is referenced; failures gate the release flow in CI; artifacts include latency numbers and screenshots.",
+          "approach": "Add packages/app/test/ime-checklist/ with Playwright scenarios that script keyboard.insertText and compositionevent dispatch; use performance.now() around PTY echo to measure latency; assert xterm buffer cell widths via terminal.buffer APIs; wire the suite into the bun-run test command and a release-only label.",
+          "risk": "Playwright limitations on native IME simulation; flakiness under virtualization; WebGL-free CI environments.",
+          "plan_issue": 4,
+          "deps": [
+            8,
+            9,
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dbd52-71ec-79c3-9ef7-59c8aa06d957",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:44.074Z"
+        },
+        {
+          "id": 12,
+          "title": "Manual QA — signed .app Dock launch, Korean IME keystrokes, PATH/env sanity",
+          "status": "completed",
+          "context": "Issue 5 release checklist adds a mandatory manual pass on the signed .app launched from Dock to catch macOS PATH stripping that dev-server execution hides. Issue 4 notes that automated IME coverage is not sufficient and must be paired with a scripted manual QA run on macOS with a real Korean IME.",
+          "acceptance": "A checklist document captures pass/fail evidence for: signed .app Dock launch (no command-not-found for brew/node/mise on a clean shell), login env correctly populated (PATH, LANG, NVM_DIR visible in a new terminal), all 7 Korean checklist items reproduced by hand on macOS with the system 2-beol Korean IME, scrollback FIFO drop observed without UI noise, copy-on-select and Cmd+C/V working, and Ctrl/Cmd+F search boundary behavior verified; evidence is stored in .nexus/memory/ or a designated release evidence folder and referenced in the release notes.",
+          "approach": "Author packages/app/test/manual-qa/korean-release-checklist.md describing each step and expected result; perform the pass on macOS arm64 and x64 for the signed release candidate; capture key screenshots; file blocker bugs for any regression before tagging.",
+          "risk": "Human error, inconsistent QA rigour between runs, missing tester access to a Korean keyboard system-wide.",
+          "plan_issue": 4,
+          "deps": [
+            8,
+            9,
+            10,
+            11
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dbd5e-5bca-79c0-9ffa-f246bbc082ba",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:51:54.377Z"
+        },
+        {
+          "id": 13,
+          "title": "Runtime verification — tab lifecycle, workspace switching, leak detection, scrollback drop metrics",
+          "status": "completed",
+          "context": "Issue 2 and Issue 3 carry runtime risks that are invisible to unit tests: PTY process leaks during workspace close, xterm re-initialization burning CJK state, and the 8MB ring buffer behavior under real stdout. Tauri retrospective explicitly warns that long-run stability must be measured on an empirical cycle, not assumed from a POC.",
+          "acceptance": "An automated or scripted run opens 3 workspaces with 2 tabs each, exercises tab switching and workspace switching at least 100 times, runs a long-tail stream like `tail -f` in a background tab, confirms PTY count matches expectation after every close, confirms xterm instances remain mounted (not re-created) across switches, and reports mainBufferDroppedBytesTotal against known workloads; zombie processes after workspace close are flagged with a test failure; results are captured as evidence against the success criterion '3 workspaces switching without stalls'.",
+          "approach": "Add packages/app/test/runtime/e2-terminal.runtime.test.ts as a longer-running Playwright or integration harness; use ps/pgrep to assert the absence of leaked shells after workspace close; emit scrollback stats snapshots via TerminalScrollbackStatsQuery; log and archive results.",
+          "risk": "Flaky process counting under CI; clock drift affecting 16ms measurements; PTY zombies on hosted runners masking real behavior.",
+          "plan_issue": 2,
+          "deps": [
+            4,
+            5,
+            6,
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dbd52-72a7-7be1-a2b1-c6aa6bb2956f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:52:05.323Z"
+        },
+        {
+          "id": 14,
+          "title": "Update context/memory docs with E2 decisions, xterm pin policy, and escape-hatch runbook",
+          "status": "completed",
+          "context": "Issue 4 requires an exact-version pin policy, a fork escape-hatch runbook, and quarterly tracking of upstream xterm.js issues. Issue 5 requires direnv-via-user-hook guidance. Issue 6 requires the E2/E3 boundary to be written into the shared context so later cycles do not regress it. Writer output needs reviewer verification.",
+          "acceptance": ".nexus/context/roadmap.md reflects the E2 MVP cut; .nexus/context/stack.md notes the xterm exact-pin policy and lists bundled OFL fonts; .nexus/memory/external-xterm-js.md has a 'pin policy' and '#5734/#1453/#4753 quarterly check' section; a new .nexus/context/terminal-shell-env.md documents shell-env behavior and the 'user manages direnv hook in their own shell' stance; a new .nexus/memory/pattern-xterm-fork-escape-hatch.md describes the runbook for flipping to the organization fork; .nexus/memory/empirical-previous-tauri-retrospective.md gets a back-reference to this cycle.",
+          "approach": "Author the docs in parallel with engineer tasks landing so the docs describe real behavior; cross-link between roadmap, stack, memory patterns, and context docs; keep Korean prose style consistent with the existing .nexus/context files.",
+          "risk": "Documentation drift if decisions change after the first engineer pass; orphan references if file names move.",
+          "plan_issue": 4,
+          "deps": [
+            2,
+            3,
+            8,
+            10
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dbd52-7265-7bf1-be68-13e9487f147f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:52:16.145Z"
+        },
+        {
+          "id": 15,
+          "title": "Review E2 documentation updates for accuracy and boundary compliance",
+          "status": "completed",
+          "context": "Writer task 14 produces multiple docs that must accurately describe the engineered behavior and must not leak harness concepts into E2 docs (Issue 6). Reviewer pairing ensures the written record stays faithful before release.",
+          "acceptance": "A review note confirms: (a) every claim in updated .nexus files matches current code and decisions, (b) no harness-related symbol or kind discriminator is referenced in E2 shell docs, (c) external-xterm-js.md pin policy and issue tracking sections are up to date, (d) terminal-shell-env.md correctly describes the shell-env capture and direnv stance, (e) the fork escape-hatch runbook is actionable; any mismatch results in a writer rework cycle.",
+          "approach": "Cross-check each document against the engineered code paths, the plan.json decisions, and the release QA evidence; file a single consolidated review with pass/fail and suggested rewrites; block merge until all items pass.",
+          "risk": "Reviewer acting as copy editor instead of verifier; missing subtle harness leakage in phrasing.",
+          "plan_issue": 4,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dbd67-d1d0-7bb2-8f6f-7fa30c648cdc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T00:52:24.148Z"
+        }
+      ]
     }
   ]
 }

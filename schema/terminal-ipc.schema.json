@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/terminal-ipc.schema.json",
+  "title": "TerminalIpcMessage",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/terminalOpenCommand"
+    },
+    {
+      "$ref": "#/$defs/terminalInputCommand"
+    },
+    {
+      "$ref": "#/$defs/terminalResizeCommand"
+    },
+    {
+      "$ref": "#/$defs/terminalCloseCommand"
+    },
+    {
+      "$ref": "#/$defs/terminalOpenedEvent"
+    },
+    {
+      "$ref": "#/$defs/terminalStdoutChunk"
+    },
+    {
+      "$ref": "#/$defs/terminalExitedEvent"
+    },
+    {
+      "$ref": "#/$defs/terminalScrollbackStatsQuery"
+    },
+    {
+      "$ref": "#/$defs/terminalScrollbackStatsReply"
+    }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "terminalTabId": {
+      "type": "string",
+      "pattern": "^tt_.+_.+$"
+    },
+    "terminalCloseReason": {
+      "type": "string",
+      "enum": ["user-close", "workspace-close", "app-shutdown"]
+    },
+    "terminalExitedReason": {
+      "type": "string",
+      "enum": ["process-exit", "user-close", "workspace-close", "app-shutdown"]
+    },
+    "terminalEnvironmentOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^.+$": {
+          "type": "string"
+        }
+      }
+    },
+    "terminalOpenCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "cols", "rows"],
+      "properties": {
+        "type": {
+          "const": "terminal/open"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "shell": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shellArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "envOverrides": {
+          "$ref": "#/$defs/terminalEnvironmentOverrides"
+        },
+        "scrollbackMainBufferBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scrollbackXtermLines": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "terminalInputCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "data"],
+      "properties": {
+        "type": {
+          "const": "terminal/input"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "data": {
+          "type": "string"
+        }
+      }
+    },
+    "terminalResizeCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "cols", "rows"],
+      "properties": {
+        "type": {
+          "const": "terminal/resize"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "terminalCloseCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "reason"],
+      "properties": {
+        "type": {
+          "const": "terminal/close"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "reason": {
+          "$ref": "#/$defs/terminalCloseReason"
+        }
+      }
+    },
+    "terminalOpenedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "workspaceId", "pid"],
+      "properties": {
+        "type": {
+          "const": "terminal/opened"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "terminalStdoutChunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "seq", "data"],
+      "properties": {
+        "type": {
+          "const": "terminal/stdout"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data": {
+          "type": "string"
+        },
+        "mainBufferDroppedBytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "terminalExitedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId", "workspaceId", "reason", "exitCode"],
+      "properties": {
+        "type": {
+          "const": "terminal/exited"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "reason": {
+          "$ref": "#/$defs/terminalExitedReason"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "terminalScrollbackStatsQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tabId"],
+      "properties": {
+        "type": {
+          "const": "terminal/scrollback-stats/query"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        }
+      }
+    },
+    "terminalScrollbackStatsReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "tabId",
+        "mainBufferByteLimit",
+        "mainBufferStoredBytes",
+        "mainBufferDroppedBytesTotal",
+        "xtermScrollbackLines"
+      ],
+      "properties": {
+        "type": {
+          "const": "terminal/scrollback-stats/reply"
+        },
+        "tabId": {
+          "$ref": "#/$defs/terminalTabId"
+        },
+        "mainBufferByteLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mainBufferStoredBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mainBufferDroppedBytesTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "xtermScrollbackLines": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/terminal-lifecycle.schema.json",
+  "title": "TerminalLifecycleMessage",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/workspaceTerminalsClosedEvent"
+    }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "terminalTabId": {
+      "type": "string",
+      "pattern": "^tt_.+_.+$"
+    },
+    "workspaceTerminalsClosedReason": {
+      "type": "string",
+      "enum": ["workspace-close", "app-shutdown"]
+    },
+    "workspaceTerminalsClosedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "workspaceId", "closedTabIds", "reason"],
+      "properties": {
+        "type": {
+          "const": "terminal/workspace-terminals-closed"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "closedTabIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/terminalTabId"
+          }
+        },
+        "reason": {
+          "$ref": "#/$defs/workspaceTerminalsClosedReason"
+        }
+      }
+    }
+  }
+}

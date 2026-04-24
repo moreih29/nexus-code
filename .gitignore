@@ -2,3 +2,8 @@
 .codex/
 .agents/
 plugins/
+
+node_modules/
+packages/app/dist/
+
+.DS_Store

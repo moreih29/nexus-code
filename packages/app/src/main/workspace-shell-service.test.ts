@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { WorkspacePersistenceStore } from "./workspace-persistence";
-import { WorkspaceShellService } from "./workspace-shell-service";
+import {
+  type OpenSessionTerminalLifecycleManager,
+  WorkspaceShellService,
+} from "./workspace-shell-service";
 
 function createSteppedClock(isoTimestamps: string[]): () => Date {
   let index = 0;
@@ -78,4 +81,52 @@ describe("WorkspaceShellService", () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  test("closeWorkspaceInSession also requests terminal cleanup for the closed workspace", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nexus-shell-service-close-"));
+    const clock = createSteppedClock([
+      "2026-04-24T10:00:00.000Z",
+      "2026-04-24T10:00:05.000Z",
+      "2026-04-24T10:00:10.000Z",
+      "2026-04-24T10:00:15.000Z",
+      "2026-04-24T10:00:20.000Z",
+      "2026-04-24T10:00:25.000Z",
+    ]);
+
+    try {
+      const alphaPath = path.join(tempRoot, "alpha");
+      await mkdir(alphaPath, { recursive: true });
+
+      const store = new WorkspacePersistenceStore({
+        storageDir: tempRoot,
+        now: clock,
+      });
+      const terminalLifecycleManager = new FakeTerminalLifecycleManager();
+      const service = new WorkspaceShellService(
+        store,
+        undefined,
+        terminalLifecycleManager,
+      );
+
+      const opened = await service.openFolderIntoSession({
+        absolutePath: alphaPath,
+        displayName: "Alpha",
+      });
+      const alphaWorkspaceId = opened.openWorkspaces[0]!.id;
+
+      await service.closeWorkspaceInSession(alphaWorkspaceId);
+
+      expect(terminalLifecycleManager.stopCalls).toEqual([alphaWorkspaceId]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
+
+class FakeTerminalLifecycleManager implements OpenSessionTerminalLifecycleManager {
+  public readonly stopCalls: string[] = [];
+
+  public async stopTerminalsForClosedWorkspace(workspaceId: string): Promise<void> {
+    this.stopCalls.push(workspaceId);
+  }
+}

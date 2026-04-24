@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/terminal-tab.schema.json",
+  "title": "TerminalTabDescriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tabId", "workspaceId"],
+  "properties": {
+    "tabId": {
+      "$ref": "#/$defs/terminalTabId"
+    },
+    "workspaceId": {
+      "$ref": "#/$defs/workspaceId"
+    }
+  },
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "terminalTabId": {
+      "type": "string",
+      "pattern": "^tt_.+_.+$"
+    }
+  }
+}

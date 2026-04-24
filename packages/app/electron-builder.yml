@@ -1,0 +1,18 @@
+appId: dev.nexus.code
+productName: NexusCode
+asar: true
+npmRebuild: false
+asarUnpack:
+  - node_modules/node-pty/build/Release/*.node
+extraResources:
+  - from: node_modules/node-pty/build/Release/
+    to: native/node-pty
+    filter:
+      - pty.node
+  - from: assets/fonts/
+    to: fonts
+    filter:
+      - "**/*"
+mac:
+  target:
+    - dir

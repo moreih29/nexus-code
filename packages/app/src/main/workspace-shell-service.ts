@@ -10,10 +10,15 @@ import {
 } from "./workspace-persistence";
 import type { OpenSessionSidecarLifecycleManager } from "./sidecar-lifecycle-manager";
 
+export interface OpenSessionTerminalLifecycleManager {
+  stopTerminalsForClosedWorkspace(workspaceId: WorkspaceId): Promise<void>;
+}
+
 export class WorkspaceShellService {
   public constructor(
     private readonly persistenceStore: WorkspacePersistenceStore,
     private readonly sidecarLifecycleManager?: OpenSessionSidecarLifecycleManager,
+    private readonly terminalLifecycleManager?: OpenSessionTerminalLifecycleManager,
   ) {}
 
   public async restoreWorkspaceSessionOnAppStart(): Promise<WorkspaceSidebarState> {
@@ -47,6 +52,7 @@ export class WorkspaceShellService {
   public async closeWorkspaceInSession(workspaceId: WorkspaceId): Promise<WorkspaceSidebarState> {
     await this.persistenceStore.closeWorkspace(workspaceId);
     await this.sidecarLifecycleManager?.stopSidecarForClosedWorkspace(workspaceId);
+    await this.terminalLifecycleManager?.stopTerminalsForClosedWorkspace(workspaceId);
     return this.getSidebarState();
   }
 }

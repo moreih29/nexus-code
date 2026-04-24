@@ -7,10 +7,24 @@
 폴더 열기로 워크스페이스를 등록하고, 사이드바 목록에서 단축키·클릭으로 즉시 전환한다.
 세션은 앱 재시작 후에도 복원된다. sidecar는 기본적으로 항상 실행 상태(P1 idle 정책)를 유지한다.
 
-### E2. Terminal Native
+### E2. Terminal Native (MVP 컷)
 
-워크스페이스마다 다중 탭 터미널을 제공한다. 하드웨어 가속 렌더러로 스크롤 성능을 확보하고,
-스크롤백 히스토리를 보존한다. 한국어 IME·렌더링 체크리스트 7개를 모두 통과해야 출시 가능하다.
+워크스페이스마다 **shell 전용** 다중 탭 터미널을 제공한다. MVP 포함 범위는 아래 6개로 고정한다.
+
+1. 워크스페이스당 다중 탭 shell 터미널 (`tt_<workspaceId>_<nonce>`), 비활성 탭/워크스페이스는 `display:none`으로 유지
+2. xterm.js + WebGL 렌더러 + Unicode11 애드온 기반 렌더링
+3. 2층 인메모리 스크롤백(복원 없음): xterm 10,000 lines + main 8MB 링버퍼(FIFO silent drop)
+4. 한국어 IME 하이브리드 대응: 오버레이(composition view 숨김) + composition buffer + 조합 중 Enter 차단
+5. 기본 폰트 스택 고정: D2Coding + Noto Sans KR 번들(OFL 1.1)
+6. 릴리스 게이트: 자동 게이트(네이티브 smoke + IME 자동 체크)와 수동 게이트(서명 .app Dock 실행 + 한국어 IME 실기) 모두 통과
+
+#### E2 명시적 제외 (포스트-MVP)
+
+- 터미널 split pane
+- 터미널 프로파일 UI(쉘 프리셋/환경 프리셋)
+- 터미널 테마/키바인딩 커스터마이징(Vim 모드 포함)
+- direnv 앱 내 통합(사용자 shell hook 경로만 지원)
+- main 링버퍼 재생(replay)·복원 UI
 
 ### E3. AI Harness Observer
 
