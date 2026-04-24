@@ -1579,6 +1579,145 @@
           "created_at": "2026-04-24T08:48:01.063Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T10:19:36.395Z",
+      "branch": "chore/cleanup-test-env",
+      "plan": {
+        "id": 6,
+        "topic": ".nexus/context 운영 규약 + 테스트 구조 재설계 + release-evidence 위치 재검토",
+        "issues": [
+          {
+            "id": 1,
+            "title": "`.nexus/context/` 운영 규약 — 정적 문서 원칙 확정 및 동적 콘텐츠의 배치처",
+            "status": "decided",
+            "decision": "**선택: `.nexus/` 구조는 절대 불변 전제 하에, 동적 콘텐츠는 저장소 루트 `CHANGELOG.md`로 이전. `.nexus/context/`는 순정 정적 문서로 정화. `conventions.md`는 거의 빈 stub 수준으로 축소.**\n\n### 조치 세부\n\n1. **`.nexus/context/roadmap.md`**: 위치 유지. 내부에서 제거할 동적 콘텐츠:\n   - L64 \"완료/PASS(2026-04-24, evidence: ...)\" 블록 전체\n   - L109·L110 성공 기준의 \"closed(`2026-04-24T15-12-00KST_task11`)\" 상태 마커\n   - L52·L68·L115 이관/제거 메모 (plan #4 참조 등 \"현재 상태\" 기술)\n   - Epic 정의·마일스톤 순서·성공 기준의 **정적 골격**만 남긴다.\n\n2. **루트 `CHANGELOG.md` 신설**:\n   - 완료 phase 상태 기록: Phase A 완료/PASS 2026-04-24\n   - 경로 인용: `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/`\n   - 결정 이관·범위 변경 메모(plan #4 등)\n   - 향후 버전별 변경사항 축적 (keepachangelog 관행)\n\n3. **`.nexus/context/conventions.md` 최소화**:\n   - 기존 \"테스트 규약\" 6섹션 **전면 제거**\n   - 결과 스텁:\n     ```\n     # Conventions\n\n     프로젝트 차원 규약은 합의 시점에 이 문서에 추가한다. 합의 전까지는 일반적인 관행을 따른다.\n\n     ## 미정\n\n     - 커밋 메시지 형식\n     - 브랜치 네이밍\n     - PR 리뷰 규칙\n     ```\n   - 테스트 관련 문서화는 별도 어디에도 두지 않는다. `.gitignore` 주석·`package.json` scripts·실제 파일 배치가 실질 소스. 향후 신규 기여자 합류 시 필요가 발생하면 그때 추가.\n\n4. **`.nexus/context/stack.md` L52 외부 이슈 추적**:\n   - `#5734`·`#1453`·`#4753` 상태 서술은 이미 owner인 `.nexus/memory/external-xterm-js.md`로 이관.\n   - stack.md에는 \"분기 점검은 memory 파일 참조\" 수준으로 축약.\n\n5. **버전 핀 숫자(`electron-vite 5.0.0`·xterm 6.0.0 등)**: \"정책\"(정확 pin + 일괄 업그레이드)이므로 stack.md 유지. 상태 아님.\n\n6. **변경 없음**: `architecture.md`, `philosophy.md`, `harness-integration.md`, `korean-quality.md`, `terminal-shell-env.md` — 이미 순정 정적.\n\n### 근거\n\n- 사용자 가이드 \"context는 잘 변하지 않는 문서, `.nexus/` 규칙은 절대 불변, conventions는 진짜 필요 + 원칙 레벨\"을 모두 충족.\n- 루트 `CHANGELOG.md`는 업계 표준(keepachangelog.com) 파일명이고 새 최상위 디렉터리를 만들지 않음.\n- `.nexus/memory/` 이관은 기존 패턴(`empirical-previous-tauri-retrospective.md`·`external-xterm-js.md`)과 의미적으로 정합.\n\n### 기각 대안\n\n- (A) 현상 유지 → 동적/정적 혼재 문제 해결 안 됨. 기각.\n- (B) `.nexus/status/` 신설 → nexus-core whitelist 위반. 이번 세션에서 재확인된 절대 규칙. 기각.\n- (C) 루트 `docs/` 트리 신설 → 새 최상위 디렉터리 도입 비용. 단일 `CHANGELOG.md` 대비 과잉. 기각.\n- (D) conventions.md에 테스트 원칙 2~3줄 남김 → 사용자 가이드 \"꼭 필요하지 않음\"에 위배. 기각.\n- (E) GitHub Projects로 상태 외부화 → 현재 프로젝트 규모(기획·설계 단계) 대비 오버킬. 기각."
+          },
+          {
+            "id": 2,
+            "title": "테스트 디렉터리 구조 재설계 — 현 상태 / 마이너 교정 / 완전 분리 중 선택 (manual-qa 위치 포함)",
+            "status": "decided",
+            "decision": "**선택: 테스트를 assertion-only로 리팩터하고, `packages/app/test/`를 플랫 구조로 유지하며, `test/artifacts/` 디렉터리를 전면 삭제.**\n\n### 조치 세부\n\n1. **두 통합 테스트 assertion-only 리팩터**\n   - `test/ime-checklist/ime-release-gate.test.ts`: `writeFileSync` 전부 제거. JSON/MD 출력·`screenshots/manual-native-ime-required.md` placeholder 생성 로직 모두 제거. 측정값은 `expect().toBeLessThan()` 등 assertion으로만 검증.\n   - `test/runtime/e2-terminal.runtime.test.ts`: 동일 방식으로 `writeFileSync` 제거.\n   - 테스트 신호는 `bun test` 출력이 유일.\n\n2. **`packages/app/test/` 플랫 구조**\n   ```\n   packages/app/test/\n     ime-release-gate.test.ts\n     e2-terminal-runtime.test.ts\n     README.md\n   ```\n   - 파일 2개에 서브디렉터리는 YAGNI. 향후 3개 이상·종류 분화 시 서브디렉터리 도입.\n   - 기존 `test/ime-checklist/`·`test/runtime/` 해체 → 파일을 `test/` 바로 아래로.\n   - README 1개만 유지: 이 파일들이 하네스 기반 통합 테스트임을 한 문단 설명.\n\n3. **`test/artifacts/` 전면 삭제**\n   - `packages/app/test/artifacts/` 디렉터리 제거\n   - `packages/app/test/ime-checklist/artifacts/` 디렉터리 제거\n   - `.gitignore` 테스트 산출물 섹션 **전체 삭제** (불필요)\n\n4. **`packages/app/package.json` scripts 단순화**\n   - `test:integration`: `bun test ./test/` (플랫 스캔)\n   - `test:ime-checklist`·`test:runtime-terminal` shim **제거**\n   - `test:fonts` 유지 (폰트 단독 검증에 실사용)\n   - `test`, `test:unit`, `test:runtime-terminal:zombie-check`는 변경 없음\n\n5. **`test/manual-qa/` 처리는 이슈 3에서 함께** (release-evidence 결정에 종속)\n\n### 근거\n\n- 사용자 원칙: \"정성적 평가가 필요한 테스트는 무의미\", \"test 폴더 하위 플랫이 더 깔끔\".\n- 업계 표준: 테스트가 파일을 쓰는 건 안티패턴. Vitest reporter·JUnit XML 등 표준 도구가 있음.\n- 22개 콜로케이션 이동은 여전히 비용 대비 이득 없음(architect·researcher 양측 확인).\n\n### 기각 대안\n\n- C(완전 분리 `tests/unit,integration,e2e/`) → 비용 초과, 현 규모에 과잉. 기각.\n- `test/integration/` 서브디렉터리 → 파일 2개 환경에서 불필요. 기각.\n- 테스트가 산출물 쓰는 현 구조 유지 → 사용자 원칙 위반. 기각."
+          },
+          {
+            "id": 3,
+            "title": "`release-evidence/` 루트 디렉터리의 적절성 — 유지 / 이동 / 외부화 / 삭제 중 선택",
+            "status": "decided",
+            "decision": "**선택: `release-evidence/` 디렉터리 전면 폐지. 핵심 판단 내용은 `CHANGELOG.md`로, 재사용 가능한 패턴은 `.nexus/memory/`로 추출 후 원본 삭제.**\n\n### 조치 세부\n\n1. **추출 이관 (삭제 전)**\n   - `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/final-verdict.md`의 핵심 판단 → 루트 `CHANGELOG.md`의 Phase A 엔트리에 요약 인라인(5~10줄).\n   - `release-evidence/phase-a/manual-integration-checklist.md`의 체크리스트 구조 → `.nexus/memory/pattern-phase-gate-checklist.md` (다음 phase에서 재사용 가능한 패턴).\n   - `release-evidence/phase-a/.../manual-validation-user-report.md`의 관찰 교훈 → `.nexus/memory/empirical-phase-a-retrospective.md` (기존 `empirical-previous-tauri-retrospective.md` 패턴).\n   - Phase A 과정에서 재확인된 프로세스 lifecycle 관찰(sidecar/node-pty 누락 없음 등) → CHANGELOG에 \"종료 시 프로세스 누락 없음 확인\" 수준 한 줄 기록.\n\n2. **`packages/app/test/manual-qa/` 처리**\n   - `korean-release-checklist.md` → `.nexus/memory/pattern-phase-gate-checklist.md`에 흡수 또는 삭제(동일 내용 중복 시).\n   - 템플릿(`*.template.md`, `*.template.csv`, README) → 삭제. 재사용 시점에 새로 작성.\n\n3. **`release-evidence/` 전체 `git rm -r`**\n   - `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/` 47 파일\n   - `release-evidence/phase-a/manual-integration-checklist.md`\n   - `release-evidence/phase-a/README.md`\n   - `release-evidence/phase-a/` 디렉터리\n   - `release-evidence/` 디렉터리\n\n4. **\"불변성 원칙\" 폐기**\n   - 이슈 1에서 방금 세운 \"한번 기록된 증거 불변\"은 `release-evidence/` 존재 전제. 동시 폐기.\n   - 대체 관행: `CHANGELOG.md` 엔트리는 keepachangelog 관행대로 추후 정정이 필요하면 신규 엔트리로 추가(기존 엔트리는 수정 지양).\n\n5. **`.nexus/context/conventions.md`에서 릴리스 증거 관련 언급 삭제** (이슈 1에서 이미 stub 축소로 예정).\n\n### 근거\n\n- 이슈 2 결정으로 테스트가 산출물 파일을 안 씀 → `release-evidence/`의 테스트 출력 30+ 파일은 재실행 가능한 로그 복사본이 됨. 증거 가치 없음.\n- 프로세스 스냅샷(`pgrep`·`ps`) 12개는 시점 의존이지만, **결과 판단**(프로세스 누락 없음)을 CHANGELOG에 기록하면 파일 보존 불요.\n- 인간 판단 문서 3~4개는 본질적으로 CHANGELOG + memory/ 영역의 콘텐츠. 별도 아카이브 디렉터리 불필요.\n- 업계 관행: 릴리스 증거를 git에 커밋하는 프로젝트는 규제 산업 한정. 일반 오픈소스는 GitHub Actions artifact·Release assets·CHANGELOG 링크가 표준(researcher 확인).\n- `release-evidence/` 네이밍을 실제 쓰는 저장소 **발견 못 함**(researcher null result) — 이 프로젝트가 업계와 어긋난 독자 패턴을 유지할 이유 없음.\n\n### 기각 대안\n\n- β(축소: 30+ 파일만 삭제하고 인간 판단·스냅샷 보관) → 방금 세운 불변성 원칙 부분 위반, 축소된 디렉터리도 여전히 업계 드묾. 폐지보다 애매한 중간 상태. 기각.\n- γ(현 상태 유지) → 사용자 명시 반대. 기각.\n- GitHub Release assets 외부 첨부 → 현재 프로젝트 규모에서 CHANGELOG 인라인으로 충분. 외부 리소스 의존 추가는 과잉. 기각.\n\n### 비용\n\n- 추출 이관: ~30분 (CHANGELOG 작성 + memory 파일 2개)\n- git rm -r: 즉시\n- conventions.md·관련 문서 정리는 이슈 1 조치에 포함\n- 총 ~1시간\n\n### 리스크\n\n- Phase A 증거 원본이 필요해지는 시나리오 → git history에 영구 보존되므로 `git log --all --full-history -- release-evidence/` + `git show <commit>:<path>`로 언제든 복원 가능. 실질 손실 없음."
+          }
+        ],
+        "research_summary": "## 사용자 문제 제기 (3 축)\n\n1. `.nexus/context/`는 프로젝트 단위로 잘 변하지 않는 문서 자리인데, 현재 동적 상태(완료/미완료)와 동적 문서 링크가 섞여 있다.\n2. `conventions.md`에 `release-evidence/` 같은 **구체 디렉터리 참조**가 뜬금없이 들어가 있다 — 규약 문서의 범위 위반으로 느껴짐.\n3. 테스트 구조를 이전 작업의 난맥상 위에 덧칠한 느낌. 아키텍트와 함께 **백지 재설계** 검토 + 이 구조가 진짜 업계 표준인지 확인 요구.\n\n## 연구 결과\n\n### Architect (백지 재설계 검토)\n- 현 구조: 단위 콜로케이션 22개 + `packages/app/test/<feature-scope>/` 하네스 2개 + `manual-qa/` 문서 + `artifacts/` 2곳 분산 = **C 하이브리드 패턴**(업계 표준 범위 내). 뼈대 재설계 근거 없음.\n- 이질점 3가지:\n  - `test/<feature-scope>/`(`ime-checklist/`, `runtime/`)는 **피처 스코프** 네이밍. 업계는 **테스트 종류**(unit/integration/e2e) 축으로 나눔.\n  - `test/manual-qa/`는 실행 안 되는 문서가 `test/` 안에 있어 인지 불일치.\n  - 산출물 경로 2곳(`test/artifacts/` + `test/ime-checklist/artifacts/`) 분산 → 로컬 `.gitignore` 분산의 재발 경로.\n- 완전 분리(`tests/unit/`, `tests/integration/`) 전환 비용: 22개 콜로케이션 이동 + import 경로 + tsconfig paths 압력. **현 시점 비용 > 이득**.\n- 추천: 마이너 교정 1~2시간 — `test/integration/`로 네이밍 교체, `manual-qa/` 이동, 산출물 단일화. 22개 콜로케이션은 그대로.\n\n### Researcher (업계 관찰)\n- TS 모노레포 + Electron: 단위 콜로케이션 + 루트/패키지 `tests/e2e`가 지배적 패턴.\n- **VS Code**: `test/{unit,integration,smoke,sanity}/` — kind-based.\n- **GitHub Desktop**: `app/test/{unit,e2e,fixtures,helpers}/` — kind-based.\n- **cawa-93/vite-electron-builder** (nexus-code와 가장 유사): 유닛은 패키지 자유, 루트 `tests/` Playwright E2E.\n- `release-evidence/` 루트 디렉터리 이름 사용 저장소: **발견 못 함(null result)**.\n- 테스트 결과를 git에 커밋: **비표준**. 표준은 GitHub Actions artifact(30–90일) 또는 Release assets 첨부.\n- `ROADMAP.md` 체크박스 형태: 소규모에서 흔하나 **안티패턴 취급**. 현대 관행은 GitHub Projects.\n- `STATUS.md`/`PROGRESS.md` 독립 파일: 표준화된 관행 **없음**(null result).\n- 산출물 네이밍: `coverage/`, `playwright-report/`, `test-results/`가 표준. `test/artifacts/`는 실증된 사례 **없음**.\n\n### Explore (`.nexus/context/` 동적 콘텐츠 감사)\n- `roadmap.md` ~35% 동적: L64(Phase A 완료/PASS + 구체 경로 + 타임스탬프), L109·L110(closed 상태), L52·L68·L115(이관/제거 메모).\n- `stack.md` ~25% 동적: L9–14·L41–46 버전 핀, L52 외부 이슈 추적.\n- `conventions.md` ~15% 동적: L25–26(`release-evidence/` 경로·타임스탬프), L62(TBD).\n- 나머지 5개(`architecture.md`, `harness-integration.md`, `korean-quality.md`, `philosophy.md`, `terminal-shell-env.md`)는 **거의 순정 정적**.\n\n## 의사결정이 필요한 구조적 질문\n\nA. `.nexus/context/`를 **정적 문서 전용**으로 재정의하고, 동적 콘텐츠를 어디로 보낼 것인가? 후보: `.nexus/status/`, `.nexus/progress/`, `.nexus/state/`(이미 nexus-core 관리), GitHub Projects, 기타.\nB. 테스트 구조: 현 상태 유지 / 마이너 교정(architect 추천) / 완전 분리 재설계. manual-qa 문서도 이 결정 맥락에서 처리.\nC. `release-evidence/` 루트 디렉터리: 유지(정당화) / 이동(`.nexus/` 밖 다른 위치) / 외부화(Release assets · CI artifact) / 삭제 후 재생성 가능한 상태로 전환.\n\n## 이번 세션이 결정하지 않는 것\n- 구체 구현(파일 이동·스크립트 수정)은 결정 후 실행 단계에서.\n- 커밋·브랜치·PR 규약(conventions.md의 기타 TBD) — 별도 사이클.\n- nexus-core 플러그인 내부 정책(`.nexus/state/`·`history.json`) — 플러그인 관리 영역.",
+        "created_at": "2026-04-24T09:21:32.161Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "통합 테스트 assertion-only 리팩터 + 플랫 구조 이동 + artifacts 삭제 + package.json 단순화",
+          "status": "completed",
+          "context": "이슈 2 결정에 따라 `packages/app/test/`를 플랫 구조로 재편하고 두 통합 테스트를 assertion-only로 리팩터한다. `test/artifacts/` 디렉터리 전면 삭제, `.gitignore` 테스트 산출물 섹션 제거, `package.json` scripts 단순화까지 엔지니어 단일 작업으로 묶는다.",
+          "acceptance": "1. `packages/app/test/`가 플랫 상태: `ime-release-gate.test.ts`, `e2-terminal-runtime.test.ts`, `README.md` 3개만 존재.\n2. `packages/app/test/{ime-checklist,runtime,artifacts}/` 전부 미존재.\n3. 두 테스트 파일에 `writeFileSync`·`fs.writeFile`·관련 fs 쓰기 호출 0건(`grep -c \"writeFile\" packages/app/test/*.test.ts` = 0).\n4. `packages/app/package.json` scripts가 결정 내용과 정확히 일치 (shim 제거 확인).\n5. 루트 `.gitignore`에 `# test artifacts` 섹션·관련 규칙 부재.\n6. JSON 문법 유효.\n7. `git status`가 의도된 rename + 수정 + 삭제만 표시(부가적인 untracked 변경 없음).\n8. 테스트 실행은 이 태스크에서 수행하지 않음(tester 태스크 담당).",
+          "approach": "1. 두 테스트 파일의 `writeFileSync`·파일 출력 로직 제거:\n   - `packages/app/test/ime-checklist/ime-release-gate.test.ts`: JSON·MD·screenshots placeholder 생성 로직 전부 제거. 측정값은 기존 assertion 유지(필요 시 `expect().toBeLessThan()` 직접 비교로 보강).\n   - `packages/app/test/runtime/e2-terminal.runtime.test.ts`: JSON·MD 출력 제거.\n2. 파일 이동(`git mv`로 rename 추적):\n   - `test/ime-checklist/ime-release-gate.test.ts` → `test/ime-release-gate.test.ts`\n   - `test/runtime/e2-terminal.runtime.test.ts` → `test/e2-terminal-runtime.test.ts`\n3. `packages/app/test/README.md` 신설 — 파일 2개가 하네스 기반 통합 테스트임을 한 문단 설명. 과거 `test/ime-checklist/README.md`·`test/runtime/README.md`의 핵심만 합본.\n4. 디렉터리·불필요 파일 삭제:\n   - `git rm -r packages/app/test/ime-checklist/` (하위 artifacts·README·screenshots 포함)\n   - `git rm -r packages/app/test/runtime/` (하위 README 포함)\n   - `git rm -r packages/app/test/artifacts/` (전체)\n5. 루트 `.gitignore`에서 테스트 산출물 섹션(`# test artifacts ...` 주석과 하위 규칙 9~10줄) **전체 삭제**.\n6. `packages/app/package.json` scripts 수정:\n   - `test:integration`: `\"bun test ./test/\"` (디렉터리 스캔)\n   - `test:ime-checklist`·`test:runtime-terminal` shim 제거\n   - `test:fonts` 유지\n   - `test`, `test:unit`, `test:runtime-terminal:zombie-check`는 변경 없음\n7. `packages/app/scripts/smoke/native-verification-checklist.ts`·`packages/app/scripts/runtime/terminal-zombie-checklist.ts` 등 기타 스크립트에서 삭제된 경로(`test/ime-checklist/`·`test/runtime/`) 참조 여부 grep으로 확인. 발견 시 새 경로로 갱신.",
+          "risk": "- writeFileSync 제거 시 기존 assertion이 파일 쓰기를 부가 검증 수단으로 쓰던 경우 해당 검증이 누락될 수 있음. 원본 assertion 의미를 살펴 누락된 검증은 `expect`로 추가.\n- `scripts/` 아래 다른 스크립트가 삭제되는 경로를 참조할 수 있음 — grep으로 사전 확인 필수.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_24120ed10ffezHs4uk7243nzvB"
+          },
+          "created_at": "2026-04-24T09:39:22.454Z"
+        },
+        {
+          "id": 2,
+          "title": "루트 CHANGELOG.md 신설 + .nexus/memory에 Phase A 회고·체크리스트 패턴 추출",
+          "status": "completed",
+          "context": "이슈 1·3 결정에 따라 `release-evidence/phase-a/`에서 가치 있는 핵심을 추출하여 새 자리로 이관한다. 이관 후에 다음 태스크에서 `release-evidence/` 전체가 삭제되므로, 이 태스크는 **삭제 전 반드시 완료**되어야 한다.",
+          "acceptance": "1. 루트 `CHANGELOG.md`가 생성되어 있고, Phase A 엔트리가 결정 명세 5개 항목(완료 상태·범위·관찰·이관 결정·원본 복원 방법)을 포함.\n2. `.nexus/memory/empirical-phase-a-retrospective.md` 생성, 한국어·선언형·2~4KB, 기존 `empirical-previous-tauri-retrospective.md`와 구조 일관.\n3. `.nexus/memory/pattern-phase-gate-checklist.md` 생성, 재사용 가능한 카테고리 구조 명시, 2~3KB.\n4. 세 문서 모두 `release-evidence/` 원본 삭제 후에도 핵심 정보(판정·교훈·체크리스트 구조)가 복원 없이 확인 가능한 수준 충족.\n5. 한국어 맞춤법 오류·ASCII 치환 없음.\n6. `release-evidence/` 디렉터리·파일 내용은 **수정되지 않음**.",
+          "approach": "1. 루트 `CHANGELOG.md` 신설 (keepachangelog.com 관행):\n   - 제목·설명: \"이 프로젝트의 주요 변경사항을 기록한다. 형식은 keepachangelog.com을 참고.\"\n   - 섹션: `## [Unreleased]`·`## Phase A — 2026-04-24 (완료)`\n   - Phase A 엔트리 내용(5~10줄):\n     - 완료 상태·PASS 판정 날짜\n     - 포함 범위(M0 잔여 + E1/E2 실기 통합): 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과\n     - 주요 관찰: 종료 시 sidecar/node-pty 프로세스 누락 없음 확인\n     - 이관 결정: sidecar WebSocket IPC·schema codegen은 E3로 이관, 서명·notarize는 로드맵 외 사용자 외부 작업으로 분리\n     - 참조: `release-evidence/phase-a/...`는 삭제됨. 원본 복원 필요 시 `git log --all --full-history -- release-evidence/`로 추적.\n   - 핵심 발췌 소스: `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/final-verdict.md`.\n\n2. `.nexus/memory/empirical-phase-a-retrospective.md` 신설 (기존 `empirical-previous-tauri-retrospective.md` 패턴 일치):\n   - Phase A 수행 과정에서 관찰·검증된 교훈\n   - 주요 출처: `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/manual-validation-user-report.md`\n   - 문체: 선언형 단정체, 한국어\n   - 분량 2~4KB\n\n3. `.nexus/memory/pattern-phase-gate-checklist.md` 신설 (재사용 패턴):\n   - 체크리스트 구조 패턴(Phase gate에서 확인하는 항목 카테고리: IME·워크스페이스·프로세스 lifecycle·재시작 복원·네이티브 smoke 등)\n   - 주요 출처: `release-evidence/phase-a/manual-integration-checklist.md`·`packages/app/test/manual-qa/korean-release-checklist.md`\n   - 다음 phase(M3 등)에서 복제 후 세부 항목만 수정하면 재사용 가능한 수준의 템플릿성 기술\n   - 분량 2~3KB\n\n4. 이관 전후 공백 확인:\n   - `grep -r \"packages/app/test/phase-a\" .` 결과 없음(이전 정리에서 이미 처리됨)\n   - `.nexus/context/roadmap.md` L64 등 경로 참조는 이슈 1 태스크(별도)에서 함께 정리\n\n**읽기 전용**: `release-evidence/` 원본은 수정·삭제하지 않음. 이 태스크는 새 파일 작성만.",
+          "risk": "- 원본 3~4개 소스에서 다 담기 어려운 세부 정보를 놓칠 위험. 삭제 전 검토 필수.\n- 다음 태스크(삭제)가 이 태스크 완료 전 실행되면 원본 읽을 수 없음 — deps로 강제 순서 보장.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "writer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_241208b46ffevECBpSWqlm13WZ"
+          },
+          "created_at": "2026-04-24T09:39:49.287Z"
+        },
+        {
+          "id": 3,
+          "title": "release-evidence/ 및 packages/app/test/manual-qa/ 전면 삭제",
+          "status": "completed",
+          "context": "이전 태스크(writer)가 핵심 내용을 CHANGELOG.md와 .nexus/memory/로 이관 완료한 상태에서, release-evidence/ 디렉터리 전체와 packages/app/test/manual-qa/를 git에서 제거한다.",
+          "acceptance": "1. `git ls-files release-evidence/` 및 `git ls-files packages/app/test/manual-qa/` 모두 빈 출력.\n2. 두 디렉터리 파일시스템 미존재.\n3. `git status`에 파일 수정 없음(오직 삭제만).\n4. 이전 태스크 산출물 3개 파일 존재(사전 검증 통과).\n5. 남은 `release-evidence` 문자열 참조는 보고에 포함되고, 다음 writer 태스크(이슈 1)에 인계.",
+          "approach": "1. 이전 태스크(writer) 산출물 존재 확인:\n   - `ls CHANGELOG.md .nexus/memory/empirical-phase-a-retrospective.md .nexus/memory/pattern-phase-gate-checklist.md` 세 파일 존재 검증.\n   - 없으면 이 태스크 중단, Lead에게 보고.\n2. 저장소에서 남은 경로 참조 점검:\n   - `grep -rnI \"release-evidence\" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.nexus/state` 결과 수집.\n   - `.nexus/context/roadmap.md` L64의 경로 참조도 결과에 잡힐 것 — 이슈 1 태스크(별도 writer)가 처리하므로 이 태스크는 **수정하지 않음**. 목록만 보고에 포함.\n   - CHANGELOG.md에 \"원본 복원은 `git log --all --full-history -- release-evidence/`\" 기재 확인.\n3. `git rm -r release-evidence/` 실행.\n4. `git rm -r packages/app/test/manual-qa/` 실행.\n5. `rmdir release-evidence/` (비어 있어야 함) — 실제로는 `git rm -r`가 디렉터리도 처리.\n6. 검증:\n   - `git ls-files release-evidence/` 빈 출력.\n   - `git ls-files packages/app/test/manual-qa/` 빈 출력.\n   - `release-evidence/` 디렉터리 파일시스템 미존재.\n   - `packages/app/test/manual-qa/` 파일시스템 미존재.\n7. `git status --short | wc -l`로 변경 총계 확인(release-evidence 48~49 + manual-qa 6~7 = 약 55 삭제).",
+          "risk": "- writer 산출물이 없으면 원본 정보가 완전 소실될 수 있음 — deps로 엄격 순서 보장 + 태스크 시작 시 파일 존재 확인.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_24120ed10ffezHs4uk7243nzvB"
+          },
+          "created_at": "2026-04-24T09:40:04.152Z"
+        },
+        {
+          "id": 4,
+          "title": ".nexus/context/ 동적 콘텐츠 제거 — roadmap 정화 + stack L52 이관 + conventions 스텁 축소",
+          "status": "completed",
+          "context": "이슈 1 결정에 따라 `.nexus/context/` 3개 파일(`roadmap.md`·`stack.md`·`conventions.md`)에서 동적 콘텐츠를 제거하고 정적 문서 원칙에 맞게 정화한다. 다른 5개 파일(`architecture.md`·`philosophy.md`·`harness-integration.md`·`korean-quality.md`·`terminal-shell-env.md`)은 변경하지 않는다.",
+          "acceptance": "1. `roadmap.md`에서 Phase A 완료 상태·경로·타임스탬프·이관 메모 전부 제거. Epic 정의·마일스톤 순서·성공 기준 구조는 보존.\n2. `stack.md` L52 구체 이슈 번호 추적이 memory 파일 참조로 대체.\n3. `.nexus/memory/external-xterm-js.md`에 이슈 추적 섹션 추가(덮어쓰지 않고 추가).\n4. `conventions.md`가 10줄 이하 스텁 수준, 본문이 결정 텍스트와 정확히 일치.\n5. `grep` 체크 4개 토큰(PASS·closed·2026-04-24·release-evidence·#5734) 모두 `.nexus/context/` 내 0건.\n6. 건드리지 않기로 한 5개 파일 git diff로 변경 없음 확인.\n7. 한국어 맞춤법·ASCII 치환 없음.",
+          "approach": "1. **`.nexus/context/roadmap.md` 정화**:\n   - L19 E2 \"closed(plan #4)\" 상태 마커 → Epic 정의 문장에서 상태 서술 제거\n   - L52·L68·L115의 이관/제거 메모 → Epic 정의 문장에서 \"현재 상태\" 기술 제거, 순정 스코프 정의만 남김\n   - L64 전체 Phase A 완료/PASS + 경로 + 타임스탬프 블록 → 원래 Phase A 스코프 정의(M0 잔여 + E1/E2 통합 시 실기 검증 포함)만 남기고 상태·증거 경로 제거\n   - L109·L110 성공 기준의 closed 상태 마커 제거 → \"Phase A unsigned dev launch에서 검증\"처럼 정의 문장만\n   - L115 인용구 \"> macOS codesign + notarized 배포는 로드맵에서 제거...\" → Non-Goals 섹션 본문으로 통합(상태 표현 없이 정적 기술로)\n   - 최종 결과: Epic 정의·마일스톤 순서·포스트-MVP 우선순위·성공 기준 구조의 순정 정적 골격\n   - 전체 분량 6~7KB 전후 유지\n\n2. **`.nexus/context/stack.md` L52 이관**:\n   - L52 \"분기마다 #5734·#1453·#4753 상태를 점검하고...\" 블록에서 구체 이슈 번호·상태 추적 서술 제거\n   - 대체 문장(stack.md): \"분기마다 upstream 이슈 점검 기준은 `.nexus/memory/external-xterm-js.md`를 따른다.\"\n   - `.nexus/memory/external-xterm-js.md`에 이슈 추적 섹션 추가(이슈 번호·점검 주기·대응 트리거) — 기존 파일을 Read로 확인 후 Edit로 추가. 덮어쓰지 말 것.\n\n3. **`.nexus/context/conventions.md` 전면 축소**:\n   - 기존 테스트 규약 6섹션 전부 삭제\n   - 최종 본문:\n     ```\n     # Conventions\n\n     프로젝트 차원 규약은 합의 시점에 이 문서에 추가한다. 합의 전까지는 일반적인 관행을 따른다.\n\n     ## 미정\n\n     - 커밋 메시지 형식\n     - 브랜치 네이밍\n     - PR 리뷰 규칙\n     ```\n   - 릴리스 증거·테스트 경로·명령 관련 내용 일체 포함하지 않음\n   - 파일 크기 ~400 bytes 전후\n\n4. 결과 검증:\n   - `grep -n \"PASS\\|closed\\|2026-04-24\\|release-evidence\\|#5734\\|#1453\\|#4753\" .nexus/context/*.md` 결과 없음\n   - `wc -l .nexus/context/conventions.md` 10줄 이하\n\n**건드리지 말 것**: `architecture.md`·`philosophy.md`·`harness-integration.md`·`korean-quality.md`·`terminal-shell-env.md`.",
+          "risk": "- roadmap.md 본문 흐름 손상 위험 — 상태 문구 제거 시 문장이 끊길 수 있으므로 re-read 후 문장 단위로 다듬기 필요.\n- `external-xterm-js.md`에 중복 이슈 번호 추가 위험 — 기존 파일을 먼저 Read로 확인.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_241204b49ffePl9dqqnfP90vuh"
+          },
+          "created_at": "2026-04-24T09:40:33.003Z"
+        },
+        {
+          "id": 5,
+          "title": "전체 테스트 스위트 실행 검증 (app + shared + sidecar)",
+          "status": "completed",
+          "context": "이슈 2 리팩터 후 전체 테스트가 여전히 통과하고 산출물 파일이 더 이상 생성되지 않는지 확인한다.",
+          "acceptance": "1. 네 스위트 모두 exit 0, pass > 0.\n2. `test:unit` 실행 파일 수 ≥ 22 (콜로케이션 21 + 폰트 1).\n3. `test:integration` 실행 파일 수 = 2 (플랫 스캔).\n4. `test:integration` 실행 후 `packages/app/test/` 하위에 신규 파일 생성 없음(`git status` 출력 변화 없음).\n5. `release-evidence/`·`packages/app/test/{artifacts,ime-checklist,runtime,manual-qa}/` 미존재 상태 유지.",
+          "approach": "1. `cd packages/shared && bun test` — 기존 계약 테스트 통과 확인.\n2. `cd packages/app && bun run test:unit` — 21 colocated tests + font-bundle-config 통과.\n3. `cd packages/app && bun run test:integration` — 플랫 `test/` 스캔으로 2 파일 실행 확인. 통과.\n4. `cd packages/app && bun run test` — 전체 체인 통과.\n5. `cd sidecar && go test ./...` — sidecar(현재 테스트 파일 없음) 무오류.\n6. **산출물 비생성 확인**: 테스트 실행 후 파일시스템 변경 없는지 확인. `git status` 결과가 \"test 실행 전과 동일\"한지.\n7. 실패 발생 시 원인 분류(환경 vs 코드) 후 Lead에게 반려.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "ses_24103a674ffeLoio5urxuaZ6nh"
+          },
+          "created_at": "2026-04-24T09:40:43.825Z"
+        },
+        {
+          "id": 6,
+          "title": "CHANGELOG + memory 파일 + .nexus/context 정화 리뷰",
+          "status": "completed",
+          "context": "writer 산출물(CHANGELOG.md + 2 memory 파일 + 3 context 정화)이 plan.json 결정 본문과 일치하고 한국어 맞춤법·문체 일관성·경로 정합성을 충족하는지 검증한다.",
+          "acceptance": "1. 7개 산출물 모두 결정 본문과 1:1 대응.\n2. 한국어 맞춤법 오류·ASCII 치환 0건.\n3. `architecture.md`·`philosophy.md`·`harness-integration.md`·`korean-quality.md`·`terminal-shell-env.md` 변경 없음.\n4. `grep` 체크에서 `PASS`·`closed`·`2026-04-24`·`release-evidence`·`#5734` 등 동적 토큰이 `.nexus/context/` 내 0건.\n5. 지적사항 없음 또는 명시된 수정 지시 후 재제출 통과.",
+          "approach": "1. `nx_plan_status`로 이슈 1·3 결정 본문 재확인.\n2. 각 산출물 Read 후 결정 명세와 대조:\n   - `CHANGELOG.md` — Phase A 엔트리 5개 항목·keepachangelog 형식.\n   - `.nexus/memory/empirical-phase-a-retrospective.md` — 기존 `empirical-previous-tauri-retrospective.md`와 구조 일관·선언형 단정체·2~4KB.\n   - `.nexus/memory/pattern-phase-gate-checklist.md` — 재사용 카테고리 구조·선언형·2~3KB.\n   - `.nexus/memory/external-xterm-js.md` — 이슈 추적 섹션이 중복 없이 추가됨.\n   - `.nexus/context/roadmap.md` — 동적 콘텐츠 제거·Epic 정의 보존.\n   - `.nexus/context/stack.md` — L52 memory 참조로 축약.\n   - `.nexus/context/conventions.md` — 10줄 이하 스텁·결정 텍스트 일치.\n3. 한국어 맞춤법·ASCII 치환 점검.\n4. 문체 일관성 확인(선언형 단정체).\n5. 건드리지 않기로 한 5개 context 파일 `git diff` 비어 있는지 확인.\n6. 문제 발견 시 writer에게 구체 수정 포인트로 반려.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            4
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_2410b7439ffe8S3gKViqLJM1Mj"
+          },
+          "created_at": "2026-04-24T09:40:55.492Z"
+        }
+      ]
     }
   ]
 }

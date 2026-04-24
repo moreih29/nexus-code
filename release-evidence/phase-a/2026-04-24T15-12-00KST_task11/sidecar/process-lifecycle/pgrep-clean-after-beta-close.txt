@@ -1,2 +1,0 @@
-16636 /Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-alpha --path /tmp/ws-alpha
-16638 /Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-gamma --path /tmp/ws-gamma

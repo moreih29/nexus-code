@@ -1,9 +1,0 @@
-timestamp_utc=2026-04-24T05:44:02Z
-timestamp_local=2026-04-24T14:44:02+0900
-cwd=/Users/kih/workspaces/areas/nexus-code
-branch=feat/phase-a-runnable-shell
-commit=2da0aa38e58a9560666c02ce728c5aed72057658
-uname=Darwin ihMacProRTM.local 25.3.0 Darwin Kernel Version 25.3.0: Wed Jan 28 20:53:15 PST 2026; root:xnu-12377.81.4~5/RELEASE_ARM64_T6000 arm64
-go=go version go1.24.4 darwin/arm64
-bun=1.3.9
-node=v24.14.0

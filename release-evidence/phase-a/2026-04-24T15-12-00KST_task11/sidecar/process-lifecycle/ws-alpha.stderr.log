@@ -1,2 +1,0 @@
-nexus-sidecar started pid=16636 argv=[/Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-alpha --path /tmp/ws-alpha]
-nexus-sidecar shutting down

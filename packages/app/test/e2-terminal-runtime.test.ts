@@ -1,24 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import type {
   TerminalCloseCommand,
   TerminalExitedEvent,
   TerminalScrollbackStatsReply,
   TerminalStdoutChunk,
-} from "../../../shared/src/contracts/terminal-ipc";
-import type { WorkspaceSidebarState } from "../../../shared/src/contracts/workspace-shell";
-import type { TerminalCloseReason } from "../../../shared/src/contracts/terminal-lifecycle";
-import type { TerminalTabId } from "../../../shared/src/contracts/terminal-tab";
-import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
-import type { TerminalHostCreateOptions, TerminalHostEnvironmentResolver } from "../../src/main/terminal-host";
+} from "../../shared/src/contracts/terminal-ipc";
+import type { WorkspaceSidebarState } from "../../shared/src/contracts/workspace-shell";
+import type { TerminalCloseReason } from "../../shared/src/contracts/terminal-lifecycle";
+import type { TerminalTabId } from "../../shared/src/contracts/terminal-tab";
+import type { WorkspaceId } from "../../shared/src/contracts/workspace";
+import type { TerminalHostCreateOptions, TerminalHostEnvironmentResolver } from "../src/main/terminal-host";
 import {
   WorkspaceTerminalRegistry,
   type WorkspaceTerminalHost,
   type WorkspaceTerminalHostFactory,
-} from "../../src/main/workspace-terminal-registry";
+} from "../src/main/workspace-terminal-registry";
 import {
   ShellTerminalTabs,
   type ShellTerminalClipboard,
@@ -26,14 +23,7 @@ import {
   type ShellTerminalTabView,
   type ShellTerminalTabViewCreateOptions,
   type ShellTerminalTabViewFactory,
-} from "../../src/renderer/shell-terminal-tab";
-
-const EVIDENCE_DIRECTORY = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../artifacts/runtime-terminal",
-);
-const EVIDENCE_JSON_PATH = path.join(EVIDENCE_DIRECTORY, "latest.json");
-const EVIDENCE_MARKDOWN_PATH = path.join(EVIDENCE_DIRECTORY, "latest.md");
+} from "../src/renderer/shell-terminal-tab";
 
 const SWITCH_ITERATIONS = 120;
 const SWITCH_STALL_THRESHOLD_MS = 100;
@@ -244,8 +234,18 @@ describe("E2 terminal runtime verification harness", () => {
       },
     };
 
-    await writeRuntimeEvidence(runtimeEvidence);
-
+    expect(runtimeEvidence.scenario.workspaceCount).toBe(3);
+    expect(runtimeEvidence.scenario.tabsPerWorkspace).toBe(2);
+    expect(runtimeEvidence.scenario.switchIterations).toBe(SWITCH_ITERATIONS);
+    expect(runtimeEvidence.switching.stalledIterations).toBe(0);
+    expect(runtimeEvidence.xtermInstances.reinitializedAcrossSwitches).toBeFalse();
+    expect(runtimeEvidence.longTailStream.emittedChunkCount).toBe(SWITCH_ITERATIONS);
+    expect(runtimeEvidence.longTailStream.observedStdoutChunkCount).toBe(SWITCH_ITERATIONS);
+    expect(runtimeEvidence.longTailStream.droppedBytesFromStdoutAnnotations).toBeGreaterThan(0);
+    expect(runtimeEvidence.ptyCounts.at(-1)?.activeHosts).toBe(0);
+    expect(runtimeEvidence.fullAppProcessCheck.hookCommand).toBe(
+      "bun run test:runtime-terminal:zombie-check",
+    );
     expect(runtimeEvidence.successCriteria.switchingWithoutStalls).toBeTrue();
     expect(runtimeEvidence.successCriteria.noModelLevelLeaksAfterClose).toBeTrue();
   });
@@ -662,39 +662,4 @@ function serializeScrollbackMap(
   map: Map<TerminalTabId, TerminalScrollbackStatsReply>,
 ): Record<string, TerminalScrollbackStatsReply> {
   return Object.fromEntries(Array.from(map.entries()));
-}
-
-async function writeRuntimeEvidence(evidence: RuntimeEvidence): Promise<void> {
-  await mkdir(EVIDENCE_DIRECTORY, { recursive: true });
-  await writeFile(EVIDENCE_JSON_PATH, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
-  await writeFile(EVIDENCE_MARKDOWN_PATH, toMarkdown(evidence), "utf8");
-}
-
-function toMarkdown(evidence: RuntimeEvidence): string {
-  const ptyRows = evidence.ptyCounts
-    .map(
-      (snapshot) =>
-        `- ${snapshot.phase}: expected ${snapshot.expectedActiveHosts}, observed ${snapshot.activeHosts}`,
-    )
-    .join("\n");
-
-  return [
-    "# Runtime Verification Evidence — Task 13",
-    "",
-    `- Generated at: ${evidence.generatedAt}`,
-    `- Workspaces/Tabs: ${evidence.scenario.workspaceCount} workspaces × ${evidence.scenario.tabsPerWorkspace} tabs`,
-    `- Workspace switches: ${evidence.scenario.switchIterations}`,
-    `- Stall threshold: ${evidence.switching.stallThresholdMs}ms`,
-    `- Stalled iterations: ${evidence.switching.stalledIterations}`,
-    `- Long-tail dropped bytes: ${evidence.longTailStream.droppedBytesFromStdoutAnnotations}`,
-    "",
-    "## PTY Count Snapshots",
-    ptyRows,
-    "",
-    "## Full-app Zombie Check",
-    `- Status: ${evidence.fullAppProcessCheck.status}`,
-    `- Reason: ${evidence.fullAppProcessCheck.reason}`,
-    `- Hook command: ${evidence.fullAppProcessCheck.hookCommand}`,
-    "",
-  ].join("\n");
 }

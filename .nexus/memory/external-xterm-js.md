@@ -68,3 +68,10 @@ MIT
 - https://github.com/xtermjs/xterm.js/issues/5734
 - https://github.com/xtermjs/xterm.js/issues/1453
 - https://github.com/xtermjs/xterm.js/issues/4753
+
+## 이슈 추적 (stack.md 이관)
+
+- 추적 대상: `#5734`, `#1453`, `#4753`
+- 점검 주기: 분기 시작 주(1월·4월·7월·10월 첫 주)
+- 대응 트리거: 업스트림 이슈가 릴리스 블로커가 되면 `.nexus/memory/pattern-xterm-fork-escape-hatch.md` 절차로 전환
+

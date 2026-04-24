@@ -1,2 +1,0 @@
-nexus-sidecar started pid=16711 argv=[/Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-exit-check --path /tmp/ws-exit-check]
-nexus-sidecar shutting down

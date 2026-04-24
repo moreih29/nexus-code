@@ -1,3 +1,0 @@
-  PID  PPID STAT ELAPSED COMMAND
-16636 16634 SN     00:01 /Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-alpha --path /tmp/ws-alpha
-16638 16634 SN     00:01 /Users/kih/workspaces/areas/nexus-code/sidecar/bin/nexus-sidecar --workspace ws-gamma --path /tmp/ws-gamma

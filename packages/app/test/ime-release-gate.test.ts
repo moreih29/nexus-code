@@ -1,12 +1,12 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 
-import { XTERM_DEFAULT_FONT_FAMILY } from "../../src/renderer/xterm-fonts";
+import { XTERM_DEFAULT_FONT_FAMILY } from "../src/renderer/xterm-fonts";
 import {
   XtermCompositionBuffer,
   XtermImeOverlay,
@@ -16,77 +16,13 @@ import {
   type OverlayNodeLike,
   type StyleDocumentLike,
   type StyleNodeLike,
-} from "../../src/renderer/xterm-ime-overlay";
-
-type ChecklistId = "1" | "2" | "3" | "4" | "5" | "6" | "7";
-type ChecklistStatus = "pass" | "pending-manual";
-
-interface ChecklistEvidence {
-  id: ChecklistId;
-  status: ChecklistStatus;
-  notes: string;
-  metrics?: Record<string, number | string | boolean>;
-}
-
-interface ReleaseGateEvidence {
-  generatedAt: string;
-  harness: "deterministic-seam";
-  nativeImeAutomationLimitations: string;
-  nativeImeManualQaRequired: true;
-  checklist: Record<ChecklistId, ChecklistEvidence>;
-}
+} from "../src/renderer/xterm-ime-overlay";
 
 const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
-const ARTIFACTS_DIR = path.join(TEST_DIR, "artifacts");
 const WORKSPACE_PERSISTENCE_TEST_PATH = path.resolve(
   TEST_DIR,
-  "../../src/main/workspace-persistence.test.ts",
+  "../src/main/workspace-persistence.test.ts",
 );
-
-const evidence: ReleaseGateEvidence = {
-  generatedAt: "",
-  harness: "deterministic-seam",
-  nativeImeAutomationLimitations:
-    "System-level macOS native IME composition UI cannot be fully automated in this Bun/xterm seam harness.",
-  nativeImeManualQaRequired: true,
-  checklist: {
-    "1": {
-      id: "1",
-      status: "pending-manual",
-      notes: "Awaiting automated seam verification.",
-    },
-    "2": {
-      id: "2",
-      status: "pending-manual",
-      notes: "Awaiting automated seam verification.",
-    },
-    "3": {
-      id: "3",
-      status: "pending-manual",
-      notes: "Awaiting automated seam verification.",
-    },
-    "4": {
-      id: "4",
-      status: "pending-manual",
-      notes: "Must reference existing NFC test from E1; no duplicate implementation here.",
-    },
-    "5": {
-      id: "5",
-      status: "pending-manual",
-      notes: "Awaiting automated seam verification.",
-    },
-    "6": {
-      id: "6",
-      status: "pending-manual",
-      notes: "Awaiting deterministic latency harness execution.",
-    },
-    "7": {
-      id: "7",
-      status: "pending-manual",
-      notes: "Awaiting automated seam verification.",
-    },
-  },
-};
 
 describe("IME checklist release gate (deterministic seams)", () => {
   test("#1 composition cursor overlay follows seam anchor coordinates", () => {
@@ -106,17 +42,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
     expect(overlayNode?.style.minHeight).toBe("21px");
 
     overlay.dispose();
-
-    evidence.checklist["1"] = {
-      id: "1",
-      status: "pass",
-      notes: "Overlay render matched deterministic cursor seam anchor transform + minHeight.",
-      metrics: {
-        anchorX: anchor.x,
-        anchorY: anchor.y,
-        anchorHeight: anchor.height,
-      },
-    };
   });
 
   test("#2 Enter during composition is swallowed; next Enter can submit", () => {
@@ -139,13 +64,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
     expect(plainEnterEvent.stopPropagationCount).toBe(0);
 
     expect(compositionBuffer.shouldForwardTerminalData("\r")).toBeTrue();
-
-    evidence.checklist["2"] = {
-      id: "2",
-      status: "pass",
-      notes:
-        "Composing Enter was swallowed; post-composition Enter remained forwardable as submit/newline.",
-    };
   });
 
   test("#3 Hangul width expectations hold under Unicode11", () => {
@@ -166,18 +84,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
       expect(widthOfGa).toBe(2);
       expect(widthOfHangulWord).toBe(4);
       expect(widthOfAscii).toBe(3);
-
-      evidence.checklist["3"] = {
-        id: "3",
-        status: "pass",
-        notes: "Unicode11 cell-width seam returned expected double-width for Hangul characters.",
-        metrics: {
-          width_hieut: widthOfHieut,
-          width_ga: widthOfGa,
-          width_hangul_word: widthOfHangulWord,
-          width_ascii: widthOfAscii,
-        },
-      };
     } finally {
       terminal.dispose();
     }
@@ -192,15 +98,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
       ),
     ).toBeTrue();
     expect(workspacePersistenceTestSource.includes('.normalize("NFC")')).toBeTrue();
-
-    evidence.checklist["4"] = {
-      id: "4",
-      status: "pass",
-      notes: "Referenced existing NFC regression test in src/main/workspace-persistence.test.ts.",
-      metrics: {
-        referenced_file: path.relative(TEST_DIR, WORKSPACE_PERSISTENCE_TEST_PATH),
-      },
-    };
   });
 
   test("#5 long composition stream commits without dropped characters", () => {
@@ -220,15 +117,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
 
     expect(compositionBuffer.shouldForwardTerminalData(rolling)).toBeFalse();
     expect(compositionBuffer.shouldForwardTerminalData(`${rolling}!`)).toBeTrue();
-
-    evidence.checklist["5"] = {
-      id: "5",
-      status: "pass",
-      notes: "Composition buffer retained the full update stream and suppressed duplicate PTY echo once.",
-      metrics: {
-        composed_characters: 256,
-      },
-    };
   });
 
   test("#6 deterministic latency harness keeps average input→paint under 16ms", () => {
@@ -241,21 +129,6 @@ describe("IME checklist release gate (deterministic seams)", () => {
     ]);
 
     expect(latencySamples.averageInputToPaintMs).toBeLessThan(16);
-
-    evidence.checklist["6"] = {
-      id: "6",
-      status: "pass",
-      notes:
-        "Deterministic seam harness measured input→PTY echo→paint path. Native macOS IME measurement remains manual QA.",
-      metrics: {
-        sample_count: latencySamples.samples.length,
-        average_input_to_pty_echo_ms: latencySamples.averageInputToPtyEchoMs,
-        average_pty_echo_to_paint_ms: latencySamples.averagePtyEchoToPaintMs,
-        average_input_to_paint_ms: latencySamples.averageInputToPaintMs,
-        max_input_to_paint_ms: latencySamples.maxInputToPaintMs,
-        threshold_ms: 16,
-      },
-    };
   });
 
   test("#7 default font stack keeps D2Coding + Noto Sans KR", () => {
@@ -265,73 +138,7 @@ describe("IME checklist release gate (deterministic seams)", () => {
     expect(d2codingIndex).toBeGreaterThanOrEqual(0);
     expect(notoSansKrIndex).toBeGreaterThanOrEqual(0);
     expect(d2codingIndex).toBeLessThan(notoSansKrIndex);
-
-    evidence.checklist["7"] = {
-      id: "7",
-      status: "pass",
-      notes: "Default terminal font-family keeps D2Coding first and Noto Sans KR as immediate fallback.",
-      metrics: {
-        font_stack: XTERM_DEFAULT_FONT_FAMILY,
-      },
-    };
   });
-});
-
-afterAll(async () => {
-  evidence.generatedAt = new Date().toISOString();
-
-  await mkdir(path.join(ARTIFACTS_DIR, "screenshots"), { recursive: true });
-
-  const checklistRows = (Object.keys(evidence.checklist) as ChecklistId[])
-    .sort()
-    .map((id) => {
-      const item = evidence.checklist[id];
-      return `| #${id} | ${item.status.toUpperCase()} | ${item.notes} |`;
-    });
-
-  const summaryMarkdown = [
-    "# IME Checklist Release Gate Evidence",
-    "",
-    `- Generated at: ${evidence.generatedAt}`,
-    "- Harness mode: deterministic seam checks (non-native IME simulation)",
-    "- Native manual QA required: **yes**",
-    "",
-    "## Checklist status",
-    "",
-    "| Item | Status | Notes |",
-    "| --- | --- | --- |",
-    ...checklistRows,
-    "",
-    "## Manual native IME blocker",
-    "",
-    "This release gate does **not** claim full macOS native IME automation. Signed-app manual QA remains required before release.",
-  ].join("\n");
-
-  const screenshotPlaceholderMarkdown = [
-    "# Screenshot placeholders (manual native IME QA)",
-    "",
-    "Capture and store native evidence files here before release:",
-    "",
-    "- `01-composition-cursor-alignment.png`",
-    "- `02-enter-double-submit-guard.png`",
-    "- `03-hangul-width-rendering.png`",
-    "- `04-long-composition-no-drop.png`",
-    "- `05-font-stack-resolution.png`",
-  ].join("\n");
-
-  await Promise.all([
-    writeFile(
-      path.join(ARTIFACTS_DIR, "latest-evidence.json"),
-      `${JSON.stringify(evidence, null, 2)}\n`,
-      "utf8",
-    ),
-    writeFile(path.join(ARTIFACTS_DIR, "latest-summary.md"), `${summaryMarkdown}\n`, "utf8"),
-    writeFile(
-      path.join(ARTIFACTS_DIR, "screenshots", "manual-native-ime-required.md"),
-      `${screenshotPlaceholderMarkdown}\n`,
-      "utf8",
-    ),
-  ]);
 });
 
 function resolveUnicodeWidthGetter(terminal: Terminal): ((value: string) => number) | null {
