@@ -2216,6 +2216,61 @@
           "created_at": "2026-04-24T15:05:40.045Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T15:33:14.217Z",
+      "branch": "feat/design-system-repaint",
+      "plan": {
+        "id": 13,
+        "topic": "리사이저 드래그 확장 불가 — engineer 엔드 투 엔드 위임",
+        "issues": [
+          {
+            "id": 1,
+            "title": "engineer 전권 위임: 원인 규명 → 해결 → 검증",
+            "status": "decided",
+            "decision": "engineer persistent session(ses_24099e655ffe4121wsXEwbFL12)\\uc5d0 \\uc5d4\\ub4dc \\ud22c \\uc5d4\\ub4dc \\ubbf8\\uc158 \\ud560\\ub2f9: (1) \\uacfc\\uac70 4\\ud68c hotfix \\uc774\\ub825\\uacfc DevTools \\uc2e4\\uce21 \\ub370\\uc774\\ud130 \\uc228\\ub9cc\\uc9c0 (2) \\uc6d0\\uc778 \\uc7ac\\ubd84\\uc11d (3) \\uc218\\ub2e8 \\uc790\\uc728 \\uc120\\ud0dd \\u2014 \\ucf54\\ub4dc \\ubc84\\uadf8 \\ud0d0\\uc0c9\\u00b7\\ubc84\\uc804 \\ub2e4\\uc6b4\\uadf8\\ub808\\uc774\\ub4dc\\u00b7\\ub300\\uccb4 \\ub77c\\uc774\\ube0c\\ub7ec\\ub9ac(allotment, react-split, react-split-pane \\ub4f1)\\u00b7\\ucee4\\uc2a4\\ud140 CSS grid \\uad6c\\ud604 (4) \\uc218\\uc815 + \\uc790\\ub3d9 \\uac80\\uc99d \\uc644\\ub8cc (5) \\uc0ac\\uc6a9\\uc790 \\uccb4\\uac10 \\uc694\\uccad \\uac00\\uc774\\ub4dc \\uc791\\uc131 (6) Lead \\ubcf4\\uace0. \\uc81c\\uc57d: ActivityBar\\u00b7WorkspaceSidebar\\u00b7TerminalPane\\u00b7keyboard-registry\\u00b7store \\ub86c\\uc9c1 \\ubbf8\\ubcc0\\u00b7Linear-quality\\u00b74\\uc5f4 \\ub808\\uc774\\uc544\\uc6c3\\u00b7Cmd+B/J \\uc989\\uc2dc hide/show \\uc720\\uc9c0\\u00b7bundle size \\uacfc\\ub3c4 \\uc99d\\uac00 \\ud68c\\ud53c. \\ud544\\uc694 \\uc2dc DevTools \\uc2a4\\ud06c\\ub9bd\\ud2b8 \\uc694\\uccad\\uc744 Lead\\uc5d0\\uac8c \\uc0c1\\uc2e0."
+          }
+        ],
+        "research_summary": "4회 hotfix 실패: (1) localStorage 스키마 단순화 (2) hit area+pointer-events+debounce (3) onResize setState 제거 (4) collapsible 제거+conditional render. DevTools 실측(plan #12 지점): workspace flex 0 1 0px(0px), shared flex 2.421(16px), center flex 97.579(645px), data-panel-* null. collapsible 제거 후 스크린샷 상 여전히 workspace/shared 최소 크기. 단축키(Cmd+B/J conditional render)는 정상. 드래그 확장만 여전히 실패. 원인이 react-resizable-panels v4 + React 19 + Tailwind v4 + Electron 35 조합의 조합 이슈일 가능성 높음. 사용자 결정: engineer에게 전권 위임(버전 다운그레이드·대체 라이브러리·커스텀 구현 모두 허용). Linear-quality 정체성과 Cmd+B/J 즉시 hide/show UX 유지.",
+        "created_at": "2026-04-24T15:16:02.717Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "리사이저 드래그 확장 불가 — 엔드 투 엔드 해결",
+          "status": "completed",
+          "context": "4회 hotfix 실패 후 engineer 전권 위임. 원인 규명부터 해결까지 자율 수행.",
+          "acceptance": "1. 리사이저 드래그로 workspace/shared 패널이 minSize~maxSize 범위 내에서 자유롭게 확장·축소 동작\n2. Cmd+B / Cmd+J 토글 동작 유지(현재 구현 또는 개선 구현)\n3. ArrowLeft/Right 키 resize 유지 또는 동등 대체\n4. 4열 레이아웃(Activity·Workspace·Center·Shared) 구조 유지\n5. Linear-quality 시각 정체성 유지 — handle 시각(w-2 수준·hover/drag 피드백·grip 아이콘)\n6. 자동 검증 전부 PASS:\n   - shared bun test\n   - app test:unit / test:integration\n   - sidecar go test\n   - app build\n   - app lint:renderer\n   - app dev 20초 스모크 경고 0건\n7. 수정 범위 엄수:\n   - 건드림 허용: App.tsx, components/ui/resizable.tsx, package.json(라이브러리 교체 시), styles.css 일부\n   - 건드리지 않음: ActivityBar, CommandPalette, WorkspaceSidebar, TerminalPane, EmptyState 내부 로직, keyboard-registry, store, electron main process\n8. bundle size 과도 증가 금지(현재 renderer 1.7MB 기준 +300KB 초과 시 사유 명시)\n9. 사용자 체감 요청 가이드 작성 — 구체 테스트 단계 + 예상 결과\n10. Lead 보고 형식:\n    (a) 원인 분석 결과\n    (b) 선택한 수단과 이유\n    (c) 수정 요약(파일·변경 포인트)\n    (d) 자동 검증 결과\n    (e) 사용자 체감 테스트 가이드\n    (f) 남은 리스크·후속 과제",
+          "approach": "engineer 자율:\n1. **맥락 파악**: .nexus/context/, .nexus/history.json(plan #7, #8, #10, #11, #12 아카이브), 최근 5회 commit(9f863a1, 46377aa, ba2fdf8, 9efd366, 6f0b61e) diff 읽기\n2. **DevTools 덤프 활용**: plan #12 지점 결과(workspace flex 0 1 0px 등) 참조. 필요 시 추가 덤프 스크립트 설계 후 Lead에게 사용자 요청 상신\n3. **원인 가설 재구축**:\n   - react-resizable-panels v4.10.0 vs React 19.2.5 호환성(issue #594 capture phase)\n   - Tailwind v4 @theme inline과 library inline style 충돌\n   - Electron 35(Chromium 134) 특정 WebContents 설정\n   - shadcn wrapper의 forwardRef + panelRef prop 매핑 버그\n   - PanelGroup의 direct children 구조(Fragment 포함) 해석 차이\n4. **실험 경로 후보**:\n   - (A) 최소 재현 예제 생성 — 별도 페이지로 완전히 minimal Panel group 렌더 후 drag 동작 확인. 이걸로 library 자체 문제인지 우리 코드인지 격리\n   - (B) 4.10 → 4.2 다운그레이드(#594 workaround)\n   - (C) allotment 라이브러리(VS Code 기반, Electron 친화) 도입\n   - (D) react-split-pane 또는 react-split 도입\n   - (E) CSS grid + 커스텀 mousedown handler 커스텀 구현\n   - (F) 위 중 2개를 병행 테스트 후 선택\n5. **결정**: 자동 검증 + 최소 재현으로 가장 신뢰 가능한 경로 선택\n6. **구현 + 자동 검증**\n7. **사용자 체감 가이드 작성**\n8. **Lead 보고**\n\n허용 범위:\n- 라이브러리 버전 다운그레이드\n- 라이브러리 교체 (allotment, react-split-pane, react-split 등)\n- 커스텀 구현 (CSS grid + mousedown)\n- shadcn Resizable wrapper 대체/제거\n- package.json 의존성 추가·제거",
+          "risk": "- library 교체 시 예상 외 UX 회귀(keyboard navigation, touch, a11y)\n- 커스텀 구현 시 touch·keyboard·a11y 누락 위험\n- bundle size 급증\n- 기존 localStorage 스키마와 충돌\n- dev 기동 자체에서 회귀 가능성(검은 화면 전례)\n\n완화: 각 경로마다 자동 검증 + 최소 재현. Lead 중간 확인 경로 열어둠.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ses_24099e655ffe4121wsXEwbFL12",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-24T15:16:43.515Z"
+        },
+        {
+          "id": 2,
+          "title": "엔드 투 엔드 수정 검증",
+          "status": "completed",
+          "context": "engineer 수정 후 자동 회귀 + dev 스모크.",
+          "acceptance": "자동 검증 PASS, dev 스모크 경고 0건. 수동 체감은 Lead/User 위임.",
+          "approach": "standard tester",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "ses_23fe2f74fffe7WdCmbC1g88qUy"
+          },
+          "created_at": "2026-04-24T15:16:44.873Z"
+        }
+      ]
     }
   ]
 }
