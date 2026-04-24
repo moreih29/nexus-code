@@ -56,6 +56,10 @@ export default function App(): JSX.Element {
       SHARED_PANEL_MAX_SIZE,
     ),
   );
+  const workspacePendingResizeRef = useRef<number | null>(null);
+  const workspaceLatestSizeRef = useRef(workspacePanelState.size);
+  const sharedPendingResizeRef = useRef<number | null>(null);
+  const sharedLatestSizeRef = useRef(sharedPanelState.size);
 
   const sidebarState = useStore(workspaceStore, (state) => state.sidebarState);
   const refreshSidebarState = useStore(workspaceStore, (state) => state.refreshSidebarState);
@@ -88,6 +92,18 @@ export default function App(): JSX.Element {
   const persistSharedPanelState = useCallback((nextState: StoredPanelState) => {
     persistPanelState(SHARED_PANEL_STORAGE_KEY, nextState);
     setSharedPanelState(nextState);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (workspacePendingResizeRef.current !== null) {
+        cancelAnimationFrame(workspacePendingResizeRef.current);
+      }
+
+      if (sharedPendingResizeRef.current !== null) {
+        cancelAnimationFrame(sharedPendingResizeRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -134,6 +150,46 @@ export default function App(): JSX.Element {
     resizePanelByPixels(workspacePanelRef.current, event.key === "ArrowLeft" ? -RESIZE_KEYBOARD_STEP_PX : RESIZE_KEYBOARD_STEP_PX);
   }, []);
 
+  const handleWorkspacePanelResize = useCallback(
+    (size: number) => {
+      workspaceLatestSizeRef.current = size;
+
+      if (workspacePendingResizeRef.current !== null) {
+        return;
+      }
+
+      workspacePendingResizeRef.current = requestAnimationFrame(() => {
+        workspacePendingResizeRef.current = null;
+        const latestSize = workspaceLatestSizeRef.current;
+
+        if (latestSize >= WORKSPACE_PANEL_MIN_SIZE) {
+          persistWorkspacePanelState({ size: latestSize });
+        }
+      });
+    },
+    [persistWorkspacePanelState],
+  );
+
+  const handleSharedPanelResize = useCallback(
+    (size: number) => {
+      sharedLatestSizeRef.current = size;
+
+      if (sharedPendingResizeRef.current !== null) {
+        return;
+      }
+
+      sharedPendingResizeRef.current = requestAnimationFrame(() => {
+        sharedPendingResizeRef.current = null;
+        const latestSize = sharedLatestSizeRef.current;
+
+        if (latestSize >= SHARED_PANEL_MIN_SIZE) {
+          persistSharedPanelState({ size: latestSize });
+        }
+      });
+    },
+    [persistSharedPanelState],
+  );
+
   const handleSharedResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
       return;
@@ -158,11 +214,7 @@ export default function App(): JSX.Element {
           defaultSize={workspacePanelState.size}
           minSize={WORKSPACE_PANEL_MIN_SIZE}
           maxSize={WORKSPACE_PANEL_MAX_SIZE}
-          onResize={(size) => {
-            if (size >= WORKSPACE_PANEL_MIN_SIZE) {
-              persistWorkspacePanelState({ size });
-            }
-          }}
+          onResize={handleWorkspacePanelResize}
           className="min-h-0"
         >
           <ScrollArea className="h-full border-r border-border bg-sidebar/70">
@@ -227,11 +279,7 @@ export default function App(): JSX.Element {
           defaultSize={sharedPanelState.size}
           minSize={SHARED_PANEL_MIN_SIZE}
           maxSize={SHARED_PANEL_MAX_SIZE}
-          onResize={(size) => {
-            if (size >= SHARED_PANEL_MIN_SIZE) {
-              persistSharedPanelState({ size });
-            }
-          }}
+          onResize={handleSharedPanelResize}
           className="min-h-0"
         >
           <ScrollArea className="h-full bg-card/60">
