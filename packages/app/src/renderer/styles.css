@@ -1,18 +1,100 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+@source "./**/*.{html,ts,tsx}";
 
-:root {
-  color-scheme: dark;
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../assets/fonts/Inter-Variable.woff2") format("woff2");
 }
 
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
+@font-face {
+  font-family: "Pretendard Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../assets/fonts/Pretendard-Variable-KR-subset.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+2000-206F, U+20A9, U+2190-21FF, U+AC00-D7A3;
 }
 
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../assets/fonts/JetBrainsMono-Variable.woff2") format("woff2");
+}
+
+@theme {
+  /* semantic — dark default */
+  --color-background: var(--color-zinc-950);
+  --color-foreground: var(--color-zinc-100);
+  --color-card: var(--color-zinc-900);
+  --color-card-foreground: var(--color-zinc-100);
+  --color-popover: var(--color-zinc-900);
+  --color-popover-foreground: var(--color-zinc-100);
+  --color-primary: oklch(0.70 0.10 195);
+  --color-primary-foreground: var(--color-zinc-950);
+  --color-secondary: var(--color-zinc-800);
+  --color-secondary-foreground: var(--color-zinc-100);
+  --color-muted: var(--color-zinc-900);
+  --color-muted-foreground: var(--color-zinc-400);
+  --color-accent: var(--color-zinc-800);
+  --color-accent-foreground: var(--color-zinc-100);
+  --color-destructive: oklch(0.55 0.18 25);
+  --color-destructive-foreground: var(--color-zinc-100);
+  --color-border: var(--color-zinc-800);
+  --color-input: var(--color-zinc-800);
+  --color-ring: var(--color-primary);
+
+  /* sidebar */
+  --color-sidebar: var(--color-zinc-950);
+  --color-sidebar-foreground: var(--color-zinc-300);
+  --color-sidebar-border: var(--color-zinc-800);
+
+  /* E3 status */
+  --color-status-running: oklch(0.75 0.12 150);
+  --color-status-idle: var(--color-zinc-500);
+  --color-status-error: var(--color-destructive);
+
+  /* typography */
+  --font-sans: "Inter", "Pretendard Variable", "Pretendard", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "D2Coding", "Pretendard Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* size scale — base 13px */
+  --text-xs:   0.6875rem;
+  --text-sm:   0.75rem;
+  --text-base: 0.8125rem;
+  --text-md:   0.875rem;
+  --text-lg:   1rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+
+  /* line heights */
+  --leading-tight:   1.25;
+  --leading-normal:  1.45;
+  --leading-relaxed: 1.6;
+
+  /* radius */
+  --radius: 0.5rem;
+}
+
+:root { color-scheme: dark; }
+html, body, #app { height: 100%; margin: 0; }
 body {
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  background: var(--color-background);
+  color: var(--color-foreground);
 }
+
+code,
+kbd,
+pre,
+.font-mono {
+  font-feature-settings: "calt" 0, "liga" 0;
+}
+
+.nx-tabular { font-variant-numeric: tabular-nums; }

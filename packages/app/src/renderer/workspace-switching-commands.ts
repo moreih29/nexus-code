@@ -30,32 +30,46 @@ export class WorkspaceSwitchingCommands {
   }
 
   public async activateDirectSlot(slotNumber: number): Promise<WorkspaceSidebarState> {
-    if (!Number.isInteger(slotNumber) || slotNumber < 1) {
-      return this.model.getSidebarState();
-    }
-
-    const sidebarState = this.model.getSidebarState();
-    const workspace = sidebarState.openWorkspaces[slotNumber - 1];
-    if (!workspace) {
-      return sidebarState;
-    }
-
-    return this.model.activateWorkspace(workspace.id);
+    return activateWorkspaceSlot(this.model, slotNumber);
   }
 
   private async switchCycle(direction: WorkspaceSwitchDirection): Promise<WorkspaceSidebarState> {
-    const sidebarState = this.model.getSidebarState();
-    const openWorkspaces = sidebarState.openWorkspaces;
-    if (openWorkspaces.length === 0) {
-      return sidebarState;
-    }
-
-    const activeIndex = openWorkspaces.findIndex(
-      (workspace) => workspace.id === sidebarState.activeWorkspaceId,
-    );
-    const targetIndex = calculateTargetIndex(openWorkspaces.length, activeIndex, direction);
-    return this.model.activateWorkspace(openWorkspaces[targetIndex]!.id);
+    return switchWorkspaceCycle(this.model, direction);
   }
+}
+
+export async function activateWorkspaceSlot(
+  model: WorkspaceSwitchingModel,
+  slotNumber: number,
+): Promise<WorkspaceSidebarState> {
+  if (!Number.isInteger(slotNumber) || slotNumber < 1) {
+    return model.getSidebarState();
+  }
+
+  const sidebarState = model.getSidebarState();
+  const workspace = sidebarState.openWorkspaces[slotNumber - 1];
+  if (!workspace) {
+    return sidebarState;
+  }
+
+  return model.activateWorkspace(workspace.id);
+}
+
+export async function switchWorkspaceCycle(
+  model: WorkspaceSwitchingModel,
+  direction: WorkspaceSwitchDirection,
+): Promise<WorkspaceSidebarState> {
+  const sidebarState = model.getSidebarState();
+  const openWorkspaces = sidebarState.openWorkspaces;
+  if (openWorkspaces.length === 0) {
+    return sidebarState;
+  }
+
+  const activeIndex = openWorkspaces.findIndex(
+    (workspace) => workspace.id === sidebarState.activeWorkspaceId,
+  );
+  const targetIndex = calculateTargetIndex(openWorkspaces.length, activeIndex, direction);
+  return model.activateWorkspace(openWorkspaces[targetIndex]!.id);
 }
 
 function calculateTargetIndex(
