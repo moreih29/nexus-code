@@ -2162,6 +2162,60 @@
           "created_at": "2026-04-24T14:54:53.285Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T15:11:21.283Z",
+      "branch": "feat/design-system-repaint",
+      "plan": {
+        "id": 12,
+        "topic": "drag-triggered auto-collapse 제거 + Cmd+B/J conditional render",
+        "issues": [
+          {
+            "id": 1,
+            "title": "collapsible 제거 + Cmd+B/J state flag + maxSize 원상",
+            "status": "decided",
+            "decision": "App.tsx \\uc218\\uc815: (1) maxSize 50\\u219228/32 \\uc6d0\\uc0c1, (2) ResizablePanel workspace\\u00b7shared\\uc5d0\\uc11c collapsible\\u00b7collapsedSize prop \\uc81c\\uac70, (3) workspaceVisible\\u00b7sharedVisible useState \\ucd94\\uac00(\\ucd08\\uae30 true), (4) togglePanel \\ud568\\uc218 \\uc81c\\uac70, (5) registerAppCommands \\uc2dc\\uadf8\\ub2c8\\ucc98 \\ubcc0\\uacbd: panelRef \\uc81c\\uac70 \\u00b7 toggleWorkspacePanel\\u00b7toggleSharedPanel \\ucf5c\\ubc31 \\ucd94\\uac00, (6) view.toggleSidebar\\u00b7view.toggleSharedPanel \\ucf5c\\ubc31 \\ubcc0\\uacbd, (7) JSX\\uc5d0\\uc11c workspaceVisible\\u00b7sharedVisible \\uae30\\ubc18 conditional render(Fragment\\ub85c panel+handle \\ubb36\\uc74c), (8) workspacePanelRef\\u00b7sharedPanelRef\\ub294 Arrow\\ud0a4 resize \\uc6a9\\ub3c4\\ub85c \\uc720\\uc9c0, (9) handle\\uc758 aria-valuemax\\ub294 MAX_SIZE \\uc0c1\\uc218\\ub97c \\uadf8\\ub300\\ub85c \\uc720\\uc9c0."
+          }
+        ],
+        "research_summary": "DevTools 실측: workspace panel flex 0 1 0px(width 0, collapsed), shared flex 2.421(width 16px), center flex 97.579(width 645px). 원인: collapsible={true} + collapsedSize={0} 조합으로 drag halfway point(minSize/2) 아래로 내려가면 snap to 0. 사용자 증상 \"펼치는 방향 drag 몇 픽셀만 반응\"은 실제로 halfway 근방에서 snap-back 진동. 수정: collapsible 제거하여 drag 하한을 minSize로 고정, Cmd+B/J는 state flag + conditional render로 panel 자체 hide/show, maxSize 28/32 원상 복귀, Step 1 실험(50) rollback.",
+        "created_at": "2026-04-24T15:05:19.763Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "collapsible 제거 + Cmd+B/J conditional render",
+          "status": "completed",
+          "context": "DevTools 실측으로 원인 확정. Lead 직접 수정.",
+          "acceptance": "1. App.tsx:\n   - WORKSPACE_PANEL_MAX_SIZE 50→28\n   - SHARED_PANEL_MAX_SIZE 50→32\n   - ResizablePanel workspace·shared에서 collapsible·collapsedSize prop 제거\n   - workspaceVisible·sharedVisible useState 추가(기본 true)\n   - togglePanel 함수 제거\n   - registerAppCommands 시그니처 변경: panelRef props 제거, toggleWorkspacePanel·toggleSharedPanel 콜백 추가\n   - view.toggleSidebar·view.toggleSharedPanel가 state flag toggle 호출\n   - JSX conditional render(workspaceVisible·sharedVisible 기반, Fragment로 panel+handle 묶음)\n   - workspacePanelRef·sharedPanelRef는 ArrowLeft/Right resize용으로 유지\n2. test:unit·test:integration·lint·build PASS\n3. grep 감사:\n   - App.tsx에 `collapsible` 0건\n   - App.tsx에 `collapsedSize` 0건\n   - App.tsx에 `togglePanel(` 0건\n   - App.tsx에 `workspaceVisible` / `sharedVisible` useState 존재\n   - App.tsx에 `setWorkspaceVisible` / `setSharedVisible` 호출 존재\n4. dev 20초 스모크 경고 0건",
+          "approach": "Lead 직접 edit 6~10회. engineer spawn 불필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T15:05:36.410Z"
+        },
+        {
+          "id": 2,
+          "title": "수정 회귀 검증",
+          "status": "completed",
+          "context": "Lead 직접 수정 후 자동 검증.",
+          "acceptance": "1. shared bun test·app test:unit·app test:integration·sidecar go test PASS\n2. app build PASS\n3. app lint:renderer clean\n4. app dev 20초 스모크 경고 0건\n5. grep 감사 Task 1과 동일\n6. 최종 판정 PASS/FAIL",
+          "approach": "tester bounded session.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "ses_23ff7a4b5ffe2TR3nQP2Q6HY6u"
+          },
+          "created_at": "2026-04-24T15:05:40.045Z"
+        }
+      ]
     }
   ]
 }

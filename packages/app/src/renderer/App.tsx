@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { useStore } from "zustand";
 import { Eye, Folder, GitCompare, History, Wrench } from "lucide-react";
@@ -25,10 +25,10 @@ const WORKSPACE_PANEL_STORAGE_KEY = "nx.layout.workspacePanel";
 const SHARED_PANEL_STORAGE_KEY = "nx.layout.sharedPanel";
 const WORKSPACE_PANEL_DEFAULT_SIZE = 17;
 const WORKSPACE_PANEL_MIN_SIZE = 12;
-const WORKSPACE_PANEL_MAX_SIZE = 50;
+const WORKSPACE_PANEL_MAX_SIZE = 28;
 const SHARED_PANEL_DEFAULT_SIZE = 20;
 const SHARED_PANEL_MIN_SIZE = 16;
-const SHARED_PANEL_MAX_SIZE = 50;
+const SHARED_PANEL_MAX_SIZE = 32;
 const RESIZE_KEYBOARD_STEP_PX = 16;
 
 interface StoredPanelState {
@@ -40,6 +40,8 @@ export default function App(): JSX.Element {
   const workspacePanelRef = useRef<PanelImperativeHandle | null>(null);
   const sharedPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [workspaceVisible, setWorkspaceVisible] = useState(true);
+  const [sharedVisible, setSharedVisible] = useState(true);
   const [workspacePanelState] = useState(() =>
     readStoredPanelState(
       WORKSPACE_PANEL_STORAGE_KEY,
@@ -96,16 +98,24 @@ export default function App(): JSX.Element {
     };
   }, []);
 
+  const toggleWorkspacePanel = useCallback(() => {
+    setWorkspaceVisible((visible) => !visible);
+  }, []);
+
+  const toggleSharedPanel = useCallback(() => {
+    setSharedVisible((visible) => !visible);
+  }, []);
+
   useEffect(() => {
     registerAppCommands({
       closeWorkspace,
       openFolder,
       setCommandPaletteOpen,
-      sharedPanelRef,
-      workspacePanelRef,
+      toggleSharedPanel,
+      toggleWorkspacePanel,
       workspaceStore,
     });
-  }, [closeWorkspace, openFolder, workspaceStore]);
+  }, [closeWorkspace, openFolder, toggleSharedPanel, toggleWorkspacePanel, workspaceStore]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -189,51 +199,53 @@ export default function App(): JSX.Element {
       <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
 
       <ResizablePanelGroup direction="horizontal" className="min-w-0 flex-1">
-        <ResizablePanel
-          ref={workspacePanelRef}
-          id="workspace-panel"
-          order={1}
-          collapsible
-          collapsedSize={0}
-          defaultSize={workspacePanelState.size}
-          minSize={WORKSPACE_PANEL_MIN_SIZE}
-          maxSize={WORKSPACE_PANEL_MAX_SIZE}
-          onResize={handleWorkspacePanelResize}
-          className="min-h-0"
-        >
-          <ScrollArea className="h-full border-r border-border bg-sidebar/70">
-            <aside className="flex min-h-full flex-col gap-3 p-3">
-              <WorkspaceSidebar
-                sidebarState={sidebarState}
-                onOpenFolder={() => runSidebarMutation(openFolder)}
-                onActivateWorkspace={(workspaceId) =>
-                  runSidebarMutation(() => activateWorkspace(workspaceId))
-                }
-                onCloseWorkspace={(workspaceId) =>
-                  runSidebarMutation(() => closeWorkspace(workspaceId))
-                }
-              />
+        {workspaceVisible && (
+          <>
+            <ResizablePanel
+              ref={workspacePanelRef}
+              id="workspace-panel"
+              order={1}
+              defaultSize={workspacePanelState.size}
+              minSize={WORKSPACE_PANEL_MIN_SIZE}
+              maxSize={WORKSPACE_PANEL_MAX_SIZE}
+              onResize={handleWorkspacePanelResize}
+              className="min-h-0"
+            >
+              <ScrollArea className="h-full border-r border-border bg-sidebar/70">
+                <aside className="flex min-h-full flex-col gap-3 p-3">
+                  <WorkspaceSidebar
+                    sidebarState={sidebarState}
+                    onOpenFolder={() => runSidebarMutation(openFolder)}
+                    onActivateWorkspace={(workspaceId) =>
+                      runSidebarMutation(() => activateWorkspace(workspaceId))
+                    }
+                    onCloseWorkspace={(workspaceId) =>
+                      runSidebarMutation(() => closeWorkspace(workspaceId))
+                    }
+                  />
 
-              <div className="h-48 rounded-md border border-border bg-card">
-                <EmptyState
-                  icon={Folder}
-                  title="Files appear here"
-                  description="Open a workspace folder."
-                />
-              </div>
-            </aside>
-          </ScrollArea>
-        </ResizablePanel>
+                  <div className="h-48 rounded-md border border-border bg-card">
+                    <EmptyState
+                      icon={Folder}
+                      title="Files appear here"
+                      description="Open a workspace folder."
+                    />
+                  </div>
+                </aside>
+              </ScrollArea>
+            </ResizablePanel>
 
-        <ResizableHandle
-          withHandle
-          role="separator"
-          aria-valuemin={WORKSPACE_PANEL_MIN_SIZE}
-          aria-valuemax={WORKSPACE_PANEL_MAX_SIZE}
-          aria-valuenow={Math.round(workspacePanelState.size)}
-          className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
-          onKeyDown={handleWorkspaceResizeKeyDown}
-        />
+            <ResizableHandle
+              withHandle
+              role="separator"
+              aria-valuemin={WORKSPACE_PANEL_MIN_SIZE}
+              aria-valuemax={WORKSPACE_PANEL_MAX_SIZE}
+              aria-valuenow={Math.round(workspacePanelState.size)}
+              className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              onKeyDown={handleWorkspaceResizeKeyDown}
+            />
+          </>
+        )}
 
         <ResizablePanel id="center-panel" order={2} minSize={20} className="min-h-0 min-w-0">
           <main className="flex h-full min-h-0 flex-col border-r border-border bg-background/80 p-4">
@@ -244,70 +256,72 @@ export default function App(): JSX.Element {
           </main>
         </ResizablePanel>
 
-        <ResizableHandle
-          withHandle
-          role="separator"
-          aria-valuemin={SHARED_PANEL_MIN_SIZE}
-          aria-valuemax={SHARED_PANEL_MAX_SIZE}
-          aria-valuenow={Math.round(sharedPanelState.size)}
-          className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
-          onKeyDown={handleSharedResizeKeyDown}
-        />
+        {sharedVisible && (
+          <>
+            <ResizableHandle
+              withHandle
+              role="separator"
+              aria-valuemin={SHARED_PANEL_MIN_SIZE}
+              aria-valuemax={SHARED_PANEL_MAX_SIZE}
+              aria-valuenow={Math.round(sharedPanelState.size)}
+              className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              onKeyDown={handleSharedResizeKeyDown}
+            />
 
-        <ResizablePanel
-          ref={sharedPanelRef}
-          id="shared-panel"
-          order={3}
-          collapsible
-          collapsedSize={0}
-          defaultSize={sharedPanelState.size}
-          minSize={SHARED_PANEL_MIN_SIZE}
-          maxSize={SHARED_PANEL_MAX_SIZE}
-          onResize={handleSharedPanelResize}
-          className="min-h-0"
-        >
-          <ScrollArea className="h-full bg-card/60">
-            <aside className="min-h-full p-4">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Right Shared Panel</h2>
-              <Tabs className="mt-3" defaultValue="tool">
-                <TabsList>
-                  <TabsTrigger value="tool">Tool</TabsTrigger>
-                  <TabsTrigger value="session">Session</TabsTrigger>
-                  <TabsTrigger value="diff">Diff</TabsTrigger>
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
-                </TabsList>
-                <TabsContent value="tool" className="h-48 rounded-md border border-border bg-card">
-                  <EmptyState
-                    icon={Wrench}
-                    title="No tool calls yet"
-                    description="Agent tool invocations will appear here."
-                  />
-                </TabsContent>
-                <TabsContent value="session" className="h-48 rounded-md border border-border bg-card">
-                  <EmptyState
-                    icon={History}
-                    title="No session history"
-                    description="Session entries will appear here."
-                  />
-                </TabsContent>
-                <TabsContent value="diff" className="h-48 rounded-md border border-border bg-card">
-                  <EmptyState
-                    icon={GitCompare}
-                    title="No changes to review"
-                    description="Pending changes will appear here."
-                  />
-                </TabsContent>
-                <TabsContent value="preview" className="h-48 rounded-md border border-border bg-card">
-                  <EmptyState
-                    icon={Eye}
-                    title="Preview unavailable"
-                    description="Markdown or localhost preview will appear here."
-                  />
-                </TabsContent>
-              </Tabs>
-            </aside>
-          </ScrollArea>
-        </ResizablePanel>
+            <ResizablePanel
+              ref={sharedPanelRef}
+              id="shared-panel"
+              order={3}
+              defaultSize={sharedPanelState.size}
+              minSize={SHARED_PANEL_MIN_SIZE}
+              maxSize={SHARED_PANEL_MAX_SIZE}
+              onResize={handleSharedPanelResize}
+              className="min-h-0"
+            >
+                  <ScrollArea className="h-full bg-card/60">
+                <aside className="min-h-full p-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Right Shared Panel</h2>
+                  <Tabs className="mt-3" defaultValue="tool">
+                    <TabsList>
+                      <TabsTrigger value="tool">Tool</TabsTrigger>
+                      <TabsTrigger value="session">Session</TabsTrigger>
+                      <TabsTrigger value="diff">Diff</TabsTrigger>
+                      <TabsTrigger value="preview">Preview</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="tool" className="h-48 rounded-md border border-border bg-card">
+                      <EmptyState
+                        icon={Wrench}
+                        title="No tool calls yet"
+                        description="Agent tool invocations will appear here."
+                      />
+                    </TabsContent>
+                    <TabsContent value="session" className="h-48 rounded-md border border-border bg-card">
+                      <EmptyState
+                        icon={History}
+                        title="No session history"
+                        description="Session entries will appear here."
+                      />
+                    </TabsContent>
+                    <TabsContent value="diff" className="h-48 rounded-md border border-border bg-card">
+                      <EmptyState
+                        icon={GitCompare}
+                        title="No changes to review"
+                        description="Pending changes will appear here."
+                      />
+                    </TabsContent>
+                    <TabsContent value="preview" className="h-48 rounded-md border border-border bg-card">
+                      <EmptyState
+                        icon={Eye}
+                        title="Preview unavailable"
+                        description="Markdown or localhost preview will appear here."
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </aside>
+              </ScrollArea>
+            </ResizablePanel>
+          </>
+        )}
       </ResizablePanelGroup>
     </div>
   );
@@ -349,19 +363,6 @@ function persistPanelState(storageKey: string, state: StoredPanelState): void {
   window.localStorage.setItem(storageKey, JSON.stringify(state));
 }
 
-function togglePanel(panel: PanelImperativeHandle | null): void {
-  if (!panel) {
-    return;
-  }
-
-  if (panel.isCollapsed()) {
-    panel.expand();
-    return;
-  }
-
-  panel.collapse();
-}
-
 function resizePanelByPixels(panel: PanelImperativeHandle | null, deltaPx: number): void {
   if (!panel || panel.isCollapsed()) {
     return;
@@ -375,15 +376,15 @@ function registerAppCommands({
   closeWorkspace,
   openFolder,
   setCommandPaletteOpen,
-  sharedPanelRef,
-  workspacePanelRef,
+  toggleSharedPanel,
+  toggleWorkspacePanel,
   workspaceStore,
 }: {
   closeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
   openFolder: () => Promise<void>;
   setCommandPaletteOpen: (open: boolean) => void;
-  sharedPanelRef: RefObject<PanelImperativeHandle | null>;
-  workspacePanelRef: RefObject<PanelImperativeHandle | null>;
+  toggleSharedPanel: () => void;
+  toggleWorkspacePanel: () => void;
   workspaceStore: WorkspaceStore;
 }): void {
   const registry = keyboardRegistryStore.getState();
@@ -451,13 +452,13 @@ function registerAppCommands({
   registerCommand({
     group: "View",
     id: "view.toggleSidebar",
-    run: () => togglePanel(workspacePanelRef.current),
+    run: () => toggleWorkspacePanel(),
     title: "Toggle Sidebar",
   });
   registerCommand({
     group: "View",
     id: "view.toggleSharedPanel",
-    run: () => togglePanel(sharedPanelRef.current),
+    run: () => toggleSharedPanel(),
     title: "Toggle Shared Panel",
   });
   registerCommand({
