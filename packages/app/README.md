@@ -7,9 +7,7 @@ Electron app package for the Phase A Runnable Shell.
 Phase A is implemented and manually validated for **unsigned dev launch**.
 
 - Launch mode: `cd packages/app && bun run dev`
-- Final evidence: `test/phase-a/evidence/2026-04-24T15-12-00KST_task11/`
-- Gate summary: `test/phase-a/manual-integration-checklist.md`
-- Final verdict: PASS for workspace sidebar, workspace-specific terminal cwd, terminal input/output, multi-tab behavior, Korean IME manual validation, restart/session restore, sidecar lifecycle, and fast workspace switching render stability.
+- Scope, verdict, and observations: see root `CHANGELOG.md`
 
 This package does **not** treat notarized/codesigned app QA as a Phase A release gate. `package:dir` and `package:mac` remain packaging scripts, but signed-app distribution is outside the Phase A roadmap scope.
 
@@ -55,7 +53,6 @@ This package does **not** treat notarized/codesigned app QA as a Phase A release
 | Renderer lint | `bun run lint:renderer` |
 | Renderer node-pty import guard | `bun run smoke:renderer-node-pty-guard` |
 | Native node-pty smoke | `bun run verify:native` |
-| IME checklist gate | `bun run test:ime-checklist` |
-| Runtime terminal gate | `bun run test:runtime-terminal` |
+| Integration harness tests (IME + runtime terminal) | `bun run test:integration` |
 | Directory package | `bun run package:dir` |
 | macOS package script | `bun run package:mac` |
