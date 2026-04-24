@@ -32,7 +32,6 @@ const SHARED_PANEL_MAX_SIZE = 32;
 const RESIZE_KEYBOARD_STEP_PX = 16;
 
 interface StoredPanelState {
-  collapsed: boolean;
   size: number;
 }
 
@@ -42,10 +41,20 @@ export default function App(): JSX.Element {
   const sharedPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [workspacePanelState, setWorkspacePanelState] = useState(() =>
-    readStoredPanelState(WORKSPACE_PANEL_STORAGE_KEY, WORKSPACE_PANEL_DEFAULT_SIZE),
+    readStoredPanelState(
+      WORKSPACE_PANEL_STORAGE_KEY,
+      WORKSPACE_PANEL_DEFAULT_SIZE,
+      WORKSPACE_PANEL_MIN_SIZE,
+      WORKSPACE_PANEL_MAX_SIZE,
+    ),
   );
   const [sharedPanelState, setSharedPanelState] = useState(() =>
-    readStoredPanelState(SHARED_PANEL_STORAGE_KEY, SHARED_PANEL_DEFAULT_SIZE),
+    readStoredPanelState(
+      SHARED_PANEL_STORAGE_KEY,
+      SHARED_PANEL_DEFAULT_SIZE,
+      SHARED_PANEL_MIN_SIZE,
+      SHARED_PANEL_MAX_SIZE,
+    ),
   );
 
   const sidebarState = useStore(workspaceStore, (state) => state.sidebarState);
@@ -146,10 +155,14 @@ export default function App(): JSX.Element {
           order={1}
           collapsible
           collapsedSize={0}
-          defaultSize={workspacePanelState.collapsed ? 0 : workspacePanelState.size}
+          defaultSize={workspacePanelState.size}
           minSize={WORKSPACE_PANEL_MIN_SIZE}
           maxSize={WORKSPACE_PANEL_MAX_SIZE}
-          onResize={(size) => persistWorkspacePanelState({ collapsed: size === 0, size: size > 0 ? size : workspacePanelState.size })}
+          onResize={(size) => {
+            if (size >= WORKSPACE_PANEL_MIN_SIZE) {
+              persistWorkspacePanelState({ size });
+            }
+          }}
           className="min-h-0"
         >
           <ScrollArea className="h-full border-r border-border bg-sidebar/70">
@@ -181,7 +194,7 @@ export default function App(): JSX.Element {
           role="separator"
           aria-valuemin={WORKSPACE_PANEL_MIN_SIZE}
           aria-valuemax={WORKSPACE_PANEL_MAX_SIZE}
-          aria-valuenow={Math.round(workspacePanelState.collapsed ? 0 : workspacePanelState.size)}
+          aria-valuenow={Math.round(workspacePanelState.size)}
           className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           onKeyDown={handleWorkspaceResizeKeyDown}
         />
@@ -200,7 +213,7 @@ export default function App(): JSX.Element {
           role="separator"
           aria-valuemin={SHARED_PANEL_MIN_SIZE}
           aria-valuemax={SHARED_PANEL_MAX_SIZE}
-          aria-valuenow={Math.round(sharedPanelState.collapsed ? 0 : sharedPanelState.size)}
+          aria-valuenow={Math.round(sharedPanelState.size)}
           className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           onKeyDown={handleSharedResizeKeyDown}
         />
@@ -211,10 +224,14 @@ export default function App(): JSX.Element {
           order={3}
           collapsible
           collapsedSize={0}
-          defaultSize={sharedPanelState.collapsed ? 0 : sharedPanelState.size}
+          defaultSize={sharedPanelState.size}
           minSize={SHARED_PANEL_MIN_SIZE}
           maxSize={SHARED_PANEL_MAX_SIZE}
-          onResize={(size) => persistSharedPanelState({ collapsed: size === 0, size: size > 0 ? size : sharedPanelState.size })}
+          onResize={(size) => {
+            if (size >= SHARED_PANEL_MIN_SIZE) {
+              persistSharedPanelState({ size });
+            }
+          }}
           className="min-h-0"
         >
           <ScrollArea className="h-full bg-card/60">
@@ -264,8 +281,13 @@ export default function App(): JSX.Element {
   );
 }
 
-function readStoredPanelState(storageKey: string, fallbackSize: number): StoredPanelState {
-  const fallbackState = { collapsed: false, size: fallbackSize };
+function readStoredPanelState(
+  storageKey: string,
+  fallbackSize: number,
+  minSize: number,
+  maxSize: number,
+): StoredPanelState {
+  const fallbackState = { size: fallbackSize };
 
   try {
     const rawValue = window.localStorage.getItem(storageKey);
@@ -274,13 +296,18 @@ function readStoredPanelState(storageKey: string, fallbackSize: number): StoredP
       return fallbackState;
     }
 
-    const parsedValue = JSON.parse(rawValue) as Partial<StoredPanelState>;
-    const size = typeof parsedValue.size === "number" ? parsedValue.size : fallbackSize;
+    const parsedValue = JSON.parse(rawValue) as Partial<{ size: unknown }>;
 
-    return {
-      collapsed: parsedValue.collapsed === true,
-      size,
-    };
+    if (
+      typeof parsedValue.size === "number" &&
+      Number.isFinite(parsedValue.size) &&
+      parsedValue.size >= minSize &&
+      parsedValue.size <= maxSize
+    ) {
+      return { size: parsedValue.size };
+    }
+
+    return fallbackState;
   } catch {
     return fallbackState;
   }
