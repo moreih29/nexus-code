@@ -2072,6 +2072,60 @@
           "created_at": "2026-04-24T14:28:11.851Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-24T14:50:56.365Z",
+      "branch": "feat/design-system-repaint",
+      "plan": {
+        "id": 10,
+        "topic": "리사이저 확장 방향 drag 불가 — onResize setState 제거",
+        "issues": [
+          {
+            "id": 1,
+            "title": "onResize setState 제거로 drag 중 re-render 교란 차단",
+            "status": "decided",
+            "decision": "App.tsx \\uc218\\uc815: (1) handleWorkspacePanelResize\\u00b7handleSharedPanelResize\\uc758 rAF callback \\uc548\\uc5d0\\uc11c persistWorkspacePanelState\\u00b7persistSharedPanelState \\ud638\\ucd9c\\uc744 persistPanelState(localStorage) \\uc9c1\\uc811 \\ud638\\ucd9c\\ub85c \\uad50\\uccb4 \\u2014 setState \\ucd94\\uac00 \\uc720\\ubc1c \\uc5c6\\uc74c. (2) useCallback\\ub85c \\uac10\\uc2fc persistWorkspacePanelState\\u00b7persistSharedPanelState\\ub294 \\uc81c\\uac70(\\ub2e4\\ub978 \\ud638\\ucd9c\\uc790 \\uc5c6\\uc74c, grep \\uac80\\uc99d \\uc644\\ub8cc). (3) workspacePanelState\\u00b7sharedPanelState state\\ub294 \\uc720\\uc9c0\\ud558\\ub418 \\ucd08\\uae30 mount \\uc774\\ud6c4 \\uac31\\uc2e0\\ub418\\uc9c0 \\uc54a\\uc74c(setState \\ud638\\ucd9c \\uc81c\\uac70). ResizablePanel defaultSize\\u00b7aria-valuenow\\ub294 \\ucd08\\uae30\\uac12\\uc73c\\ub85c \\uace0\\uc815. (4) setState \\uc81c\\uac70\\ub85c App re-render\\uac00 drag \\uc911 \\ubc1c\\uc0dd\\ud558\\uc9c0 \\uc54a\\uc744 \\uac83 \\u2014 Panel \\ub0b4\\ubd80 state\\u00b7library layout cache\\uac00 \\uad50\\ub780 \\uc5c6\\uc774 drag delta\\ub97c \\uc815\\uc0c1 \\uc801\\uc6a9. (5) \\uc218\\ub3d9 \\uccb4\\uac10 \\uc2e4\\ud328 \\uc2dc fallback\\uc740 react-resizable-panels 4.2.0 \\ub2e4\\uc6b4\\uadf8\\ub808\\uc774\\ub4dc \\ub610\\ub294 shadcn wrapper \\uc81c\\uac70 \\ud6c4 PanelResizeHandle \\uc9c1\\uc811 \\uc0ac\\uc6a9."
+          }
+        ],
+        "research_summary": "사용자 재현 보고: 리사이저가 \"드래그는 되지만 펼치는 방향으로는 몇 픽셀만 반응\"하고 \"접히는 방향은 정상\". 이전 가설(hit target·pointer-events)은 drag가 아예 안 될 때를 가정했으므로 부분적으로 틀림. Lead가 App.tsx를 직접 확인한 결과, onResize 콜백이 rAF debounce 안에서도 setWorkspacePanelState/setSharedPanelState를 호출하여 drag 중 App 전체 re-render가 16ms마다 발생. ResizablePanel 자식(ScrollArea·WorkspaceSidebar·EmptyState·TerminalPane·Tabs 등)의 reconcile 부담이 pointer move 처리 tick을 밀어내 \"확장 방향 drag delta 유실\" 증상으로 이어짐(researcher #456 관련). 수정 방향: onResize 경로에서 setState 완전 제거, localStorage write만 유지. aria-valuenow는 초기값으로 고정(접근성 경미한 손실 수용). 가설 실증은 사용자 체감.",
+        "created_at": "2026-04-24T14:47:25.405Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "onResize setState 제거",
+          "status": "completed",
+          "context": "드래그 중 onResize → rAF → setState → App re-render가 확장 방향 drag delta 반영을 방해한다는 가설. Lead가 직접 수정.",
+          "acceptance": "1. App.tsx의 handleWorkspacePanelResize·handleSharedPanelResize 내 rAF callback에서 setState 호출 제거\n2. persistPanelState(localStorage)만 호출\n3. persistWorkspacePanelState·persistSharedPanelState useCallback 정의 제거\n4. workspacePanelState·sharedPanelState useState는 유지(초기값만 사용)\n5. defaultSize·aria-valuenow는 초기값 고정\n6. test:unit·test:integration·build PASS\n7. dev 스모크 경고 0건",
+          "approach": "Lead 직접 edit 4~6회. engineer spawn 불필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T14:47:47.370Z"
+        },
+        {
+          "id": 2,
+          "title": "setState 제거 회귀 검증",
+          "status": "completed",
+          "context": "Lead 직접 수정 후 자동 테스트 + 기동 스모크 + grep 감사.",
+          "acceptance": "1. shared bun test PASS\n2. app test:unit PASS\n3. app test:integration PASS\n4. app build PASS\n5. app dev 20초 스모크 경고 0건\n6. grep 감사:\n   - App.tsx에 `setWorkspacePanelState(` / `setSharedPanelState(` 호출이 setState destructuring 외 0건\n   - App.tsx에 `persistWorkspacePanelState` / `persistSharedPanelState` 정의 0건\n   - App.tsx에 `persistPanelState(WORKSPACE_PANEL_STORAGE_KEY` / `persistPanelState(SHARED_PANEL_STORAGE_KEY` 호출이 rAF 콜백 내부에 존재\n7. 최종 판정 PASS/FAIL",
+          "approach": "자동 검증만. 수동 드래그 체감은 Lead/User 위임.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "ses_24008f993ffe2RyB3aykY33ZDa"
+          },
+          "created_at": "2026-04-24T14:47:53.468Z"
+        }
+      ]
     }
   ]
 }

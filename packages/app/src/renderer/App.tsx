@@ -40,7 +40,7 @@ export default function App(): JSX.Element {
   const workspacePanelRef = useRef<PanelImperativeHandle | null>(null);
   const sharedPanelRef = useRef<PanelImperativeHandle | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [workspacePanelState, setWorkspacePanelState] = useState(() =>
+  const [workspacePanelState] = useState(() =>
     readStoredPanelState(
       WORKSPACE_PANEL_STORAGE_KEY,
       WORKSPACE_PANEL_DEFAULT_SIZE,
@@ -48,7 +48,7 @@ export default function App(): JSX.Element {
       WORKSPACE_PANEL_MAX_SIZE,
     ),
   );
-  const [sharedPanelState, setSharedPanelState] = useState(() =>
+  const [sharedPanelState] = useState(() =>
     readStoredPanelState(
       SHARED_PANEL_STORAGE_KEY,
       SHARED_PANEL_DEFAULT_SIZE,
@@ -83,16 +83,6 @@ export default function App(): JSX.Element {
       subscription.dispose();
     };
   }, [applySidebarState]);
-
-  const persistWorkspacePanelState = useCallback((nextState: StoredPanelState) => {
-    persistPanelState(WORKSPACE_PANEL_STORAGE_KEY, nextState);
-    setWorkspacePanelState(nextState);
-  }, []);
-
-  const persistSharedPanelState = useCallback((nextState: StoredPanelState) => {
-    persistPanelState(SHARED_PANEL_STORAGE_KEY, nextState);
-    setSharedPanelState(nextState);
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -150,45 +140,39 @@ export default function App(): JSX.Element {
     resizePanelByPixels(workspacePanelRef.current, event.key === "ArrowLeft" ? -RESIZE_KEYBOARD_STEP_PX : RESIZE_KEYBOARD_STEP_PX);
   }, []);
 
-  const handleWorkspacePanelResize = useCallback(
-    (size: number) => {
-      workspaceLatestSizeRef.current = size;
+  const handleWorkspacePanelResize = useCallback((size: number) => {
+    workspaceLatestSizeRef.current = size;
 
-      if (workspacePendingResizeRef.current !== null) {
-        return;
+    if (workspacePendingResizeRef.current !== null) {
+      return;
+    }
+
+    workspacePendingResizeRef.current = requestAnimationFrame(() => {
+      workspacePendingResizeRef.current = null;
+      const latestSize = workspaceLatestSizeRef.current;
+
+      if (latestSize >= WORKSPACE_PANEL_MIN_SIZE) {
+        persistPanelState(WORKSPACE_PANEL_STORAGE_KEY, { size: latestSize });
       }
+    });
+  }, []);
 
-      workspacePendingResizeRef.current = requestAnimationFrame(() => {
-        workspacePendingResizeRef.current = null;
-        const latestSize = workspaceLatestSizeRef.current;
+  const handleSharedPanelResize = useCallback((size: number) => {
+    sharedLatestSizeRef.current = size;
 
-        if (latestSize >= WORKSPACE_PANEL_MIN_SIZE) {
-          persistWorkspacePanelState({ size: latestSize });
-        }
-      });
-    },
-    [persistWorkspacePanelState],
-  );
+    if (sharedPendingResizeRef.current !== null) {
+      return;
+    }
 
-  const handleSharedPanelResize = useCallback(
-    (size: number) => {
-      sharedLatestSizeRef.current = size;
+    sharedPendingResizeRef.current = requestAnimationFrame(() => {
+      sharedPendingResizeRef.current = null;
+      const latestSize = sharedLatestSizeRef.current;
 
-      if (sharedPendingResizeRef.current !== null) {
-        return;
+      if (latestSize >= SHARED_PANEL_MIN_SIZE) {
+        persistPanelState(SHARED_PANEL_STORAGE_KEY, { size: latestSize });
       }
-
-      sharedPendingResizeRef.current = requestAnimationFrame(() => {
-        sharedPendingResizeRef.current = null;
-        const latestSize = sharedLatestSizeRef.current;
-
-        if (latestSize >= SHARED_PANEL_MIN_SIZE) {
-          persistSharedPanelState({ size: latestSize });
-        }
-      });
-    },
-    [persistSharedPanelState],
-  );
+    });
+  }, []);
 
   const handleSharedResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
