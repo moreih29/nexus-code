@@ -8,3 +8,6 @@ export * from "./shell-environment-resolver";
 export * from "./terminal-host";
 export * from "./workspace-terminal-registry";
 export * from "./terminal-ipc";
+export * from "./adapters/electron-terminal-ipc-adapter";
+export * from "./adapters/electron-workspace-ipc-adapter";
+export * from "./workspace-keyboard-shortcut-bridge";

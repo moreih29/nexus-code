@@ -364,6 +364,10 @@ class RuntimeView implements ShellTerminalTabView {
     this.fitCount += 1;
   }
 
+  public focus(): void {
+    // no-op for the runtime harness fake view
+  }
+
   public write(data: string): void {
     this.writes.push(data);
   }

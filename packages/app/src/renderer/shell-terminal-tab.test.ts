@@ -16,6 +16,7 @@ class FakeElement {
   public children: FakeElement[] = [];
   public readonly style: { display?: string } = {};
   public readonly attributes = new Map<string, string>();
+  private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
   public readonly ownerDocument?: FakeDocument;
 
   public constructor(ownerDocument?: FakeDocument) {
@@ -36,6 +37,26 @@ class FakeElement {
 
   public getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
+  }
+
+  public addEventListener(type: string, listener: EventListener): void {
+    const typedListener = listener as (event: unknown) => void;
+    const listeners = this.listeners.get(type);
+    if (listeners) {
+      listeners.add(typedListener);
+      return;
+    }
+    this.listeners.set(type, new Set([typedListener]));
+  }
+
+  public removeEventListener(type: string, listener: EventListener): void {
+    this.listeners.get(type)?.delete(listener as (event: unknown) => void);
+  }
+
+  public dispatchEventType(type: string, event: unknown = {}): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
   }
 }
 
@@ -94,6 +115,7 @@ class FakeView implements ShellTerminalTabView {
   public mountCount = 0;
   public unmountCount = 0;
   public fitCount = 0;
+  public focusCount = 0;
   public readonly writes: string[] = [];
   public readonly searchNextCalls: string[] = [];
   public readonly searchPreviousCalls: string[] = [];
@@ -116,6 +138,10 @@ class FakeView implements ShellTerminalTabView {
 
   public fit(): void {
     this.fitCount += 1;
+  }
+
+  public focus(): void {
+    this.focusCount += 1;
   }
 
   public write(data: string): void {
@@ -205,6 +231,9 @@ describe("ShellTerminalTabs", () => {
     expect(viewFactory.viewsByTabId.get(alphaTabId)?.mountCount).toBe(1);
     expect(viewFactory.viewsByTabId.get(betaTabId)?.mountCount).toBe(1);
     expect(viewFactory.viewsByTabId.get(gammaTabId)?.mountCount).toBe(1);
+    expect(viewFactory.viewsByTabId.get(alphaTabId)?.focusCount).toBe(1);
+    expect(viewFactory.viewsByTabId.get(betaTabId)?.focusCount).toBe(0);
+    expect(viewFactory.viewsByTabId.get(gammaTabId)?.focusCount).toBe(0);
 
     expect(findPaneDisplay(paneHost, alphaTabId)).toBe("");
     expect(findPaneDisplay(paneHost, betaTabId)).toBe("none");
@@ -214,21 +243,57 @@ describe("ShellTerminalTabs", () => {
     expect(findPaneDisplay(paneHost, alphaTabId)).toBe("none");
     expect(findPaneDisplay(paneHost, betaTabId)).toBe("");
     expect(findPaneDisplay(paneHost, gammaTabId)).toBe("none");
+    expect(viewFactory.viewsByTabId.get(betaTabId)?.focusCount).toBe(1);
 
     tabs.activateWorkspace("ws_gamma");
     expect(findPaneDisplay(paneHost, alphaTabId)).toBe("none");
     expect(findPaneDisplay(paneHost, betaTabId)).toBe("none");
     expect(findPaneDisplay(paneHost, gammaTabId)).toBe("");
+    expect(viewFactory.viewsByTabId.get(gammaTabId)?.focusCount).toBe(1);
 
     tabs.activateWorkspace("ws_alpha");
     expect(findPaneDisplay(paneHost, alphaTabId)).toBe("");
     expect(findPaneDisplay(paneHost, betaTabId)).toBe("none");
     expect(findPaneDisplay(paneHost, gammaTabId)).toBe("none");
+    expect(viewFactory.viewsByTabId.get(alphaTabId)?.focusCount).toBe(2);
 
     expect(viewFactory.createCalls).toHaveLength(3);
     expect(viewFactory.viewsByTabId.get(alphaTabId)?.mountCount).toBe(1);
     expect(viewFactory.viewsByTabId.get(betaTabId)?.mountCount).toBe(1);
     expect(viewFactory.viewsByTabId.get(gammaTabId)?.mountCount).toBe(1);
+  });
+
+  test("focuses terminal view when the visible pane is clicked", async () => {
+    const document = new FakeDocument();
+    const paneHost = new FakeElement(document);
+    const viewFactory = new FakeViewFactory();
+    const tabs = new ShellTerminalTabs({
+      terminalPaneHost: paneHost as unknown as HTMLElement,
+      session: new FakeSessionAdapter(),
+      clipboard: new FakeClipboard(),
+      viewFactory,
+    });
+
+    await tabs.syncSidebarState({
+      openWorkspaces: [
+        { id: "ws_alpha", absolutePath: "/alpha", displayName: "Alpha" },
+      ],
+      activeWorkspaceId: "ws_alpha",
+    });
+
+    const activeTabId = tabs.getSnapshot().workspaces[0]!.activeTabId!;
+    const activePane = findPane(paneHost, activeTabId);
+    const activeView = viewFactory.viewsByTabId.get(activeTabId)!;
+
+    expect(activePane).toBeDefined();
+    expect(activeView.focusCount).toBe(1);
+
+    activePane?.dispatchEventType("mousedown");
+    expect(activeView.focusCount).toBe(2);
+
+    tabs.handleTabExited(activeTabId);
+    activePane?.dispatchEventType("mousedown");
+    expect(activeView.focusCount).toBe(2);
   });
 
   test("tracks in-buffer search with next/previous and no-more-matches state", async () => {
@@ -361,13 +426,43 @@ describe("ShellTerminalTabs", () => {
     expect(renderedHtml).toContain('data-action="rename-tab"');
     expect(renderedHtml).toContain('data-action="close-tab"');
   });
+
+  test("cleans up tab view on terminal-exited event without sending an extra close command", async () => {
+    const document = new FakeDocument();
+    const paneHost = new FakeElement(document);
+    const session = new FakeSessionAdapter();
+    const viewFactory = new FakeViewFactory();
+    const tabs = new ShellTerminalTabs({
+      terminalPaneHost: paneHost as unknown as HTMLElement,
+      session,
+      clipboard: new FakeClipboard(),
+      viewFactory,
+    });
+
+    await tabs.syncSidebarState({
+      openWorkspaces: [
+        { id: "ws_alpha", absolutePath: "/alpha", displayName: "Alpha" },
+      ],
+      activeWorkspaceId: "ws_alpha",
+    });
+
+    const activeTabId = tabs.getSnapshot().workspaces[0]!.activeTabId!;
+
+    tabs.handleTabExited(activeTabId);
+
+    expect(session.closeCalls).toEqual([]);
+    expect(viewFactory.viewsByTabId.get(activeTabId)?.unmountCount).toBe(1);
+    expect(tabs.getSnapshot().workspaces[0]!.tabs).toEqual([]);
+    expect(findPaneDisplay(paneHost, activeTabId)).toBeUndefined();
+  });
 });
 
 function findPaneDisplay(paneHost: FakeElement, tabId: TerminalTabId): string | undefined {
-  const pane = paneHost.children.find(
-    (child) => child.getAttribute("data-terminal-tab-id") === tabId,
-  );
-  return pane?.style.display;
+  return findPane(paneHost, tabId)?.style.display;
+}
+
+function findPane(paneHost: FakeElement, tabId: TerminalTabId): FakeElement | undefined {
+  return paneHost.children.find((child) => child.getAttribute("data-terminal-tab-id") === tabId);
 }
 
 function createKeyEvent(

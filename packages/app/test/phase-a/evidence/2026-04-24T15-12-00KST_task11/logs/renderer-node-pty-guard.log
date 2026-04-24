@@ -1,0 +1,2 @@
+$ bun ./scripts/smoke/renderer-node-pty-import-guard.ts
+renderer node-pty guard smoke passed

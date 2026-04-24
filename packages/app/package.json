@@ -4,11 +4,18 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Electron + React app scaffold for the E1 workspace shell",
-  "main": "./scripts/packaging/noop-main.cjs",
+  "main": "out/main/index.js",
   "scripts": {
     "postinstall": "bun run rebuild:native",
+    "build:sidecar": "cd ../../sidecar && mkdir -p bin && go build -o bin/nexus-sidecar ./cmd/nexus-sidecar",
     "rebuild:native": "electron-rebuild -f -w node-pty",
+    "dev": "bun run build:sidecar && bun run rebuild:native && electron-vite dev",
+    "build": "electron-vite build",
+    "start": "bun run build && electron-vite preview",
+    "preview": "electron-vite preview",
+    "lint:renderer": "eslint \"src/renderer/**/*.{ts,tsx}\"",
     "smoke:node-pty": "electron ./scripts/smoke/node-pty-electron-main.cjs",
+    "smoke:renderer-node-pty-guard": "bun ./scripts/smoke/renderer-node-pty-import-guard.ts",
     "verify:native": "bun run rebuild:native && bun run smoke:node-pty",
     "verify:native:checklist": "bun ./scripts/smoke/native-verification-checklist.ts",
     "test:ime-checklist": "bun test ./test/ime-checklist/ime-release-gate.test.ts ./src/main/workspace-persistence.test.ts",
@@ -24,11 +31,24 @@
     "@xterm/addon-unicode11": "0.9.0",
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",
-    "node-pty": "1.1.0"
+    "node-pty": "1.1.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "zustand": "5.0.12"
   },
   "devDependencies": {
     "@electron/rebuild": "4.0.4",
+    "@tailwindcss/postcss": "4.2.4",
+    "@typescript-eslint/parser": "8.59.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "autoprefixer": "10.5.0",
     "electron": "35.7.5",
-    "electron-builder": "26.8.1"
+    "electron-builder": "26.8.1",
+    "electron-vite": "5.0.0",
+    "eslint": "10.2.1",
+    "postcss": "8.5.10",
+    "tailwindcss": "4.2.4",
+    "typescript": "6.0.3",
+    "vite": "7.3.2"
   }
 }

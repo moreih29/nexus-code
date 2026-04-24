@@ -35,11 +35,15 @@ export interface XtermSearchAddonLike extends XtermAddonLike {
 }
 
 export interface XtermTerminalLike {
+  readonly rows: number;
   unicode: { activeVersion: string };
   loadAddon(addon: XtermAddonLike): void;
   open(container: HTMLElement): void;
+  focus(): void;
   write(data: string): void;
   resize(cols: number, rows: number): void;
+  refresh(start: number, end: number): void;
+  clearTextureAtlas(): void;
   input(data: string, wasUserInput?: boolean): void;
   onData(listener: (data: string) => void): XtermDisposable;
   onBinary?(listener: (data: string) => void): XtermDisposable;
@@ -79,6 +83,7 @@ const DEFAULT_XTERM_VIEW_DEPENDENCIES: XtermViewDependencies = {
 function resolveTerminalOptions(terminalOptions?: ITerminalOptions): ITerminalOptions {
   return {
     ...terminalOptions,
+    allowProposedApi: true,
     fontFamily: terminalOptions?.fontFamily ?? XTERM_DEFAULT_FONT_FAMILY,
     scrollback: terminalOptions?.scrollback ?? XTERM_DEFAULT_SCROLLBACK_LINES,
   };
@@ -179,6 +184,13 @@ export class XtermView {
     this.terminal.input(data, wasUserInput);
   }
 
+  public focus(): void {
+    if (this.disposed || !this.mounted) {
+      return;
+    }
+    this.terminal.focus();
+  }
+
   public write(data: string): void {
     if (this.disposed) {
       return;
@@ -198,6 +210,7 @@ export class XtermView {
       return;
     }
     this.fitAddon.fit();
+    this.repairRendererAfterVisibilityChange();
   }
 
   public searchNext(term: string, searchOptions?: ISearchOptions): boolean {
@@ -265,6 +278,12 @@ export class XtermView {
     } catch {
       this.webglAddonLoaded = false;
     }
+  }
+
+  private repairRendererAfterVisibilityChange(): void {
+    const lastRowIndex = Math.max(0, this.terminal.rows - 1);
+    this.terminal.clearTextureAtlas();
+    this.terminal.refresh(0, lastRowIndex);
   }
 
   private setupImeHandling(container: HTMLElement): void {

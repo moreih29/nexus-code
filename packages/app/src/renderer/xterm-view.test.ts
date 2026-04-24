@@ -60,13 +60,17 @@ class FakeSearchAddon extends FakeAddon implements XtermSearchAddonLike {
 }
 
 class FakeTerminal implements XtermTerminalLike {
+  public readonly rows = 30;
   public readonly unicode = { activeVersion: "0" };
 
   public readonly loadedAddons: XtermAddonLike[] = [];
   public readonly writes: string[] = [];
   public readonly inputs: Array<{ data: string; wasUserInput: boolean | undefined }> = [];
   public readonly resizes: Array<{ cols: number; rows: number }> = [];
+  public readonly refreshCalls: Array<{ start: number; end: number }> = [];
   public openCount = 0;
+  public focusCount = 0;
+  public clearTextureAtlasCount = 0;
   public disposeCount = 0;
   public throwOnOpen = false;
   public dataListener: ((data: string) => void) | null = null;
@@ -89,12 +93,24 @@ class FakeTerminal implements XtermTerminalLike {
     this.openCount += 1;
   }
 
+  public focus(): void {
+    this.focusCount += 1;
+  }
+
   public write(data: string): void {
     this.writes.push(data);
   }
 
   public resize(cols: number, rows: number): void {
     this.resizes.push({ cols, rows });
+  }
+
+  public refresh(start: number, end: number): void {
+    this.refreshCalls.push({ start, end });
+  }
+
+  public clearTextureAtlas(): void {
+    this.clearTextureAtlasCount += 1;
   }
 
   public input(data: string, wasUserInput?: boolean): void {
@@ -223,6 +239,7 @@ describe("XtermView", () => {
     };
 
     const view = new XtermView({}, dependencies);
+    expect(createTerminalOptions?.allowProposedApi).toBe(true);
     expect(createTerminalOptions?.fontFamily).toBe(XTERM_DEFAULT_FONT_FAMILY);
     expect(createTerminalOptions?.scrollback).toBe(XTERM_DEFAULT_SCROLLBACK_LINES);
     view.unmount();
@@ -245,6 +262,7 @@ describe("XtermView", () => {
     const view = new XtermView(
       {
         terminalOptions: {
+          allowProposedApi: false,
           fontFamily: "Custom Mono",
           scrollback: 1234,
         },
@@ -252,6 +270,7 @@ describe("XtermView", () => {
       dependencies,
     );
 
+    expect(createTerminalOptions?.allowProposedApi).toBe(true);
     expect(createTerminalOptions?.fontFamily).toBe("Custom Mono");
     expect(createTerminalOptions?.scrollback).toBe(1234);
     view.unmount();
@@ -312,7 +331,10 @@ describe("XtermView", () => {
     expect(terminal.unicode.activeVersion).toBe("11");
     expect(terminal.loadedAddons).toEqual([unicodeAddon, fitAddon, searchAddon, webglAddon]);
     expect(fitAddon.fitCount).toBe(1);
+    expect(terminal.clearTextureAtlasCount).toBe(0);
+    expect(terminal.refreshCalls).toEqual([]);
 
+    view.focus();
     view.dispatchInput("whoami");
     view.write("stdout chunk");
     view.resize(120, 30);
@@ -326,6 +348,7 @@ describe("XtermView", () => {
     terminal.selectionText = "selected text";
     terminal.selectionListener?.();
 
+    expect(terminal.focusCount).toBe(1);
     expect(terminal.inputs).toEqual([{ data: "whoami", wasUserInput: true }]);
     expect(terminal.writes).toEqual(["stdout chunk"]);
     expect(terminal.resizes).toEqual([{ cols: 120, rows: 30 }]);
@@ -351,11 +374,35 @@ describe("XtermView", () => {
     expect(webglAddon.disposeCount).toBe(1);
 
     view.dispatchInput("after-dispose");
+    view.focus();
     view.write("after-dispose");
     view.resize(1, 1);
+    expect(terminal.focusCount).toBe(1);
     expect(terminal.inputs).toHaveLength(1);
     expect(terminal.writes).toHaveLength(1);
     expect(terminal.resizes).toHaveLength(1);
+  });
+
+  test("repairs WebGL texture atlas and refreshes all rows when fit is called after visibility changes", () => {
+    const terminal = new FakeTerminal();
+    const fitAddon = new FakeFitAddon();
+    const dependencies: XtermViewDependencies = {
+      createTerminal: () => terminal,
+      createWebglAddon: () => new FakeAddon(),
+      createUnicode11Addon: () => new FakeAddon(),
+      createFitAddon: () => fitAddon,
+      createSearchAddon: () => new FakeSearchAddon(),
+    };
+    const view = new XtermView({}, dependencies);
+
+    expect(view.mount({} as unknown as HTMLElement)).toBeTrue();
+    view.fit();
+
+    expect(fitAddon.fitCount).toBe(2);
+    expect(terminal.clearTextureAtlasCount).toBe(1);
+    expect(terminal.refreshCalls).toEqual([{ start: 0, end: 29 }]);
+
+    view.unmount();
   });
 
   test("returns false if mount cannot open in non-DOM environment", () => {

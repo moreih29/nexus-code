@@ -1,0 +1,2 @@
+$ electron ./scripts/smoke/node-pty-electron-main.cjs
+[smoke] PASS (electron=35.7.5 node=22.16.0 modules=133): exitCode=0 signal=0 output="node-pty-smoke-ok"

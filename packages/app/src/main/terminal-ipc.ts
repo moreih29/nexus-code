@@ -35,10 +35,15 @@ export interface TerminalMainIpcAdapter {
   sendEvent(payload: unknown): void;
 }
 
+export type TerminalWorkspaceCwdResolver = (
+  workspaceId: WorkspaceId,
+) => Promise<string | null | undefined> | string | null | undefined;
+
 export interface TerminalMainIpcRouterDependencies {
   registry: WorkspaceTerminalRegistry;
   shellEnvironmentResolver: TerminalHostEnvironmentResolver;
   ipcAdapter: TerminalMainIpcAdapter;
+  resolveWorkspaceCwd?: TerminalWorkspaceCwdResolver;
 }
 
 export interface TerminalMainIpcRouterOptions {
@@ -159,13 +164,35 @@ export class TerminalMainIpcRouter {
   }
 
   private async handleOpenCommand(command: TerminalOpenCommand): Promise<TerminalOpenedEvent> {
+    const openCommand = await this.resolveOpenCommandCwd(command);
     const openedEvent = await this.dependencies.registry.openTerminal({
-      tabId: this.createTabId(command.workspaceId),
-      openCommand: command,
+      tabId: this.createTabId(openCommand.workspaceId),
+      openCommand,
       shellEnvironmentResolver: this.dependencies.shellEnvironmentResolver,
     });
     this.emitEvent(openedEvent);
     return openedEvent;
+  }
+
+  private async resolveOpenCommandCwd(command: TerminalOpenCommand): Promise<TerminalOpenCommand> {
+    if (command.cwd) {
+      return command;
+    }
+
+    const resolveWorkspaceCwd = this.dependencies.resolveWorkspaceCwd;
+    if (!resolveWorkspaceCwd) {
+      return command;
+    }
+
+    const cwd = await resolveWorkspaceCwd(command.workspaceId);
+    if (!cwd) {
+      throw new Error(`No terminal cwd is registered for workspace "${command.workspaceId}".`);
+    }
+
+    return {
+      ...command,
+      cwd,
+    };
   }
 
   private async handleCloseCommand(

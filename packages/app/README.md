@@ -1,55 +1,61 @@
 # @nexus/app
 
-E1 workspace-shell scaffold for the Electron app package.
+Electron app package for the Phase A Runnable Shell.
 
-## Scope in task #1
+## Phase A status
 
-- Reserve `src/main` for main-process workspace shell wiring
-- Reserve `src/renderer` for renderer workspace shell UI wiring
-- Keep E2/E4 terminal/editor/LSP behavior out of this package for now
+Phase A is implemented and manually validated for **unsigned dev launch**.
 
-## E2 task 1: node-pty native addon pipeline
+- Launch mode: `cd packages/app && bun run dev`
+- Final evidence: `test/phase-a/evidence/2026-04-24T15-12-00KST_task11/`
+- Gate summary: `test/phase-a/manual-integration-checklist.md`
+- Final verdict: PASS for workspace sidebar, workspace-specific terminal cwd, terminal input/output, multi-tab behavior, Korean IME manual validation, restart/session restore, sidecar lifecycle, and fast workspace switching render stability.
 
-- `bun install` (in `packages/app`) runs `postinstall` → `bun run rebuild:native`
-- `rebuild:native` runs `@electron/rebuild` against pinned Electron (`35.7.5`) for `node-pty`
-- `verify:native` runs rebuild + Electron smoke load (`scripts/smoke/node-pty-electron-main.cjs`)
-- `electron-builder.yml` ships `node-pty` native binary via:
-  - `asarUnpack: node_modules/node-pty/build/Release/*.node`
-  - `extraResources: node_modules/node-pty/build/Release/pty.node -> Contents/Resources/native/node-pty/pty.node`
+This package does **not** treat notarized/codesigned app QA as a Phase A release gate. `package:dir` and `package:mac` remain packaging scripts, but signed-app distribution is outside the Phase A roadmap scope.
 
-## E2 task 10: bundled terminal fonts (Korean fallback)
+## Runtime shell
 
-- Bundled OFL font assets live under `assets/fonts/`:
-  - `d2coding/D2Coding-Ver1.3.2-20180524.ttf`
-  - `d2coding/D2CodingBold-Ver1.3.2-20180524.ttf`
-  - `noto-sans-kr/NotoSansKR[wght].ttf`
-  - family-specific `OFL.txt` license files
-- `electron-builder.yml` ships the entire `assets/fonts/` tree into packaged app resources (`Contents/Resources/fonts`).
-- Terminal default stack is set to `"D2Coding", "Noto Sans KR", ui-monospace, ...` via `src/renderer/xterm-fonts.ts` + `XtermView` defaults.
+- The renderer is a React + Tailwind shell using shadcn-style `Button` and `Tabs` primitives.
+- The shell reserves the MVP 4-column layout:
+  1. activity bar
+  2. workspace/filetree side panel
+  3. center terminal/editor area
+  4. right shared panel for tool/session/diff/preview tabs
+- `electron-vite` builds the main, preload, and renderer entry points.
 
-## E2 task 11: Korean IME/rendering release gate
+## Workspace behavior
 
-- `bun run test:ime-checklist` executes deterministic checklist coverage for #1, #2, #3, #5, #6, #7 and references #4 via the existing NFC regression test.
-- Gate tests + artifacts live under `test/ime-checklist/`.
-- Evidence outputs are written to `test/ime-checklist/artifacts/` (`latest-evidence.json`, `latest-summary.md`, screenshot placeholders).
-- This gate intentionally does **not** claim full native macOS IME automation.
+- Users can open folders, switch active workspaces from the sidebar, close workspaces, and restore the previous workspace session after restart.
+- Workspace IPC is exposed through preload and persisted by the main process.
+- Terminal startup resolves `workspaceId -> absolutePath`, so each terminal opens with the selected workspace as `cwd`.
 
-## E2 task 12: signed-app native manual QA checklist
+## Terminal behavior
 
-- Manual release checklist: `test/manual-qa/korean-release-checklist.md`
-- Evidence templates/root: `test/manual-qa/release-evidence/`
-- Must be executed by human QA on both **arm64 + x64** signed `.app` environments.
+- Shell terminals are workspace-scoped and support multiple tabs per workspace.
+- PTYs run in the Electron main process through `node-pty`; renderer code communicates over IPC and must not import `node-pty`.
+- The renderer imports `@xterm/xterm/css/xterm.css` and uses xterm.js with WebGL, Unicode11, `allowProposedApi: true`, focus repair, and visibility repair that clears the WebGL texture atlas and refreshes rows after workspace/tab switches.
+- Inactive workspace terminals stay mounted but hidden so tab state is preserved during switching.
 
-## CI / release rule
+## Sidecar behavior
 
-Before release, **all** conditions below must be true:
+- `bun run build:sidecar` compiles the Go sidecar binary into `sidecar/bin/nexus-sidecar`.
+- Phase A sidecar support is lifecycle-only: one process per open workspace, start on session restore/open, stop on workspace close/app shutdown, and process cleanup evidence captured under the Phase A evidence directory.
+- Schema codegen and sidecar WebSocket lifecycle handshake work are deferred to E3.
 
-1. `bun run test:ime-checklist` passes.
-2. Manual signed-app native checklist passes on arm64 and x64 (`test/manual-qa/korean-release-checklist.md`).
-3. Evidence bundle is stored under `test/manual-qa/release-evidence/<RUN_ID>/` and final verdict is PASS.
+## Common commands
 
-## Remaining manual release checks
-
-Run `bun run verify:native:checklist` to print pending x64 and signed-app checks.
-
-For tasks 10/11/12, signed `.app` visual + native IME verification remains **manual pending** until evidence is captured.
+| Purpose | Command |
+| --- | --- |
+| Dev launch | `bun run dev` |
+| Build sidecar only | `bun run build:sidecar` |
+| Rebuild native addon | `bun run rebuild:native` |
+| Build app | `bun run build` |
+| Build then preview | `bun run start` |
+| Preview existing build | `bun run preview` |
+| Renderer lint | `bun run lint:renderer` |
+| Renderer node-pty import guard | `bun run smoke:renderer-node-pty-guard` |
+| Native node-pty smoke | `bun run verify:native` |
+| IME checklist gate | `bun run test:ime-checklist` |
+| Runtime terminal gate | `bun run test:runtime-terminal` |
+| Directory package | `bun run package:dir` |
+| macOS package script | `bun run package:mac` |

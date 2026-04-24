@@ -1,0 +1,22 @@
+bun test v1.3.9 (cf6cdbbb)
+
+src/main/workspace-persistence.test.ts:
+(pass) WorkspacePersistenceStore > registerWorkspace stores NFC-normalized absolute path with stable workspace id [13.85ms]
+(pass) WorkspacePersistenceStore > persists open order + active workspace and restores after relaunch [6.44ms]
+
+src/main/workspace-shell-service.test.ts:
+(pass) WorkspaceShellService > open-folder flow persists open-session order and active workspace across relaunch [3.48ms]
+(pass) WorkspaceShellService > closeWorkspaceInSession also requests terminal cleanup for the closed workspace [1.90ms]
+
+src/main/sidecar-lifecycle-manager.test.ts:
+(pass) OpenSessionSidecarLifecycleManager > opening starts sidecars, switching keeps them alive, and close stops only targeted sidecar [9.84ms]
+(pass) OpenSessionSidecarLifecycleManager > relaunch restore starts prior open-session sidecars once without double spawning [4.38ms]
+
+src/renderer/workspace-switching-commands.test.ts:
+(pass) WorkspaceSwitchingCommands > switches previous/next with wraparound using persisted sidebar order [5.62ms]
+(pass) WorkspaceSwitchingCommands > activates direct slots using sidebar ordering [4.67ms]
+
+ 8 pass
+ 0 fail
+ 47 expect() calls
+Ran 8 tests across 4 files. [163.00ms]

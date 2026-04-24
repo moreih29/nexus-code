@@ -24,6 +24,7 @@ export interface ShellTerminalTabView {
   mount(container: HTMLElement | null | undefined): boolean;
   unmount(): void;
   fit(): void;
+  focus(): void;
   write(data: string): void;
   searchNext(term: string): boolean;
   searchPrevious(term: string): boolean;
@@ -93,6 +94,7 @@ interface ShellTerminalTabRecord {
   container: HTMLElement;
   view: ShellTerminalTabView;
   selectionDisposable: XtermDisposable;
+  focusEventDisposable: XtermDisposable;
 }
 
 const DEFAULT_VIEW_FACTORY: ShellTerminalTabViewFactory = {
@@ -277,6 +279,7 @@ export class ShellTerminalTabs {
     });
 
     view.mount(container);
+    const focusEventDisposable = this.installFocusOnPointer(container, view);
 
     const selectionDisposable = view.onSelectionChange(() => {
       void this.copySelectionForTab(tabId).catch(() => {
@@ -291,6 +294,7 @@ export class ShellTerminalTabs {
       container,
       view,
       selectionDisposable,
+      focusEventDisposable,
     };
     this.tabRecordsById.set(tabId, record);
 
@@ -299,7 +303,10 @@ export class ShellTerminalTabs {
     this.tabOrderByWorkspaceId.set(workspaceId, tabOrder);
 
     const activeTabId = this.activeTabByWorkspaceId.get(workspaceId);
-    if (activateTab || !activeTabId) {
+    if (!activeTabId) {
+      this.activeTabByWorkspaceId.set(workspaceId, tabId);
+    }
+    if (activateTab) {
       this.activeTabByWorkspaceId.set(workspaceId, tabId);
       this.activeWorkspaceId = workspaceId;
     }
@@ -313,6 +320,15 @@ export class ShellTerminalTabs {
     }
 
     await this.options.session.closeTab(tabId);
+    this.disposeTab(tabId);
+    this.applyVisibility();
+  }
+
+  public handleTabExited(tabId: TerminalTabId): void {
+    if (!this.tabRecordsById.has(tabId)) {
+      return;
+    }
+
     this.disposeTab(tabId);
     this.applyVisibility();
   }
@@ -512,6 +528,7 @@ export class ShellTerminalTabs {
     }
 
     record.selectionDisposable.dispose();
+    record.focusEventDisposable.dispose();
     record.view.unmount();
     this.removePaneContainer(record.container);
 
@@ -574,7 +591,47 @@ export class ShellTerminalTabs {
 
     if (isVisible && !wasVisible) {
       record.view.fit();
+      this.scheduleVisibleTabRenderRepair(record.tabId);
+      record.view.focus();
     }
+  }
+
+  private scheduleVisibleTabRenderRepair(tabId: TerminalTabId): void {
+    const record = this.tabRecordsById.get(tabId);
+    const viewWindow = record?.container.ownerDocument?.defaultView;
+    if (!record || !viewWindow) {
+      return;
+    }
+
+    viewWindow.requestAnimationFrame(() => {
+      const latestRecord = this.tabRecordsById.get(tabId);
+      if (!latestRecord || !(this.visibleByTabId.get(tabId) ?? false)) {
+        return;
+      }
+
+      latestRecord.view.fit();
+    });
+  }
+
+  private installFocusOnPointer(
+    container: HTMLElement,
+    view: ShellTerminalTabView,
+  ): XtermDisposable {
+    const eventTarget = container as {
+      addEventListener?: (type: string, listener: EventListener) => void;
+      removeEventListener?: (type: string, listener: EventListener) => void;
+    };
+    const focusView = (): void => {
+      view.focus();
+    };
+
+    eventTarget.addEventListener?.("mousedown", focusView);
+
+    return {
+      dispose: () => {
+        eventTarget.removeEventListener?.("mousedown", focusView);
+      },
+    };
   }
 
   private createTerminalContainer(tabId: TerminalTabId): HTMLElement {
@@ -584,8 +641,13 @@ export class ShellTerminalTabs {
       (ownerDocument?.createElement?.("div") as HTMLElement | undefined) ??
       ({ style: {} } as unknown as HTMLElement);
 
-    (container as { style?: { display?: string } }).style ??= {};
-    (container as { style: { display?: string } }).style.display = "none";
+    (container as { style?: { display?: string; width?: string; height?: string } }).style ??= {};
+    const containerStyle = (container as {
+      style: { display?: string; width?: string; height?: string };
+    }).style;
+    containerStyle.display = "none";
+    containerStyle.width = "100%";
+    containerStyle.height = "100%";
     (container as { setAttribute?: (name: string, value: string) => void }).setAttribute?.(
       "data-terminal-tab-id",
       tabId,

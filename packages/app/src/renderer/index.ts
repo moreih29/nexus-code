@@ -8,3 +8,5 @@ export * from "./xterm-fonts";
 export * from "./xterm-ime-overlay";
 export * from "./xterm-view";
 export * from "./shell-terminal-tab";
+export * from "./adapters/preload-terminal-bridge-transport";
+export * from "./adapters/shell-terminal-session-adapter";

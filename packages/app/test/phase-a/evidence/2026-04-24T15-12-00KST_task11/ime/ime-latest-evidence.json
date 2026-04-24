@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-04-24T05:44:40.920Z",
+  "harness": "deterministic-seam",
+  "nativeImeAutomationLimitations": "System-level macOS native IME composition UI cannot be fully automated in this Bun/xterm seam harness.",
+  "nativeImeManualQaRequired": true,
+  "checklist": {
+    "1": {
+      "id": "1",
+      "status": "pass",
+      "notes": "Overlay render matched deterministic cursor seam anchor transform + minHeight.",
+      "metrics": {
+        "anchorX": 18.7,
+        "anchorY": 31.2,
+        "anchorHeight": 21.4
+      }
+    },
+    "2": {
+      "id": "2",
+      "status": "pass",
+      "notes": "Composing Enter was swallowed; post-composition Enter remained forwardable as submit/newline."
+    },
+    "3": {
+      "id": "3",
+      "status": "pass",
+      "notes": "Unicode11 cell-width seam returned expected double-width for Hangul characters.",
+      "metrics": {
+        "width_hieut": 2,
+        "width_ga": 2,
+        "width_hangul_word": 4,
+        "width_ascii": 3
+      }
+    },
+    "4": {
+      "id": "4",
+      "status": "pass",
+      "notes": "Referenced existing NFC regression test in src/main/workspace-persistence.test.ts.",
+      "metrics": {
+        "referenced_file": "../../src/main/workspace-persistence.test.ts"
+      }
+    },
+    "5": {
+      "id": "5",
+      "status": "pass",
+      "notes": "Composition buffer retained the full update stream and suppressed duplicate PTY echo once.",
+      "metrics": {
+        "composed_characters": 256
+      }
+    },
+    "6": {
+      "id": "6",
+      "status": "pass",
+      "notes": "Deterministic seam harness measured input→PTY echo→paint path. Native macOS IME measurement remains manual QA.",
+      "metrics": {
+        "sample_count": 5,
+        "average_input_to_pty_echo_ms": 7.48,
+        "average_pty_echo_to_paint_ms": 3.48,
+        "average_input_to_paint_ms": 10.96,
+        "max_input_to_paint_ms": 11.7,
+        "threshold_ms": 16
+      }
+    },
+    "7": {
+      "id": "7",
+      "status": "pass",
+      "notes": "Default terminal font-family keeps D2Coding first and Noto Sans KR as immediate fallback.",
+      "metrics": {
+        "font_stack": "\"D2Coding\", \"Noto Sans KR\", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace"
+      }
+    }
+  }
+}

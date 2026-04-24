@@ -78,6 +78,7 @@ describe("TerminalMainIpcRouter + TerminalBridge", () => {
 
     const host = hostFactory.byTabId.get(opened.tabId);
     expect(host).toBeDefined();
+    expect(hostFactory.createCalls[0]?.cwd).toBeUndefined();
 
     await bridge.input({
       type: "terminal/input",
@@ -184,6 +185,79 @@ describe("TerminalMainIpcRouter + TerminalBridge", () => {
     router.stop();
   });
 
+  test("resolves terminal cwd from the registered workspace when renderer omits cwd", async () => {
+    const channel = new InMemoryTerminalIpcChannel();
+    const hostFactory = new FakeHostFactory();
+    const registry = new WorkspaceTerminalRegistry({ hostFactory });
+    const router = new TerminalMainIpcRouter(
+      {
+        registry,
+        shellEnvironmentResolver: TEST_ENVIRONMENT_RESOLVER,
+        ipcAdapter: channel,
+        resolveWorkspaceCwd: (workspaceId) => {
+          if (workspaceId === "ws_alpha") {
+            return "/Users/kih/workspaces/archives/opencode-nexus-test";
+          }
+          return null;
+        },
+      },
+      {
+        createTabId: () => "tt_ws_alpha_cwd_001" as TerminalTabId,
+      },
+    );
+    router.start();
+
+    const bridge = new TerminalBridge(channel);
+    const opened = await bridge.open({
+      type: "terminal/open",
+      workspaceId: "ws_alpha",
+      cols: 120,
+      rows: 32,
+    });
+
+    expect(opened.workspaceId).toBe("ws_alpha");
+    expect(hostFactory.createCalls[0]).toEqual({
+      tabId: "tt_ws_alpha_cwd_001",
+      workspaceId: "ws_alpha",
+      cwd: "/Users/kih/workspaces/archives/opencode-nexus-test",
+    });
+
+    bridge.dispose();
+    router.stop();
+  });
+
+  test("preserves an explicit terminal cwd when one is supplied", async () => {
+    const channel = new InMemoryTerminalIpcChannel();
+    const hostFactory = new FakeHostFactory();
+    const registry = new WorkspaceTerminalRegistry({ hostFactory });
+    const router = new TerminalMainIpcRouter(
+      {
+        registry,
+        shellEnvironmentResolver: TEST_ENVIRONMENT_RESOLVER,
+        ipcAdapter: channel,
+        resolveWorkspaceCwd: () => "/workspace/default",
+      },
+      {
+        createTabId: () => "tt_ws_alpha_explicit_cwd_001" as TerminalTabId,
+      },
+    );
+    router.start();
+
+    const bridge = new TerminalBridge(channel);
+    await bridge.open({
+      type: "terminal/open",
+      workspaceId: "ws_alpha",
+      cols: 120,
+      rows: 32,
+      cwd: "/tmp/explicit-terminal-cwd",
+    });
+
+    expect(hostFactory.createCalls[0]?.cwd).toBe("/tmp/explicit-terminal-cwd");
+
+    bridge.dispose();
+    router.stop();
+  });
+
   test("rejects malformed terminal events at the renderer bridge boundary", () => {
     const channel = new InMemoryTerminalIpcChannel();
     const bridge = new TerminalBridge(channel);
@@ -274,6 +348,7 @@ class FakeHostFactory implements WorkspaceTerminalHostFactory {
     this.createCalls.push({
       tabId: options.tabId,
       workspaceId: options.openCommand.workspaceId,
+      cwd: options.openCommand.cwd,
     });
 
     const host = new FakeTerminalHost({
@@ -289,6 +364,7 @@ class FakeHostFactory implements WorkspaceTerminalHostFactory {
 type MainHostCreateCall = {
   tabId: TerminalTabId;
   workspaceId: WorkspaceId;
+  cwd?: string;
 };
 
 class FakeTerminalHost implements WorkspaceTerminalHost {

@@ -1,0 +1,33 @@
+$ bun run rebuild:native && electron-vite dev
+$ electron-rebuild -f -w node-pty
+Searching dependency tree
+Building modules: node-pty
+✔ Rebuild Complete
+vite v7.3.2 building ssr environment for development...
+transforming...
+✓ 16 modules transformed.
+rendering chunks...
+out/main/index.js  73.45 kB
+✓ built in 273ms
+
+electron main process built successfully
+
+-----
+
+vite v7.3.2 building ssr environment for development...
+transforming...
+✓ 3 modules transformed.
+rendering chunks...
+out/preload/index.cjs  2.21 kB
+✓ built in 11ms
+
+electron preload scripts built successfully
+
+-----
+
+dev server running for the electron renderer process at:
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+
+starting electron app...

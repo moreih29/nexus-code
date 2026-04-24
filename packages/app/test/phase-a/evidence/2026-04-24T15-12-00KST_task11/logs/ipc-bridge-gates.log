@@ -1,0 +1,32 @@
+bun test v1.3.9 (cf6cdbbb)
+
+src/main/adapters/electron-terminal-ipc-adapter.test.ts:
+(pass) ElectronTerminalIpcAdapter > registers terminal:invoke and routes command payloads [1.06ms]
+(pass) ElectronTerminalIpcAdapter > forwards terminal:event payloads to renderer webContents [0.08ms]
+(pass) ElectronTerminalIpcAdapter > does not send terminal:event after renderer webContents is destroyed [0.02ms]
+
+src/main/adapters/electron-workspace-ipc-adapter.test.ts:
+(pass) ElectronWorkspaceIpcAdapter > open-folder invokes native directory picker and opens selected path [0.50ms]
+(pass) ElectronWorkspaceIpcAdapter > open-folder cancel returns current sidebar state and emits update without opening a workspace [0.09ms]
+(pass) ElectronWorkspaceIpcAdapter > activate, close, restore-session, and get-sidebar-state route to WorkspaceShellService and emit notifications except get [0.18ms]
+(pass) ElectronWorkspaceIpcAdapter > stop removes all workspace IPC handlers [0.19ms]
+
+src/renderer/adapters/preload-terminal-bridge-transport.test.ts:
+(pass) PreloadTerminalBridgeTransport > delegates invoke + event subscription through window.nexusTerminal [0.72ms]
+
+src/main/workspace-keyboard-shortcut-bridge.test.ts:
+(pass) workspace-keyboard-shortcut-bridge > resolves direct slot keyboard input (Mod+1..9) [0.55ms]
+(pass) workspace-keyboard-shortcut-bridge > resolves previous/next cycle keyboard input (Mod+Alt+ArrowLeft/ArrowRight) [0.05ms]
+(pass) workspace-keyboard-shortcut-bridge > ignores keyUp events [0.04ms]
+(pass) workspace-keyboard-shortcut-bridge > execute command activates expected workspace and returns updated state [0.66ms]
+(pass) workspace-keyboard-shortcut-bridge > bridge listener handles before-input-event and can be disposed [3.03ms]
+(pass) workspace-keyboard-shortcut-bridge > bridge ignores non-matching keyboard input [1.28ms]
+
+src/renderer/stores/workspace-store.test.ts:
+(pass) workspace-store > hydrates and updates state using workspace bridge responses [0.49ms]
+(pass) workspace-store > applies sidebar-state-changed payloads directly [0.10ms]
+
+ 16 pass
+ 0 fail
+ 52 expect() calls
+Ran 16 tests across 5 files. [34.00ms]

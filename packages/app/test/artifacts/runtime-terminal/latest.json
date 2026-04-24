@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-24T03:06:49.347Z",
+  "generatedAt": "2026-04-24T06:31:59.713Z",
   "scenario": {
     "workspaceCount": 3,
     "tabsPerWorkspace": 2,
@@ -7,8 +7,8 @@
     "longTailEmitterTabId": "tt_ws_alpha_0002"
   },
   "switching": {
-    "maxDurationMs": 0.17849999999999966,
-    "minDurationMs": 0.002666999999995312,
+    "maxDurationMs": 0.10345900000001507,
+    "minDurationMs": 0.0037079999999889424,
     "stallThresholdMs": 100,
     "stalledIterations": 0
   },

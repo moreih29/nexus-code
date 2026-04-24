@@ -1,0 +1,10 @@
+{
+  "bounded_seconds": 15,
+  "dev_pid": 2822,
+  "was_running_after_bound": true,
+  "exit_code_after_stop": 143,
+  "elapsed_seconds": 18,
+  "nexus_electron_main_count_before_stop": 1,
+  "nexus_electron_main_count_after_stop": 0,
+  "notes": "Electron main process was observed during bounded smoke and absent after teardown."
+}

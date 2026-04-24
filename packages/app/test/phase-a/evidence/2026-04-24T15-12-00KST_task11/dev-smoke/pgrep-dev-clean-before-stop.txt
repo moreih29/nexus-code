@@ -1,0 +1,1 @@
+3442 /Users/kih/workspaces/areas/nexus-code/packages/app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron .
