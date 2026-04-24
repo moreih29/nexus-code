@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "scripts": {
+    "test": "bun test ./src"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./contracts": "./src/index.ts"

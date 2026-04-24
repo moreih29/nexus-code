@@ -61,7 +61,7 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 | M0 Foundation | 앱 스캐폴드, sidecar 스캐폴드, IPC 계약 셋업 |
 | M1 Workspace Shell | E1 완성 (단위 테스트 레벨) |
 | M2 Terminal + CJK | E2 완성 (자동 게이트 + 단위 테스트) |
-| **Phase A — Runnable Shell 확정** | **완료/PASS(2026-04-24, evidence: `packages/app/test/phase-a/evidence/2026-04-24T15-12-00KST_task11/`). M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합: unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(좌 activity + 좌 패널 + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. Phase A sidecar는 lifecycle-only로 닫고, sidecar WebSocket IPC·schema codegen은 E3 착수로 이관. 서명·notarize·package:mac는 로드맵 외 사용자 외부 작업으로 분리.** |
+| **Phase A — Runnable Shell 확정** | **완료/PASS(2026-04-24, evidence: `release-evidence/phase-a/2026-04-24T15-12-00KST_task11/`). M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합: unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(좌 activity + 좌 패널 + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. Phase A sidecar는 lifecycle-only로 닫고, sidecar WebSocket IPC·schema codegen은 E3 착수로 이관. 서명·notarize·package:mac는 로드맵 외 사용자 외부 작업으로 분리.** |
 | M3 Harness Observer | E3 완성. 착수 사이클의 첫 태스크 묶음에 아래 4항목이 반드시 포함된다(Phase A → E3 인수인계 계약, plan #4 Issue 4): (1) schema↔TS/Go codegen 파이프라인 구축 및 기존 수작업 contracts(`sidecar/internal/contracts/*`, `packages/shared/src/contracts/*`)의 생성물 대체, (2) CI drift gate 추가 — 생성물 ↔ 원본 불일치 시 실패, (3) Go sidecar WebSocket IPC 최소 구현은 lifecycle handshake(SidecarStart/Started/Stop/Stopped) 왕복 성공을 선결, 그 이후 harness observer 이벤트 스트림으로 확장, (4) WebSocket 라이브러리(gorilla/websocket vs nhooyr/websocket) 선택을 E3 plan의 독립 이슈로 관리. |
 | M4 Editor + LSP | E4 완성 (TypeScript / Python / Go) |
 | M5 Preview | E5 완성 |

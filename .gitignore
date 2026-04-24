@@ -10,3 +10,14 @@ packages/app/dist/
 packages/app/out/
 sidecar/bin/
 *.tsbuildinfo
+
+# test artifacts (regenerated each run)
+packages/app/test/artifacts/
+packages/app/test/ime-checklist/artifacts/*
+!packages/app/test/ime-checklist/artifacts/README.md
+!packages/app/test/ime-checklist/artifacts/screenshots/
+!packages/app/test/ime-checklist/artifacts/screenshots/.gitkeep
+packages/app/test/ime-checklist/artifacts/screenshots/manual-native-ime-required.md
+packages/app/test/manual-qa/release-evidence/*
+!packages/app/test/manual-qa/release-evidence/README.md
+!packages/app/test/manual-qa/release-evidence/*.template.*
