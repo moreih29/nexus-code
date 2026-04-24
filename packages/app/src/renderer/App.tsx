@@ -141,7 +141,7 @@ export default function App(): JSX.Element {
 
       <ResizablePanelGroup direction="horizontal" className="min-w-0 flex-1">
         <ResizablePanel
-          panelRef={workspacePanelRef}
+          ref={workspacePanelRef}
           id="workspace-panel"
           order={1}
           collapsible
@@ -149,8 +149,6 @@ export default function App(): JSX.Element {
           defaultSize={workspacePanelState.collapsed ? 0 : workspacePanelState.size}
           minSize={WORKSPACE_PANEL_MIN_SIZE}
           maxSize={WORKSPACE_PANEL_MAX_SIZE}
-          onCollapse={() => persistWorkspacePanelState({ ...workspacePanelState, collapsed: true })}
-          onExpand={() => persistWorkspacePanelState({ ...workspacePanelState, collapsed: false })}
           onResize={(size) => persistWorkspacePanelState({ collapsed: size === 0, size: size > 0 ? size : workspacePanelState.size })}
           className="min-h-0"
         >
@@ -208,7 +206,7 @@ export default function App(): JSX.Element {
         />
 
         <ResizablePanel
-          panelRef={sharedPanelRef}
+          ref={sharedPanelRef}
           id="shared-panel"
           order={3}
           collapsible
@@ -216,8 +214,6 @@ export default function App(): JSX.Element {
           defaultSize={sharedPanelState.collapsed ? 0 : sharedPanelState.size}
           minSize={SHARED_PANEL_MIN_SIZE}
           maxSize={SHARED_PANEL_MAX_SIZE}
-          onCollapse={() => persistSharedPanelState({ ...sharedPanelState, collapsed: true })}
-          onExpand={() => persistSharedPanelState({ ...sharedPanelState, collapsed: false })}
           onResize={(size) => persistSharedPanelState({ collapsed: size === 0, size: size > 0 ? size : sharedPanelState.size })}
           className="min-h-0"
         >

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useStore } from "zustand";
 
 import {
@@ -23,7 +24,11 @@ interface CommandPaletteProps {
 const COMMAND_GROUPS: CommandGroupName[] = ["Workspace", "View", "Terminal", "App"];
 
 export function CommandPalette({ onOpenChange, open }: CommandPaletteProps) {
-  const commands = useStore(keyboardRegistryStore, (state) => state.getCommands());
+  const commandsRecord = useStore(keyboardRegistryStore, (state) => state.commands);
+  const commands = useMemo(
+    () => Object.values(commandsRecord).filter((command) => !command.hidden),
+    [commandsRecord],
+  );
   const getBindingFor = useStore(keyboardRegistryStore, (state) => state.getBindingFor);
   const executeCommand = useStore(keyboardRegistryStore, (state) => state.executeCommand);
 
