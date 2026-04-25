@@ -1,8 +1,5 @@
-import Ajv2020 from "ajv/dist/2020";
-import standaloneCode from "ajv/dist/standalone";
-import addFormats from "ajv-formats";
 import { compileFromFile } from "json-schema-to-typescript";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -52,11 +49,6 @@ for (const name of schemas) {
   await writeFile(path.join(outputDir, `${name}.ts`), applyBrandImports(generated, brandImports[name]));
 }
 
-await writeFile(
-  path.join(outputDir, "terminal-ipc.validate.ts"),
-  await buildStandaloneValidator(path.join(schemaDir, "terminal-ipc.schema.json")),
-);
-
 function applyBrandImports(source: string, brands: string[]): string {
   let output = source;
   const removed = [] as string[];
@@ -75,14 +67,4 @@ function applyBrandImports(source: string, brands: string[]): string {
 
   const importLine = `import type { ${removed.sort().join(", ")} } from "../_brands";\n\n`;
   return output.replace(`${bannerComment}\n`, `${bannerComment}\n${importLine}`);
-}
-
-async function buildStandaloneValidator(schemaPath: string): Promise<string> {
-  const schema = JSON.parse(await readFile(schemaPath, "utf8"));
-  const ajv = new Ajv2020({ code: { esm: true, source: true }, strict: true });
-  addFormats(ajv);
-
-  const validate = ajv.compile(schema);
-  const standalone = standaloneCode(ajv, validate);
-  return `${bannerComment}\n// @ts-nocheck\n${standalone}`;
 }

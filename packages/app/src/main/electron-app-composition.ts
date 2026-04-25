@@ -6,8 +6,9 @@ import type { WorkspaceSidebarState } from "../../../shared/src/contracts/worksp
 import { ElectronWorkspaceIpcAdapter } from "./adapters/electron-workspace-ipc-adapter";
 import { ElectronTerminalIpcAdapter } from "./adapters/electron-terminal-ipc-adapter";
 import { OpenSessionSidecarLifecycleManager } from "./sidecar-lifecycle-manager";
+import { SidecarBridge } from "./sidecar-bridge";
+import { resolveSidecarBinaryPath } from "./sidecar-bin-resolver";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
-import { SidecarProcessRuntime } from "./sidecar-process-runtime";
 import type { SidecarRuntime } from "./sidecar-runtime";
 import {
   TerminalMainIpcRouter,
@@ -39,11 +40,15 @@ export async function composeElectronAppServices(
     storageDir: app.getPath("userData"),
   });
 
-  const sidecarRuntime = new SidecarProcessRuntime({
+  const sidecarBinaryOptions = {
     appPath: app.getAppPath(),
     cwd: process.cwd(),
     resourcesPath: process.resourcesPath,
     isPackaged: app.isPackaged,
+  };
+  const sidecarRuntime = new SidecarBridge({
+    ...sidecarBinaryOptions,
+    sidecarBin: resolveSidecarBinaryPath(sidecarBinaryOptions) ?? undefined,
   });
   const sidecarLifecycleManager = new OpenSessionSidecarLifecycleManager(
     workspacePersistenceStore,

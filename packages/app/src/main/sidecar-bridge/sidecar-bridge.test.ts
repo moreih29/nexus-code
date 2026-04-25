@@ -42,6 +42,7 @@ describe("SidecarBridge", () => {
     const child = new MockChildProcess(4312);
     const bridge = new SidecarBridge({
       sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
       spawnProcess: createMockSpawn(child, { mode: "normal" }),
       reconcileWindowMs: 5,
       stopAckTimeoutMs: 20,
@@ -74,6 +75,7 @@ describe("SidecarBridge", () => {
     const children: MockChildProcess[] = [];
     const bridge = new SidecarBridge({
       sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
       spawnProcess: ((bin: string, args: readonly string[], options: SpawnOptions) => {
         const child = new MockChildProcess(4400 + children.length);
         children.push(child);
@@ -101,6 +103,34 @@ describe("SidecarBridge", () => {
       reason: "process-crash",
       exitCode: null,
     });
+  });
+
+  test("sidecar binary가 없으면 spawn하지 않고 unavailable started event를 반환한다", async () => {
+    const bridge = new SidecarBridge({
+      sidecarBin: "/missing/nexus-sidecar",
+      existsSyncFn: () => false,
+      spawnProcess: (() => {
+        throw new Error("spawn should not be called");
+      }) as typeof import("node:child_process").spawn,
+      now: () => new Date("2026-04-25T00:00:00.000Z"),
+    });
+
+    const started = await bridge.start(startCommand);
+
+    expect(started).toEqual({
+      type: "sidecar/started",
+      workspaceId,
+      pid: -1,
+      startedAt: "2026-04-25T00:00:00.000Z",
+    });
+    expect(bridge.listRunningWorkspaceIds()).toEqual([]);
+    await expect(
+      bridge.stop({
+        type: "sidecar/stop",
+        workspaceId,
+        reason: "workspace-close",
+      }),
+    ).resolves.toBeNull();
   });
 
   test("dedupe gate는 WS close와 exit가 1초 창 안에 도착해도 1회만 emit한다", async () => {
@@ -133,6 +163,7 @@ describe("SidecarBridge", () => {
       const child = new MockChildProcess(4500);
       const bridge = new SidecarBridge({
         sidecarBin: "/mock/nexus-sidecar",
+        existsSyncFn: () => true,
         spawnProcess: createMockSpawn(child, { mode: "normal" }),
         heartbeatIntervalMs: 5,
         heartbeatTimeoutMs: 1,

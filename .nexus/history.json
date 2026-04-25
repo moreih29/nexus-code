@@ -2603,6 +2603,132 @@
           "created_at": "2026-04-25T10:19:13.301Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-25T14:32:38.815Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 16,
+        "topic": "M3 인수인계 통합 hotfix — validate.ts ESM 호환 + SidecarBridge↔SidecarProcessRuntime wire",
+        "issues": [
+          {
+            "id": 1,
+            "title": "validate.ts 파일의 CJS require를 electron-vite ESM 환경과 호환되도록 수정",
+            "status": "decided",
+            "decision": "validate.ts CJS require 비호환은 **A안 — facade에서 Ajv 런타임 컴파일로 전환**으로 확정한다.\n\n**선택**: ajv-cli standalone 출력 폐기. facade(`packages/shared/src/contracts/<name>.ts` 또는 `.validator.ts`)에서 `import Ajv from \"ajv/dist/2020\"` + `import schema from \"../../../../schema/<name>.schema.json\"` 후 `new Ajv().compile(schema)`로 모듈 로드 시 1회 컴파일.\n\n**구체 변경**:\n- `packages/shared/src/contracts/generated/*.validate.ts` 파일 전부 삭제\n- `scripts/gen-contracts.ts`에서 ajv-cli standalone 호출 제거\n- `package.json` devDeps에서 `ajv-cli` 제거 (ajv@^8.20.0은 유지 — 런타임 컴파일에 필요)\n- facade 파일(`packages/shared/src/contracts/terminal-ipc.ts` 등)이 `is*` 함수를 직접 정의하고 ajv 컴파일된 validator 호출\n- schema JSON은 `import schema from \"../../../../schema/<name>.schema.json\" with { type: \"json\" }` 또는 동급 ESM JSON import\n\n**기각**:\n- B안 (ajv-cli ESM flag): ajv-cli@5.x의 ESM 출력 옵션 미확인. 시도 후 미지원 시 fallback 필요 — 위험 회피.\n- C안 (.cjs 확장자 + createRequire interop): electron-vite 빌드 설정 추가 필요, .cjs/.ts 혼재 가독성 손실, 부수 영향 큼.\n\n**근거**:\n- ESM 호환 100% 보장 (require 사용 0)\n- 런타임 컴파일 cost는 모듈 로드 시 1회, 작은 schema(7개 × 평균 100줄)에서 µs 수준 — 무영향\n- generated/*.validate.ts 파일 7개 제거 → drift gate 단순화 (TS 타입 generated만 검증)\n- ajv-cli 의존성 1종 감소\n- terminal-contracts.test.ts 242줄(facade 그대로 import)이 동작 보장\n\n**가정**: ajv@^8.20.0의 `ajv/dist/2020` 모듈은 ESM 호환. JSON import는 Bun + electron-vite + Node 22 모두 지원. 만약 미지원 시 schema를 TS 객체 리터럴로 재정의(폴백)."
+          },
+          {
+            "id": 2,
+            "title": "SidecarBridge와 SidecarProcessRuntime(E1)의 통합 — 실 dev launch에서 NEXUS_SIDECAR_TOKEN 주입 및 lifecycle handshake 경로 일원화",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explore",
+                "summary": "SidecarBridge와 SidecarProcessRuntime이 같은 SidecarRuntime 인터페이스(start/stop/listRunningWorkspaceIds) 구현 — 단순 swap 가능. SidecarLifecycleManager는 SidecarRuntime API만 호출(직접 spawn 안 함). WorkspaceShellService가 open/close 트리거 담당. electron-app-composition.ts:42-51에서 SidecarProcessRuntime을 instantiation, OpenSessionSidecarLifecycleManager에 주입. SidecarProcessRuntime의 spawn env는 process.env 그대로(token 미주입), SidecarBridge의 spawn env는 process.env + NEXUS_SIDECAR_TOKEN. behavior 차이: missing binary 시 SidecarProcessRuntime은 unavailable event 반환, SidecarBridge는 throw. SidecarBridge의 start는 WS handshake 포함, SidecarProcessRuntime은 단순 spawn. 권고: swap with thin adapter — missing binary fallback 보존. swap 어댑터 추정 40~80 LOC. SidecarLifecycleManager 무수정. 통합 fix 핵심 경로: composeElectronAppServices에서 SidecarProcessRuntime → SidecarBridge 교체 또는 wrapping adapter 도입.",
+                "recorded_at": "2026-04-25T14:04:56.293Z",
+                "agent_id": "ses_23b0c4a1bffewdJ61Mchik04uE"
+              }
+            ],
+            "decision": "SidecarBridge ↔ SidecarProcessRuntime 통합은 **B안 — electron-app-composition.ts에서 SidecarProcessRuntime을 SidecarBridge로 swap + missing-binary fallback adapter**로 확정한다.\n\n**핵심 변경**:\n1. `packages/app/src/main/electron-app-composition.ts:42-51` — `new SidecarProcessRuntime({...})` → `new SidecarBridge({...})` 또는 thin adapter\n2. SidecarBridge가 missing binary 시 throw하지 않고 unavailable behavior 보존하는 wrapper 추가 (현 SidecarProcessRuntime의 fallback 동작 유지)\n3. SidecarBridge.start의 `sidecarBin` 옵션이 SidecarProcessRuntime의 `{appPath, cwd, resourcesPath, isPackaged}` 파생 로직과 동등하게 처리\n4. `packages/app/src/main/sidecar-process-runtime.ts` deprecated 마킹 또는 SidecarBridge 내부 흡수 — 본 hotfix는 swap만, 코드 제거는 follow-up\n5. 통합 테스트 신설 — `electron-app-composition` 경로로 sidecar 실 spawn → token 주입 → handshake 완료 검증\n\n**기각**:\n- A안 (SidecarBridge가 lifecycle 정책 흡수): E1의 SidecarLifecycleManager(P1 always-on 정책) 책임을 변경하는 scope 확장. hotfix 사이클 범위 위반.\n- C안 (SidecarProcessRuntime에 token + handshake 추가): plan #15 T6에서 SidecarBridge에 이미 구현된 로직과 100% 중복. plan #15 결정 정면 위반.\n- D안 (Lead 직접 처리, 사이클 외 hotfix): 사용자가 \"새 사이클\" 결정. plan/task 추적 필요.\n\n**근거**:\n- 두 모듈이 동일 SidecarRuntime 인터페이스 구현 → swap 비용 최소(~40-80 LOC adapter)\n- SidecarLifecycleManager·WorkspaceShellService 무수정\n- 단위 테스트 회귀 영향 최소\n- missing binary fallback 보존 → dev launch에서 sidecar binary 미빌드 시에도 워크스페이스 셸은 살아 있음\n- token 주입은 SidecarBridge 내부 책임이라 자동 해결\n\n**가정**: \n- SidecarBridge의 옵션 `sidecarBin`이 SidecarProcessRuntime의 binary 경로 해석 로직(packaged vs unpackaged)과 등가로 매핑 가능\n- SidecarBridge.start의 인자가 SidecarStartCommand(workspaceId/workspacePath/reason)로 SidecarProcessRuntime과 동일\n- electron-app-composition의 다른 의존성(예: shutdown 시 stopAllManagedSidecars(runtime))이 SidecarBridge에서도 동작 (인터페이스 동일이라 가능)\n\n**검증 cut line**:\n- bun run dev로 실 launch 시 sidecar가 token 주입 + handshake 완료 + workspace 정상 작동\n- renderer console 무에러 (Issue 1 fix 필요 — 동시 진행)\n- 기존 90+ 테스트 무회귀\n- 신설 통합 테스트 1건 PASS"
+          }
+        ],
+        "research_summary": "## 발견 맥락\n\nplan #15 (M3 인수인계 계약) 사이클이 closed 직후 사용자가 dev launch 실측 시 두 critical 에러 발견:\n1. Renderer console: `terminal-ipc.validate.ts:3 Uncaught ReferenceError: require is not defined`\n2. Terminal: `[sidecar:ws_xxx] FATAL: NEXUS_SIDECAR_TOKEN not set`, `SidecarProcessRuntime: sidecar for workspace exited (exitCode=78)`\n\n## 진단\n\n### Issue 1: validate.ts CJS require 비호환\n`packages/shared/src/contracts/generated/terminal-ipc.validate.ts` line 3에 `const func2 = require(\"ajv/dist/runtime/ucs2length\").default;` 형태의 CJS require가 존재. ajv-cli@5.0.0 standalone 컴파일 결과물이 CJS 형식으로 emit. electron-vite renderer/main 빌드는 ESM이라 require 미정의. bun runtime 단위 테스트는 자동 polyfill로 통과했지만 Electron 프로덕션 환경에서 fail. plan #15 T2의 cut line은 \"facade가 generated를 re-export하면 E2 테스트 통과\"였고 actual Electron 빌드 dev launch 실측은 미포함.\n\n### Issue 2: SidecarBridge ↔ SidecarProcessRuntime 통합 결함\n실측: `packages/app/src/main/electron-app-composition.ts` line 42에서 `new SidecarProcessRuntime(...)` 사용. SidecarProcessRuntime의 `spawnSidecarProcess` (line 220-)는 child_process.spawn 호출 시 `NEXUS_SIDECAR_TOKEN` env var 미주입. T6 신설 SidecarBridge는 자체 spawn 로직 + token 생성 + handshake 처리하지만 electron-app-composition에서 import 안 됨. 두 spawn 경로가 wire 안 됨. 통합 테스트는 SidecarBridge.start() 직접 호출만 검증, 실제 워크스페이스 open 시 spawn 경로(SidecarLifecycleManager → SidecarProcessRuntime)는 미검증.\n\nT6 prompt에서 \"기존 sidecar-runtime의 spawn/kill 로직과 호환 — sidecar-bridge가 sidecar-runtime을 wrapping하거나 보완하는 형태로 통합\"이라 명시했으나 engineer가 별도 모듈로 처리하고 wire 단계 누락. 통합 테스트도 mock spawn 직접 호출이라 실 경로 검증 못 함.\n\n## 본 사이클 cut line의 실측 누락\n\nplan #15 cut line은 통합 test의 SidecarBridge.start() 직접 호출 PASS로 마감되었지만, 실제 app dev launch에서 spawn이 어느 경로를 타는지 명시적 검증이 부재. E1 lifecycle manager (P1 always-on 정책)가 SidecarProcessRuntime 호출 → spawn → token 미주입 → fatal 78. T9 docs도 \"M3 인수인계 계약 통과\"로 기술했으나 실 dev launch 통합은 미달.\n\n## 관련 파일 실측 (grep 결과)\n\n- `packages/app/src/main/sidecar-process-runtime.ts`: spawn 로직 + token 미주입\n- `packages/app/src/main/sidecar-bridge/index.ts`: SidecarBridge (T6 신설) — 자체 spawn + token 생성\n- `packages/app/src/main/sidecar-lifecycle-manager.ts`: P1 always-on, SidecarProcessRuntime 사용 추정\n- `packages/app/src/main/electron-app-composition.ts`: SidecarProcessRuntime 사용 (line 10·42)\n- `packages/shared/src/contracts/generated/terminal-ipc.validate.ts`: ajv-cli standalone CJS 출력\n- `packages/shared/src/contracts/terminal-ipc.ts`: facade가 .validate.ts import\n\n## 본 사이클 범위\n\n이번 hotfix는 plan #15의 통합 결함 보완. 두 이슈가 명확히 정의되어 있고 fix scope 짧음. cut line: dev launch 실기 시 sidecar handshake 정상 동작 + renderer console 무에러.",
+        "created_at": "2026-04-25T14:02:12.297Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "H2: SidecarBridge swap + missing-binary fallback adapter",
+          "status": "completed",
+          "context": "plan #16 Issue 2. plan #15 T6이 SidecarBridge를 신설했으나 electron-app-composition.ts에서 import되지 않음. dev launch는 여전히 SidecarProcessRuntime(token 미주입) 경로로 spawn → fatal exit 78. SidecarBridge로 swap하면서 missing-binary fallback 동작은 보존.",
+          "acceptance": "1. /Users/kih/workspaces/areas/nexus-code/packages/app/src/main/electron-app-composition.ts:42-51 수정:\n   - `new SidecarProcessRuntime({...})` → `new SidecarBridge({...})` 또는 wrapping adapter\n   - SidecarBridge 옵션의 `sidecarBin` 경로가 SidecarProcessRuntime의 packaged/unpackaged 분기 로직과 동등(`{appPath, cwd, resourcesPath, isPackaged}` → bin 경로 매핑)\n2. SidecarBridge에 missing-binary fallback 추가(또는 adapter에서 처리):\n   - binary 없으면 throw 대신 unavailable event 또는 silent no-op (현 SidecarProcessRuntime의 fallback 동작 보존)\n   - dev launch에서 sidecar binary가 빌드되지 않은 경우에도 workspace 셸이 살아 있음\n3. SidecarBridge가 SidecarRuntime 인터페이스(start/stop/listRunningWorkspaceIds)를 만족하는지 확인 — 현재 동등 시그니처라 OpenSessionSidecarLifecycleManager 무수정\n4. /Users/kih/workspaces/areas/nexus-code/packages/app/src/main/electron-app-composition.ts의 stopAllManagedSidecars(runtime) 경로가 SidecarBridge에서도 동작 (인터페이스 동일)\n5. /Users/kih/workspaces/areas/nexus-code/packages/app/src/main/sidecar-process-runtime.ts에 deprecation 주석 추가:\n   - \"@deprecated plan #15 이후 SidecarBridge로 대체. 사용 위치 0건 확인 후 제거 예정 (다음 사이클)\"\n   - 코드 자체는 유지(테스트 의존성 + fallback 검증 참조)\n6. 단위 테스트:\n   - 기존 sidecar-process-runtime.test.ts 통과(deprecated이지만 여전히 동작)\n   - sidecar-bridge.test.ts에 missing-binary fallback 케이스 추가 1건\n   - sidecar-lifecycle-manager.test.ts 무수정 통과(인터페이스 호환)\n7. bun test PASS, bun run typecheck PASS, bun run build PASS, lint PASS\n8. dev launch 실측 (수동): bun run dev → 워크스페이스 open → sidecar spawn → \"FATAL: NEXUS_SIDECAR_TOKEN\" 무발생 → handshake 완료 stderr 로그 확인",
+          "approach": "두 단계로:\n**Step 1 - SidecarBridge에 missing-binary fallback 추가**: SidecarBridge.start()에서 `fs.access(sidecarBin)` 또는 `existsSync` 체크 후 미존재 시 throw 대신 SidecarStartedEvent(pid=-1, \"unavailable\") 반환 또는 별도 unavailable event 시그널. SidecarProcessRuntime 코드를 참조해 fallback 동작 정확히 모방.\n\n**Step 2 - electron-app-composition.ts swap**: SidecarBridge 인스턴스화 + sidecarBin 경로 헬퍼 함수(SidecarProcessRuntime의 packaged/unpackaged 분기 그대로 재사용 또는 추출). OpenSessionSidecarLifecycleManager에 SidecarBridge 주입. shutdown 경로(stopAllManagedSidecars)는 인터페이스 동일이라 무수정.\n\nbinary 경로 헬퍼는 sidecar-process-runtime.ts 내부에서 export(`resolveSidecarBinaryPath` 같은 함수)하거나 별도 모듈(`sidecar-bin-resolver.ts`)로 분리. SidecarBridge 옵션에 sidecarBin 직접 전달.",
+          "risk": "SidecarBridge의 start 시그니처가 SidecarStartCommand 받음. SidecarProcessRuntime도 동일. 그러나 SidecarBridge 내부 로직은 WS handshake 포함 — sidecar binary가 잘못 빌드(예: 에러 출력 후 exit)되어도 SidecarBridge가 적절한 에러 메시지로 fallback해야. missing-binary fallback이 \"binary 없음\"과 \"binary 실행 실패\"를 구분해야 정확한 진단 가능. plan #15 T6의 transient/fatal 분기 매트릭스(architect §3)를 참조해 unavailable case 추가 정의.\n\n기존 SidecarProcessRuntime 단위 테스트에서 mock spawn + missing binary 시나리오가 검증됨. SidecarBridge swap 후 동등 검증 추가 필요.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23b063356ffeIbUclJ52yHziz2"
+          },
+          "created_at": "2026-04-25T14:06:16.779Z"
+        },
+        {
+          "id": 2,
+          "title": "H1: validate.ts ESM hotfix - facade Ajv runtime compile",
+          "status": "completed",
+          "context": "plan #16 Issue 1. plan #15 T2가 도입한 ajv-cli standalone 출력 (generated validate.ts)이 CJS require 패턴을 사용해 electron-vite ESM 환경에서 require is not defined 에러 발동. facade에서 Ajv 런타임 컴파일로 전환해 ESM 호환 보장.",
+          "acceptance": "1. packages/shared/src/contracts/generated 디렉터리에서 모든 validate.ts 파일 삭제 (또는 generation 단계에서 미생성). 2. scripts/gen-contracts.ts에서 ajv-cli standalone 호출 제거, TS 타입 generation만 유지. 3. package.json devDependencies에서 ajv-cli 제거, ajv 8.20+ 유지. 4. facade 파일 수정: generated validate import 제거, import Ajv from ajv/dist/2020 + schema JSON import + 모듈 로드 시 1회 ajv.compile(schema) 캐시 + isXxx 함수 시그니처 유지. 5. terminal-contracts.test.ts 무수정 PASS. 6. bun run gen:contracts 동작 (TS 타입만). 7. bun test 모든 패키지 PASS, typecheck PASS, build PASS, lint PASS. 8. gen:contracts 2회 실행 후 sha256 동일 stable ordering 재확인.",
+          "approach": "facade에서 모듈 스코프에 Ajv 인스턴스 1회 생성 + compile() 캐시 + is 함수 export. JSON ESM import (with type json) 또는 schema TS object literal inline fallback. ajv-formats는 plan #15 T2에서 이미 devDeps 추가됨 (date-time 검증). gen-contracts.ts는 json2ts 호출은 유지, ajv-cli 부분만 제거. drift gate workflow 자동 통과.",
+          "risk": "JSON ESM import의 환경별 호환성 (Bun + electron-vite + Node 22). 미동작 시 TS object literal inline fallback. ajv-formats devDeps 확인 필요. 모듈 로드 시간 증가 무시 가능. facade 시그니처 호환성 plan 15 T2 산출물 검증.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23b06b8b9ffe5JuITSyICTqNmH"
+          },
+          "created_at": "2026-04-25T14:07:45.973Z"
+        },
+        {
+          "id": 3,
+          "title": "H3: 통합 검증 - dev launch + composition smoke",
+          "status": "completed",
+          "context": "plan #16 cut line 검증. H1과 H2 적용 후 실 dev launch에서 두 에러가 사라지고 sidecar handshake 정상 완료 확인. plan #15 T7의 통합 누락 (모듈 단독 호출만 검증, composition 경로 미검증)을 보완.",
+          "acceptance": "1. 자동 통합 테스트 신설 (packages/app/test/integration/sidecar-lifecycle/composition-smoke.test.ts): composeElectronAppServices 호출 또는 동등 경로로 SidecarBridge 인스턴스화한 SidecarLifecycleManager 생성. 워크스페이스 open 시뮬레이션. SidecarBridge.start() 호출. token env 포함 spawn 검증. handshake 완료. SidecarStartedEvent 수신. missing-binary fallback 케이스 1건. 2. dev launch 수동 검증 절차 산출물에 기록: cd sidecar && go build, bun run dev, 워크스페이스 open, console에 require 에러 0건, terminal에 FATAL token not set 0건, sidecar handshake 완료 stderr 로그 확인, exitCode 78 미발생. 3. release-evidence/m3-integration-hotfix/timestamp/dev-launch.md에 결과 기록. 4. 회귀 테스트: bun test 모든 PASS (기존 90+ + 신규 통합 1+), packages/app/test/integration/sidecar-lifecycle 6 PASS 유지, sidecar-process-runtime.test.ts PASS. 5. 측정 결과 미달 시 Lead 보고.",
+          "approach": "신설 통합 테스트는 actual sidecar binary + composeElectronAppServices 또는 동등 경로 호출. 핵심 검증은 spawn 인자에 NEXUS_SIDECAR_TOKEN env 포함 + sidecar token 인증 통과. dev launch 수동 검증은 사용자 PC에서 실행 후 로그 캡처 (자동 검증 PASS 후 Lead가 사용자에게 manual verify 요청). release-evidence는 plan 4 패턴 재사용. composition-smoke.test.ts는 lifecycle-smoke.test.ts와 비슷한 구조이되 SidecarBridge 직접 인스턴스화 대신 composition 경로 사용.",
+          "risk": "composeElectronAppServices의 다른 의존성 mock 필요 (BrowserWindow, dialog 등). 차안: SidecarBridge instantiation 부분만 추출 검증. dev launch 수동 검증은 사용자 PC 의존이라 본 task에서 직접 실행 불가. 자동 검증 + 사용자 manual verify 조합.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23b00a8e3ffeXl4dknVNvfAdeD"
+          },
+          "created_at": "2026-04-25T14:08:09.059Z"
+        },
+        {
+          "id": 4,
+          "title": "H4: docs - empirical 통합 누락 학습 + deprecation 메모",
+          "status": "completed",
+          "context": "plan #16 사이클 학습 기록. plan #15 T6/T7 통합 검증 누락이 dev launch 실측에서 발견된 패턴을 empirical 메모로 보존. 향후 사이클에서 같은 누락 회피.",
+          "acceptance": "1. .nexus/memory/empirical-m3-integration-gap.md 신설. empirical 패턴 (우리 관찰과 교훈). 핵심 학습: 신설 모듈이 기존 composition에 wire 안 된 채 통합 테스트가 모듈 단독 호출만 검증한 사례. plan #15는 단위와 통합 테스트 모두 PASS였으나 dev launch 실측에서 fatal 발견. ajv-cli standalone CJS 출력이 ESM bundler 환경 비호환 (단위 테스트 bun에서 polyfill로 통과, 프로덕션 빌드 electron-vite에서 fail). cut line에 actual end-user 경로 1회 manual verify를 acceptance에 포함하지 않으면 같은 누락 재발 가능. 통합 테스트는 모듈 직접 호출이 아닌 composition 경로 검증이 더 안전. 분량 2-3KB. 2. .nexus/memory/empirical-m3-handover-retrospective.md 갱신 (선택): 본 사이클 hotfix 발견 사실을 마지막 절에 1-2 paragraph 추가. 3. roadmap.md 무변경 (정적 골격 유지). 4. pattern-sidecar-lifecycle-handshake.md에 짧은 update 메모 (선택): dev launch 통합은 plan #16에서 SidecarBridge swap으로 완성, 자세한 학습은 empirical-m3-integration-gap.md 참조. 5. 한국어 맞춤법, ASCII 치환 없음, 선언형 단정체.",
+          "approach": "empirical-m3-integration-gap.md는 기존 empirical-previous-tauri-retrospective.md, empirical-m3-handover-retrospective.md 문체와 일관. 관찰-추정 원인-교훈-향후 적용 구조. 분량 2-3KB. plan #4 정화 원칙 유지 (.nexus/context는 정적, .nexus/memory는 학습 누적).",
+          "risk": "empirical 메모가 plan #15 empirical-m3-handover-retrospective.md와 내용 중복 가능. 본 task는 hotfix 사이클의 학습에 집중하고 plan #15 retrospective는 선택적 1-2 paragraph 보완.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23afb6bf7ffeJnuKY4L1ojAdxP"
+          },
+          "created_at": "2026-04-25T14:08:26.734Z"
+        },
+        {
+          "id": 5,
+          "title": "H5: docs 검토 - empirical 메모 정확성과 문체 일관성",
+          "status": "completed",
+          "context": "H4 writer 산출물 검토. plan #16 결정과 산출물의 정합성, memory 프리픽스 (empirical-) 문체 일관성, .nexus/context 정적 원칙 유지.",
+          "acceptance": "1. empirical-m3-integration-gap.md가 empirical 패턴 (우리 관찰과 교훈)에 맞는지, 기존 empirical-previous-tauri-retrospective.md와 empirical-m3-handover-retrospective.md 문체 일관. 2. plan #16 결정 본문 (2 issues)과 메모 표현 사이 누락이나 상충 없음. 3. roadmap.md 무변경 확인. 4. pattern-sidecar-lifecycle-handshake.md 갱신 시 정확성과 동적 상태 서술 0건. 5. 한국어 맞춤법, ASCII 치환, 선언형 단정체 일관. 6. 발견된 문제는 writer에게 구체 수정 포인트로 반려, 통과 시 review 노트 1건.",
+          "approach": "git diff로 변경분 pull. nx_plan_status로 plan #16 결정 본문 재확인. 각 산출물 Read 후 결정 명세와 대조. memory 파일 프리픽스 정의와 기존 사례 비교. roadmap.md grep 게이트로 동적 상태 서술 0건 재확인.",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23af2d609ffem0NhOucfaAxgnA"
+          },
+          "created_at": "2026-04-25T14:08:35.435Z"
+        }
+      ]
     }
   ]
 }

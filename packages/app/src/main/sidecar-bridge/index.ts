@@ -11,7 +11,7 @@ import type {
   SidecarStoppedEvent,
 } from "../../../../shared/src/contracts/sidecar";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import { resolveSidecarBinaryPath } from "../sidecar-process-runtime";
+import { resolveSidecarBinaryPath } from "../sidecar-bin-resolver";
 import type { SidecarRuntime } from "../sidecar-runtime";
 import {
   connectWebSocketWithRefusedRetry,
@@ -28,6 +28,8 @@ interface BridgeRecord {
   lifecycleEmitter: SidecarLifecycleEmitter;
   heartbeatTimer: NodeJS.Timeout | null;
 }
+
+const UNAVAILABLE_SIDECAR_PID = -1;
 
 export interface SidecarBridgeOptions {
   sidecarBin?: string;
@@ -69,6 +71,10 @@ export class SidecarBridge implements SidecarRuntime {
     }
 
     const sidecarBin = this.resolveBinaryPath();
+    if (!sidecarBin) {
+      return this.createUnavailableStartedEvent(command.workspaceId);
+    }
+
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
@@ -119,9 +125,9 @@ export class SidecarBridge implements SidecarRuntime {
     return Array.from(this.recordsByWorkspaceId.keys());
   }
 
-  private resolveBinaryPath(): string {
+  private resolveBinaryPath(): string | null {
     if (this.options.sidecarBin) {
-      return this.options.sidecarBin;
+      return this.existsSyncFn(this.options.sidecarBin) ? this.options.sidecarBin : null;
     }
 
     const binaryPath = resolveSidecarBinaryPath({
@@ -132,11 +138,16 @@ export class SidecarBridge implements SidecarRuntime {
       existsSyncFn: this.existsSyncFn,
     });
 
-    if (!binaryPath) {
-      throw new SidecarBridgeError("sidecar binary not found", "fatal", "SIDECAR_MISSING");
-    }
-
     return binaryPath;
+  }
+
+  private createUnavailableStartedEvent(workspaceId: WorkspaceId): SidecarStartedEvent {
+    return {
+      type: "sidecar/started",
+      workspaceId,
+      pid: UNAVAILABLE_SIDECAR_PID,
+      startedAt: this.now().toISOString(),
+    };
   }
 
   private async spawnAndHandshake(

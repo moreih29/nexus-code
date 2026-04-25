@@ -1,8 +1,10 @@
+/**
+ * @deprecated plan #15 이후 SidecarBridge로 대체. 본 모듈은 fallback 검증 + 단위 테스트 호환을 위해 유지. 사용 위치 0건 확인 후 제거 예정 (다음 사이클).
+ */
 import { existsSync } from "node:fs";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import type {
   SidecarStartCommand,
@@ -11,21 +13,19 @@ import type {
   SidecarStoppedEvent,
 } from "../../../shared/src/contracts/sidecar";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
+import {
+  SIDECAR_BINARY_NAME,
+  resolveSidecarBinaryPath,
+} from "./sidecar-bin-resolver";
 import type { SidecarRuntime } from "./sidecar-runtime";
 
-const SIDECAR_BINARY_NAME =
-  process.platform === "win32" ? "nexus-sidecar.exe" : "nexus-sidecar";
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
 const UNAVAILABLE_SIDECAR_PID = -1;
-const MAIN_MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-export interface SidecarBinaryResolutionOptions {
-  appPath: string;
-  cwd: string;
-  resourcesPath: string;
-  isPackaged: boolean;
-  existsSyncFn?: (candidatePath: string) => boolean;
-}
+export {
+  resolveSidecarBinaryPath,
+  type SidecarBinaryResolutionOptions,
+} from "./sidecar-bin-resolver";
 
 export interface SidecarProcessRuntimeLogger {
   info(message: string): void;
@@ -68,31 +68,6 @@ const DEFAULT_LOGGER: SidecarProcessRuntimeLogger = {
     console.warn(message, error);
   },
 };
-
-export function resolveSidecarBinaryPath(
-  options: SidecarBinaryResolutionOptions,
-): string | null {
-  const existsSyncFn = options.existsSyncFn ?? existsSync;
-  const packagedCandidate = path.resolve(
-    options.resourcesPath,
-    "sidecar",
-    SIDECAR_BINARY_NAME,
-  );
-  const devCandidate = findDevSidecarBinaryPath(
-    [options.appPath, options.cwd, MAIN_MODULE_DIR],
-    existsSyncFn,
-  );
-
-  if (options.isPackaged) {
-    return existsSyncFn(packagedCandidate) ? packagedCandidate : null;
-  }
-
-  if (devCandidate) {
-    return devCandidate;
-  }
-
-  return existsSyncFn(packagedCandidate) ? packagedCandidate : null;
-}
 
 export class SidecarProcessRuntime implements SidecarRuntime {
   private readonly appPath: string;
@@ -346,41 +321,6 @@ export class SidecarProcessRuntime implements SidecarRuntime {
       `SidecarProcessRuntime: sidecar for workspace "${workspaceId}" exited (${codePart}${signalPart}).`,
     );
   }
-}
-
-function findDevSidecarBinaryPath(
-  searchRoots: string[],
-  existsSyncFn: (candidatePath: string) => boolean,
-): string | null {
-  const visitedRoots = new Set<string>();
-
-  for (const root of searchRoots) {
-    if (!root || root.trim().length === 0) {
-      continue;
-    }
-
-    let cursor = path.resolve(root);
-    while (true) {
-      if (visitedRoots.has(cursor)) {
-        break;
-      }
-
-      visitedRoots.add(cursor);
-      const candidatePath = path.join(cursor, "sidecar", "bin", SIDECAR_BINARY_NAME);
-      if (existsSyncFn(candidatePath)) {
-        return candidatePath;
-      }
-
-      const parent = path.dirname(cursor);
-      if (parent === cursor) {
-        break;
-      }
-
-      cursor = parent;
-    }
-  }
-
-  return null;
 }
 
 function createSidecarProcessArgs(command: SidecarStartCommand): string[] {

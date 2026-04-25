@@ -1,4 +1,7 @@
-import validateTerminalIpcMessage from "./generated/terminal-ipc.validate";
+import Ajv2020 from "ajv/dist/2020";
+import type { ValidateFunction } from "ajv/dist/types";
+import addFormats from "ajv-formats";
+import terminalIpcSchema from "../../../../schema/terminal-ipc.schema.json" with { type: "json" };
 
 export type {
   TerminalCloseCommand,
@@ -16,6 +19,11 @@ export type {
   TerminalStdoutChunk,
 } from "./generated/terminal-ipc";
 import type { TerminalIpcMessage } from "./generated/terminal-ipc";
+
+const ajv = new Ajv2020({ allErrors: false });
+addFormats(ajv);
+const validateTerminalIpcMessage: ValidateFunction<TerminalIpcMessage> =
+  ajv.compile<TerminalIpcMessage>(terminalIpcSchema);
 
 export type TerminalIpcCommand = Extract<
   TerminalIpcMessage,

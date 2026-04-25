@@ -35,8 +35,13 @@ installSignalHandler를 별도 goroutine으로 두느냐, main goroutine의 sele
 - race condition 진단에서 추정 확률은 참고만 하며, wire 캡처·실제 측정으로 검증한다.
 - 통합 테스트 100% 통과를 릴리스 블로커로 삼지 않는다. 알려진 한계는 backlog로 명문화하고 차기 사이클로 이연한다.
 
-## 관련 문서
+## 후속 보완
+
+본 사이클 closed 직후 plan #16 hotfix 사이클에서 두 건의 통합 결함이 발견되고 보완되었다. SidecarBridge가 electron-app-composition에 wire되지 않아 dev launch에서 fatal exit 78이 발생한 사례, 그리고 ajv-cli standalone CJS 출력이 electron-vite ESM 프로덕션 빌드에서 fail한 사례는 모두 "단위·통합 테스트 PASS" cut line이 실제 end-user 경로를 검증하지 못함을 보여준다. 이에 대한 상세한 원인 분석과 일반화된 교훈은 `.nexus/memory/empirical-m3-integration-gap.md`에 기록했다.
+
+---
 
 - `.nexus/context/roadmap.md`: M3 Harness Observer 마일스톤
 - `.nexus/context/stack.md`: Codegen·WebSocket 묶음 정책
 - `.nexus/memory/pattern-sidecar-close-code-race.md`: race 진단 레시피
+- `.nexus/memory/empirical-m3-integration-gap.md`: plan #16 hotfix를 통해 보완된 통합 누락 학습
