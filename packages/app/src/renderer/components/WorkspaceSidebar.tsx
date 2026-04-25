@@ -1,6 +1,12 @@
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
 import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import { FolderOpen, X } from "lucide-react";
+
 import { cn } from "../lib/utils";
+import { keyboardRegistryStore } from "../stores/keyboard-registry";
+import { EmptyState } from "./EmptyState";
+import { Button } from "./ui/button";
+import { ScrollArea } from "./ui/scroll-area";
 
 export interface WorkspaceSidebarProps {
   sidebarState: WorkspaceSidebarState;
@@ -16,68 +22,86 @@ export function WorkspaceSidebar({
   onCloseWorkspace,
 }: WorkspaceSidebarProps): JSX.Element {
   return (
-    <section data-component="workspace-sidebar" className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">Workspaces</h2>
-        <button
+    <section data-component="workspace-sidebar" className="flex min-h-0 flex-1 flex-col bg-sidebar p-2 text-sidebar-foreground">
+      <header className="flex items-center justify-end gap-2">
+        <Button
           type="button"
           data-action="open-folder"
-          className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:border-slate-500"
+          variant="outline"
+          size="sm"
+          className="h-8 text-sm"
           onClick={() => {
             void onOpenFolder();
           }}
         >
           Open Folder…
-        </button>
+        </Button>
       </header>
 
-      <ol className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-        {sidebarState.openWorkspaces.map((workspace) => {
-          const isActive = workspace.id === sidebarState.activeWorkspaceId;
+      <ScrollArea className="mt-2 min-h-0 flex-1">
+        <ol className="flex flex-col gap-1">
+          {sidebarState.openWorkspaces.map((workspace) => {
+            const isActive = workspace.id === sidebarState.activeWorkspaceId;
 
-          return (
-            <li key={workspace.id} className="rounded-md border border-slate-800 bg-slate-900/60 p-1">
-              <div className="flex items-start gap-1">
-                <button
-                  type="button"
-                  data-action="activate-workspace"
-                  data-workspace-id={workspace.id}
-                  data-active={isActive ? "true" : "false"}
-                  aria-current={isActive ? "page" : "false"}
-                  className={cn(
-                    "flex min-w-0 flex-1 flex-col items-start rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-slate-800",
-                    isActive && "bg-slate-800 text-sky-200",
-                  )}
-                  onClick={() => {
-                    void onActivateWorkspace(workspace.id);
-                  }}
-                >
-                  <span className="w-full truncate font-semibold">{workspace.displayName}</span>
-                  <small className="w-full truncate text-[10px] text-slate-400">{workspace.absolutePath}</small>
-                </button>
-                <button
-                  type="button"
-                  data-action="close-workspace"
-                  data-workspace-id={workspace.id}
-                  aria-label={`Close ${workspace.displayName}`}
-                  className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                  onClick={() => {
-                    void onCloseWorkspace(workspace.id);
-                  }}
-                >
-                  ×
-                </button>
-              </div>
+            return (
+              <li key={workspace.id} className="rounded-md border border-sidebar-border bg-sidebar">
+                <div className="flex h-9 items-center gap-1 p-1">
+                  <button
+                    type="button"
+                    data-action="activate-workspace"
+                    data-workspace-id={workspace.id}
+                    data-active={isActive ? "true" : "false"}
+                    aria-current={isActive ? "page" : "false"}
+                    className={cn(
+                      "flex h-7 min-w-0 flex-1 flex-col items-start justify-center rounded px-2 text-left text-base text-sidebar-foreground hover:bg-accent hover:text-accent-foreground",
+                      isActive && "bg-accent text-accent-foreground",
+                    )}
+                    onClick={() => {
+                      void onActivateWorkspace(workspace.id);
+                    }}
+                  >
+                    <span className="w-full truncate font-medium leading-none">{workspace.displayName}</span>
+                    <small className="mt-0.5 w-full truncate font-mono text-xs leading-none text-muted-foreground">
+                      {workspace.absolutePath}
+                    </small>
+                  </button>
+                  <Button
+                    type="button"
+                    data-action="close-workspace"
+                    data-workspace-id={workspace.id}
+                    aria-label={`Close ${workspace.displayName}`}
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      void onCloseWorkspace(workspace.id);
+                    }}
+                  >
+                    <X size={14} strokeWidth={1.75} />
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+
+          {sidebarState.openWorkspaces.length === 0 ? (
+            <li className="h-48 rounded-md border border-dashed border-sidebar-border">
+              <EmptyState
+                icon={FolderOpen}
+                title="No workspace open"
+                description="Open a folder to add a workspace."
+                action={{
+                  label: "Open folder",
+                  shortcut: "⌘O",
+                  onClick: () => {
+                    void keyboardRegistryStore.getState().executeCommand("workspace.openFolder");
+                  },
+                }}
+              />
             </li>
-          );
-        })}
-
-        {sidebarState.openWorkspaces.length === 0 ? (
-          <li className="rounded-md border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
-            No workspace is open yet.
-          </li>
-        ) : null}
-      </ol>
+          ) : null}
+        </ol>
+      </ScrollArea>
     </section>
   );
 }

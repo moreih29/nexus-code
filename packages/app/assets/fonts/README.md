@@ -1,6 +1,27 @@
-# Bundled terminal fonts (Task 10)
+# Bundled fonts
 
-These files are bundled for terminal CJK fallback in packaged Electron builds.
+These files are bundled for terminal CJK fallback and renderer UI typography in packaged Electron builds.
+
+## Inter
+
+- Source: https://github.com/rsms/inter (`InterVariable.woff2`)
+- Files:
+  - `Inter-Variable.woff2`
+- License: `inter/OFL.txt` (SIL OFL 1.1)
+
+## Pretendard
+
+- Source: https://github.com/orioncactus/pretendard (`PretendardVariable.woff2`)
+- Files:
+  - `Pretendard-Variable-KR-subset.woff2` (KS X 1001 Hangul syllables + common Latin/punctuation subset)
+- License: `pretendard/OFL.txt` (SIL OFL 1.1)
+
+## JetBrains Mono
+
+- Source: https://github.com/JetBrains/JetBrainsMono (`JetBrainsMono[wght].woff2`)
+- Files:
+  - `JetBrainsMono-Variable.woff2`
+- License: `jetbrains-mono/OFL.txt` (SIL OFL 1.1)
 
 ## D2Coding
 

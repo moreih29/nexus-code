@@ -13,7 +13,7 @@ const lines = [
   "   ps -o pid,ppid,state,etime,command -p <PID_LIST>",
   "6) FAIL if defunct/zombie states remain after a 5s grace period.",
   "",
-  "Reference automated harness: bun run test:runtime-terminal",
+  "Reference automated harness: bun test ./test/e2-terminal-runtime.test.ts",
 ];
 
 for (const line of lines) {

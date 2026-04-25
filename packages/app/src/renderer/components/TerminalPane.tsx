@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, SquareTerminal, X } from "lucide-react";
 
 import type { TerminalTabId } from "../../../../shared/src/contracts/terminal-tab";
 import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
 import { createShellTerminalSessionAdapter } from "../adapters/shell-terminal-session-adapter";
 import { PreloadTerminalBridgeTransport } from "../adapters/preload-terminal-bridge-transport";
+import { Button } from "./ui/button";
+import { EmptyState } from "./EmptyState";
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { cn } from "../lib/utils";
 import {
   ShellTerminalTabs,
@@ -133,6 +137,7 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
     null;
 
   const activeWorkspaceId = sidebarState.activeWorkspaceId;
+  const activeTabId = activeWorkspace?.tabs.find((tab) => tab.isActive)?.tabId;
 
   const handleCreateTab = useCallback(() => {
     if (!activeWorkspaceId) {
@@ -163,72 +168,78 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
   );
 
   return (
-    <section data-component="terminal-pane" className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center gap-2 border-b border-slate-800 pb-2">
-        <ol className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          {activeWorkspace?.tabs.map((tab) => (
-            <li key={tab.tabId} className="flex flex-shrink-0 items-center gap-1">
-              <button
-                type="button"
-                data-action="activate-tab"
-                data-tab-id={tab.tabId}
-                data-active={tab.isActive ? "true" : "false"}
-                className={cn(
-                  "rounded-md border px-3 py-1 text-xs font-medium",
-                  tab.isActive
-                    ? "border-sky-600 bg-sky-500/20 text-sky-100"
-                    : "border-slate-700 bg-slate-900/70 text-slate-300 hover:border-slate-500",
-                )}
-                onClick={() => {
-                  handleActivateTab(tab.tabId);
-                }}
-              >
-                {tab.title}
-              </button>
-              <button
-                type="button"
-                data-action="close-tab"
-                data-tab-id={tab.tabId}
-                aria-label={`Close ${tab.title}`}
-                className="rounded border border-transparent px-1 py-1 text-xs text-slate-400 hover:border-slate-700 hover:text-slate-200"
-                onClick={() => {
-                  handleCloseTab(tab.tabId);
-                }}
-              >
-                ×
-              </button>
-            </li>
-          ))}
+    <section data-component="terminal-pane" className="flex h-full min-h-0 flex-col bg-background p-2 text-foreground">
+      <header className="flex items-center gap-2 border-b border-border pb-2">
+        <Tabs
+          value={activeTabId}
+          onValueChange={(tabId) => {
+            handleActivateTab(tabId as TerminalTabId);
+          }}
+          className="min-w-0 flex-1 gap-0"
+        >
+          <TabsList variant="line" className="h-9 max-w-full justify-start overflow-x-auto rounded-none p-0">
+            {activeWorkspace?.tabs.map((tab) => (
+              <div key={tab.tabId} className="flex h-9 flex-shrink-0 items-center gap-1">
+                <TabsTrigger
+                  value={tab.tabId}
+                  data-action="activate-tab"
+                  data-tab-id={tab.tabId}
+                  data-active={tab.isActive ? "true" : "false"}
+                  className={cn(
+                    "h-9 rounded-md border border-transparent px-3 text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-accent data-[state=active]:text-accent-foreground",
+                    "after:hidden dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-accent dark:data-[state=active]:text-accent-foreground",
+                  )}
+                >
+                  {tab.title}
+                </TabsTrigger>
+                <Button
+                  type="button"
+                  data-action="close-tab"
+                  data-tab-id={tab.tabId}
+                  aria-label={`Close ${tab.title}`}
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    handleCloseTab(tab.tabId);
+                  }}
+                >
+                  <X size={14} strokeWidth={1.75} />
+                </Button>
+              </div>
+            ))}
 
-          {activeWorkspace && activeWorkspace.tabs.length === 0 ? (
-            <li className="rounded-md border border-dashed border-slate-700 px-2 py-1 text-xs text-slate-500">
-              No terminal tabs
-            </li>
-          ) : null}
-        </ol>
+          </TabsList>
+        </Tabs>
 
-        <button
+        <Button
           type="button"
           data-action="new-tab"
           data-workspace-id={activeWorkspaceId ?? ""}
-          className="rounded-md border border-slate-700 px-2 py-1 text-sm font-semibold text-slate-200 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+          variant="outline"
+          size="icon-sm"
+          className="h-9 w-9"
           disabled={!activeWorkspaceId}
           onClick={handleCreateTab}
         >
-          +
-        </button>
+          <Plus size={14} strokeWidth={1.75} />
+        </Button>
       </header>
 
-      <div className="relative mt-2 min-h-0 flex-1 rounded-md border border-emerald-700/40 bg-black/50 p-2">
+      <div className="relative mt-2 min-h-0 flex-1 rounded-md border border-border bg-background p-2">
         <div
           ref={terminalHostRef}
           data-slot="terminal-pane-host"
           className="h-full w-full"
         />
 
-        {!activeWorkspaceId ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-slate-500">
-            Open a workspace to start a terminal.
+        {!activeWorkspaceId || !activeWorkspace || activeWorkspace.tabs.length === 0 ? (
+          <div className="absolute inset-0 bg-background">
+            <EmptyState
+              icon={SquareTerminal}
+              title="No terminal yet"
+              description="Open a workspace to start a terminal."
+            />
           </div>
         ) : null}
       </div>

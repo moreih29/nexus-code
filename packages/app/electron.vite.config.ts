@@ -72,6 +72,10 @@ export default defineConfig({
     resolve: {
       alias: [
         {
+          find: "@",
+          replacement: path.resolve(APP_ROOT, "src/renderer"),
+        },
+        {
           find: /^node-pty$/,
           replacement: RENDERER_NODE_PTY_BLOCK_ALIAS,
         },
