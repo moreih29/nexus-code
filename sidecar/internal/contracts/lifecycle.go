@@ -1,5 +1,9 @@
 package contracts
 
+// 수작업 유지 — schema 변경 시 수동 동기화 필요. drift 검증은
+// .github/workflows/contracts-drift.yml의 Go diff 단계에 위임한다.
+// 향후 harness-* schema 도입 시 또는 Go codegen 도구 성숙 시 facade 패턴 도입을 재검토한다.
+
 type WorkspaceID string
 
 type SidecarStartReason string

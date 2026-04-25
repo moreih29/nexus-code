@@ -2341,6 +2341,268 @@
           "created_at": "2026-04-24T15:41:51.735Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-25T13:24:05.233Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 15,
+        "topic": "E3 Harness Observer 착수 첫 사이클 — M3 인수인계 계약 + 범위 확정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "본 사이클 범위를 어디까지로 할지 — 인수인계 계약 4항목만(최소), + 어댑터 1개 스캐폴드(중간), + 어댑터 3개 동시(최대) 중 선택",
+            "status": "decided",
+            "decision": "본 사이클 범위는 A안(인수인계 계약만)으로 확정한다.\n\n**구체 cut line (7항목)**\n1. schema↔TS/Go codegen 파이프라인 구축 + 기존 7개 schema(terminal-* 3, workspace-* 3, sidecar-lifecycle 1) 대상 생성물 대체\n2. CI drift gate — 생성물과 원본 불일치 시 실패\n3. Go WebSocket 라이브러리 도입 + go.mod 의존성 정확 pin\n4. sidecar에 WebSocket 서버 + Electron main에 클라이언트 bridge\n5. lifecycle handshake(SidecarStart / Started / Stop / Stopped) 왕복 smoke 테스트\n6. HarnessAdapter 인터페이스 정의(껍데기 — 메서드 시그니처와 플러그인 경계 명시, 구현은 다음 사이클)\n7. docs 갱신 — roadmap.md M3 cell에 \"인수인계 계약 완료\" 마커, memory에 WebSocket 라이브러리·codegen 도구 선택 기록\n\n**기각 근거**\n- B안(+ 어댑터 1개 스캐폴드): handshake 불안정 상태에서 어댑터가 붙으면 실패 원인 분리 불가. plan #8~#13 증상 중심 hotfix 연쇄 재발 리스크.\n- C안(+ 어댑터 3개 동시): `empirical-previous-tauri-retrospective`의 \"장기 실행 안정성을 POC가 아닌 실측 사이클에서 선행 검증\" 원칙 정면 위반. 30분 안정성을 어댑터 3개와 같은 사이클에 담으면 실패 원인 분해 불가.\n\n**A안 선택 근거**\ncut line이 공학적으로 명확(\"handshake 왕복 smoke PASS + drift gate green + 생성물 사용 + HarnessAdapter 인터페이스 껍데기\"). 다음 사이클에서 어댑터를 하나씩 붙일 때 \"인프라는 검증 완료\"라는 기반 위에서 작업 가능. 체감 UI 0 리스크는 HarnessAdapter 인터페이스 껍데기를 본 사이클에 포함시켜 다음 사이클이 곧장 어댑터 구현으로 진입 가능한 상태로 마무리해 완화."
+          },
+          {
+            "id": 2,
+            "title": "Schema ↔ TS/Go codegen 도구 + CI drift gate 방식 선택 — json-schema-to-typescript + quicktype 조합, quicktype 단독, go-jsonschema, openapi-typescript, 수작업 + diff checker 스크립트 등",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "researcher",
+                "summary": "JSON Schema → TS/Go codegen 도구 생태계 2024-2026 조사. 아티팩트: `.opencode/research/2026-04-25-json-schema-codegen-ecosystem.md`. 결론: 본 프로젝트 draft 2020-12 + `oneOf`+`const` discriminator + `$defs` 패턴을 수작업 품질 이상으로 완전히 대체하는 단일 도구는 없음. 현실적 조합 2개 제안. (A) 언어 전용 — json-schema-to-typescript(TS, v15.0.4, 2025-01, 3.3k ★, MIT, 매우 활발) + omissis/go-jsonschema(Go, v0.23.0, 2026-03, 787 ★, MIT, 활발, `oneOf` 명시 지원). (B) 통일 — quicktype(v23.2.6, 2025-05, 13.7k ★, Apache-2.0). 핵심 경고: **json-schema-to-typescript는 discriminator Issue #239(2019년 오픈, 미해결)**로 `oneOf`+`const`를 단순 union 처리할 가능성, 수작업 `type` union 품질 미달 우려. omissis/go-jsonschema는 Go 언어 차원 union 부재로 struct + Type 필드 또는 `interface{}` 출력 가능 — 직접 테스트 필수. quicktype은 discriminator·draft 2020-12 세부 지원 문서 부재, PoC 필수. 고려 제외: xeipuuv/gojsonschema·santhosh-tekuri/jsonschema(validation 전용), typebox·json-schema-to-ts(타입 추론 라이브러리, codegen 아님), openapi-typescript·typed-openapi(OpenAPI 전용). kaptinlin/go-schema는 존재하지 않음(404). CI drift gate 실무 패턴: grpc-ecosystem/grpc-gateway의 `make generate && git diff --exit-code` 표준. bazel/gazelle/buf 계열 동일 패턴. `git diff --exit-code`가 JSON Schema 본 케이스에 권장. pre-commit은 보조 고려. 프로덕션 사례: VSCode·Electron은 JSON Schema → codegen 워크플로우 없음. json-schema-to-typescript는 Alibaba·Amazon·Microsoft·Mozilla·Nx·Sourcegraph·Webpack 프로덕션 사용 확인. 주요 불확실성(실험 필요): (1) json-schema-to-typescript의 `oneOf`+`const` 출력 품질, (2) omissis/go-jsonschema의 `oneOf` Go 출력 패턴, (3) quicktype 양쪽 동시 생성 품질, (4) Go 생성물의 go.mod 새 의존성 여부, (5) draft 2020-12 세부 호환. 권고: 7개 schema에 대해 조합 A vs B PoC 후 최종 선택.",
+                "recorded_at": "2026-04-25T02:22:57.324Z",
+                "agent_id": "ses_23d94cc87fferuWnUIwFEQaq5d"
+              },
+              {
+                "role": "architect",
+                "summary": "본 프로젝트 codegen 파이프라인 설계. 결론: 1안 추천 — TS는 `json-schema-to-typescript` 타입만 + `Ajv 2020` standalone validator 분리 + facade 패턴, Go는 `atombender/go-jsonschema`(실제 omissis 계승본). `bun run gen:contracts` 단일 스크립트, GitHub Actions `contracts-drift.yml`에서 `git diff --exit-code` drift gate. 차안: quicktype 단일. 조건부 승인 — 단계 0 진입 직전에 후속 PoC 4건(출력 diff, go 2020-12 호환, Ajv 2020 호환, stable ordering) 1회 수행. 핵심 설계 요소: (a) schema 7개는 draft 2020-12 + `oneOf`+`const` discriminator + `$defs`로 codegen 친화, 단 `workspaceId` 중복 정의를 `schema/_common.schema.json`으로 정규화는 단계 3에서. (b) 실측 발견 — `terminal-ipc.ts`(360줄)는 단순 타입 아닌 런타임 가드(isTerminalIpcMessage) + brand 타입(TerminalTabId = `tt_${WorkspaceId}_${string}`)까지 포함 → 100% 자동 재현 불가, 하이브리드 필수. brand는 `packages/shared/src/contracts/_brands.ts`(수기 영구), 런타임 가드는 Ajv standalone validator가 facade 내에서 `is*` 함수로 노출. (c) 점진 마이그레이션 로드맵 — 단계 0 인프라/pin, 단계 1 단순 schema부터 facade 도입(complexity 오름차순: last-session-snapshot → workspace-registry → sidecar-lifecycle → terminal-tab → terminal-lifecycle → workspace-actions → terminal-ipc 마지막), 단계 2 런타임 가드 Ajv 이관, 단계 3 `_common.schema.json` 정규화, 단계 4 Go 동일 패턴. (d) facade 패턴으로 E2 코드 35+ import 위치·`terminal-contracts.test.ts` 242줄 테스트 0줄 수정. (e) drift gate GitHub Actions job 상세 예시 제공(regenerate → git diff → tsc → go build → contract tests 순). (f) glob 기반 `schema/*.schema.json` 자동 확장, E3 harness-* 추가 시 파일 추가만으로 수용, 11개 넘어가면 manifest 도입 검토. (g) 리스크 10건 + 완화 전략: 정확 pin, 묶음 업그레이드, Go 도구 draft 2020-12 호환 PoC 필수, 출력 stable ordering 검증 필수. 중요 실측 발견: 루트 `package.json` 부재(모노레포 workspace 정의 불명), `.github/workflows/` 디렉터리 부재 — gen:contracts 스크립트 위치·workflow 신설 위치 Lead 결정 사항.",
+                "recorded_at": "2026-04-25T02:23:18.153Z",
+                "agent_id": "ses_23d947020ffe1MdPyX7rJWPj6c"
+              }
+            ],
+            "decision": "Schema↔TS/Go codegen 도구 조합과 CI drift gate 방식은 A안으로 확정한다.\n\n**도구 조합**\n- TS 타입 생성: `json-schema-to-typescript` v15.0.4(bcherny, MIT) — 정확 버전 pin\n- TS 런타임 validator: `Ajv 2020` standalone(`ajv/dist/2020` import + `ajv-cli` 컴파일) — Issue #239(2019년 미해결)로 discriminator 품질 미달 시 런타임 가드 분리 전략\n- Go 생성: `atombender/go-jsonschema` 실제 omissis 계승본 v0.23.0(MIT, `oneOf` 명시 지원) — 정확 버전 pin\n- 4종 도구 묶음 업그레이드 정책을 `.nexus/context/stack.md`에 추가(xterm 묶음·Electron 런타임 묶음과 동일 모델)\n\n**설계 패턴**\n- facade 패턴: `packages/shared/src/contracts/<name>.ts`가 `./generated/<name>`을 re-export. E2 코드 35+ import 위치 0줄 수정\n- brand 타입(`TerminalTabId = `tt_${WorkspaceId}_${string}``)은 `packages/shared/src/contracts/_brands.ts` 수기 영구 유지 — 자동 재현 불가 영역으로 명시\n- 런타임 가드(`isTerminalIpcMessage` 등)는 facade 안에서 Ajv standalone validator를 `is*` 함수로 래핑\n- Go 측도 `sidecar/internal/contracts/<name>.go` facade가 `./generated`를 type alias로 re-export\n\n**명령·스크립트**\n- glob 기반 단일 명령 `bun run gen:contracts` — `schema/*.schema.json` 자동 확장\n- 스크립트 위치는 구현 단계에서 루트 `package.json` 신설 여부 결정(실측: 루트 package.json 부재)\n\n**CI drift gate**\n- 신규 workflow `.github/workflows/contracts-drift.yml`(실측: `.github/workflows/` 디렉터리 부재, 신설 필요)\n- trigger paths: `schema/**`, `packages/shared/src/contracts/**`, `sidecar/internal/contracts/**`, 자신의 workflow\n- steps: checkout → bun/go setup(pinned) → `bun install --frozen-lockfile` → `go install go-jsonschema@vX.Y.Z` → `bun run gen:contracts` → `git diff --exit-code` → `bun run typecheck` → `go build ./...` → `terminal-contracts.test.ts` 등 contract 테스트\n- 실패 에러 메시지: \"Run `bun run gen:contracts` locally and commit the result.\"\n\n**점진 마이그레이션 로드맵**\n- 단계 0: 인프라(`generated/` 디렉터리, `_brands.ts`, 도구 pin)\n- 단계 1: 단순 → 복잡 순 facade 도입 — last-session-snapshot → workspace-registry → sidecar-lifecycle → terminal-tab → terminal-lifecycle → workspace-actions → terminal-ipc(마지막, 9 variant + runtime guard 260줄)\n- 단계 2: 런타임 가드 Ajv standalone 이관\n- 단계 3: `schema/_common.schema.json` 추출로 `workspaceId` 등 공유 타입 정규화\n- 단계 4: Go facade 동일 패턴\n\n**PoC gate(첫 구현 task로 배치)**\n- 대상: `sidecar-lifecycle.schema.json`(4 variant, 중간 복잡도)\n- 통과 조건 4개:\n  1. TS 출력이 facade를 통해 기존 `sidecar.ts` re-export 품질로 대체 가능(discriminated union narrowing 작동, enum 별칭 보존 가능 여부 확인)\n  2. Go 출력이 기존 `lifecycle.go` 수작업 품질 유지(struct + const enum + 별칭)\n  3. `Ajv 2020`이 schema 컴파일 + validator 정상 동작\n  4. Stable ordering — 동일 입력에 동일 출력 byte-identical\n- PoC 실패 시 fallback 분기 규칙:\n  - 조건 1·2 중 하나 실패 → 조합 B(`quicktype` 단일) PoC 1회 추가\n  - 양쪽 모두 실패 → 조합 C(수작업 유지 + schema↔contracts enum/required 대조 bash 스크립트)로 본 사이클 scope 축소\n  - 분기는 Lead가 사용자에게 재질의 후 확정\n\n**기각 근거**\n- B안(quicktype 단일): discriminator·draft 2020-12 세부 지원 문서 부재, TS·Go 양쪽 품질이 언어 전용 도구 대비 떨어질 가능성. 단일 도구 외부 변경 시 TS/Go 동시 영향 — 플러그인 경계 원칙 약화\n- C안(수작업 유지 + diff 스크립트): 도구 의존성 0이라는 장점이 있으나, schema 단일 출처의 본질적 이득(E3 harness-* 4개 추가 시 자동 확장) 손실. 장기적으로 수작업 부담 누적"
+          },
+          {
+            "id": 3,
+            "title": "Go WebSocket 라이브러리 선택 — gorilla/websocket vs coder/websocket(구 nhooyr) vs stdlib(net/http + golang.org/x/net/websocket)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "researcher",
+                "summary": "Go WebSocket 라이브러리 3종 2024-2026 조사. 아티팩트: `.nexus/artifacts/websocket-library-research.md`. 결론: 1순위 coder/websocket, 2순위 gorilla/websocket, 부적합 x/net/websocket. **coder/websocket** v1.8.14(2025-09-06, 5.1k★, ISC): 2024-08 nhooyr.io/websocket에서 Coder사 공식 인수(maintainer burnout). context first-class(Read/Write/Ping/Close 전부 ctx 인자), JSON `wsjson` 내장, zero allocation, 단일 연결/push 서버 용이, v1.8.x 안정 운영. v2 로드맵 존재하나 미출시·breaking 약속 없고 v1 병존 예정. **gorilla/websocket** v1.5.3(2024-06-14, 24.7k★, BSD-2-Clause): 2022 archive 후 2023 재활성화. v1.5.3은 v1.5.0 revert로 안정성 회복. 이후 22개월 신규 릴리스 없음이나 API stable 명시, 44k+ importers 프로덕션 표준. context는 Dialer.DialContext만 지원, 서버는 SetReadDeadline 기반이라 graceful shutdown 코드 증가. Prepared messages·BufferPool 제공하나 concurrent write 비허용. **x/net/websocket**: 공식 deprecated(golang/go#18152), coder README와 x/net/websocket godoc 양쪽이 \"lacks features, not maintained\"로 대체 권고. 기능 부족, 신규 프로젝트 기각. context·heartbeat 두 축이 30분 안정성 블로커 관점 핵심 격차 — coder는 1급, gorilla는 콜백+deadline 우회, 코드 면적 5-10배 차이. Electron ↔ Go sidecar WebSocket의 정확 동일 아키텍처 오픈소스 사례는 발견 못함. 유사 사례: Coder(대규모 Go↔WebSocket), Wails(Go+WebView IPC), Traefik Dashboard(coder/websocket 사용). 30분 이벤트 누락 없음은 autobahn test suite 통과+프로덕션 이력으로 간접 지원되나 본 프로젝트 특정 조건(localhost+Go 1.22+단일 연결)에서는 integration test 필수.",
+                "recorded_at": "2026-04-25T02:30:33.518Z",
+                "agent_id": "ses_23d8a884cffeMCDIblhIerl6eV"
+              },
+              {
+                "role": "architect",
+                "summary": "본 프로젝트 sidecar WebSocket 라이브러리 평가. 1안 coder/websocket v1.8.14 pin, 차안 gorilla/websocket v1.5.3 pin, x/net 기각. 핵심 근거: coder의 Read(ctx)/Write(ctx)/Ping(ctx)/Close(code,reason) 전부 1급 context 수용으로 sidecar parentCtx 취소만으로 graceful shutdown 구현 가능(gorilla는 별도 ctx→Close 다리 goroutine 필요). wsjson.Read/Write가 generated struct에 무지하게 동작(json.Marshal/Unmarshal 위임). Coder 인수는 \"프로젝트 인계\"이지 fork가 아니라 import path 변경은 1회 발생 완료, v1.8.x 내 추가 breaking 없음. 서버 구현 의사코드 비교: coder 22줄(ping은 30s ticker로 c.Ping(ctx), wsjson.Read/Write), gorilla 26줄+pingLoop·writeLoop 분리(concurrent write 비허용으로 단일 write goroutine 강제). **Facade 필수** — sidecar/internal/wsx 패키지에 Server/Handler 인터페이스만 노출, `github.com/coder/websocket` import는 `internal/wsx/coder.go` 단일 파일에 격리. 라이브러리 교체 시 영향 범위 ≤200줄, HarnessAdapter 0줄 변경. 닫힘 코드는 RFC 6455 정수(1000/1001/1011/1006)로만 노출, 라이브러리별 enum 타입 누출 금지. stdlib(net/http + Hijack) 직접 구현은 RFC 6455 frame parser/masking/close handshake ~400-600줄로 이득<비용 명확. 30분 안정성은 라이브러리 선택만으로 보장 안 됨 — 앱 측 ping/TCP keepalive 설계 + pprof heap diff + goroutine leak 측정 POC 필수. 후속 실험 6건: 30분 idle soak(합격 기준 heap delta<5MB·goroutine 변동 0), 100/500/1000 evt/s 처리량(p99<5ms·누락 0), graceful shutdown<500ms, argv token 미들웨어 통합, Electron `ws` 모듈과 close code 상호운용성, gorilla 동등 POC(facade 추상화 실제 작동 증명). 리스크 완화: 정확 pin(v1.8.14) + Dependabot, facade로 hot swap, coder v2 등장 시 v1 병존, gorilla 차안 효력을 12개월마다 재확인. ADR Approach Approved.",
+                "recorded_at": "2026-04-25T02:30:50.209Z",
+                "agent_id": "ses_23d8a26c3ffeL4hDUobyEqbiiW"
+              }
+            ],
+            "decision": "Go WebSocket 라이브러리는 1안으로 확정한다.\n\n**선택**\n- **`github.com/coder/websocket` v1.8.14** 정확 버전 pin (ISC)\n- `sidecar/internal/wsx` facade 필수 도입\n- 차안: `github.com/gorilla/websocket` v1.5.3 pin — coder 이탈 시(CVE 미패치 / 재인계 / v2 강제 마이그레이션 압력) facade 1파일 교체로 전환\n\n**기각**\n- `golang.org/x/net/websocket`: golang/go#18152에서 공식 deprecated. coder README와 x/net/websocket godoc 양쪽이 대체 권고. 신규 채택 금지.\n- stdlib 직접 구현(net/http + Hijack): RFC 6455 frame parser·masking·close handshake ~400-600줄 유지 비용이 단일 localhost 연결 대비 이득<비용.\n- gorilla 1안 역전: 44k importers 안정성은 진지하나 context 1급 부재로 graceful shutdown 코드 5-10배, 30분 연속 동작 블로커 관점에서 coder의 ctx-first + wsjson이 공학적 우위. facade로 차안 유효성 확보.\n\n**Facade 설계 (architect 제시)**\n```go\n// sidecar/internal/wsx/wsx.go — 라이브러리 비가시\ntype Server interface {\n    Serve(ctx context.Context) error\n    Send(ctx context.Context, msg any) error\n    Close(code int, reason string) error\n}\ntype Handler interface {\n    OnMessage(ctx context.Context, raw []byte) error\n    OnClose(code int, reason string)\n}\n```\n- `github.com/coder/websocket` import는 `sidecar/internal/wsx/coder.go` 단일 파일에 격리\n- 코어/어댑터는 `wsx.Server`·`wsx.Handler`만 import\n- 닫힘 코드는 RFC 6455 정수(1000/1001/1011/1006)로만 노출 — 라이브러리별 enum 타입 누출 금지\n- 메시지 페이로드는 `any` 또는 `[]byte`로 경계화, generated struct는 코어가 marshal 후 전달(transport 무지)\n\n**본 사이클 필수 검증 (architect §7 선별)**\n- **30분 idle soak test**: Electron 클라이언트 1 + sidecar coder 서버, ping 30s ticker. 합격 기준: heap delta < 5MB, goroutine 변동 0\n- **graceful shutdown 측정**: SIGTERM → ctx cancel → close handshake 완료 < 500ms\n- **Electron `ws` 모듈과 close code 상호운용성**: 1000(정상)/1001(going away)/1006(비정상) 3종에서 양측 onclose 핸들러가 동일 code 관측\n\n**본 사이클 제외 (E3 본체 사이클로 이연)**\n- 처리량 측정(100/500/1000 evt/s 송신): 어댑터 이벤트 소스 없는 현 상태에서 의미 제한\n- argv token 미들웨어 통합 테스트: Issue 4에서 인증 방식 결정 후 본 사이클에서 함께 구현·smoke 레벨 검증\n- gorilla 동등 POC(facade 추상화 이론 검증): 1안 안정 확인 후 차안 유효성 분기 시점에 수행\n\n**업그레이드·리스크 정책**\n- go.mod 정확 pin(`v1.8.14`), Dependabot 활성화\n- coder v2 출시 시 v1 EOL 결정 전까지 facade 격리 유지, 병존 기간에 점진 이관\n- 12개월마다 gorilla 차안 유효성 재확인(릴리스 상태·CVE 이력)\n- `.nexus/memory/external-coder-websocket.md` 신설 — 인수·v2 로드맵·30분 안정성 실측 기록\n- 4종 codegen 도구 묶음(Issue 2)과 별도로 WebSocket 묶음을 `.nexus/context/stack.md`에 추가"
+          },
+          {
+            "id": 4,
+            "title": "Electron main ↔ sidecar WebSocket 연결 + lifecycle handshake 설계 — 포트(동적 ready-report vs 고정), 인증(argv token), handshake 메시지 스키마, 재연결 정책, heartbeat 종합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Main↔sidecar WS 연결+lifecycle handshake 5축 종합 설계. (1) **포트**: 동적 0-bind + sidecar stdout 첫 줄 `NEXUS_SIDECAR_READY port=N pid=N proto=ws v=1`를 main이 줄단위 파싱. 고정 포트·UDS/named pipe 기각(per-workspace 다중 인스턴스 + 테스트 격리 + macOS primary). (2) **인증**: main이 `crypto.randomBytes(32).toString('hex')` 64자 hex 생성. 전달은 **env var `NEXUS_SIDECAR_TOKEN`** (argv 아님 — `ps` 노출 회피). 검증은 WS Upgrade의 **`X-Sidecar-Token` 커스텀 헤더**, subprotocol `nexus.sidecar.v1`은 version negotiation 전용. sidecar는 `crypto/subtle.ConstantTimeCompare`. Origin 검사는 \"header 없음만 허용\". (3) **Handshake**: 옵션 (b) 명시적 왕복 채택(옵션 a·c는 argv 채널 중복으로 schema 분열). 시퀀스: spawn → READY(5s timeout) → WS connect(2s) → 101 → main이 SidecarStartCommand 송신 → sidecar가 SidecarStartedEvent 응답(2s timeout) → RUNNING. `startedAt`은 sidecar process boot 시각(WS accept 아님). `pid`는 main `child.pid`와 일치 검증. Stop 순차 escalation: WS StopCommand → 1s 무응답 → SIGTERM → 3s 무응답 → SIGKILL. `SidecarStoppedEvent reason=\"process-crash\"`는 sidecar가 emit 불가 → **main이 child exit code + WS close code + signal로 합성**(합성 규칙 표로 제공). schema 4 variant는 WS 위에서만 검증(codegen facade 단일 진입점 유지). 실패 경로 17건 매트릭스 제공(재시도·재spawn·fatal 분류). (4) **재연결**: WS와 child process는 1:1 binding. **WS close ≠ 재연결, WS close = 프로세스 종료 신호로 해석**, 권위는 child exit. main 측 SidecarLifecycleEmitter에 epoch UUID per spawn + dedupe gate(StoppedEvent 1회만 emit, 두 신호 중 먼저 도착이 트리거). 재spawn 정책: backoff 2s/4s/8s 3회 실패 → workspace degraded, UI 알림, Last Session Snapshot에 lastSidecarFailure. (5) **Heartbeat**: coder/websocket `c.Ping(ctx)` 15s 간격, 5s timeout, 2회 연속 실패 → close(1011). TCP keepalive OS 기본 유지 보조. macOS `powerMonitor.on('suspend'/'resume')`로 ping 정지/재개 + 10s grace. **Electron WebSocket 클라이언트**: `ws` npm ^8.18.0 pin(Node 내장 WebSocket은 WHATWG 표준상 커스텀 헤더 불가, 본 설계는 `X-Sidecar-Token` 헤더 필수). **확장 포인트(E3 대비)**: 메시지 type namespace `^[a-z]+/[a-z-]+$`, sidecar/* lifecycle vs harness/* E3, envelope 도입은 본 사이클 기각(cut line 위반) 후 E3 진입 직전 재평가. 버전은 subprotocol이 단일 truth. **리스크 10건**: R1 stdout race → prefix 고정 + Go lint rule, R3 Gatekeeper 첫 실행 30s grace, R5 localhost에서 ping keepalive 효과 미검증 → L1 long-run 필수, R6 suspend/resume 통합, R9 child exit + WS close race → epoch tag 1s reconcile, R10 PID 재할당 → bootTime 매칭. **후속 실험 7건**: L1 30분 long-run(App Nap + sleep 포함), L2 spawn cold start p50/p95/p99, L3 env var token OS별 노출 경계, L4 schema codegen smoke, L5 bootTime reaping false positive, L6 ws vs Node native WebSocket 제약 재조사, L7 envelope ROI E3 진입 직전. Approach approved (with revisions: W1 token env var 변경·W2 crash reason main 합성 반영).",
+                "recorded_at": "2026-04-25T02:38:20.567Z",
+                "agent_id": "ses_23d82f37affegtnX1ChMp9SXcJ"
+              }
+            ],
+            "decision": "Main↔sidecar WebSocket 연결 + lifecycle handshake 설계는 architect 보고대로 5축 전부 확정한다. 본 사이클 구현 범위는 아래와 같이 한정한다.\n\n**5축 결정 요약**\n\n(1) **포트**: 동적 0-bind + sidecar stdout 첫 줄 `NEXUS_SIDECAR_READY port=N pid=N proto=ws v=1` 프로토콜. 첫 줄까지만 줄단위 파싱, 이후 stdout은 일반 로그 stream으로 연결. 첫 줄 prefix(`NEXUS_SIDECAR_READY`) 고정 + Go 측 lint rule로 race 방지.\n\n(2) **인증**: main이 `crypto.randomBytes(32).toString('hex')` 64자 hex 생성. 전달은 **env var `NEXUS_SIDECAR_TOKEN`** (argv 미사용 — `ps` 노출 회피). WS Upgrade 검증은 **`X-Sidecar-Token` 커스텀 헤더**, subprotocol `nexus.sidecar.v1`은 version negotiation 전용. sidecar는 `crypto/subtle.ConstantTimeCompare`. Origin 검사는 \"header 없음만 허용\"(Electron main이 Origin 미전송).\n\n(3) **Handshake**: 옵션 (b) 명시적 왕복.\n- 시퀀스: spawn → READY(5s timeout) → WS connect(2s) → 101 → main이 SidecarStartCommand 송신 → sidecar SidecarStartedEvent 응답(2s timeout) → RUNNING\n- `startedAt`은 sidecar process boot 시각(WS accept 아님)\n- `pid`는 main `child.pid`와 일치 검증\n- Stop 순차 escalation: WS StopCommand → 1s 무응답 → SIGTERM → 3s 무응답 → SIGKILL\n- `SidecarStoppedEvent reason=\"process-crash\"`는 sidecar emit 불가 → **main이 child exit code + WS close + signal로 합성**:\n  - WS clean(1000) + exit(0) → `requested`\n  - exit(non-zero) + signal=null → `process-exit`\n  - exit(SIGKILL/SIGSEGV/SIGABRT) → `process-crash`\n  - main이 SIGTERM/SIGKILL → `requested`\n- schema 4 variant는 WS 위에서만 검증, codegen facade(Ajv standalone, go-jsonschema) 단일 진입점 유지\n\n(4) **재연결**: WS와 child process는 1:1 binding. WS close = 프로세스 종료 신호로 해석, 권위는 child exit. main 측 `SidecarLifecycleEmitter`에 epoch UUID per spawn + dedupe gate(`SidecarStoppedEvent` 1회만 emit, 두 신호 중 먼저 도착이 트리거, 다른 신호는 reason 합성에 reconcile, 1s reconcile 윈도). 재spawn 정책: backoff 2s/4s/8s 3회 실패 → workspace `degraded` 상태.\n\n(5) **Heartbeat**: coder/websocket `c.Ping(ctx)` 15s 간격, 5s timeout, 2회 연속 실패 → close(1011). TCP keepalive OS 기본 유지 보조. 본 사이클 smoke는 ping/pong 1회 왕복만 검증.\n\n(6) **Electron WebSocket 클라이언트**: `ws` npm `^8.18.0` 정확 버전 pin + `@types/ws@8.5.x`. Node 내장 WebSocket은 WHATWG 표준상 커스텀 헤더 불가하여 본 설계의 `X-Sidecar-Token` 헤더 인증 채널과 호환 안 됨. ping/pong 직접 제어와 close code/reason 정밀 제어도 ws 라이브러리 우위.\n\n**확장 포인트(E3 대비)**\n- 메시지 type namespace `^[a-z]+/[a-z-]+$`, `sidecar/*`은 lifecycle, `harness/*`은 E3 별도 schema(`schema/harness.schema.json`)\n- envelope 도입은 본 사이클 기각(cut line 위반), E3 진입 직전 ROI 재평가(L7)\n- 버전은 subprotocol이 단일 truth, schema 자체에 version 필드 미포함\n- handshake 상태 머신: harness 메시지는 Started 이후에만 허용\n\n**본 사이클 포함 (smoke + 인수인계 계약 cut line)**\n- 동적 포트 0-bind + READY 라인 파싱 구현\n- env var token 생성·전달 + `X-Sidecar-Token` 헤더 검증\n- handshake 시퀀스 전체(spawn → READY → WS → Start → Started)\n- StopCommand WS 전송 + SIGTERM/SIGKILL escalation\n- crash reason 합성 규칙(main 측 SidecarLifecycleEmitter)\n- Heartbeat 15s/5s/2회 close 기본 로직\n- 실패 경로 매트릭스 17건 중 Fatal 분류(token 불일치·schema validation·subprotocol 불일치·READY 파싱 실패·pid 불일치) + **1회 재spawn 최소 로직**\n- smoke 테스트: 정상 라이프사이클 1회 + 1건 crash 시나리오 + Electron↔Go close code 1000/1001/1006 상호운용성(Issue 3 결정 재인용)\n- 30분 idle soak test(Issue 3 결정 그대로 — heap delta < 5MB, goroutine 변동 0, graceful shutdown < 500ms)\n\n**E3 본체 이연 (어댑터 착수 시점)**\n- 재spawn backoff 2s/4s/8s 세분화 + 3회 실패 degraded UI 알림 + Last Session Snapshot의 `lastSidecarFailure` 필드\n- `powerMonitor.on('suspend'/'resume')` 통합(macOS sleep 시나리오)\n- bootTime 기반 PID reaping 정밀화(Last Session Snapshot에 PID + bootTime 같이 기록)\n- 실패 경로 17건 중 transient 분류의 완전 구현(본 사이클은 Fatal + 1회 재spawn 최소만)\n- 처리량 측정·envelope ROI 재평가\n\n**리스크 등록**\narchitect §리스크 10건 중 본 사이클 능동 완화: R1(stdout race — prefix 고정 + Go lint), R3(Gatekeeper 첫 실행 30s grace, 이후 5s), R8(pid sanity check), R9(epoch tag + 1s reconcile race fixture). E3 이연: R5(30분 long-run은 본 사이클에 이미 포함), R6(suspend/resume), R10(bootTime reaping). 본 사이클은 보안 위협 모델 명문화: localhost 동일 사용자 다른 프로세스의 임의 메시지 주입 차단이 1차 목표, 네트워크/원격 위협은 범위 외.\n\n**메모리 기록**\n- `.nexus/memory/external-coder-websocket.md`(Issue 3에서 신설 결정) — 인수·v2 로드맵·30분 안정성 실측·heartbeat 정책 함께 기록\n- `.nexus/memory/pattern-sidecar-lifecycle-handshake.md` 신설 — 동적 포트 + env var token + X-Sidecar-Token 헤더 + 명시 왕복 + crash reason 합성 패턴을 재사용 가능한 형태로 기록"
+          }
+        ],
+        "research_summary": "## 현재 저장소 상태 (실측)\n\nmain 브랜치 `7206f83`는 Phase A Runnable Shell 확정(2026-04-24 PASS, plan #4/#5)과 Linear-quality 디자인 시스템 리페인팅(plan #6~#14, merge commit으로 병합)을 통합한 상태다. 4열 layout container(Activity 48px · Workspace · Center · Shared 320px)의 Shared 패널이 E3 Harness Observer UI를 수용하기 위해 미리 비워져 있다. 원가 관찰 경로로 설정된 sidecar는 plan #4 Issue 4에서 확정한 S1 스텁 상태 그대로(`sidecar/cmd/nexus-sidecar/main.go` 25줄, 표준 라이브러리만, SIGHUP/SIGTERM/SIGINT 처리만). sidecar `go.mod`는 모듈 선언과 `go 1.22`만 있고 의존성 0건. `schema/` 디렉터리에는 E1·E2용 7개(terminal-* 3, workspace-* 3, sidecar-lifecycle 1)만 존재하고 E3용 harness-* schema는 0건. `packages/shared/src/contracts/` 9개 TS 수작업 파일과 `sidecar/internal/contracts/lifecycle.go` 1개 Go 수작업 파일이 있으나 schema↔TS/Go 자동 생성 파이프라인은 없다. WebSocket 관련 코드·의존성은 모든 레이어에 0건이다.\n\n## E3 스코프 확정 상태 (plan #4 Issue 6)\n\nE3는 이미 스코프 결정이 끝났고 본 사이클은 재결정이 아니라 구현 선택지 결정이다. 반드시 포함 항목은 (a) claude-code·opencode·codex 3개 어댑터 전부, (b) 탭 뱃지 4상태 + tool 호출 사이드 패널 + 파일 편집 diff 뷰 + OS 알림 + 세션 히스토리 읽기 전용 뷰어(미니멀) 5 UI, (c) sidecar WebSocket이 하네스 당 최소 30분 연속 동작에서 이벤트 누락 없음(릴리스 블로커), (d) 어댑터가 하네스에 상태를 쓰려 하면 계약 위반으로 실패하는 읽기 전용 회귀 테스트다. 명시 제외는 tool 호출 승인 주입·adapter-specific 커스텀 UX·탭 뱃지 애니메이션/rich OS 알림·워크스페이스당 복수 하네스·세션 히스토리 검색/필터/비교다. 수평 제약은 E3 diff 뷰 패널과 E5 preview 패널이 우측 Shared 컨테이너의 탭으로 공존한다는 점이다.\n\n## M3 인수인계 계약 (plan #4 Issue 4 확정)\n\nE3 착수 사이클의 첫 태스크 묶음에 다음 4항목이 반드시 포함된다. (1) schema↔TS/Go codegen 파이프라인 구축 + 기존 수작업 contracts(`sidecar/internal/contracts/*`, `packages/shared/src/contracts/*`)의 생성물 대체. (2) CI drift gate 추가 — 생성물과 원본 불일치 시 실패. (3) Go sidecar WebSocket IPC 최소 구현은 lifecycle handshake(SidecarStart / Started / Stop / Stopped) 왕복 성공을 선결한 뒤 harness observer 이벤트 스트림으로 확장. (4) WebSocket 라이브러리 선택을 독립 이슈로 관리.\n\n## 정체성 제약 (harness-integration.md)\n\nA2 관찰 모델의 핵심 원칙 두 가지는 TUI 대체 금지와 IDE 읽기 전용 관찰자. HarnessAdapter 인터페이스는 제품 코어에 단일로 고정되고 각 하네스 구현은 플러그인 경계 외부에 격리된다. 관찰 경로는 하네스별로 고정되는데 claude-code는 Hooks API + `.jsonl` 세션 파일 tail, opencode는 SQLite 세션 DB + 이벤트 스트림, codex는 세션 파일 / JSON 출력(스키마 변동 많음, 지속 보수 필요). 프로세스 실행은 per-turn spawn + `--resume <sessionId>` 패턴만 허용하며 비공식 stream-json 다중 턴 경로는 이전 Tauri 프로젝트 폐기의 직접 원인이었으므로 완전 금지다.\n\n## 이전 Tauri 회고 교훈 (empirical-previous-tauri-retrospective)\n\n플러그인 경계가 없으면 외부 API 한 번의 변경이 제품 전체를 무너뜨린다. 30분+ 장기 실행 안정성을 POC가 아닌 실측 사이클에서 선행 검증하지 않으면 MVP 종반에 폐기 리스크가 발생한다. 자동화 맹신 금지(Playwright IME 자동화도 수동 QA 병행), 야심 > 실현성 조합 금지, 비공식 스키마에 의존 금지.\n\n## 히스토리 확인\n\nnx_history_search 결과 E3 Harness Observer 착수 관련 이전 plan 세션은 없다. plan #4가 E3 scope와 M3 인수인계 계약을 확정한 직전 사이클이고 그 이후 plan #5~#14는 Phase A 실행 + design system repaint였다. plan #1은 context·memory 셋업, plan #2는 E1, plan #3은 E2, plan #4는 MVP 로드맵 정렬.\n\n## 각 이슈별 추가 조사 계획\n\n이슈 2 codegen 도구와 이슈 3 WebSocket 라이브러리는 2024-2026 생태계 상태 확인이 필요하므로 researcher 스폰 예정. 이슈 2는 TS↔Go 계약 정합성이 중요해 architect 병렬 스폰. 이슈 3은 Go 라이브러리 유지보수 상태 중심이라 researcher 단독으로 충분할 가능성. 이슈 4는 보안·재연결·handshake 프로토콜 설계 축이라 architect 집중. 이슈 1 범위 판단은 Lead 직접(기존 문서·실측으로 충분하나 범위 확대 요청 시 architect 추가).",
+        "created_at": "2026-04-25T02:11:28.564Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PoC: schema codegen 도구 4조건 검증 (sidecar-lifecycle.schema.json)",
+          "status": "completed",
+          "context": "Issue 2 결정의 PoC gate. json-schema-to-typescript v15.0.4 + Ajv 2020 standalone + atombender/go-jsonschema v0.23.0 조합이 본 프로젝트 schema 품질을 유지할 수 있는지 1 schema(sidecar-lifecycle.schema.json, 4 variant 중간 복잡도)로 사전 검증. 통과 시 T2 본격 마이그레이션, 실패 시 fallback 분기를 Lead에게 재질의.",
+          "acceptance": "1. 도구 3종 정확 버전 pin 설치 후 sidecar-lifecycle.schema.json 입력 → TS/Go 산출물 emit 성공\n2. PoC 통과 조건 4개 평가:\n   (a) TS 출력이 facade를 통해 기존 packages/shared/src/contracts/sidecar.ts re-export 품질로 대체 가능 — discriminated union narrowing 실측 컴파일 통과, enum 별칭 보존 가능 여부 확인(필요 시 schema의 inline enum을 named $defs로 정규화 권장 메모)\n   (b) Go 출력이 기존 sidecar/internal/contracts/lifecycle.go 수작업 품질 유지 — struct + const enum + 별칭 string 패턴, json tag, *int nullable\n   (c) Ajv 2020(`ajv/dist/2020`)이 schema 컴파일 + standalone validator 함수 정상 동작 — sample 메시지 4종 valid + 1종 invalid 분기 검증\n   (d) Stable ordering — 동일 입력에 동일 출력 byte-identical(2회 실행 diff 없음)\n3. 결과 보고: 4조건 통과 여부, 각 도구의 추가 발견(go-jsonschema의 oneOf 출력 패턴 G1/G2/G3 어느 것인지, Ajv의 draft 2020-12 dialect 호환), 산출물 샘플 주석 형식·헤더·import 경로\n4. PoC 실패 시 fallback 분기 트리거: 조건 (a)·(b) 중 하나 실패 → Lead에게 quicktype 추가 PoC 진행 여부 보고 / 양쪽 모두 실패 → C안(수작업 + diff 스크립트) 전환 보고",
+          "approach": "임시 디렉터리에서 1 schema 대상 PoC 수행. 도구는 정확 버전 pin으로 설치(json-schema-to-typescript@15.0.4, ajv@8.x + ajv-formats + ajv-cli, atombender/go-jsonschema@v0.23.0). 산출물 비교는 기존 sidecar.ts 39줄·lifecycle.go 53줄 대비 line-by-line. Stable ordering은 동일 입력에 같은 결과인지 sha256 비교. 도구 출력에 헤더 주석으로 \"DO NOT EDIT\" + \"regenerate via bun run gen:contracts\" 표기 가능 여부 확인.",
+          "risk": "go-jsonschema가 draft 2020-12를 명시적으로 인식 못 할 가능성(README는 2019-09까지 명문). 실패 시 schema dialect 다운그레이드 또는 quicktype 전환 필요. Ajv의 draft 2020-12 dialect 호환성도 검증 필요 — 일부 keyword(`patternProperties`, `anyOf` nullable) 동작 차이 가능.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bd5596cffee674YVwYM4uvlo"
+          },
+          "created_at": "2026-04-25T10:15:57.726Z"
+        },
+        {
+          "id": 2,
+          "title": "Schema codegen 파이프라인 구축 + 7 schema facade 마이그레이션 (단계 0~1)",
+          "status": "completed",
+          "context": "Issue 2 결정의 단계 0(인프라)·단계 1(facade 도입). 7 schema를 단순→복잡 순으로 facade 패턴으로 옮기되 E2 코드 35+ import 위치와 terminal-contracts.test.ts 242줄은 0줄 수정 보장. 단계 2(Ajv standalone runtime guard 이관)은 terminal-ipc 마지막 단계에서 수행, 단계 3(_common.schema.json 정규화)은 본 사이클 제외.",
+          "acceptance": "1. 도구 3종(json-schema-to-typescript@15.0.4, ajv@8.x + ajv-cli, atombender/go-jsonschema@v0.23.0) package.json 또는 sidecar/Makefile에 정확 버전 pin\n2. `packages/shared/src/contracts/generated/` 디렉터리 신설, `sidecar/internal/contracts/generated/` 디렉터리 신설\n3. `packages/shared/src/contracts/_brands.ts` 신설 — `TerminalTabId`·기타 brand 영구 수기 영역\n4. `bun run gen:contracts` 단일 명령 동작 — schema/*.schema.json glob 입력으로 TS/Go 양쪽 생성\n5. 7 schema facade 마이그레이션(순서: last-session-snapshot → workspace-registry → sidecar-lifecycle → terminal-tab → terminal-lifecycle → workspace-actions → terminal-ipc 마지막):\n   - 각 facade 파일(`packages/shared/src/contracts/<name>.ts`)이 `./generated/<name>`을 re-export\n   - terminal-ipc.ts의 isTerminalIpcMessage 등 런타임 가드는 Ajv standalone validator로 대체(단계 2 통합)\n   - Go facade(`sidecar/internal/contracts/<name>.go`)도 `./generated`를 type alias로 re-export\n6. 빌드·테스트 무회귀: bun test (78 PASS), terminal-contracts.test.ts 242줄 통과, go test, bun run typecheck, electron-vite build 통과\n7. E2 import 35+ 위치 0줄 수정 확인(git diff 기준)\n8. 도구 4종 묶음 업그레이드 정책 .nexus/context/stack.md에 메모(T9에서 종합 갱신, 본 task는 마이그레이션만)",
+          "approach": "단계 0: package.json scripts에 gen:contracts(루트 또는 packages/shared) 추가, 도구 설치, generated/ 디렉터리 .gitignore 제외. _brands.ts는 사전 brand 추출로 신설. 단계 1: 단순 schema부터 facade 도입. 각 facade 도입 시 관련 import 위치를 grep으로 0건 변경 확인. terminal-ipc.ts 마지막은 9 variant + runtime guard 260줄이라 단계 2 Ajv 통합과 함께 진행. Ajv는 ajv-cli로 standalone JS+d.ts emit. Go는 go-jsonschema가 출력하는 wrapper Unmarshal·Validator는 별도 파일로 두고 lifecycle.go facade는 type alias만. 첫 generation은 \"기준선 PR\" 1회 큰 diff로 머지 후 이후는 schema 변경에서만 diff.",
+          "risk": "json-schema-to-typescript의 Issue #239(discriminator 미해결)로 TS 출력 품질이 수작업 대비 narrowing 회귀 가능 — Ajv standalone facade로 런타임 가드 분리해 보완. 첫 generation PR이 큰 diff(generated 7파일·facade 7파일 변경)로 리뷰 부담. terminal-ipc.ts의 brand 타입(`tt_${WorkspaceId}_${string}`)은 generated에서 단순 string으로 펴짐 → _brands.ts가 cast helper 노출. Ajv 2020 dialect의 patternProperties·anyOf nullable 동작 PoC(T1)에서 미검증 시 본 task가 막힐 수 있음.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bce5dd8ffeOcm25pGXR7CrYy"
+          },
+          "created_at": "2026-04-25T10:16:22.877Z"
+        },
+        {
+          "id": 3,
+          "title": "CI drift gate workflow 신설 (.github/workflows/contracts-drift.yml)",
+          "status": "completed",
+          "context": "Issue 2 결정의 CI drift gate. 현재 .github/workflows/ 디렉터리 부재 실측 → 신설. T2 codegen 파이프라인 동작 확인 후 CI에서 자동 검증.",
+          "acceptance": "1. `.github/workflows/contracts-drift.yml` 신설\n2. trigger paths: schema/**, packages/shared/src/contracts/**, sidecar/internal/contracts/**, .github/workflows/contracts-drift.yml\n3. job steps: checkout → bun setup(pinned) → go setup(pinned) → bun install --frozen-lockfile → go install go-jsonschema@v0.23.0 → bun run gen:contracts → git diff --exit-code packages/shared/src/contracts/generated sidecar/internal/contracts/generated → bun run typecheck → cd sidecar && go build ./... → cd packages/shared && bun test ./src\n4. drift 발생 시 에러 메시지 명시: \"Run \\`bun run gen:contracts\\` locally and commit the result.\"\n5. main 브랜치 push와 PR open 모두 트리거\n6. 의도적 schema 수정 → drift 발생 PR로 workflow 자체 검증 1회",
+          "approach": "architect §5 예시 yml을 본 프로젝트에 맞춰 적용. bun 버전·go 버전은 stack.md pin과 일치. setup-bun@v2, setup-go@v5(go-version-file: sidecar/go.mod). 의도적 drift 검증은 schema 1글자 수정 후 PR 열어 workflow 실패 메시지 확인 → 원복 후 PR close.",
+          "risk": "GitHub Actions 캐시(actions/cache 또는 setup-* 내장)가 첫 실행 시 미적용으로 시간 초과 가능 — 캐시 키 설정. bun과 go 동시 사용으로 setup 단계가 길어짐. workflow 자체에 lint(actionlint) 미적용 시 syntax 오류 늦게 발견 — 본 task는 단일 yml만 신설하므로 review 충실.",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bc8dbb9ffeSTi8uBGoxKJIOq"
+          },
+          "created_at": "2026-04-25T10:16:35.899Z"
+        },
+        {
+          "id": 4,
+          "title": "Go wsx facade + coder/websocket 구현 (sidecar/internal/wsx)",
+          "status": "completed",
+          "context": "Issue 3 결정의 facade 강제. sidecar/internal/wsx 패키지에 라이브러리 비가시 Server·Handler 인터페이스 정의, github.com/coder/websocket import는 wsx/coder.go 단일 파일에 격리. 코어/어댑터는 wsx만 import해 라이브러리 교체 시 영향 ≤200줄.",
+          "acceptance": "1. sidecar/go.mod에 github.com/coder/websocket v1.8.14 정확 버전 pin 추가\n2. sidecar/internal/wsx/ 패키지 신설:\n   - wsx.go: Server·Handler 인터페이스 정의(Serve(ctx)/Send(ctx,msg)/Close(code,reason), OnMessage(ctx,raw)/OnClose(code,reason))\n   - coder.go: coder/websocket 사용 구현(이 파일이 라이브러리 import 유일 지점)\n3. 닫힘 코드는 RFC 6455 정수(1000/1001/1011/1006)로만 노출 — 라이브러리 enum 누출 금지\n4. 메시지 페이로드는 any 또는 []byte로 경계화 — wsx는 transport에 무지\n5. 단위 테스트 통과: wsx_test.go에 mock handler로 Serve/Send/Close 라이프사이클 + 인증 토큰 헤더 검증 미들웨어 1건\n6. import path 검증: grep으로 github.com/coder/websocket가 wsx/coder.go 외에서 사용되지 않음 확인\n7. go build ./... 통과, go vet 통과",
+          "approach": "architect §5 facade 인터페이스 그대로. Server는 net/http.ListenAndServe + http.HandlerFunc 미들웨어 체인 + websocket.Accept. Handler 콜백으로 OnMessage/OnClose. 인증 토큰 검증은 wsx.AuthMiddleware(token string) http.Handler로 노출. Subprotocol \"nexus.sidecar.v1\"는 AcceptOptions.Subprotocols. Origin은 헤더 부재만 허용. Send/Close는 ctx + 코드 + reason. 동시성: Send는 mutex로 직렬화(coder가 concurrent write 허용하나 단일 writer 정책으로 단순화). 단위 테스트는 httptest.NewServer + websocket.Dial로.",
+          "risk": "facade 인터페이스가 너무 추상적이면 테스트하기 어렵고, 너무 구체적이면 라이브러리 변경에 약해짐 — 본 task에서는 architect 제시 4 method로 좁게 시작, 필요 시 후속 사이클에 확장. mutex 직렬화가 처리량 측정 시 병목될 수 있으나 본 사이클 cut line은 lifecycle만이라 무영향. coder/websocket 의존성 추가가 go.mod tidy로 transitive를 끌어올 수 있음 — 0개 transitive 확인.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bd4e300ffey8egMnbaaoLZfC"
+          },
+          "created_at": "2026-04-25T10:16:53.638Z"
+        },
+        {
+          "id": 5,
+          "title": "Sidecar lifecycle handshake 서버 구현 (cmd/nexus-sidecar/main.go 교체)",
+          "status": "completed",
+          "context": "Issue 4 결정의 sidecar 측 구현. 현재 25줄 S1 스텁을 lifecycle handshake 서버로 교체. wsx facade(T4) + generated contracts(T2) 사용. 동적 포트 0-bind, READY 라인, env var token, schema validation, ping, crash 합성 emit.",
+          "acceptance": "1. sidecar/cmd/nexus-sidecar/main.go 교체:\n   - net.Listen(\"tcp\", \"127.0.0.1:0\") 동적 포트\n   - stdout 첫 줄 \"NEXUS_SIDECAR_READY port=N pid=N proto=ws v=1\\n\" 출력 후 일반 로그\n   - env var NEXUS_SIDECAR_TOKEN 읽기, 부재 시 fatal exit code 78(EX_CONFIG)\n   - workspaceId argv 파싱(--workspace-id=<id>)\n   - wsx.Server(T4) 인스턴스화 + AuthMiddleware(token) + Subprotocol \"nexus.sidecar.v1\"\n2. Handler 구현:\n   - OnMessage: schema validation(go-jsonschema generated) 후 type discriminator로 분기\n     - SidecarStartCommand 수신 → SidecarStartedEvent 응답(pid=os.Getpid(), startedAt=process boot time ISO8601)\n     - SidecarStopCommand 수신 → SidecarStoppedEvent(reason=requested, exitCode=0) 응답 후 graceful close + os.Exit(0)\n     - 미지 type → close(1011) + log warn\n   - OnClose: 정리\n3. SIGHUP/SIGTERM/SIGINT 처리 → 진행 중 ws에 SidecarStoppedEvent(reason=requested) emit + close(1001 going away) + os.Exit(0)\n4. Ping은 wsx 측에서 자동 처리(architect 결정의 15s/5s/2회), sidecar 본체는 추가 작업 없음\n5. process boot time capture는 main 진입 직후 time.Now()\n6. 단위 테스트:\n   - Token 검증 통과/실패\n   - Schema validation 정상/이상\n   - SidecarStartCommand → SidecarStartedEvent 왕복(pid·startedAt 검증)\n   - SidecarStopCommand → SidecarStoppedEvent 왕복 후 exit\n   - SIGTERM 수신 시 going-away close + exit\n7. go test, go build 통과",
+          "approach": "architect §3 시퀀스 그대로. ListenAndServe goroutine + signal goroutine. Boot time은 sync.Once 캐시. Schema validation은 generated의 ValidateXxx(payload) 호출. 미지 type은 architect §\"확장 룰 5\"의 본 사이클 \"error+close\" 엄격 운영 반영. Stdout READY 라인 prefix \"NEXUS_SIDECAR_READY\"는 const, lint 경고로 다른 stdout 호출 사전 감시. 단위 테스트는 httptest.NewServer로 wsx 서버 가동 + coder/websocket 클라이언트(테스트 전용)로 메시지 송수신.",
+          "risk": "stdout 첫 줄 race(R1) — Go lint rule 또는 코드 리뷰로 차단. Schema validation 비용이 lifecycle 메시지에는 영향 없으나 향후 harness 메시지 hot path에서 중요해짐 — 본 task는 lifecycle만. process boot time이 nanosecond 단위로 ISO8601 표기 시 microsecond 절단 — JSON Schema의 format:\"date-time\"은 RFC 3339 호환이라 무영향. SIGKILL은 프로세스가 즉사하므로 main 측 합성 의존(T6).",
+          "plan_issue": 4,
+          "deps": [
+            2,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bc83cecffermmBCofNuS0btF"
+          },
+          "created_at": "2026-04-25T10:17:16.421Z"
+        },
+        {
+          "id": 6,
+          "title": "Electron main sidecar bridge 구현 (ws@8.18.0 클라이언트)",
+          "status": "completed",
+          "context": "Issue 4 결정의 Electron main 측 구현. 기존 packages/app/src/main/sidecar-runtime(E1)의 spawn 로직 위에 WebSocket 클라이언트 bridge + handshake + crash 합성 + 1회 재spawn + dedupe gate 추가. ws@8.18.0 + @types/ws@8.5.x pin.",
+          "acceptance": "1. packages/app/package.json에 ws@8.18.0 + @types/ws@8.5.x 정확 버전 pin\n2. packages/app/src/main/sidecar-bridge(가칭) 모듈 신설:\n   - SidecarBridge: spawn → READY 파싱 → WS connect → handshake → 정상 운영 → graceful close 또는 crash 감지\n   - Token 생성: crypto.randomBytes(32).toString('hex'), env var NEXUS_SIDECAR_TOKEN로 자식 spawn\n   - READY 라인 파싱: 자식 stdout 첫 줄 정규식 `/^NEXUS_SIDECAR_READY port=(\\d+) pid=(\\d+) proto=ws v=(\\d+)$/` 5s timeout(첫 실행 30s grace는 추후 R3 대응)\n   - WS connect: ws://127.0.0.1:<port>/ + headers {X-Sidecar-Token, ...} + protocol \"nexus.sidecar.v1\", 2s timeout\n   - SidecarStartCommand 송신(workspaceId, workspacePath, reason)\n   - SidecarStartedEvent 수신(2s timeout) + pid 일치 검증\n3. Heartbeat: ws.on('pong')로 살아있음 추적, 15s ticker로 ws.ping(), 5s 응답 없으면 carry, 2회 연속 실패 시 ws.terminate() + child.kill('SIGTERM')\n4. Stop escalation: SidecarStopCommand WS 송신 → 1s 무응답 → SIGTERM → 3s 무응답 → SIGKILL\n5. Crash reason 합성 (SidecarLifecycleEmitter):\n   - epoch UUID per spawn\n   - dedupe gate: SidecarStoppedEvent 1회만 emit, WS close + child exit 두 신호 중 먼저 도착한 것이 트리거, 다른 신호는 1s reconcile window에서 reason 합성에 reconcile\n   - reason 합성 규칙(architect §3): WS clean(1000)+exit(0)→requested / exit(non-zero)+signal=null→process-exit / SIGKILL/SIGSEGV/SIGABRT→process-crash / main이 SIGTERM/SIGKILL→requested\n6. Fatal 분기 (재시도 없음): token 401 / schema validation fail / subprotocol 불일치 / READY 파싱 실패 / pid 불일치\n7. Transient 분기 (1회 재spawn 최소 로직): READY 5s timeout / WS connect ECONNREFUSED 250ms 후 1회 재시도 / 101 2s timeout / StartedEvent 2s timeout / ping 2회 실패. 재spawn backoff 2s/4s/8s 세분화는 E3 본체 이연\n8. 단위 테스트:\n   - 정상 spawn → READY → WS → Start/Started → Stop/Stopped → exit\n   - Token 불일치 → 재시도 없이 fatal\n   - SIGKILL 모킹 → main이 process-crash 합성\n   - dedupe gate: WS close + exit 두 신호 1s 내 도착 시 1회만 emit\n9. bun test 통과, electron-vite build 통과, lint 통과",
+          "approach": "architect §3 시퀀스 그대로 코드화. spawn은 child_process.spawn(sidecarBin, ['--workspace-id=' + id], {env: {...process.env, NEXUS_SIDECAR_TOKEN: token}, stdio: ['ignore','pipe','pipe']}). 첫 줄 파싱은 readline.createInterface 또는 buffer 기반. ws 클라이언트는 ws@8.18.0로 headers + protocol + perMessageDeflate:false(localhost). Schema validation은 T2의 facade isSidecarStartedEvent 등 사용. SidecarLifecycleEmitter는 EventEmitter + epoch UUID + Map<epoch, {wsClosed,exitObserved,reason,exitCode,signal}>로 1s setTimeout reconcile. powerMonitor suspend/resume은 R6 본 사이클 이연.",
+          "risk": "README.md 등에 spawn 환경 요건 명시 안 되면 macOS Gatekeeper 첫 실행 5s 초과로 false fail — 본 task에서는 30s grace를 첫 실행 한정으로 약식 적용. dedupe race 케이스는 단위 테스트로 jest fake timers 사용. Node v22의 child_process.spawn에서 stdio:'pipe'가 macOS에서 close에 race — node 22+ 이슈 #56789 등 확인 필요(외부 의존).",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bc78aa4ffeiHD7WwQNOKBGW6"
+          },
+          "created_at": "2026-04-25T10:17:46.585Z"
+        },
+        {
+          "id": 7,
+          "title": "Lifecycle handshake smoke + 30분 idle soak + graceful shutdown + close code 상호운용",
+          "status": "completed",
+          "context": "Issue 1 cut line의 \"lifecycle handshake 왕복 smoke 테스트\" + Issue 3의 \"30분 idle soak / graceful shutdown < 500ms / close code 1000·1001·1006 상호운용\" + Issue 4의 \"정상 라이프사이클 1회 + 1건 crash 시나리오\" 통합 검증. T5(sidecar)·T6(main bridge) 연결 후 실측.",
+          "acceptance": "1. 통합 smoke 테스트 시나리오 4건 PASS:\n   (a) 정상 라이프사이클: spawn → READY → WS handshake → SidecarStartCommand → SidecarStartedEvent(pid 일치 검증) → 5s 운영 → SidecarStopCommand → SidecarStoppedEvent(reason=requested, exitCode=0) → child exit\n   (b) Crash 시나리오 1건: spawn → 정상 운영 → 외부에서 SIGKILL → main이 process-crash 합성 + dedupe gate 1회 emit 확인\n   (c) Close code 상호운용성 1000(정상)·1001(going away)·1006(비정상) 3종에서 양측 onclose 핸들러가 동일 code 관측\n   (d) Fatal 분기 1건: 의도적 token 불일치 → main fatal 처리, 재시도 없음\n2. 30분 idle soak test (architect L1):\n   - Electron main 1 + sidecar 1, idle 상태 30분 유지\n   - heartbeat 15s ping/5s timeout 동작 확인\n   - heap delta < 5MB(both sides), goroutine 변동 0(sidecar pprof), Node side gc/heap snapshot\n   - macOS App Nap on/off 1회씩, sleep 1회 시나리오 포함(R6 본 사이클 이연이지만 관측만)\n3. Graceful shutdown 측정:\n   - SIGTERM main → ctx cancel → close handshake 완료까지 wallclock < 500ms (10회 평균)\n4. 산출물: test/integration/sidecar-lifecycle/ 또는 동급 위치에 통합 테스트 + 측정 스크립트 + 결과 리포트(latency 분포·heap 그래프)\n5. 측정 결과 release-evidence/m3-handover/<timestamp> 디렉터리에 .md/json/png 보관(향후 changelog 인용)\n6. 30분 soak 또는 graceful shutdown 미달 시 Lead에게 보고하여 개선 task 추가",
+          "approach": "통합 테스트는 packages/app의 test/integration/ 패턴을 따름(E2 ime-checklist와 같은 위치). Soak는 process.memoryUsage()·v8.getHeapStatistics()·sidecar pprof heap.svg snapshot before/after. 30분은 CI 부담 감안 로컬 manual run로 분리(CI는 60s 단축본 + 별도 nightly 30분 job 신설). Close code 1006은 sidecar가 SIGKILL 받은 abnormal closure 케이스. Graceful shutdown wallclock은 high-resolution timer로 10회 시도. release-evidence/는 plan #4 패턴 재사용.",
+          "risk": "30분 soak는 로컬 환경 의존. macOS App Nap·sleep 실측은 사용자 PC가 sleep 들어가야 측정되므로 일부 사람의 manual 검증 필요. Test 격리 — sidecar 동적 포트가 다른 dev 프로세스와 충돌 가능 → 0-bind이라 충돌 없음 확인. 측정 산출물의 .md만 git 추가, .png/.json 큰 파일은 release-evidence/ + .gitignore 이중 정책.",
+          "plan_issue": 4,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bbf6bbbffeNxKUvJc2xgvVfp"
+          },
+          "created_at": "2026-04-25T10:18:11.324Z"
+        },
+        {
+          "id": 8,
+          "title": "HarnessAdapter 인터페이스 껍데기 정의",
+          "status": "completed",
+          "context": "Issue 1 cut line #6: HarnessAdapter 인터페이스 정의(껍데기 — 메서드 시그니처와 플러그인 경계 명시, 구현은 다음 사이클). harness-integration.md의 A2 관찰 모델 5종 UI를 어댑터가 어떻게 노출할지의 추상 계약. 어댑터 구현은 다음 사이클이지만 인터페이스는 본 사이클에 고정해야 다음 사이클이 곧장 구현으로 진입 가능.",
+          "acceptance": "1. packages/shared/src/harness/HarnessAdapter.ts (또는 sidecar/internal/harness/adapter.go) 또는 양쪽에 인터페이스 껍데기 정의:\n   - HarnessAdapter 인터페이스: 메서드 시그니처만, 구현 미포함\n   - 메서드: 관찰 시작/종료, 이벤트 스트림 노출, 어댑터 메타데이터(이름·버전·관찰 경로 종류)\n   - 읽기 전용 원칙 명문화(주석 또는 타입 시스템): 상태 주입 메서드 부재\n2. plugin boundary 명시: 어댑터 구현은 별도 디렉터리(packages/shared/src/harness/adapters/<name>/ 또는 동급 sidecar 위치)에 격리, 본 사이클에는 빈 디렉터리 + README만\n3. harness-integration.md에 인터페이스 위치·확장 규칙 메모 추가(T9 통합 문서 갱신에서)\n4. 타입 검증 통과(bun run typecheck), Go 검증(go build, go vet)\n5. 단위 테스트 1건: 인터페이스 mock 어댑터로 contract 충족 확인(읽기 전용 보장 — 상태 주입 메서드 호출 시도 시 컴파일 실패)",
+          "approach": "harness-integration.md의 5 UI(탭 뱃지·tool 호출·diff·OS 알림·세션 히스토리)를 어댑터가 어떻게 emit하는지 추상화. ObserverEvent 타입 union(추후 T2 facade 패턴 확장 후보). 본 사이클에는 작은 신호 인터페이스만 — observe(workspaceId): AsyncIterable<ObserverEvent>·describe(): AdapterMetadata·dispose() 정도. plugin layer 디렉터리는 빈 README로 신설. 구현 task가 없는 작은 작업이라 lead 직접 처리도 가능(small file).",
+          "risk": "인터페이스가 본 사이클에서 너무 구체적이면 다음 사이클 어댑터 3종(claude-code/opencode/codex) 구현 시 재설계 비용 발생. 너무 추상적이면 다음 사이클이 처음부터 다시 설계해야 — architect 추가 자문 필요할 수 있음(다음 사이클 첫 이슈로). 본 task는 \"껍데기\"이므로 절제된 추상화(2~4 메서드)에 머무름.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23bd45bacffemeKdu9T1ofMIcQ"
+          },
+          "created_at": "2026-04-25T10:18:29.951Z"
+        },
+        {
+          "id": 9,
+          "title": "docs 갱신 — roadmap M3 cell + stack.md 묶음 + memory 2건",
+          "status": "completed",
+          "context": "Issue 1 cut line #7 + Issue 2/3/4 결정의 docs 산출물. roadmap.md M3 cell에 인수인계 계약 완료 마커, stack.md에 codegen 도구 묶음·WebSocket 묶음 추가, .nexus/memory에 external-coder-websocket.md·pattern-sidecar-lifecycle-handshake.md 신설. 문서는 모든 구현 완료 후 종합 작성.",
+          "acceptance": "1. .nexus/context/roadmap.md M3 cell 업데이트: \"M3 인수인계 계약 완료 — schema codegen + drift gate + Go WS bridge + lifecycle handshake smoke + 30분 soak PASS. 상세는 release-evidence/m3-handover 참조\" 마커. 인수인계 계약 4항목은 제거(완료됨), E3 본체 진입 조건만 남김\n2. .nexus/context/stack.md 갱신:\n   - 신규 절: \"Codegen 도구 묶음\" — json-schema-to-typescript@15.0.4, ajv@8.x, ajv-cli@5.x, atombender/go-jsonschema@v0.23.0 — 묶음 업그레이드 정책(xterm 묶음·Electron 런타임 묶음과 동일 모델)\n   - 신규 절: \"WebSocket 라이브러리 묶음\" — github.com/coder/websocket v1.8.14, ws@8.18.0, @types/ws@8.5.x — 묶음 업그레이드 정책 + facade 격리 원칙 + 12개월마다 gorilla 차안 유효성 재확인\n3. .nexus/memory/external-coder-websocket.md 신설:\n   - 인수 경위(2024-08 nhooyr → Coder)·v2 로드맵·v1.8.x 안정성·30분 안정성 실측 결과(T7 산출물 인용)·heartbeat 정책\n   - external-* 프리픽스 문체와 일치\n4. .nexus/memory/pattern-sidecar-lifecycle-handshake.md 신설:\n   - 동적 포트 + READY 라인 + env var token + X-Sidecar-Token 헤더 + 명시 왕복 + crash reason 합성 + dedupe gate 패턴을 재사용 가능 레시피로 기록\n   - 발생 맥락(plan #15)·핵심 결정 축·실패 경로 매트릭스 발췌·확장 포인트(harness 메시지 추가) 포함\n5. .nexus/memory/empirical-m3-handover-retrospective.md 신설(선택):\n   - 본 사이클 학습(PoC 결과·도구 호환·30분 soak 첫 실측·재spawn 정책의 본 사이클 vs E3 이연 분리)\n   - empirical-* 프리픽스 패턴\n6. .nexus/context/harness-integration.md에 HarnessAdapter 인터페이스 위치(T8 산출물) + plugin boundary 디렉터리 위치 메모 추가\n7. 한국어 맞춤법, ASCII 치환 없음, 선언형 단정체",
+          "approach": "기존 .nexus/memory/external-xterm-js.md·pattern-harness-observer.md·empirical-previous-tauri-retrospective.md 문체 일치. roadmap.md 변경은 plan #4가 정한 정적 골격을 깨지 않게 — 동적 상태 서술 최소화(plan #4 Issue 1 정책 준수). T7 산출물 측정값은 \"30분 idle 실측 PASS, 상세는 release-evidence/m3-handover/<timestamp>\" 식으로 경로 인용만(동적 콘텐츠는 .nexus 외부). HarnessAdapter 인터페이스 코드 위치는 architect 자문(필요 시)으로 결정.",
+          "risk": "roadmap.md에 동적 상태(완료 마커·날짜·증거 경로)가 다시 들어가면 plan #4 Issue 1·3에서 정화한 원칙 회귀 — \"M3 인수인계 계약 완료\" 정도의 정적 마커 + release-evidence/ 경로 인용으로 제한. memory 파일 분량 폭증 위험 — 각 2~4KB 권장, empirical-m3-handover는 길어지면 분할.",
+          "plan_issue": 1,
+          "deps": [
+            3,
+            5,
+            6,
+            7,
+            8
+          ],
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23b36aaf4ffePJEy4y2VDOv65w"
+          },
+          "created_at": "2026-04-25T10:18:57.744Z"
+        },
+        {
+          "id": 10,
+          "title": "docs 검토 — roadmap·stack·memory 신규 파일 정확성·문체·경계 준수",
+          "status": "completed",
+          "context": "T9 writer 산출물 검토. plan #15 결정과 산출물의 정합성, .nexus/context의 정적 원칙 유지, memory 프리픽스·문체 일관성 확인.",
+          "acceptance": "1. roadmap.md M3 cell 변경이 plan #4 Issue 1·3의 정적 원칙(동적 상태 서술 금지)을 위배하지 않는지 확인\n2. stack.md 신규 절(Codegen 도구·WebSocket 묶음)이 기존 xterm 묶음·Electron 런타임 묶음 절 구조와 일치하는지 확인\n3. external-coder-websocket.md가 external-* 패턴(외부 사실 스냅샷, 우리 제어 밖)에 맞는지, 문체 일관성, 30분 soak 측정값 인용 정확성\n4. pattern-sidecar-lifecycle-handshake.md가 pattern-* 패턴(재사용 가능 레시피)에 맞는지, plan #15 결정과 모순 없음\n5. empirical-m3-handover-retrospective.md(존재 시)가 empirical-* 패턴(우리가 마주한 관찰·교훈)에 맞는지\n6. harness-integration.md의 HarnessAdapter 위치 메모가 T8 실제 코드 위치와 일치\n7. 한국어 맞춤법·ASCII 치환·선언형 단정체 일관\n8. plan #15의 결정 본문(4 issue)과 docs 표현 사이 누락·상충 없음\n9. 발견된 문제는 writer에게 구체 수정 포인트로 반려, 통과 시 review 노트 1건 작성",
+          "approach": "git diff로 변경분 pull. nx_plan_status로 plan #15 결정 본문 재확인. 각 산출물 Read 후 결정 명세와 대조. memory 파일 3종 프리픽스(external/pattern/empirical) 각각의 정의·기존 사례와 비교. roadmap.md는 \"Phase A 정화\" 시점(plan #4)의 grep 게이트(PASS·closed·release-evidence·#5734 등 0건)를 다시 적용해 동적 콘텐츠 회귀 차단.",
+          "risk": "writer가 동적 상태를 다시 .nexus/context에 넣을 가능성(plan #4 정화 원칙 회귀). 검토에서 발견 즉시 반려. memory 파일 길이 폭증·중복 위험 — 기존 memory 파일과 내용 중복 점검.",
+          "plan_issue": 1,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ses_23b312b8affeF2JkSHeYEVunap"
+          },
+          "created_at": "2026-04-25T10:19:13.301Z"
+        }
+      ]
     }
   ]
 }

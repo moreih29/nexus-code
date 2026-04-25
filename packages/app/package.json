@@ -21,6 +21,7 @@
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test ./src ./scripts/packaging",
     "test:integration": "bun test ./test/",
+    "typecheck": "tsc --noEmit",
     "test:runtime-terminal:zombie-check": "bun ./scripts/runtime/terminal-zombie-checklist.ts",
     "test:fonts": "bun test ./src/renderer/xterm-view.test.ts ./scripts/packaging/font-bundle-config.test.ts",
     "package:dir": "bun run rebuild:native && electron-builder --config electron-builder.yml --dir --publish never",
@@ -49,6 +50,7 @@
     "@tailwindcss/postcss": "4.2.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "8.5.14",
     "@typescript-eslint/parser": "8.59.0",
     "@vitejs/plugin-react": "5.2.0",
     "autoprefixer": "10.5.0",
@@ -59,6 +61,7 @@
     "postcss": "8.5.10",
     "tailwindcss": "4.2.4",
     "typescript": "6.0.3",
-    "vite": "7.3.2"
+    "vite": "7.3.2",
+    "ws": "8.18.0"
   }
 }

@@ -28,6 +28,8 @@ A2 모델에서 IDE는 다음 5가지 관찰 기능을 제공한다.
 
 ## HarnessAdapter 인터페이스 계약
 
+`HarnessAdapter` 인터페이스: `packages/shared/src/harness/HarnessAdapter.ts`. plugin boundary: `packages/shared/src/harness/adapters/<name>/`. 구현은 다음 사이클(plan #16+) 예정.
+
 `HarnessAdapter`는 제품 코어에 고정된 단일 인터페이스다. 각 하네스별 구현은 이 인터페이스를 충족하는 플러그인 레이어로 격리된다.
 
 계약의 핵심 조건:

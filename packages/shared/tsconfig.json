@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "target": "ES2022",
+    "types": ["bun-types"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.cjs"],
+  "exclude": ["src/**/*.test.ts"]
+}

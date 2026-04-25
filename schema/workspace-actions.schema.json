@@ -18,6 +18,18 @@
       "type": "string",
       "minLength": 1
     },
+    "workspaceOpenSource": {
+      "type": "string",
+      "enum": ["folder-picker", "session-restore"]
+    },
+    "workspaceActivateSource": {
+      "type": "string",
+      "enum": ["click", "keyboard", "session-restore"]
+    },
+    "workspaceCloseSource": {
+      "type": "string",
+      "enum": ["user-close", "app-shutdown"]
+    },
     "workspaceOpenAction": {
       "type": "object",
       "additionalProperties": false,
@@ -39,8 +51,7 @@
           "minLength": 1
         },
         "source": {
-          "type": "string",
-          "enum": ["folder-picker", "session-restore"]
+          "$ref": "#/$defs/workspaceOpenSource"
         }
       }
     },
@@ -56,8 +67,7 @@
           "$ref": "#/$defs/workspaceId"
         },
         "source": {
-          "type": "string",
-          "enum": ["click", "keyboard", "session-restore"]
+          "$ref": "#/$defs/workspaceActivateSource"
         }
       }
     },
@@ -73,8 +83,7 @@
           "$ref": "#/$defs/workspaceId"
         },
         "source": {
-          "type": "string",
-          "enum": ["user-close", "app-shutdown"]
+          "$ref": "#/$defs/workspaceCloseSource"
         }
       }
     }

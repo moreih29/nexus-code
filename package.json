@@ -1,0 +1,24 @@
+{
+  "name": "nexus-code",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "gen:contracts": "bun ./scripts/gen-contracts.ts",
+    "test": "bun test ./packages/shared/src ./packages/app/src ./packages/app/scripts/packaging ./packages/app/test",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/app typecheck",
+    "build": "bun run --cwd packages/app build",
+    "lint": "bun run --cwd packages/app lint:renderer"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "ajv": "^8.20.0",
+    "ajv-cli": "5.x",
+    "ajv-formats": "3.x",
+    "bun-types": "^1.3.13",
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "6.0.3"
+  }
+}

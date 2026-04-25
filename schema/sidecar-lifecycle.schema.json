@@ -21,6 +21,18 @@
       "type": "string",
       "minLength": 1
     },
+    "sidecarStartReason": {
+      "type": "string",
+      "enum": ["workspace-open", "session-restore"]
+    },
+    "sidecarStopReason": {
+      "type": "string",
+      "enum": ["workspace-close", "app-shutdown"]
+    },
+    "sidecarStoppedReason": {
+      "type": "string",
+      "enum": ["requested", "process-exit", "process-crash"]
+    },
     "sidecarStartCommand": {
       "type": "object",
       "additionalProperties": false,
@@ -38,8 +50,7 @@
           "description": "NFC-normalized absolute filesystem path"
         },
         "reason": {
-          "type": "string",
-          "enum": ["workspace-open", "session-restore"]
+          "$ref": "#/$defs/sidecarStartReason"
         }
       }
     },
@@ -76,8 +87,7 @@
           "$ref": "#/$defs/workspaceId"
         },
         "reason": {
-          "type": "string",
-          "enum": ["workspace-close", "app-shutdown"]
+          "$ref": "#/$defs/sidecarStopReason"
         }
       }
     },
@@ -93,8 +103,7 @@
           "$ref": "#/$defs/workspaceId"
         },
         "reason": {
-          "type": "string",
-          "enum": ["requested", "process-exit", "process-crash"]
+          "$ref": "#/$defs/sidecarStoppedReason"
         },
         "stoppedAt": {
           "type": "string",

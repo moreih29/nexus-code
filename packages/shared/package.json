@@ -4,10 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "bun test ./src"
+    "gen:contracts": "bun ../../scripts/gen-contracts.ts",
+    "test": "bun test ./src",
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": "./src/index.ts",
     "./contracts": "./src/index.ts"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-cli": "5.x",
+    "ajv-formats": "3.x",
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "6.0.3"
   }
 }

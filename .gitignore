@@ -13,3 +13,7 @@ sidecar/bin/
 
 .opencode/
 opencode.json
+
+# M3 handover evidence: keep markdown reports versioned, keep bulky raw artifacts local.
+release-evidence/m3-handover/**/*.json
+release-evidence/m3-handover/**/*.png

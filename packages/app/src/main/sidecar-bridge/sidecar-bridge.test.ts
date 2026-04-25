@@ -1,0 +1,232 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { WebSocketServer, WebSocket } from "ws";
+
+import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import { SidecarBridge, SidecarBridgeError } from "./index";
+import { SidecarLifecycleEmitter } from "./lifecycle-emitter";
+
+const workspaceId = "ws_bridge_test" as WorkspaceId;
+const startCommand: SidecarStartCommand = {
+  type: "sidecar/start",
+  workspaceId,
+  workspacePath: "/tmp/nexus-bridge-test",
+  reason: "workspace-open",
+};
+
+const openServers: WebSocketServer[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    openServers.splice(0).map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          for (const client of server.clients) {
+            client.terminate();
+          }
+          const timer = setTimeout(resolve, 10);
+          server.close(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        }),
+    ),
+  );
+});
+
+describe("SidecarBridge", () => {
+  test("정상 spawn → READY → WS → Start/Started → Stop/Stopped → exit 흐름을 수행한다", async () => {
+    const child = new MockChildProcess(4312);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      spawnProcess: createMockSpawn(child, { mode: "normal" }),
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+
+    const started = await bridge.start(startCommand);
+    expect(started).toMatchObject({
+      type: "sidecar/started",
+      workspaceId,
+      pid: 4312,
+    });
+
+    const stopped = await bridge.stop({
+      type: "sidecar/stop",
+      workspaceId,
+      reason: "workspace-close",
+    });
+    expect(stopped).toMatchObject({
+      type: "sidecar/stopped",
+      workspaceId,
+      reason: "requested",
+      exitCode: 0,
+    });
+    expect(child.killCalls).toEqual([]);
+    expect(bridge.listRunningWorkspaceIds()).toEqual([]);
+  });
+
+  test("토큰 불일치 401은 재시도 없이 fatal 처리한다", async () => {
+    const children: MockChildProcess[] = [];
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      spawnProcess: ((bin: string, args: readonly string[], options: SpawnOptions) => {
+        const child = new MockChildProcess(4400 + children.length);
+        children.push(child);
+        return createMockSpawn(child, { mode: "token-mismatch" })(bin, args, options);
+      }) as typeof import("node:child_process").spawn,
+      wsTimeoutMs: 100,
+    });
+
+    await expect(bridge.start(startCommand)).rejects.toMatchObject({
+      kind: "fatal",
+      code: "WS_401",
+    } satisfies Partial<SidecarBridgeError>);
+    expect(children).toHaveLength(1);
+  });
+
+  test("SIGKILL 종료는 process-crash로 합성한다", async () => {
+    const emitter = new SidecarLifecycleEmitter({ workspaceId, reconcileWindowMs: 5 });
+    const stoppedPromise = emitter.waitForStopped();
+
+    emitter.recordProcessExit(null, "SIGKILL");
+
+    await expect(stoppedPromise).resolves.toMatchObject({
+      type: "sidecar/stopped",
+      workspaceId,
+      reason: "process-crash",
+      exitCode: null,
+    });
+  });
+
+  test("dedupe gate는 WS close와 exit가 1초 창 안에 도착해도 1회만 emit한다", async () => {
+    const emitter = new SidecarLifecycleEmitter({ workspaceId, reconcileWindowMs: 20 });
+    const events: unknown[] = [];
+    emitter.on("stopped", (event) => events.push(event));
+
+    emitter.recordWsClose(1000, true);
+    emitter.recordProcessExit(0, null);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ reason: "requested", exitCode: 0 });
+  });
+
+  test("heartbeat 2회 실패 시 ws.terminate()와 child.kill('SIGTERM')을 호출한다", async () => {
+    const originalPing = WebSocket.prototype.ping;
+    WebSocket.prototype.ping = function patchedPing(
+      this: WebSocket,
+      data?: unknown,
+      mask?: boolean,
+      callback?: (err?: Error) => void,
+    ): void {
+      if (typeof callback === "function") {
+        callback();
+      }
+    } as typeof WebSocket.prototype.ping;
+
+    try {
+      const child = new MockChildProcess(4500);
+      const bridge = new SidecarBridge({
+        sidecarBin: "/mock/nexus-sidecar",
+        spawnProcess: createMockSpawn(child, { mode: "normal" }),
+        heartbeatIntervalMs: 5,
+        heartbeatTimeoutMs: 1,
+        reconcileWindowMs: 5,
+      });
+
+      await bridge.start(startCommand);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(child.killCalls).toContain("SIGTERM");
+    } finally {
+      WebSocket.prototype.ping = originalPing;
+    }
+  });
+});
+
+class MockChildProcess extends EventEmitter {
+  public readonly stdout = new PassThrough();
+  public readonly stderr = new PassThrough();
+  public readonly stdin = null;
+  public readonly killCalls: NodeJS.Signals[] = [];
+  public killed = false;
+  public exitCode: number | null = null;
+  public signalCode: NodeJS.Signals | null = null;
+
+  public constructor(public readonly pid: number) {
+    super();
+  }
+
+  public kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
+    this.killCalls.push(signal);
+    this.killed = true;
+    return true;
+  }
+}
+
+type MockMode = "normal" | "token-mismatch";
+
+function createMockSpawn(
+  child: MockChildProcess,
+  options: { mode: MockMode },
+): typeof import("node:child_process").spawn {
+  return ((_sidecarBin: string, _args: readonly string[], spawnOptions: SpawnOptions) => {
+    const expectedToken =
+      options.mode === "token-mismatch"
+        ? "definitely-not-the-generated-token"
+        : String(spawnOptions.env?.NEXUS_SIDECAR_TOKEN);
+    const server = new WebSocketServer({
+      port: 0,
+      handleProtocols: (protocols) =>
+        protocols.has("nexus.sidecar.v1") ? "nexus.sidecar.v1" : false,
+      verifyClient: (info, done) => {
+        done(info.req.headers["x-sidecar-token"] === expectedToken, 401);
+      },
+    });
+    openServers.push(server);
+
+    server.on("listening", () => {
+      const address = server.address();
+      if (typeof address === "object" && address) {
+        child.stdout.write(
+          `NEXUS_SIDECAR_READY port=${address.port} pid=${child.pid} proto=ws v=1\n`,
+        );
+      }
+    });
+    server.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        const message = JSON.parse(data.toString()) as { type?: string };
+        if (message.type === "sidecar/start") {
+          ws.send(
+            JSON.stringify({
+              type: "sidecar/started",
+              workspaceId,
+              pid: child.pid,
+              startedAt: new Date("2026-04-25T00:00:00.000Z").toISOString(),
+            }),
+          );
+        }
+        if (message.type === "sidecar/stop") {
+          ws.send(
+            JSON.stringify({
+              type: "sidecar/stopped",
+              workspaceId,
+              reason: "requested",
+              stoppedAt: new Date("2026-04-25T00:00:01.000Z").toISOString(),
+              exitCode: 0,
+            }),
+          );
+          ws.close(1000);
+          child.emit("exit", 0, null);
+        }
+      });
+    });
+
+    return child as unknown as ChildProcess;
+  }) as typeof import("node:child_process").spawn;
+}

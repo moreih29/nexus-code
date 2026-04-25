@@ -1,0 +1,44 @@
+name: Sidecar Soak Nightly
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  sidecar-soak-nightly:
+    name: 30m sidecar idle soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache: true
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build sidecar
+        run: bun run --cwd packages/app build:sidecar
+
+      - name: Run 30m sidecar idle soak
+        env:
+          SIDECAR_SOAK_DURATION_MS: "1800000"
+          SIDECAR_SOAK_HEAP_DELTA_LIMIT_BYTES: "5242880"
+        run: |
+          echo "Architect L1 acceptance: 30분 idle soak heap delta < 5MB (5,242,880 bytes)."
+          bun test ./packages/app/test/integration/sidecar-lifecycle/idle-soak-60s.test.ts

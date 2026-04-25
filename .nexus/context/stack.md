@@ -73,7 +73,7 @@
 
 **파일 시스템 감시**: fsnotify. 워크스페이스 내 파일 변경을 감지해 에디터와 하네스 관찰에 활용한다.
 
-**WebSocket IPC**: gorilla/websocket 또는 nhooyr/websocket 중 E3 plan에서 선택한다.
+**WebSocket IPC**: `github.com/coder/websocket` v1.8.14를 사용한다. facade 패턴(`sidecar/internal/wsx/`)으로 격리하여 향후 교체 시 영향 범위를 제한한다. 자세한 선택 근거와 운영 정책은 `.nexus/memory/external-coder-websocket.md`를 따른다.
 
 **Git (sidecar 레이어)**: go-git 또는 os/exec git CLI. 워크스페이스 git 상태, 브랜치, diff 연산을 처리한다.
 
@@ -81,7 +81,34 @@
 
 ## IPC 타입 계약
 
-Electron main(TypeScript)과 Go sidecar 사이의 메시지 타입은 protobuf 또는 JSON schema 중 E3 구현 시점에 확정한다. 어느 방식이든 코드 생성 파이프라인으로 양쪽 언어의 타입을 동기화한다. proto/ 또는 schema/ 디렉터리가 단일 진실 소스 역할을 한다.
+Electron main(TypeScript)과 Go sidecar 사이의 메시지 타입은 JSON schema를 단일 진실 소스로 사용한다. `schema/` 디렉터리가 원본이며, TS는 `json-schema-to-typescript`로 자동 생성하고 Go는 수작업으로 동기화한다. 생성물과 원본 간 불일치는 CI drift gate가 차단한다.
+
+## Codegen 도구 묶음
+
+JSON schema 기반 codegen과 유효성 검사를 담당하는 도구 묶음이다. 전체를 한 세트로 관리하며 일부만 단독 업그레이드하지 않는다.
+
+- `json-schema-to-typescript` **15.0.4** (bcherny, MIT) — schema → TS 인터페이스/타입 별칭 생성
+- `ajv` **8.20.0** — JSON schema 유효성 검사 (2020 draft)
+- `ajv-cli` **5.0.0** — CLI 기반 schema compile 및 drift 검증용
+- `ajv-formats` **3.0.1** — `format` 키워드 지원
+
+**묶음 업그레이드 정책**: 분기 1회 또는 보안 패치 시 전체 묶음을 함께 점검한다. xterm 묶음·Electron 런타임 묶음과 동일한 모델을 적용한다. semver range(`^`, `~`) 사용 금지.
+
+Go 측은 수작업 유지한다. `atombender/go-jsonschema` 등은 현재 품질 기준 미달로 미설치하며, 향후 도구 성숙 시 PoC를 재시도할 수 있다. Go 수작업 코드의 drift는 `.github/workflows/contracts-drift.yml`과 `scripts/check-go-contracts-drift.sh`로 검증한다.
+
+## WebSocket 묶음
+
+sidecar ↔ main 간 IPC와 관련된 WebSocket 라이브러리 묶음이다. Go 측과 TS 측을 한 세트로 관리한다.
+
+- `github.com/coder/websocket` **v1.8.14** (ISC) — Go sidecar 서버·클라이언트
+- `ws` **8.18.0** (MIT) — Electron main 측 WebSocket 클라이언트
+- `@types/ws` **8.5.x** — `ws`용 TypeScript 타입 정의
+
+**묶음 업그레이드 정책**: 분기 1회 또는 보안 패치 시 전체 묶음을 함께 점검한다. Go 측 라이브러리 교체는 facade 격리 원칙 하에 진행하며, 교체 시 영향 범위는 `sidecar/internal/wsx/`와 `packages/app/src/main/sidecar-bridge/`로 한정된다.
+
+**차안 유효성 재확인**: 12개월마다 `gorilla/websocket` v1.5.3을 대안으로 재평가한다. 차안 발동 조건은 `coder/websocket` v2 강제 마이그레이션 압력 또는 CVE 미패치다.
+
+**Go 버전 동기**: `coder/websocket` v1.8.14의 `go.mod`가 Go 1.23을 요구함에 따라 sidecar `go.mod`를 1.23으로 올리고 toolchain은 `go1.24.3`으로 자동 갱신되었다.
 
 ## 플랫폼 타깃
 
