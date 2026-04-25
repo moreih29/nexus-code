@@ -2271,6 +2271,76 @@
           "created_at": "2026-04-24T15:16:44.873Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-25T01:58:23.188Z",
+      "branch": "feat/design-system-repaint",
+      "plan": {
+        "id": 14,
+        "topic": "리사이저 해결 후속 정리",
+        "issues": [
+          {
+            "id": 1,
+            "title": "즉시 정리(dead code) + memory 기록 + PR 작성",
+            "status": "decided",
+            "decision": "3\\uac00\\uc9c0 \\uc791\\uc5c5 \\ubcd1\\ud589: (1) Lead \\uc9c1\\uc811 \\ucf54\\ub4dc \\uc815\\ub9ac \\u2014 packages/app/src/renderer/components/ui/resizable.tsx \\uc0ad\\uc81c, package.json\\uc5d0\\uc11c react-resizable-panels \\uc81c\\uac70, bun install \\u2192 bun.lock \\uac31\\uc2e0, components.json \\uc810\\uac80(shadcn resizable \\uba54\\ud0c0 \\uc788\\uc73c\\uba74 \\uc815\\ub9ac). (2) Lead \\uc9c1\\uc811 memory 3\\uac74 \\uc791\\uc131 \\u2014 external-react-resizable-panels.md\\u00b7pattern-library-bypass-decision.md\\u00b7pattern-zustand-selector-stability.md. \\uac01 \\ud30c\\uc77c\\uc740 \\uac04\\uacb0\\ud558\\uc9c0\\ub9cc \\ud575\\uc2ec \\uad50\\ud6c8\\uacfc \\uad6c\\uccb4 \\uc99d\\uac70 \\ud3ec\\ud568. (3) Lead \\uc9c1\\uc811 PR \\uc791\\uc131 \\u2014 feat/design-system-repaint \\u2192 main PR \\ucd08\\uc548\\u00b7chore/purge-stale-doc-links \\u2192 main PR \\ucd08\\uc548. \\ubcd1\\ud569\\uc740 \\uc0ac\\uc6a9\\uc790 \\uacb0\\uc815 \\uc601\\uc5ed\\uc73c\\ub85c \\ub0a8\\uae40. T1\\u00b7T2 \\ubcd1\\ub82c, T3\\ub294 T1 \\uc644\\ub8cc \\ud6c4 \\uc218\\ud589."
+          }
+        ],
+        "research_summary": "plan #13 완료로 리사이저 드래그 확장 불가 해결(commit 24ebee1). 사용자 체감 PASS. 이제 후속 정리: (1) 죽은 코드 제거 — components/ui/resizable.tsx 파일, package.json dep, components.json shadcn 메타 정리. (2) memory 3건 — external-react-resizable-panels(v4+React19+Tailwind v4+Electron 35 조합 함정), pattern-library-bypass-decision(반복 hotfix 실패 시 library bypass 결정 기준), pattern-zustand-selector-stability(plan #7 백로그에서 남은 CommandPalette selector 경험). (3) feat/design-system-repaint → main PR 초안 + chore/purge-stale-doc-links PR 초안. 사용자 목표: 오늘 세션 정리.",
+        "created_at": "2026-04-24T15:41:20.391Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Dead code 제거",
+          "status": "completed",
+          "context": "리사이저 custom 구현 이후 shadcn resizable wrapper와 dep 미사용. Lead 직접.",
+          "acceptance": "1. packages/app/src/renderer/components/ui/resizable.tsx 파일 삭제\n2. packages/app/package.json에서 react-resizable-panels 제거\n3. bun install 후 bun.lock 갱신\n4. app test:unit·test:integration·build·lint PASS\n5. bundle size 유지 또는 감소",
+          "approach": "rm + edit + bun install + verify",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T15:41:43.806Z"
+        },
+        {
+          "id": 2,
+          "title": "memory 3건 작성",
+          "status": "completed",
+          "context": "goldmine 경험을 .nexus/memory/에 기록.",
+          "acceptance": "1. .nexus/memory/external-react-resizable-panels.md — v4 + React 19 + Tailwind v4 + Electron 35 조합 경고\n2. .nexus/memory/pattern-library-bypass-decision.md — 반복 hotfix 실패 시 bypass 기준\n3. .nexus/memory/pattern-zustand-selector-stability.md — CommandPalette selector 무한 loop 경험(plan #7)",
+          "approach": "Lead 직접 작성, 각 파일 80~150줄 수준, 구체 증거(commit hash, issue 번호) 포함",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T15:41:48.549Z"
+        },
+        {
+          "id": 3,
+          "title": "PR 2건 작성",
+          "status": "in_progress",
+          "context": "feat/design-system-repaint + chore/purge-stale-doc-links main 병합 PR 초안. 병합 승인은 사용자.",
+          "acceptance": "1. feat/design-system-repaint → main PR 생성\n2. chore/purge-stale-doc-links → main PR 생성\n3. 각 PR body에 변경 요약·검증 증거·리스크 포함",
+          "approach": "gh pr create with HEREDOC bodies",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "lead-direct",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-24T15:41:51.735Z"
+        }
+      ]
     }
   ]
 }
