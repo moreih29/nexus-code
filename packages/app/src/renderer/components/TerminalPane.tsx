@@ -15,6 +15,7 @@ import {
   type ShellTerminalTabsSnapshot,
 } from "../shell-terminal-tab";
 import { TerminalBridge } from "../terminal-bridge";
+import { installTerminalHostResizeFit } from "../terminal-resize-fit";
 
 export interface TerminalPaneProps {
   sidebarState: WorkspaceSidebarState;
@@ -98,6 +99,10 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
     });
 
     terminalTabsRef.current = terminalTabs;
+    const resizeFitSubscription = installTerminalHostResizeFit({
+      host: terminalHost,
+      getTerminalTabs: () => terminalTabsRef.current,
+    });
     refreshSnapshot();
 
     const stdoutSubscription = bridge.onStdout((stdoutChunk) => {
@@ -116,6 +121,7 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
       stdoutSubscription.dispose();
       exitedSubscription.dispose();
 
+      resizeFitSubscription.dispose();
       terminalTabs.dispose();
       bridge.dispose();
 
@@ -226,11 +232,11 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
         </Button>
       </header>
 
-      <div className="relative mt-2 min-h-0 flex-1 rounded-md border border-border bg-background p-2">
+      <div className="relative mt-2 min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background p-2">
         <div
           ref={terminalHostRef}
           data-slot="terminal-pane-host"
-          className="h-full w-full"
+          className="h-full min-h-0 w-full overflow-hidden"
         />
 
         {!activeWorkspaceId || !activeWorkspace || activeWorkspace.tabs.length === 0 ? (

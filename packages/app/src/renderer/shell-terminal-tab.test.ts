@@ -263,6 +263,40 @@ describe("ShellTerminalTabs", () => {
     expect(viewFactory.viewsByTabId.get(gammaTabId)?.mountCount).toBe(1);
   });
 
+
+  test("refits only the active visible terminal tab on container resize", async () => {
+    const document = new FakeDocument();
+    const paneHost = new FakeElement(document);
+    const viewFactory = new FakeViewFactory();
+    const tabs = new ShellTerminalTabs({
+      terminalPaneHost: paneHost as unknown as HTMLElement,
+      session: new FakeSessionAdapter(),
+      clipboard: new FakeClipboard(),
+      viewFactory,
+    });
+
+    await tabs.syncSidebarState({
+      openWorkspaces: [
+        { id: "ws_alpha", absolutePath: "/alpha", displayName: "Alpha" },
+        { id: "ws_beta", absolutePath: "/beta", displayName: "Beta" },
+      ],
+      activeWorkspaceId: "ws_alpha",
+    });
+
+    const snapshot = tabs.getSnapshot();
+    const alphaTabId = snapshot.workspaces[0]!.activeTabId!;
+    const betaTabId = snapshot.workspaces[1]!.activeTabId!;
+    const alphaView = viewFactory.viewsByTabId.get(alphaTabId)!;
+    const betaView = viewFactory.viewsByTabId.get(betaTabId)!;
+    const alphaFitCountBefore = alphaView.fitCount;
+    const betaFitCountBefore = betaView.fitCount;
+
+    expect(tabs.fitActiveTab()).toBeTrue();
+
+    expect(alphaView.fitCount).toBe(alphaFitCountBefore + 1);
+    expect(betaView.fitCount).toBe(betaFitCountBefore);
+  });
+
   test("focuses terminal view when the visible pane is clicked", async () => {
     const document = new FakeDocument();
     const paneHost = new FakeElement(document);

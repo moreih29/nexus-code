@@ -314,6 +314,17 @@ export class ShellTerminalTabs {
     this.visibleByTabId.set(tabId, false);
   }
 
+  public fitActiveTab(): boolean {
+    const record = this.getActiveTabRecord();
+    if (!record || !(this.visibleByTabId.get(record.tabId) ?? false)) {
+      return false;
+    }
+
+    record.view.fit();
+    this.scheduleVisibleTabRenderRepair(record.tabId);
+    return true;
+  }
+
   public async closeTab(tabId: TerminalTabId): Promise<void> {
     if (!this.tabRecordsById.has(tabId)) {
       return;
@@ -641,13 +652,14 @@ export class ShellTerminalTabs {
       (ownerDocument?.createElement?.("div") as HTMLElement | undefined) ??
       ({ style: {} } as unknown as HTMLElement);
 
-    (container as { style?: { display?: string; width?: string; height?: string } }).style ??= {};
+    (container as { style?: { display?: string; width?: string; height?: string; overflow?: string } }).style ??= {};
     const containerStyle = (container as {
-      style: { display?: string; width?: string; height?: string };
+      style: { display?: string; width?: string; height?: string; overflow?: string };
     }).style;
     containerStyle.display = "none";
     containerStyle.width = "100%";
     containerStyle.height = "100%";
+    containerStyle.overflow = "hidden";
     (container as { setAttribute?: (name: string, value: string) => void }).setAttribute?.(
       "data-terminal-tab-id",
       tabId,

@@ -3101,6 +3101,80 @@
           "created_at": "2026-04-26T05:19:49.335Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T09:45:39.524Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 18,
+        "topic": "M3+1 후속 버그픽스 — Claude Code hook 유지 + 터미널 fit 회귀 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "터미널 영역 크기 불일치 수정 범위와 방식 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "사용자 스크린샷과 코드 확인으로 원인을 좁혔다. 현재 xterm FitAddon.fit() 호출은 mount/visibility 전환에 한정되어 있어, Electron layout이 확정되거나 좌/우 패널 폭이 바뀐 뒤 active terminal이 컨테이너 크기를 재측정하지 않는다. hook/settings 방식은 사용자가 유지 결정했으므로 이 이슈의 수정 범위에서 제외한다. subagent는 사용자 명시 위임이 없어 사용하지 않는다.",
+                "recorded_at": "2026-04-26T09:39:26.074Z"
+              }
+            ],
+            "decision": "선택: hook/settings 구현은 그대로 유지하고, 터미널 fit 버그만 최소 수정한다. ShellTerminalTabs에 active terminal refit API를 추가하고 TerminalPane의 terminal host에 ResizeObserver + window resize fallback을 붙여 크기 변경 시 active xterm view.fit()을 호출한다. 또한 host/wrapper에 overflow-hidden/min-h-0를 보강해 xterm viewport가 panel 밖으로 새거나 작은 고정 박스로 남는 상태를 차단한다. 근거: 사용자 실기에서 hook badge는 정상 동작했고, 코드상 fit 호출이 mount/visibility 전환에만 존재해 screenshot의 크기 불일치와 직접 부합한다. 기각: Claude hook/settings 경로 재설계는 사용자 결정으로 이번 범위에서 제외한다. xterm 버전 업그레이드 또는 renderer 교체는 external-xterm-js의 정확 pin 정책과 위험 대비 ROI가 맞지 않아 제외한다. 오른쪽 Session 패널 구현은 이번 버그픽스와 무관한 후속 feature라 제외한다. 가정: screenshot의 주요 원인은 container resize 후 refit 부재이며, Claude Code 자체 TUI의 내부 layout 결함이 아니다."
+          },
+          {
+            "id": 2,
+            "title": "검증 범위 결정 — 자동 테스트와 실기 확인 항목",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "검증 축은 코드 동작과 사용자 실기 재현이 모두 필요하다. 자동 테스트는 ShellTerminalTabs/TerminalPane seam에서 resize 발생 시 active view.fit() 재호출을 보장하고, IME/xterm 기존 게이트가 깨지지 않아야 한다. 실기 확인은 사용자가 발견한 실제 Claude Code TUI 레이아웃이 terminal panel에 맞는지 확인하는 항목이 필요하다. subagent는 사용자 명시 위임이 없어 사용하지 않는다.",
+                "recorded_at": "2026-04-26T09:39:40.264Z"
+              }
+            ],
+            "decision": "선택: 자동 검증은 (1) ShellTerminalTabs active refit API 단위 테스트, (2) TerminalPane ResizeObserver/window resize wiring 단위 테스트 또는 동등 seam 테스트, (3) 기존 xterm IME/terminal tests 회귀, (4) 전체 bun test/typecheck/lint/build/check-dist-require/go test로 구성한다. 실기 검증은 bun run dev 후 workspace 열기→Claude Code 실행→도구 호출 시 badge가 기존처럼 표시되고, Claude Code TUI가 Center Terminal panel 전체 폭/높이에 맞게 재flow되는지 사용자 확인 대상으로 남긴다. 근거: screenshot 문제는 DOM layout 실기 의존성이 있으므로 자동 seam 테스트만으로 완전히 닫을 수 없다. 기각: 60s soak 전체를 이번 버그픽스 필수로 반복하는 것은 observer lifecycle 문제가 아니라 renderer fit 문제라 과하다. Claude settings/hook 재검증 전체를 다시 강제하는 것도 사용자 결정상 범위 밖이다. 단, 기존 hook badge 회귀를 깨지 않았는지는 smoke 수준으로 확인한다."
+          }
+        ],
+        "research_summary": "사용자 실기 검증: Claude Code 도구 실행 시 WorkspaceSidebar 초록 점, 권한 요청 시 amber 점 표시됨. 따라서 hook→sidecar→main→renderer observer vertical path는 동작한다. 스크린샷에서 Claude Code TUI가 Center Terminal 영역에 맞지 않고 작은 xterm viewport로 표시되는 터미널 fit 버그 확인. 코드 확인 결과 packages/app/src/renderer/xterm-view.ts는 mount/visibility 전환 시 FitAddon.fit()만 호출하고, packages/app/src/renderer/components/TerminalPane.tsx 또는 shell-terminal-tab.ts에는 ResizeObserver/window resize 기반 active terminal refit 경로가 없다. .nexus/context/korean-quality.md는 한글 IME/터미널 품질을 릴리스 블로커로 분류하고, .nexus/memory/external-xterm-js.md는 xterm@6.0.0 + fit addon 채택 및 IME 오버레이 방어를 유지하라고 기록한다. 사용자 결정: hook/settings 방식은 현재 유지하고, 우선 버그 수정.",
+        "created_at": "2026-04-26T09:39:20.231Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. TerminalPane/xterm resize-fit 버그 수정",
+          "status": "completed",
+          "context": "사용자 실기 스크린샷에서 Claude Code TUI가 Center Terminal panel 전체에 맞지 않고 작은 viewport로 남는 버그 확인. 현재 xterm FitAddon.fit()은 mount/visibility 전환 때만 호출되고, TerminalPane host resize 추적이 없다. Claude hook/settings 구현은 현재 유지한다.",
+          "acceptance": "1. packages/app/src/renderer/shell-terminal-tab.ts에 active terminal refit 경로 추가. 2. packages/app/src/renderer/components/TerminalPane.tsx가 host resize/window resize 시 active xterm fit을 호출. 3. terminal container가 panel 크기에 맞게 overflow-hidden/min-h-0 처리. 4. 단위 테스트: resize 이벤트 발생 시 active view.fit() 재호출 검증. 5. 기존 ShellTerminalTabs, xterm IME, TerminalPane 관련 테스트 통과.",
+          "approach": "ShellTerminalTabs에 active tab refit API를 추가하고 TerminalPane에서 terminal host ResizeObserver + window resize fallback으로 active tab fit을 호출한다. wrapper/host overflow-hidden, min-h-0 보강. 기존 xterm IME overlay 및 hook observer 경로는 건드리지 않는다.",
+          "risk": "ResizeObserver가 테스트 환경에 없을 수 있어 fallback seam 필요. fit 호출 과다로 입력 중 flicker 가능성이 있어 active tab만 대상으로 제한한다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T09:39:59.923Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. 회귀 검증 + 사이클 마감",
+          "status": "completed",
+          "context": "T1 수정 후 자동 검증과 최소 실기 smoke를 수행한다. hook path는 현재 유지하며, badge green/amber 동작은 사용자 실기에서 이미 확인됐다. 이번 검증의 핵심은 터미널 fit 회귀 차단이다.",
+          "acceptance": "1. bun test 대상/전체 PASS. 2. bun run typecheck PASS. 3. bun run lint PASS. 4. bun run build PASS. 5. bun run check:dist-require PASS. 6. cd sidecar && go test ./... PASS. 7. git diff --check PASS. 8. nx_task_close 후 변경사항 단일 커밋. 9. 사용자에게 실제 GUI 확인 항목을 한국어로 보고.",
+          "approach": "대상 단위 테스트 먼저 실행 후 전체 게이트를 실행한다. 가능하면 dev launch를 짧게 띄워 앱 부팅/renderer 오류를 확인한다. plan/tasks archive 후 명시 path commit.",
+          "risk": "실제 Claude Code TUI reflow는 사용자 화면 실기 확인이 필요하다. 자동 테스트는 fit 호출 wiring까지 보장한다.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T09:40:08.203Z"
+        }
+      ]
     }
   ]
 }
