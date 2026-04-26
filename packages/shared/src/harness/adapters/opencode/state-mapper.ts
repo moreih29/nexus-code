@@ -26,6 +26,10 @@ export interface OpenCodeMapOptions {
   readonly workspaceId: WorkspaceId;
   readonly adapterName?: string;
   readonly now?: () => Date;
+  readonly sessionTranscriptPath?: (
+    identity: NormalizedIdentity,
+    input: unknown,
+  ) => string | undefined;
 }
 
 export function mapOpenCodeInputToObserverEvents(
@@ -60,7 +64,9 @@ export function mapOpenCodeInputToObserverEvents(
     events.push(toolCallEvent);
   }
 
-  const transcriptPath = openCodeString(input, ["transcriptPath", "transcript_path", "path", "sessionPath"]);
+  const transcriptPath =
+    openCodeString(input, ["transcriptPath", "transcript_path", "path", "sessionPath"]) ??
+    (shouldEmitSessionHistoryReference(input) ? options.sessionTranscriptPath?.(identity, input) : undefined);
   const sessionHistoryEvent = transcriptPath ? createSessionHistoryEvent(identity, transcriptPath) : undefined;
   if (sessionHistoryEvent) {
     events.push(sessionHistoryEvent);
@@ -74,15 +80,18 @@ export function mapOpenCodeTabBadgeEvent(input: unknown, identity: NormalizedIde
   if (eventName === "sessionerror" || eventName.includes("error")) {
     return createTabBadgeEvent("error", identity);
   }
-  if (eventName === "permissionupdated" || eventName === "permissionrequested") {
+  if (isOpenCodePermissionRequestEvent(eventName)) {
     return createTabBadgeEvent("awaiting-approval", identity);
+  }
+  if (eventName === "permissionreplied") {
+    return createTabBadgeEvent("completed", identity);
   }
   if (eventName === "sessionidle") {
     return createTabBadgeEvent("completed", identity);
   }
 
   if (eventName === "sessionstatus" || eventName === "sessionupdated" || eventName === "sessioncreated") {
-    const status = normalizeEventName(openCodeString(input, ["status", "state", "phase"]));
+    const status = normalizeEventName(openCodeString(input, ["status", "state", "phase", "type"]));
     switch (status) {
       case "busy":
       case "running":
@@ -116,12 +125,19 @@ export function mapOpenCodeTabBadgeEvent(input: unknown, identity: NormalizedIde
 
 export function mapOpenCodeToolCallEvent(input: unknown, identity: NormalizedIdentity): ToolCallEvent | undefined {
   const eventName = normalizeEventName(eventNameFromInput(input));
-  if (eventName === "permissionupdated" || eventName === "permissionrequested") {
+  if (isOpenCodePermissionRequestEvent(eventName)) {
     return createToolCallEvent("awaiting-approval", identity, {
       toolName: openCodeToolName(input) ?? "Permission",
       toolCallId: openCodeToolCallId(input),
       inputSummary: openCodeInputSummary(input),
-      message: openCodeString(input, ["message", "reason", "title"]),
+      message: openCodeString(input, ["message", "reason", "title", "type"]),
+    });
+  }
+  if (eventName === "permissionreplied") {
+    return createToolCallEvent("completed", identity, {
+      toolName: "Permission",
+      toolCallId: openCodeToolCallId(input),
+      message: openCodeString(input, ["response", "message", "reason", "title"]),
     });
   }
 
@@ -147,13 +163,7 @@ function normalizeOpenCodeIdentity(
   if (!record) {
     return undefined;
   }
-  const payload = payloadRecord(record.payload);
-  const data = payloadRecord(record.data) ?? asRecord(record.data);
-  const detail = asRecord(record.detail);
-  const properties = asRecord(record.properties);
-  const session = firstRecord([record, payload, data, detail, properties], ["session"]);
-  const part = firstRecord([record, payload, data, detail, properties], ["part"]);
-  const records = [record, payload, data, detail, properties, session, part];
+  const records = openCodeRecords(input);
 
   const inputWorkspaceId = firstString(records, ["workspaceId", "workspace_id", "projectId", "project_id"]);
   if (inputWorkspaceId && inputWorkspaceId !== options.workspaceId) {
@@ -170,7 +180,6 @@ function normalizeOpenCodeIdentity(
     "sessionID",
     "session_id",
     "session",
-    "session_id",
     "id",
   ]);
   if (!sessionId) {
@@ -181,10 +190,7 @@ function normalizeOpenCodeIdentity(
     workspaceId: options.workspaceId,
     adapterName,
     sessionId,
-    timestamp: coerceTimestamp(
-      firstValue(records, ["timestamp", "time", "created", "createdAt", "created_at", "updated", "updatedAt", "updated_at"]),
-      options.now,
-    ),
+    timestamp: coerceTimestamp(openCodeTimestampValue(records), options.now),
   };
 }
 
@@ -225,24 +231,19 @@ function openCodeToolStatus(input: unknown): ToolCallStatus | undefined {
 }
 
 function openCodePart(input: unknown): Record<string, unknown> | undefined {
-  const record = asRecord(input);
-  const payload = payloadRecord(record?.payload);
-  const data = payloadRecord(record?.data) ?? asRecord(record?.data);
-  const detail = asRecord(record?.detail);
-  const properties = asRecord(record?.properties);
-  return firstRecord([record, payload, data, detail, properties], ["part", "messagePart", "message_part", "tool"]);
+  return firstRecord(openCodeRecords(input, { includePart: false }), ["part", "messagePart", "message_part", "tool"]);
 }
 
 function openCodeToolName(input: unknown): string | undefined {
-  return openCodeString(input, ["toolName", "tool_name", "tool", "name", "title"]);
+  return openCodeString(input, ["toolName", "tool_name", "tool", "name", "type", "title"]);
 }
 
 function openCodeToolCallId(input: unknown): string | undefined {
-  return openCodeString(input, ["toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "callId", "call_id", "id"]);
+  return openCodeString(input, ["toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "callId", "callID", "call_id", "permissionID", "permissionId", "id"]);
 }
 
 function openCodeInputSummary(input: unknown): string | undefined {
-  return summarizeValue(openCodeValue(input, ["input", "args", "arguments", "params", "tool_input", "toolInput"]));
+  return summarizeValue(openCodeValue(input, ["input", "args", "arguments", "params", "tool_input", "toolInput", "pattern"]));
 }
 
 function openCodeResultSummary(input: unknown): string | undefined {
@@ -250,24 +251,110 @@ function openCodeResultSummary(input: unknown): string | undefined {
 }
 
 function openCodeString(input: unknown, keys: readonly string[]): string | undefined {
-  const record = asRecord(input);
-  const payload = payloadRecord(record?.payload);
-  const data = payloadRecord(record?.data) ?? asRecord(record?.data);
-  const detail = asRecord(record?.detail);
-  const properties = asRecord(record?.properties);
-  const session = firstRecord([record, payload, data, detail, properties], ["session"]);
-  const part = openCodePart(input);
-  const state = firstRecord([record, payload, data, detail, properties, part], ["state"]);
-  return firstString([record, payload, data, detail, properties, part, state, session], keys);
+  return firstString(openCodeDetailRecords(input), keys);
 }
 
 function openCodeValue(input: unknown, keys: readonly string[]): unknown {
+  return firstValue(openCodeDetailRecords(input), keys);
+}
+
+function openCodeRecords(
+  input: unknown,
+  options: { includePart?: boolean } = {},
+): Array<Record<string, unknown> | undefined> {
   const record = asRecord(input);
   const payload = payloadRecord(record?.payload);
   const data = payloadRecord(record?.data) ?? asRecord(record?.data);
   const detail = asRecord(record?.detail);
   const properties = asRecord(record?.properties);
-  const part = openCodePart(input);
-  const state = firstRecord([record, payload, data, detail, properties, part], ["state"]);
-  return firstValue([record, payload, data, detail, properties, part, state], keys);
+  const payloadProperties = asRecord(payload?.properties);
+  const dataProperties = asRecord(data?.properties);
+  const detailProperties = asRecord(detail?.properties);
+  const info = firstRecord(
+    [record, payload, data, detail, properties, payloadProperties, dataProperties, detailProperties],
+    ["info", "session"],
+  );
+  const part = options.includePart === false
+    ? undefined
+    : firstRecord(
+      [record, payload, data, detail, properties, payloadProperties, dataProperties, detailProperties],
+      ["part", "messagePart", "message_part", "tool"],
+    );
+  const state = firstRecord([part], ["state"]) ??
+    firstRecord([record, payload, data, detail, properties, payloadProperties, dataProperties, detailProperties, part], ["status", "state"]);
+  const time = firstRecord([record, payload, data, detail, properties, payloadProperties, dataProperties, detailProperties, info, part, state], ["time"]);
+
+  return [
+    record,
+    payload,
+    data,
+    detail,
+    properties,
+    payloadProperties,
+    dataProperties,
+    detailProperties,
+    info,
+    part,
+    state,
+    time,
+  ];
+}
+
+function openCodeDetailRecords(input: unknown): Array<Record<string, unknown> | undefined> {
+  const records = openCodeRecords(input);
+  const [record, payload, data, detail, properties, payloadProperties, dataProperties, detailProperties, info, part, state, time] = records;
+  return [
+    part,
+    state,
+    properties,
+    payloadProperties,
+    dataProperties,
+    detailProperties,
+    payload,
+    data,
+    detail,
+    record,
+    info,
+    time,
+  ];
+}
+
+function openCodeTimestampValue(records: Array<Record<string, unknown> | undefined>): unknown {
+  const direct = firstValue(records, [
+    "timestamp",
+    "createdAt",
+    "created_at",
+    "updatedAt",
+    "updated_at",
+  ]);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  const rawTime = firstValue(records, ["time"]);
+  if (typeof rawTime === "number" || typeof rawTime === "string" || rawTime instanceof Date) {
+    return rawTime;
+  }
+
+  const time = asRecord(rawTime);
+  return firstValue([time, ...records], ["created", "updated", "start", "end", "completed"]);
+}
+
+function isOpenCodePermissionRequestEvent(eventName: string): boolean {
+  return eventName === "permissionupdated" || eventName === "permissionrequested" || eventName === "permissionasked";
+}
+
+function shouldEmitSessionHistoryReference(input: unknown): boolean {
+  const eventName = normalizeEventName(eventNameFromInput(input));
+  return eventName === "sessioncreated" ||
+    eventName === "sessionupdated" ||
+    eventName === "sessionstatus" ||
+    eventName === "sessionidle" ||
+    eventName === "sessionerror" ||
+    eventName === "messageupdated" ||
+    eventName === "messagepartupdated" ||
+    eventName === "permissionupdated" ||
+    eventName === "permissionrequested" ||
+    eventName === "permissionasked" ||
+    eventName === "permissionreplied";
 }

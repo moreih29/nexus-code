@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import type { HarnessObserverEvent, ToolCallEvent } from "../../../shared/src/contracts/harness-observer";
+import type { HarnessObserverEvent, SessionHistoryEvent, ToolCallEvent } from "../../../shared/src/contracts/harness-observer";
 import type { WorkspaceId, WorkspaceRegistryEntry } from "../../../shared/src/contracts/workspace";
 import {
   OpenCodeSseObserverService,
   consumeOpenCodeSseStream,
   openCodeInputFromSseMessage,
+  openCodeSessionTranscriptUrl,
   openCodeSseUrl,
 } from "./opencode-sse-observer-service";
 
@@ -55,6 +56,7 @@ describe("OpenCodeSseObserverService", () => {
 
     expect(fetchCalls[0]?.url).toBe(openCodeSseUrl(workspace.id));
     const toolCall = emitted.find((event): event is ToolCallEvent => event.type === "harness/tool-call");
+    const sessionHistory = emitted.find((event): event is SessionHistoryEvent => event.type === "harness/session-history");
     expect(toolCall).toMatchObject({
       type: "harness/tool-call",
       workspaceId: workspace.id,
@@ -63,6 +65,13 @@ describe("OpenCodeSseObserverService", () => {
       status: "started",
       toolName: "bash",
       toolCallId: "tool_1",
+    });
+    expect(sessionHistory).toMatchObject({
+      type: "harness/session-history",
+      workspaceId: workspace.id,
+      adapterName: "opencode",
+      sessionId: "sess_1",
+      transcriptPath: openCodeSessionTranscriptUrl(workspace.id, "sess_1"),
     });
 
     store.openWorkspaces = [];
@@ -91,6 +100,46 @@ describe("OpenCodeSseObserverService", () => {
       },
     ]);
   });
+
+  test("emits current OpenCode permission request events from SSE", async () => {
+    const workspace = createWorkspace("ws_permission" as WorkspaceId);
+    const store = new FakeWorkspaceSessionStore([workspace]);
+    const emitted: HarnessObserverEvent[] = [];
+    const fetchFn: typeof fetch = async () =>
+      new Response(
+        sseText([
+          {
+            event: "permission.asked",
+            data: {
+              properties: {
+                id: "perm_1",
+                sessionID: "sess_permission",
+                callID: "call_1",
+                type: "bash",
+                title: "Run git status",
+                pattern: "git status*",
+              },
+            },
+          },
+        ]),
+        { status: 200 },
+      );
+    const service = new OpenCodeSseObserverService({
+      workspaceSessionStore: store,
+      emitObserverEvent: (event) => emitted.push(event),
+      fetchFn,
+      retryDelayMs: 60_000,
+    });
+
+    await service.reconcileOnce();
+
+    await waitFor(() => {
+      expect(emitted.some((event) => event.type === "harness/tab-badge" && event.state === "awaiting-approval")).toBe(true);
+      expect(emitted.some((event) => event.type === "harness/session-history")).toBe(true);
+    });
+    service.dispose();
+  });
+
 });
 
 function createWorkspace(id: WorkspaceId): WorkspaceRegistryEntry {

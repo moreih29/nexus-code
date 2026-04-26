@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../contracts/workspace";
 import { OpenCodeAdapter } from "./OpenCodeAdapter";
+import { mapOpenCodeInputToObserverEvents } from "./state-mapper";
 
 const workspaceId = "ws_opencode" as WorkspaceId;
 const fixedNow = new Date("2026-04-26T01:02:03.004Z");
@@ -177,6 +178,96 @@ describe("OpenCodeAdapter", () => {
         timestamp: "2026-04-26T01:00:02Z",
         toolCallId: "tool-2",
         message: "edit failed",
+      },
+    ]);
+  });
+
+  test("maps current OpenCode permission and session reference events", () => {
+    const events = mapOpenCodeInputToObserverEvents(
+      {
+        type: "permission.asked",
+        properties: {
+          id: "perm-2",
+          sessionID: "opencode-session-2",
+          messageID: "msg-1",
+          callID: "call-1",
+          type: "bash",
+          title: "Run git status",
+          pattern: "git status*",
+          time: { created: 1777194001 },
+        },
+      },
+      {
+        workspaceId,
+        now: () => fixedNow,
+        sessionTranscriptPath: (identity) =>
+          `opencode://127.0.0.1:43106/session/${identity.sessionId}/message`,
+      },
+    );
+
+    expect(events).toEqual([
+      {
+        type: "harness/tab-badge",
+        state: "awaiting-approval",
+        sessionId: "opencode-session-2",
+        adapterName: "opencode",
+        workspaceId,
+        timestamp: new Date(1777194001 * 1000).toISOString(),
+      },
+      {
+        type: "harness/tool-call",
+        status: "awaiting-approval",
+        toolName: "bash",
+        sessionId: "opencode-session-2",
+        adapterName: "opencode",
+        workspaceId,
+        timestamp: new Date(1777194001 * 1000).toISOString(),
+        toolCallId: "call-1",
+        inputSummary: "git status*",
+        message: "Run git status",
+      },
+      {
+        type: "harness/session-history",
+        sessionId: "opencode-session-2",
+        adapterName: "opencode",
+        workspaceId,
+        timestamp: new Date(1777194001 * 1000).toISOString(),
+        transcriptPath: "opencode://127.0.0.1:43106/session/opencode-session-2/message",
+      },
+    ]);
+  });
+
+  test("maps OpenCode global event payload wrappers", () => {
+    const events = mapOpenCodeInputToObserverEvents(
+      {
+        directory: "/tmp/project",
+        payload: {
+          type: "session.created",
+          properties: {
+            info: {
+              id: "opencode-session-3",
+              title: "New session",
+              time: { created: 1777194002, updated: 1777194002 },
+            },
+          },
+        },
+      },
+      {
+        workspaceId,
+        now: () => fixedNow,
+        sessionTranscriptPath: (identity) =>
+          `opencode://127.0.0.1:43106/session/${identity.sessionId}/message`,
+      },
+    );
+
+    expect(events).toEqual([
+      {
+        type: "harness/session-history",
+        sessionId: "opencode-session-3",
+        adapterName: "opencode",
+        workspaceId,
+        timestamp: new Date(1777194002 * 1000).toISOString(),
+        transcriptPath: "opencode://127.0.0.1:43106/session/opencode-session-3/message",
       },
     ]);
   });

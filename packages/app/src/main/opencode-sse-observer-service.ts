@@ -184,6 +184,7 @@ export class OpenCodeSseObserverService {
     for (const event of mapOpenCodeInputToObserverEvents(input, {
       workspaceId,
       now: this.now,
+      sessionTranscriptPath: (identity) => openCodeSessionTranscriptUrl(workspaceId, identity.sessionId),
     })) {
       this.emitObserverEvent(event);
     }
@@ -192,6 +193,11 @@ export class OpenCodeSseObserverService {
 
 export function openCodeSseUrl(workspaceId: WorkspaceId): string {
   return `http://${OPENCODE_HOST}:${resolveOpenCodePort(workspaceId)}/event`;
+}
+
+export function openCodeSessionTranscriptUrl(workspaceId: WorkspaceId, sessionId: string): string {
+  const encodedSessionId = encodeURIComponent(sessionId);
+  return `opencode://${OPENCODE_HOST}:${resolveOpenCodePort(workspaceId)}/session/${encodedSessionId}/message`;
 }
 
 export async function consumeOpenCodeSseStream(
