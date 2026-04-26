@@ -2,6 +2,8 @@ import type { WorkspaceId } from "../contracts/workspace";
 import type {
   TabBadgeEvent as GeneratedTabBadgeEvent,
   TabBadgeState as GeneratedTabBadgeState,
+  ToolCallEvent as GeneratedToolCallEvent,
+  ToolCallStatus as GeneratedToolCallStatus,
 } from "../contracts/harness-observer";
 
 export type ObservationPath =
@@ -18,6 +20,7 @@ export interface AdapterMetadata {
 }
 
 export type TabBadgeState = GeneratedTabBadgeState;
+export type ToolCallStatus = GeneratedToolCallStatus;
 
 export interface ObserverEventBase {
   workspaceId: WorkspaceId;
@@ -25,11 +28,7 @@ export interface ObserverEventBase {
 }
 
 export type TabBadgeEvent = GeneratedTabBadgeEvent;
-
-export interface ToolCallEvent extends ObserverEventBase {
-  type: "harness/tool-call";
-  // TODO(plan #16+): tool 이름, 입력 요약, 결과 상태 필드를 정의한다.
-}
+export type ToolCallEvent = GeneratedToolCallEvent;
 
 export interface FileDiffEvent extends ObserverEventBase {
   type: "harness/file-diff";

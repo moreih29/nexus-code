@@ -62,7 +62,7 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 | M1 Workspace Shell | E1 완성 (단위 테스트 레벨) |
 | M2 Terminal + CJK | E2 완성 (자동 게이트 + 단위 테스트) |
 | **Phase A — Runnable Shell 확정** | M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합. unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(좌 activity + 좌 패널 + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. 서명·notarize·package:mac는 로드맵 범위 외다. |
-| M3 Harness Observer | E3 완성. 착수 기반은 schema↔TS/Go 계약, CI drift gate, sidecar lifecycle WebSocket handshake, WebSocket facade로 구성한다. claude-code 어댑터 1종과 첫 UI 표면인 WorkspaceSidebar 워크스페이스 상태 뱃지는 구현된 기준선이다. opencode·codex 어댑터, tool 호출 패널, diff 뷰, OS 알림, 세션 히스토리는 후속 표면으로 남긴다. |
+| M3 Harness Observer | E3 완성. 착수 기반은 schema↔TS/Go 계약, CI drift gate, sidecar lifecycle WebSocket handshake, WebSocket facade로 구성한다. claude-code 어댑터 1종, WorkspaceSidebar 워크스페이스 상태 뱃지, Right Shared Panel Tool live feed는 구현된 기준선이다. opencode·codex 어댑터, diff 뷰, OS 알림, 세션 히스토리는 후속 표면으로 남긴다. |
 | M4 Editor + LSP | E4 완성 (TypeScript / Python / Go) |
 | M5 Preview | E5 완성 |
 | M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 3 LSP × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(워크스페이스 상태 뱃지·tool 패널·세션 히스토리·filetree·git 뱃지·preview)에서 한국어 렌더링·IME 체크리스트 재실행, (3) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도). 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |

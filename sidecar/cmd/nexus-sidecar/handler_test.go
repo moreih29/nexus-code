@@ -118,13 +118,14 @@ func TestLifecycleHandlerHarnessObserverUsesConfiguredServer(t *testing.T) {
 		EventName:   "PreToolUse",
 		SessionID:   "s-1",
 		AdapterName: "claude-code",
+		ToolName:    "Read",
 	})
 	if err != nil {
 		t.Fatalf("HandleHookEvent() error = %v", err)
 	}
 
-	if got := server.sentLen(); got != 1 {
-		t.Fatalf("sent len = %d, want 1", got)
+	if got := server.sentLen(); got != 2 {
+		t.Fatalf("sent len = %d, want 2", got)
 	}
 	event, ok := server.sentAt(0).(contracts.TabBadgeEvent)
 	if !ok {
@@ -136,6 +137,17 @@ func TestLifecycleHandlerHarnessObserverUsesConfiguredServer(t *testing.T) {
 		event.AdapterName != "claude-code" ||
 		event.WorkspaceID != "ws-1" {
 		t.Fatalf("event = %+v", event)
+	}
+	toolCall, ok := server.sentAt(1).(contracts.ToolCallEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want ToolCallEvent", server.sentAt(1))
+	}
+	if toolCall.Type != harness.ToolCallEventType ||
+		toolCall.Status != contracts.ToolCallStatusStarted ||
+		toolCall.ToolName != "Read" ||
+		toolCall.SessionID != "s-1" ||
+		toolCall.WorkspaceID != "ws-1" {
+		t.Fatalf("tool call = %+v", toolCall)
 	}
 }
 

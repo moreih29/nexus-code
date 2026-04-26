@@ -10,7 +10,11 @@ import { WebSocketServer } from "ws";
 
 import { HARNESS_OBSERVER_EVENT_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
 import type { SidecarStartCommand } from "../../../shared/src/contracts/sidecar";
-import type { TabBadgeEvent } from "../../../shared/src/contracts/harness-observer";
+import type {
+  HarnessObserverEvent,
+  TabBadgeEvent,
+  ToolCallEvent,
+} from "../../../shared/src/contracts/harness-observer";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 
 const tempDirs: string[] = [];
@@ -126,6 +130,16 @@ describe("composeElectronAppServices", () => {
       state: "awaiting-approval",
       timestamp: "2026-04-26T05:15:00.000Z",
     };
+    const toolCallEvent: ToolCallEvent = {
+      type: "harness/tool-call",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_composition_001",
+      status: "awaiting-approval",
+      toolName: "Permission",
+      timestamp: "2026-04-26T05:15:00.001Z",
+      message: "Claude needs permission",
+    };
     const child = new MockChildProcess(5300);
     const bridge = new SidecarBridge({
       sidecarBin: "/mock/nexus-sidecar",
@@ -144,12 +158,17 @@ describe("composeElectronAppServices", () => {
       const serverClient = Array.from(openServers.at(-1)?.clients ?? [])[0];
       expect(serverClient).toBeDefined();
       serverClient?.send(JSON.stringify(tabBadgeEvent));
+      serverClient?.send(JSON.stringify(toolCallEvent));
 
       await waitFor(() => {
         expect(getWebContentsSendCalls(mainWindow)).toEqual([
           {
             channel: HARNESS_OBSERVER_EVENT_CHANNEL,
             payload: tabBadgeEvent,
+          },
+          {
+            channel: HARNESS_OBSERVER_EVENT_CHANNEL,
+            payload: toolCallEvent,
           },
         ]);
       });
@@ -195,9 +214,9 @@ function getWebContentsSendCalls(
 }
 
 class FakeSidecarObserverEventSource {
-  private readonly listeners = new Set<(event: TabBadgeEvent) => void>();
+  private readonly listeners = new Set<(event: HarnessObserverEvent) => void>();
 
-  onObserverEvent(listener: (event: TabBadgeEvent) => void) {
+  onObserverEvent(listener: (event: HarnessObserverEvent) => void) {
     this.listeners.add(listener);
     return {
       dispose: () => {
@@ -206,7 +225,7 @@ class FakeSidecarObserverEventSource {
     };
   }
 
-  emit(event: TabBadgeEvent): void {
+  emit(event: HarnessObserverEvent): void {
     for (const listener of this.listeners) {
       listener(event);
     }

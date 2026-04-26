@@ -46,9 +46,11 @@ A2 모델에서 IDE는 다음 5가지 관찰 기능을 제공한다.
 | opencode | SQLite 세션 DB + 이벤트 스트림 |
 | codex | 세션 파일 / JSON 출력 (스키마 변동 많음 — 어댑터 지속 보수 필요) |
 
-claude-code Hooks 이벤트는 workspace-local `.claude/settings.local.json` 등록으로 수신한다. 전역 `~/.claude/settings.json`은 수정하지 않는다. hook command는 같은 `nexus-sidecar` 바이너리의 `hook` subcommand로 Unix socket에 이벤트를 전달하고, sidecar는 이를 `harness/tab-badge` observer event로 정규화한다.
+claude-code Hooks 이벤트는 workspace-local `.claude/settings.local.json` 등록으로 수신한다. 전역 `~/.claude/settings.json`은 수정하지 않는다. hook command는 같은 `nexus-sidecar` 바이너리의 `hook` subcommand로 Unix socket에 이벤트를 전달하고, sidecar는 이를 `harness/tab-badge`와 `harness/tool-call` observer event로 정규화한다.
 
 워크스페이스 상태 뱃지는 `running`, `awaiting-approval`, `completed`, `error` 네 상태를 계약으로 갖는다. UI 표면에서는 `completed`를 무뱃지로 접어 "끝났다=조용해졌다" 모델을 따른다. `awaiting-approval`은 Claude Code `Notification.notification_type == "permission_prompt"`일 때만 발화하며, 시간 debounce 단독 추론은 금지한다.
+
+Tool call feed는 `started`, `completed`, `awaiting-approval`, `error` 네 상태를 계약으로 갖는다. sidecar는 Claude Code `PreToolUse`를 `started`, `PostToolUse`를 `completed`, permission prompt `Notification`을 `awaiting-approval`, error-like hook 또는 error payload를 `error`로 정규화한다. Tool 탭은 active workspace의 최근 tool call event를 읽기 전용으로 표시하며, raw `tool_input`/`tool_response` 전체가 아니라 짧은 summary 문자열만 노출한다.
 
 ---
 

@@ -21,10 +21,21 @@ describe("createNexusHarnessApi", () => {
       state: "running",
       timestamp: "2026-04-26T05:15:00.000Z",
     };
+    const toolCallPayload: HarnessObserverEvent = {
+      type: "harness/tool-call",
+      workspaceId: "ws_alpha",
+      adapterName: "claude-code",
+      sessionId: "sess_preload_001",
+      status: "completed",
+      toolName: "Read",
+      timestamp: "2026-04-26T05:15:01.000Z",
+      inputSummary: "file_path: hello.py",
+    };
 
     ipcRenderer.emitObserverEvent(payload);
+    ipcRenderer.emitObserverEvent(toolCallPayload);
 
-    expect(observedEvents).toEqual([payload]);
+    expect(observedEvents).toEqual([payload, toolCallPayload]);
 
     subscription.dispose();
     ipcRenderer.emitObserverEvent({
@@ -32,7 +43,7 @@ describe("createNexusHarnessApi", () => {
       state: "completed",
     });
 
-    expect(observedEvents).toEqual([payload]);
+    expect(observedEvents).toEqual([payload, toolCallPayload]);
     expect(ipcRenderer.removedChannels).toEqual([HARNESS_OBSERVER_EVENT_CHANNEL]);
   });
 });

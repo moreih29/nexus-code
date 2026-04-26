@@ -35,7 +35,7 @@ func TestHookListenerAcceptsClientRoundTrip(t *testing.T) {
 	assertPathPerm(t, listener.TokenPath(), hookTokenFileMode)
 	assertPathPerm(t, listener.SocketPath(), hookSocketFileMode)
 
-	payload := json.RawMessage(`{"session_id":"session-1","adapterName":"claude-code","timestamp":"2026-04-26T01:02:03.000000004Z"}`)
+	payload := json.RawMessage(`{"session_id":"session-1","adapterName":"claude-code","timestamp":"2026-04-26T01:02:03.000000004Z","tool_name":"Read","tool_input":{"file_path":"hello.py"}}`)
 	if err := SendHookEvent(context.Background(), HookClientConfig{
 		SocketPath:  listener.SocketPath(),
 		WorkspaceID: "ws-1",
@@ -46,8 +46,11 @@ func TestHookListenerAcceptsClientRoundTrip(t *testing.T) {
 	}
 
 	input := receiveHookInput(t, sink)
-	if input.EventName != "PreToolUse" || input.SessionID != "session-1" || input.AdapterName != "claude-code" {
+	if input.EventName != "PreToolUse" || input.SessionID != "session-1" || input.AdapterName != "claude-code" || input.ToolName != "Read" {
 		t.Fatalf("input = %+v", input)
+	}
+	if input.InputSummary != "file_path: hello.py" {
+		t.Fatalf("input summary = %q, want file_path summary", input.InputSummary)
 	}
 	wantTimestamp := time.Date(2026, 4, 26, 1, 2, 3, 4, time.UTC)
 	if !input.Timestamp.Equal(wantTimestamp) {
@@ -154,7 +157,12 @@ func TestHookEventInputFromWireMapsCommonPayloadFields(t *testing.T) {
 			"adapter_name":"claude-code",
 			"notification_type":"permission_prompt",
 			"timestamp":"2026-04-26T01:02:03Z",
-			"errorMessage":"approval failed"
+			"errorMessage":"approval failed",
+			"tool_name":"Bash",
+			"tool_use_id":"toolu_001",
+			"tool_input":{"command":"printf hello","description":"test command"},
+			"tool_response":{"success":true},
+			"message":"Claude needs permission"
 		}`),
 	})
 	if err != nil {
@@ -166,8 +174,44 @@ func TestHookEventInputFromWireMapsCommonPayloadFields(t *testing.T) {
 	if input.NotificationType != "permission_prompt" {
 		t.Fatalf("notificationType = %q, want permission_prompt", input.NotificationType)
 	}
+	if input.ToolName != "Bash" || input.ToolCallID != "toolu_001" {
+		t.Fatalf("tool fields = name:%q id:%q", input.ToolName, input.ToolCallID)
+	}
+	if input.InputSummary != "command: printf hello, description: test command" {
+		t.Fatalf("input summary = %q", input.InputSummary)
+	}
+	if input.ResultSummary != "success: true" {
+		t.Fatalf("result summary = %q", input.ResultSummary)
+	}
+	if input.Message != "Claude needs permission" {
+		t.Fatalf("message = %q", input.Message)
+	}
 	if !input.HasError || input.ErrorMessage != "approval failed" {
 		t.Fatalf("error fields = hasError:%v message:%q", input.HasError, input.ErrorMessage)
+	}
+}
+
+func TestHookEventInputFromWireSummarizesLargeTextFields(t *testing.T) {
+	input, err := HookEventInputFromWire(WireHookEvent{
+		Type:        HookEventType,
+		WorkspaceID: "ws-1",
+		Event:       "PreToolUse",
+		Payload: json.RawMessage(`{
+			"session_id":"session-1",
+			"tool_name":"Edit",
+			"tool_input":{
+				"file_path":"hello.py",
+				"old_string":"abcdefghijklmnopqrstuvwxyz",
+				"new_string":"0123456789"
+			}
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("HookEventInputFromWire() error = %v", err)
+	}
+	want := "file_path: hello.py, old_string: <26 chars>, new_string: <10 chars>"
+	if input.InputSummary != want {
+		t.Fatalf("input summary = %q, want %q", input.InputSummary, want)
 	}
 }
 

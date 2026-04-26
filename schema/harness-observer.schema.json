@@ -5,6 +5,9 @@
   "oneOf": [
     {
       "$ref": "#/$defs/tabBadgeEvent"
+    },
+    {
+      "$ref": "#/$defs/toolCallEvent"
     }
   ],
   "$defs": {
@@ -15,6 +18,10 @@
     "tabBadgeState": {
       "type": "string",
       "enum": ["running", "awaiting-approval", "completed", "error"]
+    },
+    "toolCallStatus": {
+      "type": "string",
+      "enum": ["started", "completed", "awaiting-approval", "error"]
     },
     "tabBadgeEvent": {
       "type": "object",
@@ -41,6 +48,54 @@
         "timestamp": {
           "type": "string",
           "format": "date-time"
+        }
+      }
+    },
+    "toolCallEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "status", "toolName", "sessionId", "adapterName", "workspaceId", "timestamp"],
+      "properties": {
+        "type": {
+          "const": "harness/tool-call"
+        },
+        "status": {
+          "$ref": "#/$defs/toolCallStatus"
+        },
+        "toolName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapterName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputSummary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resultSummary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

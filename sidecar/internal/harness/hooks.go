@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,9 +25,10 @@ import (
 const (
 	HookEventType = "harness/hook"
 
-	hookSocketDirMode  os.FileMode = 0o700
-	hookSocketFileMode os.FileMode = 0o600
-	hookTokenFileMode  os.FileMode = 0o600
+	hookSocketDirMode   os.FileMode = 0o700
+	hookSocketFileMode  os.FileMode = 0o600
+	hookTokenFileMode   os.FileMode = 0o600
+	hookSummaryMaxRunes             = 160
 )
 
 var (
@@ -384,15 +386,24 @@ func HookEventInputFromWire(event WireHookEvent) (HookEventInput, error) {
 		return HookEventInput{}, err
 	}
 	hasError, errorMessage := hookPayloadError(payload)
+	eventName := strings.TrimSpace(event.Event)
+	if eventName == "" {
+		eventName = firstString(payload, "hook_event_name", "hookEventName")
+	}
 
 	return HookEventInput{
-		EventName:        event.Event,
+		EventName:        eventName,
 		NotificationType: firstString(payload, "notification_type", "notificationType"),
 		SessionID:        firstString(payload, "session_id", "sessionId"),
 		AdapterName:      firstString(payload, "adapterName", "adapter_name", "adapter"),
 		Timestamp:        timestamp,
 		HasError:         hasError,
 		ErrorMessage:     errorMessage,
+		ToolName:         firstString(payload, "tool_name", "toolName"),
+		ToolCallID:       firstString(payload, "tool_use_id", "toolUseId", "tool_id", "toolId", "id"),
+		InputSummary:     summarizeHookValue(payload["tool_input"]),
+		ResultSummary:    summarizeHookValue(payload["tool_response"]),
+		Message:          firstString(payload, "message"),
 	}, nil
 }
 
@@ -501,6 +512,123 @@ func hookPayloadError(payload map[string]any) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+func summarizeHookValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return truncateRunes(strings.TrimSpace(v), hookSummaryMaxRunes)
+	case bool, float64, int, int64, uint64:
+		return truncateRunes(fmt.Sprint(v), hookSummaryMaxRunes)
+	case []any:
+		if len(v) == 0 {
+			return "[]"
+		}
+		return fmt.Sprintf("[%d items]", len(v))
+	case map[string]any:
+		return summarizeHookMap(v)
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return truncateRunes(fmt.Sprint(v), hookSummaryMaxRunes)
+		}
+		return truncateRunes(string(raw), hookSummaryMaxRunes)
+	}
+}
+
+func summarizeHookMap(value map[string]any) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+
+	preferredKeys := []string{
+		"file_path",
+		"path",
+		"command",
+		"description",
+		"pattern",
+		"query",
+		"url",
+		"old_string",
+		"new_string",
+	}
+	seen := map[string]bool{}
+	parts := make([]string, 0, 4)
+	for _, key := range preferredKeys {
+		if raw, ok := value[key]; ok {
+			parts = append(parts, fmt.Sprintf("%s: %s", key, summarizeHookScalar(key, raw)))
+			seen[key] = true
+		}
+		if len(parts) >= 4 {
+			return truncateRunes(strings.Join(parts, ", "), hookSummaryMaxRunes)
+		}
+	}
+
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		if !seen[key] {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %s", key, summarizeHookScalar(key, value[key])))
+		if len(parts) >= 4 {
+			break
+		}
+	}
+	return truncateRunes(strings.Join(parts, ", "), hookSummaryMaxRunes)
+}
+
+func summarizeHookScalar(key string, value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null"
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if isLargeTextKey(key) && trimmed != "" {
+			return fmt.Sprintf("<%d chars>", len([]rune(trimmed)))
+		}
+		return truncateRunes(trimmed, 80)
+	case bool, float64, int, int64, uint64:
+		return fmt.Sprint(v)
+	case []any:
+		return fmt.Sprintf("[%d items]", len(v))
+	case map[string]any:
+		return "{...}"
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return truncateRunes(fmt.Sprint(v), 80)
+		}
+		return truncateRunes(string(raw), 80)
+	}
+}
+
+func isLargeTextKey(key string) bool {
+	switch normalizedHookName(key) {
+	case "content", "text", "prompt", "oldstring", "newstring":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateRunes(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || maxRunes <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	if maxRunes <= 1 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }
 
 func bytesTrimSpace(raw []byte) []byte {

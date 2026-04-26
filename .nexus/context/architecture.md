@@ -34,7 +34,7 @@ AI 하네스 통합은 A2 "터미널 + 이벤트 Observer" 모델을 따른다. 
 
 관찰 메커니즘은 하네스마다 다르다. claude-code는 이번 기준선에서 Hooks API로 관찰하고, 세션 파일 tail은 세션 히스토리 표면 도입 시 합류한다. opencode는 SQLite 세션 DB와 이벤트 스트림으로, codex는 세션 파일과 JSON 출력으로 관찰한다. AI 세션 재진입은 per-turn spawn + `--resume` 패턴만 사용한다. 비공식 다중 턴 스트리밍 경로는 이전 프로젝트 폐기 교훈에 따라 사용하지 않는다.
 
-claude-code Hooks 경로는 workspace-local settings 파일이 `nexus-sidecar hook` subcommand를 호출하고, 해당 subcommand가 워크스페이스별 Unix socket으로 이벤트를 전달하는 구조다. sidecar는 token 파일 검증 후 hook payload를 `harness/tab-badge` 이벤트로 정규화해 WebSocket으로 main에 전달한다. main은 SidecarBridge observer event를 IPC로 renderer에 전달하고, renderer는 WorkspaceSidebar의 워크스페이스 상태 뱃지에 반영한다.
+claude-code Hooks 경로는 workspace-local settings 파일이 `nexus-sidecar hook` subcommand를 호출하고, 해당 subcommand가 워크스페이스별 Unix socket으로 이벤트를 전달하는 구조다. sidecar는 token 파일 검증 후 hook payload를 `harness/tab-badge`와 `harness/tool-call` 이벤트로 정규화해 WebSocket으로 main에 전달한다. main은 SidecarBridge observer event를 IPC로 renderer에 전달하고, renderer는 WorkspaceSidebar의 워크스페이스 상태 뱃지와 Right Shared Panel의 Tool live feed에 반영한다.
 
 ## IPC 계약
 
@@ -58,7 +58,7 @@ UI (renderer)
           → git (go-git 또는 CLI)
 ```
 
-이벤트 방향은 역방향도 존재한다. sidecar가 관찰한 AI 하네스 이벤트, git 상태 변경, LSP 진단 결과가 IPC를 통해 main으로 올라오고, main이 renderer에 전달해 UI를 갱신한다. 첫 observer event 표면은 `harness/tab-badge`이며 WorkspaceSidebar 상태 뱃지로 표시한다.
+이벤트 방향은 역방향도 존재한다. sidecar가 관찰한 AI 하네스 이벤트, git 상태 변경, LSP 진단 결과가 IPC를 통해 main으로 올라오고, main이 renderer에 전달해 UI를 갱신한다. 하네스 observer event의 초기 표면은 `harness/tab-badge`와 `harness/tool-call`이며, 각각 WorkspaceSidebar 상태 뱃지와 Right Shared Panel Tool live feed로 표시한다.
 
 ## 모노레포 구성
 

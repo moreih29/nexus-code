@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "zustand";
-import { Eye, Folder, GitCompare, GripVertical, History, Wrench } from "lucide-react";
+import { Eye, Folder, GitCompare, GripVertical, History } from "lucide-react";
 
 import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
@@ -9,6 +9,7 @@ import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentD
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { TerminalPane } from "./components/TerminalPane";
+import { ToolFeedPanel } from "./components/ToolFeedPanel";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -19,6 +20,7 @@ import {
   shouldAllowSingleKeyInput,
 } from "./stores/keyboard-registry";
 import { createHarnessBadgeStore, type HarnessBadgeStore } from "./stores/harnessBadgeStore";
+import { createHarnessToolFeedStore, type HarnessToolFeedStore } from "./stores/harnessToolFeedStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
 import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switching-commands";
 
@@ -45,6 +47,7 @@ interface ResizeDragState {
 export default function App(): JSX.Element {
   const workspaceStore = useWorkspaceStore();
   const harnessBadgeStore = useHarnessBadgeStore();
+  const harnessToolFeedStore = useHarnessToolFeedStore();
   const workspacePanelRef = useRef<HTMLDivElement | null>(null);
   const sharedPanelRef = useRef<HTMLDivElement | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -83,6 +86,13 @@ export default function App(): JSX.Element {
   const activateWorkspace = useStore(workspaceStore, (state) => state.activateWorkspace);
   const closeWorkspace = useStore(workspaceStore, (state) => state.closeWorkspace);
   const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
+  const toolFeedByWorkspaceId = useStore(harnessToolFeedStore, (state) => state.feedByWorkspaceId);
+  const activeWorkspace = sidebarState.activeWorkspaceId
+    ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
+    : undefined;
+  const activeToolFeedEntries = sidebarState.activeWorkspaceId
+    ? (toolFeedByWorkspaceId[sidebarState.activeWorkspaceId] ?? [])
+    : [];
 
   useEffect(() => {
     void refreshSidebarState().catch((error) => {
@@ -108,6 +118,15 @@ export default function App(): JSX.Element {
       harnessBadgeStore.getState().stopObserverSubscription();
     };
   }, [harnessBadgeStore]);
+
+  useEffect(() => {
+    const harnessToolFeedState = harnessToolFeedStore.getState();
+    harnessToolFeedState.startObserverSubscription();
+
+    return () => {
+      harnessToolFeedStore.getState().stopObserverSubscription();
+    };
+  }, [harnessToolFeedStore]);
 
   const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
     const request = pendingClaudeConsentRef.current;
@@ -424,20 +443,19 @@ export default function App(): JSX.Element {
               style={{ flexBasis: sharedPanelState.size, width: sharedPanelState.size }}
             >
               <ScrollArea className="h-full bg-card/60">
-                <aside className="min-h-full p-4">
+                <aside className="flex min-h-full min-w-0 flex-col p-4">
                   <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Right Shared Panel</h2>
-                  <Tabs className="mt-3" defaultValue="tool">
+                  <Tabs className="mt-3 flex min-h-0 flex-1 flex-col" defaultValue="tool">
                     <TabsList>
                       <TabsTrigger value="tool">Tool</TabsTrigger>
                       <TabsTrigger value="session">Session</TabsTrigger>
                       <TabsTrigger value="diff">Diff</TabsTrigger>
                       <TabsTrigger value="preview">Preview</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="tool" className="h-48 rounded-md border border-border bg-card">
-                      <EmptyState
-                        icon={Wrench}
-                        title="Tool calls coming soon"
-                        description="This build only shows live workspace status badges."
+                    <TabsContent value="tool" className="min-h-0 flex-1 rounded-md border border-border bg-card">
+                      <ToolFeedPanel
+                        entries={activeToolFeedEntries}
+                        activeWorkspaceName={activeWorkspace?.displayName ?? null}
                       />
                     </TabsContent>
                     <TabsContent value="session" className="h-48 rounded-md border border-border bg-card">
@@ -767,6 +785,16 @@ function useHarnessBadgeStore(): HarnessBadgeStore {
   }
 
   return harnessBadgeStoreRef.current;
+}
+
+function useHarnessToolFeedStore(): HarnessToolFeedStore {
+  const harnessToolFeedStoreRef = useRef<HarnessToolFeedStore | null>(null);
+
+  if (!harnessToolFeedStoreRef.current) {
+    harnessToolFeedStoreRef.current = createHarnessToolFeedStore(window.nexusHarness);
+  }
+
+  return harnessToolFeedStoreRef.current;
 }
 
 async function runSidebarMutation(run: () => Promise<void>): Promise<void> {

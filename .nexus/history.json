@@ -3278,6 +3278,148 @@
           "created_at": "2026-04-26T11:19:21.283Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T12:01:06.337Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 20,
+        "topic": "M3+2 — Right Shared Panel Tool 탭 live feed 구현",
+        "issues": [
+          {
+            "id": 1,
+            "title": "ToolCall observer event 계약과 Claude hook payload 정규화 범위 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "기존 schema와 Go/TS contracts는 `harness/tab-badge`만 union에 포함한다. Right Tool 탭 live feed는 renderer-only mock으로 만들 수 없고, observer contract에 `harness/tool-call`을 추가해야 sidecar→main→preload→renderer 수직 경로가 생긴다. 공식 Claude Code Hooks reference는 PreToolUse/PostToolUse payload에 `tool_name`, `tool_input`, PostToolUse에 `tool_response`가 있음을 확인했다. 따라서 계약 필드는 하네스 종속 raw payload를 통째로 노출하지 말고, UI에 필요한 최소 식별/상태/요약만 고정하는 것이 안전하다. 세션 내 tool call 고유 id는 공식 hook input에 명시되어 있지 않으므로 필수 필드로 두면 안 된다.",
+                "recorded_at": "2026-04-26T11:43:42.101Z"
+              }
+            ],
+            "decision": "선택: `HarnessObserverEvent` union에 `harness/tool-call`을 추가한다. 필수 필드는 `type`, `status`, `toolName`, `sessionId`, `adapterName`, `workspaceId`, `timestamp`로 두고, 선택 필드는 `toolCallId`, `inputSummary`, `resultSummary`, `message`로 둔다. `status`는 `started | completed | awaiting-approval | error` 4상태로 고정한다. PreToolUse는 started, PostToolUse는 completed, permission prompt Notification은 awaiting-approval, error-like hook 또는 error payload는 error로 매핑한다. `toolName`은 Pre/Post의 `tool_name`을 우선 사용하고, Notification에 tool name이 없으면 `Permission` 또는 payload message에서 안전하게 fallback한다. `inputSummary`/`resultSummary`는 raw JSON 전체가 아니라 160자 내외의 짧은 요약 문자열로 만들고, 큰 content/secret 노출을 피한다. 근거: 공식 Claude Code Hooks reference는 PreToolUse/PostToolUse에 `tool_name`, `tool_input`, `tool_response`가 있음을 확인했고, current code는 이 필드를 버리므로 contract 확장이 필요하다. 기각: raw `tool_input`/`tool_response` 전체를 계약에 노출하는 방식은 UI·로그에 파일 내용/명령 인자/민감값을 과다 노출할 위험이 있다. 세션별 완전한 tool-call id 매칭을 필수화하는 방식은 공식 hook input에서 고정 id가 확인되지 않아 기각한다. renderer-only fake feed는 실제 live feed가 아니므로 기각한다. 가정: Claude Code hook payload 필드는 2026-04-26 확인한 공식 docs 기준이며, 세부 tool-specific payload는 계속 변할 수 있어 summary formatter는 unknown-safe로 둔다."
+          },
+          {
+            "id": 2,
+            "title": "sidecar→main→preload→renderer live feed wiring 및 상태 저장 방식 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "현재 수직 경로는 sidecar observer가 WS로 `contracts.TabBadgeEvent`만 보내고, main SidecarBridge가 `isTabBadgeEvent`만 통과시키며, preload는 union 타입을 그대로 전달한다. contract union과 guard를 확장하면 main/preload API는 대부분 그대로 재사용 가능하나, sidecar bridge의 runtime message guard와 Go observer 송신부는 ToolCallEvent를 인지해야 한다. renderer에는 badge store와 별도 목적의 feed store가 필요하다. Tool 탭은 workspace별 최근 이벤트를 표시해야 하므로 active workspace 필터와 최대 개수 제한이 필요하다.",
+                "recorded_at": "2026-04-26T11:43:57.967Z"
+              }
+            ],
+            "decision": "선택: 기존 observer IPC 채널(`HARNESS_OBSERVER_EVENT_CHANNEL`)을 그대로 재사용하고, union 타입/guard 확장으로 `harness/tool-call`을 같은 통로에 태운다. sidecar는 HookEventInput을 확장해 `ToolName`, `ToolCallID`, `InputSummary`, `ResultSummary`, `Message`를 보존하고, ServerObserver에 `NormalizeToolCallEvent`/`EmitToolCall`/`HandleHookEvent` 내 dual emit을 추가한다. PreToolUse/PostToolUse는 badge + tool-call 둘 다 발화하고, unsupported non-permission Notification은 계속 badge에는 미발화하되 permission prompt Notification은 tool-call awaiting-approval로 발화한다. main SidecarBridge는 `isHarnessObserverEvent` 또는 `isToolCallEvent` 수준으로 guard를 확장해 observer event 전체를 emit한다. renderer는 `harnessToolFeedStore`를 신설해 `harness/tool-call`만 수집하고 workspace별 최근 50개로 제한한다. 근거: 기존 IPC 채널 재사용은 channel explosion을 막고, observer event의 의미가 동일하다. feed store를 badge store에 섞으면 요약 상태와 로그 상태가 결합되어 last-event-wins 정책과 append-only feed 정책이 충돌한다. 기각: 별도 IPC 채널(`nexus.harness.toolCall`)은 타입/구독/테스트 중복을 만든다. sidecar에서 raw payload를 그대로 WS로 보내는 방식은 contract 안정성과 privacy 위험 때문에 기각한다. HookEventInput을 변경하지 않고 TS adapter에서만 처리하는 방식은 현재 실제 runtime path가 Go sidecar에서 이미 tab-badge로 정규화되어 raw hook payload를 잃으므로 불가능하다."
+          },
+          {
+            "id": 3,
+            "title": "Tool 탭 UI 범위와 검증/마감 범위 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "Right Shared Panel의 Tool 탭은 현재 EmptyState placeholder만 있다. 이번 범위는 live feed 첫 표면이므로 Session/Diff/Preview는 placeholder 유지가 맞다. UI는 active workspace의 최근 tool events를 compact list로 보여주고, 상태별 색 점/label을 써서 좌측 badge와 연결감을 주면 된다. 자동 테스트는 contract guard, sidecar observer normalization/emission, main bridge pass-through, renderer store, App/ToolPanel rendering을 커버해야 한다. 실제 Claude Code hook 발화는 dev smoke에서 사용자 확인 대상으로 남는다.",
+                "recorded_at": "2026-04-26T11:44:16.940Z"
+              }
+            ],
+            "decision": "선택: Tool 탭에는 active workspace 기준 최근 tool call live feed를 compact list로 구현한다. Empty일 때는 'No tool calls yet'와 'Run Claude Code tool calls in this workspace...' 식의 정직한 empty state를 보여준다. Row는 status dot/label, `toolName`, timestamp, session tail, input/result/message summary를 표시한다. Tool 탭 높이는 기존 12rem 고정 placeholder보다 큰 `min-h-0 flex-1` 영역을 사용해 shared panel 안에서 scroll 가능하게 한다. Session/Diff/Preview placeholder는 유지한다. 검증은 contract generation + TS/Go tests + renderer store/component tests + full gates + dev launch smoke까지 수행한다. 근거: 사용자가 요청한 것은 Tool 탭 live feed이지 전체 Shared Panel 완성이 아니며, 첫 표면은 작고 읽기 전용이어야 한다. 기각: Diff/Preview까지 같이 구현하는 것은 새 이벤트 원천과 파일 diff 정책이 필요해 범위 초과다. 고급 grouping/collapse/검색은 feed가 실제로 쌓인 후 UX 판단해야 하므로 제외한다. Playwright screenshot regression은 현재 infra에 없어서 이번 범위에서 제외하고, 사용자에게 실제 Claude Code 도구 호출 확인 항목을 남긴다."
+          }
+        ],
+        "research_summary": "기존 기록 확인: plan #17에서 Claude Code hook observer vertical path는 `harness/tab-badge` 1종만 구현 완료했고, ToolCall/FileDiff/Notification/SessionHistory는 후속 TODO로 남겼다. plan #18/#19에서 hook/settings 방식은 유지, 터미널 fit과 좌측 sidebar/placeholder만 수정 완료했다. .nexus/context/harness-integration.md는 A2 모델에서 '사이드 패널의 최근 tool 호출'을 5대 관찰 기능 중 두 번째로 정의한다. 코드 확인: schema/harness-observer.schema.json의 `HarnessObserverEvent` union은 현재 `tabBadgeEvent`만 포함한다. packages/shared/src/harness/HarnessAdapter.ts에는 `ToolCallEvent` interface가 TODO 필드 상태다. sidecar/internal/contracts/harness_observer.go와 sidecar/internal/harness/observer.go도 `TabBadgeEvent`만 송신한다. HookEventInputFromWire는 payload에서 session_id, notification_type, timestamp, error만 뽑고 tool_name/tool_input/tool_response/message는 버린다. main SidecarBridge는 `isTabBadgeEvent`만 observer event로 emit한다. renderer App.tsx의 Tool 탭은 placeholder이며, renderer store는 harnessBadgeStore만 있어 상세 tool feed store가 없다. 공식 Anthropic Claude Code Hooks reference 확인: PreToolUse/PostToolUse hook stdin은 `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `tool_name`, `tool_input`을 포함하고 PostToolUse는 `tool_response`도 포함한다. Notification input은 `message`, Stop input은 `stop_hook_active` 등 hook별 필드가 있다. 따라서 이번 live feed는 hooks API의 PreToolUse/PostToolUse/Notification(permission prompt)/error-like events에서 tool_name과 요약 필드를 읽어 `harness/tool-call` observer event로 확장하는 것이 근거 있는 최소 수직 통합이다. 제약: 사용자가 hook 쪽은 유지한다고 결정했고, TUI 대체/승인 개입은 금지한다. subagent는 사용자 명시 위임이 없어 사용하지 않고 Lead가 직접 수행한다.",
+        "created_at": "2026-04-26T11:43:34.976Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. Harness observer contract에 ToolCallEvent 추가",
+          "status": "completed",
+          "context": "M3+2 Tool 탭 live feed. 현재 schema/harness-observer.schema.json 및 generated TS/Go contract는 TabBadgeEvent만 포함한다. 공식 Claude Code Hooks docs상 PreToolUse/PostToolUse payload에는 tool_name/tool_input/tool_response가 있다.",
+          "acceptance": "1. schema/harness-observer.schema.json에 `harness/tool-call` event가 oneOf union으로 추가된다. 2. 필수 필드: type/status/toolName/sessionId/adapterName/workspaceId/timestamp. 선택 필드: toolCallId/inputSummary/resultSummary/message. 3. status enum은 started/completed/awaiting-approval/error. 4. `bun run gen:contracts`로 packages/shared/src/contracts/generated/harness-observer.ts 갱신. 5. packages/shared/src/contracts/harness-observer.ts runtime guard에 isToolCallEvent 추가. 6. packages/shared/src/harness/HarnessAdapter.ts TODO ToolCallEvent가 generated type을 재사용하도록 갱신. 7. contract tests가 TabBadge + ToolCall union과 malformed rejection을 검증한다.",
+          "approach": "JSON schema 확장 후 contract generator 실행. Go contract는 수동 동기화 task에서 처리한다. TS guard/test 먼저 고정해 downstream 타입 기준을 만든다.",
+          "risk": "contract union 확장으로 기존 switch exhaustiveness/test expectation이 깨질 수 있다. 기존 'only concrete observer event' 테스트 문구를 새 현실에 맞게 갱신해야 한다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:45:04.581Z"
+        },
+        {
+          "id": 2,
+          "title": "T3. Main/preload observer pass-through 확장",
+          "status": "completed",
+          "context": "packages/app/src/main/sidecar-bridge/index.ts는 isTabBadgeEvent만 통과시킨다. preload nexus-harness-api는 HarnessObserverEvent union을 전달하므로 contract guard 확장 후 main pass-through만 갱신하면 된다.",
+          "acceptance": "1. SidecarBridge가 valid HarnessObserverEvent 전체 또는 isToolCallEvent를 observer event로 emit한다. 2. sidecar-bridge.test.ts에 `harness/tool-call` WS message → onObserverEvent emit 테스트 추가. 3. electron-app-composition.test.ts의 fake observer source 타입/테스트가 ToolCallEvent도 통과함을 검증한다. 4. preload nexus-harness-api test가 ToolCallEvent payload 전달을 검증한다. 5. 기존 tab-badge 테스트는 유지된다.",
+          "approach": "`isHarnessObserverEvent` guard를 import해 sidecar runtime message pass-through 기준을 union 전체로 바꾼다. 기존 type imports와 fake listener types를 HarnessObserverEvent로 넓힌다.",
+          "risk": "AJV schema가 strict하지 않으면 malformed tool-call 통과 가능성이 있으므로 contract test를 먼저 통과시켜야 한다.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:45:04.868Z"
+        },
+        {
+          "id": 3,
+          "title": "T2. Sidecar hook observer에서 ToolCallEvent 생성/송신",
+          "status": "completed",
+          "context": "Go sidecar는 hook payload에서 tool_name/tool_input/tool_response를 버리고 TabBadgeEvent만 송신한다. Tool feed는 실제 runtime path에서 sidecar가 `harness/tool-call`을 WS로 보내야 동작한다.",
+          "acceptance": "1. sidecar/internal/contracts/harness_observer.go에 ToolCallStatus/ToolCallEvent 추가. 2. HookEventInput이 ToolName/ToolCallID/InputSummary/ResultSummary/Message를 보존한다. 3. HookEventInputFromWire가 hook_event_name alias, tool_name, tool_use_id/tool_id/id, tool_input, tool_response, message를 unknown-safe로 요약한다. 4. ServerObserver가 PreToolUse→started, PostToolUse→completed, permission prompt Notification→awaiting-approval, error-like/error payload→error ToolCallEvent를 생성한다. 5. HandleHookEvent가 badge event와 tool-call event를 가능한 범위에서 둘 다 송신하되, unsupported non-permission Notification은 무시/무발화 정책을 유지한다. 6. Go tests가 normalize, wire decode, fake ws send 순서를 검증한다. 7. `cd sidecar && go test ./...` 통과.",
+          "approach": "기존 TabBadge normalize를 유지하면서 ToolCall normalize를 별도 함수로 추가한다. summary helper는 JSON compact 후 160자 내외 truncate, content/code 등 큰 필드는 값 대신 요약 토큰으로 축약한다. WS send는 TabBadge 다음 ToolCall 순서로 둔다.",
+          "risk": "HookEventInputFromWire가 tool-specific payload를 너무 많이 요약하면 민감/장문 노출 위험이 있다. 반대로 너무 적으면 UI 가치가 낮다. 이번에는 파일 path/command 같은 짧은 필드 중심 요약으로 제한한다.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:45:20.686Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. Renderer Tool feed store + Tool 탭 UI 구현",
+          "status": "completed",
+          "context": "App.tsx Tool 탭은 placeholder. renderer에는 harnessBadgeStore만 있어 append-only live feed state가 없다. active workspace 기준 최근 tool calls를 표시해야 한다.",
+          "acceptance": "1. packages/app/src/renderer/stores/harnessToolFeedStore.ts 신설: observerBridge 구독, `harness/tool-call`만 수집, workspace별 최근 50개 유지, stop/start subscription idempotent. 2. store tests가 append order, workspace filtering getter 또는 selector, max retention, non-tool event ignore를 검증한다. 3. Tool 탭 UI 컴포넌트 또는 App.tsx 내 rendering이 active workspace의 tool feed를 표시한다. 4. Empty state는 'No tool calls yet' 계열로 바뀐다. 5. Row는 status dot/label, toolName, time, session tail, summary를 표시하고 읽기 전용이다. 6. Session/Diff/Preview placeholder는 유지된다. 7. UI/component test가 empty state와 2개 tool-call row 렌더링을 검증한다.",
+          "approach": "badge store와 같은 observerBridge를 재사용하되 별도 zustand vanilla store로 분리한다. App에서 active workspace id를 계산해 Tool panel에 entries를 전달한다. 가능하면 ToolFeedPanel 컴포넌트를 분리해 테스트 범위를 좁힌다.",
+          "risk": "App.tsx가 더 비대해질 수 있다. 컴포넌트 분리로 완화한다. 실제 visual scroll 품질은 사용자 화면 확인이 필요하다.",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:45:31.883Z"
+        },
+        {
+          "id": 5,
+          "title": "T5. 전체 검증, dev smoke, 사이클 마감/커밋",
+          "status": "completed",
+          "context": "T1~T4 완료 후 전체 게이트와 짧은 dev launch smoke를 수행한다. 마지막에 nx_task_close 후 명시 path commit을 만든다.",
+          "acceptance": "1. 대상 tests PASS: contract, sidecar harness, sidecar bridge/composition/preload, renderer tool feed/panel. 2. `bun test` PASS. 3. `bun run typecheck` PASS. 4. `bun run lint` PASS. 5. `bun run build` PASS. 6. `bun run check:dist-require` PASS. 7. `cd sidecar && go test ./...` PASS. 8. `git diff --check` PASS. 9. `bun run dev` smoke 기동 확인. 10. nx_task_close archive 후 explicit paths로 단일 commit. 11. 한국어 보고에 사용자가 확인할 실제 Claude Code tool call 체크리스트 포함.",
+          "approach": "대상 테스트를 먼저 돌려 빠르게 회귀를 잡고, 이후 전체 게이트를 돌린다. dev smoke는 이미 떠 있는 사용자 dev process를 죽이지 않도록 새로 띄운 PID만 정리한다.",
+          "risk": "실제 Claude Code hook payload의 tool-specific shape는 다양하므로 자동 테스트가 모든 tool을 덮지 못한다. 사용자 실기에서 Read/Edit/Bash 등 대표 tool 호출 확인이 필요하다.",
+          "plan_issue": 3,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:45:40.817Z"
+        }
+      ]
     }
   ]
 }

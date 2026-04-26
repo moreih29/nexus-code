@@ -5,7 +5,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 
 import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar";
-import type { TabBadgeEvent } from "../../../../shared/src/contracts/harness-observer";
+import type { TabBadgeEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness-observer";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
 import { SidecarBridge, SidecarBridgeError } from "./index";
 import { SidecarLifecycleEmitter } from "./lifecycle-emitter";
@@ -106,6 +106,54 @@ describe("SidecarBridge", () => {
       serverClient?.send(JSON.stringify(tabBadgeEvent));
 
       await expect(observerEventPromise).resolves.toEqual(tabBadgeEvent);
+    } finally {
+      subscription?.dispose();
+      await bridge
+        .stop({
+          type: "sidecar/stop",
+          workspaceId,
+          reason: "workspace-close",
+        })
+        .catch(() => null);
+    }
+  });
+
+  test("sidecar-sent harness/tool-call messages emit observer events", async () => {
+    const child = new MockChildProcess(4321);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
+      spawnProcess: createMockSpawn(child, { mode: "normal" }),
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+    const toolCallEvent: ToolCallEvent = {
+      type: "harness/tool-call",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_bridge_002",
+      status: "started",
+      toolName: "Read",
+      timestamp: "2026-04-26T05:15:01.000Z",
+      inputSummary: "file_path: hello.py",
+    };
+    let subscription: ReturnType<SidecarBridge["onObserverEvent"]> | null = null;
+    const observerEventPromise = new Promise<ToolCallEvent>((resolve) => {
+      subscription = bridge.onObserverEvent((event) => {
+        subscription?.dispose();
+        resolve(event as ToolCallEvent);
+      });
+    });
+
+    try {
+      await bridge.start(startCommand);
+
+      const serverClient = Array.from(openServers.at(-1)?.clients ?? [])[0];
+      expect(serverClient).toBeDefined();
+      serverClient?.send(JSON.stringify(toolCallEvent));
+
+      await expect(observerEventPromise).resolves.toEqual(toolCallEvent);
     } finally {
       subscription?.dispose();
       await bridge

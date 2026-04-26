@@ -2,8 +2,9 @@
 import type { WorkspaceId } from "../_brands";
 
 
-export type HarnessObserverEvent = TabBadgeEvent;
+export type HarnessObserverEvent = TabBadgeEvent | ToolCallEvent;
 export type TabBadgeState = "running" | "awaiting-approval" | "completed" | "error";
+export type ToolCallStatus = "started" | "completed" | "awaiting-approval" | "error";
 
 export interface TabBadgeEvent {
   type: "harness/tab-badge";
@@ -12,4 +13,17 @@ export interface TabBadgeEvent {
   adapterName: string;
   workspaceId: WorkspaceId;
   timestamp: string;
+}
+export interface ToolCallEvent {
+  type: "harness/tool-call";
+  status: ToolCallStatus;
+  toolName: string;
+  sessionId: string;
+  adapterName: string;
+  workspaceId: WorkspaceId;
+  timestamp: string;
+  toolCallId?: string;
+  inputSummary?: string;
+  resultSummary?: string;
+  message?: string;
 }

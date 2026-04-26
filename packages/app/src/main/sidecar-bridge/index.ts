@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import type WebSocket from "ws";
 
 import {
-  isTabBadgeEvent,
+  isHarnessObserverEvent,
   type HarnessObserverEvent,
 } from "../../../../shared/src/contracts/harness-observer";
 import type {
@@ -263,7 +263,7 @@ export class SidecarBridge implements SidecarRuntime {
       return;
     }
 
-    if (isTabBadgeEvent(parsed)) {
+    if (isHarnessObserverEvent(parsed)) {
       this.emitObserverEvent(parsed);
       return;
     }
