@@ -82,6 +82,8 @@ describe("composeElectronAppServices", () => {
       ).toBe(tempDir);
       expect(services.harnessAdapters.map((adapter) => adapter.describe().name)).toEqual([
         "claude-code",
+        "opencode",
+        "codex",
       ]);
     } finally {
       await services.dispose();
@@ -116,6 +118,59 @@ describe("composeElectronAppServices", () => {
     });
     adapter.dispose();
     await iterator.return?.();
+  });
+
+  test("SidecarBridge observer stream feeds opencode and codex adapter dispatch paths", async () => {
+    const { createSidecarObserverEventStream } = await import("./electron-app-composition");
+    const { CodexAdapter } = await import("../../../shared/src/harness/adapters/codex");
+    const { OpenCodeAdapter } = await import("../../../shared/src/harness/adapters/opencode");
+    const workspaceId = "ws_adapter_parity" as WorkspaceId;
+    const source = new FakeSidecarObserverEventSource();
+    const opencodeAdapter = new OpenCodeAdapter({
+      eventStream: (_workspaceId, signal) =>
+        createSidecarObserverEventStream(source, signal, workspaceId),
+    });
+    const codexAdapter = new CodexAdapter({
+      eventStream: (_workspaceId, signal) =>
+        createSidecarObserverEventStream(source, signal, workspaceId),
+    });
+    const opencodeIterator = opencodeAdapter.observe(workspaceId)[Symbol.asyncIterator]();
+    const codexIterator = codexAdapter.observe(workspaceId)[Symbol.asyncIterator]();
+    const nextOpenCodeEvent = opencodeIterator.next();
+    const nextCodexEvent = codexIterator.next();
+    const opencodeEvent: ToolCallEvent = {
+      type: "harness/tool-call",
+      workspaceId,
+      adapterName: "opencode",
+      sessionId: "sess_opencode_dispatch",
+      status: "started",
+      toolName: "bash",
+      timestamp: "2026-04-26T05:15:00.000Z",
+    };
+    const codexEvent: TabBadgeEvent = {
+      type: "harness/tab-badge",
+      workspaceId,
+      adapterName: "codex",
+      sessionId: "sess_codex_dispatch",
+      state: "running",
+      timestamp: "2026-04-26T05:15:00.001Z",
+    };
+
+    source.emit(opencodeEvent);
+    source.emit(codexEvent);
+
+    await expect(nextOpenCodeEvent).resolves.toEqual({
+      done: false,
+      value: opencodeEvent,
+    });
+    await expect(nextCodexEvent).resolves.toEqual({
+      done: false,
+      value: codexEvent,
+    });
+    opencodeAdapter.dispose();
+    codexAdapter.dispose();
+    await opencodeIterator.return?.();
+    await codexIterator.return?.();
   });
 
 

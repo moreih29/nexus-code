@@ -188,7 +188,7 @@ export function buildHookCommands(options: {
   workspaceId: WorkspaceId;
 }): Record<ClaudeHookEventName, string> {
   const socketPath = path.join(options.dataDir, "sock", `${options.workspaceId}.sock`);
-  const baseCommand = `${shellQuote(options.sidecarBin)} hook --socket=${shellQuote(socketPath)} --workspace-id=${shellQuote(options.workspaceId)}`;
+  const baseCommand = `${shellQuote(options.sidecarBin)} hook --socket=${shellQuote(socketPath)} --workspace-id=${shellQuote(options.workspaceId)} --adapter=claude-code`;
   return {
     PreToolUse: `${baseCommand} --event=PreToolUse`,
     PostToolUse: `${baseCommand} --event=PostToolUse`,

@@ -72,6 +72,7 @@ describe("ClaudeSettingsManager", () => {
         timeout: 5,
       });
       expect(String(nexusPreToolUse?.hooks[0]?.command)).toContain("hook --socket=");
+      expect(String(nexusPreToolUse?.hooks[0]?.command)).toContain("--adapter=claude-code");
       expect(String(nexusPreToolUse?.hooks[0]?.command)).toContain("--event=PreToolUse");
 
       expect(await readFile(path.join(workspacePath, ".gitignore"), "utf8")).toContain(
@@ -143,13 +144,15 @@ describe("ClaudeSettingsManager", () => {
           hooks: [
             {
               type: "command",
-              command: expect.stringContaining("--event=PreToolUse"),
+              command: expect.any(String),
               timeout: 5,
               source: "nexus-code",
             },
           ],
         },
       ]);
+      expect(String(settings.hooks.PreToolUse[0]?.hooks[0]?.command)).toContain("--adapter=claude-code");
+      expect(String(settings.hooks.PreToolUse[0]?.hooks[0]?.command)).toContain("--event=PreToolUse");
       expect(settings.hooks.Notification[0]?.hooks[0]?.command).toEqual(
         expect.stringContaining("--event=Notification"),
       );
@@ -178,6 +181,7 @@ describe("ClaudeSettingsManager", () => {
 
     expect(commands.Notification).toContain("'" + "/Applications/Nexus Code.app/nexus-sidecar" + "'");
     expect(commands.Notification).toContain("ws_alpha.sock");
+    expect(commands.Notification).toContain("--adapter=claude-code");
     expect(commands.Notification).toContain("--event=Notification");
   });
 });

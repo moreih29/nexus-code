@@ -71,6 +71,7 @@ type HookListener struct {
 type WireHookEvent struct {
 	Type        string                `json:"type"`
 	WorkspaceID contracts.WorkspaceID `json:"workspaceId"`
+	AdapterName string                `json:"adapterName,omitempty"`
 	Event       string                `json:"event"`
 	Payload     json.RawMessage       `json:"payload"`
 }
@@ -79,6 +80,7 @@ type HookClientConfig struct {
 	SocketPath  string
 	TokenPath   string
 	WorkspaceID contracts.WorkspaceID
+	AdapterName string
 	Event       string
 	Payload     json.RawMessage
 }
@@ -308,6 +310,7 @@ func SendHookEvent(ctx context.Context, config HookClientConfig) error {
 	event, err := EncodeWireHookEvent(WireHookEvent{
 		Type:        HookEventType,
 		WorkspaceID: workspaceID,
+		AdapterName: strings.TrimSpace(config.AdapterName),
 		Event:       eventName,
 		Payload:     append(json.RawMessage(nil), payload...),
 	})
@@ -341,6 +344,7 @@ func EncodeWireHookEvent(event WireHookEvent) ([]byte, error) {
 	if event.WorkspaceID == "" {
 		return nil, errors.New("hook wire event missing workspaceId")
 	}
+	event.AdapterName = strings.TrimSpace(event.AdapterName)
 	if strings.TrimSpace(event.Event) == "" {
 		return nil, errors.New("hook wire event missing event")
 	}
@@ -366,6 +370,7 @@ func DecodeWireHookEvent(raw []byte) (WireHookEvent, error) {
 	if event.WorkspaceID == "" {
 		return WireHookEvent{}, errors.New("hook wire event missing workspaceId")
 	}
+	event.AdapterName = strings.TrimSpace(event.AdapterName)
 	if strings.TrimSpace(event.Event) == "" {
 		return WireHookEvent{}, errors.New("hook wire event missing event")
 	}
@@ -395,7 +400,7 @@ func HookEventInputFromWire(event WireHookEvent) (HookEventInput, error) {
 		EventName:        eventName,
 		NotificationType: firstString(payload, "notification_type", "notificationType"),
 		SessionID:        firstString(payload, "session_id", "sessionId"),
-		AdapterName:      firstString(payload, "adapterName", "adapter_name", "adapter"),
+		AdapterName:      firstNonEmptyString(event.AdapterName, firstString(payload, "adapterName", "adapter_name", "adapter")),
 		Timestamp:        timestamp,
 		HasError:         hasError,
 		ErrorMessage:     errorMessage,
@@ -469,6 +474,15 @@ func firstString(payload map[string]any, keys ...string) string {
 			if trimmed := strings.TrimSpace(s); trimmed != "" {
 				return trimmed
 			}
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""

@@ -44,11 +44,11 @@ type ServerObserver struct {
 	server wsx.Server
 }
 
-// HookEventInput is the intentionally small hand-off contract between the
-// future hook socket listener and this observer. It assumes Claude Code-like
-// hook names (PreToolUse, Notification, Stop), but avoids depending on any
-// concrete hook payload schema until T4 pins the socket/client format. Payload
-// fields not needed for the tab badge are deliberately ignored here.
+// HookEventInput is the intentionally small hand-off contract between hook-like
+// event sources and this observer. It accepts Claude/Codex-style hook names and
+// future adapter-specific bridges through the AdapterName field while avoiding
+// dependency on any concrete upstream payload schema. Payload fields not needed
+// for the E3 observer surfaces are deliberately summarized or ignored here.
 type HookEventInput struct {
 	EventName        string
 	NotificationType string

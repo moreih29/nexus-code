@@ -49,20 +49,21 @@ export class HarnessNotificationService {
 export function notificationPayloadForEvent(
   event: HarnessObserverEvent,
 ): HarnessNotificationPayload | null {
-  if (event.adapterName !== "claude-code") {
+  const displayName = adapterDisplayName(event.adapterName);
+  if (!displayName) {
     return null;
   }
 
   if (event.type === "harness/tool-call") {
     if (event.status === "awaiting-approval") {
       return {
-        title: "Claude Code approval needed",
+        title: `${displayName} approval needed`,
         body: `${event.toolName} is waiting for approval.`,
       };
     }
     if (event.status === "error") {
       return {
-        title: "Claude Code observer error",
+        title: `${displayName} observer error`,
         body: `${event.toolName} failed or reported an error.`,
       };
     }
@@ -72,14 +73,14 @@ export function notificationPayloadForEvent(
   if (event.type === "harness/tab-badge") {
     if (event.state === "completed") {
       return {
-        title: "Claude Code turn completed",
-        body: "Claude Code finished the current turn.",
+        title: `${displayName} turn completed`,
+        body: `${displayName} finished the current turn.`,
       };
     }
     if (event.state === "error") {
       return {
-        title: "Claude Code observer error",
-        body: "Claude Code reported an error.",
+        title: `${displayName} observer error`,
+        body: `${displayName} reported an error.`,
       };
     }
   }
@@ -96,4 +97,17 @@ function notificationDedupeKey(event: HarnessObserverEvent): string {
     status,
     event.timestamp,
   ].join(":");
+}
+
+function adapterDisplayName(adapterName: string): string | null {
+  switch (adapterName) {
+    case "claude-code":
+      return "Claude Code";
+    case "opencode":
+      return "OpenCode";
+    case "codex":
+      return "Codex";
+    default:
+      return null;
+  }
 }

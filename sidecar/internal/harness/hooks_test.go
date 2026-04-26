@@ -61,6 +61,45 @@ func TestHookListenerAcceptsClientRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSendHookEventPreservesWireAdapterName(t *testing.T) {
+	sink := newRecordingHookSink()
+	listener, cancel, errCh := startHookListenerForTest(t, shortHookTempDir(t), "ws-1", "secret-token", sink)
+	defer stopHookListenerForTest(t, listener, cancel, errCh)
+
+	if err := SendHookEvent(context.Background(), HookClientConfig{
+		SocketPath:  listener.SocketPath(),
+		WorkspaceID: "ws-1",
+		AdapterName: "codex",
+		Event:       "PreToolUse",
+		Payload:     json.RawMessage(`{"session_id":"session-codex"}`),
+	}); err != nil {
+		t.Fatalf("SendHookEvent() error = %v", err)
+	}
+
+	input := receiveHookInput(t, sink)
+	if input.EventName != "PreToolUse" || input.SessionID != "session-codex" || input.AdapterName != "codex" {
+		t.Fatalf("input = %+v, want codex adapter from wire", input)
+	}
+}
+
+func TestWireHookEventEncodeDecodePreservesOptionalAdapterName(t *testing.T) {
+	encoded := mustEncodeWireHookEvent(t, WireHookEvent{
+		Type:        HookEventType,
+		WorkspaceID: "ws-1",
+		AdapterName: " opencode ",
+		Event:       "session.status",
+		Payload:     json.RawMessage(`{"sessionID":"session-open"}`),
+	})
+
+	decoded, err := DecodeWireHookEvent(encoded)
+	if err != nil {
+		t.Fatalf("DecodeWireHookEvent() error = %v", err)
+	}
+	if decoded.AdapterName != "opencode" {
+		t.Fatalf("adapterName = %q, want opencode", decoded.AdapterName)
+	}
+}
+
 func TestHookListenerRejectsTokenMismatch(t *testing.T) {
 	sink := newRecordingHookSink()
 	listener, cancel, errCh := startHookListenerForTest(t, shortHookTempDir(t), "ws-1", "secret-token", sink)

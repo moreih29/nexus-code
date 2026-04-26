@@ -37,6 +37,35 @@ describe("HarnessNotificationService", () => {
     ]);
   });
 
+  test("uses adapter display names for Codex and OpenCode notifications", () => {
+    const shown: Array<{ title: string; body: string }> = [];
+    const service = new HarnessNotificationService({
+      isSupported: () => true,
+      createNotification: (payload) => ({
+        show: () => shown.push(payload),
+      }),
+    });
+
+    service.handleObserverEvent(toolEvent("awaiting-approval", "2026-04-26T00:00:00.000Z", "codex"));
+    service.handleObserverEvent(badgeEvent("completed", "2026-04-26T00:00:01.000Z", "opencode"));
+    service.handleObserverEvent(toolEvent("error", "2026-04-26T00:00:02.000Z", "opencode"));
+
+    expect(shown).toEqual([
+      {
+        title: "Codex approval needed",
+        body: "Edit is waiting for approval.",
+      },
+      {
+        title: "OpenCode turn completed",
+        body: "OpenCode finished the current turn.",
+      },
+      {
+        title: "OpenCode observer error",
+        body: "Edit failed or reported an error.",
+      },
+    ]);
+  });
+
   test("deduplicates repeated event keys", () => {
     let showCount = 0;
     const service = new HarnessNotificationService({
@@ -66,7 +95,7 @@ describe("HarnessNotificationService", () => {
       }),
     });
 
-    service.handleObserverEvent(toolEvent("running", "2026-04-26T00:00:00.000Z"));
+    service.handleObserverEvent(badgeEvent("running", "2026-04-26T00:00:00.000Z"));
     service.handleObserverEvent(toolEvent("awaiting-approval", "2026-04-26T00:00:01.000Z"));
 
     expect(showCount).toBe(0);
@@ -74,13 +103,14 @@ describe("HarnessNotificationService", () => {
 });
 
 function toolEvent(
-  status: "running" | "awaiting-approval" | "completed" | "error",
+  status: "awaiting-approval" | "completed" | "error",
   timestamp: string,
+  adapterName = "claude-code",
 ): HarnessObserverEvent {
   return {
     type: "harness/tool-call",
     workspaceId: "ws_alpha",
-    adapterName: "claude-code",
+    adapterName,
     sessionId: "sess_alpha",
     status,
     toolName: "Edit",
@@ -91,11 +121,12 @@ function toolEvent(
 function badgeEvent(
   state: "running" | "awaiting-approval" | "completed" | "error",
   timestamp: string,
+  adapterName = "claude-code",
 ): HarnessObserverEvent {
   return {
     type: "harness/tab-badge",
     workspaceId: "ws_alpha",
-    adapterName: "claude-code",
+    adapterName,
     sessionId: "sess_alpha",
     state,
     timestamp,

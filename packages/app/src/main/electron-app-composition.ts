@@ -6,6 +6,8 @@ import {
 } from "../../../shared/src/contracts/ipc-channels";
 import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
 import { ClaudeCodeAdapter } from "../../../shared/src/harness/adapters/claude-code";
+import { CodexAdapter } from "../../../shared/src/harness/adapters/codex";
+import { OpenCodeAdapter } from "../../../shared/src/harness/adapters/opencode";
 import type { HarnessAdapter } from "../../../shared/src/harness";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import type { WorkspaceSidebarState } from "../../../shared/src/contracts/workspace-shell";
@@ -75,6 +77,14 @@ export async function composeElectronAppServices(
   });
   const harnessAdapters: readonly HarnessAdapter[] = [
     new ClaudeCodeAdapter({
+      eventStream: (workspaceId, signal) =>
+        createSidecarObserverEventStream(sidecarRuntime, signal, workspaceId),
+    }),
+    new OpenCodeAdapter({
+      eventStream: (workspaceId, signal) =>
+        createSidecarObserverEventStream(sidecarRuntime, signal, workspaceId),
+    }),
+    new CodexAdapter({
       eventStream: (workspaceId, signal) =>
         createSidecarObserverEventStream(sidecarRuntime, signal, workspaceId),
     }),

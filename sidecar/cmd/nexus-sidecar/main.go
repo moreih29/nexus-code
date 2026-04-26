@@ -162,6 +162,7 @@ func runHookCommand(args []string, stdin io.Reader, _ io.Writer, stderr io.Write
 	flags.SetOutput(stderr)
 	socketPath := flags.String("socket", "", "Unix socket path")
 	workspaceID := flags.String("workspace-id", "", "workspace id")
+	adapterName := flags.String("adapter", "", "harness adapter name")
 	eventName := flags.String("event", "", "hook event type")
 	tokenPath := flags.String("token-file", "", "token file path (defaults to sibling .token)")
 	if err := flags.Parse(args); err != nil {
@@ -177,6 +178,7 @@ func runHookCommand(args []string, stdin io.Reader, _ io.Writer, stderr io.Write
 		SocketPath:  *socketPath,
 		TokenPath:   *tokenPath,
 		WorkspaceID: contracts.WorkspaceID(*workspaceID),
+		AdapterName: *adapterName,
 		Event:       *eventName,
 		Payload:     payload,
 	}); err != nil {

@@ -35,8 +35,8 @@ func TestRunHookCommandSendsHookEventWithoutSidecarTokenEnv(t *testing.T) {
 
 	stderr := &strings.Builder{}
 	exitCode := runHookCommand(
-		[]string{"--socket", listener.SocketPath(), "--workspace-id", "ws-main", "--event", "Stop"},
-		strings.NewReader(`{"session_id":"session-main","adapterName":"claude-code"}`),
+		[]string{"--socket", listener.SocketPath(), "--workspace-id", "ws-main", "--adapter", "codex", "--event", "Stop"},
+		strings.NewReader(`{"session_id":"session-main"}`),
 		io.Discard,
 		stderr,
 	)
@@ -46,7 +46,7 @@ func TestRunHookCommandSendsHookEventWithoutSidecarTokenEnv(t *testing.T) {
 
 	select {
 	case input := <-sink.inputs:
-		if input.EventName != "Stop" || input.SessionID != "session-main" || input.AdapterName != "claude-code" {
+		if input.EventName != "Stop" || input.SessionID != "session-main" || input.AdapterName != "codex" {
 			t.Fatalf("input = %+v", input)
 		}
 	case <-time.After(time.Second):

@@ -3570,6 +3570,156 @@
           "created_at": "2026-04-26T12:11:05.256Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T13:24:02.973Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 22,
+        "topic": "E3-B opencode/codex adapter parity 실행",
+        "issues": [
+          {
+            "id": 1,
+            "title": "E3-B 완료 컷 정의: opencode/codex parity에서 실제 구현할 v1 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "E3-A 히스토리에서 opencode/codex와 adapter parity는 E3-B로 분리되어 있었다. 로드맵 E3는 세 하네스 동시 지원을 요구하지만 Preview는 E5이고, E3 명시 제외에 approval injection/adapter-specific UX가 들어간다. 현재 UI 표면은 이미 adapterName을 갖는 generic observer event를 소비할 수 있고, 부족한 것은 claude-code 외 adapter 구현·wiring·ingress다. 따라서 E3-B는 새 UI 표면이 아니라 세 하네스가 같은 badge/tool/session 관찰 이벤트로 들어오는 parity v1이 되어야 한다.",
+                "recorded_at": "2026-04-26T13:06:51.515Z"
+              }
+            ],
+            "decision": "선택: E3-B의 완료 컷은 opencode/codex adapter parity v1이다. 구체적으로 `packages/shared/src/harness/adapters/opencode`와 `.../codex`를 추가하고, main composition이 claude-code/opencode/codex 세 adapter를 모두 보유하며, adapter-neutral observer event stream에서 각 adapter가 자기 adapterName만 필터링해 badge/tool/session 이벤트를 pass-through 또는 defensive normalize한다. UI는 E3-A의 generic Tool/Session/Diff surface를 재사용하고 Preview는 건드리지 않는다. 수락 기준은 단위 테스트와 full gate에서 세 adapter 이름이 등록되고, opencode/codex mock event가 tab/tool/session contract로 변환되는 것이다. 기각: opencode/codex 전용 새 UX를 만드는 것은 로드맵 명시 제외라 제외한다. Preview 동작 구현은 E5라 제외한다. opencode server lifecycle을 IDE가 직접 제어하거나 Codex approval을 IDE가 대신 처리하는 방식은 read-only observer 원칙과 approval injection 제외에 어긋나서 기각한다. 가정: E3-B 내부 분해는 E3-A 히스토리의 'opencode/codex는 E3-B 성격' 결정에 근거한다."
+          },
+          {
+            "id": 2,
+            "title": "adapter-neutral sidecar hook ingress 및 main composition wiring 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "현재 sidecar hook ingress는 wire event에 adapterName이 없고 `nexus-sidecar hook`도 `--adapter`가 없어, payload가 adapterName을 직접 포함하지 않으면 observer default `claude-code`로 귀속된다. E3-B에서 Codex hooks나 다른 source가 같은 Unix socket path를 사용하려면 hook client가 adapterName을 안전하게 지정할 수 있어야 한다. main composition은 ClaudeCodeAdapter만 생성하므로 세 adapter wiring도 누락되어 있다. notification service도 claude-code hardcode라 세 adapter parity와 맞지 않는다.",
+                "recorded_at": "2026-04-26T13:07:06.169Z"
+              }
+            ],
+            "decision": "선택: sidecar hook ingress를 adapter-neutral로 넓힌다. `WireHookEvent`와 `HookClientConfig`에 optional adapterName을 추가하고, `nexus-sidecar hook --adapter=<name>`을 받게 한다. `HookEventInputFromWire`는 wire-level adapterName을 payload alias보다 우선 적용하고, 없으면 기존 default 동작을 유지한다. 기존 Claude settings command도 `--adapter=claude-code`를 명시하게 바꿔 회귀를 줄인다. main composition은 ClaudeCodeAdapter, OpenCodeAdapter, CodexAdapter 세 개를 생성하고 같은 `createSidecarObserverEventStream`을 주입한다. notification service는 adapter display-name map으로 일반화한다. 기각: adapterName을 payload JSON에만 쓰도록 요구하는 방식은 외부 hook payload schema를 오염시키고 하네스별 settings command 생성이 복잡해져 기각한다. adapter별 socket을 만드는 방식은 sidecar listener 수와 token 파일이 늘고 현 per-workspace sidecar 모델과 맞지 않아 기각한다. 가정: hook ingress는 Codex v1 및 수동/향후 opencode bridge에 유효한 공통 수신 경로이며, opencode native SSE source는 이후 별도 watcher로 붙일 수 있다."
+          },
+          {
+            "id": 3,
+            "title": "codex adapter 구현 방식: 공식 hooks 기반 defensive mapper와 자동 설정 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "OpenAI Codex 공식 Hooks 문서(2026-04-26 확인)는 SessionStart/PreToolUse/PermissionRequest/PostToolUse/UserPromptSubmit/Stop 이벤트를 제공하고, PreToolUse/PostToolUse input에 `tool_name`, `tool_use_id`, `tool_input`, `tool_response`가 포함된다고 설명한다. PermissionRequest는 승인 요청 직전에 실행된다. 그러나 문서는 hook 기능 플래그/config.toml에 의존하고, 외부 memory도 Codex schema 변동이 잦다고 기록한다. 따라서 자동으로 사용자 Codex config를 수정하는 것은 현재 Claude settings consent flow보다 제품 위험이 크다.",
+                "recorded_at": "2026-04-26T13:07:21.463Z"
+              }
+            ],
+            "decision": "선택: CodexAdapter v1은 공식 Hooks event shape를 defensive하게 normalize한다. `SessionStart`/`UserPromptSubmit`은 running, `PreToolUse`는 running+tool started, `PermissionRequest`는 awaiting-approval+tool awaiting-approval, `PostToolUse`는 tool completed(또는 error payload면 error), `Stop`은 completed로 매핑한다. pass-through normalized `harness/*` event도 adapterName=`codex`일 때 그대로 허용한다. 세션 식별자는 `session_id`/`sessionId`/`turn_id`/`turnId` 순으로 수용해 스키마 변화에 견딘다. 자동 `.codex/config.toml` 수정/등록은 이번 v1에서 제외하고, 공통 `nexus-sidecar hook --adapter=codex` ingress와 mapper/test를 구현한다. 기각: Codex config를 자동 편집하는 방식은 공식 docs가 feature flag/config 경로를 갖고 있고 사용자 설정 파손 위험이 있어 Claude settings consent와 동급 설계가 필요하므로 이번 범위에서 기각한다. `codex --json` stdout 파싱을 terminal PTY에서 가로채는 방식은 TUI/terminal ownership을 침범하고 포맷 변동 위험이 커서 기각한다. 가정: 사용자가 Codex hooks를 수동 또는 향후 consent flow로 연결하면 이번 adapter가 즉시 observer surface에 반영할 수 있다."
+          },
+          {
+            "id": 4,
+            "title": "opencode adapter 구현 방식: 공식 SSE event schema mapper와 소스 연결 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "opencode 공식 server docs(2026-04-26 확인)는 TUI가 server client로 동작하고 `/event` SSE stream을 제공한다고 설명한다. generated SDK type에는 `session.status`, `session.idle`, `permission.updated`, `message.part.updated`의 ToolPart state(`pending`/`running`/`completed`/`error`), `session.error`, `file.edited` 등이 있다. 기존 memory의 SQLite 관찰 정보보다 공식 server/SSE가 더 직접적인 현재 관찰 경로로 보인다. 다만 현재 Nexus는 opencode TUI의 random server port를 discover하는 설정/UX가 없고, opencode 프로세스를 IDE가 관리하지 않는다.",
+                "recorded_at": "2026-04-26T13:07:36.016Z"
+              }
+            ],
+            "decision": "선택: OpenCodeAdapter v1은 공식 SSE/SDK event schema의 mapper를 구현하되, 실제 server discovery/lifecycle은 이번 범위에서 제외한다. 매핑은 `session.status` busy→running, idle/`session.idle`→completed, `permission.updated`→awaiting-approval, `message.part.updated` ToolPart state running/completed/error→tool-call started/completed/error, `session.error`→error로 처리한다. pass-through normalized `harness/*` event도 adapterName=`opencode`일 때 그대로 허용한다. timestamp는 opencode number time field가 있으면 ms/seconds를 관대하게 ISO로 변환하고 없으면 now를 쓴다. 기각: opencode server를 Nexus가 자동으로 띄우거나 TUI port를 강제하는 방식은 TUI ownership/read-only 원칙을 흐릴 수 있어 별도 설계가 필요하다. SQLite DB tail을 이번 cycle에 구현하는 방식은 현재 공식 server/SSE 문서보다 낮은 수준의 fallback이고 schema path discovery가 불확실해 기각한다. 가정: 사용자가 opencode server endpoint를 고정하거나 향후 discovery가 붙으면 이번 mapper/adapter가 동일 observer surface에 연결될 수 있다."
+          },
+          {
+            "id": 5,
+            "title": "검증·문서/상태 기록 범위 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "이번 변경은 adapter/plugin boundary와 sidecar hook ingress 계약을 넓히므로 코드·테스트·history 기록이 핵심이다. 사용자 요청은 실행이고 로드맵 리컷은 원치 않는 맥락이 있었으므로 roadmap 파일은 수정하지 않는 편이 안전하다. 다만 이번 결정에는 최신 외부 docs가 들어갔으므로 final report에서 출처 링크를 명시해야 한다. 검증은 shared adapter tests, app main tests, sidecar go tests, typecheck/build/lint/drift를 포함해야 한다.",
+                "recorded_at": "2026-04-26T13:07:50.983Z"
+              }
+            ],
+            "decision": "선택: roadmap/context 문서는 이번 cycle에서 수정하지 않고, `.nexus/history.json` archive와 final report에 decisions/evidence를 남긴다. 코드 변경은 shared adapters, sidecar hook ingress, main composition/notification tests 중심으로 제한한다. 검증은 대상 adapter/sidecar/app tests, `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist-require`, `cd sidecar && go test ./...`, `bash scripts/check-go-contracts-drift.sh`, `git diff --check`를 수행한다. dev smoke는 adapter parity가 UI boot와 sidecar binary에 영향을 줄 수 있으므로 가능한 한 수행하되, 사용자의 기존 dev process를 죽이지 않는다. 기각: roadmap.md 업데이트는 현재 사용자가 로드맵 리컷을 원하지 않는 흐름이어서 제외한다. E3 전체 30분 no-event-loss release blocker는 세 harness 실제 장기 연결이 필요하므로 이번 E3-B unit/integration cycle에서 완료 선언하지 않고 M6/E3 final gate로 남긴다."
+          }
+        ],
+        "research_summary": "요청은 `[run] e3-b 작업 진행`이다. 기존 히스토리에서 E3-A는 Claude vertical 완성으로, opencode/codex 및 adapter parity는 E3-B 성격으로 명시적으로 제외되어 있었다. 현재 브랜치 feat/m3-handover는 깨끗하고 tasks/plan 없음. 로컬 지식: `.nexus/context/roadmap.md`는 E3가 claude-code/opencode/codex 세 어댑터 동시 지원을 요구하고, preview는 E5 범위다. `.nexus/context/harness-integration.md`는 HarnessAdapter plugin boundary를 `packages/shared/src/harness/adapters/<name>/`로 규정하며, claude-code는 Hooks, opencode는 SQLite DB+event stream, codex는 세션 파일/JSON output으로 기록한다. `.nexus/memory/pattern-harness-observer.md`와 `.nexus/memory/pattern-claude-code-adapter.md`는 TUI 대체 금지, read-only observer, sidecar 수신/adapter 소비 분리를 원칙으로 한다. 코드 확인: 현재 adapter 구현은 `claude-code`만 존재하며 `electron-app-composition`도 ClaudeCodeAdapter 1개만 생성한다. sidecar `nexus-sidecar hook`은 `--adapter` 없이 raw payload를 Unix socket으로 보내고 observer default adapterName이 `claude-code`로 고정되어 있다. main notification service는 claude-code만 허용한다. renderer badge/tool/session/diff surface는 observer event의 adapterName 자체에는 일반적이나 transcript read service는 Claude path 전용이다. 외부 2026-04-26 확인: OpenAI Codex 공식 docs에는 Hooks 구성과 SessionStart/PreToolUse/PermissionRequest/PostToolUse/UserPromptSubmit/Stop 이벤트가 있으며, Pre/PostToolUse는 `tool_name`, `tool_use_id`, `tool_input`, `tool_response`, Stop은 turn_id/last_assistant_message 필드를 가진다. Codex hooks는 기능 플래그와 config.toml에 의존하므로 v1은 강제 자동 등록보다 adapter-neutral hook ingress와 defensive mapper를 우선한다. opencode 공식 docs는 TUI가 서버 client이고 `opencode serve`/TUI 서버가 HTTP OpenAPI와 `/event` SSE stream을 제공하며, generated SDK type에는 `session.status`, `session.idle`, `permission.updated`, `message.part.updated` with `ToolPart`, `session.error`, `file.edited` 등이 있다. 즉 opencode는 직접 settings 파일 수정이 아니라 공식 server/SSE event를 read-only로 관찰하는 쪽이 맞다. 이번 E3-B는 로드맵 리컷이 아니라 내부 E3-B 구현이다. 범위는 preview 제외, approval injection 제외, UI 커스텀 제외를 유지하고, 세 하네스가 같은 HarnessAdapter/observer contract로 동작하도록 adapter parity v1을 완성한다.",
+        "created_at": "2026-04-26T13:06:44.175Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. Shared opencode/codex adapters + mapper tests",
+          "status": "completed",
+          "context": "E3-B adapter parity. 현재 shared harness adapter는 claude-code만 존재한다. E3-B는 opencode/codex도 같은 HarnessAdapter contract로 observer events를 제공해야 한다. Preview/approval injection/adapter-specific UX 제외.",
+          "acceptance": "1. `CodexAdapter`와 `OpenCodeAdapter`가 `HarnessAdapter`를 구현하고 `describe()`가 각각 `codex`/`opencode`를 반환한다. 2. 각 adapter는 matching adapterName의 already-normalized tab/tool/session events를 pass-through하고 다른 adapter/workspace는 무시한다. 3. Codex mapper tests: PreToolUse→running + tool started, PermissionRequest→awaiting-approval + tool awaiting-approval, PostToolUse→tool completed/error, Stop→completed. 4. OpenCode mapper tests: session.status busy→running, session.idle/idle status→completed, permission.updated→awaiting-approval, message.part.updated ToolPart running/completed/error→tool-call, session.error→error. 5. shared tests pass.",
+          "approach": "`packages/shared/src/harness/adapters/_shared`에 normalized observer event helpers를 만들고, `codex`와 `opencode` adapter directories를 추가한다. Codex는 공식 Hooks shape를 defensive하게 map하고, OpenCode는 official SSE/SDK event shape를 map한다. 기존 Claude adapter와 동일하게 pass-through normalized observer events를 adapterName으로 필터링한다.",
+          "risk": "Codex와 opencode upstream schema가 변동될 수 있다. Mapper는 alias/unknown-field-tolerant로 작성하지만, 실제 source 연결은 후속 discovery/registration에 의존한다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:08:11.808Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. Adapter-neutral hook ingress + Claude command adapter flag",
+          "status": "completed",
+          "context": "sidecar hook ingress가 claude-code default에 기대고 있어 codex/opencode source가 같은 Unix socket으로 들어와도 adapterName 지정이 어렵다. E3-B에서는 observer contract를 adapter-neutral로 확장해야 한다.",
+          "acceptance": "1. sidecar hook command `--adapter=codex`가 payload에 adapterName이 없어도 sink input AdapterName=`codex`로 전달된다. 2. 기존 adapterName payload 경로는 회귀하지 않는다. 3. Wire encode/decode tests가 optional adapterName을 보존한다. 4. Claude settings command test가 `--adapter=claude-code`를 검증한다. 5. `cd sidecar && go test ./...` 대상 테스트가 pass.",
+          "approach": "`nexus-sidecar hook`에 `--adapter` flag를 추가하고 `WireHookEvent`/`HookClientConfig`에 AdapterName을 추가한다. Decode/Encode는 optional adapterName을 검증/전달한다. `HookEventInputFromWire`는 wire adapterName을 payload alias보다 우선한다. Claude settings manager의 generated hook commands는 `--adapter=claude-code`를 명시한다.",
+          "risk": "Hook wire event schema를 넓히므로 legacy clients와 호환되어야 한다. adapterName은 optional로 유지한다.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:08:40.231Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. Main composition + notification parity wiring",
+          "status": "completed",
+          "context": "Electron main composition은 현재 ClaudeCodeAdapter 하나만 생성하고 notification title도 claude-code 전용이다. E3-B 완료 컷은 세 adapter 동시 등록과 generic notification이다.",
+          "acceptance": "1. compose service test가 harnessAdapters 이름을 `claude-code`, `opencode`, `codex`로 확인한다. 2. Sidecar observer stream dispatch test가 codex/opencode adapter pass-through 또는 mapper path를 검증한다. 3. notification tests가 Codex/OpenCode approval/completion/error title/body를 검증한다. 4. typecheck pass.",
+          "approach": "`electron-app-composition.ts`에서 CodexAdapter/OpenCodeAdapter를 import하고 harnessAdapters 배열에 세 adapter를 생성한다. notification service는 adapter display-name map으로 일반화해 codex/opencode approval/completion/error도 알린다. 관련 tests를 adapter names 및 codex/opencode notification payload로 갱신한다.",
+          "risk": "세 adapter가 같은 event stream을 구독하므로 잘못된 adapterName 필터가 있으면 중복 이벤트가 생긴다. adapter tests와 dispatch tests로 방어한다.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:08:50.975Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. Verification, archive, commit, Korean report",
+          "status": "completed",
+          "context": "T1~T3 완료 후 전체 게이트와 cycle close/commit/report를 수행한다. roadmap/context 문서는 수정하지 않는다.",
+          "acceptance": "1. 대상 shared adapter tests pass. 2. 대상 sidecar hook/main tests pass. 3. 대상 app composition/notification/claude settings tests pass. 4. `bun test` pass. 5. `bun run typecheck` pass. 6. `bun run lint` pass. 7. `bun run build` pass. 8. `bun run check:dist-require` pass. 9. `cd sidecar && go test ./...` pass. 10. `bash scripts/check-go-contracts-drift.sh` pass. 11. `git diff --check` pass. 12. `.nexus/context/roadmap.md` unchanged. 13. `nx_task_close` archive + single commit. 14. 한국어 보고에 변경/검증/다음 단계/위험 및 외부 source 링크 포함.",
+          "approach": "대상 테스트부터 실행해 빠르게 수정하고, 전체 bun/go/typecheck/build/lint/drift gates를 통과시킨다. 가능하면 dev launch smoke를 짧게 수행하되 기존 사용자 dev process는 죽이지 않는다. `nx_task_close` 후 explicit paths로 commit한다.",
+          "risk": "dev smoke는 로컬에서 이미 dev server/app이 떠 있으면 포트/프로세스 상태 때문에 짧은 확인만 가능할 수 있다.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:09:02.795Z"
+        }
+      ]
     }
   ]
 }
