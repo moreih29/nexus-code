@@ -8,6 +8,9 @@
     },
     {
       "$ref": "#/$defs/toolCallEvent"
+    },
+    {
+      "$ref": "#/$defs/sessionHistoryEvent"
     }
   ],
   "$defs": {
@@ -94,6 +97,35 @@
           "minLength": 1
         },
         "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sessionHistoryEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sessionId", "adapterName", "workspaceId", "timestamp", "transcriptPath"],
+      "properties": {
+        "type": {
+          "const": "harness/session-history"
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapterName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "transcriptPath": {
           "type": "string",
           "minLength": 1
         }

@@ -2,7 +2,7 @@
 import type { WorkspaceId } from "../_brands";
 
 
-export type HarnessObserverEvent = TabBadgeEvent | ToolCallEvent;
+export type HarnessObserverEvent = TabBadgeEvent | ToolCallEvent | SessionHistoryEvent;
 export type TabBadgeState = "running" | "awaiting-approval" | "completed" | "error";
 export type ToolCallStatus = "started" | "completed" | "awaiting-approval" | "error";
 
@@ -26,4 +26,12 @@ export interface ToolCallEvent {
   inputSummary?: string;
   resultSummary?: string;
   message?: string;
+}
+export interface SessionHistoryEvent {
+  type: "harness/session-history";
+  sessionId: string;
+  adapterName: string;
+  workspaceId: WorkspaceId;
+  timestamp: string;
+  transcriptPath: string;
 }

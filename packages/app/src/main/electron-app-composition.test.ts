@@ -38,6 +38,12 @@ mock.module("electron", () => ({
     showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
   },
   ipcMain,
+  Notification: Object.assign(
+    function Notification(payload: unknown) {
+      return { payload, show: () => undefined };
+    },
+    { isSupported: () => true },
+  ),
 }));
 
 afterEach(async () => {
@@ -110,6 +116,41 @@ describe("composeElectronAppServices", () => {
     });
     adapter.dispose();
     await iterator.return?.();
+  });
+
+
+
+  test("SidecarBridge observer events also flow to notification sink", async () => {
+    const { subscribeSidecarObserverEvents } = await import("./electron-app-composition");
+    const workspaceId = "ws_notify" as WorkspaceId;
+    const source = new FakeSidecarObserverEventSource();
+    const mainWindow = createMainWindowMock();
+    const notified: HarnessObserverEvent[] = [];
+    const subscription = subscribeSidecarObserverEvents(source, mainWindow, {
+      handleObserverEvent: (event) => notified.push(event),
+    });
+    const event: TabBadgeEvent = {
+      type: "harness/tab-badge",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_notify",
+      state: "completed",
+      timestamp: "2026-04-26T05:15:00.000Z",
+    };
+
+    try {
+      source.emit(event);
+
+      expect(notified).toEqual([event]);
+      expect(getWebContentsSendCalls(mainWindow)).toEqual([
+        {
+          channel: HARNESS_OBSERVER_EVENT_CHANNEL,
+          payload: event,
+        },
+      ]);
+    } finally {
+      subscription.dispose();
+    }
   });
 
   test("SidecarBridge observer events traverse to renderer IPC", async () => {

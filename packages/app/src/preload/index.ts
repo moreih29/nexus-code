@@ -20,6 +20,14 @@ import {
   createNexusClaudeSettingsApi,
   type NexusClaudeSettingsApi,
 } from "./nexus-claude-settings-api";
+import {
+  createNexusWorkspaceDiffApi,
+  type NexusWorkspaceDiffApi,
+} from "./nexus-workspace-diff-api";
+import {
+  createNexusClaudeSessionApi,
+  type NexusClaudeSessionApi,
+} from "./nexus-claude-session-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -48,8 +56,12 @@ const nexusTerminal: NexusTerminalApi = {
 const nexusWorkspace: NexusWorkspaceApi = createNexusWorkspaceApi(ipcRenderer);
 const nexusHarness: NexusHarnessApi = createNexusHarnessApi(ipcRenderer);
 const nexusClaudeSettings: NexusClaudeSettingsApi = createNexusClaudeSettingsApi(ipcRenderer);
+const nexusWorkspaceDiff: NexusWorkspaceDiffApi = createNexusWorkspaceDiffApi(ipcRenderer);
+const nexusClaudeSession: NexusClaudeSessionApi = createNexusClaudeSessionApi(ipcRenderer);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
 contextBridge.exposeInMainWorld("nexusHarness", nexusHarness);
 contextBridge.exposeInMainWorld("nexusClaudeSettings", nexusClaudeSettings);
+contextBridge.exposeInMainWorld("nexusWorkspaceDiff", nexusWorkspaceDiff);
+contextBridge.exposeInMainWorld("nexusClaudeSession", nexusClaudeSession);

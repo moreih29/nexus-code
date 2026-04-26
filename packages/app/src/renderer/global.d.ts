@@ -12,6 +12,12 @@ import type {
   OpenFolderRequest,
   WorkspaceSidebarState,
 } from "../../../shared/src/contracts/workspace-shell";
+import type {
+  ClaudeTranscriptReadRequest,
+  ClaudeTranscriptReadResult,
+  WorkspaceDiffRequest,
+  WorkspaceDiffResult,
+} from "../../../shared/src/contracts/e3-surfaces";
 
 interface NexusPreloadDisposable {
   dispose(): void;
@@ -46,12 +52,24 @@ interface NexusWorkspaceApi {
   ): NexusPreloadDisposable;
 }
 
+interface NexusWorkspaceDiffApi {
+  readWorkspaceDiff(request: WorkspaceDiffRequest): Promise<WorkspaceDiffResult>;
+}
+
+interface NexusClaudeSessionApi {
+  readTranscript(
+    request: ClaudeTranscriptReadRequest,
+  ): Promise<ClaudeTranscriptReadResult>;
+}
+
 declare global {
   interface Window {
     nexusTerminal: NexusTerminalApi;
     nexusWorkspace: NexusWorkspaceApi;
     nexusHarness: NexusHarnessApi;
     nexusClaudeSettings: NexusClaudeSettingsApi;
+    nexusWorkspaceDiff: NexusWorkspaceDiffApi;
+    nexusClaudeSession: NexusClaudeSessionApi;
   }
 }
 

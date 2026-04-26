@@ -404,6 +404,7 @@ func HookEventInputFromWire(event WireHookEvent) (HookEventInput, error) {
 		InputSummary:     summarizeHookValue(payload["tool_input"]),
 		ResultSummary:    summarizeHookValue(payload["tool_response"]),
 		Message:          firstString(payload, "message"),
+		TranscriptPath:   firstString(payload, "transcript_path", "transcriptPath"),
 	}, nil
 }
 

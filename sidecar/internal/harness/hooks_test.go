@@ -35,7 +35,7 @@ func TestHookListenerAcceptsClientRoundTrip(t *testing.T) {
 	assertPathPerm(t, listener.TokenPath(), hookTokenFileMode)
 	assertPathPerm(t, listener.SocketPath(), hookSocketFileMode)
 
-	payload := json.RawMessage(`{"session_id":"session-1","adapterName":"claude-code","timestamp":"2026-04-26T01:02:03.000000004Z","tool_name":"Read","tool_input":{"file_path":"hello.py"}}`)
+	payload := json.RawMessage(`{"session_id":"session-1","adapterName":"claude-code","timestamp":"2026-04-26T01:02:03.000000004Z","tool_name":"Read","tool_input":{"file_path":"hello.py"},"transcript_path":"/Users/kih/.claude/projects/ws/session-1.jsonl"}`)
 	if err := SendHookEvent(context.Background(), HookClientConfig{
 		SocketPath:  listener.SocketPath(),
 		WorkspaceID: "ws-1",
@@ -51,6 +51,9 @@ func TestHookListenerAcceptsClientRoundTrip(t *testing.T) {
 	}
 	if input.InputSummary != "file_path: hello.py" {
 		t.Fatalf("input summary = %q, want file_path summary", input.InputSummary)
+	}
+	if input.TranscriptPath != "/Users/kih/.claude/projects/ws/session-1.jsonl" {
+		t.Fatalf("transcript path = %q", input.TranscriptPath)
 	}
 	wantTimestamp := time.Date(2026, 4, 26, 1, 2, 3, 4, time.UTC)
 	if !input.Timestamp.Equal(wantTimestamp) {
@@ -162,7 +165,8 @@ func TestHookEventInputFromWireMapsCommonPayloadFields(t *testing.T) {
 			"tool_use_id":"toolu_001",
 			"tool_input":{"command":"printf hello","description":"test command"},
 			"tool_response":{"success":true},
-			"message":"Claude needs permission"
+			"message":"Claude needs permission",
+			"transcriptPath":"/Users/kih/.claude/projects/ws/session-1.jsonl"
 		}`),
 	})
 	if err != nil {
@@ -185,6 +189,9 @@ func TestHookEventInputFromWireMapsCommonPayloadFields(t *testing.T) {
 	}
 	if input.Message != "Claude needs permission" {
 		t.Fatalf("message = %q", input.Message)
+	}
+	if input.TranscriptPath != "/Users/kih/.claude/projects/ws/session-1.jsonl" {
+		t.Fatalf("transcript path = %q", input.TranscriptPath)
 	}
 	if !input.HasError || input.ErrorMessage != "approval failed" {
 		t.Fatalf("error fields = hasError:%v message:%q", input.HasError, input.ErrorMessage)

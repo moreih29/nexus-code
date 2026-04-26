@@ -40,3 +40,12 @@ type ToolCallEvent struct {
 	ResultSummary string         `json:"resultSummary,omitempty"`
 	Message       string         `json:"message,omitempty"`
 }
+
+type SessionHistoryEvent struct {
+	Type           string      `json:"type"`
+	SessionID      string      `json:"sessionId"`
+	AdapterName    string      `json:"adapterName"`
+	WorkspaceID    WorkspaceID `json:"workspaceId"`
+	Timestamp      string      `json:"timestamp"`
+	TranscriptPath string      `json:"transcriptPath"`
+}

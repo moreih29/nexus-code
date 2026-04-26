@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification } from "electron";
 
 import {
   HARNESS_OBSERVER_EVENT_CHANNEL,
@@ -24,6 +24,10 @@ import {
   RendererClaudeSettingsConsentRequester,
 } from "./claude-settings-registration";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
+import { ClaudeSessionTranscriptService } from "./claude-session-transcript-service";
+import { registerE3SurfaceIpcHandlers, type E3SurfaceIpcHandlers } from "./e3-surface-ipc";
+import { HarnessNotificationService } from "./harness-notification-service";
+import { WorkspaceDiffService } from "./workspace-diff-service";
 import type { SidecarRuntime } from "./sidecar-runtime";
 import {
   TerminalMainIpcRouter,
@@ -75,9 +79,14 @@ export async function composeElectronAppServices(
         createSidecarObserverEventStream(sidecarRuntime, signal, workspaceId),
     }),
   ];
+  const harnessNotificationService = new HarnessNotificationService({
+    isSupported: () => Notification.isSupported(),
+    createNotification: (payload) => new Notification(payload),
+  });
   const sidecarObserverSubscription = subscribeSidecarObserverEvents(
     sidecarRuntime,
     mainWindow,
+    harnessNotificationService,
   );
   const sidecarLifecycleManager = new OpenSessionSidecarLifecycleManager(
     workspacePersistenceStore,
@@ -139,6 +148,12 @@ export async function composeElectronAppServices(
     },
   });
 
+  const e3SurfaceIpcHandlers = registerE3SurfaceIpcHandlers({
+    ipcMain,
+    workspaceDiffService: new WorkspaceDiffService(),
+    claudeSessionTranscriptService: new ClaudeSessionTranscriptService(),
+  });
+
   return new DefaultElectronAppServices({
     workspacePersistenceStore,
     sidecarRuntime,
@@ -152,6 +167,7 @@ export async function composeElectronAppServices(
     workspaceShortcutBridge,
     sidecarObserverSubscription,
     claudeSettingsConsentRequester,
+    e3SurfaceIpcHandlers,
   });
 }
 
@@ -161,11 +177,17 @@ export interface SidecarObserverEventSource {
   ): SidecarObserverEventSubscription;
 }
 
+export interface HarnessObserverNotificationSink {
+  handleObserverEvent(event: HarnessObserverEvent): void;
+}
+
 export function subscribeSidecarObserverEvents(
   sidecarObserverEventSource: SidecarObserverEventSource,
   mainWindow: BrowserWindow,
+  notificationSink?: HarnessObserverNotificationSink,
 ): SidecarObserverEventSubscription {
   return sidecarObserverEventSource.onObserverEvent((event) => {
+    notifyHarnessObserverEvent(notificationSink, event);
     emitHarnessObserverEvent(mainWindow, event);
   });
 }
@@ -223,6 +245,21 @@ export function emitHarnessObserverEvent(
   webContents.send(HARNESS_OBSERVER_EVENT_CHANNEL, event);
 }
 
+function notifyHarnessObserverEvent(
+  notificationSink: HarnessObserverNotificationSink | undefined,
+  event: HarnessObserverEvent,
+): void {
+  if (!notificationSink) {
+    return;
+  }
+
+  try {
+    notificationSink.handleObserverEvent(event);
+  } catch (error) {
+    console.error("Harness notification service: failed to handle observer event.", error);
+  }
+}
+
 function emitWorkspaceSidebarStateChanged(
   mainWindow: BrowserWindow,
   nextSidebarState: WorkspaceSidebarState,
@@ -263,6 +300,7 @@ interface DefaultElectronAppServicesOptions {
   workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   sidecarObserverSubscription: SidecarObserverEventSubscription;
   claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
+  e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
 }
 
 class DefaultElectronAppServices implements ElectronAppServices {
@@ -278,6 +316,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
   private readonly claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
+  private readonly e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
 
   private disposed = false;
 
@@ -294,6 +333,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
     this.sidecarObserverSubscription = options.sidecarObserverSubscription;
     this.claudeSettingsConsentRequester = options.claudeSettingsConsentRequester;
+    this.e3SurfaceIpcHandlers = options.e3SurfaceIpcHandlers;
   }
 
   public async dispose(): Promise<void> {
@@ -308,6 +348,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
       await adapter.dispose();
     }
     this.workspaceShortcutBridge.dispose();
+    this.e3SurfaceIpcHandlers.dispose();
     this.workspaceIpcAdapter.stop();
     this.terminalRouter?.stop();
 

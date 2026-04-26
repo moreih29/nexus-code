@@ -198,6 +198,36 @@ func TestNormalizeToolCallEventMapsClaudeHookPayloads(t *testing.T) {
 	}
 }
 
+func TestNormalizeSessionHistoryEventRequiresTranscriptPath(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 26, 1, 2, 3, 4, time.UTC)
+	observer := NewObserver("ws-1", WithDefaultAdapterName("claude-code"), WithClock(func() time.Time { return fixedNow }))
+
+	event, err := observer.NormalizeSessionHistoryEvent(HookEventInput{
+		EventName:      "PreToolUse",
+		SessionID:      "s-1",
+		TranscriptPath: "/Users/kih/.claude/projects/ws/s-1.jsonl",
+	})
+	if err != nil {
+		t.Fatalf("NormalizeSessionHistoryEvent() error = %v", err)
+	}
+	if event.Type != SessionHistoryEventType ||
+		event.SessionID != "s-1" ||
+		event.AdapterName != "claude-code" ||
+		event.WorkspaceID != "ws-1" ||
+		event.TranscriptPath != "/Users/kih/.claude/projects/ws/s-1.jsonl" ||
+		event.Timestamp != fixedNow.Format(time.RFC3339Nano) {
+		t.Fatalf("event = %+v", event)
+	}
+
+	_, err = observer.NormalizeSessionHistoryEvent(HookEventInput{
+		EventName: "PreToolUse",
+		SessionID: "s-1",
+	})
+	if !errors.Is(err, ErrUnsupportedHookEvent) {
+		t.Fatalf("NormalizeSessionHistoryEvent() error = %v, want ErrUnsupportedHookEvent", err)
+	}
+}
+
 func TestHandleHookEventSendsTabBadgeEventThroughFakeWSXServer(t *testing.T) {
 	server := &fakeServer{}
 	fixedNow := time.Date(2026, 4, 26, 3, 4, 5, 6, time.UTC)
@@ -213,12 +243,13 @@ func TestHandleHookEventSendsTabBadgeEventThroughFakeWSXServer(t *testing.T) {
 		SessionID:        "s-approval",
 		AdapterName:      "claude-code",
 		Message:          "Claude needs your permission to use Bash",
+		TranscriptPath:   "/Users/kih/.claude/projects/ws/s-approval.jsonl",
 	})
 	if err != nil {
 		t.Fatalf("HandleHookEvent() error = %v", err)
 	}
-	if got := server.sentLen(); got != 2 {
-		t.Fatalf("sent len = %d, want 2", got)
+	if got := server.sentLen(); got != 3 {
+		t.Fatalf("sent len = %d, want 3", got)
 	}
 	sent, ok := server.sentAt(0).(contracts.TabBadgeEvent)
 	if !ok {
@@ -239,6 +270,14 @@ func TestHandleHookEventSendsTabBadgeEventThroughFakeWSXServer(t *testing.T) {
 	}
 	if toolCall.Message != "Claude needs your permission to use Bash" {
 		t.Fatalf("message = %q, want permission message", toolCall.Message)
+	}
+	sessionHistory, ok := server.sentAt(2).(contracts.SessionHistoryEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want contracts.SessionHistoryEvent", server.sentAt(2))
+	}
+	if sessionHistory.TranscriptPath != "/Users/kih/.claude/projects/ws/s-approval.jsonl" ||
+		sessionHistory.SessionID != "s-approval" {
+		t.Fatalf("session history = %+v", sessionHistory)
 	}
 }
 

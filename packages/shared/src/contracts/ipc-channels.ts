@@ -12,3 +12,7 @@ export const WORKSPACE_CLOSE_CHANNEL = "workspace:close";
 export const WORKSPACE_RESTORE_SESSION_CHANNEL = "workspace:restore-session";
 export const WORKSPACE_GET_SIDEBAR_STATE_CHANNEL = "workspace:get-sidebar-state";
 export const WORKSPACE_SIDEBAR_STATE_CHANGED_CHANNEL = "workspace:sidebar-state-changed";
+
+export const WORKSPACE_DIFF_READ_CHANNEL = "workspace-diff:read";
+
+export const CLAUDE_SESSION_READ_TRANSCRIPT_CHANNEL = "claude-session:read-transcript";

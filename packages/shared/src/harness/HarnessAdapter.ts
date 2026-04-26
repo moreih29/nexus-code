@@ -1,5 +1,6 @@
 import type { WorkspaceId } from "../contracts/workspace";
 import type {
+  SessionHistoryEvent as GeneratedSessionHistoryEvent,
   TabBadgeEvent as GeneratedTabBadgeEvent,
   TabBadgeState as GeneratedTabBadgeState,
   ToolCallEvent as GeneratedToolCallEvent,
@@ -29,6 +30,7 @@ export interface ObserverEventBase {
 
 export type TabBadgeEvent = GeneratedTabBadgeEvent;
 export type ToolCallEvent = GeneratedToolCallEvent;
+export type SessionHistoryEvent = GeneratedSessionHistoryEvent;
 
 export interface FileDiffEvent extends ObserverEventBase {
   type: "harness/file-diff";
@@ -38,11 +40,6 @@ export interface FileDiffEvent extends ObserverEventBase {
 export interface NotificationEvent extends ObserverEventBase {
   type: "harness/notification";
   // TODO(plan #16+): 턴 완료와 승인 대기 알림 세부 필드를 정의한다.
-}
-
-export interface SessionHistoryEvent extends ObserverEventBase {
-  type: "harness/session-history";
-  // TODO(plan #16+): 세션 항목 식별자와 읽기 전용 표시 필드를 정의한다.
 }
 
 export type ObserverEvent =

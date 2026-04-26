@@ -5,6 +5,7 @@ import harnessObserverSchema from "../../../../schema/harness-observer.schema.js
 
 export type {
   HarnessObserverEvent,
+  SessionHistoryEvent,
   TabBadgeEvent,
   TabBadgeState,
   ToolCallEvent,
@@ -12,6 +13,7 @@ export type {
 } from "./generated/harness-observer";
 import type {
   HarnessObserverEvent,
+  SessionHistoryEvent,
   TabBadgeEvent,
   ToolCallEvent,
 } from "./generated/harness-observer";
@@ -31,4 +33,8 @@ export function isTabBadgeEvent(value: unknown): value is TabBadgeEvent {
 
 export function isToolCallEvent(value: unknown): value is ToolCallEvent {
   return isHarnessObserverEvent(value) && value.type === "harness/tool-call";
+}
+
+export function isSessionHistoryEvent(value: unknown): value is SessionHistoryEvent {
+  return isHarnessObserverEvent(value) && value.type === "harness/session-history";
 }

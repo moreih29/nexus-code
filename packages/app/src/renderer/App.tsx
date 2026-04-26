@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "zustand";
-import { Eye, Folder, GitCompare, GripVertical, History } from "lucide-react";
+import { Eye, Folder, GripVertical } from "lucide-react";
 
 import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
@@ -8,8 +8,10 @@ import { ActivityBar } from "./components/ActivityBar";
 import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
+import { SessionHistoryPanel } from "./components/SessionHistoryPanel";
 import { TerminalPane } from "./components/TerminalPane";
 import { ToolFeedPanel } from "./components/ToolFeedPanel";
+import { WorkspaceDiffPanel } from "./components/WorkspaceDiffPanel";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -21,6 +23,7 @@ import {
 } from "./stores/keyboard-registry";
 import { createHarnessBadgeStore, type HarnessBadgeStore } from "./stores/harnessBadgeStore";
 import { createHarnessToolFeedStore, type HarnessToolFeedStore } from "./stores/harnessToolFeedStore";
+import { createHarnessSessionStore, type HarnessSessionStore } from "./stores/harnessSessionStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
 import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switching-commands";
 
@@ -48,6 +51,7 @@ export default function App(): JSX.Element {
   const workspaceStore = useWorkspaceStore();
   const harnessBadgeStore = useHarnessBadgeStore();
   const harnessToolFeedStore = useHarnessToolFeedStore();
+  const harnessSessionStore = useHarnessSessionStore();
   const workspacePanelRef = useRef<HTMLDivElement | null>(null);
   const sharedPanelRef = useRef<HTMLDivElement | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -87,12 +91,17 @@ export default function App(): JSX.Element {
   const closeWorkspace = useStore(workspaceStore, (state) => state.closeWorkspace);
   const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
   const toolFeedByWorkspaceId = useStore(harnessToolFeedStore, (state) => state.feedByWorkspaceId);
+  const sessionByWorkspaceId = useStore(harnessSessionStore, (state) => state.sessionByWorkspaceId);
   const activeWorkspace = sidebarState.activeWorkspaceId
     ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
     : undefined;
   const activeToolFeedEntries = sidebarState.activeWorkspaceId
     ? (toolFeedByWorkspaceId[sidebarState.activeWorkspaceId] ?? [])
     : [];
+  const activeSessionRef = sidebarState.activeWorkspaceId
+    ? (sessionByWorkspaceId[sidebarState.activeWorkspaceId] ?? null)
+    : null;
+  const diffRefreshSignal = activeToolFeedEntries.at(-1)?.receivedSequence ?? 0;
 
   useEffect(() => {
     void refreshSidebarState().catch((error) => {
@@ -127,6 +136,15 @@ export default function App(): JSX.Element {
       harnessToolFeedStore.getState().stopObserverSubscription();
     };
   }, [harnessToolFeedStore]);
+
+  useEffect(() => {
+    const harnessSessionState = harnessSessionStore.getState();
+    harnessSessionState.startObserverSubscription();
+
+    return () => {
+      harnessSessionStore.getState().stopObserverSubscription();
+    };
+  }, [harnessSessionStore]);
 
   const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
     const request = pendingClaudeConsentRef.current;
@@ -458,25 +476,26 @@ export default function App(): JSX.Element {
                         activeWorkspaceName={activeWorkspace?.displayName ?? null}
                       />
                     </TabsContent>
-                    <TabsContent value="session" className="h-48 rounded-md border border-border bg-card">
-                      <EmptyState
-                        icon={History}
-                        title="Session history coming soon"
-                        description="Claude Code history is not wired into this panel yet."
+                    <TabsContent value="session" className="min-h-0 flex-1 rounded-md border border-border bg-card">
+                      <SessionHistoryPanel
+                        sessionRef={activeSessionRef}
+                        activeWorkspaceName={activeWorkspace?.displayName ?? null}
+                        readTranscript={window.nexusClaudeSession.readTranscript}
                       />
                     </TabsContent>
-                    <TabsContent value="diff" className="h-48 rounded-md border border-border bg-card">
-                      <EmptyState
-                        icon={GitCompare}
-                        title="Diff review coming soon"
-                        description="File change surfaces are planned for a later observer pass."
+                    <TabsContent value="diff" className="min-h-0 flex-1 rounded-md border border-border bg-card">
+                      <WorkspaceDiffPanel
+                        workspacePath={activeWorkspace?.absolutePath ?? null}
+                        activeWorkspaceName={activeWorkspace?.displayName ?? null}
+                        refreshSignal={diffRefreshSignal}
+                        readWorkspaceDiff={window.nexusWorkspaceDiff.readWorkspaceDiff}
                       />
                     </TabsContent>
                     <TabsContent value="preview" className="h-48 rounded-md border border-border bg-card">
                       <EmptyState
                         icon={Eye}
-                        title="Preview coming soon"
-                        description="Markdown and localhost previews are not implemented yet."
+                        title="Preview unavailable"
+                        description="Markdown or localhost preview will appear here when a preview source is selected."
                       />
                     </TabsContent>
                   </Tabs>
@@ -795,6 +814,16 @@ function useHarnessToolFeedStore(): HarnessToolFeedStore {
   }
 
   return harnessToolFeedStoreRef.current;
+}
+
+function useHarnessSessionStore(): HarnessSessionStore {
+  const harnessSessionStoreRef = useRef<HarnessSessionStore | null>(null);
+
+  if (!harnessSessionStoreRef.current) {
+    harnessSessionStoreRef.current = createHarnessSessionStore(window.nexusHarness);
+  }
+
+  return harnessSessionStoreRef.current;
 }
 
 async function runSidebarMutation(run: () => Promise<void>): Promise<void> {

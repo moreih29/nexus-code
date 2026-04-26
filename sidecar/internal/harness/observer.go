@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	TabBadgeEventType = "harness/tab-badge"
-	ToolCallEventType = "harness/tool-call"
+	TabBadgeEventType       = "harness/tab-badge"
+	ToolCallEventType       = "harness/tool-call"
+	SessionHistoryEventType = "harness/session-history"
 )
 
 var (
@@ -26,6 +27,7 @@ type Observer interface {
 	SetServer(server wsx.Server)
 	EmitTabBadge(ctx context.Context, event contracts.TabBadgeEvent) error
 	EmitToolCall(ctx context.Context, event contracts.ToolCallEvent) error
+	EmitSessionHistory(ctx context.Context, event contracts.SessionHistoryEvent) error
 	HandleHookEvent(ctx context.Context, input HookEventInput) (contracts.TabBadgeEvent, error)
 }
 
@@ -60,6 +62,7 @@ type HookEventInput struct {
 	InputSummary     string
 	ResultSummary    string
 	Message          string
+	TranscriptPath   string
 }
 
 func NewObserver(workspaceID contracts.WorkspaceID, opts ...Option) *ServerObserver {
@@ -118,7 +121,16 @@ func (o *ServerObserver) HandleHookEvent(ctx context.Context, input HookEventInp
 		return event, toolCallErr
 	}
 
-	if err != nil && toolCallErr != nil {
+	sessionHistoryEvent, sessionHistoryErr := o.NormalizeSessionHistoryEvent(input)
+	if sessionHistoryErr == nil {
+		if err := o.EmitSessionHistory(ctx, sessionHistoryEvent); err != nil {
+			return event, err
+		}
+	} else if !errors.Is(sessionHistoryErr, ErrUnsupportedHookEvent) {
+		return event, sessionHistoryErr
+	}
+
+	if err != nil && toolCallErr != nil && sessionHistoryErr != nil {
 		if normalizedHookName(input.EventName) == "notification" {
 			return contracts.TabBadgeEvent{}, nil
 		}
@@ -136,6 +148,14 @@ func (o *ServerObserver) EmitTabBadge(ctx context.Context, event contracts.TabBa
 }
 
 func (o *ServerObserver) EmitToolCall(ctx context.Context, event contracts.ToolCallEvent) error {
+	server := o.getServer()
+	if server == nil {
+		return ErrServerNotConfigured
+	}
+	return server.Send(ctx, event)
+}
+
+func (o *ServerObserver) EmitSessionHistory(ctx context.Context, event contracts.SessionHistoryEvent) error {
 	server := o.getServer()
 	if server == nil {
 		return ErrServerNotConfigured
@@ -223,6 +243,40 @@ func (o *ServerObserver) NormalizeToolCallEvent(input HookEventInput) (contracts
 		InputSummary:  strings.TrimSpace(input.InputSummary),
 		ResultSummary: strings.TrimSpace(input.ResultSummary),
 		Message:       strings.TrimSpace(input.Message),
+	}, nil
+}
+
+func (o *ServerObserver) NormalizeSessionHistoryEvent(input HookEventInput) (contracts.SessionHistoryEvent, error) {
+	transcriptPath := strings.TrimSpace(input.TranscriptPath)
+	if transcriptPath == "" {
+		return contracts.SessionHistoryEvent{}, fmt.Errorf("%w: missing transcript_path", ErrUnsupportedHookEvent)
+	}
+
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID == "" {
+		return contracts.SessionHistoryEvent{}, errors.New("harness session history event missing session id")
+	}
+
+	adapterName := strings.TrimSpace(input.AdapterName)
+	if adapterName == "" {
+		adapterName = o.defaultAdapterName
+	}
+	if adapterName == "" {
+		return contracts.SessionHistoryEvent{}, errors.New("harness session history event missing adapter name")
+	}
+
+	timestamp := input.Timestamp
+	if timestamp.IsZero() {
+		timestamp = o.clock()
+	}
+
+	return contracts.SessionHistoryEvent{
+		Type:           SessionHistoryEventType,
+		SessionID:      sessionID,
+		AdapterName:    adapterName,
+		WorkspaceID:    o.workspaceID,
+		Timestamp:      timestamp.UTC().Format(time.RFC3339Nano),
+		TranscriptPath: transcriptPath,
 	}, nil
 }
 
