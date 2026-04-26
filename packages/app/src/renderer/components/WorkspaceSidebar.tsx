@@ -3,6 +3,7 @@ import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/wor
 import { FolderOpen, X } from "lucide-react";
 
 import { cn } from "../lib/utils";
+import type { HarnessWorkspaceBadge } from "../stores/harnessBadgeStore";
 import { keyboardRegistryStore } from "../stores/keyboard-registry";
 import { EmptyState } from "./EmptyState";
 import { Button } from "./ui/button";
@@ -10,6 +11,7 @@ import { ScrollArea } from "./ui/scroll-area";
 
 export interface WorkspaceSidebarProps {
   sidebarState: WorkspaceSidebarState;
+  badgeByWorkspaceId?: Record<string, HarnessWorkspaceBadge>;
   onOpenFolder(): Promise<void>;
   onActivateWorkspace(workspaceId: WorkspaceId): Promise<void>;
   onCloseWorkspace(workspaceId: WorkspaceId): Promise<void>;
@@ -17,6 +19,7 @@ export interface WorkspaceSidebarProps {
 
 export function WorkspaceSidebar({
   sidebarState,
+  badgeByWorkspaceId = {},
   onOpenFolder,
   onActivateWorkspace,
   onCloseWorkspace,
@@ -42,6 +45,10 @@ export function WorkspaceSidebar({
         <ol className="flex flex-col gap-1">
           {sidebarState.openWorkspaces.map((workspace) => {
             const isActive = workspace.id === sidebarState.activeWorkspaceId;
+            const badge = badgeByWorkspaceId[workspace.id];
+            const workspaceAriaLabel = badge
+              ? `${workspace.displayName}: ${badgeStateLabel(badge.state)}`
+              : workspace.displayName;
 
             return (
               <li key={workspace.id} className="rounded-md border border-sidebar-border bg-sidebar">
@@ -52,6 +59,7 @@ export function WorkspaceSidebar({
                     data-workspace-id={workspace.id}
                     data-active={isActive ? "true" : "false"}
                     aria-current={isActive ? "page" : "false"}
+                    aria-label={workspaceAriaLabel}
                     className={cn(
                       "flex h-7 min-w-0 flex-1 flex-col items-start justify-center rounded px-2 text-left text-base text-sidebar-foreground hover:bg-accent hover:text-accent-foreground",
                       isActive && "bg-accent text-accent-foreground",
@@ -65,6 +73,21 @@ export function WorkspaceSidebar({
                       {workspace.absolutePath}
                     </small>
                   </button>
+                  {badge ? (
+                    <>
+                      <span
+                        data-harness-badge-state={badge.state}
+                        className={cn(
+                          "block size-2 shrink-0 rounded-full",
+                          badge.state === "running" && "bg-status-running",
+                          badge.state === "awaiting-approval" && "bg-status-attention",
+                          badge.state === "error" && "bg-destructive",
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">{badgeStateLabel(badge.state)}</span>
+                    </>
+                  ) : null}
                   <Button
                     type="button"
                     data-action="close-workspace"
@@ -104,4 +127,15 @@ export function WorkspaceSidebar({
       </ScrollArea>
     </section>
   );
+}
+
+function badgeStateLabel(state: HarnessWorkspaceBadge["state"]): string {
+  switch (state) {
+    case "running":
+      return "도구 실행 중";
+    case "awaiting-approval":
+      return "터미널에서 승인 대기 중";
+    case "error":
+      return "하네스 오류";
+  }
 }

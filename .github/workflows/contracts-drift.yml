@@ -9,7 +9,10 @@ on:
       - "packages/shared/src/contracts/**"
       - "sidecar/internal/contracts/**"
       - ".github/workflows/contracts-drift.yml"
+      - "package.json"
       - "scripts/gen-contracts.ts"
+      - "scripts/check-go-contracts-drift.sh"
+      - "scripts/check-dist-require.sh"
   pull_request:
     types:
       - opened
@@ -21,7 +24,10 @@ on:
       - "packages/shared/src/contracts/**"
       - "sidecar/internal/contracts/**"
       - ".github/workflows/contracts-drift.yml"
+      - "package.json"
       - "scripts/gen-contracts.ts"
+      - "scripts/check-go-contracts-drift.sh"
+      - "scripts/check-dist-require.sh"
 
 jobs:
   contracts-drift:
@@ -70,7 +76,7 @@ jobs:
       - name: Check Go manual contract drift
         run: |
           scripts/check-go-contracts-drift.sh || {
-            echo "Schema와 수작업 Go contracts 동기화 필요. 변경된 schema를 sidecar/internal/contracts/lifecycle.go에 반영 후 commit."
+            echo "Schema와 수작업 Go contracts 동기화 필요. 변경된 schema를 sidecar/internal/contracts/에 반영 후 commit."
             exit 1
           }
 
@@ -82,5 +88,11 @@ jobs:
 
       - name: Test
         run: bun test
+
+      - name: Build Electron app
+        run: bun run build
+
+      - name: Check Electron ESM output for CJS require
+        run: bun run check:dist-require
 
       # Fork PR의 권한·캐시 정책은 저장소 운영 정책에 맞춰 별도 처리한다.

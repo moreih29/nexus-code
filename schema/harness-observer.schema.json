@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/harness-observer.schema.json",
+  "title": "HarnessObserverEvent",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/tabBadgeEvent"
+    }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tabBadgeState": {
+      "type": "string",
+      "enum": ["running", "awaiting-approval", "completed", "error"]
+    },
+    "tabBadgeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "state", "sessionId", "adapterName", "workspaceId", "timestamp"],
+      "properties": {
+        "type": {
+          "const": "harness/tab-badge"
+        },
+        "state": {
+          "$ref": "#/$defs/tabBadgeState"
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapterName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/workspaceId"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

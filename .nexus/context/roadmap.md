@@ -28,7 +28,7 @@
 
 ### E3. AI Harness Observer
 
-claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네스의 실행 상태를 읽기 전용으로 관찰하며, 탭 뱃지, 도구 호출 사이드 패널, 파일 편집 diff 뷰, OS 알림, 세션 히스토리 읽기 전용 뷰어(미니멀)를 통해 상황을 전달한다. 명시 제외: tool 호출 승인 주입, adapter-specific 커스텀 UX, 탭 뱃지 애니메이션·rich OS 알림, 워크스페이스당 복수 하네스, 세션 히스토리 검색·필터·비교. 수평 제약: diff 뷰 패널은 E5 preview 패널과 우측 공유 컨테이너의 탭으로 공존. 성공 기준에 **sidecar WebSocket이 하네스당 최소 30분 연속 동작에서 이벤트 누락 없음(릴리스 블로커)**을 포함.
+claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네스의 실행 상태를 읽기 전용으로 관찰하며, 워크스페이스 상태 뱃지, 도구 호출 사이드 패널, 파일 편집 diff 뷰, OS 알림, 세션 히스토리 읽기 전용 뷰어(미니멀)를 통해 상황을 전달한다. 명시 제외: tool 호출 승인 주입, adapter-specific 커스텀 UX, 워크스페이스 상태 뱃지 애니메이션·rich OS 알림, 워크스페이스당 복수 하네스, 세션 히스토리 검색·필터·비교. 수평 제약: diff 뷰 패널은 E5 preview 패널과 우측 공유 컨테이너의 탭으로 공존. 성공 기준에 **sidecar WebSocket이 하네스당 최소 30분 연속 동작에서 이벤트 누락 없음(릴리스 블로커)**을 포함.
 
 ### E4. Code Editor + LSP
 
@@ -62,10 +62,10 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 | M1 Workspace Shell | E1 완성 (단위 테스트 레벨) |
 | M2 Terminal + CJK | E2 완성 (자동 게이트 + 단위 테스트) |
 | **Phase A — Runnable Shell 확정** | M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합. unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(좌 activity + 좌 패널 + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. 서명·notarize·package:mac는 로드맵 범위 외다. |
-| M3 Harness Observer | E3 완성. 착수 사이클의 첫 태스크 묶음에 아래 4항목이 반드시 포함된다: (1) schema↔TS/Go codegen 파이프라인 구축 및 기존 수작업 contracts(`sidecar/internal/contracts/*`, `packages/shared/src/contracts/*`)의 생성물 대체, (2) CI drift gate 추가 — 생성물 ↔ 원본 불일치 시 실패, (3) Go sidecar WebSocket IPC 최소 구현은 lifecycle handshake(SidecarStart/Started/Stop/Stopped) 왕복 성공을 선결, 그 이후 harness observer 이벤트 스트림으로 확장, (4) WebSocket 라이브러리(gorilla/websocket vs nhooyr/websocket) 선택을 E3 plan의 독립 이슈로 관리. 본 4항목은 plan #15 사이클에서 통과 확인되었다. (1)의 codegen은 TS 자동(`json-schema-to-typescript`)+Go 수작업 하이브리드로 확정, drift gate는 양쪽 모두 검증한다. (4)의 라이브러리는 `coder/websocket` v1.8.14로 확정하며 facade 격리를 도입한다. 상세는 `.nexus/history.json` plan #15 archive 참조. |
+| M3 Harness Observer | E3 완성. 착수 기반은 schema↔TS/Go 계약, CI drift gate, sidecar lifecycle WebSocket handshake, WebSocket facade로 구성한다. claude-code 어댑터 1종과 첫 UI 표면인 WorkspaceSidebar 워크스페이스 상태 뱃지는 구현된 기준선이다. opencode·codex 어댑터, tool 호출 패널, diff 뷰, OS 알림, 세션 히스토리는 후속 표면으로 남긴다. |
 | M4 Editor + LSP | E4 완성 (TypeScript / Python / Go) |
 | M5 Preview | E5 완성 |
-| M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 3 LSP × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(탭 뱃지·tool 패널·세션 히스토리·filetree·git 뱃지·preview)에서 한국어 렌더링·IME 체크리스트 재실행, (3) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도). 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |
+| M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 3 LSP × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(워크스페이스 상태 뱃지·tool 패널·세션 히스토리·filetree·git 뱃지·preview)에서 한국어 렌더링·IME 체크리스트 재실행, (3) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도). 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |
 
 마일스톤은 순서대로 진행하되, M4와 M5는 M3 완료 후 병렬 착수 가능하다. Phase A는 M2 완료 이후 M3 착수 이전의 필수 중간 단계로 고정한다.
 
@@ -111,5 +111,3 @@ MVP에서 의도적으로 뺀 항목을 순서대로 추가한다.
 3. claude-code, opencode, codex 세 하네스 모두 기본 시나리오 정상 동작 — M6 WebSocket 30분+ 연속 안정성 재실증
 4. TypeScript, Python, Go 세 언어의 LSP 연동 확인 — M6 재시작·disconnect 복구 재확인
 5. 초기 유저 10명으로부터 "일상에서 쓸 만하다" 피드백 확보 — M6 전용 게이트, 기준선 수치는 M6 진입 plan에서 결정
-
-

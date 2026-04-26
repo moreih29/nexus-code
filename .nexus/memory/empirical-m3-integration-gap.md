@@ -55,7 +55,7 @@ plan #16은 세 건의 hotfix 태스크로 구성됐다.
 
 - **H1 (validate ESM)**: facade에서 Ajv 런타임 컴파일로 전환. `generated/*.validate.ts` 삭제, `scripts/gen-contracts.ts`에서 ajv-cli 호출 제거, `package.json`에서 `ajv-cli` devDeps 제거.
 - **H2 (SidecarBridge 교체)**: `SidecarBridge`로 교체하고 missing-binary fallback adapter를 추가(pid -1 unavailable event). `sidecar-bin-resolver.ts` 분리. `SidecarProcessRuntime`은 deprecated 처리.
-- **H3 (integration verify)**: `composition-smoke.test.ts` 신설. 105 tests PASS. `release-evidence/m3-integration-hotfix/20260425T141840Z/dev-launch.md` 작성.
+- **H3 (integration verify)**: `composition-smoke.test.ts` 신설. 105 tests PASS. dev launch 수동 검증 1회 통과(시점 의존 검증 결과는 사이클 단편으로만 기록하고 영구 보관하지 않는다).
 
 ---
 

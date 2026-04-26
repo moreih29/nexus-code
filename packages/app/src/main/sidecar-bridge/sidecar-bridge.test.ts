@@ -5,6 +5,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 
 import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar";
+import type { TabBadgeEvent } from "../../../../shared/src/contracts/harness-observer";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
 import { SidecarBridge, SidecarBridgeError } from "./index";
 import { SidecarLifecycleEmitter } from "./lifecycle-emitter";
@@ -71,6 +72,52 @@ describe("SidecarBridge", () => {
     expect(bridge.listRunningWorkspaceIds()).toEqual([]);
   });
 
+  test("sidecar-sent harness/tab-badge messages emit observer events", async () => {
+    const child = new MockChildProcess(4320);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
+      spawnProcess: createMockSpawn(child, { mode: "normal" }),
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+    const tabBadgeEvent: TabBadgeEvent = {
+      type: "harness/tab-badge",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_bridge_001",
+      state: "awaiting-approval",
+      timestamp: "2026-04-26T05:15:00.000Z",
+    };
+    let subscription: ReturnType<SidecarBridge["onObserverEvent"]> | null = null;
+    const observerEventPromise = new Promise<TabBadgeEvent>((resolve) => {
+      subscription = bridge.onObserverEvent((event) => {
+        subscription?.dispose();
+        resolve(event as TabBadgeEvent);
+      });
+    });
+
+    try {
+      await bridge.start(startCommand);
+
+      const serverClient = Array.from(openServers.at(-1)?.clients ?? [])[0];
+      expect(serverClient).toBeDefined();
+      serverClient?.send(JSON.stringify(tabBadgeEvent));
+
+      await expect(observerEventPromise).resolves.toEqual(tabBadgeEvent);
+    } finally {
+      subscription?.dispose();
+      await bridge
+        .stop({
+          type: "sidecar/stop",
+          workspaceId,
+          reason: "workspace-close",
+        })
+        .catch(() => null);
+    }
+  });
+
   test("토큰 불일치 401은 재시도 없이 fatal 처리한다", async () => {
     const children: MockChildProcess[] = [];
     const bridge = new SidecarBridge({
@@ -89,6 +136,40 @@ describe("SidecarBridge", () => {
       code: "WS_401",
     } satisfies Partial<SidecarBridgeError>);
     expect(children).toHaveLength(1);
+  });
+
+  test("dataDir option is passed to sidecar server mode for hook listener startup", async () => {
+    const child = new MockChildProcess(4330);
+    const spawnArgs: readonly string[][] = [];
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      dataDir: "/tmp/nexus-user-data",
+      existsSyncFn: () => true,
+      spawnProcess: ((bin: string, args: readonly string[], options: SpawnOptions) => {
+        spawnArgs.push([...args]);
+        return createMockSpawn(child, { mode: "normal" })(bin, args, options);
+      }) as typeof import("node:child_process").spawn,
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+
+    try {
+      await bridge.start(startCommand);
+
+      expect(spawnArgs[0]).toEqual([
+        `--workspace-id=${workspaceId}`,
+        "--data-dir=/tmp/nexus-user-data",
+      ]);
+    } finally {
+      await bridge
+        .stop({
+          type: "sidecar/stop",
+          workspaceId,
+          reason: "workspace-close",
+        })
+        .catch(() => null);
+    }
   });
 
   test("SIGKILL 종료는 process-crash로 합성한다", async () => {

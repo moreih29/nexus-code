@@ -10,6 +10,7 @@
     "test": "bun test ./packages/shared/src ./packages/app/src ./packages/app/scripts/packaging ./packages/app/test",
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/app typecheck",
     "build": "bun run --cwd packages/app build",
+    "check:dist-require": "bash ./scripts/check-dist-require.sh",
     "lint": "bun run --cwd packages/app lint:renderer"
   },
   "devDependencies": {

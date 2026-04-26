@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import type WebSocket from "ws";
 
+import {
+  isTabBadgeEvent,
+  type HarnessObserverEvent,
+} from "../../../../shared/src/contracts/harness-observer";
 import type {
   SidecarStartCommand,
   SidecarStartedEvent,
@@ -30,9 +35,17 @@ interface BridgeRecord {
 }
 
 const UNAVAILABLE_SIDECAR_PID = -1;
+const OBSERVER_EVENT_NAME = "observer-event";
+
+export interface SidecarObserverEventSubscription {
+  dispose(): void;
+}
+
+export type SidecarObserverEventListener = (event: HarnessObserverEvent) => void;
 
 export interface SidecarBridgeOptions {
   sidecarBin?: string;
+  dataDir?: string;
   appPath?: string;
   cwd?: string;
   resourcesPath?: string;
@@ -56,6 +69,7 @@ export class SidecarBridge implements SidecarRuntime {
   private readonly existsSyncFn: (candidatePath: string) => boolean;
   private readonly options: SidecarBridgeOptions;
   private readonly recordsByWorkspaceId = new Map<WorkspaceId, BridgeRecord>();
+  private readonly observerEventEmitter = new EventEmitter();
 
   public constructor(options: SidecarBridgeOptions = {}) {
     this.options = options;
@@ -125,6 +139,18 @@ export class SidecarBridge implements SidecarRuntime {
     return Array.from(this.recordsByWorkspaceId.keys());
   }
 
+  public onObserverEvent(
+    listener: SidecarObserverEventListener,
+  ): SidecarObserverEventSubscription {
+    this.observerEventEmitter.on(OBSERVER_EVENT_NAME, listener);
+
+    return {
+      dispose: () => {
+        this.observerEventEmitter.off(OBSERVER_EVENT_NAME, listener);
+      },
+    };
+  }
+
   private resolveBinaryPath(): string | null {
     if (this.options.sidecarBin) {
       return this.existsSyncFn(this.options.sidecarBin) ? this.options.sidecarBin : null;
@@ -155,9 +181,13 @@ export class SidecarBridge implements SidecarRuntime {
     command: SidecarStartCommand,
   ): Promise<BridgeRecord> {
     const token = randomBytes(32).toString("hex");
+    const args = [`--workspace-id=${command.workspaceId}`];
+    if (this.options.dataDir) {
+      args.push(`--data-dir=${this.options.dataDir}`);
+    }
     const childProcess = this.spawnProcess(
       sidecarBin,
-      [`--workspace-id=${command.workspaceId}`],
+      args,
       {
         env: { ...process.env, NEXUS_SIDECAR_TOKEN: token },
         stdio: ["ignore", "pipe", "pipe"],
@@ -232,6 +262,12 @@ export class SidecarBridge implements SidecarRuntime {
     } catch {
       return;
     }
+
+    if (isTabBadgeEvent(parsed)) {
+      this.emitObserverEvent(parsed);
+      return;
+    }
+
     if (
       parsed &&
       typeof parsed === "object" &&
@@ -242,6 +278,10 @@ export class SidecarBridge implements SidecarRuntime {
       // close code 상호운용성 검증이 1001 going-away를 잃는다). heartbeatTimer 정리만 수행.
       this.cleanupRecord(workspaceId, record);
     }
+  }
+
+  private emitObserverEvent(event: HarnessObserverEvent): void {
+    this.observerEventEmitter.emit(OBSERVER_EVENT_NAME, event);
   }
 
   private startHeartbeat(record: BridgeRecord): void {

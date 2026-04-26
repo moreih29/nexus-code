@@ -2,6 +2,7 @@ import type {
   TerminalIpcCommand,
   TerminalIpcEvent,
 } from "../../../shared/src/contracts/terminal-ipc";
+import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import type {
   OpenFolderRequest,
@@ -15,6 +16,12 @@ interface NexusPreloadDisposable {
 interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
   onEvent(listener: (event: TerminalIpcEvent) => void): NexusPreloadDisposable;
+}
+
+interface NexusHarnessApi {
+  onObserverEvent(
+    listener: (event: HarnessObserverEvent) => void,
+  ): NexusPreloadDisposable;
 }
 
 interface NexusWorkspaceApi {
@@ -32,6 +39,7 @@ declare global {
   interface Window {
     nexusTerminal: NexusTerminalApi;
     nexusWorkspace: NexusWorkspaceApi;
+    nexusHarness: NexusHarnessApi;
   }
 }
 

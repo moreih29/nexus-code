@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import type { BrowserWindow } from "electron";
+import { WebSocketServer } from "ws";
+
+import { HARNESS_OBSERVER_EVENT_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
+import type { SidecarStartCommand } from "../../../shared/src/contracts/sidecar";
+import type { TabBadgeEvent } from "../../../shared/src/contracts/harness-observer";
+import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 
 const tempDirs: string[] = [];
 const ipcMain = {
@@ -10,6 +19,7 @@ const ipcMain = {
   removeHandler: mock(() => undefined),
 };
 const originalResourcesPath = process.resourcesPath;
+const openServers: WebSocketServer[] = [];
 
 mock.module("electron", () => ({
   app: {
@@ -34,7 +44,10 @@ afterEach(async () => {
     configurable: true,
   });
 
-  await Promise.all(tempDirs.splice(0).map((tempDir) => rm(tempDir, { recursive: true, force: true })));
+  await Promise.all([
+    ...openServers.splice(0).map(closeServer),
+    ...tempDirs.splice(0).map((tempDir) => rm(tempDir, { recursive: true, force: true })),
+  ]);
 });
 
 describe("composeElectronAppServices", () => {
@@ -54,22 +67,259 @@ describe("composeElectronAppServices", () => {
 
     try {
       expect(services.sidecarRuntime).toBeInstanceOf(SidecarBridge);
+      expect(
+        (services.sidecarRuntime as unknown as { options: { dataDir?: string } }).options.dataDir,
+      ).toBe(tempDir);
+      expect(services.harnessAdapters.map((adapter) => adapter.describe().name)).toEqual([
+        "claude-code",
+      ]);
     } finally {
       await services.dispose();
+    }
+  });
+
+  test("SidecarBridge observer stream feeds the ClaudeCodeAdapter dispatch path", async () => {
+    const { createSidecarObserverEventStream } = await import("./electron-app-composition");
+    const { ClaudeCodeAdapter } = await import("../../../shared/src/harness/adapters/claude-code");
+    const workspaceId = "ws_adapter_dispatch" as WorkspaceId;
+    const source = new FakeSidecarObserverEventSource();
+    const adapter = new ClaudeCodeAdapter({
+      eventStream: (_workspaceId, signal) =>
+        createSidecarObserverEventStream(source, signal, workspaceId),
+    });
+    const iterator = adapter.observe(workspaceId)[Symbol.asyncIterator]();
+    const nextEvent = iterator.next();
+    const tabBadgeEvent: TabBadgeEvent = {
+      type: "harness/tab-badge",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_adapter_dispatch",
+      state: "running",
+      timestamp: "2026-04-26T05:15:00.000Z",
+    };
+
+    source.emit(tabBadgeEvent);
+
+    await expect(nextEvent).resolves.toEqual({
+      done: false,
+      value: tabBadgeEvent,
+    });
+    adapter.dispose();
+    await iterator.return?.();
+  });
+
+  test("SidecarBridge observer events traverse to renderer IPC", async () => {
+    const { SidecarBridge } = await import("./sidecar-bridge");
+    const { subscribeSidecarObserverEvents } = await import("./electron-app-composition");
+    const workspaceId = "ws_composition_observer" as WorkspaceId;
+    const startCommand: SidecarStartCommand = {
+      type: "sidecar/start",
+      workspaceId,
+      workspacePath: "/tmp/nexus-composition-observer",
+      reason: "workspace-open",
+    };
+    const tabBadgeEvent: TabBadgeEvent = {
+      type: "harness/tab-badge",
+      workspaceId,
+      adapterName: "claude-code",
+      sessionId: "sess_composition_001",
+      state: "awaiting-approval",
+      timestamp: "2026-04-26T05:15:00.000Z",
+    };
+    const child = new MockChildProcess(5300);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
+      spawnProcess: createMockSpawn(child, { workspaceId }),
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+    const mainWindow = createMainWindowMock();
+    const subscription = subscribeSidecarObserverEvents(bridge, mainWindow);
+
+    try {
+      await bridge.start(startCommand);
+
+      const serverClient = Array.from(openServers.at(-1)?.clients ?? [])[0];
+      expect(serverClient).toBeDefined();
+      serverClient?.send(JSON.stringify(tabBadgeEvent));
+
+      await waitFor(() => {
+        expect(getWebContentsSendCalls(mainWindow)).toEqual([
+          {
+            channel: HARNESS_OBSERVER_EVENT_CHANNEL,
+            payload: tabBadgeEvent,
+          },
+        ]);
+      });
+    } finally {
+      subscription.dispose();
+      await bridge
+        .stop({
+          type: "sidecar/stop",
+          workspaceId,
+          reason: "workspace-close",
+        })
+        .catch(() => null);
     }
   });
 });
 
 function createMainWindowMock(): BrowserWindow {
+  const sendCalls: Array<{ channel: string; payload: unknown }> = [];
   const webContents = {
-    send: mock(() => undefined),
+    send: mock((channel: string, payload: unknown) => {
+      sendCalls.push({ channel, payload });
+    }),
     on: mock(() => undefined),
     off: mock(() => undefined),
     isDestroyed: () => false,
+    sendCalls,
   };
 
   return {
     webContents,
     isDestroyed: () => false,
   } as unknown as BrowserWindow;
+}
+
+function getWebContentsSendCalls(
+  mainWindow: BrowserWindow,
+): Array<{ channel: string; payload: unknown }> {
+  return (
+    mainWindow.webContents as unknown as {
+      sendCalls: Array<{ channel: string; payload: unknown }>;
+    }
+  ).sendCalls;
+}
+
+class FakeSidecarObserverEventSource {
+  private readonly listeners = new Set<(event: TabBadgeEvent) => void>();
+
+  onObserverEvent(listener: (event: TabBadgeEvent) => void) {
+    this.listeners.add(listener);
+    return {
+      dispose: () => {
+        this.listeners.delete(listener);
+      },
+    };
+  }
+
+  emit(event: TabBadgeEvent): void {
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
+}
+
+class MockChildProcess extends EventEmitter {
+  public readonly stdout = new PassThrough();
+  public readonly stderr = new PassThrough();
+  public readonly stdin = null;
+  public readonly killCalls: NodeJS.Signals[] = [];
+  public killed = false;
+  public exitCode: number | null = null;
+  public signalCode: NodeJS.Signals | null = null;
+
+  public constructor(public readonly pid: number) {
+    super();
+  }
+
+  public kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
+    this.killCalls.push(signal);
+    this.killed = true;
+    return true;
+  }
+}
+
+function createMockSpawn(
+  child: MockChildProcess,
+  options: { workspaceId: WorkspaceId },
+): typeof import("node:child_process").spawn {
+  return ((_sidecarBin: string, _args: readonly string[], spawnOptions: SpawnOptions) => {
+    const expectedToken = String(spawnOptions.env?.NEXUS_SIDECAR_TOKEN);
+    const server = new WebSocketServer({
+      port: 0,
+      handleProtocols: (protocols) =>
+        protocols.has("nexus.sidecar.v1") ? "nexus.sidecar.v1" : false,
+      verifyClient: (info, done) => {
+        done(info.req.headers["x-sidecar-token"] === expectedToken, 401);
+      },
+    });
+    openServers.push(server);
+
+    server.on("listening", () => {
+      const address = server.address();
+      if (typeof address === "object" && address) {
+        child.stdout.write(
+          `NEXUS_SIDECAR_READY port=${address.port} pid=${child.pid} proto=ws v=1\n`,
+        );
+      }
+    });
+    server.on("connection", (ws) => {
+      ws.on("message", (data) => {
+        const message = JSON.parse(data.toString()) as { type?: string };
+        if (message.type === "sidecar/start") {
+          ws.send(
+            JSON.stringify({
+              type: "sidecar/started",
+              workspaceId: options.workspaceId,
+              pid: child.pid,
+              startedAt: new Date("2026-04-25T00:00:00.000Z").toISOString(),
+            }),
+          );
+        }
+        if (message.type === "sidecar/stop") {
+          ws.send(
+            JSON.stringify({
+              type: "sidecar/stopped",
+              workspaceId: options.workspaceId,
+              reason: "requested",
+              stoppedAt: new Date("2026-04-25T00:00:01.000Z").toISOString(),
+              exitCode: 0,
+            }),
+          );
+          ws.close(1000);
+          child.emit("exit", 0, null);
+        }
+      });
+    });
+
+    return child as unknown as ChildProcess;
+  }) as typeof import("node:child_process").spawn;
+}
+
+async function closeServer(server: WebSocketServer): Promise<void> {
+  await new Promise<void>((resolve) => {
+    for (const client of server.clients) {
+      client.terminate();
+    }
+    const timer = setTimeout(resolve, 10);
+    server.close(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+async function waitFor(assertion: () => void, timeoutMs = 250): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("Timed out waiting for assertion.");
 }

@@ -2729,6 +2729,378 @@
           "created_at": "2026-04-25T14:08:35.435Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T06:19:43.644Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 17,
+        "topic": "M3+1 사이클 — claude-code 어댑터 1종 + 안정성 backlog 청산",
+        "issues": [
+          {
+            "id": 1,
+            "title": "본 사이클 범위·컷 정의 (인프라까지 vs 인프라+첫 UI 표면 vs 인프라+5종 UI 전체)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "B안(인프라 + 첫 UI 표면 1개=탭 뱃지 + P1 안정성) 추천. 9~10 task 예산. plan #15 학습 \"composition 경로 미검증 → 사용자 경로 fatal\" 정면 적용 — A/D안 채택 시 어댑터 동작이 사용자 경로에 도달 안 하여 hotfix 사이클 재발 위험. C안은 5 UI 동시 구현으로 실패 원인 분리 곤란 + 30분 안정성 측정 시간 부족으로 plan #15 상한(10 task) 초과. 본 사이클 cut line: 어댑터 1종이 sidecar→main→renderer 끝까지 도달하는 수직 통합 1선. 안정성 backlog P1=cut line 자동화 3건+ObserverEvent TabBadge 필드 결정, P2=SIGTERM race wire 캡처 1회 시도, P3=SidecarProcessRuntime 제거·powerMonitor·bootTime PID reaping·재spawn backoff(plan #18 이연). Open Risks 2건: (a) Hooks 미설치 환경 fallback 포함 여부 Lead 결정 필요, (b) 탭 뱃지 4상태 매핑 규칙 — Notification \"승인 대기\" 신호 페이로드 필드 실측 PoC 1회를 첫 task로 배치 권고.",
+                "recorded_at": "2026-04-26T04:29:00.947Z",
+                "agent_id": "ses_237f578ccffeYOuyBfNIDjAtg5"
+              }
+            ],
+            "decision": "B안 채택 — 인프라 + 첫 UI 표면 1개(탭 뱃지) + P1 안정성 backlog. 9~10 task 예산(plan #15 상한 가이드 준수). 본 사이클 cut line은 어댑터 1종(claude-code)이 sidecar→main→renderer 끝까지 도달하는 수직 통합 1선. ObserverEvent는 TabBadge 1종만 구체 필드 동결, 나머지 4종(ToolCall/FileDiff/Notification/SessionHistory)은 TODO 주석 유지. P1 안정성 본 사이클 포함: cut line 자동화 3건(dev launch 수동 검증 절차 + composition smoke 어댑터 경로 확장 + dist CJS require 검증 harness 산출물 적용) + SIGTERM race wire 캡처 진단 1회 시도(미해결 시 임시 처리 유지). P3 4건(SidecarProcessRuntime 제거 / powerMonitor / bootTime PID reaping / 재spawn backoff + UI degraded)은 plan #18 이연. architect open risks 2건은 Issue 2~6 처리 과정에 흡수."
+          },
+          {
+            "id": 2,
+            "title": "claude-code Hook 수신 채널 선택 (Unix 소켓 / HTTP localhost / 기존 WebSocket 확장 / hook stdout 캡처)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "(a) Unix 도메인 소켓 + nexus-sidecar binary의 hook subcommand 추천. (c) WebSocket 확장은 hook의 short-lived 수명과 WS handshake/heartbeat mismatch로 영구 비채택, (d) stdout 캡처는 hook process가 sidecar process tree 외부라 캡처 불가능. (b) HTTP localhost는 동적 포트마다 settings.json 갱신 부담 + curl 의존. 부수 결정: hook command 형태=nexus-sidecar hook subcommand(동일 binary, fork+exec 수십 ms 허용), workspace 식별=settings.json hook 인자에 workspaceId 박기(cwd 매칭 휴리스틱 금지), token 인증=AF_UNIX FS 권한 0600/0700 + dataDir 내 0600 token file lazy load(평문 settings.json 노출 회피), socket path=container-local data dir(<dataDir>/sock/<wsId>.sock, macOS App Sandbox 호환). OS portability: Linux는 path만 분기로 (a) 유지, Windows 추가 시 AF_UNIX-on-Windows 실증 또는 named pipe 분기, 차안 (b) HTTP는 동적 포트→settings.json 동적 갱신 재설계 필요할 때만. Open risks 3건: (1) macOS App Sandbox container path 동작 검증 필요(구현 시), (2) settings.json idempotent 등록 정책(Issue 4 흡수), (3) Windows 추가 시점 transport 분기 결정.",
+                "recorded_at": "2026-04-26T04:42:59.958Z",
+                "agent_id": "ses_237e8d953ffesCkRQNATRoVTJc"
+              }
+            ],
+            "decision": "(a) Unix 도메인 소켓 + nexus-sidecar binary의 hook subcommand 모드 채택. (c) WebSocket 확장은 short-lived hook 수명과 mismatch로 영구 비채택, (d) stdout 캡처는 hook process가 sidecar process tree 외부라 영구 불가, (b) HTTP는 차안(Windows 추가 시점에만 재검토). 부수 결정 architect 권고 그대로 채택: hook command 형태=동일 nexus-sidecar binary의 hook subcommand(별도 binary는 코드사인 단위 2배로 ROI 음수, shell script는 PATH/quarantine/zsh-bash 차이로 약한 고리), workspace 식별=settings.json hook 인자에 workspaceId 명시 박기(cwd 매칭 휴리스틱 금지), token 인증=<dataDir>/sock/<wsId>.token 0600 파일을 hook이 lazy load 후 첫 line 송신·sidecar가 ConstantTimeCompare 검증(settings.json 평문 박기 금지), socket path=<dataDir>/sock/<wsId>.sock(macOS App Sandbox container-local) + 부팅 시 os.Remove → listen + 종료 시 defer os.Remove로 stale 회피. Open risks 구현·후속 분리: (1) App Sandbox container path PoC 구현 시, (2) settings.json idempotent 등록 → Issue 4에서 다룸, (3) Windows 추가 시점 AF_UNIX or named pipe 분기."
+          },
+          {
+            "id": 3,
+            "title": "워크스페이스 ↔ claude-code 세션 매핑 전략 (자동 PTY 추적 / 수동 등록 / 혼합)",
+            "status": "decided",
+            "decision": "A안 채택 — Hook only 채널, 세션 파일 tail은 plan #18+ SessionHistory UI 표면 도입 시점에 합류. workspaceId는 settings.json hook 인자에서 박혀 들어와 sidecar가 직접 매핑(Issue 2 부수 결정), session_id는 hook payload에서 자동 추출. 워크스페이스당 활성 세션 N개 동시 시 last-event-wins 단순 정책(가장 최근 hook event의 session_id가 탭 뱃지 4상태를 결정). 한계 명문화: \"동시 N개 운영 시 탭 뱃지가 마지막 활동을 따라감\" — adapters/claude-code/README.md에 기록. 개별 세션별 뱃지·세션 선택기 등 정교화는 plan #18+ 후속. 사용자 우려(settings.json 침범)에 대한 narrow는 Issue 4에서 길 1(Hook 유지 + workspace-local + 동의 다이얼로그 + 자동 정리)로 명문화. (B 병행 채널/C PTY 추적/D 수동 등록 모두 본 사이클 cut line(수직 통합 1선) 좁히기 우선 + 외부 사실 변동 위험 비대칭으로 탈락.)"
+          },
+          {
+            "id": 4,
+            "title": "~/.claude/settings.json 권한·hook 등록 UX (자동 편집 / 수동 안내 / 첫 실행 동의 다이얼로그)",
+            "status": "decided",
+            "decision": "길 1 채택 — Hook 유지 + 침범 최소화. 7개 세부 결정: (1) 편집 대상=<workspace>/.claude/settings.local.json만, 전역 ~/.claude/settings.json 절대 미터치. (2) 동의 시점=워크스페이스 첫 등록 시 1회 다이얼로그 + \"Don't ask again for this workspace\" 체크박스, IDE 글로벌 auto-register setting은 plan #18+ 후속. (3) Idempotent=모든 우리 엔트리에 marker \"source\":\"nexus-code\" 부착, 사용자·다른 도구의 marker 없는 엔트리는 read-only로 절대 미터치. (4) 정리=워크스페이스 unregister 또는 IDE 제거 시 우리 marker 엔트리만 자동 삭제, 다른 엔트리·파일 자체는 보존. (5) .gitignore=<workspace>/.claude/settings.local.json 자동 추가 + 다이얼로그에 알림, 이미 있으면 skip, .gitignore 자체가 없으면 신설. (6) 백업=수정 전 .nexus-backup-<timestamp> 1회 생성(plan #16 학습 — 사용자 수동 복구 경로 보존). (7) claude-code 하한 버전 명문화 + Hooks 미지원 fallback은 본 사이클 비포함, 어댑터 init 시 Hooks API 미지원 검출 시 degraded 표시 + plan #18+ JSONL tail fallback 도입. 동의 다이얼로그 문구 초안 plan에 보존, 구현 시 i18n 검토."
+          },
+          {
+            "id": 5,
+            "title": "안정성 backlog 본 사이클 포함 항목 (SIGTERM race wire 캡처 / cut line 자동화 3건 / SidecarProcessRuntime 제거 외)",
+            "status": "decided",
+            "decision": "P1 본 사이클 포함 4건 + Issue 6 흡수 1건. 별 task 4건: (1) cut line 자동화 #1 — dev launch 수동 검증 절차를 `.nexus/memory/pattern-dev-launch-verification.md` 재사용 패턴으로 명문화. 매 실행 결과 단편은 `nx_artifact_write`로 `.nexus/state/artifacts/`에 임시 보관(사이클 종료 시 영구 가치 학습은 memory로 추출, 단편 자체는 보존하지 않음). (2) cut line 자동화 #2 — composition smoke test에 어댑터 경로 wire 검증 확장(composeElectronAppServices 인스턴스화 시 ClaudeCodeAdapter wire 자동 검증). (3) cut line 자동화 #3 — dist/ CJS require 패턴 검증을 harness 산출물(어댑터 + sidecar hook subcommand 빌드물)에 적용. (4) SIGTERM race wire 캡처 진단 1회 — (b) evidence-only 정책: tcpdump 또는 동등으로 1000 vs 1001 결정타 확보, 결과는 `pattern-sidecar-close-code-race.md`에 직접 기록(임시 단편이 아니라 패턴 메모리에 흡수), 임시 처리(expect [1000,1001,1006]) 유지, 정확 fix는 plan #18 분리(사용자 영향 0이므로 cut line 보호 우선). Issue 6 흡수: ObserverEvent TabBadge 구체 필드 + 4상태 mapper(PreToolUse→running / Notification→awaiting-approval / Stop→completed / error→error). Notification 페이로드 awaiting-approval 추출 필드 실측 PoC는 본 사이클 첫 task로 architect 권고 흡수. P3 4건(SidecarProcessRuntime 제거 / powerMonitor suspend·resume / bootTime PID reaping / 재spawn backoff 2s/4s/8s + UI degraded) 모두 plan #18 이연 명문화. 30분 nightly soak 결과 점검은 본 사이클 비포함. **artifacts 정책 명문화**: 시점 의존 단편 검증 결과는 `nx_artifact_write` MCP로 `.nexus/state/artifacts/`에만 보관, 사이클 종료 시 영구 가치 학습은 `.nexus/memory/`로 추출, `release-evidence/` 디렉토리는 plan #4 결정대로 폐지 유지(plan #15·#16 부활 흔적은 본 사이클에서 제거 완료)."
+          },
+          {
+            "id": 6,
+            "title": "첫 가시 UI 표면 1개 선정 — Issue 1 결과에 종속 (탭 뱃지 / tool 호출 패널 / OS 알림 / diff 뷰 / 세션 히스토리)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "approved with conditions. 표면=WorkspaceSidebar.tsx li 안 우측 정렬(activate↔close 사이) 8px dot, 3색 + 무뱃지 fold(완전한 4상태 ObserverEvent 타입은 유지하되 completed는 시각적으로 무뱃지로 fold). 색: running=oklch(0.75 0.12 150) 기존 유지, awaiting-approval=oklch(0.78 0.12 75) 차분 amber 신설(--color-status-attention), error=destructive 재사용. 시각 hierarchy: error > awaiting-approval > running > 무뱃지(idle/completed). 정적(애니메이션 없음 — roadmap E3 명시 제외 + design.md 정체성 정합). 접근성: dot+sr-only 텍스트 의무, aria-label=\"${displayName}: 도구 실행 중/터미널에서 승인 대기 중/하네스 오류\", aria-live는 본 사이클 보류(후속 사이클 통합 결정). 비-인터랙티브, 키보드 흐름 영향 0. design.md Section 6 갱신 의무: (a) 명명 \"탭 뱃지\" → \"워크스페이스 상태 뱃지\", (b) 4상태 fold 정책 명시, (c) Section 2 @theme에 --color-status-attention 토큰 추가. Open questions Lead 결정 필요: (1) awaiting-approval 어댑터 도출 신뢰성 — claude-code Hooks PreToolUse는 자동 승인 모드에서 false positive 가능, 어댑터 측 \"사용자 승인 필요\" 판정 가능 여부, 불확실 시 본 사이클 3상태 축소 차안. (2) error 상태 dismiss 정책 — 자동 소멸 vs 명시 dismiss vs 다음 턴까지 유지. (3) aria-live 통합 정책 본 사이클 묶을지 후속 사이클로 미룰지. 차안: pill/icon-only 비채택 근거(정체성·sidebar 폭·design.md 금지 항목 위반), completed 별도 색 비채택 근거(Linear 정체성 마찰·완료 mental model은 무뱃지로 전달).",
+                "recorded_at": "2026-04-26T05:07:22.278Z",
+                "agent_id": "ses_237d63332ffe3GmNGOmmANb2Qp"
+              }
+            ],
+            "decision": "첫 가시 UI 표면 = 워크스페이스 sidebar 상태 뱃지 1종(WorkspaceSidebar.tsx li 안 우측 정렬, activate↔close 사이). 표현=8px solid dot + 3색 + 무뱃지 fold. 색 토큰: running=--color-status-running 기존 oklch(0.75 0.12 150) 유지, awaiting-approval=--color-status-attention 신설 oklch(0.78 0.12 75) 차분 amber, error=--color-destructive 재사용, completed=무뱃지(mental model: 끝났다=조용해졌다). 시각 hierarchy=error>awaiting-approval>running>무뱃지, 색 prominence로만 구분, 형상·크기·radius 동일, 정적(애니메이션 없음 — roadmap E3 명시 제외 + design.md 정체성). 접근성=dot+sr-only 텍스트 의무, aria-label=\"${displayName}: 도구 실행 중/터미널에서 승인 대기 중/하네스 오류\", 비-인터랙티브 span. 본 사이클 design.md 갱신 의무 task: (a) Section 6 명명 \"탭 뱃지\" → \"워크스페이스 상태 뱃지\", (b) Section 6 본문 3상태 → 4상태 fold 정책, (c) Section 2 @theme에 --color-status-attention 토큰 추가. 3 Open Questions 결정: Q1 awaiting-approval=A안(4상태 시도 + 첫 task PoC + 200~500ms 디바운싱, 실패 시 사이클 중 3상태 fallback 가능, ObserverEvent 타입 4상태 유지). Q2 error dismiss=A안(다음 턴 시작 PreToolUse → running 전환으로 자동 소멸, UI 조작 부담 0). Q3 aria-live=A안(본 사이클 정적 aria-label만, 5종 표면 일관 적용 통합 결정은 후속 사이클). ObserverEvent TabBadge 구체 필드(Issue 5 흡수): state(TabBadgeState), sessionId(string from hook payload), adapterName(string e.g. \"claude-code\"), timestamp(string ISO), workspaceId(WorkspaceId). detail은 plan #18 이연(첫 사이클 단순화). pill/icon-only/별도 completed 색은 정체성 마찰·design.md 금지 항목 위반 가능성으로 비채택."
+          }
+        ],
+        "research_summary": "기존 자료 8건 직접 확인 완료. (1) HarnessAdapter 인터페이스는 packages/shared/src/harness/HarnessAdapter.ts에 describe/observe/dispose 3 메서드 + ObserverEvent 5종 union(TabBadge·ToolCall·FileDiff·Notification·SessionHistory) 정의되어 있으나 모든 union 멤버 내부 필드가 TODO 상태. adapters/ 디렉토리는 README.md(plugin boundary 안내)만 존재. (2) SidecarBridge는 lifecycle handshake(Start/Started/Stop/Stopped) + heartbeat 15s + missing-binary fallback만 구현. observer event를 송수신할 message 타입·핸들러 부재. handleRuntimeMessage는 sidecar/stopped만 인지. (3) sidecar handler.go도 lifecycle 4 메시지만. harness observer 모듈 0건. (4) external-claude-code.md: Hooks API 4종(PreToolUse/PostToolUse/Notification/Stop) 공식 안정 + ~/.claude/projects/<projectHash>/<sessionId>.jsonl append-only fsnotify tail 가능 + per-turn spawn + --resume 공식 지원. stream-json 다중 턴 금지. (5) external-cmux.md: macOS 선행 사례. Unix 소켓 + Claude Code hooks API로 hook callback 수신, 패인 알림·시각화. nexus-code 기준 IDE 기능 0이라 비교군일 뿐 직접 차용 불가. (6) pattern-harness-observer.md / pattern-per-turn-harness-spawn.md / context/harness-integration.md: A2 모델 정착 — TUI 대체 금지·읽기 전용·hooks+세션 파일 두 수단·plugin boundary로 코어 격리. (7) 안정성 backlog: SIGTERM close code 1001 race(architect 1안 적용 후에도 미해결, wire 캡처 다음 사이클 명문화) / cut line 추가 3건(dev launch 수동 1회 + composition 자동 smoke + 빌드 산출물 require 검증) / SidecarProcessRuntime 코드 제거(@deprecated) / ObserverEvent 구체 필드 / powerMonitor suspend·resume / bootTime PID reaping / 재spawn backoff 2s/4s/8s + UI degraded 표시. (8) 미결 외부 사실 — claude-code projectHash 계산식, settings.json hooks 스키마 정확 형태. researcher 추가 spawn 가능성 있음.",
+        "created_at": "2026-04-26T04:26:26.086Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. PoC — claude-code Hooks 4상태 추출 신뢰성 검증",
+          "status": "completed",
+          "context": "designer Open Question Q1·architect Open Risk #2 — claude-code Hooks PreToolUse는 자동 승인 모드(allowed_tools)에서 사용자 개입 없이 즉시 PostToolUse로 진행. PreToolUse만으로 awaiting-approval 판정 시 false positive. 본 사이클 4상태 vs 3상태 fallback 결정의 결정타. T5 어댑터 시작 전 필수 선행.",
+          "acceptance": "1. claude-code 실제 인스턴스에서 자동 승인 모드 / 명시 승인 모드 각각 PreToolUse → 후속 hook 시퀀스 측정. 200~500ms 디바운싱으로 자동 승인 식별 가능 여부 검증. 2. Notification hook payload 구조 확인 — 사용자 승인 대기 식별 가능 필드 존재 여부. 3. PoC 결과를 .nexus/state/artifacts/T1-poc-claude-code-hooks-{timestamp}.md로 nx_artifact_write 보관. 4. 결과 판정: (a) 4상태 가능 시 mapper 규칙 명시, (b) 불가능 시 3상태 fallback 결정 + ObserverEvent 타입은 4상태 유지하되 awaiting-approval 미발화. 5. 사이클 종료 시 영구 가치 학습은 .nexus/memory/pattern-claude-code-hooks-discrimination.md(또는 통합)로 추출.",
+          "approach": "로컬 claude-code 인스턴스 실행 + 임시 hook script로 hook payload·시퀀스·타이밍 측정. 자동 승인은 settings.json allowed_tools 적용해 동일 도구 호출 케이스 대조. 디바운싱은 PreToolUse 수신 시 setTimeout(200~500ms) 후 PostToolUse 미도착 시 awaiting-approval 발화 방식 검증.",
+          "risk": "PoC 환경 제약 — 사용자 머신에서 실측 필수. 자동 승인 / 명시 승인 모드 모두 재현 필요. PoC 실패 시 본 사이클 cut 일부 축소.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc83f-15bf-7243-8635-9018876e1ddd"
+          },
+          "created_at": "2026-04-26T05:15:07.884Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. JSON schema 신설 + codegen — harness-observer.schema.json (TabBadgeEvent만)",
+          "status": "completed",
+          "context": "현재 schema/ 디렉토리는 sidecar-lifecycle.schema.json 등 lifecycle 4종만. observer event 채널 신설 필요. 본 사이클은 TabBadgeEvent 1종만 구체화하고 나머지 4종(ToolCall/FileDiff/Notification/SessionHistory)은 plan #18+ TODO 유지.",
+          "acceptance": "1. schema/harness-observer.schema.json 신설(TabBadgeEvent만): type discriminator harness/tab-badge, 필드 state(TabBadgeState enum) + sessionId(string) + adapterName(string) + workspaceId(WorkspaceId) + timestamp(string ISO). 2. bun run gen:contracts 통과 — TS 자동 생성 + facade 패턴 적용(plan #16 H1 패턴). 3. Go 수작업 contracts(sidecar/internal/contracts/harness_observer.go) 동기화. 4. .github/workflows/contracts-drift.yml gate PASS(양쪽 검증). 5. 기존 90+ 테스트 영향 0건.",
+          "approach": "scripts/gen-contracts.ts 흐름 그대로 활용. facade는 packages/shared/src/contracts/harness-observer.ts 신설(Ajv 런타임 컴파일). Go 측은 sidecar/internal/contracts/harness_observer.go 수작업.",
+          "risk": "drift gate가 신규 schema에 누락 분기를 가질 가능성 — contracts-drift.yml 검증 스크립트 확장 여부 사전 확인.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc83f-1ad9-7c70-b497-30cbb5838425"
+          },
+          "created_at": "2026-04-26T05:15:17.999Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. Sidecar harness observer module + WS message handler 확장",
+          "status": "completed",
+          "context": "현재 sidecar/cmd/nexus-sidecar/handler.go는 lifecycle 4 메시지만. harness observer event(harness/tab-badge)를 main으로 송신할 경로 신설 필요.",
+          "acceptance": "1. sidecar/internal/harness/ 모듈 신설(observer.go 등): TabBadgeEvent 송신 인터페이스. 2. handler.go OnMessage에 harness 메시지 분기 또는 별도 handler 등록. 3. wsx.Server를 통해 main으로 TabBadgeEvent 송신 가능. 4. Go 단위 테스트 — observer module이 hook event 입력 → TabBadgeEvent 출력으로 정규화하는 매핑 검증. 5. T2 codegen 산출물(contracts.TabBadgeEvent) 사용.",
+          "approach": "sidecar/internal/harness/observer.go 신설. Observer interface(Emit/Stop)와 implementation. lifecycle handler와 분리된 별 handler module로 wsx에 register. 단위 테스트는 mock wsx.Server 사용.",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc845-a50c-7ad1-866b-c4d4549a3f27"
+          },
+          "created_at": "2026-04-26T05:15:25.322Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. Sidecar Unix socket hook listener + nexus-sidecar hook subcommand",
+          "status": "completed",
+          "context": "Issue 2 결정에 따라 hook command가 sidecar에 callback할 채널은 Unix 도메인 소켓. nexus-sidecar binary가 server 모드 vs hook subcommand 모드를 argv[1]로 분기.",
+          "acceptance": "1. sidecar/internal/harness/hooks.go(또는 적절한 위치) Unix 소켓 listener: <dataDir>/sock/<wsId>.sock 부팅 시 os.Remove → listen, 종료 시 defer os.Remove. mode 0600/0700. 2. <dataDir>/sock/<wsId>.token 0600 파일 부팅 시 생성. 3. cmd/nexus-sidecar/main.go에 argv[1]==hook subcommand 분기: --socket=<path> --workspace-id=<id> --event=<type> 인자 + stdin JSON payload + token 파일 lazy load 후 첫 line 송신 후 종료. 4. server 측 hook listener는 token ConstantTimeCompare 검증 후 hook event JSON 수신 → T3 observer module로 forward. 5. App Sandbox container path 결정(macOS): ~/Library/Application Support/<bundleId>/sock/. 6. Go 단위 테스트 — listener accept + hook subcommand client write 왕복 검증, token mismatch 거부 검증, stale .sock 회피 검증.",
+          "approach": "net.Listen(unix, ...) + accept goroutine. hook subcommand는 net.Dial(unix, ...) + json.NewEncoder write 1회 후 close. 인증은 첫 line token + 두번째 line부터 hook event JSON. 워크스페이스 식별은 socket path 자체로 1차(파일경로 매핑) + payload workspaceId 일치 검증.",
+          "risk": "macOS App Sandbox 진입 시 container 외부 path EACCES — 본 task에서 container-local path 검증 PoC 1회 수행. 동일 머신에서 워크스페이스 N개 동시 실행 시 socket path 충돌 없음(wsId per).",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc847-e567-7962-b1d7-0ce5ad4e248c"
+          },
+          "created_at": "2026-04-26T05:15:39.440Z"
+        },
+        {
+          "id": 5,
+          "title": "T5. ClaudeCodeAdapter 구현 — HarnessAdapter 인터페이스 1종",
+          "status": "completed",
+          "context": "packages/shared/src/harness/adapters/는 README.md만 존재. claude-code 1종 어댑터 구현이 본 사이클 핵심. T1 PoC 결과를 4상태 mapper에 반영. last-event-wins 정책으로 워크스페이스당 활성 세션 N개 동시 처리.",
+          "acceptance": "1. packages/shared/src/harness/adapters/claude-code/ 신설: ClaudeCodeAdapter.ts(HarnessAdapter 구현 — describe/observe/dispose), state-mapper.ts(4 hook → TabBadgeState 매핑), README.md(한계 명문화: 동시 N개 세션 last-event-wins, awaiting-approval 디바운싱 정책 등). 2. T1 PoC 결과를 mapper에 반영(가능 시 4상태, 불가능 시 3상태 fallback). 3. observe()는 sidecar의 observer event stream을 AsyncIterable<TabBadgeEvent>로 정규화. 4. last-event-wins: 워크스페이스 단위 가장 최근 hook event의 session_id 기록. 5. 단위 테스트: mock hook event 입력 → 정규화된 TabBadgeEvent 출력 검증, 4상태 각 시나리오, last-event-wins 시나리오. 6. adapters/claude-code/README.md에 한계·동작 명문화.",
+          "approach": "PoC 결과 별도 acceptance — 4상태 가능 시 PreToolUse→running/Notification(승인 대기 식별)→awaiting-approval/Stop→completed/error 시그널→error. 불가능 시 PreToolUse→running/Stop→completed(=무뱃지)/error→error 3상태로 ObserverEvent 타입은 4상태 유지하되 awaiting-approval 미발화. 어댑터는 sidecar harness observer module의 stream을 consumer로 받음(직접 hook 수신 아님 — 어댑터는 코어 측, hook 수신은 sidecar 측 분리).",
+          "risk": "T1 PoC가 본 task 시작 전 완료 필수. PoC 결과가 awaiting-approval 추출 불가 시 mapper 분기 단순화 필요.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc852-2efc-75c0-8e16-9e538ebf4976"
+          },
+          "created_at": "2026-04-26T05:15:52.718Z"
+        },
+        {
+          "id": 6,
+          "title": "T6. SidecarBridge observer event 핸들러 + IPC observer 채널",
+          "status": "completed",
+          "context": "현재 SidecarBridge.handleRuntimeMessage는 sidecar/stopped만 인지. harness/tab-badge 메시지 분기 추가 + main↔renderer IPC observer 채널 신설 필요.",
+          "acceptance": "1. sidecar-bridge/index.ts handleRuntimeMessage에 harness/tab-badge 분기 추가. 2. main 측 IPC observer 채널 신설(예: nexus.harness.observerEvent). 3. preload contextBridge로 renderer 노출. 4. 단위 테스트: mock WS message 입력 → IPC 채널 emit 검증. 5. integration smoke test: sidecar 송신 TabBadgeEvent → main bridge 수신 → IPC emit까지 1선 검증.",
+          "approach": "기존 lifecycle handleRuntimeMessage 패턴 재사용. observer event는 별 EventEmitter 노출(SidecarBridge.observer$ 또는 동등). IPC 채널은 ipcMain.on/webContents.send 표준. preload는 기존 contextBridge 확장.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc849-fb68-7540-b810-df141c858cb2"
+          },
+          "created_at": "2026-04-26T05:16:15.318Z"
+        },
+        {
+          "id": 7,
+          "title": "T9. design.md 갱신 — Section 6 명명 + 4상태 fold + Section 2 토큰 추가",
+          "status": "completed",
+          "context": "design.md Section 6 \"하네스 상태 뱃지\"는 plan #14 시점 3상태(running/idle/error)로 정의되어 있으나 ObserverEvent TabBadgeState는 4상태. 또 명명이 \"탭 뱃지\"인데 실제 표면은 sidebar 항목(탭 metaphor 없음). designer 권고에 따라 갱신.",
+          "acceptance": "1. design.md Section 6 명칭 \"하네스 상태 뱃지\" → \"워크스페이스 상태 뱃지\"로 변경(harness-integration.md \"탭 뱃지\" 추상 표현은 그대로 유지하되 design.md는 실제 표면 명명 사용). 2. Section 6 본문 3상태 → 4상태 fold 정책 반영: running(녹) + awaiting-approval(amber 신설) + error(destructive) + completed=무뱃지(mental model: 끝났다=조용해졌다). 색 토큰 명시. 8px dot, 정적, sr-only 의무 명시. 3. Section 2 @theme 샘플에 --color-status-attention: oklch(0.78 0.12 75) 추가. 4. 다른 Section 변경 없음 — git diff로 확인. 5. 한국어 맞춤법 + ASCII 치환 0.",
+          "approach": "Read design.md → Section 6 전면 교체 + Section 2 @theme 추가 1줄. designer 분석을 1차 source. 명명 변경은 design.md 안에서만 — harness-integration.md/roadmap.md의 \"탭 뱃지\" 추상 표현은 별 task(T15)에서 갱신.",
+          "risk": "design.md 다른 Section 의도치 않은 수정 — T15 reviewer가 git diff로 검증. 토큰 추가가 후속 표면 의존성 발생시키나 본 사이클 표면은 1종이라 영향 한정.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc83f-1fe8-7d02-96bd-873af63567b0"
+          },
+          "created_at": "2026-04-26T05:17:01.306Z"
+        },
+        {
+          "id": 8,
+          "title": "T10. cut line 자동화 #1 — pattern-dev-launch-verification.md 신설",
+          "status": "completed",
+          "context": "empirical-m3-integration-gap.md 학습 — 단위·통합 PASS여도 사용자 경로 fatal 가능. 매 사이클 종료 전 actual bun run dev 1회 수동 검증 절차를 재사용 가능 패턴으로 명문화. release-evidence/ 디렉토리는 plan #4 결정대로 영구 폐지(plan #15·#16 부활 흔적은 제거 완료).",
+          "acceptance": "1. .nexus/memory/pattern-dev-launch-verification.md 신설. 2. 내용: 적용 조건(언제 이 패턴이 맞는가) / 검증 절차 단계(준비 → 실행 → 관찰 → 기록) / 단편 결과 보관 정책(nx_artifact_write로 .nexus/state/artifacts/ 임시, 사이클 종료 시 영구 학습은 memory로 추출, release-evidence/ 사용 금지) / 적용 사례 인용(empirical-m3-integration-gap.md). 3. 분량 2~4KB. 4. 한국어 + 선언형 단정체. 5. 기존 pattern-* 파일들과 문체 일관성. 6. 본 사이클 T14에서 본 패턴을 직접 적용.",
+          "approach": "기존 pattern-phase-gate-checklist.md 구조 참고. nx_artifact_write MCP 명시. release-evidence/ 영구 폐지 명문화로 plan #15·#16 부활 흔적 재발 차단.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc83f-24ba-7232-a65c-5fb32680339d"
+          },
+          "created_at": "2026-04-26T05:17:11.740Z"
+        },
+        {
+          "id": 9,
+          "title": "T7. Renderer Zustand harness store + WorkspaceSidebar 뱃지 wiring",
+          "status": "completed",
+          "context": "renderer 측 harness 관련 store 0건. WorkspaceSidebar.tsx는 li 기반 list. 첫 가시 UI 표면 = 8px solid dot이 li 안 우측(activate↔close 사이) 위치. 색 토큰 3종 + 무뱃지 fold + sr-only + aria-label. 정적(애니메이션 없음).",
+          "acceptance": "1. packages/app/src/renderer/stores/harnessBadgeStore.ts 신설(workspace별 TabBadgeState 보유, IPC observer 채널 구독, last-event-wins 적용). 2. WorkspaceSidebar.tsx li 안 활성화 button과 close button 사이에 8px solid dot 추가 — width/height 8px, border-radius full, fill 토큰 분기(running=--color-status-running / awaiting-approval=--color-status-attention / error=--color-destructive / completed=무뱃지). 3. dot은 비-인터랙티브 span, 키보드 흐름 영향 0. 4. dot 옆 sr-only 텍스트 + 부모 컨테이너 aria-label=\"${displayName}: 도구 실행 중/터미널에서 승인 대기 중/하네스 오류\". 5. error 자동 소멸: PreToolUse 수신 시 store가 running으로 전환(designer Q2 결정). 6. 단위 테스트: store IPC subscribe + last-event-wins 시나리오, sidebar 컴포넌트 4상태 렌더 검증, aria-label 텍스트 검증. 7. dev launch 시 dot 색이 상태에 따라 변화하는 시각적 확인.",
+          "approach": "store는 zustand 5.0.12 기존 패턴. WorkspaceSidebar 변경은 기존 li 구조에 dot span 1개 추가하는 최소 수술. 색 토큰은 T9에서 추가된 --color-status-attention 사용. last-event-wins는 store 내부 로직(가장 최근 timestamp의 sessionId의 state만 유지). renderer node-pty 차단 4중 방어는 기존 그대로.",
+          "risk": "T9(design.md 갱신)이 본 task 전 완료되어야 토큰 사용 가능. 또 T5(adapter), T6(bridge IPC)가 완료되어야 store가 데이터 받음. visibility 변경 시 dot 재렌더 — xterm WebGL과 무관하지만 검증.",
+          "plan_issue": 6,
+          "deps": [
+            5,
+            6,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "lead-direct"
+          },
+          "created_at": "2026-04-26T05:17:45.282Z"
+        },
+        {
+          "id": 10,
+          "title": "T8. settings.local.json idempotent manager + 동의 다이얼로그 + .gitignore + 백업",
+          "status": "completed",
+          "context": "Issue 4 길 1: workspace-local <workspace>/.claude/settings.local.json만 편집. marker source:nexus-code idempotent. 첫 등록 동의 다이얼로그. .gitignore 자동 추가. 백업 1회. 워크스페이스 unregister 자동 정리. 전역 ~/.claude/settings.json 절대 미터치.",
+          "acceptance": "1. packages/app/src/main/claude-settings-manager.ts(또는 동등) 신설: register(workspaceId, hookCommand) / unregister(workspaceId) / detectExisting(workspaceId). 2. register는 <workspace>/.claude/settings.local.json read-or-create → marker source:nexus-code 부착 idempotent merge → write. 3. 수정 전 .nexus-backup-<timestamp> 1회 생성(이미 존재 시 skip). 4. <workspace>/.gitignore에 .claude/settings.local.json 자동 추가(이미 있으면 skip, 없으면 신설). 5. 첫 등록 다이얼로그 — renderer dialog 컴포넌트. \"Don't ask again for this workspace\" 체크박스(workspace 단위 setting 영속 저장). 6. 워크스페이스 unregister 또는 IDE 제거 시 marker 엔트리만 삭제, 다른 엔트리·파일 자체는 보존. 7. 사용자·다른 도구의 marker 없는 엔트리는 read-only로 절대 미터치 검증 단위 테스트. 8. integration test 1건: 동의 → register → settings.local.json 정확 형태 + .gitignore 추가 + 백업 생성 + unregister → marker만 제거 검증.",
+          "approach": "JSON parse·merge·stringify. dialog는 기존 shadcn dialog 패턴. workspace 단위 \"Don't ask again\" setting은 main process electron-store 또는 동등으로 영속. hookCommand 형태: <nexus-sidecar abs path> hook --socket=<wsId.sock> --workspace-id=<wsId> --event=$CLAUDE_HOOK_EVENT. claude-code Hooks 명세 형식 정확히 따름.",
+          "risk": "claude-code Hooks settings.json 정확 스키마(hooks 배열 vs object 구조)는 외부 사실 — 본 task 시작 시점 1회 확인. .gitignore 자동 편집은 사용자 git repo 침범 — 다이얼로그 알림 의무 + 자동 추가 옵트아웃은 plan #18+.",
+          "plan_issue": 4,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "lead-direct"
+          },
+          "created_at": "2026-04-26T05:18:04.153Z"
+        },
+        {
+          "id": 11,
+          "title": "T11. cut line 자동화 #2 — composition smoke 어댑터 경로 wire 검증",
+          "status": "completed",
+          "context": "empirical-m3-integration-gap.md 학습 — composition 경로까지 wire되지 않은 모듈은 단위·통합 PASS여도 사용자 경로 fatal. ClaudeCodeAdapter가 composeElectronAppServices에 wire되었는지 자동 검증.",
+          "acceptance": "1. packages/app/test/integration/sidecar-lifecycle/composition-smoke.test.ts(또는 동등) 확장: composeElectronAppServices 인스턴스화 시 ClaudeCodeAdapter가 service graph에 등록되었는지 자동 검증. 2. SidecarBridge.observer$ 구독 + adapter dispatch 경로 1선 자동 검증. 3. 어댑터 미등록 시 명시 fail 메시지. 4. 기존 composition-smoke.test.ts와 일관된 구조. 5. CI green PASS.",
+          "approach": "기존 plan #16 H3 composition-smoke.test.ts 패턴 재사용. ClaudeCodeAdapter는 composeElectronAppServices가 인스턴스화하는 객체 그래프 일부로 등장해야 함(또는 plugin registration 메커니즘). 검증은 service registry mock + .has(name) 또는 동등.",
+          "plan_issue": 5,
+          "deps": [
+            6,
+            9,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "lead-direct"
+          },
+          "created_at": "2026-04-26T05:18:12.107Z"
+        },
+        {
+          "id": 12,
+          "title": "T12. cut line 자동화 #3 — dist/ CJS require 패턴 harness 산출물 적용",
+          "status": "completed",
+          "context": "empirical-m3-integration-gap.md 학습 — electron-vite ESM 빌드 환경에서 CJS standalone require가 런타임 fail. plan #16 H1에서 ajv-cli standalone 폐기 후 facade Ajv 런타임 컴파일로 전환. 본 사이클 추가 산출물(harness adapter + sidecar hook subcommand 빌드물)에도 검증 적용.",
+          "acceptance": "1. scripts/check-dist-require.sh(또는 동등) 신설 또는 기존 확장: electron-vite build 후 dist/ 내 CJS require 패턴 grep. 2. harness adapter 산출물 + sidecar hook subcommand 빌드물(packages/app dist/ + sidecar bin/) 양쪽 검증. 3. require 패턴 발견 시 명시 fail + 위치 출력. 4. CI workflow 통합(.github/workflows/ 신설 또는 기존 확장). 5. 기존 plan #16 H1 검증 회귀 PASS.",
+          "approach": "기존 plan #16 H1 검증 절차 패턴화. grep -rn \"require(\" dist/ 같은 형태 + 허용 화이트리스트(예: 외부 모듈 격리된 require는 허용). bash 스크립트로 단순. CI는 기존 contracts-drift.yml 옆에 별 yml 또는 통합 build job.",
+          "plan_issue": 5,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc852-341f-7df1-9d41-a2bc9f7c6e59"
+          },
+          "created_at": "2026-04-26T05:18:21.333Z"
+        },
+        {
+          "id": 13,
+          "title": "T13. SIGTERM race wire 캡처 진단 — evidence-only",
+          "status": "completed",
+          "context": "pattern-sidecar-close-code-race.md — plan #15 architect 1안 적용 후에도 SIGTERM 경로 close code race 미해결(70% 추정 → 30% 시나리오 발동). 본 사이클 wire 캡처 1회 시도, evidence만 기록, 정확 fix는 plan #18 분리. 사용자 영향 0이므로 cut line 보호 우선.",
+          "acceptance": "1. tcpdump 또는 동등(예: lsof + nc 캡처)으로 sidecar SIGTERM 시 wire의 실제 close frame 코드(1000 vs 1001) 캡처. 2. 결과를 .nexus/memory/pattern-sidecar-close-code-race.md에 직접 추가(임시 단편 아닌 패턴 메모리 흡수): wire가 1000으로 나오면 coder/websocket 측 변환 의심, 1001로 나오면 ws@8.x receiverOnConclude 측 의심. 3. lifecycle-smoke.test.ts SIGTERM expect [1000,1001,1006] 임시 처리 유지(본 사이클 fix 안 함). 4. 정확 fix는 plan #18 backlog로 명문화. 5. 캡처 절차도 메모리에 자세히 기록(다음 race 진단 재사용 가능).",
+          "approach": "tcpdump -i lo0 port <sidecar_port> -X -w capture.pcap 또는 ss/tshark. 캡처 중 lifecycle-smoke 테스트 SIGTERM 시나리오 1회 실행. close frame opcode 0x8 + 첫 2바이트 close code 분석. macOS lo0 인터페이스 권한 sudo 필요 가능성.",
+          "risk": "tcpdump가 lo0 캡처에 sudo 요구 — 사용자 권한 영역. 대안 ss 또는 wireshark cli. 캡처 중 race 시나리오가 안정적으로 재현되지 않으면 N회 반복 필요. 비결정성 가능.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc83f-2a24-7ac0-beec-79d7e29c4fe7"
+          },
+          "created_at": "2026-04-26T05:18:35.525Z"
+        },
+        {
+          "id": 14,
+          "title": "T14. 통합 검증 + dev launch 1회 (cut line 자동화 #1 직접 적용)",
+          "status": "completed",
+          "context": "본 사이클 cut line=수직 통합 1선. 모든 unit·integration 테스트 PASS + actual bun run dev 1회 수동 검증으로 어댑터 1종이 sidecar→main→renderer 끝까지 도달함을 시각적으로 확인. T10 pattern-dev-launch-verification.md를 직접 적용.",
+          "acceptance": "1. bun test 모든 unit·integration PASS(기존 105+ 신규 테스트). 2. cd sidecar && go test ./... PASS. 3. T10 pattern-dev-launch-verification.md 절차에 따라 actual bun run dev 1회 실행: 워크스페이스 open → claude 실행 → hook 발화 → sidecar Unix socket 수신 → WS observer event → main bridge → IPC → renderer harness store → WorkspaceSidebar dot 색 변화 시각 확인. 4. 4상태(또는 T1 결과 따라 3상태) 각 시나리오 dot 변화 시각 확인. 5. 단편 결과는 nx_artifact_write로 .nexus/state/artifacts/T14-dev-launch-{timestamp}.md 임시 보관(사이클 종료 시 정리). 6. 30분 nightly soak job(.github/workflows/sidecar-soak-nightly.yml) 영향 0건 — observer 추가가 30분 안정성에 회귀 없음 확인. 7. 결과 미달 시 Lead 보고.",
+          "approach": "T10 패턴 직접 적용. 시각 검증은 사용자 화면에서 dot 색 변화 + DevTools 콘솔 store state 변화 확인. CI 자동 part는 T11 composition-smoke + T12 dist require로 커버되며, 본 task는 manual 단계. release-evidence/ 사용 금지 — nx_artifact_write로만 단편 보관.",
+          "risk": "manual 검증이라 사용자 시간 의존. T1 PoC 결과 따라 awaiting-approval 시나리오가 재현 안 될 수 있음(3상태 fallback 시 정상). dev launch 자체 실패 시 plan #16 hotfix와 동일한 통합 결함 가능성 — 즉시 Lead 보고.",
+          "plan_issue": 1,
+          "deps": [
+            9,
+            10,
+            11,
+            12,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "lead-direct"
+          },
+          "created_at": "2026-04-26T05:19:18.703Z"
+        },
+        {
+          "id": 15,
+          "title": "T15. docs 갱신 — context/memory + adapters README + 사이클 retro",
+          "status": "completed",
+          "context": "본 사이클 학습·결정·산출물을 .nexus/context/.nexus/memory/.adapters README에 정착. design.md(T9), pattern-dev-launch-verification.md(T10), pattern-sidecar-close-code-race.md(T13 추가), adapters/claude-code/README.md(T5)는 각 task에서 작성. 본 task는 통합 docs.",
+          "acceptance": "1. .nexus/context/harness-integration.md 갱신: claude-code 어댑터 구현 상태(plan #16+ TODO → plan #17에서 1종 구현 완료) + 본 사이클 4상태 또는 3상태 결정 반영. 2. .nexus/context/architecture.md 갱신(필요 시): harness observer event 데이터 흐름 추가. 3. .nexus/context/roadmap.md M3 cell 갱신: claude-code 어댑터 1종 + 첫 UI 표면(WorkspaceSidebar 상태 뱃지) 완료 마커, opencode/codex 어댑터는 plan #18+ 이연 명시. 4. .nexus/memory/empirical-m3plus1-retrospective.md(또는 동등) 신설: 본 사이클 학습 — T1 PoC 결과·Unix 소켓 hook 채널 정착·workspace-local settings.json idempotent 학습·SIGTERM wire 캡처 결과·15→16 task 정직 분해 회고. 5. .nexus/memory/pattern-claude-code-adapter.md(선택, 통합 가능): 본 사이클 정착된 claude-code 어댑터 패턴(어댑터 1종 = sidecar 측 hook 수신 + 코어 측 stream consumer 분리). 6. plan #18 이연 backlog 명문화(SidecarProcessRuntime 제거 / powerMonitor / bootTime PID reaping / 재spawn backoff + UI degraded / opencode·codex 어댑터 / 나머지 4종 ObserverEvent UI / SIGTERM race 정확 fix). 7. 한국어 + 선언형 단정체 + ASCII 치환 0. 8. release-evidence·기타 stale 토큰 0건 grep 게이트.",
+          "approach": "기존 plan #15 T9 docs 산출물 패턴 재사용. memory 신규 1~2건 + context 갱신. roadmap.md는 plan #4 정화 원칙(동적 상태 서술 최소화) 준수 — \"M3 cell claude-code 1종 + 첫 UI 표면 완료\" 정도 정적 마커.",
+          "risk": "memory 파일 분량 폭증 위험 — 각 2~4KB 권장. roadmap.md 동적 콘텐츠 회귀 위험 — plan #4 grep 게이트 재적용. release-evidence/ 영구 폐지 정책 grep 0건 검증.",
+          "plan_issue": 1,
+          "deps": [
+            7,
+            14
+          ],
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "lead-direct"
+          },
+          "created_at": "2026-04-26T05:19:38.766Z"
+        },
+        {
+          "id": 16,
+          "title": "T16. docs reviewer — 결정문 대조 + grep 게이트",
+          "status": "completed",
+          "context": "T9·T10·T15·각 task별 docs 산출물(adapters/claude-code/README.md / pattern-sidecar-close-code-race.md 추가 등) 모두를 reviewer가 결정문 대조 + grep 게이트로 검증. plan #15 T10 패턴 재사용.",
+          "acceptance": "1. 모든 docs 산출물이 plan #17 결정문과 1:1 대응. 2. 한국어 맞춤법 오류·ASCII 치환 0건. 3. 변경 금지 파일(architecture.md 본 사이클 변경 없으면 / philosophy.md / korean-quality.md / terminal-shell-env.md / conventions.md) git diff 0건 확인. 4. grep 게이트: release-evidence(0건) / PASS·closed·구체 날짜·#issue 번호(.nexus/context/ 내 0건, plan #4 정책) / \"탭 뱃지\" 추상 표현은 harness-integration.md/roadmap.md만 허용(design.md는 \"워크스페이스 상태 뱃지\"). 5. memory 파일 분량 검증 각 2~4KB. 6. 지적사항 없음 또는 명시 수정 후 재제출 통과.",
+          "approach": "git diff로 변경분 pull. nx_plan_status로 plan #17 결정 본문 재확인. 각 산출물 Read 후 결정 명세와 대조. memory 파일 3종 프리픽스(external/pattern/empirical) 정의 적합성 검증. roadmap.md는 plan #4 grep 게이트 재적용.",
+          "plan_issue": 1,
+          "deps": [
+            15
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dc86e-bfd9-7971-8f7e-ee372334f3af"
+          },
+          "created_at": "2026-04-26T05:19:49.335Z"
+        }
+      ]
     }
   ]
 }

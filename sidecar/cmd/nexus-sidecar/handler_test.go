@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nexus-code/sidecar/internal/contracts"
+	"nexus-code/sidecar/internal/harness"
 	"nexus-code/sidecar/internal/wsx"
 )
 
@@ -105,6 +106,36 @@ func TestSidecarStartCommandSendsStartedEvent(t *testing.T) {
 	}
 	if event.StartedAt != bootTime.Format(time.RFC3339Nano) {
 		t.Fatalf("startedAt = %q, want %q", event.StartedAt, bootTime.Format(time.RFC3339Nano))
+	}
+}
+
+func TestLifecycleHandlerHarnessObserverUsesConfiguredServer(t *testing.T) {
+	server := &fakeServer{}
+	handler := NewLifecycleHandler("ws-1", time.Now(), func(int) {})
+	handler.SetServer(server)
+
+	_, err := handler.HarnessObserver().HandleHookEvent(context.Background(), harness.HookEventInput{
+		EventName:   "PreToolUse",
+		SessionID:   "s-1",
+		AdapterName: "claude-code",
+	})
+	if err != nil {
+		t.Fatalf("HandleHookEvent() error = %v", err)
+	}
+
+	if got := server.sentLen(); got != 1 {
+		t.Fatalf("sent len = %d, want 1", got)
+	}
+	event, ok := server.sentAt(0).(contracts.TabBadgeEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want TabBadgeEvent", server.sentAt(0))
+	}
+	if event.Type != harness.TabBadgeEventType ||
+		event.State != contracts.TabBadgeStateRunning ||
+		event.SessionID != "s-1" ||
+		event.AdapterName != "claude-code" ||
+		event.WorkspaceID != "ws-1" {
+		t.Fatalf("event = %+v", event)
 	}
 }
 

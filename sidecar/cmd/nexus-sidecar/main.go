@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -11,15 +13,22 @@ import (
 	"syscall"
 	"time"
 
+	"nexus-code/sidecar/internal/contracts"
+	"nexus-code/sidecar/internal/harness"
 	"nexus-code/sidecar/internal/wsx"
 )
 
 const (
 	subprotocol = "nexus.sidecar.v1"
 	exConfig    = 78
+	exUsage     = 64
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		os.Exit(runHookCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
+
 	bootTime := now()
 	token := os.Getenv("NEXUS_SIDECAR_TOKEN")
 	if token == "" {
@@ -27,7 +36,8 @@ func main() {
 		os.Exit(exConfig)
 	}
 
-	workspaceID := parseWorkspaceID(os.Args[1:])
+	options := parseServerOptions(os.Args[1:])
+	workspaceID := options.workspaceID
 	addr, port, err := allocateAddr()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: allocate listen address: %v\n", err)
@@ -37,9 +47,47 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handler := NewLifecycleHandler(workspaceID, bootTime, os.Exit)
+	var hookListener *harness.HookListener
+	exit := func(code int) {
+		if hookListener != nil {
+			_ = hookListener.Close()
+		}
+		os.Exit(code)
+	}
+
+	handler := NewLifecycleHandler(workspaceID, bootTime, exit)
 	server := wsx.New(addr, token, subprotocol, handler)
 	handler.SetServer(server)
+
+	var hookErr <-chan error
+	if options.dataDir != "" {
+		if workspaceID == "" {
+			fmt.Fprintln(os.Stderr, "FATAL: --workspace-id is required when --data-dir is set")
+			os.Exit(exConfig)
+		}
+		observer := harness.NewObserver(
+			contracts.WorkspaceID(workspaceID),
+			harness.WithDefaultAdapterName("claude-code"),
+			harness.WithServer(server),
+		)
+		listener, err := harness.NewHookListener(harness.HookListenerConfig{
+			DataDir:     options.dataDir,
+			WorkspaceID: contracts.WorkspaceID(workspaceID),
+			Sink:        observer,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "FATAL: configure hook listener: %v\n", err)
+			os.Exit(exConfig)
+		}
+		hookListener = listener
+		errCh := make(chan error, 1)
+		hookErr = errCh
+		go func() { errCh <- listener.Serve(ctx) }()
+		if err := listener.WaitReady(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "FATAL: hook listener did not start: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// 신호는 별도 goroutine이 아니라 main goroutine select에서 직접 처리해야
 	// readLoop의 defer conn.CloseNow()와의 casClosing race를 줄인다(architect 진단).
@@ -60,7 +108,16 @@ func main() {
 
 	select {
 	case <-sigCh:
-		handleShutdown(server, handler, os.Exit)
+		cancel()
+		if hookListener != nil {
+			_ = hookListener.Close()
+		}
+		handleShutdown(server, handler, exit)
+	case err := <-hookErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "FATAL: hook listener failed: %v\n", err)
+			os.Exit(1)
+		}
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintf(os.Stderr, "FATAL: websocket server failed: %v\n", err)
@@ -69,18 +126,64 @@ func main() {
 	}
 }
 
+type serverOptions struct {
+	workspaceID string
+	dataDir     string
+}
+
+func parseServerOptions(args []string) serverOptions {
+	var options serverOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--workspace-id" && i+1 < len(args):
+			i++
+			options.workspaceID = args[i]
+		case strings.HasPrefix(arg, "--workspace-id="):
+			options.workspaceID = strings.TrimPrefix(arg, "--workspace-id=")
+		case arg == "--data-dir" && i+1 < len(args):
+			i++
+			options.dataDir = args[i]
+		case strings.HasPrefix(arg, "--data-dir="):
+			options.dataDir = strings.TrimPrefix(arg, "--data-dir=")
+		case options.workspaceID == "" && !strings.HasPrefix(arg, "-"):
+			options.workspaceID = arg
+		}
+	}
+	return options
+}
+
 func parseWorkspaceID(args []string) string {
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--workspace-id=") {
-			return strings.TrimPrefix(arg, "--workspace-id=")
-		}
+	return parseServerOptions(args).workspaceID
+}
+
+func runHookCommand(args []string, stdin io.Reader, _ io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("hook", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	socketPath := flags.String("socket", "", "Unix socket path")
+	workspaceID := flags.String("workspace-id", "", "workspace id")
+	eventName := flags.String("event", "", "hook event type")
+	tokenPath := flags.String("token-file", "", "token file path (defaults to sibling .token)")
+	if err := flags.Parse(args); err != nil {
+		return exUsage
 	}
-	for _, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			return arg
-		}
+
+	payload, err := io.ReadAll(stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "hook: read stdin: %v\n", err)
+		return 1
 	}
-	return ""
+	if err := harness.SendHookEvent(context.Background(), harness.HookClientConfig{
+		SocketPath:  *socketPath,
+		TokenPath:   *tokenPath,
+		WorkspaceID: contracts.WorkspaceID(*workspaceID),
+		Event:       *eventName,
+		Payload:     payload,
+	}); err != nil {
+		fmt.Fprintf(stderr, "hook: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func allocateAddr() (string, int, error) {

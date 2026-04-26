@@ -16,6 +16,7 @@ import {
   normalizeKeychord,
   shouldAllowSingleKeyInput,
 } from "./stores/keyboard-registry";
+import { createHarnessBadgeStore, type HarnessBadgeStore } from "./stores/harnessBadgeStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
 import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switching-commands";
 
@@ -41,6 +42,7 @@ interface ResizeDragState {
 
 export default function App(): JSX.Element {
   const workspaceStore = useWorkspaceStore();
+  const harnessBadgeStore = useHarnessBadgeStore();
   const workspacePanelRef = useRef<HTMLDivElement | null>(null);
   const sharedPanelRef = useRef<HTMLDivElement | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -74,6 +76,7 @@ export default function App(): JSX.Element {
   const openFolder = useStore(workspaceStore, (state) => state.openFolder);
   const activateWorkspace = useStore(workspaceStore, (state) => state.activateWorkspace);
   const closeWorkspace = useStore(workspaceStore, (state) => state.closeWorkspace);
+  const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
 
   useEffect(() => {
     void refreshSidebarState().catch((error) => {
@@ -90,6 +93,15 @@ export default function App(): JSX.Element {
       subscription.dispose();
     };
   }, [applySidebarState]);
+
+  useEffect(() => {
+    const harnessBadgeState = harnessBadgeStore.getState();
+    harnessBadgeState.startObserverSubscription();
+
+    return () => {
+      harnessBadgeStore.getState().stopObserverSubscription();
+    };
+  }, [harnessBadgeStore]);
 
   const toggleWorkspacePanel = useCallback(() => {
     setWorkspaceVisible((visible) => !visible);
@@ -281,6 +293,7 @@ export default function App(): JSX.Element {
                 <aside className="flex min-h-full flex-col gap-3 p-3">
                   <WorkspaceSidebar
                     sidebarState={sidebarState}
+                    badgeByWorkspaceId={badgeByWorkspaceId}
                     onOpenFolder={() => runSidebarMutation(openFolder)}
                     onActivateWorkspace={(workspaceId) =>
                       runSidebarMutation(() => activateWorkspace(workspaceId))
@@ -676,6 +689,16 @@ function useWorkspaceStore(): WorkspaceStore {
   }
 
   return workspaceStoreRef.current;
+}
+
+function useHarnessBadgeStore(): HarnessBadgeStore {
+  const harnessBadgeStoreRef = useRef<HarnessBadgeStore | null>(null);
+
+  if (!harnessBadgeStoreRef.current) {
+    harnessBadgeStoreRef.current = createHarnessBadgeStore(window.nexusHarness);
+  }
+
+  return harnessBadgeStoreRef.current;
 }
 
 async function runSidebarMutation(run: () => Promise<void>): Promise<void> {

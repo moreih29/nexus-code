@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nexus-code/sidecar/internal/contracts"
+	"nexus-code/sidecar/internal/harness"
 	"nexus-code/sidecar/internal/wsx"
 )
 
@@ -34,16 +35,28 @@ type LifecycleHandler struct {
 
 	mu     sync.RWMutex
 	server wsx.Server
+
+	harnessObserver *harness.ServerObserver
 }
 
 func NewLifecycleHandler(workspaceID string, bootTime time.Time, exit func(int)) *LifecycleHandler {
-	return &LifecycleHandler{workspaceID: workspaceID, bootTime: bootTime, exit: exit}
+	return &LifecycleHandler{
+		workspaceID:     workspaceID,
+		bootTime:        bootTime,
+		exit:            exit,
+		harnessObserver: harness.NewObserver(contracts.WorkspaceID(workspaceID)),
+	}
 }
 
 func (h *LifecycleHandler) SetServer(server wsx.Server) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.server = server
+	h.harnessObserver.SetServer(server)
+}
+
+func (h *LifecycleHandler) HarnessObserver() harness.Observer {
+	return h.harnessObserver
 }
 
 func (h *LifecycleHandler) OnMessage(ctx context.Context, raw []byte) error {

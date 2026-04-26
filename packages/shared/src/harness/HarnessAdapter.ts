@@ -1,4 +1,8 @@
 import type { WorkspaceId } from "../contracts/workspace";
+import type {
+  TabBadgeEvent as GeneratedTabBadgeEvent,
+  TabBadgeState as GeneratedTabBadgeState,
+} from "../contracts/harness-observer";
 
 export type ObservationPath =
   | "hooks-api"
@@ -13,18 +17,14 @@ export interface AdapterMetadata {
   observationPath: ObservationPath;
 }
 
-export type TabBadgeState = "running" | "awaiting-approval" | "completed" | "error";
+export type TabBadgeState = GeneratedTabBadgeState;
 
 export interface ObserverEventBase {
   workspaceId: WorkspaceId;
   timestamp: string;
 }
 
-export interface TabBadgeEvent extends ObserverEventBase {
-  type: "harness/tab-badge";
-  state: TabBadgeState;
-  // TODO(plan #16+): 하네스별 상태 원천과 표시 세부 필드를 정의한다.
-}
+export type TabBadgeEvent = GeneratedTabBadgeEvent;
 
 export interface ToolCallEvent extends ObserverEventBase {
   type: "harness/tool-call";

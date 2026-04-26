@@ -18,7 +18,7 @@ TUI를 대체하거나 하네스 내부 상태에 개입하지 않는다.
 
 A2 모델에서 IDE는 다음 5가지 관찰 기능을 제공한다.
 
-1. **탭 뱃지**: 워크스페이스 탭에 하네스 상태를 표시한다. 표시 상태는 도구 실행중 / 승인 대기 / 완료 / 에러 네 가지다.
+1. **워크스페이스 상태 뱃지**: WorkspaceSidebar에 하네스 상태를 표시한다. 표시 상태는 도구 실행중 / 승인 대기 / 완료 / 에러 네 가지다.
 2. **사이드 패널의 최근 tool 호출**: 하네스가 호출한 도구 목록을 사이드 패널에 순서대로 표시한다.
 3. **파일 편집 diff 뷰**: 하네스가 파일을 편집한 사실이 감지되면 에디터에 diff 뷰를 표시한다.
 4. **완료·승인 대기 OS 알림**: 턴 완료 또는 승인 대기 상태가 되면 OS 알림을 발송한다.
@@ -28,7 +28,7 @@ A2 모델에서 IDE는 다음 5가지 관찰 기능을 제공한다.
 
 ## HarnessAdapter 인터페이스 계약
 
-`HarnessAdapter` 인터페이스: `packages/shared/src/harness/HarnessAdapter.ts`. plugin boundary: `packages/shared/src/harness/adapters/<name>/`. 구현은 다음 사이클(plan #16+) 예정.
+`HarnessAdapter` 인터페이스: `packages/shared/src/harness/HarnessAdapter.ts`. plugin boundary: `packages/shared/src/harness/adapters/<name>/`. claude-code 1종은 `packages/shared/src/harness/adapters/claude-code/`에 구현되어 있으며, opencode와 codex는 같은 경계 안에서 후속 구현한다.
 
 `HarnessAdapter`는 제품 코어에 고정된 단일 인터페이스다. 각 하네스별 구현은 이 인터페이스를 충족하는 플러그인 레이어로 격리된다.
 
@@ -42,9 +42,13 @@ A2 모델에서 IDE는 다음 5가지 관찰 기능을 제공한다.
 
 | 하네스 | 관찰 경로 |
 |---|---|
-| claude-code | Hooks API + 세션 파일 `.jsonl` tail |
+| claude-code | Hooks API 기반 워크스페이스 상태 뱃지. 세션 파일 `.jsonl` tail은 세션 히스토리 표면 도입 시 합류 |
 | opencode | SQLite 세션 DB + 이벤트 스트림 |
 | codex | 세션 파일 / JSON 출력 (스키마 변동 많음 — 어댑터 지속 보수 필요) |
+
+claude-code Hooks 이벤트는 workspace-local `.claude/settings.local.json` 등록으로 수신한다. 전역 `~/.claude/settings.json`은 수정하지 않는다. hook command는 같은 `nexus-sidecar` 바이너리의 `hook` subcommand로 Unix socket에 이벤트를 전달하고, sidecar는 이를 `harness/tab-badge` observer event로 정규화한다.
+
+워크스페이스 상태 뱃지는 `running`, `awaiting-approval`, `completed`, `error` 네 상태를 계약으로 갖는다. UI 표면에서는 `completed`를 무뱃지로 접어 "끝났다=조용해졌다" 모델을 따른다. `awaiting-approval`은 Claude Code `Notification.notification_type == "permission_prompt"`일 때만 발화하며, 시간 debounce 단독 추론은 금지한다.
 
 ---
 

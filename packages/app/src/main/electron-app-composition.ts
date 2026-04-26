@@ -1,12 +1,22 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 
-import { WORKSPACE_SIDEBAR_STATE_CHANGED_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
+import {
+  HARNESS_OBSERVER_EVENT_CHANNEL,
+  WORKSPACE_SIDEBAR_STATE_CHANGED_CHANNEL,
+} from "../../../shared/src/contracts/ipc-channels";
+import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
+import { ClaudeCodeAdapter } from "../../../shared/src/harness/adapters/claude-code";
+import type { HarnessAdapter } from "../../../shared/src/harness";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import type { WorkspaceSidebarState } from "../../../shared/src/contracts/workspace-shell";
 import { ElectronWorkspaceIpcAdapter } from "./adapters/electron-workspace-ipc-adapter";
 import { ElectronTerminalIpcAdapter } from "./adapters/electron-terminal-ipc-adapter";
 import { OpenSessionSidecarLifecycleManager } from "./sidecar-lifecycle-manager";
-import { SidecarBridge } from "./sidecar-bridge";
+import {
+  SidecarBridge,
+  type SidecarObserverEventListener,
+  type SidecarObserverEventSubscription,
+} from "./sidecar-bridge";
 import { resolveSidecarBinaryPath } from "./sidecar-bin-resolver";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
 import type { SidecarRuntime } from "./sidecar-runtime";
@@ -29,6 +39,7 @@ export interface ElectronAppServices {
   readonly shellEnvironmentResolver: ShellEnvironmentResolver;
   readonly terminalRegistry: WorkspaceTerminalRegistry;
   readonly terminalRouter: TerminalMainIpcRouter | null;
+  readonly harnessAdapters: readonly HarnessAdapter[];
   readonly workspaceShellService: WorkspaceShellService;
   dispose(): Promise<void>;
 }
@@ -49,7 +60,18 @@ export async function composeElectronAppServices(
   const sidecarRuntime = new SidecarBridge({
     ...sidecarBinaryOptions,
     sidecarBin: resolveSidecarBinaryPath(sidecarBinaryOptions) ?? undefined,
+    dataDir: app.getPath("userData"),
   });
+  const harnessAdapters: readonly HarnessAdapter[] = [
+    new ClaudeCodeAdapter({
+      eventStream: (workspaceId, signal) =>
+        createSidecarObserverEventStream(sidecarRuntime, signal, workspaceId),
+    }),
+  ];
+  const sidecarObserverSubscription = subscribeSidecarObserverEvents(
+    sidecarRuntime,
+    mainWindow,
+  );
   const sidecarLifecycleManager = new OpenSessionSidecarLifecycleManager(
     workspacePersistenceStore,
     sidecarRuntime,
@@ -100,10 +122,80 @@ export async function composeElectronAppServices(
     shellEnvironmentResolver,
     terminalRegistry,
     terminalRouter,
+    harnessAdapters,
     workspaceShellService,
     workspaceIpcAdapter,
     workspaceShortcutBridge,
+    sidecarObserverSubscription,
   });
+}
+
+export interface SidecarObserverEventSource {
+  onObserverEvent(
+    listener: SidecarObserverEventListener,
+  ): SidecarObserverEventSubscription;
+}
+
+export function subscribeSidecarObserverEvents(
+  sidecarObserverEventSource: SidecarObserverEventSource,
+  mainWindow: BrowserWindow,
+): SidecarObserverEventSubscription {
+  return sidecarObserverEventSource.onObserverEvent((event) => {
+    emitHarnessObserverEvent(mainWindow, event);
+  });
+}
+
+export async function* createSidecarObserverEventStream(
+  sidecarObserverEventSource: SidecarObserverEventSource,
+  signal: AbortSignal,
+  workspaceId?: WorkspaceId,
+): AsyncIterable<HarnessObserverEvent> {
+  const queue: HarnessObserverEvent[] = [];
+  let notify: (() => void) | null = null;
+  const wake = (): void => {
+    notify?.();
+    notify = null;
+  };
+  const subscription = sidecarObserverEventSource.onObserverEvent((event) => {
+    if (workspaceId && event.workspaceId !== workspaceId) {
+      return;
+    }
+    queue.push(event);
+    wake();
+  });
+  const abortListener = (): void => {
+    wake();
+  };
+  signal.addEventListener("abort", abortListener, { once: true });
+
+  try {
+    while (!signal.aborted) {
+      const event = queue.shift();
+      if (event) {
+        yield event;
+        continue;
+      }
+
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
+    }
+  } finally {
+    signal.removeEventListener("abort", abortListener);
+    subscription.dispose();
+  }
+}
+
+export function emitHarnessObserverEvent(
+  mainWindow: BrowserWindow,
+  event: HarnessObserverEvent,
+): void {
+  const webContents = resolveMainWindowWebContents(mainWindow);
+  if (!webContents) {
+    return;
+  }
+
+  webContents.send(HARNESS_OBSERVER_EVENT_CHANNEL, event);
 }
 
 function emitWorkspaceSidebarStateChanged(
@@ -140,9 +232,11 @@ interface DefaultElectronAppServicesOptions {
   shellEnvironmentResolver: ShellEnvironmentResolver;
   terminalRegistry: WorkspaceTerminalRegistry;
   terminalRouter: TerminalMainIpcRouter | null;
+  harnessAdapters: readonly HarnessAdapter[];
   workspaceShellService: WorkspaceShellService;
   workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
+  sidecarObserverSubscription: SidecarObserverEventSubscription;
 }
 
 class DefaultElectronAppServices implements ElectronAppServices {
@@ -152,9 +246,11 @@ class DefaultElectronAppServices implements ElectronAppServices {
   public readonly shellEnvironmentResolver: ShellEnvironmentResolver;
   public readonly terminalRegistry: WorkspaceTerminalRegistry;
   public readonly terminalRouter: TerminalMainIpcRouter | null;
+  public readonly harnessAdapters: readonly HarnessAdapter[];
   public readonly workspaceShellService: WorkspaceShellService;
   private readonly workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
+  private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
 
   private disposed = false;
 
@@ -165,9 +261,11 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.shellEnvironmentResolver = options.shellEnvironmentResolver;
     this.terminalRegistry = options.terminalRegistry;
     this.terminalRouter = options.terminalRouter;
+    this.harnessAdapters = options.harnessAdapters;
     this.workspaceShellService = options.workspaceShellService;
     this.workspaceIpcAdapter = options.workspaceIpcAdapter;
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
+    this.sidecarObserverSubscription = options.sidecarObserverSubscription;
   }
 
   public async dispose(): Promise<void> {
@@ -176,6 +274,10 @@ class DefaultElectronAppServices implements ElectronAppServices {
     }
 
     this.disposed = true;
+    this.sidecarObserverSubscription.dispose();
+    for (const adapter of this.harnessAdapters) {
+      await adapter.dispose();
+    }
     this.workspaceShortcutBridge.dispose();
     this.workspaceIpcAdapter.stop();
     this.terminalRouter?.stop();

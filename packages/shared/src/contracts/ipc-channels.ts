@@ -1,6 +1,8 @@
 export const TERMINAL_INVOKE_CHANNEL = "terminal:invoke";
 export const TERMINAL_EVENT_CHANNEL = "terminal:event";
 
+export const HARNESS_OBSERVER_EVENT_CHANNEL = "harness:observer-event";
+
 export const WORKSPACE_OPEN_FOLDER_CHANNEL = "workspace:open-folder";
 export const WORKSPACE_ACTIVATE_CHANNEL = "workspace:activate";
 export const WORKSPACE_CLOSE_CHANNEL = "workspace:close";

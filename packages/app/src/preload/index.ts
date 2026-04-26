@@ -12,6 +12,10 @@ import {
   type NexusPreloadDisposable,
   type NexusWorkspaceApi,
 } from "./nexus-workspace-api";
+import {
+  createNexusHarnessApi,
+  type NexusHarnessApi,
+} from "./nexus-harness-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -38,6 +42,8 @@ const nexusTerminal: NexusTerminalApi = {
 };
 
 const nexusWorkspace: NexusWorkspaceApi = createNexusWorkspaceApi(ipcRenderer);
+const nexusHarness: NexusHarnessApi = createNexusHarnessApi(ipcRenderer);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
+contextBridge.exposeInMainWorld("nexusHarness", nexusHarness);

@@ -56,6 +56,7 @@
 
   /* E3 status */
   --color-status-running: oklch(0.75 0.12 150);
+  --color-status-attention: oklch(0.78 0.12 75);
   --color-status-idle: var(--color-zinc-500);
   --color-status-error: var(--color-destructive);
 
