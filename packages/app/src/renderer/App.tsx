@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type Key
 import { useStore } from "zustand";
 import { Eye, Folder, GitCompare, GripVertical, History, Wrench } from "lucide-react";
 
+import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import { ActivityBar } from "./components/ActivityBar";
+import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { TerminalPane } from "./components/TerminalPane";
@@ -65,7 +67,11 @@ export default function App(): JSX.Element {
       SHARED_PANEL_MAX_SIZE,
     ),
   );
+  const [claudeConsentRequest, setClaudeConsentRequest] =
+    useState<ClaudeSettingsConsentRequest | null>(null);
+  const [claudeConsentDontAskAgain, setClaudeConsentDontAskAgain] = useState(false);
   const workspaceLatestSizeRef = useRef(workspacePanelState.size);
+  const pendingClaudeConsentRef = useRef<ClaudeSettingsConsentRequest | null>(null);
   const sharedLatestSizeRef = useRef(sharedPanelState.size);
   const workspaceResizeStartRef = useRef<ResizeDragState | null>(null);
   const sharedResizeStartRef = useRef<ResizeDragState | null>(null);
@@ -102,6 +108,41 @@ export default function App(): JSX.Element {
       harnessBadgeStore.getState().stopObserverSubscription();
     };
   }, [harnessBadgeStore]);
+
+  const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
+    const request = pendingClaudeConsentRef.current;
+    if (!request) {
+      return;
+    }
+
+    pendingClaudeConsentRef.current = null;
+    setClaudeConsentRequest(null);
+    setClaudeConsentDontAskAgain(false);
+    void window.nexusClaudeSettings.respondConsentRequest({
+      requestId: request.requestId,
+      approved,
+      dontAskAgain: approved ? dontAskAgain : false,
+    }).catch((error) => {
+      console.error("Claude settings consent: failed to send decision.", error);
+    });
+  }, []);
+
+  useEffect(() => {
+    const subscription = window.nexusClaudeSettings.onConsentRequest((request) => {
+      if (pendingClaudeConsentRef.current) {
+        completeClaudeConsentRequest(false, false);
+      }
+
+      pendingClaudeConsentRef.current = request;
+      setClaudeConsentDontAskAgain(false);
+      setClaudeConsentRequest(request);
+    });
+
+    return () => {
+      subscription.dispose();
+      completeClaudeConsentRequest(false, false);
+    };
+  }, [completeClaudeConsentRequest]);
 
   const toggleWorkspacePanel = useCallback(() => {
     setWorkspaceVisible((visible) => !visible);
@@ -279,6 +320,23 @@ export default function App(): JSX.Element {
     <div className="flex h-full bg-background text-foreground">
       <ActivityBar />
       <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+      <ClaudeSettingsConsentDialog
+        open={claudeConsentRequest !== null}
+        workspaceName={claudeConsentRequest?.workspaceName ?? "this workspace"}
+        dontAskAgain={claudeConsentDontAskAgain}
+        onOpenChange={(open) => {
+          if (!open) {
+            completeClaudeConsentRequest(false, false);
+          }
+        }}
+        onDontAskAgainChange={setClaudeConsentDontAskAgain}
+        onApprove={(decision) => {
+          completeClaudeConsentRequest(true, decision.dontAskAgain);
+        }}
+        onCancel={() => {
+          completeClaudeConsentRequest(false, false);
+        }}
+      />
 
       <div className="flex min-w-0 flex-1">
         {workspaceVisible && (

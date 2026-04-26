@@ -181,7 +181,6 @@ export class XtermImeOverlay {
 
   public constructor(host: OverlayHostLike) {
     this.host = host;
-    this.host.classList?.add?.(XTERM_IME_PATCH_ROOT_CLASS);
 
     this.hostPositionBefore = this.host.style?.position;
     this.hostPositionPatched =
@@ -224,6 +223,7 @@ export class XtermImeOverlay {
       return;
     }
 
+    this.host.classList?.add?.(XTERM_IME_PATCH_ROOT_CLASS);
     this.overlayNode.textContent = text;
     this.overlayNode.style.minHeight = `${Math.max(0, Math.round(anchor.height))}px`;
     this.overlayNode.style.transform = toXtermImeOverlayTransform(anchor);
@@ -235,6 +235,7 @@ export class XtermImeOverlay {
       return;
     }
 
+    this.host.classList?.remove?.(XTERM_IME_PATCH_ROOT_CLASS);
     this.overlayNode.textContent = "";
     this.overlayNode.style.visibility = "hidden";
     this.overlayNode.style.transform = OFFSCREEN_TRANSFORM;

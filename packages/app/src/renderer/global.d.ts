@@ -3,6 +3,10 @@ import type {
   TerminalIpcEvent,
 } from "../../../shared/src/contracts/terminal-ipc";
 import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
+import type {
+  ClaudeSettingsConsentRequest,
+  ClaudeSettingsConsentResponse,
+} from "../../../shared/src/contracts/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import type {
   OpenFolderRequest,
@@ -24,6 +28,13 @@ interface NexusHarnessApi {
   ): NexusPreloadDisposable;
 }
 
+interface NexusClaudeSettingsApi {
+  onConsentRequest(
+    listener: (request: ClaudeSettingsConsentRequest) => void,
+  ): NexusPreloadDisposable;
+  respondConsentRequest(response: ClaudeSettingsConsentResponse): Promise<void>;
+}
+
 interface NexusWorkspaceApi {
   openFolder(request: OpenFolderRequest): Promise<WorkspaceSidebarState>;
   activateWorkspace(workspaceId: WorkspaceId): Promise<WorkspaceSidebarState>;
@@ -40,6 +51,7 @@ declare global {
     nexusTerminal: NexusTerminalApi;
     nexusWorkspace: NexusWorkspaceApi;
     nexusHarness: NexusHarnessApi;
+    nexusClaudeSettings: NexusClaudeSettingsApi;
   }
 }
 

@@ -9,9 +9,23 @@ import {
   type RestoredWorkspaceSession,
 } from "./workspace-persistence";
 import type { OpenSessionSidecarLifecycleManager } from "./sidecar-lifecycle-manager";
+import type { ClaudeSettingsDetection } from "./claude-settings-manager";
 
 export interface OpenSessionTerminalLifecycleManager {
   stopTerminalsForClosedWorkspace(workspaceId: WorkspaceId): Promise<void>;
+}
+
+export interface WorkspaceClaudeSettingsRegistration {
+  ensureRegistered(workspaceEntry: {
+    id: WorkspaceId;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<ClaudeSettingsDetection | unknown>;
+  unregister(workspaceEntry: {
+    id: WorkspaceId;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<ClaudeSettingsDetection | unknown>;
 }
 
 export class WorkspaceShellService {
@@ -19,6 +33,7 @@ export class WorkspaceShellService {
     private readonly persistenceStore: WorkspacePersistenceStore,
     private readonly sidecarLifecycleManager?: OpenSessionSidecarLifecycleManager,
     private readonly terminalLifecycleManager?: OpenSessionTerminalLifecycleManager,
+    private readonly claudeSettingsRegistration?: WorkspaceClaudeSettingsRegistration,
   ) {}
 
   public async restoreWorkspaceSessionOnAppStart(): Promise<WorkspaceSidebarState> {
@@ -40,6 +55,7 @@ export class WorkspaceShellService {
     );
     await this.persistenceStore.openWorkspace(workspaceEntry.id);
     await this.sidecarLifecycleManager?.startSidecarForOpenedWorkspace(workspaceEntry.id);
+    await this.claudeSettingsRegistration?.ensureRegistered(workspaceEntry);
     return this.getSidebarState();
   }
 
@@ -50,7 +66,12 @@ export class WorkspaceShellService {
   }
 
   public async closeWorkspaceInSession(workspaceId: WorkspaceId): Promise<WorkspaceSidebarState> {
+    const registry = await this.persistenceStore.getWorkspaceRegistry();
+    const workspaceEntry = registry.workspaces.find((entry) => entry.id === workspaceId);
     await this.persistenceStore.closeWorkspace(workspaceId);
+    if (workspaceEntry) {
+      await this.claudeSettingsRegistration?.unregister(workspaceEntry);
+    }
     await this.sidecarLifecycleManager?.stopSidecarForClosedWorkspace(workspaceId);
     await this.terminalLifecycleManager?.stopTerminalsForClosedWorkspace(workspaceId);
     return this.getSidebarState();

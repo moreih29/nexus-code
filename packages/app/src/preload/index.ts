@@ -16,6 +16,10 @@ import {
   createNexusHarnessApi,
   type NexusHarnessApi,
 } from "./nexus-harness-api";
+import {
+  createNexusClaudeSettingsApi,
+  type NexusClaudeSettingsApi,
+} from "./nexus-claude-settings-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -43,7 +47,9 @@ const nexusTerminal: NexusTerminalApi = {
 
 const nexusWorkspace: NexusWorkspaceApi = createNexusWorkspaceApi(ipcRenderer);
 const nexusHarness: NexusHarnessApi = createNexusHarnessApi(ipcRenderer);
+const nexusClaudeSettings: NexusClaudeSettingsApi = createNexusClaudeSettingsApi(ipcRenderer);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
 contextBridge.exposeInMainWorld("nexusHarness", nexusHarness);
+contextBridge.exposeInMainWorld("nexusClaudeSettings", nexusClaudeSettings);

@@ -13,12 +13,12 @@ describe("ClaudeSettingsConsentDialog", () => {
       onCancel: () => {},
     });
 
-    expect(flatText(tree)).toContain("Enable Claude Code hooks for");
+    expect(flatText(tree)).toContain("Claude Code hook을 활성화할까요");
     expect(flatText(tree)).toContain("Alpha");
     expect(flatText(tree)).toContain(".claude/settings.local.json");
     expect(flatText(tree)).toContain(".gitignore");
-    expect(flatText(tree)).toContain("one-time backup");
-    expect(flatText(tree)).toContain("Don't ask again for this workspace");
+    expect(flatText(tree)).toContain("1회 백업");
+    expect(flatText(tree)).toContain("다시 묻지 않기");
   });
 });
 

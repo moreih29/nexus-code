@@ -3,6 +3,9 @@ export const TERMINAL_EVENT_CHANNEL = "terminal:event";
 
 export const HARNESS_OBSERVER_EVENT_CHANNEL = "harness:observer-event";
 
+export const CLAUDE_SETTINGS_CONSENT_REQUEST_CHANNEL = "claude-settings:consent-request";
+export const CLAUDE_SETTINGS_CONSENT_RESPONSE_CHANNEL = "claude-settings:consent-response";
+
 export const WORKSPACE_OPEN_FOLDER_CHANNEL = "workspace:open-folder";
 export const WORKSPACE_ACTIVATE_CHANNEL = "workspace:activate";
 export const WORKSPACE_CLOSE_CHANNEL = "workspace:close";

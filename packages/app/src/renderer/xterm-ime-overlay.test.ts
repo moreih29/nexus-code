@@ -137,6 +137,8 @@ describe("xterm-ime-overlay", () => {
     hostNode.classList = new FakeClassList();
 
     const overlay = new XtermImeOverlay(hostNode);
+    expect(hostNode.classList.has(XTERM_IME_PATCH_ROOT_CLASS)).toBeFalse();
+
     overlay.render("한", { x: 12.4, y: 33.6, height: 19.2 });
 
     expect(hostNode.children).toHaveLength(1);
@@ -146,6 +148,7 @@ describe("xterm-ime-overlay", () => {
     expect(overlayNode.style.position).toBe("absolute");
     expect(overlayNode.style.transform).toBe(toXtermImeOverlayTransform({ x: 12.4, y: 33.6, height: 19.2 }));
     expect(overlayNode.style.minHeight).toBe("19px");
+    expect(hostNode.classList.has(XTERM_IME_PATCH_ROOT_CLASS)).toBeTrue();
 
     overlay.dispose();
     expect(hostNode.children).toHaveLength(0);

@@ -18,6 +18,11 @@ import {
   type SidecarObserverEventSubscription,
 } from "./sidecar-bridge";
 import { resolveSidecarBinaryPath } from "./sidecar-bin-resolver";
+import { ClaudeSettingsConsentStore, ClaudeSettingsManager } from "./claude-settings-manager";
+import {
+  ClaudeSettingsRegistrationCoordinator,
+  RendererClaudeSettingsConsentRequester,
+} from "./claude-settings-registration";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
 import type { SidecarRuntime } from "./sidecar-runtime";
 import {
@@ -57,10 +62,12 @@ export async function composeElectronAppServices(
     resourcesPath: process.resourcesPath,
     isPackaged: app.isPackaged,
   };
+  const userDataDir = app.getPath("userData");
+  const sidecarBin = resolveSidecarBinaryPath(sidecarBinaryOptions);
   const sidecarRuntime = new SidecarBridge({
     ...sidecarBinaryOptions,
-    sidecarBin: resolveSidecarBinaryPath(sidecarBinaryOptions) ?? undefined,
-    dataDir: app.getPath("userData"),
+    sidecarBin: sidecarBin ?? undefined,
+    dataDir: userDataDir,
   });
   const harnessAdapters: readonly HarnessAdapter[] = [
     new ClaudeCodeAdapter({
@@ -76,6 +83,22 @@ export async function composeElectronAppServices(
     workspacePersistenceStore,
     sidecarRuntime,
   );
+  const claudeSettingsConsentRequester = new RendererClaudeSettingsConsentRequester({
+    ipcMain,
+    mainWindow,
+  });
+  const claudeSettingsRegistration = sidecarBin
+    ? new ClaudeSettingsRegistrationCoordinator({
+        settingsManager: new ClaudeSettingsManager({
+          sidecarBin,
+          dataDir: userDataDir,
+        }),
+        consentStore: new ClaudeSettingsConsentStore({
+          storageDir: userDataDir,
+        }),
+        consentRequester: claudeSettingsConsentRequester,
+      })
+    : null;
 
   const shellEnvironmentResolver = new ShellEnvironmentResolver();
   const terminalRegistry = new WorkspaceTerminalRegistry();
@@ -96,6 +119,7 @@ export async function composeElectronAppServices(
     workspacePersistenceStore,
     sidecarLifecycleManager,
     terminalRegistry,
+    claudeSettingsRegistration ?? undefined,
   );
   const workspaceIpcAdapter = new ElectronWorkspaceIpcAdapter({
     ipcMain,
@@ -127,6 +151,7 @@ export async function composeElectronAppServices(
     workspaceIpcAdapter,
     workspaceShortcutBridge,
     sidecarObserverSubscription,
+    claudeSettingsConsentRequester,
   });
 }
 
@@ -237,6 +262,7 @@ interface DefaultElectronAppServicesOptions {
   workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   sidecarObserverSubscription: SidecarObserverEventSubscription;
+  claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
 }
 
 class DefaultElectronAppServices implements ElectronAppServices {
@@ -251,6 +277,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
   private readonly workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
+  private readonly claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
 
   private disposed = false;
 
@@ -266,6 +293,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.workspaceIpcAdapter = options.workspaceIpcAdapter;
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
     this.sidecarObserverSubscription = options.sidecarObserverSubscription;
+    this.claudeSettingsConsentRequester = options.claudeSettingsConsentRequester;
   }
 
   public async dispose(): Promise<void> {
@@ -275,6 +303,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
 
     this.disposed = true;
     this.sidecarObserverSubscription.dispose();
+    this.claudeSettingsConsentRequester.dispose();
     for (const adapter of this.harnessAdapters) {
       await adapter.dispose();
     }

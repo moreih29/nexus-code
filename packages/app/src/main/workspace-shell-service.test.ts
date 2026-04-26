@@ -82,6 +82,41 @@ describe("WorkspaceShellService", () => {
     }
   });
 
+
+  test("open-folder flow invokes Claude settings registration coordinator", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nexus-shell-service-claude-"));
+    try {
+      const alphaPath = path.join(tempRoot, "alpha");
+      await mkdir(alphaPath, { recursive: true });
+      const store = new WorkspacePersistenceStore({
+        storageDir: tempRoot,
+        now: () => new Date("2026-04-26T05:15:00.000Z"),
+      });
+      const claudeRegistration = new FakeClaudeSettingsRegistrationCoordinator();
+      const service = new WorkspaceShellService(
+        store,
+        undefined,
+        undefined,
+        claudeRegistration,
+      );
+
+      const opened = await service.openFolderIntoSession({
+        absolutePath: alphaPath,
+        displayName: "Alpha",
+      });
+
+      expect(claudeRegistration.ensureRegisteredCalls).toEqual([
+        {
+          id: opened.openWorkspaces[0]!.id,
+          absolutePath: alphaPath,
+          displayName: "Alpha",
+        },
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test("closeWorkspaceInSession also requests terminal cleanup for the closed workspace", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nexus-shell-service-close-"));
     const clock = createSteppedClock([
@@ -122,6 +157,31 @@ describe("WorkspaceShellService", () => {
     }
   });
 });
+
+class FakeClaudeSettingsRegistrationCoordinator {
+  public readonly ensureRegisteredCalls: Array<{
+    id: string;
+    absolutePath: string;
+    displayName: string;
+  }> = [];
+
+  public async ensureRegistered(workspace: {
+    id: string;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<unknown> {
+    this.ensureRegisteredCalls.push({
+      id: workspace.id,
+      absolutePath: workspace.absolutePath,
+      displayName: workspace.displayName,
+    });
+    return null;
+  }
+
+  public async unregister(): Promise<unknown> {
+    return null;
+  }
+}
 
 class FakeTerminalLifecycleManager implements OpenSessionTerminalLifecycleManager {
   public readonly stopCalls: string[] = [];

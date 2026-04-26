@@ -5,6 +5,7 @@ export * from "./contracts/workspace-actions";
 export * from "./contracts/sidecar";
 export * from "./contracts/sidecar-lifecycle";
 export * from "./contracts/harness-observer";
+export * from "./contracts/claude-settings";
 export * from "./contracts/workspace-shell";
 export * from "./contracts/workspace-switching";
 export * from "./contracts/terminal-tab";
