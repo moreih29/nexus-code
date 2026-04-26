@@ -3175,6 +3175,109 @@
           "created_at": "2026-04-26T09:40:08.203Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T11:32:28.487Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 19,
+        "topic": "M3+1 후속 UI 정리 — Shared Panel placeholder + 좌측 Workspace Sidebar 리사이즈/디자인 개선",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Right Shared Panel placeholder 문구/표현 정리 범위 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "Right Shared Panel은 아직 Tool/Session/Diff/Preview 기능이 구현되지 않았지만, 현재 placeholder 문구가 'will appear here'라 사용자에게 왜 비어 있는지 혼동을 준다. 직전 대화에서 Session placeholder 정리를 우선 추천했고, 사용자가 '[run] 응 그렇게 해봐'로 승인했다. hook/settings 방식은 유지한다.",
+                "recorded_at": "2026-04-26T11:18:06.251Z"
+              }
+            ],
+            "decision": "선택: Right Shared Panel 탭은 유지하되 각 placeholder를 'Coming soon' 계열로 정직하게 바꾼다. Tool/Session/Diff/Preview 모두 현재 build에서 아직 구현되지 않았고, 지금 사용 가능한 표면은 WorkspaceSidebar 상태 뱃지라는 점을 짧게 명시한다. 근거: 탭을 숨기면 roadmap 표면이 사라져 정보 구조가 흔들리고, 구현되지 않은 표면을 구현된 것처럼 보이게 두면 사용자 혼동이 지속된다. 기각: Tool Call 패널을 즉시 구현하는 것은 새 ObserverEvent 계약/sidecar mapping/main/preload/renderer list까지 확장해야 하므로 이번 '버그+UI 정리' 범위를 초과한다. 탭을 disabled 처리하는 대안은 곧 들어올 표면의 위치를 확인할 수 없고, shadcn tabs 동작 수정 비용이 필요해 제외한다."
+          },
+          {
+            "id": 2,
+            "title": "좌측 Workspace Sidebar 리사이즈 제약 및 레이아웃 개선 방식 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "스크린샷과 코드 확인 결과, workspace panel 최소 폭 192px가 현재 row 구조(Open Folder 버튼, path, close button, badge)에 비해 지나치게 작다. WorkspaceSidebar가 내부 배경/패딩을 갖고 App aside가 다시 p-3과 별도 Files placeholder card를 붙여 중첩 카드처럼 보인다. 개선은 구조를 크게 바꾸기보다 min/default 폭 상향, overflow 안정화, header/row/placeholder 정리를 적용하는 것이 안전하다.",
+                "recorded_at": "2026-04-26T11:18:27.912Z"
+              }
+            ],
+            "decision": "선택: 좌측 panel min/default/max를 280/320/520으로 조정하고, WorkspaceSidebar를 compact card layout으로 정리한다. App.tsx의 별도 'Files appear here' 큰 placeholder는 제거하거나 작은 'Files coming soon' 보조 card로 축소해 workspace list가 주인공이 되게 한다. WorkspaceSidebar header는 'Workspaces' title + Open Folder 버튼으로 정렬하고, workspace row는 h-auto/min-w-0/overflow-hidden 구조와 close button shrink-0 보장, active border/ring, path mono truncate를 적용한다. badge는 8px dot 유지. 근거: 사용자가 드래그에 따라 안 보인다고 한 문제는 우선 최소 폭과 overflow 제약의 문제이며, 기능 구조를 갈아엎지 않아도 안정화할 수 있다. 기각: activity bar/전체 레이아웃 재설계는 범위 초과. file explorer 실제 구현은 별도 기능이다. panel을 고정 폭으로 만드는 것은 사용자의 드래그 가능성을 없애므로 제외한다."
+          },
+          {
+            "id": 3,
+            "title": "검증/마감 범위 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "검증은 UI 렌더 구조 변경에 맞춰 WorkspaceSidebar component tests를 확장하고, App constants/class 변경은 typecheck/build/lint로 확인한다. 실제 좌측 panel 디자인 평가는 screenshot/사용자 화면 실기 의존성이 크므로 최종 보고에서 확인 항목을 제시한다. 기존 hook path는 건드리지 않지만 WorkspaceSidebar badge test로 green/amber/error dot은 유지 검증한다.",
+                "recorded_at": "2026-04-26T11:18:40.692Z"
+              }
+            ],
+            "decision": "선택: 대상 테스트는 WorkspaceSidebar component tests + renderer/App type-level 검증을 우선 실행하고, 전체 bun test/typecheck/lint/build/check-dist-require/go test를 통과시킨다. dev launch smoke는 앱 기동 확인까지만 수행하고, 실제 좌측 panel 시각 품질과 드래그 시 clipping 여부는 사용자 화면에서 최종 확인 대상으로 보고한다. 근거: UI class/layout은 자동 테스트로 일부만 검증 가능하고, screenshot 기반 시각 평가는 수동 확인이 필요하다. 기각: Playwright 기반 screenshot regression은 현재 test infra에 없고 이번 hotfix 범위를 키운다. 문서/context 업데이트는 디자인 원칙이 아니라 구현 polish라 생략한다."
+          }
+        ],
+        "research_summary": "사용자 실기 검증: hook badge green/amber 및 터미널 fit 수정은 해결됨. 새 요청: 직전 추천의 placeholder 정리 진행 + 스크린샷 기준 좌측 Workspace Sidebar가 구리고, 패널 드래그 시 내용이 잘리거나 안 보이는 문제를 함께 수정. 코드 확인: App.tsx의 workspace panel default/min/max는 272/192/448로, 192px 최소 폭은 Open Folder 버튼·workspace card·path/close button에 부족하다. readStoredPanelState는 저장된 size가 새 min 밖이면 fallback을 쓰므로 min 상향 시 오래 저장된 너무 작은 폭은 자동 정리 가능하다. WorkspaceSidebar.tsx는 내부 p-2와 App의 aside p-3 및 별도 Files placeholder card가 중첩되어 시각적으로 덩어리가 어색하다. Right Shared Panel의 Tool/Session/Diff/Preview는 모두 placeholder인데 'will appear here' 문구라 구현된 것처럼 오해를 만든다. .nexus/context/design.md는 정적·절제된 dark UI와 작은 상태 dot을 선호하며, 현재 hook/settings 방식은 사용자가 유지 결정했다.",
+        "created_at": "2026-04-26T11:17:58.308Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. Right Shared Panel placeholder 정직화",
+          "status": "completed",
+          "context": "사용자가 직전 추천 'placeholder 정리'에 동의. 현재 App.tsx Right Shared Panel의 Tool/Session/Diff/Preview placeholder는 구현된 것처럼 보이는 문구라 혼동을 만든다.",
+          "acceptance": "1. Tool/Session/Diff/Preview placeholder가 'will appear here' 식 구현 암시 문구를 쓰지 않는다. 2. 각 panel은 아직 구현 예정임을 명확히 표시한다. 3. UI 영어 문구 유지. 4. App.tsx typecheck/build 영향 없음.",
+          "approach": "App.tsx의 shared panel placeholder copy를 Coming soon 계열로 바꾸고, 현재 build에서 사용 가능한 표면은 WorkspaceSidebar status badge임을 짧게 명시한다. 탭 구조는 유지한다.",
+          "risk": "문구만 바꾸므로 기능 리스크 낮음. 다만 너무 장황하면 right panel이 무거워 보일 수 있어 짧게 유지한다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:18:57.458Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. Left Workspace Sidebar 리사이즈/디자인 개선",
+          "status": "completed",
+          "context": "사용자 스크린샷: 좌측 workspace sidebar가 드래그에 따라 내용이 안 보이고 시각적으로 구림. 현재 panel min/default/max=192/272/448, WorkspaceSidebar와 App의 file placeholder가 중첩되어 어색함.",
+          "acceptance": "1. WORKSPACE_PANEL_MIN_SIZE가 280 이상, DEFAULT가 320 이상으로 조정되어 저장된 너무 작은 폭은 fallback 처리된다. 2. WorkspaceSidebar row는 close button/badge가 shrink-0으로 유지되고 text/path는 truncate된다. 3. Open Folder 버튼이 좌측 panel 최소 폭에서 잘리지 않도록 header layout이 개선된다. 4. 큰 'Files appear here' placeholder가 제거되거나 작은 coming-soon 보조 card로 정리된다. 5. WorkspaceSidebar tests가 badge 유지 + 새 title/header/row semantics를 검증한다.",
+          "approach": "App.tsx panel size constants를 280/320/520으로 상향. WorkspaceSidebar를 Workspaces title + Open Folder 버튼 header, compact workspace card list, stable badge/close button layout으로 정리. App.tsx의 큰 Files placeholder를 작고 정직한 'Files coming soon' 보조 card로 축소하거나 제거. overflow/min-w/min-h 제약 보강.",
+          "risk": "패널 폭 상향으로 center terminal 기본 폭이 약간 줄 수 있다. 그러나 현재 192px 최소폭은 실제 UI를 깨므로 상향이 맞다.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:19:12.128Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. UI 회귀 검증 + 사이클 마감",
+          "status": "completed",
+          "context": "T1/T2 후 자동 검증과 dev launch smoke를 수행하고, plan/tasks를 archive 후 명시 path commit한다.",
+          "acceptance": "1. WorkspaceSidebar 관련 대상 테스트 PASS. 2. bun test PASS. 3. bun run typecheck PASS. 4. bun run lint PASS. 5. bun run build PASS. 6. bun run check:dist-require PASS. 7. cd sidecar && go test ./... PASS. 8. git diff --check PASS. 9. bun run dev smoke 기동 확인. 10. nx_task_close 후 단일 커밋 및 한국어 보고.",
+          "approach": "대상 테스트 먼저 실행 후 전체 게이트 실행. dev launch는 앱이 뜨는지 확인 후 종료. 최종 보고에서 사용자가 확인할 좌측 panel 드래그/placeholder 항목을 제시한다.",
+          "risk": "시각 디자인 평가는 자동 검증 한계가 있어 사용자 화면 재확인이 필요하다.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T11:19:21.283Z"
+        }
+      ]
     }
   ]
 }

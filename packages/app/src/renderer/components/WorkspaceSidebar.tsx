@@ -24,15 +24,28 @@ export function WorkspaceSidebar({
   onActivateWorkspace,
   onCloseWorkspace,
 }: WorkspaceSidebarProps): JSX.Element {
+  const workspaceCount = sidebarState.openWorkspaces.length;
+
   return (
-    <section data-component="workspace-sidebar" className="flex min-h-0 flex-1 flex-col bg-sidebar p-2 text-sidebar-foreground">
-      <header className="flex items-center justify-end gap-2">
+    <section
+      data-component="workspace-sidebar"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-sidebar-border bg-sidebar/80 p-2 text-sidebar-foreground"
+    >
+      <header className="flex shrink-0 items-center justify-between gap-2 px-1 pb-2">
+        <div className="min-w-0">
+          <h2 className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground">
+            Workspaces
+          </h2>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {workspaceCount === 1 ? "1 open" : `${workspaceCount} open`}
+          </p>
+        </div>
         <Button
           type="button"
           data-action="open-folder"
           variant="outline"
           size="sm"
-          className="h-8 text-sm"
+          className="h-8 shrink-0 px-2 text-xs"
           onClick={() => {
             void onOpenFolder();
           }}
@@ -41,8 +54,8 @@ export function WorkspaceSidebar({
         </Button>
       </header>
 
-      <ScrollArea className="mt-2 min-h-0 flex-1">
-        <ol className="flex flex-col gap-1">
+      <ScrollArea className="min-h-0 flex-1">
+        <ol className="flex min-w-0 flex-col gap-1.5 pr-1">
           {sidebarState.openWorkspaces.map((workspace) => {
             const isActive = workspace.id === sidebarState.activeWorkspaceId;
             const badge = badgeByWorkspaceId[workspace.id];
@@ -51,8 +64,16 @@ export function WorkspaceSidebar({
               : workspace.displayName;
 
             return (
-              <li key={workspace.id} className="rounded-md border border-sidebar-border bg-sidebar">
-                <div className="flex h-9 items-center gap-1 p-1">
+              <li
+                key={workspace.id}
+                data-active={isActive ? "true" : "false"}
+                className={cn(
+                  "group overflow-hidden rounded-lg border border-sidebar-border bg-card/40 transition-colors",
+                  "hover:border-zinc-700 hover:bg-card/70",
+                  isActive && "border-primary/50 bg-accent/70 ring-1 ring-primary/25",
+                )}
+              >
+                <div className="flex min-h-12 min-w-0 items-center gap-2 p-2">
                   <button
                     type="button"
                     data-action="activate-workspace"
@@ -61,15 +82,17 @@ export function WorkspaceSidebar({
                     aria-current={isActive ? "page" : "false"}
                     aria-label={workspaceAriaLabel}
                     className={cn(
-                      "flex h-7 min-w-0 flex-1 flex-col items-start justify-center rounded px-2 text-left text-base text-sidebar-foreground hover:bg-accent hover:text-accent-foreground",
-                      isActive && "bg-accent text-accent-foreground",
+                      "grid min-w-0 flex-1 gap-1 rounded-sm text-left text-sidebar-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     )}
                     onClick={() => {
                       void onActivateWorkspace(workspace.id);
                     }}
                   >
-                    <span className="w-full truncate font-medium leading-none">{workspace.displayName}</span>
-                    <small className="mt-0.5 w-full truncate font-mono text-xs leading-none text-muted-foreground">
+                    <span className="w-full truncate text-sm font-semibold leading-tight text-foreground">
+                      {workspace.displayName}
+                    </span>
+                    <small className="w-full truncate font-mono text-xs leading-tight text-muted-foreground">
                       {workspace.absolutePath}
                     </small>
                   </button>
@@ -95,7 +118,7 @@ export function WorkspaceSidebar({
                     aria-label={`Close ${workspace.displayName}`}
                     variant="ghost"
                     size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="shrink-0 text-muted-foreground opacity-70 hover:text-foreground hover:opacity-100"
                     onClick={() => {
                       void onCloseWorkspace(workspace.id);
                     }}

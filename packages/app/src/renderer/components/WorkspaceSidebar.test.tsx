@@ -21,6 +21,45 @@ const sidebarState: WorkspaceSidebarState = {
 };
 
 describe("WorkspaceSidebar harness badges", () => {
+  test("renders stable workspace header and row controls for the resizable left panel", () => {
+    const tree = WorkspaceSidebar({
+      sidebarState,
+      badgeByWorkspaceId: {},
+      onOpenFolder: async () => {},
+      onActivateWorkspace: async () => {},
+      onCloseWorkspace: async () => {},
+    });
+
+    expect(findText(tree, "Workspaces")).toBe(true);
+    expect(findText(tree, "2 open")).toBe(true);
+    expect(
+      findElementByPredicate(
+        tree,
+        (element) =>
+          element.props?.["data-action"] === "open-folder" &&
+          String(element.props?.className).includes("shrink-0"),
+      ),
+    ).toBeDefined();
+    expect(
+      findElementByPredicate(
+        tree,
+        (element) =>
+          element.props?.["data-action"] === "activate-workspace" &&
+          element.props?.["data-workspace-id"] === "ws_alpha" &&
+          String(element.props?.className).includes("min-w-0"),
+      ),
+    ).toBeDefined();
+    expect(
+      findElementByPredicate(
+        tree,
+        (element) =>
+          element.props?.["data-action"] === "close-workspace" &&
+          element.props?.["data-workspace-id"] === "ws_alpha" &&
+          String(element.props?.className).includes("shrink-0"),
+      ),
+    ).toBeDefined();
+  });
+
   test("renders running, awaiting approval, and error badge states with aria labels", () => {
     for (const [state, expectedLabel] of [
       ["running", "도구 실행 중"],

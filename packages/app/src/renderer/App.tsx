@@ -24,9 +24,9 @@ import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switchi
 
 const WORKSPACE_PANEL_STORAGE_KEY = "nx.layout.workspacePanel";
 const SHARED_PANEL_STORAGE_KEY = "nx.layout.sharedPanel";
-const WORKSPACE_PANEL_DEFAULT_SIZE = 272;
-const WORKSPACE_PANEL_MIN_SIZE = 192;
-const WORKSPACE_PANEL_MAX_SIZE = 448;
+const WORKSPACE_PANEL_DEFAULT_SIZE = 320;
+const WORKSPACE_PANEL_MIN_SIZE = 280;
+const WORKSPACE_PANEL_MAX_SIZE = 520;
 const SHARED_PANEL_DEFAULT_SIZE = 320;
 const SHARED_PANEL_MIN_SIZE = 256;
 const SHARED_PANEL_MAX_SIZE = 512;
@@ -344,11 +344,11 @@ export default function App(): JSX.Element {
             <div
               ref={workspacePanelRef}
               data-panel="workspace"
-              className="min-h-0 shrink-0"
+              className="min-h-0 shrink-0 overflow-hidden"
               style={{ flexBasis: workspacePanelState.size, width: workspacePanelState.size }}
             >
               <ScrollArea className="h-full border-r border-border bg-sidebar/70">
-                <aside className="flex min-h-full flex-col gap-3 p-3">
+                <aside className="flex min-h-full min-w-0 flex-col gap-3 p-3">
                   <WorkspaceSidebar
                     sidebarState={sidebarState}
                     badgeByWorkspaceId={badgeByWorkspaceId}
@@ -361,13 +361,23 @@ export default function App(): JSX.Element {
                     }
                   />
 
-                  <div className="h-48 rounded-md border border-border bg-card">
-                    <EmptyState
-                      icon={Folder}
-                      title="Files appear here"
-                      description="Open a workspace folder."
-                    />
-                  </div>
+                  <section
+                    data-component="files-placeholder"
+                    className="shrink-0 rounded-lg border border-dashed border-sidebar-border bg-card/35 p-3 text-sidebar-foreground"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Folder aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                      <h2 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-[0.14em]">
+                        Files
+                      </h2>
+                      <span className="shrink-0 rounded-full border border-sidebar-border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        Soon
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-normal text-muted-foreground">
+                      File explorer is not implemented yet. Use the workspace list above for now.
+                    </p>
+                  </section>
                 </aside>
               </ScrollArea>
             </div>
@@ -426,29 +436,29 @@ export default function App(): JSX.Element {
                     <TabsContent value="tool" className="h-48 rounded-md border border-border bg-card">
                       <EmptyState
                         icon={Wrench}
-                        title="No tool calls yet"
-                        description="Agent tool invocations will appear here."
+                        title="Tool calls coming soon"
+                        description="This build only shows live workspace status badges."
                       />
                     </TabsContent>
                     <TabsContent value="session" className="h-48 rounded-md border border-border bg-card">
                       <EmptyState
                         icon={History}
-                        title="No session history"
-                        description="Session entries will appear here."
+                        title="Session history coming soon"
+                        description="Claude Code history is not wired into this panel yet."
                       />
                     </TabsContent>
                     <TabsContent value="diff" className="h-48 rounded-md border border-border bg-card">
                       <EmptyState
                         icon={GitCompare}
-                        title="No changes to review"
-                        description="Pending changes will appear here."
+                        title="Diff review coming soon"
+                        description="File change surfaces are planned for a later observer pass."
                       />
                     </TabsContent>
                     <TabsContent value="preview" className="h-48 rounded-md border border-border bg-card">
                       <EmptyState
                         icon={Eye}
-                        title="Preview unavailable"
-                        description="Markdown or localhost preview will appear here."
+                        title="Preview coming soon"
+                        description="Markdown and localhost previews are not implemented yet."
                       />
                     </TabsContent>
                   </Tabs>
