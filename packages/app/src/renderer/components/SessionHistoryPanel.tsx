@@ -89,11 +89,11 @@ export function SessionHistoryPanelView({
       <div data-component="session-history-panel" className="h-full">
         <EmptyState
           icon={History}
-          title="No Claude session yet"
+          title="No session yet"
           description={
             activeWorkspaceName
-              ? `Run Claude Code in ${activeWorkspaceName}; transcript history will appear here.`
-              : "Open a workspace and run Claude Code; transcript history will appear here."
+              ? `Run a supported harness in ${activeWorkspaceName}; transcript history will appear here.`
+              : "Open a workspace and run a supported harness; transcript history will appear here."
           }
         />
       </div>
@@ -124,7 +124,7 @@ export function SessionHistoryPanelView({
     return (
       <section data-component="session-history-panel" className="flex h-full min-h-0 flex-col">
         {header}
-        <PanelMessage>Loading Claude transcript…</PanelMessage>
+        <PanelMessage>Loading session transcript…</PanelMessage>
       </section>
     );
   }
@@ -150,7 +150,7 @@ export function SessionHistoryPanelView({
         <EmptyState
           icon={History}
           title="No transcript entries"
-          description="Claude session reference exists, but no transcript entries were readable yet."
+          description="Session reference exists, but no transcript entries were readable yet."
         />
       </section>
     );
@@ -160,7 +160,7 @@ export function SessionHistoryPanelView({
     <section data-component="session-history-panel" className="flex h-full min-h-0 flex-col">
       {header}
       <ScrollArea className="min-h-0 flex-1">
-        <ol className="space-y-2 p-3" aria-label="Read-only Claude session history">
+        <ol className="space-y-2 p-3" aria-label="Read-only session history">
           {entries.map((entry) => (
             <li
               key={entry.lineNumber}

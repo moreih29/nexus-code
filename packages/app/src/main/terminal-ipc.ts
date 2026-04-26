@@ -39,11 +39,16 @@ export type TerminalWorkspaceCwdResolver = (
   workspaceId: WorkspaceId,
 ) => Promise<string | null | undefined> | string | null | undefined;
 
+export type TerminalWorkspaceEnvResolver = (
+  workspaceId: WorkspaceId,
+) => Promise<Record<string, string> | null | undefined> | Record<string, string> | null | undefined;
+
 export interface TerminalMainIpcRouterDependencies {
   registry: WorkspaceTerminalRegistry;
   shellEnvironmentResolver: TerminalHostEnvironmentResolver;
   ipcAdapter: TerminalMainIpcAdapter;
   resolveWorkspaceCwd?: TerminalWorkspaceCwdResolver;
+  resolveWorkspaceEnvOverrides?: TerminalWorkspaceEnvResolver;
 }
 
 export interface TerminalMainIpcRouterOptions {
@@ -164,7 +169,7 @@ export class TerminalMainIpcRouter {
   }
 
   private async handleOpenCommand(command: TerminalOpenCommand): Promise<TerminalOpenedEvent> {
-    const openCommand = await this.resolveOpenCommandCwd(command);
+    const openCommand = await this.resolveOpenCommand(command);
     const openedEvent = await this.dependencies.registry.openTerminal({
       tabId: this.createTabId(openCommand.workspaceId),
       openCommand,
@@ -174,14 +179,29 @@ export class TerminalMainIpcRouter {
     return openedEvent;
   }
 
-  private async resolveOpenCommandCwd(command: TerminalOpenCommand): Promise<TerminalOpenCommand> {
-    if (command.cwd) {
+  private async resolveOpenCommand(command: TerminalOpenCommand): Promise<TerminalOpenCommand> {
+    const cwd = await this.resolveOpenCommandCwd(command);
+    const envOverrides = await this.resolveOpenCommandEnvOverrides(command);
+
+    if (cwd === command.cwd && envOverrides === command.envOverrides) {
       return command;
+    }
+
+    return {
+      ...command,
+      cwd,
+      envOverrides,
+    };
+  }
+
+  private async resolveOpenCommandCwd(command: TerminalOpenCommand): Promise<string | undefined> {
+    if (command.cwd) {
+      return command.cwd;
     }
 
     const resolveWorkspaceCwd = this.dependencies.resolveWorkspaceCwd;
     if (!resolveWorkspaceCwd) {
-      return command;
+      return undefined;
     }
 
     const cwd = await resolveWorkspaceCwd(command.workspaceId);
@@ -189,9 +209,23 @@ export class TerminalMainIpcRouter {
       throw new Error(`No terminal cwd is registered for workspace "${command.workspaceId}".`);
     }
 
+    return cwd;
+  }
+
+  private async resolveOpenCommandEnvOverrides(
+    command: TerminalOpenCommand,
+  ): Promise<Record<string, string> | undefined> {
+    const workspaceEnvOverrides = await this.dependencies.resolveWorkspaceEnvOverrides?.(
+      command.workspaceId,
+    );
+    const commandEnvOverrides = command.envOverrides;
+    if (!workspaceEnvOverrides) {
+      return commandEnvOverrides;
+    }
+
     return {
-      ...command,
-      cwd,
+      ...workspaceEnvOverrides,
+      ...(commandEnvOverrides ?? {}),
     };
   }
 

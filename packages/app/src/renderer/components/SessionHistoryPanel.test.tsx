@@ -36,7 +36,7 @@ const loadedResult: ClaudeTranscriptReadResult = {
 };
 
 describe("SessionHistoryPanelView", () => {
-  test("renders an empty state before Claude session history arrives", () => {
+  test("renders an empty state before session history arrives", () => {
     const tree = SessionHistoryPanelView({
       sessionRef: null,
       result: null,
@@ -44,8 +44,8 @@ describe("SessionHistoryPanelView", () => {
       activeWorkspaceName: "Alpha",
     });
 
-    expect(findText(tree, "No Claude session yet")).toBe(true);
-    expect(findText(tree, "Run Claude Code in Alpha; transcript history will appear here.")).toBe(true);
+    expect(findText(tree, "No session yet")).toBe(true);
+    expect(findText(tree, "Run a supported harness in Alpha; transcript history will appear here.")).toBe(true);
   });
 
   test("renders loaded read-only transcript entries", () => {
@@ -72,14 +72,14 @@ describe("SessionHistoryPanelView", () => {
       result: {
         available: false,
         transcriptPath: sessionRef.transcriptPath,
-        reason: "Claude transcript path is outside ~/.claude/projects.",
+        reason: "Session transcript path is outside allowed Claude/Codex roots.",
         readAt: "2026-04-26T05:16:00.000Z",
       },
       loading: false,
     });
 
     expect(findText(tree, "Session unavailable")).toBe(true);
-    expect(findText(tree, "Claude transcript path is outside ~/.claude/projects.")).toBe(true);
+    expect(findText(tree, "Session transcript path is outside allowed Claude/Codex roots.")).toBe(true);
   });
 });
 

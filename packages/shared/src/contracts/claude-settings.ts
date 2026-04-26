@@ -5,6 +5,10 @@ export interface ClaudeSettingsConsentRequest {
   workspaceId: WorkspaceId;
   workspaceName: string;
   workspacePath: string;
+  harnessName?: string;
+  settingsFiles?: string[];
+  settingsDescription?: string;
+  gitignoreEntries?: string[];
 }
 
 export interface ClaudeSettingsConsentResponse {

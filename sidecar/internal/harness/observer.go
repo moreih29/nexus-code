@@ -292,8 +292,10 @@ func tabBadgeStateForHook(input HookEventInput) (contracts.TabBadgeState, error)
 	}
 
 	switch normalizedHookName(input.EventName) {
-	case "pretooluse":
+	case "sessionstart", "userpromptsubmit", "pretooluse":
 		return contracts.TabBadgeStateRunning, nil
+	case "permissionrequest":
+		return contracts.TabBadgeStateAwaitingApproval, nil
 	case "notification":
 		if normalizedHookName(input.NotificationType) == "permissionprompt" {
 			return contracts.TabBadgeStateAwaitingApproval, nil
@@ -320,6 +322,8 @@ func toolCallStatusForHook(input HookEventInput) (contracts.ToolCallStatus, erro
 	switch normalizedHookName(input.EventName) {
 	case "pretooluse":
 		return contracts.ToolCallStatusStarted, nil
+	case "permissionrequest":
+		return contracts.ToolCallStatusAwaitingApproval, nil
 	case "posttooluse":
 		return contracts.ToolCallStatusCompleted, nil
 	case "notification":

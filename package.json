@@ -11,6 +11,11 @@
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/app typecheck",
     "build": "bun run --cwd packages/app build",
     "check:dist-require": "bash ./scripts/check-dist-require.sh",
+    "check:dist": "bun run check:dist-require",
+    "test:sidecar": "cd sidecar && go test ./...",
+    "test:go": "cd sidecar && go test ./...",
+    "test:drift": "bash scripts/check-go-contracts-drift.sh",
+    "test:diff-check": "git diff --check",
     "lint": "bun run --cwd packages/app lint:renderer"
   },
   "devDependencies": {

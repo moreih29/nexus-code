@@ -53,6 +53,21 @@ func TestNormalizeHookEventClaudeLikeAssumptionsMapToTabBadgeStates(t *testing.T
 			want:  contracts.TabBadgeStateRunning,
 		},
 		{
+			name:  "Codex SessionStart maps to running",
+			input: HookEventInput{EventName: "SessionStart", SessionID: "s-1", AdapterName: "codex"},
+			want:  contracts.TabBadgeStateRunning,
+		},
+		{
+			name:  "Codex UserPromptSubmit maps to running",
+			input: HookEventInput{EventName: "UserPromptSubmit", SessionID: "s-1", AdapterName: "codex"},
+			want:  contracts.TabBadgeStateRunning,
+		},
+		{
+			name:  "Codex PermissionRequest maps to awaiting approval",
+			input: HookEventInput{EventName: "PermissionRequest", SessionID: "s-1", AdapterName: "codex"},
+			want:  contracts.TabBadgeStateAwaitingApproval,
+		},
+		{
 			name:  "permission prompt Notification maps to awaiting approval",
 			input: HookEventInput{EventName: "Notification", NotificationType: "permission_prompt", SessionID: "s-1", AdapterName: "claude-code"},
 			want:  contracts.TabBadgeStateAwaitingApproval,
@@ -84,8 +99,12 @@ func TestNormalizeHookEventClaudeLikeAssumptionsMapToTabBadgeStates(t *testing.T
 			if event.State != tc.want {
 				t.Fatalf("state = %q, want %q", event.State, tc.want)
 			}
-			if event.SessionID != "s-1" || event.AdapterName != "claude-code" || event.WorkspaceID != "ws-1" {
-				t.Fatalf("event identity fields = %+v", event)
+			wantAdapterName := tc.input.AdapterName
+			if wantAdapterName == "" {
+				wantAdapterName = "claude-code"
+			}
+			if event.SessionID != "s-1" || event.AdapterName != wantAdapterName || event.WorkspaceID != "ws-1" {
+				t.Fatalf("event identity fields = %+v, want adapter %q", event, wantAdapterName)
 			}
 			if event.Timestamp != fixedNow.UTC().Format(time.RFC3339Nano) {
 				t.Fatalf("timestamp = %q, want %q", event.Timestamp, fixedNow.UTC().Format(time.RFC3339Nano))
@@ -168,6 +187,12 @@ func TestNormalizeToolCallEventMapsClaudeHookPayloads(t *testing.T) {
 			tool:  "Permission",
 		},
 		{
+			name:  "Codex PermissionRequest maps to awaiting approval fallback tool",
+			input: HookEventInput{EventName: "PermissionRequest", SessionID: "s-1", AdapterName: "codex", Message: "approve command"},
+			want:  contracts.ToolCallStatusAwaitingApproval,
+			tool:  "Permission",
+		},
+		{
 			name:  "error payload maps to error",
 			input: HookEventInput{EventName: "PreToolUse", SessionID: "s-1", ToolName: "Bash", HasError: true},
 			want:  contracts.ToolCallStatusError,
@@ -188,8 +213,12 @@ func TestNormalizeToolCallEventMapsClaudeHookPayloads(t *testing.T) {
 			if event.ToolName != tc.tool {
 				t.Fatalf("toolName = %q, want %q", event.ToolName, tc.tool)
 			}
-			if event.SessionID != "s-1" || event.AdapterName != "claude-code" || event.WorkspaceID != "ws-1" {
-				t.Fatalf("event identity fields = %+v", event)
+			wantAdapterName := tc.input.AdapterName
+			if wantAdapterName == "" {
+				wantAdapterName = "claude-code"
+			}
+			if event.SessionID != "s-1" || event.AdapterName != wantAdapterName || event.WorkspaceID != "ws-1" {
+				t.Fatalf("event identity fields = %+v, want adapter %q", event, wantAdapterName)
 			}
 			if event.Timestamp != fixedNow.UTC().Format(time.RFC3339Nano) {
 				t.Fatalf("timestamp = %q, want %q", event.Timestamp, fixedNow.UTC().Format(time.RFC3339Nano))
@@ -278,6 +307,44 @@ func TestHandleHookEventSendsTabBadgeEventThroughFakeWSXServer(t *testing.T) {
 	if sessionHistory.TranscriptPath != "/Users/kih/.claude/projects/ws/s-approval.jsonl" ||
 		sessionHistory.SessionID != "s-approval" {
 		t.Fatalf("session history = %+v", sessionHistory)
+	}
+}
+
+func TestHandleHookEventSendsCodexPermissionRequestBadgeAndToolCall(t *testing.T) {
+	server := &fakeServer{}
+	observer := NewObserver(
+		"ws-1",
+		WithServer(server),
+		WithDefaultAdapterName("codex"),
+		WithClock(func() time.Time { return time.Date(2026, 4, 26, 3, 4, 5, 6, time.UTC) }),
+	)
+
+	_, err := observer.HandleHookEvent(context.Background(), HookEventInput{
+		EventName:    "PermissionRequest",
+		SessionID:    "codex-session",
+		ToolName:     "Bash",
+		InputSummary: "echo hi",
+		Message:      "Codex needs approval",
+	})
+	if err != nil {
+		t.Fatalf("HandleHookEvent() error = %v", err)
+	}
+	if got := server.sentLen(); got != 2 {
+		t.Fatalf("sent len = %d, want 2", got)
+	}
+	tabBadge, ok := server.sentAt(0).(contracts.TabBadgeEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want contracts.TabBadgeEvent", server.sentAt(0))
+	}
+	if tabBadge.AdapterName != "codex" || tabBadge.State != contracts.TabBadgeStateAwaitingApproval {
+		t.Fatalf("tab badge = %+v, want codex awaiting approval", tabBadge)
+	}
+	toolCall, ok := server.sentAt(1).(contracts.ToolCallEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want contracts.ToolCallEvent", server.sentAt(1))
+	}
+	if toolCall.AdapterName != "codex" || toolCall.Status != contracts.ToolCallStatusAwaitingApproval || toolCall.ToolName != "Bash" {
+		t.Fatalf("tool call = %+v, want codex awaiting Bash", toolCall)
 	}
 }
 

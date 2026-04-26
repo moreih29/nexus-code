@@ -25,6 +25,10 @@ import {
   ClaudeSettingsRegistrationCoordinator,
   RendererClaudeSettingsConsentRequester,
 } from "./claude-settings-registration";
+import { CodexSettingsConsentStore, CodexSettingsManager } from "./codex-settings-manager";
+import { CodexSettingsRegistrationCoordinator } from "./codex-settings-registration";
+import { OpenCodeSseObserverService } from "./opencode-sse-observer-service";
+import { buildOpenCodeTerminalEnvOverrides } from "./opencode-runtime";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
 import { ClaudeSessionTranscriptService } from "./claude-session-transcript-service";
 import { registerE3SurfaceIpcHandlers, type E3SurfaceIpcHandlers } from "./e3-surface-ipc";
@@ -98,6 +102,14 @@ export async function composeElectronAppServices(
     mainWindow,
     harnessNotificationService,
   );
+  const openCodeSseObserverService = new OpenCodeSseObserverService({
+    workspaceSessionStore: workspacePersistenceStore,
+    emitObserverEvent: (event) => {
+      notifyHarnessObserverEvent(harnessNotificationService, event);
+      emitHarnessObserverEvent(mainWindow, event);
+    },
+  });
+  openCodeSseObserverService.start();
   const sidecarLifecycleManager = new OpenSessionSidecarLifecycleManager(
     workspacePersistenceStore,
     sidecarRuntime,
@@ -118,6 +130,22 @@ export async function composeElectronAppServices(
         consentRequester: claudeSettingsConsentRequester,
       })
     : null;
+  const codexSettingsRegistration = sidecarBin
+    ? new CodexSettingsRegistrationCoordinator({
+        settingsManager: new CodexSettingsManager({
+          sidecarBin,
+          dataDir: userDataDir,
+        }),
+        consentStore: new CodexSettingsConsentStore({
+          storageDir: userDataDir,
+        }),
+        consentRequester: claudeSettingsConsentRequester,
+      })
+    : null;
+  const settingsRegistrations = [
+    claudeSettingsRegistration,
+    codexSettingsRegistration,
+  ].filter((registration): registration is NonNullable<typeof registration> => registration !== null);
 
   const shellEnvironmentResolver = new ShellEnvironmentResolver();
   const terminalRegistry = new WorkspaceTerminalRegistry();
@@ -130,6 +158,7 @@ export async function composeElectronAppServices(
       const registry = await workspacePersistenceStore.getWorkspaceRegistry();
       return registry.workspaces.find((workspace) => workspace.id === workspaceId)?.absolutePath;
     },
+    resolveWorkspaceEnvOverrides: (workspaceId) => buildOpenCodeTerminalEnvOverrides(workspaceId),
   });
 
   terminalRouter.start();
@@ -138,7 +167,7 @@ export async function composeElectronAppServices(
     workspacePersistenceStore,
     sidecarLifecycleManager,
     terminalRegistry,
-    claudeSettingsRegistration ?? undefined,
+    settingsRegistrations,
   );
   const workspaceIpcAdapter = new ElectronWorkspaceIpcAdapter({
     ipcMain,
@@ -176,6 +205,7 @@ export async function composeElectronAppServices(
     workspaceIpcAdapter,
     workspaceShortcutBridge,
     sidecarObserverSubscription,
+    openCodeSseObserverService,
     claudeSettingsConsentRequester,
     e3SurfaceIpcHandlers,
   });
@@ -309,6 +339,7 @@ interface DefaultElectronAppServicesOptions {
   workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   sidecarObserverSubscription: SidecarObserverEventSubscription;
+  openCodeSseObserverService: OpenCodeSseObserverService;
   claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
   e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
 }
@@ -325,6 +356,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
   private readonly workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
+  private readonly openCodeSseObserverService: OpenCodeSseObserverService;
   private readonly claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
   private readonly e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
 
@@ -342,6 +374,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.workspaceIpcAdapter = options.workspaceIpcAdapter;
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
     this.sidecarObserverSubscription = options.sidecarObserverSubscription;
+    this.openCodeSseObserverService = options.openCodeSseObserverService;
     this.claudeSettingsConsentRequester = options.claudeSettingsConsentRequester;
     this.e3SurfaceIpcHandlers = options.e3SurfaceIpcHandlers;
   }
@@ -353,6 +386,7 @@ class DefaultElectronAppServices implements ElectronAppServices {
 
     this.disposed = true;
     this.sidecarObserverSubscription.dispose();
+    this.openCodeSseObserverService.dispose();
     this.claudeSettingsConsentRequester.dispose();
     for (const adapter of this.harnessAdapters) {
       await adapter.dispose();

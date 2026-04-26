@@ -83,7 +83,7 @@ describe("WorkspaceShellService", () => {
   });
 
 
-  test("open-folder flow invokes Claude settings registration coordinator", async () => {
+  test("open-folder flow invokes all settings registration coordinators", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "nexus-shell-service-claude-"));
     try {
       const alphaPath = path.join(tempRoot, "alpha");
@@ -93,11 +93,12 @@ describe("WorkspaceShellService", () => {
         now: () => new Date("2026-04-26T05:15:00.000Z"),
       });
       const claudeRegistration = new FakeClaudeSettingsRegistrationCoordinator();
+      const codexRegistration = new FakeClaudeSettingsRegistrationCoordinator();
       const service = new WorkspaceShellService(
         store,
         undefined,
         undefined,
-        claudeRegistration,
+        [claudeRegistration, codexRegistration],
       );
 
       const opened = await service.openFolderIntoSession({
@@ -105,13 +106,13 @@ describe("WorkspaceShellService", () => {
         displayName: "Alpha",
       });
 
-      expect(claudeRegistration.ensureRegisteredCalls).toEqual([
-        {
-          id: opened.openWorkspaces[0]!.id,
-          absolutePath: alphaPath,
-          displayName: "Alpha",
-        },
-      ]);
+      const expectedWorkspace = {
+        id: opened.openWorkspaces[0]!.id,
+        absolutePath: alphaPath,
+        displayName: "Alpha",
+      };
+      expect(claudeRegistration.ensureRegisteredCalls).toEqual([expectedWorkspace]);
+      expect(codexRegistration.ensureRegisteredCalls).toEqual([expectedWorkspace]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -178,7 +179,22 @@ class FakeClaudeSettingsRegistrationCoordinator {
     return null;
   }
 
-  public async unregister(): Promise<unknown> {
+  public readonly unregisterCalls: Array<{
+    id: string;
+    absolutePath: string;
+    displayName: string;
+  }> = [];
+
+  public async unregister(workspace: {
+    id: string;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<unknown> {
+    this.unregisterCalls.push({
+      id: workspace.id,
+      absolutePath: workspace.absolutePath,
+      displayName: workspace.displayName,
+    });
     return null;
   }
 }

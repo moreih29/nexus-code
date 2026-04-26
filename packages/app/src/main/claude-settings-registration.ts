@@ -55,6 +55,11 @@ export class ClaudeSettingsRegistrationCoordinator {
       workspaceId: workspace.id,
       workspaceName: workspace.displayName,
       workspacePath: workspace.absolutePath,
+      harnessName: "Claude Code",
+      settingsFiles: [".claude/settings.local.json"],
+      settingsDescription:
+        "Nexus Code는 Claude Code workspace-local settings hook만 등록합니다.",
+      gitignoreEntries: [".claude/settings.local.json"],
     });
 
     if (!decision.approved) {

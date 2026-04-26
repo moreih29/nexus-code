@@ -46,7 +46,7 @@ export class ClaudeSessionTranscriptService {
         readAt: this.timestamp(),
       };
     } catch {
-      return this.unavailable("Unable to read Claude transcript.", validation.absolutePath);
+      return this.unavailable("Unable to read session transcript.", validation.absolutePath);
     }
   }
 
@@ -60,23 +60,22 @@ export class ClaudeSessionTranscriptService {
     }
 
     if (!path.isAbsolute(transcriptPath)) {
-      return { ok: false, reason: "Claude transcript path must be absolute." };
+      return { ok: false, reason: "Session transcript path must be absolute." };
     }
 
     const absolutePath = path.resolve(transcriptPath);
-    const projectsRoot = path.resolve(this.homeDir(), ".claude", "projects");
-    const relativePath = path.relative(projectsRoot, absolutePath);
-    const isInsideProjectsRoot =
-      relativePath.length > 0 &&
-      !relativePath.startsWith("..") &&
-      !path.isAbsolute(relativePath);
+    const allowedRoots = [
+      path.resolve(this.homeDir(), ".claude", "projects"),
+      path.resolve(this.homeDir(), ".codex"),
+    ];
+    const isInsideAllowedRoot = allowedRoots.some((root) => isPathInsideRoot(root, absolutePath));
 
-    if (!isInsideProjectsRoot) {
-      return { ok: false, reason: "Claude transcript path is outside ~/.claude/projects." };
+    if (!isInsideAllowedRoot) {
+      return { ok: false, reason: "Session transcript path is outside allowed Claude/Codex roots." };
     }
 
     if (path.extname(absolutePath) !== ".jsonl") {
-      return { ok: false, reason: "Claude transcript path must be a .jsonl file." };
+      return { ok: false, reason: "Session transcript path must be a .jsonl file." };
     }
 
     return { ok: true, absolutePath };
@@ -195,6 +194,11 @@ function summarizeContent(value: unknown): string {
   }
 
   return JSON.stringify(record);
+}
+
+function isPathInsideRoot(root: string, absolutePath: string): boolean {
+  const relativePath = path.relative(root, absolutePath);
+  return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
 }
 
 function normalizeLimit(limit: number | null | undefined): number {

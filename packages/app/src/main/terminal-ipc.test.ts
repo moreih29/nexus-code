@@ -32,6 +32,10 @@ import {
   type WorkspaceTerminalHostFactory,
 } from "./workspace-terminal-registry";
 import { TerminalBridge, type TerminalBridgeTransport } from "../renderer/terminal-bridge";
+import {
+  OPENCODE_CONFIG_CONTENT_ENV,
+  buildOpenCodeTerminalEnvOverrides,
+} from "./opencode-runtime";
 
 describe("TerminalMainIpcRouter + TerminalBridge", () => {
   test("routes terminal commands, coalesces stdout, and round-trips scrollback stats", async () => {
@@ -226,6 +230,50 @@ describe("TerminalMainIpcRouter + TerminalBridge", () => {
     router.stop();
   });
 
+
+  test("merges workspace env overrides into terminal open commands with command env taking precedence", async () => {
+    const channel = new InMemoryTerminalIpcChannel();
+    const hostFactory = new FakeHostFactory();
+    const registry = new WorkspaceTerminalRegistry({ hostFactory });
+    const router = new TerminalMainIpcRouter(
+      {
+        registry,
+        shellEnvironmentResolver: TEST_ENVIRONMENT_RESOLVER,
+        ipcAdapter: channel,
+        resolveWorkspaceCwd: () => "/workspace/default",
+        resolveWorkspaceEnvOverrides: (workspaceId) => ({
+          ...buildOpenCodeTerminalEnvOverrides(workspaceId),
+          SHARED_VALUE: "workspace",
+        }),
+      },
+      {
+        createTabId: () => "tt_ws_alpha_env_001" as TerminalTabId,
+      },
+    );
+    router.start();
+
+    const bridge = new TerminalBridge(channel);
+    await bridge.open({
+      type: "terminal/open",
+      workspaceId: "ws_alpha" as WorkspaceId,
+      cols: 120,
+      rows: 32,
+      envOverrides: {
+        SHARED_VALUE: "command",
+        USER_VALUE: "kept",
+      },
+    });
+
+    expect(hostFactory.createCalls[0]?.envOverrides?.[OPENCODE_CONFIG_CONTENT_ENV]).toContain(
+      '"server"',
+    );
+    expect(hostFactory.createCalls[0]?.envOverrides?.SHARED_VALUE).toBe("command");
+    expect(hostFactory.createCalls[0]?.envOverrides?.USER_VALUE).toBe("kept");
+
+    bridge.dispose();
+    router.stop();
+  });
+
   test("preserves an explicit terminal cwd when one is supplied", async () => {
     const channel = new InMemoryTerminalIpcChannel();
     const hostFactory = new FakeHostFactory();
@@ -345,11 +393,15 @@ class FakeHostFactory implements WorkspaceTerminalHostFactory {
   public readonly byTabId = new Map<TerminalTabId, FakeTerminalHost>();
 
   public async create(options: TerminalHostCreateOptions): Promise<WorkspaceTerminalHost> {
-    this.createCalls.push({
+    const createCall: MainHostCreateCall = {
       tabId: options.tabId,
       workspaceId: options.openCommand.workspaceId,
       cwd: options.openCommand.cwd,
-    });
+    };
+    if (options.openCommand.envOverrides) {
+      createCall.envOverrides = options.openCommand.envOverrides;
+    }
+    this.createCalls.push(createCall);
 
     const host = new FakeTerminalHost({
       tabId: options.tabId,
@@ -365,6 +417,7 @@ type MainHostCreateCall = {
   tabId: TerminalTabId;
   workspaceId: WorkspaceId;
   cwd?: string;
+  envOverrides?: Record<string, string>;
 };
 
 class FakeTerminalHost implements WorkspaceTerminalHost {

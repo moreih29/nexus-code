@@ -54,7 +54,40 @@ describe("ClaudeSessionTranscriptService", () => {
     });
   });
 
-  test("denies transcript paths outside ~/.claude/projects", async () => {
+  test("reads recent entries from an allowed Codex JSONL transcript", async () => {
+    const service = new ClaudeSessionTranscriptService({
+      now,
+      homeDir: () => "/Users/kih",
+      readFile: async (filePath) => {
+        expect(filePath).toBe("/Users/kih/.codex/sessions/2026/session.jsonl");
+        return JSON.stringify({
+          event: "user_prompt_submit",
+          content: "중국어 추가.",
+          timestamp: "2026-04-26T01:00:00.000Z",
+        });
+      },
+    });
+
+    await expect(
+      service.readTranscript({
+        transcriptPath: "/Users/kih/.codex/sessions/2026/session.jsonl",
+      }),
+    ).resolves.toMatchObject({
+      available: true,
+      transcriptPath: "/Users/kih/.codex/sessions/2026/session.jsonl",
+      entries: [
+        {
+          lineNumber: 1,
+          role: "event",
+          kind: "user_prompt_submit",
+          summary: "중국어 추가.",
+          timestamp: "2026-04-26T01:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  test("denies transcript paths outside allowed Claude/Codex roots", async () => {
     const service = new ClaudeSessionTranscriptService({
       now,
       homeDir: () => "/Users/kih",
@@ -70,7 +103,7 @@ describe("ClaudeSessionTranscriptService", () => {
     expect(result).toEqual({
       available: false,
       transcriptPath: "/Users/kih/workspaces/project/session.jsonl",
-      reason: "Claude transcript path is outside ~/.claude/projects.",
+      reason: "Session transcript path is outside allowed Claude/Codex roots.",
       readAt: "2026-04-26T12:00:00.000Z",
     });
   });
@@ -87,7 +120,7 @@ describe("ClaudeSessionTranscriptService", () => {
       }),
     ).resolves.toMatchObject({
       available: false,
-      reason: "Claude transcript path must be a .jsonl file.",
+      reason: "Session transcript path must be a .jsonl file.",
     });
   });
 

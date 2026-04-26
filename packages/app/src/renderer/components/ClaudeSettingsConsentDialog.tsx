@@ -15,6 +15,10 @@ export interface ClaudeSettingsConsentDecision {
 export interface ClaudeSettingsConsentDialogProps {
   open: boolean;
   workspaceName: string;
+  harnessName?: string;
+  settingsFiles?: readonly string[];
+  settingsDescription?: string;
+  gitignoreEntries?: readonly string[];
   dontAskAgain?: boolean;
   onOpenChange(open: boolean): void;
   onDontAskAgainChange?(checked: boolean): void;
@@ -25,6 +29,10 @@ export interface ClaudeSettingsConsentDialogProps {
 export function ClaudeSettingsConsentDialog({
   open,
   workspaceName,
+  harnessName = "Claude Code",
+  settingsFiles = [".claude/settings.local.json"],
+  settingsDescription,
+  gitignoreEntries = [".claude/settings.local.json"],
   dontAskAgain = false,
   onOpenChange,
   onDontAskAgainChange,
@@ -35,10 +43,13 @@ export function ClaudeSettingsConsentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{workspaceName}에서 Claude Code hook을 활성화할까요?</DialogTitle>
+          <DialogTitle>{workspaceName}에서 {harnessName} hook을 활성화할까요?</DialogTitle>
           <DialogDescription>
-            Nexus Code는 이 워크스페이스의 .claude/settings.local.json만 수정하고,
-            해당 파일을 .gitignore에 추가하며, 기존 파일이 있으면 수정 전 1회 백업을 만듭니다.
+            {settingsDescription ??
+              `Nexus Code는 이 워크스페이스의 ${settingsFiles.join(", ")}만 수정합니다.`}
+            {" "}
+            대상 파일: {settingsFiles.join(", ")}. .gitignore에는 {gitignoreEntries.join(", ")} 항목을 추가하고,
+            기존 파일이 있으면 수정 전 1회 백업을 만듭니다.
           </DialogDescription>
         </DialogHeader>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">

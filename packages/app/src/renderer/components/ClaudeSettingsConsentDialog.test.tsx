@@ -13,12 +13,34 @@ describe("ClaudeSettingsConsentDialog", () => {
       onCancel: () => {},
     });
 
-    expect(flatText(tree)).toContain("Claude Code hook을 활성화할까요");
+    expect(flatText(tree)).toContain("Claude Code");
+    expect(flatText(tree)).toContain("hook을 활성화할까요");
     expect(flatText(tree)).toContain("Alpha");
     expect(flatText(tree)).toContain(".claude/settings.local.json");
     expect(flatText(tree)).toContain(".gitignore");
     expect(flatText(tree)).toContain("1회 백업");
     expect(flatText(tree)).toContain("다시 묻지 않기");
+  });
+
+  test("renders generic harness metadata for Codex", () => {
+    const tree = ClaudeSettingsConsentDialog({
+      open: true,
+      workspaceName: "Beta",
+      harnessName: "Codex",
+      settingsFiles: [".codex/hooks.json", ".codex/config.toml"],
+      settingsDescription: "Codex hooks를 등록합니다.",
+      gitignoreEntries: [".codex/hooks.json", ".codex/config.toml"],
+      onOpenChange: () => {},
+      onApprove: () => {},
+      onCancel: () => {},
+    });
+
+    expect(flatText(tree)).toContain("Beta");
+    expect(flatText(tree)).toContain("Codex");
+    expect(flatText(tree)).toContain("hook을 활성화할까요");
+    expect(flatText(tree)).toContain(".codex/hooks.json");
+    expect(flatText(tree)).toContain(".codex/config.toml");
+    expect(flatText(tree)).toContain("Codex hooks를 등록합니다.");
   });
 });
 

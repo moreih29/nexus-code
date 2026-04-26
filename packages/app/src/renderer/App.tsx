@@ -360,6 +360,10 @@ export default function App(): JSX.Element {
       <ClaudeSettingsConsentDialog
         open={claudeConsentRequest !== null}
         workspaceName={claudeConsentRequest?.workspaceName ?? "this workspace"}
+        harnessName={claudeConsentRequest?.harnessName}
+        settingsFiles={claudeConsentRequest?.settingsFiles}
+        settingsDescription={claudeConsentRequest?.settingsDescription}
+        gitignoreEntries={claudeConsentRequest?.gitignoreEntries}
         dontAskAgain={claudeConsentDontAskAgain}
         onOpenChange={(open) => {
           if (!open) {

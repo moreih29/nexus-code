@@ -15,7 +15,7 @@ export interface OpenSessionTerminalLifecycleManager {
   stopTerminalsForClosedWorkspace(workspaceId: WorkspaceId): Promise<void>;
 }
 
-export interface WorkspaceClaudeSettingsRegistration {
+export interface WorkspaceHarnessSettingsRegistration {
   ensureRegistered(workspaceEntry: {
     id: WorkspaceId;
     absolutePath: string;
@@ -28,13 +28,21 @@ export interface WorkspaceClaudeSettingsRegistration {
   }): Promise<ClaudeSettingsDetection | unknown>;
 }
 
+export type WorkspaceClaudeSettingsRegistration = WorkspaceHarnessSettingsRegistration;
+
 export class WorkspaceShellService {
+  private readonly settingsRegistrations: readonly WorkspaceHarnessSettingsRegistration[];
+
   public constructor(
     private readonly persistenceStore: WorkspacePersistenceStore,
     private readonly sidecarLifecycleManager?: OpenSessionSidecarLifecycleManager,
     private readonly terminalLifecycleManager?: OpenSessionTerminalLifecycleManager,
-    private readonly claudeSettingsRegistration?: WorkspaceClaudeSettingsRegistration,
-  ) {}
+    settingsRegistrations?:
+      | WorkspaceHarnessSettingsRegistration
+      | readonly WorkspaceHarnessSettingsRegistration[],
+  ) {
+    this.settingsRegistrations = normalizeSettingsRegistrations(settingsRegistrations);
+  }
 
   public async restoreWorkspaceSessionOnAppStart(): Promise<WorkspaceSidebarState> {
     await this.sidecarLifecycleManager?.restoreSidecarsFromOpenSession();
@@ -55,7 +63,7 @@ export class WorkspaceShellService {
     );
     await this.persistenceStore.openWorkspace(workspaceEntry.id);
     await this.sidecarLifecycleManager?.startSidecarForOpenedWorkspace(workspaceEntry.id);
-    await this.claudeSettingsRegistration?.ensureRegistered(workspaceEntry);
+    await this.ensureHarnessSettingsRegistered(workspaceEntry);
     return this.getSidebarState();
   }
 
@@ -70,12 +78,43 @@ export class WorkspaceShellService {
     const workspaceEntry = registry.workspaces.find((entry) => entry.id === workspaceId);
     await this.persistenceStore.closeWorkspace(workspaceId);
     if (workspaceEntry) {
-      await this.claudeSettingsRegistration?.unregister(workspaceEntry);
+      await this.unregisterHarnessSettings(workspaceEntry);
     }
     await this.sidecarLifecycleManager?.stopSidecarForClosedWorkspace(workspaceId);
     await this.terminalLifecycleManager?.stopTerminalsForClosedWorkspace(workspaceId);
     return this.getSidebarState();
   }
+
+  private async ensureHarnessSettingsRegistered(workspaceEntry: {
+    id: WorkspaceId;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<void> {
+    for (const registration of this.settingsRegistrations) {
+      await registration.ensureRegistered(workspaceEntry);
+    }
+  }
+
+  private async unregisterHarnessSettings(workspaceEntry: {
+    id: WorkspaceId;
+    absolutePath: string;
+    displayName: string;
+  }): Promise<void> {
+    for (const registration of this.settingsRegistrations) {
+      await registration.unregister(workspaceEntry);
+    }
+  }
+}
+
+function normalizeSettingsRegistrations(
+  settingsRegistrations?:
+    | WorkspaceHarnessSettingsRegistration
+    | readonly WorkspaceHarnessSettingsRegistration[],
+): readonly WorkspaceHarnessSettingsRegistration[] {
+  if (!settingsRegistrations) {
+    return [];
+  }
+  return Array.isArray(settingsRegistrations) ? [...settingsRegistrations] : [settingsRegistrations];
 }
 
 function mapSidebarState(restoredSession: RestoredWorkspaceSession): WorkspaceSidebarState {

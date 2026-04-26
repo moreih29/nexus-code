@@ -3720,6 +3720,160 @@
           "created_at": "2026-04-26T13:09:02.795Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T13:56:37.673Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 23,
+        "topic": "E3-B opencode/codex 실제 호환 완료",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Codex 실제 hooks 등록/정규화 완료 조건",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "Codex 공식 hooks 문서는 feature flag `[features] codex_hooks = true`와 hooks.json/config.toml 위치를 명시한다. 현재 Nexus는 `nexus-sidecar hook --adapter=codex` ingress와 CodexAdapter mapper만 있고, workspace `.codex` 설정을 만들지 않기 때문에 사용자가 `codex`를 실행해도 이벤트가 들어오지 않는다. 또 실제 sidecar observer path는 adapter mapper가 아니라 Go observer normalization이므로 `PermissionRequest` 등 Codex hook 이름을 Go observer도 이해해야 한다.",
+                "recorded_at": "2026-04-26T13:33:12.846Z"
+              }
+            ],
+            "decision": "선택: Codex 호환 완료는 workspace open 시 사용자 동의 후 `<repo>/.codex/hooks.json`과 `<repo>/.codex/config.toml`을 등록하고, sidecar Go observer가 Codex hook names를 직접 정규화하는 것으로 닫는다. `hooks.json`에는 SessionStart, PreToolUse, PermissionRequest, PostToolUse, UserPromptSubmit, Stop command hooks를 `nexus-sidecar hook --adapter=codex --event=<event>`로 넣는다. `config.toml`에는 `[features] codex_hooks = true`를 line-based merge로 보장한다. `.codex/hooks.json`과 `.codex/config.toml`은 `.gitignore`에 추가하고 기존 파일은 1회 backup한다. Go observer는 SessionStart/UserPromptSubmit/PreToolUse를 running, PermissionRequest를 awaiting-approval, Stop을 completed, PostToolUse를 tool completed로 매핑한다. 기각: 사용자가 수동으로 Codex config를 편집하게 하는 방식은 E3-B '호환 완료'가 아니므로 기각한다. 전역 `~/.codex`를 수정하는 방식은 workspace-local 원칙과 맞지 않아 기각한다. Codex stdout JSON을 terminal에서 파싱하는 방식은 TUI ownership 침범과 포맷 변동 리스크가 커서 기각한다. 가정: project-local `.codex` layer trust가 필요할 수 있으며, Codex가 untrusted project에서 로컬 hooks를 무시하면 사용자가 Codex trust prompt를 승인해야 한다."
+          },
+          {
+            "id": 2,
+            "title": "OpenCode 실제 TUI server 연결 방식과 port discovery/주입 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "opencode 공식 docs는 TUI가 random port server를 시작하지만 `--hostname`/`--port` flags나 config server settings로 고정할 수 있다고 한다. Nexus terminal은 사용자 shell에서 `opencode`를 실행하므로 command-line flag를 자동으로 붙이기는 어렵다. 반면 opencode config docs는 `OPENCODE_CONFIG_CONTENT` inline config를 지원하므로 Nexus terminal env에 per-workspace deterministic server port를 주입하면 사용자가 그냥 `opencode`를 실행해도 server port가 고정된다. 이후 main process가 `http://127.0.0.1:<port>/event`를 retry 구독하면 실제 events를 observer UI로 보낼 수 있다.",
+                "recorded_at": "2026-04-26T13:33:33.324Z"
+              }
+            ],
+            "decision": "선택: OpenCode 호환은 프로젝트 파일을 쓰지 않고 Nexus terminal environment로 `OPENCODE_CONFIG_CONTENT={\"server\":{\"hostname\":\"127.0.0.1\",\"port\":<deterministic>}}`를 주입하고, main process의 `OpenCodeSseObserverService`가 workspace별 deterministic port의 `/event` SSE를 retry 구독해 `mapOpenCodeInputToObserverEvents` 결과를 renderer IPC/notification으로 emit하는 방식으로 구현한다. port는 workspaceId hash 기반 고정 range로 계산한다. 기각: opencode root `opencode.json`을 자동 수정하는 방식은 project config를 건드리고 VCS에 노출될 가능성이 있어 불필요하게 침습적이다. random port discovery는 공식 문서상 안정 discovery API가 보이지 않아 완성 조건으로 삼을 수 없다. `opencode serve`를 Nexus가 별도 실행하는 방식은 사용자가 터미널에서 쓰는 TUI와 별도 server를 만들 수 있어 사용자가 기대한 '터미널에서 opencode 실행하면 관찰'과 다르므로 기각한다. 가정: 이미 실행 중인 random-port opencode는 자동 연결하지 못하며, 새 Nexus terminal에서 실행한 opencode부터 호환된다."
+          },
+          {
+            "id": 3,
+            "title": "Renderer/main consent와 workspace lifecycle wiring 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "기존 등록 파이프라인은 ClaudeSettingsRegistrationCoordinator 하나만 WorkspaceShellService에 연결되어 있어 Codex workspace-local 설정 등록이 실제 lifecycle에 들어가지 않는다. Renderer consent 채널/컴포넌트도 Claude 명칭이지만 구조상 request/response 왕복은 재사용 가능하다. 최소 변경으로 채널 호환성을 유지하면서 payload를 generic metadata로 확장하고, WorkspaceShellService가 여러 harness settings registrations를 순차 실행하게 하면 Claude 기존 동작을 깨지 않고 Codex 등록을 같은 open/close lifecycle에 포함할 수 있다. OpenCode는 파일 등록이 아니라 terminal env + main SSE observer lifecycle이므로 workspace open state를 기준으로 별도 서비스가 reconcile/start/stop해야 한다.",
+                "recorded_at": "2026-04-26T13:35:42.868Z"
+              }
+            ],
+            "decision": "선택: 기존 Claude consent IPC/channel은 호환을 위해 유지하되 payload에 `harnessName`, `settingsFiles`, `settingsDescription`, `gitignoreEntries` 같은 generic metadata를 추가해 Codex consent도 같은 dialog에서 명확히 표시한다. WorkspaceShellService는 단일 `claudeSettingsRegistration` 대신 복수 `settingsRegistrations`를 순차 실행/해제하도록 확장한다. Composition에서는 Claude registration과 Codex registration을 함께 주입한다. OpenCode는 consent 대상이 아니므로 main `OpenCodeSseObserverService`가 open workspace registry를 reconcile하여 deterministic port SSE를 subscribe/abort하고, Terminal IPC가 workspace terminal env에 `OPENCODE_CONFIG_CONTENT`를 주입한다. 기각: channel/type 전체 rename은 범위가 크고 기존 renderer/main 테스트를 불필요하게 흔들므로 이번 E3-B에서는 하지 않는다. 기각: Codex만 별도 dialog를 새로 만드는 방식은 UX와 유지보수 중복이 커서 하지 않는다."
+          },
+          {
+            "id": 4,
+            "title": "검증 및 E3-B 완료 판정 기준",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "E3-B 완료 조건은 '내부 adapter class 존재'가 아니라 사용자가 Nexus terminal에서 Codex/OpenCode를 실행했을 때 observer surface(Session/Tool/Diff/notifications)가 실제 source events를 받는 것이다. 다만 이 환경에서 Codex/OpenCode CLIs와 auth/trust prompt까지 end-to-end로 재현된다는 보장은 없으므로, 완료 판정은 (1) Codex project-local hook/config 파일 생성 및 hook normalize tests, (2) OpenCode terminal env injection 및 SSE parser/mapper tests, (3) 기존 전체 gates 통과로 두고, 실제 runtime smoke는 사용자에게 확인 절차를 명시한다.",
+                "recorded_at": "2026-04-26T13:35:55.003Z"
+              }
+            ],
+            "decision": "선택: E3-B 완료 판정은 코드 레벨에서 실제 소스 연결이 존재하고 테스트로 재현되는 것을 기준으로 한다. 필수 검증은 `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:go`, `bun run test:drift`, `bun run test:diff-check` 통과다. 추가 단위/통합 테스트는 Codex settings manager/registration, Go observer Codex hook mapping, OpenCode SSE observer, Terminal env injection을 포함한다. 실제 CLI runtime smoke는 Codex/OpenCode 설치·로그인·trust 상태에 의존하므로 자동 gate로 강제하지 않고, 보고서에 사용자 확인 절차를 적는다. 리스크 표기: Codex가 project `.codex` layer를 trust하지 않으면 hooks가 무시될 수 있고, 이미 떠 있는 OpenCode random port session은 Nexus가 연결하지 못할 수 있다."
+          }
+        ],
+        "research_summary": "사용자 피드백으로 이전 E3-B 커밋(3b0e8ce)은 adapter/ingress skeleton에 그쳤고, 실제 opencode/codex 런타임 이벤트가 Nexus UI로 들어오는 사용자 호환 완료 조건을 충족하지 못했음이 확인됐다. 로컬 확인: 현재 Codex/OpenCode adapters는 존재하지만 main event pipeline은 sidecar-origin observer event만 renderer로 전달한다. Codex hooks는 sidecar `nexus-sidecar hook --adapter=codex`로 들어올 수 있으나 workspace-local `.codex` 설정 등록이 없다. 또한 sidecar observer는 `PermissionRequest`, `SessionStart`, `UserPromptSubmit` 등 Codex hook 이름을 아직 badge/tool-call 상태로 정규화하지 않는다. OpenCode는 adapter mapper가 있으나 실제 SSE 연결 서비스가 없고, 사용자가 터미널에서 `opencode`를 실행할 때 server port가 random이면 Nexus가 발견할 수 없다. 공식 OpenAI Codex hooks 문서(2026-04-26 확인): hooks는 `config.toml`의 `[features] codex_hooks = true` feature flag가 필요하고, Codex는 `~/.codex/hooks.json`, `~/.codex/config.toml`, `<repo>/.codex/hooks.json`, `<repo>/.codex/config.toml`에서 hooks를 찾는다. 프로젝트 로컬 hooks는 project `.codex/` layer가 trusted일 때 로드된다. matcher는 `*`, 빈 문자열, 생략이 all-match이고 Common input fields에는 `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`이 있다. `PreToolUse`, `PermissionRequest`, `PostToolUse`, `UserPromptSubmit`, `Stop`이 turn scope에서 동작한다. 공식 opencode docs(2026-04-26 확인): TUI 실행 시 server도 함께 뜨고 기본 random port를 쓰지만 `--hostname`/`--port` flags 또는 config `server.port`/`server.hostname`으로 고정 가능하다. opencode config는 `OPENCODE_CONFIG_CONTENT` env var inline config를 지원하며 server settings를 포함할 수 있다. opencode server `/event`는 SSE stream이고 첫 이벤트는 `server.connected`, 이후 bus events다. SDK docs도 `event.subscribe()`가 SSE stream을 반환한다고 명시한다. 구현 판단: Codex는 workspace-local `.codex/hooks.json` + `.codex/config.toml` 등록을 Claude와 같은 consent flow에 붙인다. OpenCode는 사용자의 프로젝트 파일을 쓰지 않고 Nexus terminal env에 `OPENCODE_CONFIG_CONTENT`를 주입해 deterministic per-workspace port를 고정한 뒤 main process에서 `/event` SSE를 retry 구독해 observer events로 emit한다. 이 방식은 사용자가 터미널에서 그냥 `opencode`를 실행해도 새 터미널에서는 연결된다. 기존 random-port opencode 프로세스는 discover 불가하므로 범위 밖으로 둔다.",
+        "created_at": "2026-04-26T13:33:01.201Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Codex project-local hooks 등록 구현",
+          "status": "completed",
+          "context": "Codex hooks 공식 문서 기준으로 workspace-local `.codex/hooks.json`과 `.codex/config.toml`을 사용자 동의 후 생성/병합해야 한다. 기존 Claude settings registration/consent 경로를 재사용하되 Codex metadata를 표시한다.",
+          "acceptance": "workspace open lifecycle에서 Codex registration이 실행된다. `.codex/hooks.json`에 SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/Stop command hooks가 `nexus-sidecar hook --adapter=codex`로 등록된다. `.codex/config.toml`에 `[features] codex_hooks = true`가 보장된다. `.gitignore`에 `.codex/hooks.json`, `.codex/config.toml`이 추가된다. 관련 단위 테스트가 있다.",
+          "approach": "Codex settings manager/registration을 추가하고 WorkspaceShellService가 복수 registration을 순차 실행하게 한다. Generic consent payload를 확장한다.",
+          "risk": "Codex project `.codex` layer trust가 필요하면 사용자가 Codex prompt를 승인해야 한다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:36:14.101Z"
+        },
+        {
+          "id": 2,
+          "title": "Codex hook event 정규화 구현",
+          "status": "completed",
+          "context": "sidecar hook command는 이미 `--adapter`를 받지만 observer normalization이 Claude-like events 중심이라 Codex PermissionRequest/UserPromptSubmit/Stop 등 실제 이름을 안정적으로 mapping해야 한다.",
+          "acceptance": "Codex `UserPromptSubmit`/`PreToolUse`는 running tab event로, `PermissionRequest`는 awaiting-approval tab/tool event로, `PostToolUse`는 completed tool event로, `Stop`은 completed tab event로 변환된다. Go tests가 이를 검증한다.",
+          "approach": "Go harness observer mapping에 Codex hook names를 추가하고 tests를 보강한다.",
+          "risk": "Codex hook payload fields가 비어도 최소 상태 이벤트는 생성되어야 한다.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:36:23.200Z"
+        },
+        {
+          "id": 3,
+          "title": "OpenCode terminal env injection 구현",
+          "status": "completed",
+          "context": "OpenCode TUI server는 random port 기본값이므로 Nexus terminal에서 실행되는 `opencode`에 deterministic localhost port 설정을 주입해야 main observer가 연결할 수 있다.",
+          "acceptance": "workspace terminal open command에 `OPENCODE_CONFIG_CONTENT`가 주입된다. 기존 envOverrides와 merge되고 명시적 command env가 최종 우선한다. 단위 테스트가 이를 검증한다.",
+          "approach": "workspaceId hash 기반 port와 `OPENCODE_CONFIG_CONTENT` builder를 추가하고 TerminalMainIpcRouter가 workspace terminal open 시 envOverrides를 merge하도록 확장한다.",
+          "risk": "사용자가 이미 다른 OPENCODE_CONFIG_CONTENT를 직접 지정하면 Nexus observer 연결을 의도적으로 우회할 수 있다.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:36:30.283Z"
+        },
+        {
+          "id": 4,
+          "title": "OpenCode SSE observer 구현",
+          "status": "completed",
+          "context": "OpenCode official `/event` SSE를 main process에서 workspace별 deterministic port로 retry subscribe하고 기존 shared adapter mapper를 통해 Tool/Session/Notification surfaces로 emit해야 한다.",
+          "acceptance": "open workspace마다 `http://127.0.0.1:<port>/event` 구독이 시작되고 closed workspace에서는 abort된다. SSE 이벤트가 `mapOpenCodeInputToObserverEvents`를 거쳐 renderer observer IPC와 notification path로 전달된다. 단위 테스트가 SSE parsing/mapping/reconcile을 검증한다.",
+          "approach": "OpenCodeSseObserverService를 추가하고 composition에서 시작/dispose한다. open workspace registry를 reconcile하고 SSE parser를 테스트한다.",
+          "risk": "이미 random port로 떠 있는 OpenCode 세션은 자동 연결되지 않고 새 Nexus terminal session부터 연결된다.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:36:40.823Z"
+        },
+        {
+          "id": 5,
+          "title": "E3-B 검증 및 사이클 마감",
+          "status": "completed",
+          "context": "사용자가 요구한 완료 조건은 opencode/codex 실제 호환 작업 마무리다. 구현 후 전체 gate를 실행하고 cycle을 archive/commit해야 한다.",
+          "acceptance": "`bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:go`, `bun run test:drift`, `bun run test:diff-check` 결과가 보고된다. `.nexus/history.json`에 cycle이 archive되고 commit이 생성된다. 사용자 runtime 확인 절차와 남은 리스크가 보고된다.",
+          "approach": "필수 테스트/빌드 게이트를 실행하고 실패 시 수정한다. 성공 후 nx_task_close와 git commit을 수행한다.",
+          "risk": "실제 Codex/OpenCode CLI runtime smoke는 로컬 auth/trust/설치 상태에 따라 자동화하지 못할 수 있다.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T13:36:49.757Z"
+        }
+      ]
     }
   ]
 }
