@@ -45,7 +45,11 @@ export default defineConfig({
         input: {
           index: path.resolve(APP_ROOT, "src/main/entry.ts"),
         },
-        external: ["node-pty"],
+        // node-pty: native module, must not be bundled.
+        // bufferutil / utf-8-validate: ws의 optional native deps. 본 프로젝트는 미설치이며
+        // ws가 try-catch로 require해 fallback JS implementation을 사용한다. external로 두어
+        // build 단계의 unresolved import 에러를 회피한다.
+        external: ["node-pty", "bufferutil", "utf-8-validate"],
       },
     },
   },
