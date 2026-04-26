@@ -30,7 +30,7 @@ import { CodexSettingsRegistrationCoordinator } from "./codex-settings-registrat
 import { OpenCodeSseObserverService } from "./opencode-sse-observer-service";
 import {
   buildOpenCodeTerminalEnvOverrides,
-  ensureOpenCodeWorkspaceShim,
+  ensureOpenCodeWorkspaceShims,
 } from "./opencode-runtime";
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
 import { ClaudeSessionTranscriptService } from "./claude-session-transcript-service";
@@ -162,13 +162,15 @@ export async function composeElectronAppServices(
       return registry.workspaces.find((workspace) => workspace.id === workspaceId)?.absolutePath;
     },
     resolveWorkspaceEnvOverrides: async (workspaceId, context) => {
-      const shimDir = await ensureOpenCodeWorkspaceShim({
+      const shims = await ensureOpenCodeWorkspaceShims({
         dataDir: userDataDir,
         workspaceId,
       });
       return buildOpenCodeTerminalEnvOverrides(workspaceId, {
-        shimDir,
+        shimDir: shims.executableShimDir,
+        zshDotDir: shims.zshDotDir,
         basePath: context.baseEnvironment.PATH ?? "",
+        baseZdotDir: context.baseEnvironment.ZDOTDIR ?? context.baseEnvironment.HOME ?? "",
       });
     },
   });
