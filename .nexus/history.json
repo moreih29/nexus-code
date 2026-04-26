@@ -3874,6 +3874,112 @@
           "created_at": "2026-04-26T13:36:49.757Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-26T14:42:06.598Z",
+      "branch": "feat/m3-handover",
+      "plan": {
+        "id": 24,
+        "topic": "OpenCode TUI 실제 포트 고정 호환 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "OpenCode launch compatibility를 env-only에서 PATH shim/flag 주입으로 전환",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "현재 `OPENCODE_CONFIG_CONTENT` env는 터미널에 들어가지만 OpenCode TUI server가 43106에서 뜨지 않는 것이 사용자 curl로 확인됐다. 공식 docs는 TUI 고정 port를 flags로 해결하라고 하므로, observer가 바라보는 deterministic port와 실제 TUI server port를 일치시키려면 `opencode --hostname 127.0.0.1 --port <port>`가 반드시 실행되어야 한다. 사용자가 plain `opencode`를 입력한다는 UX 요구를 유지하려면 shell alias보다 PATH shim이 shell 종류별 init 수정 없이 가장 덜 침습적이다.",
+                "recorded_at": "2026-04-26T14:32:30.875Z"
+              }
+            ],
+            "decision": "선택: OpenCode launch compatibility는 userData 아래 workspace별 shim directory를 만들고 Nexus terminal PATH 앞에 prepend하는 방식으로 고친다. shim의 `opencode` executable은 `NEXUS_OPENCODE_ORIGINAL_PATH`에서 실제 opencode binary를 찾아 `--hostname 127.0.0.1 --port <deterministic>` flags를 붙여 exec한다. 이 방식은 사용자에게 plain `opencode` UX를 유지하면서 공식 docs가 요구하는 flag 기반 고정 port를 만족한다. `OPENCODE_CONFIG_CONTENT`는 보조 env로 유지하되 완료 조건으로 삼지 않는다. 기각: env-only 접근은 사용자 curl로 실패가 확인돼 기각한다. 프로젝트 `opencode.json` 자동 수정은 VCS 오염과 project config 침습 때문에 기각한다. shell alias/function 주입은 zsh/bash/fish별 차이가 크고 사용자의 shell rc를 건드릴 수 있어 기각한다. 가정: 사용자의 `opencode`가 PATH에서 찾을 수 있는 executable이어야 하며, 사용자가 강한 alias/function으로 opencode를 재정의하면 shim보다 alias가 우선할 수 있다."
+          },
+          {
+            "id": 2,
+            "title": "Terminal env merge가 base PATH를 보존하며 workspace shim을 prepend하도록 보강",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "현재 `TerminalWorkspaceEnvResolver`는 workspaceId만 받아 envOverrides를 반환하므로 base PATH를 모른다. PATH shim은 기존 PATH 앞에 shim dir를 붙여야 하므로 base shell PATH 접근이 필요하다. `TerminalMainIpcRouter`는 이미 `shellEnvironmentResolver`를 가지고 있고 TerminalHost가 나중에 base env를 읽는다. Router가 terminal open 처리 시 base env를 먼저 읽고, 그 base env를 env resolver context로 넘기며, 같은 base env를 반환하는 resolver wrapper를 TerminalHost에 넘기면 PATH 보존과 consistency가 보장된다.",
+                "recorded_at": "2026-04-26T14:32:47.565Z"
+              }
+            ],
+            "decision": "선택: `TerminalWorkspaceEnvResolver` signature를 `(workspaceId, { baseEnvironment })`로 확장하고, `TerminalMainIpcRouter.handleOpenCommand`에서 base environment를 먼저 resolve한 뒤 open command/envOverrides 계산과 TerminalHost 생성에 같은 base env를 사용한다. OpenCode env resolver는 `baseEnvironment.PATH`를 `NEXUS_OPENCODE_ORIGINAL_PATH`에 저장하고 `PATH=<shimDir>:<basePath>`를 반환한다. 명시적 command envOverrides가 최종 우선하는 기존 정책은 유지한다. 기각: `process.env.PATH`를 쓰는 방식은 login shell resolver 결과와 다를 수 있어 기각한다. 기각: TerminalHost 내부에서 PATH를 암묵적으로 prepend하는 방식은 OpenCode-specific 로직이 terminal core로 새어 들어가므로 기각한다."
+          },
+          {
+            "id": 3,
+            "title": "OpenCode 실제 연결/검증 기준 업데이트",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "이번 실패는 자동 테스트가 env var 존재까지만 확인했고, 실제 OpenCode server가 해당 port에서 열리는지 검증하지 못한 데서 발생했다. 자동 테스트에서는 실제 opencode CLI를 실행하기 어렵지만, shim script content와 Terminal env PATH prepend, 그리고 OpenCodeSseObserverService가 동일 deterministic port를 구독한다는 연결성을 검증할 수 있다. 보고서에는 사용자가 확인할 runtime smoke를 `which opencode`, `opencode`, `curl /global/health`, `curl -N /event` 순서로 명시해야 한다.",
+                "recorded_at": "2026-04-26T14:33:06.374Z"
+              }
+            ],
+            "decision": "선택: 완료 검증은 (1) shim manager unit test가 executable `opencode` shim을 만들고 `--hostname`/`--port`를 붙이는 script content를 검증, (2) terminal IPC test가 base PATH를 받아 PATH prepend와 `NEXUS_OPENCODE_ORIGINAL_PATH` 보존을 검증, (3) OpenCodeSseObserverService 기존 test가 같은 deterministic port `/event` 구독을 검증, (4) 전체 gate 통과로 판정한다. 사용자 runtime 확인은 새 Nexus terminal에서 `which opencode`가 Nexus shim 경로를 가리키는지, `opencode` 실행 후 `curl /global/health`가 성공하는지로 한다. 기각: 실제 opencode CLI를 테스트 suite에서 실행하는 방식은 설치/auth 상태에 따라 불안정해 자동 gate로 부적합하다."
+          }
+        ],
+        "research_summary": "사용자 실측: Nexus terminal에서 `OPENCODE_CONFIG_CONTENT={\"server\":{\"hostname\":\"127.0.0.1\",\"port\":43106}}`는 주입되지만 `curl http://127.0.0.1:43106/global/health`가 connection refused였다. 즉 이전 E3-B의 env-only 접근은 OpenCode TUI server port를 실제로 고정하지 못했다. 공식 OpenCode Server docs(2026-04-26 확인)는 `opencode` TUI가 server를 함께 시작하지만 기본적으로 random port/hostname을 잡고, 고정 연결은 `--hostname`과 `--port` flags로 가능하다고 명시한다. 공식 Config docs는 `server` config가 `opencode serve`/`opencode web` command 설정이라고 설명한다. 따라서 `OPENCODE_CONFIG_CONTENT.server`만으로 plain `opencode` TUI를 원하는 port에 띄운다는 이전 판단은 잘못됐다. 기존 로컬 코드: `packages/app/src/main/opencode-runtime.ts`는 deterministic port/env만 생성하고, `TerminalMainIpcRouter`는 envOverrides만 merge한다. `OpenCodeSseObserverService`는 이미 deterministic port의 `/event`를 retry 구독한다. 수정 방향: Nexus terminal에서 사용자가 plain `opencode`를 입력해도 실제 binary가 `opencode --hostname 127.0.0.1 --port <workspace-port>`로 실행되도록 workspace별 PATH shim을 userData 아래에 생성하고 PATH 앞에 prepend한다. 기존 `OPENCODE_CONFIG_CONTENT`는 보조/호환 env로 유지하되 완료 조건은 shim이 실제 flags를 붙이는 것으로 바꾼다.",
+        "created_at": "2026-04-26T14:32:21.977Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "OpenCode workspace PATH shim 구현",
+          "status": "completed",
+          "context": "이전 E3-B는 `OPENCODE_CONFIG_CONTENT`만 주입했지만 사용자 curl 결과 TUI server가 해당 port에서 뜨지 않았다. 공식 docs는 TUI 고정 연결에 `--hostname`/`--port` flags가 필요하다고 한다.",
+          "acceptance": "shim helper가 workspace별 shim dir를 만들고 executable `opencode` script를 쓴다. script에는 `--hostname \"$NEXUS_OPENCODE_HOST\" --port \"$NEXUS_OPENCODE_PORT\"` 실행 경로가 포함된다. 단위 테스트가 script content와 executable mode를 검증한다.",
+          "approach": "userData 아래 workspace별 shim dir와 executable `opencode` wrapper를 생성하는 helper를 추가한다. wrapper는 `NEXUS_OPENCODE_ORIGINAL_PATH`에서 실제 opencode를 찾아 flags를 붙여 exec한다.",
+          "risk": "사용자가 shell alias/function으로 opencode를 재정의하면 PATH shim보다 alias가 우선할 수 있다.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T14:33:26.051Z"
+        },
+        {
+          "id": 2,
+          "title": "Terminal PATH prepend env merge 보강",
+          "status": "completed",
+          "context": "PATH shim은 기존 shell PATH 앞에 workspace shim dir를 붙여야 하므로 TerminalMainIpcRouter env resolver가 base shell environment를 context로 받아야 한다.",
+          "acceptance": "Nexus terminal open command의 envOverrides에 PATH가 `<shimDir>:<base PATH>` 형태로 주입된다. `NEXUS_OPENCODE_ORIGINAL_PATH`, `NEXUS_OPENCODE_PORT`, `NEXUS_OPENCODE_HOST`, `OPENCODE_CONFIG_CONTENT`가 포함된다. 명시적 command envOverrides가 최종 우선한다. 단위 테스트가 이를 검증한다.",
+          "approach": "TerminalWorkspaceEnvResolver에 baseEnvironment context를 추가하고 router가 동일 base env를 open command env 계산과 TerminalHost에 사용하도록 확장한다. OpenCode env builder가 PATH prepend, NEXUS_OPENCODE_ORIGINAL_PATH, NEXUS_OPENCODE_PORT/HOST를 반환하게 한다.",
+          "risk": "PATH prepend는 일반 executable lookup에는 작동하지만 shell alias/function을 override하지는 못한다.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T14:33:36.395Z"
+        },
+        {
+          "id": 3,
+          "title": "OpenCode shim 검증 및 사이클 마감",
+          "status": "completed",
+          "context": "OpenCode 실제 CLI runtime은 사용자 환경에 의존하지만, 이번 실패의 핵심인 launch flags/path shim은 코드와 테스트로 검증할 수 있다.",
+          "acceptance": "대상 테스트(opencode-runtime, terminal-ipc, opencode-sse-observer) PASS. `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:go`, `bun run test:drift`, `bun run test:diff-check` PASS. `.nexus/history.json` archive와 git commit 생성. 보고서에 사용자가 `which opencode`, `curl /global/health`, `/event`로 확인할 절차를 포함한다.",
+          "approach": "대상 테스트와 전체 gate를 실행한다. 성공하면 nx_task_close 후 단일 commit을 만든다.",
+          "risk": "실제 OpenCode `/event` payload shape mismatch는 health가 성공한 뒤 추가로 발견될 수 있다.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-26T14:33:45.303Z"
+        }
+      ]
     }
   ]
 }

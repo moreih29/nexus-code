@@ -39,8 +39,13 @@ export type TerminalWorkspaceCwdResolver = (
   workspaceId: WorkspaceId,
 ) => Promise<string | null | undefined> | string | null | undefined;
 
+export interface TerminalWorkspaceEnvContext {
+  readonly baseEnvironment: Record<string, string>;
+}
+
 export type TerminalWorkspaceEnvResolver = (
   workspaceId: WorkspaceId,
+  context: TerminalWorkspaceEnvContext,
 ) => Promise<Record<string, string> | null | undefined> | Record<string, string> | null | undefined;
 
 export interface TerminalMainIpcRouterDependencies {
@@ -169,19 +174,26 @@ export class TerminalMainIpcRouter {
   }
 
   private async handleOpenCommand(command: TerminalOpenCommand): Promise<TerminalOpenedEvent> {
-    const openCommand = await this.resolveOpenCommand(command);
+    const baseEnvironment = await this.dependencies.shellEnvironmentResolver.getBaseEnv();
+    const openCommand = await this.resolveOpenCommand(command, baseEnvironment);
     const openedEvent = await this.dependencies.registry.openTerminal({
       tabId: this.createTabId(openCommand.workspaceId),
       openCommand,
-      shellEnvironmentResolver: this.dependencies.shellEnvironmentResolver,
+      shellEnvironmentResolver: createStaticBaseEnvironmentResolver(
+        this.dependencies.shellEnvironmentResolver,
+        baseEnvironment,
+      ),
     });
     this.emitEvent(openedEvent);
     return openedEvent;
   }
 
-  private async resolveOpenCommand(command: TerminalOpenCommand): Promise<TerminalOpenCommand> {
+  private async resolveOpenCommand(
+    command: TerminalOpenCommand,
+    baseEnvironment: Record<string, string>,
+  ): Promise<TerminalOpenCommand> {
     const cwd = await this.resolveOpenCommandCwd(command);
-    const envOverrides = await this.resolveOpenCommandEnvOverrides(command);
+    const envOverrides = await this.resolveOpenCommandEnvOverrides(command, baseEnvironment);
 
     if (cwd === command.cwd && envOverrides === command.envOverrides) {
       return command;
@@ -214,9 +226,11 @@ export class TerminalMainIpcRouter {
 
   private async resolveOpenCommandEnvOverrides(
     command: TerminalOpenCommand,
+    baseEnvironment: Record<string, string>,
   ): Promise<Record<string, string> | undefined> {
     const workspaceEnvOverrides = await this.dependencies.resolveWorkspaceEnvOverrides?.(
       command.workspaceId,
+      { baseEnvironment },
     );
     const commandEnvOverrides = command.envOverrides;
     if (!workspaceEnvOverrides) {
@@ -301,6 +315,17 @@ class TerminalStdoutCoalescer {
       this.options.emit(chunk);
     }
   }
+}
+
+function createStaticBaseEnvironmentResolver(
+  resolver: TerminalHostEnvironmentResolver,
+  baseEnvironment: Record<string, string>,
+): TerminalHostEnvironmentResolver {
+  return {
+    getBaseEnv: () => Promise.resolve({ ...baseEnvironment }),
+    getDefaultShell: () => resolver.getDefaultShell(),
+    getDefaultShellArgs: () => resolver.getDefaultShellArgs(),
+  };
 }
 
 function assertNever(value: never): never {

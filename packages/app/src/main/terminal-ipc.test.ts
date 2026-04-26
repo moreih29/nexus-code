@@ -33,6 +33,9 @@ import {
 } from "./workspace-terminal-registry";
 import { TerminalBridge, type TerminalBridgeTransport } from "../renderer/terminal-bridge";
 import {
+  NEXUS_OPENCODE_HOST_ENV,
+  NEXUS_OPENCODE_ORIGINAL_PATH_ENV,
+  NEXUS_OPENCODE_PORT_ENV,
   OPENCODE_CONFIG_CONTENT_ENV,
   buildOpenCodeTerminalEnvOverrides,
 } from "./opencode-runtime";
@@ -241,8 +244,11 @@ describe("TerminalMainIpcRouter + TerminalBridge", () => {
         shellEnvironmentResolver: TEST_ENVIRONMENT_RESOLVER,
         ipcAdapter: channel,
         resolveWorkspaceCwd: () => "/workspace/default",
-        resolveWorkspaceEnvOverrides: (workspaceId) => ({
-          ...buildOpenCodeTerminalEnvOverrides(workspaceId),
+        resolveWorkspaceEnvOverrides: (workspaceId, context) => ({
+          ...buildOpenCodeTerminalEnvOverrides(workspaceId, {
+            shimDir: "/tmp/nexus-opencode-shim",
+            basePath: context.baseEnvironment.PATH ?? "",
+          }),
           SHARED_VALUE: "workspace",
         }),
       },
@@ -266,6 +272,18 @@ describe("TerminalMainIpcRouter + TerminalBridge", () => {
 
     expect(hostFactory.createCalls[0]?.envOverrides?.[OPENCODE_CONFIG_CONTENT_ENV]).toContain(
       '"server"',
+    );
+    expect(hostFactory.createCalls[0]?.envOverrides?.PATH).toBe(
+      "/tmp/nexus-opencode-shim:/usr/bin:/bin",
+    );
+    expect(hostFactory.createCalls[0]?.envOverrides?.[NEXUS_OPENCODE_ORIGINAL_PATH_ENV]).toBe(
+      "/usr/bin:/bin",
+    );
+    expect(hostFactory.createCalls[0]?.envOverrides?.[NEXUS_OPENCODE_HOST_ENV]).toBe(
+      "127.0.0.1",
+    );
+    expect(hostFactory.createCalls[0]?.envOverrides?.[NEXUS_OPENCODE_PORT_ENV]).toMatch(
+      /^\d+$/,
     );
     expect(hostFactory.createCalls[0]?.envOverrides?.SHARED_VALUE).toBe("command");
     expect(hostFactory.createCalls[0]?.envOverrides?.USER_VALUE).toBe("kept");
