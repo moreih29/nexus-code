@@ -4170,6 +4170,150 @@
           "created_at": "2026-04-27T04:02:52.931Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-27T07:00:31.544Z",
+      "branch": "feat/e4-code-editor-lsp",
+      "plan": {
+        "id": 26,
+        "topic": "VS Code-like FileTreePanel interaction refinement",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Define the VS Code-like FileTreePanel MVP cut without expanding into a full Explorer clone",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Designer recommends behavior fidelity, not a pixel clone: add selected/focused tree item model, replace header path form with inline creation in tree, replace rename popover with inline row rename, add keyboard tree navigation, and make delete selection-based with explicit confirmation. Future/out-of-scope: full context menus, drag/drop, multi-select, reveal/copy/open terminal, tree filtering, preview tabs, dedicated git UI, split editor.",
+                "recorded_at": "2026-04-27T06:30:09.389Z",
+                "agent_id": "019dcd9d-7405-7b83-977d-b2950a9befe3"
+              }
+            ],
+            "decision": "Selected approach: implement VS Code Explorer interaction grammar for the E4 file tree, not a visual clone or a full Explorer feature set. In-scope for this cycle: persistent selected row, active-file highlight, inline create/rename in the tree, selected-item delete confirmation, header toolbar actions, tree semantics, and keyboard navigation for visible rows. Rejected alternative: keep the current path-form plus popover model, because the user specifically reports it feels unlike VS Code and it forces a path-first mental model. Rejected alternative: build full Explorer parity with right-click context menus, drag/drop move, multi-select, copy path/reveal, tree filtering, preview tab semantics, or dedicated git UI, because E4 explicitly excludes several adjacent surfaces and this request is about core filetree behavior. Assumption: behavior fidelity matters more than pixel matching; Nexus visual tokens remain."
+          },
+          {
+            "id": 2,
+            "title": "Decide FileTreePanel state ownership and store API for selection, inline edit, expansion, and active file sync",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explorer",
+                "summary": "Explorer verified current code: FileTreePanel has header path create form, recursive rows without tree roles or selection, row details popovers for rename/delete, and editor-store owns expandedPaths/tabs/CRUD. Recommended adding selectedPathByWorkspaceId, expandedPathsByWorkspaceId, pendingExplorerEdit, begin/cancel/create/rename/delete/collapse actions, and fixing directory rename to rewrite descendant open tabs/selection/expanded paths.",
+                "recorded_at": "2026-04-27T06:30:09.661Z",
+                "agent_id": "019dcd9d-9745-7790-bc0d-da5654982cd5"
+              }
+            ],
+            "decision": "Selected approach: move durable Explorer UI state into `editor-store.ts` rather than leaving it as component-only state. Add selected path per active workspace, per-workspace expanded paths, pending Explorer edit operation, and actions for selecting nodes, beginning create/rename/delete, cancelling edits, confirming inline create/rename/delete, moving selection, and collapse-all. Component state may hold transient input focus/value only. `createFileNode`, `renameFileNode`, and `deleteFileNode` must maintain selection and expansion; directory rename must rewrite descendant tab paths, selected path, and expanded paths. Rejected alternative: keep inline edit state purely in `FileTreePanel`, because watch refreshes, workspace switches, and future command-palette hooks can desynchronize operation identity. Rejected alternative: implement a separate filetree store outside editor-store now, because current E4 renderer state is already centralized there and this would add unnecessary plumbing."
+          },
+          {
+            "id": 3,
+            "title": "Decide component behavior for inline create/rename/delete, keyboard navigation, tree semantics, and toolbar",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Designer component requirements: toolbar only (New File, New Folder, Refresh), inline create under selected folder/sibling/root, inline basename rename via row action or F2, keyboard behavior for Up/Down/Home/End/Left/Right/Enter/Space/F2/Delete/Escape, tree roles with aria-selected, and explicit delete confirmation because deletion is not move-to-trash.",
+                "recorded_at": "2026-04-27T06:30:09.932Z",
+                "agent_id": "019dcd9d-7405-7b83-977d-b2950a9befe3"
+              }
+            ],
+            "decision": "Selected approach: replace the always-visible create form and row popover controls with a compact VS Code-like toolbar and inline tree editing. Header actions: New File, New Folder, Refresh, Collapse All. New file/folder inserts a synthetic inline row under selected folder, beside selected file, or at root. Rename replaces the selected row label with a basename input. Enter commits, Escape cancels. Delete/row delete action opens one explicit confirmation for the selected item. Keyboard behavior is scoped to the focused tree: Up/Down/Home/End select visible rows, Left collapses or moves to parent, Right expands or enters first child, Enter opens/toggles, Space toggles folders, F2 renames, Delete/Backspace requests delete, Escape cancels. Rejected alternative: global Delete/F2 shortcuts in App, because they would conflict with editor/terminal focus. Rejected alternative: row `<details>` popovers, because they feel like web forms rather than Explorer interactions."
+          },
+          {
+            "id": 4,
+            "title": "Define verification and documentation closure for the file tree interaction refinement",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explorer",
+                "summary": "Explorer identified tests to update: FileTreePanel tests should cover toolbar without permanent path input, selected/active row state, inline create/rename, keyboard helpers/actions, and delete confirmation. Editor-store tests should cover per-workspace selection/expansion, create/rename/delete state maintenance, directory rename rewriting descendant tabs, and collapse-all. Target gates: component/store tests, typecheck, lint, build, check:dist, diff-check.",
+                "recorded_at": "2026-04-27T06:30:10.203Z",
+                "agent_id": "019dcd9d-9745-7790-bc0d-da5654982cd5"
+              }
+            ],
+            "decision": "Selected approach: verify with store/component tests plus existing gates. Required tests: FileTreePanel toolbar and absence of permanent path input, tree roles/selection/active row state, inline create/rename/delete flows, keyboard navigation helpers/actions, and editor-store state maintenance for create/rename/delete/collapse-all including directory rename descendant tabs. Run at least targeted component/store tests, app typecheck, renderer lint, build, check:dist, and diff-check; full `bun test` is preferred before close because filetree behavior crosses renderer state. Update `.nexus/context/design.md` with a concise rule that filetree follows VS Code-like interaction grammar only if implementation changes become stable. Rejected alternative: manual-only validation, because this is a regression-prone UX state machine. Rejected alternative: no docs, because the project design context already says VS Code-like patterns are intentionally borrowed and the refined filetree behavior should be captured."
+          }
+        ],
+        "research_summary": "User reported the E4 file tree does not behave like VS Code and requested to follow VS Code as much as possible. Existing code/context checked locally: `FileTreePanel.tsx` currently uses an always-visible header path input for create and row `<details>` popovers for rename/delete; no selected-path model, tree semantics, roving focus, keyboard navigation, or collapse-all. `editor-store.ts` owns file tree/expanded paths/tabs and CRUD callbacks; App wires actions. Prior E4 history shows filetree was an MVP surface and full VS Code clone, dedicated git UI, project-wide search, drag/drop, multi-select, split editor are excluded. Official VS Code documentation checked: Explorer is used to browse/open/manage files/folders and supports create/delete/rename/context menu; VS Code documents Explorer/tree navigation and preview-tab semantics, while default shortcuts include Explorer focus and file management. Designer analysis recommended behavior fidelity rather than pixel clone: selection, inline create/rename, keyboard navigation, selected-item delete confirmation. Explorer analysis recommended moving operation identity into Zustand, replacing path form/popovers with toolbar + inline rows, adding selection/keyboard, and testing store/component behavior. Sources: https://code.visualstudio.com/docs/getstarted/userinterface#_explorer-view, https://code.visualstudio.com/docs/reference/default-keybindings, https://code.visualstudio.com/api/references/when-clause-contexts.",
+        "created_at": "2026-04-27T06:29:55.082Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. Explorer-like editor store state and helpers",
+          "status": "completed",
+          "context": "Current `editor-store.ts` has file tree, expanded paths, tabs, and CRUD but no selected path, pending inline edit, per-workspace explorer state, or keyboard-visible-node helpers. Decisions #1/#2 require durable VS Code-like Explorer state in the store and directory rename to rewrite descendant tabs/state.",
+          "acceptance": "`editor-store.ts` exposes selected tree path, per-workspace expanded state, pending explorer edit/delete state, and actions for select, begin create file/folder, begin rename, begin delete, cancel explorer edit, collapse all, and visible-node keyboard movement. `createFileNode`, `renameFileNode`, `deleteFileNode`, `openFile`, and `activateTab` maintain selected path and expanded paths. Directory rename rewrites descendant open tab paths/titles/languages/diagnostics and selected/expanded descendants. Store tests cover selection/expansion persistence by workspace, create selecting/expanding, delete clearing descendant selection/tabs, rename descendant paths, collapse all, and keyboard navigation helper behavior.",
+          "approach": "Extend existing Zustand vanilla store rather than adding a new store. Keep transient input text in component, but operation identity in store. Add pure path helpers for dirname/basename/join and visible tree flatten/navigation. Preserve existing public actions where possible and add new actions consumed by FileTreePanel/App.",
+          "risk": "State migration may break App selectors or tests if expandedPaths shape changes too broadly; keep backward-compatible derived `expandedPaths` for active workspace if possible.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcda2-aa28-75f1-b036-e8e0e2bd2968"
+          },
+          "created_at": "2026-04-27T06:30:56.977Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. VS Code-like FileTreePanel inline UX and keyboard navigation",
+          "status": "completed",
+          "context": "Current `FileTreePanel.tsx` uses a permanent header create path form and row details popovers. Decisions #1/#3 require toolbar-only actions, inline create/rename rows, selection/active styling, tree semantics, keyboard navigation, and delete confirmation scoped to tree focus.",
+          "acceptance": "Header shows New File, New Folder, Refresh, Collapse All; no permanent path input. New File/New Folder creates an inline input row at selected-folder/sibling/root target. Rename uses inline basename input on the row, not a popover/full path. Delete uses explicit confirmation for selected item/row action and never deletes without confirmation. Tree has role/aria semantics and selected/active row attributes. Keyboard supports Up/Down/Home/End/Left/Right/Enter/Space/F2/Delete/Backspace/Escape while tree has focus. Component tests cover toolbar, no permanent path input, selected/active attributes, inline create/rename commit/cancel, delete confirmation, and representative keyboard behavior. No `window.prompt`/`window.confirm`.",
+          "approach": "Rewrite FileTreePanel around props from editor-store: selectedPath, activePath, pending edit/delete, and new action callbacks. Render synthetic inline create rows and inline rename input. Use roving focus or a focusable tree container with aria-activedescendant. Keep visual tokens Nexus-specific while behavior matches VS Code interaction grammar.",
+          "risk": "Full DOM focus behavior is hard to test in current React-element tests; keep pure helper logic testable and assert handler wiring/data attributes in component tests.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcdad-7b5d-7170-90d0-e10e002db9fa"
+          },
+          "created_at": "2026-04-27T06:30:57.241Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. App wiring and design context update",
+          "status": "completed",
+          "context": "After store/component changes, App.tsx must pass new props/actions to FileTreePanel. `.nexus/context/design.md` should capture the stable rule that filetree follows VS Code-like interaction grammar while not cloning VS Code.",
+          "acceptance": "`App.tsx` wires selected path, active editor path, pending edit/delete state, and FileTreePanel callbacks. No global Delete/F2 shortcut is added outside tree focus. `.nexus/context/design.md` includes a concise filetree interaction rule: selection, inline create/rename, keyboard navigation, explicit delete confirmation; future context-menu/drag/drop/multiselect out of MVP. Existing command palette/global keyboard behavior remains unaffected. Typecheck passes after wiring.",
+          "approach": "Update App selectors/action props only after T1/T2 interfaces settle. Add a short design note rather than roadmap changes. Keep right shared panel and editor/terminal center unaffected.",
+          "risk": "App has many selectors; prop churn can cause stale selector imports or unstable render assumptions. Keep prop naming explicit and localized.",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcdb7-4931-7c10-97f1-b34a55de121e"
+          },
+          "created_at": "2026-04-27T06:30:57.539Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. FileTree VS Code-like behavior verification and closure",
+          "status": "completed",
+          "context": "After T1-T3, verify the behavior/state machine and close the cycle. Web/official VS Code docs were used for behavioral baseline; final report should cite them.",
+          "acceptance": "Targeted tests pass for `editor-store.test.ts` and `FileTreePanel.test.tsx`. `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:drift`, and `bun run test:diff-check` pass. `nx_task_close` archives the cycle. Changes are committed with explicit paths. Final Korean report lists changed paths, key behavior decisions, verification, risks, and VS Code source links.",
+          "approach": "Run targeted tests first, then full gates. If failures are behavioral regressions, rework via the same engineer before closure. Lead performs nx_task_close and explicit-path git commit.",
+          "risk": "Full `bun test` includes sidecar integration soak and takes over a minute; build may expose renderer type/focus issues not visible in component tests.",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcdb9-6c1f-7c91-9e55-09c90e7e2fc5"
+          },
+          "created_at": "2026-04-27T06:30:57.809Z"
+        }
+      ]
     }
   ]
 }

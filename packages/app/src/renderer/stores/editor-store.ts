@@ -31,6 +31,42 @@ export interface EditorFileTreeState {
   readAt: string | null;
 }
 
+export type EditorPendingExplorerEdit =
+  | {
+      type: "create";
+      workspaceId: WorkspaceId;
+      parentPath: string | null;
+      kind: E4FileKind;
+    }
+  | {
+      type: "rename";
+      workspaceId: WorkspaceId;
+      path: string;
+      kind: E4FileKind;
+    };
+
+export interface EditorPendingExplorerDelete {
+  workspaceId: WorkspaceId;
+  path: string;
+  kind: E4FileKind;
+}
+
+export interface EditorVisibleTreeNode {
+  node: E4FileTreeNode;
+  path: string;
+  kind: E4FileKind;
+  depth: number;
+  parentPath: string | null;
+}
+
+export type EditorTreeSelectionMovement =
+  | "previous"
+  | "next"
+  | "first"
+  | "last"
+  | "parent"
+  | "child";
+
 export interface EditorTab {
   id: EditorTabId;
   workspaceId: WorkspaceId;
@@ -54,6 +90,13 @@ export interface EditorStoreState {
   centerMode: CenterWorkbenchMode;
   fileTree: EditorFileTreeState;
   expandedPaths: Record<string, true>;
+  expandedPathsByWorkspace: Record<string, Record<string, true>>;
+  selectedTreePath: string | null;
+  selectedTreePathByWorkspace: Record<string, string>;
+  pendingExplorerEdit: EditorPendingExplorerEdit | null;
+  pendingExplorerEditsByWorkspace: Record<string, EditorPendingExplorerEdit>;
+  pendingExplorerDelete: EditorPendingExplorerDelete | null;
+  pendingExplorerDeletesByWorkspace: Record<string, EditorPendingExplorerDelete>;
   gitBadgeByPath: Record<string, E4GitBadgeStatus>;
   tabs: EditorTab[];
   activeTabId: EditorTabId | null;
@@ -62,6 +105,15 @@ export interface EditorStoreState {
   setCenterMode(mode: CenterWorkbenchMode): void;
   refreshFileTree(workspaceId?: WorkspaceId | null): Promise<void>;
   toggleDirectory(path: string): void;
+  selectTreePath(path: string | null, workspaceId?: WorkspaceId | null): void;
+  beginCreateFile(parentPath?: string | null, workspaceId?: WorkspaceId | null): void;
+  beginCreateFolder(parentPath?: string | null, workspaceId?: WorkspaceId | null): void;
+  beginRename(path: string, kind: E4FileKind, workspaceId?: WorkspaceId | null): void;
+  beginDelete(path: string, kind: E4FileKind, workspaceId?: WorkspaceId | null): void;
+  cancelExplorerEdit(workspaceId?: WorkspaceId | null): void;
+  collapseAll(workspaceId?: WorkspaceId | null): void;
+  getVisibleTreeNodes(): EditorVisibleTreeNode[];
+  moveTreeSelection(movement: EditorTreeSelectionMovement): void;
   createFileNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): Promise<void>;
   deleteFileNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): Promise<void>;
   renameFileNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): Promise<void>;
@@ -90,6 +142,13 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     centerMode: "terminal",
     fileTree: EMPTY_FILE_TREE,
     expandedPaths: {},
+    expandedPathsByWorkspace: {},
+    selectedTreePath: null,
+    selectedTreePathByWorkspace: {},
+    pendingExplorerEdit: null,
+    pendingExplorerEditsByWorkspace: {},
+    pendingExplorerDelete: null,
+    pendingExplorerDeletesByWorkspace: {},
     gitBadgeByPath: {},
     tabs: [],
     activeTabId: null,
@@ -102,12 +161,22 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
             activeTabId: null,
             fileTree: EMPTY_FILE_TREE,
             expandedPaths: {},
+            selectedTreePath: null,
+            pendingExplorerEdit: null,
+            pendingExplorerDelete: null,
             gitBadgeByPath: {},
           };
         }
 
         const activeTab = state.tabs.find((tab) => tab.workspaceId === workspaceId) ?? null;
         const workspaceChanged = state.activeWorkspaceId !== workspaceId;
+        const explorerState = deriveActiveExplorerState(
+          workspaceId,
+          state.expandedPathsByWorkspace,
+          state.selectedTreePathByWorkspace,
+          state.pendingExplorerEditsByWorkspace,
+          state.pendingExplorerDeletesByWorkspace,
+        );
 
         return {
           activeWorkspaceId: workspaceId,
@@ -122,7 +191,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
                 readAt: null,
               }
             : state.fileTree,
-          expandedPaths: workspaceChanged ? {} : state.expandedPaths,
+          ...explorerState,
           gitBadgeByPath: workspaceChanged ? {} : state.gitBadgeByPath,
         };
       });
@@ -132,7 +201,14 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async refreshFileTree(workspaceId = get().activeWorkspaceId) {
       if (!workspaceId) {
-        set({ fileTree: EMPTY_FILE_TREE, expandedPaths: {}, gitBadgeByPath: {} });
+        set({
+          fileTree: EMPTY_FILE_TREE,
+          expandedPaths: {},
+          selectedTreePath: null,
+          pendingExplorerEdit: null,
+          pendingExplorerDelete: null,
+          gitBadgeByPath: {},
+        });
         return;
       }
 
@@ -181,33 +257,157 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     toggleDirectory(path) {
       set((state) => {
-        const expandedPaths = { ...state.expandedPaths };
+        const workspaceId = resolveExplorerWorkspaceId(state);
+        if (!workspaceId) {
+          return state;
+        }
+
+        const expandedPaths = { ...expandedPathsForWorkspace(state, workspaceId) };
         if (expandedPaths[path]) {
           delete expandedPaths[path];
         } else {
           expandedPaths[path] = true;
         }
-        return { expandedPaths };
+        return applyWorkspaceExplorerChanges(state, workspaceId, { expandedPaths });
       });
     },
+    selectTreePath(path, workspaceId = get().activeWorkspaceId) {
+      set((state) => {
+        const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+        if (!resolvedWorkspaceId) {
+          return state;
+        }
+
+        const changes: WorkspaceExplorerChanges = {
+          selectedTreePath: path,
+        };
+        if (path) {
+          changes.expandedPaths = expandAncestorPaths(
+            expandedPathsForWorkspace(state, resolvedWorkspaceId),
+            path,
+          );
+        }
+        return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, changes);
+      });
+    },
+    beginCreateFile(parentPath, workspaceId = get().activeWorkspaceId) {
+      beginCreateExplorerNode(set, "file", parentPath, workspaceId);
+    },
+    beginCreateFolder(parentPath, workspaceId = get().activeWorkspaceId) {
+      beginCreateExplorerNode(set, "directory", parentPath, workspaceId);
+    },
+    beginRename(path, kind, workspaceId = get().activeWorkspaceId) {
+      set((state) => {
+        const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+        if (!resolvedWorkspaceId) {
+          return state;
+        }
+
+        return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, {
+          expandedPaths: expandAncestorPaths(
+            expandedPathsForWorkspace(state, resolvedWorkspaceId),
+            path,
+          ),
+          selectedTreePath: path,
+          pendingExplorerEdit: {
+            type: "rename",
+            workspaceId: resolvedWorkspaceId,
+            path,
+            kind,
+          },
+          pendingExplorerDelete: null,
+        });
+      });
+    },
+    beginDelete(path, kind, workspaceId = get().activeWorkspaceId) {
+      set((state) => {
+        const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+        if (!resolvedWorkspaceId) {
+          return state;
+        }
+
+        return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, {
+          expandedPaths: expandAncestorPaths(
+            expandedPathsForWorkspace(state, resolvedWorkspaceId),
+            path,
+          ),
+          selectedTreePath: path,
+          pendingExplorerEdit: null,
+          pendingExplorerDelete: {
+            workspaceId: resolvedWorkspaceId,
+            path,
+            kind,
+          },
+        });
+      });
+    },
+    cancelExplorerEdit(workspaceId = get().activeWorkspaceId) {
+      set((state) => {
+        const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+        if (!resolvedWorkspaceId) {
+          return state;
+        }
+
+        return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, {
+          pendingExplorerEdit: null,
+          pendingExplorerDelete: null,
+        });
+      });
+    },
+    collapseAll(workspaceId = get().activeWorkspaceId) {
+      set((state) => {
+        const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+        if (!resolvedWorkspaceId) {
+          return state;
+        }
+
+        return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, {
+          expandedPaths: {},
+        });
+      });
+    },
+    getVisibleTreeNodes() {
+      const state = get();
+      return flattenVisibleFileTree(state.fileTree.nodes, state.expandedPaths);
+    },
+    moveTreeSelection(movement) {
+      set((state) => moveTreeSelectionInState(state, movement));
+    },
     async createFileNode(workspaceId, path, kind) {
-      await bridge.invoke({
+      const result = await bridge.invoke({
         type: "e4/file/create",
         workspaceId,
         path,
         kind,
         content: kind === "file" ? "" : undefined,
       });
+      set((state) => {
+        const expandedPaths = expandAncestorPaths(
+          expandedPathsForWorkspace(state, workspaceId),
+          result.path,
+        );
+        if (result.kind === "directory") {
+          expandedPaths[result.path] = true;
+        }
+
+        return applyWorkspaceExplorerChanges(state, workspaceId, {
+          expandedPaths,
+          selectedTreePath: result.path,
+          pendingExplorerEdit: null,
+          pendingExplorerDelete: null,
+        });
+      });
       await get().refreshFileTree(workspaceId);
     },
     async deleteFileNode(workspaceId, path, kind) {
-      await bridge.invoke({
+      const result = await bridge.invoke({
         type: "e4/file/delete",
         workspaceId,
         path,
         recursive: kind === "directory",
       });
-      removeTabsForDeletedPath(set, get, workspaceId, path, kind);
+      removeTabsForDeletedPath(set, get, workspaceId, result.path, kind);
+      set((state) => clearDeletedExplorerPath(state, workspaceId, result.path));
       await get().refreshFileTree(workspaceId);
     },
     async renameFileNode(workspaceId, oldPath, newPath) {
@@ -217,13 +417,26 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         oldPath,
         newPath,
       });
-      set((state) => renameOpenTab(state, workspaceId, result.oldPath, result.newPath));
+      set((state) => renameExplorerPathInState(state, workspaceId, result.oldPath, result.newPath));
       await get().refreshFileTree(workspaceId);
     },
     async openFile(workspaceId, path) {
       const existingTabId = tabIdFor(workspaceId, path);
       if (get().tabs.some((tab) => tab.id === existingTabId)) {
-        set({ activeWorkspaceId: workspaceId, activeTabId: existingTabId, centerMode: "editor" });
+        set((state) => ({
+          activeWorkspaceId: workspaceId,
+          activeTabId: existingTabId,
+          centerMode: "editor",
+          ...applyWorkspaceExplorerChanges(
+            state,
+            workspaceId,
+            {
+              expandedPaths: expandAncestorPaths(expandedPathsForWorkspace(state, workspaceId), path),
+              selectedTreePath: path,
+            },
+            workspaceId,
+          ),
+        }));
         return;
       }
 
@@ -259,6 +472,18 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         centerMode: "editor",
         activeTabId: tab.id,
         tabs: [...state.tabs, tab],
+        ...applyWorkspaceExplorerChanges(
+          state,
+          workspaceId,
+          {
+            expandedPaths: expandAncestorPaths(
+              expandedPathsForWorkspace(state, workspaceId),
+              readResult.path,
+            ),
+            selectedTreePath: readResult.path,
+          },
+          workspaceId,
+        ),
       }));
 
       if (language) {
@@ -280,7 +505,23 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         return;
       }
 
-      set({ activeWorkspaceId: tab.workspaceId, activeTabId: tabId, centerMode: "editor" });
+      set((state) => ({
+        activeWorkspaceId: tab.workspaceId,
+        activeTabId: tabId,
+        centerMode: "editor",
+        ...applyWorkspaceExplorerChanges(
+          state,
+          tab.workspaceId,
+          {
+            expandedPaths: expandAncestorPaths(
+              expandedPathsForWorkspace(state, tab.workspaceId),
+              tab.path,
+            ),
+            selectedTreePath: tab.path,
+          },
+          tab.workspaceId,
+        ),
+      }));
     },
     async updateTabContent(tabId, content) {
       const tab = get().tabs.find((candidate) => candidate.id === tabId);
@@ -503,6 +744,387 @@ function collectGitBadges(nodes: readonly E4FileTreeNode[]): Record<string, E4Gi
   return badges;
 }
 
+export function flattenVisibleFileTree(
+  nodes: readonly E4FileTreeNode[],
+  expandedPaths: Record<string, true>,
+): EditorVisibleTreeNode[] {
+  const visibleNodes: EditorVisibleTreeNode[] = [];
+
+  function walk(
+    treeNodes: readonly E4FileTreeNode[],
+    depth: number,
+    parentPath: string | null,
+  ): void {
+    for (const node of treeNodes) {
+      visibleNodes.push({
+        node,
+        path: node.path,
+        kind: node.kind,
+        depth,
+        parentPath,
+      });
+
+      if (node.kind === "directory" && expandedPaths[node.path] && node.children?.length) {
+        walk(node.children, depth + 1, node.path);
+      }
+    }
+  }
+
+  walk(nodes, 0, null);
+  return visibleNodes;
+}
+
+function beginCreateExplorerNode(
+  set: StoreSet,
+  kind: E4FileKind,
+  parentPath: string | null | undefined,
+  workspaceId: WorkspaceId | null | undefined,
+): void {
+  set((state) => {
+    const resolvedWorkspaceId = resolveExplorerWorkspaceId(state, workspaceId);
+    if (!resolvedWorkspaceId) {
+      return state;
+    }
+
+    const resolvedParentPath =
+      parentPath === undefined ? inferCreateParentPath(state) : parentPath;
+    const expandedPaths = resolvedParentPath
+      ? expandAncestorPaths(
+          {
+            ...expandedPathsForWorkspace(state, resolvedWorkspaceId),
+            [resolvedParentPath]: true,
+          },
+          resolvedParentPath,
+        )
+      : expandedPathsForWorkspace(state, resolvedWorkspaceId);
+
+    return applyWorkspaceExplorerChanges(state, resolvedWorkspaceId, {
+      expandedPaths,
+      selectedTreePath: resolvedParentPath,
+      pendingExplorerEdit: {
+        type: "create",
+        workspaceId: resolvedWorkspaceId,
+        parentPath: resolvedParentPath,
+        kind,
+      },
+      pendingExplorerDelete: null,
+    });
+  });
+}
+
+function moveTreeSelectionInState(
+  state: EditorStoreState,
+  movement: EditorTreeSelectionMovement,
+): Partial<EditorStoreState> | EditorStoreState {
+  const workspaceId = resolveExplorerWorkspaceId(state);
+  if (!workspaceId) {
+    return state;
+  }
+
+  const expandedPaths = expandedPathsForWorkspace(state, workspaceId);
+  const visibleNodes = flattenVisibleFileTree(state.fileTree.nodes, expandedPaths);
+  if (visibleNodes.length === 0) {
+    return state;
+  }
+
+  const selectedPath = state.selectedTreePathByWorkspace[workspaceId] ?? null;
+  const selectedIndex = selectedPath
+    ? visibleNodes.findIndex((visibleNode) => visibleNode.path === selectedPath)
+    : -1;
+  const selectedVisibleNode = selectedIndex >= 0 ? visibleNodes[selectedIndex] : null;
+
+  if (movement === "first") {
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: visibleNodes[0]?.path ?? null,
+    });
+  }
+
+  if (movement === "last") {
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: visibleNodes.at(-1)?.path ?? null,
+    });
+  }
+
+  if (movement === "next") {
+    const nextNode =
+      selectedIndex < 0
+        ? visibleNodes[0]
+        : visibleNodes[Math.min(selectedIndex + 1, visibleNodes.length - 1)];
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: nextNode?.path ?? null,
+    });
+  }
+
+  if (movement === "previous") {
+    const previousNode =
+      selectedIndex < 0
+        ? visibleNodes.at(-1)
+        : visibleNodes[Math.max(selectedIndex - 1, 0)];
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: previousNode?.path ?? null,
+    });
+  }
+
+  if (!selectedVisibleNode) {
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: visibleNodes[0]?.path ?? null,
+    });
+  }
+
+  if (movement === "parent") {
+    if (
+      selectedVisibleNode.kind === "directory" &&
+      expandedPaths[selectedVisibleNode.path]
+    ) {
+      const nextExpandedPaths = { ...expandedPaths };
+      delete nextExpandedPaths[selectedVisibleNode.path];
+      return applyWorkspaceExplorerChanges(state, workspaceId, {
+        expandedPaths: nextExpandedPaths,
+      });
+    }
+
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      selectedTreePath: selectedVisibleNode.parentPath ?? selectedVisibleNode.path,
+    });
+  }
+
+  if (selectedVisibleNode.kind !== "directory") {
+    return state;
+  }
+
+  if (!expandedPaths[selectedVisibleNode.path]) {
+    return applyWorkspaceExplorerChanges(state, workspaceId, {
+      expandedPaths: {
+        ...expandedPaths,
+        [selectedVisibleNode.path]: true,
+      },
+    });
+  }
+
+  const firstChild = selectedVisibleNode.node.children?.[0] ?? null;
+  return applyWorkspaceExplorerChanges(state, workspaceId, {
+    selectedTreePath: firstChild?.path ?? selectedVisibleNode.path,
+  });
+}
+
+function inferCreateParentPath(state: EditorStoreState): string | null {
+  const workspaceId = resolveExplorerWorkspaceId(state);
+  if (!workspaceId) {
+    return null;
+  }
+
+  const selectedPath = state.selectedTreePathByWorkspace[workspaceId] ?? null;
+  if (!selectedPath) {
+    return null;
+  }
+
+  const selectedNode = findFileTreeNodeByPath(state.fileTree.nodes, selectedPath);
+  if (selectedNode?.kind === "directory") {
+    return selectedPath;
+  }
+
+  return parentPathFor(selectedPath);
+}
+
+function findFileTreeNodeByPath(
+  nodes: readonly E4FileTreeNode[],
+  path: string,
+): E4FileTreeNode | null {
+  for (const node of nodes) {
+    if (node.path === path) {
+      return node;
+    }
+
+    if (node.children) {
+      const descendant = findFileTreeNodeByPath(node.children, path);
+      if (descendant) {
+        return descendant;
+      }
+    }
+  }
+
+  return null;
+}
+
+interface WorkspaceExplorerChanges {
+  expandedPaths?: Record<string, true>;
+  selectedTreePath?: string | null;
+  pendingExplorerEdit?: EditorPendingExplorerEdit | null;
+  pendingExplorerDelete?: EditorPendingExplorerDelete | null;
+}
+
+function applyWorkspaceExplorerChanges(
+  state: EditorStoreState,
+  workspaceId: WorkspaceId,
+  changes: WorkspaceExplorerChanges,
+  activeWorkspaceId = state.activeWorkspaceId,
+): Partial<EditorStoreState> {
+  const expandedPathsByWorkspace =
+    changes.expandedPaths === undefined
+      ? state.expandedPathsByWorkspace
+      : {
+          ...state.expandedPathsByWorkspace,
+          [workspaceId]: changes.expandedPaths,
+        };
+  const selectedTreePathByWorkspace =
+    changes.selectedTreePath === undefined
+      ? state.selectedTreePathByWorkspace
+      : setNullableWorkspaceRecordValue(
+          state.selectedTreePathByWorkspace,
+          workspaceId,
+          changes.selectedTreePath,
+        );
+  const pendingExplorerEditsByWorkspace =
+    changes.pendingExplorerEdit === undefined
+      ? state.pendingExplorerEditsByWorkspace
+      : setNullableWorkspaceRecordValue(
+          state.pendingExplorerEditsByWorkspace,
+          workspaceId,
+          changes.pendingExplorerEdit,
+        );
+  const pendingExplorerDeletesByWorkspace =
+    changes.pendingExplorerDelete === undefined
+      ? state.pendingExplorerDeletesByWorkspace
+      : setNullableWorkspaceRecordValue(
+          state.pendingExplorerDeletesByWorkspace,
+          workspaceId,
+          changes.pendingExplorerDelete,
+        );
+
+  return {
+    expandedPathsByWorkspace,
+    selectedTreePathByWorkspace,
+    pendingExplorerEditsByWorkspace,
+    pendingExplorerDeletesByWorkspace,
+    ...deriveActiveExplorerState(
+      activeWorkspaceId,
+      expandedPathsByWorkspace,
+      selectedTreePathByWorkspace,
+      pendingExplorerEditsByWorkspace,
+      pendingExplorerDeletesByWorkspace,
+    ),
+  };
+}
+
+function deriveActiveExplorerState(
+  activeWorkspaceId: WorkspaceId | null,
+  expandedPathsByWorkspace: Record<string, Record<string, true>>,
+  selectedTreePathByWorkspace: Record<string, string>,
+  pendingExplorerEditsByWorkspace: Record<string, EditorPendingExplorerEdit>,
+  pendingExplorerDeletesByWorkspace: Record<string, EditorPendingExplorerDelete>,
+): Pick<
+  EditorStoreState,
+  "expandedPaths" | "selectedTreePath" | "pendingExplorerEdit" | "pendingExplorerDelete"
+> {
+  if (!activeWorkspaceId) {
+    return {
+      expandedPaths: {},
+      selectedTreePath: null,
+      pendingExplorerEdit: null,
+      pendingExplorerDelete: null,
+    };
+  }
+
+  return {
+    expandedPaths: expandedPathsByWorkspace[activeWorkspaceId] ?? {},
+    selectedTreePath: selectedTreePathByWorkspace[activeWorkspaceId] ?? null,
+    pendingExplorerEdit: pendingExplorerEditsByWorkspace[activeWorkspaceId] ?? null,
+    pendingExplorerDelete: pendingExplorerDeletesByWorkspace[activeWorkspaceId] ?? null,
+  };
+}
+
+function setNullableWorkspaceRecordValue<TValue>(
+  record: Record<string, TValue>,
+  workspaceId: WorkspaceId,
+  value: TValue | null,
+): Record<string, TValue> {
+  const nextRecord = { ...record };
+  if (value === null) {
+    delete nextRecord[workspaceId];
+  } else {
+    nextRecord[workspaceId] = value;
+  }
+  return nextRecord;
+}
+
+function resolveExplorerWorkspaceId(
+  state: EditorStoreState,
+  workspaceId: WorkspaceId | null | undefined = state.activeWorkspaceId,
+): WorkspaceId | null {
+  return workspaceId ?? state.activeWorkspaceId ?? state.fileTree.workspaceId;
+}
+
+function expandedPathsForWorkspace(
+  state: EditorStoreState,
+  workspaceId: WorkspaceId,
+): Record<string, true> {
+  return state.expandedPathsByWorkspace[workspaceId] ?? {};
+}
+
+function expandAncestorPaths(
+  expandedPaths: Record<string, true>,
+  path: string,
+): Record<string, true> {
+  const nextExpandedPaths = { ...expandedPaths };
+  for (const ancestorPath of ancestorPathsFor(path)) {
+    nextExpandedPaths[ancestorPath] = true;
+  }
+  return nextExpandedPaths;
+}
+
+function ancestorPathsFor(path: string): string[] {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  const ancestorPaths: string[] = [];
+  for (let index = 1; index < parts.length; index += 1) {
+    ancestorPaths.push(parts.slice(0, index).join("/"));
+  }
+  return ancestorPaths;
+}
+
+function parentPathFor(path: string): string | null {
+  const ancestors = ancestorPathsFor(path);
+  return ancestors.at(-1) ?? null;
+}
+
+function isPathOrDescendant(candidatePath: string, parentPath: string): boolean {
+  return candidatePath === parentPath || candidatePath.startsWith(`${parentPath}/`);
+}
+
+function rewritePathPrefix(path: string, oldPath: string, newPath: string): string {
+  if (path === oldPath) {
+    return newPath;
+  }
+  if (!path.startsWith(`${oldPath}/`)) {
+    return path;
+  }
+  return `${newPath}${path.slice(oldPath.length)}`;
+}
+
+function rewriteExpandedPaths(
+  expandedPaths: Record<string, true>,
+  oldPath: string,
+  newPath: string,
+): Record<string, true> {
+  const nextExpandedPaths: Record<string, true> = {};
+  for (const expandedPath of Object.keys(expandedPaths)) {
+    nextExpandedPaths[rewritePathPrefix(expandedPath, oldPath, newPath)] = true;
+  }
+  return nextExpandedPaths;
+}
+
+function removeExpandedPathDescendants(
+  expandedPaths: Record<string, true>,
+  deletedPath: string,
+): Record<string, true> {
+  const nextExpandedPaths: Record<string, true> = {};
+  for (const expandedPath of Object.keys(expandedPaths)) {
+    if (!isPathOrDescendant(expandedPath, deletedPath)) {
+      nextExpandedPaths[expandedPath] = true;
+    }
+  }
+  return nextExpandedPaths;
+}
+
 function removeTabsForDeletedPath(
   set: StoreSet,
   get: () => EditorStoreState,
@@ -517,7 +1139,7 @@ function removeTabsForDeletedPath(
     if (kind === "file") {
       return tab.path === deletedPath;
     }
-    return tab.path === deletedPath || tab.path.startsWith(`${deletedPath}/`);
+    return isPathOrDescendant(tab.path, deletedPath);
   });
 
   for (const tab of tabsToClose) {
@@ -525,38 +1147,99 @@ function removeTabsForDeletedPath(
   }
 }
 
-function renameOpenTab(
+function clearDeletedExplorerPath(
+  state: EditorStoreState,
+  workspaceId: WorkspaceId,
+  deletedPath: string,
+): Partial<EditorStoreState> {
+  const selectedPath = state.selectedTreePathByWorkspace[workspaceId] ?? null;
+  const pendingEdit = state.pendingExplorerEditsByWorkspace[workspaceId] ?? null;
+  const pendingDelete = state.pendingExplorerDeletesByWorkspace[workspaceId] ?? null;
+
+  return applyWorkspaceExplorerChanges(state, workspaceId, {
+    expandedPaths: removeExpandedPathDescendants(
+      expandedPathsForWorkspace(state, workspaceId),
+      deletedPath,
+    ),
+    selectedTreePath:
+      selectedPath && isPathOrDescendant(selectedPath, deletedPath) ? null : selectedPath,
+    pendingExplorerEdit:
+      pendingEdit && explorerEditTouchesPath(pendingEdit, deletedPath) ? null : pendingEdit,
+    pendingExplorerDelete:
+      pendingDelete && isPathOrDescendant(pendingDelete.path, deletedPath)
+        ? null
+        : pendingDelete,
+  });
+}
+
+function explorerEditTouchesPath(
+  pendingEdit: EditorPendingExplorerEdit,
+  path: string,
+): boolean {
+  if (pendingEdit.type === "rename") {
+    return isPathOrDescendant(pendingEdit.path, path);
+  }
+  return pendingEdit.parentPath ? isPathOrDescendant(pendingEdit.parentPath, path) : false;
+}
+
+function renameExplorerPathInState(
   state: EditorStoreState,
   workspaceId: WorkspaceId,
   oldPath: string,
   newPath: string,
 ): Partial<EditorStoreState> {
-  const oldTabId = tabIdFor(workspaceId, oldPath);
-  const newTabId = tabIdFor(workspaceId, newPath);
-  let renamed = false;
+  let nextActiveTabId = state.activeTabId;
   const tabs = state.tabs.map((tab) => {
-    if (tab.id !== oldTabId) {
+    if (tab.workspaceId !== workspaceId || !isPathOrDescendant(tab.path, oldPath)) {
       return tab;
     }
-    renamed = true;
+
+    const nextPath = rewritePathPrefix(tab.path, oldPath, newPath);
+    const nextLanguage = detectLspLanguage(nextPath);
+    const nextTabId = tabIdFor(workspaceId, nextPath);
+    if (state.activeTabId === tab.id) {
+      nextActiveTabId = nextTabId;
+    }
+
     return {
       ...tab,
-      id: newTabId,
-      path: newPath,
-      title: titleForPath(newPath),
-      language: detectLspLanguage(newPath),
-      monacoLanguage: monacoLanguageIdForPath(newPath),
-      diagnostics: [],
+      id: nextTabId,
+      path: nextPath,
+      title: titleForPath(nextPath),
+      language: nextLanguage,
+      monacoLanguage: monacoLanguageIdForPath(nextPath, nextLanguage),
+      diagnostics:
+        tab.language === nextLanguage
+          ? tab.diagnostics.map((diagnostic) => ({
+              ...diagnostic,
+              path: rewritePathPrefix(diagnostic.path, oldPath, newPath),
+            }))
+          : [],
+      lspStatus: nextLanguage
+        ? state.lspStatuses[lspStatusKey(workspaceId, nextLanguage)] ?? null
+        : null,
     };
   });
 
-  if (!renamed) {
-    return state;
-  }
+  const selectedPath = state.selectedTreePathByWorkspace[workspaceId] ?? null;
+  const selectedTreePath =
+    selectedPath && isPathOrDescendant(selectedPath, oldPath)
+      ? rewritePathPrefix(selectedPath, oldPath, newPath)
+      : selectedPath;
 
   return {
     tabs,
-    activeTabId: state.activeTabId === oldTabId ? newTabId : state.activeTabId,
+    activeTabId: nextActiveTabId,
+    ...applyWorkspaceExplorerChanges(state, workspaceId, {
+      expandedPaths: rewriteExpandedPaths(
+        expandedPathsForWorkspace(state, workspaceId),
+        oldPath,
+        newPath,
+      ),
+      selectedTreePath,
+      pendingExplorerEdit: null,
+      pendingExplorerDelete: null,
+    }),
   };
 }
 

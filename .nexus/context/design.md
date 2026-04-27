@@ -139,6 +139,10 @@ Button h-8(32px)·Tab h-9(36px)·Checkbox 16px·Icon button 28px 확정.
 
 "Coming soon" 문구는 금지하며, 미구현 패널은 기능 가치를 한 문장 서술한다. 일러스트는 사용하지 않는다. a11y 원칙: 아이콘은 aria-hidden, 제목이 스크린리더 앵커, 버튼 텍스트는 구체적이다.
 
+### File tree interaction grammar
+
+File tree는 VS Code-like interaction grammar를 따른다: toolbar actions(New File/New Folder/Refresh/Collapse All), selected row, inline create/rename, FileTreePanel 내부로 scope된 keyboard tree navigation, explicit delete confirmation을 MVP 기준으로 고정한다. Context menu, drag-and-drop, multi-select는 future scope이며 MVP 밖이다.
+
 ### Border·Spacing
 
 Border 1px 고정. Focus ring만 2px 예외 허용. Spacing은 Tailwind 기본 4px 단위 유지.

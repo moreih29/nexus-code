@@ -100,12 +100,23 @@ export default function App(): JSX.Element {
   const editorFileTree = useStore(editorStore, (state) => state.fileTree);
   const editorExpandedPaths = useStore(editorStore, (state) => state.expandedPaths);
   const editorGitBadgeByPath = useStore(editorStore, (state) => state.gitBadgeByPath);
+  const editorSelectedTreePath = useStore(editorStore, (state) => state.selectedTreePath);
+  const editorPendingExplorerEdit = useStore(editorStore, (state) => state.pendingExplorerEdit);
+  const editorPendingExplorerDelete = useStore(editorStore, (state) => state.pendingExplorerDelete);
   const editorTabs = useStore(editorStore, (state) => state.tabs);
   const editorActiveTabId = useStore(editorStore, (state) => state.activeTabId);
   const editorMode = useStore(editorStore, (state) => state.centerMode);
   const setEditorMode = useStore(editorStore, (state) => state.setCenterMode);
   const refreshEditorFileTree = useStore(editorStore, (state) => state.refreshFileTree);
   const toggleEditorDirectory = useStore(editorStore, (state) => state.toggleDirectory);
+  const selectEditorTreePath = useStore(editorStore, (state) => state.selectTreePath);
+  const beginCreateEditorFile = useStore(editorStore, (state) => state.beginCreateFile);
+  const beginCreateEditorFolder = useStore(editorStore, (state) => state.beginCreateFolder);
+  const beginRenameEditorNode = useStore(editorStore, (state) => state.beginRename);
+  const beginDeleteEditorNode = useStore(editorStore, (state) => state.beginDelete);
+  const cancelEditorExplorerEdit = useStore(editorStore, (state) => state.cancelExplorerEdit);
+  const collapseAllEditorTree = useStore(editorStore, (state) => state.collapseAll);
+  const moveEditorTreeSelection = useStore(editorStore, (state) => state.moveTreeSelection);
   const openEditorFile = useStore(editorStore, (state) => state.openFile);
   const createEditorFileNode = useStore(editorStore, (state) => state.createFileNode);
   const deleteEditorFileNode = useStore(editorStore, (state) => state.deleteFileNode);
@@ -453,6 +464,9 @@ export default function App(): JSX.Element {
                     fileTree={editorFileTree}
                     expandedPaths={editorExpandedPaths}
                     gitBadgeByPath={editorGitBadgeByPath}
+                    selectedTreePath={editorSelectedTreePath}
+                    pendingExplorerEdit={editorPendingExplorerEdit}
+                    pendingExplorerDelete={editorPendingExplorerDelete}
                     onRefresh={(workspaceId) => {
                       void runEditorMutation(() => refreshEditorFileTree(workspaceId));
                     }}
@@ -469,6 +483,14 @@ export default function App(): JSX.Element {
                     onRenameNode={(workspaceId, oldPath, newPath) => {
                       void runEditorMutation(() => renameEditorFileNode(workspaceId, oldPath, newPath));
                     }}
+                    onSelectTreePath={selectEditorTreePath}
+                    onBeginCreateFile={beginCreateEditorFile}
+                    onBeginCreateFolder={beginCreateEditorFolder}
+                    onBeginRename={beginRenameEditorNode}
+                    onBeginDelete={beginDeleteEditorNode}
+                    onCancelExplorerEdit={cancelEditorExplorerEdit}
+                    onCollapseAll={collapseAllEditorTree}
+                    onMoveTreeSelection={moveEditorTreeSelection}
                   />
                 </aside>
               </ScrollArea>

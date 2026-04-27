@@ -13,6 +13,7 @@ import {
 } from "./editor-store";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
+const betaWorkspaceId = "ws_beta" as WorkspaceId;
 const readyStatus: E4LspStatus = {
   language: "typescript",
   state: "ready",
@@ -89,6 +90,213 @@ describe("editor-store file tree", () => {
     await waitFor(() => {
       expect(calls.filter((call) => call.type === "e4/file-tree/read").length).toBeGreaterThan(treeReadsBeforeWatch);
     });
+  });
+
+  test("persists tree selection and expansion by workspace", () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    store.getState().toggleDirectory("src");
+    store.getState().selectTreePath("src/index.ts");
+
+    store.getState().setActiveWorkspace(betaWorkspaceId);
+    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().selectedTreePath).toBeNull();
+
+    store.getState().toggleDirectory("docs");
+    store.getState().selectTreePath("docs/guide.md");
+
+    store.getState().setActiveWorkspace(workspaceId);
+    expect(store.getState().expandedPaths).toEqual({ src: true });
+    expect(store.getState().selectedTreePath).toBe("src/index.ts");
+
+    store.getState().setActiveWorkspace(betaWorkspaceId);
+    expect(store.getState().expandedPaths).toEqual({ docs: true });
+    expect(store.getState().selectedTreePath).toBe("docs/guide.md");
+    expect(store.getState().expandedPathsByWorkspace).toEqual({
+      [workspaceId]: { src: true },
+      [betaWorkspaceId]: { docs: true },
+    });
+  });
+
+  test("tracks pending create state and selects and expands created nodes", async () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().refreshFileTree(workspaceId);
+
+    store.getState().beginCreateFile("src");
+    expect(store.getState().pendingExplorerEdit).toEqual({
+      type: "create",
+      workspaceId,
+      parentPath: "src",
+      kind: "file",
+    });
+    expect(store.getState().expandedPaths).toEqual({ src: true });
+
+    store.getState().cancelExplorerEdit();
+    expect(store.getState().pendingExplorerEdit).toBeNull();
+
+    await store.getState().createFileNode(workspaceId, "src/generated", "directory");
+    expect(store.getState().selectedTreePath).toBe("src/generated");
+    expect(store.getState().expandedPaths).toEqual({
+      src: true,
+      "src/generated": true,
+    });
+    expect(store.getState().pendingExplorerEdit).toBeNull();
+  });
+
+  test("delete clears descendant selection, pending delete state, tabs, and expansion", async () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().refreshFileTree(workspaceId);
+    await store.getState().openFile(workspaceId, "src/index.ts");
+    store.getState().beginDelete("src", "directory");
+    expect(store.getState().pendingExplorerDelete).toEqual({
+      workspaceId,
+      path: "src",
+      kind: "directory",
+    });
+
+    await store.getState().deleteFileNode(workspaceId, "src", "directory");
+
+    expect(store.getState().tabs).toEqual([]);
+    expect(store.getState().activeTabId).toBeNull();
+    expect(store.getState().selectedTreePath).toBeNull();
+    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().pendingExplorerDelete).toBeNull();
+  });
+
+  test("renames descendant selected paths, expanded paths, open tabs, and diagnostics", async () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().refreshFileTree(workspaceId);
+    await store.getState().openFile(workspaceId, "src/index.ts");
+    store.getState().toggleDirectory("src/components");
+    store.getState().beginRename("src/index.ts", "file");
+    expect(store.getState().pendingExplorerEdit).toEqual({
+      type: "rename",
+      workspaceId,
+      path: "src/index.ts",
+      kind: "file",
+    });
+    store.getState().applyEditorEvent({
+      type: "e4/lsp-diagnostics/changed",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      diagnostics: [
+        {
+          path: "src/index.ts",
+          language: "typescript",
+          range: {
+            start: { line: 0, character: 14 },
+            end: { line: 0, character: 21 },
+          },
+          severity: "error",
+          message: "Cannot find name 'missing'.",
+        },
+      ],
+      version: "1",
+      publishedAt: "2026-04-27T00:00:02.000Z",
+    });
+
+    await store.getState().renameFileNode(workspaceId, "src", "app");
+
+    expect(store.getState().pendingExplorerEdit).toBeNull();
+    expect(store.getState().activeTabId).toBe(tabIdFor(workspaceId, "app/index.ts"));
+    expect(store.getState().tabs[0]).toMatchObject({
+      id: tabIdFor(workspaceId, "app/index.ts"),
+      path: "app/index.ts",
+      title: "index.ts",
+      language: "typescript",
+      monacoLanguage: "typescript",
+      diagnostics: [
+        {
+          path: "app/index.ts",
+          language: "typescript",
+          message: "Cannot find name 'missing'.",
+        },
+      ],
+    });
+    expect(store.getState().selectedTreePath).toBe("app/index.ts");
+    expect(store.getState().expandedPaths).toEqual({
+      app: true,
+      "app/components": true,
+    });
+  });
+
+  test("collapses all expanded paths for the active workspace", () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    store.getState().toggleDirectory("src");
+    store.getState().toggleDirectory("src/components");
+    expect(store.getState().expandedPaths).toEqual({
+      src: true,
+      "src/components": true,
+    });
+
+    store.getState().collapseAll();
+    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().expandedPathsByWorkspace[workspaceId]).toEqual({});
+  });
+
+  test("provides visible tree nodes and keyboard-style selection movement", async () => {
+    const calls: E4EditorRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().refreshFileTree(workspaceId);
+
+    expect(store.getState().getVisibleTreeNodes().map((node) => node.path)).toEqual([
+      "src",
+      "README.md",
+    ]);
+
+    store.getState().moveTreeSelection("next");
+    expect(store.getState().selectedTreePath).toBe("src");
+
+    store.getState().moveTreeSelection("child");
+    expect(store.getState().expandedPaths).toEqual({ src: true });
+    expect(store.getState().selectedTreePath).toBe("src");
+    expect(store.getState().getVisibleTreeNodes().map((node) => node.path)).toEqual([
+      "src",
+      "src/index.ts",
+      "README.md",
+    ]);
+
+    store.getState().moveTreeSelection("child");
+    expect(store.getState().selectedTreePath).toBe("src/index.ts");
+
+    store.getState().moveTreeSelection("next");
+    expect(store.getState().selectedTreePath).toBe("README.md");
+
+    store.getState().moveTreeSelection("previous");
+    expect(store.getState().selectedTreePath).toBe("src/index.ts");
+
+    store.getState().moveTreeSelection("parent");
+    expect(store.getState().selectedTreePath).toBe("src");
+
+    store.getState().moveTreeSelection("parent");
+    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().selectedTreePath).toBe("src");
+
+    store.getState().moveTreeSelection("last");
+    expect(store.getState().selectedTreePath).toBe("README.md");
   });
 });
 
