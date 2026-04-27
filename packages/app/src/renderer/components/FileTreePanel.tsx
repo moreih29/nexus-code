@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import type { FormEvent } from "react";
 
 import type {
   E4FileKind,
@@ -45,54 +46,16 @@ export function FileTreePanel(props: FileTreePanelProps): JSX.Element {
       data-component="file-tree-panel"
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-sidebar-border bg-sidebar/80 text-sidebar-foreground"
     >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-sidebar-border px-3 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground">
-            Files
-          </h2>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {props.activeWorkspace?.displayName ?? "No workspace selected"}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            data-action="file-tree-new-file"
-            aria-label="New file"
-            variant="ghost"
-            size="icon-xs"
-            disabled={!workspaceId}
-            onClick={() => {
-              if (!workspaceId) {
-                return;
-              }
-              const nextPath = promptForPath("New file path");
-              if (nextPath) {
-                props.onCreateNode(workspaceId, nextPath, "file");
-              }
-            }}
-          >
-            <FilePlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-          </Button>
-          <Button
-            type="button"
-            data-action="file-tree-new-folder"
-            aria-label="New folder"
-            variant="ghost"
-            size="icon-xs"
-            disabled={!workspaceId}
-            onClick={() => {
-              if (!workspaceId) {
-                return;
-              }
-              const nextPath = promptForPath("New folder path");
-              if (nextPath) {
-                props.onCreateNode(workspaceId, nextPath, "directory");
-              }
-            }}
-          >
-            <FolderPlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-          </Button>
+      <header className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground">
+              Files
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {props.activeWorkspace?.displayName ?? "No workspace selected"}
+            </p>
+          </div>
           <Button
             type="button"
             data-action="file-tree-refresh"
@@ -113,6 +76,49 @@ export function FileTreePanel(props: FileTreePanelProps): JSX.Element {
             />
           </Button>
         </div>
+        <form
+          data-action="file-tree-create-form"
+          className="flex min-w-0 items-center gap-1"
+          onSubmit={(event) => {
+            if (!workspaceId) {
+              event.preventDefault();
+              return;
+            }
+            handleCreateSubmit(event, workspaceId, props.onCreateNode);
+          }}
+        >
+          <input
+            name="path"
+            aria-label="New file or folder path"
+            placeholder="path/to/file"
+            disabled={!workspaceId}
+            className="h-7 min-w-0 flex-1 rounded-md border border-sidebar-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <Button
+            type="submit"
+            name="kind"
+            value="file"
+            data-action="file-tree-new-file"
+            aria-label="Create file"
+            variant="ghost"
+            size="icon-xs"
+            disabled={!workspaceId}
+          >
+            <FilePlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+          </Button>
+          <Button
+            type="submit"
+            name="kind"
+            value="directory"
+            data-action="file-tree-new-folder"
+            aria-label="Create folder"
+            variant="ghost"
+            size="icon-xs"
+            disabled={!workspaceId}
+          >
+            <FolderPlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+          </Button>
+        </form>
       </header>
 
       <FileTreePanelBody {...props} />
@@ -255,39 +261,60 @@ function FileTreeNodeRow({
 
         <GitBadge path={node.path} status={badge} />
 
-        <Button
-          type="button"
-          data-action="file-tree-rename"
-          data-path={node.path}
-          aria-label={`Rename ${node.name}`}
-          variant="ghost"
-          size="icon-xs"
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          onClick={() => {
-            const nextPath = promptForPath("Rename path", node.path);
-            if (nextPath && nextPath !== node.path) {
-              onRenameNode(workspaceId, node.path, nextPath);
-            }
-          }}
-        >
-          <Pencil aria-hidden="true" className="size-3" strokeWidth={1.75} />
-        </Button>
-        <Button
-          type="button"
-          data-action="file-tree-delete"
-          data-path={node.path}
-          aria-label={`Delete ${node.name}`}
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-          onClick={() => {
-            if (confirmDelete(node.path)) {
-              onDeleteNode(workspaceId, node.path, node.kind);
-            }
-          }}
-        >
-          <Trash2 aria-hidden="true" className="size-3" strokeWidth={1.75} />
-        </Button>
+        <details className="relative shrink-0">
+          <summary
+            data-action="file-tree-rename"
+            data-path={node.path}
+            aria-label={`Rename ${node.name}`}
+            className="flex size-6 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 focus-visible:opacity-100 [&::-webkit-details-marker]:hidden"
+          >
+            <Pencil aria-hidden="true" className="size-3" strokeWidth={1.75} />
+          </summary>
+          <form
+            data-action="file-tree-rename-form"
+            className="absolute right-0 z-10 mt-1 flex w-64 gap-1 rounded-md border border-sidebar-border bg-popover p-2 shadow-lg"
+            onSubmit={(event) => {
+              handleRenameSubmit(event, workspaceId, node.path, onRenameNode);
+            }}
+          >
+            <input
+              name="path"
+              aria-label={`Rename ${node.name} path`}
+              defaultValue={node.path}
+              className="h-7 min-w-0 flex-1 rounded-md border border-sidebar-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <Button type="submit" data-action="file-tree-rename-confirm" variant="outline" size="xs">
+              Rename
+            </Button>
+          </form>
+        </details>
+        <details className="relative shrink-0">
+          <summary
+            data-action="file-tree-delete"
+            data-path={node.path}
+            aria-label={`Delete ${node.name}`}
+            className="flex size-6 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 focus-visible:opacity-100 [&::-webkit-details-marker]:hidden"
+          >
+            <Trash2 aria-hidden="true" className="size-3" strokeWidth={1.75} />
+          </summary>
+          <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-sidebar-border bg-popover p-2 text-xs text-popover-foreground shadow-lg">
+            <p className="truncate">Delete {node.path}?</p>
+            <div className="mt-2 flex justify-end gap-1">
+              <Button
+                type="button"
+                data-action="file-tree-confirm-delete"
+                variant="destructive"
+                size="xs"
+                onClick={(event) => {
+                  closeClosestDetails(event.currentTarget);
+                  onDeleteNode(workspaceId, node.path, node.kind);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </details>
       </div>
 
       {isDirectory && expanded && node.children && node.children.length > 0 ? (
@@ -336,14 +363,66 @@ function PanelMessage({ children }: { children: string }): JSX.Element {
   );
 }
 
-function promptForPath(label: string, defaultValue = ""): string | null {
-  const nextValue = window.prompt(label, defaultValue);
-  const trimmed = nextValue?.trim();
-  return trimmed ? trimmed : null;
+function handleCreateSubmit(
+  event: FormEvent<HTMLFormElement>,
+  workspaceId: WorkspaceId,
+  onCreateNode: FileTreePanelProps["onCreateNode"],
+): void {
+  event.preventDefault();
+  const path = readPathInput(event.currentTarget);
+  if (!path) {
+    return;
+  }
+
+  const kind = readSubmitterKind(event.nativeEvent);
+  onCreateNode(workspaceId, path, kind);
+  event.currentTarget.reset();
 }
 
-function confirmDelete(filePath: string): boolean {
-  return window.confirm(`Delete ${filePath}?`);
+function handleRenameSubmit(
+  event: FormEvent<HTMLFormElement>,
+  workspaceId: WorkspaceId,
+  oldPath: string,
+  onRenameNode: FileTreePanelProps["onRenameNode"],
+): void {
+  event.preventDefault();
+  const nextPath = readPathInput(event.currentTarget);
+  if (!nextPath || nextPath === oldPath) {
+    return;
+  }
+
+  closeClosestDetails(event.currentTarget);
+  onRenameNode(workspaceId, oldPath, nextPath);
+}
+
+function readPathInput(form: HTMLFormElement): string {
+  const pathInput = form.elements.namedItem("path");
+  if (!hasValue(pathInput)) {
+    return "";
+  }
+
+  return String(pathInput.value).trim();
+}
+
+function readSubmitterKind(nativeEvent: Event): E4FileKind {
+  const submitter = "submitter" in nativeEvent ? nativeEvent.submitter : null;
+  if (hasValue(submitter) && submitter.value === "directory") {
+    return "directory";
+  }
+
+  return "file";
+}
+
+function hasValue(value: unknown): value is { value: unknown } {
+  return typeof value === "object" && value !== null && "value" in value;
+}
+
+function closeClosestDetails(target: EventTarget | null): void {
+  if (typeof Element === "undefined" || !(target instanceof Element)) {
+    return;
+  }
+
+  target.closest("details")?.removeAttribute("open");
 }
 
 export function gitBadgeText(status: E4GitBadgeStatus): string {

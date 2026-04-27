@@ -74,17 +74,77 @@ describe("FileTreePanel", () => {
     const tree = FileTreePanel(baseProps);
 
     for (const action of [
+      "file-tree-create-form",
       "file-tree-new-file",
       "file-tree-new-folder",
       "file-tree-refresh",
       "file-tree-open-file",
       "file-tree-rename",
+      "file-tree-rename-form",
       "file-tree-delete",
+      "file-tree-confirm-delete",
     ]) {
       expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === action)).toBeDefined();
     }
   });
+
+  test("submits inline create, rename, and delete actions without browser prompt APIs", () => {
+    const createCalls: Array<[WorkspaceId, string, "file" | "directory"]> = [];
+    const renameCalls: Array<[WorkspaceId, string, string]> = [];
+    const deleteCalls: Array<[WorkspaceId, string, "file" | "directory"]> = [];
+    const tree = FileTreePanel({
+      ...baseProps,
+      onCreateNode(workspaceId, path, kind) {
+        createCalls.push([workspaceId, path, kind]);
+      },
+      onRenameNode(workspaceId, oldPath, newPath) {
+        renameCalls.push([workspaceId, oldPath, newPath]);
+      },
+      onDeleteNode(workspaceId, path, kind) {
+        deleteCalls.push([workspaceId, path, kind]);
+      },
+    });
+
+    const createForm = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-action"] === "file-tree-create-form",
+    );
+    createForm?.props.onSubmit(fakeSubmitEvent(" docs/readme.md ", "directory"));
+
+    const renameForm = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-action"] === "file-tree-rename-form",
+    );
+    renameForm?.props.onSubmit(fakeSubmitEvent("src/main.ts", "file"));
+
+    const deleteConfirm = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-action"] === "file-tree-confirm-delete",
+    );
+    deleteConfirm?.props.onClick({ currentTarget: null });
+
+    expect(createCalls).toEqual([[workspaceId, "docs/readme.md", "directory"]]);
+    expect(renameCalls).toEqual([[workspaceId, "src", "src/main.ts"]]);
+    expect(deleteCalls).toEqual([[workspaceId, "src", "directory"]]);
+  });
 });
+
+function fakeSubmitEvent(path: string, kind: "file" | "directory") {
+  return {
+    preventDefault() {},
+    currentTarget: {
+      elements: {
+        namedItem(name: string) {
+          return name === "path" ? { value: path } : null;
+        },
+      },
+      reset() {},
+    },
+    nativeEvent: {
+      submitter: { value: kind },
+    },
+  };
+}
 
 function findElementByPredicate(
   node: ReactNode,
