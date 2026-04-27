@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 
-import type { SidecarStoppedEvent } from "../../../../shared/src/contracts/sidecar";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { SidecarStoppedEvent } from "../../../../shared/src/contracts/sidecar/sidecar";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 
 export type SidecarStopSignal = NodeJS.Signals | "SIGSEGV" | "SIGABRT" | null;
 

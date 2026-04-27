@@ -4,7 +4,7 @@ import { CLAUDE_SESSION_READ_TRANSCRIPT_CHANNEL } from "../../../shared/src/cont
 import type {
   ClaudeTranscriptReadRequest,
   ClaudeTranscriptReadResult,
-} from "../../../shared/src/contracts/e3-surfaces";
+} from "../../../shared/src/contracts/claude/claude-session-transcript";
 
 type IpcRendererLike = Pick<IpcRenderer, "invoke">;
 

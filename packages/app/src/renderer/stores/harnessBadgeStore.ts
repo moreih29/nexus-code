@@ -4,8 +4,8 @@ import type {
   HarnessObserverEvent,
   TabBadgeEvent,
   TabBadgeState,
-} from "../../../../shared/src/contracts/harness-observer";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+} from "../../../../shared/src/contracts/harness/harness-observer";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 
 export type VisibleHarnessBadgeState = Exclude<TabBadgeState, "completed">;
 

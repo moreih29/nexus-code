@@ -1,10 +1,10 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type {
   OpenFolderRequest,
   WorkspaceSidebarState,
-} from "../../../../shared/src/contracts/workspace-shell";
+} from "../../../../shared/src/contracts/workspace/workspace-shell";
 
 export interface WorkspaceSidebarBridge {
   getSidebarState(): Promise<WorkspaceSidebarState>;

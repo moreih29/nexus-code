@@ -1,31 +1,31 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type {
-  E4Diagnostic,
-  E4EditorEvent,
-  E4EditorRequest,
-  E4EditorResultFor,
-  E4FileKind,
-  E4FileTreeNode,
-  E4GitBadgeStatus,
-  E4LspLanguage,
-  E4LspStatus,
-} from "../../../../shared/src/contracts/e4-editor";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+  LspDiagnostic,
+  EditorBridgeEvent,
+  EditorBridgeRequest,
+  EditorBridgeResultFor,
+  WorkspaceFileKind,
+  WorkspaceFileTreeNode,
+  WorkspaceGitBadgeStatus,
+  LspLanguage,
+  LspStatus,
+} from "../../../../shared/src/contracts/editor/editor-bridge";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 
 export type CenterWorkbenchMode = "editor" | "terminal";
 export type EditorTabId = string;
 
 export interface EditorBridge {
-  invoke<TRequest extends E4EditorRequest>(
+  invoke<TRequest extends EditorBridgeRequest>(
     request: TRequest,
-  ): Promise<E4EditorResultFor<TRequest>>;
+  ): Promise<EditorBridgeResultFor<TRequest>>;
 }
 
 export interface EditorFileTreeState {
   workspaceId: WorkspaceId | null;
   rootPath: string;
-  nodes: E4FileTreeNode[];
+  nodes: WorkspaceFileTreeNode[];
   loading: boolean;
   errorMessage: string | null;
   readAt: string | null;
@@ -36,25 +36,25 @@ export type EditorPendingExplorerEdit =
       type: "create";
       workspaceId: WorkspaceId;
       parentPath: string | null;
-      kind: E4FileKind;
+      kind: WorkspaceFileKind;
     }
   | {
       type: "rename";
       workspaceId: WorkspaceId;
       path: string;
-      kind: E4FileKind;
+      kind: WorkspaceFileKind;
     };
 
 export interface EditorPendingExplorerDelete {
   workspaceId: WorkspaceId;
   path: string;
-  kind: E4FileKind;
+  kind: WorkspaceFileKind;
 }
 
 export interface EditorVisibleTreeNode {
-  node: E4FileTreeNode;
+  node: WorkspaceFileTreeNode;
   path: string;
-  kind: E4FileKind;
+  kind: WorkspaceFileKind;
   depth: number;
   parentPath: string | null;
 }
@@ -78,11 +78,11 @@ export interface EditorTab {
   dirty: boolean;
   saving: boolean;
   errorMessage: string | null;
-  language: E4LspLanguage | null;
+  language: LspLanguage | null;
   monacoLanguage: string;
   lspDocumentVersion: number;
-  diagnostics: E4Diagnostic[];
-  lspStatus: E4LspStatus | null;
+  diagnostics: LspDiagnostic[];
+  lspStatus: LspStatus | null;
 }
 
 export interface EditorStoreState {
@@ -97,10 +97,10 @@ export interface EditorStoreState {
   pendingExplorerEditsByWorkspace: Record<string, EditorPendingExplorerEdit>;
   pendingExplorerDelete: EditorPendingExplorerDelete | null;
   pendingExplorerDeletesByWorkspace: Record<string, EditorPendingExplorerDelete>;
-  gitBadgeByPath: Record<string, E4GitBadgeStatus>;
+  gitBadgeByPath: Record<string, WorkspaceGitBadgeStatus>;
   tabs: EditorTab[];
   activeTabId: EditorTabId | null;
-  lspStatuses: Record<string, E4LspStatus>;
+  lspStatuses: Record<string, LspStatus>;
   setActiveWorkspace(workspaceId: WorkspaceId | null): void;
   setCenterMode(mode: CenterWorkbenchMode): void;
   refreshFileTree(workspaceId?: WorkspaceId | null): Promise<void>;
@@ -108,21 +108,21 @@ export interface EditorStoreState {
   selectTreePath(path: string | null, workspaceId?: WorkspaceId | null): void;
   beginCreateFile(parentPath?: string | null, workspaceId?: WorkspaceId | null): void;
   beginCreateFolder(parentPath?: string | null, workspaceId?: WorkspaceId | null): void;
-  beginRename(path: string, kind: E4FileKind, workspaceId?: WorkspaceId | null): void;
-  beginDelete(path: string, kind: E4FileKind, workspaceId?: WorkspaceId | null): void;
+  beginRename(path: string, kind: WorkspaceFileKind, workspaceId?: WorkspaceId | null): void;
+  beginDelete(path: string, kind: WorkspaceFileKind, workspaceId?: WorkspaceId | null): void;
   cancelExplorerEdit(workspaceId?: WorkspaceId | null): void;
   collapseAll(workspaceId?: WorkspaceId | null): void;
   getVisibleTreeNodes(): EditorVisibleTreeNode[];
   moveTreeSelection(movement: EditorTreeSelectionMovement): void;
-  createFileNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): Promise<void>;
-  deleteFileNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): Promise<void>;
+  createFileNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): Promise<void>;
+  deleteFileNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): Promise<void>;
   renameFileNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): Promise<void>;
   openFile(workspaceId: WorkspaceId, path: string): Promise<void>;
   activateTab(tabId: EditorTabId): void;
   updateTabContent(tabId: EditorTabId, content: string): Promise<void>;
   saveTab(tabId: EditorTabId): Promise<void>;
   closeTab(tabId: EditorTabId): Promise<void>;
-  applyEditorEvent(event: E4EditorEvent): void;
+  applyEditorEvent(event: EditorBridgeEvent): void;
 }
 
 const EMPTY_FILE_TREE: EditorFileTreeState = {
@@ -223,7 +223,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
       try {
         const result = await bridge.invoke({
-          type: "e4/file-tree/read",
+          type: "workspace-files/tree/read",
           workspaceId,
           rootPath: null,
         });
@@ -375,7 +375,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async createFileNode(workspaceId, path, kind) {
       const result = await bridge.invoke({
-        type: "e4/file/create",
+        type: "workspace-files/file/create",
         workspaceId,
         path,
         kind,
@@ -401,7 +401,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async deleteFileNode(workspaceId, path, kind) {
       const result = await bridge.invoke({
-        type: "e4/file/delete",
+        type: "workspace-files/file/delete",
         workspaceId,
         path,
         recursive: kind === "directory",
@@ -412,7 +412,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async renameFileNode(workspaceId, oldPath, newPath) {
       const result = await bridge.invoke({
-        type: "e4/file/rename",
+        type: "workspace-files/file/rename",
         workspaceId,
         oldPath,
         newPath,
@@ -441,7 +441,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       }
 
       const readResult = await bridge.invoke({
-        type: "e4/file/read",
+        type: "workspace-files/file/read",
         workspaceId,
         path,
       });
@@ -488,7 +488,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
       if (language) {
         const openResult = await bridge.invoke({
-          type: "e4/lsp-document/open",
+          type: "lsp-document/open",
           workspaceId,
           path: readResult.path,
           language,
@@ -550,7 +550,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
       try {
         const result = await bridge.invoke({
-          type: "e4/lsp-document/change",
+          type: "lsp-document/change",
           workspaceId: tab.workspaceId,
           path: tab.path,
           language: tab.language,
@@ -578,7 +578,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
       try {
         const result = await bridge.invoke({
-          type: "e4/file/write",
+          type: "workspace-files/file/write",
           workspaceId: tab.workspaceId,
           path: tab.path,
           content: tab.content,
@@ -628,7 +628,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
       try {
         await bridge.invoke({
-          type: "e4/lsp-document/close",
+          type: "lsp-document/close",
           workspaceId: tab.workspaceId,
           path: tab.path,
           language: tab.language,
@@ -639,12 +639,12 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     applyEditorEvent(event) {
       switch (event.type) {
-        case "e4/file/watch":
+        case "workspace-files/watch":
           if (event.workspaceId === get().fileTree.workspaceId) {
             void get().refreshFileTree(event.workspaceId);
           }
           return;
-        case "e4/git-badges/changed":
+        case "workspace-git-badges/changed":
           set((state) => {
             if (state.fileTree.workspaceId !== event.workspaceId) {
               return state;
@@ -661,7 +661,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
             return { gitBadgeByPath };
           });
           return;
-        case "e4/lsp-diagnostics/changed":
+        case "lsp-diagnostics/changed":
           set((state) => ({
             tabs: state.tabs.map((tab) =>
               tab.workspaceId === event.workspaceId &&
@@ -672,7 +672,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
             ),
           }));
           return;
-        case "e4/lsp-status/changed":
+        case "lsp-status/changed":
           applyLspStatus(set, event.workspaceId, event.status);
           return;
       }
@@ -684,7 +684,7 @@ export function tabIdFor(workspaceId: WorkspaceId, path: string): EditorTabId {
   return `${workspaceId}::${path}`;
 }
 
-export function detectLspLanguage(filePath: string): E4LspLanguage | null {
+export function detectLspLanguage(filePath: string): LspLanguage | null {
   const lowerPath = filePath.toLowerCase();
   if (/\.(ts|tsx|js|jsx)$/.test(lowerPath)) {
     return "typescript";
@@ -731,8 +731,8 @@ export function titleForPath(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).at(-1) ?? filePath;
 }
 
-function collectGitBadges(nodes: readonly E4FileTreeNode[]): Record<string, E4GitBadgeStatus> {
-  const badges: Record<string, E4GitBadgeStatus> = {};
+function collectGitBadges(nodes: readonly WorkspaceFileTreeNode[]): Record<string, WorkspaceGitBadgeStatus> {
+  const badges: Record<string, WorkspaceGitBadgeStatus> = {};
   for (const node of nodes) {
     if (node.gitBadge && node.gitBadge !== "clean") {
       badges[node.path] = node.gitBadge;
@@ -745,13 +745,13 @@ function collectGitBadges(nodes: readonly E4FileTreeNode[]): Record<string, E4Gi
 }
 
 export function flattenVisibleFileTree(
-  nodes: readonly E4FileTreeNode[],
+  nodes: readonly WorkspaceFileTreeNode[],
   expandedPaths: Record<string, true>,
 ): EditorVisibleTreeNode[] {
   const visibleNodes: EditorVisibleTreeNode[] = [];
 
   function walk(
-    treeNodes: readonly E4FileTreeNode[],
+    treeNodes: readonly WorkspaceFileTreeNode[],
     depth: number,
     parentPath: string | null,
   ): void {
@@ -776,7 +776,7 @@ export function flattenVisibleFileTree(
 
 function beginCreateExplorerNode(
   set: StoreSet,
-  kind: E4FileKind,
+  kind: WorkspaceFileKind,
   parentPath: string | null | undefined,
   workspaceId: WorkspaceId | null | undefined,
 ): void {
@@ -927,9 +927,9 @@ function inferCreateParentPath(state: EditorStoreState): string | null {
 }
 
 function findFileTreeNodeByPath(
-  nodes: readonly E4FileTreeNode[],
+  nodes: readonly WorkspaceFileTreeNode[],
   path: string,
-): E4FileTreeNode | null {
+): WorkspaceFileTreeNode | null {
   for (const node of nodes) {
     if (node.path === path) {
       return node;
@@ -1130,7 +1130,7 @@ function removeTabsForDeletedPath(
   get: () => EditorStoreState,
   workspaceId: WorkspaceId,
   deletedPath: string,
-  kind: E4FileKind,
+  kind: WorkspaceFileKind,
 ): void {
   const tabsToClose = get().tabs.filter((tab) => {
     if (tab.workspaceId !== workspaceId) {
@@ -1269,11 +1269,11 @@ async function refreshTabDiagnostics(
   set: StoreSet,
   workspaceId: WorkspaceId,
   path: string,
-  language: E4LspLanguage,
+  language: LspLanguage,
 ): Promise<void> {
   try {
     const result = await bridge.invoke({
-      type: "e4/lsp-diagnostics/read",
+      type: "lsp-diagnostics/read",
       workspaceId,
       path,
       language,
@@ -1290,7 +1290,7 @@ async function refreshTabDiagnostics(
   }
 }
 
-function applyLspStatus(set: StoreSet, workspaceId: WorkspaceId, status: E4LspStatus): void {
+function applyLspStatus(set: StoreSet, workspaceId: WorkspaceId, status: LspStatus): void {
   const key = lspStatusKey(workspaceId, status.language);
   set((state) => ({
     lspStatuses: {
@@ -1313,7 +1313,7 @@ function setTabError(set: StoreSet, tabId: EditorTabId, message: string): void {
   }));
 }
 
-function lspStatusKey(workspaceId: WorkspaceId, language: E4LspLanguage): string {
+function lspStatusKey(workspaceId: WorkspaceId, language: LspLanguage): string {
   return `${workspaceId}:${language}`;
 }
 

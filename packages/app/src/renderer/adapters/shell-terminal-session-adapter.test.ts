@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { TerminalTabId } from "../../../../shared/src/contracts/terminal-tab";
+import type { TerminalTabId } from "../../../../shared/src/contracts/terminal/terminal-tab";
 import {
   createShellTerminalSessionAdapter,
   DEFAULT_TERMINAL_OPEN_COLS,

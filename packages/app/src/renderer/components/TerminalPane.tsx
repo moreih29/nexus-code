@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, SquareTerminal, X } from "lucide-react";
 
-import type { TerminalTabId } from "../../../../shared/src/contracts/terminal-tab";
-import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import type { TerminalTabId } from "../../../../shared/src/contracts/terminal/terminal-tab";
+import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { createShellTerminalSessionAdapter } from "../adapters/shell-terminal-session-adapter";
 import { PreloadTerminalBridgeTransport } from "../adapters/preload-terminal-bridge-transport";
 import { Button } from "./ui/button";
@@ -13,9 +13,9 @@ import {
   ShellTerminalTabs,
   type ShellTerminalClipboard,
   type ShellTerminalTabsSnapshot,
-} from "../shell-terminal-tab";
-import { TerminalBridge } from "../terminal-bridge";
-import { installTerminalHostResizeFit } from "../terminal-resize-fit";
+} from "../terminal/shell-terminal-tab";
+import { TerminalBridge } from "../terminal/terminal-bridge";
+import { installTerminalHostResizeFit } from "../terminal/terminal-resize-fit";
 
 export interface TerminalPaneProps {
   sidebarState: WorkspaceSidebarState;

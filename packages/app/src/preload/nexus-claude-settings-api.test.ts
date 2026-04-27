@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import { CLAUDE_SETTINGS_CONSENT_REQUEST_CHANNEL, CLAUDE_SETTINGS_CONSENT_RESPONSE_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
-import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
+import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude/claude-settings";
 import { createNexusClaudeSettingsApi } from "./nexus-claude-settings-api";
 
 describe("createNexusClaudeSettingsApi", () => {

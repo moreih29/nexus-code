@@ -5,7 +5,7 @@ import WebSocket from "ws";
 import type {
   SidecarStartCommand,
   SidecarStartedEvent,
-} from "../../../../shared/src/contracts/sidecar";
+} from "../../../../shared/src/contracts/sidecar/sidecar";
 
 export interface ReadyLine {
   port: number;

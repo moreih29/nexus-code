@@ -8,7 +8,7 @@ import {
   WORKSPACE_RESTORE_SESSION_CHANNEL,
   WORKSPACE_SIDEBAR_STATE_CHANGED_CHANNEL,
 } from "../../../shared/src/contracts/ipc-channels";
-import type { WorkspaceSidebarState } from "../../../shared/src/contracts/workspace-shell";
+import type { WorkspaceSidebarState } from "../../../shared/src/contracts/workspace/workspace-shell";
 import { createNexusWorkspaceApi } from "./nexus-workspace-api";
 
 describe("createNexusWorkspaceApi", () => {

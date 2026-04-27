@@ -1,28 +1,30 @@
 import type {
   TerminalIpcCommand,
   TerminalIpcEvent,
-} from "../../../shared/src/contracts/terminal-ipc";
-import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
+} from "../../../shared/src/contracts/terminal/terminal-ipc";
+import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness/harness-observer";
 import type {
   ClaudeSettingsConsentRequest,
   ClaudeSettingsConsentResponse,
-} from "../../../shared/src/contracts/claude-settings";
-import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
+} from "../../../shared/src/contracts/claude/claude-settings";
+import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
 import type {
   OpenFolderRequest,
   WorkspaceSidebarState,
-} from "../../../shared/src/contracts/workspace-shell";
+} from "../../../shared/src/contracts/workspace/workspace-shell";
 import type {
   ClaudeTranscriptReadRequest,
   ClaudeTranscriptReadResult,
+} from "../../../shared/src/contracts/claude/claude-session-transcript";
+import type {
   WorkspaceDiffRequest,
   WorkspaceDiffResult,
-} from "../../../shared/src/contracts/e3-surfaces";
+} from "../../../shared/src/contracts/workspace/workspace-diff";
 import type {
-  E4EditorEvent,
-  E4EditorRequest,
-  E4EditorResultFor,
-} from "../../../shared/src/contracts/e4-editor";
+  EditorBridgeEvent,
+  EditorBridgeRequest,
+  EditorBridgeResultFor,
+} from "../../../shared/src/contracts/editor/editor-bridge";
 
 interface NexusPreloadDisposable {
   dispose(): void;
@@ -68,10 +70,10 @@ interface NexusClaudeSessionApi {
 }
 
 interface NexusEditorApi {
-  invoke<TRequest extends E4EditorRequest>(
+  invoke<TRequest extends EditorBridgeRequest>(
     request: TRequest,
-  ): Promise<E4EditorResultFor<TRequest>>;
-  onEvent(listener: (event: E4EditorEvent) => void): NexusPreloadDisposable;
+  ): Promise<EditorBridgeResultFor<TRequest>>;
+  onEvent(listener: (event: EditorBridgeEvent) => void): NexusPreloadDisposable;
 }
 
 declare global {

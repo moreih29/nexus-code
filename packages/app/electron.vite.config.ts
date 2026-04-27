@@ -43,7 +43,7 @@ export default defineConfig({
       emptyOutDir: true,
       rollupOptions: {
         input: {
-          index: path.resolve(APP_ROOT, "src/main/entry.ts"),
+          index: path.resolve(APP_ROOT, "src/main/electron-app/entry.ts"),
         },
         // node-pty: native module, must not be bundled.
         // bufferutil / utf-8-validate: ws의 optional native deps. 본 프로젝트는 미설치이며

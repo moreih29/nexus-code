@@ -6,7 +6,7 @@ import {
 import type {
   TerminalIpcCommand,
   TerminalIpcEvent,
-} from "../../../shared/src/contracts/terminal-ipc";
+} from "../../../shared/src/contracts/terminal/terminal-ipc";
 import {
   createNexusWorkspaceApi,
   type NexusPreloadDisposable,

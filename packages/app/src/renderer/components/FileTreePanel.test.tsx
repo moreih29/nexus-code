@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
-import type { E4FileKind } from "../../../../shared/src/contracts/e4-editor";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { WorkspaceFileKind } from "../../../../shared/src/contracts/editor/editor-bridge";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { EditorTreeSelectionMovement } from "../stores/editor-store";
 import { FileTreePanel, type FileTreePanelProps } from "./FileTreePanel";
 
@@ -144,7 +144,7 @@ describe("FileTreePanel", () => {
   });
 
   test("commits and cancels inline create rows at the requested target", () => {
-    const createCalls: Array<[WorkspaceId, string, E4FileKind]> = [];
+    const createCalls: Array<[WorkspaceId, string, WorkspaceFileKind]> = [];
     let cancelCount = 0;
     const tree = FileTreePanel({
       ...baseProps,
@@ -226,8 +226,8 @@ describe("FileTreePanel", () => {
   });
 
   test("requires explicit confirmation before deleting a row", () => {
-    const beginDeleteCalls: Array<[string, E4FileKind]> = [];
-    const deleteCalls: Array<[WorkspaceId, string, E4FileKind]> = [];
+    const beginDeleteCalls: Array<[string, WorkspaceFileKind]> = [];
+    const deleteCalls: Array<[WorkspaceId, string, WorkspaceFileKind]> = [];
     const tree = FileTreePanel({
       ...baseProps,
       onBeginDelete(path, kind) {
@@ -271,8 +271,8 @@ describe("FileTreePanel", () => {
   test("handles representative tree keyboard navigation and row actions", () => {
     const moves: EditorTreeSelectionMovement[] = [];
     const openCalls: Array<[WorkspaceId, string]> = [];
-    const renameCalls: Array<[string, E4FileKind]> = [];
-    const deleteCalls: Array<[string, E4FileKind]> = [];
+    const renameCalls: Array<[string, WorkspaceFileKind]> = [];
+    const deleteCalls: Array<[string, WorkspaceFileKind]> = [];
     let cancelCount = 0;
     const tree = FileTreePanel({
       ...baseProps,

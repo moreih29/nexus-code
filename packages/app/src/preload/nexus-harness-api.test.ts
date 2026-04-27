@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { HARNESS_OBSERVER_EVENT_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
-import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness-observer";
+import type { HarnessObserverEvent } from "../../../shared/src/contracts/harness/harness-observer";
 import { createNexusHarnessApi } from "./nexus-harness-api";
 
 describe("createNexusHarnessApi", () => {

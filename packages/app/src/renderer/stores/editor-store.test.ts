@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
-  E4EditorRequest,
-  E4FileTreeNode,
-  E4LspStatus,
-} from "../../../../shared/src/contracts/e4-editor";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+  EditorBridgeRequest,
+  WorkspaceFileTreeNode,
+  LspStatus,
+} from "../../../../shared/src/contracts/editor/editor-bridge";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import {
   createEditorStore,
   tabIdFor,
@@ -14,7 +14,7 @@ import {
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 const betaWorkspaceId = "ws_beta" as WorkspaceId;
-const readyStatus: E4LspStatus = {
+const readyStatus: LspStatus = {
   language: "typescript",
   state: "ready",
   serverName: "typescript-language-server",
@@ -22,7 +22,7 @@ const readyStatus: E4LspStatus = {
   updatedAt: "2026-04-27T00:00:00.000Z",
 };
 
-const fileTreeNodes: E4FileTreeNode[] = [
+const fileTreeNodes: WorkspaceFileTreeNode[] = [
   {
     name: "src",
     path: "src",
@@ -50,7 +50,7 @@ const fileTreeNodes: E4FileTreeNode[] = [
 
 describe("editor-store file tree", () => {
   test("loads tree, toggles directories, runs file actions, and refreshes on fs watch events", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -72,13 +72,13 @@ describe("editor-store file tree", () => {
     await store.getState().deleteFileNode(workspaceId, "src/new.ts", "file");
     await store.getState().renameFileNode(workspaceId, "README.md", "README.old.md");
 
-    expect(calls.map((call) => call.type)).toContain("e4/file/create");
-    expect(calls.map((call) => call.type)).toContain("e4/file/delete");
-    expect(calls.map((call) => call.type)).toContain("e4/file/rename");
+    expect(calls.map((call) => call.type)).toContain("workspace-files/file/create");
+    expect(calls.map((call) => call.type)).toContain("workspace-files/file/delete");
+    expect(calls.map((call) => call.type)).toContain("workspace-files/file/rename");
 
-    const treeReadsBeforeWatch = calls.filter((call) => call.type === "e4/file-tree/read").length;
+    const treeReadsBeforeWatch = calls.filter((call) => call.type === "workspace-files/tree/read").length;
     store.getState().applyEditorEvent({
-      type: "e4/file/watch",
+      type: "workspace-files/watch",
       workspaceId,
       path: "src/index.ts",
       kind: "file",
@@ -88,12 +88,12 @@ describe("editor-store file tree", () => {
     });
 
     await waitFor(() => {
-      expect(calls.filter((call) => call.type === "e4/file-tree/read").length).toBeGreaterThan(treeReadsBeforeWatch);
+      expect(calls.filter((call) => call.type === "workspace-files/tree/read").length).toBeGreaterThan(treeReadsBeforeWatch);
     });
   });
 
   test("persists tree selection and expansion by workspace", () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -122,7 +122,7 @@ describe("editor-store file tree", () => {
   });
 
   test("tracks pending create state and selects and expands created nodes", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -151,7 +151,7 @@ describe("editor-store file tree", () => {
   });
 
   test("delete clears descendant selection, pending delete state, tabs, and expansion", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -175,7 +175,7 @@ describe("editor-store file tree", () => {
   });
 
   test("renames descendant selected paths, expanded paths, open tabs, and diagnostics", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -191,7 +191,7 @@ describe("editor-store file tree", () => {
       kind: "file",
     });
     store.getState().applyEditorEvent({
-      type: "e4/lsp-diagnostics/changed",
+      type: "lsp-diagnostics/changed",
       workspaceId,
       path: "src/index.ts",
       language: "typescript",
@@ -237,7 +237,7 @@ describe("editor-store file tree", () => {
   });
 
   test("collapses all expanded paths for the active workspace", () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -255,7 +255,7 @@ describe("editor-store file tree", () => {
   });
 
   test("provides visible tree nodes and keyboard-style selection movement", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -302,7 +302,7 @@ describe("editor-store file tree", () => {
 
 describe("editor-store tabs", () => {
   test("opens files into editor mode, tracks dirty state, saves, applies diagnostics, and closes LSP documents", async () => {
-    const calls: E4EditorRequest[] = [];
+    const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
 
@@ -322,21 +322,21 @@ describe("editor-store tabs", () => {
       lspStatus: readyStatus,
     });
     expect(calls.map((call) => call.type)).toEqual([
-      "e4/file/read",
-      "e4/lsp-document/open",
-      "e4/lsp-diagnostics/read",
+      "workspace-files/file/read",
+      "lsp-document/open",
+      "lsp-diagnostics/read",
     ]);
 
     await store.getState().updateTabContent(tabId, "const value = changedMissing;\n");
     expect(store.getState().tabs[0]?.dirty).toBe(true);
     expect(calls.at(-1)).toMatchObject({
-      type: "e4/lsp-document/change",
+      type: "lsp-document/change",
       content: "const value = changedMissing;\n",
       version: 2,
     });
 
     store.getState().applyEditorEvent({
-      type: "e4/lsp-diagnostics/changed",
+      type: "lsp-diagnostics/changed",
       workspaceId,
       path: "src/index.ts",
       language: "typescript",
@@ -363,8 +363,8 @@ describe("editor-store tabs", () => {
       savedContent: "const value = changedMissing;\n",
       version: "v2",
     });
-    expect(calls.find((call) => call.type === "e4/file/write")).toMatchObject({
-      type: "e4/file/write",
+    expect(calls.find((call) => call.type === "workspace-files/file/write")).toMatchObject({
+      type: "workspace-files/file/write",
       path: "src/index.ts",
       content: "const value = changedMissing;\n",
       expectedVersion: "v1",
@@ -373,52 +373,52 @@ describe("editor-store tabs", () => {
     await store.getState().closeTab(tabId);
     expect(store.getState().tabs).toEqual([]);
     expect(calls.at(-1)).toMatchObject({
-      type: "e4/lsp-document/close",
+      type: "lsp-document/close",
       path: "src/index.ts",
       language: "typescript",
     });
   });
 });
 
-function createFakeBridge(calls: E4EditorRequest[]): EditorBridge {
+function createFakeBridge(calls: EditorBridgeRequest[]): EditorBridge {
   return {
     async invoke(request) {
       calls.push(request);
       switch (request.type) {
-        case "e4/file-tree/read":
+        case "workspace-files/tree/read":
           return {
-            type: "e4/file-tree/read/result",
+            type: "workspace-files/tree/read/result",
             workspaceId: request.workspaceId,
             rootPath: "",
             nodes: fileTreeNodes,
             readAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/file/create":
+        case "workspace-files/file/create":
           return {
-            type: "e4/file/create/result",
+            type: "workspace-files/file/create/result",
             workspaceId: request.workspaceId,
             path: request.path,
             kind: request.kind,
             createdAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/file/delete":
+        case "workspace-files/file/delete":
           return {
-            type: "e4/file/delete/result",
+            type: "workspace-files/file/delete/result",
             workspaceId: request.workspaceId,
             path: request.path,
             deletedAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/file/rename":
+        case "workspace-files/file/rename":
           return {
-            type: "e4/file/rename/result",
+            type: "workspace-files/file/rename/result",
             workspaceId: request.workspaceId,
             oldPath: request.oldPath,
             newPath: request.newPath,
             renamedAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/file/read":
+        case "workspace-files/file/read":
           return {
-            type: "e4/file/read/result",
+            type: "workspace-files/file/read/result",
             workspaceId: request.workspaceId,
             path: request.path,
             content: "const value = missing;\n",
@@ -426,58 +426,58 @@ function createFakeBridge(calls: E4EditorRequest[]): EditorBridge {
             version: "v1",
             readAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/file/write":
+        case "workspace-files/file/write":
           return {
-            type: "e4/file/write/result",
+            type: "workspace-files/file/write/result",
             workspaceId: request.workspaceId,
             path: request.path,
             encoding: "utf8",
             version: "v2",
             writtenAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/lsp-document/open":
+        case "lsp-document/open":
           return {
-            type: "e4/lsp-document/open/result",
+            type: "lsp-document/open/result",
             workspaceId: request.workspaceId,
             path: request.path,
             language: request.language,
             status: readyStatus,
             openedAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/lsp-document/change":
+        case "lsp-document/change":
           return {
-            type: "e4/lsp-document/change/result",
+            type: "lsp-document/change/result",
             workspaceId: request.workspaceId,
             path: request.path,
             language: request.language,
             status: readyStatus,
             changedAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/lsp-document/close":
+        case "lsp-document/close":
           return {
-            type: "e4/lsp-document/close/result",
+            type: "lsp-document/close/result",
             workspaceId: request.workspaceId,
             path: request.path,
             language: request.language,
             closedAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/lsp-diagnostics/read":
+        case "lsp-diagnostics/read":
           return {
-            type: "e4/lsp-diagnostics/read/result",
+            type: "lsp-diagnostics/read/result",
             workspaceId: request.workspaceId,
             diagnostics: [],
             readAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/git-badges/read":
+        case "workspace-git-badges/read":
           return {
-            type: "e4/git-badges/read/result",
+            type: "workspace-git-badges/read/result",
             workspaceId: request.workspaceId,
             badges: [],
             readAt: "2026-04-27T00:00:00.000Z",
           } as never;
-        case "e4/lsp-status/read":
+        case "lsp-status/read":
           return {
-            type: "e4/lsp-status/read/result",
+            type: "lsp-status/read/result",
             workspaceId: request.workspaceId,
             statuses: [readyStatus],
             readAt: "2026-04-27T00:00:00.000Z",

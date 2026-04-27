@@ -4,7 +4,7 @@ import { History, RefreshCw } from "lucide-react";
 import type {
   ClaudeTranscriptReadRequest,
   ClaudeTranscriptReadResult,
-} from "../../../../shared/src/contracts/e3-surfaces";
+} from "../../../../shared/src/contracts/claude/claude-session-transcript";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { EmptyState } from "./EmptyState";

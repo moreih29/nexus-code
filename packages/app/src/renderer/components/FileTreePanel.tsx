@@ -15,12 +15,12 @@ import {
 import type { FormEvent, KeyboardEvent } from "react";
 
 import type {
-  E4FileKind,
-  E4FileTreeNode,
-  E4GitBadgeStatus,
-} from "../../../../shared/src/contracts/e4-editor";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace-shell";
+  WorkspaceFileKind,
+  WorkspaceFileTreeNode,
+  WorkspaceGitBadgeStatus,
+} from "../../../../shared/src/contracts/editor/editor-bridge";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import type {
   EditorFileTreeState,
   EditorPendingExplorerDelete,
@@ -36,21 +36,21 @@ export interface FileTreePanelProps {
   activeWorkspace: OpenSessionWorkspace | null;
   fileTree: EditorFileTreeState;
   expandedPaths: Record<string, true>;
-  gitBadgeByPath: Record<string, E4GitBadgeStatus>;
+  gitBadgeByPath: Record<string, WorkspaceGitBadgeStatus>;
   selectedTreePath?: string | null;
   pendingExplorerEdit?: EditorPendingExplorerEdit | null;
   pendingExplorerDelete?: EditorPendingExplorerDelete | null;
   onRefresh(workspaceId: WorkspaceId): void;
   onToggleDirectory(path: string): void;
   onOpenFile(workspaceId: WorkspaceId, path: string): void;
-  onCreateNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
-  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
+  onCreateNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
+  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
   onRenameNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): void;
   onSelectTreePath?(path: string | null): void;
   onBeginCreateFile?(parentPath?: string | null): void;
   onBeginCreateFolder?(parentPath?: string | null): void;
-  onBeginRename?(path: string, kind: E4FileKind): void;
-  onBeginDelete?(path: string, kind: E4FileKind): void;
+  onBeginRename?(path: string, kind: WorkspaceFileKind): void;
+  onBeginDelete?(path: string, kind: WorkspaceFileKind): void;
   onCancelExplorerEdit?(): void;
   onCollapseAll?(workspaceId: WorkspaceId): void;
   onMoveTreeSelection?(movement: EditorTreeSelectionMovement): void;
@@ -263,7 +263,7 @@ function FileTreeNodeRow({
   onCancelExplorerEdit,
   onCreateNode,
 }: {
-  node: E4FileTreeNode;
+  node: WorkspaceFileTreeNode;
   depth: number;
   parentPath: string | null;
   workspaceId: WorkspaceId;
@@ -271,16 +271,16 @@ function FileTreeNodeRow({
   pendingExplorerEdit: EditorPendingExplorerEdit | null;
   pendingExplorerDelete: EditorPendingExplorerDelete | null;
   expandedPaths: Record<string, true>;
-  gitBadgeByPath: Record<string, E4GitBadgeStatus>;
+  gitBadgeByPath: Record<string, WorkspaceGitBadgeStatus>;
   onToggleDirectory(path: string): void;
   onOpenFile(workspaceId: WorkspaceId, path: string): void;
-  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
+  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
   onRenameNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): void;
   onSelectTreePath?(path: string | null): void;
-  onBeginRename?(path: string, kind: E4FileKind): void;
-  onBeginDelete?(path: string, kind: E4FileKind): void;
+  onBeginRename?(path: string, kind: WorkspaceFileKind): void;
+  onBeginDelete?(path: string, kind: WorkspaceFileKind): void;
   onCancelExplorerEdit?(): void;
-  onCreateNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
+  onCreateNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
 }): JSX.Element {
   const isDirectory = node.kind === "directory";
   const childCreateEdit = pendingCreateForParent(pendingExplorerEdit, workspaceId, node.path);
@@ -463,7 +463,7 @@ function FileTreeCreateRow({
   edit: Extract<EditorPendingExplorerEdit, { type: "create" }>;
   depth: number;
   workspaceId: WorkspaceId;
-  onCreateNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
+  onCreateNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
   onCancelExplorerEdit?(): void;
 }): JSX.Element {
   const Icon = edit.kind === "directory" ? Folder : File;
@@ -523,7 +523,7 @@ function FileTreeRenameForm({
   onRenameNode,
   onCancelExplorerEdit,
 }: {
-  node: E4FileTreeNode;
+  node: WorkspaceFileTreeNode;
   workspaceId: WorkspaceId;
   parentPath: string | null;
   onRenameNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): void;
@@ -574,10 +574,10 @@ function FileTreeDeleteConfirmation({
   onDeleteNode,
   onCancelExplorerEdit,
 }: {
-  node: E4FileTreeNode;
+  node: WorkspaceFileTreeNode;
   depth: number;
   workspaceId: WorkspaceId;
-  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: E4FileKind): void;
+  onDeleteNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): void;
   onCancelExplorerEdit?(): void;
 }): JSX.Element {
   return (
@@ -613,7 +613,7 @@ function FileTreeDeleteConfirmation({
   );
 }
 
-function GitBadge({ path, status }: { path: string; status: E4GitBadgeStatus | null }): JSX.Element | null {
+function GitBadge({ path, status }: { path: string; status: WorkspaceGitBadgeStatus | null }): JSX.Element | null {
   if (!status || status === "clean") {
     return null;
   }
@@ -814,7 +814,7 @@ function pendingDeleteForPath(
   return pendingDelete?.workspaceId === workspaceId && pendingDelete.path === path;
 }
 
-function findFileTreeNodeByPath(nodes: readonly E4FileTreeNode[], path: string): E4FileTreeNode | null {
+function findFileTreeNodeByPath(nodes: readonly WorkspaceFileTreeNode[], path: string): WorkspaceFileTreeNode | null {
   for (const node of nodes) {
     if (node.path === path) {
       return node;
@@ -850,7 +850,7 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
   return maybeElement?.isContentEditable === true || tagName === "INPUT" || tagName === "TEXTAREA";
 }
 
-export function gitBadgeText(status: E4GitBadgeStatus): string {
+export function gitBadgeText(status: WorkspaceGitBadgeStatus): string {
   switch (status) {
     case "modified":
       return "M";
@@ -873,7 +873,7 @@ export function gitBadgeText(status: E4GitBadgeStatus): string {
   }
 }
 
-export function gitBadgeLabel(status: E4GitBadgeStatus): string {
+export function gitBadgeLabel(status: WorkspaceGitBadgeStatus): string {
   switch (status) {
     case "modified":
       return "modified";

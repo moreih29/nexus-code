@@ -6,10 +6,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import { join, resolve } from "node:path";
 
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import { OpenSessionSidecarLifecycleManager } from "../../../src/main/sidecar-lifecycle-manager";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import { OpenSessionSidecarLifecycleManager } from "../../../src/main/sidecar/sidecar-lifecycle-manager";
 import { SidecarBridge } from "../../../src/main/sidecar-bridge";
-import { WorkspacePersistenceStore } from "../../../src/main/workspace-persistence";
+import { WorkspacePersistenceStore } from "../../../src/main/workspace/persistence/workspace-persistence";
 
 const repoRoot = resolve(import.meta.dir, "../../../../..");
 const sidecarDir = join(repoRoot, "sidecar");

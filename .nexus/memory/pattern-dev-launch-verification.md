@@ -52,8 +52,12 @@ cut line이 단위·통합 테스트 PASS에 머무를 때 실제 개발 실행 
 
 ---
 
-## 3. 교훈 참조
+## 3. 흡수된 일반화 교훈
 
-`empirical-m3-integration-gap.md`는 단위·통합 테스트 PASS 이후 실제 dev launch에서 SidecarBridge 연결 누락과 ajv-cli standalone CJS 호환성 실패가 발견된 사례를 기록한다. 이 사례의 핵심 교훈은 “모듈 테스트 PASS는 composition 연결 PASS가 아니다”와 “개발 테스트 런타임 PASS는 Electron ESM 실행 PASS가 아니다”이다.
+- **모듈 테스트 PASS는 composition 연결 PASS가 아니다.** 신설 모듈을 직접 호출하는 테스트가 통과해도, 실제 composition 함수에 import·등록되지 않으면 최종 사용자 경로에서는 실행되지 않을 수 있다.
+- **composition smoke 테스트는 연결 누락을 조기 차단한다.** 모듈 단독 테스트와 별도로 실제 객체 그래프를 1회 인스턴스화하는 테스트를 두면, DI·bootstrap·lifecycle 연결 누락을 빠르게 드러낼 수 있다.
+- **개발 테스트 런타임 PASS는 Electron ESM 실행 PASS가 아니다.** Bun, Node, electron-vite, Electron renderer/main처럼 런타임이 갈라질 때는 CJS `require`, 동적 import, env 주입, generated output 같은 경계를 실제 실행·빌드 산출물에서 확인해야 한다.
+- **빌드 산출물 검증은 런타임 호환성 결함을 앞당겨 발견한다.** 프로덕션 번들 또는 `dist/`에 남은 CJS 패턴, missing binary fallback, env 누락은 테스트 직후가 아니라 빌드 직후에 grep·smoke로 확인한다.
+- **cut line은 최종 사용자 경로를 포함해야 한다.** 단위·통합 테스트만으로 cycle close를 판단하지 말고, 변경된 경로가 사용자 진입점에서 관찰되는지 dev launch 1회와 최소 사용자 동작으로 확인한다.
 
-따라서 신설 모듈이 composition에 연결되거나 번들·런타임 경계가 바뀌는 사이클은 dev launch 1회를 cut line에 포함해야 한다. 이번 사이클 T14는 이 패턴을 적용한다.
+따라서 신설 모듈이 composition에 연결되거나 번들·런타임 경계가 바뀌는 사이클은 dev launch 1회, composition smoke, 빌드 산출물 검증 중 해당 항목을 cut line에 포함해야 한다.

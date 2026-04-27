@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
-import type { WorkspaceDiffResult } from "../../../../shared/src/contracts/e3-surfaces";
+import type { WorkspaceDiffResult } from "../../../../shared/src/contracts/workspace/workspace-diff";
 import { WorkspaceDiffPanelView } from "./WorkspaceDiffPanel";
 
 const loadedResult: WorkspaceDiffResult = {

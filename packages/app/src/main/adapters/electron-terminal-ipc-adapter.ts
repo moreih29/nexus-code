@@ -7,7 +7,7 @@ import {
 import type {
   TerminalMainIpcAdapter,
   TerminalMainIpcDisposable,
-} from "../terminal-ipc";
+} from "../terminal/terminal-ipc";
 
 type IpcMainLike = Pick<IpcMain, "handle" | "removeHandler">;
 type TerminalEventSink = Pick<WebContents, "send"> & {

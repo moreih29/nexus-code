@@ -1,8 +1,10 @@
 # Terminal Shell Environment
 
+>> 현재 구현 상태는 roadmap.md를 참조하세요.
+
 ## 목적과 범위
 
-이 문서는 E2 shell 터미널에서 사용하는 환경변수 해석 규칙(`ShellEnvironmentResolver`)만 정의한다.
+이 문서는 shell 터미널에서 사용하는 환경변수 해석 규칙(`ShellEnvironmentResolver`)만 정의한다.
 터미널 탭 spawn 시 어떤 셸/환경을 기본으로 쓰는지, 그리고 어떤 경우에 fallback 하는지를 명확히 고정한다.
 
 ---
@@ -69,7 +71,7 @@ direnv는 **사용자 셸 startup hook**으로만 반영한다.
 
 ---
 
-## 경계 선언 (E2 ↔ E3)
+## 경계 선언 (터미널 ↔ 하네스)
 
-이 문서는 E2 shell 터미널 경계만 다룬다.
+이 문서는 shell 터미널 경계만 다룬다.
 하네스 이벤트 모델, 하네스 타입 구분자(kind/discriminator), observer 계약은 이 범위에 포함하지 않는다.

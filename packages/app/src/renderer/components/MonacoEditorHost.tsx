@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 
-import type { E4Diagnostic } from "../../../../shared/src/contracts/e4-editor";
-import { mapE4DiagnosticsToMonacoMarkers } from "../monaco-lsp-markers";
+import type { LspDiagnostic } from "../../../../shared/src/contracts/editor/editor-bridge";
+import { mapLspDiagnosticsToMonacoMarkers } from "../editor/monaco-lsp-markers";
 
 export interface MonacoEditorHostProps {
   workspaceId: string;
   path: string;
   languageId: string;
   value: string;
-  diagnostics: E4Diagnostic[];
+  diagnostics: LspDiagnostic[];
   onChange(value: string): void;
 }
 
@@ -17,7 +17,7 @@ type MonacoEditor = import("monaco-editor").editor.IStandaloneCodeEditor;
 type MonacoModel = import("monaco-editor").editor.ITextModel;
 type MonacoDisposable = import("monaco-editor").IDisposable;
 
-const MARKER_OWNER = "nexus-e4-lsp";
+const MARKER_OWNER = "nexus-lsp";
 
 export function MonacoEditorHost({
   workspaceId,
@@ -158,7 +158,7 @@ function installFindReplaceKeybindings(monaco: MonacoApi, editor: MonacoEditor):
 function applyMarkers(
   monaco: MonacoApi | null,
   model: MonacoModel | null,
-  diagnostics: readonly E4Diagnostic[],
+  diagnostics: readonly LspDiagnostic[],
 ): void {
   if (!monaco || !model) {
     return;
@@ -167,7 +167,7 @@ function applyMarkers(
   monaco.editor.setModelMarkers(
     model,
     MARKER_OWNER,
-    mapE4DiagnosticsToMonacoMarkers(diagnostics, monaco.MarkerSeverity),
+    mapLspDiagnosticsToMonacoMarkers(diagnostics, monaco.MarkerSeverity),
   );
 }
 

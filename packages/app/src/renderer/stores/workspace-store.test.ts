@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import {
   createWorkspaceStore,
   type WorkspaceSidebarBridge,

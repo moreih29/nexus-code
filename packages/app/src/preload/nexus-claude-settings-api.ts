@@ -7,7 +7,7 @@ import {
 import type {
   ClaudeSettingsConsentRequest,
   ClaudeSettingsConsentResponse,
-} from "../../../shared/src/contracts/claude-settings";
+} from "../../../shared/src/contracts/claude/claude-settings";
 import type { NexusPreloadDisposable } from "./nexus-workspace-api";
 
 type IpcRendererLike = Pick<IpcRenderer, "invoke" | "on" | "removeListener">;

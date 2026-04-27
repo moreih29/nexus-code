@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { HarnessObserverEvent } from "../../../../shared/src/contracts/harness-observer";
+import type { HarnessObserverEvent } from "../../../../shared/src/contracts/harness/harness-observer";
 import {
   createHarnessBadgeStore,
   type HarnessObserverBridge,

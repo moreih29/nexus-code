@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { HarnessObserverEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness-observer";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { HarnessObserverEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness/harness-observer";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import { createHarnessToolFeedStore, HARNESS_TOOL_FEED_LIMIT } from "./harnessToolFeedStore";
 
 class FakeObserverBridge {

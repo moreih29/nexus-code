@@ -1,11 +1,11 @@
-import type { WorkspaceId } from "../contracts/workspace";
+import type { WorkspaceId } from "../contracts/workspace/workspace";
 import type {
   SessionHistoryEvent as GeneratedSessionHistoryEvent,
   TabBadgeEvent as GeneratedTabBadgeEvent,
   TabBadgeState as GeneratedTabBadgeState,
   ToolCallEvent as GeneratedToolCallEvent,
   ToolCallStatus as GeneratedToolCallStatus,
-} from "../contracts/harness-observer";
+} from "../contracts/harness/harness-observer";
 
 export type ObservationPath =
   | "hooks-api"

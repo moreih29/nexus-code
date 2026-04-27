@@ -7,7 +7,7 @@ import {
   WORKSPACE_OPEN_FOLDER_CHANNEL,
   WORKSPACE_RESTORE_SESSION_CHANNEL,
 } from "../../../../shared/src/contracts/ipc-channels";
-import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import {
   ElectronWorkspaceIpcAdapter,
   type ElectronWorkspaceIpcAdapterOptions,

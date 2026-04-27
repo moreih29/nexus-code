@@ -1,4 +1,4 @@
-import type { WorkspaceId } from "../../../contracts/workspace";
+import type { WorkspaceId } from "../../../contracts/workspace/workspace";
 import type { TabBadgeEvent, TabBadgeState } from "../../HarnessAdapter";
 
 export const CLAUDE_CODE_ADAPTER_NAME = "claude-code";

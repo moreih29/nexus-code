@@ -7,7 +7,7 @@ const entries = [
   {
     check: "Korean IME/rendering release gate (automated deterministic seams)",
     status: "ready",
-    command: "bun test ./test/ime-release-gate.test.ts",
+    command: "bun test ./test/system/ime-release-gate.test.ts",
   },
   {
     check: "macOS x64 node-pty smoke (manual on x64 host/runner)",

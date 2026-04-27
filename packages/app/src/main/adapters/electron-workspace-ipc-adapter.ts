@@ -7,11 +7,11 @@ import {
   WORKSPACE_OPEN_FOLDER_CHANNEL,
   WORKSPACE_RESTORE_SESSION_CHANNEL,
 } from "../../../../shared/src/contracts/ipc-channels";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type {
   OpenFolderRequest,
   WorkspaceSidebarState,
-} from "../../../../shared/src/contracts/workspace-shell";
+} from "../../../../shared/src/contracts/workspace/workspace-shell";
 
 type IpcMainLike = Pick<IpcMain, "handle" | "removeHandler">;
 export interface WorkspaceOpenDialog {

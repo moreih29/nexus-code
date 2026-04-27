@@ -8,16 +8,16 @@ import type WebSocket from "ws";
 import {
   isHarnessObserverEvent,
   type HarnessObserverEvent,
-} from "../../../../shared/src/contracts/harness-observer";
+} from "../../../../shared/src/contracts/harness/harness-observer";
 import type {
   SidecarStartCommand,
   SidecarStartedEvent,
   SidecarStopCommand,
   SidecarStoppedEvent,
-} from "../../../../shared/src/contracts/sidecar";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import { resolveSidecarBinaryPath } from "../sidecar-bin-resolver";
-import type { SidecarRuntime } from "../sidecar-runtime";
+} from "../../../../shared/src/contracts/sidecar/sidecar";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import { resolveSidecarBinaryPath } from "../sidecar/sidecar-bin-resolver";
+import type { SidecarRuntime } from "../sidecar/sidecar-runtime";
 import {
   connectWebSocketWithRefusedRetry,
   performStartHandshake,

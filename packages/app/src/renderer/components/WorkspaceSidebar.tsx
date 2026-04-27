@@ -1,5 +1,5 @@
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { FolderOpen, X } from "lucide-react";
 
 import { cn } from "../lib/utils";

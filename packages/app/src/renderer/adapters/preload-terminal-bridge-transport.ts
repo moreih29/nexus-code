@@ -1,8 +1,8 @@
 import type {
   TerminalBridgeDisposable,
   TerminalBridgeTransport,
-} from "../terminal-bridge";
-import type { TerminalIpcCommand } from "../../../../shared/src/contracts/terminal-ipc";
+} from "../terminal/terminal-bridge";
+import type { TerminalIpcCommand } from "../../../../shared/src/contracts/terminal/terminal-ipc";
 
 export class PreloadTerminalBridgeTransport implements TerminalBridgeTransport {
   public invoke(command: unknown): Promise<unknown> {

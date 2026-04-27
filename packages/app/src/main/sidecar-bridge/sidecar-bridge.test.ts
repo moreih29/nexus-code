@@ -4,9 +4,9 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 
-import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar";
-import type { TabBadgeEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness-observer";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar/sidecar";
+import type { TabBadgeEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness/harness-observer";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import { SidecarBridge, SidecarBridgeError } from "./index";
 import { SidecarLifecycleEmitter } from "./lifecycle-emitter";
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
-import type { ClaudeTranscriptReadResult } from "../../../../shared/src/contracts/e3-surfaces";
+import type { ClaudeTranscriptReadResult } from "../../../../shared/src/contracts/claude/claude-session-transcript";
 import type { HarnessSessionRef } from "../stores/harnessSessionStore";
 import { SessionHistoryPanelView } from "./SessionHistoryPanel";
 

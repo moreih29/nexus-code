@@ -4,7 +4,7 @@ import { GitCompare, RefreshCw } from "lucide-react";
 import type {
   WorkspaceDiffRequest,
   WorkspaceDiffResult,
-} from "../../../../shared/src/contracts/e3-surfaces";
+} from "../../../../shared/src/contracts/workspace/workspace-diff";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { EmptyState } from "./EmptyState";

@@ -54,7 +54,7 @@
   --color-sidebar-foreground: var(--color-zinc-300);
   --color-sidebar-border: var(--color-zinc-800);
 
-  /* E3 status */
+  /* status */
   --color-status-running: oklch(0.75 0.12 150);
   --color-status-attention: oklch(0.78 0.12 75);
   --color-status-idle: var(--color-zinc-500);

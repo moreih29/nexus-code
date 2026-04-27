@@ -1,4 +1,4 @@
-import type { WorkspaceId } from "../../../contracts/workspace";
+import type { WorkspaceId } from "../../../contracts/workspace/workspace";
 import type { AdapterMetadata, HarnessAdapter, ObserverEvent, TabBadgeEvent } from "../../HarnessAdapter";
 import {
   CLAUDE_CODE_ADAPTER_NAME,

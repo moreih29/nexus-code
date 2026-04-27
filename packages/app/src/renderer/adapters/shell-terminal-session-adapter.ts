@@ -3,11 +3,11 @@ import type {
   TerminalInputCommand,
   TerminalOpenCommand,
   TerminalResizeCommand,
-} from "../../../../shared/src/contracts/terminal-ipc";
-import type { TerminalCloseReason } from "../../../../shared/src/contracts/terminal-lifecycle";
-import type { TerminalTabId } from "../../../../shared/src/contracts/terminal-tab";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
-import type { ShellTerminalSessionAdapter } from "../shell-terminal-tab";
+} from "../../../../shared/src/contracts/terminal/terminal-ipc";
+import type { TerminalCloseReason } from "../../../../shared/src/contracts/terminal/terminal-lifecycle";
+import type { TerminalTabId } from "../../../../shared/src/contracts/terminal/terminal-tab";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { ShellTerminalSessionAdapter } from "../terminal/shell-terminal-tab";
 
 export const DEFAULT_TERMINAL_OPEN_COLS = 120;
 export const DEFAULT_TERMINAL_OPEN_ROWS = 30;

@@ -4,8 +4,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar/sidecar";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import { SidecarBridge, SidecarBridgeError } from "../../../src/main/sidecar-bridge";
 
 const repoRoot = resolve(import.meta.dir, "../../../../..");

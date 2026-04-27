@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type Key
 import { useStore } from "zustand";
 import { Eye, GripVertical } from "lucide-react";
 
-import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
-import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
+import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude/claude-settings";
+import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
 import { ActivityBar } from "./components/ActivityBar";
 import { CenterWorkbench } from "./components/CenterWorkbench";
 import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentDialog";
@@ -29,7 +29,7 @@ import { createHarnessToolFeedStore, type HarnessToolFeedStore } from "./stores/
 import { createHarnessSessionStore, type HarnessSessionStore } from "./stores/harnessSessionStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
 import { createEditorStore, type EditorStore } from "./stores/editor-store";
-import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switching-commands";
+import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace/workspace-switching-commands";
 
 const WORKSPACE_PANEL_STORAGE_KEY = "nx.layout.workspacePanel";
 const SHARED_PANEL_STORAGE_KEY = "nx.layout.sharedPanel";

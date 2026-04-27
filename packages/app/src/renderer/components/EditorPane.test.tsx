@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { EditorTab } from "../stores/editor-store";
 import { EditorPaneView } from "./EditorPane";
 import { MonacoEditorHost } from "./MonacoEditorHost";

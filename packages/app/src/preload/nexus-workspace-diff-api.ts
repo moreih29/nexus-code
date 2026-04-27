@@ -4,7 +4,7 @@ import { WORKSPACE_DIFF_READ_CHANNEL } from "../../../shared/src/contracts/ipc-c
 import type {
   WorkspaceDiffRequest,
   WorkspaceDiffResult,
-} from "../../../shared/src/contracts/e3-surfaces";
+} from "../../../shared/src/contracts/workspace/workspace-diff";
 
 type IpcRendererLike = Pick<IpcRenderer, "invoke">;
 

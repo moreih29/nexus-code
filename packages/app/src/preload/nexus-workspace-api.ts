@@ -8,11 +8,11 @@ import {
   WORKSPACE_RESTORE_SESSION_CHANNEL,
   WORKSPACE_SIDEBAR_STATE_CHANGED_CHANNEL,
 } from "../../../shared/src/contracts/ipc-channels";
-import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
+import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
 import type {
   OpenFolderRequest,
   WorkspaceSidebarState,
-} from "../../../shared/src/contracts/workspace-shell";
+} from "../../../shared/src/contracts/workspace/workspace-shell";
 
 type IpcRendererLike = Pick<IpcRenderer, "invoke" | "on" | "removeListener">;
 

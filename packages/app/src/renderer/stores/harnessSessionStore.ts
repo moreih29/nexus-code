@@ -3,8 +3,8 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type {
   HarnessObserverEvent,
   SessionHistoryEvent,
-} from "../../../../shared/src/contracts/harness-observer";
-import type { WorkspaceId } from "../../../../shared/src/contracts/workspace";
+} from "../../../../shared/src/contracts/harness/harness-observer";
+import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type {
   HarnessObserverBridge,
   HarnessObserverDisposable,

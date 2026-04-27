@@ -1,4 +1,4 @@
-import type { WorkspaceId } from "../../../contracts/workspace";
+import type { WorkspaceId } from "../../../contracts/workspace/workspace";
 import type { ObserverEvent, TabBadgeEvent, ToolCallEvent, ToolCallStatus } from "../../HarnessAdapter";
 import {
   asRecord,

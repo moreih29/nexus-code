@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
-import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace-shell";
+import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 
 const sidebarState: WorkspaceSidebarState = {

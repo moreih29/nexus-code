@@ -1,20 +1,22 @@
 # 아키텍처
 
+>> 현재 구현 상태는 roadmap.md를 참조하세요.
+
 nexus-code의 아키텍처는 두 개의 런타임 경계로 나뉜다. 하나는 UI와 PTY를 담당하는 Electron 프로세스이고, 다른 하나는 워크스페이스마다 독립적으로 실행되는 Go sidecar 프로세스다.
 
 ## 프로세스 구성
 
 애플리케이션은 다음 세 레이어의 프로세스로 동작한다.
 
-**Electron main 프로세스**: 앱 생명주기, 터미널 PTY, IPC 게이트웨이, 패키징을 담당한다. 터미널 탭의 PTY는 모두 이 레이어에서 node-pty로 관리한다. VSCode가 extension host 대신 main 프로세스에서 PTY를 관리하는 패턴을 동일하게 따른다. 현재 E4 브랜치에서는 전환기 구현으로 `E4EditorFileService`와 `E4LspService`도 main에 위치한다. 이 레이어가 active-workspace 파일트리 CRUD/watch/git 뱃지와 TypeScript/Python/Go LSP 진단 브리지를 맡고, preload의 `window.nexusEditor`가 renderer에 노출한다.
+**Electron main 프로세스**: 앱 생명주기, 터미널 PTY, IPC 게이트웨이, 패키징을 담당한다. 터미널 탭의 PTY는 모두 이 레이어에서 node-pty로 관리한다. VSCode가 extension host 대신 main 프로세스에서 PTY를 관리하는 패턴을 동일하게 따른다. 이 레이어는 active-workspace 파일트리 CRUD/watch/git 뱃지와 TypeScript/Python/Go LSP 진단 브리지를 맡고, preload의 editor API가 renderer에 노출한다.
 
-**Electron renderer 프로세스**: React 기반 UI, 에디터, 터미널 렌더러, 파일트리, 프리뷰 패널이 실행된다. PTY 데이터는 IPC를 통해 main에서 전달받아 xterm.js로 표시한다. E4 기준 파일트리는 `FileTreePanel`, 편집기는 Monaco 기반 `EditorPane`, 중앙 영역 전환은 `CenterWorkbench`가 담당한다. Editor/Terminal 모드 전환 시 `TerminalPane`은 숨겨질 뿐 unmount하지 않는다.
+**Electron renderer 프로세스**: React 기반 UI, 에디터, 터미널 렌더러, 파일트리, 프리뷰 패널이 실행된다. PTY 데이터는 IPC를 통해 main에서 전달받아 xterm.js로 표시한다. 파일트리와 Monaco 기반 편집기는 중앙 영역에서 Terminal 모드와 전환되며, Terminal 영역은 숨겨질 뿐 unmount하지 않는다.
 
-**Go sidecar 프로세스**: 워크스페이스당 하나씩 독립적으로 실행된다. 현재 구현에서는 하네스 관찰, sidecar 생명주기, WebSocket IPC의 워크스페이스 격리 경계가 핵심이다. 장기 구조에서는 LSP 서버 감독, 파일 시스템 감시, git 연산도 sidecar 소유로 이동시키는 것이 의도지만, E4 브랜치의 파일/LSP 표면은 아직 main/preload 전환기 브리지다. sidecar가 직접 기동하는 자식 프로세스의 PTY 감독은 터미널 탭용 PTY(Electron main의 node-pty가 관리)와 구분된다.
+**Go sidecar 프로세스**: 워크스페이스당 하나씩 독립적으로 실행된다. 하네스 관찰, sidecar 생명주기, WebSocket IPC의 워크스페이스 격리 경계를 담당한다. 장기 구조에서는 LSP 서버 감독, 파일 시스템 감시, git 연산도 sidecar 소유로 이동시키는 것이 의도다. sidecar가 직접 기동하는 자식 프로세스의 PTY 감독은 터미널 탭용 PTY(Electron main의 node-pty가 관리)와 구분된다.
 
-## M4 Per-Workspace Sidecar 모델
+## Per-Workspace Sidecar 모델
 
-워크스페이스 격리 모델로 M4(Per-Workspace Sidecar)를 채택한다. 워크스페이스를 열면 해당 워크스페이스 전용 sidecar가 하나 기동된다. UI가 다른 워크스페이스로 전환되더라도 비활성 sidecar는 계속 실행 상태를 유지한다. 이 구조 덕분에 워크스페이스 전환이 tmux 창 전환처럼 즉각적이다.
+워크스페이스 격리 모델로 Per-Workspace Sidecar를 채택한다. 워크스페이스를 열면 해당 워크스페이스 전용 sidecar가 하나 기동된다. UI가 다른 워크스페이스로 전환되더라도 비활성 sidecar는 계속 실행 상태를 유지한다. 이 구조 덕분에 워크스페이스 전환이 tmux 창 전환처럼 즉각적이다.
 
 ### Sidecar Idle 정책 (3단)
 
@@ -49,8 +51,8 @@ UI (renderer)
   → Electron IPC
     → Main 프로세스
       → node-pty (터미널 PTY)
-      → E4EditorFileService (fs CRUD/watch + git CLI badges)
-      → E4LspService (PATH-discovered stdio LSP diagnostics)
+      → active-workspace file bridge (fs CRUD/watch + git CLI badges)
+      → LSP diagnostics bridge (PATH-discovered stdio diagnostics)
       → WebSocket IPC
         → Go sidecar
           → AI 하네스 관찰 (파일 tail / SQLite / JSON)
@@ -58,18 +60,18 @@ UI (renderer)
           → fsnotify / git / LSP supervision (장기 sidecar 소유 의도)
 ```
 
-이벤트 방향은 역방향도 존재한다. sidecar가 관찰한 AI 하네스 이벤트는 WebSocket과 main IPC를 거쳐 renderer에 전달된다. E4의 파일 watch, git 뱃지, LSP 진단 이벤트는 현재 main의 `E4EditorFileService`/`E4LspService`에서 발생해 `window.nexusEditor` 경로로 renderer에 전달된다. 하네스 observer event의 초기 표면은 `harness/tab-badge`와 `harness/tool-call`이며, 각각 WorkspaceSidebar 상태 뱃지와 Right Shared Panel Tool live feed로 표시한다.
+이벤트 방향은 역방향도 존재한다. sidecar가 관찰한 AI 하네스 이벤트는 WebSocket과 main IPC를 거쳐 renderer에 전달된다. 파일 watch, git 뱃지, LSP 진단 이벤트는 main의 file/LSP bridge에서 발생해 preload editor API 경로로 renderer에 전달된다. 하네스 observer event의 초기 표면은 `harness/tab-badge`와 `harness/tool-call`이며, 각각 WorkspaceSidebar 상태 뱃지와 Right Shared Panel Tool live feed로 표시한다.
 
 ## 모노레포 구성
 
 저장소는 단일 모노레포로 구성된다. 추상 레이어별로 구분하면 다음과 같다.
 
-**packages/app**: Electron main과 renderer를 포함한 TypeScript 앱 패키지. 엔트리 포인트 두 개(main 프로세스 진입점, renderer HTML/JS 번들)가 여기에 위치한다. E4 전환기 브리지인 `E4EditorFileService`, `E4LspService`, preload `nexusEditor` API, renderer `FileTreePanel`/`EditorPane`/`CenterWorkbench`도 이 패키지에 있다.
+**packages/app**: Electron main과 renderer를 포함한 TypeScript 앱 패키지. 엔트리 포인트 두 개(main 프로세스 진입점, renderer HTML/JS 번들)가 여기에 위치한다. main의 terminal/file/LSP bridge, preload editor API, renderer의 파일트리·에디터·워크벤치 표면도 이 패키지에 있다.
 
 **packages/shared**: 공유 TypeScript 타입, IPC 계약 코드 생성 결과물, HarnessAdapter 인터페이스를 포함한다. app과 하네스 어댑터 경계 양쪽에서 참조한다.
 
 **packages/shared/src/harness/adapters**: claude-code, opencode, codex 각각의 HarnessAdapter 구현 경계다. 하네스별 관찰 로직과 이벤트 정규화가 격리된다.
 
-**sidecar/**: Go 모듈 루트. 내부는 PTY 감독, 하네스 관찰, IPC 서버 등 서브시스템으로 나뉜다. 엔트리 포인트는 단일 바이너리를 생성하는 main 패키지다. LSP pass-through, git, 파일 와처는 장기 sidecar 소유 의도에 포함되지만, 현재 E4 파일/LSP 구현의 실제 소유자는 Electron main이다.
+**sidecar/**: Go 모듈 루트. 내부는 PTY 감독, 하네스 관찰, IPC 서버 등 서브시스템으로 나뉜다. 엔트리 포인트는 단일 바이너리를 생성하는 main 패키지다. LSP pass-through, git, 파일 와처는 장기 sidecar 소유 의도에 포함된다.
 
 **proto/** (또는 schema/): IPC 메시지 계약 정의 파일. 이 디렉터리에서 TypeScript와 Go 양쪽 타입을 코드 생성한다.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { WorkspaceId } from "../../../contracts/workspace";
+import type { WorkspaceId } from "../../../contracts/workspace/workspace";
 import {
   mapClaudeCodeHookEventToTabBadgeEvent,
   normalizeClaudeCodeHookEvent,

@@ -1,28 +1,28 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  E4_EDITOR_EVENT_CHANNEL,
-  E4_EDITOR_INVOKE_CHANNEL,
+  EDITOR_BRIDGE_EVENT_CHANNEL,
+  EDITOR_BRIDGE_INVOKE_CHANNEL,
 } from "../../../shared/src/contracts/ipc-channels";
 import type {
-  E4EditorEvent,
-  E4EditorRequest,
-  E4EditorResult,
-} from "../../../shared/src/contracts/e4-editor";
+  EditorBridgeEvent,
+  EditorBridgeRequest,
+  EditorBridgeResult,
+} from "../../../shared/src/contracts/editor/editor-bridge";
 import { createNexusEditorApi } from "./nexus-editor-api";
 
 describe("createNexusEditorApi", () => {
-  test("invokes the E4 editor channel with typed request payloads", async () => {
+  test("invokes the editor bridge channel with typed request payloads", async () => {
     const ipcRenderer = new FakeIpcRenderer();
     const api = createNexusEditorApi(ipcRenderer);
-    const request: E4EditorRequest = {
-      type: "e4/file/read",
+    const request: EditorBridgeRequest = {
+      type: "workspace-files/file/read",
       workspaceId: "ws_preload_editor",
       path: "src/index.ts",
     };
 
     await expect(api.invoke(request)).resolves.toEqual({
-      type: "e4/file/read/result",
+      type: "workspace-files/file/read/result",
       workspaceId: "ws_preload_editor",
       path: "src/index.ts",
       content: "export {};\n",
@@ -33,7 +33,7 @@ describe("createNexusEditorApi", () => {
 
     expect(ipcRenderer.invokeCalls).toEqual([
       {
-        channel: E4_EDITOR_INVOKE_CHANNEL,
+        channel: EDITOR_BRIDGE_INVOKE_CHANNEL,
         payload: request,
       },
     ]);
@@ -42,10 +42,10 @@ describe("createNexusEditorApi", () => {
   test("subscribes and unsubscribes editor events", () => {
     const ipcRenderer = new FakeIpcRenderer();
     const api = createNexusEditorApi(ipcRenderer);
-    const observedEvents: E4EditorEvent[] = [];
+    const observedEvents: EditorBridgeEvent[] = [];
     const subscription = api.onEvent((event) => observedEvents.push(event));
-    const payload: E4EditorEvent = {
-      type: "e4/file/watch",
+    const payload: EditorBridgeEvent = {
+      type: "workspace-files/watch",
       workspaceId: "ws_preload_editor",
       path: "src/index.ts",
       kind: "file",
@@ -61,7 +61,7 @@ describe("createNexusEditorApi", () => {
     ipcRenderer.emitEditorEvent({ ...payload, path: "src/after-dispose.ts" });
 
     expect(observedEvents).toEqual([payload]);
-    expect(ipcRenderer.removedChannels).toEqual([E4_EDITOR_EVENT_CHANNEL]);
+    expect(ipcRenderer.removedChannels).toEqual([EDITOR_BRIDGE_EVENT_CHANNEL]);
   });
 });
 
@@ -69,13 +69,13 @@ class FakeIpcRenderer {
   public readonly invokeCalls: Array<{ channel: string; payload: unknown }> = [];
   public readonly removedChannels: string[] = [];
   private eventListener:
-    | ((event: unknown, payload: E4EditorEvent) => void)
+    | ((event: unknown, payload: EditorBridgeEvent) => void)
     | null = null;
 
-  public invoke(channel: string, payload?: unknown): Promise<E4EditorResult> {
+  public invoke(channel: string, payload?: unknown): Promise<EditorBridgeResult> {
     this.invokeCalls.push({ channel, payload });
     return Promise.resolve({
-      type: "e4/file/read/result",
+      type: "workspace-files/file/read/result",
       workspaceId: "ws_preload_editor",
       path: "src/index.ts",
       content: "export {};\n",
@@ -87,25 +87,25 @@ class FakeIpcRenderer {
 
   public on(
     channel: string,
-    listener: (event: unknown, payload: E4EditorEvent) => void,
+    listener: (event: unknown, payload: EditorBridgeEvent) => void,
   ): void {
-    if (channel === E4_EDITOR_EVENT_CHANNEL) {
+    if (channel === EDITOR_BRIDGE_EVENT_CHANNEL) {
       this.eventListener = listener;
     }
   }
 
   public removeListener(
     channel: string,
-    listener: (event: unknown, payload: E4EditorEvent) => void,
+    listener: (event: unknown, payload: EditorBridgeEvent) => void,
   ): void {
-    if (channel === E4_EDITOR_EVENT_CHANNEL && this.eventListener === listener) {
+    if (channel === EDITOR_BRIDGE_EVENT_CHANNEL && this.eventListener === listener) {
       this.eventListener = null;
     }
 
     this.removedChannels.push(channel);
   }
 
-  public emitEditorEvent(payload: E4EditorEvent): void {
+  public emitEditorEvent(payload: EditorBridgeEvent): void {
     this.eventListener?.({}, payload);
   }
 }

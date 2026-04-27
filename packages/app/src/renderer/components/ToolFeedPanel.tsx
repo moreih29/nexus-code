@@ -1,6 +1,6 @@
 import { Wrench } from "lucide-react";
 
-import type { ToolCallStatus } from "../../../../shared/src/contracts/harness-observer";
+import type { ToolCallStatus } from "../../../../shared/src/contracts/harness/harness-observer";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "./EmptyState";
 import { ScrollArea } from "./ui/scroll-area";

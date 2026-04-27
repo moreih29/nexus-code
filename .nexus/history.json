@@ -4314,6 +4314,321 @@
           "created_at": "2026-04-27T06:30:57.809Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-27T13:37:44.684Z",
+      "branch": "chore/e4-cleanup-20260427",
+      "plan": {
+        "id": 27,
+        "topic": "E4 단계 정리 — 코드/문서/메모리 청소 후 다음 단계로 진입",
+        "issues": [
+          {
+            "id": 1,
+            "title": "컨텍스트 문서에서 로드맵 의존성 분리 — non-roadmap context를 영구 사실 기반으로 재서술",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Architect 권장: 옵션 B (시간성 전부 제거 + roadmap.md 단일 출처). 4개 옵션 비교 — A(톤다운 유지)는 동기화 부채 잔존, B(전부 제거)는 사용자 원칙과 1:1, C(2-레이어 분할)는 디렉터리 신설 비용 대비 이득 작음, D(B+stack.md 핀 표만 별도)는 보험으로만 유효. 운영 정의: \"다음 마일스톤 후에도 참인가?\" + \"주어가 제품/구조/원칙인가?\" 둘 다 yes일 때만 context 잔류. 변경 범위: architecture.md(중, 단락 재서술), stack.md(중상, 단락 재서술 + 일부 흡수), design.md/harness-integration.md/terminal-shell-env.md(저, 라벨 제거 위주), roadmap.md L37 흡수 1~2단락. philosophy.md/conventions.md/korean-quality.md는 이미 깨끗함. 클래스명 prefix(E4EditorFileService)는 본 이슈 외. Open risk: roadmap.md L37 이미 비대하여 흡수 시 가독성 검토 후속 필요. 권장 보완: 다른 context 문서 상단에 \"현재 구현 상태는 roadmap.md 참조\" 한 줄 가이드 추가.",
+                "recorded_at": "2026-04-27T11:58:23.065Z",
+                "agent_id": "a56a8d7e9210eaf72"
+              }
+            ],
+            "decision": "옵션 B 채택 — 시간성 진술 전부 제거 + roadmap.md 단일 출처. D 보험 미적용으로 stack.md 버전 핀 표도 다른 영구 사실과 동일하게 본문에 잔류. 시간성 진술 흡수 시점은 코드 정리 이슈(3·4) 완료 후 한 번에 처리. 영구 context 문서(architecture.md, design.md, stack.md, harness-integration.md, terminal-shell-env.md) 상단에 \"현재 구현 상태는 roadmap.md 참조\" 가이드 한 줄 추가. roadmap.md L37 가독성 정리는 별도 후속 이슈로 분리. philosophy.md/conventions.md/korean-quality.md는 이미 깨끗하여 변경 없음."
+          },
+          {
+            "id": 2,
+            "title": "메모리 큐레이션 — empirical/external/pattern 보존·병합·폐기 기준 결정과 적용",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "postdoc",
+                "summary": "Postdoc 권장: 안 3 (카테고리별 차등 + \"교훈/외부사실/시점디테일\" 3-층 압축). 31개 파일 분류 결과 KEEP 24, MERGE 5, COMPRESS 5. KEEP 24개는 변경 없음. MERGE: (a) empirical-m3-integration-gap.md → pattern-dev-launch-verification.md (이미 흡수됨), (b) external-cmux/cursor-windsurf/warp/zed/nimbalyst 5개 → 신규 external-competitors.md 1단락씩 통합. COMPRESS: empirical-m3-handover, m3plus1, phase-a (사이클 디테일 삭제, 일반화 교훈만), pattern-sidecar-close-code-race (실측 표·escalation 시도 삭제, 진단 레시피만), external-electron-utility-process (결정 근거만). 약 30~35% 토큰 절감 + 신호 밀도 상승. 한계 지적: pattern-xterm-fork-escape-hatch와 external-xterm-js에 \"분기별 점검 루틴\" 같은 시간성 운영 절차 일부 — 직전 이슈 옵션 B(시간성은 roadmap.md 단일 출처)와 긴장 관계, Lead가 별도 결정 필요. 안 1(일률 영구 가치)는 카테고리 본질 차이 무시, 안 2는 3-층 분리 없어 empirical 압축 기준 모호.",
+                "recorded_at": "2026-04-27T12:04:45.083Z",
+                "agent_id": "ac7705a45b7bcdba6"
+              }
+            ],
+            "decision": "안 3 채택 — 카테고리별 차등 + \"교훈/외부사실/시점디테일\" 3-층 압축. 31개 파일을 KEEP 24 / MERGE 5 / COMPRESS 5로 처리하고 신규 external-competitors.md 1개를 .nexus/memory/에 생성. MERGE: (a) empirical-m3-integration-gap.md → pattern-dev-launch-verification.md 흡수, (b) external-cmux/cursor-windsurf/warp/zed/nimbalyst 5개 → 신규 external-competitors.md 1단락씩 통합. COMPRESS: empirical-m3-handover, m3plus1, phase-a, pattern-sidecar-close-code-race, external-electron-utility-process — 시점 디테일(run ID·plan #·실측 표·시도 추정 확률) 삭제, 일반화 원칙·결정 근거는 한 줄도 손실하지 말 것. 시간성 운영 절차(분기 점검 등)는 옵션 α에 따라 메모리 잔류 — 라이브러리 운영 지식의 주기적 절차이지 \"진행 상태\"가 아니므로 이슈 1 옵션 B와 충돌하지 않음. 실행은 이번 plan의 task 분해 단계에서 발주."
+          },
+          {
+            "id": 3,
+            "title": "코드 일회성 prefix 리네이밍 — e3-/e4- 파일·식별자를 도메인 이름으로 통일",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Architect 권장: 안 2 (도메인 재명명) + e4-editor.ts 분해 + e3-surfaces.ts 분리. 영향 범위 33파일·식별자 60+개·IPC 채널 문자열 2개·discriminator ~20개. e4-editor.ts → 4개 contract 분해(workspace-files / workspace-git-badges / lsp-diagnostics / editor-bridge). e3-surfaces.ts → 2개 분리(workspace-diff / claude-session-transcript, 식별자 변경 없음). 주요 파일 매핑: e4-editor-file-service→workspace-files-service(E4EditorFileService→WorkspaceFilesService), e4-lsp-service→lsp-service(E4LspService→LspService), e4-editor-ipc→editor-bridge-ipc, e4-editor-paths→workspace-files-paths, e3-surface-ipc→observer-surfaces-ipc, e2-terminal-runtime.test→terminal-runtime.test. PR 분할 권장: PR1 rename+분해 (33파일·350~400 LOC), PR2 IPC 상수 + discriminator 문자열 (4~6파일·100 LOC), PR3 test 파일 이름 정리(이슈 4와 함께). 안 1(prefix만 제거)은 \"Editor\"가 monaco UI인지 file service인지 모호 — 도메인 응집도 낮음. 안 3(점진)은 mixed 상태 발생. Lead 결정 필요: (1) EditorBridge 명칭 채택 여부 (거부 시 EditorIpc/MonacoBridge), (2) LspLanguage vs SupportedLspLanguage 정밀 이름.",
+                "recorded_at": "2026-04-27T12:08:58.418Z",
+                "agent_id": "a106fd2568744aba3"
+              }
+            ],
+            "decision": "안 2 채택 — 도메인 재명명 + contract 분해/분리. e4-editor.ts → 4개 contract 분해(workspace-files.ts, workspace-git-badges.ts, lsp-diagnostics.ts, editor-bridge.ts). e3-surfaces.ts → 2개 분리(workspace-diff.ts, claude-session-transcript.ts; 식별자는 기존 유지). 식별자 rename 매핑: E4EditorFileService→WorkspaceFilesService, E4LspService→LspService, E4Diagnostic→LspDiagnostic, E4FileKind→WorkspaceFileKind, E4LspLanguage→LspLanguage 등 architect 매핑 표 그대로. 함수: resolveE4WorkspacePath→resolveWorkspaceFilePath, registerE4EditorIpcHandlers→registerEditorBridgeIpcHandlers, registerE3SurfaceIpcHandlers→registerObserverSurfacesIpcHandlers. 파일 rename: e4-editor-file-service→workspace-files-service, e4-editor-paths→workspace-files-paths, e4-editor-ipc→editor-bridge-ipc, e4-lsp-service→lsp-service, e3-surface-ipc→observer-surfaces-ipc, test/e2-terminal-runtime.test→test/terminal-runtime.test. 명명 선택: EditorBridge / LspLanguage / ObserverSurfaces. PR 분할: PR1 rename+식별자+contract 분해, PR2 IPC 채널 상수(\"editor-bridge:invoke\"/\"editor-bridge:event\")+discriminator 문자열(\"workspace-files/tree/read\" 등 ~20개), PR3 test 파일 이름 정리는 이슈 4 디렉토리 정리와 함께 묶음."
+          },
+          {
+            "id": 4,
+            "title": "코드 디렉토리 구조 + 테스트 위치 컨벤션 통일 — packages/app/src/main 평평 구조와 test/ vs co-located 혼재 정리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Architect 권장: main 안 3(도메인 폴더 + sub-grouping), renderer는 components/ 유지 + 직속 평평 파일 4개 도메인 폴더(terminal/, workspace/, editor/), preload 평평 유지, 테스트 안 C(단위 co-located + 통합/시스템 분리), scripts/packaging/*.test.ts → test/packaging/ 이동, shared/contracts/ 도메인 폴더 분리.\n\nmain/ 권장 트리: adapters(유지), electron-app/(composition+entry+index), workspace/{persistence, shell, files(이슈3 신규), diff}, editor/(editor-bridge-ipc), lsp/(lsp-service), observer/(observer-surfaces-ipc), terminal/, shell-environment/, claude/, codex/, opencode/, harness/, sidecar/{sidecar-bridge 유지 + 평평 5파일}.\n\nrenderer/ 직속 그룹화: terminal/{shell-terminal-tab, terminal-bridge, terminal-resize-fit, xterm-fonts, xterm-ime-overlay, xterm-view}, workspace/{workspace-shell-model, workspace-sidebar-html, workspace-switching-commands}, editor/{monaco-lsp-markers}.\n\n테스트 컨벤션: 단위는 source 옆, integration은 test/integration/, 시스템/E2E는 test/system/, 패키징은 test/packaging/. ime-release-gate.test.ts, terminal-runtime.test.ts → test/system/. scripts/packaging/{check-dist-require, font-bundle-config}.test.ts → test/packaging/. scripts/runtime/, scripts/smoke/는 사람이 실행하는 도구라 잔류.\n\nshared/contracts/ 도메인 폴더: workspace/, terminal/, sidecar/, harness/, claude/, lsp/, editor/. generated/는 codegen 출력이라 그대로.\n\nPR 분할 권장 (총 6개): PR1(이슈3 rename+분해), PR2(이슈3 channel/discriminator), PR3(main/ 도메인 이동), PR4(renderer/ 직속 그룹화), PR5(test 위치 통일+vitest config 확인), PR6(shared/contracts/ 도메인 폴더). 핵심 위험: PR3+는 순수 이동(git mv)만 — PR1과 합치면 git rename detection 실패로 blame 손실.\n\nLead 결정 필요: (1) electron-app/ 이름 채택 vs bootstrap/ vs entry/, (2) renderer components/ 분할은 이번 범위 외 — 후속 이슈 동의 여부, (3) observer/ top-level 유지(workspace/observer/ 대안 거부), (4) vitest config glob은 PR5 첫 단계에서 확인.",
+                "recorded_at": "2026-04-27T12:13:38.459Z",
+                "agent_id": "a106fd2568744aba3"
+              }
+            ],
+            "decision": "main: 안 3(도메인 + sub-grouping). 트리: adapters/(유지), electron-app/(composition+entry+index), workspace/{persistence, shell, files, diff}, editor/, lsp/, observer/, terminal/, shell-environment/, claude/, codex/, opencode/, harness/, sidecar/{sidecar-bridge 유지 + 평평 5파일}. renderer: components/·stores/·adapters/·lib/ 유지, 직속 평평 파일을 terminal/{shell-terminal-tab, terminal-bridge, terminal-resize-fit, xterm-fonts, xterm-ime-overlay, xterm-view}, workspace/{workspace-shell-model, workspace-sidebar-html, workspace-switching-commands}, editor/{monaco-lsp-markers}로 그룹화. components/ 분할은 본 plan 범위 외(후속 이슈). preload: 평평 유지. shared/contracts: 도메인 폴더 분리(workspace/, terminal/, sidecar/, harness/, claude/, lsp/, editor/), generated/는 codegen 출력이라 그대로. 테스트: 안 C — 단위 co-located, integration test/integration/(기존), system test/system/(ime-release-gate, terminal-runtime 이동), packaging test/packaging/(scripts/packaging/{check-dist-require, font-bundle-config}.test 이동). scripts/packaging/noop-main.cjs와 scripts/runtime/, scripts/smoke/는 사람이 실행하는 도구라 잔류. 부트스트랩 폴더 이름: electron-app/. observer/는 top-level. PR 분할: PR1(이슈3 rename+contract 분해) → PR2(이슈3 channel 상수+discriminator 문자열) → PR3(main 도메인 폴더 이동) → PR4(renderer 직속 그룹화) → PR5(test 위치 통일, vitest config glob 사전 확인) → PR6(shared/contracts 도메인 폴더 분리). PR3 이상은 순수 git mv + import 갱신만으로 한정해 blame 보존, PR1과 절대 묶지 않음. 이슈 1 context 흡수(roadmap.md로 시점 사실 이전 + 가이드 한 줄 추가)는 PR3·PR4 완료 후 별도 task로 처리."
+          }
+        ],
+        "research_summary": "현재 main 브랜치는 E4(VSCode-급 코드 에디터 + LSP) 구현이 랜딩된 상태이며 사용자 요청은 \"다음 단계 진입 전 정리\"로 명확. \n\n[코드 구조 현황] packages/app/src/main에 50+ 파일이 평평하게 존재 (도메인 prefix로만 그룹핑: workspace-, terminal-, claude-, codex-, opencode-, harness-, sidecar-, e4-, e3-, electron-app-, shell-environment-). adapters/와 sidecar-bridge/만 디렉토리로 분리됨. renderer는 components/, stores/, adapters/, lib/, ui/로 일부 분리되어 있으나 src/renderer 직속에도 12+ 파일이 평평. shared는 contracts/, harness/adapters/<name>/로 정리됨.\n\n[일회성 prefix 파일] e4-editor-file-service.{ts,test.ts}, e4-editor-ipc.{ts,test.ts}, e4-editor-paths.{ts,test.ts}, e4-lsp-service.{ts,test.ts}, e3-surface-ipc.ts (총 9개), shared의 e4-editor.ts/e4-editor-contracts.test.ts/e3-surfaces.ts (3개), packages/app/test/e2-terminal-runtime.test.ts (1개). 클래스명도 E4EditorFileService/E4LspService 등으로 일회성 prefix를 식별자에 포함.\n\n[컨텍스트 문서] architecture.md/design.md/stack.md/harness-integration.md 모두 E3/E4/M3/M4/Phase A/feat-브랜치명 등 로드맵 시간성 참조 다수. 사용자 명시 정책: \"context는 자주 변하지 않는 정보를 반영해야 하므로, roadmap.md를 제외하고 나머지 context에서 로드맵을 참조하면 안 됨\". roadmap.md는 시간성 정보 보유 정상.\n\n[메모리] empirical-* 5개(M3 회고·integration gap·M3+1·Phase A·이전 Tauri), external-* 13개(라이브러리/경쟁 도구 조사), pattern-* 11개(harness-observer, sidecar-lifecycle 등 일반화 패턴). pattern-*는 대부분 보존 가치, empirical-*는 일부 사이클 종속, external-*는 비교 대상 위주(cmux/zed/warp)는 reference 가치만 가능.\n\n[테스트 위치] 대부분 src co-located(.test.ts/.tsx), 일부는 packages/app/test/{e2-terminal-runtime,ime-release-gate,integration/}, packages/app/scripts/packaging/{check-dist-require,font-bundle-config}.test.ts에 분리. 컨벤션 미정. sidecar는 Go 표준대로 _test.go co-located.\n\n[히스토리] nx_history_search \"refactoring cleanup E4 transitional\" 결과 0건 — 동일 주제 사전 결정 없음.\n\n[정리 우선순위 단서] 사용자 표현 \"정리부터 하고 다음 단계로 나아갈 계획\"에서 정리는 다음 단계의 선행 조건. 4개 이슈는 상호 독립적으로 결정 가능하나 코드 일회성 prefix 리네이밍(이슈 3)과 디렉토리 구조 리팩토링(이슈 4)은 한 번에 처리하는 편이 import 경로 갱신 비용을 절약.",
+        "created_at": "2026-04-27T11:55:09.658Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PR1 — 이슈3 코드 prefix 리네이밍 + contract 분해",
+          "status": "completed",
+          "context": "e3-/e4- 일회성 prefix가 33개 파일·식별자 60+개에 박혀 있음. context 시간성 제거 정책의 코드 연장선. e4-editor.ts(file/git/lsp 통합) 응집도 낮음, e3-surfaces.ts는 무관한 두 surface 묶음.",
+          "acceptance": "bun run lint:renderer pass, packages/app·packages/shared의 vitest 전부 pass, electron-vite build pass, packages/app dev launch 1회 smoke 정상(에디터 탭 열기·LSP 진단 표시·파일트리 git 뱃지). git grep 결과 E4Editor·E4Lsp·E3Surface·e4-/e3- 식별자/파일명 0건. IPC 채널 문자열은 본 PR에서 변경하지 않음(PR2에서 별도).",
+          "approach": "PR 단독 commit. (1) packages/shared/src/contracts/e4-editor.ts → workspace-files.ts + workspace-git-badges.ts + lsp-diagnostics.ts + editor-bridge.ts 4분해 (식별자 매핑: E4FileKind→WorkspaceFileKind, E4Diagnostic→LspDiagnostic, E4LspLanguage→LspLanguage, E4EditorEvent→EditorBridgeEvent 등). (2) packages/shared/src/contracts/e3-surfaces.ts → workspace-diff.ts + claude-session-transcript.ts (식별자 그대로). (3) main 파일 rename: e4-editor-file-service→workspace-files-service, e4-editor-paths→workspace-files-paths, e4-editor-ipc→editor-bridge-ipc, e4-lsp-service→lsp-service, e3-surface-ipc→observer-surfaces-ipc. 클래스: E4EditorFileService→WorkspaceFilesService, E4LspService→LspService. 함수: resolveE4WorkspacePath→resolveWorkspaceFilePath, registerE4EditorIpcHandlers→registerEditorBridgeIpcHandlers, registerE3SurfaceIpcHandlers→registerObserverSurfacesIpcHandlers. (4) packages/shared/src/index.ts re-export 4줄로 갱신. (5) 33개 import 사이트(renderer 5, main 5+, preload 1, test 4 등) 갱신. (6) test/e2-terminal-runtime.test → test/terminal-runtime.test.",
+          "risk": "대규모 식별자 변경으로 git diff가 커서 blame 추적 불리. PR 본문에 매핑표 명시. import 갱신 누락 시 typecheck 실패 — 컴파일러로 검출되므로 위험 낮음.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcee5-dbf7-7c02-93f5-41e3924ee3d1",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:17:21.262Z"
+        },
+        {
+          "id": 2,
+          "title": "메모리 MERGE — 이슈2 (a) integration-gap 흡수, (b) 경쟁 도구 5개 → external-competitors.md",
+          "status": "completed",
+          "context": ".nexus/memory/ 31개 파일 중 MERGE 대상 6개. (a) empirical-m3-integration-gap.md의 5개 핵심 학습은 pattern-dev-launch-verification.md에 이미 흡수된 상태로 내용 중복. (b) external-cmux/cursor-windsurf/warp/zed/nimbalyst는 경쟁 도구 reference 가치만 있어 단일 파일에 1단락씩 통합이 적절.",
+          "acceptance": "empirical-m3-integration-gap.md 삭제됨. external-cmux/cursor-windsurf/warp/zed/nimbalyst 5개 파일 삭제됨. external-competitors.md 신규 작성, 5개 도구 각 1단락 포함, 합계 1500자 이내. pattern-dev-launch-verification.md 갱신본이 흡수된 일반화 교훈을 모두 포함. 다른 메모리 파일의 깨진 참조 0건(grep 검증).",
+          "approach": "(1) empirical-m3-integration-gap.md 본문을 읽고 pattern-dev-launch-verification.md에 누락된 일반화 교훈만 추가. 흡수 후 empirical-m3-integration-gap.md 삭제. 단 사이클 디테일(plan #16 hotfix commit, run id)은 옮기지 않음. (2) external-competitors.md 신규 파일 작성. 5개 경쟁 도구를 각 1단락(150~250자) 압축 — 핵심: 카테고리, 차별화 포인트, nexus-code 결정에 미친 영향. cmux/cursor-windsurf/warp/zed/nimbalyst 5개 파일 삭제. (3) 다른 메모리 파일에서 external-cmux/zed 등을 참조하는 경로(pattern-harness-observer.md 등) grep으로 확인 후 external-competitors.md로 갱신.",
+          "risk": "압축 시 일반화 원칙·결정 근거를 1줄이라도 손실하면 안 됨. reviewer 검증 task로 보완.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dcee5-d6c3-7b33-bc87-7b3b503c9d32",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:17:34.571Z"
+        },
+        {
+          "id": 3,
+          "title": "메모리 COMPRESS — 이슈2 시점 디테일 삭제 5파일",
+          "status": "completed",
+          "context": ".nexus/memory/ COMPRESS 대상 5파일. 시점 디테일(run ID, plan #, 5회 측정 표, 시도 추정 확률)이 약 25% 차지. 일반화 교훈·결정 근거는 보존하되 사이클 종속 디테일은 삭제.",
+          "acceptance": "5개 파일 본문 분량 평균 30~50% 축소. 각 파일의 일반화된 결론·인용 근거 누락 0건. 다른 파일에서 삭제된 줄을 인용하는 곳 없음(grep 검증).",
+          "approach": "파일별 압축 — 각 파일에서 (1) 일반화 교훈/원칙, (2) 외부 사실, (3) 시점 디테일을 분리 후 (3) 삭제. 대상: empirical-m3-handover-retrospective.md(plan #15 architect 추정·30%/70% 디테일 삭제), empirical-m3plus1-retrospective.md(SIGTERM tcpdump 부분은 pattern-sidecar-close-code-race와 중복분 삭제, 후속 backlog 리스트는 roadmap.md 소관이라 삭제), empirical-phase-a-retrospective.md(Run ID·timestamps·brand 디테일 삭제, 일반화된 5건 교훈만), pattern-sidecar-close-code-race.md(T13 5회 실측 표·tcpdump 디테일·plan #15 T7 escalation 시도 #1~#4 삭제, 진단 레시피만), external-electron-utility-process.md(표·세부 비교 삭제, 결정 근거만).",
+          "risk": "\"디테일이 사실 일반화 단서를 담고 있는\" 경계 케이스에서 손실 위험. reviewer가 각 파일 전후 대조.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dceea-20aa-7da2-b85e-684955c69a4d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:17:48.576Z"
+        },
+        {
+          "id": 4,
+          "title": "PR2 — 이슈3 IPC 채널 상수 + discriminator 문자열 정리",
+          "status": "completed",
+          "context": "PR1 후 잔여 시간성 prefix는 IPC 채널 문자열 2개(\"e4-editor:invoke\", \"e4-editor:event\")와 ~20개의 discriminator(type: \"e4/file-tree/read\" 등). main↔preload↔renderer 모두 동일 빌드라 wire-compat 부담 없음. 채널 mismatch 회귀 격리를 위해 별도 PR.",
+          "acceptance": "git grep \"e4-editor\"·\"e4/\" 0건. dev launch smoke에서 editor invoke·event 정상 흐름(파일 read/write, LSP diagnostics 수신, git badges 갱신). vitest 전부 pass.",
+          "approach": "(1) packages/shared/src/contracts/ipc-channels.ts에서 E4_EDITOR_INVOKE_CHANNEL→EDITOR_BRIDGE_INVOKE_CHANNEL(\"editor-bridge:invoke\"), E4_EDITOR_EVENT_CHANNEL→EDITOR_BRIDGE_EVENT_CHANNEL(\"editor-bridge:event\") 갱신. (2) editor-bridge.ts와 4개 분해 contract 안의 discriminator 문자열 type:\"e4/...\" → 도메인 prefix(예: type:\"workspace-files/tree/read\", \"lsp-diagnostics/read\", \"workspace-git-badges/read\", \"editor-bridge/...\") 일괄 갱신. (3) main의 editor-bridge-ipc.ts와 preload nexus-editor-api.ts, renderer의 dispatch 경로에서 동일 문자열 사용 확인. (4) sidecar 측에서 e4 채널을 send/listen하지 않는지 grep으로 재확인.",
+          "risk": "main과 renderer가 다른 commit을 보면 채널 mismatch로 invoke 무응답. PR 단독 commit + dev launch 검증으로 격리.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcefc-a34d-7f00-88b6-7da9847ff233",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:10.492Z"
+        },
+        {
+          "id": 5,
+          "title": "PR3 — main 도메인 폴더 이동 (순수 git mv)",
+          "status": "completed",
+          "context": "packages/app/src/main 47파일 평평 구조 → 도메인 폴더로 이동. blame 보존을 위해 PR1과 절대 묶지 않고 순수 git mv + import 경로 갱신만 수행.",
+          "acceptance": "git log --follow가 모든 이동 파일에서 history 보존. PR diff에서 \"renamed:\" 100%, \"modified:\"는 import 경로만. vitest 전부 pass, lint pass, dev launch smoke 정상.",
+          "approach": "git mv로 다음 디렉토리에 이동: adapters/(유지), electron-app/{electron-app-composition, entry, index}, workspace/persistence/{workspace-persistence, workspace-keyboard-shortcut-bridge}, workspace/shell/{workspace-shell-service, workspace-terminal-registry}, workspace/files/{workspace-files-service, workspace-files-paths}, workspace/diff/{workspace-diff-service}, editor/{editor-bridge-ipc}, lsp/{lsp-service}, observer/{observer-surfaces-ipc}, terminal/{terminal-host, terminal-ipc}, shell-environment/{shell-environment-resolver}, claude/{claude-session-transcript-service, claude-settings-manager, claude-settings-registration}, codex/{codex-settings-manager, codex-settings-registration}, opencode/{opencode-runtime, opencode-sse-observer-service}, harness/{harness-notification-service}, sidecar/{sidecar-bridge 유지 + sidecar-bin-resolver, sidecar-lifecycle-manager, sidecar-process-runtime, sidecar-runtime, sidecar-shutdown-hook}. 각 .ts와 동일 위치에 .test.ts 동반 이동. import 경로 갱신은 동일 commit에서 수행하되 파일 본문 수정은 import 경로 외 0건.",
+          "risk": "git rename detection은 변경 LOC ≤ 50%일 때 감지. import 경로 갱신만으로는 거의 100% 동일하므로 안전. 단 같은 commit에 다른 변경 섞이면 실패 — 단독 commit 강제.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcf04-8943-7d21-a6c5-96317354e6a8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:26.591Z"
+        },
+        {
+          "id": 6,
+          "title": "PR4 — renderer 직속 평평 파일 그룹화 (순수 git mv)",
+          "status": "completed",
+          "context": "packages/app/src/renderer 직속 평평 파일들을 도메인 폴더로 이동. components/·stores/·adapters/·lib/는 유지(components/ 분할은 후속 이슈).",
+          "acceptance": "git log --follow history 보존. vitest pass, lint pass, dev launch smoke 정상. components/ 분할은 본 PR 범위 외임을 PR 본문에 명시.",
+          "approach": "git mv로 이동: terminal/{shell-terminal-tab, terminal-bridge, terminal-resize-fit, xterm-fonts, xterm-ime-overlay, xterm-view + 동반 .test.ts}, workspace/{workspace-shell-model, workspace-sidebar-html, workspace-switching-commands + 동반 .test.ts}, editor/{monaco-lsp-markers + 동반 .test.ts}. App.tsx, main.ts, index.ts/html, styles.css, global.d.ts, vite-env.d.ts는 top-level 유지. import 경로 갱신만 동일 commit에서.",
+          "risk": "동일.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcf04-b8d7-7e33-a480-af0d062e1581",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:30.873Z"
+        },
+        {
+          "id": 7,
+          "title": "PR6 — shared/contracts 도메인 폴더 분리",
+          "status": "completed",
+          "context": "PR1 후 packages/shared/src/contracts에 25+개 평평 파일. 도메인 폴더로 분리하면 import 경로가 의미를 가짐. generated/는 codegen 출력이라 그대로.",
+          "acceptance": "git rename history 보존. monorepo 내 모든 import 사이트 갱신 완료. typecheck pass, vitest pass, build pass.",
+          "approach": "git mv로 이동: workspace/{workspace, workspace-actions, workspace-registry, workspace-shell, workspace-switching, workspace-files, workspace-git-badges, workspace-diff, last-session-snapshot}, terminal/{terminal-tab, terminal-ipc, terminal-lifecycle, terminal-contracts.test}, sidecar/{sidecar, sidecar-lifecycle}, harness/{harness-observer, harness-observer-contracts.test}, claude/{claude-settings, claude-session-transcript}, lsp/{lsp-diagnostics}, editor/{editor-bridge, editor-bridge-contracts.test 또는 PR1 기준 e4-editor-contracts.test의 갱신본}. _brands.ts와 ipc-channels.ts는 contracts/ 직속 유지. generated/ 그대로. packages/shared/src/index.ts의 export * 경로 갱신.",
+          "risk": "main/renderer/preload 모두 contracts에서 import하므로 영향 범위 큼 — typecheck로 누락 검출. PR3·PR4와 충돌 가능(import 경로 동시 변경) — PR3·PR4 머지 후 본 PR rebase 권장.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcf14-5cd5-7992-a20e-58318bd09b37",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:40.550Z"
+        },
+        {
+          "id": 8,
+          "title": "메모리 MERGE 검증",
+          "status": "completed",
+          "context": "메모리 MERGE 작업의 일반화 교훈·결정 근거 누락 여부를 reviewer가 전후 대조로 검증.",
+          "acceptance": "검증 보고: 누락된 일반화 교훈 0건, 깨진 참조 0건. 보고서는 메모리 task 자체의 응답으로 갈음(별도 파일 생성 금지).",
+          "approach": "(1) git log·diff로 삭제된 6개 파일 본문 복원. (2) pattern-dev-launch-verification.md 갱신본과 empirical-m3-integration-gap.md 원본 비교 — 5개 핵심 학습이 모두 흡수되었는지 확인. (3) external-competitors.md를 5개 원본 파일과 1:1 비교, 각 도구의 (카테고리, 차별화 포인트, nexus-code 결정 영향) 3요소 보존 여부 확인. (4) 다른 메모리 파일에서 삭제된 파일명을 참조하는지 grep, 깨진 링크 0건 확인.",
+          "risk": "\"흡수된 것처럼 보이지만 실제로는 톤·뉘앙스만 옮긴\" 경계 케이스 — reviewer가 명시적으로 짚어 writer에 재요청.",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dceea-2597-7b02-8c1a-c748981c654a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:47.881Z"
+        },
+        {
+          "id": 9,
+          "title": "메모리 COMPRESS 검증",
+          "status": "completed",
+          "context": "메모리 COMPRESS 작업의 압축 과정에서 일반화 교훈 손실 여부 검증.",
+          "acceptance": "5개 파일 각각 보존 항목 0 미스, 잔여 시점 디테일 0건. 인용 깨짐 0건.",
+          "approach": "5개 파일(empirical-m3-handover, m3plus1, phase-a, pattern-sidecar-close-code-race, external-electron-utility-process) 압축 전후 본문을 git diff로 비교. (1) 일반화 결론·원칙·결정 근거가 모두 보존되었는지, (2) 시점 디테일(run ID·plan #·실측 표·시도 추정 확률)이 누락 없이 삭제되었는지, (3) 다른 메모리 파일에서 삭제된 줄을 인용하지 않는지 grep으로 확인.",
+          "risk": "동일 — 경계 케이스에서 손실 가능. reviewer가 짚어 writer에 재요청.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dceef-4350-7260-8098-3889bb6736e7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:18:53.421Z"
+        },
+        {
+          "id": 10,
+          "title": "PR5 — test 위치 통일 + vitest config 확인",
+          "status": "completed",
+          "context": "테스트 안 C 적용. 단위는 src co-located, integration은 test/integration/(기존), system/E2E는 test/system/, 패키징은 test/packaging/. scripts/packaging의 *.test.ts는 책임 분리 위해 test/로 이동.",
+          "acceptance": "scripts/packaging/*.test.ts 0건. test/system/, test/packaging/ 디렉토리에 명시된 파일이 위치. vitest 전체 실행 시 이동 전후 테스트 갯수 일치, 모두 pass. test/README.md 갱신 반영.",
+          "approach": "(0) vitest.config.ts(또는 package.json test 설정)의 include glob을 사전 확인 — src/**/*.test.ts와 test/**/*.test.ts와 scripts/**/*.test.ts 중 명시 범위 파악. (1) packages/app/test/system/ 신규 생성 후 ime-release-gate.test.ts와 (PR1 후 rename된) terminal-runtime.test.ts를 git mv로 이동. (2) packages/app/test/packaging/ 신규 생성 후 packages/app/scripts/packaging/check-dist-require.test.ts와 font-bundle-config.test.ts를 git mv로 이동. (3) noop-main.cjs, scripts/runtime/, scripts/smoke/는 도구라 잔류. (4) vitest config 갱신 — include에 test/system/, test/packaging/ 추가, scripts/**/*.test.ts 제거. (5) packages/app/test/README.md를 갱신해 새 디렉토리 의미 명시.",
+          "risk": "vitest config glob이 명시적으로 scripts/**을 포함하고 있으면 단순 이동 후 테스트가 누락될 수 있음 — config 갱신을 동일 commit에서 강제.",
+          "plan_issue": 4,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dcf1a-2d88-7761-bd03-6620da291f26",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:19:13.638Z"
+        },
+        {
+          "id": 11,
+          "title": "context 정리 + roadmap.md 흡수 + 가이드 한 줄 추가 (이슈 1 실행)",
+          "status": "completed",
+          "context": "이슈 1 결정에 따라 코드 정리(PR3·PR4) 완료 후 최종 시점 사실을 한 번에 roadmap.md로 흡수. context 5개 문서에서 시간성 진술 제거하고 \"현재 구현 상태는 roadmap.md 참조\" 가이드 추가.",
+          "acceptance": "5개 context 문서에서 E2/E3/E4/M3/M4/Phase A/feat-브랜치명 등 시간성 토큰 0건(grep 검증). 각 문서 상단에 \"roadmap.md 참조\" 가이드 1줄 존재. roadmap.md가 흡수된 시점 사실을 누락 없이 보유. philosophy.md/conventions.md/korean-quality.md는 변경 없음.",
+          "approach": "(1) architecture.md 단락 재서술 — L9, L13, L52~58(data-flow), L67, L73의 \"현재 E4 브랜치/E4EditorFileService\" 시간성 진술 제거. \"Electron main이 파일트리/LSP를 소유한다\"는 영구 사실로 재서술하되 클래스명은 코드 정리 후 새 이름(WorkspaceFilesService 등) 사용 또는 클래스명 비명시 (정체성 표현 우선). (2) design.md 단순 단어 치환 — L82(\"E4 현재 구현은\" → \"MonacoEditorHost는\"), L138(\"E3 전/E5 전\" 라벨 제거), L152(\"E4 구현 범위\" → \"MVP 범위\"). (3) stack.md 단락 재서술 — L33(Phase A 라벨 제거), L35~43(E4 LSP 브리지 단락을 영구 사실로), L75(Phase A 게이트 라벨 제거), L81~89(\"장기 의도 vs 현재 main\" 비교절 제거하고 영구 의도만). (4) harness-integration.md L31 어댑터 진행 상태 한 줄 → roadmap.md로 이전. (5) terminal-shell-env.md L5, L74의 E2 라벨 제거. (6) 5개 문서 상단에 \">> 현재 구현 상태는 roadmap.md를 참조하세요.\" 한 줄 가이드 추가. (7) roadmap.md 흡수 — 다른 문서에서 옮긴 시점 사실을 L37 영역에 통합하되 가독성 검토는 별도 후속.",
+          "risk": "\"영구 사실\"과 \"시점 사실\"의 경계 판정에 모호한 케이스 발생 가능 — reviewer가 운영 정의(2-축 판정)에 따라 검증.",
+          "plan_issue": 1,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dcf14-9912-76e2-9b5b-8da2b91c2a3c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:19:32.746Z"
+        },
+        {
+          "id": 12,
+          "title": "context 정리 검증",
+          "status": "completed",
+          "context": "context 정리 작업의 시간성 진술 제거 + roadmap.md 흡수 정합성 검증.",
+          "acceptance": "시간성 토큰 hit 0건, 가이드 1줄 5개 문서 존재, roadmap.md에 모든 시점 사실 보존, 영구 사실 오이전 0건, 변경 없는 3개 문서 무수정 확인.",
+          "approach": "(1) 5개 context 문서를 grep \"E[2-4]\\\\b|M[0-6]\\\\b|Phase A|feat/e[2-4]\"로 스캔, hit 0건 확인. (2) 각 문서 상단에 가이드 한 줄 존재 확인. (3) roadmap.md가 다른 문서에서 옮겨온 시점 사실을 모두 포함하는지 1:1 대조. (4) 옮긴 결과로 영구 사실까지 함께 옮겨졌는지(영구 → roadmap.md 오이전) 확인. (5) philosophy.md/conventions.md/korean-quality.md가 변경되지 않았는지 git diff로 확인.",
+          "risk": "\"단어 치환만 한 결과 의미가 바뀐\" 케이스 — reviewer가 단락 단위로 의미 비교.",
+          "plan_issue": 1,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dcf1a-589e-7be3-a0f9-319c004a0fb4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:19:39.862Z"
+        },
+        {
+          "id": 13,
+          "title": "통합 smoke — 코드 정리 PR1~PR6 종료 검증",
+          "status": "completed",
+          "context": "PR1~PR6 완료 후 전체 코드 정리가 회귀 없이 통합되었는지 end-to-end 검증. 각 PR은 자체 acceptance를 통과했지만 통합 시점에서 channel mismatch·import drift·test glob 누락 등 미발견 결함을 마지막으로 잡음.",
+          "acceptance": "위 8단계 모두 통과. 회귀 발견 시 어느 PR에 귀속되는지 명시한 보고. 새 회귀가 없으면 정리 사이클 cut line 충족.",
+          "approach": "(1) bun install --frozen-lockfile, bun run build:sidecar, bun run rebuild:native, electron-vite build 전 체인 pass 확인. (2) packages/app·packages/shared의 vitest 전체 실행 — pre-PR 대비 테스트 수 일치, 모두 pass. (3) bun run lint:renderer, bun run smoke:renderer-node-pty-guard pass. (4) bun run dev로 dev launch 1회 — 워크스페이스 1개 열기, 파일트리 표시·git 뱃지 동작, 에디터 탭 1개 열기·LSP 진단 마커 표시(typescript 파일), 터미널 탭 1개 열기·한국어 IME 입력 1회 smoke. (5) bun run test:integration(sidecar lifecycle smoke 4개) pass. (6) bun run test:fonts pass. (7) git grep \"E4Editor\"·\"E4Lsp\"·\"E3Surface\"·\"e4-editor\"·\"e3-surface\"·\"e2-terminal-runtime\" 0건. (8) packages/app/scripts/packaging/*.test.ts 0건.",
+          "risk": "통합 시점에 발견된 결함은 즉시 hotfix PR로 발주 — 이는 본 plan 범위 외 별도 task로 추가 등록.",
+          "plan_issue": 4,
+          "deps": [
+            4,
+            5,
+            6,
+            7,
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dcf21-26ff-7b21-b4d1-fcd1171b8ee2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-27T12:19:53.287Z"
+        }
+      ]
     }
   ]
 }
