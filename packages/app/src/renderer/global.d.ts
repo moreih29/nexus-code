@@ -18,6 +18,11 @@ import type {
   WorkspaceDiffRequest,
   WorkspaceDiffResult,
 } from "../../../shared/src/contracts/e3-surfaces";
+import type {
+  E4EditorEvent,
+  E4EditorRequest,
+  E4EditorResultFor,
+} from "../../../shared/src/contracts/e4-editor";
 
 interface NexusPreloadDisposable {
   dispose(): void;
@@ -62,6 +67,13 @@ interface NexusClaudeSessionApi {
   ): Promise<ClaudeTranscriptReadResult>;
 }
 
+interface NexusEditorApi {
+  invoke<TRequest extends E4EditorRequest>(
+    request: TRequest,
+  ): Promise<E4EditorResultFor<TRequest>>;
+  onEvent(listener: (event: E4EditorEvent) => void): NexusPreloadDisposable;
+}
+
 declare global {
   interface Window {
     nexusTerminal: NexusTerminalApi;
@@ -70,6 +82,7 @@ declare global {
     nexusClaudeSettings: NexusClaudeSettingsApi;
     nexusWorkspaceDiff: NexusWorkspaceDiffApi;
     nexusClaudeSession: NexusClaudeSessionApi;
+    nexusEditor: NexusEditorApi;
   }
 }
 

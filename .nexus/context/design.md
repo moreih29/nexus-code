@@ -79,7 +79,7 @@ MVP는 다크 모드 단일로 고정하며 라이트 모드는 v0.2에서 `.dar
 
 ### Monaco 테마 브리지
 
-Monaco `defineTheme`은 hex만 수용. CSS 변수 oklch→hex 브리지는 E4에서 별도 구축.
+Monaco `defineTheme`은 hex만 수용한다. E4 현재 구현은 `MonacoEditorHost`에서 `nexus-dark`를 고정 hex 값으로 정의하며, CSS oklch 토큰 값은 Monaco에 직접 전달하지 않는다.
 
 ---
 
@@ -135,7 +135,7 @@ Button h-8(32px)·Tab h-9(36px)·Checkbox 16px·Icon button 28px 확정.
 
 모든 패널 empty state는 통일된 4단 구조: 24px stroke icon(muted-foreground) + text-sm font-medium 제목(명사) + text-xs text-muted-foreground 1줄 설명 + 조건부 Button sm 또는 kbd 힌트.
 
-패널별 문구: Workspace(FolderOpen,No workspace open,Open folder+Cmd+O)·Terminal(SquareTerminal,Open workspace to start terminal)·File tree E4 전(Folder,Files appear here)·Tool E3 전(Wrench,Agent tool invocations appear here)·Session E3 전(History,No session history)·Diff E3 전(GitCompare,No changes)·Preview E5 전(Eye,Preview unavailable).
+패널별 문구: Workspace(FolderOpen,No workspace open,Open folder+Cmd+O)·Terminal(SquareTerminal,Open workspace to start terminal)·File tree(FolderOpen,No workspace selected,Open a workspace to browse files / Folder,No files,Create a file or folder in {workspace} to begin editing)·Tool E3 전(Wrench,Agent tool invocations appear here)·Session E3 전(History,No session history)·Diff E3 전(GitCompare,No changes)·Preview E5 전(Eye,Preview unavailable).
 
 "Coming soon" 문구는 금지하며, 미구현 패널은 기능 가치를 한 문장 서술한다. 일러스트는 사용하지 않는다. a11y 원칙: 아이콘은 aria-hidden, 제목이 스크린리더 앵커, 버튼 텍스트는 구체적이다.
 
@@ -145,7 +145,7 @@ Border 1px 고정. Focus ring만 2px 예외 허용. Spacing은 Tailwind 기본 4
 
 ### Command palette
 
-MVP에 `cmdk` command palette를 포함한다. `Cmd+P`와 `Cmd+Shift+P`는 동일 팔레트이며 `>` 접두어로 모드 분기한다. MVP 명령 10개: Workspace Switch·Open·Close, View Toggle Sidebar·Toggle Shared Panel·Focus Terminal, Terminal New Tab·Close Tab, App Reload·Preferences placeholder. 파일 모드는 E4에서 확장한다.
+MVP에 `cmdk` command palette를 포함한다. `Cmd+P`와 `Cmd+Shift+P`는 동일 팔레트다. 현재 명령 그룹은 Workspace, View, Terminal, App이며 Preferences는 placeholder 명령이다. 파일 모드는 현재 E4 구현 범위에 포함되지 않는다.
 
 ### 단축키 맵
 

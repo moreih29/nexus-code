@@ -3980,6 +3980,196 @@
           "created_at": "2026-04-26T14:33:45.303Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-27T05:10:30.800Z",
+      "branch": "feat/e4-code-editor-lsp",
+      "plan": {
+        "id": 25,
+        "topic": "E4 Code Editor + LSP implementation",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Define the E4 completion cut for one run cycle without faking LSP support",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explorer",
+                "summary": "Codebase exploration found no existing Monaco/editor/LSP code. Current IPC pattern is narrow preload APIs backed by main handlers and shared channel constants. Workspace identity and active workspace state are main-owned. Sidecar WebSocket currently supports lifecycle start/stop plus harness observer push only; unknown message types close the WS. Therefore E4 needs a typed sidecar command/request bus before sidecar-owned filetree/LSP can be implemented without violating renderer→main→sidecar boundaries. Recommended seams: new shared contracts, SidecarRuntime.request, sidecar dispatcher namespaces, preload APIs for file tree/editor/LSP, FileTreePanel replacing placeholder, CenterPane for editor/terminal, separate editor session persistence.",
+                "recorded_at": "2026-04-27T04:01:01.076Z",
+                "agent_id": "019dcd14-c62c-7ec1-87e6-51ef55001cc9"
+              }
+            ],
+            "decision": "Selected approach: E4 will be implemented as an honest MVP vertical, not a placeholder and not a full VS Code clone. The accepted completion cut is: active-workspace file tree with CRUD/rename/delete/open and fs-change refresh, Monaco-backed single-tab-bar editor with dirty tracking/save/close and in-file find/replace, git file-level badges, and real best-effort LSP diagnostics for TypeScript/Python/Go through the main↔sidecar boundary when the corresponding language server command is installed. Rationale: roadmap E4 requires these user-visible capabilities, while current code has no editor substrate and the sidecar protocol lacks request/reply. Therefore contracts and transport seams must be built first, then UI. Rejected alternative: implementing Monaco-only editing with fake LSP status was rejected because it would falsely satisfy E4. Rejected alternative: building a full VS Code workbench with split editors, project search, dedicated git UI, extension host, and full languageclient parity was rejected because roadmap explicitly excludes those surfaces and it would explode scope. Assumptions: language server binaries may be absent in developer machines; E4 is complete if the system discovers and reports unavailable servers honestly while providing real diagnostics when installed."
+          },
+          {
+            "id": 2,
+            "title": "Choose file tree, file operations, fs watch, and git badge implementation boundary",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explorer",
+                "summary": "For file tree/file operations/git badges, exploration recommends renderer → preload → main → sidecar rather than direct renderer fs or one-off main IPC. Current E3 WorkspaceDiffService is a main-side helper and should not become the E4 filetree substrate. Sidecar currently needs a dispatcher and command bus; proposed namespaces are file-tree/*, file/*, git/status, lsp/*.",
+                "recorded_at": "2026-04-27T04:01:12.633Z",
+                "agent_id": "019dcd14-c62c-7ec1-87e6-51ef55001cc9"
+              }
+            ],
+            "decision": "Selected approach: file tree, file CRUD, fs refresh, and git badges will be implemented behind new shared E4 contracts and main/preload APIs. The first implementation may use main-side Node fs/chokidar-like polling seams if necessary for speed, but the public boundary will be shaped so it can move to sidecar without renderer changes; where sidecar request bus is added, sidecar owns file tree and git status. File paths are always workspace-relative at the renderer contract boundary, and main/sidecar validates paths remain inside the workspace root. Git badges are text states modified/untracked/staged, derived from `git status --porcelain=v1 -z` or equivalent. Fsnotify reflection means the tree refreshes after external file changes; it does not need an advanced diff stream. Rejected alternative: direct renderer filesystem access was rejected because it violates sandbox/IPC boundaries. Rejected alternative: reusing E3 WorkspaceDiffService as the filetree API was rejected because it only reads diff and has the wrong ownership model. Rejected alternative: implementing a full file watcher subscription protocol with every granular event before basic tree CRUD was rejected as overengineering; a refresh-on-event or refresh-on-interval observer is enough for MVP."
+          },
+          {
+            "id": 3,
+            "title": "Choose editor/tab/find-replace UI integration and persistence boundary",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Designer approved a minimal 4-column workbench integration: replace Files placeholder with active-workspace FileTreePanel; introduce CenterWorkbench with small Editor/Terminal mode switch; preserve TerminalPane mount to avoid terminal state loss; EditorPane has single file tab bar, close button, dirty indicator, no splits/pinned tabs/breadcrumb complexity. Right shared panel remains unchanged. Accessibility: file tree uses tree/treeitem semantics, git badges include text/aria labels. Risks: terminal state loss if unmounted, left-panel overcrowding, tab concept confusion, keyboard conflicts, Monaco visual mismatch, color-only git badge accessibility.",
+                "recorded_at": "2026-04-27T04:01:08.545Z",
+                "agent_id": "019dcd14-e522-7f53-9946-81824a91f202"
+              }
+            ],
+            "decision": "Selected approach: keep the four-column shell and introduce a CenterWorkbench with a small Editor/Terminal mode switch, while preserving the mounted TerminalPane so switching modes does not kill terminal PTYs. Opening a file from FileTreePanel switches center mode to Editor. EditorPane uses one file tab bar with close controls, dirty dot/star, save, and Monaco editor content. In-file search/replace is implemented through Monaco actions and/or a compact in-editor find bar bound to Ctrl+F/Ctrl+H. Editor session state is held in a focused renderer store for responsiveness; a separate main-owned editor session persistence file can be added for tab restoration, but file contents are never persisted outside the workspace. Rejected alternative: unmounting TerminalPane on editor mode was rejected because current TerminalPane cleanup disposes resources. Rejected alternative: moving Diff into the editor area or adding split panes/pinned tabs/breadcrumbs was rejected because roadmap excludes editor split and dedicated git UI. Assumptions: a minimal Monaco theme bridge is included so the editor does not look bolted on, but Monaco theme/keybinding/font customization UI remains excluded."
+          },
+          {
+            "id": 4,
+            "title": "Choose LSP architecture and language server discovery/runtime behavior for TS/Python/Go",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explorer",
+                "summary": "For LSP, exploration found the existing sidecar WS has a single main connection and no request/response routing. Renderer must not open browser WebSockets directly to sidecar. Minimal fit is sidecar owns language server processes, main SidecarBridge forwards LSP messages, preload exposes IPC-backed transport, renderer Monaco consumes that transport. Direct renderer→sidecar connections and starting with Monaco before sidecar bus were rejected by the codebase constraints.",
+                "recorded_at": "2026-04-27T04:01:16.910Z",
+                "agent_id": "019dcd14-c62c-7ec1-87e6-51ef55001cc9"
+              }
+            ],
+            "decision": "Selected approach: LSP is implemented as a best-effort real diagnostics bridge for TypeScript, Python, and Go with the sidecar as the intended owner of language-server processes. The protocol is scoped to initialize/didOpen/didChange/publishDiagnostics/shutdown for E4, not full completion/rename/refactor. Language command discovery is explicit and honest: TypeScript uses `typescript-language-server --stdio`, Python uses `pyright-langserver --stdio`, Go uses `gopls serve` or `gopls`. If a command is missing, the UI reports unavailable instead of pretending diagnostics exist. Main/preload forwards renderer document changes to the LSP service and renderer applies returned diagnostics as Monaco markers. Rejected alternative: renderer directly connecting to sidecar or spawning language servers was rejected due to architecture and sandbox boundaries. Rejected alternative: installing and bundling all language servers inside E4 was rejected because it adds large external runtime distribution and auth/platform issues; MVP can use PATH-discovered tools with clear unavailable states. Rejected alternative: adopting full `monaco-languageclient` workbench stack immediately was rejected for this cycle because the latest package pulls a large VSCode compatibility layer; a minimal diagnostics bridge is lower risk and still exercises real LSP servers. Assumption: future cycles may replace the minimal bridge with monaco-languageclient once dependency/worker bundling is proven."
+          },
+          {
+            "id": 5,
+            "title": "Define verification, documentation, and release-risk closure criteria",
+            "status": "decided",
+            "decision": "Selected approach: E4 verification must include unit tests for shared contracts, main file/git/LSP services, preload APIs, renderer stores/components, and full existing gates: `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:drift`, `bun run test:diff-check`. Because language servers may be absent locally, tests use fake LSP servers/process seams to prove real JSON-RPC behavior, plus optional manual smoke instructions for installed `typescript-language-server`, `pyright-langserver`, and `gopls`. Context docs should be updated only where implementation decisions affect architecture/stack/roadmap status; especially note best-effort PATH-discovered LSP and any main-side transitional implementation if sidecar ownership is not fully completed. Rejected alternative: relying on visual/manual testing only was rejected because E4 touches IPC, fs, git, and editor state. Rejected alternative: marking M6 LSP reconnect/30-minute stability complete in E4 was rejected; M6 explicitly revalidates restart/disconnect and integrated stability later. Assumption: dev launch smoke is valuable but not always deterministic in this headless execution context, so automated gates are the completion floor and manual smoke is reported if not run."
+          }
+        ],
+        "research_summary": "Existing knowledge read from `.nexus/context/roadmap.md`, `.nexus/context/architecture.md`, `.nexus/context/stack.md`, `.nexus/context/design.md`, `.nexus/memory/*`, plus local code inspection. E4 roadmap requires Monaco editor + TypeScript/Python/Go LSP, minimal filetree expand/collapse/open/create/delete/rename/fsnotify reflection, tabbed file editing with close/dirty mark, git file-level badges, in-file find/replace, and excludes project-wide search, editor split, dedicated git UI, debugger/test runner/extensions/AI inline suggestions. Current code state: Electron main/preload/renderer IPC patterns exist for workspace, terminal, E3 surfaces; renderer has App.tsx 4-column shell with Files placeholder in left panel and Terminal-only center; right shared panel has E3 tabs. Main has WorkspacePersistenceStore and WorkspaceShellService. Sidecar WebSocket currently supports lifecycle start/stop and push observer events, not arbitrary request/response; sidecar has no LSP, fsnotify, git subsystem yet. E3 diff currently uses main git CLI, not sidecar git. `package.json` has no Monaco or monaco-languageclient dependency. npm registry check on 2026-04-27 from local command showed `monaco-editor` latest 0.55.1 and `monaco-languageclient` latest 10.7.0; language server CLIs were not found in PATH in this environment. No prior E4 plan history found via nx_history_search. Constraints: exact pin preference, renderer must not import node-pty, renderer never directly talks to sidecar, main mediates IPC, work is on branch `feat/e4-code-editor-lsp`.",
+        "created_at": "2026-04-27T03:58:40.112Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "E4 shared contracts and dependency baseline",
+          "status": "completed",
+          "context": "E4 needs editor/filetree/LSP APIs before UI or services can be built. Current shared contracts have workspace, terminal, E3 surfaces only; package lacks Monaco. Decisions #1/#5 require an honest MVP vertical and full gates.",
+          "acceptance": "Shared E4 contract file exports request/result/event types for file tree read, file operations create/delete/rename, file read/write, watch events, git badges, and LSP diagnostics/status for typescript/python/go. IPC channel constants exist. Renderer global API types can import these types. `packages/app/package.json` has exact `monaco-editor` pin. Unit tests or contract tests cover representative valid E4 payload shapes. Typecheck can consume the new types.",
+          "approach": "Add shared TypeScript contract types and IPC channel constants for E4 file tree, editor files, file watch events, and LSP diagnostics. Pin `monaco-editor` exactly at 0.55.1 in packages/app. Avoid monaco-languageclient for this cycle per decision #4; document rationale later.",
+          "risk": "Adding a large Monaco dependency may affect renderer build size; full languageclient is intentionally deferred to avoid larger risk.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd1b-0638-7db1-af57-5d98cb0b53fe"
+          },
+          "created_at": "2026-04-27T04:02:10.319Z"
+        },
+        {
+          "id": 2,
+          "title": "E4 main/preload filetree, editor file, git badge, and watch services",
+          "status": "completed",
+          "context": "Current app has main/preload patterns but no E4 file APIs. Workspace paths come from renderer active workspace state, but all filesystem operations must be validated against workspace root. Decision #2 requires active-workspace filetree CRUD and git badge data; fsnotify reflection can be refresh-on-event.",
+          "acceptance": "Preload exposes `window.nexusFileTree` and/or `window.nexusEditorFiles` APIs. Main IPC handlers read file tree, perform file operations, read/write file content, return git badges, and emit file watch change events. Path traversal outside workspace is rejected. Existing E3 diff service remains unaffected. Tests cover path guard, tree scan, CRUD/rename/delete, git status mapping, watch event subscription disposal, preload invoke/listen behavior, and composition registration/disposal.",
+          "approach": "Implement main services for safe workspace-relative path resolution, file tree scan with hidden/build directory exclusions, file read/write/create/delete/rename, git status parsing, and workspace file watch events using Node fs.watch recursive where available plus polling fallback if needed. Register IPC handlers and preload APIs. Update composition to register/dispose handlers.",
+          "risk": "macOS recursive fs.watch support differs from other platforms; MVP target is macOS, but tests should use seams instead of depending on native watcher behavior.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd21-2cb8-7263-b893-db01e882fdcf"
+          },
+          "created_at": "2026-04-27T04:02:20.545Z"
+        },
+        {
+          "id": 3,
+          "title": "E4 LSP diagnostics bridge for TypeScript, Python, and Go",
+          "status": "completed",
+          "context": "No language server CLIs are installed in this environment, but E4 must be honest: report unavailable when missing and provide real diagnostics when installed. Decision #4 scopes LSP to initialize/didOpen/didChange/publishDiagnostics/shutdown, not full completion/refactor.",
+          "acceptance": "APIs expose LSP status and diagnostics for `typescript`, `python`, and `go`. Missing command returns explicit unavailable status without crashing. Fake-server tests prove real JSON-RPC framing and diagnostics propagation. Document URI/path mapping is workspace-root aware. LSP processes are disposed on app service disposal or document/workspace close. No renderer direct process spawn or direct sidecar socket use.",
+          "approach": "Implement a minimal JSON-RPC LSP service with process-spawn seams. Discover commands for TypeScript (`typescript-language-server --stdio`), Python (`pyright-langserver --stdio`), and Go (`gopls serve`/`gopls`). Provide main IPC/preload APIs to start/open/change/close documents and subscribe diagnostics/status. Renderer will map diagnostics to Monaco markers. Tests use a fake stdio JSON-RPC server or mocked process seams to prove initialize, didOpen/didChange and publishDiagnostics flow.",
+          "risk": "Full LSP feature parity is intentionally not included; diagnostics only may feel limited but is the honest MVP cut.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd2f-3e7d-7491-a974-57825f006a5a"
+          },
+          "created_at": "2026-04-27T04:02:30.747Z"
+        },
+        {
+          "id": 4,
+          "title": "E4 renderer FileTreePanel, EditorPane, CenterWorkbench, and Monaco integration",
+          "status": "completed",
+          "context": "Current renderer has Files placeholder and Terminal-only center. Designer analysis requires filetree in left panel, CenterWorkbench mode switch, terminal kept mounted, editor tabs with dirty mark, and Monaco styling. Depends on E4 preload APIs.",
+          "acceptance": "Files placeholder removed. Active workspace file tree renders with expand/collapse, open file, create/delete/rename actions, fs change refresh, and text git badges with aria labels. Opening a file switches to Editor. Center mode switch has Editor/Terminal and terminal state is preserved while hidden. Editor has single tab bar, close buttons, dirty indicator, save action, Monaco editor, Ctrl+F/Ctrl+H find/replace, and applies LSP diagnostics markers/status. Empty states match design guidance and no `Soon`/`Coming soon` wording remains. Renderer component/store tests cover filetree states/actions, editor tab dirty/save/close behavior, mode switch preserving terminal mount, and LSP marker mapping.",
+          "approach": "Add renderer editor store, FileTreePanel, EditorPane, CenterWorkbench components, Monaco wrapper/theme bridge, git badge rendering, CRUD actions, file open/save/close, dirty tracking, in-file find/replace Ctrl+F/Ctrl+H, LSP diagnostics markers, and App.tsx wiring. Keep TerminalPane mounted hidden when editor active.",
+          "risk": "Monaco JSDOM testing is limited; tests should isolate store/view logic and use adapter seams for Monaco APIs.",
+          "plan_issue": 3,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd3b-5e7b-7863-8728-519ee7f9d4a8"
+          },
+          "created_at": "2026-04-27T04:02:39.150Z"
+        },
+        {
+          "id": 5,
+          "title": "E4 context documentation update",
+          "status": "completed",
+          "context": "E4 implementation changes architecture/stack status and may intentionally defer full monaco-languageclient while delivering diagnostics bridge. Documentation must prevent future confusion like stale E3 docs.",
+          "acceptance": "Docs accurately state implemented E4 surfaces and limitations. Roadmap M4 row can be marked as implemented/completed only if gates pass, while M6 restart/disconnect/stability remains future. Stack mentions exact Monaco pin and LSP server commands. Architecture states actual current file/LSP ownership if transitional main-side services are used, or sidecar ownership if implemented. No stale 'E4 전 Files placeholder' wording remains where it conflicts with code.",
+          "approach": "Update `.nexus/context/architecture.md`, `.nexus/context/stack.md`, and `.nexus/context/roadmap.md` only where needed to reflect E4 implementation status, LSP diagnostics bridge cut, language server PATH discovery, and known M6 follow-up gates. Avoid overstating M6 completion.",
+          "risk": "Documentation can overclaim LSP parity; must explicitly distinguish diagnostics bridge from full languageclient/editor feature parity.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd4a-f407-75b1-b447-7a8567e61c73"
+          },
+          "created_at": "2026-04-27T04:02:46.078Z"
+        },
+        {
+          "id": 6,
+          "title": "E4 verification and cycle closure",
+          "status": "completed",
+          "context": "After implementation and docs, E4 must pass full gates before archive/commit. Language server CLIs may be absent, so automated fake LSP tests are required and manual smoke steps must be reported.",
+          "acceptance": "Target E4 tests pass. `bun test`, `bun run typecheck`, `bun run lint`, `bun run build`, `bun run check:dist`, `bun run test:sidecar`, `bun run test:drift`, and `bun run test:diff-check` pass. `git status --short` is clean after commit. `.nexus/history.json` archives the cycle. Final report lists changed paths, decisions, risks, and manual LSP smoke steps.",
+          "approach": "Run targeted tests first, then full gates. Fix regressions if any. Archive plan/tasks with nx_task_close and commit explicit paths. Include manual smoke instructions for TS/Python/Go language server availability if not executable in environment.",
+          "risk": "Build may expose Monaco worker/bundling issues not visible in unit tests; resolve before close.",
+          "plan_issue": 5,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dcd4f-80aa-7de3-bda3-b67fdda44f22"
+          },
+          "created_at": "2026-04-27T04:02:52.931Z"
+        }
+      ]
     }
   ]
 }

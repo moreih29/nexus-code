@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "zustand";
-import { Eye, Folder, GripVertical } from "lucide-react";
+import { Eye, GripVertical } from "lucide-react";
 
 import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace";
 import { ActivityBar } from "./components/ActivityBar";
+import { CenterWorkbench } from "./components/CenterWorkbench";
 import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "./components/CommandPalette";
+import { EditorPane } from "./components/EditorPane";
 import { EmptyState } from "./components/EmptyState";
+import { FileTreePanel } from "./components/FileTreePanel";
 import { SessionHistoryPanel } from "./components/SessionHistoryPanel";
 import { TerminalPane } from "./components/TerminalPane";
 import { ToolFeedPanel } from "./components/ToolFeedPanel";
@@ -25,6 +28,7 @@ import { createHarnessBadgeStore, type HarnessBadgeStore } from "./stores/harnes
 import { createHarnessToolFeedStore, type HarnessToolFeedStore } from "./stores/harnessToolFeedStore";
 import { createHarnessSessionStore, type HarnessSessionStore } from "./stores/harnessSessionStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
+import { createEditorStore, type EditorStore } from "./stores/editor-store";
 import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace-switching-commands";
 
 const WORKSPACE_PANEL_STORAGE_KEY = "nx.layout.workspacePanel";
@@ -52,6 +56,7 @@ export default function App(): JSX.Element {
   const harnessBadgeStore = useHarnessBadgeStore();
   const harnessToolFeedStore = useHarnessToolFeedStore();
   const harnessSessionStore = useHarnessSessionStore();
+  const editorStore = useEditorStore();
   const workspacePanelRef = useRef<HTMLDivElement | null>(null);
   const sharedPanelRef = useRef<HTMLDivElement | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -92,6 +97,23 @@ export default function App(): JSX.Element {
   const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
   const toolFeedByWorkspaceId = useStore(harnessToolFeedStore, (state) => state.feedByWorkspaceId);
   const sessionByWorkspaceId = useStore(harnessSessionStore, (state) => state.sessionByWorkspaceId);
+  const editorFileTree = useStore(editorStore, (state) => state.fileTree);
+  const editorExpandedPaths = useStore(editorStore, (state) => state.expandedPaths);
+  const editorGitBadgeByPath = useStore(editorStore, (state) => state.gitBadgeByPath);
+  const editorTabs = useStore(editorStore, (state) => state.tabs);
+  const editorActiveTabId = useStore(editorStore, (state) => state.activeTabId);
+  const editorMode = useStore(editorStore, (state) => state.centerMode);
+  const setEditorMode = useStore(editorStore, (state) => state.setCenterMode);
+  const refreshEditorFileTree = useStore(editorStore, (state) => state.refreshFileTree);
+  const toggleEditorDirectory = useStore(editorStore, (state) => state.toggleDirectory);
+  const openEditorFile = useStore(editorStore, (state) => state.openFile);
+  const createEditorFileNode = useStore(editorStore, (state) => state.createFileNode);
+  const deleteEditorFileNode = useStore(editorStore, (state) => state.deleteFileNode);
+  const renameEditorFileNode = useStore(editorStore, (state) => state.renameFileNode);
+  const activateEditorTab = useStore(editorStore, (state) => state.activateTab);
+  const updateEditorTabContent = useStore(editorStore, (state) => state.updateTabContent);
+  const saveEditorTab = useStore(editorStore, (state) => state.saveTab);
+  const closeEditorTab = useStore(editorStore, (state) => state.closeTab);
   const activeWorkspace = sidebarState.activeWorkspaceId
     ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
     : undefined;
@@ -102,6 +124,9 @@ export default function App(): JSX.Element {
     ? (sessionByWorkspaceId[sidebarState.activeWorkspaceId] ?? null)
     : null;
   const diffRefreshSignal = activeToolFeedEntries.at(-1)?.receivedSequence ?? 0;
+  const activeEditorTabs = activeWorkspace
+    ? editorTabs.filter((tab) => tab.workspaceId === activeWorkspace.id)
+    : [];
 
   useEffect(() => {
     void refreshSidebarState().catch((error) => {
@@ -145,6 +170,27 @@ export default function App(): JSX.Element {
       harnessSessionStore.getState().stopObserverSubscription();
     };
   }, [harnessSessionStore]);
+
+  useEffect(() => {
+    const activeWorkspaceId = activeWorkspace?.id ?? null;
+    editorStore.getState().setActiveWorkspace(activeWorkspaceId);
+
+    if (activeWorkspaceId) {
+      void editorStore.getState().refreshFileTree(activeWorkspaceId).catch((error) => {
+        console.error("File tree: failed to refresh active workspace.", error);
+      });
+    }
+  }, [activeWorkspace?.id, editorStore]);
+
+  useEffect(() => {
+    const subscription = window.nexusEditor.onEvent((event) => {
+      editorStore.getState().applyEditorEvent(event);
+    });
+
+    return () => {
+      subscription.dispose();
+    };
+  }, [editorStore]);
 
   const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
     const request = pendingClaudeConsentRef.current;
@@ -402,23 +448,28 @@ export default function App(): JSX.Element {
                     }
                   />
 
-                  <section
-                    data-component="files-placeholder"
-                    className="shrink-0 rounded-lg border border-dashed border-sidebar-border bg-card/35 p-3 text-sidebar-foreground"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Folder aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                      <h2 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-[0.14em]">
-                        Files
-                      </h2>
-                      <span className="shrink-0 rounded-full border border-sidebar-border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                        Soon
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs leading-normal text-muted-foreground">
-                      File explorer is not implemented yet. Use the workspace list above for now.
-                    </p>
-                  </section>
+                  <FileTreePanel
+                    activeWorkspace={activeWorkspace ?? null}
+                    fileTree={editorFileTree}
+                    expandedPaths={editorExpandedPaths}
+                    gitBadgeByPath={editorGitBadgeByPath}
+                    onRefresh={(workspaceId) => {
+                      void runEditorMutation(() => refreshEditorFileTree(workspaceId));
+                    }}
+                    onToggleDirectory={toggleEditorDirectory}
+                    onOpenFile={(workspaceId, path) => {
+                      void runEditorMutation(() => openEditorFile(workspaceId, path));
+                    }}
+                    onCreateNode={(workspaceId, path, kind) => {
+                      void runEditorMutation(() => createEditorFileNode(workspaceId, path, kind));
+                    }}
+                    onDeleteNode={(workspaceId, path, kind) => {
+                      void runEditorMutation(() => deleteEditorFileNode(workspaceId, path, kind));
+                    }}
+                    onRenameNode={(workspaceId, oldPath, newPath) => {
+                      void runEditorMutation(() => renameEditorFileNode(workspaceId, oldPath, newPath));
+                    }}
+                  />
                 </aside>
               </ScrollArea>
             </div>
@@ -437,12 +488,28 @@ export default function App(): JSX.Element {
         )}
 
         <div className="min-h-0 min-w-0 flex-1">
-          <main className="flex h-full min-h-0 flex-col border-r border-border bg-background/80 p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Center Terminal</h2>
-            <div className="mt-3 min-h-0 flex-1 rounded-md border border-border bg-card p-3">
-              <TerminalPane sidebarState={sidebarState} />
-            </div>
-          </main>
+          <CenterWorkbench
+            mode={editorMode}
+            onModeChange={setEditorMode}
+            editorPane={
+              <EditorPane
+                activeWorkspaceName={activeWorkspace?.displayName ?? null}
+                tabs={activeEditorTabs}
+                activeTabId={editorActiveTabId}
+                onActivateTab={activateEditorTab}
+                onCloseTab={(tabId) => {
+                  void runEditorMutation(() => closeEditorTab(tabId));
+                }}
+                onSaveTab={(tabId) => {
+                  void runEditorMutation(() => saveEditorTab(tabId));
+                }}
+                onChangeContent={(tabId, content) => {
+                  void updateEditorTabContent(tabId, content);
+                }}
+              />
+            }
+            terminalPane={<TerminalPane sidebarState={sidebarState} />}
+          />
         </div>
 
         {sharedVisible && (
@@ -830,10 +897,28 @@ function useHarnessSessionStore(): HarnessSessionStore {
   return harnessSessionStoreRef.current;
 }
 
+function useEditorStore(): EditorStore {
+  const editorStoreRef = useRef<EditorStore | null>(null);
+
+  if (!editorStoreRef.current) {
+    editorStoreRef.current = createEditorStore(window.nexusEditor);
+  }
+
+  return editorStoreRef.current;
+}
+
 async function runSidebarMutation(run: () => Promise<void>): Promise<void> {
   try {
     await run();
   } catch (error) {
     console.error("Workspace sidebar: failed to apply workspace mutation.", error);
+  }
+}
+
+async function runEditorMutation(run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    console.error("Editor: failed to apply editor mutation.", error);
   }
 }

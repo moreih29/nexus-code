@@ -28,6 +28,10 @@ import {
   createNexusClaudeSessionApi,
   type NexusClaudeSessionApi,
 } from "./nexus-claude-session-api";
+import {
+  createNexusEditorApi,
+  type NexusEditorApi,
+} from "./nexus-editor-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -58,6 +62,7 @@ const nexusHarness: NexusHarnessApi = createNexusHarnessApi(ipcRenderer);
 const nexusClaudeSettings: NexusClaudeSettingsApi = createNexusClaudeSettingsApi(ipcRenderer);
 const nexusWorkspaceDiff: NexusWorkspaceDiffApi = createNexusWorkspaceDiffApi(ipcRenderer);
 const nexusClaudeSession: NexusClaudeSessionApi = createNexusClaudeSessionApi(ipcRenderer);
+const nexusEditor: NexusEditorApi = createNexusEditorApi(ipcRenderer);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
@@ -65,3 +70,4 @@ contextBridge.exposeInMainWorld("nexusHarness", nexusHarness);
 contextBridge.exposeInMainWorld("nexusClaudeSettings", nexusClaudeSettings);
 contextBridge.exposeInMainWorld("nexusWorkspaceDiff", nexusWorkspaceDiff);
 contextBridge.exposeInMainWorld("nexusClaudeSession", nexusClaudeSession);
+contextBridge.exposeInMainWorld("nexusEditor", nexusEditor);

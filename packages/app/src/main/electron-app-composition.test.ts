@@ -8,7 +8,10 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import type { BrowserWindow } from "electron";
 import { WebSocketServer } from "ws";
 
-import { HARNESS_OBSERVER_EVENT_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
+import {
+  E4_EDITOR_INVOKE_CHANNEL,
+  HARNESS_OBSERVER_EVENT_CHANNEL,
+} from "../../../shared/src/contracts/ipc-channels";
 import type { SidecarStartCommand } from "../../../shared/src/contracts/sidecar";
 import type {
   HarnessObserverEvent,
@@ -88,6 +91,30 @@ describe("composeElectronAppServices", () => {
     } finally {
       await services.dispose();
     }
+  });
+
+  test("registers and disposes E4 editor IPC handlers in composition", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "nexus-composition-e4-"));
+    tempDirs.push(tempDir);
+    Object.defineProperty(process, "resourcesPath", {
+      value: path.join(tempDir, "resources"),
+      configurable: true,
+    });
+
+    const { composeElectronAppServices } = await import("./electron-app-composition");
+    const mainWindow = createMainWindowMock();
+
+    const services = await composeElectronAppServices(mainWindow);
+
+    expect(ipcMain.handle.mock.calls.map((call) => call[0])).toContain(
+      E4_EDITOR_INVOKE_CHANNEL,
+    );
+
+    await services.dispose();
+
+    expect(ipcMain.removeHandler.mock.calls.map((call) => call[0])).toContain(
+      E4_EDITOR_INVOKE_CHANNEL,
+    );
   });
 
   test("SidecarBridge observer stream feeds the ClaudeCodeAdapter dispatch path", async () => {

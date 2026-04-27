@@ -12,3 +12,4 @@ export * from "./contracts/terminal-tab";
 export * from "./contracts/terminal-ipc";
 export * from "./contracts/terminal-lifecycle";
 export * from "./contracts/e3-surfaces";
+export * from "./contracts/e4-editor";

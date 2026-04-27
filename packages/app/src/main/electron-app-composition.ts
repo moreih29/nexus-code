@@ -35,6 +35,9 @@ import {
 import { ShellEnvironmentResolver } from "./shell-environment-resolver";
 import { ClaudeSessionTranscriptService } from "./claude-session-transcript-service";
 import { registerE3SurfaceIpcHandlers, type E3SurfaceIpcHandlers } from "./e3-surface-ipc";
+import { E4EditorFileService } from "./e4-editor-file-service";
+import { registerE4EditorIpcHandlers, type E4EditorIpcHandlers } from "./e4-editor-ipc";
+import { E4LspService } from "./e4-lsp-service";
 import { HarnessNotificationService } from "./harness-notification-service";
 import { WorkspaceDiffService } from "./workspace-diff-service";
 import type { SidecarRuntime } from "./sidecar-runtime";
@@ -59,6 +62,8 @@ export interface ElectronAppServices {
   readonly terminalRouter: TerminalMainIpcRouter | null;
   readonly harnessAdapters: readonly HarnessAdapter[];
   readonly workspaceShellService: WorkspaceShellService;
+  readonly e4EditorFileService: E4EditorFileService;
+  readonly e4LspService: E4LspService;
   dispose(): Promise<void>;
 }
 
@@ -177,10 +182,18 @@ export async function composeElectronAppServices(
 
   terminalRouter.start();
 
+  const e4LspService = new E4LspService({
+    workspacePersistenceStore,
+  });
   const workspaceShellService = new WorkspaceShellService(
     workspacePersistenceStore,
     sidecarLifecycleManager,
-    terminalRegistry,
+    {
+      stopTerminalsForClosedWorkspace: async (workspaceId) => {
+        await terminalRegistry.stopTerminalsForClosedWorkspace(workspaceId);
+        await e4LspService.closeWorkspace(workspaceId);
+      },
+    },
     settingsRegistrations,
   );
   const workspaceIpcAdapter = new ElectronWorkspaceIpcAdapter({
@@ -206,6 +219,15 @@ export async function composeElectronAppServices(
     workspaceDiffService: new WorkspaceDiffService(),
     claudeSessionTranscriptService: new ClaudeSessionTranscriptService(),
   });
+  const e4EditorFileService = new E4EditorFileService({
+    workspacePersistenceStore,
+  });
+  const e4EditorIpcHandlers = registerE4EditorIpcHandlers({
+    ipcMain,
+    mainWindow,
+    editorService: e4EditorFileService,
+    lspService: e4LspService,
+  });
 
   return new DefaultElectronAppServices({
     workspacePersistenceStore,
@@ -222,6 +244,9 @@ export async function composeElectronAppServices(
     openCodeSseObserverService,
     claudeSettingsConsentRequester,
     e3SurfaceIpcHandlers,
+    e4EditorFileService,
+    e4LspService,
+    e4EditorIpcHandlers,
   });
 }
 
@@ -356,6 +381,9 @@ interface DefaultElectronAppServicesOptions {
   openCodeSseObserverService: OpenCodeSseObserverService;
   claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
   e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
+  e4EditorFileService: E4EditorFileService;
+  e4LspService: E4LspService;
+  e4EditorIpcHandlers: E4EditorIpcHandlers;
 }
 
 class DefaultElectronAppServices implements ElectronAppServices {
@@ -367,12 +395,15 @@ class DefaultElectronAppServices implements ElectronAppServices {
   public readonly terminalRouter: TerminalMainIpcRouter | null;
   public readonly harnessAdapters: readonly HarnessAdapter[];
   public readonly workspaceShellService: WorkspaceShellService;
+  public readonly e4EditorFileService: E4EditorFileService;
+  public readonly e4LspService: E4LspService;
   private readonly workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
   private readonly openCodeSseObserverService: OpenCodeSseObserverService;
   private readonly claudeSettingsConsentRequester: RendererClaudeSettingsConsentRequester;
   private readonly e3SurfaceIpcHandlers: E3SurfaceIpcHandlers;
+  private readonly e4EditorIpcHandlers: E4EditorIpcHandlers;
 
   private disposed = false;
 
@@ -385,12 +416,15 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.terminalRouter = options.terminalRouter;
     this.harnessAdapters = options.harnessAdapters;
     this.workspaceShellService = options.workspaceShellService;
+    this.e4EditorFileService = options.e4EditorFileService;
+    this.e4LspService = options.e4LspService;
     this.workspaceIpcAdapter = options.workspaceIpcAdapter;
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
     this.sidecarObserverSubscription = options.sidecarObserverSubscription;
     this.openCodeSseObserverService = options.openCodeSseObserverService;
     this.claudeSettingsConsentRequester = options.claudeSettingsConsentRequester;
     this.e3SurfaceIpcHandlers = options.e3SurfaceIpcHandlers;
+    this.e4EditorIpcHandlers = options.e4EditorIpcHandlers;
   }
 
   public async dispose(): Promise<void> {
@@ -406,6 +440,9 @@ class DefaultElectronAppServices implements ElectronAppServices {
       await adapter.dispose();
     }
     this.workspaceShortcutBridge.dispose();
+    this.e4EditorIpcHandlers.dispose();
+    await this.e4LspService.dispose();
+    this.e4EditorFileService.dispose();
     this.e3SurfaceIpcHandlers.dispose();
     this.workspaceIpcAdapter.stop();
     this.terminalRouter?.stop();

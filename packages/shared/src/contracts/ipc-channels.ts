@@ -1,6 +1,9 @@
 export const TERMINAL_INVOKE_CHANNEL = "terminal:invoke";
 export const TERMINAL_EVENT_CHANNEL = "terminal:event";
 
+export const E4_EDITOR_INVOKE_CHANNEL = "e4-editor:invoke";
+export const E4_EDITOR_EVENT_CHANNEL = "e4-editor:event";
+
 export const HARNESS_OBSERVER_EVENT_CHANNEL = "harness:observer-event";
 
 export const CLAUDE_SETTINGS_CONSENT_REQUEST_CHANNEL = "claude-settings:consent-request";

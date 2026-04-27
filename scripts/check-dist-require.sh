@@ -97,6 +97,13 @@ def is_identifier_char(char: str) -> bool:
     return char in IDENT_CHARS
 
 
+def previous_non_whitespace_char(source: str, candidate_index: int) -> str:
+    probe = candidate_index - 1
+    while probe >= 0 and source[probe] in " \t\r\n":
+        probe -= 1
+    return source[probe] if probe >= 0 else ""
+
+
 def find_forbidden_require_calls(source: str) -> list[tuple[int, int, str]]:
     findings: list[tuple[int, int, str]] = []
     lines = source.splitlines()
@@ -242,9 +249,14 @@ def find_forbidden_require_calls(source: str) -> list[tuple[int, int, str]]:
 
         if source.startswith("require", index):
             before = source[index - 1] if index > 0 else ""
+            previous_significant = previous_non_whitespace_char(source, index)
             after_index = index + len("require")
             after = source[after_index] if after_index < length else ""
-            if not is_identifier_char(before) and not is_identifier_char(after):
+            if (
+                not is_identifier_char(before)
+                and not is_identifier_char(after)
+                and previous_significant not in {".", "#"}
+            ):
                 probe = after_index
                 while probe < length and source[probe] in " \t\r\n":
                     probe += 1

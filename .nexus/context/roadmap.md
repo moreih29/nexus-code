@@ -32,7 +32,9 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 
 ### E4. Code Editor + LSP
 
-에디터와 언어 서버 통합을 제공한다. TypeScript, Python, Go 세 언어의 LSP를 MVP에서 지원한다. Go는 sidecar를 직접 dogfooding하는 언어다. 파일트리(미니멀: expand/collapse·open·생성/삭제/이름변경·fsnotify 반영), 탭 기반 파일 편집(미니멀: 단일 탭 바·close·수정됨 표시), git 파일 레벨 뱃지(modified/untracked/staged), in-file 검색·치환(Ctrl+F/Ctrl+H)을 포함한다. 명시 제외: Monaco 테마·키바인딩·폰트 커스텀 UI, editor split, project-wide 검색, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안. 수평 제약: Phase A의 React 셸이 "좌 activity bar + 좌 패널(filetree) + 중앙(에디터/터미널) + 우 보조 공유 컨테이너"의 4열 layout container를 미리 비워 두고 E4에서 채움.
+에디터와 언어 서버 통합을 제공한다. TypeScript, Python, Go 세 언어의 LSP 진단을 MVP에서 지원한다. 파일트리(미니멀: expand/collapse·open·생성/삭제/이름변경·watch 반영), 탭 기반 파일 편집(미니멀: 단일 탭 바·close·수정됨 표시·save), git 파일 레벨 뱃지(modified/untracked/staged 등), in-file 검색·치환(Ctrl+F/Ctrl+H)을 포함한다. 명시 제외: Monaco 테마·키바인딩·폰트 커스텀 UI, editor split, project-wide 검색, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안. 수평 제약: Phase A의 React 셸이 "좌 activity bar + 좌 패널(filetree) + 중앙(에디터/터미널) + 우 보조 공유 컨테이너"의 4열 layout container를 미리 비워 두고 E4에서 채움.
+
+현재 `feat/e4-code-editor-lsp` 브랜치에는 E4 구현이 소스에 랜딩되어 검증 대기 상태다. 구현 표면은 active-workspace `FileTreePanel` CRUD/watch/git 뱃지, Monaco editor tabs/dirty/save/close/find-replace, `CenterWorkbench` Editor/Terminal 모드, 숨김 상태에서도 mount 유지되는 `TerminalPane`, TypeScript/Python/Go best-effort diagnostics LSP 브리지다. 단, 파일/LSP 소유자는 아직 Electron main/preload(`E4EditorFileService`, `E4LspService`, `window.nexusEditor`)이며 sidecar-owned languageclient가 아니다. LSP 명령은 PATH에서 `typescript-language-server --stdio`, `pyright-langserver --stdio`, `gopls serve`/`gopls`를 찾고, 없으면 unavailable로 보고한다. M6의 재시작/disconnect/stability 작업은 아직 미래 게이트다.
 
 ### E5. Preview Panel
 
@@ -63,7 +65,7 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 | M2 Terminal + CJK | E2 완성 (자동 게이트 + 단위 테스트) |
 | **Phase A — Runnable Shell 확정** | M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합. unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(좌 activity + 좌 패널 + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. 서명·notarize·package:mac는 로드맵 범위 외다. |
 | M3 Harness Observer | E3 완성. 착수 기반은 schema↔TS/Go 계약, CI drift gate, sidecar lifecycle WebSocket handshake, WebSocket facade로 구성한다. claude-code 어댑터 1종, WorkspaceSidebar 워크스페이스 상태 뱃지, Right Shared Panel Tool live feed는 구현된 기준선이다. opencode·codex 어댑터, diff 뷰, OS 알림, 세션 히스토리는 후속 표면으로 남긴다. |
-| M4 Editor + LSP | E4 완성 (TypeScript / Python / Go) |
+| M4 Editor + LSP | E4 구현 랜딩(현재 브랜치, 검증 게이트 통과 전). TypeScript / Python / Go는 main-side best-effort diagnostics 브리지로 지원하며, sidecar-owned languageclient와 M6 안정성 검증은 별도 미래 범위다. |
 | M5 Preview | E5 완성 |
 | M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 3 LSP × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(워크스페이스 상태 뱃지·tool 패널·세션 히스토리·filetree·git 뱃지·preview)에서 한국어 렌더링·IME 체크리스트 재실행, (3) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도). 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |
 
@@ -109,5 +111,5 @@ MVP에서 의도적으로 뺀 항목을 순서대로 추가한다.
 1. 한국어 IME·렌더링 체크리스트 7개 항목 전부 통과.
 2. 워크스페이스 3개를 동시에 열고 전환 시 끊김 없음.
 3. claude-code, opencode, codex 세 하네스 모두 기본 시나리오 정상 동작 — M6 WebSocket 30분+ 연속 안정성 재실증
-4. TypeScript, Python, Go 세 언어의 LSP 연동 확인 — M6 재시작·disconnect 복구 재확인
+4. TypeScript, Python, Go 세 언어의 LSP 연동 확인 — 현재 E4 브리지는 best-effort diagnostics이며, M6에서 재시작·disconnect 복구와 장시간 안정성을 재확인
 5. 초기 유저 10명으로부터 "일상에서 쓸 만하다" 피드백 확보 — M6 전용 게이트, 기준선 수치는 M6 진입 plan에서 결정

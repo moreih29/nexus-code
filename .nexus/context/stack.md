@@ -30,14 +30,23 @@
 - `start`: `bun run build && electron-vite preview`
 - `preview`: `electron-vite preview`
 
-**UI 레이어**: React + shadcn-style 컴포넌트 + Tailwind CSS. 상태 관리는 Zustand. Phase A 셸은 좌 activity bar + 좌 workspace/filetree 패널 + 중앙 terminal/editor 영역 + 우 shared panel의 4열 layout container를 갖는다.
+**UI 레이어**: React + shadcn-style 컴포넌트 + Tailwind CSS. 상태 관리는 Zustand. Phase A 셸은 좌 activity bar + 좌 workspace/filetree 패널 + 중앙 terminal/editor 영역 + 우 shared panel의 4열 layout container를 갖는다. E4 기준 중앙 영역은 `CenterWorkbench`가 Editor/Terminal 모드를 전환하며, 숨겨진 `TerminalPane`은 mount 상태를 유지한다.
 
-**에디터**: Monaco Editor + monaco-languageclient. LSP 연결은 WebSocket 프록시를 통해 sidecar가 감독하는 언어 서버에 연결한다.
+**에디터**: Monaco Editor **0.55.1**. 현재 E4 브랜치는 `monaco-languageclient` 기반의 full languageclient 구현이 아니라, preload의 `window.nexusEditor`를 통해 Electron main의 `E4EditorFileService`/`E4LspService`와 통신하는 전환기 브리지다. 파일트리 CRUD/watch/git 뱃지와 탭 기반 편집, dirty/save/close, Monaco find/replace, LSP 진단 마커를 제공한다.
+
+**E4 LSP 진단 브리지**: Electron main의 `E4LspService`가 PATH에서 언어 서버를 찾아 stdio JSON-RPC로 best-effort diagnostics를 수집한다. 명령이 없으면 해당 서버 상태를 unavailable로 보고한다. 현재 명령은 다음으로 고정한다.
+
+- TypeScript: `typescript-language-server --stdio`
+- Python: `pyright-langserver --stdio`
+- Go: `gopls serve`, 실패 시 `gopls`
+
+이 구현은 sidecar-owned languageclient가 아니며, M6 재시작/disconnect/stability 검증은 미래 게이트다.
 
 **터미널**: xterm.js + WebGL 렌더러 애드온. PTY는 Electron main 프로세스의 node-pty로 관리한다. renderer는 PTY 데이터를 IPC로 받아 xterm.js로 표시한다. renderer는 `@xterm/xterm/css/xterm.css`를 import하고, `allowProposedApi: true`, workspace별 `cwd`, focus repair, visibility 변경 시 WebGL texture atlas clear + full refresh repair를 적용한다.
 
-현재 E2 코드 기준 고정 버전은 다음과 같다.
+현재 E2/E4 코드 기준 고정 버전은 다음과 같다.
 
+- `monaco-editor` **0.55.1**
 - `@xterm/xterm` **6.0.0**
 - `@xterm/addon-webgl` **0.19.0**
 - `@xterm/addon-fit` **0.11.0**
@@ -57,7 +66,7 @@
 - `assets/fonts/noto-sans-kr/*` (Noto Sans KR variable + `OFL.txt`)
 - 기본 스택: `"D2Coding", "Noto Sans KR", ui-monospace, ...`
 
-**Git (앱 레이어)**: simple-git. main 프로세스에서 git 상태 표시 등 UI 연동에 사용한다.
+**Git (앱 레이어)**: main 프로세스에서 git CLI를 `execFile`로 호출한다. E4 파일트리 git 뱃지는 `git status --porcelain=v1 --untracked-files=all` 결과를 workspace-relative path에 매핑한다.
 
 **마크다운**: react-markdown + remark/rehype 플러그인 체인.
 
@@ -69,15 +78,15 @@
 
 **언어**: Go. 워크스페이스당 하나씩 독립 프로세스로 실행되는 장기 실행 데몬이다.
 
-**PTY 감독**: creack/pty. sidecar가 spawn하는 LSP 서버 및 AI 하네스 자식 프로세스의 PTY를 관리한다. 터미널 탭 PTY(node-pty)와는 별개다.
+**PTY 감독**: creack/pty. sidecar가 spawn하는 AI 하네스 등 자식 프로세스의 PTY를 관리한다. 터미널 탭 PTY(node-pty)와는 별개다. LSP 서버 감독은 장기 sidecar 의도지만, 현재 E4 브랜치의 TypeScript/Python/Go LSP 진단 브리지는 Electron main이 stdio로 직접 기동한다.
 
-**파일 시스템 감시**: fsnotify. 워크스페이스 내 파일 변경을 감지해 에디터와 하네스 관찰에 활용한다.
+**파일 시스템 감시**: sidecar 장기 구조는 fsnotify를 사용한다. 현재 E4 파일트리 watch는 Electron main의 `E4EditorFileService`가 Node `fs.watch`를 best-effort로 사용하며, IPC 파일 CRUD는 결정적 watch 이벤트를 별도로 emit한다.
 
 **WebSocket IPC**: `github.com/coder/websocket` v1.8.14를 사용한다. facade 패턴(`sidecar/internal/wsx/`)으로 격리하여 향후 교체 시 영향 범위를 제한한다. 자세한 선택 근거와 운영 정책은 `.nexus/memory/external-coder-websocket.md`를 따른다.
 
-**Git (sidecar 레이어)**: go-git 또는 os/exec git CLI. 워크스페이스 git 상태, 브랜치, diff 연산을 처리한다.
+**Git (sidecar 레이어)**: 장기 구조에서는 go-git 또는 os/exec git CLI가 워크스페이스 git 상태, 브랜치, diff 연산을 처리한다. 현재 E4 파일트리 git 뱃지는 Electron main의 git CLI 경로가 담당한다.
 
-**LSP pass-through**: 표준 encoding/json. 언어 서버와 에디터 사이의 JSON-RPC 메시지를 중계한다.
+**LSP pass-through**: 장기 sidecar 소유 의도는 표준 encoding/json으로 언어 서버와 에디터 사이의 JSON-RPC 메시지를 중계하는 것이다. 현재 E4 브랜치는 이 구조가 아니라 Electron main의 best-effort diagnostics 브리지다.
 
 ## IPC 타입 계약
 
