@@ -1,0 +1,1 @@
+export const stableNow = () => new Date("2026-04-28T00:00:00.000Z");

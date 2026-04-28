@@ -25,8 +25,9 @@ export const CENTER_WORKBENCH_MODE_STORAGE_KEY = "nx.center.mode";
 export const DEFAULT_EDITOR_PANE_ID: EditorPaneId = "p0";
 export const SECONDARY_EDITOR_PANE_ID: EditorPaneId = "p1";
 export const MAX_EDITOR_PANE_COUNT = 2;
+export const WORKSPACE_EDIT_CLOSED_FILE_WARNING_THRESHOLD = 10;
 export const WORKSPACE_EDIT_CLOSED_FILE_POLICY =
-  "WorkspaceEdit text edits apply only to open editor tabs; closed-file edits are reported as skipped and are never written to disk automatically.";
+  "WorkspaceEdit text edits open closed files as dirty tabs through the editor bridge; edits are never written to disk automatically.";
 
 export interface EditorBridge {
   invoke<TRequest extends EditorBridgeRequest>(
@@ -734,26 +735,40 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async updateTabContent(tabId, content) {
       const tab = getAllEditorTabs(get()).find((candidate) => candidate.id === tabId);
-      if (!tab || tab.content === content) {
+      if (!tab) {
         return;
       }
 
-      const nextDocumentVersion = tab.lspDocumentVersion + 1;
+      const matchingTabs = getAllEditorTabs(get()).filter((candidate) =>
+        isSameWorkspacePath(candidate, tab),
+      );
+      const contentChanged = matchingTabs.some((candidate) => candidate.content !== content);
+      if (
+        !contentChanged &&
+        matchingTabs.every((candidate) => candidate.dirty && candidate.errorMessage === null)
+      ) {
+        return;
+      }
+
+      const nextDocumentVersion =
+        Math.max(...matchingTabs.map((candidate) => candidate.lspDocumentVersion)) + 1;
       set((state) => ({
         panes: mapTabsInPanes(
           state.panes,
-          (candidate) => candidate.id === tabId,
+          (candidate) => isSameWorkspacePath(candidate, tab),
           (candidate) => ({
             ...candidate,
             content,
-            dirty: content !== candidate.savedContent,
+            dirty: true,
             errorMessage: null,
-            lspDocumentVersion: nextDocumentVersion,
+            lspDocumentVersion: contentChanged
+              ? nextDocumentVersion
+              : candidate.lspDocumentVersion,
           }),
         ),
       }));
 
-      if (!tab.language) {
+      if (!tab.language || !contentChanged) {
         return;
       }
 
@@ -777,10 +792,11 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         return;
       }
 
+      const contentToSave = tab.content;
       set((state) => ({
         panes: mapTabsInPanes(
           state.panes,
-          (candidate) => candidate.id === tabId,
+          (candidate) => isSameWorkspacePath(candidate, tab),
           (candidate) => ({ ...candidate, saving: true, errorMessage: null }),
         ),
       }));
@@ -790,18 +806,19 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
           type: "workspace-files/file/write",
           workspaceId: tab.workspaceId,
           path: tab.path,
-          content: tab.content,
+          content: contentToSave,
           encoding: "utf8",
           expectedVersion: tab.version,
         });
         set((state) => ({
           panes: mapTabsInPanes(
             state.panes,
-            (candidate) => candidate.id === tabId,
+            (candidate) => isSameWorkspacePath(candidate, tab),
             (candidate) => ({
               ...candidate,
+              content: contentToSave,
               version: result.version,
-              savedContent: candidate.content,
+              savedContent: contentToSave,
               dirty: false,
               saving: false,
               errorMessage: null,
@@ -813,7 +830,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         set((state) => ({
           panes: mapTabsInPanes(
             state.panes,
-            (candidate) => candidate.id === tabId,
+            (candidate) => isSameWorkspacePath(candidate, tab),
             (candidate) => ({
               ...candidate,
               saving: false,
@@ -853,33 +870,54 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       }
     },
     async applyWorkspaceEdit(workspaceId, edit) {
-      const plan = planWorkspaceEditApplication(get(), workspaceId, edit);
+      const plan = await planWorkspaceEditApplication(get(), bridge, workspaceId, edit);
       if (plan.updates.size === 0) {
         return {
           applied: false,
           appliedPaths: [],
           skippedClosedPaths: plan.skippedClosedPaths,
+          skippedReadFailures: plan.skippedReadFailures,
           skippedUnsupportedPaths: plan.skippedUnsupportedPaths,
         };
       }
 
+      const tabsToOpen = plan.closedTabs
+        .map((tab) => {
+          const update = plan.updates.get(tab.path);
+          if (!update) {
+            return null;
+          }
+          return {
+            ...tab,
+            content: update.content,
+            dirty: update.content !== tab.savedContent,
+            errorMessage: null,
+            lspDocumentVersion: update.lspDocumentVersion,
+          };
+        })
+        .filter((tab): tab is EditorTab => tab !== null);
+
       set((state) => ({
-        panes: mapTabsInPanes(
-          state.panes,
-          (tab) => tab.workspaceId === workspaceId && plan.updates.has(tab.path),
-          (tab) => {
-            const update = plan.updates.get(tab.path);
-            if (!update) {
-              return tab;
-            }
-            return {
-              ...tab,
-              content: update.content,
-              dirty: update.content !== tab.savedContent,
-              errorMessage: null,
-              lspDocumentVersion: update.lspDocumentVersion,
-            };
-          },
+        panes: addTabsToPanePreservingActive(
+          mapTabsInPanes(
+            state.panes,
+            (tab) => tab.workspaceId === workspaceId && plan.updates.has(tab.path),
+            (tab) => {
+              const update = plan.updates.get(tab.path);
+              if (!update) {
+                return tab;
+              }
+              return {
+                ...tab,
+                content: update.content,
+                dirty: update.content !== tab.savedContent,
+                errorMessage: null,
+                lspDocumentVersion: update.lspDocumentVersion,
+              };
+            },
+          ),
+          plan.activePaneId,
+          tabsToOpen,
         ),
       }));
 
@@ -913,6 +951,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         applied: true,
         appliedPaths: Array.from(plan.updates.keys()),
         skippedClosedPaths: plan.skippedClosedPaths,
+        skippedReadFailures: plan.skippedReadFailures,
         skippedUnsupportedPaths: plan.skippedUnsupportedPaths,
       };
     },
@@ -1129,6 +1168,45 @@ function addTabToPane(
   });
 }
 
+function addTabsToPanePreservingActive(
+  panes: readonly EditorPaneState[],
+  paneId: EditorPaneId,
+  tabsToAdd: readonly EditorTab[],
+): EditorPaneState[] {
+  if (tabsToAdd.length === 0) {
+    return [...panes];
+  }
+
+  const targetPaneId = panes.some((pane) => pane.id === paneId)
+    ? paneId
+    : panes[0]?.id ?? DEFAULT_EDITOR_PANE_ID;
+
+  return panes.map((pane) => {
+    if (pane.id !== targetPaneId) {
+      return pane;
+    }
+
+    const existingTabIds = new Set(pane.tabs.map((tab) => tab.id));
+    const addedTabs: EditorTab[] = [];
+    for (const tab of tabsToAdd) {
+      if (!existingTabIds.has(tab.id)) {
+        existingTabIds.add(tab.id);
+        addedTabs.push(tab);
+      }
+    }
+
+    if (addedTabs.length === 0) {
+      return pane;
+    }
+
+    return {
+      ...pane,
+      tabs: [...pane.tabs, ...addedTabs],
+      activeTabId: pane.activeTabId,
+    };
+  });
+}
+
 function mapTabsInPanes(
   panes: readonly EditorPaneState[],
   predicate: (tab: EditorTab) => boolean,
@@ -1235,6 +1313,10 @@ function isSameEditorDocument(left: EditorTab, right: EditorTab): boolean {
     left.path === right.path &&
     left.language === right.language
   );
+}
+
+function isSameWorkspacePath(left: EditorTab, right: EditorTab): boolean {
+  return left.workspaceId === right.workspaceId && left.path === right.path;
 }
 
 function tabIdTouchesPath(tabId: EditorTabId, workspaceId: WorkspaceId, path: string): boolean {
@@ -1798,6 +1880,7 @@ function removeTabsMatchingFromState(
 }
 
 interface WorkspaceEditApplicationPlan {
+  activePaneId: EditorPaneId;
   updates: Map<
     string,
     {
@@ -1806,19 +1889,41 @@ interface WorkspaceEditApplicationPlan {
       lspDocumentVersion: number;
     }
   >;
+  closedTabs: EditorTab[];
   skippedClosedPaths: string[];
+  skippedReadFailures: string[];
   skippedUnsupportedPaths: string[];
 }
 
-function planWorkspaceEditApplication(
+async function planWorkspaceEditApplication(
   state: EditorStoreState,
+  bridge: EditorBridge,
   workspaceId: WorkspaceId,
   edit: LspWorkspaceEdit,
-): WorkspaceEditApplicationPlan {
+): Promise<WorkspaceEditApplicationPlan> {
   const openTabsByPath = new Map<string, EditorTab>();
   for (const tab of getAllEditorTabs(state)) {
     if (tab.workspaceId === workspaceId && !openTabsByPath.has(tab.path)) {
       openTabsByPath.set(tab.path, tab);
+    }
+  }
+  const closedPaths = collectClosedWorkspaceEditPaths(openTabsByPath, edit);
+  if (closedPaths.length > WORKSPACE_EDIT_CLOSED_FILE_WARNING_THRESHOLD) {
+    console.warn(
+      `Editor store: WorkspaceEdit will open ${closedPaths.length} closed files as dirty tabs.`,
+      { workspaceId, paths: closedPaths },
+    );
+  }
+  const closedFileReads = await Promise.all(
+    closedPaths.map((path) => readClosedWorkspaceEditFile(bridge, state, workspaceId, path)),
+  );
+  const closedTabsByPath = new Map<string, EditorTab>();
+  const skippedReadFailures: string[] = [];
+  for (const read of closedFileReads) {
+    if (read.tab) {
+      closedTabsByPath.set(read.requestedPath, read.tab);
+    } else {
+      skippedReadFailures.push(read.requestedPath);
     }
   }
 
@@ -1838,17 +1943,20 @@ function planWorkspaceEditApplication(
       continue;
     }
 
-    const tab = openTabsByPath.get(change.path);
+    const tab = openTabsByPath.get(change.path) ?? closedTabsByPath.get(change.path);
     if (!tab) {
-      skippedClosedPaths.push(change.path);
+      if (!skippedReadFailures.includes(change.path)) {
+        skippedClosedPaths.push(change.path);
+      }
       continue;
     }
 
     try {
-      const baseContent = updates.get(change.path)?.content ?? tab.content;
+      const updatePath = tab.path;
+      const baseContent = updates.get(updatePath)?.content ?? tab.content;
       const nextContent = applyLspTextEdits(baseContent, change.edits);
-      const baseVersion = updates.get(change.path)?.lspDocumentVersion ?? tab.lspDocumentVersion;
-      updates.set(change.path, {
+      const baseVersion = updates.get(updatePath)?.lspDocumentVersion ?? tab.lspDocumentVersion;
+      updates.set(updatePath, {
         content: nextContent,
         language: tab.language,
         lspDocumentVersion: baseVersion + 1,
@@ -1859,10 +1967,83 @@ function planWorkspaceEditApplication(
   }
 
   return {
+    activePaneId: state.activePaneId,
     updates,
+    closedTabs: Array.from(closedTabsByPath.values()),
     skippedClosedPaths,
+    skippedReadFailures,
     skippedUnsupportedPaths,
   };
+}
+
+function collectClosedWorkspaceEditPaths(
+  openTabsByPath: ReadonlyMap<string, EditorTab>,
+  edit: LspWorkspaceEdit,
+): string[] {
+  const closedPaths: string[] = [];
+  const seenPaths = new Set<string>();
+  for (const change of edit.changes) {
+    if (change.edits.length === 0 || openTabsByPath.has(change.path) || seenPaths.has(change.path)) {
+      continue;
+    }
+    seenPaths.add(change.path);
+    closedPaths.push(change.path);
+  }
+  return closedPaths;
+}
+
+interface ClosedWorkspaceEditFileRead {
+  requestedPath: string;
+  tab: EditorTab | null;
+}
+
+async function readClosedWorkspaceEditFile(
+  bridge: EditorBridge,
+  state: EditorStoreState,
+  workspaceId: WorkspaceId,
+  path: string,
+): Promise<ClosedWorkspaceEditFileRead> {
+  try {
+    const readResult = await bridge.invoke({
+      type: "workspace-files/file/read",
+      workspaceId,
+      path,
+    });
+    const language = detectLspLanguage(readResult.path);
+    const lspStatus = language
+      ? state.lspStatuses[lspStatusKey(workspaceId, language)] ?? null
+      : null;
+    return {
+      requestedPath: path,
+      tab: {
+        id: tabIdFor(workspaceId, readResult.path),
+        workspaceId,
+        path: readResult.path,
+        title: titleForPath(readResult.path),
+        content: readResult.content,
+        savedContent: readResult.content,
+        version: readResult.version,
+        dirty: false,
+        saving: false,
+        errorMessage: null,
+        language,
+        monacoLanguage: monacoLanguageIdForPath(readResult.path, language),
+        lspDocumentVersion: 1,
+        diagnostics: [],
+        lspStatus,
+      },
+    };
+  } catch (error) {
+    console.warn("Editor store: failed to read closed file for WorkspaceEdit.", {
+      workspaceId,
+      path,
+      error,
+    });
+    return {
+      requestedPath: path,
+      tab: null,
+    };
+  }
 }
 
 export function applyLspTextEdits(content: string, edits: readonly LspTextEdit[]): string {

@@ -19,6 +19,7 @@ export interface LspWorkspaceEditApplicationResult {
   applied: boolean;
   appliedPaths: string[];
   skippedClosedPaths: string[];
+  skippedReadFailures: string[];
   skippedUnsupportedPaths: string[];
 }
 

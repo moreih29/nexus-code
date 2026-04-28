@@ -5,6 +5,7 @@ import lspLifecycleSchema from "../../../../../schema/lsp-lifecycle.schema.json"
 import lspRelaySchema from "../../../../../schema/lsp-relay.schema.json" with { type: "json" };
 
 export type {
+  ExpectedCloseCodes,
   LspHealthCheckCommand,
   LspLifecycleMessage,
   LspRestartServerCommand,
@@ -18,6 +19,7 @@ export type {
   LspStopAllServersCommand,
   LspStopAllServersReply,
   LspStopServerCommand,
+  WebSocketCloseCode,
 } from "../generated/lsp-lifecycle";
 export type {
   LspClientPayloadMessage,

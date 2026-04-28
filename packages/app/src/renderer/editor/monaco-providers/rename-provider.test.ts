@@ -67,6 +67,7 @@ describe("Monaco LSP rename provider", () => {
           applied: true,
           appliedPaths: ["src/index.ts"],
           skippedClosedPaths: [],
+          skippedReadFailures: [],
           skippedUnsupportedPaths: [],
         };
       },

@@ -5289,6 +5289,259 @@
           "created_at": "2026-04-28T03:15:07.305Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T06:30:25.400Z",
+      "branch": "feat/e4-vscode-surface",
+      "plan": {
+        "id": 30,
+        "topic": "E4 격상 후속 fix 슬라이스 — 블로커 3건 + 개선 5건 + 테스트 디렉터리 컨벤션 정리",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[블로커 A] T12-a SplitEditorPane pane 사이 PanelResizeHandle vertical 드래그 핸들 누락 — 사용자가 split 후 두 pane 크기 조절 불가",
+            "status": "decided",
+            "decision": "**SplitEditorPane.tsx에 PanelResizeHandle vertical 추가 + ratio 영속**.\n\n**선택**: SplitEditorPane이 panes 배열을 렌더할 때 pane 사이에 `PanelResizeHandle orientation=\"vertical\"`를 삽입. drag/keyboard로 좌/우 pane 폭 조절 가능. 영속 키 `nx.editor.split.ratio` (default 0.5, range 0.2-0.8). T11 Center split의 nx.center.split.ratio 패턴 동일.\n\n**기각 대안**:\n- (a) 좌/우 폭 50/50 고정 — 사용자 통점 #3 부분 해소만, \"코드 옆 코드\"의 코드 길이가 다른 경우 한쪽 가독성 손해. 거절.\n- (b) Monaco editor 자체 split API — Monaco는 monaco-editor instance 자체의 split을 지원 안 함. 거절.\n- (c) 별도 SplitDivider 컴포넌트 신설 — Issue 4 결정의 PanelResizeHandle 컴포넌트가 이미 orientation prop으로 일반화돼 있음. 중복 거절.\n\n**구현 detail**:\n- SplitEditorPane.tsx: panes.length === 2일 때 pane 사이에 PanelResizeHandle vertical 삽입\n- pane 폭은 flex-basis ratio로 적용 (left: ratio * 100%, right: (1-ratio) * 100%)\n- ratio drag/keyboard 변경 시 localStorage 영속\n- min-width 240px (매우 좁은 pane 방지, T10 filetree column min과 동일 정책)\n- pane 1개일 때 split 없이 단일 EditorPane 렌더 (현행 유지)\n\n**리스크**:\n- Monaco editor 인스턴스 두 개의 ResizeObserver가 drag 중 빈번 호출 — automaticLayout: true로 안전, 측정 필요\n- ratio가 너무 작아 한쪽이 240px 미만되면 clamp"
+          },
+          {
+            "id": 2,
+            "title": "[블로커 B] T9 rename WorkspaceEdit이 닫힌 파일을 skip — rename 정확성 망가짐",
+            "status": "decided",
+            "decision": "**닫힌 파일도 자동 dirty 탭으로 open + WorkspaceEdit 적용 (VSCode 표준 동작)**.\n\n**선택**: `planWorkspaceEditApplication`을 변경 — `openTabsByPath`에 없는 경로도 (1) 디스크에서 background read, (2) 신규 EditorTab으로 dirty=true 상태로 추가, (3) WorkspaceEdit 적용. 사용자가 변경된 파일 검토 후 저장하거나 close (close 시 변경 사항 폐기 확인 modal).\n\n**기각 대안**:\n- (a) 직접 디스크에 silent write — 사용자가 모르는 사이 디스크 변경, 데이터 손실 위험. 거절.\n- (b) skip 유지 + 사용자에게 modal로 알림 — 사용자가 매번 N개 파일 변경 일일이 승인해야 함. rename은 흔히 10+ 파일 변경 → 사용자 친화 0. 거절.\n- (c) preview UI (변경 사항 diff 보여주고 apply 버튼) — VSCode가 안 함, MVP 비-목표 (refactor preview는 v0.2). 거절.\n\n**구현 detail**:\n- editor-store.ts `planWorkspaceEditApplication`: skippedClosedPaths 처리 변경 → background fs.readFile + new EditorTab(dirty=true) + apply edits\n- 신규 dirty 탭은 활성 pane에 추가 (활성 탭은 변경 안 함, 사용자 컨텍스트 유지)\n- 한 rename에서 N개 파일 변경 시 N개 탭이 한 번에 dirty 상태로 추가 — UX는 VSCode와 동일\n- 디스크 read 실패 시 (파일 삭제 등) 해당 edit skip + console.warn + plan에 skippedReadFailures 기록\n- 단위테스트: 닫힌 파일 1개/3개/0개 시나리오 + read 실패 fallback\n\n**리스크**:\n- N=20+ 파일 동시 dirty 탭 → 탭바 overflow → editor-store에서 N>10 시 경고 (UX는 변경 안 함, 단지 측정)\n- 디스크 read I/O 동기/비동기 처리 — Promise.all로 병렬 read 권장\n- Memory 압박 (모든 변경 파일을 메모리에 model로 로드) — 50KB 미만 파일 위주 가정, 대용량 파일은 별도 정책 (v0.2)"
+          },
+          {
+            "id": 3,
+            "title": "[블로커 C] T6 sidecar LSP shutdown ack 미대기 + close-code schema 미명시 + 종료 타임아웃 3초 (spec 5초)",
+            "status": "decided",
+            "decision": "**3개 sub-fix 묶음 — schema close-code 명시 + shutdown ack 대기 + 타임아웃 5초**.\n\n**선택**:\n\n(1) **schema에 close-code 명시**:\n- schema/lsp-lifecycle.schema.json에 `closeCode`와 `expectedCloseCodes` 필드 추가\n- 정상 종료: 1000 (normal closure), 1001 (going away)\n- 비정상: 1006 (abnormal), 1011 (server error) → sidecar restart trigger\n- sidecar-bridge/index.ts의 `code === 1000` 단순 판정을 `expectedCloseCodes.includes(code)`로 일반화\n- gen-contracts 재실행 → TS/Go 양쪽 generated 갱신\n\n(2) **shutdown ack 대기**:\n- sidecar-runtime.ts (또는 lsp-server-supervisor.ts) `stopAllLspServers(\"app-shutdown\")` 호출 후 `Promise.race([ack, timeout(5000)])` 패턴\n- ack 수신 → graceful quit\n- timeout → console.warn + 강제 quit (좀비는 OS가 정리, app-lifecycle.ts에서 SIGTERM 보장)\n- 단위테스트: ack 5초 이내 / 5초 초과 두 시나리오\n\n(3) **타임아웃 5초로**:\n- sidecar/internal/lsp/supervisor.go `defaultTerminateTimeout = 3 * time.Second` → `5 * time.Second`\n- 주입 가능 옵션은 유지\n\n**기각 대안**:\n- (a) close-code 처리를 코드만으로 (schema 갱신 없음) — pattern-sidecar-close-code-race.md가 schema 레벨 보장 권고. 코드만 처리하면 contract drift 시 회귀 가능. 거절.\n- (b) shutdown ack 무한 대기 — 사용자가 quit 했는데 5초 이상 안 닫히면 frustrating. 거절.\n- (c) 타임아웃 그대로 (3초 유지, spec 명세 갱신) — spec(M6 acceptance \"5초\")이 사용자와 합의된 안정성 기준. spec 변경 안 함. 거절.\n\n**구현 detail**:\n- schema 변경 → gen-contracts → TS generated/lsp-lifecycle.ts + lsp-relay.ts 갱신 → drift gate 통과\n- sidecar/internal/lsp/supervisor.go terminateTimeout 변경\n- packages/app/src/main/sidecar-bridge/index.ts close handler 갱신\n- packages/app/src/main/electron-app/electron-app-composition.ts 또는 entry.ts의 before-quit 훅에 ack 대기 패턴\n\n**리스크**:\n- gen-contracts drift 가능성 — drift gate가 잡아주므로 안전\n- 5초 timeout 동안 사용자가 화면 멈춤 인식 — quit 진행 indicator 없음 (MVP 범위 외, 일반 macOS UX 패턴)"
+          },
+          {
+            "id": 4,
+            "title": "[개선] T12-b/c 비활성 pane 활성 탭 title 색상 및 Monaco model 공유 시 dirty 동기화 버그",
+            "status": "decided",
+            "decision": "**T12-b 비활성 pane 활성 탭 색상 분리 + T12-c Monaco model 공유 시 dirty 동기화**.\n\n**선택 (T12-b)**: EditorPane.tsx에서 활성 탭 title 색상이 pane의 active prop에 따라 분기:\n- active pane + active tab: `font-semibold text-foreground` (현행)\n- inactive pane + active tab: `font-normal text-muted-foreground` (신규 분기, design.md §4 spec 정합)\n- 비활성 탭: `text-muted-foreground` (현행 유지)\n\n**선택 (T12-c)**: editor-store.ts `updateTabContent(tabId, content)` 변경 — 같은 (workspaceId, path) 조합을 가진 모든 panes의 모든 tabs의 dirty 상태를 동기화:\n- content 변경 시 모든 매칭 tab의 dirty=true\n- save 완료 시 모든 매칭 tab의 dirty=false\n- 같은 파일이 두 pane에 열린 경우 content는 model 공유로 자연 동기화 (현행), dirty 표시도 양쪽 일관\n\n**기각 대안 (T12-b)**:\n- (a) 현행 유지 — design.md §4 spec과 불일치. 거절.\n- (b) 비활성 pane 자체를 opacity 0.7로 dim — 가독성 손해, 협업 모드에서 양쪽 동시 보기 어려워짐. 거절.\n\n**기각 대안 (T12-c)**:\n- (a) Model은 공유하지만 dirty는 pane별 독립 — 사용자 mental model 깨짐 (저장하면 양쪽 clean인데 dirty 표시는 안 사라짐). 거절.\n- (b) 같은 파일을 두 pane에 열기 금지 — Cmd+\\ 후 같은 파일 양쪽 보는 것이 가장 흔한 split 사용 (impl ↔ test 같은 파일). 거절.\n- (c) Monaco editor instance 공유 (모델뿐 아니라 view까지) — 두 pane이 같은 cursor/selection 표시 → split 의미 사라짐. 거절.\n\n**구현 detail**:\n- EditorPane.tsx 헤더 탭 렌더 시 `isPaneActive` prop으로 활성 탭 색상 분기 추가\n- editor-store.ts updateTabContent: `panes.flatMap(p => p.tabs).filter(t => t.workspaceId === ws && t.path === path).forEach(t => t.dirty = true)`\n- editor-store.ts saveTab: 같은 path 매칭 tabs의 dirty=false 동시 처리\n- 단위테스트: 같은 파일 두 pane → 한쪽 편집 → 양쪽 dirty / 한쪽 저장 → 양쪽 clean\n\n**리스크**:\n- 같은 path가 다른 workspaceId일 가능성 (서로 다른 워크스페이스에서 우연히 같은 절대경로) — workspaceId + path 조합으로 매칭 (절대경로만으로는 부족)"
+          },
+          {
+            "id": 5,
+            "title": "[개선] T4 lsp-service.ts 253 LOC 정리 + T5 data-attribute 명칭 spec 일치 + T10 Cmd+B 묶음 토글 명시성 (cosmetic 정합)",
+            "status": "decided",
+            "decision": "**3건 cosmetic 정합 묶음 — T4 LOC 정리 + T5 attribute 명칭 spec 일치 + T10 Cmd+B 묶음 토글 명시성**.\n\n**선택**:\n\n(1) **T4 lsp-service.ts LOC 정리** — 현재 253 LOC를 200 이하로:\n- import 블록 정리 (re-export로 묶기, 또는 type-only import 분리)\n- inline interface 선언을 별도 types.ts로 분리\n- 목표 ≤ 200 LOC (spec 일치)\n\n(2) **T5 attribute 명칭 spec 일치** — PanelResizeHandle.tsx의 `data-[dragging=true]` → `data-[resize-handle-state=drag]`:\n- attribute 변경 + 내부 state setter 변경\n- 단위테스트의 attribute selector 갱신\n- design.md §4 spec과 일치\n\n(3) **T10 Cmd+B 묶음 토글 명시성** — App.tsx에서 단일 `workspaceVisible` flag를 의미적 함수로 wrap:\n- `toggleWorkspaceSidebar` 함수에 명시 주석: \"Workspace strip + Filetree column 묶음 토글 (design.md §4 Cmd+B)\"\n- 또는 state를 `workspaceSidebarVisible`로 rename (단일 flag 의미를 묶음 토글로 명시)\n\n**기각 대안**:\n- (a) T4 그대로 (253 LOC 허용) — spec ≤ 200 LOC 명시. 향후 capability 추가 시 다시 god-object 됨. 거절.\n- (b) T5 그대로 (attribute 편차 허용) — spec과 코드의 명시 불일치. CSS 외부 사용 시 불일치 가능. 거절.\n- (c) T10 state 분리 (workspaceStripVisible + filetreeColumnVisible 2개) — 동작 변경 (spec은 묶음 토글, 분리하면 사용자가 따로 토글 가능해짐). spec 위반. 거절.\n\n**구현 detail**:\n- T4: `LspProtocolTransport`, `LspProtocolWritable`, `LspProcessInput` 등 인터페이스를 lsp-types.ts로 추출\n- T5: PanelResizeHandle.tsx + .test.tsx + 사용처 검색해서 모두 갱신\n- T10: 함수명 + 주석만 변경 (state는 단일 flag 유지)\n\n**리스크**:\n- T4: import 정리 중 typecheck 깨질 수 있음 — 재실행으로 확인\n- T5: data-attribute 명칭 변경이 외부 CSS 의존 깨뜨릴 수 있음 — grep으로 외부 사용처 확인 (현재로는 컴포넌트 내부만 사용)\n- T10: 단순 rename, 리스크 없음"
+          },
+          {
+            "id": 6,
+            "title": "[컨벤션] m6-stability/ 디렉터리를 integration/에 4 파일 분할 흡수 + pattern-test-layout-decision.md에 plan-issue-title→directory-name 함정 항목 추가",
+            "status": "decided",
+            "decision": "**m6-stability/ → integration/에 4 파일 분할 흡수 (Option α) + pattern-test-layout-decision.md 함정 항목 추가**.\n\n**선택**:\n\n(1) **테스트 디렉터리 정리**:\n- packages/app/test/m6-stability/m6-stability.test.tsx (1145 LOC) → packages/app/test/integration/ 아래 4 파일로 분할:\n  - lsp-capabilities-stability.test.tsx (Group A: 9 cap × 3 lang × 30+ 분 + crash auto-restart + WebSocket relay + 좀비 0)\n  - layout-mount-stability.test.tsx (Group B: Center split 50+회 + Editor split 50+회 + min-height + visibility:hidden + ARIA + 마이그레이션)\n  - cjk-regression-new-surfaces.test.tsx (Group C: Workspace strip / Filetree column / Editor split / Maximize 한국어 + IME 보호)\n  - keybinding-registry.test.tsx (Group D: Cmd+W fallback / Cmd+Shift+W / Cmd+B 묶음 / Cmd+1-3 + scrollIntoView / IME 차단)\n- packages/app/test/m6-stability/ 디렉터리 자체 삭제\n- 각 파일은 자체 describe 블록으로 독립 (mock fake-sidecar 등 공통 fixture는 fixtures/ 또는 helpers/로 분리)\n\n(2) **메모리 갱신 (학습 박제)**:\n- .nexus/memory/pattern-test-layout-decision.md \"함정 — Lead 권고의 과보정\" 섹션 다음에 \"함정 — plan-issue-title을 디렉터리 이름으로 빌리기\" 항목 신설:\n  > plan issue 제목(예: \"M6 통합 안정성 검증 게이트 갱신\")을 task 본문에 그대로 디렉터리 이름으로 박지 마라. plan 맥락에서는 의미가 통하지만 코드 리포지토리에 박히면 마일스톤 코드명(\"m6-stability/\")이 되어 의미적 카테고리(integration/system/packaging) 컨벤션을 위반한다. task 작성 시 디렉터리 이름은 \"무엇을 테스트하는가\" 의미 카테고리로 별도 결정해야 한다. plan #29 / #30 fix 슬라이스에서 발견.\n\n**기각 대안**:\n- (β) m6-stability/ 유지하되 release-stability/로 rename + 4 파일 분할 — 디렉터리 자체가 \"릴리스 단위\" 카테고리이고 integration 안에 잘 들어감. 별도 디렉터리 만들 정당성 약함. 거절.\n- (γ) 그대로 두기 — 컨벤션 위반 잔존. 거절.\n- (δ) 메모리 갱신 생략 — 같은 실수 재발 방지 못함. Lead 학습 차원에서 박제 필수. 거절.\n\n**구현 detail**:\n- git mv로 분할 (실제로는 4 신규 파일 + 기존 파일 삭제 — git mv는 split 추적 못 함, 새 파일 생성으로 진행하되 commit message에 \"split from m6-stability.test.tsx\" 명시해 blame 보존)\n- 공통 fixture (fake-sidecar, mock LSP client 등) → packages/app/test/integration/_fixtures/ 분리\n- 4 파일 모두 typecheck + bun run test 통과 확인\n- 메모리 추가는 1 commit으로 분리 (chore: codify lesson)\n\n**리스크**:\n- blame 추적 손실 — 1145 LOC 단일 파일이 4 파일로 분할되면 git blame 신뢰성 저하. commit message로 출처 명시\n- 공통 fixture 추출 중 각 파일별 의존 누락 가능 — 분할 후 개별 실행 검증\n\n**적용 시점**:\n- 이번 fix 슬라이스에 포함 (블로커/개선과 동시 진행)\n- 메모리 갱신은 user [m] 태그 없이 Lead 자체 박제 (이미 사용자가 사례 지적, 합의된 학습)"
+          }
+        ],
+        "research_summary": "## 컨텍스트 (이전 검토에서 확정)\n\n- **branch**: feat/e4-vscode-surface, **commit**: d264fc6 (\"feat: elevate E4 VSCode-grade editor surface\", 102 files, +18058/-1648)\n- **build/test 상태**: typecheck PASS / 333 tests 0 fail / lint PASS / build PASS (16.95s) / sidecar Go PASS / drift PASS\n- **doc 검토**: T1/T2/T3 (philosophy.md / design.md / roadmap.md) 모두 PASS\n- **gap 분류**: 블로커 3 + 개선 5 + 컨벤션 위반 1\n\n## 블로커 근거 (verified, 코드 인용)\n\n- **A T12-a**: `packages/app/src/renderer/components/SplitEditorPane.tsx`에서 pane 경계가 `border-l border-border` CSS만으로 처리됨. `PanelResizeHandle vertical` 미사용 → drag resize 불가. 사용자 통점 #3 직접 영향.\n- **B T9**: `editor-store.ts:1843` `planWorkspaceEditApplication`에서 `openTabsByPath`에 없는 경로는 `skippedClosedPaths`에 기록되고 적용 X. rename이 닫힌 파일에 있는 참조를 못 바꿔 데이터 정합성 깨짐.\n- **C T6**: 3 gap — (1) sidecar-bridge에서 `code === 1000` 단순 판정만, schema에 close-code 처리 미명시, (2) `stopAllLspServers(\"app-shutdown\")` 호출 후 `LspStopAllServersReply` ack 미대기, (3) `defaultTerminateTimeout = 3 * time.Second` (spec 5초).\n\n## 개선 근거\n\n- **T12-b**: EditorPane.tsx 활성 탭 title은 `font-semibold text-foreground`로만 분기, pane의 active 여부에 따른 추가 색상 분기 없음.\n- **T12-c**: Monaco model `sharedModels` Map으로 공유되나 `updateTabContent(tabId, content)`는 단일 tabId만 dirty 갱신. 한 pane에서 편집 → 다른 pane의 tab.dirty 미갱신.\n- **T4**: lsp-service.ts 253 LOC (목표 200 + 53 초과). facade 구조 달성했으나 import 정리 여지.\n- **T5**: spec `data-[resize-handle-state=drag]:bg-primary` ↔ 구현 `data-[dragging=true]:bg-primary` 어트리뷰트 명칭 편차.\n- **T10**: Cmd+B가 단일 `workspaceVisible` flag 토글. `setWorkspaceVisible(toggle)` 한 줄. 동작은 strip+filetree 묶음과 일치 (App.tsx 536줄에서 두 컬럼이 같은 visible 안에 있음).\n\n## 컨벤션 위반 근거\n\n- `packages/app/test/` 기존 카테고리: `integration/`, `packaging/`, `system/` (모두 의미적 카테고리)\n- 신규 `m6-stability/` (마일스톤 코드명) 추가 → `pattern-test-layout-decision.md` 정신 위반 (\"같은 디렉터리·같은 패키지\" 의미적 분류 원칙)\n- T13 task 본문에서 Lead가 \"packages/app/test/m6-stability/\" 명시 → Lead 책임 확인됨\n- 코덱스 일탈 1건: 4 파일 분할 명시했으나 단일 45KB 파일로 통합\n\n## 결정 방향 (Lead 사전 판단)\n\n- A: SplitEditorPane.tsx에 PanelResizeHandle vertical 추가, 영속 키 nx.editor.split.ratio (default 0.5). T11 spec과 일관.\n- B: 닫힌 파일도 자동으로 dirty 탭으로 open + WorkspaceEdit 적용 (VSCode 표준 동작). 사용자가 검토 후 저장 결정.\n- C: (1) lsp-lifecycle/lsp-relay schema에 expectedCloseCodes 명시 + close-code 분기 필드, (2) stop_all → ack 대기 (5초 timeout, fallback로 강제 quit), (3) defaultTerminateTimeout 5초로.\n- D: T12-b는 EditorPane에서 active prop으로 탭 title 색 분기. T12-c는 Monaco model 공유 시 같은 path를 가진 모든 tabId의 dirty 동기화.\n- E: T4 import 정리, T5 spec 일치로 attribute 명칭 변경, T10 Cmd+B 코드 주석/명시성 보강.\n- F: m6-stability.test.tsx 1145 LOC를 4 파일로 분할 + integration/으로 이동. 기존 디렉터리 삭제. 메모리 함정 항목 추가.",
+        "created_at": "2026-04-28T05:54:58.877Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[F1] SplitEditorPane PanelResizeHandle vertical + ratio 영속",
+          "status": "completed",
+          "context": "Plan #30 Issue 1 결정. 코덱스 d264fc6의 T12 acceptance 누락 — SplitEditorPane.tsx pane 사이가 단순 `border-l border-border` CSS만이라 사용자가 split 후 두 pane 폭 조절 불가. 사용자 통점 #3 직접 영향.",
+          "acceptance": "- SplitEditorPane.tsx의 두 pane 사이에 PanelResizeHandle vertical 렌더 (panes.length === 2 시)\n- drag로 좌/우 pane 폭 조절 가능, 키보드 ←/→ 16px 단계 응답\n- localStorage `nx.editor.split.ratio` 영속 (read/write)\n- 0.2 ≤ ratio ≤ 0.8 clamp 동작 (각 pane min-width 240px 보장)\n- pane 1개일 때 divider 미렌더 (단일 EditorPane만)\n- 단위테스트: SplitEditorPane.test.tsx에 (a) panes 2개 시 divider 렌더, (b) ratio 변경 시 flex-basis 갱신, (c) ratio clamp, (d) pane 1개 시 divider 없음\n- typecheck + bun run test + lint 통과\n- Monaco editor 두 인스턴스가 ResizeObserver throw 없이 drag 동안 안정 (수동 검증)",
+          "approach": "- packages/app/src/renderer/components/SplitEditorPane.tsx: panes.length === 2일 때 두 EditorPane 사이에 PanelResizeHandle orientation=\"vertical\" 삽입\n- pane 폭은 flex-basis ratio로 적용 (left: ratio*100%, right: (1-ratio)*100%)\n- ratio default 0.5, range 0.2-0.8 (각 pane min-width 240px)\n- localStorage 영속: `nx.editor.split.ratio` (T11의 nx.center.split.ratio 패턴 일치)\n- ratio drag/keyboard 변경 시 즉시 영속\n- pane 1개일 때 split 없이 단일 EditorPane 렌더 (현행 유지)\n- editor-store에 editorSplitRatio state 추가 + setter (Persistence와 분리, drag 시 빈번 호출 대비 useRef + useEffect 패턴)\n- App.tsx에서 SplitEditorPane에 ratio + onRatioChange 전달",
+          "risk": "- Monaco editor 인스턴스 두 개의 ResizeObserver가 drag 중 빈번 호출 → automaticLayout: true로 안전 가정, 실측 필요\n- Editor model 공유 시 ratio 변경이 cursor 위치 영향 가능성 → MonacoEditorHost 내부 처리로 자연 해소 예상",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2b8-49b9-72d2-be64-d616f20dc932",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:58:00.117Z"
+        },
+        {
+          "id": 2,
+          "title": "[F2] planWorkspaceEditApplication 닫힌 파일 자동 dirty 탭 open",
+          "status": "completed",
+          "context": "Plan #30 Issue 2 결정. 코덱스 d264fc6의 T9 acceptance 누락 — editor-store.ts의 planWorkspaceEditApplication이 openTabsByPath에 없는 경로를 skippedClosedPaths로 기록하고 적용 X. rename WorkspaceEdit이 닫힌 파일에 있는 참조를 못 바꿔 데이터 정합성 깨짐.",
+          "acceptance": "- planWorkspaceEditApplication이 닫힌 파일도 dirty 탭으로 open + edit 적용\n- 신규 dirty 탭은 활성 pane에 추가 (활성 탭 변경 X)\n- 다중 파일 병렬 read (Promise.all)\n- read 실패 시 해당 edit skip + skippedReadFailures 기록 + console.warn\n- 단위테스트 4 시나리오 (0개/1개/3개 + read 실패) 통과\n- 통합 smoke: 실제 typescript-language-server로 rename 트리거 → 닫힌 파일 변경 확인\n- N>10 닫힌 파일 변경 시 console.warn (단위테스트 검증)\n- typecheck + bun run test + lint 통과",
+          "approach": "- packages/app/src/renderer/stores/editor-store.ts planWorkspaceEditApplication 변경:\n  - 기존 skippedClosedPaths 처리 → background fs.readFile + 신규 EditorTab(dirty=true) 생성 + WorkspaceEdit 적용\n  - readFile은 main process로 IPC (preload editor API에 readFileForWorkspaceEdit 추가)\n  - 신규 dirty 탭은 활성 pane에 추가 (활성 탭은 변경 안 함, 사용자 컨텍스트 유지)\n  - 다중 파일 변경 시 Promise.all로 병렬 read\n  - read 실패 (파일 삭제 등) 시 해당 edit skip + console.warn + skippedReadFailures 기록\n- packages/app/src/main/editor/editor-bridge-ipc.ts에 readFileForWorkspaceEdit IPC 채널 추가\n- packages/app/src/main/editor/preload.ts에 노출\n- 단위테스트: editor-store.test.ts에 시나리오 추가 — 닫힌 파일 0개/1개/3개 변경, read 실패 fallback, 신규 탭 활성 pane 추가 위치 검증\n- N>10 시 console.warn (UX 영향 없음, 측정만)",
+          "risk": "- 메모리 압박 (모든 변경 파일을 메모리 model로 로드) — 50KB 미만 가정, 대용량 파일 정책은 v0.2\n- 디스크 read I/O 동기/비동기 처리 — Promise.all 병렬로 안전\n- 신규 dirty 탭 N개가 탭바 overflow → UX 영향 (이번 fix 범위 외, 측정만)",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2af-84be-7bb2-8925-7b296ffd8e50",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:58:15.226Z"
+        },
+        {
+          "id": 3,
+          "title": "[F3] Sidecar LSP shutdown — schema closeCode + ack 대기 5초 + Go terminateTimeout 5초",
+          "status": "completed",
+          "context": "Plan #30 Issue 3 결정. 코덱스 d264fc6의 T6 acceptance 3건 누락 — (1) sidecar-bridge에서 code===1000 단순 판정만, schema에 close-code 처리 미명시, (2) stop_all 후 ack 미대기, (3) Go terminateTimeout 3초 (spec 5초).",
+          "acceptance": "- schema/lsp-lifecycle.schema.json + lsp-relay.schema.json에 closeCode/expectedCloseCodes 필드 추가\n- gen-contracts 재실행 → TS/Go generated 갱신, test:drift 통과\n- sidecar-bridge close handler가 expectedCloseCodes 사용 (code===1000 단순 판정 제거)\n- stop_all 후 Promise.race ack 대기 (5초 timeout)\n- ack 수신 시 graceful quit, timeout 시 console.warn + 강제 quit\n- supervisor.go defaultTerminateTimeout = 5초\n- 단위테스트 (TS): ack 5초 이내 / timeout 두 시나리오\n- 단위테스트 (Go): supervisor restart + 종료 시퀀스\n- typecheck + bun run test + go test + test:drift 통과",
+          "approach": "- (1) schema:\n  - schema/lsp-lifecycle.schema.json에 closeCode 필드 (number) + expectedCloseCodes 배열 (default [1000, 1001]) 추가\n  - schema/lsp-relay.schema.json에 동일 closeCode 필드 추가 (relay close 시)\n  - scripts/gen-contracts.ts 재실행 → packages/shared/src/contracts/generated/lsp-lifecycle.ts + lsp-relay.ts 갱신\n  - sidecar/internal/contracts/lsp.go도 자동 갱신\n  - test:drift 통과 확인\n- (2) ack 대기:\n  - packages/app/src/main/sidecar-bridge/index.ts close handler에서 expectedCloseCodes.includes(code) 분기 (code===1000 단순 판정 제거)\n  - packages/app/src/main/lsp/lsp-server-supervisor.ts (또는 sidecar-runtime.ts)의 stopAllLspServers(\"app-shutdown\") 호출 후 Promise.race([ack, timeout(5000)]) 패턴\n  - ack 수신 시 graceful quit, timeout 시 console.warn + 강제 quit\n  - 단위테스트: ack 5초 이내 / 5초 초과 두 시나리오\n- (3) Go timeout:\n  - sidecar/internal/lsp/supervisor.go의 defaultTerminateTimeout = 3*time.Second → 5*time.Second\n  - 주입 가능 옵션 (테스트용 짧은 timeout) 유지\n  - go test -run TestSupervisor 통과",
+          "risk": "- gen-contracts drift 가능성 — drift gate가 잡아줌, 안전\n- 5초 timeout 동안 사용자 화면 멈춤 인식 — quit 진행 indicator 없음 (MVP 범위 외)\n- close-code 분기가 비활성/활성 상태 race 유발 가능성 — 단위테스트로 커버",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2af-853c-7ce2-b279-875dc4fc753b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:58:31.776Z"
+        },
+        {
+          "id": 4,
+          "title": "[F4] T12-b/c — 비활성 pane 활성 탭 색상 분기 + (workspaceId, path) 매칭 dirty 동기화",
+          "status": "completed",
+          "context": "Plan #30 Issue 4 결정. 코덱스 d264fc6의 T12 acceptance 2건 누락 — (b) 비활성 pane의 활성 탭 title이 spec text-muted-foreground 대신 text-foreground로 렌더, (c) Monaco model 공유 시 한 pane 편집 → 다른 pane의 EditorTab.dirty 미갱신 (dirty 비동기화 잠재 버그).",
+          "acceptance": "- EditorPane isPaneActive prop 받음, 활성 탭 title 색상이 pane active 여부에 따라 분기\n- updateTabContent이 (workspaceId, path) 매칭 모든 tabs의 dirty=true\n- saveTab이 (workspaceId, path) 매칭 모든 tabs의 dirty=false\n- 단위테스트 (EditorPane 색상 분기 2개 + editor-store dirty 동기화 2개) 통과\n- 같은 path 다른 workspaceId 케이스에서 dirty 미동기화 검증 (격리 보장)\n- typecheck + bun run test + lint 통과",
+          "approach": "- (b) packages/app/src/renderer/components/EditorPane.tsx:\n  - props에 isPaneActive 추가 (SplitEditorPane이 active pane prop 전달)\n  - 활성 탭 title 색상 분기:\n    - active pane + active tab: font-semibold text-foreground (현행)\n    - inactive pane + active tab: font-normal text-muted-foreground (신규)\n    - 비활성 탭: text-muted-foreground (현행)\n- (c) packages/app/src/renderer/stores/editor-store.ts:\n  - updateTabContent(tabId, content): 같은 (workspaceId, path) 조합을 가진 모든 panes의 모든 tabs의 dirty=true\n  - saveTab: 같은 path 매칭 tabs의 dirty=false 동시 처리 (Monaco model 공유로 content는 자연 동기화, dirty 표시도 일관)\n  - panes.flatMap(p => p.tabs).filter(t => t.workspaceId === ws && t.path === path) 패턴\n- 단위테스트:\n  - EditorPane: (a) 활성 pane 활성 탭 → font-semibold text-foreground, (b) 비활성 pane 활성 탭 → font-normal text-muted-foreground\n  - editor-store: 같은 파일 두 pane 시나리오 → 한쪽 편집 → 양쪽 dirty / 한쪽 저장 → 양쪽 clean",
+          "risk": "- 같은 path가 다른 workspaceId일 때 (서로 다른 워크스페이스에서 우연히 같은 절대경로) — workspaceId + path 조합 매칭으로 격리 보장, 단위테스트 명시 검증\n- 다중 pane (1-depth) 한정이라 panes.length는 1 또는 2, 성능 영향 미미",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2b2-7a36-7f53-afec-27794e9174ea",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:58:46.493Z"
+        },
+        {
+          "id": 5,
+          "title": "[F5] cosmetic 정합 — T4 LOC 정리 + T5 attribute 명칭 + T10 함수명 명시성",
+          "status": "completed",
+          "context": "Plan #30 Issue 5 결정. 3건 cosmetic 정합 — T4: lsp-service.ts 253 LOC (목표 200), T5: data-[dragging=true] (spec data-[resize-handle-state=drag]), T10: Cmd+B 토글이 단일 visible flag (의도 명시 부족).",
+          "acceptance": "- packages/app/src/main/lsp/lsp-types.ts 존재 + 인터페이스 추출\n- lsp-service.ts ≤ 200 LOC (실제 측정으로 검증)\n- PanelResizeHandle.tsx의 data-attribute가 data-resize-handle-state=\"drag\" 형식\n- PanelResizeHandle.test.tsx의 selector 갱신\n- App.tsx 함수명 toggleWorkspaceSidebar + 주석 명시\n- typecheck + bun run test + lint 통과\n- 기존 동작 회귀 0 (3개 모두 cosmetic이라 기능 변경 없음)",
+          "approach": "- (T4) packages/app/src/main/lsp/lsp-types.ts 신규: LspProtocolTransport, LspProtocolWritable, LspProcessInput 등 인터페이스 추출. lsp-service.ts에서 import. 목표 lsp-service.ts ≤ 200 LOC.\n- (T5) packages/app/src/renderer/components/PanelResizeHandle.tsx: data-dragging → data-resize-handle-state=\"drag\" | \"inactive\" 변경. className의 data-[dragging=true] → data-[resize-handle-state=drag]. 사용처 grep으로 확인 (현재 컴포넌트 내부만 사용 가정). 단위테스트의 attribute selector 갱신.\n- (T10) packages/app/src/renderer/App.tsx: workspaceVisible state는 유지하되 toggleWorkspacePanel → toggleWorkspaceSidebar로 rename + 주석 추가:\n  ```\n  // Cmd+B: Workspace strip + Filetree column 묶음 토글 (design.md §4)\n  // 단일 flag로 두 컬럼을 함께 토글 — 분리 토글은 spec 위반\n  ```",
+          "risk": "- T4: import 정리 중 typecheck 깨질 수 있음 — 재실행으로 확인\n- T5: data-attribute 명칭 변경이 외부 CSS 의존 깨뜨릴 수 있음 — grep으로 사용처 확인 (현재 컴포넌트 내부만 사용)\n- T10: 단순 rename, 리스크 없음",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2b2-49f7-7790-af12-e47f0ea1f251",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:59:01.805Z"
+        },
+        {
+          "id": 6,
+          "title": "[F6] m6-stability/ → integration/에 4 파일 분할 + fixtures 추출",
+          "status": "completed",
+          "context": "Plan #30 Issue 6 결정 part 1. 코덱스 d264fc6의 packages/app/test/m6-stability/m6-stability.test.tsx (1145 LOC) 단일 파일을 컨벤션 위반 (마일스톤 코드명 디렉터리). integration/에 4 파일로 의미적 카테고리 분할.",
+          "acceptance": "- packages/app/test/integration/ 아래 4 신규 파일 존재 + 시나리오 분할 정확\n- packages/app/test/integration/_fixtures/ 디렉터리에 공통 fixture 분리\n- packages/app/test/m6-stability/ 디렉터리 + 파일 삭제됨\n- 4 파일 각각 독립 실행 가능 (다른 파일 import 의존 없음, fixture만 공유)\n- typecheck + bun run test + lint 통과 (333 통과 그대로 유지 — 시나리오 그룹 수 동일)\n- commit message에 \"split from m6-stability.test.tsx\" 출처 명시\n- README.md (있다면) 업데이트",
+          "approach": "- packages/app/test/integration/_fixtures/ 신규: 공통 fake-sidecar, mock LSP client, mock Monaco model 등 fixture 추출\n- packages/app/test/integration/lsp-capabilities-stability.test.tsx 신규 (Group A 시나리오):\n  - 9 cap × 3 lang × 30+ 분 시뮬 (mock 단축)\n  - crash auto-restart × 3 langs\n  - WebSocket relay 메시지 누락 0\n  - 좀비 0\n- packages/app/test/integration/layout-mount-stability.test.tsx 신규 (Group B):\n  - Center split 50+회 토글\n  - Editor split 50+회 사이클\n  - min-height 클램프\n  - visibility:hidden + height:0\n  - ARIA 검증\n  - CenterWorkbenchMode + EditorStore paneId 마이그레이션\n- packages/app/test/integration/cjk-regression-new-surfaces.test.tsx 신규 (Group C):\n  - Workspace strip / Filetree column / Editor split / Maximize 한국어 렌더\n  - 신규 단축키 IME 보호\n- packages/app/test/integration/keybinding-registry.test.tsx 신규 (Group D):\n  - Cmd+W fallback / Cmd+Shift+W / Cmd+B 묶음 / Cmd+1-3 + scrollIntoView / IME 차단\n- packages/app/test/m6-stability/ 디렉터리 + 파일 삭제\n- 4 파일 모두 typecheck + bun run test 통과 확인\n- commit message에 \"split from m6-stability.test.tsx\" 명시 (blame 출처)",
+          "risk": "- blame 추적 손실 — 1145 LOC 단일 파일 분할이라 git blame 신뢰성 저하. commit message로 출처 명시\n- 공통 fixture 추출 중 각 파일별 의존 누락 가능 — 분할 후 개별 실행 검증\n- 시나리오 N개 누락 가능성 — 분할 전후 describe/it 개수 비교 권장",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd2af-856d-7d20-9155-3fb600f68ee8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:59:21.825Z"
+        },
+        {
+          "id": 7,
+          "title": "[F7] pattern-test-layout-decision.md에 plan-issue-title→directory-name 함정 항목 추가",
+          "status": "completed",
+          "context": "Plan #30 Issue 6 결정 part 2. Lead 학습 박제 — plan #29 T13 작성 시 issue 제목(\"M6 통합 안정성 검증 게이트 갱신\")을 디렉터리 이름으로 그대로 가져온 실수가 m6-stability/ 컨벤션 위반을 낳았음. 같은 실수 재발 방지 위한 메모리 갱신.",
+          "acceptance": "- pattern-test-layout-decision.md에 신규 함정 항목 추가됨\n- 항목 위치: \"함정 — Lead 권고의 과보정\" 섹션 다음\n- 발견 경로(plan #29 / #30) 명시\n- 적용 규칙 명시\n- 한국어 표현 자연스러움 (직역체 회피)\n- 기존 다른 섹션 변경 없음\n- markdown lint 통과 (있다면)",
+          "approach": "- .nexus/memory/pattern-test-layout-decision.md의 \"함정 — Lead 권고의 과보정\" 섹션 다음에 신규 섹션 \"함정 — plan-issue-title을 디렉터리 이름으로 빌리기\" 추가\n- 본문 (한국어 자연스러운 서술체):\n  > plan issue 제목(예: \"M6 통합 안정성 검증 게이트 갱신\")을 task 본문에 그대로 디렉터리 이름으로 박지 마라. plan 맥락에서는 의미가 통하지만 코드 리포지토리에 박히면 마일스톤 코드명(\"m6-stability/\")이 되어 의미적 카테고리(integration/system/packaging) 컨벤션을 위반한다. task 작성 시 디렉터리 이름은 \"무엇을 테스트하는가\" 의미 카테고리로 별도 결정해야 한다.\n  > \n  > 발견 경로: plan #29 T13에서 Lead가 \"packages/app/test/m6-stability/\" 디렉터리 명시. plan #30 fix 슬라이스에서 사용자가 \"m6-...\" 명칭이 의미 모호함을 지적, integration/에 4 파일로 분할 흡수.\n  > \n  > 적용 규칙: plan issue 제목과 task의 파일/디렉터리 이름은 별도 layer. plan 제목은 결정 단위 식별자, 디렉터리 이름은 코드 리포지토리의 영구 카테고리. 두 개를 같은 단어로 채우지 말 것.\n- 다른 섹션은 변경 없음",
+          "risk": "- 메모리 항목이 너무 길어지면 가독성 저하 — 200단어 내외 권장\n- \"plan issue title\" vs \"task title\" 구분 모호 가능 — 본문에서 명시",
+          "plan_issue": 6,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd2af-8613-7fd2-87b6-00ac775d73e5",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T05:59:37.369Z"
+        },
+        {
+          "id": 8,
+          "title": "[F1t] SplitEditorPane vertical resize 회귀 + Monaco 두 인스턴스 안정성",
+          "status": "completed",
+          "context": "F1 (SplitEditorPane PanelResizeHandle vertical) 회귀 검증. drag/keyboard/clamp/persistence + Monaco 두 인스턴스 ResizeObserver 안정성.",
+          "acceptance": "- 단위테스트 5개 시나리오 통과\n- 30회 drag 후 console error 0\n- 키보드 ←/→ 응답\n- Monaco model 공유 + cursor 분리 확인\n- ratio persistence read/write 검증\n- artifact 기록",
+          "approach": "- 단위테스트 (F1에서 추가한 것 + 보강): SplitEditorPane.test.tsx로 (a) panes 2개 시 divider 렌더, (b) drag로 ratio 변경 + flex-basis 갱신, (c) ratio clamp (0.2-0.8, min-width 240px), (d) pane 1개 시 divider 미렌더, (e) localStorage read/write\n- E2E smoke: split → drag 30회 → ratio 영속 + console error 0 (특히 ResizeObserver 0×0 throw 방지)\n- 키보드 ←/→ 16px 단계 응답 검증\n- Monaco editor 두 인스턴스가 같은 model 공유 시 cursor 위치 분리 확인 (split 의미 보존)\n- 결과 nx_artifact_write로 기록",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd2bf-c82b-70f3-bf19-c914023c6f0e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T06:00:00.086Z"
+        },
+        {
+          "id": 9,
+          "title": "[F2t] WorkspaceEdit 닫힌 파일 자동 dirty open 회귀 (4 시나리오 + rename smoke)",
+          "status": "completed",
+          "context": "F2 (planWorkspaceEditApplication 닫힌 파일 자동 dirty open) 회귀 검증. 4 단위 시나리오 + 실제 LSP rename smoke.",
+          "acceptance": "- 5 단위 시나리오 통과\n- 통합 smoke: rename × 3 닫힌 파일 → 모두 dirty 탭으로 open + 변경 적용 + 저장 후 디스크 sync\n- skippedReadFailures 기록 + console.warn 발동 검증\n- 활성 탭 변경 없음 (사용자 컨텍스트 보존)\n- 다중 워크스페이스 격리 확인\n- typecheck + bun run test 통과\n- artifact 기록",
+          "approach": "- 단위테스트 (F2에서 추가한 것 + 보강): editor-store.test.ts에 (a) 닫힌 파일 0개, (b) 1개, (c) 3개, (d) read 실패 fallback, (e) N>10 console.warn 발동\n- 신규 dirty 탭 위치 검증 (활성 pane에 추가, 활성 탭 변경 X)\n- 통합 smoke: typescript-language-server로 rename 트리거 → 닫힌 파일에 변수 사용처가 있을 때 자동 open + dirty + 변경 적용 → 사용자 저장 후 디스크 sync 확인\n- skippedReadFailures 기록 검증\n- 다중 워크스페이스 격리: rename이 한 워크스페이스 내에서만 동작 (다른 워크스페이스 파일 미영향)\n- 결과 nx_artifact_write로 기록",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd2b6-db8c-77e1-82b9-8c4b1b47cd3d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T06:00:10.172Z"
+        },
+        {
+          "id": 10,
+          "title": "[F3t] Sidecar shutdown 회귀 — schema drift + ack 5초 + Go terminateTimeout 5초 + 좀비 0",
+          "status": "completed",
+          "context": "F3 (Sidecar LSP shutdown 3 sub-fix) 회귀 검증. schema drift + ack 시나리오 + Go timeout + 좀비 검증.",
+          "acceptance": "- bun run test:drift 통과\n- TS 단위테스트 (close handler 분기 + ack/timeout 시나리오) 통과\n- Go 단위테스트 (terminateTimeout 5초) 통과\n- 통합 smoke: app.quit → 5초 이내 LSP 자식 종료 + 좀비 0\n- close-code race 시나리오 회귀 0\n- typecheck + bun run test + go test 통과\n- artifact 기록",
+          "approach": "- schema drift: bun run test:drift 통과 (lsp-lifecycle, lsp-relay 모두)\n- 단위테스트 (TS): sidecar-bridge close handler가 expectedCloseCodes 분기 + 1000/1001 정상, 1006/1011 비정상 처리\n- 단위테스트 (TS): stop_all → ack 수신 시 graceful, timeout 5초 시 강제 quit + console.warn\n- 단위테스트 (Go): supervisor.go의 stopRecord 시퀀스가 SIGTERM (5초) → SIGKILL (5초)로 동작\n- 통합 smoke: 실제 typescript-language-server spawn → app.quit() → 5초 이내 모든 LSP 자식 종료 + 좀비 0 (Activity Monitor + ps aux)\n- close-code race 시나리오: WebSocket close (code 1001 going-away) 시 server 종료 race가 처리되는지 (pattern-sidecar-close-code-race.md 회귀 0)\n- 결과 nx_artifact_write로 기록",
+          "plan_issue": 3,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd2c3-ac34-75e2-9535-8fc290aa288e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T06:00:21.492Z"
+        },
+        {
+          "id": 11,
+          "title": "[F4t] EditorPane 색상 분기 + dirty 동기화 격리 검증 (workspaceId 격리 포함)",
+          "status": "completed",
+          "context": "F4 (T12-b/c 비활성 pane 색상 + dirty 동기화) 회귀 검증. UI 색상 분기 + 같은 path 격리 (다른 workspaceId).",
+          "acceptance": "- EditorPane 색상 분기 3 시나리오 통과\n- editor-store dirty 동기화 3 시나리오 통과 (같은 path 같은 ws, 저장 동기화, 다른 ws 격리)\n- E2E 시각 smoke: split + 같은 파일 → 양쪽 dirty 일관 표시\n- typecheck + bun run test 통과\n- artifact 기록",
+          "approach": "- 단위테스트 (F4에서 추가한 것 + 보강): EditorPane.test.tsx에 (a) 활성 pane 활성 탭 → font-semibold text-foreground, (b) 비활성 pane 활성 탭 → font-normal text-muted-foreground, (c) 비활성 탭 색상 (현행 유지)\n- editor-store.test.ts에 (a) 같은 path 같은 workspaceId 두 pane → 한쪽 편집 → 양쪽 dirty=true, (b) 한쪽 저장 → 양쪽 dirty=false, (c) 같은 path 다른 workspaceId → 격리 (dirty 미동기화)\n- E2E smoke: split → 같은 파일을 두 pane에 열기 → 한쪽에서 편집 → 양쪽 dirty 표시 확인 (시각 검증)\n- 결과 nx_artifact_write로 기록",
+          "plan_issue": 4,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd2ba-9518-7810-8478-653164d2f4ed",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T06:00:29.797Z"
+        },
+        {
+          "id": 12,
+          "title": "[F7r] pattern-test-layout-decision.md 함정 항목 검토 (정확성·자연스러움)",
+          "status": "completed",
+          "context": "F7 (pattern-test-layout-decision.md 갱신) 결과물 검증. 항목 위치 + 발견 경로 + 적용 규칙 + 한국어 자연스러움.",
+          "acceptance": "- F7 acceptance 7항목 모두 충족\n- 항목 위치 정확\n- plan #29 / #30 언급 정확\n- 한국어 자연스러움\n- 기존 섹션 변경 없음\n- typo·맞춤법 오류 없음",
+          "approach": "- git diff로 변경 범위 확인\n- F7 acceptance 7항목 체크리스트로 대조\n- 항목 위치가 \"함정 — Lead 권고의 과보정\" 섹션 다음인지\n- 발견 경로 (plan #29 / #30) 정확 인용 확인\n- 한국어 자연스러움 (직역체·번역투 평가)\n- 기존 다른 섹션 변경 없음 확인\n- markdown 구조 (헤더 레벨, 인용 블록 등) 정합 확인",
+          "plan_issue": 6,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd2b3-36e4-7bc2-a4f8-5b14a4323cc3",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T06:00:35.743Z"
+        }
+      ]
     }
   ]
 }

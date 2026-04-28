@@ -53,6 +53,8 @@ import {
 import { WorkspaceShellService } from "../workspace/shell/workspace-shell-service";
 import { WorkspaceTerminalRegistry } from "../workspace/shell/workspace-terminal-registry";
 
+export const DEFAULT_LSP_SHUTDOWN_ACK_TIMEOUT_MS = 5_000;
+
 export interface ElectronAppServices {
   readonly workspacePersistenceStore: WorkspacePersistenceStore;
   readonly sidecarRuntime: SidecarRuntime;
@@ -492,8 +494,55 @@ async function closeOpenWorkspaceTerminals(
   );
 }
 
-async function stopAllManagedLspServers(runtime: SidecarRuntime): Promise<void> {
-  await runtime.stopAllLspServers?.("app-shutdown");
+interface StopAllManagedLspServersOptions {
+  timeoutMs?: number;
+  warn?: (message: string, ...args: unknown[]) => void;
+}
+
+export async function stopAllManagedLspServers(
+  runtime: SidecarRuntime,
+  options: StopAllManagedLspServersOptions = {},
+): Promise<void> {
+  const ackPromise = runtime.stopAllLspServers?.("app-shutdown");
+  if (!ackPromise) {
+    return;
+  }
+
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LSP_SHUTDOWN_ACK_TIMEOUT_MS;
+  const warn = options.warn ?? console.warn;
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const guardedAckPromise = Promise.resolve(ackPromise).catch((error: unknown) => {
+    if (timedOut) {
+      warn(
+        `Main service shutdown: LSP stop_all ack failed after ${timeoutMs}ms timeout.`,
+        error,
+      );
+      return;
+    }
+    throw error;
+  });
+
+  try {
+    const outcome = await Promise.race([
+      guardedAckPromise.then(() => "ack" as const),
+      new Promise<"timeout">((resolve) => {
+        timeout = setTimeout(() => resolve("timeout"), timeoutMs);
+      }),
+    ]);
+
+    if (outcome === "timeout") {
+      timedOut = true;
+      warn(
+        `Main service shutdown: LSP stop_all ack timed out after ${timeoutMs}ms; continuing forced quit.`,
+      );
+      void guardedAckPromise;
+    }
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 async function stopAllManagedSidecars(runtime: SidecarRuntime): Promise<void> {

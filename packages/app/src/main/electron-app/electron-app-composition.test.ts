@@ -19,6 +19,7 @@ import type {
   ToolCallEvent,
 } from "../../../../shared/src/contracts/harness/harness-observer";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { SidecarRuntime } from "../sidecar/sidecar-runtime";
 
 const tempDirs: string[] = [];
 const ipcMain = {
@@ -155,6 +156,55 @@ describe("composeElectronAppServices", () => {
     } finally {
       await services.dispose().catch(() => null);
     }
+  });
+
+  test("stopAllManagedLspServers waits for stop_all ack inside the timeout", async () => {
+    const { stopAllManagedLspServers } = await import("./electron-app-composition");
+    const calls: string[] = [];
+    const warnings: unknown[][] = [];
+    const runtime = createRuntimeWithStopAll(async (reason = "app-shutdown") => {
+      calls.push(`start:${reason}`);
+      await delay(5);
+      calls.push("ack");
+    });
+
+    await stopAllManagedLspServers(runtime, {
+      timeoutMs: 50,
+      warn: (...args) => warnings.push(args),
+    });
+
+    expect(calls).toEqual(["start:app-shutdown", "ack"]);
+    expect(warnings).toEqual([]);
+  });
+
+  test("stopAllManagedLspServers warns and returns when stop_all ack misses timeout", async () => {
+    const { stopAllManagedLspServers } = await import("./electron-app-composition");
+    const warnings: unknown[][] = [];
+    let resolveAck: (() => void) | null = null;
+    const ackPromise = new Promise<void>((resolve) => {
+      resolveAck = resolve;
+    });
+    const runtime = createRuntimeWithStopAll(() => ackPromise);
+
+    await stopAllManagedLspServers(runtime, {
+      timeoutMs: 5,
+      warn: (...args) => warnings.push(args),
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.[0]).toBe(
+      "Main service shutdown: LSP stop_all ack timed out after 5ms; continuing forced quit.",
+    );
+
+    let ackSettled = false;
+    void ackPromise.then(() => {
+      ackSettled = true;
+    });
+    await delay(1);
+    expect(ackSettled).toBe(false);
+
+    resolveAck?.();
+    await ackPromise;
   });
 
   test("SidecarBridge observer stream feeds the ClaudeCodeAdapter dispatch path", async () => {
@@ -415,6 +465,17 @@ class MockChildProcess extends EventEmitter {
   }
 }
 
+function createRuntimeWithStopAll(
+  stopAllLspServers: (reason?: string) => Promise<void>,
+): SidecarRuntime {
+  return {
+    start: mock(() => Promise.reject(new Error("not used"))),
+    stop: mock(() => Promise.resolve(null)),
+    listRunningWorkspaceIds: mock(() => []),
+    stopAllLspServers,
+  } as unknown as SidecarRuntime;
+}
+
 function createMockSpawn(
   child: MockChildProcess,
   options: { workspaceId: WorkspaceId },
@@ -483,6 +544,10 @@ async function closeServer(server: WebSocketServer): Promise<void> {
       resolve();
     });
   });
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitFor(assertion: () => void, timeoutMs = 250): Promise<void> {

@@ -39,9 +39,9 @@ export function PanelResizeHandle({
       aria-valuemax={ariaValueMax}
       aria-valuenow={ariaValueNow}
       aria-label={ariaLabel}
-      data-dragging={dragging ? "true" : "false"}
+      data-resize-handle-state={dragging ? "drag" : "inactive"}
       className={cn(
-        "relative z-10 shrink-0 bg-border transition-colors duration-100 hover:bg-primary hover:delay-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 before:absolute before:content-[''] data-[dragging=true]:bg-primary data-[dragging=true]:delay-0 data-[dragging=true]:transition-none",
+        "relative z-10 shrink-0 bg-border transition-colors duration-100 hover:bg-primary hover:delay-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 before:absolute before:content-[''] data-[resize-handle-state=drag]:bg-primary data-[resize-handle-state=drag]:delay-0 data-[resize-handle-state=drag]:transition-none",
         orientationClassNames[orientation],
       )}
       onKeyDown={onKeyDown}

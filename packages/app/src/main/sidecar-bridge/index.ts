@@ -64,6 +64,9 @@ const UNAVAILABLE_SIDECAR_PID = -1;
 const OBSERVER_EVENT_NAME = "observer-event";
 const LSP_SERVER_PAYLOAD_EVENT_NAME = "lsp-server-payload";
 const LSP_SERVER_STOPPED_EVENT_NAME = "lsp-server-stopped";
+type ExpectedCloseCodes = [number, ...number[]];
+
+export const DEFAULT_EXPECTED_CLOSE_CODES: ExpectedCloseCodes = [1000, 1001];
 
 export interface SidecarObserverEventSubscription {
   dispose(): void;
@@ -92,6 +95,7 @@ export interface SidecarBridgeOptions {
   stopAckTimeoutMs?: number;
   stopSigkillTimeoutMs?: number;
   reconcileWindowMs?: number;
+  expectedCloseCodes?: readonly number[];
 }
 
 export class SidecarBridge implements SidecarRuntime {
@@ -103,6 +107,7 @@ export class SidecarBridge implements SidecarRuntime {
   private readonly observerEventEmitter = new EventEmitter();
   private readonly lspEventEmitter = new EventEmitter();
   private readonly pendingLspRequests = new Map<string, PendingLspRequest>();
+  private readonly expectedCloseCodes: ExpectedCloseCodes;
   private nextStopAllRequestId = 1;
 
   public constructor(options: SidecarBridgeOptions = {}) {
@@ -110,6 +115,7 @@ export class SidecarBridge implements SidecarRuntime {
     this.spawnProcess = options.spawnProcess ?? spawn;
     this.now = options.now ?? (() => new Date());
     this.existsSyncFn = options.existsSyncFn ?? existsSync;
+    this.expectedCloseCodes = normalizeExpectedCloseCodes(options.expectedCloseCodes);
   }
 
   public async start(command: SidecarStartCommand): Promise<SidecarStartedEvent> {
@@ -224,6 +230,7 @@ export class SidecarBridge implements SidecarRuntime {
           requestId: `lsp-stop-all-${this.nextStopAllRequestId++}`,
           workspaceId,
           reason,
+          expectedCloseCodes: [...this.expectedCloseCodes] as ExpectedCloseCodes,
         }).then(() => undefined),
       ),
     );
@@ -358,7 +365,7 @@ export class SidecarBridge implements SidecarRuntime {
       lifecycleEmitter.recordProcessExit(exitCode, signal);
     });
     ws.once("close", (code) => {
-      lifecycleEmitter.recordWsClose(code, code === 1000);
+      lifecycleEmitter.recordWsClose(code, this.expectedCloseCodes.includes(code));
     });
     ws.on("message", (data) => {
       this.handleRuntimeMessage(workspaceId, record, data.toString());
@@ -518,6 +525,19 @@ export class SidecarBridge implements SidecarRuntime {
       this.recordsByWorkspaceId.delete(workspaceId);
     }
   }
+}
+
+function normalizeExpectedCloseCodes(
+  candidate?: readonly number[],
+): ExpectedCloseCodes {
+  const source = candidate && candidate.length > 0 ? candidate : DEFAULT_EXPECTED_CLOSE_CODES;
+  const normalized = Array.from(
+    new Set(source.filter((code) => Number.isInteger(code) && code >= 1000 && code <= 4999)),
+  );
+  if (normalized.length === 0) {
+    return [...DEFAULT_EXPECTED_CLOSE_CODES];
+  }
+  return normalized as ExpectedCloseCodes;
 }
 
 export { SidecarBridgeError } from "./handshake";

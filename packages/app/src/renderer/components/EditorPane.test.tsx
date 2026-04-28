@@ -46,6 +46,7 @@ describe("EditorPaneView", () => {
   test("renders a single tab bar with dirty indicator, save, close, Monaco host, and LSP status", () => {
     const tree = EditorPaneView({
       activeWorkspaceName: "Alpha",
+      active: true,
       tabs: [tab],
       activeTabId: tab.id,
       onActivateTab() {},
@@ -65,6 +66,51 @@ describe("EditorPaneView", () => {
     expect(String(findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane")?.props.className)).toContain("ring-1 ring-inset ring-[var(--color-ring)]");
     expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "true")?.props.className)).toContain("font-semibold text-foreground");
     expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeDefined();
+  });
+
+  test("mutes the active tab title when the editor pane is inactive", () => {
+    const tree = EditorPaneView({
+      activeWorkspaceName: "Alpha",
+      active: false,
+      tabs: [tab],
+      activeTabId: tab.id,
+      onActivateTab() {},
+      onCloseTab() {},
+      onSaveTab() {},
+      onChangeContent() {},
+    });
+
+    const titleClassName = String(
+      findElementByPredicate(
+        tree,
+        (element) => element.props?.["data-editor-tab-title-active"] === "true",
+      )?.props.className,
+    );
+    expect(titleClassName).toContain("font-normal text-muted-foreground");
+    expect(titleClassName).not.toContain("font-semibold text-foreground");
+  });
+
+  test("keeps inactive tab titles muted even in the active editor pane", () => {
+    const inactiveTab: EditorTab = {
+      ...tab,
+      id: "ws_alpha::README.md",
+      path: "README.md",
+      title: "README.md",
+      dirty: false,
+      diagnostics: [],
+    };
+    const tree = EditorPaneView({
+      activeWorkspaceName: "Alpha",
+      active: true,
+      tabs: [tab, inactiveTab],
+      activeTabId: tab.id,
+      onActivateTab() {},
+      onCloseTab() {},
+      onSaveTab() {},
+      onChangeContent() {},
+    });
+
+    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "false")?.props.className)).toContain("font-normal text-muted-foreground");
   });
 
   test("renders file-open empty state without placeholder wording", () => {

@@ -19,6 +19,20 @@
       "type": "string",
       "enum": ["client_to_server", "server_to_client"]
     },
+    "webSocketCloseCode": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 4999,
+      "description": "RFC 6455 WebSocket close code observed on the sidecar channel"
+    },
+    "expectedCloseCodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/webSocketCloseCode" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": [1000, 1001],
+      "description": "Close codes that the main process should treat as graceful for this relay path"
+    },
     "lspClientPayloadMessage": {
       "type": "object",
       "additionalProperties": false,
@@ -32,7 +46,9 @@
         "payload": {
           "type": "string",
           "description": "Opaque UTF-8 LSP JSON-RPC stdio frame chunk"
-        }
+        },
+        "closeCode": { "$ref": "#/$defs/webSocketCloseCode" },
+        "expectedCloseCodes": { "$ref": "#/$defs/expectedCloseCodes" }
       }
     },
     "lspServerPayloadMessage": {
@@ -48,7 +64,9 @@
         "payload": {
           "type": "string",
           "description": "Opaque UTF-8 LSP JSON-RPC stdio frame chunk"
-        }
+        },
+        "closeCode": { "$ref": "#/$defs/webSocketCloseCode" },
+        "expectedCloseCodes": { "$ref": "#/$defs/expectedCloseCodes" }
       }
     }
   }

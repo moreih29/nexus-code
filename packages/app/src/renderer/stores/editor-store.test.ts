@@ -600,7 +600,128 @@ describe("editor-store tabs", () => {
     expect(calls.filter((call) => call.type === "lsp-document/close")).toHaveLength(1);
   });
 
-  test("applies multi-file WorkspaceEdit to open tabs and sends LSP didChange notifications", async () => {
+  test("syncs content and dirty state for duplicate tabs matching workspace and path", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+    const primaryTab = createPlaintextTab("README.md", workspaceId, {
+      id: "alpha-primary",
+    });
+    const duplicateTab = createPlaintextTab("README.md", workspaceId, {
+      id: "alpha-duplicate",
+      content: "stale duplicate",
+    });
+    const otherWorkspaceTab = createPlaintextTab("README.md", betaWorkspaceId, {
+      id: "beta-same-path",
+    });
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [primaryTab, otherWorkspaceTab],
+          activeTabId: primaryTab.id,
+        },
+        {
+          id: SECONDARY_EDITOR_PANE_ID,
+          tabs: [duplicateTab],
+          activeTabId: duplicateTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    await store.getState().updateTabContent(primaryTab.id, "edited content");
+
+    expect(primaryPane(store).tabs.find((candidate) => candidate.id === primaryTab.id)).toMatchObject({
+      content: "edited content",
+      dirty: true,
+      savedContent: "hello",
+    });
+    expect(secondaryPane(store).tabs[0]).toMatchObject({
+      content: "edited content",
+      dirty: true,
+      savedContent: "hello",
+    });
+    expect(primaryPane(store).tabs.find((candidate) => candidate.id === otherWorkspaceTab.id)).toMatchObject({
+      workspaceId: betaWorkspaceId,
+      content: "hello",
+      dirty: false,
+      savedContent: "hello",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("saves duplicate tabs by workspace and path while isolating the same path in another workspace", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+    const primaryTab = createPlaintextTab("README.md", workspaceId, {
+      id: "alpha-save-primary",
+      content: "edited content",
+      dirty: true,
+    });
+    const duplicateTab = createPlaintextTab("README.md", workspaceId, {
+      id: "alpha-save-duplicate",
+      content: "stale duplicate",
+      dirty: true,
+    });
+    const otherWorkspaceTab = createPlaintextTab("README.md", betaWorkspaceId, {
+      id: "beta-save-same-path",
+      content: "beta edited",
+      dirty: true,
+      version: "beta-v1",
+    });
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [primaryTab, otherWorkspaceTab],
+          activeTabId: primaryTab.id,
+        },
+        {
+          id: SECONDARY_EDITOR_PANE_ID,
+          tabs: [duplicateTab],
+          activeTabId: duplicateTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    await store.getState().saveTab(primaryTab.id);
+
+    expect(calls.find((call) => call.type === "workspace-files/file/write")).toMatchObject({
+      type: "workspace-files/file/write",
+      workspaceId,
+      path: "README.md",
+      content: "edited content",
+      expectedVersion: "v1",
+    });
+    expect(primaryPane(store).tabs.find((candidate) => candidate.id === primaryTab.id)).toMatchObject({
+      content: "edited content",
+      savedContent: "edited content",
+      dirty: false,
+      version: "v2",
+    });
+    expect(secondaryPane(store).tabs[0]).toMatchObject({
+      content: "edited content",
+      savedContent: "edited content",
+      dirty: false,
+      version: "v2",
+    });
+    expect(primaryPane(store).tabs.find((candidate) => candidate.id === otherWorkspaceTab.id)).toMatchObject({
+      workspaceId: betaWorkspaceId,
+      content: "beta edited",
+      savedContent: "hello",
+      dirty: true,
+      version: "beta-v1",
+    });
+  });
+
+  test("applies WorkspaceEdit to open tabs without closed-file reads", async () => {
     const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
     const store = createEditorStore(bridge);
@@ -642,26 +763,15 @@ describe("editor-store tabs", () => {
             },
           ],
         },
-        {
-          path: "src/closed.ts",
-          edits: [
-            {
-              range: {
-                start: { line: 0, character: 0 },
-                end: { line: 0, character: 0 },
-              },
-              newText: "closed",
-            },
-          ],
-        },
       ],
     });
 
-    expect(WORKSPACE_EDIT_CLOSED_FILE_POLICY).toContain("closed-file edits");
+    expect(WORKSPACE_EDIT_CLOSED_FILE_POLICY).toContain("dirty tabs");
     expect(result).toEqual({
       applied: true,
       appliedPaths: ["src/index.ts", "src/helper.py"],
-      skippedClosedPaths: ["src/closed.ts"],
+      skippedClosedPaths: [],
+      skippedReadFailures: [],
       skippedUnsupportedPaths: [],
     });
     expect(allTabs(store).find((tab) => tab.path === "src/index.ts")).toMatchObject({
@@ -696,9 +806,314 @@ describe("editor-store tabs", () => {
       content: "const value = renamed;\n",
       version: 2,
     });
-    expect(calls.filter((call) => call.type === "lsp-document/change").map((call) => call.path))
-      .not.toContain("src/closed.ts");
+    expect(calls.filter((call) => call.type === "workspace-files/file/read")).toHaveLength(2);
     expect(calls.map((call) => call.type)).not.toContain("workspace-files/file/write");
+  });
+
+  test("opens one closed WorkspaceEdit file as a dirty tab without changing the active tab", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().openFile(workspaceId, "README.md");
+    const activeTabId = getActiveEditorTabId(store.getState());
+
+    const result = await store.getState().applyWorkspaceEdit(workspaceId, {
+      changes: [
+        {
+          path: "src/closed.ts",
+          edits: [replaceMissingWith("closedValue")],
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      applied: true,
+      appliedPaths: ["src/closed.ts"],
+      skippedClosedPaths: [],
+      skippedReadFailures: [],
+      skippedUnsupportedPaths: [],
+    });
+    expect(primaryPane(store).tabs.map((tab) => tab.path)).toEqual([
+      "README.md",
+      "src/closed.ts",
+    ]);
+    expect(getActiveEditorTabId(store.getState())).toBe(activeTabId);
+    expect(allTabs(store).find((tab) => tab.path === "src/closed.ts")).toMatchObject({
+      content: "const value = closedValue;\n",
+      savedContent: "const value = missing;\n",
+      dirty: true,
+      language: "typescript",
+      lspDocumentVersion: 2,
+    });
+    expect(calls.filter((call) => call.type === "workspace-files/file/read").map((call) => call.path))
+      .toContain("src/closed.ts");
+    expect(
+      calls.filter((call) => call.type === "lsp-document/change").map((call) => ({
+        path: call.path,
+        content: call.content,
+        version: call.version,
+      })),
+    ).toContainEqual({
+      path: "src/closed.ts",
+      content: "const value = closedValue;\n",
+      version: 2,
+    });
+    expect(calls.map((call) => call.type)).not.toContain("workspace-files/file/write");
+  });
+
+  test("opens three closed WorkspaceEdit files with parallel reads", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const closedReadStarts: string[] = [];
+    const allReadsStarted = createDeferred<void>();
+    const bridge = createFakeBridge(calls, {
+      async beforeRead(path) {
+        if (!path.startsWith("src/closed-")) {
+          return;
+        }
+        closedReadStarts.push(path);
+        if (closedReadStarts.length === 3) {
+          allReadsStarted.resolve();
+        }
+        await allReadsStarted.promise;
+      },
+    });
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().openFile(workspaceId, "README.md");
+    const activeTabId = getActiveEditorTabId(store.getState());
+
+    const applyPromise = store.getState().applyWorkspaceEdit(workspaceId, {
+      changes: [0, 1, 2].map((index) => ({
+        path: `src/closed-${index}.ts`,
+        edits: [replaceMissingWith(`closed${index}`)],
+      })),
+    });
+
+    await waitFor(() => {
+      expect(closedReadStarts).toHaveLength(3);
+    });
+    const result = await applyPromise;
+
+    expect(result).toEqual({
+      applied: true,
+      appliedPaths: ["src/closed-0.ts", "src/closed-1.ts", "src/closed-2.ts"],
+      skippedClosedPaths: [],
+      skippedReadFailures: [],
+      skippedUnsupportedPaths: [],
+    });
+    expect(getActiveEditorTabId(store.getState())).toBe(activeTabId);
+    expect(primaryPane(store).tabs.map((tab) => tab.path)).toEqual([
+      "README.md",
+      "src/closed-0.ts",
+      "src/closed-1.ts",
+      "src/closed-2.ts",
+    ]);
+    expect(
+      allTabs(store)
+        .filter((tab) => tab.path.startsWith("src/closed-"))
+        .every((tab) => tab.dirty),
+    ).toBe(true);
+
+    const openedClosedTabs = allTabs(store).filter((tab) => tab.path.startsWith("src/closed-"));
+    await Promise.all(openedClosedTabs.map((tab) => store.getState().saveTab(tab.id)));
+
+    expect(
+      calls.filter((call) => call.type === "workspace-files/file/write").map((call) => ({
+        path: call.path,
+        content: call.content,
+        expectedVersion: call.expectedVersion,
+      })),
+    ).toEqual([
+      {
+        path: "src/closed-0.ts",
+        content: "const value = closed0;\n",
+        expectedVersion: "v1",
+      },
+      {
+        path: "src/closed-1.ts",
+        content: "const value = closed1;\n",
+        expectedVersion: "v1",
+      },
+      {
+        path: "src/closed-2.ts",
+        content: "const value = closed2;\n",
+        expectedVersion: "v1",
+      },
+    ]);
+    expect(
+      allTabs(store)
+        .filter((tab) => tab.path.startsWith("src/closed-"))
+        .every((tab) => !tab.dirty && tab.version === "v2" && tab.savedContent === tab.content),
+    ).toBe(true);
+  });
+
+  test("applies closed WorkspaceEdit files only within the target workspace", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls, {
+      fileContents: {
+        "src/shared.ts": "const value = missing;\n",
+      },
+    });
+    const store = createEditorStore(bridge);
+    const activeTab = createPlaintextTab("README.md", workspaceId);
+    const otherWorkspaceTab = createPlaintextTab("src/shared.ts", betaWorkspaceId, {
+      content: "const value = beta;\n",
+      savedContent: "const value = beta;\n",
+      language: "typescript",
+      monacoLanguage: "typescript",
+      lspDocumentVersion: 7,
+    });
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [activeTab, otherWorkspaceTab],
+          activeTabId: activeTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    const result = await store.getState().applyWorkspaceEdit(workspaceId, {
+      changes: [
+        {
+          path: "src/shared.ts",
+          edits: [replaceMissingWith("alpha")],
+        },
+      ],
+    });
+
+    const tabs = allTabs(store);
+    const alphaTab = tabs.find((tab) =>
+      tab.workspaceId === workspaceId && tab.path === "src/shared.ts"
+    );
+    const betaTab = tabs.find((tab) =>
+      tab.workspaceId === betaWorkspaceId && tab.path === "src/shared.ts"
+    );
+
+    expect(result).toEqual({
+      applied: true,
+      appliedPaths: ["src/shared.ts"],
+      skippedClosedPaths: [],
+      skippedReadFailures: [],
+      skippedUnsupportedPaths: [],
+    });
+    expect(getActiveEditorTabId(store.getState())).toBe(activeTab.id);
+    expect(alphaTab).toMatchObject({
+      workspaceId,
+      content: "const value = alpha;\n",
+      savedContent: "const value = missing;\n",
+      dirty: true,
+      lspDocumentVersion: 2,
+    });
+    expect(betaTab).toMatchObject({
+      workspaceId: betaWorkspaceId,
+      content: "const value = beta;\n",
+      savedContent: "const value = beta;\n",
+      dirty: false,
+      lspDocumentVersion: 7,
+    });
+    expect(
+      calls.filter((call) => call.type === "workspace-files/file/read").map((call) => ({
+        workspaceId: call.workspaceId,
+        path: call.path,
+      })),
+    ).toContainEqual({
+      workspaceId,
+      path: "src/shared.ts",
+    });
+  });
+
+  test("skips closed WorkspaceEdit files when reads fail and records skippedReadFailures", async () => {
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      const calls: EditorBridgeRequest[] = [];
+      const bridge = createFakeBridge(calls, {
+        readFailures: new Set(["src/missing.ts"]),
+      });
+      const store = createEditorStore(bridge);
+
+      store.getState().setActiveWorkspace(workspaceId);
+      await store.getState().openFile(workspaceId, "README.md");
+
+      const result = await store.getState().applyWorkspaceEdit(workspaceId, {
+        changes: [
+          {
+            path: "src/missing.ts",
+            edits: [replaceMissingWith("missingValue")],
+          },
+          {
+            path: "src/closed.ts",
+            edits: [replaceMissingWith("closedValue")],
+          },
+        ],
+      });
+
+      expect(result).toEqual({
+        applied: true,
+        appliedPaths: ["src/closed.ts"],
+        skippedClosedPaths: [],
+        skippedReadFailures: ["src/missing.ts"],
+        skippedUnsupportedPaths: [],
+      });
+      expect(allTabs(store).map((tab) => tab.path)).not.toContain("src/missing.ts");
+      expect(allTabs(store).map((tab) => tab.path)).toContain("src/closed.ts");
+      expect(warnings).toHaveLength(1);
+      expect(String(warnings[0]?.[0])).toContain("failed to read closed file");
+      expect(warnings[0]?.[1]).toMatchObject({
+        workspaceId,
+        path: "src/missing.ts",
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("warns when a WorkspaceEdit opens more than ten closed files", async () => {
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      const calls: EditorBridgeRequest[] = [];
+      const bridge = createFakeBridge(calls);
+      const store = createEditorStore(bridge);
+
+      store.getState().setActiveWorkspace(workspaceId);
+      await store.getState().openFile(workspaceId, "README.md");
+
+      const result = await store.getState().applyWorkspaceEdit(workspaceId, {
+        changes: Array.from({ length: 11 }, (_, index) => ({
+          path: `src/bulk-${index}.ts`,
+          edits: [replaceMissingWith(`bulk${index}`)],
+        })),
+      });
+
+      expect(result.applied).toBe(true);
+      expect(result.appliedPaths).toHaveLength(11);
+      expect(result.skippedReadFailures).toEqual([]);
+      expect(primaryPane(store).tabs).toHaveLength(12);
+      expect(warnings).toHaveLength(1);
+      expect(String(warnings[0]?.[0])).toContain("11 closed files");
+      expect(warnings[0]?.[1]).toMatchObject({
+        workspaceId,
+        paths: Array.from({ length: 11 }, (_, index) => `src/bulk-${index}.ts`),
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   test("applies LSP text edits from the bottom up", () => {
@@ -723,7 +1138,13 @@ describe("editor-store tabs", () => {
   });
 });
 
-function createFakeBridge(calls: EditorBridgeRequest[]): EditorBridge {
+interface FakeBridgeOptions {
+  beforeRead?: (path: string) => Promise<void> | void;
+  fileContents?: Record<string, string>;
+  readFailures?: ReadonlySet<string>;
+}
+
+function createFakeBridge(calls: EditorBridgeRequest[], options: FakeBridgeOptions = {}): EditorBridge {
   return {
     async invoke(request) {
       calls.push(request);
@@ -760,11 +1181,15 @@ function createFakeBridge(calls: EditorBridgeRequest[]): EditorBridge {
             renamedAt: "2026-04-27T00:00:00.000Z",
           } as never;
         case "workspace-files/file/read":
+          if (options.readFailures?.has(request.path)) {
+            throw new Error(`Unable to read ${request.path}.`);
+          }
+          await options.beforeRead?.(request.path);
           return {
             type: "workspace-files/file/read/result",
             workspaceId: request.workspaceId,
             path: request.path,
-            content: "const value = missing;\n",
+            content: options.fileContents?.[request.path] ?? "const value = missing;\n",
             encoding: "utf8",
             version: "v1",
             readAt: "2026-04-27T00:00:00.000Z",
@@ -830,6 +1255,26 @@ function createFakeBridge(calls: EditorBridgeRequest[]): EditorBridge {
   };
 }
 
+function replaceMissingWith(newText: string) {
+  return {
+    range: {
+      start: { line: 0, character: 14 },
+      end: { line: 0, character: 21 },
+    },
+    newText,
+  };
+}
+
+function createDeferred<TValue>() {
+  let resolve!: (value: TValue | PromiseLike<TValue>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<TValue>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 function allTabs(store: EditorStore): EditorTab[] {
   return store.getState().panes.flatMap((pane) => pane.tabs);
 }
@@ -842,10 +1287,14 @@ function secondaryPane(store: EditorStore): EditorPaneState {
   return store.getState().panes.find((pane) => pane.id === SECONDARY_EDITOR_PANE_ID) ?? store.getState().panes[1]!;
 }
 
-function createPlaintextTab(path: string): EditorTab {
-  return {
-    id: tabIdFor(workspaceId, path),
-    workspaceId,
+function createPlaintextTab(
+  path: string,
+  tabWorkspaceId: WorkspaceId = workspaceId,
+  overrides: Partial<EditorTab> = {},
+): EditorTab {
+  const tab: EditorTab = {
+    id: tabIdFor(tabWorkspaceId, path),
+    workspaceId: tabWorkspaceId,
     path,
     title: path.split("/").at(-1) ?? path,
     content: "hello",
@@ -860,6 +1309,7 @@ function createPlaintextTab(path: string): EditorTab {
     diagnostics: [],
     lspStatus: null,
   };
+  return { ...tab, ...overrides };
 }
 
 async function waitFor(assertion: () => void | Promise<void>): Promise<void> {

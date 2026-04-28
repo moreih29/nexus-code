@@ -63,7 +63,7 @@ describe("App command registration", () => {
         centerMaximizeToggleCount += 1;
       },
       toggleSharedPanel() {},
-      toggleWorkspacePanel() {
+      toggleWorkspaceSidebar() {
         sidebarToggleCount += 1;
       },
       workspaceStore,

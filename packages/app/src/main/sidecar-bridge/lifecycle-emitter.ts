@@ -19,7 +19,7 @@ interface ExitSignal {
 
 interface WsCloseSignal {
   code: number;
-  wasClean: boolean;
+  expected: boolean;
 }
 
 export class SidecarLifecycleEmitter extends EventEmitter {
@@ -45,8 +45,8 @@ export class SidecarLifecycleEmitter extends EventEmitter {
     this.mainSentSignal = signal;
   }
 
-  public recordWsClose(code: number, wasClean: boolean): void {
-    this.wsCloseSignal = { code, wasClean };
+  public recordWsClose(code: number, expected: boolean): void {
+    this.wsCloseSignal = { code, expected };
     this.scheduleStoppedEmit();
   }
 
@@ -94,8 +94,7 @@ export class SidecarLifecycleEmitter extends EventEmitter {
     }
 
     if (
-      this.wsCloseSignal?.wasClean &&
-      this.wsCloseSignal.code === 1000 &&
+      this.wsCloseSignal?.expected &&
       this.exitSignal?.exitCode === 0
     ) {
       return "requested";

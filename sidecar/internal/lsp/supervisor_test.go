@@ -129,6 +129,16 @@ func TestSupervisorStopUsesSigtermThenSigkillAfterTimeout(t *testing.T) {
 	}
 }
 
+func TestSupervisorDefaultTerminateTimeoutIsFiveSeconds(t *testing.T) {
+	supervisor := NewSupervisor(SupervisorOptions{
+		ProcessFactory: (&fakeProcessFactory{}).New,
+	})
+
+	if supervisor.terminateTimeout != 5*time.Second {
+		t.Fatalf("terminateTimeout = %s, want 5s", supervisor.terminateTimeout)
+	}
+}
+
 func TestSupervisorAutoRestartsCrashedExecProcess(t *testing.T) {
 	tempDir := t.TempDir()
 	countFile := tempDir + "/fake-lsp-count"

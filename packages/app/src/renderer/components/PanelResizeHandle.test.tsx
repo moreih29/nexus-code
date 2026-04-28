@@ -21,7 +21,7 @@ describe("PanelResizeHandle", () => {
     expect(handle.props["aria-valuemin"]).toBe(280);
     expect(handle.props["aria-valuemax"]).toBe(520);
     expect(handle.props["aria-valuenow"]).toBe(320);
-    expect(handle.props["data-dragging"]).toBe("false");
+    expect(handle.props["data-resize-handle-state"]).toBe("inactive");
 
     expectClassNames(handle, [
       "w-px",
@@ -55,16 +55,16 @@ describe("PanelResizeHandle", () => {
     expect(handle.props["aria-valuemin"]).toBe(128);
     expect(handle.props["aria-valuemax"]).toBe(512);
     expect(handle.props["aria-valuenow"]).toBe(256);
-    expect(handle.props["data-dragging"]).toBe("true");
+    expect(handle.props["data-resize-handle-state"]).toBe("drag");
 
     expectClassNames(handle, [
       "h-px",
       "cursor-row-resize",
       "before:-top-1",
       "before:h-2",
-      "data-[dragging=true]:bg-primary",
-      "data-[dragging=true]:delay-0",
-      "data-[dragging=true]:transition-none",
+      "data-[resize-handle-state=drag]:bg-primary",
+      "data-[resize-handle-state=drag]:delay-0",
+      "data-[resize-handle-state=drag]:transition-none",
     ]);
   });
 });

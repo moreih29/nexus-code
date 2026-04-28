@@ -328,6 +328,7 @@ function noopApplyWorkspaceEdit(): Promise<LspWorkspaceEditApplicationResult> {
     applied: false,
     appliedPaths: [],
     skippedClosedPaths: [],
+    skippedReadFailures: [],
     skippedUnsupportedPaths: [],
   });
 }

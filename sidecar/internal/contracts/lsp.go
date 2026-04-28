@@ -98,11 +98,12 @@ type LspHealthCheckCommand struct {
 }
 
 type LspStopAllServersCommand struct {
-	Type        string              `json:"type"`
-	Action      LspLifecycleAction  `json:"action"`
-	RequestID   string              `json:"requestId"`
-	WorkspaceID *WorkspaceID        `json:"workspaceId,omitempty"`
-	Reason      LspServerStopReason `json:"reason"`
+	Type               string              `json:"type"`
+	Action             LspLifecycleAction  `json:"action"`
+	RequestID          string              `json:"requestId"`
+	WorkspaceID        *WorkspaceID        `json:"workspaceId,omitempty"`
+	Reason             LspServerStopReason `json:"reason"`
+	ExpectedCloseCodes []int               `json:"expectedCloseCodes,omitempty"`
 }
 
 type LspServerStartedReply struct {
@@ -155,27 +156,33 @@ type LspServerHealthReply struct {
 }
 
 type LspStopAllServersReply struct {
-	Type             string             `json:"type"`
-	Action           LspLifecycleAction `json:"action"`
-	RequestID        string             `json:"requestId"`
-	WorkspaceID      *WorkspaceID       `json:"workspaceId,omitempty"`
-	StoppedServerIDs []string           `json:"stoppedServerIds"`
+	Type               string             `json:"type"`
+	Action             LspLifecycleAction `json:"action"`
+	RequestID          string             `json:"requestId"`
+	WorkspaceID        *WorkspaceID       `json:"workspaceId,omitempty"`
+	StoppedServerIDs   []string           `json:"stoppedServerIds"`
+	CloseCode          *int               `json:"closeCode,omitempty"`
+	ExpectedCloseCodes []int              `json:"expectedCloseCodes,omitempty"`
 }
 
 type LspClientPayloadMessage struct {
-	Type        string            `json:"type"`
-	Direction   LspRelayDirection `json:"direction"`
-	WorkspaceID WorkspaceID       `json:"workspaceId"`
-	ServerID    string            `json:"serverId"`
-	Seq         int               `json:"seq"`
-	Payload     string            `json:"payload"`
+	Type               string            `json:"type"`
+	Direction          LspRelayDirection `json:"direction"`
+	WorkspaceID        WorkspaceID       `json:"workspaceId"`
+	ServerID           string            `json:"serverId"`
+	Seq                int               `json:"seq"`
+	Payload            string            `json:"payload"`
+	CloseCode          *int              `json:"closeCode,omitempty"`
+	ExpectedCloseCodes []int             `json:"expectedCloseCodes,omitempty"`
 }
 
 type LspServerPayloadMessage struct {
-	Type        string            `json:"type"`
-	Direction   LspRelayDirection `json:"direction"`
-	WorkspaceID WorkspaceID       `json:"workspaceId"`
-	ServerID    string            `json:"serverId"`
-	Seq         int               `json:"seq"`
-	Payload     string            `json:"payload"`
+	Type               string            `json:"type"`
+	Direction          LspRelayDirection `json:"direction"`
+	WorkspaceID        WorkspaceID       `json:"workspaceId"`
+	ServerID           string            `json:"serverId"`
+	Seq                int               `json:"seq"`
+	Payload            string            `json:"payload"`
+	CloseCode          *int              `json:"closeCode,omitempty"`
+	ExpectedCloseCodes []int             `json:"expectedCloseCodes,omitempty"`
 }

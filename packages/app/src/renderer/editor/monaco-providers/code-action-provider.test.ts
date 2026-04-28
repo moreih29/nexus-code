@@ -106,6 +106,7 @@ describe("Monaco LSP code action provider", () => {
           applied: true,
           appliedPaths: ["src/index.ts"],
           skippedClosedPaths: [],
+          skippedReadFailures: [],
           skippedUnsupportedPaths: [],
         };
       },

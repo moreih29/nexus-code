@@ -1,40 +1,5 @@
 import { readFile as readFileDefault } from "node:fs/promises";
 
-import type {
-  EditorBridgeEvent,
-  LspCompletionRequest,
-  LspCompletionResult,
-  LspCodeActionRequest,
-  LspCodeActionResult,
-  LspDefinitionRequest,
-  LspDefinitionResult,
-  LspDiagnosticsReadRequest,
-  LspDiagnosticsReadResult,
-  LspDocumentChangeRequest,
-  LspDocumentChangeResult,
-  LspDocumentCloseRequest,
-  LspDocumentCloseResult,
-  LspDocumentFormattingRequest,
-  LspDocumentFormattingResult,
-  LspDocumentOpenRequest,
-  LspDocumentOpenResult,
-  LspDocumentSymbolsRequest,
-  LspDocumentSymbolsResult,
-  LspHoverRequest,
-  LspHoverResult,
-  LspPrepareRenameRequest,
-  LspPrepareRenameResult,
-  LspRangeFormattingRequest,
-  LspRangeFormattingResult,
-  LspReferencesRequest,
-  LspReferencesResult,
-  LspRenameRequest,
-  LspRenameResult,
-  LspSignatureHelpRequest,
-  LspSignatureHelpResult,
-  LspStatusReadRequest,
-  LspStatusReadResult,
-} from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import {
   resolveWorkspaceFilePath,
@@ -42,46 +7,29 @@ import {
 } from "../workspace/files/workspace-files-paths";
 import { normalizeWorkspaceAbsolutePath } from "../workspace/persistence/workspace-persistence";
 import { LspDiagnosticsCapability } from "./capabilities/diagnostics";
-import {
-  LspServerSupervisor,
-  type LspSidecarClient,
-  type LspWorkspaceRegistryStore,
-} from "./lsp-server-supervisor";
+import { LspServerSupervisor } from "./lsp-server-supervisor";
+import type * as Lsp from "./lsp-types";
 
 export type {
+  LspDisposable,
+  LspFileSystem,
   LspProcessInput,
+  LspServiceOptions,
   LspSidecarClient,
   LspWorkspaceRegistryStore,
-} from "./lsp-server-supervisor";
+} from "./lsp-types";
 export { JsonRpcMessageParser } from "./lsp-protocol-client";
 
-export interface LspDisposable {
-  dispose(): void;
-}
-
-export interface LspFileSystem {
-  readFile(filePath: string, encoding: BufferEncoding): Promise<string>;
-}
-
-export interface LspServiceOptions {
-  workspacePersistenceStore: LspWorkspaceRegistryStore;
-  sidecarClient?: LspSidecarClient;
-  now?: () => Date;
-  fs?: Partial<LspFileSystem>;
-  initializeTimeoutMs?: number;
-  shutdownTimeoutMs?: number;
-}
-
 export class LspService {
-  private readonly workspacePersistenceStore: LspWorkspaceRegistryStore;
+  private readonly workspacePersistenceStore: Lsp.LspWorkspaceRegistryStore;
   private readonly supervisor: LspServerSupervisor;
   private readonly diagnostics: LspDiagnosticsCapability;
   private readonly now: () => Date;
-  private readonly fs: LspFileSystem;
-  private readonly eventListeners = new Set<(event: EditorBridgeEvent) => void>();
+  private readonly fs: Lsp.LspFileSystem;
+  private readonly eventListeners = new Set<Lsp.LspServiceEventListener>();
   private disposed = false;
 
-  public constructor(options: LspServiceOptions) {
+  public constructor(options: Lsp.LspServiceOptions) {
     this.workspacePersistenceStore = options.workspacePersistenceStore;
     this.now = options.now ?? (() => new Date());
     this.fs = {
@@ -107,7 +55,7 @@ export class LspService {
     });
   }
 
-  public onEvent(listener: (event: EditorBridgeEvent) => void): LspDisposable {
+  public onEvent(listener: Lsp.LspServiceEventListener): Lsp.LspDisposable {
     this.eventListeners.add(listener);
     return {
       dispose: () => {
@@ -116,85 +64,67 @@ export class LspService {
     };
   }
 
-  public readStatus(request: LspStatusReadRequest): Promise<LspStatusReadResult> {
+  public readStatus(request: Lsp.LspStatusReadRequest) {
     return this.supervisor.readStatus(request);
   }
 
-  public readDiagnostics(
-    request: LspDiagnosticsReadRequest,
-  ): Promise<LspDiagnosticsReadResult> {
+  public readDiagnostics(request: Lsp.LspDiagnosticsReadRequest) {
     return this.diagnostics.readDiagnostics(request);
   }
 
-  public openDocument(
-    request: LspDocumentOpenRequest,
-  ): Promise<LspDocumentOpenResult> {
+  public openDocument(request: Lsp.LspDocumentOpenRequest) {
     return this.supervisor.openDocument(request);
   }
 
-  public changeDocument(
-    request: LspDocumentChangeRequest,
-  ): Promise<LspDocumentChangeResult> {
+  public changeDocument(request: Lsp.LspDocumentChangeRequest) {
     return this.supervisor.changeDocument(request);
   }
 
-  public closeDocument(
-    request: LspDocumentCloseRequest,
-  ): Promise<LspDocumentCloseResult> {
+  public closeDocument(request: Lsp.LspDocumentCloseRequest) {
     return this.supervisor.closeDocument(request);
   }
 
-  public complete(request: LspCompletionRequest): Promise<LspCompletionResult> {
+  public complete(request: Lsp.LspCompletionRequest) {
     return this.supervisor.complete(request);
   }
 
-  public hover(request: LspHoverRequest): Promise<LspHoverResult> {
+  public hover(request: Lsp.LspHoverRequest) {
     return this.supervisor.hover(request);
   }
 
-  public definition(request: LspDefinitionRequest): Promise<LspDefinitionResult> {
+  public definition(request: Lsp.LspDefinitionRequest) {
     return this.supervisor.definition(request);
   }
 
-  public references(request: LspReferencesRequest): Promise<LspReferencesResult> {
+  public references(request: Lsp.LspReferencesRequest) {
     return this.supervisor.references(request);
   }
 
-  public documentSymbols(
-    request: LspDocumentSymbolsRequest,
-  ): Promise<LspDocumentSymbolsResult> {
+  public documentSymbols(request: Lsp.LspDocumentSymbolsRequest) {
     return this.supervisor.documentSymbols(request);
   }
 
-  public prepareRename(
-    request: LspPrepareRenameRequest,
-  ): Promise<LspPrepareRenameResult> {
+  public prepareRename(request: Lsp.LspPrepareRenameRequest) {
     return this.supervisor.prepareRename(request);
   }
 
-  public renameSymbol(request: LspRenameRequest): Promise<LspRenameResult> {
+  public renameSymbol(request: Lsp.LspRenameRequest) {
     return this.supervisor.renameSymbol(request);
   }
 
-  public formatDocument(
-    request: LspDocumentFormattingRequest,
-  ): Promise<LspDocumentFormattingResult> {
+  public formatDocument(request: Lsp.LspDocumentFormattingRequest) {
     return this.supervisor.formatDocument(request);
   }
 
-  public formatRange(
-    request: LspRangeFormattingRequest,
-  ): Promise<LspRangeFormattingResult> {
+  public formatRange(request: Lsp.LspRangeFormattingRequest) {
     return this.supervisor.formatRange(request);
   }
 
-  public getSignatureHelp(
-    request: LspSignatureHelpRequest,
-  ): Promise<LspSignatureHelpResult> {
+  public getSignatureHelp(request: Lsp.LspSignatureHelpRequest) {
     return this.supervisor.getSignatureHelp(request);
   }
 
-  public codeActions(request: LspCodeActionRequest): Promise<LspCodeActionResult> {
+  public codeActions(request: Lsp.LspCodeActionRequest) {
     return this.supervisor.codeActions(request);
   }
 
@@ -241,7 +171,7 @@ export class LspService {
     return normalizeWorkspaceAbsolutePath(workspace.absolutePath);
   }
 
-  private emitEvent(event: EditorBridgeEvent): void {
+  private emitEvent(event: Lsp.EditorBridgeEvent): void {
     for (const listener of [...this.eventListeners]) {
       try {
         listener(event);

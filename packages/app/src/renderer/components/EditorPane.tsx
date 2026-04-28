@@ -108,14 +108,14 @@ export function EditorPaneView({
       <header className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Open files">
           {tabs.map((tab) => {
-            const active = tab.id === activeTab.id;
+            const isTabActive = tab.id === activeTab.id;
             return (
               <div
                 key={tab.id}
-                data-editor-tab-active={active ? "true" : "false"}
+                data-editor-tab-active={isTabActive ? "true" : "false"}
                 className={cn(
                   "flex h-8 min-w-0 max-w-56 shrink-0 items-center gap-1 rounded-md border border-transparent px-1",
-                  active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  isTabActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
                 <button
@@ -123,7 +123,7 @@ export function EditorPaneView({
                   role="tab"
                   data-action="editor-activate-tab"
                   data-tab-id={tab.id}
-                  aria-selected={active}
+                  aria-selected={isTabActive}
                   className="flex min-w-0 flex-1 items-center gap-1 rounded-sm px-1 py-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => onActivateTab(tab.id)}
                 >
@@ -136,10 +136,12 @@ export function EditorPaneView({
                     />
                   ) : null}
                   <span
-                    data-editor-tab-title-active={active ? "true" : "false"}
+                    data-editor-tab-title-active={isTabActive ? "true" : "false"}
                     className={cn(
                       "truncate",
-                      active ? "font-semibold text-foreground" : "font-normal text-muted-foreground",
+                      isTabActive && active
+                        ? "font-semibold text-foreground"
+                        : "font-normal text-muted-foreground",
                     )}
                   >
                     {tab.title}

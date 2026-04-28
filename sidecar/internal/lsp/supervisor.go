@@ -19,7 +19,7 @@ const (
 	MessageTypeLifecycle = "lsp/lifecycle"
 	MessageTypeRelay     = "lsp/relay"
 
-	defaultTerminateTimeout = 3 * time.Second
+	defaultTerminateTimeout = 5 * time.Second
 	defaultEmitTimeout      = 2 * time.Second
 )
 
@@ -265,11 +265,12 @@ func (s *Supervisor) StopAll(ctx context.Context, cmd contracts.LspStopAllServer
 	}
 
 	return s.emit(ctx, contracts.LspStopAllServersReply{
-		Type:             MessageTypeLifecycle,
-		Action:           contracts.LspLifecycleActionStopAllStopped,
-		RequestID:        cmd.RequestID,
-		WorkspaceID:      cmd.WorkspaceID,
-		StoppedServerIDs: stoppedServerIDs,
+		Type:               MessageTypeLifecycle,
+		Action:             contracts.LspLifecycleActionStopAllStopped,
+		RequestID:          cmd.RequestID,
+		WorkspaceID:        cmd.WorkspaceID,
+		StoppedServerIDs:   stoppedServerIDs,
+		ExpectedCloseCodes: append([]int(nil), cmd.ExpectedCloseCodes...),
 	})
 }
 

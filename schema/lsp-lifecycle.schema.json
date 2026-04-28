@@ -54,6 +54,20 @@
       "type": "string",
       "enum": ["running", "stopped", "unavailable", "error"]
     },
+    "webSocketCloseCode": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 4999,
+      "description": "RFC 6455 WebSocket close code observed on the sidecar channel"
+    },
+    "expectedCloseCodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/webSocketCloseCode" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": [1000, 1001],
+      "description": "Close codes that the main process should treat as graceful for this lifecycle path"
+    },
     "lspStartServerCommand": {
       "type": "object",
       "additionalProperties": false,
@@ -163,7 +177,8 @@
         "action": { "const": "stop_all" },
         "requestId": { "$ref": "#/$defs/requestId" },
         "workspaceId": { "$ref": "#/$defs/workspaceId" },
-        "reason": { "$ref": "#/$defs/lspServerStopReason" }
+        "reason": { "$ref": "#/$defs/lspServerStopReason" },
+        "expectedCloseCodes": { "$ref": "#/$defs/expectedCloseCodes" }
       }
     },
     "lspServerStartedReply": {
@@ -276,7 +291,9 @@
         "stoppedServerIds": {
           "type": "array",
           "items": { "$ref": "#/$defs/serverId" }
-        }
+        },
+        "closeCode": { "$ref": "#/$defs/webSocketCloseCode" },
+        "expectedCloseCodes": { "$ref": "#/$defs/expectedCloseCodes" }
       }
     }
   }

@@ -326,6 +326,34 @@ describe("SidecarBridge", () => {
     });
   });
 
+  test("expectedCloseCodes에 포함된 close code를 requested로 합성한다", async () => {
+    const child = new MockChildProcess(4510);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
+      spawnProcess: createMockSpawn(child, { mode: "normal", stopCloseCode: 4000 }),
+      expectedCloseCodes: [4000],
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+    });
+
+    await bridge.start(startCommand);
+    const stopped = await bridge.stop({
+      type: "sidecar/stop",
+      workspaceId,
+      reason: "workspace-close",
+    });
+
+    expect(stopped).toMatchObject({
+      type: "sidecar/stopped",
+      workspaceId,
+      reason: "requested",
+      exitCode: 0,
+    });
+    expect(child.killCalls).toEqual([]);
+  });
+
   test("sidecar binary가 없으면 spawn하지 않고 unavailable started event를 반환한다", async () => {
     const bridge = new SidecarBridge({
       sidecarBin: "/missing/nexus-sidecar",
@@ -425,7 +453,7 @@ type MockMode = "normal" | "token-mismatch";
 
 function createMockSpawn(
   child: MockChildProcess,
-  options: { mode: MockMode },
+  options: { mode: MockMode; stopCloseCode?: number },
 ): typeof import("node:child_process").spawn {
   return ((_sidecarBin: string, _args: readonly string[], spawnOptions: SpawnOptions) => {
     const expectedToken =
@@ -510,7 +538,7 @@ function createMockSpawn(
               exitCode: 0,
             }),
           );
-          ws.close(1000);
+          ws.close(options.stopCloseCode ?? 1000);
           child.emit("exit", 0, null);
         }
       });

@@ -22,6 +22,16 @@ export type LspServerStopReason =
   | "app-shutdown"
   | "restart"
   | "sidecar-stop";
+/**
+ * Close codes that the main process should treat as graceful for this lifecycle path
+ *
+ * @minItems 1
+ */
+export type ExpectedCloseCodes = [WebSocketCloseCode, ...WebSocketCloseCode[]];
+/**
+ * RFC 6455 WebSocket close code observed on the sidecar channel
+ */
+export type WebSocketCloseCode = number;
 export type LspServerState = "running" | "stopped" | "unavailable" | "error";
 
 export interface LspStartServerCommand {
@@ -77,6 +87,7 @@ export interface LspStopAllServersCommand {
   requestId: RequestId;
   workspaceId?: WorkspaceId;
   reason: LspServerStopReason;
+  expectedCloseCodes?: ExpectedCloseCodes;
 }
 export interface LspServerStartedReply {
   type: "lsp/lifecycle";
@@ -129,4 +140,6 @@ export interface LspStopAllServersReply {
   requestId: RequestId;
   workspaceId?: WorkspaceId;
   stoppedServerIds: ServerId[];
+  closeCode?: WebSocketCloseCode;
+  expectedCloseCodes?: ExpectedCloseCodes;
 }

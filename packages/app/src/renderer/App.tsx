@@ -259,7 +259,9 @@ export default function App(): JSX.Element {
     };
   }, [completeClaudeConsentRequest]);
 
-  const toggleWorkspacePanel = useCallback(() => {
+  // Cmd+B toggles the Workspace strip + Filetree column as one sidebar bundle.
+  // Keep one flag so the two columns cannot drift into separately toggled states.
+  const toggleWorkspaceSidebar = useCallback(() => {
     setWorkspaceVisible((visible) => !visible);
   }, []);
 
@@ -296,10 +298,10 @@ export default function App(): JSX.Element {
       setCommandPaletteOpen,
       toggleActiveCenterPaneMaximize,
       toggleSharedPanel,
-      toggleWorkspacePanel,
+      toggleWorkspaceSidebar,
       workspaceStore,
     });
-  }, [closeWorkspace, editorStore, moveActiveEditorTabToPane, openFolder, splitEditorPaneRight, toggleActiveCenterPaneMaximize, toggleSharedPanel, toggleWorkspacePanel, workspaceStore]);
+  }, [closeWorkspace, editorStore, moveActiveEditorTabToPane, openFolder, splitEditorPaneRight, toggleActiveCenterPaneMaximize, toggleSharedPanel, toggleWorkspaceSidebar, workspaceStore]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -796,7 +798,7 @@ export function registerAppCommands({
   setCommandPaletteOpen,
   toggleActiveCenterPaneMaximize,
   toggleSharedPanel,
-  toggleWorkspacePanel,
+  toggleWorkspaceSidebar,
   workspaceStore,
 }: {
   closeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
@@ -807,7 +809,7 @@ export function registerAppCommands({
   setCommandPaletteOpen: (open: boolean) => void;
   toggleActiveCenterPaneMaximize: () => void;
   toggleSharedPanel: () => void;
-  toggleWorkspacePanel: () => void;
+  toggleWorkspaceSidebar: () => void;
   workspaceStore: WorkspaceStore;
 }): void {
   const registry = keyboardRegistryStore.getState();
@@ -875,7 +877,7 @@ export function registerAppCommands({
   registerCommand({
     group: "View",
     id: "view.toggleSidebar",
-    run: () => toggleWorkspacePanel(),
+    run: () => toggleWorkspaceSidebar(),
     title: "Toggle Sidebar",
   });
   registerCommand({
