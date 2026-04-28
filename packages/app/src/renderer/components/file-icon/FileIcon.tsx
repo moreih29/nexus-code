@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   loadFileIconSvgState,
+  readCachedFileIconSvgState,
   type LoadedFileIconSvg,
 } from "./file-icon-loader";
 import {
@@ -42,23 +43,39 @@ export function FileIcon({
     [folderState, kind, name],
   );
   const [loadedSvg, setLoadedSvg] = useState<FileIconRenderState>(() => ({
-    status: "loading",
-    iconFileName: source.fileName,
-    svg: null,
+    ...(readCachedFileIconSvgState(source.fileName) ?? loadingFileIconRenderState(source.fileName)),
   }));
 
   useEffect(() => {
     let canceled = false;
+    const cachedState = readCachedFileIconSvgState(source.fileName);
+    if (cachedState) {
+      setLoadedSvg((current) => sameFileIconRenderState(current, cachedState) ? current : cachedState);
+      return () => {
+        canceled = true;
+      };
+    }
 
-    setLoadedSvg({
-      status: "loading",
-      iconFileName: source.fileName,
-      svg: null,
+    setLoadedSvg((current) => {
+      if (current.iconFileName === source.fileName && current.status === "loading") {
+        return current;
+      }
+
+      return {
+        status: "loading",
+        iconFileName: source.fileName,
+        svg: null,
+      };
     });
 
     void loadFileIconSvgState(source).then((nextState) => {
       if (!canceled) {
-        setLoadedSvg(nextState);
+        setLoadedSvg((current) => {
+          if (sameFileIconRenderState(current, nextState)) {
+            return current;
+          }
+          return nextState;
+        });
       }
     });
 
@@ -77,6 +94,25 @@ export function FileIcon({
       source={source}
       svg={matchingLoadedSvg?.svg ?? null}
     />
+  );
+}
+
+function loadingFileIconRenderState(fileName: string): FileIconRenderState {
+  return {
+    status: "loading",
+    iconFileName: fileName,
+    svg: null,
+  };
+}
+
+function sameFileIconRenderState(
+  current: FileIconRenderState,
+  next: FileIconRenderState,
+): boolean {
+  return (
+    current.iconFileName === next.iconFileName &&
+    current.status === next.status &&
+    current.svg === next.svg
   );
 }
 

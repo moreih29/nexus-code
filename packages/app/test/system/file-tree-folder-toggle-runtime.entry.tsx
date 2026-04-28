@@ -63,6 +63,8 @@ const fixtureNodes: WorkspaceFileTreeNode[] = [
 ];
 
 const capturedErrors: string[] = [];
+const suspiciousMessagePattern =
+  /Maximum update depth exceeded|An error occurred in the <(?:Presence|PopperAnchor|FileIcon)> component|<Presence>|<PopperAnchor>|<FileIcon>|getSnapshot should be cached/i;
 const originalConsoleError = console.error.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
 
@@ -72,7 +74,7 @@ console.error = (...args: unknown[]) => {
 };
 console.warn = (...args: unknown[]) => {
   const message = args.map(stringifyErrorPart).join(" ");
-  if (/Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message)) {
+  if (suspiciousMessagePattern.test(message)) {
     capturedErrors.push(message);
   }
   originalConsoleWarn(...args);
@@ -188,7 +190,7 @@ async function runSmoke(): Promise<void> {
     .map((element) => element.dataset.fileTreePath ?? "")
     .filter(Boolean);
   const fatalErrors = capturedErrors.filter((message) =>
-    /Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message),
+    suspiciousMessagePattern.test(message),
   );
 
   publishResult({

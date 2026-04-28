@@ -2,6 +2,9 @@ const { app, BrowserWindow } = require("electron");
 
 const targetUrl = process.argv[2];
 const timeoutMs = Number(process.argv[3] ?? "15000");
+const resultGlobalName = process.argv[4] ?? "__nexusFileTreeFolderToggleSmokeResult";
+const suspiciousMessagePattern =
+  /Maximum update depth exceeded|An error occurred in the <(?:Presence|PopperAnchor|FileIcon)> component|<Presence>|<PopperAnchor>|<FileIcon>|getSnapshot should be cached|Could not create web worker|MonacoEnvironment\.getWorker|MonacoEnvironment\.getWorkerUrl|worker_file|ts\.worker|json\.worker|Falling back to loading web worker code in main thread|Uncaught \[object Event\]|Uncaught Event/i;
 
 if (!targetUrl) {
   console.error("Usage: electron-renderer-smoke-runner.cjs <url> [timeoutMs]");
@@ -39,14 +42,14 @@ function finish(exitCode, payload) {
 function suspiciousMessagesFromLogs() {
   return logs
     .map((entry) => entry.message)
-    .filter((message) => /Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message));
+    .filter((message) => suspiciousMessagePattern.test(message));
 }
 
 async function waitForRendererResult(window) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const result = await window.webContents.executeJavaScript(
-      "globalThis.__nexusFileTreeFolderToggleSmokeResult ?? null",
+      `globalThis[${JSON.stringify(resultGlobalName)}] ?? null`,
       true,
     );
     if (result) {

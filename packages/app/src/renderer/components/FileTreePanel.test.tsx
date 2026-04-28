@@ -212,8 +212,9 @@ describe("FileTreePanel", () => {
 
     expect(source).toContain('isSelected && arboristNode.isFocused && "bg-accent text-accent-foreground"');
     expect(source).toContain('isSelected && !arboristNode.isFocused && "bg-muted/40 text-sidebar-foreground"');
-    expect(source).toContain('treeRef.current?.scrollTo(selectedTreePath, "smart")');
-    expect(source).toContain('treeRef.current.focus(selectedTreePath, { scroll: false })');
+    expect(source).toContain('void tree?.scrollTo(selectedTreePath, "smart")');
+    expect(source).toContain("!tree.isFocused(selectedTreePath)");
+    expect(source).toContain('tree.focus(selectedTreePath, { scroll: false })');
     expect(source).toContain('data-action="file-tree-confirm-delete"');
     expect(source).toContain("onDeleteNode(workspaceId, node.path, node.kind)");
     expect(source).toContain("fileTreeMultiSelectStore");
