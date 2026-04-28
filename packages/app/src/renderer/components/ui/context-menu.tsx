@@ -4,8 +4,37 @@ import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
+interface ContextMenuOpenStateContextValue {
+  open: boolean;
+}
+
+const ContextMenuOpenStateContext = React.createContext<ContextMenuOpenStateContextValue>({
+  open: true,
+});
+
+function ContextMenu({
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
+  const [open, setOpen] = React.useState(false);
+  const contextValue = React.useMemo(() => ({ open }), [open]);
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
+  return (
+    <ContextMenuOpenStateContext.Provider value={contextValue}>
+      <ContextMenuPrimitive.Root
+        data-slot="context-menu"
+        {...props}
+        onOpenChange={handleOpenChange}
+      />
+    </ContextMenuOpenStateContext.Provider>
+  );
 }
 
 function ContextMenuTrigger({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Trigger>) {
@@ -72,8 +101,14 @@ function ContextMenuContent({
   className,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
+  const { open } = React.useContext(ContextMenuOpenStateContext);
+
+  if (!open && props.forceMount !== true) {
+    return null;
+  }
+
   return (
-    <ContextMenuPortal>
+    <ContextMenuPortal forceMount={props.forceMount}>
       <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(

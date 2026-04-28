@@ -6073,6 +6073,83 @@
           "created_at": "2026-04-28T07:32:52.324Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T12:14:11.967Z",
+      "branch": "fix/app-file-browser-refresh",
+      "plan": {
+        "id": 32,
+        "topic": "File tree folder-toggle runtime smoke and Presence/update-depth fix",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Create a system-level runtime smoke that reproduces folder expand/toggle in a real React client DOM/runtime path and fails on renderer errors like Maximum update depth, Presence, or getSnapshot instability.",
+            "status": "decided",
+            "decision": "Selected approach: add a deterministic system smoke under packages/app/test/system that mounts the real FileTreePanel through React DOM client createRoot in a DOM-capable runtime, drives folder toggle clicks, and captures console/error signals. This belongs in system rather than unit/integration because the failure occurs in React commit/layout-effect paths and Radix Presence/ref plumbing, which existing renderToStaticMarkup/direct element tests do not execute. Rejected alternative: another static source or renderToStaticMarkup regression test; it would not reproduce useLayoutEffect/ref callback update loops. Rejected alternative: only full manual Electron app testing; it is closer to the user symptom but too slow and hard to run as a deterministic release gate. Assumption: if Bun's normal test runtime lacks enough DOM APIs for createRoot, the task should introduce a narrow fake-DOM or hidden-Electron harness while keeping the public command as bun run test:system."
+          },
+          {
+            "id": 2,
+            "title": "Use the smoke result to identify and fix the actual repeated folder-toggle crash without relying on manual reproduction.",
+            "status": "decided",
+            "decision": "Selected approach: run the new smoke before changing behavior, make it fail or at least expose the relevant error collection path, then apply the smallest targeted fix to the component/primitive that actually triggers the runtime loop. The likely area is file-tree row context menu/Radix Presence or unstable external-store selector references, but the decision is to trust the smoke and stack evidence rather than patching by guess. Rejected alternative: continue replacing Radix primitives broadly; it risks degrading accessibility and still may miss the true source. Rejected alternative: treat the Electron CSP warning as the fix target; the user-visible crash stack points to React update depth, and CSP is a separate dev warning. Assumption: current branch already contains attempted UI primitive changes; this cycle should preserve them unless the smoke shows they are wrong, and avoid unrelated file-service/file-icon edits."
+          }
+        ],
+        "research_summary": "User reports repeated Electron renderer crash when expanding folders: React Maximum update depth exceeded in <Presence>. Existing unit/integration tests are mostly renderToStaticMarkup or direct React element inspection, so they do not execute React DOM client commit/layout effects where Radix Presence/ref callback loops occur. Current test placement docs say packages/app/test/system is for deterministic system/E2E-style release gates. Existing system tests run under bun test and use deterministic runtime harnesses. Prior nx history has no explicit Presence/Maximum update depth reproducible cycle. Current branch has uncommitted changes in UI primitives (tabs/scroll-area/context-menu) and other app files; new work must avoid unrelated rewrites.",
+        "created_at": "2026-04-28T12:07:51.715Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Add file-tree folder-toggle runtime system smoke",
+          "status": "completed",
+          "context": "Plan #32 issue 1. Existing FileTreePanel unit tests use static rendering/direct element traversal and do not execute React client commit/layout effects. Add a system smoke under packages/app/test/system that mounts a real FileTreePanel through React DOM client runtime or an equivalent deterministic DOM-capable harness, clicks folder expand/toggle, and captures runtime errors.",
+          "acceptance": "- New system smoke is under packages/app/test/system and runs via `cd packages/app && bun run test:system`.\n- It drives folder expand/toggle on a fixture tree with nested folders/files.\n- It fails on runtime signals containing `Maximum update depth exceeded`, `Presence`, or `getSnapshot should be cached`.\n- The test executes a React client mount/effect path, not only renderToStaticMarkup/source grep.\n- Existing system tests still pass.",
+          "approach": "Create a focused `file-tree-folder-toggle-runtime.test.tsx` or equivalent. Prefer React DOM client `createRoot` with a deterministic DOM/runtime harness. Keep fixtures local and avoid touching unrelated app services.",
+          "risk": "Bun's default test runtime may lack full DOM APIs; if so, a narrow fake DOM or hidden Electron harness may be required.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T12:08:20.017Z"
+        },
+        {
+          "id": 2,
+          "title": "Fix folder-toggle runtime crash using the smoke evidence",
+          "status": "completed",
+          "context": "Plan #32 issue 2. User reports repeated crash when opening folders: Electron renderer logs React `Maximum update depth exceeded` with `<Presence>`. Use the new smoke result to identify the actual triggering component/path and apply the smallest targeted fix. Preserve unrelated current worktree changes.",
+          "acceptance": "- The new folder-toggle system smoke passes after the fix.\n- The fix is limited to the actual crash path; no broad unrelated rewrites.\n- Folder expand/collapse still works with selection, context menu wrappers, and visible file rows.\n- No new renderer type errors or lint errors.",
+          "approach": "Run the smoke before/after fix. Inspect stack/error collection and patch the implicated primitive or FileTreePanel integration. Avoid treating the Electron CSP warning as the crash target.",
+          "risk": "If the smoke cannot reproduce the user's exact manual crash, it must still cover the closest known runtime path and collect enough diagnostics to guide the next iteration.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T12:08:38.097Z"
+        },
+        {
+          "id": 3,
+          "title": "Verify system smoke, typecheck, lint, and targeted tests",
+          "status": "completed",
+          "context": "After the smoke and fix are in place, run verification appropriate to renderer runtime stability and preserve existing worktree changes.",
+          "acceptance": "- `cd packages/app && bun run test:system` passes.\n- `cd packages/app && bun run typecheck` passes.\n- `cd packages/app && bun run lint:renderer` passes.\n- Relevant targeted component/unit tests pass.\n- Report any remaining uncertainty if the smoke is not a full Electron manual reproduction.",
+          "approach": "Run the system suite first, then typecheck/lint, then targeted tests around FileTreePanel/context-menu/ui primitives. Capture failures and refine only if they are in scope.",
+          "risk": "Full `bun run test` may be affected by unrelated current worktree changes; use targeted verification and call out if unrelated failures appear.",
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T12:08:54.017Z"
+        }
+      ]
     }
   ]
 }
