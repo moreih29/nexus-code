@@ -21,7 +21,7 @@ interface CommandPaletteProps {
   open: boolean;
 }
 
-const COMMAND_GROUPS: CommandGroupName[] = ["Workspace", "View", "Terminal", "App"];
+const COMMAND_GROUPS: CommandGroupName[] = ["Workspace", "View", "Editor", "Terminal", "App"];
 
 export function CommandPalette({ onOpenChange, open }: CommandPaletteProps) {
   const commandsRecord = useStore(keyboardRegistryStore, (state) => state.commands);

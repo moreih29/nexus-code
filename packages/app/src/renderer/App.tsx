@@ -1,21 +1,21 @@
-import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "zustand";
-import { Eye, GripVertical } from "lucide-react";
+import { Eye } from "lucide-react";
 
 import type { ClaudeSettingsConsentRequest } from "../../../shared/src/contracts/claude/claude-settings";
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
-import { ActivityBar } from "./components/ActivityBar";
 import { CenterWorkbench } from "./components/CenterWorkbench";
 import { ClaudeSettingsConsentDialog } from "./components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "./components/CommandPalette";
-import { EditorPane } from "./components/EditorPane";
 import { EmptyState } from "./components/EmptyState";
 import { FileTreePanel } from "./components/FileTreePanel";
+import { PanelResizeHandle } from "./components/PanelResizeHandle";
 import { SessionHistoryPanel } from "./components/SessionHistoryPanel";
+import { SplitEditorPane } from "./components/SplitEditorPane";
 import { TerminalPane } from "./components/TerminalPane";
 import { ToolFeedPanel } from "./components/ToolFeedPanel";
 import { WorkspaceDiffPanel } from "./components/WorkspaceDiffPanel";
-import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { WorkspaceStrip, workspaceTabId } from "./components/WorkspaceStrip";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import {
@@ -23,23 +23,30 @@ import {
   keyboardRegistryStore,
   normalizeKeychord,
   shouldAllowSingleKeyInput,
+  shouldIgnoreKeyboardShortcut,
 } from "./stores/keyboard-registry";
 import { createHarnessBadgeStore, type HarnessBadgeStore } from "./stores/harnessBadgeStore";
 import { createHarnessToolFeedStore, type HarnessToolFeedStore } from "./stores/harnessToolFeedStore";
 import { createHarnessSessionStore, type HarnessSessionStore } from "./stores/harnessSessionStore";
 import { createWorkspaceStore, type WorkspaceStore } from "./stores/workspace-store";
-import { createEditorStore, type EditorStore } from "./stores/editor-store";
+import { createEditorStore, getActiveEditorTabId, toggleCenterWorkbenchMaximize, type CenterWorkbenchPane, type EditorStore } from "./stores/editor-store";
 import { activateWorkspaceSlot, switchWorkspaceCycle } from "./workspace/workspace-switching-commands";
 
-const WORKSPACE_PANEL_STORAGE_KEY = "nx.layout.workspacePanel";
+const WORKSPACE_STRIP_STORAGE_KEY = "nx.layout.workspaceStrip";
+const FILETREE_COLUMN_STORAGE_KEY = "nx.layout.filetreeColumn";
 const SHARED_PANEL_STORAGE_KEY = "nx.layout.sharedPanel";
-const WORKSPACE_PANEL_DEFAULT_SIZE = 320;
-const WORKSPACE_PANEL_MIN_SIZE = 280;
-const WORKSPACE_PANEL_MAX_SIZE = 520;
+const WORKSPACE_STRIP_DEFAULT_SIZE = 160;
+const WORKSPACE_STRIP_MIN_SIZE = 120;
+const WORKSPACE_STRIP_MAX_SIZE = 220;
+const FILETREE_COLUMN_DEFAULT_SIZE = 240;
+const FILETREE_COLUMN_MIN_SIZE = 200;
+const FILETREE_COLUMN_MAX_SIZE = 400;
 const SHARED_PANEL_DEFAULT_SIZE = 320;
 const SHARED_PANEL_MIN_SIZE = 256;
 const SHARED_PANEL_MAX_SIZE = 512;
 const RESIZE_KEYBOARD_STEP_PX = 16;
+
+type ResizePanel = "workspaceStrip" | "filetreeColumn" | "shared";
 
 interface StoredPanelState {
   size: number;
@@ -57,18 +64,28 @@ export default function App(): JSX.Element {
   const harnessToolFeedStore = useHarnessToolFeedStore();
   const harnessSessionStore = useHarnessSessionStore();
   const editorStore = useEditorStore();
-  const workspacePanelRef = useRef<HTMLDivElement | null>(null);
+  const workspaceStripRef = useRef<HTMLDivElement | null>(null);
+  const filetreeColumnRef = useRef<HTMLDivElement | null>(null);
   const sharedPanelRef = useRef<HTMLDivElement | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [workspaceVisible, setWorkspaceVisible] = useState(true);
   const [sharedVisible, setSharedVisible] = useState(true);
-  const [draggingPanel, setDraggingPanel] = useState<"workspace" | "shared" | null>(null);
-  const [workspacePanelState, setWorkspacePanelState] = useState(() =>
+  const [activeCenterPane, setActiveCenterPane] = useState<CenterWorkbenchPane>("editor");
+  const [draggingPanel, setDraggingPanel] = useState<ResizePanel | null>(null);
+  const [workspaceStripState, setWorkspaceStripState] = useState(() =>
     readStoredPanelState(
-      WORKSPACE_PANEL_STORAGE_KEY,
-      WORKSPACE_PANEL_DEFAULT_SIZE,
-      WORKSPACE_PANEL_MIN_SIZE,
-      WORKSPACE_PANEL_MAX_SIZE,
+      WORKSPACE_STRIP_STORAGE_KEY,
+      WORKSPACE_STRIP_DEFAULT_SIZE,
+      WORKSPACE_STRIP_MIN_SIZE,
+      WORKSPACE_STRIP_MAX_SIZE,
+    ),
+  );
+  const [filetreeColumnState, setFiletreeColumnState] = useState(() =>
+    readStoredPanelState(
+      FILETREE_COLUMN_STORAGE_KEY,
+      FILETREE_COLUMN_DEFAULT_SIZE,
+      FILETREE_COLUMN_MIN_SIZE,
+      FILETREE_COLUMN_MAX_SIZE,
     ),
   );
   const [sharedPanelState, setSharedPanelState] = useState(() =>
@@ -82,10 +99,12 @@ export default function App(): JSX.Element {
   const [claudeConsentRequest, setClaudeConsentRequest] =
     useState<ClaudeSettingsConsentRequest | null>(null);
   const [claudeConsentDontAskAgain, setClaudeConsentDontAskAgain] = useState(false);
-  const workspaceLatestSizeRef = useRef(workspacePanelState.size);
+  const workspaceStripLatestSizeRef = useRef(workspaceStripState.size);
+  const filetreeColumnLatestSizeRef = useRef(filetreeColumnState.size);
   const pendingClaudeConsentRef = useRef<ClaudeSettingsConsentRequest | null>(null);
   const sharedLatestSizeRef = useRef(sharedPanelState.size);
-  const workspaceResizeStartRef = useRef<ResizeDragState | null>(null);
+  const workspaceStripResizeStartRef = useRef<ResizeDragState | null>(null);
+  const filetreeColumnResizeStartRef = useRef<ResizeDragState | null>(null);
   const sharedResizeStartRef = useRef<ResizeDragState | null>(null);
 
   const sidebarState = useStore(workspaceStore, (state) => state.sidebarState);
@@ -103,8 +122,8 @@ export default function App(): JSX.Element {
   const editorSelectedTreePath = useStore(editorStore, (state) => state.selectedTreePath);
   const editorPendingExplorerEdit = useStore(editorStore, (state) => state.pendingExplorerEdit);
   const editorPendingExplorerDelete = useStore(editorStore, (state) => state.pendingExplorerDelete);
-  const editorTabs = useStore(editorStore, (state) => state.tabs);
-  const editorActiveTabId = useStore(editorStore, (state) => state.activeTabId);
+  const editorPanes = useStore(editorStore, (state) => state.panes);
+  const editorActivePaneId = useStore(editorStore, (state) => state.activePaneId);
   const editorMode = useStore(editorStore, (state) => state.centerMode);
   const setEditorMode = useStore(editorStore, (state) => state.setCenterMode);
   const refreshEditorFileTree = useStore(editorStore, (state) => state.refreshFileTree);
@@ -122,12 +141,18 @@ export default function App(): JSX.Element {
   const deleteEditorFileNode = useStore(editorStore, (state) => state.deleteFileNode);
   const renameEditorFileNode = useStore(editorStore, (state) => state.renameFileNode);
   const activateEditorTab = useStore(editorStore, (state) => state.activateTab);
+  const activateEditorPane = useStore(editorStore, (state) => state.activatePane);
+  const splitEditorPaneRight = useStore(editorStore, (state) => state.splitActivePaneRight);
+  const moveActiveEditorTabToPane = useStore(editorStore, (state) => state.moveActiveTabToPane);
   const updateEditorTabContent = useStore(editorStore, (state) => state.updateTabContent);
   const saveEditorTab = useStore(editorStore, (state) => state.saveTab);
   const closeEditorTab = useStore(editorStore, (state) => state.closeTab);
+  const applyEditorWorkspaceEdit = useStore(editorStore, (state) => state.applyWorkspaceEdit);
   const activeWorkspace = sidebarState.activeWorkspaceId
     ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
     : undefined;
+  const hasOpenWorkspaces = sidebarState.openWorkspaces.length > 0;
+  const activeWorkspaceTabId = activeWorkspace ? workspaceTabId(activeWorkspace.id) : undefined;
   const activeToolFeedEntries = sidebarState.activeWorkspaceId
     ? (toolFeedByWorkspaceId[sidebarState.activeWorkspaceId] ?? [])
     : [];
@@ -135,10 +160,6 @@ export default function App(): JSX.Element {
     ? (sessionByWorkspaceId[sidebarState.activeWorkspaceId] ?? null)
     : null;
   const diffRefreshSignal = activeToolFeedEntries.at(-1)?.receivedSequence ?? 0;
-  const activeEditorTabs = activeWorkspace
-    ? editorTabs.filter((tab) => tab.workspaceId === activeWorkspace.id)
-    : [];
-
   useEffect(() => {
     void refreshSidebarState().catch((error) => {
       console.error("Workspace sidebar: failed to load sidebar state.", error);
@@ -246,20 +267,43 @@ export default function App(): JSX.Element {
     setSharedVisible((visible) => !visible);
   }, []);
 
+  const toggleActiveCenterPaneMaximize = useCallback(() => {
+    const currentMode = editorStore.getState().centerMode;
+    let pane = activeCenterPane;
+    if (currentMode === "editor-max") {
+      pane = "editor";
+    } else if (currentMode === "terminal-max") {
+      pane = "terminal";
+    }
+    editorStore.getState().setCenterMode(toggleCenterWorkbenchMaximize(currentMode, pane));
+  }, [activeCenterPane, editorStore]);
+
+  useEffect(() => {
+    if (editorMode === "editor-max") {
+      setActiveCenterPane("editor");
+    } else if (editorMode === "terminal-max") {
+      setActiveCenterPane("terminal");
+    }
+  }, [editorMode]);
+
   useEffect(() => {
     registerAppCommands({
       closeWorkspace,
+      editorStore,
+      moveActiveEditorTabToPane,
       openFolder,
+      splitEditorPaneRight,
       setCommandPaletteOpen,
+      toggleActiveCenterPaneMaximize,
       toggleSharedPanel,
       toggleWorkspacePanel,
       workspaceStore,
     });
-  }, [closeWorkspace, openFolder, toggleSharedPanel, toggleWorkspacePanel, workspaceStore]);
+  }, [closeWorkspace, editorStore, moveActiveEditorTabToPane, openFolder, splitEditorPaneRight, toggleActiveCenterPaneMaximize, toggleSharedPanel, toggleWorkspacePanel, workspaceStore]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (shouldAllowSingleKeyInput(event)) {
+      if (shouldIgnoreKeyboardShortcut(event) || shouldAllowSingleKeyInput(event)) {
         return;
       }
 
@@ -281,21 +325,38 @@ export default function App(): JSX.Element {
     };
   }, []);
 
-  const handleWorkspaceResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+  const handleWorkspaceStripResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
       return;
     }
 
     event.preventDefault();
     const nextSize = clamp(
-      workspaceLatestSizeRef.current + (event.key === "ArrowLeft" ? -RESIZE_KEYBOARD_STEP_PX : RESIZE_KEYBOARD_STEP_PX),
-      WORKSPACE_PANEL_MIN_SIZE,
-      WORKSPACE_PANEL_MAX_SIZE,
+      workspaceStripLatestSizeRef.current + (event.key === "ArrowLeft" ? -RESIZE_KEYBOARD_STEP_PX : RESIZE_KEYBOARD_STEP_PX),
+      WORKSPACE_STRIP_MIN_SIZE,
+      WORKSPACE_STRIP_MAX_SIZE,
     );
-    applyPanelSize(workspacePanelRef.current, nextSize);
-    workspaceLatestSizeRef.current = nextSize;
-    setWorkspacePanelState({ size: nextSize });
-    persistPanelState(WORKSPACE_PANEL_STORAGE_KEY, { size: nextSize });
+    applyPanelSize(workspaceStripRef.current, nextSize);
+    workspaceStripLatestSizeRef.current = nextSize;
+    setWorkspaceStripState({ size: nextSize });
+    persistPanelState(WORKSPACE_STRIP_STORAGE_KEY, { size: nextSize });
+  }, []);
+
+  const handleFiletreeColumnResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+
+    event.preventDefault();
+    const nextSize = clamp(
+      filetreeColumnLatestSizeRef.current + (event.key === "ArrowLeft" ? -RESIZE_KEYBOARD_STEP_PX : RESIZE_KEYBOARD_STEP_PX),
+      FILETREE_COLUMN_MIN_SIZE,
+      FILETREE_COLUMN_MAX_SIZE,
+    );
+    applyPanelSize(filetreeColumnRef.current, nextSize);
+    filetreeColumnLatestSizeRef.current = nextSize;
+    setFiletreeColumnState({ size: nextSize });
+    persistPanelState(FILETREE_COLUMN_STORAGE_KEY, { size: nextSize });
   }, []);
 
   const handleSharedResizeKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
@@ -315,15 +376,26 @@ export default function App(): JSX.Element {
     persistPanelState(SHARED_PANEL_STORAGE_KEY, { size: nextSize });
   }, []);
 
-  const handleWorkspaceResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleWorkspaceStripResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
-    workspaceResizeStartRef.current = {
+    workspaceStripResizeStartRef.current = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
-      startSize: workspaceLatestSizeRef.current,
+      startSize: workspaceStripLatestSizeRef.current,
     };
-    startDocumentResizeDrag("workspace");
-    setDraggingPanel("workspace");
+    startDocumentResizeDrag("workspaceStrip");
+    setDraggingPanel("workspaceStrip");
+  }, []);
+
+  const handleFiletreeColumnResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    filetreeColumnResizeStartRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startSize: filetreeColumnLatestSizeRef.current,
+    };
+    startDocumentResizeDrag("filetreeColumn");
+    setDraggingPanel("filetreeColumn");
   }, []);
 
   const handleSharedResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -343,19 +415,35 @@ export default function App(): JSX.Element {
     }
 
     const handlePointerMove = (event: PointerEvent) => {
-      if (draggingPanel === "workspace") {
-        const dragState = workspaceResizeStartRef.current;
+      if (draggingPanel === "workspaceStrip") {
+        const dragState = workspaceStripResizeStartRef.current;
         if (!dragState || event.pointerId !== dragState.pointerId) {
           return;
         }
 
         const nextSize = clamp(
           dragState.startSize + event.clientX - dragState.startClientX,
-          WORKSPACE_PANEL_MIN_SIZE,
-          WORKSPACE_PANEL_MAX_SIZE,
+          WORKSPACE_STRIP_MIN_SIZE,
+          WORKSPACE_STRIP_MAX_SIZE,
         );
-        workspaceLatestSizeRef.current = nextSize;
-        applyPanelSize(workspacePanelRef.current, nextSize);
+        workspaceStripLatestSizeRef.current = nextSize;
+        applyPanelSize(workspaceStripRef.current, nextSize);
+        return;
+      }
+
+      if (draggingPanel === "filetreeColumn") {
+        const dragState = filetreeColumnResizeStartRef.current;
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+          return;
+        }
+
+        const nextSize = clamp(
+          dragState.startSize + event.clientX - dragState.startClientX,
+          FILETREE_COLUMN_MIN_SIZE,
+          FILETREE_COLUMN_MAX_SIZE,
+        );
+        filetreeColumnLatestSizeRef.current = nextSize;
+        applyPanelSize(filetreeColumnRef.current, nextSize);
         return;
       }
 
@@ -374,15 +462,24 @@ export default function App(): JSX.Element {
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      if (draggingPanel === "workspace") {
-        const dragState = workspaceResizeStartRef.current;
+      if (draggingPanel === "workspaceStrip") {
+        const dragState = workspaceStripResizeStartRef.current;
         if (!dragState || event.pointerId !== dragState.pointerId) {
           return;
         }
 
-        persistPanelState(WORKSPACE_PANEL_STORAGE_KEY, { size: workspaceLatestSizeRef.current });
-        setWorkspacePanelState({ size: workspaceLatestSizeRef.current });
-        workspaceResizeStartRef.current = null;
+        persistPanelState(WORKSPACE_STRIP_STORAGE_KEY, { size: workspaceStripLatestSizeRef.current });
+        setWorkspaceStripState({ size: workspaceStripLatestSizeRef.current });
+        workspaceStripResizeStartRef.current = null;
+      } else if (draggingPanel === "filetreeColumn") {
+        const dragState = filetreeColumnResizeStartRef.current;
+        if (!dragState || event.pointerId !== dragState.pointerId) {
+          return;
+        }
+
+        persistPanelState(FILETREE_COLUMN_STORAGE_KEY, { size: filetreeColumnLatestSizeRef.current });
+        setFiletreeColumnState({ size: filetreeColumnLatestSizeRef.current });
+        filetreeColumnResizeStartRef.current = null;
       } else {
         const dragState = sharedResizeStartRef.current;
         if (!dragState || event.pointerId !== dragState.pointerId) {
@@ -412,7 +509,6 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-full bg-background text-foreground">
-      <ActivityBar />
       <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
       <ClaudeSettingsConsentDialog
         open={claudeConsentRequest !== null}
@@ -440,27 +536,49 @@ export default function App(): JSX.Element {
         {workspaceVisible && (
           <>
             <div
-              ref={workspacePanelRef}
-              data-panel="workspace"
+              ref={workspaceStripRef}
+              data-panel="workspace-strip"
               className="min-h-0 shrink-0 overflow-hidden"
-              style={{ flexBasis: workspacePanelState.size, width: workspacePanelState.size }}
+              style={{ flexBasis: workspaceStripState.size, width: workspaceStripState.size }}
             >
-              <ScrollArea className="h-full border-r border-border bg-sidebar/70">
-                <aside className="flex min-h-full min-w-0 flex-col gap-3 p-3">
-                  <WorkspaceSidebar
-                    sidebarState={sidebarState}
-                    badgeByWorkspaceId={badgeByWorkspaceId}
-                    onOpenFolder={() => runSidebarMutation(openFolder)}
-                    onActivateWorkspace={(workspaceId) =>
-                      runSidebarMutation(() => activateWorkspace(workspaceId))
-                    }
-                    onCloseWorkspace={(workspaceId) =>
-                      runSidebarMutation(() => closeWorkspace(workspaceId))
-                    }
-                  />
+              <WorkspaceStrip
+                sidebarState={sidebarState}
+                badgeByWorkspaceId={badgeByWorkspaceId}
+                onOpenFolder={() => runSidebarMutation(openFolder)}
+                onActivateWorkspace={(workspaceId) =>
+                  runSidebarMutation(() => activateWorkspace(workspaceId))
+                }
+                onCloseWorkspace={(workspaceId) =>
+                  runSidebarMutation(() => closeWorkspace(workspaceId))
+                }
+              />
+            </div>
 
+            <PanelResizeHandle
+              orientation="vertical"
+              dragging={draggingPanel === "workspaceStrip"}
+              aria-valuemin={WORKSPACE_STRIP_MIN_SIZE}
+              aria-valuemax={WORKSPACE_STRIP_MAX_SIZE}
+              aria-valuenow={Math.round(workspaceStripState.size)}
+              aria-label="Resize workspace strip"
+              onKeyDown={handleWorkspaceStripResizeKeyDown}
+              onPointerDown={handleWorkspaceStripResizePointerDown}
+            />
+
+            {hasOpenWorkspaces && (
+              <>
+                <div
+                  ref={filetreeColumnRef}
+                  data-panel="filetree-column"
+                  className="min-h-0 shrink-0 overflow-hidden bg-sidebar/70 p-3"
+                  style={{
+                    flexBasis: filetreeColumnState.size,
+                    width: filetreeColumnState.size,
+                  }}
+                >
                   <FileTreePanel
                     activeWorkspace={activeWorkspace ?? null}
+                    workspaceTabId={activeWorkspaceTabId}
                     fileTree={editorFileTree}
                     expandedPaths={editorExpandedPaths}
                     gitBadgeByPath={editorGitBadgeByPath}
@@ -492,20 +610,20 @@ export default function App(): JSX.Element {
                     onCollapseAll={collapseAllEditorTree}
                     onMoveTreeSelection={moveEditorTreeSelection}
                   />
-                </aside>
-              </ScrollArea>
-            </div>
+                </div>
 
-            <PanelResizeHandle
-              dragging={draggingPanel === "workspace"}
-              role="separator"
-              aria-valuemin={WORKSPACE_PANEL_MIN_SIZE}
-              aria-valuemax={WORKSPACE_PANEL_MAX_SIZE}
-              aria-valuenow={Math.round(workspacePanelState.size)}
-              aria-label="Resize workspace panel"
-              onKeyDown={handleWorkspaceResizeKeyDown}
-              onPointerDown={handleWorkspaceResizePointerDown}
-            />
+                <PanelResizeHandle
+                  orientation="vertical"
+                  dragging={draggingPanel === "filetreeColumn"}
+                  aria-valuemin={FILETREE_COLUMN_MIN_SIZE}
+                  aria-valuemax={FILETREE_COLUMN_MAX_SIZE}
+                  aria-valuenow={Math.round(filetreeColumnState.size)}
+                  aria-label="Resize file tree column"
+                  onKeyDown={handleFiletreeColumnResizeKeyDown}
+                  onPointerDown={handleFiletreeColumnResizePointerDown}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -513,14 +631,19 @@ export default function App(): JSX.Element {
           <CenterWorkbench
             mode={editorMode}
             onModeChange={setEditorMode}
+            activePane={activeCenterPane}
+            onActivePaneChange={setActiveCenterPane}
             editorPane={
-              <EditorPane
+              <SplitEditorPane
+                activeWorkspaceId={activeWorkspace?.id ?? null}
                 activeWorkspaceName={activeWorkspace?.displayName ?? null}
-                tabs={activeEditorTabs}
-                activeTabId={editorActiveTabId}
+                panes={editorPanes}
+                activePaneId={editorActivePaneId}
+                onActivatePane={activateEditorPane}
+                onSplitRight={splitEditorPaneRight}
                 onActivateTab={activateEditorTab}
-                onCloseTab={(tabId) => {
-                  void runEditorMutation(() => closeEditorTab(tabId));
+                onCloseTab={(paneId, tabId) => {
+                  void runEditorMutation(() => closeEditorTab(paneId, tabId));
                 }}
                 onSaveTab={(tabId) => {
                   void runEditorMutation(() => saveEditorTab(tabId));
@@ -528,6 +651,7 @@ export default function App(): JSX.Element {
                 onChangeContent={(tabId, content) => {
                   void updateEditorTabContent(tabId, content);
                 }}
+                onApplyWorkspaceEdit={applyEditorWorkspaceEdit}
               />
             }
             terminalPane={<TerminalPane sidebarState={sidebarState} />}
@@ -537,8 +661,8 @@ export default function App(): JSX.Element {
         {sharedVisible && (
           <>
             <PanelResizeHandle
+              orientation="vertical"
               dragging={draggingPanel === "shared"}
-              role="separator"
               aria-valuemin={SHARED_PANEL_MIN_SIZE}
               aria-valuemax={SHARED_PANEL_MAX_SIZE}
               aria-valuenow={Math.round(sharedPanelState.size)}
@@ -638,24 +762,6 @@ function persistPanelState(storageKey: string, state: StoredPanelState): void {
   window.localStorage.setItem(storageKey, JSON.stringify(state));
 }
 
-function PanelResizeHandle({
-  dragging,
-  ...props
-}: HTMLAttributes<HTMLDivElement> & { dragging: boolean }) {
-  return (
-    <div
-      tabIndex={0}
-      data-resize-handle-state={dragging ? "drag" : "inactive"}
-      className="relative z-10 flex w-2 shrink-0 cursor-col-resize items-center justify-center bg-border transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[resize-handle-state=drag]:bg-accent"
-      {...props}
-    >
-      <div className="pointer-events-none z-10 flex h-4 w-3 items-center justify-center rounded-xs border bg-border">
-        <GripVertical aria-hidden="true" className="size-3" strokeWidth={1.75} />
-      </div>
-    </div>
-  );
-}
-
 function applyPanelSize(panel: HTMLDivElement | null, size: number): void {
   if (!panel) {
     return;
@@ -669,7 +775,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function startDocumentResizeDrag(panel: "workspace" | "shared"): void {
+function startDocumentResizeDrag(panel: ResizePanel): void {
   document.documentElement.dataset.resizingPanel = panel;
   document.body.style.cursor = "col-resize";
   document.body.style.userSelect = "none";
@@ -681,17 +787,25 @@ function stopDocumentResizeDrag(): void {
   document.body.style.userSelect = "";
 }
 
-function registerAppCommands({
+export function registerAppCommands({
   closeWorkspace,
+  editorStore,
+  moveActiveEditorTabToPane,
   openFolder,
+  splitEditorPaneRight,
   setCommandPaletteOpen,
+  toggleActiveCenterPaneMaximize,
   toggleSharedPanel,
   toggleWorkspacePanel,
   workspaceStore,
 }: {
   closeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
+  editorStore: EditorStore;
+  moveActiveEditorTabToPane: (direction: "left" | "right") => void;
   openFolder: () => Promise<void>;
+  splitEditorPaneRight: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  toggleActiveCenterPaneMaximize: () => void;
   toggleSharedPanel: () => void;
   toggleWorkspacePanel: () => void;
   workspaceStore: WorkspaceStore;
@@ -772,6 +886,12 @@ function registerAppCommands({
   });
   registerCommand({
     group: "View",
+    id: "view.toggleCenterPaneMaximize",
+    run: () => toggleActiveCenterPaneMaximize(),
+    title: "Toggle Center Pane Maximize",
+  });
+  registerCommand({
+    group: "View",
     id: "view.focusTerminal",
     run: focusTerminal,
     title: "Focus Terminal",
@@ -787,6 +907,37 @@ function registerAppCommands({
     id: "terminal.closeTab",
     run: clickCloseActiveTerminalTab,
     title: "Close Terminal Tab",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.closeActiveTab",
+    run: () =>
+      closeActiveEditorTabOrWorkspace({
+        closeWorkspace,
+        editorStore,
+        workspaceStore,
+      }),
+    title: "Close Active Editor Tab",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.splitRight",
+    run: splitEditorPaneRight,
+    title: "Split Editor Right",
+  });
+  registerCommand({
+    group: "Editor",
+    hidden: true,
+    id: "editor.moveActiveTabLeft",
+    run: () => moveActiveEditorTabToPane("left"),
+    title: "Move Active Editor Tab Left",
+  });
+  registerCommand({
+    group: "Editor",
+    hidden: true,
+    id: "editor.moveActiveTabRight",
+    run: () => moveActiveEditorTabToPane("right"),
+    title: "Move Active Editor Tab Right",
   });
   registerCommand({
     group: "Terminal",
@@ -835,14 +986,43 @@ function registerAppCommands({
   registerBinding("Cmd+O", "workspace.openFolder");
   registerBinding("Cmd+B", "view.toggleSidebar");
   registerBinding("Cmd+J", "view.toggleSharedPanel");
+  registerBinding("Cmd+Shift+M", "view.toggleCenterPaneMaximize");
   registerBinding("Ctrl+`", "view.focusTerminal");
   registerBinding("Cmd+T", "terminal.newTab");
-  registerBinding("Cmd+W", "terminal.closeTab");
+  registerBinding("Cmd+W", "editor.closeActiveTab");
+  registerBinding("Cmd+\\", "editor.splitRight");
+  registerBinding("Cmd+Alt+ArrowLeft", "editor.moveActiveTabLeft");
+  registerBinding("Cmd+Alt+ArrowRight", "editor.moveActiveTabRight");
+  registerBinding("Cmd+Shift+W", "workspace.close");
   registerBinding("Cmd+Shift+P", "commandPalette.open");
   registerBinding("Cmd+P", "commandPalette.open");
   registerBinding("Escape", "commandPalette.close");
   registerBinding("Cmd+Shift+[", "terminal.previousTab");
   registerBinding("Cmd+Shift+]", "terminal.nextTab");
+}
+
+export async function closeActiveEditorTabOrWorkspace({
+  closeWorkspace,
+  editorStore,
+  workspaceStore,
+}: {
+  closeWorkspace: (workspaceId: WorkspaceId) => Promise<void>;
+  editorStore: EditorStore;
+  workspaceStore: WorkspaceStore;
+}): Promise<void> {
+  const state = editorStore.getState();
+  const activePaneId = state.activePaneId;
+  const activeTabId = getActiveEditorTabId(state);
+
+  if (activeTabId) {
+    await runEditorMutation(() => editorStore.getState().closeTab(activePaneId, activeTabId));
+    return;
+  }
+
+  const activeWorkspaceId = workspaceStore.getState().sidebarState.activeWorkspaceId;
+  if (activeWorkspaceId) {
+    await runSidebarMutation(() => closeWorkspace(activeWorkspaceId));
+  }
 }
 
 function focusTerminal(): void {

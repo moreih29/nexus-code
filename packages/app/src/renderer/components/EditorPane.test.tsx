@@ -60,7 +60,10 @@ describe("EditorPaneView", () => {
     expect(findText(tree, "1 errors · 0 warnings")).toBe(true);
     expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-dirty"] === "true")).toBeDefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-close-tab")).toBeDefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-split-right")).toBeDefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeDefined();
+    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane")?.props.className)).toContain("ring-1 ring-inset ring-[var(--color-ring)]");
+    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "true")?.props.className)).toContain("font-semibold text-foreground");
     expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeDefined();
   });
 

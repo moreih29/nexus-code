@@ -10,11 +10,23 @@ import type {
   WorkspaceGitBadgeStatus,
   LspLanguage,
   LspStatus,
+  LspTextEdit,
+  LspWorkspaceEdit,
+  LspWorkspaceEditApplicationResult,
 } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 
-export type CenterWorkbenchMode = "editor" | "terminal";
+export type CenterWorkbenchMode = "split" | "editor-max" | "terminal-max";
+export type CenterWorkbenchPane = "editor" | "terminal";
+export type EditorPaneId = string;
 export type EditorTabId = string;
+
+export const CENTER_WORKBENCH_MODE_STORAGE_KEY = "nx.center.mode";
+export const DEFAULT_EDITOR_PANE_ID: EditorPaneId = "p0";
+export const SECONDARY_EDITOR_PANE_ID: EditorPaneId = "p1";
+export const MAX_EDITOR_PANE_COUNT = 2;
+export const WORKSPACE_EDIT_CLOSED_FILE_POLICY =
+  "WorkspaceEdit text edits apply only to open editor tabs; closed-file edits are reported as skipped and are never written to disk automatically.";
 
 export interface EditorBridge {
   invoke<TRequest extends EditorBridgeRequest>(
@@ -85,6 +97,17 @@ export interface EditorTab {
   lspStatus: LspStatus | null;
 }
 
+export interface EditorPaneState {
+  id: EditorPaneId;
+  tabs: EditorTab[];
+  activeTabId: EditorTabId | null;
+}
+
+export interface EditorPanesState {
+  panes: EditorPaneState[];
+  activePaneId: EditorPaneId;
+}
+
 export interface EditorStoreState {
   activeWorkspaceId: WorkspaceId | null;
   centerMode: CenterWorkbenchMode;
@@ -98,11 +121,14 @@ export interface EditorStoreState {
   pendingExplorerDelete: EditorPendingExplorerDelete | null;
   pendingExplorerDeletesByWorkspace: Record<string, EditorPendingExplorerDelete>;
   gitBadgeByPath: Record<string, WorkspaceGitBadgeStatus>;
-  tabs: EditorTab[];
-  activeTabId: EditorTabId | null;
+  panes: EditorPaneState[];
+  activePaneId: EditorPaneId;
   lspStatuses: Record<string, LspStatus>;
   setActiveWorkspace(workspaceId: WorkspaceId | null): void;
   setCenterMode(mode: CenterWorkbenchMode): void;
+  activatePane(paneId: EditorPaneId): void;
+  splitActivePaneRight(): void;
+  moveActiveTabToPane(direction: "left" | "right"): void;
   refreshFileTree(workspaceId?: WorkspaceId | null): Promise<void>;
   toggleDirectory(path: string): void;
   selectTreePath(path: string | null, workspaceId?: WorkspaceId | null): void;
@@ -118,10 +144,14 @@ export interface EditorStoreState {
   deleteFileNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): Promise<void>;
   renameFileNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): Promise<void>;
   openFile(workspaceId: WorkspaceId, path: string): Promise<void>;
-  activateTab(tabId: EditorTabId): void;
+  activateTab(paneId: EditorPaneId, tabId: EditorTabId): void;
   updateTabContent(tabId: EditorTabId, content: string): Promise<void>;
   saveTab(tabId: EditorTabId): Promise<void>;
-  closeTab(tabId: EditorTabId): Promise<void>;
+  closeTab(paneId: EditorPaneId, tabId: EditorTabId): Promise<void>;
+  applyWorkspaceEdit(
+    workspaceId: WorkspaceId,
+    edit: LspWorkspaceEdit,
+  ): Promise<LspWorkspaceEditApplicationResult>;
   applyEditorEvent(event: EditorBridgeEvent): void;
 }
 
@@ -136,10 +166,142 @@ const EMPTY_FILE_TREE: EditorFileTreeState = {
 
 export type EditorStore = StoreApi<EditorStoreState>;
 
+export function migrateCenterWorkbenchMode(mode: unknown): CenterWorkbenchMode {
+  if (mode === "split" || mode === "editor-max" || mode === "terminal-max") {
+    return mode;
+  }
+
+  if (mode === "editor") {
+    return "editor-max";
+  }
+
+  if (mode === "terminal") {
+    return "terminal-max";
+  }
+
+  return "split";
+}
+
+export function maximizedCenterWorkbenchModeForPane(pane: CenterWorkbenchPane): CenterWorkbenchMode {
+  return pane === "editor" ? "editor-max" : "terminal-max";
+}
+
+export function toggleCenterWorkbenchMaximize(
+  mode: CenterWorkbenchMode,
+  pane: CenterWorkbenchPane,
+): CenterWorkbenchMode {
+  const maximizedMode = maximizedCenterWorkbenchModeForPane(pane);
+  return mode === maximizedMode ? "split" : maximizedMode;
+}
+
+export function createDefaultEditorPanesState(): EditorPanesState {
+  return {
+    panes: [
+      {
+        id: DEFAULT_EDITOR_PANE_ID,
+        tabs: [],
+        activeTabId: null,
+      },
+    ],
+    activePaneId: DEFAULT_EDITOR_PANE_ID,
+  };
+}
+
+export function migrateEditorPanesState(persistedState: unknown): EditorPanesState {
+  const rawState = unwrapPersistedEditorState(persistedState);
+
+  if (isRecord(rawState) && Array.isArray(rawState.panes)) {
+    const panes = rawState.panes
+      .slice(0, MAX_EDITOR_PANE_COUNT)
+      .map((pane, index): EditorPaneState | null => {
+        if (!isRecord(pane)) {
+          return null;
+        }
+        const id = typeof pane.id === "string" && pane.id.length > 0
+          ? pane.id
+          : index === 0
+            ? DEFAULT_EDITOR_PANE_ID
+            : SECONDARY_EDITOR_PANE_ID;
+        const tabs = Array.isArray(pane.tabs) ? (pane.tabs as EditorTab[]) : [];
+        const activeTabId = normalizePaneActiveTabId(tabs, pane.activeTabId);
+        return { id, tabs, activeTabId };
+      })
+      .filter((pane): pane is EditorPaneState => pane !== null);
+
+    if (panes.length > 0) {
+      const activePaneId =
+        typeof rawState.activePaneId === "string" &&
+        panes.some((pane) => pane.id === rawState.activePaneId)
+          ? rawState.activePaneId
+          : panes[0]!.id;
+      return { panes, activePaneId };
+    }
+  }
+
+  if (isRecord(rawState) && Array.isArray(rawState.tabs)) {
+    const tabs = rawState.tabs as EditorTab[];
+    return {
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs,
+          activeTabId: normalizePaneActiveTabId(tabs, rawState.activeTabId),
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    };
+  }
+
+  return createDefaultEditorPanesState();
+}
+
+function readStoredCenterWorkbenchMode(): CenterWorkbenchMode {
+  try {
+    const rawMode = globalThis.localStorage?.getItem(CENTER_WORKBENCH_MODE_STORAGE_KEY) ?? null;
+    return migrateCenterWorkbenchMode(parseStoredCenterWorkbenchMode(rawMode));
+  } catch {
+    return "split";
+  }
+}
+
+function parseStoredCenterWorkbenchMode(rawMode: string | null): unknown {
+  if (!rawMode) {
+    return null;
+  }
+
+  try {
+    const parsedMode = JSON.parse(rawMode) as unknown;
+    if (typeof parsedMode === "string") {
+      return parsedMode;
+    }
+    if (
+      typeof parsedMode === "object" &&
+      parsedMode !== null &&
+      "mode" in parsedMode
+    ) {
+      return (parsedMode as { mode?: unknown }).mode;
+    }
+  } catch {
+    return rawMode;
+  }
+
+  return rawMode;
+}
+
+function persistCenterWorkbenchMode(mode: CenterWorkbenchMode): void {
+  try {
+    globalThis.localStorage?.setItem(CENTER_WORKBENCH_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Runtime state still updates when storage is unavailable.
+  }
+}
+
 export function createEditorStore(bridge: EditorBridge): EditorStore {
+  const initialPanesState = createDefaultEditorPanesState();
+
   return createStore<EditorStoreState>((set, get) => ({
     activeWorkspaceId: null,
-    centerMode: "terminal",
+    centerMode: readStoredCenterWorkbenchMode(),
     fileTree: EMPTY_FILE_TREE,
     expandedPaths: {},
     expandedPathsByWorkspace: {},
@@ -150,15 +312,15 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     pendingExplorerDelete: null,
     pendingExplorerDeletesByWorkspace: {},
     gitBadgeByPath: {},
-    tabs: [],
-    activeTabId: null,
+    panes: initialPanesState.panes,
+    activePaneId: initialPanesState.activePaneId,
     lspStatuses: {},
     setActiveWorkspace(workspaceId) {
       set((state) => {
         if (!workspaceId) {
           return {
             activeWorkspaceId: null,
-            activeTabId: null,
+            panes: panesForWorkspace(state.panes, null),
             fileTree: EMPTY_FILE_TREE,
             expandedPaths: {},
             selectedTreePath: null,
@@ -168,8 +330,8 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
           };
         }
 
-        const activeTab = state.tabs.find((tab) => tab.workspaceId === workspaceId) ?? null;
         const workspaceChanged = state.activeWorkspaceId !== workspaceId;
+        const panes = panesForWorkspace(state.panes, workspaceId);
         const explorerState = deriveActiveExplorerState(
           workspaceId,
           state.expandedPathsByWorkspace,
@@ -180,7 +342,8 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
         return {
           activeWorkspaceId: workspaceId,
-          activeTabId: activeTab?.id ?? null,
+          panes,
+          activePaneId: resolveActivePaneIdForPanes(panes, state.activePaneId),
           fileTree: workspaceChanged
             ? {
                 workspaceId,
@@ -197,7 +360,23 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       });
     },
     setCenterMode(mode) {
+      persistCenterWorkbenchMode(mode);
       set({ centerMode: mode });
+    },
+    activatePane(paneId) {
+      set((state) => {
+        if (!state.panes.some((pane) => pane.id === paneId)) {
+          return state;
+        }
+
+        return { activePaneId: paneId };
+      });
+    },
+    splitActivePaneRight() {
+      set((state) => splitActivePaneRightInState(state));
+    },
+    moveActiveTabToPane(direction) {
+      set((state) => moveActiveTabToPaneInState(state, direction));
     },
     async refreshFileTree(workspaceId = get().activeWorkspaceId) {
       if (!workspaceId) {
@@ -422,11 +601,37 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async openFile(workspaceId, path) {
       const existingTabId = tabIdFor(workspaceId, path);
-      if (get().tabs.some((tab) => tab.id === existingTabId)) {
+      const activePaneId = getActiveEditorPane(get()).id;
+      const activePane = get().panes.find((pane) => pane.id === activePaneId) ?? null;
+
+      if (activePane?.tabs.some((tab) => tab.id === existingTabId)) {
+        persistCenterWorkbenchMode("editor-max");
         set((state) => ({
           activeWorkspaceId: workspaceId,
-          activeTabId: existingTabId,
-          centerMode: "editor",
+          centerMode: "editor-max",
+          activePaneId,
+          panes: activateTabInPane(state.panes, activePaneId, existingTabId),
+          ...applyWorkspaceExplorerChanges(
+            state,
+            workspaceId,
+            {
+              expandedPaths: expandAncestorPaths(expandedPathsForWorkspace(state, workspaceId), path),
+              selectedTreePath: path,
+            },
+            workspaceId,
+          ),
+        }));
+        return;
+      }
+
+      const existingTab = getAllEditorTabs(get()).find((tab) => tab.id === existingTabId) ?? null;
+      if (existingTab) {
+        persistCenterWorkbenchMode("editor-max");
+        set((state) => ({
+          activeWorkspaceId: workspaceId,
+          centerMode: "editor-max",
+          activePaneId,
+          panes: addTabToPane(state.panes, activePaneId, existingTab),
           ...applyWorkspaceExplorerChanges(
             state,
             workspaceId,
@@ -467,11 +672,12 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         lspStatus,
       };
 
+      persistCenterWorkbenchMode("editor-max");
       set((state) => ({
         activeWorkspaceId: workspaceId,
-        centerMode: "editor",
-        activeTabId: tab.id,
-        tabs: [...state.tabs, tab],
+        centerMode: "editor-max",
+        activePaneId: getActiveEditorPane(state).id,
+        panes: addTabToPane(state.panes, getActiveEditorPane(state).id, tab),
         ...applyWorkspaceExplorerChanges(
           state,
           workspaceId,
@@ -499,16 +705,19 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         await refreshTabDiagnostics(bridge, set, workspaceId, readResult.path, language);
       }
     },
-    activateTab(tabId) {
-      const tab = get().tabs.find((candidate) => candidate.id === tabId);
+    activateTab(paneId, tabId) {
+      const pane = get().panes.find((candidate) => candidate.id === paneId);
+      const tab = pane?.tabs.find((candidate) => candidate.id === tabId) ?? null;
       if (!tab) {
         return;
       }
 
+      persistCenterWorkbenchMode("editor-max");
       set((state) => ({
         activeWorkspaceId: tab.workspaceId,
-        activeTabId: tabId,
-        centerMode: "editor",
+        centerMode: "editor-max",
+        activePaneId: paneId,
+        panes: activateTabInPane(state.panes, paneId, tabId),
         ...applyWorkspaceExplorerChanges(
           state,
           tab.workspaceId,
@@ -524,23 +733,23 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       }));
     },
     async updateTabContent(tabId, content) {
-      const tab = get().tabs.find((candidate) => candidate.id === tabId);
+      const tab = getAllEditorTabs(get()).find((candidate) => candidate.id === tabId);
       if (!tab || tab.content === content) {
         return;
       }
 
       const nextDocumentVersion = tab.lspDocumentVersion + 1;
       set((state) => ({
-        tabs: state.tabs.map((candidate) =>
-          candidate.id === tabId
-            ? {
-                ...candidate,
-                content,
-                dirty: content !== candidate.savedContent,
-                errorMessage: null,
-                lspDocumentVersion: nextDocumentVersion,
-              }
-            : candidate,
+        panes: mapTabsInPanes(
+          state.panes,
+          (candidate) => candidate.id === tabId,
+          (candidate) => ({
+            ...candidate,
+            content,
+            dirty: content !== candidate.savedContent,
+            errorMessage: null,
+            lspDocumentVersion: nextDocumentVersion,
+          }),
         ),
       }));
 
@@ -563,16 +772,16 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       }
     },
     async saveTab(tabId) {
-      const tab = get().tabs.find((candidate) => candidate.id === tabId);
+      const tab = getAllEditorTabs(get()).find((candidate) => candidate.id === tabId);
       if (!tab) {
         return;
       }
 
       set((state) => ({
-        tabs: state.tabs.map((candidate) =>
-          candidate.id === tabId
-            ? { ...candidate, saving: true, errorMessage: null }
-            : candidate,
+        panes: mapTabsInPanes(
+          state.panes,
+          (candidate) => candidate.id === tabId,
+          (candidate) => ({ ...candidate, saving: true, errorMessage: null }),
         ),
       }));
 
@@ -586,43 +795,49 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
           expectedVersion: tab.version,
         });
         set((state) => ({
-          tabs: state.tabs.map((candidate) =>
-            candidate.id === tabId
-              ? {
-                  ...candidate,
-                  version: result.version,
-                  savedContent: candidate.content,
-                  dirty: false,
-                  saving: false,
-                  errorMessage: null,
-                }
-              : candidate,
+          panes: mapTabsInPanes(
+            state.panes,
+            (candidate) => candidate.id === tabId,
+            (candidate) => ({
+              ...candidate,
+              version: result.version,
+              savedContent: candidate.content,
+              dirty: false,
+              saving: false,
+              errorMessage: null,
+            }),
           ),
         }));
         await get().refreshFileTree(tab.workspaceId);
       } catch (error) {
         set((state) => ({
-          tabs: state.tabs.map((candidate) =>
-            candidate.id === tabId
-              ? {
-                  ...candidate,
-                  saving: false,
-                  errorMessage: errorMessage(error, "Unable to save file."),
-                }
-              : candidate,
+          panes: mapTabsInPanes(
+            state.panes,
+            (candidate) => candidate.id === tabId,
+            (candidate) => ({
+              ...candidate,
+              saving: false,
+              errorMessage: errorMessage(error, "Unable to save file."),
+            }),
           ),
         }));
       }
     },
-    async closeTab(tabId) {
-      const tab = get().tabs.find((candidate) => candidate.id === tabId);
+    async closeTab(paneId, tabId) {
+      const tab = get().panes
+        .find((pane) => pane.id === paneId)
+        ?.tabs.find((candidate) => candidate.id === tabId);
       if (!tab) {
         return;
       }
 
-      set((state) => removeTabFromState(state, tabId));
+      const shouldCloseLspDocument = getAllEditorTabs(get()).filter((candidate) =>
+        isSameEditorDocument(candidate, tab),
+      ).length <= 1;
 
-      if (!tab.language) {
+      set((state) => removeTabFromState(state, paneId, tabId));
+
+      if (!tab.language || !shouldCloseLspDocument) {
         return;
       }
 
@@ -636,6 +851,70 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
       } catch (error) {
         console.error("Editor store: failed to close LSP document.", error);
       }
+    },
+    async applyWorkspaceEdit(workspaceId, edit) {
+      const plan = planWorkspaceEditApplication(get(), workspaceId, edit);
+      if (plan.updates.size === 0) {
+        return {
+          applied: false,
+          appliedPaths: [],
+          skippedClosedPaths: plan.skippedClosedPaths,
+          skippedUnsupportedPaths: plan.skippedUnsupportedPaths,
+        };
+      }
+
+      set((state) => ({
+        panes: mapTabsInPanes(
+          state.panes,
+          (tab) => tab.workspaceId === workspaceId && plan.updates.has(tab.path),
+          (tab) => {
+            const update = plan.updates.get(tab.path);
+            if (!update) {
+              return tab;
+            }
+            return {
+              ...tab,
+              content: update.content,
+              dirty: update.content !== tab.savedContent,
+              errorMessage: null,
+              lspDocumentVersion: update.lspDocumentVersion,
+            };
+          },
+        ),
+      }));
+
+      await Promise.all(
+        Array.from(plan.updates.entries()).map(async ([path, update]) => {
+          if (!update.language) {
+            return;
+          }
+
+          try {
+            const result = await bridge.invoke({
+              type: "lsp-document/change",
+              workspaceId,
+              path,
+              language: update.language,
+              content: update.content,
+              version: update.lspDocumentVersion,
+            });
+            applyLspStatus(set, workspaceId, result.status);
+          } catch (error) {
+            setTabError(
+              set,
+              tabIdFor(workspaceId, path),
+              errorMessage(error, "Unable to update language server."),
+            );
+          }
+        }),
+      );
+
+      return {
+        applied: true,
+        appliedPaths: Array.from(plan.updates.keys()),
+        skippedClosedPaths: plan.skippedClosedPaths,
+        skippedUnsupportedPaths: plan.skippedUnsupportedPaths,
+      };
     },
     applyEditorEvent(event) {
       switch (event.type) {
@@ -663,12 +942,13 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
           return;
         case "lsp-diagnostics/changed":
           set((state) => ({
-            tabs: state.tabs.map((tab) =>
-              tab.workspaceId === event.workspaceId &&
-              tab.path === event.path &&
-              tab.language === event.language
-                ? { ...tab, diagnostics: event.diagnostics }
-                : tab,
+            panes: mapTabsInPanes(
+              state.panes,
+              (tab) =>
+                tab.workspaceId === event.workspaceId &&
+                tab.path === event.path &&
+                tab.language === event.language,
+              (tab) => ({ ...tab, diagnostics: event.diagnostics }),
             ),
           }));
           return;
@@ -682,6 +962,20 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
 
 export function tabIdFor(workspaceId: WorkspaceId, path: string): EditorTabId {
   return `${workspaceId}::${path}`;
+}
+
+export function getActiveEditorPane(state: Pick<EditorStoreState, "panes" | "activePaneId">): EditorPaneState {
+  return state.panes.find((pane) => pane.id === state.activePaneId) ?? state.panes[0] ?? {
+    id: DEFAULT_EDITOR_PANE_ID,
+    tabs: [],
+    activeTabId: null,
+  };
+}
+
+export function getActiveEditorTabId(
+  state: Pick<EditorStoreState, "panes" | "activePaneId">,
+): EditorTabId | null {
+  return getActiveEditorPane(state).activeTabId;
 }
 
 export function detectLspLanguage(filePath: string): LspLanguage | null {
@@ -742,6 +1036,213 @@ function collectGitBadges(nodes: readonly WorkspaceFileTreeNode[]): Record<strin
     }
   }
   return badges;
+}
+
+function unwrapPersistedEditorState(persistedState: unknown): unknown {
+  if (
+    isRecord(persistedState) &&
+    isRecord(persistedState.state) &&
+    ("panes" in persistedState.state || "tabs" in persistedState.state)
+  ) {
+    return persistedState.state;
+  }
+
+  return persistedState;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizePaneActiveTabId(
+  tabs: readonly EditorTab[],
+  activeTabId: unknown,
+): EditorTabId | null {
+  if (typeof activeTabId === "string" && tabs.some((tab) => tab.id === activeTabId)) {
+    return activeTabId;
+  }
+
+  return tabs[0]?.id ?? null;
+}
+
+function panesForWorkspace(
+  panes: readonly EditorPaneState[],
+  workspaceId: WorkspaceId | null,
+): EditorPaneState[] {
+  return panes.map((pane) => {
+    if (!workspaceId) {
+      return { ...pane, activeTabId: null };
+    }
+
+    const activeTab = pane.activeTabId
+      ? pane.tabs.find((tab) => tab.id === pane.activeTabId && tab.workspaceId === workspaceId)
+      : null;
+    const nextActiveTab = activeTab ?? pane.tabs.find((tab) => tab.workspaceId === workspaceId) ?? null;
+    return { ...pane, activeTabId: nextActiveTab?.id ?? null };
+  });
+}
+
+function resolveActivePaneIdForPanes(
+  panes: readonly EditorPaneState[],
+  preferredPaneId: EditorPaneId,
+): EditorPaneId {
+  if (panes.some((pane) => pane.id === preferredPaneId)) {
+    return preferredPaneId;
+  }
+
+  return panes[0]?.id ?? DEFAULT_EDITOR_PANE_ID;
+}
+
+function getAllEditorTabs(state: Pick<EditorStoreState, "panes">): EditorTab[] {
+  return state.panes.flatMap((pane) => pane.tabs);
+}
+
+function activateTabInPane(
+  panes: readonly EditorPaneState[],
+  paneId: EditorPaneId,
+  tabId: EditorTabId,
+): EditorPaneState[] {
+  return panes.map((pane) =>
+    pane.id === paneId ? { ...pane, activeTabId: tabId } : pane,
+  );
+}
+
+function addTabToPane(
+  panes: readonly EditorPaneState[],
+  paneId: EditorPaneId,
+  tab: EditorTab,
+): EditorPaneState[] {
+  return panes.map((pane) => {
+    if (pane.id !== paneId) {
+      return pane;
+    }
+
+    if (pane.tabs.some((candidate) => candidate.id === tab.id)) {
+      return { ...pane, activeTabId: tab.id };
+    }
+
+    return {
+      ...pane,
+      tabs: [...pane.tabs, tab],
+      activeTabId: tab.id,
+    };
+  });
+}
+
+function mapTabsInPanes(
+  panes: readonly EditorPaneState[],
+  predicate: (tab: EditorTab) => boolean,
+  mapper: (tab: EditorTab) => EditorTab,
+): EditorPaneState[] {
+  return panes.map((pane) => ({
+    ...pane,
+    tabs: pane.tabs.map((tab) => predicate(tab) ? mapper(tab) : tab),
+  }));
+}
+
+function splitActivePaneRightInState(state: EditorStoreState): Partial<EditorStoreState> {
+  if (state.panes.length >= MAX_EDITOR_PANE_COUNT) {
+    const activePane = getActiveEditorPane(state);
+    const otherPane = state.panes.find((pane) => pane.id !== activePane.id) ?? null;
+
+    if (activePane.tabs.length === 0 && otherPane) {
+      return {
+        panes: [otherPane],
+        activePaneId: otherPane.id,
+      };
+    }
+
+    if (otherPane?.tabs.length === 0) {
+      return {
+        panes: [activePane],
+        activePaneId: activePane.id,
+      };
+    }
+
+    return state;
+  }
+
+  const activeIndex = state.panes.findIndex((pane) => pane.id === state.activePaneId);
+  const insertIndex = activeIndex >= 0 ? activeIndex + 1 : state.panes.length;
+  const newPaneId = state.panes.some((pane) => pane.id === SECONDARY_EDITOR_PANE_ID)
+    ? `${SECONDARY_EDITOR_PANE_ID}-${state.panes.length}`
+    : SECONDARY_EDITOR_PANE_ID;
+  const panes = [...state.panes];
+  panes.splice(insertIndex, 0, {
+    id: newPaneId,
+    tabs: [],
+    activeTabId: null,
+  });
+
+  return {
+    panes,
+    activePaneId: newPaneId,
+  };
+}
+
+function moveActiveTabToPaneInState(
+  state: EditorStoreState,
+  direction: "left" | "right",
+): Partial<EditorStoreState> | EditorStoreState {
+  const sourceIndex = state.panes.findIndex((pane) => pane.id === state.activePaneId);
+  if (sourceIndex < 0) {
+    return state;
+  }
+
+  const targetIndex = sourceIndex + (direction === "right" ? 1 : -1);
+  const sourcePane = state.panes[sourceIndex];
+  const targetPane = state.panes[targetIndex];
+  if (!sourcePane || !targetPane || !sourcePane.activeTabId) {
+    return state;
+  }
+
+  const tabIndex = sourcePane.tabs.findIndex((tab) => tab.id === sourcePane.activeTabId);
+  const tab = sourcePane.tabs[tabIndex];
+  if (!tab) {
+    return state;
+  }
+
+  const sourceTabs = sourcePane.tabs.filter((candidate) => candidate.id !== tab.id);
+  const sourceActiveTab = sourceTabs[Math.max(0, tabIndex - 1)] ?? sourceTabs[0] ?? null;
+  const targetAlreadyHasTab = targetPane.tabs.some((candidate) => candidate.id === tab.id);
+  const targetTabs = targetAlreadyHasTab ? targetPane.tabs : [...targetPane.tabs, tab];
+
+  return {
+    panes: state.panes.map((pane, index) => {
+      if (index === sourceIndex) {
+        return {
+          ...pane,
+          tabs: sourceTabs,
+          activeTabId: sourceActiveTab?.id ?? null,
+        };
+      }
+      if (index === targetIndex) {
+        return {
+          ...pane,
+          tabs: targetTabs,
+          activeTabId: tab.id,
+        };
+      }
+      return pane;
+    }),
+    activePaneId: targetPane.id,
+  };
+}
+
+function isSameEditorDocument(left: EditorTab, right: EditorTab): boolean {
+  return (
+    left.workspaceId === right.workspaceId &&
+    left.path === right.path &&
+    left.language === right.language
+  );
+}
+
+function tabIdTouchesPath(tabId: EditorTabId, workspaceId: WorkspaceId, path: string): boolean {
+  return tabId.startsWith(`${workspaceId}::`) && isPathOrDescendant(pathFromTabId(tabId), path);
+}
+
+function pathFromTabId(tabId: EditorTabId): string {
+  return tabId.split("::").slice(1).join("::");
 }
 
 export function flattenVisibleFileTree(
@@ -1127,24 +1628,19 @@ function removeExpandedPathDescendants(
 
 function removeTabsForDeletedPath(
   set: StoreSet,
-  get: () => EditorStoreState,
+  _get: () => EditorStoreState,
   workspaceId: WorkspaceId,
   deletedPath: string,
   kind: WorkspaceFileKind,
 ): void {
-  const tabsToClose = get().tabs.filter((tab) => {
-    if (tab.workspaceId !== workspaceId) {
-      return false;
-    }
-    if (kind === "file") {
-      return tab.path === deletedPath;
-    }
-    return isPathOrDescendant(tab.path, deletedPath);
-  });
-
-  for (const tab of tabsToClose) {
-    set((state) => removeTabFromState(state, tab.id));
-  }
+  set((state) =>
+    removeTabsMatchingFromState(
+      state,
+      (tab) =>
+        tab.workspaceId === workspaceId &&
+        (kind === "file" ? tab.path === deletedPath : isPathOrDescendant(tab.path, deletedPath)),
+    ),
+  );
 }
 
 function clearDeletedExplorerPath(
@@ -1188,38 +1684,38 @@ function renameExplorerPathInState(
   oldPath: string,
   newPath: string,
 ): Partial<EditorStoreState> {
-  let nextActiveTabId = state.activeTabId;
-  const tabs = state.tabs.map((tab) => {
-    if (tab.workspaceId !== workspaceId || !isPathOrDescendant(tab.path, oldPath)) {
-      return tab;
-    }
+  const panes = state.panes.map((pane) => ({
+    ...pane,
+    activeTabId: pane.activeTabId && tabIdTouchesPath(pane.activeTabId, workspaceId, oldPath)
+      ? tabIdFor(workspaceId, rewritePathPrefix(pathFromTabId(pane.activeTabId), oldPath, newPath))
+      : pane.activeTabId,
+    tabs: pane.tabs.map((tab) => {
+      if (tab.workspaceId !== workspaceId || !isPathOrDescendant(tab.path, oldPath)) {
+        return tab;
+      }
 
-    const nextPath = rewritePathPrefix(tab.path, oldPath, newPath);
-    const nextLanguage = detectLspLanguage(nextPath);
-    const nextTabId = tabIdFor(workspaceId, nextPath);
-    if (state.activeTabId === tab.id) {
-      nextActiveTabId = nextTabId;
-    }
-
-    return {
-      ...tab,
-      id: nextTabId,
-      path: nextPath,
-      title: titleForPath(nextPath),
-      language: nextLanguage,
-      monacoLanguage: monacoLanguageIdForPath(nextPath, nextLanguage),
-      diagnostics:
-        tab.language === nextLanguage
-          ? tab.diagnostics.map((diagnostic) => ({
-              ...diagnostic,
-              path: rewritePathPrefix(diagnostic.path, oldPath, newPath),
-            }))
-          : [],
-      lspStatus: nextLanguage
-        ? state.lspStatuses[lspStatusKey(workspaceId, nextLanguage)] ?? null
-        : null,
-    };
-  });
+      const nextPath = rewritePathPrefix(tab.path, oldPath, newPath);
+      const nextLanguage = detectLspLanguage(nextPath);
+      return {
+        ...tab,
+        id: tabIdFor(workspaceId, nextPath),
+        path: nextPath,
+        title: titleForPath(nextPath),
+        language: nextLanguage,
+        monacoLanguage: monacoLanguageIdForPath(nextPath, nextLanguage),
+        diagnostics:
+          tab.language === nextLanguage
+            ? tab.diagnostics.map((diagnostic) => ({
+                ...diagnostic,
+                path: rewritePathPrefix(diagnostic.path, oldPath, newPath),
+              }))
+            : [],
+        lspStatus: nextLanguage
+          ? state.lspStatuses[lspStatusKey(workspaceId, nextLanguage)] ?? null
+          : null,
+      };
+    }),
+  }));
 
   const selectedPath = state.selectedTreePathByWorkspace[workspaceId] ?? null;
   const selectedTreePath =
@@ -1228,8 +1724,7 @@ function renameExplorerPathInState(
       : selectedPath;
 
   return {
-    tabs,
-    activeTabId: nextActiveTabId,
+    panes,
     ...applyWorkspaceExplorerChanges(state, workspaceId, {
       expandedPaths: rewriteExpandedPaths(
         expandedPathsForWorkspace(state, workspaceId),
@@ -1245,23 +1740,190 @@ function renameExplorerPathInState(
 
 function removeTabFromState(
   state: EditorStoreState,
+  paneId: EditorPaneId,
   tabId: EditorTabId,
 ): Partial<EditorStoreState> {
-  const tabIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+  const paneIndex = state.panes.findIndex((pane) => pane.id === paneId);
+  const pane = state.panes[paneIndex];
+  const tabIndex = pane?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
   if (tabIndex < 0) {
     return state;
   }
 
-  const tabs = state.tabs.filter((tab) => tab.id !== tabId);
-  if (state.activeTabId !== tabId) {
-    return { tabs };
+  const tabs = pane!.tabs.filter((tab) => tab.id !== tabId);
+  const nextActiveTab = pane!.activeTabId === tabId
+    ? tabs[Math.max(0, tabIndex - 1)] ?? tabs[0] ?? null
+    : pane!.tabs.find((tab) => tab.id === pane!.activeTabId) ?? null;
+  const panes = state.panes.map((candidate, index) =>
+    index === paneIndex
+      ? { ...candidate, tabs, activeTabId: nextActiveTab?.id ?? null }
+      : candidate,
+  );
+
+  if (tabs.length === 0 && panes.length > 1) {
+    const remainingPanes = panes.filter((candidate) => candidate.id !== paneId);
+    const activePaneId = remainingPanes[0]?.id ?? DEFAULT_EDITOR_PANE_ID;
+    return {
+      panes: remainingPanes,
+      activePaneId,
+    };
   }
 
-  const nextActiveTab = tabs[Math.max(0, tabIndex - 1)] ?? tabs[0] ?? null;
   return {
-    tabs,
-    activeTabId: nextActiveTab?.id ?? null,
+    panes,
   };
+}
+
+function removeTabsMatchingFromState(
+  state: EditorStoreState,
+  predicate: (tab: EditorTab) => boolean,
+): Partial<EditorStoreState> {
+  let panes = state.panes.map((pane) => {
+    const tabs = pane.tabs.filter((tab) => !predicate(tab));
+    const activeTabId = pane.activeTabId && tabs.some((tab) => tab.id === pane.activeTabId)
+      ? pane.activeTabId
+      : tabs[0]?.id ?? null;
+    return { ...pane, tabs, activeTabId };
+  });
+
+  if (panes.length > 1) {
+    const nonEmptyPanes = panes.filter((pane) => pane.tabs.length > 0);
+    panes = nonEmptyPanes.length > 0 ? nonEmptyPanes : [panes[0]!];
+  }
+
+  return {
+    panes,
+    activePaneId: resolveActivePaneIdForPanes(panes, state.activePaneId),
+  };
+}
+
+interface WorkspaceEditApplicationPlan {
+  updates: Map<
+    string,
+    {
+      content: string;
+      language: LspLanguage | null;
+      lspDocumentVersion: number;
+    }
+  >;
+  skippedClosedPaths: string[];
+  skippedUnsupportedPaths: string[];
+}
+
+function planWorkspaceEditApplication(
+  state: EditorStoreState,
+  workspaceId: WorkspaceId,
+  edit: LspWorkspaceEdit,
+): WorkspaceEditApplicationPlan {
+  const openTabsByPath = new Map<string, EditorTab>();
+  for (const tab of getAllEditorTabs(state)) {
+    if (tab.workspaceId === workspaceId && !openTabsByPath.has(tab.path)) {
+      openTabsByPath.set(tab.path, tab);
+    }
+  }
+
+  const updates = new Map<
+    string,
+    {
+      content: string;
+      language: LspLanguage | null;
+      lspDocumentVersion: number;
+    }
+  >();
+  const skippedClosedPaths: string[] = [];
+  const skippedUnsupportedPaths: string[] = [];
+
+  for (const change of edit.changes) {
+    if (change.edits.length === 0) {
+      continue;
+    }
+
+    const tab = openTabsByPath.get(change.path);
+    if (!tab) {
+      skippedClosedPaths.push(change.path);
+      continue;
+    }
+
+    try {
+      const baseContent = updates.get(change.path)?.content ?? tab.content;
+      const nextContent = applyLspTextEdits(baseContent, change.edits);
+      const baseVersion = updates.get(change.path)?.lspDocumentVersion ?? tab.lspDocumentVersion;
+      updates.set(change.path, {
+        content: nextContent,
+        language: tab.language,
+        lspDocumentVersion: baseVersion + 1,
+      });
+    } catch {
+      skippedUnsupportedPaths.push(change.path);
+    }
+  }
+
+  return {
+    updates,
+    skippedClosedPaths,
+    skippedUnsupportedPaths,
+  };
+}
+
+export function applyLspTextEdits(content: string, edits: readonly LspTextEdit[]): string {
+  const lineOffsets = computeLineOffsets(content);
+  const resolvedEdits = edits.map((edit) => {
+    const startOffset = offsetAt(content, lineOffsets, edit.range.start.line, edit.range.start.character);
+    const endOffset = offsetAt(content, lineOffsets, edit.range.end.line, edit.range.end.character);
+    if (startOffset > endOffset) {
+      throw new Error("LSP text edit range start is after range end.");
+    }
+    return {
+      startOffset,
+      endOffset,
+      newText: edit.newText,
+    };
+  });
+
+  resolvedEdits.sort((left, right) => {
+    if (left.startOffset !== right.startOffset) {
+      return right.startOffset - left.startOffset;
+    }
+    return right.endOffset - left.endOffset;
+  });
+
+  let nextContent = content;
+  let previousStart = Number.POSITIVE_INFINITY;
+  for (const edit of resolvedEdits) {
+    if (edit.endOffset > previousStart) {
+      throw new Error("Overlapping LSP text edits are not supported.");
+    }
+    nextContent =
+      nextContent.slice(0, edit.startOffset) +
+      edit.newText +
+      nextContent.slice(edit.endOffset);
+    previousStart = edit.startOffset;
+  }
+
+  return nextContent;
+}
+
+function computeLineOffsets(content: string): number[] {
+  const lineOffsets = [0];
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] === "\n") {
+      lineOffsets.push(index + 1);
+    }
+  }
+  return lineOffsets;
+}
+
+function offsetAt(
+  content: string,
+  lineOffsets: readonly number[],
+  line: number,
+  character: number,
+): number {
+  const lineIndex = Math.max(0, Math.min(Math.trunc(line), lineOffsets.length - 1));
+  const lineStart = lineOffsets[lineIndex] ?? 0;
+  const nextLineStart = lineOffsets[lineIndex + 1] ?? content.length + 1;
+  const lineEnd = Math.max(lineStart, Math.min(nextLineStart - 1, content.length));
+  return Math.max(lineStart, Math.min(lineStart + Math.max(0, Math.trunc(character)), lineEnd));
 }
 
 async function refreshTabDiagnostics(
@@ -1279,10 +1941,10 @@ async function refreshTabDiagnostics(
       language,
     });
     set((state) => ({
-      tabs: state.tabs.map((tab) =>
-        tab.workspaceId === workspaceId && tab.path === path && tab.language === language
-          ? { ...tab, diagnostics: result.diagnostics }
-          : tab,
+      panes: mapTabsInPanes(
+        state.panes,
+        (tab) => tab.workspaceId === workspaceId && tab.path === path && tab.language === language,
+        (tab) => ({ ...tab, diagnostics: result.diagnostics }),
       ),
     }));
   } catch (error) {
@@ -1297,18 +1959,20 @@ function applyLspStatus(set: StoreSet, workspaceId: WorkspaceId, status: LspStat
       ...state.lspStatuses,
       [key]: status,
     },
-    tabs: state.tabs.map((tab) =>
-      tab.workspaceId === workspaceId && tab.language === status.language
-        ? { ...tab, lspStatus: status }
-        : tab,
+    panes: mapTabsInPanes(
+      state.panes,
+      (tab) => tab.workspaceId === workspaceId && tab.language === status.language,
+      (tab) => ({ ...tab, lspStatus: status }),
     ),
   }));
 }
 
 function setTabError(set: StoreSet, tabId: EditorTabId, message: string): void {
   set((state) => ({
-    tabs: state.tabs.map((tab) =>
-      tab.id === tabId ? { ...tab, errorMessage: message } : tab,
+    panes: mapTabsInPanes(
+      state.panes,
+      (tab) => tab.id === tabId,
+      (tab) => ({ ...tab, errorMessage: message }),
     ),
   }));
 }

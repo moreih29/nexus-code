@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/lsp-relay.schema.json",
+  "title": "LspRelayMessage",
+  "oneOf": [
+    { "$ref": "#/$defs/lspClientPayloadMessage" },
+    { "$ref": "#/$defs/lspServerPayloadMessage" }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serverId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lspRelayDirection": {
+      "type": "string",
+      "enum": ["client_to_server", "server_to_client"]
+    },
+    "lspClientPayloadMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "direction", "workspaceId", "serverId", "seq", "payload"],
+      "properties": {
+        "type": { "const": "lsp/relay" },
+        "direction": { "const": "client_to_server" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "payload": {
+          "type": "string",
+          "description": "Opaque UTF-8 LSP JSON-RPC stdio frame chunk"
+        }
+      }
+    },
+    "lspServerPayloadMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "direction", "workspaceId", "serverId", "seq", "payload"],
+      "properties": {
+        "type": { "const": "lsp/relay" },
+        "direction": { "const": "server_to_client" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "payload": {
+          "type": "string",
+          "description": "Opaque UTF-8 LSP JSON-RPC stdio frame chunk"
+        }
+      }
+    }
+  }
+}

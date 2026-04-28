@@ -30,6 +30,17 @@ function visitRequest(request: EditorBridgeRequest): EditorBridgeRequest["type"]
     case "workspace-git-badges/read":
     case "lsp-diagnostics/read":
     case "lsp-status/read":
+    case "lsp-completion/complete":
+    case "lsp-hover/read":
+    case "lsp-definition/read":
+    case "lsp-references/read":
+    case "lsp-document-symbols/read":
+    case "lsp-rename/prepare":
+    case "lsp-rename/rename":
+    case "lsp-formatting/document":
+    case "lsp-formatting/range":
+    case "lsp-signature-help/get":
+    case "lsp-code-action/list":
     case "lsp-document/open":
     case "lsp-document/change":
     case "lsp-document/close":
@@ -50,6 +61,17 @@ function visitResult(result: EditorBridgeResult): EditorBridgeResult["type"] {
     case "workspace-git-badges/read/result":
     case "lsp-diagnostics/read/result":
     case "lsp-status/read/result":
+    case "lsp-completion/complete/result":
+    case "lsp-hover/read/result":
+    case "lsp-definition/read/result":
+    case "lsp-references/read/result":
+    case "lsp-document-symbols/read/result":
+    case "lsp-rename/prepare/result":
+    case "lsp-rename/rename/result":
+    case "lsp-formatting/document/result":
+    case "lsp-formatting/range/result":
+    case "lsp-signature-help/get/result":
+    case "lsp-code-action/list/result":
     case "lsp-document/open/result":
     case "lsp-document/change/result":
     case "lsp-document/close/result":
@@ -153,6 +175,123 @@ describe("Editor bridge shared contracts", () => {
         languages: ["typescript", "python", "go"],
       },
       {
+        type: "lsp-completion/complete",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+        triggerKind: "invoked",
+      },
+      {
+        type: "lsp-hover/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+      },
+      {
+        type: "lsp-definition/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+      },
+      {
+        type: "lsp-references/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+        includeDeclaration: true,
+      },
+      {
+        type: "lsp-document-symbols/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+      },
+      {
+        type: "lsp-rename/prepare",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+      },
+      {
+        type: "lsp-rename/rename",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+        newName: "nextValue",
+      },
+      {
+        type: "lsp-formatting/document",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        options: {
+          tabSize: 2,
+          insertSpaces: true,
+        },
+      },
+      {
+        type: "lsp-formatting/range",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 23 },
+        },
+        options: {
+          tabSize: 2,
+          insertSpaces: true,
+        },
+      },
+      {
+        type: "lsp-signature-help/get",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: {
+          line: 0,
+          character: 13,
+        },
+        triggerKind: "trigger-character",
+        triggerCharacter: "(",
+      },
+      {
+        type: "lsp-code-action/list",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 23 },
+        },
+        diagnostics: [diagnostic],
+        only: "quickfix",
+      },
+      {
         type: "lsp-document/open",
         workspaceId,
         path: "src/index.ts",
@@ -186,6 +325,17 @@ describe("Editor bridge shared contracts", () => {
       "workspace-git-badges/read",
       "lsp-diagnostics/read",
       "lsp-status/read",
+      "lsp-completion/complete",
+      "lsp-hover/read",
+      "lsp-definition/read",
+      "lsp-references/read",
+      "lsp-document-symbols/read",
+      "lsp-rename/prepare",
+      "lsp-rename/rename",
+      "lsp-formatting/document",
+      "lsp-formatting/range",
+      "lsp-signature-help/get",
+      "lsp-code-action/list",
       "lsp-document/open",
       "lsp-document/change",
       "lsp-document/close",
@@ -296,6 +446,249 @@ describe("Editor bridge shared contracts", () => {
         })),
       },
       {
+        type: "lsp-completion/complete/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        isIncomplete: false,
+        items: [
+          {
+            label: "console",
+            kind: "variable",
+            insertText: "console",
+            insertTextFormat: "plain-text",
+            additionalTextEdits: [],
+          },
+        ],
+        completedAt: now,
+      },
+      {
+        type: "lsp-hover/read/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        contents: [
+          {
+            kind: "markdown",
+            value: "**value**: number",
+          },
+        ],
+        range: {
+          start: { line: 0, character: 13 },
+          end: { line: 0, character: 18 },
+        },
+        readAt: now,
+      },
+      {
+        type: "lsp-definition/read/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        targets: [
+          {
+            type: "location",
+            uri: "file:///workspace/src/value.ts",
+            path: "src/value.ts",
+            range: {
+              start: { line: 2, character: 0 },
+              end: { line: 2, character: 12 },
+            },
+          },
+          {
+            type: "location-link",
+            targetUri: "file:///workspace/src/value.ts",
+            targetPath: "src/value.ts",
+            targetRange: {
+              start: { line: 2, character: 0 },
+              end: { line: 5, character: 1 },
+            },
+            targetSelectionRange: {
+              start: { line: 2, character: 13 },
+              end: { line: 2, character: 18 },
+            },
+            originSelectionRange: {
+              start: { line: 0, character: 13 },
+              end: { line: 0, character: 18 },
+            },
+          },
+        ],
+        readAt: now,
+      },
+      {
+        type: "lsp-references/read/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        locations: [
+          {
+            uri: "file:///workspace/src/index.ts",
+            path: "src/index.ts",
+            range: {
+              start: { line: 0, character: 13 },
+              end: { line: 0, character: 18 },
+            },
+          },
+        ],
+        readAt: now,
+      },
+      {
+        type: "lsp-document-symbols/read/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        symbols: [
+          {
+            type: "document-symbol",
+            name: "value",
+            detail: "const",
+            kind: "constant",
+            tags: [],
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 23 },
+            },
+            selectionRange: {
+              start: { line: 0, character: 13 },
+              end: { line: 0, character: 18 },
+            },
+            children: [],
+          },
+          {
+            type: "symbol-information",
+            name: "helper",
+            kind: "function",
+            tags: ["deprecated"],
+            containerName: "module",
+            location: {
+              uri: "file:///workspace/src/index.ts",
+              path: "src/index.ts",
+              range: {
+                start: { line: 2, character: 0 },
+                end: { line: 4, character: 1 },
+              },
+            },
+          },
+        ],
+        readAt: now,
+      },
+      {
+        type: "lsp-rename/prepare/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        canRename: true,
+        range: {
+          start: { line: 0, character: 13 },
+          end: { line: 0, character: 18 },
+        },
+        placeholder: "value",
+        defaultBehavior: false,
+        preparedAt: now,
+      },
+      {
+        type: "lsp-rename/rename/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        workspaceEdit: {
+          changes: [
+            {
+              path: "src/index.ts",
+              edits: [
+                {
+                  range: {
+                    start: { line: 0, character: 13 },
+                    end: { line: 0, character: 18 },
+                  },
+                  newText: "nextValue",
+                },
+              ],
+            },
+          ],
+        },
+        renamedAt: now,
+      },
+      {
+        type: "lsp-formatting/document/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        edits: [
+          {
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 23 },
+            },
+            newText: "export const value = 1;\n",
+          },
+        ],
+        formattedAt: now,
+      },
+      {
+        type: "lsp-formatting/range/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        edits: [],
+        formattedAt: now,
+      },
+      {
+        type: "lsp-signature-help/get/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        signatureHelp: {
+          signatures: [
+            {
+              label: "fn(value: string): void",
+              documentation: "Calls fn.",
+              parameters: [
+                {
+                  label: "value",
+                  documentation: "Input value.",
+                },
+              ],
+              activeParameter: 0,
+            },
+          ],
+          activeSignature: 0,
+          activeParameter: 0,
+        },
+        resolvedAt: now,
+      },
+      {
+        type: "lsp-code-action/list/result",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        actions: [
+          {
+            title: "Add import",
+            kind: "quickfix",
+            diagnostics: [diagnostic],
+            edit: {
+              changes: [
+                {
+                  path: "src/index.ts",
+                  edits: [
+                    {
+                      range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 0 },
+                      },
+                      newText: "import { value } from './value';\n",
+                    },
+                  ],
+                },
+              ],
+            },
+            command: null,
+            isPreferred: true,
+          },
+        ],
+        listedAt: now,
+      },
+      {
         type: "lsp-document/open/result",
         workspaceId,
         path: "src/index.ts",
@@ -340,6 +733,17 @@ describe("Editor bridge shared contracts", () => {
       "workspace-git-badges/read/result",
       "lsp-diagnostics/read/result",
       "lsp-status/read/result",
+      "lsp-completion/complete/result",
+      "lsp-hover/read/result",
+      "lsp-definition/read/result",
+      "lsp-references/read/result",
+      "lsp-document-symbols/read/result",
+      "lsp-rename/prepare/result",
+      "lsp-rename/rename/result",
+      "lsp-formatting/document/result",
+      "lsp-formatting/range/result",
+      "lsp-signature-help/get/result",
+      "lsp-code-action/list/result",
       "lsp-document/open/result",
       "lsp-document/change/result",
       "lsp-document/close/result",

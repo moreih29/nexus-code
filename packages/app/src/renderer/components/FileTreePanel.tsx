@@ -34,6 +34,7 @@ import { ScrollArea } from "./ui/scroll-area";
 
 export interface FileTreePanelProps {
   activeWorkspace: OpenSessionWorkspace | null;
+  workspaceTabId?: string;
   fileTree: EditorFileTreeState;
   expandedPaths: Record<string, true>;
   gitBadgeByPath: Record<string, WorkspaceGitBadgeStatus>;
@@ -62,18 +63,33 @@ export function FileTreePanel(props: FileTreePanelProps): JSX.Element {
   return (
     <section
       data-component="file-tree-panel"
+      role="tabpanel"
+      aria-labelledby={props.workspaceTabId}
+      aria-label={props.workspaceTabId ? undefined : "File tree"}
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-sidebar-border bg-sidebar/80 text-sidebar-foreground"
     >
       <header className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-3 py-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground">
-              Files
-            </h2>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {props.activeWorkspace?.displayName ?? "No workspace selected"}
-            </p>
+          <div className="flex min-w-0 items-center gap-2">
+            <FolderOpen
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground"
+              strokeWidth={1.75}
+            />
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-sidebar-foreground">
+                {props.activeWorkspace?.displayName ?? "No workspace selected"}
+              </h2>
+              <p className="mt-0.5 truncate text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Files
+              </p>
+            </div>
           </div>
+          {props.activeWorkspace ? (
+            <span className="sr-only" data-workspace-owner-path="true">
+              {props.activeWorkspace.absolutePath}
+            </span>
+          ) : null}
         </div>
         <div className="grid grid-cols-2 gap-1">
           <Button

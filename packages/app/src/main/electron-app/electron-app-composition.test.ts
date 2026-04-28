@@ -117,6 +117,46 @@ describe("composeElectronAppServices", () => {
     );
   });
 
+  test("composition shutdown stops sidecar LSP servers before stopping sidecars", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "nexus-composition-lsp-shutdown-"));
+    tempDirs.push(tempDir);
+    Object.defineProperty(process, "resourcesPath", {
+      value: path.join(tempDir, "resources"),
+      configurable: true,
+    });
+
+    const { composeElectronAppServices } = await import("./electron-app-composition");
+    const mainWindow = createMainWindowMock();
+    const services = await composeElectronAppServices(mainWindow);
+    const calls: string[] = [];
+    const runningWorkspaceId = "ws_lsp_shutdown_order" as WorkspaceId;
+    const runtime = services.sidecarRuntime as unknown as {
+      stopAllLspServers(reason?: string): Promise<void>;
+      listRunningWorkspaceIds(): WorkspaceId[];
+      stop(command: { reason: string }): Promise<null>;
+    };
+    runtime.stopAllLspServers = async (reason = "app-shutdown") => {
+      calls.push(`lsp:${reason}`);
+    };
+    runtime.listRunningWorkspaceIds = () => [runningWorkspaceId];
+    runtime.stop = async (command) => {
+      calls.push(`sidecar:${command.reason}`);
+      return null;
+    };
+
+    try {
+      await services.dispose();
+
+      const firstLspStopIndex = calls.findIndex((call) => call.startsWith("lsp:"));
+      const sidecarStopIndex = calls.findIndex((call) => call.startsWith("sidecar:"));
+      expect(firstLspStopIndex).toBeGreaterThanOrEqual(0);
+      expect(sidecarStopIndex).toBeGreaterThanOrEqual(0);
+      expect(firstLspStopIndex).toBeLessThan(sidecarStopIndex);
+    } finally {
+      await services.dispose().catch(() => null);
+    }
+  });
+
   test("SidecarBridge observer stream feeds the ClaudeCodeAdapter dispatch path", async () => {
     const { createSidecarObserverEventStream } = await import("./electron-app-composition");
     const { ClaudeCodeAdapter } = await import("../../../../shared/src/harness/adapters/claude-code");

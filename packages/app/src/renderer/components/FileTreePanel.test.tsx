@@ -5,6 +5,7 @@ import type { WorkspaceFileKind } from "../../../../shared/src/contracts/editor/
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { EditorTreeSelectionMovement } from "../stores/editor-store";
 import { FileTreePanel, type FileTreePanelProps } from "./FileTreePanel";
+import { workspaceTabId } from "./WorkspaceStrip";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 
@@ -14,6 +15,7 @@ const baseProps: FileTreePanelProps = {
     displayName: "Alpha",
     absolutePath: "/tmp/alpha",
   },
+  workspaceTabId: workspaceTabId(workspaceId),
   fileTree: {
     workspaceId,
     rootPath: "",
@@ -89,6 +91,9 @@ describe("FileTreePanel", () => {
 
     expect(findText(tree, "Files")).toBe(true);
     expect(findText(tree, "Alpha")).toBe(true);
+    const panel = findElementByPredicate(tree, (element) => element.props?.["data-component"] === "file-tree-panel");
+    expect(panel?.props.role).toBe("tabpanel");
+    expect(panel?.props["aria-labelledby"]).toBe(workspaceTabId(workspaceId));
     expect(findText(tree, "New File")).toBe(true);
     expect(findText(tree, "New Folder")).toBe(true);
     expect(findText(tree, "Refresh")).toBe(true);

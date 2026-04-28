@@ -9,6 +9,25 @@ import {
   isHarnessObserverEvent,
   type HarnessObserverEvent,
 } from "../../../../shared/src/contracts/harness/harness-observer";
+import {
+  isLspLifecycleReply,
+  isLspServerPayloadMessage,
+  isLspServerStoppedEvent,
+  type LspClientPayloadMessage,
+  type LspHealthCheckCommand,
+  type LspLifecycleReply,
+  type LspRestartServerCommand,
+  type LspServerHealthReply,
+  type LspServerPayloadMessage,
+  type LspServerStartedReply,
+  type LspServerStartFailedReply,
+  type LspServerStoppedEvent,
+  type LspServerStopReason,
+  type LspStartServerCommand,
+  type LspStopAllServersCommand,
+  type LspStopAllServersReply,
+  type LspStopServerCommand,
+} from "../../../../shared/src/contracts/lsp/lsp-sidecar";
 import type {
   SidecarStartCommand,
   SidecarStartedEvent,
@@ -34,14 +53,25 @@ interface BridgeRecord {
   heartbeatTimer: NodeJS.Timeout | null;
 }
 
+interface PendingLspRequest {
+  workspaceId: WorkspaceId;
+  resolve(reply: LspLifecycleReply): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
+}
+
 const UNAVAILABLE_SIDECAR_PID = -1;
 const OBSERVER_EVENT_NAME = "observer-event";
+const LSP_SERVER_PAYLOAD_EVENT_NAME = "lsp-server-payload";
+const LSP_SERVER_STOPPED_EVENT_NAME = "lsp-server-stopped";
 
 export interface SidecarObserverEventSubscription {
   dispose(): void;
 }
 
 export type SidecarObserverEventListener = (event: HarnessObserverEvent) => void;
+export type LspServerPayloadListener = (message: LspServerPayloadMessage) => void;
+export type LspServerStoppedListener = (event: LspServerStoppedEvent) => void;
 
 export interface SidecarBridgeOptions {
   sidecarBin?: string;
@@ -56,6 +86,7 @@ export interface SidecarBridgeOptions {
   readyTimeoutMs?: number;
   wsTimeoutMs?: number;
   startedTimeoutMs?: number;
+  lspRequestTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
   stopAckTimeoutMs?: number;
@@ -70,6 +101,9 @@ export class SidecarBridge implements SidecarRuntime {
   private readonly options: SidecarBridgeOptions;
   private readonly recordsByWorkspaceId = new Map<WorkspaceId, BridgeRecord>();
   private readonly observerEventEmitter = new EventEmitter();
+  private readonly lspEventEmitter = new EventEmitter();
+  private readonly pendingLspRequests = new Map<string, PendingLspRequest>();
+  private nextStopAllRequestId = 1;
 
   public constructor(options: SidecarBridgeOptions = {}) {
     this.options = options;
@@ -137,6 +171,91 @@ export class SidecarBridge implements SidecarRuntime {
 
   public listRunningWorkspaceIds(): WorkspaceId[] {
     return Array.from(this.recordsByWorkspaceId.keys());
+  }
+
+  public startServer(
+    command: LspStartServerCommand,
+  ): Promise<LspServerStartedReply | LspServerStartFailedReply> {
+    return this.sendLspLifecycleRequest(command.workspaceId, command, (reply) =>
+      reply.action === "server_started" || reply.action === "server_start_failed",
+    );
+  }
+
+  public stopServer(command: LspStopServerCommand): Promise<LspServerStoppedEvent> {
+    return this.sendLspLifecycleRequest(command.workspaceId, command, (reply) =>
+      reply.action === "server_stopped",
+    );
+  }
+
+  public restartServer(
+    command: LspRestartServerCommand,
+  ): Promise<LspServerStartedReply | LspServerStartFailedReply> {
+    return this.sendLspLifecycleRequest(command.workspaceId, command, (reply) =>
+      reply.action === "server_started" || reply.action === "server_start_failed",
+    );
+  }
+
+  public healthCheck(command: LspHealthCheckCommand): Promise<LspServerHealthReply> {
+    return this.sendLspLifecycleRequest(command.workspaceId, command, (reply) =>
+      reply.action === "server_health",
+    );
+  }
+
+  public stopAllServers(command: LspStopAllServersCommand): Promise<LspStopAllServersReply> {
+    const workspaceId = command.workspaceId;
+    if (!workspaceId) {
+      return Promise.reject(
+        new Error("workspaceId is required for a single sidecar stop_all request."),
+      );
+    }
+
+    return this.sendLspLifecycleRequest(workspaceId, command, (reply) =>
+      reply.action === "stop_all_stopped",
+    );
+  }
+
+  public async stopAllLspServers(reason: LspServerStopReason = "app-shutdown"): Promise<void> {
+    const workspaceIds = this.listRunningWorkspaceIds();
+    await Promise.all(
+      workspaceIds.map((workspaceId) =>
+        this.stopAllServers({
+          type: "lsp/lifecycle",
+          action: "stop_all",
+          requestId: `lsp-stop-all-${this.nextStopAllRequestId++}`,
+          workspaceId,
+          reason,
+        }).then(() => undefined),
+      ),
+    );
+  }
+
+  public sendClientPayload(message: LspClientPayloadMessage): void {
+    const record = this.recordsByWorkspaceId.get(message.workspaceId);
+    if (!record || record.ws.readyState !== record.ws.OPEN) {
+      throw new Error(`Sidecar WebSocket is not open for workspace "${message.workspaceId}".`);
+    }
+
+    record.ws.send(JSON.stringify(message));
+  }
+
+  public onServerPayload(listener: LspServerPayloadListener): SidecarObserverEventSubscription {
+    this.lspEventEmitter.on(LSP_SERVER_PAYLOAD_EVENT_NAME, listener);
+
+    return {
+      dispose: () => {
+        this.lspEventEmitter.off(LSP_SERVER_PAYLOAD_EVENT_NAME, listener);
+      },
+    };
+  }
+
+  public onServerStopped(listener: LspServerStoppedListener): SidecarObserverEventSubscription {
+    this.lspEventEmitter.on(LSP_SERVER_STOPPED_EVENT_NAME, listener);
+
+    return {
+      dispose: () => {
+        this.lspEventEmitter.off(LSP_SERVER_STOPPED_EVENT_NAME, listener);
+      },
+    };
   }
 
   public onObserverEvent(
@@ -268,6 +387,24 @@ export class SidecarBridge implements SidecarRuntime {
       return;
     }
 
+    if (isLspServerPayloadMessage(parsed)) {
+      this.lspEventEmitter.emit(LSP_SERVER_PAYLOAD_EVENT_NAME, parsed);
+      return;
+    }
+
+    if (isLspServerStoppedEvent(parsed)) {
+      if (isLspLifecycleReply(parsed)) {
+        this.resolvePendingLspRequest(parsed);
+      }
+      this.lspEventEmitter.emit(LSP_SERVER_STOPPED_EVENT_NAME, parsed);
+      return;
+    }
+
+    if (isLspLifecycleReply(parsed)) {
+      this.resolvePendingLspRequest(parsed);
+      return;
+    }
+
     if (
       parsed &&
       typeof parsed === "object" &&
@@ -282,6 +419,62 @@ export class SidecarBridge implements SidecarRuntime {
 
   private emitObserverEvent(event: HarnessObserverEvent): void {
     this.observerEventEmitter.emit(OBSERVER_EVENT_NAME, event);
+  }
+
+  private sendLspLifecycleRequest<TReply extends LspLifecycleReply>(
+    workspaceId: WorkspaceId,
+    command: { requestId: string },
+    isExpectedReply: (reply: LspLifecycleReply) => boolean,
+  ): Promise<TReply> {
+    const record = this.recordsByWorkspaceId.get(workspaceId);
+    if (!record || record.ws.readyState !== record.ws.OPEN) {
+      return Promise.reject(
+        new Error(`Sidecar WebSocket is not open for workspace "${workspaceId}".`),
+      );
+    }
+
+    return new Promise<TReply>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingLspRequests.delete(command.requestId);
+        reject(new Error(`LSP lifecycle request "${command.requestId}" timed out.`));
+      }, this.options.lspRequestTimeoutMs ?? 8_000);
+
+      this.pendingLspRequests.set(command.requestId, {
+        workspaceId,
+        timer,
+        resolve: (reply) => {
+          if (!isExpectedReply(reply)) {
+            reject(
+              new Error(
+                `Unexpected LSP lifecycle reply "${reply.action}" for request "${command.requestId}".`,
+              ),
+            );
+            return;
+          }
+          resolve(reply as TReply);
+        },
+        reject,
+      });
+
+      try {
+        record.ws.send(JSON.stringify(command));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingLspRequests.delete(command.requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private resolvePendingLspRequest(reply: LspLifecycleReply): void {
+    const pending = this.pendingLspRequests.get(reply.requestId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingLspRequests.delete(reply.requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(reply);
   }
 
   private startHeartbeat(record: BridgeRecord): void {
@@ -311,6 +504,15 @@ export class SidecarBridge implements SidecarRuntime {
     if (record.heartbeatTimer) {
       clearInterval(record.heartbeatTimer);
       record.heartbeatTimer = null;
+    }
+    for (const [requestId, pending] of this.pendingLspRequests.entries()) {
+      if (pending.workspaceId === workspaceId) {
+        clearTimeout(pending.timer);
+        pending.reject(
+          new Error(`Sidecar for workspace "${workspaceId}" stopped before LSP reply.`),
+        );
+        this.pendingLspRequests.delete(requestId);
+      }
     }
     if (this.recordsByWorkspaceId.get(workspaceId) === record) {
       this.recordsByWorkspaceId.delete(workspaceId);

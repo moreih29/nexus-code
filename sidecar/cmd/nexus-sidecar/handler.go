@@ -11,6 +11,7 @@ import (
 
 	"nexus-code/sidecar/internal/contracts"
 	"nexus-code/sidecar/internal/harness"
+	"nexus-code/sidecar/internal/lsp"
 	"nexus-code/sidecar/internal/wsx"
 )
 
@@ -22,6 +23,8 @@ const (
 	typeSidecarStartedEvent = "sidecar/started"
 	typeSidecarStopCommand  = "sidecar/stop"
 	typeSidecarStoppedEvent = "sidecar/stopped"
+	typeLspLifecycleMessage = "lsp/lifecycle"
+	typeLspRelayMessage     = "lsp/relay"
 
 	closeTimeout = 5 * time.Second
 )
@@ -37,15 +40,20 @@ type LifecycleHandler struct {
 	server wsx.Server
 
 	harnessObserver *harness.ServerObserver
+	lspSupervisor   *lsp.Supervisor
 }
 
 func NewLifecycleHandler(workspaceID string, bootTime time.Time, exit func(int)) *LifecycleHandler {
-	return &LifecycleHandler{
+	handler := &LifecycleHandler{
 		workspaceID:     workspaceID,
 		bootTime:        bootTime,
 		exit:            exit,
 		harnessObserver: harness.NewObserver(contracts.WorkspaceID(workspaceID)),
 	}
+	handler.lspSupervisor = lsp.NewSupervisor(lsp.SupervisorOptions{
+		Emit: handler.send,
+	})
+	return handler
 }
 
 func (h *LifecycleHandler) SetServer(server wsx.Server) {
@@ -72,6 +80,10 @@ func (h *LifecycleHandler) OnMessage(ctx context.Context, raw []byte) error {
 		return h.handleStart(ctx, raw)
 	case typeSidecarStopCommand:
 		return h.handleStop(ctx, raw)
+	case typeLspLifecycleMessage:
+		return h.handleLspLifecycle(ctx, raw)
+	case typeLspRelayMessage:
+		return h.handleLspRelay(ctx, raw)
 	default:
 		fmt.Fprintf(os.Stderr, "WARN: unknown lifecycle message type %q\n", envelope.Type)
 		if server := h.getServer(); server != nil {
@@ -127,6 +139,9 @@ func (h *LifecycleHandler) handleStop(ctx context.Context, raw []byte) error {
 		return fmt.Errorf("workspaceId mismatch: got %q", cmd.WorkspaceID)
 	}
 
+	workspaceID := contracts.WorkspaceID(h.workspaceID)
+	_ = h.lspSupervisor.ShutdownAll(ctx, &workspaceID, contracts.LspServerStopReasonSidecarStop)
+
 	zero := 0
 	if err := h.SendStopped(ctx, &zero); err != nil {
 		return err
@@ -137,6 +152,76 @@ func (h *LifecycleHandler) handleStop(ctx context.Context, raw []byte) error {
 	}
 	h.exit(0)
 	return nil
+}
+
+func (h *LifecycleHandler) handleLspLifecycle(ctx context.Context, raw []byte) error {
+	var envelope struct {
+		Action contracts.LspLifecycleAction `json:"action"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("unmarshal LSP lifecycle envelope: %w", err)
+	}
+
+	switch envelope.Action {
+	case contracts.LspLifecycleActionStartServer:
+		var cmd contracts.LspStartServerCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal LspStartServerCommand: %w", err)
+		}
+		return h.lspSupervisor.StartServer(ctx, cmd)
+	case contracts.LspLifecycleActionStopServer:
+		var cmd contracts.LspStopServerCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal LspStopServerCommand: %w", err)
+		}
+		return h.lspSupervisor.StopServer(ctx, cmd)
+	case contracts.LspLifecycleActionRestartServer:
+		var cmd contracts.LspRestartServerCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal LspRestartServerCommand: %w", err)
+		}
+		return h.lspSupervisor.RestartServer(ctx, cmd)
+	case contracts.LspLifecycleActionHealthCheck:
+		var cmd contracts.LspHealthCheckCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal LspHealthCheckCommand: %w", err)
+		}
+		return h.lspSupervisor.HealthCheck(ctx, cmd)
+	case contracts.LspLifecycleActionStopAll:
+		var cmd contracts.LspStopAllServersCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal LspStopAllServersCommand: %w", err)
+		}
+		return h.lspSupervisor.StopAll(ctx, cmd)
+	default:
+		return fmt.Errorf("unknown LSP lifecycle action %q", envelope.Action)
+	}
+}
+
+func (h *LifecycleHandler) handleLspRelay(ctx context.Context, raw []byte) error {
+	var envelope struct {
+		Direction contracts.LspRelayDirection `json:"direction"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("unmarshal LSP relay envelope: %w", err)
+	}
+	if envelope.Direction != contracts.LspRelayDirectionClientToServer {
+		return fmt.Errorf("unsupported LSP relay direction %q", envelope.Direction)
+	}
+
+	var msg contracts.LspClientPayloadMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return fmt.Errorf("unmarshal LspClientPayloadMessage: %w", err)
+	}
+	return h.lspSupervisor.RelayClientPayload(ctx, msg)
+}
+
+func (h *LifecycleHandler) send(ctx context.Context, msg any) error {
+	server := h.getServer()
+	if server == nil {
+		return errors.New("websocket server is not configured")
+	}
+	return server.Send(ctx, msg)
 }
 
 func (h *LifecycleHandler) getServer() wsx.Server {

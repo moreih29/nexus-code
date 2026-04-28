@@ -4,6 +4,10 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { WebSocketServer, WebSocket } from "ws";
 
+import type {
+  LspServerPayloadMessage,
+  LspStartServerCommand,
+} from "../../../../shared/src/contracts/lsp/lsp-sidecar";
 import type { SidecarStartCommand } from "../../../../shared/src/contracts/sidecar/sidecar";
 import type { TabBadgeEvent, ToolCallEvent } from "../../../../shared/src/contracts/harness/harness-observer";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
@@ -186,6 +190,94 @@ describe("SidecarBridge", () => {
     expect(children).toHaveLength(1);
   });
 
+
+  test("LSP lifecycle requests and relay payloads use the sidecar WebSocket", async () => {
+    const child = new MockChildProcess(4335);
+    const bridge = new SidecarBridge({
+      sidecarBin: "/mock/nexus-sidecar",
+      existsSyncFn: () => true,
+      spawnProcess: createMockSpawn(child, { mode: "normal" }),
+      reconcileWindowMs: 5,
+      stopAckTimeoutMs: 20,
+      stopSigkillTimeoutMs: 20,
+      startedTimeoutMs: 100,
+    });
+    const lspStartCommand: LspStartServerCommand = {
+      type: "lsp/lifecycle",
+      action: "start_server",
+      requestId: "req_lsp_start",
+      workspaceId,
+      serverId: `${workspaceId}:typescript`,
+      language: "typescript",
+      command: "typescript-language-server",
+      args: ["--stdio"],
+      cwd: "/tmp/nexus-bridge-test",
+      serverName: "typescript-language-server",
+    };
+    const relayPayload = "Content-Length: 2\r\n\r\n{}";
+    let subscription: ReturnType<SidecarBridge["onServerPayload"]> | null = null;
+    const relayPromise = new Promise<LspServerPayloadMessage>((resolve) => {
+      subscription = bridge.onServerPayload((message) => {
+        subscription?.dispose();
+        resolve(message);
+      });
+    });
+
+    try {
+      await bridge.start(startCommand);
+
+      await expect(bridge.startServer(lspStartCommand)).resolves.toMatchObject({
+        type: "lsp/lifecycle",
+        action: "server_started",
+        requestId: "req_lsp_start",
+        workspaceId,
+        serverId: `${workspaceId}:typescript`,
+      });
+
+      bridge.sendClientPayload({
+        type: "lsp/relay",
+        direction: "client_to_server",
+        workspaceId,
+        serverId: `${workspaceId}:typescript`,
+        seq: 1,
+        payload: relayPayload,
+      });
+
+      await expect(relayPromise).resolves.toMatchObject({
+        type: "lsp/relay",
+        direction: "server_to_client",
+        workspaceId,
+        serverId: `${workspaceId}:typescript`,
+        payload: relayPayload,
+      });
+
+      await expect(
+        bridge.stopAllServers({
+          type: "lsp/lifecycle",
+          action: "stop_all",
+          requestId: "req_lsp_stop_all",
+          workspaceId,
+          reason: "app-shutdown",
+        }),
+      ).resolves.toMatchObject({
+        type: "lsp/lifecycle",
+        action: "stop_all_stopped",
+        requestId: "req_lsp_stop_all",
+        workspaceId,
+        stoppedServerIds: [`${workspaceId}:typescript`],
+      });
+    } finally {
+      subscription?.dispose();
+      await bridge
+        .stop({
+          type: "sidecar/stop",
+          workspaceId,
+          reason: "workspace-close",
+        })
+        .catch(() => null);
+    }
+  });
+
   test("dataDir option is passed to sidecar server mode for hook listener startup", async () => {
     const child = new MockChildProcess(4330);
     const spawnArgs: readonly string[][] = [];
@@ -360,7 +452,7 @@ function createMockSpawn(
     });
     server.on("connection", (ws) => {
       ws.on("message", (data) => {
-        const message = JSON.parse(data.toString()) as { type?: string };
+        const message = JSON.parse(data.toString()) as Record<string, any>;
         if (message.type === "sidecar/start") {
           ws.send(
             JSON.stringify({
@@ -368,6 +460,43 @@ function createMockSpawn(
               workspaceId,
               pid: child.pid,
               startedAt: new Date("2026-04-25T00:00:00.000Z").toISOString(),
+            }),
+          );
+        }
+        if (message.type === "lsp/lifecycle" && message.action === "start_server") {
+          ws.send(
+            JSON.stringify({
+              type: "lsp/lifecycle",
+              action: "server_started",
+              requestId: message.requestId,
+              workspaceId,
+              serverId: message.serverId,
+              language: message.language,
+              serverName: message.serverName,
+              pid: child.pid + 100,
+            }),
+          );
+        }
+        if (message.type === "lsp/lifecycle" && message.action === "stop_all") {
+          ws.send(
+            JSON.stringify({
+              type: "lsp/lifecycle",
+              action: "stop_all_stopped",
+              requestId: message.requestId,
+              workspaceId,
+              stoppedServerIds: [`${workspaceId}:typescript`],
+            }),
+          );
+        }
+        if (message.type === "lsp/relay" && message.direction === "client_to_server") {
+          ws.send(
+            JSON.stringify({
+              type: "lsp/relay",
+              direction: "server_to_client",
+              workspaceId,
+              serverId: message.serverId,
+              seq: message.seq,
+              payload: message.payload,
             }),
           );
         }

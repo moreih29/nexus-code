@@ -17,6 +17,8 @@ const schemas = [
   "workspace-actions",
   "terminal-ipc",
   "harness-observer",
+  "lsp-lifecycle",
+  "lsp-relay",
 ] as const;
 
 const brandImports: Record<string, string[]> = {
@@ -28,6 +30,8 @@ const brandImports: Record<string, string[]> = {
   "workspace-actions": ["WorkspaceId"],
   "terminal-ipc": ["TerminalTabId", "WorkspaceId"],
   "harness-observer": ["WorkspaceId"],
+  "lsp-lifecycle": ["WorkspaceId"],
+  "lsp-relay": ["WorkspaceId"],
 };
 
 await mkdir(outputDir, { recursive: true });

@@ -1,6 +1,11 @@
-import { Circle, FileText, Save, X } from "lucide-react";
+import { Circle, FileText, Save, SplitSquareHorizontal, X } from "lucide-react";
 
-import type { EditorTab, EditorTabId } from "../stores/editor-store";
+import type {
+  EditorPaneId,
+  EditorTab,
+  EditorTabId,
+  EditorStoreState,
+} from "../stores/editor-store";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { EmptyState } from "./EmptyState";
@@ -8,12 +13,17 @@ import { MonacoEditorHost } from "./MonacoEditorHost";
 
 export interface EditorPaneProps {
   activeWorkspaceName?: string | null;
+  paneId?: EditorPaneId;
+  active?: boolean;
   tabs: EditorTab[];
   activeTabId: EditorTabId | null;
+  onActivatePane?(paneId: EditorPaneId): void;
   onActivateTab(tabId: EditorTabId): void;
   onCloseTab(tabId: EditorTabId): void;
   onSaveTab(tabId: EditorTabId): void;
   onChangeContent(tabId: EditorTabId, content: string): void;
+  onApplyWorkspaceEdit?: EditorStoreState["applyWorkspaceEdit"];
+  onSplitRight?(): void;
 }
 
 export function EditorPane(props: EditorPaneProps): JSX.Element {
@@ -22,18 +32,35 @@ export function EditorPane(props: EditorPaneProps): JSX.Element {
 
 export function EditorPaneView({
   activeWorkspaceName,
+  paneId = "p0",
+  active = true,
   tabs,
   activeTabId,
+  onActivatePane,
   onActivateTab,
   onCloseTab,
   onSaveTab,
   onChangeContent,
+  onApplyWorkspaceEdit,
+  onSplitRight,
 }: EditorPaneProps): JSX.Element {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const handleActivatePane = () => {
+    onActivatePane?.(paneId);
+  };
 
   if (!activeWorkspaceName) {
     return (
-      <section data-component="editor-pane" className="h-full rounded-md border border-border bg-card">
+      <section
+        data-component="editor-pane"
+        data-editor-pane-id={paneId}
+        data-active={active ? "true" : "false"}
+        role="region"
+        aria-label="Editor pane"
+        className={cn("h-full bg-background", active && "ring-1 ring-inset ring-[var(--color-ring)]")}
+        onFocusCapture={handleActivatePane}
+        onPointerDown={handleActivatePane}
+      >
         <EmptyState
           icon={FileText}
           title="No workspace selected"
@@ -45,7 +72,16 @@ export function EditorPaneView({
 
   if (!activeTab) {
     return (
-      <section data-component="editor-pane" className="h-full rounded-md border border-border bg-card">
+      <section
+        data-component="editor-pane"
+        data-editor-pane-id={paneId}
+        data-active={active ? "true" : "false"}
+        role="region"
+        aria-label="Editor pane"
+        className={cn("h-full bg-background", active && "ring-1 ring-inset ring-[var(--color-ring)]")}
+        onFocusCapture={handleActivatePane}
+        onPointerDown={handleActivatePane}
+      >
         <EmptyState
           icon={FileText}
           title="No file open"
@@ -56,7 +92,19 @@ export function EditorPaneView({
   }
 
   return (
-    <section data-component="editor-pane" className="flex h-full min-h-0 flex-col rounded-md border border-border bg-card">
+    <section
+      data-component="editor-pane"
+      data-editor-pane-id={paneId}
+      data-active={active ? "true" : "false"}
+      role="region"
+      aria-label="Editor pane"
+      className={cn(
+        "flex h-full min-h-0 flex-col bg-background transition-[box-shadow]",
+        active && "ring-1 ring-inset ring-[var(--color-ring)]",
+      )}
+      onFocusCapture={handleActivatePane}
+      onPointerDown={handleActivatePane}
+    >
       <header className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Open files">
           {tabs.map((tab) => {
@@ -87,7 +135,15 @@ export function EditorPaneView({
                       strokeWidth={1.75}
                     />
                   ) : null}
-                  <span className="truncate">{tab.title}</span>
+                  <span
+                    data-editor-tab-title-active={active ? "true" : "false"}
+                    className={cn(
+                      "truncate",
+                      active ? "font-semibold text-foreground" : "font-normal text-muted-foreground",
+                    )}
+                  >
+                    {tab.title}
+                  </span>
                 </button>
                 <Button
                   type="button"
@@ -105,6 +161,18 @@ export function EditorPaneView({
             );
           })}
         </div>
+        <Button
+          type="button"
+          data-action="editor-split-right"
+          aria-label={"Split right (⌘\\)"}
+          title={"Split right (⌘\\)"}
+          variant="ghost"
+          size="icon-xs"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          onClick={onSplitRight}
+        >
+          <SplitSquareHorizontal aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+        </Button>
         <Button
           type="button"
           data-action="editor-save-tab"
@@ -131,9 +199,11 @@ export function EditorPaneView({
           workspaceId={activeTab.workspaceId}
           path={activeTab.path}
           languageId={activeTab.monacoLanguage}
+          lspLanguage={activeTab.language}
           value={activeTab.content}
           diagnostics={activeTab.diagnostics}
           onChange={(content) => onChangeContent(activeTab.id, content)}
+          onApplyWorkspaceEdit={onApplyWorkspaceEdit}
         />
       </div>
 

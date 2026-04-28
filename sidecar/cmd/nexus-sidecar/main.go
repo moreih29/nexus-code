@@ -233,6 +233,8 @@ func waitUntilListening(ctx context.Context, addr string, serveErr <-chan error)
 func handleShutdown(server wsx.Server, handler *LifecycleHandler, exit func(int)) {
 	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
 	defer cancel()
+	workspaceID := contracts.WorkspaceID(handler.workspaceID)
+	_ = handler.lspSupervisor.ShutdownAll(ctx, &workspaceID, contracts.LspServerStopReasonSidecarStop)
 	_ = handler.SendStopped(ctx, nil)
 	_ = server.Close(wsx.StatusGoingAway, "going away")
 	exit(0)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { keyboardRegistryStore, normalizeKeychord } from "./keyboard-registry";
+import { keyboardRegistryStore, normalizeKeychord, shouldIgnoreKeyboardShortcut } from "./keyboard-registry";
 
 afterEach(() => {
   keyboardRegistryStore.setState({ bindings: {}, commands: {} });
@@ -58,5 +58,17 @@ describe("keyboardRegistryStore", () => {
   test("normalizes modifier order and key casing", () => {
     expect(normalizeKeychord("shift+cmd+p")).toBe("Cmd+Shift+P");
     expect(normalizeKeychord("Ctrl+`")).toBe("Ctrl+`");
+    expect(normalizeKeychord("cmd+alt+←")).toBe("Cmd+Alt+ArrowLeft");
+    expect(normalizeKeychord("cmd+alt+→")).toBe("Cmd+Alt+ArrowRight");
+  });
+
+  test("blocks shortcuts while Korean IME composition is active", () => {
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "M" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "M", keyCode: 77, which: 77 })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "\\" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "ArrowLeft" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "ArrowRight" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: false, key: "Process", keyCode: 229 })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: false, key: "M", keyCode: 77 })).toBe(false);
   });
 });

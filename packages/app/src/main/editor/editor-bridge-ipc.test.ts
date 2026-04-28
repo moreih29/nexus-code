@@ -142,6 +142,114 @@ describe("registerEditorBridgeIpcHandlers", () => {
         language: "typescript",
       },
     ]);
+
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-completion/complete",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: { line: 0, character: 7 },
+      }),
+    ).resolves.toEqual({
+      type: "lsp-completion/complete/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      isIncomplete: false,
+      items: [
+        {
+          label: "console",
+          kind: "variable",
+          insertText: "console",
+          insertTextFormat: "plain-text",
+          additionalTextEdits: [],
+        },
+      ],
+      completedAt: "2026-04-27T00:00:00.000Z",
+    });
+    expect(lspService.receivedRequests.at(-1)).toEqual({
+      type: "lsp-completion/complete",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      position: { line: 0, character: 7 },
+    });
+
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-hover/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: { line: 0, character: 7 },
+      }),
+    ).resolves.toMatchObject({
+      type: "lsp-hover/read/result",
+      contents: [{ kind: "markdown", value: "`console`" }],
+    });
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-definition/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: { line: 0, character: 7 },
+      }),
+    ).resolves.toMatchObject({
+      type: "lsp-definition/read/result",
+      targets: [{ type: "location", path: "src/console.ts" }],
+    });
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-references/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: { line: 0, character: 7 },
+        includeDeclaration: true,
+      }),
+    ).resolves.toMatchObject({
+      type: "lsp-references/read/result",
+      locations: [{ path: "src/index.ts" }],
+    });
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-document-symbols/read",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+      }),
+    ).resolves.toMatchObject({
+      type: "lsp-document-symbols/read/result",
+      symbols: [{ type: "document-symbol", name: "console" }],
+    });
+
+    await expect(
+      ipcMain.invokeRegisteredHandler({
+        type: "lsp-rename/rename",
+        workspaceId,
+        path: "src/index.ts",
+        language: "typescript",
+        position: { line: 0, character: 7 },
+        newName: "nextValue",
+      }),
+    ).resolves.toEqual({
+      type: "lsp-rename/rename/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      workspaceEdit: { changes: [] },
+      renamedAt: "2026-04-27T00:00:00.000Z",
+    });
+    expect(lspService.receivedRequests.at(-1)).toEqual({
+      type: "lsp-rename/rename",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      position: { line: 0, character: 7 },
+      newName: "nextValue",
+    });
   });
 });
 
@@ -275,6 +383,187 @@ class FakeLspService {
   public readStatus(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
     this.receivedRequests.push(request);
     throw new Error("not used");
+  }
+
+  public complete(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-completion/complete/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      isIncomplete: false,
+      items: [
+        {
+          label: "console",
+          kind: "variable",
+          insertText: "console",
+          insertTextFormat: "plain-text",
+          additionalTextEdits: [],
+        },
+      ],
+      completedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public hover(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-hover/read/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      contents: [{ kind: "markdown", value: "`console`" }],
+      range: null,
+      readAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public definition(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-definition/read/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      targets: [
+        {
+          type: "location",
+          uri: "file:///workspace/src/console.ts",
+          path: "src/console.ts",
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 7 },
+          },
+        },
+      ],
+      readAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public references(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-references/read/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      locations: [
+        {
+          uri: "file:///workspace/src/index.ts",
+          path: "src/index.ts",
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 7 },
+          },
+        },
+      ],
+      readAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public documentSymbols(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-document-symbols/read/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      symbols: [
+        {
+          type: "document-symbol",
+          name: "console",
+          detail: null,
+          kind: "variable",
+          tags: [],
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 7 },
+          },
+          selectionRange: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 7 },
+          },
+          children: [],
+        },
+      ],
+      readAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public prepareRename(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-rename/prepare/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      canRename: true,
+      range: null,
+      placeholder: null,
+      defaultBehavior: true,
+      preparedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public renameSymbol(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-rename/rename/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      workspaceEdit: { changes: [] },
+      renamedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public formatDocument(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-formatting/document/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      edits: [],
+      formattedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public formatRange(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-formatting/range/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      edits: [],
+      formattedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public getSignatureHelp(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-signature-help/get/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      signatureHelp: null,
+      resolvedAt: "2026-04-27T00:00:00.000Z",
+    });
+  }
+
+  public codeActions(request: EditorBridgeRequest): Promise<EditorBridgeResult> {
+    this.receivedRequests.push(request);
+    return Promise.resolve({
+      type: "lsp-code-action/list/result",
+      workspaceId,
+      path: "src/index.ts",
+      language: "typescript",
+      actions: [],
+      listedAt: "2026-04-27T00:00:00.000Z",
+    });
   }
 
   public openDocument(request: EditorBridgeRequest): Promise<EditorBridgeResult> {

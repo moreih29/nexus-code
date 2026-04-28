@@ -184,6 +184,7 @@ export async function composeElectronAppServices(
 
   const lspService = new LspService({
     workspacePersistenceStore,
+    sidecarClient: sidecarRuntime,
   });
   const workspaceShellService = new WorkspaceShellService(
     workspacePersistenceStore,
@@ -442,6 +443,9 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.workspaceShortcutBridge.dispose();
     this.editorBridgeIpcHandlers.dispose();
     await this.lspService.dispose();
+    await runShutdownStep("stop sidecar LSP servers", async () => {
+      await stopAllManagedLspServers(this.sidecarRuntime);
+    });
     this.workspaceFilesService.dispose();
     this.observerSurfacesIpcHandlers.dispose();
     this.workspaceIpcAdapter.stop();
@@ -486,6 +490,10 @@ async function closeOpenWorkspaceTerminals(
         .then(() => undefined),
     ),
   );
+}
+
+async function stopAllManagedLspServers(runtime: SidecarRuntime): Promise<void> {
+  await runtime.stopAllLspServers?.("app-shutdown");
 }
 
 async function stopAllManagedSidecars(runtime: SidecarRuntime): Promise<void> {

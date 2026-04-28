@@ -22,6 +22,40 @@ checks = [
             "sidecarStoppedEvent": "SidecarStoppedEvent",
         },
     },
+
+    {
+        "schema_path": "schema/lsp-lifecycle.schema.json",
+        "go_path": "sidecar/internal/contracts/lsp.go",
+        "enum_checks": {
+            "lspLanguage": "LspLanguage",
+            "lspLifecycleAction": "LspLifecycleAction",
+            "lspServerStopReason": "LspServerStopReason",
+            "lspServerState": "LspServerState",
+        },
+        "variant_checks": {
+            "lspStartServerCommand": "LspStartServerCommand",
+            "lspStopServerCommand": "LspStopServerCommand",
+            "lspRestartServerCommand": "LspRestartServerCommand",
+            "lspHealthCheckCommand": "LspHealthCheckCommand",
+            "lspStopAllServersCommand": "LspStopAllServersCommand",
+            "lspServerStartedReply": "LspServerStartedReply",
+            "lspServerStartFailedReply": "LspServerStartFailedReply",
+            "lspServerStoppedEvent": "LspServerStoppedEvent",
+            "lspServerHealthReply": "LspServerHealthReply",
+            "lspStopAllServersReply": "LspStopAllServersReply",
+        },
+    },
+    {
+        "schema_path": "schema/lsp-relay.schema.json",
+        "go_path": "sidecar/internal/contracts/lsp.go",
+        "enum_checks": {
+            "lspRelayDirection": "LspRelayDirection",
+        },
+        "variant_checks": {
+            "lspClientPayloadMessage": "LspClientPayloadMessage",
+            "lspServerPayloadMessage": "LspServerPayloadMessage",
+        },
+    },
     {
         "schema_path": "schema/harness-observer.schema.json",
         "go_path": "sidecar/internal/contracts/harness_observer.go",

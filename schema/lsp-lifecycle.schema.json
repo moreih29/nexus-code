@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/lsp-lifecycle.schema.json",
+  "title": "LspLifecycleMessage",
+  "oneOf": [
+    { "$ref": "#/$defs/lspStartServerCommand" },
+    { "$ref": "#/$defs/lspStopServerCommand" },
+    { "$ref": "#/$defs/lspRestartServerCommand" },
+    { "$ref": "#/$defs/lspHealthCheckCommand" },
+    { "$ref": "#/$defs/lspStopAllServersCommand" },
+    { "$ref": "#/$defs/lspServerStartedReply" },
+    { "$ref": "#/$defs/lspServerStartFailedReply" },
+    { "$ref": "#/$defs/lspServerStoppedEvent" },
+    { "$ref": "#/$defs/lspServerHealthReply" },
+    { "$ref": "#/$defs/lspStopAllServersReply" }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serverId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lspLanguage": {
+      "type": "string",
+      "enum": ["typescript", "python", "go"]
+    },
+    "lspLifecycleAction": {
+      "type": "string",
+      "enum": [
+        "start_server",
+        "stop_server",
+        "restart_server",
+        "health_check",
+        "stop_all",
+        "server_started",
+        "server_start_failed",
+        "server_stopped",
+        "server_health",
+        "stop_all_stopped"
+      ]
+    },
+    "lspServerStopReason": {
+      "type": "string",
+      "enum": ["document-close", "workspace-close", "app-shutdown", "restart", "sidecar-stop"]
+    },
+    "lspServerState": {
+      "type": "string",
+      "enum": ["running", "stopped", "unavailable", "error"]
+    },
+    "lspStartServerCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "serverId",
+        "language",
+        "command",
+        "args",
+        "cwd",
+        "serverName"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "start_server" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "serverName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lspStopServerCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "serverId",
+        "language",
+        "serverName",
+        "reason"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "stop_server" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "serverName": { "type": "string", "minLength": 1 },
+        "reason": { "$ref": "#/$defs/lspServerStopReason" }
+      }
+    },
+    "lspRestartServerCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "serverId",
+        "language",
+        "command",
+        "args",
+        "cwd",
+        "serverName"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "restart_server" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute filesystem path"
+        },
+        "serverName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lspHealthCheckCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "serverId"],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "health_check" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" }
+      }
+    },
+    "lspStopAllServersCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "reason"],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "stop_all" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "reason": { "$ref": "#/$defs/lspServerStopReason" }
+      }
+    },
+    "lspServerStartedReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "serverId",
+        "language",
+        "serverName",
+        "pid"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "server_started" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "serverName": { "type": "string", "minLength": 1 },
+        "pid": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "lspServerStartFailedReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "serverId",
+        "language",
+        "serverName",
+        "state",
+        "message"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "server_start_failed" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "serverName": { "type": "string", "minLength": 1 },
+        "state": {
+          "type": "string",
+          "enum": ["unavailable", "error"]
+        },
+        "message": { "type": "string" }
+      }
+    },
+    "lspServerStoppedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "workspaceId",
+        "serverId",
+        "language",
+        "serverName",
+        "reason",
+        "exitCode",
+        "signal",
+        "stoppedAt"
+      ],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "server_stopped" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "language": { "$ref": "#/$defs/lspLanguage" },
+        "serverName": { "type": "string", "minLength": 1 },
+        "reason": { "$ref": "#/$defs/lspServerStopReason" },
+        "exitCode": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+        "signal": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "stoppedAt": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" }
+      }
+    },
+    "lspServerHealthReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "serverId", "state"],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "server_health" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "serverId": { "$ref": "#/$defs/serverId" },
+        "state": { "$ref": "#/$defs/lspServerState" },
+        "pid": { "type": "integer", "minimum": 1 },
+        "message": { "type": "string" }
+      }
+    },
+    "lspStopAllServersReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "stoppedServerIds"],
+      "properties": {
+        "type": { "const": "lsp/lifecycle" },
+        "action": { "const": "stop_all_stopped" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "stoppedServerIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/serverId" }
+        }
+      }
+    }
+  }
+}

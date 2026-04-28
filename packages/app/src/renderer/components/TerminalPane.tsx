@@ -174,7 +174,7 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
   );
 
   return (
-    <section data-component="terminal-pane" className="flex h-full min-h-0 flex-col bg-background p-2 text-foreground">
+    <section data-component="terminal-pane" className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <header className="flex items-center gap-2 border-b border-border pb-2">
         <Tabs
           value={activeTabId}
@@ -232,7 +232,7 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
         </Button>
       </header>
 
-      <div className="relative mt-2 min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background p-2">
+      <div className="relative mt-2 min-h-0 flex-1 overflow-hidden bg-background">
         <div
           ref={terminalHostRef}
           data-slot="terminal-pane-host"
@@ -243,8 +243,9 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
           <div className="absolute inset-0 bg-background">
             <EmptyState
               icon={SquareTerminal}
-              title="No terminal yet"
-              description="Open a workspace to start a terminal."
+              title="No terminal session"
+              description="Create a terminal tab for this workspace."
+              action={{ label: "New Terminal", shortcut: "⌘T", onClick: handleCreateTab }}
             />
           </div>
         ) : null}

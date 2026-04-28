@@ -16,4 +16,7 @@ export * from "./contracts/claude/claude-session-transcript";
 export * from "./contracts/workspace/workspace-files";
 export * from "./contracts/workspace/workspace-git-badges";
 export * from "./contracts/lsp/lsp-diagnostics";
+export * from "./contracts/lsp/lsp-completion";
+export * from "./contracts/lsp/lsp-read";
+export * from "./contracts/lsp/lsp-edit";
 export * from "./contracts/editor/editor-bridge";

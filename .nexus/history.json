@@ -4777,6 +4777,518 @@
           "created_at": "2026-04-28T01:19:17.917Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T05:03:43.746Z",
+      "branch": "feat/e4-vscode-surface",
+      "plan": {
+        "id": 29,
+        "topic": "E4를 'VSCode급 코드 에디터 + 풀 LSP'로 격상 (A+B 묶음)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "roadmap.md / design.md 갱신 메타-결정: E4 명시 제외 항목 갱신 범위, '포크 아니다' 거절선과 'VSCode 수준' 합의 사이 표현 정합화, 새 마일스톤 위치(E4+ 또는 M4.5)",
+            "status": "decided",
+            "decision": "D 방식 (MVP 정체성 재정의)로 진행. 갱신 항목:\n\n1. design.md §1.2 거절선 재작성 — \"VS Code 포크가 아니다\" 두 의미 분리: (a) 엔지니어링 의미 (\"VSCode 코드를 포크하지 않는다, Monaco·표준 라이브러리만 사용\") 유지, (b) 포지셔닝 의미 격상 (\"능력 표면 — 편집·LSP·레이아웃·키바인딩 — 은 VSCode 수준을 목표로 한다. 정체성 차별화는 토큰·타이포·밀도·강조색·AI 하네스 관찰 통합·멀티 워크스페이스 모델에서 이루어진다\").\n2. philosophy.md 핵심축 #2 강화 — \"IDE급 기능\" → \"VSCode급 능력 표면 (편집·LSP·레이아웃·키바인딩 표준 동등)을 1인 개발자 범위 내에서\".\n3. roadmap.md E4 본문 in-place 격상 — \"best-effort diagnostics 브리지\" → Issue 2 결정 결과로 채움 (Monaco LanguageClient 기반 풀 능력 표면). 명시 제외에서 editor split 항목은 Issue 5 결정에 따라 lift.\n4. roadmap.md M4 마일스톤 갱신 — \"E4 구현 랜딩\" → \"E4 격상 완료 (풀 LSP + 디자인 폴리시 + 분할)\". M4 단일 마일스톤 유지 (M4.5 분할 안 함).\n5. **roadmap.md timeline 가이드 섹션 전체 제거** (사용자 지시) — Full-time/Part-time 개월 수 가이드와 \"몰아서 진행\" 문구를 삭제. 마일스톤 단위 진행이라는 정신만 다른 위치(예: 마일스톤 순서 단락)에 한 줄로 흡수.\n\n명시적 비-갱신 영역 (그대로 유지):\n- E4 명시 제외 중 project-wide search, 전용 git UI, debugger, test runner, extension, marketplace, AI 인라인 제안\n- philosophy non-goals (에이전트 갤러리, 협업/원격, CJK 1등 시민 마케팅)\n- 품질 측정 축 3개 (렌더링 일관성, 입력 지연, IME 정확도)\n- 한국어 품질 정책\n\n실제 본문 수정은 Issue 2~5 결정이 모두 끝난 뒤 task 단계에서 한 번에 적용 (writer + reviewer pair)."
+          },
+          {
+            "id": 2,
+            "title": "LSP 능력 표면 확장 범위 결정 (B): diagnostics-only → completion/hover/go-to-def/rename/code-action/format/inlay-hint 중 MVP 포함 범위, 클라이언트 구현 전략 (monaco-languageclient vs 직접 구현), 소유 경계 (main IPC 유지 vs sidecar 이동)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**A (능력 표면)**: Tier-1 6개 추천 — completion + hover + go-to-def + references + rename + formatting. Tier-2 (signature help, document symbols, code action, semantic tokens)는 후속 슬라이스로 분리. inlay hints/semantic tokens/folding/links는 ROI 대비 부담 커서 후속. 무게: 1인 범위 65%. **B (클라이언트)**: Option 2 추천 — `vscode-languageserver-protocol` (표준 LSP 타입 + JSON-RPC만) + 자체 Monaco 어댑터. monaco-languageclient는 @codingame/monaco-vscode-api 의존성 무겁고 자체 IPC + Monaco 직접 import 패턴(`pattern-library-bypass-decision.md`)과 충돌. 능력별 어댑터 6개 = 약 400-600 LOC. **C (소유)**: Option 3 (하이브리드) 추천 — sidecar = process supervision/health/lifecycle, main = 프로토콜 + Monaco 통합. per-workspace sidecar 격리 모델 활용 + Go 풀 LSP 구현 부담 회피. 무게: 1인 범위 70%. **충돌 영역**: Tier-2 후속 분리는 \"VSCode 수준\" 합의와 표면적 모순 → phased 격상으로 사용자 재확인 필요. **선결 조건**: lsp-service.ts(1232 LOC god-object) 어댑터 분해 리팩터링이 첫 슬라이스에 포함 필수. **리스크**: 하이브리드 C3는 main↔sidecar 경계에서 LSP stdio를 어떻게 라우팅할지 구체화 필요(아키텍트 분석 미세부) — sidecar가 spawn 부모인데 main이 protocol을 다루는 메커니즘 불명확.",
+                "recorded_at": "2026-04-28T01:59:54.926Z",
+                "agent_id": "aef095c614434d8f2"
+              },
+              {
+                "role": "researcher",
+                "summary": "**monaco-languageclient v10.7.0** (2026.02), MIT. v10에서 monaco-editor-wrapper 합병 + ESM-only + @codingame/monaco-vscode-api(VSCode 서비스 레이어 브라우저 폴리필) 의존. 알려진 함정: Vite 통합 시 `importMetaUrlPlugin` 명시 필요(#665), Electron 환경 직접 통합 복잡 보고(#322), `@monaco-editor/react` 동시 사용 시 모델 유실(#802) — nexus는 `@monaco-editor/react` 미사용이지만 React 19 + Vite + Electron 조합 호환성 사전 검증 필수. **Theia 패턴**: backend 프로세스가 LSP stdio 소유 + frontend가 `vscode-ws-jsonrpc` WebSocket 중계. monaco-languageclient의 원래 설계 사용처. nexus의 Go sidecar 구조에 직접 대응. **VSCode 패턴**: extension host (별도 Node 프로세스)가 LSP 자식 spawn + IPC로 renderer 연결. **LSP 서버 매트릭스**: typescript-language-server / pyright / gopls 모두 completion·hover·definition·references·rename·code-actions·formatting·signature-help·document-symbols 안정. 주의: typescript-language-server inlayHint는 표준(`textDocument/inlayHint`) + 구버전(`typescript/inlayHints`) 이중 경로 → capability negotiation 혼선 가능. gopls v0.20+ module cache 인덱스 자동. **Electron supervision**: UtilityProcess가 Electron 공식 권장. sidecar 좀비 프로세스 방지를 위해 `app.on('before-quit')` 명시 필수. multi-workspace 격리는 워크스페이스별 별도 LSP 프로세스(VSCode 패턴). **Null result**: Electron+LSP 30분+ 안정성 공개 데이터 미발견 — 자체 검증 필요. 출처: TypeFox blog, Theia docs, Zed DeepWiki, go.dev/gopls, Electron docs, 등 22개 인용.",
+                "recorded_at": "2026-04-28T02:00:08.542Z",
+                "agent_id": "ac8e646e722d3681b"
+              }
+            ],
+            "decision": "**MVP 격상안 채택 (Lead 권고안 그대로)**.\n\n**A 능력 표면 (Tier-1, 9개)**: completion (with snippets) + hover + go-to-definition + find-references + rename + formatting (document/range) + signature help + code action (quick fix / source action) + document symbols (outline). 단일 슬라이스로 진행 (분할 안 함).\n\n**Tier-2 (별도 후속 슬라이스, 이번 격상 범위 외)**: semantic tokens, inlay hints, dedicated find-references panel UI, formatting on-type, folding ranges, document links, selection ranges, document highlights, workspace symbols.\n\n**B 클라이언트 전략**: Option 2 — `vscode-languageserver-protocol` (표준 LSP 타입 + JSON-RPC 메시지 스키마만) + 자체 Monaco providers (9개 능력별 어댑터). monaco-languageclient는 채택하지 않음 (이유: @codingame/monaco-vscode-api 브라우저 폴리필이 Electron 환경에서 불필요, `pattern-library-bypass-decision.md`와 정합, 능력별 어댑터를 작은 모듈로 분해해 unit-test 가능).\n\n**C 소유 경계**: C3b 하이브리드 — sidecar = LSP 서버 process spawn + supervision + health/restart + WebSocket stdio relay. main = LSP 프로토콜 처리 + Monaco 통합. renderer = preload editor API 호출 (현재 구조 유지). `app.on('before-quit')`에서 sidecar의 LSP 자식 프로세스 종료 명시적 보장 (researcher가 인용한 좀비 방지 패턴).\n\n**선결 작업 (격상 슬라이스 첫 단계)**: \n1. `packages/app/src/main/lsp/lsp-service.ts` (현재 1232 LOC god-object) 9개 능력 어댑터 단위로 분해\n2. WebSocket sidecar↔main 메시지 스키마에 lsp/lifecycle, lsp/relay 채널 추가 (close-code 처리 명시 — `pattern-sidecar-close-code-race.md` 재발 방지)\n3. typescript-language-server / pyright / gopls capability negotiation 협상 결과를 nx_artifact_write로 기록 (특히 typescript-language-server inlayHint 이중 경로는 Tier-2로 미루므로 이번 격상에는 영향 없음 확인용)\n\n**작업량 가이드**: 단일 슬라이스 4-6주 (1인 기준). 사용자 합의로 분할 없음.\n\n**M6 안정성 검증 영향**: Issue 7에서 별도 다룸. 9개 LSP 능력 × 3개 언어 × 30분 연속 동작에서 회귀 없음 + LSP 서버 크래시 시 sidecar 자동 restart 검증 항목 추가 예정."
+          },
+          {
+            "id": 3,
+            "title": "워크스페이스 ↔ 파일트리 계층 표현 모델 (점#1): 현재 단일 사이드바 수직 적층 구조에서 워크스페이스가 파일트리를 '소유'한다는 정신적 모델을 어떻게 시각화할지 (VSCode Explorer collapse-section 모델 / Workspace breadcrumb 모델 / 분리 패널 모델 등)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "5개 모델 평가 후 **모델 Y (워크스페이스 = 수직 탭, 파일트리 = 탭 본문)** 추천. 근거: (X) collapse-section은 \"독립 두 패널이 우연히 같이 산다\" 모델로 소유 표현 위반, (Z) breadcrumb은 멀티 워크스페이스 정체성을 드롭다운 안으로 죽임, (W) 두 컬럼은 4열 컨테이너 스펙 위반, (V) Activity bar 오염 + N=10 파괴. Y는 표준 탭 grammar로 mental model과 1:1, 4열 호환, multi-workspace 정체성 보존. 구체 명세: 탭 행 h-9 + displayName 한 줄(absolutePath는 tooltip으로 이전 → Issue 6과 동기화) + Folder/FolderOpen 아이콘 swap + active state는 ring-1 ring-primary/30 (2px side-stripe 금지 §5-7 준수). 두 영역 사이 풀-블리드 1px border-sidebar-border 구분. 소유 표현 3중 cue: 탭→본문 grammar + 동일 background + filetree toolbar 좌측에 active workspace 이름 + FolderOpen 재표기. ARIA tablist/tabpanel 연결 필수. design.md §4에 \"Workspace 사이드바는 상단 Workspace tab list와 하단 Active workspace의 file tree로 구성. 두 영역은 동일 background + 1px border-sidebar-border로 소유 관계 표현\" 한 문장 추가 권고. Lead 결정 필요한 open questions: (1) Cmd+W가 워크스페이스 닫기인지 에디터 탭 닫기인지 (현재 design.md §4 모호), (2) 탭 max-h 스크롤 임계 (N=10 시나리오), (3) absolutePath tooltip vs secondary line — Issue 6 결정과 동기화. Plan Gate: approve with conditions.",
+                "recorded_at": "2026-04-28T02:05:54.419Z",
+                "agent_id": "a0f6feffa1c98d4cb"
+              }
+            ],
+            "decision": "**Model W' 채택 (사용자 hierarchy 진단으로 designer Model Y 롤백, Model W를 Activity Bar 제거 변형으로 채택)**.\n\n**핵심 구조 변화**: 좌→우 narrative로 계층 표현 — Workspace strip → Filetree column → Center editor/terminal → Shared panel. Activity Bar 완전 제거 (현재 5개 중 4개 disabled placeholder + Settings/Search/Git의 레이어 혼합 문제 + MVP 명시 제외 항목 노출 거짓말 — 종합 해소).\n\n**좌측 chrome 구성 (4컬럼 유지)**:\n1. **Workspace strip (default 160px, range 120-220, 리사이즈 가능)** — 모든 열린 워크스페이스를 수직 리스트로 표시. 행 h-8 (32px), 좌측 Folder/FolderOpen 아이콘 (active swap), displayName text-sm truncate, 우측 ⌘1/⌘2/⌘3 키 라벨(앞 3개), harness status dot, hover시 close ×. absolutePath는 hover tooltip + `aria-describedby`. Active state는 `bg-accent` + `ring-1 ring-primary/30` (§5-7 2px stripe 금지 준수). 10+ 워크스페이스는 자체 스크롤 + Cmd+1/2/3 활성화 시 `scrollIntoView({block:'nearest'})`. 하단 anchored \"+ Open Folder ⌘O\" 버튼 항상 표시.\n2. **Filetree column (default 240px, range 200-400, 리사이즈 가능)** — 활성 워크스페이스의 file tree만 표시. 헤더에 `📂 {workspace_name} ➕ 📁 ⟳ ⌃` (workspace 이름 재표기 = 소유 cue 3중의 마지막). 트리 본문은 기존 FileTreePanel 동작 그대로 유지 (본 이슈 범위 외).\n3. Center workbench, Shared panel은 변경 없음 (Issue 5/4에서 별도).\n\n**소유 표현 3중 cue**: (1) 좌→우 spatial narrative (workspace strip 좌, filetree 우 = 좌가 우를 소유한다는 시각 직관), (2) workspace strip의 active highlight + Folder→FolderOpen icon swap, (3) Filetree column 헤더에 active workspace 이름 재표기.\n\n**워크스페이스 0개일 때**: Workspace strip만 EmptyState 표시 (FolderOpen 24px + \"No workspace open\" + ⌘O 단축키 힌트). Filetree column 자체 숨김.\n\n**App 레벨 진입점**: Activity Bar 제거에 따라 (a) Command palette ⌘P/⌘⇧P, (b) macOS menubar (Electron 기본). Settings UI는 MVP 비-목표 유지.\n\n**ARIA**: Workspace strip은 `role=\"tablist\"` aria-orientation=\"vertical\", 각 행 `role=\"tab\"` + `aria-selected`. Filetree column은 `role=\"tabpanel\"` + `aria-labelledby={activeWorkspaceTabId}` 연결.\n\n**단축키 결정** (designer가 open으로 둔 항목):\n- `Cmd+W` = 활성 에디터 탭 닫기 (VSCode 관용). 활성 에디터 탭 없으면 활성 워크스페이스 닫기로 fallback.\n- `Cmd+Shift+W` = 활성 워크스페이스 닫기 (신규 단축키).\n- design.md §4 단축키 맵 갱신 필요.\n\n**탭/strip max 크기 임계**: MVP는 자연 스크롤만, 핀/순서 변경/max-h 임계 결정은 v0.2 (사용자 데이터 누적 후).\n\n**design.md §4 갱신 필요 항목** (Issue 1 결정에 합쳐서 task 단계 일괄 적용):\n- 4열 컨테이너 정의: \"Activity bar 48px\" 제거. \"Workspace strip + Filetree column + Center + Shared panel\" 4컬럼으로 재기술.\n- \"Workspace 사이드바는 Workspace strip(워크스페이스 식별 + 전환)과 Filetree column(활성 워크스페이스 파일트리)으로 분리. Filetree column 헤더에 active workspace 이름 재표기로 소유 관계 표현\" 추가.\n- 단축키 맵에 Cmd+W (에디터 탭 닫기), Cmd+Shift+W (워크스페이스 닫기) 갱신.\n- §4 Empty state 문구: \"Workspace (FolderOpen, No workspace open, Open folder + Cmd+O)\" 그대로 유지.\n\n**Issue 6 (워크스페이스 행 밀도)와의 관계**: W' 채택으로 absolutePath 제거 + 탭 행 압축이 자동 해결. Issue 6은 W'에 흡수.\n\n**구현 침습도**: 중간 — App.tsx의 ActivityBar 제거 + Workspace strip / Filetree column 두 컬럼으로 재구성. 기존 PanelResizeHandle은 두 컬럼 모두에 적용. ActivityBar.tsx는 삭제 (또는 미사용 상태로 남기고 task에서 정리)."
+          },
+          {
+            "id": 4,
+            "title": "리사이저블 패널 비주얼 폴리시 (점#2): 현재 8px 가시 bar + GripVertical 아이콘 → VSCode식 1px invisible + hover highlight 모델로 격상. react-resizable-panels는 실패 기록으로 사용 금지, 기존 custom pointer handler 위에서 비주얼만 재설계",
+            "status": "decided",
+            "decision": "**옵션 B 채택 (VSCode 패턴: 1px line + 8px hit area + 100ms hover delay + grip 제거)**.\n\n**시각 명세** (PanelResizeHandle 컴포넌트 1개로 추출):\n- `w-px` (시각 1px) + `before:absolute before:inset-y-0 before:-left-1 before:w-2` (hit area 8px = 4px×2 pseudo-element)\n- default `bg-border` (column border와 동일 톤·두께로 자연 융합)\n- hover: `bg-primary` (Terminal Teal `#3aa0a6`) + `transition-colors duration-100 hover:delay-100` (mouseover flicker 방지)\n- drag 중: `data-[resize-handle-state=drag]:bg-primary data-[resize-handle-state=drag]:transition-none data-[resize-handle-state=drag]:delay-0` (즉각 반응)\n- focus: `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1` (1px 라인 위에 ring이 묻히지 않도록 offset)\n- `GripVertical` 아이콘 + 안쪽 박스 wrapper **제거**\n- ARIA: `role=\"separator\"` `aria-orientation=\"vertical\"` + 기존 `aria-valuemin/max/now/label` 유지\n- 키보드 단계 16px 유지\n\n**적용 범위**: Issue 3 W' 결정으로 핸들이 2 → 3개 증가 — Workspace strip ↔ Filetree column (신규), Filetree column ↔ Center, Center ↔ Shared. 세 핸들 모두 동일 컴포넌트로 통일.\n\n**유지되는 동작**: localStorage 폭 persistence, custom pointer handler (react-resizable-panels 사용 금지 유지), Cmd+B 사이드바 토글(W' 후 의미는 \"Workspace strip + Filetree column 묶음\" 토글로 갱신), Cmd+J Shared panel 토글.\n\n**삭제 대상**: App.tsx 641-657줄 PanelResizeHandle inline 함수 → 별도 컴포넌트 파일로 추출 + GripVertical import 제거."
+          },
+          {
+            "id": 5,
+            "title": "에디터/터미널/공유 패널 동시 표시 모델 (점#3, E4 명시 제외 충돌): 현재 CenterWorkbench가 editor↔terminal 토글 단일 모드. 사용자 요구는 '하네스 보면서 파일 동시 확인'. editor split 도입할지, center 영역을 vertical/horizontal split 가능한 그리드로 바꿀지, 또는 토글 대신 항상 두 영역을 동시 표시할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Q1 (Center 동시 표시) — 5E 추천**: horizontal split (위 editor / 아래 terminal) + maximize 토글 (split | editor-max | terminal-max 3-state). 침습도 ~240줄, 1인 3-5일. 이유: (5B) 통점 직접 해소 + IDE 관습 위치 + 좌측 폭 보존 + (5E의 토글 추가) 단일 모드 사용자 흡수. 5C(vertical)는 좌측 strip+filetree+우측 panel 합쳐 가로 5컬럼이 되어 editor 폭 협소, 5D(bottom zone)는 4컬럼 invariant 깨짐, 5F(좌측 이동)는 mount-stable 컨테이너 이동으로 xterm reattach 리스크. **Q2 (editor pane split) — A(미도입) 추천, Tier-2 보류**: 옵션 D(풀 grid)는 ~1150줄/1인 4-6주로 LSP 슬라이스와 동급 비용 → 기각. 옵션 B(1-depth)는 ~7-10일 + 회귀테스트로 LSP 슬라이스와 묶으면 회귀 표면 곱연산. Q2 미루어도 사용자 통점 #3은 Q1으로 해소되므로 합의 정신 위배 없음. **Q3 (Right shared panel split) — 4탭 유지 동의**: 정보 전환 패턴이라 동시 가시 요구 없음. **슬라이스 권고**: Q1(5E)만 LSP 슬라이스 4-6주에 합류. Q2는 후속 슬라이스. **mount-stable 보존**: PASS — `display:none` 대신 `visibility:hidden + pointer-events:none + height:0` 권고 (ResizeObserver 0×0 throw 방지). **마이그레이션 리스크**: `CenterWorkbenchMode` enum 의미 변경 (editor|terminal → split|editor-max|terminal-max) → persisted state 마이그레이션 단위테스트 필수. **리사이저 일반화**: Q1 처음부터 orientation prop 받도록 만들면 Q2 후속 비용 절감. **min-height 클램프**: terminal 측 최소 120px 보장 (xterm row 계산 0 방지).",
+                "recorded_at": "2026-04-28T02:53:43.713Z",
+                "agent_id": "aa242b6ba9aa94b2d"
+              },
+              {
+                "role": "designer",
+                "summary": "**Q1 (Center horizontal split) — 시각 명세**: editor pane wrapper(`rounded-md border bg-card`) 및 terminal pane wrapper **제거** (카드 안의 카드 회피, split 결속). CenterWorkbench `p-4` → `p-0`, 각 pane이 자체 padding 책임. 분할선은 Issue 4 spec(1px + 8px hit + hover 100ms) 그대로 + cursor `row-resize`. Active pane 단서: `box-shadow: inset 0 0 0 1px var(--ring)` (layout shift 0, §5-7 회피). 헤더 제목 색상으로 보조 단서 (active=foreground / inactive=muted-foreground). Maximize 버튼: 각 pane 헤더 우상단 `Maximize2`/`Minimize2` 16px ghost icon (h-7 w-7), 단축키 `Cmd+Shift+M`. 빈 상태: editor=FileText \"No file open\", terminal=SquareTerminal \"No terminal session\" + ⌘T. 분할선 위치 영속: `nx.center.split.ratio` (기본 0.6/0.4). 기존 segmented control 토글 **제거** (split 기본, 단일 모드는 maximize로 흡수). **Q2 (editor pane split) — B (1-depth horizontal) 추천 (architect A와 불일치)**: 사용자 매일 워크플로 가치 높음 (코드↔테스트, impl↔type 정의). 좌/우 2 pane 고정. **각 pane별 독립 탭바** (드래그 또는 Cmd+Alt+→로 탭 이동), 단일 공유 탭바는 ownership 흐림. Split entry: editor 헤더 우상단 `SplitSquareHorizontal` 16px icon + 단축키 `Cmd+\\` (VSCode 동일). Active editor 표시는 Q1과 동일 inset ring + active pane의 active tab title `font-medium text-foreground` vs inactive pane은 `text-muted-foreground`. Workspace ownership 시각 단서는 Issue 3 W' 좌→우 narrative로 자명 (filetree toolbar에서 1회 표기로 충분, editor pane 내부 재표기 불필요). Split 해제: 마지막 탭 close → 자동 unsplit, 명시 unsplit은 `Cmd+\\` 토글. **Q3 (Right shared panel split) — 4탭 유지 동의**: Tool/Session/Diff/Preview는 상호 배타적 소비 맥락 + Diff/Preview 정보 밀도가 split 시 무너짐. 보너스: 비활성 탭에 Tool 호출 중 status-running dot 표시 (cross-tab awareness)는 split 부재 통점 90% 완화 — 별도 이슈로 분리 권고. **design.md §4 갱신 항목**: Center workbench 단락 신설(split 기본, divider spec, active pane inset ring, Maximize 액션, ratio 영속), 단축키 맵에 Cmd+\\\\ Cmd+Shift+M Cmd+Alt+→ 추가. **Plan Gate**: approved with conditions — (1) wrapper 제거를 §4 명시, (2) Q2-B는 1-depth만 명시 multi-depth reject 정책 문서화, (3) ARIA: 각 pane `role=\"region\"` + aria-label, divider `role=\"separator\"` + aria-orientation. **Open**: divider 기본 비율 0.6/0.4 vs 0.5/0.5 (Lead 결정), 탭 드래그 이동 MVP 포함 여부 (1인 부담 architect 평가).",
+                "recorded_at": "2026-04-28T02:55:38.785Z",
+                "agent_id": "a0f6feffa1c98d4cb"
+              }
+            ],
+            "decision": "**Lead 권고안 채택 (Q1 5E + Q2 1-depth horizontal editor split + Q3 4탭 유지). LSP + Q1 + Q2 = 단일 슬라이스 5-7주 (1인).**\n\n**Q1: Center horizontal split 5E**\n- 구조: 위 editor / 아래 terminal, 둘 다 항상 mounted (mount-stable 보존)\n- 모드 enum 변경: `editor|terminal` → `split|editor-max|terminal-max` (3-state). persisted state 마이그레이션 단위테스트 필수\n- maximize 처리: 비활성 측은 `visibility:hidden + height:0` (xterm fit 안정, ResizeObserver 0×0 throw 방지). `display:none` 사용 금지\n- terminal min-height 120px 클램프 (xterm row 계산 0 방지)\n- editor pane / terminal pane wrapper(`rounded-md border bg-card`) **제거** (카드 안의 카드 회피, split 결속)\n- CenterWorkbench `p-4` → `p-0`. 각 pane이 자체 padding `px-3 py-2` 책임\n- 분할선: Issue 4 spec(1px + 8px hit + 100ms hover delay + bg-primary) + cursor `row-resize` + `aria-orientation=\"horizontal\"`. PanelResizeHandle 컴포넌트를 orientation prop 받도록 일반화\n- Active pane 시각: `box-shadow: inset 0 0 0 1px var(--ring)` (layout shift 0, §5-7 회피). 헤더 제목 색상 보조 단서: active=`text-foreground` / inactive=`text-muted-foreground`\n- Maximize 액션: 각 pane 헤더 우상단 `Maximize2`/`Minimize2` 16px ghost icon (h-7 w-7), tooltip + 단축키 `Cmd+Shift+M`\n- 빈 상태 EmptyState: editor=FileText \"No file open\", terminal=SquareTerminal \"No terminal session\" + ⌘T hint\n- 분할선 위치 영속: `nx.center.split.ratio` (기본 **0.6 editor / 0.4 terminal** — 코드 읽기 primary)\n- 기존 `[Editor | Terminal]` segmented control **제거** (split 기본, 단일 모드는 maximize로 흡수)\n\n**Q2: 1-depth horizontal editor split (B 채택)**\n- 좌/우 2 pane 고정 (1-depth만, multi-depth/grid 도입 시 reject 정책 §4 명시)\n- 각 pane 독립 탭바 (단일 공유 탭바는 ownership 흐림)\n- Split entry: editor pane 헤더 우상단 `SplitSquareHorizontal` 16px icon + 단축키 `Cmd+\\` (VSCode 동일)\n- 탭 이동: 키보드 `Cmd+Alt+←/→` (활성 탭을 옆 pane으로). **드래그 이동은 MVP 제외** (drop indicator + drop target detection 부담 회피, 키보드만으로 통점 해소). v0.2에서 추가 검토\n- Active editor 표시: Q1과 동일 inset ring + 활성 pane의 활성 탭 title `font-medium text-foreground` vs 비활성 pane은 `text-muted-foreground`\n- Workspace ownership cue: Issue 3 W' 좌→우 narrative로 자명 (filetree toolbar 1회 표기로 충분, editor pane 내부 재표기 불필요)\n- Split 해제: 마지막 탭 close → 자동 unsplit. 명시 unsplit은 `Cmd+\\` 토글 (현재 pane이 활성이고 다른 pane이 비어 있으면 unsplit)\n- EditorStore 변경: `paneId` 1차원 추가 (`{tabs, activeTabId}` → `{panes: [{id, tabs, activeTabId}], activePaneId}`)\n\n**Q3: Right shared panel 분할 미도입 (4탭 유지)**\n- Tool/Session/Diff/Preview는 상호 배타적 소비 맥락\n- Diff·Preview 정보 밀도가 split 시 무너짐 (Diff hunk wrap)\n- Cross-tab awareness dot (비활성 탭에 status-running dot 표시) 보너스는 **MVP 제외, 별도 이슈로 분리** (designer 권고 채택, 본 격상 슬라이스 외)\n\n**roadmap.md E4 명시 제외 갱신** (Issue 1 결정 D 노선 발동):\n- \"editor split\" 항목 **lift** (이번 격상에 포함됨)\n- 나머지 명시 제외(project-wide search, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안, Monaco 테마/키바인딩/폰트 커스텀 UI)는 그대로 제외 유지\n\n**design.md §4 갱신 항목** (task 단계 일괄 적용):\n- Center workbench 단락 신설: split 기본, divider spec, active pane inset ring, Maximize 액션, ratio 영속\n- 단축키 맵에 `Cmd+\\` (Editor split right toggle), `Cmd+Shift+M` (Pane maximize toggle), `Cmd+Alt+←/→` (Move tab to other pane) 추가\n- Q2-B 1-depth 한정 정책 명시: \"Editor pane은 1-depth horizontal split만 지원. Multi-depth/grid는 v0.2 결정 영역\"\n\n**ARIA**: 각 pane `role=\"region\"` + `aria-label`, divider `role=\"separator\"` + `aria-orientation`. 활성 pane focus traversal: `Cmd+\\`로 split, `Cmd+1/2`로 pane 전환 (VSCode와 다름 — VSCode는 Cmd+1/2가 그룹 번호. 우리는 Cmd+1/2/3이 워크스페이스 전환에 이미 쓰임 → pane 전환은 `Cmd+K Cmd+←/→` 같은 chord로 결정 보류, MVP는 클릭만 + 자동 focus follow)\n\n**작업량 가이드**: LSP Tier-1 9개 (4-6주) + Q1 5E (~5일) + Q2-B (~7-10일) = **5-7주 단일 슬라이스 (1인)**. 사용자 확인 — \"코드 옆 코드 엄청 자주\" → Q2-B 가치 검증됨, 분할 미고려."
+          },
+          {
+            "id": 6,
+            "title": "WorkspaceSidebar 워크스페이스 행 밀도 재설계 (점#4): 현재 displayName(2줄)+absolutePath(2줄)+close+badge로 h-12+ footprint. 1줄 압축 vs hover-reveal vs tooltip 등 밀도 모델 결정. 좌측 패널 폭 default 320px 적정성 재검증",
+            "status": "decided",
+            "decision": "**Issue 3 결정 (Model W')에 흡수됨**. W' 채택으로 (a) Workspace strip 행이 h-8 (32px) 1줄 압축으로 자동 슬림화, (b) absolutePath는 hover tooltip + `aria-describedby`로 이전(secondary line 제거), (c) 좌측 패널 폭 default가 320px → workspace strip 160px + filetree column 240px으로 분리·재할당. 통점 #4의 핵심(\"워크스페이스 이름과 경로 표시 좌우 너비가 너무 넓다\")이 모두 W' 결정 안에서 처리됨. 별도 task 분기 없음."
+          },
+          {
+            "id": 7,
+            "title": "M6 통합 안정성 검증 게이트 갱신: LSP 표면 확장(diagnostics-only → 풀 능력)과 패널 분할 도입에 따른 30분 안정성 검증 시나리오 추가 항목",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — M6 게이트 항목 4개 그룹 (A/B/C/D) 추가, MVP 출시 판정 기준 5→7개로 확장**.\n\n**A. LSP 능력 표면 검증 (Issue 2 격상 결과)**:\n1. 9 capabilities × 3 langs (TypeScript/Python/Go) 풀 매트릭스가 30+ 분 누적 사용에서 회귀 없음 — completion, hover, go-to-def, references, rename, formatting, signature help, code action, document symbols\n2. 각 LSP 서버 SIGKILL × 3회 → sidecar detect + respawn → 5초 이내 능력 복구 확인\n3. typescript-language-server inlayHint 이중 경로가 capability negotiation에서 제외됨 확인 (Tier-2 보류 항목)\n4. WebSocket lsp/relay 채널 30+ 분 메시지 누락 0 + `pattern-sidecar-close-code-race.md` 회귀 없음\n5. `app.on('before-quit')` sidecar LSP 자식 종료 보장 → 좀비 프로세스 0 (Activity Monitor 확인)\n\n**B. 레이아웃 격상 검증 (Issue 3+4+5 결과)**:\n6. Center split↔editor-max↔terminal-max 모드 토글 50+회: 터미널 스크롤백 보존, xterm fit ResizeObserver 0×0 throw 0\n7. Editor pane 1-depth split — `Cmd+\\` split, `Cmd+Alt+←/→` 탭 이동, last tab close auto-unsplit 50+회: Monaco model leak 0, undo history 파일별 보존\n8. CenterWorkbenchMode persistence 마이그레이션 — 격상 전 `editor|terminal` 저장 상태로 첫 실행 시 격상 후 `split|editor-max|terminal-max`로 자동 마이그레이션, 빈 화면 0\n9. EditorStore paneId 마이그레이션 — `{tabs, activeTabId}` 평면 → `{panes:[{id,tabs,activeTabId}], activePaneId}` 자동\n10. Workspace strip + Filetree column ARIA — VoiceOver로 워크스페이스 전환 announce, `tablist`/`tabpanel` 연결 검증\n11. Resizer 3개 키보드 nav (Workspace strip↔Filetree, Filetree↔Center, Center↔Shared) ←/→ 16px 단계 응답\n12. 터미널 min-height 120px 클램프 — Center vertical resize로 0 시도 시 정확히 120px에서 stop\n13. maximize 시 비활성 측 `visibility:hidden + height:0` 처리 검증 (display:none 미사용)\n\n**C. CJK 회귀 추가 표면 (Issue 3+4+5 신규 UI)**:\n14. Workspace strip displayName Korean truncate\n15. Filetree column toolbar 활성 워크스페이스 이름 Korean\n16. Editor split 두 pane의 활성/비활성 tab title Korean\n17. Pane maximize/restore 상태 전환 시 한글 렌더링 retain\n18. `Cmd+Shift+M`, `Cmd+\\`, `Cmd+Alt+←/→` 단축키가 한국어 IME 조합 중 전송 차단 (IME 보호)\n\n**D. 단축키 충돌 검증 (Issue 3 W' + Issue 5 결과)**:\n19. `Cmd+W` 활성 에디터 탭 닫기 → 탭 없으면 워크스페이스 닫기 fallback\n20. `Cmd+Shift+W` 활성 워크스페이스 닫기 (신규)\n21. `Cmd+B` 사이드바 토글 (W' 후 의미: Workspace strip + Filetree column 묶음)\n22. `Cmd+1/2/3` 워크스페이스 전환 + 활성 탭 `scrollIntoView({block:'nearest'})`\n23. 활성 IME 조합 중 위 모든 단축키 차단 (한국어 안전 — 기존 IME 보호 정책 일관)\n\n**roadmap.md M6 단락 갱신** (Issue 1 결정에 합쳐서 task 단계 일괄 적용):\n- 통합 regression smoke (1)에 \"9 LSP capability × 3 langs + Center split + Editor split 동시 30+ 분\" 추가\n- CJK 회귀 (2)에 \"Workspace strip / Filetree column / Editor split / Maximize 상태 / 신규 단축키 IME 보호\" 추가\n- 신규 게이트 (4) Migration 검증 — CenterWorkbenchMode + EditorStore paneId 마이그레이션 단위테스트\n- 신규 게이트 (5) LSP 안정성 — 9 cap × 3 lang 회귀 + crash 자동 restart + WebSocket relay + 좀비 0\n\n**MVP 출시 판정 기준 추가 (5→7개)**:\n- 6. 9 LSP capability × 3 langs 풀 매트릭스에서 30+ 분 연속 동작 회귀 없음 + LSP 서버 crash 시 sidecar 자동 restart 5초 이내 복구\n- 7. Center split / Editor split / maximize 토글 50+회 후 mount-stable 보존 (터미널 스크롤백, Monaco model leak 0, xterm fit error 0)\n\n**적용 시점**: 이번 격상 슬라이스(LSP+Q1+Q2 = 5-7주) 종료 시점에 한 번에 적용. 슬라이스 진행 중 incremental 검증은 각 task의 acceptance에 흡수 (예: T-LSP 작업의 acceptance에 \"9 cap × 3 lang 단위 회귀\", T-center-split의 acceptance에 \"토글 50+회 mount-stable\")."
+          }
+        ],
+        "research_summary": "## 사실 검증\n\n- **현재 E4 구현 표면** (roadmap.md): active-workspace 파일트리 CRUD/watch/git 뱃지, Monaco editor tabs/dirty/save/close/find-replace, Editor/Terminal 모드 전환, TypeScript/Python/Go best-effort diagnostics LSP 브리지. 파일/LSP 소유자는 Electron main/preload editor API. sidecar-owned languageclient는 미래.\n- **E4 명시 제외**: Monaco 테마/키바인딩/폰트 커스텀 UI, editor split, project-wide 검색, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안.\n- **design.md 정체성 거절선**: \"VS Code 포크가 아니다. 레이아웃 관용구는 차용하지만 토큰·타이포·밀도·강조색은 독립 정체성.\" → 사용자 합의(A+B)와 표면적 충돌, 표현 정합화 필요.\n- **품질 측정 축**: 렌더링 일관성 / 입력 지연 / 한국어 IME 정확도. \"좋아 보임\"은 방어선이 아니다.\n\n## 사용자 통점 4가지 (해당 코드 위치 식별)\n\n1. 워크스페이스 ↔ 파일트리 계층 모호 — App.tsx 449-495줄 단일 `<aside>` 안에 `WorkspaceSidebar` + `FileTreePanel` 단순 수직 적층\n2. 리사이저 비주얼 별로 — App.tsx 641-657줄 PanelResizeHandle: 8px(`w-2`) bg-border 가시 bar + 중앙 `GripVertical` 아이콘 in 라운드 박스. VSCode는 1px invisible + hover highlight\n3. 패널 분할 안 됨 — CenterWorkbench가 editor↔terminal mode 토글로만 동작 (CenterWorkbench.tsx 모드 1개). 우측 공유 패널은 별도 컬럼이지만 중앙 영역 동시 표시 불가\n4. 워크스페이스 행 밀도 과다 — WorkspaceSidebar.tsx 92-97줄 `displayName`(sm font-semibold) + `absolutePath`(xs mono) 2줄 + close 버튼, h-12+ minimum, 좌측 패널 default 320px\n\n## 외부 제약\n\n- **react-resizable-panels 사용 금지** — `external-react-resizable-panels.md` 4커밋 실패 기록. v4 percentage layout solver가 React 19 + Tailwind v4 + shadcn forwardRef + concurrent에서 수렴 실패. 현재 80줄 미만 custom pointer handler가 안전. 라이브러리 재도입 옵션 차단.\n- **Monaco는 이미 VSCode 엔진** — 에디터 엔진 격차는 거의 없음. 진짜 격차는 (a) LSP 능력 표면이 diagnostics-only인 점, (b) 인터랙션·디자인 폴리시.\n\n## 기존 결정 인접 문서\n\n- architecture.md: \"장기 구조에서는 LSP 서버 감독, 파일 시스템 감시, git 연산도 sidecar 소유로 이동시키는 것이 의도다.\" → B의 소유 경계 결정 시 참조.\n- design.md §4: 4열 컨테이너 (activity 48px + sidebar 17rem default + center fluid + shared 20rem default), Cmd+B/Cmd+J 토글, Cmd+P/Cmd+Shift+P 팔레트 → 레이아웃 변경 시 호환성 유지 필요.\n- design.md §5 금지 시각 언어 — 정체성 폴리시는 이 9개 금지선 안에서 진행.",
+        "created_at": "2026-04-28T01:50:50.413Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[T1] philosophy.md 핵심축 #2 강화 (VSCode급 능력 표면 1인 범위)",
+          "status": "completed",
+          "context": "Plan #29 Issue 1 결정 D 노선. philosophy.md 핵심축 #2 \"IDE급 기능\"을 \"VSCode급 능력 표면 (편집·LSP·레이아웃·키바인딩 표준 동등)을 1인 개발자 범위 내에서\"로 격상. non-goals와 트레이드오프 선호는 그대로 유지.",
+          "acceptance": "- philosophy.md §\"핵심 4축\" #2가 \"VSCode급 능력 표면 (편집·LSP·레이아웃·키바인딩 표준 동등)을 1인 개발자 범위 내에서 제공\"으로 갱신됨\n- non-goals 섹션과 트레이드오프 선호 섹션은 변경 없음\n- 한국어 표현 자연스러움 (직역체 회피)",
+          "approach": "packages 외부 .nexus/context/philosophy.md 편집. 핵심축 #2 단락만 갱신. 변경 이유와 격상 합의를 commit message에 명시.",
+          "risk": "정체성 표현 변경이 미래 결정 해석에 영향 — Issue 1 D 결정으로 합의된 범위 안에서만 작성",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd218-38c3-7dc1-a6d0-49a15aade090",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:09:13.940Z"
+        },
+        {
+          "id": 2,
+          "title": "[T2] design.md 갱신 (§1.2 거절선 / §4 4열 컨테이너 / Center workbench 단락 / 단축키 맵)",
+          "status": "completed",
+          "context": "Plan #29 Issue 1, 3, 4, 5, 6 결정 결과를 design.md에 일괄 반영. 가장 큰 단일 doc 갱신.",
+          "acceptance": "- §1.2 거절선 #2 두 의미 분리 명시\n- §4 Activity bar 48px 표현 모두 제거\n- §4 Workspace strip + Filetree column 폭·범위 명시\n- §4 Center workbench 단락 신설 (split 기본, divider, maximize, ratio, min-height 모두 포함)\n- §4 단축키 맵 7개 추가/갱신 (Cmd+W 의미 변경, Cmd+Shift+W, Cmd+B 의미 갱신, Cmd+\\\\, Cmd+Shift+M, Cmd+Alt+←/→)\n- §4 리사이저 spec (1px + 8px hit + delay + bg-primary + offset ring)\n- §4 ARIA tablist/tabpanel/region/separator 명시\n- §5 금지 시각 언어와 충돌 없음 (2px stripe 회피, glassmorphism 없음 등)\n- 한국어 표현 자연스러움",
+          "approach": "packages 외부 .nexus/context/design.md 편집. 다음 단락 갱신:\n1. §1.2 거절선 #2 — \"VS Code 포크가 아니다\" 두 의미 분리 ((a) 엔지니어링 의미: VSCode 코드 포크 안 함, Monaco·표준 라이브러리만 사용 / (b) 포지셔닝 의미: 능력 표면 — 편집·LSP·레이아웃·키바인딩 — 은 VSCode 수준 목표, 정체성 차별화는 토큰·타이포·밀도·강조색·AI 하네스 관찰 통합·멀티 워크스페이스 모델에서)\n2. §4 4열 컨테이너 — \"Activity bar 48px\" 제거. \"Workspace strip 160px (range 120-220) + Filetree column 240px (range 200-400) + Center fluid + Shared 16-32rem\" 4컬럼으로 재기술. \"Workspace 사이드바는 Workspace strip(워크스페이스 식별·전환)과 Filetree column(활성 워크스페이스 파일트리)으로 분리. Filetree column 헤더에 active workspace 이름 + FolderOpen 재표기로 소유 관계 표현\"\n3. §4 Center workbench 단락 신설 — split 기본(위 editor / 아래 terminal), divider spec(Issue 4 + cursor row-resize + aria-orientation horizontal), active pane inset 1px ring, Maximize 액션(Maximize2/Minimize2 헤더 우상단), divider 위치 영속(nx.center.split.ratio 0.6/0.4), terminal min-height 120px. Editor pane 1-depth horizontal split만(multi-depth/grid는 v0.2 결정 영역).\n4. §4 단축키 맵 — Cmd+W=활성 에디터 탭 닫기 (없으면 워크스페이스 닫기 fallback), Cmd+Shift+W=활성 워크스페이스 닫기, Cmd+B 의미 갱신(Workspace strip + Filetree column 묶음 토글), Cmd+\\\\=editor split right toggle, Cmd+Shift+M=pane maximize toggle, Cmd+Alt+←/→=move tab to other pane.\n5. §4 리사이저 spec — 1px line + 8px hit area (::before pseudo-element) + 100ms hover delay + bg-primary on hover/drag + ring-offset-1 on focus. GripVertical 아이콘 사용 안 함.\n6. §4 ARIA — Workspace strip role=tablist aria-orientation=vertical, Filetree column role=tabpanel, 각 split pane role=region + aria-label, divider role=separator + aria-orientation.",
+          "risk": "design.md가 가장 많이 인용되는 문서 — 표현 일관성 깨지면 후속 결정에 영향. §4가 길어 누락 위험 — checklist 형태로 본문 점검",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd218-38e8-7061-b6d2-0774e0ff90c9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:09:39.102Z"
+        },
+        {
+          "id": 3,
+          "title": "[T3] roadmap.md 갱신 (E4 본문 격상 / M4 / timeline 제거 / 명시 제외 lift / M6 게이트 / 출시 판정)",
+          "status": "completed",
+          "context": "Plan #29 Issue 1, 2, 5, 7 결정 결과를 roadmap.md에 반영.",
+          "acceptance": "- E4 본문이 Tier-1 9 capabilities + 클라이언트 전략 + 소유 경계로 격상됨\n- E4 명시 제외에서 \"editor split\" 제거, 나머지 6개 명시 제외 그대로 유지\n- M4 마일스톤 행 \"E4 격상 완료 (...)\"로 갱신, M4.5 신설 없음\n- 타임라인 가이드 섹션 전체 삭제\n- M6 게이트에 4개 그룹 항목 모두 반영 (smoke 추가 / CJK 추가 / Migration 신규 / LSP 안정성 신규)\n- 성공 기준 5→7개로 확장 (6, 7 추가)\n- 한국어 표현 자연스러움 + 인용 문구 일관성",
+          "approach": "packages 외부 .nexus/context/roadmap.md 편집. 다음 단락 갱신:\n1. E4 본문 — \"best-effort diagnostics 브리지\" → \"Tier-1 9 capabilities (completion·hover·go-to-def·references·rename·formatting·signature-help·code-action·document-symbols) × TypeScript/Python/Go. vscode-languageserver-protocol + 자체 Monaco providers. sidecar supervision (process spawn·health·restart·WebSocket relay) + main protocol/Monaco 통합 하이브리드\". 현재 구현 상태 단락도 격상 후 상태로 갱신.\n2. E4 명시 제외 — \"editor split\" 항목 lift (Issue 5 결정으로 1-depth horizontal split 도입). 나머지 (Monaco 테마/키바인딩/폰트 커스텀 UI, project-wide search, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안)는 그대로 유지.\n3. 마일스톤 표 M4 행 — \"E4 구현 랜딩(검증·코드 정리 게이트 진행 중)\" → \"E4 격상 완료 (Tier-1 9 LSP + Workspace strip/Filetree column 재구성 + Center split + Editor 1-depth split + 디자인 폴리시)\". M4.5 분할 안 함, M4 단일 마일스톤 유지.\n4. 타임라인 가이드 섹션 전체 제거 — \"Full-time: 12-15개월 / Part-time: 24-30개월 / 몰아서 진행\" 단락 삭제. 마일스톤 단위 진행이라는 정신만 다른 위치(예: 마일스톤 순서 단락)에 한 줄로 흡수. \"sidecar를 Go로 작성하는 초기 셋업 비용은 LLM 에이전트 협업으로 실질적으로 낮아진다\" 문장도 제거.\n5. M6 v0.1 Release 행 — 통합 regression smoke (1)에 \"9 LSP capability × 3 langs + Center split + Editor split 동시 30+ 분\" 추가. CJK 회귀 (2)에 \"Workspace strip / Filetree column / Editor split / Maximize 상태 / 신규 단축키 IME 보호\" 추가. 신규 게이트 (4) Migration (CenterWorkbenchMode + EditorStore paneId), 신규 게이트 (5) LSP 안정성 (9 cap × 3 lang + crash 자동 restart + WebSocket relay + 좀비 0).\n6. 성공 기준 추가 — 6번: 9 LSP capability × 3 langs 풀 매트릭스 30+ 분 회귀 없음 + LSP 서버 crash 자동 restart 5초 이내. 7번: Center split / Editor split / maximize 토글 50+회 후 mount-stable 보존.",
+          "risk": "E4 본문 격상이 너무 detail로 가면 다른 에픽과 톤 불일치 — 다른 에픽 스타일 참조해서 분량 맞추기",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd218-3959-7d61-8e94-f59a0a5bae36",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:04.735Z"
+        },
+        {
+          "id": 4,
+          "title": "[T4] lsp-service.ts (1232 LOC god-object) 분해 — 9 capability adapter 골격",
+          "status": "completed",
+          "context": "Plan #29 Issue 2 결정의 선결 작업. packages/app/src/main/lsp/lsp-service.ts가 현재 1232 LOC god-object (server spawn / 프로토콜 / IPC / lifecycle 모두 보유). 9개 능력 어댑터 추가 전에 분해 필수.",
+          "acceptance": "- packages/app/src/main/lsp/ 디렉터리 구조가 위 명세대로\n- lsp-service.ts ≤ 200 LOC\n- 기존 diagnostics 회귀 없음 (TypeScript/Python/Go 각각 단위테스트 통과)\n- 9개 capability 어댑터 골격 파일 존재 + 인터페이스 정의 (실 구현은 후속)\n- typecheck + bun run test 통과",
+          "approach": "packages/app/src/main/lsp/ 디렉터리 안에 다음 모듈로 분해:\n- lsp-server-supervisor.ts: server lifecycle (spawn/health/restart) — 추후 sidecar로 이동 예정 (T6에서)\n- lsp-protocol-client.ts: vscode-languageserver-protocol JSON-RPC 클라이언트 (T7에서 표준 라이브러리 도입)\n- capabilities/ 서브디렉터리: 9개 capability 어댑터 빈 골격 (completion.ts, hover.ts, definition.ts, references.ts, rename.ts, formatting.ts, signature-help.ts, code-action.ts, document-symbols.ts) + 기존 diagnostics.ts (이미 동작 중)\n- lsp-service.ts: 위 모듈을 import하는 façade로 슬림화 (target ≤ 200 LOC)\n현재 동작 중인 diagnostics 흐름은 diagnostics.ts로 옮기되 동작 변경 없음. 9개 capability 어댑터는 골격(인터페이스 + 빈 구현 + TODO 주석)만 — 실제 구현은 T7/T8/T9에서.",
+          "risk": "분해 중 기존 diagnostics 흐름 깨질 수 있음 — diagnostics 단위테스트를 분해 전에 강화하고 분해 후 모두 그대로 통과 확인",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd218-3995-7f61-82cc-a881984e53fd",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:17.436Z"
+        },
+        {
+          "id": 5,
+          "title": "[T5] PanelResizeHandle 컴포넌트 추출 + orientation prop 일반화 (1px + 8px hit + delay)",
+          "status": "completed",
+          "context": "Plan #29 Issue 4 결정. 현재 App.tsx 641-657줄 PanelResizeHandle inline 함수. Issue 3 W'로 핸들이 2 → 3개로 증가, Issue 5 Center split으로 horizontal divider 추가 — 일반화된 단일 컴포넌트 필요.",
+          "acceptance": "- 새 PanelResizeHandle.tsx 파일 존재 + orientation prop 받음\n- App.tsx의 inline 함수 삭제됨\n- 두 기존 핸들(Workspace ↔ Center, Center ↔ Shared)이 새 컴포넌트로 교체되어 동일 동작 (드래그/키보드/포커스 회귀 없음)\n- 단위테스트: orientation별 cursor·DOM 구조·ARIA 검증\n- typecheck + lint 통과",
+          "approach": "새 파일 packages/app/src/renderer/components/PanelResizeHandle.tsx 생성. props: orientation ('vertical' | 'horizontal'), dragging, onPointerDown, onKeyDown, ariaValueMin/Max/Now/Label. 시각 명세:\n- orientation=vertical: w-px + before:inset-y-0 before:-left-1 before:w-2, cursor-col-resize\n- orientation=horizontal: h-px + before:inset-x-0 before:-top-1 before:h-2, cursor-row-resize\n- bg-border default, hover:bg-primary, transition-colors duration-100, hover:delay-100\n- data-[resize-handle-state=drag]:bg-primary + transition-none + delay-0\n- focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1\n- GripVertical 아이콘 / 안쪽 박스 wrapper 모두 제거\n- ARIA: role=\"separator\" aria-orientation={orientation} + 기존 aria-valuemin/max/now/label\nApp.tsx에서 inline PanelResizeHandle 함수 삭제 후 새 컴포넌트 import 사용. GripVertical import 제거.",
+          "risk": "기존 핸들 동작 변경 시 사용자 워크플로 파괴 — App.tsx 통합테스트로 드래그/키보드 단계 회귀 검증",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd218-3a25-72c1-b6ab-113ffa03ed78",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:30.164Z"
+        },
+        {
+          "id": 6,
+          "title": "[T1r] philosophy.md 갱신 검토 (정확성·자연스러움)",
+          "status": "completed",
+          "context": "T1 (philosophy.md 핵심축 #2 강화) 결과물 검증. Plan #29 Issue 1 결정 D 노선과 일치하는지, 한국어 표현이 직역체가 아닌지, non-goals/트레이드오프 선호 섹션 미변경 확인.",
+          "acceptance": "- T1 결과물이 Issue 1 D 결정과 정합\n- 핵심축 #2 외 다른 섹션 변경 없음\n- 한국어 표현 자연스러움 (직역체·번역투 없음)\n- typo·맞춤법 오류 없음",
+          "approach": "git diff로 변경 범위 확인. Issue 1 결정 본문과 대조. 표현 자연스러움 평가.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd219-48b0-70a1-98f9-41e6cb5395b8",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:43.070Z"
+        },
+        {
+          "id": 7,
+          "title": "[T2r] design.md 갱신 검토 (6 단락 누락 0 + §5 충돌 0)",
+          "status": "completed",
+          "context": "T2 (design.md 갱신) 결과물 검증. 6개 단락 모두 갱신되었는지, §5 금지 시각 언어와 충돌 없는지 정밀 점검.",
+          "acceptance": "- T2 acceptance 9항목 모두 충족 확인\n- §5 금지선 9개와 신규 spec 충돌 0\n- §4 단축키 맵 7개 변경 모두 반영\n- 인용한 색상 토큰·픽셀값이 §2 토큰 시스템과 정합\n- 한국어 표현 자연스러움",
+          "approach": "git diff로 변경 범위 확인. T2 acceptance 9항목 체크리스트로 대조. §5 금지선과 신규 spec 충돌 점검 (특히 inset 1px ring이 2px stripe 금지선과 같이 가는지).",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd21c-9779-7b81-99e7-e077b1abf1f2",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:49.793Z"
+        },
+        {
+          "id": 8,
+          "title": "[T3r] roadmap.md 갱신 검토 (E4 / M4 / timeline / 명시 제외 / M6 / 출시 판정)",
+          "status": "completed",
+          "context": "T3 (roadmap.md 갱신) 결과물 검증. 6개 변경 단락 모두 반영되었는지 + E4 명시 제외 항목이 정확히 1개만(editor split) lift되었는지.",
+          "acceptance": "- T3 acceptance 7항목 모두 충족\n- 명시 제외에서 정확히 \"editor split\"만 제거, 나머지 6개 유지\n- 타임라인 가이드 섹션이 깨끗하게 제거됨 (잔재 문구 없음)\n- M6 게이트 4개 그룹 모두 반영\n- 출시 판정 기준 6, 7번 추가 (현재 5개 → 7개)\n- 한국어 표현 자연스러움",
+          "approach": "git diff로 변경 범위 확인. T3 acceptance 7항목 체크. 특히 명시 제외 항목 누락/오삭제 점검 — Monaco 테마/키바인딩/폰트, project-wide search, 전용 git UI, debugger, marketplace, AI 인라인 제안 6개는 그대로 유지되어야 함.",
+          "plan_issue": 1,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd21c-2f97-7c61-9f45-73a59c4e0763",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:10:57.977Z"
+        },
+        {
+          "id": 9,
+          "title": "[T4t] lsp-service.ts 분해 회귀 검증 (diagnostics 3 lang × 단위 + 통합)",
+          "status": "completed",
+          "context": "T4 (god-object 분해) 후 기존 diagnostics 흐름이 그대로 동작하는지 검증. TypeScript/Python/Go 3개 언어 각각 LSP 서버 구동 + 진단 수신 + Monaco markers 렌더링 회귀 0 보장.",
+          "acceptance": "- 기존 lsp-service.test.ts 100% 통과 (분해 전후 비교)\n- 새 capability/diagnostics.ts 단위테스트 추가 (커버리지 ≥ 기존)\n- 3 lang × LSP 통합 smoke 모두 통과\n- LOC 측정 결과 기록 (artifact)",
+          "approach": "- 분해 전 lsp-service.test.ts (현재 14640 LOC) 단위테스트가 분해 후에도 모두 통과하는지 확인\n- 각 capability/diagnostics.ts 모듈에 단위테스트 추가 (서버 응답 → marker 매핑)\n- 통합테스트: 실제 typescript-language-server / pyright / gopls를 spawn해서 30초 짜리 smoke 검증\n- typecheck + bun run test 통과\n- LOC 측정: lsp-service.ts ≤ 200 LOC 확인",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd221-9b28-7003-aab5-aa394581efa2",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:11:07.005Z"
+        },
+        {
+          "id": 10,
+          "title": "[T6] Sidecar LSP supervision + WebSocket lsp/lifecycle·lsp/relay schema + before-quit 좀비 방지",
+          "status": "completed",
+          "context": "Plan #29 Issue 2 C3b 결정. LSP 서버 process spawn/health/restart을 main → sidecar로 이동. main↔sidecar는 WebSocket lsp/lifecycle (start/stop/restart 명령) + lsp/relay (LSP stdio 양방향 메시지)로 통신. app.on('before-quit')에서 sidecar의 LSP 자식 프로세스 종료 명시 보장.",
+          "acceptance": "- 신규 sidecar/internal/lsp/ 패키지 + schema/ws/lsp.json 존재\n- gen-contracts 통과, drift gate 통과\n- packages/app/src/main/lsp/lsp-server-supervisor.ts가 sidecar 호출로 동작 (직접 spawn 없음)\n- app.on('before-quit') 훅 동작 확인\n- bun run test, go test 모두 통과\n- typecheck 통과\n- 30초 smoke: LSP 서버 1개 spawn → 진단 수신 → before-quit → 좀비 0 확인",
+          "approach": "- sidecar/internal/lsp/ 신규 패키지: server-supervisor.go (spawn / health-check / restart), stdio-relay.go (sub-process stdin/stdout ↔ WebSocket 양방향)\n- schema/ws/lsp.json 신규 스키마 정의: \n  - lsp/lifecycle (start_server, stop_server, restart_server, health_check 메시지)\n  - lsp/relay (server_message, client_message — opaque LSP JSON-RPC payload)\n  - close-code 처리 명시 (pattern-sidecar-close-code-race.md 재발 방지)\n- scripts/gen-contracts.ts 실행 → TS/Go 양쪽 타입 생성. CI drift gate 통과 확인\n- packages/app/src/main/lsp/lsp-server-supervisor.ts (T4에서 만든 모듈)를 sidecar 호출로 교체. WebSocket facade 사용\n- packages/app/src/main/app-lifecycle.ts에 app.on('before-quit') 훅 추가 — 모든 워크스페이스 sidecar에 lsp/lifecycle stop_all 보내고 ack 수신 후 quit\n- 좀비 프로세스 방지: sidecar가 process.kill(SIGTERM → 5초 후 SIGKILL) 2단계로 종료\n- 단위테스트 (Go side): supervisor restart 로직, stdio relay 메시지 보존\n- 단위테스트 (TS side): WebSocket facade 호출 mock",
+          "risk": "- pattern-sidecar-close-code-race.md 재발: WebSocket close 시점과 LSP 서버 종료 시점 race — close-code 처리 정확히 명시\n- WebSocket relay 지연 누적: LSP 메시지가 빈번해 지연 0이 어려움 — 측정 필요\n- gen-contracts drift: schema 추가 시 기존 스키마와 의존성 충돌 가능",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd228-abd6-70c1-827f-d91ac3695ec9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:11:24.810Z"
+        },
+        {
+          "id": 11,
+          "title": "[T10] 좌측 chrome 재구성 — Activity Bar 제거 + Workspace strip + Filetree column + ARIA + Cmd+W/Cmd+Shift+W 단축키 분기",
+          "status": "completed",
+          "context": "Plan #29 Issue 3 W' 결정 + Issue 6 흡수. App.tsx의 ActivityBar/WorkspaceSidebar 적층을 Workspace strip + Filetree column 두 컬럼으로 재구성. ARIA tablist/tabpanel 연결. Cmd+W/Cmd+Shift+W 의미 분기.",
+          "acceptance": "- ActivityBar.tsx 삭제됨\n- WorkspaceStrip.tsx 신규 + FileTreePanel.tsx 헤더 갱신\n- App.tsx 4컬럼 재구성, 핸들 3개 (T5 PanelResizeHandle 사용)\n- Cmd+W = 활성 에디터 탭 닫기 (없으면 워크스페이스 닫기 fallback) 동작\n- Cmd+Shift+W = 워크스페이스 닫기 (신규) 동작\n- Cmd+B = strip + filetree 묶음 토글 동작\n- ARIA tablist (workspace strip) + tabpanel (filetree column) 연결\n- 0/1/3/10 워크스페이스 시나리오 모두 정상 (10개 시 자체 스크롤 + scrollIntoView)\n- absolutePath hover tooltip + aria-describedby 동작\n- typecheck + bun run test + lint 통과\n- 한국어 displayName/path truncate 정상",
+          "approach": "- packages/app/src/renderer/components/ActivityBar.tsx 삭제\n- packages/app/src/renderer/components/WorkspaceStrip.tsx 신규: 워크스페이스 수직 리스트 (h-8, Folder/FolderOpen icon swap, displayName text-sm truncate, ⌘1-3 키 라벨, status dot, hover ×, absolutePath tooltip + aria-describedby, active=bg-accent + ring-1 ring-primary/30, 하단 Open Folder ⌘O 버튼). role=\"tablist\" aria-orientation=\"vertical\". 활성 변경 시 scrollIntoView({block:\"nearest\"}). 0개일 때 EmptyState만 표시.\n- packages/app/src/renderer/components/FileTreePanel.tsx 헤더 갱신: 좌측에 `<FolderOpen /> {workspace.displayName}` 재표기 (active workspace 이름 + FolderOpen 아이콘). 트리 본문은 변경 없음. role=\"tabpanel\" + aria-labelledby={workspaceTabId}.\n- App.tsx 재구성: 4컬럼 = Workspace strip (default 160 / range 120-220) + Filetree column (default 240 / range 200-400) + Center fluid + Shared 16-32rem. 두 신규 핸들 추가 (T5의 PanelResizeHandle 사용). localStorage 키 nx.layout.workspaceStrip + nx.layout.filetreeColumn. 0개일 때 Filetree column 자체 hide.\n- packages/app/src/renderer/stores/keyboard-registry.ts 갱신:\n  - Cmd+W = workspace.editor.closeActiveTab (활성 에디터 탭 없으면 workspace.close fallback)\n  - Cmd+Shift+W = workspace.close (신규)\n  - Cmd+B 의미는 Workspace strip + Filetree column 묶음 토글 (구현은 visibility state 동시 토글)\n- App.tsx에서 Cmd+1/2/3 워크스페이스 전환 시 workspace strip의 활성 탭에 scrollIntoView 호출\n- 단위테스트: WorkspaceStrip 렌더 + 키 입력 + ARIA 속성 + 0/1/3/10 워크스페이스 시나리오",
+          "risk": "- App.tsx의 기존 panel layout 코드 (workspaceVisible/sharedVisible 등) 리팩터 침습도 큼 — 단위테스트로 커버 + 단계 commit\n- ActivityBar 삭제로 기존 import/사용처 깨질 수 있음 — typecheck로 잡기\n- Cmd+W 의미 변경이 사용자 근육기억과 충돌 — VSCode와 동일하므로 합리적\n- workspace-store와 editor-store 간 활성 탭 존재 여부 query 필요",
+          "plan_issue": 3,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd21f-8246-7681-932a-0ec92b1c2e53",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:11:48.941Z"
+        },
+        {
+          "id": 12,
+          "title": "[T6t] Sidecar LSP supervision 30+ 분 안정성 + crash auto-restart + 좀비 0 검증",
+          "status": "completed",
+          "context": "T6 (sidecar LSP supervision) 결과물 검증. 30+ 분 연속 동작 + crash 자동 restart + WebSocket relay 메시지 누락 0 + 좀비 프로세스 0.",
+          "acceptance": "- 30+ 분 연속 동작에서 메시지 누락 0\n- crash 3회 × 3 langs (TS/Python/Go) 모두 5초 이내 자동 restart 복구\n- close-code 처리 검증, race 회귀 없음\n- before-quit 후 좀비 프로세스 0 (Activity Monitor + ps aux 검증)\n- Go 단위테스트 통과\n- artifact 기록",
+          "approach": "- 단위테스트 (Go): supervisor restart 시퀀스, stdio relay 메시지 보존, 2단계 종료 (SIGTERM → SIGKILL)\n- 통합테스트: 1 워크스페이스에서 typescript-language-server spawn → 30분 + 트래픽 시뮬레이션 (1 hover/sec) → 메시지 누락 0 측정 + sidecar 메모리/CPU 모니터링\n- crash 시나리오: tsserver SIGKILL 3회 → sidecar detect + respawn → 5초 이내 능력 복구 (hover 응답)\n- close-code 시나리오: WebSocket close시 LSP 서버 종료 race 점검 (pattern-sidecar-close-code-race.md 회귀)\n- before-quit 시나리오: app.quit() → sidecar의 LSP 자식 5초 이내 종료 → Activity Monitor 좀비 0 확인\n- 결과를 nx_artifact_write로 기록",
+          "plan_issue": 2,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd253-06d6-7ed3-8845-847ea73d4c7b",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:12:11.872Z"
+        },
+        {
+          "id": 13,
+          "title": "[T7] LSP foundation: vscode-languageserver-protocol 도입 + Monaco provider 추상화 + completion 구현",
+          "status": "completed",
+          "context": "Plan #29 Issue 2 B 결정. `vscode-languageserver-protocol` (표준 LSP 타입 + JSON-RPC 메시지 스키마)만 도입하고 Monaco 통합은 자체 구현. 9개 capability adapter의 첫 구현으로 completion 선택 (가장 큰 UX 표면 + provider 패턴 검증).",
+          "acceptance": "- vscode-languageserver-protocol 패키지 추가됨 (monaco-languageclient 미추가)\n- monaco-providers/ 디렉터리 + provider 추상화 모듈 존재\n- completion 동작: 3 lang 모두 textDocument/completion 응답 → Monaco 자동완성 표시 + snippets 작동\n- 단위테스트 + 통합 smoke 통과\n- typecheck + lint 통과\n- bundle size 측정 (기존 대비 변화 기록)",
+          "approach": "- packages/app/package.json에 vscode-languageserver-protocol 추가 (monaco-languageclient는 채택 안 함, @codingame/monaco-vscode-api 의존 회피)\n- packages/app/src/renderer/editor/monaco-providers/ 신규 디렉터리: provider 추상화 (registerCompletionProvider, registerHoverProvider, ...)\n- packages/app/src/main/lsp/lsp-protocol-client.ts (T4에서 만든 빈 골격) 실제 구현 — JSON-RPC client + sidecar lsp/relay에 message wire\n- packages/app/src/main/lsp/capabilities/completion.ts 실제 구현 — textDocument/completion 요청 + CompletionItem[] 응답 → Monaco CompletionItemProvider 등록 (with snippets)\n- packages/app/src/renderer/editor/monaco-providers/completion-provider.ts: Monaco CompletionItemProvider 등록 + main editor API 호출\n- packages/app/src/main/editor/editor-bridge-ipc.ts에 completion request/response IPC 채널 추가\n- preload editor API에 lsp.completion(uri, position) 노출\n- 단위테스트: completion 요청/응답 매핑 + Monaco CompletionItem 변환 + snippet 처리\n- 3 lang × completion 통합 smoke (typescript-language-server / pyright / gopls)\n- typecheck + bun run test + lint 통과",
+          "risk": "- vscode-languageserver-protocol이 ESM-only 가능 — Vite/Electron 호환성 사전 검증 필요 (researcher가 monaco-languageclient v10 ESM 이슈 보고)\n- Monaco CompletionItem ↔ LSP CompletionItem 필드 mapping 누락 가능 (insertTextFormat, insertText, additionalTextEdits 등)\n- snippet placeholder 변환 (LSP $1/${1:label} ↔ Monaco insertTextRules.InsertAsSnippet)",
+          "plan_issue": 2,
+          "deps": [
+            4,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd23f-172c-7c81-9f4c-29f7f74a53d5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:12:29.355Z"
+        },
+        {
+          "id": 14,
+          "title": "[T11] Center horizontal split + maximize 토글 + Mode enum migration + terminal min-height + visibility:hidden",
+          "status": "completed",
+          "context": "Plan #29 Issue 5 Q1 결정. CenterWorkbench를 mode toggle (editor↔terminal)에서 horizontal split 기본 (위 editor / 아래 terminal) + 3-state enum (split | editor-max | terminal-max)로 격상. 비활성 측은 visibility:hidden + height:0 (xterm fit 안전).",
+          "acceptance": "- CenterWorkbench가 split 기본 + 3-state enum\n- 마이그레이션: 기존 editor|terminal saved state → editor-max|terminal-max로 자동 (단위테스트)\n- ratio persistence (nx.center.split.ratio) 동작\n- terminal min-height 120px 클램프\n- Maximize2/Minimize2 토글 + Cmd+Shift+M 단축키\n- pane wrapper 제거, 각 pane 자체 padding\n- inset 1px ring active pane 표시\n- visibility:hidden + height:0 (display:none 미사용) — xterm fit ResizeObserver 0×0 throw 0 측정\n- 한국어 IME 조합 중 Cmd+Shift+M 차단\n- typecheck + bun run test + lint 통과",
+          "approach": "- packages/app/src/renderer/components/CenterWorkbench.tsx 재구조: editor pane (위) + horizontal divider (T5 PanelResizeHandle orientation=horizontal) + terminal pane (아래)\n- mode enum 변경: `editor | terminal` → `split | editor-max | terminal-max`\n- packages/app/src/renderer/stores/editor-store.ts에 마이그레이션 함수 추가: 기존 persisted state 로드 시 자동 변환 (editor → editor-max, terminal → terminal-max). 단위테스트 필수\n- editor-max 상태: terminal pane visibility:hidden + height:0, editor pane height:100%\n- terminal-max 상태: editor pane visibility:hidden + height:0, terminal pane height:100%\n- split 상태: 양 pane 모두 가시, divider로 분할 (default ratio 0.6 editor / 0.4 terminal)\n- localStorage `nx.center.split.ratio` 영속\n- terminal min-height 120px 클램프 (divider drag 시 0 시도하면 120에서 멈춤)\n- Maximize2 / Minimize2 16px ghost icon (h-7 w-7) 각 pane 헤더 우상단. 단축키 Cmd+Shift+M\n- pane wrapper (rounded-md border bg-card) 제거. CenterWorkbench p-4 → p-0. 각 pane이 px-3 py-2 자체 padding\n- Active pane 표시: box-shadow inset 0 0 0 1px var(--ring). 헤더 제목 색상 active=text-foreground / inactive=text-muted-foreground\n- 빈 상태 EmptyState: editor=FileText \"No file open\", terminal=SquareTerminal \"No terminal session\" + ⌘T\n- 기존 `[Editor | Terminal]` segmented control 제거\n- 단위테스트: mode 마이그레이션, ratio persistence, min-height 클램프, maximize 토글 visibility",
+          "risk": "- xterm fit 안정성 — visibility:hidden + height:0 조합이 실측에서 throw 없는지 검증 필요. 만약 throw 발생 시 fallback (height:1px + overflow:hidden 등)\n- 마이그레이션 실패 시 첫 렌더 빈 화면 — fallback default split 권고\n- terminal scrollback 보존 — TerminalPane mount-stable 패턴 유지 확인",
+          "plan_issue": 5,
+          "deps": [
+            5,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd22b-8e0a-72f1-bbd2-9987fd25b6cc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:12:50.023Z"
+        },
+        {
+          "id": 15,
+          "title": "[T7t] LSP foundation + completion 회귀 (3 lang × 단위 + 통합 smoke + bundle size)",
+          "status": "completed",
+          "context": "T7 결과물 검증. completion이 3 lang(TS/Python/Go) 모두 동작하고 snippet/insertText/additionalTextEdits 매핑 정확한지, vscode-languageserver-protocol ESM 호환성 문제 없는지, bundle size 격상 폭이 합리적인지.",
+          "acceptance": "- 3 lang × completion 통합 smoke 통과\n- snippet placeholder 매핑 정확 (TypeScript Promise.then$0 같은 케이스)\n- additionalTextEdits 동작 (auto-import 같은 부수 변경)\n- bundle size diff ≤ +50KB (vscode-languageserver-protocol만이라 작아야 함)\n- ESM 호환 — bun build 통과 + packaged app smoke\n- typecheck + lint 통과\n- artifact 기록",
+          "approach": "- 단위테스트 (T7에서 추가한 것 + 보강): completion 요청/응답 매핑, snippet placeholder 변환, insertText vs label 우선순위, additionalTextEdits (auto-import), CompletionItemKind 매핑\n- 통합 smoke: 각 lang별 .ts/.py/.go 샘플 파일 → 알려진 식별자 트리거 → completion candidates에 기대 항목 포함 확인\n- ESM 호환성: bun build 통과, packaged app에서 require/import 에러 없음\n- bundle size 측정: 격상 전후 .js bundle size diff 기록. monaco-languageclient 미사용으로 ~0 추가 기대 (실측 확인)\n- snippet 동작: `console.log($0)` 같은 placeholder 정확히 cursor 위치 잡는지 수동 확인\n- 결과를 nx_artifact_write로 기록 (artifact name: lsp-completion-verification.md)",
+          "plan_issue": 2,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd24d-64b4-7891-bd30-ed1150619da6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:13:09.870Z"
+        },
+        {
+          "id": 16,
+          "title": "[T8] LSP read capabilities — hover + go-to-definition + find-references + document-symbols",
+          "status": "completed",
+          "context": "Plan #29 Issue 2 Tier-1 9개 중 read 계열 4개. T7에서 깐 provider 추상화 + LSP protocol client 위에 4개 capability 추가. 모두 read-only 패턴이라 묶어서 진행 (write 계열은 T9).",
+          "acceptance": "- 4개 capability 모두 3 lang에서 동작\n- hover: 마우스 hover 시 type/doc 팝오버\n- definition: Cmd+클릭 / F12로 정의 위치 점프\n- references: Shift+F12로 참조 peek widget 표시\n- document-symbols: 데이터 layer 동작 (Monaco API 통해 query 가능, UI는 future)\n- 단위테스트 + 통합 smoke 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/main/lsp/capabilities/hover.ts 실제 구현 — textDocument/hover 요청 + Hover 응답 → MarkupContent → Monaco HoverProvider\n- packages/app/src/main/lsp/capabilities/definition.ts — textDocument/definition + Location | LocationLink → Monaco DefinitionProvider (Cmd+클릭 / F12)\n- packages/app/src/main/lsp/capabilities/references.ts — textDocument/references + Location[] → Monaco ReferenceProvider (Shift+F12). 결과 표시는 Monaco peek widget 기본 사용 (별도 UI 없음, MVP)\n- packages/app/src/main/lsp/capabilities/document-symbols.ts — textDocument/documentSymbol + DocumentSymbol[] → Monaco DocumentSymbolProvider (breadcrumbs는 없지만 future Outline 패널을 위한 데이터 layer)\n- 각 capability별 IPC 채널 + preload editor API 노출\n- packages/app/src/renderer/editor/monaco-providers/{hover,definition,references,document-symbols}-provider.ts 등록\n- MonacoEditorHost.tsx에서 model 생성 시 4개 provider 등록\n- 단위테스트: 각 capability 요청/응답 매핑 + Monaco type 변환\n- 3 lang × 각 capability smoke",
+          "risk": "- references peek widget이 Monaco 자체 UI를 사용 — 우리 디자인 시스템과 시각 충돌 가능. MVP는 Monaco 기본 사용, v0.2에서 자체 UI 검토\n- document-symbols UI는 이번 격상 외 (T9 Outline 패널은 별도 task로 추가 안 함, Tier-2)\n- LSP 서버별 hover MarkupContent format 차이 (markdown vs plaintext) — 둘 다 처리",
+          "plan_issue": 2,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd24d-98c0-7fe2-ac5b-baa5cc8632de",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:13:25.716Z"
+        },
+        {
+          "id": 17,
+          "title": "[T9] LSP edit capabilities — rename + formatting + signature-help + code-action",
+          "status": "completed",
+          "context": "Plan #29 Issue 2 Tier-1 9개 중 write 계열 4개. T7 위에 추가. 이들은 workspace edits (텍스트 수정)을 트리거하므로 read 계열과 패턴 다름.",
+          "acceptance": "- 4개 capability 모두 3 lang 동작\n- rename: F2 트리거 → 다중 파일 동시 변경 + dirty 표시\n- formatting: 저장 시 / 명령 시 코드 정리 (Cmd+Alt+F 권장하지만 MVP 단축키 충돌 회피로 명령만)\n- signature help: 함수 호출 시 파라미터 힌트 팝오버\n- code action: lightbulb 표시 + Cmd+. → 메뉴 → quick fix / source action 적용\n- WorkspaceEdit 다중 파일 변경 시 모든 파일 dirty + LSP didChange 정상\n- 단위테스트 + 통합 smoke 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/main/lsp/capabilities/rename.ts — textDocument/rename + WorkspaceEdit 응답 → Monaco RenameProvider (F2). prepareRename 우선 호출로 valid range 확인\n- packages/app/src/main/lsp/capabilities/formatting.ts — textDocument/formatting + textDocument/rangeFormatting + TextEdit[] → Monaco DocumentFormattingEditProvider + DocumentRangeFormattingEditProvider. on-type formatting은 Tier-2.\n- packages/app/src/main/lsp/capabilities/signature-help.ts — textDocument/signatureHelp + SignatureHelp 응답 → Monaco SignatureHelpProvider (Cmd+Shift+Space 또는 ( 트리거)\n- packages/app/src/main/lsp/capabilities/code-action.ts — textDocument/codeAction + CodeAction[] | Command[] 응답 → Monaco CodeActionProvider (Cmd+. 또는 lightbulb). source.fixAll, source.organizeImports kinds 포함\n- WorkspaceEdit 적용: edit-store에 applyWorkspaceEdit 추가 — 다중 파일 변경 + dirty 표시 + LSP didChange notify\n- 각 capability별 IPC + preload + Monaco provider 등록\n- 단위테스트: 각 capability 요청/응답 매핑 + WorkspaceEdit 다중 파일 변경 시뮬레이션\n- 3 lang × 각 capability smoke\n- typecheck + bun run test + lint 통과",
+          "risk": "- rename WorkspaceEdit이 열려있지 않은 파일도 변경 — 파일을 background에서 읽고 변경 후 디스크 sync 또는 메모리 dirty 처리 결정 필요\n- code-action kind 별 trigger context (manual vs automatic) 정확히 구분\n- formatting 단축키: VSCode Shift+Alt+F는 macOS에서 Esc+F 부분과 충돌 가능 — MVP는 단축키 없이 command palette만",
+          "plan_issue": 2,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd24d-cefe-7532-9bdb-445b7dfeaa19",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:13:41.299Z"
+        },
+        {
+          "id": 18,
+          "title": "[T11t] Center split mount-stable 50+회 + xterm fit error 0 + migration 검증",
+          "status": "completed",
+          "context": "T11 (Center horizontal split) 회귀 검증. 모드 토글 50+회 + 마이그레이션 + min-height 클램프 + visibility:hidden 안정성.",
+          "acceptance": "- mode 토글 50+회 후 console error 0\n- 터미널 스크롤백 보존 (모든 토글 후 직전 출력 그대로)\n- visibility:hidden + height:0 사용 확인 (display:none 0)\n- min-height 120px 클램프 동작\n- 마이그레이션 단위테스트 100% 통과 + E2E 빈 화면 0\n- IME 조합 중 Cmd+Shift+M 차단\n- artifact 기록",
+          "approach": "- 단위테스트: editor-store mode 마이그레이션 (editor → editor-max, terminal → terminal-max), ratio persistence read/write, min-height 클램프\n- E2E smoke: 앱 launch → split 상태에서 editor-max ↔ terminal-max ↔ split 50+회 토글 → 터미널 스크롤백 보존 확인 + DOM에서 visibility:hidden + height:0 확인 (display:none 미사용)\n- xterm fit 안정성: 50+회 토글 동안 console error 0 (특히 ResizeObserver 0×0 throw)\n- divider drag로 terminal pane 0 시도 → 120px에서 정확히 stop\n- Cmd+Shift+M 단축키 + 한국어 IME 조합 중 차단 확인 (composition-buffer 보호 일관)\n- 격상 전 saved state (editor|terminal) 시드 → 첫 실행 → 자동 마이그레이션 + 빈 화면 0\n- 결과 nx_artifact_write로 기록",
+          "plan_issue": 5,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd23b-212a-77e1-893d-71ed2794cdb5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:13:52.112Z"
+        },
+        {
+          "id": 19,
+          "title": "[T12] Editor pane 1-depth horizontal split + EditorStore paneId migration + Cmd+\\\\ + Cmd+Alt+←/→ + auto-unsplit",
+          "status": "completed",
+          "context": "Plan #29 Issue 5 Q2 결정 (B 1-depth horizontal split). T11 위에 editor pane 자체를 좌/우 2 pane으로 split. EditorStore에 paneId 차원 추가. multi-depth/grid는 v0.2 결정 영역.",
+          "acceptance": "- EditorStore 구조 `{panes:[{id,tabs,activeTabId}], activePaneId}`\n- 마이그레이션 단위테스트 통과 (기존 평면 → panes 1개)\n- Cmd+\\\\ split right toggle 동작 (1 → 2 pane, 2 → 1 pane)\n- Cmd+Alt+←/→ 활성 탭 이동\n- Last tab close → auto-unsplit (pane 자동 제거)\n- 동일 파일 두 pane 동시 표시 + dirty 동기화 (Monaco model 공유 — pane별 인스턴스 X)\n- Active editor inset ring + 탭 title weight 차이 표시\n- 한국어 IME 조합 중 Cmd+\\\\ Cmd+Alt+←/→ 차단\n- typecheck + bun run test + lint 통과",
+          "approach": "- packages/app/src/renderer/stores/editor-store.ts: state 구조 변경 `{tabs, activeTabId}` → `{panes: [{id, tabs, activeTabId}], activePaneId}`. 마이그레이션 함수 추가 — 기존 구조 로드 시 자동 변환 (panes: [{id: 'p0', tabs, activeTabId}]). 단위테스트 필수\n- packages/app/src/renderer/components/EditorPane.tsx 변경: pane.id 받음. 단일 컴포넌트가 좌 또는 우 pane 표시\n- packages/app/src/renderer/components/SplitEditorPane.tsx 신규: panes 배열을 받아 1-depth 좌/우 split 렌더 (PanelResizeHandle orientation=vertical, 1-depth만). pane 1개일 때 split 없이 단일 EditorPane\n- Split entry: EditorPane 헤더 우상단 SplitSquareHorizontal 16px ghost icon button (h-7 w-7), tooltip \"Split right (⌘\\\\)\"\n- 단축키:\n  - Cmd+\\\\ = editor.splitRight (현재 활성 pane이 split 토글 — 1 pane이면 split, 2 pane이고 옆이 비었으면 unsplit)\n  - Cmd+Alt+← = editor.moveTabLeft (활성 탭을 왼쪽 pane으로)\n  - Cmd+Alt+→ = editor.moveTabRight (활성 탭을 오른쪽 pane으로)\n- Last tab close auto-unsplit: pane의 tabs가 0이 되면 해당 pane 제거 + 다른 pane 활성화\n- Active pane 표시: T11과 동일 inset 1px ring + 활성 pane의 활성 탭 title font-medium text-foreground / 비활성 pane의 활성 탭 title text-muted-foreground\n- EditorStore 액션 추가: splitPane(direction), moveTabToPane(tabId, paneId), closePane(paneId), setActivePane(paneId)\n- 단위테스트: paneId 마이그레이션, splitPane / moveTabToPane / closePane / auto-unsplit 시퀀스, activePaneId 일관성, 동일 파일이 두 pane에서 dirty 동기화 (Monaco model 공유)\n- typecheck + bun run test + lint 통과",
+          "risk": "- Monaco model 공유 vs pane별 model 인스턴스 — model 공유가 dirty 동기화에 자연스럽지만 cursor/selection은 pane별로 독립 (Monaco editor instance만 pane별, model은 1개)\n- multi-depth 시도 차단 — Cmd+\\\\을 두 번 눌러도 split 한 번만 (정책 enforcement)\n- EditorStore 마이그레이션 실패 시 모든 탭 손실 — fallback: panes:[] 빈 상태로 graceful degrade",
+          "plan_issue": 5,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd23b-5c71-7812-b66e-0944e72f9fe5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:14:14.217Z"
+        },
+        {
+          "id": 20,
+          "title": "[T8t] LSP read capabilities 회귀 (4 cap × 3 lang × 단위 + 통합)",
+          "status": "completed",
+          "context": "T8 (hover + go-to-def + references + document-symbols) 회귀 검증.",
+          "acceptance": "- 4 cap × 3 lang 통합 smoke 모두 통과\n- 단위테스트 100%\n- 한국어 doc 포함 hover 정상 렌더\n- references peek widget 동작 (시각 충돌은 별도 v0.2 issue로 기록)\n- artifact",
+          "approach": "- 단위테스트: 4 capability별 요청/응답 매핑 + Monaco type 변환 + edge cases (LocationLink vs Location, MarkupContent markdown vs plaintext, DocumentSymbol vs SymbolInformation)\n- 통합 smoke: 3 lang × 4 capability = 12 시나리오. 각각 sample 파일에서 알려진 결과 비교\n- hover 다국어 표시 (한국어 doc string 포함된 Python 모듈 hover)\n- references peek widget 시각 회귀 (Monaco 기본 UI라 디자인 시스템 충돌 표면 기록)\n- typecheck + lint 통과\n- artifact 기록",
+          "plan_issue": 2,
+          "deps": [
+            16
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd25e-40f4-7ac1-954b-e3688de79ee6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:14:30.147Z"
+        },
+        {
+          "id": 21,
+          "title": "[T9t] LSP edit capabilities 회귀 (rename multi-file + format + sig-help + code-action × 3 lang)",
+          "status": "completed",
+          "context": "T9 (rename + formatting + signature-help + code-action) 회귀 검증. WorkspaceEdit 다중 파일 변경이 가장 위험.",
+          "acceptance": "- 4 cap × 3 lang 통합 smoke 통과\n- WorkspaceEdit 다중 파일 변경 정확 (모든 위치 수정 + dirty 표시 + LSP didChange notify)\n- 한국어 식별자 rename 정상\n- code-action quickfix 발동 + 적용 후 LSP 진단 갱신\n- 단위테스트 100%\n- artifact",
+          "approach": "- 단위테스트: 4 capability 요청/응답 + WorkspaceEdit 다중 파일 시뮬레이션 + prepareRename 우선 호출 + signature help triggerCharacters + code-action kinds (source.fixAll, source.organizeImports, quickfix)\n- 통합 smoke: 3 lang × 4 cap. 특히 rename은 닫혀있는 파일도 변경 (background read + dirty/disk sync 정책 검증)\n- 한국어 식별자 rename (변수명에 한국어 포함된 경우 LSP 처리)\n- code-action quick fix: missing import, unused variable 같은 알려진 quick fix 발동 확인\n- typecheck + lint 통과\n- artifact 기록",
+          "plan_issue": 2,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019dd266-4a10-7611-b263-10fda40bbf1f"
+          },
+          "created_at": "2026-04-28T03:14:38.612Z"
+        },
+        {
+          "id": 22,
+          "title": "[T12t] Editor 1-depth split 50+회 + Monaco model leak 0 + paneId migration + auto-unsplit",
+          "status": "completed",
+          "context": "T12 (Editor pane 1-depth split) 회귀 검증. split/unsplit/move tab 50+회 + Monaco model leak + EditorStore paneId migration.",
+          "acceptance": "- 50+회 사이클 후 Monaco model leak 0 (heap snapshot)\n- multi-depth 차단 (3 pane 발생 0)\n- 같은 파일 두 pane dirty 동기화 + clean 동기화\n- undo history 파일별 보존\n- IME 조합 중 단축키 차단\n- 마이그레이션 단위테스트 100%\n- auto-unsplit 검증\n- artifact",
+          "approach": "- 단위테스트: paneId 마이그레이션 (구 평면 → panes 1개), splitPane/moveTabToPane/closePane/auto-unsplit 시퀀스, activePaneId 일관성, 같은 파일 두 pane에서 dirty 동기화\n- E2E smoke: split → move tab → close → split 50+회 사이클, 끝나고 chrome devtools heap snapshot으로 Monaco model 누적 0 확인 (model 공유 정책 검증)\n- multi-depth 차단 검증: Cmd+\\\\을 두 번 눌러도 split 한 번만 (3 pane 발생 0)\n- 같은 파일을 두 pane 동시 열고 한쪽 dirty → 다른 쪽도 동시 dirty + 저장하면 양쪽 clean\n- 한국어 IME 조합 중 Cmd+\\\\ Cmd+Alt+←/→ 차단 검증\n- undo history 파일별 보존 (한 pane에서 undo가 다른 pane의 변경 영향 안 줌)\n- typecheck + lint 통과\n- artifact 기록",
+          "plan_issue": 5,
+          "deps": [
+            19
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd249-aa19-7be2-a5bb-160af5feeb6b",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:14:48.233Z"
+        },
+        {
+          "id": 23,
+          "title": "[T13] M6 30+ 분 통합 안정성 시나리오 작성 + 실행 (3W × 3H × 9 cap × split surface)",
+          "status": "completed",
+          "context": "Plan #29 Issue 7 결정. 격상 슬라이스 종료 시점에 M6 통합 안정성 검증 시나리오 일괄 실행. 4 그룹 (A LSP / B 레이아웃 / C CJK / D 단축키) 23개 항목 모두 회귀 0 확인.",
+          "acceptance": "- 4 그룹 23개 항목 모두 통과 또는 명시적 fail 항목 기록\n- 3 워크스페이스 × 3 하네스 × 9 LSP cap 동시 30+ 분 동작에서 메시지 누락 0 + 회귀 0\n- artifact m6-integration-report.md 생성 (각 항목 pass/fail + 수치 + 실패 시 reproduction)\n- 출시 판정 기준 6, 7번 충족 또는 미충족 명시\n- typecheck + bun run test + go test 통과",
+          "approach": "- 시나리오 스크립트 packages/app/test/m6-stability/ 디렉터리에 작성:\n  - lsp-stability.test.ts: 9 cap × 3 lang × 30+ 분 누적 사용 시뮬레이션 + crash auto-restart × 3 + WebSocket relay 메시지 누락 0 + 좀비 0 (T6t 결과 확장)\n  - layout-stability.test.ts: Center split toggle 50+회 + Editor split 50+회 + 마이그레이션 + min-height 클램프 + visibility:hidden + 3 resizer 키보드 nav (T11t/T12t 결과 확장)\n  - cjk-regression.test.ts: 5개 신규 UI 한국어 렌더 + IME 조합 중 신규 단축키 차단 (T10/T11/T12 결과 확장)\n  - keybinding-conflict.test.ts: Cmd+W fallback / Cmd+Shift+W / Cmd+B 의미 / Cmd+1-3 + scrollIntoView / IME 차단 5개 (T10/T11/T12 결과 확장)\n- 3 워크스페이스 동시 시나리오: 각 워크스페이스에 다른 lang LSP + 하네스 + 30+ 분 동시 동작\n- 결과 nx_artifact_write로 종합 리포트 (m6-integration-report.md)\n- 결과를 roadmap.md M6 게이트 통과 여부와 매핑",
+          "risk": "- 30+ 분 시나리오는 CI 실행 시간 길어 GitHub Actions 무료 티어에서 timeout 가능 — local 실행 + artifact upload 패턴 권고\n- 3 하네스 동시 동작은 macOS 메모리 부담 — 사전 측정 필요 (현재 Phase A 검증 패턴 참조)\n- 일부 항목 (display:none 미사용 검증)은 자동화 어려워 수동 체크 — checklist로 보완",
+          "plan_issue": 7,
+          "deps": [
+            12,
+            15,
+            16,
+            17,
+            18,
+            19
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd26b-81f0-7e40-b43e-381b6d5727fb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T03:15:07.305Z"
+        }
+      ]
     }
   ]
 }

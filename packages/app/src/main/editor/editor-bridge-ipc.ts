@@ -30,6 +30,17 @@ type EditorBridgeLspService = Pick<
   LspService,
   | "readDiagnostics"
   | "readStatus"
+  | "complete"
+  | "hover"
+  | "definition"
+  | "references"
+  | "documentSymbols"
+  | "prepareRename"
+  | "renameSymbol"
+  | "formatDocument"
+  | "formatRange"
+  | "getSignatureHelp"
+  | "codeActions"
   | "openDocument"
   | "changeDocument"
   | "closeDocument"
@@ -100,6 +111,28 @@ export async function invokeEditorBridgeRequest(
       return lspService.readDiagnostics(request);
     case "lsp-status/read":
       return lspService.readStatus(request);
+    case "lsp-completion/complete":
+      return lspService.complete(request);
+    case "lsp-hover/read":
+      return lspService.hover(request);
+    case "lsp-definition/read":
+      return lspService.definition(request);
+    case "lsp-references/read":
+      return lspService.references(request);
+    case "lsp-document-symbols/read":
+      return lspService.documentSymbols(request);
+    case "lsp-rename/prepare":
+      return lspService.prepareRename(request);
+    case "lsp-rename/rename":
+      return lspService.renameSymbol(request);
+    case "lsp-formatting/document":
+      return lspService.formatDocument(request);
+    case "lsp-formatting/range":
+      return lspService.formatRange(request);
+    case "lsp-signature-help/get":
+      return lspService.getSignatureHelp(request);
+    case "lsp-code-action/list":
+      return lspService.codeActions(request);
     case "lsp-document/open":
       return lspService.openDocument(request);
     case "lsp-document/change":

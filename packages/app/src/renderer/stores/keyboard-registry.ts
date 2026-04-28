@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 
-export type CommandGroup = "Workspace" | "View" | "Terminal" | "App";
+export type CommandGroup = "Workspace" | "View" | "Editor" | "Terminal" | "App";
 
 export interface Command {
   group: CommandGroup;
@@ -8,6 +8,13 @@ export interface Command {
   id: string;
   run: () => Promise<void> | void;
   title: string;
+}
+
+export interface KeyboardShortcutEventLike {
+  isComposing?: boolean;
+  key?: string;
+  keyCode?: number;
+  which?: number;
 }
 
 export interface KeyboardRegistryState {
@@ -104,6 +111,15 @@ export function getKeychordFromKeyboardEvent(event: KeyboardEvent): string {
   return parts.join("+");
 }
 
+export function shouldIgnoreKeyboardShortcut(event: KeyboardShortcutEventLike): boolean {
+  return (
+    event.isComposing === true ||
+    event.key === "Process" ||
+    event.keyCode === 229 ||
+    event.which === 229
+  );
+}
+
 export function shouldAllowSingleKeyInput(event: KeyboardEvent): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) {
     return false;
@@ -142,6 +158,14 @@ function normalizeModifier(modifier: string): string {
 }
 
 function normalizeKey(key: string): string {
+  if (key === "←") {
+    return "ArrowLeft";
+  }
+
+  if (key === "→") {
+    return "ArrowRight";
+  }
+
   if (key.length === 1) {
     return key.toUpperCase();
   }
