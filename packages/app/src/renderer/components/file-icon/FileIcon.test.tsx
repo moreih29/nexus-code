@@ -64,6 +64,21 @@ describe("FileIcon lazy SVG loading", () => {
     await expect(loadSvg("default_file.svg")).resolves.toContain("<svg");
   });
 
+  test("falls back to bundled default SVG assets when a library icon is not bundled", async () => {
+    const modules: FileIconSvgModuleMap = {
+      "../../assets/file-icons/default_file.svg": async () => "<svg data-fallback=\"file\"></svg>",
+      "../../assets/file-icons/default_folder.svg": async () => "<svg data-fallback=\"folder\"></svg>",
+      "../../assets/file-icons/default_folder_opened.svg": async () => "<svg data-fallback=\"open-folder\"></svg>",
+    };
+    const loadSvg = createFileIconSvgLoader(modules);
+
+    await expect(loadSvg("file_type_unbundled_test.svg")).resolves.toContain("data-fallback=\"file\"");
+    await expect(loadSvg("folder_type_unbundled_test.svg")).resolves.toContain("data-fallback=\"folder\"");
+    await expect(loadSvg("folder_type_unbundled_test_opened.svg")).resolves.toContain(
+      "data-fallback=\"open-folder\"",
+    );
+  });
+
   test("renders a placeholder state and warns on SVG load failure", async () => {
     const source = resolveFileIconSource({ name: "main.py", kind: "file" });
     const warnings: unknown[] = [];

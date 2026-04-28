@@ -27,6 +27,7 @@ export type LoadedFileIconSvg =
     };
 
 const iconSvgCache = new Map<string, Promise<string>>();
+const loadedIconSvgStateCache = new Map<string, LoadedFileIconSvg>();
 let defaultFileIconSvgLoader: Promise<FileIconSvgLoader> | null = null;
 
 export function loadFileIconSvg(fileName: string, loader?: FileIconSvgLoader): Promise<string> {
@@ -54,12 +55,24 @@ export async function loadFileIconSvgState(
   loader: FileIconSvgLoader = loadFileIconSvg,
   warn: FileIconWarn = console.warn,
 ): Promise<LoadedFileIconSvg> {
+  const shouldUseLoadedStateCache = loader === loadFileIconSvg;
+  const cachedState = shouldUseLoadedStateCache
+    ? readCachedFileIconSvgState(source.fileName)
+    : null;
+  if (cachedState) {
+    return cachedState;
+  }
+
   try {
-    return {
+    const nextState: LoadedFileIconSvg = {
       status: "loaded",
       iconFileName: source.fileName,
       svg: await loader(source.fileName),
     };
+    if (shouldUseLoadedStateCache) {
+      loadedIconSvgStateCache.set(source.fileName, nextState);
+    }
+    return nextState;
   } catch (error) {
     warn("FileIcon failed to load SVG asset; rendering placeholder.", {
       iconFileName: source.fileName,
@@ -77,19 +90,42 @@ export async function loadFileIconSvgState(
   }
 }
 
+export function readCachedFileIconSvgState(fileName: string): LoadedFileIconSvg | null {
+  return loadedIconSvgStateCache.get(fileName) ?? null;
+}
+
 export function createFileIconSvgLoader(
   modules: FileIconSvgModuleMap,
   assetPrefix = "../../assets/file-icons/",
 ): FileIconSvgLoader {
   return async (fileName: string): Promise<string> => {
-    const modulePath = `${assetPrefix}${fileName}`;
-    const loadModule = modules[modulePath];
-    if (!loadModule) {
+    const directLoader = modules[`${assetPrefix}${fileName}`];
+    if (directLoader) {
+      return svgTextFromModule(await directLoader(), fileName);
+    }
+
+    const fallbackFileName = fallbackAssetFor(fileName);
+    const fallbackLoader = modules[`${assetPrefix}${fallbackFileName}`];
+    if (!fallbackLoader) {
       throw new Error(`Missing file icon SVG asset: ${fileName}`);
     }
 
-    return svgTextFromModule(await loadModule(), fileName);
+    return svgTextFromModule(await fallbackLoader(), fileName);
   };
+}
+
+function fallbackAssetFor(fileName: string): string {
+  if (fileName.startsWith("folder_type_") && fileName.endsWith("_opened.svg")) {
+    return "default_folder_opened.svg";
+  }
+  if (
+    fileName.startsWith("folder_type_") ||
+    fileName.startsWith("folder_") ||
+    fileName === "default_folder.svg"
+  ) {
+    return "default_folder.svg";
+  }
+  return "default_file.svg";
 }
 
 function svgTextFromModule(moduleValue: FileIconSvgModule, fileName: string): string {

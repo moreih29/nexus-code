@@ -447,10 +447,11 @@ function FileTreeArboristViewport(
 
   useEffect(() => {
     if (selectedTreePath) {
-      if (treeRef.current?.hasFocus) {
-        treeRef.current.focus(selectedTreePath, { scroll: false });
+      const tree = treeRef.current;
+      if (tree?.hasFocus && !tree.isFocused(selectedTreePath)) {
+        tree.focus(selectedTreePath, { scroll: false });
       }
-      void treeRef.current?.scrollTo(selectedTreePath, "smart");
+      void tree?.scrollTo(selectedTreePath, "smart");
     }
   }, [selectedTreePath, treeData]);
 
@@ -642,8 +643,9 @@ function FileTreeArboristViewport(
         if (event.currentTarget.contains(event.relatedTarget)) {
           return;
         }
-        if (selectedTreePath) {
-          treeRef.current?.focus(selectedTreePath, { scroll: false });
+        const tree = treeRef.current;
+        if (selectedTreePath && tree && !tree.isFocused(selectedTreePath)) {
+          tree.focus(selectedTreePath, { scroll: false });
         }
       }}
       onKeyDownCapture={(event) => {
@@ -1840,7 +1842,12 @@ function syncArboristOpenState(
   syncingOpenStateRef.current = true;
   try {
     for (const path of directoryPaths) {
-      if (desiredOpenState[path]) {
+      const shouldBeOpen = Boolean(desiredOpenState[path]);
+      if (tree.isOpen(path) === shouldBeOpen) {
+        continue;
+      }
+
+      if (shouldBeOpen) {
         tree.open(path);
       } else {
         tree.close(path);

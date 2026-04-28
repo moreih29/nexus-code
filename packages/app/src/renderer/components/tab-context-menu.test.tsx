@@ -112,12 +112,13 @@ describe("TabContextMenu", () => {
     expect(keyCodeEvent.prevented).toBe(true);
   });
 
-  test("keeps tab menu content on shadcn/Radix primitives for role=menu keyboard behavior", () => {
+  test("keeps tab menu content on the shared ARIA context-menu wrapper", () => {
     const contextMenuSource = readFileSync(new URL("./ui/context-menu.tsx", import.meta.url), "utf8");
     const tabMenuSource = readFileSync(new URL("./tab-context-menu.tsx", import.meta.url), "utf8");
 
-    expect(contextMenuSource).toContain("ContextMenuPrimitive.Content");
-    expect(contextMenuSource).toContain("ContextMenuPrimitive.Item");
+    expect(contextMenuSource).not.toContain("ContextMenuPrimitive");
+    expect(contextMenuSource).toContain('role="menu"');
+    expect(contextMenuSource).toContain('role="menuitem"');
     expect(tabMenuSource).toContain("<ContextMenuContent");
     expect(tabMenuSource).toContain("<ContextMenuItem");
     expect(tabMenuSource).toContain("isImeMenuSelectEvent(event)");
