@@ -10,5 +10,5 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "src/**/*.cjs"],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "**/*.test.ts"]
 }

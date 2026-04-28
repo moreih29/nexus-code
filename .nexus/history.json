@@ -4629,6 +4629,154 @@
           "created_at": "2026-04-27T12:19:53.287Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T01:28:05.430Z",
+      "branch": "chore/test-layout-policy",
+      "plan": {
+        "id": 28,
+        "topic": "테스트 코드와 로직 코드 분리 정리",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1: 분리의 목적과 범위 합의 (왜·어디까지)",
+            "status": "decided",
+            "decision": "목적은 A3(가독성 + 빌드·번들 위생). 범위는 B3(TS는 분리 대상, Go는 별도 정책으로 I3에서 결정). 대상 정의는 C1(*.test.ts(x), *.spec.ts(x), *_test.go에 한정 — smoke/runtime 스크립트와 이미 분리된 evidence 디렉터리는 제외). 언어별 테스트 배치 정책은 .nexus/context/conventions.md에 결정 후 명문화한다."
+          },
+          {
+            "id": 2,
+            "title": "I2: TS 테스트 레이아웃 전략 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "L4 하이브리드(`__tests__/` 옆 폴더 + 기존 packages/app/test/integration|system|packaging 보존) 권고. 핵심 근거: (1) 빌드 위생 — tsconfig exclude에 `**/__tests__/**` 한 줄로 typecheck 분리, electron-vite는 entry-point 빌드라 out/ 누설 이미 없음. (2) import 안정성 — source 형제라 한 단계만 깊어짐, mirror tree(`test/unit/...`)는 4~5단계 import 재작성 필요. (3) bun test는 트리 walker라 root script 변경 불필요. (4) 70개 unit 이동만 필요, integration/system 그룹은 손대지 않음. 탈락 이유: L2/L3 mirror는 70 페어 새 트리 생성 + 모든 import 재작성 + monaco/electron 인라인 stub 재배치 부담 과다, L1 순수형은 app의 기존 test/와 이중표기 미해소. 추가 작업: tsconfig exclude 추가, package.json test:fonts 경로 갱신, ESLint 규칙 점검, conventions.md 명문화, dist 가드 한 줄. 사용자 결정 필요 항목: (a) `__tests__` 폴더명 확정, (b) *.spec.ts 정책 (현재 0개), (c) shared 패키지의 test/ 루트 선제 신설 여부.",
+                "recorded_at": "2026-04-28T01:00:30.474Z",
+                "agent_id": "a671f6623f65de79a"
+              },
+              {
+                "role": "explore",
+                "summary": "현행 import 패턴 검증: (1) 모든 TS 테스트 100% bun:test 단일 러너. (2) alias 미사용 — 100% 상대경로. cross-package는 `../../../../shared/src/contracts/...` 4~5단계. (3) fixture/mock 전용 디렉터리 없음 — 모든 stub은 테스트 파일 내부 인라인. (4) integration은 `spawnSync go build`로 sidecar 바이너리 동적 빌드, WebSocket 핸드셰이크로 외부 리소스 의존. → `__tests__/` 옆 폴더로 이동 시 depth가 +1단계 증가하나, mirror tree(L2)로 가면 +2~3단계. fixture 폴더 신설은 이번 범위 밖.",
+                "recorded_at": "2026-04-28T01:00:34.821Z"
+              },
+              {
+                "role": "researcher",
+                "summary": "15개 인기 TS 저장소 직접 확인. 분류 빈도: C(test/ 루트 mirror) 6개 — Vitest, Drizzle, Zod, Astro, ts-pattern, Bun. D(하이브리드) 5개 — tRPC, Next.js, Remix, Excalidraw, Cal.com. A(co-location 단독) 3개 — Tailwind 등 소수. B(__tests__/) 2개 — Vite, TanStack Query (Jest 관습 잔존). Vitest와 Bun test 공식 문서 모두 위치 규정 없음 — 둘 다 위치 무관 glob 패턴 기본 제공. CRA→Vite 마이그레이션 가이드도 위치 이동을 권장하지 않음. 결론: \"co-location이 대세\"라는 일반 통념은 데이터로 지지되지 않는다. C와 D가 다수파, A는 소수, B는 잔존. 본 nexus-code는 이미 D 변형(packages/app: unit co-location + integration/system/packaging 분리)이며 이는 Next.js·Remix·Cal.com과 같은 패턴.",
+                "recorded_at": "2026-04-28T01:09:33.680Z",
+                "agent_id": "aafcd810b192e6eb2"
+              }
+            ],
+            "decision": "TS 테스트 레이아웃은 D(하이브리드) 강화로 결정 — 현행 co-location 유지(소스 옆 *.test.ts(x), __tests__/ 폴더 미도입), packages/app/test/integration|system|packaging 분리도 그대로 유지. 변경은 (1) tsconfig.web.json·tsconfig.node.json의 exclude에 **/*.test.ts와 **/*.test.tsx 추가로 typecheck 입력에서 테스트 제거, (2) .nexus/context/conventions.md에 TS/Go 언어별 테스트 배치 정책 명문화 두 가지로 한정. 근거: 15개 인기 TS 저장소 직접 확인 결과 단일 대세 트렌드는 없으며 C(test/ 루트)와 D(하이브리드)가 양대 다수파, 본 프로젝트는 이미 D 변형이라 트렌드와도 정합. __tests__/ 패턴은 Jest 잔존 소수파라 채택하지 않음."
+          },
+          {
+            "id": 3,
+            "title": "I3: Go sidecar 테스트 정책 결정",
+            "status": "decided",
+            "decision": "G1 — Go sidecar는 현행 유지. *_test.go를 source와 같은 디렉터리·같은 패키지에 두는 Go 표준 관용을 그대로 따른다. 별도 tests/ 디렉터리로 이동하지 않는다. 근거: (a) Go 도구(go test/build, gopls, coverage)가 이 배치를 언어 규약 수준으로 가정, (b) 표준 라이브러리·Kubernetes·etcd·Docker·gRPC-Go 등 메이저 Go 프로젝트 전부 같은 패턴, (c) Go 컴파일러는 _test.go를 production 빌드에서 기본 제외하므로 TS의 빌드 위생 명분이 적용되지 않음, (d) _test.go suffix 자체가 Go에서는 분리 마커 역할. 외부 시점 검증이 필요해지면 같은 디렉터리에 package <name>_test 파일을 추가하는 방식만 허용."
+          },
+          {
+            "id": 4,
+            "title": "I4: 마이그레이션 절차와 도구체인 영향",
+            "status": "decided",
+            "decision": "M1(단일 PR/커밋) + N2(dist 가드 미추가). 6개 항목(tsconfig exclude 3개, 빈 폴더 삭제, conventions.md 명문화, 검증)을 한 PR로 묶어 변경. 분리 비용이 변경 비용보다 크고 plan에서 정책 합의가 이미 끝났음. dist 누설 가드는 electron-vite의 entry-point 기반 빌드 특성상 현재 누설 위험이 0이라 미추가 — 향후 빌드 도구 변경 시점에 재평가. 검증 게이트: shared/app typecheck, bun test ./src 트리, test:integration, go test ./..., lint:renderer 모두 통과 + phase-a/ime-checklist 디렉터리 부재 확인."
+          },
+          {
+            "id": 5,
+            "title": "I5: packages/app/test/ 하위의 비-테스트 폴더(phase-a, ime-checklist) 정리",
+            "status": "decided",
+            "decision": "D1 — packages/app/test/phase-a와 packages/app/test/ime-checklist 디렉터리 트리를 전부 삭제한다. 근거: (a) 두 폴더 모두 빈 셸로 파일 0개, (b) 회고 내용은 .nexus/memory/empirical-phase-a-retrospective.md, empirical-m3-handover-retrospective.md, empirical-m3plus1-retrospective.md에 이미 일급 자료로 보존됨, (c) 코드·스크립트·CI·docs 어디에서도 참조되지 않음(grep 검증 완료), (d) 향후 evidence 보관이 필요해지면 .nexus/state/ 또는 .nexus/memory/라는 더 적절한 경로가 존재. 부수 효과: test/의 의미가 \"실제 실행되는 테스트 카테고리(integration/system/packaging)\"로 정의 명확화."
+          }
+        ],
+        "research_summary": "현황 조사 완료. packages/shared(5개)는 전부 src/** 옆 인라인 *.test.ts. packages/app은 하이브리드 — src/** 옆 인라인 unit 약 65개 + 이미 test/integration·test/system·test/packaging로 분리된 약 7개가 공존. sidecar는 5개의 *_test.go가 같은 Go 패키지 안에 인라인(Go 표준 관용). 러너는 bun test(./packages/shared/src ./packages/app/src ./packages/app/scripts/packaging ./packages/app/test)와 go test ./.... .nexus/memory와 history.json에 테스트 배치 관련 사전 결정 없음. 사용자 단일 명제(분리)와 Go 관용 사이 충돌이 있어 I3에서 Lead pushback 예정.",
+        "created_at": "2026-04-28T00:55:55.526Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "TypeScript tsconfig에 테스트 파일 exclude 추가",
+          "status": "completed",
+          "context": "현재 packages/app/tsconfig.web.json과 tsconfig.node.json의 include는 `src/**/*.ts(x)`로 광범위해 테스트 파일이 typecheck 입력에 포함됨. packages/shared/tsconfig.json도 동일 가정. electron-vite의 빌드 산출물(out/)에는 entry-point 기반 빌드 덕에 테스트 누설은 이미 없으나, typecheck 단계의 위생만 미흡. 본 작업으로 typecheck 입력에서 테스트를 분리.",
+          "acceptance": "(1) packages/app/tsconfig.web.json에 `**/*.test.ts`와 `**/*.test.tsx`가 exclude에 포함. (2) packages/app/tsconfig.node.json에 `**/*.test.ts`가 exclude에 포함. (3) packages/shared/tsconfig.json에 `**/*.test.ts`가 exclude에 포함. (4) `bun run --cwd packages/shared typecheck`와 `bun run --cwd packages/app typecheck` 모두 exit 0. (5) `bun test ./packages/shared/src ./packages/app/src` 발견 테스트 수가 변경 전과 동일.",
+          "approach": "세 개 tsconfig 파일에 exclude 패턴을 추가한다. packages/app/tsconfig.web.json: exclude 배열에 `**/*.test.ts`와 `**/*.test.tsx` 추가(jsx가 있는 renderer 영역). packages/app/tsconfig.node.json: `**/*.test.ts` 추가(main/preload/scripts는 tsx 없음). packages/shared/tsconfig.json: 파일을 읽어 exclude가 있으면 패턴 추가, 없으면 exclude 배열 신설하고 `**/*.test.ts` 등록. 기존 include는 손대지 않는다 — exclude가 include보다 우선 적용됨.",
+          "risk": "tsconfig composite/references 모드에서 referenced project의 exclude가 부모 프로젝트 typecheck에 영향을 줄 수 있음. packages/app은 tsconfig.node.json과 tsconfig.web.json을 references로 묶고 있으니 두 자식 모두에 일관되게 적용 필요. 또 일부 테스트 파일이 source의 internal type을 import하는 경우 typecheck 단계에서 발견되던 type 오류가 사라져 회귀 가능 — 단 발견은 bun test 실행 시 ts-transpile 단계에서 여전히 됨.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd1ac-9209-7f22-954e-223baab81251",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T01:18:41.662Z"
+        },
+        {
+          "id": 2,
+          "title": "빈 evidence 디렉터리 삭제 (test/phase-a, test/ime-checklist)",
+          "status": "completed",
+          "context": "packages/app/test/phase-a와 packages/app/test/ime-checklist는 모두 파일 0개의 빈 디렉터리 트리. 회고는 .nexus/memory/empirical-phase-a-retrospective.md 등에 이미 일급 자료로 보존됨. grep 검증 결과 코드·스크립트·CI·docs 어디에서도 참조되지 않음.",
+          "acceptance": "(1) `packages/app/test/phase-a` 디렉터리 부재. (2) `packages/app/test/ime-checklist` 디렉터리 부재. (3) `packages/app/test/` 하위에 integration, system, packaging 세 디렉터리만 남음. (4) git status에 삭제가 반영되어 있고, 빌드·테스트·lint에 영향 없음.",
+          "approach": "repo 루트에서 `rm -rf packages/app/test/phase-a packages/app/test/ime-checklist` 실행 후 `git status`로 삭제 반영 확인.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-04-28T01:18:46.501Z"
+        },
+        {
+          "id": 3,
+          "title": "conventions.md에 테스트 배치 정책 명문화",
+          "status": "completed",
+          "context": ".nexus/context/conventions.md에는 현재 \"미정\" 섹션만 있고 테스트 관련 정책 없음. plan #28에서 TS와 Go 양쪽 언어 정책이 결정되었으니 이를 conventions에 추가해야 향후 기여자가 신규 테스트 작성 시 위치를 일관되게 정할 수 있다.",
+          "acceptance": "(1) .nexus/context/conventions.md에 \"## 테스트 배치\" 섹션이 존재. (2) TypeScript 서브섹션에 co-location, __tests__/ 미사용, *.test.ts(x) 통일, test/ 하위 카테고리 정책이 모두 포함. (3) Go 서브섹션에 *_test.go 옆 배치, package <name>_test 허용, tests/ 분리 금지가 포함. (4) 기존 \"미정\" 섹션과 위 신규 섹션이 어법·톤 면에서 일관됨. (5) 마크다운 렌더링 시 깨짐 없음.",
+          "approach": ".nexus/context/conventions.md에 \"## 테스트 배치\" 섹션을 추가한다. 하위에 두 서브섹션. (1) TypeScript: unit 테스트는 source와 같은 디렉터리에 *.test.ts(x)로 둔다. __tests__/ 폴더는 사용하지 않는다. *.spec.ts는 사용하지 않고 *.test.ts(x)로 통일. integration/system/packaging은 packages/<pkg>/test/<category>/에 별도 분리. tsconfig exclude로 typecheck 입력에서는 제외(별도 task로 처리됨). (2) Go: 테스트 파일은 *_test.go로 source와 같은 디렉터리·같은 패키지에 둔다. 외부 시점 검증이 필요한 경우 같은 디렉터리에 package <name>_test 선언으로 추가. tests/ 같은 별도 디렉터리로 분리하지 않는다 — Go 도구 가정 위반. 결정 근거 한두 줄 인용(plan #28).",
+          "risk": "규약 문서가 실제 코드와 상이하게 정의되면 오히려 혼선. 본 작업과 task 1(tsconfig exclude)이 같은 PR에 들어가야 정합. 또 향후 vitest나 jest 도입 시 이 정책 갱신 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd1ac-b529-7093-a3c6-8162167833fa",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T01:18:58.367Z"
+        },
+        {
+          "id": 4,
+          "title": "conventions.md 테스트 배치 섹션 검수",
+          "status": "completed",
+          "context": "Task 3에서 작성한 conventions.md의 \"테스트 배치\" 섹션이 plan #28의 결정과 일치하는지, 기존 conventions.md의 어법·톤과 일관되는지 검수한다. writer 산출물의 verifiable 기준이 있어 auto-pair reviewer 적용.",
+          "acceptance": "(1) Task 3 acceptance 5개 항목 모두 충족 확인. (2) plan #28 결정 텍스트와 정책 문구 일치. (3) 다른 context 파일과 톤·어법 일관. (4) korean-quality 위반 없음. (5) 위 4개 항목의 검증 결과를 한국어 보고로 제출.",
+          "approach": ".nexus/context/conventions.md를 읽고 task 3 acceptance의 5개 항목을 모두 검증한다. 추가로 (a) plan #28의 I1·I2·I3 결정 텍스트와 정책 문구가 모순되지 않는지, (b) 다른 context 파일(architecture.md, stack.md)이 사용하는 어조와 일관되는지, (c) Korean quality(.nexus/context/korean-quality.md)에 어긋나는 표현이 없는지를 확인한다. 보완이 필요하면 구체적 수정안을 제시.",
+          "plan_issue": 1,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd1ad-bfe6-7771-8aef-658a8c6cb4f5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T01:19:08.720Z"
+        },
+        {
+          "id": 5,
+          "title": "변경 검증 게이트 (typecheck/test/lint 일괄 실행)",
+          "status": "completed",
+          "context": "tsconfig 변경(task 1) + 빈 폴더 삭제(task 2) + conventions 갱신(task 3)이 모두 적용된 상태에서 회귀 없음을 확인한다. M1 단일 PR 전제이므로 검증도 한 번에 묶어 수행.",
+          "acceptance": "(1)~(8) 모든 검증 통과. (2) bun test 발견 수가 변경 전과 동일하다는 증거 제시. (3) 회귀가 발견되면 원인 task로 회송하고 결과 기록.",
+          "approach": "repo 루트에서 다음을 순서대로 실행하고 결과를 기록한다. (1) `bun run --cwd packages/shared typecheck` exit 0 확인. (2) `bun run --cwd packages/app typecheck` exit 0 확인 + 가능하면 처리 시간을 변경 전과 비교. (3) `bun test ./packages/shared/src ./packages/app/src` 실행 후 발견 테스트 수와 통과 수 기록 — 변경 전과 비교해 발견 수 동일 + 모두 통과. (4) `bun run --cwd packages/app test:integration` exit 0. (5) `cd sidecar && go test ./...` exit 0. (6) `bun run --cwd packages/app lint:renderer` exit 0. (7) `! test -d packages/app/test/phase-a && ! test -d packages/app/test/ime-checklist` true. (8) `git status`로 변경 범위가 task 1·2·3 산출물에만 한정되는지 확인.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd1b0-4fe9-7ee3-9844-038a99d12854",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T01:19:17.917Z"
+        }
+      ]
     }
   ]
 }
