@@ -72,7 +72,7 @@ console.error = (...args: unknown[]) => {
 };
 console.warn = (...args: unknown[]) => {
   const message = args.map(stringifyErrorPart).join(" ");
-  if (/Maximum update depth exceeded|<Presence>|Presence|getSnapshot should be cached/i.test(message)) {
+  if (/Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message)) {
     capturedErrors.push(message);
   }
   originalConsoleWarn(...args);
@@ -188,7 +188,7 @@ async function runSmoke(): Promise<void> {
     .map((element) => element.dataset.fileTreePath ?? "")
     .filter(Boolean);
   const fatalErrors = capturedErrors.filter((message) =>
-    /Maximum update depth exceeded|<Presence>|Presence|getSnapshot should be cached/i.test(message),
+    /Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message),
   );
 
   publishResult({

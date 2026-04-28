@@ -325,12 +325,13 @@ describe("FileTreeContextMenu", () => {
     expect(calls).toEqual(["cancel", "resolve:keep-both", "resolve:replace"]);
   });
 
-  test("keeps ARIA menu and keyboard navigation delegated to shadcn/Radix primitives", () => {
+  test("keeps ARIA menu structure while avoiding Radix Popper anchors", () => {
     const contextMenuSource = readFileSync(new URL("./ui/context-menu.tsx", import.meta.url), "utf8");
     const fileMenuSource = readFileSync(new URL("./file-tree-context-menu.tsx", import.meta.url), "utf8");
 
-    expect(contextMenuSource).toContain("ContextMenuPrimitive.Content");
-    expect(contextMenuSource).toContain("ContextMenuPrimitive.Item");
+    expect(contextMenuSource).not.toContain("ContextMenuPrimitive");
+    expect(contextMenuSource).toContain('role="menu"');
+    expect(contextMenuSource).toContain('role="menuitem"');
     expect(contextMenuSource).toContain('data-slot="context-menu-content"');
     expect(contextMenuSource).toContain('data-slot="context-menu-item"');
     expect(fileMenuSource).toContain("<ContextMenuContent");

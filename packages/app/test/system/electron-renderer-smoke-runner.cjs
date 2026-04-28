@@ -39,7 +39,7 @@ function finish(exitCode, payload) {
 function suspiciousMessagesFromLogs() {
   return logs
     .map((entry) => entry.message)
-    .filter((message) => /Maximum update depth exceeded|<Presence>|Presence|getSnapshot should be cached/i.test(message));
+    .filter((message) => /Maximum update depth exceeded|<Presence>|Presence|PopperAnchor|getSnapshot should be cached/i.test(message));
 }
 
 async function waitForRendererResult(window) {

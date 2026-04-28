@@ -10,7 +10,7 @@ import {
 } from "./context-menu";
 
 describe("ContextMenu", () => {
-  test("does not mount closed menu content to avoid Radix Presence layout updates", () => {
+  test("does not mount closed menu content or Radix Popper anchors", () => {
     const closedMarkup = renderToStaticMarkup(
       <ContextMenu>
         <ContextMenuTrigger>Target</ContextMenuTrigger>
@@ -22,7 +22,8 @@ describe("ContextMenu", () => {
     const source = readFileSync(new URL("./context-menu.tsx", import.meta.url), "utf8");
 
     expect(closedMarkup).not.toContain('data-slot="context-menu-content"');
-    expect(source).toContain("if (!open && props.forceMount !== true)");
-    expect(source).toContain("ContextMenuPrimitive.Content");
+    expect(source).toContain("if (!context.open || typeof document === \"undefined\")");
+    expect(source).toContain("createPortal");
+    expect(source).not.toContain("ContextMenuPrimitive");
   });
 });
