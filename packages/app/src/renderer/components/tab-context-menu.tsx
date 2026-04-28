@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Copy, ExternalLink, PanelRight, X } from "lucide-react";
 
-import type { EditorPaneId, EditorTab, EditorTabId } from "../stores/editor-store";
+import type { EditorPaneId, EditorTab, EditorTabId } from "../services/editor-model-service";
 import {
   ContextMenu,
   ContextMenuContent,

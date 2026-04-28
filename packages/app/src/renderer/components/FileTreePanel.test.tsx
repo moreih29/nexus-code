@@ -5,7 +5,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceFileKind } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTreeSelectionMovement } from "../stores/editor-store";
+import type { EditorTreeSelectionMovement } from "../services/editor-model-service";
 import { fileTreeMultiSelectStore } from "../stores/file-tree-multi-select-store";
 import {
   FILE_TREE_INDENT,
@@ -28,6 +28,7 @@ import {
   validateFileTreeDrop,
   writeFileTreeDragDataTransfer,
 } from "./file-tree-dnd/drag-and-drop";
+import { TooltipContent } from "./ui/tooltip";
 import { workspaceTabId } from "./WorkspaceStrip";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
@@ -87,7 +88,7 @@ const baseProps: FileTreePanelProps = {
 };
 
 describe("FileTreePanel", () => {
-  test("renders toolbar actions without a permanent create path input", () => {
+  test("renders inline icon toolbar actions without a permanent create path input", () => {
     let newFileCount = 0;
     let newFolderCount = 0;
     let refreshCount = 0;
@@ -117,19 +118,22 @@ describe("FileTreePanel", () => {
     const panel = findElementByPredicate(tree, (element) => element.props?.["data-component"] === "file-tree-panel");
     expect(panel?.props.role).toBe("tabpanel");
     expect(panel?.props["aria-labelledby"]).toBe(workspaceTabId(workspaceId));
-    expect(findText(tree, "New File")).toBe(true);
-    expect(findText(tree, "New Folder")).toBe(true);
-    expect(findText(tree, "Refresh")).toBe(true);
-    expect(findText(tree, "Collapse All")).toBe(true);
-
-    for (const action of [
-      "file-tree-new-file",
-      "file-tree-new-folder",
-      "file-tree-refresh",
-      "file-tree-collapse-all",
-    ]) {
-      const button = findElementByPredicate(tree, (element) => element.props?.["data-action"] === action);
+    for (const [action, label] of [
+      ["file-tree-new-file", "New File"],
+      ["file-tree-new-folder", "New Folder"],
+      ["file-tree-refresh", "Refresh"],
+      ["file-tree-collapse-all", "Collapse All"],
+    ] as const) {
+      const button = findElementByPredicate(
+        tree,
+        (element) => element.props?.["data-action"] === action && element.props?.["aria-label"] === label,
+      );
       expect(button).toBeDefined();
+      expect(button?.props["aria-label"]).toBe(label);
+      expect(button?.props.size).toBe("icon-xs");
+      expect(String(button?.props.className)).toContain("size-7");
+      expect(textContent(button?.props.children)).not.toContain(label);
+      expect(findElementByPredicate(tree, (element) => element.type === TooltipContent && element.props?.children === label)).toBeDefined();
       button?.props.onClick();
     }
 
@@ -139,6 +143,10 @@ describe("FileTreePanel", () => {
     expect(collapseCount).toBe(1);
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "file-tree-create-form")).toBeUndefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["aria-label"] === "New file or folder path")).toBeUndefined();
+
+    const source = readFileSync(new URL("./FileTreePanel.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("grid grid-cols-2");
+    expect(source).toContain("ChevronsDownUp");
   });
 
   test("renders a virtualized ARIA tree with VS Code row metrics, guides, badges, and FileIcon", () => {
@@ -741,7 +749,14 @@ function shouldExpandFunctionElement(element: ReactElement): element is ReactEle
     return false;
   }
 
-  return !["FileTreeArboristViewport", "FileIcon"].includes(element.type.name);
+  return ![
+    "FileTreeArboristViewport",
+    "FileIcon",
+    "Tooltip",
+    "TooltipContent",
+    "TooltipProvider",
+    "TooltipTrigger",
+  ].includes(element.type.name);
 }
 
 function countOccurrences(value: string, needle: string): number {

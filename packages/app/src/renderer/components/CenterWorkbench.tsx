@@ -1,113 +1,113 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEventHandler, type PointerEventHandler, type ReactNode, type RefObject } from "react";
-import { Code2, Maximize2, Minimize2, SquareTerminal, type LucideIcon } from "lucide-react";
 
-import type { CenterWorkbenchMode, CenterWorkbenchPane } from "../stores/editor-store";
-import { Button } from "./ui/button";
+import type { BottomPanelPosition } from "../services/bottom-panel-service";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 import { cn } from "@/lib/utils";
 
+export const CENTER_BOTTOM_PANEL_SIZE_STORAGE_KEY = "nx.center.bottomPanel.size";
+export const DEFAULT_CENTER_BOTTOM_PANEL_SIZE = 320;
+export const CENTER_BOTTOM_PANEL_MIN_SIZE = 120;
+export const CENTER_BOTTOM_PANEL_MAX_SIZE = 720;
+const CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX = 16;
+
 export const CENTER_SPLIT_RATIO_STORAGE_KEY = "nx.center.split.ratio";
 export const DEFAULT_CENTER_EDITOR_SPLIT_RATIO = 0.6;
-export const CENTER_TERMINAL_MIN_HEIGHT = 120;
-const CENTER_SPLIT_KEYBOARD_STEP_PX = 16;
-const MIN_CENTER_EDITOR_SPLIT_RATIO = 0.05;
-const MAX_CENTER_EDITOR_SPLIT_RATIO = 0.95;
+export const CENTER_TERMINAL_MIN_HEIGHT = CENTER_BOTTOM_PANEL_MIN_SIZE;
+const CENTER_PANE_FOCUS_VISIBLE_OUTLINE_CLASS =
+  "outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-ring has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-offset-[-1px] has-[:focus-visible]:outline-ring";
+
+export type CenterWorkbenchActiveArea = "editor" | "bottom-panel";
 
 export interface CenterWorkbenchProps {
-  mode: CenterWorkbenchMode;
-  onModeChange(mode: CenterWorkbenchMode): void;
-  activePane: CenterWorkbenchPane;
-  onActivePaneChange(pane: CenterWorkbenchPane): void;
-  editorPane: ReactNode;
-  terminalPane: ReactNode;
+  editorArea: ReactNode;
+  bottomPanel: ReactNode;
+  bottomPanelPosition: BottomPanelPosition;
+  bottomPanelExpanded: boolean;
+  bottomPanelSize: number;
+  editorMaximized?: boolean;
+  activeArea?: CenterWorkbenchActiveArea;
+  onActiveAreaChange?(area: CenterWorkbenchActiveArea): void;
+  onBottomPanelSizeChange?(size: number): void;
 }
 
 export interface CenterWorkbenchViewProps extends CenterWorkbenchProps {
-  splitRatio?: number;
-  splitDragging?: boolean;
-  onSplitResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
-  onSplitResizePointerDown?: PointerEventHandler<HTMLDivElement>;
+  bottomPanelDragging?: boolean;
+  onBottomPanelResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
+  onBottomPanelResizePointerDown?: PointerEventHandler<HTMLDivElement>;
 }
 
-interface SplitDragState {
+interface BottomPanelDragState {
   pointerId: number;
+  startClientX: number;
   startClientY: number;
-  startRatio: number;
-  containerHeight: number;
+  startSize: number;
+  position: BottomPanelPosition;
 }
 
 export function CenterWorkbench(props: CenterWorkbenchProps): JSX.Element {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const splitDragRef = useRef<SplitDragState | null>(null);
-  const [splitRatio, setSplitRatio] = useState(readStoredCenterSplitRatio);
-  const [splitDragging, setSplitDragging] = useState(false);
+  const dragStateRef = useRef<BottomPanelDragState | null>(null);
+  const [bottomPanelDragging, setBottomPanelDragging] = useState(false);
 
-  const applySplitRatio = useCallback((nextRatio: number, shouldPersist: boolean) => {
-    const clampedRatio = clampCenterSplitRatio(nextRatio, containerRef.current?.clientHeight ?? null);
-    setSplitRatio(clampedRatio);
+  const applyBottomPanelSize = useCallback((size: number, shouldPersist: boolean) => {
+    const normalizedSize = clampCenterBottomPanelSize(size);
+    props.onBottomPanelSizeChange?.(normalizedSize);
 
     if (shouldPersist) {
-      persistCenterSplitRatio(clampedRatio);
+      persistCenterBottomPanelSize(normalizedSize);
     }
-  }, []);
+  }, [props]);
 
-  const handleSplitResizeKeyDown = useCallback<KeyboardEventHandler<HTMLDivElement>>((event) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
-      return;
-    }
-
-    event.preventDefault();
-    const containerHeight = containerRef.current?.clientHeight ?? 0;
-    const ratioDelta = containerHeight > 0 ? CENTER_SPLIT_KEYBOARD_STEP_PX / containerHeight : 0.02;
-    applySplitRatio(
-      splitRatio + (event.key === "ArrowDown" ? ratioDelta : -ratioDelta),
-      true,
+  const handleBottomPanelResizeKeyDown = useCallback<KeyboardEventHandler<HTMLDivElement>>((event) => {
+    const nextSize = nextCenterBottomPanelSizeFromKeyboard(
+      props.bottomPanelSize,
+      props.bottomPanelPosition,
+      event.key,
     );
-  }, [applySplitRatio, splitRatio]);
-
-  const handleSplitResizePointerDown = useCallback<PointerEventHandler<HTMLDivElement>>((event) => {
-    const containerHeight = containerRef.current?.clientHeight ?? 0;
-    if (containerHeight <= 0) {
+    if (nextSize === null) {
       return;
     }
 
     event.preventDefault();
-    splitDragRef.current = {
+    applyBottomPanelSize(nextSize, true);
+  }, [applyBottomPanelSize, props.bottomPanelPosition, props.bottomPanelSize]);
+
+  const handleBottomPanelResizePointerDown = useCallback<PointerEventHandler<HTMLDivElement>>((event) => {
+    event.preventDefault();
+    dragStateRef.current = {
       pointerId: event.pointerId,
+      startClientX: event.clientX,
       startClientY: event.clientY,
-      startRatio: splitRatio,
-      containerHeight,
+      startSize: props.bottomPanelSize,
+      position: props.bottomPanelPosition,
     };
-    setSplitDragging(true);
-    startDocumentCenterSplitResizeDrag();
-  }, [splitRatio]);
+    setBottomPanelDragging(true);
+    startDocumentCenterBottomPanelResizeDrag(props.bottomPanelPosition);
+  }, [props.bottomPanelPosition, props.bottomPanelSize]);
 
   useEffect(() => {
-    if (!splitDragging) {
+    if (!bottomPanelDragging) {
       return;
     }
 
     const handlePointerMove = (event: PointerEvent) => {
-      const dragState = splitDragRef.current;
-      if (!dragState || event.pointerId !== dragState.pointerId) {
+      const dragState = dragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
         return;
       }
 
-      const nextRatio = dragState.startRatio + ((event.clientY - dragState.startClientY) / dragState.containerHeight);
-      applySplitRatio(nextRatio, false);
+      applyBottomPanelSize(bottomPanelSizeFromPointerDrag(dragState, event), false);
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      const dragState = splitDragRef.current;
-      if (!dragState || event.pointerId !== dragState.pointerId) {
+      const dragState = dragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
         return;
       }
 
-      const nextRatio = dragState.startRatio + ((event.clientY - dragState.startClientY) / dragState.containerHeight);
-      applySplitRatio(nextRatio, true);
-      splitDragRef.current = null;
-      setSplitDragging(false);
-      stopDocumentCenterSplitResizeDrag();
+      applyBottomPanelSize(bottomPanelSizeFromPointerDrag(dragState, event), true);
+      dragStateRef.current = null;
+      setBottomPanelDragging(false);
+      stopDocumentCenterBottomPanelResizeDrag();
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -118,216 +118,252 @@ export function CenterWorkbench(props: CenterWorkbenchProps): JSX.Element {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
-      stopDocumentCenterSplitResizeDrag();
+      stopDocumentCenterBottomPanelResizeDrag();
     };
-  }, [applySplitRatio, splitDragging]);
+  }, [applyBottomPanelSize, bottomPanelDragging]);
 
   return (
     <CenterWorkbenchView
       {...props}
-      splitRatio={splitRatio}
-      splitDragging={splitDragging}
-      onSplitResizeKeyDown={handleSplitResizeKeyDown}
-      onSplitResizePointerDown={handleSplitResizePointerDown}
-      containerRef={containerRef}
+      bottomPanelDragging={bottomPanelDragging}
+      onBottomPanelResizeKeyDown={handleBottomPanelResizeKeyDown}
+      onBottomPanelResizePointerDown={handleBottomPanelResizePointerDown}
     />
   );
 }
 
 export function CenterWorkbenchView({
-  mode,
-  onModeChange,
-  activePane,
-  onActivePaneChange,
-  editorPane,
-  terminalPane,
-  splitRatio = DEFAULT_CENTER_EDITOR_SPLIT_RATIO,
-  splitDragging = false,
-  onSplitResizeKeyDown = noopKeyboardHandler,
-  onSplitResizePointerDown = noopPointerHandler,
+  editorArea,
+  bottomPanel,
+  bottomPanelPosition,
+  bottomPanelExpanded,
+  bottomPanelSize,
+  editorMaximized = false,
+  activeArea = "editor",
+  onActiveAreaChange,
+  bottomPanelDragging = false,
+  onBottomPanelResizeKeyDown = noopKeyboardHandler,
+  onBottomPanelResizePointerDown = noopPointerHandler,
   containerRef,
 }: CenterWorkbenchViewProps & { containerRef?: RefObject<HTMLDivElement | null> }): JSX.Element {
-  const clampedSplitRatio = clampCenterSplitRatio(splitRatio, null);
-  const editorVisible = mode !== "terminal-max";
-  const terminalVisible = mode !== "editor-max";
-  const effectiveActivePane = resolveActivePane(mode, activePane);
+  const panelVisible = bottomPanelExpanded && !editorMaximized;
+  const size = clampCenterBottomPanelSize(bottomPanelSize);
+  const axis = bottomPanelAxis(bottomPanelPosition);
+  const resizeHandle = panelVisible ? (
+    <PanelResizeHandle
+      key="bottom-panel-resize"
+      orientation={axis === "block" ? "horizontal" : "vertical"}
+      dragging={bottomPanelDragging}
+      aria-valuemin={CENTER_BOTTOM_PANEL_MIN_SIZE}
+      aria-valuemax={CENTER_BOTTOM_PANEL_MAX_SIZE}
+      aria-valuenow={size}
+      aria-label="Resize bottom panel"
+      onKeyDown={onBottomPanelResizeKeyDown}
+      onPointerDown={onBottomPanelResizePointerDown}
+    />
+  ) : null;
+  const editorNode = (
+    <section
+      key="editor"
+      data-center-area="editor"
+      data-active={activeArea === "editor" ? "true" : "false"}
+      data-editor-maximized={editorMaximized ? "true" : "false"}
+      className={cn(
+        "min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
+        CENTER_PANE_FOCUS_VISIBLE_OUTLINE_CLASS,
+      )}
+      onFocusCapture={() => onActiveAreaChange?.("editor")}
+      onPointerDown={() => onActiveAreaChange?.("editor")}
+    >
+      {editorArea}
+    </section>
+  );
+  const bottomPanelNode = (
+    <section
+      key="bottom-panel"
+      data-center-area="bottom-panel"
+      data-active={activeArea === "bottom-panel" ? "true" : "false"}
+      data-visible={panelVisible ? "true" : "false"}
+      data-bottom-panel-position={bottomPanelPosition}
+      data-bottom-panel-size={size}
+      className={cn(
+        "min-h-0 min-w-0 overflow-hidden border-border bg-background",
+        CENTER_PANE_FOCUS_VISIBLE_OUTLINE_CLASS,
+        bottomPanelPosition === "bottom" && "border-t",
+        bottomPanelPosition === "top" && "border-b",
+        bottomPanelPosition === "left" && "border-r",
+        bottomPanelPosition === "right" && "border-l",
+        !panelVisible && "pointer-events-none",
+      )}
+      style={bottomPanelAreaStyle(bottomPanelPosition, size, panelVisible)}
+      onFocusCapture={() => onActiveAreaChange?.("bottom-panel")}
+      onPointerDown={() => onActiveAreaChange?.("bottom-panel")}
+    >
+      {bottomPanel}
+    </section>
+  );
+  const children = orderCenterWorkbenchChildren(bottomPanelPosition, editorNode, bottomPanelNode, resizeHandle);
 
   return (
-    <main data-component="center-workbench" className="flex h-full min-h-0 flex-col border-r border-border bg-background/80 p-0">
-      <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
-        <CenterPane
-          pane="editor"
-          title="Editor"
-          icon={Code2}
-          mode={mode}
-          active={effectiveActivePane === "editor"}
-          visible={editorVisible}
-          splitRatio={clampedSplitRatio}
-          onModeChange={onModeChange}
-          onActivePaneChange={onActivePaneChange}
-        >
-          {editorPane}
-        </CenterPane>
-
-        {mode === "split" ? (
-          <PanelResizeHandle
-            orientation="horizontal"
-            dragging={splitDragging}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(clampedSplitRatio * 100)}
-            aria-label="Resize center split"
-            onKeyDown={onSplitResizeKeyDown}
-            onPointerDown={onSplitResizePointerDown}
-          />
-        ) : null}
-
-        <CenterPane
-          pane="terminal"
-          title="Terminal"
-          icon={SquareTerminal}
-          mode={mode}
-          active={effectiveActivePane === "terminal"}
-          visible={terminalVisible}
-          splitRatio={clampedSplitRatio}
-          onModeChange={onModeChange}
-          onActivePaneChange={onActivePaneChange}
-        >
-          {terminalPane}
-        </CenterPane>
-      </div>
+    <main
+      ref={containerRef}
+      data-component="center-workbench"
+      data-center-layout="editor-grid-bottom-panel"
+      data-bottom-panel-position={bottomPanelPosition}
+      data-bottom-panel-expanded={bottomPanelExpanded ? "true" : "false"}
+      data-bottom-panel-visible={panelVisible ? "true" : "false"}
+      data-bottom-panel-resize-axis={axis}
+      className={cn(
+        "flex h-full min-h-0 min-w-0 border-r border-border bg-background/80 p-0",
+        axis === "block" ? "flex-col" : "flex-row",
+      )}
+    >
+      {children}
     </main>
   );
 }
 
-function resolveActivePane(mode: CenterWorkbenchMode, activePane: CenterWorkbenchPane): CenterWorkbenchPane {
-  if (mode === "editor-max") {
-    return "editor";
+function orderCenterWorkbenchChildren(
+  position: BottomPanelPosition,
+  editorNode: JSX.Element,
+  bottomPanelNode: JSX.Element,
+  resizeHandle: JSX.Element | null,
+): JSX.Element[] {
+  if (position === "top" || position === "left") {
+    return [bottomPanelNode, ...(resizeHandle ? [resizeHandle] : []), editorNode];
   }
-  if (mode === "terminal-max") {
-    return "terminal";
-  }
-  return activePane;
+
+  return [editorNode, ...(resizeHandle ? [resizeHandle] : []), bottomPanelNode];
 }
 
-function CenterPane({
-  pane,
-  title,
-  icon: Icon,
-  mode,
-  active,
-  visible,
-  splitRatio,
-  onModeChange,
-  onActivePaneChange,
-  children,
-}: {
-  pane: CenterWorkbenchPane;
-  title: string;
-  icon: LucideIcon;
-  mode: CenterWorkbenchMode;
-  active: boolean;
-  visible: boolean;
-  splitRatio: number;
-  onModeChange(mode: CenterWorkbenchMode): void;
-  onActivePaneChange(pane: CenterWorkbenchPane): void;
-  children: ReactNode;
-}): JSX.Element {
-  const maximizedMode = pane === "editor" ? "editor-max" : "terminal-max";
-  const maximized = mode === maximizedMode;
-  const hiddenStyle: CSSProperties = {
-    flexBasis: 0,
+function bottomPanelAreaStyle(
+  position: BottomPanelPosition,
+  size: number,
+  visible: boolean,
+): CSSProperties {
+  if (!visible) {
+    return {
+      flexBasis: 0,
+      flexGrow: 0,
+      flexShrink: 0,
+      height: 0,
+      maxHeight: 0,
+      maxWidth: 0,
+      minHeight: 0,
+      minWidth: 0,
+      visibility: "hidden",
+      width: 0,
+    };
+  }
+
+  if (position === "top" || position === "bottom") {
+    return {
+      flexBasis: size,
+      flexGrow: 0,
+      flexShrink: 0,
+      minHeight: CENTER_BOTTOM_PANEL_MIN_SIZE,
+    };
+  }
+
+  return {
+    flexBasis: size,
     flexGrow: 0,
     flexShrink: 0,
-    height: 0,
-    maxHeight: 0,
-    minHeight: 0,
-    paddingBottom: 0,
-    paddingTop: 0,
-    visibility: "hidden",
+    minWidth: CENTER_BOTTOM_PANEL_MIN_SIZE,
   };
-  const splitStyle: CSSProperties = pane === "editor"
-    ? {
-        flexBasis: `${splitRatio * 100}%`,
-        flexGrow: 0,
-        flexShrink: 1,
-        minHeight: 0,
-      }
-    : {
-        flexBasis: `${(1 - splitRatio) * 100}%`,
-        flexGrow: 0,
-        flexShrink: 0,
-        minHeight: CENTER_TERMINAL_MIN_HEIGHT,
-      };
-  const maximizedStyle: CSSProperties = {
-    flexBasis: "100%",
-    flexGrow: 1,
-    flexShrink: 1,
-    minHeight: 0,
-  };
-  const paneStyle = !visible ? hiddenStyle : mode === "split" ? splitStyle : maximizedStyle;
+}
 
-  const handleActivate = () => {
-    onActivePaneChange(pane);
-  };
+function bottomPanelAxis(position: BottomPanelPosition): "block" | "inline" {
+  return position === "top" || position === "bottom" ? "block" : "inline";
+}
 
-  const handleToggleMaximize = () => {
-    onActivePaneChange(pane);
-    onModeChange(maximized ? "split" : maximizedMode);
-  };
+export function nextCenterBottomPanelSizeFromKeyboard(
+  size: number,
+  position: BottomPanelPosition,
+  key: string,
+): number | null {
+  const delta = bottomPanelKeyboardDelta(position, key);
+  return delta === null ? null : clampCenterBottomPanelSize(size + delta);
+}
 
-  return (
-    <section
-      data-center-pane={pane}
-      data-visible={visible ? "true" : "false"}
-      data-active={active ? "true" : "false"}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-col overflow-hidden bg-background px-3 py-2 text-foreground outline-none transition-[box-shadow]",
-        active && "ring-1 ring-inset ring-[var(--color-ring)]",
-        !visible && "pointer-events-none",
-      )}
-      style={paneStyle}
-      onFocusCapture={handleActivate}
-      onPointerDown={handleActivate}
-    >
-      <header className="flex min-h-8 shrink-0 items-center justify-between gap-2">
-        <div
-          data-center-pane-title={pane}
-          data-active={active ? "true" : "false"}
-          className={cn(
-            "flex min-w-0 items-center gap-1.5 text-xs font-medium",
-            active ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          <Icon aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={1.75} />
-          <span className="truncate">{title}</span>
-        </div>
-        <Button
-          type="button"
-          data-action="center-pane-toggle-maximize"
-          data-pane={pane}
-          aria-label={maximized ? `Restore ${title}` : `Maximize ${title}`}
-          variant="ghost"
-          size="icon-xs"
-          className="text-muted-foreground hover:text-foreground"
-          onClick={handleToggleMaximize}
-        >
-          {maximized ? (
-            <Minimize2 aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-          ) : (
-            <Maximize2 aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-          )}
-        </Button>
-      </header>
-      <div className="min-h-0 flex-1">{children}</div>
-    </section>
-  );
+function bottomPanelKeyboardDelta(position: BottomPanelPosition, key: string): number | null {
+  switch (position) {
+    case "bottom":
+      if (key === "ArrowUp") return CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      if (key === "ArrowDown") return -CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      return null;
+    case "top":
+      if (key === "ArrowDown") return CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      if (key === "ArrowUp") return -CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      return null;
+    case "left":
+      if (key === "ArrowRight") return CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      if (key === "ArrowLeft") return -CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      return null;
+    case "right":
+      if (key === "ArrowLeft") return CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      if (key === "ArrowRight") return -CENTER_BOTTOM_PANEL_KEYBOARD_STEP_PX;
+      return null;
+  }
+}
+
+function bottomPanelSizeFromPointerDrag(
+  dragState: BottomPanelDragState,
+  event: PointerEvent,
+): number {
+  switch (dragState.position) {
+    case "bottom":
+      return dragState.startSize - (event.clientY - dragState.startClientY);
+    case "top":
+      return dragState.startSize + (event.clientY - dragState.startClientY);
+    case "left":
+      return dragState.startSize + (event.clientX - dragState.startClientX);
+    case "right":
+      return dragState.startSize - (event.clientX - dragState.startClientX);
+  }
+}
+
+export function readStoredCenterBottomPanelSize(): number {
+  try {
+    const rawSize = globalThis.localStorage?.getItem(CENTER_BOTTOM_PANEL_SIZE_STORAGE_KEY) ?? null;
+    return parseCenterBottomPanelSize(rawSize);
+  } catch {
+    return DEFAULT_CENTER_BOTTOM_PANEL_SIZE;
+  }
+}
+
+export function parseCenterBottomPanelSize(rawSize: string | null): number {
+  if (!rawSize) {
+    return DEFAULT_CENTER_BOTTOM_PANEL_SIZE;
+  }
+
+  const parsedSize = Number(rawSize);
+  if (!Number.isFinite(parsedSize)) {
+    return DEFAULT_CENTER_BOTTOM_PANEL_SIZE;
+  }
+
+  return clampCenterBottomPanelSize(parsedSize);
+}
+
+export function clampCenterBottomPanelSize(size: number): number {
+  if (!Number.isFinite(size)) {
+    return DEFAULT_CENTER_BOTTOM_PANEL_SIZE;
+  }
+
+  return clamp(Math.round(size), CENTER_BOTTOM_PANEL_MIN_SIZE, CENTER_BOTTOM_PANEL_MAX_SIZE);
+}
+
+export function persistCenterBottomPanelSize(size: number): void {
+  try {
+    globalThis.localStorage?.setItem(CENTER_BOTTOM_PANEL_SIZE_STORAGE_KEY, String(clampCenterBottomPanelSize(size)));
+  } catch {
+    // Runtime state still updates when storage is unavailable.
+  }
 }
 
 export function readStoredCenterSplitRatio(): number {
   try {
-    const storage = globalThis.localStorage;
-    const rawRatio = storage?.getItem(CENTER_SPLIT_RATIO_STORAGE_KEY) ?? null;
+    const rawRatio = globalThis.localStorage?.getItem(CENTER_SPLIT_RATIO_STORAGE_KEY) ?? null;
     return parseCenterSplitRatio(rawRatio);
   } catch {
     return DEFAULT_CENTER_EDITOR_SPLIT_RATIO;
@@ -352,33 +388,31 @@ export function clampCenterSplitRatio(ratio: number, containerHeight: number | n
     return DEFAULT_CENTER_EDITOR_SPLIT_RATIO;
   }
 
-  const maxRatioByTerminalHeight = containerHeight && containerHeight > 0
-    ? Math.max(MIN_CENTER_EDITOR_SPLIT_RATIO, (containerHeight - CENTER_TERMINAL_MIN_HEIGHT) / containerHeight)
-    : MAX_CENTER_EDITOR_SPLIT_RATIO;
-  return clamp(ratio, MIN_CENTER_EDITOR_SPLIT_RATIO, Math.min(MAX_CENTER_EDITOR_SPLIT_RATIO, maxRatioByTerminalHeight));
+  const maxRatioByBottomPanelSize = containerHeight && containerHeight > 0
+    ? Math.max(0.05, (containerHeight - CENTER_BOTTOM_PANEL_MIN_SIZE) / containerHeight)
+    : 0.95;
+  return clamp(ratio, 0.05, Math.min(0.95, maxRatioByBottomPanelSize));
 }
 
-function persistCenterSplitRatio(ratio: number): void {
+export function persistCenterSplitRatio(ratio: number): void {
   try {
-    globalThis.localStorage?.setItem(CENTER_SPLIT_RATIO_STORAGE_KEY, String(ratio));
+    globalThis.localStorage?.setItem(CENTER_SPLIT_RATIO_STORAGE_KEY, String(clampCenterSplitRatio(ratio, null)));
   } catch {
-    // Split layout remains usable for the current session when storage is unavailable.
+    // Runtime state still updates when storage is unavailable.
   }
 }
 
-function startDocumentCenterSplitResizeDrag(): void {
-  document.documentElement.dataset.resizingPanel = "centerSplit";
-  document.body.style.cursor = "row-resize";
+function startDocumentCenterBottomPanelResizeDrag(position: BottomPanelPosition): void {
+  document.documentElement.dataset.resizingPanel = "bottomPanel";
+  document.documentElement.dataset.bottomPanelPosition = position;
+  document.body.style.cursor = bottomPanelAxis(position) === "block" ? "row-resize" : "col-resize";
   document.body.style.userSelect = "none";
 }
 
-function stopDocumentCenterSplitResizeDrag(): void {
-  if (document.documentElement.dataset.resizingPanel === "centerSplit") {
-    delete document.documentElement.dataset.resizingPanel;
-  }
-  if (document.body.style.cursor === "row-resize") {
-    document.body.style.cursor = "";
-  }
+function stopDocumentCenterBottomPanelResizeDrag(): void {
+  delete document.documentElement.dataset.resizingPanel;
+  delete document.documentElement.dataset.bottomPanelPosition;
+  document.body.style.cursor = "";
   document.body.style.userSelect = "";
 }
 
@@ -386,6 +420,5 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function noopKeyboardHandler(): void {}
-
-function noopPointerHandler(): void {}
+const noopKeyboardHandler: KeyboardEventHandler<HTMLDivElement> = () => {};
+const noopPointerHandler: PointerEventHandler<HTMLDivElement> = () => {};

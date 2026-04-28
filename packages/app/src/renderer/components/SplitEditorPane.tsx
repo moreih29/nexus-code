@@ -20,7 +20,7 @@ import type {
   EditorPaneState,
   EditorStoreState,
   EditorTabId,
-} from "../stores/editor-store";
+} from "../services/editor-model-service";
 import { cn } from "@/lib/utils";
 import { EditorPane } from "./EditorPane";
 import {

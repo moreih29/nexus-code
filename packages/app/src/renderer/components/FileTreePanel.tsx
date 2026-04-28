@@ -1,5 +1,6 @@
 import {
   Check,
+  ChevronsDownUp,
   ChevronDown,
   ChevronRight,
   FilePlus,
@@ -11,6 +12,7 @@ import {
   Trash2,
   X,
   GitCompare,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -45,7 +47,7 @@ import type {
   EditorPendingExplorerDelete,
   EditorPendingExplorerEdit,
   EditorTreeSelectionMovement,
-} from "../stores/editor-store";
+} from "../services/editor-model-service";
 import type {
   FileClipboardItem,
   FileClipboardPendingCollision,
@@ -63,6 +65,12 @@ import { cn } from "@/lib/utils";
 import { FileIcon } from "./file-icon";
 import { EmptyState } from "./EmptyState";
 import { Button } from "./ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import {
   FileClipboardCollisionDialog,
   FileTreeContextMenu,
@@ -214,106 +222,127 @@ export function FileTreePanel(props: FileTreePanelProps): JSX.Element {
         onResolve={(strategy) => props.onClipboardResolveCollision?.(strategy)}
         onCancel={() => props.onClipboardCancelCollision?.()}
       />
-      <header className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <FolderOpen
-              aria-hidden="true"
-              className="size-4 shrink-0 text-muted-foreground"
-              strokeWidth={1.75}
-            />
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold text-sidebar-foreground">
-                {props.activeWorkspace?.displayName ?? "No workspace selected"}
-              </h2>
-              <p
-                className={cn(
-                  "mt-0.5 truncate text-xs text-muted-foreground",
-                  props.branchSubLine
-                    ? "font-mono normal-case tracking-normal"
-                    : "font-medium uppercase tracking-[0.14em]",
-                )}
-              >
-                {props.branchSubLine ?? "Files"}
-              </p>
-            </div>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-sidebar-border px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <FolderOpen
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground"
+            strokeWidth={1.75}
+          />
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-sidebar-foreground">
+              {props.activeWorkspace?.displayName ?? "No workspace selected"}
+            </h2>
+            <p
+              className={cn(
+                "mt-0.5 truncate text-xs text-muted-foreground",
+                props.branchSubLine
+                  ? "font-mono normal-case tracking-normal"
+                  : "font-medium uppercase tracking-[0.14em]",
+              )}
+            >
+              {props.branchSubLine ?? "Files"}
+            </p>
           </div>
-          {props.activeWorkspace ? (
-            <span className="sr-only" data-workspace-owner-path="true">
-              {props.activeWorkspace.absolutePath}
-            </span>
-          ) : null}
         </div>
-        <div className="grid grid-cols-2 gap-1">
-          <Button
-            type="button"
-            data-action="file-tree-new-file"
-            variant="ghost"
-            size="xs"
-            disabled={!workspaceId || !props.onBeginCreateFile}
-            className="justify-start"
-            onClick={() => {
-              props.onBeginCreateFile?.();
-            }}
-          >
-            <FilePlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-            New File
-          </Button>
-          <Button
-            type="button"
-            data-action="file-tree-new-folder"
-            variant="ghost"
-            size="xs"
-            disabled={!workspaceId || !props.onBeginCreateFolder}
-            className="justify-start"
-            onClick={() => {
-              props.onBeginCreateFolder?.();
-            }}
-          >
-            <FolderPlus aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-            New Folder
-          </Button>
-          <Button
-            type="button"
-            data-action="file-tree-refresh"
-            variant="ghost"
-            size="xs"
-            disabled={!workspaceId || props.fileTree.loading}
-            className="justify-start"
-            onClick={() => {
-              if (workspaceId) {
-                props.onRefresh(workspaceId);
-              }
-            }}
-          >
-            <RefreshCw
-              aria-hidden="true"
-              className={cn("size-3.5", props.fileTree.loading && "animate-spin")}
-              strokeWidth={1.75}
+        <TooltipProvider>
+          <div className="flex shrink-0 items-center gap-1" aria-label="File tree actions">
+            <FileTreeToolbarIconButton
+              data-action="file-tree-new-file"
+              label="New File"
+              icon={FilePlus}
+              disabled={!workspaceId || !props.onBeginCreateFile}
+              onClick={() => {
+                props.onBeginCreateFile?.();
+              }}
             />
-            Refresh
-          </Button>
-          <Button
-            type="button"
-            data-action="file-tree-collapse-all"
-            variant="ghost"
-            size="xs"
-            disabled={!workspaceId || !props.onCollapseAll}
-            className="justify-start"
-            onClick={() => {
-              if (workspaceId) {
-                props.onCollapseAll?.(workspaceId);
-              }
-            }}
-          >
-            <ChevronRight aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-            Collapse All
-          </Button>
-        </div>
+            <FileTreeToolbarIconButton
+              data-action="file-tree-new-folder"
+              label="New Folder"
+              icon={FolderPlus}
+              disabled={!workspaceId || !props.onBeginCreateFolder}
+              onClick={() => {
+                props.onBeginCreateFolder?.();
+              }}
+            />
+            <FileTreeToolbarIconButton
+              data-action="file-tree-refresh"
+              label="Refresh"
+              icon={RefreshCw}
+              disabled={!workspaceId || props.fileTree.loading}
+              iconClassName={props.fileTree.loading ? "animate-spin" : undefined}
+              onClick={() => {
+                if (workspaceId) {
+                  props.onRefresh(workspaceId);
+                }
+              }}
+            />
+            <FileTreeToolbarIconButton
+              data-action="file-tree-collapse-all"
+              label="Collapse All"
+              icon={ChevronsDownUp}
+              disabled={!workspaceId || !props.onCollapseAll}
+              onClick={() => {
+                if (workspaceId) {
+                  props.onCollapseAll?.(workspaceId);
+                }
+              }}
+            />
+          </div>
+        </TooltipProvider>
+        {props.activeWorkspace ? (
+          <span className="sr-only" data-workspace-owner-path="true">
+            {props.activeWorkspace.absolutePath}
+          </span>
+        ) : null}
       </header>
 
       <FileTreePanelBody {...props} />
     </section>
+  );
+}
+
+interface FileTreeToolbarIconButtonProps {
+  "data-action": string;
+  label: string;
+  icon: LucideIcon;
+  disabled: boolean;
+  iconClassName?: string;
+  onClick(): void;
+}
+
+function FileTreeToolbarIconButton({
+  "data-action": dataAction,
+  label,
+  icon: Icon,
+  disabled,
+  iconClassName,
+  onClick,
+}: FileTreeToolbarIconButtonProps): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          data-action={dataAction}
+          aria-label={label}
+          variant="ghost"
+          size="icon-xs"
+          disabled={disabled}
+          className="size-7 text-muted-foreground hover:text-foreground"
+          onClick={onClick}
+        >
+          <Icon
+            aria-hidden="true"
+            className={cn("size-3.5", iconClassName)}
+            strokeWidth={1.75}
+          />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
-import { DEFAULT_EDITOR_PANE_ID, createEditorStore, type EditorTab } from "./stores/editor-store";
+import { DEFAULT_EDITOR_PANE_ID, createEditorStore, type EditorTab } from "./services/editor-model-service";
 import { keyboardRegistryStore } from "./stores/keyboard-registry";
 import { createWorkspaceStore } from "./stores/workspace-store";
 import { registerAppCommands, unifiedDiffToSideContents } from "./App";
@@ -49,6 +49,8 @@ describe("App command registration", () => {
     const closedWorkspaces: WorkspaceId[] = [];
     let sidebarToggleCount = 0;
     let centerMaximizeToggleCount = 0;
+    let bottomPanelToggleCount = 0;
+    let terminalFocusCount = 0;
     const searchPanelModes: boolean[] = [];
     let nextSearchMatchCount = 0;
     let dismissCount = 0;
@@ -71,11 +73,16 @@ describe("App command registration", () => {
       openFolder: async () => {},
       splitEditorPaneRight() {},
       setCommandPaletteOpen() {},
+      showTerminalPanel() {
+        terminalFocusCount += 1;
+      },
       toggleActiveCenterPaneMaximize() {
         centerMaximizeToggleCount += 1;
       },
-      toggleSharedPanel() {},
-      toggleWorkspaceSidebar() {
+      toggleBottomPanel() {
+        bottomPanelToggleCount += 1;
+      },
+      toggleSideBar() {
         sidebarToggleCount += 1;
       },
       workspaceStore,
@@ -85,6 +92,9 @@ describe("App command registration", () => {
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+W"]).toBe("workspace.close");
     expect(keyboardRegistryStore.getState().bindings["Cmd+B"]).toBe("view.toggleSidebar");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+M"]).toBe("view.toggleCenterPaneMaximize");
+    expect(keyboardRegistryStore.getState().bindings["Cmd+J"]).toBe("view.toggleBottomPanel");
+    expect(keyboardRegistryStore.getState().bindings["Ctrl+`"]).toBe("view.focusTerminal");
+    expect(keyboardRegistryStore.getState().bindings["Ctrl+~"]).toBe("view.focusTerminal");
     expect(keyboardRegistryStore.getState().bindings["Cmd+\\"]).toBe("editor.splitRight");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowLeft"]).toBe("editor.moveActiveTabLeft");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowRight"]).toBe("editor.moveActiveTabRight");
@@ -116,8 +126,14 @@ describe("App command registration", () => {
     await keyboardRegistryStore.getState().executeCommand("view.toggleSidebar");
     expect(sidebarToggleCount).toBe(1);
 
+    await keyboardRegistryStore.getState().executeCommand("view.toggleBottomPanel");
+    expect(bottomPanelToggleCount).toBe(1);
+
     await keyboardRegistryStore.getState().executeCommand("view.toggleCenterPaneMaximize");
     expect(centerMaximizeToggleCount).toBe(1);
+
+    await keyboardRegistryStore.getState().executeCommand("view.focusTerminal");
+    expect(terminalFocusCount).toBe(1);
 
     await keyboardRegistryStore.getState().executeCommand("search.focus");
     await keyboardRegistryStore.getState().executeCommand("search.replace");

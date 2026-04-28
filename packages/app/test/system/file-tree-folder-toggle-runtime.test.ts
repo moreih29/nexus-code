@@ -18,6 +18,9 @@ interface ElectronSmokeOutput {
     toggleClicks: number;
     visiblePaths: string[];
     expandedPaths: string[];
+    activityBarViewCount: number;
+    sideBarActiveContentId: string | null;
+    fileTreeMountedInExplorerSideBar: boolean;
     contextMenuOpened?: boolean;
     reason?: string;
   };
@@ -65,6 +68,9 @@ describe("file tree folder toggle runtime smoke", () => {
     expect(output.status).toBe("ok");
     expect(output.suspiciousMessages).toEqual([]);
     expect(output.rendererResult?.ok).toBe(true);
+    expect(output.rendererResult?.activityBarViewCount).toBe(6);
+    expect(output.rendererResult?.sideBarActiveContentId).toBe("explorer");
+    expect(output.rendererResult?.fileTreeMountedInExplorerSideBar).toBe(true);
     expect(output.rendererResult?.toggleClicks).toBeGreaterThanOrEqual(14);
     expect(output.rendererResult?.visiblePaths).toContain("src/components/Button.tsx");
     expect(output.rendererResult?.contextMenuOpened).toBe(true);

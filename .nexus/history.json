@@ -6150,6 +6150,515 @@
           "created_at": "2026-04-28T12:08:54.017Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T15:37:55.232Z",
+      "branch": "feat/plan33-vscode-workbench",
+      "plan": {
+        "id": 33,
+        "topic": "VSCode-급 IDE 표면 격상 (post plan31 cleanup + Editor/Terminal 워크벤치 재설계)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1. 정책·범위 메타 결정 — design.md 3건 충돌 해소 및 사이클 슬라이싱",
+            "status": "decided",
+            "decision": "**B안 + α(1-사이클 통합) + 옵션1(즉시 일괄 갱신) + design.md 재편 (신규 I8)** 채택.\n\n[정체성 재정의]\n- 차별화 = (1) 멀티 워크스페이스 모델 + (2) 3-하네스 (claude-code/opencode/codex) 통합 관찰 + (3) 한국어 IME·렌더링 품질\n- 능력 표면 + 외관 관용구(활동바·사이드바·패널 도크·다분할)는 VSCode **상위호환** 목표 (포크 아님, 흡수 전략)\n- 토큰·타이포·강조색·밀도는 자체 정체성 유지(Linear급 절제선)\n\n[design.md 갱신 — I1 결정 즉시 일괄]\n- §1: \"좌단 아이콘 전용 바는 두지 않는다\" 폐기 → \"활동바 + 사이드바 채택\"\n- §4: \"Editor pane 내부 split은 1-depth horizontal만, multi-depth는 v0.2\" 폐기 → \"다분할·dock 모델 채택\"\n- §4: Active pane ring 강도 재검토 항목 명기\n\n[사이클 슬라이싱]\n- α: 7+1=8 이슈를 한 사이클·한 PR로. 회귀 위험은 (a) I7 회귀 가드 사이클 내부 동시 진행, (b) 시스템 스모크 fixture 신규 추가, (c) 단계적 commit 시퀀싱으로 흡수.\n\n[메타 작업]\n- 신규 I8 추가: design.md를 '철학(정체성·금지선·품질축·beachhead)'만 보존하고, 매번 변경되는 세부 설계(레이아웃 치수·키바인딩·인터랙션 grammar·컴포넌트 spec)는 별도 문서로 분리. 이번 충돌의 근본 원인은 design.md가 철학과 세부 설계를 한 파일에 섞어 운영해 왔기 때문.</decision>\n</invoke>"
+          },
+          {
+            "id": 2,
+            "title": "I2. FileTreePanel toolbar 아이콘 전용 전환 (텍스트 라벨 제거)",
+            "status": "decided",
+            "decision": "A안 채택. VSCode Explorer 헤더와 동형으로 4개 아이콘 only(항상 표시) + Radix Tooltip + aria-label.\n\n[디테일]\n- 위치: FileTreePanel 헤더 우측 끝 inline (현재 grid-cols-2 별도 row 폐기 → 1 row 회수)\n- 아이콘 매핑: New File=FilePlus / New Folder=FolderPlus / Refresh=RefreshCw / Collapse All=ChevronsDownUp\n- 크기: 28px ghost icon (디자인 §4 \"Icon button 28px\" 토큰 활용)\n- a11y: tooltip(visual) + aria-label(SR), §4 ARIA 원칙 준수\n- design.md 갱신 항목: §4 \"File tree interaction grammar\"의 \"Toolbar actions\" 문구를 \"헤더 우측 inline 4-icon (텍스트 라벨 없음)\"으로 명시</decision>\n</invoke>"
+          },
+          {
+            "id": 3,
+            "title": "I3. 활성 패널 ring 인디케이터 처리 (현재 Terminal Teal inset ring 의도된 spec)",
+            "status": "decided",
+            "decision": "C안 채택. inset Terminal Teal ring 폐기 → 헤더 배경 차이로만 active 표시 + native :focus-visible로 focus.\n\n[적용]\n- `EditorPane.tsx`(L85/106/128), `CenterWorkbench.tsx`(L286), `TerminalPane.tsx`의 `ring-1 ring-inset ring-[var(--color-ring)]` 제거\n- Active pane 헤더 = `bg-card`, Inactive pane 헤더 = `bg-card/60` (color-mix로 미묘한 차이)\n- focus 시 keyboard focus만 표시: `:focus-visible { outline: 1px solid var(--color-ring); outline-offset: -1px }` (mouse 클릭 시는 outline 없음)\n- design.md §4 갱신: \"Active pane = `box-shadow: inset 0 0 0 1px var(--color-ring)`\" 폐기 → \"Active pane = 헤더 배경 차이, focus는 :focus-visible 1px outline\"</decision>\n</invoke>"
+          },
+          {
+            "id": 4,
+            "title": "I4. 우측 Shared Panel 재배치 — VSCode 활동바 패턴 도입 여부",
+            "status": "decided",
+            "decision": "E안 채택. 우측 Shared Panel 폐기 + 좌측 Activity Bar에 IDE + AI 표면 모두 통합.\n\n[Layout — 4 zone]\n- Workspace strip (가장 좌측, 현 위치 보존 — 멀티 워크스페이스 정체성)\n- 좌측 Activity Bar (~48px narrow icon stripe, collapse 불가)\n- 좌측 Side Bar (가변 폭, 활동바 선택에 따라 view 전환, Cmd+B로 collapse, localStorage 영속)\n- Center (Editor + Terminal)\n- 우측 Shared Panel 완전 폐기\n\n[Activity Bar view 목록 — 6개 (v0.1)]\n- IDE: Explorer / Search / Source Control\n- AI: Tool / Session / Preview\n- (Run·Debug·Extensions는 v0.2)\n\n[코드 영향]\n- App.tsx L1000-1075 우측 패널 제거\n- SHARED_PANEL_STORAGE_KEY, SharedPanelTab union 폐기\n- 새 ActivityBarView union + ActivityBarStore 도입\n- 단축키 재정의: Cmd+B = 좌 SideBar 토글, Cmd+J = (재할당 또는 폐기, I6와 함께 결정)\n\n[design.md 갱신]\n- §1 \"4열 container = Workspace strip + Filetree + Center + Shared panel\" → \"4 zone = Workspace strip + Activity Bar(icon stripe) + Side Bar(가변 view) + Center\"\n- §4 Shared Panel 5탭 사양 폐기 → Activity Bar view 6종 사양으로 대체</decision>\n</invoke>"
+          },
+          {
+            "id": 5,
+            "title": "I5. 분할 모델 확장 전략 — 1-depth horizontal → 수직+수평 다분할 (최대 6분할), grid 라이브러리 vs 자체 모델",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "4개 옵션 실증 비교 후 1순위 flexlayout-react (격리 spike 후 채택), 2순위 dockview-react (조건부), 3순위 자체 grid (fallback), 탈락 rc-dock.\n\n[핵심 사실표]\n- flexlayout-react 0.9.0 (2026-04-25): ISC, 33KB, 0 dep, **R19 공식 peer (^18 || ^19)**, edge dock + tabset + maximize + popout. theme은 sass combined.css → Tailwind v4 @theme bridge 작업 필요. 8방향 drop customization은 dockview보다 약함.\n- dockview-react 5.2.0 (2026-03-26): MIT, 64.5KB, 1 dep, **R19 peer 명시 누락**(open issue). 8방향 drop overlay + drag preview + floating popout + CSS variable theme. open issue #1198 (2026-04) \"tabs drop on wrong side\" — layout/drop solver 회귀로 react-resizable-panels 실패 패턴과 유사.\n- rc-dock 4.0.0-alpha.2: 4방향만 (요구 8방향 미달), lodash 등 6 dep, alpha 단계. 탈락.\n- 자체 grid: baseline 80줄 + SplitEditorPane 929줄 보유. tree model + 재귀 resize + 8방향 drop hit-test + drag preview + tab group split = 7~8일+α (디테일 재현 시 +5~10일).\n\n[핵심 근거]\n- react-resizable-panels 실패 1차 원인 = \"R19+Tailwind v4 비검증 조합\". → R19 공식 peer 가중치 최대.\n- bundle: flexlayout 33KB << dockview 64.5KB << 자체(코드 신규)\n- dockview 기능 우월하나 (a)peer 미명시 (b)D&D 회귀 issue (c)bundle 2배 — bypass-pattern risk 더 높음.\n- 자체 구현은 80줄 resize 성공의 단순 외삽 위험. VSCode 급 미세 동작(animated drop indicator, tear-off-to-float)은 100줄로 안 됨.\n\n[권장 도입 step]\n1. 격리 spike (0.5일): packages/app 외부 examples/flexlayout-spike/에 R19+TWv4+Electron 환경에서 4 pane 6분할 + 8방향 drop + tear-off + oklch token CSS variable inject 검증\n2. Pass → SplitEditorPane 내부 단일 group으로 mount → 점진 확장. PanelResizeHandle은 외곽(workspace/sidebar) 유지로 layout-critical 영역 분리\n3. Fail → dockview-react로 spike 반복\n4. 둘 다 fail → 자체 grid (engineer 위임)\n5. 격리 spike 통과 시 system smoke fixture (test/system/dock-layout-runtime.test.ts) 즉시 작성 — \"layout-critical library는 smoke 없이 운영 금지\"\n\n[위험]\n- react-resizable-panels 패턴 재발: 둘 다 자체 layout solver 보유. 격리 spike 통과 기준에 \"drag 확장 방향 비대칭 동작 없음\" (이전 실패 signature) 명시\n- Tailwind v4 cascade layer 충돌: 두 library 모두 자체 stylesheet 주입\n- shadcn forwardRef wrapper 금지 (이전 실패 가설 중 하나)",
+                "recorded_at": "2026-04-28T13:42:27.236Z",
+                "agent_id": "a6c61a0da9d248b1a"
+              }
+            ],
+            "decision": "B안 채택. **flexlayout-react 직접 통합**, 실패 시 dockview-react로 fallback (그것도 실패 시 자체 grid).\n\n[근거]\n- spike(0.5일) 단계 생략. 본 코드 통합 + 통합 검증 기준 통과 여부로 직접 판정.\n- flexlayout-react 1순위 근거: R19 공식 peer (^18 || ^19), ISC, 33KB 0 dep, v0.9.0 활발.\n- fallback 경로 명시: flexlayout 실패 → dockview-react → 자체 grid.\n\n[통합 검증 기준 6개 — PR merge 전 통과 필수]\n1. 4 pane → 6분할 (수평+수직) 정상 표시\n2. 8방향 또는 4방향 drop overlay (top/right/bottom/left + 가능시 corner) 정상\n3. Drag 시 확장 방향 비대칭 없음 (이전 react-resizable-panels 실패 signature)\n4. Tear-off → floating panel 동작 (popout window 별도 OS창은 v0.2)\n5. 우리 oklch token CSS variable inject 시 panel 배경/border 색 적용\n6. React 19 StrictMode + concurrent mode에서 mount-stable (5회 mount/unmount 후 leak 0)\n\n[금지 규칙]\n- shadcn forwardRef wrapper 금지 (react-resizable-panels 실패 가설 1)\n- layout-critical library는 system smoke fixture 없이 운영 금지 → test/system/dock-layout-runtime.test.ts 신규 작성\n\n[design.md 갱신]\n- §4 Editor pane 1-depth horizontal split 사양 폐기 → \"flexlayout-react grid 6분할 + 8방향 drop\" 사양으로 대체</decision>\n</invoke>"
+          },
+          {
+            "id": 6,
+            "title": "I6. 터미널 패널화 + Center workbench 재설계 — Editor/Terminal 동격 일반 패널 모델",
+            "status": "decided",
+            "decision": "B-revised 채택. VSCode 실제 동형 Hybrid 모델.\n\n[Layout 모델]\n- Editor area = flexlayout-react center grid (file editor + terminal + diff 등 임의 tab type docking 가능, 6분할까지)\n- Bottom Panel = flexlayout border (Terminal/Output/Problems default views)\n- Terminal은 두 위치 모두 docking 가능 — drag로 이동 자유\n- Default 첫 실행: Terminal = Bottom Panel (VSCode default)\n\n[Bottom Panel 위치 이동 — v0.1 포함]\n- left / right / top / bottom 4방향 위치 변경 가능 (View: Move Panel Position 명령 + drag)\n- flexlayout-react border API 활용\n\n[Layout state 영속 — 워크스페이스별]\n- flexlayout model JSON 직렬화\n- 워크스페이스마다 별도 layout 저장 (멀티 워크스페이스 정체성에 정합)\n- localStorage key: `nx.layout.${workspaceId}`\n- 워크스페이스 전환 시 layout 즉시 복원\n\n[Bottom Panel views (v0.1)]\n- Terminal (현 ShellTerminalTabs 이전, 다중 tab)\n- Output (LSP/git/sidecar 로그 통합)\n- Problems (LSP diagnostics 통합)\n\n[Terminal 마지막 tab close 정책]\n- VSCode 동형: view는 남고 \"+\"로 재생성 (PTY 데이터 손실 0)\n\n[단축키]\n- Cmd+J = Bottom Panel 토글\n- Ctrl+~ = Terminal view focus\n- Cmd+Shift+M = 현재 tabset maximize (CenterWorkbenchMode 폐기)\n\n[코드 영향]\n- CenterWorkbench.tsx 재설계 (1-depth horizontal split 폐기)\n- TerminalPane.tsx → Bottom Panel view component로 이동\n- EditorStore: paneId p0/p1 → flexlayout node id 사용\n- App.tsx activeCenterPane state 폐기\n- 신규: OutputPanel.tsx, ProblemsPanel.tsx (MVP는 단순 view)\n\n[design.md 갱신]\n- §4 \"Center workbench는 split을 기본 상태로 사용한다. Editor pane은 위, Terminal pane은 아래에\" 폐기\n- 신규: \"Center = flexlayout grid (임의 tab docking, 최대 6분할) + Bottom Panel (4방향 위치 이동, default Terminal/Output/Problems)\"\n- §4 단축키 맵 갱신 (Cmd+J 의미 변경)</decision>\n</invoke>"
+          },
+          {
+            "id": 7,
+            "title": "I7. 코드 구조 안전성 + 회귀 가드 — PartService/EditorGroupsService 분리, 시스템 스모크 확장",
+            "status": "decided",
+            "decision": "A안 + 안전한 테스트 설계 채택. **Service interface 전면 도입 (DI 없이)** + **6 layer 테스트 피라미드 + 회귀 가드 정책 명문화**.\n\n[Service interface 8개 — 핵심 5개 + 확장 3개]\n1. `IEditorGroupsService` — flexlayout center grid model + tab CRUD + active tab/group\n2. `IBottomPanelService` — Bottom Panel views + 위치(left/right/top/bottom) + 토글\n3. `IActivityBarService` — view 전환 + Side Bar 컨텐츠 라우팅\n4. `IWorkspaceService` — 워크스페이스 CRUD + 활성 워크스페이스 + sidebar state + 워크스페이스별 layout 영속(I6 결정과 결합)\n5. `ITerminalService` — PTY tab 데이터 (BottomPanelService와 분리: panel은 view, terminal은 data)\n6. `IFilesService` — file tree CRUD + watch + git badge (현 EditorStore 일부)\n7. `IGitService` — git status/branch/sidecar 통신\n8. `ILspService` — LSP 진단/자동완성/symbol/document lifecycle\n\n[디렉토리 신설]\n- `packages/app/src/renderer/services/` — interface + zustand-based impl\n- `packages/app/src/renderer/parts/` — workspace-strip / activity-bar / side-bar / editor-groups / bottom-panel\n- 컴포넌트는 service interface만 import, store 직접 사용 금지\n\n[App.tsx 분해 목표]\n- 1638줄 → 200~300줄 (workspace shell 조립 + service wiring만)\n- localStorage IO, 단축키 바인딩, IPC 어댑터 모두 service로 흡수\n- 기존 EditorStore = 8개 service로 분해 후 폐기 (1-사이클 통합 정신, deprecated 잔존 X)\n\n[6 Layer 안전한 테스트 피라미드]\n| Layer | 도구 | 책임 | 신규/기존 |\n|---|---|---|---|\n| 1. Service unit | bun test | 각 service 메서드 입력/출력, store mutation | 신규 |\n| 2. Service contract | TypeScript type-level + runtime sanity | interface 시그니처 안정성 | 신규 |\n| 3. Component unit | bun test (existing *.test.tsx) | React component 단위 | 기존 유지 |\n| 4. Integration | bun test | service 조합 (ActivityBar→SideBar, EditorGroups→BottomPanel) | 신규 |\n| 5. System smoke | Electron + Vite fixture (existing 패턴) | full stack 시나리오 | 신규 + 기존 갱신 |\n| 6. Regression policy | CI gate + lint rule | service 신규 도입 시 fixture 동반 강제 | 신규 |\n\n[신규 system smoke fixture 3개]\n- `dock-layout-runtime.test.ts` — flexlayout 6분할 + 8방향 drop + drag 비대칭 + StrictMode mount-stable (I5 검증 기준 6개)\n- `activity-bar-runtime.test.ts` — view 전환 + Side Bar 컨텐츠 교체 + collapse/expand\n- `workspace-layout-persist-runtime.test.ts` — 워크스페이스 전환 시 layout JSON 영속 + 복원\n\n[기존 fixture 갱신 2개]\n- `app-file-tree-refresh-runtime.test.ts` — 새 4 zone layout fixture mock 업데이트\n- `file-tree-folder-toggle-runtime.test.ts` — Activity Bar Explorer view 컨텍스트로 갱신\n\n[회귀 가드 정책 (CI gate)]\n- 정책 1: layout-critical 또는 service-boundary 신규 도입 시 동일 PR에 fixture 동반 필수\n- 정책 2: service interface 변경 시 contract test 갱신 필수\n- 정책 3: 모든 service는 unit test coverage 100% (메서드 단위, branch coverage 아님)\n- ESLint custom rule 또는 PR template checklist로 강제\n\n[design.md 갱신 (I8과 결합)]\n- §1 또는 신규 §아키텍처 섹션에 \"service-oriented (DI 없이) + parts 모델\" 명기\n- service 목록·디렉토리 구조·테스트 정책은 I8 결정에 따라 별도 문서로 분리 가능</decision>\n</invoke>"
+          },
+          {
+            "id": 8,
+            "title": "I8. design.md 재편 — 철학(정체성·금지선·품질축·beachhead)만 유지, 세부 설계(레이아웃 치수·키바인딩·인터랙션 grammar·컴포넌트 spec)는 별도 문서로 분리",
+            "status": "decided",
+            "decision": "B안 (1 철학 + 5 사양) + 옵션 1 (평면 위치) 채택.\n\n[파일 구조 — 모두 `.nexus/context/` 평면]\n- `design.md` (철학) — §1 정체성, §1 무엇이 아닌가, §1 품질측정 축, §1 beachhead, §5 금지 시각 언어, §6 block-based 금지선. **목표 길이 70~100줄**, 수정 빈도 매우 낮음.\n- `design-tokens.md` — §2 토큰 시스템, §3 타이포, §4 아이콘 시스템, §4 Border·Spacing\n- `design-layout.md` — §4 zone container, §4 Center workbench, §4 Resizer, §4 Primitive 높이, §6 워크스페이스 상태 뱃지 (이번 사이클 가장 큰 갱신)\n- `design-interactions.md` — §4 단축키 맵, §4 File tree interaction grammar, §4 D&D, §4 Context menu, §4 Multi-select, §4 Command palette, §4 ARIA\n- `design-components.md` — §4 Empty state, §6 tool 호출 하이라이트\n\n[수행 절차]\n1. I1·I3·I4·I5·I6·I7 결정의 design 갱신을 5개 신규 문서에 직접 작성 (현 design.md를 5분할 후 수정이 아니라, 새 파일 + 갱신 동시).\n2. 현 design.md는 철학만 남기고 70~100줄로 축약.\n3. 각 신규 문서 상단에 \"responsibility\" 한 줄 명시 + 다른 파일 cross-reference link.\n4. CLAUDE.md / agent context 시작점에 design 문서 5개 인덱스 추가.\n\n[중복 방지]\n- 같은 사양이 두 문서에 들어가지 않도록 cross-reference 사용 (예: design-layout.md의 단축키는 design-interactions.md를 참조)\n- design.md 상단에 \"이 도메인은 X 파일\" 인덱스 (5개 cross-link)\n\n[정합]\n- 다른 context 파일들(`architecture.md`, `roadmap.md`, `philosophy.md`, `stack.md` 등)과 같은 평면 → finding 일관성</decision>\n</invoke>"
+          }
+        ],
+        "research_summary": "사전 조사 결과:\n\n[Existing knowledge - .nexus/context/design.md 핵심 규정]\n- §1 정체성: \"VS Code 코드 포크가 아니다. 능력 표면(편집·LSP·검색·git·diff·탭/트리·레이아웃·키바인딩)은 VSCode 수준 목표. 차별화는 토큰·타이포·밀도·강조색·AI 하네스 관찰·멀티 워크스페이스 모델.\"\n- §1 레이아웃 관용구: \"4열 container = Workspace strip + Filetree column + Center workbench + Shared panel. **좌단 아이콘 전용 바는 두지 않는다.**\"\n- §4 Center workbench: \"Editor pane 위 + Terminal pane 아래 split 기본. 항상 mounted. **Active pane은 `box-shadow: inset 0 0 0 1px var(--color-ring)` (Terminal Teal #3aa0a6)**.\"\n- §4 Editor pane 내부 split: \"**1-depth horizontal split만 지원. multi-depth split과 grid layout은 v0.2 결정 영역으로 미룬다.**\"\n- §4 File tree interaction grammar: \"Toolbar actions = New File / New Folder / Refresh / Collapse All. (텍스트/아이콘 어느 형식인지 미명시)\"\n- §5 금지 시각 언어 #7: \"2px border 강조(side-stripe 슬롭) 금지\" — 현재 ring 두께는 1px이라 위반 아님.\n\n[사용자 요청 vs design.md 정책 충돌 3건]\n- 충돌1: 요청 #3 \"좌측 아이콘 활동바 + 컨텍스추얼 사이드바 (VSCode식)\" ↔ §1 \"좌단 아이콘 전용 바 두지 않는다\"\n- 충돌2: 요청 #4 \"수평·수직 최대 6분할\" ↔ §4 \"1-depth horizontal only, multi-depth는 v0.2\"\n- 충돌3: 요청 #2 \"초록 외곽선 제거\" ↔ §4 \"Active pane = inset ring (Terminal Teal)\" (의도된 spec, 사용자가 의도 모를 가능성)\n\n[코드 영향도 (Explore 보고)]\n- I2(toolbar): FileTreePanel.tsx L247-312, props 4개 변경. **교체 1h**.\n- I3(ring): styles.css L50, EditorPane L85/106/128, CenterWorkbench L286, App activeCenterPane state. **교체 2h**.\n- I4(우측 패널): App.tsx L1000-1075, 5탭 SharedPanelTab union, localStorage 영속. **재배치 3h, 활동바 신설 시 +6h**.\n- I5(분할): CenterWorkbench L9-150 (1-depth split, react-resizable-panels), EditorStore L19/148/362/420 (paneId p0/p1만), 자체 PanelResizeHandle. **multi-depth grid 재설계 8h+, dock 라이브러리 도입 시 +학습/통합비용**.\n- I6(터미널 일반화): TerminalPane.tsx L36-100, ShellTerminalTabs (close ≠ unmount), CenterWorkbench의 Terminal 고정 위치. EditorStore pane 모델에 Terminal 포함시켜야 함. **12h+**.\n- I7(구조): EditorStore가 layout/tabs/pane/file-tree/git을 다 들고 있음. PartService/EditorGroupsService 분리는 4·5·6 작업의 부산물로 자연스럽게 분해되거나 별도 사이클.\n\n[기존 자산]\n- 시스템 스모크: packages/app/test/system, Electron+Vite fixture (방금 검토 — 5회 안정 통과)\n- pattern-library-bypass-decision.md, external-react-resizable-panels.md 메모리에 존재 → I5 분할 라이브러리 결정 시 참조\n- nx_history_search 결과 0건 (plan31 사이클은 history 기록 없음)\n\n[사이클 슬라이싱 옵션]\n- A안: 7개 한 사이클 — 4·5·6이 강결합이므로 통합 PR 의미 있음. 그러나 사이클 크기 매우 큼 (총 30~40h+).\n- B안: 2 사이클 — (소스죽 sweep: 1·2·3) + (구조 재설계: 4·5·6·7).\n- C안: 3 사이클 — (정책+sweep) + (분할 모델) + (터미널 통합 + 구조).\n\nplanning만 수행. 실행 X.",
+        "created_at": "2026-04-28T13:15:37.733Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "design.md 재편 — 1 철학 + 5 사양 문서 작성",
+          "status": "completed",
+          "context": "I8 결정. 현 695줄 design.md를 철학(정체성·금지선·품질축·beachhead)만 70~100줄로 축약하고, 세부 설계는 5개 신규 평면 문서로 분리. 동시에 I1·I3·I4·I5·I6·I7 결정 사항을 새 문서에 직접 반영. 다른 task의 가드레일이 되므로 사이클 초반 수행.",
+          "acceptance": "5개 신규 문서 + 축약 design.md 작성 완료. design.md ≤100줄. cross-reference link 깨진 곳 0. 같은 사양이 두 문서에 중복 0. CLAUDE.md 인덱스 갱신.",
+          "approach": "1) 신규 5개 작성: `.nexus/context/design-tokens.md`, `design-layout.md`, `design-interactions.md`, `design-components.md` + 현 design.md 축약. 2) 각 문서 상단 responsibility 한 줄 + cross-reference link. 3) CLAUDE.md / agent context 시작점에 design 5문서 인덱스 추가. 4) 갱신 핵심: §1 4열→4 zone, §1 좌단 활동바 금지 폐기, §4 1-depth split 폐기→flexlayout grid+Bottom Panel, §4 Active pane ring 폐기→헤더 배경차+:focus-visible, §4 단축키 Cmd+J 의미 변경.",
+          "risk": "현 design.md의 어느 문장이 어느 신규 문서로 가는지 모호한 경계가 있을 수 있음 (예: ARIA가 layout인지 interactions인지). responsibility 한 줄로 사전 명시 후 작성.",
+          "plan_issue": 8,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd46a-a3d7-7331-a6a1-b9971d8e7e51",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T13:59:53.800Z"
+        },
+        {
+          "id": 2,
+          "title": "design 5문서 정확성 + cross-reference 검증",
+          "status": "completed",
+          "context": "T1 산출물 검증. 5개 신규 design 문서가 I1·I3·I4·I5·I6·I7 결정과 정확히 일치하는지, cross-reference link가 깨지지 않았는지, 중복·누락이 없는지 확인.",
+          "acceptance": "결정 체크리스트 100% 매칭. cross-link 깨짐 0. 중복 sentence 0. CLAUDE.md 링크 모두 valid. 발견된 갭은 reviewer 보고서로 정리하여 T1에 반영 요청.",
+          "approach": "결정 8개를 체크리스트로 변환하여 5문서 + 축약 design.md에서 각 항목을 grep + 인용 인덱스화. cross-link 모두 클릭 가능한지 확인. CLAUDE.md 인덱스가 5문서를 정확히 가리키는지 확인.",
+          "risk": "결정의 미묘한 뉘앙스가 문서에서 약화될 수 있음. reviewer는 결정 원문과 1:1 매칭 검증.",
+          "plan_issue": 8,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd470-7deb-78a0-a68e-f123322ce3da",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:00:04.306Z"
+        },
+        {
+          "id": 3,
+          "title": "회귀 가드 정책 명문화 (CI gate + PR template)",
+          "status": "completed",
+          "context": "I7 결정. layout-critical 또는 service-boundary 신규 도입 시 동일 PR에 system smoke fixture 동반 필수, service interface 변경 시 contract test 갱신 필수, 모든 service unit test coverage 100%(메서드 단위) 정책. ESLint custom rule 또는 PR template으로 강제.",
+          "acceptance": "PR template에 회귀 가드 체크박스 3개 추가. testing-policy 정책 문서 작성. ESLint rule 도입 여부 결정 기록.",
+          "approach": "1) `.github/PULL_REQUEST_TEMPLATE.md` 또는 `.github/pull_request_template.md`에 service/layout 변경 시 fixture 동반 체크박스 추가. 2) `.nexus/context/testing-policy.md` 또는 design-interactions.md 부록에 정책 3개 명시. 3) ESLint custom rule은 효과 대비 비용 평가 후 도입 여부 결정 (옵션).",
+          "risk": "정책 강제 수단(ESLint rule)이 노이즈를 만들 수 있음 — PR template 우선, ESLint는 보류 가능.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd46a-cf2e-7c42-8f56-9bd6b0d41ffc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:00:14.930Z"
+        },
+        {
+          "id": 4,
+          "title": "flexlayout-react 도입 + 통합 검증 기준 6개 통과",
+          "status": "completed",
+          "context": "I5 결정. flexlayout-react 직접 통합, 통합 검증 기준 6개 (4 pane 6분할 / 8방향 또는 4방향 drop / drag 비대칭 없음 / tear-off floating / oklch CSS variable inject / StrictMode mount-stable) 모두 통과 시 채택. 실패 시 dockview-react로 fallback (그것도 실패 시 자체 grid).",
+          "acceptance": "flexlayout-react가 6개 검증 기준 모두 통과 (or fallback이 통과). 검증 결과는 lead 결정점 보고. dock-layout-runtime smoke fixture가 6분할 시나리오 자동 검증.",
+          "approach": "1) package.json에 flexlayout-react 추가, 격리 디렉토리(packages/app/src/renderer/parts/editor-groups/flexlayout-spike/)에 minimal 통합 시도. 2) 6개 검증 기준 자동 테스트로 작성 (Bun + Electron smoke runner). 3) Pass → Center workbench 본 통합 진행. Fail → spike 코드 폐기 + dockview-react로 동일 절차 반복. 4) shadcn forwardRef wrapper 금지 규칙 준수. 5) 우리 oklch token CSS variable mapping bridge 작성 (Tailwind v4 @theme → flexlayout CSS var).",
+          "risk": "react-resizable-panels 패턴 재발 (R19+TWv4 layout solver 충돌). 검증 기준 3 (drag 비대칭) 통과가 핵심 시그니처. 통합 진행 중 fail 발견 시 즉시 fallback 분기로 lead에 escalate.",
+          "plan_issue": 5,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd471-4b01-7962-8859-78f349e5e5ad",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:00:35.972Z"
+        },
+        {
+          "id": 5,
+          "title": "dock-layout-runtime system smoke fixture 작성 (6분할 + 8방향 drop + StrictMode mount-stable)",
+          "status": "completed",
+          "context": "I5 + I7 결정. flexlayout-react 통합 검증 기준 6개를 system smoke fixture로 자동화. 향후 dock layout 회귀 가드 핵심.",
+          "acceptance": "fixture 5회 연속 통과. fail signature 검출 정확도 확인 (의도적으로 깨뜨려서 fail이 fixture에서 잡히는지 검증). bundle size 영향 측정.",
+          "approach": "기존 packages/app/test/system/ 패턴 (electron-renderer-smoke-runner.cjs + fixture entry.tsx + .test.ts)을 따라 dock-layout-runtime.{test.ts,entry.tsx,fixture.html} 작성. 시나리오: (1) 4 pane 6분할 표시 (2) drag로 새 분할 (3) 8방향 drop overlay (4) tear-off floating (5) oklch token CSS var 적용 확인 (6) 5회 mount/unmount 후 leak 0 검증.",
+          "risk": "flexlayout-react가 본 통합 전이라 fixture 작성 중 API 변경 가능. T4와 병렬 진행하면서 sync.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd47c-4a68-7c33-8f11-d2530238eca5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:00:47.427Z"
+        },
+        {
+          "id": 6,
+          "title": "services/ 디렉토리 + 8개 service interface 골격 + parts/ 디렉토리 신설",
+          "status": "completed",
+          "context": "I7 결정. service-oriented (DI 없이) 8개 service interface 골격을 먼저 정의. 각 service는 TypeScript interface + zustand-based impl 패턴. parts/ 디렉토리(workspace-strip / activity-bar / side-bar / editor-groups / bottom-panel)도 동시에 빈 골격 생성.",
+          "acceptance": "8 service interface + 빈 impl 컴파일 성공. 5 part 디렉토리 생성. contract test 골격 8개 작성. import 가이드 문서화 (services/README.md).",
+          "approach": "1) `packages/app/src/renderer/services/` 신설, 8 interface 파일 (i-editor-groups-service.ts, i-bottom-panel-service.ts, i-activity-bar-service.ts, i-workspace-service.ts, i-terminal-service.ts, i-files-service.ts, i-git-service.ts, i-lsp-service.ts) + 각 빈 zustand impl. 2) `packages/app/src/renderer/parts/` 신설, 5 part 디렉토리 빈 index.ts. 3) 각 service interface에 contract test 골격 (Layer 2). 4) 컴포넌트는 service 통해서만 접근하도록 lint rule 또는 import 가이드 작성.",
+          "risk": "interface 시그니처가 후속 task 진행 중에 변경될 수 있음. 사이클 중 변경은 contract test 갱신으로 흡수, breaking 변경은 lead 결정.",
+          "plan_issue": 7,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd471-0390-70e1-af9e-1f0e949eb97e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:01:01.523Z"
+        },
+        {
+          "id": 7,
+          "title": "IEditorGroupsService 구현 + unit/contract test (flexlayout center grid model + tab CRUD)",
+          "status": "completed",
+          "context": "I5+I6+I7 결정. flexlayout center grid model 직렬화/역직렬화, tab CRUD, active tab/group, drag/drop event handler를 EditorGroupsService에 흡수. 현 EditorStore의 pane/tabs 책임 이전.",
+          "acceptance": "interface + impl + unit test (메서드별) + contract test 통과. EditorStore의 pane/tabs 관련 코드 이전 후 deprecated 표기. 다른 service와 IPC 호환.",
+          "approach": "interface: openTab, closeTab, splitGroup, moveTab, setActiveTab, getActiveTab, serializeModel, deserializeModel, onModelChanged. zustand impl with flexlayout-react Model wrapping. unit test: 메서드별 입력/출력. contract test: interface 시그니처 안정성.",
+          "risk": "flexlayout Model API와 우리 contract가 1:1 매핑 안 될 수 있음 — adapter layer 필요할 수도. 너무 추상화하면 누수.",
+          "plan_issue": 7,
+          "deps": [
+            4,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd47c-7b58-7280-acb4-04c75d566c2a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:01:13.428Z"
+        },
+        {
+          "id": 8,
+          "title": "IBottomPanelService 구현 + unit/contract test (Bottom Panel views + 위치 + 토글)",
+          "status": "completed",
+          "context": "I6+I7 결정. Bottom Panel의 view 등록·전환·위치(left/right/top/bottom 4방향)·토글·높이 영속을 BottomPanelService에 흡수. Terminal은 view 등록 대상이고 데이터는 ITerminalService 분리.",
+          "acceptance": "view 3개(Terminal/Output/Problems) 등록 + 4방향 위치 변경 + 토글 + 높이 영속 모두 메서드 테스트 통과. integration test에서 EditorGroupsService와 layout JSON sync 검증.",
+          "approach": "interface: registerView, unregisterView, setActiveView, setPosition, togglePanel, setHeight, getState, onStateChanged. zustand impl with flexlayout border 영역 wrapping. position 변경 시 flexlayout model 재구성. unit test 메서드별. contract test 시그니처.",
+          "risk": "position 변경(border 위치 이동)이 flexlayout Model 재계산을 트리거 → mount-stable 깨질 위험. dock-layout-runtime smoke로 회귀 가드.",
+          "plan_issue": 7,
+          "deps": [
+            4,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd47c-a783-7e82-89aa-bc16340a5868",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:01:36.607Z"
+        },
+        {
+          "id": 9,
+          "title": "IActivityBarService 구현 + unit/contract test (view 전환 + Side Bar 라우팅)",
+          "status": "completed",
+          "context": "I4+I7 결정. 좌측 Activity Bar 6 view (Explorer/Search/Source Control/Tool/Session/Preview) + Side Bar 컨텐츠 라우팅 + collapse/expand를 ActivityBarService에 흡수. 우측 Shared Panel은 폐기되므로 그 5탭이 좌측으로 흡수됨.",
+          "acceptance": "6 view 등록·전환·Side Bar collapse/expand·width 영속 메서드 테스트 통과. activity-bar-runtime smoke fixture에서 클릭 시 Side Bar 컨텐츠 교체 검증.",
+          "approach": "interface: registerView, setActiveView, getActiveView, toggleSideBar, setSideBarWidth, getState. view 등록은 IDE 코어 + AI 표면 모두 동일. 단축키 Cmd+B는 toggleSideBar 바인딩. zustand impl with localStorage 영속.",
+          "risk": "view 등록 시점이 service 초기화보다 늦으면 race. 등록은 sync, 활성화는 async 패턴 권장.",
+          "plan_issue": 7,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd47c-d542-7271-86a7-49eb8a62c7b1",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:01:48.583Z"
+        },
+        {
+          "id": 10,
+          "title": "IWorkspaceService 구현 + unit/contract test (워크스페이스 CRUD + 워크스페이스별 layout 영속)",
+          "status": "completed",
+          "context": "I6+I7 결정. 워크스페이스 CRUD, 활성 워크스페이스 전환, sidebar state, 워크스페이스별 flexlayout JSON 영속(localStorage `nx.layout.${workspaceId}`)을 WorkspaceService에 흡수. 워크스페이스 전환 시 layout 즉시 복원이 핵심.",
+          "acceptance": "3 워크스페이스 동시 열기 + 각자 다른 layout + 전환 시 즉시 복원 (loss 0) 검증. workspace-layout-persist-runtime smoke에서 자동 검증.",
+          "approach": "interface: openWorkspace, closeWorkspace, activateWorkspace, getOpenWorkspaces, getActive, getLayoutModel(workspaceId), saveLayoutModel(workspaceId, model), onWorkspaceChanged. layout 복원은 EditorGroupsService.deserializeModel 호출. zustand impl with main process IPC adapter.",
+          "risk": "layout JSON이 손상되면 복원 실패 → 빈 default로 graceful fallback. localStorage quota 초과 시 가장 오래된 워크스페이스 layout 정리.",
+          "plan_issue": 7,
+          "deps": [
+            6,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd48b-00dd-7742-96c3-04368ef00355",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:02:04.650Z"
+        },
+        {
+          "id": 11,
+          "title": "ITerminalService 구현 + unit/contract test (PTY tab 데이터, BottomPanelService와 분리)",
+          "status": "completed",
+          "context": "I6+I7 결정. ShellTerminalTabs를 ITerminalService로 추출. BottomPanelService는 view 컨테이너 책임, TerminalService는 PTY tab 데이터·생명주기 책임. Terminal이 Editor area로 docking되어도 데이터는 TerminalService에서 관리.",
+          "acceptance": "PTY tab 생성/삭제/입력/출력 메서드 테스트 통과. 마지막 tab close 시 view 잔존 + \"+\"로 재생성 가능 검증. 워크스페이스 전환 시 tab 보존(현 정책 계승).",
+          "approach": "interface: createTab, closeTab, getTabs, getActiveTab, setActiveTab, sendInput, onTabExited, onData. 기존 ShellTerminalTabs 클래스 분해해 service interface로 wrapping. main process IPC adapter는 그대로 유지.",
+          "risk": "node-pty IPC 경계가 service 추출로 깨질 위험. 기존 IME 보호·xterm fit·스크롤백 정책 모두 유지.",
+          "plan_issue": 7,
+          "deps": [
+            6,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd48b-396f-78e3-94bb-40c8790298ef",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:02:17.548Z"
+        },
+        {
+          "id": 12,
+          "title": "IFilesService + IGitService + ILspService 구현 + unit/contract test (기존 코드 흡수)",
+          "status": "completed",
+          "context": "I7 결정. EditorStore의 file tree·git badge·LSP 진단 책임을 3개 service로 분리. 기존 코드 대부분 흡수형이므로 묶음 task.",
+          "acceptance": "3 service 분리 후 기존 file tree/git badge/LSP 진단 동작 회귀 0. 각 service unit test 메서드 단위 100%. EditorStore의 해당 책임 코드 모두 이전.",
+          "approach": "3 interface 정의 후 기존 EditorStore 코드 + IPC adapter 이전. IFilesService: tree CRUD/watch/refresh. IGitService: status/branch/badge per path. ILspService: diagnostics/completion/symbol/document open|close|change. 각 service는 자체 zustand store. unit test 메서드별, contract test 시그니처.",
+          "risk": "3 service 사이의 의존성(예: file tree 변화가 git badge 갱신 트리거)이 EditorStore 안에서 암묵적이었음 → 명시적 event subscription으로 재구성.",
+          "plan_issue": 7,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd47d-084a-7472-a3ae-a03c7a442b46",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:02:28.986Z"
+        },
+        {
+          "id": 13,
+          "title": "parts/ 5 part 컴포넌트 분리 + Activity Bar 신설 + 우측 Shared Panel 폐기",
+          "status": "completed",
+          "context": "I4+I7 결정. 5 part 컴포넌트(workspace-strip, activity-bar, side-bar, editor-groups, bottom-panel) 분리. 우측 Shared Panel 코드 완전 폐기, 6 view를 좌측 Activity Bar로 이전. 각 part는 해당 service만 의존.",
+          "acceptance": "5 part 컴포넌트 분리 + Activity Bar 6 view 모두 노출 + Side Bar 컨텐츠 전환 동작 + 우측 Shared Panel 코드 grep 결과 0.",
+          "approach": "1) WorkspaceStrip part: 현 좌측 워크스페이스 stripe 그대로 분리. 2) ActivityBar part 신설: 48px narrow icon stripe, 6 view registration. 3) SideBar part 신설: ActivityBarService.activeView 따라 컨텐츠 라우팅, Cmd+B 토글. 4) EditorGroups part: flexlayout center grid wrapping. 5) BottomPanel part: flexlayout border wrapping + 4방향 위치. 6) App.tsx의 R-SharedPanel 코드 + SHARED_PANEL_STORAGE_KEY 제거. 7) Tool/Session/Source Control/Preview/Search 기존 panel 컴포넌트는 그대로 재사용 (ActivityBar view 등록만 변경).",
+          "risk": "기존 5탭 view 컴포넌트(SourceControlPanel 등)가 SharedPanel 컨텍스트에 의존하는 부분이 있을 수 있음. ActivityBar 컨텍스트로 흡수 시 props 재설계 필요.",
+          "plan_issue": 4,
+          "deps": [
+            9,
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd48b-82d5-7772-ac32-8895ebe79346",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:02:43.108Z"
+        },
+        {
+          "id": 14,
+          "title": "Center workbench 재설계 + Terminal → Bottom Panel view 이전 + Output/Problems stub",
+          "status": "completed",
+          "context": "I6 결정. 1-depth horizontal split (Editor 위/Terminal 아래) 폐기 → flexlayout center grid (Editor area, 6분할) + flexlayout border (Bottom Panel, default Terminal/Output/Problems). Terminal은 양쪽 docking 가능.",
+          "acceptance": "Editor area 6분할 + Terminal 두 위치 docking + Bottom Panel 4방향 이동 + Output/Problems stub view 노출 + 워크스페이스 전환 시 layout 영속 모두 동작. dock-layout-runtime smoke + workspace-layout-persist-runtime smoke 통과.",
+          "approach": "1) CenterWorkbench.tsx 재설계: PanelGroup → flexlayout Layout. 2) TerminalPane.tsx → BottomPanel view component로 이전 (props 재설계: paneId, active, onActivate). 3) Output/Problems panel stub 작성 (MVP 단순 view). 4) CenterWorkbenchMode(\"split\"/\"editor-max\"/\"terminal-max\") 폐기 → flexlayout maximize API. 5) Terminal default 위치 = Bottom Panel, drag로 Editor area 이동 가능 검증.",
+          "risk": "CenterWorkbenchMode 폐기로 maximize 단축키 회귀 가능. Cmd+Shift+M 동작 검증 필수. Terminal 마지막 tab close 시 view 잔존 정책 회귀 검증.",
+          "plan_issue": 6,
+          "deps": [
+            7,
+            8,
+            11,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd495-cef3-7c72-bd2a-de0b7b5bd3ac",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:02:56.852Z"
+        },
+        {
+          "id": 15,
+          "title": "FileTreePanel toolbar 4 아이콘 inline 전환 + Active pane ring 정리",
+          "status": "completed",
+          "context": "I2 + I3 결정. 시각 정리 두 건 묶음. (a) FileTreePanel toolbar grid-cols-2 텍스트 라벨 폐기 → 헤더 우측 inline 4 ghost icon (FilePlus/FolderPlus/RefreshCw/ChevronsDownUp) + Radix Tooltip + aria-label. (b) Active pane inset Terminal Teal ring 폐기 → 헤더 배경 차이(bg-card vs bg-card/60) + :focus-visible 1px outline.",
+          "acceptance": "FileTreePanel 헤더 1 row 회수 + 4 아이콘 tooltip + aria-label 동작. 모든 pane에서 초록 ring grep 결과 0. keyboard focus 시에만 1px outline 노출 (mouse는 0). app-file-tree-refresh-runtime smoke 통과.",
+          "approach": "1) FileTreePanel.tsx L247-312 grid 영역 폐기, 헤더 우측 inline 4 IconButton 28px. 2) EditorPane.tsx L85/106/128, CenterWorkbench.tsx L286, TerminalPane.tsx의 ring-1 ring-inset ring-[var(--color-ring)] 클래스 모두 제거. 3) 활성 pane 헤더에 active일 때 bg-card, 비활성일 때 bg-card/60 적용. 4) :focus-visible 시 outline: 1px solid var(--color-ring); outline-offset: -1px (mouse 클릭은 outline 없음).",
+          "risk": "기존 사용자가 익숙한 ring 사라짐 → active pane 식별 약화 가능. 헤더 배경 차이 강도 PR review 필수. design-tokens.md에 명시.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd4a3-6c6e-7d41-8755-23c0ae204514",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:03:12.101Z"
+        },
+        {
+          "id": 16,
+          "title": "단축키 갱신 (Cmd+J 의미 변경, Ctrl+~ 추가, CenterWorkbenchMode 폐기 영향)",
+          "status": "completed",
+          "context": "I4+I6 결정. 단축키 변경 정리. Cmd+J = 우측 Shared Panel 토글 → Bottom Panel 토글. Cmd+B = Side Bar 토글 (의미 보존). Ctrl+~ = Terminal view focus 신규. Cmd+Shift+M = 현재 tabset maximize (CenterWorkbenchMode 폐기 후 flexlayout maximize API).",
+          "acceptance": "단축키 4건 동작 검증. design-interactions.md 단축키 맵 갱신과 sync. IME 조합 중 단축키 차단 회귀 없음.",
+          "approach": "단축키 레지스트리(현 useGlobalShortcuts 또는 KeybindingRegistry) 갱신. Cmd+J 핸들러를 BottomPanelService.togglePanel로 변경. Ctrl+~ 핸들러 신설 → BottomPanelService.setActiveView('terminal') + 포커스. Cmd+Shift+M → EditorGroupsService.toggleMaximizeActive. 한국어 IME composition guard 유지 검증.",
+          "risk": "Ctrl+~ 가 일부 한국어 IME에서 충돌 가능성. 기존 IME 자동 게이트로 회귀 검증.",
+          "plan_issue": 6,
+          "deps": [
+            8,
+            14
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-04-28T14:03:25.543Z"
+        },
+        {
+          "id": 17,
+          "title": "App.tsx 분해 (1638→200~300줄) + EditorStore 폐기",
+          "status": "completed",
+          "context": "I7 결정. App.tsx의 모든 layout state·콜백·localStorage IO·단축키 바인딩·IPC adapter를 8 service로 흡수 후 App.tsx는 workspace shell 조립 + service wiring만 남김. 기존 EditorStore는 8 service로 분해 후 완전 폐기 (deprecated 잔존 X, 1-사이클 통합 정신).",
+          "acceptance": "App.tsx ≤ 300줄. EditorStore 파일 삭제. EditorStore 직접 import grep 결과 0. 기존 모든 시나리오 회귀 없음 (manual + automated).",
+          "approach": "1) App.tsx의 useState/useEffect/useCallback 모두 service로 흡수. 2) 5 part 컴포넌트 mount + 단축키 wiring + IPC subscribe만 남김. 3) EditorStore의 모든 메서드/state가 8 service 어딘가에 이전됐는지 grep 검증 후 파일 삭제. 4) 컴포넌트가 EditorStore 직접 import 0 확인 (lint rule 또는 grep).",
+          "risk": "EditorStore 폐기 중 누락된 책임(state) 발견 가능. partial migration 유혹이 있지만 1-사이클 통합 정신상 완전 폐기 권장. 누락 발견 시 적절한 service에 흡수 후 폐기.",
+          "plan_issue": 7,
+          "deps": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd4af-96fa-79a3-9a73-6c360eae8252",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T14:03:40.418Z"
+        },
+        {
+          "id": 18,
+          "title": "activity-bar-runtime system smoke fixture (view 전환 + Side Bar 컨텐츠 교체)",
+          "status": "completed",
+          "context": "I4+I7 결정. Activity Bar 6 view 클릭 시 Side Bar 컨텐츠가 정확히 교체되는지, collapse/expand가 layout에 영향 없이 동작하는지 검증.",
+          "acceptance": "fixture 5회 연속 통과. 6 view 모두 노출 검증. collapse/expand 후 leak 0.",
+          "approach": "기존 packages/app/test/system/ 패턴 따라 activity-bar-runtime.{test.ts,entry.tsx,fixture.html} 작성. 시나리오: (1) 6 view icon 클릭 순회 → 각 view 컨텐츠 노출 검증 (data-activity-view 속성), (2) Cmd+B 토글로 collapse/expand 5회, (3) collapse/expand 후 layout JSON sync 검증, (4) StrictMode mount-stable 5회.",
+          "risk": "view 6개 stub 컴포넌트가 fixture에 필요 — 본 컴포넌트가 변경되면 fixture mock도 갱신 부담.",
+          "plan_issue": 7,
+          "deps": [
+            9,
+            13
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd495-fdd6-76b1-8d0e-960103c127b3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:03:53.795Z"
+        },
+        {
+          "id": 19,
+          "title": "workspace-layout-persist-runtime system smoke fixture (워크스페이스 전환 시 layout 영속/복원)",
+          "status": "completed",
+          "context": "I6+I7 결정. 3개 워크스페이스 동시 열기 + 각자 다른 layout 만든 후 전환 → 정확한 layout 복원 검증. 멀티 워크스페이스 정체성 핵심 가드.",
+          "acceptance": "fixture 5회 연속 통과. layout JSON serialization round-trip lossless. 손상 JSON에서 graceful fallback.",
+          "approach": "activity-bar-runtime와 같은 패턴. 시나리오: (1) 3 워크스페이스 mock 등록, (2) 워크스페이스 1: Editor area에 4분할 + Bottom Panel = bottom, (3) 워크스페이스 2: Editor area 단일 + Bottom Panel = right, (4) 워크스페이스 3: Terminal을 Editor area로 docking, (5) 1↔2↔3 전환 5회 → 각자 layout 정확 복원 검증, (6) localStorage `nx.layout.${workspaceId}` 3개 키 존재 검증, (7) 손상된 JSON 복원 시 default fallback 검증.",
+          "risk": "flexlayout Model 직렬화 포맷이 라이브러리 버전 업데이트로 변경 가능 → fixture가 schema 변경 감지 역할도.",
+          "plan_issue": 6,
+          "deps": [
+            10,
+            14
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd4a3-9c18-7750-8e53-dfb4be9d8008",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:04:05.785Z"
+        },
+        {
+          "id": 20,
+          "title": "기존 system smoke fixture 2개 갱신 (app-file-tree-refresh + file-tree-folder-toggle)",
+          "status": "completed",
+          "context": "I4+I6+I7 결정. 새 4 zone layout (Workspace + Activity Bar + Side Bar + Center) 가정에 맞춰 기존 fixture mock 갱신. file-tree는 이제 Activity Bar Explorer view 컨텍스트 안에서 동작.",
+          "acceptance": "두 fixture 5회 연속 통과. 새 layout 모델 반영. 기존 어서션 (icon loading 0, popper anchor loop 0, watch→refresh 파이프라인) 모두 유지.",
+          "approach": "app-file-tree-refresh-runtime.{entry.tsx,test.ts}: (a) installPreloadMocks에 ActivityBarService/WorkspaceService stub 추가, (b) FileTreePanel가 Side Bar Explorer view 컨텍스트에 mount되도록 wrapper 변경, (c) 어서션의 visible path 추출 로직은 동일. file-tree-folder-toggle-runtime.entry.tsx도 같은 패턴 적용.",
+          "risk": "기존 fixture의 mock surface가 광범위(LSP 17 케이스)했음 — 새 service 모델로 단순화 기회. 그러나 본 사이클 범위는 갱신 한정, refactor 별도.",
+          "plan_issue": 7,
+          "deps": [
+            13,
+            14
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd4a3-d7d8-7cf0-a67c-053f0e4f2095",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:04:18.741Z"
+        },
+        {
+          "id": 21,
+          "title": "Integration test (service 조합) — ActivityBar↔SideBar, EditorGroups↔BottomPanel, Workspace↔EditorGroups",
+          "status": "completed",
+          "context": "I7 결정. 6 layer 테스트 피라미드의 Layer 4. service 단독 unit test로는 잡지 못하는 service 간 협력 시나리오 검증.",
+          "acceptance": "4개 시나리오 통과. service event subscription leak 0 (afterEach cleanup 검증).",
+          "approach": "bun test로 packages/app/src/services/__integration__/ 디렉토리에 작성. 시나리오: (1) ActivityBarService.setActiveView('explorer') → SideBar render content === Explorer, (2) EditorGroupsService.openTab(file) → BottomPanelService 영향 없음, (3) WorkspaceService.activateWorkspace(w2) → EditorGroupsService.deserializeModel(w2 layout), (4) BottomPanelService.setPosition('right') → flexlayout border 위치 변경 + EditorGroups grid 영역 재계산.",
+          "risk": "실제 flexlayout Model 인스턴스를 integration test에서 사용해야 정확 — 단순 mock으로는 race condition 검출 불가.",
+          "plan_issue": 7,
+          "deps": [
+            7,
+            8,
+            9,
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd496-292a-78c3-a629-70bede341426",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-28T14:04:30.735Z"
+        },
+        {
+          "id": 22,
+          "title": "Manual smoke 통과 + 회고 문서화",
+          "status": "completed",
+          "context": "사이클 종결 게이트. 모든 자동 테스트 통과 후 사람 눈으로 8개 이슈 결과 검증 + 사이클 학습을 .nexus/memory/에 기록.",
+          "acceptance": "12개 manual checklist 모두 통과. 회고 문서 작성 후 reviewer 검증.",
+          "approach": "[Manual smoke 체크리스트] (1) 3 워크스페이스 동시 열기, (2) 각 워크스페이스에서 다른 layout 만든 후 전환 → 즉시 복원 확인, (3) Editor area 6분할까지 + 8방향 drop 시각 확인, (4) Terminal을 Bottom Panel ↔ Editor area drag 양방향, (5) Bottom Panel 4방향 위치 이동 (left/right/top/bottom), (6) Activity Bar 6 view 순회 + Side Bar 컨텐츠 교체, (7) 우측 Shared Panel grep 0 확인, (8) 초록 ring grep 0 + active pane 식별 가능, (9) FileTreePanel 헤더 4 아이콘 inline + tooltip 확인, (10) 단축키 4건 동작 (Cmd+J/Cmd+B/Ctrl+~/Cmd+Shift+M), (11) 한국어 IME 자동 게이트 통과, (12) App.tsx ≤300줄, EditorStore 파일 0. [회고 작성] .nexus/memory/empirical-plan33-vscode-superhost-retrospective.md — 무엇이 잘됐나, 무엇이 어려웠나, flexlayout-react 도입 결과(첫 채택 vs fallback), service 분리 ROI, 테스트 피라미드 효과, design.md 재편 효과.",
+          "risk": "manual smoke에서 자동화로 못 잡은 회귀 발견 가능 → 발견 즉시 신규 fixture로 박제 (회귀 가드 정책 정신).",
+          "plan_issue": 7,
+          "deps": [
+            5,
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-04-28T14:04:52.613Z"
+        }
+      ]
     }
   ]
 }

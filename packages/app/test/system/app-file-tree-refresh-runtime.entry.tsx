@@ -46,6 +46,9 @@ interface AppFileTreeRefreshSmokeResult {
   visiblePaths: string[];
   expandedPaths: string[];
   sourceControlErrorSeen: boolean;
+  sourceControlRouteExercised: boolean;
+  explorerSideBarRestored: boolean;
+  fileTreeMountedInExplorerSideBar: boolean;
   contextMenuOpened: boolean;
   reason?: string;
 }
@@ -156,6 +159,8 @@ async function runSmoke(): Promise<void> {
     const { default: App } = await import("../../src/renderer/App");
     createRoot(rootElement).render(createElement(StrictMode, null, createElement(App)));
 
+    await waitForSelector('[data-component="activity-bar"]', 10_000);
+    await waitForSelector('[data-component="side-bar"][data-active-content-id="explorer"]', 10_000);
     await waitForSelector('[data-action="file-tree-toggle"][data-path="src"]', 10_000);
     await clickToggle("src");
     await waitForSelector('[data-file-tree-path="src/components"]');
@@ -166,6 +171,13 @@ async function runSmoke(): Promise<void> {
     await clickToggle("src/components");
     await waitForNoLoadingFileIcons();
     await clickToggle("src/components");
+    await waitForSelector('[data-file-tree-path="src/components/Button.tsx"]');
+    await waitForNoLoadingFileIcons();
+
+    const sourceControlRouteExercised = await exerciseSourceControlRoute();
+    const explorerSideBarRestored =
+      document.querySelector<HTMLElement>('[data-component="side-bar"]')?.dataset.activeContentId === "explorer";
+    const fileTreeMountedInExplorerSideBar = isFileTreeMountedInExplorerSideBar();
     await waitForSelector('[data-file-tree-path="src/components/Button.tsx"]');
     await waitForNoLoadingFileIcons();
 
@@ -226,7 +238,10 @@ async function runSmoke(): Promise<void> {
         visiblePaths.includes("src/components/Button.tsx") &&
         expandedPaths.includes("src") &&
         expandedPaths.includes("src/components") &&
+        sourceControlRouteExercised &&
         sourceControlErrorSeen &&
+        explorerSideBarRestored &&
+        fileTreeMountedInExplorerSideBar &&
         contextMenuOpened,
       errors: fatalErrors,
       allowedErrors,
@@ -243,6 +258,9 @@ async function runSmoke(): Promise<void> {
       visiblePaths,
       expandedPaths,
       sourceControlErrorSeen,
+      sourceControlRouteExercised,
+      explorerSideBarRestored,
+      fileTreeMountedInExplorerSideBar,
       contextMenuOpened,
       reason:
         fatalErrors[0] ??
@@ -255,6 +273,7 @@ async function runSmoke(): Promise<void> {
           ? `File tree refresh did not follow watch burst: reads=${counters.treeReadCount}, watches=${counters.watchEventCount}`
           : undefined) ??
         (!refreshCountIsBounded ? `File tree refreshed too many times: ${counters.treeReadCount}` : undefined) ??
+        (!sourceControlRouteExercised ? "Activity Bar Source Control route was not exercised." : undefined) ??
         (!sourceControlErrorSeen ? "Expected source-control sidecar failure was not exercised." : undefined),
     });
   } catch (error) {
@@ -740,6 +759,35 @@ async function openContextMenuForPath(path: string): Promise<boolean> {
   return true;
 }
 
+async function exerciseSourceControlRoute(): Promise<boolean> {
+  const sourceControlButton = await waitForSelector('[data-activity-view="source-control"]');
+  sourceControlButton.click();
+  await waitForSelector('[data-component="side-bar"][data-active-content-id="source-control"]');
+  await waitForSelector('[data-component="source-control-panel"]');
+  await waitUntil(
+    () =>
+      allowedErrors.some((message) => allowedSourceControlFailurePattern.test(message)) &&
+      ["status", "branch_list", "watch_start"].every((action) => counters.gitInvokeActions.includes(action)),
+    3_000,
+  ).catch(() => undefined);
+
+  const sourceControlRouteActive =
+    document.querySelector<HTMLElement>('[data-component="side-bar"]')?.dataset.activeContentId === "source-control";
+  const sourceControlPanelMounted = document.querySelector('[data-component="source-control-panel"]') !== null;
+
+  const explorerButton = await waitForSelector('[data-activity-view="explorer"]');
+  explorerButton.click();
+  await waitForSelector('[data-component="side-bar"][data-active-content-id="explorer"]');
+  await waitForSelector('[data-component="file-tree-panel"]');
+
+  return sourceControlRouteActive && sourceControlPanelMounted;
+}
+
+function isFileTreeMountedInExplorerSideBar(): boolean {
+  const sideBar = document.querySelector<HTMLElement>('[data-component="side-bar"][data-active-content-id="explorer"]');
+  return sideBar?.querySelector('[data-component="file-tree-panel"]') !== null;
+}
+
 function visibleFileTreePaths(): string[] {
   return Array.from(document.querySelectorAll<HTMLElement>("[data-file-tree-path]"))
     .map((element) => element.dataset.fileTreePath ?? "")
@@ -925,6 +973,10 @@ function failedResult(reason: string): AppFileTreeRefreshSmokeResult {
     visiblePaths: visibleFileTreePaths(),
     expandedPaths: expandedFileTreePaths(),
     sourceControlErrorSeen: allowedErrors.some((message) => allowedSourceControlFailurePattern.test(message)),
+    sourceControlRouteExercised: false,
+    explorerSideBarRestored:
+      document.querySelector<HTMLElement>('[data-component="side-bar"]')?.dataset.activeContentId === "explorer",
+    fileTreeMountedInExplorerSideBar: isFileTreeMountedInExplorerSideBar(),
     contextMenuOpened: false,
     reason,
   };

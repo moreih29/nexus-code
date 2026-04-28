@@ -6,7 +6,7 @@ import type {
 } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
-import { tabIdFor, type EditorBridge, type EditorTab } from "../../../src/renderer/stores/editor-store";
+import { tabIdFor, type EditorBridge, type EditorTab } from "../../../src/renderer/services/editor-model-service";
 import { createWorkspaceStore, type WorkspaceStore } from "../../../src/renderer/stores/workspace-store";
 
 import { stableNow } from "./stability-common";
@@ -193,5 +193,5 @@ function isReactElement(node: ReactNode): node is ReactElement {
 
 function shouldExpandFunctionComponent(type: (props: unknown) => ReactNode): boolean {
   const name = type.name;
-  return name !== "MonacoEditorHost" && !name.startsWith("ContextMenu");
+  return name !== "MonacoEditorHost" && !name.startsWith("ContextMenu") && !name.startsWith("Tooltip");
 }

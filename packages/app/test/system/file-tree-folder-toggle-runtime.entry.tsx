@@ -6,6 +6,14 @@ import type { WorkspaceId } from "../../../shared/src/contracts/workspace/worksp
 import type { OpenSessionWorkspace } from "../../../shared/src/contracts/workspace/workspace-shell";
 import { FileTreePanel } from "../../src/renderer/components/FileTreePanel";
 import type { FileTreePanelProps } from "../../src/renderer/components/FileTreePanel";
+import { ActivityBarPart } from "../../src/renderer/parts/activity-bar";
+import { SideBarPart } from "../../src/renderer/parts/side-bar";
+import {
+  DEFAULT_ACTIVITY_BAR_VIEWS,
+  DEFAULT_SIDE_BAR_WIDTH,
+  type ActivityBarViewId,
+} from "../../src/renderer/services/activity-bar-service";
+import "../../src/renderer/styles.css";
 
 interface SmokeResult {
   ok: boolean;
@@ -13,6 +21,9 @@ interface SmokeResult {
   toggleClicks: number;
   visiblePaths: string[];
   expandedPaths: string[];
+  activityBarViewCount: number;
+  sideBarActiveContentId: string | null;
+  fileTreeMountedInExplorerSideBar: boolean;
   contextMenuOpened?: boolean;
   reason?: string;
 }
@@ -90,8 +101,14 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 function SmokeHarness(): JSX.Element {
+  const [activeViewId, setActiveViewId] = useState<ActivityBarViewId>("explorer");
   const [expandedPaths, setExpandedPaths] = useState<Record<string, true>>({});
   const [selectedTreePath, setSelectedTreePath] = useState<string | null>(null);
+  const activeView = DEFAULT_ACTIVITY_BAR_VIEWS.find((view) => view.id === activeViewId) ?? DEFAULT_ACTIVITY_BAR_VIEWS[0]!;
+  const sideBarRoute = {
+    title: activeView.sideBarTitle,
+    contentId: activeView.sideBarContentId,
+  };
 
   const toggleDirectory = useCallback((path: string) => {
     setExpandedPaths((current) => {
@@ -142,7 +159,49 @@ function SmokeHarness(): JSX.Element {
     onMoveTreeSelection() {},
   };
 
-  return <FileTreePanel {...props} />;
+  return (
+    <div data-fixture="file-tree-folder-toggle-runtime" className="flex h-full min-h-0 bg-background text-foreground">
+      <div
+        data-panel="workspace-strip"
+        className="min-h-0 shrink-0 border-r border-border bg-card/60 p-2 text-xs text-muted-foreground"
+        style={{ flexBasis: 160, width: 160 }}
+      >
+        Smoke Workspace
+      </div>
+      <ActivityBarPart
+        views={DEFAULT_ACTIVITY_BAR_VIEWS}
+        activeViewId={activeViewId}
+        sideBarCollapsed={false}
+        onActiveViewChange={(viewId) => setActiveViewId(viewId)}
+      />
+      <div
+        data-panel="side-bar"
+        className="min-h-0 shrink-0 overflow-hidden"
+        style={{ flexBasis: DEFAULT_SIDE_BAR_WIDTH, width: DEFAULT_SIDE_BAR_WIDTH }}
+      >
+        <SideBarPart
+          route={sideBarRoute}
+          explorer={<FileTreePanel {...props} />}
+          search={<SideBarStub label="Search" />}
+          sourceControl={<SideBarStub label="Source Control" />}
+          tool={<SideBarStub label="Tool" />}
+          session={<SideBarStub label="Session" />}
+          preview={<SideBarStub label="Preview" />}
+        />
+      </div>
+      <main data-panel="center" className="min-h-0 min-w-0 flex-1 p-4">
+        <h1 className="text-sm font-medium">Folder toggle runtime fixture center</h1>
+      </main>
+    </div>
+  );
+}
+
+function SideBarStub({ label }: { label: string }): JSX.Element {
+  return (
+    <section data-sidebar-stub={label.toLowerCase().replaceAll(" ", "-")} className="p-3 text-sm">
+      {label} fixture content
+    </section>
+  );
 }
 
 async function runSmoke(): Promise<void> {
@@ -166,6 +225,9 @@ async function runSmoke(): Promise<void> {
     </StrictMode>,
   );
 
+  await waitForSelector('[data-component="activity-bar"]');
+  await waitForSelector('[data-component="side-bar"][data-active-content-id="explorer"]');
+  await waitForSelector('[data-component="file-tree-panel"]');
   await waitForSelector('[data-action="file-tree-toggle"][data-path="src"]');
 
   let toggleClicks = 0;
@@ -192,16 +254,34 @@ async function runSmoke(): Promise<void> {
   const fatalErrors = capturedErrors.filter((message) =>
     suspiciousMessagePattern.test(message),
   );
+  const sideBarActiveContentId =
+    document.querySelector<HTMLElement>('[data-component="side-bar"]')?.dataset.activeContentId ?? null;
+  const fileTreeMountedInExplorerSideBar = isFileTreeMountedInExplorerSideBar();
 
   publishResult({
-    ok: fatalErrors.length === 0 && visiblePaths.includes("src/components/Button.tsx"),
+    ok:
+      fatalErrors.length === 0 &&
+      sideBarActiveContentId === "explorer" &&
+      fileTreeMountedInExplorerSideBar &&
+      visiblePaths.includes("src/components/Button.tsx"),
     errors: fatalErrors,
     toggleClicks,
     visiblePaths,
     expandedPaths,
+    activityBarViewCount: document.querySelectorAll("[data-activity-view]").length,
+    sideBarActiveContentId,
+    fileTreeMountedInExplorerSideBar,
     contextMenuOpened,
-    reason: fatalErrors[0] ?? undefined,
+    reason:
+      fatalErrors[0] ??
+      (sideBarActiveContentId !== "explorer" ? `Expected Explorer Side Bar, saw ${sideBarActiveContentId ?? "none"}.` : undefined) ??
+      (!fileTreeMountedInExplorerSideBar ? "FileTreePanel was not mounted inside the Explorer Side Bar." : undefined),
   });
+}
+
+function isFileTreeMountedInExplorerSideBar(): boolean {
+  const sideBar = document.querySelector<HTMLElement>('[data-component="side-bar"][data-active-content-id="explorer"]');
+  return sideBar?.querySelector('[data-component="file-tree-panel"]') !== null;
 }
 
 async function openContextMenuForPath(path: string): Promise<boolean> {
@@ -261,6 +341,8 @@ function publishResult(result: SmokeResult): void {
 }
 
 runSmoke().catch((error: unknown) => {
+  const sideBarActiveContentId =
+    document.querySelector<HTMLElement>('[data-component="side-bar"]')?.dataset.activeContentId ?? null;
   publishResult({
     ok: false,
     errors: [stringifyErrorPart(error), ...capturedErrors],
@@ -269,6 +351,9 @@ runSmoke().catch((error: unknown) => {
       .map((element) => element.dataset.fileTreePath ?? "")
       .filter(Boolean),
     expandedPaths: [],
+    activityBarViewCount: document.querySelectorAll("[data-activity-view]").length,
+    sideBarActiveContentId,
+    fileTreeMountedInExplorerSideBar: isFileTreeMountedInExplorerSideBar(),
     reason: stringifyErrorPart(error),
   });
 });

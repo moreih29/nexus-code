@@ -23,7 +23,7 @@ import {
   type EditorPaneState,
   type EditorStore,
   type EditorTab,
-} from "./editor-store";
+} from "./editor-model-service";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 const betaWorkspaceId = "ws_beta" as WorkspaceId;
@@ -65,7 +65,7 @@ const fileTreeNodes: WorkspaceFileTreeNode[] = [
   },
 ];
 
-describe("editor-store center workbench mode", () => {
+describe("editor model service center workbench mode", () => {
   test("defaults to split mode and migrates previous persisted modes", () => {
     globalThis.localStorage?.removeItem(CENTER_WORKBENCH_MODE_STORAGE_KEY);
     const calls: EditorBridgeRequest[] = [];
@@ -134,7 +134,7 @@ describe("editor-store center workbench mode", () => {
   });
 });
 
-describe("editor-store file tree", () => {
+describe("editor model service file tree", () => {
   test("loads tree, toggles directories, runs file actions, and refreshes on fs watch events", async () => {
     const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
@@ -386,7 +386,7 @@ describe("editor-store file tree", () => {
   });
 });
 
-describe("editor-store tabs", () => {
+describe("editor model service tabs", () => {
   test("opens files into editor-max mode, tracks dirty state, saves, applies diagnostics, and closes LSP documents", async () => {
     const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);

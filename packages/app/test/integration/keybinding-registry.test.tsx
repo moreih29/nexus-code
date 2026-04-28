@@ -7,7 +7,7 @@ import {
   DEFAULT_EDITOR_PANE_ID,
   createEditorStore,
   getActiveEditorTabId,
-} from "../../src/renderer/stores/editor-store";
+} from "../../src/renderer/services/editor-model-service";
 import {
   keyboardRegistryStore,
   normalizeKeychord,
@@ -39,6 +39,8 @@ describe("Keybinding registry integration", () => {
     let closeWorkspaceCount = 0;
     let toggleSidebarCount = 0;
     let toggleMaximizeCount = 0;
+    let toggleBottomPanelCount = 0;
+    let terminalFocusCount = 0;
     let splitRightCount = 0;
     const movedDirections: string[] = [];
 
@@ -46,9 +48,15 @@ describe("Keybinding registry integration", () => {
       closeWorkspace: async () => {
         closeWorkspaceCount += 1;
       },
+      dismissSearch() {},
       editorStore,
+      goToNextSearchMatch() {},
       moveActiveEditorTabToPane: (direction) => movedDirections.push(direction),
+      openSearchPanel() {},
       openFolder: async () => {},
+      showTerminalPanel: () => {
+        terminalFocusCount += 1;
+      },
       splitEditorPaneRight: () => {
         splitRightCount += 1;
       },
@@ -56,8 +64,10 @@ describe("Keybinding registry integration", () => {
       toggleActiveCenterPaneMaximize: () => {
         toggleMaximizeCount += 1;
       },
-      toggleSharedPanel() {},
-      toggleWorkspaceSidebar: () => {
+      toggleBottomPanel: () => {
+        toggleBottomPanelCount += 1;
+      },
+      toggleSideBar: () => {
         toggleSidebarCount += 1;
       },
       workspaceStore,
@@ -71,6 +81,9 @@ describe("Keybinding registry integration", () => {
       "Cmd+2": "workspace.switch.2",
       "Cmd+3": "workspace.switch.3",
       "Cmd+Shift+M": "view.toggleCenterPaneMaximize",
+      "Cmd+J": "view.toggleBottomPanel",
+      "Ctrl+`": "view.focusTerminal",
+      "Ctrl+~": "view.focusTerminal",
       "Cmd+\\": "editor.splitRight",
       "Cmd+Alt+ArrowLeft": "editor.moveActiveTabLeft",
       "Cmd+Alt+ArrowRight": "editor.moveActiveTabRight",
@@ -119,10 +132,14 @@ describe("Keybinding registry integration", () => {
     expect(observedScrollOptions).toEqual({ block: "nearest" });
 
     await keyboardRegistryStore.getState().executeCommand("view.toggleCenterPaneMaximize");
+    await keyboardRegistryStore.getState().executeCommand("view.toggleBottomPanel");
+    await keyboardRegistryStore.getState().executeCommand("view.focusTerminal");
     await keyboardRegistryStore.getState().executeCommand("editor.splitRight");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabLeft");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabRight");
     expect(toggleMaximizeCount).toBe(1);
+    expect(toggleBottomPanelCount).toBe(1);
+    expect(terminalFocusCount).toBe(1);
     expect(splitRightCount).toBe(1);
     expect(movedDirections).toEqual(["left", "right"]);
 

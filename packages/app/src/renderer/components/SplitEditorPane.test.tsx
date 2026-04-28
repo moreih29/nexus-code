@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorPaneState, EditorTab } from "../stores/editor-store";
+import type { EditorPaneState, EditorTab } from "../services/editor-model-service";
 import {
   DEFAULT_EDITOR_SPLIT_RATIO,
   EDITOR_SPLIT_PANE_MIN_WIDTH,

@@ -43,6 +43,9 @@ interface ElectronSmokeOutput {
     visiblePaths: string[];
     expandedPaths: string[];
     sourceControlErrorSeen: boolean;
+    sourceControlRouteExercised: boolean;
+    explorerSideBarRestored: boolean;
+    fileTreeMountedInExplorerSideBar: boolean;
     contextMenuOpened: boolean;
     reason?: string;
   };
@@ -94,6 +97,9 @@ describe("app file tree refresh runtime smoke", () => {
     expect(output.rendererResult?.iconLoadingEvents).toEqual([]);
     expect(output.rendererResult?.iconLoadingEventCount).toBe(0);
     expect(output.rendererResult?.monacoWorkerMessages).toEqual([]);
+    expect(output.rendererResult?.fileTreeMountedInExplorerSideBar).toBe(true);
+    expect(output.rendererResult?.sourceControlRouteExercised).toBe(true);
+    expect(output.rendererResult?.explorerSideBarRestored).toBe(true);
     expect(output.rendererResult?.sourceControlErrorSeen).toBe(true);
     expect(output.rendererResult?.gitInvokeActions).toEqual(expect.arrayContaining(["status", "branch_list", "watch_start"]));
     expect(output.rendererResult?.watchEventCount).toBe(8);

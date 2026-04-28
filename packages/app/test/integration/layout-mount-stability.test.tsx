@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
 import {
-  CENTER_TERMINAL_MIN_HEIGHT,
+  CENTER_BOTTOM_PANEL_MIN_SIZE,
   CenterWorkbenchView,
-  clampCenterSplitRatio,
+  clampCenterBottomPanelSize,
 } from "../../src/renderer/components/CenterWorkbench";
 import { PanelResizeHandle } from "../../src/renderer/components/PanelResizeHandle";
 import {
@@ -14,7 +14,7 @@ import {
   migrateCenterWorkbenchMode,
   migrateEditorPanesState,
   tabIdFor,
-} from "../../src/renderer/stores/editor-store";
+} from "../../src/renderer/services/editor-model-service";
 
 import {
   createFakeEditorBridge,
@@ -31,27 +31,25 @@ describe("Layout mount stability integration", () => {
     };
 
     try {
-      const modes = ["split", "editor-max", "terminal-max"] as const;
+      const positions = ["bottom", "top", "left", "right"] as const;
       for (let index = 0; index < 54; index += 1) {
+        const editorMaximized = index % 3 === 1;
         const tree = CenterWorkbenchView({
-          mode: modes[index % modes.length],
-          activePane: index % 2 === 0 ? "editor" : "terminal",
-          onActivePaneChange() {},
-          onModeChange() {},
-          editorPane: <div data-korean-editor="true">편집기 출력 {index}</div>,
-          terminalPane: <div data-korean-terminal="true">터미널 출력 보존</div>,
+          editorArea: <div data-korean-editor="true">편집기 출력 {index}</div>,
+          bottomPanel: <div data-korean-bottom-panel="true">하단 패널 출력 보존</div>,
+          bottomPanelPosition: positions[index % positions.length],
+          bottomPanelExpanded: index % 3 !== 2,
+          bottomPanelSize: 320,
+          editorMaximized,
+          activeArea: index % 2 === 0 ? "editor" : "bottom-panel",
         });
         expect(findElementByPredicate(tree, (element) => element.props?.["data-korean-editor"] === "true")).toBeDefined();
-        expect(findElementByPredicate(tree, (element) => element.props?.["data-korean-terminal"] === "true")).toBeDefined();
-        const hiddenPane = modes[index % modes.length] === "editor-max"
-          ? findElementByPredicate(tree, (element) => element.props?.["data-center-pane"] === "terminal")
-          : modes[index % modes.length] === "terminal-max"
-            ? findElementByPredicate(tree, (element) => element.props?.["data-center-pane"] === "editor")
-            : undefined;
-        if (hiddenPane) {
-          expect(hiddenPane.props.style.visibility).toBe("hidden");
-          expect(hiddenPane.props.style.height).toBe(0);
-          expect(hiddenPane.props.style.display).not.toBe("none");
+        expect(findElementByPredicate(tree, (element) => element.props?.["data-korean-bottom-panel"] === "true")).toBeDefined();
+        const bottomPanel = findElementByPredicate(tree, (element) => element.props?.["data-center-area"] === "bottom-panel");
+        if (editorMaximized || index % 3 === 2) {
+          expect(bottomPanel?.props.style.visibility).toBe("hidden");
+          expect(bottomPanel?.props.style.height).toBe(0);
+          expect(bottomPanel?.props.style.display).not.toBe("none");
         }
       }
     } finally {
@@ -59,7 +57,7 @@ describe("Layout mount stability integration", () => {
     }
 
     expect(errors).toEqual([]);
-    expect(clampCenterSplitRatio(0.99, 300)).toBe((300 - CENTER_TERMINAL_MIN_HEIGHT) / 300);
+    expect(clampCenterBottomPanelSize(1)).toBe(CENTER_BOTTOM_PANEL_MIN_SIZE);
     expect(migrateCenterWorkbenchMode("editor")).toBe("editor-max");
     expect(migrateCenterWorkbenchMode("terminal")).toBe("terminal-max");
     expect(migrateEditorPanesState({ tabs: [createTab("README.md")], activeTabId: "missing" })).toMatchObject({

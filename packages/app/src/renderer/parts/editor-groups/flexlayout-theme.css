@@ -1,0 +1,71 @@
+@import "flexlayout-react/style/alpha_dark.css";
+
+.nexus-flexlayout-spike {
+  --nx-flexlayout-background: var(--color-background);
+  --nx-flexlayout-foreground: var(--color-foreground);
+  --nx-flexlayout-card: var(--color-card);
+  --nx-flexlayout-card-muted: var(--color-muted);
+  --nx-flexlayout-border: var(--color-border);
+  --nx-flexlayout-ring: var(--color-ring);
+  --nx-flexlayout-primary: var(--color-primary);
+  --nx-flexlayout-primary-soft: color-mix(in oklch, var(--color-primary) 24%, transparent);
+  --nx-flexlayout-font: var(--font-sans);
+}
+
+.nexus-flexlayout-spike .flexlayout__layout {
+  --color-text: var(--nx-flexlayout-foreground);
+  --color-background: var(--nx-flexlayout-background);
+  --color-base: var(--nx-flexlayout-background);
+  --color-1: var(--nx-flexlayout-card);
+  --color-2: var(--nx-flexlayout-border);
+  --color-3: var(--nx-flexlayout-card-muted);
+  --color-4: var(--nx-flexlayout-border);
+  --color-5: var(--nx-flexlayout-foreground);
+  --color-6: var(--nx-flexlayout-foreground);
+  --color-tabset-background: var(--nx-flexlayout-card);
+  --color-tabset-background-selected: var(--nx-flexlayout-card);
+  --color-tabset-background-maximized: var(--nx-flexlayout-card);
+  --color-tabset-divider-line: var(--nx-flexlayout-border);
+  --color-border-tab-content: var(--nx-flexlayout-background);
+  --color-border-background: var(--nx-flexlayout-card);
+  --color-border-divider-line: var(--nx-flexlayout-border);
+  --color-tab-content: var(--nx-flexlayout-background);
+  --color-tab-selected: var(--nx-flexlayout-foreground);
+  --color-tab-selected-background: var(--nx-flexlayout-background);
+  --color-tab-unselected: var(--nx-flexlayout-foreground);
+  --color-tab-unselected-background: transparent;
+  --color-border-tab-selected: var(--nx-flexlayout-foreground);
+  --color-border-tab-selected-background: var(--nx-flexlayout-background);
+  --color-border-tab-unselected: var(--nx-flexlayout-foreground);
+  --color-border-tab-unselected-background: var(--nx-flexlayout-card);
+  --color-splitter: var(--nx-flexlayout-border);
+  --color-splitter-hover: var(--nx-flexlayout-primary);
+  --color-splitter-drag: var(--nx-flexlayout-primary);
+  --color-splitter-handle: var(--nx-flexlayout-primary);
+  --color-drag1: var(--nx-flexlayout-primary);
+  --color-drag2: var(--nx-flexlayout-ring);
+  --color-drag1-background: var(--nx-flexlayout-primary-soft);
+  --color-drag2-background: var(--nx-flexlayout-primary-soft);
+  --color-drag-rect-border: var(--nx-flexlayout-primary);
+  --color-drag-rect-background: var(--nx-flexlayout-card);
+  --color-drag-rect: var(--nx-flexlayout-foreground);
+  --color-edge-marker: var(--nx-flexlayout-primary);
+  --color-edge-icon: var(--nx-flexlayout-background);
+  --color-toolbar-button-hover: var(--nx-flexlayout-card-muted);
+  --color-float-window-header-background: var(--nx-flexlayout-card);
+  --font-family: var(--nx-flexlayout-font);
+  --splitter-size: 1px;
+  --splitter-active-size: 8px;
+}
+
+.nexus-flexlayout-spike .flexlayout__tabset-selected,
+.nexus-flexlayout-spike .flexlayout__tabset-maximized {
+  background-image: none;
+}
+
+.nexus-flexlayout-spike .nexus-flexlayout-spike__pane {
+  height: 100%;
+  padding: 0.75rem;
+  background: var(--nx-flexlayout-background);
+  color: var(--nx-flexlayout-foreground);
+}

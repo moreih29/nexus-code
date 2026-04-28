@@ -12,7 +12,7 @@ import {
   DEFAULT_EDITOR_PANE_ID,
   SECONDARY_EDITOR_PANE_ID,
   tabIdFor,
-} from "../../src/renderer/stores/editor-store";
+} from "../../src/renderer/services/editor-model-service";
 import { shouldIgnoreKeyboardShortcut } from "../../src/renderer/stores/keyboard-registry";
 
 import {
@@ -28,15 +28,15 @@ import {
 describe("CJK regression coverage for new integration surfaces", () => {
   test("workspace strip, filetree, editor split, maximize rendering, and IME guards keep Korean text stable", () => {
     const maximizedWorkbench = CenterWorkbenchView({
-      mode: "editor-max",
-      activePane: "editor",
-      onActivePaneChange() {},
-      onModeChange() {},
-      editorPane: <div data-korean-editor="true">편집기 출력</div>,
-      terminalPane: <div data-korean-terminal="true">터미널 출력 보존</div>,
+      editorArea: <div data-korean-editor="true">편집기 출력</div>,
+      bottomPanel: <div data-korean-bottom-panel="true">하단 패널 출력 보존</div>,
+      bottomPanelPosition: "bottom",
+      bottomPanelExpanded: true,
+      bottomPanelSize: 320,
+      editorMaximized: true,
     });
     expect(findElementByPredicate(maximizedWorkbench, (element) => element.props?.["data-korean-editor"] === "true")).toBeDefined();
-    expect(findElementByPredicate(maximizedWorkbench, (element) => element.props?.["data-korean-terminal"] === "true")).toBeDefined();
+    expect(findElementByPredicate(maximizedWorkbench, (element) => element.props?.["data-korean-bottom-panel"] === "true")).toBeDefined();
 
     const workspaceStrip = WorkspaceStripView({
       sidebarState: {

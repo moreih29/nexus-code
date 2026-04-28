@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTab } from "../stores/editor-store";
+import type { EditorTab } from "../services/editor-model-service";
 import {
   createTabContextMenuItems,
   runTabContextMenuAction,

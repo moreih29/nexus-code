@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTab } from "../stores/editor-store";
+import type { EditorTab } from "../services/editor-model-service";
 import { DiffEditorHost } from "./DiffEditorHost";
 import { EditorPaneView } from "./EditorPane";
 import { MonacoEditorHost } from "./MonacoEditorHost";
@@ -66,7 +66,12 @@ describe("EditorPaneView", () => {
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-close-tab")).toBeDefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-split-right")).toBeDefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeDefined();
-    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane")?.props.className)).toContain("ring-1 ring-inset ring-[var(--color-ring)]");
+    const paneClassName = String(findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane")?.props.className);
+    expect(paneClassName).not.toContain("ring-1 ring-inset");
+    expect(paneClassName).toContain("focus-visible:outline-1");
+    expect(paneClassName).toContain("focus-visible:outline-offset-[-1px]");
+    expect(paneClassName).toContain("has-[:focus-visible]:outline-1");
+    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-pane-header"] === "true")?.props.className)).toContain("bg-card");
     expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "true")?.props.className)).toContain("font-semibold text-foreground");
     expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeDefined();
   });
@@ -89,6 +94,13 @@ describe("EditorPaneView", () => {
         (element) => element.props?.["data-editor-tab-title-active"] === "true",
       )?.props.className,
     );
+    const headerClassName = String(
+      findElementByPredicate(
+        tree,
+        (element) => element.props?.["data-editor-pane-header"] === "true",
+      )?.props.className,
+    );
+    expect(headerClassName).toContain("bg-card/60");
     expect(titleClassName).toContain("font-normal text-muted-foreground");
     expect(titleClassName).not.toContain("font-semibold text-foreground");
   });

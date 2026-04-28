@@ -8,7 +8,7 @@ import type {
   EditorTab,
   EditorTabId,
   EditorStoreState,
-} from "../stores/editor-store";
+} from "../services/editor-model-service";
 import { cn } from "@/lib/utils";
 import {
   createEditorTabDragData,
@@ -19,6 +19,9 @@ import { Button } from "./ui/button";
 import { EmptyState } from "./EmptyState";
 import { DiffEditorHost } from "./DiffEditorHost";
 import { MonacoEditorHost } from "./MonacoEditorHost";
+
+const PANE_FOCUS_VISIBLE_OUTLINE_CLASS =
+  "outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-ring has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-offset-[-1px] has-[:focus-visible]:outline-ring";
 
 export interface EditorPaneProps {
   activeWorkspaceName?: string | null;
@@ -82,7 +85,7 @@ export function EditorPaneView({
         data-active={active ? "true" : "false"}
         role="region"
         aria-label="Editor pane"
-        className={cn("h-full bg-background", active && "ring-1 ring-inset ring-[var(--color-ring)]")}
+        className={cn("h-full bg-background", PANE_FOCUS_VISIBLE_OUTLINE_CLASS)}
         onFocusCapture={handleActivatePane}
         onPointerDown={handleActivatePane}
       >
@@ -103,7 +106,7 @@ export function EditorPaneView({
         data-active={active ? "true" : "false"}
         role="region"
         aria-label="Editor pane"
-        className={cn("h-full bg-background", active && "ring-1 ring-inset ring-[var(--color-ring)]")}
+        className={cn("h-full bg-background", PANE_FOCUS_VISIBLE_OUTLINE_CLASS)}
         onFocusCapture={handleActivatePane}
         onPointerDown={handleActivatePane}
       >
@@ -124,13 +127,19 @@ export function EditorPaneView({
       role="region"
       aria-label="Editor pane"
       className={cn(
-        "flex h-full min-h-0 flex-col bg-background transition-[box-shadow]",
-        active && "ring-1 ring-inset ring-[var(--color-ring)]",
+        "flex h-full min-h-0 flex-col bg-background",
+        PANE_FOCUS_VISIBLE_OUTLINE_CLASS,
       )}
       onFocusCapture={handleActivatePane}
       onPointerDown={handleActivatePane}
     >
-      <header className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2">
+      <header
+        data-editor-pane-header="true"
+        className={cn(
+          "flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2",
+          active ? "bg-card" : "bg-card/60",
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Open files">
           <EditorTabSortableContext paneId={paneId} tabs={tabs} enabled={enableTabDrag}>
             {tabs.map((tab, index) => {
