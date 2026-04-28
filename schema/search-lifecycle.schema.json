@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/search-lifecycle.schema.json",
+  "title": "SearchLifecycleMessage",
+  "oneOf": [
+    { "$ref": "#/$defs/searchStartCommand" },
+    { "$ref": "#/$defs/searchCancelCommand" },
+    { "$ref": "#/$defs/searchStartedReply" },
+    { "$ref": "#/$defs/searchCompletedEvent" },
+    { "$ref": "#/$defs/searchFailedEvent" },
+    { "$ref": "#/$defs/searchCanceledEvent" }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "searchLifecycleAction": {
+      "type": "string",
+      "enum": ["start", "cancel", "started", "completed", "failed", "canceled"]
+    },
+    "searchFailureState": {
+      "type": "string",
+      "enum": ["unavailable", "error"]
+    },
+    "searchOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseSensitive",
+        "regex",
+        "wholeWord",
+        "includeGlobs",
+        "excludeGlobs"
+      ],
+      "properties": {
+        "caseSensitive": {
+          "type": "boolean",
+          "description": "When false, sidecar invokes ripgrep with --ignore-case."
+        },
+        "regex": {
+          "type": "boolean",
+          "description": "When false, sidecar invokes ripgrep with --fixed-strings."
+        },
+        "wholeWord": {
+          "type": "boolean",
+          "description": "When true, sidecar invokes ripgrep with --word-regexp."
+        },
+        "includeGlobs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "ripgrep --glob include patterns."
+        },
+        "excludeGlobs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "ripgrep --glob exclude patterns; sidecar prefixes these with ! when invoking rg."
+        },
+        "useGitIgnore": {
+          "type": "boolean",
+          "default": true,
+          "description": "Defaults to true. When false, sidecar invokes ripgrep with --no-ignore."
+        }
+      }
+    },
+    "searchStartCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "sessionId",
+        "query",
+        "cwd",
+        "options"
+      ],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "start" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "query": { "type": "string", "minLength": 1 },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NFC-normalized absolute workspace filesystem path"
+        },
+        "options": { "$ref": "#/$defs/searchOptions" }
+      }
+    },
+    "searchCancelCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "sessionId"],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "cancel" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" }
+      }
+    },
+    "searchStartedReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "sessionId", "ripgrepPath", "startedAt"],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "started" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "ripgrepPath": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "searchCompletedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "sessionId",
+        "matchCount",
+        "fileCount",
+        "truncated",
+        "exitCode",
+        "completedAt"
+      ],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "completed" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "matchCount": { "type": "integer", "minimum": 0 },
+        "fileCount": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "exitCode": { "type": ["integer", "null"] },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "searchFailedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "requestId",
+        "workspaceId",
+        "sessionId",
+        "state",
+        "message",
+        "exitCode",
+        "failedAt"
+      ],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "failed" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "state": { "$ref": "#/$defs/searchFailureState" },
+        "message": { "type": "string" },
+        "exitCode": { "type": ["integer", "null"] },
+        "failedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "searchCanceledEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "workspaceId",
+        "sessionId",
+        "matchCount",
+        "fileCount",
+        "truncated",
+        "canceledAt"
+      ],
+      "properties": {
+        "type": { "const": "search/lifecycle" },
+        "action": { "const": "canceled" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "matchCount": { "type": "integer", "minimum": 0 },
+        "fileCount": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "canceledAt": { "type": "string", "format": "date-time" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

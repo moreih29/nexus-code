@@ -7,6 +7,7 @@ import type {
   LspWorkspaceEditApplicationResult,
 } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import { registerMergeConflictCodeLensProvider } from "./MergeConflictCodeLens";
 import { mapLspDiagnosticsToMonacoMarkers } from "../editor/monaco-lsp-markers";
 import { registerLspCodeActionProvider } from "../editor/monaco-providers/code-action-provider";
 import { registerLspCompletionProvider } from "../editor/monaco-providers/completion-provider";
@@ -91,6 +92,7 @@ export function MonacoEditorHost({
     let disposed = false;
     let contentDisposable: MonacoDisposable | null = null;
     let lspProviderDisposables: MonacoDisposable[] = [];
+    let mergeConflictCodeLensDisposable: MonacoDisposable | null = null;
 
     void import("monaco-editor").then((monaco) => {
       if (disposed) {
@@ -99,6 +101,7 @@ export function MonacoEditorHost({
 
       monacoRef.current = monaco;
       defineNexusTheme(monaco);
+      mergeConflictCodeLensDisposable = registerMergeConflictCodeLensProvider(monaco);
       const model = acquireMonacoModel(monaco, workspaceId, path, languageId, valueRef.current);
       const editor = monaco.editor.create(host, {
         model,
@@ -211,6 +214,7 @@ export function MonacoEditorHost({
       for (const lspProviderDisposable of lspProviderDisposables) {
         lspProviderDisposable.dispose();
       }
+      mergeConflictCodeLensDisposable?.dispose();
       editorRef.current?.dispose();
       if (monacoRef.current && modelRef.current) {
         releaseMonacoModel(monacoRef.current, modelRef.current);

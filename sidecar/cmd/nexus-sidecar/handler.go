@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"nexus-code/sidecar/internal/contracts"
+	sidecargit "nexus-code/sidecar/internal/git"
 	"nexus-code/sidecar/internal/harness"
 	"nexus-code/sidecar/internal/lsp"
+	"nexus-code/sidecar/internal/search"
 	"nexus-code/sidecar/internal/wsx"
 )
 
@@ -19,12 +21,14 @@ import (
 // TS 측 generated contracts(`packages/shared/src/contracts/generated/sidecar-lifecycle.ts`)와
 // 같은 값을 공유하며, drift 검증은 `.github/workflows/contracts-drift.yml`의 Go diff 단계가 담당한다.
 const (
-	typeSidecarStartCommand = "sidecar/start"
-	typeSidecarStartedEvent = "sidecar/started"
-	typeSidecarStopCommand  = "sidecar/stop"
-	typeSidecarStoppedEvent = "sidecar/stopped"
-	typeLspLifecycleMessage = "lsp/lifecycle"
-	typeLspRelayMessage     = "lsp/relay"
+	typeSidecarStartCommand    = "sidecar/start"
+	typeSidecarStartedEvent    = "sidecar/started"
+	typeSidecarStopCommand     = "sidecar/stop"
+	typeSidecarStoppedEvent    = "sidecar/stopped"
+	typeLspLifecycleMessage    = "lsp/lifecycle"
+	typeLspRelayMessage        = "lsp/relay"
+	typeSearchLifecycleMessage = "search/lifecycle"
+	typeGitLifecycleMessage    = "git/lifecycle"
 
 	closeTimeout = 5 * time.Second
 )
@@ -39,8 +43,10 @@ type LifecycleHandler struct {
 	mu     sync.RWMutex
 	server wsx.Server
 
-	harnessObserver *harness.ServerObserver
-	lspSupervisor   *lsp.Supervisor
+	harnessObserver  *harness.ServerObserver
+	lspSupervisor    *lsp.Supervisor
+	searchSupervisor *search.Supervisor
+	gitSupervisor    *sidecargit.Supervisor
 }
 
 func NewLifecycleHandler(workspaceID string, bootTime time.Time, exit func(int)) *LifecycleHandler {
@@ -51,6 +57,12 @@ func NewLifecycleHandler(workspaceID string, bootTime time.Time, exit func(int))
 		harnessObserver: harness.NewObserver(contracts.WorkspaceID(workspaceID)),
 	}
 	handler.lspSupervisor = lsp.NewSupervisor(lsp.SupervisorOptions{
+		Emit: handler.send,
+	})
+	handler.searchSupervisor = search.NewSupervisor(search.SupervisorOptions{
+		Emit: handler.send,
+	})
+	handler.gitSupervisor = sidecargit.NewSupervisor(sidecargit.SupervisorOptions{
 		Emit: handler.send,
 	})
 	return handler
@@ -84,6 +96,10 @@ func (h *LifecycleHandler) OnMessage(ctx context.Context, raw []byte) error {
 		return h.handleLspLifecycle(ctx, raw)
 	case typeLspRelayMessage:
 		return h.handleLspRelay(ctx, raw)
+	case typeSearchLifecycleMessage:
+		return h.handleSearchLifecycle(ctx, raw)
+	case typeGitLifecycleMessage:
+		return h.gitSupervisor.HandleLifecycle(ctx, raw, h.workspaceID)
 	default:
 		fmt.Fprintf(os.Stderr, "WARN: unknown lifecycle message type %q\n", envelope.Type)
 		if server := h.getServer(); server != nil {
@@ -93,7 +109,9 @@ func (h *LifecycleHandler) OnMessage(ctx context.Context, raw []byte) error {
 	}
 }
 
-func (h *LifecycleHandler) OnClose(int, string) {}
+func (h *LifecycleHandler) OnClose(int, string) {
+	_ = h.gitSupervisor.ShutdownAll(context.Background(), nil)
+}
 
 func (h *LifecycleHandler) SendStopped(ctx context.Context, exitCode *int) error {
 	server := h.getServer()
@@ -141,6 +159,8 @@ func (h *LifecycleHandler) handleStop(ctx context.Context, raw []byte) error {
 
 	workspaceID := contracts.WorkspaceID(h.workspaceID)
 	_ = h.lspSupervisor.ShutdownAll(ctx, &workspaceID, contracts.LspServerStopReasonSidecarStop)
+	_ = h.searchSupervisor.ShutdownAll(ctx, &workspaceID)
+	_ = h.gitSupervisor.ShutdownAll(ctx, &workspaceID)
 
 	zero := 0
 	if err := h.SendStopped(ctx, &zero); err != nil {
@@ -214,6 +234,38 @@ func (h *LifecycleHandler) handleLspRelay(ctx context.Context, raw []byte) error
 		return fmt.Errorf("unmarshal LspClientPayloadMessage: %w", err)
 	}
 	return h.lspSupervisor.RelayClientPayload(ctx, msg)
+}
+
+func (h *LifecycleHandler) handleSearchLifecycle(ctx context.Context, raw []byte) error {
+	var envelope struct {
+		Action contracts.SearchLifecycleAction `json:"action"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("unmarshal search lifecycle envelope: %w", err)
+	}
+
+	switch envelope.Action {
+	case contracts.SearchLifecycleActionStart:
+		var cmd contracts.SearchStartCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal SearchStartCommand: %w", err)
+		}
+		if string(cmd.WorkspaceID) != h.workspaceID {
+			return fmt.Errorf("workspaceId mismatch: got %q", cmd.WorkspaceID)
+		}
+		return h.searchSupervisor.Start(ctx, cmd)
+	case contracts.SearchLifecycleActionCancel:
+		var cmd contracts.SearchCancelCommand
+		if err := json.Unmarshal(raw, &cmd); err != nil {
+			return fmt.Errorf("unmarshal SearchCancelCommand: %w", err)
+		}
+		if string(cmd.WorkspaceID) != h.workspaceID {
+			return fmt.Errorf("workspaceId mismatch: got %q", cmd.WorkspaceID)
+		}
+		return h.searchSupervisor.Cancel(ctx, cmd)
+	default:
+		return fmt.Errorf("unknown search lifecycle action %q", envelope.Action)
+	}
 }
 
 func (h *LifecycleHandler) send(ctx context.Context, msg any) error {

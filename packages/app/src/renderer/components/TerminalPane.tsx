@@ -109,6 +109,12 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
       terminalTabsRef.current?.writeToTab(stdoutChunk.tabId, stdoutChunk.data);
     });
 
+    const openedSubscription = bridge.onOpened((openedEvent) => {
+      enqueueTabsOperation("register opened terminal tab", (tabs) => {
+        tabs.registerOpenedTab(openedEvent.workspaceId, openedEvent.tabId, true);
+      });
+    });
+
     const exitedSubscription = bridge.onExited((exitEvent) => {
       enqueueTabsOperation("cleanup exited tab", (tabs) => {
         tabs.handleTabExited(exitEvent.tabId);
@@ -119,6 +125,7 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
       disposedRef.current = true;
 
       stdoutSubscription.dispose();
+      openedSubscription.dispose();
       exitedSubscription.dispose();
 
       resizeFitSubscription.dispose();

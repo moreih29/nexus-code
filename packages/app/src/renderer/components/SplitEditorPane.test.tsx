@@ -17,6 +17,8 @@ import {
   persistEditorSplitRatio,
   readStoredEditorSplitRatio,
 } from "./SplitEditorPane";
+import { createEditorSplitRightDropData, createEditorTabDragData } from "./editor-tabs/drag-and-drop";
+import { writeFileTreeDragDataTransfer } from "./file-tree-dnd/drag-and-drop";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 
@@ -48,6 +50,10 @@ describe("SplitEditorPane", () => {
       activePaneId: "p0",
       onActivatePane: (paneId) => calls.push(`activate-pane:${paneId}`),
       onSplitRight: () => calls.push("split"),
+      onReorderTab: (paneId, oldIndex, newIndex) => calls.push(`reorder:${paneId}:${oldIndex}:${newIndex}`),
+      onMoveTabToPane: (sourcePaneId, targetPaneId, tabId, targetIndex) =>
+        calls.push(`move:${sourcePaneId}:${targetPaneId}:${tabId}:${targetIndex}`),
+      onSplitTabRight: (sourcePaneId, tabId) => calls.push(`split-tab:${sourcePaneId}:${tabId}`),
       onActivateTab: (paneId, tabId) => calls.push(`activate-tab:${paneId}:${tabId}`),
       onCloseTab: (paneId, tabId) => calls.push(`close-tab:${paneId}:${tabId}`),
       onSaveTab: (tabId) => calls.push(`save:${tabId}`),
@@ -149,6 +155,52 @@ describe("SplitEditorPane", () => {
     expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-split-pane"] === "p0")?.props.style.flexBasis).toBe("100%");
   });
 
+  test("renders the right-edge split drop zone only for one-pane tab drags", () => {
+    const panes: EditorPaneState[] = [
+      {
+        id: "p0",
+        tabs: [createTab("src/index.ts")],
+        activeTabId: `${workspaceId}::src/index.ts`,
+      },
+    ];
+    const activeDrag = createEditorTabDragData("p0", `${workspaceId}::src/index.ts`, 0);
+
+    const onePaneTree = SplitEditorPaneView({
+      ...baseProps(),
+      panes,
+      enableTabDrag: false,
+      editorTabDragActive: activeDrag,
+      editorTabDragOver: createEditorSplitRightDropData(),
+    });
+    const dropZone = findElementByPredicate(
+      onePaneTree,
+      (element) => element.props?.["data-editor-tab-split-drop-zone"] === "right",
+    );
+    expect(dropZone).toBeDefined();
+    expect(dropZone?.props["data-editor-tab-split-drop-over"]).toBe("true");
+    expect(String(dropZone?.props.className)).toContain("w-20");
+
+    const twoPaneTree = SplitEditorPaneView({
+      ...baseProps(),
+      panes: [
+        panes[0]!,
+        {
+          id: "p1",
+          tabs: [],
+          activeTabId: null,
+        },
+      ],
+      enableTabDrag: false,
+      editorTabDragActive: activeDrag,
+    });
+    expect(
+      findElementByPredicate(
+        twoPaneTree,
+        (element) => element.props?.["data-editor-tab-split-drop-zone"] === "right",
+      ),
+    ).toBeUndefined();
+  });
+
   test("reads and writes persisted split ratio from localStorage", () => {
     const storage = installMemoryLocalStorage();
 
@@ -192,6 +244,98 @@ describe("SplitEditorPane", () => {
       ),
     ).toHaveLength(2);
   });
+
+  test("accepts file-tree drops on a specific editor pane and opens files there", () => {
+    const calls: Array<[string, WorkspaceId, string]> = [];
+    const panes: EditorPaneState[] = [
+      {
+        id: "p0",
+        tabs: [createTab("src/left.ts")],
+        activeTabId: `${workspaceId}::src/left.ts`,
+      },
+      {
+        id: "p1",
+        tabs: [createTab("src/right.ts")],
+        activeTabId: `${workspaceId}::src/right.ts`,
+      },
+    ];
+    const dataTransfer = fakeDataTransfer();
+    writeFileTreeDragDataTransfer(dataTransfer as never, {
+      workspaceId,
+      path: "src/index.ts",
+      kind: "file",
+    });
+    const tree = SplitEditorPaneView({
+      ...baseProps(),
+      panes,
+      onOpenFileFromTreeDrop(paneId, workspaceId, path) {
+        calls.push([paneId, workspaceId, path]);
+      },
+    });
+    const rightPane = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-editor-split-pane"] === "p1",
+    );
+
+    const dragOverEvent = fakeDragEvent(dataTransfer);
+    rightPane?.props.onDragOver(dragOverEvent);
+    expect(dragOverEvent.prevented).toBe(true);
+    expect(dataTransfer.dropEffect).toBe("copy");
+
+    const dropEvent = fakeDragEvent(dataTransfer);
+    rightPane?.props.onDrop(dropEvent);
+    expect(dropEvent.prevented).toBe(true);
+    expect(calls).toEqual([["p1", workspaceId, "src/index.ts"]]);
+  });
+
+  test("smoke-verifies 10 file-tree to editor-pane drops", () => {
+    const calls: Array<[string, WorkspaceId, string]> = [];
+    const panes: EditorPaneState[] = [
+      {
+        id: "p0",
+        tabs: [createTab("src/left.ts")],
+        activeTabId: `${workspaceId}::src/left.ts`,
+      },
+      {
+        id: "p1",
+        tabs: [createTab("src/right.ts")],
+        activeTabId: `${workspaceId}::src/right.ts`,
+      },
+    ];
+    const tree = SplitEditorPaneView({
+      ...baseProps(),
+      panes,
+      onOpenFileFromTreeDrop(paneId, workspaceId, path) {
+        calls.push([paneId, workspaceId, path]);
+      },
+    });
+    const rightPane = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-editor-split-pane"] === "p1",
+    );
+
+    for (let index = 0; index < 10; index += 1) {
+      const dataTransfer = fakeDataTransfer();
+      writeFileTreeDragDataTransfer(dataTransfer as never, {
+        workspaceId,
+        path: `src/drop-${index}.ts`,
+        kind: "file",
+      });
+
+      const dragOverEvent = fakeDragEvent(dataTransfer);
+      rightPane?.props.onDragOver(dragOverEvent);
+      expect(dragOverEvent.prevented).toBe(true);
+      expect(dataTransfer.dropEffect).toBe("copy");
+
+      const dropEvent = fakeDragEvent(dataTransfer);
+      rightPane?.props.onDrop(dropEvent);
+      expect(dropEvent.prevented).toBe(true);
+    }
+
+    expect(calls).toEqual(
+      Array.from({ length: 10 }, (_, index) => ["p1", workspaceId, `src/drop-${index}.ts`] as const),
+    );
+  });
 });
 
 function baseProps(): Omit<Parameters<typeof SplitEditorPaneView>[0], "panes"> {
@@ -201,6 +345,9 @@ function baseProps(): Omit<Parameters<typeof SplitEditorPaneView>[0], "panes"> {
     activePaneId: "p0",
     onActivatePane() {},
     onSplitRight() {},
+    onReorderTab() {},
+    onMoveTabToPane() {},
+    onSplitTabRight() {},
     onActivateTab() {},
     onCloseTab() {},
     onSaveTab() {},
@@ -242,7 +389,10 @@ function findElementsByPredicate(
   if (isReactElement(node)) {
     const matches = predicate(node) ? [node] : [];
 
-    if (typeof node.type === "function" && node.type.name !== "MonacoEditorHost") {
+    if (
+      typeof node.type === "function" &&
+      !["MonacoEditorHost", "TabContextMenu", "ContextMenu"].includes(node.type.name)
+    ) {
       return [...matches, ...findElementsByPredicate(node.type(node.props), predicate)];
     }
 
@@ -289,4 +439,44 @@ function installMemoryLocalStorage(): Storage {
   });
 
   return storage;
+}
+
+function fakeDataTransfer() {
+  const values = new Map<string, string>();
+  const types: string[] = [];
+  return {
+    types,
+    files: [],
+    effectAllowed: "all",
+    dropEffect: "move",
+    setData(type: string, value: string) {
+      if (!types.includes(type)) {
+        types.push(type);
+      }
+      values.set(type, value);
+    },
+    getData(type: string) {
+      return values.get(type) ?? "";
+    },
+  };
+}
+
+function fakeDragEvent(dataTransfer: ReturnType<typeof fakeDataTransfer>) {
+  return {
+    dataTransfer,
+    relatedTarget: null,
+    currentTarget: {
+      contains() {
+        return false;
+      },
+    },
+    prevented: false,
+    stopped: false,
+    preventDefault() {
+      this.prevented = true;
+    },
+    stopPropagation() {
+      this.stopped = true;
+    },
+  };
 }

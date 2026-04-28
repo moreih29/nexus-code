@@ -19,6 +19,10 @@ const schemas = [
   "harness-observer",
   "lsp-lifecycle",
   "lsp-relay",
+  "search-lifecycle",
+  "search-relay",
+  "git-lifecycle",
+  "git-relay",
 ] as const;
 
 const brandImports: Record<string, string[]> = {
@@ -32,6 +36,10 @@ const brandImports: Record<string, string[]> = {
   "harness-observer": ["WorkspaceId"],
   "lsp-lifecycle": ["WorkspaceId"],
   "lsp-relay": ["WorkspaceId"],
+  "search-lifecycle": ["WorkspaceId"],
+  "search-relay": ["WorkspaceId"],
+  "git-lifecycle": ["WorkspaceId"],
+  "git-relay": ["WorkspaceId"],
 };
 
 await mkdir(outputDir, { recursive: true });

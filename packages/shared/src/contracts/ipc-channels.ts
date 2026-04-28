@@ -4,6 +4,14 @@ export const TERMINAL_EVENT_CHANNEL = "terminal:event";
 export const EDITOR_BRIDGE_INVOKE_CHANNEL = "editor-bridge:invoke";
 export const EDITOR_BRIDGE_EVENT_CHANNEL = "editor-bridge:event";
 
+export const SEARCH_BRIDGE_INVOKE_CHANNEL = "search-bridge:invoke";
+export const SEARCH_BRIDGE_EVENT_CHANNEL = "search-bridge:event";
+
+export const GIT_BRIDGE_INVOKE_CHANNEL = "git-bridge:invoke";
+export const GIT_BRIDGE_EVENT_CHANNEL = "git-bridge:event";
+
+export const FILE_ACTIONS_INVOKE_CHANNEL = "file-actions:invoke";
+
 export const HARNESS_OBSERVER_EVENT_CHANNEL = "harness:observer-event";
 
 export const CLAUDE_SETTINGS_CONSENT_REQUEST_CHANNEL = "claude-settings:consent-request";

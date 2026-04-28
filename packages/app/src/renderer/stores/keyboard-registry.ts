@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 
-export type CommandGroup = "Workspace" | "View" | "Editor" | "Terminal" | "App";
+export type CommandGroup = "Workspace" | "View" | "Editor" | "Terminal" | "Search" | "App";
 
 export interface Command {
   group: CommandGroup;

@@ -3,11 +3,14 @@ import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { EditorTab } from "../stores/editor-store";
+import { DiffEditorHost } from "./DiffEditorHost";
 import { EditorPaneView } from "./EditorPane";
 import { MonacoEditorHost } from "./MonacoEditorHost";
+import { TabContextMenu } from "./tab-context-menu";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 const tab: EditorTab = {
+  kind: "file",
   id: "ws_alpha::src/index.ts",
   workspaceId,
   path: "src/index.ts",
@@ -113,6 +116,148 @@ describe("EditorPaneView", () => {
     expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "false")?.props.className)).toContain("font-normal text-muted-foreground");
   });
 
+  test("renders a 1px primary drop indicator between tabs during tab drag", () => {
+    const inactiveTab: EditorTab = {
+      ...tab,
+      id: "ws_alpha::README.md",
+      path: "README.md",
+      title: "README.md",
+      dirty: false,
+      diagnostics: [],
+    };
+    const tree = EditorPaneView({
+      activeWorkspaceName: "Alpha",
+      active: true,
+      tabs: [tab, inactiveTab],
+      activeTabId: tab.id,
+      tabDropIndicatorIndex: 1,
+      onActivateTab() {},
+      onCloseTab() {},
+      onSaveTab() {},
+      onChangeContent() {},
+    });
+
+    const indicator = findElementByPredicate(
+      tree,
+      (element) => element.props?.["data-editor-tab-drop-indicator"] === "true",
+    );
+    expect(indicator).toBeDefined();
+    expect(String(indicator?.props.className)).toContain("w-px");
+    expect(String(indicator?.props.className)).toContain("bg-primary");
+  });
+
+  test("renders diff tabs with GitCompare title, read-only badge, and DiffEditorHost", () => {
+    const diffTab: EditorTab = {
+      kind: "diff",
+      id: "diff::alpha",
+      workspaceId,
+      path: "src/a.ts ↔ src/b.ts",
+      title: "a.ts ↔ b.ts",
+      content: "",
+      savedContent: "",
+      version: "",
+      dirty: false,
+      saving: false,
+      errorMessage: null,
+      language: null,
+      monacoLanguage: "plaintext",
+      lspDocumentVersion: 0,
+      diagnostics: [],
+      lspStatus: null,
+      readOnly: true,
+      diff: {
+        source: "compare",
+        left: {
+          workspaceId,
+          path: "src/a.ts",
+          title: "a.ts",
+          content: "old",
+          language: "typescript",
+          monacoLanguage: "typescript",
+        },
+        right: {
+          workspaceId,
+          path: "src/b.ts",
+          title: "b.ts",
+          content: "new",
+          language: "typescript",
+          monacoLanguage: "typescript",
+        },
+      },
+    };
+    const tree = EditorPaneView({
+      activeWorkspaceName: "Alpha",
+      active: true,
+      tabs: [diffTab],
+      activeTabId: diffTab.id,
+      onActivateTab() {},
+      onCloseTab() {},
+      onSaveTab() {},
+      onChangeContent() {},
+    });
+
+    expect(findText(tree, "a.ts ↔ b.ts")).toBe(true);
+    expect(findText(tree, "Read-only")).toBe(true);
+    expect(findText(tree, "j/k change navigation")).toBe(true);
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-kind"] === "diff")).toBeDefined();
+    expect(findElementByPredicate(tree, (element) => element.type === DiffEditorHost)).toBeDefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeUndefined();
+  });
+
+  test("wraps editor tabs in a tab context menu and forwards file-action handlers", () => {
+    const calls: string[] = [];
+    const tree = EditorPaneView({
+      activeWorkspaceName: "Alpha",
+      active: true,
+      tabs: [tab],
+      activeTabId: tab.id,
+      onActivateTab() {},
+      onCloseTab() {},
+      onCloseOtherTabs(tabId) {
+        calls.push(`close-others:${tabId}`);
+      },
+      onCloseTabsToRight(tabId) {
+        calls.push(`close-right:${tabId}`);
+      },
+      onCloseAllTabs() {
+        calls.push("close-all");
+      },
+      onCopyTabPath(tab, pathKind) {
+        calls.push(`copy:${pathKind}:${tab.path}`);
+      },
+      onRevealTabInFinder(tab) {
+        calls.push(`reveal:${tab.path}`);
+      },
+      onSplitRight() {
+        calls.push("split");
+      },
+      onSaveTab() {},
+      onChangeContent() {},
+    });
+
+    const menu = findElementByPredicate(tree, (element) => element.type === TabContextMenu);
+
+    expect(menu?.props.paneId).toBe("p0");
+    expect(menu?.props.tab).toMatchObject({ id: tab.id, path: "src/index.ts" });
+    expect(menu?.props.tabs).toHaveLength(1);
+
+    menu?.props.onCloseOtherTabs("p0", tab.id);
+    menu?.props.onCloseTabsToRight("p0", tab.id);
+    menu?.props.onCloseAllTabs("p0");
+    menu?.props.onCopyPath(tab, "relative");
+    menu?.props.onRevealInFinder(tab);
+    menu?.props.onSplitRight(tab);
+
+    expect(calls).toEqual([
+      `close-others:${tab.id}`,
+      `close-right:${tab.id}`,
+      "close-all",
+      "copy:relative:src/index.ts",
+      "reveal:src/index.ts",
+      "split",
+    ]);
+  });
+
   test("renders file-open empty state without placeholder wording", () => {
     const tree = EditorPaneView({
       activeWorkspaceName: "Alpha",
@@ -136,6 +281,13 @@ function findElementByPredicate(
   if (isReactElement(node)) {
     if (predicate(node)) {
       return node;
+    }
+
+    if (
+      typeof node.type === "function" &&
+      !["DiffEditorHost", "MonacoEditorHost", "TabContextMenu", "ContextMenu"].includes(node.type.name)
+    ) {
+      return findElementByPredicate(node.type(node.props), predicate);
     }
 
     return findElementByPredicate(node.props.children, predicate);
@@ -167,6 +319,17 @@ function textContent(node: ReactNode): string {
   }
 
   if (isReactElement(node)) {
+    if (node.type === DiffEditorHost) {
+      return "";
+    }
+
+    if (
+      typeof node.type === "function" &&
+      !["MonacoEditorHost", "TabContextMenu", "ContextMenu"].includes(node.type.name)
+    ) {
+      return textContent(node.type(node.props));
+    }
+
     const propText = [node.props.title, node.props.description]
       .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
       .join(" ");

@@ -1,4 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEventHandler, type PointerEventHandler, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEventHandler, type PointerEventHandler, type Ref, type RefObject } from "react";
+
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type {
@@ -9,6 +23,22 @@ import type {
 } from "../stores/editor-store";
 import { cn } from "@/lib/utils";
 import { EditorPane } from "./EditorPane";
+import {
+  EDITOR_SPLIT_RIGHT_DROP_ZONE_ID,
+  createEditorPaneDropData,
+  createEditorSplitRightDropData,
+  editorPaneDropId,
+  editorTabDropIndicatorIndexForPane,
+  readEditorTabDragData,
+  readEditorTabDropData,
+  resolveEditorTabDragOutcome,
+  type EditorTabDragData,
+  type EditorTabDropData,
+} from "./editor-tabs/drag-and-drop";
+import {
+  readFileTreeDragDataTransfer,
+  type FileTreeDragData,
+} from "./file-tree-dnd/drag-and-drop";
 import { PanelResizeHandle } from "./PanelResizeHandle";
 
 export const EDITOR_SPLIT_RATIO_STORAGE_KEY = "nx.editor.split.ratio";
@@ -25,8 +55,36 @@ export interface SplitEditorPaneProps {
   activePaneId: EditorPaneId;
   onActivatePane(paneId: EditorPaneId): void;
   onSplitRight(): void;
+  onReorderTab(
+    paneId: EditorPaneId,
+    oldIndex: number,
+    newIndex: number,
+    workspaceId?: WorkspaceId | null,
+  ): void;
+  onMoveTabToPane(
+    sourcePaneId: EditorPaneId,
+    targetPaneId: EditorPaneId,
+    tabId: EditorTabId,
+    targetIndex: number,
+    workspaceId?: WorkspaceId | null,
+  ): void;
+  onSplitTabRight(
+    sourcePaneId: EditorPaneId,
+    tabId: EditorTabId,
+    workspaceId?: WorkspaceId | null,
+  ): void;
+  onOpenFileFromTreeDrop?(
+    paneId: EditorPaneId,
+    workspaceId: WorkspaceId,
+    path: string,
+  ): void;
   onActivateTab(paneId: EditorPaneId, tabId: EditorTabId): void;
   onCloseTab(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseOtherTabs?(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseTabsToRight?(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseAllTabs?(paneId: EditorPaneId): void;
+  onCopyTabPath?(tab: EditorPaneState["tabs"][number], pathKind: "absolute" | "relative"): void;
+  onRevealTabInFinder?(tab: EditorPaneState["tabs"][number]): void;
   onSaveTab(tabId: EditorTabId): void;
   onChangeContent(tabId: EditorTabId, content: string): void;
   onApplyWorkspaceEdit?: EditorStoreState["applyWorkspaceEdit"];
@@ -35,6 +93,11 @@ export interface SplitEditorPaneProps {
 export interface SplitEditorPaneViewProps extends SplitEditorPaneProps {
   splitRatio?: number;
   splitDragging?: boolean;
+  enableTabDrag?: boolean;
+  editorTabDragActive?: EditorTabDragData | null;
+  editorTabDragOver?: EditorTabDropData | null;
+  fileTreeDragOverPaneId?: EditorPaneId | null;
+  onFileTreeDragOverPaneChange?(paneId: EditorPaneId | null): void;
   onSplitResizeKeyDown?: KeyboardEventHandler<HTMLDivElement>;
   onSplitResizePointerDown?: PointerEventHandler<HTMLDivElement>;
 }
@@ -51,6 +114,20 @@ export function SplitEditorPane(props: SplitEditorPaneProps): JSX.Element {
   const splitDragRef = useRef<EditorSplitDragState | null>(null);
   const [splitRatio, setSplitRatio] = useState(readStoredEditorSplitRatio);
   const [splitDragging, setSplitDragging] = useState(false);
+  const [editorTabDragActive, setEditorTabDragActive] = useState<EditorTabDragData | null>(null);
+  const [editorTabDragOver, setEditorTabDragOver] = useState<EditorTabDropData | null>(null);
+  const [fileTreeDragOverPaneId, setFileTreeDragOverPaneId] = useState<EditorPaneId | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 4,
+      },
+    }),
+  );
+  const paneTabIds = useMemo(
+    () => editorPaneTabIdsForWorkspace(props.panes, props.activeWorkspaceId),
+    [props.activeWorkspaceId, props.panes],
+  );
 
   const applySplitRatio = useCallback((nextRatio: number, shouldPersist: boolean) => {
     const clampedRatio = clampEditorSplitRatio(nextRatio, containerRef.current?.clientWidth ?? null);
@@ -142,15 +219,83 @@ export function SplitEditorPane(props: SplitEditorPaneProps): JSX.Element {
     };
   }, [applySplitRatio, splitDragging]);
 
+  const clearEditorTabDrag = useCallback(() => {
+    setEditorTabDragActive(null);
+    setEditorTabDragOver(null);
+  }, []);
+
+  const handleEditorTabDragStart = useCallback((event: DragStartEvent) => {
+    const active = readEditorTabDragData(event.active.data.current);
+    setEditorTabDragActive(active);
+    setEditorTabDragOver(null);
+  }, []);
+
+  const handleEditorTabDragOver = useCallback((event: DragOverEvent) => {
+    setEditorTabDragOver(readEditorTabDropData(event.over?.data.current ?? null));
+  }, []);
+
+  const handleEditorTabDragEnd = useCallback((event: DragEndEvent) => {
+    const active = readEditorTabDragData(event.active.data.current) ?? editorTabDragActive;
+    const over = readEditorTabDropData(event.over?.data.current ?? null) ?? editorTabDragOver;
+    const outcome = resolveEditorTabDragOutcome({
+      active,
+      over,
+      paneCount: props.panes.length,
+      paneTabIds,
+    });
+
+    clearEditorTabDrag();
+
+    switch (outcome.type) {
+      case "reorder":
+        props.onReorderTab(outcome.paneId, outcome.oldIndex, outcome.newIndex, props.activeWorkspaceId);
+        return;
+      case "move":
+        props.onMoveTabToPane(
+          outcome.sourcePaneId,
+          outcome.targetPaneId,
+          outcome.tabId,
+          outcome.targetIndex,
+          props.activeWorkspaceId,
+        );
+        return;
+      case "split-right":
+        props.onSplitTabRight(outcome.sourcePaneId, outcome.tabId, props.activeWorkspaceId);
+        return;
+      case "none":
+        return;
+    }
+  }, [
+    clearEditorTabDrag,
+    editorTabDragActive,
+    editorTabDragOver,
+    paneTabIds,
+    props,
+  ]);
+
   return (
-    <SplitEditorPaneView
-      {...props}
-      splitRatio={splitRatio}
-      splitDragging={splitDragging}
-      onSplitResizeKeyDown={handleSplitResizeKeyDown}
-      onSplitResizePointerDown={handleSplitResizePointerDown}
-      containerRef={containerRef}
-    />
+    <DndContext
+      collisionDetection={editorTabCollisionDetection}
+      sensors={sensors}
+      onDragStart={handleEditorTabDragStart}
+      onDragOver={handleEditorTabDragOver}
+      onDragCancel={clearEditorTabDrag}
+      onDragEnd={handleEditorTabDragEnd}
+    >
+      <SplitEditorPaneView
+        {...props}
+        splitRatio={splitRatio}
+        splitDragging={splitDragging}
+        enableTabDrag
+        editorTabDragActive={editorTabDragActive}
+        editorTabDragOver={editorTabDragOver}
+        fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+        onFileTreeDragOverPaneChange={setFileTreeDragOverPaneId}
+        onSplitResizeKeyDown={handleSplitResizeKeyDown}
+        onSplitResizePointerDown={handleSplitResizePointerDown}
+        containerRef={containerRef}
+      />
+    </DndContext>
   );
 }
 
@@ -161,19 +306,33 @@ export function SplitEditorPaneView({
   activePaneId,
   onActivatePane,
   onSplitRight,
+  onOpenFileFromTreeDrop,
   onActivateTab,
   onCloseTab,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onCloseAllTabs,
+  onCopyTabPath,
+  onRevealTabInFinder,
   onSaveTab,
   onChangeContent,
   onApplyWorkspaceEdit,
   splitRatio = DEFAULT_EDITOR_SPLIT_RATIO,
   splitDragging = false,
+  enableTabDrag = false,
+  editorTabDragActive = null,
+  editorTabDragOver = null,
+  fileTreeDragOverPaneId = null,
+  onFileTreeDragOverPaneChange,
   onSplitResizeKeyDown = noopKeyboardHandler,
   onSplitResizePointerDown = noopPointerHandler,
   containerRef,
 }: SplitEditorPaneViewProps & { containerRef?: RefObject<HTMLDivElement | null> }): JSX.Element {
   const visiblePanes = panes.slice(0, 2);
   const clampedSplitRatio = clampEditorSplitRatio(splitRatio, null);
+  const paneTabIds = editorPaneTabIdsForWorkspace(visiblePanes, activeWorkspaceId);
+  const shouldShowSplitDropZone = editorTabDragActive !== null && visiblePanes.length === 1;
+  const splitDropZoneOver = editorTabDragOver?.type === "editor-split-right";
 
   if (visiblePanes.length <= 1) {
     const pane = visiblePanes[0];
@@ -182,7 +341,7 @@ export function SplitEditorPaneView({
       <section
         ref={containerRef}
         data-component="split-editor-pane"
-        className="flex h-full min-h-0 min-w-0 bg-background"
+        className="relative flex h-full min-h-0 min-w-0 bg-background"
       >
         {pane ? (
           <SplitEditorPaneItem
@@ -193,11 +352,29 @@ export function SplitEditorPaneView({
             style={{ flexBasis: "100%", flexGrow: 1, flexShrink: 1, minWidth: 0 }}
             onActivatePane={onActivatePane}
             onSplitRight={onSplitRight}
+            onOpenFileFromTreeDrop={onOpenFileFromTreeDrop}
             onActivateTab={onActivateTab}
             onCloseTab={onCloseTab}
+            onCloseOtherTabs={onCloseOtherTabs}
+            onCloseTabsToRight={onCloseTabsToRight}
+            onCloseAllTabs={onCloseAllTabs}
+            onCopyTabPath={onCopyTabPath}
+            onRevealTabInFinder={onRevealTabInFinder}
             onSaveTab={onSaveTab}
             onChangeContent={onChangeContent}
             onApplyWorkspaceEdit={onApplyWorkspaceEdit}
+            enableTabDrag={enableTabDrag}
+            editorTabDragActive={editorTabDragActive}
+            editorTabDragOver={editorTabDragOver}
+            fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+            onFileTreeDragOverPaneChange={onFileTreeDragOverPaneChange}
+            paneTabIds={paneTabIds}
+          />
+        ) : null}
+        {shouldShowSplitDropZone ? (
+          <EditorSplitRightDropZone
+            enableTabDrag={enableTabDrag}
+            over={splitDropZoneOver}
           />
         ) : null}
       </section>
@@ -211,7 +388,7 @@ export function SplitEditorPaneView({
     <section
       ref={containerRef}
       data-component="split-editor-pane"
-      className="flex h-full min-h-0 min-w-0 bg-background"
+      className="relative flex h-full min-h-0 min-w-0 bg-background"
     >
       <SplitEditorPaneItem
         activeWorkspaceId={activeWorkspaceId}
@@ -221,11 +398,23 @@ export function SplitEditorPaneView({
         style={editorSplitPaneStyle(clampedSplitRatio)}
         onActivatePane={onActivatePane}
         onSplitRight={onSplitRight}
+        onOpenFileFromTreeDrop={onOpenFileFromTreeDrop}
         onActivateTab={onActivateTab}
         onCloseTab={onCloseTab}
+        onCloseOtherTabs={onCloseOtherTabs}
+        onCloseTabsToRight={onCloseTabsToRight}
+        onCloseAllTabs={onCloseAllTabs}
+        onCopyTabPath={onCopyTabPath}
+        onRevealTabInFinder={onRevealTabInFinder}
         onSaveTab={onSaveTab}
         onChangeContent={onChangeContent}
         onApplyWorkspaceEdit={onApplyWorkspaceEdit}
+        enableTabDrag={enableTabDrag}
+        editorTabDragActive={editorTabDragActive}
+        editorTabDragOver={editorTabDragOver}
+        fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+        onFileTreeDragOverPaneChange={onFileTreeDragOverPaneChange}
+        paneTabIds={paneTabIds}
       />
 
       <PanelResizeHandle
@@ -247,11 +436,23 @@ export function SplitEditorPaneView({
         style={editorSplitPaneStyle(1 - clampedSplitRatio)}
         onActivatePane={onActivatePane}
         onSplitRight={onSplitRight}
+        onOpenFileFromTreeDrop={onOpenFileFromTreeDrop}
         onActivateTab={onActivateTab}
         onCloseTab={onCloseTab}
+        onCloseOtherTabs={onCloseOtherTabs}
+        onCloseTabsToRight={onCloseTabsToRight}
+        onCloseAllTabs={onCloseAllTabs}
+        onCopyTabPath={onCopyTabPath}
+        onRevealTabInFinder={onRevealTabInFinder}
         onSaveTab={onSaveTab}
         onChangeContent={onChangeContent}
         onApplyWorkspaceEdit={onApplyWorkspaceEdit}
+        enableTabDrag={enableTabDrag}
+        editorTabDragActive={editorTabDragActive}
+        editorTabDragOver={editorTabDragOver}
+        fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+        onFileTreeDragOverPaneChange={onFileTreeDragOverPaneChange}
+        paneTabIds={paneTabIds}
       />
     </section>
   );
@@ -265,12 +466,137 @@ function SplitEditorPaneItem({
   style,
   onActivatePane,
   onSplitRight,
+  onOpenFileFromTreeDrop,
   onActivateTab,
   onCloseTab,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onCloseAllTabs,
+  onCopyTabPath,
+  onRevealTabInFinder,
   onSaveTab,
   onChangeContent,
   onApplyWorkspaceEdit,
+  enableTabDrag,
+  editorTabDragActive,
+  editorTabDragOver,
+  fileTreeDragOverPaneId,
+  onFileTreeDragOverPaneChange,
+  paneTabIds,
 }: SplitEditorPaneItemProps): JSX.Element {
+  if (enableTabDrag) {
+    return (
+      <DroppableSplitEditorPaneItem
+        activeWorkspaceId={activeWorkspaceId}
+        activeWorkspaceName={activeWorkspaceName}
+        pane={pane}
+        activePaneId={activePaneId}
+        style={style}
+        onActivatePane={onActivatePane}
+        onSplitRight={onSplitRight}
+        onOpenFileFromTreeDrop={onOpenFileFromTreeDrop}
+        onActivateTab={onActivateTab}
+        onCloseTab={onCloseTab}
+        onCloseOtherTabs={onCloseOtherTabs}
+        onCloseTabsToRight={onCloseTabsToRight}
+        onCloseAllTabs={onCloseAllTabs}
+        onCopyTabPath={onCopyTabPath}
+        onRevealTabInFinder={onRevealTabInFinder}
+        onSaveTab={onSaveTab}
+        onChangeContent={onChangeContent}
+        onApplyWorkspaceEdit={onApplyWorkspaceEdit}
+        enableTabDrag={enableTabDrag}
+        editorTabDragActive={editorTabDragActive}
+        editorTabDragOver={editorTabDragOver}
+        fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+        onFileTreeDragOverPaneChange={onFileTreeDragOverPaneChange}
+        paneTabIds={paneTabIds}
+      />
+    );
+  }
+
+  return (
+    <SplitEditorPaneItemView
+      activeWorkspaceId={activeWorkspaceId}
+      activeWorkspaceName={activeWorkspaceName}
+      pane={pane}
+      activePaneId={activePaneId}
+      style={style}
+      onActivatePane={onActivatePane}
+      onSplitRight={onSplitRight}
+      onOpenFileFromTreeDrop={onOpenFileFromTreeDrop}
+      onActivateTab={onActivateTab}
+      onCloseTab={onCloseTab}
+      onCloseOtherTabs={onCloseOtherTabs}
+      onCloseTabsToRight={onCloseTabsToRight}
+      onCloseAllTabs={onCloseAllTabs}
+      onCopyTabPath={onCopyTabPath}
+      onRevealTabInFinder={onRevealTabInFinder}
+      onSaveTab={onSaveTab}
+      onChangeContent={onChangeContent}
+      onApplyWorkspaceEdit={onApplyWorkspaceEdit}
+      enableTabDrag={enableTabDrag}
+      editorTabDragActive={editorTabDragActive}
+      editorTabDragOver={editorTabDragOver}
+      fileTreeDragOverPaneId={fileTreeDragOverPaneId}
+      onFileTreeDragOverPaneChange={onFileTreeDragOverPaneChange}
+      paneTabIds={paneTabIds}
+      tabDropTargetRef={undefined}
+      tabDragOver={editorTabDropDataTargetsPane(editorTabDragOver, pane.id)}
+    />
+  );
+}
+
+function DroppableSplitEditorPaneItem(props: SplitEditorPaneItemProps): JSX.Element {
+  const { pane, editorTabDragOver } = props;
+  const { isOver, setNodeRef } = useDroppable({
+    id: editorPaneDropId(pane.id),
+    data: createEditorPaneDropData(pane.id),
+  });
+
+  return (
+    <SplitEditorPaneItemView
+      {...props}
+      tabDropTargetRef={setNodeRef}
+      tabDragOver={
+        isOver ||
+        editorTabDropDataTargetsPane(editorTabDragOver, pane.id)
+      }
+    />
+  );
+}
+
+function SplitEditorPaneItemView({
+  activeWorkspaceId,
+  activeWorkspaceName,
+  pane,
+  activePaneId,
+  style,
+  onActivatePane,
+  onSplitRight,
+  onOpenFileFromTreeDrop,
+  onActivateTab,
+  onCloseTab,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onCloseAllTabs,
+  onCopyTabPath,
+  onRevealTabInFinder,
+  onSaveTab,
+  onChangeContent,
+  onApplyWorkspaceEdit,
+  enableTabDrag,
+  editorTabDragActive,
+  editorTabDragOver,
+  fileTreeDragOverPaneId,
+  onFileTreeDragOverPaneChange,
+  paneTabIds,
+  tabDropTargetRef,
+  tabDragOver,
+}: SplitEditorPaneItemProps & {
+  tabDropTargetRef: Ref<HTMLDivElement> | undefined;
+  tabDragOver: boolean;
+}): JSX.Element {
   const workspaceTabs = activeWorkspaceId
     ? pane.tabs.filter((tab) => tab.workspaceId === activeWorkspaceId)
     : [];
@@ -278,12 +604,54 @@ function SplitEditorPaneItem({
     ? pane.activeTabId
     : null;
   const isPaneActive = pane.id === activePaneId;
+  const tabDropIndicatorIndex = editorTabDropIndicatorIndexForPane({
+    paneId: pane.id,
+    active: editorTabDragActive,
+    over: editorTabDragOver,
+    paneTabIds,
+  });
+  const fileTreeDragOver = fileTreeDragOverPaneId === pane.id;
 
   return (
     <div
+      ref={tabDropTargetRef}
       data-editor-split-pane={pane.id}
-      className={cn("min-h-0 min-w-0")}
+      data-editor-tab-drop-target={enableTabDrag ? "true" : "false"}
+      data-editor-tab-drop-over={tabDragOver ? "true" : "false"}
+      data-file-tree-drop-target="true"
+      data-file-tree-drop-over={fileTreeDragOver ? "true" : "false"}
+      className={cn(
+        "min-h-0 min-w-0 transition-colors",
+        tabDragOver && "bg-accent/15",
+        fileTreeDragOver && "bg-primary/10 ring-1 ring-inset ring-primary/30",
+      )}
       style={style}
+      onDragOver={(event) => {
+        if (!shouldAcceptFileTreeDrop(event.dataTransfer, activeWorkspaceId)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+        onFileTreeDragOverPaneChange?.(pane.id);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          return;
+        }
+        onFileTreeDragOverPaneChange?.(null);
+      }}
+      onDrop={(event) => {
+        const dragData = readFileTreeDragDataTransfer(event.dataTransfer);
+        if (!dragData || dragData.workspaceId !== activeWorkspaceId) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        onFileTreeDragOverPaneChange?.(null);
+        onOpenFileFromTreeDropIfFile(pane.id, dragData, onOpenFileFromTreeDrop);
+      }}
     >
       <EditorPane
         activeWorkspaceName={activeWorkspaceName}
@@ -294,11 +662,64 @@ function SplitEditorPaneItem({
         onActivatePane={onActivatePane}
         onActivateTab={(tabId) => onActivateTab(pane.id, tabId)}
         onCloseTab={(tabId) => onCloseTab(pane.id, tabId)}
+        onCloseOtherTabs={(tabId) => onCloseOtherTabs?.(pane.id, tabId)}
+        onCloseTabsToRight={(tabId) => onCloseTabsToRight?.(pane.id, tabId)}
+        onCloseAllTabs={() => onCloseAllTabs?.(pane.id)}
+        onCopyTabPath={onCopyTabPath}
+        onRevealTabInFinder={onRevealTabInFinder}
         onSaveTab={onSaveTab}
         onChangeContent={onChangeContent}
         onApplyWorkspaceEdit={onApplyWorkspaceEdit}
         onSplitRight={onSplitRight}
+        enableTabDrag={enableTabDrag}
+        draggingTabId={editorTabDragActive?.paneId === pane.id ? editorTabDragActive.tabId : null}
+        tabDropIndicatorIndex={tabDropIndicatorIndex}
       />
+    </div>
+  );
+}
+
+function EditorSplitRightDropZone({
+  enableTabDrag,
+  over,
+}: {
+  enableTabDrag: boolean;
+  over: boolean;
+}): JSX.Element {
+  if (!enableTabDrag) {
+    return <EditorSplitRightDropZoneView over={over} dropZoneRef={undefined} />;
+  }
+
+  return <DroppableEditorSplitRightDropZone over={over} />;
+}
+
+function DroppableEditorSplitRightDropZone({ over }: { over: boolean }): JSX.Element {
+  const { isOver, setNodeRef } = useDroppable({
+    id: EDITOR_SPLIT_RIGHT_DROP_ZONE_ID,
+    data: createEditorSplitRightDropData(),
+  });
+
+  return <EditorSplitRightDropZoneView over={over || isOver} dropZoneRef={setNodeRef} />;
+}
+
+function EditorSplitRightDropZoneView({
+  over,
+  dropZoneRef,
+}: {
+  over: boolean;
+  dropZoneRef: Ref<HTMLDivElement> | undefined;
+}): JSX.Element {
+  return (
+    <div
+      ref={dropZoneRef}
+      data-editor-tab-split-drop-zone="right"
+      data-editor-tab-split-drop-over={over ? "true" : "false"}
+      className={cn(
+        "absolute right-0 top-0 z-20 flex h-full w-20 items-center justify-center border-l border-primary/60 bg-primary/10 px-2 text-center text-[11px] font-medium text-primary shadow-[inset_1px_0_0_var(--color-primary)] transition-colors",
+        over && "bg-primary/20",
+      )}
+    >
+      Drop to split
     </div>
   );
 }
@@ -311,11 +732,52 @@ interface SplitEditorPaneItemProps {
   style: CSSProperties;
   onActivatePane(paneId: EditorPaneId): void;
   onSplitRight(): void;
+  onOpenFileFromTreeDrop?(
+    paneId: EditorPaneId,
+    workspaceId: WorkspaceId,
+    path: string,
+  ): void;
   onActivateTab(paneId: EditorPaneId, tabId: EditorTabId): void;
   onCloseTab(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseOtherTabs?(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseTabsToRight?(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCloseAllTabs?(paneId: EditorPaneId): void;
+  onCopyTabPath?(tab: EditorPaneState["tabs"][number], pathKind: "absolute" | "relative"): void;
+  onRevealTabInFinder?(tab: EditorPaneState["tabs"][number]): void;
   onSaveTab(tabId: EditorTabId): void;
   onChangeContent(tabId: EditorTabId, content: string): void;
   onApplyWorkspaceEdit?: EditorStoreState["applyWorkspaceEdit"];
+  enableTabDrag: boolean;
+  editorTabDragActive: EditorTabDragData | null;
+  editorTabDragOver: EditorTabDropData | null;
+  fileTreeDragOverPaneId: EditorPaneId | null;
+  onFileTreeDragOverPaneChange?(paneId: EditorPaneId | null): void;
+  paneTabIds: Record<EditorPaneId, readonly EditorTabId[]>;
+}
+
+function shouldAcceptFileTreeDrop(
+  dataTransfer: DataTransfer,
+  activeWorkspaceId: WorkspaceId | null,
+): boolean {
+  const dragData = readFileTreeDragDataTransfer(dataTransfer);
+  return Boolean(
+    activeWorkspaceId &&
+    dragData &&
+    dragData.workspaceId === activeWorkspaceId &&
+    dragData.kind === "file",
+  );
+}
+
+function onOpenFileFromTreeDropIfFile(
+  paneId: EditorPaneId,
+  dragData: FileTreeDragData,
+  onOpenFileFromTreeDrop: SplitEditorPaneProps["onOpenFileFromTreeDrop"],
+): void {
+  if (dragData.kind !== "file") {
+    return;
+  }
+
+  onOpenFileFromTreeDrop?.(paneId, dragData.workspaceId, dragData.path);
 }
 
 function editorSplitPaneStyle(ratio: number): CSSProperties {
@@ -325,6 +787,38 @@ function editorSplitPaneStyle(ratio: number): CSSProperties {
     flexShrink: 1,
     minWidth: EDITOR_SPLIT_PANE_MIN_WIDTH,
   };
+}
+
+export const editorTabCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+};
+
+function editorPaneTabIdsForWorkspace(
+  panes: readonly EditorPaneState[],
+  activeWorkspaceId: WorkspaceId | null,
+): Record<EditorPaneId, readonly EditorTabId[]> {
+  return Object.fromEntries(
+    panes.map((pane) => [
+      pane.id,
+      activeWorkspaceId
+        ? pane.tabs
+            .filter((tab) => tab.workspaceId === activeWorkspaceId)
+            .map((tab) => tab.id)
+        : [],
+    ]),
+  );
+}
+
+function editorTabDropDataTargetsPane(
+  dropData: EditorTabDropData | null,
+  paneId: EditorPaneId,
+): boolean {
+  return (
+    dropData !== null &&
+    dropData.type !== "editor-split-right" &&
+    dropData.paneId === paneId
+  );
 }
 
 export function readStoredEditorSplitRatio(): number {
