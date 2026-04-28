@@ -486,6 +486,10 @@ export class WorkspaceFilesService {
       return;
     }
 
+    if (this.isIgnoredTreePath(watchedPath.relativePath)) {
+      return;
+    }
+
     const occurredAt = this.timestamp();
     try {
       const stats = await this.fs.lstat(watchedPath.absolutePath);
@@ -508,6 +512,11 @@ export class WorkspaceFilesService {
         occurredAt,
       );
     }
+  }
+
+  private isIgnoredTreePath(relativePath: string): boolean {
+    const topLevelName = relativePath.split("/")[0];
+    return Boolean(topLevelName && this.ignoredTreeNames.has(topLevelName));
   }
 
   private async scanDirectory(
