@@ -1,5 +1,3 @@
-import { createRequire } from "node:module";
-
 import type { IpcRenderer } from "electron";
 
 import { FILE_ACTIONS_INVOKE_CHANNEL } from "../../../shared/src/contracts/ipc-channels";
@@ -11,7 +9,6 @@ import type {
 } from "../common/file-actions";
 
 type IpcRendererLike = Pick<IpcRenderer, "invoke">;
-const requireElectron = createRequire(import.meta.url);
 
 export interface NexusFileActionsApi {
   invoke<TRequest extends FileActionsRequest>(request: TRequest): Promise<FileActionsResult>;
@@ -46,17 +43,34 @@ function isStartFileDragResult(result: FileActionsResult): result is FileActionS
   return result.type === "file-actions/start-file-drag/result";
 }
 
-function getElectronWebUtils(): { getPathForFile(file: File): string } {
-  const electronModule = requireElectron("electron") as {
-    webUtils?: { getPathForFile(file: File): string };
-  };
-  if (!electronModule.webUtils) {
+type ElectronWebUtils = { getPathForFile(file: File): string };
+
+let cachedWebUtils: ElectronWebUtils | null | undefined;
+
+function resolveElectronWebUtils(): ElectronWebUtils | null {
+  if (cachedWebUtils !== undefined) {
+    return cachedWebUtils;
+  }
+  try {
+    const runtimeRequire = (globalThis as { require?: (id: string) => unknown }).require;
+    const electronRuntime = runtimeRequire?.("electron") as
+      | { webUtils?: ElectronWebUtils }
+      | undefined;
+    cachedWebUtils = electronRuntime?.webUtils ?? null;
+  } catch {
+    cachedWebUtils = null;
+  }
+  return cachedWebUtils;
+}
+
+function getElectronWebUtils(): ElectronWebUtils {
+  const webUtils = resolveElectronWebUtils();
+  if (!webUtils) {
     return {
       getPathForFile() {
         throw new Error("Electron webUtils is unavailable in this runtime.");
       },
     };
   }
-
-  return electronModule.webUtils;
+  return webUtils;
 }

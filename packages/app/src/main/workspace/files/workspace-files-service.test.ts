@@ -276,6 +276,47 @@ describe("WorkspaceFilesService", () => {
     service.dispose();
     expect(watchHandles).toEqual([{ closed: true }]);
   });
+
+  test("ignores native watch events from hidden and heavy tree roots", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    await mkdir(path.join(workspaceRoot, ".git"), { recursive: true });
+    await mkdir(path.join(workspaceRoot, "node_modules", "pkg"), { recursive: true });
+    await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+    await writeFile(path.join(workspaceRoot, ".git", "index"), "");
+    await writeFile(path.join(workspaceRoot, "node_modules", "pkg", "index.js"), "module.exports = {};\n");
+    await writeFile(path.join(workspaceRoot, "src", "index.ts"), "export {};\n");
+    let watchListener: ((eventType: string, filename: string | Buffer | null) => void) | null = null;
+    const watchFactory: WorkspaceFilesWatchFactory = (_root, _options, listener) => {
+      watchListener = listener;
+      return { close() {} };
+    };
+    const service = createService(workspaceRoot, { watchFactory });
+    const observedEvents: EditorBridgeEvent[] = [];
+    service.onEvent((event) => observedEvents.push(event));
+
+    await service.readFileTree({ type: "workspace-files/tree/read", workspaceId });
+    watchListener?.("change", ".git/index");
+    watchListener?.("rename", ".git");
+    watchListener?.("change", Buffer.from("node_modules/pkg/index.js"));
+    watchListener?.("change", "src/index.ts");
+
+    await waitFor(() => {
+      expect(observedEvents.filter((event) => event.type === "workspace-files/watch")).toHaveLength(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(observedEvents.filter((event) => event.type === "workspace-files/watch")).toEqual([
+      {
+        type: "workspace-files/watch",
+        workspaceId,
+        path: "src/index.ts",
+        oldPath: null,
+        kind: "file",
+        change: "changed",
+        occurredAt: "2026-04-27T00:00:00.000Z",
+      },
+    ]);
+  });
 });
 
 async function createTempWorkspace(): Promise<string> {
