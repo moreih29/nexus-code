@@ -29,6 +29,43 @@ import {
   type LspStopServerCommand,
 } from "../../../../shared/src/contracts/lsp/lsp-sidecar";
 import type {
+  SearchCancelCommand,
+  SearchCanceledEvent,
+  SearchCompletedEvent,
+  SearchFailedEvent,
+  SearchStartedReply,
+  SearchStartCommand,
+} from "../../../../shared/src/contracts/generated/search-lifecycle";
+import type { SearchResultChunkMessage } from "../../../../shared/src/contracts/generated/search-relay";
+import type {
+  GitBranchCreateCommand,
+  GitBranchCreateReply,
+  GitBranchDeleteCommand,
+  GitBranchDeleteReply,
+  GitBranchListCommand,
+  GitBranchListReply,
+  GitCheckoutCommand,
+  GitCheckoutReply,
+  GitCommitCommand,
+  GitCommitReply,
+  GitDiffCommand,
+  GitDiffReply,
+  GitDiscardCommand,
+  GitDiscardReply,
+  GitFailedEvent,
+  GitStageCommand,
+  GitStageReply,
+  GitStatusCommand,
+  GitStatusReply,
+  GitUnstageCommand,
+  GitUnstageReply,
+  GitWatchStartCommand,
+  GitWatchStartedReply,
+  GitWatchStopCommand,
+  GitWatchStoppedReply,
+} from "../../../../shared/src/contracts/generated/git-lifecycle";
+import type { GitStatusChangeEvent } from "../../../../shared/src/contracts/generated/git-relay";
+import type {
   SidecarStartCommand,
   SidecarStartedEvent,
   SidecarStopCommand,
@@ -60,10 +97,66 @@ interface PendingLspRequest {
   timer: NodeJS.Timeout;
 }
 
+type SearchBridgeEvent =
+  | SearchStartedReply
+  | SearchCompletedEvent
+  | SearchFailedEvent
+  | SearchCanceledEvent
+  | SearchResultChunkMessage;
+
+type SearchStartReply = SearchStartedReply | SearchFailedEvent;
+
+interface PendingSearchStartRequest {
+  workspaceId: WorkspaceId;
+  resolve(reply: SearchStartReply): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
+}
+
+type GitBridgeRequest =
+  | GitStatusCommand
+  | GitBranchListCommand
+  | GitCommitCommand
+  | GitStageCommand
+  | GitUnstageCommand
+  | GitDiscardCommand
+  | GitCheckoutCommand
+  | GitBranchCreateCommand
+  | GitBranchDeleteCommand
+  | GitDiffCommand
+  | GitWatchStartCommand
+  | GitWatchStopCommand;
+
+type GitBridgeReply =
+  | GitStatusReply
+  | GitBranchListReply
+  | GitCommitReply
+  | GitStageReply
+  | GitUnstageReply
+  | GitDiscardReply
+  | GitCheckoutReply
+  | GitBranchCreateReply
+  | GitBranchDeleteReply
+  | GitDiffReply
+  | GitWatchStartedReply
+  | GitWatchStoppedReply
+  | GitFailedEvent;
+
+type GitBridgeEvent = GitBridgeReply | GitStatusChangeEvent;
+
+interface PendingGitRequest {
+  workspaceId: WorkspaceId;
+  resolve(reply: GitBridgeReply): void;
+  reject(error: Error): void;
+  timer: NodeJS.Timeout;
+}
+
 const UNAVAILABLE_SIDECAR_PID = -1;
 const OBSERVER_EVENT_NAME = "observer-event";
 const LSP_SERVER_PAYLOAD_EVENT_NAME = "lsp-server-payload";
 const LSP_SERVER_STOPPED_EVENT_NAME = "lsp-server-stopped";
+const SEARCH_EVENT_NAME = "search-event";
+const GIT_EVENT_NAME = "git-event";
 type ExpectedCloseCodes = [number, ...number[]];
 
 export const DEFAULT_EXPECTED_CLOSE_CODES: ExpectedCloseCodes = [1000, 1001];
@@ -75,6 +168,8 @@ export interface SidecarObserverEventSubscription {
 export type SidecarObserverEventListener = (event: HarnessObserverEvent) => void;
 export type LspServerPayloadListener = (message: LspServerPayloadMessage) => void;
 export type LspServerStoppedListener = (event: LspServerStoppedEvent) => void;
+export type SearchEventListener = (event: SearchBridgeEvent) => void;
+export type GitEventListener = (event: GitBridgeEvent) => void;
 
 export interface SidecarBridgeOptions {
   sidecarBin?: string;
@@ -106,7 +201,11 @@ export class SidecarBridge implements SidecarRuntime {
   private readonly recordsByWorkspaceId = new Map<WorkspaceId, BridgeRecord>();
   private readonly observerEventEmitter = new EventEmitter();
   private readonly lspEventEmitter = new EventEmitter();
+  private readonly searchEventEmitter = new EventEmitter();
+  private readonly gitEventEmitter = new EventEmitter();
   private readonly pendingLspRequests = new Map<string, PendingLspRequest>();
+  private readonly pendingSearchStartRequests = new Map<string, PendingSearchStartRequest>();
+  private readonly pendingGitRequests = new Map<string, PendingGitRequest>();
   private readonly expectedCloseCodes: ExpectedCloseCodes;
   private nextStopAllRequestId = 1;
 
@@ -245,6 +344,77 @@ export class SidecarBridge implements SidecarRuntime {
     record.ws.send(JSON.stringify(message));
   }
 
+  public startSearch(command: SearchStartCommand): Promise<SearchStartReply> {
+    const record = this.recordsByWorkspaceId.get(command.workspaceId);
+    if (!record || record.ws.readyState !== record.ws.OPEN) {
+      return Promise.reject(
+        new Error(`Sidecar WebSocket is not open for workspace "${command.workspaceId}".`),
+      );
+    }
+
+    return new Promise<SearchStartReply>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingSearchStartRequests.delete(command.requestId);
+        reject(new Error(`Search start request "${command.requestId}" timed out.`));
+      }, this.options.lspRequestTimeoutMs ?? 8_000);
+
+      this.pendingSearchStartRequests.set(command.requestId, {
+        workspaceId: command.workspaceId,
+        timer,
+        resolve,
+        reject,
+      });
+
+      try {
+        record.ws.send(JSON.stringify(command));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingSearchStartRequests.delete(command.requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  public async cancelSearch(command: SearchCancelCommand): Promise<void> {
+    const record = this.recordsByWorkspaceId.get(command.workspaceId);
+    if (!record || record.ws.readyState !== record.ws.OPEN) {
+      throw new Error(`Sidecar WebSocket is not open for workspace "${command.workspaceId}".`);
+    }
+
+    record.ws.send(JSON.stringify(command));
+  }
+
+  public invokeGit(command: GitBridgeRequest): Promise<GitBridgeReply> {
+    const record = this.recordsByWorkspaceId.get(command.workspaceId);
+    if (!record || record.ws.readyState !== record.ws.OPEN) {
+      return Promise.reject(
+        new Error(`Sidecar WebSocket is not open for workspace "${command.workspaceId}".`),
+      );
+    }
+
+    return new Promise<GitBridgeReply>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingGitRequests.delete(command.requestId);
+        reject(new Error(`Git request "${command.requestId}" timed out.`));
+      }, this.options.lspRequestTimeoutMs ?? 8_000);
+
+      this.pendingGitRequests.set(command.requestId, {
+        workspaceId: command.workspaceId,
+        timer,
+        resolve,
+        reject,
+      });
+
+      try {
+        record.ws.send(JSON.stringify(command));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingGitRequests.delete(command.requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
   public onServerPayload(listener: LspServerPayloadListener): SidecarObserverEventSubscription {
     this.lspEventEmitter.on(LSP_SERVER_PAYLOAD_EVENT_NAME, listener);
 
@@ -273,6 +443,26 @@ export class SidecarBridge implements SidecarRuntime {
     return {
       dispose: () => {
         this.observerEventEmitter.off(OBSERVER_EVENT_NAME, listener);
+      },
+    };
+  }
+
+  public onSearchEvent(listener: SearchEventListener): SidecarObserverEventSubscription {
+    this.searchEventEmitter.on(SEARCH_EVENT_NAME, listener);
+
+    return {
+      dispose: () => {
+        this.searchEventEmitter.off(SEARCH_EVENT_NAME, listener);
+      },
+    };
+  }
+
+  public onGitEvent(listener: GitEventListener): SidecarObserverEventSubscription {
+    this.gitEventEmitter.on(GIT_EVENT_NAME, listener);
+
+    return {
+      dispose: () => {
+        this.gitEventEmitter.off(GIT_EVENT_NAME, listener);
       },
     };
   }
@@ -412,6 +602,30 @@ export class SidecarBridge implements SidecarRuntime {
       return;
     }
 
+    if (isSearchResultChunkMessage(parsed)) {
+      this.emitSearchEvent(parsed);
+      return;
+    }
+
+    if (isSearchLifecycleEvent(parsed)) {
+      if (isSearchStartReply(parsed)) {
+        this.resolvePendingSearchStartRequest(parsed);
+      }
+      this.emitSearchEvent(parsed);
+      return;
+    }
+
+    if (isGitStatusChangeEvent(parsed)) {
+      this.emitGitEvent(parsed);
+      return;
+    }
+
+    if (isGitLifecycleReply(parsed)) {
+      this.resolvePendingGitRequest(parsed);
+      this.emitGitEvent(parsed);
+      return;
+    }
+
     if (
       parsed &&
       typeof parsed === "object" &&
@@ -426,6 +640,14 @@ export class SidecarBridge implements SidecarRuntime {
 
   private emitObserverEvent(event: HarnessObserverEvent): void {
     this.observerEventEmitter.emit(OBSERVER_EVENT_NAME, event);
+  }
+
+  private emitSearchEvent(event: SearchBridgeEvent): void {
+    this.searchEventEmitter.emit(SEARCH_EVENT_NAME, event);
+  }
+
+  private emitGitEvent(event: GitBridgeEvent): void {
+    this.gitEventEmitter.emit(GIT_EVENT_NAME, event);
   }
 
   private sendLspLifecycleRequest<TReply extends LspLifecycleReply>(
@@ -484,6 +706,28 @@ export class SidecarBridge implements SidecarRuntime {
     pending.resolve(reply);
   }
 
+  private resolvePendingSearchStartRequest(reply: SearchStartReply): void {
+    const pending = this.pendingSearchStartRequests.get(reply.requestId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingSearchStartRequests.delete(reply.requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(reply);
+  }
+
+  private resolvePendingGitRequest(reply: GitBridgeReply): void {
+    const pending = this.pendingGitRequests.get(reply.requestId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingGitRequests.delete(reply.requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(reply);
+  }
+
   private startHeartbeat(record: BridgeRecord): void {
     let lastPongAt = Date.now();
     let missedPongs = 0;
@@ -521,10 +765,106 @@ export class SidecarBridge implements SidecarRuntime {
         this.pendingLspRequests.delete(requestId);
       }
     }
+    for (const [requestId, pending] of this.pendingSearchStartRequests.entries()) {
+      if (pending.workspaceId === workspaceId) {
+        clearTimeout(pending.timer);
+        pending.reject(
+          new Error(`Sidecar for workspace "${workspaceId}" stopped before search start reply.`),
+        );
+        this.pendingSearchStartRequests.delete(requestId);
+      }
+    }
+    for (const [requestId, pending] of this.pendingGitRequests.entries()) {
+      if (pending.workspaceId === workspaceId) {
+        clearTimeout(pending.timer);
+        pending.reject(
+          new Error(`Sidecar for workspace "${workspaceId}" stopped before git reply.`),
+        );
+        this.pendingGitRequests.delete(requestId);
+      }
+    }
     if (this.recordsByWorkspaceId.get(workspaceId) === record) {
       this.recordsByWorkspaceId.delete(workspaceId);
     }
   }
+}
+
+function isSearchLifecycleEvent(
+  value: unknown,
+): value is SearchStartedReply | SearchCompletedEvent | SearchFailedEvent | SearchCanceledEvent {
+  if (!isRecord(value) || value.type !== "search/lifecycle") {
+    return false;
+  }
+
+  return (
+    value.action === "started" ||
+    value.action === "completed" ||
+    value.action === "failed" ||
+    value.action === "canceled"
+  );
+}
+
+function isSearchStartReply(value: unknown): value is SearchStartReply {
+  return (
+    isSearchLifecycleEvent(value) &&
+    (value.action === "started" || value.action === "failed") &&
+    typeof value.requestId === "string"
+  );
+}
+
+function isSearchResultChunkMessage(value: unknown): value is SearchResultChunkMessage {
+  return (
+    isRecord(value) &&
+    value.type === "search/relay" &&
+    value.direction === "server_to_client" &&
+    value.kind === "result_chunk" &&
+    typeof value.workspaceId === "string" &&
+    typeof value.sessionId === "string" &&
+    Array.isArray(value.results)
+  );
+}
+
+function isGitLifecycleReply(value: unknown): value is GitBridgeReply {
+  if (
+    !isRecord(value) ||
+    value.type !== "git/lifecycle" ||
+    typeof value.requestId !== "string" ||
+    typeof value.workspaceId !== "string"
+  ) {
+    return false;
+  }
+
+  return (
+    value.action === "status_result" ||
+    value.action === "branch_list_result" ||
+    value.action === "commit_result" ||
+    value.action === "stage_result" ||
+    value.action === "unstage_result" ||
+    value.action === "discard_result" ||
+    value.action === "checkout_result" ||
+    value.action === "branch_create_result" ||
+    value.action === "branch_delete_result" ||
+    value.action === "diff_result" ||
+    value.action === "watch_started" ||
+    value.action === "watch_stopped" ||
+    value.action === "failed"
+  );
+}
+
+function isGitStatusChangeEvent(value: unknown): value is GitStatusChangeEvent {
+  return (
+    isRecord(value) &&
+    value.type === "git/relay" &&
+    value.kind === "status_change" &&
+    typeof value.workspaceId === "string" &&
+    typeof value.watchId === "string" &&
+    typeof value.seq === "number" &&
+    isRecord(value.summary)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function normalizeExpectedCloseCodes(

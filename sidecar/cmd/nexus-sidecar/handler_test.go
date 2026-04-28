@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -230,6 +233,103 @@ func TestWorkspaceIDMismatchReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchLifecycleCancelRoutesToSearchSupervisor(t *testing.T) {
+	server := &fakeServer{}
+	handler := NewLifecycleHandler("ws-1", time.Now(), func(int) {})
+	handler.SetServer(server)
+
+	raw := mustJSON(t, contracts.SearchCancelCommand{
+		Type:        typeSearchLifecycleMessage,
+		Action:      contracts.SearchLifecycleActionCancel,
+		RequestID:   "req-cancel",
+		WorkspaceID: "ws-1",
+		SessionID:   "search-1",
+	})
+	if err := handler.OnMessage(context.Background(), raw); err != nil {
+		t.Fatalf("OnMessage() error = %v", err)
+	}
+
+	event, ok := server.sentAt(0).(contracts.SearchCanceledEvent)
+	if !ok {
+		t.Fatalf("sent type = %T, want SearchCanceledEvent", server.sentAt(0))
+	}
+	if event.Type != typeSearchLifecycleMessage ||
+		event.Action != contracts.SearchLifecycleActionCanceled ||
+		event.RequestID != "req-cancel" ||
+		event.WorkspaceID != "ws-1" ||
+		event.SessionID != "search-1" {
+		t.Fatalf("event = %+v", event)
+	}
+}
+
+func TestGitLifecycleSmokeStatusBranchListAndStatusChange(t *testing.T) {
+	requireGit(t)
+	workspaceRoot := t.TempDir()
+	runGit(t, workspaceRoot, "init")
+	runGit(t, workspaceRoot, "config", "user.email", "nexus@example.invalid")
+	runGit(t, workspaceRoot, "config", "user.name", "Nexus Test")
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "README.md"), []byte("# test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, workspaceRoot, "add", "README.md")
+	runGit(t, workspaceRoot, "commit", "-m", "init")
+
+	server := &fakeServer{}
+	handler := NewLifecycleHandler("ws-1", time.Now(), func(int) {})
+	handler.SetServer(server)
+
+	if err := handler.OnMessage(context.Background(), mustJSON(t, contracts.GitStatusCommand{
+		Type:        typeGitLifecycleMessage,
+		Action:      contracts.GitLifecycleActionStatus,
+		RequestID:   "req-status",
+		WorkspaceID: "ws-1",
+		Cwd:         workspaceRoot,
+	})); err != nil {
+		t.Fatalf("git status OnMessage() error = %v", err)
+	}
+	status := waitForSent[contracts.GitStatusReply](t, server, time.Second)
+	if status.Action != contracts.GitLifecycleActionStatusResult {
+		t.Fatalf("status = %+v", status)
+	}
+
+	if err := handler.OnMessage(context.Background(), mustJSON(t, contracts.GitBranchListCommand{
+		Type:        typeGitLifecycleMessage,
+		Action:      contracts.GitLifecycleActionBranchList,
+		RequestID:   "req-branches",
+		WorkspaceID: "ws-1",
+		Cwd:         workspaceRoot,
+	})); err != nil {
+		t.Fatalf("git branch_list OnMessage() error = %v", err)
+	}
+	branches := waitForSent[contracts.GitBranchListReply](t, server, time.Second)
+	if len(branches.Branches) == 0 {
+		t.Fatalf("branches = %+v, want at least one branch", branches)
+	}
+
+	debounceMs := 50
+	if err := handler.OnMessage(context.Background(), mustJSON(t, contracts.GitWatchStartCommand{
+		Type:        typeGitLifecycleMessage,
+		Action:      contracts.GitLifecycleActionWatchStart,
+		RequestID:   "req-watch",
+		WorkspaceID: "ws-1",
+		Cwd:         workspaceRoot,
+		WatchID:     "watch-1",
+		DebounceMs:  &debounceMs,
+	})); err != nil {
+		t.Fatalf("git watch_start OnMessage() error = %v", err)
+	}
+	_ = waitForSent[contracts.GitWatchStartedReply](t, server, time.Second)
+
+	if err := os.WriteFile(filepath.Join(workspaceRoot, "changed.txt"), []byte("change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	change := waitForSent[contracts.GitStatusChangeEvent](t, server, 5*time.Second)
+	if change.Kind != contracts.GitRelayKindStatusChange || len(change.Summary.Files) == 0 {
+		t.Fatalf("change = %+v", change)
+	}
+	handler.OnClose(0, "")
+}
+
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -237,4 +337,40 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not available on PATH: %v", err)
+	}
+}
+
+func runGit(t *testing.T, cwd string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = cwd
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+}
+
+func waitForSent[T any](t *testing.T, server *fakeServer, timeout time.Duration) T {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	seen := 0
+	for time.Now().Before(deadline) {
+		for seen < server.sentLen() {
+			message := server.sentAt(seen)
+			seen++
+			if typed, ok := message.(T); ok {
+				return typed
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var zero T
+	t.Fatalf("timed out waiting for sent %T", zero)
+	return zero
 }

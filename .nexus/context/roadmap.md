@@ -34,7 +34,7 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 
 ### E4. Code Editor + LSP
 
-에디터와 언어 서버 통합을 제공한다. TypeScript, Python, Go 세 언어에서 Tier-1 9개 LSP 기능(completion/snippets, hover, go-to-definition, references, rename, formatting, signature help, code action, document symbols)을 MVP 단일 슬라이스로 지원한다. 파일트리(미니멀: expand/collapse·open·생성/삭제/이름변경·watch 반영), 탭 기반 파일 편집(close·수정됨 표시·save), git 파일 레벨 뱃지(modified/untracked/staged 등), in-file 검색·치환(Ctrl+F/Ctrl+H)을 포함한다. Workspace 표면은 Workspace strip + Filetree column으로 재구성하고, Center는 editor/terminal split을 기본으로 하며, Editor는 1-depth horizontal split을 지원한다. 명시 제외: Monaco 테마·키바인딩·폰트 커스텀 UI, project-wide 검색, 전용 git UI, debugger·test runner·extension·marketplace, 자체 AI 인라인 제안. 수평 제약: Phase A의 React 셸이 "Workspace strip + Filetree column + 중앙(에디터/터미널) + 우 보조 공유 컨테이너"의 4열 layout container를 미리 비워 두고 E4에서 채움.
+에디터와 언어 서버 통합을 제공한다. TypeScript, Python, Go 세 언어에서 Tier-1 9개 LSP 기능(completion/snippets, hover, go-to-definition, references, rename, formatting, signature help, code action, document symbols)을 MVP 단일 슬라이스로 지원한다. 두 번째 격상 슬라이스에서는 파일트리를 VS Code급 상호작용 표면으로 끌어올린다: `vscode-icons-js` 파일 타입 아이콘, `react-arborist` 기반 1만+ 파일 가상화, context menu, drag-and-drop, multi-select, diff editor를 포함한다. 탭 기반 파일 편집(close·수정됨 표시·save), git 파일 레벨 뱃지(modified/untracked/staged 등), in-file 검색·치환(Ctrl+F/Ctrl+H)에 더해 `ripgrep` 기반 project-wide search와 Source Control UI(git status·commit·branch·merge conflict)를 포함한다. Workspace 표면은 Workspace strip + Filetree column으로 재구성하고, Center는 editor/terminal split을 기본으로 하며, Editor는 1-depth horizontal split과 diff tab을 지원한다. 명시 제외: Monaco 테마·키바인딩·폰트 커스텀 UI, debugger·test runner, extension·marketplace, 자체 AI 인라인 제안. 수평 제약: Phase A의 React 셸이 "Workspace strip + Filetree column + 중앙(에디터/터미널) + 우 보조 공유 컨테이너"의 4열 layout container를 미리 비워 두고 E4에서 채움.
 
 클라이언트 전략은 `vscode-languageserver-protocol`을 표준 LSP 타입과 JSON-RPC 메시지 기준으로 쓰고, Monaco에는 자체 provider를 능력별로 붙이는 방식으로 고정한다. sidecar는 언어 서버 프로세스 spawn/supervision/restart와 WebSocket stdio relay를 소유한다. main은 LSP protocol 처리와 Monaco integration을 맡고, renderer는 preload editor API를 통해 호출하는 하이브리드 구조를 유지한다.
 
@@ -67,9 +67,9 @@ claude-code, opencode, codex 세 어댑터를 동시 지원한다. IDE는 하네
 | M2 Terminal + CJK | E2 완성 (자동 게이트 + 단위 테스트) |
 | **Phase A — Runnable Shell 확정** | M0 잔여분(번들러·entry·preload·Go sidecar 실체) + E1/E2 실기 통합. unsigned dev launch로 3워크스페이스 열기/닫기·전환·다중 탭·IME 수동 확인·재시작 복원 통과. 4열 layout container(Workspace strip + Filetree column + 중앙 + 우 공유 보조)를 빈 슬롯으로 미리 배치해 E3·E4·E5 확장을 수용. 서명·notarize·package:mac는 로드맵 범위 외다. |
 | M3 Harness Observer | E3 완성. 착수 기반은 schema↔TS/Go 계약, CI drift gate, sidecar lifecycle WebSocket handshake, WebSocket facade로 구성한다. claude-code 어댑터 1종, WorkspaceSidebar 워크스페이스 상태 뱃지, Right Shared Panel Tool live feed는 구현된 기준선이다. opencode·codex 어댑터, diff 뷰, OS 알림, 세션 히스토리는 후속 표면으로 남긴다. |
-| M4 Editor + LSP | E4 격상 완료 (Tier-1 9 LSP + Workspace strip/Filetree column 재구성 + Center split + Editor 1-depth split + 디자인 폴리시) |
+| M4 Editor + LSP | E4 격상 두 번째 슬라이스 완료 (파일트리/탭 격상 + Search + Source Control + Diff + Multi-select) |
 | M5 Preview | E5 완성 |
-| M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 9 LSP capability × 3언어 × Center split × Editor split × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(워크스페이스 상태 뱃지·tool 패널·세션 히스토리·Workspace strip·Filetree column·Center split·Editor split·Maximize 상태·신규 단축키 IME 보호·preview)에서 한국어 렌더링·IME·경로 처리 체크리스트 재실행, (3) Migration gate — CenterWorkbenchMode와 EditorStore paneId 마이그레이션 단위테스트/첫 실행 검증, (4) LSP stability gate — 9 capability × 3언어 장시간 회귀, crash 자동 restart ≤5초, WebSocket relay 누락 0, 좀비 프로세스 0, (5) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도). 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |
+| M6 v0.1 Release | (1) 통합 regression smoke — 3워크스페이스 × 3하네스 × 9 LSP capability × 3언어 × Center split × Editor split × markdown+WebContentsView preview 동시 30분+ 안정성, (2) CJK 전면 회귀 — E3/E4/E5 신규 UI(워크스페이스 상태 뱃지·tool 패널·세션 히스토리·Workspace strip·Filetree column·Center split·Editor split·Maximize 상태·신규 단축키 IME 보호·preview)에서 한국어 렌더링·IME·경로 처리 체크리스트 재실행, (3) Migration gate — CenterWorkbenchMode와 EditorStore paneId 마이그레이션 단위테스트/첫 실행 검증, (4) LSP stability gate — 9 capability × 3언어 장시간 회귀, crash 자동 restart ≤5초, WebSocket relay 누락 0, 좀비 프로세스 0, (5) 10 dogfood 유저 피드백 — 4축 설문(안정성·체감 속도·IME 품질·기본 기능 만족도), (6) ripgrep 30분 search 안정성 — 1만+ 파일 워크스페이스에서 메모리 누수 0, 결과 누락 0, 좀비 프로세스 0, (7) git CLI 30분 운영 안정성 — status watcher fsnotify drift 0, commit/branch/checkout 이벤트 누락 0, (8) Monaco DiffEditor 큰 파일 안정성 — 10만 줄 비교에서 mount leak 0, navigation freeze 0, (9) context menu + DnD CJK 회귀 — 한국어 파일명·경로·IME 조합 중 단축키 차단 재검증. 10명 섭외는 M5 시점부터 선행 착수(수집 2–4주). |
 
 마일스톤은 순서대로 진행하되, M4와 M5는 M3 완료 후 병렬 착수 가능하다. Phase A는 M2 완료 이후 M3 착수 이전의 필수 중간 단계로 고정한다. 기간은 월 단위 가이드가 아니라 마일스톤 단위로 판단한다.
 
@@ -105,3 +105,5 @@ MVP에서 의도적으로 뺀 항목을 순서대로 추가한다.
 5. 초기 유저 10명으로부터 "일상에서 쓸 만하다" 피드백 확보 — M6 전용 게이트, 기준선 수치는 M6 진입 plan에서 결정
 6. 9 LSP capability × 3언어 풀 매트릭스에서 30+분 연속 동작 회귀 없음 + LSP 서버 crash 시 sidecar 자동 restart ≤5초 복구.
 7. Center split / Editor split / maximize 토글 50+회 후 mount-stable 보존 — 터미널 스크롤백 유지, Monaco model leak 0, xterm fit error 0.
+8. Project-wide search 30+분 안정성 통과 — `ripgrep` 결과 정확성, stream 누락 0, 좀비 프로세스 0.
+9. Source Control commit/checkout/diff 30+분 안정성 통과 — git status drift 0, watcher 이벤트 누락 0, DiffEditor 연결 정상.

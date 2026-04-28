@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/git-relay.schema.json",
+  "title": "GitRelayMessage",
+  "oneOf": [{ "$ref": "#/$defs/gitStatusChangeEvent" }],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "watchId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gitRelayKind": {
+      "type": "string",
+      "enum": ["status_change"]
+    },
+    "gitFileStatusKind": {
+      "type": "string",
+      "enum": [
+        "modified",
+        "added",
+        "deleted",
+        "renamed",
+        "copied",
+        "untracked",
+        "ignored",
+        "conflicted",
+        "clean"
+      ]
+    },
+    "gitStatusEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "originalPath", "status", "indexStatus", "workTreeStatus", "kind"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "originalPath": { "type": ["string", "null"] },
+        "status": { "type": "string", "minLength": 2, "maxLength": 2 },
+        "indexStatus": { "type": "string", "minLength": 1, "maxLength": 1 },
+        "workTreeStatus": { "type": "string", "minLength": 1, "maxLength": 1 },
+        "kind": { "$ref": "#/$defs/gitFileStatusKind" }
+      }
+    },
+    "gitStatusSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "upstream", "ahead", "behind", "files"],
+      "properties": {
+        "branch": { "type": ["string", "null"] },
+        "upstream": { "type": ["string", "null"] },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitStatusEntry" }
+        }
+      }
+    },
+    "gitStatusChangeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "kind", "workspaceId", "watchId", "cwd", "seq", "summary", "changedAt"],
+      "properties": {
+        "type": { "const": "git/relay" },
+        "kind": { "const": "status_change" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "watchId": { "$ref": "#/$defs/watchId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "changedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

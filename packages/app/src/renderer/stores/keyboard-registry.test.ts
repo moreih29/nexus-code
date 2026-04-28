@@ -57,6 +57,9 @@ describe("keyboardRegistryStore", () => {
 
   test("normalizes modifier order and key casing", () => {
     expect(normalizeKeychord("shift+cmd+p")).toBe("Cmd+Shift+P");
+    expect(normalizeKeychord("shift+cmd+f")).toBe("Cmd+Shift+F");
+    expect(normalizeKeychord("shift+cmd+h")).toBe("Cmd+Shift+H");
+    expect(normalizeKeychord("cmd+g")).toBe("Cmd+G");
     expect(normalizeKeychord("Ctrl+`")).toBe("Ctrl+`");
     expect(normalizeKeychord("cmd+alt+←")).toBe("Cmd+Alt+ArrowLeft");
     expect(normalizeKeychord("cmd+alt+→")).toBe("Cmd+Alt+ArrowRight");
@@ -68,6 +71,9 @@ describe("keyboardRegistryStore", () => {
     expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "\\" })).toBe(true);
     expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "ArrowLeft" })).toBe(true);
     expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "ArrowRight" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "F" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "H" })).toBe(true);
+    expect(shouldIgnoreKeyboardShortcut({ isComposing: true, key: "G" })).toBe(true);
     expect(shouldIgnoreKeyboardShortcut({ isComposing: false, key: "Process", keyCode: 229 })).toBe(true);
     expect(shouldIgnoreKeyboardShortcut({ isComposing: false, key: "M", keyCode: 77 })).toBe(false);
   });

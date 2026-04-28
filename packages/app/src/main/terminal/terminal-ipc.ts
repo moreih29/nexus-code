@@ -150,6 +150,14 @@ export class TerminalMainIpcRouter {
     this.stdoutCoalescer.dispose();
   }
 
+  public async openTerminal(command: TerminalOpenCommand): Promise<TerminalOpenedEvent> {
+    if (!this.started) {
+      throw new Error("Terminal IPC router is not started.");
+    }
+
+    return this.handleOpenCommand(command);
+  }
+
   private async handleCommandPayload(payload: unknown): Promise<unknown> {
     if (!isTerminalIpcCommand(payload)) {
       throw new Error("Invalid terminal IPC command payload.");

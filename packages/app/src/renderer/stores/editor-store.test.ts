@@ -13,6 +13,7 @@ import {
   WORKSPACE_EDIT_CLOSED_FILE_POLICY,
   applyLspTextEdits,
   createEditorStore,
+  diffTabIdFor,
   getActiveEditorTabId,
   migrateEditorPanesState,
   migrateCenterWorkbenchMode,
@@ -464,6 +465,60 @@ describe("editor-store tabs", () => {
     });
   });
 
+  test("opens read-only diff tabs without LSP document lifecycle", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls, {
+      fileContents: {
+        "src/index.ts": "const left = 1;\n",
+        "README.md": "# right\n",
+      },
+    });
+    const store = createEditorStore(bridge);
+
+    store.getState().setActiveWorkspace(workspaceId);
+    await store.getState().openDiffTab(
+      { workspaceId, path: "src/index.ts" },
+      { workspaceId, path: "README.md" },
+      { source: "compare" },
+    );
+
+    const tab = allTabs(store)[0];
+    expect(tab).toMatchObject({
+      kind: "diff",
+      title: "index.ts ↔ README.md",
+      dirty: false,
+      readOnly: true,
+      diff: {
+        source: "compare",
+        left: {
+          path: "src/index.ts",
+          content: "const left = 1;\n",
+          monacoLanguage: "typescript",
+        },
+        right: {
+          path: "README.md",
+          content: "# right\n",
+          monacoLanguage: "markdown",
+        },
+      },
+    });
+    expect(tab?.id).toBe(diffTabIdFor(workspaceId, tab!.diff!.left, tab!.diff!.right, "compare"));
+    expect(getActiveEditorTabId(store.getState())).toBe(tab?.id);
+    expect(store.getState().centerMode).toBe("editor-max");
+    expect(calls.map((call) => call.type)).toEqual([
+      "workspace-files/file/read",
+      "workspace-files/file/read",
+    ]);
+
+    await store.getState().updateTabContent(tab!.id, "ignored");
+    await store.getState().saveTab(tab!.id);
+    await store.getState().closeTab(DEFAULT_EDITOR_PANE_ID, tab!.id);
+    expect(calls.map((call) => call.type)).toEqual([
+      "workspace-files/file/read",
+      "workspace-files/file/read",
+    ]);
+  });
+
   test("toggles a one-depth right split without creating a third pane", async () => {
     const calls: EditorBridgeRequest[] = [];
     const bridge = createFakeBridge(calls);
@@ -537,6 +592,112 @@ describe("editor-store tabs", () => {
     expect(secondaryPane(store).tabs.map((tab) => tab.id)).toEqual([tabId]);
     expect(store.getState().activePaneId).toBe(SECONDARY_EDITOR_PANE_ID);
     expect(secondaryPane(store).activeTabId).toBe(tabId);
+  });
+
+  test("reorders tabs in the same pane and focuses the dragged tab", () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+    const firstTab = createPlaintextTab("a.ts");
+    const secondTab = createPlaintextTab("b.ts");
+    const thirdTab = createPlaintextTab("c.ts");
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [firstTab, secondTab, thirdTab],
+          activeTabId: secondTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    store.getState().reorderTabInPane(DEFAULT_EDITOR_PANE_ID, 0, 2, workspaceId);
+
+    expect(primaryPane(store).tabs.map((candidate) => candidate.id)).toEqual([
+      secondTab.id,
+      thirdTab.id,
+      firstTab.id,
+    ]);
+    expect(primaryPane(store).activeTabId).toBe(firstTab.id);
+    expect(store.getState().activePaneId).toBe(DEFAULT_EDITOR_PANE_ID);
+  });
+
+  test("moves a dragged tab across panes and makes it active in the target pane", () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+    const movedTab = createPlaintextTab("a.ts");
+    const leftSiblingTab = createPlaintextTab("b.ts");
+    const targetTab = createPlaintextTab("c.ts");
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [movedTab, leftSiblingTab],
+          activeTabId: movedTab.id,
+        },
+        {
+          id: SECONDARY_EDITOR_PANE_ID,
+          tabs: [targetTab],
+          activeTabId: targetTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    store.getState().moveTabToPane(
+      DEFAULT_EDITOR_PANE_ID,
+      SECONDARY_EDITOR_PANE_ID,
+      movedTab.id,
+      0,
+      workspaceId,
+    );
+
+    expect(primaryPane(store).tabs.map((candidate) => candidate.id)).toEqual([leftSiblingTab.id]);
+    expect(primaryPane(store).activeTabId).toBe(leftSiblingTab.id);
+    expect(secondaryPane(store).tabs.map((candidate) => candidate.id)).toEqual([
+      movedTab.id,
+      targetTab.id,
+    ]);
+    expect(secondaryPane(store).activeTabId).toBe(movedTab.id);
+    expect(store.getState().activePaneId).toBe(SECONDARY_EDITOR_PANE_ID);
+  });
+
+  test("splits one pane to the right through a tab drag and moves focus with the tab", () => {
+    const calls: EditorBridgeRequest[] = [];
+    const bridge = createFakeBridge(calls);
+    const store = createEditorStore(bridge);
+    const movedTab = createPlaintextTab("a.ts");
+    const remainingTab = createPlaintextTab("b.ts");
+
+    store.setState({
+      activeWorkspaceId: workspaceId,
+      panes: [
+        {
+          id: DEFAULT_EDITOR_PANE_ID,
+          tabs: [movedTab, remainingTab],
+          activeTabId: movedTab.id,
+        },
+      ],
+      activePaneId: DEFAULT_EDITOR_PANE_ID,
+    });
+
+    store.getState().splitPaneRightAndMoveTab(DEFAULT_EDITOR_PANE_ID, movedTab.id, workspaceId);
+
+    expect(store.getState().panes.map((pane) => pane.id)).toEqual([
+      DEFAULT_EDITOR_PANE_ID,
+      SECONDARY_EDITOR_PANE_ID,
+    ]);
+    expect(primaryPane(store).tabs.map((candidate) => candidate.id)).toEqual([remainingTab.id]);
+    expect(primaryPane(store).activeTabId).toBe(remainingTab.id);
+    expect(secondaryPane(store).tabs.map((candidate) => candidate.id)).toEqual([movedTab.id]);
+    expect(secondaryPane(store).activeTabId).toBe(movedTab.id);
+    expect(store.getState().activePaneId).toBe(SECONDARY_EDITOR_PANE_ID);
   });
 
   test("auto-unsplits when closing the last tab in a split pane", async () => {
@@ -1293,6 +1454,7 @@ function createPlaintextTab(
   overrides: Partial<EditorTab> = {},
 ): EditorTab {
   const tab: EditorTab = {
+    kind: "file",
     id: tabIdFor(tabWorkspaceId, path),
     workspaceId: tabWorkspaceId,
     path,

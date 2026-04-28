@@ -40,6 +40,9 @@ import { registerEditorBridgeIpcHandlers, type EditorBridgeIpcHandlers } from ".
 import { LspService } from "../lsp/lsp-service";
 import { HarnessNotificationService } from "../harness/harness-notification-service";
 import { WorkspaceDiffService } from "../workspace/diff/workspace-diff-service";
+import { registerSearchBridgeIpcHandlers, type SearchBridgeIpcHandlers } from "../search/search-bridge-ipc";
+import { registerGitBridgeIpcHandlers, type GitBridgeIpcHandlers } from "../git/git-bridge-ipc";
+import { registerFileActionsIpcHandlers, type FileActionsIpcHandlers } from "../file-actions/file-actions-ipc";
 import type { SidecarRuntime } from "../sidecar/sidecar-runtime";
 import {
   TerminalMainIpcRouter,
@@ -66,6 +69,9 @@ export interface ElectronAppServices {
   readonly workspaceShellService: WorkspaceShellService;
   readonly workspaceFilesService: WorkspaceFilesService;
   readonly lspService: LspService;
+  readonly searchBridgeIpcHandlers: SearchBridgeIpcHandlers;
+  readonly gitBridgeIpcHandlers: GitBridgeIpcHandlers;
+  readonly fileActionsIpcHandlers: FileActionsIpcHandlers;
   dispose(): Promise<void>;
 }
 
@@ -231,6 +237,23 @@ export async function composeElectronAppServices(
     editorService: workspaceFilesService,
     lspService: lspService,
   });
+  const searchBridgeIpcHandlers = registerSearchBridgeIpcHandlers({
+    ipcMain,
+    mainWindow,
+    searchClient: sidecarRuntime,
+    workspaceRegistryStore: workspacePersistenceStore,
+  });
+  const gitBridgeIpcHandlers = registerGitBridgeIpcHandlers({
+    ipcMain,
+    mainWindow,
+    gitClient: sidecarRuntime,
+  });
+  const fileActionsIpcHandlers = registerFileActionsIpcHandlers({
+    ipcMain,
+    mainWindow,
+    workspaceRegistryStore: workspacePersistenceStore,
+    terminalOpener: terminalRouter,
+  });
 
   return new DefaultElectronAppServices({
     workspacePersistenceStore,
@@ -250,6 +273,9 @@ export async function composeElectronAppServices(
     workspaceFilesService,
     lspService,
     editorBridgeIpcHandlers,
+    searchBridgeIpcHandlers,
+    gitBridgeIpcHandlers,
+    fileActionsIpcHandlers,
   });
 }
 
@@ -387,6 +413,9 @@ interface DefaultElectronAppServicesOptions {
   workspaceFilesService: WorkspaceFilesService;
   lspService: LspService;
   editorBridgeIpcHandlers: EditorBridgeIpcHandlers;
+  searchBridgeIpcHandlers: SearchBridgeIpcHandlers;
+  gitBridgeIpcHandlers: GitBridgeIpcHandlers;
+  fileActionsIpcHandlers: FileActionsIpcHandlers;
 }
 
 class DefaultElectronAppServices implements ElectronAppServices {
@@ -400,6 +429,9 @@ class DefaultElectronAppServices implements ElectronAppServices {
   public readonly workspaceShellService: WorkspaceShellService;
   public readonly workspaceFilesService: WorkspaceFilesService;
   public readonly lspService: LspService;
+  public readonly searchBridgeIpcHandlers: SearchBridgeIpcHandlers;
+  public readonly gitBridgeIpcHandlers: GitBridgeIpcHandlers;
+  public readonly fileActionsIpcHandlers: FileActionsIpcHandlers;
   private readonly workspaceIpcAdapter: ElectronWorkspaceIpcAdapter;
   private readonly workspaceShortcutBridge: WorkspaceKeyboardShortcutBridge;
   private readonly sidecarObserverSubscription: SidecarObserverEventSubscription;
@@ -421,6 +453,9 @@ class DefaultElectronAppServices implements ElectronAppServices {
     this.workspaceShellService = options.workspaceShellService;
     this.workspaceFilesService = options.workspaceFilesService;
     this.lspService = options.lspService;
+    this.searchBridgeIpcHandlers = options.searchBridgeIpcHandlers;
+    this.gitBridgeIpcHandlers = options.gitBridgeIpcHandlers;
+    this.fileActionsIpcHandlers = options.fileActionsIpcHandlers;
     this.workspaceIpcAdapter = options.workspaceIpcAdapter;
     this.workspaceShortcutBridge = options.workspaceShortcutBridge;
     this.sidecarObserverSubscription = options.sidecarObserverSubscription;
@@ -443,6 +478,9 @@ class DefaultElectronAppServices implements ElectronAppServices {
       await adapter.dispose();
     }
     this.workspaceShortcutBridge.dispose();
+    this.gitBridgeIpcHandlers.dispose();
+    this.searchBridgeIpcHandlers.dispose();
+    this.fileActionsIpcHandlers.dispose();
     this.editorBridgeIpcHandlers.dispose();
     await this.lspService.dispose();
     await runShutdownStep("stop sidecar LSP servers", async () => {

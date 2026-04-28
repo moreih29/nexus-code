@@ -25,6 +25,49 @@ import type {
   EditorBridgeRequest,
   EditorBridgeResultFor,
 } from "../../../shared/src/contracts/editor/editor-bridge";
+import type {
+  SearchCancelCommand,
+  SearchCompletedEvent,
+  SearchFailedEvent,
+  SearchStartedReply,
+  SearchStartCommand,
+  SearchCanceledEvent,
+} from "../../../shared/src/contracts/generated/search-lifecycle";
+import type { SearchResultChunkMessage } from "../../../shared/src/contracts/generated/search-relay";
+import type {
+  GitBranchCreateCommand,
+  GitBranchCreateReply,
+  GitBranchDeleteCommand,
+  GitBranchDeleteReply,
+  GitBranchListCommand,
+  GitBranchListReply,
+  GitCheckoutCommand,
+  GitCheckoutReply,
+  GitCommitCommand,
+  GitCommitReply,
+  GitDiffCommand,
+  GitDiffReply,
+  GitDiscardCommand,
+  GitDiscardReply,
+  GitFailedEvent,
+  GitStageCommand,
+  GitStageReply,
+  GitStatusCommand,
+  GitStatusReply,
+  GitUnstageCommand,
+  GitUnstageReply,
+  GitWatchStartCommand,
+  GitWatchStartedReply,
+  GitWatchStopCommand,
+  GitWatchStoppedReply,
+} from "../../../shared/src/contracts/generated/git-lifecycle";
+import type { GitStatusChangeEvent } from "../../../shared/src/contracts/generated/git-relay";
+import type {
+  FileActionStartFileDragRequest,
+  FileActionStartFileDragResult,
+  FileActionsRequest,
+  FileActionsResult,
+} from "../common/file-actions";
 
 interface NexusPreloadDisposable {
   dispose(): void;
@@ -76,6 +119,61 @@ interface NexusEditorApi {
   onEvent(listener: (event: EditorBridgeEvent) => void): NexusPreloadDisposable;
 }
 
+type NexusSearchEvent =
+  | SearchStartedReply
+  | SearchCompletedEvent
+  | SearchFailedEvent
+  | SearchCanceledEvent
+  | SearchResultChunkMessage;
+
+type NexusGitRequest =
+  | GitStatusCommand
+  | GitBranchListCommand
+  | GitCommitCommand
+  | GitStageCommand
+  | GitUnstageCommand
+  | GitDiscardCommand
+  | GitCheckoutCommand
+  | GitBranchCreateCommand
+  | GitBranchDeleteCommand
+  | GitDiffCommand
+  | GitWatchStartCommand
+  | GitWatchStopCommand;
+
+type NexusGitResult =
+  | GitStatusReply
+  | GitBranchListReply
+  | GitCommitReply
+  | GitStageReply
+  | GitUnstageReply
+  | GitDiscardReply
+  | GitCheckoutReply
+  | GitBranchCreateReply
+  | GitBranchDeleteReply
+  | GitDiffReply
+  | GitWatchStartedReply
+  | GitWatchStoppedReply
+  | GitFailedEvent;
+
+type NexusGitEvent = NexusGitResult | GitStatusChangeEvent;
+
+interface NexusSearchApi {
+  startSearch(command: SearchStartCommand): Promise<SearchStartedReply | SearchFailedEvent>;
+  cancelSearch(command: SearchCancelCommand): Promise<void>;
+  onEvent(listener: (event: NexusSearchEvent) => void): NexusPreloadDisposable;
+}
+
+interface NexusGitApi {
+  invoke(request: NexusGitRequest): Promise<NexusGitResult>;
+  onEvent(listener: (event: NexusGitEvent) => void): NexusPreloadDisposable;
+}
+
+interface NexusFileActionsApi {
+  invoke<TRequest extends FileActionsRequest>(request: TRequest): Promise<FileActionsResult>;
+  startFileDrag(request: Omit<FileActionStartFileDragRequest, "type">): Promise<FileActionStartFileDragResult>;
+  getPathForFile(file: File): string;
+}
+
 declare global {
   interface Window {
     nexusTerminal: NexusTerminalApi;
@@ -85,6 +183,9 @@ declare global {
     nexusWorkspaceDiff: NexusWorkspaceDiffApi;
     nexusClaudeSession: NexusClaudeSessionApi;
     nexusEditor: NexusEditorApi;
+    nexusSearch: NexusSearchApi;
+    nexusGit: NexusGitApi;
+    nexusFileActions: NexusFileActionsApi;
   }
 }
 

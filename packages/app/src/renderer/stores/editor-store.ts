@@ -20,6 +20,7 @@ export type CenterWorkbenchMode = "split" | "editor-max" | "terminal-max";
 export type CenterWorkbenchPane = "editor" | "terminal";
 export type EditorPaneId = string;
 export type EditorTabId = string;
+export type EditorTabKind = "file" | "diff";
 
 export const CENTER_WORKBENCH_MODE_STORAGE_KEY = "nx.center.mode";
 export const DEFAULT_EDITOR_PANE_ID: EditorPaneId = "p0";
@@ -80,7 +81,38 @@ export type EditorTreeSelectionMovement =
   | "parent"
   | "child";
 
+export interface EditorDiffSide {
+  workspaceId: WorkspaceId;
+  path: string;
+  title: string;
+  content: string;
+  language: LspLanguage | null;
+  monacoLanguage: string;
+}
+
+export interface EditorDiffDescriptor {
+  left: EditorDiffSide;
+  right: EditorDiffSide;
+  source: "compare" | "source-control" | "manual";
+}
+
+export interface OpenDiffTabSide {
+  workspaceId: WorkspaceId;
+  path: string;
+  title?: string;
+  content?: string;
+  language?: LspLanguage | null;
+  monacoLanguage?: string;
+}
+
+export interface OpenDiffTabOptions {
+  id?: string;
+  title?: string;
+  source?: EditorDiffDescriptor["source"];
+}
+
 export interface EditorTab {
+  kind: EditorTabKind;
   id: EditorTabId;
   workspaceId: WorkspaceId;
   path: string;
@@ -96,6 +128,8 @@ export interface EditorTab {
   lspDocumentVersion: number;
   diagnostics: LspDiagnostic[];
   lspStatus: LspStatus | null;
+  readOnly?: boolean;
+  diff?: EditorDiffDescriptor;
 }
 
 export interface EditorPaneState {
@@ -130,6 +164,24 @@ export interface EditorStoreState {
   activatePane(paneId: EditorPaneId): void;
   splitActivePaneRight(): void;
   moveActiveTabToPane(direction: "left" | "right"): void;
+  reorderTabInPane(
+    paneId: EditorPaneId,
+    oldIndex: number,
+    newIndex: number,
+    workspaceId?: WorkspaceId | null,
+  ): void;
+  moveTabToPane(
+    sourcePaneId: EditorPaneId,
+    targetPaneId: EditorPaneId,
+    tabId: EditorTabId,
+    targetIndex: number,
+    workspaceId?: WorkspaceId | null,
+  ): void;
+  splitPaneRightAndMoveTab(
+    sourcePaneId: EditorPaneId,
+    tabId: EditorTabId,
+    workspaceId?: WorkspaceId | null,
+  ): void;
   refreshFileTree(workspaceId?: WorkspaceId | null): Promise<void>;
   toggleDirectory(path: string): void;
   selectTreePath(path: string | null, workspaceId?: WorkspaceId | null): void;
@@ -145,6 +197,11 @@ export interface EditorStoreState {
   deleteFileNode(workspaceId: WorkspaceId, path: string, kind: WorkspaceFileKind): Promise<void>;
   renameFileNode(workspaceId: WorkspaceId, oldPath: string, newPath: string): Promise<void>;
   openFile(workspaceId: WorkspaceId, path: string): Promise<void>;
+  openDiffTab(
+    left: OpenDiffTabSide,
+    right: OpenDiffTabSide,
+    options?: OpenDiffTabOptions,
+  ): Promise<void>;
   activateTab(paneId: EditorPaneId, tabId: EditorTabId): void;
   updateTabContent(tabId: EditorTabId, content: string): Promise<void>;
   saveTab(tabId: EditorTabId): Promise<void>;
@@ -223,7 +280,7 @@ export function migrateEditorPanesState(persistedState: unknown): EditorPanesSta
           : index === 0
             ? DEFAULT_EDITOR_PANE_ID
             : SECONDARY_EDITOR_PANE_ID;
-        const tabs = Array.isArray(pane.tabs) ? (pane.tabs as EditorTab[]) : [];
+        const tabs = Array.isArray(pane.tabs) ? normalizeEditorTabs(pane.tabs) : [];
         const activeTabId = normalizePaneActiveTabId(tabs, pane.activeTabId);
         return { id, tabs, activeTabId };
       })
@@ -240,7 +297,7 @@ export function migrateEditorPanesState(persistedState: unknown): EditorPanesSta
   }
 
   if (isRecord(rawState) && Array.isArray(rawState.tabs)) {
-    const tabs = rawState.tabs as EditorTab[];
+    const tabs = normalizeEditorTabs(rawState.tabs);
     return {
       panes: [
         {
@@ -378,6 +435,26 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     moveActiveTabToPane(direction) {
       set((state) => moveActiveTabToPaneInState(state, direction));
+    },
+    reorderTabInPane(paneId, oldIndex, newIndex, workspaceId = get().activeWorkspaceId) {
+      persistCenterWorkbenchMode("editor-max");
+      set((state) => reorderTabInPaneInState(state, paneId, oldIndex, newIndex, workspaceId));
+    },
+    moveTabToPane(
+      sourcePaneId,
+      targetPaneId,
+      tabId,
+      targetIndex,
+      workspaceId = get().activeWorkspaceId,
+    ) {
+      persistCenterWorkbenchMode("editor-max");
+      set((state) =>
+        moveTabToPaneInState(state, sourcePaneId, targetPaneId, tabId, targetIndex, workspaceId),
+      );
+    },
+    splitPaneRightAndMoveTab(sourcePaneId, tabId, workspaceId = get().activeWorkspaceId) {
+      persistCenterWorkbenchMode("editor-max");
+      set((state) => splitPaneRightAndMoveTabInState(state, sourcePaneId, tabId, workspaceId));
     },
     async refreshFileTree(workspaceId = get().activeWorkspaceId) {
       if (!workspaceId) {
@@ -656,6 +733,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         ? get().lspStatuses[lspStatusKey(workspaceId, language)] ?? null
         : null;
       const tab: EditorTab = {
+        kind: "file",
         id: tabIdFor(workspaceId, readResult.path),
         workspaceId,
         path: readResult.path,
@@ -706,6 +784,69 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         await refreshTabDiagnostics(bridge, set, workspaceId, readResult.path, language);
       }
     },
+    async openDiffTab(left, right, options = {}) {
+      const [leftSide, rightSide] = await Promise.all([
+        resolveDiffSide(bridge, left),
+        resolveDiffSide(bridge, right),
+      ]);
+      const workspaceId = rightSide.workspaceId;
+      const tabId = options.id ?? diffTabIdFor(
+        workspaceId,
+        leftSide,
+        rightSide,
+        options.source ?? "manual",
+      );
+      const existingTab = getAllEditorTabs(get()).find((tab) => tab.id === tabId) ?? null;
+      const activePaneId = getActiveEditorPane(get()).id;
+
+      if (existingTab) {
+        persistCenterWorkbenchMode("editor-max");
+        set((state) => ({
+          activeWorkspaceId: workspaceId,
+          centerMode: "editor-max",
+          activePaneId,
+          panes: state.panes.some((pane) =>
+            pane.id === activePaneId && pane.tabs.some((tab) => tab.id === tabId),
+          )
+            ? activateTabInPane(state.panes, activePaneId, tabId)
+            : addTabToPane(state.panes, activePaneId, existingTab),
+        }));
+        return;
+      }
+
+      const tab: EditorTab = {
+        kind: "diff",
+        id: tabId,
+        workspaceId,
+        path: `${leftSide.path} ↔ ${rightSide.path}`,
+        title: options.title ?? diffTabTitle(leftSide, rightSide),
+        content: "",
+        savedContent: "",
+        version: "",
+        dirty: false,
+        saving: false,
+        errorMessage: null,
+        language: null,
+        monacoLanguage: "plaintext",
+        lspDocumentVersion: 0,
+        diagnostics: [],
+        lspStatus: null,
+        readOnly: true,
+        diff: {
+          left: leftSide,
+          right: rightSide,
+          source: options.source ?? "manual",
+        },
+      };
+
+      persistCenterWorkbenchMode("editor-max");
+      set((state) => ({
+        activeWorkspaceId: workspaceId,
+        centerMode: "editor-max",
+        activePaneId: getActiveEditorPane(state).id,
+        panes: addTabToPane(state.panes, getActiveEditorPane(state).id, tab),
+      }));
+    },
     activateTab(paneId, tabId) {
       const pane = get().panes.find((candidate) => candidate.id === paneId);
       const tab = pane?.tabs.find((candidate) => candidate.id === tabId) ?? null;
@@ -719,23 +860,25 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
         centerMode: "editor-max",
         activePaneId: paneId,
         panes: activateTabInPane(state.panes, paneId, tabId),
-        ...applyWorkspaceExplorerChanges(
-          state,
-          tab.workspaceId,
-          {
-            expandedPaths: expandAncestorPaths(
-              expandedPathsForWorkspace(state, tab.workspaceId),
-              tab.path,
-            ),
-            selectedTreePath: tab.path,
-          },
-          tab.workspaceId,
-        ),
+        ...(tab.kind === "file"
+          ? applyWorkspaceExplorerChanges(
+              state,
+              tab.workspaceId,
+              {
+                expandedPaths: expandAncestorPaths(
+                  expandedPathsForWorkspace(state, tab.workspaceId),
+                  tab.path,
+                ),
+                selectedTreePath: tab.path,
+              },
+              tab.workspaceId,
+            )
+          : {}),
       }));
     },
     async updateTabContent(tabId, content) {
       const tab = getAllEditorTabs(get()).find((candidate) => candidate.id === tabId);
-      if (!tab) {
+      if (!tab || tab.kind === "diff") {
         return;
       }
 
@@ -788,7 +931,7 @@ export function createEditorStore(bridge: EditorBridge): EditorStore {
     },
     async saveTab(tabId) {
       const tab = getAllEditorTabs(get()).find((candidate) => candidate.id === tabId);
-      if (!tab) {
+      if (!tab || tab.kind === "diff") {
         return;
       }
 
@@ -1003,6 +1146,27 @@ export function tabIdFor(workspaceId: WorkspaceId, path: string): EditorTabId {
   return `${workspaceId}::${path}`;
 }
 
+export function diffTabIdFor(
+  workspaceId: WorkspaceId,
+  left: Pick<EditorDiffSide, "workspaceId" | "path">,
+  right: Pick<EditorDiffSide, "workspaceId" | "path">,
+  source: EditorDiffDescriptor["source"] = "manual",
+): EditorTabId {
+  return [
+    "diff",
+    source,
+    workspaceId,
+    left.workspaceId,
+    left.path,
+    right.workspaceId,
+    right.path,
+  ].map(encodeDiffTabIdPart).join("::");
+}
+
+function encodeDiffTabIdPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
 export function getActiveEditorPane(state: Pick<EditorStoreState, "panes" | "activePaneId">): EditorPaneState {
   return state.panes.find((pane) => pane.id === state.activePaneId) ?? state.panes[0] ?? {
     id: DEFAULT_EDITOR_PANE_ID,
@@ -1064,6 +1228,42 @@ export function titleForPath(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).at(-1) ?? filePath;
 }
 
+function diffTabTitle(left: Pick<EditorDiffSide, "title">, right: Pick<EditorDiffSide, "title">): string {
+  return `${left.title} ↔ ${right.title}`;
+}
+
+async function resolveDiffSide(
+  bridge: EditorBridge,
+  side: OpenDiffTabSide,
+): Promise<EditorDiffSide> {
+  const language = side.language === undefined ? detectLspLanguage(side.path) : side.language;
+  if (side.content !== undefined) {
+    return {
+      workspaceId: side.workspaceId,
+      path: side.path,
+      title: side.title ?? titleForPath(side.path),
+      content: side.content,
+      language,
+      monacoLanguage: side.monacoLanguage ?? monacoLanguageIdForPath(side.path, language),
+    };
+  }
+
+  const readResult = await bridge.invoke({
+    type: "workspace-files/file/read",
+    workspaceId: side.workspaceId,
+    path: side.path,
+  });
+
+  return {
+    workspaceId: side.workspaceId,
+    path: readResult.path,
+    title: side.title ?? titleForPath(readResult.path),
+    content: readResult.content,
+    language,
+    monacoLanguage: side.monacoLanguage ?? monacoLanguageIdForPath(readResult.path, language),
+  };
+}
+
 function collectGitBadges(nodes: readonly WorkspaceFileTreeNode[]): Record<string, WorkspaceGitBadgeStatus> {
   const badges: Record<string, WorkspaceGitBadgeStatus> = {};
   for (const node of nodes) {
@@ -1091,6 +1291,30 @@ function unwrapPersistedEditorState(persistedState: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function normalizeEditorTabs(tabs: unknown[]): EditorTab[] {
+  return tabs
+    .map((tab) => normalizeEditorTab(tab))
+    .filter((tab): tab is EditorTab => tab !== null);
+}
+
+function normalizeEditorTab(tab: unknown): EditorTab | null {
+  if (!isRecord(tab)) {
+    return null;
+  }
+
+  const normalizedKind: EditorTabKind = tab.kind === "diff" ? "diff" : "file";
+  const normalizedTab = {
+    ...tab,
+    kind: normalizedKind,
+  } as EditorTab;
+
+  if (normalizedKind === "diff") {
+    return normalizedTab.diff ? normalizedTab : null;
+  }
+
+  return normalizedTab;
 }
 
 function normalizePaneActiveTabId(
@@ -1307,8 +1531,231 @@ function moveActiveTabToPaneInState(
   };
 }
 
+function reorderTabInPaneInState(
+  state: EditorStoreState,
+  paneId: EditorPaneId,
+  oldIndex: number,
+  newIndex: number,
+  workspaceId: WorkspaceId | null | undefined,
+): Partial<EditorStoreState> | EditorStoreState {
+  const pane = state.panes.find((candidate) => candidate.id === paneId);
+  if (!pane) {
+    return state;
+  }
+
+  const tabsInScope = tabsForReorderScope(pane.tabs, workspaceId);
+  const sourceTab = tabsInScope[oldIndex];
+  if (!sourceTab) {
+    return state;
+  }
+
+  const targetIndex = clampTabIndex(newIndex, tabsInScope.length - 1);
+  if (oldIndex === targetIndex) {
+    return {
+      activePaneId: paneId,
+      panes: activateTabInPane(state.panes, paneId, sourceTab.id),
+      activeWorkspaceId: sourceTab.workspaceId,
+      centerMode: "editor-max",
+    };
+  }
+
+  const reorderedTabsInScope = arrayMove(tabsInScope, oldIndex, targetIndex);
+  return {
+    activePaneId: paneId,
+    activeWorkspaceId: sourceTab.workspaceId,
+    centerMode: "editor-max",
+    panes: state.panes.map((candidate) =>
+      candidate.id === paneId
+        ? {
+            ...candidate,
+            tabs: replaceTabsInReorderScope(candidate.tabs, workspaceId, reorderedTabsInScope),
+            activeTabId: sourceTab.id,
+          }
+        : candidate,
+    ),
+  };
+}
+
+function moveTabToPaneInState(
+  state: EditorStoreState,
+  sourcePaneId: EditorPaneId,
+  targetPaneId: EditorPaneId,
+  tabId: EditorTabId,
+  targetIndex: number,
+  workspaceId: WorkspaceId | null | undefined,
+): Partial<EditorStoreState> | EditorStoreState {
+  if (sourcePaneId === targetPaneId) {
+    const sourcePane = state.panes.find((pane) => pane.id === sourcePaneId);
+    const tabsInScope = sourcePane ? tabsForReorderScope(sourcePane.tabs, workspaceId) : [];
+    const oldIndex = tabsInScope.findIndex((tab) => tab.id === tabId);
+    if (oldIndex < 0) {
+      return state;
+    }
+    return reorderTabInPaneInState(state, sourcePaneId, oldIndex, targetIndex, workspaceId);
+  }
+
+  const sourcePaneIndex = state.panes.findIndex((pane) => pane.id === sourcePaneId);
+  const targetPaneIndex = state.panes.findIndex((pane) => pane.id === targetPaneId);
+  const sourcePane = state.panes[sourcePaneIndex];
+  const targetPane = state.panes[targetPaneIndex];
+  const tabIndex = sourcePane?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
+  const tab = sourcePane?.tabs[tabIndex] ?? null;
+  if (!sourcePane || !targetPane || !tab) {
+    return state;
+  }
+
+  const sourceTabs = sourcePane.tabs.filter((candidate) => candidate.id !== tab.id);
+  const sourceActiveTab = sourcePane.activeTabId === tab.id
+    ? sourceTabs[Math.max(0, tabIndex - 1)] ?? sourceTabs[0] ?? null
+    : sourceTabs.find((candidate) => candidate.id === sourcePane.activeTabId) ?? null;
+  const targetAlreadyHasTab = targetPane.tabs.some((candidate) => candidate.id === tab.id);
+  const targetTabs = targetAlreadyHasTab
+    ? targetPane.tabs
+    : insertTabAtScopedIndex(targetPane.tabs, tab, targetIndex, workspaceId ?? tab.workspaceId);
+
+  return {
+    activePaneId: targetPane.id,
+    activeWorkspaceId: tab.workspaceId,
+    centerMode: "editor-max",
+    panes: state.panes.map((pane, index) => {
+      if (index === sourcePaneIndex) {
+        return {
+          ...pane,
+          tabs: sourceTabs,
+          activeTabId: sourceActiveTab?.id ?? null,
+        };
+      }
+      if (index === targetPaneIndex) {
+        return {
+          ...pane,
+          tabs: targetTabs,
+          activeTabId: tab.id,
+        };
+      }
+      return pane;
+    }),
+  };
+}
+
+function splitPaneRightAndMoveTabInState(
+  state: EditorStoreState,
+  sourcePaneId: EditorPaneId,
+  tabId: EditorTabId,
+  _workspaceId: WorkspaceId | null | undefined,
+): Partial<EditorStoreState> | EditorStoreState {
+  if (state.panes.length !== 1 || state.panes.length >= MAX_EDITOR_PANE_COUNT) {
+    return state;
+  }
+
+  const sourcePaneIndex = state.panes.findIndex((pane) => pane.id === sourcePaneId);
+  const sourcePane = state.panes[sourcePaneIndex];
+  const tabIndex = sourcePane?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
+  const tab = sourcePane?.tabs[tabIndex] ?? null;
+  if (!sourcePane || !tab) {
+    return state;
+  }
+
+  const newPaneId = state.panes.some((pane) => pane.id === SECONDARY_EDITOR_PANE_ID)
+    ? `${SECONDARY_EDITOR_PANE_ID}-${state.panes.length}`
+    : SECONDARY_EDITOR_PANE_ID;
+  const sourceTabs = sourcePane.tabs.filter((candidate) => candidate.id !== tab.id);
+  const sourceActiveTab = sourcePane.activeTabId === tab.id
+    ? sourceTabs[Math.max(0, tabIndex - 1)] ?? sourceTabs[0] ?? null
+    : sourceTabs.find((candidate) => candidate.id === sourcePane.activeTabId) ?? null;
+  const panes = [...state.panes];
+  panes.splice(sourcePaneIndex, 1, {
+    ...sourcePane,
+    tabs: sourceTabs,
+    activeTabId: sourceActiveTab?.id ?? null,
+  });
+  panes.splice(sourcePaneIndex + 1, 0, {
+    id: newPaneId,
+    tabs: [tab],
+    activeTabId: tab.id,
+  });
+
+  return {
+    panes,
+    activePaneId: newPaneId,
+    activeWorkspaceId: tab.workspaceId,
+    centerMode: "editor-max",
+  };
+}
+
+function tabsForReorderScope(
+  tabs: readonly EditorTab[],
+  workspaceId: WorkspaceId | null | undefined,
+): EditorTab[] {
+  return workspaceId ? tabs.filter((tab) => tab.workspaceId === workspaceId) : [...tabs];
+}
+
+function replaceTabsInReorderScope(
+  tabs: readonly EditorTab[],
+  workspaceId: WorkspaceId | null | undefined,
+  reorderedTabsInScope: readonly EditorTab[],
+): EditorTab[] {
+  if (!workspaceId) {
+    return [...reorderedTabsInScope];
+  }
+
+  let scopedIndex = 0;
+  return tabs.map((tab) => {
+    if (tab.workspaceId !== workspaceId) {
+      return tab;
+    }
+
+    const replacement = reorderedTabsInScope[scopedIndex] ?? tab;
+    scopedIndex += 1;
+    return replacement;
+  });
+}
+
+function insertTabAtScopedIndex(
+  tabs: readonly EditorTab[],
+  tab: EditorTab,
+  targetIndex: number,
+  workspaceId: WorkspaceId | null | undefined,
+): EditorTab[] {
+  const nextTabs = [...tabs];
+  if (!workspaceId) {
+    nextTabs.splice(clampTabIndex(targetIndex, nextTabs.length), 0, tab);
+    return nextTabs;
+  }
+
+  const scopedPositions = nextTabs
+    .map((candidate, index) => candidate.workspaceId === workspaceId ? index : -1)
+    .filter((index) => index >= 0);
+  const clampedTargetIndex = clampTabIndex(targetIndex, scopedPositions.length);
+  const fullInsertIndex = clampedTargetIndex >= scopedPositions.length
+    ? (scopedPositions.at(-1) ?? nextTabs.length - 1) + 1
+    : scopedPositions[clampedTargetIndex]!;
+  nextTabs.splice(fullInsertIndex, 0, tab);
+  return nextTabs;
+}
+
+function arrayMove<TValue>(values: readonly TValue[], oldIndex: number, newIndex: number): TValue[] {
+  const nextValues = [...values];
+  const [value] = nextValues.splice(oldIndex, 1);
+  if (value === undefined) {
+    return nextValues;
+  }
+
+  nextValues.splice(newIndex, 0, value);
+  return nextValues;
+}
+
+function clampTabIndex(index: number, maxIndex: number): number {
+  if (!Number.isFinite(index)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(Math.trunc(index), 0), Math.max(maxIndex, 0));
+}
+
 function isSameEditorDocument(left: EditorTab, right: EditorTab): boolean {
   return (
+    left.kind === "file" &&
+    right.kind === "file" &&
     left.workspaceId === right.workspaceId &&
     left.path === right.path &&
     left.language === right.language
@@ -1316,7 +1763,22 @@ function isSameEditorDocument(left: EditorTab, right: EditorTab): boolean {
 }
 
 function isSameWorkspacePath(left: EditorTab, right: EditorTab): boolean {
-  return left.workspaceId === right.workspaceId && left.path === right.path;
+  return left.kind === "file" && right.kind === "file" && left.workspaceId === right.workspaceId && left.path === right.path;
+}
+
+function tabTouchesWorkspacePath(tab: EditorTab, workspaceId: WorkspaceId, path: string): boolean {
+  if (tab.workspaceId !== workspaceId) {
+    return false;
+  }
+
+  if (tab.kind === "diff" && tab.diff) {
+    return (
+      (tab.diff.left.workspaceId === workspaceId && isPathOrDescendant(tab.diff.left.path, path)) ||
+      (tab.diff.right.workspaceId === workspaceId && isPathOrDescendant(tab.diff.right.path, path))
+    );
+  }
+
+  return isPathOrDescendant(tab.path, path);
 }
 
 function tabIdTouchesPath(tabId: EditorTabId, workspaceId: WorkspaceId, path: string): boolean {
@@ -1683,6 +2145,27 @@ function rewritePathPrefix(path: string, oldPath: string, newPath: string): stri
   return `${newPath}${path.slice(oldPath.length)}`;
 }
 
+function rewriteDiffSidePath(
+  side: EditorDiffSide,
+  workspaceId: WorkspaceId,
+  oldPath: string,
+  newPath: string,
+): EditorDiffSide {
+  if (side.workspaceId !== workspaceId || !isPathOrDescendant(side.path, oldPath)) {
+    return side;
+  }
+
+  const nextPath = rewritePathPrefix(side.path, oldPath, newPath);
+  const nextLanguage = detectLspLanguage(nextPath);
+  return {
+    ...side,
+    path: nextPath,
+    title: titleForPath(nextPath),
+    language: nextLanguage,
+    monacoLanguage: monacoLanguageIdForPath(nextPath, nextLanguage),
+  };
+}
+
 function rewriteExpandedPaths(
   expandedPaths: Record<string, true>,
   oldPath: string,
@@ -1720,7 +2203,13 @@ function removeTabsForDeletedPath(
       state,
       (tab) =>
         tab.workspaceId === workspaceId &&
-        (kind === "file" ? tab.path === deletedPath : isPathOrDescendant(tab.path, deletedPath)),
+        (kind === "file"
+          ? tabTouchesWorkspacePath(tab, workspaceId, deletedPath) && (
+              tab.kind === "file"
+                ? tab.path === deletedPath
+                : tab.diff?.left.path === deletedPath || tab.diff?.right.path === deletedPath
+            )
+          : tabTouchesWorkspacePath(tab, workspaceId, deletedPath)),
     ),
   );
 }
@@ -1772,6 +2261,22 @@ function renameExplorerPathInState(
       ? tabIdFor(workspaceId, rewritePathPrefix(pathFromTabId(pane.activeTabId), oldPath, newPath))
       : pane.activeTabId,
     tabs: pane.tabs.map((tab) => {
+      if (tab.kind === "diff" && tab.diff && tabTouchesWorkspacePath(tab, workspaceId, oldPath)) {
+        const left = rewriteDiffSidePath(tab.diff.left, workspaceId, oldPath, newPath);
+        const right = rewriteDiffSidePath(tab.diff.right, workspaceId, oldPath, newPath);
+        return {
+          ...tab,
+          id: diffTabIdFor(tab.workspaceId, left, right, tab.diff.source),
+          path: `${left.path} ↔ ${right.path}`,
+          title: diffTabTitle(left, right),
+          diff: {
+            ...tab.diff,
+            left,
+            right,
+          },
+        };
+      }
+
       if (tab.workspaceId !== workspaceId || !isPathOrDescendant(tab.path, oldPath)) {
         return tab;
       }
@@ -2014,9 +2519,10 @@ async function readClosedWorkspaceEditFile(
       ? state.lspStatuses[lspStatusKey(workspaceId, language)] ?? null
       : null;
     return {
-      requestedPath: path,
-      tab: {
-        id: tabIdFor(workspaceId, readResult.path),
+	      requestedPath: path,
+	      tab: {
+	        kind: "file",
+	        id: tabIdFor(workspaceId, readResult.path),
         workspaceId,
         path: readResult.path,
         title: titleForPath(readResult.path),

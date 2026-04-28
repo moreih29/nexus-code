@@ -32,6 +32,18 @@ import {
   createNexusEditorApi,
   type NexusEditorApi,
 } from "./nexus-editor-api";
+import {
+  createNexusSearchApi,
+  type NexusSearchApi,
+} from "./nexus-search-api";
+import {
+  createNexusGitApi,
+  type NexusGitApi,
+} from "./nexus-git-api";
+import {
+  createNexusFileActionsApi,
+  type NexusFileActionsApi,
+} from "./nexus-file-actions-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -63,6 +75,9 @@ const nexusClaudeSettings: NexusClaudeSettingsApi = createNexusClaudeSettingsApi
 const nexusWorkspaceDiff: NexusWorkspaceDiffApi = createNexusWorkspaceDiffApi(ipcRenderer);
 const nexusClaudeSession: NexusClaudeSessionApi = createNexusClaudeSessionApi(ipcRenderer);
 const nexusEditor: NexusEditorApi = createNexusEditorApi(ipcRenderer);
+const nexusSearch: NexusSearchApi = createNexusSearchApi(ipcRenderer);
+const nexusGit: NexusGitApi = createNexusGitApi(ipcRenderer);
+const nexusFileActions: NexusFileActionsApi = createNexusFileActionsApi(ipcRenderer);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
@@ -71,3 +86,6 @@ contextBridge.exposeInMainWorld("nexusClaudeSettings", nexusClaudeSettings);
 contextBridge.exposeInMainWorld("nexusWorkspaceDiff", nexusWorkspaceDiff);
 contextBridge.exposeInMainWorld("nexusClaudeSession", nexusClaudeSession);
 contextBridge.exposeInMainWorld("nexusEditor", nexusEditor);
+contextBridge.exposeInMainWorld("nexusSearch", nexusSearch);
+contextBridge.exposeInMainWorld("nexusGit", nexusGit);
+contextBridge.exposeInMainWorld("nexusFileActions", nexusFileActions);

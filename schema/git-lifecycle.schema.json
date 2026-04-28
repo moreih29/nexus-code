@@ -1,0 +1,548 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/git-lifecycle.schema.json",
+  "title": "GitLifecycleMessage",
+  "oneOf": [
+    { "$ref": "#/$defs/gitStatusCommand" },
+    { "$ref": "#/$defs/gitBranchListCommand" },
+    { "$ref": "#/$defs/gitCommitCommand" },
+    { "$ref": "#/$defs/gitStageCommand" },
+    { "$ref": "#/$defs/gitUnstageCommand" },
+    { "$ref": "#/$defs/gitDiscardCommand" },
+    { "$ref": "#/$defs/gitCheckoutCommand" },
+    { "$ref": "#/$defs/gitBranchCreateCommand" },
+    { "$ref": "#/$defs/gitBranchDeleteCommand" },
+    { "$ref": "#/$defs/gitDiffCommand" },
+    { "$ref": "#/$defs/gitWatchStartCommand" },
+    { "$ref": "#/$defs/gitWatchStopCommand" },
+    { "$ref": "#/$defs/gitStatusReply" },
+    { "$ref": "#/$defs/gitBranchListReply" },
+    { "$ref": "#/$defs/gitCommitReply" },
+    { "$ref": "#/$defs/gitStageReply" },
+    { "$ref": "#/$defs/gitUnstageReply" },
+    { "$ref": "#/$defs/gitDiscardReply" },
+    { "$ref": "#/$defs/gitCheckoutReply" },
+    { "$ref": "#/$defs/gitBranchCreateReply" },
+    { "$ref": "#/$defs/gitBranchDeleteReply" },
+    { "$ref": "#/$defs/gitDiffReply" },
+    { "$ref": "#/$defs/gitWatchStartedReply" },
+    { "$ref": "#/$defs/gitWatchStoppedReply" },
+    { "$ref": "#/$defs/gitFailedEvent" }
+  ],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "watchId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NFC-normalized absolute git workspace filesystem path"
+    },
+    "gitPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workspace-relative path passed to git after -- pathspec termination."
+    },
+    "gitPaths": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gitPath" },
+      "minItems": 1
+    },
+    "gitOptionalPaths": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gitPath" }
+    },
+    "branchName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gitLifecycleAction": {
+      "type": "string",
+      "enum": [
+        "status",
+        "branch_list",
+        "commit",
+        "stage",
+        "unstage",
+        "discard",
+        "checkout",
+        "branch_create",
+        "branch_delete",
+        "diff",
+        "watch_start",
+        "watch_stop",
+        "status_result",
+        "branch_list_result",
+        "commit_result",
+        "stage_result",
+        "unstage_result",
+        "discard_result",
+        "checkout_result",
+        "branch_create_result",
+        "branch_delete_result",
+        "diff_result",
+        "watch_started",
+        "watch_stopped",
+        "failed"
+      ]
+    },
+    "gitFailureState": {
+      "type": "string",
+      "enum": ["unavailable", "error"]
+    },
+    "gitFileStatusKind": {
+      "type": "string",
+      "enum": [
+        "modified",
+        "added",
+        "deleted",
+        "renamed",
+        "copied",
+        "untracked",
+        "ignored",
+        "conflicted",
+        "clean"
+      ]
+    },
+    "gitStatusEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "originalPath", "status", "indexStatus", "workTreeStatus", "kind"],
+      "properties": {
+        "path": { "$ref": "#/$defs/gitPath" },
+        "originalPath": {
+          "type": ["string", "null"],
+          "description": "Previous workspace-relative path for rename/copy entries."
+        },
+        "status": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2,
+          "description": "Two-column git porcelain v1 XY status."
+        },
+        "indexStatus": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1
+        },
+        "workTreeStatus": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1
+        },
+        "kind": { "$ref": "#/$defs/gitFileStatusKind" }
+      }
+    },
+    "gitStatusSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "upstream", "ahead", "behind", "files"],
+      "properties": {
+        "branch": { "type": ["string", "null"] },
+        "upstream": { "type": ["string", "null"] },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitStatusEntry" }
+        }
+      }
+    },
+    "gitBranch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "current", "upstream", "headOid"],
+      "properties": {
+        "name": { "$ref": "#/$defs/branchName" },
+        "current": { "type": "boolean" },
+        "upstream": { "type": ["string", "null"] },
+        "headOid": { "type": ["string", "null"] }
+      }
+    },
+    "gitStatusCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "status" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" }
+      }
+    },
+    "gitBranchListCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_list" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" }
+      }
+    },
+    "gitCommitCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "message"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "commit" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "message": { "type": "string", "minLength": 1 },
+        "amend": { "type": "boolean", "default": false }
+      }
+    },
+    "gitStageCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "paths"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "stage" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "paths": { "$ref": "#/$defs/gitPaths" }
+      }
+    },
+    "gitUnstageCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "paths"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "unstage" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "paths": { "$ref": "#/$defs/gitPaths" }
+      }
+    },
+    "gitDiscardCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "paths"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "discard" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "paths": { "$ref": "#/$defs/gitPaths" }
+      }
+    },
+    "gitCheckoutCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "ref"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "checkout" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gitBranchCreateCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "name"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_create" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "name": { "$ref": "#/$defs/branchName" },
+        "startPoint": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gitBranchDeleteCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "name", "force"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_delete" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "name": { "$ref": "#/$defs/branchName" },
+        "force": { "type": "boolean" }
+      }
+    },
+    "gitDiffCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "staged", "paths"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "diff" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "staged": { "type": "boolean" },
+        "paths": { "$ref": "#/$defs/gitOptionalPaths" }
+      }
+    },
+    "gitWatchStartCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "watchId"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "watch_start" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "watchId": { "$ref": "#/$defs/watchId" },
+        "debounceMs": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 10000,
+          "default": 150
+        }
+      }
+    },
+    "gitWatchStopCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "watchId"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "watch_stop" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "watchId": { "$ref": "#/$defs/watchId" }
+      }
+    },
+    "gitStatusReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "summary", "generatedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "status_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitBranchListReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "branches", "generatedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_list_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "branches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitBranch" }
+        },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitCommitReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "commitOid", "summary", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "commit_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "commitOid": { "type": "string", "minLength": 1 },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitStageReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "summary", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "stage_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitUnstageReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "summary", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "unstage_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitDiscardReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "summary", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "discard_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitCheckoutReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "summary", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "checkout_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "summary": { "$ref": "#/$defs/gitStatusSummary" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitBranchCreateReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "branches", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_create_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "branches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitBranch" }
+        },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitBranchDeleteReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "branches", "completedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "branch_delete_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "branches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gitBranch" }
+        },
+        "completedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitDiffReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "staged", "paths", "diff", "generatedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "diff_result" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "staged": { "type": "boolean" },
+        "paths": { "$ref": "#/$defs/gitOptionalPaths" },
+        "diff": { "type": "string" },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitWatchStartedReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "cwd", "watchId", "watchedPaths", "startedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "watch_started" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "watchId": { "$ref": "#/$defs/watchId" },
+        "watchedPaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "startedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitWatchStoppedReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action", "requestId", "workspaceId", "watchId", "stoppedAt"],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "watch_stopped" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "watchId": { "$ref": "#/$defs/watchId" },
+        "stoppedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "gitFailedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "action",
+        "failedAction",
+        "requestId",
+        "workspaceId",
+        "cwd",
+        "state",
+        "message",
+        "exitCode",
+        "stderr",
+        "failedAt"
+      ],
+      "properties": {
+        "type": { "const": "git/lifecycle" },
+        "action": { "const": "failed" },
+        "failedAction": { "$ref": "#/$defs/gitLifecycleAction" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "cwd": { "$ref": "#/$defs/cwd" },
+        "state": { "$ref": "#/$defs/gitFailureState" },
+        "message": { "type": "string" },
+        "exitCode": { "type": ["integer", "null"] },
+        "stderr": { "type": "string" },
+        "failedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

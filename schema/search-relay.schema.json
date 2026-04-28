@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-code.local/schema/search-relay.schema.json",
+  "title": "SearchRelayMessage",
+  "oneOf": [{ "$ref": "#/$defs/searchResultChunkMessage" }],
+  "$defs": {
+    "workspaceId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "searchRelayKind": {
+      "type": "string",
+      "enum": ["result_chunk"]
+    },
+    "searchRelayDirection": {
+      "type": "string",
+      "enum": ["server_to_client"]
+    },
+    "searchSubmatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "match"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based byte offset in lineText, matching ripgrep JSON submatch offsets."
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based exclusive byte offset in lineText, matching ripgrep JSON submatch offsets."
+        },
+        "match": { "type": "string" }
+      }
+    },
+    "searchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "lineNumber", "column", "lineText", "submatches"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workspace-relative path as reported by ripgrep from the search cwd."
+        },
+        "lineNumber": { "type": "integer", "minimum": 1 },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One-based column derived from the first ripgrep submatch byte offset."
+        },
+        "lineText": { "type": "string" },
+        "submatches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/searchSubmatch" }
+        }
+      }
+    },
+    "searchResultChunkMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "direction",
+        "kind",
+        "workspaceId",
+        "sessionId",
+        "seq",
+        "results",
+        "truncated"
+      ],
+      "properties": {
+        "type": { "const": "search/relay" },
+        "direction": { "const": "server_to_client" },
+        "kind": { "const": "result_chunk" },
+        "workspaceId": { "$ref": "#/$defs/workspaceId" },
+        "sessionId": { "$ref": "#/$defs/sessionId" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/searchResult" }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when this chunk reaches the sidecar global result limit."
+        }
+      }
+    }
+  }
+}

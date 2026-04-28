@@ -5542,6 +5542,537 @@
           "created_at": "2026-04-28T06:00:35.743Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-28T09:58:14.815Z",
+      "branch": "feat/plan31-vscode-surface",
+      "plan": {
+        "id": 31,
+        "topic": "파일트리 + Editor 탭 VSCode 수준 격상 (file icons / indent guides / context menu / file tree DnD / tab DnD)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[메타] design.md §5-8 '장식용 컴러 아이콘 금지' 제약을 파일 아이콘에 한해 예외 인정할지, 또는 lucide 단색 매핑으로 갈지 (결정 기둥 — 다른 이슈 모두가 이것에 의존)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "**옵션 Y (vscode-icons-js 컬러) 권장 + 가드레일 3개**. 4 옵션 비교 7축 평가 결과 Y가 사용자 식별성·VSCode 합의·구현 부담·다수파 패턴에서 우위. 핵심 논거: \"사용자가 본 것은 예쁜 아이콘이 아니라 사전주의(pre-attentive) 단계에서 작동하는 색상 코드 시스템 — 단색 트리는 모든 식별이 텍스트 파싱으로 회귀\". 경쟁 워크벤치 사실 정리: VSCode (Material Icon Theme 70%+ 사용), Cursor (VSCode 포크 동일), Zed (file_icons 컬러 옵션), JetBrains (컬러 기본), Sublime (컬러 플러그인 표준) — 코드 워크벤치 카테고리 컬러 다수파 명백. 옵션 X(단색 lucide) 부족: §1.2 \"차별화 표면 = 토큰·타이포·밀도·강조색\"은 *거기서 차별화*이지 *다른 표면에서 합의 깨기*가 아님. 옵션 Z(chroma 0.08-0.12 톤만) 부족: 12px 아이콘에서 이 채도는 회색과 거의 구분 안 됨, 본말전도. 옵션 W(자체 단색 SVG) 부족: 1인 30+ 확장자 디자인 ROI 최악. **§5-8 재작성 문구 제안**: \"액션·상태·네비게이션 아이콘은 단색 stroke 통일. 단 파일 타입 식별 아이콘(파일트리·탭·브레드크럼)은 정보 전달 목적으로 컬러 허용. (a) workbench accent와 동시 노출 영역에서는 채도 60% 감산 또는 ≤14px 유지, (b) hover/selection 배경 위 4.5:1 명도 대비, (c) 컬러는 정보 전달 단일 목적, 장식·강조·브랜딩 금지\". **가드레일 3개**: ① 컬러 아이콘은 파일트리/탭/브레드크럼만 (토스트/버튼/모달 확산 금지), ② selection accent 위 가독성 검증, ③ dark mode 노란/주황 계열 대비 재확인. **vscode-icons-js 도입 가이드**: getIconForFile() + /public/file-icons/ 정적 서빙 + Vite import.meta.glob lazy → 초기 번들 영향 0. **Plan Gate**: approved with conditions (§5-8 재작성, accent 가드, selection 대비 검증). **Open**: §5-8 개정은 Lead 권한, 단색 모드 토글 제공 여부, OSS attribution 위치.",
+                "recorded_at": "2026-04-28T06:56:21.364Z",
+                "agent_id": "aa4090d038effeb5d"
+              }
+            ],
+            "decision": "**옵션 Y 채택 (vscode-icons-js 컬러 도입 + §5-8 재작성 + 가드레일 3개)**.\n\n**§5-8 재작성안** (Lead 다듬음, design.md task 단계에서 박제):\n> 8. **장식용 컬러 아이콘 금지** — 액션·상태·네비게이션 등 인터랙션과 의미 전달 아이콘은 모두 단색 stroke로 통일한다. **단, 파일 트리·에디터 탭·브레드크럼의 파일 타입 식별 아이콘은 정보 전달 목적으로 컬러를 허용한다**. 컬러 아이콘 사용 시 (a) workbench accent (Terminal Teal)와 동시 노출 영역에서는 ≤14px 유지, (b) hover/selection 배경 위 4.5:1 명도 대비 보장, (c) 정보 전달 단일 목적 — 장식·강조·브랜딩 용도 금지. stroke 두께 혼용 금지 원칙은 컬러 아이콘에도 적용한다.\n\n**가드레일 3개** (구현 단계에서 강제):\n1. **확산 금지** — 컬러 아이콘은 파일트리·에디터 탭·브레드크럼 표면에만. 토스트·버튼·모달 헤더·empty state·status indicator 등 어디에도 확산 금지.\n2. **Selection 대비 검증** — selection bg-accent 위에서 모든 컬러 아이콘이 4.5:1 명도 대비 충족. 노란/주황 계열 (.gitignore, .yml 등)은 dark mode에서 특히 점검.\n3. **Accent 동시 노출 가드** — Terminal Teal accent 영역 (active workspace tab의 ring-1 ring-primary/30 등)과 동시 노출 시 컬러 아이콘 ≤14px 유지로 시각 충돌 회피.\n\n**단색 모드 토글**: MVP 비-목표 (settings UI 없음). v0.2 backlog로 분리.\n\n**라이브러리 선택**: vscode-icons-js v11.6.1 (MIT, ~50kB gzip 추정). Vite import.meta.glob lazy 로딩 + /public/file-icons/ 정적 서빙 → 초기 번들 영향 0.\n\n**OSS Attribution**: \n- packages/app/package.json licenses 섹션에 vscode-icons-js MIT 명시\n- README.md 또는 새 NOTICE.md에 OSS 인용 섹션 추가 (Lead default — 사용자 별도 지시 없을 시)\n- vscode-icons SVG 자산 라이선스 (CC BY 4.0 또는 MIT 확인 필요) 별도 attribution\n\n**기각 대안 명시**:\n- X (lucide 단색 매핑): VSCode 다수파 패턴(70%+ Material Icon Theme) outlier, 사용자 통점 미해소\n- Z (lucide + accent 톤): chroma 0.08-0.12은 12px에서 회색과 거의 구분 안 됨, 식별성 본말전도\n- W (자체 단색 SVG): 1인 30+ 확장자 디자인 ROI 최악\n\n**다음 의존 결정**: Issue 2 (파일 아이콘 매핑 구조)는 Y 채택 결과로 vscode-icons-js getIconForFile 사용 패턴 결정으로 자연 흐름. Issue 5 (파일트리 DnD)도 react-arborist 마이그레이션 가치 재평가에 영향."
+          },
+          {
+            "id": 2,
+            "title": "[파일 아이콘] 결정 매핑 구조 — lucide 확장자별 매핑 테이블 vs vscode-icons-js 외부 라이브러리 (메타 결정 따라)",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — Vite lazy + 별도 FileIcon 컴포넌트 + 폴더도 컬러 + selection 컬러 유지 + size 14 default**.\n\n**a. SVG 자산 위치**: `packages/app/src/renderer/assets/file-icons/` + Vite `import.meta.glob` lazy 로딩 (`{ eager: false, query: \"?url\" }`). 초기 번들 영향 0, 사용 시 fetch + hash. fallback (Vite glob이 packaged Electron에서 동작 안 할 시): `packages/app/public/file-icons/` 정적 서빙으로 전환 — task 단계에서 실측 검증 후 결정.\n\n**b. FileIcon 컴포넌트**: `packages/app/src/renderer/components/file-icon/FileIcon.tsx` 신규. props:\n```\ninterface FileIconProps {\n  name: string;                              // file or folder name\n  kind: \"file\" | \"folder\";\n  folderState?: \"open\" | \"closed\";          // kind=folder일 때만\n  size?: number;                            // default 14 (§5-8 가드 자동)\n  className?: string;\n}\n```\n내부에서 vscode-icons-js의 `getIconForFile` / `getIconForFolder` / `getIconForOpenFolder` 호출 후 SVG src 매핑.\n\n**c. 폴더 아이콘**: 컬러 일관 적용. vscode-icons-js `getIconForFolder(name)` (closed) + `getIconForOpenFolder(name)` (open) 활용. lucide Folder/FolderOpen 단색 사용 안 함 (정보 전달 컬러 정책 일관). 미매칭 폴더는 라이브러리 default folder SVG.\n\n**d. Selection 시 처리**: 컬러 그대로 유지 (filter/mask 미적용). VSCode 동일 패턴. bg-accent (zinc-800 dark) 위 4.5:1 명도 대비 검증 — 노란/주황 계열만 dark mode 점검 필수. 검증 실패 시 해당 컬러군만 selection 시 톤 다운 (전체 grayscale 미적용 — §5-8 정신상 \"장식적 단색화\" 회피).\n\n**size default 14**: §5-8 재작성안 가드 (a) \"≤14px 유지\" 자동 충족. lucide 기본 16과 1단계 차이.\n\n**fallback chain**:\n- vscode-icons-js getIconForFile/Folder 미매칭 → 라이브러리 내장 default SVG\n- SVG fetch 실패 → 빈 16x16 placeholder + console.warn (rare edge case)\n\n**기각 대안 명시**:\n- public 정적 서빙: Vite import.meta.glob 동작 시 더 단순하지만 hash + tree-shaking 자동 안 됨\n- npm 패키지에서 직접 import (모든 SVG bundle 포함): 50kB+ 초기 번들 비용\n- shadcn ui/file-icon.tsx 위치: shadcn은 primitive UI 전용, file-icon은 도메인 컴포넌트\n- inline JSX: 재사용 0\n- 폴더 lucide 단색 유지: 시각 비대칭 (파일 컬러 / 폴더 단색)\n- 일부 특수 폴더만 컬러: 매핑 정책 복잡, vscode-icons-js 풀 매칭이 더 깨끗\n- selection 시 grayscale filter: §5-8 정신 위반 (의미 전달 컬러를 단색화하는 \"장식적 처리\")\n- size 16: §5-8 가드 (a) \"≤14px\" 자동 위반 가능\n\n**검증 항목** (task acceptance에 포함):\n- Vite glob → packaged Electron app smoke (`bun run build` + 실행 후 SVG 로드 확인)\n- vscode-icons SVG 자산 라이선스 확인 (CC BY 4.0 또는 MIT) → attribution 위치 확정\n- bg-accent dark mode 위 노란/주황 계열 (.gitignore .yml) 4.5:1 대비 측정"
+          },
+          {
+            "id": 3,
+            "title": "[인덴트 가이드 + Hover/Selection 폴리시] 행 높이 22px (VSCode), depth 당 수직선 1px, hover bg-accent/10, selected (focus/unfocus) 분리. 자체 구현 vs react-arborist 도입",
+            "status": "decided",
+            "decision": "**옵션 A 채택 (react-arborist v3.5.0 마이그레이션) + 비주얼 폴리시 풀 적용**.\n\n**라이브러리**: `react-arborist@3.5.0` (MIT, React 19 지원, 35만 weekly DL 검증, 3.6k GitHub stars, 1주 전 commit). DnD는 react-dnd 기반 내장 + 가상화 react-window 기반 내장 + getTreeLinePrefix 유틸. 사용자 1만+ 파일 의도 충족.\n\n**비주얼 폴리시 (NodeRenderer 커스텀)**:\n- **행 높이 22px** (VSCode 표준, 정보 밀도 강화)\n- **Indent step 8px/depth** (VSCode 표준)\n- **Indent guide**: `var(--color-border)` 1px 수직선, 각 depth 위치 `position: absolute; left: depth*8 + 4px; top:0; bottom:0; width:1px`\n- **Hover bg**: `bg-accent/40`\n- **Selected (포커스)**: `bg-accent` + `text-foreground` (현행 유지)\n- **Selected (포커스 해제)**: `bg-muted/40` (VSCode list.inactiveSelectionBackground 패턴)\n- **아이콘**: Issue 2 결정의 FileIcon 컴포넌트 (vscode-icons-js 14px)\n- **expand/collapse chevron**: lucide ChevronRight/ChevronDown 12px (단색 stroke 유지, §5-8 정보 전달 컬러 예외 적용 안 함)\n- **git badge**: 현행 우측 정렬 색상 표시 유지\n\n**보존되어야 할 기존 동작 (마이그 acceptance)**:\n- inline create file/folder\n- inline rename\n- explicit delete confirmation\n- git badge (modified/untracked/staged 등)\n- expand state (Record<path, true>)\n- keyboard tree navigation (↑↓ ←→ Enter F2 Delete)\n- scrollIntoView 활성 항목\n- 한국어 IME 보호\n- selected path persistence\n\n**마이그 전략**:\n1. Prototype 단계: 새 컴포넌트 `FileTreePanelV2.tsx` 옆에 두고 기존 동작 다 옮기는지 검증\n2. 검증 통과 시 기존 FileTreePanel.tsx 교체 + .test.tsx 갱신\n3. 회귀 발견 시 fallback: 옵션 C (기존 + react-window + @dnd-kit/sortable-tree)로 전환 — task 단계에서 fallback 경로 명시\n\n**의존**: Issue 5 (파일트리 DnD)는 react-arborist 내장 DnD를 사용하는 것으로 자연 결정 (별도 @dnd-kit/sortable-tree 도입 불필요).\n\n**기각 대안**:\n- B (기존 + CSS만): 가상화 미지원 → 1만+ 시나리오 직접 위배. 즉시 기각.\n- C (기존 + react-window + @dnd-kit/sortable-tree): 두 라이브러리 통합 + 자체 코드 누적, 마이그보다 단기 비용은 낮으나 장기 유지 부담 누적. react-arborist 검증 데이터 + DnD 내장으로 통합 비용도 작아 A가 우월.\n\n**리스크 + 완화**:\n- 913 LOC 기존 동작 회귀 위험 → prototype 단계 검증 + 단위테스트 acceptance에 100% 동작 보존 명시\n- React 19 호환 (v3.4.3 추가) → bun build packaged Electron smoke 검증 필수\n- react-dnd (react-arborist 내장) ↔ @dnd-kit/sortable (Issue 6 탭) 두 라이브러리 공존 — 다른 영역 분리라 충돌 없음 확인 (researcher 발견)\n\n**번들 추가**: ~25-35KB gzip (react-arborist + react-dnd + react-window 합)."
+          },
+          {
+            "id": 4,
+            "title": "[Context Menu] shadcn ContextMenu 도입 + 표준 항목 범위 결정 (New File/Folder, Rename, Delete, Copy Path, Reveal in Finder, Open in Terminal, Open to the Side 중 MVP 포함 범위)",
+            "status": "decided",
+            "decision": "**옵션 A 채택 — VSCode context menu 전체 포함 (의미 없는 1개만 제외) + 의존 인프라 3개 본 plan에 추가**.\n\n**라이브러리**: shadcn ContextMenu (Radix UI 기반, radix-ui ^1.4.3 이미 설치, oklch 토큰 자동 정합). CLI v2.3.0 OKLCH 호환 버그는 수동 init으로 회피.\n\n**파일 우클릭 메뉴 (13개)**:\nOpen / Open to the Side / Open With System App / — / Reveal in Finder / Open in Terminal (parent dir) / — / **Find in Folder** / — / Cut / Copy / Paste / Copy Path / Copy Relative Path / — / Rename (F2) / Delete (Del) / **Compare with Selected**\n\n**폴더 우클릭 메뉴 (12개)**:\nNew File / New Folder / — / Open in Terminal (this folder) / Reveal in Finder / — / **Find in Folder** / — / Cut / Copy / Paste / Copy Path / Copy Relative Path / — / Rename (F2) / Delete (Del)\n\n**트리 빈 영역 (워크스페이스 루트, 5개)**:\nNew File / New Folder / — / Refresh / Reveal Workspace in Finder / Open in Terminal (workspace root)\n\n**Tab 우클릭 (8개)**:\nClose / Close Others / Close to the Right / Close All / — / Copy Path / Reveal in Finder / Split Right (Cmd+\\\\)\n\n**Source Control 항목 (status 있는 파일/폴더에 추가, 4개)**:\nStage Changes / Discard Changes / View Diff / — / (commit/branch 등은 SC panel에서)\n\n**삭제된 항목**: \"Add Folder to Workspace\" — 우리 모델 (1워크스페이스 = 1폴더) 과 충돌, 의미 없음.\n\n**의존 인프라 3개 (본 plan에 추가, 별도 issue로 분리해서 각각 architect/designer 분석)**:\n1. **Find in Folder 인프라** — project-wide search panel + ripgrep 통합. roadmap E4 명시 제외 \"project-wide 검색\" lift.\n2. **Source Control 인프라** — git status panel + git CLI handlers (status/diff/add/restore/commit) + branch indicator. roadmap E4 명시 제외 \"전용 git UI\" lift.\n3. **Compare with Selected 인프라** — multi-select 도입 (design.md §4 future scope lift) + Monaco diff editor 통합 + diff viewer panel.\n\n→ Issue 8/9/10으로 추가하여 각각 결정 표면 별도 처리.\n\n**정체성 영향 (Lead 명시)**:\n사용자 확인 — \"VSCode 풀 클론 정체성 변화 아님. Cursor가 VSCode 포크지만 엄연히 다른 툴인 것처럼, IDE 기능 평면을 가져오는 것\". nexus-code 정체성 차별화는 변함없이 유지: 멀티 워크스페이스 단일 창 모델 + AI 하네스 관찰 통합 + 한국어 IME 품질 + 자체 토큰 시스템 (Linear-quality + zinc + Terminal Teal). roadmap E4 명시 제외 7개 중 5개 lift 후 남는 4개 (debugger·test runner / extension·marketplace / 자체 AI 인라인 / Monaco 테마 UI)는 정체성 핵심 — 그대로 유지.\n\n**Open With System App 동작**: VSCode \"Open With\"의 우리 변형. `shell.openPath(filepath)` IPC로 OS 기본 앱(이미지뷰어, PDF 뷰어 등)으로 열기. 다중 핸들러 선택 UI는 미구현.\n\n**Cut/Copy/Paste 동작**:\n- Cut: clipboard에 `{type:\"cut\", paths:[...]}` 등록 + 트리 visual `opacity-50`\n- Copy: clipboard에 `{type:\"copy\", paths:[...]}` 등록\n- Paste: 활성 폴더에 fs.copyFile(copy) 또는 fs.rename(cut). 충돌 시 \"Replace existing? Keep both?\" modal.\n\n**삭제 dependent items (Find/SC/Compare)** 시각:\n사용자가 \"다 포함\" 의도이므로 메뉴에 항상 노출. 단 인프라 task 완료 전까지는 disabled 상태로 노출 (§5 \"Coming soon\" 금지선과 충돌이 약간 있으나, 단일 슬라이스 동안 disabled는 일시적이고 \"기능 가치 미명시\"가 아닌 \"곧 동작\" 의미). 인프라 issue 8/9/10이 같은 슬라이스에서 완성되면 enable.\n\n**기각 대안 명시**:\n- B (별도 plan으로 3 인프라 분리): 사용자 의도 100% 미달, 단계 분리로 의사결정 깔끔하지만 사용자 의도 위반. 거절.\n- C (Find만 추가): 사용자 \"다 포함\" 명시. 거절.\n- 보수안 (5개 항목): 사용자 \"전부\" 명시. 거절.\n\n**작업량 가이드**: 본 issue (context menu UI + IPC) ~1주 + 의존 인프라 3개 (issue 8/9/10) ~4-6주 = **5-7주 추가**. 본 plan 총 슬라이스 ~7-10주 (1인)."
+          },
+          {
+            "id": 5,
+            "title": "[파일트리 DnD] react-arborist 마이그레이션 vs 기존 컴포넌트에 @dnd-kit/sortable-tree 얹어 DnD 머지 결정. drop indicator + over/insert 시각 명세",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — react-arborist 내장 DnD + drop indicator 3 상태 + cross-pane drag + 외부 drag in/out + invalid 차단 + replace modal**.\n\n**라이브러리**: react-arborist v3.5.0 내장 DnD (react-dnd 기반). Issue 3 결정으로 이미 마이그레이션 결정됨, 추가 라이브러리 도입 없음.\n\n**Drop indicator 시각 (3 상태)**:\n- **over** (폴더 위에 호버 = 자식으로 drop): `bg-accent/20` + `ring-1 ring-primary/30` + folder icon `Folder` → `FolderOpen` swap\n- **insert** (파일 사이 = 위/아래로 drop): 1px `bg-primary` line, mouse y 위치 25%/75% 임계로 above/below 결정\n- **invalid** (자기 자신·자식 폴더·git ignored 차단): `cursor: not-allowed` + `bg-destructive/10`\n\n**Drop type 분기 (mouse y in row)**:\n- y < 25%: insert above\n- 25% ≤ y < 75%: over (자식, 폴더만 가능)\n- y ≥ 75%: insert below\n\n**Cross-pane drag**:\n- 파일트리 → 활성 EditorPane drop = open file in active pane\n- 파일트리 → 비활성 EditorPane (split된 옆 pane) drop = open file in that pane\n- 파일트리 → terminal pane drop: 미지원 (cd 트리거 등은 v0.2)\n\n**외부 drag in (Finder → 트리)**:\n- HTML5 native `drop` event listener\n- `event.dataTransfer.files` 추출 → 활성 폴더에 fs.copyFile (preserve original)\n- 큰 파일(>100MB) drop 시 console.warn + UI에 \"Copying large file...\" 표시 (modal 없음, MVP)\n- 같은 path 존재 시 e의 replace modal 흐름 재사용\n\n**외부 drag out (트리 → Finder)**:\n- main process IPC `editor.startFileDrag(paths)` 추가\n- main에서 `webContents.startDrag({ files: paths, icon: defaultIcon })` 호출\n- copy semantic 기본 (move semantic는 v0.2)\n- preload editor API에 노출\n\n**Invalid drop 차단 규칙**:\n- 자기 자신으로 drop\n- 자식 폴더로 drop (cycle 방지)\n- git ignored 파일은 제외 (drop은 가능, target는 git ignore 검증)\n- 다른 워크스페이스로 drag = Workspace strip 격리 정책상 미지원 (drag 시작 시 source workspace 메타데이터 확인)\n\n**같은 path 충돌 시 (e modal)**:\n- \"Replace existing? Keep both? Cancel?\" 3 버튼 modal\n- \"Keep both\" = `{name}_2.{ext}` 자동 rename suffix\n- \"Replace\" = fs.unlink target → fs.copyFile/rename source\n- \"Cancel\" = no-op\n\n**Drag image (drag 중 floating preview)**:\n- react-arborist 기본 (파일명 + 아이콘 14px). 단순 형태로 유지\n- 외부 drag out 시 `webContents.startDrag` icon은 OS 기본 file icon 또는 vscode-icons-js SVG (선택 가능 시)\n\n**Multi-drag**:\n- Issue 10 (Multi-select 인프라) 도입 후 활성화 — 이번 격상 후반에 React-arborist의 multi-select drag 옵션 enable\n\n**Drag auto-scroll**:\n- react-arborist 내장 동작 가정. prototype 단계에서 검증.\n\n**기각 대안**:\n- 보수안 (트리 내부만): 사용자 \"VSCode 다 따라가기\" 명시. 거절.\n- 외부 drag out 제외: `webContents.startDrag` 1-2일 IPC 작업이 사용자 의도 위반. 거절.\n- cross-pane drag 제외: VSCode 일상 워크플로. 거절.\n- 다른 워크스페이스로 drag 지원: Workspace strip 격리 정책 (Plan #29 W')과 충돌. 거절.\n\n**리스크 + 완화**:\n- react-arborist DnD가 cross-pane drop target (외부 EditorPane) 지원하는지 — react-dnd는 다양한 drop target 자체 지원, react-arborist 노출 API 확인 필요. prototype 단계 검증.\n- `webContents.startDrag` 임시 file path + drag image — main process IPC 추가 작업\n- 큰 파일 외부 drag in 시 UI 멈춤 — 동기 fs.copyFile 대신 stream 사용 권고, MVP에는 단순 처리 + 측정만\n\n**작업량 가이드**: 본 issue ~3-5일 (1인). react-arborist 마이그(Issue 3) 위에 얹는 작업이라 비교적 작음."
+          },
+          {
+            "id": 6,
+            "title": "[탭 DnD] EditorPane 탭바에 한 패널 내 reorder + cross-pane 이동 + (선택) 새 split 생성. @dnd-kit/sortable 적용. 기존 Cmd+Alt+←/→ 키보드 공존",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — @dnd-kit/sortable 도입 + reorder + cross-pane move + 새 split via drag (1-pane only) + Cmd+Alt+←/→ 키보드 공존**.\n\n**라이브러리**: `@dnd-kit/core` + `@dnd-kit/sortable` (~12KB gzip 합, MIT, React 19 지원). react-arborist의 react-dnd(파일트리)와 영역 분리(탭 = @dnd-kit) — researcher 확인했듯 두 라이브러리 다른 영역에서 동시 사용 충돌 없음.\n\n**3 drop target 동작**:\n\n1. **Same pane reorder** — 같은 pane의 다른 탭 사이로 drop = 위치 변경. SortableContext per pane.\n2. **Cross-pane move** — 다른 pane의 탭바로 drop = 해당 pane으로 탭 이동. activeTab follow (이동된 탭이 새 pane에서 활성화).\n3. **새 split via drag** — `panes.length === 1`일 때만 활성. EditorPane 우측 가장자리 80px wide drop zone에 drop = `splitActivePaneRight` + 이동. `panes.length === 2`일 땐 drop zone 미렌더 (1-depth 정책 준수, Plan #29 T12 결정 일관).\n\n**Drop indicator 시각**:\n- **Reorder insert line**: 탭 사이 위치, 1px `bg-primary`, mouse x 임계로 좌/우 결정\n- **Cross-pane drop highlight**: target pane tabbar 영역에 `bg-accent/15` subtle (overlay 아님)\n- **Split drop zone** (1-pane only, drag 중에만 visible): 우측 가장자리 80px, `bg-primary/10` + 1px `ring-primary`, 텍스트 \"Drop to split\"\n- **Drag image**: @dnd-kit 기본 (탭 cloned visual)\n\n**Drop validation**:\n- 활성 탭 드래그 중 즉시 drop 안 됨 (pointer up까지 indicator만)\n- ESC = drop 취소 + 원위치 복귀\n- drop 후 focus follow (이동된 탭이 새 pane 활성화)\n\n**키보드 공존**:\n- Cmd+Alt+← / Cmd+Alt+→: 활성 탭을 옆 pane으로 이동 (Plan #29 T12 결정 유지)\n- Cmd+\\\\: split right toggle (Plan #29 결정 유지)\n- 드래그는 마우스 사용자 추가 경로, 키보드 사용자는 변함없음\n\n**미지원**:\n- **Detach to new window**: 멀티 윈도우는 nexus-code 비-목표 (philosophy.md non-goals 직접 명시 X이지만 단일 창 멀티 워크스페이스 정체성 핵심). 사용자 시도 시 silent fail (toast 미표시, 발견성 약하게 둠)\n- **2-pane 시 새 split**: 1-depth 정책 위반 → drop zone 자체 미렌더\n- **External tab drag** (다른 앱으로): 탭은 우리 앱 내부 개념, file과 다름 → external drag 의미 없음\n\n**Multi-tab drag**:\n- Issue 10 (Multi-select 인프라) 도입 후 활성화. 이번 격상 후반에 multi-select 가능 시 multi-drag enable.\n\n**기각 대안**:\n- 보수안 (reorder만): 사용자 명시 통점 #3 부분 해소만, cross-pane 드래그가 일상 워크플로. 거절.\n- 야심안 (4-direction split zones): Plan #29 T12의 \"1-depth horizontal split만\" 정책 위반. 거절.\n- 새 split via drag 제외: Cmd+\\\\ 단축키만으로 split 발견성 약함. drop zone은 drag 중에만 visible이라 평소 chrome 무거움 없음. 거절.\n\n**리스크 + 완화**:\n- @dnd-kit + react-dnd 공존 (다른 영역) — 이벤트 핸들러 충돌 가능성, prototype 단계 검증\n- Drop zone 80px 임계가 reorder와 split 사이 모호한 케이스 — UX 측정 후 조정 (50px / 100px 옵션 backlog)\n- ESC cancel은 @dnd-kit 기본 동작 — 검증\n- multi-window detach 시도 시 silent fail은 발견성 약함, v0.2 사용자 피드백에 따라 명시적 toast 추가 검토\n\n**작업량 가이드**: 본 issue ~3-5일 (1인). 주요 변경 = SortableContext per pane + cross-pane DnDContext + EditorPane에 drop zone 렌더 + editor-store에 reorder/move 액션 추가.\n\n**관련 파일**:\n- `packages/app/src/renderer/components/EditorPane.tsx` — SortableContext + drop zone\n- `packages/app/src/renderer/components/SplitEditorPane.tsx` — DndContext (cross-pane)\n- `packages/app/src/renderer/stores/editor-store.ts` — reorderTabInPane, moveTabToPane(이미 존재) 활용"
+          },
+          {
+            "id": 7,
+            "title": "[도큐먼트 갱신] design.md §4 line 168 (Context menu/DnD/multi-select future scope) lift, §5-8 예외 결정 반영, 단축키 맵 갱신, roadmap.md E4 명시 제외 항목 갱신",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — design.md / roadmap.md / philosophy.md 갱신 + NOTICE.md 신규**.\n\n**design.md 갱신 항목**:\n1. **§4 line 168 재작성** — \"Context menu, drag-and-drop, multi-select는 future scope이며 MVP 밖이다\" → \"File tree는 VS Code interaction grammar를 모두 지원: context menu, drag-and-drop (over/insert/invalid + cross-pane + 외부 in/out), multi-select (Cmd/Shift+click + range), inline create/rename, delete confirmation 모두 MVP 포함. react-arborist v3.5.0 가상화 + 인덴트 가이드 1px + 행 22px.\"\n2. **§4 단축키 맵 추가** — Cmd+Shift+F (Search), Cmd+Shift+H (Replace), Cmd+G (Next match), F2 (Rename in tree), Del (Delete in tree), Cmd+A (Select all in folder), Cmd+Enter (Commit), Cmd+Shift+Enter (Amend), Esc (Clear selection / Close panel), j/k (Diff next/prev change)\n3. **§4 4열 컨테이너** — Right shared panel 5탭으로 갱신: Tool / Session / **Source Control** (이전 Diff) / Preview / **Search** (신규). Source Control 탭은 git status / staged changes / branch indicator / inline commit + Issue 10 diff editor 연결.\n4. **§4 Center workbench 단락** — Editor pane tab 종류에 **diff tab** 추가 (Compare with Selected, SC View Diff). 시각: GitCompare 16px icon + `{name1} ↔ {name2}` title format.\n5. **§4 File tree interaction grammar 전체 재작성** — toolbar actions + selected row + multi-select(Cmd/Shift+click) + context menu (13+ 항목, 컨텍스트별 file/folder/empty) + drag-and-drop (over/insert/invalid + cross-pane + 외부 in/out + replace modal) + inline create/rename + delete confirmation + react-arborist 가상화 + 인덴트 가이드 1px + 행 22px.\n6. **§5-8 재작성** — Plan #31 Issue 1 결정 본문 박제: \"장식용 컬러 아이콘 금지 — 액션·상태·네비게이션 등 인터랙션과 의미 전달 아이콘은 모두 단색 stroke로 통일한다. 단, 파일 트리·에디터 탭·브레드크럼의 파일 타입 식별 아이콘은 정보 전달 목적으로 컬러를 허용한다. 컬러 아이콘 사용 시 (a) workbench accent와 동시 노출 영역에서는 ≤14px 유지, (b) hover/selection 배경 위 4.5:1 명도 대비 보장, (c) 정보 전달 단일 목적 — 장식·강조·브랜딩 용도 금지. stroke 두께 혼용 금지 원칙은 컬러 아이콘에도 적용한다.\"\n7. **§4 아이콘 시스템 한 줄 추가** — \"파일 타입 식별 아이콘은 vscode-icons-js (MIT, lazy SVG via Vite import.meta.glob) 사용. size default 14px (§5-8 가드).\"\n8. **§4 ARIA 보강** — Multi-select tree에 `aria-multiselectable=true` + `aria-selected` per row. Diff tab `role=\"region\"` + `aria-label=\"Diff: {path1} versus {path2}\"`. Context menu `role=\"menu\"` (radix 자동).\n\n**roadmap.md 갱신 항목**:\n9. **E4 본문** — 격상 두 번째 슬라이스 반영. Tier-1 9 LSP 위에 추가: 파일트리 격상 (vscode-icons-js + react-arborist + context menu + DnD + multi-select + diff editor) + project-wide search (ripgrep) + Source Control UI (git status / commit / branch / merge conflict).\n10. **E4 명시 제외 추가 lift** — \"project-wide 검색\" (Issue 8) + \"전용 git UI\" (Issue 9). 남는 명시 제외 4개: Monaco 테마/키바인딩/폰트 커스텀 UI, debugger·test runner, extension·marketplace, 자체 AI 인라인 제안.\n11. **M4 마일스톤** — \"E4 격상 두 번째 슬라이스 완료 (파일트리/탭 격상 + Search + SC + Diff + Multi-select)\".\n12. **M6 게이트 추가** — (1) ripgrep 30분 search 안정성 (1만+ 파일 워크스페이스, 메모리 누수 0), (2) git CLI 30분 운영 안정성 (status watcher fsnotify drift 0), (3) Monaco DiffEditor 큰 파일(10만 줄) 비교 안정성, (4) context menu + DnD CJK 회귀.\n13. **출시 판정 기준 7→9개로 확장** — 8: project-wide search 30+ 분 안정 + 결과 정확성, 9: SC commit/checkout/diff 30+ 분 안정 + git status drift 0.\n\n**philosophy.md 정체성 명시 1-2문장 추가** (사용자 입장 박제):\n14. 핵심축 #2 단락 끝에 추가 — \"VSCode 능력 표면을 따라가되 풀 클론을 지향하지 않는다. Cursor가 VSCode 포크지만 엄연히 다른 툴인 것처럼, IDE 기능 평면(편집·LSP·검색·git·diff·탭/트리 인터랙션)은 표준 동등으로 가져오되 정체성 차별화(멀티 워크스페이스 단일 창 + AI 하네스 관찰 통합 + 한국어 IME 품질 + 자체 토큰 시스템)는 변함없이 유지한다.\"\n\n**NOTICE.md 신규 (저장소 root)**:\n15. OSS attribution 섹션:\n- vscode-icons-js (MIT)\n- vscode-icons SVG 자산 (라이선스 파일 검증 후 명시)\n- react-arborist (MIT)\n- react-dnd (MIT, react-arborist 전이)\n- react-window (MIT, react-arborist 전이)\n- @dnd-kit/core, @dnd-kit/sortable (MIT)\n- shadcn/ui (MIT) + Radix UI ContextMenu (MIT)\n- ripgrep (MIT, sidecar bundled binary)\n- vscode-languageserver-protocol (MIT, Plan #29 도입)\n- 기타 기존 OSS는 packages/*/package.json licenses에서 확인\n\n**기각 대안**:\n- 보수안 (philosophy.md 변경 없음): 사용자 명시 입장이 향후 결정 anchor가 됨, 박제 가치 있음. 거절.\n- README OSS 흡수 (NOTICE.md 안 만듦): vscode-icons SVG 자산 라이선스 표기 + ripgrep binary attribution 등 별도 처리하면 README 길이 폭증. 거절.\n- 별도 IDENTITY.md: philosophy.md 1-2문장으로 충분, 별도 파일 정당성 약함. 거절.\n\n**리스크**:\n- §5-8 재작성안이 §5의 다른 9개 금지선과 톤 일관성 유지 필요 — writer가 점검\n- vscode-icons SVG 자산 라이선스 (CC BY 4.0 또는 MIT) 별도 검증 필요 — writer task acceptance에 명시\n- philosophy.md 1-2문장은 핵심축 #2 외에 다른 섹션에 영향 미치지 않게 단락 명확히 분리\n\n**작업량 가이드**: 3-4일 (writer + reviewer pair × 4 doc — design.md / roadmap.md / philosophy.md / NOTICE.md)."
+          },
+          {
+            "id": 8,
+            "title": "[Find in Folder 인프라] project-wide search 엔진 (ripgrep 통합 vs Node 자체) + 결과 panel 위치 + 검색 옵션 UI (case/regex/include-exclude glob) + per-workspace vs all-workspaces 범위. roadmap E4 명시 제외 \"project-wide 검색\" lift.",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — ripgrep + sidecar + right shared panel \"Search\" 신규 탭 + simple+replace UI + Cmd+Shift+F/H + per-workspace 범위**.\n\n**a. 검색 엔진**: ripgrep. .gitignore 자동 준수, 100만 파일 1초 검색 검증된 성능. Node grep은 1-2 order 느려 거절.\n\n**c. 소유 (process)**: sidecar (Go). 이유:\n- Per-workspace 격리 정합 (Plan #29 LSP supervision C3b 패턴 일관)\n- 사이드카에 이미 WebSocket relay 인프라 존재 (lsp/relay 채널 같은 패턴 search/relay 추가)\n- Main에서 spawn 시 sidecar lifecycle 정합 깨짐\n\n**ripgrep 배포**: **bundled binary** — sidecar 빌드 산출물에 macOS arm64/x86_64 + Linux x86_64 ripgrep binary 포함 (~5MB per platform). PATH discovery는 fallback (bundled 미발견 시). 사용자가 brew install 의존하면 첫 사용 시 검색 실패 위험 → bundled가 안전 기본값.\n\n**b. 결과 panel 위치**: **right shared panel 신규 \"Search\" 탭** (Tool / Session / Diff / Preview / **Search** = 5탭). Left chrome (Workspace strip + Filetree column W' narrative)을 깨뜨리지 않음. Center 새 mode는 editor/terminal split 정책 충돌. 5탭 chrome 부담은 Diff/Preview 사용 빈도 낮아 분산. 탭 toggle 미도입 (settings UI 비-목표 일관).\n\n**d. 옵션 UI**:\n- 검색 input (multi-line → Cmd+Enter 트리거 / 단일 라인 → Enter)\n- 토글 3개: case sensitive `Aa` / regex `.*` / whole word `|`\n- \"Advanced\" 접힘 펼치면: Include glob input (`*.ts,*.tsx`) + Exclude glob input (`node_modules,dist`)\n- Replace input (Cmd+Shift+H 시 visible) + Replace All 버튼\n\n**단축키**:\n- `Cmd+Shift+F` = Search 탭 열기 + input focus (shared panel collapsed면 auto-expand)\n- `Cmd+Shift+H` = Search 탭 + Replace mode 열기\n- `Cmd+G` = 결과 다음 매치 jump (active match)\n- `Esc` = 결과 dismiss + editor focus 복귀\n\n**e. 범위**: **활성 워크스페이스만**. Workspace strip 격리 (Plan #29 W')와 정합. all-workspaces 검색은 워크스페이스간 결과 충돌 + UX 모호 → 거절.\n\n**결과 표시**:\n- 파일별 그룹 (Disclosure expand/collapse)\n- 매치 라인 미리보기 (좌우 컨텍스트 30자, 매치 부분 highlight)\n- 단일 클릭 = active editor pane에 open + 매치 라인 jump + 라인 highlight (3초 후 fade)\n- 더블 클릭 = pin tab (preview 모드 vs pinned, MVP에서는 단순화 — 모든 open이 동일 동작)\n- 결과 N개 제한: **1만개** (VSCode 기본 ~10k). 초과 시 \"Showing first 10000 results, refine search\"\n- 검색 history: 최근 10개 검색어 dropdown (input ↑/↓ 키 navigation)\n\n**Stream pattern**:\n- sidecar ripgrep stdout → sidecar parse → WebSocket `search/relay` 채널로 progressive emit (LSP relay 패턴 일관)\n- main → renderer IPC로 결과 항목 stream\n- renderer는 progressive하게 결과 panel 업데이트 (대용량 워크스페이스 검색 시 일부 결과 즉시 표시)\n\n**.gitignore 준수**: ripgrep 기본 동작 그대로 (`--hidden`은 사용 안 함, dotfile 자동 제외). 사용자가 dotfile 검색 원하면 Include glob에 `.*` 명시.\n\n**WebSocket schema 추가** (Plan #29 lsp/lifecycle/relay 패턴):\n- `schema/search-lifecycle.schema.json`: start_search, cancel_search, search_complete\n- `schema/search-relay.schema.json`: result_chunk (matches array), progress (files_scanned)\n\n**기각 대안**:\n- left filetree 자리 swap (VSCode 표준): W' narrative 위반. 거절.\n- center 새 mode (editor/terminal/search 3-state): editor split 정책 충돌. 거절.\n- modal overlay: 결과 navigation 양립 어려움. 거절.\n- Node 자체 grep: 1-2 order 느림. 거절.\n- main process 소유: sidecar 격리 정합 깨짐. 거절.\n- all-workspaces 범위: Workspace strip 격리 위반. 거절.\n- PATH discovery only: 사용자 brew install 의존, 첫 사용 실패 위험. 거절.\n\n**리스크 + 완화**:\n- ripgrep bundled binary 빌드 인프라 추가 (sidecar Makefile + 플랫폼별 download) — 1-2일 작업\n- right shared panel 5탭 chrome 부담 — Diff/Preview 사용 빈도 측정 후 v0.2 toggle 검토\n- search/relay WebSocket 메시지가 LSP relay와 같은 채널 풀 공유 → channel 분리 + 백프레셔 (큰 검색 결과 stream 시 LSP 메시지 지연 방지)\n- 검색 progress UI (몇 개 파일 스캔 중) 미구현 시 사용자 멈춤 인식 — progress indicator MVP 포함 권고\n\n**작업량 가이드**: 1.5-2주 (1인). sidecar Go 측 supervisor + ripgrep wrapper + schema + renderer Search 탭 UI + 결과 navigation.\n\n**관련 신규/변경 파일**:\n- `sidecar/internal/search/supervisor.go` (신규)\n- `sidecar/internal/search/ripgrep.go` (신규)\n- `sidecar/cmd/nexus-sidecar/handler.go` (search 채널 라우팅)\n- `schema/search-lifecycle.schema.json`, `search-relay.schema.json` (신규)\n- `packages/shared/src/contracts/search/*` (gen-contracts 결과)\n- `packages/app/src/main/search/search-bridge-ipc.ts` (신규)\n- `packages/app/src/renderer/components/SearchPanel.tsx` (신규, right shared panel 탭 컨텐츠)\n- `packages/app/src/renderer/stores/search-store.ts` (신규, search state + history)"
+          },
+          {
+            "id": 9,
+            "title": "[Source Control 인프라] git CLI handler 위치 (sidecar vs main) + git status panel 위치 (right shared panel 탭 vs 좌측 별도) + commit UI (modal vs inline) + branch indicator + Stage/Discard/View Diff 액션 흐름 + merge conflict 처리 범위. roadmap E4 명시 제외 \"전용 git UI\" lift.",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — sidecar git CLI handler + 기존 Diff 탭 → \"Source Control\" 탭 evolve + inline commit + 2곳 branch indicator + inline hover 버튼 + Monaco code lens merge conflict + branch ops MVP (push/pull은 v0.2)**.\n\n**a. handler 위치**: sidecar (Go). `os/exec` git binary spawn + per-workspace 격리. Plan #29 LSP supervision C3b 패턴 일관. main에서 child_process spawn은 lifecycle 정합 깨짐 → 거절.\n\n**b. status panel 위치**: 기존 right shared panel \"Diff\" 탭을 **\"Source Control\" 탭으로 evolve**. 5탭 유지 (Tool / Session / **Source Control** / Preview / Search). 기존 WorkspaceDiffPanel.tsx 8KB는 SC panel 컨텐츠로 흡수 + 신규 status UI(파일 리스트, commit input, branch indicator) 추가. 별도 6탭은 chrome 폭증 → 거절.\n\n**c. commit UI**: SC panel 안에 inline textarea + Commit 버튼.\n- `Cmd+Enter` = commit\n- `Cmd+Shift+Enter` = amend (마지막 commit 메시지 prefill)\n- N자 권장 가이드 (50/72 char) UI 표시 (subtle, hint 영역)\n- modal은 commit이 빈번 작업이라 너무 무거움 → 거절\n\n**d. branch indicator 2곳**:\n1. **SC panel 헤더 (메인 표시)**: `main ↑2 ↓0` (ahead/behind 카운트). 클릭 시 branch list dropdown.\n2. **Filetree column 헤더 (보조)**: 기존 \"📂 nexus-code\" 1줄에 sub-line 추가 → 1줄 메인 (workspace name) + sub-line (`main` 가벼운 표시). 평소 항상 가시 → 빠른 참조용.\n\n별도 status bar 신설은 chrome 추가 부담 → 거절.\n\n**e. 변경 파일 행 액션**: inline hover 버튼.\n- 각 행 hover 시 우측에 `+`(stage) / `↺`(discard) / `▷`(view diff) 아이콘\n- Issue 4 context menu의 SC 항목 (Stage Changes / Discard Changes / View Diff)과 동등 동작\n- 행 단일 클릭 = view diff (Issue 10 diff editor에서 표시)\n- drag stage는 발견성 약해 → 거절\n\n**file grouping**: 2 그룹 — Changes / Staged Changes (Disclosure expand/collapse). Untracked는 Changes 안에 포함 (VSCode 패턴). Conflicts는 별도 그룹 신설 (merge 진행 중일 때만).\n\n**f. Merge conflict UI**: 포함 — Monaco code lens 패턴.\n- conflict marker (`<<<<<<<`, `=======`, `>>>>>>>`) 자동 detect\n- conflict block 위에 code lens 액션: `Accept Current` / `Accept Incoming` / `Accept Both`\n- SC panel에 conflict 파일 별도 그룹 표시 (위 file grouping 참조)\n- 1-2일 추가 작업이지만 사용자 일상 통점 — 미지원 시 매번 텍스트 marker 수동 편집 → 거절\n\n**branch operations (MVP)**:\n- branch list dropdown (SC panel 헤더 클릭)\n- create branch (input modal — branch 이름)\n- checkout (dirty 파일 있으면 경고 modal — \"Stash changes? Discard? Cancel?\")\n- delete branch (force 옵션 없음 — merge 안 된 branch는 거절 + UX)\n- 미포함: rebase / merge / push / pull / fetch / stash / submodule / commit signing / history (git log) — 모두 v0.2\n\n**commit operations (MVP)**:\n- stage / unstage (개별 + 전체)\n- commit / amend\n- discard (single file / 전체)\n- push/pull은 v0.2 (인증 흐름 SSH/token 인프라 추가 부담)\n\n**WebSocket schema 추가** (Plan #29 lsp 패턴):\n- `schema/git-lifecycle.schema.json`: status_request, branch_list, commit, stage, unstage, discard, checkout, branch_create, branch_delete\n- `schema/git-relay.schema.json`: status_change (file path + status), branch_change, head_change\n\n**기존 git 뱃지와의 통합**:\n- 현재 FileTreePanel의 git 뱃지 (modified/untracked/staged 색상 표시)는 유지\n- sidecar git status가 단일 source of truth로 통일 (현재는 main에서 git CLI 호출 가능성 있음 — 검증 필요)\n- 같은 status가 (1) 파일트리 뱃지, (2) SC panel 파일 리스트 양쪽에 일관 표시\n\n**기각 대안**:\n- main process git handler: lifecycle 정합 깨짐. 거절.\n- 별도 6탭 (Diff 별도 유지): chrome 폭증. 거절.\n- modal commit UI: 빈번 작업이라 무거움. 거절.\n- merge conflict 미지원: 일상 통점. 거절.\n- push/pull MVP 포함: 인증 인프라 1-2주 추가 (SSH key 검출, OAuth token, GitHub/GitLab adapter) — 슬라이스 폭증. v0.2로.\n- left 별도 column (VSCode 패턴): W' narrative 위반. 거절.\n- drag stage: 발견성 약함. 거절.\n\n**리스크 + 완화**:\n- Filetree column 헤더 sub-line 추가 → 행 높이 증가 → 디자인 부담. 권고: 14px sub-line만, 활성 워크스페이스가 git repo 아니면 sub-line 미표시\n- Monaco code lens API 학습 1-2일\n- branch checkout dirty protection — 명확한 modal UX 필요 (자동 stash는 v0.2 stash 기능 없으면 거절 → 사용자가 수동 처리)\n- 5탭 chrome 부담 (Issue 8과 동일) — Diff/Preview 사용 빈도 분산 가정\n- 기존 git 뱃지 source of truth 통일 검증 필요 (main vs sidecar 중복 방지)\n\n**작업량 가이드**: 2-3주 (1인). 가장 큰 sub-decision 묶음.\n- sidecar Go 측 git supervisor + git CLI wrapper + watcher (~1주)\n- SC panel UI (status list + commit input + branch dropdown + inline 버튼) (~1주)\n- Monaco code lens merge conflict (~2-3일)\n- 기존 WorkspaceDiffPanel evolve + 통합 (~2-3일)\n\n**관련 신규/변경 파일**:\n- `sidecar/internal/git/supervisor.go` (신규)\n- `sidecar/internal/git/wrapper.go` (신규, git CLI invoke)\n- `sidecar/internal/git/watcher.go` (신규, fsnotify로 .git 변경 감지 + status 갱신)\n- `sidecar/cmd/nexus-sidecar/handler.go` (git 채널 라우팅 추가)\n- `schema/git-lifecycle.schema.json`, `git-relay.schema.json` (신규)\n- `packages/shared/src/contracts/git/*` (gen-contracts 결과)\n- `packages/app/src/main/git/git-bridge-ipc.ts` (신규)\n- `packages/app/src/renderer/components/SourceControlPanel.tsx` (신규, WorkspaceDiffPanel evolve)\n- `packages/app/src/renderer/components/MergeConflictCodeLens.ts` (신규, Monaco code lens registration)\n- `packages/app/src/renderer/stores/source-control-store.ts` (신규)\n- `packages/app/src/renderer/components/FileTreePanel.tsx` (헤더 sub-line 추가, branch 표시)\n- `packages/app/src/renderer/components/WorkspaceDiffPanel.tsx` (삭제 또는 SourceControlPanel.tsx로 evolve)"
+          },
+          {
+            "id": 10,
+            "title": "[Compare/Multi-select 인프라] multi-select 활성화 트리거 (Cmd+클릭 / Shift+클릭) + Monaco diff editor 인스턴스 위치 (center editor split tab vs modal vs right shared panel) + \"Compare with Selected\" 두 단계 워크플로 + diff viewer ARIA. design.md §4 multi-select future scope lift.",
+            "status": "decided",
+            "decision": "**Lead 권고안 채택 — Cmd/Shift+click multi-select + center editor pane diff 탭 + 2단계 Compare 워크플로 + multi 액션 MVP + ARIA + Issue 9 SC 통합**.\n\n**a. Multi-select 트리거**:\n- `Cmd+click` = toggle individual (이미 선택된 행 다시 클릭 = 해제)\n- `Shift+click` = range from last anchor to clicked (앵커 = 마지막 단일 클릭 또는 Cmd+click 위치)\n- `Esc` = 모든 선택 clear (단 활성 selected는 유지)\n- 다른 행 단일 클릭 = multi-select clear + 단일 선택\n- `Shift+↑/↓` = range expand by 1 (current 위/아래 행 추가)\n- `Cmd+A` = 현재 폴더 내 전체 선택 (recursive 안 함, 단일 폴더 자식만)\n\n**b. Monaco DiffEditor 위치**: **center editor pane 새 탭**. 일반 file tab과 같은 자리, 시각 구분:\n- Tab icon: lucide `GitCompare` 16px (단색 stroke 유지 — §5-8 정보 전달 컬러 예외 적용 안 함, \"비교\" 액션 의미)\n- Tab title format: `{file1-name} ↔ {file2-name}` (truncate)\n- Tab tooltip: `Diff: {file1-relative-path} vs {file2-relative-path}`\n\n**Monaco DiffEditor 컴포넌트**:\n- 신규 `DiffEditorHost.tsx` — MonacoEditorHost와 별도. Monaco의 `monaco.editor.createDiffEditor` API 사용\n- 두 model (left/right) 관리 + side-by-side 기본 / inline toggle (헤더 버튼)\n- 가상화 Monaco 기본\n- `j/k` 키 = next/prev change navigation (VSCode 동일)\n- 헤더 버튼: `[Side-by-side / Inline] [↑↑ Prev Change] [↓↓ Next Change]`\n\n**c. 두 단계 Compare 워크플로** (VSCode 표준):\n1. 첫 파일/폴더 우클릭 → context menu \"Select for Compare\" 클릭\n2. 앵커 저장 + tree에 marker 표시 (`aria-marked=\"true\"` + 옅은 `ring-1 ring-primary/20`)\n3. 두 번째 파일 우클릭 → context menu 항목 텍스트 동적 변경: \"**Compare with 'first-file.ts'**\"\n4. 클릭 → diff tab 열림 + 앵커 자동 clear\n\n**앵커 영속**: 워크스페이스 전환 시 앵커 clear (cross-workspace 비교 미지원).\n\n**d. Multi-select 액션 (MVP 포함)**:\n- **Delete**: confirmation modal \"Delete 10 files? This cannot be undone.\" + 모두 fs.unlink\n- **Cut / Copy**: clipboard에 path 배열 등록 (Issue 4 cut/copy/paste 흐름 자동 확장)\n- **Paste**: 활성 폴더에 모두 적용 (충돌 시 each file별 modal — 또는 \"Apply to all\" 옵션)\n- **Multi-drag**: Issue 5 외부 drag-out + 내부 drag-move 모두 multi-select 인지 (react-arborist 내장 multi-drag)\n- 미포함 (v0.2): Move to Folder (Cut+Paste로 충분), Rename Pattern (rename input에 multiple)\n\n**e. Diff viewer ARIA**:\n- DiffEditorHost root: `role=\"region\"` + `aria-label=\"Diff: {path1} versus {path2}\"`\n- 양쪽 editor pane은 monaco 자체 ARIA (편집기 role)\n- 키보드 nav (j/k)는 monaco 자체 등록 + ARIA live region으로 change navigation announcement (선택 사항)\n\n**Issue 9 SC 통합**:\n- SC panel \"View Diff\" 클릭 → 같은 DiffEditorHost 컴포넌트로 center editor pane에 diff tab 열림\n- Diff tab은 (a) Compare with Selected, (b) SC View Diff 둘 다 같은 표면\n- SC panel 안에는 inline diff preview (간단한 line-level diff summary, 5-10줄) 정도만 — 풀 diff는 center\n\n**Diff tab dirty 상태**:\n- MVP: read-only (편집 X)\n- 사용자가 diff tab 닫을 때 dirty 묻지 않음\n- v0.2: inline 편집 가능 (VSCode 패턴) — 인증 + 충돌 처리 추가 부담 큼\n\n**Diff editor 모드**:\n- Side-by-side (기본): 좌측 = 비교 대상 1, 우측 = 비교 대상 2\n- Inline (toggle): 단일 영역에 추가/삭제 줄을 위아래로 표시\n\n**기각 대안**:\n- 보수안 (lasso multi-select / 즉시 비교): VSCode 표준 미준수, 사용자 학습 비용. 거절.\n- 야심안 (3-way compare / character-level diff): MVP 범위 초과. v0.2.\n- right panel diff viewer: 큰 diff 좁음, editor split의 split right와 양립 어려움. 거절.\n- multi 액션 미지원: Delete 다중 파일은 일상. 거절.\n- diff tab inline 편집 MVP 포함: 인증 + 양쪽 편집 충돌 처리 부담. v0.2.\n\n**리스크 + 완화**:\n- Monaco DiffEditor instance가 일반 Editor와 별도 model 2개 → 메모리 약간 증가. 큰 파일(10만 줄+) 시 측정 필요\n- multi-select 시각 cue가 평소 single select과 혼동 가능 → 명확한 visual distinction (multi-selected는 ring + bg, single selected는 bg만)\n- \"Select for Compare\" 앵커 표시가 다른 selection과 시각 충돌 — 별도 marker (좌측 dot 또는 우측 GitCompare icon)\n- 앵커 미사용 상태로 영속되면 사용자가 잊고 헷갈림 → 워크스페이스 전환 시 자동 clear, 5분 timeout 자동 clear도 검토\n- Cmd+A \"현재 폴더 내 전체 선택\"은 사용자가 의도치 않게 누를 수 있음 — 위험한 작업 (Delete 10개) 트리거 시 confirmation 강력하게\n\n**작업량 가이드**: 1-1.5주 (1인).\n- Multi-select store + tree integration (~3일)\n- Compare workflow + 앵커 (~1일)\n- DiffEditorHost 컴포넌트 + Monaco DiffEditor 통합 (~3일)\n- multi 액션 (Delete/Cut/Copy/Paste 확장) (~2일)\n\n**관련 신규/변경 파일**:\n- `packages/app/src/renderer/stores/file-tree-multi-select-store.ts` (신규, multi-select state)\n- `packages/app/src/renderer/components/DiffEditorHost.tsx` (신규)\n- `packages/app/src/renderer/components/file-tree-context-menu.tsx` (Issue 4에서 신설 예정)에 \"Select for Compare\" / \"Compare with '{anchor}'\" 동적 항목 추가\n- `packages/app/src/renderer/stores/editor-store.ts` (diff tab type 추가, kind: \"file\" | \"diff\")\n- `packages/app/src/renderer/components/SourceControlPanel.tsx` (Issue 9에서 신설 예정)에서 \"View Diff\" 클릭 → openDiffTab 호출"
+          }
+        ],
+        "research_summary": "## 사용자 통점 (직접 인용)\n\n> 아직 vscode에 비하면 못미침. 파일 트리 ui부터, 우클릭 기능도 없음. 팬은 드래그해서 옮길 수 있어야해.\n\nVSCode 스크린샷 첨부: 파일 타입별 컬러 아이콘 (.venv folder green, .vscode folder blue, .py file blue Python, .md file blue, .gitignore git red orange, etc.), tree 인덴트 가이드 수직선, sidebar 22px row height + 미세 hover, 두 에디터 split + 탭 드래그 가능.\n\n## 사실 검증 (verified)\n\n### 현재 코드 상태\n- `packages/app/src/renderer/components/FileTreePanel.tsx` 913 LOC. lucide-react `File`/`Folder`/`FolderOpen` generic icons. 인덴트 가이드 없음. selected row + hover 처리 있으나 VSCode 디테일 미달. toolbar(New File/Folder/Refresh/Collapse All) + inline create/rename + delete confirmation은 동작.\n- `packages/app/src/renderer/components/EditorPane.tsx` 254 LOC + `SplitEditorPane.tsx` 435 LOC. 탭 reorder는 키보드(Cmd+Alt+←/→)만, 드래그 미지원.\n- 우클릭 context menu 미구현.\n\n### 명시 제외 항목 (현재 design.md / roadmap.md 인용)\n- design.md §4 line 168: \"File tree는 VS Code-like interaction grammar를 따른다... **Context menu, drag-and-drop, multi-select는 future scope이며 MVP 밖이다.**\"\n- design.md §5-8: \"**장식용 컬러 아이콘** — 아이콘에 임의의 채색을 입히는 행위를 금지하며 모든 아이콘은 단색 stroke로 통일한다.\"\n- roadmap.md E4 명시 제외에는 file tree DnD/context menu가 별도 명시되지는 않음 (디자인 §4가 대신 명시).\n- Plan #29 T12 결정 (이미 적용): \"탭 드래그 이동은 MVP 제외, 키보드만으로 통점 해소. v0.2에서 추가 검토.\"\n\n### 외부 자료 (researcher 결과 핵심)\n- **파일 아이콘 모든 라이브러리가 컬러** — material-icon-theme(VSCode 확장 전용, React 미지원), vscode-icons-js(MIT, ~50kB gzip 추정), react-file-icon, @react-symbols/icons 모두 컬러. §5-8 예외 결정 없으면 lucide 단색 매핑이 유일 경로.\n- **react-arborist v3.5.0** (2025-04): React 19 공식 지원, getTreeLinePrefix 유틸 신규, DnD 내장(react-dnd 기반), 가상화. 우리 913 LOC 자체 컴포넌트에서 이전할지 결정 필요.\n- **shadcn/ui ContextMenu**: radix-ui ^1.4.3 이미 package.json에 설치됨 → 추가 번들 비용 최소. oklch 토큰 자동 정합. CLI v2.3.0 OKLCH 호환 버그 있어 수동 init 시 확인 필요.\n- **@dnd-kit/core + @dnd-kit/sortable**: ~12 kB gzip, React 19 지원, 접근성(키보드 DnD + ARIA) 기본. react-arborist의 react-dnd와 동시 사용 가능 (충돌 없음).\n- **Electron context menu**: `Menu.popup` native 옵션 있으나 OS 스타일 강제 → Terminal Teal accent 미적용. 채택 시 디자인 일관성 손해.\n- **Electron file tree → Finder drag out**: `webContents.startDrag` API 가능하나 IPC 복잡도 → MVP 범위 외 권고.\n\n## 결정 방향 (Lead 사전 판단, 사용자 합의 전 추정)\n\n이전 격상 D 노선과 같은 패턴:\n- design.md §4 line 168 lift (context menu, DnD)\n- design.md §5-8 예외 결정 필요 (파일 아이콘 컬러 허용 여부) — 제일 큰 정체성 결정\n- roadmap.md M4 마일스톤 갱신 (E4 격상 두 번째 슬라이스)\n\n작업량 추정: 메타 결정에 따라 1-3주 슬라이스. 컬러 아이콘 도입 + react-arborist 마이그레이션 시 더 큼.",
+        "created_at": "2026-04-28T06:53:22.946Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[T1] design.md 갱신 (§4 line 168 lift / §5-8 재작성 / 단축키 맵 + 4열 5탭 + Center diff tab + File tree grammar + ARIA + 아이콘 시스템)",
+          "status": "completed",
+          "context": "Plan #31 Issue 7 결정. 8개 단락 갱신. 가장 큰 단일 doc 갱신.",
+          "acceptance": "- 8개 단락 모두 갱신\n- §5의 다른 9개 금지선과 §5-8 재작성 톤 일관\n- 단축키 11개 추가/갱신 정확\n- 5탭 명세 (Source Control이 이전 Diff 자리 evolve) 명시\n- 한국어 표현 자연스러움 (직역체 회피)\n- §1.2 거절선과 새 §5-8 충돌 없음",
+          "approach": ".nexus/context/design.md 편집:\n1. §4 line 168 재작성 — Context menu/DnD/multi-select MVP 포함으로 격상\n2. §4 단축키 맵 추가 — Cmd+Shift+F/H/G, F2, Del, Cmd+A, Cmd+Enter, Cmd+Shift+Enter, Esc, j/k\n3. §4 4열 컨테이너 — Right panel 5탭 (Tool/Session/Source Control/Preview/Search) 갱신\n4. §4 Center workbench — diff tab 추가 (GitCompare icon + 형식)\n5. §4 File tree interaction grammar 전체 재작성 (toolbar + selected + multi-select + context menu + DnD + 가상화)\n6. §5-8 Plan #31 Issue 1 본문 박제 (장식용 컬러 금지 + 파일트리/탭/브레드크럼 컬러 예외)\n7. §4 아이콘 시스템 한 줄 추가 (vscode-icons-js)\n8. §4 ARIA 보강 (aria-multiselectable, role region for diff, role menu)",
+          "risk": "단축키 누락 / §5 톤 깨짐 / 5탭 vs 기존 4탭 명세 충돌",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd303-ba9e-7022-a416-13c13e899359",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:26:39.864Z"
+        },
+        {
+          "id": 2,
+          "title": "[T3] roadmap.md 갱신 (E4 본문 격상 + 명시 제외 lift + M4 + M6 게이트 + 출시 판정 7→9)",
+          "status": "completed",
+          "context": "Plan #31 Issue 7 결정. 5개 단락 갱신.",
+          "acceptance": "- E4 본문 격상 두 번째 슬라이스 반영\n- 명시 제외 정확히 2개 lift, 나머지 4개 유지\n- M4 갱신\n- M6 게이트 4개 추가\n- 출시 판정 7→9개 (6,7번은 Plan #29 그대로 유지, 8,9번 신규)\n- 한국어 자연스러움",
+          "approach": ".nexus/context/roadmap.md 편집:\n1. E4 본문 — 두 번째 슬라이스 반영 (vscode-icons-js + react-arborist + context menu + DnD + multi-select + diff editor + ripgrep + git UI)\n2. E4 명시 제외 추가 lift — \"project-wide 검색\" + \"전용 git UI\" 제거. 남는 4개 (Monaco 테마 UI / debugger / extension marketplace / AI 인라인) 유지 명시\n3. M4 마일스톤 — \"E4 격상 두 번째 슬라이스 완료\"\n4. M6 게이트 추가 — ripgrep 30분 / git CLI 30분 / Monaco DiffEditor 큰 파일 / context menu+DnD CJK 회귀\n5. 출시 판정 기준 7→9개 — 8: search 30+분 안정, 9: SC commit/checkout/diff 30+분 안정",
+          "risk": "명시 제외 누락 (Monaco 테마 UI 4개 잘못 제거)",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd303-ba9e-7022-a416-13c13e899359",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:26:49.926Z"
+        },
+        {
+          "id": 3,
+          "title": "[T5] philosophy.md 정체성 1-2문장 추가 + NOTICE.md 신규 (OSS attribution)",
+          "status": "completed",
+          "context": "Plan #31 Issue 7 결정 part. 사용자 명시 입장 박제 + OSS attribution 별도 파일.",
+          "acceptance": "- philosophy.md 핵심축 #2에 정체성 1-2문장 추가됨\n- 다른 섹션 변경 없음\n- NOTICE.md 저장소 root에 생성\n- 모든 신규 OSS (vscode-icons-js / SVG 자산 / react-arborist / @dnd-kit / ripgrep) attribution 포함\n- vscode-icons SVG 자산 라이선스 확인 + 명시\n- 한국어 자연스러움",
+          "approach": "- .nexus/context/philosophy.md 핵심축 #2 단락 끝에 1-2문장 추가:\n  > \"VSCode 능력 표면을 따라가되 풀 클론을 지향하지 않는다. Cursor가 VSCode 포크지만 엄연히 다른 툴인 것처럼, IDE 기능 평면(편집·LSP·검색·git·diff·탭/트리 인터랙션)은 표준 동등으로 가져오되 정체성 차별화(멀티 워크스페이스 단일 창 + AI 하네스 관찰 통합 + 한국어 IME 품질 + 자체 토큰 시스템)는 변함없이 유지한다.\"\n- 저장소 root에 NOTICE.md 신규: vscode-icons-js (MIT) / vscode-icons SVG 자산 (라이선스 검증 후 명시) / react-arborist (MIT) / react-dnd (MIT 전이) / react-window (MIT 전이) / @dnd-kit/core·sortable (MIT) / shadcn/ui (MIT) + Radix UI (MIT) / ripgrep (MIT, sidecar bundled) / vscode-languageserver-protocol (MIT, Plan #29) / 기타는 packages/*/package.json 참조 안내\n- vscode-icons SVG 자산 라이선스는 GitHub vscode-icons/vscode-icons 저장소 LICENSE 확인 후 명시 (CC BY 4.0 또는 MIT)",
+          "risk": "vscode-icons SVG 자산 라이선스 미확인 시 attribution 부정확",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd303-ba9e-7022-a416-13c13e899359",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:27:03.599Z"
+        },
+        {
+          "id": 4,
+          "title": "[T7] vscode-icons-js 도입 + FileIcon 컴포넌트 + Vite lazy SVG 로딩",
+          "status": "completed",
+          "context": "Plan #31 Issue 1+2 결정. 파일 타입 컬러 아이콘 도입. §5-8 예외 인정 후 첫 구현.",
+          "acceptance": "- vscode-icons-js@11.6.1 추가됨\n- FileIcon 컴포넌트 + props 정확\n- size default 14\n- SVG lazy 로딩 동작 (Vite glob 또는 fallback public 정적 서빙)\n- packaged Electron build 통과 + 실 smoke\n- 4.5:1 대비 측정 결과 artifact\n- 단위테스트: 다양한 확장자 (py/json/md/ts/tsx/yml/gitignore 등) + 폴더 (open/closed) + 미매칭 fallback\n- typecheck + lint 통과",
+          "approach": "- packages/app/package.json: vscode-icons-js@11.6.1 (MIT) 추가\n- packages/app/src/renderer/assets/file-icons/ 디렉터리 신규 + vscode-icons SVG 자산 복사 (또는 npm 패키지에서 직접 import.meta.glob)\n- packages/app/src/renderer/components/file-icon/FileIcon.tsx 신규:\n  - props: { name, kind: \"file\"|\"folder\", folderState?: \"open\"|\"closed\", size?: number, className? }\n  - default size 14 (§5-8 가드)\n  - 내부에서 vscode-icons-js getIconForFile / getIconForFolder / getIconForOpenFolder 호출\n  - import.meta.glob({ eager: false, query: \"?url\" })로 SVG lazy 로딩\n  - fallback: 라이브러리 default SVG → 빈 16x16 + console.warn\n- packages/app/src/renderer/components/file-icon/FileIcon.test.tsx 신규\n- packaged Electron app에서 SVG 로드 검증 (bun run build + 실행 smoke)\n- selection 가드: bg-accent (zinc-800 dark) 위 노란/주황 계열 (.gitignore .yml) 4.5:1 명도 대비 측정 — artifact로 기록\n- 가드레일 3개 enforcement: 컬러 아이콘 사용처를 file-icon/ 디렉터리 안으로만 제한 (lint rule 또는 manual review)",
+          "risk": "- Vite import.meta.glob이 packaged Electron에서 동작 안 할 가능성 → public 정적 서빙 fallback\n- vscode-icons SVG 자산 라이선스 (CC BY 4.0 또는 MIT) 확인 필요\n- 컬러 아이콘이 §5-8 가드(파일트리·탭·브레드크럼만) 안에서만 사용되는지 enforcement",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd303-ee08-7ea1-918f-7f438da0202b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:27:19.942Z"
+        },
+        {
+          "id": 5,
+          "title": "[T15] 탭 DnD — @dnd-kit/sortable + reorder + cross-pane move + 새 split via drag (1-pane only) + ESC cancel",
+          "status": "completed",
+          "context": "Plan #31 Issue 6 결정. EditorPane 탭바 드래그 기능 추가. 사용자 통점 #3 직접 해소.",
+          "acceptance": "- @dnd-kit/core, @dnd-kit/sortable 추가됨\n- 같은 pane reorder 동작 (drop indicator + 위치 변경)\n- cross-pane move 동작 (탭 이동 + activeTab follow)\n- 1-pane 시 우측 drop zone 동작 (drop = split right + 이동), 2-pane 시 drop zone 미렌더\n- ESC drop cancel\n- Cmd+Alt+←/→ 키보드 동작 회귀 0\n- 한국어 IME 조합 중 단축키 차단 일관\n- 단위테스트 4 시나리오 (reorder/cross-pane/new split/ESC) 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/package.json: @dnd-kit/core, @dnd-kit/sortable 추가 (~12KB gzip 합)\n- packages/app/src/renderer/components/EditorPane.tsx — 탭바를 SortableContext per pane으로 wrap, 각 탭을 useSortable. drop indicator 1px bg-primary line 탭 사이에 표시\n- packages/app/src/renderer/components/SplitEditorPane.tsx — 상위 DndContext (cross-pane drop sensor), 각 EditorPane이 droppable target. cross-pane drop highlight bg-accent/15\n- panes.length === 1일 때 EditorPane 우측 80px wide drop zone 렌더 (drag 중에만 visible) — bg-primary/10 + 1px ring-primary + \"Drop to split\" 텍스트\n- editor-store.ts: reorderTabInPane(paneId, oldIndex, newIndex), moveTabToPane(tabId, targetPaneId, position) 액션 추가/확장. 기존 splitActivePaneRight 활용\n- ESC = drop cancel (@dnd-kit 기본 활용 + 추가 검증)\n- drop 후 focus follow (이동된 탭이 새 pane에서 활성화)\n- 한국어 IME 보호: 드래그 시작이 Cmd+drag 같은 modifier일 때 IME composition 중 차단 (composition-buffer guard)\n- Cmd+Alt+←/→ 키보드 단축키는 그대로 유지 (Plan #29 T12)\n- 단위테스트: SortableContext 렌더 + reorder 액션 + cross-pane move + new split via drag (1-pane vs 2-pane) + ESC cancel",
+          "risk": "@dnd-kit + react-arborist의 react-dnd 공존 — prototype 단계 검증 (다른 영역이라 충돌 0 예상)",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd309-2128-72a0-bbfb-c26e80d41c36",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:27:37.413Z"
+        },
+        {
+          "id": 6,
+          "title": "[T17] sidecar Search — ripgrep bundled + supervisor + WebSocket schema",
+          "status": "completed",
+          "context": "Plan #31 Issue 8 결정. project-wide search 인프라 backend. roadmap E4 명시 제외 \"project-wide 검색\" lift.",
+          "acceptance": "- ripgrep bundled binary 포함 (macOS arm64/x86_64 + Linux x86_64)\n- sidecar/internal/search/ 패키지 + 단위테스트 통과\n- schema 신규 2개 + gen-contracts → TS/Go 양쪽 generated\n- handler.go search 채널 라우팅\n- ripgrep --json 결과 parse + result_chunk 형식으로 stream\n- 검색 옵션 6개 (case/regex/word/include/exclude/.gitignore) 모두 지원\n- 1만개 제한 + truncation indicator\n- Go test 통과 + drift gate 통과\n- 30초 smoke: 1000 파일 워크스페이스에서 'foo' 검색 → 결과 stream + complete",
+          "approach": "- ripgrep bundled binary: sidecar 빌드 산출물에 macOS arm64/x86_64 + Linux x86_64 ripgrep binary 포함 (~5MB per platform). PATH discovery는 fallback.\n- sidecar/internal/search/supervisor.go (신규): search session 관리, ripgrep 자식 프로세스 spawn/cancel\n- sidecar/internal/search/ripgrep.go (신규): ripgrep CLI invoke + JSON output parse (ripgrep --json) + stream\n- schema/search-lifecycle.schema.json (신규): start_search, cancel_search, search_complete 메시지\n- schema/search-relay.schema.json (신규): result_chunk (matches array), progress (files_scanned)\n- scripts/gen-contracts.ts 실행 → packages/shared/src/contracts/generated/search-lifecycle.ts + search-relay.ts 갱신 + sidecar/internal/contracts/search.go\n- sidecar/cmd/nexus-sidecar/handler.go: search 채널 라우팅 추가\n- 검색 옵션 지원: case sensitive, regex, whole word, include glob, exclude glob, .gitignore 준수 (기본 동작)\n- 결과 1만개 제한 + \"more results\" indicator\n- Go 단위테스트 (supervisor + ripgrep parse)\n- gen-contracts drift gate 통과",
+          "risk": "- ripgrep bundled binary 빌드 인프라 (sidecar Makefile + 플랫폼별 download script) 1-2일\n- search/relay WebSocket이 LSP relay와 같은 채널 풀 공유 시 백프레셔 필요",
+          "plan_issue": 8,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd304-1a87-7083-96a3-4d44d7358d75",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:27:52.540Z"
+        },
+        {
+          "id": 7,
+          "title": "[T20] sidecar Git — supervisor + git CLI wrapper + fsnotify watcher + WebSocket schema",
+          "status": "completed",
+          "context": "Plan #31 Issue 9 결정. Source Control 인프라 backend. roadmap E4 명시 제외 \"전용 git UI\" lift.",
+          "acceptance": "- sidecar/internal/git/ 패키지 + 단위테스트 통과\n- git CLI wrapper 9개 명령 (status/branch_list/commit/stage/unstage/discard/checkout/branch_create/branch_delete) 동작\n- fsnotify watcher → status_change 이벤트 emit\n- schema 신규 2개 + gen-contracts → TS/Go generated\n- handler.go git 채널 라우팅\n- drift gate 통과\n- 기존 git 뱃지 source of truth 통일 (main 호출 제거 또는 sidecar 위임 확인)\n- 30초 smoke: git repo 워크스페이스 → status request → branch list → 변경 → status_change 이벤트 수신",
+          "approach": "- sidecar/internal/git/supervisor.go (신규): git session per workspace\n- sidecar/internal/git/wrapper.go (신규): git CLI invoke (status / branch list / commit / stage / unstage / discard / checkout / branch create / branch delete / show diff)\n- sidecar/internal/git/watcher.go (신규): fsnotify로 .git/ + 워킹트리 변경 감지 → git status 자동 갱신 → status_change 이벤트 emit\n- schema/git-lifecycle.schema.json (신규): status_request, branch_list, commit, stage, unstage, discard, checkout, branch_create, branch_delete\n- schema/git-relay.schema.json (신규): status_change (file path + status enum), branch_change, head_change\n- scripts/gen-contracts.ts 실행 → TS/Go generated\n- sidecar/cmd/nexus-sidecar/handler.go: git 채널 라우팅\n- 기존 main process git CLI 호출 (FileTreePanel git 뱃지) 점검 후 sidecar로 통일 (single source of truth)\n- 단위테스트 (supervisor lifecycle + wrapper 명령 + watcher 변경 감지)",
+          "risk": "- 기존 main process git CLI 호출 위치 검증 + 통일 마이그레이션 시 회귀\n- fsnotify .git/ 감지가 너무 자주 trigger (commit 시 다수 파일 변경) → debounce 필요",
+          "plan_issue": 9,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd30d-a1c5-7f22-92ab-d263bd433847",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:28:04.199Z"
+        },
+        {
+          "id": 8,
+          "title": "[T2] design.md 갱신 검토 (8 단락 누락 0 + §5 톤 일관 + 단축키 11개 + 5탭 명세)",
+          "status": "completed",
+          "context": "T1 결과물 검증.",
+          "acceptance": "- 8 단락 모두 누락 0\n- §5 톤 일관\n- 단축키 11개 정확\n- 5탭 명세 정확\n- §1.2 충돌 0\n- 한국어 자연스러움",
+          "approach": "git diff로 변경 범위 확인. T1 acceptance 8항목 체크리스트 대조. §5 다른 9개 금지선과 톤 일관 확인. 단축키 11개 추가 정확. 5탭 명세 (SC가 Diff 자리 evolve) 정확. §1.2 거절선과 §5-8 재작성 충돌 점검. 한국어 자연스러움.",
+          "plan_issue": 7,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd30a-7715-7600-927c-aaebcb436724",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:28:20.604Z"
+        },
+        {
+          "id": 9,
+          "title": "[T4] roadmap.md 갱신 검토 (E4 본문 + 명시 제외 lift 정확 + M4 + M6 + 출시 판정 9개)",
+          "status": "completed",
+          "context": "T3 결과물 검증.",
+          "acceptance": "- E4 본문 격상 정확\n- 명시 제외 lift 정확 (2 lift / 4 유지)\n- M4/M6/판정 갱신 정확\n- 한국어 자연스러움",
+          "approach": "git diff. T3 acceptance 6항목. 명시 제외 정확히 2개 lift, 4개 유지 (Monaco 테마/debugger/marketplace/AI 인라인). M4 갱신. M6 게이트 4개 추가. 출시 판정 7→9 (6,7번 Plan #29 그대로).",
+          "plan_issue": 7,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd30a-7715-7600-927c-aaebcb436724",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:28:25.994Z"
+        },
+        {
+          "id": 10,
+          "title": "[T6] philosophy.md + NOTICE.md 검토 (정체성 1-2문장 정확 + OSS attribution 빠짐 0)",
+          "status": "completed",
+          "context": "T5 결과물 검증.",
+          "acceptance": "- philosophy.md 정체성 정확 + 다른 섹션 0\n- NOTICE.md 9개+ OSS 포함\n- SVG 라이선스 명시\n- 한국어 자연스러움",
+          "approach": "git diff. T5 acceptance 6항목. philosophy.md 핵심축 #2 정체성 1-2문장 정확 + 다른 섹션 변경 0. NOTICE.md 모든 OSS attribution (vscode-icons-js / SVG 자산 / react-arborist / react-dnd / react-window / @dnd-kit / shadcn/Radix / ripgrep / vscode-languageserver-protocol) 포함. SVG 자산 라이선스 검증 결과 명시.",
+          "plan_issue": 7,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd30a-7715-7600-927c-aaebcb436724",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:28:31.706Z"
+        },
+        {
+          "id": 11,
+          "title": "[T8] FileIcon + vscode-icons-js 회귀 (확장자 매핑 + 폴더 + selection 대비 + packaged smoke)",
+          "status": "completed",
+          "context": "T7 결과물 검증.",
+          "acceptance": "- 12+ 확장자 매핑 단위테스트 통과\n- 폴더 open/closed 매핑 통과\n- fallback chain 동작\n- packaged Electron smoke 통과\n- 4.5:1 대비 측정 artifact 기록\n- 가드레일 (사용처 제한) 검증 0 위반\n- typecheck + lint 통과",
+          "approach": "- 단위테스트 (T7에서 추가한 것 보강): py/json/md/ts/tsx/yml/gitignore/png/svg/go/sh 등 12+ 확장자 매핑 정확. 폴더 open/closed 분기. fallback chain (미매칭→default, fetch fail→placeholder).\n- packaged Electron smoke (`bun run build` + dist 실행) — Vite import.meta.glob이 packaged에서 동작 확인. 미동작 시 public/ fallback 코드 경로 검증.\n- 4.5:1 명도 대비 측정: bg-accent (zinc-800) 위 노란/주황 계열 (.gitignore .yml .lock 등) — Chrome devtools color contrast 또는 axe-core. artifact 기록.\n- 가드레일 enforcement 검증: FileIcon 컴포넌트 사용처 grep → 파일트리·탭바·브레드크럼 외부 0 확인.",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd318-4177-7660-8ac4-5dad04446a10",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:28:41.839Z"
+        },
+        {
+          "id": 12,
+          "title": "[T9] react-arborist v3.5.0 마이그레이션 + 22px 행 + 8px indent + 인덴트 가이드 + hover/selection 폴리시",
+          "status": "completed",
+          "context": "Plan #31 Issue 3 결정. 가장 큰 단일 engineer task. 기존 FileTreePanel.tsx 913 LOC → react-arborist 위로 마이그.",
+          "acceptance": "- react-arborist@3.5.0 추가됨\n- FileTreePanelV2.tsx 신규 + 기존 동작 9개 모두 보존 (단위테스트로 검증)\n- 22px 행 / 8px indent / 1px indent guide\n- hover bg-accent/40\n- selected focus/unfocus 분리 (bg-accent vs bg-muted/40)\n- FileIcon 사용 (폴더 컬러)\n- 가상화 react-window 동작 (1만+ 파일 smoke 통과)\n- 한국어 IME 조합 중 키 차단 검증\n- 기존 FileTreePanel.tsx 교체됨, FileTreePanel.test.tsx 갱신\n- typecheck + bun run test + lint 통과",
+          "approach": "- packages/app/package.json: react-arborist@3.5.0 (MIT) 추가\n- packages/app/src/renderer/components/FileTreePanelV2.tsx (신규, prototype 단계 옆에 두고 검증):\n  - react-arborist Tree 컴포넌트 + custom NodeRenderer\n  - 행 높이 22px\n  - Indent step 8px/depth (default 16px 대신 8px override)\n  - Indent guide: 각 depth N에 대해 `position:absolute; left:N*8+4px; top:0; bottom:0; width:1px; bg:var(--color-border)`\n  - Hover: bg-accent/40\n  - Selected (focus): bg-accent + text-foreground (현행)\n  - Selected (unfocus): bg-muted/40\n  - Aria role=\"tree\" + role=\"treeitem\"\n  - 가상화 react-window 기본\n  - getTreeLinePrefix 활용 (선택)\n- 보존되어야 할 기존 동작 모두 옮김:\n  - inline create file/folder\n  - inline rename\n  - explicit delete confirmation\n  - git badge (modified/untracked/staged 색상 표시 — Issue 2의 FileIcon 옆에)\n  - expand state (Record<path, true>)\n  - keyboard tree navigation (↑↓ ←→ Enter F2 Delete)\n  - scrollIntoView 활성 항목\n  - 한국어 IME 보호\n  - selected path persistence\n- FileIcon 컴포넌트 (T7 결과) 사용 — Folder는 컬러 vscode-icons-js\n- 1만+ 파일 가상화 검증\n- 검증 후 기존 FileTreePanel.tsx 교체 + .test.tsx 갱신\n- 회귀 발견 시 fallback (옵션 C: 기존 + react-window + @dnd-kit/sortable-tree) 코드 경로 backlog",
+          "risk": "- 913 LOC 자체 동작 회귀 위험 → prototype 단계 검증 필수\n- React 19 호환 (react-arborist v3.4.3 추가) → packaged smoke\n- react-arborist Tree node API와 우리 expand state Record 매핑 어댑터 필요",
+          "plan_issue": 3,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd31b-8130-7311-a406-43ef5dbdf0f0",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:29:02.394Z"
+        },
+        {
+          "id": 13,
+          "title": "[T18] SearchPanel UI + search-store + Replace mode + history (right shared panel \"Search\" 신규 탭)",
+          "status": "completed",
+          "context": "Plan #31 Issue 8 결정. Search 인프라 frontend.",
+          "acceptance": "- SearchPanel.tsx 5탭 중 5번째로 등록\n- 검색 input + 3 토글 + Advanced disclosure + Replace mode 동작\n- 결과 표시 + 클릭 jump + highlight fade\n- 1만개 제한 + truncation\n- history dropdown\n- Cmd+Shift+F/H/G/Esc 동작\n- shared panel auto-expand\n- IME 조합 중 단축키 차단\n- 단위테스트 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/renderer/components/SearchPanel.tsx (신규): right shared panel 5번째 탭 컨텐츠\n  - 검색 input (single-line + Enter 트리거)\n  - 토글 3개: Aa case / .* regex / | whole word\n  - \"Advanced\" disclosure: Include glob input + Exclude glob input\n  - Replace input + Replace All 버튼 (Cmd+Shift+H 시 visible)\n  - 결과 list: 파일별 그룹 (Disclosure expand) + 매치 라인 미리보기 (좌우 30자 컨텍스트, 매치 highlight)\n  - 단일 클릭 = active editor pane open + 라인 jump + 3초 highlight fade\n  - 1만개 제한 + truncation indicator\n  - 검색 history dropdown (input ↑/↓)\n- packages/app/src/renderer/stores/search-store.ts (신규): query, options, results, history, activeMatch state\n- packages/app/src/main/search/search-bridge-ipc.ts (신규): renderer ↔ main IPC + main ↔ sidecar WebSocket relay\n- App.tsx: right shared panel 탭에 \"Search\" 추가 (Tool/Session/Diff→SC 후처리/Preview/**Search**)\n- 단축키 등록 (keyboard-registry.ts): Cmd+Shift+F (Search), Cmd+Shift+H (Replace), Cmd+G (next match), Esc (dismiss)\n- shared panel collapsed 시 Cmd+Shift+F가 auto-expand\n- 한국어 IME 조합 중 단축키 차단\n- 단위테스트: SearchPanel 렌더 + 검색 입력 + 결과 표시 + 클릭 동작 + Replace 모드 + history",
+          "risk": "stream progressive 결과 update 시 React render 성능 (대용량 1만개) — 가상화 + batching 필요",
+          "plan_issue": 8,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd313-8247-7c82-b393-e6049960e760",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:29:18.265Z"
+        },
+        {
+          "id": 14,
+          "title": "[T21] SourceControlPanel UI (Diff 탭 evolve) + commit input + branch dropdown + inline 버튼 + Filetree 헤더 sub-line",
+          "status": "completed",
+          "context": "Plan #31 Issue 9 결정. SC 인프라 frontend.",
+          "acceptance": "- SourceControlPanel.tsx 신규 + WorkspaceDiffPanel.tsx evolve (또는 삭제 후 새 컴포넌트로 교체)\n- 5탭 명칭 \"Diff\" → \"Source Control\" 변경됨\n- 헤더 branch indicator + dropdown 동작\n- 3 파일 그룹 (Changes/Staged/Conflicts) Disclosure\n- Inline 버튼 (stage/discard/view diff) hover 표시\n- Commit textarea + Cmd+Enter / Cmd+Shift+Enter\n- branch checkout dirty modal\n- Filetree column 헤더 sub-line (T9 마이그와 통합 또는 후속)\n- 단위테스트 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/renderer/components/SourceControlPanel.tsx (신규, 기존 WorkspaceDiffPanel.tsx evolve):\n  - 헤더: branch indicator `{branch} ↑{ahead} ↓{behind}` + 클릭 시 branch list dropdown\n  - 파일 그룹: Changes / Staged Changes / Conflicts (merge 진행 중 시) Disclosure expand\n  - 각 행: 파일명 + status badge (Modified/Untracked/Added/Deleted/Renamed/Conflict) + hover 시 우측 inline 버튼 `+`(stage) / `↺`(discard) / `▷`(view diff)\n  - 행 단일 클릭 = view diff (Issue 10 DiffEditorHost로 center editor pane에 diff tab 열기)\n  - Inline commit textarea + Commit 버튼 (Cmd+Enter), Cmd+Shift+Enter = amend\n  - 50/72 char 가이드 (subtle hint)\n- packages/app/src/renderer/stores/source-control-store.ts (신규): status state, branch state, history (commit ID list)\n- packages/app/src/main/git/git-bridge-ipc.ts (신규): renderer ↔ main IPC + main ↔ sidecar WebSocket relay\n- packages/app/src/renderer/components/FileTreePanel.tsx 헤더 갱신: 1줄 메인 (workspace name) + sub-line (`{branch}` 가벼운 표시) — git repo가 아니면 sub-line 미표시. T9 마이그 후 적용 (주의: T9이 FileTreePanel 교체하므로 이 변경은 T9 안에 흡수 또는 T9 후 적용)\n- App.tsx: right shared panel 탭 \"Diff\" → \"Source Control\"로 명칭 변경, 컨텐츠 SourceControlPanel.tsx로 swap\n- branch list dropdown: branch 검색 input + 목록 + create new branch 버튼\n- branch checkout 시 dirty 파일 있으면 modal \"Stash / Discard / Cancel\" — stash 옵션은 v0.2까지 비활성 (Discard / Cancel만 활성, Stash는 disabled with tooltip \"v0.2\")\n- 단위테스트: SourceControlPanel 렌더 + status 그룹 + commit input + branch dropdown + inline 버튼 + 다양한 상태 (clean / changed / staged / conflict)",
+          "risk": "- 기존 WorkspaceDiffPanel evolve vs 삭제 후 새로 — 일부 코드 재사용 검증 필요\n- branch dropdown UI density (10+ branch 시 search/scroll)",
+          "plan_issue": 9,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd31d-c622-7280-a73f-493eef184332",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:29:38.549Z"
+        },
+        {
+          "id": 15,
+          "title": "[T16] 탭 DnD 회귀 (3 동작 + ESC + IME + 키보드 공존)",
+          "status": "completed",
+          "context": "T15 결과물 검증.",
+          "acceptance": "- 4 시나리오 단위테스트 통과\n- 50/30/10회 E2E 후 console error 0\n- ESC cancel 동작\n- 키보드 회귀 0\n- IME 차단 일관\n- 두 라이브러리 공존 충돌 0\n- artifact 기록",
+          "approach": "- 단위테스트 (T15에서 추가 보강): same pane reorder / cross-pane move / new split via drag (1-pane only) / ESC drop cancel / focus follow\n- E2E smoke: 2탭 reorder 50회 / cross-pane move 30회 / split via drag 10회 → console error 0\n- ESC cancel 검증\n- Cmd+Alt+←/→ 키보드 동작 회귀 0 (키보드만으로 같은 결과 도달 가능)\n- 한국어 IME 조합 중 단축키 + drag 차단 검증\n- @dnd-kit + react-arborist의 react-dnd 공존 충돌 검증 (드래그 같은 페이지 동시)\n- artifact 기록",
+          "plan_issue": 6,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd316-4dac-76a1-9c8e-f9ae7c39c228",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:29:46.095Z"
+        },
+        {
+          "id": 16,
+          "title": "[T10] react-arborist 마이그 회귀 (9 동작 보존 + 22px/8px/indent guide + 1만+ 가상화 + IME)",
+          "status": "completed",
+          "context": "T9 결과물 검증.",
+          "acceptance": "- 9 보존 동작 모두 단위테스트 통과\n- 1만 파일 트리 가상화 smoke 통과 + 메모리 누수 0\n- 시각 측정 (행 높이/indent/guide) 정확\n- selection focus/unfocus 분기 동작\n- IME 조합 중 inline 입력 + tree key 차단 일관\n- artifact 기록",
+          "approach": "- 단위테스트 보강: 9개 보존 동작 (inline create/rename/delete confirm/git badge/expand state/keyboard nav/scrollIntoView/IME 보호/persistence) 모두 통과 검증\n- E2E smoke: 1만 파일 트리 → scroll/expand/collapse 200회 → 메모리 누수 0 + render 시간 측정\n- 인덴트 가이드 시각 검증 (CSS measure: depth 5에서 left=44px 등)\n- 22px 행 height 검증\n- 8px indent step 검증\n- selection focus/unfocus 분기 검증 (포커스 다른 영역으로 이동 시 selected bg 변화)\n- 한국어 IME 조합 중 키 입력 (특히 inline create/rename 입력 중 IME)\n- artifact 기록",
+          "plan_issue": 3,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd32d-4bd5-7690-9534-25933492ba66",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:30:03.031Z"
+        },
+        {
+          "id": 17,
+          "title": "[T11] Context Menu — shadcn ContextMenu 도입 + 3 컨텍스트 (file/folder/empty) + Tab 우클릭 + main IPC (shell.showItemInFolder, shell.openPath, terminal cwd, clipboard)",
+          "status": "completed",
+          "context": "Plan #31 Issue 4 결정. 13+ 항목 컨텍스트 메뉴 + 4 컨텍스트 (파일/폴더/빈 영역/탭).",
+          "acceptance": "- shadcn ContextMenu 설치됨, oklch 토큰 자동 적용\n- 4 컨텍스트별 메뉴 (file 13 / folder 12 / empty 5 / tab 8)\n- main IPC 3개 (revealInFinder / openWithSystemApp / openInTerminal) 동작\n- clipboard cut/copy/paste 동작 (충돌 modal 포함)\n- Find in Folder / Compare with Selected는 인프라 ready 전 disabled (T18, T24 후 enable)\n- SC 항목은 T21 store ready 후 enable\n- 단축키 hint 정확\n- ARIA role=\"menu\"\n- IME 보호\n- typecheck + lint 통과",
+          "approach": "- shadcn ContextMenu CLI install (Tailwind v4 호환 — npx shadcn@canary, OKLCH 토큰 자동 매핑)\n- packages/app/src/renderer/components/file-tree-context-menu.tsx (신규): 3 컨텍스트별 항목 렌더\n  - 파일 우클릭 (13항목): Open / Open to the Side / Open With System App / sep / Reveal in Finder / Open in Terminal (parent) / sep / Find in Folder / sep / Cut / Copy / Paste / Copy Path / Copy Relative Path / sep / Rename / Delete / Compare with Selected (또는 Select for Compare 동적, Issue 10 통합)\n  - 폴더 우클릭 (12항목): New File / New Folder / sep / Open in Terminal (this) / Reveal in Finder / sep / Find in Folder / sep / Cut / Copy / Paste / Copy Path / Copy Relative Path / sep / Rename / Delete\n  - 빈 영역 (5항목): New File / New Folder / sep / Refresh / Reveal Workspace in Finder / Open in Terminal (workspace root)\n  - SC 항목 (status 있는 파일/폴더에 추가): Stage / Discard / View Diff (T21 SC store가 ready되면 enable, 아니면 disabled)\n  - Find in Folder / Compare with Selected는 Issue 8/10 인프라 ready 전까지 disabled\n- packages/app/src/renderer/components/tab-context-menu.tsx (신규): 8항목\n  - Close / Close Others / Close to the Right / Close All / sep / Copy Path / Reveal in Finder / Split Right (Cmd+\\)\n- main IPC 추가:\n  - packages/app/src/main/file-actions/file-actions-ipc.ts (신규): revealInFinder (shell.showItemInFolder), openWithSystemApp (shell.openPath), openInTerminal (terminal-bridge cwd)\n  - packages/app/src/main/file-actions/clipboard.ts (신규): cut/copy/paste 파일 (path 배열 등록 + fs.copyFile/rename + 충돌 modal)\n  - preload editor API에 노출\n- packages/app/src/renderer/stores/file-clipboard-store.ts (신규): cut/copy 상태 + paste 트리거\n- 단축키 hint 표시 (각 메뉴 항목 우측 ⌘+키)\n- ARIA: shadcn ContextMenu가 role=\"menu\" 자동\n- 한국어 IME 조합 중 메뉴 항목 단축키 차단 일관",
+          "risk": "- shadcn CLI v2.3.0 OKLCH 호환 버그 (researcher 발견) — 수동 init 회피\n- file 우클릭 시 Compare 동적 텍스트 (\"Select for Compare\" → \"Compare with 'X'\") Issue 10 store와 통합 필요",
+          "plan_issue": 4,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd333-665d-7993-8c81-f8eefcf929ba",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:30:25.391Z"
+        },
+        {
+          "id": 18,
+          "title": "[T13] 파일트리 DnD — react-arborist 내장 + drop indicator 3 상태 + cross-pane drag + 외부 in/out + replace modal + invalid 차단",
+          "status": "completed",
+          "context": "Plan #31 Issue 5 결정. react-arborist 내장 DnD 활용.",
+          "acceptance": "- 3 drop indicator 상태 시각 정확\n- mouse y 분기 정확\n- 트리 내부 move 동작 (Plan #29 file system 호출 위임)\n- cross-pane drag → editor pane open 동작\n- 외부 drag in (Finder → 트리) 동작\n- 외부 drag out (트리 → Finder) 동작 (main IPC)\n- invalid drop 4종 차단\n- replace modal 3 버튼 동작\n- multi-drag는 미구현 (T24와 통합)\n- typecheck + lint 통과",
+          "approach": "- react-arborist `onMove` callback 활용 — 트리 내부 move\n- Drop indicator NodeRenderer 커스텀:\n  - over: bg-accent/20 + ring-1 ring-primary/30 + Folder→FolderOpen swap\n  - insert: 1px bg-primary line, mouse y 25%/75% 임계\n  - invalid: cursor not-allowed + bg-destructive/10\n- Drop type 분기 (mouse y in row): y<25% insert above / 25-75% over (folder만) / y>=75% insert below\n- Cross-pane drag (트리 → editor pane): react-dnd custom drop target on EditorPane container. Drop = openFile in active pane. Issue 5 결정대로 활성 pane / 비활성 pane drop = 해당 pane open.\n- 외부 drag in (Finder → 트리): HTML5 native drop event listener on tree container. event.dataTransfer.files 추출 → 활성 폴더에 fs.copyFile (preserve original). 큰 파일 (>100MB) drop 시 console.warn + UI \"Copying large file...\". 같은 path 충돌 시 replace modal.\n- 외부 drag out (트리 → Finder): main process IPC `editor.startFileDrag(paths)` 추가. main에서 `webContents.startDrag({ files, icon })`. Copy semantic 기본.\n- Invalid drop 차단: 자기 자신 / 자식 폴더 / git ignored / 다른 워크스페이스 (workspace metadata 확인)\n- Replace modal: \"Replace existing? Keep both? Cancel?\" 3 버튼. Keep both = `{name}_2.{ext}` 자동 rename. fs.unlink + fs.copyFile/rename 흐름.\n- Multi-drag: Issue 10 multi-select 인프라 도입 후 활성화 (T24와 통합)\n- 단위테스트: 트리 내부 move (over/insert/invalid) / cross-pane drop / 외부 in / 외부 out / replace modal / invalid 차단",
+          "risk": "- react-arborist DnD가 cross-pane drop target (외부 EditorPane) 지원 — react-dnd custom monitor로 가능, prototype 검증\n- webContents.startDrag main IPC + drag image (vscode-icons SVG 또는 OS 기본)\n- 큰 파일 drag in 시 UI 멈춤 — 동기 fs.copyFile, MVP에는 단순 처리 + 측정만",
+          "plan_issue": 5,
+          "deps": [
+            12,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd34a-4ce2-7683-a6d7-bf80705678d2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:30:46.670Z"
+        },
+        {
+          "id": 19,
+          "title": "[T22] Merge conflict Monaco code lens (Accept Current/Incoming/Both)",
+          "status": "completed",
+          "context": "Plan #31 Issue 9 결정 part. Monaco code lens API로 conflict marker 위에 inline 액션 버튼 표시.",
+          "acceptance": "- Monaco CodeLensProvider 등록됨\n- conflict marker 정규식 detect 정확\n- 3 code lens (Accept Current/Incoming/Both) 표시\n- 각 액션 정확 (text 변경 검증)\n- 단위테스트 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/renderer/components/MergeConflictCodeLens.ts (신규): Monaco CodeLensProvider 등록\n  - 모델 변경 감지 (onDidChangeContent) → conflict marker 정규식 detect (`^<<<<<<< `, `^=======$`, `^>>>>>>> `)\n  - 각 conflict block에 대해 3 code lens 등록:\n    - \"Accept Current\" (HEAD 쪽 유지, marker + incoming 제거)\n    - \"Accept Incoming\" (incoming 쪽 유지, HEAD + marker 제거)\n    - \"Accept Both\" (양쪽 모두 유지, marker만 제거)\n- MonacoEditorHost.tsx에서 모델 생성 시 CodeLensProvider 등록 (per file extension 무관, 모든 텍스트 파일에 활성)\n- code lens 액션 핸들러: 해당 conflict block 텍스트 변경 → 모델 setValue\n- packages/app/src/renderer/components/MergeConflictCodeLens.test.ts: 다양한 conflict 패턴 테스트\n- 단위테스트: 단일 conflict / 다중 conflict / nested (없어야 함, 빈 케이스) / Accept 3 액션 정확",
+          "risk": "- Monaco code lens API 학습 1-2일\n- conflict marker 정규식이 다른 파일 형식 (예: 마크다운에 우연히 7 = 기호) 오감지 — 정확한 marker 패턴 (`<<<<<<< `+space+description) 매칭",
+          "plan_issue": 9,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd332-5ccc-7470-a5b8-75e136d94336",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:30:58.582Z"
+        },
+        {
+          "id": 20,
+          "title": "[T19] Search 회귀 (검색 정확성 + stream 누락 0 + 1만+ 결과 + 30분 안정성 + CJK + 단축키 IME)",
+          "status": "completed",
+          "context": "T17 + T18 결과물 통합 검증.",
+          "acceptance": "- 단위테스트 통과\n- 1000 파일 + 1만+ 결과 + 30분 + CJK 모두 통과\n- 누락 0 + zombie 0\n- IME 차단\n- artifact 기록",
+          "approach": "- 단위테스트: T17 (sidecar) + T18 (renderer) 보강 — 검색 옵션 6개 (case/regex/word/include/exclude/.gitignore) 정확. Replace 동작.\n- 통합 smoke:\n  - 1000 파일 워크스페이스 'foo' 검색 → 결과 stream 정확 + 누락 0\n  - 정규식 / glob / case 옵션 조합 검색\n  - 1만+ 결과 워크스페이스 → truncation indicator 표시 + UI 안정\n  - 30+ 분 누적 검색 (10건/분) → sidecar 메모리 누수 0 + ripgrep zombie 0\n  - 한국어 검색어 (CJK 문자열) → ripgrep --json 정확 + UI 매치 highlight\n  - dotfile 검색 (Include glob `.*`) → .gitignore + .vscode 등 매치\n- IME 보호: Cmd+Shift+F/H 한국어 조합 중 차단 검증\n- artifact 기록 (m6-stability/search-stability)",
+          "plan_issue": 8,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd323-7e86-7a42-9543-f452506485de",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:31:08.305Z"
+        },
+        {
+          "id": 21,
+          "title": "[T12] Context Menu 회귀 (4 컨텍스트 13+ 항목 + main IPC + clipboard + ARIA + IME)",
+          "status": "completed",
+          "context": "T11 결과물 검증.",
+          "acceptance": "- 4 컨텍스트 단위테스트 통과\n- main IPC 3개 동작 (실제 Finder/시스템 앱/터미널)\n- clipboard cut/copy/paste 정확\n- ARIA + 키보드 nav\n- IME 보호\n- artifact 기록",
+          "approach": "- 단위테스트 보강: 4 컨텍스트 (file/folder/empty/tab) 각 항목 클릭 핸들러 정확. SC 항목 (T21 ready 후) enable 검증. Find/Compare 항목 (T18/T24 ready 전) disabled 검증.\n- main IPC 검증: revealInFinder (실제 Finder 열림), openWithSystemApp (이미지 등 OS 기본 앱), openInTerminal (cwd 정확)\n- clipboard 검증: cut → opacity 표시 / copy 등록 / paste 충돌 시 modal 3 버튼 동작\n- ARIA: shadcn ContextMenu role=\"menu\" + 키보드 navigation (↑↓ Enter Esc)\n- 한국어 IME 조합 중 메뉴 단축키 차단\n- artifact 기록",
+          "plan_issue": 4,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd34a-139f-7372-8645-82af05c74be1",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:31:27.610Z"
+        },
+        {
+          "id": 22,
+          "title": "[T14] 파일트리 DnD 회귀 (drop 시각 + cross-pane + 외부 in/out + replace + invalid)",
+          "status": "completed",
+          "context": "T13 결과물 검증.",
+          "acceptance": "- 단위테스트 통과\n- E2E 4 시나리오 통과\n- replace modal 3 버튼 동작\n- invalid 차단 4종 동작\n- artifact 기록",
+          "approach": "- 단위테스트: drop 분기 (mouse y) / over indicator / insert line / invalid 차단\n- E2E smoke:\n  - 트리 내부 move 30회 → 결과 정확 + 회귀 0\n  - 파일트리 → editor pane drag 10회 → open 정확\n  - Finder → 트리 drag in 5 파일 → fs.copyFile 정확 + replace modal 동작\n  - 트리 → Finder drag out 5 파일 → webContents.startDrag 정확\n  - invalid drop 4종 차단 검증 (자기/자식/git ignored/다른 ws)\n- artifact 기록",
+          "plan_issue": 5,
+          "deps": [
+            18
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd35d-ebeb-7cc2-8df0-3e8883a8907f",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:31:34.978Z"
+        },
+        {
+          "id": 23,
+          "title": "[T23] Source Control 회귀 (git CLI 9 명령 + watcher + commit/branch/checkout dirty + merge conflict + 30분 안정성)",
+          "status": "completed",
+          "context": "T20 + T21 + T22 결과물 통합 검증.",
+          "acceptance": "- 단위테스트 (3 task 합) 통과\n- git CLI 9 명령 정확\n- branch checkout dirty modal 동작\n- merge conflict code lens 3 버튼 동작\n- 30+ 분 안정성 통과\n- CJK + IME 보호\n- filetree 뱃지 ↔ SC panel ↔ commit 일관\n- artifact 기록",
+          "approach": "- 단위테스트: T20 sidecar git wrapper 9 명령 + watcher debounce. T21 SourceControlPanel UI 다양 상태. T22 code lens 패턴.\n- 통합 smoke:\n  - 워크스페이스에서 git status request → SC panel에 표시 + filetree git 뱃지 일관\n  - 단일 파일 stage → Staged Changes 그룹으로 이동 + 뱃지 갱신\n  - commit (Cmd+Enter) → status_change + ahead 카운트 갱신\n  - branch list dropdown 열기 → 브랜치 목록 + 검색\n  - branch checkout (clean) → HEAD 변경 + 트리 갱신\n  - branch checkout (dirty) → \"Stash/Discard/Cancel\" modal (Stash disabled)\n  - merge conflict 시뮬레이션 (충돌 파일 직접 작성) → Monaco code lens 3 버튼 표시 + Accept 액션\n  - 30+ 분 누적 git 작업 (status request 1/sec) → sidecar 메모리 0 + watcher fsnotify drift 0\n  - 한국어 commit message 정상 (UTF-8) + IME 조합 중 Cmd+Enter 차단\n- artifact 기록",
+          "plan_issue": 9,
+          "deps": [
+            19,
+            14,
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd365-afc1-7ec2-a85f-54283974eb4a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:31:45.984Z"
+        },
+        {
+          "id": 24,
+          "title": "[T24] Multi-select + Compare 워크플로 + DiffEditorHost (Monaco DiffEditor) + multi 액션 + Issue 9 SC View Diff 통합",
+          "status": "completed",
+          "context": "Plan #31 Issue 10 결정. 마지막 큰 engineer task. multi-select, Compare with Selected workflow, Monaco DiffEditor, multi-action, SC View Diff 통합 모두 포함.",
+          "acceptance": "- file-tree-multi-select-store + 6 액션 동작\n- 트리에 Cmd/Shift+click + Esc + Cmd+A 동작\n- 시각 cue (multi-selected ring + compareAnchor marker) 정확\n- 워크스페이스 전환 시 store reset\n- \"Select for Compare\" → \"Compare with '{anchor}'\" 동적 메뉴 동작\n- DiffEditorHost 컴포넌트 + Monaco DiffEditor + side-by-side/inline toggle + j/k nav\n- editor-store tab kind: \"diff\" 추가 + openDiffTab 액션\n- T11 context menu Compare 흐름 + T21 SC View Diff 흐름 모두 같은 DiffEditorHost 활용\n- multi 액션 (Delete/Cut/Copy/Paste/Multi-drag) 모두 동작\n- Diff tab read-only 명시\n- 단위테스트 통과\n- typecheck + lint 통과",
+          "approach": "- packages/app/src/renderer/stores/file-tree-multi-select-store.ts (신규):\n  - selectedPaths: Set<string>\n  - lastAnchor: string | null\n  - compareAnchor: { path, name } | null (Compare workflow)\n  - actions: toggleSelect, rangeSelect, clearSelect, selectAll, setCompareAnchor, clearCompareAnchor\n- 트리 통합 (T9의 FileTreePanel):\n  - Cmd+click = toggleSelect\n  - Shift+click = rangeSelect (last anchor → clicked)\n  - Esc = clearSelect (compareAnchor 유지)\n  - 단일 클릭 (no modifier) = clearSelect + 단일 선택\n  - Shift+↑/↓ = range expand by 1\n  - Cmd+A = selectAll in current folder (recursive 안 함)\n  - 시각 cue: multi-selected = bg-accent + ring-1 ring-primary/30. compareAnchor = 좌측 small dot or GitCompare icon marker\n- 워크스페이스 전환 시 store reset\n- T11 file-tree-context-menu.tsx 갱신:\n  - \"Select for Compare\" → setCompareAnchor\n  - \"Compare with '{anchor}'\" 동적 (compareAnchor 있을 때만 visible)\n  - 클릭 → openDiffTab + clearCompareAnchor\n  - multi-selected 시 액션 (Delete/Cut/Copy/Paste) 모두 multi 인지\n- packages/app/src/renderer/components/DiffEditorHost.tsx (신규):\n  - Monaco `monaco.editor.createDiffEditor` API\n  - Props: { left: { path, content, language }, right: { path, content, language } }\n  - side-by-side 기본 + inline toggle (헤더 버튼)\n  - j/k = next/prev change navigation (monaco built-in)\n  - 헤더 버튼: [Side-by-side|Inline] [↑↑ Prev Change] [↓↓ Next Change]\n  - role=\"region\" + aria-label\n- editor-store.ts: tab type 추가 — `kind: \"file\" | \"diff\"`. diff tab은 left/right 2개 model + DiffEditorHost 사용. Tab title format: `{file1.ts} ↔ {file2.ts}`\n- packages/app/src/renderer/stores/editor-store.ts에 openDiffTab(left, right) 액션\n- T11 context menu에서 openDiffTab 호출 (Compare with Selected 흐름)\n- T21 SourceControlPanel \"View Diff\" 클릭 시 openDiffTab(working tree, HEAD) 호출\n- multi 액션 통합:\n  - Delete: confirmation modal \"Delete N files?\" + 모두 fs.unlink (T11 clipboard 흐름 활용)\n  - Cut/Copy/Paste: clipboard에 path 배열 등록 (T11 단일 → 배열로 확장)\n  - Multi-drag: T13 react-arborist multi-drag 옵션 enable + multi-selected paths 동시 drag\n- Diff tab dirty: read-only (편집 X, MVP)\n- 단위테스트: multi-select 시나리오 / Compare workflow / DiffEditorHost / multi 액션 / SC View Diff 통합",
+          "risk": "- Monaco DiffEditor instance가 일반 Editor와 별도 (model 2개 + view 2개) — 메모리 영향 측정\n- compareAnchor 5분 timeout 자동 clear는 v0.2 (MVP는 워크스페이스 전환 시만 clear)\n- Cmd+A \"현재 폴더 내 전체 선택\" 위험 작업 (Delete 100개) confirmation 강력하게\n- multi-drag react-arborist API 한계 시 single drag로 fallback",
+          "plan_issue": 10,
+          "deps": [
+            12,
+            17,
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd365-fc7e-7063-b238-50c5f3248e65",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:32:28.483Z"
+        },
+        {
+          "id": 25,
+          "title": "[T25] Multi-select + Compare + DiffEditor 회귀 (multi-select 격리 + Compare workflow + diff editor 큰 파일 + multi 액션 + SC 통합)",
+          "status": "completed",
+          "context": "T24 결과물 검증. Plan #31 마지막 회귀 task.",
+          "acceptance": "- 6 multi-select 액션 단위테스트 통과\n- Compare workflow E2E 통과\n- DiffEditorHost 작은/큰 파일 + j/k + toggle 동작\n- multi 액션 (Delete/Cut/Copy/Paste/drag) 동작\n- SC View Diff 통합 동작 (같은 DiffEditorHost)\n- CJK + IME 차단 일관\n- artifact 기록",
+          "approach": "- 단위테스트: T24 보강 — 6 multi-select 액션 (toggleSelect / rangeSelect / clearSelect / selectAll / setCompareAnchor / clearCompareAnchor) + 워크스페이스 전환 시 reset + edge cases (selectAll 빈 폴더 / Shift+click 동일 행)\n- Compare workflow E2E:\n  - 첫 파일 우클릭 \"Select for Compare\" → compareAnchor 표시\n  - 두 번째 파일 우클릭 → context menu 동적 텍스트 \"Compare with '{anchor}'\" 정확\n  - 클릭 → diff tab 열림 + compareAnchor clear\n  - 다른 워크스페이스로 전환 시 compareAnchor auto-clear\n- DiffEditorHost 시나리오:\n  - 작은 파일 (100줄) 비교 → side-by-side + inline toggle 동작\n  - 큰 파일 (10만 줄) 비교 → 가상화 안정 + 메모리 측정\n  - j/k navigation 정확\n  - tab title format `{name1} ↔ {name2}` truncate 정확\n- multi 액션:\n  - Multi-Delete 10개 → \"Delete 10 files?\" modal → fs.unlink 정확\n  - Multi-Cut/Copy/Paste 5개 → clipboard 배열 + paste 충돌 modal \"Apply to all?\"\n  - Multi-drag → react-arborist multi-drag (가능 시) 또는 single fallback\n- Issue 9 SC View Diff 통합:\n  - SC panel \"View Diff\" 클릭 → 같은 DiffEditorHost로 center editor pane diff tab 열림 (working tree vs HEAD)\n- CJK + IME:\n  - 한국어 파일명 multi-select / Compare / Diff\n  - IME 조합 중 Cmd+A / Esc / Cmd+클릭 차단\n- artifact 기록 (m6-stability/multi-select-compare-stability)",
+          "plan_issue": 10,
+          "deps": [
+            24
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd37c-b891-7470-be37-5923391b35f4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-28T07:32:52.324Z"
+        }
+      ]
     }
   ]
 }

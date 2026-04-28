@@ -26,6 +26,7 @@ export const shortcutCases = [
 export function createTab(pathName: string, overrides: Partial<EditorTab> = {}): EditorTab {
   const workspaceId = "ws_alpha" as WorkspaceId;
   return {
+    kind: "file",
     id: tabIdFor(workspaceId, pathName),
     workspaceId,
     path: pathName,
@@ -137,7 +138,7 @@ export function findElementByPredicate(node: ReactNode, predicate: (element: Rea
 export function findElementsByPredicate(node: ReactNode, predicate: (element: ReactElement) => boolean): ReactElement[] {
   if (isReactElement(node)) {
     const matches = predicate(node) ? [node] : [];
-    if (typeof node.type === "function" && node.type.name !== "MonacoEditorHost") {
+    if (typeof node.type === "function" && shouldExpandFunctionComponent(node.type)) {
       return [...matches, ...findElementsByPredicate(node.type(node.props), predicate)];
     }
     return [...matches, ...findElementsByPredicate(node.props.children, predicate)];
@@ -155,7 +156,7 @@ export function findText(node: ReactNode, text: string): boolean {
     return String(node) === text;
   }
   if (isReactElement(node)) {
-    if (typeof node.type === "function" && node.type.name !== "MonacoEditorHost") {
+    if (typeof node.type === "function" && shouldExpandFunctionComponent(node.type)) {
       return findText(node.type(node.props), text);
     }
     return findText(node.props.children, text);
@@ -175,7 +176,7 @@ export function textContent(node: ReactNode): string {
     return String(node);
   }
   if (isReactElement(node)) {
-    if (typeof node.type === "function" && node.type.name !== "MonacoEditorHost") {
+    if (typeof node.type === "function" && shouldExpandFunctionComponent(node.type)) {
       return textContent(node.type(node.props));
     }
     return textContent(node.props.children);
@@ -188,4 +189,9 @@ export function textContent(node: ReactNode): string {
 
 function isReactElement(node: ReactNode): node is ReactElement {
   return typeof node === "object" && node !== null && "props" in node;
+}
+
+function shouldExpandFunctionComponent(type: (props: unknown) => ReactNode): boolean {
+  const name = type.name;
+  return name !== "MonacoEditorHost" && !name.startsWith("ContextMenu");
 }
