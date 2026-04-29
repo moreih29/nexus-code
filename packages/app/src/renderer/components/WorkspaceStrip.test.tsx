@@ -56,6 +56,33 @@ describe("WorkspaceStripView", () => {
     expect(openCount).toBe(1);
   });
 
+  test("keeps the header visually light and muted", () => {
+    const tree = renderStrip({
+      sidebarState: {
+        openWorkspaces: baseWorkspaces,
+        activeWorkspaceId: "ws_beta" as WorkspaceId,
+      },
+    });
+
+    const heading = findElementByPredicate(
+      tree,
+      (element) => element.type === "h2" && findText(element, "Workspaces"),
+    );
+    expect(heading?.props.className).toContain("text-[10px]");
+    expect(heading?.props.className).toContain("font-medium");
+    expect(heading?.props.className).toContain("uppercase");
+    expect(heading?.props.className).toContain("tracking-[0.18em]");
+    expect(heading?.props.className).toContain("text-muted-foreground");
+    expect(heading?.props.className).not.toContain("font-semibold");
+
+    const count = findElementByPredicate(
+      tree,
+      (element) => element.type === "p" && findText(element, "3 open"),
+    );
+    expect(count?.props.className).toContain("text-[10px]");
+    expect(count?.props.className).toContain("text-muted-foreground/70");
+  });
+
   test("renders a one-row active workspace with ownership, tooltip, status dot, and hover close", () => {
     const activated: WorkspaceId[] = [];
     const closed: WorkspaceId[] = [];

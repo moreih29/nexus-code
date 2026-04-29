@@ -23,6 +23,22 @@ FileTreePanel toolbar는 Explorer header 우측 끝의 inline icon-only action g
 
 각 action은 Radix Tooltip과 `aria-label`을 모두 가진다. tooltip은 visual discovery용이고 `aria-label`은 screen reader 이름이다. 텍스트 라벨은 header 내부에 상시 노출하지 않는다.
 
+## Editor and terminal tabs
+
+Editor area tab header는 flexlayout TabSet header를 single source로 사용한다. 별도 EditorPane 내부 탭바를 다시 렌더링하지 않는다.
+
+Terminal-as-tab은 file tab과 같은 tabset에 들어갈 수 있다. mixed file+terminal group은 v0.1에서 허용하며, terminal tab은 다음 시각 규칙을 따른다.
+
+- 아이콘: [design-tokens.md](./design-tokens.md)의 `SquareTerminal`, 16px, stroke `1.75`
+- 라벨: `${shell}—${cwdBasename}`. `shell`은 표시 가능한 shell basename을 쓰고, 메타데이터가 없으면 `Terminal ${n}`으로 fallback한다.
+- 색: rest 상태는 `text-muted-foreground`, active 상태는 `text-foreground`
+- 금지: `▶`, `$` 같은 별도 glyph를 terminal identity로 쓰지 않는다. active terminal tab에 별도 Teal tint를 주지 않는다.
+- 숫자 정렬이 필요한 terminal counter에는 [design-tokens.md](./design-tokens.md)의 `.nx-tabular` 정책을 적용한다.
+
+v0.1에서는 사용자 terminal rename과 activity dot을 제공하지 않는다. 둘은 v0.2 deferral이다. v0.2에서 activity dot을 도입할 경우 dirty dot을 재사용하지 말고 `status-running`/`status-attention` 의미 체계를 별도로 따른다.
+
+Flexlayout popout/floating window 항목은 v0.1 tab UI에서 제거한다. OS-level 새 창이 필요하면 [design-layout.md](./design-layout.md)의 Popout and floating windows deferral을 따른다.
+
 ## Empty state
 
 모든 panel empty state는 같은 4단 구조를 사용한다.
@@ -58,6 +74,17 @@ FileTreePanel toolbar는 Explorer header 우측 끝의 inline icon-only action g
 - 텍스트 흐름을 가리지 않는다.
 - 최소 범위의 배경색 변화만 허용한다.
 - 상태·색 선택은 [design-tokens.md](./design-tokens.md)의 semantic token을 따른다.
+
+## Status bar
+
+Status bar는 EditorPane footer가 아니라 workbench-level component다. 표시 내용은 active tab kind로 분기한다.
+
+| Active tab kind | 표시 세그먼트 |
+|---|---|
+| file | LSP status · diagnostics count · language |
+| terminal | `${shell} · ${cwdBasename} · ${pid}` |
+
+Terminal mode에서 `pid` 세그먼트는 `text-muted-foreground`로 낮춘다. Terminal mode는 LSP/diagnostics/language를 표시하지 않고, file mode는 shell/cwd/pid를 표시하지 않는다. Encoding/line-ending 같은 추가 세그먼트는 v0.2에서 별도 판단한다.
 
 ## Component height references
 

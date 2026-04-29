@@ -11,7 +11,7 @@ import {
 const workspaceId = "ws_alpha" as WorkspaceId;
 
 describe("TabContextMenu", () => {
-  test("builds the 9 tab actions with close-right disabled state", () => {
+  test("builds the 8 tab actions with close-right disabled state and no floating-window action", () => {
     const tabs = [createTab("src/one.ts"), createTab("src/two.ts")];
 
     const firstItems = createTabContextMenuItems({ tab: tabs[0]!, tabs });
@@ -26,11 +26,10 @@ describe("TabContextMenu", () => {
       "copy-relative-path",
       "reveal",
       "split-right",
-      "tear-off-floating",
     ]);
     expect(firstItems.find((item) => item.id === "close")?.shortcut).toBe("⌘W");
     expect(firstItems.find((item) => item.id === "split-right")?.shortcut).toBe("⌘\\");
-    expect(firstItems.find((item) => item.id === "tear-off-floating")?.label).toBe("Move to Floating Window");
+    expect(firstItems.find((item) => item.label === "Move to Floating Window")).toBeUndefined();
     expect(firstItems.find((item) => item.id === "close-right")?.disabled).toBe(false);
     expect(lastItems.find((item) => item.id === "close-right")?.disabled).toBe(true);
   });
@@ -79,9 +78,9 @@ describe("TabContextMenu", () => {
         calls.push(`split:${tab.path}`);
       },
     });
-    runTabContextMenuAction(fakeMenuSelectEvent(), "tear-off-floating", "p0", tab, {
-      onTearOffToFloating(paneId, tabId) {
-        calls.push(`tear-off:${paneId}:${tabId}`);
+    runTabContextMenuAction(fakeMenuSelectEvent(), "move-to-bottom-panel", "p0", tab, {
+      onMoveTerminalToBottomPanel(tab) {
+        calls.push(`move-bottom:${tab.id}`);
       },
     });
 
@@ -94,7 +93,7 @@ describe("TabContextMenu", () => {
       "copy:relative:src/one.ts",
       "reveal:src/one.ts",
       "split:src/one.ts",
-      `tear-off:p0:${tab.id}`,
+      `move-bottom:${tab.id}`,
     ]);
   });
 

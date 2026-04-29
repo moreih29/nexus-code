@@ -11,8 +11,6 @@
 | `react-arborist` | File tree 가상화, tree interaction, DnD 기반 | MIT. Repository: <https://github.com/brimdata/react-arborist> |
 | `react-dnd` | `react-arborist`의 DnD 전이 의존성 | MIT. Repository: <https://github.com/react-dnd/react-dnd> |
 | `react-window` | `react-arborist`의 가상화 전이 의존성 | MIT. Repository: <https://github.com/bvaughn/react-window> |
-| `@dnd-kit/core` | Editor tab drag-and-drop 기반 | MIT. Repository: <https://github.com/clauderic/dnd-kit> |
-| `@dnd-kit/sortable` | Editor tab reorder/sortable 기반 | MIT. Repository: <https://github.com/clauderic/dnd-kit> |
 | `shadcn/ui` | ContextMenu 등 UI primitive 조합 | MIT. Repository: <https://github.com/shadcn-ui/ui> |
 | Radix UI ContextMenu | `shadcn/ui` ContextMenu primitive | MIT. Repository: <https://github.com/radix-ui/primitives> |
 | `ripgrep` | sidecar bundled project-wide search binary | MIT OR Unlicense. 배포 NOTICE에서는 MIT 경로를 기준으로 attribution한다. Repository: <https://github.com/BurntSushi/ripgrep> |

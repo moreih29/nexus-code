@@ -2,11 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../../../shared/src/contracts/workspace/workspace";
 import {
+  FILE_TREE_DRAG_MIME,
+  NEXUS_TAB_DRAG_MIME,
   dropPositionFromClientY,
   indicatorStateForDropPosition,
+  readExternalEditorDropPayload,
+  readTerminalTabDragDataTransfer,
   resolveDropTargetDirectory,
   resolveFileTreeMoveDestinationPath,
+  serializeTerminalTabDragData,
   validateFileTreeDrop,
+  writeFileTreeDragDataTransfer,
+  writeTerminalTabDragDataTransfer,
 } from "./drag-and-drop";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
@@ -98,4 +105,135 @@ describe("file-tree drag-and-drop helpers", () => {
       })).toBe(targetParentPath ? `${targetParentPath}/file-${index}.ts` : `file-${index}.ts`);
     }
   });
+
+  test("reads single workspace file drops from the existing file-tree drag writer payload", () => {
+    const dataTransfer = fakeDataTransfer();
+    writeFileTreeDragDataTransfer(dataTransfer, {
+      workspaceId,
+      path: "src/index.ts",
+      kind: "file",
+    });
+
+    expect(readExternalEditorDropPayload(dataTransfer)).toEqual({
+      type: "workspace-file",
+      workspaceId,
+      path: "src/index.ts",
+      kind: "file",
+    });
+  });
+
+  test("reads multi workspace file drops from the file-tree drag MIME", () => {
+    const dataTransfer = fakeDataTransfer();
+    dataTransfer.setData(FILE_TREE_DRAG_MIME, JSON.stringify({
+      workspaceId,
+      items: [
+        { path: "src/a.ts", kind: "file" },
+        { path: "src/b.ts", kind: "file" },
+      ],
+    }));
+
+    expect(readExternalEditorDropPayload(dataTransfer)).toEqual({
+      type: "workspace-file-multi",
+      workspaceId,
+      items: [
+        { path: "src/a.ts", kind: "file" },
+        { path: "src/b.ts", kind: "file" },
+      ],
+    });
+  });
+
+  test("reads operating-system file drops from DataTransfer Files", () => {
+    const file = { name: "notes.md", size: 42 } as File;
+    const dataTransfer = fakeDataTransfer([file]);
+
+    expect(readExternalEditorDropPayload(dataTransfer)).toEqual({
+      type: "os-file",
+      files: [file],
+    });
+  });
+
+  test("reads operating-system file drop paths from the preload resolver when available", () => {
+    const file = { name: "notes.md", size: 42 } as File;
+    const dataTransfer = fakeDataTransfer([file]);
+
+    expect(readExternalEditorDropPayload(dataTransfer, {
+      resolveExternalFilePath: () => "/Users/kih/project/notes.md",
+    })).toEqual({
+      type: "os-file",
+      files: [file],
+      resolvedPaths: ["/Users/kih/project/notes.md"],
+    });
+  });
+
+  test("reads terminal tab drops from the Nexus tab MIME", () => {
+    const dataTransfer = fakeDataTransfer();
+    dataTransfer.setData(NEXUS_TAB_DRAG_MIME, JSON.stringify({
+      type: "terminal-tab",
+      workspaceId,
+      tabId: "tt_ws_alpha_0001",
+      source: "bottom-panel",
+      sourceGroupId: "ignored_when_bottom",
+    }));
+
+    expect(readExternalEditorDropPayload(dataTransfer)).toEqual({
+      type: "terminal-tab",
+      workspaceId,
+      tabId: "tt_ws_alpha_0001",
+      source: "bottom-panel",
+      sourceGroupId: "ignored_when_bottom",
+    });
+  });
+
+  test("writes terminal tab drag payloads with source metadata", () => {
+    const dataTransfer = fakeDataTransfer();
+    const payload = {
+      type: "terminal-tab" as const,
+      workspaceId,
+      tabId: "tt_ws_alpha_0002",
+      source: "editor-group" as const,
+      sourceGroupId: "group_main",
+    };
+
+    writeTerminalTabDragDataTransfer(dataTransfer, payload);
+
+    expect(dataTransfer.getData(NEXUS_TAB_DRAG_MIME)).toBe(serializeTerminalTabDragData(payload));
+    expect(dataTransfer.getData("text/plain")).toBe("tt_ws_alpha_0002");
+    expect(dataTransfer.effectAllowed).toBe("move");
+    expect(readTerminalTabDragDataTransfer(dataTransfer)).toEqual(payload);
+  });
+
+  test("returns null for malformed external editor drop payloads", () => {
+    const malformedFileTreeDrop = fakeDataTransfer();
+    malformedFileTreeDrop.setData(FILE_TREE_DRAG_MIME, "{not json");
+
+    const malformedTerminalDrop = fakeDataTransfer();
+    malformedTerminalDrop.setData(NEXUS_TAB_DRAG_MIME, JSON.stringify({
+      type: "terminal-tab",
+      workspaceId,
+    }));
+
+    expect(readExternalEditorDropPayload(malformedFileTreeDrop)).toBeNull();
+    expect(readExternalEditorDropPayload(malformedTerminalDrop)).toBeNull();
+    expect(readExternalEditorDropPayload(fakeDataTransfer())).toBeNull();
+  });
 });
+
+function fakeDataTransfer(files: File[] = []) {
+  const values = new Map<string, string>();
+  const types = files.length > 0 ? ["Files"] : [];
+
+  return {
+    types,
+    files,
+    effectAllowed: "all" as DataTransfer["effectAllowed"],
+    setData(type: string, value: string) {
+      if (!types.includes(type)) {
+        types.push(type);
+      }
+      values.set(type, value);
+    },
+    getData(type: string) {
+      return values.get(type) ?? "";
+    },
+  };
+}

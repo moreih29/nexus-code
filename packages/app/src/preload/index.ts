@@ -44,6 +44,10 @@ import {
   createNexusFileActionsApi,
   type NexusFileActionsApi,
 } from "./nexus-file-actions-api";
+import {
+  createNexusEnvironmentApi,
+  type NexusEnvironmentApi,
+} from "./nexus-environment-api";
 
 export interface NexusTerminalApi {
   invoke(command: TerminalIpcCommand): Promise<unknown>;
@@ -78,6 +82,7 @@ const nexusEditor: NexusEditorApi = createNexusEditorApi(ipcRenderer);
 const nexusSearch: NexusSearchApi = createNexusSearchApi(ipcRenderer);
 const nexusGit: NexusGitApi = createNexusGitApi(ipcRenderer);
 const nexusFileActions: NexusFileActionsApi = createNexusFileActionsApi(ipcRenderer);
+const nexusEnvironment: NexusEnvironmentApi = createNexusEnvironmentApi(process.platform);
 
 contextBridge.exposeInMainWorld("nexusTerminal", nexusTerminal);
 contextBridge.exposeInMainWorld("nexusWorkspace", nexusWorkspace);
@@ -89,3 +94,4 @@ contextBridge.exposeInMainWorld("nexusEditor", nexusEditor);
 contextBridge.exposeInMainWorld("nexusSearch", nexusSearch);
 contextBridge.exposeInMainWorld("nexusGit", nexusGit);
 contextBridge.exposeInMainWorld("nexusFileActions", nexusFileActions);
+contextBridge.exposeInMainWorld("nexusEnvironment", nexusEnvironment);

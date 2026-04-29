@@ -5,7 +5,9 @@ import type {
   LspLanguage,
   LspStatus,
   LspTextEdit,
+  WorkspaceFileKind,
 } from "../../../../shared/src/contracts/editor/editor-bridge";
+import type { TerminalTabId } from "../../../../shared/src/contracts/terminal/terminal-tab";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 
 export type CenterWorkbenchMode = "split" | "editor-max" | "terminal-max";
@@ -13,6 +15,40 @@ export type CenterWorkbenchPane = "editor" | "terminal";
 export type EditorPaneId = string;
 export type EditorTabId = string;
 export type EditorTabKind = "file" | "diff";
+export type ExternalEditorDropCardinalEdge = "top" | "right" | "bottom" | "left";
+export type ExternalEditorDropCornerEdge = "top-left" | "top-right" | "bottom-right" | "bottom-left";
+export type ExternalEditorDropEdge = ExternalEditorDropCardinalEdge | ExternalEditorDropCornerEdge | "center";
+export type TerminalTabDragSource = "bottom-panel" | "editor-group";
+
+export interface ExternalEditorWorkspaceFileDropItem {
+  path: string;
+  kind: WorkspaceFileKind;
+}
+
+export type ExternalEditorDropPayload =
+  | {
+      type: "workspace-file";
+      workspaceId: WorkspaceId;
+      path: string;
+      kind: WorkspaceFileKind;
+    }
+  | {
+      type: "workspace-file-multi";
+      workspaceId: WorkspaceId;
+      items: ExternalEditorWorkspaceFileDropItem[];
+    }
+  | {
+      type: "os-file";
+      files: File[];
+      resolvedPaths?: string[];
+    }
+  | {
+      type: "terminal-tab";
+      workspaceId: WorkspaceId;
+      tabId: TerminalTabId;
+      source?: TerminalTabDragSource;
+      sourceGroupId?: EditorPaneId | null;
+    };
 
 export const CENTER_WORKBENCH_MODE_STORAGE_KEY = "nx.center.mode";
 export const DEFAULT_EDITOR_PANE_ID: EditorPaneId = "p0";

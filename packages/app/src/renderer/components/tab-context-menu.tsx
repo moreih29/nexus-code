@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Copy, ExternalLink, PanelRight, PictureInPicture, X } from "lucide-react";
+import { Copy, ExternalLink, PanelRight, X } from "lucide-react";
 
 import type { EditorPaneId, EditorTab, EditorTabId } from "../services/editor-types";
 import {
@@ -21,21 +21,27 @@ export type TabContextMenuActionId =
   | "copy-relative-path"
   | "reveal"
   | "split-right"
-  | "tear-off-floating";
+  | "move-to-bottom-panel";
 
-export interface TabContextMenuProps {
+export interface TabContextMenuTab {
+  id: EditorTabId;
+  title: string;
+}
+
+export interface TabContextMenuProps<TTab extends TabContextMenuTab = EditorTab> {
   paneId: EditorPaneId;
-  tab: EditorTab;
-  tabs: readonly EditorTab[];
+  tab: TTab;
+  tabs: readonly TTab[];
   children: ReactNode;
+  actionIds?: readonly TabContextMenuActionId[];
   onCloseTab?(paneId: EditorPaneId, tabId: EditorTabId): void;
   onCloseOtherTabs?(paneId: EditorPaneId, tabId: EditorTabId): void;
   onCloseTabsToRight?(paneId: EditorPaneId, tabId: EditorTabId): void;
   onCloseAllTabs?(paneId: EditorPaneId): void;
-  onCopyPath?(tab: EditorTab, pathKind: "absolute" | "relative"): void;
-  onRevealInFinder?(tab: EditorTab): void;
-  onSplitRight?(tab: EditorTab): void;
-  onTearOffToFloating?(paneId: EditorPaneId, tabId: EditorTabId): void;
+  onCopyPath?(tab: TTab, pathKind: "absolute" | "relative"): void;
+  onRevealInFinder?(tab: TTab): void;
+  onSplitRight?(tab: TTab): void;
+  onMoveTerminalToBottomPanel?(tab: TTab): void;
 }
 
 export interface TabMenuItemDescriptor {
@@ -47,16 +53,18 @@ export interface TabMenuItemDescriptor {
   separatorBefore?: boolean;
 }
 
-export function TabContextMenu({
+export function TabContextMenu<TTab extends TabContextMenuTab = EditorTab>({
   paneId,
   tab,
   tabs,
   children,
+  actionIds,
   ...handlers
-}: TabContextMenuProps): JSX.Element {
+}: TabContextMenuProps<TTab>): JSX.Element {
   const items = createTabContextMenuItems({
     tab,
     tabs,
+    actionIds,
   });
 
   return (
@@ -104,15 +112,17 @@ function TabContextMenuItem({
 export function createTabContextMenuItems({
   tab,
   tabs,
+  actionIds,
 }: {
-  tab: EditorTab;
-  tabs: readonly EditorTab[];
+  tab: TabContextMenuTab;
+  tabs: readonly TabContextMenuTab[];
+  actionIds?: readonly TabContextMenuActionId[];
 }): TabMenuItemDescriptor[] {
   const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
   const hasOtherTabs = tabs.some((candidate) => candidate.id !== tab.id);
   const hasTabsToRight = tabIndex >= 0 && tabIndex < tabs.length - 1;
-
-  return [
+  const enabledActionIds = new Set(actionIds ?? DEFAULT_TAB_CONTEXT_MENU_ACTION_IDS);
+  const items: TabMenuItemDescriptor[] = [
     { id: "close", label: "Close", shortcut: "⌘W" },
     {
       id: "close-others",
@@ -131,16 +141,18 @@ export function createTabContextMenuItems({
     { id: "copy-relative-path", label: "Copy Relative Path" },
     { id: "reveal", label: "Reveal in Finder" },
     { id: "split-right", label: "Split Right", shortcut: "⌘\\" },
-    { id: "tear-off-floating", label: "Move to Floating Window" },
+    { id: "move-to-bottom-panel", label: "Move to Bottom Panel", separatorBefore: true },
   ];
+
+  return items.filter((item) => enabledActionIds.has(item.id));
 }
 
-export function runTabContextMenuAction(
+export function runTabContextMenuAction<TTab extends TabContextMenuTab = EditorTab>(
   event: MenuSelectEventLike,
   actionId: TabContextMenuActionId,
   paneId: EditorPaneId,
-  tab: EditorTab,
-  handlers: Omit<TabContextMenuProps, "paneId" | "tab" | "tabs" | "children">,
+  tab: TTab,
+  handlers: Omit<TabContextMenuProps<TTab>, "paneId" | "tab" | "tabs" | "children" | "actionIds">,
 ): void {
   if (isImeMenuSelectEvent(event)) {
     event.preventDefault();
@@ -172,11 +184,22 @@ export function runTabContextMenuAction(
     case "split-right":
       handlers.onSplitRight?.(tab);
       return;
-    case "tear-off-floating":
-      handlers.onTearOffToFloating?.(paneId, tab.id);
+    case "move-to-bottom-panel":
+      handlers.onMoveTerminalToBottomPanel?.(tab);
       return;
   }
 }
+
+export const DEFAULT_TAB_CONTEXT_MENU_ACTION_IDS: readonly TabContextMenuActionId[] = [
+  "close",
+  "close-others",
+  "close-right",
+  "close-all",
+  "copy-path",
+  "copy-relative-path",
+  "reveal",
+  "split-right",
+];
 
 function TabMenuItemIcon({ id }: { id: TabContextMenuActionId }): JSX.Element {
   switch (id) {
@@ -186,9 +209,8 @@ function TabMenuItemIcon({ id }: { id: TabContextMenuActionId }): JSX.Element {
     case "reveal":
       return <ExternalLink aria-hidden="true" className="text-muted-foreground" />;
     case "split-right":
+    case "move-to-bottom-panel":
       return <PanelRight aria-hidden="true" className="text-muted-foreground" />;
-    case "tear-off-floating":
-      return <PictureInPicture aria-hidden="true" className="text-muted-foreground" />;
     default:
       return <X aria-hidden="true" className="text-muted-foreground" />;
   }

@@ -20,6 +20,7 @@ import {
 } from "../../src/renderer/services/editor-types";
 import { installMonacoEnvironment } from "../../src/renderer/editor/monaco-environment";
 import { XtermView } from "../../src/renderer/terminal/xterm-view";
+import { XTERM_IME_OVERLAY_CLASS } from "../../src/renderer/terminal/xterm-ime-overlay";
 import "../../src/renderer/styles.css";
 import "../../src/renderer/parts/editor-groups/flexlayout-theme.css";
 import "@xterm/xterm/css/xterm.css";
@@ -27,9 +28,11 @@ import "@xterm/xterm/css/xterm.css";
 type ScenarioName =
   | "monaco-editor-drag-tab-cycle"
   | "xterm-korean-input-around-dock-move"
+  | "xterm-ime-overlay-rebind-after-terminal-move"
   | "splitter-pointermove-during-composition";
 
 type TargetKind = "monaco" | "xterm";
+type TerminalDockLocation = "bottom" | "editor";
 
 interface CompositionSpySummary {
   starts: number;
@@ -94,6 +97,21 @@ declare global {
 const workspaceId = "ws_ime_dock_preservation" as WorkspaceId;
 const editorGroupsService = createEditorGroupsService();
 const terminalInputs: string[] = [];
+const terminalCompositionRuntime: {
+  view: XtermView | null;
+  currentHost: HTMLElement | null;
+  currentLocation: TerminalDockLocation | null;
+  readyWritten: boolean;
+  moveToEditor: (() => void) | null;
+  moveToBottom: (() => void) | null;
+} = {
+  view: null,
+  currentHost: null,
+  currentLocation: null,
+  readyWritten: false,
+  moveToEditor: null,
+  moveToBottom: null,
+};
 const capturedErrors: string[] = [];
 const suspiciousMessagePattern =
   /Maximum update depth exceeded|Cannot update a component|error boundary|uncaught|unhandled|getSnapshot should be cached|Could not create web worker|MonacoEnvironment\.getWorker|MonacoEnvironment\.getWorkerUrl|worker_file|ts\.worker|json\.worker|Falling back to loading web worker code in main thread|Uncaught \[object Event\]|Uncaught Event/i;
@@ -131,6 +149,7 @@ async function runSmoke(): Promise<void> {
     const scenarios: ScenarioResult[] = [];
     scenarios.push(await runMonacoDragTabScenario());
     scenarios.push(await runXtermDockMoveScenario());
+    scenarios.push(await runXtermOverlayRebindAfterMoveScenario());
     scenarios.push(await runSplitterPointerMoveScenario());
 
     const latencySamples = await measureSyntheticCompositionPaintLatency();
@@ -155,8 +174,8 @@ async function runSmoke(): Promise<void> {
     const latencyGatePassed = latencyThresholdMs === null || latency.p95Ms <= latencyThresholdMs;
     const ok =
       fatalErrors.length === 0 &&
-      aggregate.scenarioCount === 3 &&
-      aggregate.passedScenarioCount === 3 &&
+      aggregate.scenarioCount === scenarios.length &&
+      aggregate.passedScenarioCount === scenarios.length &&
       aggregate.totalCompositionCancelCount === 0 &&
       aggregate.totalForcedFinishCount === 0 &&
       aggregate.allSameCompositionSession &&
@@ -171,7 +190,7 @@ async function runSmoke(): Promise<void> {
       latency,
       limitations: [
         "Electron synthetic CompositionEvent/PointerEvent dispatch cannot exercise the operating-system IME candidate window or native Monaco IME stack.",
-        "This fixture is a deterministic event-spy guard: it fails on compositionend before the allowed finish, blur during composition, target unmount, or session restart across dock/splitter operations.",
+        "This fixture is a deterministic event-spy guard: it fails on compositionend before the allowed finish, blur during composition, target unmount, session restart across dock/splitter operations, or an xterm IME overlay that stays bound to the old host after a terminal move.",
       ],
       reason:
         fatalErrors[0] ??
@@ -192,11 +211,22 @@ function ImeDockPreservationFixture(): JSX.Element {
   const layoutSnapshot = useStore(editorGroupsService, (state) => state.layoutSnapshot);
   const [tabStateById, setTabStateById] = useState(() => new Map(tabById));
   const [bottomPanelSize, setBottomPanelSize] = useState(320);
+  const [terminalLocation, setTerminalLocation] = useState<TerminalDockLocation>("bottom");
   const panes = useMemo(
     () => groups.map((group) => editorPaneFromGroup(group, tabStateById)),
     [groups, tabStateById],
   );
   const activePaneId = activeGroupId ?? groups[0]?.id ?? "group_left";
+
+  useEffect(() => {
+    terminalCompositionRuntime.moveToEditor = () => setTerminalLocation("editor");
+    terminalCompositionRuntime.moveToBottom = () => setTerminalLocation("bottom");
+
+    return () => {
+      terminalCompositionRuntime.moveToEditor = null;
+      terminalCompositionRuntime.moveToBottom = null;
+    };
+  }, []);
 
   const updateTabContent = (tabId: EditorTabId, content: string) => {
     setTabStateById((current) => {
@@ -234,42 +264,53 @@ function ImeDockPreservationFixture(): JSX.Element {
     <div data-fixture="ime-dock-preservation-runtime" className="h-screen min-h-0 bg-background text-foreground">
       <CenterWorkbench
         editorArea={
-          <EditorGroupsPart
-            activeGroupId={activeGroupId}
-            groups={groups}
-            layoutSnapshot={layoutSnapshot}
-            model={model}
-            activeWorkspaceId={workspaceId}
-            activeWorkspaceName="IME Dock Preservation"
-            panes={panes}
-            activePaneId={activePaneId}
-            onActivatePane={(paneId) => editorGroupsService.getState().activateGroup(paneId)}
-            onSplitRight={() => {
-              const sourceGroupId = editorGroupsService.getState().activeGroupId ?? activePaneId;
-              editorGroupsService.getState().splitGroup({ sourceGroupId, direction: "right", activate: true });
-            }}
-            onReorderTab={() => {
-              // The runtime fixture exercises flexlayout drag/pointer and service move paths instead.
-            }}
-            onMoveTabToPane={(sourcePaneId, targetPaneId, tabId, targetIndex) => {
-              editorGroupsService.getState().moveTab({
-                sourceGroupId: sourcePaneId,
-                targetGroupId: targetPaneId,
-                tabId,
-                targetIndex,
-                activate: true,
-              });
-            }}
-            onSplitTabRight={(sourcePaneId, tabId) => {
-              editorGroupsService.getState().splitGroup({ sourceGroupId: sourcePaneId, tabId, direction: "right" });
-            }}
-            onActivateTab={(paneId, tabId) => editorGroupsService.getState().activateTab(paneId, tabId)}
-            onCloseTab={(paneId, tabId) => editorGroupsService.getState().closeTab(paneId, tabId)}
-            onSaveTab={markTabSaved}
-            onChangeContent={updateTabContent}
-          />
+          <div className="relative h-full min-h-0 min-w-0">
+            <EditorGroupsPart
+              activeGroupId={activeGroupId}
+              groups={groups}
+              layoutSnapshot={layoutSnapshot}
+              model={model}
+              activeWorkspaceId={workspaceId}
+              activeWorkspaceName="IME Dock Preservation"
+              panes={panes}
+              activePaneId={activePaneId}
+              onActivatePane={(paneId) => editorGroupsService.getState().activateGroup(paneId)}
+              onSplitRight={() => {
+                const sourceGroupId = editorGroupsService.getState().activeGroupId ?? activePaneId;
+                editorGroupsService.getState().splitGroup({ sourceGroupId, direction: "right", activate: true });
+              }}
+              onReorderTab={() => {
+                // The runtime fixture exercises flexlayout drag/pointer and service move paths instead.
+              }}
+              onMoveTabToPane={(sourcePaneId, targetPaneId, tabId, targetIndex) => {
+                editorGroupsService.getState().moveTab({
+                  sourceGroupId: sourcePaneId,
+                  targetGroupId: targetPaneId,
+                  tabId,
+                  targetIndex,
+                  activate: true,
+                });
+              }}
+              onSplitTabRight={(sourcePaneId, tabId) => {
+                editorGroupsService.getState().splitGroup({ sourceGroupId: sourcePaneId, tabId, direction: "right" });
+              }}
+              onActivateTab={(paneId, tabId) => editorGroupsService.getState().activateTab(paneId, tabId)}
+              onCloseTab={(paneId, tabId) => editorGroupsService.getState().closeTab(paneId, tabId)}
+              onSaveTab={markTabSaved}
+              onChangeContent={updateTabContent}
+            />
+            <div
+              data-component="ime-dock-editor-terminal-target"
+              data-active={terminalLocation === "editor" ? "true" : "false"}
+              className={terminalLocation === "editor"
+                ? "absolute bottom-4 right-4 z-20 h-56 w-[520px] rounded-md border border-ring bg-background shadow-xl"
+                : "hidden"}
+            >
+              <TerminalCompositionSurface location="editor" active={terminalLocation === "editor"} />
+            </div>
+          </div>
         }
-        bottomPanel={<TerminalCompositionSurface />}
+        bottomPanel={<TerminalCompositionSurface location="bottom" active={terminalLocation === "bottom"} />}
         bottomPanelPosition="bottom"
         bottomPanelExpanded
         bottomPanelSize={bottomPanelSize}
@@ -280,42 +321,83 @@ function ImeDockPreservationFixture(): JSX.Element {
   );
 }
 
-function TerminalCompositionSurface(): JSX.Element {
+function TerminalCompositionSurface({
+  location,
+  active,
+}: {
+  location: TerminalDockLocation;
+  active: boolean;
+}): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host) {
+    if (!host || !active) {
       return;
     }
 
-    const view = new XtermView({
-      terminalOptions: {
-        rows: 12,
-        cols: 80,
-        convertEol: true,
-      },
-      onInput(data) {
-        terminalInputs.push(data);
-      },
-    });
-    view.mount(host);
-    view.write("IME dock preservation terminal ready\r\n");
+    attachTerminalCompositionView(host, location);
 
     return () => {
-      view.unmount();
+      if (terminalCompositionRuntime.currentHost === host) {
+        terminalCompositionRuntime.view?.detach();
+        terminalCompositionRuntime.currentHost = null;
+        terminalCompositionRuntime.currentLocation = null;
+      }
     };
-  }, []);
+  }, [active, location]);
 
   return (
-    <section data-component="ime-dock-terminal-surface" className="flex h-full min-h-0 flex-col bg-background p-2">
+    <section
+      data-component="ime-dock-terminal-surface"
+      data-terminal-location={location}
+      data-active={active ? "true" : "false"}
+      className="flex h-full min-h-0 flex-col bg-background p-2"
+    >
       <div
         ref={hostRef}
         data-component="ime-dock-xterm-host"
+        data-terminal-location={location}
         className="min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background"
       />
     </section>
   );
+}
+
+function attachTerminalCompositionView(host: HTMLElement, location: TerminalDockLocation): void {
+  const view = ensureTerminalCompositionView();
+  if (terminalCompositionRuntime.currentHost !== host) {
+    terminalCompositionRuntime.view?.detach();
+    view.mount(host);
+    terminalCompositionRuntime.currentHost = host;
+    terminalCompositionRuntime.currentLocation = location;
+  } else {
+    view.fit();
+  }
+
+  if (!terminalCompositionRuntime.readyWritten) {
+    view.write("IME dock preservation terminal ready\r\n");
+    terminalCompositionRuntime.readyWritten = true;
+  }
+}
+
+function ensureTerminalCompositionView(): XtermView {
+  if (terminalCompositionRuntime.view) {
+    return terminalCompositionRuntime.view;
+  }
+
+  terminalCompositionRuntime.view = new XtermView({
+    terminalOptions: {
+      rows: 12,
+      cols: 80,
+      convertEol: true,
+    },
+    getImeCursorAnchor: () => ({ x: 18, y: 24, height: 20 }),
+    onInput(data) {
+      terminalInputs.push(data);
+    },
+  });
+  return terminalCompositionRuntime.view;
 }
 
 async function runMonacoDragTabScenario(): Promise<ScenarioResult> {
@@ -382,6 +464,76 @@ async function runXtermDockMoveScenario(): Promise<ScenarioResult> {
       committedToXterm,
       operationLog,
       committedToXterm ? undefined : "xterm compositionend did not commit the Korean text through XtermView.onInput.",
+    );
+  } finally {
+    spy.dispose();
+  }
+}
+
+async function runXtermOverlayRebindAfterMoveScenario(): Promise<ScenarioResult> {
+  const name: ScenarioName = "xterm-ime-overlay-rebind-after-terminal-move";
+  const operationLog: string[] = [];
+  const beforeTarget = await waitForSelector<HTMLTextAreaElement>(".xterm-helper-textarea", 5_000);
+  const beforeHost = beforeTarget.closest<HTMLElement>('[data-component="ime-dock-xterm-host"]');
+  const beforeLocation = beforeHost?.dataset.terminalLocation ?? "unknown";
+  const beforeOverlayCount = beforeHost?.querySelectorAll(`.${XTERM_IME_OVERLAY_CLASS}`).length ?? 0;
+
+  if (!terminalCompositionRuntime.moveToEditor) {
+    throw new Error("Terminal composition runtime did not expose a moveToEditor hook.");
+  }
+
+  terminalCompositionRuntime.moveToEditor();
+  operationLog.push(`terminal-move:from=${beforeLocation}:to=editor`);
+  await waitUntil(
+    () => terminalCompositionRuntime.currentLocation === "editor" &&
+      document.querySelector('[data-component="ime-dock-xterm-host"][data-terminal-location="editor"] .xterm-helper-textarea'),
+    5_000,
+    () => `Timed out waiting for xterm helper textarea to rebind in editor host; currentLocation=${terminalCompositionRuntime.currentLocation ?? "null"}.`,
+  );
+  await settleFor(100);
+
+  const target = await waitForSelector<HTMLTextAreaElement>(
+    '[data-component="ime-dock-xterm-host"][data-terminal-location="editor"] .xterm-helper-textarea',
+    5_000,
+  );
+  const spy = new CompositionSessionSpy(name, target, "xterm");
+
+  try {
+    const inputsBefore = terminalInputs.length;
+    const editorHost = target.closest<HTMLElement>('[data-component="ime-dock-xterm-host"][data-terminal-location="editor"]');
+    const sameHelperTextareaAfterMove = target === beforeTarget;
+    const beforeOverlayStillInBottom = beforeHost?.querySelectorAll(`.${XTERM_IME_OVERLAY_CLASS}`).length ?? 0;
+
+    spy.start("ㅎ");
+    operationLog.push("rebound-xterm-compositionstart:ㅎ");
+    spy.update("한");
+    operationLog.push("rebound-xterm-compositionupdate:한");
+    await animationFrame();
+
+    const overlay = editorHost?.querySelector<HTMLElement>(`.${XTERM_IME_OVERLAY_CLASS}`) ?? null;
+    const overlayReboundToEditorHost =
+      Boolean(editorHost) &&
+      Boolean(overlay) &&
+      overlay?.textContent === "한" &&
+      overlay?.style.visibility === "visible" &&
+      !beforeHost?.contains(overlay);
+    operationLog.push(
+      `overlay:beforeCount=${beforeOverlayCount}:bottomAfterMove=${beforeOverlayStillInBottom}:editorVisible=${overlay?.style.visibility ?? "missing"}:sameTextarea=${sameHelperTextareaAfterMove}`,
+    );
+
+    spy.allowExpectedEnd();
+    spy.end("한");
+    await settleFor(50);
+    const committedToXterm = terminalInputs.slice(inputsBefore).includes("한");
+    operationLog.push(`terminal-inputs:${terminalInputs.slice(inputsBefore).join("|")}`);
+
+    const operationPassed = sameHelperTextareaAfterMove && overlayReboundToEditorHost && committedToXterm;
+    return spy.finishScenario(
+      operationPassed,
+      operationLog,
+      operationPassed
+        ? undefined
+        : `Expected same xterm helper textarea to move to editor and IME overlay to rebind/commit; sameTextarea=${sameHelperTextareaAfterMove}, overlayRebound=${overlayReboundToEditorHost}, committed=${committedToXterm}.`,
     );
   } finally {
     spy.dispose();

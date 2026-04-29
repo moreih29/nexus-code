@@ -1,16 +1,161 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import type { ITerminalOptions } from "@xterm/xterm";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import {
   createTerminalService,
   type TerminalDataEvent,
   type TerminalInputEvent,
+  type TerminalServiceShellBridgeLike,
+  type TerminalServiceShellDependencies,
+  type TerminalServiceTerminalCreateOptions,
+  type TerminalServiceTerminalLike,
+  type TerminalServiceXtermDependencies,
   type TerminalTabClosedEvent,
   type TerminalTabExitedEvent,
 } from "./terminal-service";
 
 const alphaWorkspaceId = "ws_alpha" as WorkspaceId;
 const betaWorkspaceId = "ws_beta" as WorkspaceId;
+
+class FakeTerminal implements TerminalServiceTerminalLike {
+  public readonly mountedHosts: HTMLElement[] = [];
+  public readonly writes: string[] = [];
+  public fitCount = 0;
+
+  public constructor(public readonly options: TerminalServiceTerminalCreateOptions) {}
+
+  public readonly mount = mock((host: HTMLElement) => {
+    this.mountedHosts.push(host);
+    return true;
+  });
+
+  public readonly detach = mock(() => {
+    // no-op
+  });
+
+  public readonly fit = mock(() => {
+    this.fitCount += 1;
+  });
+
+  public readonly focus = mock(() => {
+    // no-op
+  });
+
+  public readonly write = mock((data: string) => {
+    this.writes.push(data);
+  });
+
+  public readonly dispose = mock(() => {
+    // no-op
+  });
+}
+
+class FakeXtermDependencies implements TerminalServiceXtermDependencies {
+  public readonly terminalOptions: Array<ITerminalOptions | undefined> = [];
+  public readonly terminals: FakeTerminal[] = [];
+
+  public readonly createTerminal = mock((options: TerminalServiceTerminalCreateOptions) => {
+    this.terminalOptions.push(options.terminalOptions);
+    const terminal = new FakeTerminal(options);
+    this.terminals.push(terminal);
+    return terminal;
+  });
+}
+
+class FakeShellBridge implements TerminalServiceShellBridgeLike {
+  public readonly openedListeners = new Set<Parameters<TerminalServiceShellBridgeLike["onOpened"]>[0]>();
+  public readonly stdoutListeners = new Set<Parameters<TerminalServiceShellBridgeLike["onStdout"]>[0]>();
+  public readonly exitedListeners = new Set<Parameters<TerminalServiceShellBridgeLike["onExited"]>[0]>();
+  public readonly openCommands: Parameters<TerminalServiceShellBridgeLike["open"]>[0][] = [];
+  public readonly inputCommands: Parameters<TerminalServiceShellBridgeLike["input"]>[0][] = [];
+  public readonly resizeCommands: Parameters<TerminalServiceShellBridgeLike["resize"]>[0][] = [];
+  public readonly closeCommands: Parameters<TerminalServiceShellBridgeLike["close"]>[0][] = [];
+  private openSequence = 0;
+
+  public readonly open = mock(async (command: Parameters<TerminalServiceShellBridgeLike["open"]>[0]) => {
+    this.openCommands.push(command);
+    this.openSequence += 1;
+    const event = {
+      type: "terminal/opened" as const,
+      tabId: `tt_${command.workspaceId}_${this.openSequence}`,
+      workspaceId: command.workspaceId,
+      pid: 20_000 + this.openSequence,
+    };
+    this.emitOpened(event);
+    return event;
+  });
+
+  public readonly input = mock(async (command: Parameters<TerminalServiceShellBridgeLike["input"]>[0]) => {
+    this.inputCommands.push(command);
+  });
+
+  public readonly resize = mock(async (command: Parameters<TerminalServiceShellBridgeLike["resize"]>[0]) => {
+    this.resizeCommands.push(command);
+  });
+
+  public readonly close = mock(async (command: Parameters<TerminalServiceShellBridgeLike["close"]>[0]) => {
+    this.closeCommands.push(command);
+    return null;
+  });
+
+  public onOpened(listener: Parameters<TerminalServiceShellBridgeLike["onOpened"]>[0]) {
+    this.openedListeners.add(listener);
+    return {
+      dispose: () => {
+        this.openedListeners.delete(listener);
+      },
+    };
+  }
+
+  public onStdout(listener: Parameters<TerminalServiceShellBridgeLike["onStdout"]>[0]) {
+    this.stdoutListeners.add(listener);
+    return {
+      dispose: () => {
+        this.stdoutListeners.delete(listener);
+      },
+    };
+  }
+
+  public onExited(listener: Parameters<TerminalServiceShellBridgeLike["onExited"]>[0]) {
+    this.exitedListeners.add(listener);
+    return {
+      dispose: () => {
+        this.exitedListeners.delete(listener);
+      },
+    };
+  }
+
+  public readonly dispose = mock(() => {
+    // no-op
+  });
+
+  public emitOpened(event: Parameters<Parameters<TerminalServiceShellBridgeLike["onOpened"]>[0]>[0]): void {
+    for (const listener of this.openedListeners) {
+      listener(event);
+    }
+  }
+
+  public emitStdout(event: Parameters<Parameters<TerminalServiceShellBridgeLike["onStdout"]>[0]>[0]): void {
+    for (const listener of this.stdoutListeners) {
+      listener(event);
+    }
+  }
+}
+
+class FakeShellDependencies implements TerminalServiceShellDependencies {
+  public readonly bridges: FakeShellBridge[] = [];
+
+  public readonly createBridge = mock(() => {
+    const bridge = new FakeShellBridge();
+    this.bridges.push(bridge);
+    return bridge;
+  });
+}
+
+function createHost(): HTMLElement {
+  return {} as HTMLElement;
+}
 
 describe("ITerminalService", () => {
   test("creates tabs and preserves active tabs by workspace", () => {
@@ -257,6 +402,187 @@ describe("ITerminalService", () => {
 
     shellUnmount();
     expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+  });
+
+  test("mountShell bridges PTY open, output, input, resize, and close commands", async () => {
+    const xtermDependencies = new FakeXtermDependencies();
+    const shellDependencies = new FakeShellDependencies();
+    const store = createTerminalService({}, xtermDependencies, shellDependencies);
+    const shellUnmount = store.getState().mountShell();
+    const bridge = shellDependencies.bridges[0]!;
+
+    const tabId = await store.getState().requestNewTab(alphaWorkspaceId);
+
+    expect(shellDependencies.createBridge.mock.calls).toHaveLength(1);
+    expect(bridge.openCommands).toEqual([
+      {
+        type: "terminal/open",
+        workspaceId: alphaWorkspaceId,
+        cols: 120,
+        rows: 30,
+      },
+    ]);
+    expect(store.getState().getActiveTab(alphaWorkspaceId)).toMatchObject({
+      id: tabId,
+      pid: 20_001,
+      status: "running",
+    });
+
+    bridge.emitStdout({
+      type: "terminal/stdout",
+      tabId,
+      seq: 1,
+      data: "hello from pty\n",
+    });
+    expect(store.getState().lastDataByTabId[tabId]).toBe("hello from pty\n");
+
+    store.getState().attachToHost(tabId, createHost());
+    xtermDependencies.terminals[0]!.options.onInput("pwd\n");
+    xtermDependencies.terminals[0]!.options.onResize({ cols: 100, rows: 40 });
+
+    expect(bridge.inputCommands).toEqual([
+      {
+        type: "terminal/input",
+        tabId,
+        data: "pwd\n",
+      },
+    ]);
+    expect(bridge.resizeCommands).toEqual([
+      {
+        type: "terminal/resize",
+        tabId,
+        cols: 100,
+        rows: 40,
+      },
+    ]);
+
+    expect(store.getState().closeTab(tabId)).toBe(true);
+    expect(bridge.closeCommands).toEqual([
+      {
+        type: "terminal/close",
+        tabId,
+        reason: "user-close",
+      },
+    ]);
+
+    shellUnmount();
+    expect(bridge.dispose.mock.calls).toHaveLength(1);
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+  });
+
+  test("attaches xterm sessions to hosts idempotently and replays buffered data", () => {
+    const xtermDependencies = new FakeXtermDependencies();
+    const store = createTerminalService({}, xtermDependencies);
+    const host = createHost();
+
+    store.getState().createTab({
+      id: "terminal_attach",
+      workspaceId: alphaWorkspaceId,
+      createdAt: "2026-04-28T00:00:00.000Z",
+    });
+    store.getState().receiveData({
+      tabId: "terminal_attach",
+      data: "before attach\n",
+      receivedAt: "2026-04-28T00:00:01.000Z",
+    });
+
+    const firstDetach = store.getState().attachToHost("terminal_attach", host, { focus: true });
+    const secondDetach = store.getState().attachToHost("terminal_attach", host, { focus: true });
+    const terminal = xtermDependencies.terminals[0]!;
+
+    expect(xtermDependencies.createTerminal.mock.calls).toHaveLength(1);
+    expect(terminal.mount.mock.calls).toHaveLength(1);
+    expect(terminal.fit.mock.calls).toHaveLength(1);
+    expect(terminal.focus.mock.calls).toHaveLength(2);
+    expect(terminal.writes).toEqual(["before attach\n"]);
+    expect(store.getState().getMountedHost("terminal_attach")).toBe(host);
+
+    store.getState().receiveData({
+      tabId: "terminal_attach",
+      data: "after attach\n",
+      receivedAt: "2026-04-28T00:00:02.000Z",
+    });
+    expect(terminal.writes).toEqual(["before attach\n", "after attach\n"]);
+
+    secondDetach();
+    expect(store.getState().getMountedHost("terminal_attach")).toBeNull();
+    expect(terminal.detach.mock.calls).toHaveLength(1);
+    secondDetach();
+    expect(terminal.dispose.mock.calls).toHaveLength(0);
+
+    firstDetach();
+    expect(store.getState().getMountedHost("terminal_attach")).toBeNull();
+    expect(terminal.dispose.mock.calls).toHaveLength(0);
+  });
+
+  test("reopens an existing xterm session on host change and disposes only on closeTab", () => {
+    const xtermDependencies = new FakeXtermDependencies();
+    const store = createTerminalService({}, xtermDependencies);
+    const firstHost = createHost();
+    const secondHost = createHost();
+
+    store.getState().createTab({
+      id: "terminal_move",
+      workspaceId: alphaWorkspaceId,
+      createdAt: "2026-04-28T00:00:00.000Z",
+    });
+
+    store.getState().attachToHost("terminal_move", firstHost);
+    const terminal = xtermDependencies.terminals[0]!;
+
+    store.getState().detachFromHost("terminal_move");
+    store.getState().detachFromHost("terminal_move");
+    store.getState().dispose();
+    store.getState().markTabExited({
+      tabId: "terminal_move",
+      reason: "process-exit",
+      exitCode: 0,
+      exitedAt: "2026-04-28T00:01:00.000Z",
+    });
+
+    expect(terminal.dispose.mock.calls).toHaveLength(0);
+    expect(store.getState().getMountedHost("terminal_move")).toBeNull();
+
+    store.getState().attachToHost("terminal_move", secondHost);
+
+    expect(xtermDependencies.terminals).toHaveLength(1);
+    expect(terminal.mountedHosts).toEqual([firstHost, secondHost]);
+    expect(terminal.mount.mock.calls).toHaveLength(2);
+    expect(store.getState().getMountedHost("terminal_move")).toBe(secondHost);
+
+    expect(store.getState().closeTab("terminal_move")).toBe(true);
+    expect(terminal.dispose.mock.calls).toHaveLength(1);
+    expect(store.getState().getMountedHost("terminal_move")).toBeNull();
+
+    store.getState().detachFromHost("terminal_move");
+    expect(terminal.dispose.mock.calls).toHaveLength(1);
+    expect(store.getState().closeTab("terminal_move")).toBe(false);
+    expect(terminal.dispose.mock.calls).toHaveLength(1);
+  });
+
+  test("requests new tabs and focuses mounted sessions through the service", async () => {
+    const xtermDependencies = new FakeXtermDependencies();
+    const store = createTerminalService({}, xtermDependencies);
+    const host = createHost();
+
+    const tabId = await store.getState().requestNewTab(alphaWorkspaceId);
+
+    expect(tabId).toMatch(/^terminal_request_ws_alpha_/);
+    expect(store.getState().getActiveTab(alphaWorkspaceId)).toMatchObject({
+      id: tabId,
+      title: "Terminal 1",
+      workspaceId: alphaWorkspaceId,
+    });
+    expect(store.getState().focusSession(tabId)).toBe(false);
+    expect(store.getState().focusSession("missing")).toBe(false);
+
+    store.getState().attachToHost(tabId, host);
+    expect(store.getState().focusSession(tabId)).toBe(true);
+    expect(xtermDependencies.terminals[0]!.fit.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(xtermDependencies.terminals[0]!.focus.mock.calls).toHaveLength(1);
+
+    store.getState().detachFromHost(tabId);
+    expect(store.getState().focusSession(tabId)).toBe(false);
   });
 
   test("preserves existing terminal skeleton compatibility wrappers", () => {

@@ -68,6 +68,7 @@ import type {
   FileActionsRequest,
   FileActionsResult,
 } from "../common/file-actions";
+import type { NexusPlatform } from "../common/platform";
 
 interface NexusPreloadDisposable {
   dispose(): void;
@@ -174,6 +175,10 @@ interface NexusFileActionsApi {
   getPathForFile(file: File): string;
 }
 
+interface NexusEnvironmentApi {
+  readonly platform: NexusPlatform;
+}
+
 declare global {
   interface Window {
     nexusTerminal: NexusTerminalApi;
@@ -186,6 +191,7 @@ declare global {
     nexusSearch: NexusSearchApi;
     nexusGit: NexusGitApi;
     nexusFileActions: NexusFileActionsApi;
+    nexusEnvironment: NexusEnvironmentApi;
   }
 }
 

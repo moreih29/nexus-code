@@ -8,13 +8,26 @@ import {
   TabNode,
   TabSetNode,
   type Action,
+  type IJsonBorderNode,
   type IJsonModel,
+  type IJsonRowNode,
+  type IJsonTabSetNode,
   type IJsonTabNode,
 } from "flexlayout-react";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import { migrateEditorPanesState, type EditorPaneState, type EditorTab } from "./editor-types";
+import {
+  migrateEditorPanesState,
+  tabIdFor,
+  titleForPath,
+  type EditorPaneState,
+  type EditorTab,
+  type ExternalEditorDropCardinalEdge,
+  type ExternalEditorDropEdge,
+  type ExternalEditorDropPayload,
+} from "./editor-types";
+import type { TerminalTabId } from "./terminal-service";
 
 export type EditorGroupId = string;
 export type EditorGroupTabId = string;
@@ -64,6 +77,21 @@ export interface MoveEditorGroupTabInput {
   direction?: EditorGroupSplitDirection;
 }
 
+export interface DropExternalEditorPayloadInput {
+  payload: ExternalEditorDropPayload;
+  targetGroupId: EditorGroupId;
+  edge: ExternalEditorDropEdge;
+  activate?: boolean;
+}
+
+export interface AttachTerminalTabOptions {
+  groupId: EditorGroupId;
+  index?: number;
+  workspaceId?: WorkspaceId | null;
+  title?: string;
+  activate?: boolean;
+}
+
 export interface EditorGroupsLayoutMigrationOptions {
   workspaceId?: WorkspaceId | null;
 }
@@ -96,6 +124,8 @@ export interface IEditorGroupsService {
   closeTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
   splitGroup(input: SplitEditorGroupInput): EditorGroupId | null;
   moveTab(input: MoveEditorGroupTabInput): void;
+  dropExternalPayload(input: DropExternalEditorPayloadInput): EditorGroupId | null;
+  attachTerminalTab(sessionId: TerminalTabId, options: AttachTerminalTabOptions): EditorGroupTabId;
   tearOffActiveTabToFloating(): EditorGroupTabId | null;
   activateGroup(groupId: EditorGroupId): void;
   activateTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
@@ -117,10 +147,12 @@ export type EditorGroupsServiceState = Pick<
 const DEFAULT_EDITOR_GROUPS_GLOBAL: NonNullable<IJsonModel["global"]> = {
   enableEdgeDock: true,
   enableEdgeDockIndicators: true,
-  tabEnablePopout: true,
-  tabEnablePopoutFloatIcon: true,
+  tabEnablePopout: false,
+  tabEnablePopoutFloatIcon: false,
+  tabEnablePopoutIcon: false,
   tabSetEnableDeleteWhenEmpty: false,
 };
+const DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT = 100;
 
 function createDefaultModel(): Model {
   return Model.fromJson(createDefaultEditorGroupsSerializedModel());
@@ -210,6 +242,72 @@ export function createEditorGroupsService(
       commitModelChange(model, actionType);
     };
 
+    const openFirstExternalDropTabInSplitGroup = ({
+      targetGroupId,
+      edge,
+      tab,
+      activate,
+    }: {
+      targetGroupId: EditorGroupId;
+      edge: ExternalEditorDropCardinalEdge;
+      tab: EditorGroupTab;
+      activate: boolean;
+    }): EditorGroupId | null => {
+      const state = get();
+      const targetNode = state.model.getNodeById(targetGroupId);
+
+      if (!isTabSetNode(targetNode)) {
+        get().openTab(targetGroupId, tab, { activate });
+        return targetGroupId;
+      }
+
+      const splitGroupId = uniqueGroupId(
+        `${targetGroupId}_drop_${edge}`,
+        state.groups,
+        state.model,
+      );
+
+      runModelMutation((model) => {
+        const tabNode = model.getNodeById(tab.id);
+        const tabJson = createFlexLayoutTab(tab);
+
+        if (isTabNode(tabNode)) {
+          model.doAction(Actions.updateNodeAttributes(tab.id, tabJson));
+          model.doAction(
+            Actions.moveNode(
+              tab.id,
+              targetGroupId,
+              dockLocationForDirection(edge),
+              -1,
+              activate,
+            ),
+          );
+        } else {
+          model.doAction(
+            Actions.addTab(
+              tabJson,
+              targetGroupId,
+              dockLocationForDirection(edge),
+              -1,
+              activate,
+            ),
+          );
+        }
+
+        const dropTabParent = model.getNodeById(tab.id)?.getParent();
+        if (isTabSetNode(dropTabParent) && dropTabParent.getId() !== splitGroupId) {
+          model.doAction(Actions.updateNodeAttributes(dropTabParent.getId(), { id: splitGroupId }));
+        }
+
+        if (activate) {
+          model.doAction(Actions.setActiveTabset(splitGroupId));
+          model.doAction(Actions.selectTab(tab.id));
+        }
+      }, "dropExternalPayload");
+
+      return splitGroupId;
+    };
+
     commitModelChange = (model, actionType = null) => {
       const nextState = deriveStateFromModel(model);
 
@@ -230,6 +328,7 @@ export function createEditorGroupsService(
 
     attachModelChangeListener = (model) => {
       detachModelChangeListener?.();
+      disableModelPopoutActions(model);
 
       const listener = (action: Action) => {
         if (!suppressModelChangeListener) {
@@ -445,20 +544,57 @@ export function createEditorGroupsService(
           }
         }, "moveTab");
       },
-      tearOffActiveTabToFloating() {
-        const state = get();
-        const activeGroup = state.groups.find((group) => group.id === state.activeGroupId) ?? null;
-        const tabId = activeGroup?.activeTabId ?? activeGroup?.tabs.at(-1)?.id ?? null;
-
-        if (!activeGroup || !tabId || !isTabNode(state.model.getNodeById(tabId))) {
+      dropExternalPayload(input) {
+        const tabs = editorGroupTabsFromExternalDropPayload(input.payload);
+        if (tabs.length === 0) {
           return null;
         }
 
-        runModelMutation((model) => {
-          model.doAction(Actions.popoutTab(tabId, "float"));
-        }, "tearOffActiveTabToFloating");
+        const activate = input.activate ?? true;
+        const edge = cardinalEdgeForDropEdge(input.edge);
+        const chosenGroupId = edge
+          ? openFirstExternalDropTabInSplitGroup({
+              targetGroupId: input.targetGroupId,
+              edge,
+              tab: tabs[0]!,
+              activate,
+            })
+          : input.targetGroupId;
 
-        return tabId;
+        if (!chosenGroupId) {
+          return null;
+        }
+
+        if (!edge) {
+          for (const tab of tabs) {
+            get().openTab(chosenGroupId, tab, { activate });
+          }
+        } else {
+          for (const tab of tabs.slice(1)) {
+            get().openTab(chosenGroupId, tab, { activate });
+          }
+        }
+
+        return chosenGroupId;
+      },
+      attachTerminalTab(sessionId, options) {
+        const tab = createTerminalEditorGroupTab(sessionId, options);
+        const activate = options.activate ?? true;
+
+        get().openTab(options.groupId, tab, {
+          activate,
+          targetIndex: options.index,
+        });
+
+        if (activate) {
+          get().activateGroup(options.groupId);
+          get().activateTab(options.groupId, tab.id);
+        }
+
+        return tab.id;
+      },
+      tearOffActiveTabToFloating() {
+        return null;
       },
       activateGroup(groupId) {
         const state = get();
@@ -505,7 +641,7 @@ export function createEditorGroupsService(
         set({ layoutSnapshot: snapshot });
       },
       serializeModel() {
-        return get().model.toJson();
+        return serializeEditorGroupsModel(get().model);
       },
       deserializeModel(snapshot) {
         replaceModel(createModelFromSnapshot(snapshot), "deserializeModel");
@@ -552,14 +688,7 @@ function createModelFromGroups(groups: EditorGroup[], activeGroupId: EditorGroup
 }
 
 function createModelFromSnapshot(snapshot: EditorGroupsSerializedModel): Model {
-  return Model.fromJson({
-    ...snapshot,
-    global: {
-      ...DEFAULT_EDITOR_GROUPS_GLOBAL,
-      ...snapshot.global,
-      tabSetEnableDeleteWhenEmpty: false,
-    },
-  });
+  return Model.fromJson(createPopoutDisabledModelJson(snapshot));
 }
 
 function createModelJsonFromGroups(
@@ -572,9 +701,11 @@ function createModelJsonFromGroups(
     layout: {
       type: "row",
       id: "root",
+      weight: DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT,
       children: groups.map((group) => ({
         type: "tabset",
         id: group.id,
+        weight: DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT,
         selected: selectedIndexForGroup(group),
         active: group.id === activeGroupId,
         children: group.tabs.map(createFlexLayoutTab),
@@ -680,12 +811,222 @@ function createFlexLayoutTab(tab: EditorGroupTab): IJsonTabNode {
     id: tab.id,
     name: tab.title,
     component: EDITOR_GROUP_TAB_COMPONENT,
-    enablePopout: true,
-    enablePopoutFloatIcon: true,
+    enablePopout: false,
+    enablePopoutFloatIcon: false,
+    enablePopoutIcon: false,
     config: {
       editorGroupTab: tab,
     },
   };
+}
+
+function editorGroupTabsFromExternalDropPayload(payload: ExternalEditorDropPayload): EditorGroupTab[] {
+  switch (payload.type) {
+    case "workspace-file":
+      return [editorGroupTabFromWorkspacePath(payload.workspaceId, payload.path)];
+    case "workspace-file-multi":
+      return payload.items.map((item) => editorGroupTabFromWorkspacePath(payload.workspaceId, item.path));
+    case "os-file":
+      return payload.files.map((file, index) => editorGroupTabFromOsFile(file, index, payload.resolvedPaths?.[index]));
+    case "terminal-tab":
+      return [{
+        id: payload.tabId,
+        title: "Terminal",
+        kind: "terminal",
+        workspaceId: payload.workspaceId,
+        resourcePath: null,
+      }];
+  }
+}
+
+function createTerminalEditorGroupTab(
+  sessionId: TerminalTabId,
+  options: AttachTerminalTabOptions,
+): EditorGroupTab {
+  return {
+    id: sessionId,
+    title: options.title?.trim() || "Terminal",
+    kind: "terminal",
+    workspaceId: options.workspaceId ?? null,
+    resourcePath: null,
+  };
+}
+
+function editorGroupTabFromWorkspacePath(workspaceId: WorkspaceId, path: string): EditorGroupTab {
+  return {
+    id: tabIdFor(workspaceId, path),
+    title: titleForPath(path),
+    kind: "file",
+    workspaceId,
+    resourcePath: path,
+  };
+}
+
+function editorGroupTabFromOsFile(file: File, index: number, resolvedPath?: string): EditorGroupTab {
+  const bestEffortPath = bestEffortPathForOsFile(file, resolvedPath) ?? `unnamed-file-${index + 1}`;
+  const fileName = typeof file.name === "string" ? file.name : "";
+  const title = fileName || titleForPath(bestEffortPath);
+
+  return {
+    id: osFileEditorGroupTabId(bestEffortPath, file, index),
+    title,
+    kind: "file",
+    workspaceId: null,
+    resourcePath: bestEffortPath,
+  };
+}
+
+function bestEffortPathForOsFile(file: File, resolvedPath?: string): string | null {
+  if (typeof resolvedPath === "string" && resolvedPath.length > 0) {
+    return resolvedPath;
+  }
+
+  const electronPath = (file as File & { path?: unknown }).path;
+  if (typeof electronPath === "string" && electronPath.length > 0) {
+    return electronPath;
+  }
+
+  const webkitRelativePath = (file as File & { webkitRelativePath?: unknown }).webkitRelativePath;
+  if (typeof webkitRelativePath === "string" && webkitRelativePath.length > 0) {
+    return webkitRelativePath;
+  }
+
+  const fileName = typeof file.name === "string" ? file.name : "";
+  return fileName.length > 0 ? fileName : null;
+}
+
+function osFileEditorGroupTabId(filePath: string, file: File, index: number): EditorGroupTabId {
+  const lastModified = Number.isFinite(file.lastModified) ? file.lastModified : 0;
+  const size = Number.isFinite(file.size) ? file.size : 0;
+  return [
+    "os-file",
+    encodeURIComponent(filePath),
+    size.toString(36),
+    lastModified.toString(36),
+    index.toString(36),
+  ].join("::");
+}
+
+function cardinalEdgeForDropEdge(edge: ExternalEditorDropEdge): ExternalEditorDropCardinalEdge | null {
+  switch (edge) {
+    case "center":
+      return null;
+    case "top-left":
+    case "top-right":
+      return "top";
+    case "bottom-left":
+    case "bottom-right":
+      return "bottom";
+    case "top":
+    case "right":
+    case "bottom":
+    case "left":
+      return edge;
+  }
+}
+
+function serializeEditorGroupsModel(model: Model): EditorGroupsSerializedModel {
+  return createPopoutDisabledModelJson(model.toJson());
+}
+
+function createPopoutDisabledModelJson(snapshot: EditorGroupsSerializedModel): EditorGroupsSerializedModel {
+  const snapshotWithoutPopouts = { ...snapshot };
+  delete snapshotWithoutPopouts.popouts;
+  delete snapshotWithoutPopouts.subLayouts;
+
+  return {
+    ...snapshotWithoutPopouts,
+    global: {
+      ...DEFAULT_EDITOR_GROUPS_GLOBAL,
+      ...snapshot.global,
+      tabEnablePopout: false,
+      tabEnablePopoutFloatIcon: false,
+      tabEnablePopoutIcon: false,
+      tabSetEnableDeleteWhenEmpty: false,
+    },
+    borders: snapshot.borders?.map(disablePopoutInBorderNode),
+    layout: sanitizeWeightsInRowNode(disablePopoutInRowNode(snapshot.layout)),
+  };
+}
+
+function disablePopoutInBorderNode(border: IJsonBorderNode): IJsonBorderNode {
+  return {
+    ...border,
+    children: border.children?.map(disablePopoutInTabNode),
+  };
+}
+
+function disablePopoutInRowNode(row: IJsonRowNode): IJsonRowNode {
+  return {
+    ...row,
+    children: row.children?.map((child) =>
+      child.type === "tabset" ? disablePopoutInTabSetNode(child) : disablePopoutInRowNode(child)
+    ),
+  };
+}
+
+function disablePopoutInTabSetNode(tabSet: IJsonTabSetNode): IJsonTabSetNode {
+  return {
+    ...tabSet,
+    children: tabSet.children?.map(disablePopoutInTabNode),
+  };
+}
+
+function disablePopoutInTabNode(tab: IJsonTabNode): IJsonTabNode {
+  return {
+    ...tab,
+    enablePopout: false,
+    enablePopoutFloatIcon: false,
+    enablePopoutIcon: false,
+  };
+}
+
+function sanitizeWeightsInRowNode(row: IJsonRowNode): IJsonRowNode {
+  return {
+    ...row,
+    weight: normalizeFlexLayoutWeight(row.weight),
+    children: row.children?.map((child) =>
+      child.type === "tabset" ? sanitizeWeightsInTabSetNode(child) : sanitizeWeightsInRowNode(child)
+    ),
+  };
+}
+
+function sanitizeWeightsInTabSetNode(tabSet: IJsonTabSetNode): IJsonTabSetNode {
+  return {
+    ...tabSet,
+    weight: normalizeFlexLayoutWeight(tabSet.weight),
+  };
+}
+
+function normalizeFlexLayoutWeight(weight: unknown): number {
+  return typeof weight === "number" && Number.isFinite(weight) && weight > 0
+    ? weight
+    : DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT;
+}
+
+function disableModelPopoutActions(model: Model): void {
+  const modelWithPatch = model as Model & { __nexusPopoutActionsDisabled?: true };
+  if (modelWithPatch.__nexusPopoutActionsDisabled) {
+    return;
+  }
+
+  const doAction = model.doAction.bind(model) as (action: Action) => unknown;
+  modelWithPatch.doAction = (action: Action): unknown => {
+    if (isPopoutAction(action)) {
+      return undefined;
+    }
+
+    return doAction(action);
+  };
+  modelWithPatch.__nexusPopoutActionsDisabled = true;
+}
+
+function isPopoutAction(action: Action): boolean {
+  return action.type === Actions.POPOUT_TAB ||
+    action.type === Actions.POPOUT_TABSET ||
+    action.type === Actions.CREATE_SUBLAYOUT ||
+    action.type === Actions.CLOSE_POPOUT ||
+    action.type === Actions.MOVE_POPOUT_TO_FRONT;
 }
 
 function deriveStateFromModel(model: Model): EditorGroupsServiceState {
@@ -716,7 +1057,7 @@ function deriveStateFromModel(model: Model): EditorGroupsServiceState {
     activeGroupId: activeGroupId && groups.some((group) => group.id === activeGroupId)
       ? activeGroupId
       : null,
-    layoutSnapshot: model.toJson(),
+    layoutSnapshot: serializeEditorGroupsModel(model),
   };
 }
 

@@ -347,12 +347,13 @@ async function activateEditorTabByTitle(title: string): Promise<void> {
 }
 
 function editorTabButtonByTitle(title: string): HTMLElement | null {
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-action="editor-activate-tab"]'))
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab="true"]'))
+    .filter(isVisibleElement)
     .find((button) => button.textContent?.includes(title) === true) ?? null;
 }
 
 function visibleEditorTabTitles(): string[] {
-  return Array.from(document.querySelectorAll<HTMLElement>("[data-editor-tab-title-active]"))
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab-label="true"]'))
     .filter(isVisibleElement)
     .map((element) => element.textContent?.trim() ?? "")
     .filter(Boolean)
@@ -399,9 +400,21 @@ async function waitForVisibleFlexLayoutContentByTitle(title: string, timeoutMs: 
 }
 
 function visibleFlexLayoutContentByTitle(title: string): HTMLElement | null {
+  const tabId = layoutTabIdByTitle(title);
+  if (!tabId) {
+    return null;
+  }
+
   return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-flexlayout-tab-content="true"]'))
     .filter(isVisibleElement)
-    .find((content) => content.textContent?.includes(title) === true) ?? null;
+    .find((content) => content.dataset.editorGroupTabId === tabId) ?? null;
+}
+
+function layoutTabIdByTitle(title: string): string | null {
+  const layoutTab = Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab="true"]'))
+    .filter(isVisibleElement)
+    .find((tab) => tab.textContent?.includes(title) === true) ?? null;
+  return layoutTab?.dataset.editorLayoutTabId ?? null;
 }
 
 function visibleFlexLayoutContentSummaries(): string[] {
@@ -573,7 +586,14 @@ function rectIntersectionArea(leftRect: DOMRect | DOMRectReadOnly, rightRect: DO
 function isVisibleElement(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   const style = getComputedStyle(element);
-  return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.top < window.innerHeight &&
+    style.display !== "none" &&
+    style.visibility !== "hidden"
+  );
 }
 
 function createDragEvent(type: string, clientX: number, clientY: number, dataTransfer: DataTransfer): DragEvent {

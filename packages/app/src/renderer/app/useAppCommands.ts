@@ -6,6 +6,8 @@ import type { CenterWorkbenchActiveArea } from "../components/CenterWorkbench";
 import type { SearchResultOpenRequest } from "../components/SearchPanel";
 import type { ActivityBarViewId, ActivityBarServiceStore } from "../services/activity-bar-service";
 import type { BottomPanelViewId, BottomPanelServiceStore } from "../services/bottom-panel-service";
+import type { EditorGroupsServiceStore } from "../services/editor-groups-service";
+import type { TerminalServiceStore, TerminalTabId } from "../services/terminal-service";
 import type { WorkspaceServiceStore } from "../services/workspace-service";
 import {
   getKeychordFromKeyboardEvent,
@@ -17,14 +19,20 @@ import {
 import type { SearchStore } from "../stores/search-store";
 import type { WorkspaceStore } from "../stores/workspace-store";
 import { closeActiveEditorTabOrWorkspace, registerAppCommands } from "./commands";
+import {
+  moveTerminalToBottomPanel as moveTerminalSessionToBottomPanel,
+  moveTerminalToEditorArea as moveTerminalSessionToEditorArea,
+} from "./terminal-move-commands";
 import { type EditorBindings, runEditorMutation } from "./useEditorBindings";
 
 export interface UseAppCommandsInput {
   activityBarStore: ActivityBarServiceStore;
   bottomPanelStore: BottomPanelServiceStore;
   editorBindings: EditorBindings;
+  editorGroupsService: EditorGroupsServiceStore;
   editorWorkspaceService: WorkspaceServiceStore;
   searchStore: SearchStore;
+  terminalService: TerminalServiceStore;
   workspaceStore: WorkspaceStore;
 }
 
@@ -40,6 +48,8 @@ export interface AppCommandBindings {
   openFolder(): Promise<void>;
   openSearchPanel(replaceMode: boolean): void;
   openSearchResult(request: SearchResultOpenRequest): void;
+  moveTerminalToBottomPanel(sessionId?: TerminalTabId): void;
+  moveTerminalToEditorArea(sessionId?: TerminalTabId): void;
   setActiveCenterArea(area: CenterWorkbenchActiveArea): void;
   setBottomPanelSize(height: number): void;
   setCommandPaletteOpen(open: boolean): void;
@@ -53,8 +63,10 @@ export function useAppCommands({
   activityBarStore,
   bottomPanelStore,
   editorBindings,
+  editorGroupsService,
   editorWorkspaceService,
   searchStore,
+  terminalService,
   workspaceStore,
 }: UseAppCommandsInput): AppCommandBindings {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -93,8 +105,54 @@ export function useAppCommands({
     bottomPanelStore.getState().setExpanded(true);
     editorWorkspaceService.getState().setCenterMode("split");
     setActiveCenterArea("bottom-panel");
-    window.setTimeout(focusTerminal, 0);
-  }, [bottomPanelStore, editorWorkspaceService]);
+    window.setTimeout(() => {
+      focusTerminal(terminalService, workspaceStore, bottomPanelStore);
+    }, 0);
+  }, [bottomPanelStore, editorWorkspaceService, terminalService, workspaceStore]);
+
+  const focusTerminalSoon = useCallback((sessionId: TerminalTabId) => {
+    window.setTimeout(() => {
+      terminalService.getState().focusSession(sessionId);
+    }, 0);
+  }, [terminalService]);
+
+  const moveTerminalToEditorArea = useCallback((sessionId?: TerminalTabId) => {
+    moveTerminalSessionToEditorArea({
+      bottomPanelStore,
+      editorGroupsService,
+      editorWorkspaceService,
+      focusTerminalSoon,
+      sessionId,
+      terminalService,
+      workspaceStore,
+      setActiveCenterArea,
+    });
+  }, [
+    bottomPanelStore,
+    editorGroupsService,
+    editorWorkspaceService,
+    focusTerminalSoon,
+    terminalService,
+    workspaceStore,
+  ]);
+
+  const moveTerminalToBottomPanel = useCallback((sessionId?: TerminalTabId) => {
+    moveTerminalSessionToBottomPanel({
+      bottomPanelStore,
+      editorGroupsService,
+      editorWorkspaceService,
+      focusTerminalSoon,
+      sessionId,
+      terminalService,
+      setActiveCenterArea,
+    });
+  }, [
+    bottomPanelStore,
+    editorGroupsService,
+    editorWorkspaceService,
+    focusTerminalSoon,
+    terminalService,
+  ]);
 
   const toggleBottomPanel = useCallback(() => {
     bottomPanelStore.getState().togglePanel();
@@ -175,13 +233,16 @@ export function useAppCommands({
       dismissSearch,
       goToNextSearchMatch,
       moveActiveEditorTabToPane: editorBindings.moveActiveTabToPane,
+      moveTerminalToBottomPanel,
+      moveTerminalToEditorArea,
       openSearchPanel,
       openFolder,
       splitEditorPaneDown: editorBindings.splitDown,
       splitEditorPaneRight: editorBindings.splitRight,
+      splitEditorPaneToDirection: editorBindings.splitToDirection,
       setCommandPaletteOpen,
       showTerminalPanel,
-      tearOffActiveEditorTabToFloating: editorBindings.tearOffActiveTabToFloating,
+      terminalService,
       toggleActiveCenterPaneMaximize,
       toggleBottomPanel,
       toggleSideBar,
@@ -192,9 +253,12 @@ export function useAppCommands({
     dismissSearch,
     editorBindings,
     goToNextSearchMatch,
+    moveTerminalToBottomPanel,
+    moveTerminalToEditorArea,
     openFolder,
     openSearchPanel,
     showTerminalPanel,
+    terminalService,
     toggleActiveCenterPaneMaximize,
     toggleBottomPanel,
     toggleSideBar,
@@ -234,6 +298,8 @@ export function useAppCommands({
     commandPaletteOpen,
     dismissSearch,
     goToNextSearchMatch,
+    moveTerminalToBottomPanel,
+    moveTerminalToEditorArea,
     openFolder,
     openSearchPanel,
     openSearchResult,
@@ -253,6 +319,8 @@ export function useAppCommands({
     commandPaletteOpen,
     dismissSearch,
     goToNextSearchMatch,
+    moveTerminalToBottomPanel,
+    moveTerminalToEditorArea,
     openFolder,
     openSearchPanel,
     openSearchResult,
@@ -264,13 +332,22 @@ export function useAppCommands({
   ]);
 }
 
-function focusTerminal(): void {
-  const terminalTextarea = document.querySelector<HTMLElement>(".xterm-helper-textarea");
+function focusTerminal(
+  terminalService: TerminalServiceStore,
+  workspaceStore: WorkspaceStore,
+  bottomPanelStore: BottomPanelServiceStore,
+): void {
+  const activeWorkspaceId = workspaceStore.getState().sidebarState.activeWorkspaceId;
+  const terminalState = terminalService.getState();
+  const bottomPanelState = bottomPanelStore.getState();
+  const workspaceTabs = activeWorkspaceId ? terminalState.getTabs(activeWorkspaceId) : terminalState.getTabs();
+  const visibleWorkspaceTabs = workspaceTabs.filter((tab) => bottomPanelState.isTerminalAttachedToBottom(tab.id));
+  const activeWorkspaceTab = terminalState.getActiveTab(activeWorkspaceId);
+  const activeSessionId = activeWorkspaceTab && visibleWorkspaceTabs.some((tab) => tab.id === activeWorkspaceTab.id)
+    ? activeWorkspaceTab.id
+    : visibleWorkspaceTabs.at(-1)?.id ?? null;
 
-  if (terminalTextarea) {
-    terminalTextarea.focus();
-    return;
+  if (activeSessionId) {
+    terminalService.getState().focusSession(activeSessionId);
   }
-
-  document.querySelector<HTMLElement>('[data-slot="terminal-pane-host"]')?.focus();
 }

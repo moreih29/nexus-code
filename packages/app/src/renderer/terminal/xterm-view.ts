@@ -35,6 +35,7 @@ export interface XtermSearchAddonLike extends XtermAddonLike {
 }
 
 export interface XtermTerminalLike {
+  readonly element?: HTMLElement;
   readonly rows: number;
   unicode: { activeVersion: string };
   loadAddon(addon: XtermAddonLike): void;
@@ -104,6 +105,7 @@ export class XtermView {
   private coreAddonsLoaded = false;
   private webglAddonLoaded = false;
   private mounted = false;
+  private mountedContainer: HTMLElement | null = null;
   private disposed = false;
   private imeOverlay: XtermImeOverlay | null = null;
 
@@ -141,12 +143,22 @@ export class XtermView {
     if (this.disposed || !container) {
       return false;
     }
-    if (this.mounted) {
+    if (this.mounted && this.mountedContainer === container) {
       this.fitAddon.fit();
       return true;
     }
 
     this.ensureCoreAddons();
+
+    if (this.terminal.element) {
+      this.disposeImeHandling();
+      container.appendChild(this.terminal.element);
+      this.setupImeHandling(container);
+      this.fitAddon.fit();
+      this.mounted = true;
+      this.mountedContainer = container;
+      return true;
+    }
 
     try {
       this.terminal.open(container);
@@ -159,7 +171,18 @@ export class XtermView {
     this.ensureWebglAddon();
     this.fitAddon.fit();
     this.mounted = true;
+    this.mountedContainer = container;
     return true;
+  }
+
+  public detach(): void {
+    if (this.disposed || !this.mounted) {
+      return;
+    }
+
+    this.disposeImeHandling();
+    this.mounted = false;
+    this.mountedContainer = null;
   }
 
   public unmount(): void {
@@ -169,6 +192,7 @@ export class XtermView {
 
     this.disposed = true;
     this.mounted = false;
+    this.mountedContainer = null;
     this.disposeImeHandling();
     for (const disposable of this.eventDisposables) {
       disposable.dispose();

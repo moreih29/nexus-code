@@ -6,7 +6,6 @@ import type { EditorTab } from "../services/editor-types";
 import { DiffEditorHost } from "./DiffEditorHost";
 import { EditorPaneView } from "./EditorPane";
 import { MonacoEditorHost } from "./MonacoEditorHost";
-import { TabContextMenu } from "./tab-context-menu";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 const tab: EditorTab = {
@@ -46,71 +45,13 @@ const tab: EditorTab = {
 };
 
 describe("EditorPaneView", () => {
-  test("renders a single tab bar with dirty indicator, save, close, Monaco host, and LSP status", () => {
-    const tree = EditorPaneView({
-      activeWorkspaceName: "Alpha",
-      active: true,
-      tabs: [tab],
-      activeTabId: tab.id,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
-      onChangeContent() {},
-    });
-
-    expect(findText(tree, "index.ts")).toBe(true);
-    expect(findText(tree, "Save")).toBe(true);
-    expect(findText(tree, "LSP: ready")).toBe(true);
-    expect(findText(tree, "1 errors · 0 warnings")).toBe(true);
-    expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-dirty"] === "true")).toBeDefined();
-    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-close-tab")).toBeDefined();
-    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-split-right")).toBeDefined();
-    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeDefined();
-    const paneClassName = String(findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane")?.props.className);
-    expect(paneClassName).not.toContain("ring-1 ring-inset");
-    expect(paneClassName).toContain("focus-visible:outline-1");
-    expect(paneClassName).toContain("focus-visible:outline-offset-[-1px]");
-    expect(paneClassName).toContain("has-[:focus-visible]:outline-1");
-    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-pane-header"] === "true")?.props.className)).toContain("bg-zinc-600");
-    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "true")?.props.className)).toContain("font-semibold text-foreground");
-    expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeDefined();
-  });
-
-  test("mutes the active tab title when the editor pane is inactive", () => {
-    const tree = EditorPaneView({
-      activeWorkspaceName: "Alpha",
-      active: false,
-      tabs: [tab],
-      activeTabId: tab.id,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
-      onChangeContent() {},
-    });
-
-    const titleClassName = String(
-      findElementByPredicate(
-        tree,
-        (element) => element.props?.["data-editor-tab-title-active"] === "true",
-      )?.props.className,
-    );
-    const headerClassName = String(
-      findElementByPredicate(
-        tree,
-        (element) => element.props?.["data-editor-pane-header"] === "true",
-      )?.props.className,
-    );
-    expect(headerClassName).toContain("bg-card/60");
-    expect(titleClassName).toContain("font-normal text-muted-foreground");
-    expect(titleClassName).not.toContain("font-semibold text-foreground");
-  });
-
-  test("keeps inactive tab titles muted even in the active editor pane", () => {
+  test("renders content-only active Monaco editor host without an internal tab bar or toolbar", () => {
     const inactiveTab: EditorTab = {
       ...tab,
       id: "ws_alpha::README.md",
       path: "README.md",
       title: "README.md",
+      content: "# Alpha\n",
       dirty: false,
       diagnostics: [],
     };
@@ -119,46 +60,43 @@ describe("EditorPaneView", () => {
       active: true,
       tabs: [tab, inactiveTab],
       activeTabId: tab.id,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
       onChangeContent() {},
     });
 
-    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "false")?.props.className)).toContain("font-normal text-muted-foreground");
+    const pane = findElementByPredicate(tree, (element) => element.props?.["data-component"] === "editor-pane");
+    const host = findElementByPredicate(tree, (element) => element.type === MonacoEditorHost);
+
+    expect(pane).toBeDefined();
+    expect(String(pane?.props.className)).toContain("focus-visible:outline-1");
+    expect(host?.props.path).toBe("src/index.ts");
+    expect(host?.props.value).toBe("const value = missing;\n");
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-pane-header"] === "true")).toBeUndefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.role === "tablist")).toBeUndefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeUndefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-split-right")).toBeUndefined();
+    expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-close-tab")).toBeUndefined();
+    expect(findText(tree, "LSP: ready")).toBe(false);
+    expect(findText(tree, "README.md")).toBe(false);
   });
 
-  test("renders a 1px primary drop indicator between tabs during tab drag", () => {
-    const inactiveTab: EditorTab = {
-      ...tab,
-      id: "ws_alpha::README.md",
-      path: "README.md",
-      title: "README.md",
-      dirty: false,
-      diagnostics: [],
-    };
+  test("forwards Monaco content changes with the active tab id", () => {
+    const calls: string[] = [];
     const tree = EditorPaneView({
       activeWorkspaceName: "Alpha",
-      active: true,
-      tabs: [tab, inactiveTab],
+      tabs: [tab],
       activeTabId: tab.id,
-      tabDropIndicatorIndex: 1,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
-      onChangeContent() {},
+      onChangeContent(tabId, content) {
+        calls.push(`${tabId}:${content}`);
+      },
     });
 
-    const indicator = findElementByPredicate(
-      tree,
-      (element) => element.props?.["data-editor-tab-drop-indicator"] === "true",
-    );
-    expect(indicator).toBeDefined();
-    expect(String(indicator?.props.className)).toContain("w-px");
-    expect(String(indicator?.props.className)).toContain("bg-primary");
+    const host = findElementByPredicate(tree, (element) => element.type === MonacoEditorHost);
+    host?.props.onChange("const value = 2;\n");
+
+    expect(calls).toEqual([`${tab.id}:const value = 2;\n`]);
   });
 
-  test("renders diff tabs with GitCompare title, read-only badge, and DiffEditorHost", () => {
+  test("renders diff tabs as the active editor content", () => {
     const diffTab: EditorTab = {
       kind: "diff",
       id: "diff::alpha",
@@ -202,77 +140,12 @@ describe("EditorPaneView", () => {
       active: true,
       tabs: [diffTab],
       activeTabId: diffTab.id,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
       onChangeContent() {},
     });
 
-    expect(findText(tree, "a.ts ↔ b.ts")).toBe(true);
-    expect(findText(tree, "Read-only")).toBe(true);
-    expect(findText(tree, "j/k change navigation")).toBe(true);
-    expect(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-kind"] === "diff")).toBeDefined();
     expect(findElementByPredicate(tree, (element) => element.type === DiffEditorHost)).toBeDefined();
+    expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeUndefined();
     expect(findElementByPredicate(tree, (element) => element.props?.["data-action"] === "editor-save-tab")).toBeUndefined();
-  });
-
-  test("wraps editor tabs in a tab context menu and forwards file-action handlers", () => {
-    const calls: string[] = [];
-    const tree = EditorPaneView({
-      activeWorkspaceName: "Alpha",
-      active: true,
-      tabs: [tab],
-      activeTabId: tab.id,
-      onActivateTab() {},
-      onCloseTab() {},
-      onCloseOtherTabs(tabId) {
-        calls.push(`close-others:${tabId}`);
-      },
-      onCloseTabsToRight(tabId) {
-        calls.push(`close-right:${tabId}`);
-      },
-      onCloseAllTabs() {
-        calls.push("close-all");
-      },
-      onCopyTabPath(tab, pathKind) {
-        calls.push(`copy:${pathKind}:${tab.path}`);
-      },
-      onRevealTabInFinder(tab) {
-        calls.push(`reveal:${tab.path}`);
-      },
-      onTearOffTabToFloating(tabId) {
-        calls.push(`tear-off:${tabId}`);
-      },
-      onSplitRight() {
-        calls.push("split");
-      },
-      onSaveTab() {},
-      onChangeContent() {},
-    });
-
-    const menu = findElementByPredicate(tree, (element) => element.type === TabContextMenu);
-
-    expect(menu?.props.paneId).toBe("p0");
-    expect(menu?.props.tab).toMatchObject({ id: tab.id, path: "src/index.ts" });
-    expect(menu?.props.tabs).toHaveLength(1);
-
-    menu?.props.onCloseOtherTabs("p0", tab.id);
-    menu?.props.onCloseTabsToRight("p0", tab.id);
-    menu?.props.onCloseAllTabs("p0");
-    menu?.props.onCopyPath(tab, "relative");
-    menu?.props.onRevealInFinder(tab);
-    menu?.props.onTearOffToFloating("p0", tab.id);
-    menu?.props.onSplitRight(tab);
-
-    expect(calls).toEqual([
-      `close-others:${tab.id}`,
-      `close-right:${tab.id}`,
-      "close-all",
-      "copy:relative:src/index.ts",
-      "reveal:src/index.ts",
-      `tear-off:${tab.id}`,
-      "split",
-    ]);
   });
 
   test("renders file-open empty state without placeholder wording", () => {
@@ -280,9 +153,6 @@ describe("EditorPaneView", () => {
       activeWorkspaceName: "Alpha",
       tabs: [],
       activeTabId: null,
-      onActivateTab() {},
-      onCloseTab() {},
-      onSaveTab() {},
       onChangeContent() {},
     });
 
@@ -302,7 +172,7 @@ function findElementByPredicate(
 
     if (
       typeof node.type === "function" &&
-      !["DiffEditorHost", "MonacoEditorHost", "TabContextMenu", "ContextMenu"].includes(node.type.name)
+      !["DiffEditorHost", "MonacoEditorHost"].includes(node.type.name)
     ) {
       return findElementByPredicate(node.type(node.props), predicate);
     }
@@ -342,7 +212,7 @@ function textContent(node: ReactNode): string {
 
     if (
       typeof node.type === "function" &&
-      !["MonacoEditorHost", "TabContextMenu", "ContextMenu"].includes(node.type.name)
+      !["MonacoEditorHost"].includes(node.type.name)
     ) {
       return textContent(node.type(node.props));
     }

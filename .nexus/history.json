@@ -7183,6 +7183,628 @@
           "created_at": "2026-04-29T01:19:18.705Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-29T14:37:23.985Z",
+      "branch": "feat/plan35-workbench-usability",
+      "plan": {
+        "id": 35,
+        "topic": "VSCode 수준의 워크벤치 사용성 개선 (Plan #35)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1: 파일트리 → 에디터 영역 D&D split 미작동 (split overlay/drop target 부재)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "VSCode 5-zone drop overlay 차용. Option B(Terminal Teal 변형) 권장: edge 30%/center 40% hit-zone, oklch(--color-ring/0.12) fill, 1px outline, 80ms debounce + 120ms ease-out fade. VSCode 1:1(블루)는 design.md \"VS Code blue 회피\" 금지선과 충돌. Edge cases: 빈 그룹은 center-only, 폴더는 confirm modal 또는 no-op, ESC=취소, 다중선택은 count badge. Cross-feature: payload-agnostic 설계로 I4 터미널 dock 재사용. 단 터미널 center-drop semantic(터미널 그룹화 vs 에디터 변환)은 I4에서 별도 결정. Corner 4-way drop과 키보드 split 명령은 v0.2 권장. a11y: outline 대조비 4.8:1, sr-only live region \"Split right of Editor Group N\". 참조: design-layout.md adoption criteria #2, design-interactions.md Esc 정책+ARIA, design-tokens.md.",
+                "recorded_at": "2026-04-29T11:45:17.923Z",
+                "agent_id": "ada04cd13c884b885"
+              },
+              {
+                "role": "architect",
+                "summary": "flexlayout-react@0.9.0의 addTabWithDragAndDrop은 mousedown 직후 자체 drag 세션 시작용이며 외부 HTML5 DataTransfer를 받는 후크 없음 → Option A 불가 확정. **Option B 채택**: EditorGroupsPart 외곽 + per-TabSet overlay에서 native drop 수신, IEditorGroupsService.dropExternalPayload({payload, targetGroupId, edge}) 신규 메서드로 디스패치. 기존 splitGroup/openTab 재사용. ExternalEditorDropPayload 유니온(workspace-file | workspace-file-multi | os-file | terminal-tab)을 services/editor-types.ts에 정의. components/file-tree-dnd/drag-and-drop.ts에 readExternalEditorDropPayload reader 추가 (FILE_TREE_DRAG_MIME 재사용). edge resolver는 pure-fn으로 분리. flexlayout splitter z-order 충돌은 native drag 활성 시에만 pointer-events:auto + splitter rect hit-test 제외. 작업량 M (5 tasks). Fixture 동반 의무: editor-drop-runtime.entry/.test + edge-resolver unit. R1(splitter z-order), R2(rect 캐시 stale), R3(OS Finder file 별도 task 분리), R4(터미널 payload는 본 PR 범위 외 union 확장만).",
+                "recorded_at": "2026-04-29T11:45:26.176Z",
+                "agent_id": "a21d59a8d024064bc"
+              }
+            ],
+            "decision": "**Option B-max 채택**: 파일트리/외부 → 에디터 영역 D&D split을 VSCode 동작 1:1로 구현하되 색은 우리 디자인 토큰을 따른다.\n\n**구현 경로**: EditorGroupsPart 외곽 + per-TabSet overlay에서 native HTML5 DataTransfer drop을 직접 처리. flexlayout-react 0.9.0의 addTabWithDragAndDrop은 외부 drag 후크가 없어 사용 불가가 evidence로 확정. IEditorGroupsService에 dropExternalPayload({payload, targetGroupId, edge}) 신규 메서드 추가, 내부에서 기존 splitGroup/openTab을 재사용한다. ExternalEditorDropPayload 유니온(workspace-file | workspace-file-multi | os-file | terminal-tab)을 services/editor-types.ts에 정의, components/file-tree-dnd/drag-and-drop.ts에 readExternalEditorDropPayload reader 추가(FILE_TREE_DRAG_MIME 재사용). useEditorBindings.openFileFromTreeDrop는 dropExternalPayload({edge:'center'}) 위임으로 호환 유지. edge resolver는 pure-fn으로 분리.\n\n**시각/UX 사양 (VSCode 1:1)**:\n- 5-zone (center 34% + T/R/B/L 각 33%) hit-zone (VSCode와 동일 비율)\n- Trigger: dragenter 즉시 표시 (debounce 없음)\n- 다중 파일 silent open (confirm modal 없음, VSCode와 동일)\n- Corner 4-way (⌥+drag) v0.1 포함\n- 키보드 split 명령 (`editor.splitToDirection` 등 팔레트 entry) v0.1 포함\n- OS Finder drag (workspace 외부 절대경로) v0.1 포함\n\n**색 (디자인 토큰 강제)**:\n- Fill: oklch(var(--color-ring) / 0.12)\n- Border: 1px solid var(--color-ring)\n- Radius: var(--radius)\n- design.md \"VS Code blue 회피\" 금지선 유지, 별도 갱신 없음\n\n**a11y**: outline 대조비 ≥3:1, sr-only live region \"Split <direction> of Editor Group N\", 폴더 단독 드롭 시 tooltip \"Drop files, not folders\".\n\n**Fixture 의무**: 동일 PR에 신규 system smoke editor-drop-runtime.entry/.test 추가, edge resolver pure-fn unit test, dropExternalPayload 분기 unit test. dock-layout-runtime은 모델 mutation 검증으로 책임 분리 유지. R1(splitter z-order: native drag 활성 시에만 pointer-events:auto + splitter rect hit-test 제외) / R2(rect 캐시 stale: dragover마다 getBoundingClientRect, throttle ≤16ms) / R3(폴더 다중 파일 silent open 시 ordering 보장) 동반 검증.\n\n**작업량**: L (8~9 tasks 범위). Plan #34식 bounded pass 위험을 인지하지만 사용자가 \"VSCode 같은 사용성\" 핵심 가치를 우선해 B-max를 선택함.\n\n**향후 연결**: ExternalEditorDropPayload union의 terminal-tab variant는 본 PR에서 타입만 정의하고 발행은 I4(터미널 dock 통합)에서 채운다."
+          },
+          {
+            "id": 2,
+            "title": "I2: 같은 파일명 탭 중복 렌더링 (flexlayout 기본 TabSet 헤더 + EditorPane 자체 탭바 중복 의심)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Evidence-based 결론: **Option A 권장 (flexlayout TabSet 헤더를 single source, EditorPane은 content-only)**. flexlayout-react@0.9.0 IGlobalAttributes 직접 확인 결과 `tabSetTabStripHeight` 속성은 존재하지 않음. `tabSetEnableTabStrip:false`는 Caplin 공식 문서에서 \"drag-and-drop functionality 제거\"로 명시 → Option B의 헤더 hide 시 flexlayout 자체 drag(tear-off/cross-group move/split)가 모두 깨짐. T5 dock-layout-runtime fixture가 검증하는 동작들이 회귀. 추가 발견: EditorPane.enableTabDrag는 어디서도 true로 설정되지 않아 dnd-kit drag path가 dormant 상태(SortableEditorTab/EditorTabSortableContext 미사용 dead code). EditorGroupsPart는 onMoveTabToPane/onReorderTab/onSplitTabRight를 destructure하고 `_` prefix로 버림 → Option B는 dormant code를 production에서 새로 세우는 비용 부담. C는 onRenderTabSet의 stickyButtons/buttons 배열 주입만 가능하고 탭 스트립 자체를 대체 불가 → infeasible. Plan #33 retro line 43 follow-up debt와 정확히 일치. 작업량 A=M / B=XL / C=infeasible. I1 overlay 호환성도 A 우호적(flexlayout DOM 좌표계 일치). Migration: onRenderTab adapter로 컨텍스트 메뉴/middle-click/dirty indicator 이식, Save/Split-right는 onRenderTabSet stickyButtons로, EditorPane은 active 탭 컨텐츠 + footer만, dormant dnd-kit path 삭제.",
+                "recorded_at": "2026-04-29T11:55:39.353Z",
+                "agent_id": "ad973ee5b87494258"
+              }
+            ],
+            "decision": "**Option A 채택 + EditorPane footer 분리 동반**: flexlayout-react@0.9.0의 TabSet 헤더를 single source로 사용하고, EditorPane의 자체 탭 스트립을 제거한다. EditorPane footer(LSP status, diagnostics, language)는 별도 status-bar 컴포넌트로 분리한다.\n\n**근거 (evidence-based)**:\n- flexlayout-react@0.9.0 IGlobalAttributes 직접 검증: `tabSetTabStripHeight` 속성 부재. `tabSetEnableTabStrip:false`는 Caplin 공식 문서가 \"drag-and-drop functionality 제거\"로 명시 → Option B 채택 시 tear-off/cross-group move/split이 라이브러리 레벨에서 무력화되며 T5 dock-layout-runtime fixture가 검증하는 동작이 회귀.\n- EditorPane.enableTabDrag는 production 어디서도 true로 설정되지 않은 dormant 상태. SortableEditorTab/EditorTabSortableContext는 dead code. EditorGroupsPart는 onMoveTabToPane/onReorderTab/onSplitTabRight를 `_` prefix로 destructure 후 버림.\n- onRenderTabSet은 stickyButtons/buttons 배열만 주입 가능하고 탭 스트립 자체를 대체할 수 없음 → Option C는 API상 infeasible.\n- Plan #33 retrospective line 43 follow-up debt(\"Replace remaining legacy SplitEditorPane visual rendering with full FlexLayout editor group rendering\")와 정확히 일치하여 부채 해소.\n\n**구현 경로**:\n1. EditorGroupsPart의 `<Layout>`에 onRenderTab 콜백 추가 — flexlayout이 그리는 탭 DOM을 wrap하여 (a) 컨텍스트 메뉴(close/close others/close to right/close all/copy path/reveal in finder/tear-off to floating), (b) middle-click close, (c) dirty indicator를 이식. EditorPane이 갖던 풍부한 동작은 onRenderTab adapter pure-fn으로 이동.\n2. `<Layout>`에 onRenderTabSet 콜백 추가 — Save 버튼과 Split-right 버튼을 stickyButtons 배열로 주입.\n3. EditorPane을 content-only로 축소 — 활성 탭의 Monaco 에디터 호스트만 남김. 자체 `tabs.map(...)` 탭 스트립과 dnd-kit drag 코드 제거.\n4. dormant path 삭제: enableTabDrag prop, SortableEditorTab, EditorTabSortableContext, EditorGroupsPart의 `_onMoveTabToPane`/`_onReorderTab`/`_onSplitTabRight` props. components/editor-tabs/drag-and-drop.ts는 SplitEditorPane.test.tsx 의존이 끝날 때까지 유지하되 SplitEditorPane도 본 사이클에서 retire.\n5. **Footer 분리(추가 결정)**: EditorPane footer(LSP status, diagnostics 카운트, language indicator, Ctrl+F find shortcut hint)를 신규 `parts/status-bar` 또는 EditorGroupsPart 하단에 별도 status-bar 컴포넌트로 분리. EditorPane은 순수 에디터 호스트만 책임. 단일 status-bar는 active editor group의 active tab 메타데이터를 ILspService/IEditorGroupsService에서 구독.\n\n**Fixture 의무**: T5 dock-layout-runtime은 그대로 유지(라이브러리 drag 검증). 신규/갱신 fixture로 (a) onRenderTab adapter unit test (input: TabNode + EditorTab → output: ReactNode 구조 검증), (b) editor-pane-footerless system smoke (EditorPane이 탭 스트립을 더 이상 렌더하지 않고 status-bar가 별도 영역에 마운트되는지), (c) 컨텍스트 메뉴 5개 액션과 middle-click close가 flexlayout 탭 DOM 위에서 동작하는지 검증. SplitEditorPane.test.tsx는 retire와 함께 삭제.\n\n**a11y**: onRenderTab adapter는 role=tab, aria-selected, 키보드 네비게이션(←/→/Home/End)을 flexlayout 기본 + 우리 컨텍스트 메뉴(Shift+F10) 위에 보존. 시각 스냅샷 재생성 필요.\n\n**작업량**: M (탭바 통합 ~5 tasks) + S (footer 분리 ~2 tasks) = M+ 총 7 tasks 범위. EditorPane 라인 수 감소로 AppShell/렌더러 전체 라인 수 회수 효과.\n\n**연결**: I1 per-TabSet drop overlay는 flexlayout DOM 좌표계 위에 덮이므로 좌표 drift 없음. 본 결정과 자연 호환."
+          },
+          {
+            "id": 3,
+            "title": "I3: 세로 분할 시 옆 빈공간 발생 (flexlayout weight/CSS 100% 미보정)",
+            "status": "decided",
+            "decision": "**Option C 채택**: 모델 weight 명시 + CSS 컨테이너 강제를 함께 적용한다.\n\n**Root cause**:\n1. `editor-groups-service.ts:565-583` `createModelJsonFromGroups`가 row root와 tabset child 모두에 `weight` 속성을 명시하지 않아, splitGroup의 동적 moveNode 후 flexlayout의 weight 자동 분배가 일관되지 않음.\n2. `EditorGroupsPart.tsx:162` `<section>`이 `min-h-0 min-w-0`만 갖고 명시적 `h-full w-full`이 부재 → 부모 flex 컨테이너 상태에 따라 collapse 발생 가능.\n\n**구현 경로**:\n1. `createModelJsonFromGroups`의 row 루트와 모든 tabset child에 `weight: 100` 명시 (Caplin 권장 패턴). splitGroup 호출 직후 형제 tabset 간 weight 균등화 보정 호출.\n2. `EditorGroupsPart` `<section>`에 명시적 `h-full w-full` 클래스 추가 (기존 `min-h-0 min-w-0`은 보존). flexlayout host div도 100% 보장.\n3. legacy `layoutSnapshot` 마이그레이션 sanitizer: 직렬화된 snapshot의 weight가 없거나 0/null인 모든 노드를 100으로 보정하는 1회성 함수를 `migrateLegacyEditorPanesToEditorGroupsModel` 경로에 추가. 사용자 기기에 남은 잘못된 snapshot도 다음 부팅에 정정.\n4. I1의 `dropExternalPayload` 신규 그룹 생성 경로도 동일하게 weight=100 보장 (I1 작업과 통합).\n\n**Fixture 의무**: 신규 `editor-split-fill-runtime.entry/.test` system smoke 추가.\n- split 후 모든 그룹 `getBoundingClientRect`의 width > 0, height > 0 검증\n- 그룹 width 합 ≈ 컨테이너 width (±1px 허용) 검증\n- vertical/horizontal/4-pane/6-pane 시나리오 각각\n- legacy snapshot weight=0 마이그레이션 unit test (`editor-groups-service.test.ts`에 추가)\n\n**작업량**: S (≤3 tasks).\n\n**연결**: I1 D&D split의 신규 그룹 생성 경로가 본 fix를 자연스럽게 활용. dock-layout-runtime은 그대로 유지 (책임 분리: dock-layout=mutation 검증, editor-split-fill=시각 fill 검증)."
+          },
+          {
+            "id": 4,
+            "title": "I4: 터미널이 editor group dock 멤버로 들어갈 수 없음 (factory component 매핑 부재 + xterm DOM 소유권이 BottomPanel에 묶여있음)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Option α (service-owned xterm 인스턴스) 권장**. β(React Portal)는 두 개의 별도 Layout 인스턴스(BottomPanel/EditorGroupsPart) 간 portal target churn + strict-mode remount로 PTY 손실 위험. γ(keepAlive 모든 위치 동시 마운트)는 N×WebGL 컨텍스트 비용 + 단일 owner 위반 + display:none이 xterm fit 측정 깨뜨림.\n\n**기존 발견**: EditorGroupTabKind에 이미 \"terminal\" 포함, createFlexLayoutTab이 단일 EDITOR_GROUP_TAB_COMPONENT + config.editorGroupTab.kind 패턴 사용 → factory에서 kind 분기만 추가하면 됨. workspace-layout-persist-runtime.entry.tsx:471-475가 이미 terminal 탭 직렬화 → 정책 결정 필수.\n\n**ITerminalService 확장**: attachToHost(sessionId, host)/detachFromHost(idempotent)/focusSession/requestNewTab/getMountedHost. 인스턴스 lazy create on first attach, dispose on closeTab. mountShell/unmountShell는 process-wide bridge로 유지.\n\n**Cross-layout 이동**: IEditorGroupsService.attachTerminalTab + IBottomPanelService.detachTerminalFromBottom + orchestrator command (terminal.moveToEditorArea/moveToBottomPanel). flexlayout cross-Layout drag 미지원 → 명령으로 처리, race는 ITerminalService 단일 owner로 회피.\n\n**Persistence 정책 권장**: terminal tab metadata(sessionId/title/workspaceId)만 직렬화, 재시작 시 PTY 복원하지 않음(VSCode 동일). deserialize 시 ITerminalService.getTab(sessionId) null이면 탭 drop. workspace-layout-persist-runtime.entry.tsx:582-586 단언이 현재 반대로 되어 있어 Lead 확인 필요.\n\n**Critical 조건**: focusTerminal/clickNewTerminalTab(useAppCommands.ts:267, commands.ts:311)이 DOM querySelector로 동작 → 두 host 공존 시 잘못된 host 타겟. 동일 plan에서 service로 이주 의무.\n\n**Fixture**: editor-terminal-dock-runtime(이동/split/data 보존), terminal-instance-ownership.test.ts(strict-mode idempotent), workspace-layout-persist-runtime 갱신, ime-dock-preservation-runtime(IME overlay rebind).\n\n**Risks**: WebGL context loss(detach/attach 시 WebglAddon 보존, host 변경 시에만 re-open), strict-mode double-invoke(idempotency 강제), cross-area drag UX(메뉴 우선, drag 후속).\n\n**작업량**: L (~6 tasks).",
+                "recorded_at": "2026-04-29T12:03:02.955Z",
+                "agent_id": "ae31b85a12990b7eb"
+              },
+              {
+                "role": "designer",
+                "summary": "**시각**: SquareTerminal lucide 아이콘(16px stroke 1.75), text-muted-foreground at rest / text-foreground active. ▶/$ 글리프 도입 금지(아이콘 system 위반). Teal 틴팅 금지(active-pane 토큰과 충돌). 라벨: `${shellBasename} — ${cwdBasename}` (예: `zsh — nexus-code`), shell 메타 부재 시 `Terminal ${n}` fallback. .nx-tabular 클래스로 카운터 정렬.\n\n**Activity indicator**: dirty dot 재사용 금지(의미 충돌). 8px status-running dot(workspace badge 토큰 재사용)을 foreground process 활성 + 비포커스 시. bell/exit-nonzero는 status-attention. **v0.1 deferrable**: PTY activity 신호 미배선 시 아이콘만으로 출시 가능.\n\n**이동 트리거**: 메뉴+팔레트+drag 모두 출시. 메뉴+팔레트가 contract, drag는 affordance. 키바인딩 신규 X(예산 보존). 시각 피드백: 소스 탭 150ms fade-out, 목적지 즉시 focus. drop overlay는 I1의 5-zone Teal 그대로 재사용.\n\n**혼합 그룹**: file+terminal 같은 tabset 허용(VSCode 일치, hidden state 회피). active-pane indicator 동일 정책(bg-zinc-600 active / bg-card/60 inactive). **Status bar 분기(I2 확장 필요)**: active 탭이 terminal이면 LSP 세그먼트 자리에 ${shell} · ${cwdBasename} · ${pid}(muted) 노출. encoding/CRLF는 v0.2.\n\n**D&D**: 헤더 drag로 다른 editor group 이동 ✅, BottomPanel↔editor cross-area drop ✅(같은 5-zone overlay), 폴더→터미널 본문 drop ❌ v0.2, 파일→터미널 본문 paste ❌ v0.2.\n\n**a11y**: role=\"tab\", aria-label=\"Terminal, ${shell}, ${cwdBasename}, ${activityState}\", activity dot은 aria-hidden(상태는 label에). cross-area 이동 aria-live polite \"Terminal moved to Editor Group N\", focus follows tab. 단축키 신규 X(Shift+F10 + 팔레트로 충분).\n\n**I7 충돌 없음**: 타이틀바는 workspace 정체성, 셸 정보는 status bar + 탭 라벨에.\n\n**Lead 확인 필요 3건**: (1) status bar terminal mode가 I2 scope 확장인지 I2b로 분리인지, (2) activity dot v0.2 deferral, (3) 폴더→터미널 drop v0.2 deferral.",
+                "recorded_at": "2026-04-29T12:03:21.910Z",
+                "agent_id": "a591849870a498092"
+              }
+            ],
+            "decision": "**Option α 채택 (ITerminalService가 xterm 인스턴스 소유)** + 부속결정 D1=α / D2=a / D3=b / D4=a 일괄 확정.\n\n**핵심 결정**:\n- xterm `Terminal` 인스턴스 + WebglAddon ownership을 `ITerminalService`로 이전. TerminalPane은 service.attachToHost(sessionId, host)로 인스턴스를 가져와 ref div에 attach만. detach 시 dispose 없이 보존. mountShell/unmountShell는 process-wide bridge로 유지.\n- React 19 strict-mode 더블 마운트 호환: attachToHost는 idempotent (동일 host 재호출 시 no-op). WebglAddon은 attach 사이에 보존, host element 변경 시에만 re-open.\n- Plan #34 retro의 Plan #35 debt 3항목 일괄 해소: terminal DOM helper(focusTerminal/clickNewTerminalTab) ITerminalService로 이주, xterm ownership 이주, BottomPanel terminal view가 ITerminalService 직접 consume.\n- **Critical 동반 의무**: useAppCommands.ts:267 focusTerminal, commands.ts:311 clickNewTerminalTab의 querySelector 기반 helper는 두 host 공존 시 잘못된 host 타겟 → 본 plan에서 service로 이주. 분리 불가.\n\n**ITerminalService 신규 시그니처**:\n```ts\nattachToHost(sessionId: TerminalTabId, host: HTMLElement, opts?: {focus?: boolean}): TerminalServiceUnsubscribe;\ndetachFromHost(sessionId: TerminalTabId): void;\nfocusSession(sessionId: TerminalTabId): boolean;\nrequestNewTab(workspaceId: WorkspaceId): TerminalTabId;\ngetMountedHost(sessionId: TerminalTabId): HTMLElement | null;\n```\n인스턴스 lazy create on first attachToHost, dispose on closeTab.\n\n**flexlayout factory 분기**: EditorGroupsPart.tsx:68 factory는 단일 EDITOR_GROUP_TAB_COMPONENT 유지. config.editorGroupTab.kind === \"terminal\"이면 `<TerminalPaneAdapter sessionId={configTab.id}/>`, 아니면 `<EditorPane …/>`. PTY id는 TabNode.config.editorGroupTab에 저장(기존 패턴 재사용).\n\n**Cross-layout 이동 명령**:\n- IEditorGroupsService.attachTerminalTab(sessionId, {groupId, index?}) → EditorGroupTabId\n- IBottomPanelService.detachTerminalFromBottom(sessionId)\n- Orchestrator command: terminal.moveToEditorArea / terminal.moveToBottomPanel\n- 단일 owner는 ITerminalService라 race 없음. 두 view는 attach만.\n\n**D1 — Persistence 정책 (drop 채택)**: terminal 탭은 metadata(sessionId/title/workspaceId)만 직렬화, 재시작 후 PTY 복원하지 않음(VSCode 동일). deserialize 시 ITerminalService.getTab(sessionId)이 null이면 탭 drop. workspace-layout-persist-runtime.entry.tsx:582-586의 기존 \"터미널 탭 restart 보존\" 단언은 본 결정에 따라 \"터미널 탭은 restart 후 drop, 그룹은 보존\"으로 갱신.\n\n**D2 — Status bar terminal mode (I2에 합침 채택)**: I2의 status-bar 분리 작업 안에 active 탭 kind 분기를 포함. active=file이면 LSP info, active=terminal이면 ${shell} · ${cwdBasename} · ${pid muted}. encoding/CRLF/LF는 v0.2.\n\n**D3 — Activity dot (v0.2 deferred 채택)**: foreground process 활성 신호가 PTY 레이어에 미배선 → 본 사이클 v0.1은 SquareTerminal 아이콘만으로 출시. v0.2에서 8px status-running dot 추가. dirty dot 재사용 금지(의미 충돌).\n\n**D4 — Cross-layout drag (v0.1 포함 채택)**: I1에서 도입되는 외곽 native drop + 5-zone Teal overlay를 cross-area drag에 그대로 재사용. ExternalEditorDropPayload union의 terminal-tab variant를 BottomPanel→editor 및 그 역방향에서 발행. flexlayout cross-Layout drag는 라이브러리 미지원이지만 우리 외곽 native drop이 자연 흡수.\n\n**시각/UX (designer 권고 채택)**:\n- Icon: SquareTerminal lucide 16px stroke 1.75. text-muted-foreground at rest, text-foreground active. ▶/$ 글리프 금지, Teal 틴팅 금지.\n- Label: ${shellBasename} — ${cwdBasename}, fallback Terminal ${n}. .nx-tabular 카운터 정렬. user-rename은 v0.2.\n- Mixed file+terminal 같은 tabset 허용(VSCode 일치, hidden state 회피).\n- Active-pane indicator는 Plan #34 결정(bg-zinc-600 / bg-card/60) 그대로.\n- 이동 트리거: 컨텍스트 메뉴(Move Terminal to Editor Area / Move to Bottom Panel) + 팔레트(Terminal: Move …) + drag 모두 출시. 키바인딩 신규 X. 시각 피드백: 소스 탭 150ms fade-out, 목적지 즉시 focus.\n- Drag 매트릭스: 헤더 drag로 다른 editor group ✅, BottomPanel↔editor cross-area ✅(I1 overlay 재사용), 폴더→터미널 본문 drop ❌ v0.2, 파일→터미널 본문 paste ❌ v0.2.\n- a11y: role=\"tab\", aria-label=\"Terminal, ${shell}, ${cwdBasename}, ${activityState}\", activity dot은 aria-hidden(v0.2), cross-area 이동 aria-live polite.\n\n**Fixture 의무**:\n- 신규 editor-terminal-dock-runtime: BottomPanel→editor 이동, editor 내 split, 두 터미널 dock, PTY 데이터 이동 중 보존.\n- 신규 terminal-instance-ownership.test.ts: dispose가 detach/attach 사이 호출 안 됨, strict-mode idempotent.\n- workspace-layout-persist-runtime 갱신: \"터미널 탭 restart drop, 그룹 survives\" 단언으로 변경.\n- ime-dock-preservation-runtime: 이동 후 IME overlay rebind 검증.\n\n**Risks**:\n- WebGL context loss(WebglAddon 보존, host 변경 시에만 re-open).\n- Strict-mode double-invoke(attachToHost idempotency 강제).\n- Cross-area drag UX는 I1 overlay에 의존 → I1 task 선행/병행 필수.\n\n**작업량**: L (~6 tasks). I2 status-bar 분기(D2)와 I1 cross-area drop(D4) 작업이 본 이슈와 강결합 → 사이클 내 dependency wiring 필수.\n\n**연결**: I1 ExternalEditorDropPayload union의 terminal-tab variant 발행 코드를 본 이슈에서 채움. I2 onRenderTab adapter가 terminal 탭의 아이콘/라벨을 ITerminalService.getTab(sessionId) 구독으로 가져옴. I3 weight=100 보장은 cross-layout 이동으로 신규 그룹 생성 시에도 적용."
+          },
+          {
+            "id": 5,
+            "title": "I5: 파일트리 클릭 씹힘 (react-arborist 가상화 + onActivate/onSelect 조건 분기 의심)",
+            "status": "decided",
+            "decision": "**Option C 채택**: focus 가드 강화 + drag 시스템 단일화 + row onFocus stopPropagation 제거를 함께 적용한다.\n\n**Root cause 후보 (3건 통합 처리)**:\n\n1. **1차 의심 (intermittent 주범)** — `FileTreePanel.tsx:671-679` `onFocusCapture`가 외부(ActivityBar/Editor 등)에서 트리로 포커스 진입 시 무조건 이전 `selectedTreePath`로 `tree.focus()`를 호출. `selectionFollowsFocus`(line 713)와 결합해 사용자가 새 행을 클릭해도 포커스가 옛 선택으로 튕기고 selection이 되돌아감 → 클릭 씹힘. \"가끔\" 증상이 외부→트리 진입 시에만 발생하는 패턴과 일치.\n\n2. **2차 의심** — row(line 971/987)가 react-arborist `dragHandle` ref와 native `draggable={true}` 두 drag 시스템에 동시 노출. pointerdown 순서가 두 시스템 간 일관되지 않음.\n\n3. **3차 의심** — row 레벨 `onFocus` `event.stopPropagation()`(line 810-813). capture phase가 우선이지만 selectionFollowsFocus 내부 listener가 bubble을 본다면 영향 가능.\n\n**구현 경로**:\n\n1. `onFocusCapture` 가드 강화: `event.relatedTarget`이 트리 행(`[data-file-tree-row=\"true\"]`)이면 skip, focus 이벤트 발생 직후 동일 tick에서 onSelect가 호출 중이면(`isPendingSelectionUpdate` 플래그) skip. 단순히 외부→내부 진입을 무조건 catch하지 말고 \"외부에서 들어오는데 클릭 시퀀스가 아닌 경우(e.g., Tab 키, 프로그래매틱 focus)\"에만 selectedTreePath 복원.\n\n2. native `draggable={true}` 제거(line 987). dataTransfer 발행은 react-arborist의 `onDragStart` 후크 또는 모델 콜백에서 1회만 수행. `writeFileTreeDragDataTransfer` 호출은 그대로 유지하되 발행 지점만 단일화. react-arborist 3.5.0의 dragHandle ref + 자체 drag system이 single source of truth.\n\n3. row의 `onFocus` `event.stopPropagation()` 제거(line 812). `attrs.onFocus?.(event)`만 호출하고 propagation은 자연스럽게 유지. capture phase가 우선이라는 가정에 의존하지 않음.\n\n**Fixture 의무**:\n- 신규 unit test `file-tree-focus-restore.test.ts`: (a) 외부→트리 진입 시 클릭 시퀀스에서 selectedTreePath가 클릭한 경로로 정확히 설정되는지, (b) Tab 키 진입 시 이전 selectedTreePath 복원이 정상 동작하는지 두 케이스 모두 검증.\n- 신규/갱신 system smoke `file-tree-click-resilience-runtime`: 외부 영역(ActivityBar) → 파일트리 행 클릭 → 행 활성/선택 검증을 N회 반복(20회 이상)해 회귀 가드.\n- 기존 file-tree drag 관련 fixture(있으면) 갱신: native draggable 제거 후 react-arborist drag system으로 dataTransfer 발행이 정상 작동하는지 검증.\n\n**작업량**: S (≤3 tasks).\n\n**리스크**:\n- 외부 OS 파일을 파일트리로 drop하는 경로가 react-arborist drag system과 충돌하지 않는지 확인 필요. native `draggable={true}` 제거는 outbound drag만 영향이고 inbound drop은 별 경로(`onDropCapture` line 690).\n- selectionFollowsFocus는 그대로 유지 → 키보드 네비게이션 재설계 비용 없음.\n\n**연결**: 본 결정과 다른 이슈 사이 강결합 없음. 독립적으로 출시 가능."
+          },
+          {
+            "id": 6,
+            "title": "I6: Dock → Dock 재귀 중첩 - VSCode에 없는 동작이므로 유지 vs 제거 결정",
+            "status": "decided",
+            "decision": "**Option A 채택**: flexlayout popout/floating window 기능을 완전히 제거하여 dock 재귀 중첩을 차단한다. VSCode 동등 기능(\"Move into New Window\")이 v0.1에 결여되지만, 사용자 명시 의도(\"VSCode에 없으면 굳이 X\")와 일치하며 v0.2에서 별 명령으로 재도입 여지를 남긴다.\n\n**Root cause**: `editor-groups-service.ts:120-121`의 `tabEnablePopout: true`, `tabEnablePopoutFloatIcon: true`로 인해 각 탭에 popout 아이콘이 표시되고, 클릭 시 자체 dock zone(`enableEdgeDock: true`) + popout 아이콘을 또 가진 floating window가 생성됨. 거기서 다시 popout하면 또 다른 floating window 생성 → 무한 재귀. VSCode는 popout 시 새 창에서 추가 popout을 차단해 1단계로 막지만, flexlayout-react 0.9.0의 기본 설정은 차단 안 함.\n\n**구현 경로**:\n1. `editor-groups-service.ts:120-121` `DEFAULT_EDITOR_GROUPS_GLOBAL`에서 `tabEnablePopout: false`, `tabEnablePopoutFloatIcon: false`로 변경. EditorGroupsPart `<Layout supportsPopout={false}>` 이미 설정되어 있음(:165) — 모델 attribute가 진짜 owner이므로 모델만 끄면 충분.\n2. `useEditorBindings.ts:161-170`의 `tearOffActiveTabToFloating`, `tearOffTabToFloating` 두 메서드 제거. IEditorGroupsService.tearOffActiveTabToFloating도 미사용 시 제거.\n3. `commands.ts:199-202` `workbench.action.tearOffEditorToFloating` 명령 등록과 그 단축키 등록 제거.\n4. `useAppCommands.ts:184` 및 props chain에서 `tearOffActiveEditorTabToFloating`, `onTearOffTabToFloating` props 정리.\n5. `components/tab-context-menu.tsx:24,38,134`에서 `\"tear-off-floating\"` action id, prop, 메뉴 항목(\"Move to Floating Window\") 제거.\n6. AppShell.tsx:357 `onTearOffTabToFloating` prop 전달 제거.\n\n**Fixture 의무**:\n- 신규/갱신 unit test: editor-groups-service의 model JSON에서 `tabEnablePopout=false` 검증. 기본 모델 직렬화 결과 스냅샷 갱신.\n- dock-layout-runtime의 popout 관련 단계 있으면 제거. floating 4-pane 시나리오 → 단순 split 시나리오로 전환.\n- tab context menu 단위 테스트에서 \"Move to Floating Window\" 항목이 더 이상 노출되지 않는지 검증.\n- 신규 system smoke `editor-popout-disabled-runtime`: 탭에 popout 아이콘이 그려지지 않고, programmatic popout 시도가 모델 변경을 만들지 않는지 검증.\n\n**작업량**: XS (~1~2 task). 코드 변경 ~30줄 + fixture 갱신.\n\n**v0.2 재도입 여지**: 향후 사용자 요구 시 VSCode \"Move Editor into New Window\" 정확 매칭으로 재도입 가능. 그 경로는 flexlayout floating이 아니라 Electron BrowserWindow 기반 별도 창 + 그 창의 EditorGroupsPart는 popout 비활성. 이번 사이클 v0.1과 별개 작업.\n\n**연결**: I1/I2/I4의 onRenderTab adapter가 popout 아이콘 분기를 가질 필요가 없어져 단순화. tab-context-menu가 다른 항목들로 단축됨."
+          },
+          {
+            "id": 7,
+            "title": "I7: 네이티브 macOS 타이틀바 → VSCode 스타일 커스텀 타이틀바 전환 (titleBarStyle/frame 설정 + 커스텀 컴포넌트)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Option A 권장 (`hiddenInset` + custom strip)**. main process: titleBarStyle: 'hiddenInset' + trafficLightPosition: {x:12, y:10} (macOS 한정). renderer: 신규 `parts/titlebar/TitleBarPart.tsx` 분리(WorkspaceStrip 확장 X, 책임 분리). Application menu는 macOS 시스템 메뉴 그대로 유지(VSCode 정책). WindowControls(win/linux)는 v0.2 부채 — v0.1은 plat==='darwin'이면 hiddenInset, 아니면 default chrome fallback으로 사용성 회귀 방지. AppShell 루트는 `flex h-full` → `flex flex-col h-full` + 첫 자식 TitleBarPart, 두 번째 기존 4-zone. design-layout.md에 \"타이틀바 chrome 띠는 zone이 아님\" 단락 추가 필수. drag region: root WebkitAppRegion:'drag', 인터랙티브 요소 'no-drag'. 좌측 78px 패딩으로 traffic light 영역 비점유. composeElectronAppServices 합성 root에 격리되어 BrowserWindow 옵션 변경 seam 양호. Fixture: (1) main unit으로 createMainWindow가 darwin 시 hiddenInset+trafficLightPosition 인자 포함 spy 검증, (2) renderer unit으로 root WebkitAppRegion === 'drag', 좌측 padding ≥78px, palette trigger 'no-drag', (3) 신규 system smoke titlebar-runtime, (4) 시각 토큰 회귀 단위 테스트(높이/border/색). Risks: trafficLightPosition은 zoom/fullscreen 토글 시 어긋남 보고(Electron #28608) → fixture에 fullscreen 회귀 케이스. WorkspaceStrip 좌측 최상단 배지(running dot)가 traffic light hover와 시각 충돌 가능 → 좌측 78px 영역 점유 금지 회귀 fixture. 작업량 S (1.5~2.5d).",
+                "recorded_at": "2026-04-29T12:13:35.440Z",
+                "agent_id": "a100d6a0089ecfaf4"
+              },
+              {
+                "role": "designer",
+                "summary": "**Option A 권장 (중앙 비움 + 우측 palette trigger)**. VSCode 1:1 매칭은 4-zone 멀티 워크스페이스 모델과 정보 중복(중앙 active workspace 이름 vs WorkspaceStrip active row) → \"VSCode-style Frame, Nexus-native Content\" 절충.\n\n**Slots (높이 36px, hiddenInset, drag region 전체)**:\n- 좌측 0~78px: traffic light 영역 (빈 패딩, drag)\n- 78~96px: 18px gap\n- 좌측 컨텐츠: 비움 (앱 아이콘/메뉴 버튼 X)\n- 중앙: 비움 (워크스페이스 이름 표시 X — 정보 중복 회피, 단일 워크스페이스 mental model 회피)\n- 우측: 명령 팔레트 trigger 단일 — Cmd 아이콘 + \"Search commands\" muted text + ⌘P kbd. width ~240px, h-7. cmdk 기반 명령 팔레트는 v0.1에 이미 구현 완료.\n- 최우측 16px 패딩\n\n**토큰**:\n- 신규 `--titlebar-height: 36px` (h-9 정합, HIG 32px+여유)\n- 배경 `var(--color-background)` zinc-950 그대로\n- border-bottom 1px `var(--color-border)` zinc-800\n- trigger 배경 `var(--color-secondary)` zinc-800 hover zinc-700\n- 별도 어두운 톤 추가 X (zinc-950이 충분히 어두움)\n\n**a11y**:\n- titlebar role=\"banner\" + aria-label=\"Application titlebar\"\n- trigger <button> + aria-label=\"Open command palette\" + aria-keyshortcuts=\"Meta+P\"\n- Tab order: WorkspaceStrip 첫 row → ActivityBar → SideBar → Center → palette trigger\n- focus-visible 1px var(--color-ring) outline-offset -1px\n- macOS 우클릭 path 컨텍스트 메뉴 유지\n\n**Disabled fallback**: workspace 없으면 trigger disabled 대신 \"Open workspace…\" 단일 entry로 명령 접근 보장.\n\n**Lead 확인 필요 3건**: (1) WorkspaceStrip 헤더(\"WORKSPACES / 3 open\") 재디자인 본 사이클 포함 vs 별도 task, (2) Disabled palette trigger fallback 정책, (3) v0.2 Windows/Linux 진입 시점에 platform abstraction 분리.\n\n**Risks**: traffic light offset과 36px 높이 collision (32px로 줄이면 빡빡해 14px 미세조정 필요). WorkspaceStrip 굵은 헤더가 현재 \"엉성하다\" 인상 주범 의심 → 시각 무게 감소(text-xs uppercase tracking-wide muted-foreground) 별도 task 권장.",
+                "recorded_at": "2026-04-29T12:13:55.477Z",
+                "agent_id": "a16b06be4ffef9411"
+              }
+            ],
+            "decision": "**Option A 채택 (`hiddenInset` + 커스텀 TitleBarPart + 중앙 비움 + 우측 palette trigger)** + 부속결정 D1=a / D2=b / D3=a / D4=a 일괄 확정.\n\n**핵심 결정**:\n- main process (`packages/app/src/main/electron-app/entry.ts:71-81`): `process.platform === 'darwin'`이면 `titleBarStyle: 'hiddenInset'` + `trafficLightPosition: {x:12, y:10}` 추가. 그 외 플랫폼은 default chrome 유지(v0.2까지 fallback).\n- renderer 신규 `parts/titlebar/TitleBarPart.tsx`: WorkspaceStrip 확장이 아닌 독립 part. 책임 분리.\n- AppShell.tsx 루트: `flex h-full` → `flex flex-col h-full` + 첫 자식 `<TitleBarPart>`, 두 번째 자식 기존 4-zone 컨테이너.\n- macOS 시스템 메뉴(`Menu.setApplicationMenu` 또는 기본)는 그대로. 타이틀바에 application menu 통합 X.\n\n**Slots (높이 36px, hiddenInset, drag region 전체)**:\n- 좌측 0~78px: traffic light 영역 (빈 패딩, drag)\n- 78~96px: 18px gap\n- 좌측/중앙: 비움 (drag 면적 확보, 정보 중복 회피)\n- 우측: palette trigger 단일 — Cmd 아이콘 + \"Search commands\" muted text + ⌘P kbd, width ~240px, h-7\n- 최우측 16px 패딩\n\n**토큰 / 시각**:\n- 신규 `--titlebar-height: 36px`\n- 배경 `var(--color-background)` (zinc-950), 별도 어두운 톤 X\n- border-bottom `1px var(--color-border)` (zinc-800)\n- trigger 배경 `var(--color-secondary)` zinc-800, hover zinc-700, text muted-foreground\n- focus-visible 1px `var(--color-ring)` outline-offset -1px\n\n**드래그/인터랙션**:\n- root `WebkitAppRegion: 'drag'`\n- palette trigger `WebkitAppRegion: 'no-drag'`\n- macOS double-click zoom 시스템 기본 유지\n- 우클릭 path 컨텍스트 메뉴 유지\n\n**a11y**:\n- titlebar `role=\"banner\"` + `aria-label=\"Application titlebar\"`\n- trigger `<button>` + `aria-label=\"Open command palette\"` + `aria-keyshortcuts=\"Meta+P\"`\n- Tab order: WorkspaceStrip → ActivityBar → SideBar → Center → palette trigger\n- workspace 이름은 titlebar에 노출 X (WorkspaceStrip aria-selected가 담당)\n\n**D1 — WorkspaceStrip 헤더 재디자인 (본 사이클 포함)**: 현재 \"WORKSPACES / 3 open\" 헤더의 시각 무게가 \"엉성하다\" 인상의 주범 중 하나로 추정. text-xs uppercase tracking-wide muted-foreground로 무게 감소. 본 사이클 별 task(XS).\n\n**D2 — Disabled palette trigger fallback (b 채택)**: workspace 없을 때 trigger 자체 hidden 대신 \"Open workspace…\" 단일 entry로 동작. trigger 위치 인지 일관성 유지 + Open Workspace 명령 접근 보장.\n\n**D3 — Platform abstraction 본 사이클 설계 (a 채택)**: TitleBarPart가 `platform: NodeJS.Platform` props를 받아 darwin 여부로 좌측 패딩(78px)을 분기하도록 설계. preload에서 `process.platform` 노출, useAppServices가 주입. 단위 테스트 OS-free. v0.2 Windows/Linux 진입 시 우측 minimize/maximize/close 슬롯 추가만으로 확장 가능.\n\n**D4 — trafficLightPosition fullscreen 회귀 가드 (a 채택)**: Electron #28608 계열 알려진 위험. 동일 PR fixture에 fullscreen toggle 케이스 포함.\n\n**Fixture 의무**:\n1. main unit (`entry.test.ts` 또는 `electron-app-composition.test.ts`): `createMainWindow`가 darwin 시 BrowserWindow ctor 인자에 `titleBarStyle: 'hiddenInset'` + `trafficLightPosition` 키 포함되는지 spy 검증.\n2. renderer unit (`TitleBarPart.test.tsx`): platform='darwin'에서 root style.WebkitAppRegion === 'drag', 좌측 padding ≥ 78px, palette trigger에 'no-drag' 적용. workspace 없을 때 trigger가 \"Open workspace…\" disabled-fallback 동작 검증.\n3. 신규 system smoke `titlebar-runtime`: Electron 부팅 후 BrowserWindow 옵션 + 타이틀바 DOM 마운트 + 좌측 78px 영역 비점유. fullscreen toggle 후 trafficLightPosition 어긋남 회귀 검증.\n4. 시각 토큰 회귀 단위 테스트: 높이 36px, background `--color-background`, border-bottom 1px `--color-border` 토큰 매칭.\n\n**design-layout.md 갱신 의무**: \"타이틀바 chrome 띠는 zone이 아님\" 단락 추가. 4 zone narrative와 충돌하지 않도록 명시. `--titlebar-height` 토큰 등록.\n\n**작업량**: S+ (~3~4 tasks). 코드 변경은 entry.ts 옵션 + TitleBarPart 신규 + AppShell flex column 재배치 + WorkspaceStrip 헤더 시각 무게 감소 + design-layout.md 갱신 + fixture 4종.\n\n**v0.2 부채**: Windows/Linux WindowControls 컴포넌트(우측 minimize/maximize/close), `titleBarOverlay` (Windows) 또는 `frame:false` (Linux) 옵션 분기, 명령 팔레트 trigger 좌측에 application menu 통합 검토.\n\n**연결**: I6 popout 제거가 본 결정과 자연 호환. I2 status-bar 분리(footer)와 I7 titlebar는 모두 chrome 영역 정돈 작업 — 시각적으로 일관된 PR 인상."
+          }
+        ],
+        "research_summary": "## Existing context (.nexus/memory/, .nexus/context/)\n\n**Plan #34 retrospective (`empirical-plan34-workbench-skeleton-retrospective.md`)**:\n- Plan #34에서 flexlayout-react@0.9.0 production wire-in 완료, 4-pane open/split/move 동작 검증.\n- AppShell.tsx 387 lines, 시스템 스모크 11/11 pass.\n- **Plan #35 debt에 명시되어 있는 항목**:\n  - Move terminal DOM helpers (focusTerminal, clickNewTerminalTab) into ITerminalService.\n  - Move xterm instance ownership into ITerminalService.\n  - Change BottomPanel terminal view to consume ITerminalService directly.\n  → 이 부채 항목 3가지가 사용자 이슈 #4(터미널 dock 통합)의 직접 선행조건.\n\n**Plan #33 retrospective**:\n- 8개 renderer service interface 정의됨 (`IEditorGroupsService`, `ITerminalService` 등).\n- service-oriented renderer 원칙: 컴포넌트는 service interface만 import, store 직접 접근 금지.\n\n**External — react-resizable-panels 실패 기록**:\n- layout-critical library를 블랙박스 유지 + 디버그 경로 없는 solver 사용 시 실패 회복 불가.\n- shadcn forwardRef wrapper로 layout-critical lib 감싸지 말 것.\n- Architectural guard rule 4번: \"shadcn forwardRef wrapper로 layout-critical library를 감싸지 않는다.\"\n\n**design-architecture.md**:\n- DI container 미사용, service interface 직접 import.\n- parts: workspace-strip, activity-bar, side-bar, editor-groups, bottom-panel.\n- Layout-critical regression guard fixture: `dock-layout-runtime.test.ts`, `activity-bar-runtime.test.ts`, `workspace-layout-persist-runtime.test.ts`.\n- 신규 layout-critical 도입 시 동일 PR에 fixture 포함 의무.\n\n## Codebase exploration (Explore subagent 결과)\n\n| 이슈 | 핵심 파일 | 추정 근본 원인 |\n|---|---|---|\n| I1 D&D split | `components/FileTreePanel.tsx:987` (draggable), `app/AppShell.tsx:349` + `useEditorBindings.ts:254-267` (openFileFromTreeDrop), `parts/editor-groups/EditorGroupsPart.tsx:186` | `EDITOR_GROUP_DOCKABLE_TAB_KINDS`는 선언되어 있으나 EditorGroupsPart에 flexlayout drop overlay/외부 drag 수신 핸들러가 없음. 파일트리 native drag DataTransfer는 발생하나 에디터 영역의 drop zone이 미구현. |\n| I2 탭 중복 | `parts/editor-groups/EditorGroupsPart.tsx:68-107` (factory), `:162-167` (Layout 컴포넌트), `components/EditorPane.tsx` 자체 탭 헤더 | flexlayout `Layout`에 `onRenderTab`/`onRenderTabSet` 미설정 → flexlayout 기본 TabSet 헤더가 그려지는 동시에 EditorPane도 자체 탭바를 렌더 → 시각적 이중 렌더. |\n| I3 빈공간 | `parts/editor-groups/EditorGroupsPart.tsx:162-167` className `min-h-0 min-w-0`, `app/AppShell.tsx:325-376` flex-1, `components/CenterWorkbench.tsx:135-150` | flexlayout 모델 row weight 또는 EditorGroupsPart 외곽 컨테이너가 width/height 100%를 강제하지 않아, vertical split 후 한 쪽 weight가 0 또는 남은 영역을 차지하지 못함. |\n| I4 터미널 dock | `parts/bottom-panel/BottomPanelPart.tsx:52` (TerminalPane만 BottomPanel에 위치), `components/TerminalPane.tsx:36-100` (xterm 인스턴스 호스팅), `parts/editor-groups/EditorGroupsPart.tsx:19-27` (`EDITOR_GROUP_DOCKABLE_TAB_KINDS = [\"file\",\"diff\",\"terminal\",\"preview\"]`이지만 factory는 EditorPane만 매핑) | factory가 component 문자열을 기준으로 단일 매핑. terminal 종류 탭이 와도 처리할 컴포넌트가 없음. xterm DOM 인스턴스가 BottomPanelPart 트리에 묶여 있어 editor group 트리로 이동 시 unmount → PTY 데이터 손실. Plan #35 debt 항목 3개 직접 연결. |\n| I5 클릭 씹힘 | `components/FileTreePanel.tsx:700-765` (react-arborist Tree, overscanCount=12), `:745-752` onSelect, `:753-762` onActivate, `:810-813` onFocus 캡처, `:971` drag handle ref | react-arborist 가상화 + onActivate/onSelect 조건 분기(entryType 필터) + onFocus 캡처가 click propagation과 경합 가능. drag handle ref 바인딩 타이밍 경합 의심. |\n| I6 Dock 재귀 | activity-bar/bottom-panel 명령 경로에서 명시적 'dock' 라우트는 발견되지 않았으나 사용자 보고 기준 재귀 중첩 발생 - 정확한 trigger UI는 분석 필요 | Activity Bar/BottomPanel 외에 별도 dock toggle 경로 또는 layoutSnapshot persist에서 nested dock 컨테이너가 직렬화-역직렬화 시 중복 생성될 가능성. VSCode에는 동등 기능 없음. |\n| I7 타이틀바 | `packages/app/src/main/electron-app/entry.ts:71-81` BrowserWindow 옵션 (`titleBarStyle`/`frame` 미설정 → 네이티브 macOS), 커스텀 타이틀바 컴포넌트 없음 | 의도적 네이티브 사용. VSCode는 macOS에서 `titleBarStyle: 'hiddenInset'`로 traffic light 유지하면서 커스텀 타이틀바 영역(메뉴/프로젝트명/win controls) 통합. |\n\n## 결론적 관찰\n\n- **이슈 우선순위/의존성**:\n  - I3, I2, I5, I6은 작은 버그/결정 (각각 1~2일)\n  - I1, I4는 강결합 (terminal dock 통합 ⊃ editor group drop target 처리). I1 → I4 순서 권장\n  - I7은 독립 (titleBarStyle 변경 + 컴포넌트 추가)\n  - I4는 Plan #35 debt 3항목과 정확히 일치 → 이미 의사결정된 방향성\n- **Architectural guard rule**: 신규 layout-critical 도입 시 fixture 포함 의무. I1, I4는 layout-critical → fixture 동반 필수.\n- **shadcn wrapper 금지** 원칙은 flexlayout drop overlay 구현 시에도 동일하게 적용.\n\n## Pending 의사결정 영역\n\n- 7개 이슈를 단일 사이클(Plan #35) 단일 PR로 묶을지, multi-cycle 분리할지\n- I6은 정말 제거할지 (사용자 의향: VSCode에 없으면 굳이 X)\n- I7의 macOS 외 플랫폼 (MVP 타깃은 macOS 한정이지만 향후 win/linux 호환성)\n- 각 이슈에 어떤 HOW agent를 붙일지 (designer for VSCode 사용성 매핑, architect for service 경계/electron config)",
+        "created_at": "2026-04-29T10:18:31.912Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "ExternalEditorDropPayload 유니온 + reader 정의",
+          "status": "completed",
+          "context": "I1 결정: D&D split을 위해 services/editor-types.ts에 ExternalEditorDropPayload 유니온(workspace-file | workspace-file-multi | os-file | terminal-tab)을 미리 정의. components/file-tree-dnd/drag-and-drop.ts에 readExternalEditorDropPayload reader 추가(FILE_TREE_DRAG_MIME 재사용, OS Files MIME, 향후 application/x-nexus-tab). I4 cross-layout drag와 본 union을 공유.",
+          "acceptance": "- services/editor-types.ts에 ExternalEditorDropPayload 유니온 export됨, 4개 variant 모두 포함.\n- readExternalEditorDropPayload가 FILE_TREE_DRAG_MIME, Files, application/x-nexus-tab 입력에 대해 정확한 variant 반환 또는 null.\n- drag-and-drop unit test 추가 (각 variant별 ≥1 케이스).\n- bun lint:renderer 통과.",
+          "approach": "1) services/editor-types.ts에 ExternalEditorDropPayload 유니온 type + ExternalEditorDropEdge type 추가. 2) components/file-tree-dnd/drag-and-drop.ts에 readExternalEditorDropPayload(dt) reader: FILE_TREE_DRAG_MIME 우선, Files (OS) 차순, application/x-nexus-tab은 향후. 3) writer/reader pair unit test로 round-trip 검증. terminal-tab variant는 type만 선언하고 발행은 layer 3에서.",
+          "risk": "terminal-tab variant 발행 코드는 layer 3에 있어 본 task만으로는 사용처가 없는 dead 타입. 후속 task에서 채워지지 않으면 dormant code가 됨.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd933-e196-7d33-aee2-3dbc1d331605",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:17:36.912Z"
+        },
+        {
+          "id": 2,
+          "title": "flexlayout weight=100 명시 + 컨테이너 CSS h-full w-full + legacy snapshot sanitizer",
+          "status": "completed",
+          "context": "I3 결정: editor-groups-service.ts:565-583 createModelJsonFromGroups가 row root와 tabset child 모두에 weight 속성을 명시하지 않아 split 후 빈공간 발생. EditorGroupsPart.tsx:162 section은 min-h-0 min-w-0만 갖고 h-full w-full 부재. legacy snapshot 사용자 기기에서도 정정 필요.",
+          "acceptance": "- 기본 모델 직렬화 시 row와 tabset 모두 weight: 100 포함됨.\n- splitGroup 호출 후 모든 형제 tabset의 weight가 동일하거나 합 일관성 유지.\n- EditorGroupsPart section className에 'h-full w-full' 명시.\n- legacy snapshot sanitizer unit test 추가 — weight=0/null/undefined 입력에 대해 100으로 보정 검증.\n- editor-groups-service.test.ts 통과.",
+          "approach": "1) createModelJsonFromGroups에서 row 루트와 모든 tabset child에 weight: 100 추가. 2) splitGroup 호출 직후 형제 tabset 간 weight 균등화 보정 호출. 3) EditorGroupsPart의 section에 h-full w-full 추가(min-h-0 min-w-0 보존). flexlayout host div도 100% 보장. 4) migrateLegacyEditorPanesToEditorGroupsModel에 sanitizer 함수 추가 - 직렬화된 snapshot의 weight가 없거나 0/null인 모든 노드를 100으로 보정.",
+          "risk": "기존 layoutSnapshot persist가 weight 없는 형태로 저장돼 있다면 재시작 시 sanitizer가 호출되는지 verify 필요. workspace-layout-persist-runtime fixture에 영향 가능.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd941-2edf-7912-8870-e2ef18556efc",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:17:48.606Z"
+        },
+        {
+          "id": 3,
+          "title": "flexlayout popout/floating window 완전 제거 + tearOff 명령/메뉴/단축키 정리",
+          "status": "completed",
+          "context": "I6 결정: editor-groups-service.ts:120-121의 tabEnablePopout/tabEnablePopoutFloatIcon이 flexlayout floating window 재귀 중첩의 원인. VSCode에 없는 동작이므로 v0.1에서 완전 제거. v0.2에서 Electron BrowserWindow 기반 별 명령으로 재도입 가능.",
+          "acceptance": "- editor-groups-service의 model JSON snapshot에서 tabEnablePopout=false 검증 (unit test).\n- 탭에 popout 아이콘이 그려지지 않음 (system smoke editor-popout-disabled-runtime).\n- tab context menu에 'Move to Floating Window' 항목 부재 (unit test).\n- programmatic popout 호출이 모델 변경을 만들지 않음.\n- dock-layout-runtime의 popout 관련 단계 제거 또는 단순 split으로 전환 후 통과.",
+          "approach": "1) editor-groups-service.ts:120-121 DEFAULT_EDITOR_GROUPS_GLOBAL의 tabEnablePopout=false, tabEnablePopoutFloatIcon=false. 2) useEditorBindings.ts:161-170 tearOffActiveTabToFloating, tearOffTabToFloating 메서드 제거. IEditorGroupsService.tearOffActiveTabToFloating도 미사용 시 제거. 3) commands.ts:199-202 workbench.action.tearOffEditorToFloating 등록 + 단축키 제거. 4) useAppCommands.ts:184 props chain 정리. 5) tab-context-menu.tsx:24,38,134 'tear-off-floating' action id, prop, 메뉴 항목 제거. 6) AppShell.tsx:357 onTearOffTabToFloating prop 전달 제거.",
+          "risk": "dock-layout-runtime의 floating 4-pane 시나리오가 popout에 의존했다면 수정 필요. tab-context-menu 단위 테스트 스냅샷 갱신 필요.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd934-1757-7851-9803-357dda55a433",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:18:01.818Z"
+        },
+        {
+          "id": 4,
+          "title": "design context 문서 일괄 갱신 (titlebar/popout/terminal-as-tab/D&D overlay)",
+          "status": "completed",
+          "context": "I4/I6/I7 결정: 본 사이클은 design 문서 정의에 영향. 갱신 항목: (1) design-layout.md에 \"타이틀바 chrome 띠는 zone이 아님\" 단락 추가 + --titlebar-height 토큰 등록, (2) design-layout.md/components.md에 popout 제거 명시, (3) design-components.md에 terminal-as-tab 정책(SquareTerminal, label format, mixed group), (4) design-interactions.md에 D&D 5-zone overlay 정책 추가 (oklch ring 색, hit-zone 33/34, 즉시 트리거, corner 4-way ⌥, OS Finder drag 정책, 폴더 drop은 v0.2), (5) status-bar terminal mode 정책.",
+          "acceptance": "- design-layout.md에 titlebar 단락 + --titlebar-height 토큰 등록.\n- design-components.md에 terminal-as-tab 시각 사양(SquareTerminal, label, mixed group) 추가.\n- design-interactions.md에 D&D 5-zone overlay 정책 추가.\n- popout 제거 명시 (design-layout.md 또는 design-components.md).\n- 모든 cross-link 유효 검증.\n- v0.2 deferral 항목 (corner 4-way 외에 v0.2로 보류된 항목들이 있다면) 명시 — 본 결정은 corner 4-way를 v0.1 포함했으므로 키보드/OS file/folder drop 중 v0.2만 표기.",
+          "approach": "위 5개 갱신 항목을 design-tokens.md/design-layout.md/design-components.md/design-interactions.md 4개 파일에 분산 추가. 기존 단락과 cross-link 유지. design.md 철학과 충돌 없도록 \"VS Code blue 회피\" 금지선 그대로 유지하되 oklch ring 색 사용은 명시. v0.1/v0.2 deferral 항목 명확히 표기.",
+          "risk": "design.md의 큰 흐름과 충돌 가능성. 특히 active-pane indicator 정책(Plan #34 결정)과 D&D overlay 색이 동시에 var(--color-ring)을 참조 → 시각 충돌 검토 필요.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd934-4f06-7bb3-ab25-6883bbdb4b72",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:18:15.591Z"
+        },
+        {
+          "id": 5,
+          "title": "ITerminalService 확장 + xterm 인스턴스 ownership 이전",
+          "status": "completed",
+          "context": "I4 결정: terminal Terminal 인스턴스 + WebglAddon ownership을 ITerminalService로 이전. TerminalPane은 attachToHost로 인스턴스를 가져와 attach만. detach 시 dispose 없이 보존. React 19 strict-mode 더블 마운트 호환을 위해 attachToHost는 idempotent. WebglAddon은 attach 사이 보존, host element 변경 시에만 re-open.",
+          "acceptance": "- ITerminalService 인터페이스에 5개 신규 메서드 시그니처 export.\n- 구현 idempotency: attachToHost 같은 host 두 번 호출 시 xterm.open이 한 번만 호출됨 (spy verify).\n- 인스턴스 lifecycle: closeTab 호출 시에만 Terminal#dispose 호출.\n- detachFromHost는 dispose 미호출 (보존 verify).\n- terminal-service.test.ts unit test 통과.",
+          "approach": "services/terminal-service.ts에 다음 시그니처 추가:\n- attachToHost(sessionId, host, opts?:{focus?:boolean}): TerminalServiceUnsubscribe\n- detachFromHost(sessionId): void (idempotent, dispose 호출 X)\n- focusSession(sessionId): boolean\n- requestNewTab(workspaceId): TerminalTabId\n- getMountedHost(sessionId): HTMLElement | null\n\n내부 구현: 인스턴스 + WebglAddon은 lazy create on first attachToHost, dispose on closeTab. attachToHost는 동일 host 재호출 시 no-op. host 변경 시에만 xterm.open(newHost) 재호출, WebglAddon은 reuse. mountShell/unmountShell는 process-wide bridge로 유지(PTY 부착/해제는 별 책임).",
+          "risk": "기존 TerminalPane이 직접 Terminal을 생성/dispose하던 경로와 race. 본 task만으로는 TerminalPane이 변경되지 않아 통합 안 된 상태로 남음 — 후속 task 필수. WebGL context loss 시 host 변경 검출 로직이 깨질 가능성.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd934-7d9c-7b82-9efe-0b624632203d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:18:34.487Z"
+        },
+        {
+          "id": 6,
+          "title": "terminal-instance-ownership system fixture (idempotency + dispose 보존)",
+          "status": "completed",
+          "context": "I4 결정: ITerminalService.attachToHost가 strict-mode 더블 마운트와 detach/attach 사이클에서 Terminal 인스턴스를 보존해야 함을 검증.",
+          "acceptance": "- terminal-instance-ownership-runtime.test.ts 추가, 4개 시나리오 모두 통과.\n- xterm Terminal#dispose가 detach/attach 사이에 호출되지 않음 verify.\n- attach 같은 host 재호출 시 xterm.open 호출 횟수 = 1.\n- bun run system-smoke 통과.",
+          "approach": "신규 fixture entry+test (terminal-instance-ownership.entry.tsx + .test.ts). 시나리오:\n1) attachToHost 호출 → instance 1 생성 검증.\n2) StrictMode 더블 마운트 시뮬: attachToHost 같은 host 두 번 → Terminal.open이 한 번만 호출됨 (spy).\n3) detachFromHost → dispose 호출되지 않음 (instance 보존).\n4) attachToHost(다른 host) → 기존 instance가 새 host에 open, dispose 미호출, WebglAddon 재사용.\n5) closeTab → dispose 1회 호출.\nPTY data 흐름은 이 task에서 검증하지 않음 (별 task). global window.__nexusTerminalOwnershipResult로 결과 export.",
+          "risk": "jsdom에서 WebglAddon 정확 동작 어려움. Electron renderer 환경 fixture로 실 동작 검증 필요. xterm spy 설정이 글로벌 누수 가능.",
+          "plan_issue": 4,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd93c-c003-7762-8c7c-6da14431c8fb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:18:43.673Z"
+        },
+        {
+          "id": 7,
+          "title": "EditorGroupsPart Layout에 onRenderTab adapter 추가 (컨텍스트 메뉴/middle-click/dirty)",
+          "status": "completed",
+          "context": "I2 결정: flexlayout TabSet 헤더를 single source로 사용. EditorPane이 갖던 풍부한 동작(컨텍스트 메뉴, middle-click close, dirty indicator)을 onRenderTab adapter로 이식. flexlayout이 그리는 탭 DOM을 wrap하는 형태.",
+          "acceptance": "- Layout이 onRenderTab을 받아 모든 탭에 adapter 적용.\n- 컨텍스트 메뉴 5개 항목(close/close others/close to right/close all/copy path/reveal in finder) flexlayout 탭 DOM 위에서 동작.\n- middle-click close 동작.\n- dirty indicator 표시 (file kind, dirty=true 케이스).\n- terminal kind 탭은 SquareTerminal + ${shell}—${cwdBasename} 라벨.\n- onRenderTab adapter unit test (입력: TabNode + EditorTab → 출력 ReactNode 구조).",
+          "approach": "parts/editor-groups/EditorGroupsPart.tsx의 Layout 컴포넌트에 onRenderTab 콜백 prop 추가. adapter는 pure-fn으로 분리(parts/editor-groups/onRenderTab-adapter.tsx 또는 동일 파일 내). 기능:\n1) 컨텍스트 메뉴 (close/close others/close to right/close all/copy path/reveal in finder) — tab-context-menu.tsx 재사용. tear-off-floating은 T3에서 제거됨.\n2) middle-click close 핸들러 (mousedown button=1).\n3) dirty indicator (active 탭이 dirty 시 작은 dot 표시, file kind만).\n4) terminal kind 탭은 SquareTerminal 아이콘 + label format ${shell}—${cwdBasename} (I4 시각 사양). 메타데이터는 ITerminalService.getTab(sessionId) 구독.",
+          "risk": "flexlayout의 탭 DOM에 우리 컨텍스트 메뉴를 얹을 때 z-index 충돌. flexlayout drag와 우리 mousedown handler의 충돌 가능. terminal 메타데이터 구독이 매 탭당 일어나면 성능 부담 — useSyncExternalStore selector 안정성 주의.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd947-7ae7-7ac3-b100-402f56329c03",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:18:58.852Z"
+        },
+        {
+          "id": 8,
+          "title": "EditorGroupsPart Layout에 onRenderTabSet stickyButtons 추가 (Save/Split-right)",
+          "status": "completed",
+          "context": "I2 결정: EditorPane의 Save 버튼과 Split-right 버튼을 flexlayout의 onRenderTabSet stickyButtons로 이주.",
+          "acceptance": "- onRenderTabSet 콜백이 Layout에 전달됨.\n- file 탭 active dirty 시 Save 버튼 노출, 클릭 → saveTab 호출.\n- Split-right 버튼 항상 노출, 클릭 → splitGroup({direction:'right'}) 호출.\n- terminal 탭 active 시 Save 버튼 hidden.\n- onRenderTabSet adapter unit test.",
+          "approach": "EditorGroupsPart Layout에 onRenderTabSet 콜백 추가. renderValues.stickyButtons 배열에 (1) Save 버튼 (active 탭이 file kind이고 dirty일 때만 enabled), (2) Split-right 버튼 추가. 클릭 시 IEditorGroupsService.saveTab/splitGroup 호출. terminal active 시 Save 버튼 hidden, Split-right는 가능.",
+          "risk": "flexlayout TabSet 헤더 우측 영역 폭이 stickyButtons로 좁아질 수 있음. 시각적 회귀.",
+          "plan_issue": 2,
+          "deps": [
+            3,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd953-b5c9-7763-9969-b505f75636e2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:19:05.947Z"
+        },
+        {
+          "id": 9,
+          "title": "EditorPane content-only 축소 + dormant dnd-kit 코드 제거 + SplitEditorPane retire",
+          "status": "completed",
+          "context": "I2 결정: EditorPane은 활성 탭의 Monaco 에디터 호스트만 책임. 자체 tabs.map 탭 스트립과 dnd-kit drag(SortableEditorTab/EditorTabSortableContext)는 dormant code → 삭제. footer는 별도 status-bar로 분리(다음 task). Plan #33 follow-up debt(SplitEditorPane retire)도 동시에.",
+          "acceptance": "- EditorPane이 활성 탭 1개의 Monaco 에디터만 호스팅(탭바 부재).\n- enableTabDrag, SortableEditorTab, EditorTabSortableContext 코드 검색 시 0건.\n- SplitEditorPane.tsx/.test.tsx 삭제됨.\n- _onMoveTabToPane/_onReorderTab/_onSplitTabRight props 검색 시 0건(EditorGroupsPart에서 destructure 후 버려진 것 포함).\n- bun run lint:renderer 통과.\n- Plan #33 follow-up debt 해소.",
+          "approach": "1) EditorPane.tsx의 tabs.map(...) 탭 스트립 렌더 제거(line 155, 462 등). 활성 탭의 Monaco 에디터 호스트만 남김.\n2) enableTabDrag prop 제거(어디서도 true로 설정 안 됨).\n3) SortableEditorTab, EditorTabSortableContext 삭제.\n4) EditorGroupsPart의 _onMoveTabToPane/_onReorderTab/_onSplitTabRight 미사용 props 제거.\n5) components/editor-tabs/drag-and-drop.ts는 SplitEditorPane.test.tsx 삭제 시 함께 retire.\n6) SplitEditorPane.tsx, SplitEditorPane.test.tsx 삭제.\n7) AppShell.tsx의 SplitEditorPane wiring 제거.",
+          "risk": "SplitEditorPane.test.tsx에 묶인 다른 가정이 있을 가능성. AppShell.tsx 라인 수 회수 효과 있을 것이나 다른 prop chain에 영향 가능.",
+          "plan_issue": 2,
+          "deps": [
+            7,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd959-e355-7fe3-b9c1-09fb0b7803e9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:19:24.999Z"
+        },
+        {
+          "id": 10,
+          "title": "parts/status-bar 신규 + active 탭 kind 분기 (file=LSP, terminal=shell·cwd·pid)",
+          "status": "completed",
+          "context": "I2/I4 D2 결정: EditorPane footer(LSP status, diagnostics 카운트, language indicator, Ctrl+F find shortcut hint)를 별도 status-bar 컴포넌트로 분리. active editor group의 active 탭 kind에 따라 file이면 LSP info, terminal이면 ${shell} · ${cwdBasename} · ${pid muted}.",
+          "acceptance": "- parts/status-bar/StatusBarPart.tsx 신규 컴포넌트 export.\n- file 탭 active 시 LSP status/diagnostics/language 표시.\n- terminal 탭 active 시 ${shell} · ${cwdBasename} · ${pid muted} 표시.\n- EditorPane에 footer 부재 (단일 status-bar).\n- StatusBarPart unit test (file/terminal kind 각 1 케이스).",
+          "approach": "1) parts/status-bar/StatusBarPart.tsx 신규. EditorGroupsPart 하단(또는 BottomPanel 위)에 마운트. 높이 ~24px.\n2) active editor group + active 탭을 IEditorGroupsService에서 구독.\n3) 탭 kind 분기:\n   - file: ILspService 구독 → LSP status, diagnostics 카운트, language. + Ctrl+F find shortcut hint.\n   - terminal: ITerminalService.getTab(sessionId) 구독 → shell basename, cwd basename, pid (muted).\n4) AppShell.tsx에 StatusBarPart wiring 추가, EditorPane에서 footer 코드 제거.",
+          "risk": "ILspService와 ITerminalService 동시 구독으로 selector 안정성 주의 (Plan #33 zustand selector 사고 재발 방지). status-bar 위치가 EditorGroupsPart 하단인지 BottomPanel과 같은 레벨인지 design-layout.md 확인 필요.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd966-6bf0-7122-810e-c432a562a640",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:19:38.661Z"
+        },
+        {
+          "id": 11,
+          "title": "탭 UI single source + status-bar system smoke + onRenderTab adapter unit",
+          "status": "completed",
+          "context": "I2 결정 검증: flexlayout TabSet 헤더 single source, EditorPane content-only, 컨텍스트 메뉴 5개 액션 + middle-click close가 flexlayout 탭 DOM 위에서 동작, status-bar 분기 동작.",
+          "acceptance": "- editor-pane-footerless-runtime.test.ts 신규, 5개 시나리오 통과.\n- onRenderTab-adapter.test.ts unit 통과 (file/terminal kind, dirty/clean 4 조합 ≥).\n- onRenderTabSet-adapter.test.ts unit 통과.\n- Plan #33 SplitEditorPane.test.tsx 삭제 후 회귀 없음 (T9에서 삭제됨).\n- bun run system-smoke 11/11 또는 +1로 12/12 패스.",
+          "approach": "신규 system smoke editor-pane-footerless-runtime.entry/.test:\n1) EditorPane이 탭 스트립을 더 이상 렌더하지 않음 (data-slot/role=tablist 검색 결과 0건).\n2) status-bar가 별도 영역에 마운트되는지 (data-slot=\"status-bar\").\n3) 컨텍스트 메뉴 5개 액션 시뮬: 우클릭 → close/close others/close to right/close all/copy path/reveal in finder 각각 발생 검증.\n4) middle-click close: button=1 mousedown → closeTab 호출.\n5) status-bar file vs terminal kind 분기: 탭 kind 전환 시 표시 내용 변경.\n+ onRenderTab adapter pure-fn unit test (입력→출력 ReactNode 구조).\n+ onRenderTabSet adapter unit test (Save/Split-right 버튼 활성/비활성 조건).",
+          "risk": "flexlayout의 컨텍스트 메뉴 발화 시점이 탭 클릭 시간과 충돌 가능. middle-click 검증은 React 합성 이벤트로 button=1 처리 확인 필요.",
+          "plan_issue": 2,
+          "deps": [
+            7,
+            8,
+            9,
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd96e-991e-7770-a004-93200183bb60",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:19:47.974Z"
+        },
+        {
+          "id": 12,
+          "title": "TerminalPane 단순화 (attachToHost 사용) + DOM helper service 이주",
+          "status": "completed",
+          "context": "I4 결정: TerminalPane은 service.attachToHost(sessionId, host)만 호출. 기존 직접 Terminal 생성/dispose 로직 제거. focusTerminal/clickNewTerminalTab DOM querySelector helper(useAppCommands.ts:267, commands.ts:311)는 두 host 공존 시 잘못된 host 타겟이므로 ITerminalService.focusSession/requestNewTab으로 이주. Critical 동반 의무.",
+          "acceptance": "- TerminalPane이 ShellTerminalTabs를 직접 생성/dispose 하지 않음 (코드 검색 0건).\n- focusTerminal과 clickNewTerminalTab이 querySelector 미사용, 서비스 메서드 호출.\n- TerminalPane 마운트/언마운트 사이에 PTY data 손실 없음 (수동 검증 또는 fixture).\n- useAppCommands.test.tsx 갱신 — focusTerminal mock이 service.focusSession을 호출하는지 verify.",
+          "approach": "1) components/TerminalPane.tsx (line 36-100): useEffect에서 service.attachToHost(sessionId, hostRef.current) 호출. cleanup에서 detachFromHost. 기존 ShellTerminalTabs 직접 생성 제거.\n2) useAppCommands.ts:267 focusTerminal: querySelector 대신 service.focusSession(activeSessionId) 호출.\n3) commands.ts:311 clickNewTerminalTab: querySelector 대신 service.requestNewTab(activeWorkspaceId) 호출.\n4) IME overlay(xterm-ime-overlay.ts) 바인딩이 instance에 묶여 있음을 검증 — service가 instance를 보존하므로 IME overlay는 자연 보존.",
+          "risk": "querySelector 의존하던 다른 곳이 있을 수 있음 (예: integration test). PTY 데이터가 attachToHost 시점 이전에 도착하면 버퍼링 정책 필요 — service가 책임져야 함 (이미 mountShell에 있을 수 있음, 검증 필요).",
+          "plan_issue": 4,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd93d-2e65-7a22-9cd5-ba001888fff9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:20:00.639Z"
+        },
+        {
+          "id": 13,
+          "title": "EditorGroupsPart factory에 terminal kind 분기 + TerminalPaneAdapter",
+          "status": "completed",
+          "context": "I4 결정: factory(EditorGroupsPart.tsx:68)는 단일 EDITOR_GROUP_TAB_COMPONENT 유지. config.editorGroupTab.kind === \"terminal\"이면 <TerminalPaneAdapter sessionId={configTab.id}/>, 아니면 기존 <EditorPane …/>. PTY id는 TabNode.config.editorGroupTab에 저장(기존 패턴 재사용).",
+          "acceptance": "- factory가 terminal kind 탭에 대해 TerminalPaneAdapter 반환.\n- TerminalPaneAdapter가 attachToHost/detachFromHost를 정확히 호출 (mount/unmount lifecycle).\n- terminal kind 탭이 editor group에 추가되면 xterm DOM이 해당 그룹 내에 마운트.\n- editor-groups-service의 terminal kind round-trip 검증 unit test.",
+          "approach": "1) parts/editor-groups/TerminalPaneAdapter.tsx 신규 — sessionId prop만 받아 ref div 생성 후 service.attachToHost(sessionId, divRef.current) 호출. cleanup에서 detachFromHost.\n2) EditorGroupsPart factory에 분기 추가:\n   const tabKind = node.getConfig()?.editorGroupTab?.kind;\n   if (tabKind === \"terminal\") return <TerminalPaneAdapter sessionId={tabId}/>;\n   else return <EditorPane …/>;\n3) editor-groups-service의 createFlexLayoutTab가 이미 terminal kind tab을 round-trip한다는 architect 발견을 검증하고, terminal kind tab 생성 헬퍼(예: createTerminalEditorTab(sessionId))가 있는지 확인 후 없으면 추가.",
+          "risk": "factory가 useCallback dependency 배열을 잘 관리하지 않으면 매 렌더마다 새 함수 → flexlayout이 모든 탭 재마운트. T13의 idempotent attachToHost로 일부 완화되지만 selector 안정성 주의.",
+          "plan_issue": 4,
+          "deps": [
+            5,
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd966-9a9a-76a2-b168-97d7e34b2c80",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:20:16.988Z"
+        },
+        {
+          "id": 14,
+          "title": "cross-layout 이동 명령 (attachTerminalTab + detachTerminalFromBottom + orchestrator)",
+          "status": "completed",
+          "context": "I4 결정: BottomPanel ↔ editor group 터미널 이동을 위한 명령. 단일 owner는 ITerminalService라 race 없음. 두 view는 attach만. 트리거: 컨텍스트 메뉴 + 팔레트 + drag (drag는 별 task로 분리).",
+          "acceptance": "- IEditorGroupsService.attachTerminalTab 메서드 export.\n- IBottomPanelService.detachTerminalFromBottom 메서드 export.\n- terminal.moveToEditorArea/moveToBottomPanel 명령 등록 (commands.ts).\n- 컨텍스트 메뉴에서 terminal 탭일 때 분기 항목 노출.\n- 명령 실행 후 PTY 데이터 손실 없음 (attachToHost idempotent로 보장).\n- service contract test 갱신.",
+          "approach": "1) IEditorGroupsService.attachTerminalTab(sessionId, target:{groupId, index?}): EditorGroupTabId — TabNode를 생성해 config.editorGroupTab.kind=\"terminal\" + tab id에 sessionId 매핑.\n2) IBottomPanelService.detachTerminalFromBottom(sessionId): void — BottomPanel의 터미널 탭 목록에서 제거.\n3) Orchestrator command(commands.ts):\n   - terminal.moveToEditorArea: detachTerminalFromBottom → attachTerminalTab(activeGroupId 또는 새 그룹).\n   - terminal.moveToBottomPanel: editor group에서 탭 제거 + bottomPanel.attachTerminal(sessionId). BottomPanel이 닫혀있으면 열기.\n4) 컨텍스트 메뉴 항목 추가:\n   - tab-context-menu.tsx에 terminal 탭일 때 \"Move Terminal to Editor Area\" 또는 \"Move to Bottom Panel\" 분기.\n5) 팔레트: \"Terminal: Move to Editor Area\", \"Terminal: Move to Bottom Panel\".\n6) 시각 피드백: 소스 탭 150ms fade-out (CSS transition).",
+          "risk": "BottomPanel이 닫혀있을 때 moveToBottomPanel 호출 → BottomPanel 자동 열기 정책 필요. 키바인딩 신규 X (디자인 결정).",
+          "plan_issue": 4,
+          "deps": [
+            5,
+            12,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd974-1813-7611-8772-0582cfb54e3a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:20:29.818Z"
+        },
+        {
+          "id": 15,
+          "title": "terminal dock fixture 일괄 (editor-terminal-dock-runtime + workspace-layout-persist 갱신 + ime-dock-preservation 갱신)",
+          "status": "completed",
+          "context": "I4 결정 검증: BottomPanel→editor 이동, editor 내 split, 두 터미널 dock, PTY 데이터 이동 중 보존, restart drop 정책, IME overlay rebind.",
+          "acceptance": "- editor-terminal-dock-runtime.test.ts 신규 + 3개 시나리오 모두 통과.\n- workspace-layout-persist-runtime 갱신 후 통과 (terminal restart drop 검증).\n- ime-dock-preservation-runtime 갱신 후 통과 (이동 후 IME 동작).\n- bun run system-smoke 13/13 또는 14/14 통과.",
+          "approach": "1) 신규 editor-terminal-dock-runtime.entry/.test:\n   - BottomPanel→editor 이동 시 PTY 데이터(Hello\\n) 전송 후 이동, 이동 후에도 같은 데이터가 xterm buffer에 보존.\n   - editor 내 split: terminal 탭을 우측으로 split → 두 그룹.\n   - 두 터미널 동시 dock (각각 다른 그룹).\n2) workspace-layout-persist-runtime.entry.tsx:582-586 단언 갱신: \"터미널 탭 restart drop, 그룹 survives\". 즉 직렬화/역직렬화 후 terminal 탭은 사라지지만 빈 그룹 자체는 보존.\n3) ime-dock-preservation-runtime: 터미널 이동 후 IME composing이 새 host에서도 동작 (한국어 입력 시뮬).",
+          "risk": "PTY 데이터 보존 검증은 timing 의존 — service가 attach 시점에 buffer를 즉시 flush하는지 확인. IME overlay는 instance-bound이므로 자연 보존되지만 fixture 검증 필수.",
+          "plan_issue": 4,
+          "deps": [
+            6,
+            12,
+            13,
+            14
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd991-25fb-7230-8dc8-e93acb5a5b7a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:20:41.490Z"
+        },
+        {
+          "id": 16,
+          "title": "IEditorGroupsService.dropExternalPayload 신규 + edge resolver pure-fn",
+          "status": "completed",
+          "context": "I1 결정: 외부 native drop을 받아 splitGroup/openTab으로 dispatch하는 서비스 메서드. edge resolver는 pure-fn으로 분리해 단위 테스트 가능.",
+          "acceptance": "- IEditorGroupsService.dropExternalPayload 메서드 export.\n- 5-zone hit-zone (33/34) 정확히 매핑.\n- corner 4-way (⌥) 활성 시 9-zone 매핑(center+5edges+4corners).\n- splitGroup 후 신규 그룹의 weight=100 보장 (T2와 통합).\n- service contract + edge-resolver unit ≥15 케이스 통과.",
+          "approach": "1) services/editor-groups-service.ts에 dropExternalPayload({payload, targetGroupId, edge, activate?}): EditorGroupId | null 추가.\n   - edge===\"center\" → workspace-file은 openTab(targetGroupId, tab) 위임. terminal-tab은 attachTerminalTab.\n   - edge!==\"center\" → 신규 그룹 id 생성, splitGroup({sourceGroupId: targetGroupId, direction: edge}) 호출, 이어서 openTab(newGroupId, tab) 또는 attachTerminalTab.\n   - workspace-file-multi/os-file-multi: 첫 항목으로 split 결정, 이후 동일 그룹에 loop.\n   - activate=true → setActiveTabset + selectTab.\n   - I3 weight=100 보장 (createModelJsonFromGroups가 이미 보장하지만 splitGroup 직후 형제 weight 균등화 호출).\n2) edge resolver pure-fn: parts/editor-groups/edge-resolver.ts에 resolveEditorDropEdge({rect, clientX, clientY, threshold:{edge:0.33, center:0.34}}): \"center\" | \"left\" | \"right\" | \"top\" | \"bottom\"\n3) corner 4-way (⌥+drag): event.altKey 시 edge 분할을 corner top-left/top-right/bottom-left/bottom-right로 확장. 이 v0.1 포함.\n4) Service contract test 갱신.\n5) Unit test for resolveEditorDropEdge (≥10 케이스: 5-zone × 2 (alt on/off)).",
+          "risk": "corner 4-way 구현이 splitGroup 두 번 연속 호출(예: split right → split bottom)으로 표현되는지 또는 별 mutation 필요한지 결정 필요. flexlayout이 corner를 직접 지원하지 않으면 두 단계 split.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd947-b42f-78d2-9536-e45d3c8d0a29",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:20:58.560Z"
+        },
+        {
+          "id": 17,
+          "title": "EditorGroupsPart 외곽 + per-TabSet drop overlay (5-zone, oklch ring, 즉시 표시)",
+          "status": "completed",
+          "context": "I1 결정: native HTML5 DataTransfer drop을 EditorGroupsPart 외곽 + per-TabSet overlay에서 직접 처리. VSCode 동작 1:1 (5-zone 33/34 hit-zone, dragenter 즉시 표시). 색은 oklch(var(--color-ring)/0.12) Teal.",
+          "acceptance": "- EditorGroupsPart section에 native drag/drop 핸들러 등록.\n- 5-zone overlay가 dragenter 즉시 표시 (33/34 비율).\n- ⌥+drag 시 9-zone(corner 추가) 표시.\n- splitter rect 위에서 overlay 비활성 (pointer-events:none).\n- 폴더 단독 drop tooltip 동작.\n- a11y aria-live \"Split <dir> of Editor Group N\" 발화 verify.\n- ESC 키 drag 취소 verify.",
+          "approach": "1) EditorGroupsPart의 section에 dragenter/over/leave/drop capture-phase 핸들러 추가. event.dataTransfer.types로 본인 payload만 acceptance.\n2) per-TabSet overlay: model.visitNodes로 얻은 TabSet rect 위에 position:absolute overlay. fill oklch(var(--color-ring)/0.12), 1px solid var(--color-ring), radius var(--radius), inset 4px.\n3) drag 활성 동안만 pointer-events:auto, 그렇지 않으면 none. splitter rect (data-attribute로 식별)는 hit-test에서 제외.\n4) edge resolver(T16) 호출로 edge 결정 후 시각적으로 해당 zone overlay 활성.\n5) drop 시 dropExternalPayload({payload, targetGroupId, edge}) 호출.\n6) ESC 키로 drag 취소 처리.\n7) sr-only live region \"Split <direction> of Editor Group N\" 발화 (a11y).\n8) 폴더 단독 drop 시 tooltip \"Drop files, not folders\" + no-op.",
+          "risk": "flexlayout splitter z-order 충돌 (R1). rect 캐시 stale (R2). 폴더 다중 파일 silent open ordering (R3). 모두 fixture 의무로 가드.",
+          "plan_issue": 1,
+          "deps": [
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd95a-1cf9-73b0-9a23-275cab420c47",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:21:18.027Z"
+        },
+        {
+          "id": 18,
+          "title": "openFileFromTreeDrop 위임 + OS Finder drag handler + 키보드 split 명령",
+          "status": "completed",
+          "context": "I1 결정: 호환을 위해 useEditorBindings.openFileFromTreeDrop는 dropExternalPayload({edge:'center'}) 위임으로 변경. OS Finder drag(workspace 외부 절대경로) v0.1 포함. 키보드 split 명령 v0.1 포함.",
+          "acceptance": "- openFileFromTreeDrop 시그니처는 호환 유지, 내부는 dropExternalPayload 위임.\n- OS Finder drag 시 외부 경로 파일이 새 탭으로 열림 (workspace-file vs os-file 분기 검증).\n- editor.splitToDirection 명령 4종 (left/right/top/bottom) 팔레트에 등록.\n- 다중 파일 drop 시 confirm 없이 모두 같은 그룹에 순서대로 open.\n- useEditorBindings.test.tsx 갱신.",
+          "approach": "1) useEditorBindings.ts:254-267 openFileFromTreeDrop을 IEditorGroupsService.dropExternalPayload({payload:{kind:\"workspace-file\", workspaceId, path, fileKind}, targetGroupId, edge:'center'}) 위임. multi/OS file 시그니처 확장도 동일 메서드 위임.\n2) OS Finder drag: drop 핸들러에서 event.dataTransfer.files를 ExternalEditorDropPayload kind:\"os-file\" variant로 변환. workspace 내부 경로면 workspace-file로 재해석, 외부면 os-file로 유지. v0.1: 외부 경로는 단순 open.\n3) 팔레트 명령 등록: editor.splitToDirection (left/right/top/bottom) — 활성 그룹 기준 splitGroup 호출. 단축키는 신규 X (디자인 결정).\n4) 다중 파일 silent open (confirm 없음, VSCode 일치).",
+          "risk": "OS Finder drag 시 path resolver가 sandbox 외부 경로를 다룰 수 있어야 함. main process file bridge에 절대경로 open API가 있는지 확인 필요.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            16,
+            17
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd966-c977-74d1-89b8-702683a411ac",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:21:31.203Z"
+        },
+        {
+          "id": 19,
+          "title": "cross-layout terminal drag (BottomPanel↔editor) — terminal-tab payload variant 발행",
+          "status": "completed",
+          "context": "I4 D4 결정: BottomPanel 터미널 탭과 editor group 터미널 탭 간 drag&drop을 I1의 5-zone overlay로 흡수. ExternalEditorDropPayload union의 terminal-tab variant를 발행/소비.",
+          "acceptance": "- BottomPanel 터미널 탭 drag → editor group drop이 cross-layout 이동 명령(T14)을 트리거.\n- editor group 터미널 탭 drag → BottomPanel \"tab area\" drop이 reverse 동작.\n- drop overlay 시각은 I1 5-zone과 동일.\n- Drag 매트릭스: 헤더 drag로 다른 editor group ✅, BottomPanel↔editor cross-area ✅.",
+          "approach": "1) BottomPanelPart의 터미널 탭 헤더에 draggable + onDragStart로 payload 발행: {kind:\"terminal-tab\", sourceGroupId:\"bottom-panel\", tabId:sessionId} 형태로 application/x-nexus-tab MIME에 작성. 또는 application/x-nexus-terminal-tab.\n2) 동일하게 EditorGroupsPart 내 terminal 탭의 drag도 같은 payload 발행 (flexlayout 자체 drag와 별도, 또는 통합).\n3) dropExternalPayload는 terminal-tab variant 분기를 이미 가짐(T16). 추가로 source가 bottom-panel이면 detachTerminalFromBottom + attachTerminalTab 호출, source가 editor group이면 그룹 간 이동 또는 BottomPanel로 이동.\n4) drop overlay는 I1과 동일 (T17).",
+          "risk": "flexlayout 자체 drag가 같은 element에 활성화돼 있으면 충돌. application/x-nexus-tab MIME으로 분기해 native drag 우선. BottomPanel은 flexlayout이 아닐 수 있어 별 drag 시스템 통합 비용.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            14,
+            17
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd974-5509-7fe1-b5c6-95f13cffda94",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:21:43.264Z"
+        },
+        {
+          "id": 20,
+          "title": "D&D split system smoke (editor-drop-runtime) + corner + OS file + 폴더 거부",
+          "status": "completed",
+          "context": "I1 결정 검증: 외곽 + per-TabSet drop overlay, dropExternalPayload 분기, edge resolver, R1/R2/R3 동반 가드.",
+          "acceptance": "- editor-drop-runtime.test.ts 11개 시나리오 모두 통과.\n- editor-split-fill-runtime.test.ts 신규 추가, 4개 시나리오(vertical/horizontal/4-pane/6-pane) 통과.\n- bun run system-smoke 16/16 또는 17/17 통과.",
+          "approach": "신규 editor-drop-runtime.entry/.test:\n1) center drop → 동일 그룹 탭 추가.\n2) right drop → 신규 group split.\n3) bottom drop → 신규 group horizontal split.\n4) ⌥+drag corner top-right → corner 4-way 분할.\n5) splitter rect 위 hover 시 overlay 비활성 (R1).\n6) dragover 매번 rect 재계산 throttle ≤16ms (R2).\n7) 폴더 단독 drop → no-op + tooltip \"Drop files, not folders\".\n8) 다중 파일 silent open + ordering (R3).\n9) OS Finder drag (외부 경로) → os-file variant로 open.\n10) ESC 키 drag 취소.\n11) a11y: sr-only live region 발화 검증.\n+ I3 editor-split-fill-runtime 시나리오 동시 검증 (drop 후 모든 그룹 width>0, 합 일관).",
+          "risk": "DataTransfer 합성 이벤트가 jsdom에서 부정확. Electron renderer 환경에서 합성 DragEvent + DataTransferItemList 구성 필요. corner 4-way 시뮬은 alt 키 합성 필수.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            16,
+            17,
+            18,
+            19
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd991-577d-7062-a978-70104ecf0c37",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:21:54.128Z"
+        },
+        {
+          "id": 21,
+          "title": "FileTreePanel 클릭 씹힘 통합 fix (focus 가드 + native draggable 제거 + onFocus stopPropagation 제거)",
+          "status": "completed",
+          "context": "I5 결정: 3건 root cause 통합 처리. (1) FileTreePanel.tsx:671-679 onFocusCapture가 외부에서 트리로 포커스 진입 시 무조건 이전 selectedTreePath로 tree.focus() → selectionFollowsFocus와 결합해 클릭 selection 되돌림. (2) row 971/987이 react-arborist dragHandle ref와 native draggable 두 drag 시스템에 동시 노출. (3) row onFocus stopPropagation이 selectionFollowsFocus 내부 listener에 영향 가능.",
+          "acceptance": "- onFocusCapture 가드가 외부→트리 클릭 진입과 Tab 진입을 구분.\n- row의 native draggable=true 제거됨.\n- row onFocus stopPropagation 제거됨.\n- 외부 OS 파일 drop이 여전히 동작 (regression 없음).\n- bun run lint:renderer 통과.",
+          "approach": "1) FileTreePanel.tsx:671-679 onFocusCapture 가드 강화: event.relatedTarget이 트리 행([data-file-tree-row=\"true\"])이면 skip, focus 발생 직후 동일 tick에서 onSelect 호출 중이면(isPendingSelectionUpdate ref 플래그) skip. 외부에서 들어오는데 클릭 시퀀스가 아닌 경우(Tab/프로그래매틱)에만 selectedTreePath 복원.\n2) FileTreePanel.tsx:987 native draggable={true} 제거. dataTransfer 발행은 react-arborist의 onDragStart 후크 또는 모델 콜백에서 1회만. writeFileTreeDragDataTransfer 호출 지점 단일화 (react-arborist 3.5.0 dragHandle ref + 자체 drag system이 single source).\n3) FileTreePanel.tsx:810-813 row onFocus event.stopPropagation() 제거. attrs.onFocus?.(event)만 호출.\n4) inbound drop(외부 OS 파일)은 별 경로(onDropCapture line 690)이므로 영향 없음을 verify.",
+          "risk": "react-arborist 자체 drag system이 외부로 발행되는 dataTransfer를 정확히 구성하지 못할 가능성. selectionFollowsFocus 내부 동작 변경 시 키보드 네비 회귀 가능.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd934-aca9-7823-b0e9-8a0f8d73bf2f",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:22:22.805Z"
+        },
+        {
+          "id": 22,
+          "title": "file-tree 클릭 회복력 fixture (focus-restore unit + click-resilience-runtime)",
+          "status": "completed",
+          "context": "I5 결정 검증: 클릭 씹힘 root cause 3건 통합 처리 후 회귀 가드.",
+          "acceptance": "- file-tree-focus-restore.test.ts 2개 케이스 통과.\n- file-tree-click-resilience-runtime.test.ts 통과 (20회 반복 모두 클릭 응답).\n- 기존 file-tree drag 관련 fixture 갱신 후 통과.\n- bun run system-smoke 17/17 또는 18/18 통과.",
+          "approach": "1) 신규 unit test file-tree-focus-restore.test.ts:\n   (a) 외부→트리 진입 시 클릭 시퀀스에서 selectedTreePath가 클릭한 경로로 정확히 설정.\n   (b) Tab 키 진입 시 이전 selectedTreePath 복원이 정상 동작.\n2) 신규 system smoke file-tree-click-resilience-runtime.entry/.test:\n   - ActivityBar(외부) → 파일트리 행 클릭 → 행 활성/선택 검증을 N=20회 반복 후 100% 일치.\n   - 키보드 Tab으로 트리 진입 → 이전 selectedTreePath 복원.\n3) 기존 file-tree drag fixture(있으면) 갱신: native draggable 제거 후 react-arborist drag system으로 dataTransfer 발행이 정상 작동.",
+          "risk": "N=20 반복은 timing flakey 가능. 시뮬 click 사이에 RAF/setTimeout 0 보장 필요.",
+          "plan_issue": 5,
+          "deps": [
+            21
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd93a-0502-7e60-9844-b34297dcd3c7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:22:31.716Z"
+        },
+        {
+          "id": 23,
+          "title": "main process titleBarStyle hiddenInset + trafficLightPosition (darwin 분기)",
+          "status": "completed",
+          "context": "I7 결정: macOS는 titleBarStyle: 'hiddenInset' + trafficLightPosition: {x:12, y:10}, 그 외 플랫폼은 default chrome (v0.2까지 fallback).",
+          "acceptance": "- entry.ts에서 darwin 시 titleBarStyle: 'hiddenInset' + trafficLightPosition 키 포함.\n- 다른 플랫폼에서 옵션 변경 없음.\n- preload에서 process.platform이 renderer에 노출됨.\n- bun run build 통과 (main+preload 빌드).",
+          "approach": "1) packages/app/src/main/electron-app/entry.ts:71-81 createMainWindow 옵션 수정:\n   - process.platform === 'darwin'이면 titleBarStyle: 'hiddenInset', trafficLightPosition: {x:12, y:10} 추가.\n   - 그 외 플랫폼은 옵션 변경 없음 (default chrome 유지).\n2) preload에서 process.platform을 contextBridge로 노출 (renderer가 platform abstraction 사용).\n3) BrowserWindow ctor 인자 spy를 위한 createMainWindow의 인자 분리 (이미 composeElectronAppServices 합성 root에 격리되어 있음 — 추가 리팩터 불필요).",
+          "risk": "trafficLightPosition은 zoom level 변경 시 약간의 시각 어긋남 보고(Electron #28608) — fixture에 fullscreen toggle 회귀 케이스 포함 의무.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd934-d8b5-7e02-9517-ea6ddaf9e9c1",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:22:41.450Z"
+        },
+        {
+          "id": 24,
+          "title": "parts/titlebar/TitleBarPart.tsx 신규 (drag region + palette trigger + disabled fallback + platform prop)",
+          "status": "completed",
+          "context": "I7 결정: macOS hiddenInset 시 ~36px 높이 커스텀 타이틀바. 좌측/중앙 비움 + 우측 palette trigger 단일. workspace 없을 때 trigger를 \"Open workspace…\" 단일 entry로 fallback. platform prop으로 darwin 분기.",
+          "acceptance": "- TitleBarPart 컴포넌트 export, platform prop 받음.\n- darwin 시 좌측 padding 78px, 그 외 0.\n- root 요소 WebkitAppRegion === 'drag'.\n- palette trigger WebkitAppRegion === 'no-drag', aria-label/aria-keyshortcuts 정확.\n- workspace 없을 때 fallback \"Open workspace…\" 동작.\n- TitleBarPart.test.tsx unit 통과 (darwin/win 분기, workspace 유무 fallback).",
+          "approach": "1) parts/titlebar/TitleBarPart.tsx 신규 컴포넌트:\n   - props: { platform: NodeJS.Platform } (preload 통해 주입).\n   - 높이: 신규 토큰 --titlebar-height: 36px.\n   - root: WebkitAppRegion: 'drag' + role=\"banner\" + aria-label=\"Application titlebar\".\n   - 좌측 패딩: platform==='darwin'이면 78px, 그 외 0.\n   - 우측: palette trigger button (Cmd 아이콘 + \"Search commands\" muted text + ⌘P kbd, h-7, width ~240px). WebkitAppRegion: 'no-drag' + aria-label=\"Open command palette\" + aria-keyshortcuts=\"Meta+P\".\n   - 클릭 시 commands.openCommandPalette 호출 (이미 구현됨).\n   - workspace 없을 때 fallback: trigger label \"Open workspace…\", 클릭 시 commands.openWorkspace.\n2) 토큰 추가: design-tokens.md에 --titlebar-height: 36px 등록 (T4의 design 문서 갱신과 같이).\n3) palette trigger 색: bg-secondary, hover bg-secondary/80, text muted-foreground, focus-visible 1px ring outline-offset -1px.",
+          "risk": "WebkitAppRegion drag 영역에 button 직접 배치하면 클릭 불가 — palette trigger는 반드시 no-drag. focus-visible ring이 hiddenInset traffic light와 시각 충돌 가능 — 좌측 78px 패딩으로 분리.",
+          "plan_issue": 7,
+          "deps": [
+            23
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd938-f4f5-7022-b5a1-32012bbe66ff",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:22:55.844Z"
+        },
+        {
+          "id": 25,
+          "title": "AppShell flex column 재배치 + WorkspaceStrip 헤더 시각 무게 감소",
+          "status": "completed",
+          "context": "I7 결정 + D1: AppShell 루트를 flex h-full → flex flex-col h-full로 변경, 첫 자식 TitleBarPart, 두 번째 기존 4-zone. WorkspaceStrip 헤더(\"WORKSPACES / 3 open\")는 시각 무게 감소 — 굵은 헤더가 \"엉성하다\" 인상의 주범 중 하나.",
+          "acceptance": "- AppShell 루트가 flex flex-col h-full + TitleBarPart 첫 자식.\n- WorkspaceStripPart 헤더 시각 무게 감소 적용.\n- AppShell.tsx 라인 수 ≤390 (Plan #34 387줄 기준 +3 이내).\n- workspace 없을 때 TitleBarPart의 fallback이 정상 노출.\n- bun run lint:renderer 통과.\n- 기존 system smoke 11/11 회귀 없음.",
+          "approach": "1) app/AppShell.tsx 루트 wrapping 변경:\n   - 현재 className \"flex h-full\" → \"flex flex-col h-full\".\n   - 첫 자식: <TitleBarPart platform={platform}/> (preload에서 주입).\n   - 두 번째 자식: 기존 4-zone(workspace strip + activity bar + side bar + center + bottom panel)을 감싸는 flex-1 컨테이너.\n2) WorkspaceStripPart.tsx의 \"WORKSPACES\" 헤더와 \"{n} open\" sub-text 시각 무게 감소:\n   - 굵은 헤더 → text-xs uppercase tracking-wide muted-foreground (font-medium 미만).\n   - \"{n} open\" 라벨도 text-[10px] tracking-wider muted-foreground/70.\n3) AppShell 라인 수 영향 verify (Plan #34 387줄 → ?): TitleBarPart 마운트 추가로 +5줄 정도, EditorPane footer 분리(T9, T10)로 -10줄 정도 — 순감소.",
+          "risk": "AppShell 라인 수가 다시 부풀 가능성 — 본 task 내 라인 수 가드 검증. WorkspaceStripPart 시각 변경이 active row indicator(Plan #34 결정)와 시각 충돌 가능.",
+          "plan_issue": 7,
+          "deps": [
+            24
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd93d-e54a-7af2-8e6c-3a1e2862f62e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T12:23:13.933Z"
+        },
+        {
+          "id": 26,
+          "title": "titlebar fixture (entry/composition unit + TitleBarPart unit + titlebar-runtime + fullscreen 회귀)",
+          "status": "completed",
+          "context": "I7 D4 결정 검증: BrowserWindow 옵션 정확, 좌측 78px 영역 비점유, drag region 동작, fullscreen toggle 후 trafficLightPosition 어긋남 회귀.",
+          "acceptance": "- main unit darwin/win 분기 spy 통과.\n- TitleBarPart unit 4개 케이스(darwin/win × workspace 유무) 통과.\n- titlebar-runtime.test.ts 통과 (기본 마운트 + fullscreen 5회 회귀).\n- 시각 토큰 회귀 단위 통과.\n- bun run system-smoke 18/18 또는 19/19 통과.",
+          "approach": "1) main unit (entry.test.ts 또는 electron-app-composition.test.ts):\n   - createMainWindow 호출 시 process.platform spoof하여 'darwin'이면 BrowserWindow ctor 인자에 titleBarStyle: 'hiddenInset' + trafficLightPosition 키 포함되는지 spy 검증.\n   - 'win32'에서 옵션 변경 없음 검증.\n2) renderer unit TitleBarPart.test.tsx:\n   - platform='darwin'에서 root style.WebkitAppRegion === 'drag', 좌측 padding ≥ 78px.\n   - palette trigger WebkitAppRegion === 'no-drag'.\n   - workspace 없을 때 trigger가 \"Open workspace…\" disabled-fallback.\n3) 신규 system smoke titlebar-runtime.entry/.test:\n   - Electron 부팅 후 BrowserWindow getOptions 검증.\n   - 타이틀바 DOM 마운트, 좌측 78px 영역(traffic light) 점유 X.\n   - palette trigger 클릭 시 명령 팔레트 열림.\n   - fullscreen toggle 후 trafficLightPosition 어긋남 (R1) 회귀: 진입/종료 사이클 5회 후 traffic light 좌표가 원위치.\n4) 시각 토큰 회귀 단위 테스트: 높이 36px, background `--color-background`, border-bottom 1px `--color-border`.",
+          "risk": "fullscreen toggle 시뮬은 Electron getCurrentWindow().setFullScreen(true/false) 호출 + IPC sync 필요. 5회 반복은 timing flakey 가능 → setFullScreen 후 'enter-full-screen' 이벤트 await.",
+          "plan_issue": 7,
+          "deps": [
+            23,
+            24,
+            25
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd943-385f-71d3-9eb0-94150b9b5297",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:23:28.035Z"
+        },
+        {
+          "id": 27,
+          "title": "design context 문서 갱신 reviewer 검증",
+          "status": "completed",
+          "context": "T4의 design 문서 갱신(titlebar/popout/terminal-as-tab/D&D overlay)이 design.md 철학과 cross-link, 기존 단락과 충돌 없는지 검증.",
+          "acceptance": "- 4개 design 문서 변경 사항 review 통과.\n- cross-link 깨짐 0건.\n- design.md 철학과 충돌 없음 보고.\n- v0.2 deferral 항목 모두 명시 보고.\n- 발견 issue가 있으면 명확한 수정 사항 list로 writer에게 피드백.",
+          "approach": "1) design-layout.md/components.md/interactions.md/tokens.md 변경 사항 review.\n2) 검증 항목:\n   - \"VS Code blue 회피\" 금지선 유지 + oklch ring 사용 명시 일관성.\n   - active-pane indicator(Plan #34: bg-zinc-600/bg-card/60)와 D&D overlay(var(--color-ring))의 시각 충돌 검토.\n   - terminal-as-tab 정책에 SquareTerminal/${shell}—${cwdBasename}/mixed group 모두 명시.\n   - popout 제거가 design-layout.md/components.md에 명시되었는지.\n   - --titlebar-height 토큰 등록.\n   - cross-link 모두 유효 (markdown 링크 깨짐 검증).\n   - v0.2 deferral 항목 누락 없음.\n3) 충돌 발견 시 issue 보고 후 writer task에 피드백.",
+          "risk": "design 문서 변경이 plan34 retro의 active-pane indicator 정책과 미세 충돌 가능 — 명시적 cross-link 보강 필요.",
+          "plan_issue": 7,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd93a-621b-7383-b116-54d87dec3d93",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-04-29T12:23:39.222Z"
+        }
+      ]
     }
   ]
 }

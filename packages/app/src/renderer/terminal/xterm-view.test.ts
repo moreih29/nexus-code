@@ -60,6 +60,7 @@ class FakeSearchAddon extends FakeAddon implements XtermSearchAddonLike {
 }
 
 class FakeTerminal implements XtermTerminalLike {
+  public element: HTMLElement | undefined;
   public readonly rows = 30;
   public readonly unicode = { activeVersion: "0" };
 
@@ -90,6 +91,7 @@ class FakeTerminal implements XtermTerminalLike {
     if (this.throwOnOpen) {
       throw new Error("open failed");
     }
+    this.element ??= {} as HTMLElement;
     this.openCount += 1;
   }
 
@@ -207,6 +209,7 @@ class FakeDocument {
 }
 
 class FakeContainer {
+  public readonly children: unknown[] = [];
   public readonly textarea = new FakeEventTarget();
   public readonly style: { position?: string } = {};
   public readonly ownerDocument?: FakeDocument;
@@ -220,6 +223,10 @@ class FakeContainer {
       return this.textarea;
     }
     return null;
+  }
+
+  public appendChild(child: unknown): void {
+    this.children.push(child);
   }
 }
 
@@ -381,6 +388,31 @@ describe("XtermView", () => {
     expect(terminal.inputs).toHaveLength(1);
     expect(terminal.writes).toHaveLength(1);
     expect(terminal.resizes).toHaveLength(1);
+  });
+
+  test("reattaches an existing terminal element to a new host without reopening xterm", () => {
+    const terminal = new FakeTerminal();
+    const fitAddon = new FakeFitAddon();
+    const dependencies: XtermViewDependencies = {
+      createTerminal: () => terminal,
+      createWebglAddon: () => new FakeAddon(),
+      createUnicode11Addon: () => new FakeAddon(),
+      createFitAddon: () => fitAddon,
+      createSearchAddon: () => new FakeSearchAddon(),
+    };
+    const firstContainer = new FakeContainer();
+    const secondContainer = new FakeContainer();
+    const view = new XtermView({}, dependencies);
+
+    expect(view.mount(firstContainer as unknown as HTMLElement)).toBeTrue();
+    view.detach();
+    expect(view.mount(secondContainer as unknown as HTMLElement)).toBeTrue();
+
+    expect(terminal.openCount).toBe(1);
+    expect(secondContainer.children).toEqual([terminal.element]);
+    expect(fitAddon.fitCount).toBe(2);
+
+    view.unmount();
   });
 
   test("repairs WebGL texture atlas and refreshes all rows when fit is called after visibility changes", () => {

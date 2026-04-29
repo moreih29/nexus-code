@@ -4,6 +4,7 @@ import type { WorkspaceId } from "../../../shared/src/contracts/workspace/worksp
 import type { EditorTab } from "../../src/renderer/services/editor-types";
 import { closeActiveEditorTabOrWorkspace, registerAppCommands } from "../../src/renderer/App";
 import { scrollWorkspaceTabIntoView } from "../../src/renderer/components/WorkspaceStrip";
+import { createTerminalService } from "../../src/renderer/services/terminal-service";
 import {
   keyboardRegistryStore,
   normalizeKeychord,
@@ -35,10 +36,13 @@ describe("Keybinding registry integration", () => {
     let toggleMaximizeCount = 0;
     let toggleBottomPanelCount = 0;
     let terminalFocusCount = 0;
+    let moveTerminalToEditorAreaCount = 0;
+    let moveTerminalToBottomPanelCount = 0;
     let splitRightCount = 0;
-    let tearOffCount = 0;
     let activeEditorTab: EditorTab | null = createTab("단축키.ts", { language: null, monacoLanguage: "typescript" });
+    const terminalService = createTerminalService();
     const movedDirections: string[] = [];
+    const splitDirections: string[] = [];
 
     registerAppCommands({
       closeWorkspace: async () => {
@@ -59,19 +63,24 @@ describe("Keybinding registry integration", () => {
       dismissSearch() {},
       goToNextSearchMatch() {},
       moveActiveEditorTabToPane: (direction) => movedDirections.push(direction),
+      moveTerminalToEditorArea: () => {
+        moveTerminalToEditorAreaCount += 1;
+      },
+      moveTerminalToBottomPanel: () => {
+        moveTerminalToBottomPanelCount += 1;
+      },
       openSearchPanel() {},
       openFolder: async () => {},
       showTerminalPanel: () => {
         terminalFocusCount += 1;
       },
-      tearOffActiveEditorTabToFloating: () => {
-        tearOffCount += 1;
-      },
       splitEditorPaneDown: () => {},
       splitEditorPaneRight: () => {
         splitRightCount += 1;
       },
+      splitEditorPaneToDirection: (direction) => splitDirections.push(direction),
       setCommandPaletteOpen() {},
+      terminalService,
       toggleActiveCenterPaneMaximize: () => {
         toggleMaximizeCount += 1;
       },
@@ -102,6 +111,21 @@ describe("Keybinding registry integration", () => {
       "Cmd+Alt+ArrowDown": "editor.moveActiveTabDown",
     });
     expect(keyboardRegistryStore.getState().getBindingFor("workbench.action.tearOffEditorToFloating")).toBeNull();
+    expect(keyboardRegistryStore.getState().commands["workbench.action.tearOffEditorToFloating"]).toBeUndefined();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.left")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.right")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.top")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.bottom")).toBeNull();
+    expect(keyboardRegistryStore.getState().getCommands().map((command) => command.id)).toEqual(expect.arrayContaining([
+      "editor.splitToDirection.left",
+      "editor.splitToDirection.right",
+      "editor.splitToDirection.top",
+      "editor.splitToDirection.bottom",
+      "terminal.moveToEditorArea",
+      "terminal.moveToBottomPanel",
+    ]));
+    expect(keyboardRegistryStore.getState().commands["terminal.moveToEditorArea"]?.title).toBe("Terminal: Move to Editor Area");
+    expect(keyboardRegistryStore.getState().commands["terminal.moveToBottomPanel"]?.title).toBe("Terminal: Move to Bottom Panel");
     expect(normalizeKeychord("cmd+alt+←")).toBe("Cmd+Alt+ArrowLeft");
     expect(normalizeKeychord("cmd+alt+→")).toBe("Cmd+Alt+ArrowRight");
     expect(normalizeKeychord("cmd+alt+↑")).toBe("Cmd+Alt+ArrowUp");
@@ -150,13 +174,20 @@ describe("Keybinding registry integration", () => {
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabRight");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabUp");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabDown");
-    await keyboardRegistryStore.getState().executeCommand("workbench.action.tearOffEditorToFloating");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.left");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.right");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.top");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.bottom");
+    await keyboardRegistryStore.getState().executeCommand("terminal.moveToEditorArea");
+    await keyboardRegistryStore.getState().executeCommand("terminal.moveToBottomPanel");
     expect(toggleMaximizeCount).toBe(1);
     expect(toggleBottomPanelCount).toBe(1);
     expect(terminalFocusCount).toBe(1);
     expect(splitRightCount).toBe(1);
-    expect(tearOffCount).toBe(1);
+    expect(moveTerminalToEditorAreaCount).toBe(1);
+    expect(moveTerminalToBottomPanelCount).toBe(1);
     expect(movedDirections).toEqual(["left", "right", "up", "down"]);
+    expect(splitDirections).toEqual(["left", "right", "top", "bottom"]);
 
     for (const shortcut of shortcutCases) {
       expect(shouldIgnoreKeyboardShortcut({ isComposing: true, ...shortcut })).toBe(true);

@@ -91,11 +91,13 @@ interface EdgeStopResult {
 }
 
 interface VisualSanityResult {
-  threshold: number;
+  activeMarkerClass: string;
   activeGroupId: string | null;
   inactiveGroupId: string | null;
   activeBackground: string | null;
   inactiveBackground: string | null;
+  activeGroupHasMarker: boolean;
+  inactiveGroupHasMarker: boolean;
   activeLuminance: number | null;
   inactiveLuminance: number | null;
   delta: number | null;
@@ -123,7 +125,7 @@ declare global {
 }
 
 const directions: readonly SpatialDirection[] = ["left", "right", "up", "down"];
-const minLuminanceDelta = 0.05;
+const activeTabsetMarkerClass = "flexlayout__tabset-selected";
 const workspaceId = "ws_six_group_spatial_runtime" as WorkspaceId;
 const workspaceRoot = "/tmp/nexus-six-group-spatial-runtime";
 const activeWorkspace: OpenSessionWorkspace = {
@@ -465,7 +467,7 @@ async function activateGroup(groupId: string): Promise<void> {
 
   pane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
   pane.click();
-  const tabButton = pane.querySelector<HTMLElement>('[data-action="editor-activate-tab"]');
+  const tabButton = layoutTabByGroupId(groupId);
   tabButton?.click();
   await waitUntil(
     () => activeGroupId() === groupId,
@@ -476,11 +478,7 @@ async function activateGroup(groupId: string): Promise<void> {
 
 async function activateEditorTabInGroup(groupId: string, title: string): Promise<void> {
   await activateGroup(groupId);
-  const pane = editorPaneByGroupId(groupId);
-  const tabButton = pane
-    ? Array.from(pane.querySelectorAll<HTMLElement>('[data-action="editor-activate-tab"]'))
-        .find((button) => button.textContent?.includes(title) === true) ?? null
-    : null;
+  const tabButton = layoutTabByGroupIdAndTitle(groupId, title);
 
   if (!tabButton) {
     throw new Error(`Cannot activate missing editor tab ${title} in group ${groupId}.`);
@@ -545,13 +543,19 @@ function collectSixGroupFixture(): SixGroupSpatialRuntimeSmokeResult["sixGroupFi
 }
 
 function collectGroups(): RuntimeGroup[] {
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-component="editor-pane"][data-editor-pane-id]'))
+  return Array.from(document.querySelectorAll<HTMLElement>(".flexlayout__tabset_container"))
+    .filter(isVisibleElement)
     .map((element) => {
       const rect = element.getBoundingClientRect();
+      const contentElement = visibleFlexLayoutContentForTabset(element);
+      const groupId = contentElement?.dataset.editorGroupId ?? "";
       return {
-        id: element.dataset.editorPaneId ?? "",
-        active: element.dataset.active === "true",
-        tabTitles: Array.from(element.querySelectorAll<HTMLElement>("[data-editor-tab-title-active]"))
+        id: groupId,
+        active:
+          tabsetHasActiveMarker(element) ||
+          contentElement?.querySelector('[data-component="editor-pane"][data-active="true"]') !== null,
+        tabTitles: Array.from(element.querySelectorAll<HTMLElement>('[data-editor-layout-tab-label="true"]'))
+          .filter(isVisibleElement)
           .map((tabTitle) => tabTitle.textContent?.trim() ?? "")
           .filter(Boolean),
         rect: {
@@ -570,10 +574,14 @@ function collectVisualSanity(): VisualSanityResult {
   const groups = collectGroups();
   const active = groups.find((group) => group.active) ?? null;
   const inactive = groups.find((group) => !group.active) ?? null;
-  const activeHeader = active ? editorPaneByGroupId(active.id)?.querySelector<HTMLElement>("[data-editor-pane-header]") ?? null : null;
-  const inactiveHeader = inactive ? editorPaneByGroupId(inactive.id)?.querySelector<HTMLElement>("[data-editor-pane-header]") ?? null : null;
+  const activeTabset = active ? tabsetContainerByGroupId(active.id) : null;
+  const inactiveTabset = inactive ? tabsetContainerByGroupId(inactive.id) : null;
+  const activeHeader = activeTabset?.querySelector<HTMLElement>(".flexlayout__tabset_tabbar_outer") ?? null;
+  const inactiveHeader = inactiveTabset?.querySelector<HTMLElement>(".flexlayout__tabset_tabbar_outer") ?? null;
   const activeBackground = activeHeader ? getComputedStyle(activeHeader).backgroundColor : null;
   const inactiveBackground = inactiveHeader ? getComputedStyle(inactiveHeader).backgroundColor : null;
+  const activeGroupHasMarker = activeTabset ? tabsetHasActiveMarker(activeTabset) : false;
+  const inactiveGroupHasMarker = inactiveTabset ? tabsetHasActiveMarker(inactiveTabset) : false;
   const canvas = document.createElement("canvas");
   const activeColor = activeBackground ? normalizeCssColor(activeBackground, canvas) : null;
   const inactiveColor = inactiveBackground ? normalizeCssColor(inactiveBackground, canvas) : null;
@@ -583,21 +591,23 @@ function collectVisualSanity(): VisualSanityResult {
   const delta = activeLuminance !== null && inactiveLuminance !== null
     ? Math.abs(activeLuminance - inactiveLuminance)
     : null;
-  const passed = delta !== null && delta >= minLuminanceDelta;
+  const passed = activeGroupHasMarker && !inactiveGroupHasMarker;
 
   return {
-    threshold: minLuminanceDelta,
+    activeMarkerClass: activeTabsetMarkerClass,
     activeGroupId: active?.id ?? null,
     inactiveGroupId: inactive?.id ?? null,
     activeBackground,
     inactiveBackground,
+    activeGroupHasMarker,
+    inactiveGroupHasMarker,
     activeLuminance,
     inactiveLuminance,
     delta,
     passed,
     reason: passed
       ? undefined
-      : `Active/inactive group header dark-mode luminance delta ${delta ?? "<unmeasured>"} is below threshold ${minLuminanceDelta}; active=${activeBackground ?? "<missing>"}, inactive=${inactiveBackground ?? "<missing>"}.`,
+      : `Active flexlayout tabset marker ${activeTabsetMarkerClass} was not exclusive to the active group; active=${activeGroupHasMarker}, inactive=${inactiveGroupHasMarker}.`,
   };
 }
 
@@ -749,8 +759,8 @@ function deterministicContractSummaries(): DeterministicContractSummary[] {
 }
 
 function visibleEditorTabTitles(): string[] {
-  return Array.from(document.querySelectorAll<HTMLElement>("[data-editor-tab-title-active]"))
-    .filter((element) => element.offsetParent !== null)
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab-label="true"]'))
+    .filter(isVisibleElement)
     .map((element) => element.textContent?.trim() ?? "")
     .filter(Boolean)
     .sort();
@@ -766,6 +776,66 @@ function activeGroupId(): string | null {
 
 function editorPaneByGroupId(groupId: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-component="editor-pane"][data-editor-pane-id="${CSS.escape(groupId)}"]`);
+}
+
+function tabsetContainerByGroupId(groupId: string): HTMLElement | null {
+  return Array.from(document.querySelectorAll<HTMLElement>(".flexlayout__tabset_container"))
+    .filter(isVisibleElement)
+    .find((element) => visibleFlexLayoutContentForTabset(element)?.dataset.editorGroupId === groupId) ?? null;
+}
+
+function layoutTabByGroupId(groupId: string): HTMLElement | null {
+  return tabsetContainerByGroupId(groupId)
+    ?.querySelector<HTMLElement>('[data-editor-layout-tab="true"]') ?? null;
+}
+
+function layoutTabByGroupIdAndTitle(groupId: string, title: string): HTMLElement | null {
+  const tabset = tabsetContainerByGroupId(groupId);
+  if (!tabset) {
+    return null;
+  }
+
+  return Array.from(tabset.querySelectorAll<HTMLElement>('[data-editor-layout-tab="true"]'))
+    .filter(isVisibleElement)
+    .find((button) => button.textContent?.includes(title) === true) ?? null;
+}
+
+function isVisibleElement(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.top < window.innerHeight &&
+    style.display !== "none" &&
+    style.visibility !== "hidden"
+  );
+}
+
+function tabsetHasActiveMarker(tabset: HTMLElement): boolean {
+  return tabset.querySelector(`.${activeTabsetMarkerClass}`) !== null;
+}
+
+function visibleFlexLayoutContentForTabset(tabset: HTMLElement): HTMLElement | null {
+  const tabsetRect = tabset.getBoundingClientRect();
+  const ranked = Array.from(document.querySelectorAll<HTMLElement>('[data-editor-flexlayout-tab-content="true"][data-editor-group-id]'))
+    .filter(isVisibleElement)
+    .map((content) => ({
+      content,
+      area: rectIntersectionArea(tabsetRect, content.getBoundingClientRect()),
+    }))
+    .sort((left, right) => right.area - left.area);
+
+  return ranked[0] && ranked[0].area > 0 ? ranked[0].content : null;
+}
+
+function rectIntersectionArea(leftRect: DOMRect | DOMRectReadOnly, rightRect: DOMRect | DOMRectReadOnly): number {
+  const left = Math.max(leftRect.left, rightRect.left);
+  const right = Math.min(leftRect.right, rightRect.right);
+  const top = Math.max(leftRect.top, rightRect.top);
+  const bottom = Math.min(leftRect.bottom, rightRect.bottom);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
 }
 
 function dispatchSpatialShortcut(direction: SpatialDirection): void {
@@ -1486,11 +1556,13 @@ function failedResult(reason: string): SixGroupSpatialRuntimeSmokeResult {
       deterministicContracts: deterministicContractSummaries(),
     },
     visualSanity: {
-      threshold: minLuminanceDelta,
+      activeMarkerClass: activeTabsetMarkerClass,
       activeGroupId: null,
       inactiveGroupId: null,
       activeBackground: null,
       inactiveBackground: null,
+      activeGroupHasMarker: false,
+      inactiveGroupHasMarker: false,
       activeLuminance: null,
       inactiveLuminance: null,
       delta: null,

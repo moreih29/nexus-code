@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
 import type { EditorTab } from "./services/editor-types";
+import { createTerminalService } from "./services/terminal-service";
 import { keyboardRegistryStore } from "./stores/keyboard-registry";
 import { createWorkspaceStore } from "./stores/workspace-store";
 import { closeActiveEditorTabOrWorkspace, registerAppCommands, unifiedDiffToSideContents } from "./App";
@@ -46,11 +47,12 @@ describe("App command registration", () => {
     let centerMaximizeToggleCount = 0;
     let bottomPanelToggleCount = 0;
     let terminalFocusCount = 0;
-    let tearOffCount = 0;
     let activeEditorTab: EditorTab | null = createPlaintextTab();
+    const terminalService = createTerminalService();
     const searchPanelModes: boolean[] = [];
     let nextSearchMatchCount = 0;
     let dismissCount = 0;
+    const splitDirections: string[] = [];
 
     registerAppCommands({
       closeWorkspace: async (id) => {
@@ -81,13 +83,14 @@ describe("App command registration", () => {
       openFolder: async () => {},
       splitEditorPaneDown() {},
       splitEditorPaneRight() {},
+      splitEditorPaneToDirection(direction) {
+        splitDirections.push(direction);
+      },
       setCommandPaletteOpen() {},
       showTerminalPanel() {
         terminalFocusCount += 1;
       },
-      tearOffActiveEditorTabToFloating() {
-        tearOffCount += 1;
-      },
+      terminalService,
       toggleActiveCenterPaneMaximize() {
         centerMaximizeToggleCount += 1;
       },
@@ -122,9 +125,16 @@ describe("App command registration", () => {
       "Move Editor Right",
       "Move Editor Up",
       "Move Editor Down",
-      "Move Editor to New Floating Window",
+      "Split Editor to Left",
+      "Split Editor to Right",
+      "Split Editor to Top",
+      "Split Editor to Bottom",
     ]));
-    expect(keyboardRegistryStore.getState().commands["workbench.action.tearOffEditorToFloating"]?.keywords).toContain("분리");
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.left")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.right")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.top")).toBeNull();
+    expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.bottom")).toBeNull();
+    expect(keyboardRegistryStore.getState().commands["workbench.action.tearOffEditorToFloating"]).toBeUndefined();
 
     await keyboardRegistryStore.getState().executeCommand("editor.closeActiveTab");
     expect(activeEditorTab).toBeNull();
@@ -145,16 +155,18 @@ describe("App command registration", () => {
     await keyboardRegistryStore.getState().executeCommand("view.focusTerminal");
     expect(terminalFocusCount).toBe(1);
 
-    await keyboardRegistryStore.getState().executeCommand("workbench.action.tearOffEditorToFloating");
-    expect(tearOffCount).toBe(1);
-
     await keyboardRegistryStore.getState().executeCommand("search.focus");
     await keyboardRegistryStore.getState().executeCommand("search.replace");
     await keyboardRegistryStore.getState().executeCommand("search.nextMatch");
     await keyboardRegistryStore.getState().executeCommand("app.escape");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.left");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.right");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.top");
+    await keyboardRegistryStore.getState().executeCommand("editor.splitToDirection.bottom");
     expect(searchPanelModes).toEqual([false, true]);
     expect(nextSearchMatchCount).toBe(1);
     expect(dismissCount).toBe(1);
+    expect(splitDirections).toEqual(["left", "right", "top", "bottom"]);
   });
 });
 

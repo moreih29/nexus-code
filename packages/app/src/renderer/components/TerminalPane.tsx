@@ -1,225 +1,183 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, type DragEvent } from "react";
+import { useStore } from "zustand";
 import { Plus, SquareTerminal, X } from "lucide-react";
 
-import type { TerminalTabId } from "../../../../shared/src/contracts/terminal/terminal-tab";
 import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
-import { createShellTerminalSessionAdapter } from "../adapters/shell-terminal-session-adapter";
-import { PreloadTerminalBridgeTransport } from "../adapters/preload-terminal-bridge-transport";
+import type { TerminalServiceStore, TerminalTab, TerminalTabId } from "../services/terminal-service";
+import {
+  dataTransferHasTerminalTabDragData,
+  readTerminalTabDragDataTransfer,
+  writeTerminalTabDragDataTransfer,
+  type TerminalTabDragData,
+} from "./file-tree-dnd/drag-and-drop";
 import { Button } from "./ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
 import { EmptyState } from "./EmptyState";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { cn } from "../lib/utils";
-import {
-  ShellTerminalTabs,
-  type ShellTerminalClipboard,
-  type ShellTerminalTabsSnapshot,
-} from "../terminal/shell-terminal-tab";
-import { TerminalBridge } from "../terminal/terminal-bridge";
-import { installTerminalHostResizeFit } from "../terminal/terminal-resize-fit";
 
 export interface TerminalPaneProps {
   sidebarState: WorkspaceSidebarState;
+  terminalService: TerminalServiceStore;
+  detachedTerminalIds?: readonly TerminalTabId[];
+  onMoveTerminalToEditorArea?(sessionId: TerminalTabId): void;
+  onDropTerminalTab?(payload: TerminalTabDragData): boolean | void;
 }
 
-const EMPTY_SNAPSHOT: ShellTerminalTabsSnapshot = {
-  workspaceOrder: [],
-  activeWorkspaceId: null,
-  workspaces: [],
-  search: {
-    isOpen: false,
-    query: "",
-    noMoreMatches: false,
-    statusMessage: null,
-  },
-};
+interface TerminalSessionHostProps {
+  active: boolean;
+  sessionId: TerminalTabId;
+  terminalService: TerminalServiceStore;
+}
 
-export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
-  const terminalHostRef = useRef<HTMLDivElement | null>(null);
-  const terminalTabsRef = useRef<ShellTerminalTabs | null>(null);
-  const operationQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const disposedRef = useRef(false);
-
-  const [snapshot, setSnapshot] = useState<ShellTerminalTabsSnapshot>(EMPTY_SNAPSHOT);
-
-  const refreshSnapshot = useCallback(() => {
-    if (disposedRef.current) {
-      return;
-    }
-
-    const terminalTabs = terminalTabsRef.current;
-    if (!terminalTabs) {
-      setSnapshot(EMPTY_SNAPSHOT);
-      return;
-    }
-
-    setSnapshot(terminalTabs.getSnapshot());
-  }, []);
-
-  const enqueueTabsOperation = useCallback(
-    (operationName: string, operation: (terminalTabs: ShellTerminalTabs) => Promise<void> | void) => {
-      operationQueueRef.current = operationQueueRef.current
-        .catch(() => {
-          // keep processing queued operations after failures.
-        })
-        .then(async () => {
-          if (disposedRef.current) {
-            return;
-          }
-
-          const terminalTabs = terminalTabsRef.current;
-          if (!terminalTabs) {
-            return;
-          }
-
-          try {
-            await operation(terminalTabs);
-          } catch (error) {
-            console.error(`TerminalPane: failed to ${operationName}.`, error);
-          }
-
-          refreshSnapshot();
-        });
-    },
-    [refreshSnapshot],
-  );
-
-  useEffect(() => {
-    const terminalHost = terminalHostRef.current;
-    if (!terminalHost) {
-      return;
-    }
-
-    disposedRef.current = false;
-
-    const bridge = new TerminalBridge(new PreloadTerminalBridgeTransport());
-    const terminalTabs = new ShellTerminalTabs({
-      terminalPaneHost: terminalHost,
-      session: createShellTerminalSessionAdapter(bridge),
-      clipboard: createClipboardAdapter(),
-    });
-
-    terminalTabsRef.current = terminalTabs;
-    const resizeFitSubscription = installTerminalHostResizeFit({
-      host: terminalHost,
-      getTerminalTabs: () => terminalTabsRef.current,
-    });
-    refreshSnapshot();
-
-    const stdoutSubscription = bridge.onStdout((stdoutChunk) => {
-      terminalTabsRef.current?.writeToTab(stdoutChunk.tabId, stdoutChunk.data);
-    });
-
-    const openedSubscription = bridge.onOpened((openedEvent) => {
-      enqueueTabsOperation("register opened terminal tab", (tabs) => {
-        tabs.registerOpenedTab(openedEvent.workspaceId, openedEvent.tabId, true);
-      });
-    });
-
-    const exitedSubscription = bridge.onExited((exitEvent) => {
-      enqueueTabsOperation("cleanup exited tab", (tabs) => {
-        tabs.handleTabExited(exitEvent.tabId);
-      });
-    });
-
-    return () => {
-      disposedRef.current = true;
-
-      stdoutSubscription.dispose();
-      openedSubscription.dispose();
-      exitedSubscription.dispose();
-
-      resizeFitSubscription.dispose();
-      terminalTabs.dispose();
-      bridge.dispose();
-
-      terminalTabsRef.current = null;
-      operationQueueRef.current = Promise.resolve();
-      setSnapshot(EMPTY_SNAPSHOT);
-    };
-  }, [enqueueTabsOperation, refreshSnapshot]);
-
-  useEffect(() => {
-    enqueueTabsOperation("sync workspace sidebar state", async (terminalTabs) => {
-      await terminalTabs.syncSidebarState(sidebarState);
-    });
-  }, [enqueueTabsOperation, sidebarState]);
-
-  const activeWorkspace =
-    snapshot.workspaces.find((workspace) => workspace.workspaceId === sidebarState.activeWorkspaceId) ??
-    snapshot.workspaces.find((workspace) => workspace.isActiveWorkspace) ??
-    null;
-
+export function TerminalPane({
+  sidebarState,
+  terminalService,
+  detachedTerminalIds = [],
+  onMoveTerminalToEditorArea,
+  onDropTerminalTab,
+}: TerminalPaneProps): JSX.Element {
+  const tabs = useStore(terminalService, (state) => state.tabs);
+  const activeTabIdByWorkspaceId = useStore(terminalService, (state) => state.activeTabIdByWorkspaceId);
   const activeWorkspaceId = sidebarState.activeWorkspaceId;
-  const activeTabId = activeWorkspace?.tabs.find((tab) => tab.isActive)?.tabId;
+  const detachedTerminalIdSet = useMemo(() => new Set(detachedTerminalIds), [detachedTerminalIds]);
+  const activeWorkspaceTabs = useMemo(
+    () => tabs.filter((tab) => tab.workspaceId === activeWorkspaceId && !detachedTerminalIdSet.has(tab.id)),
+    [activeWorkspaceId, detachedTerminalIdSet, tabs],
+  );
+  const activeTabId = resolveActiveTabId(
+    activeWorkspaceTabs,
+    activeWorkspaceId ? activeTabIdByWorkspaceId[activeWorkspaceId] : null,
+  );
 
   const handleCreateTab = useCallback(() => {
     if (!activeWorkspaceId) {
       return;
     }
 
-    enqueueTabsOperation("create terminal tab", async (terminalTabs) => {
-      await terminalTabs.createTab(activeWorkspaceId, true);
+    void terminalService.getState().requestNewTab(activeWorkspaceId).catch((error) => {
+      console.error("TerminalPane: failed to create terminal tab.", error);
     });
-  }, [activeWorkspaceId, enqueueTabsOperation]);
+  }, [activeWorkspaceId, terminalService]);
 
   const handleActivateTab = useCallback(
     (tabId: TerminalTabId) => {
-      enqueueTabsOperation("activate terminal tab", (terminalTabs) => {
-        terminalTabs.activateTab(tabId);
-      });
+      terminalService.getState().setActiveTab(tabId);
     },
-    [enqueueTabsOperation],
+    [terminalService],
   );
 
   const handleCloseTab = useCallback(
     (tabId: TerminalTabId) => {
-      enqueueTabsOperation("close terminal tab", async (terminalTabs) => {
-        await terminalTabs.closeTab(tabId);
-      });
+      terminalService.getState().closeTab(tabId);
     },
-    [enqueueTabsOperation],
+    [terminalService],
   );
+  const handleTerminalTabDropTargetDragOver = useCallback((event: DragEvent<HTMLElement>) => {
+    const payload = readTerminalTabDragDataTransfer(event.dataTransfer);
+    if (!isEditorGroupTerminalTabDropPayload(payload) && !(
+      payload === null && dataTransferHasTerminalTabDragData(event.dataTransfer)
+    )) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+  const handleTerminalTabDropTargetDrop = useCallback((event: DragEvent<HTMLElement>) => {
+    const payload = readTerminalTabDragDataTransfer(event.dataTransfer);
+    if (!isEditorGroupTerminalTabDropPayload(payload)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    applyEditorGroupTerminalTabDrop(payload, terminalService, onDropTerminalTab);
+  }, [onDropTerminalTab, terminalService]);
 
   return (
     <section data-component="terminal-pane" className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <header className="flex items-center gap-2 border-b border-border pb-2">
         <Tabs
-          value={activeTabId}
+          value={activeTabId ?? undefined}
           onValueChange={(tabId) => {
             handleActivateTab(tabId as TerminalTabId);
           }}
           className="min-w-0 flex-1 gap-0"
         >
-          <TabsList variant="line" className="h-9 max-w-full justify-start overflow-x-auto rounded-none p-0">
-            {activeWorkspace?.tabs.map((tab) => (
-              <div key={tab.tabId} className="flex h-9 flex-shrink-0 items-center gap-1">
-                <TabsTrigger
-                  value={tab.tabId}
-                  data-action="activate-tab"
-                  data-tab-id={tab.tabId}
-                  data-active={tab.isActive ? "true" : "false"}
-                  className={cn(
-                    "h-9 rounded-md border border-transparent px-3 text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-accent data-[state=active]:text-accent-foreground",
-                    "after:hidden dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-accent dark:data-[state=active]:text-accent-foreground",
-                  )}
-                >
-                  {tab.title}
-                </TabsTrigger>
-                <Button
-                  type="button"
-                  data-action="close-tab"
-                  data-tab-id={tab.tabId}
-                  aria-label={`Close ${tab.title}`}
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    handleCloseTab(tab.tabId);
-                  }}
-                >
-                  <X size={14} strokeWidth={1.75} />
-                </Button>
-              </div>
+          <TabsList
+            variant="line"
+            data-terminal-tab-drop-zone="bottom-panel"
+            onDragEnter={handleTerminalTabDropTargetDragOver}
+            onDragOver={handleTerminalTabDropTargetDragOver}
+            onDrop={handleTerminalTabDropTargetDrop}
+            className="h-9 max-w-full justify-start overflow-x-auto rounded-none p-0"
+          >
+            {activeWorkspaceTabs.map((tab) => (
+              <ContextMenu key={tab.id}>
+                <ContextMenuTrigger asChild>
+                  <div className="flex h-9 flex-shrink-0 items-center gap-1">
+                    <TabsTrigger
+                      value={tab.id}
+                      data-action="activate-tab"
+                      data-tab-id={tab.id}
+                      data-terminal-tab-drag-source="bottom-panel"
+                      data-active={activeTabId === tab.id ? "true" : "false"}
+                      draggable={Boolean(tab.workspaceId)}
+                      className={cn(
+                        "h-9 rounded-md border border-transparent px-3 text-base font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=active]:bg-accent data-[state=active]:text-accent-foreground",
+                        "after:hidden dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-accent dark:data-[state=active]:text-accent-foreground",
+                      )}
+                      onDragStart={(event) => handleBottomPanelTerminalTabDragStart(event, tab)}
+                    >
+                      {tab.title}
+                    </TabsTrigger>
+                    <Button
+                      type="button"
+                      data-action="close-tab"
+                      data-tab-id={tab.id}
+                      aria-label={`Close ${tab.title}`}
+                      variant="ghost"
+                      size="icon-xs"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        handleCloseTab(tab.id);
+                      }}
+                    >
+                      <X size={14} strokeWidth={1.75} />
+                    </Button>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent data-terminal-tab-context-menu="true" aria-label={`${tab.title} terminal tab menu`}>
+                  <ContextMenuItem
+                    data-menu-item-id="move-to-editor-area"
+                    disabled={!onMoveTerminalToEditorArea}
+                    onSelect={() => {
+                      onMoveTerminalToEditorArea?.(tab.id);
+                    }}
+                  >
+                    <SquareTerminal aria-hidden="true" className="text-muted-foreground" />
+                    <span>Move to Editor Area</span>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    data-menu-item-id="close"
+                    onSelect={() => {
+                      handleCloseTab(tab.id);
+                    }}
+                  >
+                    <X aria-hidden="true" className="text-muted-foreground" />
+                    <span>Close</span>
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
 
           </TabsList>
@@ -239,14 +197,17 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
         </Button>
       </header>
 
-      <div className="relative mt-2 min-h-0 flex-1 overflow-hidden bg-background">
-        <div
-          ref={terminalHostRef}
-          data-slot="terminal-pane-host"
-          className="h-full min-h-0 w-full overflow-hidden"
-        />
+      <div className="relative mt-2 min-h-0 flex-1 overflow-hidden bg-background" data-slot="terminal-pane-host">
+        {activeWorkspaceTabs.map((tab) => (
+          <TerminalSessionHost
+            key={tab.id}
+            sessionId={tab.id}
+            active={activeTabId === tab.id}
+            terminalService={terminalService}
+          />
+        ))}
 
-        {!activeWorkspaceId || !activeWorkspace || activeWorkspace.tabs.length === 0 ? (
+        {!activeWorkspaceId || activeWorkspaceTabs.length === 0 ? (
           <div className="absolute inset-0 bg-background">
             <EmptyState
               icon={SquareTerminal}
@@ -261,33 +222,82 @@ export function TerminalPane({ sidebarState }: TerminalPaneProps): JSX.Element {
   );
 }
 
-function createClipboardAdapter(): ShellTerminalClipboard {
-  const clipboardApi = globalThis.navigator?.clipboard;
-  if (!clipboardApi) {
-    return {
-      async readText(): Promise<string> {
-        return "";
-      },
-      async writeText(_value: string): Promise<void> {
-        // no-op
-      },
-    };
+function TerminalSessionHost({ active, sessionId, terminalService }: TerminalSessionHostProps): JSX.Element {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+
+    return terminalService.getState().attachToHost(sessionId, host, { focus: active });
+  }, [active, sessionId, terminalService]);
+
+  useEffect(() => {
+    if (active) {
+      terminalService.getState().focusSession(sessionId);
+    }
+  }, [active, sessionId, terminalService]);
+
+  return (
+    <div
+      ref={hostRef}
+      data-terminal-tab-id={sessionId}
+      aria-hidden={active ? "false" : "true"}
+      className={cn("absolute inset-0 h-full min-h-0 w-full overflow-hidden", active ? "block" : "hidden")}
+    />
+  );
+}
+
+function resolveActiveTabId(
+  tabs: readonly TerminalTab[],
+  requestedActiveTabId: TerminalTabId | null | undefined,
+): TerminalTabId | null {
+  if (requestedActiveTabId && tabs.some((tab) => tab.id === requestedActiveTabId)) {
+    return requestedActiveTabId;
   }
 
-  return {
-    async readText(): Promise<string> {
-      try {
-        return await clipboardApi.readText();
-      } catch {
-        return "";
-      }
-    },
-    async writeText(value: string): Promise<void> {
-      try {
-        await clipboardApi.writeText(value);
-      } catch {
-        // no-op
-      }
-    },
-  };
+  return tabs.at(-1)?.id ?? null;
+}
+
+export function isEditorGroupTerminalTabDropPayload(
+  payload: TerminalTabDragData | null,
+): payload is TerminalTabDragData {
+  return payload?.source === "editor-group" || (payload?.source === undefined && Boolean(payload?.sourceGroupId));
+}
+
+export function applyEditorGroupTerminalTabDrop(
+  payload: TerminalTabDragData | null,
+  terminalService: TerminalServiceStore,
+  onDropTerminalTab?: (payload: TerminalTabDragData) => boolean | void,
+): boolean {
+  if (!isEditorGroupTerminalTabDropPayload(payload)) {
+    return false;
+  }
+
+  const handled = onDropTerminalTab?.(payload);
+  if (handled === false) {
+    return false;
+  }
+
+  terminalService.getState().setActiveTab(payload.tabId);
+  return true;
+}
+
+function handleBottomPanelTerminalTabDragStart(
+  event: DragEvent<HTMLElement>,
+  tab: TerminalTab,
+): void {
+  if (!tab.workspaceId) {
+    event.preventDefault();
+    return;
+  }
+
+  writeTerminalTabDragDataTransfer(event.dataTransfer, {
+    type: "terminal-tab",
+    workspaceId: tab.workspaceId,
+    tabId: tab.id,
+    source: "bottom-panel",
+  });
 }

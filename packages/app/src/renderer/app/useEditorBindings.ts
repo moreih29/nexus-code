@@ -8,8 +8,10 @@ import type {
   WorkspaceFileKind,
 } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { type EditorDocument, type EditorDocumentsServiceStore } from "../services/editor-documents-service";
 import {
+  type DropExternalEditorPayloadInput,
   type EditorGroup,
   type EditorGroupId,
   type EditorGroupSpatialDirection,
@@ -34,6 +36,7 @@ import {
   type EditorPaneState,
   type EditorTab,
   type EditorTabId,
+  type ExternalEditorDropPayload,
   type OpenDiffTabOptions,
   type OpenDiffTabSide,
 } from "../services/editor-types";
@@ -46,6 +49,7 @@ export interface UseEditorBindingsInput {
   filesService: FilesServiceStore;
   gitService: GitServiceStore;
   groupsService: EditorGroupsServiceStore;
+  openWorkspaces?: readonly OpenSessionWorkspace[];
   workspaceService: WorkspaceServiceStore;
 }
 
@@ -65,6 +69,7 @@ export interface EditorBindings {
   closeActiveTab(): Promise<void>;
   closeTabsToRight(paneId: EditorPaneId, tabId: EditorTabId): void;
   copyTabPath(tab: EditorTab, pathKind: "absolute" | "relative"): void;
+  dropExternalPayload(input: DropExternalEditorPayloadInput): void;
   hasActiveTab(): boolean;
   moveActiveTabToPane(direction: EditorGroupSpatialDirection): void;
   moveTabToPane(
@@ -87,9 +92,8 @@ export interface EditorBindings {
   saveTab(tabId: EditorTabId): void;
   splitDown(): void;
   splitRight(): void;
+  splitToDirection(direction: EditorGroupSplitDirection): void;
   splitTabRight(sourcePaneId: EditorPaneId, tabId: EditorTabId, workspaceId?: WorkspaceId | null): void;
-  tearOffActiveTabToFloating(): void;
-  tearOffTabToFloating(paneId: EditorPaneId, tabId: EditorTabId): void;
   updateTabContent(tabId: EditorTabId, content: string): void;
 }
 
@@ -99,6 +103,7 @@ export function useEditorBindings({
   filesService,
   gitService,
   groupsService,
+  openWorkspaces,
   workspaceService,
 }: UseEditorBindingsInput): EditorBindings {
   const editorModel = useStore(groupsService, (state) => state.model);
@@ -143,29 +148,34 @@ export function useEditorBindings({
     workspaceService.getState().setCenterMode("editor-max");
   }, [documentsService, filesService, groupsService, workspaceService]);
 
-  const splitRight = useCallback(() => {
-    splitEditorPaneInGroups(groupsService, "right");
+  const splitToDirection = useCallback((direction: EditorGroupSplitDirection) => {
+    splitEditorPaneInGroups(groupsService, direction);
     workspaceService.getState().setCenterMode("editor-max");
   }, [groupsService, workspaceService]);
 
+  const splitRight = useCallback(() => {
+    splitToDirection("right");
+  }, [splitToDirection]);
+
   const splitDown = useCallback(() => {
-    splitEditorPaneInGroups(groupsService, "bottom");
-    workspaceService.getState().setCenterMode("editor-max");
-  }, [groupsService, workspaceService]);
+    splitToDirection("bottom");
+  }, [splitToDirection]);
+
+  const dropExternalPayload = useCallback((input: DropExternalEditorPayloadInput) => {
+    void runEditorMutation(async () => {
+      await dropExternalEditorPayloadInServices({
+        documentsService,
+        filesService,
+        groupsService,
+        openWorkspaces,
+        workspaceService,
+        input,
+      });
+    });
+  }, [documentsService, filesService, groupsService, openWorkspaces, workspaceService]);
 
   const moveActiveTabToPane = useCallback((direction: EditorGroupSpatialDirection) => {
     moveActiveEditorTabToAdjacentGroup(groupsService, direction);
-    workspaceService.getState().setCenterMode("editor-max");
-  }, [groupsService, workspaceService]);
-
-  const tearOffActiveTabToFloating = useCallback(() => {
-    groupsService.getState().tearOffActiveTabToFloating();
-    workspaceService.getState().setCenterMode("editor-max");
-  }, [groupsService, workspaceService]);
-
-  const tearOffTabToFloating = useCallback((paneId: EditorPaneId, tabId: EditorTabId) => {
-    groupsService.getState().activateTab(paneId, tabId);
-    groupsService.getState().tearOffActiveTabToFloating();
     workspaceService.getState().setCenterMode("editor-max");
   }, [groupsService, workspaceService]);
 
@@ -252,19 +262,17 @@ export function useEditorBindings({
   }, [documentsService, filesService, groupsService, workspaceService]);
 
   const openFileFromTreeDrop = useCallback((paneId: EditorPaneId, workspaceId: WorkspaceId, path: string) => {
-    void runEditorMutation(async () => {
-      groupsService.getState().activateGroup(paneId);
-      await openEditorFileInServices({
-        documentsService,
-        filesService,
-        groupsService,
-        workspaceService,
+    dropExternalPayload({
+      payload: {
+        type: "workspace-file",
         workspaceId,
         path,
-        targetGroupId: paneId,
-      });
+        kind: "file",
+      },
+      targetGroupId: paneId,
+      edge: "center",
     });
-  }, [documentsService, filesService, groupsService, workspaceService]);
+  }, [dropExternalPayload]);
 
   const closeOtherTabs = useCallback((paneId: EditorPaneId, tabId: EditorTabId) => {
     const targetTab = panes
@@ -333,6 +341,7 @@ export function useEditorBindings({
     closeActiveTab,
     closeTabsToRight,
     copyTabPath,
+    dropExternalPayload,
     hasActiveTab,
     moveActiveTabToPane,
     moveTabToPane,
@@ -344,9 +353,8 @@ export function useEditorBindings({
     saveTab,
     splitDown,
     splitRight,
+    splitToDirection,
     splitTabRight,
-    tearOffActiveTabToFloating,
-    tearOffTabToFloating,
     updateTabContent,
   }), [
     activePaneId,
@@ -364,6 +372,7 @@ export function useEditorBindings({
     closeActiveTab,
     closeTabsToRight,
     copyTabPath,
+    dropExternalPayload,
     hasActiveTab,
     moveActiveTabToPane,
     moveTabToPane,
@@ -375,11 +384,206 @@ export function useEditorBindings({
     saveTab,
     splitDown,
     splitRight,
+    splitToDirection,
     splitTabRight,
-    tearOffActiveTabToFloating,
-    tearOffTabToFloating,
     updateTabContent,
   ]);
+}
+
+export async function dropExternalEditorPayloadInServices({
+  documentsService,
+  filesService,
+  groupsService,
+  openWorkspaces,
+  workspaceService,
+  input,
+}: {
+  documentsService: EditorDocumentsServiceStore;
+  filesService: FilesServiceStore;
+  groupsService: EditorGroupsServiceStore;
+  openWorkspaces?: readonly OpenSessionWorkspace[];
+  workspaceService: WorkspaceServiceStore;
+  input: DropExternalEditorPayloadInput;
+}): Promise<EditorGroupId | null> {
+  const payload = normalizeExternalEditorDropPayloadForOpenWorkspaces(
+    input.payload,
+    openWorkspaces ?? workspaceService.getState().getOpenWorkspaces(),
+  );
+  const workspaceFiles = workspaceFileDropItemsFromPayload(payload);
+  for (const item of workspaceFiles) {
+    await documentsService.getState().openDocument(item.workspaceId, item.path);
+  }
+
+  const droppedGroupId = groupsService.getState().dropExternalPayload({
+    ...input,
+    payload,
+  });
+  if (!droppedGroupId) {
+    return null;
+  }
+
+  const selectedFile = workspaceFiles.at(-1);
+  if (selectedFile) {
+    filesService.getState().selectPath(selectedFile.path);
+  }
+  workspaceService.getState().setCenterMode("editor-max");
+  return droppedGroupId;
+}
+
+function normalizeExternalEditorDropPayloadForOpenWorkspaces(
+  payload: ExternalEditorDropPayload,
+  openWorkspaces: readonly OpenSessionWorkspace[],
+): ExternalEditorDropPayload {
+  if (payload.type !== "os-file" || payload.files.length === 0) {
+    return payload;
+  }
+
+  const resolvedItems = payload.files.map((file, index) => ({
+    file,
+    absolutePath: resolveAbsolutePathForOsFile(file, payload.resolvedPaths?.[index]),
+  }));
+  if (resolvedItems.some((item) => !item.absolutePath)) {
+    return payload;
+  }
+
+  const workspaceItems = resolvedItems
+    .map((item) => {
+      const resolvedWorkspacePath = resolveWorkspacePathForAbsoluteFile(
+        item.absolutePath!,
+        openWorkspaces,
+      );
+      return resolvedWorkspacePath
+        ? {
+            workspaceId: resolvedWorkspacePath.workspaceId,
+            path: resolvedWorkspacePath.path,
+            kind: "file" as const,
+          }
+        : null;
+    });
+
+  if (workspaceItems.some((item) => item === null)) {
+    return payload;
+  }
+
+  const items = workspaceItems.filter((item): item is NonNullable<typeof item> => item !== null);
+  const workspaceId = items[0]?.workspaceId ?? null;
+  if (!workspaceId || items.some((item) => item.workspaceId !== workspaceId)) {
+    return payload;
+  }
+
+  if (items.length === 1) {
+    const item = items[0]!;
+    return {
+      type: "workspace-file",
+      workspaceId,
+      path: item.path,
+      kind: "file",
+    };
+  }
+
+  return {
+    type: "workspace-file-multi",
+    workspaceId,
+    items: items.map(({ path, kind }) => ({ path, kind })),
+  };
+}
+
+function workspaceFileDropItemsFromPayload(
+  payload: ExternalEditorDropPayload,
+): { workspaceId: WorkspaceId; path: string }[] {
+  switch (payload.type) {
+    case "workspace-file":
+      return payload.kind === "file"
+        ? [{ workspaceId: payload.workspaceId, path: payload.path }]
+        : [];
+    case "workspace-file-multi":
+      return payload.items
+        .filter((item) => item.kind === "file")
+        .map((item) => ({ workspaceId: payload.workspaceId, path: item.path }));
+    case "os-file":
+    case "terminal-tab":
+      return [];
+  }
+}
+
+function resolveAbsolutePathForOsFile(file: File, resolvedPath?: string): string | null {
+  if (typeof resolvedPath === "string" && isAbsoluteFilePath(resolvedPath)) {
+    return resolvedPath;
+  }
+
+  try {
+    const preloadPath = globalThis.window?.nexusFileActions?.getPathForFile(file);
+    if (typeof preloadPath === "string" && isAbsoluteFilePath(preloadPath)) {
+      return preloadPath;
+    }
+  } catch {
+    // Ignore preload path resolution failures and fall back to Electron's
+    // non-standard File.path shape below.
+  }
+
+  const electronPath = (file as File & { path?: unknown }).path;
+  if (typeof electronPath === "string" && isAbsoluteFilePath(electronPath)) {
+    return electronPath;
+  }
+
+  return null;
+}
+
+function resolveWorkspacePathForAbsoluteFile(
+  absolutePath: string,
+  openWorkspaces: readonly OpenSessionWorkspace[],
+): { workspaceId: WorkspaceId; path: string } | null {
+  return openWorkspaces
+    .map((workspace) => ({
+      workspaceId: workspace.id,
+      root: workspace.absolutePath,
+      path: relativeWorkspacePath(absolutePath, workspace.absolutePath),
+    }))
+    .filter((candidate): candidate is { workspaceId: WorkspaceId; root: string; path: string } =>
+      candidate.path !== null && candidate.path.length > 0
+    )
+    .sort((left, right) => normalizePathSeparators(right.root).length - normalizePathSeparators(left.root).length)[0] ?? null;
+}
+
+function relativeWorkspacePath(absolutePath: string, workspaceRoot: string): string | null {
+  const normalizedAbsolutePath = trimTrailingPathSeparators(normalizePathSeparators(absolutePath));
+  const normalizedWorkspaceRoot = trimTrailingPathSeparators(normalizePathSeparators(workspaceRoot));
+  const compareAsLowerCase = shouldComparePathCaseInsensitively(normalizedAbsolutePath, normalizedWorkspaceRoot);
+  const comparableAbsolutePath = compareAsLowerCase ? normalizedAbsolutePath.toLowerCase() : normalizedAbsolutePath;
+  const comparableWorkspaceRoot = compareAsLowerCase ? normalizedWorkspaceRoot.toLowerCase() : normalizedWorkspaceRoot;
+
+  if (!comparableAbsolutePath.startsWith(`${comparableWorkspaceRoot}/`)) {
+    return null;
+  }
+
+  return normalizedAbsolutePath.slice(normalizedWorkspaceRoot.length + 1);
+}
+
+function isAbsoluteFilePath(filePath: string): boolean {
+  const normalizedPath = normalizePathSeparators(filePath);
+  return normalizedPath.startsWith("/") ||
+    normalizedPath.startsWith("//") ||
+    /^[A-Za-z]:\//.test(normalizedPath);
+}
+
+function normalizePathSeparators(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
+function trimTrailingPathSeparators(filePath: string): string {
+  return filePath.replace(/\/+$/g, "");
+}
+
+function shouldComparePathCaseInsensitively(
+  absolutePath: string,
+  workspaceRoot: string,
+): boolean {
+  if (/^[A-Za-z]:\//.test(absolutePath) || /^[A-Za-z]:\//.test(workspaceRoot)) {
+    return true;
+  }
+
+  const platform = globalThis.window?.nexusEnvironment?.platform ?? null;
+  return platform === "win32" || platform === "cygwin";
 }
 
 export async function openEditorFileInServices({

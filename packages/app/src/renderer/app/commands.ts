@@ -1,4 +1,6 @@
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import type { EditorGroupSplitDirection } from "../services/editor-groups-service";
+import type { TerminalServiceStore } from "../services/terminal-service";
 import {
   keyboardRegistryStore,
 } from "../stores/keyboard-registry";
@@ -11,13 +13,16 @@ export interface RegisterAppCommandsInput {
   dismissSearch: () => void;
   goToNextSearchMatch: () => void;
   moveActiveEditorTabToPane: (direction: "left" | "right" | "up" | "down") => void;
+  moveTerminalToBottomPanel?: () => void;
+  moveTerminalToEditorArea?: () => void;
   openSearchPanel: (replaceMode: boolean) => void;
   openFolder: () => Promise<void>;
   splitEditorPaneDown: () => void;
   splitEditorPaneRight: () => void;
+  splitEditorPaneToDirection: (direction: EditorGroupSplitDirection) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   showTerminalPanel: () => void;
-  tearOffActiveEditorTabToFloating: () => void;
+  terminalService: TerminalServiceStore;
   toggleActiveCenterPaneMaximize: () => void;
   toggleBottomPanel: () => void;
   toggleSideBar: () => void;
@@ -30,13 +35,16 @@ export function registerAppCommands({
   dismissSearch,
   goToNextSearchMatch,
   moveActiveEditorTabToPane,
+  moveTerminalToBottomPanel = noop,
+  moveTerminalToEditorArea = noop,
   openSearchPanel,
   openFolder,
   splitEditorPaneDown,
   splitEditorPaneRight,
+  splitEditorPaneToDirection,
   setCommandPaletteOpen,
   showTerminalPanel,
-  tearOffActiveEditorTabToFloating,
+  terminalService,
   toggleActiveCenterPaneMaximize,
   toggleBottomPanel,
   toggleSideBar,
@@ -149,14 +157,26 @@ export function registerAppCommands({
   registerCommand({
     group: "Terminal",
     id: "terminal.newTab",
-    run: clickNewTerminalTab,
+    run: () => clickNewTerminalTab({ terminalService, workspaceStore }),
     title: "New Terminal Tab",
   });
   registerCommand({
     group: "Terminal",
     id: "terminal.closeTab",
-    run: clickCloseActiveTerminalTab,
+    run: () => closeActiveTerminalTab({ terminalService, workspaceStore }),
     title: "Close Terminal Tab",
+  });
+  registerCommand({
+    group: "Terminal",
+    id: "terminal.moveToEditorArea",
+    run: moveTerminalToEditorArea,
+    title: "Terminal: Move to Editor Area",
+  });
+  registerCommand({
+    group: "Terminal",
+    id: "terminal.moveToBottomPanel",
+    run: moveTerminalToBottomPanel,
+    title: "Terminal: Move to Bottom Panel",
   });
   registerCommand({
     group: "Editor",
@@ -169,6 +189,30 @@ export function registerAppCommands({
     id: "editor.splitRight",
     run: splitEditorPaneRight,
     title: "Split Editor Right",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.splitToDirection.left",
+    run: () => splitEditorPaneToDirection("left"),
+    title: "Split Editor to Left",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.splitToDirection.right",
+    run: () => splitEditorPaneToDirection("right"),
+    title: "Split Editor to Right",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.splitToDirection.top",
+    run: () => splitEditorPaneToDirection("top"),
+    title: "Split Editor to Top",
+  });
+  registerCommand({
+    group: "Editor",
+    id: "editor.splitToDirection.bottom",
+    run: () => splitEditorPaneToDirection("bottom"),
+    title: "Split Editor to Bottom",
   });
   registerCommand({
     group: "Editor",
@@ -196,13 +240,6 @@ export function registerAppCommands({
   });
   registerCommand({
     group: "Editor",
-    id: "workbench.action.tearOffEditorToFloating",
-    keywords: ["탭을 부동 창으로 분리", "부동 창으로 분리", "분리"],
-    run: tearOffActiveEditorTabToFloating,
-    title: "Move Editor to New Floating Window",
-  });
-  registerCommand({
-    group: "Editor",
     hidden: true,
     id: "editor.splitDown",
     run: splitEditorPaneDown,
@@ -212,14 +249,14 @@ export function registerAppCommands({
     group: "Terminal",
     hidden: true,
     id: "terminal.previousTab",
-    run: () => clickAdjacentTerminalTab("previous"),
+    run: () => activateAdjacentTerminalTab("previous", { terminalService, workspaceStore }),
     title: "Previous Terminal Tab",
   });
   registerCommand({
     group: "Terminal",
     hidden: true,
     id: "terminal.nextTab",
-    run: () => clickAdjacentTerminalTab("next"),
+    run: () => activateAdjacentTerminalTab("next", { terminalService, workspaceStore }),
     title: "Next Terminal Tab",
   });
   registerCommand({
@@ -308,27 +345,79 @@ export async function closeActiveEditorTabOrWorkspace({
   }
 }
 
-function clickNewTerminalTab(): void {
-  document.querySelector<HTMLButtonElement>('button[data-action="new-tab"]:not(:disabled)')?.click();
+function clickNewTerminalTab({
+  terminalService,
+  workspaceStore,
+}: {
+  terminalService: TerminalServiceStore;
+  workspaceStore: WorkspaceStore;
+}): Promise<void> | void {
+  const activeWorkspaceId = workspaceStore.getState().sidebarState.activeWorkspaceId;
+  if (!activeWorkspaceId) {
+    return;
+  }
+
+  return terminalService.getState().requestNewTab(activeWorkspaceId)
+    .then(() => undefined)
+    .catch((error) => {
+      console.error("Terminal: failed to create terminal tab.", error);
+    });
 }
 
-function clickCloseActiveTerminalTab(): void {
-  const activeTab = document.querySelector<HTMLElement>('button[data-action="activate-tab"][data-active="true"]');
-  activeTab?.parentElement?.querySelector<HTMLButtonElement>('button[data-action="close-tab"]')?.click();
+function closeActiveTerminalTab({
+  terminalService,
+  workspaceStore,
+}: {
+  terminalService: TerminalServiceStore;
+  workspaceStore: WorkspaceStore;
+}): void {
+  const activeTab = getActiveWorkspaceTerminalTab({ terminalService, workspaceStore });
+  if (activeTab) {
+    terminalService.getState().closeTab(activeTab.id);
+  }
 }
 
-function clickAdjacentTerminalTab(direction: "next" | "previous"): void {
-  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-action="activate-tab"]'));
+function activateAdjacentTerminalTab(
+  direction: "next" | "previous",
+  {
+    terminalService,
+    workspaceStore,
+  }: {
+    terminalService: TerminalServiceStore;
+    workspaceStore: WorkspaceStore;
+  },
+): void {
+  const activeWorkspaceId = workspaceStore.getState().sidebarState.activeWorkspaceId;
+  if (!activeWorkspaceId) {
+    return;
+  }
 
+  const terminalState = terminalService.getState();
+  const tabs = terminalState.getTabs(activeWorkspaceId);
   if (tabs.length === 0) {
     return;
   }
 
-  const activeIndex = tabs.findIndex((tab) => tab.dataset.active === "true");
+  const activeTab = terminalState.getActiveTab(activeWorkspaceId);
+  const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
   const currentIndex = activeIndex >= 0 ? activeIndex : 0;
   const delta = direction === "next" ? 1 : -1;
   const targetIndex = (currentIndex + delta + tabs.length) % tabs.length;
-  tabs[targetIndex]?.click();
+  const targetTab = tabs[targetIndex];
+  if (targetTab) {
+    terminalState.setActiveTab(targetTab.id);
+  }
+}
+
+function getActiveWorkspaceTerminalTab({
+  terminalService,
+  workspaceStore,
+}: {
+  terminalService: TerminalServiceStore;
+  workspaceStore: WorkspaceStore;
+}) {
+  const activeWorkspaceId = workspaceStore.getState().sidebarState.activeWorkspaceId;
+  return terminalService.getState().getActiveTab(activeWorkspaceId) ?? terminalService.getState().getActiveTab();
 }
 
 async function runSidebarMutation(run: () => Promise<void>): Promise<void> {
@@ -345,4 +434,8 @@ async function runEditorMutation(run: () => Promise<void>): Promise<void> {
   } catch (error) {
     console.error("Editor: failed to apply editor mutation.", error);
   }
+}
+
+function noop(): void {
+  // no-op
 }

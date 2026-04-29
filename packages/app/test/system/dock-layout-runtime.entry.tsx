@@ -155,7 +155,7 @@ async function runSmoke(): Promise<void> {
           ? `Expected opened tabs ${fixtureFiles.join(",")}, saw ${fourPaneScenario.openedTabTitles.join(",")}`
           : undefined) ??
         (fourPaneScenario.finalGridPaneCount !== 4
-          ? `Expected 4 populated flexlayout grid panes after open/split/move scenario, saw ${fourPaneScenario.finalGridPaneCount}. T5 must replace the legacy two-pane SplitEditorPane path with the flexlayout model.`
+          ? `Expected 4 populated flexlayout grid panes after open/split/move scenario, saw ${fourPaneScenario.finalGridPaneCount}. T5 must replace the legacy two-pane editor bridge path with the flexlayout model.`
           : undefined) ??
         (fourPaneScenario.finalGridTabCount !== fixtureFiles.length
           ? `Expected ${fixtureFiles.length} grid tabs after scenario, saw ${fourPaneScenario.finalGridTabCount}.`
@@ -271,16 +271,30 @@ async function activateEditorTabByTitle(title: string): Promise<void> {
 }
 
 function editorTabButtonByTitle(title: string): HTMLElement | null {
-  return Array.from(document.querySelectorAll<HTMLElement>('[data-action="editor-activate-tab"]'))
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab="true"]'))
+    .filter(isVisibleElement)
     .find((button) => button.textContent?.includes(title) === true) ?? null;
 }
 
 function visibleEditorTabTitles(): string[] {
-  return Array.from(document.querySelectorAll<HTMLElement>("[data-editor-tab-title-active]"))
-    .filter((element) => element.offsetParent !== null)
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-editor-layout-tab-label="true"]'))
+    .filter(isVisibleElement)
     .map((element) => element.textContent?.trim() ?? "")
     .filter(Boolean)
     .sort();
+}
+
+function isVisibleElement(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.top < window.innerHeight &&
+    style.visibility !== "hidden" &&
+    style.display !== "none"
+  );
 }
 
 function dispatchCommandShortcut(key: string, modifiers: { altKey?: boolean } = {}): void {

@@ -72,6 +72,23 @@ describe("IBottomPanelService", () => {
     });
   });
 
+  test("tracks terminal sessions detached from the bottom panel without owning terminal metadata", () => {
+    const store = createBottomPanelService();
+
+    expect(store.getState().isTerminalAttachedToBottom("terminal_one")).toBe(true);
+
+    store.getState().detachTerminalFromBottom("terminal_one");
+    store.getState().detachTerminalFromBottom("terminal_one");
+
+    expect(store.getState().isTerminalAttachedToBottom("terminal_one")).toBe(false);
+    expect(store.getState().getSnapshot().detachedTerminalIds).toEqual(["terminal_one"]);
+
+    store.getState().attachTerminalToBottom("terminal_one");
+
+    expect(store.getState().isTerminalAttachedToBottom("terminal_one")).toBe(true);
+    expect(store.getState().getSnapshot().detachedTerminalIds).toEqual([]);
+  });
+
   test("cleans up state subscriptions", () => {
     const store = createBottomPanelService();
     const snapshots: BottomPanelPosition[] = [];

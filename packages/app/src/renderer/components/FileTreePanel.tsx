@@ -429,6 +429,7 @@ function FileTreeArboristViewport(
   const hostRef = useRef<HTMLDivElement | null>(null);
   const treeRef = useRef<ArboristTreeApi<FileTreeEntry> | undefined>(undefined);
   const syncingOpenStateRef = useRef(false);
+  const pointerFocusEntryRef = useRef(false);
   const [nativeDropIndicator, setNativeDropIndicator] = useState<FileTreeNativeDropIndicator | null>(null);
   const [externalDropNotice, setExternalDropNotice] = useState<string | null>(null);
   const [pendingExternalCollision, setPendingExternalCollision] =
@@ -668,8 +669,21 @@ function FileTreeArboristViewport(
       className="min-h-0 flex-1 p-2"
       data-action="file-tree-host"
       data-file-tree-external-drop-notice={externalDropNotice ?? undefined}
+      onPointerDownCapture={(event) => {
+        const activeElement = event.currentTarget.ownerDocument.activeElement;
+        pointerFocusEntryRef.current =
+          !activeElement || !event.currentTarget.contains(activeElement);
+        event.currentTarget.ownerDocument.defaultView?.setTimeout(() => {
+          pointerFocusEntryRef.current = false;
+        }, 0);
+      }}
       onFocusCapture={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget)) {
+        const shouldRestoreFocus = shouldRestoreSelectedPathOnFocusEntry({
+          focusMovedWithinTree: event.currentTarget.contains(event.relatedTarget),
+          focusStartedByPointer: pointerFocusEntryRef.current,
+        });
+        pointerFocusEntryRef.current = false;
+        if (!shouldRestoreFocus) {
           return;
         }
         const tree = treeRef.current;
@@ -809,7 +823,6 @@ function FileTreeArboristRow({
       className={cn("outline-none", attrs.className)}
       onFocus={(event) => {
         attrs.onFocus?.(event);
-        event.stopPropagation();
       }}
     >
       {children}
@@ -984,7 +997,6 @@ function FileTreeNodeRow({
       data-file-tree-drop-indicator={nativeIndicatorForRow?.state}
       data-file-tree-drop-position={nativeIndicatorForRow?.position}
       data-file-tree-drop-invalid-reason={nativeIndicatorForRow?.reason ?? undefined}
-      draggable={!isRenaming && !isDeleting}
       onDragStart={(event) => {
         if (isRenaming || isDeleting) {
           event.preventDefault();
@@ -1974,6 +1986,16 @@ function annotateArboristTreeElement(
   } else {
     treeElement.removeAttribute("aria-busy");
   }
+}
+
+export function shouldRestoreSelectedPathOnFocusEntry({
+  focusMovedWithinTree,
+  focusStartedByPointer,
+}: {
+  focusMovedWithinTree: boolean;
+  focusStartedByPointer: boolean;
+}): boolean {
+  return !focusMovedWithinTree && !focusStartedByPointer;
 }
 
 export function handleTreeKeyDown(

@@ -52,6 +52,16 @@ interface WorkspaceLayoutPersistRuntimeSmokeResult {
     bottomPanelPosition: string;
     terminalInEditorArea: boolean;
   }>;
+  restartPolicy: {
+    workspaceId: string;
+    persistedTerminalTabIds: string[];
+    restoredTerminalTabIds: string[];
+    groupIdsBeforeRestart: string[];
+    groupIdsAfterRestart: string[];
+    terminalTabsDropped: boolean;
+    groupLayoutSurvives: boolean;
+    bottomPanelSurvives: boolean;
+  };
   localStorageKeys: Array<{
     workspaceId: string;
     key: string;
@@ -138,16 +148,18 @@ async function runSmoke(): Promise<void> {
     prepareDocument(rootElement);
     clearWorkspaceLayoutStorage();
 
-    const expectedLayouts = createExpectedWorkspaceLayouts();
+    const persistedLayouts = createExpectedWorkspaceLayouts();
+    const restartLayouts = createRestartRestorableWorkspaceLayouts(persistedLayouts);
+    const restartPolicy = collectRestartPolicyEvidence(persistedLayouts, restartLayouts);
     const writerWorkspaceService = createWorkspaceService();
     registerWorkspaces(writerWorkspaceService);
     for (const workspace of WORKSPACES) {
-      writerWorkspaceService.getState().saveLayoutModel(workspace.id, expectedLayouts[workspace.id]);
+      writerWorkspaceService.getState().saveLayoutModel(workspace.id, persistedLayouts[workspace.id]);
     }
 
-    const localStorageKeys = collectLocalStorageKeyEvidence(expectedLayouts);
-    const roundTrip = collectRoundTripEvidence(expectedLayouts, writerWorkspaceService);
-    const layoutSummaries = WORKSPACES.map((workspace) => summarizeLayout(expectedLayouts[workspace.id]));
+    const localStorageKeys = collectLocalStorageKeyEvidence(persistedLayouts);
+    const roundTrip = collectRoundTripEvidence(persistedLayouts, writerWorkspaceService);
+    const layoutSummaries = WORKSPACES.map((workspace) => summarizeLayout(restartLayouts[workspace.id]));
     const services = createRuntimeServices();
     registerWorkspaces(services.workspaces);
     applyActiveWorkspaceLayout(services);
@@ -170,9 +182,10 @@ async function runSmoke(): Promise<void> {
     for (let cycle = 1; cycle <= SWITCH_RESTORE_CYCLES; cycle += 1) {
       for (const workspace of WORKSPACES) {
         services.workspaces.getState().activateWorkspace(workspace.id);
-        const expectedLayout = expectedLayouts[workspace.id];
-        await waitForExactRestore(services, rootElement, expectedLayout);
-        restoreChecks.push(collectRestoreCheck(cycle, services, rootElement, expectedLayout));
+        const persistedLayout = persistedLayouts[workspace.id];
+        const restartLayout = restartLayouts[workspace.id];
+        await waitForExactRestore(services, rootElement, persistedLayout, restartLayout);
+        restoreChecks.push(collectRestoreCheck(cycle, services, rootElement, persistedLayout, restartLayout));
       }
     }
 
@@ -188,7 +201,11 @@ async function runSmoke(): Promise<void> {
       layoutSummaries[0]?.bottomPanelPosition === "bottom" &&
       layoutSummaries[1]?.editorGroupCount === 1 &&
       layoutSummaries[1]?.bottomPanelPosition === "right" &&
-      layoutSummaries[2]?.terminalInEditorArea === true &&
+      layoutSummaries[2]?.editorGroupCount === 1 &&
+      layoutSummaries[2]?.terminalInEditorArea === false &&
+      restartPolicy.terminalTabsDropped &&
+      restartPolicy.groupLayoutSurvives &&
+      restartPolicy.bottomPanelSurvives &&
       localStorageKeys.every((entry) => entry.exists && entry.parsedMatchesExpected) &&
       roundTrip.every((entry) =>
         entry.jsonLossless &&
@@ -213,6 +230,7 @@ async function runSmoke(): Promise<void> {
       errors: fatalErrors,
       registeredWorkspaceIds,
       layoutSummaries,
+      restartPolicy,
       localStorageKeys,
       roundTrip,
       switchRestore: {
@@ -229,6 +247,9 @@ async function runSmoke(): Promise<void> {
           : undefined) ??
         (localStorageKeys.some((entry) => !entry.exists || !entry.parsedMatchesExpected)
           ? `Workspace layout localStorage key failed: ${JSON.stringify(localStorageKeys.find((entry) => !entry.exists || !entry.parsedMatchesExpected))}`
+          : undefined) ??
+        (!restartPolicy.terminalTabsDropped || !restartPolicy.groupLayoutSurvives || !restartPolicy.bottomPanelSurvives
+          ? `Workspace restart terminal persistence policy failed: ${JSON.stringify(restartPolicy)}`
           : undefined) ??
         (roundTrip.some((entry) =>
           !entry.jsonLossless ||
@@ -443,6 +464,94 @@ function createWorkspaceRuntimeLayout(
   };
 }
 
+function createRestartRestorableWorkspaceLayouts(
+  layouts: Record<string, WorkspaceRuntimeLayout>,
+): Record<string, WorkspaceRuntimeLayout> {
+  return Object.fromEntries(
+    Object.entries(layouts).map(([workspaceId, layout]) => [
+      workspaceId,
+      createRestartRestorableWorkspaceLayout(layout),
+    ]),
+  );
+}
+
+function createRestartRestorableWorkspaceLayout(layout: WorkspaceRuntimeLayout): WorkspaceRuntimeLayout {
+  const editorGroups = createEditorGroupsService({
+    layoutSnapshot: dropTerminalTabsFromEditorGroupsModel(layout.editorGroups),
+  }).getState().serializeModel();
+
+  return {
+    ...layout,
+    editorGroups,
+  };
+}
+
+function collectRestartPolicyEvidence(
+  persistedLayouts: Record<string, WorkspaceRuntimeLayout>,
+  restartLayouts: Record<string, WorkspaceRuntimeLayout>,
+): WorkspaceLayoutPersistRuntimeSmokeResult["restartPolicy"] {
+  const workspaceId = "ws_layout_gamma";
+  const persistedLayout = persistedLayouts[workspaceId];
+  const restartLayout = restartLayouts[workspaceId];
+  const persistedTerminalTabIds = terminalTabIdsFromLayout(persistedLayout.editorGroups);
+  const restoredTerminalTabIds = terminalTabIdsFromLayout(restartLayout.editorGroups);
+  const groupIdsBeforeRestart = groupIdsFromLayout(persistedLayout.editorGroups);
+  const groupIdsAfterRestart = groupIdsFromLayout(restartLayout.editorGroups);
+
+  return {
+    workspaceId,
+    persistedTerminalTabIds,
+    restoredTerminalTabIds,
+    groupIdsBeforeRestart,
+    groupIdsAfterRestart,
+    terminalTabsDropped: persistedTerminalTabIds.length > 0 && restoredTerminalTabIds.length === 0,
+    groupLayoutSurvives: sameJson(groupIdsAfterRestart, groupIdsBeforeRestart),
+    bottomPanelSurvives: bottomPanelSnapshotsMatch(restartLayout.bottomPanel, persistedLayout.bottomPanel),
+  };
+}
+
+function dropTerminalTabsFromEditorGroupsModel(model: EditorGroupsSerializedModel): EditorGroupsSerializedModel {
+  const cloned = safeJsonParse(JSON.stringify(model));
+  if (!isRecord(cloned)) {
+    return model;
+  }
+
+  const layout = isRecord(cloned.layout) ? pruneTerminalTabsFromLayoutNode(cloned.layout) : cloned.layout;
+  return {
+    ...cloned,
+    layout: isRecord(layout) ? layout : cloned.layout,
+  } as unknown as EditorGroupsSerializedModel;
+}
+
+function pruneTerminalTabsFromLayoutNode(node: Record<string, unknown>): Record<string, unknown> | null {
+  if (isTerminalSerializedTabNode(node)) {
+    return null;
+  }
+
+  const nextNode: Record<string, unknown> = { ...node };
+  if (Array.isArray(node.children)) {
+    const children = node.children
+      .map((child) => isRecord(child) ? pruneTerminalTabsFromLayoutNode(child) : child)
+      .filter((child): child is unknown => child !== null);
+    nextNode.children = children;
+
+    if (node.type === "tabset") {
+      const selected = typeof node.selected === "number" ? node.selected : -1;
+      nextNode.selected = children.length > 0 ? Math.min(Math.max(0, selected), children.length - 1) : -1;
+    }
+  }
+
+  return nextNode;
+}
+
+function isTerminalSerializedTabNode(node: Record<string, unknown>): boolean {
+  if (node.type !== "tab" || !isRecord(node.config) || !isRecord(node.config.editorGroupTab)) {
+    return false;
+  }
+
+  return node.config.editorGroupTab.kind === "terminal";
+}
+
 function createEditorLayoutFromGroups(groups: EditorGroup[], activeGroupId: string): EditorGroupsSerializedModel {
   const store = createEditorGroupsService({ groups, activeGroupId });
   return store.getState().serializeModel();
@@ -504,9 +613,10 @@ function registerWorkspaces(workspaceService: WorkspaceServiceStore): void {
 
 function applyActiveWorkspaceLayout(services: RuntimeServices): void {
   const activeWorkspaceId = services.workspaces.getState().activeWorkspaceId;
-  const layout = activeWorkspaceId
+  const persistedLayout = activeWorkspaceId
     ? asWorkspaceRuntimeLayout(services.workspaces.getState().getLayoutModel(activeWorkspaceId))
     : null;
+  const layout = persistedLayout ? createRestartRestorableWorkspaceLayout(persistedLayout) : null;
 
   if (!layout) {
     return;
@@ -522,13 +632,14 @@ function applyActiveWorkspaceLayout(services: RuntimeServices): void {
 async function waitForExactRestore(
   services: RuntimeServices,
   rootElement: HTMLElement,
-  expectedLayout: WorkspaceRuntimeLayout,
+  expectedPersistedLayout: WorkspaceRuntimeLayout,
+  expectedRuntimeLayout: WorkspaceRuntimeLayout,
 ): Promise<void> {
   await waitUntil(() => {
-    return collectRestoreCheck(0, services, rootElement, expectedLayout).exact;
+    return collectRestoreCheck(0, services, rootElement, expectedPersistedLayout, expectedRuntimeLayout).exact;
   }, RESTORE_TIMEOUT_MS, () => {
-    const check = collectRestoreCheck(0, services, rootElement, expectedLayout);
-    return `Timed out waiting for exact restore of ${expectedLayout.workspaceId}: ${check.failures.join("; ")}`;
+    const check = collectRestoreCheck(0, services, rootElement, expectedPersistedLayout, expectedRuntimeLayout);
+    return `Timed out waiting for exact restore of ${expectedRuntimeLayout.workspaceId}: ${check.failures.join("; ")}`;
   });
 }
 
@@ -536,7 +647,8 @@ function collectRestoreCheck(
   cycle: number,
   services: RuntimeServices,
   rootElement: HTMLElement,
-  expectedLayout: WorkspaceRuntimeLayout,
+  expectedPersistedLayout: WorkspaceRuntimeLayout,
+  expectedRuntimeLayout: WorkspaceRuntimeLayout,
 ): RestoreCheck {
   const failures: string[] = [];
   const actualActiveWorkspaceId = services.workspaces.getState().activeWorkspaceId;
@@ -550,36 +662,36 @@ function collectRestoreCheck(
   const bottomPanel = rootElement.querySelector<HTMLElement>('[data-component="bottom-panel"]');
   const editorGroupSlots = rootElement.querySelectorAll<HTMLElement>("[data-editor-grid-slot]");
   const terminalTab = rootElement.querySelector<HTMLElement>('[data-editor-group-tab-kind="terminal"]');
-  const layoutSummary = summarizeLayout(expectedLayout);
+  const layoutSummary = summarizeLayout(expectedRuntimeLayout);
 
-  if (actualActiveWorkspaceId !== expectedLayout.workspaceId) {
-    failures.push(`active workspace ${actualActiveWorkspaceId ?? "null"} != ${expectedLayout.workspaceId}`);
+  if (actualActiveWorkspaceId !== expectedRuntimeLayout.workspaceId) {
+    failures.push(`active workspace ${actualActiveWorkspaceId ?? "null"} != ${expectedRuntimeLayout.workspaceId}`);
   }
-  if (fixture?.dataset.activeWorkspaceId !== expectedLayout.workspaceId) {
-    failures.push(`DOM active workspace ${fixture?.dataset.activeWorkspaceId ?? "missing"} != ${expectedLayout.workspaceId}`);
+  if (fixture?.dataset.activeWorkspaceId !== expectedRuntimeLayout.workspaceId) {
+    failures.push(`DOM active workspace ${fixture?.dataset.activeWorkspaceId ?? "missing"} != ${expectedRuntimeLayout.workspaceId}`);
   }
-  if (!sameJson(persistedLayout, expectedLayout)) {
+  if (!sameJson(persistedLayout, expectedPersistedLayout)) {
     failures.push("persisted workspace layout did not equal expected layout");
   }
-  if (!sameJson(actualEditorGroups, expectedLayout.editorGroups)) {
-    failures.push("editor groups serialized model did not equal expected layout");
+  if (!sameJson(actualEditorGroups, expectedRuntimeLayout.editorGroups)) {
+    failures.push("editor groups serialized model did not equal restart-restorable layout");
   }
-  if (!bottomPanelSnapshotsMatch(bottomPanelSnapshot, expectedLayout.bottomPanel)) {
-    failures.push(`bottom panel snapshot ${bottomPanelSnapshot.position}/${bottomPanelSnapshot.height} did not equal expected ${expectedLayout.bottomPanel.position}/${expectedLayout.bottomPanel.height}`);
+  if (!bottomPanelSnapshotsMatch(bottomPanelSnapshot, expectedRuntimeLayout.bottomPanel)) {
+    failures.push(`bottom panel snapshot ${bottomPanelSnapshot.position}/${bottomPanelSnapshot.height} did not equal expected ${expectedRuntimeLayout.bottomPanel.position}/${expectedRuntimeLayout.bottomPanel.height}`);
   }
-  if (centerWorkbench?.dataset.bottomPanelPosition !== expectedLayout.bottomPanel.position) {
-    failures.push(`CenterWorkbench bottom panel DOM position ${centerWorkbench?.dataset.bottomPanelPosition ?? "missing"} != ${expectedLayout.bottomPanel.position}`);
+  if (centerWorkbench?.dataset.bottomPanelPosition !== expectedRuntimeLayout.bottomPanel.position) {
+    failures.push(`CenterWorkbench bottom panel DOM position ${centerWorkbench?.dataset.bottomPanelPosition ?? "missing"} != ${expectedRuntimeLayout.bottomPanel.position}`);
   }
-  if (bottomPanel?.dataset.bottomPanelPosition !== expectedLayout.bottomPanel.position) {
-    failures.push(`BottomPanel DOM position ${bottomPanel?.dataset.bottomPanelPosition ?? "missing"} != ${expectedLayout.bottomPanel.position}`);
+  if (bottomPanel?.dataset.bottomPanelPosition !== expectedRuntimeLayout.bottomPanel.position) {
+    failures.push(`BottomPanel DOM position ${bottomPanel?.dataset.bottomPanelPosition ?? "missing"} != ${expectedRuntimeLayout.bottomPanel.position}`);
   }
   if (editorGroupSlots.length !== 6) {
     failures.push(`expected 6 editor grid slots, saw ${editorGroupSlots.length}`);
   }
-  if (countPopulatedEditorSlots(rootElement) !== layoutSummary.editorGroupCount) {
-    failures.push(`expected ${layoutSummary.editorGroupCount} populated editor slots, saw ${countPopulatedEditorSlots(rootElement)}`);
+  if (countMaterializedEditorSlots(rootElement) !== layoutSummary.editorGroupCount) {
+    failures.push(`expected ${layoutSummary.editorGroupCount} materialized editor slots, saw ${countMaterializedEditorSlots(rootElement)}`);
   }
-  if (layoutSummary.terminalInEditorArea && terminalTab?.dataset.editorGroupTabWorkspaceId !== expectedLayout.workspaceId) {
+  if (layoutSummary.terminalInEditorArea && terminalTab?.dataset.editorGroupTabWorkspaceId !== expectedRuntimeLayout.workspaceId) {
     failures.push("terminal tab was not restored into the active workspace editor area");
   }
   if (!layoutSummary.terminalInEditorArea && terminalTab) {
@@ -588,7 +700,7 @@ function collectRestoreCheck(
 
   return {
     cycle,
-    workspaceId: expectedLayout.workspaceId,
+    workspaceId: expectedRuntimeLayout.workspaceId,
     exact: failures.length === 0,
     failures,
   };
@@ -648,10 +760,24 @@ function summarizeLayout(layout: WorkspaceRuntimeLayout): WorkspaceLayoutPersist
 
   return {
     workspaceId: layout.workspaceId,
-    editorGroupCount: groups.filter((group) => group.tabs.length > 0).length,
+    editorGroupCount: groups.length,
     bottomPanelPosition: layout.bottomPanel.position,
     terminalInEditorArea: groups.some((group) => group.tabs.some((tab) => tab.kind === "terminal")),
   };
+}
+
+function terminalTabIdsFromLayout(layout: EditorGroupsSerializedModel): string[] {
+  const inspector = createEditorGroupsService();
+  inspector.getState().deserializeModel(layout);
+  return inspector.getState().groups.flatMap((group) =>
+    group.tabs.filter((tab) => tab.kind === "terminal").map((tab) => tab.id)
+  );
+}
+
+function groupIdsFromLayout(layout: EditorGroupsSerializedModel): string[] {
+  const inspector = createEditorGroupsService();
+  inspector.getState().deserializeModel(layout);
+  return inspector.getState().groups.map((group) => group.id);
 }
 
 function verifyCorruptJsonFallback(): WorkspaceLayoutPersistRuntimeSmokeResult["corruptFallback"] {
@@ -698,9 +824,9 @@ function asWorkspaceRuntimeLayout(layout: WorkspaceLayoutSnapshot | null): Works
   return layout as unknown as WorkspaceRuntimeLayout;
 }
 
-function countPopulatedEditorSlots(root: ParentNode): number {
+function countMaterializedEditorSlots(root: ParentNode): number {
   return Array.from(root.querySelectorAll<HTMLElement>("[data-editor-grid-slot]"))
-    .filter((element) => Number(element.dataset.editorGroupTabCount ?? "0") > 0)
+    .filter((element) => (element.dataset.editorGroupId ?? "").length > 0)
     .length;
 }
 
@@ -784,6 +910,16 @@ function failedResult(reason: string): WorkspaceLayoutPersistRuntimeSmokeResult 
     errors: [reason],
     registeredWorkspaceIds: [],
     layoutSummaries: [],
+    restartPolicy: {
+      workspaceId: "ws_layout_gamma",
+      persistedTerminalTabIds: [],
+      restoredTerminalTabIds: [],
+      groupIdsBeforeRestart: [],
+      groupIdsAfterRestart: [],
+      terminalTabsDropped: false,
+      groupLayoutSurvives: false,
+      bottomPanelSurvives: false,
+    },
     localStorageKeys: [],
     roundTrip: [],
     switchRestore: {

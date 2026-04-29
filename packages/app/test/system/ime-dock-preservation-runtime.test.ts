@@ -15,6 +15,7 @@ const SMOKE_TIMEOUT_MS = 25_000;
 const SCENARIO_NAMES = [
   "monaco-editor-drag-tab-cycle",
   "xterm-korean-input-around-dock-move",
+  "xterm-ime-overlay-rebind-after-terminal-move",
   "splitter-pointermove-during-composition",
 ] as const;
 
@@ -86,7 +87,7 @@ afterEach(async () => {
 });
 
 describe("IME dock preservation runtime system smoke", () => {
-  test("preserves one Korean composition session through Monaco dock drag, xterm dock move, and splitter pointermove", async () => {
+  test("preserves one Korean composition session through Monaco dock drag, xterm dock move/rebind, and splitter pointermove", async () => {
     viteServer = await createServer({
       configFile: false,
       root: APP_ROOT,
@@ -123,8 +124,8 @@ describe("IME dock preservation runtime system smoke", () => {
     expect(result?.ok).toBe(true);
     expect(result?.errors).toEqual([]);
     expect(result?.scenarios.map((scenario) => scenario.name)).toEqual(SCENARIO_NAMES);
-    expect(result?.aggregate.scenarioCount).toBe(3);
-    expect(result?.aggregate.passedScenarioCount).toBe(3);
+    expect(result?.aggregate.scenarioCount).toBe(4);
+    expect(result?.aggregate.passedScenarioCount).toBe(4);
     expect(result?.aggregate.totalCompositionCancelCount).toBe(0);
     expect(result?.aggregate.totalForcedFinishCount).toBe(0);
     expect(result?.aggregate.allSameCompositionSession).toBe(true);
@@ -139,6 +140,12 @@ describe("IME dock preservation runtime system smoke", () => {
       expect(scenario.composition.unmountDuringCompositionCount).toBe(0);
       expect(scenario.composition.targetConnectedAtEnd).toBe(true);
     }
+    const overlayRebindScenario = result?.scenarios.find((scenario) =>
+      scenario.name === "xterm-ime-overlay-rebind-after-terminal-move"
+    );
+    expect(overlayRebindScenario?.operationLog.some((entry) =>
+      entry.includes("overlay:") && entry.includes("editorVisible=visible") && entry.includes("sameTextarea=true")
+    )).toBe(true);
 
     expect(result?.latency.sampleCount).toBeGreaterThanOrEqual(9);
     expect(result?.latency.p95Ms).toBeGreaterThanOrEqual(0);

@@ -60,10 +60,15 @@ shadcn 명칭 체계를 수용한다.
   --color-status-running: oklch(0.75 0.12 150);
   --color-status-attention: oklch(0.78 0.12 75);
   --radius: 0.5rem;
+  --titlebar-height: 36px;
 }
 ```
 
 MVP는 dark mode 단일이다. light mode는 v0.2에서 semantic token remap으로 확장한다.
+
+## Chrome dimensions
+
+- `--titlebar-height: 36px` — custom titlebar chrome strip의 고정 높이다. 이 strip은 workbench zone이 아니며, 적용 위치와 책임은 [design-layout.md](./design-layout.md)의 Titlebar chrome strip 섹션이 소유한다.
 
 ## Monaco bridge
 

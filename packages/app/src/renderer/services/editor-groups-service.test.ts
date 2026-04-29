@@ -11,6 +11,7 @@ import {
   type EditorGroupsSerializedModel,
   type IEditorGroupsService,
 } from "./editor-groups-service";
+import { tabIdFor } from "./editor-types";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 
@@ -31,12 +32,18 @@ describe("IEditorGroupsService", () => {
     expect(service.model).toBeInstanceOf(Model);
     expect(service.groups[0]?.id).toBe(DEFAULT_EDITOR_GROUP_ID);
     expect(service.serializeModel().layout.type).toBe("row");
+    expect(service.serializeModel().layout.weight).toBe(100);
+    expect(service.serializeModel().layout.children?.[0]?.weight).toBe(100);
     expect(service.serializeModel().global?.tabSetEnableDeleteWhenEmpty).toBe(false);
+    expect(service.serializeModel().global?.tabEnablePopout).toBe(false);
+    expect(service.serializeModel().global?.tabEnablePopoutFloatIcon).toBe(false);
 
     expect(typeof service.openTab).toBe("function");
     expect(typeof service.closeTab).toBe("function");
     expect(typeof service.splitGroup).toBe("function");
     expect(typeof service.moveTab).toBe("function");
+    expect(typeof service.dropExternalPayload).toBe("function");
+    expect(typeof service.attachTerminalTab).toBe("function");
     expect(typeof service.tearOffActiveTabToFloating).toBe("function");
     expect(typeof service.setActiveTab).toBe("function");
     expect(typeof service.findSpatialNeighbor).toBe("function");
@@ -148,6 +155,229 @@ describe("IEditorGroupsService", () => {
     expect(state.activeGroupId).toBe("group_right");
     expect(state.getActiveTab()).toEqual(secondTab);
     expect(JSON.stringify(state.serializeModel())).toContain("\"id\":\"group_right\"");
+
+    const splitWeights = state.serializeModel().layout.children?.map((child) => child.weight);
+    expect(splitWeights).toEqual([50, 50]);
+  });
+
+  test("drops a workspace file payload into the target group center", () => {
+    const store = createEditorGroupsService();
+    const droppedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "workspace-file",
+        workspaceId,
+        path: "src/drop-target.ts",
+        kind: "file",
+      },
+      targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+      edge: "center",
+    });
+
+    expect(droppedGroupId).toBe(DEFAULT_EDITOR_GROUP_ID);
+    expect(store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID)?.tabs).toEqual([
+      {
+        id: tabIdFor(workspaceId, "src/drop-target.ts"),
+        title: "drop-target.ts",
+        kind: "file",
+        workspaceId,
+        resourcePath: "src/drop-target.ts",
+      },
+    ]);
+    expect(store.getState().activeGroupId).toBe(DEFAULT_EDITOR_GROUP_ID);
+  });
+
+  test("drops edge payloads by splitting left, right, top, and bottom from the target group", () => {
+    for (const edge of ["left", "right", "top", "bottom"] as const) {
+      const store = createEditorGroupsService();
+      const anchorTab = createTab(`tab_anchor_${edge}`, `anchor-${edge}.ts`);
+      store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, anchorTab);
+
+      const droppedGroupId = store.getState().dropExternalPayload({
+        payload: {
+          type: "workspace-file",
+          workspaceId,
+          path: `src/${edge}-drop.ts`,
+          kind: "file",
+        },
+        targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+        edge,
+      });
+
+      const snapshot = store.getState().serializeModel();
+      const targetGroup = store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID);
+      const droppedGroup = store.getState().groups.find((group) => group.id === droppedGroupId);
+
+      expect(droppedGroupId).toBe(`group_main_drop_${edge}`);
+      expect(targetGroup?.tabs.map((tab) => tab.id)).toEqual([anchorTab.id]);
+      expect(droppedGroup?.tabs.map((tab) => tab.id)).toEqual([tabIdFor(workspaceId, `src/${edge}-drop.ts`)]);
+      expect(store.getState().activeGroupId).toBe(droppedGroupId);
+      expect(snapshot.layout.weight).toBe(100);
+      expect(collectLayoutWeights(snapshot).every((weight) => Number.isFinite(weight) && weight > 0)).toBe(true);
+      expect(equalSiblingWeightsForTabSets(snapshot, [DEFAULT_EDITOR_GROUP_ID, droppedGroupId!])).toBe(true);
+    }
+  });
+
+  test("drops workspace multi-file payloads in order into the same target group", () => {
+    const store = createEditorGroupsService();
+    const droppedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "workspace-file-multi",
+        workspaceId,
+        items: [
+          { path: "src/one.ts", kind: "file" },
+          { path: "src/two.ts", kind: "file" },
+          { path: "docs/three.md", kind: "file" },
+        ],
+      },
+      targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+      edge: "center",
+    });
+
+    expect(droppedGroupId).toBe(DEFAULT_EDITOR_GROUP_ID);
+    expect(store.getState().groups[0]?.tabs.map((tab) => tab.id)).toEqual([
+      tabIdFor(workspaceId, "src/one.ts"),
+      tabIdFor(workspaceId, "src/two.ts"),
+      tabIdFor(workspaceId, "docs/three.md"),
+    ]);
+    expect(store.getState().getActiveTab()?.resourcePath).toBe("docs/three.md");
+  });
+
+  test("drops operating-system files in order with best-effort path metadata", () => {
+    const store = createEditorGroupsService();
+    const osFiles = [
+      { name: "notes.md", size: 42, lastModified: 1000 },
+      { name: "script.ts", path: "/Users/kih/Desktop/script.ts", size: 7, lastModified: 2000 },
+    ] as unknown as File[];
+
+    const droppedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "os-file",
+        files: osFiles,
+      },
+      targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+      edge: "center",
+    });
+    const tabs = store.getState().groups[0]?.tabs ?? [];
+
+    expect(droppedGroupId).toBe(DEFAULT_EDITOR_GROUP_ID);
+    expect(tabs.map((tab) => tab.title)).toEqual(["notes.md", "script.ts"]);
+    expect(tabs.map((tab) => tab.resourcePath)).toEqual(["notes.md", "/Users/kih/Desktop/script.ts"]);
+    expect(tabs.map((tab) => tab.workspaceId)).toEqual([null, null]);
+    expect(tabs.every((tab) => tab.id.startsWith("os-file::"))).toBe(true);
+  });
+
+  test("drops terminal-tab payloads as terminal-kind editor group tabs", () => {
+    const store = createEditorGroupsService();
+    const droppedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "terminal-tab",
+        workspaceId,
+        tabId: "tt_ws_alpha_0001",
+      },
+      targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+      edge: "center",
+    });
+
+    expect(droppedGroupId).toBe(DEFAULT_EDITOR_GROUP_ID);
+    expect(store.getState().getActiveTab()).toEqual({
+      id: "tt_ws_alpha_0001",
+      title: "Terminal",
+      kind: "terminal",
+      workspaceId,
+      resourcePath: null,
+    });
+  });
+
+  test("attaches terminal sessions to editor groups with terminal-kind metadata", () => {
+    const store = createEditorGroupsService();
+    const attachedTabId = store.getState().attachTerminalTab("terminal_attach", {
+      groupId: DEFAULT_EDITOR_GROUP_ID,
+      title: "Terminal 4",
+      workspaceId,
+    });
+
+    expect(attachedTabId).toBe("terminal_attach");
+    expect(store.getState().getActiveTab()).toEqual({
+      id: "terminal_attach",
+      title: "Terminal 4",
+      kind: "terminal",
+      workspaceId,
+      resourcePath: null,
+    });
+    expect(store.getState().serializeModel().layout.children?.[0]?.children?.[0]?.config).toEqual({
+      editorGroupTab: {
+        id: "terminal_attach",
+        title: "Terminal 4",
+        kind: "terminal",
+        workspaceId,
+        resourcePath: null,
+      },
+    });
+  });
+
+  test("re-dropping a terminal-tab payload moves the existing editor group tab metadata", () => {
+    const store = createEditorGroupsService();
+    store.getState().setGroups([
+      { id: "group_left", tabs: [], activeTabId: null },
+      { id: "group_right", tabs: [], activeTabId: null },
+    ], "group_left");
+
+    store.getState().dropExternalPayload({
+      payload: {
+        type: "terminal-tab",
+        workspaceId,
+        tabId: "tt_ws_alpha_move",
+      },
+      targetGroupId: "group_left",
+      edge: "center",
+    });
+    const movedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "terminal-tab",
+        workspaceId,
+        tabId: "tt_ws_alpha_move",
+      },
+      targetGroupId: "group_right",
+      edge: "center",
+    });
+
+    expect(movedGroupId).toBe("group_right");
+    expect(store.getState().groups.find((group) => group.id === "group_left")?.tabs).toEqual([]);
+    expect(store.getState().groups.find((group) => group.id === "group_right")?.tabs).toEqual([
+      {
+        id: "tt_ws_alpha_move",
+        title: "Terminal",
+        kind: "terminal",
+        workspaceId,
+        resourcePath: null,
+      },
+    ]);
+  });
+
+  test("drops multi payloads into one newly split group without reordering", () => {
+    const store = createEditorGroupsService();
+    const anchorTab = createTab("tab_anchor_multi", "anchor-multi.ts");
+    store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, anchorTab);
+
+    const droppedGroupId = store.getState().dropExternalPayload({
+      payload: {
+        type: "workspace-file-multi",
+        workspaceId,
+        items: [
+          { path: "src/a.ts", kind: "file" },
+          { path: "src/b.ts", kind: "file" },
+          { path: "src/c.ts", kind: "file" },
+        ],
+      },
+      targetGroupId: DEFAULT_EDITOR_GROUP_ID,
+      edge: "right",
+    });
+    const droppedGroup = store.getState().groups.find((group) => group.id === droppedGroupId);
+
+    expect(droppedGroupId).toBe("group_main_drop_right");
+    expect(store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID)?.tabs).toEqual([anchorTab]);
+    expect(droppedGroup?.tabs.map((tab) => tab.resourcePath)).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"]);
+    expect(store.getState().getActiveTab()?.resourcePath).toBe("src/c.ts");
   });
 
   test("moves tabs between groups and reorders inside the target group", () => {
@@ -176,23 +406,45 @@ describe("IEditorGroupsService", () => {
     expect(store.getState().getActiveTab()).toEqual(firstTab);
   });
 
-  test("tears off the active tab into a floating flexlayout sublayout", () => {
+  test("keeps popout disabled and ignores tear-off or direct flexlayout popout actions", () => {
     const store = createEditorGroupsService();
     const firstTab = createTab("tab_first");
-    const floatingTab = createTab("tab_float");
+    const popoutTab = createTab("tab_popout");
 
     store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, firstTab);
-    store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, floatingTab);
+    store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, popoutTab);
 
+    const beforeTearOff = store.getState().serializeModel();
     const tornOffTabId = store.getState().tearOffActiveTabToFloating();
-    const snapshot = store.getState().serializeModel();
-    const floatingLayouts = Object.values(snapshot.subLayouts ?? {});
+    const afterTearOff = store.getState().serializeModel();
+    const popoutResult = store.getState().model.doAction(Actions.popoutTab(popoutTab.id, "float"));
+    const createPopoutResult = store.getState().model.doAction(Actions.createPopout({
+      type: "row",
+      children: [tabset("group_blocked_popout")],
+    }, {
+      x: 10,
+      y: 10,
+      width: 200,
+      height: 120,
+    }, "float"));
+    const afterDirectPopoutActions = store.getState().serializeModel();
 
-    expect(tornOffTabId).toBe(floatingTab.id);
-    expect(snapshot.layout.children?.[0]?.children?.map((tab) => tab.id)).toEqual([firstTab.id]);
-    expect(floatingLayouts).toHaveLength(1);
-    expect(floatingLayouts[0]?.type).toBe("float");
-    expect(JSON.stringify(floatingLayouts[0]?.layout)).toContain(floatingTab.id);
+    expect(tornOffTabId).toBeNull();
+    expect(popoutResult).toBeUndefined();
+    expect(createPopoutResult).toBeUndefined();
+    expect(afterTearOff).toEqual(beforeTearOff);
+    expect(afterDirectPopoutActions).toEqual(beforeTearOff);
+    expect(afterDirectPopoutActions.subLayouts).toBeUndefined();
+    expect(afterDirectPopoutActions.global?.tabEnablePopout).toBe(false);
+    expect(afterDirectPopoutActions.global?.tabEnablePopoutFloatIcon).toBe(false);
+    expect(afterDirectPopoutActions.layout.children?.[0]?.children?.map((tab) => ({
+      id: tab.id,
+      enablePopout: tab.enablePopout,
+      enablePopoutFloatIcon: tab.enablePopoutFloatIcon,
+    }))).toEqual([
+      { id: firstTab.id, enablePopout: false, enablePopoutFloatIcon: false },
+      { id: popoutTab.id, enablePopout: false, enablePopoutFloatIcon: false },
+    ]);
   });
 
   test("finds deterministic spatial neighbors in row layouts and stops at horizontal edges", () => {
@@ -266,6 +518,138 @@ describe("IEditorGroupsService", () => {
 
     expect(restoredStore.getState().serializeModel()).toEqual(snapshot);
     expect(restoredStore.getState().getActiveTab()).toEqual(tab);
+  });
+
+  test("round-trips terminal kind tab metadata through serialized model config", () => {
+    const store = createEditorGroupsService();
+    const terminalTab: EditorGroupTab = {
+      id: "tt_ws_alpha_roundtrip",
+      title: "Terminal",
+      kind: "terminal",
+      workspaceId,
+      resourcePath: null,
+    };
+
+    store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, terminalTab);
+
+    const snapshot = store.getState().serializeModel();
+    const serializedTab = snapshot.layout.children?.[0]?.children?.[0];
+    const restoredStore = createEditorGroupsService();
+    restoredStore.getState().deserializeModel(snapshot);
+
+    expect(serializedTab?.component).toBe(EDITOR_GROUP_TAB_COMPONENT);
+    expect(serializedTab?.config).toEqual({ editorGroupTab: terminalTab });
+    expect(restoredStore.getState().serializeModel()).toEqual(snapshot);
+    expect(restoredStore.getState().getActiveTab()).toEqual(terminalTab);
+  });
+
+  test("sanitizes persisted popout state when deserializing a flexlayout snapshot", () => {
+    const tab = createTab("tab_popout_snapshot", "popout-snapshot.ts");
+    const store = createEditorGroupsService({
+      layoutSnapshot: {
+        global: {
+          tabEnablePopout: true,
+          tabEnablePopoutFloatIcon: true,
+          tabEnablePopoutIcon: true,
+          tabSetEnableDeleteWhenEmpty: true,
+        },
+        borders: [],
+        layout: {
+          type: "row",
+          id: "root",
+          children: [
+            {
+              type: "tabset",
+              id: DEFAULT_EDITOR_GROUP_ID,
+              selected: 0,
+              active: true,
+              children: [
+                {
+                  type: "tab",
+                  id: tab.id,
+                  name: tab.title,
+                  component: EDITOR_GROUP_TAB_COMPONENT,
+                  enablePopout: true,
+                  enablePopoutFloatIcon: true,
+                  enablePopoutIcon: true,
+                  config: { editorGroupTab: tab },
+                },
+              ],
+            },
+          ],
+        },
+        subLayouts: {
+          blocked_float: {
+            type: "float",
+            rect: { x: 1, y: 2, width: 3, height: 4 },
+            layout: {
+              type: "row",
+              children: [tabset("group_persisted_popout")],
+            },
+          },
+        },
+      },
+    });
+
+    const snapshot = store.getState().serializeModel();
+    const serializedTab = snapshot.layout.children?.[0]?.children?.[0];
+
+    expect(snapshot.subLayouts).toBeUndefined();
+    expect(snapshot.global?.tabEnablePopout).toBe(false);
+    expect(snapshot.global?.tabEnablePopoutFloatIcon).toBe(false);
+    expect(snapshot.global?.tabEnablePopoutIcon).toBe(false);
+    expect(snapshot.global?.tabSetEnableDeleteWhenEmpty).toBe(false);
+    expect(serializedTab?.enablePopout).toBe(false);
+    expect(serializedTab?.enablePopoutFloatIcon).toBe(false);
+    expect(serializedTab?.enablePopoutIcon).toBe(false);
+  });
+
+  test("sanitizes legacy flexlayout row and tabset weights to 100 when missing or invalid", () => {
+    const legacySnapshot = {
+      global: {
+        tabSetEnableDeleteWhenEmpty: false,
+      },
+      borders: [],
+      layout: {
+        type: "row",
+        id: "root",
+        weight: 0,
+        children: [
+          {
+            ...tabset("group_zero_weight"),
+            weight: 0,
+          },
+          {
+            ...tabset("group_null_weight"),
+            weight: null,
+          },
+          {
+            ...tabset("group_undefined_weight"),
+            weight: undefined,
+          },
+          {
+            type: "row",
+            id: "row_missing_weight",
+            children: [
+              tabset("group_missing_weight"),
+              tabset("group_nested_undefined_weight"),
+            ],
+          },
+        ],
+      },
+    } as unknown as EditorGroupsSerializedModel;
+    const store = createEditorGroupsService({ layoutSnapshot: legacySnapshot });
+    const snapshot = store.getState().serializeModel();
+    const children = snapshot.layout.children ?? [];
+    const nestedRow = children[3];
+    const nestedTabSet = nestedRow?.type === "row" ? nestedRow.children?.[0] : undefined;
+
+    expect(snapshot.layout.weight).toBe(100);
+    expect(children[0]?.weight).toBe(100);
+    expect(children[1]?.weight).toBe(100);
+    expect(children[2]?.weight).toBe(100);
+    expect(nestedRow?.weight).toBe(100);
+    expect(nestedTabSet?.weight).toBe(100);
   });
 
   test("migrates a simple one-pane legacy panes layout to a flexlayout model", () => {
@@ -356,6 +740,63 @@ describe("IEditorGroupsService", () => {
     expect(actionTypes).toEqual(["openTab", Actions.ADD_TAB]);
   });
 });
+
+type SerializedLayoutNode =
+  | EditorGroupsSerializedModel["layout"]
+  | NonNullable<EditorGroupsSerializedModel["layout"]["children"]>[number];
+
+function collectLayoutWeights(snapshot: EditorGroupsSerializedModel): number[] {
+  const weights: number[] = [];
+
+  visitWeightedLayoutNode(snapshot.layout, weights);
+  return weights;
+}
+
+function visitWeightedLayoutNode(node: SerializedLayoutNode, weights: number[]): void {
+  if (typeof node.weight === "number") {
+    weights.push(node.weight);
+  }
+
+  if (node.type !== "row") {
+    return;
+  }
+
+  for (const child of node.children ?? []) {
+    visitWeightedLayoutNode(child, weights);
+  }
+}
+
+function equalSiblingWeightsForTabSets(
+  snapshot: EditorGroupsSerializedModel,
+  tabSetIds: readonly string[],
+): boolean {
+  const weights = findSiblingWeightsForTabSets(snapshot.layout, tabSetIds);
+  return Boolean(weights && weights.length === tabSetIds.length && new Set(weights).size === 1);
+}
+
+function findSiblingWeightsForTabSets(
+  node: SerializedLayoutNode,
+  tabSetIds: readonly string[],
+): number[] | null {
+  if (node.type !== "row") {
+    return null;
+  }
+
+  const matchingChildren = (node.children ?? [])
+    .filter((child) => child.type === "tabset" && tabSetIds.includes(child.id ?? ""));
+  if (matchingChildren.length === tabSetIds.length) {
+    return matchingChildren.map((child) => child.weight ?? Number.NaN);
+  }
+
+  for (const child of node.children ?? []) {
+    const weights = findSiblingWeightsForTabSets(child, tabSetIds);
+    if (weights) {
+      return weights;
+    }
+  }
+
+  return null;
+}
 
 function createLegacyTab(path: string) {
   return {

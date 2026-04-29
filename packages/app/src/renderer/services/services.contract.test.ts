@@ -67,13 +67,23 @@ describe("renderer service contracts", () => {
 
     expect(typeof editorGroups.getState().openTab).toBe("function");
     expect(typeof editorGroups.getState().findSpatialNeighbor).toBe("function");
+    expect(typeof editorGroups.getState().dropExternalPayload).toBe("function");
+    expect(typeof editorGroups.getState().attachTerminalTab).toBe("function");
     expect(typeof editorGroups.getState().tearOffActiveTabToFloating).toBe("function");
     expect(typeof bottomPanel.getState().activateView).toBe("function");
+    expect(typeof bottomPanel.getState().detachTerminalFromBottom).toBe("function");
+    expect(typeof bottomPanel.getState().attachTerminalToBottom).toBe("function");
+    expect(typeof bottomPanel.getState().isTerminalAttachedToBottom).toBe("function");
     expect(typeof activityBar.getState().setActiveView).toBe("function");
     expect(typeof workspace.getState().openWorkspace).toBe("function");
     expect(typeof editorDocuments.getState().openDocument).toBe("function");
     expect(typeof terminal.getState().createTerminal).toBe("function");
     expect(typeof terminal.getState().mountShell).toBe("function");
+    expect(typeof terminal.getState().attachToHost).toBe("function");
+    expect(typeof terminal.getState().detachFromHost).toBe("function");
+    expect(typeof terminal.getState().focusSession).toBe("function");
+    expect(typeof terminal.getState().requestNewTab).toBe("function");
+    expect(typeof terminal.getState().getMountedHost).toBe("function");
     expect(typeof files.getState().setTree).toBe("function");
     expect(typeof git.getState().applySummary).toBe("function");
     expect(typeof lsp.getState().openDocument).toBe("function");
@@ -170,12 +180,16 @@ describe("renderer service contracts", () => {
     store.getState().activateView("ports");
     store.getState().moveTo("right");
     store.getState().setExpanded(false);
+    store.getState().detachTerminalFromBottom("terminal_one");
     expect(store.getState().expanded).toBe(false);
+    expect(store.getState().isTerminalAttachedToBottom("terminal_one")).toBe(false);
 
+    store.getState().attachTerminalToBottom("terminal_one");
     store.getState().toggle();
     expect(store.getState().getActiveView()).toEqual({ id: "ports", label: "Ports" });
     expect(store.getState().position).toBe("right");
     expect(store.getState().expanded).toBe(true);
+    expect(store.getState().isTerminalAttachedToBottom("terminal_one")).toBe(true);
   });
 
   test("IActivityBarService manages view registration and routing selection", () => {

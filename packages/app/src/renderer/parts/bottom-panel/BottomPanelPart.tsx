@@ -32,6 +32,10 @@ export interface BottomPanelPartProps extends TerminalPaneProps {
 
 export function BottomPanelPart({
   sidebarState,
+  terminalService,
+  detachedTerminalIds,
+  onMoveTerminalToEditorArea,
+  onDropTerminalTab,
   active = true,
   views = DEFAULT_BOTTOM_PANEL_VIEWS,
   activeViewId = "terminal",
@@ -49,7 +53,15 @@ export function BottomPanelPart({
       expanded={expanded}
       onActiveViewChange={onActiveViewChange}
       viewPanels={{
-        terminal: <TerminalPane sidebarState={sidebarState} />,
+        terminal: (
+          <TerminalPane
+            sidebarState={sidebarState}
+            terminalService={terminalService}
+            detachedTerminalIds={detachedTerminalIds}
+            onMoveTerminalToEditorArea={onMoveTerminalToEditorArea}
+            onDropTerminalTab={onDropTerminalTab}
+          />
+        ),
         output: <OutputPanel />,
         problems: <ProblemsPanel />,
         ...viewPanels,

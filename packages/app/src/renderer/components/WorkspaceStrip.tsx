@@ -54,11 +54,11 @@ export function WorkspaceStripView({
       data-component="workspace-strip"
       className="flex h-full min-h-0 min-w-0 flex-col bg-sidebar/80 text-sidebar-foreground"
     >
-      <header className="shrink-0 px-2 py-2">
-        <h2 className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground">
+      <header className="shrink-0 px-2 py-1.5">
+        <h2 className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
           Workspaces
         </h2>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+        <p className="mt-0.5 truncate text-[10px] text-muted-foreground/70">
           {workspaceCount === 1 ? "1 open" : `${workspaceCount} open`}
         </p>
       </header>

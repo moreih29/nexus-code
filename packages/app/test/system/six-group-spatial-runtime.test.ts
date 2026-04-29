@@ -12,7 +12,7 @@ const RESULT_GLOBAL_NAME = "__nexusSixGroupSpatialRuntimeSmokeResult";
 const SMOKE_TIMEOUT_MS = 30_000;
 const SIX_GROUP_BASE_FILES = ["alpha.ts", "beta.ts", "gamma.ts", "delta.ts", "epsilon.ts", "zeta.ts"];
 const DIRECTIONS = ["left", "right", "up", "down"] as const;
-const MIN_LUMINANCE_DELTA = 0.05;
+const ACTIVE_TABSET_MARKER_CLASS = "flexlayout__tabset-selected";
 
 type SpatialDirection = typeof DIRECTIONS[number];
 
@@ -72,11 +72,13 @@ interface SixGroupSpatialRuntimeSmokeResult {
     }>;
   };
   visualSanity: {
-    threshold: number;
+    activeMarkerClass: string;
     activeGroupId: string | null;
     inactiveGroupId: string | null;
     activeBackground: string | null;
     inactiveBackground: string | null;
+    activeGroupHasMarker: boolean;
+    inactiveGroupHasMarker: boolean;
     activeLuminance: number | null;
     inactiveLuminance: number | null;
     delta: number | null;
@@ -113,7 +115,7 @@ afterEach(async () => {
 });
 
 describe("six group spatial keyboard runtime system smoke", () => {
-  test("enforces six-group spatial neighbor movement, no-wrap edges, and active/inactive visual luminance", async () => {
+  test("enforces six-group spatial neighbor movement, no-wrap edges, and active/inactive flexlayout marker state", async () => {
     viteServer = await createServer({
       configFile: false,
       root: APP_ROOT,
@@ -179,8 +181,9 @@ describe("six group spatial keyboard runtime system smoke", () => {
       { topology: "column", directionCount: 4, edgeStopCount: 4 },
       { topology: "mixed", directionCount: 4, edgeStopCount: 4 },
     ]);
-    expect(result?.visualSanity.threshold).toBe(MIN_LUMINANCE_DELTA);
-    expect(result?.visualSanity.delta ?? 0).toBeGreaterThanOrEqual(MIN_LUMINANCE_DELTA);
+    expect(result?.visualSanity.activeMarkerClass).toBe(ACTIVE_TABSET_MARKER_CLASS);
+    expect(result?.visualSanity.activeGroupHasMarker).toBe(true);
+    expect(result?.visualSanity.inactiveGroupHasMarker).toBe(false);
     expect(result?.visualSanity.passed).toBe(true);
     expect(result?.t14Dependency.missingSpatialKeyboardImplementation).toBe(false);
     expect(result?.errors).toEqual([]);

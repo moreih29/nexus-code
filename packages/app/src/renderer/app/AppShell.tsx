@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 
 import type { ClaudeSettingsConsentRequest } from "../../../../shared/src/contracts/claude/claude-settings";
+import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { CenterWorkbench } from "../components/CenterWorkbench";
 import { ClaudeSettingsConsentDialog } from "../components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "../components/CommandPalette";
@@ -16,7 +17,12 @@ import { ActivityBarPart } from "../parts/activity-bar";
 import { BottomPanelPart } from "../parts/bottom-panel";
 import { EditorGroupsPart } from "../parts/editor-groups";
 import { SideBarPart } from "../parts/side-bar";
+import { StatusBarPart, type StatusBarActiveItem } from "../parts/status-bar";
+import { TitleBarPart } from "../parts/titlebar";
 import { WorkspaceStripPart } from "../parts/workspace-strip";
+import type { DropExternalEditorPayloadInput, EditorGroup, EditorGroupId } from "../services/editor-groups-service";
+import type { EditorPaneState, EditorTab } from "../services/editor-types";
+import type { TerminalTab } from "../services/terminal-service";
 import { useAppServices } from "./wiring";
 import { useAppCommands } from "./useAppCommands";
 import { useEditorBindings } from "./useEditorBindings";
@@ -43,6 +49,7 @@ export default function App(): JSX.Element {
     editorGroups: editorGroupsService,
     editorWorkspace: editorWorkspaceService,
     git: gitService,
+    terminal: terminalService,
   } = useAppServices();
   const [claudeConsentRequest, setClaudeConsentRequest] =
     useState<ClaudeSettingsConsentRequest | null>(null);
@@ -64,6 +71,7 @@ export default function App(): JSX.Element {
   const bottomPanelPosition = useStore(bottomPanelStore, (state) => state.position);
   const bottomPanelExpanded = useStore(bottomPanelStore, (state) => state.expanded);
   const bottomPanelHeight = useStore(bottomPanelStore, (state) => state.height);
+  const detachedBottomPanelTerminalIds = useStore(bottomPanelStore, (state) => state.detachedTerminalIds);
   const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
   const toolFeedByWorkspaceId = useStore(harnessToolFeedStore, (state) => state.feedByWorkspaceId);
   const sessionByWorkspaceId = useStore(harnessSessionStore, (state) => state.sessionByWorkspaceId);
@@ -75,6 +83,7 @@ export default function App(): JSX.Element {
   const editorPendingExplorerDelete = useStore(filesService, (state) => state.pendingExplorerDelete);
   const fileClipboardCanPaste = useStore(fileClipboardStore, (state) => state.hasClipboardItems());
   const fileClipboardPendingCollision = useStore(fileClipboardStore, (state) => state.pendingCollision);
+  const terminalTabs = useStore(terminalService, (state) => state.tabs);
   const activeWorkspace = sidebarState.activeWorkspaceId
     ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
     : undefined;
@@ -95,14 +104,17 @@ export default function App(): JSX.Element {
     filesService,
     gitService,
     groupsService: editorGroupsService,
+    openWorkspaces: sidebarState.openWorkspaces,
     workspaceService: editorWorkspaceService,
   });
   const appCommands = useAppCommands({
     activityBarStore,
     bottomPanelStore,
     editorBindings,
+    editorGroupsService,
     editorWorkspaceService,
     searchStore,
+    terminalService,
     workspaceStore,
   });
   const explorerBindings = useExplorerBindings({
@@ -123,6 +135,45 @@ export default function App(): JSX.Element {
     workspaceService: editorWorkspaceService,
   });
   const resizeBindings = useResizeDrag({ activityBarStore });
+  const handleEditorDropExternalPayload = useCallback((input: DropExternalEditorPayloadInput): void => {
+    if (input.payload.type !== "terminal-tab") {
+      editorBindings.dropExternalPayload(input);
+      return;
+    }
+
+    const droppedGroupId = editorGroupsService.getState().dropExternalPayload(input);
+    if (!droppedGroupId) {
+      return;
+    }
+
+    bottomPanelStore.getState().detachTerminalFromBottom(input.payload.tabId);
+    terminalService.getState().setActiveTab(input.payload.tabId);
+    editorWorkspaceService.getState().setCenterMode("editor-max");
+    appCommands.setActiveCenterArea("editor");
+    window.setTimeout(() => {
+      terminalService.getState().focusSession(input.payload.tabId);
+    }, 0);
+  }, [
+    appCommands,
+    bottomPanelStore,
+    editorBindings,
+    editorGroupsService,
+    editorWorkspaceService,
+    terminalService,
+  ]);
+  const statusBarActiveItem = useMemo(() => resolveStatusBarActiveItem({
+    activeGroupId: editorBindings.activeGroupId,
+    groups: editorBindings.groups,
+    panes: editorBindings.panes,
+    terminalTabs,
+    workspaces: sidebarState.openWorkspaces,
+  }), [
+    editorBindings.activeGroupId,
+    editorBindings.groups,
+    editorBindings.panes,
+    sidebarState.openWorkspaces,
+    terminalTabs,
+  ]);
 
   const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
     const request = pendingClaudeConsentRef.current;
@@ -160,31 +211,15 @@ export default function App(): JSX.Element {
   }, [completeClaudeConsentRequest]);
 
   return (
-    <div className="flex h-full bg-background text-foreground">
-      <CommandPalette open={appCommands.commandPaletteOpen} onOpenChange={appCommands.setCommandPaletteOpen} />
-      <ClaudeSettingsConsentDialog
-        open={claudeConsentRequest !== null}
-        workspaceName={claudeConsentRequest?.workspaceName ?? "this workspace"}
-        harnessName={claudeConsentRequest?.harnessName}
-        settingsFiles={claudeConsentRequest?.settingsFiles}
-        settingsDescription={claudeConsentRequest?.settingsDescription}
-        gitignoreEntries={claudeConsentRequest?.gitignoreEntries}
-        dontAskAgain={claudeConsentDontAskAgain}
-        onOpenChange={(open) => {
-          if (!open) {
-            completeClaudeConsentRequest(false, false);
-          }
-        }}
-        onDontAskAgainChange={setClaudeConsentDontAskAgain}
-        onApprove={(decision) => {
-          completeClaudeConsentRequest(true, decision.dontAskAgain);
-        }}
-        onCancel={() => {
-          completeClaudeConsentRequest(false, false);
-        }}
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <TitleBarPart
+        hasWorkspace={Boolean(activeWorkspace)}
+        platform={globalThis.window?.nexusEnvironment?.platform ?? "linux"}
+        onOpenCommandPalette={() => appCommands.setCommandPaletteOpen(true)}
+        onOpenWorkspace={() => void runSidebarMutation(appCommands.openFolder)}
       />
 
-      <div className="flex min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         <div
           ref={resizeBindings.workspaceStrip.ref}
           data-panel="workspace-strip"
@@ -195,12 +230,8 @@ export default function App(): JSX.Element {
             sidebarState={sidebarState}
             badgeByWorkspaceId={badgeByWorkspaceId}
             onOpenFolder={() => runSidebarMutation(appCommands.openFolder)}
-            onActivateWorkspace={(workspaceId) =>
-              runSidebarMutation(() => appCommands.activateWorkspace(workspaceId))
-            }
-            onCloseWorkspace={(workspaceId) =>
-              runSidebarMutation(() => appCommands.closeWorkspace(workspaceId))
-            }
+            onActivateWorkspace={(workspaceId) => runSidebarMutation(() => appCommands.activateWorkspace(workspaceId))}
+            onCloseWorkspace={(workspaceId) => runSidebarMutation(() => appCommands.closeWorkspace(workspaceId))}
           />
         </div>
 
@@ -335,6 +366,8 @@ export default function App(): JSX.Element {
               <EditorGroupsPart
                 activeGroupId={editorBindings.activeGroupId}
                 groups={editorBindings.groups}
+                editorGroupsService={editorGroupsService}
+                terminalService={terminalService}
                 layoutSnapshot={editorBindings.layoutSnapshot}
                 model={editorBindings.model}
                 activeWorkspaceId={activeWorkspace?.id ?? null}
@@ -343,21 +376,15 @@ export default function App(): JSX.Element {
                 activePaneId={editorBindings.activePaneId}
                 onActivatePane={editorBindings.activatePane}
                 onSplitRight={editorBindings.splitRight}
-                onReorderTab={editorBindings.reorderTab}
-                onMoveTabToPane={editorBindings.moveTabToPane}
                 onSplitTabRight={editorBindings.splitTabRight}
-                onOpenFileFromTreeDrop={editorBindings.openFileFromTreeDrop}
-                onActivateTab={editorBindings.activateTab}
                 onCloseTab={editorBindings.closeTab}
-                onCloseOtherTabs={editorBindings.closeOtherTabs}
-                onCloseTabsToRight={editorBindings.closeTabsToRight}
-                onCloseAllTabs={editorBindings.closeAllTabs}
                 onCopyTabPath={editorBindings.copyTabPath}
                 onRevealTabInFinder={editorBindings.revealTabInFinder}
-                onTearOffTabToFloating={editorBindings.tearOffTabToFloating}
                 onSaveTab={editorBindings.saveTab}
                 onChangeContent={editorBindings.updateTabContent}
                 onApplyWorkspaceEdit={editorBindings.applyWorkspaceEdit}
+                onDropExternalPayload={handleEditorDropExternalPayload}
+                onMoveTerminalToBottomPanel={appCommands.moveTerminalToBottomPanel}
               />
             }
             bottomPanel={
@@ -369,11 +396,41 @@ export default function App(): JSX.Element {
                 position={bottomPanelPosition}
                 expanded={bottomPanelExpanded}
                 onActiveViewChange={appCommands.activateBottomPanelView}
+                terminalService={terminalService}
+                detachedTerminalIds={detachedBottomPanelTerminalIds}
+                onMoveTerminalToEditorArea={appCommands.moveTerminalToEditorArea}
+                onDropTerminalTab={(payload) => {
+                  appCommands.moveTerminalToBottomPanel(payload.tabId);
+                  return true;
+                }}
               />
             }
           />
         </div>
       </div>
+      <StatusBarPart activeItem={statusBarActiveItem} />
+      <CommandPalette open={appCommands.commandPaletteOpen} onOpenChange={appCommands.setCommandPaletteOpen} />
+      <ClaudeSettingsConsentDialog
+        open={claudeConsentRequest !== null}
+        workspaceName={claudeConsentRequest?.workspaceName ?? "this workspace"}
+        harnessName={claudeConsentRequest?.harnessName}
+        settingsFiles={claudeConsentRequest?.settingsFiles}
+        settingsDescription={claudeConsentRequest?.settingsDescription}
+        gitignoreEntries={claudeConsentRequest?.gitignoreEntries}
+        dontAskAgain={claudeConsentDontAskAgain}
+        onOpenChange={(open) => {
+          if (!open) {
+            completeClaudeConsentRequest(false, false);
+          }
+        }}
+        onDontAskAgainChange={setClaudeConsentDontAskAgain}
+        onApprove={(decision) => {
+          completeClaudeConsentRequest(true, decision.dontAskAgain);
+        }}
+        onCancel={() => {
+          completeClaudeConsentRequest(false, false);
+        }}
+      />
     </div>
   );
 }
@@ -384,4 +441,69 @@ async function runSidebarMutation(run: () => Promise<void>): Promise<void> {
   } catch (error) {
     console.error("Workspace sidebar: failed to apply workspace mutation.", error);
   }
+}
+
+function resolveStatusBarActiveItem({
+  activeGroupId,
+  groups,
+  panes,
+  terminalTabs,
+  workspaces,
+}: {
+  activeGroupId: EditorGroupId | null;
+  groups: readonly EditorGroup[];
+  panes: readonly EditorPaneState[];
+  terminalTabs: readonly TerminalTab[];
+  workspaces: readonly OpenSessionWorkspace[];
+}): StatusBarActiveItem {
+  const activeGroup = groups.find((group) => group.id === activeGroupId) ?? null;
+  const activeGroupTab = activeGroup?.tabs.find((tab) => tab.id === activeGroup.activeTabId) ?? null;
+
+  if (!activeGroupTab) {
+    return { kind: "empty" };
+  }
+
+  if (activeGroupTab.kind === "file") {
+    const activeEditorTab = findEditorTab(panes, activeGroupTab.id);
+    return activeEditorTab
+      ? {
+          kind: "file",
+          lspStatus: activeEditorTab.lspStatus,
+          diagnostics: activeEditorTab.diagnostics,
+          language: activeEditorTab.language ?? activeEditorTab.monacoLanguage,
+        }
+      : {
+          kind: "file",
+          lspStatus: null,
+          diagnostics: [],
+          language: null,
+        };
+  }
+
+  if (activeGroupTab.kind === "terminal") {
+    const terminalTab = terminalTabs.find((tab) => tab.id === activeGroupTab.id) ?? null;
+    const workspace = workspaces.find((candidate) => candidate.id === activeGroupTab.workspaceId) ?? null;
+    return {
+      kind: "terminal",
+      shell: terminalTab?.shell ?? null,
+      cwd: terminalTab?.cwd ?? workspace?.absolutePath ?? null,
+      pid: terminalTab?.pid ?? null,
+    };
+  }
+
+  return {
+    kind: activeGroupTab.kind === "diff" ? "diff" : "preview",
+    label: activeGroupTab.title,
+  };
+}
+
+function findEditorTab(panes: readonly EditorPaneState[], tabId: string): EditorTab | null {
+  for (const pane of panes) {
+    const tab = pane.tabs.find((candidate) => candidate.id === tabId);
+    if (tab) {
+      return tab;
+    }
+  }
+
+  return null;
 }

@@ -1,5 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
+import type { TerminalTabId } from "./terminal-service";
+
 export type BottomPanelPosition = "left" | "right" | "top" | "bottom";
 export type BottomPanelViewId = "terminal" | "output" | "problems" | string;
 export type BottomPanelHeightPersistenceKey = string;
@@ -17,6 +19,7 @@ export interface BottomPanelServiceSnapshot {
   height: number;
   heightPersistenceKey: BottomPanelHeightPersistenceKey | null;
   heightByPersistenceKey: Record<BottomPanelHeightPersistenceKey, number>;
+  detachedTerminalIds: TerminalTabId[];
 }
 
 export type BottomPanelStateChangeListener = (
@@ -32,6 +35,9 @@ export interface IBottomPanelService extends BottomPanelServiceSnapshot {
   togglePanel(): void;
   setHeight(height: number, persistenceKey?: BottomPanelHeightPersistenceKey | null): void;
   setHeightPersistenceKey(persistenceKey: BottomPanelHeightPersistenceKey | null): void;
+  detachTerminalFromBottom(sessionId: TerminalTabId): void;
+  attachTerminalToBottom(sessionId: TerminalTabId): void;
+  isTerminalAttachedToBottom(sessionId: TerminalTabId): boolean;
   getSnapshot(): BottomPanelServiceSnapshot;
   onStateChanged(listener: BottomPanelStateChangeListener): () => void;
   getActiveView(): BottomPanelView | null;
@@ -77,6 +83,7 @@ export function createBottomPanelService(
     height: normalizeHeight(initialHeight),
     heightPersistenceKey: initialHeightPersistenceKey,
     heightByPersistenceKey: initialHeightByPersistenceKey,
+    detachedTerminalIds: normalizeTerminalIds(initialState.detachedTerminalIds ?? defaultState.detachedTerminalIds),
   };
 
   return createStore<IBottomPanelService>((set, get, api) => ({
@@ -142,6 +149,25 @@ export function createBottomPanelService(
           : state.height,
       }));
     },
+    detachTerminalFromBottom(sessionId) {
+      set((state) => state.detachedTerminalIds.includes(sessionId)
+        ? {}
+        : { detachedTerminalIds: [...state.detachedTerminalIds, sessionId] });
+    },
+    attachTerminalToBottom(sessionId) {
+      set((state) => {
+        if (!state.detachedTerminalIds.includes(sessionId)) {
+          return {};
+        }
+
+        return {
+          detachedTerminalIds: state.detachedTerminalIds.filter((id) => id !== sessionId),
+        };
+      });
+    },
+    isTerminalAttachedToBottom(sessionId) {
+      return !get().detachedTerminalIds.includes(sessionId);
+    },
     getSnapshot() {
       return snapshotBottomPanelState(get());
     },
@@ -182,6 +208,7 @@ function createDefaultBottomPanelState(): BottomPanelServiceState {
     height: DEFAULT_BOTTOM_PANEL_HEIGHT,
     heightPersistenceKey: null,
     heightByPersistenceKey: {},
+    detachedTerminalIds: [],
   };
 }
 
@@ -209,9 +236,14 @@ function snapshotBottomPanelState(state: BottomPanelServiceState): BottomPanelSe
     height: state.height,
     heightPersistenceKey: state.heightPersistenceKey,
     heightByPersistenceKey: { ...state.heightByPersistenceKey },
+    detachedTerminalIds: [...state.detachedTerminalIds],
   };
 }
 
 function cloneViews(views: readonly BottomPanelView[]): BottomPanelView[] {
   return views.map((view) => ({ ...view }));
+}
+
+function normalizeTerminalIds(ids: readonly TerminalTabId[]): TerminalTabId[] {
+  return Array.from(new Set(ids));
 }

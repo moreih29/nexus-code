@@ -11,6 +11,7 @@ import {
   composeElectronAppServices,
   type ElectronAppServices,
 } from "./electron-app-composition";
+import { createMainWindowOptions } from "./main-window-options";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string | undefined;
@@ -69,16 +70,12 @@ const loadMainWindowRenderer = async (window: BrowserWindow): Promise<void> => {
 };
 
 const createMainWindow = async (): Promise<BrowserWindow> => {
-  const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 640,
-    webPreferences: {
-      contextIsolation: true,
-      preload: MAIN_WINDOW_PRELOAD_PATH,
-    },
-  });
+  const window = new BrowserWindow(
+    createMainWindowOptions({
+      platform: process.platform,
+      preloadPath: MAIN_WINDOW_PRELOAD_PATH,
+    }),
+  );
 
   await loadMainWindowRenderer(window);
   return window;

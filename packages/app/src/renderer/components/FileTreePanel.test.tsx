@@ -18,6 +18,7 @@ import {
   handleEditFormKeyDown,
   handleRenameSubmit,
   handleTreeKeyDown,
+  shouldRestoreSelectedPathOnFocusEntry,
   type FileTreePanelProps,
 } from "./FileTreePanel";
 import { FileTreeContextMenu } from "./file-tree-context-menu";
@@ -176,6 +177,7 @@ describe("FileTreePanel", () => {
     expect(html).toContain('data-file-icon-kind="file"');
     expect(html).toContain('data-file-icon-source="file_type_typescript.svg"');
     expect(html).toContain('style="width:14px;height:14px"');
+    expect(html).not.toContain('draggable="true"');
   });
 
   test("wires empty-area and row right-click menus to file actions and clipboard handlers", () => {
@@ -228,6 +230,32 @@ describe("FileTreePanel", () => {
     expect(source).toContain("fileTreeMultiSelectStore");
     expect(source).toContain("renderCursor={FileTreeDropCursor}");
     expect(source).toContain("handleArboristMove");
+    expect(source).toContain("shouldRestoreSelectedPathOnFocusEntry");
+    expect(source).toContain("onPointerDownCapture={(event) =>");
+    expect(source).not.toContain("draggable={!isRenaming && !isDeleting}");
+    expect(source).not.toContain("attrs.onFocus?.(event);\n        event.stopPropagation();");
+  });
+
+  test("keeps file-tree focus restore split between pointer row clicks and Tab/programmatic entry", () => {
+    const previousSelectedPath = "src/index.ts";
+    const clickedPath = "README.md";
+
+    expect(focusEntrySelectionTarget({
+      previousSelectedPath,
+      focusedPath: clickedPath,
+      focusMovedWithinTree: false,
+      focusStartedByPointer: true,
+    })).toBe(clickedPath);
+    expect(focusEntrySelectionTarget({
+      previousSelectedPath,
+      focusedPath: clickedPath,
+      focusMovedWithinTree: false,
+      focusStartedByPointer: false,
+    })).toBe(previousSelectedPath);
+    expect(shouldRestoreSelectedPathOnFocusEntry({
+      focusMovedWithinTree: true,
+      focusStartedByPointer: false,
+    })).toBe(false);
   });
 
   test("builds arborist data for inline create rows and explicit delete confirmations", () => {
@@ -552,6 +580,31 @@ describe("FileTreePanel", () => {
       position: "over",
     });
 
+    const externalDataTransfer = fakeDataTransfer();
+    externalDataTransfer.types.push("Files");
+    const externalIndicator = createNativeDropIndicatorFromEvent({
+      event: fakeDragEvent({
+        dataTransfer: externalDataTransfer,
+        target: fakeRowElement({
+          path: "src",
+          parentPath: "",
+          top: 100,
+          height: 22,
+        }),
+        clientY: 111,
+      }) as never,
+      workspaceId,
+      gitBadgeByPath: {},
+      fileTreeNodes: baseProps.fileTree.nodes,
+    });
+
+    expect(externalIndicator).toMatchObject({
+      targetPath: "src",
+      targetDirectory: "src",
+      state: "over",
+      position: "over",
+    });
+
     const externalFiles = externalDragFilesFromDataTransfer(
       {
         files: [
@@ -569,6 +622,25 @@ describe("FileTreePanel", () => {
     ]);
   });
 });
+
+function focusEntrySelectionTarget({
+  previousSelectedPath,
+  focusedPath,
+  focusMovedWithinTree,
+  focusStartedByPointer,
+}: {
+  previousSelectedPath: string;
+  focusedPath: string;
+  focusMovedWithinTree: boolean;
+  focusStartedByPointer: boolean;
+}) {
+  return shouldRestoreSelectedPathOnFocusEntry({
+    focusMovedWithinTree,
+    focusStartedByPointer,
+  })
+    ? previousSelectedPath
+    : focusedPath;
+}
 
 function fakeBasenameSubmitEvent(basename: string) {
   return {

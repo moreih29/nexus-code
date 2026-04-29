@@ -24,6 +24,16 @@ interface WorkspaceLayoutPersistRuntimeSmokeResult {
     bottomPanelPosition: string;
     terminalInEditorArea: boolean;
   }>;
+  restartPolicy: {
+    workspaceId: string;
+    persistedTerminalTabIds: string[];
+    restoredTerminalTabIds: string[];
+    groupIdsBeforeRestart: string[];
+    groupIdsAfterRestart: string[];
+    terminalTabsDropped: boolean;
+    groupLayoutSurvives: boolean;
+    bottomPanelSurvives: boolean;
+  };
   localStorageKeys: Array<{
     workspaceId: string;
     key: string;
@@ -121,9 +131,19 @@ describe("workspace layout persistence runtime system smoke", () => {
           workspaceId: "ws_layout_gamma",
           editorGroupCount: 1,
           bottomPanelPosition: "bottom",
-          terminalInEditorArea: true,
+          terminalInEditorArea: false,
         },
       ]);
+      expect(result?.restartPolicy).toEqual({
+        workspaceId: "ws_layout_gamma",
+        persistedTerminalTabIds: ["terminal_ws_layout_gamma_gamma_terminal"],
+        restoredTerminalTabIds: [],
+        groupIdsBeforeRestart: ["gamma_group_terminal"],
+        groupIdsAfterRestart: ["gamma_group_terminal"],
+        terminalTabsDropped: true,
+        groupLayoutSurvives: true,
+        bottomPanelSurvives: true,
+      });
       expect(result?.localStorageKeys.map((entry) => entry.key)).toEqual(WORKSPACE_STORAGE_KEYS);
       expect(result?.localStorageKeys.every((entry) => entry.exists && entry.parsedMatchesExpected)).toBe(true);
       expect(result?.roundTrip.every((entry) => {
@@ -150,6 +170,7 @@ describe("workspace layout persistence runtime system smoke", () => {
         run: index + 1,
         ok: result.ok,
         restored: result.switchRestore.exactRestoreCount,
+        restartPolicy: result.restartPolicy,
         localStorageKeys: result.localStorageKeys.map((entry) => entry.key),
       })),
     }));
