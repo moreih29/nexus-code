@@ -52,9 +52,34 @@ This matters because the earlier I4 evaluation treated the title as if the Termi
 - The 250–300 target was not reached. The recorded reason was a design choice to avoid risky further extraction late in the cycle.
 - The result is therefore a bounded pass against the hard limit, not full completion of the original target range.
 
+## Cycle length
+
+Verified timestamps from `.nexus/history.json` and analysis recorded_at fields:
+
+- First HOW analysis recorded (architect for I1): `2026-04-29T00:45:22Z`.
+- Last task created (T22): `2026-04-29T01:19:18Z`.
+- Cycle close (history.json `completed_at`): `2026-04-29T04:17:48Z`.
+- Plan commit timestamp: `2026-04-29T04:18:45Z` (`2df3539`).
+
+Derived intervals (wall-clock):
+
+- Planning phase (first HOW analysis → last task created): about 34 minutes.
+- Execution phase (last task created → cycle close): about 2 hours 58 minutes.
+- Total Plan #34 cycle: about 3 hours 32 minutes.
+- Gap between Plan #33 close (`2026-04-28T15:37:55Z`) and Plan #34 close: about 12 hours 40 minutes.
+
+Two qualifications:
+
+- Wall-clock alone does not confirm scope was right-sized. The cycle finished within a few hours, but several acceptance items landed as bounded passes rather than full completions (AppShell at 387 lines instead of the 250-300 target; SplitEditorPane shim retained as a type carrier; migrator toast not implemented).
+- The user explicitly accepted Plan #33-pattern recurrence risk when choosing Option A for I1. The cycle did not reproduce that pattern, but the absence of overrun does not by itself justify the strict-acceptance choice for future cycles. The decision-domain trade-off (cycle ambition vs safety) remains a user judgment.
+
 ## Plan #35 follow-up debt
 
 - Move terminal DOM helpers, including `focusTerminal`, `clickNewTerminalTab`, and related helpers, into `ITerminalService`.
 - Move xterm instance ownership into `ITerminalService`.
 - Change BottomPanel terminal view so it consumes `ITerminalService` directly.
-- Revisit active-pane contrast or ring only if dogfooding, user feedback, or accessibility evaluation shows that `bg-card` versus inactive contrast is insufficient. T14 raised contrast enough for the fixture, but full accessibility remains a follow-up trigger rather than a completed result.
+- Re-evaluate active-pane contrast / indicator spec when any of the following triggers fire (verbatim from I4 decision):
+  - A fixture run or dogfooding session reports a concrete case of "which group is active" identification failure.
+  - External user feedback reports difficulty identifying the active group in a 6-group layout.
+  - A colorblindness or low-vision accessibility evaluation finds the `bg-card` vs `bg-card/60` (60% opacity) delta fails WCAG contrast criteria.
+  Until one of those triggers fires, T14 contrast is treated as sufficient for the fixture but not as a completed accessibility verdict.
