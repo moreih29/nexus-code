@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { installMonacoEnvironment } from "./editor/monaco-environment";
 import "./styles.css";
+import "./parts/editor-groups/flexlayout-theme.css";
 import "@xterm/xterm/css/xterm.css";
 
 installMonacoEnvironment();

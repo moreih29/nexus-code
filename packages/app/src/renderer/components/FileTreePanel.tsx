@@ -43,11 +43,11 @@ import type {
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import type {
-  EditorFileTreeState,
-  EditorPendingExplorerDelete,
-  EditorPendingExplorerEdit,
-  EditorTreeSelectionMovement,
-} from "../services/editor-model-service";
+  FilesFileTreeState as EditorFileTreeState,
+  FilesPendingExplorerDelete as EditorPendingExplorerDelete,
+  FilesPendingExplorerEdit as EditorPendingExplorerEdit,
+  FilesTreeSelectionMovement as EditorTreeSelectionMovement,
+} from "../services/files-service";
 import type {
   FileClipboardItem,
   FileClipboardPendingCollision,

@@ -6,6 +6,7 @@ import type {
   GitStatusSummary,
 } from "../../../../shared/src/contracts/generated/git-lifecycle";
 import type {
+  EditorBridgeRequest,
   LspCompletionItem,
   LspDiagnostic,
   LspStatus,
@@ -16,6 +17,7 @@ import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/work
 import {
   createActivityBarService,
   createBottomPanelService,
+  createEditorDocumentsService,
   createEditorGroupsService,
   createFilesService,
   createGitService,
@@ -24,11 +26,14 @@ import {
   createWorkspaceService,
   type ActivityBarServiceStore,
   type BottomPanelServiceStore,
+  type EditorBridge,
+  type EditorDocumentsServiceStore,
   type EditorGroupsServiceStore,
   type FilesServiceStore,
   type GitServiceStore,
   type IActivityBarService,
   type IBottomPanelService,
+  type IEditorDocumentsService,
   type IEditorGroupsService,
   type IFilesService,
   type IGitService,
@@ -38,6 +43,7 @@ import {
   type LspServiceStore,
   type TerminalServiceStore,
   type WorkspaceServiceStore,
+  tabIdFor,
 } from "./index";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
@@ -53,16 +59,21 @@ describe("renderer service contracts", () => {
     const bottomPanel: StoreApi<IBottomPanelService> = assertStoreShape(createBottomPanelService());
     const activityBar: StoreApi<IActivityBarService> = assertStoreShape(createActivityBarService());
     const workspace: StoreApi<IWorkspaceService> = assertStoreShape(createWorkspaceService());
+    const editorDocuments: StoreApi<IEditorDocumentsService> = assertStoreShape(createEditorDocumentsService());
     const terminal: StoreApi<ITerminalService> = assertStoreShape(createTerminalService());
     const files: StoreApi<IFilesService> = assertStoreShape(createFilesService());
     const git: StoreApi<IGitService> = assertStoreShape(createGitService());
     const lsp: StoreApi<ILspService> = assertStoreShape(createLspService());
 
     expect(typeof editorGroups.getState().openTab).toBe("function");
+    expect(typeof editorGroups.getState().findSpatialNeighbor).toBe("function");
+    expect(typeof editorGroups.getState().tearOffActiveTabToFloating).toBe("function");
     expect(typeof bottomPanel.getState().activateView).toBe("function");
     expect(typeof activityBar.getState().setActiveView).toBe("function");
     expect(typeof workspace.getState().openWorkspace).toBe("function");
+    expect(typeof editorDocuments.getState().openDocument).toBe("function");
     expect(typeof terminal.getState().createTerminal).toBe("function");
+    expect(typeof terminal.getState().mountShell).toBe("function");
     expect(typeof files.getState().setTree).toBe("function");
     expect(typeof git.getState().applySummary).toBe("function");
     expect(typeof lsp.getState().openDocument).toBe("function");
@@ -90,6 +101,64 @@ describe("renderer service contracts", () => {
 
     store.getState().closeTab("group_main", tab.id);
     expect(store.getState().getActiveTab()).toBeNull();
+  });
+
+  test("IEditorDocumentsService manages document content, diagnostics, saves, WorkspaceEdit, and diffs", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const store: EditorDocumentsServiceStore = createEditorDocumentsService(createContractEditorBridge(calls, {
+      fileContents: {
+        "src/index.ts": "const value = missing;\n",
+        "src/closed.ts": "const value = missing;\n",
+      },
+    }));
+    const diagnostic: LspDiagnostic = {
+      path: "src/index.ts",
+      language: "typescript",
+      range: createRange(),
+      severity: "warning",
+      message: "Check this symbol.",
+    };
+
+    const document = await store.getState().openDocument(workspaceId, "src/index.ts");
+    store.getState().setContent(document.id, "const value = edited;\n");
+    store.getState().markDirty(document.id);
+    store.getState().setDiagnostics(workspaceId, "src/index.ts", [diagnostic]);
+    await store.getState().saveDocument(document.id);
+    const editResult = await store.getState().applyWorkspaceEdit(workspaceId, {
+      changes: [
+        {
+          path: "src/closed.ts",
+          edits: [replaceMissingWith("closedValue")],
+        },
+      ],
+    });
+    const diff = await store.getState().openDiff(
+      { workspaceId, path: "src/index.ts", content: "left\n" },
+      { workspaceId, path: "src/closed.ts", content: "right\n" },
+    );
+
+    expect(store.getState().getContent(document.id)).toBe("const value = edited;\n");
+    expect(store.getState().getDiagnostics(workspaceId, "src/index.ts")).toEqual([diagnostic]);
+    expect(store.getState().documentsById[document.id]).toMatchObject({
+      dirty: false,
+      savedContent: "const value = edited;\n",
+      version: "v2",
+    });
+    expect(editResult).toEqual({
+      applied: true,
+      appliedPaths: ["src/closed.ts"],
+      skippedClosedPaths: [],
+      skippedReadFailures: [],
+      skippedUnsupportedPaths: [],
+    });
+    expect(store.getState().documentsById[tabIdFor(workspaceId, "src/closed.ts")]).toMatchObject({
+      content: "const value = closedValue;\n",
+      dirty: true,
+    });
+    expect(diff).toMatchObject({ kind: "diff", readOnly: true });
+
+    await store.getState().closeDocument(document.id);
+    expect(store.getState().documentsById[document.id]).toBeUndefined();
   });
 
   test("IBottomPanelService manages default views, visibility, and placement", () => {
@@ -160,14 +229,18 @@ describe("renderer service contracts", () => {
     store.getState().createTerminal({ id: "terminal_two", createdAt: "2026-04-28T00:01:00.000Z" });
     store.getState().activateTerminal(firstTab.id);
     store.getState().setTerminalStatus(firstTab.id, "running");
+    const unmountTerminalShell = store.getState().mountShell();
 
     expect(store.getState().getActiveTerminal()).toMatchObject({
       id: "terminal_one",
       status: "running",
       cwd: "/tmp/project",
     });
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: true });
 
+    unmountTerminalShell();
     store.getState().closeTerminal(firstTab.id);
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
     expect(store.getState().activeTabId).toBe("terminal_two");
   });
 
@@ -196,14 +269,14 @@ describe("renderer service contracts", () => {
     store.getState().applyGitBadge("src/index.ts", "modified");
 
     expect(store.getState().getSelectedNode()?.name).toBe("index.ts");
-    expect(store.getState().expandedPaths).toEqual({ src: true });
+    expect(store.getState().expandedPaths).toEqual({});
     expect(store.getState().gitBadgeByPath["src/index.ts"]).toBe("modified");
 
     store.getState().toggleDirectory("src");
     store.getState().applyGitBadge("src/index.ts", null);
     store.getState().setError("tree failed");
 
-    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().expandedPaths).toEqual({ src: true });
     expect(store.getState().gitBadgeByPath["src/index.ts"]).toBeUndefined();
     expect(store.getState().errorMessage).toBe("tree failed");
   });
@@ -305,5 +378,100 @@ function createRange() {
   return {
     start: { line: 1, character: 0 },
     end: { line: 1, character: 7 },
+  };
+}
+
+interface ContractBridgeOptions {
+  fileContents?: Record<string, string>;
+}
+
+function createContractEditorBridge(
+  calls: EditorBridgeRequest[],
+  options: ContractBridgeOptions = {},
+): EditorBridge {
+  return {
+    async invoke(request) {
+      calls.push(request);
+      switch (request.type) {
+        case "workspace-files/file/read":
+          return {
+            type: "workspace-files/file/read/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            content: options.fileContents?.[request.path] ?? "",
+            encoding: "utf8",
+            version: "v1",
+            readAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        case "workspace-files/file/write":
+          return {
+            type: "workspace-files/file/write/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            encoding: "utf8",
+            version: "v2",
+            writtenAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        case "lsp-document/open":
+          return {
+            type: "lsp-document/open/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            language: request.language,
+            status: {
+              language: request.language,
+              state: "ready",
+              serverName: `${request.language}-server`,
+              message: null,
+              updatedAt: "2026-04-29T00:00:00.000Z",
+            },
+            openedAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        case "lsp-document/change":
+          return {
+            type: "lsp-document/change/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            language: request.language,
+            status: {
+              language: request.language,
+              state: "ready",
+              serverName: `${request.language}-server`,
+              message: null,
+              updatedAt: "2026-04-29T00:00:00.000Z",
+            },
+            changedAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        case "lsp-document/close":
+          return {
+            type: "lsp-document/close/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            language: request.language,
+            closedAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        case "lsp-diagnostics/read":
+          return {
+            type: "lsp-diagnostics/read/result",
+            workspaceId: request.workspaceId,
+            path: request.path,
+            language: request.language,
+            diagnostics: [],
+            readAt: "2026-04-29T00:00:00.000Z",
+          } as never;
+        default:
+          throw new Error(`Unexpected request ${(request as EditorBridgeRequest).type}.`);
+      }
+    },
+  };
+}
+
+function replaceMissingWith(newText: string) {
+  return {
+    range: {
+      start: { line: 0, character: 14 },
+      end: { line: 0, character: 21 },
+    },
+    newText,
   };
 }

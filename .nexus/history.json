@@ -6659,6 +6659,530 @@
           "created_at": "2026-04-28T14:04:52.613Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-29T04:17:48.290Z",
+      "branch": "feat/plan34-workbench-skeleton",
+      "plan": {
+        "id": 34,
+        "topic": "Plan #34 — VSCode-workbench 골격 정착 (Plan #33 follow-up debt 정식화)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1. EditorGroupsService production wire-in + EditorStore.panes 단계 이관 — single-source-of-truth 회복",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 D(Split-of-concerns) 권장. 핵심: EditorStore(2675L)는 panes만의 store가 아니라 panes + documents(content/dirty/diagnostics/save) + filetree + git + centerMode 5책임 묶음. 단순 panes 이전이 아니라 책임 분해가 선행돼야 함. 3~4 사이클 슬라이싱: I1a 책임 boundary 분리 + dock-layout-runtime을 production path에 닿게, I1b IEditorGroupsService production wire-in (옵션 B 어댑터로 divergence 0), I1c 신규 IEditorDocumentsService 신설 + 문서 상태 이전, I1d SplitEditorPane 제거 + 어댑터 폐기. 데이터 모델 손실: EditorTab(content/dirty/diagnostics/lspStatus/diff 9+필드, 메타+문서 동거) ↔ EditorGroupTab(5필드, 메타 only) — 1:1 아님, IEditorDocumentsService 필요성 근거. 저장 호환성: panes JSON ↔ flexlayout IJsonModel 비호환, forward-only migrator + fallback 필요. Critical 결함: dock-layout-runtime이 spike 모델만 보고 production EditorGroupsPart 미검증 — 어떤 옵션을 택해도 단계 0에서 production path 검증 강제 선행. 차선: 옵션 B(Adapter wire-in만, 1~2 사이클, follow-up debt 명시). Open risks: IEditorDocumentsService↔ILspService 책임 경계, layout snapshot 마이그레이션 정책(loss-tolerant vs lossless)은 product 결정. agent_id=abbeb555cce7b31ba",
+                "recorded_at": "2026-04-29T00:45:22.927Z",
+                "agent_id": "abbeb555cce7b31ba"
+              },
+              {
+                "role": "designer",
+                "summary": "옵션 A(big-bang) 권장 — 조건부. design.md §1 \"이전·새 구조 공존을 만들지 않음\"이 B/C 옵션의 정체성 부합도를 직접 깎음. 다분할/dock UX 빚 우선순위: (1) drop overlay zone 시각 정확도(E2E 미완), (2) drag-tab to split vs reorder 결정 경계(속도/거리 임계 spec 부재), (3) 6 group에서 Cmd+Alt+←/→ 순회(row-major vs spatial 미정), (4) floating panel × multi-workspace 소속(spec 부재 — 정체성 §1 직접 충돌), (5) splitter cursor/8px hit area 검증 미문서, (6) tear-off to floating 키보드 등가성 부재, (7) IME composition × dock overlay/splitter drag(검증 표면 0). I4(active pane ring)와 결합 필수 — 6 group 시 bg-card vs bg-card/60 60% opacity 차이가 dark mode에서 식별 부족, Cmd+W 대상 group 추론 불가능 → I4 분리 시 I1을 internal flag 뒤로. Korean IME / 한국어 렌더링: dock overlay activate 시 Monaco/textarea blur로 조합 한글 깨짐 위험 — design.md §3 1급 회귀 후보. fixture 없이 ship 금지 4개: drop overlay 시각 동작, drag-tab IME 보존, floating × workspace 소속, 6 group 키보드 순회. mirror vs 자체: 인터랙션 문법은 VSCode mirror, 시각 표현(Terminal Teal accent, bg-card/60)은 자체. 차선: 옵션 A를 internal flag(`nx.editor.dock.enabled=false`) 뒤로 두고 fixture 통과 후 default on — 사용자 표면에서는 여전히 big-bang. agent_id=ab82de03ef50e3d78",
+                "recorded_at": "2026-04-29T00:45:34.188Z",
+                "agent_id": "ab82de03ef50e3d78"
+              }
+            ],
+            "decision": "**옵션 A 채택 — Big-bang, 1 사이클 강행.** 사용자가 architect의 \"단일 사이클 비현실\" + Lead의 \"Plan #33 패턴 재현 위험\" verified 경고를 인지한 상태에서 명시적으로 재확인.\n\n## 채택 요지\n\n- 사용자 시점: 단일 컷오버. 두 모드 공존 0 (design.md §1 정체성 부합).\n- 코드 시점: SplitEditorPane 시각 부분 제거 + EditorStore.panes 일괄 폐기 + IEditorGroupsService production wire-in (default on) + IEditorDocumentsService 신설 + EditorStore 5책임 분해 + flexlayout snapshot forward-only migrator + I4 active pane ring spec 동시 ship — 모두 1 사이클 안에서.\n\n## Hard precondition (architect critical, 코드 작업 0 단계)\n\n- `dock-layout-runtime` system smoke가 spike가 아닌 **production EditorGroupsPart**를 검증해야 함. spec/runtime divergence 가드 회복.\n\n## Strict acceptance (fixture 4종 + 5 책임 분해 + 컴포넌트 교체)\n\n1. `dock-layout-runtime` production path 검증 (4-pane open/split/move 시나리오 + `data-editor-grid-provider=\"flexlayout-model\"` 강제).\n2. **drop overlay zone 시각 정확도** E2E (4방향 + center, designer fixture 1).\n3. **drag-tab IME composition 보존** E2E — Monaco 한글 조합 중 drag, xterm 한글 입력 직후 dock 이동, splitter drag 중 IME 입력 차단 없음 (designer fixture 2). design.md §3 1급 회귀 후보.\n4. **floating panel × multi-workspace 소속** E2E (designer fixture 3 — 정체성 §1 직접 충돌 영역).\n5. **6 group 키보드 순회** E2E — `Cmd+Alt+←/→` 순회 순서 fixture (designer fixture 4).\n6. **EditorStore 5책임 분해**: panes → IEditorGroupsService, documents(content/dirty/diagnostics/lspStatus/diff/save/applyWorkspaceEdit) → 신규 IEditorDocumentsService, fileTree/expandedPaths/selectedTreePath/pendingExplorerEdit/Delete/collapseAll/moveTreeSelection/*ByWorkspace → IFilesService, gitBadgeByPath/collectGitBadges → IGitService, centerMode/persistCenterWorkbenchMode/toggleCenterWorkbenchMaximize → IWorkspaceService.\n7. **IEditorDocumentsService 신설**: ILspService와의 책임 경계 명시 (diagnostics/applyWorkspaceEdit는 IEditorDocumentsService가 보유, ILspService가 협업으로 fan-in).\n8. **flexlayout snapshot forward-only migrator**: 기존 `nx.editor.panes` 키 → flexlayout IJsonModel 변환 + 실패 시 default group fallback. layout migration 정책은 **loss-tolerant** 채택 (호환 불가 시 default layout 1회 reset, 사용자에게 toast 안내).\n9. **SplitEditorPane 시각 부분 제거** + `legacy-split-pane-bridge` data attr 폐기 + `flexlayout-spike/` production tree에서 제거 또는 `__spike__` 서브경로 이동.\n10. **I4 동시 ship**: active pane ring 인디케이터 spec (Plan #33 I3 결정 — Terminal Teal inset ring) 적용.\n11. `EditorTab` 9+필드 ↔ `EditorGroupTab` 5필드 변환 시 메타/문서 분리는 IEditorDocumentsService가 문서 상태를 보유하는 형태로 구현 (architect 매핑).\n\n## 미결 4건 처리 방침\n\ndesigner가 제기한 미결 항목 4건은 본 사이클 acceptance에 직결되므로 cycle 시작 직후 별도 sub-decision으로 결정:\n- A. floating panel이 workspace 전환 시 동작 (따라간다 / 닫힌다 / pinned global)\n- B. 6 group에서 `Cmd+Alt+←/→` 순회 순서 (row-major vs spatial neighbor)\n- C. tear-off to floating의 키보드 단축키 또는 팔레트 entry 필요 여부 (interactions.md 키보드 등가성 원칙)\n- D. layout snapshot 마이그레이션 정책 — 본 결정에서 loss-tolerant로 잠정 채택, sub-decision에서 최종 확정\n\n위 4건의 처리 형태(별도 sub-issue 추가 vs I1 acceptance 안에서 1차 합의)는 다음 issue 진입 전에 별도 확인.\n\n## VSCode mirror vs 자체 정체성 경계\n\n- 인터랙션 문법 = VSCode mirror (drop overlay 4방향+center, drag-to-split, Cmd+\\ split right, Cmd+Shift+M maximize, Ctrl+\\` terminal focus)\n- 시각 표현 = 자체 (Terminal Teal accent, bg-card/60 inactive group, workspace-소속 floating, harness highlight subtle)\n- 금지: glassmorphism dock overlay, 보라 그라디언트 drag preview, 2px side-stripe active group, drop zone 일러스트\n\n## 사용자가 인지·수용한 리스크\n\n- Plan #33 패턴(야심찬 단일 사이클 → 형식적 task completed, 실 wire-in 0) 재현 가능성.\n- 사이클 overrun 가능성 (architect 추정 3~4 사이클 분량을 1 사이클로 압축).\n- IME × dock × workspace × 6 group fixture 4종 동시 통과 게이트로 인한 ship blocker 위험.\n- EditorStore 5책임 동시 분해 + IEditorDocumentsService 신설 + ILspService 책임 경계 동시 결정의 cross-cutting 회귀 위험.\n\n## 명시적으로 차선 옵션 거부\n\n- 옵션 E (flag-gated big-bang) 거부 — 사용자 명시적 강행 의사.\n- 옵션 B (wire-in only adapter) 거부 — 동일.\n- 옵션 D (단계 슬라이싱 flag 없음) 거부 — 동일.\n\n이 결정은 사용자 결정 영역(release ambition, scope budget)이며 Lead는 verified 경고를 1회 제기 후 수용함."
+          },
+          {
+            "id": 2,
+            "title": "I2. AppShell.tsx 진짜 분해 (1600줄 → 200~400줄) — service hook 패턴으로 parts에 책임 이관, App.tsx의 목표 책임(workspace shell 조립 + service wiring)에 정렬",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 E (A+C 조합) 권장. AppShell 1600L 실측: imports/types 60L, store hook 호출 75L, useEffect bridge 6개 85L, useCallback handler ~30개 350L, registerAppCommands 252L, JSX 4 zone 230L, localStorage IO 58L, helpers 165L, use*Store factory 11개 106L, mutation wrapper 57L, resize drag 131L. 진짜 shell 조립은 ~340L, 추출 가능 1260L. I1 옵션 A 자동 진행만으로 ~500L 감소(1600→1100), 200~400L 도달은 I2 의도적 추가 작업 필수. 옵션 비교: A(훅 추출만) ~400L 안전 / B(parts self-wiring) ~250L 그러나 testability 손상 + StrictMode 위험(parts가 자기 useRef로 service factory 만들면 인스턴스 다중화) — **채택 금지** / C(두 층 root composer + AppWiring) ~300L / D(Provider/Context) ~350L 그러나 5+ Provider 중첩은 사실상 service locator → DI container 미도입 원칙 위반 + 현 codebase Context-free라 새 의존성 도입 — **채택 금지** / **E (A+C 조합) ~280L 가장 균형 — 권고**. 권고 구성: (1) wiring root 모듈(app/wiring.ts 또는 app/AppServices.tsx)에서 11 use*Store factory 통합 + bridge subscription 6개 통합, (2) 커스텀 hook 5종 추출 — useExplorerBindings/useEditorBindings/useSourceControlBindings/useResizeDrag/useAppCommands, (3) AppShell은 hook 호출 + 4 zone JSX만 보유 ~250-300L, (4) parts는 \"props 받아 렌더\" design-architecture.md 정의 유지. Zustand selector 캐시 회귀 방지: primitive selector + useMemo 합성 분리 + shallow equality + service stable function 노출(이미 IEditorGroupsService.getActiveTab 패턴 존재) + StrictMode 5회 iteration fixture(`app-shell-strict-mode-runtime.test.ts` 신설). registerAppCommands는 별도 file(app/commands.ts) 분리하되 pure function 유지(현재 export 그대로). terminal DOM helper(focusTerminal/clickNewTerminalTab 등)는 Plan #34 범위 외 — ITerminalService 이전은 follow-up debt. Critical: I1+I2 동시 strict acceptance가 단일 사이클에 매우 커서 회귀 가드 부재 시 IME/multi-workspace 회귀 risk — wiring root 추출을 I1 acceptance 필수 항목으로 못박아야. Open risk: wiring root 추출 미포함 시 AppShell 200~400 목표 미달성. agent_id=abbeb555cce7b31ba",
+                "recorded_at": "2026-04-29T01:00:22.538Z",
+                "agent_id": "abbeb555cce7b31ba"
+              }
+            ],
+            "decision": "**옵션 E 채택 — Wiring root + 커스텀 hook 추출 조합 (A+C).**\n\nAppShell.tsx 1600줄 → 250~300줄 도달. parts는 \"props 받아 렌더\" 정의 유지. parts self-wiring(B) 및 Provider/Context(D)는 채택 금지.\n\n## 구현 계약\n\n### 1. Wiring root 모듈 신설 (acceptance 필수)\n- 위치: `packages/app/src/renderer/app/wiring.ts` (또는 `app/AppServices.tsx`).\n- 책임: 11개 use*Store factory + 6개 bridge subscription 통합. 단일 `useAppServices()` hook이 `{ workspace, activityBar, bottomPanel, editorGroups, editorDocuments, files, git, lsp, terminal, harness*, search }` 반환.\n- StrictMode 안정성: 모든 useRef factory가 한 hook에 모이므로 mount/unmount 지점 1곳 결정적.\n- bridge subscription은 wiring root에서 useEffect 1~2개로 통합 (각 service의 `startBridgeSubscription()` lifecycle 호출).\n\n### 2. 커스텀 hook 5종 추출\n- `useExplorerBindings(services)` — fileTree handler ~30개\n- `useEditorBindings(services)` — editor handler ~20개\n- `useSourceControlBindings(services)` — source control 패널 handler\n- `useResizeDrag(services)` — workspaceStrip/sideBar resize 131L를 layout-resize 흡수 후 hook으로 노출\n- `useAppCommands(services)` — registerAppCommands 252L를 hook 캡슐화\n\n### 3. registerAppCommands 분리\n- 별도 file `packages/app/src/renderer/app/commands.ts`로 추출. 단위 테스트 가능한 pure function 형태 유지(현재 export 그대로).\n- AppShell 내 `useAppCommands` 가 이 module을 호출.\n\n### 4. AppShell.tsx 최종 형태\n- imports + `useAppServices()` 호출 + hook 묶음 호출 + 4 zone JSX만 보유.\n- 목표 250~300L. 한도 400L 초과 시 acceptance 미충족.\n\n### 5. parts는 \"props 받아 렌더\" 정의 유지\n- parts/* 컴포넌트는 service module을 직접 import하지 않는다.\n- callback과 data는 props로 받는다.\n- design-architecture.md §Parts model 정의 유지.\n\n### 6. Zustand selector 캐시 회귀 방지 패턴\n- selector는 primitive 또는 stable reference만 반환. fresh object/array 생성 시 useMemo로 감싼다.\n- shallow equality 필요 시 `useStoreWithEqualityFn(store, selector, shallow)` 적용.\n- service에 derived selector 함수 노출 (예: `IEditorGroupsService.getActiveTab()` 패턴 그대로).\n\n### 7. 회귀 가드 동반 (acceptance 필수)\n- 신규 fixture: `packages/app/test/system/app-shell-strict-mode-runtime.test.ts` — 4 zone 마운트 + StrictMode 5 iteration + `getSnapshot should be cached` console warning capture (실패 시 fail) + 11 service instance unmount leak 검증.\n- 기존 system smoke (dock-layout-runtime, activity-bar-runtime, workspace-layout-persist-runtime) 는 production AppShell 마운트 path를 검증하도록 갱신 (I1 단계 0과 동일 시점).\n\n## Hard precondition (architect critical)\n\n**wiring root 모듈 신설은 acceptance 필수 항목**. AppShell hook 추출만 하고 wiring root를 안 만들면 200~400L 미달성. task 단계에서 이 항목을 빠뜨리지 않도록 task 분해 시 명시.\n\n## 채택 근거\n\n- 옵션 B(parts self-wiring): testability 손상 (parts unit test가 service 전체 mock 필요) + StrictMode 위험 (parts useRef factory는 service 인스턴스 다중화) + Plan #33 \"service 조합 integration test\" 패턴 손상 → 채택 금지.\n- 옵션 D(Provider/Context): 5+ Context 중첩은 사실상 service locator → design-architecture.md \"DI container 미도입\" 명시 원칙 충돌 + 현재 codebase Context-free라 새 의존성 도입 → 채택 금지.\n- 옵션 A 단독: ~400L 도달 가능하나 wiring root 부재 시 use*Store factory 11개가 AppShell 잔존 → balance 부족.\n- 옵션 C 단독: wiring root만으로는 handler 350L가 AppShell 잔존 → balance 부족.\n- 옵션 E: A의 hook 추출 + C의 wiring root → 250~300L 가장 균형, 모든 원칙 충족.\n\n## I1과의 정합\n\n- I1 옵션 A의 EditorStore 5책임 분해가 자동으로 ~500L 감소 (1600 → ~1100). I2의 의도적 추가 작업 ~700L 감소가 200~400 도달 범위에 들어옴.\n- I4 active pane ring: editorGroups service activeGroupId 변화 반응은 useEditorBindings selector 1개 추가로 충분.\n- I6 floating workspace-scoped: workspace-store layout persist hook이 wiring root에서 `editorGroupsService.serializeModel()` 호출 — 1곳 통합 적합.\n- I7 spatial neighbor 단축키: registerAppCommands → useAppCommands 추출 시 키바인딩 4개 추가가 자연스러움.\n\n## follow-up debt\n\n- terminal DOM helper (`focusTerminal`, `clickNewTerminalTab`, `compareFileTreePaths` 등 ~130~190L) → ITerminalService 이전. **Plan #34 범위 외** — Plan #35 후보.\n\n## 거부된 옵션\n\n- A (훅 추출만), B (parts self-wiring — architect 채택 금지), C (두 층 단독), D (Provider — architect 채택 금지) — 위 비교 근거."
+          },
+          {
+            "id": 3,
+            "title": "I3. 5 orphan service (workspace/terminal/files/git/lsp) 처리 — wire-in 또는 명시적 삭제. 어느 것을 어디까지 갈 것인지 선택",
+            "status": "decided",
+            "decision": "**옵션 B 채택 — Shell wire-in only, PTY 데이터 이전은 Plan #35.**\n\n5 orphan service 중 4개(workspace/files/git/lsp)는 I1+I2 누적 결정으로 자동 DEEP wire-in. 잔여 1개(terminal)는 본 사이클에서 wiring root 선언 + lifecycle 관리만 수행, 실 PTY 데이터 ownership 이전은 Plan #35로 이월.\n\n## 자동 결정된 4건 (재확인)\n\n| Service | 결정 경로 | 결과 |\n|---|---|---|\n| IWorkspaceService | I1 centerMode 흡수 + I2 wiring root + I6 workspace-scoped layout 책임 | DEEP wire-in |\n| IFilesService | I1 fileTree/expandedPaths/selectedTreePath/pendingExplorer* 흡수 + I2 wiring root | DEEP wire-in |\n| IGitService | I1 gitBadgeByPath/collectGitBadges 흡수 + I2 wiring root | DEEP wire-in |\n| ILspService | I1 IEditorDocumentsService와 협업 fan-in + I2 wiring root | wire-in (constrained scope) |\n\n## ITerminalService 처리 (B 채택)\n\n### 본 사이클 (Plan #34)\n- wiring root(`app/wiring.ts`)에서 ITerminalService 인스턴스 생성 + lifecycle 관리(mount/unmount).\n- 다른 서비스와 동일하게 `useAppServices()`에서 노출.\n- design-architecture.md 의 정식 spec 유지(파일 삭제 안 함).\n\n### 본 사이클 범위 외 (Plan #35 이월)\n- AppShell terminal DOM helper(`focusTerminal`, `clickNewTerminalTab`, terminal IPC subscribe 등 ~50L)를 ITerminalService로 이전.\n- xterm 인스턴스 ownership 이전.\n- BottomPanel terminal view가 ITerminalService 데이터 직접 소비하도록 전환.\n\n## flexlayout-spike 처리 (I1 결정 재확인)\n\nI1 acceptance에 이미 포함됨 — production tree에서 제거 또는 `__spike__` 서브경로 이동. I3에서 별도 결정 불필요.\n\n## 채택 근거\n\n- A(Full wire-in): Plan #34 사이클 부담을 PTY 라이프사이클 + IPC adapter + xterm 인스턴스 ownership × 한국어 IME 회귀 risk로 가중. Plan #33 패턴 재현 가속.\n- C(명시적 삭제): 533L 코드 + unit test가 이미 존재하고 design-architecture.md 정식 spec — sunk cost 폐기 + 다음 사이클에서 재신설 비용. spec 위반.\n- B: I2 follow-up debt 명시와 align, 사이클 부담 최소, sunk cost 보존, 명확한 Plan #35 transition 경로.\n\n## Plan #35 후보 항목 (회고 자동 등록)\n\n- terminal DOM helper → ITerminalService 이전\n- xterm 인스턴스 ownership 이전\n- BottomPanel terminal view를 ITerminalService 직접 consumer로 전환\n\n## 거부된 옵션\n\n- A (Full wire-in), C (명시적 삭제) — 위 비교 근거."
+          },
+          {
+            "id": 4,
+            "title": "I4. Active pane ring 인디케이터 spec 결정 (I1 동반 ship 제약 — 사이클 분리 불가, spec만 결정)",
+            "status": "decided",
+            "decision": "**옵션 A 채택 — 현재 spec 그대로 유지 + 6 group fixture에 visual sanity assertion + 직전 검토 평가 정정.**\n\nPlan #33 I3 결정(inset Terminal Teal ring 폐기, 헤더 배경 차이만)이 design-layout.md:61-66에 정확 반영, 현재 코드(CenterWorkbench.tsx:17)도 정합. 직전 4축 검증 보고서의 \"I4 ❌ 미정착\" 평가는 issue title만 보고 결정문 본문을 못 읽은 잘못된 평가 — 본 결정으로 정정.\n\n## 유지되는 spec (변경 없음)\n\n- Active pane header: `bg-card`\n- Inactive pane header: `bg-card/60` (color-mix로 미묘한 차이)\n- Keyboard focus: `:focus-visible { outline: 1px solid var(--color-ring); outline-offset: -1px }`\n- Mouse click은 outline 만들지 않음\n- editor grid, Bottom Panel tabset, terminal focus 표면에 동일 적용\n\n## \"I1 동반 ship\" 의미 명확화\n\nI1 strict acceptance의 \"I4 동시 ship\"은 **spec 변경 동반이 아니라**, 다분할 도입 시 active 표시가 production EditorGroupsPart(flexlayout 기반)에서 design-layout.md spec대로 정합 유지됨을 acceptance로 못박는 의미. 즉 \"active group 의 bg-card / inactive group 의 bg-card/60\" 적용이 task 단계에서 누락되지 않도록 강제.\n\n## 회귀 가드 동반\n\nI1 strict acceptance fixture #5(6 group 키보드 순회 E2E)에 visual sanity assertion 1줄 추가:\n- active group element가 inactive group element 대비 dark mode에서 식별 가능한 contrast 차이를 가지는지 (예: 배경색 luminance delta가 임계값 이상)\n- 이 assertion이 미세한 60% opacity 차이 우려(designer I1 우려)에 대한 fixture-level 가드\n\n## 변경 trigger (후속 사이클로 이월)\n\n본 결정은 현 spec 유지. 다음 trigger 발생 시 후속 사이클에서 재평가:\n- fixture 또는 dogfooding에서 \"어느 group이 active인지 식별 실패\" 사례 발견\n- 외부 사용자 피드백에서 6 group 환경 식별 어려움 보고\n- 색맹/저시력 a11y 평가에서 60% opacity 차이가 WCAG contrast 기준 미달 판정\n\n## 직전 4축 검증 회고 정정 (Plan #34 회고에 명시)\n\n- 잘못된 평가: \"I4 ❌ 미정착, Terminal Teal inset ring spec과 불일치\"\n- 정정: I4는 Plan #33 I3 결정(inset ring 폐기) 그대로 정확히 정착됨. design-layout.md spec과 production 코드 모두 정합.\n- 원인: history.json plan #33 issue title(\"현재 Terminal Teal inset ring 의도된 spec\")만 보고 결정문 본문(C안 inset ring 폐기)을 못 읽은 평가 오류.\n- 교훈: 회고 시 issue title이 아니라 decision text를 source-of-truth로 삼아야 함.\n\n## 채택 근거\n\n- Plan #33 I3 결정의 의식적 채택 — 6개월 단위 revert는 결정 안정성 손상.\n- designer 6 group 우려는 가설 — 검증된 식별 실패 사례 없음. 가설 → fixture 검증 → 실패 시 강화 순서가 옳음.\n- Plan #34 사이클 부담 보호 (I1+I2가 이미 무거움).\n- fixture 통합 비용 거의 0.\n\n## 거부된 옵션\n\n- B (6 group 사전 강화 — bg-card/40 또는 추가 micro 신호): 검증되지 않은 가설에 사전 spec 변경 비용 지불. trigger 부족.\n- C (Plan #33 I3 reverting — inset Terminal Teal ring 재도입): Plan #33 결정 의식적 revert 정당화 부족."
+          },
+          {
+            "id": 5,
+            "title": "I5. 회귀 가드 인프라 정합 — CI gate 연결 + design-architecture.md vs testing-policy.md guard policy 4항 (shadcn forwardRef wrapper 금지) 정합 정리",
+            "status": "decided",
+            "decision": "**조합 A1 + B2 채택 — 최소 viable CI gate + 두 문서 도메인 분리.**\n\n## Part 1: A1 — 최소 viable CI gate (system smoke 자동 실행)\n\n### 구현 spec\n- `.github/workflows/contracts-drift.yml` 또는 신규 `.github/workflows/system-smoke.yml`에 step 추가:\n  - PR push 시 system smoke fixture 6종 자동 실행:\n    - `packages/app/test/system/dock-layout-runtime.test.ts`\n    - `packages/app/test/system/activity-bar-runtime.test.ts`\n    - `packages/app/test/system/workspace-layout-persist-runtime.test.ts`\n    - `packages/app/test/system/app-file-tree-refresh-runtime.test.ts`\n    - `packages/app/test/system/file-tree-folder-toggle-runtime.test.ts`\n    - `packages/app/test/system/app-shell-strict-mode-runtime.test.ts` (I2 신설 fixture)\n  - 추가로 I1 strict acceptance 4종 fixture(drop overlay / IME 보존 / floating × workspace / 6 group 키보드)도 동일 step으로.\n- `electron-renderer-smoke-runner.cjs` 의 CI 환경 호환성 1회 검증 (headless display 등).\n- `testing-policy.md:30` 갱신 — 기존 \"CI gate가 생기면 재평가\" → \"CI에서 system smoke 자동 실행이 도입됐으므로 fixture 동반 정책은 자동 enforcement된다. 변경 파일과 test 파일의 정확한 매핑을 강제하는 file-diff check script는 여전히 보류 — 추가 demand 발생 시 재평가.\"\n\n### 채택 근거\n- testing-policy.md:30 자체 인정 trigger 충족(services/ 디렉터리 + naming 안정).\n- fixture 회귀를 자동으로 차단 → fixture 동반 정책의 effective enforcement.\n- B1(풀 check script)은 사이클 부담 ↑ + 현 단계 demand 미검증.\n- C1(현 상태 유지)는 reviewer warning 잔존, 회귀 가드 무력 risk.\n\n## Part 2: B2 — 두 문서 도메인 분리\n\n### 구현 spec\n- `design-architecture.md` §74 헤더 변경: \"Guard policy\" → \"Architectural guard rules\". 본문 4항 그대로 유지(파일 자체에서 정책 본문 변경 없음).\n- `design-architecture.md`에 cross-reference 추가: 새 헤더 아래 1줄 — \"테스팅 회귀 가드 정책은 `testing-policy.md` 를 참조.\"\n- `testing-policy.md`에 cross-reference 추가: 회귀 가드 정책 섹션 끝에 1줄 — \"아키텍처 가드 규칙(예: shadcn forwardRef wrapper 금지, layout-critical library 책임)은 `design-architecture.md` 를 참조.\"\n\n### 채택 근거\n- \"shadcn forwardRef wrapper 금지\" 4항은 architectural rule(component 작성 가이드, ref 노출 안정성) 본질이지 testing 정책이 아님.\n- 두 문서가 동일 \"Guard policy\" 헤더를 쓴 것이 혼동의 원인. 헤더 분화로 해소.\n- 정책 본문 폐기/이전 비용 0.\n- A2/C2(4항을 testing-policy.md로 이전)는 도메인 재분류로 의미가 흐려짐.\n\n## 사이클 부담\n\n- A1: YAML step 추가 + 1회 동작 검증 + 문서 1줄. 작업량 중-작음.\n- B2: 헤더 변경 1개 + 링크 2개. 작업량 작음.\n- Plan #34 strict acceptance에 추가 부담 미세.\n\n## 거부된 옵션\n\n- B1 (풀 check script): 현 단계 demand 미검증 + 사이클 부담 ↑.\n- C1 (PR template only): 회귀 가드 무력 risk 잔존.\n- A2/C2 (4항을 testing-policy.md로 이전): 도메인 재분류 비용 + 의미 약화."
+          },
+          {
+            "id": 6,
+            "title": "I6. floating panel × multi-workspace 소속 정책 — workspace 전환 시 floating 동작 (따라간다 / 닫힌다 / pinned global). Plan #34 정체성 §1 직접 충돌 영역",
+            "status": "decided",
+            "decision": "**옵션 C 채택 — Workspace-scoped floating.**\n\n각 floating panel은 생성 시점의 워크스페이스에 소속된다. 사용자가 다른 워크스페이스로 전환하면 해당 floating은 hidden(unmount하지 않고 시각적으로 숨김), 원 워크스페이스로 복귀 시 위치/크기/상태 그대로 복원.\n\n## 구현 계약\n\n- floating state는 기존 `nx.layout.${workspaceId}` 키 안에 흡수. 신규 저장 키 도입 없음.\n- 워크스페이스 전환 시 unmount하지 않음 — `architecture.md:25` Always-on 정신과 align (비활성 워크스페이스도 상태 유지). 대량 floating은 메모리 비용이 있으나 P2 Suspend 정책으로 후속 절감 가능.\n- IEditorGroupsService의 layout snapshot에 floating tree가 포함되며 workspace-service가 워크스페이스 전환 시 적절한 snapshot을 IEditorGroupsService에 주입.\n\n## 채택 근거\n\n- architecture.md:19 워크스페이스 격리 원칙(tmux 즉시성)을 layout 차원으로 일관 적용.\n- design-layout.md의 `nx.layout.${workspaceId}` persistence 모델 재사용 — 신규 저장 키 0, 마이그레이션 비용 0.\n- 옵션 A/D는 새 격리 모델을 도입하나 demand 미검증 (YAGNI).\n- 옵션 B는 의도적 floating 사용처 무력화.\n\n## 후속 옵트인 가능성\n\n향후 \"특정 floating을 모든 워크스페이스에서 보이게 pin\" 기능이 demand되면 옵션 D를 C 위에 직교 추가 가능 (default=workspace-scoped, opt-in으로 global pin). 역방향(D를 default로 하고 workspace-scope를 옵트인)은 정체성 위반이라 불가.\n\n## 거부된 옵션\n\n- A (Follow), B (Close on switch), D (Pinned global) — 위 비교 근거."
+          },
+          {
+            "id": 7,
+            "title": "I7. 6 group 환경에서 Cmd+Alt+←/→ 순회 순서 — row-major vs spatial neighbor. interactions.md 단수 가정을 다분할로 확장",
+            "status": "decided",
+            "decision": "**옵션 B 채택 — Spatial neighbor 4방향 확장.**\n\n`Cmd+Alt+←/→/↑/↓` 가 모두 spatial neighbor 의미. 화살표 방향 = 화면상 이동 방향.\n\n## 구현 계약\n\n1. **신설 키바인딩**: `Cmd+Alt+↑` (위 group으로 활성 탭 이동), `Cmd+Alt+↓` (아래 group으로 활성 탭 이동). 기존 `Cmd+Alt+←/→` 와 의미 일관.\n2. **인접 group 부재 시**: 무동작 (no wrap-around). 가장자리에서 누르면 stop.\n3. **인접성 알고리즘**: flexlayout의 row/tabset tree 기준 직계 형제 또는 부모 row의 형제 첫 child. 정확 알고리즘은 task 단계에서 architect 결정.\n4. **팔레트 등가**: interactions.md에 \"Move Editor Right/Left/Up/Down\" 4 entries 추가 (키보드 등가성 원칙 준수).\n5. **Focus Next/Previous Group** (group 자체 활성화 — 탭 이동과 다름)은 본 결정 범위 외. 별개 사이클에서 처리.\n\n## 채택 근거\n\n- 화살표 키 의미와 화면상 이동 방향 일치 → 최소 학습.\n- I1 결정 다분할 dock 모델은 본질적 2D — 키 의미도 2D 여야 일관.\n- 옵션 A(row-major)는 list prev/next 의미라 PageUp/PageDown 또는 Cmd+}/{ 같은 비방향 키에 적합.\n- 옵션 C(혼합)는 키마다 의미 분기 — 일관성 위반.\n\n## 일반 지식 한계 명시\n\nVSCode 기본 키바인딩 매핑은 verified 출처 없이 기술. 본 결정의 핵심은 \"방향키=방향\" 원칙이라 VSCode 정확 mirror에 의존하지 않음. 정확 mirror가 필요하면 후속 task 단계에서 researcher 검증.\n\n## 거부된 옵션\n\n- A (Row-major), C (혼합) — 위 비교 근거."
+          },
+          {
+            "id": 8,
+            "title": "I8. tear-off to floating 키보드 등가 — 단축키 또는 팔레트 entry 신설 여부. interactions.md 키보드 등가성 원칙 적용",
+            "status": "decided",
+            "decision": "**옵션 B 채택 — 팔레트 + tab 컨텍스트 메뉴, 단축키 기본 미할당.**\n\ntear-off는 rare action이므로 prime 단축키 부동산을 소진하지 않고, 두 alt 경로(팔레트 + 컨텍스트 메뉴)로 키보드 등가성 원칙을 충족.\n\n## 구현 계약\n\n1. **팔레트 entry 추가**: \"Move Editor to New Floating Window\" / 한글 \"탭을 부동 창으로 분리\". interactions.md에 명령 등록.\n2. **tab 컨텍스트 메뉴 항목 추가**: 기존 `packages/app/src/renderer/components/tab-context-menu.tsx` 에 \"부동 창으로 분리\" 항목 추가.\n3. **단축키 default 미할당**: 명령 ID(`workbench.action.tearOffEditorToFloating` 가칭)만 노출하고 기본 단축키는 비워 둠. 사용자가 settings에서 직접 바인딩 가능.\n4. **마우스 drag tear-off**: flexlayout-react 기본 경로로 유지.\n\n## 채택 근거\n\n- interactions.md 키보드 등가성 원칙은 \"팔레트 OR visible control\" 중 하나로 충족. 두 경로를 모두 두는 이유는 발견 컨텍스트가 다르기 때문(팔레트=명령 검색 흐름, 우클릭=탭 작업 흐름) — redundant가 아니라 complementary.\n- tear-off는 rare action으로 단축키 부동산 소진 부적합. 비워 두면 power user가 자체 바인딩 가능.\n- VSCode mirror 패턴(I1 결정)과 align.\n\n## 일반 지식 한계 명시\n\nVSCode 정확한 명령 ID·기본 단축키는 verified 출처 없이 기술. 본 결정 핵심은 \"팔레트+컨텍스트 메뉴 두 경로, 단축키 미할당\" 원칙이며 VSCode 정확 mirror에 의존하지 않음.\n\n## 거부된 옵션\n\n- A (단축키 only): interactions.md 키보드 등가성 원칙 위반.\n- C (모두): 단축키 부동산 과잉 소진. rare action 적합도 낮음.\n- D (컨텍스트 메뉴 only): 팔레트 검색 흐름 사용자에게 발견 부재."
+          },
+          {
+            "id": 9,
+            "title": "I9. layout snapshot 마이그레이션 정책 최종 확정 — loss-tolerant (I1에서 잠정 채택) vs lossless 재검토",
+            "status": "decided",
+            "decision": "**옵션 A 채택 — loss-tolerant 확정.**\n\nI1에서 잠정 채택한 loss-tolerant 정책을 최종 확정. 옛 `nx.editor.panes` 키를 flexlayout `IJsonModel`로 변환 시도 → 실패 시 default group으로 fallback + 사용자에게 toast 안내.\n\n## 구현 계약\n\n1. **변환 시도**: 옛 panes 모델(p0/p1 + tab list)을 flexlayout IJsonModel(row/tabset/tab tree)로 forward 변환. 단순 케이스(1-pane, 2-pane horizontal)는 보존.\n2. **실패 fallback**: 변환 불가 케이스(예상 외 shape, 손상된 JSON, 타입 불일치) 시 default group으로 reset.\n3. **사용자 안내**: toast 1회 표시. 메시지 예 — \"이전 layout 형식을 새 dock 모델로 자동 변환하지 못해 기본 레이아웃으로 복원했습니다.\"\n4. **기존 패턴 재사용**: `migrateEditorPanesState` 와 동형 — 신규 migrator 작성 시 같은 위치/패턴 적용.\n\n## 채택 근거\n\n- 잠정 채택 뒤집을 새 증거 없음. architect 권고와 일치.\n- A안 strict acceptance 부담이 이미 무거움 (fixture 4종 + 5책임 분해 + IEditorDocumentsService 신설 + I4 동시 ship). lossless migrator 추가는 사이클 overrun 위험 가중.\n- 코드베이스에 동형 패턴 이미 존재 → 신규 작업량 최소.\n- 현 단계 사전 출시·단일 사용자 dev 환경 — 1회 layout reset의 사용자 영향 작음.\n\n## Production 이후 정책 변경 trigger\n\n본 결정은 현 단계 한정. 다음 조건 발생 시 B(lossless) 또는 C(hybrid)로 upgrade 검토 필요 — 후속 trigger로 명시:\n- 외부 사용자 dogfooding 또는 정식 출시 전.\n- 사용자 layout이 multi-pane 6분할에 도달해 reset의 손실이 비싸지는 시점.\n\n## 거부된 옵션\n\n- B (lossless): Plan #34 사이클 부담 가중. 현 단계 demand 미검증.\n- C (hybrid): 분기 회귀 위험 + 사이클 부담. demand 미검증."
+          }
+        ],
+        "research_summary": "## 직전 사이클(Plan #33) 4축 검증 결과 요약\n\n**Tester (PASS)**: 121 파일/468 테스트/0 실패. 형식적 회귀 가드는 통과.\n\n**Engineer (Service wire-in)**: 8개 service 중\n- ✅ wired 2개: activity-bar(AppShell:1451), bottom-panel(AppShell:1468)\n- ⚠ partial 1개: editor-groups (prop optional + AppShell이 null 전달 → legacy 경로)\n- ❌ orphan 5개: workspace/terminal/files/git/lsp (consumer 0, dead re-export)\n\n**Engineer (App.tsx)**: App.tsx → app/AppShell.tsx 단순 rename. App.tsx 6줄, AppShell.tsx 1600줄. EditorStore 폐기율 0% (createEditorStore/useEditorStore/EditorStore 타입 모두 AppShell 11회 active 참조).\n\n**Engineer (flexlayout)**: flexlayout-spike 폴더 + IEditorGroupsService 정의(852줄)는 있으나 production import 0건. EditorGroupsPart는 보이지 않는 placeholder grid + 옛 SplitEditorPane을 같은 section에 깔아두고 data-editor-grid-provider=\"legacy-split-pane-bridge\" 자체 고백.\n\n**Architect 정착도**: I2/I4 ✅, I1/I6/I7 ⚠ 부분, I3/I5 ❌. 두 줄기 코드 병존(EditorStore source-of-truth vs IEditorGroupsService consumer 0). silent divergence 위험 잠복 — 누군가 editorGroupsService prop을 켜는 순간 동기화 레이어 없이 분기.\n\n**Reviewer (REVISION_REQUIRED)**: design 5문서·회고·CLAUDE.md·PR template 정합 OK. BUT 3건 WARNING:\n- testing-policy.md:30 자체가 \"CI gate가 생기면 재평가\" 인정 — contracts-drift.yml에 system smoke step 부재\n- design-architecture.md:79 Guard policy 4항(shadcn forwardRef wrapper 금지) vs testing-policy.md 정책 목록 불일치\n- 5 spec 문서의 옛 design.md 섹션 계보 링크 부재\n\n**Plan #33 회고 자체 follow-up debt 인정 (.nexus/memory/empirical-plan33-vscode-superhost-retrospective.md)**:\n- \"Break down app/AppShell.tsx into narrower wiring modules or service adapters\"\n- \"Replace remaining legacy SplitEditorPane visual rendering with full FlexLayout editor group rendering\"\n- \"Add fuller pointer-drag E2E coverage for docking/tear-off\"\n- \"Decide whether workspace layout should persist after explicit workspace close\"\n\n## 의존성 / 처리 순서 첫 인상\n\n- I1 ↔ I2 상호의존: AppShell이 EditorStore를 직접 쓰는 한 분해가 어려움. 분해 없이 폐기도 어려움. 어느 것을 베이스에 둘지 선택 필요.\n- I3은 I1과 같은 dilemma 축 (wire-in 비용 vs 삭제 비용)이지만 service별 사정이 다름 (workspace는 layout persist에서 연결 후보, terminal은 BottomPanel과 결합 후보, files/git/lsp는 main-process bridge 흡수 후보).\n- I4는 UI spec 단독 (Center workbench active area 모델 + ring 토큰). 다른 이슈와 독립.\n- I5는 인프라/문서 (CI YAML + 정책 문서 두 곳 정합). 독립.\n\n## 컨텍스트\n\n- design-architecture.md:47 \"App.tsx의 목표 책임은 workspace shell 조립과 service wiring. localStorage IO, shortcut binding, IPC adapter, layout mutation은 service로 흡수\"\n- 브랜치: feat/plan34-workbench-skeleton 후보\n- 현 main HEAD: 4e86f68",
+        "created_at": "2026-04-29T00:41:01.949Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1. dock-layout-runtime fixture를 production EditorGroupsPart 검증으로 확장 (Hard precondition / 단계 0)",
+          "status": "completed",
+          "context": "I1 hard precondition (architect critical). 현재 dock-layout-runtime는 spike 모델만 검증하고 production EditorGroupsPart는 검증 안 함. 이 fixture가 production path를 보지 않는 한 spec/runtime divergence 가드가 무력. 다른 모든 작업의 0 단계 가드.</context>\n<parameter name=\"approach\">production EditorGroupsPart에 `data-editor-grid-provider=\"flexlayout-model\"` 데이터 attr 노출 (또는 동등 식별자). dock-layout-runtime.test.ts와 entry.tsx를 production AppShell 마운트 경로에서 호출하도록 갱신 — 4-pane open/split/move 시나리오 추가. 현재 spike 컴포넌트 직접 호출 경로는 negative assertion(매치되지 않음)으로 보존하거나 제거.",
+          "acceptance": "1) `dock-layout-runtime.test.ts`가 production AppShell의 EditorGroupsPart를 마운트하고 `data-editor-grid-provider=\"flexlayout-model\"`을 강제 검증. 2) 4-pane open/split/move 시나리오 통과. 3) `legacy-split-pane-bridge` 데이터 attr이 더 이상 매치되지 않음 (negative assertion).",
+          "risk": "production EditorGroupsPart가 아직 legacy 경로 사용 중이라 fixture 작성 시점에 이미 테스트가 깨진 상태로 시작될 수 있음. T5(flexlayout production wire-in)가 완료돼야 fixture가 통과. T1은 fixture 골격 + production-path 마운트 경로만 먼저 잡고, 통과는 T5 후 확정.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd6d4-416c-7191-a71f-dd80b49c4118",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:14:24.511Z"
+        },
+        {
+          "id": 2,
+          "title": "T2. EditorStore 5책임 internal slice 분리 (boundary 그음, 인터페이스 신설 전 단계)",
+          "status": "completed",
+          "context": "architect 권고 단계 I1a. EditorStore(2675L) 안에 panes/documents/fileTree/git/centerMode 5책임이 cross-cutting으로 동거. 새 인터페이스 신설(T3) 및 이관(T4) 전에, 같은 파일 내에서 internal slice로 분리해 boundary를 먼저 그어야 회귀 위험 최소.",
+          "acceptance": "1) editor-model-service.ts 안에 5 slice가 명시적으로 분리(코드 주석 또는 별도 const). 2) 외부에서 보는 API(EditorStore export, useEditorStore 등) 변경 없음. 3) 모든 기존 unit/contract test 통과. 4) cross-slice 의존성이 helper 함수 또는 명시 호출로만 표현됨.",
+          "approach": "editor-model-service.ts 안에서 5 internal slice 정의: panesSlice / documentsSlice / fileTreeSlice / gitBadgesSlice / centerModeSlice. 외부 export는 유지(EditorStore 단일 store). 각 slice의 method/selector는 slice 내부로 묶고 cross-slice 호출은 명시 helper 또는 store get을 통해서만. 단위 테스트도 slice별로 그룹화.",
+          "risk": "slice 간 cross-cutting 호출(예: panes.openTab → documents.create + fileTree.refresh)이 많으면 boundary가 형식적이 될 위험. helper 호출로 명시화하는 단계가 회귀 surface를 노출할 수 있음.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd6d4-41cf-7f00-a307-4cbb047dcb04",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:15:29.512Z"
+        },
+        {
+          "id": 3,
+          "title": "T3. IEditorDocumentsService 신설 — 인터페이스 + 구현 + unit/contract test",
+          "status": "completed",
+          "context": "I1 strict acceptance #7. 옛 EditorTab(content/dirty/saving/version/diagnostics/lspStatus/diff 9+필드, 메타+문서 동거) 와 새 EditorGroupTab(5필드, 메타 only) 사이 의미 손실 1:1 매핑 불가. 문서 상태 owner를 별도 service로 분리해 IEditorGroupsService(메타) 와 IEditorDocumentsService(문서) 책임 경계 명확화.",
+          "acceptance": "1) editor-documents-service.ts 인터페이스/구현 존재. 2) unit test가 모든 public method 직접 검증(testing-policy.md 정책 3 부합). 3) services.contract.test.ts에 IEditorDocumentsService entry 추가, type-level + runtime sanity 통과. 4) services/index.ts 배럴 export 추가. 5) ILspService와의 책임 경계 README/주석 명시.",
+          "approach": "packages/app/src/renderer/services/editor-documents-service.ts 신설. 인터페이스: open/close/getContent/setContent/markDirty/save/applyWorkspaceEdit/getDiagnostics/openDiff. ILspService와의 협업 fan-in 명시(diagnostics/applyWorkspaceEdit는 IEditorDocumentsService 보유, ILspService가 push). zustand store 기반 구현. unit test method-level 100% + contract test 추가(services.contract.test.ts).",
+          "risk": "ILspService와의 책임 중복 선이 모호하면 향후 회귀. diagnostics fan-in 모델(어느 쪽이 subscribe, 어느 쪽이 publish)이 잘못되면 LSP push가 EditorDocuments에 도달하지 못해 진단 사라짐.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd6de-107e-7132-80d6-637a90cfdbd4",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:15:42.490Z"
+        },
+        {
+          "id": 4,
+          "title": "T4. EditorStore → 5 destination service 이관 + AppShell 11회 참조 전환",
+          "status": "completed",
+          "context": "I1 strict acceptance #6. T2(slice 분리)와 T3(IEditorDocumentsService 신설) 후 실 데이터 ownership 이관. AppShell의 11회 useEditorStore 참조를 service hook 으로 전환. 사용자 시점 회귀 없음(divergence 0)이 hard constraint.",
+          "acceptance": "1) EditorStore 정의/export 폐기 — `createEditorStore`, `useEditorStore`, `EditorStore` 타입 모두 제거. 2) AppShell의 useEditorStore 호출 0건 grep 결과. 3) 5 destination service의 unit/contract test가 이관된 책임 100% method-level 검증. 4) 기존 system smoke 5종(activity-bar / dock-layout / workspace-layout-persist / app-file-tree-refresh / file-tree-folder-toggle) 모두 통과 — 이관 회귀 0. 5) 사용자 시점 동작(파일 트리 / 에디터 탭 / 분할 / git 뱃지 / 워크스페이스 전환) 모두 동일.",
+          "approach": "단계별 이관: (a) panesSlice → IEditorGroupsService.groups (메타), (b) documentsSlice → IEditorDocumentsService, (c) fileTreeSlice/expandedPaths/selectedTreePath/pendingExplorer*/*ByWorkspace → IFilesService, (d) gitBadgesSlice → IGitService, (e) centerModeSlice/persistCenterWorkbenchMode/toggleCenterWorkbenchMaximize → IWorkspaceService. AppShell의 useEditorStore 11개 참조를 useFiles/useEditorGroups/useEditorDocuments/useGit/useWorkspace로 분산. EditorStore는 어댑터로 잠시 read-through 위임 후 본 task 끝에서 단계 폐기. 모든 기존 컴포넌트(EditorPane, FileTreePanel 등)의 props 인터페이스 유지(부수 회귀 최소).",
+          "risk": "11개 참조 중 일부가 fresh object selector를 가질 가능성 — Plan #33의 `getSnapshot should be cached` 회귀 재현. 이관 중 silent divergence가 fixture로 잡히지 않으면 production에서만 노출. 다중 워크스페이스 fileTree state 이전 시 workspace-scoped key 매핑 실수 위험.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd6e9-bff8-7d70-a8c6-e3bfa800ad4c",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:15:58.221Z"
+        },
+        {
+          "id": 5,
+          "title": "T5. flexlayout production wire-in + SplitEditorPane 시각 부분 제거 + loss-tolerant migrator + flexlayout-spike 정리",
+          "status": "completed",
+          "context": "I1 strict acceptance #1, #8, #9. flexlayout-react@0.9.0을 EditorGroupsPart의 production 렌더로 채택. 옛 SplitEditorPane 시각 부분과 legacy-split-pane-bridge 데이터 attr 제거. 옛 nx.editor.panes 키를 flexlayout IJsonModel로 변환하는 loss-tolerant migrator 작성(I9 결정). flexlayout-spike 디렉터리 정리.",
+          "acceptance": "1) production EditorGroupsPart가 flexlayout-react Layout으로 렌더 — `data-editor-grid-provider=\"flexlayout-model\"` DOM 검증. 2) `legacy-split-pane-bridge` 데이터 attr 코드베이스 grep 0건. 3) SplitEditorPane.tsx 시각 부분 제거 후 라인 수 ≤ 200L 또는 파일 자체 삭제(인터랙션 책임이 IEditorGroupsService로 완전 이관됐으면 삭제). 4) layout migrator unit test — 단순 1-pane / 2-pane horizontal 보존, 손상 입력 시 default fallback. 5) flexlayout-spike/ production import 0건 grep, 디렉터리 정리. 6) T1 fixture(dock-layout-runtime) 통과 — production 4-pane open/split/move 시나리오.",
+          "approach": "EditorGroupsPart에서 IEditorGroupsService를 직접 consume하여 flexlayout-react Layout 컴포넌트로 4 zone 렌더. data-editor-grid-provider=\"flexlayout-model\" 노출. SplitEditorPane.tsx는 시각 렌더 부분(분할 그리드, splitter)만 제거하고, 탭 reorder/move/splitRight 같은 인터랙션 책임은 IEditorGroupsService로 이관. layout migrator: localStorage `nx.editor.panes` 또는 `nx.layout.${workspaceId}` 키를 read → 옛 panes shape 감지 시 flexlayout IJsonModel로 변환 시도 → 실패 시 default group fallback + sonner toast \"이전 layout 형식을 새 dock 모델로 자동 변환하지 못해 기본 레이아웃으로 복원했습니다.\" 출력. flexlayout-spike/ 는 production tree에서 제거하거나 __spike__/ 서브경로로 이동(import 0건 확인 후).",
+          "risk": "flexlayout snapshot 마이그레이션이 사용자 layout 1회 reset을 유발 — toast 안내가 부족하면 데이터 손실로 인식될 수 있음. drop overlay/floating/splitter cursor의 토큰 bridge가 누락되면 시각 회귀. SplitEditorPane 인터랙션을 IEditorGroupsService로 이관할 때 drag-and-drop 모듈(`editor-tabs/drag-and-drop.ts`)과의 호환성 깨질 위험.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd706-6984-7c12-9996-837c6baf20f8",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:16:16.343Z"
+        },
+        {
+          "id": 6,
+          "title": "T6. drop overlay zone 시각 정확도 fixture (E2E)",
+          "status": "completed",
+          "context": "I1 strict acceptance fixture #2. designer ship blocker 1번. 사용자가 탭을 drag할 때 어디로 갈 지(top/right/bottom/left/center 5 zone) 시각 신호가 정확해야 함. 회고 line 26 \"visual dock overlay behavior … not full E2E\" 가 follow-up debt로 남아 있던 영역.",
+          "acceptance": "1) drop-overlay-runtime.test.ts + entry.tsx + fixture.html 신설. 2) top/right/bottom/left/center 5 zone의 indicator DOM 위치가 활성 group bounding rect 기준 정확히 분할. 3) hover 200ms 이내에 indicator visible. 4) drag end 후 indicator 0(unmount).",
+          "approach": "drop-overlay-runtime fixture 신규: 4 zone EditorGroupsPart 마운트 → 활성 group의 4방향 + center에 drag pointermove 시뮬 → flexlayout drop indicator의 실제 DOM 위치/크기/색을 expect로 강제. data-flex-layout-drop-zone 데이터 attr 사용 또는 indicator DOM 식별자 노출.",
+          "risk": "flexlayout-react@0.9.0의 drop indicator 내부 DOM 구조가 unstable selector면 fixture가 brittle. data attr 추가가 필요하면 T5(flexlayout wire-in)에서 함께 노출.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd714-9854-73d1-b723-a99a302ff8cd",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:16:31.375Z"
+        },
+        {
+          "id": 7,
+          "title": "T7. drag-tab IME composition 보존 fixture (Monaco / xterm / splitter 3축)",
+          "status": "completed",
+          "context": "I1 strict acceptance fixture #3. design.md §3 1급 회귀 후보 — 한국어 IME composition 중 dock overlay activate 또는 splitter drag가 Monaco/textarea blur를 유발해 조합 한글이 깨지면 정체성 직접 침해.",
+          "acceptance": "1) 3 시나리오 fixture가 모두 통과. 2) IME composition cancel 또는 강제 finish 0건 측정. 3) 한글 조합 시작 → drag/drop 사이클 → 조합 끝까지 동일 composition session. 4) input latency p95 측정값이 design.md §3 기준 안에 들어옴(있다면 명시).",
+          "approach": "ime-dock-preservation-runtime fixture 신규 (또는 기존 ime-release-gate.test.ts 확장). 3 시나리오: (a) Monaco editor에서 한글 조합 중 다른 group으로 drag-tab 시작 → IME composition 보존 검증, (b) xterm 한글 입력 직후 dock 이동 → glyph 보존 검증, (c) splitter pointermove 중 IME composition이 가로채지지 않음 검증. composition event spy + 한글 글자 비교.",
+          "risk": "flexlayout-react가 drag 중 react re-render에 의해 textarea/Monaco가 unmount/remount되면 composition 강제 종료. fixture로 잡지 못하면 production에서만 한글 사용자 회귀 노출.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd714-9882-75f0-bcbb-012e2533c15b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:16:42.022Z"
+        },
+        {
+          "id": 8,
+          "title": "T8. floating panel × workspace 소속 fixture (multi-workspace 정체성 검증)",
+          "status": "completed",
+          "context": "I1 strict acceptance fixture #4 + I6 결정(workspace-scoped). floating panel이 워크스페이스 전환 시 hidden되고 복귀 시 위치/크기/상태 그대로 복원되는지 검증. multi-workspace 정체성 §1 직접 영역.",
+          "acceptance": "1) floating-workspace-runtime.test.ts + entry.tsx + fixture.html 신설. 2) 전환 시 floating DOM이 unmount되지 않고 hidden(display:none 또는 동등). 3) 복귀 시 위치/크기 차이 0px. 4) localStorage 키가 workspace별로 분리됨 확인.",
+          "approach": "floating-workspace-runtime fixture 신규: 워크스페이스 A에서 탭을 tear-off하여 floating panel 생성 → 위치/크기 기록 → 워크스페이스 B로 전환 → A의 floating이 hidden 됐는지 검증 → 다시 A로 복귀 → 위치/크기/상태 그대로 복원되는지 검증. localStorage `nx.layout.${workspaceId}` 키에 floating tree가 포함되는지 확인.",
+          "risk": "workspace 전환 시 layout snapshot inject/restore 타이밍이 IEditorGroupsService.deserializeModel 라이프사이클과 race할 위험. floating 인스턴스가 두 워크스페이스에서 모두 보이는 silent divergence가 가장 위험.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd714-98e9-7cf1-ae81-d9b29ea786e0",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:16:50.812Z"
+        },
+        {
+          "id": 9,
+          "title": "T9. 6 group spatial neighbor 키보드 fixture + I4 visual sanity assertion",
+          "status": "completed",
+          "context": "I1 strict acceptance fixture #5 + I7 결정(spatial 4방향) + I4 결정(visual sanity 추가). 6 group 환경에서 Cmd+Alt+←/→/↑/↓의 spatial neighbor 의미를 fixture로 강제. active/inactive group의 bg-card vs bg-card/60 contrast가 dark mode에서 식별 가능한지 visual assertion 추가.",
+          "acceptance": "1) six-group-spatial-runtime.test.ts + entry.tsx + fixture.html 신설. 2) 4방향 모두 spatial neighbor로 이동 검증. 3) 가장자리에서 stop(no wrap). 4) 인접 알고리즘이 flexlayout row/tabset tree 기준으로 결정적 — 다른 분할 형태(row vs column)에서도 같은 키 입력에 같은 결과. 5) active vs inactive group의 dark mode luminance delta ≥ 임계값(예: 5% 또는 명도 차이 명시).",
+          "approach": "six-group-spatial-runtime fixture 신규: 6 group 4-pane grid 마운트(2x3 또는 3x2) → 각 group에 탭 1개 open → 활성 group을 (0,0)에 두고 Cmd+Alt+→ press → spatial right neighbor (0,1)로 활성 탭 이동 검증. ←/↑/↓ 동일. 가장자리 stop 동작 검증. 추가로 active group element의 computed bg와 inactive group element의 computed bg를 luminance delta로 비교 → 임계값 이상.",
+          "risk": "spatial neighbor 알고리즘이 정의 안 되면 fixture가 implementation을 따라가게 됨 — fixture가 spec이 아니라 spec follower가 됨. T5/T10에서 알고리즘을 명시 결정 후 fixture 작성 권장.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd714-9905-7311-a5f7-ecddb9ba1a1b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:17:03.385Z"
+        },
+        {
+          "id": 10,
+          "title": "T10. app/wiring.ts (또는 app/AppServices.tsx) 신설 — useAppServices() hook + 11 service factory + 6 bridge subscription 통합",
+          "status": "completed",
+          "context": "I2 옵션 E의 핵심 — wiring root 모듈. AppShell 분해의 **acceptance 필수 항목** (architect critical). 11개 use*Store factory + 6개 bridge subscription을 단일 hook으로 통합해 StrictMode mount 지점 1곳 결정성 확보.",
+          "acceptance": "1) app/wiring.ts (또는 AppServices.tsx) 존재 + useAppServices() export. 2) AppShell.tsx의 use*Store factory 11개 호출이 useAppServices() 단일 호출로 대체. 3) bridge subscription 6개가 wiring root에서 통합 useEffect로 처리됨. 4) StrictMode 5 iteration에서 service 인스턴스 leak 0 (T13 fixture로 검증). 5) 단위 테스트 — useAppServices() return shape contract test.",
+          "approach": "packages/app/src/renderer/app/wiring.ts (또는 AppServices.tsx) 신설. 단일 `useAppServices()` hook이 `{ workspace, activityBar, bottomPanel, editorGroups, editorDocuments, files, git, lsp, terminal, harnessClaudeCode, harnessOpencode, harnessCodex, search, sourceControl }` 반환. 각 service는 useRef 기반 factory(현 11개 use*Store와 동형). bridge subscription 6개(workspace/harness×3/search/sourceControl/editor event)는 wiring root 안 useEffect 1~2개로 통합 — 각 service의 startBridgeSubscription() lifecycle 호출.",
+          "risk": "11개 service의 라이프사이클 cleanup이 wiring root에 통합되면 unmount 순서 의존성이 생길 수 있음. 한 service의 dispose가 다른 service의 subscribe에 영향을 주면 cleanup race. T4(EditorStore 폐기) 직후 시점에 진행해야 EditorStore 어댑터와 race 없음.",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd714-9951-7893-b339-18f984a0dd65",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:17:17.271Z"
+        },
+        {
+          "id": 11,
+          "title": "T11. 커스텀 hook 5종 추출 + app/commands.ts 분리",
+          "status": "completed",
+          "context": "I2 옵션 E의 두 번째 축 — handler 묶음 추출. AppShell의 ~350L useCallback handler + 252L registerAppCommands를 hook + module로 분리.",
+          "acceptance": "1) 5 hook 파일 존재 + 단위 테스트(각 hook의 return shape contract). 2) app/commands.ts 존재 + registerAppCommands export. 3) AppShell.tsx의 useCallback handler 30+개와 registerAppCommands useEffect가 hook 호출로 대체. 4) parts/* 컴포넌트는 service module을 직접 import하지 않음 (props만) — design-architecture.md §Parts model 부합 grep 검증.",
+          "approach": "5 hook 신설: useExplorerBindings(services) — fileTree handler ~30개, useEditorBindings(services) — editor handler ~20개, useSourceControlBindings(services) — source control handler, useResizeDrag(services) — workspaceStrip/sideBar resize 131L (layout-resize-service에 흡수 후 hook으로 노출), useAppCommands(services) — registerAppCommands 252L 캡슐화. registerAppCommands는 packages/app/src/renderer/app/commands.ts로 분리 — pure function 유지(현재 export 그대로). useAppCommands 안에서 commands.ts 호출.",
+          "risk": "handler 추출 시 closure 의존성 누수 — selector에 fresh object 만들면 Plan #33 update-depth 회귀 재현. useMemo + shallow equality로 안정화 필요. layout-resize-service 흡수 시 localStorage IO timing이 wiring root와 race할 위험.",
+          "plan_issue": 2,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd720-8892-7df1-aeb0-2997b45bd171",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:17:29.639Z"
+        },
+        {
+          "id": 12,
+          "title": "T12. AppShell.tsx 최종 250~300L 도달 (acceptance 한도 검증)",
+          "status": "completed",
+          "context": "I2 acceptance hard line — 200~400L 범위, 목표 250~300L. T10(wiring root)+T11(hook 5종) 적용 후 AppShell이 imports + useAppServices() + hook 호출 + 4 zone JSX 만 보유.",
+          "acceptance": "1) `wc -l packages/app/src/renderer/app/AppShell.tsx` 결과 ≤ 400L. 2) 가능하면 250~300L 범위 도달. 3) 모든 기존 unit test + system smoke 통과. 4) AppShell 안에 남은 책임이 imports / useAppServices() / 5 hook 호출 / 4 zone JSX 만으로 한정됨.",
+          "approach": "T10/T11 적용 후 AppShell.tsx 라인 수 측정. 목표 초과 시 추가 hook 추출 또는 helper 분리. 한도 400L 초과면 acceptance 미충족이므로 추가 작업 trigger.",
+          "risk": "JSX 4 zone + Consent dialog + CommandPalette 만으로도 ~230L. hook 호출 + imports까지 더하면 250~280L 가까이. 한도 400L는 여유 있으나 250~300 목표는 빠듯.",
+          "plan_issue": 2,
+          "deps": [
+            10,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd732-9bb3-7880-9ac9-68cdab3f9241",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:17:38.780Z"
+        },
+        {
+          "id": 13,
+          "title": "T13. app-shell-strict-mode-runtime fixture 신설 (Plan #33 update-depth 회귀 가드)",
+          "status": "completed",
+          "context": "I2 acceptance #7 + Plan #33 회고의 \"Zustand selector caused getSnapshot should be cached + Maximum update depth exceeded\" 회귀 예방. wiring root + hook 추출 후 StrictMode에서 selector 캐시 안정성 보장.",
+          "acceptance": "1) app-shell-strict-mode-runtime.test.ts + entry.tsx + fixture.html 신설. 2) StrictMode 5 iteration 안정 — 위 두 경고 0건. 3) 11 service instance가 unmount 후 leak 검사 통과. 4) 마운트/언마운트 사이클 종료 후 dom 노드 leak 0.",
+          "approach": "app-shell-strict-mode-runtime fixture 신규: 4 zone 마운트 + StrictMode 5 iteration + console.error/warn capture(특히 `getSnapshot should be cached`, `Maximum update depth exceeded` 메시지) + 11 service instance unmount 후 메모리 leak 검증. 마운트 → unmount → 재마운트 사이클 5회.",
+          "risk": "leak 검사 정밀도가 떨어지면 false positive/negative. Plan #33 회귀가 production 에서만 노출됐던 history 있으므로 fixture가 충분히 정밀한 시나리오를 잡아야.",
+          "plan_issue": 2,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd74c-29c5-7bd1-9bf5-0972aeb4cab8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:17:46.843Z"
+        },
+        {
+          "id": 14,
+          "title": "T14. I7 spatial neighbor 키바인딩 — Cmd+Alt+↑/↓ 신설 + interactions.md \"Move Editor\" 4 entries",
+          "status": "completed",
+          "context": "I7 결정 — Cmd+Alt+←/→/↑/↓ 모두 spatial neighbor 의미, no wrap-around. 인접 group 알고리즘은 flexlayout row/tabset tree 기준 직계 형제 또는 부모 row의 형제 첫 child. 팔레트 등가 명령 4 entries 추가.",
+          "acceptance": "1) Cmd+Alt+↑/↓ 키바인딩이 등록되어 동작. 2) IEditorGroupsService.findSpatialNeighbor() unit test 통과 — 다양한 분할 형태(row/column/혼합)에서 결정적 결과. 3) 가장자리 stop 동작 검증. 4) 팔레트 entry \"Move Editor Right/Left/Up/Down\" 4 entries 등록. 5) interactions.md 갱신본 commit. 6) T9 fixture 통과.",
+          "approach": "app/commands.ts(또는 useAppCommands hook) 에 Cmd+Alt+↑/↓ 키바인딩 추가. 인접 알고리즘은 IEditorGroupsService 안에 `findSpatialNeighbor(groupId, direction)` 메서드 추가 — flexlayout model의 row/tabset 트리에서 결정적 알고리즘. 인접 부재 시 null 반환 → keybinding handler가 stop. interactions.md 갱신: \"Move Editor Right/Left/Up/Down\" 4 entries 추가, 키보드 등가성 원칙 부합 명시.",
+          "risk": "spatial neighbor 알고리즘의 결정성이 깨지면 같은 키 입력에 다른 group으로 이동. 특히 mixed row/column tree에서 \"왼쪽 부모의 첫 child\" 같은 fallback이 직관과 어긋날 가능성.",
+          "plan_issue": 7,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd732-9bf9-7301-93f9-f359a97ff596",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-04-29T01:18:07.180Z"
+        },
+        {
+          "id": 15,
+          "title": "T15. I8 tear-off 팔레트 + tab 컨텍스트 메뉴 추가 (단축키 기본 미할당)",
+          "status": "completed",
+          "context": "I8 결정 — tear-off는 rare action으로 단축키 부동산 미소진. 팔레트 + tab 컨텍스트 메뉴 두 alt 경로로 키보드 등가성 충족. flexlayout-react 마우스 drag tear-off는 기본 경로로 유지.",
+          "acceptance": "1) 팔레트 검색 \"분리\"로 entry 노출. 2) tab 우클릭 시 \"부동 창으로 분리\" 항목 노출. 3) 단축키 누름 — default 매핑 0 (사용자 binding 가능). 4) 명령 실행 시 IEditorGroupsService.tearOffActiveTabToFloating() 호출되어 floating panel 생성. 5) interactions.md 갱신본.",
+          "approach": "팔레트 entry \"Move Editor to New Floating Window\" / 한글 \"탭을 부동 창으로 분리\" 추가 — interactions.md에 명령 ID `workbench.action.tearOffEditorToFloating`(가칭) 등록. tab-context-menu.tsx 에 \"부동 창으로 분리\" 항목 추가. 단축키 default 미할당 — 명령 ID만 노출. IEditorGroupsService에 tearOffActiveTabToFloating() 메서드 추가 — flexlayout API 호출.",
+          "risk": "flexlayout API의 floating panel 생성 메서드가 expected shape이 아닐 수 있음 — wrapper 필요. 마우스 drag tear-off와 동일 동작 보장 필요.",
+          "plan_issue": 8,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd741-a6a4-7d43-bad5-9f039b236933",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:16.841Z"
+        },
+        {
+          "id": 16,
+          "title": "T16. I3 ITerminalService shell wire-in (lifecycle만, PTY 데이터 이전은 Plan #35)",
+          "status": "completed",
+          "context": "I3 결정 옵션 B — ITerminalService를 wiring root에 lifecycle만 추가, PTY 데이터 이전은 Plan #35로. design-architecture.md spec(파일 정식)을 유지하면서 사이클 부담 최소.",
+          "acceptance": "1) useAppServices() 반환에 terminal 포함. 2) ITerminalService 인스턴스가 마운트/언마운트 시점에 생성/dispose 됨 (단위 테스트 또는 strict-mode fixture 검증). 3) 기존 terminal 동작(BottomPanel terminal view, PTY 입출력) 회귀 0. 4) Plan #35 후보 항목으로 회고에 명시.",
+          "approach": "app/wiring.ts(T10)의 useAppServices() 반환에 terminal: ITerminalService 추가. wiring root에서 ITerminalService 인스턴스 생성 + mount/unmount lifecycle. 실 PTY 데이터 흐름(focusTerminal, clickNewTerminalTab, terminal IPC subscribe)은 현재 위치 유지 — Plan #34에서 변경 없음.",
+          "risk": "ITerminalService 인스턴스가 PTY 데이터를 아직 보유하지 않는데 wiring root에 두면 dead instance — 라이프사이클이 의미 없음. Plan #35에서 데이터 이전 시 instance 재생성/migration 필요.",
+          "plan_issue": 3,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd720-88d2-7060-938d-823268919b0f",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:25.926Z"
+        },
+        {
+          "id": 17,
+          "title": "T17. I5 CI workflow YAML 작성 (system smoke 자동 실행) + testing-policy.md 갱신",
+          "status": "completed",
+          "context": "I5 Part 1 (A1) — testing-policy.md:30 자체 인정 trigger 충족. 매 PR push 시 system smoke fixture 6종 + I1 fixture 4종 자동 실행하여 회귀 가드 자동화.",
+          "acceptance": "1) .github/workflows/system-smoke.yml 또는 갱신된 contracts-drift.yml 존재. 2) PR push 시 fixture 10종(system smoke 6 + I1 fixture 4) 자동 실행. 3) electron-renderer-smoke-runner.cjs CI 환경에서 실행 가능. 4) testing-policy.md:30 갱신본 commit.",
+          "approach": ".github/workflows/system-smoke.yml 신규(또는 contracts-drift.yml에 step 추가). bun install + electron-renderer-smoke-runner.cjs 호환 환경 구성(headless display 등). system smoke 6종 + I1 fixture 4종(T6/T7/T8/T9) 모두 실행. testing-policy.md:30 갱신 — 기존 \"CI gate가 생기면 재평가\" → \"CI에서 system smoke 자동 실행이 도입됐으므로 fixture 동반 정책은 자동 enforcement된다. file-diff check script는 demand 발생 시 재평가.\"",
+          "risk": "CI 환경에서 electron headless 실행이 추가 의존성 필요(xvfb 등) — runner 호환성 확인 필요. 실행 시간이 PR pipeline 길이를 크게 늘릴 수 있음.",
+          "plan_issue": 5,
+          "deps": [
+            6,
+            7,
+            8,
+            9,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd755-9fd0-7ae0-8f5a-0edc3e32f4ea",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:36.265Z"
+        },
+        {
+          "id": 18,
+          "title": "T18. CI workflow 동작 검증 (T17 verification — tester pair)",
+          "status": "completed",
+          "context": "T17의 CI workflow가 실제로 fixture 10종을 모두 실행하고 회귀 시 fail하는지 verify. tester auto-pair (engineer task with runtime-behavior acceptance).",
+          "acceptance": "1) PR push에 workflow trigger 확인. 2) fixture 10종 실행 로그 + pass 확인. 3) 의도적 fail 주입 시 PR check fail 확인. 4) 실행 시간 기록(P50, P95).",
+          "approach": "로컬에서 act(또는 동등 도구)로 workflow dry-run 또는 PR 1회 push로 CI 실 실행 확인. fixture 10종 모두 실행 + 1개 의도적 fail 시 PR block 검증.",
+          "risk": "act는 electron 환경 일부 미지원 — 실 PR 실행이 더 정확. 그러나 main 브랜치에 영향 없도록 별도 branch에서 verify 필요.",
+          "plan_issue": 5,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd75a-5a7e-7c90-a56a-d2fb868ce138",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:43.114Z"
+        },
+        {
+          "id": 19,
+          "title": "T19. I5 design-architecture.md 헤더 변경 + 양 문서 cross-reference 추가",
+          "status": "completed",
+          "context": "I5 Part 2 (B2) — 두 문서 도메인 분리. design-architecture.md(architectural)와 testing-policy.md(testing)가 동일 \"Guard policy\" 헤더를 쓴 것이 reviewer warning 원인. 헤더 분화 + cross-reference로 해소. 정책 본문 폐기/이전 0.",
+          "acceptance": "1) design-architecture.md §74 헤더가 \"Architectural guard rules\"로 변경. 2) 양 문서에 cross-reference 1줄씩 추가. 3) 정책 본문 변경 0 (4항 + 3항 모두 그대로). 4) reviewer 검증 통과.",
+          "approach": "design-architecture.md §74 헤더 변경: \"Guard policy\" → \"Architectural guard rules\". 본문 4항 그대로 유지. 새 헤더 아래 1줄 cross-reference 추가: \"테스팅 회귀 가드 정책은 `testing-policy.md` 를 참조.\" testing-policy.md 회귀 가드 정책 섹션 끝에 1줄 cross-reference 추가: \"아키텍처 가드 규칙(예: shadcn forwardRef wrapper 금지, layout-critical library 책임)은 `design-architecture.md` 를 참조.\"",
+          "risk": "cross-reference 텍스트의 워딩이 두 문서 도메인 경계를 흐리면 또 다른 혼동 유발 위험. 표기 일관성 검증 필요.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd6d4-41a4-7d32-a7e2-dbf116a40b47",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:52.423Z"
+        },
+        {
+          "id": 20,
+          "title": "T20. T19 문서 변경 reviewer 검증",
+          "status": "completed",
+          "context": "writer task auto-pair (verifiable deliverable). T19 결과물의 정책 본문 보존 + cross-reference 정확성 + 헤더 변경 일관성 검증.",
+          "acceptance": "1) 정책 본문 텍스트 변경 없음 grep 확인. 2) 양 문서 cross-reference 워딩 일관성 OK. 3) 헤더 변경 누락 없음. 4) reviewer 검토 의견 정리(승인 or revision-required).",
+          "approach": "design-architecture.md 와 testing-policy.md diff를 review. (1) 정책 본문 변경 0 확인 (4항/3항 텍스트 동일). (2) 헤더 변경 정확성 확인. (3) cross-reference 워딩이 양방향 일관 — design-architecture.md → testing-policy.md, testing-policy.md → design-architecture.md.",
+          "risk": "없음 — 단순 문서 검증.",
+          "plan_issue": 5,
+          "deps": [
+            19
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd6d6-6904-7543-94aa-991bf73613cc",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:18:57.801Z"
+        },
+        {
+          "id": 21,
+          "title": "T21. Plan #34 회고 작성 — empirical-plan34-*-retrospective.md (I4 정정 + Plan #35 후보 명시)",
+          "status": "completed",
+          "context": "사이클 종료 회고. 직전 Plan #33 검토 보고서의 I4 잘못된 평가 정정 + Plan #34에서 자동 식별된 Plan #35 후보 항목 명시 + Plan #34 옵션 A 강행 결정의 결과(사이클 overrun 발생 여부, fixture 4종 통과 여부, AppShell 라인 수 도달 여부) 회고.",
+          "acceptance": "1) empirical-plan34-*-retrospective.md 파일 존재. 2) Plan #33 검토 보고서 I4 평가 오류 정정 명시 — \"issue title이 아닌 decision text를 source-of-truth로 삼아야 함\" 교훈 포함. 3) Plan #35 후보 4건 명시. 4) Big-bang 1 사이클 강행의 결과 데이터(fixture 통과율, AppShell 라인 수, 사이클 일정)가 평가 가능한 형태로 기록. 5) reviewer 검증 통과.",
+          "approach": ".nexus/memory/empirical-plan34-workbench-skeleton-retrospective.md 신설. 섹션: (1) Scope, (2) What worked, (3) What was difficult, (4) Plan #33 검토 보고서 I4 평가 오류 정정 — issue title vs decision text source-of-truth 교훈, (5) Big-bang 1 사이클 강행 결과 평가, (6) flexlayout production wire-in result, (7) AppShell 분해 result, (8) Plan #35 후보 follow-up debt(terminal helper 이전, xterm ownership, BottomPanel terminal view consumer 전환, active pane ring 강화 trigger 발생 시).",
+          "risk": "사이클 결과(fixture 통과/실패, 라인 수)가 본 task 시작 시 결정되어 있어야 — T21은 다른 모든 task 후 진행. 회고가 \"잘 끝났다\"는 self-congratulatory 톤이 되지 않도록 Plan #33 회고처럼 정직한 시점이 필요.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            20
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd76c-a0d0-7bf1-ac8d-5dcdd419f717",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:19:11.911Z"
+        },
+        {
+          "id": 22,
+          "title": "T22. T21 회고 reviewer 검증",
+          "status": "completed",
+          "context": "writer task auto-pair. 회고의 정직성·완결성·정확성 검증. 특히 Plan #33 회고처럼 follow-up debt를 솔직히 적었는지 vs 형식적 self-congratulation으로 빠지지 않았는지.",
+          "acceptance": "1) factual 정확성 verify (Plan #33 결정 인용, 결정문 본문 vs title 정정). 2) Plan #35 후보 cross-reference. 3) 사실 기반 데이터 점검. 4) reviewer 의견(승인 or revision-required).",
+          "approach": "empirical-plan34-*-retrospective.md 를 review. (1) Plan #33 I4 평가 오류 정정 정확성 verify (history.json plan #33 issue 4 결정문 본문 인용 일치). (2) Plan #35 후보 4건이 I3/I4 결정문에서 follow-up debt로 명시한 항목과 일치. (3) Big-bang 강행 결과 데이터가 사실 기반 — fixture 통과/실패 실제 값, AppShell 라인 수 측정 값. (4) \"잘 끝났다\" 톤이 아니라 정직한 평가.",
+          "risk": "없음 — 단순 검증.",
+          "plan_issue": 5,
+          "deps": [
+            21
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd76f-21b7-7743-94f3-8c3936900e69",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T01:19:18.705Z"
+        }
+      ]
     }
   ]
 }

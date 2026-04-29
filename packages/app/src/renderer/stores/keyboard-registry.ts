@@ -6,6 +6,7 @@ export interface Command {
   group: CommandGroup;
   hidden?: boolean;
   id: string;
+  keywords?: readonly string[];
   run: () => Promise<void> | void;
   title: string;
 }
@@ -164,6 +165,14 @@ function normalizeKey(key: string): string {
 
   if (key === "→") {
     return "ArrowRight";
+  }
+
+  if (key === "↑") {
+    return "ArrowUp";
+  }
+
+  if (key === "↓") {
+    return "ArrowDown";
   }
 
   if (key.length === 1) {

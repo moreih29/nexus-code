@@ -89,6 +89,10 @@ export type TerminalServiceUnsubscribe = () => void;
 export type TerminalServiceActiveTabByWorkspaceId = Record<string, TerminalTabId | null>;
 export type TerminalServiceLastDataByTabId = Record<TerminalTabId, string>;
 
+export interface TerminalServiceLifecycleSnapshot {
+  shellMounted: boolean;
+}
+
 export interface TerminalServiceSnapshot {
   tabs: TerminalTab[];
   activeTabId: TerminalTabId | null;
@@ -119,6 +123,10 @@ export interface ITerminalService extends TerminalServiceSnapshot {
   onTabExited(listener: TerminalTabExitedListener): TerminalServiceUnsubscribe;
   onInput(listener: TerminalInputListener): TerminalServiceUnsubscribe;
   onTabClosed(listener: TerminalTabClosedListener): TerminalServiceUnsubscribe;
+  mountShell(): TerminalServiceUnsubscribe;
+  unmountShell(): void;
+  dispose(): void;
+  getLifecycleSnapshot(): TerminalServiceLifecycleSnapshot;
   createTerminal(input: CreateTerminalInput): TerminalTab;
   closeTerminal(tabId: TerminalTabId): void;
   activateTerminal(tabId: TerminalTabId): void;
@@ -149,6 +157,7 @@ export function createTerminalService(
   const tabExitedListeners = new Set<TerminalTabExitedListener>();
   const inputListeners = new Set<TerminalInputListener>();
   const tabClosedListeners = new Set<TerminalTabClosedListener>();
+  let shellMountCount = 0;
 
   return createStore<ITerminalService>((set, get) => ({
     ...initial,
@@ -385,6 +394,32 @@ export function createTerminalService(
       return () => {
         tabClosedListeners.delete(listener);
       };
+    },
+    mountShell() {
+      shellMountCount += 1;
+      let mounted = true;
+
+      return () => {
+        if (!mounted) {
+          return;
+        }
+
+        mounted = false;
+        get().unmountShell();
+      };
+    },
+    unmountShell() {
+      shellMountCount = Math.max(0, shellMountCount - 1);
+    },
+    dispose() {
+      shellMountCount = 0;
+      dataListeners.clear();
+      tabExitedListeners.clear();
+      inputListeners.clear();
+      tabClosedListeners.clear();
+    },
+    getLifecycleSnapshot() {
+      return { shellMounted: shellMountCount > 0 };
     },
     createTerminal(input) {
       return get().createTab(input);

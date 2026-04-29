@@ -1,4 +1,4 @@
-import type { EditorPaneId, EditorTabId } from "../../services/editor-model-service";
+import type { EditorPaneId, EditorTabId } from "../../services/editor-types";
 
 export const EDITOR_TAB_DRAG_TYPE = "editor-tab";
 export const EDITOR_PANE_DROP_TYPE = "editor-pane";

@@ -1,7 +1,21 @@
 import { Eye, Files, GitBranch, History, Search, Wrench, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { ActivityBarView, ActivityBarViewId, DefaultActivityBarViewId } from "../../services/activity-bar-service";
+export type ActivityBarViewId = string;
+export type DefaultActivityBarViewId =
+  | "explorer"
+  | "search"
+  | "source-control"
+  | "tool"
+  | "session"
+  | "preview";
+
+export interface ActivityBarView {
+  id: ActivityBarViewId;
+  label: string;
+  sideBarTitle: string;
+  sideBarContentId: string;
+}
 
 export interface ActivityBarPartProps {
   views: readonly ActivityBarView[];

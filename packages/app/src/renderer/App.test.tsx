@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
-import { DEFAULT_EDITOR_PANE_ID, createEditorStore, type EditorTab } from "./services/editor-model-service";
+import type { EditorTab } from "./services/editor-types";
 import { keyboardRegistryStore } from "./stores/keyboard-registry";
 import { createWorkspaceStore } from "./stores/workspace-store";
-import { registerAppCommands, unifiedDiffToSideContents } from "./App";
+import { closeActiveEditorTabOrWorkspace, registerAppCommands, unifiedDiffToSideContents } from "./App";
 
 const workspaceId = "ws_alpha" as WorkspaceId;
 
@@ -14,11 +14,6 @@ afterEach(() => {
 
 describe("App command registration", () => {
   test("binds editor/workspace close and center maximize shortcuts", async () => {
-    const editorStore = createEditorStore({
-      async invoke() {
-        throw new Error("Editor bridge should not be invoked for plaintext close.");
-      },
-    });
     const workspaceStore = createWorkspaceStore({
       async getSidebarState() {
         return workspaceStore.getState().sidebarState;
@@ -51,6 +46,8 @@ describe("App command registration", () => {
     let centerMaximizeToggleCount = 0;
     let bottomPanelToggleCount = 0;
     let terminalFocusCount = 0;
+    let tearOffCount = 0;
+    let activeEditorTab: EditorTab | null = createPlaintextTab();
     const searchPanelModes: boolean[] = [];
     let nextSearchMatchCount = 0;
     let dismissCount = 0;
@@ -59,10 +56,21 @@ describe("App command registration", () => {
       closeWorkspace: async (id) => {
         closedWorkspaces.push(id);
       },
+      async closeActiveEditorTab() {
+        await closeActiveEditorTabOrWorkspace({
+          closeWorkspace: async (id) => {
+            closedWorkspaces.push(id);
+          },
+          closeActiveEditorTab: async () => {
+            activeEditorTab = null;
+          },
+          hasActiveEditorTab: () => activeEditorTab !== null,
+          workspaceStore,
+        });
+      },
       dismissSearch() {
         dismissCount += 1;
       },
-      editorStore,
       goToNextSearchMatch() {
         nextSearchMatchCount += 1;
       },
@@ -71,10 +79,14 @@ describe("App command registration", () => {
         searchPanelModes.push(replaceMode);
       },
       openFolder: async () => {},
+      splitEditorPaneDown() {},
       splitEditorPaneRight() {},
       setCommandPaletteOpen() {},
       showTerminalPanel() {
         terminalFocusCount += 1;
+      },
+      tearOffActiveEditorTabToFloating() {
+        tearOffCount += 1;
       },
       toggleActiveCenterPaneMaximize() {
         centerMaximizeToggleCount += 1;
@@ -98,26 +110,24 @@ describe("App command registration", () => {
     expect(keyboardRegistryStore.getState().bindings["Cmd+\\"]).toBe("editor.splitRight");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowLeft"]).toBe("editor.moveActiveTabLeft");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowRight"]).toBe("editor.moveActiveTabRight");
+    expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowUp"]).toBe("editor.moveActiveTabUp");
+    expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowDown"]).toBe("editor.moveActiveTabDown");
+    expect(keyboardRegistryStore.getState().getBindingFor("workbench.action.tearOffEditorToFloating")).toBeNull();
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+F"]).toBe("search.focus");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+H"]).toBe("search.replace");
     expect(keyboardRegistryStore.getState().bindings["Cmd+G"]).toBe("search.nextMatch");
     expect(keyboardRegistryStore.getState().bindings["Escape"]).toBe("app.escape");
-
-    const tab = createPlaintextTab();
-    editorStore.setState({
-      activeWorkspaceId: workspaceId,
-      activePaneId: DEFAULT_EDITOR_PANE_ID,
-      panes: [
-        {
-          id: DEFAULT_EDITOR_PANE_ID,
-          tabs: [tab],
-          activeTabId: tab.id,
-        },
-      ],
-    });
+    expect(keyboardRegistryStore.getState().getCommands().map((command) => command.title)).toEqual(expect.arrayContaining([
+      "Move Editor Left",
+      "Move Editor Right",
+      "Move Editor Up",
+      "Move Editor Down",
+      "Move Editor to New Floating Window",
+    ]));
+    expect(keyboardRegistryStore.getState().commands["workbench.action.tearOffEditorToFloating"]?.keywords).toContain("분리");
 
     await keyboardRegistryStore.getState().executeCommand("editor.closeActiveTab");
-    expect(editorStore.getState().panes[0]?.tabs).toHaveLength(0);
+    expect(activeEditorTab).toBeNull();
     expect(closedWorkspaces).toEqual([]);
 
     await keyboardRegistryStore.getState().executeCommand("editor.closeActiveTab");
@@ -134,6 +144,9 @@ describe("App command registration", () => {
 
     await keyboardRegistryStore.getState().executeCommand("view.focusTerminal");
     expect(terminalFocusCount).toBe(1);
+
+    await keyboardRegistryStore.getState().executeCommand("workbench.action.tearOffEditorToFloating");
+    expect(tearOffCount).toBe(1);
 
     await keyboardRegistryStore.getState().executeCommand("search.focus");
     await keyboardRegistryStore.getState().executeCommand("search.replace");

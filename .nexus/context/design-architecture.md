@@ -48,7 +48,7 @@ Renderer는 다음 part 단위로 분해한다.
 
 ## Layout-critical regression guard
 
-회귀 가드의 normative rules는 아래 Guard policy가 소유한다. flexlayout 채택 기준의 상세 항목은 [design-layout.md](./design-layout.md)에만 둔다.
+회귀 가드의 normative rules는 아래 Architectural guard rules가 소유한다. flexlayout 채택 기준의 상세 항목은 [design-layout.md](./design-layout.md)에만 둔다.
 
 신규 system smoke fixture는 다음 세 개다.
 
@@ -71,7 +71,9 @@ Renderer는 다음 part 단위로 분해한다.
 | 5. System smoke | Electron + Vite fixture | full stack 시나리오 |
 | 6. Regression policy | CI gate 또는 PR checklist | fixture/contract 동반 강제 |
 
-## Guard policy
+## Architectural guard rules
+
+테스팅 회귀 가드 정책은 `testing-policy.md`를 참조한다.
 
 1. layout-critical 또는 service-boundary 신규 도입 시 동일 PR에 fixture를 포함한다.
 2. service interface 변경 시 contract test를 함께 갱신한다.

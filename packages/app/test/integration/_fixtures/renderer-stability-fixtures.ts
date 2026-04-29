@@ -6,7 +6,7 @@ import type {
 } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { WorkspaceSidebarState } from "../../../../shared/src/contracts/workspace/workspace-shell";
-import { tabIdFor, type EditorBridge, type EditorTab } from "../../../src/renderer/services/editor-model-service";
+import { tabIdFor, type EditorBridge, type EditorTab } from "../../../src/renderer/services/editor-types";
 import { createWorkspaceStore, type WorkspaceStore } from "../../../src/renderer/stores/workspace-store";
 
 import { stableNow } from "./stability-common";

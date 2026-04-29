@@ -220,6 +220,45 @@ describe("ITerminalService", () => {
     expect(store.getState().closeTab("missing")).toBe(false);
   });
 
+  test("tracks shell mount lifecycle and disposes service listeners", () => {
+    const store = createTerminalService();
+    const inputEvents: TerminalInputEvent[] = [];
+
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+
+    const firstUnmount = store.getState().mountShell();
+    const secondUnmount = store.getState().mountShell();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: true });
+
+    firstUnmount();
+    firstUnmount();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: true });
+
+    secondUnmount();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+
+    store.getState().unmountShell();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+
+    store.getState().onInput((event) => {
+      inputEvents.push(event);
+    });
+    store.getState().createTab({
+      id: "terminal_lifecycle",
+      workspaceId: alphaWorkspaceId,
+      createdAt: "2026-04-28T00:00:00.000Z",
+    });
+
+    const shellUnmount = store.getState().mountShell();
+    store.getState().dispose();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+    expect(store.getState().sendInput("terminal_lifecycle", "pwd\n")).toBe(true);
+    expect(inputEvents).toEqual([]);
+
+    shellUnmount();
+    expect(store.getState().getLifecycleSnapshot()).toEqual({ shellMounted: false });
+  });
+
   test("preserves existing terminal skeleton compatibility wrappers", () => {
     const store = createTerminalService();
 

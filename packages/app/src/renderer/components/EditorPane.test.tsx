@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTab } from "../services/editor-model-service";
+import type { EditorTab } from "../services/editor-types";
 import { DiffEditorHost } from "./DiffEditorHost";
 import { EditorPaneView } from "./EditorPane";
 import { MonacoEditorHost } from "./MonacoEditorHost";
@@ -71,7 +71,7 @@ describe("EditorPaneView", () => {
     expect(paneClassName).toContain("focus-visible:outline-1");
     expect(paneClassName).toContain("focus-visible:outline-offset-[-1px]");
     expect(paneClassName).toContain("has-[:focus-visible]:outline-1");
-    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-pane-header"] === "true")?.props.className)).toContain("bg-card");
+    expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-pane-header"] === "true")?.props.className)).toContain("bg-zinc-600");
     expect(String(findElementByPredicate(tree, (element) => element.props?.["data-editor-tab-title-active"] === "true")?.props.className)).toContain("font-semibold text-foreground");
     expect(findElementByPredicate(tree, (element) => element.type === MonacoEditorHost)).toBeDefined();
   });
@@ -240,6 +240,9 @@ describe("EditorPaneView", () => {
       onRevealTabInFinder(tab) {
         calls.push(`reveal:${tab.path}`);
       },
+      onTearOffTabToFloating(tabId) {
+        calls.push(`tear-off:${tabId}`);
+      },
       onSplitRight() {
         calls.push("split");
       },
@@ -258,6 +261,7 @@ describe("EditorPaneView", () => {
     menu?.props.onCloseAllTabs("p0");
     menu?.props.onCopyPath(tab, "relative");
     menu?.props.onRevealInFinder(tab);
+    menu?.props.onTearOffToFloating("p0", tab.id);
     menu?.props.onSplitRight(tab);
 
     expect(calls).toEqual([
@@ -266,6 +270,7 @@ describe("EditorPaneView", () => {
       "close-all",
       "copy:relative:src/index.ts",
       "reveal:src/index.ts",
+      `tear-off:${tab.id}`,
       "split",
     ]);
   });

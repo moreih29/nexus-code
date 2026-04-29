@@ -8,6 +8,7 @@ import {
   type WorkspaceLayoutSnapshot,
   type WorkspaceLayoutStorage,
 } from "./workspace-service";
+import { LEGACY_EDITOR_PANES_STORAGE_KEY } from "./editor-groups-service";
 
 const alphaId = "ws_alpha" as WorkspaceId;
 const betaId = "ws_beta" as WorkspaceId;
@@ -122,6 +123,62 @@ describe("IWorkspaceService", () => {
     expect(store.getState().getActiveWorkspace()?.id).toBe(alphaId);
     expect(store.getState().getLayoutModel(alphaId)).toBeNull();
   });
+
+  test("migrates legacy nx.editor.panes storage into the per-workspace flexlayout key", () => {
+    const storage = createMemoryStorage({
+      [LEGACY_EDITOR_PANES_STORAGE_KEY]: JSON.stringify({
+        panes: [
+          { id: "p0", tabs: [createLegacyTab(alphaId, "alpha.ts")], activeTabId: `${alphaId}::alpha.ts` },
+          { id: "p1", tabs: [createLegacyTab(alphaId, "beta.ts")], activeTabId: `${alphaId}::beta.ts` },
+        ],
+        activePaneId: "p1",
+      }),
+    });
+    const store = createWorkspaceService({}, { storage });
+    const layout = store.getState().getLayoutModel(alphaId);
+
+    expect(layout?.layout).toMatchObject({
+      type: "row",
+      children: [
+        { id: "p0", children: [{ id: `${alphaId}::alpha.ts` }] },
+        { id: "p1", active: true, children: [{ id: `${alphaId}::beta.ts` }] },
+      ],
+    });
+    expect(JSON.parse(storage.getItem(getWorkspaceLayoutStorageKey(alphaId)) ?? "")).toEqual(layout);
+  });
+
+  test("falls back to default flexlayout and emits migration warnings for damaged legacy panes", () => {
+    const storage = createMemoryStorage({ [LEGACY_EDITOR_PANES_STORAGE_KEY]: "{not-json" });
+    const warnings: string[] = [];
+    const store = createWorkspaceService({}, {
+      storage,
+      onLayoutMigrationWarning(warning) {
+        warnings.push(warning.message);
+      },
+    });
+    const layout = store.getState().getLayoutModel(alphaId);
+
+    expect(warnings).toHaveLength(1);
+    expect(layout?.layout).toMatchObject({
+      type: "row",
+      children: [{ id: "group_main", children: [] }],
+    });
+  });
+
+  test("migrates and persists center workbench mode independently of workspace layouts", () => {
+    const storage = createMemoryStorage({ "nx.center.mode": JSON.stringify({ mode: "editor" }) });
+    const store = createWorkspaceService({}, { storage });
+
+    expect(store.getState().centerMode).toBe("editor-max");
+
+    store.getState().toggleCenterWorkbenchMaximize("editor");
+    expect(store.getState().centerMode).toBe("split");
+    expect(storage.getItem("nx.center.mode")).toBe("split");
+
+    store.getState().setCenterMode("terminal-max");
+    expect(store.getState().centerMode).toBe("terminal-max");
+    expect(storage.getItem("nx.center.mode")).toBe("terminal-max");
+  });
 });
 
 function createWorkspace(id: WorkspaceId, displayName: string): OpenSessionWorkspace {
@@ -129,6 +186,27 @@ function createWorkspace(id: WorkspaceId, displayName: string): OpenSessionWorks
     id,
     absolutePath: `/tmp/${displayName.toLowerCase()}`,
     displayName,
+  };
+}
+
+function createLegacyTab(workspaceId: WorkspaceId, path: string): Record<string, unknown> {
+  return {
+    id: `${workspaceId}::${path}`,
+    kind: "file",
+    workspaceId,
+    path,
+    title: path,
+    content: "",
+    savedContent: "",
+    version: "v1",
+    dirty: false,
+    saving: false,
+    errorMessage: null,
+    language: "typescript",
+    monacoLanguage: "typescript",
+    lspDocumentVersion: 1,
+    diagnostics: [],
+    lspStatus: null,
   };
 }
 

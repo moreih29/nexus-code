@@ -9,6 +9,7 @@ import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/wor
 import { createGitService } from "./git-service";
 
 const workspaceId = "ws_git" as WorkspaceId;
+const otherWorkspaceId = "ws_git_other" as WorkspaceId;
 const cwd = "/tmp/git";
 
 const branches: GitBranch[] = [
@@ -195,6 +196,29 @@ describe("git-service", () => {
       sidecarStatus: "unknown",
       errorMessage: null,
     });
+  });
+
+  test("owns file-tree path badge updates independent of status summaries", () => {
+    const store = createGitService();
+
+    store.getState().replacePathBadges(workspaceId, { "src/index.ts": "modified" });
+    store.getState().setPathBadge("src/added.ts", "added");
+    store.getState().setPathBadge("src/index.ts", "clean");
+    store.getState().applyPathBadges(otherWorkspaceId, [
+      { path: "other.ts", status: "conflicted" },
+    ]);
+    store.getState().applyPathBadgesResult({
+      type: "workspace-git-badges/read/result",
+      workspaceId: otherWorkspaceId,
+      badges: [
+        { path: "other.ts", status: "clean" },
+        { path: "next.ts", status: "untracked" },
+      ],
+      readAt: "2026-04-29T00:00:00.000Z",
+    });
+
+    expect(store.getState().workspaceId).toBe(otherWorkspaceId);
+    expect(store.getState().pathBadgeByPath).toEqual({ "next.ts": "untracked" });
   });
 });
 

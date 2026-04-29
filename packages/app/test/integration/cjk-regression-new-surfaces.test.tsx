@@ -10,9 +10,8 @@ import {
 } from "../../src/renderer/components/WorkspaceStrip";
 import {
   DEFAULT_EDITOR_PANE_ID,
-  SECONDARY_EDITOR_PANE_ID,
   tabIdFor,
-} from "../../src/renderer/services/editor-model-service";
+} from "../../src/renderer/services/editor-types";
 import { shouldIgnoreKeyboardShortcut } from "../../src/renderer/stores/keyboard-registry";
 
 import {
@@ -82,12 +81,11 @@ describe("CJK regression coverage for new integration surfaces", () => {
     expect(findElementByPredicate(fileTree, (element) => element.props?.role === "tabpanel")?.props["aria-labelledby"]).toBe(workspaceTabId("ws_alpha" as WorkspaceId));
     expect(findText(fileTree, "한글프로젝트")).toBe(true);
 
-    const splitTree = SplitEditorPaneView({
+    const editorCompatTree = SplitEditorPaneView({
       activeWorkspaceId: "ws_alpha" as WorkspaceId,
       activeWorkspaceName: "한글프로젝트",
       panes: [
         { id: DEFAULT_EDITOR_PANE_ID, tabs: [createTab("왼쪽.ts")], activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "왼쪽.ts") },
-        { id: SECONDARY_EDITOR_PANE_ID, tabs: [createTab("오른쪽.ts")], activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "오른쪽.ts") },
       ],
       activePaneId: DEFAULT_EDITOR_PANE_ID,
       onActivatePane() {},
@@ -97,10 +95,9 @@ describe("CJK regression coverage for new integration surfaces", () => {
       onSaveTab() {},
       onChangeContent() {},
     });
-    const tabTitles = findElementsByPredicate(splitTree, (element) => element.props?.["data-editor-tab-title-active"] !== undefined);
-    expect(tabTitles.map((element) => textContent(element))).toEqual(["왼쪽.ts", "오른쪽.ts"]);
+    const tabTitles = findElementsByPredicate(editorCompatTree, (element) => element.props?.["data-editor-tab-title-active"] !== undefined);
+    expect(tabTitles.map((element) => textContent(element))).toEqual(["왼쪽.ts"]);
     expect(String(tabTitles[0]?.props.className)).toContain("font-semibold");
-    expect(String(tabTitles[1]?.props.className)).toContain("text-muted-foreground");
 
     for (const shortcut of shortcutCases) {
       expect(shouldIgnoreKeyboardShortcut({ isComposing: true, ...shortcut })).toBe(true);

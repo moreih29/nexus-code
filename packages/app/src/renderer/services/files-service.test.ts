@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
+  EditorBridgeRequest,
   WorkspaceFileTreeNode,
   WorkspaceFileWatchEvent,
 } from "../../../../shared/src/contracts/editor/editor-bridge";
@@ -98,15 +99,12 @@ describe("files-service", () => {
 
     store.getState().selectPath("src/index.ts");
     expect(store.getState().selectedPath).toBe("src/index.ts");
-    expect(store.getState().expandedPaths).toEqual({});
+    expect(store.getState().expandedPaths).toEqual({ src: true });
     expect(store.getState().getSelectedNode()?.name).toBe("index.ts");
 
     store.getState().toggleDirectory("src");
     store.getState().toggleDirectory("src/components");
-    expect(store.getState().expandedPaths).toEqual({
-      src: true,
-      "src/components": true,
-    });
+    expect(store.getState().expandedPaths).toEqual({ "src/components": true });
 
     store.getState().collapseDirectory("src");
     expect(store.getState().expandedPaths).toEqual({});
@@ -129,6 +127,93 @@ describe("files-service", () => {
 
     store.getState().selectPath(null);
     expect(store.getState().getSelectedNode()).toBeNull();
+  });
+
+  test("preserves explorer state per active workspace and moves selection through visible nodes", () => {
+    const store = createFilesService({ workspaceId, nodes: baseNodes });
+
+    store.getState().selectPath("src/index.ts");
+    store.getState().setActiveWorkspace(otherWorkspaceId);
+    expect(store.getState()).toMatchObject({
+      workspaceId: otherWorkspaceId,
+      selectedPath: null,
+      expandedPaths: {},
+    });
+
+    store.getState().setActiveWorkspace(workspaceId);
+    store.getState().setTree({ workspaceId, rootPath: "/tmp/project", nodes: baseNodes });
+    expect(store.getState().selectedPath).toBe("src/index.ts");
+    expect(store.getState().expandedPaths).toEqual({ src: true });
+
+    store.getState().moveTreeSelection("first");
+    expect(store.getState().selectedPath).toBe("src");
+    store.getState().moveTreeSelection("child");
+    expect(store.getState().selectedPath).toBe("src/index.ts");
+    store.getState().moveTreeSelection("last");
+    expect(store.getState().selectedPath).toBe("README.md");
+  });
+
+  test("runs bridge-backed refresh and file CRUD methods", async () => {
+    const calls: EditorBridgeRequest[] = [];
+    const store = createFilesService({
+      async invoke(request) {
+        calls.push(request);
+        switch (request.type) {
+          case "workspace-files/tree/read":
+            return {
+              type: "workspace-files/tree/read/result",
+              workspaceId: request.workspaceId,
+              rootPath: "/tmp/project",
+              nodes: baseNodes,
+              readAt: "2026-04-29T00:00:00.000Z",
+            } as never;
+          case "workspace-files/file/create":
+            return {
+              type: "workspace-files/file/create/result",
+              workspaceId: request.workspaceId,
+              path: request.path,
+              kind: request.kind,
+              createdAt: "2026-04-29T00:00:01.000Z",
+            } as never;
+          case "workspace-files/file/rename":
+            return {
+              type: "workspace-files/file/rename/result",
+              workspaceId: request.workspaceId,
+              oldPath: request.oldPath,
+              newPath: request.newPath,
+              renamedAt: "2026-04-29T00:00:02.000Z",
+            } as never;
+          case "workspace-files/file/delete":
+            return {
+              type: "workspace-files/file/delete/result",
+              workspaceId: request.workspaceId,
+              path: request.path,
+              deletedAt: "2026-04-29T00:00:03.000Z",
+            } as never;
+          default:
+            throw new Error(`Unexpected request ${request.type}.`);
+        }
+      },
+    }, { workspaceId });
+
+    await store.getState().refreshFileTree(workspaceId);
+    await store.getState().createFileNode(workspaceId, "src/new.ts", "file");
+    await store.getState().renameFileNode(workspaceId, "src/new.ts", "src/renamed.ts");
+    await store.getState().deleteFileNode(workspaceId, "src/renamed.ts", "file");
+
+    expect(calls.map((call) => call.type)).toEqual([
+      "workspace-files/tree/read",
+      "workspace-files/file/create",
+      "workspace-files/tree/read",
+      "workspace-files/file/rename",
+      "workspace-files/tree/read",
+      "workspace-files/file/delete",
+      "workspace-files/tree/read",
+    ]);
+    expect(calls.find((call) => call.type === "workspace-files/file/create")).toMatchObject({
+      content: "",
+    });
+    expect(store.getState().fileTree.rootPath).toBe("/tmp/project");
   });
 
   test("tracks pending create/rename/delete state and applies CRUD result adapters", () => {

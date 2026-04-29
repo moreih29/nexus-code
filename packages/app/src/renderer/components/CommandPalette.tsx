@@ -74,8 +74,10 @@ function CommandPaletteItem({
   keychord: string | null;
   onSelect: () => void;
 }) {
+  const searchValue = [command.group, command.title, ...(command.keywords ?? [])].join(" ");
+
   return (
-    <CommandItem value={`${command.group} ${command.title}`} onSelect={onSelect}>
+    <CommandItem value={searchValue} onSelect={onSelect}>
       <span>{command.title}</span>
       {keychord ? <CommandShortcut>{keychord}</CommandShortcut> : null}
     </CommandItem>

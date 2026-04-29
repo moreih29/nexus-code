@@ -6,6 +6,7 @@ import type { WorkspaceId } from "../../../shared/src/contracts/workspace/worksp
 import type { OpenSessionWorkspace, WorkspaceSidebarState } from "../../../shared/src/contracts/workspace/workspace-shell";
 import { installMonacoEnvironment } from "../../src/renderer/editor/monaco-environment";
 import "../../src/renderer/styles.css";
+import "../../src/renderer/parts/editor-groups/flexlayout-theme.css";
 import "@xterm/xterm/css/xterm.css";
 
 type Disposable = { dispose(): void };

@@ -2,7 +2,10 @@ import { Eye } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { EmptyState } from "../../components/EmptyState";
-import type { ActivityBarSideBarRoute } from "../../services/activity-bar-service";
+export interface ActivityBarSideBarRoute {
+  title: string;
+  contentId: string;
+}
 
 export interface SideBarPartProps {
   route: ActivityBarSideBarRoute | null;

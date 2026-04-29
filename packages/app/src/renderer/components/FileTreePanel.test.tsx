@@ -5,7 +5,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import type { WorkspaceFileKind } from "../../../../shared/src/contracts/editor/editor-bridge";
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTreeSelectionMovement } from "../services/editor-model-service";
+import type { FilesTreeSelectionMovement as EditorTreeSelectionMovement } from "../services/files-service";
 import { fileTreeMultiSelectStore } from "../stores/file-tree-multi-select-store";
 import {
   FILE_TREE_INDENT,

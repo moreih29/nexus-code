@@ -11,52 +11,35 @@ const RUNNER_PATH = resolve(import.meta.dir, "electron-renderer-smoke-runner.cjs
 const SMOKE_HTML_PATH = "/test/system/dock-layout-runtime.fixture.html";
 const RESULT_GLOBAL_NAME = "__nexusDockLayoutRuntimeSmokeResult";
 const SMOKE_TIMEOUT_MS = 25_000;
+const FOUR_PANE_FIXTURE_FILES = ["alpha.ts", "beta.ts", "gamma.ts", "delta.ts"];
 
 interface DockLayoutRuntimeSmokeResult {
   ok: boolean;
   errors: string[];
-  initialPaneIds: string[];
-  expandedPaneIds: string[];
-  initialPaneCount: number;
-  expandedPaneCount: number;
-  layoutStatePaneCount: number;
-  dropDirections: string[];
-  splitterSymmetry: Array<{
-    orientation: "horizontal" | "vertical";
-    growBeforeWeights: number[];
-    growAfterWeights: number[];
-    mirrored: boolean;
-  }>;
-  floating: {
-    actionType: string;
-    requestedType: string;
-    subLayoutTypes: string[];
-    floatingLayoutCreated: boolean;
+  productionPath: {
+    appShellMounted: boolean;
+    editorGroupsPartMounted: boolean;
+    editorGridProvider: string | null;
+    flexlayoutProviderMatched: boolean;
+    legacySplitPaneBridgeMatched: boolean;
+    splitEditorPaneBridgeMounted: boolean;
   };
-  cssBridge: {
-    hostClassApplied: boolean;
-    appPrimaryVar: string;
-    bridgePrimaryVar: string;
-    layoutDragColor: string;
-    tabsetDividerColor: string;
-    paneBackground: string;
-    paneBorderColor: string;
-    primaryLooksOklch: boolean;
-    bridgePrimaryMatchesApp: boolean;
-    dragColorApplied: boolean;
-    dividerColorApplied: boolean;
-    panelBackgroundApplied: boolean;
-    panelBorderApplied: boolean;
-  };
-  strictMode: {
-    iterations: number;
-    leakSignals: string[];
-    leakSignalCount: number;
-  };
-  deliberateFailSignature: {
-    missingPaneDetected: boolean;
-    fourPaneCount: number;
-    expectedPaneCount: number;
+  fourPaneScenario: {
+    fixtureFiles: string[];
+    openedTabTitles: string[];
+    openedTabCount: number;
+    splitCommandCount: number;
+    moveCommandCount: number;
+    finalGridPaneCount: number;
+    finalGridTabCount: number;
+    gridSlots: Array<{
+      index: number;
+      groupId: string;
+      tabCount: number;
+      activeTabId: string;
+    }>;
+    legacyVisualPaneIds: string[];
+    operationLog: string[];
   };
   packageImpact: {
     flexlayoutVersion: string;
@@ -67,6 +50,7 @@ interface DockLayoutRuntimeSmokeResult {
 
 interface ElectronSmokeOutput {
   status: string;
+  exitCode: number | null;
   rendererResult?: DockLayoutRuntimeSmokeResult;
   suspiciousMessages: string[];
   logs: Array<{
@@ -85,7 +69,7 @@ afterEach(async () => {
 });
 
 describe("dock layout runtime system smoke", () => {
-  test("renders flexlayout adoption fixture through Electron renderer and validates dock criteria", async () => {
+  test("mounts production AppShell EditorGroupsPart path and validates flexlayout provider contract", async () => {
     viteServer = await createServer({
       configFile: false,
       root: APP_ROOT,
@@ -110,42 +94,26 @@ describe("dock layout runtime system smoke", () => {
     const output = await runElectronSmoke(smokeUrl);
     const result = output.rendererResult;
 
-    expect(output.status).toBe("ok");
     expect(output.suspiciousMessages).toEqual([]);
-    expect(result?.ok).toBe(true);
+    expect(result).toBeDefined();
     expect(result?.errors).toEqual([]);
-    expect(result?.initialPaneCount).toBe(4);
-    expect(result?.expandedPaneCount).toBe(6);
-    expect(result?.layoutStatePaneCount).toBe(6);
-    expect(result?.initialPaneIds).toEqual(expect.arrayContaining(["pane-1-tab", "pane-2-tab", "pane-3-tab", "pane-4-tab"]));
-    expect(result?.expandedPaneIds).toEqual(
-      expect.arrayContaining(["pane-1-tab", "pane-2-tab", "pane-3-tab", "pane-4-tab", "pane-5-tab", "pane-6-tab"]),
-    );
-    expect(result?.dropDirections.sort()).toEqual(["bottom", "center", "left", "right", "top"]);
-    expect(result?.splitterSymmetry.every((probe) => probe.mirrored)).toBe(true);
-    expect(result?.splitterSymmetry.map((probe) => probe.growBeforeWeights)).toEqual([
-      [60, 40],
-      [60, 40],
-    ]);
-    expect(result?.splitterSymmetry.map((probe) => probe.growAfterWeights)).toEqual([
-      [40, 60],
-      [40, 60],
-    ]);
-    expect(result?.floating.floatingLayoutCreated).toBe(true);
-    expect(result?.floating.subLayoutTypes).toContain("float");
-    expect(result?.cssBridge.hostClassApplied).toBe(true);
-    expect(result?.cssBridge.primaryLooksOklch).toBe(true);
-    expect(result?.cssBridge.bridgePrimaryMatchesApp).toBe(true);
-    expect(result?.cssBridge.dragColorApplied).toBe(true);
-    expect(result?.cssBridge.dividerColorApplied).toBe(true);
-    expect(result?.cssBridge.panelBackgroundApplied).toBe(true);
-    expect(result?.cssBridge.panelBorderApplied).toBe(true);
-    expect(result?.strictMode.iterations).toBe(5);
-    expect(result?.strictMode.leakSignalCount).toBe(0);
-    expect(result?.strictMode.leakSignals).toEqual([]);
-    expect(result?.deliberateFailSignature.missingPaneDetected).toBe(true);
+    expect(result?.productionPath.appShellMounted).toBe(true);
+    expect(result?.productionPath.editorGroupsPartMounted).toBe(true);
+    expect(result?.productionPath.editorGridProvider).toBe("flexlayout-model");
+    expect(result?.productionPath.flexlayoutProviderMatched).toBe(true);
+    expect(result?.productionPath.legacySplitPaneBridgeMatched).toBe(false);
+    expect(result?.fourPaneScenario.fixtureFiles).toEqual(FOUR_PANE_FIXTURE_FILES);
+    expect(result?.fourPaneScenario.openedTabTitles).toEqual(expect.arrayContaining(FOUR_PANE_FIXTURE_FILES));
+    expect(result?.fourPaneScenario.openedTabCount).toBe(FOUR_PANE_FIXTURE_FILES.length);
+    expect(result?.fourPaneScenario.splitCommandCount).toBe(3);
+    expect(result?.fourPaneScenario.moveCommandCount).toBe(1);
+    expect(result?.fourPaneScenario.finalGridPaneCount).toBe(4);
+    expect(result?.fourPaneScenario.finalGridTabCount).toBe(FOUR_PANE_FIXTURE_FILES.length);
     expect(result?.packageImpact.flexlayoutVersion).toBe("0.9.0");
     expect(result?.packageImpact.dependencyPinned).toBe(true);
+    expect(result?.ok).toBe(true);
+    expect(output.status).toBe("ok");
+    expect(output.exitCode).toBe(0);
   }, SMOKE_TIMEOUT_MS + 10_000);
 
   test("reports current flexlayout package footprint for bundle/build impact tracking", () => {
@@ -214,18 +182,11 @@ async function runElectronSmoke(smokeUrl: string): Promise<ElectronSmokeOutput> 
     throw new Error(`Electron smoke produced no JSON output. exit=${exitCode}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
   }
 
-  const parsed = JSON.parse(jsonLine) as ElectronSmokeOutput;
-  if (exitCode !== 0) {
-    throw new Error(
-      `Electron smoke failed with status ${parsed.status}.\n` +
-        `rendererResult=${JSON.stringify(parsed.rendererResult, null, 2)}\n` +
-        `suspiciousMessages=${JSON.stringify(parsed.suspiciousMessages, null, 2)}\n` +
-        `logs=${JSON.stringify(parsed.logs, null, 2)}\n` +
-        `stderr=${stderr}`,
-    );
-  }
-
-  return parsed;
+  const parsed = JSON.parse(jsonLine) as Omit<ElectronSmokeOutput, "exitCode">;
+  return {
+    ...parsed,
+    exitCode,
+  };
 }
 
 function directorySize(path: string): number {

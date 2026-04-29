@@ -60,12 +60,13 @@ Layout state는 workspace별로 저장한다.
 
 active pane을 Terminal Teal inset ring으로 감싸지 않는다.
 
-- Active pane header: `bg-card`
-- Inactive pane header: `bg-card/60`
+- Active editor group header: `bg-zinc-600` (6분할 dark-mode luminance sanity를 통과하는 elevated card 계열)
+- Inactive editor group header: `bg-card/60`
+- Bottom Panel tabset 등 비-grid 표면은 기존 `bg-card` / `bg-card/60` 구분을 유지한다.
 - Keyboard focus: `:focus-visible { outline: 1px solid var(--color-ring); outline-offset: -1px; }`
 - Mouse click은 keyboard focus outline을 만들지 않는다.
 
-이 정책은 editor grid, Bottom Panel tabset, terminal focus 표면에 동일하게 적용한다.
+focus outline 정책은 editor grid, Bottom Panel tabset, terminal focus 표면에 동일하게 적용한다.
 
 ## Resizer
 

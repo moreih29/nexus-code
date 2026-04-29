@@ -1,6 +1,10 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 
-import type { WorkspaceGitBadgeStatus } from "../../../../shared/src/contracts/editor/editor-bridge";
+import type {
+  WorkspaceGitBadge,
+  WorkspaceGitBadgesReadResult,
+  WorkspaceGitBadgeStatus,
+} from "../../../../shared/src/contracts/editor/editor-bridge";
 import type {
   GitBranch,
   GitBranchListReply,
@@ -68,6 +72,10 @@ export interface IGitService {
   getBranchName(): string | null;
   getPathStatus(path: string): GitStatusEntry | null;
   getPathBadge(path: string): WorkspaceGitBadgeStatus | null;
+  setPathBadge(path: string, badge: WorkspaceGitBadgeStatus | null): void;
+  applyPathBadges(workspaceId: WorkspaceId, badges: readonly WorkspaceGitBadge[]): void;
+  applyPathBadgesResult(result: WorkspaceGitBadgesReadResult): void;
+  replacePathBadges(workspaceId: WorkspaceId, pathBadgeByPath: Record<string, WorkspaceGitBadgeStatus>): void;
   setBridgeStatus(status: GitBridgeConnectionStatus, message?: string | null): void;
   setSidecarStatus(status: GitSidecarStatus, message?: string | null): void;
   applyWatchStarted(result: GitWatchStartedReply): void;
@@ -211,6 +219,26 @@ export function createGitService(
     getPathBadge(path) {
       return get().pathBadgeByPath[path] ?? null;
     },
+    setPathBadge(path, badge) {
+      set((state) => ({
+        pathBadgeByPath: applyPathBadgeToRecord(state.pathBadgeByPath, path, badge),
+      }));
+    },
+    applyPathBadges(workspaceId, badges) {
+      set((state) => ({
+        workspaceId,
+        pathBadgeByPath: badges.reduce(
+          (pathBadgeByPath, badge) => applyPathBadgeToRecord(pathBadgeByPath, badge.path, badge.status),
+          state.workspaceId === workspaceId ? state.pathBadgeByPath : {},
+        ),
+      }));
+    },
+    applyPathBadgesResult(result) {
+      get().applyPathBadges(result.workspaceId, result.badges);
+    },
+    replacePathBadges(workspaceId, pathBadgeByPath) {
+      set({ workspaceId, pathBadgeByPath: { ...pathBadgeByPath } });
+    },
     setBridgeStatus(status, message = null) {
       set({ bridgeStatus: status, bridgeStatusMessage: message });
     },
@@ -266,6 +294,20 @@ function gitBadgeForEntry(entry: GitStatusEntry): WorkspaceGitBadgeStatus | null
   }
 
   return gitKindToBadge(entry.kind);
+}
+
+function applyPathBadgeToRecord(
+  record: Record<string, WorkspaceGitBadgeStatus>,
+  path: string,
+  badge: WorkspaceGitBadgeStatus | null,
+): Record<string, WorkspaceGitBadgeStatus> {
+  const nextRecord = { ...record };
+  if (badge === null || badge === "clean") {
+    delete nextRecord[path];
+  } else {
+    nextRecord[path] = badge;
+  }
+  return nextRecord;
 }
 
 function gitKindToBadge(kind: GitFileStatusKind): WorkspaceGitBadgeStatus | null {

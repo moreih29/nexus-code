@@ -2,15 +2,23 @@ import type { ReactNode } from "react";
 
 import { TerminalPane, type TerminalPaneProps } from "../../components/TerminalPane";
 import { Button } from "../../components/ui/button";
-import {
-  DEFAULT_BOTTOM_PANEL_VIEWS,
-  type BottomPanelPosition,
-  type BottomPanelView,
-  type BottomPanelViewId,
-} from "../../services/bottom-panel-service";
 import { cn } from "../../lib/utils";
 import { OutputPanel } from "./OutputPanel";
 import { ProblemsPanel } from "./ProblemsPanel";
+
+export type BottomPanelPosition = "left" | "right" | "top" | "bottom";
+export type BottomPanelViewId = "terminal" | "output" | "problems" | string;
+
+export interface BottomPanelView {
+  id: BottomPanelViewId;
+  label: string;
+}
+
+const DEFAULT_BOTTOM_PANEL_VIEWS: BottomPanelView[] = [
+  { id: "terminal", label: "Terminal" },
+  { id: "output", label: "Output" },
+  { id: "problems", label: "Problems" },
+];
 
 export interface BottomPanelPartProps extends TerminalPaneProps {
   active?: boolean;

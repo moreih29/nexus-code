@@ -1,13 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { WorkspaceId } from "../../../shared/src/contracts/workspace/workspace";
+import type { EditorTab } from "../../src/renderer/services/editor-types";
 import { closeActiveEditorTabOrWorkspace, registerAppCommands } from "../../src/renderer/App";
 import { scrollWorkspaceTabIntoView } from "../../src/renderer/components/WorkspaceStrip";
-import {
-  DEFAULT_EDITOR_PANE_ID,
-  createEditorStore,
-  getActiveEditorTabId,
-} from "../../src/renderer/services/editor-model-service";
 import {
   keyboardRegistryStore,
   normalizeKeychord,
@@ -15,7 +11,6 @@ import {
 } from "../../src/renderer/stores/keyboard-registry";
 
 import {
-  createFakeEditorBridge,
   createFakeWorkspaceStore,
   createTab,
   shortcutCases,
@@ -27,7 +22,6 @@ afterEach(() => {
 
 describe("Keybinding registry integration", () => {
   test("resolves VSCode-like shortcuts, Cmd+W fallback, workspace switching, and IME guard", async () => {
-    const editorStore = createEditorStore(createFakeEditorBridge());
     const workspaceStore = createFakeWorkspaceStore({
       openWorkspaces: [
         { id: "ws_alpha" as WorkspaceId, absolutePath: "/tmp/alpha", displayName: "Alpha" },
@@ -42,14 +36,27 @@ describe("Keybinding registry integration", () => {
     let toggleBottomPanelCount = 0;
     let terminalFocusCount = 0;
     let splitRightCount = 0;
+    let tearOffCount = 0;
+    let activeEditorTab: EditorTab | null = createTab("단축키.ts", { language: null, monacoLanguage: "typescript" });
     const movedDirections: string[] = [];
 
     registerAppCommands({
       closeWorkspace: async () => {
         closeWorkspaceCount += 1;
       },
+      async closeActiveEditorTab() {
+        await closeActiveEditorTabOrWorkspace({
+          closeWorkspace: async () => {
+            closeWorkspaceCount += 1;
+          },
+          closeActiveEditorTab: async () => {
+            activeEditorTab = null;
+          },
+          hasActiveEditorTab: () => activeEditorTab !== null,
+          workspaceStore,
+        });
+      },
       dismissSearch() {},
-      editorStore,
       goToNextSearchMatch() {},
       moveActiveEditorTabToPane: (direction) => movedDirections.push(direction),
       openSearchPanel() {},
@@ -57,6 +64,10 @@ describe("Keybinding registry integration", () => {
       showTerminalPanel: () => {
         terminalFocusCount += 1;
       },
+      tearOffActiveEditorTabToFloating: () => {
+        tearOffCount += 1;
+      },
+      splitEditorPaneDown: () => {},
       splitEditorPaneRight: () => {
         splitRightCount += 1;
       },
@@ -87,27 +98,27 @@ describe("Keybinding registry integration", () => {
       "Cmd+\\": "editor.splitRight",
       "Cmd+Alt+ArrowLeft": "editor.moveActiveTabLeft",
       "Cmd+Alt+ArrowRight": "editor.moveActiveTabRight",
+      "Cmd+Alt+ArrowUp": "editor.moveActiveTabUp",
+      "Cmd+Alt+ArrowDown": "editor.moveActiveTabDown",
     });
+    expect(keyboardRegistryStore.getState().getBindingFor("workbench.action.tearOffEditorToFloating")).toBeNull();
     expect(normalizeKeychord("cmd+alt+←")).toBe("Cmd+Alt+ArrowLeft");
     expect(normalizeKeychord("cmd+alt+→")).toBe("Cmd+Alt+ArrowRight");
-
-    const tab = createTab("단축키.ts", { language: null, monacoLanguage: "typescript" });
-    editorStore.setState({
-      activeWorkspaceId: "ws_alpha" as WorkspaceId,
-      panes: [{ id: DEFAULT_EDITOR_PANE_ID, tabs: [tab], activeTabId: tab.id }],
-      activePaneId: DEFAULT_EDITOR_PANE_ID,
-    });
+    expect(normalizeKeychord("cmd+alt+↑")).toBe("Cmd+Alt+ArrowUp");
+    expect(normalizeKeychord("cmd+alt+↓")).toBe("Cmd+Alt+ArrowDown");
 
     await keyboardRegistryStore.getState().executeCommand("editor.closeActiveTab");
-    expect(getActiveEditorTabId(editorStore.getState())).toBeNull();
-    expect(editorStore.getState().panes[0]?.tabs).toEqual([]);
+    expect(activeEditorTab).toBeNull();
     expect(closeWorkspaceCount).toBe(0);
 
     await closeActiveEditorTabOrWorkspace({
       closeWorkspace: async () => {
         closeWorkspaceCount += 1;
       },
-      editorStore,
+      closeActiveEditorTab: async () => {
+        activeEditorTab = null;
+      },
+      hasActiveEditorTab: () => activeEditorTab !== null,
       workspaceStore,
     });
     expect(closeWorkspaceCount).toBe(1);
@@ -137,11 +148,15 @@ describe("Keybinding registry integration", () => {
     await keyboardRegistryStore.getState().executeCommand("editor.splitRight");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabLeft");
     await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabRight");
+    await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabUp");
+    await keyboardRegistryStore.getState().executeCommand("editor.moveActiveTabDown");
+    await keyboardRegistryStore.getState().executeCommand("workbench.action.tearOffEditorToFloating");
     expect(toggleMaximizeCount).toBe(1);
     expect(toggleBottomPanelCount).toBe(1);
     expect(terminalFocusCount).toBe(1);
     expect(splitRightCount).toBe(1);
-    expect(movedDirections).toEqual(["left", "right"]);
+    expect(tearOffCount).toBe(1);
+    expect(movedDirections).toEqual(["left", "right", "up", "down"]);
 
     for (const shortcut of shortcutCases) {
       expect(shouldIgnoreKeyboardShortcut({ isComposing: true, ...shortcut })).toBe(true);

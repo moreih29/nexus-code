@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ArrowDown, ArrowUp, Columns2, Rows3 } from "lucide-react";
 
-import type { EditorDiffSide } from "../services/editor-model-service";
+import type { EditorDiffSide } from "../services/editor-types";
 import { Button } from "./ui/button";
 
 export interface DiffEditorHostProps {

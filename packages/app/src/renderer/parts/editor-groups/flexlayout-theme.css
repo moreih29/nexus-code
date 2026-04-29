@@ -1,6 +1,6 @@
 @import "flexlayout-react/style/alpha_dark.css";
 
-.nexus-flexlayout-spike {
+.nexus-flexlayout {
   --nx-flexlayout-background: var(--color-background);
   --nx-flexlayout-foreground: var(--color-foreground);
   --nx-flexlayout-card: var(--color-card);
@@ -12,7 +12,7 @@
   --nx-flexlayout-font: var(--font-sans);
 }
 
-.nexus-flexlayout-spike .flexlayout__layout {
+.nexus-flexlayout .flexlayout__layout {
   --color-text: var(--nx-flexlayout-foreground);
   --color-background: var(--nx-flexlayout-background);
   --color-base: var(--nx-flexlayout-background);
@@ -58,12 +58,12 @@
   --splitter-active-size: 8px;
 }
 
-.nexus-flexlayout-spike .flexlayout__tabset-selected,
-.nexus-flexlayout-spike .flexlayout__tabset-maximized {
+.nexus-flexlayout .flexlayout__tabset-selected,
+.nexus-flexlayout .flexlayout__tabset-maximized {
   background-image: none;
 }
 
-.nexus-flexlayout-spike .nexus-flexlayout-spike__pane {
+.nexus-flexlayout .nexus-flexlayout__pane {
   height: 100%;
   padding: 0.75rem;
   background: var(--nx-flexlayout-background);

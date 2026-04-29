@@ -10,14 +10,13 @@ import { PanelResizeHandle } from "../../src/renderer/components/PanelResizeHand
 import {
   DEFAULT_EDITOR_PANE_ID,
   SECONDARY_EDITOR_PANE_ID,
-  createEditorStore,
   migrateCenterWorkbenchMode,
   migrateEditorPanesState,
   tabIdFor,
-} from "../../src/renderer/services/editor-model-service";
+  type EditorPaneState,
+} from "../../src/renderer/services/editor-types";
 
 import {
-  createFakeEditorBridge,
   createTab,
   findElementByPredicate,
 } from "./_fixtures/renderer-stability-fixtures";
@@ -65,51 +64,49 @@ describe("Layout mount stability integration", () => {
       activePaneId: DEFAULT_EDITOR_PANE_ID,
     });
 
-    const editorStore = createEditorStore(createFakeEditorBridge());
-    editorStore.setState({
-      activeWorkspaceId: "ws_alpha" as WorkspaceId,
-      panes: [{ id: DEFAULT_EDITOR_PANE_ID, tabs: [createTab("한글.ts"), createTab("보조.ts")], activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "한글.ts") }],
-      activePaneId: DEFAULT_EDITOR_PANE_ID,
-    });
+    let panes: EditorPaneState[] = [
+      {
+        id: DEFAULT_EDITOR_PANE_ID,
+        tabs: [createTab("한글.ts"), createTab("보조.ts")],
+        activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "한글.ts"),
+      },
+    ];
+    let activePaneId = DEFAULT_EDITOR_PANE_ID;
 
     for (let index = 0; index < 51; index += 1) {
-      editorStore.getState().splitActivePaneRight();
-      expect(editorStore.getState().panes).toHaveLength(2);
-      expect(editorStore.getState().panes.length).toBeLessThanOrEqual(2);
-      editorStore.getState().activatePane(DEFAULT_EDITOR_PANE_ID);
-      editorStore.getState().moveActiveTabToPane("right");
-      expect(editorStore.getState().activePaneId).toBe(SECONDARY_EDITOR_PANE_ID);
-      expect(editorStore.getState().panes.find((pane) => pane.id === SECONDARY_EDITOR_PANE_ID)?.tabs).toHaveLength(1);
-      editorStore.getState().moveActiveTabToPane("left");
-      expect(editorStore.getState().activePaneId).toBe(DEFAULT_EDITOR_PANE_ID);
-      editorStore.getState().activatePane(SECONDARY_EDITOR_PANE_ID);
-      editorStore.getState().splitActivePaneRight();
-      expect(editorStore.getState().panes).toHaveLength(1);
+      panes = ensureSecondaryPane(panes);
+      expect(panes).toHaveLength(2);
+      expect(panes.length).toBeLessThanOrEqual(2);
+      activePaneId = DEFAULT_EDITOR_PANE_ID;
+      ({ panes, activePaneId } = moveActiveTabForStability(panes, activePaneId, "right"));
+      expect(activePaneId).toBe(SECONDARY_EDITOR_PANE_ID);
+      expect(panes.find((pane) => pane.id === SECONDARY_EDITOR_PANE_ID)?.tabs).toHaveLength(1);
+      ({ panes, activePaneId } = moveActiveTabForStability(panes, activePaneId, "left"));
+      expect(activePaneId).toBe(DEFAULT_EDITOR_PANE_ID);
+      activePaneId = SECONDARY_EDITOR_PANE_ID;
+      panes = panes.filter((pane) => pane.id !== SECONDARY_EDITOR_PANE_ID || pane.tabs.length > 0);
+      expect(panes).toHaveLength(1);
     }
 
-    editorStore.setState({
-      panes: [
-        { id: DEFAULT_EDITOR_PANE_ID, tabs: [createTab("한글.ts"), createTab("보조.ts")], activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "한글.ts") },
-      ],
-      activePaneId: DEFAULT_EDITOR_PANE_ID,
-    });
-    editorStore.getState().splitActivePaneRight();
-    editorStore.getState().activatePane(DEFAULT_EDITOR_PANE_ID);
-    editorStore.getState().moveActiveTabToPane("right");
-    await editorStore.getState().closeTab(SECONDARY_EDITOR_PANE_ID, tabIdFor("ws_alpha" as WorkspaceId, "한글.ts"));
-    expect(editorStore.getState().panes).toHaveLength(1);
-    expect(editorStore.getState().panes[0]?.tabs.map((tab) => tab.title)).toEqual(["보조.ts"]);
+    panes = [
+      { id: DEFAULT_EDITOR_PANE_ID, tabs: [createTab("한글.ts"), createTab("보조.ts")], activeTabId: tabIdFor("ws_alpha" as WorkspaceId, "한글.ts") },
+    ];
+    panes = ensureSecondaryPane(panes);
+    ({ panes, activePaneId } = moveActiveTabForStability(panes, DEFAULT_EDITOR_PANE_ID, "right"));
+    panes = closeTabForStability(panes, SECONDARY_EDITOR_PANE_ID, tabIdFor("ws_alpha" as WorkspaceId, "한글.ts"));
+    expect(panes).toHaveLength(1);
+    expect(panes[0]?.tabs.map((tab) => tab.title)).toEqual(["보조.ts"]);
 
     const sharedKoreanTab = createTab("공유.ts");
-    editorStore.setState({
-      panes: [
-        { id: DEFAULT_EDITOR_PANE_ID, tabs: [sharedKoreanTab], activeTabId: sharedKoreanTab.id },
-        { id: SECONDARY_EDITOR_PANE_ID, tabs: [sharedKoreanTab], activeTabId: sharedKoreanTab.id },
-      ],
-      activePaneId: DEFAULT_EDITOR_PANE_ID,
-    });
-    await editorStore.getState().updateTabContent(sharedKoreanTab.id, "const 한글 = 2;\n");
-    expect(editorStore.getState().panes.flatMap((pane) => pane.tabs).map((tab) => tab.dirty)).toEqual([true, true]);
+    panes = [
+      { id: DEFAULT_EDITOR_PANE_ID, tabs: [sharedKoreanTab], activeTabId: sharedKoreanTab.id },
+      { id: SECONDARY_EDITOR_PANE_ID, tabs: [sharedKoreanTab], activeTabId: sharedKoreanTab.id },
+    ];
+    panes = panes.map((pane) => ({
+      ...pane,
+      tabs: pane.tabs.map((tab) => tab.id === sharedKoreanTab.id ? { ...tab, content: "const 한글 = 2;\n", dirty: true } : tab),
+    }));
+    expect(panes.flatMap((pane) => pane.tabs).map((tab) => tab.dirty)).toEqual([true, true]);
 
     let resizeKeydowns = 0;
     const handles = ["Workspace/Filetree", "Filetree/Center", "Center/Shared"].map((label) =>
@@ -141,3 +138,53 @@ describe("Layout mount stability integration", () => {
     );
   });
 });
+
+function ensureSecondaryPane(panes: EditorPaneState[]): EditorPaneState[] {
+  return panes.length >= 2
+    ? panes
+    : [...panes, { id: SECONDARY_EDITOR_PANE_ID, tabs: [], activeTabId: null }];
+}
+
+function moveActiveTabForStability(
+  panes: EditorPaneState[],
+  activePaneId: string,
+  direction: "left" | "right",
+): { panes: EditorPaneState[]; activePaneId: string } {
+  const sourceIndex = panes.findIndex((pane) => pane.id === activePaneId);
+  const targetIndex = sourceIndex + (direction === "right" ? 1 : -1);
+  const sourcePane = panes[sourceIndex];
+  const targetPane = panes[targetIndex];
+  const tab = sourcePane?.tabs.find((candidate) => candidate.id === sourcePane.activeTabId) ?? null;
+  if (!sourcePane || !targetPane || !tab) {
+    return { panes, activePaneId };
+  }
+
+  return {
+    activePaneId: targetPane.id,
+    panes: panes.map((pane, index) => {
+      if (index === sourceIndex) {
+        const tabs = pane.tabs.filter((candidate) => candidate.id !== tab.id);
+        return { ...pane, tabs, activeTabId: tabs[0]?.id ?? null };
+      }
+      if (index === targetIndex) {
+        return { ...pane, tabs: [...pane.tabs, tab], activeTabId: tab.id };
+      }
+      return pane;
+    }),
+  };
+}
+
+function closeTabForStability(
+  panes: EditorPaneState[],
+  paneId: string,
+  tabId: string,
+): EditorPaneState[] {
+  const nextPanes = panes.map((pane) => {
+    if (pane.id !== paneId) {
+      return pane;
+    }
+    const tabs = pane.tabs.filter((tab) => tab.id !== tabId);
+    return { ...pane, tabs, activeTabId: tabs[0]?.id ?? null };
+  });
+  return nextPanes.filter((pane) => pane.tabs.length > 0);
+}

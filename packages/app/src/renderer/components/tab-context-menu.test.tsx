@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
-import type { EditorTab } from "../services/editor-model-service";
+import type { EditorTab } from "../services/editor-types";
 import {
   createTabContextMenuItems,
   runTabContextMenuAction,
@@ -11,7 +11,7 @@ import {
 const workspaceId = "ws_alpha" as WorkspaceId;
 
 describe("TabContextMenu", () => {
-  test("builds the 8 tab actions with close-right disabled state", () => {
+  test("builds the 9 tab actions with close-right disabled state", () => {
     const tabs = [createTab("src/one.ts"), createTab("src/two.ts")];
 
     const firstItems = createTabContextMenuItems({ tab: tabs[0]!, tabs });
@@ -26,9 +26,11 @@ describe("TabContextMenu", () => {
       "copy-relative-path",
       "reveal",
       "split-right",
+      "tear-off-floating",
     ]);
     expect(firstItems.find((item) => item.id === "close")?.shortcut).toBe("⌘W");
     expect(firstItems.find((item) => item.id === "split-right")?.shortcut).toBe("⌘\\");
+    expect(firstItems.find((item) => item.id === "tear-off-floating")?.label).toBe("Move to Floating Window");
     expect(firstItems.find((item) => item.id === "close-right")?.disabled).toBe(false);
     expect(lastItems.find((item) => item.id === "close-right")?.disabled).toBe(true);
   });
@@ -77,6 +79,11 @@ describe("TabContextMenu", () => {
         calls.push(`split:${tab.path}`);
       },
     });
+    runTabContextMenuAction(fakeMenuSelectEvent(), "tear-off-floating", "p0", tab, {
+      onTearOffToFloating(paneId, tabId) {
+        calls.push(`tear-off:${paneId}:${tabId}`);
+      },
+    });
 
     expect(calls).toEqual([
       `close:p0:${tab.id}`,
@@ -87,6 +94,7 @@ describe("TabContextMenu", () => {
       "copy:relative:src/one.ts",
       "reveal:src/one.ts",
       "split:src/one.ts",
+      `tear-off:p0:${tab.id}`,
     ]);
   });
 

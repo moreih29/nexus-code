@@ -2,6 +2,9 @@ import {
   Actions,
   DockLocation,
   Model,
+  Node as FlexLayoutNode,
+  Orientation,
+  RowNode,
   TabNode,
   TabSetNode,
   type Action,
@@ -11,16 +14,19 @@ import {
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
+import { migrateEditorPanesState, type EditorPaneState, type EditorTab } from "./editor-types";
 
 export type EditorGroupId = string;
 export type EditorGroupTabId = string;
 export type EditorGroupTabKind = "file" | "diff" | "terminal" | "preview";
 export type EditorGroupSplitDirection = "top" | "right" | "bottom" | "left";
+export type EditorGroupSpatialDirection = "left" | "right" | "up" | "down";
 export type EditorGroupsSerializedModel = IJsonModel;
 export type EditorGroupsLayoutSnapshot = EditorGroupsSerializedModel | Record<string, unknown>;
 
 export const DEFAULT_EDITOR_GROUP_ID = "group_main";
 export const EDITOR_GROUP_TAB_COMPONENT = "nexus-editor-group-tab";
+export const LEGACY_EDITOR_PANES_STORAGE_KEY = "nx.editor.panes";
 
 export interface EditorGroupTab {
   id: EditorGroupTabId;
@@ -58,6 +64,17 @@ export interface MoveEditorGroupTabInput {
   direction?: EditorGroupSplitDirection;
 }
 
+export interface EditorGroupsLayoutMigrationOptions {
+  workspaceId?: WorkspaceId | null;
+}
+
+export interface EditorGroupsLayoutMigrationResult {
+  model: EditorGroupsSerializedModel;
+  migrated: boolean;
+  fallback: boolean;
+  warnings: string[];
+}
+
 export interface EditorGroupsModelChangedEvent {
   model: Model;
   snapshot: EditorGroupsSerializedModel;
@@ -79,9 +96,11 @@ export interface IEditorGroupsService {
   closeTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
   splitGroup(input: SplitEditorGroupInput): EditorGroupId | null;
   moveTab(input: MoveEditorGroupTabInput): void;
+  tearOffActiveTabToFloating(): EditorGroupTabId | null;
   activateGroup(groupId: EditorGroupId): void;
   activateTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
   setActiveTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
+  findSpatialNeighbor(groupId: EditorGroupId, direction: EditorGroupSpatialDirection): EditorGroupId | null;
   setLayoutSnapshot(snapshot: EditorGroupsLayoutSnapshot | null): void;
   serializeModel(): EditorGroupsSerializedModel;
   deserializeModel(snapshot: EditorGroupsSerializedModel): void;
@@ -104,15 +123,52 @@ const DEFAULT_EDITOR_GROUPS_GLOBAL: NonNullable<IJsonModel["global"]> = {
 };
 
 function createDefaultModel(): Model {
-  return Model.fromJson(
-    createModelJsonFromGroups([
-      {
-        id: DEFAULT_EDITOR_GROUP_ID,
-        tabs: [],
-        activeTabId: null,
-      },
-    ], DEFAULT_EDITOR_GROUP_ID),
-  );
+  return Model.fromJson(createDefaultEditorGroupsSerializedModel());
+}
+
+export function createDefaultEditorGroupsSerializedModel(): EditorGroupsSerializedModel {
+  return createModelJsonFromGroups([
+    {
+      id: DEFAULT_EDITOR_GROUP_ID,
+      tabs: [],
+      activeTabId: null,
+    },
+  ], DEFAULT_EDITOR_GROUP_ID);
+}
+
+export function migrateLegacyEditorPanesToEditorGroupsModel(
+  legacyState: unknown,
+  options: EditorGroupsLayoutMigrationOptions = {},
+): EditorGroupsLayoutMigrationResult {
+  const parsedLegacyState = parseLegacyEditorPanesState(legacyState);
+
+  if (!parsedLegacyState.ok) {
+    return createFallbackMigrationResult(parsedLegacyState.warnings);
+  }
+
+  const rawState = unwrapPersistedLegacyEditorPanesState(parsedLegacyState.value);
+
+  if (!isLegacyEditorPanesState(rawState)) {
+    return createFallbackMigrationResult(["Stored editor panes layout was not a recognized legacy panes shape."]);
+  }
+
+  const migratedState = migrateEditorPanesState(rawState);
+  const groups = groupsFromLegacyEditorPanes(migratedState.panes, options.workspaceId ?? null);
+
+  if (groups.length === 0) {
+    return createFallbackMigrationResult(["Stored editor panes layout did not contain any convertible panes."]);
+  }
+
+  const activeGroupId = groups.some((group) => group.id === migratedState.activePaneId)
+    ? migratedState.activePaneId
+    : groups[0]?.id ?? DEFAULT_EDITOR_GROUP_ID;
+
+  return {
+    model: createModelJsonFromGroups(groups, activeGroupId),
+    migrated: true,
+    fallback: false,
+    warnings: parsedLegacyState.warnings,
+  };
 }
 
 export function createEditorGroupsService(
@@ -389,6 +445,21 @@ export function createEditorGroupsService(
           }
         }, "moveTab");
       },
+      tearOffActiveTabToFloating() {
+        const state = get();
+        const activeGroup = state.groups.find((group) => group.id === state.activeGroupId) ?? null;
+        const tabId = activeGroup?.activeTabId ?? activeGroup?.tabs.at(-1)?.id ?? null;
+
+        if (!activeGroup || !tabId || !isTabNode(state.model.getNodeById(tabId))) {
+          return null;
+        }
+
+        runModelMutation((model) => {
+          model.doAction(Actions.popoutTab(tabId, "float"));
+        }, "tearOffActiveTabToFloating");
+
+        return tabId;
+      },
       activateGroup(groupId) {
         const state = get();
 
@@ -426,6 +497,9 @@ export function createEditorGroupsService(
         runModelMutation((model) => {
           model.doAction(Actions.selectTab(tabId));
         }, "setActiveTab");
+      },
+      findSpatialNeighbor(groupId, direction) {
+        return findSpatialNeighborInModel(get().model, groupId, direction);
       },
       setLayoutSnapshot(snapshot) {
         set({ layoutSnapshot: snapshot });
@@ -506,6 +580,97 @@ function createModelJsonFromGroups(
         children: group.tabs.map(createFlexLayoutTab),
       })),
     },
+  };
+}
+
+function parseLegacyEditorPanesState(legacyState: unknown): {
+  ok: true;
+  value: unknown;
+  warnings: string[];
+} | {
+  ok: false;
+  warnings: string[];
+} {
+  if (typeof legacyState !== "string") {
+    return { ok: true, value: legacyState, warnings: [] };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(legacyState) as unknown, warnings: [] };
+  } catch {
+    return {
+      ok: false,
+      warnings: ["Stored editor panes layout JSON could not be parsed; using the default flexlayout editor layout."],
+    };
+  }
+}
+
+function unwrapPersistedLegacyEditorPanesState(legacyState: unknown): unknown {
+  if (
+    isRecord(legacyState) &&
+    isRecord(legacyState.state) &&
+    ("panes" in legacyState.state || "tabs" in legacyState.state)
+  ) {
+    return legacyState.state;
+  }
+
+  return legacyState;
+}
+
+function isLegacyEditorPanesState(legacyState: unknown): boolean {
+  if (!isRecord(legacyState)) {
+    return false;
+  }
+
+  if (Array.isArray(legacyState.tabs)) {
+    return true;
+  }
+
+  if (!Array.isArray(legacyState.panes)) {
+    return false;
+  }
+
+  return legacyState.panes.some(isRecord);
+}
+
+function groupsFromLegacyEditorPanes(
+  panes: readonly EditorPaneState[],
+  workspaceId: WorkspaceId | null,
+): EditorGroup[] {
+  return panes.map((pane) => {
+    const tabs = pane.tabs
+      .filter((tab) => !workspaceId || tab.workspaceId === workspaceId)
+      .map(editorGroupTabFromLegacyEditorTab);
+    const activeTabId = pane.activeTabId && tabs.some((tab) => tab.id === pane.activeTabId)
+      ? pane.activeTabId
+      : tabs[0]?.id ?? null;
+
+    return {
+      id: pane.id,
+      tabs,
+      activeTabId,
+    };
+  });
+}
+
+function editorGroupTabFromLegacyEditorTab(tab: EditorTab): EditorGroupTab {
+  return {
+    id: tab.id,
+    title: tab.title,
+    kind: tab.kind === "diff" ? "diff" : "file",
+    workspaceId: tab.workspaceId,
+    resourcePath: tab.path,
+  };
+}
+
+function createFallbackMigrationResult(warnings: string[]): EditorGroupsLayoutMigrationResult {
+  return {
+    model: createDefaultEditorGroupsSerializedModel(),
+    migrated: false,
+    fallback: true,
+    warnings: warnings.length > 0
+      ? warnings
+      : ["Stored editor panes layout could not be converted; using the default flexlayout editor layout."],
   };
 }
 
@@ -802,6 +967,135 @@ function getActiveTabFromState(
   return activeTab ? { ...activeTab } : null;
 }
 
+interface EditorGroupLogicalRect {
+  groupId: EditorGroupId;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function findSpatialNeighborInModel(
+  model: Model,
+  groupId: EditorGroupId,
+  direction: EditorGroupSpatialDirection,
+): EditorGroupId | null {
+  const rects = collectTabSetLogicalRects(model);
+  const source = rects.find((rect) => rect.groupId === groupId);
+
+  if (!source) {
+    return null;
+  }
+
+  const sourceCenter = centerOfRect(source);
+  const candidates = rects
+    .filter((rect) => rect.groupId !== groupId)
+    .map((candidate) => {
+      const candidateCenter = centerOfRect(candidate);
+      const deltaX = candidateCenter.x - sourceCenter.x;
+      const deltaY = candidateCenter.y - sourceCenter.y;
+      const primaryDistance =
+        direction === "left" ? -deltaX :
+        direction === "right" ? deltaX :
+        direction === "up" ? -deltaY :
+        deltaY;
+      const secondaryDistance = direction === "left" || direction === "right"
+        ? Math.abs(deltaY)
+        : Math.abs(deltaX);
+      const overlaps = direction === "left" || direction === "right"
+        ? rangesOverlap(source.y, source.y + source.height, candidate.y, candidate.y + candidate.height)
+        : rangesOverlap(source.x, source.x + source.width, candidate.x, candidate.x + candidate.width);
+
+      return {
+        candidate,
+        primaryDistance,
+        secondaryDistance,
+        overlapPenalty: overlaps ? 0 : 1_000_000,
+      };
+    })
+    .filter((entry) => entry.primaryDistance > Number.EPSILON)
+    .sort((left, right) =>
+      left.primaryDistance - right.primaryDistance ||
+      left.overlapPenalty - right.overlapPenalty ||
+      left.secondaryDistance - right.secondaryDistance ||
+      left.candidate.groupId.localeCompare(right.candidate.groupId)
+    );
+
+  return candidates[0]?.candidate.groupId ?? null;
+}
+
+function collectTabSetLogicalRects(model: Model): EditorGroupLogicalRect[] {
+  const rects: EditorGroupLogicalRect[] = [];
+  collectTabSetLogicalRectsFromNode(
+    model.getRootRow(),
+    { groupId: "root", x: 0, y: 0, width: 1, height: 1 },
+    rects,
+  );
+  return rects;
+}
+
+function collectTabSetLogicalRectsFromNode(
+  node: FlexLayoutNode,
+  rect: EditorGroupLogicalRect,
+  rects: EditorGroupLogicalRect[],
+): void {
+  if (isTabSetNode(node)) {
+    rects.push({ ...rect, groupId: node.getId() });
+    return;
+  }
+
+  if (!isRowNode(node)) {
+    return;
+  }
+
+  const children = node.getChildren();
+  const totalWeight = children.reduce((sum, child) => sum + nodeWeight(child), 0) || children.length || 1;
+  let offset = 0;
+
+  for (const child of children) {
+    const childWeight = nodeWeight(child);
+    const share = childWeight / totalWeight;
+    const isHorizontal = node.getOrientation() === Orientation.HORZ;
+    const childRect = isHorizontal
+      ? {
+          groupId: child.getId(),
+          x: rect.x + rect.width * offset,
+          y: rect.y,
+          width: rect.width * share,
+          height: rect.height,
+        }
+      : {
+          groupId: child.getId(),
+          x: rect.x,
+          y: rect.y + rect.height * offset,
+          width: rect.width,
+          height: rect.height * share,
+        };
+
+    collectTabSetLogicalRectsFromNode(child, childRect, rects);
+    offset += share;
+  }
+}
+
+function nodeWeight(node: FlexLayoutNode): number {
+  if ((isRowNode(node) || isTabSetNode(node)) && Number.isFinite(node.getWeight()) && node.getWeight() > 0) {
+    return node.getWeight();
+  }
+
+  return 1;
+}
+
+function centerOfRect(rect: EditorGroupLogicalRect): { x: number; y: number } {
+  return {
+    x: rect.x + rect.width / 2,
+    y: rect.y + rect.height / 2,
+  };
+}
+
+function rangesOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
+  return Math.max(startA, startB) <= Math.min(endA, endB);
+}
+
 function uniqueGroupId(
   preferredGroupId: EditorGroupId,
   groups: EditorGroup[],
@@ -837,6 +1131,10 @@ function isSerializedModel(value: unknown): value is EditorGroupsSerializedModel
 
 function isTabNode(node: unknown): node is TabNode {
   return node instanceof TabNode;
+}
+
+function isRowNode(node: unknown): node is RowNode {
+  return node instanceof RowNode;
 }
 
 function isTabSetNode(node: unknown): node is TabSetNode {

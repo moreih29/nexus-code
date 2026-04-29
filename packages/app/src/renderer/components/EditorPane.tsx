@@ -4,11 +4,14 @@ import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dn
 import { Circle, FileText, GitCompare, Save, SplitSquareHorizontal, X } from "lucide-react";
 
 import type {
+  LspWorkspaceEdit,
+  LspWorkspaceEditApplicationResult,
+} from "../../../../shared/src/contracts/editor/editor-bridge";
+import type {
   EditorPaneId,
   EditorTab,
   EditorTabId,
-  EditorStoreState,
-} from "../services/editor-model-service";
+} from "../services/editor-types";
 import { cn } from "@/lib/utils";
 import {
   createEditorTabDragData,
@@ -22,6 +25,11 @@ import { MonacoEditorHost } from "./MonacoEditorHost";
 
 const PANE_FOCUS_VISIBLE_OUTLINE_CLASS =
   "outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px] focus-visible:outline-ring has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-offset-[-1px] has-[:focus-visible]:outline-ring";
+
+type ApplyWorkspaceEdit = (
+  workspaceId: EditorTab["workspaceId"],
+  edit: LspWorkspaceEdit,
+) => Promise<LspWorkspaceEditApplicationResult>;
 
 export interface EditorPaneProps {
   activeWorkspaceName?: string | null;
@@ -37,9 +45,10 @@ export interface EditorPaneProps {
   onCloseAllTabs?(): void;
   onCopyTabPath?(tab: EditorTab, pathKind: "absolute" | "relative"): void;
   onRevealTabInFinder?(tab: EditorTab): void;
+  onTearOffTabToFloating?(tabId: EditorTabId): void;
   onSaveTab(tabId: EditorTabId): void;
   onChangeContent(tabId: EditorTabId, content: string): void;
-  onApplyWorkspaceEdit?: EditorStoreState["applyWorkspaceEdit"];
+  onApplyWorkspaceEdit?: ApplyWorkspaceEdit;
   onSplitRight?(): void;
   enableTabDrag?: boolean;
   draggingTabId?: EditorTabId | null;
@@ -64,6 +73,7 @@ export function EditorPaneView({
   onCloseAllTabs,
   onCopyTabPath,
   onRevealTabInFinder,
+  onTearOffTabToFloating,
   onSaveTab,
   onChangeContent,
   onApplyWorkspaceEdit,
@@ -137,7 +147,7 @@ export function EditorPaneView({
         data-editor-pane-header="true"
         className={cn(
           "flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2",
-          active ? "bg-card" : "bg-card/60",
+          active ? "bg-zinc-600" : "bg-card/60",
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Open files">
@@ -163,6 +173,7 @@ export function EditorPaneView({
                     onCloseAllTabs={onCloseAllTabs}
                     onCopyTabPath={onCopyTabPath}
                     onRevealTabInFinder={onRevealTabInFinder}
+                    onTearOffTabToFloating={onTearOffTabToFloating}
                     onSplitRight={onSplitRight}
                   />
                 ) : (
@@ -180,6 +191,7 @@ export function EditorPaneView({
                     onCloseAllTabs={onCloseAllTabs}
                     onCopyTabPath={onCopyTabPath}
                     onRevealTabInFinder={onRevealTabInFinder}
+                    onTearOffTabToFloating={onTearOffTabToFloating}
                     onSplitRight={onSplitRight}
                   />
                 )}
@@ -322,6 +334,7 @@ interface SortableEditorTabProps {
   onCloseAllTabs?(): void;
   onCopyTabPath?(tab: EditorTab, pathKind: "absolute" | "relative"): void;
   onRevealTabInFinder?(tab: EditorTab): void;
+  onTearOffTabToFloating?(tabId: EditorTabId): void;
   onSplitRight?(): void;
 }
 
@@ -340,6 +353,7 @@ function SortableEditorTab({
   onCloseAllTabs,
   onCopyTabPath,
   onRevealTabInFinder,
+  onTearOffTabToFloating,
   onSplitRight,
 }: SortableEditorTabProps): JSX.Element {
   const {
@@ -376,6 +390,7 @@ function SortableEditorTab({
       onCloseAllTabs={onCloseAllTabs}
       onCopyTabPath={onCopyTabPath}
       onRevealTabInFinder={onRevealTabInFinder}
+      onTearOffTabToFloating={onTearOffTabToFloating}
       onSplitRight={onSplitRight}
       sortableAttributes={attributes as HTMLAttributes<HTMLDivElement>}
       sortableListeners={(listeners ?? undefined) as HTMLAttributes<HTMLDivElement> | undefined}
@@ -398,6 +413,7 @@ interface EditorTabViewProps {
   onCloseAllTabs?(): void;
   onCopyTabPath?(tab: EditorTab, pathKind: "absolute" | "relative"): void;
   onRevealTabInFinder?(tab: EditorTab): void;
+  onTearOffTabToFloating?(tabId: EditorTabId): void;
   onSplitRight?(): void;
   sortableAttributes?: HTMLAttributes<HTMLDivElement>;
   sortableListeners?: HTMLAttributes<HTMLDivElement>;
@@ -418,6 +434,7 @@ function EditorTabView({
   onCloseAllTabs,
   onCopyTabPath,
   onRevealTabInFinder,
+  onTearOffTabToFloating,
   onSplitRight,
   sortableAttributes,
   sortableListeners,
@@ -502,6 +519,7 @@ function EditorTabView({
       onCloseAllTabs={() => onCloseAllTabs?.()}
       onCopyPath={onCopyTabPath}
       onRevealInFinder={onRevealTabInFinder}
+      onTearOffToFloating={(_paneId, tabId) => onTearOffTabToFloating?.(tabId)}
       onSplitRight={() => onSplitRight?.()}
     >
       {tabContent}

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { Copy, ExternalLink, PanelRight, X } from "lucide-react";
+import { Copy, ExternalLink, PanelRight, PictureInPicture, X } from "lucide-react";
 
-import type { EditorPaneId, EditorTab, EditorTabId } from "../services/editor-model-service";
+import type { EditorPaneId, EditorTab, EditorTabId } from "../services/editor-types";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -20,7 +20,8 @@ export type TabContextMenuActionId =
   | "copy-path"
   | "copy-relative-path"
   | "reveal"
-  | "split-right";
+  | "split-right"
+  | "tear-off-floating";
 
 export interface TabContextMenuProps {
   paneId: EditorPaneId;
@@ -34,6 +35,7 @@ export interface TabContextMenuProps {
   onCopyPath?(tab: EditorTab, pathKind: "absolute" | "relative"): void;
   onRevealInFinder?(tab: EditorTab): void;
   onSplitRight?(tab: EditorTab): void;
+  onTearOffToFloating?(paneId: EditorPaneId, tabId: EditorTabId): void;
 }
 
 export interface TabMenuItemDescriptor {
@@ -129,6 +131,7 @@ export function createTabContextMenuItems({
     { id: "copy-relative-path", label: "Copy Relative Path" },
     { id: "reveal", label: "Reveal in Finder" },
     { id: "split-right", label: "Split Right", shortcut: "⌘\\" },
+    { id: "tear-off-floating", label: "Move to Floating Window" },
   ];
 }
 
@@ -169,6 +172,9 @@ export function runTabContextMenuAction(
     case "split-right":
       handlers.onSplitRight?.(tab);
       return;
+    case "tear-off-floating":
+      handlers.onTearOffToFloating?.(paneId, tab.id);
+      return;
   }
 }
 
@@ -181,6 +187,8 @@ function TabMenuItemIcon({ id }: { id: TabContextMenuActionId }): JSX.Element {
       return <ExternalLink aria-hidden="true" className="text-muted-foreground" />;
     case "split-right":
       return <PanelRight aria-hidden="true" className="text-muted-foreground" />;
+    case "tear-off-floating":
+      return <PictureInPicture aria-hidden="true" className="text-muted-foreground" />;
     default:
       return <X aria-hidden="true" className="text-muted-foreground" />;
   }

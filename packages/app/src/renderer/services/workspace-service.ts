@@ -2,6 +2,17 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 
 import type { WorkspaceId } from "../../../../shared/src/contracts/workspace/workspace";
 import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
+import {
+  CENTER_WORKBENCH_MODE_STORAGE_KEY,
+  migrateCenterWorkbenchMode,
+  toggleCenterWorkbenchMaximize,
+  type CenterWorkbenchMode,
+  type CenterWorkbenchPane,
+} from "./editor-types";
+import {
+  LEGACY_EDITOR_PANES_STORAGE_KEY,
+  migrateLegacyEditorPanesToEditorGroupsModel,
+} from "./editor-groups-service";
 
 export type WorkspaceLayoutSnapshot = Record<string, unknown>;
 
@@ -13,7 +24,17 @@ export interface WorkspaceLayoutStorage {
 
 export interface WorkspaceServiceOptions {
   storage?: WorkspaceLayoutStorage | null;
+  onLayoutMigrationWarning?: WorkspaceLayoutMigrationWarningListener;
 }
+
+export interface WorkspaceLayoutMigrationWarning {
+  workspaceId: WorkspaceId;
+  sourceKey: string;
+  targetKey: string;
+  message: string;
+}
+
+export type WorkspaceLayoutMigrationWarningListener = (warning: WorkspaceLayoutMigrationWarning) => void;
 
 export interface WorkspaceServiceSnapshot {
   openWorkspaces: OpenSessionWorkspace[];
@@ -21,6 +42,7 @@ export interface WorkspaceServiceSnapshot {
   activeWorkspace: OpenSessionWorkspace | null;
   sideBarCollapsed: boolean;
   layoutByWorkspaceId: Record<string, WorkspaceLayoutSnapshot>;
+  centerMode: CenterWorkbenchMode;
   activeLayoutModel: WorkspaceLayoutSnapshot | null;
 }
 
@@ -34,6 +56,7 @@ export interface IWorkspaceService {
   activeWorkspaceId: WorkspaceId | null;
   sideBarCollapsed: boolean;
   layoutByWorkspaceId: Record<string, WorkspaceLayoutSnapshot>;
+  centerMode: CenterWorkbenchMode;
   openWorkspace(workspace: OpenSessionWorkspace): void;
   closeWorkspace(workspaceId: WorkspaceId): void;
   activateWorkspace(workspaceId: WorkspaceId): void;
@@ -44,6 +67,8 @@ export interface IWorkspaceService {
   onWorkspaceChanged(listener: WorkspaceChangedListener): () => void;
   setSideBarCollapsed(collapsed: boolean): void;
   toggleSideBar(): void;
+  setCenterMode(mode: CenterWorkbenchMode): void;
+  toggleCenterWorkbenchMaximize(pane: CenterWorkbenchPane): void;
   persistLayout(workspaceId: WorkspaceId, layout: WorkspaceLayoutSnapshot): void;
   getPersistedLayout(workspaceId: WorkspaceId): WorkspaceLayoutSnapshot | null;
   getActiveWorkspace(): OpenSessionWorkspace | null;
@@ -52,7 +77,7 @@ export interface IWorkspaceService {
 export type WorkspaceServiceStore = StoreApi<IWorkspaceService>;
 export type WorkspaceServiceState = Pick<
   IWorkspaceService,
-  "openWorkspaces" | "activeWorkspaceId" | "sideBarCollapsed" | "layoutByWorkspaceId"
+  "openWorkspaces" | "activeWorkspaceId" | "sideBarCollapsed" | "layoutByWorkspaceId" | "centerMode"
 >;
 
 const DEFAULT_WORKSPACE_STATE: WorkspaceServiceState = {
@@ -60,6 +85,7 @@ const DEFAULT_WORKSPACE_STATE: WorkspaceServiceState = {
   activeWorkspaceId: null,
   sideBarCollapsed: false,
   layoutByWorkspaceId: {},
+  centerMode: "split",
 };
 
 export function getWorkspaceLayoutStorageKey(workspaceId: WorkspaceId): string {
@@ -71,15 +97,17 @@ export function createWorkspaceService(
   options: WorkspaceServiceOptions = {},
 ): WorkspaceServiceStore {
   const storage = options.storage === undefined ? getDefaultWorkspaceLayoutStorage() : options.storage;
+  const onLayoutMigrationWarning = options.onLayoutMigrationWarning;
   const initial: WorkspaceServiceState = {
     ...DEFAULT_WORKSPACE_STATE,
     ...initialState,
+    centerMode: initialState.centerMode ?? readStoredCenterWorkbenchMode(storage),
     openWorkspaces: cloneWorkspaces(initialState.openWorkspaces ?? DEFAULT_WORKSPACE_STATE.openWorkspaces),
     layoutByWorkspaceId: { ...DEFAULT_WORKSPACE_STATE.layoutByWorkspaceId, ...initialState.layoutByWorkspaceId },
   };
 
   if (initial.activeWorkspaceId && initial.layoutByWorkspaceId[initial.activeWorkspaceId] === undefined) {
-    const activeLayout = readLayoutModelFromStorage(storage, initial.activeWorkspaceId);
+    const activeLayout = readLayoutModelFromStorage(storage, initial.activeWorkspaceId, onLayoutMigrationWarning);
     if (activeLayout) {
       initial.layoutByWorkspaceId[initial.activeWorkspaceId] = activeLayout;
     }
@@ -95,7 +123,12 @@ export function createWorkspaceService(
             )
           : [...state.openWorkspaces, cloneWorkspace(workspace)],
         activeWorkspaceId: workspace.id,
-        layoutByWorkspaceId: hydrateLayoutByWorkspaceId(state.layoutByWorkspaceId, workspace.id, storage),
+        layoutByWorkspaceId: hydrateLayoutByWorkspaceId(
+          state.layoutByWorkspaceId,
+          workspace.id,
+          storage,
+          onLayoutMigrationWarning,
+        ),
       }));
     },
     closeWorkspace(workspaceId) {
@@ -116,7 +149,12 @@ export function createWorkspaceService(
       if (get().openWorkspaces.some((workspace) => workspace.id === workspaceId)) {
         set((state) => ({
           activeWorkspaceId: workspaceId,
-          layoutByWorkspaceId: hydrateLayoutByWorkspaceId(state.layoutByWorkspaceId, workspaceId, storage),
+          layoutByWorkspaceId: hydrateLayoutByWorkspaceId(
+            state.layoutByWorkspaceId,
+            workspaceId,
+            storage,
+            onLayoutMigrationWarning,
+          ),
         }));
       }
     },
@@ -127,7 +165,8 @@ export function createWorkspaceService(
       return get().getActiveWorkspace();
     },
     getLayoutModel(workspaceId) {
-      return get().layoutByWorkspaceId[workspaceId] ?? readLayoutModelFromStorage(storage, workspaceId);
+      return get().layoutByWorkspaceId[workspaceId] ??
+        readLayoutModelFromStorage(storage, workspaceId, onLayoutMigrationWarning);
     },
     saveLayoutModel(workspaceId, model) {
       const serializedModel = serializeLayoutModel(model);
@@ -160,6 +199,15 @@ export function createWorkspaceService(
     toggleSideBar() {
       set((state) => ({ sideBarCollapsed: !state.sideBarCollapsed }));
     },
+    setCenterMode(mode) {
+      persistCenterWorkbenchMode(storage, mode);
+      set({ centerMode: mode });
+    },
+    toggleCenterWorkbenchMaximize(pane) {
+      const nextMode = toggleCenterWorkbenchMaximize(get().centerMode, pane);
+      persistCenterWorkbenchMode(storage, nextMode);
+      set({ centerMode: nextMode });
+    },
     persistLayout(workspaceId, layout) {
       get().saveLayoutModel(workspaceId, layout);
     },
@@ -177,12 +225,13 @@ function hydrateLayoutByWorkspaceId(
   layoutByWorkspaceId: Record<string, WorkspaceLayoutSnapshot>,
   workspaceId: WorkspaceId,
   storage: WorkspaceLayoutStorage | null,
+  onLayoutMigrationWarning?: WorkspaceLayoutMigrationWarningListener,
 ): Record<string, WorkspaceLayoutSnapshot> {
   if (layoutByWorkspaceId[workspaceId] !== undefined) {
     return layoutByWorkspaceId;
   }
 
-  const storedLayout = readLayoutModelFromStorage(storage, workspaceId);
+  const storedLayout = readLayoutModelFromStorage(storage, workspaceId, onLayoutMigrationWarning);
   if (!storedLayout) {
     return layoutByWorkspaceId;
   }
@@ -203,20 +252,113 @@ function getDefaultWorkspaceLayoutStorage(): WorkspaceLayoutStorage | null {
   }
 }
 
+function readStoredCenterWorkbenchMode(storage: WorkspaceLayoutStorage | null): CenterWorkbenchMode {
+  if (!storage) {
+    return "split";
+  }
+
+  try {
+    return migrateCenterWorkbenchMode(parseStoredCenterWorkbenchMode(storage.getItem(CENTER_WORKBENCH_MODE_STORAGE_KEY)));
+  } catch {
+    return "split";
+  }
+}
+
+function parseStoredCenterWorkbenchMode(rawMode: string | null): unknown {
+  if (!rawMode) {
+    return null;
+  }
+
+  try {
+    const parsedMode = JSON.parse(rawMode) as unknown;
+    if (typeof parsedMode === "string") {
+      return parsedMode;
+    }
+    if (isRecord(parsedMode) && "mode" in parsedMode) {
+      return parsedMode.mode;
+    }
+  } catch {
+    return rawMode;
+  }
+
+  return rawMode;
+}
+
+function persistCenterWorkbenchMode(
+  storage: WorkspaceLayoutStorage | null,
+  mode: CenterWorkbenchMode,
+): void {
+  try {
+    storage?.setItem(CENTER_WORKBENCH_MODE_STORAGE_KEY, mode);
+  } catch {
+  }
+}
+
 function readLayoutModelFromStorage(
   storage: WorkspaceLayoutStorage | null,
   workspaceId: WorkspaceId,
+  onLayoutMigrationWarning?: WorkspaceLayoutMigrationWarningListener,
 ): WorkspaceLayoutSnapshot | null {
   if (!storage) {
     return null;
   }
 
   try {
-    const serializedModel = storage.getItem(getWorkspaceLayoutStorageKey(workspaceId));
-    return serializedModel ? deserializeLayoutModel(serializedModel) : null;
+    const targetKey = getWorkspaceLayoutStorageKey(workspaceId);
+    const serializedModel = storage.getItem(targetKey);
+    if (serializedModel) {
+      return deserializeLayoutModel(serializedModel);
+    }
+
+    return readLegacyEditorPanesLayoutFromStorage(storage, workspaceId, targetKey, onLayoutMigrationWarning);
   } catch {
     return null;
   }
+}
+
+function readLegacyEditorPanesLayoutFromStorage(
+  storage: WorkspaceLayoutStorage,
+  workspaceId: WorkspaceId,
+  targetKey: string,
+  onLayoutMigrationWarning?: WorkspaceLayoutMigrationWarningListener,
+): WorkspaceLayoutSnapshot | null {
+  const serializedLegacyPanes = storage.getItem(LEGACY_EDITOR_PANES_STORAGE_KEY);
+  if (!serializedLegacyPanes) {
+    return null;
+  }
+
+  const migration = migrateLegacyEditorPanesToEditorGroupsModel(serializedLegacyPanes, { workspaceId });
+  const migratedLayout = migration.model as unknown as WorkspaceLayoutSnapshot;
+  const serializedMigratedLayout = serializeLayoutModel(migratedLayout);
+
+  if (serializedMigratedLayout) {
+    writeLayoutModelToStorage(storage, workspaceId, serializedMigratedLayout);
+  }
+
+  if (migration.fallback || migration.warnings.length > 0) {
+    for (const message of migration.warnings) {
+      emitLayoutMigrationWarning(onLayoutMigrationWarning, {
+        workspaceId,
+        sourceKey: LEGACY_EDITOR_PANES_STORAGE_KEY,
+        targetKey,
+        message,
+      });
+    }
+  }
+
+  return migratedLayout;
+}
+
+function emitLayoutMigrationWarning(
+  listener: WorkspaceLayoutMigrationWarningListener | undefined,
+  warning: WorkspaceLayoutMigrationWarning,
+): void {
+  if (listener) {
+    listener(warning);
+    return;
+  }
+
+  console.warn(`Workspace layout migration warning (${warning.workspaceId}): ${warning.message}`);
 }
 
 function writeLayoutModelToStorage(
@@ -267,6 +409,7 @@ function snapshotWorkspaceState(state: IWorkspaceService): WorkspaceServiceSnaps
     activeWorkspace,
     sideBarCollapsed: state.sideBarCollapsed,
     layoutByWorkspaceId: { ...state.layoutByWorkspaceId },
+    centerMode: state.centerMode,
     activeLayoutModel: state.activeWorkspaceId ? state.getLayoutModel(state.activeWorkspaceId) : null,
   };
 }
