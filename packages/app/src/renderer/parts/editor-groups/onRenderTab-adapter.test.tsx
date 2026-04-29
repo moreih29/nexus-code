@@ -153,6 +153,25 @@ describe("EditorGroups onRenderTab adapter", () => {
     expect(state.label).toBe("Terminal 1");
     expect(state.contextActionIds).toEqual(["close", "close-others", "close-right", "close-all"]);
   });
+
+  test("uses logical editor tab ids from config when flexlayout node ids are unique duplicates", () => {
+    const file = createEditorTab("file_duplicate", "duplicate.ts", false);
+    const group: EditorGroupsOnRenderTabGroup = {
+      id: "group_split",
+      tabs: [{ id: file.id, title: file.title, kind: "file", workspaceId, resourcePath: file.path }],
+      activeTabId: file.id,
+    };
+    const state = createEditorGroupsOnRenderTabState(
+      createTabNode("file_duplicate_group_split", file.title, group, {
+        editorGroupTab: { id: file.id, title: file.title, kind: "file", workspaceId, resourcePath: file.path },
+      }),
+      createEditorGroupsOnRenderTabLookups([group], [{ id: group.id, tabs: [file], activeTabId: file.id }]),
+    );
+
+    expect(state.id).toBe(file.id);
+    expect(state.editorTab).toEqual(file);
+    expect(state.contextTab.id).toBe(file.id);
+  });
 });
 
 function renderTab(

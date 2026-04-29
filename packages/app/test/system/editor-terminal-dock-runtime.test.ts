@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -42,7 +42,9 @@ interface EditorTerminalDockRuntimeSmokeResult {
     bottomDetachedTerminalIds: string[];
     bottomAttachedTerminalIds: string[];
     editorTerminalTabIds: string[];
+    uniqueEditorTerminalTabIds: string[];
     groupByTerminalId: Record<string, string | null>;
+    groupsByTerminalId: Record<string, string[]>;
     centerMode: string;
     activeCenterArea: string;
   };
@@ -71,6 +73,8 @@ interface ElectronSmokeOutput {
     sourceId: string;
   }>;
 }
+
+const electronBinary = resolveElectronBinary();
 
 let viteServer: ViteDevServer | null = null;
 
@@ -130,8 +134,10 @@ describe("editor terminal dock runtime system smoke", () => {
     ]);
     expect(result?.dockState.bottomDetachedTerminalIds.sort()).toEqual([TERMINAL_ALPHA_ID, TERMINAL_BETA_ID].sort());
     expect(result?.dockState.bottomAttachedTerminalIds).toEqual([]);
-    expect(result?.dockState.editorTerminalTabIds.sort()).toEqual([TERMINAL_ALPHA_ID, TERMINAL_BETA_ID].sort());
-    expect(result?.dockState.groupByTerminalId[TERMINAL_ALPHA_ID]).toBe("group_terminal_split");
+    expect(result?.dockState.uniqueEditorTerminalTabIds.sort()).toEqual([TERMINAL_ALPHA_ID, TERMINAL_BETA_ID].sort());
+    expect(result?.dockState.editorTerminalTabIds.sort()).toEqual([TERMINAL_ALPHA_ID, TERMINAL_ALPHA_ID, TERMINAL_BETA_ID].sort());
+    expect(result?.dockState.groupsByTerminalId[TERMINAL_ALPHA_ID]?.sort()).toEqual(["group_main", "group_terminal_split"].sort());
+    expect(result?.dockState.groupByTerminalId[TERMINAL_ALPHA_ID]).toBe("group_main");
     expect(result?.dockState.groupByTerminalId[TERMINAL_BETA_ID]).toBe("group_main");
     expect(result?.ptyEvidence.alphaSameInstanceAfterMove).toBe(true);
     expect(result?.ptyEvidence.alphaWriteLog).toEqual([

@@ -920,30 +920,29 @@ function splitEditorPaneRightAndMoveTabInGroups(
   _workspaceId?: WorkspaceId | null,
 ): void {
   const state = groupsService.getState();
-  if (state.groups.length !== 1 || state.groups.length >= MAX_EDITOR_PANE_COUNT) {
+  const currentGroups = collapseEmptyGroups(state.groups);
+
+  if (currentGroups.length !== state.groups.length) {
+    state.setGroups(currentGroups, state.activeGroupId ?? currentGroups[0]?.id ?? null);
+  }
+
+  if (currentGroups.length !== 1 || currentGroups.length >= MAX_EDITOR_PANE_COUNT) {
     return;
   }
 
-  const sourceGroup = state.groups.find((group) => group.id === sourceGroupId);
+  const sourceGroup = currentGroups.find((group) => group.id === sourceGroupId);
   const tab = sourceGroup?.tabs.find((candidate) => candidate.id === tabId) ?? null;
   if (!sourceGroup || !tab) {
     return;
   }
 
-  const sourceTabs = sourceGroup.tabs.filter((candidate) => candidate.id !== tabId);
-  const newGroupId = uniqueEditorGroupId(SECONDARY_EDITOR_PANE_ID, state.groups);
-  groupsService.getState().setGroups([
-    {
-      ...sourceGroup,
-      tabs: sourceTabs,
-      activeTabId: sourceGroup.activeTabId === tabId ? sourceTabs[0]?.id ?? null : sourceGroup.activeTabId,
-    },
-    {
-      id: newGroupId,
-      tabs: [tab],
-      activeTabId: tab.id,
-    },
-  ], newGroupId);
+  groupsService.getState().splitGroup({
+    sourceGroupId: sourceGroup.id,
+    tabId: tab.id,
+    direction: "right",
+    targetGroupId: uniqueEditorGroupId(SECONDARY_EDITOR_PANE_ID, currentGroups),
+    activate: true,
+  });
 }
 
 async function closeActiveEditorTabInServices(

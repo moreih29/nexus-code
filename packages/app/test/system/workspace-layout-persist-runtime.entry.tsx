@@ -32,6 +32,7 @@ const WORKSPACES = [
   { id: "ws_layout_alpha", absolutePath: "/tmp/nexus-layout-alpha", displayName: "Alpha" },
   { id: "ws_layout_beta", absolutePath: "/tmp/nexus-layout-beta", displayName: "Beta" },
   { id: "ws_layout_gamma", absolutePath: "/tmp/nexus-layout-gamma", displayName: "Gamma" },
+  { id: "ws_layout_delta_empty", absolutePath: "/tmp/nexus-layout-delta-empty", displayName: "Delta Empty" },
 ] as const;
 const CORRUPT_WORKSPACE_ID = "ws_layout_corrupt";
 
@@ -203,6 +204,8 @@ async function runSmoke(): Promise<void> {
       layoutSummaries[1]?.bottomPanelPosition === "right" &&
       layoutSummaries[2]?.editorGroupCount === 1 &&
       layoutSummaries[2]?.terminalInEditorArea === false &&
+      layoutSummaries[3]?.editorGroupCount === 1 &&
+      layoutSummaries[3]?.terminalInEditorArea === false &&
       restartPolicy.terminalTabsDropped &&
       restartPolicy.groupLayoutSurvives &&
       restartPolicy.bottomPanelSurvives &&
@@ -421,7 +424,7 @@ function RuntimeBottomPanel({
 }
 
 function createExpectedWorkspaceLayouts(): Record<string, WorkspaceRuntimeLayout> {
-  const [alpha, beta, gamma] = WORKSPACES;
+  const [alpha, beta, gamma, delta] = WORKSPACES;
 
   return {
     [alpha.id]: createWorkspaceRuntimeLayout(
@@ -447,6 +450,13 @@ function createExpectedWorkspaceLayouts(): Record<string, WorkspaceRuntimeLayout
         createEditorGroup(gamma.id, "gamma_group_terminal", [createTerminalTab(gamma.id, "gamma_terminal")]),
       ], "gamma_group_terminal"),
       createBottomPanelSnapshot("bottom", 240),
+    ),
+    [delta.id]: createWorkspaceRuntimeLayout(
+      delta.id,
+      createEditorLayoutFromGroups([
+        createEditorGroup(delta.id, "delta_group_empty", []),
+      ], "delta_group_empty"),
+      createBottomPanelSnapshot("bottom", 220),
     ),
   };
 }

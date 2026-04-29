@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -28,6 +28,9 @@ interface DockLayoutRuntimeSmokeResult {
     fixtureFiles: string[];
     openedTabTitles: string[];
     openedTabCount: number;
+    expectedPhysicalTabCount: number;
+    duplicatedSplitTabTitle: string;
+    duplicatedSplitTabCount: number;
     splitCommandCount: number;
     moveCommandCount: number;
     finalGridPaneCount: number;
@@ -60,6 +63,8 @@ interface ElectronSmokeOutput {
     sourceId: string;
   }>;
 }
+
+const electronBinary = resolveElectronBinary();
 
 let viteServer: ViteDevServer | null = null;
 
@@ -108,7 +113,10 @@ describe("dock layout runtime system smoke", () => {
     expect(result?.fourPaneScenario.splitCommandCount).toBe(3);
     expect(result?.fourPaneScenario.moveCommandCount).toBe(1);
     expect(result?.fourPaneScenario.finalGridPaneCount).toBe(4);
-    expect(result?.fourPaneScenario.finalGridTabCount).toBe(FOUR_PANE_FIXTURE_FILES.length);
+    expect(result?.fourPaneScenario.expectedPhysicalTabCount).toBe(FOUR_PANE_FIXTURE_FILES.length + 3);
+    expect(result?.fourPaneScenario.finalGridTabCount).toBe(result?.fourPaneScenario.expectedPhysicalTabCount);
+    expect(result?.fourPaneScenario.duplicatedSplitTabTitle).toBe("delta.ts");
+    expect(result?.fourPaneScenario.duplicatedSplitTabCount).toBe(4);
     expect(result?.packageImpact.flexlayoutVersion).toBe("0.9.0");
     expect(result?.packageImpact.dependencyPinned).toBe(true);
     expect(result?.ok).toBe(true);

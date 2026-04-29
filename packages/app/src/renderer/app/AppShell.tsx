@@ -1,18 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useStore } from "zustand";
+import { useCallback, useMemo } from "react";
 
-import type { ClaudeSettingsConsentRequest } from "../../../../shared/src/contracts/claude/claude-settings";
 import type { OpenSessionWorkspace } from "../../../../shared/src/contracts/workspace/workspace-shell";
 import { CenterWorkbench } from "../components/CenterWorkbench";
 import { ClaudeSettingsConsentDialog } from "../components/ClaudeSettingsConsentDialog";
 import { CommandPalette } from "../components/CommandPalette";
-import { FileTreePanel } from "../components/FileTreePanel";
 import { PanelResizeHandle } from "../components/PanelResizeHandle";
 import { SearchPanel } from "../components/SearchPanel";
 import { SessionHistoryPanel } from "../components/SessionHistoryPanel";
 import { SourceControlPanel } from "../components/SourceControlPanel";
 import { ToolFeedPanel } from "../components/ToolFeedPanel";
-import { workspaceTabId } from "../components/WorkspaceStrip";
 import { ActivityBarPart } from "../parts/activity-bar";
 import { BottomPanelPart } from "../parts/bottom-panel";
 import { EditorGroupsPart } from "../parts/editor-groups";
@@ -23,118 +19,58 @@ import { WorkspaceStripPart } from "../parts/workspace-strip";
 import type { DropExternalEditorPayloadInput, EditorGroup, EditorGroupId } from "../services/editor-groups-service";
 import type { EditorPaneState, EditorTab } from "../services/editor-types";
 import type { TerminalTab } from "../services/terminal-service";
+import { FileTreePanelContainer } from "./FileTreePanelContainer";
+import { useAppShellBindings } from "./hooks/useAppShellBindings";
+import { useAppShellState } from "./hooks/useAppShellState";
+import { useClaudeConsentDialog } from "./hooks/useClaudeConsentDialog";
 import { useAppServices } from "./wiring";
-import { useAppCommands } from "./useAppCommands";
-import { useEditorBindings } from "./useEditorBindings";
-import { useExplorerBindings } from "./useExplorerBindings";
-import { useResizeDrag } from "./useResizeDrag";
-import { useSourceControlBindings } from "./useSourceControlBindings";
 
 export { closeActiveEditorTabOrWorkspace, registerAppCommands } from "./commands";
 export { unifiedDiffToSideContents } from "./useSourceControlBindings";
 
 export default function App(): JSX.Element {
+  const services = useAppServices();
   const {
-    workspace: workspaceStore,
-    activityBar: activityBarStore,
     bottomPanel: bottomPanelStore,
-    harnessBadge: harnessBadgeStore,
-    harnessToolFeed: harnessToolFeedStore,
-    harnessSession: harnessSessionStore,
     search: searchStore,
     sourceControl: sourceControlStore,
-    fileClipboard: fileClipboardStore,
-    files: filesService,
-    editorDocuments: editorDocumentsService,
     editorGroups: editorGroupsService,
     editorWorkspace: editorWorkspaceService,
-    git: gitService,
     terminal: terminalService,
-  } = useAppServices();
-  const [claudeConsentRequest, setClaudeConsentRequest] =
-    useState<ClaudeSettingsConsentRequest | null>(null);
-  const [claudeConsentDontAskAgain, setClaudeConsentDontAskAgain] = useState(false);
-  const pendingClaudeConsentRef = useRef<ClaudeSettingsConsentRequest | null>(null);
-
-  const sidebarState = useStore(workspaceStore, (state) => state.sidebarState);
-  const activityBarViews = useStore(activityBarStore, (state) => state.views);
-  const activeActivityBarViewId = useStore(activityBarStore, (state) => state.activeViewId);
-  const sideBarCollapsed = useStore(activityBarStore, (state) => state.sideBarCollapsed);
-  const activeSideBarRoute = useMemo(() => {
-    const activeView = activityBarViews.find((view) => view.id === activeActivityBarViewId) ?? null;
-    return activeView
-      ? { title: activeView.sideBarTitle, contentId: activeView.sideBarContentId }
-      : null;
-  }, [activityBarViews, activeActivityBarViewId]);
-  const bottomPanelViews = useStore(bottomPanelStore, (state) => state.views);
-  const activeBottomPanelViewId = useStore(bottomPanelStore, (state) => state.activeViewId);
-  const bottomPanelPosition = useStore(bottomPanelStore, (state) => state.position);
-  const bottomPanelExpanded = useStore(bottomPanelStore, (state) => state.expanded);
-  const bottomPanelHeight = useStore(bottomPanelStore, (state) => state.height);
-  const detachedBottomPanelTerminalIds = useStore(bottomPanelStore, (state) => state.detachedTerminalIds);
-  const badgeByWorkspaceId = useStore(harnessBadgeStore, (state) => state.badgeByWorkspaceId);
-  const toolFeedByWorkspaceId = useStore(harnessToolFeedStore, (state) => state.feedByWorkspaceId);
-  const sessionByWorkspaceId = useStore(harnessSessionStore, (state) => state.sessionByWorkspaceId);
-  const editorFileTree = useStore(filesService, (state) => state.fileTree);
-  const editorExpandedPaths = useStore(filesService, (state) => state.expandedPaths);
-  const editorGitBadgeByPath = useStore(gitService, (state) => state.pathBadgeByPath);
-  const editorSelectedTreePath = useStore(filesService, (state) => state.selectedPath);
-  const editorPendingExplorerEdit = useStore(filesService, (state) => state.pendingExplorerEdit);
-  const editorPendingExplorerDelete = useStore(filesService, (state) => state.pendingExplorerDelete);
-  const fileClipboardCanPaste = useStore(fileClipboardStore, (state) => state.hasClipboardItems());
-  const fileClipboardPendingCollision = useStore(fileClipboardStore, (state) => state.pendingCollision);
-  const terminalTabs = useStore(terminalService, (state) => state.tabs);
-  const activeWorkspace = sidebarState.activeWorkspaceId
-    ? sidebarState.openWorkspaces.find((workspace) => workspace.id === sidebarState.activeWorkspaceId)
-    : undefined;
-  const activeWorkspaceTabId = activeWorkspace ? workspaceTabId(activeWorkspace.id) : undefined;
-  const activeToolFeedEntries = useMemo(
-    () => sidebarState.activeWorkspaceId
-      ? (toolFeedByWorkspaceId[sidebarState.activeWorkspaceId] ?? [])
-      : [],
-    [sidebarState.activeWorkspaceId, toolFeedByWorkspaceId],
-  );
-  const activeSessionRef = sidebarState.activeWorkspaceId
-    ? (sessionByWorkspaceId[sidebarState.activeWorkspaceId] ?? null)
-    : null;
-
-  const editorBindings = useEditorBindings({
-    activeWorkspaceId: activeWorkspace?.id ?? null,
-    documentsService: editorDocumentsService,
-    filesService,
-    gitService,
-    groupsService: editorGroupsService,
+  } = services;
+  const appShellState = useAppShellState(services);
+  const {
+    sidebarState,
+    activeWorkspace,
+    activityBarViews,
+    activeActivityBarViewId,
+    sideBarCollapsed,
+    activeSideBarRoute,
+    bottomPanelViews,
+    activeBottomPanelViewId,
+    bottomPanelPosition,
+    bottomPanelExpanded,
+    bottomPanelHeight,
+    detachedBottomPanelTerminalIds,
+    badgeByWorkspaceId,
+    activeToolFeedEntries,
+    activeSessionRef,
+    editorCenterMode,
+    terminalTabs,
+  } = appShellState;
+  const appShellBindings = useAppShellBindings({
+    services,
+    activeWorkspace,
     openWorkspaces: sidebarState.openWorkspaces,
-    workspaceService: editorWorkspaceService,
   });
-  const appCommands = useAppCommands({
-    activityBarStore,
-    bottomPanelStore,
+  const {
     editorBindings,
-    editorGroupsService,
-    editorWorkspaceService,
-    searchStore,
-    terminalService,
-    workspaceStore,
-  });
-  const explorerBindings = useExplorerBindings({
-    activeWorkspaceId: activeWorkspace?.id ?? null,
-    documentsService: editorDocumentsService,
-    fileClipboardStore,
-    filesService,
-    gitService,
-    groupsService: editorGroupsService,
-    showTerminalPanel: appCommands.showTerminalPanel,
-    workspaceService: editorWorkspaceService,
-  });
-  const sourceControlBindings = useSourceControlBindings({
-    activeWorkspace: activeWorkspace ?? null,
-    documentsService: editorDocumentsService,
-    groupsService: editorGroupsService,
-    sourceControlStore,
-    workspaceService: editorWorkspaceService,
-  });
-  const resizeBindings = useResizeDrag({ activityBarStore });
+    appCommands,
+    sourceControlBindings,
+    resizeBindings,
+  } = appShellBindings;
+  const claudeConsentDialog = useClaudeConsentDialog();
+
   const handleEditorDropExternalPayload = useCallback((input: DropExternalEditorPayloadInput): void => {
     if (input.payload.type !== "terminal-tab") {
       editorBindings.dropExternalPayload(input);
@@ -174,41 +110,6 @@ export default function App(): JSX.Element {
     sidebarState.openWorkspaces,
     terminalTabs,
   ]);
-
-  const completeClaudeConsentRequest = useCallback((approved: boolean, dontAskAgain: boolean) => {
-    const request = pendingClaudeConsentRef.current;
-    if (!request) {
-      return;
-    }
-
-    pendingClaudeConsentRef.current = null;
-    setClaudeConsentRequest(null);
-    setClaudeConsentDontAskAgain(false);
-    void window.nexusClaudeSettings.respondConsentRequest({
-      requestId: request.requestId,
-      approved,
-      dontAskAgain: approved ? dontAskAgain : false,
-    }).catch((error) => {
-      console.error("Claude settings consent: failed to send decision.", error);
-    });
-  }, []);
-
-  useEffect(() => {
-    const subscription = window.nexusClaudeSettings.onConsentRequest((request) => {
-      if (pendingClaudeConsentRef.current) {
-        completeClaudeConsentRequest(false, false);
-      }
-
-      pendingClaudeConsentRef.current = request;
-      setClaudeConsentDontAskAgain(false);
-      setClaudeConsentRequest(request);
-    });
-
-    return () => {
-      subscription.dispose();
-      completeClaudeConsentRequest(false, false);
-    };
-  }, [completeClaudeConsentRequest]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -264,50 +165,9 @@ export default function App(): JSX.Element {
               <SideBarPart
                 route={activeSideBarRoute}
                 explorer={
-                  <FileTreePanel
-                    activeWorkspace={activeWorkspace ?? null}
-                    workspaceTabId={activeWorkspaceTabId}
-                    fileTree={editorFileTree}
-                    expandedPaths={editorExpandedPaths}
-                    gitBadgeByPath={editorGitBadgeByPath}
-                    selectedTreePath={editorSelectedTreePath}
-                    pendingExplorerEdit={editorPendingExplorerEdit}
-                    pendingExplorerDelete={editorPendingExplorerDelete}
-                    branchSubLine={sourceControlBindings.branchLine}
-                    onRefresh={explorerBindings.refresh}
-                    onToggleDirectory={explorerBindings.toggleDirectory}
-                    onOpenFile={explorerBindings.openFile}
-                    onOpenFileToSide={explorerBindings.openFileToSide}
-                    onCreateNode={explorerBindings.createNode}
-                    onDeleteNode={explorerBindings.deleteNode}
-                    onRenameNode={explorerBindings.renameNode}
-                    onSelectTreePath={explorerBindings.selectTreePath}
-                    onBeginCreateFile={explorerBindings.beginCreateFile}
-                    onBeginCreateFolder={explorerBindings.beginCreateFolder}
-                    onBeginRename={explorerBindings.beginRename}
-                    onBeginDelete={explorerBindings.beginDelete}
-                    onCancelExplorerEdit={explorerBindings.cancelExplorerEdit}
-                    onCollapseAll={explorerBindings.collapseAll}
-                    onMoveTreeSelection={explorerBindings.moveTreeSelection}
-                    onRevealInFinder={explorerBindings.revealInFinder}
-                    onOpenWithSystemApp={explorerBindings.openWithSystemApp}
-                    onOpenInTerminal={explorerBindings.openInTerminal}
-                    onCopyPath={explorerBindings.copyPath}
-                    canPaste={fileClipboardCanPaste}
-                    pendingClipboardCollision={fileClipboardPendingCollision}
-                    onClipboardCut={explorerBindings.cutClipboardItems}
-                    onClipboardCopy={explorerBindings.copyClipboardItems}
-                    onClipboardPaste={explorerBindings.pasteClipboardItems}
-                    onClipboardResolveCollision={explorerBindings.resolveClipboardCollision}
-                    onClipboardCancelCollision={explorerBindings.cancelClipboardCollision}
-                    resolveExternalFilePath={explorerBindings.resolveExternalFilePath}
-                    onExternalFilesDrop={explorerBindings.copyExternalFilesIntoTree}
-                    onStartFileDrag={explorerBindings.startFileDrag}
-                    onCompareFiles={explorerBindings.compareFiles}
-                    sourceControlAvailable
-                    onStagePath={sourceControlBindings.stagePath}
-                    onDiscardPath={sourceControlBindings.discardPath}
-                    onViewDiff={sourceControlBindings.viewDiff}
+                  <FileTreePanelContainer
+                    appState={appShellState}
+                    bindings={appShellBindings}
                   />
                 }
                 search={
@@ -358,7 +218,7 @@ export default function App(): JSX.Element {
             bottomPanelPosition={bottomPanelPosition}
             bottomPanelExpanded={bottomPanelExpanded}
             bottomPanelSize={bottomPanelHeight}
-            editorMaximized={editorWorkspaceService.getState().centerMode === "editor-max"}
+            editorMaximized={editorCenterMode === "editor-max"}
             activeArea={appCommands.activeCenterArea}
             onActiveAreaChange={appCommands.setActiveCenterArea}
             onBottomPanelSizeChange={appCommands.setBottomPanelSize}
@@ -411,25 +271,23 @@ export default function App(): JSX.Element {
       <StatusBarPart activeItem={statusBarActiveItem} />
       <CommandPalette open={appCommands.commandPaletteOpen} onOpenChange={appCommands.setCommandPaletteOpen} />
       <ClaudeSettingsConsentDialog
-        open={claudeConsentRequest !== null}
-        workspaceName={claudeConsentRequest?.workspaceName ?? "this workspace"}
-        harnessName={claudeConsentRequest?.harnessName}
-        settingsFiles={claudeConsentRequest?.settingsFiles}
-        settingsDescription={claudeConsentRequest?.settingsDescription}
-        gitignoreEntries={claudeConsentRequest?.gitignoreEntries}
-        dontAskAgain={claudeConsentDontAskAgain}
+        open={claudeConsentDialog.request !== null}
+        workspaceName={claudeConsentDialog.request?.workspaceName ?? "this workspace"}
+        harnessName={claudeConsentDialog.request?.harnessName}
+        settingsFiles={claudeConsentDialog.request?.settingsFiles}
+        settingsDescription={claudeConsentDialog.request?.settingsDescription}
+        gitignoreEntries={claudeConsentDialog.request?.gitignoreEntries}
+        dontAskAgain={claudeConsentDialog.dontAskAgain.checked}
         onOpenChange={(open) => {
           if (!open) {
-            completeClaudeConsentRequest(false, false);
+            claudeConsentDialog.dismiss();
           }
         }}
-        onDontAskAgainChange={setClaudeConsentDontAskAgain}
+        onDontAskAgainChange={claudeConsentDialog.dontAskAgain.set}
         onApprove={(decision) => {
-          completeClaudeConsentRequest(true, decision.dontAskAgain);
+          claudeConsentDialog.complete(true, decision.dontAskAgain);
         }}
-        onCancel={() => {
-          completeClaudeConsentRequest(false, false);
-        }}
+        onCancel={claudeConsentDialog.dismiss}
       />
     </div>
   );

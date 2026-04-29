@@ -52,6 +52,9 @@ interface DropOverlayRuntimeSmokeResult {
     openedTabTitles: string[];
     finalGridPaneCount: number;
     finalGridTabCount: number;
+    expectedPhysicalTabCount: number;
+    duplicatedSplitTabTitle: string;
+    duplicatedSplitTabCount: number;
     activeGroupId: string;
     sourceTabTitle: string;
     targetTabTitle: string;
@@ -147,7 +150,8 @@ async function runSmoke(): Promise<void> {
       productionPath.editorGridProvider === "flexlayout-model" &&
       productionPath.flexlayoutProviderMatched &&
       fourPaneScenario.finalGridPaneCount === 4 &&
-      fourPaneScenario.finalGridTabCount === fixtureFiles.length &&
+      fourPaneScenario.finalGridTabCount === fourPaneScenario.expectedPhysicalTabCount &&
+      fourPaneScenario.duplicatedSplitTabCount === 4 &&
       overlay.zones.length === dropZones.length &&
       !failedZone &&
       overlay.finalIndicatorCount === 0;
@@ -168,8 +172,11 @@ async function runSmoke(): Promise<void> {
         (fourPaneScenario.finalGridPaneCount !== 4
           ? `Expected 4 populated flexlayout panes, saw ${fourPaneScenario.finalGridPaneCount}.`
           : undefined) ??
-        (fourPaneScenario.finalGridTabCount !== fixtureFiles.length
-          ? `Expected ${fixtureFiles.length} flexlayout tabs, saw ${fourPaneScenario.finalGridTabCount}.`
+        (fourPaneScenario.finalGridTabCount !== fourPaneScenario.expectedPhysicalTabCount
+          ? `Expected ${fourPaneScenario.expectedPhysicalTabCount} physical flexlayout tabs after split duplication, saw ${fourPaneScenario.finalGridTabCount}.`
+          : undefined) ??
+        (fourPaneScenario.duplicatedSplitTabCount !== 4
+          ? `Expected 4 physical ${fourPaneScenario.duplicatedSplitTabTitle} tabs after 3 duplicate splits, saw ${fourPaneScenario.duplicatedSplitTabCount}.`
           : undefined) ??
         failedZone?.reason ??
         (overlay.finalIndicatorCount !== 0
@@ -208,12 +215,16 @@ async function mountFourPaneEditorGroupsScenario(): Promise<DropOverlayRuntimeSm
   const targetContent = await waitForVisibleFlexLayoutContentByTitle(targetTabTitle, 5_000);
   const populatedGridSlots = collectPopulatedGridSlots();
   const openedTabTitles = visibleEditorTabTitles();
+  const duplicatedSplitTabCount = openedTabTitles.filter((title) => title === sourceTabTitle).length;
 
   return {
     fixtureFiles: [...fixtureFiles],
     openedTabTitles,
     finalGridPaneCount: populatedGridSlots.length,
     finalGridTabCount: populatedGridSlots.reduce((sum, slot) => sum + slot.tabCount, 0),
+    expectedPhysicalTabCount: fixtureFiles.length + 3,
+    duplicatedSplitTabTitle: sourceTabTitle,
+    duplicatedSplitTabCount,
     activeGroupId: targetContent.dataset.editorGroupId ?? "",
     sourceTabTitle,
     targetTabTitle,

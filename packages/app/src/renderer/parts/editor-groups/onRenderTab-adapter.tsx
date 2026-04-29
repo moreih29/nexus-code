@@ -130,9 +130,9 @@ export function createEditorGroupsOnRenderTabState(
   node: TabNodeLike,
   lookups: EditorGroupsOnRenderTabLookups,
 ): EditorGroupsOnRenderTabState {
-  const id = node.getId();
   const config = node.getConfig();
   const configTab = editorGroupTabFromConfig(config);
+  const id = configTab?.id ?? node.getId();
   const groupTab = lookups.groupTabById.get(id) ?? null;
   const editorTab = lookups.editorTabById.get(id) ?? null;
   const kind = groupTab?.kind ?? configTab?.kind ?? editorTab?.kind ?? "file";

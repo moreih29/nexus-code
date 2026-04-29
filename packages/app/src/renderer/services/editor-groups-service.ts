@@ -126,7 +126,6 @@ export interface IEditorGroupsService {
   moveTab(input: MoveEditorGroupTabInput): void;
   dropExternalPayload(input: DropExternalEditorPayloadInput): EditorGroupId | null;
   attachTerminalTab(sessionId: TerminalTabId, options: AttachTerminalTabOptions): EditorGroupTabId;
-  tearOffActiveTabToFloating(): EditorGroupTabId | null;
   activateGroup(groupId: EditorGroupId): void;
   activateTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
   setActiveTab(groupId: EditorGroupId, tabId: EditorGroupTabId): void;
@@ -150,7 +149,7 @@ const DEFAULT_EDITOR_GROUPS_GLOBAL: NonNullable<IJsonModel["global"]> = {
   tabEnablePopout: false,
   tabEnablePopoutFloatIcon: false,
   tabEnablePopoutIcon: false,
-  tabSetEnableDeleteWhenEmpty: false,
+  tabSetEnableDeleteWhenEmpty: true,
 };
 const DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT = 100;
 
@@ -211,6 +210,7 @@ export function createEditorGroupsService(
   const modelChangedListeners = new Set<EditorGroupsModelChangedListener>();
   let detachModelChangeListener: (() => void) | null = null;
   let suppressModelChangeListener = false;
+  let hasUserResizedSplitter = false;
   let attachModelChangeListener: (model: Model) => void = () => {};
   let commitModelChange: (model: Model, actionType?: string | null) => void = () => {};
 
@@ -222,6 +222,7 @@ export function createEditorGroupsService(
     };
 
     const replaceModel = (model: Model, actionType?: string | null): void => {
+      syncTabSetDeleteWhenEmptyGuards(model);
       attachModelChangeListener(model);
       commitModelChange(model, actionType);
     };
@@ -235,6 +236,7 @@ export function createEditorGroupsService(
 
       try {
         mutation(model);
+        syncTabSetDeleteWhenEmptyGuards(model);
       } finally {
         suppressModelChangeListener = false;
       }
@@ -328,10 +330,19 @@ export function createEditorGroupsService(
 
     attachModelChangeListener = (model) => {
       detachModelChangeListener?.();
-      disableModelPopoutActions(model);
+      disableBlockedModelActions(model);
 
       const listener = (action: Action) => {
         if (!suppressModelChangeListener) {
+          if (action.type === Actions.ADJUST_WEIGHTS) {
+            hasUserResizedSplitter = true;
+          }
+          suppressModelChangeListener = true;
+          try {
+            syncTabSetDeleteWhenEmptyGuards(model);
+          } finally {
+            suppressModelChangeListener = false;
+          }
           commitModelChange(model, action.type);
         }
       };
@@ -367,16 +378,22 @@ export function createEditorGroupsService(
         }
 
         runModelMutation((model) => {
-          const tabNode = model.getNodeById(tab.id);
-          const tabJson = createFlexLayoutTab(tab);
+          const tabNode = findTabNodeInGroupByLogicalId(model, groupId, tab.id) ??
+            findFirstTabNodeByLogicalId(model, tab.id);
+          const tabJson = createFlexLayoutTab(tab, tabNode?.getId() ?? tab.id);
 
           if (isTabNode(tabNode)) {
-            model.doAction(Actions.updateNodeAttributes(tab.id, tabJson));
+            model.doAction(Actions.updateNodeAttributes(tabNode.getId(), tabJson));
+            for (const duplicateNode of findTabNodesByLogicalId(model, tab.id)) {
+              if (duplicateNode.getId() !== tabNode.getId()) {
+                model.doAction(Actions.deleteTab(duplicateNode.getId()));
+              }
+            }
 
             if (tabNode.getParent()?.getId() !== groupId) {
               model.doAction(
                 Actions.moveNode(
-                  tab.id,
+                  tabNode.getId(),
                   groupId,
                   DockLocation.CENTER,
                   options.targetIndex ?? -1,
@@ -386,7 +403,7 @@ export function createEditorGroupsService(
             }
 
             if (activate) {
-              model.doAction(Actions.selectTab(tab.id));
+              model.doAction(Actions.selectTab(tabNode.getId()));
             }
             return;
           }
@@ -404,12 +421,14 @@ export function createEditorGroupsService(
       },
       closeTab(groupId, tabId) {
         const state = get();
+        const group = state.groups.find((candidate) => candidate.id === groupId) ?? null;
 
         if (!groupContainsTab(state.groups, groupId, tabId)) {
           return;
         }
 
-        if (!isTabNode(state.model.getNodeById(tabId))) {
+        const tabNode = findTabNodeInGroupByLogicalId(state.model, groupId, tabId);
+        if (!tabNode) {
           replaceModel(
             createModelFromGroups(
               closeTabInGroups(state.groups, groupId, tabId),
@@ -420,16 +439,28 @@ export function createEditorGroupsService(
           return;
         }
 
+        if (group?.tabs.length === 1 && countTabSets(state.model) === 1) {
+          replaceModel(
+            createModelFromGroups(
+              closeTabInGroups(state.groups, groupId, tabId),
+              state.activeGroupId ?? groupId,
+            ),
+            "closeTab",
+          );
+          return;
+        }
+
         runModelMutation((model) => {
-          model.doAction(Actions.deleteTab(tabId));
+          model.doAction(Actions.deleteTab(tabNode.getId()));
         }, "closeTab");
       },
       splitGroup(input) {
         const state = get();
         const sourceGroup = state.groups.find((group) => group.id === input.sourceGroupId);
         const tabId = input.tabId ?? sourceGroup?.activeTabId ?? sourceGroup?.tabs.at(-1)?.id ?? null;
+        const tab = tabId ? sourceGroup?.tabs.find((candidate) => candidate.id === tabId) ?? null : null;
 
-        if (!sourceGroup || !tabId || !groupContainsTab(state.groups, input.sourceGroupId, tabId)) {
+        if (!sourceGroup || !tabId || !tab || !groupContainsTab(state.groups, input.sourceGroupId, tabId)) {
           return null;
         }
 
@@ -442,7 +473,7 @@ export function createEditorGroupsService(
 
         if (
           !isTabSetNode(state.model.getNodeById(input.sourceGroupId)) ||
-          !isTabNode(state.model.getNodeById(tabId))
+          !findTabNodeInGroupByLogicalId(state.model, input.sourceGroupId, tabId)
         ) {
           replaceModel(
             createModelFromGroups(
@@ -455,9 +486,10 @@ export function createEditorGroupsService(
         }
 
         runModelMutation((model) => {
+          const duplicateTabNodeId = uniqueTabNodeId(`${tabId}_${targetGroupId}`, model);
           model.doAction(
-            Actions.moveNode(
-              tabId,
+            Actions.addTab(
+              createFlexLayoutTab(tab, duplicateTabNodeId),
               input.sourceGroupId,
               dockLocationForDirection(input.direction ?? "right"),
               -1,
@@ -465,14 +497,18 @@ export function createEditorGroupsService(
             ),
           );
 
-          const movedTabParent = model.getNodeById(tabId)?.getParent();
-          if (isTabSetNode(movedTabParent) && movedTabParent.getId() !== targetGroupId) {
-            model.doAction(Actions.updateNodeAttributes(movedTabParent.getId(), { id: targetGroupId }));
+          const duplicateTabParent = model.getNodeById(duplicateTabNodeId)?.getParent();
+          if (isTabSetNode(duplicateTabParent) && duplicateTabParent.getId() !== targetGroupId) {
+            model.doAction(Actions.updateNodeAttributes(duplicateTabParent.getId(), { id: targetGroupId }));
+          }
+
+          if (!hasUserResizedSplitter) {
+            distributeSplitSiblingWeightsEqually(model, targetGroupId);
           }
 
           if (activate) {
             model.doAction(Actions.setActiveTabset(targetGroupId));
-            model.doAction(Actions.selectTab(tabId));
+            model.doAction(Actions.selectTab(duplicateTabNodeId));
           }
         }, "splitGroup");
 
@@ -485,7 +521,8 @@ export function createEditorGroupsService(
           return;
         }
 
-        if (!isTabNode(state.model.getNodeById(input.tabId))) {
+        const tabNode = findTabNodeInGroupByLogicalId(state.model, input.sourceGroupId, input.tabId);
+        if (!tabNode) {
           replaceModel(
             createModelFromGroups(
               moveTabInGroups(state.groups, input),
@@ -511,10 +548,15 @@ export function createEditorGroupsService(
         }
 
         runModelMutation((model) => {
+          const movingTabNode = findTabNodeInGroupByLogicalId(model, input.sourceGroupId, input.tabId);
+          if (!movingTabNode) {
+            return;
+          }
+
           if (targetGroupExists) {
             model.doAction(
               Actions.moveNode(
-                input.tabId,
+                movingTabNode.getId(),
                 input.targetGroupId,
                 DockLocation.CENTER,
                 input.targetIndex ?? -1,
@@ -524,7 +566,7 @@ export function createEditorGroupsService(
           } else {
             model.doAction(
               Actions.moveNode(
-                input.tabId,
+                movingTabNode.getId(),
                 input.sourceGroupId,
                 dockLocationForDirection(input.direction ?? "right"),
                 input.targetIndex ?? -1,
@@ -532,7 +574,7 @@ export function createEditorGroupsService(
               ),
             );
 
-            const movedTabParent = model.getNodeById(input.tabId)?.getParent();
+            const movedTabParent = model.getNodeById(movingTabNode.getId())?.getParent();
             if (isTabSetNode(movedTabParent) && movedTabParent.getId() !== input.targetGroupId) {
               model.doAction(Actions.updateNodeAttributes(movedTabParent.getId(), { id: input.targetGroupId }));
             }
@@ -540,7 +582,7 @@ export function createEditorGroupsService(
 
           if (input.activate !== false) {
             model.doAction(Actions.setActiveTabset(input.targetGroupId));
-            model.doAction(Actions.selectTab(input.tabId));
+            model.doAction(Actions.selectTab(movingTabNode.getId()));
           }
         }, "moveTab");
       },
@@ -593,9 +635,6 @@ export function createEditorGroupsService(
 
         return tab.id;
       },
-      tearOffActiveTabToFloating() {
-        return null;
-      },
       activateGroup(groupId) {
         const state = get();
 
@@ -622,7 +661,8 @@ export function createEditorGroupsService(
           return;
         }
 
-        if (!isTabNode(state.model.getNodeById(tabId))) {
+        const tabNode = findTabNodeInGroupByLogicalId(state.model, groupId, tabId);
+        if (!tabNode) {
           replaceModel(
             createModelFromGroups(setActiveTabInGroups(state.groups, groupId, tabId), groupId),
             "setActiveTab",
@@ -631,7 +671,10 @@ export function createEditorGroupsService(
         }
 
         runModelMutation((model) => {
-          model.doAction(Actions.selectTab(tabId));
+          const selectedTabNode = findTabNodeInGroupByLogicalId(model, groupId, tabId);
+          if (selectedTabNode) {
+            model.doAction(Actions.selectTab(selectedTabNode.getId()));
+          }
         }, "setActiveTab");
       },
       findSpatialNeighbor(groupId, direction) {
@@ -695,6 +738,10 @@ function createModelJsonFromGroups(
   groups: EditorGroup[],
   activeGroupId: EditorGroupId | null,
 ): EditorGroupsSerializedModel {
+  const normalizedGroups = normalizeGroups(groups);
+  const usedNodeIds = new Set(["root", ...normalizedGroups.map((group) => group.id)]);
+  const preserveOnlyTabSet = normalizedGroups.length <= 1;
+
   return {
     global: DEFAULT_EDITOR_GROUPS_GLOBAL,
     borders: [],
@@ -702,13 +749,17 @@ function createModelJsonFromGroups(
       type: "row",
       id: "root",
       weight: DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT,
-      children: groups.map((group) => ({
+      children: normalizedGroups.map((group) => ({
         type: "tabset",
         id: group.id,
         weight: DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT,
+        enableDeleteWhenEmpty: !preserveOnlyTabSet,
         selected: selectedIndexForGroup(group),
         active: group.id === activeGroupId,
-        children: group.tabs.map(createFlexLayoutTab),
+        children: group.tabs.map((tab) => createFlexLayoutTab(
+          tab,
+          allocateSerializedTabNodeId(tab.id, group.id, usedNodeIds),
+        )),
       })),
     },
   };
@@ -805,10 +856,10 @@ function createFallbackMigrationResult(warnings: string[]): EditorGroupsLayoutMi
   };
 }
 
-function createFlexLayoutTab(tab: EditorGroupTab): IJsonTabNode {
+function createFlexLayoutTab(tab: EditorGroupTab, nodeId = tab.id): IJsonTabNode {
   return {
     type: "tab",
-    id: tab.id,
+    id: nodeId,
     name: tab.title,
     component: EDITOR_GROUP_TAB_COMPONENT,
     enablePopout: false,
@@ -942,10 +993,10 @@ function createPopoutDisabledModelJson(snapshot: EditorGroupsSerializedModel): E
       tabEnablePopout: false,
       tabEnablePopoutFloatIcon: false,
       tabEnablePopoutIcon: false,
-      tabSetEnableDeleteWhenEmpty: false,
+      tabSetEnableDeleteWhenEmpty: true,
     },
     borders: snapshot.borders?.map(disablePopoutInBorderNode),
-    layout: sanitizeWeightsInRowNode(disablePopoutInRowNode(snapshot.layout)),
+    layout: sanitizeWeightsInRowNode(preserveFinalTabSetInRowNode(disablePopoutInRowNode(snapshot.layout))),
   };
 }
 
@@ -969,6 +1020,29 @@ function disablePopoutInTabSetNode(tabSet: IJsonTabSetNode): IJsonTabSetNode {
   return {
     ...tabSet,
     children: tabSet.children?.map(disablePopoutInTabNode),
+  };
+}
+
+function preserveFinalTabSetInRowNode(row: IJsonRowNode): IJsonRowNode {
+  return countSerializedTabSets(row) === 1
+    ? updateOnlySerializedTabSet(row, (tabSet) => ({ ...tabSet, enableDeleteWhenEmpty: false }))
+    : row;
+}
+
+function countSerializedTabSets(row: IJsonRowNode): number {
+  return (row.children ?? []).reduce((count, child) =>
+    count + (child.type === "tabset" ? 1 : countSerializedTabSets(child)), 0);
+}
+
+function updateOnlySerializedTabSet(
+  row: IJsonRowNode,
+  update: (tabSet: IJsonTabSetNode) => IJsonTabSetNode,
+): IJsonRowNode {
+  return {
+    ...row,
+    children: row.children?.map((child) =>
+      child.type === "tabset" ? update(child) : updateOnlySerializedTabSet(child, update)
+    ),
   };
 }
 
@@ -1004,21 +1078,21 @@ function normalizeFlexLayoutWeight(weight: unknown): number {
     : DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT;
 }
 
-function disableModelPopoutActions(model: Model): void {
-  const modelWithPatch = model as Model & { __nexusPopoutActionsDisabled?: true };
-  if (modelWithPatch.__nexusPopoutActionsDisabled) {
+function disableBlockedModelActions(model: Model): void {
+  const modelWithPatch = model as Model & { __nexusBlockedActionsDisabled?: true };
+  if (modelWithPatch.__nexusBlockedActionsDisabled) {
     return;
   }
 
   const doAction = model.doAction.bind(model) as (action: Action) => unknown;
   modelWithPatch.doAction = (action: Action): unknown => {
-    if (isPopoutAction(action)) {
+    if (isPopoutAction(action) || isLastTabSetDeleteAction(model, action)) {
       return undefined;
     }
 
     return doAction(action);
   };
-  modelWithPatch.__nexusPopoutActionsDisabled = true;
+  modelWithPatch.__nexusBlockedActionsDisabled = true;
 }
 
 function isPopoutAction(action: Action): boolean {
@@ -1027,6 +1101,16 @@ function isPopoutAction(action: Action): boolean {
     action.type === Actions.CREATE_SUBLAYOUT ||
     action.type === Actions.CLOSE_POPOUT ||
     action.type === Actions.MOVE_POPOUT_TO_FRONT;
+}
+
+function isLastTabSetDeleteAction(model: Model, action: Action): boolean {
+  if (action.type !== Actions.DELETE_TABSET) {
+    return false;
+  }
+
+  const nodeId = typeof action.data.node === "string" ? action.data.node : null;
+  const node = nodeId ? model.getNodeById(nodeId) : null;
+  return isTabSetNode(node) && countTabSets(model) <= 1;
 }
 
 function deriveStateFromModel(model: Model): EditorGroupsServiceState {
@@ -1041,11 +1125,12 @@ function deriveStateFromModel(model: Model): EditorGroupsServiceState {
       .filter(isTabNode)
       .map((tabNode) => editorGroupTabFromNode(tabNode));
     const selectedNode = node.getSelectedNode();
+    const activeTab = isTabNode(selectedNode) ? editorGroupTabFromNode(selectedNode) : null;
 
     groups.push({
       id: node.getId(),
       tabs,
-      activeTabId: isTabNode(selectedNode) ? selectedNode.getId() : null,
+      activeTabId: activeTab?.id ?? null,
     });
   });
 
@@ -1065,7 +1150,7 @@ function editorGroupTabFromNode(tabNode: TabNode): EditorGroupTab {
   const configTab = editorGroupTabFromConfig(tabNode.getConfig());
 
   return {
-    id: tabNode.getId(),
+    id: configTab?.id ?? tabNode.getId(),
     title: tabNode.getName(),
     kind: configTab?.kind ?? "file",
     workspaceId: configTab?.workspaceId ?? null,
@@ -1187,18 +1272,7 @@ function splitTabIntoNewGroup(
     return groups;
   }
 
-  const sourceTabs = sourceGroup.tabs.filter((candidate) => candidate.id !== tabId);
-  const nextGroups = groups.map((group, index) => {
-    if (index !== sourceGroupIndex) {
-      return group;
-    }
-
-    return {
-      ...group,
-      tabs: sourceTabs,
-      activeTabId: group.activeTabId === tabId ? sourceTabs.at(-1)?.id ?? null : group.activeTabId,
-    };
-  });
+  const nextGroups = [...groups];
 
   nextGroups.splice(sourceGroupIndex + 1, 0, {
     id: targetGroupId,
@@ -1451,6 +1525,113 @@ function uniqueGroupId(
   }
 
   return candidate;
+}
+
+function allocateSerializedTabNodeId(
+  tabId: EditorGroupTabId,
+  groupId: EditorGroupId,
+  usedNodeIds: Set<string>,
+): EditorGroupTabId {
+  let candidate = tabId;
+  let suffix = 2;
+
+  while (usedNodeIds.has(candidate)) {
+    candidate = `${tabId}_${groupId}_${suffix}`;
+    suffix += 1;
+  }
+
+  usedNodeIds.add(candidate);
+  return candidate;
+}
+
+function uniqueTabNodeId(preferredTabNodeId: EditorGroupTabId, model: Model): EditorGroupTabId {
+  let candidate = preferredTabNodeId;
+  let suffix = 2;
+
+  while (model.getNodeById(candidate)) {
+    candidate = `${preferredTabNodeId}_${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
+function findTabNodeInGroupByLogicalId(
+  model: Model,
+  groupId: EditorGroupId,
+  tabId: EditorGroupTabId,
+): TabNode | null {
+  const groupNode = model.getNodeById(groupId);
+  if (!isTabSetNode(groupNode)) {
+    return null;
+  }
+
+  return groupNode.getChildren()
+    .filter(isTabNode)
+    .find((tabNode) => logicalTabIdForNode(tabNode) === tabId) ?? null;
+}
+
+function findFirstTabNodeByLogicalId(model: Model, tabId: EditorGroupTabId): TabNode | null {
+  return findTabNodesByLogicalId(model, tabId)[0] ?? null;
+}
+
+function findTabNodesByLogicalId(model: Model, tabId: EditorGroupTabId): TabNode[] {
+  const tabNodes: TabNode[] = [];
+
+  model.visitNodes((node) => {
+    if (isTabNode(node) && logicalTabIdForNode(node) === tabId) {
+      tabNodes.push(node);
+    }
+  });
+
+  return tabNodes;
+}
+
+function logicalTabIdForNode(tabNode: TabNode): EditorGroupTabId {
+  return editorGroupTabFromConfig(tabNode.getConfig())?.id ?? tabNode.getId();
+}
+
+function countTabSets(model: Model): number {
+  return collectTabSets(model).length;
+}
+
+function collectTabSets(model: Model): TabSetNode[] {
+  const tabSets: TabSetNode[] = [];
+
+  model.visitNodes((node) => {
+    if (isTabSetNode(node)) {
+      tabSets.push(node);
+    }
+  });
+
+  return tabSets;
+}
+
+function syncTabSetDeleteWhenEmptyGuards(model: Model): void {
+  const tabSets = collectTabSets(model);
+  const enableDeleteWhenEmpty = tabSets.length > 1;
+
+  for (const tabSet of tabSets) {
+    if (tabSet.isEnableDeleteWhenEmpty() !== enableDeleteWhenEmpty) {
+      model.doAction(Actions.updateNodeAttributes(tabSet.getId(), {
+        enableDeleteWhenEmpty,
+      }));
+    }
+  }
+}
+
+function distributeSplitSiblingWeightsEqually(model: Model, groupId: EditorGroupId): void {
+  const groupNode = model.getNodeById(groupId);
+  const parent = groupNode?.getParent();
+
+  if (!isRowNode(parent)) {
+    return;
+  }
+
+  model.doAction(Actions.adjustWeights(
+    parent.getId(),
+    parent.getChildren().map(() => DEFAULT_EDITOR_GROUP_LAYOUT_WEIGHT),
+  ));
 }
 
 function dockLocationForDirection(direction: EditorGroupSplitDirection): DockLocation {

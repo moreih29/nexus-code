@@ -285,8 +285,15 @@ async function buildSixGroupFixture(): Promise<void> {
   }
 
   await splitActiveGroupDown();
-  const topGroupId = groupIdContainingTitle("epsilon.ts");
-  const bottomGroupId = groupIdContainingTitle("zeta.ts");
+  const verticalGroups = collectGroups();
+  const topGroup = verticalGroups.find((group) => group.tabTitles.includes("epsilon.ts")) ?? null;
+  const bottomGroup = topGroup
+    ? verticalGroups.find((group) => group.id !== topGroup.id && group.tabTitles.includes("zeta.ts")) ??
+      verticalGroups.find((group) => group.id !== topGroup.id && group.rect.y > topGroup.rect.y) ??
+      null
+    : null;
+  const topGroupId = topGroup?.id ?? null;
+  const bottomGroupId = bottomGroup?.id ?? null;
 
   if (!topGroupId || !bottomGroupId || topGroupId === bottomGroupId) {
     throw new Error(

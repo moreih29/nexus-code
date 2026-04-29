@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -54,6 +54,9 @@ interface DropOverlayRuntimeSmokeResult {
     openedTabTitles: string[];
     finalGridPaneCount: number;
     finalGridTabCount: number;
+    expectedPhysicalTabCount: number;
+    duplicatedSplitTabTitle: string;
+    duplicatedSplitTabCount: number;
     activeGroupId: string;
     sourceTabTitle: string;
     targetTabTitle: string;
@@ -79,6 +82,8 @@ interface ElectronSmokeOutput {
     sourceId: string;
   }>;
 }
+
+const electronBinary = resolveElectronBinary();
 
 let viteServer: ViteDevServer | null = null;
 
@@ -127,7 +132,10 @@ describe("drop overlay runtime system smoke", () => {
     expect(result?.productionPath.editorGridProvider).toBe("flexlayout-model");
     expect(result?.productionPath.flexlayoutProviderMatched).toBe(true);
     expect(result?.fourPaneScenario.finalGridPaneCount).toBe(4);
-    expect(result?.fourPaneScenario.finalGridTabCount).toBe(4);
+    expect(result?.fourPaneScenario.expectedPhysicalTabCount).toBe(7);
+    expect(result?.fourPaneScenario.finalGridTabCount).toBe(result?.fourPaneScenario.expectedPhysicalTabCount);
+    expect(result?.fourPaneScenario.duplicatedSplitTabTitle).toBe("delta.ts");
+    expect(result?.fourPaneScenario.duplicatedSplitTabCount).toBe(4);
     expect(result?.overlay.hoverBudgetMs).toBe(HOVER_BUDGET_MS);
     expect(result?.overlay.zones.map((zone) => zone.zone)).toEqual([...DROP_ZONES]);
     expect(result?.overlay.zones.every((zone) => zone.matched)).toBe(true);

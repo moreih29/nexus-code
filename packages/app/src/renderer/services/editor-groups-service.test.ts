@@ -34,7 +34,7 @@ describe("IEditorGroupsService", () => {
     expect(service.serializeModel().layout.type).toBe("row");
     expect(service.serializeModel().layout.weight).toBe(100);
     expect(service.serializeModel().layout.children?.[0]?.weight).toBe(100);
-    expect(service.serializeModel().global?.tabSetEnableDeleteWhenEmpty).toBe(false);
+    expect(service.serializeModel().global?.tabSetEnableDeleteWhenEmpty).toBe(true);
     expect(service.serializeModel().global?.tabEnablePopout).toBe(false);
     expect(service.serializeModel().global?.tabEnablePopoutFloatIcon).toBe(false);
 
@@ -44,7 +44,6 @@ describe("IEditorGroupsService", () => {
     expect(typeof service.moveTab).toBe("function");
     expect(typeof service.dropExternalPayload).toBe("function");
     expect(typeof service.attachTerminalTab).toBe("function");
-    expect(typeof service.tearOffActiveTabToFloating).toBe("function");
     expect(typeof service.setActiveTab).toBe("function");
     expect(typeof service.findSpatialNeighbor).toBe("function");
     expect(typeof service.getActiveTab).toBe("function");
@@ -105,6 +104,53 @@ describe("IEditorGroupsService", () => {
     expect(store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID)?.tabs).toEqual([]);
   });
 
+  test("preserves the final empty tabset and swallows direct delete-tabset actions", () => {
+    const store = createEditorGroupsService();
+    const tab = createTab("tab_last");
+
+    store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, tab);
+    store.getState().closeTab(DEFAULT_EDITOR_GROUP_ID, tab.id);
+
+    const afterClose = store.getState().serializeModel();
+    expect(store.getState().groups).toEqual([{ id: DEFAULT_EDITOR_GROUP_ID, tabs: [], activeTabId: null }]);
+    expect(afterClose.layout.children?.[0]?.id).toBe(DEFAULT_EDITOR_GROUP_ID);
+
+    const deleteResult = store.getState().model.doAction(Actions.deleteTabset(DEFAULT_EDITOR_GROUP_ID));
+
+    expect(deleteResult).toBeUndefined();
+    expect(store.getState().serializeModel()).toEqual(afterClose);
+  });
+
+  test("deletes empty non-final tabsets by default", () => {
+    const store = createEditorGroupsService();
+    const leftTab = createTab("tab_left", "left.ts");
+    const rightTab = createTab("tab_right", "right.ts");
+
+    store.getState().setGroups([
+      { id: "group_left", tabs: [leftTab], activeTabId: leftTab.id },
+      { id: "group_right", tabs: [rightTab], activeTabId: rightTab.id },
+    ], "group_right");
+
+    store.getState().closeTab("group_left", leftTab.id);
+
+    expect(store.getState().groups.map((group) => group.id)).toEqual(["group_right"]);
+    expect(store.getState().groups[0]?.tabs).toEqual([rightTab]);
+  });
+
+  test("splitGroup returns null without mutating the model for an empty group", () => {
+    const store = createEditorGroupsService();
+    const before = store.getState().serializeModel();
+
+    const splitGroupId = store.getState().splitGroup({
+      sourceGroupId: DEFAULT_EDITOR_GROUP_ID,
+      direction: "right",
+      targetGroupId: "group_right",
+    });
+
+    expect(splitGroupId).toBeNull();
+    expect(store.getState().serializeModel()).toEqual(before);
+  });
+
   test("supports setGroups, activateGroup, activateTab, setActiveTab, and legacy layout snapshots", () => {
     const store = createEditorGroupsService();
     const alphaTab = createTab("tab_alpha", "alpha.ts");
@@ -130,7 +176,7 @@ describe("IEditorGroupsService", () => {
     expect(store.getState().layoutSnapshot).toEqual({ global: { splitterSize: 1 } });
   });
 
-  test("splits a group by moving a tab into a new flexlayout tabset", () => {
+  test("splits a group by duplicating a tab into a new flexlayout tabset", () => {
     const store = createEditorGroupsService();
     const firstTab = createTab("tab_first");
     const secondTab = createTab("tab_second");
@@ -150,14 +196,65 @@ describe("IEditorGroupsService", () => {
     const targetGroup = state.groups.find((group) => group.id === splitGroupId);
 
     expect(splitGroupId).toBe("group_right");
-    expect(sourceGroup?.tabs.map((tab) => tab.id)).toEqual([firstTab.id]);
+    expect(sourceGroup?.tabs.map((tab) => tab.id)).toEqual([firstTab.id, secondTab.id]);
     expect(targetGroup?.tabs.map((tab) => tab.id)).toEqual([secondTab.id]);
     expect(state.activeGroupId).toBe("group_right");
     expect(state.getActiveTab()).toEqual(secondTab);
     expect(JSON.stringify(state.serializeModel())).toContain("\"id\":\"group_right\"");
 
     const splitWeights = state.serializeModel().layout.children?.map((child) => child.weight);
-    expect(splitWeights).toEqual([50, 50]);
+    expect(splitWeights).toEqual([100, 100]);
+  });
+
+  test("splitGroup equalizes sibling weights until the user resizes a splitter", () => {
+    const store = createEditorGroupsService();
+    const leftTab = createTab("tab_left", "left.ts");
+    const rightTab = createTab("tab_right", "right.ts");
+
+    store.getState().setGroups([
+      { id: "group_left", tabs: [leftTab], activeTabId: leftTab.id },
+      { id: "group_right", tabs: [rightTab], activeTabId: rightTab.id },
+    ], "group_left");
+
+    const splitGroupId = store.getState().splitGroup({
+      sourceGroupId: "group_left",
+      tabId: leftTab.id,
+      direction: "right",
+      targetGroupId: "group_left_split",
+    });
+
+    expect(splitGroupId).toBe("group_left_split");
+    expect(siblingWeightsForTabSets(store.getState().serializeModel(), [
+      "group_left",
+      "group_left_split",
+      "group_right",
+    ])).toEqual([100, 100, 100]);
+  });
+
+  test("splitGroup splits the active group in half after a user splitter resize", () => {
+    const store = createEditorGroupsService();
+    const leftTab = createTab("tab_left_resized", "left-resized.ts");
+    const rightTab = createTab("tab_right_resized", "right-resized.ts");
+
+    store.getState().setGroups([
+      { id: "group_left", tabs: [leftTab], activeTabId: leftTab.id },
+      { id: "group_right", tabs: [rightTab], activeTabId: rightTab.id },
+    ], "group_left");
+    store.getState().model.doAction(Actions.adjustWeights("root", [80, 20]));
+
+    const splitGroupId = store.getState().splitGroup({
+      sourceGroupId: "group_left",
+      tabId: leftTab.id,
+      direction: "right",
+      targetGroupId: "group_left_split",
+    });
+
+    expect(splitGroupId).toBe("group_left_split");
+    expect(siblingWeightsForTabSets(store.getState().serializeModel(), [
+      "group_left",
+      "group_left_split",
+      "group_right",
+    ])).toEqual([40, 40, 20]);
   });
 
   test("drops a workspace file payload into the target group center", () => {
@@ -342,7 +439,7 @@ describe("IEditorGroupsService", () => {
     });
 
     expect(movedGroupId).toBe("group_right");
-    expect(store.getState().groups.find((group) => group.id === "group_left")?.tabs).toEqual([]);
+    expect(store.getState().groups.find((group) => group.id === "group_left")).toBeUndefined();
     expect(store.getState().groups.find((group) => group.id === "group_right")?.tabs).toEqual([
       {
         id: "tt_ws_alpha_move",
@@ -401,12 +498,12 @@ describe("IEditorGroupsService", () => {
 
     const targetGroup = store.getState().groups.find((group) => group.id === "group_right");
 
-    expect(store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID)?.tabs).toEqual([]);
+    expect(store.getState().groups.find((group) => group.id === DEFAULT_EDITOR_GROUP_ID)?.tabs.map((tab) => tab.id)).toEqual([secondTab.id]);
     expect(targetGroup?.tabs.map((tab) => tab.id)).toEqual([firstTab.id, secondTab.id]);
     expect(store.getState().getActiveTab()).toEqual(firstTab);
   });
 
-  test("keeps popout disabled and ignores tear-off or direct flexlayout popout actions", () => {
+  test("keeps popout disabled and ignores direct flexlayout popout actions", () => {
     const store = createEditorGroupsService();
     const firstTab = createTab("tab_first");
     const popoutTab = createTab("tab_popout");
@@ -414,9 +511,7 @@ describe("IEditorGroupsService", () => {
     store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, firstTab);
     store.getState().openTab(DEFAULT_EDITOR_GROUP_ID, popoutTab);
 
-    const beforeTearOff = store.getState().serializeModel();
-    const tornOffTabId = store.getState().tearOffActiveTabToFloating();
-    const afterTearOff = store.getState().serializeModel();
+    const beforePopout = store.getState().serializeModel();
     const popoutResult = store.getState().model.doAction(Actions.popoutTab(popoutTab.id, "float"));
     const createPopoutResult = store.getState().model.doAction(Actions.createPopout({
       type: "row",
@@ -429,11 +524,9 @@ describe("IEditorGroupsService", () => {
     }, "float"));
     const afterDirectPopoutActions = store.getState().serializeModel();
 
-    expect(tornOffTabId).toBeNull();
     expect(popoutResult).toBeUndefined();
     expect(createPopoutResult).toBeUndefined();
-    expect(afterTearOff).toEqual(beforeTearOff);
-    expect(afterDirectPopoutActions).toEqual(beforeTearOff);
+    expect(afterDirectPopoutActions).toEqual(beforePopout);
     expect(afterDirectPopoutActions.subLayouts).toBeUndefined();
     expect(afterDirectPopoutActions.global?.tabEnablePopout).toBe(false);
     expect(afterDirectPopoutActions.global?.tabEnablePopoutFloatIcon).toBe(false);
@@ -551,7 +644,7 @@ describe("IEditorGroupsService", () => {
           tabEnablePopout: true,
           tabEnablePopoutFloatIcon: true,
           tabEnablePopoutIcon: true,
-          tabSetEnableDeleteWhenEmpty: true,
+          tabSetEnableDeleteWhenEmpty: false,
         },
         borders: [],
         layout: {
@@ -598,7 +691,7 @@ describe("IEditorGroupsService", () => {
     expect(snapshot.global?.tabEnablePopout).toBe(false);
     expect(snapshot.global?.tabEnablePopoutFloatIcon).toBe(false);
     expect(snapshot.global?.tabEnablePopoutIcon).toBe(false);
-    expect(snapshot.global?.tabSetEnableDeleteWhenEmpty).toBe(false);
+    expect(snapshot.global?.tabSetEnableDeleteWhenEmpty).toBe(true);
     expect(serializedTab?.enablePopout).toBe(false);
     expect(serializedTab?.enablePopoutFloatIcon).toBe(false);
     expect(serializedTab?.enablePopoutIcon).toBe(false);
@@ -772,6 +865,13 @@ function equalSiblingWeightsForTabSets(
 ): boolean {
   const weights = findSiblingWeightsForTabSets(snapshot.layout, tabSetIds);
   return Boolean(weights && weights.length === tabSetIds.length && new Set(weights).size === 1);
+}
+
+function siblingWeightsForTabSets(
+  snapshot: EditorGroupsSerializedModel,
+  tabSetIds: readonly string[],
+): number[] | null {
+  return findSiblingWeightsForTabSets(snapshot.layout, tabSetIds);
 }
 
 function findSiblingWeightsForTabSets(

@@ -28,6 +28,9 @@ interface DockLayoutRuntimeSmokeResult {
     fixtureFiles: string[];
     openedTabTitles: string[];
     openedTabCount: number;
+    expectedPhysicalTabCount: number;
+    duplicatedSplitTabTitle: string;
+    duplicatedSplitTabCount: number;
     splitCommandCount: number;
     moveCommandCount: number;
     finalGridPaneCount: number;
@@ -132,7 +135,8 @@ async function runSmoke(): Promise<void> {
       fourPaneScenario.splitCommandCount === 3 &&
       fourPaneScenario.moveCommandCount === 1 &&
       fourPaneScenario.finalGridPaneCount === 4 &&
-      fourPaneScenario.finalGridTabCount === fixtureFiles.length &&
+      fourPaneScenario.finalGridTabCount === fourPaneScenario.expectedPhysicalTabCount &&
+      fourPaneScenario.duplicatedSplitTabCount === fourPaneScenario.splitCommandCount + 1 &&
       packageImpact.dependencyPinned;
 
     publishResult({
@@ -157,8 +161,11 @@ async function runSmoke(): Promise<void> {
         (fourPaneScenario.finalGridPaneCount !== 4
           ? `Expected 4 populated flexlayout grid panes after open/split/move scenario, saw ${fourPaneScenario.finalGridPaneCount}. T5 must replace the legacy two-pane editor bridge path with the flexlayout model.`
           : undefined) ??
-        (fourPaneScenario.finalGridTabCount !== fixtureFiles.length
-          ? `Expected ${fixtureFiles.length} grid tabs after scenario, saw ${fourPaneScenario.finalGridTabCount}.`
+        (fourPaneScenario.finalGridTabCount !== fourPaneScenario.expectedPhysicalTabCount
+          ? `Expected ${fourPaneScenario.expectedPhysicalTabCount} grid tabs after duplicate split scenario, saw ${fourPaneScenario.finalGridTabCount}.`
+          : undefined) ??
+        (fourPaneScenario.duplicatedSplitTabCount !== fourPaneScenario.splitCommandCount + 1
+          ? `Expected ${fourPaneScenario.splitCommandCount + 1} physical ${fourPaneScenario.duplicatedSplitTabTitle} tabs after split duplication, saw ${fourPaneScenario.duplicatedSplitTabCount}.`
           : undefined),
     });
   } catch (error) {
@@ -201,11 +208,16 @@ async function exerciseFourPaneOpenSplitMoveScenario(): Promise<DockLayoutRuntim
   const populatedGridSlots = gridSlots.filter((slot) => slot.groupId.length > 0 && slot.tabCount > 0);
   const legacyVisualPaneIds = collectLegacyVisualPaneIds();
   const openedTabTitles = visibleEditorTabTitles();
+  const physicalFixtureTabTitles = openedTabTitles.filter((title) => fixtureFiles.includes(title));
+  const duplicatedSplitTabTitle = "delta.ts";
 
   return {
     fixtureFiles: [...fixtureFiles],
     openedTabTitles,
-    openedTabCount: openedTabTitles.filter((title) => fixtureFiles.includes(title)).length,
+    openedTabCount: new Set(physicalFixtureTabTitles).size,
+    expectedPhysicalTabCount: fixtureFiles.length + splitCommandCount,
+    duplicatedSplitTabTitle,
+    duplicatedSplitTabCount: physicalFixtureTabTitles.filter((title) => title === duplicatedSplitTabTitle).length,
     splitCommandCount,
     moveCommandCount,
     finalGridPaneCount: populatedGridSlots.length,

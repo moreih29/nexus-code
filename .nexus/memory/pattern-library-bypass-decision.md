@@ -4,7 +4,7 @@
 
 외부 library가 반복된 hotfix에도 증상이 잔존할 때, library 자체를 교체하거나 그 layer를 bypass하는 결정을 내리는 지점.
 
-react-resizable-panels 경험(empirical-retrospective는 `external-react-resizable-panels.md` 참조)에서 5회 hotfix 실패 후 library 제거로 해결. 비슷한 패턴 재발 방지 목적.
+react-resizable-panels 경험(외부 라이브러리 상태는 `external-react-resizable-panels.md` 참조)에서 5회 hotfix 실패 후 library 제거로 해결. 비슷한 패턴 재발 방지 목적.
 
 ## 진입 조건 (ALL)
 

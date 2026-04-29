@@ -1,4 +1,4 @@
-import { StrictMode, createElement, useMemo } from "react";
+import { StrictMode, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { useStore } from "zustand";
 
@@ -11,6 +11,7 @@ import {
   type EditorGroup,
   type EditorGroupSplitDirection,
   type EditorGroupTab,
+  type EditorGroupsSerializedModel,
   type EditorGroupsServiceStore,
 } from "../../src/renderer/services/editor-groups-service";
 import { createTerminalService, type TerminalServiceStore } from "../../src/renderer/services/terminal-service";
@@ -20,6 +21,7 @@ import "../../src/renderer/parts/editor-groups/flexlayout-theme.css";
 import "@xterm/xterm/css/xterm.css";
 
 type ScenarioId = "horizontal" | "vertical" | "four-pane" | "six-pane";
+type FinalEmptyScenarioId = "final-empty";
 type ScenarioStatus = "pass" | "fail";
 
 interface RectSnapshot {
@@ -61,10 +63,24 @@ interface SplitFillScenarioResult {
   reason?: string;
 }
 
+interface FinalEmptyGroupFillResult {
+  id: FinalEmptyScenarioId;
+  status: ScenarioStatus;
+  groupCount: number;
+  finalGroupId: string | null;
+  finalGroupTabCount: number | null;
+  placeholderVisible: boolean;
+  layoutFillsScenario: boolean;
+  serializedTabSetCount: number;
+  finalTabSetPreserved: boolean;
+  reason?: string;
+}
+
 interface EditorSplitFillRuntimeSmokeResult {
   ok: boolean;
   errors: string[];
   scenarios: Record<ScenarioId, SplitFillScenarioResult>;
+  finalEmptyGroup: FinalEmptyGroupFillResult;
   reason?: string;
 }
 
@@ -74,14 +90,22 @@ declare global {
   }
 }
 
-interface ScenarioFixture {
-  id: ScenarioId;
+interface RuntimeFixture {
+  id: ScenarioId | FinalEmptyScenarioId;
   label: string;
   expectedGroupCount: number;
   width: number;
   height: number;
   service: EditorGroupsServiceStore;
   terminalService: TerminalServiceStore;
+}
+
+interface SplitScenarioFixture extends RuntimeFixture {
+  id: ScenarioId;
+}
+
+interface FinalEmptyFixture extends RuntimeFixture {
+  id: FinalEmptyScenarioId;
 }
 
 const workspaceId = "ws_split_fill_runtime" as WorkspaceId;
@@ -106,8 +130,11 @@ async function runSmoke(): Promise<void> {
 
     prepareDocument(rootElement);
     const fixtures = createScenarioFixtures();
+    const finalEmptyFixture = createFinalEmptyFixture();
     createRoot(rootElement).render(
-      createElement(StrictMode, null, createElement(SplitFillWorkbench, { fixtures })),
+      <StrictMode>
+        <SplitFillWorkbench fixtures={fixtures} finalEmptyFixture={finalEmptyFixture} />
+      </StrictMode>,
     );
 
     await waitUntil(
@@ -115,21 +142,32 @@ async function runSmoke(): Promise<void> {
       10_000,
       () => `Timed out waiting for split fill scenarios; counts=${fixtures.map((fixture) => `${fixture.id}:${collectScenarioGroupElements(fixture.id).length}/${fixture.expectedGroupCount}`).join(",")}`,
     );
+    await waitUntil(
+      () => collectFinalEmptyGroupResult(finalEmptyFixture).status === "pass",
+      10_000,
+      () => `Timed out waiting for final empty group placeholder; result=${JSON.stringify(collectFinalEmptyGroupResult(finalEmptyFixture))}`,
+    );
     await settleFor(250);
 
     const scenarioEntries = fixtures.map((fixture) => [fixture.id, collectScenarioResult(fixture)] as const);
     const scenarios = Object.fromEntries(scenarioEntries) as Record<ScenarioId, SplitFillScenarioResult>;
+    const finalEmptyGroup = collectFinalEmptyGroupResult(finalEmptyFixture);
     const fatalErrors = capturedErrors.filter((message) => suspiciousMessagePattern.test(message));
     const scenarioErrors = Object.values(scenarios)
       .filter((scenario) => scenario.status !== "pass")
       .map((scenario) => `${scenario.id}: ${scenario.reason ?? "failed"}`);
-    const errors = [...fatalErrors, ...scenarioErrors];
+    const errors = [
+      ...fatalErrors,
+      ...scenarioErrors,
+      ...(finalEmptyGroup.status === "pass" ? [] : [`${finalEmptyGroup.id}: ${finalEmptyGroup.reason ?? "failed"}`]),
+    ];
     const ok = errors.length === 0;
 
     publishResult({
       ok,
       errors,
       scenarios,
+      finalEmptyGroup,
       reason: errors[0],
     });
   } catch (error) {
@@ -137,7 +175,13 @@ async function runSmoke(): Promise<void> {
   }
 }
 
-function SplitFillWorkbench({ fixtures }: { fixtures: ScenarioFixture[] }): JSX.Element {
+function SplitFillWorkbench({
+  fixtures,
+  finalEmptyFixture,
+}: {
+  fixtures: SplitScenarioFixture[];
+  finalEmptyFixture: FinalEmptyFixture;
+}): JSX.Element {
   return (
     <div data-split-fill-workbench="true" className="bg-background p-4 text-foreground">
       {fixtures.map((fixture) => (
@@ -146,11 +190,15 @@ function SplitFillWorkbench({ fixtures }: { fixtures: ScenarioFixture[] }): JSX.
           <ScenarioMount fixture={fixture} />
         </section>
       ))}
+      <section className="mb-6">
+        <h2 className="mb-2 text-sm font-semibold">{finalEmptyFixture.label}</h2>
+        <ScenarioMount fixture={finalEmptyFixture} />
+      </section>
     </div>
   );
 }
 
-function ScenarioMount({ fixture }: { fixture: ScenarioFixture }): JSX.Element {
+function ScenarioMount({ fixture }: { fixture: RuntimeFixture }): JSX.Element {
   const groups = useStore(fixture.service, (state) => state.groups);
   const activeGroupId = useStore(fixture.service, (state) => state.activeGroupId);
   const layoutSnapshot = useStore(fixture.service, (state) => state.layoutSnapshot);
@@ -185,7 +233,7 @@ function ScenarioMount({ fixture }: { fixture: ScenarioFixture }): JSX.Element {
   );
 }
 
-function createScenarioFixtures(): ScenarioFixture[] {
+function createScenarioFixtures(): SplitScenarioFixture[] {
   return [
     createScenarioFixture({
       id: "horizontal",
@@ -228,6 +276,18 @@ function createScenarioFixtures(): ScenarioFixture[] {
   ];
 }
 
+function createFinalEmptyFixture(): FinalEmptyFixture {
+  return {
+    id: "final-empty",
+    label: "Final empty group remains valid and fills the editor",
+    expectedGroupCount: 1,
+    width: scenarioDimensions.width,
+    height: scenarioDimensions.height,
+    service: createEditorGroupsService(),
+    terminalService: createTerminalService(),
+  };
+}
+
 function createScenarioFixture({
   id,
   label,
@@ -238,7 +298,7 @@ function createScenarioFixture({
   label: string;
   fileCount: number;
   splits: { tabIndex: number; direction: EditorGroupSplitDirection; targetGroupId: string }[];
-}): ScenarioFixture {
+}): SplitScenarioFixture {
   const tabs = Array.from({ length: fileCount }, (_, index) => createGroupTab(id, index + 1));
   const service = createEditorGroupsService({
     groups: [{ id: DEFAULT_EDITOR_GROUP_ID, tabs, activeTabId: tabs.at(-1)?.id ?? null }],
@@ -312,7 +372,7 @@ function editorTabFromGroupTab(tab: EditorGroupTab): EditorTab {
   };
 }
 
-function collectScenarioResult(fixture: ScenarioFixture): SplitFillScenarioResult {
+function collectScenarioResult(fixture: SplitScenarioFixture): SplitFillScenarioResult {
   const scenarioElement = scenarioElementFor(fixture.id);
   if (!scenarioElement) {
     return failedScenarioResult(fixture, `Scenario element ${fixture.id} is missing.`);
@@ -356,6 +416,44 @@ function collectScenarioResult(fixture: ScenarioFixture): SplitFillScenarioResul
     reason: status === "pass"
       ? undefined
       : `Expected ${fixture.expectedGroupCount} nonzero contained groups with fill ratio 0.9..1.02; actual=${actualGroupCount}, nonzero=${allGroupsNonzero}, contained=${allGroupsContained}, layoutFills=${layoutFillsScenario}, ratio=${areaCoverageRatio}, axis=${axisConsistency.reason ?? axisConsistency.passed}`,
+  };
+}
+
+function collectFinalEmptyGroupResult(fixture: FinalEmptyFixture): FinalEmptyGroupFillResult {
+  const scenarioElement = scenarioElementFor(fixture.id);
+  const layoutElement = scenarioElement?.querySelector<HTMLElement>(".flexlayout__layout") ?? null;
+  const placeholder = scenarioElement?.querySelector<HTMLElement>('[data-editor-empty-group-placeholder="true"]') ?? null;
+  const groups = fixture.service.getState().groups;
+  const finalGroup = groups[0] ?? null;
+  const serializedTabSets = collectSerializedTabSets(fixture.service.getState().serializeModel());
+  const finalTabSet = serializedTabSets[0] ?? null;
+  const scenarioRect = scenarioElement ? rectSnapshot(scenarioElement.getBoundingClientRect()) : null;
+  const layoutRect = layoutElement ? rectSnapshot(layoutElement.getBoundingClientRect()) : null;
+  const layoutFillsScenario = Boolean(layoutRect && scenarioRect && rectSizesMatch(layoutRect, scenarioRect, rectTolerancePx));
+  const finalTabSetPreserved = serializedTabSets.length === 1 &&
+    (finalTabSet?.children?.length ?? 0) === 0 &&
+    finalTabSet?.enableDeleteWhenEmpty === false;
+  const status = groups.length === 1 &&
+    finalGroup?.tabs.length === 0 &&
+    placeholder !== null &&
+    layoutFillsScenario &&
+    finalTabSetPreserved
+    ? "pass"
+    : "fail";
+
+  return {
+    id: "final-empty",
+    status,
+    groupCount: groups.length,
+    finalGroupId: finalGroup?.id ?? null,
+    finalGroupTabCount: finalGroup?.tabs.length ?? null,
+    placeholderVisible: placeholder !== null,
+    layoutFillsScenario,
+    serializedTabSetCount: serializedTabSets.length,
+    finalTabSetPreserved,
+    reason: status === "pass"
+      ? undefined
+      : `Expected one final empty group with placeholder and filled layout; groupCount=${groups.length}, tabCount=${finalGroup?.tabs.length ?? "missing"}, placeholder=${placeholder !== null}, layoutFills=${layoutFillsScenario}, tabsets=${serializedTabSets.length}`,
   };
 }
 
@@ -438,7 +536,7 @@ function collectAxisConsistency(
   };
 }
 
-function collectScenarioGroupElements(scenarioId: ScenarioId): HTMLElement[] {
+function collectScenarioGroupElements(scenarioId: ScenarioId | FinalEmptyScenarioId): HTMLElement[] {
   const scenarioElement = scenarioElementFor(scenarioId);
   if (!scenarioElement) {
     return [];
@@ -455,8 +553,38 @@ function collectScenarioGroupElements(scenarioId: ScenarioId): HTMLElement[] {
   return Array.from(byGroupId.values());
 }
 
-function scenarioElementFor(scenarioId: ScenarioId): HTMLElement | null {
+function scenarioElementFor(scenarioId: ScenarioId | FinalEmptyScenarioId): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-split-fill-scenario="${scenarioId}"]`);
+}
+
+function collectSerializedTabSets(snapshot: EditorGroupsSerializedModel): Array<{ children?: unknown[]; enableDeleteWhenEmpty?: boolean }> {
+  const tabSets: Array<{ children?: unknown[]; enableDeleteWhenEmpty?: boolean }> = [];
+
+  visitSerializedLayout(snapshot.layout, (node) => {
+    if (node.type === "tabset") {
+      tabSets.push({
+        children: Array.isArray(node.children) ? node.children : [],
+        enableDeleteWhenEmpty: typeof node.enableDeleteWhenEmpty === "boolean" ? node.enableDeleteWhenEmpty : undefined,
+      });
+    }
+  });
+
+  return tabSets;
+}
+
+type SerializedLayoutNode =
+  | EditorGroupsSerializedModel["layout"]
+  | NonNullable<EditorGroupsSerializedModel["layout"]["children"]>[number];
+
+function visitSerializedLayout(node: SerializedLayoutNode, visit: (node: SerializedLayoutNode) => void): void {
+  visit(node);
+  if (node.type !== "row") {
+    return;
+  }
+
+  for (const child of node.children ?? []) {
+    visitSerializedLayout(child, visit);
+  }
 }
 
 function rectSnapshot(rect: DOMRect | DOMRectReadOnly): RectSnapshot {
@@ -526,12 +654,12 @@ function installConsoleCapture(): void {
 
 function prepareDocument(rootElement: HTMLElement): void {
   document.documentElement.style.width = "1000px";
-  document.documentElement.style.height = "2100px";
+  document.documentElement.style.height = "2500px";
   document.body.style.width = "1000px";
-  document.body.style.height = "2100px";
+  document.body.style.height = "2500px";
   document.body.style.margin = "0";
   rootElement.style.width = "1000px";
-  rootElement.style.height = "2100px";
+  rootElement.style.height = "2500px";
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs: number, errorMessage: () => string): Promise<void> {
@@ -553,7 +681,7 @@ function settleFor(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function failedScenarioResult(fixture: ScenarioFixture, reason: string): SplitFillScenarioResult {
+function failedScenarioResult(fixture: SplitScenarioFixture, reason: string): SplitFillScenarioResult {
   return {
     id: fixture.id,
     status: "fail",
@@ -576,6 +704,21 @@ function failedScenarioResult(fixture: ScenarioFixture, reason: string): SplitFi
   };
 }
 
+function failedFinalEmptyGroupResult(reason: string): FinalEmptyGroupFillResult {
+  return {
+    id: "final-empty",
+    status: "fail",
+    groupCount: 0,
+    finalGroupId: null,
+    finalGroupTabCount: null,
+    placeholderVisible: false,
+    layoutFillsScenario: false,
+    serializedTabSetCount: 0,
+    finalTabSetPreserved: false,
+    reason,
+  };
+}
+
 function failedResult(reason: string): EditorSplitFillRuntimeSmokeResult {
   const fixtures = createScenarioFixtures();
   const scenarios = Object.fromEntries(
@@ -585,6 +728,7 @@ function failedResult(reason: string): EditorSplitFillRuntimeSmokeResult {
     ok: false,
     errors: [reason],
     scenarios,
+    finalEmptyGroup: failedFinalEmptyGroupResult(reason),
     reason,
   };
 }

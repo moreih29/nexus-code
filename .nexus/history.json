@@ -7805,6 +7805,255 @@
           "created_at": "2026-04-29T12:23:39.222Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-04-29T16:13:24.189Z",
+      "branch": "feat/plan35-workbench-usability",
+      "plan": {
+        "id": 36,
+        "topic": "Plan #36: Memory 정리 + Plan #35 후속조치 + VSCode 팬 분할 완전 동일",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1: .nexus/memory/ 디렉토리 정리 — empirical-* retro 6개 제거, external-*/pattern-* 보존",
+            "status": "decided",
+            "decision": "**Selected**: `.nexus/memory/`에서 `empirical-*-retrospective.md` 6개 파일 모두 삭제. `external-*.md` 12개 + `pattern-*.md` 12개는 보존(KEEP). 30 → 24 파일.\n\n**삭제 대상 (6개)**:\n- empirical-m3-handover-retrospective.md\n- empirical-m3plus1-retrospective.md\n- empirical-phase-a-retrospective.md\n- empirical-plan33-vscode-superhost-retrospective.md\n- empirical-plan34-workbench-skeleton-retrospective.md\n- empirical-previous-tauri-retrospective.md\n\n**근거**: 모든 empirical-* 파일은 특정 사이클/플랜의 일회성 회고. 사이클 메타데이터(plan_id, completed_at, branch, plan/issues/tasks)는 `.nexus/history.json`이 동등 정보로 보유. memory 디렉토리는 사용자 의도대로 \"timeless reference\"(외부 라이브러리/프로젝트 정보, 재사용 가능한 아키텍처 패턴)만 유지.\n\n**기각된 대안**:\n- *모두 보존*: 기각. 사이클 끝난 회고는 history.json과 중복이며 memory가 사이클 누적과 함께 부풀어 검색/스캔 비용 증가. 사용자 명시 의도 위반.\n- *empirical을 \"lesson-distilled\" pattern으로 변환*: 기각(부분 채택). 일부 사이클 교훈은 timeless 가치가 있으나, plan34/plan33 본문에서 추출할 만큼 보편화된 lesson은 적음(대부분 specific). 만약 추출해야 할 lesson이 있다면 본 사이클 I5에서 별도 pattern-*.md로 작성하는 경로를 사용.\n- *empirical을 별도 archive 폴더로 이동(`.nexus/memory/_archive/`)*: 기각. archive 폴더 자체가 memory 디렉토리 안에 남으면 \"timeless only\" 규칙 위반. history.json이 archive 역할을 이미 수행.\n\n**폴더 구조 안정성**: `.nexus/memory/` 디렉토리 자체는 유지. 파일 6개 단순 삭제로 디렉토리 깊이/이름 변경 없음 — 안정성 영향 없음."
+          },
+          {
+            "id": 2,
+            "title": "I2: VSCode 팬 분할 완전 동일 구현 — 빈 TabSet 자동 제거 + 최소 1개 guard + splitEditor no-op + split 파일 복제",
+            "status": "decided",
+            "decision": "**Selected**: VSCode 동작 1:1 매칭으로 (1) `tabSetEnableDeleteWhenEmpty: true` + (2) `count===1` 마지막 TabSet 보존 guard + (3) splitEditor 빈 그룹 no-op + (4) split 명령 시 활성 파일 복제 + (5) splitSizing \"auto\" 모드(첫 split 균등, 이후 절반) 5개 동작 모두 도입.\n\n**근거 (1차 자료)**: microsoft/vscode 직접 인용 — `editorPart.ts` `removeGroup`이 `if (this.count === 1) return` guard로 마지막 그룹 보존, `editorCommands.ts` `splitEditor`가 `if (!resolvedContext.groupedEditors.length) return`으로 빈 그룹 early return, `DEFAULT_EDITOR_PART_OPTIONS.closeEmptyGroups: true` 기본값. 우리 현재 `editor-groups-service.ts:148-153, 942-945`의 `tabSetEnableDeleteWhenEmpty: false`가 사용자 스크린샷의 빈 pane을 직접 야기. flexlayout-react는 빈 TabSet 자동 삭제는 라이브러리 기능으로 지원하지만 마지막 TabSet 보존 guard는 없으므로 우리가 onAction에서 `DELETE_TABSET` 액션을 마지막 TabSet에서 block해야 함.\n\n**구현 경로**:\n1. **`tabSetEnableDeleteWhenEmpty: true`**로 변경 (DEFAULT_EDITOR_GROUPS_GLOBAL + createInitialModel 두 곳).\n2. **마지막 TabSet 보존 guard**: EditorGroupsPart의 `handleAction`에서 `DELETE_TABSET` 액션 인터셉트 — `model.getRoot().visitNodes(node => isTabSet)` 카운트가 1이면 action을 swallow(return undefined). 또는 service 레벨에서 동등 guard.\n3. **splitEditor 빈 그룹 no-op**: IEditorGroupsService.splitGroup 입구에서 `sourceGroup.tabs.length === 0`이면 null 반환. dropExternalPayload 등 다른 진입점도 동일 가드.\n4. **split 명령 활성 파일 복제**: `editor.splitToDirection` 명령 + 우클릭 \"Split\"이 현재 활성 탭을 새 그룹에도 복제 오픈. IEditorGroupsService.splitGroup이 이미 `tabId` param으로 활성 탭 이동을 하는데, **이동이 아닌 복제**로 동작 변경. 활성 탭의 동일 sessionId/path로 새 EditorTab을 생성해 신규 그룹에 openTab. (단 dirty 상태 등은 활성 탭이 master).\n5. **splitSizing \"auto\" 모드**: split 시 형제 그룹 weight를 (a) 사용자가 한 번도 splitter resize 안 했으면 모두 균등(distribute), (b) splitter 한 번이라도 사용했으면 활성 그룹의 weight를 절반으로 분할. service에 `hasUserResizedSplitter: boolean` 상태 추가, splitter mousedown/mouseup 이벤트 또는 flexlayout `RESIZE` action 인터셉트로 set true.\n6. **빈 그룹 placeholder**: 마지막 1개 그룹이 빈 상태로 남을 수 있음(사용자가 모든 탭 닫음). 이때 EditorGroupWatermark 동등 placeholder UI(예: \"Drop a file here or use Cmd+P to open\"). 지금 사이클은 단순 빈 영역 + tooltip 정도로만 구현하고 watermark 텍스트는 후속 task로 분리.\n\n**Fixture 의무**:\n- 신규 unit test `editor-groups-service-empty-group.test.ts`: (a) 마지막 탭 닫으면 그룹 자동 제거 (단 마지막 1개 제외), (b) 빈 그룹에 splitGroup 호출 시 null, (c) split 명령 시 활성 탭이 새 그룹에 복제, (d) splitSizing auto 모드 첫 split 균등 / 이후 절반.\n- 신규 system smoke `editor-empty-group-policy-runtime`: 3-pane → center 마지막 탭 닫음 → center 그룹 사라지고 좌우 2-pane으로 재배치. 모든 탭 닫음 → 1 그룹만 남고 빈 상태로 placeholder 표시.\n- 기존 `editor-split-fill-runtime` 갱신: split 후 모든 그룹의 width>0 단언은 유지하되, \"빈 그룹 가능\"을 허용하는 새 acceptance 추가(마지막 1개 빈 그룹은 정상).\n- workspace-layout-persist-runtime: 빈 마지막 그룹이 직렬화/역직렬화 round-trip 보존 검증.\n\n**기각된 대안**:\n- *현 상태 유지(`tabSetEnableDeleteWhenEmpty: false`)*: 기각. 사용자가 스크린샷으로 직접 거부, \"VSCode는 절대 빈 pane을 남기지 않는다\" 명시.\n- *`tabSetEnableDeleteWhenEmpty: true`만, count===1 guard 없음*: 기각. 모든 탭 닫으면 모든 그룹이 사라져 \"그룹 0개\" 상태가 발생 — flexlayout이 처리 불능 또는 root 자체가 비어 사용 불가능. VSCode는 명시적으로 마지막 1개 보존하므로 매칭 안 됨.\n- *VSCode와 다르게 \"빈 그룹은 자동으로 인접 그룹에 흡수\"(merge) 방식*: 기각. researcher가 직접 microsoft/vscode 소스에서 \"흡수가 아니라 그룹 자체 삭제\"임을 확인. VSCode 동작과 다르면 사용자 의도(\"완전히 동일\") 위반.\n- *closeEmptyGroups를 false로 두고 watermark UI를 모든 빈 그룹에 표시*: 기각. VSCode 기본은 closeEmptyGroups: true. watermark는 closeEmptyGroups: false 시에만 모든 빈 그룹에 표시(드문 사용 시나리오). VSCode 기본값과 다르므로 매칭 안 됨.\n- *split 시 새 그룹을 빈 상태로 만들기(empty split)*: 기각. researcher 인용 issue #30168에서 \"split editor initial state empty\" feature request는 closed/duplicate. VSCode 기본 split은 활성 파일 복제. 기본값 매칭이 사용자 의도.\n- *splitSizing \"distribute\" 또는 \"split\" 단일 모드 고정*: 기각. VSCode 기본값은 \"auto\"(혼합). 단일 모드 고정은 첫 split UX(균등이 자연스러움)와 이후 split UX(절반이 빠름) 모두를 만족 못 함.\n\n**Risk**:\n- splitSizing \"auto\" 모드의 hasUserResizedSplitter 추적 정확도 — flexlayout RESIZE 액션이 코드 호출(setLayoutSnapshot 같은)에서도 발생할 수 있음. 사용자 명시적 splitter drag만 카운트하도록 mousedown 기반 추적 필요. 미흡 시 첫 split 직후에도 절반 분할이 발생.\n- 마지막 TabSet 보존 guard가 race condition으로 우회될 위험(여러 close가 같은 tick에 실행). guard를 service.closeTab에도 추가해 이중 보호.\n- 빈 마지막 그룹의 layoutSnapshot persist 시 deserialize 시 빈 그룹이 정상 복원되는지(empty layout이 deserialize 실패 시 fallback 정책).\n\n**폴더 구조 안정성**: 기존 `parts/editor-groups/` 안에 `empty-group-placeholder.tsx` 컴포넌트 추가. service 변경은 `services/editor-groups-service.ts` 단일 파일. 새 폴더 생성 없음 — 기존 경계 유지."
+          },
+          {
+            "id": 3,
+            "title": "I3: AppShell.tsx 509줄 구조 분리 — useClaudeConsentDialog/useAppShellState/useAppShellBindings hook 추출",
+            "status": "decided",
+            "decision": "**Selected**: AppShell.tsx에서 4개 단위 추출 — `useClaudeConsentDialog()` hook + `useAppShellState()` hook + `useAppShellBindings()` hook + `<FileTreePanelContainer />` sub-component. 509줄 → 약 380줄 목표 (130줄 절감). 단 사용자 명시(\"엄격한 ≤390 가드 필수 아님, 비효율적이면 분리\")에 따라 라인 수 자체보다 구조적 효율성에 가중치.\n\n**근거**: Explore 분석에서 4개 비효율 영역 식별 — Zustand selector 산재(13개 useStore() 호출), binding hook 5개 순환 의존성, FileTreePanel 21개 props drilling, Claude consent 레거시(60줄)이 App 루트에 인라인. 모두 응집도 높은 동작 단위로 자연 분리 경계 존재. 추출 후 각 hook은 단위 테스트 가능하고 AppShell은 wiring 컴포넌트로 회귀.\n\n**구현 경로**:\n1. `app/hooks/useClaudeConsentDialog.ts` 신규 — pendingClaudeConsentRef + claudeConsentRequest + claudeConsentDontAskAgain 상태 + IPC 구독 useEffect + completeClaudeConsentRequest 핸들러를 단일 hook으로. 반환: `{ request, dontAskAgain, complete, dismiss }`.\n2. `app/hooks/useAppShellState.ts` 신규 — 13개 useStore() 호출을 한 번에 묶어 안정적 selector(zustand selector stability pattern, pattern-zustand-selector-stability.md 참조)로 반환.\n3. `app/hooks/useAppShellBindings.ts` 신규 — editorBindings/appCommands/explorerBindings/sourceControlBindings/resizeBindings 5개 hook의 순환 의존성을 명시적 순서로 통합. 반환: 각 binding 객체 + 통합 keybinding registry.\n4. `app/FileTreePanelContainer.tsx` 신규 — 21개 props drilling 래핑. 자체적으로 explorer/sourceControl bindings를 hook으로 직접 가져와 FileTreePanel에 매핑.\n5. AppShell.tsx 본문은 위 4개 단위를 호출하고 part 레이아웃 조립만 담당. JSX 가독성 회복.\n\n**Fixture 의무**:\n- 각 신규 hook 단위 테스트 (`useClaudeConsentDialog.test.ts` 등) — IPC mock으로 request/complete/dismiss 흐름 검증.\n- AppShell.tsx 라인 수 검증 unit test (현재 acceptance 약 ≤400, 사용자 의도에 따라 strict gate 아님).\n- 기존 system smoke 11/11 회귀 없음 검증.\n\n**기각된 대안**:\n- *추출 0건, 라인 수 가드만 완화*: 기각. 사용자 명시 \"비효율적으로 라인이 많은 경우에는 분리할 필요\". 4개 영역 모두 비효율 근거가 explore 분석에 있음 — 분리 회피하면 Plan #35식 wiring 누적이 다음 사이클에 재발.\n- *useClaudeConsentDialog만 추출 (60줄 절감)*: 기각. 가장 큰 단일 영역이지만 다른 3개(state/bindings/FileTreePanel drilling)는 그대로 누적. ROI 낮음.\n- *모든 영역을 단일 거대 hook(`useAppShell()`)으로 추출*: 기각. 책임 단위가 4개로 분리 가능하므로 단일 hook은 응집도 회복 효과 없음. 테스트 격리성도 손실.\n- *서비스 레이어로 끌어올리기 (예: AppShellService)*: 기각. AppShell은 wiring/조립 책임이고 service는 도메인 책임. 새 service 도입은 design-architecture.md의 8개 service 경계 원칙 흔들림. hook 추출이 정확한 단위.\n\n**폴더 구조 안정성**: 기존 `app/` 디렉토리 내에 `app/hooks/` 서브디렉토리 신설 + `app/FileTreePanelContainer.tsx` 추가. parts/services/components 외곽 경계는 그대로 유지. hook은 React 관습대로 `app/hooks/` 내부에 정리. 새 디렉토리 1개(`app/hooks/`) 추가 — 명시적 합리성: React 관습."
+          },
+          {
+            "id": 4,
+            "title": "I4: tearOffActiveTabToFloating dead method 제거 (IEditorGroupsService 인터페이스/구현/테스트)",
+            "status": "decided",
+            "decision": "**Selected**: `IEditorGroupsService.tearOffActiveTabToFloating` 인터페이스 시그니처(line 129) + 구현(line 596+) + 관련 단위 테스트 항목 모두 제거. dock-layout-runtime 등 system smoke에 잔존하는 호출이 있으면 함께 정리.\n\n**근거**: Plan #35 I6 결정에서 popout/floating window 기능을 완전 제거했지만 service interface의 tearOffActiveTabToFloating 메서드는 잔존해 dead method 상태. 모든 호출처(commands.ts, useAppCommands.ts, tab-context-menu.tsx, AppShell.tsx prop drilling)는 Plan #35 T3에서 이미 제거됨 — interface와 구현만 남음. 시간이 지나면 잘못된 재도입(재추가) 또는 회귀 위험. v0.2에서 VSCode \"Move into New Window\"로 재도입 시점에는 BrowserWindow 기반 별 명령으로 새로 도입하므로 본 메서드 시그니처를 재활용하지 않음.\n\n**구현 경로**:\n1. editor-groups-service.ts:129 인터페이스 메서드 시그니처 제거.\n2. editor-groups-service.ts:596+ 구현 본체 제거.\n3. editor-groups-service.test.ts에서 tearOffActiveTabToFloating 단언 검색 후 모두 제거.\n4. services.contract.test.ts에서 contract 검증 항목 제거.\n5. dock-layout-runtime 등 system smoke가 호출하면 제거.\n6. grep 'tearOff' 검색 결과 0건 확인 (컴파일 통과).\n\n**Fixture 의무**:\n- 컴파일 통과(타입 검사) + 기존 unit/contract 테스트 회귀 없음 검증.\n- 별도 신규 fixture 불필요(삭제 작업).\n\n**기각된 대안**:\n- *유지하되 deprecated 마크*: 기각. v0.2 재도입은 다른 시그니처(BrowserWindow 기반)로 가므로 본 메서드 재사용 불가. deprecated 마크는 dead code 누적만 가속.\n- *사용자가 명시 후속조치였으므로 단순 제거 + 별 task 분리*: 채택(기본). 단 작은 작업이라 단일 task로 충분.\n- *제거하지 않고 v0.2까지 유보*: 기각. v0.2 작업은 BrowserWindow 기반 신규 메서드 도입이므로 본 메서드는 재사용 안 됨 → dead code로 영구 잔존 위험.\n\n**폴더 구조 안정성**: 변경 없음. 단일 파일 + 테스트만 수정."
+          },
+          {
+            "id": 5,
+            "title": "I5: Plan #35 retrospective 작성 — empirical-plan35 형식 대신 장기 참고 자료 적합도 평가 후 결정",
+            "status": "decided",
+            "decision": "**Selected**: empirical-plan35 retrospective는 작성하지 않음. 대신 Plan #35 사이클에서 추출한 reusable 교훈을 timeless **pattern 문서 1건**(`pattern-cycle-acceptance-gate.md`)으로 작성. 사이클 구체 메타데이터(완료 시각, task 수, system smoke 결과 수치)는 history.json이 이미 보유.\n\n**근거**: I1 결정에서 empirical-* 회고 6개 모두 제거 — empirical-plan35.md 신규 작성은 동일 결정과 모순. 사용자의 두 의도 결합:\n1. \"memory는 timeless reference만\"\n2. \"Plan #35 retrospective 작성 (cycle length, bounded pass, system smoke 결과)\"\n\n해소: 사이클별 회고를 timeless pattern으로 *변환*. Plan #34에서 발생한 \"AppShell 387줄(target 250-300 미달)\" + Plan #35 \"AppShell 509줄(acceptance ≤390 위반)\"의 **반복 패턴**은 단일 사이클 사실이 아니라 acceptance gate 운용 원칙이라는 timeless 가치가 있음 — 이를 pattern으로 정리.\n\n**작성 대상 (pattern-cycle-acceptance-gate.md)**:\n- 라인 수 acceptance gate 운용 원칙: \"엄격한 라인 수 가드는 wiring 자연 증가를 막지 않는다 — 비효율 영역 식별이 우선.\"\n- bounded pass 회피 패턴: 사이클 종료 단계에서 acceptance를 약화시키는 결정의 트레이드오프(작업량 vs 결정 충실).\n- HOW agent + system smoke fixture 동반 의무가 layout-critical 작업에서 어떻게 비용 vs 안전을 균형 잡는지.\n- Plan #34/#35 두 사례 인용(파일은 삭제되지만 history.json에서 추적 가능, 패턴 본문에는 일반화된 원칙만).\n\n사이클 구체 수치(예: Plan #35 11/11 시스템 스모크 통과)는 history.json이 보유 — 별도 amend 불필요.\n\n**기각된 대안**:\n- *empirical-plan35-retrospective.md 표준 형식으로 작성*: 기각. I1 결정과 직접 모순. memory 디렉토리 정책 위반.\n- *retrospective 작성 자체를 생략*: 기각. 사용자 명시 \"Plan #35 retrospective 작성\"을 무시. 또한 Plan #34에서 식별된 bounded pass 패턴이 Plan #35에서 재발했는데도 학습 자산을 만들지 않으면 Plan #36/#37에서 재반복.\n- *history.json 본문에 retrospective 텍스트 amend*: 기각. history.json은 자동 생성 산출물 — 수동 amend는 추적성 깨짐, 다음 사이클에서 history 재작성 시 손실.\n- *pattern 1개 + 별도 cycle-summary 짧게 .nexus/state/ 등에 작성*: 기각. .nexus/state/는 운영 상태 영역으로 회고 부적합. pattern 단일 파일이 가장 깔끔.\n- *여러 pattern으로 분할 (예: pattern-bounded-pass + pattern-line-count-gate + pattern-fixture-coverage)*: 기각. 본 사이클 후속조치 범위가 작아 단일 pattern 파일로 통합이 적절. 향후 추가 사례 누적 시 분할.\n\n**폴더 구조 안정성**: 신규 파일 1개만 추가 (`/Users/kih/workspaces/areas/nexus-code/.nexus/memory/pattern-cycle-acceptance-gate.md`). 기존 디렉토리 구조 영향 없음."
+          }
+        ],
+        "research_summary": "## Research Done\n\n### VSCode 에디터 그룹 동작 (researcher 1차 자료, microsoft/vscode 직접 인용)\n- `closeEmptyGroups: true` (DEFAULT_EDITOR_PART_OPTIONS in editor.ts) — 마지막 탭 닫히면 그룹 자동 제거.\n- `editorPart.removeGroup()`에 `if (this.count === 1) return` guard — 마지막 그룹 1개는 항상 유지.\n- `splitEditor()`가 빈 그룹에서 `if (!resolvedContext.groupedEditors.length) return` early return → 빈 그룹에서 split 명령은 no-op.\n- splitSizing 기본값 \"auto\": 첫 split은 균등 분배, 이후 활성 그룹 절반 분할. 또는 \"distribute\"/\"split\" 명시 가능.\n- split 명령은 현재 활성 파일을 새 그룹에도 **복제 오픈**(empty split 아님). issue #30168에서 empty split feature request는 closed/duplicate.\n- drag-move 후 소스가 비면 `if (sourceView.isEmpty && !sourceView.disposed) removeGroup(sourceView, true)`. 자동 제거.\n- closeEmptyGroups: false 시 빈 그룹은 EditorGroupWatermark 컴포넌트로 placeholder 표시(더블클릭으로 untitled 파일 오픈).\n\n### 우리 현재 상태 (editor-groups-service.ts:148-153, 942-945 직접 검증)\n- `tabSetEnableDeleteWhenEmpty: false` 두 곳에 명시 → flexlayout이 빈 TabSet을 제거하지 않음 → 사용자 스크린샷의 빈 pane 발생.\n- 마지막 TabSet 보존 guard 없음 → tabSetEnableDeleteWhenEmpty:true로 단순 변경 시 모든 TabSet이 사라질 수 있는 위험.\n- splitEditor 빈 그룹 no-op 처리 없음, split-with-replicate 동작도 미확인.\n- splitSizing: 명시 안 됨 (flexlayout 기본 = 절반 분할 추정).\n\n### .nexus/memory/ 분류 (Explore 직접 ls + 30개 파일 식별)\n- **REMOVE 6개** (empirical-*-retrospective.md): m3-handover, m3plus1, phase-a, plan33-vscode-superhost, plan34-workbench-skeleton, previous-tauri. 사이클 회고는 history.json에 동등 정보 보유.\n- **KEEP 24개**: external-* (12개 외부 라이브러리/프로젝트 참고 자료), pattern-* (12개 재사용 가능한 아키텍처/프로세스 패턴). 모두 timeless reference.\n\n### AppShell.tsx 509줄 구조 비효율 분석 (Explore 직접 인용)\n4개 추출 영역 식별, 130줄 절감 가능 (509 → ~379줄):\n- `useClaudeConsentDialog()` hook (~60줄): pendingClaudeConsentRef + claudeConsentRequest + claudeConsentDontAskAgain + useEffect 구독/정리 + completeClaudeConsentRequest 핸들러를 단일 hook으로.\n- `useAppShellState()` hook (~30줄): 13개 useStore() 호출 산재를 단일 hook으로 추상화.\n- `useAppShellBindings()` hook (~25줄): editorBindings/appCommands/explorerBindings/sourceControlBindings/resizeBindings 5개 hook의 순환 의존성을 통합 초기화.\n- `<FileTreePanelContainer />` sub-component (~15줄): 21개 props drilling 래핑.\n원인: Zustand selector 산재 + binding hook 순환 의존 + props drilling + Claude consent 레거시.\n\n### Plan #35 검토 결과 (이전 단계 검증)\n- 27/27 task completed, 단일 commit b135507, +15668/-2844 lines.\n- ✅ I1~I7 모두 코드/fixture 들어감.\n- ⚠️ tearOffActiveTabToFloating은 IEditorGroupsService 인터페이스(line 129)와 구현(line 596)에 잔존 (호출처는 제거됨, dead method).\n- ⚠️ AppShell.tsx 509줄 (Plan #35 acceptance \"≤390\" 위반, +119줄 — 단 사용자가 \"엄격히 지킬 필요 없음\"으로 완화).\n- ⚠️ Plan #35 retrospective 미작성.\n\n### 결정 가능성\n모든 결정 영역에 대해 1차 자료 + 코드 검증 충분. 추가 HOW spawning 없이 Lead 직접 결정 가능 — 단 I2(VSCode 팬 분할)는 매우 중요하므로 결정 시 deliberation 명시 충실하게 기록.",
+        "created_at": "2026-04-29T15:06:01.561Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": ".nexus/memory/ empirical-* retro 6개 삭제",
+          "status": "completed",
+          "context": "I1 결정: memory 디렉토리는 timeless reference만 보유. empirical-*-retrospective.md 6개는 사이클 메타데이터를 history.json이 동등 보유하므로 중복.",
+          "acceptance": "- ls .nexus/memory/ 결과 24개 (empirical-* 0건).\n- external-* 12개 + pattern-* 12개 모두 보존.\n- git status로 deletion 6건 확인.\n- bun run lint 또는 markdown link checker 깨진 cross-link 없음 (다른 컨텍스트 문서가 empirical-*를 참조하지 않는지 확인).",
+          "approach": "아래 6개 파일을 git 추적 상태로 삭제 (rm 또는 git rm):\n1. .nexus/memory/empirical-m3-handover-retrospective.md\n2. .nexus/memory/empirical-m3plus1-retrospective.md\n3. .nexus/memory/empirical-phase-a-retrospective.md\n4. .nexus/memory/empirical-plan33-vscode-superhost-retrospective.md\n5. .nexus/memory/empirical-plan34-workbench-skeleton-retrospective.md\n6. .nexus/memory/empirical-previous-tauri-retrospective.md\nexternal-* 12개와 pattern-* 12개는 보존.",
+          "risk": ".nexus/context/ 또는 다른 memory 파일에서 empirical-*를 cross-reference하고 있을 가능성. 삭제 전 grep으로 참조 검색 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-04-29T15:10:10.838Z"
+        },
+        {
+          "id": 2,
+          "title": "VSCode 팬 분할 5종 동작 통합 (model + guard + no-op + replicate + auto sizing)",
+          "status": "completed",
+          "context": "I2 결정: VSCode editorPart.ts/editorCommands.ts 1차 자료 기준 5종 동작 모두 도입. 현재 tabSetEnableDeleteWhenEmpty:false가 사용자 스크린샷 빈 pane을 직접 야기.",
+          "acceptance": "- DEFAULT_EDITOR_GROUPS_GLOBAL과 createInitialModel 두 곳 모두 tabSetEnableDeleteWhenEmpty: true.\n- 마지막 TabSet 보존 guard 동작 (DELETE_TABSET을 last 1 TabSet에서 swallow).\n- 빈 그룹에 splitGroup 호출 시 null 반환.\n- split 명령이 활성 탭을 새 그룹에 복제(move 아닌 duplicate).\n- splitSizing auto 모드 (hasUserResizedSplitter false → 균등, true → 절반).\n- editor-groups-service.test.ts unit 신규 4개 시나리오 통과.",
+          "approach": "1) editor-groups-service.ts:148-153, 942-945 두 곳의 `tabSetEnableDeleteWhenEmpty: false`를 `true`로 변경.\n2) 마지막 TabSet 보존 guard: EditorGroupsPart의 handleAction에서 Action.DELETE_TABSET 인터셉트 — model.visitNodes로 isTabSetNode 카운트 ≤1이면 action을 swallow(return undefined). 동일 guard를 service.closeTab의 마지막 탭 닫기 경로에도 추가(이중 보호).\n3) splitGroup 빈 그룹 no-op: services/editor-groups-service.ts splitGroup 입구에서 sourceGroup.tabs.length===0 시 null 반환. dropExternalPayload에서도 동일.\n4) split 명령 활성 파일 복제: splitGroup이 기존엔 활성 탭 이동(moveNode), 이를 **신규 탭 생성 + openTab(newGroupId, duplicatedTab)** 패턴으로 변경. 동일 path/sessionId의 EditorTab을 새 그룹에 추가. dirty 상태는 활성 탭 유지(복제는 새 탭이지만 동일 도큐먼트 view).\n5) splitSizing \"auto\": service에 hasUserResizedSplitter 상태 추가. flexlayout RESIZE action을 사용자 splitter mousedown 직후에만 set true(코드 호출 RESIZE는 무시 — origin 식별). split 시 (a) hasUserResizedSplitter=false → 모든 형제 weight 균등(distribute), (b) true → 활성 그룹 weight를 절반으로(split mode).",
+          "risk": "splitSizing auto의 origin 식별 — flexlayout RESIZE action이 코드 호출과 user drag를 구분 못 하면 모드 전환이 의도와 다르게 됨. mousedown 이벤트 기반 추적 권장. 빈 마지막 그룹 layoutSnapshot deserialize 시 fallback 정책 필요(빈 그룹이 직렬화 깨짐).",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9ce-ceb9-74c3-8816-feabf0a0942b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:10:31.126Z"
+        },
+        {
+          "id": 3,
+          "title": "빈 그룹 placeholder UI 컴포넌트 (마지막 1개 빈 그룹용)",
+          "status": "completed",
+          "context": "I2 결정: 마지막 TabSet 보존 guard로 인해 \"빈 그룹 1개\" 상태가 발생할 수 있음. VSCode EditorGroupWatermark 동등 placeholder 필요.",
+          "acceptance": "- empty-group-placeholder.tsx 신규 컴포넌트 export.\n- 마지막 빈 그룹에서 placeholder가 표시됨.\n- 시각: 중앙 정렬 hint + muted-foreground 색.\n- a11y: role/aria-label 정확.\n- 단위 테스트 (EmptyGroupPlaceholder.test.tsx).",
+          "approach": "parts/editor-groups/empty-group-placeholder.tsx 신규 컴포넌트.\n- 빈 그룹의 EditorPane이 활성 탭 없을 때 mount.\n- 컨텐츠: 짧은 hint text + ⌘P 단축키 안내 (예: \"Drop a file or press ⌘P to open\").\n- 더블클릭 시 새 untitled 파일 또는 명령 팔레트 열기 (단순 hint만 v0.1, action은 v0.2).\n- 디자인 토큰: bg-background, text-muted-foreground, h-full flex items-center justify-center.\n- a11y: role=\"region\", aria-label=\"Empty editor group — drop file to open\".\nEditorPane 또는 EditorGroupsPart의 factory에서 활성 탭이 없으면 EmptyGroupPlaceholder 렌더.",
+          "risk": "EditorPane이 content-only로 단순화된 후 빈 상태 분기가 단순 hidden으로 처리됐을 수 있음 — placeholder 마운트 위치 조정 필요. design-components.md의 empty state 정책과 정합 확인.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9ce-ceb9-74c3-8816-feabf0a0942b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:10:41.989Z"
+        },
+        {
+          "id": 4,
+          "title": "editor-empty-group-policy-runtime fixture + workspace-layout-persist 갱신",
+          "status": "completed",
+          "context": "I2 검증: VSCode 동작 5종 (auto-delete, last guard, no-op, replicate, auto sizing) + placeholder.",
+          "acceptance": "- editor-empty-group-policy-runtime.test.ts 6개 시나리오 모두 통과.\n- workspace-layout-persist-runtime 갱신 후 빈 마지막 그룹 round-trip 검증 통과.\n- 기존 editor-split-fill-runtime 갱신: \"마지막 1개 빈 그룹은 정상\" acceptance 추가.\n- bun run system-smoke 모두 통과.",
+          "approach": "신규 system smoke editor-empty-group-policy-runtime.entry/.test:\n1) 3-pane 상태 (left/center/right 각 1탭) → center 마지막 탭 닫음 → center 그룹 사라지고 left+right 2-pane 재배치 verify.\n2) 모든 탭 닫음 → 1 그룹 남고 placeholder 표시 verify.\n3) 빈 그룹에 splitGroup 호출 → null + 모델 변경 없음 verify.\n4) split 명령 → 활성 탭이 새 그룹에 복제(같은 path가 두 그룹에 존재) verify.\n5) splitSizing auto 모드 — 첫 split 균등 / splitter resize 1회 후 다음 split은 절반.\n6) workspace-layout-persist-runtime: 빈 마지막 그룹 직렬화/역직렬화 round-trip + 빈 layout fallback 정책.",
+          "risk": "jsdom DragEvent 합성과 동일하게 splitter mousedown 합성도 timing 의존. Electron renderer fixture에서 실제 mousedown 디스패치 권장.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019dd9e4-5266-74c2-88e7-b12c8e916841",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:10:52.640Z"
+        },
+        {
+          "id": 5,
+          "title": "useClaudeConsentDialog hook 추출 + unit test",
+          "status": "completed",
+          "context": "I3 결정: AppShell.tsx의 Claude consent 레거시 (~60줄)를 단일 hook으로 추출. pendingClaudeConsentRef + claudeConsentRequest + claudeConsentDontAskAgain 상태 + IPC 구독 useEffect + completeClaudeConsentRequest 핸들러.",
+          "acceptance": "- app/hooks/useClaudeConsentDialog.ts export됨.\n- 반환 인터페이스 { request, dontAskAgain, complete, dismiss }.\n- IPC 구독 useEffect 내부 처리 + cleanup.\n- useClaudeConsentDialog.test.ts 시나리오 ≥3개 통과 (request 수신, complete, dismiss).\n- AppShell.tsx에서 60줄+ 감소.",
+          "approach": "신규 packages/app/src/renderer/app/hooks/useClaudeConsentDialog.ts. 반환: { request, dontAskAgain, complete, dismiss }. 내부에서 IPC 채널 구독 (useEffect), 상태 관리, completeClaudeConsentRequest 핸들러를 모두 캡슐화. AppShell.tsx에서는 const consent = useClaudeConsentDialog() 호출 후 ConsentDialog props로만 전달.\n신규 unit test useClaudeConsentDialog.test.ts: IPC mock으로 request 수신 → dialog open → complete 호출 → IPC reply 검증.",
+          "risk": "기존 IPC 채널/타입이 정확히 어떻게 정의됐는지 코드 확인 후 hook 캡슐화. claude consent 응답이 dontAskAgain 상태 보존을 요구하면 hook 내부에서 영속화 정책 필요.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9cf-0b24-76d0-ab8c-ecf77238cac9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:11:08.606Z"
+        },
+        {
+          "id": 6,
+          "title": "useAppShellState hook 추출 (13개 useStore selector 통합)",
+          "status": "completed",
+          "context": "I3 결정: AppShell.tsx의 13개 useStore() 호출 산재(~30줄)를 단일 hook으로 통합. zustand selector stability pattern 적용.",
+          "acceptance": "- app/hooks/useAppShellState.ts export됨.\n- 반환 객체에 13개 상태 모두 포함.\n- selector 안정성 (동일 입력에 동일 참조 반환).\n- useAppShellState.test.ts 시나리오 ≥4개 통과.\n- AppShell.tsx에서 30줄+ 감소.",
+          "approach": "신규 app/hooks/useAppShellState.ts. 13개 useStore() 호출을 캡슐화하고 안정 selector(useShallow 또는 selector 함수 분리)로 반환. 반환 객체는 한 번 정의된 평탄한 record로, AppShell이 destructure로 즉시 사용.\npattern-zustand-selector-stability.md 참조해 selector 안정성 보장. memoization은 selector 레벨에서 처리.\n신규 unit test useAppShellState.test.ts: store mock으로 모든 슬라이스 변경에 따른 반환값 변화 검증.",
+          "risk": "selector 안정성 미흡 시 매 렌더 새 객체 → infinite loop. zustand 5.0.12의 useShallow 또는 직접 비교 selector 사용. Plan #33 retro의 getSnapshot 사고 재발 방지.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9cf-0b24-76d0-ab8c-ecf77238cac9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:11:18.017Z"
+        },
+        {
+          "id": 7,
+          "title": "useAppShellBindings hook 추출 (5개 binding hook 통합)",
+          "status": "completed",
+          "context": "I3 결정: editorBindings/appCommands/explorerBindings/sourceControlBindings/resizeBindings 5개 hook의 순환 의존성을 명시 순서로 통합 초기화 (~25줄 절감).",
+          "acceptance": "- app/hooks/useAppShellBindings.ts export됨.\n- 5개 binding hook 명시 순서 호출.\n- 각 binding 객체 + 통합 keybinding registry 반환.\n- useAppShellBindings.test.ts 시나리오 ≥3개 통과.\n- AppShell.tsx에서 25줄+ 감소.",
+          "approach": "신규 app/hooks/useAppShellBindings.ts. 내부에서 5개 binding hook을 명시적 순서(editorBindings → appCommands → explorerBindings → sourceControlBindings → resizeBindings)로 호출. 각 hook의 deps를 명확화하고 순환 참조 검출 가능하게.\n반환: { editorBindings, appCommands, explorerBindings, sourceControlBindings, resizeBindings, keybindingRegistry }.\n신규 unit test useAppShellBindings.test.ts: mock services로 각 binding이 정확한 순서로 호출되고 prop 흐름이 끊김 없는지 검증.",
+          "risk": "기존 hook 간 prop 의존성이 복잡하면 통합 시 prop 누락 가능. 통합 전 각 hook의 deps를 정확히 매핑.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9cf-0b24-76d0-ab8c-ecf77238cac9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:11:25.909Z"
+        },
+        {
+          "id": 8,
+          "title": "FileTreePanelContainer sub-component 추출 (21개 props drilling 래핑)",
+          "status": "completed",
+          "context": "I3 결정: AppShell이 FileTreePanel에 21개 props를 일일이 매핑하는 drilling 영역 (~15줄)을 컨테이너 컴포넌트로 캡슐화.",
+          "acceptance": "- app/FileTreePanelContainer.tsx export됨.\n- AppShell에서 21개 props drilling 코드 제거.\n- 컨테이너가 자체적으로 explorerBindings/sourceControlBindings 호출.\n- FileTreePanelContainer.test.tsx 시나리오 ≥2개 통과.\n- AppShell.tsx에서 15줄+ 감소.",
+          "approach": "신규 app/FileTreePanelContainer.tsx. AppShell이 explorerBindings/sourceControlBindings/git 상태 등을 prop으로 넘기지 않고, 컨테이너가 직접 hook으로 가져와 FileTreePanel에 매핑.\nAppShell.tsx에서는 <FileTreePanelContainer workspace={…} /> 호출만.\n신규 unit test FileTreePanelContainer.test.tsx: mock으로 props가 정확히 매핑되는지 verify.",
+          "risk": "explorerBindings/sourceControlBindings를 컨테이너에서 다시 호출하면 instance가 두 번 생기는지 확인 — useAppShellBindings가 single source가 되도록 컨테이너는 거기서 가져와야 함. props로 받거나 context로 처리.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9cf-0b24-76d0-ab8c-ecf77238cac9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:11:33.205Z"
+        },
+        {
+          "id": 9,
+          "title": "AppShell.tsx 본문 정리 + 회귀 검증 (4개 추출 통합)",
+          "status": "completed",
+          "context": "I3 마감 task: T5~T8에서 추출한 4개 단위를 AppShell.tsx에 통합하고 본문을 part 레이아웃 조립으로 단순화. 동일 파일 sequential edit이라 lead 담당.",
+          "acceptance": "- AppShell.tsx 라인 수 ≤ 400 목표(엄격 가드 아님, 사용자 명시 완화).\n- 4개 추출 단위가 모두 사용됨 (grep으로 import 검증).\n- 기존 system smoke 11/11 → 회귀 없음.\n- App.test.tsx 통합 회귀 없음.\n- bun run lint:renderer 통과.",
+          "approach": "1) AppShell.tsx에서 useClaudeConsentDialog 호출로 Claude consent 60줄+ 제거.\n2) useAppShellState 호출로 13개 useStore() 콜 제거.\n3) useAppShellBindings 호출로 5개 binding hook 콜 제거.\n4) <FileTreePanelContainer/> 마운트로 21개 props drilling 제거.\n5) JSX 본문은 part 레이아웃(TitleBarPart + ActivityBarPart + SideBarPart + EditorGroupsPart + StatusBarPart + BottomPanelPart) 조립만 남김.\n6) 기존 system smoke 회귀 없는지 verify.",
+          "risk": "4개 추출이 동시에 들어오면서 JSX deps 매핑 누락 가능. 단계적 통합(T5만 → T6 추가 → ...) 권장. 라인 수 ≤400 미달성도 사용자 의도(\"비효율이면 분리\")를 만족하면 수용.",
+          "plan_issue": 3,
+          "deps": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-04-29T15:11:50.277Z"
+        },
+        {
+          "id": 10,
+          "title": "tearOffActiveTabToFloating dead method 일괄 제거",
+          "status": "completed",
+          "context": "I4 결정: Plan #35 I6에서 popout/floating window 기능은 제거됐으나 IEditorGroupsService.tearOffActiveTabToFloating 인터페이스/구현이 잔존(line 129, 596). 호출처는 모두 제거된 dead method.",
+          "acceptance": "- IEditorGroupsService에서 tearOffActiveTabToFloating 시그니처 부재.\n- 구현 본체 제거됨.\n- grep -r 'tearOff' packages/app/src 결과 0건.\n- bun run typecheck + lint:renderer 통과.\n- editor-groups-service.test.ts + services.contract.test.ts 회귀 없음.",
+          "approach": "1) editor-groups-service.ts:129 인터페이스 메서드 시그니처 제거.\n2) editor-groups-service.ts:596+ 구현 본체 제거.\n3) editor-groups-service.test.ts에서 tearOffActiveTabToFloating 단언 검색 후 제거.\n4) services.contract.test.ts에서 contract 검증 항목 제거.\n5) dock-layout-runtime/floating 등 system smoke에 잔존 호출 있으면 제거.\n6) grep -r 'tearOff' 검색으로 0건 확인 + bun run typecheck 통과.",
+          "risk": "단언이 dock-layout-runtime fixture 등 예상 외 위치에 있을 수 있음. grep -r로 모든 호출처 사전 식별 필수.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019dd9e0-7243-7610-a082-4aa30a0e8fd5",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:11:59.550Z"
+        },
+        {
+          "id": 11,
+          "title": "pattern-cycle-acceptance-gate.md 작성",
+          "status": "completed",
+          "context": "I5 결정: empirical-plan35는 작성하지 않음(I1과 모순). 대신 Plan #34/#35에서 반복된 acceptance gate 운용 패턴을 timeless pattern 문서로 변환.",
+          "acceptance": "- .nexus/memory/pattern-cycle-acceptance-gate.md 신규 파일.\n- 6개 섹션(Problem/Pattern/Trade-offs/Fixture obligation/Examples/Counter-pattern) 포함.\n- Plan #34/#35 specific 사례 → 일반화된 원칙으로 추출(특정 line number/timestamp 직접 인용 ✕).\n- 다른 pattern-*.md와의 cross-link 유효 (특히 pattern-zustand-selector-stability.md, pattern-test-layout-decision.md).\n- markdown link checker 통과.",
+          "approach": "신규 .nexus/memory/pattern-cycle-acceptance-gate.md. 구조:\n1) **Problem**: 사이클별 acceptance gate(예: AppShell 라인 수 ≤390)가 wiring 자연 증가를 막지 않음. Plan #34는 387줄(target 250-300 미달), Plan #35는 509줄(acceptance ≤390 위반) 반복 패턴.\n2) **Pattern**: acceptance gate를 \"라인 수 자체\"가 아닌 \"비효율 영역 식별\"로 운용. wiring 누적은 자연이지만 비효율 영역(props drilling, selector 산재, 순환 binding 등)은 hook/sub-component 추출로 해소.\n3) **Trade-offs**: 사이클 종료 단계에서 acceptance를 약화시키는 결정의 비용(작업량 절감) vs 다음 사이클 부채(wiring 누적, 동일 패턴 재발).\n4) **HOW + system smoke fixture 동반 의무**: layout-critical 작업에서 fixture 의무가 어떻게 안전망 역할을 하는지 (Plan #35 I1 D&D split, I4 터미널 dock 사례).\n5) **Cycle examples**: Plan #34/#35 일반화된 인용. 특정 task ID나 timestamp 인용은 history.json으로 위임.\n6) **Counter-pattern (anti-pattern)**: bounded pass — 사이클 종료 임박 시 acceptance를 완화하면 다음 사이클에서 동일 영역이 다시 부풀음.\n사용자 의도: 단기 사이클 회고 대신 timeless reference로 변환.",
+          "risk": "Plan #34/#35 사례를 너무 specific하게 인용하면 사이클 회고로 회귀(I1 정책 위반). \"일반화 후 history.json 참조\" 원칙 강조 필요.",
+          "plan_issue": 5,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "writer",
+            "agent_id": "019dd9e5-a40e-7551-8d87-b3c36a43e32c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:12:17.936Z"
+        },
+        {
+          "id": 12,
+          "title": "pattern-cycle-acceptance-gate.md reviewer 검증",
+          "status": "completed",
+          "context": "T11의 pattern 문서가 timeless reference 원칙(I1)에 부합하고 다른 memory 자료와 일관성 있는지 검증.",
+          "acceptance": "- pattern-cycle-acceptance-gate.md 검증 완료 보고.\n- timeless 원칙 준수 verify.\n- cross-link 깨짐 0건.\n- 발견 issue 0건 또는 수정 사항 list 제공.",
+          "approach": "검증 항목:\n1) 본문이 sicycle-specific 사실(특정 plan id, task id, timestamp) 직접 인용하지 않음 (timeless 원칙).\n2) 6개 섹션 모두 존재 + 응집도.\n3) cross-link 유효 (pattern-zustand-selector-stability.md, pattern-test-layout-decision.md 등).\n4) markdown 문법 정상.\n5) memory 디렉토리 다른 pattern-*와 톤/구조 일관 (간결한 problem/pattern/trade-off 형식).\n6) I1 정책(empirical 회고 미작성)과 모순 없음.\n이슈 발견 시 명확한 수정 사항 list로 writer에게 피드백.",
+          "risk": "writer가 cycle-specific 사실을 인용해 사실상 empirical 회고가 됐을 가능성 — 발견 시 reword 요청.",
+          "plan_issue": 5,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019dd9e8-4462-7722-abda-f43029ea8cc2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-04-29T15:12:26.422Z"
+        }
+      ]
     }
   ]
 }

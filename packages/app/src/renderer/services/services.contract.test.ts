@@ -69,7 +69,6 @@ describe("renderer service contracts", () => {
     expect(typeof editorGroups.getState().findSpatialNeighbor).toBe("function");
     expect(typeof editorGroups.getState().dropExternalPayload).toBe("function");
     expect(typeof editorGroups.getState().attachTerminalTab).toBe("function");
-    expect(typeof editorGroups.getState().tearOffActiveTabToFloating).toBe("function");
     expect(typeof bottomPanel.getState().activateView).toBe("function");
     expect(typeof bottomPanel.getState().detachTerminalFromBottom).toBe("function");
     expect(typeof bottomPanel.getState().attachTerminalToBottom).toBe("function");

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -78,6 +78,8 @@ interface ElectronSmokeOutput {
     sourceId: string;
   }>;
 }
+
+const electronBinary = resolveElectronBinary();
 
 let viteServer: ViteDevServer | null = null;
 

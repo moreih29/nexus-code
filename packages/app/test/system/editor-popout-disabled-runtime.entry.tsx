@@ -31,7 +31,6 @@ interface EditorPopoutDisabledRuntimeSmokeResult {
     floatingWindowCount: number;
   };
   programmaticActions: {
-    tearOffResult: string | null;
     popoutTabNoop: boolean;
     createPopoutNoop: boolean;
   };
@@ -85,8 +84,6 @@ async function runSmoke(): Promise<void> {
     editorGroups.getState().openTab(DEFAULT_EDITOR_GROUP_ID, groupTab);
 
     const beforeProgrammaticActions = editorGroups.getState().serializeModel();
-    const tearOffResult = editorGroups.getState().tearOffActiveTabToFloating();
-    const afterTearOff = editorGroups.getState().serializeModel();
     const popoutTabResult = editorGroups.getState().model.doAction(Actions.popoutTab(groupTab.id, "float"));
     const afterPopoutTab = editorGroups.getState().serializeModel();
     const createPopoutResult = editorGroups.getState().model.doAction(Actions.createPopout(createBlockedPopoutLayout(), {
@@ -136,8 +133,7 @@ async function runSmoke(): Promise<void> {
       subLayoutsRemoved: snapshot.subLayouts === undefined,
     };
     const programmaticActions = {
-      tearOffResult,
-      popoutTabNoop: popoutTabResult === undefined && sameSnapshot(afterTearOff, beforeProgrammaticActions) && sameSnapshot(afterPopoutTab, beforeProgrammaticActions),
+      popoutTabNoop: popoutTabResult === undefined && sameSnapshot(afterPopoutTab, beforeProgrammaticActions),
       createPopoutNoop: createPopoutResult === undefined && sameSnapshot(afterCreatePopout, beforeProgrammaticActions),
     };
     const ok =
@@ -148,7 +144,6 @@ async function runSmoke(): Promise<void> {
       runtimeDom.mounted &&
       runtimeDom.tabPopoutIconCount === 0 &&
       runtimeDom.floatingWindowCount === 0 &&
-      programmaticActions.tearOffResult === null &&
       programmaticActions.popoutTabNoop &&
       programmaticActions.createPopoutNoop;
 
@@ -166,7 +161,6 @@ async function runSmoke(): Promise<void> {
         (!runtimeDom.mounted ? "EditorGroupsPart did not mount." : undefined) ??
         (runtimeDom.tabPopoutIconCount !== 0 ? `Found ${runtimeDom.tabPopoutIconCount} flexlayout popout icons.` : undefined) ??
         (runtimeDom.floatingWindowCount !== 0 ? `Found ${runtimeDom.floatingWindowCount} flexlayout floating windows.` : undefined) ??
-        (programmaticActions.tearOffResult !== null ? "tearOffActiveTabToFloating returned a tab id." : undefined) ??
         (!programmaticActions.popoutTabNoop ? "Actions.popoutTab changed the editor groups model." : undefined) ??
         (!programmaticActions.createPopoutNoop ? "Actions.createPopout changed the editor groups model." : undefined),
     });
@@ -248,7 +242,6 @@ function failedResult(reason: string): EditorPopoutDisabledRuntimeSmokeResult {
       floatingWindowCount: -1,
     },
     programmaticActions: {
-      tearOffResult: null,
       popoutTabNoop: false,
       createPopoutNoop: false,
     },

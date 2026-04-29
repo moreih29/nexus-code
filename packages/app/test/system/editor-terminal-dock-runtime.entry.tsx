@@ -75,7 +75,9 @@ interface EditorTerminalDockRuntimeSmokeResult {
     bottomDetachedTerminalIds: string[];
     bottomAttachedTerminalIds: string[];
     editorTerminalTabIds: string[];
+    uniqueEditorTerminalTabIds: string[];
     groupByTerminalId: Record<string, string | null>;
+    groupsByTerminalId: Record<string, string[]>;
     centerMode: string;
     activeCenterArea: CenterWorkbenchActiveArea;
   };
@@ -194,7 +196,7 @@ async function runSmoke(): Promise<void> {
     };
     const bottomPanelMovePassed =
       services.bottomPanel.getState().detachedTerminalIds.includes(TERMINAL_ALPHA_ID) &&
-      groupContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID) !== null &&
+      groupsContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID).length === 1 &&
       dependencies.terminalForSession(TERMINAL_ALPHA_ID)?.currentHostArea === "editor";
 
     const sourceGroupId = groupContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID);
@@ -210,7 +212,7 @@ async function runSmoke(): Promise<void> {
     });
 
     await waitUntil(
-      () => groupContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID) === SPLIT_GROUP_ID,
+      () => groupsContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID).includes(SPLIT_GROUP_ID),
       RESTORE_TIMEOUT_MS,
       () => `Timed out waiting for split group ${SPLIT_GROUP_ID}: ${JSON.stringify(collectDockState(services))}`,
     );
@@ -220,7 +222,9 @@ async function runSmoke(): Promise<void> {
       dockState: collectDockState(services),
       alphaTerminal: snapshotForSession(dependencies, TERMINAL_ALPHA_ID),
     };
-    const splitPassed = groupContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID) === SPLIT_GROUP_ID &&
+    const splitAlphaGroups = groupsContainingTerminal(services.editorGroups.getState().groups, TERMINAL_ALPHA_ID);
+    const splitPassed = splitAlphaGroups.includes(sourceGroupId) &&
+      splitAlphaGroups.includes(SPLIT_GROUP_ID) &&
       services.editorGroups.getState().groups.length >= 2;
 
     moveTerminalToEditorArea({
@@ -242,8 +246,8 @@ async function runSmoke(): Promise<void> {
     await waitUntil(
       () => {
         const state = collectDockState(services);
-        return state.editorTerminalTabIds.includes(TERMINAL_ALPHA_ID) &&
-          state.editorTerminalTabIds.includes(TERMINAL_BETA_ID) &&
+        return state.uniqueEditorTerminalTabIds.includes(TERMINAL_ALPHA_ID) &&
+          state.uniqueEditorTerminalTabIds.includes(TERMINAL_BETA_ID) &&
           state.bottomAttachedTerminalIds.length === 0 &&
           dependencies.terminalForSession(TERMINAL_BETA_ID)?.currentHostArea === "editor";
       },
@@ -258,7 +262,9 @@ async function runSmoke(): Promise<void> {
       betaTerminal: snapshotForSession(dependencies, TERMINAL_BETA_ID),
     };
     const twoTerminalPassed =
-      collectDockState(services).editorTerminalTabIds.sort().join(",") === [TERMINAL_ALPHA_ID, TERMINAL_BETA_ID].sort().join(",") &&
+      sameStringSet(collectDockState(services).uniqueEditorTerminalTabIds, [TERMINAL_ALPHA_ID, TERMINAL_BETA_ID]) &&
+      collectDockState(services).groupsByTerminalId[TERMINAL_ALPHA_ID]?.length === 2 &&
+      collectDockState(services).groupsByTerminalId[TERMINAL_BETA_ID]?.length === 1 &&
       collectDockState(services).bottomAttachedTerminalIds.length === 0 &&
       dependencies.terminals.length === 2;
 
@@ -502,8 +508,12 @@ function collectDockState(services: RuntimeServices): EditorTerminalDockRuntimeS
   const editorTerminalTabIds = groups.flatMap((group) =>
     group.tabs.filter((tab) => tab.kind === "terminal").map((tab) => tab.id),
   );
+  const uniqueEditorTerminalTabIds = Array.from(new Set(editorTerminalTabIds)).sort();
   const groupByTerminalId = Object.fromEntries(
     terminalTabs.map((tab) => [tab.id, groupContainingTerminal(groups, tab.id)]),
+  );
+  const groupsByTerminalId = Object.fromEntries(
+    terminalTabs.map((tab) => [tab.id, groupsContainingTerminal(groups, tab.id)]),
   );
 
   return {
@@ -512,14 +522,26 @@ function collectDockState(services: RuntimeServices): EditorTerminalDockRuntimeS
       .filter((tab) => bottomState.isTerminalAttachedToBottom(tab.id))
       .map((tab) => tab.id),
     editorTerminalTabIds,
+    uniqueEditorTerminalTabIds,
     groupByTerminalId,
+    groupsByTerminalId,
     centerMode: services.editorWorkspace.getState().centerMode,
     activeCenterArea: services.activeCenterArea,
   };
 }
 
 function groupContainingTerminal(groups: readonly EditorGroup[], sessionId: TerminalTabId): string | null {
-  return groups.find((group) => group.tabs.some((tab) => tab.kind === "terminal" && tab.id === sessionId))?.id ?? null;
+  return groupsContainingTerminal(groups, sessionId)[0] ?? null;
+}
+
+function groupsContainingTerminal(groups: readonly EditorGroup[], sessionId: TerminalTabId): string[] {
+  return groups
+    .filter((group) => group.tabs.some((tab) => tab.kind === "terminal" && tab.id === sessionId))
+    .map((group) => group.id);
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 function collectTerminalSnapshots(dependencies: RuntimeXtermDependencies): RuntimeTerminalSnapshot[] {
@@ -723,7 +745,9 @@ function failedResult(reason: string): EditorTerminalDockRuntimeSmokeResult {
       bottomDetachedTerminalIds: [],
       bottomAttachedTerminalIds: [],
       editorTerminalTabIds: [],
+      uniqueEditorTerminalTabIds: [],
       groupByTerminalId: {},
+      groupsByTerminalId: {},
       centerMode: "unknown",
       activeCenterArea: "editor",
     },

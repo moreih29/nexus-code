@@ -14,5 +14,7 @@ export type {
 } from "./EditorGroupsPart";
 export { TerminalPaneAdapter, attachTerminalPaneAdapterHost } from "./TerminalPaneAdapter";
 export type { AttachTerminalPaneAdapterHostInput, TerminalPaneAdapterProps } from "./TerminalPaneAdapter";
+export { EmptyGroupPlaceholder, shouldShowEmptyGroupPlaceholder } from "./empty-group-placeholder";
+export type { EmptyGroupPlaceholderGroup } from "./empty-group-placeholder";
 export { resolveEditorDropEdge } from "./edge-resolver";
 export type { EditorDropEdgeResolverRect, ResolveEditorDropEdgeInput } from "./edge-resolver";

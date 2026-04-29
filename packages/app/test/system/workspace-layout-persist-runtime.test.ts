@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -11,7 +11,7 @@ const SMOKE_HTML_PATH = "/test/system/workspace-layout-persist-runtime.fixture.h
 const RESULT_GLOBAL_NAME = "__nexusWorkspaceLayoutPersistRuntimeSmokeResult";
 const SMOKE_TIMEOUT_MS = 25_000;
 const CONSECUTIVE_RUNS = 5;
-const WORKSPACE_IDS = ["ws_layout_alpha", "ws_layout_beta", "ws_layout_gamma"];
+const WORKSPACE_IDS = ["ws_layout_alpha", "ws_layout_beta", "ws_layout_gamma", "ws_layout_delta_empty"];
 const WORKSPACE_STORAGE_KEYS = WORKSPACE_IDS.map((workspaceId) => `nx.layout.${workspaceId}`);
 
 interface WorkspaceLayoutPersistRuntimeSmokeResult {
@@ -73,6 +73,8 @@ interface ElectronSmokeOutput {
   }>;
 }
 
+const electronBinary = resolveElectronBinary();
+
 let viteServer: ViteDevServer | null = null;
 
 afterEach(async () => {
@@ -81,7 +83,7 @@ afterEach(async () => {
 });
 
 describe("workspace layout persistence runtime system smoke", () => {
-  test("restores three workspace-specific editor/bottom-panel layouts through Electron renderer five consecutive runs", async () => {
+  test("restores four workspace-specific editor/bottom-panel layouts through Electron renderer five consecutive runs", async () => {
     viteServer = await createServer({
       configFile: false,
       root: APP_ROOT,
@@ -133,6 +135,12 @@ describe("workspace layout persistence runtime system smoke", () => {
           bottomPanelPosition: "bottom",
           terminalInEditorArea: false,
         },
+        {
+          workspaceId: "ws_layout_delta_empty",
+          editorGroupCount: 1,
+          bottomPanelPosition: "bottom",
+          terminalInEditorArea: false,
+        },
       ]);
       expect(result?.restartPolicy).toEqual({
         workspaceId: "ws_layout_gamma",
@@ -153,8 +161,8 @@ describe("workspace layout persistence runtime system smoke", () => {
           entry.localStorageLossless;
       })).toBe(true);
       expect(result?.switchRestore.cycles).toBe(5);
-      expect(result?.switchRestore.totalSwitches).toBe(15);
-      expect(result?.switchRestore.exactRestoreCount).toBe(15);
+      expect(result?.switchRestore.totalSwitches).toBe(20);
+      expect(result?.switchRestore.exactRestoreCount).toBe(20);
       expect(result?.switchRestore.failures).toEqual([]);
       expect(result?.corruptFallback).toEqual({
         didNotThrow: true,

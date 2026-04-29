@@ -115,7 +115,6 @@ describe("App command registration", () => {
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowRight"]).toBe("editor.moveActiveTabRight");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowUp"]).toBe("editor.moveActiveTabUp");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Alt+ArrowDown"]).toBe("editor.moveActiveTabDown");
-    expect(keyboardRegistryStore.getState().getBindingFor("workbench.action.tearOffEditorToFloating")).toBeNull();
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+F"]).toBe("search.focus");
     expect(keyboardRegistryStore.getState().bindings["Cmd+Shift+H"]).toBe("search.replace");
     expect(keyboardRegistryStore.getState().bindings["Cmd+G"]).toBe("search.nextMatch");
@@ -134,7 +133,6 @@ describe("App command registration", () => {
     expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.right")).toBeNull();
     expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.top")).toBeNull();
     expect(keyboardRegistryStore.getState().getBindingFor("editor.splitToDirection.bottom")).toBeNull();
-    expect(keyboardRegistryStore.getState().commands["workbench.action.tearOffEditorToFloating"]).toBeUndefined();
 
     await keyboardRegistryStore.getState().executeCommand("editor.closeActiveTab");
     expect(activeEditorTab).toBeNull();

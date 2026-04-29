@@ -27,6 +27,7 @@ import type {
   ExternalEditorDropPayload,
 } from "../../services/editor-types";
 import { resolveEditorDropEdge } from "./edge-resolver";
+import { EmptyGroupPlaceholder, shouldShowEmptyGroupPlaceholder } from "./empty-group-placeholder";
 import { createEditorGroupsOnRenderTabAdapter } from "./onRenderTab-adapter";
 import { createEditorGroupsOnRenderTabSetAdapter } from "./onRenderTabSet-adapter";
 import { TerminalPaneAdapter } from "./TerminalPaneAdapter";
@@ -113,6 +114,7 @@ export function EditorGroupsPart({
   const [nativeDropOverlay, setNativeDropOverlay] = useState<EditorGroupsNativeDropOverlayState | null>(null);
   const panesById = useMemo(() => createPaneLookup(panes), [panes]);
   const paneIdByTabId = useMemo(() => createPaneIdByTabLookup(panes), [panes]);
+  const showEmptyGroupPlaceholder = shouldShowEmptyGroupPlaceholder(groups);
 
   const factory = useMemo(() => createEditorGroupsPartFactory({
     activeGroupId,
@@ -142,8 +144,12 @@ export function EditorGroupsPart({
 
   const handleAction = useCallback((action: Action): Action | undefined => {
     if (action.type === Actions.DELETE_TAB) {
-      const tabId = typeof action.data.node === "string" ? action.data.node : null;
-      const groupId = tabId ? model.getNodeById(tabId)?.getParent()?.getId() : null;
+      const tabNodeId = typeof action.data.node === "string" ? action.data.node : null;
+      const tabNode = tabNodeId ? model.getNodeById(tabNodeId) : null;
+      const groupId = tabNode?.getParent()?.getId() ?? null;
+      const tabId = tabNode instanceof TabNode
+        ? editorGroupTabFromFlexLayoutConfig(tabNode.getConfig())?.id ?? tabNode.getId()
+        : tabNodeId;
       if (tabId && groupId) {
         onCloseTab(groupId, tabId);
         return undefined;
@@ -151,6 +157,10 @@ export function EditorGroupsPart({
     }
 
     if (action.type === Actions.DELETE_TABSET) {
+      if (groups.length <= 1) {
+        return undefined;
+      }
+
       const groupId = typeof action.data.node === "string" ? action.data.node : null;
       const group = groupId ? groups.find((candidate) => candidate.id === groupId) : null;
       if (groupId && group) {
@@ -208,7 +218,7 @@ export function EditorGroupsPart({
 
     event.preventDefault();
     event.stopPropagation();
-    onCloseTab(groupId, node.getId());
+    onCloseTab(groupId, editorGroupTabFromFlexLayoutConfig(node.getConfig())?.id ?? node.getId());
   }, [onCloseTab]);
 
   const clearNativeDropOverlay = useCallback(() => {
@@ -352,6 +362,7 @@ export function EditorGroupsPart({
         supportsPopout={false}
         realtimeResize
       />
+      {showEmptyGroupPlaceholder ? <EmptyGroupPlaceholder /> : null}
       {nativeDropOverlay ? <EditorGroupsNativeDropOverlay overlay={nativeDropOverlay} /> : null}
     </section>
   );
@@ -385,11 +396,11 @@ export function createEditorGroupsPartFactory({
   onApplyWorkspaceEdit,
 }: EditorGroupsPartFactoryOptions): (node: TabNode) => JSX.Element {
   return (node: TabNode) => {
-    const tabId = node.getId();
+    const configTab = editorGroupTabFromFlexLayoutConfig(node.getConfig());
+    const tabId = configTab?.id ?? node.getId();
     const paneId = node.getParent()?.getId() ?? paneIdByTabId.get(tabId) ?? activePaneId;
     const pane = panesById.get(paneId) ?? createEmptyPane(paneId, tabId);
     const group = groups.find((candidate) => candidate.id === paneId) ?? null;
-    const configTab = editorGroupTabFromFlexLayoutConfig(node.getConfig());
 
     if (configTab?.kind === "terminal") {
       const active = paneId === activeGroupId && (group?.activeTabId ?? tabId) === tabId;

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import electronBinary from "electron";
+import { resolveElectronBinary } from "./electron-binary";
 import react from "@vitejs/plugin-react";
 import { createServer, type ViteDevServer } from "vite";
 
@@ -34,6 +34,17 @@ interface EditorSplitFillRuntimeSmokeResult {
   ok: boolean;
   errors: string[];
   scenarios: Record<typeof SCENARIOS[number], SplitFillScenarioResult>;
+  finalEmptyGroup: {
+    id: "final-empty";
+    status: string;
+    groupCount: number;
+    finalGroupTabCount: number | null;
+    placeholderVisible: boolean;
+    layoutFillsScenario: boolean;
+    serializedTabSetCount: number;
+    finalTabSetPreserved: boolean;
+    reason?: string;
+  };
   reason?: string;
 }
 
@@ -49,6 +60,8 @@ interface ElectronSmokeOutput {
     sourceId: string;
   }>;
 }
+
+const electronBinary = resolveElectronBinary();
 
 let viteServer: ViteDevServer | null = null;
 
@@ -96,6 +109,7 @@ describe("editor split fill runtime system smoke", () => {
           ratio: scenario.areaCoverageRatio,
           axis: scenario.axisConsistency,
         }])) : null,
+        finalEmptyGroup: result?.finalEmptyGroup,
         errors: result?.errors,
       },
     }));
@@ -124,6 +138,13 @@ describe("editor split fill runtime system smoke", () => {
     expect(result!.scenarios.vertical.axisConsistency.checked).toBe("vertical");
     expect(result!.scenarios["four-pane"].actualGroupCount).toBe(4);
     expect(result!.scenarios["six-pane"].actualGroupCount).toBe(6);
+    expect(result!.finalEmptyGroup.status).toBe("pass");
+    expect(result!.finalEmptyGroup.groupCount).toBe(1);
+    expect(result!.finalEmptyGroup.finalGroupTabCount).toBe(0);
+    expect(result!.finalEmptyGroup.placeholderVisible).toBe(true);
+    expect(result!.finalEmptyGroup.layoutFillsScenario).toBe(true);
+    expect(result!.finalEmptyGroup.serializedTabSetCount).toBe(1);
+    expect(result!.finalEmptyGroup.finalTabSetPreserved).toBe(true);
   }, SMOKE_TIMEOUT_MS + 25_000);
 });
 
