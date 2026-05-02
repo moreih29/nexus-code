@@ -3,9 +3,9 @@
 // Utility events are broadcast to all renderers.
 
 import { ipcContract } from "../../../shared/ipc-contract";
-import { register, validateArgs, broadcast } from "../router";
-import { getDefaultShell } from "../../platform/shell";
 import type { PtyHostHandle } from "../../hosts/ptyHost";
+import { getDefaultShell } from "../../platform/shell";
+import { broadcast, register, validateArgs } from "../router";
 
 const c = ipcContract.pty.call;
 

@@ -9,9 +9,13 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.shared.json && tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.utility.json",
-    "lint": "eslint src --ext ts,tsx",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check --write .",
+    "check:ci": "biome check .",
     "clean": "rm -rf out dist",
     "postinstall": "electron-rebuild -f -w node-pty,better-sqlite3",
+    "test": "bun test tests/unit tests/integration",
     "test:unit": "bun test tests/unit/",
     "test:integration": "bun test tests/integration/"
   },
@@ -32,6 +36,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.14",
     "@electron/rebuild": "^4.0.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.3",

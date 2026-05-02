@@ -2,8 +2,8 @@
 // Spawns typescript-language-server --stdio as a child process and
 // bridges JSON-RPC over stdio to the LSP manager.
 
-import { spawn, ChildProcess } from "child_process";
-import { resolve as resolvePath } from "path";
+import { type ChildProcess, spawn } from "node:child_process";
+import { resolve as resolvePath } from "node:path";
 
 // ---------------------------------------------------------------------------
 // LSP message types (minimal subset used by M0)
@@ -51,13 +51,16 @@ export class TypeScriptServer {
   private proc: ChildProcess | null = null;
   private buffer = Buffer.alloc(0);
   private nextId = 1;
-  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private pending = new Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
   private initialized = false;
   private disposed = false;
 
   constructor(
     private readonly workspaceId: string,
-    private readonly onDiagnostics: DiagnosticsCallback
+    private readonly onDiagnostics: DiagnosticsCallback,
   ) {}
 
   async start(): Promise<void> {
@@ -70,7 +73,9 @@ export class TypeScriptServer {
       env: { ...process.env },
     });
 
+    // biome-ignore lint/style/noNonNullAssertion: stdio:'pipe' guarantees stdout is non-null
     this.proc.stdout!.on("data", (chunk: Buffer) => this.onData(chunk));
+    // biome-ignore lint/style/noNonNullAssertion: stdio:'pipe' guarantees stderr is non-null
     this.proc.stderr!.on("data", (chunk: Buffer) => {
       process.stderr.write(`[lsp-ts:${this.workspaceId}] ${chunk}`);
     });
@@ -140,7 +145,7 @@ export class TypeScriptServer {
       text = (raw as { value: string }).value;
     } else if (Array.isArray(raw)) {
       text = (raw as Array<{ value?: string } | string>)
-        .map((item) => (typeof item === "string" ? item : item.value ?? ""))
+        .map((item) => (typeof item === "string" ? item : (item.value ?? "")))
         .join("\n");
     }
     return { contents: text };
@@ -171,9 +176,7 @@ export class TypeScriptServer {
       position: { line, character },
     });
     if (!result) return [];
-    const items = Array.isArray(result)
-      ? result
-      : (result as { items?: unknown[] }).items ?? [];
+    const items = Array.isArray(result) ? result : ((result as { items?: unknown[] }).items ?? []);
     return (items as Array<{ label: string; kind?: number }>).map((item) => ({
       label: item.label,
       kind: item.kind,
@@ -187,9 +190,15 @@ export class TypeScriptServer {
       try {
         this.proc.kill("SIGTERM");
         setTimeout(() => {
-          try { this.proc?.kill("SIGKILL"); } catch { /* ignore */ }
+          try {
+            this.proc?.kill("SIGKILL");
+          } catch {
+            /* ignore */
+          }
         }, 5000);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -206,6 +215,7 @@ export class TypeScriptServer {
       const id = this.nextId++;
       this.pending.set(id, { resolve, reject });
       const msg = { jsonrpc: "2.0", id, method, params };
+      // biome-ignore lint/style/noNonNullAssertion: stdio:'pipe' guarantees stdin is non-null
       this.proc.stdin!.write(encodeMessage(msg));
     });
   }
@@ -213,6 +223,7 @@ export class TypeScriptServer {
   private notify(method: string, params: unknown): void {
     if (this.disposed || !this.proc) return;
     const msg = { jsonrpc: "2.0", method, params };
+    // biome-ignore lint/style/noNonNullAssertion: stdio:'pipe' guarantees stdin is non-null
     this.proc.stdin!.write(encodeMessage(msg));
   }
 

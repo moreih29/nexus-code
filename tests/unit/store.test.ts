@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Minimal shims so Zustand can run in bun (no DOM / ipcListen needed)
@@ -28,8 +28,8 @@ if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
 // Import stores after shims
 // ---------------------------------------------------------------------------
 
-import { useTabsStore } from "../../src/renderer/store/tabs";
 import { useActiveStore } from "../../src/renderer/store/active";
+import { useTabsStore } from "../../src/renderer/store/tabs";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -18,5 +18,5 @@
  *     - Windows / Linux: follow same data dir conventions as above
  */
 
+export { getUserConfigPath, getUserDataPath, getWorkspaceStoragePath } from "./paths";
 export { getDefaultShell } from "./shell";
-export { getUserDataPath, getUserConfigPath, getWorkspaceStoragePath } from "./paths";

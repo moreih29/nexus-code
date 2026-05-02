@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 
@@ -18,7 +18,7 @@ function makeMeta(id: string): WorkspaceMeta {
   return {
     id,
     name: "my-workspace",
-    rootPath: "/tmp/ws",
+    rootPath: path.join(os.tmpdir(), "ws"),
     colorTone: "default",
     pinned: false,
     category: "DEFAULT",
@@ -111,9 +111,7 @@ describe("WorkspaceStorage.getMeta / setMeta", () => {
 
   it("setMeta throws when workspace is not open", () => {
     const other = "00000000-0000-0000-0000-000000000099";
-    expect(() => storage.setMeta(other, makeMeta(other))).toThrow(
-      "workspace storage not open"
-    );
+    expect(() => storage.setMeta(other, makeMeta(other))).toThrow("workspace storage not open");
   });
 });
 
@@ -139,8 +137,6 @@ describe("WorkspaceStorage.closeForWorkspace", () => {
   });
 
   it("closeForWorkspace on a non-open workspace is a no-op", () => {
-    expect(() =>
-      storage.closeForWorkspace("00000000-0000-0000-0000-000000000099")
-    ).not.toThrow();
+    expect(() => storage.closeForWorkspace("00000000-0000-0000-0000-000000000099")).not.toThrow();
   });
 });

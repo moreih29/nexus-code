@@ -1,9 +1,11 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // Mock electron before importing router.
 // Bun mock.module must be called before the import that uses it.
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
-const mockGetAllWebContents = mock(() => [] as { isDestroyed: () => boolean; send: (...a: unknown[]) => void }[]);
+const mockGetAllWebContents = mock(
+  () => [] as { isDestroyed: () => boolean; send: (...a: unknown[]) => void }[],
+);
 
 mock.module("electron", () => ({
   ipcMain: {
@@ -14,8 +16,8 @@ mock.module("electron", () => ({
   },
 }));
 
-import { register, setupRouter, broadcast, validateArgs } from "../../src/main/ipc/router";
 import { z } from "zod";
+import { broadcast, register, setupRouter, validateArgs } from "../../src/main/ipc/router";
 
 // Wire up the handler by calling setupRouter() once
 setupRouter();
@@ -25,7 +27,7 @@ type IpcHandler = (
   event: unknown,
   channelName: string,
   method: string,
-  args: unknown
+  args: unknown,
 ) => Promise<unknown>;
 
 function getIpcCallHandler(): IpcHandler {
@@ -69,7 +71,7 @@ describe("ipc router — ping/pong round trip", () => {
 
     const handler = getIpcCallHandler();
     await expect(handler({}, "hello-strict", "echo", { text: 123 })).rejects.toThrow(
-      "ipc:call — invalid args"
+      "ipc:call — invalid args",
     );
   });
 });
@@ -77,9 +79,7 @@ describe("ipc router — ping/pong round trip", () => {
 describe("ipc router — broadcast", () => {
   test("sends ipc:event to all webContents", () => {
     const mockSend = mock((..._args: unknown[]) => {});
-    mockGetAllWebContents.mockImplementation(() => [
-      { isDestroyed: () => false, send: mockSend },
-    ]);
+    mockGetAllWebContents.mockImplementation(() => [{ isDestroyed: () => false, send: mockSend }]);
 
     broadcast("hello", "tick", 1);
 

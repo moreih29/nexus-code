@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-
 // electron is not available in the unit test environment; mock it before
 // importing any module that transitively requires it.
-import { mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import os from "node:os";
+import path from "node:path";
+
+const MOCK_ELECTRON_BASE = path.join(os.tmpdir(), "mock-electron");
 
 mock.module("electron", () => ({
   app: {
-    getPath: (name: string) => `/mock/electron/${name}`,
+    getPath: (name: string) => path.join(MOCK_ELECTRON_BASE, name),
   },
 }));
 
@@ -55,15 +57,11 @@ describe("getDefaultShell", () => {
 
   it("throws on win32", () => {
     setPlatform("win32");
-    expect(() => getDefaultShell()).toThrow(
-      "not implemented in M0"
-    );
+    expect(() => getDefaultShell()).toThrow("not implemented in M0");
   });
 
   it("throws on linux", () => {
     setPlatform("linux");
-    expect(() => getDefaultShell()).toThrow(
-      "not implemented in M0"
-    );
+    expect(() => getDefaultShell()).toThrow("not implemented in M0");
   });
 });

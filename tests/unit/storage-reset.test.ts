@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 
 // ---------------------------------------------------------------------------
@@ -30,15 +30,15 @@ describe("NEXUS_RESET_STORAGE=1", () => {
 
   beforeEach(() => {
     tmpDir = makeTmpDir();
-    originalEnv = process.env["NEXUS_RESET_STORAGE"];
-    process.env["NEXUS_RESET_STORAGE"] = "1";
+    originalEnv = process.env.NEXUS_RESET_STORAGE;
+    process.env.NEXUS_RESET_STORAGE = "1";
   });
 
   afterEach(() => {
     if (originalEnv === undefined) {
-      delete process.env["NEXUS_RESET_STORAGE"];
+      delete process.env.NEXUS_RESET_STORAGE;
     } else {
-      process.env["NEXUS_RESET_STORAGE"] = originalEnv;
+      process.env.NEXUS_RESET_STORAGE = originalEnv;
     }
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { StateService } from "../../src/main/storage/stateService";
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ describe("StateService", () => {
 
   it("atomic write — .vsctmp file is created then renamed (not left behind)", () => {
     const filePath = path.join(tmpDir, "state.json");
-    const tmpPath = filePath + ".vsctmp";
+    const tmpPath = `${filePath}.vsctmp`;
     const svc = new StateService(filePath);
     svc.setState({ lastActiveWorkspaceId: "ws-2" });
 

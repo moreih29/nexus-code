@@ -4,7 +4,7 @@
 //
 // Mirrors the PtyHostHandle pattern from hosts/ptyHost.ts exactly.
 
-import path from "path";
+import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,7 +75,10 @@ export function startLspHost(): LspHostHandle {
 
   // Pending call resolvers keyed by request id
   let nextId = 1;
-  const pendingCalls = new Map<string | number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const pendingCalls = new Map<
+    string | number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
 
   const entryPoint = path.join(electron.app.getAppPath(), "out", "main", "lsp-host.js");
 
@@ -87,7 +90,7 @@ export function startLspHost(): LspHostHandle {
   pipeStdio(proc);
 
   let mainPort: IPort;
-  let ch = new electron.MessageChannelMain();
+  const ch = new electron.MessageChannelMain();
   wirePort(ch.port1, ch.port2);
 
   proc.once("exit", onProcExit);
@@ -143,7 +146,11 @@ export function startLspHost(): LspHostHandle {
     }
     pendingCalls.clear();
 
-    try { mainPort.close(); } catch { /* ignore */ }
+    try {
+      mainPort.close();
+    } catch {
+      /* ignore */
+    }
 
     proc = electron.utilityProcess.fork(entryPoint, [], {
       serviceName: "lsp-host",
@@ -188,8 +195,16 @@ export function startLspHost(): LspHostHandle {
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    try { mainPort.close(); } catch { /* ignore */ }
-    try { proc.kill(); } catch { /* ignore */ }
+    try {
+      mainPort.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      proc.kill();
+    } catch {
+      /* ignore */
+    }
   }
 
   return { call, on, isAlive, dispose };

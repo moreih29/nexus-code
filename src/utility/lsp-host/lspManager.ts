@@ -71,7 +71,7 @@ export class LspManager {
           a.uri as string,
           a.languageId as string,
           a.version as number,
-          a.text as string
+          a.text as string,
         );
         this.send({ type: "response", id, result: null });
         break;
@@ -94,6 +94,7 @@ export class LspManager {
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
         if (server) {
+          // biome-ignore lint/style/noNonNullAssertion: server is set only when workspaceId is truthy
           this.resetIdleTimer(workspaceId!);
           const result = await server.hover(uri, a.line as number, a.character as number);
           this.send({ type: "response", id, result });
@@ -107,6 +108,7 @@ export class LspManager {
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
         if (server) {
+          // biome-ignore lint/style/noNonNullAssertion: server is set only when workspaceId is truthy
           this.resetIdleTimer(workspaceId!);
           const result = await server.definition(uri, a.line as number, a.character as number);
           this.send({ type: "response", id, result });
@@ -120,6 +122,7 @@ export class LspManager {
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
         if (server) {
+          // biome-ignore lint/style/noNonNullAssertion: server is set only when workspaceId is truthy
           this.resetIdleTimer(workspaceId!);
           const result = await server.completion(uri, a.line as number, a.character as number);
           this.send({ type: "response", id, result });

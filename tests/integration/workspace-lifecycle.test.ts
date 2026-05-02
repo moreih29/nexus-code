@@ -8,15 +8,15 @@
  * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { GlobalStorage } from "../../src/main/storage/globalStorage";
-import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import { StateService } from "../../src/main/storage/stateService";
-import { WorkspaceManager, type BroadcastFn } from "../../src/main/workspace/WorkspaceManager";
+import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
+import { type BroadcastFn, WorkspaceManager } from "../../src/main/workspace/WorkspaceManager";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ function makeFixtures(tmpDir: string): Fixtures {
     globalStorage,
     workspaceStorage,
     stateService,
-    broadcastMock as BroadcastFn
+    broadcastMock as BroadcastFn,
   );
 
   return { manager, globalStorage, workspaceStorage, stateService, broadcastMock, wsBaseDir };
@@ -247,8 +247,7 @@ describe("workspace-lifecycle — full scenario (create → update → remove)",
   });
 
   it("end-to-end: single workspace goes through create → update → remove with all invariants", () => {
-    const { manager, globalStorage, stateService, wsBaseDir, broadcastMock } =
-      makeFixtures(tmpDir);
+    const { manager, globalStorage, stateService, wsBaseDir, broadcastMock } = makeFixtures(tmpDir);
 
     manager.init();
     manager.createDefaultIfEmpty();

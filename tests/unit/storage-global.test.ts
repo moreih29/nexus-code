@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { applyMigrations } from "../../src/main/storage/migrations";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import os from "node:os";
+import path from "node:path";
 import { GlobalStorage } from "../../src/main/storage/globalStorage";
+import { applyMigrations } from "../../src/main/storage/migrations";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +18,7 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
   return {
     id: "00000000-0000-0000-0000-000000000001",
     name: "test-workspace",
-    rootPath: "/tmp/test",
+    rootPath: path.join(os.tmpdir(), "test"),
     colorTone: "default",
     pinned: false,
     category: "DEFAULT",
@@ -48,9 +50,9 @@ describe("applyMigrations", () => {
     const db = makeDb();
     applyMigrations(db);
 
-    const row = db
-      .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
-      .get() as { value: string } | undefined;
+    const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
+      | { value: string }
+      | undefined;
     expect(row?.value).toBe("1");
     db.close();
   });
@@ -60,9 +62,9 @@ describe("applyMigrations", () => {
     applyMigrations(db);
     applyMigrations(db); // second call must not throw or change schemaVersion
 
-    const row = db
-      .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
-      .get() as { value: string } | undefined;
+    const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
+      | { value: string }
+      | undefined;
     expect(row?.value).toBe("1");
 
     const tables = db
@@ -121,7 +123,7 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
         id: "00000000-0000-0000-0000-000000000002",
         name: "second",
         lastOpenedAt: new Date(1_700_000_001_000).toISOString(),
-      })
+      }),
     );
     expect(storage.listWorkspaces().length).toBe(2);
   });
@@ -153,7 +155,7 @@ describe("GlobalStorage.updateWorkspace", () => {
     expect(() =>
       storage.updateWorkspace("00000000-0000-0000-0000-000000000099", {
         name: "x",
-      })
+      }),
     ).toThrow("workspace not found");
   });
 });

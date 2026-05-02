@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { WorkspaceMetaSchema } from "./types/workspace";
-import { TabMetaSchema } from "./types/tab";
 import { ColorToneSchema } from "./types/colorTone";
+import { TabMetaSchema } from "./types/tab";
+import { WorkspaceMetaSchema } from "./types/workspace";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
@@ -21,7 +21,7 @@ interface ListenProcedure<A extends z.ZodTypeAny> {
 
 function call<A extends z.ZodTypeAny, R extends z.ZodTypeAny>(
   args: A,
-  result: R
+  result: R,
 ): CallProcedure<A, R> {
   return { args, result };
 }
@@ -34,15 +34,14 @@ function listen<A extends z.ZodTypeAny>(args: A): ListenProcedure<A> {
 // Inference utilities
 // ---------------------------------------------------------------------------
 
-export type InferArgs<T> = T extends CallProcedure<infer A, z.ZodTypeAny>
-  ? z.infer<A>
-  : T extends ListenProcedure<infer A>
+export type InferArgs<T> =
+  T extends CallProcedure<infer A, z.ZodTypeAny>
     ? z.infer<A>
-    : never;
+    : T extends ListenProcedure<infer A>
+      ? z.infer<A>
+      : never;
 
-export type InferReturn<T> = T extends CallProcedure<z.ZodTypeAny, infer R>
-  ? z.infer<R>
-  : never;
+export type InferReturn<T> = T extends CallProcedure<z.ZodTypeAny, infer R> ? z.infer<R> : never;
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas (used across channels)
@@ -91,7 +90,7 @@ export const ipcContract = {
           title: z.string().optional(),
           cwd: z.string().optional(),
         }),
-        TabMetaSchema
+        TabMetaSchema,
       ),
       close: call(z.object({ id: z.string().uuid() }), z.void()),
       switch: call(z.object({ id: z.string().uuid() }), z.void()),
@@ -109,24 +108,18 @@ export const ipcContract = {
           rows: z.number().int().positive(),
           env: z.record(z.string()).optional(),
         }),
-        z.object({ pid: z.number().int() })
+        z.object({ pid: z.number().int() }),
       ),
-      write: call(
-        z.object({ tabId: z.string().uuid(), data: z.string() }),
-        z.void()
-      ),
+      write: call(z.object({ tabId: z.string().uuid(), data: z.string() }), z.void()),
       resize: call(
         z.object({
           tabId: z.string().uuid(),
           cols: z.number().int().positive(),
           rows: z.number().int().positive(),
         }),
-        z.void()
+        z.void(),
       ),
-      ack: call(
-        z.object({ tabId: z.string().uuid(), bytesConsumed: z.number().int() }),
-        z.void()
-      ),
+      ack: call(z.object({ tabId: z.string().uuid(), bytesConsumed: z.number().int() }), z.void()),
       kill: call(z.object({ tabId: z.string().uuid() }), z.void()),
     },
     listen: {
@@ -146,7 +139,7 @@ export const ipcContract = {
           version: z.number().int(),
           text: z.string(),
         }),
-        z.void()
+        z.void(),
       ),
       didChange: call(
         z.object({
@@ -154,19 +147,19 @@ export const ipcContract = {
           version: z.number().int(),
           text: z.string(),
         }),
-        z.void()
+        z.void(),
       ),
       hover: call(
         z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.object({ contents: z.string() }).nullable()
+        z.object({ contents: z.string() }).nullable(),
       ),
       definition: call(
         z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.array(z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }))
+        z.array(z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() })),
       ),
       completion: call(
         z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.array(z.object({ label: z.string(), kind: z.number().int().optional() }))
+        z.array(z.object({ label: z.string(), kind: z.number().int().optional() })),
       ),
     },
     listen: {
@@ -179,9 +172,9 @@ export const ipcContract = {
               character: z.number().int(),
               message: z.string(),
               severity: z.number().int(),
-            })
+            }),
           ),
-        })
+        }),
       ),
     },
   },
@@ -196,7 +189,7 @@ export const ipcContract = {
             .array(z.object({ name: z.string(), extensions: z.array(z.string()) }))
             .optional(),
         }),
-        z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) })
+        z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) }),
       ),
     },
     listen: {},

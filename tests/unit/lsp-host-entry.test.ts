@@ -7,7 +7,7 @@
 // dynamic import() so Bun's static-import hoisting does not run the module
 // before our setup code.
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Fake collaborators — installed before the module loads

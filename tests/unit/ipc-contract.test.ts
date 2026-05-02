@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { ipcContract, type InferArgs, type InferReturn } from "../../src/shared/ipc-contract";
+import os from "node:os";
+import path from "node:path";
+import { type InferArgs, type InferReturn, ipcContract } from "../../src/shared/ipc-contract";
+
+const SAMPLE_ROOT = path.join(os.tmpdir(), "projects/foo");
 
 // ---------------------------------------------------------------------------
 // Compile-time type assertion helpers
 // ---------------------------------------------------------------------------
 
-type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-  ? true
-  : false;
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 function assertType<_T extends true>(): void {}
 
@@ -31,16 +34,16 @@ describe("ipcContract.workspace.call.create", () => {
   const schema = ipcContract.workspace.call.create.args;
 
   test("parses valid args with rootPath only", () => {
-    const result = schema.safeParse({ rootPath: "/Users/kih/projects/foo" });
+    const result = schema.safeParse({ rootPath: SAMPLE_ROOT });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.rootPath).toBe("/Users/kih/projects/foo");
+      expect(result.data.rootPath).toBe(SAMPLE_ROOT);
       expect(result.data.name).toBeUndefined();
     }
   });
 
   test("parses valid args with rootPath and name", () => {
-    const result = schema.safeParse({ rootPath: "/Users/kih/projects/foo", name: "My Project" });
+    const result = schema.safeParse({ rootPath: SAMPLE_ROOT, name: "My Project" });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.name).toBe("My Project");

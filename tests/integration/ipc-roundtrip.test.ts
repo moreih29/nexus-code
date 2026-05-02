@@ -8,7 +8,7 @@
  * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
  */
 
-import { describe, it, expect, mock, beforeAll } from "bun:test";
+import { beforeAll, describe, expect, it, mock } from "bun:test";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,7 @@ type IpcCallHandler = (
   event: unknown,
   channelName: string,
   method: string,
-  args: unknown
+  args: unknown,
 ) => Promise<unknown>;
 
 let capturedIpcCallHandler: IpcCallHandler | null = null;
@@ -43,7 +43,7 @@ mock.module("electron", () => ({
   },
 }));
 
-import { register, setupRouter, broadcast, validateArgs } from "../../src/main/ipc/router";
+import { broadcast, register, setupRouter, validateArgs } from "../../src/main/ipc/router";
 
 // ---------------------------------------------------------------------------
 // Wire up router once — registers the ipcMain.handle('ipc:call') handler.
@@ -90,16 +90,16 @@ describe("ipc round-trip — call.echo with zod validation", () => {
 
   it("call.echo rejects invalid args — missing val field", async () => {
     const handler = getHandler();
-    await expect(
-      handler({}, "integration-echo", "echo", { notVal: 123 })
-    ).rejects.toThrow("ipc:call — invalid args");
+    await expect(handler({}, "integration-echo", "echo", { notVal: 123 })).rejects.toThrow(
+      "ipc:call — invalid args",
+    );
   });
 
   it("call.echo rejects invalid args — val is not a string", async () => {
     const handler = getHandler();
-    await expect(
-      handler({}, "integration-echo", "echo", { val: 42 })
-    ).rejects.toThrow("ipc:call — invalid args");
+    await expect(handler({}, "integration-echo", "echo", { val: 42 })).rejects.toThrow(
+      "ipc:call — invalid args",
+    );
   });
 });
 
@@ -155,15 +155,15 @@ describe("ipc round-trip — broadcast reaches listener", () => {
 describe("ipc round-trip — routing errors", () => {
   it("rejects calls to an unknown channel", async () => {
     const handler = getHandler();
-    await expect(
-      handler({}, "no-such-channel", "someMethod", {})
-    ).rejects.toThrow("unknown channel: no-such-channel");
+    await expect(handler({}, "no-such-channel", "someMethod", {})).rejects.toThrow(
+      "unknown channel: no-such-channel",
+    );
   });
 
   it("rejects calls to an unknown method on a registered channel", async () => {
     const handler = getHandler();
-    await expect(
-      handler({}, "integration-echo", "noSuchMethod", {})
-    ).rejects.toThrow("unknown method: integration-echo.noSuchMethod");
+    await expect(handler({}, "integration-echo", "noSuchMethod", {})).rejects.toThrow(
+      "unknown method: integration-echo.noSuchMethod",
+    );
   });
 });

@@ -1,7 +1,7 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import { type SqliteDb } from "./migrations";
+import type { SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
 // WorkspaceStorage — per-workspace SQLite DB + workspace.json recovery dump.
@@ -54,7 +54,7 @@ export class WorkspaceStorage {
     const workspaceDir = path.join(this.baseDir, workspaceId);
 
     // NEXUS_RESET_STORAGE=1 fast path (M0/M1 only — remove in M2).
-    if (process.env["NEXUS_RESET_STORAGE"] === "1" && fs.existsSync(workspaceDir)) {
+    if (process.env.NEXUS_RESET_STORAGE === "1" && fs.existsSync(workspaceDir)) {
       const backupName = `backup-${Date.now()}`;
       const backupDir = path.join(this.baseDir, backupName);
       fs.renameSync(workspaceDir, backupDir);
@@ -74,13 +74,11 @@ export class WorkspaceStorage {
       );
     `);
 
-    const row = db
-      .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
-      .get() as { value: string } | undefined;
+    const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
+      | { value: string }
+      | undefined;
     if (!row) {
-      db.prepare(
-        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schemaVersion', '1')"
-      ).run();
+      db.prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schemaVersion', '1')").run();
     }
 
     this.entries.set(workspaceId, { db, dbPath, workspaceDir });
@@ -100,9 +98,9 @@ export class WorkspaceStorage {
     if (!entry) {
       return undefined;
     }
-    const row = entry.db
-      .prepare("SELECT value FROM _meta WHERE key = 'workspaceMeta'")
-      .get() as { value: string } | undefined;
+    const row = entry.db.prepare("SELECT value FROM _meta WHERE key = 'workspaceMeta'").get() as
+      | { value: string }
+      | undefined;
     if (!row) {
       return undefined;
     }
@@ -116,9 +114,7 @@ export class WorkspaceStorage {
     }
     const serialized = JSON.stringify(meta);
     entry.db
-      .prepare(
-        "INSERT OR REPLACE INTO _meta (key, value) VALUES ('workspaceMeta', ?)"
-      )
+      .prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('workspaceMeta', ?)")
       .run(serialized);
 
     // Write recovery dump.

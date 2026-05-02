@@ -1,5 +1,5 @@
+import { join } from "node:path";
 import { BrowserWindow, shell } from "electron";
-import { join } from "path";
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -19,8 +19,8 @@ export function createMainWindow(): BrowserWindow {
   });
 
   // electron-vite dev server injects ELECTRON_RENDERER_URL during `dev`.
-  if (process.env["ELECTRON_RENDERER_URL"] !== undefined) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  if (process.env.ELECTRON_RENDERER_URL !== undefined) {
+    win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }

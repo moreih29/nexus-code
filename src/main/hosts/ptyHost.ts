@@ -5,7 +5,7 @@
 // Electron is required lazily (via require) so the module is testable without
 // a running Electron context — the same pattern used in ipc/router.ts.
 
-import path from "path";
+import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,7 +75,10 @@ export function startPtyHost(): PtyHostHandle {
   }
 
   // Pending call resolvers for spawn (one per tabId)
-  const pendingSpawn = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const pendingSpawn = new Map<
+    string,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
 
   const entryPoint = path.join(electron.app.getAppPath(), "out", "main", "pty-host.js");
 
@@ -87,7 +90,7 @@ export function startPtyHost(): PtyHostHandle {
   pipeStdio(proc);
 
   let mainPort: IPort;
-  let ch = new electron.MessageChannelMain();
+  const ch = new electron.MessageChannelMain();
   wirePort(ch.port1, ch.port2);
 
   proc.once("exit", onProcExit);
@@ -148,7 +151,11 @@ export function startPtyHost(): PtyHostHandle {
     }
     pendingSpawn.clear();
 
-    try { mainPort.close(); } catch { /* ignore */ }
+    try {
+      mainPort.close();
+    } catch {
+      /* ignore */
+    }
 
     proc = electron.utilityProcess.fork(entryPoint, [], {
       serviceName: "pty-host",
@@ -210,8 +217,16 @@ export function startPtyHost(): PtyHostHandle {
   function dispose(): void {
     if (disposed) return;
     disposed = true;
-    try { mainPort.close(); } catch { /* ignore */ }
-    try { proc.kill(); } catch { /* ignore */ }
+    try {
+      mainPort.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      proc.kill();
+    } catch {
+      /* ignore */
+    }
   }
 
   return { call, on, isAlive, dispose };

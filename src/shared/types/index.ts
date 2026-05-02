@@ -1,8 +1,6 @@
-export { ColorToneSchema } from "./colorTone";
 export type { ColorTone } from "./colorTone";
-
-export { TabMetaSchema } from "./tab";
+export { ColorToneSchema } from "./colorTone";
 export type { TabMeta } from "./tab";
-
-export { WorkspaceMetaSchema } from "./workspace";
+export { TabMetaSchema } from "./tab";
 export type { WorkspaceMeta } from "./workspace";
+export { WorkspaceMetaSchema } from "./workspace";

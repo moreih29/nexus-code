@@ -1,17 +1,17 @@
-import path from "path";
+import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { createMainWindow } from "./window";
-import { setupRouter, broadcast } from "./ipc/router";
-import { startTickBroadcast } from "./ipc/channels/hello";
-import { registerWorkspaceChannel } from "./ipc/channels/workspace";
-import { registerPtyChannel } from "./ipc/channels/pty";
-import { registerLspChannel } from "./ipc/channels/lsp";
-import { registerDialogChannel } from "./ipc/channels/dialog";
-import { startPtyHost } from "./hosts/ptyHost";
 import { startLspHost } from "./hosts/lspHost";
+import { startPtyHost } from "./hosts/ptyHost";
+import { registerDialogChannel } from "./ipc/channels/dialog";
+import { startTickBroadcast } from "./ipc/channels/hello";
+import { registerLspChannel } from "./ipc/channels/lsp";
+import { registerPtyChannel } from "./ipc/channels/pty";
+import { registerWorkspaceChannel } from "./ipc/channels/workspace";
+import { broadcast, setupRouter } from "./ipc/router";
 import { GlobalStorage } from "./storage/globalStorage";
-import { WorkspaceStorage } from "./storage/workspaceStorage";
 import { StateService } from "./storage/stateService";
+import { WorkspaceStorage } from "./storage/workspaceStorage";
+import { createMainWindow } from "./window";
 import { WorkspaceManager } from "./workspace/WorkspaceManager";
 
 setupRouter();
@@ -26,7 +26,7 @@ const workspaceManager = new WorkspaceManager(
   globalStorage,
   workspaceStorage,
   stateService,
-  broadcast
+  broadcast,
 );
 
 registerWorkspaceChannel(workspaceManager);

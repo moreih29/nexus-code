@@ -102,7 +102,7 @@ export class PtyManager {
         cwd,
         env: process.env as Record<string, string>,
       });
-    } catch (err) {
+    } catch {
       this.send({ type: "exit", tabId, code: 1, signal: undefined });
       return;
     }

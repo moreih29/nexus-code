@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Fake port / process / channel
@@ -43,6 +43,7 @@ let lastChannel: { port1: FakePort; port2: FakePort } = {
 };
 
 // The process created by the last `electron.utilityProcess.fork()` call
+// biome-ignore lint/style/noNonNullAssertion: assigned by fork() before any test reads it
 let lastProc: FakeProc = null!;
 
 class FakeProc {

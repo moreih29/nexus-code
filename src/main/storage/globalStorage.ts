@@ -1,5 +1,5 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
@@ -76,7 +76,7 @@ export class GlobalStorage {
       .prepare(
         `INSERT INTO workspaces
            (id, name, root_path, color_tone, pinned, category, last_opened_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         meta.id,
@@ -85,14 +85,14 @@ export class GlobalStorage {
         meta.colorTone ?? "default",
         meta.pinned ? 1 : 0,
         meta.category ?? "DEFAULT",
-        meta.lastOpenedAt ? new Date(meta.lastOpenedAt).getTime() : Date.now()
+        meta.lastOpenedAt ? new Date(meta.lastOpenedAt).getTime() : Date.now(),
       );
   }
 
   updateWorkspace(id: string, partial: Partial<Omit<WorkspaceMeta, "id">>): void {
-    const row = this.db
-      .prepare("SELECT * FROM workspaces WHERE id = ?")
-      .get(id) as WorkspaceRow | undefined;
+    const row = this.db.prepare("SELECT * FROM workspaces WHERE id = ?").get(id) as
+      | WorkspaceRow
+      | undefined;
     if (!row) {
       throw new Error(`workspace not found: ${id}`);
     }
@@ -100,7 +100,7 @@ export class GlobalStorage {
       .prepare(
         `UPDATE workspaces
          SET name = ?, root_path = ?, color_tone = ?, pinned = ?, category = ?, last_opened_at = ?
-         WHERE id = ?`
+         WHERE id = ?`,
       )
       .run(
         partial.name ?? row.name,
@@ -108,10 +108,8 @@ export class GlobalStorage {
         (partial.colorTone ?? row.color_tone) as string,
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
         partial.category ?? row.category,
-        partial.lastOpenedAt
-          ? new Date(partial.lastOpenedAt).getTime()
-          : row.last_opened_at,
-        id
+        partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,
+        id,
       );
   }
 

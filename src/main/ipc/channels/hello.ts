@@ -1,5 +1,5 @@
 import { ipcContract } from "../../../shared/ipc-contract";
-import { register, broadcast, validateArgs } from "../router";
+import { broadcast, register, validateArgs } from "../router";
 
 const pingSchema = ipcContract.hello.call.ping.args;
 

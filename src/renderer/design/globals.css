@@ -20,10 +20,9 @@
   --color-border: rgba(226, 226, 226, 0.15);
 
   /* Matter Regular with system sans fallback (M0 — license pending) */
-  --font-family-ui: 'Matter Regular', system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-  --font-family-mono: 'Matter Mono Regular', ui-monospace, "Cascadia Code",
-    "Fira Code", monospace;
+  --font-family-ui:
+    "Matter Regular", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-family-mono: "Matter Mono Regular", ui-monospace, "Cascadia Code", "Fira Code", monospace;
 
   /* Motion — 200-250ms opacity fade; transform disabled per design.md */
   --motion-fade: 220ms ease;

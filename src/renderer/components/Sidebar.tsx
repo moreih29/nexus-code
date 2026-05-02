@@ -23,11 +23,21 @@ export function Sidebar({ workspaces, activeWorkspaceId, onSelectWorkspace }: Si
           const pathTail = ws.rootPath.split("/").filter(Boolean).slice(-2).join("/");
 
           return (
-            <div
+            <button
+              type="button"
               key={ws.id}
+              aria-pressed={isActive}
               className={`workspace-item${isActive ? " workspace-item--active" : ""}`}
               onClick={() => onSelectWorkspace(ws.id)}
               style={{
+                display: "block",
+                width: "calc(100% - 16px)",
+                boxSizing: "border-box",
+                textAlign: "left",
+                font: "inherit",
+                color: "inherit",
+                background: "transparent",
+                border: "none",
                 padding: "8px 16px",
                 cursor: "pointer",
                 borderRadius: "6px",
@@ -79,7 +89,7 @@ export function Sidebar({ workspaces, activeWorkspaceId, onSelectWorkspace }: Si
               >
                 {pathTail}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>

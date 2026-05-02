@@ -8,9 +8,9 @@
 // Diagnostics are pushed via ipcListen('lsp', 'diagnostics', ...) and applied
 // to the Monaco model marker API.
 
-import { useEffect, useRef } from "react";
 import Editor, { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
+import { useEffect, useRef } from "react";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
             return undefined;
           }
         },
-      })
+      }),
     );
 
     // -----------------------------------------------------------------------
@@ -98,7 +98,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
             return undefined;
           }
         },
-      })
+      }),
     );
 
     // -----------------------------------------------------------------------
@@ -134,7 +134,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
             return { suggestions: [] };
           }
         },
-      })
+      }),
     );
 
     // -----------------------------------------------------------------------
@@ -153,12 +153,13 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
           endLineNumber: d.line + 1,
           endColumn: d.character + 2,
           message: d.message,
-          severity: d.severity === 1
-            ? monaco.MarkerSeverity.Error
-            : d.severity === 2
-            ? monaco.MarkerSeverity.Warning
-            : monaco.MarkerSeverity.Info,
-        }))
+          severity:
+            d.severity === 1
+              ? monaco.MarkerSeverity.Error
+              : d.severity === 2
+                ? monaco.MarkerSeverity.Warning
+                : monaco.MarkerSeverity.Info,
+        })),
       );
     });
 
@@ -169,12 +170,12 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       }
       disposablesRef.current = [];
     };
-  }, [monaco, uri, workspaceId]);
+  }, [monaco, uri]);
 
   // Send didOpen when the model is created / file first loaded
   function handleEditorDidMount(
     _editor: Monaco.editor.IStandaloneCodeEditor,
-    monacoInstance: typeof Monaco
+    monacoInstance: typeof Monaco,
   ): void {
     const model = monacoInstance.editor.getModel(monacoInstance.Uri.parse(uri));
     if (!model) return;

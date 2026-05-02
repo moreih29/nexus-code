@@ -1,5 +1,5 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // AppState schema
@@ -29,7 +29,7 @@ export class StateService {
 
   constructor(filePath: string) {
     this.filePath = filePath;
-    this.tmpPath = filePath + ".vsctmp";
+    this.tmpPath = `${filePath}.vsctmp`;
     this.state = this.load();
   }
 

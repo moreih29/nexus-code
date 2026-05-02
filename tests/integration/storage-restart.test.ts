@@ -8,14 +8,14 @@
  * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { GlobalStorage } from "../../src/main/storage/globalStorage";
-import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import { StateService } from "../../src/main/storage/stateService";
+import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -67,10 +67,11 @@ describe("storage-restart — GlobalStorage round-trip on real SQLite file", () 
 
   it("workspace added in session 1 is visible in session 2", () => {
     const id = "00000000-0000-0000-0000-000000000001";
+    const rootPath = path.join(os.tmpdir(), "my-project");
 
     // Session 1 — add workspace then close.
     const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, "/tmp/my-project"));
+    storage1.addWorkspace(makeMeta(id, rootPath));
     storage1.close();
 
     // Session 2 — open the same file and list.
@@ -80,14 +81,14 @@ describe("storage-restart — GlobalStorage round-trip on real SQLite file", () 
 
     expect(list.length).toBe(1);
     expect(list[0].id).toBe(id);
-    expect(list[0].rootPath).toBe("/tmp/my-project");
+    expect(list[0].rootPath).toBe(rootPath);
   });
 
   it("workspace update in session 1 is reflected in session 2", () => {
     const id = "00000000-0000-0000-0000-000000000002";
 
     const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, "/tmp/proj"));
+    storage1.addWorkspace(makeMeta(id, path.join(os.tmpdir(), "proj")));
     storage1.updateWorkspace(id, { name: "renamed-in-s1" });
     storage1.close();
 
@@ -102,7 +103,7 @@ describe("storage-restart — GlobalStorage round-trip on real SQLite file", () 
     const id = "00000000-0000-0000-0000-000000000003";
 
     const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, "/tmp/to-remove"));
+    storage1.addWorkspace(makeMeta(id, path.join(os.tmpdir(), "to-remove")));
     storage1.removeWorkspace(id);
     storage1.close();
 
@@ -182,7 +183,8 @@ describe("storage-restart — WorkspaceStorage directory survives session bounda
 
   it("setMeta in session 1 is readable via workspace.json in session 2", () => {
     const id = "00000000-0000-0000-0000-444455556666";
-    const meta = makeMeta(id, "/tmp/persisted-ws");
+    const rootPath = path.join(os.tmpdir(), "persisted-ws");
+    const meta = makeMeta(id, rootPath);
 
     const ws1 = new WorkspaceStorage(wsBaseDir, bunSqliteFactory);
     ws1.openForWorkspace(id);
@@ -193,7 +195,7 @@ describe("storage-restart — WorkspaceStorage directory survives session bounda
     const jsonPath = path.join(wsBaseDir, id, "workspace.json");
     const parsed = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as WorkspaceMeta;
     expect(parsed.id).toBe(id);
-    expect(parsed.rootPath).toBe("/tmp/persisted-ws");
+    expect(parsed.rootPath).toBe(rootPath);
   });
 });
 

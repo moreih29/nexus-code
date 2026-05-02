@@ -1,6 +1,6 @@
-import { resolve } from "path";
-import { defineConfig } from "electron-vite";
+import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
+import { defineConfig } from "electron-vite";
 
 // electron-vite 5.x supports three targets: main, preload, renderer.
 // Utility processes (pty-host, lsp-host) run in Electron's utilityProcess

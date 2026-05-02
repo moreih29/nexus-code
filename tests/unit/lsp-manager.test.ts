@@ -5,7 +5,7 @@
 // We do this by using mock.module to declare the lspManager export explicitly
 // after the TypeScriptServer mock is in place.
 
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Fake TypeScriptServer — installed before LspManager loads
@@ -31,12 +31,19 @@ class FakeTypeScriptServer {
     this.started = true;
   }
 
-  async didOpen(_uri: string, _languageId: string, _version: number, _text: string): Promise<void> {}
+  async didOpen(
+    _uri: string,
+    _languageId: string,
+    _version: number,
+    _text: string,
+  ): Promise<void> {}
   async didChange(_uri: string, _version: number, _text: string): Promise<void> {}
   async hover(_uri: string, _line: number, _char: number): Promise<{ contents: string } | null> {
     return { contents: "fake hover" };
   }
-  async definition(_uri: string, _line: number, _char: number): Promise<unknown[]> { return []; }
+  async definition(_uri: string, _line: number, _char: number): Promise<unknown[]> {
+    return [];
+  }
   async completion(_uri: string, _line: number, _char: number): Promise<Array<{ label: string }>> {
     return [{ label: "fakeCompletion" }];
   }
@@ -83,7 +90,9 @@ class LspManager {
   }): void {
     this.port = port;
     port.on("message", (event) => {
-      this.handleMessage(event.data as { type: "call"; id: string | number; method: string; args: unknown });
+      this.handleMessage(
+        event.data as { type: "call"; id: string | number; method: string; args: unknown },
+      );
     });
     port.start();
   }
@@ -92,15 +101,28 @@ class LspManager {
     if (this.port) this.port.postMessage(msg);
   }
 
-  private handleMessage(msg: { type: "call"; id: string | number; method: string; args: unknown }): void {
+  private handleMessage(msg: {
+    type: "call";
+    id: string | number;
+    method: string;
+    args: unknown;
+  }): void {
     if (msg.type === "call") {
       this.handleCall(msg).catch((err: unknown) => {
-        this.send({ type: "response", id: msg.id, error: err instanceof Error ? err.message : String(err) });
+        this.send({
+          type: "response",
+          id: msg.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }
   }
 
-  private async handleCall(msg: { id: string | number; method: string; args: unknown }): Promise<void> {
+  private async handleCall(msg: {
+    id: string | number;
+    method: string;
+    args: unknown;
+  }): Promise<void> {
     const { id, method, args } = msg;
     const a = args as Record<string, unknown>;
 
@@ -109,7 +131,12 @@ class LspManager {
         const workspaceId = a.workspaceId as string;
         const server = await this.getOrCreateServer(workspaceId);
         this.resetIdleTimer(workspaceId);
-        await server.didOpen(a.uri as string, a.languageId as string, a.version as number, a.text as string);
+        await server.didOpen(
+          a.uri as string,
+          a.languageId as string,
+          a.version as number,
+          a.text as string,
+        );
         this.send({ type: "response", id, result: null });
         break;
       }
@@ -131,6 +158,7 @@ class LspManager {
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
         if (server) {
+          // biome-ignore lint/style/noNonNullAssertion: server is set only when workspaceId is truthy
           this.resetIdleTimer(workspaceId!);
           const result = await server.hover(uri, a.line as number, a.character as number);
           this.send({ type: "response", id, result });
@@ -143,7 +171,9 @@ class LspManager {
         const uri = a.uri as string;
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
-        const result = server ? await server.definition(uri, a.line as number, a.character as number) : [];
+        const result = server
+          ? await server.definition(uri, a.line as number, a.character as number)
+          : [];
         if (server && workspaceId) this.resetIdleTimer(workspaceId);
         this.send({ type: "response", id, result });
         break;
@@ -152,7 +182,9 @@ class LspManager {
         const uri = a.uri as string;
         const workspaceId = this.findWorkspaceForUri(uri);
         const server = workspaceId ? this.servers.get(workspaceId) : undefined;
-        const result = server ? await server.completion(uri, a.line as number, a.character as number) : [];
+        const result = server
+          ? await server.completion(uri, a.line as number, a.character as number)
+          : [];
         if (server && workspaceId) this.resetIdleTimer(workspaceId);
         this.send({ type: "response", id, result });
         break;
@@ -235,7 +267,7 @@ class FakePort {
     return new Promise<void>((resolve, reject) => {
       const bail = setTimeout(
         () => reject(new Error(`waitForMessages(${count}) timed out, got ${this.sent.length}`)),
-        3000
+        3000,
       );
       const check = () => {
         if (this.sent.length >= count) {
@@ -281,13 +313,15 @@ describe("LspManager — lazy spawn", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-1",
-      uri: "file:///test.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "const x = 1;",
-    }));
+    port.deliver(
+      makeCallMsg("didOpen", {
+        workspaceId: "ws-1",
+        uri: "file:///test.ts",
+        languageId: "typescript",
+        version: 1,
+        text: "const x = 1;",
+      }),
+    );
 
     await port.waitForMessages(1);
     expect(serverInstances.length).toBe(1);
@@ -301,23 +335,35 @@ describe("LspManager — lazy spawn", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-1",
-      uri: "file:///a.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }, 1));
+    port.deliver(
+      makeCallMsg(
+        "didOpen",
+        {
+          workspaceId: "ws-1",
+          uri: "file:///a.ts",
+          languageId: "typescript",
+          version: 1,
+          text: "",
+        },
+        1,
+      ),
+    );
 
     await port.waitForMessages(1);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-1",
-      uri: "file:///b.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }, 2));
+    port.deliver(
+      makeCallMsg(
+        "didOpen",
+        {
+          workspaceId: "ws-1",
+          uri: "file:///b.ts",
+          languageId: "typescript",
+          version: 1,
+          text: "",
+        },
+        2,
+      ),
+    );
 
     await port.waitForMessages(2);
     expect(serverInstances.length).toBe(1);
@@ -329,13 +375,19 @@ describe("LspManager — lazy spawn", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-resp",
-      uri: "file:///resp.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }, 42));
+    port.deliver(
+      makeCallMsg(
+        "didOpen",
+        {
+          workspaceId: "ws-resp",
+          uri: "file:///resp.ts",
+          languageId: "typescript",
+          version: 1,
+          text: "",
+        },
+        42,
+      ),
+    );
 
     await port.waitForMessages(1);
     const resp = port.sent[0] as { type: string; id: number };
@@ -355,13 +407,15 @@ describe("LspManager — 30-minute idle shutdown", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-idle",
-      uri: "file:///idle.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }));
+    port.deliver(
+      makeCallMsg("didOpen", {
+        workspaceId: "ws-idle",
+        uri: "file:///idle.ts",
+        languageId: "typescript",
+        version: 1,
+        text: "",
+      }),
+    );
 
     await port.waitForMessages(1);
     expect(serverInstances.length).toBe(1);
@@ -376,13 +430,15 @@ describe("LspManager — 30-minute idle shutdown", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-dispose",
-      uri: "file:///dispose.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }));
+    port.deliver(
+      makeCallMsg("didOpen", {
+        workspaceId: "ws-dispose",
+        uri: "file:///dispose.ts",
+        languageId: "typescript",
+        version: 1,
+        text: "",
+      }),
+    );
 
     await port.waitForMessages(1);
     expect(serverInstances[0].disposed).toBe(false);
@@ -396,13 +452,15 @@ describe("LspManager — 30-minute idle shutdown", () => {
     const port = new FakePort();
     manager.attachPort(port);
 
-    port.deliver(makeCallMsg("didOpen", {
-      workspaceId: "ws-timer",
-      uri: "file:///timer.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "",
-    }));
+    port.deliver(
+      makeCallMsg("didOpen", {
+        workspaceId: "ws-timer",
+        uri: "file:///timer.ts",
+        languageId: "typescript",
+        version: 1,
+        text: "",
+      }),
+    );
 
     await port.waitForMessages(1);
     expect(serverInstances.length).toBe(1);
@@ -412,7 +470,10 @@ describe("LspManager — 30-minute idle shutdown", () => {
     const origSetTimeout = globalThis.setTimeout;
     const origClearTimeout = globalThis.clearTimeout;
 
-    (globalThis as unknown as Record<string, unknown>).setTimeout = (fn: () => void, delay: number) => {
+    (globalThis as unknown as Record<string, unknown>).setTimeout = (
+      fn: () => void,
+      delay: number,
+    ) => {
       if (delay === IDLE_TIMEOUT_MS) {
         capturedTimers.push({ delay, fn });
         return origSetTimeout(() => {}, 999999);
@@ -422,11 +483,17 @@ describe("LspManager — 30-minute idle shutdown", () => {
     (globalThis as unknown as Record<string, unknown>).clearTimeout = origClearTimeout;
 
     try {
-      port.deliver(makeCallMsg("hover", {
-        uri: "file:///timer.ts",
-        line: 0,
-        character: 0,
-      }, 2));
+      port.deliver(
+        makeCallMsg(
+          "hover",
+          {
+            uri: "file:///timer.ts",
+            line: 0,
+            character: 0,
+          },
+          2,
+        ),
+      );
 
       await port.waitForMessages(2);
 

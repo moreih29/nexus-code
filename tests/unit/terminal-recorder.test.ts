@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { TerminalRecorder } from "../../src/utility/pty-host/terminalRecorder";
 
 const MB = 1024 * 1024;

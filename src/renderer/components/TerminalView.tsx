@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { CanvasAddon } from "@xterm/addon-canvas";
+import { Terminal } from "@xterm/xterm";
+import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ipcCall, ipcListen } from "../ipc/client";
 
@@ -127,9 +127,6 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
   }, [tabId, cwd]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: "100%", height: "100%", background: "#1e1e1e" }}
-    />
+    <div ref={containerRef} style={{ width: "100%", height: "100%", background: "#1e1e1e" }} />
   );
 }

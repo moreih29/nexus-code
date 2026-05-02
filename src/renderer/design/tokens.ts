@@ -1,4 +1,4 @@
-import { color, fontFamily, typeScale, spacing, borderRadius } from "../../shared/design-tokens";
+import { borderRadius, color, fontFamily, spacing, typeScale } from "../../shared/design-tokens";
 
 // ---------------------------------------------------------------------------
 // CSS variable name mapping

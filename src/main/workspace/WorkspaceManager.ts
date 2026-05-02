@@ -1,10 +1,10 @@
-import os from "os";
-import path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 import type { GlobalStorage } from "../storage/globalStorage";
-import type { WorkspaceStorage } from "../storage/workspaceStorage";
 import type { StateService } from "../storage/stateService";
+import type { WorkspaceStorage } from "../storage/workspaceStorage";
 import { WorkspaceContext } from "./WorkspaceContext";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ export class WorkspaceManager {
     globalStorage: GlobalStorage,
     workspaceStorage: WorkspaceStorage,
     stateService: StateService,
-    broadcastFn: BroadcastFn
+    broadcastFn: BroadcastFn,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;

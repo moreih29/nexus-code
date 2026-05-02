@@ -1,7 +1,6 @@
-import { TerminalView } from "./TerminalView";
+import type { EditorTabProps, Tab, TerminalTabProps } from "../store/tabs";
 import { EditorView } from "./EditorView";
-import type { Tab } from "../store/tabs";
-import type { EditorTabProps, TerminalTabProps } from "../store/tabs";
+import { TerminalView } from "./TerminalView";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -36,10 +35,7 @@ export function TabContent({ tab }: TabContentProps) {
   return (
     <div className="tab-content">
       {tab.type === "terminal" ? (
-        <TerminalView
-          tabId={tab.id}
-          cwd={(tab.props as TerminalTabProps).cwd}
-        />
+        <TerminalView tabId={tab.id} cwd={(tab.props as TerminalTabProps).cwd} />
       ) : (
         <EditorView
           filePath={(tab.props as EditorTabProps).filePath}

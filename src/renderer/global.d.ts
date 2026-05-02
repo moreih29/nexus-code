@@ -1,5 +1,4 @@
-import type { ipcContract } from "../shared/ipc-contract";
-import type { InferArgs, InferReturn } from "../shared/ipc-contract";
+import type { InferArgs, InferReturn, ipcContract } from "../shared/ipc-contract";
 
 type Contract = typeof ipcContract;
 
@@ -14,9 +13,7 @@ type ListenChannels = {
 type CallMethods<C extends CallChannels> = keyof Contract[C]["call"] & string;
 type ListenEvents<C extends ListenChannels> = keyof Contract[C]["listen"] & string;
 
-type CallArgs<C extends CallChannels, M extends CallMethods<C>> = InferArgs<
-  Contract[C]["call"][M]
->;
+type CallArgs<C extends CallChannels, M extends CallMethods<C>> = InferArgs<Contract[C]["call"][M]>;
 
 type CallReturn<C extends CallChannels, M extends CallMethods<C>> = InferReturn<
   Contract[C]["call"][M]
@@ -30,19 +27,19 @@ interface IpcBridge {
   call<C extends CallChannels, M extends CallMethods<C>>(
     channel: C,
     method: M,
-    args: CallArgs<C, M>
+    args: CallArgs<C, M>,
   ): Promise<CallReturn<C, M>>;
 
   listen<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,
     event: E,
-    callback: (args: ListenArgs<C, E>) => void
+    callback: (args: ListenArgs<C, E>) => void,
   ): void;
 
   off<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,
     event: E,
-    callback: (args: ListenArgs<C, E>) => void
+    callback: (args: ListenArgs<C, E>) => void,
   ): void;
 }
 

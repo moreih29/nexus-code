@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import fs from "fs";
-import os from "os";
-import path from "path";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { GlobalStorage } from "../../src/main/storage/globalStorage";
-import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import { StateService } from "../../src/main/storage/stateService";
-import { WorkspaceManager } from "../../src/main/workspace/WorkspaceManager";
+import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
 import type { BroadcastFn } from "../../src/main/workspace/WorkspaceManager";
+import { WorkspaceManager } from "../../src/main/workspace/WorkspaceManager";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,7 +41,7 @@ function makeManager(
   globalStorage: GlobalStorage,
   workspaceStorage: WorkspaceStorage,
   stateService: StateService,
-  broadcastFn: BroadcastFn
+  broadcastFn: BroadcastFn,
 ): WorkspaceManager {
   return new WorkspaceManager(globalStorage, workspaceStorage, stateService, broadcastFn);
 }
@@ -62,9 +62,13 @@ describe("WorkspaceManager — createDefaultIfEmpty", () => {
   });
 
   it("creates exactly 1 workspace when storage is empty", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     manager.createDefaultIfEmpty();
@@ -76,9 +80,13 @@ describe("WorkspaceManager — createDefaultIfEmpty", () => {
   });
 
   it("does not create a second workspace when one already exists", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     manager.createDefaultIfEmpty();
@@ -90,9 +98,13 @@ describe("WorkspaceManager — createDefaultIfEmpty", () => {
   });
 
   it("default workspace uses os.homedir() as rootPath", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     manager.createDefaultIfEmpty();
@@ -173,9 +185,13 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
   });
 
   it("broadcasts 'changed' event when update is called", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     manager.createDefaultIfEmpty();
@@ -185,7 +201,11 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
     manager.update(id, { name: "renamed" });
 
     expect(broadcastMock).toHaveBeenCalledTimes(1);
-    const [ch, ev, args] = broadcastMock.mock.calls[0] as [string, string, { id: string; name: string }];
+    const [ch, ev, args] = broadcastMock.mock.calls[0] as [
+      string,
+      string,
+      { id: string; name: string },
+    ];
     expect(ch).toBe("workspace");
     expect(ev).toBe("changed");
     expect(args.id).toBe(id);
@@ -195,14 +215,18 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
   });
 
   it("broadcasts 'changed' event when create is called", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     broadcastMock.mockClear();
 
-    manager.create({ rootPath: "/tmp/test-ws", name: "test" });
+    manager.create({ rootPath: path.join(os.tmpdir(), "test-ws"), name: "test" });
 
     expect(broadcastMock).toHaveBeenCalledTimes(1);
     const [ch, ev] = broadcastMock.mock.calls[0] as [string, string, unknown];
@@ -213,9 +237,13 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
   });
 
   it("broadcasts 'changed' event when remove is called", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
     manager.createDefaultIfEmpty();
@@ -245,13 +273,17 @@ describe("WorkspaceManager — activate", () => {
   });
 
   it("activate updates getActiveId and persists to stateService", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
-    const ws1 = manager.create({ rootPath: "/tmp/ws1", name: "ws1" });
-    const ws2 = manager.create({ rootPath: "/tmp/ws2", name: "ws2" });
+    const ws1 = manager.create({ rootPath: path.join(os.tmpdir(), "ws1"), name: "ws1" });
+    const ws2 = manager.create({ rootPath: path.join(os.tmpdir(), "ws2"), name: "ws2" });
 
     manager.activate(ws1.id);
     expect(manager.getActiveId()).toBe(ws1.id);
@@ -265,15 +297,19 @@ describe("WorkspaceManager — activate", () => {
   });
 
   it("activate throws for unknown workspace id", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } =
-      makeFixtures(tmpDir);
-    const manager = makeManager(globalStorage, workspaceStorage, stateService, broadcastMock as BroadcastFn);
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
 
     manager.init();
 
-    expect(() =>
-      manager.activate("00000000-0000-0000-0000-000000000099")
-    ).toThrow("workspace not found");
+    expect(() => manager.activate("00000000-0000-0000-0000-000000000099")).toThrow(
+      "workspace not found",
+    );
 
     globalStorage.close();
   });

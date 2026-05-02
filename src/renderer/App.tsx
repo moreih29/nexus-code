@@ -1,12 +1,12 @@
-import { useEffect, useCallback } from "react";
-import { ipcCall } from "./ipc/client";
-import { injectTokens } from "./design/tokens";
-import { useWorkspacesStore } from "./store/workspaces";
-import { useTabsStore } from "./store/tabs";
-import { useActiveStore } from "./store/active";
+import { useCallback, useEffect } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { TabContent } from "./components/TabContent";
+import { injectTokens } from "./design/tokens";
+import { ipcCall } from "./ipc/client";
+import { useActiveStore } from "./store/active";
+import { useTabsStore } from "./store/tabs";
+import { useWorkspacesStore } from "./store/workspaces";
 
 injectTokens();
 
@@ -16,6 +16,7 @@ export function App() {
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
 
   // Boot: load workspaces from main, activate first, seed default PTY tab
+  // biome-ignore lint/correctness/useExhaustiveDependencies: boot-once effect; store setters are stable
   useEffect(() => {
     ipcCall("workspace", "list", undefined).then((list) => {
       setAll(list);
@@ -30,7 +31,6 @@ export function App() {
         }
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
@@ -40,7 +40,7 @@ export function App() {
       setActiveWorkspaceId(id);
       ipcCall("workspace", "activate", { id }).catch(() => {});
     },
-    [setActiveWorkspaceId]
+    [setActiveWorkspaceId],
   );
 
   const handleNewTerminalTab = useCallback(() => {

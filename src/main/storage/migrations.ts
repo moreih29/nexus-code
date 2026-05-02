@@ -58,9 +58,9 @@ export function applyMigrations(db: SqliteDb): void {
     );
   `);
 
-  const row = db
-    .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
-    .get() as { value: string } | undefined;
+  const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
+    | { value: string }
+    | undefined;
 
   let current = row ? parseInt(row.value, 10) : 0;
 
@@ -69,9 +69,9 @@ export function applyMigrations(db: SqliteDb): void {
       continue;
     }
     migration.up(db);
-    db.prepare(
-      "INSERT OR REPLACE INTO _meta (key, value) VALUES ('schemaVersion', ?)"
-    ).run(String(migration.version));
+    db.prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schemaVersion', ?)").run(
+      String(migration.version),
+    );
     current = migration.version;
   }
 }

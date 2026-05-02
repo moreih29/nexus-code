@@ -16,10 +16,7 @@ const manager = new PtyManager();
 const parentPort = (
   process as unknown as {
     parentPort: {
-      on: (
-        event: "message",
-        handler: (e: { data: unknown; ports: unknown[] }) => void
-      ) => void;
+      on: (event: "message", handler: (e: { data: unknown; ports: unknown[] }) => void) => void;
       postMessage: (data: unknown) => void;
     };
   }

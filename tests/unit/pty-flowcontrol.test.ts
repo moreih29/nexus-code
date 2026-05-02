@@ -1,5 +1,10 @@
-import { describe, test, expect } from "bun:test";
-import { FlowController, HighWatermarkChars, LowWatermarkChars, CharCountAckSize } from "../../src/utility/pty-host/flowControl";
+import { describe, expect, test } from "bun:test";
+import {
+  CharCountAckSize,
+  FlowController,
+  HighWatermarkChars,
+  LowWatermarkChars,
+} from "../../src/utility/pty-host/flowControl";
 
 describe("FlowController — backpressure round-trip", () => {
   test("not paused below HighWatermark", () => {

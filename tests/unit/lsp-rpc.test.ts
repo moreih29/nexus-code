@@ -6,7 +6,7 @@
 // handles incoming buffers — verified via the hover/definition calls in
 // integration, but we test the encode helper shape here.
 
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Replicate the encodeMessage helper (same logic as servers/typescript.ts)
@@ -34,7 +34,12 @@ describe("LSP JSON-RPC framing — encodeMessage", () => {
   });
 
   test("Content-Length value matches actual body byte length", () => {
-    const msg = { jsonrpc: "2.0", id: 2, method: "textDocument/hover", params: { uri: "file:///test.ts" } };
+    const msg = {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "textDocument/hover",
+      params: { uri: "file:///test.ts" },
+    };
     const buf = encodeMessage(msg);
     const str = buf.toString("ascii");
 
@@ -43,6 +48,7 @@ describe("LSP JSON-RPC framing — encodeMessage", () => {
     const match = /Content-Length:\s*(\d+)/.exec(header);
     expect(match).not.toBeNull();
 
+    // biome-ignore lint/style/noNonNullAssertion: asserted non-null on previous line
     const declaredLength = parseInt(match![1], 10);
     const bodyStr = buf.slice(headerEnd + 4);
     expect(bodyStr.length).toBe(declaredLength);
@@ -67,6 +73,7 @@ describe("LSP JSON-RPC framing — encodeMessage", () => {
     const byteLen = Buffer.byteLength(body, "utf8");
     const buf = encodeMessage(msg);
     const str = buf.toString("ascii");
+    // biome-ignore lint/style/noNonNullAssertion: encodeMessage always emits Content-Length header
     const match = /Content-Length:\s*(\d+)/.exec(str)!;
     expect(parseInt(match[1], 10)).toBe(byteLen);
   });

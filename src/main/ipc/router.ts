@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,7 +35,7 @@ export function setupRouter(): void {
       _event: import("electron").IpcMainInvokeEvent,
       channelName: string,
       method: string,
-      args: unknown
+      args: unknown,
     ) => {
       const channel = channels.get(channelName);
       if (!channel) {
@@ -46,7 +46,7 @@ export function setupRouter(): void {
         throw new Error(`ipc:call — unknown method: ${channelName}.${method}`);
       }
       return handler(args);
-    }
+    },
   );
 }
 

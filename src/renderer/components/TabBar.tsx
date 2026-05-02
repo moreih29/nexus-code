@@ -30,11 +30,21 @@ export function TabBar({
         return (
           <div
             key={tab.id}
+            role="tab"
+            tabIndex={0}
+            aria-selected={isActive}
             className={`tab-item${isActive ? " tab-item--active" : ""}`}
             onClick={() => onSelectTab(tab.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectTab(tab.id);
+              }
+            }}
           >
             <span>{tab.title}</span>
             <button
+              type="button"
               className="tab-item__close"
               onClick={(e) => {
                 e.stopPropagation();
@@ -48,6 +58,7 @@ export function TabBar({
         );
       })}
       <button
+        type="button"
         className="tab-bar__add"
         onClick={onNewTerminalTab}
         title="New terminal tab"
