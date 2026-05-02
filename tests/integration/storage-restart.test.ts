@@ -42,7 +42,6 @@ function makeMeta(id: string, rootPath: string): WorkspaceMeta {
     rootPath,
     colorTone: "default",
     pinned: false,
-    category: "DEFAULT",
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
   };

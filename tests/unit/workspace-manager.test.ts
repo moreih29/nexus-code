@@ -50,72 +50,6 @@ function makeManager(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("WorkspaceManager — createDefaultIfEmpty", () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir();
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("creates exactly 1 workspace when storage is empty", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
-    const manager = makeManager(
-      globalStorage,
-      workspaceStorage,
-      stateService,
-      broadcastMock as BroadcastFn,
-    );
-
-    manager.init();
-    manager.createDefaultIfEmpty();
-
-    const list = manager.list();
-    expect(list.length).toBe(1);
-
-    globalStorage.close();
-  });
-
-  it("does not create a second workspace when one already exists", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
-    const manager = makeManager(
-      globalStorage,
-      workspaceStorage,
-      stateService,
-      broadcastMock as BroadcastFn,
-    );
-
-    manager.init();
-    manager.createDefaultIfEmpty();
-    manager.createDefaultIfEmpty(); // second call must be a no-op
-
-    expect(manager.list().length).toBe(1);
-
-    globalStorage.close();
-  });
-
-  it("default workspace uses os.homedir() as rootPath", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
-    const manager = makeManager(
-      globalStorage,
-      workspaceStorage,
-      stateService,
-      broadcastMock as BroadcastFn,
-    );
-
-    manager.init();
-    manager.createDefaultIfEmpty();
-
-    const ws = manager.list()[0];
-    expect(ws.rootPath).toBe(os.homedir());
-
-    globalStorage.close();
-  });
-});
-
 describe("WorkspaceManager — restart simulation (persistence round-trip)", () => {
   let tmpDir: string;
 
@@ -147,10 +81,11 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
 
     const mgr1 = new WorkspaceManager(globalStorage1, ws1, ss1, bcast1 as BroadcastFn);
     mgr1.init();
-    mgr1.createDefaultIfEmpty();
+    const created = mgr1.create({ rootPath: path.join(tmpDir, "fixture-root"), name: "fixture" });
+    mgr1.activate(created.id);
 
-    const createdId = mgr1.list()[0].id;
-    expect(mgr1.getActiveId()).toBe(createdId);
+    expect(mgr1.list().length).toBe(1);
+    expect(mgr1.getActiveId()).toBe(created.id);
 
     // Close the first manager (closes globalStorage1 and ws1 handles).
     mgr1.close();
@@ -163,17 +98,16 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
 
     const mgr2 = new WorkspaceManager(globalStorage2, ws2, ss2, bcast2 as BroadcastFn);
     mgr2.init();
-    mgr2.createDefaultIfEmpty(); // should be no-op
 
     expect(mgr2.list().length).toBe(1);
-    expect(mgr2.list()[0].id).toBe(createdId);
-    expect(mgr2.getActiveId()).toBe(createdId);
+    expect(mgr2.list()[0].id).toBe(created.id);
+    expect(mgr2.getActiveId()).toBe(created.id);
 
     mgr2.close();
   });
 });
 
-describe("WorkspaceManager — listen.changed broadcast", () => {
+describe("WorkspaceManager — broadcast events", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -182,36 +116,6 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("broadcasts 'changed' event when update is called", () => {
-    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
-    const manager = makeManager(
-      globalStorage,
-      workspaceStorage,
-      stateService,
-      broadcastMock as BroadcastFn,
-    );
-
-    manager.init();
-    manager.createDefaultIfEmpty();
-    broadcastMock.mockClear();
-
-    const id = manager.list()[0].id;
-    manager.update(id, { name: "renamed" });
-
-    expect(broadcastMock).toHaveBeenCalledTimes(1);
-    const [ch, ev, args] = broadcastMock.mock.calls[0] as [
-      string,
-      string,
-      { id: string; name: string },
-    ];
-    expect(ch).toBe("workspace");
-    expect(ev).toBe("changed");
-    expect(args.id).toBe(id);
-    expect(args.name).toBe("renamed");
-
-    globalStorage.close();
   });
 
   it("broadcasts 'changed' event when create is called", () => {
@@ -236,7 +140,7 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
     globalStorage.close();
   });
 
-  it("broadcasts 'changed' event when remove is called", () => {
+  it("broadcasts 'changed' event when update is called", () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const manager = makeManager(
       globalStorage,
@@ -246,16 +150,45 @@ describe("WorkspaceManager — listen.changed broadcast", () => {
     );
 
     manager.init();
-    manager.createDefaultIfEmpty();
+    const ws = manager.create({ rootPath: path.join(tmpDir, "ws"), name: "ws" });
     broadcastMock.mockClear();
 
-    const id = manager.list()[0].id;
-    manager.remove(id);
+    manager.update(ws.id, { name: "renamed" });
 
     expect(broadcastMock).toHaveBeenCalledTimes(1);
-    const [ch, ev] = broadcastMock.mock.calls[0] as [string, string, unknown];
+    const [ch, ev, args] = broadcastMock.mock.calls[0] as [
+      string,
+      string,
+      { id: string; name: string },
+    ];
     expect(ch).toBe("workspace");
     expect(ev).toBe("changed");
+    expect(args.id).toBe(ws.id);
+    expect(args.name).toBe("renamed");
+
+    globalStorage.close();
+  });
+
+  it("broadcasts 'removed' event with {id} payload when remove is called", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const ws = manager.create({ rootPath: path.join(tmpDir, "ws"), name: "ws" });
+    broadcastMock.mockClear();
+
+    manager.remove(ws.id);
+
+    expect(broadcastMock).toHaveBeenCalledTimes(1);
+    const [ch, ev, args] = broadcastMock.mock.calls[0] as [string, string, { id: string }];
+    expect(ch).toBe("workspace");
+    expect(ev).toBe("removed");
+    expect(args.id).toBe(ws.id);
 
     globalStorage.close();
   });
@@ -310,6 +243,61 @@ describe("WorkspaceManager — activate", () => {
     expect(() => manager.activate("00000000-0000-0000-0000-000000000099")).toThrow(
       "workspace not found",
     );
+
+    globalStorage.close();
+  });
+});
+
+describe("WorkspaceManager — remove + active workspace fallback", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("clears active id when the only workspace is removed", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const ws = manager.create({ rootPath: path.join(tmpDir, "ws"), name: "ws" });
+    manager.activate(ws.id);
+
+    manager.remove(ws.id);
+
+    expect(manager.getActiveId()).toBeNull();
+    expect(stateService.getState().lastActiveWorkspaceId).toBeUndefined();
+
+    globalStorage.close();
+  });
+
+  it("falls back to a remaining workspace when the active one is removed", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const ws1 = manager.create({ rootPath: path.join(tmpDir, "ws1"), name: "ws1" });
+    const ws2 = manager.create({ rootPath: path.join(tmpDir, "ws2"), name: "ws2" });
+    manager.activate(ws1.id);
+
+    manager.remove(ws1.id);
+
+    expect(manager.getActiveId()).toBe(ws2.id);
+    expect(stateService.getState().lastActiveWorkspaceId).toBe(ws2.id);
 
     globalStorage.close();
   });

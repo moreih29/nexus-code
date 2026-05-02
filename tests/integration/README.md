@@ -12,7 +12,7 @@ bun run test:integration
 |------|-----------------|
 | `ipc-roundtrip.test.ts` | Fake ipcMain harness: `register` → `call` → zod validation → `broadcast` → fake listener. No Electron process required. |
 | `storage-restart.test.ts` | Real temp-dir SQLite files: `GlobalStorage` + `StateService` + `WorkspaceStorage` persist data across close/re-open cycles. |
-| `workspace-lifecycle.test.ts` | `WorkspaceManager` + all three storage layers combined: `createDefaultIfEmpty` → `list` → `update` (state.db + workspace.json + broadcast) → `remove` → directory stays on disk (M0 spec). |
+| `workspace-lifecycle.test.ts` | `WorkspaceManager` + all three storage layers combined: `create` → `list` → `update` (state.db + workspace.json + `changed` broadcast) → `remove` (`removed` broadcast with `{id}`) → directory stays on disk (M0 spec). |
 
 ## Deferred to T13 (manual 1-hour session)
 

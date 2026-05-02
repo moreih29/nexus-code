@@ -24,8 +24,12 @@ export interface Migration {
   up: (db: SqliteDb) => void;
 }
 
-// M0: version 1 — create _meta and workspaces tables.
+// Migration history.
+//
+// Once a version has shipped, do NOT edit it — add a follow-up version instead.
+// Each `up` runs in its own transaction implicitly via applyMigrations.
 export const MIGRATIONS: Migration[] = [
+  // M0: initial schema.
   {
     version: 1,
     up: (db) => {
@@ -45,6 +49,15 @@ export const MIGRATIONS: Migration[] = [
           last_opened_at INTEGER NOT NULL
         );
       `);
+    },
+  },
+  // M1: drop unused `category` column. Requires SQLite >= 3.35 for
+  // ALTER TABLE ... DROP COLUMN — both better-sqlite3 (>= 9.x) and
+  // bun:sqlite ship newer SQLite, so this is safe in both runtimes.
+  {
+    version: 2,
+    up: (db) => {
+      db.exec(`ALTER TABLE workspaces DROP COLUMN category;`);
     },
   },
 ];

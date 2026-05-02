@@ -8,7 +8,6 @@ export const WorkspaceMetaSchema = z.object({
   rootPath: z.string(),
   colorTone: ColorToneSchema,
   pinned: z.boolean(),
-  category: z.string().optional(),
   lastOpenedAt: z.string().datetime().optional(),
   tabs: z.array(TabMetaSchema),
 });

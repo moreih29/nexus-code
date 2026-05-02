@@ -32,6 +32,12 @@ export const useWorkspacesStore = create<WorkspacesState>((set) => {
     });
   });
 
+  ipcListen("workspace", "removed", ({ id }) => {
+    set((state) => ({
+      workspaces: state.workspaces.filter((w) => w.id !== id),
+    }));
+  });
+
   return {
     workspaces: [],
 

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import os from "node:os";
 import path from "node:path";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 import type { GlobalStorage } from "../storage/globalStorage";
@@ -65,19 +64,6 @@ export class WorkspaceManager {
   }
 
   /**
-   * If no workspaces exist, create one rooted at os.homedir().
-   */
-  createDefaultIfEmpty(): void {
-    if (this.contexts.size > 0) {
-      return;
-    }
-    const rootPath = os.homedir();
-    const meta = this.create({ rootPath });
-    this.activeId = meta.id;
-    this.stateService.setState({ lastActiveWorkspaceId: meta.id });
-  }
-
-  /**
    * Close all open workspace storage handles and the global storage.
    * Call from app.on('before-quit').
    */
@@ -114,7 +100,6 @@ export class WorkspaceManager {
       rootPath: opts.rootPath,
       colorTone: "default",
       pinned: false,
-      category: "DEFAULT",
       lastOpenedAt: new Date().toISOString(),
       tabs: [],
     };
@@ -147,7 +132,6 @@ export class WorkspaceManager {
     if (!ctx) {
       return;
     }
-    const meta = ctx.getMeta();
     ctx.close();
     this.contexts.delete(id);
     this.globalStorage.removeWorkspace(id);
@@ -158,7 +142,7 @@ export class WorkspaceManager {
       this.stateService.setState({ lastActiveWorkspaceId: this.activeId ?? undefined });
     }
 
-    this.broadcastFn("workspace", "changed", meta);
+    this.broadcastFn("workspace", "removed", { id });
   }
 
   activate(id: string): void {

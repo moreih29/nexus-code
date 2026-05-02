@@ -17,6 +17,15 @@ export function registerDialogChannel(): void {
         });
         return { canceled: result.canceled, filePaths: result.filePaths };
       },
+      showOpenDirectory: async (args: unknown) => {
+        const { title, defaultPath } = validateArgs(c.showOpenDirectory.args, args);
+        const result = await dialog.showOpenDialog({
+          title,
+          defaultPath,
+          properties: ["openDirectory", "createDirectory"],
+        });
+        return { canceled: result.canceled, filePaths: result.filePaths };
+      },
     },
     listen: {},
   });

@@ -21,7 +21,6 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
     rootPath: path.join(os.tmpdir(), "test"),
     colorTone: "default",
     pinned: false,
-    category: "DEFAULT",
     lastOpenedAt: new Date(1_700_000_000_000).toISOString(),
     tabs: [],
     ...overrides,
@@ -46,14 +45,14 @@ describe("applyMigrations", () => {
     db.close();
   });
 
-  it("sets schemaVersion = 1 after migration", () => {
+  it("advances schemaVersion to the latest migration", () => {
     const db = makeDb();
     applyMigrations(db);
 
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("1");
+    expect(row?.value).toBe("2");
     db.close();
   });
 
@@ -65,12 +64,21 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("1");
+    expect(row?.value).toBe("2");
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as { name: string }[];
     expect(tables.filter((t) => t.name === "workspaces").length).toBe(1);
+    db.close();
+  });
+
+  it("v2 drops the unused `category` column", () => {
+    const db = makeDb();
+    applyMigrations(db);
+
+    const cols = db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[];
+    expect(cols.map((c) => c.name)).not.toContain("category");
     db.close();
   });
 });
@@ -103,7 +111,6 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
     expect(row.rootPath).toBe(meta.rootPath);
     expect(row.colorTone).toBe(meta.colorTone);
     expect(row.pinned).toBe(false);
-    expect(row.category).toBe("DEFAULT");
   });
 
   it("column mapping is accurate — pinned integer round-trips to boolean", () => {

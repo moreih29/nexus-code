@@ -34,7 +34,6 @@ registerDialogChannel();
 
 app.whenReady().then(() => {
   workspaceManager.init();
-  workspaceManager.createDefaultIfEmpty();
 
   const ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);

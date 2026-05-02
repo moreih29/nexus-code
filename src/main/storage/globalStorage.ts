@@ -13,7 +13,6 @@ interface WorkspaceRow {
   root_path: string;
   color_tone: string;
   pinned: number;
-  category: string;
   last_opened_at: number;
 }
 
@@ -24,7 +23,6 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
     rootPath: row.root_path,
     colorTone: row.color_tone as WorkspaceMeta["colorTone"],
     pinned: row.pinned === 1,
-    category: row.category,
     lastOpenedAt: new Date(row.last_opened_at).toISOString(),
     tabs: [],
   };
@@ -75,8 +73,8 @@ export class GlobalStorage {
     this.db
       .prepare(
         `INSERT INTO workspaces
-           (id, name, root_path, color_tone, pinned, category, last_opened_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, root_path, color_tone, pinned, last_opened_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         meta.id,
@@ -84,7 +82,6 @@ export class GlobalStorage {
         meta.rootPath,
         meta.colorTone ?? "default",
         meta.pinned ? 1 : 0,
-        meta.category ?? "DEFAULT",
         meta.lastOpenedAt ? new Date(meta.lastOpenedAt).getTime() : Date.now(),
       );
   }
@@ -99,7 +96,7 @@ export class GlobalStorage {
     this.db
       .prepare(
         `UPDATE workspaces
-         SET name = ?, root_path = ?, color_tone = ?, pinned = ?, category = ?, last_opened_at = ?
+         SET name = ?, root_path = ?, color_tone = ?, pinned = ?, last_opened_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -107,7 +104,6 @@ export class GlobalStorage {
         partial.rootPath ?? row.root_path,
         (partial.colorTone ?? row.color_tone) as string,
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
-        partial.category ?? row.category,
         partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,
         id,
       );

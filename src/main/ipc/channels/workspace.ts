@@ -29,6 +29,7 @@ export function registerWorkspaceChannel(manager: WorkspaceManager): void {
     },
     listen: {
       changed: {},
+      removed: {},
       attention: {},
     },
   });

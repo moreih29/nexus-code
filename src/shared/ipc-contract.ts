@@ -57,7 +57,6 @@ const WorkspaceUpdateArgsSchema = z.object({
   name: z.string().optional(),
   colorTone: ColorToneSchema.optional(),
   pinned: z.boolean().optional(),
-  category: z.string().optional(),
 });
 
 const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
@@ -77,6 +76,7 @@ export const ipcContract = {
     },
     listen: {
       changed: listen(WorkspaceMetaSchema),
+      removed: listen(WorkspaceIdSchema),
       attention: listen(WorkspaceIdSchema),
     },
   },
@@ -188,6 +188,13 @@ export const ipcContract = {
           filters: z
             .array(z.object({ name: z.string(), extensions: z.array(z.string()) }))
             .optional(),
+        }),
+        z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) }),
+      ),
+      showOpenDirectory: call(
+        z.object({
+          title: z.string().optional(),
+          defaultPath: z.string().optional(),
         }),
         z.object({ canceled: z.boolean(), filePaths: z.array(z.string()) }),
       ),

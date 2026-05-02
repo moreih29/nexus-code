@@ -1,9 +1,10 @@
 /**
  * Integration: WorkspaceManager + GlobalStorage + WorkspaceStorage + StateService.
  *
- * Tests the cross-slice lifecycle: createDefaultIfEmpty → list → update →
- * state.db + workspace.json written → listen.changed broadcast fired →
- * remove → workspace directory still on disk (M0 spec: no auto-delete).
+ * Tests the cross-slice lifecycle: create → list → update → state.db +
+ * workspace.json written → listen.changed broadcast fired → remove →
+ * listen.removed broadcast fired → workspace directory still on disk
+ * (M0 spec: no auto-delete).
  *
  * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
  */
@@ -61,11 +62,15 @@ function makeFixtures(tmpDir: string): Fixtures {
   return { manager, globalStorage, workspaceStorage, stateService, broadcastMock, wsBaseDir };
 }
 
+function seedRootPath(tmpDir: string): string {
+  return path.join(tmpDir, "fixture-root");
+}
+
 // ---------------------------------------------------------------------------
-// createDefaultIfEmpty → list 1 workspace
+// create → list 1 workspace + per-workspace storage materialized on disk
 // ---------------------------------------------------------------------------
 
-describe("workspace-lifecycle — createDefaultIfEmpty + list", () => {
+describe("workspace-lifecycle — create + list", () => {
   let tmpDir: string;
   let fixtures: Fixtures;
 
@@ -79,24 +84,25 @@ describe("workspace-lifecycle — createDefaultIfEmpty + list", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("list returns exactly 1 workspace after createDefaultIfEmpty on empty storage", () => {
+  it("list returns exactly 1 workspace after a single create()", () => {
     const { manager } = fixtures;
     manager.init();
-    manager.createDefaultIfEmpty();
+    manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
     expect(manager.list().length).toBe(1);
   });
 
-  it("createDefaultIfEmpty workspace has os.homedir() as rootPath", () => {
+  it("create stores the rootPath as provided", () => {
     const { manager } = fixtures;
     manager.init();
-    manager.createDefaultIfEmpty();
-    expect(manager.list()[0].rootPath).toBe(os.homedir());
+    const root = seedRootPath(tmpDir);
+    manager.create({ rootPath: root, name: "fixture" });
+    expect(manager.list()[0].rootPath).toBe(root);
   });
 
-  it("createDefaultIfEmpty creates per-workspace directory + state.db", () => {
+  it("create materializes per-workspace directory + state.db", () => {
     const { manager, wsBaseDir } = fixtures;
     manager.init();
-    manager.createDefaultIfEmpty();
+    manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
 
     const wsId = manager.list()[0].id;
     const wsDir = path.join(wsBaseDir, wsId);
@@ -122,8 +128,8 @@ describe("workspace-lifecycle — update propagates to storage + broadcast", () 
 
     const { manager } = fixtures;
     manager.init();
-    manager.createDefaultIfEmpty();
-    wsId = manager.list()[0].id;
+    const ws = manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
+    wsId = ws.id;
     fixtures.broadcastMock.mockClear();
   });
 
@@ -194,8 +200,8 @@ describe("workspace-lifecycle — remove keeps directory on disk (M0 spec)", () 
 
     const { manager, wsBaseDir } = fixtures;
     manager.init();
-    manager.createDefaultIfEmpty();
-    wsId = manager.list()[0].id;
+    const ws = manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
+    wsId = ws.id;
     wsDir = path.join(wsBaseDir, wsId);
     fixtures.broadcastMock.mockClear();
   });
@@ -216,12 +222,17 @@ describe("workspace-lifecycle — remove keeps directory on disk (M0 spec)", () 
     expect(fs.existsSync(wsDir)).toBe(true);
   });
 
-  it("remove fires listen.changed broadcast", () => {
+  it("remove fires listen.removed broadcast carrying {id}", () => {
     fixtures.manager.remove(wsId);
     expect(fixtures.broadcastMock).toHaveBeenCalledTimes(1);
-    const [ch, ev] = fixtures.broadcastMock.mock.calls[0] as [string, string, unknown];
+    const [ch, ev, args] = fixtures.broadcastMock.mock.calls[0] as [
+      string,
+      string,
+      { id: string },
+    ];
     expect(ch).toBe("workspace");
-    expect(ev).toBe("changed");
+    expect(ev).toBe("removed");
+    expect(args.id).toBe(wsId);
   });
 
   it("remove clears active workspace ID when the active workspace is removed", () => {
@@ -250,12 +261,10 @@ describe("workspace-lifecycle — full scenario (create → update → remove)",
     const { manager, globalStorage, stateService, wsBaseDir, broadcastMock } = makeFixtures(tmpDir);
 
     manager.init();
-    manager.createDefaultIfEmpty();
+    const ws = manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
+    manager.activate(ws.id);
 
-    const list1 = manager.list();
-    expect(list1.length).toBe(1);
-
-    const ws = list1[0];
+    expect(manager.list().length).toBe(1);
     expect(stateService.getState().lastActiveWorkspaceId).toBe(ws.id);
 
     // Update
@@ -283,6 +292,10 @@ describe("workspace-lifecycle — full scenario (create → update → remove)",
 
     expect(manager.list().length).toBe(0);
     expect(broadcastMock).toHaveBeenCalledTimes(1);
+    const [ch, ev, args] = broadcastMock.mock.calls[0] as [string, string, { id: string }];
+    expect(ch).toBe("workspace");
+    expect(ev).toBe("removed");
+    expect(args.id).toBe(ws.id);
 
     // Directory must still exist (M0 spec)
     expect(fs.existsSync(wsDir)).toBe(true);
