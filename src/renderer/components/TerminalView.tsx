@@ -4,7 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { fontFamily, typeScale } from "../../shared/design-tokens";
+import { color, fontFamily, typeScale } from "../../shared/design-tokens";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +36,10 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
       cursorBlink: true,
       fontFamily: fontFamily.monoDisplay,
       fontSize: typeScale.codeUi.fontSize,
+      // Match xterm canvas background to our app --background so the
+      // terminal area blends with the surrounding chrome (no inset frame).
+      // xterm API needs a literal string; CSS var would not resolve here.
+      theme: { background: color.bgCanvas },
     });
 
     const fitAddon = new FitAddon();
@@ -127,5 +131,5 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
     };
   }, [tabId, cwd]);
 
-  return <div ref={containerRef} className="w-full h-full bg-[#1e1e1e]" />;
+  return <div ref={containerRef} className="w-full h-full bg-background" />;
 }

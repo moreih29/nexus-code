@@ -32,7 +32,7 @@ export function TabBar({
       <RadixTabs.Root
         value={activeTabId ?? ""}
         onValueChange={onSelectTab}
-        className="flex items-center h-9 shrink-0 bg-muted border-b border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-center h-9 shrink-0 bg-muted overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <RadixTabs.List
           className="flex items-center h-full"
@@ -47,12 +47,11 @@ export function TabBar({
                 "flex items-center gap-1.5 px-3 h-full",
                 // text
                 "text-[12px] whitespace-nowrap select-none cursor-pointer",
-                // border separator
-                "border-r border-border",
+
                 // rest state
-                "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
-                // active state: frosted veil bg + mist border-bottom indicator
-                "data-[state=active]:bg-white/[0.04] data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-b-white/[0.35]",
+                "text-muted-foreground hover:bg-[--color-frosted-veil] hover:text-foreground",
+                // active state: frosted veil bg + mist-border bottom indicator (1px, mist-border token)
+                "data-[state=active]:bg-[--color-frosted-veil] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[--color-mist-border]",
                 // focus
                 "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
                 // reset button defaults
@@ -67,7 +66,7 @@ export function TabBar({
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="size-4 opacity-50 hover:opacity-100 hover:bg-white/[0.1] shrink-0"
+                    className="size-4 opacity-50 hover:opacity-100 hover:bg-[--color-frosted-veil-strong] shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseTab(tab.id);

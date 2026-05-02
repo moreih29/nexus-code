@@ -16,8 +16,15 @@ export const color = {
   ashGray: "oklch(0.751 0.0031 84.56)",
   mutedPurple: "oklch(0.5067 0.0082 304.11)",
   darkCharcoal: "oklch(0.3904 0 0)",
-  // Surfaces — keep as rgba; alpha is load-bearing
+  // Canvas — kept as hex because xterm.js Terminal theme.background API
+  // accepts only string color literals (no CSS var resolution at runtime).
+  bgCanvas: "#1a1917",
+  // Surfaces — keep as rgba; alpha is load-bearing.
+  // Frosted veil tiers: 0.04 (subtle hover/active bg) → 0.1 (stronger hover) → 0.16 (frosted tag) → 0.24 (tag hover)
   frostedVeil: "rgba(255, 255, 255, 0.04)",
+  frostedVeilStrong: "rgba(255, 255, 255, 0.1)",
+  frostedTag: "rgba(255, 255, 255, 0.16)",
+  frostedTagHover: "rgba(255, 255, 255, 0.24)",
   mistBorder: "rgba(226, 226, 226, 0.35)",
   translucentParchment: "rgba(250, 249, 246, 0.9)",
   // Depth / elevation
@@ -35,7 +42,7 @@ export const color = {
 export function buildSemanticTokens(): Record<string, string> {
   return {
     // Canvas / page background
-    "--background": "#1a1917",
+    "--background": color.bgCanvas,
     "--foreground": color.warmParchment,
     // Muted surfaces (sidebar, tab bar)
     "--muted": "#252422",

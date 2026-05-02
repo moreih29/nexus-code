@@ -5,7 +5,11 @@
   --color-ash-gray: oklch(0.751 0.0031 84.56);
   --color-muted-purple: oklch(0.5067 0.0082 304.11);
   --color-dark-charcoal: oklch(0.3904 0 0);
+  --color-bg-canvas: #1a1917;
   --color-frosted-veil: rgba(255, 255, 255, 0.04);
+  --color-frosted-veil-strong: rgba(255, 255, 255, 0.1);
+  --color-frosted-tag: rgba(255, 255, 255, 0.16);
+  --color-frosted-tag-hover: rgba(255, 255, 255, 0.24);
   --color-mist-border: rgba(226, 226, 226, 0.35);
   --color-translucent-parchment: rgba(250, 249, 246, 0.9);
   --color-ambient-shadow: rgba(0, 0, 0, 0.2);

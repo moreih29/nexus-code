@@ -17,7 +17,7 @@ interface SidebarProps {
 
 export function Sidebar({ workspaces, activeWorkspaceId, onSelectWorkspace }: SidebarProps) {
   return (
-    <aside className="w-[240px] shrink-0 bg-muted border-r border-border overflow-y-auto">
+    <aside className="w-[240px] shrink-0 bg-muted overflow-y-auto">
       <div className="py-3">
         {workspaces.map((ws) => {
           const isActive = ws.id === activeWorkspaceId;
@@ -30,14 +30,14 @@ export function Sidebar({ workspaces, activeWorkspaceId, onSelectWorkspace }: Si
               aria-current={isActive ? "page" : undefined}
               onClick={() => onSelectWorkspace(ws.id)}
               className={cn(
-                // base layout
-                "block w-[calc(100%-16px)] mx-2 my-0.5 px-4 py-2 rounded-[6px]",
+                // base layout — left accent bar reserved (border-l-2 transparent) so width is stable across states
+                "block w-[calc(100%-16px)] mx-2 my-0.5 px-4 py-2 rounded-[6px] border-l-2 border-l-transparent",
                 // text + interaction
                 "text-left cursor-pointer select-none font-sans transition-colors",
                 // rest state
-                "text-foreground bg-transparent hover:bg-white/[0.04]",
-                // active state: frosted veil bg + mist border
-                isActive && "bg-white/[0.04] border border-white/[0.35]",
+                "text-foreground bg-transparent hover:bg-[--color-frosted-veil]",
+                // active state: frosted veil bg + left accent bar (mist-border tone)
+                isActive && "bg-[--color-frosted-veil] border-l-[--color-mist-border]",
               )}
             >
               {/* Category label — smallLabel: 11px, tracking 1.4px, uppercase */}
