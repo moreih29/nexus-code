@@ -27,6 +27,8 @@ interface TerminalViewProps {
 
 export function TerminalView({ tabId, cwd }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingRafRef = useRef<number | null>(null);
+  const lastDimsRef = useRef<{ cols: number; rows: number } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -70,11 +72,27 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
     }
 
     term.open(container);
-    fitAddon.fit();
+
+    const runFit = () => {
+      if (container.clientWidth === 0 || container.clientHeight === 0) return;
+      const d = fitAddon.proposeDimensions();
+      if (!d) return;
+      const { cols, rows } = d;
+      if (lastDimsRef.current?.cols === cols && lastDimsRef.current?.rows === rows) return;
+      fitAddon.fit();
+      ipcCall("pty", "resize", { tabId, cols, rows }).catch(() => {});
+      lastDimsRef.current = { cols, rows };
+    };
+
+    // Initial fit — captures spawn dims and seeds lastDimsRef
+    runFit();
 
     const dims = fitAddon.proposeDimensions();
     const cols = dims?.cols ?? 80;
     const rows = dims?.rows ?? 24;
+    // Seed lastDimsRef with the dims used at spawn so the first RO callback
+    // is a no-op when the container hasn't actually changed size.
+    lastDimsRef.current = { cols, rows };
 
     let pendingAckChars = 0;
     const encoder = new TextEncoder();
@@ -110,16 +128,22 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
       term.write("\r\n[Process exited]\r\n");
     });
 
-    // Resize observer
+    // Resize observer — RAF coalesces burst callbacks; 0-dim and idempotency
+    // guards are applied inside runFit.
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      const d = fitAddon.proposeDimensions();
-      if (!d) return;
-      ipcCall("pty", "resize", { tabId, cols: d.cols, rows: d.rows }).catch(() => {});
+      if (pendingRafRef.current != null) return;
+      pendingRafRef.current = requestAnimationFrame(() => {
+        pendingRafRef.current = null;
+        runFit();
+      });
     });
     resizeObserver.observe(container);
 
     return () => {
+      if (pendingRafRef.current != null) {
+        cancelAnimationFrame(pendingRafRef.current);
+        pendingRafRef.current = null;
+      }
       onDataDispose.dispose();
       unlistenData();
       unlistenExit();
