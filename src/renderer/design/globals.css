@@ -1,6 +1,45 @@
-/* Design tokens are injected at runtime via tokens.ts injectTokens().
-   This file references those CSS variables and provides global resets,
-   surface utilities, and the dark canvas baseline. */
+@import "tailwindcss";
+@import "../styles/theme.generated.css";
+
+/* ---------------------------------------------------------------------------
+   Self-hosted @font-face declarations (no external font requests)
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Pretendard";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/Pretendard/Pretendard-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Pretendard";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/Pretendard/Pretendard-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono Nerd Font";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono/JetBrainsMonoNerdFont-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Sarasa Term K";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/SarasaTermK/sarasa-term-k-regular.ttf") format("truetype");
+}
+
+/* ---------------------------------------------------------------------------
+   Global resets
+   --------------------------------------------------------------------------- */
 
 *,
 *::before,
@@ -10,30 +49,17 @@
   padding: 0;
 }
 
-:root {
-  /* Dark canvas baseline — Warp-inspired (design.md) */
-  --color-bg: #1a1917;
-  --color-text-primary: #faf9f6;
-  --color-text-secondary: #afaeac;
-  --color-text-muted: #868584;
-  --color-surface: #252422;
-  --color-border: rgba(226, 226, 226, 0.15);
-
-  /* Matter Regular with system sans fallback (M0 — license pending) */
-  --font-family-ui:
-    "Matter Regular", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-family-mono: "Matter Mono Regular", ui-monospace, "Cascadia Code", "Fira Code", monospace;
-
-  /* Motion — 200-250ms opacity fade; transform disabled per design.md */
-  --motion-fade: 220ms ease;
-}
+/* ---------------------------------------------------------------------------
+   html/body baseline
+   --------------------------------------------------------------------------- */
 
 html,
 body {
   height: 100%;
-  background-color: var(--color-bg);
-  color: var(--color-text-primary);
-  font-family: var(--font-family-ui);
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: Pretendard, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -41,156 +67,4 @@ body {
 
 #root {
   height: 100%;
-}
-
-/* ---------------------------------------------------------------------------
-   Surface utilities (design.md Frosted Veil / Mist Border)
-   --------------------------------------------------------------------------- */
-
-.frosted-veil {
-  background-color: var(--color-frosted-veil, rgba(255, 255, 255, 0.04));
-}
-
-.mist-border {
-  border: 1px solid var(--color-mist-border, rgba(226, 226, 226, 0.35));
-}
-
-/* ---------------------------------------------------------------------------
-   Workspace active state — Frosted Veil bg + Mist Border
-   --------------------------------------------------------------------------- */
-
-.workspace-item--active {
-  background-color: var(--color-frosted-veil, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--color-mist-border, rgba(226, 226, 226, 0.35));
-}
-
-/* ---------------------------------------------------------------------------
-   Workspace opacity fade transition (200-250ms, no transform)
-   --------------------------------------------------------------------------- */
-
-.workspace-fade {
-  opacity: 1;
-  transition: opacity var(--motion-fade);
-}
-
-.workspace-fade--hidden {
-  opacity: 0;
-}
-
-/* ---------------------------------------------------------------------------
-   App shell layout
-   --------------------------------------------------------------------------- */
-
-.app-root {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
-}
-
-.app-sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background-color: var(--color-surface);
-  border-right: 1px solid var(--color-border);
-  overflow-y: auto;
-}
-
-.app-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* ---------------------------------------------------------------------------
-   Tab bar
-   --------------------------------------------------------------------------- */
-
-.tab-bar {
-  display: flex;
-  align-items: center;
-  height: 36px;
-  flex-shrink: 0;
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tab-bar::-webkit-scrollbar {
-  display: none;
-}
-
-.tab-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  height: 100%;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  border-right: 1px solid var(--color-border);
-  user-select: none;
-}
-
-.tab-item:hover {
-  background-color: var(--color-frosted-veil, rgba(255, 255, 255, 0.04));
-  color: var(--color-text-primary);
-}
-
-.tab-item--active {
-  background-color: var(--color-bg);
-  color: var(--color-text-primary);
-}
-
-.tab-item__close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  font-size: 10px;
-  opacity: 0.5;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  line-height: 1;
-}
-
-.tab-item__close:hover {
-  opacity: 1;
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.tab-bar__add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 100%;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--color-text-muted);
-  border: none;
-  background: none;
-  flex-shrink: 0;
-}
-
-.tab-bar__add:hover {
-  color: var(--color-text-primary);
-}
-
-/* ---------------------------------------------------------------------------
-   Tab content area
-   --------------------------------------------------------------------------- */
-
-.tab-content {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }

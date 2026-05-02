@@ -17,23 +17,14 @@ interface TabContentProps {
 export function TabContent({ tab }: TabContentProps) {
   if (!tab) {
     return (
-      <div
-        className="tab-content"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--color-text-muted)",
-          fontSize: 13,
-        }}
-      >
+      <div className="flex flex-1 min-h-0 items-center justify-center text-[--muted-foreground] text-[13px]">
         No tab open
       </div>
     );
   }
 
   return (
-    <div className="tab-content">
+    <div className="flex-1 min-h-0 overflow-hidden">
       {tab.type === "terminal" ? (
         <TerminalView tabId={tab.id} cwd={(tab.props as TerminalTabProps).cwd} />
       ) : (

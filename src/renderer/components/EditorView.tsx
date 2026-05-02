@@ -11,6 +11,7 @@
 import Editor, { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
+import { fontFamily, typeScale } from "../../shared/design-tokens";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -208,8 +209,8 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       theme="vs-dark"
       options={{
         minimap: { enabled: false },
-        fontSize: 13,
-        fontFamily: "monospace",
+        fontSize: typeScale.codeBody.fontSize,
+        fontFamily: fontFamily.monoBody,
         scrollBeyondLastLine: false,
         automaticLayout: true,
       }}

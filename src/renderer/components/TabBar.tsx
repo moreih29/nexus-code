@@ -1,3 +1,7 @@
+import * as RadixTabs from "@radix-ui/react-tabs";
+import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { Tab } from "../store/tabs";
 
 // ---------------------------------------------------------------------------
@@ -24,47 +28,79 @@ export function TabBar({
   onNewTerminalTab,
 }: TabBarProps) {
   return (
-    <div className="tab-bar">
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTabId;
-        return (
-          <div
-            key={tab.id}
-            role="tab"
-            tabIndex={0}
-            aria-selected={isActive}
-            className={`tab-item${isActive ? " tab-item--active" : ""}`}
-            onClick={() => onSelectTab(tab.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelectTab(tab.id);
-              }
-            }}
-          >
-            <span>{tab.title}</span>
-            <button
-              type="button"
-              className="tab-item__close"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseTab(tab.id);
-              }}
-              title="Close tab"
-            >
-              x
-            </button>
-          </div>
-        );
-      })}
-      <button
-        type="button"
-        className="tab-bar__add"
-        onClick={onNewTerminalTab}
-        title="New terminal tab"
+    <RadixTooltip.Provider delayDuration={600}>
+      <RadixTabs.Root
+        value={activeTabId ?? ""}
+        onValueChange={onSelectTab}
+        className="flex items-center h-9 shrink-0 bg-muted border-b border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        +
-      </button>
-    </div>
+        <RadixTabs.List
+          className="flex items-center h-full"
+          aria-label="Open tabs"
+        >
+          {tabs.map((tab) => (
+            <RadixTabs.Trigger
+              key={tab.id}
+              value={tab.id}
+              className={cn(
+                // base layout
+                "flex items-center gap-1.5 px-3 h-full",
+                // text
+                "text-[12px] whitespace-nowrap select-none cursor-pointer",
+                // border separator
+                "border-r border-border",
+                // rest state
+                "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                // active state: frosted veil bg + mist border-bottom indicator
+                "data-[state=active]:bg-white/[0.04] data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-b-white/[0.35]",
+                // focus
+                "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
+                // reset button defaults
+                "bg-transparent",
+              )}
+            >
+              <span>{tab.title}</span>
+
+              {/* Close button with Tooltip */}
+              <RadixTooltip.Root>
+                <RadixTooltip.Trigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-4 opacity-50 hover:opacity-100 hover:bg-white/[0.1] shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCloseTab(tab.id);
+                    }}
+                    aria-label="Close tab"
+                  >
+                    ×
+                  </Button>
+                </RadixTooltip.Trigger>
+                <RadixTooltip.Portal>
+                  <RadixTooltip.Content
+                    className="px-2 py-1 text-[11px] bg-muted text-foreground border border-border rounded-[4px] shadow-none"
+                    sideOffset={4}
+                  >
+                    Close tab
+                  </RadixTooltip.Content>
+                </RadixTooltip.Portal>
+              </RadixTooltip.Root>
+            </RadixTabs.Trigger>
+          ))}
+        </RadixTabs.List>
+
+        {/* New terminal tab button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
+          onClick={onNewTerminalTab}
+          aria-label="New terminal tab"
+        >
+          +
+        </Button>
+      </RadixTabs.Root>
+    </RadixTooltip.Provider>
   );
 }

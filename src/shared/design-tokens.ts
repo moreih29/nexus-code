@@ -2,19 +2,21 @@
 // When design.md is updated, review and update the token values below accordingly.
 
 // ---------------------------------------------------------------------------
-// Color palette
+// Color palette — OKLCH (converted from hex via culori for perceptual accuracy)
+// Translucent colors remain as rgba() since OKLCH does not express alpha in
+// the @theme {} block without oklch(...) / alpha hack.
 // ---------------------------------------------------------------------------
 
 export const color = {
   // Primary
-  warmParchment: "#faf9f6",
-  earthGray: "#353534",
+  warmParchment: "oklch(0.982 0.0041 91.45)",
+  earthGray: "oklch(0.3286 0.0017 106.49)",
   // Secondary / accent
-  stoneGray: "#868584",
-  ashGray: "#afaeac",
-  mutedPurple: "#666469",
-  darkCharcoal: "#454545",
-  // Surfaces
+  stoneGray: "oklch(0.6173 0.0019 67.79)",
+  ashGray: "oklch(0.751 0.0031 84.56)",
+  mutedPurple: "oklch(0.5067 0.0082 304.11)",
+  darkCharcoal: "oklch(0.3904 0 0)",
+  // Surfaces — keep as rgba; alpha is load-bearing
   frostedVeil: "rgba(255, 255, 255, 0.04)",
   mistBorder: "rgba(226, 226, 226, 0.35)",
   translucentParchment: "rgba(250, 249, 246, 0.9)",
@@ -23,16 +25,73 @@ export const color = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Typography — font families
+// Semantic token map — shadcn convention variables
+// --primary        = earthGray    (봉인)
+// --accent         = ashGray      (봉인)
+// --shadow-*       = none         (봉인)
+// --radius         = 0            (봉인)
+// ---------------------------------------------------------------------------
+
+export function buildSemanticTokens(): Record<string, string> {
+  return {
+    // Canvas / page background
+    "--background": "#1a1917",
+    "--foreground": color.warmParchment,
+    // Muted surfaces (sidebar, tab bar)
+    "--muted": "#252422",
+    "--muted-foreground": color.stoneGray,
+    // Card surfaces
+    "--card": "#252422",
+    "--card-foreground": color.warmParchment,
+    // Popover
+    "--popover": "#252422",
+    "--popover-foreground": color.warmParchment,
+    // Primary action (earthGray —봉인)
+    "--primary": color.earthGray,
+    "--primary-foreground": color.warmParchment,
+    // Secondary
+    "--secondary": "#252422",
+    "--secondary-foreground": color.warmParchment,
+    // Accent (ashGray — 봉인)
+    "--accent": color.ashGray,
+    "--accent-foreground": color.earthGray,
+    // Destructive
+    "--destructive": "oklch(0.577 0.245 27.33)",
+    "--destructive-foreground": color.warmParchment,
+    // Border / input / ring
+    "--border": "rgba(226, 226, 226, 0.15)",
+    "--input": "rgba(226, 226, 226, 0.15)",
+    "--ring": color.ashGray,
+    // Layout — radius 0 봉인, shadow none 봉인
+    "--radius": "0px",
+    "--shadow-sm": "none",
+    "--shadow": "none",
+    "--shadow-md": "none",
+    "--shadow-lg": "none",
+    "--shadow-xl": "none",
+    "--shadow-2xl": "none",
+    // Motion
+    "--motion-fade": "220ms ease",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Typography — font families (M1: Matter → Pretendard; mono → JetBrains Mono)
 // ---------------------------------------------------------------------------
 
 export const fontFamily = {
-  display: "'Matter Regular', 'Matter Regular Placeholder', sans-serif",
-  medium: "'Matter Medium', 'Matter Medium Placeholder', sans-serif",
-  square: "'Matter SQ Regular', 'Matter SQ Regular Placeholder', sans-serif",
-  uiSupplement: "'Inter', 'Inter Placeholder', sans-serif",
-  monoDisplay: "'Geist Mono', monospace",
-  monoBody: "'Matter Mono Regular', 'Matter Mono Regular Placeholder', monospace",
+  // Tailwind utility overrides — font-sans / font-mono map to these
+  sans: "Pretendard, system-ui, -apple-system, sans-serif",
+  mono: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
+  // display/body/caption roles → Pretendard (han-first, M1)
+  display: "Pretendard, system-ui, -apple-system, sans-serif",
+  // medium/square/uiSupplement: Pretendard placeholder (revisit when assets arrive)
+  medium: "Pretendard, system-ui, -apple-system, sans-serif",
+  square: "Pretendard, system-ui, -apple-system, sans-serif",
+  uiSupplement: "Pretendard, system-ui, -apple-system, sans-serif",
+  // mono roles → JetBrains Mono Nerd Font + Sarasa Term K fallback
+  monoDisplay: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
+  monoBody: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
 } as const;
 
 // ---------------------------------------------------------------------------

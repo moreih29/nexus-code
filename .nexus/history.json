@@ -355,6 +355,310 @@
           "created_at": "2026-05-02T07:13:35.813Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-02T11:05:36.292Z",
+      "branch": "feat/m1-design-system",
+      "plan": {
+        "id": 2,
+        "topic": "M1 디자인 시스템 도입 — shadcn/Radix + Tailwind + 기존 Warp 토큰 통합",
+        "issues": [
+          {
+            "id": 1,
+            "title": "I1: Tailwind 도입 + Warp 디자인 토큰을 어떻게 Tailwind theme/CSS 변수로 브릿지할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위험: shadcn의 --background/--foreground/--muted/--accent에 raw 토큰을 그대로 매핑하면 Warp 톤(warm parchment text 등) 의도가 소실. 추천: 2-layer — (a) raw layer(warmParchment/earthGray/...) 그대로 노출 + (b) semantic layer(--background/--foreground/--muted/--border/--card)를 raw에 alias. --primary는 earthGray 고정해 accent 도입 차단. 컴포넌트는 semantic만 사용. 대안 A(semantic-only)는 일관성 최고지만 hero 같은 예외 표현 막힘, B(raw-only)는 shadcn 컴포넌트 깨짐 — 2-layer가 양쪽 단점 상쇄. semantic alias 자체가 톤 가드레일 역할 — --accent 슬롯을 ashGray로 봉인하면 'accent 없음' 정책이 코드로 강제됨.",
+                "recorded_at": "2026-05-02T10:00:14.778Z",
+                "agent_id": "a77b1813e6ca99df8"
+              },
+              {
+                "role": "architect",
+                "summary": "옵션: A) Tailwind v4 + @tailwindcss/vite (CSS-first @theme, postcss 불필요), B) Tailwind v3 + postcss/autoprefixer. 부담: A는 vite 6 호환 검증됨, 빌드/HMR 가장 빠름 — 단 shadcn 일부 템플릿이 v3 가정이라 cssVariables 사용 시 v4는 @theme inline 수동 매핑 필요. B는 자료 풍부하나 postcss 한 단계로 dev 시작 100~300ms 증가. 추천: A. tailwind.config.ts 두지 않고, globals.css 안에서 @theme {--color-*: ...}를 design-tokens.ts로부터 빌드 타임 생성(작은 vite plugin 또는 prebuild 스크립트가 theme.generated.css emit). renderer/index.tsx가 globals.css만 import, globals.css 첫 줄 @import \"tailwindcss\"; + generated import. Acceptance: bun run dev HMR 유지, build 통과, --color-bg가 DevTools :root에서 확인.",
+                "recorded_at": "2026-05-02T10:00:23.350Z",
+                "agent_id": "a67f2d9c867434a7b"
+              },
+              {
+                "role": "researcher",
+                "summary": "2026-05 검증: Tailwind v4.2 안정(v4.1 EOL, v3 공식 LTS 없음). shadcn CLI가 v4 완전 지원하고 cssVariables: true도 v4에서 @theme inline으로 동작. @tailwindcss/vite는 electron-vite의 renderer.plugins에만 삽입(main/preload엔 추가 금지). path alias는 tsconfig.paths + electron.vite.config.ts renderer.resolve.alias 양쪽 등록 필수. 함정 4개(블로커 아님): (1) shadcn CLI가 electron.vite.config.ts 자동 감지 못 함 → 루트 vite.config.ts 더미 파일 필요 (2) CSS 진입점 @import \"tailwindcss\"; (3) lib/utils.ts는 @/* 매핑 안에 위치 (4) 기존 postcss.config.js 있으면 제거. 출처: ui.shadcn.com/docs/tailwind-v4, GitHub Releases, dev.to/nedwize 가이드.",
+                "recorded_at": "2026-05-02T10:06:25.384Z",
+                "agent_id": "af33903848e6e7d68"
+              }
+            ],
+            "decision": "Tailwind v4 CSS-first(@tailwindcss/vite, postcss config 없음) + 2-layer 토큰 브릿지(raw + semantic) 도입. design-tokens.ts를 단일 소스로 두고 빌드 타임에 generated CSS(@theme 블록)로 emit해 :root에 raw + semantic 변수 모두 노출. semantic은 shadcn 규약(--background/--foreground/--muted/--border/--card/--primary 등)을 raw 토큰에 alias하고, --primary는 earthGray, --accent는 ashGray로 봉인하여 'no accent' 정책을 코드로 강제. 런타임 inject(현 tokens.ts injectTokens) 폐기. 실행 시 함정 4개 처리: (1) 루트에 vite.config.ts 더미 파일로 shadcn CLI 감지 활성화 (2) CSS는 @import \"tailwindcss\"; 사용 (3) lib/utils.ts를 @/* 매핑 안에 배치 (4) postcss.config.js 잔재 제거."
+          },
+          {
+            "id": 2,
+            "title": "I2: shadcn 컴포넌트 채택 범위 — 어떤 primitive를 가져오고 어떤 건 우리가 직접 만들 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위험: 30+ 전체 도입 시 Warp 톤 재도색 부채 폭발 + 에디터/터미널 도구에 불필요한 컴포넌트가 디자인 책임 영역만 늘림. 분류: (1) Headless-only(Radix primitive 직접) — Tabs, Tooltip, Dialog, DropdownMenu, ContextMenu, Popover. 인터랙션·a11y 가치 최고, 시각은 100% 우리 것. (2) 스타일 포함 차용(shadcn 복붙) — Button, Input, Separator, ScrollArea, Toast(Sonner). 패턴이 보편적이라 재도색 비용 < 재구현. (3) 직접 만들기 — Sidebar, TabBar, EditorView·TerminalView frame, FrostedTag, PillButton variant. Warp 정체성 컴포넌트. 대안 A(전부 shadcn 복붙)는 빠르지만 Sidebar 평범해짐, B(전부 직접)는 a11y 부담 재발. 정체성 컴포넌트만 직접 작성하면 톤 핵심 자산 유지하면서 보편 컴포넌트는 a11y 차용.",
+                "recorded_at": "2026-05-02T10:00:32.735Z",
+                "agent_id": "a77b1813e6ca99df8"
+              },
+              {
+                "role": "architect",
+                "summary": "옵션: A) style: new-york + baseColor: neutral + cssVariables: true + alias @/* → src/renderer/*, B) style: default + cssVariables: false. A는 semantic 변수 사용으로 토큰 단일소스 전략과 정합 — tsconfig + vite alias 양쪽 필요. B는 토큰 브릿지 깨짐. 추천: A. components.json의 aliases.ui = \"@/components/ui\", utils = \"@/lib/utils\". tsconfig.json paths와 electron.vite.config.ts renderer resolve.alias 양쪽에 @ → src/renderer 등록(electron-vite는 자동 분기 안 함). Acceptance: bunx shadcn@latest add button 후 import { Button } from \"@/components/ui/button\" 타입체크 + 런타임 렌더링 통과.",
+                "recorded_at": "2026-05-02T10:00:38.954Z",
+                "agent_id": "a67f2d9c867434a7b"
+              }
+            ],
+            "decision": "M1 단계 컴포넌트 채택 (단계적 접근). 가져올 것: (1) Tier3 직접 작성 — Sidebar, TabBar, TabContent (chrome 동시 전환). (2) Tier1 headless(Radix 직접) — Tabs(TabBar에 사용), Tooltip(close 버튼 hint). (3) Tier2 shadcn 복붙 — Button (Sidebar workspace-item과 TabBar add/close에서 사용). (4) 유틸 — cn() helper, lib/utils.ts. 미래 추가 트리거(지금은 건드리지 않음): Dialog/AlertDialog → Settings·Confirm UI 등장 시, DropdownMenu/ContextMenu → 우클릭 또는 워크스페이스 메뉴 등장 시, Popover/Command → Command Palette 구현 시, ScrollArea → 가상 리스트 등장 시, Toast(Sonner) → 사용자 피드백 알림 필요 시, Input/Form → Settings 폼 등장 시. 미래 사용 추측으로 미리 깔지 않음."
+          },
+          {
+            "id": 3,
+            "title": "I3: Warp 디자인 톤(monochrome warm gray, 음각 letter-spacing, Matter 폰트)을 shadcn 기본 스타일과 어떻게 충돌 없이 적용할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위험: shadcn 디폴트(zinc/neutral cool, --radius:0.5rem, font-medium/semibold, ring-2 colored focus, shadow-sm)가 Warp(warm·flat·Regular dominance·border-only depth)와 정면 충돌. 충돌 매핑: (1) cool zinc → warm: theme override로 raw 토큰 교체 (2) radius 0.5rem 일괄 → pill 50px / card 12px 분리: variant 추가(pill, frostedTag) (3) font-medium 디폴트 → Regular dominance: global override + Medium은 button/cardTitle 한정 (4) colored focus ring → border brightness: --ring을 mistBorder로, :focus-visible만 사용 (5) shadow-sm → border + opacity: shadow 토큰 비활성, border util로 대체 (6) bold/700+ heading 차단: global rule. 대안 A(컴포넌트 단위 통째 재작성)는 안전하나 느림, B(variant 누적)는 유연하나 표준 일탈. theme override + 핵심 variant 조합 권장. theme 층에서 차단해야 후속 컴포넌트 추가 시에도 톤 유지.",
+                "recorded_at": "2026-05-02T10:00:48.390Z",
+                "agent_id": "a77b1813e6ca99df8"
+              },
+              {
+                "role": "architect",
+                "summary": "옵션: A) design-tokens.ts가 raw + semantic 두 layer를 :root에 주입, Tailwind @theme는 semantic을 var(--background)로 참조. B) Tailwind theme에 raw 색을 직접 박고 semantic은 별도 CSS. A는 tokens.ts에 semantic: { background: raw.neutral[50], primary: raw.blue[600] } 매핑 함수 추가 필요(단일 소스 유지). B는 shadcn 컴포넌트 깨짐. 추천 A. 다크 단일이라 :root만 정의(미디어쿼리/.dark 불필요). 런타임 inject 대신 빌드 타임 generated CSS로 emit하면 FOUC/순서 이슈 제거. Acceptance: shadcn Button이 tokens.ts에서 primary 색 변경 시 HMR 반영 + 두 시스템에서 동일 hex 출력.",
+                "recorded_at": "2026-05-02T10:00:55.652Z",
+                "agent_id": "a67f2d9c867434a7b"
+              }
+            ],
+            "decision": "Warp 톤 vs shadcn 디폴트 충돌은 3-layer로 차단. (1) Theme override: design-tokens.ts semantic layer가 shadcn 규약 변수에 raw 토큰을 alias — --background=color-bg, --foreground=warmParchment, --muted=frostedVeil, --muted-foreground=stoneGray, --border=mistBorder, --primary=earthGray, --primary-foreground=ashGray, --accent=ashGray(봉인), --ring=mistBorder, --radius=0(기본), --shadow-*=none. (2) Button variant 추가: shadcn 기본 외에 pill(50px radius, earthGray bg), frostedTag(rgba(255,255,255,0.16), 6px radius, 1px 6px padding), ghost(hover만 frostedVeil) 추가. (3) Global rule: globals.css에서 body { font-weight: 400 } 강제. font-bold/extrabold/black 클래스 사용 금지(safelist 또는 lint 룰 적용 시점은 실행에서 결정). 음각 letter-spacing은 typeScale role(displayHero/bodyLarge 등)에서만 적용. 색공간: OKLCH 채택. design-tokens.ts의 hex 색상 11개를 OKLCH 표기로 1회 마이그레이션(culori/colorjs.io 사용, 시각 비교 검증). shadcn cssVariables: true로 진행 — 우리 OKLCH 토큰과 shadcn OKLCH 변수가 동일 색공간이라 변환 충돌 없음. design.md는 인간 가독성용 hex 유지, 코드만 OKLCH(generated 주석으로 동치 표시). globals.css의 하드코딩 색(--color-bg #1a1917 등)도 같이 OKLCH로 통일."
+          },
+          {
+            "id": 4,
+            "title": "I4: 폰트 로딩 전략 — Matter는 라이선스 미정, Inter/Geist Mono fallback, Electron 환경에서의 self-host 방식",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위험: Matter 부재 시 톤의 50%가 사라짐(softness, 음각 tracking 호환). 잘못된 fallback은 Inter·DM Sans 같은 AI-slop 신호. 추천(단기): system fallback 유지 + 음각 letter-spacing 그대로 적용. macOS의 SF Pro는 Matter와 가장 근접한 humanist geometry 제공, Electron desktop 사용자 대다수가 darwin/Windows라 fallback 일관성 확보. 대안 비교: (b) Inter/Geist/Manrope — Inter는 AI-slop 1순위로 design.md Don't 위반, Geist는 Vercel 색이 강함, Manrope가 그나마 근접하나 정체성 색 더해짐. (c) Matter 라이선스 구매 — 톤 손상 0이나 M1 일정 risk + self-host 부담. 단기 (a), M2 stabilize 시점에 (c) 검토. (b)는 권장하지 않음.",
+                "recorded_at": "2026-05-02T10:01:03.490Z",
+                "agent_id": "a77b1813e6ca99df8"
+              },
+              {
+                "role": "architect",
+                "summary": "옵션: A) 시스템 스택 유지(-apple-system, ui-sans-serif), B) 무료 폰트 self-host via vite ?url import + @font-face, C) CDN. A는 0비용, macOS-first에서 충분. B는 vite가 file:// 상대경로 처리 OK + asset hash 보존, font-display: swap 주의. C는 file:// + 기본 CSP에서 font-src https://fonts.gstatic.com + connect-src 확장 필요, 오프라인 실패 — 비권장. 추천: A 즉시, Matter 확정 시 B로 이행. CDN 금지. Acceptance: Network 탭 외부 font 요청 0건, CSP 위반 콘솔 없음.",
+                "recorded_at": "2026-05-02T10:01:09.364Z",
+                "agent_id": "a67f2d9c867434a7b"
+              }
+            ],
+            "decision": "한국어 1급 시민 가정으로 폰트 재선택. UI sans-serif: Pretendard (geometric humanist, Korean+Latin 단일 폰트, OFL 무료, Korean dev 사실상 표준). Monospace: JetBrains Mono Nerd Font + Sarasa Term K(한글 fallback) — Nerd Font 글리프로 터미널 prompt 효용 + Sarasa의 half-width Latin/full-width Hangul grid 정렬 보장. 모두 self-host (vite asset import + @font-face in globals.css, CSP 외부 폰트 차단 유지). 검증은 실행 단계 첫 작업으로: (a) Pretendard/JetBrainsMono/SarasaTermK LICENSE 파일 직접 확인, (b) Nerd Font v3.x vs v2.x glyph 위치 차이 검토 후 xterm.js 호환 버전 선택, (c) Sarasa variant 정확 확정(Term K vs Mono K vs Fixed K — 터미널은 Term K가 표준), (d) font-family chain에서 한글 fallback 트리거 동작 확인. design-tokens.ts fontFamily 전체 재정의: display/body/caption → Pretendard, system-ui, sans-serif. monoDisplay/monoBody → \"JetBrains Mono Nerd Font\", \"Sarasa Term K\", ui-monospace, monospace. Matter 변종 가정으로 만들어진 medium/square/uiSupplement role은 사용처 재검토 후 조정. 폰트 파일 위치: src/renderer/assets/fonts/{Pretendard,JetBrainsMono,SarasaTermK}/*.woff2. xterm/Monaco fontFamily도 토큰 참조로 통합. design.md는 참고자료 status — 본 결정으로 갱신하지 않음(사용자 지시)."
+          },
+          {
+            "id": 5,
+            "title": "I5: 기존 5개 컴포넌트(App/Sidebar/TabBar/TabContent/Editor·TerminalView) 마이그레이션 순서와 두 시스템 공존 기간 처리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "위험: 점진 전환 중 같은 화면에 인라인 스타일 + Tailwind 컴포넌트 공존 → border opacity, radius, font-weight 미세 차이가 사용자에 '버그'로 인식. 추천 순서: (1) 토큰 브릿지·global CSS 먼저(시각 변화 0), (2) leaf·격리도 높은 컴포넌트부터 — TabContent → EditorView/TerminalView frame, (3) chrome 동시 전환 — Sidebar + TabBar는 같은 PR. 두 chrome이 분리되면 좌측-상단 톤이 어긋나 가장 눈에 띔. 대안 A(화면 단위 big-bang)는 톤 깨짐 0이지만 회귀 risk, B(bottom-up 무작위)는 가장 위험. chrome(Sidebar+TabBar)은 반드시 한 번에 — 이 둘이 톤의 첫인상이라 톤 일관성 핵심.",
+                "recorded_at": "2026-05-02T10:01:16.669Z",
+                "agent_id": "a77b1813e6ca99df8"
+              },
+              {
+                "role": "architect",
+                "summary": "옵션: A) leaf-first(TabBar → Sidebar → TabContent → EditorView/TerminalView. Monaco/xterm 컨테이너만 className), B) 신규만 shadcn + 기존 5개 동결, C) 일괄 전환. 기술적 관점: 인라인 style + className 공존은 specificity 충돌 없음(인라인이 항상 우김) — 점진 안전. 단 같은 속성 중복 시 Tailwind 무효화로 혼란. biome useSortedClasses는 v2.4 nursery — 활성화 시 cn()/clsx 인식 옵션 필요, 초기엔 off 권장. C는 솔로 개발 ROI 낮음. 추천: A, 컴포넌트당 PR 1개. Monaco/xterm은 wrapper div className만 적용, 내부 토큰은 별도 옵션 API 주입. Acceptance: 컴포넌트 전환 후 비주얼 회귀 없음(스크린샷 비교), build + typecheck 통과, biome 무경고. 디자이너 권고(chrome 동시)와 충돌 — 디자이너의 chrome 동시 전환은 PR 단위 1개로 묶으면 양립 가능.",
+                "recorded_at": "2026-05-02T10:01:25.204Z",
+                "agent_id": "a67f2d9c867434a7b"
+              }
+            ],
+            "decision": "B (분리) — 5개 task / 5개 PR로 진행. 순서: T1 인프라 도입(Tailwind v4 + @tailwindcss/vite + shadcn CLI 초기화 + 토큰 OKLCH 마이그레이션 + 폰트 self-host + 빌드 타임 generated CSS + globals.css 정리 + runtime injectTokens 폐기. 시각 변화 0 목표). T2 shadcn Button + 커스텀 variant(pill, frostedTag, ghost). T3 TabContent + EditorView/TerminalView frame(leaf, 격리도 높음, wrapper className만). T4 Sidebar + TabBar(chrome 동시 — 단일 PR로 톤 일관성 보장. Sidebar 인라인 style 25줄 → Button ghost + Tailwind, TabBar 직접 role=tab → Radix Tabs primitive + Tooltip). T5 App shell 정리(className → Tailwind, 잔재 인라인 제거). 공존 기간 처리: 인라인 style + Tailwind class 공존은 specificity 충돌 없음(인라인 우선) — 마이그레이션 컴포넌트는 인라인 완전 제거가 원칙. biome useSortedClasses는 초기 off. 각 task 완료 시 tester가 스크린샷 비교로 시각 회귀 검증. T4가 가장 큰 PR — 분량 너무 커지면 T4a/T4b 분할 가능(실행 단계 판단). 디자이너의 \"chrome 동시 전환\"과 아키텍트의 \"PR 단위 1개\"는 chrome 두 컴포넌트를 단일 PR로 묶어 양립."
+          }
+        ],
+        "research_summary": "현재 상태 직접 코드 확인 완료: (a) UI 라이브러리 0개 — react/zustand/zod만 있음 (b) shared/design-tokens.ts에 Warp 토큰 시스템이 이미 정교하게 정의됨 — color 11개, typeScale 19개 role, spacing 15-step, borderRadius 10단계, breakpoint 2개 (c) renderer/design/tokens.ts가 런타임에 :root에 CSS 변수 주입 + globals.css가 일부 변수 직접 하드코딩(--color-bg, --color-text-* 등) — 토큰 시스템 우회 발생 (d) 컴포넌트들은 인라인 style 비중이 큼(특히 Sidebar workspace-item ~25줄), TabBar는 role=tab + onKeyDown 직접 구현(접근성 primitive 부재) (e) design.md에 Warp-inspired 디자인 가이드 완비 — 거의 monochrome warm gray, 음각 letter-spacing, Matter 폰트(라이선스 미정 → fallback 동작 중), no bold weight, no shadow, semi-transparent border. .nexus/history에 이전 디자인 결정 없음. 사용자 의도: shadcn-style(Radix + Tailwind, 컴포넌트 복붙) 방향으로 진행, designer/architect 동원하여 design.md와 정합되는 도입안을 짜야 함.",
+        "created_at": "2026-05-02T09:58:11.529Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: 인프라 도입 — Tailwind v4 + shadcn CLI + OKLCH 토큰 + 폰트 self-host + 빌드 타임 generated CSS",
+          "status": "completed",
+          "context": "현재 토큰 시스템: shared/design-tokens.ts(데이터, hex 색상 11개) + renderer/design/tokens.ts(런타임 :root inject). globals.css에 일부 색상 하드코딩되어 토큰 우회 발생. UI 라이브러리 0개, postcss 없음. Electron 41 + electron-vite 5.0 + Vite 6.3 + React 19.2 + bun. macOS-first.",
+          "acceptance": "bun run dev / build / typecheck / lint 모두 통과. DevTools :root에서 raw + semantic CSS 변수 모두 노출 확인. 변환 전후 스크린샷 픽셀 diff < epsilon(시각 변화 0 검증). Network 탭에 외부 폰트 요청 0건. 폰트 LICENSE 파일 3개 모두 src/renderer/assets/fonts/*/LICENSE에 존재. 한글 텍스트(workspace 이름 한글로 변경 후) 렌더링이 sans는 Pretendard, mono는 Sarasa Term K로 fallback되는지 DevTools Computed font 확인. renderer/design/tokens.ts 파일 삭제, App.tsx에서 injectTokens import/호출 제거. tsconfig에 @/* alias 등록 + electron.vite.config.ts에도 alias 등록. components.json 생성됨, lib/utils.ts에서 cn() export.",
+          "approach": "1) deps 설치: @tailwindcss/vite, tailwindcss, @radix-ui/react-tabs, @radix-ui/react-tooltip, class-variance-authority, clsx, tailwind-merge. 2) 루트에 vite.config.ts 더미 파일 생성(shadcn CLI 감지용, electron.vite.config.ts와 정합). 3) electron.vite.config.ts renderer.plugins에 tailwindcss() 추가, renderer.resolve.alias에 @ → src/renderer 등록. 4) tsconfig.renderer.json paths에 @/* → src/renderer/* 등록. 5) bunx shadcn@latest init — components.json(style: new-york, baseColor: neutral, cssVariables: true, aliases.ui = @/components/ui, utils = @/lib/utils). 6) src/renderer/lib/utils.ts에 cn() helper(clsx + twMerge). 7) shared/design-tokens.ts color hex 11개 → OKLCH 표기로 마이그레이션(culori로 변환, 변환 후 시각 비교). 8) shared/design-tokens.ts에 semantic 매핑 export 추가 — buildSemanticTokens()가 raw → shadcn 규약(--background/--foreground/--muted/--muted-foreground/--border/--card/--primary/--primary-foreground/--accent/--accent-foreground/--ring/--radius/--shadow-*) alias 객체 반환. --primary=earthGray, --accent=ashGray(봉인), --shadow-*=none, --radius=0(기본). 9) shared/design-tokens.ts fontFamily 재정의 — display/body/caption: Pretendard, system-ui, sans-serif / monoDisplay/monoBody: 'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace. medium/square/uiSupplement role은 우선 Matter→Pretendard로 매핑(추후 사용처 등장 시 재검토). 10) 폰트 self-host — src/renderer/assets/fonts/{Pretendard,JetBrainsMono,SarasaTermK}/*.woff2 + 각 LICENSE 파일. globals.css에 @font-face 정의. 11) 빌드 타임 generated CSS — 작은 vite plugin 또는 prebuild 스크립트가 design-tokens.ts에서 theme.generated.css를 emit. CSS는 @theme { --color-*: oklch(...); ... } + :root { semantic alias } 형태. 12) globals.css 정리 — 첫 줄 @import \"tailwindcss\"; + import generated CSS, 기존 :root 하드코딩 색상 제거하고 var() 참조로. 13) renderer/design/tokens.ts(injectTokens) 삭제, App.tsx의 injectTokens() 호출 제거. 14) globals.css에 body { font-weight: 400 } 강제. 15) 시각 변화 0 목표 — 기존 className은 그대로 유지.",
+          "risk": "(1) hex → OKLCH 변환 시 tone 미세 차이 발생 가능 — culori 사용 + 시각 검증으로 완화. (2) @tailwindcss/vite와 electron-vite renderer config 통합 시 main/preload에 plugin 누설 위험 — renderer scope에만 명시. (3) 빌드 타임 generated CSS 방식이 vite HMR과 충돌 가능 — prebuild 스크립트 fallback 보유. (4) 폰트 OFL 라이선스 가정이 틀릴 가능성 — 첫 작업으로 LICENSE 파일 검증. (5) Nerd Font v3 vs v2 글리프 위치 차이 — xterm 호환 버전 사전 확인. (6) shadcn CLI가 electron.vite.config.ts 자동 감지 못 함 → 루트 vite.config.ts 더미 필요(이미 approach 반영).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a466cd85422dbd8e8"
+          },
+          "created_at": "2026-05-02T10:19:11.038Z"
+        },
+        {
+          "id": 2,
+          "title": "T1-V: 인프라 도입 검증",
+          "status": "completed",
+          "context": "T1(인프라 도입)에서 Tailwind v4, shadcn CLI, OKLCH 토큰, 폰트 self-host, 빌드 타임 generated CSS, runtime injectTokens 폐기까지 모든 작업 완료. 시각 변화 0 목표. T1 acceptance에 정의된 검증 항목들을 실제 환경에서 확인.",
+          "acceptance": "9개 검증 항목 모두 PASS. 시각 회귀 0(픽셀 diff 무시할 수준). 한글 fallback 정상. 빌드/타입체크/린트 통과. 외부 폰트 요청 0건.",
+          "approach": "(1) bun run dev / bun run build / bun run typecheck / bun run lint 모두 실행 후 exit 0 확인. (2) 앱 실행 → DevTools에서 :root inspector로 raw 변수(--color-warm-parchment 등) + semantic 변수(--background, --foreground, --primary 등) 모두 존재 확인. (3) T1 적용 전/후 동일 화면 스크린샷 비교 — 픽셀 diff 검증(주요 영역: app shell, sidebar, tabbar, terminal). (4) Network 탭에서 외부 폰트 요청(googleapis 등) 0건 확인. (5) 폰트 LICENSE 파일 3개 존재 + 내용이 OFL 또는 호환 라이선스인지 검증. (6) 워크스페이스 이름을 한글로 임시 변경하여 Sidebar 표시 — DevTools Computed font가 Pretendard로 잡히는지. 터미널에 echo \"안녕하세요\" — Computed font가 JetBrains Mono Nerd → Sarasa Term K fallback chain 동작하는지. (7) renderer/design/tokens.ts 파일 부재 + App.tsx에 injectTokens 잔재 부재 검증. (8) tsconfig.renderer.json + electron.vite.config.ts에 @/* alias 등록 양쪽 확인. (9) 임시로 src/renderer/components/ui/test-button.tsx에 import { cn } from \"@/lib/utils\" 추가하여 alias 동작 검증.",
+          "risk": "OKLCH 변환 후 미세한 톤 차이가 픽셀 diff로 잡힐 수 있음 — epsilon 허용 범위 사전 합의 필요. 한글 fallback이 OS별로 다르게 동작할 수 있어 macOS 한정으로 검증.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T10:19:35.801Z"
+        },
+        {
+          "id": 3,
+          "title": "T2: shadcn Button 도입 + 커스텀 variant(pill, frostedTag, ghost) 추가",
+          "status": "completed",
+          "context": "T1으로 인프라 준비 완료. shadcn Button을 첫 컴포넌트로 가져와 우리 톤으로 덧칠. design.md의 Buttons 섹션 정의대로 pill/frostedTag/ghost 3종 variant 추가. 후속 chrome 마이그레이션(T4)에서 Sidebar workspace-item, TabBar add/close 버튼이 이걸 사용.",
+          "acceptance": "src/renderer/components/ui/button.tsx 존재. buttonVariants에 pill/frostedTag/ghost 3종 추가됨. 컴포넌트 import { Button } from \"@/components/ui/button\" 동작. 모든 variant가 Warp 톤(warm gray, no colored ring, no shadow) 유지. tester가 시각 검증 시 톤 어긋남 없음. typecheck/lint/build 통과.",
+          "approach": "(1) bunx shadcn@latest add button — src/renderer/components/ui/button.tsx에 shadcn 기본 Button 생성. (2) buttonVariants에 우리 variant 3종 추가: pill(rounded-[50px], bg-[--color-earth-gray], text-[--color-ash-gray], px-[10px] py-[10px]) — design.md Dark Pill 패턴 / frostedTag(bg-[rgba(255,255,255,0.16)], text-black, rounded-[6px], px-[6px] py-[1px]) — design.md Frosted Tag 패턴 / ghost는 기본 ghost 유지하되 hover만 frostedVeil(--color-frosted-veil 또는 bg-white/[0.04]). (3) size variant도 design-tokens spacing에 맞춰 정리(sm/default/lg). (4) 시각 검증용 src/renderer/components/__playground__/ButtonShowcase.tsx 추가(임시) — 모든 variant 렌더링. dev 모드에서 단축키나 임시 라우트로 표시. (5) typography는 typeScale.buttonText(Matter Medium 16px → Pretendard 500 16px) 토큰 참조. (6) :focus-visible 스타일이 --ring(mistBorder)으로 잡히는지 확인. (7) 임시 ButtonShowcase는 T4에서 실제 사용처에 통합 후 제거.",
+          "risk": "shadcn cssVariables: true에서 OKLCH 변환이 우리 토큰과 동일 색공간이지만 알파 합성에서 미세 차이 가능 — frostedVeil 같은 반투명 surface에서 톤 검증 필수.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a466cd85422dbd8e8"
+          },
+          "created_at": "2026-05-02T10:19:52.394Z"
+        },
+        {
+          "id": 4,
+          "title": "T2-V: Button + variant 검증",
+          "status": "completed",
+          "context": "T2에서 shadcn Button + pill/frostedTag/ghost 3종 variant 추가. ButtonShowcase 임시 컴포넌트로 시각 확인 가능.",
+          "acceptance": "6개 검증 PASS. variant별 톤 누수 없음. a11y 키보드 동작 정상. 한글 Pretendard 적용. font-weight 500 확인.",
+          "approach": "(1) ButtonShowcase 화면에서 4개 variant(default, pill, frostedTag, ghost) × 3 size 렌더링 확인. (2) 각 variant Warp 톤 검증 — bg가 warm gray 계열(zinc/cool 아님), text 색이 design.md 명세(Dark Pill: ashGray 텍스트), shadow 0, focus ring이 mistBorder(--ring)이고 colored ring 없음. (3) keyboard a11y — Tab으로 포커스 이동 시 :focus-visible 스타일 정확. Space/Enter로 활성. (4) hover 동작 — ghost는 frostedVeil overlay만, 다른 variant는 brightness/opacity shift만. (5) ButtonShowcase에 한글 라벨 테스트 — \"취소\", \"확인\", \"닫기\" 버튼이 Pretendard로 렌더링. (6) Computed style에서 font-weight 확인 — buttonText role이 500(Medium)으로 적용되는지.",
+          "risk": "shadcn 기본 Button이 font-medium을 hover/focus 등에서 추가 적용할 가능성 — 검증 시 font-weight 변동 점검.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T10:20:02.334Z"
+        },
+        {
+          "id": 5,
+          "title": "T3: leaf 컴포넌트 마이그레이션 — TabContent + EditorView/TerminalView wrapper",
+          "status": "completed",
+          "context": "leaf-first 원칙으로 격리도 높은 컴포넌트부터 전환. TabContent, EditorView, TerminalView는 chrome(Sidebar/TabBar)보다 톤 영향 작아 안전. 외부 임베드(Monaco, xterm) 내부는 손대지 않고 wrapper className만 Tailwind로.",
+          "acceptance": "3개 컴포넌트 인라인 style 0건. wrapper className이 Tailwind class로 작성. Monaco/xterm fontFamily가 토큰 참조로(Pretendard mono chain). 한글 입력/표시 정상. 시각 회귀 없음. 타입체크/린트 통과.",
+          "approach": "(1) TabContent.tsx — 현재 .tab-content className + 인라인 style(empty state). 인라인 style을 Tailwind class로 치환(flex items-center justify-center text-[--color-text-muted] text-[13px]). globals.css의 .tab-content는 Tailwind class로 인라인 가능하면 globals.css에서 제거, 아니면 토큰 var() 참조로 정리. (2) EditorView.tsx — 컨테이너 div className → Tailwind. Monaco editor option에 fontFamily는 typeScale.codeBody(또는 monoBody) 토큰 참조로 변경(현재 어떻게 되어있는지 우선 확인). (3) TerminalView.tsx — 컨테이너 div className → Tailwind. xterm Terminal 생성자의 fontFamily option을 design-tokens.ts의 monoDisplay 또는 토큰 var()를 JS에서 가져온 값으로 설정. (4) 인라인 style 완전 제거(공존 회피 원칙). (5) 시각 변화 0 목표.",
+          "risk": "Monaco fontFamily는 string 단일값 요구 — 우리 chain 문법이 그대로 들어가는지 확인 필요. xterm WebGL/Canvas renderer가 폰트 변경 시 재초기화 필요할 수 있음.",
+          "plan_issue": 5,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a466cd85422dbd8e8"
+          },
+          "created_at": "2026-05-02T10:20:15.030Z"
+        },
+        {
+          "id": 6,
+          "title": "T3-V: leaf 마이그레이션 검증",
+          "status": "completed",
+          "context": "T3에서 TabContent, EditorView, TerminalView wrapper를 Tailwind로 전환 + Monaco/xterm fontFamily 토큰 참조.",
+          "acceptance": "7개 검증 PASS. 시각 회귀 없음. 한글 + Nerd 글리프 정상. 인라인 style 0건. 빌드 통과.",
+          "approach": "(1) 변경 전/후 스크린샷 비교 — 시각 회귀 검증(빈 탭, 에디터 로드, 터미널 표시). (2) Monaco editor에서 한글 주석 // 안녕 입력 → Sarasa Term K(또는 mono chain) 폰트 적용 + 그리드 정렬 깨짐 없음. (3) 터미널에서 echo \"안녕하세요\" → 한글 깨짐 없이 표시 + 박스 그림 문자(│ ─ ┌ 등) 입력 시 그리드 정렬 유지. (4) Nerd Font 글리프(예: prompt에  같은 powerline 글리프)가 정상 렌더링. (5) Monaco Editor 라이트/다크 테마 토큰 누수 검증(우리는 단일 다크). (6) 인라인 style 0건 검증(grep으로). (7) 빌드/타입체크/린트 통과.",
+          "risk": "xterm의 한글 너비 계산이 fallback 폰트에서 어긋날 가능성. Sarasa Term K 선택 자체가 이를 막기 위함이지만 실제 검증 필요.",
+          "plan_issue": 5,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T10:20:24.183Z"
+        },
+        {
+          "id": 7,
+          "title": "T4: chrome 마이그레이션 — Sidebar + TabBar 단일 PR",
+          "status": "completed",
+          "context": "디자이너 권고: chrome(Sidebar+TabBar)은 톤의 첫인상이라 분리 시 좌측-상단 미세 차이가 가장 눈에 띔. 따라서 같은 PR로 동시 전환. T2에서 만든 Button(ghost) 사용, T3 leaf 전환 후 진행.",
+          "acceptance": "Sidebar/TabBar 인라인 style 0건. shadcn Button(ghost) 채용. Radix Tabs primitive로 a11y 위임(role=tab + 키보드 처리는 Radix가 처리). Tooltip 추가됨. 시각 회귀 없음 또는 의도된 변화만 있음(예: focus ring이 mistBorder로). 한글 workspace 이름 정상 렌더링. 빌드/타입체크/린트 통과.",
+          "approach": "(1) Sidebar.tsx — workspace-item을 shadcn Button(variant ghost) + Tailwind class로 재작성. 25줄 인라인 style 전부 제거. category/name/path 3개 텍스트 typography는 typeScale.smallLabel(uppercase 1.4px letter-spacing) / typeScale.body(또는 cardTitle) / typeScale.micro 토큰 참조. .workspace-item--active className은 유지(globals.css에 정의된 frosted veil + mist border)하거나 Tailwind data-[state=active]로 이전. (2) TabBar.tsx — role=\"tab\" + onKeyDown 직접 구현을 Radix Tabs primitive로 대체. import { Tabs, TabsList, TabsTrigger } from @radix-ui/react-tabs. tab-item을 TabsTrigger로 매핑, close 버튼은 별도 Button(size=\"icon\", variant=\"ghost\")으로 nested. close 버튼에 Tooltip(Radix Tooltip) 추가 — design.md \"Close tab\" hint 표시. add 버튼도 Button으로 통일. (3) globals.css의 .tab-bar/.tab-item 등 클래스를 Tailwind utility로 옮기거나 토큰 참조 var() 형태로 정리. (4) 인라인 style 0건. (5) PR 분량이 너무 커지면 T4a(Sidebar) / T4b(TabBar)로 분할 가능 — 단 같은 머지 윈도우에 합쳐 톤 일관성 유지.",
+          "risk": "Radix Tabs는 controlled/uncontrolled value prop 요구 — 현재 store 기반 activeTabId와의 결합 패턴 새로 짜야 함. close 버튼이 TabsTrigger 내부에 있을 때 click event propagation 처리(현재 stopPropagation 사용 중) — Radix에서 의도대로 동작하는지 확인. PR 크기 예상치 초과 시 분할 판단 필요.",
+          "plan_issue": 5,
+          "deps": [
+            3,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a466cd85422dbd8e8"
+          },
+          "created_at": "2026-05-02T10:20:41.317Z"
+        },
+        {
+          "id": 8,
+          "title": "T4-V: chrome 마이그레이션 검증",
+          "status": "completed",
+          "context": "T4에서 Sidebar + TabBar를 Tailwind/shadcn Button/Radix Tabs/Tooltip으로 전환. 톤의 첫인상이라 검증이 가장 까다로움.",
+          "acceptance": "7개 검증 PASS. 의도되지 않은 시각 변화 0. a11y 키보드 동작 정상. Tooltip 정상. 한글 정상. 톤 일관성 유지. 인라인 style 0건. 빌드 통과.",
+          "approach": "(1) 시각 회귀 — 변경 전/후 스크린샷 비교(workspace 1개 활성, 탭 2~3개 열림, terminal/editor 혼합). 의도된 변화(focus ring 색)만 허용. (2) a11y — Tab으로 sidebar 진입 → 화살표 키 또는 Tab으로 workspace 순회 / TabBar Tab 진입 → Radix 기본 키보드(Left/Right 화살표로 탭 이동, Home/End, Enter로 활성). 모든 동작 작동 확인. screen reader 테스트 가능하면 VoiceOver로 aria-selected 안내 확인. (3) Tooltip 표시 — close 버튼 hover 시 \"Close tab\" 표시. delay 적절. (4) 한글 workspace 이름 표시 정상 + ellipsis 처리(긴 이름 잘림). (5) close 버튼 클릭 propagation 정상 — 탭 닫힐 때 그 탭이 활성이었으면 다른 탭으로 이동. add 버튼 클릭 시 새 터미널 탭. (6) 톤 일관성 — Sidebar workspace-item active 상태와 TabBar tab-item active 상태의 border/bg가 동일 토큰 사용 중인지. (7) 인라인 style 0건 grep 검증.",
+          "risk": "Radix Tabs 키보드 동작이 우리 TabBar UX와 미묘한 차이가 있을 수 있음(예: 탭 이동 즉시 활성화 vs Enter 후 활성화) — 시각 외 인터랙션 기대값 확인.",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T10:20:53.444Z"
+        },
+        {
+          "id": 9,
+          "title": "T5: App shell 정리",
+          "status": "completed",
+          "context": "T1-T4 완료 후 마지막 마무리. App.tsx와 globals.css에 남은 잔재 정리.",
+          "acceptance": "App.tsx에 인라인 style 0건. globals.css에 사용처 없는 클래스 정의 0건. 전 컴포넌트 grep로 인라인 style 0건. injectTokens import 0건. 빌드/타입체크/린트 통과.",
+          "approach": "(1) App.tsx — .app-root, .app-main className을 Tailwind class로 전환(flex h-full overflow-hidden / flex-1 min-w-0 flex flex-col overflow-hidden). (2) globals.css — 더 이상 참조되지 않는 .app-root/.app-sidebar/.app-main/.tab-bar/.tab-item/.workspace-item 등 클래스 정의 제거. 남는 것은 (a) reset 블록 (b) html/body baseline (c) #root height (d) @font-face 정의 (e) 토큰 generated CSS import (f) Tailwind layers. (3) 잔재 인라인 style grep — find . -name \"*.tsx\" | xargs grep -l 'style={{'으로 0건 확인. 단 design.md 참조용 또는 동적 값 계산 필요한 케이스(예: workspace fade transition)는 Tailwind arbitrary value로 변환. (4) injectTokens 잔재 import도 0건 확인.",
+          "risk": "동적 계산이 필요한 인라인 style을 강제 제거 시 Tailwind arbitrary value로 표현 안 되는 케이스 발견 가능 — 그런 경우 globals.css에 컴포넌트 클래스로 보존 허용(인라인은 금지하되 클래스는 OK).",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a466cd85422dbd8e8"
+          },
+          "created_at": "2026-05-02T10:21:02.647Z"
+        },
+        {
+          "id": 10,
+          "title": "T5-V: 전체 마이그레이션 최종 검증",
+          "status": "completed",
+          "context": "M1 디자인 시스템 마이그레이션 전체 완료 시점. M0 기능 회귀 + 디자인 시스템 도입 효과 둘 다 검증.",
+          "acceptance": "5개 검증 PASS. M0 기능 회귀 없음. 디자인 시스템이 의도대로 일관 적용. lint/typecheck/test/build 통과.",
+          "approach": "(1) M0 기능 회귀 검증 — 워크스페이스 추가/전환/삭제, 탭 추가/닫기/전환, 터미널 입출력(영어 + 한글), 에디터 파일 열기(Cmd+E)/편집/저장, dialog 동작, 모든 IPC 정상. (2) 디자인 시스템 검증 — 모든 화면에서 Pretendard(sans) + JetBrains Mono Nerd + Sarasa Term K(mono) 적용 확인. font-weight 400 dominance 유지(700+ 사용 0건 grep). 색상이 모두 OKLCH 토큰에서 파생(하드코딩 hex 0건 grep, design-tokens.ts와 generated CSS 제외). semantic 변수만 사용된 컴포넌트는 raw 변수 직접 참조 0건. shadow 0건(box-shadow grep). (3) 외부 폰트 요청 0건 재확인. (4) bun run lint/check/typecheck/test 모두 통과. (5) PR 머지 준비 상태로 git status clean.",
+          "risk": "M0 기능 회귀가 발견되면 어느 task에서 들어왔는지 분리 어려움 — 점진 PR 분리 원칙이 도움. 발견 시 가장 마지막 task부터 역추적.",
+          "plan_issue": 5,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T10:21:13.341Z"
+        }
+      ]
     }
   ]
 }

@@ -4,6 +4,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
+import { fontFamily, typeScale } from "../../shared/design-tokens";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +34,8 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: "monospace",
-      fontSize: 13,
+      fontFamily: fontFamily.monoDisplay,
+      fontSize: typeScale.codeUi.fontSize,
     });
 
     const fitAddon = new FitAddon();
@@ -126,7 +127,5 @@ export function TerminalView({ tabId, cwd }: TerminalViewProps) {
     };
   }, [tabId, cwd]);
 
-  return (
-    <div ref={containerRef} style={{ width: "100%", height: "100%", background: "#1e1e1e" }} />
-  );
+  return <div ref={containerRef} className="w-full h-full bg-[#1e1e1e]" />;
 }

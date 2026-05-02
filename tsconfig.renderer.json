@@ -13,7 +13,11 @@
     "sourceMap": true,
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/renderer/*"]
+    }
   },
   "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"],
   "references": [{ "path": "./tsconfig.shared.json" }]

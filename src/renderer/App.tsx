@@ -2,13 +2,10 @@ import { useCallback, useEffect } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { TabContent } from "./components/TabContent";
-import { injectTokens } from "./design/tokens";
 import { ipcCall } from "./ipc/client";
 import { useActiveStore } from "./store/active";
 import { useTabsStore } from "./store/tabs";
 import { useWorkspacesStore } from "./store/workspaces";
-
-injectTokens();
 
 export function App() {
   const { workspaces, setAll } = useWorkspacesStore();
@@ -77,13 +74,13 @@ export function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
   return (
-    <div className="app-root">
+    <div className="flex h-full overflow-hidden">
       <Sidebar
         workspaces={workspaces}
         activeWorkspaceId={activeWorkspaceId}
         onSelectWorkspace={handleSelectWorkspace}
       />
-      <div className="app-main">
+      <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
         <TabBar
           tabs={tabs}
           activeTabId={activeTabId}

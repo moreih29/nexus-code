@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -16,79 +17,48 @@ interface SidebarProps {
 
 export function Sidebar({ workspaces, activeWorkspaceId, onSelectWorkspace }: SidebarProps) {
   return (
-    <aside className="app-sidebar">
-      <div style={{ padding: "12px 0" }}>
+    <aside className="w-[240px] shrink-0 bg-muted border-r border-border overflow-y-auto">
+      <div className="py-3">
         {workspaces.map((ws) => {
           const isActive = ws.id === activeWorkspaceId;
           const pathTail = ws.rootPath.split("/").filter(Boolean).slice(-2).join("/");
 
           return (
             <button
-              type="button"
               key={ws.id}
-              aria-pressed={isActive}
-              className={`workspace-item${isActive ? " workspace-item--active" : ""}`}
+              type="button"
+              aria-current={isActive ? "page" : undefined}
               onClick={() => onSelectWorkspace(ws.id)}
-              style={{
-                display: "block",
-                width: "calc(100% - 16px)",
-                boxSizing: "border-box",
-                textAlign: "left",
-                font: "inherit",
-                color: "inherit",
-                background: "transparent",
-                border: "none",
-                padding: "8px 16px",
-                cursor: "pointer",
-                borderRadius: "6px",
-                margin: "2px 8px",
-                userSelect: "none",
-              }}
-            >
-              {/* Category label — uppercase Caption */}
-              {ws.category && (
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 400,
-                    letterSpacing: "1.4px",
-                    textTransform: "uppercase",
-                    color: "var(--color-text-muted)",
-                    lineHeight: 1,
-                    marginBottom: "3px",
-                  }}
-                >
-                  {ws.category}
-                </div>
+              className={cn(
+                // base layout
+                "block w-[calc(100%-16px)] mx-2 my-0.5 px-4 py-2 rounded-[6px]",
+                // text + interaction
+                "text-left cursor-pointer select-none font-sans transition-colors",
+                // rest state
+                "text-foreground bg-transparent hover:bg-white/[0.04]",
+                // active state: frosted veil bg + mist border
+                isActive && "bg-white/[0.04] border border-white/[0.35]",
               )}
-              {/* Workspace name — Body Large */}
-              <div
-                style={{
-                  fontSize: "14px",
-                  fontWeight: 400,
-                  letterSpacing: "-0.14px",
-                  lineHeight: 1.4,
-                  color: isActive ? "var(--color-text-primary)" : "var(--color-text-secondary)",
-                }}
+            >
+              {/* Category label — smallLabel: 11px, tracking 1.4px, uppercase */}
+              {ws.category && (
+                <span className="block text-[11px] font-normal tracking-[1.4px] uppercase text-muted-foreground leading-none mb-[3px]">
+                  {ws.category}
+                </span>
+              )}
+              {/* Workspace name — 14px body, truncate for long names */}
+              <span
+                className={cn(
+                  "block text-[14px] font-normal leading-[1.4] tracking-[-0.14px] truncate min-w-0",
+                  isActive ? "text-foreground" : "text-muted-foreground",
+                )}
               >
                 {ws.name}
-              </div>
-              {/* Path tail — Micro */}
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 400,
-                  letterSpacing: 0,
-                  lineHeight: 1.2,
-                  color: "var(--color-text-muted)",
-                  marginTop: "2px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              </span>
+              {/* Path tail — micro: 11px, truncate */}
+              <span className="block text-[11px] font-normal leading-[1.2] text-muted-foreground mt-[2px] truncate min-w-0">
                 {pathTail}
-              </div>
+              </span>
             </button>
           );
         })}
