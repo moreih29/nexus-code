@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { CanvasAddon } from "@xterm/addon-canvas";
+import "@xterm/xterm/css/xterm.css";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
