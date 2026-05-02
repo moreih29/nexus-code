@@ -51,10 +51,7 @@ function pruneDeletedWorkspaces(mounted: Set<string>, aliveIds: string[]): Set<s
 }
 
 /** Mirrors: workspaces.filter((w) => mountedIds.has(w.id)) */
-function mountedWorkspaces(
-  workspaces: { id: string }[],
-  mounted: Set<string>,
-): { id: string }[] {
+function mountedWorkspaces(workspaces: { id: string }[], mounted: Set<string>): { id: string }[] {
   return workspaces.filter((w) => mounted.has(w.id));
 }
 
@@ -171,7 +168,10 @@ describe("mountedWorkspaces — render gate", () => {
   it("deleted workspace panel disappears after prune even if it was previously mounted", () => {
     const workspaces = [{ id: "ws-a" }]; // ws-b deleted from workspaces list
     let mounted = new Set(["ws-a", "ws-b"]);
-    mounted = pruneDeletedWorkspaces(mounted, workspaces.map((w) => w.id));
+    mounted = pruneDeletedWorkspaces(
+      mounted,
+      workspaces.map((w) => w.id),
+    );
 
     const rendered = mountedWorkspaces(workspaces, mounted);
 

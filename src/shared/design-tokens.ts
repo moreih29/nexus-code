@@ -89,7 +89,7 @@ export function buildSemanticTokens(): Record<string, string> {
 export const fontFamily = {
   // Tailwind utility overrides — font-sans / font-mono map to these
   sans: "Pretendard, system-ui, -apple-system, sans-serif",
-  mono: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
+  mono: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
   // display/body/caption roles → Pretendard (han-first, M1)
   display: "Pretendard, system-ui, -apple-system, sans-serif",
   // medium/square/uiSupplement: Pretendard placeholder (revisit when assets arrive)
@@ -97,8 +97,8 @@ export const fontFamily = {
   square: "Pretendard, system-ui, -apple-system, sans-serif",
   uiSupplement: "Pretendard, system-ui, -apple-system, sans-serif",
   // mono roles → JetBrains Mono Nerd Font + Sarasa Term K fallback
-  monoDisplay: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
-  monoBody: "'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace",
+  monoDisplay: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
+  monoBody: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
 } as const;
 
 // ---------------------------------------------------------------------------
