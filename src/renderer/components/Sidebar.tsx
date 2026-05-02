@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
+import { useUIStore } from "../store/ui";
+import { SidebarResizeHandle } from "./SidebarResizeHandle";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -24,8 +26,13 @@ export function Sidebar({
   onAddWorkspace,
   onRemoveWorkspace,
 }: SidebarProps) {
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+
   return (
-    <aside className="w-[240px] shrink-0 bg-muted overflow-y-auto flex flex-col">
+    <aside
+      className="relative shrink-0 bg-muted overflow-y-auto flex flex-col"
+      style={{ width: sidebarWidth }}
+    >
       <div className="py-3 flex-1">
         {workspaces.length === 0 && (
           <div className="px-4 py-6 text-center text-[12px] text-muted-foreground leading-[1.5]">
@@ -112,6 +119,7 @@ export function Sidebar({
           </span>
         </button>
       </div>
+      <SidebarResizeHandle />
     </aside>
   );
 }

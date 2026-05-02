@@ -2,6 +2,7 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { startLspHost } from "./hosts/lspHost";
 import { startPtyHost } from "./hosts/ptyHost";
+import { registerAppStateChannel } from "./ipc/channels/appState";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { startTickBroadcast } from "./ipc/channels/hello";
 import { registerLspChannel } from "./ipc/channels/lsp";
@@ -31,6 +32,7 @@ const workspaceManager = new WorkspaceManager(
 
 registerWorkspaceChannel(workspaceManager);
 registerDialogChannel();
+registerAppStateChannel(stateService);
 
 app.whenReady().then(() => {
   workspaceManager.init();

@@ -4,6 +4,7 @@ import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ipcCall } from "./ipc/client";
 import { useActiveStore } from "./store/active";
 import { useTabsStore } from "./store/tabs";
+import { useUIStore } from "./store/ui";
 import { useWorkspacesStore } from "./store/workspaces";
 
 export function App() {
@@ -14,6 +15,13 @@ export function App() {
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+
+  // Boot: hydrate UI state (sidebar width) from persisted app state.
+  useEffect(() => {
+    ipcCall("appState", "get", undefined).then((state) => {
+      useUIStore.getState().hydrate(state.sidebarWidth);
+    });
+  }, []);
 
   // Boot: load workspaces from main, activate first.
   // biome-ignore lint/correctness/useExhaustiveDependencies: boot-once effect; store setters are stable

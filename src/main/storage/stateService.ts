@@ -1,21 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  type AppState,
+  AppStateSchema,
+  type WindowBounds,
+  WindowBoundsSchema,
+} from "../../shared/types/appState";
 
-// ---------------------------------------------------------------------------
-// AppState schema
-// ---------------------------------------------------------------------------
-
-export interface WindowBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface AppState {
-  windowBounds?: WindowBounds;
-  lastActiveWorkspaceId?: string;
-}
+export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
 // ---------------------------------------------------------------------------
 // StateService — atomic JSON persistence (pattern: vscode stateService.ts:141)
@@ -36,7 +28,8 @@ export class StateService {
   private load(): AppState {
     try {
       const raw = fs.readFileSync(this.filePath, "utf8");
-      return JSON.parse(raw) as AppState;
+      const parsed = AppStateSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : {};
     } catch {
       return {};
     }
@@ -47,6 +40,7 @@ export class StateService {
   }
 
   setState(partial: Partial<AppState>): void {
+    AppStateSchema.parse({ ...this.state, ...partial });
     this.state = { ...this.state, ...partial };
     this.flush();
   }

@@ -11,6 +11,8 @@
   --color-frosted-tag: rgba(255, 255, 255, 0.16);
   --color-frosted-tag-hover: rgba(255, 255, 255, 0.24);
   --color-mist-border: rgba(226, 226, 226, 0.35);
+  --color-splitter: rgba(226, 226, 226, 0.35);
+  --color-splitter-hover: rgba(226, 226, 226, 0.6);
   --color-translucent-parchment: rgba(250, 249, 246, 0.9);
   --color-ambient-shadow: rgba(0, 0, 0, 0.2);
   --font-sans: Pretendard, system-ui, -apple-system, sans-serif;
@@ -132,5 +134,7 @@
   --shadow-lg: none;
   --shadow-xl: none;
   --shadow-2xl: none;
+  --splitter: rgba(226, 226, 226, 0.35);
+  --splitter-hover: rgba(226, 226, 226, 0.6);
   --motion-fade: 220ms ease;
 }

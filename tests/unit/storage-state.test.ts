@@ -83,4 +83,53 @@ describe("StateService", () => {
     const svc = new StateService(filePath);
     expect(svc.getState().lastActiveWorkspaceId).toBe("ws-preexisting");
   });
+
+  it("sidebarWidth round-trip: write 320 then read back 320", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const svc = new StateService(filePath);
+    svc.setState({ sidebarWidth: 320 });
+
+    const svc2 = new StateService(filePath);
+    expect(svc2.getState().sidebarWidth).toBe(320);
+  });
+
+  it("sidebarWidth partial-merge: setting only sidebarWidth preserves existing windowBounds", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const svc = new StateService(filePath);
+    svc.setState({ windowBounds: { x: 10, y: 20, width: 1440, height: 900 } });
+    svc.setState({ sidebarWidth: 240 });
+
+    const state = svc.getState();
+    expect(state.sidebarWidth).toBe(240);
+    expect(state.windowBounds?.width).toBe(1440);
+  });
+
+  it("sidebarWidth invalid type: string value rejected by zod", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const svc = new StateService(filePath);
+    expect(() => svc.setState({ sidebarWidth: "wide" as unknown as number })).toThrow();
+  });
+
+  it("sidebarWidth invalid type: negative value rejected by zod", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const svc = new StateService(filePath);
+    expect(() => svc.setState({ sidebarWidth: -1 })).toThrow();
+  });
+
+  it("loads on-disk state without sidebarWidth without error", () => {
+    const filePath = path.join(tmpDir, "state.json");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        lastActiveWorkspaceId: "ws-old",
+        windowBounds: { x: 0, y: 0, width: 800, height: 600 },
+      }),
+      "utf8",
+    );
+
+    const svc = new StateService(filePath);
+    const state = svc.getState();
+    expect(state.sidebarWidth).toBeUndefined();
+    expect(state.lastActiveWorkspaceId).toBe("ws-old");
+  });
 });

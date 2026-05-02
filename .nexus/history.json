@@ -800,6 +800,208 @@
           "created_at": "2026-05-02T14:10:15.323Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-02T15:11:31.511Z",
+      "branch": "feat/m1-design-system",
+      "plan": {
+        "id": 4,
+        "topic": "VSCode 스타일 드래그 가능한 사이드바 폭 조절",
+        "issues": [
+          {
+            "id": 1,
+            "title": "라이브러리 도입 vs 직접 구현 결정",
+            "status": "decided",
+            "decision": "**선택: 직접 구현(외부 라이브러리 미도입)**\n\n요구는 단방향(사이드바 우측 가장자리만) 폭 조절이며, react-resizable-panels v4(2.75M wkly DL)는 양쪽 패널이 서로 밀고 당기는 그룹 레이아웃 중심 API라서 단일 핸들 시나리오에는 over-spec. 또 v4 export 변경으로 shadcn 통합에 호환 이슈(open) 존재. re-resizable은 단일 요소 리사이즈에 적합하나 5KB 의존성 추가 vs 60–80줄 직접 구현 비교에서 직접 구현이 더 가볍고 cursor lock·user-select 제어·mouseup commit·-webkit-app-region 처리 등 Electron 특이점을 그대로 넣을 수 있음.\n\n**기각**:\n- react-resizable-panels: 그룹 레이아웃 over-spec, shadcn 호환 이슈, 단방향 사이드바엔 API 표면이 큼\n- re-resizable: 단일 요소엔 적합하나 의존성 추가 비용 대비 코드 절감폭이 작음\n- react-split-pane: 생태계 활동성 저조\n\n**가정**: 향후 패널 그룹(에디터 + 사이드바 + 우측 패널) 레이아웃이 도입되면 그때 라이브러리 채택 재검토."
+          },
+          {
+            "id": 2,
+            "title": "사이드바 폭 영속화 위치",
+            "status": "decided",
+            "decision": "**선택: `src/main/storage/stateService.ts`의 `AppState` 인터페이스에 `sidebarWidth?: number` 필드 추가**\n\n이미 `windowBounds`, `lastActiveWorkspaceId`가 같은 패턴(JSON atomic save)으로 들어가 있어 일관성 확보. main 프로세스가 보유하면 향후 메뉴 \"Reset Layout\" 같은 기능을 native menu에서 직접 트리거 가능. zustand persist(localStorage 기반)는 renderer-only이고 main이 접근 불가하며, 우리 패턴과 이중화됨.\n\n**기각**:\n- zustand persist + localStorage: main에서 접근 불가, 기존 stateService 패턴과 이중화\n- 별도 settings 파일: 단일 boot-time read로 끝나는 값에 새 파일은 과함\n\n**저장 시점**: 드래그 종료(mouseup) 시점에만 IPC `appState:set` 호출(매 mousemove 저장 안 함). 더블클릭 reset 시에도 동일."
+          },
+          {
+            "id": 3,
+            "title": "드래그 중 PTY resize 정책",
+            "status": "decided",
+            "decision": "**선택: 별도 debounce 미도입, 기존 RAF coalesce + (cols,rows) idempotency 가드에 의존**\n\n`TerminalView.tsx`의 ResizeObserver는 이미 RAF 1회 coalesce하고, `proposeDimensions()`로 계산한 (cols, rows)가 이전과 같으면 noop로 끝나는 idempotency 가드가 적용되어 있음. 즉 사이드바 드래그 중 매 mousemove로 컨테이너 폭이 1–2px 변해도 cell 경계를 넘지 않으면 PTY resize IPC가 발생하지 않고, 경계를 넘어가는 순간만 한 번 발사됨. 이는 VSCode가 드래그 중 자연스럽게 터미널 reflow를 보여주는 UX와 동일하며, xterm.js #1914에서 권고하는 \"고빈도 resize 방지\"의 효과가 이미 만족됨.\n\n**기각**:\n- mouseup 시점에만 commit: 드래그 중 터미널이 stale한 폭으로 보여 stuttery한 UX\n- 추가 150ms debounce: 기존 가드와 중복, 분기 복잡도 상승\n- transient state(드래그 중 ResizeObserver 일시 분리): 코드 경로 두 개로 갈라져 race 가능성"
+          },
+          {
+            "id": 4,
+            "title": "UI 상태 store 위치",
+            "status": "decided",
+            "decision": "**선택: 새 zustand store `src/renderer/store/ui.ts` 신설, `sidebarWidth: number` 단일 필드로 시작**\n\n기존 store는 도메인별로 분리(active, workspaces, tabs). UI 표시 상태(폭, 향후 collapse/theme/font scale 등)는 별도 도메인이 자연스럽고 확장 여지를 둠. App.tsx local state로 두면 boot-time hydrate 후 Sidebar로 prop drilling이 필요해 결합도가 올라감.\n\n**기각**:\n- `active` store에 흡수: 도메인 혼재, 의미 모호\n- App.tsx local state: prop drilling, 향후 다른 컴포넌트가 폭 변화 구독 시 lift up 필요\n- React Context: zustand 대비 selector 미세제어 어려움, 기존 패턴과 불일치\n\n**API 형태**: `useUIStore({ sidebarWidth, setSidebarWidth })` — boot 시 main에서 받아온 값으로 hydrate, setSidebarWidth는 store 갱신 + IPC commit 모두 수행하는 thin wrapper."
+          },
+          {
+            "id": 5,
+            "title": "IPC 채널 설계",
+            "status": "decided",
+            "decision": "**선택: 새 IPC 도메인 `appState` 신설, `get` / `set` 두 call 절차**\n\n`stateService.ts`와 의미가 1:1로 매칭되어 명확하고, 향후 `windowBounds`나 다른 AppState 필드도 같은 채널로 일원화 가능. workspace 채널은 워크스페이스 메타 도메인이 분명해 UI 상태 흡수 시 도메인 혼재.\n\n**계약 형태**:\n- `appState:get` → returns `Partial<AppState>` (현재 저장된 전체 상태)\n- `appState:set` → params: `Partial<AppState>` (부분 patch, 기존 값과 merge)\n\nzod schema는 `src/shared/ipc-contract.ts`에 추가하고 `src/main/ipc/channels/appState.ts`로 핸들러 분리. boot 시 `App.tsx`가 `appState:get`으로 `sidebarWidth` 주입 → ui store hydrate.\n\n**기각**:\n- workspace 채널 확장: 도메인 혼재\n- per-field 채널(`ui:sidebarWidth:get/set`): 필드 추가마다 채널 생성 → 확장성 떨어짐\n- listen 이벤트로 양방향 sync: 단일 윈도우 시나리오에선 필요 없음(향후 멀티윈도우 등장 시 추가 검토)"
+          },
+          {
+            "id": 6,
+            "title": "ResizeHandle 시각/상호작용 사양",
+            "status": "decided",
+            "decision": "**선택: 가시 폭 1px(idle) / 2px(hover·active), 히트박스 8px, cursor `col-resize`, 드래그 중 `body { cursor: col-resize; user-select: none }` 글로벌 잠금**\n\nVSCode와 동일한 \"거의 안 보이지만 잡기 쉬운\" 핸들 패턴. 사이드바 우측 가장자리에 절대위치(`absolute right-0 top-0 h-full`) `<div>` 1개로 구성, 폭은 `w-2`(8px) 히트박스이고 시각적 1px 라인은 `::after` 또는 내부 `<div>`로 렌더(idle: `mistBorder`, hover/active: `--splitter-hover` 토큰).\n\n**상호작용**:\n- `onMouseDown` → 시작 clientX와 초기 sidebarWidth 기록, body에 cursor/user-select 적용, document에 mousemove/mouseup 리스너 부착\n- `onMouseMove` → `clamp(initial + (e.clientX - startX), MIN, MAX)` 후 store 업데이트(rendering만, persist 안 함)\n- `onMouseUp` → 리스너 정리, body 스타일 복원, `appState:set` 1회 호출\n- `onDoubleClick` → DEFAULT(240)로 reset + persist\n- `tabIndex={0}` + `aria-label` + 화살표 키 ±10px(접근성): VSCode 미지원이지만 minimal 추가\n- 핸들 요소에 `[-webkit-app-region:no-drag]` (Tailwind arbitrary)\n\n**기각**:\n- 가시 3px 항시: 디자인 무게감 증가, frosted/minimal 미감과 불일치\n- hover 시 색만 변경(폭 유지): 실제 핸들 위치 발견성 저하"
+          },
+          {
+            "id": 7,
+            "title": "최소/최대/기본 폭 정책",
+            "status": "decided",
+            "decision": "**선택: MIN=180, MAX=480, DEFAULT=240 (단위: px)**\n\n- DEFAULT 240: 현재 고정값 그대로 — 회귀 가능성 0\n- MIN 180: 워크스페이스 이름 truncate 시작점(폰트 size 13–14px 기준 약 12자)\n- MAX 480: 1280px 창 기준 37.5% — 메인 영역(터미널/에디터)이 60% 이상 보장\n\n상수는 `src/renderer/store/ui.ts` 상단에 `SIDEBAR_WIDTH_MIN`, `SIDEBAR_WIDTH_MAX`, `SIDEBAR_WIDTH_DEFAULT`로 export. clamp는 store setter 안에서 강제 — 영속화된 값이 나중에 범위 벗어나도(설계 변경 등) hydrate 시 clamp.\n\n**기각**:\n- MIN 200, MAX 600: VSCode lower bound(300)에 가깝게 설정해도 우리는 워크스페이스 이름만 표시하므로 더 좁아도 됨. 600은 화면 작은 노트북에서 과함\n- viewport 비율(% 기반): 창 리사이즈 시 절대 px 기대 UX와 불일치\n\n**가정**: 향후 collapse 토글 도입 시 MIN 미만은 collapse 상태로 전환(별도 issue)."
+          },
+          {
+            "id": 8,
+            "title": "더블클릭 동작",
+            "status": "decided",
+            "decision": "**선택: 더블클릭 시 DEFAULT(240px)로 reset**\n\n단순/예측 가능. VSCode의 \"content-fit\"은 워크스페이스 이름 가변 길이 측정·계산이 필요해 구현 복잡도 ↑이고, 우리는 워크스페이스 이름 외에 사이드바 콘텐츠가 거의 없어 측정 의의가 작음. collapse 토글은 별도 affordance(아이콘 버튼)가 더 자연스러우며 본 이슈 범위 밖.\n\n**기각**:\n- content-fit: 구현 복잡(canvas로 텍스트 측정 + scrollbar 폭 + padding 계산), 단기 가치 작음\n- collapse(0px): 더블클릭만으로는 발견성 낮음, 별도 토글 버튼 필요(향후 issue)\n\n**확장 여지**: 다음 사이클에서 사이드바 collapse/expand 토글 + 키보드 단축키(`Cmd+B` 등) 도입 시 별도 plan으로 분리."
+          },
+          {
+            "id": 9,
+            "title": "Electron drag-region/macOS traffic light 회피",
+            "status": "decided",
+            "decision": "**선택: ResizeHandle 요소에 명시적 `-webkit-app-region: no-drag` (Tailwind arbitrary `[-webkit-app-region:no-drag]`)**\n\n핸들은 사이드바 우측 가장자리에 위치하므로 macOS traffic light(좌측 상단)와 직접 겹치지 않음 — 추가 top offset 불필요. 다만 BrowserWindow가 frameless 구성이고 사이드바 상단 영역에 drag region이 켜져 있을 가능성 대비, 핸들 자체에는 `no-drag`를 명시해 부모 drag 영역 영향을 차단(Electron 공식 권고).\n\n**구현 메모**:\n- `src/main/window.ts`(또는 main 진입점)에서 `frame: false` 또는 `titleBarStyle: 'hiddenInset'` 사용 여부를 Step 7 task 단계에서 확인. 현재 frameless가 아니라면 no-drag 처리만으로 충분, frameless면 사이드바 자체 drag region과 핸들 영역이 분리되도록 스타일 점검.\n- Tailwind 문자열: `[-webkit-app-region:no-drag]`\n\n**기각**:\n- 사이드바 전체 no-drag: 사이드바 상단을 drag로 활용할 가능성 차단(향후 옵션 좁힘)\n- traffic light 회피용 top offset: 우측 가장자리 핸들엔 불필요"
+          },
+          {
+            "id": 10,
+            "title": "디자인 토큰 splitter 색",
+            "status": "decided",
+            "decision": "**선택: `design-tokens.ts`에 `splitter`와 `splitterHover` 두 토큰 신설, 의미·역할 분리**\n\n```ts\nsplitter: color.mistBorder,         // rgba(226, 226, 226, 0.35) 재사용\nsplitterHover: \"rgba(226, 226, 226, 0.6)\",  // 신규, 약 1.7배 진하게\n```\n\n`buildSemanticTokens()`에 `--splitter`, `--splitter-hover` CSS 변수 추가. 이렇게 분리하면 mistBorder가 다른 곳 border로 쓰일 때 splitter 색만 별도 조정 가능. 향후 `splitterActive`(드래그 중 강조) 추가 여지.\n\n**기각**:\n- mistBorder 재사용만(별도 토큰 X): 의미 모호, 변경 시 영향 범위 추적 어려움\n- accent 색(ashGray) 사용: 의도적인 강조 — splitter는 보조 시각요소이므로 부적합\n\n**가정**: design.md 문서 동기화는 본 plan 범위 밖(별도 follow-up)."
+          },
+          {
+            "id": 11,
+            "title": "테스트 전략",
+            "status": "decided",
+            "decision": "**선택: 4개 단위 테스트 묶음 + 수동 QA 체크리스트**\n\n1. **`tests/unit/ui-store.test.ts`**: ui store 초기값(=DEFAULT), `setSidebarWidth` clamp(MIN-1 → MIN, MAX+1 → MAX), 정상 범위 통과\n2. **`tests/unit/state-service.test.ts` 확장**: AppState round-trip(write `{ sidebarWidth: 320 }` → read → 320 그대로), partial set merge(기존 windowBounds 보존), 부적합 타입 거부(zod)\n3. **`tests/unit/ipc-contract.test.ts` 또는 신규**: `appState:get` / `appState:set` zod schema 입력/출력 검증\n4. **`tests/unit/sidebar-resize.test.ts`**: ResizeHandle을 React Testing Library로 mount → mousedown(clientX:240) → mousemove(clientX:300) → mouseup → store 폭이 300으로 갱신, IPC `appState:set`이 1회 호출됐는지 mock 확인. 더블클릭 → DEFAULT 복귀\n\n**수동 QA 체크리스트(README 또는 PR 본문)**:\n- [ ] 드래그 중 터미널 reflow 자연스러움(blank/blink 없음)\n- [ ] mouseup 후 폭 유지, 앱 재시작 후 동일 폭 복원\n- [ ] 더블클릭으로 240px 복귀\n- [ ] cursor가 col-resize로 적절히 잠김(드래그 중 텍스트 선택 안 됨)\n- [ ] macOS traffic light 영역 클릭 정상\n\n**기각**:\n- E2E(Playwright) 추가: jsdom 한계 보완 가치 있으나 본 plan 범위 외, 인프라 신설 필요\n- 드래그 모션 다수 시뮬레이션: 단위 테스트 한 케이스로 충분, 회귀 방지 비용 대비 가치 낮음"
+          }
+        ],
+        "research_summary": "현재 Sidebar는 'w-[240px] shrink-0' 고정. App.tsx는 flex row 구조. 영속화는 src/main/storage/stateService.ts의 AppState(windowBounds, lastActiveWorkspaceId) JSON atomic save 패턴. 리사이즈 라이브러리 미설치. design-tokens.ts에 mistBorder(rgba(226,226,226,0.35))가 splitter 색에 적합. TerminalView는 ResizeObserver+RAF+(cols,rows) idempotency 가드 이미 있음. 외부 조사: react-resizable-panels v4는 패널 그룹용이라 단방향 사이드바엔 과함. 직접 구현은 60-80줄. VSCode 기본 251px, 더블클릭 lower bound 300px. xterm.js #1914는 PTY resize debounce 권고. Electron drag-region은 -webkit-app-region: no-drag로 해결.</research_summary>\n</invoke>",
+        "created_at": "2026-05-02T14:50:23.067Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "디자인 토큰: splitter / splitterHover 추가",
+          "status": "completed",
+          "context": "현재 design-tokens.ts에는 splitter 전용 토큰이 없고 mistBorder(rgba(226,226,226,0.35))가 가장 가까움. globals.css에서 @theme {} 블록이 CSS 변수를 반영. ResizeHandle 컴포넌트가 이 변수를 사용한다.",
+          "acceptance": "- design-tokens.ts에 splitter/splitterHover 두 토큰 export\n- buildSemanticTokens() 결과에 `--splitter`, `--splitter-hover` 키 포함\n- bun typecheck + biome check 통과\n- theme.generated.css(있다면) 재생성 후 diff에 변수 두 개만 추가됨",
+          "approach": "1) src/shared/design-tokens.ts의 `color`에 `splitter: color.mistBorder`(재사용) / `splitterHover: \"rgba(226, 226, 226, 0.6)\"`(신규) 추가.\n2) `buildSemanticTokens()`에 `--splitter`, `--splitter-hover` 두 변수 추가.\n3) globals.css가 generate되는 구조라면 scripts/generate-theme-css.ts 재실행, 직접 수기 관리라면 globals.css에도 동일 변수 정의.\n4) 토큰 변경이 단순한 추가이므로 기존 색 사용처에 영향 없음을 확인.",
+          "risk": "theme.generated.css 재생성 시 quote 스타일 회귀 가능 — 이전 사이클에서 source를 double-quote 템플릿 리터럴로 고정한 패턴 유지 필요",
+          "plan_issue": 10,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad22c1347ef055cd3"
+          },
+          "created_at": "2026-05-02T14:53:39.726Z"
+        },
+        {
+          "id": 2,
+          "title": "AppState 확장: sidebarWidth 필드 + stateService round-trip 테스트",
+          "status": "completed",
+          "context": "src/main/storage/stateService.ts의 AppState 인터페이스에 windowBounds, lastActiveWorkspaceId가 이미 있음. JSON atomic save 패턴.",
+          "acceptance": "- AppState 인터페이스에 sidebarWidth 필드 존재\n- 단위 테스트 3개(round-trip, merge, validation) 통과\n- 기존 windowBounds/lastActiveWorkspaceId 영속화 회귀 없음",
+          "approach": "1) AppState 인터페이스에 `sidebarWidth?: number` 필드 추가.\n2) zod schema(있다면)에도 `sidebarWidth: z.number().int().positive().optional()` 추가.\n3) `tests/unit/state-service.test.ts`(존재 여부 확인 후 신설)에서: write→read round-trip, partial set 시 기존 필드 보존, 부적합 타입 거부 케이스.\n4) bun test 통과.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a3081c7a17eb93b57"
+          },
+          "created_at": "2026-05-02T14:53:45.426Z"
+        },
+        {
+          "id": 3,
+          "title": "IPC 채널: appState:get / appState:set 신설",
+          "status": "completed",
+          "context": "src/shared/ipc-contract.ts에 zod 기반 contract 정의, src/main/ipc/channels/{workspace,dialog,pty,lsp,hello}.ts 패턴 존재. 새 도메인 'appState'를 추가.",
+          "acceptance": "- ipc-contract.ts에 appState 도메인 정의\n- appState.ts 핸들러에서 stateService와 연동\n- ipcCall(\"appState\",\"get\") → 저장된 부분 상태 반환, ipcCall(\"appState\",\"set\", patch) → merge 후 저장\n- zod 입력/출력 validation 단위 테스트 통과",
+          "approach": "1) src/shared/ipc-contract.ts에 `appState` 도메인 추가:\n   - call.get: input z.void(), output z.object({ sidebarWidth: z.number().optional(), windowBounds: ..., lastActiveWorkspaceId: z.string().optional() }).partial()\n   - call.set: input partial AppState, output z.void()\n2) src/main/ipc/channels/appState.ts 신설 — stateService.read() / merge-write() 호출.\n3) main 진입에서 채널 등록.\n4) zod schema 단위 테스트(invalid 타입 거부).",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad8ad07c6ae26a374"
+          },
+          "created_at": "2026-05-02T14:53:52.803Z"
+        },
+        {
+          "id": 4,
+          "title": "UI store 신설: src/renderer/store/ui.ts + 상수 + clamp + IPC commit",
+          "status": "completed",
+          "context": "기존 store: active.ts, workspaces.ts, tabs.ts (zustand). 새 도메인 'ui'를 추가하여 sidebarWidth 단일 필드 관리. boot 시 main에서 hydrate, setSidebarWidth는 store 갱신 + IPC commit thin wrapper.",
+          "acceptance": "- ui store 단위 테스트 통과(clamp, hydrate, setter)\n- App.tsx에서 boot 시 hydrate 한 번만 호출\n- store 초기 렌더링 시 UI에 영향 없음(아직 Sidebar는 정적 폭 사용 중)",
+          "approach": "1) src/renderer/store/ui.ts 신설:\n   ```ts\n   export const SIDEBAR_WIDTH_MIN = 180;\n   export const SIDEBAR_WIDTH_MAX = 480;\n   export const SIDEBAR_WIDTH_DEFAULT = 240;\n   const clamp = (n: number) => Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, n));\n   export const useUIStore = create(set => ({\n     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,\n     hydrate: (w?: number) => set({ sidebarWidth: w != null ? clamp(w) : SIDEBAR_WIDTH_DEFAULT }),\n     setSidebarWidth: (w: number, persist=false) => {\n       const next = clamp(w);\n       set({ sidebarWidth: next });\n       if (persist) ipcCall(\"appState\",\"set\",{ sidebarWidth: next }).catch(()=>{});\n     },\n   }));\n   ```\n2) App.tsx boot effect에서 `ipcCall(\"appState\",\"get\")` → `useUIStore.getState().hydrate(state.sidebarWidth)`.\n3) tests/unit/ui-store.test.ts: 초기값 = DEFAULT, hydrate(undefined→DEFAULT, 320→320, 100→MIN, 600→MAX), setSidebarWidth clamp + persist mock 확인.",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a60ead5ca2a146b61"
+          },
+          "created_at": "2026-05-02T14:54:04.464Z"
+        },
+        {
+          "id": 5,
+          "title": "ResizeHandle 컴포넌트 + Sidebar/App.tsx 통합 (드래그 조작 본체)",
+          "status": "completed",
+          "context": "Sidebar.tsx는 현재 `w-[240px] shrink-0`. App.tsx는 flex row. ResizeHandle은 사이드바 우측 가장자리 absolute 절대위치, 8px 히트박스에 1px(idle)/2px(hover/active) 가시 라인.",
+          "acceptance": "- 사이드바 우측에 호버 시 색이 진해지는 1px 라인 노출\n- 드래그 시 폭 변화, MIN/MAX clamp 동작\n- mouseup 후 페이지 새로고침/앱 재시작 시 폭 복원\n- 더블클릭 시 240px로 복귀\n- 드래그 중 텍스트 selection 발생 안 함, cursor 일관 col-resize\n- TerminalView에서 cell-snap 단위 PTY resize 자연 트리거(추가 코드 변경 없음)",
+          "approach": "1) Sidebar.tsx의 className에서 `w-[240px]` 제거, 대신 `style={{ width: sidebarWidth }}` 적용. `shrink-0`, `relative` 유지.\n2) src/renderer/components/SidebarResizeHandle.tsx 신설:\n   - position absolute right-0 top-0 h-full, w-2(8px hitbox), `[-webkit-app-region:no-drag]`\n   - 내부 1px 가시 라인 div: `absolute right-0 top-0 h-full w-px bg-[var(--splitter)]`, hover 시 `w-0.5 bg-[var(--splitter-hover)]`(group hover)\n   - cursor: col-resize\n   - onMouseDown: dragRef에 startX/startWidth 저장, document에 mousemove/mouseup 리스너 부착, body.style 에 `cursor=col-resize; user-select=none` 설정\n   - onMouseMove(document): `setSidebarWidth(startWidth + (e.clientX - startX), persist=false)` — store만 갱신\n   - onMouseUp(document): 리스너 detach, body.style 복원, 마지막으로 `setSidebarWidth(currentValue, persist=true)` 1회 호출\n   - onDoubleClick: `setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, persist=true)`\n   - 키보드 접근성(옵션): tabIndex=0, ArrowLeft/Right ±10px\n3) Sidebar.tsx 안에 `<SidebarResizeHandle />` 마운트.\n4) App.tsx flex row 구조는 그대로(Sidebar가 자체 폭 결정).\n5) typecheck + biome 통과 확인. dev 실행 시 드래그 동작 + persist 직접 확인 메모.",
+          "risk": "사이드바가 frameless 타이틀바 drag region 안에 있을 경우 핸들 mousedown이 먹히지 않을 수 있음 — `[-webkit-app-region:no-drag]`로 차단하지만 main BrowserWindow 옵션 점검 필요",
+          "plan_issue": 6,
+          "deps": [
+            1,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a3ca8ed96ef0f5657"
+          },
+          "created_at": "2026-05-02T14:54:21.574Z"
+        },
+        {
+          "id": 6,
+          "title": "ResizeHandle 단위 테스트: tests/unit/sidebar-resize.test.ts",
+          "status": "completed",
+          "context": "React Testing Library + jsdom 환경. fireEvent로 mousedown/mousemove/mouseup 시뮬레이션. ipcCall은 mock.",
+          "acceptance": "- 4개 시나리오 모두 통과\n- ipcCall(\"appState\",\"set\", ...) 호출 횟수가 정확히 mouseup/dblclick 시점에만 발생(mousemove 중 호출 0회)\n- 테스트 격리: 각 케이스 후 body.style 복원 확인",
+          "approach": "1) SidebarResizeHandle을 임시 wrapper에 mount(또는 Sidebar 통째로 mount).\n2) 시나리오:\n   - mousedown(clientX:0) → mousemove(document, clientX:60) → mouseup → store sidebarWidth = 240+60=300, ipcCall(\"appState\",\"set\",{sidebarWidth:300}) 1회\n   - mousemove로 MIN 미만(clientX:-200) → store가 MIN(180)으로 clamp, persist 1회\n   - mousemove로 MAX 초과(clientX:+500) → store가 MAX(480)로 clamp\n   - dblclick → store가 DEFAULT(240), persist 1회\n3) ipcCall mocking: jest.mock 또는 bun mock(`mock.module(\"../ipc/client\", ...)`).",
+          "plan_issue": 11,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a7566312e24a42429"
+          },
+          "created_at": "2026-05-02T14:54:30.201Z"
+        },
+        {
+          "id": 7,
+          "title": "통합 점검 + dev 실행 + 수동 QA 체크리스트",
+          "status": "completed",
+          "context": "모든 기능 구현 후 회귀 점검 및 사용자 시각/기능 확인 단계. 자동 테스트만으로는 jsdom 한계로 검증 안 되는 항목(터미널 reflow 자연스러움, traffic light 영역, drag region 충돌 등)을 수동으로 확인.",
+          "acceptance": "- typecheck/biome/test 3종 모두 green\n- 수동 QA 체크리스트 8개 항목 모두 PASS 또는 known-issue로 명시\n- 회귀 없음 확인(터미널 렌더링, 워크스페이스 전환)",
+          "approach": "1) bun run typecheck — 0 error\n2) biome check . — no fixes\n3) bun test — 전체 통과(기존 158+ + 신규 케이스)\n4) bun run dev 실행 후 수동 체크:\n   - [ ] 사이드바 우측 호버 시 1px 라인 강조\n   - [ ] 드래그로 폭 변화, MIN/MAX clamp 동작\n   - [ ] 드래그 중 터미널이 cell-snap 단위로 reflow됨(blank/blink 없음)\n   - [ ] mouseup 후 폭 유지, 앱 재시작 후 동일 폭 복원\n   - [ ] 더블클릭으로 240px 복귀\n   - [ ] cursor가 col-resize로 잠김(텍스트 selection 발생 안 함)\n   - [ ] macOS traffic light 영역 클릭 정상 동작\n   - [ ] 워크스페이스 다수 전환 시 회귀 없음(이전 사이클 fix 유지)\n5) 결과 요약을 commit body 또는 PR description으로 정리.",
+          "plan_issue": 11,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-02T14:54:40.114Z"
+        }
+      ]
     }
   ]
 }

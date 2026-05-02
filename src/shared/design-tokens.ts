@@ -26,6 +26,8 @@ export const color = {
   frostedTag: "rgba(255, 255, 255, 0.16)",
   frostedTagHover: "rgba(255, 255, 255, 0.24)",
   mistBorder: "rgba(226, 226, 226, 0.35)",
+  splitter: "rgba(226, 226, 226, 0.35)",
+  splitterHover: "rgba(226, 226, 226, 0.6)",
   translucentParchment: "rgba(250, 249, 246, 0.9)",
   // Depth / elevation
   ambientShadow: "rgba(0, 0, 0, 0.2)",
@@ -77,6 +79,9 @@ export function buildSemanticTokens(): Record<string, string> {
     "--shadow-lg": "none",
     "--shadow-xl": "none",
     "--shadow-2xl": "none",
+    // Splitter
+    "--splitter": color.splitter,
+    "--splitter-hover": color.splitterHover,
     // Motion
     "--motion-fade": "220ms ease",
   };

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AppStateSchema } from "./types/appState";
 import { ColorToneSchema } from "./types/colorTone";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
@@ -214,6 +215,14 @@ export const ipcContract = {
     listen: {
       tick: listen(z.number()),
     },
+  },
+
+  appState: {
+    call: {
+      get: call(z.void(), AppStateSchema),
+      set: call(AppStateSchema.partial(), z.void()),
+    },
+    listen: {},
   },
 } as const;
 
