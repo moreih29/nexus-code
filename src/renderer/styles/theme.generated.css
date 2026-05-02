@@ -14,13 +14,13 @@
   --color-translucent-parchment: rgba(250, 249, 246, 0.9);
   --color-ambient-shadow: rgba(0, 0, 0, 0.2);
   --font-sans: Pretendard, system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace;
+  --font-mono: "JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace;
   --font-family-display: Pretendard, system-ui, -apple-system, sans-serif;
   --font-family-medium: Pretendard, system-ui, -apple-system, sans-serif;
   --font-family-square: Pretendard, system-ui, -apple-system, sans-serif;
   --font-family-ui-supplement: Pretendard, system-ui, -apple-system, sans-serif;
-  --font-family-mono-display: 'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace;
-  --font-family-mono-body: 'JetBrains Mono Nerd Font', 'Sarasa Term K', ui-monospace, monospace;
+  --font-family-mono-display: "JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace;
+  --font-family-mono-body: "JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace;
   --type-display-hero-size: 80px;
   --type-display-hero-line-height: 1;
   --type-display-hero-letter-spacing: -2.4px;

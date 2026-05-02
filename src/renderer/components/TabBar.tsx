@@ -1,7 +1,7 @@
 import * as RadixTabs from "@radix-ui/react-tabs";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { Tab } from "../store/tabs";
 
 // ---------------------------------------------------------------------------
@@ -34,10 +34,7 @@ export function TabBar({
         onValueChange={onSelectTab}
         className="flex items-center h-9 shrink-0 bg-muted overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <RadixTabs.List
-          className="flex items-center h-full"
-          aria-label="Open tabs"
-        >
+        <RadixTabs.List className="flex items-center h-full" aria-label="Open tabs">
           {tabs.map((tab) => (
             <RadixTabs.Trigger
               key={tab.id}

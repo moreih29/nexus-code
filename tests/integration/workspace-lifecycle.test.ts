@@ -225,11 +225,7 @@ describe("workspace-lifecycle — remove keeps directory on disk (M0 spec)", () 
   it("remove fires listen.removed broadcast carrying {id}", () => {
     fixtures.manager.remove(wsId);
     expect(fixtures.broadcastMock).toHaveBeenCalledTimes(1);
-    const [ch, ev, args] = fixtures.broadcastMock.mock.calls[0] as [
-      string,
-      string,
-      { id: string },
-    ];
+    const [ch, ev, args] = fixtures.broadcastMock.mock.calls[0] as [string, string, { id: string }];
     expect(ch).toBe("workspace");
     expect(ev).toBe("removed");
     expect(args.id).toBe(wsId);

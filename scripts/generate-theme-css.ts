@@ -6,7 +6,14 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { borderRadius, buildSemanticTokens, color, fontFamily, spacing, typeScale } from "../src/shared/design-tokens";
+import {
+  borderRadius,
+  buildSemanticTokens,
+  color,
+  fontFamily,
+  spacing,
+  typeScale,
+} from "../src/shared/design-tokens";
 
 function camelToKebab(s: string): string {
   return s.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 
@@ -26,14 +26,8 @@ function themeTokensPlugin(): Plugin {
     buildStart() {
       // Dynamic import to avoid caching issues — re-evaluate each build.
       // Use require-style sync import via bun/node module resolution.
-      const {
-        borderRadius,
-        buildSemanticTokens,
-        color,
-        fontFamily,
-        spacing,
-        typeScale,
-      } = require("./src/shared/design-tokens") as typeof import("./src/shared/design-tokens");
+      const { borderRadius, buildSemanticTokens, color, fontFamily, spacing, typeScale } =
+        require("./src/shared/design-tokens") as typeof import("./src/shared/design-tokens");
 
       function camelToKebab(s: string): string {
         return s.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);

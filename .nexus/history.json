@@ -659,6 +659,147 @@
           "created_at": "2026-05-02T10:21:13.341Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-02T14:21:18.634Z",
+      "branch": "feat/m1-design-system",
+      "plan": {
+        "id": 3,
+        "topic": "워크스페이스 빠른 전환 시 터미널 입력 라인 깨짐 (4-5줄 → 1줄) 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "원인 모델 확정: display:none↔flex 전환 시 ResizeObserver 1-shot fit→PTY resize→셸 SIGWINCH 재출력 사이클이 시각 깨짐의 진짜 원인인지 확정",
+            "status": "decided",
+            "decision": "**확정 원인: display:none ↔ flex 전환에서 누적된 stale dim이 단일 RO 콜백으로 폭발하며 fit→PTY resize→SIGWINCH→shell prompt 재출력 사이클이 한 프레임 동안 wrap 잔흔을 노출하는 것.**\n\n근거 체인:\n1. `WorkspacePanel.tsx:53-58` — `!isActive && \"hidden\"`이 유일한 가시성 토글, Tailwind hidden = display:none. display:none은 레이아웃 트리에서 제거되어 ResizeObserver 콜백이 정지.\n2. 비활성 동안 윈도우 리사이즈/사이드바 토글이 발생하면 부모 flex 컨테이너 폭은 변하지만 본 패널의 ResizeObserver는 잠들어 있어 xterm/PTY는 이전 cols/rows를 그대로 보유.\n3. 활성화 시 `display:none → flex` 전환 → 브라우저가 단 1회 RO 콜백을 새 dim으로 전달 → `TerminalView.tsx:114-120`이 동기로 `fitAddon.fit()` 후 `ipcCall(\"pty\",\"resize\",{cols,rows})` 즉시 발사, debounce/RAF 없음.\n4. `ptyManager.ts:140-146`는 `IPty.resize(cols,rows)`를 fire-and-forget으로 호출 — TIOCSWINSZ ioctl이 발사되고 셸은 SIGWINCH 수신 시 prompt를 재출력.\n5. 한 프레임 안에 (a) xterm 버퍼 reflow가 새 cols 기준으로 기존 prompt 텍스트를 wrap → 4–5 시각행으로 표시 → (b) 셸 prompt 재출력 → 1행으로 안정. 이 두 단계의 가시 분리가 유저가 본 \"깨짐 → 복구\"의 정확한 메커니즘.\n\n**기각된 대안적 가설:**\n- *renderer addon glitch / WebGL context 고갈*: 현 코드의 WebGL/Canvas 분기 전환이 워크스페이스 전환 시점과 무관하고 mountedIds가 정상 유지되므로 컨텍스트 손상 시나리오는 본 증상과 시점 정합 안 됨.\n- *9a2160b PTY race 잔재*: 그 패치는 StrictMode 이중 invoke로 첫 탭 PTY가 충돌하던 별개 race를 고친 것. 이미 StrictMode 제거 + tabId 단일성 확보로 해결됨.\n- *Tailwind v4 cascade race*: 9a2160b가 이미 @layer base로 reset을 옮겨 utilities 우선순위 보장. 본 증상은 cascade 결정 직후의 layout 측정 race가 아니라 가시성 전환 race.\n\n**가정**: 위 체인은 코드 정적 분석으로 확정 가능 수준. 구현 단계에서 단발 console.log로 (RO 콜백 시 새/이전 cols/rows, ipcCall(\"pty\",\"resize\") 직전·직후 timestamp) 1회 검증 후 가드 적용. 별도 진단 PR/계측 인프라는 불필요."
+          },
+          {
+            "id": 2,
+            "title": "패널 비활성화 메커니즘 결정: display:none 유지 vs CSS Grid stack + visibility:hidden로 교체 (모든 마운트된 패널을 레이아웃에 상존시켜 stale 치수 누적 방지)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Option B (CSS Grid stack + visibility:hidden) 권고. 근거: A(display:none 유지+수동 fit)는 RO가 비활성 동안 침묵하는 근본 원인을 그대로 두고 conditional fit으로 덮는 우회책이라 reflow 잔흔(wrap residue) 한 프레임은 여전히 보임. C(브로드캐스트)는 display:none된 컨테이너는 clientWidth=0이라 측정 불가, 결국 병행 레이아웃 시스템을 신설해 결합도만 키움. B는 모든 mounted 패널을 grid-cols-1/grid-rows-1 동일 셀에 겹쳐두고 비활성은 visibility:hidden + pointer-events-none으로 처리 — RO가 비활성 패널에도 계속 발화하므로 stale 치수가 절대 누적되지 않고 활성화 시점엔 이미 정확한 dim 상태. xterm WebGL/Canvas 렌더러는 데이터 변경/커서 블링크 시에만 RAF 발화, visibility:hidden에선 컴포지터가 페인트를 얇게 처리하므로 8~10 패널까지 비용 무시 가능. 위험: WebGL 컨텍스트 ~16 상한(Chromium) — mountedIds.size > 8에서 LRU evict 또는 CanvasAddon 강등 정책은 follow-up. a11y: 비활성 패널에 inert + aria-hidden 필수 (term.focus() 차단/탭 순회 제외).",
+                "recorded_at": "2026-05-02T14:06:20.256Z",
+                "agent_id": "ab63e599a813d9667"
+              }
+            ],
+            "decision": "**Option B 채택 — 비활성 패널을 `display:none` 토글에서 CSS Grid stack + `visibility: hidden`으로 교체.**\n\n구체 형태 (`App.tsx`의 패널 영역):\n- 부모: `grid grid-cols-1 grid-rows-1 ...` (flex-col 자리 대체)\n- 모든 `WorkspacePanel`은 `col-start-1 row-start-1`로 같은 셀에 stack\n- `WorkspacePanel.tsx:53-58`의 `!isActive && \"hidden\"`을 `isActive ? \"visible pointer-events-auto\" : \"invisible pointer-events-none\"`로 교체 + 비활성 패널에 `inert` 속성과 `aria-hidden=\"true\"` 부여\n\n이 결정의 핵심: 모든 mounted 패널이 항상 동일한 실제 폭/높이로 layout에 존재 → ResizeObserver가 비활성 패널에서도 윈도우/사이드바 변화에 정상 반응 → stale dim 누적 자체가 발생하지 않음. 활성 전환은 순수 컴포지터 가시성 flip이므로 fit/resize/SIGWINCH 사이클 자체가 트리거되지 않아 wrap 잔흔이 원천 제거.\n\n**기각된 대안:**\n- *Option A (display:none 유지 + 활성 시 수동 fit 호출)*: 비활성 동안 RO 침묵이라는 근본 결함을 그대로 두고 활성 시점 fit으로 사후 수습 — 활성 직후 한 프레임 동안 wrap 잔흔이 그대로 보일 위험이 남음(fit→resize→shell repaint 체인은 그대로). diff는 가장 작지만 root cause를 안 고침.\n- *Option C (display:none 유지 + 글로벌 broadcast)*: display:none 패널은 clientWidth=0이라 측정 자체가 불가능, 결국 \"측정 가능하게 임시로 보이게 했다가 다시 숨김\" 같은 병행 레이아웃 시스템을 만들어야 함 — 결합도 폭증, 회귀 표면이 가장 큼.\n\n**알려진 위험과 대응**:\n- WebGL context 상한 ~16 (Chromium): mountedIds.size > 8 도달 시 CanvasAddon 강등 또는 LRU evict — Phase 2 follow-up task로 분리 (지금 시점에 사용자 워크스페이스가 그 수준이 아님).\n- a11y/포커스: visibility:hidden은 modern 브라우저에서 탭 순회 제외이지만 `inert`를 명시 부여해 `term.focus()` 등 프로그램적 포커스도 차단. 비활성 패널의 키보드/마우스 이벤트가 활성 패널을 가리지 않는지 검증 (이슈 5).\n\n**가정**: 사용자의 일반 워크플로 mountedIds.size ≤ 8. 그 이상 사용 패턴이 발견되면 Phase 2 정책 도입."
+          },
+          {
+            "id": 3,
+            "title": "TerminalView ResizeObserver 강화: RAF coalesce + 0폭 가드 + cols/rows 변동 시에만 PTY resize 발사 (idempotent guard)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "세 가드 (a)+(b)+(c) 모두 채택. (a) RAF coalesce: setTimeout(50ms)는 페인트 사이클과 어긋나 레이아웃 커밋 도중 fit 호출 가능 + 윈도우 드래그 리사이즈에서 체감 지연. RAF는 RO의 \"after layout, before paint, batched per frame\" 보장과 정렬 — pendingRaf ref 한 개로 N 콜백을 1 fit으로 축약. xterm.js FitAddon 공식 예제도 100ms debounce 권고하므로 무가드 현재 상태는 baseline 미달. (b) clientWidth===0 || clientHeight===0 bailout: 초기 마운트나 devtools 토글 도중 0-size 프레임에서 fit이 내부 상태만 만지고 proposeDimensions가 undefined를 반환하는 무용한 호출 차단. (c) 마지막 적용 (cols,rows)를 ref로 보관, 변경분이 0이면 fit() 자체와 ipcCall(\"pty\",\"resize\") 둘 다 skip. 근거: pty.resize는 ioctl(TIOCSWINSZ) 래퍼라 동일 dim에서도 SIGWINCH 무조건 발사 → bash/zsh/fish 모두 SIGWINCH에 prompt 재출력 → 보이는 깨짐의 직접 원인. 따라서 idempotency는 renderer 측에서 강제해야 함 (ptyManager 측 가드는 호출자 추가 시 follow-up).",
+                "recorded_at": "2026-05-02T14:06:33.026Z",
+                "agent_id": "ab63e599a813d9667"
+              }
+            ],
+            "decision": "**TerminalView ResizeObserver에 세 가드 모두 적용:**\n\n(a) **RAF coalesce** — `pendingRafRef` 단일 ref로 RO 콜백을 다음 페인트로 합침:\n```ts\nconst pendingRafRef = useRef<number | null>(null);\nconst ro = new ResizeObserver(() => {\n  if (pendingRafRef.current != null) return;\n  pendingRafRef.current = requestAnimationFrame(() => {\n    pendingRafRef.current = null;\n    runFit(); // 아래 b/c 가드 내장\n  });\n});\n// cleanup에서 cancelAnimationFrame\n```\nRAF는 RO의 \"after layout, before paint, batched per frame\" 보장과 정렬되어 layout commit 도중 fit 호출 위험 없음. setTimeout(50)은 페인트 cycle 미정렬 + 윈도우 드래그 리사이즈에 체감 지연을 추가하므로 기각.\n\n(b) **0-dim bailout** — `runFit` 진입에서 `container.clientWidth === 0 || container.clientHeight === 0`이면 즉시 return. 초기 마운트나 devtools 토글 도중 0-size 프레임에서 fit이 내부 상태만 만지는 무용한 호출 차단.\n\n(c) **Idempotency guard** — `lastDimsRef = useRef<{cols:number;rows:number}|null>(null)`로 마지막 적용 (cols,rows) 보관. `proposeDimensions()`가 반환한 (d.cols,d.rows)가 lastDimsRef와 동일하면 **fit()도 호출하지 않고 ipcCall(\"pty\",\"resize\")도 발사하지 않음**. 변경분이 있을 때만 `term.resize` 또는 `fitAddon.fit()` + ipcCall + `lastDimsRef.current = d` 갱신. 근거: pty.resize는 ioctl(TIOCSWINSZ) 직결이라 동일 dim에서도 SIGWINCH 발사 → 셸 prompt 재출력 → 가시 깨짐의 직접 원인. fit() 자체도 DOM 측정/버퍼 손질이 무용 비용.\n\n초기 spawn 직후 lastDimsRef는 spawn 시 사용한 (cols,rows)로 초기화하여 마운트 직후 RO의 첫 콜백이 동일 dim 무시되도록 함.\n\n**기각된 대안**:\n- *(a)만 채택*: RAF coalesce는 폭발적 burst만 막을 뿐 동일 dim 호출은 그대로 통과 → SIGWINCH 잔존.\n- *(c)만 채택 (RAF 없이)*: 한 프레임 내 다중 RO 콜백이 비교 직전 lastDimsRef를 각자 갱신해 race 가능 + 다중 fit() DOM 비용.\n- *setTimeout(50ms throttle)*: 페인트 미정렬, 드래그 리사이즈 체감 저하.\n- *ptyManager.ts에서 idempotency guard*: 다른 호출자가 없는 현재로선 단일 호출 경로 가드만으로 충분; 호출 경로가 늘면 그때 확장 (Phase 2 follow-up).\n\n**가정**: xterm.js FitAddon API와 ResizeObserver 콜백 타이밍이 현 버전 기준 안정. 의존성 메이저 업그레이드 시 가드 작동을 재확인."
+          },
+          {
+            "id": 4,
+            "title": "워크스페이스 활성 전환 시 명시적 fit() 트리거 정책: useLayoutEffect/RAF 활용 여부와 패널 메커니즘 결정과의 정합성",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "명시적 fit-on-activation 트리거 불필요 — 이슈 2에서 Grid stack을 채택하면 활성 패널의 컨테이너는 이미 항상 정확히 측정되어 있으므로 stale 회복 구간이 존재하지 않음. 도입 시 부작용: (1) RO 콜백과 useLayoutEffect 콜백의 double-fit (이슈 3c idempotency가 silently swallow하지만 fit() 자체 비용과 순서 가정의 fragility 발생), (2) RO 행동과 동기화해야 하는 새 코드 경로가 미래의 xterm 의존성 변경에 추가 부담. \"RO가 fit/resize의 유일한 트리거\"라는 단일 invariant를 깨끗하게 유지하는 것이 최선. 추후 측정으로 잔여 이슈 발견 시 재도입 trivial.",
+                "recorded_at": "2026-05-02T14:06:39.422Z",
+                "agent_id": "ab63e599a813d9667"
+              }
+            ],
+            "decision": "**채택 안 함 — 명시적 fit-on-activation 트리거를 도입하지 않는다.**\n\n이슈 2가 Grid stack을 채택해 활성 패널 컨테이너는 항상 정확한 dim으로 layout에 존재하므로 \"활성화 시점에 stale을 회복\"할 구간이 존재하지 않음. 즉 RO 단일 트리거만으로 모든 dim 동기화가 충분.\n\n**기각된 대안**:\n- *A. isActive prop 전환을 useLayoutEffect로 감지해 RAF 후 1회 fit*: 이슈 3c의 idempotency가 결과적으로 swallow하지만 (1) fit()의 DOM 측정 비용이 매 활성 전환마다 무용하게 발생, (2) RO 콜백과 useLayoutEffect 콜백의 순서 가정이 미래 xterm/React 업그레이드에서 fragile, (3) \"RO가 유일한 fit 트리거\"라는 단일 invariant가 깨져 디버깅 표면 증가.\n- *B. store 단의 activeWorkspaceId 전환에 글로벌 이벤트 디스패치*: 모든 mounted 패널이 같은 dim을 갖는 Grid stack에선 의미 없음. 디스패치 채널만 늘려 결합도 증가.\n- *C. 이슈 2를 다른 옵션으로 결정한 경우의 추론*: 현재 결정은 B(Grid stack)이므로 부적용.\n\n**가정**: 이슈 2 결정이 변경되면 이 결정도 재검토. 본 PR 후 측정에서 잔여 race가 발견되면 RAF 1회 fit-on-activate hook 추가는 trivial한 후속 작업."
+          },
+          {
+            "id": 5,
+            "title": "검증 시나리오 정의: 빠른 연속 전환, 사이드바 토글 후 전환, 윈도우 리사이즈 후 전환, 다중 탭 워크스페이스에서 전환의 회귀 여부",
+            "status": "decided",
+            "decision": "**검증 시나리오 5종 + a11y 검증 2종 = 총 7개 시나리오를 tester가 수동·자동 혼합으로 통과시켜야 한다:**\n\n핵심 회귀 시나리오:\n1. **빠른 연속 전환**: 3개 이상 워크스페이스를 1초 내 5–10회 왕복 전환 — 어느 패널의 터미널 입력 라인도 4–5줄로 깨지지 않고 1행 유지. (Phase 1.1 + 1.2 회귀 검증)\n2. **사이드바 토글 후 전환**: 비활성 워크스페이스 존재 상태에서 사이드바 collapse/expand → 그 비활성 워크스페이스로 전환 — 깨짐 없음. (Issue 2 핵심 검증: stale dim 누적 0 확인)\n3. **윈도우 리사이즈 후 전환**: 비활성 워크스페이스 존재 상태에서 윈도우 폭을 ±200px 드래그 → 비활성 워크스페이스로 전환 — 깨짐 없음.\n4. **다중 탭 + 워크스페이스 전환**: 한 워크스페이스 내 2+ 터미널 탭 운영 중 다른 워크스페이스로 전환 후 복귀 — 모든 탭의 cols/rows와 prompt가 그대로 유지, PTY 살아있음.\n5. **장시간 출력 중 전환**: 한 터미널에 `seq 1 100000` 같은 긴 출력 진행 중 다른 워크스페이스로 전환 후 복귀 — 출력 누락/덮어쓰기 없이 정상 스크롤.\n\na11y/포커스 검증:\n6. **Tab 순회 + 프로그램 포커스**: Tab 키 순회가 비활성 패널의 xterm 텍스트 입력 영역을 건너뛴다. 비활성 워크스페이스의 터미널에 프로그램적으로 `focus()`를 호출해도 활성 패널의 입력을 가로채지 않는다 (`inert` 검증).\n7. **마우스 클릭 격리**: 비활성 패널 영역 위에 위치한 좌표를 (z-stack overlap으로) 클릭해도 비활성 터미널이 input/select 받지 않음 (`pointer-events-none` 검증).\n\n성능 회귀 가드:\n- 5–8개 워크스페이스 동시 mount 시 idle CPU < 5% (커서 블링크 RAF만 도는 상태). 이를 넘으면 Phase 2 (LRU evict / Canvas 강등) 타이밍 신호.\n\n**자동화 정책**: Playwright(이미 mcp 사용 가능)로 시나리오 1·4·6 자동화 가능 — 시나리오 2·3은 사이드바/윈도우 리사이즈 트리거 필요해 수동 우선 + 가능하면 e2e. 시나리오 5는 수동 (출력 가시성 검증).\n\n**기각된 옵션**:\n- *시나리오를 1개로 축소 (빠른 전환만)*: Issue 2의 근본 fix가 사이드바/윈도우 리사이즈 케이스에서 정확히 보장되는지 분리 검증해야 회귀 회피 가능.\n- *Playwright 풀 자동화 시도*: 사이드바/윈도우 리사이즈는 Electron 데스크톱 IPC와 OS 윈도우 매니저 결합이 강해 수동 검증이 비용 효율적.\n\n**가정**: 본 PR 시점에 mountedIds.size ≤ 5 사용 패턴. 그 이상 패턴 발견 시 시나리오 6 부하 변형 추가."
+          }
+        ],
+        "research_summary": "Explore 조사 완료. 핵심 발견: (1) App.tsx:155-161 — 활성된 워크스페이스는 mountedIds에 영구 등록되어 항상 렌더링됨. (2) WorkspacePanel.tsx:56 — `!isActive && \"hidden\"`으로 Tailwind hidden(=display:none) 토글이 유일한 가시성 제어. (3) TerminalView.tsx:114-120 — ResizeObserver가 동기 호출, debounce 없음, fitAddon.fit() 후 즉시 ipcCall(\"pty\",\"resize\",{cols,rows}) 발사. (4) ptyManager.ts:140-146 — node-pty resize 동기 호출, fire-and-forget. (5) display:none 동안 ResizeObserver는 발화하지 않으므로, 그 사이 윈도우/사이드바가 변하면 패널 재표시 시 단 한번의 RO 콜백이 stale→new 치수 점프를 일으키고, fit이 cols 변경을 감지해 PTY로 resize 송출, 셸이 SIGWINCH로 프롬프트 재출력하는 동안 xterm 버퍼는 이미 reflow되어 다중행으로 표시되었다가 다음 프레임에 정상 1행으로 안정화. (6) 9a2160b 커밋은 첫 탭 PTY race(StrictMode 이중 invoke)를 고친 것으로 본 이슈와는 다른 race. (7) 현재 코드에 fit-on-activate 트리거 없음 — 오직 RO만이 dim 동기화 통로.",
+        "created_at": "2026-05-02T14:02:56.077Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "TerminalView ResizeObserver 가드 3종 적용 (RAF coalesce + 0-dim bailout + idempotency)",
+          "status": "completed",
+          "context": "현재 src/renderer/components/TerminalView.tsx:114-120의 ResizeObserver 콜백이 debounce/RAF 없이 동기로 fitAddon.fit() → ipcCall(\"pty\",\"resize\",{cols,rows})를 발사한다. ptyManager.ts:140-146는 IPty.resize를 fire-and-forget으로 호출하므로 동일 dim에서도 SIGWINCH가 발사되어 셸이 prompt를 재출력한다. 이슈 3의 세 가드를 동일 파일에 한 번에 적용해 RO 폭발/0-dim/동일 dim 호출을 모두 차단한다. 이 태스크는 PR의 첫 번째 커밋이며 이슈 2(Grid stack) 적용 전에 단독으로 머지 가능하도록 설계 (bisectability).",
+          "acceptance": "- src/renderer/components/TerminalView.tsx에 pendingRafRef, lastDimsRef 두 ref가 추가되고 ResizeObserver 콜백이 RAF 1회만 스케줄.\\n- runFit() 진입에서 0-dim bailout, undefined proposeDimensions bailout, 동일 dim idempotency bailout 세 분기 모두 존재.\\n- cleanup에서 cancelAnimationFrame 호출.\\n- 동일 cols/rows에 대해 ipcCall(\"pty\",\"resize\")가 발사되지 않음을 dev console에서 1회 확인 후 console.log 제거.\\n- 기존 단위 테스트/타입체크 통과 (bun run typecheck, biome lint 무경고).\\n- 단독으로 머지해도 회귀 없음 (display:none 그대로지만 RO 폭발/동일-dim resize는 차단).",
+          "approach": "1. src/renderer/components/TerminalView.tsx의 useEffect 본문을 수정: (a) `pendingRafRef = useRef<number|null>(null)` 추가, (b) `lastDimsRef = useRef<{cols:number;rows:number}|null>(null)` 추가하고 spawn 시 사용한 cols/rows로 초기화, (c) `runFit()` 헬퍼를 추출 — `container.clientWidth === 0 || container.clientHeight === 0` 즉시 return → `fitAddon.proposeDimensions()` 호출 → undefined면 return → 결과가 lastDimsRef와 동일하면 return → 다르면 fitAddon.fit() + ipcCall(\"pty\",\"resize\",{tabId,cols,rows}) + lastDimsRef 갱신, (d) ResizeObserver 콜백 본문을 `if (pendingRafRef.current != null) return; pendingRafRef.current = requestAnimationFrame(() => { pendingRafRef.current = null; runFit(); });`로 교체, (e) cleanup에 `if (pendingRafRef.current != null) cancelAnimationFrame(pendingRafRef.current)` 추가. 2. 초기 mount 시점의 첫 fit() 호출(line 73 부근)에서도 lastDimsRef를 동일 경로로 갱신. 3. 구현 중 단발 console.log로 RO 콜백 시 직전·직후 (cols,rows) 비교 로그를 1회 검증 후 제거.",
+          "risk": "RAF에서 컴포넌트 언마운트 사이의 race로 dispose된 fitAddon에 fit() 호출 가능성 → cleanup의 cancelAnimationFrame과 RAF 콜백 진입 시 disposed 체크로 방어. lastDimsRef 초기화 누락 시 spawn 직후 첫 RO 콜백이 동일 dim임에도 PTY resize를 한 번 발사할 수 있음 → spawn 시점의 (cols,rows)로 ref 초기화 필수. WebGL/Canvas 렌더러 분기에서 fit() 동작 차이는 알려진 바 없으나 양쪽 모두 dev에서 확인.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac9964a6e80044668",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-02T14:09:17.894Z"
+        },
+        {
+          "id": 2,
+          "title": "패널 비활성화를 CSS Grid stack + visibility:hidden + inert로 교체",
+          "status": "completed",
+          "context": "현재 src/renderer/App.tsx:155-161은 mountedWorkspaces를 flex-col 컨테이너에 단순 나열하고 src/renderer/components/WorkspacePanel.tsx:53-58는 `!isActive && \"hidden\"`(Tailwind hidden = display:none)로 가시성을 토글한다. 비활성 동안 ResizeObserver가 잠들어 있어 윈도우/사이드바 폭 변경이 stale dim으로 누적되고, 활성화 시점 1-shot RO 콜백이 fit→PTY resize→SIGWINCH 사이클을 트리거해 시각 깨짐을 만든다. 이슈 2 결정에 따라 모든 mounted 패널을 동일 grid 셀에 stack해 항상 layout에 상존시킨다.",
+          "acceptance": "- src/renderer/App.tsx 패널 컨테이너가 grid-cols-1 grid-rows-1로 변경.\\n- src/renderer/components/WorkspacePanel.tsx의 hidden 토글이 visibility 기반으로 교체되고 col-start-1 row-start-1, inert, aria-hidden이 비활성 시 적용.\\n- 모든 mounted 패널이 동일 폭/높이를 갖고 layout에 상존 (DevTools Elements 패널에서 확인).\\n- 활성 전환이 가시성 flip만으로 동작하며 SIGWINCH가 발사되지 않음 (이슈 1 console.log로 확인 후 제거).\\n- 비활성 패널 위 마우스 클릭이 활성 패널을 가리지 않음.\\n- bun run typecheck, biome lint 무경고.",
+          "approach": "1. src/renderer/App.tsx — 패널 컨테이너(`<div className=\"flex flex-1 min-w-0 flex-col overflow-hidden\">`)를 `<div className=\"grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden\">`로 교체. mountedWorkspaces.map() 내부 WorkspacePanel은 그대로. 2. src/renderer/components/WorkspacePanel.tsx — 최상위 div에 `col-start-1 row-start-1` 추가, `!isActive && \"hidden\"`을 `isActive ? \"visible pointer-events-auto\" : \"invisible pointer-events-none\"`로 교체. 비활성일 때 `inert` 속성과 `aria-hidden=\"true\"` 부여 (React 19+ inert prop 또는 ref+setAttribute). 3. 비활성 패널이 키보드 이벤트를 받지 않도록 inert가 적용되었는지 React DevTools로 확인. 4. 기존 flex-1/min-h-0/overflow-hidden 등 내부 레이아웃 값은 grid 셀 내부에서도 동일하게 동작하므로 유지.",
+          "risk": "WebGL context 상한 ~16: mountedIds.size 6+ 환경에서 컨텍스트 손실/Canvas fallback 발생 여부 확인 필요 (회귀 시 Phase 2 LRU evict 즉시 도입). visibility:hidden + inert가 React 19/Electron Chromium 버전 조합에서 의도대로 동작하는지 검증. grid 컨테이너로 전환 시 자식의 min-w-0/min-h-0 누락 케이스가 있으면 overflow가 잘못될 수 있음 → 기존 flex-col 자식 레이아웃 값 보존 필수. 다중 워크스페이스 미운트 시 idle CPU 상승 여부 확인 (Issue 5 시나리오 6과 별개로 dev tools Performance 짧게).",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad0d9c5739c4174ba",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-02T14:09:40.220Z"
+        },
+        {
+          "id": 3,
+          "title": "7개 회귀/a11y 시나리오 검증 (수동 + Playwright 부분 자동화)",
+          "status": "completed",
+          "context": "이슈 5 결정에 따라 이슈 1·2·3 fix가 이전에 보고된 시각 깨짐을 제거하고 사이드바/윈도우 리사이즈 후 전환 같은 인접 케이스에 회귀를 만들지 않으며, Grid stack 도입에 따른 a11y 표면(Tab 순회/프로그램 포커스/마우스 클릭 격리)을 깨지 않는지 검증한다.",
+          "acceptance": "- 7개 시나리오 모두 통과 (체크박스 7/7).\\n- 시나리오 1·4·6 자동화 스크립트(가능한 경우)가 tests/ 또는 scripts/ 하위에 존재하거나, 자동화 미가능 사유가 PR 코멘트에 명기.\\n- 5–8개 워크스페이스 동시 mount 상태에서 Performance 탭으로 idle CPU < 5% 1회 측정 (커서 블링크 RAF 외 작업 없음).\\n- 회귀 발견 시 즉시 reopen 이슈로 plan에 반영.",
+          "approach": "시나리오 5종 (회귀): (1) 3개 이상 워크스페이스를 1초 내 5–10회 왕복 전환 시 깨짐 0회. (2) 비활성 워크스페이스 존재 상태에서 사이드바 collapse/expand 후 그 워크스페이스 활성화 — 깨짐 없음. (3) 윈도우 폭 ±200px 드래그 후 비활성 워크스페이스 활성화 — 깨짐 없음. (4) 한 워크스페이스 2+ 터미널 탭 운영 중 다른 워크스페이스로 전환 후 복귀 — 모든 탭 cols/rows·prompt 보존, PTY 살아있음. (5) `seq 1 100000` 진행 중 다른 워크스페이스로 전환 후 복귀 — 출력 누락/덮어쓰기 없음. a11y 2종: (6) Tab 키가 비활성 패널 xterm을 건너뛰고, 비활성 워크스페이스 터미널에 프로그램적 focus()를 호출해도 활성 패널 입력을 가로채지 않음 (`inert` 검증). (7) 비활성 패널 z-stack 위 좌표 클릭 시 비활성 터미널이 input을 받지 않음 (`pointer-events-none` 검증). 자동화: Playwright(mcp__plugin_playwright)로 1·4·6을 e2e로 자동화 시도, 2·3·5·7은 수동 체크리스트로 본 PR 머지 전 1회 통과. 결과는 PR 본문에 체크박스로 첨부.",
+          "risk": "Electron 윈도우 리사이즈/사이드바 토글의 e2e 자동화는 OS 윈도우 매니저 결합으로 비결정적 — 수동 검증이 더 비용 효율적. mountedIds.size가 8 초과로 늘면 WebGL context 손실 회귀가 새로 발견될 수 있음 → Phase 2 follow-up task를 reopen하여 즉시 LRU evict 도입.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a4a4437b3762e9516",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-02T14:10:00.477Z"
+        },
+        {
+          "id": 4,
+          "title": "[Phase 2 follow-up] WebGL context 상한 정책: mountedIds > 8 시 LRU evict 또는 Canvas 강등",
+          "status": "completed",
+          "context": "이슈 2 결정으로 모든 mounted 워크스페이스가 항상 layout에 상존하면서 WebGL context를 보유하게 되어 Chromium 상한(~16)에 가까워질 위험이 생긴다. 본 PR 시점 사용자 워크플로 mountedIds.size ≤ 8으로 가정하지만 실제 운용에서 8 초과 패턴이 발견되면 LRU evict (가장 오래 비활성된 워크스페이스의 mount 해제) 또는 inactive 패널을 CanvasAddon으로 강등하는 정책이 필요하다. 본 태스크는 본 PR과 분리된 follow-up.",
+          "acceptance": "- 8 초과 워크스페이스 mount 시 WebGL context 손실/Canvas fallback이 정상 동작하고 사용자 가시 회귀 없음.\\n- 임계 정책의 동작 시나리오가 문서화되어 PR 본문 또는 .nexus/context에 기록.\\n- 본 태스크는 본 PR과 별도로 진행하며, 본 PR 머지 후 사용자 워크플로 패턴 관찰 결과에 따라 우선순위 재평가.",
+          "approach": "1. mountedIds.size 임계 정책(예: > 8) 트리거 시 동작을 결정 — 옵션 A: LRU 기반 mount 해제(PTY는 살리되 React 트리에서만 unmount, 다음 활성 시 재mount), 옵션 B: 비활성 패널의 xterm 렌더러를 CanvasAddon으로 강등. 2. 사용자 워크플로 데이터 수집(텔레메트리 또는 로그) 후 임계값 검증. 3. 구현 후 WebGL context 손실 콜백을 listen하여 자동 강등 fallback 추가. 본 태스크는 본 PR 머지 후 별도 단위로 진행.",
+          "risk": "실제 사용자 패턴이 mountedIds ≤ 5 수준이면 본 태스크가 over-engineering일 수 있음 → 본 PR 머지 후 2주 관찰 후 진행 여부 결정 (스케줄 follow-up 가능).",
+          "plan_issue": 2,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "architect"
+          },
+          "created_at": "2026-05-02T14:10:15.323Z"
+        }
+      ]
     }
   ]
 }
