@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "out/renderer",
+    "rootDir": "src/renderer",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"],
+  "references": [
+    { "path": "./tsconfig.shared.json" }
+  ]
+}

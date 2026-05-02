@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "out/preload",
+    "rootDir": "src/preload",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/preload/**/*.ts"],
+  "references": [
+    { "path": "./tsconfig.shared.json" }
+  ]
+}

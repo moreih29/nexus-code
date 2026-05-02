@@ -1,0 +1,360 @@
+{
+  "cycles": [
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-02T08:39:29.176Z",
+      "branch": "feat/m0-foundation",
+      "plan": {
+        "id": 1,
+        "topic": "VSCode 에디터 + cmux/warp 식 워크스페이스 도구: 결정 묶음 + 초기 구조 잡기",
+        "issues": [
+          {
+            "id": 1,
+            "title": "프론트엔드 스택 (프레임워크 + 빌드 + 모노레포 구조)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "스택 3축(UI 프레임워크 / 빌드 / 모노레포) 비교. 1순위 추천: React 18 + electron-vite + electron-builder + single package(layered tsconfig). 근거: ① @monaco-editor/react가 솔로의 monaco 라이프사이클 함정(dispose, resize observer, 다중 인스턴스)을 가장 많이 흡수. Solid/Svelte/Preact는 monaco 1차 래퍼 부재로 직접 ref+dispose 관리 필요. ② electron-vite는 main/preload/renderer/utility 4-target 동시 빌드 + HMR을 한 설정으로 제공. utility process(pty-host/lsp-host)도 entry 추가만으로 처리. LLM 친숙도 가장 높음. ③ single package + 디렉터리 분리는 솔로 인지 부하 최소. layer 경계는 VSCode식 layered tsconfig로 강제 (references/vscode/package.json:58 valid-layers-check 차용 — tsconfig.electron-main/browser/utility 분리). 2순위: 동일 + pnpm workspace(apps/desktop + packages/shared-ipc) — IPC 타입 공유의 자연 압력 생기는 시점(예상 M2)에 마이그레이션. 위험 Top2: electron-vite bus factor 1 (완화: 설정 얇게 유지, vite 표준 옵션만 사용해 forge/custom 마이그레이션 surface 좁힘) / native 모듈(node-pty, @vscode/ripgrep) 패키징 함정 (완화: M0부터 macOS arm64+x64, Linux, Windows 3-OS smoke build CI). 노트: VSCode 빌드 시스템(gulp+esbuild+rspack 혼합)은 솔로에 차용 불가 — 패턴만 차용. 평결: 승인.",
+                "recorded_at": "2026-05-02T06:28:04.149Z",
+                "agent_id": "a0e317ba1368211b2"
+              }
+            ],
+            "decision": "Frontend stack: React 18+ + electron-vite + electron-builder. Single-package 레이아웃 + VSCode식 layered tsconfig (tsconfig.main.json / tsconfig.renderer.json / tsconfig.utility.json 분리, references/vscode/package.json:58 valid-layers-check 패턴 차용). Monaco는 @monaco-editor/react로 시작 (raw monaco 옵션은 열려둠). 패키지 매니저 = bun (cmux 선례 — references/cmux/bun.lock 참조). 스크립트 러너도 bun. 향후 패키지 분할은 bun workspace(apps/desktop + packages/shared-ipc 등)로 진행, IPC 타입 공유의 자연 압력 시점(예상 M2)에 재평가.\n\nCI/배포 (이슈 7 결정 반영): 모든 마일스톤(M0~M3+)은 macOS dev only(`bun run dev`) 가정. electron-builder는 채택 유지하되 실제 패키징 사용 시점은 별도 ADR(배포 마일스톤 Mx, 시점 미정). 3-OS GitHub Actions smoke matrix도 배포 ADR로 이동.\n\n위험: electron-vite bus factor 1(완화: 설정 얇게, vite 표준 옵션만) / native 모듈 패키징 함정 — node-pty 등이 vite external에서 빠지지 않도록 + bun이 native 모듈 prebuild 바이너리 처리하는지 macOS dev에서 검증(이슈 3 결정 정합)."
+          },
+          {
+            "id": 2,
+            "title": "상태관리 + IPC 타입 안전성 모델",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "상태관리+IPC 4축 분석. 1순위 추천: (A) Zustand 단일 store + 비-스트림 비동기에만 TanStack Query 보조. (B) zod 계약 + VSCode식 call()/listen() 두 primitive — references/vscode/src/vs/base/parts/ipc/common/ipc.ts:25-28,35-38,40-45,90-91 패턴 차용. shared/ipc-contract.ts에 procedure 맵 + inferArgs/inferReturn 추론 + zod 런타임 검증. (C) Electron UtilityProcess + MessagePort — references/vscode/src/vs/platform/terminal/electron-main/electronPtyHostStarter.ts:50-66 그대로. lsp-host는 utility process가 진짜 language server를 child_process.spawn(stdio)으로 띄우는 다층 구조. (D) PTY/agent 스트림 = MessagePort duplex + VSCode FlowControl ack(terminal.ts:868-889 HighWatermark=100000/LowWatermark=5000/CharCountAckSize=5000) + TerminalRecorder ring buffer 10MB(terminalRecorder.ts:23,58-80,101 generateReplayEvent) 차용 — 워크스페이스 detach/re-attach replay 지원. 저빈도 알림은 옵션1(EventEmitter+channel). 다중 구독자: utility의 PTY는 1개, 메인이 fan-out, 렌더러 내 store가 셀렉터 분기. 위험 Top2: ① FlowControl/Recorder 직접 구현 함정 (완화: M0에 fake producer/consumer+fake clock으로 backpressure 단위 테스트, xterm.js 연결 전 검증). ② zod 런타임 비용 — 모든 청크 parse 시 병목 (완화: 스트림 데이터는 검증 비대칭, 렌더러→메인 방향만 강제, 메인→렌더러는 신뢰 source). 평결: 승인.",
+                "recorded_at": "2026-05-02T06:33:55.379Z",
+                "agent_id": "a0e317ba1368211b2"
+              }
+            ],
+            "decision": "State/IPC: 렌더러 = Zustand 단일 store (TanStack Query는 자연 압력 시 보조 도입). 메인↔렌더러 IPC = zod 계약 + VSCode식 call()/listen() 두 primitive (shared/ipc-contract.ts 단일 seam, references/vscode/src/vs/base/parts/ipc/common/ipc.ts:25-38 패턴 차용). 메인↔utility(pty-host/lsp-host) = Electron UtilityProcess + MessagePort (references/vscode/src/vs/platform/terminal/electron-main/electronPtyHostStarter.ts:50-66 차용); lsp-host 내부에서 진짜 LSP 서버는 child_process.spawn(stdio)으로 다층 spawn. PTY/agent 스트림 = MessagePort duplex + VSCode FlowControl ack (references/vscode/src/vs/platform/terminal/common/terminal.ts:868-889, HighWatermark=100000/LowWatermark=5000/Ack=5000) + 10MB TerminalRecorder ring buffer (references/vscode/src/vs/platform/terminal/common/terminalRecorder.ts:23, generateReplayEvent at line 101)로 워크스페이스 detach/re-attach 시 replay. 저빈도 알림은 EventEmitter+channel. 다중 구독자: utility의 PTY 1개, 메인이 fan-out, 렌더러 내 store 셀렉터 분기. 위험 완화: M0 acceptance에 fake producer/consumer + fake clock 기반 backpressure 단위 테스트 포함; 스트림 데이터의 zod 검증은 비대칭(렌더러→메인만 강제, 메인→렌더러는 신뢰 source라 생략)."
+          },
+          {
+            "id": 3,
+            "title": "워크스페이스 객체 모델 (root 정의 + 영속화)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "워크스페이스 식별/생성 UX 분석. 세 레퍼런스 비교: cmux는 폴더 ↔ 워크스페이스 묶음이 없음 (Workspace.swift:7208-7232 root path 필드 부재, currentDirectory만 cwd 보유, \"Terminal N\" 자동 명명), warp는 local workspace 개념 자체가 없고 tab→pane 트리만 있음 (TabSnapshot에 path 없음, cwd는 pane 단위 app_state.rs:194; 'workspaces' 테이블은 팀 협업용), vscode는 ISingleFolderWorkspaceIdentifier/IWorkspaceIdentifier/IEmptyWorkspaceIdentifier 3가지 1급 객체 (workspace.ts:115-155). 사용자 멘탈 모델(\"그룹화된 터미널들\") + Monaco LSP root 요구를 동시 만족시키는 cmux-leaning 하이브리드 추천: 1 workspace = 1 root path (multi-root 거부, 단 데이터 모델은 rootPaths[]로 확장 가능 설계). 진입 동선 우선순위: ① CLI `nexus <path>` (cmux docs/cli-contract.md:29 패턴) ② Welcome 화면 Recent 리스트 ③ Open Folder 다이얼로그 + drag-drop. 자동 cwd 추정 거부(명시성 우선). 영속 필드 (추상): id(UUID v4), name(자유 텍스트, 비면 basename derive), rootPath(절대), lastOpenedAt, pinned, color, tabs[]. ID는 path-rename에 견고하게 UUID 기본키 + path는 변경 가능 메타 (vscode workspace.ts:119-125 패턴). path 누락 시 사이드바 'missing' 상태로 사용자 re-locate 허용. 사용자 결정 요청: 모노레포 apps/* 별 LSP 컨텍스트 필요? 필요하면 multi-root, 아니면 single-root. 평결: approach approved with conditions (multi-root 사용자 confirm 필요).",
+                "recorded_at": "2026-05-02T06:41:39.393Z",
+                "agent_id": "a981492fa886a9950"
+              },
+              {
+                "role": "architect",
+                "summary": "영속화 메커니즘 5축 분석. (A) 저장소: VSCode식 분리 채택 — atomic JSON(stateService.ts:141 writeFile postfix=.vsctmp) + better-sqlite3(storageMain.ts:286,354,455 state.vscdb) 병행. (B) 위치 3-tier: userData/state.json(글로벌 작은 상태) + userData/globalStorage/state.db(글로벌 KV: 워크스페이스 목록/최근/검색 인덱스 메타) + userData/workspaceStorage/<uuid>/state.db + workspace.json(워크스페이스 KV: 탭/세션/ring buffer dump). VSCode storageMain.ts:455-460,519-522 그대로. 워크스페이스 삭제=디렉터리 1개 rm로 단순. (C) 세션 영속 범위 단계적: M0 옵션1(메타만) → M1 옵션2(탭 list+type+cwd, PTY 재spawn) → M2 옵션3(이슈 2의 TerminalRecorder 10MB ring buffer를 shutdown 시 SQLite blob에 dump, startup 시 generateReplayEvent로 replay — 추가 비용 두 줄 수준). 옵션4(PTY daemon화, cmux의 cmuxd zig 데몬)는 OS sleep/wake/auth/crash 4가지 함정 + cmux도 별도 zig 바이너리로 분리한 이유 명확 → M3까지 보류, 별도 ADR. (D) 식별자: UUID v4 (생성 시점 고정), name+rootPath 별도 컬럼. VSCode workspaces.ts:24-39 md5(path+ctime) 패턴은 IDE 진입점이 폴더-열기라서 적합한 것이고 우리는 사이드바 명시 추가 모델 → UUID가 자연스러움. 폴더 이동/이름변경: rootPath만 갱신 UUID 불변. stat 기반 변경 감지(rootInode/birthtime)는 경고만 노출 자동 처리 X. (E) 마이그레이션: SQLite에 _meta(key,value) 테이블 + schemaVersion 단조 증가 idempotent migrations. JSON state는 schema 필드. M0–M1 한해 NEXUS_RESET_STORAGE=1 환경변수로 fast path 허용(M2 제거). 단위 테스트: SQLite ':memory:' (storage.ts:192). 위험 Top2: native rebuild 매트릭스(완화: M0 3-OS smoke CI에 SQLite open+write 1줄 테스트 + @electron/rebuild build 스크립트 명문화) / ring buffer dump 타이밍 손실(완화: 정기 30s + 변화량 임계치 incremental dump, 별도 worker, fake clock 테스트). 평결: 승인.",
+                "recorded_at": "2026-05-02T06:42:05.310Z",
+                "agent_id": "a0e317ba1368211b2"
+              },
+              {
+                "role": "designer",
+                "summary": "design.md(.nexus/context/design.md, Warp 풍 시각 시스템) 결합 후 변경점. 유지: 1 workspace = 1 root path, UUID, cmux식 사이드바+Recent, multi-root 거부, 데이터 모델 골격. 변경: ① color:hex → colorTone:enum 4단계 (subdued/default/prominent/pinned, design.md line 16,45-47,195 'no bold accent colors' + line 33-34 opacity 기반 differentiation). ② 사이드바 활성 표시 left border → Frosted Veil 배경(rgba(255,255,255,0.04)) + Mist Border 1px containment (design.md line 165-166 Level 1/2 elevation). ③ Welcome 화면 = Recent 리스트 → editorial split: 좌 60% nature photography 1장 + 우 40% Recent 리스트 (design.md line 7,119-124,145-148 nature photography가 코어 정체성). 1500px 컨테이너 안. ④ 워크스페이스 라벨 = 폴더명 derive → uppercase Caption(12px/2.4px letter-spacing/Stone Gray) + Body Large name + Micro 11px path tail 3단 (Matter Regular 400만 사용하는 시스템에서 위계는 uppercase editorial signal로, design.md line 80-82,89). ⑤ Pinned 별도 아이콘 → uppercase Caption 'PINNED' + colorTone='prominent' 통합 (design.md line 9 minimal ornamentation). 추가: A) Missing 상태 = 빨간 경고 X (semantic color 없음 line 45-47), Stone Gray 본문 + uppercase 'MISSING' + Mist Border opacity 0.18로 약화. B) New Workspace CTA = Dark Pill #353534 50px radius Ash Gray Matter Medium 16px (line 18,96), 다중 진입은 단일 버튼으로 통합. C) 워크스페이스 전환 모션 = 200-250ms opacity fade only (line 99,105 subtle opacity shift no dramatic). 사용자 결정 요청 3개: ① colorTone enum 4단계로 충분? letter avatar 추가? editorial uppercase 카테고리만? ② Welcome nature photo: 사용자 선택/교체 가능 vs 번들 고정 로테이션. ③ 사이드바 폭: 고정 240px? 가변? (최소 220px 권장). 데이터 모델 변경 폭은 color:string → colorTone:enum 한 줄.",
+                "recorded_at": "2026-05-02T06:46:03.471Z",
+                "agent_id": "a981492fa886a9950"
+              }
+            ],
+            "decision": "Workspace model: 1 workspace = 1 root path. multi-root 거부 (사용자 멘탈 모델 \"그룹화된 터미널들\"과 일관). 데이터 모델은 rootPaths[] length=1 enforce로 확장 가능 설계 (향후 번복 비용 ≈ 0).\n\n식별자: UUID v4 (생성 시 고정). 폴더 이동/이름변경 시 rootPath만 갱신, UUID 불변. stat(rootInode/birthtime) 변경 감지는 경고만 노출(자동 처리 X).\n\n영속화 (VSCode식 3-tier 분리, references/vscode/src/vs/platform/storage/electron-main/storageMain.ts:286,354,455,519-522 차용):\n- userData/state.json (글로벌 atomic JSON, references/vscode/.../stateService.ts:141 writeFile postfix=.vsctmp 패턴) — 윈도우 bounds, 마지막 활성 워크스페이스 ID\n- userData/globalStorage/state.db (글로벌 KV better-sqlite3) — 워크스페이스 목록, 최근 사용\n- userData/workspaceStorage/<uuid>/state.db + workspace.json (워크스페이스 KV) — 탭/세션/ring buffer dump\n\n데이터 모델: id(UUID v4), name(자유, 비면 basename derive), rootPath(절대), colorTone enum 'subdued'|'default'|'prominent'|'pinned' (design.md line 16,45-47,195 'no bold accent colors' 정합), pinned(bool), category(자유 텍스트, uppercase Caption 표시용 — DEFAULT/WORK/ARCHIVE 등), lastOpenedAt, tabs[].\n\n세션 영속 범위 단계적: M0=메타만 → M1=탭 list+type+cwd (PTY 재spawn) → M2=이슈 2의 TerminalRecorder 10MB ring buffer를 SQLite blob에 dump, startup 시 generateReplayEvent replay (references/vscode/.../terminalRecorder.ts:23,101). PTY daemon화(cmux의 cmuxd zig 분리 이유 — OS sleep/wake/auth/crash 4가지 함정)는 별도 ADR로 M3+ 보류.\n\n마이그레이션: _meta(key,value) SQLite 테이블 + schemaVersion 단조 증가 idempotent migrations. M0-M1 한해 NEXUS_RESET_STORAGE=1 환경변수 fast path 허용(M2 제거). 단위 테스트는 SQLite ':memory:' (references/vscode/.../storage.ts:192).\n\n시각 표현 (design.md 결합):\n- 사이드바 활성 표시 = Frosted Veil 배경(rgba(255,255,255,0.04)) + Mist Border 1px containment (design.md line 33-34,165-166 Level 1/2 elevation). left-stripe border 거부.\n- 워크스페이스 라벨 = uppercase Caption(12px/2.4px letter-spacing/Stone Gray) + Body Large name + Micro 11px path tail 3단 (Matter Regular 400만 사용하는 시스템에서 uppercase editorial signal로 위계, design.md line 80-82,89).\n- Pinned = uppercase 'PINNED' Caption + colorTone='prominent' 통합 (별도 아이콘 X, design.md line 9 minimal ornamentation).\n- Missing 상태 = Stone Gray 본문 + uppercase 'MISSING' + Mist Border opacity 0.18 약화 (semantic 색상 부재 line 45-47).\n- Welcome 화면 = editorial split (좌 60% nature photography 1장 + 우 40% Recent 리스트, 1500px 컨테이너, design.md line 7,119-124).\n- New Workspace CTA = Dark Pill #353534 50px radius Ash Gray Matter Medium 16px 단일 버튼(폴더 picker 다이얼로그, design.md line 18,96).\n- 워크스페이스 전환 모션 = 200-250ms opacity fade only, transform/layout-trigger 금지 (design.md line 99,105 subtle opacity shift no dramatic).\n- 식별 시각 어휘 = (c) editorial uppercase Caption 카테고리 + name + path tail 만으로 시작. Letter avatar는 사용자 워크스페이스 수가 10+로 증가 시 추가 옵션.\n- Welcome nature photography = 앱 번들 고정 1-3장 로테이션(브랜드 정체성 일관성 우선, M3+ 사용자 선택 옵션 추가 가능).\n- 사이드바 폭 = 고정 240px (M2에 사용자 가변 드래그 옵션 재평가).\n\n진입 동선: ① CLI `nexus <path>` ② Welcome Recent ③ Open Folder 다이얼로그 + drag-drop. 자동 cwd 추정 X (명시성 우선).\n\n위험 완화 (이슈 7 결정 반영): ① better-sqlite3 native rebuild 매트릭스 → macOS dev 환경에서 `bun install` + `electron-rebuild`로 native 모듈 prebuild 동작 검증 (3-OS smoke matrix는 별도 배포 ADR로 이동). ② ring buffer dump 타이밍 손실 → 정기 30s + 변화량 임계치 incremental dump, 별도 worker, fake clock 단위 테스트. ③ multi-root 거부 번복 가능성 → 데이터 모델 rootPaths[] 확장 가능 설계로 흡수."
+          },
+          {
+            "id": 4,
+            "title": "M0 LSP 범위 (타깃 언어 + 라이프사이클)",
+            "status": "decided",
+            "decision": "M0 LSP: 타깃 언어 = TypeScript (.ts/.tsx/.js/.jsx). 서버 = typescript-language-server (또는 vtsls). lsp-host utility process가 child_process.spawn(stdio)로 띄움(이슈 2 결정 정합). Lazy spawn — 첫 매칭 파일 open 시 + 30분 idle graceful shutdown. workspace 단위 spawn(글로벌 1개 X) — 이슈 3 영속화 + 이슈 2 utility process 결정과 정합. monaco-languageclient ↔ lsp-host 사이는 이슈 2의 zod IPC 계약 + VSCode식 call()/listen() 위에 얇은 어댑터. M0 기능 범위: Hover, Go-to-definition, Find references, Completion, Diagnostics. M1: Rename / Code actions / Workspace symbols. M2: Inlay hints / Semantic tokens. DAP는 M2 별도(architect 권고 — LSP보다 표준화 약함). 다중 언어 확장은 M2 (사용자 결정 — Go 또는 Python). 위험: ① typescript-language-server 메모리(대형 모노레포 1GB+) → workspace 단위 spawn + idle timeout. ② monaco-languageclient ↔ 우리 IPC 마찰(보통 WebSocket/stdio 가정) → zod IPC 위 얇은 어댑터, M0 acceptance에 Hover/Definition/Completion 3 기본 동작 단위 테스트 포함. Dogfooding: 앱 자체가 TS이므로 본인이 매일 검증."
+          },
+          {
+            "id": 5,
+            "title": "PTY 세션 영속성 + 재접속 정책",
+            "status": "decided",
+            "decision": "PTY lifecycle: 탭 close = PTY kill. 워크스페이스 close(사이드바 닫기) = PTY detach (백그라운드 유지, ring buffer 누적, 알림 링 동작). 사용자가 'Remove workspace' 명시 = 모든 PTY kill. 앱 종료 = 모든 PTY kill (M0-M2 동안, M3+ daemon화 옵션은 별도 ADR). Shell 정상 exit / 비정상 crash 모두 hold 디폴트 ('Process exited (code N) — Press Enter to restart' 표시, cmux 식). 자동 재spawn은 사용자 설정 옵션. Shell detection 순서: macOS/Linux는 $SHELL → /bin/bash 폴백 / Windows는 pwsh → powershell.exe → cmd.exe → WSL(사용자 추가). 결과는 워크스페이스 메타에 저장(이슈 3 영속). Override 우선순위: 탭별 > 워크스페이스 > 글로벌 > 자동 detection. PTY 환경: cwd = workspace.rootPath 디폴트(사용자 override 가능), env = 부모 상속 + NEXUS_WORKSPACE_ID/NAME 등 추가. Shell init 파일(.zshrc/.bashrc)은 정상 흐름. Shell integration script (cmd 시작/끝 마커, cmux/warp 식 명령 블록 UX)는 M2+. Ring buffer = 탭당 10MB (이슈 2 재확인, references/vscode/.../terminalRecorder.ts:23 MaxRecorderDataSize). 사용자 설정 노출은 M3+. 비활성 워크스페이스 PTY soft cap 32개(기본), 초과 시 가장 오래된 비활성 탭의 PTY를 ring buffer dump → kill (재open 시 replay만 가능, live PTY 없음). 사용자 설정 가능. 워크스페이스 전환 시 detach/re-attach (이슈 2 재확인): 비활성 워크스페이스 PTY는 pty-host에 살아있음, 출력은 ring buffer 누적, 알림 링은 메인이 attention badge IPC 발사, re-attach 시 generateReplayEvent (references/vscode/.../terminalRecorder.ts:101)로 catch-up. 위험 완화: ① detach PTY 무한 누적 → soft cap 32. ② Windows ConPTY edge cases → M1 smoke CI에 echo/cd/pwd 시나리오 포함."
+          },
+          {
+            "id": 6,
+            "title": "에이전트 세션 추상화 모델",
+            "status": "decided",
+            "decision": "Agent session model: 에이전트 = \"PTY 가진 한 종류 세션\"으로 추상 (architect 권고). 탭 type = 'terminal' | 'agent' | 'editor' (이슈 3 데이터 모델 tabs[]에 반영). Agent 탭 spawn = PTY + agent CLI 자동 실행 (cd <rootPath> && <agent-cmd>), cwd/env는 이슈 5 표준 + NEXUS_AGENT=<kind> env 추가. 사용자가 새 agent 탭 만들 때 종류 선택 드롭다운 (Claude Code / Codex / Custom command). Custom은 임의 명령어 등록 가능 (워크스페이스 또는 글로벌 설정).\n\n통합 단계:\n- M0=명시적 통합 없음 (사용자가 일반 PTY 탭에서 직접 claude/codex/aider 실행 가능)\n- M1=Claude Code 탭 type 추가 + 알림 링 1급 통합\n- M2=Codex CLI / Gemini CLI 추가 + ANSI 마커 파싱 (Claude Code thinking 블록 등)\n- M3+=컨테이너 격리 + 에이전트별 SDK 직접 통합 (별도 ADR)\n\nAttention 트리거 (cmux 핵심 차용):\n- BEL (\\a, ASCII 7) 디폴트 — 모든 에이전트 공통\n- Idle (출력 N초 없음)는 옵션, 디폴트 OFF (false positive 많음)\n- 에이전트별 마커(예: <NEXUS_ATTENTION/>) M2+\n- 명령 종료 (Shell integration 마커) M2+\n비활성 탭의 PTY 출력에서 트리거 감지 → 메인이 사이드바 attention badge + 탭 ring IPC 발사 (이슈 2/5 정합).\n\n출력 파싱:\n- M0/M1: raw PTY stream → xterm.js (사람이 읽는 그대로)\n- M2: ANSI escape parser + 에이전트별 마커 인식\n- M3+: 에이전트 SDK 직접 통합 (구조화 메시지)\n\n격리 (architect 권고 정합):\n- M0–M2: cwd + env 분리만 (워크스페이스 표준)\n- M3+: 컨테이너 격리 (Docker/Podman, 별도 ADR. Warp의 crates/isolation_platform 모델 참고)\n\n위험 완화:\n- 알림 링 false positive (BEL 이상 시점) → 사용자 설정으로 워크스페이스/탭 단위 알림 disable, M1에 BEL 빈도 측정 후 조정\n- 에이전트 CLI 의존성 부재 (사용자 PC에 claude 미설치) → 첫 spawn 실패 시 'Claude Code is not installed' 안내 + 설치 가이드 링크\n- 에이전트 출력 폭주 (긴 thinking 블록) → 이슈 2의 FlowControl + 10MB ring buffer가 흡수."
+          },
+          {
+            "id": 7,
+            "title": "마일스톤 분해 (M0~M3)",
+            "status": "decided",
+            "decision": "Milestones (모두 macOS dev only, `bun run dev` 환경 가정. 패키징/배포는 마일스톤 외 별도 ADR):\n\nM0 — foundation, macOS dev only:\n- bun install 성공 (node-pty/better-sqlite3 native prebuild 자동 fetch, 실패 시 electron-rebuild)\n- bun run dev 시작 → 메인+preload+renderer+utility 4-target HMR\n- 단일 워크스페이스 자동 생성, 1 PTY 탭에서 echo hello (FlowControl ack 왕복 ✓)\n- 1 .ts 파일 open → Monaco Hover/Definition/Completion/Diagnostics (typescript-language-server lazy spawn ✓)\n- 단위 테스트: SQLite, node-pty, backpressure(fake clock) — bun test green\n- 통합 테스트: Monaco+xterm+기본 IPC 라운드트립 — 로컬 green\n- macOS dev에서 한 시간 사용해도 크래시/누수 없음\n- non-goal: 패키징, dmg 빌드, Linux/Windows, GitHub Actions 3-OS 매트릭스\n\nM1 — multi (macOS dev only):\n- M0 유지 + N 워크스페이스, 다중 탭(terminal/agent/editor)\n- 워크스페이스 추가/삭제/이름/colorTone/category 편집\n- 재시작 시 워크스페이스 + 탭 list + cwd 복원, PTY 재spawn\n- Claude Code agent 탭 type + BEL 알림 링\n- 비활성 워크스페이스 PTY soft cap 32\n- Pinned / Missing 상태 표시\n- Welcome editorial split (좌 60% nature photo + 우 40% Recent)\n- LSP Rename / Code actions / Workspace symbols\n- non-goal: 패키징, Linux/Windows\n\nM2 — depth (macOS dev only):\n- M1 유지 + ring buffer dump/load → 재시작 후 직전 PTY 출력 replay\n- 분할 페인 (좌우/상하)\n- 검색 (ripgrep via search-host utility process)\n- LSP Inlay hints / Semantic tokens\n- Node DAP 1차 (breakpoint, step, variables)\n- Codex/Gemini CLI 추가 + ANSI 마커 파싱\n- Shell integration script (cmd 시작/끝 마커) → 명령 블록 UX\n- 사이드바 가변 폭 옵션\n- bun workspace 마이그레이션 의사결정\n- NEXUS_RESET_STORAGE fast path 환경변수 제거\n- non-goal: 패키징, Linux/Windows\n\nM3+ — extension (별도 ADR):\n- 컨테이너 격리 (에이전트 명령 실행 sandbox)\n- PTY daemon화 (cmuxd 패턴)\n- 다중 윈도우 옵션 (별도 BrowserWindow per workspace)\n- Letter avatar 옵션\n- 사용자 nature photography 선택\n- 추가 LSP 언어 (Go/Python/Rust)\n- 에이전트 SDK 직접 통합\n\n별도 ADR — 배포 마일스톤 (Mx, 시점 미정, 사용자가 \"배포 준비됨\" 판단 시 시작):\n- electron-builder 패키징 (macOS dmg + Linux AppImage + Windows exe)\n- 3-OS GitHub Actions smoke matrix\n- code signing / macOS notarize / Windows MSIX / Linux Snap/Flatpak\n- 자동 업데이트 (electron-updater 등)\n- Windows ConPTY edge cases 검증 + 시나리오(echo/cd/pwd)\n- Linux WebKitGTK 검증\n\nOS-specific 코드 격리 패턴 (M0부터 적용): src/main/platform/<area>.ts에 macOS 경로 디폴트 export. Windows/Linux 분기는 함수 시그니처는 잡되 구현은 배포 ADR 시점에 추가. 매일 작업 흐름은 macOS만으로 단순하게.\n\n시간 추정 (solo+LLM, dev only): M0 1–3주 / M1 3–6주 / M2 6–10주, ±50%.\n\n이슈 1·3 ripple 갱신:\n- 이슈 1: \"M0 3-OS smoke build CI\" 언급 제거. electron-builder는 채택 유지하되 사용 시점은 배포 ADR.\n- 이슈 3: native rebuild 위험 완화 \"M0 3-OS smoke CI\" → \"macOS dev에서 bun install + electron-rebuild로 native 모듈 prebuild 동작 검증\"."
+          },
+          {
+            "id": 8,
+            "title": "초기 디렉토리/패키지/IPC 채널 스켈레톤",
+            "status": "decided",
+            "decision": "Initial structure: single package + 4 layered tsconfig (main/renderer/utility/shared, references/vscode/package.json:58 valid-layers-check 패턴 차용).\n\n디렉토리 레이아웃:\nnexus-code/\n├─ package.json (bun scripts)\n├─ bun.lock\n├─ electron-vite.config.ts (4-target HMR)\n├─ tsconfig.json + tsconfig.{main,renderer,utility,shared}.json\n├─ src/\n│  ├─ main/\n│  │  ├─ index.ts (entry)\n│  │  ├─ window.ts (단일 BrowserWindow 관리, M3+ 다중 윈도우 시 window/ 폴더로 승격)\n│  │  ├─ workspace/{WorkspaceManager,WorkspaceContext}.ts\n│  │  ├─ ipc/{router.ts, channels/}\n│  │  ├─ hosts/{ptyHost,lspHost}.ts  # utility process 스타터, 폴더명은 VSCode pty-host/lsp-host 컨벤션 정합, 파일명은 폴더 컨텍스트로 'Starter' 암시. 공통 패턴 추출 baseHost.ts는 시그널 명확 시 도입(M0 옵션)\n│  │  ├─ storage/{stateService,globalStorage,workspaceStorage}.ts\n│  │  └─ platform/{shell,paths}.ts (함수 시그니처는 cross-OS, M0 구현은 macOS만)\n│  ├─ preload/index.ts (contextBridge.exposeInMainWorld)\n│  ├─ renderer/\n│  │  ├─ index.tsx, App.tsx\n│  │  ├─ store/{workspaces,tabs,active}.ts (Zustand)\n│  │  ├─ components/{Sidebar,Welcome,TabBar,TerminalView,EditorView}.tsx\n│  │  ├─ ipc/client.ts (window.ipc 래퍼, zod 검증)\n│  │  └─ design/{tokens.ts,globals.css}\n│  ├─ utility/\n│  │  ├─ pty-host/{index,ptyManager,terminalRecorder}.ts\n│  │  └─ lsp-host/{index,lspManager,servers/typescript}.ts\n│  └─ shared/{ipc-contract,types/*,design-tokens}.ts (양쪽 import 가능)\n└─ tests/{unit,integration,fixtures}/\n\nIPC 계약 (shared/ipc-contract.ts):\n- zod procedure 맵 + inferArgs/inferReturn 추론\n- 두 primitive: call (one-shot RPC) + listen (event stream) — VSCode IChannel 패턴 (references/vscode/.../ipc.ts:25-38) 차용\n- 도메인 채널: workspace, tab, pty, lsp, settings\n- 채널별로 call/listen 분리 (예: pty.call.{spawn,write,resize,ack,kill} + pty.listen.{data,exit})\n- 검증 비대칭: 렌더러→메인 방향만 zod parse 강제, 메인→렌더러(신뢰 source)는 hot path 검증 생략 (특히 PTY data 청크)\n\n도메인 타입 (shared/types/): WorkspaceMeta(id UUID, name, rootPath, colorTone enum, pinned, category, lastOpenedAt, tabs[]), TabMeta(id, workspaceId, type 'terminal'|'agent'|'editor', title, cwd, agentKind?, filePath?), ColorTone enum.\n\ndesign.md 토큰: shared/design-tokens.ts에 색/폰트/간격 enum + renderer/design/tokens.ts에서 CSS 변수로 노출. globals.css가 토큰 사용.\n\nbun 스크립트: dev (electron-vite dev) / typecheck (tsc -b) / lint (eslint) / test (bun test) / test:integration.\n\nelectron-vite.config.ts 골격: main(rollupOptions input src/main/index.ts, external [node-pty, better-sqlite3]) + preload + renderer + utility entry. utility process 1급 지원 정도가 미확인이면 M0 acceptance에 'utility process HMR 동작 확인' 명시, 미흡 시 별도 vite 빌드 + 메인이 spawn 시 path 직접 지정으로 폴백.\n\nM0 deliverable 체크리스트:\n- [ ] package.json / bun.lock / .gitignore\n- [ ] tsconfig.json + 4개 layered tsconfig\n- [ ] electron-vite.config.ts (4-target HMR)\n- [ ] src/main/{index,window,ipc/router}.ts\n- [ ] src/main/hosts/{ptyHost,lspHost}.ts\n- [ ] src/main/storage/{stateService,globalStorage,workspaceStorage}.ts\n- [ ] src/main/workspace/{WorkspaceManager,WorkspaceContext}.ts\n- [ ] src/main/platform/{shell,paths}.ts (macOS 디폴트만)\n- [ ] src/preload/index.ts\n- [ ] src/renderer/{index.tsx,App.tsx,store/*.ts,components/{Sidebar,TerminalView,EditorView}.tsx,ipc/client.ts,design/tokens.ts}\n- [ ] src/utility/pty-host/{index,ptyManager,terminalRecorder}.ts\n- [ ] src/utility/lsp-host/{index,lspManager,servers/typescript}.ts\n- [ ] src/shared/{ipc-contract,types/*,design-tokens}.ts\n- [ ] tests/unit/{sqlite,terminalRecorder,flowControl}.test.ts\n- [ ] tests/integration/{ipcRoundTrip,monacoXterm}.test.ts\n\n위험: ① electron-vite의 utility process 1급 지원 정도 미확인 → M0 acceptance에 명시, 미흡 시 폴백. ② bun + electron + native 모듈(node-pty, better-sqlite3) prebuild 호환 → bun install 후 첫 dev 실행 시 ABI mismatch 발견되면 bunx @electron/rebuild 1회. M0 README에 명시."
+          }
+        ],
+        "research_summary": "## 사용자 확정 제약\n- macOS first → Windows/Linux 후속\n- Monaco + LSP/DAP, 익스텐션 호환은 out of scope\n- 워크스페이스 단위 격리, 한 워크스페이스 안에 다중 탭(세션). 사용자 멘탈 모델: \"그냥 터미널 여러 개\"\n- 1인 + LLM 솔로 개발\n\n## 사전 조사 결과\nreferences/ 에 vscode(Microsoft VS Code, Electron+TS), warp(오픈소스 Warp 터미널, Rust workspace), cmux(manaflow-ai/cmux, Swift macOS shell + Bun/TS web + Ghostty 임베드)를 클론. Lead가 직접 디렉터리/스택을 verify 함.\n\n## architect 분석 결과 (full report 보존)\n스택(Electron + TS + Monaco + xterm.js + node-pty) → 검증됨, 유지.\nLead 1차 워크스페이스 모델 Plan C(탭=WebContentsView per tab) → references 어디에도 선례 없음, 거부.\nPlan C′ 채택:\n- BrowserWindow 1개 = 렌더러 1개. React가 사이드바 + 활성 워크스페이스의 탭/분할 페인 모두 그림.\n- PTY는 메인 프로세스가 spawn한 단일 utility process(pty-host)에 보관. VSCode `electronPtyHostStarter.ts:50-66` 패턴.\n- LSP/DAP는 별도 utility process(lsp-host) 또는 메인이 spawn한 child.\n- WebContentsView는 인앱 브라우저 같은 신뢰 경계 다른 콘텐츠에만 한정. VSCode `browserView.ts:111` 패턴.\n- 워크스페이스 전환 = 사이드바 selection 변경 + 단일 렌더러 DOM swap. OS 윈도우도 view도 안 바꿈.\n- 다중 윈도우(별도 BrowserWindow per workspace)는 옵션으로 후속 마일스톤.\n- 비활성 워크스페이스의 file watcher/LSP/PTY는 백그라운드에서 살아있음 → cmux 식 알림 링 가능.\n\n## 책임 배치 (architect + Lead 합의)\n- 메인 프로세스: WorkspaceManager + WorkspaceContext × N (FileIndex/FileWatcher/GitClient/LSP 핸들/PTY 핸들). IPC 라우터.\n- utility processes: pty-host(모든 PTY), lsp-host(LSP/DAP RPC), search-host(ripgrep, 옵션).\n- 렌더러: React DOM. activeWorkspaceId 기반 표시/상호작용만.\n\n## architect가 짚은 추가 위험\n- DAP는 LSP보다 표준화 약함 → M0–M1엔 빼고 M2에 단일 언어로 시작 권고.\n- Windows ConPTY 워크어라운드 부채 → M1부터 CI에 Linux/Windows smoke 빌드.\n- 에이전트 격리 ≠ OS 프로세스 격리. Warp의 정답은 컨테이너(crates/isolation_platform). \"에이전트 = PTY 가진 한 종류 세션\"으로 모델링하고 명령 실행 격리는 별개 레이어.\n\n## 미검증 (general knowledge)\n- Linux WebKitGTK가 Monaco 무거운 UI에 약점이라는 Lead 1차 근거. 결정에는 영향 없음(이미 Electron 채택). Tauri 재고려 시점에만 검증 필요.\n\n## architect 열린 질문 (이번 plan 세션에서 결정해야 함)\n1. M0 LSP 타깃 언어\n2. 에이전트 세션 모델 (PTY+오버레이 vs 별도 채널)\n3. 컨테이너 격리 도입 시점\n4. 다중 윈도우 지원 시점\n5. 세션 복구/재연결 정책 (ring buffer 크기/그레이스)\n\n## 추가로 미결정 (구조 확정 위해 필요)\n- 프론트엔드 프레임워크 (React/Solid/Svelte/Preact)\n- 빌드/패키저 (electron-vite vs electron-forge+Vite)\n- 모노레포 구조 (single package vs pnpm workspace)\n- 상태관리 + IPC 타입 안전 모델 (Zustand+zod vs tRPC vs custom)\n- 워크스페이스 root 정의 (git repo 단위 / 사용자 자유 추가 / CLI 진입)\n- LSP 라이프사이클 (워크스페이스 활성화 시 / 첫 파일 열 때 lazy)\n- 마일스톤 정의 (M0~M3) — 무엇을 어디까지\n\n## .nexus 상태\ncontext/, memory/ 모두 비어있음 (프로젝트 초기). plan 결정 후 context/ 초기 생성 제안 필요.",
+        "created_at": "2026-05-02T06:23:39.075Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "프로젝트 스캐폴드 — package + bun + tsconfigs + electron-vite",
+          "status": "completed",
+          "context": "M0 시작점. Single package 레이아웃 위에 bun을 패키지/스크립트 러너로 두고 4-target electron-vite를 구성. references/cmux/bun.lock 선례 + references/vscode/package.json:58 layered tsconfig 패턴 차용.",
+          "acceptance": "`bun install` 성공, `bun run typecheck` 모든 레이어 통과, `bun run dev` 시작 시 4-target HMR 정상 부팅 (빈 BrowserWindow 표시 OK), bun + electron + native 모듈 prebuild ABI 호환 확인 (실패 시 `bunx @electron/rebuild` 한 번 실행 후 통과).",
+          "approach": "package.json에 bun 스크립트(dev/typecheck/lint/test/test:integration), 의존성(electron, electron-vite, electron-builder, react, @monaco-editor/react, xterm, node-pty, better-sqlite3, zustand, zod, vitest 등). bun.lock 생성. .gitignore. tsconfig.json(root project references) + tsconfig.{main,renderer,utility,shared}.json 4개 layered (main=Node only/no DOM, renderer=DOM only/no Node, utility=Node only, shared=양쪽 OK). electron-vite.config.ts에 4-target(main,preload,renderer,utility) 정의. vite external에 node-pty/better-sqlite3 명시.",
+          "risk": "electron-vite의 utility process 1급 지원 정도 미확인 — 미흡 시 utility는 별도 vite 빌드 + 메인 spawn 시 path 직접 지정으로 폴백. bun + electron + native module ABI 호환은 macOS dev에서만 검증 (3-OS는 배포 ADR로 이동).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ae624b8ff142f417c"
+          },
+          "created_at": "2026-05-02T07:10:19.196Z"
+        },
+        {
+          "id": 2,
+          "title": "shared 모듈 골격 — types + ipc-contract + design-tokens",
+          "status": "completed",
+          "context": "메인/렌더러/utility 모두가 import할 단일 seam. layered tsconfig의 shared가 양쪽 허용. design.md를 TS 토큰으로 사상.",
+          "acceptance": "tsconfig.shared.json typecheck 통과. ipc-contract의 inferArgs/inferReturn으로 메인/렌더러 양쪽에서 type-safe 호출 가능 (컴파일 타임 검증). design-tokens가 .nexus/context/design.md의 색/폰트 hierarchy를 enum/const로 1:1 사상.",
+          "approach": "src/shared/types/{workspace,tab,colorTone}.ts에 도메인 타입 (WorkspaceMeta {id UUID, name, rootPath, colorTone enum 'subdued|default|prominent|pinned', pinned, category, lastOpenedAt, tabs[]} / TabMeta {id, workspaceId, type 'terminal|agent|editor', title, cwd, agentKind?, filePath?}). src/shared/ipc-contract.ts에 zod procedure 맵 (workspace/tab/pty/lsp/settings 채널, 각 채널에 call+listen 분리, references/vscode/.../ipc.ts:25-38 두 primitive 차용) + inferArgs/inferReturn 추론 유틸. PTY data 청크는 z.instanceof(Uint8Array) cheap 검증. src/shared/design-tokens.ts에 design.md 색/폰트/간격/elevation enum (Warm Parchment #faf9f6, Earth Gray #353534, Stone Gray #868584, Ash Gray #afaeac, Frosted Veil rgba(255,255,255,0.04), Mist Border rgba(226,226,226,0.35), Matter Regular hierarchy 16-80px).",
+          "risk": "zod 추론 깊이로 IDE 응답 느려질 수 있음 — 너무 깊은 nesting은 z.lazy로 분리. design 토큰은 design.md 변경 시 동기화 필요 — 변경 PR마다 토큰 diff 확인 규칙(M1).",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ac6eb406152b9e466"
+          },
+          "created_at": "2026-05-02T07:10:39.601Z"
+        },
+        {
+          "id": 3,
+          "title": "main 코어 + IPC 라우터 + preload + renderer client (hello round-trip)",
+          "status": "completed",
+          "context": "메인/preload/렌더러 IPC 왕복 채널을 골격 수준에서 동작시킴. shared/ipc-contract.ts의 call/listen primitive를 첫 채널에 묶어 검증.",
+          "acceptance": "`bun run dev` 시 BrowserWindow가 열리고, 렌더러 콘솔에 'pong' 응답 + 1초마다 tick 이벤트 출력 (5초 동안 5회). preload가 contextIsolation true 상태에서 정상 동작. zod 검증이 메인 진입 단에서 잘못된 args를 거부 (단위 테스트로 1건 확인).",
+          "approach": "src/main/index.ts에서 app.whenReady 시 단일 BrowserWindow 생성. src/main/window.ts에 BrowserWindow 옵션(contextIsolation: true, sandbox: true, preload). src/main/ipc/router.ts에 ipcMain.handle 기반 call 라우팅 + webContents.send 기반 listen broadcast. src/main/ipc/channels/에 hello.ts 등록(call: ping → result 'pong', listen: tick(1초) — 검증용). src/preload/index.ts에 contextBridge.exposeInMainWorld('ipc', { call, listen, off }) — call은 ipcRenderer.invoke 래퍼, listen은 ipcRenderer.on 래퍼. src/renderer/ipc/client.ts에서 window.ipc를 zod 계약으로 감싸 type-safe 호출 + 렌더러→메인 방향만 zod parse 강제 (이슈 2 비대칭 검증). 렌더러 부팅 시 ipc.call('hello', 'ping') → 결과 콘솔 출력 + ipc.listen('hello', 'tick') 1초 받기.",
+          "risk": "contextBridge로 노출하는 함수 시그니처가 너무 넓으면 보안 표면 ↑ — call/listen/off 3개로 한정. node-pty/SQLite 같은 native 모듈이 직접 노출되지 않도록 (메인에만 살게) 주의.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "a279462ce8becf541"
+          },
+          "created_at": "2026-05-02T07:10:56.859Z"
+        },
+        {
+          "id": 4,
+          "title": "storage 레이어 — stateService + globalStorage + workspaceStorage + 마이그레이션",
+          "status": "completed",
+          "context": "VSCode식 3-tier 영속화. references/vscode/src/vs/platform/storage/electron-main/storageMain.ts:286,354,455,519-522 + stateService.ts:141 (atomic JSON, postfix=.vsctmp) + storage.ts:192 (':memory:') 패턴 차용.",
+          "acceptance": "단위 테스트(SQLite ':memory:'): (1) 빈 DB → schemaVersion 1로 마이그레이션 idempotent 통과. (2) state.json atomic write 시 .vsctmp 임시 파일이 정상 rename됨. (3) workspaceStorage 디렉터리 생성/삭제 (워크스페이스 'Remove' 시뮬). (4) NEXUS_RESET_STORAGE=1 환경변수로 워크스페이스 storage 폴더 backup+재생성 확인. `bun test tests/unit/storage*` 모두 green.",
+          "approach": "src/main/storage/stateService.ts: app.getPath('userData')/state.json atomic write (postfix=.vsctmp 패턴), schema 필드 포함. src/main/storage/globalStorage.ts: userData/globalStorage/state.db better-sqlite3, _meta(key,value) 테이블 + schemaVersion + idempotent migrations 배열, 'workspaces' 테이블(WorkspaceMeta 컬럼 1:1). src/main/storage/workspaceStorage.ts: userData/workspaceStorage/<uuid>/state.db + workspace.json 메타 파일, 같은 _meta 테이블 패턴. NEXUS_RESET_STORAGE=1 환경변수 fast path (M0-M1 한정, M2 제거). 모든 SQLite open은 better-sqlite3 동기 API. 마이그레이션은 트랜잭션 내 1개 단위.",
+          "risk": "better-sqlite3 native rebuild 미스매치 (T1에서 발견되어야 함) — 발견 시 bunx @electron/rebuild. atomic JSON 동시 쓰기 충돌은 가능성 낮으나 메인 프로세스 단일 writer로 강제. M0-M1 reset fast path는 사용자 데이터 손실 위험이 명시적 — 환경변수 미설정 시는 절대 작동 안 함.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "a18704c891e1b5bf5"
+          },
+          "created_at": "2026-05-02T07:11:14.328Z"
+        },
+        {
+          "id": 5,
+          "title": "workspace 레이어 — WorkspaceManager + WorkspaceContext + 단일 자동 생성",
+          "status": "completed",
+          "context": "메인 프로세스가 보유하는 워크스페이스 도메인 모델. M0에는 메타만 영속(이슈 3 단계 1). 1개 워크스페이스 자동 생성으로 시작.",
+          "acceptance": "앱 첫 실행 시 워크스페이스 자동 생성, globalStorage state.db에 1행 + workspaceStorage/<uuid>/ 디렉터리 생성됨. 두 번째 실행 시 같은 워크스페이스 다시 활성화. ipc.call('workspace','list')로 렌더러가 1개 항목 받음. workspace.listen.changed 이벤트가 update 시 발사됨(단위 테스트).",
+          "approach": "src/main/workspace/WorkspaceManager.ts: 전역 싱글턴, 시작 시 globalStorage에서 워크스페이스 목록 read → 비어있으면 cwd=os.homedir() 기반 1개 자동 생성(UUID v4 + name=basename(rootPath) + colorTone='default' + category='DEFAULT'). 활성 워크스페이스 ID는 stateService(state.json)의 lastActiveWorkspaceId. activate(id), create({rootPath,name?}), update(partial), remove(id), list() API. src/main/workspace/WorkspaceContext.ts: 워크스페이스당 1개 인스턴스, 자기 workspaceStorage/<uuid> 핸들 보유. M0에는 tabs[] 영속 X (M1). IPC 채널 workspace.{call.list,create,update,remove,activate}와 workspace.{listen.changed,attention} 메인 측 핸들러 등록.",
+          "risk": "M0 자동 생성 워크스페이스의 rootPath=homedir이 너무 광범위 — 사용자가 의도치 않은 파일 인덱싱을 할 수 있음. M0는 file watcher/index를 안 띄우므로 안전. M1에서 '환영 화면 → 첫 폴더 명시 선택'으로 교체 (이슈 3 진입 동선).",
+          "plan_issue": 3,
+          "deps": [
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ad2e548f049b2fd60"
+          },
+          "created_at": "2026-05-02T07:11:31.733Z"
+        },
+        {
+          "id": 6,
+          "title": "platform 분기 — shell + paths (macOS 디폴트, cross-OS 시그니처)",
+          "status": "completed",
+          "context": "M0는 macOS만 구현하지만 함수 시그니처는 cross-OS로 잡아 M3+ 배포 ADR 시점에 마찰 없이 채워넣을 수 있게 격리.",
+          "acceptance": "macOS dev 환경에서 getDefaultShell()이 $SHELL 또는 /bin/bash 반환. Windows/Linux 분기는 명시적 throw로 M0 범위 밖임을 코드로 선언. 단위 테스트 1건 (mock process.platform='darwin', $SHELL='/bin/zsh' → '/bin/zsh' 반환).",
+          "approach": "src/main/platform/shell.ts: getDefaultShell()→ macOS는 process.env.SHELL || '/bin/bash'. (Windows/Linux 시그니처는 잡되 throw new Error('not implemented in M0')) 단, 시그니처는 process.platform 분기하지 않고 단일 함수 export — 내부에서 분기. src/main/platform/paths.ts: getUserDataPath(), getUserConfigPath() 등 Electron app.getPath 래퍼. cwd 추정 X (이슈 3 명시성 우선).",
+          "risk": "분기 함수가 늘어나면 M3+ 채워넣을 때 빠뜨릴 수 있음 — 분기 함수 목록을 src/main/platform/index.ts에 한 곳에 모으고 README에 cross-OS 채워넣기 체크리스트 형태로 명시.",
+          "plan_issue": 5,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "aab107f875e71bec1"
+          },
+          "created_at": "2026-05-02T07:11:44.036Z"
+        },
+        {
+          "id": 7,
+          "title": "PTY 수직 슬라이스 — main hosts/ptyHost + utility pty-host + TerminalView (echo + FlowControl)",
+          "status": "completed",
+          "context": "M0의 가장 큰 단일 단위. 메인 → utility(pty-host) → 렌더러 xterm.js까지 PTY 데이터가 양방향으로 흐르고 FlowControl ack가 라운드트립으로 동작해야 함. references/vscode/.../electronPtyHostStarter.ts:50-66, terminal.ts:868-889, terminalRecorder.ts:23,101 패턴 그대로 차용.",
+          "acceptance": "`bun run dev` → BrowserWindow의 TerminalView에서 echo hello 입력하면 'hello' 출력. yes 명령으로 부하를 줘도 메인/렌더러 메모리가 100MB 이내에서 안정 (FlowControl이 작동, ring buffer 10MB cap). 탭 close → PTY kill. utility process kill 시뮬 시 자동 재spawn (테스트 핸들 1건). 단위 테스트(fake producer/consumer + fake clock)로 backpressure 라운드트립이 HighWatermark에서 멈췄다가 ack 후 재개되는 시나리오 통과.",
+          "approach": "src/main/hosts/ptyHost.ts: utilityProcess.fork(src/utility/pty-host/index) + MessageChannelMain로 메인↔host 핸드셰이크. onExit/restart 로직(graceful shutdown 후 재spawn). src/utility/pty-host/index.ts: MessagePort listener 등록. src/utility/pty-host/ptyManager.ts: node-pty spawn 다중(workspace×tab) 보유, FlowControl 상태(HighWatermark=100000, LowWatermark=5000, AckSize=5000) per-tab. src/utility/pty-host/terminalRecorder.ts: 10MB ring buffer per-tab + generateReplayEvent(). 메인 IPC 채널 pty.{call.spawn,write,resize,ack,kill, listen.data,exit} 등록 → 렌더러 호출을 host로 forward. src/renderer/components/TerminalView.tsx: xterm.js Terminal + FitAddon + WebGLAddon(또는 CanvasAddon), pty.listen.data 받아 term.write, ack는 charCount 누적 후 임계 도달 시 pty.call.ack 호출, term.onData → pty.call.write. shell은 platform/shell.getDefaultShell(), cwd는 active workspace.rootPath.",
+          "risk": "FlowControl ack ID 매핑 잘못 짜면 영구 pause 또는 무한 누적 — fake clock 단위 테스트로 격리 검증. xterm.js의 WebGLAddon이 일부 GPU 환경에서 실패 가능 → 폴백으로 CanvasAddon 자동 전환. node-pty의 macOS resize 시 SIGWINCH 타이밍 — xterm.js fit 후 PTY resize 호출로 ordering 명시.",
+          "plan_issue": 5,
+          "deps": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ab3ef58ba59d185cc"
+          },
+          "created_at": "2026-05-02T07:12:07.691Z"
+        },
+        {
+          "id": 8,
+          "title": "PTY 슬라이스 검증 (tester) — echo + 부하 + 백프레셔 + 1시간 안정",
+          "status": "completed",
+          "context": "T7 페어. runtime 동작 검증.",
+          "acceptance": "위 6개 시나리오 모두 통과. 회귀가 보이면 T7으로 reopen 요청. 결과는 tester 보고서로 기록.",
+          "approach": "실제 macOS dev 환경에서 (1) echo/cd/pwd/ls 등 기본 명령 동작 (2) yes | head -n 100000 같은 부하 시 메모리/CPU 안정 모니터링 (3) ring buffer가 10MB에서 cap되는지 dev tools heap 스냅샷 (4) 탭 close 시 PTY가 실제로 kill되는지 ps 확인 (5) utility process kill 후 재spawn (6) 30분 idle 사용 시 메모리 누수 0인지 long-run.",
+          "risk": "tester 보고가 'PASS'로 빨리 나도 long-run 30분 누수 시나리오는 시간이 걸림 — fake clock으로 단축 가능한 부분만 단축, 실제 시간 측정도 1회 필요.",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "abcadd71ea42d764b"
+          },
+          "created_at": "2026-05-02T07:12:19.453Z"
+        },
+        {
+          "id": 9,
+          "title": "LSP 수직 슬라이스 — main hosts/lspHost + utility lsp-host + EditorView (TypeScript Hover/Definition/Completion/Diagnostics)",
+          "status": "completed",
+          "context": "M0 LSP 범위(이슈 4): TypeScript 단일 언어, lazy spawn, 30분 idle. lsp-host utility process가 typescript-language-server를 child_process.spawn(stdio)로 띄우는 다층 구조.",
+          "acceptance": "`bun run dev`에서 EditorView에 .ts 파일 열기 → 30s 이내 typescript-language-server 자동 spawn. (1) Hover: 변수 위 마우스 → 타입 표시. (2) Definition: F12 → 정의 위치로 점프. (3) Completion: Ctrl+Space → 완성 후보 표시. (4) Diagnostics: 의도적 타입 에러 → squiggle 표시. 30분 idle 후 자동 shutdown(ps 확인). 단위 테스트로 monaco-languageclient ↔ ipc 어댑터의 메시지 매핑 1건 검증.",
+          "approach": "src/main/hosts/lspHost.ts: utilityProcess.fork(src/utility/lsp-host/index) + MessageChannelMain. src/utility/lsp-host/lspManager.ts: workspace×language 단위로 LSP 서버 인스턴스 lazy spawn. 30분 idle graceful shutdown(child.kill('SIGTERM') + 5s 후 SIGKILL). src/utility/lsp-host/servers/typescript.ts: child_process.spawn('typescript-language-server', ['--stdio']) + LSP JSON-RPC 메시지 라우팅(message-id 매핑). 메인 IPC 채널 lsp.{call.didOpen,didChange,hover,definition,completion + listen.diagnostics} 등록. src/renderer/components/EditorView.tsx: @monaco-editor/react Editor + 우리 ipc 위에 monaco-languageclient 어댑터 작성(StreamMessageReader/Writer 대신 우리 IPC 채널 사용). 첫 .ts 파일 open 시 lsp.call.didOpen → lspHost가 해당 workspace TypeScript 서버 lazy spawn. monaco의 hover/completion/definition은 어댑터를 통해 lsp.call.* 호출.",
+          "risk": "monaco-languageclient는 보통 stdio/WebSocket 가정 → 우리 IPC 어댑터 마찰 — 얇게 쓰되 어댑터 단위 테스트 필수. typescript-language-server 자체가 1GB+ 메모리 가능 → workspace 단위로 1개만 살림(글로벌 단일 X) + idle timeout. M0는 단일 워크스페이스니 1개만.",
+          "plan_issue": 4,
+          "deps": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad2b531908c4ea447"
+          },
+          "created_at": "2026-05-02T07:12:38.165Z"
+        },
+        {
+          "id": 10,
+          "title": "LSP 슬라이스 검증 (tester) — Hover/Definition/Completion/Diagnostics + 30분 idle",
+          "status": "completed",
+          "context": "T9 페어. runtime 동작 검증.",
+          "acceptance": "위 5개 시나리오 모두 통과. tester 보고서로 결과.",
+          "approach": "macOS dev에서 (1) 작은 TS 프로젝트(tsconfig + 5–10개 파일)에서 Hover/Definition/Completion/Diagnostics 4가지 실제 사용 (2) 의도적 타입 에러 후 squiggle 즉시 출현, 수정 후 사라짐 (3) 30분 idle 후 typescript-language-server가 ps에서 사라짐(graceful shutdown 확인) (4) idle 후 다시 .ts 파일 open → 재spawn (5) 짧은 시간(5분) 내 회귀 시나리오 1회.",
+          "risk": "LSP 동작이 typescript-language-server 버전에 따라 다를 수 있음 — 의존성 버전 명시 + tester 보고에 사용한 버전 기록.",
+          "plan_issue": 4,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "a2eac12af71e8a49a"
+          },
+          "created_at": "2026-05-02T07:12:47.990Z"
+        },
+        {
+          "id": 11,
+          "title": "renderer 셸 통합 — App.tsx + Sidebar + Zustand store + design 토큰 적용",
+          "status": "completed",
+          "context": "T7(TerminalView)와 T9(EditorView)를 한 화면에 조립. M0는 단일 워크스페이스 + 단일 탭만. design.md 토큰을 1차 적용해 사용자가 시각 정체성 한 번 확인.",
+          "acceptance": "`bun run dev` → 앱 창에 좌측 240px 사이드바 + 우측 TabContent 보임. 사이드바에 자동 생성된 워크스페이스 1개 표시(uppercase 'DEFAULT' + name + path tail). 메인 영역에 PTY 탭 1개 자동 + TerminalView 보임. 새 탭 버튼 클릭 → 두 번째 PTY 탭. 메뉴/단축키로 EditorView 탭 만들 수 있음(M0는 파일 picker 단순). 시각: dark canvas + Matter Regular + monochromatic warm gray 확인.",
+          "approach": "src/renderer/store/active.ts: activeWorkspaceId, activeTabId. src/renderer/store/workspaces.ts: workspaces 리스트 (ipc.listen('workspace','changed') 구독). src/renderer/store/tabs.ts: 활성 워크스페이스의 탭 list (M0는 1개 탭). src/renderer/components/Sidebar.tsx: 워크스페이스 1개를 uppercase Caption(category, 'DEFAULT') + Body Large name + Micro path tail 3단 표시, 활성 시 Frosted Veil + Mist Border. src/renderer/App.tsx: 사이드바 240px 고정 + 메인 영역(TabBar 위 + TabContent 아래). TabContent는 active tab type에 따라 TerminalView 또는 EditorView 렌더링. M0에는 새 탭 만들기 버튼 1개(PTY 탭). src/renderer/design/tokens.ts: shared/design-tokens를 CSS 변수로 globals.css에 노출. globals.css는 Warp 풍 dark canvas + Matter Regular 폰트 로드.",
+          "risk": "Matter 폰트가 라이센스/번들 이슈로 즉시 사용 불가 시 fallback (Inter 또는 system sans). M0는 fallback 허용, M1에 라이센스/번들 정리. design 토큰 변경 시 CSS 변수와 어긋날 수 있음 — 토큰 → CSS 변수 한 방향 변환 함수 1개로 강제.",
+          "plan_issue": 8,
+          "deps": [
+            7,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "ac3fa35fa6a2dd754"
+          },
+          "created_at": "2026-05-02T07:13:06.403Z"
+        },
+        {
+          "id": 12,
+          "title": "cross-slice 통합 테스트 — IPC round-trip + Monaco+xterm 결합 시나리오",
+          "status": "completed",
+          "context": "단위 테스트(T4/T7/T9에 분산)로 못 잡는 슬라이스 간 결합 회귀를 잡는 곳. M0 acceptance의 자동화 구간.",
+          "acceptance": "`bun run test:integration` 모든 테스트 green. CI 환경(없음, 로컬만)에서 5분 이내 완료.",
+          "approach": "tests/integration/ipc-roundtrip.test.ts: 메인↔preload↔렌더러 IPC 라운드트립을 e2e로 (electron 테스트 러너 또는 vitest + jsdom + 메인 mock). hello/ping/tick 기본 + workspace.list + pty.spawn/data 1회. tests/integration/monaco-xterm.test.ts: 같은 BrowserWindow에 EditorView + TerminalView 동시 존재 시 두 컴포넌트가 메모리/이벤트 충돌 없이 공존(예: monaco worker가 xterm 입력을 가로채지 않는지 keyDown propagation 검증). tests/integration/storage-restart.test.ts: 워크스페이스 자동 생성 → globalStorage write → 앱 재시작 시뮬 → 같은 워크스페이스 재활성화.",
+          "risk": "electron 테스트 러너 셋업이 까다로움 — 처음에는 단위 테스트 + 수동 e2e로 시작하고, 자동화는 점진. T12에서 자동화가 너무 무거우면 핵심 1–2개만 자동화하고 나머지는 T13(tester) 수동 시나리오로 넘김.",
+          "plan_issue": 8,
+          "deps": [
+            8,
+            10,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "a5641ea13807cf3f3"
+          },
+          "created_at": "2026-05-02T07:13:21.036Z"
+        },
+        {
+          "id": 13,
+          "title": "M0 acceptance — 1시간 dev 사용 + 메모리/CPU 모니터 + 크래시 0",
+          "status": "completed",
+          "context": "M0 마일스톤 종료 게이트. T1–T12 결과를 통합한 환경에서 사람이 1시간 사용하면서 안정성 회귀를 마지막으로 확인.",
+          "acceptance": "1시간 사용 동안 크래시 0, 메인 프로세스 메모리 300MB 이내, 렌더러 500MB 이내, utility(pty-host+lsp-host) 합 1.5GB 이내. CPU idle 시 5% 이내. 사용자(=dev) 본인이 일상 작업감 OK 판정. 보고서에 발견된 모든 회귀 (PASS/WARN/FAIL) 기록.",
+          "approach": "macOS dev 환경에서 `bun run dev` 시작 → 1시간 동안 (1) PTY 탭 N개 만들기/지우기 (2) yes 같은 부하 명령 잠시 실행 (3) Monaco에서 .ts 파일 5–10개 열어가며 Hover/Definition/Completion 사용 (4) 앱 재시작 1회 (워크스페이스 + tabs 영속은 M0 범위 밖이지만 자동 워크스페이스는 복원되는지) (5) Activity Monitor로 메인/렌더러/utility 메모리 추세 모니터 (6) 크래시 발생 0건. 결과 → tester 보고서. 회귀 발견 시 구체적 task로 reopen 요청.",
+          "risk": "메모리 임계값은 macOS 머신 사양에 따라 다름 — 사용자 머신 기준으로 측정. 회귀가 다수 발견되면 M0 게이트 미통과 → plan 사이클 재진입.",
+          "plan_issue": 7,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "a412d80b090dbc505"
+          },
+          "created_at": "2026-05-02T07:13:35.813Z"
+        }
+      ]
+    }
+  ]
+}

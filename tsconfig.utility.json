@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "out/utility",
+    "rootDir": "src/utility",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["src/utility/**/*.ts"],
+  "references": [
+    { "path": "./tsconfig.shared.json" }
+  ]
+}
