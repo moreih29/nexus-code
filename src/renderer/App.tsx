@@ -146,18 +146,14 @@ export function App() {
         onAddWorkspace={handleAddWorkspace}
         onRemoveWorkspace={handleRemoveWorkspace}
       />
-      <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
+      <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
         {workspaces.length === 0 && (
           <div className="flex flex-1 items-center justify-center text-muted-foreground text-[13px]">
             No workspace selected. Add one from the sidebar.
           </div>
         )}
         {mountedWorkspaces.map((ws) => (
-          <WorkspacePanel
-            key={ws.id}
-            workspace={ws}
-            isActive={ws.id === activeWorkspaceId}
-          />
+          <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
         ))}
       </div>
     </div>

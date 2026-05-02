@@ -52,9 +52,11 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   return (
     <div
       className={cn(
-        "flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden",
-        !isActive && "hidden",
+        "col-start-1 row-start-1 flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden",
+        isActive ? "visible pointer-events-auto" : "invisible pointer-events-none",
       )}
+      aria-hidden={!isActive || undefined}
+      inert={!isActive || undefined}
     >
       <TabBar
         tabs={tabs}
