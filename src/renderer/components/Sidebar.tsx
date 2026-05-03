@@ -29,11 +29,8 @@ export function Sidebar({
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
 
   return (
-    <aside
-      className="relative shrink-0 bg-muted overflow-y-auto flex flex-col"
-      style={{ width: sidebarWidth }}
-    >
-      <div className="py-3 flex-1">
+    <aside className="relative shrink-0 bg-muted flex flex-col" style={{ width: sidebarWidth }}>
+      <div className="py-3 flex-1 overflow-y-auto">
         {workspaces.length === 0 && (
           <div className="px-4 py-6 text-center text-[12px] text-muted-foreground leading-[1.5]">
             No workspaces yet.
