@@ -2,6 +2,9 @@
 // Runs inside the utility process; communicates with the main process via
 // parentPort (MessagePort set up by ptyHost.ts in the main process).
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { MessagePortMain } from "electron";
 import { FlowController } from "./flowControl";
 import { TerminalRecorder } from "./terminalRecorder";
@@ -9,6 +12,55 @@ import { TerminalRecorder } from "./terminalRecorder";
 // node-pty is required at runtime — it must not be bundled by Vite.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pty = require("node-pty") as typeof import("node-pty");
+
+// ---------------------------------------------------------------------------
+// zsh init wrapper (ZDOTDIR)
+//
+// zsh's PROMPT_SP option (default ON) pads every prompt with inverse-video
+// spaces and a PROMPT_EOL_MARK glyph (default '%') when the previous
+// command's output didn't end with a newline. In a GUI terminal this is
+// noise — iTerm2 / Warp / Ghostty all suppress it. PROMPT_EOL_MARK can be
+// blanked via env, but PROMPT_SP is a zsh shell option (not an env var)
+// so it can only be turned off from inside an rc file.
+//
+// We create a small ZDOTDIR with wrapper rc files that:
+//   1. source the user's real ~/.{zshenv,zprofile,zshrc,zlogin} so the
+//      user's environment is fully preserved
+//   2. additionally `unsetopt PROMPT_SP` + clear PROMPT_EOL_MARK
+//
+// `unsetopt` is intentionally placed BEFORE sourcing ~/.zshrc so that a
+// user who explicitly wants PROMPT_SP can re-enable it in their own rc.
+//
+// Non-zsh shells (bash, fish, sh) ignore ZDOTDIR, so setting it on every
+// PTY spawn is safe regardless of which shell the user runs.
+// ---------------------------------------------------------------------------
+
+let zshInitDir: string | null = null;
+
+function ensureZshInitDir(): string {
+  if (zshInitDir) return zshInitDir;
+  const dir = path.join(os.tmpdir(), "nexus-code-zsh-init");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, ".zshenv"), `[ -f "$HOME/.zshenv" ] && . "$HOME/.zshenv"\n`);
+  fs.writeFileSync(
+    path.join(dir, ".zprofile"),
+    `[ -f "$HOME/.zprofile" ] && . "$HOME/.zprofile"\n`,
+  );
+  fs.writeFileSync(
+    path.join(dir, ".zshrc"),
+    [
+      "# nexus-code: GUI-terminal defaults — set BEFORE sourcing user rc so",
+      "# the user can re-enable in ~/.zshrc if desired.",
+      "unsetopt PROMPT_SP 2>/dev/null",
+      "PROMPT_EOL_MARK=''",
+      '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc"',
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(path.join(dir, ".zlogin"), `[ -f "$HOME/.zlogin" ] && . "$HOME/.zlogin"\n`);
+  zshInitDir = dir;
+  return dir;
+}
 
 interface TabState {
   pty: import("node-pty").IPty;
@@ -102,13 +154,12 @@ export class PtyManager {
         cwd,
         env: {
           ...(process.env as Record<string, string>),
-          // zsh prints an inverse-video "%" before each prompt when the
-          // previous command's output did not end with a newline (its
-          // PROMPT_EOL_MARK default is "%"). In GUI terminals this marker
-          // is noisy and rarely useful, so iTerm2 / Warp / Ghostty users
-          // typically blank it out. Set it here so a fresh shell in this
-          // app doesn't surface that artifact regardless of the user's
-          // zshrc. Other shells (bash/fish) ignore the variable.
+          // Point zsh at our ZDOTDIR wrapper which sources the user's
+          // real rc files AND disables PROMPT_SP / PROMPT_EOL_MARK.
+          // PROMPT_EOL_MARK is also re-asserted here for the rare case
+          // where zshrc is skipped (e.g. --no-rcs); for non-zsh shells
+          // both ZDOTDIR and PROMPT_EOL_MARK are simply unused.
+          ZDOTDIR: ensureZshInitDir(),
           PROMPT_EOL_MARK: "",
         },
       });
