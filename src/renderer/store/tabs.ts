@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { useShallow } from "zustand/react/shallow";
 import { ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -26,22 +25,15 @@ export interface Tab {
   props: TabProps;
 }
 
-interface WorkspaceSlice {
-  tabs: Tab[];
-  activeTabId: string | null;
-}
-
-const EMPTY_SLICE: WorkspaceSlice = { tabs: [], activeTabId: null };
-
 // ---------------------------------------------------------------------------
-// State shape
+// State shape — flat record registry; ordering and active state live in layout.ts
 // ---------------------------------------------------------------------------
 
 interface TabsState {
-  byWorkspace: Record<string, WorkspaceSlice>;
-  addTab: (workspaceId: string, type: TabType, props: TabProps) => Tab;
-  closeTab: (workspaceId: string, id: string) => void;
-  setActiveTab: (workspaceId: string, id: string) => void;
+  byWorkspace: Record<string, Record<string, Tab>>;
+  createTab: (workspaceId: string, type: TabType, props: TabProps) => Tab;
+  removeTab: (workspaceId: string, tabId: string) => void;
+  renameTab: (workspaceId: string, tabId: string, title: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
 }
 
@@ -49,11 +41,7 @@ interface TabsState {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-function defaultTitle(type: TabType, props: TabProps): string {
+export function defaultTitle(type: TabType, props: TabProps): string {
   if (type === "terminal") return "Terminal";
   const ep = props as EditorTabProps;
   const parts = ep.filePath.split("/");
@@ -79,61 +67,54 @@ export const useTabsStore = create<TabsState>((set, get) => {
   return {
     byWorkspace: {},
 
-    addTab(workspaceId, type, props) {
+    createTab(workspaceId, type, props) {
       const tab: Tab = {
-        id: generateId(),
+        id: crypto.randomUUID(),
         type,
         title: defaultTitle(type, props),
         props,
       };
+      set((state) => ({
+        byWorkspace: {
+          ...state.byWorkspace,
+          [workspaceId]: {
+            ...(state.byWorkspace[workspaceId] ?? {}),
+            [tab.id]: tab,
+          },
+        },
+      }));
+      return tab;
+    },
+
+    removeTab(workspaceId, tabId) {
       set((state) => {
-        const slice = state.byWorkspace[workspaceId] ?? EMPTY_SLICE;
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const next = { ...wsRecord };
+        delete next[tabId];
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: next,
+          },
+        };
+      });
+    },
+
+    renameTab(workspaceId, tabId, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
         return {
           byWorkspace: {
             ...state.byWorkspace,
             [workspaceId]: {
-              tabs: [...slice.tabs, tab],
-              activeTabId: tab.id,
+              ...wsRecord,
+              [tabId]: { ...wsRecord[tabId], title },
             },
           },
         };
       });
-      return tab;
-    },
-
-    closeTab(workspaceId, id) {
-      set((state) => {
-        const slice = state.byWorkspace[workspaceId];
-        if (!slice) return state;
-        const idx = slice.tabs.findIndex((t) => t.id === id);
-        if (idx === -1) return state;
-
-        const filtered = slice.tabs.filter((t) => t.id !== id);
-        let nextActive = slice.activeTabId;
-        if (slice.activeTabId === id) {
-          const prev = slice.tabs[idx - 1];
-          const next = slice.tabs[idx + 1];
-          nextActive = prev?.id ?? next?.id ?? null;
-        }
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { tabs: filtered, activeTabId: nextActive },
-          },
-        };
-      });
-    },
-
-    setActiveTab(workspaceId, id) {
-      const slice = get().byWorkspace[workspaceId];
-      if (!slice) return;
-      if (!slice.tabs.some((t) => t.id === id)) return;
-      set((state) => ({
-        byWorkspace: {
-          ...state.byWorkspace,
-          [workspaceId]: { ...state.byWorkspace[workspaceId], activeTabId: id },
-        },
-      }));
     },
 
     closeAllForWorkspace(workspaceId) {
@@ -146,14 +127,3 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
   };
 });
-
-// ---------------------------------------------------------------------------
-// Selector hook — returns a stable empty slice when workspaceId is null /
-// missing so consumers don't need to null-check the slice shape.
-// ---------------------------------------------------------------------------
-
-export function useWorkspaceTabs(workspaceId: string | null): WorkspaceSlice {
-  return useTabsStore(
-    useShallow((s) => (workspaceId ? (s.byWorkspace[workspaceId] ?? EMPTY_SLICE) : EMPTY_SLICE)),
-  );
-}

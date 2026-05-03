@@ -9,6 +9,9 @@ export interface GlobalKeyDeps {
   getActiveWorkspaceId: () => string | null;
   refresh: (wsId: string) => Promise<void>;
   openFileDialog: (wsId: string) => Promise<void>;
+  splitActiveGroup?: (orientation: "horizontal" | "vertical") => void;
+  closeActiveGroup?: () => void;
+  moveFocus?: (direction: "left" | "right" | "up" | "down") => void;
 }
 
 /**
@@ -46,5 +49,50 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
     const wsId = deps.getActiveWorkspaceId();
     if (!wsId) return;
     deps.openFileDialog(wsId).catch(() => {});
+    return;
+  }
+
+  // Cmd+\ — split active group right (horizontal split, after)
+  if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key === "\\") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.splitActiveGroup?.("horizontal");
+    return;
+  }
+
+  // Cmd+Shift+\ (or Cmd+Shift+|) — split active group down (vertical split, after)
+  if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && (e.key === "\\" || e.key === "|")) {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.splitActiveGroup?.("vertical");
+    return;
+  }
+
+  // Cmd+Shift+W — close active group
+  if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && (e.key === "w" || e.key === "W")) {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.closeActiveGroup?.();
+    return;
+  }
+
+  // Cmd+Alt+Arrow — move focus between groups
+  if (e.metaKey && e.altKey && !e.ctrlKey) {
+    if (
+      e.key === "ArrowLeft" ||
+      e.key === "ArrowRight" ||
+      e.key === "ArrowUp" ||
+      e.key === "ArrowDown"
+    ) {
+      if (isInEditable(e.target as HTMLElement | null)) return;
+      e.preventDefault();
+      const dirMap: Record<string, "left" | "right" | "up" | "down"> = {
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        ArrowUp: "up",
+        ArrowDown: "down",
+      };
+      deps.moveFocus?.(dirMap[e.key]);
+    }
   }
 }

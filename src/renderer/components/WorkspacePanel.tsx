@@ -1,9 +1,11 @@
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import { useTabsStore, useWorkspaceTabs } from "../store/tabs";
-import { TabBar } from "./TabBar";
-import { TabContent } from "./TabContent";
+import { useLayoutStore } from "../store/layout";
+import { openTab } from "../store/operations";
+import { useTabsStore } from "../store/tabs";
+import { ContentPool } from "./workspace/ContentPool";
+import { LayoutTree } from "./workspace/LayoutTree";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -15,57 +17,49 @@ interface WorkspacePanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// Component — owns one workspace's tab slice; mounted once and kept alive
+// Component — owns one workspace's layout; mounted once and kept alive
 // (via CSS hide) so PTYs survive across workspace switches.
 // ---------------------------------------------------------------------------
 
 export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
-  const { tabs, activeTabId } = useWorkspaceTabs(workspace.id);
+  const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
 
-  const addTab = useTabsStore((s) => s.addTab);
-  const closeTab = useTabsStore((s) => s.closeTab);
-  const setActiveTab = useTabsStore((s) => s.setActiveTab);
-
-  // Auto-seed a terminal the first time this panel mounts with an empty slice.
-  // Replaces the previous boot-effect / handleAddWorkspace seeding paths.
+  // Auto-seed: ensure layout exists and seed a terminal the first time this
+  // panel mounts with an empty tab slice. Guards against double-seeding by
+  // checking both tabs and layout state.
   useEffect(() => {
-    if (useTabsStore.getState().byWorkspace[workspace.id]?.tabs.length) return;
-    addTab(workspace.id, "terminal", { cwd: workspace.rootPath });
-  }, [workspace.id, workspace.rootPath, addTab]);
+    const layoutStore = useLayoutStore.getState();
+    layoutStore.ensureLayout(workspace.id);
 
-  const handleSelectTab = useCallback(
-    (id: string) => setActiveTab(workspace.id, id),
-    [setActiveTab, workspace.id],
-  );
+    const tabsForWs = useTabsStore.getState().byWorkspace[workspace.id];
+    const hasNoTabs = !tabsForWs || Object.keys(tabsForWs).length === 0;
 
-  const handleCloseTab = useCallback(
-    (id: string) => closeTab(workspace.id, id),
-    [closeTab, workspace.id],
-  );
+    if (hasNoTabs) {
+      openTab(workspace.id, "terminal", { cwd: workspace.rootPath });
+    }
+    // Run only once on mount per workspace id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.id, workspace.rootPath]);
 
-  const handleNewTerminalTab = useCallback(() => {
-    addTab(workspace.id, "terminal", { cwd: workspace.rootPath });
-  }, [addTab, workspace.id, workspace.rootPath]);
-
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  if (!layout) return null;
 
   return (
     <div
       className={cn(
-        "col-start-1 row-start-1 flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden",
+        "col-start-1 row-start-1 flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden relative",
         isActive ? "visible pointer-events-auto" : "invisible pointer-events-none",
       )}
       aria-hidden={!isActive || undefined}
+      // biome-ignore lint/a11y/noAriaHiddenOnFocusable: intentional CSS-hide pattern for workspace switching
       inert={!isActive || undefined}
     >
-      <TabBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelectTab={handleSelectTab}
-        onCloseTab={handleCloseTab}
-        onNewTerminalTab={handleNewTerminalTab}
+      <LayoutTree
+        workspaceId={workspace.id}
+        root={layout.root}
+        onActivateGroup={(gid) => useLayoutStore.getState().setActiveGroup(workspace.id, gid)}
+        workspaceRootPath={workspace.rootPath}
       />
-      <TabContent tab={activeTab} />
+      <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
     </div>
   );
 }

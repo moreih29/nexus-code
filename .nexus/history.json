@@ -1971,6 +1971,345 @@
           "created_at": "2026-05-03T09:18:58.167Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T12:00:44.044Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 9,
+        "topic": "WorkspacePanel split-view (터미널/에디터 분할)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "트리 모델 형태 결정 (binary split|leaf vs 그리드 vs 평면)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "binary tree (split|leaf) 권장. split 노드는 orientation+ratio+two children, leaf는 tabIds+activeTabId. Zustand 불변성과 React 재조정에 가장 잘 맞고 vscode/Theia 선례와 일치. n-ary grid는 우리 규모에 과잉.",
+                "recorded_at": "2026-05-03T11:26:06.627Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "Binary tree 채택. 노드는 두 종류: split { kind, id, orientation: \"horizontal\"|\"vertical\", ratio: number(0..1), first, second } | leaf { kind, id, tabIds: string[], activeTabId: string|null }. orientation은 자식 두 개의 배치 축을 의미하며 ratio는 first child의 비율. 트리는 워크스페이스마다 1개, 항상 비어 있지 않음(최소 1 leaf). 기각: (a) n-ary GridView — 우리 규모(개인 IDE, 보통 2~4 panes)에 과잉이며 sash 계산이 복잡. (b) 평면 group 배열 + container layout — 임의 중첩 split이 어렵고 vscode가 binary tree로 승리한 이유와 동일. 가정: 자식 ratio는 0.05~0.95로 클램프, 0/1은 허용 안 함(빈 pane 회피)."
+          },
+          {
+            "id": 2,
+            "title": "스토어 구조 결정 (tabs.ts 슬림화 + layout.ts 신설 여부)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "tabs.ts는 record-only registry로 슬림화(Tab 레코드 맵 + create/remove). layout.ts 신설하여 트리 + 그룹 ordering + activeGroupId 소유. 분리 이유: tab 레코드는 group 이동 시 변하지 않고 id만 leaf 사이를 이동하므로 god-store 회피 가능. composite 동작(openTab=create+attach)은 hook/action helper에서 오케스트레이션.",
+                "recorded_at": "2026-05-03T11:26:10.816Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "tabs.ts는 record-only registry로 슬림화하고 layout.ts(렌더러 store)를 신설. tabs.ts는 byWorkspace: Record<wsId, Record<tabId, Tab>> + createTab/removeTab/renameTab만 가짐. layout.ts는 byWorkspace: Record<wsId, { root: LayoutNode, activeGroupId: string }> + ensureLayout/splitGroup/closeGroup/setSplitRatio/setActiveGroup/attachTab/detachTab/moveTab/setActiveTabInGroup. composite 동작(openTab=create+attach+activate, closeTab=detach+remove, 빈 leaf collapse)은 별도 helper(예: store/tabs/operations.ts)에서 두 store를 묶어 처리. 기각: (a) tabs.ts에 트리까지 합치는 god-store — 500줄 분리 사이클 직후라 같은 실수 반복 위험. (b) Tab 자체에 groupId 필드 — 이동마다 mutate 필요하고 트리와 이중 진실 소스가 됨. 가정: 트리 식별자(groupId, splitId)는 crypto.randomUUID로 생성."
+          },
+          {
+            "id": 3,
+            "title": "탭 식별자 스코프 결정 (workspace-scoped vs group-scoped)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "workspace-scoped tab.id 유지(현 상태). 트리는 id로만 참조하므로 탭 이동은 두 leaf의 tabIds만 편집. group-scoped 식별자로 만들면 이동마다 id 재발급 필요 → 마운트 키 깨짐 위험. vscode도 동일 정책.",
+                "recorded_at": "2026-05-03T11:26:14.028Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "workspace-scoped tab.id 유지(현 상태). 트리 leaf는 tabId만 참조하므로 그룹 이동은 두 leaf의 tabIds 배열 편집으로 끝나고 React 마운트 키(=tab.id)는 보존됨. 이는 §6의 portal pool 전략의 전제 조건이기도 함(터미널 마운트가 그룹 이동에도 유지). 기각: (a) group-scoped id — 이동마다 id 재발급 → 마운트 키 깨짐 → PTY 재시작. (b) {workspaceId, tabId} 합성 키 — tab.id 자체가 UUID라 충돌 가능성이 0에 가까움, 합성 키는 코드만 늘림. vscode 정책과 동일."
+          },
+          {
+            "id": 4,
+            "title": "active group/active tab 상태 위치 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "activeGroupId는 워크스페이스별 layout 슬라이스에 저장(파생 아님). 새 탭 오픈 위치/키보드 포커스의 단일 진실 소스. setActiveTabInGroup 시 activateGroup 옵션을 받게 설계해 디자이너의 UX 선택과 분리.",
+                "recorded_at": "2026-05-03T11:26:16.934Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "activeGroupId는 layout 슬라이스에 저장(파생 아님). 워크스페이스마다 1개. 그룹 leaf 안의 activeTabId는 leaf 자체에 저장. setActiveTabInGroup({ workspaceId, groupId, tabId, activateGroup?: boolean = true })로 한 호출에서 그룹 활성화 동시 처리(UX는 §10에서 결정). 새 탭은 항상 activeGroupId 안으로 들어감. 기각: (a) activeGroupId를 매번 트리 순회로 파생 — 키보드 포커스/새 탭 라우팅의 의도가 불명확하고 closeGroup 시 라우팅 로직과 충돌. (b) 전역 active(workspace×group) 매트릭스 — 워크스페이스마다 독립 트리이므로 워크스페이스 슬라이스에 종속시키는 편이 가비지 컬렉션과 일치."
+          },
+          {
+            "id": 5,
+            "title": "그룹 lifecycle/collapse 규칙 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "collapse-and-hoist 알고리즘: detach 후 leaf가 비고 root가 아니면 부모 split을 sibling으로 교체(승격). 단일 leaf만 남으면 비어있어도 placeholder로 유지. activeGroupId가 사라진 leaf를 가리키면 hoisted sibling의 leftmost leaf로 이동. 모든 IDE 선례와 일치, orphan split 방지.",
+                "recorded_at": "2026-05-03T11:26:21.176Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "collapse-and-hoist: detachTab 후 leaf가 비고 트리의 유일 leaf가 아니면 부모 split을 sibling으로 즉시 교체(승격). leaf가 트리의 유일 leaf면 비어도 placeholder로 보존. activeTabId가 사라지면 prev else next else null. activeGroupId가 사라진 leaf를 가리키면 hoisted sibling의 leftmost leaf로 이동. closeGroup(명시적)도 같은 알고리즘. 기각: (a) 빈 leaf를 항상 placeholder로 유지 — 일반 IDE 멘탈 모델과 다르고 빈 그룹이 화면을 점유. (b) 빈 leaf를 형제로 merge하지 않고 sibling 옆에 배치만 — orphan split 발생. 가정: ratio 재정규화는 sibling 승격 시 상위 split의 ratio를 그대로 유지(승격된 sibling이 부모 자리를 차지하므로 별도 조정 불필요)."
+          },
+          {
+            "id": 6,
+            "title": "터미널 PTY 생존 마운트 전략 결정 (portal pool 도입 여부)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "portal-style 플랫 풀 권장: WorkspacePanel 내부에 LayoutTree와 별도로 TerminalPool 컴포넌트가 워크스페이스의 모든 터미널 탭을 한번씩 절대좌표로 렌더(key=tab.id). 레이아웃 트리는 group slot div만 그리고, 각 TerminalHost가 owner group slot을 ResizeObserver로 추적해 reposition. split/move/closeOthers 모두 CSS 위치 변경만 → remount 없음 → PTY 생존. 위험: ResizeObserver 부하(현실적 panel 수에서는 무시 가능), focus DOM 라우팅 복잡성.",
+                "recorded_at": "2026-05-03T11:26:26.659Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "portal-style 플랫 풀 도입. WorkspacePanel 안에 두 형제 영역: (a) LayoutTree — split/leaf 트리를 따라 TabBar + 빈 group slot div를 렌더(슬롯은 절대좌표 추적 대상), (b) ContentPool — 워크스페이스의 모든 탭(터미널/에디터)을 한번씩 절대좌표 컨테이너에 렌더(key=tab.id). 각 ContentHost는 자기 owner group slot을 layout store 구독으로 알고, ResizeObserver+layout store 변화로 reposition. owner leaf의 activeTabId 와 일치하고 그 그룹이 visible이면 표시, 아니면 visibility:hidden+pointer-events:none. 그룹 이동 시 host는 unmount되지 않고 다른 slot으로 reposition만. tab.close/workspace 제거 시에만 unmount → PTY kill. 에디터도 동일 패턴 적용해 일관성 유지. 기각: (a) leaf 안에 직접 mount — split/이동마다 React 키 재배치로 remount 발생 → PTY 끊김. (b) React Portal(createPortal)로 leaf DOM에 직접 portal — 트리 이동 시 portal target id가 바뀌면 sometimes remount, slot 측정도 더 어려움. 위험: ResizeObserver/layout 동기화 비용은 panel 수가 적어 무시 가능, focus 라우팅은 tabIndex+ref forwarding으로 해결."
+          },
+          {
+            "id": 7,
+            "title": "레이아웃 영속화 스키마 결정 (appState 확장)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "appState에 layoutByWorkspace?: Record<wsId, {root: SerializedNode, activeGroupId, tabs: SerializedTab[]}> 추가. tabs도 함께 직렬화(현재는 영속 안 됨)되어야 layout이 가리키는 id가 hydrate 시 살아남음. ratio는 0..1 정규화. hydrate 시 dangling id 검증/복구. 영속은 sidebar width와 동일 debounce 패턴.",
+                "recorded_at": "2026-05-03T11:26:31.330Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "AppStateSchema에 layoutByWorkspace?: Record<wsId, WorkspaceLayoutSnapshot> 추가. WorkspaceLayoutSnapshot = { root: SerializedNode, activeGroupId: string, tabs: SerializedTab[] }. SerializedNode는 앞서 정한 leaf|split 형태 그대로(orientation/ratio/tabIds/activeTabId/id), SerializedTab = { id, type, title, props } where TabProps는 TerminalTabProps|EditorTabProps. ratio 0.05~0.95 클램프. hydrate 시: (1) 각 wsId별 tab 레코드 복원, (2) 트리 순회하며 dangling tabId 제거, 빈 leaf 발견 시 collapse-and-hoist 알고리즘으로 정리, (3) activeGroupId가 죽은 그룹이면 leftmost leaf로 fallback. persist는 ui store와 동일 debounce(예: 250ms). schema 변경은 zod 새 필드만 추가(optional)하여 backward-compat 유지. 기각: (a) tab 레코드 영속 안 함 — 트리가 가리키는 id가 다음 부팅에 부재. (b) workspace별 별도 파일 — 현재 appState 단일 파일 패턴을 깨고 배포 단위 늘림. 가정: 부분 손상 layout은 부팅을 막지 않고 silent repair."
+          },
+          {
+            "id": 8,
+            "title": "split 진입 어포던스 결정 (우클릭/단축키/드래그)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "primary는 탭 우클릭 컨텍스트 메뉴(Close/Close Others/Close All to Right/Split Right/Split Down). discoverability 핵심. 단축키 보조: Cmd+\\(split right), Cmd+Shift+\\(split down). DnD edge drop은 v1 deferred — 컨텍스트 메뉴만으로 핵심 기능 도달. v1.5에서 2-edge(right/bottom)+center 추가.",
+                "recorded_at": "2026-05-03T11:26:35.703Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "v1 primary는 탭 우클릭 컨텍스트 메뉴(Radix ContextMenu, 기존 Tooltip과 동일한 Radix 패턴 재사용). 메뉴 항목: Close · Close Others · Close All to the Right · ─ · Split Right · Split Down. 보조: 단축키 Cmd+\\ (split right), Cmd+Shift+\\ (split down). DnD(edge drop, center drop)는 v1 deferred — 별도 사이클(v1.5)로 분리. 결정: 디자이너 open question \"native menu vs overlay\" → Radix ContextMenu(렌더러 오버레이) 채택, 토큰(bg-muted/border-mist-border/text-app-ui-sm) 재사용. 기각: (a) drag-to-edge primary — 드롭존 오버레이 컴포넌트 선행 필요, 어포던스 invisible. (b) 툴바 버튼 — h-9 TabBar 밀집도 문제, §11과 충돌. (c) 단축키 only — discoverability 0."
+          },
+          {
+            "id": 9,
+            "title": "sash 비주얼/방향/리셋 정책 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "기존 ResizeHandle 재사용. vertical sash(좌우 그룹) cursor-col-resize, horizontal sash(상하 그룹) cursor-row-resize+aria-orientation horizontal 변형 추가. 1px collapsed → hover 2px, hit area 8px, --splitter/--splitter-hover 토큰. double-click → 형제들 사이 균등 분할(50/50). Warp의 flat-elevation 원칙 준수.",
+                "recorded_at": "2026-05-03T11:26:39.563Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "기존 ResizeHandle 컴포넌트 재사용 + 방향 prop 확장. 현 ResizeHandle은 vertical(좌우 사이드바/files panel용)만 지원하므로 orientation: \"vertical\" | \"horizontal\" prop 추가하여 가로 sash(상하 그룹 사이) 지원. 비주얼: 1px collapsed → hover/active 2px, hit area 8px, --splitter / --splitter-hover 토큰 그대로. cursor-col-resize(수직)/cursor-row-resize(수평), aria-orientation 동기화. double-click → split의 ratio = 0.5로 리셋. 기각: (a) 신규 GroupSash 컴포넌트 — 동일 동작 두 벌, 회귀 위험. (b) 두꺼운 sash — Warp의 flat-elevation 원칙 위반. 가정: ResizeHandle props 확장은 현 사용처(sidebar, files-panel) 기본 동작 유지하는 default 제공."
+          },
+          {
+            "id": 10,
+            "title": "active group 시각 표시 결정 (모노크롬 토큰 재사용)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "active group은 그 group의 TabBar에 bg-frosted-veil(rgba(255,255,255,0.04)) 적용으로만 표시. 컨테이너 테두리 추가는 sash와 시각 충돌 → 금지. 비활성 그룹의 active 탭 텍스트는 text-stone-gray로 한 단 demote. 새 토큰 도입 없음.",
+                "recorded_at": "2026-05-03T11:26:42.770Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "active group의 TabBar에 bg-frosted-veil(rgba(255,255,255,0.04)) 적용으로만 표시. 그룹 컨테이너에 추가 테두리/링 없음(sash와 시각 충돌 방지). 비활성 그룹에서는 active 탭 텍스트를 한 단 demote(text-foreground → text-stone-gray). 새 토큰 도입 없음. 탭 클릭은 always activateGroup=true(그룹 + 그 그룹의 탭 동시 활성), Cmd+Alt+Arrow 그룹 포커스 이동도 동일 시멘틱. 기각: (a) active group 컨테이너 1px mist-border 링 — 이중 보더+sash 시각 충돌, Warp flat-elevation 위반. (b) 색상 액센트 — 모노크롬 팔레트 위반. 가정: visibility만 다른 비활성 워크스페이스 panel과 별개로, 활성 워크스페이스 안에서 그룹 단위 시각 차이는 위 정도면 충분."
+          },
+          {
+            "id": 11,
+            "title": "그룹 너비 임계 및 탭바 오버플로 정책 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "그룹 min width 180px(이하로는 sash drag 클램프). ≥180px에서 탭바는 horizontal scroll(스크롤바 hover 시만 표시), active 탭 scrollIntoView. overflow chevron이나 단일탭-fullwidth는 채택 안 함(개인 IDE 규모에서 단순함이 우선).",
+                "recorded_at": "2026-05-03T11:26:46.896Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "그룹 min width 180px(sash drag clamp). ≥180px에서 TabBar는 horizontal scroll(overflow-x: auto, [scrollbar-width:none] 기본 + hover 시만 표시 또는 항상 hidden — 기존 TabBar의 scrollbar 숨김 패턴 유지). 활성 탭은 scrollIntoView({ inline: \"nearest\" })로 노출. overflow chevron/popover 미도입(개인 IDE 규모, 단순함 우선). 단일 그룹의 워크스페이스에서는 min-width clamp가 작동하지 않으므로(영향 없음) — split 시에만 의미. 기각: (a) overflow 메뉴 chevron — 키보드 라우팅 추가 부담, v1 범위 밖. (b) 단일 탭 fullwidth collapse — 탭 정체성 상실. 가정: 가로 스크롤바 제어는 기존 TabBar 클래스 패턴([&::-webkit-scrollbar]:hidden)을 그대로 따른다."
+          },
+          {
+            "id": 12,
+            "title": "빈 그룹/빈 워크스페이스 placeholder 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "단독 leaf가 비었을 때만 \"No tab open\" 유지(text-stone-gray, app-ui-sm) + 보조 한 줄 \"Press Cmd+E to open a file\"(app-ui-xs). 비단독 빈 leaf는 collapse-and-hoist로 즉시 사라지므로 placeholder 없음. 일관성 위해 현 카피 유지.",
+                "recorded_at": "2026-05-03T11:26:49.763Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "단독 leaf가 비었을 때만 placeholder 표시: \"No tab open\" (현 카피 유지, text-stone-gray, app-ui-sm) + 보조 \"Press Cmd+E to open a file\" (app-ui-xs, text-muted-foreground). 비단독 빈 leaf는 §5 collapse-and-hoist로 즉시 사라지므로 placeholder 없음. 워크스페이스 자체가 없을 때(현 App.tsx의 \"No workspace selected\") 텍스트는 변경 없음. 기각: (a) 일러스트레이션/ASCII art — Warp restraint 위반. (b) \"Empty workspace\" 같은 카피 변경 — 의미 모호(탭 영역이 비어있는 것이지 workspace가 비어있는 게 아님)."
+          },
+          {
+            "id": 13,
+            "title": "키바인딩 셋 확정 및 충돌 회피",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "v1 셋: Cmd+\\(split right), Cmd+Shift+\\(split down), Cmd+Shift+W(close active group). 그룹 포커스 이동은 Cmd+Alt+ArrowLeft/Right/Up/Down(Cmd+K chord 대신 단순화). 모든 핸들러는 isInEditable(target)일 때 suppress(Cmd+E 가드와 동일). Cmd+W는 close-tab 컨벤션 예약, Cmd+1/2/3은 미래 tab-by-index 예약.",
+                "recorded_at": "2026-05-03T11:26:54.376Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "v1 키바인딩: Cmd+\\ (split right), Cmd+Shift+\\ (split down), Cmd+Shift+W (close active group). 그룹 포커스 이동: Cmd+Alt+ArrowLeft/Right/Up/Down. 모든 핸들러는 keybindings/global.ts의 isInEditable(target) 가드로 입력 컨텍스트에서 무시. Cmd+W는 close-tab(미래) 예약, Cmd+1/2/3은 tab-by-index(미래) 예약, Cmd+E/Cmd+R 기존과 충돌 없음. Cmd+K chord 프리픽스는 선택지였으나 단일키 조합이 단순하고 macOS-first에서 Alt+화살표로 group 포커스를 옮기는 패턴이 자연스러움. 기각: (a) Cmd+K chord — 학습 비용 증가, 한 번에 한 액션 수행 원칙 위반. (b) Cmd+W close-group — 향후 close-tab 컨벤션 충돌. 가정: focus 라우팅은 layout store의 setActiveGroup만 호출하면 portal pool host가 자동으로 visibility 갱신하므로 DOM focus는 별도 요청(예: TabBar의 첫 탭에 focus())로 처리."
+          }
+        ],
+        "research_summary": "VSCode 정책(Explore): group이 leaf인 binary tree, GroupDirection {UP/DOWN/LEFT/RIGHT}, Sizing 전략(Distribute/Split/Auto/Invisible), 마지막 탭 닫으면 group merge, activeGroup 명시 추적+이벤트, 4-edge+center DnD, 전체 layout 직렬화. Architect 메모: split|leaf binary tree, 새 layout.ts + tabs.ts는 record-only로 슬림화, workspace-scoped tab.id 유지, activeGroupId 저장, collapse-and-hoist closing rule, 핵심으로 portal-style 플랫 풀로 터미널 PTY 생존 보장(레이아웃 변경 시 remount 없이 CSS reposition). Designer 메모: 우클릭 컨텍스트 메뉴를 primary, ResizeHandle 재사용+horizontal variant, active group은 bg-frosted-veil로만 표시(테두리 없음), min-width 180px+가로스크롤, 2-edge DnD(right/bottom)+center 이동, \"No tab open\" placeholder는 sole-leaf만, Cmd+\\ 계열 단축키. 현재 코드: tabs.ts(WorkspaceSlice 평면), TabContent 단일 active tab, TerminalView는 tabId/cwd로 키된 mount, FilesPanel과 Sidebar는 ResizeHandle + appState 영속화 패턴 확립.",
+        "created_at": "2026-05-03T11:25:53.514Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "shared 스키마/타입 확장 (LayoutNode + SerializedTab + AppState)",
+          "status": "completed",
+          "context": "layout 트리·tab 레코드·activeGroup을 직렬화해 영속화하기 위한 zod 스키마와 TS 타입을 shared에 정의한다. 트리는 binary(split|leaf), tab은 type+title+props, AppStateSchema에 layoutByWorkspace를 optional로 추가한다(backward-compat).",
+          "acceptance": "- src/shared/types/layout.ts 신설 및 zod 파싱이 합법/불법 입력에 정확히 통과/실패한다(min/max ratio, 잘못된 kind, dangling discriminator).\n- AppStateSchema가 layoutByWorkspace 없는 기존 영속 데이터도 그대로 파싱한다.\n- shared d.ts(out/shared)가 새 export를 포함한다.\n- bun test 단위 테스트(스키마 라운드트립)가 통과한다.",
+          "approach": "새 파일 src/shared/types/layout.ts: SplitOrientation = z.enum([\"horizontal\",\"vertical\"]); SerializedLeafSchema = {kind:\"leaf\", id:uuid, tabIds:string[], activeTabId:string|null}; SerializedSplitSchema(z.lazy)는 {kind:\"split\", id:uuid, orientation, ratio:number().min(0.05).max(0.95), first:SerializedNode, second:SerializedNode}; SerializedNodeSchema = z.discriminatedUnion(\"kind\",[leaf,split]); SerializedTabSchema = {id:uuid, type:enum[\"terminal\",\"editor\"], title:string, props:union(TerminalTabProps, EditorTabProps)}; WorkspaceLayoutSnapshot = {root, activeGroupId:uuid, tabs:SerializedTab[]}. src/shared/types/appState.ts에 layoutByWorkspace?: Record<string, WorkspaceLayoutSnapshot> 추가. types/index.ts에 re-export. 빌드: bunx tsc -b tsconfig.shared.json으로 d.ts 재생성.",
+          "risk": "discriminated union + z.lazy 재귀 정의의 타입 추론이 흔들릴 수 있음 → SerializedNode 타입을 z.infer 대신 명시적 interface로 선언해 회피.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "addb02f54fd903ae8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:29:32.321Z"
+        },
+        {
+          "id": 2,
+          "title": "tabs.ts를 record-only registry로 슬림화",
+          "status": "completed",
+          "context": "현 useTabsStore는 byWorkspace: Record<wsId, {tabs[], activeTabId}> 형태로 ordering+active까지 갖는다. layout.ts가 ordering/active를 인계받으므로 tabs.ts는 Tab 레코드 맵만 남긴다. WorkspacePanel/App.tsx 등 기존 호출지점은 layout.ts(operations helper)로 이동하므로 본 task에서는 store만 변경한다.",
+          "acceptance": "- tabs.ts 호출 가능한 액션은 createTab/removeTab/renameTab/closeAllForWorkspace 4종.\n- byWorkspace 형태가 평면 record로 변경되었고 ordering/activeTabId 필드가 사라진다.\n- workspace:removed 이벤트로 해당 wsId 슬라이스가 삭제된다.\n- 단위 테스트 통과 + 기존 컴파일러 깨짐은 T7에서 해결할 부분만 남는다.",
+          "approach": "src/renderer/store/tabs.ts 재작성: byWorkspace: Record<wsId, Record<tabId, Tab>>; createTab(workspaceId, type, props): Tab; removeTab(workspaceId, tabId): void; renameTab(workspaceId, tabId, title): void; closeAllForWorkspace(workspaceId): void(workspace:removed 구독 유지). useWorkspaceTabs 셀렉터는 제거(layout이 ordering 보유). useTabsStore는 그대로 유지. 기존 호출지점은 일단 임시로 type assertion이나 placeholder로 깨지지 않도록 type-shim 유지하되, 실제 마이그레이션은 T7에서 일괄. 단위 테스트 tests/unit/tabs-store.test.ts 신설(create/remove/rename/closeAll/workspace:removed 트리거).",
+          "risk": "호출 지점이 동시에 깨지면 dev/test 진행이 막힌다 → T2 작업 중에는 useTabsStore re-export 자리에 deprecated façade를 두지 말고 곧바로 T7과 같은 사이클 안에서 일괄 마이그레이션 순서로 진행. 본 task는 store 자체와 testfile에 집중.",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8a782ac15545fd17",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:29:45.641Z"
+        },
+        {
+          "id": 3,
+          "title": "layout.ts 스토어(트리·active·collapse) 신설",
+          "status": "completed",
+          "context": "트리(binary split|leaf) + activeGroupId per workspace를 소유. 트리 동작과 collapse-and-hoist 알고리즘은 store/files의 types/helpers/store 패턴을 따른다. 트리 식별자는 crypto.randomUUID. ratio 0.05~0.95 클램프. tabs.ts와는 단순히 tabId 참조만 공유.",
+          "acceptance": "- ensureLayout 호출 시 빈 leaf root + activeGroupId가 생긴다.\n- splitGroup(orientation, side)이 트리에 split 노드를 끼우고 새 leaf id를 반환한다.\n- detachTab 결과로 leaf가 비면 root가 아닌 한 collapse-and-hoist 동작한다(부모 split이 sibling으로 교체).\n- setSplitRatio가 0.05~0.95로 클램프된다.\n- moveTab(tabId, toGroupId)이 두 leaf의 tabIds만 변경하며 tab.id 자체에는 손대지 않는다.\n- hydrate가 dangling tabId/빈 leaf를 silent repair하고 activeGroupId를 leftmost로 fallback한다.\n- 단위 테스트 통과(20개 이상 시나리오).",
+          "approach": "src/renderer/store/layout/{types.ts, helpers.ts, store.ts, index.ts} 구성. types: LayoutNode = LayoutLeaf|LayoutSplit (kind 구분), WorkspaceLayout = {root, activeGroupId}. helpers(순수): findGroup(root, groupId), parentSplitOf(root, leafId), leftmostLeaf(node), replaceNode(root, target, replacement), insertSplit(root, leafId, orientation, side, newLeaf), detachTab(root, tabId): {root', changed, hostedLeafId}, removeLeafAndHoist(root, leafId), clampRatio. store: ensureLayout/splitGroup/closeGroup/setSplitRatio(splitId, ratio)/setActiveGroup/attachTab(groupId, tabId, index?)/detachTab(tabId)/moveTab(tabId, toGroupId, index?)/setActiveTabInGroup({groupId, tabId, activateGroup?=true})/closeAllForWorkspace(wsId)/hydrate(wsId, snapshot). subscribe to ipc workspace:removed → closeAllForWorkspace. ratio default 0.5. 단위 테스트 tests/unit/layout-store.test.ts: split/close 후 hoist, ratio clamp, leftmost leaf 추적, activeGroupId 라우팅, attach/detach/move 시퀀스, hydrate 시 dangling tabId silent repair.",
+          "risk": "collapse-and-hoist의 재귀와 ratio 보존 엣지 케이스(중첩 split, 비대칭 트리). helpers는 항상 새 객체를 반환(불변)하도록 클론 헬퍼 통일.",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afd9554d112a86dbf",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:02.626Z"
+        },
+        {
+          "id": 4,
+          "title": "ResizeHandle orientation prop 확장 (horizontal sash 지원)",
+          "status": "completed",
+          "context": "현재 ResizeHandle은 사이드바/files panel 좌우 sash 전용이다. group 사이의 가로 sash(상하 분할)도 같은 컴포넌트로 처리하기 위해 orientation prop을 추가한다. 기존 호출지점의 동작은 변경되면 안 된다.",
+          "acceptance": "- orientation 미지정 시 기존 동작과 100% 동일(현재 사용처 회귀 없음).\n- orientation=\"horizontal\"일 때 cursor-row-resize, aria-orientation=\"horizontal\", h-2 hit area로 렌더된다.\n- 드래그 시 horizontal에서는 clientY 변화에 따라 onResize 호출.\n- onReset(double-click)이 두 방향 모두에서 호출된다.\n- 새 단위 테스트 통과 + 기존 ui-store/files-panel 테스트 회귀 없음.",
+          "approach": "src/renderer/components/ResizeHandle.tsx에 orientation: \"vertical\"|\"horizontal\" prop을 추가(default \"vertical\"). pointer 좌표축을 orientation에 따라 분기(vertical은 clientX delta, horizontal은 clientY delta). cursor 클래스는 cursor-col-resize/cursor-row-resize. 컨테이너 absolute 위치 클래스도 분기(top-0 bottom-0 right-0 w-2 vs left-0 right-0 bottom-0 h-2). aria-orientation 동기화. double-click 콜백은 onReset 그대로(부모가 ratio=0.5로 리셋). 단위 테스트 tests/unit/resize-handle.test.ts에 horizontal 분기 케이스 추가(클릭/드래그 좌표 변환, cursor 토큰 포함).",
+          "risk": "기존 css 좌우 클래스 하드코딩에서 prop-driven으로 바뀌며 토큰이 빠질 수 있음 → 변경 후 sidebar/files-panel 시각 회귀 수동 확인 항목 포함.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3431bc8f2485d3ab",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:14.471Z"
+        },
+        {
+          "id": 5,
+          "title": "LayoutTree + GroupView + ContextMenu 컴포넌트",
+          "status": "completed",
+          "context": "layout store의 트리를 따라 split/leaf를 재귀 렌더한다. leaf는 GroupView(TabBar 래퍼 + 빈 placeholder + 우클릭 메뉴)이고, split은 두 자식 사이에 ResizeHandle(horizontal/vertical) 배치. GroupView는 active group일 때 bg-frosted-veil을 TabBar에 적용. 우클릭은 Radix ContextMenu — Close/Close Others/Close All to Right/Split Right/Split Down.",
+          "acceptance": "- LayoutTree가 임의 깊이 binary tree를 정확히 렌더(가로/세로 혼합 split 포함).\n- split 사이 sash drag으로 ratio가 layout store에 반영되고, double-click이 0.5로 리셋된다.\n- GroupView 클릭 시 setActiveGroup이 호출되고 active group의 TabBar에 bg-frosted-veil이 들어간다.\n- 우클릭 메뉴 5개 항목이 보이고 각 동작이 layout/tabs operations로 위임된다.\n- 빈 root leaf만 placeholder(\"No tab open\" + Cmd+E)를 표시하고, 비단독 빈 leaf는 collapse-and-hoist에 의해 사라진다.",
+          "approach": "src/renderer/components/workspace/LayoutTree.tsx: props {workspaceId, root, onActivateGroup}. split 노드는 flex(orientation에 따라 row/col)로 두 자식 + ResizeHandle 사이 배치, ratio는 inline style flex-basis %로 적용. ResizeHandle onResize에서 setSplitRatio(splitId, newRatio), onReset에서 setSplitRatio(splitId, 0.5). leaf 노드는 GroupView 렌더. GroupView.tsx: TabBar(workspace+group 슬라이스의 tabs/activeTabId/operations.openTab/operations.closeTab/operations.setActive/onContextMenu) + slot div(data-group-slot={leaf.id}). active group 여부에 따라 className 토큰 분기(bg-frosted-veil + 비활성 시 stone-gray). leaf.tabIds.length===0 && root이면 placeholder (\"No tab open\" + Cmd+E hint). ContextMenu(Radix)는 TabBar의 각 trigger를 ContextMenu.Trigger로 래핑(Tooltip과 sibling 패턴 유지)하고 메뉴는 ContextMenu.Portal+Content로 렌더, 클래스는 bg-muted/border-mist-border/text-app-ui-sm/4px radius. 메뉴 액션: Close → operations.closeTab(tabId); Close Others → tabIds 중 그것만 제외 모두 closeTab; Close All to Right → 인덱스 우측 전체; Split Right → operations.splitGroupAndMove(groupId, \"horizontal\", \"after\", tabId); Split Down → (\"vertical\",\"after\"). 라이브 active group은 layout.activeGroupId.",
+          "risk": "flex-basis 퍼센트 + min-width 클램프 충돌이 시각 깨짐을 유발할 수 있음 → ResizeHandle drag clamp에서 min 180px를 percent로 환산해 가드.",
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5328dcc08e54bd61",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:33.928Z"
+        },
+        {
+          "id": 6,
+          "title": "ContentPool (portal pool) — TerminalView/EditorView 리포지셔닝",
+          "status": "completed",
+          "context": "PTY 생존 보장을 위해 워크스페이스의 모든 탭을 한번씩만 마운트하고, layout 트리 변경 시 React 트리를 그대로 둔 채 CSS 위치만 갱신한다. 그룹 이동은 ContentHost를 다른 slot으로 reposition만, 탭 close/workspace 제거에서만 unmount되어 PTY가 자연 종료된다.",
+          "acceptance": "- 한 터미널 탭이 group A → group B로 이동해도 TerminalView가 unmount되지 않는다(ipc kill 호출 없음 확인).\n- 워크스페이스 비활성 시 모든 ContentHost가 visibility:hidden, 활성 시 leaf.activeTabId만 visible.\n- split/sash drag 중에도 콘텐츠 위치가 슬롯과 일치해 흔들림 없이 따라간다(ResizeObserver 갱신).\n- 탭이 닫히면 그 ContentHost가 unmount된다.\n- 단위 테스트는 layout selector 셀렉션 로직만 분리해 검증(DOM 측정은 수동 확인).",
+          "approach": "src/renderer/components/workspace/ContentPool.tsx: props {workspaceId, isWorkspaceActive}. 워크스페이스의 모든 tab 레코드를 useTabsStore로 구독, tab.id를 key로 ContentHost 1개씩 렌더. ContentHost 내부에서 layout store 셀렉터로 ownerLeafId(tab이 속한 leaf), isActiveTab(leaf.activeTabId===tab.id), isActiveGroup(activeGroupId===ownerLeafId)을 도출. data-group-slot={ownerLeafId} DOM 노드를 querySelector로 찾고 그 element를 ResizeObserver로 관찰해 absolute position(top/left/width/height)을 React state에 갱신. 자기 wrapper div를 absolute 위치로 렌더하며 visibility는 isActiveTab && isWorkspaceActive ? \"visible\" : \"hidden\", pointer-events 동일. 내부에 tab.type === \"terminal\" ? <TerminalView/> : <EditorView/>. 슬롯이 사라지면(detach) 1프레임 안에 visibility hidden으로 떨어지고, removeTab 시 unmount → PTY kill. 추가 효과: layout store subscribe로 슬롯이 바뀐 직후 즉시 rect 재계산(ResizeObserver만으로는 즉시 트리거되지 않을 수 있음).",
+          "risk": "ResizeObserver가 react render 사이클과 어긋나며 1프레임 깜빡임 발생 가능 → useLayoutEffect로 측정 타이밍 보정. 슬롯이 일시적으로 0 사이즈인 경우 visibility를 hidden로 유지해 보호.",
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae7030d2f4c490bdd",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:51.273Z"
+        },
+        {
+          "id": 7,
+          "title": "WorkspacePanel/App 재배선 + 키바인딩 + persistence",
+          "status": "completed",
+          "context": "기존 WorkspacePanel의 TabBar+TabContent 직접 렌더를 LayoutTree+ContentPool 조합으로 교체. 새 탭 추가 경로(seed terminal, Cmd+E)는 layout-aware로(active group 안으로 attach) 변경. 키바인딩 추가. AppState read/write 라운드트립으로 layoutByWorkspace 영속화.",
+          "acceptance": "- 워크스페이스 첫 마운트 시 단일 leaf + 단일 터미널 탭 자동 시드(현 동작 보존).\n- Cmd+E로 파일 선택 시 active group 안에 editor 탭이 추가된다.\n- Cmd+\\ / Cmd+Shift+\\로 active group이 right/down split된다.\n- Cmd+Shift+W로 active group이 닫힌다(collapse-and-hoist 적용).\n- Cmd+Alt+ArrowLeft/Right/Up/Down으로 그룹 포커스가 이동한다.\n- 종료 후 재실행 시 layout/tabs가 복원되며 dangling tab id가 있어도 부팅이 깨지지 않는다.\n- isInEditable(target) 시 모든 단축키가 무시된다.\n- bun test/typecheck/build 모두 통과.",
+          "approach": "src/renderer/store/operations.ts(또는 store/tabs/operations.ts) 신설: openTab(wsId, type, props, opts:{groupId?:string|\"active\"} = {}) → tabsStore.createTab + layoutStore.attachTab(groupId ?? activeGroupId) + setActiveTabInGroup; closeTab(wsId, tabId) → layoutStore.detachTab + tabsStore.removeTab. WorkspacePanel.tsx: 첫 마운트에서 layoutStore.ensureLayout(wsId), tab 슬라이스가 비어있으면 operations.openTab(wsId,\"terminal\",{cwd}). 렌더는 <LayoutTree workspaceId={ws.id} ... /> + <ContentPool workspaceId={ws.id} isWorkspaceActive={isActive} />. App.tsx의 Cmd+E 핸들러는 useTabsStore.addTab → operations.openTab으로 교체. keybindings/global.ts: handleSplitRight/Down/CloseGroup/MoveFocus 추가, isInEditable 가드 유지. App.tsx의 keydown 라우터에서 Cmd+\\, Cmd+Shift+\\, Cmd+Shift+W, Cmd+Alt+Arrow를 라우팅(getActiveWorkspaceId 보유). main 영속화: ipc-contract appState.get/set 스키마는 T1으로 자동 확장. App.tsx boot effect에 layoutByWorkspace hydrate 추가, layoutStore 변경 시 250ms debounce로 ipcCall(\"appState\",\"set\",{layoutByWorkspace}). 직렬화 도우미는 store/layout/helpers.ts에 toSnapshot(wsId)/fromSnapshot(wsId, snap). T2의 호출지점 깨짐 일괄 해결.",
+          "risk": "키바인딩 정확성(modifier 조합), persistence debounce 타이밍, hydrate-에서 발생하는 silent repair가 사용자 데이터 손실로 비춰질 수 있음 → 손상된 항목만 제거하고 나머지는 유지.",
+          "deps": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a06c1816242338fb4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:31:12.753Z"
+        },
+        {
+          "id": 8,
+          "title": "통합/회귀 테스트 + 수동 UI 검증 체크리스트 작성",
+          "status": "completed",
+          "context": "엔지니어가 짠 단위 테스트만으로는 portal pool의 위치 추적/PTY 생존/persistence 라운드트립 같은 끝-끝 동작을 검증하기 어렵다. 통합 테스트가 가능한 부분(layout snapshot 라운드트립, operations openTab/closeTab의 store 사이드이펙트)을 작성하고, DOM/시각 동작은 수동 체크리스트로 사용자에게 명세를 전달한다.",
+          "acceptance": "- 통합 테스트 2개 파일 모두 통과(시나리오 8개 이상 합산).\n- 회귀 테스트(ui-store, files-panel, fs-channel, file-tree-keys 등) 모두 통과.\n- bunx tsc -b, bun run build 모두 통과.\n- 사용자 manual 체크리스트(7항목) 본문 보고 — 파일은 생성하지 않는다.",
+          "approach": "tests/integration/layout-persistence.test.ts: layoutStore.ensureLayout → split/move/close → toSnapshot → fromSnapshot 비교, dangling tabId 주입 시 silent repair, 빈 leaf만 있는 snapshot의 placeholder 동작. tests/integration/operations.test.ts: openTab/closeTab가 두 store 모두 일관되게 갱신, closeTab 후 leaf collapse-and-hoist. 수동 체크리스트는 docs 대신 사용자 보고용 메시지로 정리(파일 생성 금지). 항목: (1) Cmd+\\으로 우측 split이 생성되고 sash drag/double-click reset이 동작, (2) 우클릭 메뉴 5개 항목 동작, (3) 터미널 탭이 split된 group으로 이동 시 PTY가 살아있음(echo 명령으로 확인), (4) 활성 그룹 TabBar에 bg-frosted-veil이 들어가는지, (5) Cmd+Shift+W로 그룹이 닫히고 sibling이 hoist되는지, (6) 종료/재시작 후 layout/tab 복원, (7) min-width 180px 클램프 동작. typecheck/lint/build 통과 보고.",
+          "risk": "portal pool DOM 측정/visibility 같은 시각 동작은 자동화 어려움 → 사용자 manual 체크리스트로 명시하고 가능한 한 단위/통합 테스트에서 분리 가능한 부분을 다루는 것에 집중.",
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a7a61f826da1015d7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:31:26.335Z"
+        }
+      ]
     }
   ]
 }

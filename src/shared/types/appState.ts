@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
 export const WindowBoundsSchema = z.object({
   x: z.number(),
@@ -12,6 +13,7 @@ export const AppStateSchema = z.object({
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
+  layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

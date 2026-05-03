@@ -7,6 +7,10 @@ import { ipcCall } from "./ipc/client";
 import { handleGlobalKeyDown } from "./keybindings/global";
 import { useActiveStore } from "./store/active";
 import { useFilesStore } from "./store/files";
+import { useLayoutStore } from "./store/layout";
+import { layoutHelpers } from "./store/layout";
+import { openTab } from "./store/operations";
+import { registerLayoutPersistence } from "./store/persistLayout";
 import { useTabsStore } from "./store/tabs";
 import { useUIStore } from "./store/ui";
 import { useWorkspacesStore } from "./store/workspaces";
@@ -20,13 +24,44 @@ export function App() {
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
 
-  // Boot: hydrate UI state (sidebar width, files panel) from persisted app state.
+  // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
   useEffect(() => {
     ipcCall("appState", "get", undefined).then((state) => {
       useUIStore.getState().hydrate({
         sidebarWidth: state.sidebarWidth,
         filesPanelWidth: state.filesPanelWidth,
       });
+
+      // Hydrate layout + tabs from persisted snapshots
+      if (state.layoutByWorkspace) {
+        for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
+          try {
+            // Restore tabs record
+            const tabsMap: Record<string, (typeof snap.tabs)[number]> = {};
+            for (const t of snap.tabs) {
+              tabsMap[t.id] = t;
+            }
+            useTabsStore.setState((s) => ({
+              byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
+            }));
+
+            // Restore layout (sanitize against known tab ids)
+            const knownTabIds = new Set(snap.tabs.map((t) => t.id));
+            useLayoutStore.getState().hydrate(
+              wsId,
+              { root: snap.root, activeGroupId: snap.activeGroupId },
+              knownTabIds,
+            );
+          } catch {
+            // Silent repair: skip invalid snapshot for this workspace
+          }
+        }
+      }
+
+      // Register persistence subscriber after hydrate to avoid write-storm
+      // Use a brief timer so the store subscriptions don't fire during the
+      // synchronous hydrate state updates.
+      setTimeout(registerLayoutPersistence, 100);
     });
   }, []);
 
@@ -119,8 +154,7 @@ export function App() {
     [workspaces],
   );
 
-  // Cmd+E: open file picker and add an EditorView tab to the active workspace.
-  // Cmd+R / Cmd+Shift+R: soft-refresh the active workspace file tree (prevents page reload).
+  // Global keybindings: Cmd+E / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       handleGlobalKeyDown(e, {
@@ -135,9 +169,49 @@ export function App() {
             ],
           });
           if (canceled || filePaths.length === 0) return;
-          useTabsStore
-            .getState()
-            .addTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
+          openTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
+        },
+
+        splitActiveGroup: (orientation) => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+          const activeGroupId = layout.activeGroupId;
+          useLayoutStore.getState().splitGroup(wsId, activeGroupId, orientation, "after");
+        },
+
+        closeActiveGroup: () => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+          useLayoutStore.getState().closeGroup(wsId, layout.activeGroupId);
+        },
+
+        moveFocus: (direction) => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+
+          const leaves = layoutHelpers.allLeaves(layout.root);
+          if (leaves.length <= 1) return;
+
+          const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
+          if (currentIdx === -1) return;
+
+          let nextIdx: number;
+          if (direction === "left" || direction === "up") {
+            nextIdx = currentIdx > 0 ? currentIdx - 1 : leaves.length - 1;
+          } else {
+            nextIdx = currentIdx < leaves.length - 1 ? currentIdx + 1 : 0;
+          }
+
+          const nextLeaf = leaves[nextIdx];
+          if (nextLeaf) {
+            useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+          }
         },
       });
     }

@@ -2,7 +2,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { selectFlat, useFilesStore } from "../../store/files";
-import { useTabsStore } from "../../store/tabs";
+import { openTab } from "../../store/operations";
 import { FileTreeRow } from "./FileTreeRow";
 import { computeParentJumpIndex } from "./keys";
 
@@ -120,7 +120,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
       if (isDir) {
         useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
       } else {
-        useTabsStore.getState().addTab(workspaceId, "editor", {
+        openTab(workspaceId, "editor", {
           filePath: item.absPath,
           workspaceId,
         });
@@ -133,7 +133,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (item.node.type === "dir") {
       useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
     } else {
-      useTabsStore.getState().addTab(workspaceId, "editor", {
+      openTab(workspaceId, "editor", {
         filePath: item.absPath,
         workspaceId,
       });

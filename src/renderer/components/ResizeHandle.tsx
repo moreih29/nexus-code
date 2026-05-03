@@ -38,8 +38,15 @@ interface ResizeHandleProps {
    *   hit-area on the boundary (shared 50/50 between parent and neighbour).
    * - 'rightInside': translates -1/2 width inward, keeping the hit-area fully
    *   inside the parent so it does not overlap the adjacent panel.
+   * Only applies when orientation="vertical".
    */
   placement?: "rightCentered" | "rightInside";
+  /**
+   * Axis of the sash line.
+   * - 'vertical' (default): a vertical divider dragged left/right (col-resize).
+   * - 'horizontal': a horizontal divider dragged up/down (row-resize).
+   */
+  orientation?: "vertical" | "horizontal";
 }
 
 const POSITION_CLASS = {
@@ -47,6 +54,8 @@ const POSITION_CLASS = {
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-1/2 [-webkit-app-region:no-drag]",
   rightInside:
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize -translate-x-1/2 [-webkit-app-region:no-drag]",
+  horizontal:
+    "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-1/2 [-webkit-app-region:no-drag]",
 } as const;
 
 const KEYBOARD_NUDGE_PX = 10;
@@ -60,11 +69,12 @@ export function ResizeHandle({
   ariaLabel,
   className,
   placement,
+  orientation = "vertical",
 }: ResizeHandleProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   // Refs to avoid stale closures in document listeners.
-  const startXRef = useRef(0);
+  const startCoordRef = useRef(0);
   const startValueRef = useRef(0);
   const valueRef = useRef(value);
   // Mirror prop on every render so the mouseup commit uses the latest store value.
@@ -76,17 +86,23 @@ export function ResizeHandle({
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
 
+  const dragCursor = orientation === "horizontal" ? "row-resize" : "col-resize";
+
   useEffect(() => {
     if (!isDragging) return;
 
     const originalCursor = document.body.style.cursor;
     const originalUserSelect = document.body.style.userSelect;
 
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = dragCursor;
     document.body.style.userSelect = "none";
 
     function onMouseMove(e: MouseEvent) {
-      onResizeRef.current(startValueRef.current + (e.clientX - startXRef.current), false);
+      const delta =
+        orientation === "horizontal"
+          ? e.clientY - startCoordRef.current
+          : e.clientX - startCoordRef.current;
+      onResizeRef.current(startValueRef.current + delta, false);
     }
 
     function onMouseUp() {
@@ -108,11 +124,11 @@ export function ResizeHandle({
       document.body.style.cursor = originalCursor;
       document.body.style.userSelect = originalUserSelect;
     };
-  }, [isDragging]);
+  }, [isDragging, dragCursor, orientation]);
 
   function handleMouseDown(e: React.MouseEvent) {
     e.preventDefault();
-    startXRef.current = e.clientX;
+    startCoordRef.current = orientation === "horizontal" ? e.clientY : e.clientX;
     startValueRef.current = valueRef.current;
     setIsDragging(true);
   }
@@ -122,20 +138,44 @@ export function ResizeHandle({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault();
-      onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+    if (orientation === "horizontal") {
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+      }
+    } else {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+      }
     }
   }
+
+  const positionClass =
+    orientation === "horizontal"
+      ? POSITION_CLASS.horizontal
+      : POSITION_CLASS[placement ?? "rightCentered"];
+
+  const indicatorClass =
+    orientation === "horizontal"
+      ? isDragging
+        ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
+        : "absolute left-0 bottom-[4px] w-full h-px bg-[var(--splitter)] group-hover:h-0.5 group-hover:bg-[var(--splitter-hover)]"
+      : isDragging
+        ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
+        : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]";
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: separator/handle is not a button
     <div
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={orientation}
       aria-label={ariaLabel}
       aria-valuenow={value}
       aria-valuemin={min}
@@ -144,15 +184,9 @@ export function ResizeHandle({
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
-      className={cn(POSITION_CLASS[placement ?? "rightCentered"], className)}
+      className={cn(positionClass, className)}
     >
-      <div
-        className={
-          isDragging
-            ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
-            : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]"
-        }
-      />
+      <div className={indicatorClass} />
     </div>
   );
 }
