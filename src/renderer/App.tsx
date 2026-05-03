@@ -8,9 +8,8 @@ import { handleGlobalKeyDown } from "./keybindings/global";
 import { useActiveStore } from "./store/active";
 import { useFilesStore } from "./store/files";
 import { useLayoutStore } from "./store/layout";
-import { layoutHelpers } from "./store/layout";
+import { Grid } from "./split-engine";
 import { closeGroup, openTab, splitAndDuplicate } from "./store/operations";
-import { findLeaf } from "./store/layout/helpers";
 import { registerLayoutPersistence } from "./store/persistLayout";
 import { useTabsStore } from "./store/tabs";
 import { useUIStore } from "./store/ui";
@@ -178,7 +177,7 @@ export function App() {
           if (!wsId) return;
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
-          const activeLeaf = findLeaf(layout.root, layout.activeGroupId);
+          const activeLeaf = Grid.findView(layout.root, layout.activeGroupId);
           if (!activeLeaf || !activeLeaf.activeTabId) return;
           splitAndDuplicate(wsId, activeLeaf.id, activeLeaf.activeTabId, orientation, "after");
         },
@@ -197,7 +196,7 @@ export function App() {
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
 
-          const leaves = layoutHelpers.allLeaves(layout.root);
+          const leaves = Grid.allLeaves(layout.root);
           if (leaves.length <= 1) return;
 
           const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);

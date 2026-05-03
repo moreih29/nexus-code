@@ -1,21 +1,17 @@
 import { create } from "zustand";
-import {
-  allLeaves,
-  clampRatio,
-  detachTabId,
-  findLeaf,
-  findSplit,
-  insertSplit,
-  leftmostLeaf,
-  removeLeafAndHoist,
-  replaceNode,
-  sanitize,
-} from "./helpers";
-import type { LayoutLeaf, LayoutNode, LayoutState, WorkspaceLayout } from "./types";
+import { Grid } from "../../split-engine";
+import type { Direction } from "../../split-engine";
+import { stripDanglingTabs } from "./sanitize";
+import type { LayoutLeaf, LayoutNode, LayoutState, SplitOrientation, WorkspaceLayout } from "./types";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function toDirection(orientation: SplitOrientation, side: "before" | "after"): Direction {
+  if (orientation === "horizontal") return side === "before" ? "left" : "right";
+  return side === "before" ? "up" : "down";
+}
 
 function makeEmptyLeaf(): LayoutLeaf {
   return {
@@ -62,17 +58,17 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const layout = get().byWorkspace[workspaceId];
     if (!layout) return "";
 
-    const newLeaf = makeEmptyLeaf();
-    const newRoot = insertSplit(layout.root, groupId, orientation, side, newLeaf);
+    const direction = toDirection(orientation, side);
+    const { root: newRoot, newLeafId } = Grid.addView(layout.root, groupId, direction, crypto.randomUUID.bind(crypto));
 
     set((state) => ({
       byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
         root: newRoot,
-        activeGroupId: newLeaf.id,
+        activeGroupId: newLeafId,
       })),
     }));
 
-    return newLeaf.id;
+    return newLeafId;
   },
 
   closeGroup(workspaceId, groupId) {
@@ -93,12 +89,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         };
       }
 
-      const { root: newRoot, hoistedSiblingLeafId } = removeLeafAndHoist(root, groupId);
+      const { root: newRoot, hoistedSiblingLeafId } = Grid.removeView(root, groupId);
 
       // Route activeGroupId: if active group was the one removed, move to hoisted sibling
       let nextActive = activeGroupId;
       if (activeGroupId === groupId) {
-        nextActive = hoistedSiblingLeafId ?? leftmostLeaf(newRoot).id;
+        nextActive = hoistedSiblingLeafId ?? Grid.leftmostLeaf(newRoot).id;
       }
 
       return {
@@ -115,11 +111,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      const split = findSplit(layout.root, splitId);
-      if (!split) return state;
-
-      const updated = { ...split, ratio: clampRatio(ratio) };
-      const newRoot = replaceNode(layout.root, splitId, updated);
+      const newRoot = Grid.setRatio(layout.root, splitId, ratio);
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
@@ -144,22 +136,21 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      const leaf = findLeaf(layout.root, groupId);
-      if (!leaf) return state;
+      if (!Grid.findView(layout.root, groupId)) return state;
 
-      const tabIds = [...leaf.tabIds];
-      // Remove if already present to avoid duplicates
-      const existingIdx = tabIds.indexOf(tabId);
-      if (existingIdx !== -1) tabIds.splice(existingIdx, 1);
+      const newRoot = Grid.replaceLeaf(layout.root, groupId, (leaf) => {
+        const tabIds = [...leaf.tabIds];
+        const existingIdx = tabIds.indexOf(tabId);
+        if (existingIdx !== -1) tabIds.splice(existingIdx, 1);
 
-      if (index !== undefined) {
-        tabIds.splice(index, 0, tabId);
-      } else {
-        tabIds.push(tabId);
-      }
+        if (index !== undefined) {
+          tabIds.splice(index, 0, tabId);
+        } else {
+          tabIds.push(tabId);
+        }
 
-      const updated: LayoutLeaf = { ...leaf, tabIds, activeTabId: tabId };
-      const newRoot = replaceNode(layout.root, groupId, updated);
+        return { ...leaf, tabIds, activeTabId: tabId };
+      });
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
@@ -176,29 +167,41 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       if (!layout) return state;
 
       const { root, activeGroupId } = layout;
-      const { root: afterDetach, ownerLeafIdBefore, ownerLeafEmpty } = detachTabId(root, tabId);
 
-      if (!ownerLeafIdBefore) return state;
+      // Domain step: find owner leaf and compute updated tab list
+      const owner = Grid.allLeaves(root).find((l) => l.tabIds.includes(tabId));
+      if (!owner) return state;
 
-      // If the owner leaf is now empty and is not the sole leaf → hoist
+      const idx = owner.tabIds.indexOf(tabId);
+      const nextTabIds = owner.tabIds.filter((t) => t !== tabId);
+
+      let nextActiveTabId = owner.activeTabId;
+      if (nextActiveTabId === tabId) {
+        nextActiveTabId = owner.tabIds[idx - 1] ?? owner.tabIds[idx + 1] ?? null;
+      }
+      if (nextActiveTabId !== null && !nextTabIds.includes(nextActiveTabId)) {
+        nextActiveTabId = nextTabIds[0] ?? null;
+      }
+
+      const afterDetach = Grid.replaceLeaf(root, owner.id, (leaf) => ({
+        ...leaf,
+        tabIds: nextTabIds,
+        activeTabId: nextActiveTabId,
+      }));
+
+      // Structural step: hoist if leaf is now empty and not the sole leaf
       let finalRoot = afterDetach;
       let nextActive = activeGroupId;
 
-      if (ownerLeafEmpty) {
-        const { root: hoistedRoot, hoistedSiblingLeafId } = removeLeafAndHoist(
-          afterDetach,
-          ownerLeafIdBefore,
-        );
+      if (nextTabIds.length === 0) {
+        const { root: hoistedRoot, hoistedSiblingLeafId } = Grid.removeView(afterDetach, owner.id);
         if (hoistedSiblingLeafId !== null) {
           finalRoot = hoistedRoot;
-          if (activeGroupId === ownerLeafIdBefore) {
+          if (activeGroupId === owner.id) {
             nextActive = hoistedSiblingLeafId;
           }
         }
       }
-
-      // If activeGroup was this leaf and it's still present but empty → no reroute needed
-      // (it stays empty as a placeholder only if it's the sole leaf)
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
@@ -214,60 +217,77 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      // Step 1: detach from current owner
-      const { root: afterDetach, ownerLeafIdBefore, ownerLeafEmpty } = detachTabId(
-        layout.root,
-        tabId,
-      );
+      // Step 1a: domain detach — find owner leaf and compute updated tab list
+      const owner = Grid.allLeaves(layout.root).find((l) => l.tabIds.includes(tabId));
 
-      let intermediateRoot = afterDetach;
+      let intermediateRoot = layout.root;
       let nextActive = layout.activeGroupId;
 
-      if (ownerLeafIdBefore && ownerLeafEmpty) {
-        const { root: hoisted, hoistedSiblingLeafId } = removeLeafAndHoist(
-          afterDetach,
-          ownerLeafIdBefore,
-        );
-        if (hoistedSiblingLeafId !== null) {
-          intermediateRoot = hoisted;
-          if (nextActive === ownerLeafIdBefore) {
-            nextActive = hoistedSiblingLeafId;
+      if (owner) {
+        const idx = owner.tabIds.indexOf(tabId);
+        const nextTabIds = owner.tabIds.filter((t) => t !== tabId);
+
+        let nextActiveTabId = owner.activeTabId;
+        if (nextActiveTabId === tabId) {
+          nextActiveTabId = owner.tabIds[idx - 1] ?? owner.tabIds[idx + 1] ?? null;
+        }
+        if (nextActiveTabId !== null && !nextTabIds.includes(nextActiveTabId)) {
+          nextActiveTabId = nextTabIds[0] ?? null;
+        }
+
+        intermediateRoot = Grid.replaceLeaf(layout.root, owner.id, (leaf) => ({
+          ...leaf,
+          tabIds: nextTabIds,
+          activeTabId: nextActiveTabId,
+        }));
+
+        // Step 1b: structural — hoist if source leaf became empty
+        if (nextTabIds.length === 0) {
+          const { root: hoisted, hoistedSiblingLeafId } = Grid.removeView(intermediateRoot, owner.id);
+          if (hoistedSiblingLeafId !== null) {
+            intermediateRoot = hoisted;
+            if (nextActive === owner.id) {
+              nextActive = hoistedSiblingLeafId;
+            }
           }
         }
       }
 
-      // Step 2: attach to destination
-      const destLeaf = findLeaf(intermediateRoot, toGroupId);
+      // Step 2: attach to destination — re-query after possible hoist
+      const destLeaf = Grid.findView(intermediateRoot, toGroupId);
+
       if (!destLeaf) {
-        // Destination disappeared (it was hoisted away) — put tab in active group
-        const fallbackId = nextActive;
-        const fallbackLeaf = findLeaf(intermediateRoot, fallbackId);
+        // Destination disappeared (hoisted away) — put tab in active group
+        const fallbackLeaf = Grid.findView(intermediateRoot, nextActive);
         if (!fallbackLeaf) return state;
 
-        const tabIds = [...fallbackLeaf.tabIds];
-        if (index !== undefined) {
-          tabIds.splice(index, 0, tabId);
-        } else {
-          tabIds.push(tabId);
-        }
-        const updated: LayoutLeaf = { ...fallbackLeaf, tabIds, activeTabId: tabId };
-        const newRoot = replaceNode(intermediateRoot, fallbackId, updated);
+        const finalRoot = Grid.replaceLeaf(intermediateRoot, nextActive, (leaf) => {
+          const tabIds = [...leaf.tabIds];
+          if (index !== undefined) {
+            tabIds.splice(index, 0, tabId);
+          } else {
+            tabIds.push(tabId);
+          }
+          return { ...leaf, tabIds, activeTabId: tabId };
+        });
+
         return {
           byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
-            root: newRoot,
+            root: finalRoot,
             activeGroupId: nextActive,
           })),
         };
       }
 
-      const tabIds = [...destLeaf.tabIds];
-      if (index !== undefined) {
-        tabIds.splice(index, 0, tabId);
-      } else {
-        tabIds.push(tabId);
-      }
-      const updated: LayoutLeaf = { ...destLeaf, tabIds, activeTabId: tabId };
-      const finalRoot = replaceNode(intermediateRoot, toGroupId, updated);
+      const finalRoot = Grid.replaceLeaf(intermediateRoot, toGroupId, (leaf) => {
+        const tabIds = [...leaf.tabIds];
+        if (index !== undefined) {
+          tabIds.splice(index, 0, tabId);
+        } else {
+          tabIds.push(tabId);
+        }
+        return { ...leaf, tabIds, activeTabId: tabId };
+      });
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
@@ -283,11 +303,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      const leaf = findLeaf(layout.root, groupId);
+      const leaf = Grid.findView(layout.root, groupId);
       if (!leaf || !leaf.tabIds.includes(tabId)) return state;
 
-      const updated: LayoutLeaf = { ...leaf, activeTabId: tabId };
-      const newRoot = replaceNode(layout.root, groupId, updated);
+      const newRoot = Grid.replaceLeaf(layout.root, groupId, (l) => ({ ...l, activeTabId: tabId }));
 
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
@@ -308,15 +327,16 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 
   hydrate(workspaceId, snapshot, knownTabIds) {
-    const sanitizedRoot = sanitize(snapshot.root, knownTabIds);
+    const stripped = stripDanglingTabs(snapshot.root, knownTabIds);
+    const sanitizedRoot = Grid.collapseEmptyLeaves(stripped);
 
     // Validate activeGroupId — must point to an existing leaf
-    const leaves = allLeaves(sanitizedRoot);
+    const leaves = Grid.allLeaves(sanitizedRoot);
     const leafIds = new Set(leaves.map((l) => l.id));
 
     let activeGroupId = snapshot.activeGroupId;
     if (!leafIds.has(activeGroupId)) {
-      activeGroupId = leftmostLeaf(sanitizedRoot).id;
+      activeGroupId = Grid.leftmostLeaf(sanitizedRoot).id;
     }
 
     set((state) => ({

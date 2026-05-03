@@ -9,7 +9,7 @@
 
 import { useRef } from "react";
 import { useLayoutStore } from "../../../store/layout";
-import { allLeaves } from "../../../store/layout/helpers";
+import { Grid } from "../../../split-engine";
 import { useTabsStore } from "../../../store/tabs";
 import { ContentHost } from "./ContentHost";
 import { ownerLeafIdOf } from "./selectors";
@@ -33,7 +33,7 @@ export function ContentPool({
   // Derive activeTabId for each leaf once so ContentHost can get isActiveTab.
   const activeTabByLeaf: Record<string, string | null> = {};
   if (layout) {
-    for (const leaf of allLeaves(layout.root)) {
+    for (const leaf of Grid.allLeaves(layout.root)) {
       activeTabByLeaf[leaf.id] = leaf.activeTabId;
     }
   }

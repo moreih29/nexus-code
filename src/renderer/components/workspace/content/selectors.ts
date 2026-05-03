@@ -1,4 +1,4 @@
-import { allLeaves } from "../../../store/layout/helpers";
+import { Grid } from "../../../split-engine";
 import type { LayoutNode } from "../../../store/layout/types";
 
 /**
@@ -9,7 +9,7 @@ import type { LayoutNode } from "../../../store/layout/types";
  * multiple leaves (data corruption), the first match is returned.
  */
 export function ownerLeafIdOf(root: LayoutNode, tabId: string): string | null {
-  const leaves = allLeaves(root);
+  const leaves = Grid.allLeaves(root);
   const owner = leaves.find((leaf) => leaf.tabIds.includes(tabId));
   return owner?.id ?? null;
 }

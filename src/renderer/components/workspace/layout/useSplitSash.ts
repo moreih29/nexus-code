@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import type { LayoutSplit } from "@/store/layout";
 import { useLayoutStore } from "@/store/layout";
+import { Grid } from "@/split-engine";
 
 interface UseSplitSashOptions {
   workspaceId: string;
@@ -38,7 +39,7 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
   function onResize(px: number, _persist: boolean) {
     const size = getContainerSize();
     if (size === 0) return;
-    const ratio = Math.min(0.95, Math.max(0.05, px / size));
+    const ratio = Grid.pxToRatio(px, size);
     layoutStore.setSplitRatio(workspaceId, split.id, ratio);
   }
 
@@ -52,8 +53,8 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
   const sashProps: SashProps = {
     orientation: sashOrientation,
     value: split.ratio * containerSize,
-    min: containerSize * 0.05,
-    max: containerSize * 0.95,
+    min: Grid.MIN_RATIO * containerSize,
+    max: Grid.MAX_RATIO * containerSize,
     onResize,
     onReset,
     ariaLabel: isHorizontal ? "Resize panels horizontally" : "Resize panels vertically",
