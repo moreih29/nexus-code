@@ -1002,6 +1002,145 @@
           "created_at": "2026-05-02T14:54:40.114Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T02:45:32.835Z",
+      "branch": "feat/m1-design-system",
+      "plan": {
+        "id": 5,
+        "topic": "M1 디자인 시스템 정리 — 타이포 토큰 통일 + radix-ui import 컨벤션",
+        "issues": [
+          {
+            "id": 1,
+            "title": "렌더러 타이포 raw 값 → 토큰 통일 전략 결정 (매핑 + 토큰 확장 여부)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "design.md = Warp 마케팅 spec(잡지 톤·80px hero·캡션 uppercase). typeScale 18 role 중 16개가 16px+이고 13/14 application body가 부재 — 마케팅 어휘 ≠ application 어휘. 무리 매핑은 의미 손상. 권고: typeScale은 marketing scale로 보존 + application-ui role 4개 추가(appBody 13/1.4/0, appBodyEmphasis 14/1.3/0, appUiSm 12/1.5/0). 기존 micro(11/1.2/0)는 path tail·tooltip에 정확 일치하므로 흡수. 13/14 분리는 데스크톱 dev tool(VSCode/Linear/Warp app) 컨벤션과 일치하므로 유지. utility 노출은 의미 봉인을 위해 size+lh+ls 묶음 한 클래스 형태(plugin 또는 globals.css 정의)로 — raw 분리 노출은 비례 유실 위험. **Critical 발견**: Sidebar workspace name `14/1.4/-0.14`는 Warp body 18px 비례(-1%)를 14px에 그대로 옮긴 자취 — 14px UI text는 tracking 0(또는 가벼운 +0.1) 권장. 이는 새 appBodyEmphasis 정의에 흡수.",
+                "recorded_at": "2026-05-03T02:32:14.448Z",
+                "agent_id": "a452c15e3bda1600e"
+              },
+              {
+                "role": "architect",
+                "summary": "Tailwind v4 정식 형식: `--text-{role}` + 이중 하이픈 modifier(`--text-{role}--line-height`/`--letter-spacing`/`--font-weight`) → 자동 `text-{role}` utility 생성. 현재 `--type-*` 네임스페이스는 Tailwind가 인지 못함 — utility 0개가 raw 회귀의 직접 원인. 4개 후보 비교 결과 A1(plugin output 네임스페이스 변경) 채택 권고: ① Tailwind v4 vendor 공식 경로, ② 단일 소스 파이프라인(design-tokens.ts → plugin → utility), ③ shadcn role 이름은 generic 아님(`body`/`micro`/`navUi`) → 기본 `text-sm`/`text-base`와 충돌 없음, ④ JS측 EditorView/TerminalView는 Monaco/xterm이 CSS var 못 받으므로 typeScale 직접 import 유지(공존 가능). A2(globals.css 수기 utility) 기각 근거: design-tokens.ts 변경 시 globals.css도 손대야 해 단일 소스 약화. A3(React `<Text>` 컴포넌트) 기각 근거: shadcn className 패러다임과 본질적으로 다름·migration 비용 큼. font-family는 modifier 미지원이라 `font-mono`/`font-sans` 별도 지정. 마이그레이션 절차: plugin 변경 → utility 자동 등장 검증 → 9건 raw → utility 치환 → design 주석 명문화. Risk: IDE Tailwind IntelliSense cache 갱신 필요. lint:tw에 raw 패턴 감지 추가는 선택.",
+                "recorded_at": "2026-05-03T02:32:24.176Z",
+                "agent_id": "a07957698437c76d5"
+              }
+            ],
+            "decision": "## 결정\n\n**typeScale 18 role(Warp marketing scale)은 그대로 보존하고, design-tokens.ts에 application-ui role 4개를 추가한다. vite plugin output을 Tailwind v4 정식 형식(`--text-{role}` + 이중 하이픈 modifier)으로 변경해 컴포넌트가 자동 생성 utility를 쓴다. raw 9건은 새 utility로 치환한다. JS측(EditorView/TerminalView)은 Monaco/xterm 제약상 typeScale 직접 import를 유지한다.**\n\n## 새 application-ui role 4개\n\ndesign-tokens.ts에 다음을 추가한다 (typeScale와 같은 객체에 들어가되 코멘트 블록으로 구분, 또는 별도 `appTypeScale` export로 분리 — 구현 시 결정):\n\n| role | size | line-height | letter-spacing | weight | 사용처 |\n|---|---|---|---|---|---|\n| `appBody` | 13 | 1.4 | 0 | 400 | viewport-center placeholder, secondary text. App.tsx:159, TabContent.tsx:20, Sidebar.tsx:109 (Add workspace) |\n| `appBodyEmphasis` | 14 | 1.3 | 0 | 400 | primary UI text(workspace name 등). Sidebar.tsx:68. **기존 `1.4/-0.14`는 Warp body 18px 비례를 14px에 잘못 옮긴 자취 — 14px UI text는 tracking 0이 정설(Designer Q3)** |\n| `appUiSm` | 12 | 1.5 | 0 | 400 | TabBar trigger, Sidebar empty 보조. Sidebar.tsx:35, TabBar.tsx:50 |\n| (기존 `micro` 11/1.2/0 활용) | — | — | — | — | path tail, tooltip. Sidebar.tsx:75, TabBar.tsx:83 |\n\nSidebar.tsx:90의 × 아이콘은 `text-app-body-emphasis` + `leading-none` 조합 또는 별도 small icon button 패턴으로 흡수.\n\n## vite plugin output 변경\n\n`scripts/generate-theme-css.ts`(L46-51)와 `electron.vite.config.ts`의 mirror 블록을 `--type-*` → `--text-{role}` 네임스페이스로 변경:\n\n```ts\nlines.push(`  --text-${kebab}: ${def.fontSize}px;`);\nlines.push(`  --text-${kebab}--line-height: ${def.lineHeight};`);\nlines.push(`  --text-${kebab}--letter-spacing: ${def.letterSpacing}px;`);\nlines.push(`  --text-${kebab}--font-weight: ${def.fontWeight};`);\n```\n\n결과: Tailwind v4가 `text-body`, `text-micro`, `text-app-body`, `text-app-body-emphasis` 등 utility를 자동 생성. EditorView/TerminalView는 JS측에서 typeScale import를 유지하므로 영향 없음.\n\n## 채택 이유\n\n1. **두 axis(토큰 자체 + Tailwind 노출)는 직교한다 — 함께 풀어야 한다.** Designer는 토큰의 **의미** 갭(application-ui role 부재), Architect는 **메커니즘** 갭(`--type-*` 네임스페이스가 Tailwind utility로 변환 안 됨)을 짚었다. 한쪽만 고치면 다른 쪽이 그대로다.\n2. **Tailwind v4 vendor 공식 경로**: `--text-{role}--line-height` modifier 문법은 Tailwind v4 docs에 명시된 정식 형식이다(researcher 확인 출처: tailwindcss.com font-size docs). 우회나 hack이 아니다.\n3. **단일 소스 보존**: design-tokens.ts → vite plugin → `theme.generated.css` → 자동 utility 한 줄 파이프라인. globals.css 수기 동기화 불필요.\n4. **size+lh+ls를 한 utility에 묶음 → 의미 봉인**: Designer가 우려한 \"비례 망가짐\"(Q3의 14/1.4/-0.14 같은 자취)은 한 클래스가 세 속성을 함께 적용하므로 재발 차단.\n5. **shadcn 충돌 없음**: 우리 role 이름(`body`/`micro`/`navUi`/`app-body` 등)은 generic이 아니라 충돌 0. button.tsx의 `text-sm`/`text-base`/`text-lg`는 그대로 작동.\n6. **Critical 발견 자연스러운 흡수**: workspace name 비례 오류(`14/1.4/-0.14` → `14/1.3/0`)가 새 `appBodyEmphasis` 정의에 흡수되어 별도 코드 변경 없이 함께 수정됨.\n\n## 기각 대안과 사유\n\n- **typeScale 자체를 application 위주로 재정의**: 향후 Welcome/Onboarding/Settings 화면에 marketing-scale role(24px+ heading, 18px body) 재발명 비용. design.md ↔ typeScale의 1:1 추적 끊어짐. **기각**.\n- **typeScale을 `marketingScale`/`appScale` 두 export로 분리**: 이상적이나 현재 마케팅 면이 부재 — 명명 비용 대비 ROI 낮음. application-only role 4개 추가로 충분하며, 향후 마케팅 면이 생기면 그때 분리. **현 시점 기각, 미래 재검토 여지**.\n- **A2(globals.css에 18 role × `@utility` 수기 정의)**: design-tokens.ts 변경 시 globals.css도 함께 손대야 함 → 단일 소스 약화. **기각**.\n- **A3(React `<Text role=\"body\">` 컴포넌트)**: shadcn className 패러다임과 본질적으로 다름, 9건 마이그레이션 비용 큼, inline style의 specificity가 className override를 어렵게 함. **기각**. (단 EditorView/TerminalView의 inline style 사용은 Monaco/xterm 제약 때문이며 A1과 자연스럽게 공존)\n- **A4(raw 값 유지)**: 토큰화 의도 무력화, design.md ↔ design-tokens.ts ↔ 컴포넌트 일치 보증 불가. **기각**.\n\n## 가정 (검증 필요)\n\n- design-tokens.ts에 application-ui role을 typeScale 객체 내부에 추가할지 별도 `appTypeScale` export로 분리할지는 구현 단계에서 결정. Designer 권고(별도 출처 명시)에 가깝게 별도 export + 코멘트로 분리 정책 명문화 권장.\n- font-family는 Tailwind v4 modifier 미지원 — 컴포넌트에서 `font-mono`/`font-sans` 명시 또는 typeScale role마다 weight·family 고정이라 lint 강제 가능 (선택, 별도 task).\n- workspace name tracking 변경(`-0.14 → 0`)은 시각적 변화가 즉시 보이므로 Designer Plan Gate 조건대로 muted_foreground 대비 4.5:1 재검증 필요(별도 task).\n\n## 범위 제외\n\n- CI 가드(design-tokens.ts ↔ theme.generated.css drift 검증)는 사용자 명시로 이번 plan 제외.\n- lint:tw에 raw font-size 패턴(`text-\\[\\d+px\\]`) 감지 추가는 미래 옵션 (별도 issue)."
+          },
+          {
+            "id": 2,
+            "title": "radix-ui umbrella vs @radix-ui/react-* individual import 컨벤션 통일",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Umbrella(`radix-ui`)로 통일 권고. 근거 4가지: ① components.json이 new-york이고 shadcn CLI가 2026-02부터 new-york default를 umbrella로 전환(공식 changelog 확인) — individual 유지 시 `shadcn add` 매번 수기 변환 필요, ② radix-ui umbrella는 공식적으로 tree-shakable 명시(번들 trade-off 사실상 0), ③ 현재 radix 사용 파일은 button.tsx + TabBar.tsx 단 2개 — 마이그레이션 비용이 가장 낮은 시점, ④ individual 패키지 별도 유지는 두 소스가 다른 primitive 버전을 끌고 와 React Context 갈라짐(예: TooltipProvider context mismatch) 클래식 버그 위험. 변경: TabBar.tsx → `import { Tabs as RadixTabs, Tooltip as RadixTooltip } from \"radix-ui\"` (`*.Root`, `*.List` 같은 namespace 사용 패턴 그대로 작동). package.json에서 `@radix-ui/react-tabs`, `@radix-ui/react-tooltip` 제거 가능. shadcn migrate CLI(`shadcn migrate radix`) 자동 변환 사용 가능하나 ui/ 외부 파일은 path 인자 명시. peer dep React 19.2 호환 OK.",
+                "recorded_at": "2026-05-03T02:32:33.382Z",
+                "agent_id": "a07957698437c76d5"
+              },
+              {
+                "role": "researcher",
+                "summary": "외부 사실 확인. (Q1) shadcn-ui CLI는 2026-02 changelog에서 new-york style의 default를 individual `@radix-ui/react-*`에서 umbrella `radix-ui`로 전환. 기존 프로젝트는 `pnpm dlx shadcn@latest migrate radix`로 변환. 출처: ui.shadcn.com/docs/changelog/2026-02-radix-ui. (Q2) radix-ui umbrella tree-shaking은 ESM + sideEffects:false 기반으로 실질 가능. 단 \"fully tree-shakable\"을 단언하는 1차 공식 docs는 PR #2922(2024-06)와 issue #336 흔적까지. 추측: Vite/webpack5 + ESM + sideEffects:false 조합이면 미사용 primitive 제거됨, 단 공식 보증 근거는 불충분.",
+                "recorded_at": "2026-05-03T02:32:39.243Z",
+                "agent_id": "aa906baf67e929677"
+              }
+            ],
+            "decision": "## 결정\n\n**Umbrella 패키지(`radix-ui`)로 통일한다. TabBar.tsx의 individual import를 umbrella named export로 변경하고, package.json에서 `@radix-ui/react-tabs`와 `@radix-ui/react-tooltip` 개별 의존성을 제거한다.**\n\n## 변경 내용\n\n1. `src/renderer/components/TabBar.tsx` (L1-2):\n   ```ts\n   // before\n   import * as RadixTabs from \"@radix-ui/react-tabs\";\n   import * as RadixTooltip from \"@radix-ui/react-tooltip\";\n   // after\n   import { Tabs as RadixTabs, Tooltip as RadixTooltip } from \"radix-ui\";\n   ```\n   `RadixTabs.Root`, `RadixTabs.List`, `RadixTabs.Trigger`, `RadixTooltip.Provider`, `RadixTooltip.Root`, `RadixTooltip.Trigger`, `RadixTooltip.Portal`, `RadixTooltip.Content` 등 namespace 사용 패턴은 그대로 작동(Researcher·Architect 확인).\n\n2. `package.json` `dependencies`에서 다음 두 줄 제거:\n   - `\"@radix-ui/react-tabs\": \"^1.1.13\"`\n   - `\"@radix-ui/react-tooltip\": \"^1.2.8\"`\n\n3. `bun install` → `bun.lock` 갱신.\n\n## 채택 이유\n\n1. **shadcn CLI 정합성**: 2026-02 changelog로 new-york style default가 umbrella로 전환됨(researcher 1차 출처 ui.shadcn.com/docs/changelog/2026-02-radix-ui). components.json이 `\"style\": \"new-york\"`이므로 향후 `shadcn add` 명령은 자동으로 umbrella import를 generate한다 — individual을 유지하면 매 추가마다 수기 변환 toil이 누적되거나 outlier가 쌓인다.\n2. **현 시점이 마이그레이션 비용 최저점**: radix를 import하는 파일은 button.tsx + TabBar.tsx 단 2개, button은 이미 umbrella 사용 중. TabBar.tsx 한 파일 + package.json 두 줄이 전부.\n3. **버전 drift 차단**: umbrella `radix-ui` ^1.4.3가 내부 primitive 버전을 일괄 관리. 개별 `@radix-ui/react-tabs`/`react-tooltip`을 함께 두면 두 소스가 다른 primitive 버전을 끌고 와 React Context 갈라짐 클래식 버그(예: TooltipProvider context mismatch)를 만들 수 있다.\n4. **번들 사이즈 trade-off 사실상 0**: radix umbrella는 ESM + `sideEffects: false`로 tree-shakable하게 설계됨. Vite 6 + 현 빌드 파이프라인에서 미사용 primitive는 emitted bundle에서 제거된다(Researcher: 공식 문구 단언은 PR #2922 흔적까지, 단 실질 동작은 확실).\n\n## 기각 대안과 사유\n\n- **Individual로 통일(button.tsx도 individual로 변환)**: shadcn 2026-02 default 정책과 역방향. `shadcn add` 정합성 영구 손실. **기각**.\n- **현 mix 유지**: toil 누적, 새 컴포넌트 추가 시 outlier 증가, version drift 위험 그대로. **기각**.\n\n## 가정 (검증 필요)\n\n- radix-ui umbrella의 `Tabs`/`Tooltip` named export가 `* as RadixTabs from \"@radix-ui/react-tabs\"` 형식의 namespace 사용 패턴(`RadixTabs.Root`)과 1:1 호환된다는 점은 Architect의 context7 확인을 신뢰. 마이그레이션 직후 `bun run typecheck` + `bun run dev`로 Tabs 전환·Tooltip 표시·hover 등 동작 1차 확인 필요.\n- shadcn migrate CLI(`shadcn migrate radix`)는 ui/ 디렉토리 외부 파일에 path 인자가 필요. TabBar.tsx는 `src/renderer/components/`에 있으므로 수기 변환이 더 빠르다 — CLI 사용은 선택.\n\n## 범위 제외\n\n- `radix-ui` umbrella의 다른 primitive(Dialog, DropdownMenu 등)를 미리 도입하지 않는다. 새 primitive가 필요할 때 `shadcn add`로 자연스럽게 들어옴."
+          }
+        ],
+        "research_summary": "## 사실 (Lead 직접 검증)\n\n**raw 타이포 사용처 (전수, 9건):**\n- App.tsx:159 — `text-[13px]` (empty state)\n- TabContent.tsx:20 — `text-[13px]` (empty state)\n- Sidebar.tsx:35 — `text-[12px] leading-[1.5]` (empty state) — lh가 토큰 어떤 role과도 불일치\n- Sidebar.tsx:68 — `text-[14px] leading-[1.4] tracking-[-0.14px]` (workspace name)\n- Sidebar.tsx:75 — `text-[11px] leading-[1.2]` (path tail) — typeScale.micro(11/1.2/0)와 정확히 일치\n- Sidebar.tsx:90 — `text-[14px]` (× icon)\n- TabBar.tsx:50 — `text-[12px]` (tab text)\n- TabBar.tsx:83 — `text-[11px]` (tooltip)\n- button.tsx variants — Tailwind preset(`text-base`/`text-sm`/`text-lg`) 사용 (raw 아님)\n\n**typeScale 18 role (design-tokens.ts:115-249, theme.generated.css:26-82) 와의 갭:**\n- 13px는 typeScale에 없음 (12 → micro 11과 14 → caption 사이 비어있음)\n- 14px는 caption(14/1.0/1.4)이지만 컴포넌트는 `lh 1.4 ls -0.14`로 다른 의미로 사용 — UI body 14px 역할이 토큰에 없음\n- micro(11/1.2/0)만 정확 일치\n- ⇒ **typeScale은 Warp 마케팅 spec 18 role이고 application-ui 사이즈(13/14 UI body)는 부재**. 단순 raw→role 1:1 치환은 의도 손상 위험.\n\n**Tailwind v4 노출 메커니즘 (theme.generated.css 검증):**\n- `@theme {}` 블록에 `--type-*-size/-line-height/-letter-spacing` 형태로 노출\n- Tailwind v4는 `--text-*` 네임스페이스만 자동 utility(`text-*`)로 변환 — `--type-*`는 이름이 달라 자동 utility 안 됨\n- 따라서 현재 토큰은 JS에서 import해 쓰는 형태(EditorView/TerminalView가 typeScale 직접 import)는 가능하나 **CSS class로 쓰려면 별도 매핑 작업 필요**\n\n**radix import 분포 (전수):**\n- `radix-ui` umbrella: button.tsx (Slot.Root)\n- `@radix-ui/react-*` individual: TabBar.tsx (react-tabs, react-tooltip)\n- 단 2 파일, 3 import. 의존성은 package.json에 양쪽 모두(`radix-ui ^1.4.3` + 개별 패키지)\n\n**기타:**\n- components.json: shadcn `new-york` style, cssVariables true\n- design-tokens.ts:1 TODO — design.md sync 안내. design.md는 Warp 마케팅 spec\n- nx_history_search 결과 0건 — 기존 결정 부재\n- CI 가드 작업은 이번 plan에서 명시적 제외",
+        "created_at": "2026-05-03T02:27:33.418Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "design-tokens.ts에 application-ui role 추가 + vite plugin을 Tailwind v4 `--text-*` 네임스페이스로 전환",
+          "status": "completed",
+          "context": "두 변경의 토대 — 토큰 정의 확장과 빌드 파이프라인 노출 형식을 한 번에 정렬한다. 이게 끝나야 컴포넌트 치환이 가능하다.\n\n관련 파일:\n- src/shared/design-tokens.ts (typeScale + 신규 appTypeScale)\n- scripts/generate-theme-css.ts (L46-51 mirror)\n- electron.vite.config.ts (themeTokensPlugin 내부 mirror)\n- src/renderer/styles/theme.generated.css (생성 결과 검증)\n\nTailwind v4 정식 형식:\n  --text-{role}: {size}px;\n  --text-{role}--line-height: {lh};\n  --text-{role}--letter-spacing: {ls}px;\n  --text-{role}--font-weight: {weight};\n\n새 application-ui role 4개:\n  appBody          13/1.4/0/400\n  appBodyEmphasis  14/1.3/0/400  (workspace name 14/1.4/-0.14의 비례 수정 흡수)\n  appUiSm          12/1.5/0/400\n  micro(기존)      11/1.2/0/400  (그대로 활용)",
+          "acceptance": "- design-tokens.ts: `appTypeScale` 별도 export로 appBody/appBodyEmphasis/appUiSm 3 role 정의(micro는 typeScale 기존 활용). 상단에 분리 정책 코멘트 블록.\n- scripts/generate-theme-css.ts와 electron.vite.config.ts plugin의 emit 형식이 `--text-{role}` + 3개 modifier(line-height/letter-spacing/font-weight)로 변경. typeScale + appTypeScale 두 객체 모두 처리.\n- `bun run build` (또는 dev) 후 theme.generated.css의 @theme {} 블록에 `--text-body: 18px;` `--text-body--line-height: 1.3;` `--text-body--letter-spacing: -0.18px;` `--text-body--font-weight: 400;` 형식이 정확히 들어감. `--text-app-body: 13px;` 등 신규 role도 동일 형식.\n- `bun run typecheck` 5-layer 통과\n- `bun run check:ci` 통과 (biome + lint:tw)\n- 기존 tests/unit, tests/integration 회귀 없음",
+          "approach": "1. design-tokens.ts에 `appTypeScale` 별도 export로 4 role 추가 (typeScale은 marketing-scale로 코멘트 명문화 — Designer 권고). 두 객체 모두 같은 role 형태(fontFamily, fontSize, fontWeight, lineHeight, letterSpacing) 유지.\n2. design-tokens.ts 상단 주석 블록에 \"marketing scale(typeScale) vs application-ui scale(appTypeScale)\" 분리 정책 명문화 — design.md sync는 typeScale만, appTypeScale은 별도 출처(이 결정 #1).\n3. scripts/generate-theme-css.ts와 electron.vite.config.ts의 mirror 플러그인 두 곳을 동시 수정: typeScale + appTypeScale 모두 순회해 `--text-{kebab}` + `--text-{kebab}--line-height/--letter-spacing/--font-weight` 4줄을 emit.\n4. `bun run dev` 또는 `bun run build`로 theme.generated.css 재생성 후 새 변수 형식 확인.\n5. EditorView.tsx/TerminalView.tsx의 typeScale 직접 import는 변경 없음 (Monaco/xterm CSS var 미수신 제약).",
+          "risk": "font-family는 Tailwind v4 `--text-*` modifier 미지원 — 컴포넌트는 여전히 `font-sans`/`font-mono`를 별도 지정해야 함. 본 task에서는 emit 시 font-family modifier를 시도하지 않음(미지원). EditorView/TerminalView 동작은 typeScale import 의존이라 영향 없음.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a94f1e5a5d72edbba"
+          },
+          "created_at": "2026-05-03T02:35:39.791Z"
+        },
+        {
+          "id": 2,
+          "title": "컴포넌트 raw 타이포 9건을 새 utility로 치환",
+          "status": "completed",
+          "context": "Task 1이 utility를 만들어두면, 컴포넌트의 raw arbitrary value를 의미 utility로 옮긴다. workspace name 비례 오류는 새 `text-app-body-emphasis` 정의에 자동 흡수되어 별도 코드 변경 없이 14/1.3/0으로 수정된다.\n\n치환 매핑:\n| 위치 | 현재 | 변경 |\n|---|---|---|\n| App.tsx:159 | text-[13px] | text-app-body |\n| TabContent.tsx:20 | text-[13px] | text-app-body |\n| Sidebar.tsx:35 | text-[12px] leading-[1.5] | text-app-ui-sm |\n| Sidebar.tsx:68 | text-[14px] font-normal leading-[1.4] tracking-[-0.14px] | text-app-body-emphasis (font-normal 토큰 흡수, leading/tracking 자동 적용) |\n| Sidebar.tsx:75 | text-[11px] font-normal leading-[1.2] | text-micro (font-normal 흡수) |\n| Sidebar.tsx:90 | text-[14px] leading-none | text-app-body-emphasis leading-none (× icon — 명시적 leading-none 유지) |\n| Sidebar.tsx:109 | text-[13px] | text-app-body |\n| TabBar.tsx:50 | text-[12px] | text-app-ui-sm |\n| TabBar.tsx:83 | text-[11px] | text-micro |",
+          "acceptance": "- 위 9건 모두 명시 매핑대로 치환됨\n- `grep -rn \"text-\\[\\|tracking-\\[\\|leading-\\[\" src/renderer --include=\"*.tsx\"` 결과 0건 (단, leading-none/leading-tight 같은 Tailwind preset은 허용)\n- `bun run typecheck` 통과\n- `bun run check:ci` 통과\n- bun run dev 또는 build 후 렌더된 텍스트가 의도된 size/lh/ls/weight로 표시 (Task 3에서 검증)",
+          "approach": "1. 위 매핑대로 4개 파일에서 raw 클래스를 utility로 치환.\n2. font-weight가 utility에 묶이므로 중복 `font-normal` 지정 제거(Sidebar.tsx:68, 75).\n3. 각 사용처에서 클래스 결합 순서 유지 — `cn()` 안에서 색·배경·layout·타이포 그룹화 일관성.\n4. EditorView.tsx, TerminalView.tsx는 typeScale 직접 import 유지 — 본 task 범위 외.",
+          "risk": "workspace name의 tracking 변경(`-0.14 → 0`)은 시각 변화가 즉시 보임. Designer Plan Gate 조건 — Task 3에서 muted_foreground 비활성 상태 대비 4.5:1 재검증 필요. Sidebar.tsx:90 × icon은 leading-none이 utility의 line-height를 override해야 하므로 클래스 순서 또는 `!important` 검토.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T02:36:00.814Z"
+        },
+        {
+          "id": 3,
+          "title": "타이포 토큰 마이그레이션 시각·접근성 회귀 검증",
+          "status": "completed",
+          "context": "Designer Plan Gate 조건 검증. raw → utility 치환 후 의도된 디자인 의미가 살아있고, workspace name tracking 변경으로 a11y 대비가 깨지지 않았는지 확인.\n\n검증 대상 9 사용처(Task 2 매핑 동일).\n\n검증 채널:\n- bun run dev로 Electron 띄워 시각 확인\n- DevTools Computed Style에서 font-size/line-height/letter-spacing/font-weight가 의도와 일치하는지 확인\n- 접근성 대비: Sidebar.tsx:68의 비활성 상태(text-muted-foreground = stoneGray oklch(0.6173)) on bg-muted(#252422) 대비 4.5:1\n- sidebar 행 높이: lh 1.4→1.3 변경으로 8개 행 표시 density 회복 확인",
+          "acceptance": "- 9 사용처 모두 의도된 size/lh/ls/weight로 렌더 (DevTools Computed Style 일치)\n- Sidebar.tsx:68 비활성 상태 stoneGray on muted bg 대비 ≥ 4.5:1 (또는 측정 결과 기록 후 별도 issue 등록)\n- workspace 행 높이 변화 확인 — 14/1.3 적용 후 lh 1.4 대비 행이 좁아져 동일 viewport에 더 많은 워크스페이스 표시 가능\n- × icon(Sidebar.tsx:90)이 single-line으로 정확히 정렬 (leading-none override 동작 확인)\n- bun test (tests/unit + tests/integration) 전체 통과\n- 시각 회귀 없음 (button.tsx의 text-base/text-sm/text-lg 등 기본 utility는 영향 받지 않음 확인)",
+          "approach": "1. bun run dev로 앱 부팅\n2. 각 사용처를 DevTools로 검사 → Computed Style 확인 → 새 utility 변수 값과 일치 여부 매칭\n3. workspace name 비활성 상태 대비를 측정(Chrome DevTools 'Inspect element' → Color contrast 패널 또는 별도 측정 도구). 4.5:1 미만이면 별도 issue 등록.\n4. sidebar에 8개 워크스페이스 추가(또는 mock data) → 행 높이 변화 시각 확인.\n5. tests/unit + tests/integration 회귀: `bun test`로 sidebar-resize, store, workspace-panel-mount 등 통과 확인.",
+          "risk": "DevTools 시각 확인은 수동. macOS Pretendard/JetBrains Mono Nerd Font가 정상 로드되었는지 먼저 확인. 폰트 미로드 시 letter-spacing/line-height 측정이 fallback 폰트 기준이 되어 잘못된 결과.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T02:36:22.616Z"
+        },
+        {
+          "id": 4,
+          "title": "radix-ui umbrella 통일 — TabBar.tsx import 변경 + individual 의존성 제거",
+          "status": "completed",
+          "context": "이슈 #2 결정의 단일 변경. button.tsx는 이미 umbrella 사용 중이라 TabBar.tsx 한 파일과 package.json 두 줄이 전부.\n\n변경 대상:\n- src/renderer/components/TabBar.tsx (L1-2 import 변경)\n- package.json (dependencies에서 두 줄 제거)\n- bun.lock (bun install로 갱신)\n\nnamespace 사용 패턴(`RadixTabs.Root`, `RadixTabs.List`, `RadixTabs.Trigger`, `RadixTooltip.Provider`, `RadixTooltip.Root`, `RadixTooltip.Trigger`, `RadixTooltip.Portal`, `RadixTooltip.Content`)은 그대로 유지.",
+          "acceptance": "- TabBar.tsx import 단 1줄로 정리됨, namespace 사용처 모두 정상 type 체크\n- package.json에서 individual 두 패키지 제거됨, radix-ui umbrella만 남음\n- bun install 후 bun.lock 갱신\n- bun run typecheck 5-layer 통과\n- bun run check:ci 통과\n- `grep -rn \"@radix-ui/react-\" src` 결과 0건",
+          "approach": "1. src/renderer/components/TabBar.tsx L1-2를 다음으로 교체:\n   ```ts\n   import { Tabs as RadixTabs, Tooltip as RadixTooltip } from \"radix-ui\";\n   ```\n2. package.json `dependencies`에서 다음 두 줄 제거:\n   - \"@radix-ui/react-tabs\": \"^1.1.13\"\n   - \"@radix-ui/react-tooltip\": \"^1.2.8\"\n3. `bun install`로 lock 갱신.\n4. `bun run typecheck`로 타입 호환 확인.",
+          "risk": "umbrella의 `Tabs`/`Tooltip` named export가 `* as RadixTabs from \"@radix-ui/react-tabs\"` 형식과 1:1 호환된다는 점은 Architect의 context7 확인을 신뢰. 만약 namespace 일부(예: `RadixTooltip.Provider`)가 umbrella에서 다른 이름으로 노출된다면 typecheck 단계에서 발견됨 — 그 경우 named import로 풀어 조정.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-03T02:36:38.188Z"
+        },
+        {
+          "id": 5,
+          "title": "radix umbrella 마이그레이션 동작 검증",
+          "status": "completed",
+          "context": "Task 4 후 Tabs/Tooltip의 런타임 동작이 그대로인지 확인. namespace 사용 패턴이 동일하게 작동하는지가 핵심.\n\n검증 시나리오:\n- 새 워크스페이스 추가 → 탭 자동 생성 → 탭 trigger 표시\n- 다중 탭 추가 → 탭 사이 전환 (RadixTabs.Trigger / Root onValueChange)\n- 탭 trigger × 버튼 hover → tooltip \"Close tab\" 표시 (RadixTooltip.Provider/Root/Trigger/Portal/Content)\n- × 클릭 → 탭 닫힘\n- focus-visible 링 정상 표시",
+          "acceptance": "- 탭 전환·추가·삭제 동작 정상\n- tooltip 600ms delay 후 표시, hover 종료 시 사라짐\n- focus-visible 링 normal\n- 콘솔에 \"Multiple TooltipProvider\" 등 context mismatch 경고 없음\n- bun test 전체 통과\n- 시각 회귀 없음",
+          "approach": "1. bun run dev로 앱 부팅\n2. 워크스페이스 생성 → 자동 시드된 터미널 탭 표시 확인\n3. 새 터미널 탭 버튼(+) 클릭으로 2개 이상 탭 추가\n4. 탭 사이 전환 — active 상태(border-b-mist-border, bg-frosted-veil) 정상 토글 확인\n5. 탭 hover 시 × 버튼 페이드인 + 600ms 후 tooltip \"Close tab\" 표시 확인\n6. × 클릭으로 탭 닫힘, 활성 탭이 다른 탭으로 전환 확인\n7. bun test (tests/unit + tests/integration) 회귀 확인 — 특히 sidebar-resize, store, workspace-panel-mount",
+          "risk": "tooltip context provider/consumer가 같은 React Context 인스턴스를 공유해야 함 — individual 패키지와 umbrella 패키지의 internal context가 다른 인스턴스일 경우 mismatch 가능. 의존성 정리(individual 제거)가 끝나야 단일 instance 보장.",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T02:36:55.201Z"
+        }
+      ]
     }
   ]
 }

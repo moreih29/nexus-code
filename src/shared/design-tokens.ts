@@ -2,6 +2,20 @@
 // When design.md is updated, review and update the token values below accordingly.
 
 // ---------------------------------------------------------------------------
+// Scale separation policy (Decision #1, 2026-05-03)
+// ---------------------------------------------------------------------------
+// typeScale   — Warp marketing scale (18 roles). Synced with design.md.
+//               Used on marketing/landing surfaces. Kept as-is; do not modify
+//               without a design.md sync.
+// appTypeScale — Application-UI scale (3 roles). Source: Designer Q1 guidance.
+//               NOT synced with design.md — this is an independent source of
+//               truth for in-app UI components (sidebar, tab bar, panels, etc.).
+//               font-family is recorded for documentation; it is NOT emitted to
+//               CSS (Tailwind v4 --text-* modifier does not support font-family).
+//               EditorView / TerminalView use fontFamily via JS import directly.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Color palette — OKLCH (converted from hex via culori for perceptual accuracy)
 // Translucent colors remain as rgba() since OKLCH does not express alpha in
 // the @theme {} block without oklch(...) / alpha hack.
@@ -245,6 +259,36 @@ export const typeScale = {
     fontWeight: 500,
     lineHeight: 1.0,
     letterSpacing: -0.2,
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Application-UI type scale (see scale separation policy above)
+// fontSize and letterSpacing are in px; lineHeight is unitless ratio.
+// micro (11px / 1.2 / 0) is covered by typeScale.micro — not duplicated here.
+// ---------------------------------------------------------------------------
+
+export const appTypeScale = {
+  appBody: {
+    fontFamily: fontFamily.display,
+    fontSize: 13,
+    fontWeight: 400,
+    lineHeight: 1.4,
+    letterSpacing: 0,
+  },
+  appBodyEmphasis: {
+    fontFamily: fontFamily.display,
+    fontSize: 14,
+    fontWeight: 400,
+    lineHeight: 1.3,
+    letterSpacing: 0,
+  },
+  appUiSm: {
+    fontFamily: fontFamily.display,
+    fontSize: 12,
+    fontWeight: 400,
+    lineHeight: 1.5,
+    letterSpacing: 0,
   },
 } as const;
 

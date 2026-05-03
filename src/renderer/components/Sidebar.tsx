@@ -32,7 +32,7 @@ export function Sidebar({
     <aside className="relative shrink-0 bg-muted flex flex-col" style={{ width: sidebarWidth }}>
       <div className="py-3 flex-1 overflow-y-auto">
         {workspaces.length === 0 && (
-          <div className="px-4 py-6 text-center text-[12px] text-muted-foreground leading-[1.5]">
+          <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
             No workspaces yet.
             <br />
             Add one to get started.
@@ -65,14 +65,14 @@ export function Sidebar({
                 {/* Workspace name — 14px body, truncate for long names */}
                 <span
                   className={cn(
-                    "block text-[14px] font-normal leading-[1.4] tracking-[-0.14px] truncate min-w-0",
+                    "block text-app-body-emphasis truncate min-w-0",
                     isActive ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {ws.name}
                 </span>
                 {/* Path tail — micro: 11px, truncate */}
-                <span className="block text-[11px] font-normal leading-[1.2] text-muted-foreground mt-[2px] truncate min-w-0">
+                <span className="block text-micro text-muted-foreground mt-[2px] truncate min-w-0">
                   {pathTail}
                 </span>
               </button>
@@ -87,7 +87,7 @@ export function Sidebar({
                 aria-label={`Remove workspace ${ws.name}`}
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-                  "size-5 rounded-[4px] text-[14px] leading-none",
+                  "size-5 rounded-[4px] text-app-body-emphasis leading-none",
                   "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
                   "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
                 )}
@@ -106,7 +106,7 @@ export function Sidebar({
           className={cn(
             "block w-[calc(100%-16px)] mx-2 px-4 py-2 rounded-[6px]",
             "text-left cursor-pointer select-none font-sans transition-colors",
-            "text-[13px] text-muted-foreground bg-transparent",
+            "text-app-body text-muted-foreground bg-transparent",
             "hover:bg-earth-gray hover:text-foreground",
           )}
           aria-label="Add workspace"

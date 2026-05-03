@@ -7,6 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  appTypeScale,
   borderRadius,
   buildSemanticTokens,
   color,
@@ -42,12 +43,14 @@ export function generateThemeCss(): string {
     lines.push(`  ${varName}: ${value};`);
   }
 
-  // Type scale (fontSize + lineHeight + letterSpacing)
-  for (const [role, def] of Object.entries(typeScale)) {
+  // Type scale — Tailwind v4 --text-{role} + double-hyphen modifiers
+  // Processes marketing scale (typeScale) then application-UI scale (appTypeScale).
+  for (const [role, def] of [...Object.entries(typeScale), ...Object.entries(appTypeScale)]) {
     const kebab = camelToKebab(role);
-    lines.push(`  --type-${kebab}-size: ${def.fontSize}px;`);
-    lines.push(`  --type-${kebab}-line-height: ${def.lineHeight};`);
-    lines.push(`  --type-${kebab}-letter-spacing: ${def.letterSpacing}px;`);
+    lines.push(`  --text-${kebab}: ${def.fontSize}px;`);
+    lines.push(`  --text-${kebab}--line-height: ${def.lineHeight};`);
+    lines.push(`  --text-${kebab}--letter-spacing: ${def.letterSpacing}px;`);
+    lines.push(`  --text-${kebab}--font-weight: ${def.fontWeight};`);
   }
 
   // Spacing

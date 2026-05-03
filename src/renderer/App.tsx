@@ -156,7 +156,7 @@ export function App() {
       />
       <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
         {workspaces.length === 0 && (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground text-[13px]">
+          <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">
             No workspace selected. Add one from the sidebar.
           </div>
         )}

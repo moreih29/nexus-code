@@ -1,5 +1,4 @@
-import * as RadixTabs from "@radix-ui/react-tabs";
-import * as RadixTooltip from "@radix-ui/react-tooltip";
+import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Tab } from "../store/tabs";
@@ -47,7 +46,7 @@ export function TabBar({
                   // base layout — pr-7 reserves space for the absolute × button
                   "flex items-center gap-1.5 pl-3 pr-7 h-full",
                   // text
-                  "text-[12px] whitespace-nowrap select-none cursor-pointer",
+                  "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
 
                   // rest state
                   "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
@@ -80,7 +79,7 @@ export function TabBar({
                 </RadixTooltip.Trigger>
                 <RadixTooltip.Portal>
                   <RadixTooltip.Content
-                    className="px-2 py-1 text-[11px] bg-muted text-foreground border border-border rounded-[4px] shadow-none"
+                    className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[4px] shadow-none"
                     sideOffset={4}
                   >
                     Close tab

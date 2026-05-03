@@ -17,7 +17,7 @@ interface TabContentProps {
 export function TabContent({ tab }: TabContentProps) {
   if (!tab) {
     return (
-      <div className="flex flex-1 min-h-0 items-center justify-center text-muted-foreground text-[13px]">
+      <div className="flex flex-1 min-h-0 items-center justify-center text-muted-foreground text-app-body">
         No tab open
       </div>
     );

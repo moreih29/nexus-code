@@ -26,8 +26,15 @@ function themeTokensPlugin(): Plugin {
     buildStart() {
       // Dynamic import to avoid caching issues — re-evaluate each build.
       // Use require-style sync import via bun/node module resolution.
-      const { borderRadius, buildSemanticTokens, color, fontFamily, spacing, typeScale } =
-        require("./src/shared/design-tokens") as typeof import("./src/shared/design-tokens");
+      const {
+        appTypeScale,
+        borderRadius,
+        buildSemanticTokens,
+        color,
+        fontFamily,
+        spacing,
+        typeScale,
+      } = require("./src/shared/design-tokens") as typeof import("./src/shared/design-tokens");
 
       function camelToKebab(s: string): string {
         return s.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);
@@ -46,11 +53,12 @@ function themeTokensPlugin(): Plugin {
           : `--font-family-${camelToKebab(key)}`;
         lines.push(`  ${varName}: ${value};`);
       }
-      for (const [role, def] of Object.entries(typeScale)) {
+      for (const [role, def] of [...Object.entries(typeScale), ...Object.entries(appTypeScale)]) {
         const kebab = camelToKebab(role);
-        lines.push(`  --type-${kebab}-size: ${def.fontSize}px;`);
-        lines.push(`  --type-${kebab}-line-height: ${def.lineHeight};`);
-        lines.push(`  --type-${kebab}-letter-spacing: ${def.letterSpacing}px;`);
+        lines.push(`  --text-${kebab}: ${def.fontSize}px;`);
+        lines.push(`  --text-${kebab}--line-height: ${def.lineHeight};`);
+        lines.push(`  --text-${kebab}--letter-spacing: ${def.letterSpacing}px;`);
+        lines.push(`  --text-${kebab}--font-weight: ${def.fontWeight};`);
       }
       for (const value of spacing) {
         lines.push(`  --space-${value}: ${value}px;`);
