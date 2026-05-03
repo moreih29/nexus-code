@@ -6,8 +6,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { MessagePortMain } from "electron";
-import { FlowController } from "./flowControl";
-import { TerminalRecorder } from "./terminalRecorder";
+import { FlowController } from "./flow-control";
+import { TerminalRecorder } from "./terminal-recorder";
 
 // node-pty is required at runtime — it must not be bundled by Vite.
 // eslint-disable-next-line @typescript-eslint/no-require-imports

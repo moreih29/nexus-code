@@ -3,7 +3,7 @@
 // Utility events are broadcast to all renderers.
 
 import { ipcContract } from "../../../shared/ipc-contract";
-import type { PtyHostHandle } from "../../hosts/ptyHost";
+import type { PtyHostHandle } from "../../hosts/pty-host";
 import { getDefaultShell } from "../../platform/shell";
 import { broadcast, register, validateArgs } from "../router";
 

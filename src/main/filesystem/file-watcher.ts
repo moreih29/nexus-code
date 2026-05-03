@@ -2,7 +2,7 @@ import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { HIDDEN_NAMES } from "../../shared/fs-defaults";
 import type { FsChange, FsChangeKind } from "../../shared/types/fs";
-import type { BroadcastFn } from "../workspace/WorkspaceManager";
+import type { BroadcastFn } from "../workspace/workspace-manager";
 
 // ---------------------------------------------------------------------------
 // Types

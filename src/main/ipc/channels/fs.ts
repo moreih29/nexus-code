@@ -3,9 +3,9 @@ import path from "node:path";
 import { BINARY_DETECTION_BYTES, MAX_READABLE_FILE_SIZE, isHiddenName } from "../../../shared/fs-defaults";
 import { ipcContract } from "../../../shared/ipc-contract";
 import type { DirEntry, FileContent, FsStat } from "../../../shared/types/fs";
-import type { FileWatcher } from "../../filesystem/FileWatcher";
-import type { WorkspaceStorage } from "../../storage/workspaceStorage";
-import type { WorkspaceManager } from "../../workspace/WorkspaceManager";
+import type { FileWatcher } from "../../filesystem/file-watcher";
+import type { WorkspaceStorage } from "../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../workspace/workspace-manager";
 import { register, validateArgs } from "../router";
 
 const c = ipcContract.fs.call;

@@ -1,9 +1,9 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { FileWatcher } from "./filesystem/FileWatcher";
-import { startLspHost } from "./hosts/lspHost";
-import { startPtyHost } from "./hosts/ptyHost";
-import { registerAppStateChannel } from "./ipc/channels/appState";
+import { FileWatcher } from "./filesystem/file-watcher";
+import { startLspHost } from "./hosts/lsp-host";
+import { startPtyHost } from "./hosts/pty-host";
+import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
 import { startTickBroadcast } from "./ipc/channels/hello";
@@ -11,11 +11,11 @@ import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
-import { GlobalStorage } from "./storage/globalStorage";
-import { StateService } from "./storage/stateService";
-import { WorkspaceStorage } from "./storage/workspaceStorage";
+import { GlobalStorage } from "./storage/global-storage";
+import { StateService } from "./storage/state-service";
+import { WorkspaceStorage } from "./storage/workspace-storage";
 import { createMainWindow } from "./window";
-import { WorkspaceManager } from "./workspace/WorkspaceManager";
+import { WorkspaceManager } from "./workspace/workspace-manager";
 
 setupRouter();
 

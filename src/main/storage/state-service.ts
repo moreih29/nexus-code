@@ -5,7 +5,7 @@ import {
   AppStateSchema,
   type WindowBounds,
   WindowBoundsSchema,
-} from "../../shared/types/appState";
+} from "../../shared/types/app-state";
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 

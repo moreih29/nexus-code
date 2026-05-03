@@ -1,5 +1,5 @@
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import type { WorkspaceStorage } from "../storage/workspaceStorage";
+import type { WorkspaceStorage } from "../storage/workspace-storage";
 
 // ---------------------------------------------------------------------------
 // WorkspaceContext — one instance per open workspace.

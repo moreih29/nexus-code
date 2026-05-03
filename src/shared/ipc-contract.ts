@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { AppStateSchema } from "./types/appState";
-import { ColorToneSchema } from "./types/colorTone";
+import { AppStateSchema } from "./types/app-state";
+import { ColorToneSchema } from "./types/color-tone";
 import { DirEntrySchema, FileContentSchema, FsChangedEventSchema, FsStatSchema } from "./types/fs";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";

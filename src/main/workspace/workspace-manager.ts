@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import type { GlobalStorage } from "../storage/globalStorage";
-import type { StateService } from "../storage/stateService";
-import type { WorkspaceStorage } from "../storage/workspaceStorage";
-import { WorkspaceContext } from "./WorkspaceContext";
+import type { GlobalStorage } from "../storage/global-storage";
+import type { StateService } from "../storage/state-service";
+import type { WorkspaceStorage } from "../storage/workspace-storage";
+import { WorkspaceContext } from "./workspace-context";
 
 // ---------------------------------------------------------------------------
 // Broadcast callback type — injected so the manager has no hard import on

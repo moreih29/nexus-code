@@ -1,5 +1,5 @@
 import { ipcContract } from "../../../shared/ipc-contract";
-import type { WorkspaceManager } from "../../workspace/WorkspaceManager";
+import type { WorkspaceManager } from "../../workspace/workspace-manager";
 import { register, validateArgs } from "../router";
 
 const c = ipcContract.workspace.call;
