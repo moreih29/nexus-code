@@ -14,10 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GlobalStorage } from "../../src/main/storage/globalStorage";
-import { StateService } from "../../src/main/storage/stateService";
-import { WorkspaceStorage } from "../../src/main/storage/workspaceStorage";
-import { type BroadcastFn, WorkspaceManager } from "../../src/main/workspace/WorkspaceManager";
+import { GlobalStorage } from "../../src/main/storage/global-storage";
+import { StateService } from "../../src/main/storage/state-service";
+import { WorkspaceStorage } from "../../src/main/storage/workspace-storage";
+import { type BroadcastFn, WorkspaceManager } from "../../src/main/workspace/workspace-manager";
 import type { WorkspaceMeta } from "../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------

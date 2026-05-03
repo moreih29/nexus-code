@@ -300,6 +300,13 @@ export const appTypeScale = {
     lineHeight: 1.5,
     letterSpacing: 0,
   },
+  appUiXs: {
+    fontFamily: fontFamily.display,
+    fontSize: 12,
+    fontWeight: 400,
+    lineHeight: 1.35,
+    letterSpacing: 2.4,
+  },
 } as const;
 
 // ---------------------------------------------------------------------------

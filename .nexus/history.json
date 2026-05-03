@@ -1141,6 +1141,1722 @@
           "created_at": "2026-05-03T02:36:55.201Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T06:28:26.561Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 6,
+        "topic": "좌측 사이드바 우측에 워크스페이스 파일트리 패널 추가 (가상화 + 안정성 우선)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[1] 레이아웃 통합 — 파일트리를 어디에 어떻게 붙일지 (별도 패널 vs Sidebar 확장, resize/접힘, 워크스페이스 전환과의 결합)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "레이아웃: (b) Sidebar 우측 별도 FilesPanel 권고. 책임 분리(워크스페이스 목록=전역, 트리=활성 워크스페이스 종속), 사용자 명시 의도, useUIStore에 filesPanelWidth/Collapsed 추가로 sidebarWidth 패턴 재사용. (c) WorkspacePanel 내부는 트리 인스턴스 N개 + 데이터 중복으로 과잉. (a) Sidebar 내부 통합은 god-object.",
+                "recorded_at": "2026-05-03T05:16:16.086Z",
+                "agent_id": "a8a27b22933b070f3"
+              },
+              {
+                "role": "designer",
+                "summary": "(b)+동일톤 하이브리드: bg-muted 동일 + border-r-mist-border 1px hairline. 헤더는 워크스페이스 이름을 uppercase Small Label(text-app-ui-xs, tracking-2.4px, text-stone-gray)로 표시 — Warp editorial 신호와 일치, 컨텍스트 보존. 액션 버튼(refresh/collapse-all)은 hover 시 노출. resize handle은 SidebarResizeHandle 패턴 재사용. M0 open Q: 터치 지원 여부, 헤더 액션 포함, 우클릭 메뉴.",
+                "recorded_at": "2026-05-03T05:16:21.214Z",
+                "agent_id": "a383d1df99ef1e941"
+              }
+            ],
+            "decision": "**채택**: Sidebar 우측에 별도 `FilesPanel` 컴포넌트를 추가한다. 시각적으로는 동일 `bg-muted` + `border-r-mist-border` hairline 으로 \"Sidebar의 확장처럼\" 보이게 한다. 헤더는 활성 워크스페이스 이름을 uppercase Small Label(`text-app-ui-xs`/12px, tracking 2.4px, `text-stone-gray`, px-3 py-2)로 표시 — 워크스페이스 다중 운용 시 컨텍스트 보존이 헤더 비용을 정당화한다.\n\n레이아웃: `<div flex> <Sidebar/> <FilesPanel/> <grid>{WorkspacePanel*}</grid> </div>`. Width/접힘 상태는 `useUIStore`에 `filesPanelWidth` / `filesPanelCollapsed` 추가, 기존 `sidebarWidth` 영속화 패턴(appState IPC) 그대로 재사용. resize handle 은 SidebarResizeHandle을 prop 받는 일반 `ResizeHandle`로 추출하여 두 곳이 공유.\n\n워크스페이스 미선택 시에도 패널은 표시하되 헤더 비움 + 빈 상태 메시지. 워크스페이스 전환은 트리 컴포넌트 1개 + store 캐시(treesByWorkspaceId)로 처리해 DOM 재마운트 회피.\n\n**기각**:\n- (a) 현재 Sidebar 내부 통합 — Sidebar.tsx가 워크스페이스 목록과 트리 두 책임을 떠안고 스크롤/리사이즈 충돌, 멘탈 모델 혼합. 디자인 안정성 원칙 위배.\n- (c) WorkspacePanel 내부 트리 — WorkspacePanel은 PTY 생존을 위해 lazy mount + CSS hide로 N개 상주하는 패턴. 트리는 활성 워크스페이스 1개만 보이면 충분하므로 N개 트리 인스턴스 + 데이터 중복은 과잉.\n- 두 번째 패널을 다른 톤으로 분리(b 원형) — Warp의 monochromatic + \"depth via border, not shadow\" 원칙 위배.\n\n**M0 스코프 결정 (Designer open Q 응답)**:\n- 터치 지원: M0 비포함 (macOS 데스크탑 한정, 행 24px 유지)\n- 헤더 액션 버튼(refresh/collapse-all): M0 비포함, 우클릭/단축키로 후속\n- 우클릭 컨텍스트 메뉴: M0 비포함"
+          },
+          {
+            "id": 2,
+            "title": "[2] 가상화 라이브러리 선택 — react-arborist vs flat + @tanstack/react-virtual vs headless-tree",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "@tanstack/react-virtual + 자체 flat-tree. Tailwind 자유도, 활발한 유지보수, React 19 호환(compiler opt-out 한 줄), VSCode 평탄화 패턴 그대로 이식. react-arborist는 DnD 비필수 + react-window 유지보수 중단 리스크로 기각. headless-tree는 beta로 시기상조.",
+                "recorded_at": "2026-05-03T05:16:25.049Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: `@tanstack/react-virtual` + 자체 flat-tree 구현.\n\n근거: (1) Tailwind warm-dark 토큰을 행 렌더에 그대로 적용하는 디자인 자유도가 보장되고, (2) 활발한 유지보수 + React 19 호환이 검증되며, (3) VSCode의 평탄화 IndexTreeModel 패턴을 그대로 이식 가능해 \"수만 노드 + 고정 22~24px 행\" 케이스에서 단순한 `estimateSize: () => 24`로 충분하다. React 19 + React Compiler 충돌은 해당 컴포넌트에 `\"use no memo\"` 한 줄로 우회 — 명시 risk로 task에 기록한다.\n\n**기각**:\n- `react-arborist` — 트리 전용 + 내장 가상화로 빠르나 (a) M0에 DnD 비필수라 가장 큰 이점이 사라지고, (b) 내부 react-window 유지보수 중단 리스크가 장기 부채, (c) rowHeight 고정 + 컨테이너/스크롤러 라이브러리 소유로 향후 그룹 헤더/가변 행 같은 확장이 막힘.\n- `@headless-tree/react` — beta 상태 + React Compiler 별도 entrypoint로 프로덕션 채택은 시기상조.\n- VSCode 위젯 직접 포팅 — 우리 스택(React 19 + Tailwind)에 동치 비용이 react-virtual 채택보다 크다.\n\n신규 의존성: `@tanstack/react-virtual` 1개만 추가."
+          },
+          {
+            "id": 3,
+            "title": "[3] 트리 데이터 모델 & lazy expand 상태 — 노드 모델, 평탄화 인덱싱, expand 상태 영속화 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "노드: Map&lt;absPath, TreeNode&gt;, children=string[] (경로 = 자연 unique key). Expand 상태: Set&lt;absPath&gt; Zustand. 평탄화: Zustand selector + memo (expanded 변경 시 재계산, 수만 노드도 ms 단위, 추후 incremental splice 가능). 영속화: 워크스페이스별 expanded set, SQLite (better-sqlite3 이미 사용). 워크스페이스 전환: 트리 컴포넌트 1개, store에 treesByWorkspaceId 캐시 (expand set + 로드된 디렉토리 결과). PTY 같은 long-lived 리소스 없으므로 캐시 무효화 자유.",
+                "recorded_at": "2026-05-03T05:16:31.320Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: Architect 권고 그대로.\n\n- **노드 저장**: `Map<absPath, TreeNode>`, children은 `string[]` (절대경로 ID). 평탄화/이동/갱신이 모두 Map lookup 한 번.\n- **Expand 상태**: `Set<absPath>` Zustand store. 외부 reveal API(파일 클릭→경로 펼치며 스크롤)에 필요.\n- **평탄화 인덱스**: Zustand selector + memo, expand 변경 시 전체 재계산. 수만 노드도 ms 단위라 조기 최적화 회피. 측정 후 필요 시 incremental splice 도입.\n- **워크스페이스 전환**: 트리 컴포넌트는 1개, store에 `treesByWorkspaceId`로 expand set + 로드된 디렉토리 결과 캐시. PTY 같은 long-lived 리소스가 없어 캐시 무효화 자유.\n- **영속화 범위 (M0 조정)**: 워크스페이스별 expand set만 영속화하되, **첫 PR은 메모리 only (workspaceStorage SQLite 미터치)**, 두 번째 PR에서 better-sqlite3 기반 영구 저장 추가. 이유: 첫 PR을 작게 유지(가시 가치 우선), DB 마이그레이션 복잡도를 별 PR로 분리. 사용자 기대(VSCode식 재시작 후 펼침 유지)는 두 번째 PR에서 충족.\n\n**기각**:\n- 트리 객체 중첩 모델 — 부분 invalidate(특정 디렉토리만 갱신) 어려움.\n- expand 상태를 ref/local state — reveal API 외부 호출 불가.\n- 트리를 워크스페이스별로 N개 인스턴스 마운트 — Issue #1 결정과 모순."
+          },
+          {
+            "id": 4,
+            "title": "[4] filesystem IPC 채널 설계 — readdir/stat 인터페이스, 보안 경계(워크스페이스 root 외 접근 차단), 이벤트 형식",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "채널 'fs' 신규. call: readdir({workspaceId, relPath}) → Array&lt;{name,type,size?,mtime?}&gt;, stat({workspaceId, relPath}). listen: changed({workspaceId, changes:[{relPath, kind:added|modified|deleted}]}) - 반드시 batch 형태. 보안 경계: 모든 path는 workspaceId+relPath 쌍, main에서 root 외 escape 검사(path.relative startsWith '..'). 심볼릭 링크는 lstat로 type 판정, traverse는 기본 차단. 결합: registerFsChannel(manager, watcher) 생성자 주입. M0에서 .gitignore 적용은 보류.",
+                "recorded_at": "2026-05-03T05:16:37.063Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: 신규 채널 `fs` 추가.\n\n- **위치**: `src/main/ipc/channels/fs.ts`, `ipcContract.fs` 항목 추가, `main/index.ts`에서 `registerFsChannel(workspaceManager, fileWatcher)` 호출.\n- **call 메서드**:\n  - `readdir({ workspaceId: uuid, relPath: string }) → Array<{ name, type: 'file'|'dir'|'symlink', size?: number, mtime?: string }>`\n  - `stat({ workspaceId: uuid, relPath: string }) → { type, size, mtime, isSymlink }`\n- **listen 이벤트**:\n  - `changed: { workspaceId: uuid, changes: Array<{ relPath: string, kind: 'added'|'modified'|'deleted' }> }` — **batch 형태 강제**, 단건 broadcast 금지.\n- **보안 경계 (불가침)**: 모든 path는 workspaceId + relPath 쌍. main 측에서 `WorkspaceManager.get(id).rootPath` resolve → `path.resolve(root, rel)` → `path.relative(root, abs)` 가 `..`로 시작하면 throw. 렌더러에서 절대경로를 IPC로 보내지 않는다.\n- **심볼릭 링크**: `lstat` 기반 type 판정, traverse(target follow)는 기본 차단해 root escape 방지. 후속에서 옵션화.\n- **결합 방식**: `registerFsChannel(manager: WorkspaceManager, watcher: FileWatcher)` 생성자 주입. WorkspaceManager는 root 조회 + `workspace:removed` broadcast 구독 시 watcher cleanup 트리거에만 의존, 양방향 결합 회피.\n\n**기각**:\n- 절대경로 직접 IPC — 보안 경계 흐려져 root 외 readdir 가능성 차단 어려움.\n- 워크스페이스별 채널 분기(`fs:<id>`) — 채널 폭증, 라우터/contract 패턴 깨짐.\n- M0에 `.gitignore` 적용 — 별도 이슈(#6)와 분리, 후속 옵트인."
+          },
+          {
+            "id": 5,
+            "title": "[5] 파일 워처 — 라이브러리 선택(chokidar / parcel-watcher / fs.watch), 재귀 vs lazy watch, 배치 디바운스 정책",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "chokidar + lazy(펼친 디렉토리만) watch + 300ms 디바운스 배치. macOS 단독이라 fsevents 자동 사용. 재귀 root watch는 node_modules/.git로 수만 inode → 메모리 낭비, lazy가 정답(VSCode visible-only와 일치). @parcel/watcher는 prebuild 부담(이미 node-pty/better-sqlite3 rebuild 중) 대비 효익 작음. node:fs.watch 직접은 macOS recursive 이벤트 누락 이슈로 기각. 워처 도입을 두 번째 PR로 분리 권고: 1차 = readdir+virtualize+expand, 2차 = watcher.",
+                "recorded_at": "2026-05-03T05:16:42.762Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: `chokidar` + lazy(펼친 디렉토리 only) watch + 300ms 디바운스 batch broadcast.\n\n- **라이브러리**: chokidar — macOS fsevents 자동 사용, symlink/ignore 처리 내장, 가장 검증된 채택. Architect 분석을 그대로 수용.\n- **watch 정책**: 사용자가 트리에서 expand한 디렉토리만 `watcher.add(absDir)`, collapse 시 `unwatch`. 워크스페이스 root 전체 재귀 watch 금지(node_modules/.git 등으로 메모리 폭발). VSCode visible-only 정책과 동일.\n- **배치**: 워크스페이스별 변경 버퍼 + 300ms 디바운스 후 `changed` 1회 broadcast. VSCode 500ms 보다 약간 짧게 — 체감 즉시성 향상.\n- **default ignore**: `.git`, `node_modules`, `dist`, `out`, `.DS_Store` (chokidar `ignored` option). 사용자 설정은 후속.\n- **Manager**: `src/main/filesystem/FileWatcher.ts` 신규 클래스, `WorkspaceManager`의 `workspace:removed` 이벤트 구독해 해당 워크스페이스 모든 watch 해제.\n\n**리스 분리 결정 (Lead 추가 판단)**: Architect 의 \"워처를 두 번째 PR로 분리\" 권고를 채택. 1차 PR = readdir + virtualize + lazy expand (자동 새로고침 없음 — 수동 새로고침 단축키 제공), 2차 PR = chokidar + lazy watch. 이유: (1) 1차 PR이 단위 테스트 가능한 가장 작은 슬라이스로 떨어지고, (2) chokidar 의존성 추가 + bundle/cold start 영향 측정을 별도로 수행하며, (3) 사용자가 1차 PR 사용 중 워처 부재가 결정적 페인이 되는지 검증 후 2차 진행 가능.\n\n**기각**:\n- `@parcel/watcher` — Rust 네이티브로 빠르나 prebuild 의존성 추가 + electron-rebuild 대상 늘어남. macOS 한정에서 chokidar/FSEvents 만으로 충분.\n- `node:fs.watch` 직접 — macOS recursive 옵션의 이벤트 누락/일관성 이슈로 자체 정규화 코드 = chokidar 재발명.\n- 재귀 root watch — 대형 repo에서 inode 폭발로 깨짐."
+          },
+          {
+            "id": 6,
+            "title": "[6] 필터/exclude 정책 — node_modules·.git·dotfiles·.gitignore 처리 범위 (M0 vs 후속)",
+            "status": "decided",
+            "decision": "**채택 (Lead 단독 결정 — 도메인 단순)**: M0 디폴트 hidden 정책 + 토글 단축키 비포함.\n\n- **고정 제외 패턴 (M0, 코드 상수)**: `.git`, `node_modules`, `dist`, `out`, `.DS_Store`, `.next`, `.turbo`, `.cache`, `.vscode-test`. → readdir 결과에서 main 측 필터링(렌더러로 보내지 않음).\n- **dotfile 정책 (M0)**: dotfile(이름이 `.`로 시작)은 위 고정 목록 외에는 **표시**. (사용자 본인 프로젝트의 `.env`, `.eslintrc` 등 발견 가능성 우선.) 숨김 토글 UI는 후속.\n- **`.gitignore` 파싱 (M0 비포함)**: VSCode `explorer.excludeGitIgnore`에 해당. M0에서는 보류 — 라이브러리(`ignore` 또는 자체) + 폴더별 ignore 합성 + 워처 연동까지 묶이면 별 PR 1개 이상의 복잡도. 별도 후속 이슈로 등록.\n- **사용자 커스텀 exclude**: M0 비포함. 위 고정 목록을 const로 두되 단일 위치(`src/shared/fs-defaults.ts`)에 모아 향후 사용자 설정/persistence로 확장 가능한 형태로 작성.\n\n**근거**: (a) macOS 단독 데스크탑이고 워크스페이스 root는 보통 코드 프로젝트. 위 9개 패턴 제외만으로 트리 노이즈의 90%+ 제거. (b) 사용자 설정 + .gitignore + UI 토글까지 한 번에 넣으면 M0 슬립이 깨짐. (c) 고정 목록 + 단일 const 위치는 후속 확장 마이그레이션 비용이 거의 0.\n\n**기각**: M0에 `.gitignore` 즉시 지원 — VSCode가 explorer.excludeGitIgnore를 default off로 둔 이유와 같다(파싱 비용 + 워처와의 race + 폴더별 합성 복잡도). 후속 옵트인 기능으로 분리."
+          },
+          {
+            "id": 7,
+            "title": "[7] UX 디테일 — 클릭 동작(에디터 탭 열기), hover/active 비주얼, indent guide, 아이콘 정책, 빈 상태/로딩/에러 표시",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "클릭: 단일 클릭 = editor 탭 즉시 열기(preview 제거, M0 단순화). 행: 24px 높이, mx-2 없이 full-bleed + pl-[indent], hover bg-frosted-veil-strong, selected bg-frosted-veil + border-l-mist-border. Indent: 12px/단계, indent guide 라인 없음(monochromatic 노이즈). 아이콘: 폴더 chevron-only, 파일은 빈 size-3.5 spacer (alignment), chevron text-stone-gray + 150ms rotate. 빈/로딩/에러: Sidebar 톤과 동일 center muted, 첫 200ms 무표시 후 정적 'Loading...' (스피너 X), 에러는 사용자 언어 + Retry ghost. Truncate: end truncate + title tooltip + min-w-0. focus-visible 링 명시 필요.",
+                "recorded_at": "2026-05-03T05:16:50.252Z",
+                "agent_id": "a383d1df99ef1e941"
+              }
+            ],
+            "decision": "**채택**: Designer 권고 전체 수용 + Lead 의 M0 스코프 가지치기.\n\n- **클릭**: 단일 클릭 = editor 탭 즉시 열기(=pinned). preview/double-pin 패턴 비도입 — Cmd+E 와 동일 경로(`tabs.addTab(wsId, \"editor\", { filePath, workspaceId })`). 폴더 단일 클릭 = expand/collapse 토글.\n- **행 외관**:\n  - 높이 24px, full-bleed (mx-2 없음) + `pl-[depth*12px+8px]` (chevron/spacer 정렬 후 텍스트 시작).\n  - hover: `bg-frosted-veil-strong`, selected: `bg-frosted-veil` + `border-l-2 border-l-mist-border` (Sidebar 일관성).\n  - focus-visible: `focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset` (Designer 명시 조건).\n- **Indent**: 12px / 단계, indent guide 라인 미도입 (monochromatic noise 회피).\n- **아이콘**: 폴더 chevron-only (size-3.5, text-stone-gray, 150ms ease-out rotate), 파일은 같은 size 빈 spacer로 정렬. 컬러풀 파일 아이콘 라이브러리 미도입 — 디자인 시스템 정면 위배.\n- **빈/로딩/에러**:\n  - 워크스페이스 미선택: \"Select a workspace to browse files.\" center, py-6, `text-app-ui-sm text-muted-foreground`.\n  - 빈 디렉토리: \"This folder is empty.\" 동일 톤.\n  - readdir 실패: \"Couldn't read this folder.\" + 사용자 언어 보조 줄(ENOENT/EACCES 노출 금지) + ghost `Retry` 텍스트 버튼.\n  - 로딩: 첫 200ms 무표시 → 그 이후 정적 \"Loading...\" (스피너 X, prefers-reduced-motion 자동 준수).\n- **Truncate**: end truncate + `title={node.name}` tooltip + `min-w-0` (현 Sidebar 일관).\n- **a11y 검증**: Mist Border가 dark `bg-muted` 위 1px hairline으로 contrast 충족하는지 구현 시 시각 검증 (Designer 조건).\n\n**M0 비포함 (Issue #1 결정과 짝)**:\n- 우클릭 컨텍스트 메뉴 (Reveal in Finder, Copy path 등)\n- 헤더 액션 버튼 (refresh/collapse-all)\n- 인라인 리네임/생성/DnD\n- Cut/Copy/Paste 키바인딩\n\n**기각**: VSCode 식 single-click=preview / double-click=pinned — M0 단순화 원칙 위배, italic/회색점/auto-replace 등 미묘한 신호 학습 비용. 사용자 피드백으로 \"탭이 너무 빨리 쌓인다\" 나오면 그때 도입."
+          }
+        ],
+        "research_summary": "\n[기존 코드 (Explore)]\n- App.tsx: TitleBar + (Sidebar | grid(WorkspacePanel*)) 구조. Sidebar는 워크스페이스 목록 패널 (resize handle 보유, useUIStore.sidebarWidth 영속화).\n- WorkspacePanel: workspace 별로 lazy mount + CSS hidden 유지로 PTY 생존. tabs는 byWorkspace map.\n- IPC: 중앙 router (`ipc:call` / broadcast `ipc:event`), Zod 검증, ipcContract에서 채널/스키마 선언. 채널은 `src/main/ipc/channels/*` (workspace, dialog, appState 등).\n- 기존 fs 사용: node:fs sync API (storage 모듈에서). 파일 워처 의존성 없음.\n- Zustand 영속화 패턴: ipcCall(\"appState\",\"get/set\", ...) + hydrate.\n- 기존 클릭→파일 열기는 Cmd+E 핫키로 dialog→tabs.addTab(\"editor\"). 파일트리 클릭과 일관 처리 가능.\n\n[VSCode 패턴 (references/vscode)]\n- ExplorerItem + AsyncDataTree: lazy children resolve, _isDirectoryResolved 플래그.\n- 가상화: IndexTreeModel + IListVirtualDelegate (고정 22px), 평탄화 + viewport 인덱스 재계산.\n- 워처: IFileService.onDidFilesChange + 500ms RunOnceScheduler 배치, 영향 노드만 갱신.\n- 필터: FilesFilter + CachedParsedExpression (files.exclude glob), TernarySearchTree로 .gitignore 폴더별 캐시.\n- 인라인 편집/DnD/컨텍스트 메뉴 분리.\n\n[가상화 라이브러리 조사 (researcher)]\n- react-arborist 3.5.0 — 트리 전용, 내장 react-window. rowHeight 고정 제약, react-window 유지보수 중단 리스크.\n- @tanstack/react-virtual — 트리 미지원이지만 활발 유지, 동적 높이 measureElement, React 19 호환 (compiler opt-out 필요).\n- @headless-tree/react — beta, React Compiler 별도 entrypoint.\n- 결론: 수만 노드 + 디자인 자유도 중시 + Tailwind 커스텀 행 → flat + @tanstack/react-virtual 조합이 안전. DnD 1순위면 react-arborist.\n\n[디자인 컨텍스트]\n- Warp 영감 warm dark, 거의 monochromatic. Sidebar는 bg-muted, hover bg-frosted-veil-strong, active bg-frosted-veil + border-l mist-border.\n- 행 높이 22~24px, indent 8~12px, 트리 행은 button + truncate 패턴 일관성 유지.\n",
+        "created_at": "2026-05-03T05:13:14.548Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[PR1-01] shared 타입 + fs-defaults 상수 추가",
+          "status": "completed",
+          "context": "파일트리 IPC/렌더러 양쪽이 공유할 타입과 hidden 패턴 상수의 단일 위치. 후속 사용자 설정/.gitignore 확장 시 이 파일만 마이그레이션하면 되도록 분리. 작업 디렉토리: /Users/kih/workspaces/areas/nexus-code",
+          "acceptance": "- src/shared/types/fs.ts 생성, Zod 스키마 + TS 타입 export\\n- src/shared/fs-defaults.ts 생성, HIDDEN_NAMES Set + isHiddenName 함수\\n- src/shared/types/index.ts 에 fs 타입 re-export\\n- bun run typecheck 통과",
+          "approach": "신규 파일 `src/shared/types/fs.ts` 에 `DirEntry`, `FsEntryType('file'|'dir'|'symlink')`, `FsChangeKind('added'|'modified'|'deleted')`, `FsChange` Zod 스키마 + 타입 export. 신규 `src/shared/fs-defaults.ts` 에 `HIDDEN_NAMES = new Set(['.git','node_modules','dist','out','.DS_Store','.next','.turbo','.cache','.vscode-test'])` const 와 `isHiddenName(name): boolean` 함수. types/index.ts barrel 에 export 추가.",
+          "risk": "없음 (신규 파일만, 기존 코드 미영향)",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab435599d1c7ba764",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:19:42.034Z"
+        },
+        {
+          "id": 2,
+          "title": "[PR1-02] ipcContract 에 fs 채널 등록 (call: readdir/stat)",
+          "status": "completed",
+          "context": "신규 `fs` 채널 schema 등록. PR1 에서는 listen 없이 call 만 — 워처는 PR2에서 추가.",
+          "acceptance": "- ipcContract.fs 추가, Zod 스키마 정의\\n- typecheck 통과 (renderer/main 양쪽)\\n- 기존 채널 시그니처 변화 없음 (회귀 0)",
+          "approach": "`src/shared/ipc-contract.ts` 의 `ipcContract` 객체에 `fs:{ call:{ readdir, stat }, listen:{} }` 항목 추가. readdir args = `{workspaceId: z.string().uuid(), relPath: z.string()}`, result = `z.array(DirEntrySchema)`. stat args 동일, result = `z.object({type, size, mtime, isSymlink})`. shared/types/fs.ts 의 스키마 import 사용.",
+          "risk": "contract 변경은 양쪽 빌드 영향 — typecheck 게이트로 잡힘",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9c0e37e38469e2f7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:19:48.681Z"
+        },
+        {
+          "id": 3,
+          "title": "[PR1-03] main 측 fs 채널 구현 + root escape 보안 경계",
+          "status": "completed",
+          "context": "readdir/stat 핸들러. **보안 critical**: workspaceId+relPath → workspace.rootPath resolve → path.relative(root, abs).startsWith('..') 면 throw. HIDDEN_NAMES 필터를 main 측에서 적용해 렌더러로 누설 안 함.",
+          "acceptance": "- src/main/ipc/channels/fs.ts 생성, registerFsChannel export\\n- main/index.ts 에 등록 호출 추가 (workspace 채널 register 직후)\\n- bun run typecheck 통과\\n- workspaceId 미존재 시 throw 'workspace not found'\\n- relPath 가 root escape 시도 시 throw 'path escapes workspace root'\\n- HIDDEN_NAMES 의 항목은 readdir 결과에 포함되지 않음",
+          "approach": "신규 파일 `src/main/ipc/channels/fs.ts`. 구조:\\n```\\nexport function registerFsChannel(manager: WorkspaceManager) {\\n  function resolveSafe(workspaceId, relPath): string\\n  register('fs', { call: { readdir, stat }, listen: {} })\\n}\\n```\\n- `resolveSafe`: `manager.list().find(w=>w.id===id)` → throw if not found → `path.resolve(root, relPath || '.')` → `path.relative(root, abs)` 가 빈 문자열/'.'/'..' 검사 → throw on '..'. 결과 절대경로 반환.\\n- `readdir`: `fs.promises.readdir(absPath, { withFileTypes: true })` → HIDDEN_NAMES 필터 → 각 entry `{name, type: dirent.isDirectory()?'dir':dirent.isSymbolicLink()?'symlink':'file'}`. size/mtime 은 비싼 추가 stat 회피 — 옵션화는 후속.\\n- `stat`: `fs.promises.lstat(abs)` → type/size/mtime/isSymlink. 심볼릭 링크 traverse 안 함.\\n- 에러: ENOENT/EACCES → throw 그대로 (router 에서 사용자 표시는 렌더러 책임)",
+          "risk": "**HIGH**: 보안 경계 — escape 검사 누락 시 임의 파일시스템 readdir 가능. 단위 테스트 필수.",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a53dc0e0475959cdb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:02.208Z"
+        },
+        {
+          "id": 4,
+          "title": "[PR1-04] tester: fs 채널 boundary + filter 단위 테스트",
+          "status": "completed",
+          "context": "PR1-03의 보안 critical 부분을 테스트로 가드. 보안 회귀 검출이 핵심 목적.",
+          "acceptance": "- bun test tests/unit/main/fs-channel.test.ts 통과 (9 케이스 all green)\\n- escape 케이스 3가지 모두 throw 검증",
+          "approach": "`tests/unit/main/fs-channel.test.ts` 신규. tmp 디렉토리에 가짜 워크스페이스 root 생성, WorkspaceManager mock 또는 in-memory 인스턴스 사용. 테스트 케이스:\\n1. readdir({workspaceId, relPath:'.'}) 정상\\n2. readdir({workspaceId, relPath:'subdir'}) 정상\\n3. readdir({workspaceId, relPath:'../etc'}) → throw\\n4. readdir({workspaceId, relPath:'/absolute/path'}) → throw (path.resolve 결과가 root 밖)\\n5. readdir({workspaceId, relPath:'sub/../../etc'}) → throw (정규화 후 escape)\\n6. workspaceId 미존재 → throw\\n7. 심볼릭 링크가 root 밖을 가리켜도 type 만 'symlink'로 반환, follow 안 함\\n8. HIDDEN_NAMES 항목(.git, node_modules)이 readdir 결과에서 제외됨\\n9. dotfile(.env)은 결과에 포함됨",
+          "risk": "tmp 디렉토리 cleanup 누락 시 CI noise — afterEach 로 보장",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a47a6a1d79bdb8ee9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:10.693Z"
+        },
+        {
+          "id": 5,
+          "title": "[PR1-05] useUIStore 확장: filesPanelWidth / filesPanelCollapsed + appState 스키마",
+          "status": "completed",
+          "context": "FilesPanel 의 width/접힘 상태를 sidebarWidth 와 동일 패턴으로 영속화. AppStateSchema 에 두 필드 추가, ui store 에 setter, App.tsx hydrate 호출 확장.",
+          "acceptance": "- AppStateSchema 에 두 필드 추가, Zod parse 통과\\n- useUIStore 에 두 필드 + setter, set 호출 시 ipcCall('appState','set',...) 트리거\\n- typecheck 통과, 기존 sidebarWidth 동작 회귀 없음",
+          "approach": "- `src/shared/types/appState.ts` AppStateSchema 에 `filesPanelWidth?: number`, `filesPanelCollapsed?: boolean` 추가 (optional, default 240/false)\\n- `src/renderer/store/ui.ts` 에 동일 필드 + setter (`setFilesPanelWidth`, `toggleFilesPanel`) + hydrate 시 두 값 받도록 시그니처 확장\\n- `src/main/storage/migrations.ts` 만약 존재하면 새 필드 default 부여 (없어도 z.optional 이라 무시)\\n- `src/renderer/App.tsx` boot 의 hydrate 호출 갱신 — 단, App.tsx 변경은 PR1-13 통합 단계에서 합쳐도 OK",
+          "risk": "기존 저장된 appState 가 새 필드 없는 상태 — Zod optional 로 자동 backward-compatible",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8d5119884d87887a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:19.918Z"
+        },
+        {
+          "id": 6,
+          "title": "[PR1-06] ResizeHandle 일반화 + SidebarResizeHandle 리팩터",
+          "status": "completed",
+          "context": "FilesPanel 도 resize handle 이 필요. SidebarResizeHandle 로직을 일반 컴포넌트로 추출해 두 곳이 공유. 단일 파일 작은 리팩터 → Lead 직접 수행.",
+          "acceptance": "- src/renderer/components/ResizeHandle.tsx 생성\\n- SidebarResizeHandle 사용처 (Sidebar.tsx) 동작 변화 없음 (수동: dev 모드에서 사이드바 리사이즈 정상)\\n- typecheck/lint 통과",
+          "approach": "`src/renderer/components/ResizeHandle.tsx` 신규: props = `{ side: 'right'|'left', minWidth, maxWidth, onResize(width:number), value:number }`. 기존 SidebarResizeHandle 의 mousedown/mousemove/mouseup + cursor 처리 로직 그대로 이식. SidebarResizeHandle 은 `useUIStore.sidebarWidth` 를 props 로 wrap 하는 얇은 어댑터 (혹은 직접 ResizeHandle 사용으로 교체). 시각/동작 변화 없음.",
+          "risk": "리사이즈 동작 회귀 — 수동 검증 필요 (자동 테스트는 PR1-08의 통합 검증에 묶음)",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:28.538Z"
+        },
+        {
+          "id": 7,
+          "title": "[PR1-07] renderer 파일트리 store: 노드 Map + expand Set + 평탄화 selector",
+          "status": "completed",
+          "context": "Issue #3 결정 그대로. treesByWorkspaceId 캐시 (M0 메모리 only). 외부 reveal API 도 함께 정의.",
+          "acceptance": "- src/renderer/store/files.ts 생성, 위 actions/selector export\\n- toggleExpand 가 lazy loadChildren 트리거\\n- selectFlat 결과가 expanded 상태에 따라 평탄화 배열 반환\\n- typecheck 통과",
+          "approach": "신규 `src/renderer/store/files.ts`. 형태:\\n```\\ntype TreeNode = { absPath: string; name: string; type: 'file'|'dir'|'symlink'; childrenLoaded: boolean; children: string[] }\\ntype WorkspaceTree = { nodes: Map<string, TreeNode>; expanded: Set<string>; loading: Set<string>; errors: Map<string, string> }\\nstate: { trees: Map<workspaceId, WorkspaceTree> }\\nactions:\\n  ensureRoot(workspaceId, rootAbsPath)\\n  toggleExpand(workspaceId, absPath) — if dir & !childrenLoaded → loadChildren\\n  loadChildren(workspaceId, absPath) — ipcCall('fs','readdir', {workspaceId, relPath}) → Map insert\\n  reveal(workspaceId, absPath) — ancestor 모두 expand 후 await loadChildren\\n  refresh(workspaceId, absPath?) — invalidate childrenLoaded → reload\\nselector: selectFlat(workspaceId): Array<{node, depth}>\\n```\\n- workspace-rel 로 변환은 store 내부에서 처리 (rootAbsPath 보유)\\n- selector 는 useShallow + useMemo 로 expand/nodes 변경 시만 재계산\\n- 'use no memo' 디렉티브를 이 파일 또는 사용 컴포넌트에 (React Compiler opt-out)",
+          "risk": "selector 재계산 비용은 첫 측정 후 incremental splice 도입 여부 판단. 수만 노드도 ms 단위 예상.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a4ad45eb70fcfbcbe",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:40.893Z"
+        },
+        {
+          "id": 8,
+          "title": "[PR1-08] @tanstack/react-virtual 의존성 추가",
+          "status": "completed",
+          "context": "단순 의존성 추가 후 PR1-09에서 사용. 따로 분리하는 이유 = lockfile diff 와 코드 변경 PR 리뷰 분리.",
+          "acceptance": "- package.json/bun.lock 에 @tanstack/react-virtual 추가\\n- bun run build 통과\\n- 번들 크기 변화 measurement comment (이전 vs 이후, kb)",
+          "approach": "`bun add @tanstack/react-virtual`. tsconfig.renderer.json 에 별도 path mapping 불필요. 번들 크기 영향 측정 (build 후 out/renderer 사이즈 체크 — 정량 기록).",
+          "risk": "없음",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:46.342Z"
+        },
+        {
+          "id": 9,
+          "title": "[PR1-09] FileTreeRow 컴포넌트 (행 렌더 + 클릭 + a11y)",
+          "status": "completed",
+          "context": "Issue #7 결정 그대로. full-bleed 24px 행, chevron-only 폴더, focus-visible ring, end truncate + tooltip.",
+          "acceptance": "- src/renderer/components/FileTreeRow.tsx 생성\\n- Storybook/screenshot 없음, 시각 검증은 PR1-12 통합 후\\n- typecheck/lint 통과\\n- a11y: role=treeitem, aria-level, aria-expanded 정확",
+          "approach": "신규 `src/renderer/components/FileTreeRow.tsx`. props = `{node, depth, isExpanded, isSelected, onToggle, onClick}`. 마크업:\\n```\\n<button role=treeitem aria-level={depth+1} aria-expanded={dir?isExpanded:undefined}\\n  className=cn(\\n    'flex items-center h-6 w-full text-left cursor-pointer select-none',\\n    'border-l-2 border-l-transparent',\\n    'hover:bg-frosted-veil-strong',\\n    'focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset',\\n    isSelected && 'bg-frosted-veil border-l-mist-border text-foreground'\\n  )\\n  style={{ paddingLeft: depth*12 + 8 }}\\n  onClick={isDir ? onToggle : onClick}\\n  title={node.name}\\n>\\n  {isDir\\n    ? <ChevronRightIcon className=cn('size-3.5 shrink-0 text-stone-gray transition-transform duration-150 ease-out', isExpanded && 'rotate-90') />\\n    : <span className='size-3.5 shrink-0' aria-hidden />}\\n  <span className='ml-1 truncate min-w-0 text-app-body'>{node.name}</span>\\n</button>\\n```\\n- ChevronRightIcon 은 인라인 SVG (radix-ui 의존 회피, 단순)\\n- 'use no memo' 컴파일러 opt-out (react-virtual 호스트 컴포넌트에서)\\n- TS strict: node 타입은 store TreeNode",
+          "risk": "디자인 토큰 누락 — bg-frosted-veil-strong / border-l-mist-border / text-stone-gray 가 기존 design-tokens.ts 에 정의되어 있는지 PR1-09 시작 시 확인. 없으면 PR1-09 안에서 token 추가.",
+          "plan_issue": 7,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9fb7624575404d3a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:59.010Z"
+        },
+        {
+          "id": 10,
+          "title": "[PR1-10] FileTree 컴포넌트 (react-virtual 호스트)",
+          "status": "completed",
+          "context": "평탄화 배열을 useVirtualizer 로 가상 렌더. 키보드 네비게이션은 기본만 (↑↓ Enter/Space 토글, ←→ collapse/expand) — M0 최소 a11y.",
+          "acceptance": "- src/renderer/components/FileTree.tsx 생성\\n- 키보드 ↑↓ 이동, ←→ collapse/expand, Enter 탭 열기 동작\\n- 빈/로딩/에러 분기 모두 렌더 가능 (수동 검증)\\n- typecheck/lint 통과",
+          "approach": "신규 `src/renderer/components/FileTree.tsx`. props = `{workspaceId, rootAbsPath}`.\\n- useFilesStore selector 로 flat array 구독\\n- useVirtualizer({count, getScrollElement, estimateSize: () => 24, overscan: 10})\\n- div ref + role=tree + tabIndex=0\\n- onKeyDown 핸들러: ArrowUp/Down → activeIndex 이동 + scrollToIndex, ArrowRight → expand if dir, ArrowLeft → collapse 또는 부모로, Enter → onClick (파일이면 탭 열기 호출)\\n- 빈/로딩/에러 렌더 분기:\\n  - flat.length===0 && rootLoading → 빈 div (200ms 후 'Loading...')\\n  - flat.length===0 && rootError → 'Couldn\\\\'t read this folder.' + Retry\\n  - flat.length===0 && rootLoaded → 'This folder is empty.'\\n  - else → virtualizer items map → FileTreeRow\\n- 200ms 로딩 지연: useState + setTimeout cleanup",
+          "risk": "react-virtual + React 19 compiler 경고/오작동 — 'use no memo' 명시. measureElement 미사용(고정 24px) 이라 issue #743 회피.",
+          "plan_issue": 2,
+          "deps": [
+            7,
+            8,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a6d37e7f09a495b65",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:10.295Z"
+        },
+        {
+          "id": 11,
+          "title": "[PR1-11] FilesPanel 컨테이너 (헤더 + 트리 + resize)",
+          "status": "completed",
+          "context": "Issue #1 결정 그대로. bg-muted + border-r-mist-border + uppercase 워크스페이스 헤더. 워크스페이스 미선택 시 빈 상태.",
+          "acceptance": "- src/renderer/components/FilesPanel.tsx 생성\\n- 워크스페이스 선택 시 헤더 + 트리, 미선택 시 빈 상태\\n- resize 동작 (160~600px)\\n- typecheck/lint 통과",
+          "approach": "신규 `src/renderer/components/FilesPanel.tsx`. 구조:\\n```\\n<aside className='relative shrink-0 bg-muted border-r border-r-mist-border flex flex-col' style={{ width: filesPanelWidth }}>\\n  {activeWorkspace ? (\\n    <>\\n      <div className='px-3 pt-3 pb-2 text-app-ui-xs uppercase tracking-[2.4px] text-stone-gray select-none truncate'>{activeWorkspace.name}</div>\\n      <div className='flex-1 min-h-0 overflow-hidden'>\\n        <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />\\n      </div>\\n    </>\\n  ) : (\\n    <div className='px-4 py-6 text-center text-app-ui-sm text-muted-foreground'>Select a workspace<br/>to browse files.</div>\\n  )}\\n  <ResizeHandle side='right' value={filesPanelWidth} minWidth={160} maxWidth={600} onResize={setFilesPanelWidth} />\\n</aside>\\n```\\n- 워크스페이스 변경 시 store ensureRoot 호출 (effect)\\n- collapsed 상태일 때는 width 0 + 토글 버튼 — M0 비포함 (Lead 결정), 단 store 필드는 둠.",
+          "risk": "디자인 토큰 (text-app-ui-xs, text-stone-gray) 미존재 가능 — design-tokens.ts 점검 필요",
+          "plan_issue": 1,
+          "deps": [
+            5,
+            6,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afd3ad6470bc7c748",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:19.509Z"
+        },
+        {
+          "id": 12,
+          "title": "[PR1-12] App.tsx 통합 + Cmd+R 수동 새로고침",
+          "status": "completed",
+          "context": "FilesPanel 을 App 레이아웃에 끼워 넣고, 워처 부재(PR1)를 보완할 수동 새로고침 단축키 등록.",
+          "acceptance": "- App.tsx 레이아웃에 FilesPanel 추가, dev 모드에서 좌측 두번째 패널 가시\\n- Cmd+R 시 활성 워크스페이스 트리 재로드 (페이지 reload 차단)\\n- 기존 워크스페이스 전환/PTY/에디터 탭 회귀 없음 (수동 검증)\\n- typecheck/lint 통과",
+          "approach": "- `src/renderer/App.tsx`: `<Sidebar/>` 와 `<grid>` 사이에 `<FilesPanel/>` 삽입\\n- boot 의 ipcCall('appState','get') 후 hydrate 호출에 filesPanelWidth/Collapsed 전달\\n- onKeyDown 글로벌에 Cmd+R: e.preventDefault() + useFilesStore.getState().refresh(activeWorkspaceId) — '소프트 새로고침' (트리만 재로드, 페이지 reload 아님)\\n- 워크스페이스 클릭 시 FilesPanel 자동 트리 마운트 (FilesPanel 내부 effect)",
+          "risk": "**HIGH**: Cmd+R 글로벌 캡처가 기존 동작(electron 기본 reload)을 막아야 함 — preventDefault 누락 시 페이지 reload 로 PTY 끊김. 통합 테스트 필수.",
+          "plan_issue": 1,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a2b1fde73b4e4fda3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:29.529Z"
+        },
+        {
+          "id": 13,
+          "title": "[PR1-13] tester: 통합 시나리오 검증 (트리 클릭→탭 열기, 워크스페이스 전환, Cmd+R)",
+          "status": "completed",
+          "context": "PR1 의 시나리오 단위 통합 검증. 단위 테스트 외 — 가능하면 integration test, 어렵다면 수동 체크리스트.",
+          "acceptance": "- 6 시나리오 모두 PASS (integration 또는 RUNBOOK 형태)\\n- Cmd+R 후 PTY 생존 확인\\n- bun test 의 integration suite 추가 시 green",
+          "approach": "우선 `tests/integration/files-panel.test.ts` 작성 시도. tests/setup 패턴(기존 integration 테스트 살펴) 따라 ipc 모킹 + Zustand store 직접 호출. 어려우면 RUNBOOK 식 수동 체크리스트로 결과 보고.\\n시나리오:\\n1. 워크스페이스 선택 → FilesPanel 헤더 = ws.name, 트리 root readdir 호출\\n2. 폴더 클릭 → expand + children 로드\\n3. 파일 클릭 → tabs.addTab('editor', ...) 호출 + EditorView 마운트\\n4. 워크스페이스 전환 → 동일 트리 컴포넌트 + 새 store entry, 이전 워크스페이스 PTY 생존 (CSS hide 회귀)\\n5. Cmd+R → 활성 트리 invalidate + 재 readdir, 페이지 reload 안 됨\\n6. resize handle drag → filesPanelWidth 갱신, appState 영속",
+          "risk": "integration 환경에서 ipc/electron 모킹 난도 — RUNBOOK fallback 명시",
+          "plan_issue": 1,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a34ae7ee490ca00fb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:39.710Z"
+        },
+        {
+          "id": 14,
+          "title": "[PR2-01] chokidar 의존성 + FileWatcher 클래스 (lazy watch + 300ms 배치)",
+          "status": "completed",
+          "context": "PR1 의 manual refresh 보완. 사용자가 expand 한 디렉토리만 watch, 변경은 워크스페이스별 300ms 디바운스 후 batch broadcast.",
+          "acceptance": "- src/main/filesystem/FileWatcher.ts 생성\\n- chokidar 의존성 추가\\n- bun run build 통과 (electron-rebuild 영향 점검)\\n- watch/unwatch API 호출 시 fs 이벤트 broadcast 됨 (수동 또는 단위 테스트)",
+          "approach": "- `bun add chokidar`\\n- 신규 `src/main/filesystem/FileWatcher.ts`:\\n  - `watch(workspaceId, absDir)` / `unwatch(workspaceId, absDir)` API\\n  - 워크스페이스별 chokidar 인스턴스 1개 (`new chokidar.FSWatcher({ ignored: [HIDDEN_NAMES patterns], ignoreInitial: true, awaitWriteFinish:false, depth: 0 (per-add)})` — 단, depth:0 은 옵션화 검토. 핵심: `non-recursive add` 동작.\\n  - 변경 이벤트 → 워크스페이스 버퍼 push → 300ms 디바운스 후 broadcast `fs.changed { workspaceId, changes:[...] }`\\n  - `disposeWorkspace(workspaceId)` — workspace removed broadcast 구독\\n- WorkspaceManager.broadcast 가 'workspace.removed' 발화 → FileWatcher 가 해당 ws 모두 unwatch\\n- main/index.ts 에 `const fileWatcher = new FileWatcher(broadcast); registerFsChannel(workspaceManager, fileWatcher)`",
+          "risk": "chokidar non-recursive 옵션 동작이 macOS fsevents 와 어떻게 결합되는지 확인 필요 (재귀로 동작하면 의도 위배). 측정 필수.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aaf65dc1701ed9dfe",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:51.762Z"
+        },
+        {
+          "id": 15,
+          "title": "[PR2-02] fs 채널에 listen.changed 추가 + files store 가 변경 이벤트 소비",
+          "status": "completed",
+          "context": "PR2-01 의 broadcast 를 ipcContract 에 정식 등록 + 렌더러 store 가 구독해 트리 갱신.",
+          "acceptance": "- ipcContract.fs.listen.changed 추가\\n- ipcContract.fs.call.watch / unwatch 추가\\n- files store 가 changed 이벤트로 트리 갱신\\n- 외부 도구로 파일 추가/삭제 시 트리 즉시 반영 (수동 검증)",
+          "approach": "- `src/shared/ipc-contract.ts`: `fs.listen.changed: listen(FsChangedSchema)` 추가 (FsChange 타입은 PR1-01 에서 정의)\\n- `src/renderer/store/files.ts`: 모듈 로드 시 `ipcListen('fs','changed', handler)` — handler 는 workspace tree 의 영향 노드(부모 디렉토리) 만 invalidate + 자동 재로드 (이미 expanded 면 readdir 재호출, 아니면 mark stale 만)\\n- 토글 expand 시 watch 호출, collapse 시 unwatch — files store 가 main 측 watcher API 호출 (`ipcCall('fs','watch'/'unwatch', ...)` — 신규 method 2개 추가 필요. 또는 expand 신호를 main 이 알 수 없으므로 명시 method 추가가 자연스러움)",
+          "risk": "expand → watch IPC 추가 메서드는 PR2 에서 contract 변경 — 호환성 점검",
+          "plan_issue": 5,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa5ada132c63d32af",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:02.821Z"
+        },
+        {
+          "id": 16,
+          "title": "[PR2-03] expand 상태 SQLite 영속화 (워크스페이스별)",
+          "status": "completed",
+          "context": "Issue #3 의 후속 슬라이스. better-sqlite3 기반 workspaceStorage 에 expanded 경로 set 저장.",
+          "acceptance": "- workspaceStorage 마이그레이션 통과 (기존 DB backward-compatible)\\n- expand 상태가 앱 재시작 후 복원\\n- 워크스페이스 삭제 시 해당 데이터 정리",
+          "approach": "- `src/main/storage/workspaceStorage.ts` 에 expanded paths 테이블/컬럼 추가 (마이그레이션). 형태: 워크스페이스별 string[] 또는 별도 테이블.\\n- ipc 또는 workspaceManager 에 getExpanded/setExpanded API\\n- files store 의 toggleExpand 가 디바운스 후 setExpanded 호출\\n- ensureRoot 시 getExpanded → store 에 hydrate",
+          "risk": "DB 마이그레이션 회귀 — 단위 테스트로 가드",
+          "plan_issue": 3,
+          "deps": [
+            15
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3dc6eeb4e9178ca0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:09.471Z"
+        },
+        {
+          "id": 17,
+          "title": "[PR2-04] tester: 워처 동작 + 영속화 통합 검증",
+          "status": "completed",
+          "context": "PR2 통합 검증.",
+          "acceptance": "- 6 시나리오 모두 PASS\\n- 메모리 leak 없음 (수동: dev tools heap snapshot, 워크스페이스 add/remove 반복)",
+          "approach": "시나리오:\\n1. 폴더 expand → main 측 watch 등록 확인\\n2. 외부 파일 생성 → 300ms 후 트리에 반영\\n3. 폴더 collapse → unwatch\\n4. 워크스페이스 삭제 → 해당 watcher 모두 dispose\\n5. 앱 재시작 → 이전 expand 상태 복원\\n6. 대량 변경(npm install 흉내) → 디바운스로 1회만 readdir, UI 멈춤 없음",
+          "risk": "대량 변경 시나리오는 실제 npm install 로 검증 권장 — CI 어려우므로 RUNBOOK",
+          "plan_issue": 5,
+          "deps": [
+            15,
+            16
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a28c79eb0de2ec698",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:15.253Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T08:39:38.037Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 7,
+        "topic": "PR1+PR2 검토에서 발견된 결함 및 개선 항목 수정 계획 (FilesPanel/FileTree 후속 정리)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[1] files store 정합성 — useMemo 외부 store 호출, ensureRoot race, loadChildren dedup, handleFsChanged 타입 정합성",
+            "status": "decided",
+            "decision": "**채택**: 네 결함을 한 번의 store 정합성 PR로 묶어 처리.\n\n(A) **useMemo 외부 store 호출** — `FileTree.tsx:16~19`\n- `useFilesStore(useShallow(s => selectFlat(s, workspaceId)))` 패턴으로 교체. zustand v5의 `useShallow`는 selector 결과 reference 안정화로 매 render 새 배열 반환에 의한 무한 re-render를 막음. selectFlat은 함수 시그니처 그대로 두되, 매번 새 배열을 만들어도 `useShallow`가 element-wise 비교해 reference 안정.\n\n(B) **ensureRoot race** — `files.ts:144~`\n- 모듈 레벨 `Map<workspaceId, Promise<void>>` (이름: `_ensureRootPromises`)로 in-flight Promise dedup. 두 번째 호출은 첫 번째 Promise를 그대로 await. resolve 후 Map에서 제거. 성공/실패 둘 다 정리하기 위해 `.finally`로 cleanup.\n\n(C) **loadChildren dedup** — `files.ts:265~`\n- 함수 진입 직후 `if (tree.loading.has(absPath)) return;` 가드 한 줄. 이미 loading set에 있는 경로는 같은 IPC 발화 회피. 단순함이 핵심 — `Promise<void>` 캐시까지 안 가도 충분.\n\n(D) **handleFsChanged inline 타입** — `files.ts:444`\n- `import type { FsChangedEvent } from '../../shared/types/fs'` 후 `event: FsChangedEvent` 시그니처. `kind: string` → `FsChangeKind` 자동 좁힘. 컴파일 타임 정합성 확보.\n\n**기각**:\n- (A) 대안 — `selectFlat`을 store action으로 끌어올려 미리 계산 캐시: 트리 변경 시마다 actions 안에서 flat 캐시를 재계산해 셀렉터 호출 없이 바로 읽기. 거부 이유 = action 책임이 부풀고, derived 계산은 selector 영역이 OO. selector + useShallow가 표준 zustand 패턴.\n- (B) 대안 — useEffect의 cleanup으로 race 회피 (마지막 호출만 반영). 거부 이유 = 호출 순서가 컴포넌트 mount/unmount 흐름에 종속되어 잠복 race가 남음. Promise dedup이 더 결정적.\n- (C) 대안 — `Promise<void>` 캐시로 fully await-able 동시 호출: 호출자가 `await loadChildren`을 두 번 해도 같은 Promise를 받음. 거부 이유 = 현재 호출 흐름은 fire-and-forget이 다수라 단순 가드로 충분. 비용 대비 이득 적음.\n- (D) 대안 — Zod 스키마 `FsChangedEventSchema.parse`로 런타임 검증. 거부 이유 = ipcListen이 이미 schema를 통과한 데이터만 전달하므로 이중 검증 비용. 컴파일 타임 타입 좁힘만으로 충분.\n\n**가정**: zustand v5의 `useShallow`가 의존성으로 사용 가능. (이미 다른 store에서 사용 중이라면 추가 의존성 없이 적용; 미사용 시 `import { useShallow } from 'zustand/react/shallow'` 추가).\n\n**검증 기준**: `bun run typecheck` 통과, 기존 단위 테스트 fail 0, `loadChildren` dedup 단위 테스트 1건 추가, ensureRoot 동시 호출 단위 테스트 1건 추가."
+          },
+          {
+            "id": 2,
+            "title": "[2] 글로벌 키바인딩 정책 — Cmd+R/Cmd+Shift+R hard-reload 차단 범위, Cmd+E와 Editor 영역 충돌",
+            "status": "decided",
+            "decision": "**채택**: 글로벌 키바인딩 정책을 명시화하고 두 결함 모두 처리.\n\n**Cmd+R / Cmd+Shift+R** — `App.tsx:124~135`\n- 현재 핸들러를 `e.metaKey && (e.key === \"r\" || e.key === \"R\")` 로 확장 (Cmd+Shift+R도 캡처). 두 키 조합 모두 `preventDefault()` 후 `useFilesStore.refresh(activeWorkspaceId)` 동일 동작. 페이지 reload는 모든 macOS 사용자 워크플로에서 PTY 손실을 동반하는 사고이므로 disaster recovery 통로로 두지 않는다 — 강제 재시작이 필요한 사용자는 `Cmd+Q` → 재실행으로 동등.\n\n**Cmd+E와 Editor 영역 conflict** — `App.tsx:138`\n- 핸들러 진입 즉시 활성 요소 검사 추가:\n  ```ts\n  const target = e.target as HTMLElement | null;\n  const inEditable = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable === true || target?.closest('.cm-editor');\n  if (inEditable) return; // editor/textarea/input은 글로벌 단축키 캡처 안 함\n  ```\n- `cm-editor`는 CodeMirror 6 root 클래스. EditorView의 컨테이너에 자동 부여되므로 selector로 충분. 다른 코드에디터 도입 시 selector 확장. preventDefault는 현재처럼 글로벌 의도일 때만.\n\n**기각**:\n- Cmd+Shift+R은 의도적 disaster recovery로 두기: 거부 이유 = PTY 손실 비용이 크고, 유저 멘탈모델(\"Shift는 hard\")이 PTY 손실을 정당화하지 않음. 가시적 알림 없이 워크스페이스 상태가 사라지는 것은 안전한 escape hatch가 아님.\n- Editor 안에서만 Cmd+E 비활성: closest 검사 외에 Cmd+E를 EditorView 자체가 해석하도록 위임. 거부 이유 = M0에 EditorView의 검색 기능 없음. 단순 가드만으로 충분.\n- 글로벌 핸들러를 capture 단계 (`addEventListener('keydown', fn, true)`) 로 전환: 거부 이유 = 모든 input/editable에서 글로벌 단축키가 우선되면 텍스트 편집 흐름 끊김. bubble 단계 + editable 가드가 정공법.\n\n**가정**: 현재 EditorView는 CodeMirror 기반(파일트리 task에서 EditorView 통합 완료 상태). 추후 다른 에디터 도입 시 selector 확장이 필요하지만 그건 그 시점에 추적.\n\n**검증 기준**: 단위 테스트 신규 — Cmd+R/Cmd+Shift+R 모두 refresh 호출 + preventDefault 호출 검증. Cmd+E가 input/textarea/contenteditable 안에서는 무시 검증. RUNBOOK — Cmd+Shift+R 실제 누름 후 PTY 생존 + 파일트리 새로고침 확인."
+          },
+          {
+            "id": 3,
+            "title": "[3] ResizeHandle 안정성 — onResize deps 변경에 따른 effect 재등록, 인접 두 핸들의 히트영역 겹침",
+            "status": "decided",
+            "decision": "**채택**: 콜백 ref 패턴으로 effect 재등록 회피 + 히트영역 정렬 조정.\n\n**onResize ref 패턴** — `ResizeHandle.tsx:60~92`\n- `onResizeRef = useRef(onResize); onResizeRef.current = onResize;` 매 render 시 mirror.\n- useEffect deps에서 `onResize` 제거 → `[isDragging]`만. effect 안에서는 `onResizeRef.current(width, persist)` 호출.\n- 결과: drag 중 store update → re-render → 새 onResize는 ref에 mirror만 되고 effect는 cleanup/재등록 안 됨. body cursor/userSelect 사이드이펙트도 한 번만 setup/teardown.\n\n**히트영역 인접 겹침** — Sidebar/FilesPanel 두 ResizeHandle\n- 현재: `right-0 + translate-x-1/2`로 양쪽 모두 자기 패널 우측 경계 위 `w-2`(8px) hit-area. SidebarResizeHandle hit-area의 우측 절반(~4px)이 FilesPanel 좌측 첫 8px 패딩과 겹침.\n- 수정: SidebarResizeHandle을 `translate-x-1/2`(centered) 대신 `right-0` (translate 없음 = 좌측으로 8px 들어가는 형태)으로 두고, FilesPanel ResizeHandle은 그대로. 결과: 사이드바 핸들이 사이드바 안쪽으로만 점유. 두 핸들 사이 겹침 0.\n- 반론: 사이드바 핸들이 안쪽으로 들어가면 사이드바 우측 가장자리 클릭 시 핸들이 잡히지 않음. 절충: `right-0 -translate-x-1/2` (사이드바 안쪽으로 4px) — hit-area 8px 중 4px는 사이드바, 나머지 4px가 시각 hairline 위. FilesPanel 핸들은 동일 패턴 유지 — 시각적 대칭 깨지지만 사용자가 두 핸들을 동시에 다루는 경우는 없으므로 OK.\n- ResizeHandle props에 `placement: 'rightCentered' | 'rightInside'` 추가하고 두 호출자가 다른 placement 사용. SidebarResizeHandle은 `rightInside`, FilesPanel은 `rightCentered`.\n\n**기각**:\n- onResize 변경에 의한 effect 재등록을 그대로 두기: 거부 이유 = drag 중 매 mousemove에서 listener add/remove가 발생. 60Hz 입력에서 GC 압박/jank 가능. 표준 ref-mirror 패턴으로 5줄 추가에 해결.\n- 두 핸들을 모두 `rightInside`로 통일: 거부 이유 = FilesPanel 우측 경계는 가장 우측이므로 안쪽 패딩이 줄어들어 클릭 어려움. 가장 우측 패널은 centered가 자연스러움.\n- ResizeHandle props 추가 대신 호출 측에서 className 오버라이드만으로 위치 조정: 거부 이유 = position 클래스를 매번 호출자가 적기 시작하면 일관성 깨짐. enum props 한 개가 명료.\n\n**가정**: 현재 Sidebar의 우측 경계 hairline은 FilesPanel의 `border-r`이 그리는 것이 아니라 Sidebar 자체에 있음(별도 read 후 확인 필요). 만약 Sidebar에 hairline 없으면 위 조정으로 시각 변화는 없음.\n\n**검증 기준**: ResizeHandle deps 회귀를 단위 테스트로 직접 잡기 어려움 — `effect re-run count`를 직접 측정 불가. 대신 RUNBOOK: 워크스페이스 큰 트리 100+ 행 띄운 상태로 사이드바/파일패널 드래그 → 60fps 유지 시각 확인. 히트영역 — RUNBOOK: 사이드바 우측 경계 8px 안쪽 클릭 시 사이드바 리사이즈, 그 외 영역 클릭 시 파일패널 핸들 작동 안 함 확인."
+          },
+          {
+            "id": 4,
+            "title": "[4] filesPanelCollapsed dead state — store/persist 필드는 있으나 UI 미연결: 즉시 제거 vs M1까지 보류 vs 즉시 anchor",
+            "status": "decided",
+            "decision": "**채택**: 즉시 제거 (store/AppStateSchema 양쪽에서 `filesPanelCollapsed` 필드 삭제).\n\n**근거**:\n- 현재 상태 = store에 필드+setter+IPC persist가 있으나 어떤 컴포넌트도 읽지 않음. UI에 collapse 토글 진입점도 없음. 100% dead state.\n- M1에 collapse가 들어올지 미정. \"혹시\" 위해 둔 코드는 일관되게 부패한다 (예: 누군가 collapsed=true로 만들었는데 UI는 무반응 → 디버깅 시간 낭비).\n- AppState는 사용자 영속 데이터. 미래 사용 가능성을 명목으로 schema에 필드가 누적되면 schema 압박. 필요해질 때 추가하는 것이 견고한 운영 패턴.\n- 영속 데이터 backward-compat: `AppStateSchema`에서 `filesPanelCollapsed: z.boolean().optional()` 제거 시 기존 영속된 값은 `parse` 시 `unknown keys` 처리에 따라 다름. Zod default는 unknown keys strip이라 안전. 별도 마이그레이션 불필요.\n\n**기각**:\n- M1까지 보류: 거부 이유 = 위에 적은 dead state 부패 비용. 6주 후 누가 만들 때 store 코드 본인이 짠 게 아니어서 이 필드의 용도/UI를 못 찾고 다시 결정해야 함.\n- 즉시 anchor (UI에 토글 버튼 + collapsed=true시 width=0 + 좌측 가장자리에 펼침 버튼): 거부 이유 = M0 결정에서 명시적으로 비포함했고, 현재 PR의 범위를 벗어남. UI/UX 결정이 추가로 필요(어디에 토글 버튼을 둘 것인가, collapsed 상태에서 어떻게 펼칠 것인가, FilesPanel을 width 0으로 두면 ResizeHandle도 안 보이는데 어떻게 부활시킬 것인가). 별도 issue로 분리 후 그 시점에 다시 결정.\n\n**범위**:\n- `src/renderer/store/ui.ts`: `filesPanelCollapsed`, `toggleFilesPanel` 제거. `HydrateOpts`에서 필드 제거.\n- `src/shared/types/appState.ts`: `filesPanelCollapsed` 필드 제거.\n- `src/renderer/App.tsx`: hydrate 호출에서 `filesPanelCollapsed` 인자 제거.\n- 관련 테스트: `tests/unit/ui-store.test.ts`, `tests/unit/ui-store-files-panel.test.ts`에서 collapsed 케이스 제거 또는 테스트 자체 삭제.\n\n**검증 기준**: typecheck 통과, 단위 테스트 fail 0. 기존 영속된 appState.json에 `filesPanelCollapsed` 키가 있어도 앱 부팅 정상 (Zod strip)."
+          },
+          {
+            "id": 5,
+            "title": "[5] 트리 UX 보강 — 키보드 ←로 부모 점프, 자식 디렉토리 readdir 시 시각 피드백",
+            "status": "decided",
+            "decision": "**채택**: 즉시 처리(코드 5~10줄)로 분류 가능한 두 항목 모두 본 PR에 포함.\n\n**키보드 ←로 부모 점프** — `FileTree.tsx:100~104`\n- 현재: collapsed dir에서 ←는 무동작 (주석 \"M0 단순\"으로 의도적). 그러나 VSCode 사용자에게 가장 흔한 트리 키바인딩이고, 구현은 단순.\n- 수정: ←에서\n  - 현재 노드가 dir이고 expanded면 collapse (현재 동작 유지),\n  - 그 외는 부모로 점프(activeIndex를 부모 absPath의 flat index로 이동 + scrollToIndex). 부모가 root일 때는 root로 이동, 이미 root면 무동작.\n- 부모 absPath 계산은 `flat[activeIndex - k]`에서 depth가 현재보다 1 작은 첫 번째 항목을 찾는 단순 backwards scan. 또는 `parentOf(item.absPath, rootAbsPath)` 활용 후 flat에서 해당 absPath의 index 검색 (`flat.findIndex(i => i.absPath === parentAbs)`). 후자가 명료.\n\n**자식 디렉토리 readdir 시 시각 피드백** — `FileTree.tsx`, `FileTreeRow.tsx`\n- 현재: 자식 dir loading 시 chevron만 그대로. 200ms 이상 readdir이 걸리는 대형 디렉토리(예: ~50k entries) 사용자가 클릭 후 무반응으로 인지.\n- 수정: FileTreeRow에 `isLoading?: boolean` props 추가. true이면 chevron이 회전 인디케이터 또는 약간의 opacity 감소. 가장 가벼운 옵션은 chevron을 `animate-pulse` 또는 `opacity-50`. 200ms threshold(루트와 동일 정책)를 적용해 작은 readdir엔 깜박임 회피.\n- FileTree 컴포넌트 변경: row 렌더 시 `isLoading={(tree?.loading.has(item.absPath) ?? false) && shouldShowChildLoading[item.absPath]}` 형태. shouldShowChildLoading은 loading.has가 200ms 이상 지속될 때 true로 set하는 effect. **단순화**: 200ms threshold는 루트만 적용하고 자식은 즉시 표시(작은 loading은 깜박임 발생하지만 낮은 비용). 실용 결정 = 즉시 표시.\n\n**기각**:\n- 두 항목 모두 후속 issue로 미루기: 거부 이유 = 둘 다 PR1의 미완 결정으로 보고됐고, 본 검토 후속 PR에 5~10줄 추가로 합쳐 처리 비용이 가장 낮음. 별도 PR 분리 시 review/merge 오버헤드만 증가.\n- ←에서 부모 점프 대신 collapsed dir에서 ←가 무동작 유지: 거부 이유 = 다른 트리 사용자(VSCode/Finder) 모두 부모 점프가 표준. 단순함보다 표준 따름이 우선.\n- 자식 loading 표시를 spinner 아이콘으로: 거부 이유 = chokidar가 차후 자동 갱신을 하므로 사용자 체감 readdir은 expand 클릭 직후 한 번뿐. 별도 spinner 도입은 디자인 시스템(monochromatic, no spinner)과 충돌. opacity/pulse가 디자인 일관.\n\n**가정**: 부모 점프가 root에서 멈출 때 wrap 안 함 (Home/End는 후속). depth=0의 root는 ←가 무동작.\n\n**검증 기준**: 단위 테스트 — flat 배열 mock으로 ArrowLeft 시 activeIndex 이동 검증 (collapsed dir, file row, root row 세 케이스). 자식 loading 표시는 RUNBOOK으로 처리(react-virtual + transform 결합으로 spinner의 시각 검증은 자동 어려움)."
+          },
+          {
+            "id": 6,
+            "title": "[6] main fs 채널/워처 견고성 — getExpanded/setExpanded workspace 존재 검증, FileWatcher.ignored가 root 자체 차단 가능성, hydrate 시 직렬 readdir 비용",
+            "status": "decided",
+            "decision": "**채택**: 세 결함 모두 처리. 한 PR에 묶기 (모두 main 측 fs/watcher 영역).\n\n**(A) getExpanded/setExpanded의 workspace 존재 검증** — `fs.ts:90~107`\n- 현재: workspaceId UUID만 맞으면 storage 호출 통과. open되지 않은 workspaceId면 storage 측에서 throw하므로 결과적으로 거부되지만, 다른 핸들러(readdir/stat/watch/unwatch)가 `resolveSafe`를 통해 manager.list().find로 검증하는 것과 비대칭.\n- 수정: 두 핸들러도 동일 검사 유틸 거치도록. `resolveSafe`는 path resolve 책임이라 재사용 어색. 별도 헬퍼 `assertWorkspaceExists(manager, workspaceId)` 추가:\n  ```ts\n  function assertWorkspaceExists(manager: WorkspaceManager, workspaceId: string): void {\n    if (!manager.list().some(w => w.id === workspaceId)) {\n      throw new Error(`workspace not found: ${workspaceId}`);\n    }\n  }\n  ```\n- getExpandedHandler/setExpandedHandler 둘 다 manager 인자 추가 + 진입 시 호출.\n- registerFsChannel 시그니처는 변경 없음(이미 manager 보유).\n\n**(B) FileWatcher.ignored가 root 자체 차단** — `FileWatcher.ts:58`\n- 현재: `ignored: (p) => HIDDEN_NAMES.has(path.basename(p))`. 워크스페이스 root가 `dist`/`node_modules` 같은 이름이면 watch 자체 무력화.\n- 수정: `ignored: (p) => p !== absDir && HIDDEN_NAMES.has(path.basename(p))`. `absDir`은 watch 함수 클로저 안에서 참조 가능.\n- 부수 효과: 각 watcher 인스턴스가 자기 root는 통과, 자식 중 hidden은 차단. 의도 정확.\n\n**(C) hydrate 시 직렬 readdir** — `files.ts:204~217`\n- 현재: persisted expand가 N개일 때 `for (const rel of sortedRel) await loadChildren(...)` 직렬. N*RTT.\n- 수정: 같은 depth 항목은 병렬화. depth 단계별로 grouping(`Map<depth, relPath[]>`) 후 `for (const depth of sortedDepths) await Promise.all(group.map(rel => loadChildren(rel)))`. parent-child 의존성은 depth 오름차순으로 보장.\n- depth 계산은 `rel.split('/').length` (rel이 빈 문자열이면 depth=0=root). loadChildren 호출 측은 absPath이므로 `${rootAbsPath}/${rel}` 변환.\n- watch 등록도 같은 그룹 안에서 병렬화 가능 — 이미 fire-and-forget이므로 자동.\n\n**기각**:\n- (A) 검증 위치를 storage 측에 두고 fs.ts는 그대로: 거부 이유 = 채널 내 일관성을 위해 IPC 핸들러 단에서 검증하는 것이 관례. storage 입력 검증은 방어적 중복으로 유지.\n- (A) workspace 존재 검사를 모든 fs 핸들러에서 빼고 storage 측만 신뢰: 거부 이유 = 보안 경계 일관성을 깨는 방향. resolveSafe가 이미 검사하므로 두 핸들러만 누락된 형국, 일관성으로 묶는 게 안전.\n- (B) HIDDEN_NAMES 자체에서 root 검사 책임 빼기 (root 검사는 호출자 책임): 거부 이유 = ignored 함수가 모든 path에 대해 호출되는 단일 진입점이라 그 안에서 root skip이 가장 명료. 호출자가 root 검사를 따로 하면 이중 책임.\n- (C) 병렬화 대신 hydrate 자체를 첫 expand 시점으로 미루기 (lazy hydrate): 거부 이유 = 사용자 기대(재시작 직후 즉시 펼침 복원)를 깨뜨림. 병렬화로 5~10x 가속이 더 단순 정공법.\n- (C) Promise.all 대신 동시성 제한 (예: 5개 concurrent): 거부 이유 = readdir IPC는 lightweight(파일시스템 read만), 한 워크스페이스 hydrate가 100개 디렉토리 넘는 경우는 드물고 그조차 macOS fs는 동시 read에 강함. 단순 Promise.all로 충분.\n\n**가정**: hydrate 동시성 제한이 필요한 시점은 한 워크스페이스에 expand 깊이가 매우 큰(>500) 경우. 그런 사용자가 나타나면 후속에 동시성 큐 도입.\n\n**검증 기준**: \n- (A) 단위 테스트 — getExpanded/setExpanded를 미존재 workspaceId로 호출 시 throw 검증 (fs-channel.test.ts에 케이스 추가).\n- (B) 단위 테스트 — FileWatcher.watch에 root와 같은 이름의 dir(예: `/tmp/dist`)을 root로 줄 때 chokidar instance 정상 생성 검증.\n- (C) 단위 테스트 — files-store.test.ts hydrate 케이스에 N=10 expand 사용 후 ipcCall(readdir) 호출 횟수 = 10 검증, 동시성은 mock으로 직접 검증 어려우므로 RUNBOOK(실측 시간)."
+          },
+          {
+            "id": 7,
+            "title": "[7] 일관성 + 테스트 게이트 + RUNBOOK — workspace.removed payload 명명, bun run test 단일 게이트, 메모리 leak/재시작 펼침 RUNBOOK 등록",
+            "status": "decided",
+            "decision": "**채택**: 세 항목 모두 처리하되, 명명 통일은 비파괴적으로 추가, 게이트는 acceptance 템플릿화, RUNBOOK은 단일 마크다운 파일로 등록.\n\n**(A) workspace.removed payload 명명**\n- 현재: `workspace.removed` listen schema가 `WorkspaceIdSchema = { id: string.uuid() }`. 신규 채널(fs.changed, fs.watch 등)은 모두 `workspaceId`를 사용. payload key 비대칭.\n- 수정 옵션 비교:\n  - **옵션 A**: `workspace.removed` payload를 `{ workspaceId }`로 breaking change. 거부 — 렌더러 측 구독자(tabs store 등)도 함께 수정 필요, 회귀 위험.\n  - **옵션 B**: 채택. listen 이벤트 payload는 기존 `{ id }` 유지하되 신규 채널/내부 함수 인자명은 모두 `workspaceId`로 통일. 컨벤션 문서화는 별도 docs 미생성(README/ADR 신규 생성은 본 PR 범위 밖). 단, **내부 임시 변수명**에서 `workspaceId`/`id` 혼용을 피하도록 wrappedBroadcast의 `args as { id: string }`을 가독성 있게: `const removedWorkspaceId = (args as { id: string }).id;` 같은 짧은 alias.\n- 결정: 옵션 B. breaking change 대신 컨벤션을 신규 코드에만 강제. workspace 채널은 원형 보존.\n\n**(B) bun run test 단일 게이트**\n- 현재: engineer task acceptance가 `bun test tests/unit/...` 식 selective 게이트. PR2-03이 통합 테스트(files-panel.test.ts)를 회귀시키고 PR2-04에서 발견한 사고 재발 방지.\n- 수정: nx_task_add 시 acceptance 끝에 `bun run test 통과 (단위+통합 동시)` 라인을 표준 항목으로 포함. 본 PR의 모든 task가 이 게이트 사용. 추후 plan에도 적용되도록 본 결정 텍스트에 명시.\n- 추가 보조 게이트: `bun run typecheck`. 두 개를 acceptance 표준 라인으로.\n\n**(C) RUNBOOK 등록**\n- 위치: `docs/runbooks/files-panel.md` 신규 (또는 기존 docs 디렉토리 패턴 따름). 파일 1개에 누적.\n- 등록 항목:\n  1. 메모리 leak 수동 검증 (PR2-04 보고 RUNBOOK-PR2-01).\n  2. 앱 재시작 후 펼침 복원 (PR2-04 보고 RUNBOOK-PR2-02).\n  3. **본 후속 PR 추가**:\n     - Cmd+Shift+R 누름 → PTY 생존 + 트리 재로드 검증.\n     - Sidebar/FilesPanel ResizeHandle 히트영역 안 겹침 검증.\n     - 자식 디렉토리 readdir 동안 chevron opacity/pulse 시각 확인.\n     - 큰 트리(100+ 행) drag 시 60fps 유지.\n- 형식: 항목별로 `## 목표 / 사전 조건 / 단계 / 합격 기준 / 결과 기록 칸` 5섹션. 회귀 발견 시 항목 추가.\n\n**기각 (큰 그림)**:\n- workspace 채널까지 breaking 통일: 거부 이유 = 회귀 위험 대비 이득 미미 (외부 API 아닌 내부 IPC).\n- bun run test 게이트를 lint hook(pre-commit)에 강제: 거부 이유 = 본 결정 범위는 acceptance 표준화. pre-commit hook은 별도 토픽이라 분리.\n- RUNBOOK을 docs 사이트 정식 페이지로: 거부 이유 = 현재 docs 사이트 없음. 마크다운 파일로 시작 → 누적되면 정식화.\n\n**가정**: `docs/` 또는 동등 디렉토리가 이미 있거나, 없으면 생성. 기존 RUNBOOK 형식 우선.\n\n**검증 기준**:\n- 결정 자체가 프로세스/문서이므로 코드 게이트는 없음. 본 PR의 모든 task acceptance에 `bun run test + bun run typecheck` 라인 포함되어 있는지 review 시 체크. RUNBOOK 파일이 생성되어 있는지 review 시 체크."
+          }
+        ],
+        "research_summary": "직전에 사용자 요청으로 PR1(작업 1~13)과 PR2(작업 14~17) 산출물을 직접 read하며 코드 리뷰를 수행. 검토한 파일: src/main/filesystem/FileWatcher.ts, src/main/ipc/channels/fs.ts, src/main/storage/workspaceStorage.ts, src/main/index.ts, src/renderer/store/files.ts, src/renderer/store/ui.ts, src/renderer/components/{FileTree,FileTreeRow,FilesPanel,ResizeHandle,SidebarResizeHandle}.tsx, src/renderer/App.tsx, src/shared/types/{fs,appState}.ts, src/shared/fs-defaults.ts. 발견 결함 13개 + 일관성/프로세스 3건. 분류: High 2건(FileTree useMemo 외부 store 호출, App.tsx Cmd+Shift+R hard-reload 누락), Medium-PR1 6건(ResizeHandle deps 회귀, filesPanelCollapsed dead state, 두 ResizeHandle 히트영역 인접, 키보드 nav 미흡, 자식 loading 표시 부재, Cmd+E conflict), Medium-PR2 6건(loadChildren dedup 부재, ensureRoot race, handleFsChanged inline type, getExpanded/setExpanded workspace 검증 누락, FileWatcher.ignored가 root 차단 corner case, hydrate 직렬 readdir), 일관성 1건(workspace.removed payload 명명 불일치), 프로세스 2건(통합 테스트 게이트 통일, RUNBOOK 등록). 추가 외부 리서치 불필요 — 문제 도출 자체가 코드 review에서 직접 나옴. .nexus/memory/, .nexus/context/는 본 변경과 직접 관련 없음. 결정 영역이 코드/UX/프로세스에 분산되어 일부 issue는 architect/designer 분석 사용.",
+        "created_at": "2026-05-03T08:11:06.564Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[T-01] files store 정합성 (useShallow + ensureRoot dedup + loadChildren guard + 타입)",
+          "status": "completed",
+          "context": "Issue 1의 4개 결함을 한 PR로. 모두 src/renderer/store/files.ts 또는 그 사용처(FileTree.tsx)에 집중. T-06이 같은 파일에 hydrate 병렬화를 추가하므로 직렬 처리 필요. 작업 디렉토리: /Users/kih/workspaces/areas/nexus-code (브랜치: feat/files-panel 또는 신규 브랜치).",
+          "acceptance": "- src/renderer/components/FileTree.tsx에 useShallow 적용, store.getState() 직접 호출 제거.\n- src/renderer/store/files.ts: _ensureRootPromises Map + dedup 동작; loadChildren의 loading.has 가드; handleFsChanged 타입 좁힘.\n- 단위 테스트 신규 2건: ensureRoot 동시 호출 시 readdir 1회만 발화, loadChildren 동시 호출 시 readdir 1회만.\n- bun run typecheck 통과.\n- bun run test 통과 (단위+통합 동시) — 표준 게이트.",
+          "approach": "(A) FileTree.tsx의 `useMemo` 패턴을 `useFilesStore(useShallow(s => selectFlat(s, workspaceId)))`로 전환. zustand v5의 useShallow가 selector 결과를 element-wise 비교해 reference 안정. (B) files.ts 모듈 레벨에 `_ensureRootPromises: Map<workspaceId, Promise<void>>` 추가. ensureRoot 시작 시 in-flight Promise 있으면 그대로 await; 새로 시작하면 Map에 저장 후 .finally로 cleanup. (C) loadChildren 진입 직후 `if (tree.loading.has(absPath)) return;` 가드. (D) handleFsChanged 시그니처 `event: FsChangedEvent` 로 교체 (import type from '../../shared/types/fs').",
+          "risk": "useShallow가 zustand v5 export 경로 확인 필요. 미설치면 'zustand/react/shallow' import 추가. ensureRoot Promise dedup은 reject 시 cleanup 누락이면 다음 호출이 영원히 stale Promise를 await할 수 있음 — .finally 필수.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a2ae2ae34a6150b99",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:15:38.413Z"
+        },
+        {
+          "id": 2,
+          "title": "[T-02] App.tsx 글로벌 키바인딩 정책 (Cmd+R/Cmd+Shift+R 통합 + Cmd+E editable 가드)",
+          "status": "completed",
+          "context": "Issue 2. 현재 Cmd+Shift+R는 페이지 reload로 PTY 손실; Cmd+E는 input/textarea/editor 안에서도 무조건 캡처. App.tsx 단일 파일 변경.",
+          "acceptance": "- src/renderer/App.tsx: Cmd+R / Cmd+Shift+R 모두 preventDefault + refresh 호출.\n- Cmd+E가 input/textarea/contenteditable/.cm-editor 컨테이너 안에서는 무동작.\n- 단위 테스트 신규: keydown event 시뮬레이션으로 (1) Cmd+R refresh, (2) Cmd+Shift+R refresh + preventDefault, (3) input 안 Cmd+E 무동작 검증.\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "- 현재 `e.metaKey && e.key === \"r\" && !e.shiftKey` 분기를 `e.metaKey && (e.key === \"r\" || e.key === \"R\")` 로 교체. preventDefault + refresh 동일 동작.\n- Cmd+E 분기 진입 직후 가드 추가:\n  ```\n  const target = e.target as HTMLElement | null;\n  const inEditable = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable === true || target?.closest('.cm-editor') != null;\n  if (inEditable) return;\n  ```\n- 단위 테스트는 keydown event 모킹으로 처리 (DOM jsdom 환경).",
+          "risk": "jsdom의 isContentEditable / closest 구현이 jsdom 버전에 따라 차이. 시뮬레이션이 어려우면 핸들러를 export해 직접 호출하는 단위 테스트로 전환.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afa013682119f43c3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:15:48.237Z"
+        },
+        {
+          "id": 3,
+          "title": "[T-03] ResizeHandle 안정성 (콜백 ref 패턴 + placement props)",
+          "status": "completed",
+          "context": "Issue 3. drag 중 store update가 onResize prop 새 reference를 만들어 useEffect cleanup/재등록 반복. 추가로 SidebarResizeHandle과 FilesPanel ResizeHandle의 hit-area가 인접 패널 첫 4px와 겹침.",
+          "acceptance": "- ResizeHandle.tsx: onResizeRef 패턴 적용, useEffect deps에 onResize 없음.\n- placement enum props 추가, 두 변형 클래스 적용.\n- SidebarResizeHandle/FilesPanel 호출 갱신.\n- 단위 테스트 1건: ResizeHandle 컴포넌트가 placement='rightInside'일 때 className에 '-translate-x-1/2' 포함, default일 때 'translate-x-1/2'.\n- bun run typecheck 통과.\n- bun run test 통과.\n- RUNBOOK 항목 (T-09에 추가): 큰 트리 100+ 행 떠있을 때 사이드바/파일패널 drag 시 60fps 유지, 두 핸들 hit-area 겹침 없음.",
+          "approach": "- ResizeHandle.tsx: `onResizeRef = useRef(onResize); onResizeRef.current = onResize;`를 본체 매 render에서 동기화. useEffect의 deps에서 `onResize` 제거 → `[isDragging]`만. effect 안에서는 `onResizeRef.current(...)` 사용.\n- placement props 추가: `placement: 'rightCentered' | 'rightInside'` (default 'rightCentered'). DEFAULT_POSITION_CLASS를 두 변형으로 분리:\n  - rightCentered (현재): `right-0 ... translate-x-1/2`\n  - rightInside: `right-0 ... -translate-x-1/2` (사이드바 안쪽으로 4px)\n- SidebarResizeHandle.tsx: ResizeHandle에 `placement=\"rightInside\"` 전달.\n- FilesPanel.tsx: ResizeHandle에 `placement=\"rightCentered\"` (또는 default 활용).\n- ResizeHandle 단위 테스트는 effect 재등록 횟수를 직접 측정 어려움 — RUNBOOK으로 검증 (T-09에 항목 등록).",
+          "risk": "'-translate-x-1/2'로 사이드바 우측 가장자리에서 4px 안으로 들어가면 사이드바 우측 hairline 위에서 정확히 클릭 시 핸들이 안 잡힐 수 있음 — 시각 검증 필요.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5817fbe1437838c6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:04.335Z"
+        },
+        {
+          "id": 4,
+          "title": "[T-04] filesPanelCollapsed dead state 제거",
+          "status": "completed",
+          "context": "Issue 4. store/persist에는 있으나 UI 미연결. Zod schema strip이 backward-compat 보장. 6개 파일 소규모 변경.",
+          "acceptance": "- ui store에 filesPanelCollapsed/toggleFilesPanel 흔적 없음.\n- AppStateSchema에 해당 필드 없음.\n- App.tsx hydrate 호출이 두 필드(sidebarWidth, filesPanelWidth)만 전달.\n- 기존 영속된 appState.json에 filesPanelCollapsed 키가 있어도 부팅 정상 (수동 검증 또는 unit 테스트로 strip 확인).\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "- src/renderer/store/ui.ts: UIState/HydrateOpts에서 filesPanelCollapsed/toggleFilesPanel 제거.\n- src/shared/types/appState.ts: filesPanelCollapsed 필드 제거.\n- src/renderer/App.tsx: hydrate 호출 인자 정리.\n- tests/unit/ui-store.test.ts, tests/unit/ui-store-files-panel.test.ts: collapsed 관련 케이스 제거.\n- ipcContract.ts에는 영향 없음 (AppState는 partial schema 사용).",
+          "risk": "없음 (Zod default strip).",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "acb048b29bf8b32c5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:13.028Z"
+        },
+        {
+          "id": 5,
+          "title": "[T-05] 트리 UX 보강 (ArrowLeft 부모 점프 + 자식 readdir 시각 피드백)",
+          "status": "completed",
+          "context": "Issue 5. ArrowLeft가 collapsed dir에서 무동작이라 VSCode 사용자 손에 안 맞음. 자식 readdir 동안 chevron 무반응.",
+          "acceptance": "- ArrowLeft가 collapsed dir / file에서 부모 점프, expanded dir에서 collapse.\n- FileTreeRow에 isLoading props, chevron이 loading 상태일 때 시각적 변화.\n- 단위 테스트 신규 3건.\n- bun run typecheck 통과.\n- bun run test 통과.\n- RUNBOOK 항목 (T-09): 자식 dir expand 시 chevron 시각 변화 확인.",
+          "approach": "- FileTree.tsx handleKeyDown의 ArrowLeft:\n  - dir이고 expanded면 collapse (현재 동작 유지),\n  - 그 외(file 또는 collapsed dir)면 부모 absPath 계산: `parentOf(item.absPath, rootAbsPath)` 활용. flat에서 해당 absPath의 index 검색. 찾으면 setActiveIndex + scrollToIndex. root이면 무동작.\n- FileTreeRow.tsx: `isLoading?: boolean` props 추가. true이면 chevron에 `opacity-50` 또는 `animate-pulse` 클래스 추가 (cn 조건부).\n- FileTree.tsx 행 렌더 시 `isLoading={tree?.loading.has(item.absPath) ?? false}` 즉시 표시 (200ms threshold는 root만, 자식은 단순 즉시 표시 — 결정대로).\n- 단위 테스트: 부모 점프 케이스 3가지 (collapsed dir, file row, root row=무동작).",
+          "risk": "parentOf가 root 자체에 대해 root를 반환하는 동작에 의존 (이미 그렇게 구현). flat.findIndex가 O(N) — 트리 1만 행에서도 1ms 미만이라 무시 가능.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad9eddea36159030c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:26.494Z"
+        },
+        {
+          "id": 6,
+          "title": "[T-06] main fs/watcher 견고성 (workspace 검증 + root ignored skip + hydrate 병렬화 + alias)",
+          "status": "completed",
+          "context": "Issue 6 + Issue 7-A. main fs.ts의 getExpanded/setExpanded가 workspace 존재 검증 누락(다른 핸들러와 비대칭), FileWatcher.ignored가 root와 같은 이름의 hidden일 때 watch 무력화, files store hydrate가 직렬 readdir로 N*RTT. 추가로 main/index.ts wrappedBroadcast의 `args as { id: string }` alias 정리. T-01과 같이 files.ts hydrate를 만지므로 T-01 완료 후.",
+          "acceptance": "- fs.ts: assertWorkspaceExists 추가, getExpanded/setExpanded handler가 호출.\n- FileWatcher.ts: ignored 함수가 root skip 가드 포함.\n- files.ts: ensureRoot hydrate가 depth-grouped Promise.all로 병렬화.\n- main/index.ts: removedWorkspaceId alias 적용.\n- 단위 테스트 신규 3건 이상 (위 3 시나리오).\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "(A) src/main/ipc/channels/fs.ts: `assertWorkspaceExists(manager, workspaceId)` 헬퍼 추가 후 getExpandedHandler/setExpandedHandler 진입 시 호출. 두 handler factory 시그니처에 manager 인자 추가, registerFsChannel은 이미 manager 보유하므로 호출만 갱신.\n(B) src/main/filesystem/FileWatcher.ts: chokidar.watch 옵션의 ignored 함수를 `(p) => p !== absDir && HIDDEN_NAMES.has(path.basename(p))` 로 교체.\n(C) src/renderer/store/files.ts ensureRoot의 hydrate 루프를 depth-grouped 병렬화: `Map<depth, relPath[]>` 생성 후 sortedDepths 오름차순으로 `Promise.all(group.map(...))`. watch 호출도 같은 그룹 안에서 병렬.\n(D) src/main/index.ts wrappedBroadcast: `const removedWorkspaceId = (args as { id: string }).id;` alias 추가, fileWatcher.disposeWorkspace(removedWorkspaceId) 호출.\n- 단위 테스트:\n  - fs-channel.test.ts: getExpanded/setExpanded를 미존재 workspaceId로 호출 시 throw.\n  - integration/pr2-watcher.test.ts (또는 신규): root='/tmp/dist' 같은 hidden 이름 경우 watch가 정상 등록되는지 (chokidar 직접 호출 stub으로 검증, 또는 ignored 함수 단위 테스트).\n  - files-store.test.ts: hydrate 시 readdir 호출 N개 발화 확인 (직렬 vs 병렬은 mock 호출 시점 비교로).",
+          "risk": "hydrate 병렬화 시 같은 depth 안에서도 부모-자식 관계가 있을 수 있음 (rel='a'와 rel='a/b'는 depth 1, depth 2이므로 다른 그룹). 같은 depth에 부모-자식 없는 것 보장됨 — 다만 ensureRoot 호출 흐름에서 root readdir이 먼저 끝나야 depth 1 노드들이 nodes Map에 존재함. 코드는 root readdir await 후 그룹 루프이므로 OK. 검증.",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "abd2b52c8e091e59f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:49.592Z"
+        },
+        {
+          "id": 7,
+          "title": "[T-07] 통합 회귀 검증 (모든 변경 후 단위+통합 테스트 + 시나리오 점검)",
+          "status": "completed",
+          "context": "T-01..T-06이 끝난 시점에 회귀 점검. PR2-03 → files-panel.test.ts 회귀 사고 재발 방지. tester가 단일 게이트(bun run test)로 통합 회귀를 잡고, 추가로 본 후속 PR이 다루는 6개 시나리오를 RUNBOOK 적용 가능 여부로 분류.",
+          "acceptance": "- bun run test fail 0.\n- bun run typecheck clean.\n- 시나리오 6개 분류 매트릭스 보고 (auto / RUNBOOK / N/A).\n- 회귀 발견 시 owner-engineer로 escalation.",
+          "approach": "- bun run test (단위 + 통합) 전수 실행, fail 0 확인.\n- bun run typecheck 전수 실행.\n- 시나리오 회귀 점검:\n  1. 워크스페이스 add → 트리 root expand → 자식 dir click → expand → tabs 열기 (PR1 기본 흐름)\n  2. Cmd+R 누름 → 트리 재로드, PTY 생존 (T-02 변경 회귀 없음)\n  3. Cmd+Shift+R 누름 → 트리 재로드, 페이지 reload 안 됨 (T-02 신규)\n  4. Cmd+E (Editor 안) → 무동작 (T-02 신규)\n  5. resize handle drag → width 갱신 + persist (T-03 회귀)\n  6. 외부 파일 추가 → 300ms 후 트리 반영 (PR2 회귀 없음)\n- 자동 테스트로 커버 안 되는 시나리오는 RUNBOOK 후보로 분류해 T-08에 전달.",
+          "risk": "jsdom 환경에서 Cmd+Shift+R / Cmd+E 시뮬레이션이 영문 KeyboardEvent 객체로 reproducible한지 확인 필요. 어려우면 RUNBOOK으로 분류.",
+          "plan_issue": 7,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a795e8a0631943bf1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:03.324Z"
+        },
+        {
+          "id": 8,
+          "title": "[T-08] RUNBOOK 작성 (docs/runbooks/files-panel.md)",
+          "status": "completed",
+          "context": "Issue 7-C. PR2-04 보고에서 정의된 2건 + 본 후속 PR의 4건을 한 마크다운 파일에 누적. 형식: 항목별 5섹션 (목표 / 사전 조건 / 단계 / 합격 기준 / 결과 기록 칸).",
+          "acceptance": "- docs/runbooks/files-panel.md 파일 생성 (또는 기존 위치).\n- 6개 항목, 각 5섹션 형식.\n- 마크다운 lint 위반 없음 (있다면 prettier/markdownlint 통과).\n- 항목 IDs 안정 (RUNBOOK-PR2-01, RUNBOOK-FU-01 등) — 후속 회귀 등록 시 ID 재사용 안 함.",
+          "approach": "- 파일 위치: `docs/runbooks/files-panel.md` 신규 (또는 기존 docs 디렉토리 패턴 따름).\n- 등록 항목 6개:\n  1. RUNBOOK-PR2-01: 메모리 leak 수동 검증 (PTY/FSWatcher heap 점검)\n  2. RUNBOOK-PR2-02: 앱 재시작 후 펼침 복원\n  3. RUNBOOK-FU-01: Cmd+Shift+R 누름 → PTY 생존 + 트리 재로드\n  4. RUNBOOK-FU-02: Sidebar/FilesPanel ResizeHandle 히트영역 안 겹침\n  5. RUNBOOK-FU-03: 자식 dir readdir 동안 chevron opacity/pulse 시각 확인\n  6. RUNBOOK-FU-04: 큰 트리(100+ 행) drag 시 60fps 유지 (DevTools Performance 탭)\n- 각 항목은 5섹션 정형 형식. 결과 기록 칸은 빈 상태 (사용자가 채움).\n- 헤더에 본 PR 메타(작성일, plan_id 7) + 검증 절차 가이드 1단락.",
+          "risk": "docs 디렉토리가 없거나 기존 RUNBOOK 표준 형식이 다른 패턴이면 일관성 깨짐 — 시작 전 docs/ 점검.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "a2e4cdfbfa29a1aad",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:16.759Z"
+        },
+        {
+          "id": 9,
+          "title": "[T-09] RUNBOOK 검증 (형식/누락/명료성)",
+          "status": "completed",
+          "context": "Issue 7-C 후속. writer가 작성한 RUNBOOK이 정형 5섹션을 모두 갖추고, 6개 항목이 빠짐없으며, 사용자가 단계만 따라가도 검증할 수 있을 만큼 구체적인지 reviewer가 검증.",
+          "acceptance": "- 6개 항목 5섹션 정합성 PASS 또는 issue 리스트.\n- 마크다운 형식 위반 0.\n- 보고서 형식: PASS/FAIL + 발견 이슈.",
+          "approach": "- docs/runbooks/files-panel.md를 read.\n- 항목 6개 모두 존재, 각 항목 5섹션 (목표/사전 조건/단계/합격 기준/결과 기록 칸) 빠짐없음.\n- 단계 텍스트가 명확한 명령형, 합격 기준이 측정 가능한 표현(O/X 분기) 사용.\n- 항목 ID 충돌 없음.\n- 마크다운 헤딩 레벨 일관.\n- 이슈 발견 시 writer에게 escalation, 통과면 reviewer 보고서로 마무리.",
+          "risk": "없음.",
+          "plan_issue": 7,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "aec516a2e8dc19de0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:24.363Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T09:43:34.629Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 8,
+        "topic": "파일트리 클릭 시 EditorView에 파일 내용 표시 (vscode 정책 차용)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "파일 크기 한도와 초과 시 동작 정책",
+            "status": "decided",
+            "decision": "**선택: 파일 크기 한도 5MB, 초과 시 main에서 FILE_TOO_LARGE 에러 throw, EditorView가 \"File too large to open (max 5 MB)\" readonly 메시지 표시.**\n\n근거: vscode 정책(`getLargeFileConfirmationLimit` 로컬 1024MB)을 그대로 채택하지 않은 이유는 두 가지. 첫째, Monaco 자체 권장이 ~5MB로 그 이상은 syntax highlight/IntelliSense 자동 비활성. 둘째, Electron IPC가 string 직렬화 시 큰 텍스트는 main↔renderer 직렬화 비용이 비례 증가하고 lsp didOpen에도 전체 텍스트가 다시 전송됨. 5MB 한도는 일반적인 소스 파일을 99% 커버하면서 비용이 합리적.\n\n기각된 대안:\n- vscode 1024MB: nexus-code의 IPC + Monaco 조합에서 사용 불가능, 사실상 작동 못 함.\n- 50MB: vscode remote 한도와 같지만 Monaco 성능 저하 명확.\n- vscode-style confirm 다이얼로그: 첫 사이클의 의사결정 지점을 줄이려 미구현. 대신 단순 거부 + 명확한 메시지.\n\n가정: 사용자가 5MB 이상 파일을 자주 열지 않는다는 가정. 후속에서 confirm 다이얼로그 + 한도 상향 옵션 추가 가능."
+          },
+          {
+            "id": 2,
+            "title": "바이너리 파일 검출과 거부 처리",
+            "status": "decided",
+            "decision": "**선택: vscode 휴리스틱 그대로 채택 — main의 readFile 핸들러가 처음 512바이트에서 null byte(0x00) 검사. 발견 시 result.isBinary=true + content=\"\" 반환(에러 throw 아님). EditorView가 isBinary면 \"Cannot display binary file\" 메시지를 readonly 영역에 표시하고 Monaco model에 setValue하지 않음.**\n\n근거: vscode `references/vscode/src/vs/workbench/services/textfile/common/encoding.ts:442-508`의 `ZERO_BYTE_DETECTION_BUFFER_MAX_LEN=512` 휴리스틱은 단순하면서 실효성 높음. UTF-16 LE/BE 같은 정상 인코딩과 구분하는 분기까지 vscode 코드에 있지만, 이슈 #3 결정대로 nexus-code는 UTF-16을 텍스트로 다루지 않으므로 단순 null byte 검사로 충분.\n\n에러 throw 대신 isBinary 플래그로 반환하는 이유: 바이너리는 \"잘못된 입력\"이 아니라 \"정상 파일이지만 텍스트로 표시 불가\"라는 도메인 차이. vscode도 binary는 별도 viewer로 라우팅하지 사실 에러로 처리하지 않음.\n\n기각된 대안:\n- 확장자 기반 검출(.png/.jpg 등 블랙리스트): 확장자 누락/오용 케이스에 취약.\n- jschardet 사용: 의존성 부담 + 첫 사이클 과잉 스펙.\n- hex viewer 폴백: nexus-code에 hex viewer 컴포넌트 없음. 메시지로 충분.\n\n가정: 사용자가 바이너리 파일을 더블클릭으로 열어도 데이터 손상이 없는 명확한 거부 메시지를 보면 만족."
+          },
+          {
+            "id": 3,
+            "title": "인코딩 정책 (UTF-8 + BOM 범위)",
+            "status": "decided",
+            "decision": "**선택: 기본 UTF-8 + UTF-8 BOM(`0xEF 0xBB 0xBF`) strip만 지원. UTF-16 BOM(LE `0xFF 0xFE` / BE `0xFE 0xFF`)은 발견 시 isBinary=true로 거부(이번 사이클에서는 텍스트로 표시하지 않음). jschardet/auto-guess는 후속.**\n\n근거: vscode 정책(`references/vscode/src/vs/workbench/services/textfile/common/encoding.ts`의 `detectEncodingByBOMFromBuffer`)에서 가장 자주 만나는 UTF-8/UTF-8 BOM만 채택. UTF-8 BOM은 Windows 도구가 만든 파일에서 흔하므로 strip 없이 setValue하면 첫 줄에 `﻿`가 보여 사용자 경험 저하. main이 buffer 검사 후 BOM이면 잘라내고 utf8 디코딩, result.encoding에 'utf8' | 'utf8-bom' 표기.\n\nUTF-16 거부 사유: nexus-code 사용자(개발자) 워크플로에서 UTF-16 텍스트 파일은 매우 드물고, Node.js의 utf16 디코딩은 BOM을 잘라내야 하는 추가 처리가 필요. 첫 사이클에서 텍스트로 다루지 않고 isBinary로 폴백하는 게 안전. 후속에서 utf16 추가 시 result schema의 encoding union을 확장.\n\n기각된 대안:\n- vscode 풀 스펙(BOM + jschardet): jschardet 의존성 추가 + 4096~65536byte sniff 비용 + false positive 가능. 첫 사이클 대비 과잉.\n- BOM 무시(어떤 UTF-8 파일도 BOM 안 자름): Windows 파일 첫 줄 깨짐.\n- UTF-16 텍스트로 디코딩: Node iconv-lite 의존 필요. 비율 낮음.\n\n가정: nexus-code가 파일 저장 기능을 추가할 때, 읽은 encoding을 동일하게 유지(BOM 보존)하는 의무를 상위 결정에서 처리. 이번 사이클은 readonly만이므로 이슈 미발생."
+          },
+          {
+            "id": 4,
+            "title": "확장자 → Monaco languageId 매핑",
+            "status": "decided",
+            "decision": "**선택: Monaco의 `path` 기반 자동 언어 추론에 위임. EditorView에서 `defaultLanguage=\"typescript\"` 하드코딩 제거하고 `path={uri}` 만 전달. Monaco가 인식 못하는 확장자는 자체적으로 plaintext 폴백.**\n\n근거: `@monaco-editor/react`의 Editor는 `path` prop의 확장자를 보고 등록된 빌트인 언어로 모델을 생성함. Monaco 빌트인 언어(typescript, javascript, json, css, scss, less, html, xml, yaml, markdown, python, go, rust, java, cpp, csharp, php, ruby, sql, shell 등 ~50종)가 흔한 개발 파일을 모두 커버. plaintext 폴백도 Monaco가 자체 처리. vscode의 ILanguageService.guessLanguageIdByFilepathOrFirstLine은 동일한 확장자 매핑 + shebang 분석을 하지만, 이번 사이클은 확장자만으로 충분(shebang은 후속).\n\nLSP 제공자 등록은 별도 분리: 현재 EditorView가 `monaco.languages.registerHoverProvider(\"typescript\", ...)`를 typescript 언어에만 걸고 있음. 이 부분은 본 결정의 범위 외. 단 다른 언어 파일을 열어도 LSP가 typescript용으로만 등록돼 있어서 hover/completion이 동작하지 않을 뿐, 모델 표시는 정상. 후속 이슈로 분리.\n\n기각된 대안:\n- 자체 매핑 테이블(예: `extToLang.ts`): vscode가 가진 ILanguageExtensionPoint와 동일한 데이터를 재구축할 필요. Monaco가 이미 갖고 있어서 중복.\n- shebang/firstLine 분석: vscode 풀 정책이지만 첫 사이클 미적용. 추후 #!/bin/bash 같은 케이스가 필요해지면 별도 이슈.\n- 확장자 누락 시 typescript 폴백 유지: 잘못된 syntax highlight 유발. plaintext가 안전.\n\n가정: Monaco의 빌트인 언어 자동 추론이 nexus-code 첫 사이클에 충분. 별도 매핑이 필요한 특수 확장자(예: .vue, .svelte)는 후속에서 monaco-editor에 직접 register."
+          },
+          {
+            "id": 5,
+            "title": "에러 분류와 사용자 메시지 정책",
+            "status": "decided",
+            "decision": "**선택: 4종 분류로 단순화 — `NOT_FOUND`(ENOENT), `PERMISSION_DENIED`(EACCES), `IS_DIRECTORY`(EISDIR), `TOO_LARGE`(파일 크기 한도 초과). 바이너리는 에러 아닌 result.isBinary 플래그(이슈 #2 결정). 그 외 fs 에러는 `OTHER`로 통합. main 핸들러가 `Error` throw 시 `code` prop에 위 enum 값을 부착(`Error.message`는 디버그용 원문, `Error.code`가 사용자 메시지 매핑 키).**\n\n근거: vscode `references/vscode/src/vs/platform/files/common/files.ts:1485-1497`의 `FileOperationResult`(11종)를 nexus-code의 readFile에 한정해 4종으로 축약. readFile에서 발생하는 fs 에러는 사실상 ENOENT/EACCES/EISDIR이 99%이고, FILE_TOO_LARGE는 우리가 직접 throw. WRITE_LOCKED/MOVE_CONFLICT 같은 항목은 readonly 사이클에서 미발생.\n\n전송 방식은 `Error.code`를 사용. router의 throw → renderer의 ipcCall catch에서 `err.code`로 분기. EditorView가 4종에 대응한 사용자 메시지 매핑:\n- NOT_FOUND → \"File not found.\"\n- PERMISSION_DENIED → \"Permission denied.\"\n- IS_DIRECTORY → \"Cannot open a directory.\"\n- TOO_LARGE → \"File too large to open (max 5 MB).\"\n- OTHER → \"Failed to open file.\" + (Error.message 디테일을 토글)\n\n기각된 대안:\n- vscode 11종 enum 그대로: WRITE_LOCKED 등 미발생 코드를 정의하면 dead code.\n- 단순 string error.message만 사용: i18n 안 됨, 분기 신뢰 못함.\n- HTTP 코드처럼 숫자: 가독성 낮음.\n\n가정: 첫 사이클 메시지는 영어 고정. i18n은 별도 이슈."
+          },
+          {
+            "id": 6,
+            "title": "외부 변경 자동 reload 정책",
+            "status": "decided",
+            "decision": "**선택: 자동 reload만 구현(dirty 상태 미존재 가정). EditorView가 마운트 시 `ipcListen(\"fs\", \"changed\", handler)` 등록, handler는 event.changes 배열에서 자기 파일 relPath와 정확히 일치하는 항목이 있으면 readFile 재호출 → model.setValue. dirty 상태 충돌 confirm은 후속(저장 기능 추가 시).**\n\n근거: vscode `references/vscode/src/vs/workbench/services/textfile/common/textFileEditorModelManager.ts:124-133`의 정책은 clean→자동 reload, dirty→confirm. 첫 사이클은 readonly이므로 모든 모델이 항상 clean → dirty 분기 불필요. 자동 reload만 적용.\n\n이벤트 매칭 방식: nexus-code의 `fs.changed` 브로드캐스트는 `{ workspaceId, changes: Array<{relPath, type}> }` 구조(이미 chokidar 디바운스 적용). EditorView의 currentFile은 절대경로이므로 workspaceRoot로 abs→rel 변환한 값과 changes[].relPath를 정확히 일치 비교. 부모 디렉토리 매칭은 무시(파일 단위만).\n\n추가 결정:\n- 변경 이벤트 수신 시점에 cursor/scroll 위치 보존: Monaco model.setValue를 그대로 쓰면 cursor가 (0,0)으로 리셋. setValue 전에 editor.getPosition()을 저장해 setValue 후 setPosition 복원. (단, 첫 사이클 readonly이므로 cursor 복원이 우선순위 낮음 — 후속 저장 기능 추가 후 다시 평가. 첫 사이클은 단순 setValue로 시작.)\n- workspaceId가 다른 워크스페이스 이벤트는 무시(이벤트 자체가 workspaceId 포함).\n\n기각된 대안:\n- store 중앙에서 reload 큐잉: EditorView가 글로벌 store를 새로 만들어야 함. 책임 부풀기.\n- 디바운스 추가 reload: chokidar 측 이미 300ms 디바운스 적용됐고 이벤트가 자주 안 옴. 추가 디바운스는 불필요.\n- vscode-style confirm: dirty 미구현이라 무의미.\n\n가정: 외부 변경이 빈번하지 않다는 가정(IDE 외부 도구가 동시에 같은 파일을 자주 수정하지 않음). 빈번해지면 리렌더 비용 모니터링 후 디바운스 추가."
+          },
+          {
+            "id": 7,
+            "title": "EditorView 통합과 IPC 채널 시그니처",
+            "status": "decided",
+            "decision": "**선택: IPC 시그니처와 EditorView 통합 결정.**\n\n**IPC 시그니처 (`src/shared/ipc-contract.ts`):**\n- `fs.call.readFile`:\n  - args: `z.object({ workspaceId: z.string().uuid(), relPath: z.string() })`\n  - result: `z.object({ content: z.string(), encoding: z.enum([\"utf8\", \"utf8-bom\"]), sizeBytes: z.number().int(), isBinary: z.boolean() })`\n- 바이너리 시 `content=\"\"`, `isBinary=true`, `encoding=\"utf8\"`(편의상 고정).\n\n**에러 전파 방식 (이슈 #5 보강):**\n- Electron `ipcMain.handle`은 throw된 Error의 추가 prop(code 등)을 직렬화하지 않음(router.ts 라인 28-50 확인). 따라서 `Error.code` prop 부착 방식 대신 `Error.message`에 prefix 인코딩: `\"NOT_FOUND: <detail>\"`, `\"PERMISSION_DENIED: <detail>\"`, `\"IS_DIRECTORY: <detail>\"`, `\"TOO_LARGE: <detail>\"`. 이는 nexus-code의 다른 채널이 사용하는 throw + message 컨벤션과 일관.\n- renderer는 `ipcCall(...).catch(err)` 시 `err.message`의 prefix를 정규식(`/^([A-Z_]+):/`)으로 분리해 사용자 메시지로 매핑. EditorView에 작은 helper(`parseFileErrorCode(message): \"NOT_FOUND\" | \"PERMISSION_DENIED\" | \"IS_DIRECTORY\" | \"TOO_LARGE\" | \"OTHER\"`).\n\n**main `readFileHandler` 의사코드** (`src/main/ipc/channels/fs.ts`):\n```\n1. validateArgs → resolveSafe → abs\n2. fs.promises.lstat(abs)\n   - isDirectory() → throw \"IS_DIRECTORY: ...\"\n   - size > 5MB → throw \"TOO_LARGE: ...\"\n3. fs.promises.readFile(abs) → buffer\n4. BOM 검사:\n   - 0xEF 0xBB 0xBF → utf8-bom, slice(3)\n   - 0xFE 0xFF / 0xFF 0xFE → isBinary=true, content=\"\", encoding=\"utf8\"\n5. null byte 검사 (첫 512바이트 0x00 포함) → isBinary=true, content=\"\", encoding 보존\n6. 아니면 buffer.toString(\"utf8\") → content\n7. catch ENOENT → \"NOT_FOUND:\", EACCES → \"PERMISSION_DENIED:\", 그 외 그대로 throw(렌더러는 OTHER로 매핑)\n```\n\n**EditorView 통합** (`src/renderer/components/EditorView.tsx`):\n- `useState<{phase: \"loading\"|\"ready\"|\"binary\"|\"error\", content?, errorCode?}>`로 로드 상태.\n- `useEffect([uri, monaco])`: monaco 준비 시 `ipcCall(\"fs\", \"readFile\", {workspaceId, relPath})` (절대→상대 변환은 `workspaceManager` 정보 없으므로 EditorView가 props로 받은 `workspaceId`만 갖고 — abs→rel 변환은 EditorView에서 수행 가능. **단 EditorView는 workspaceRoot를 모름**. 해결: `EditorTabProps`는 이미 `filePath`(abs)와 `workspaceId`만 포함. relPath 변환은 main 측에서 abs를 직접 받게 하지 않고, renderer가 `workspaces` store에서 workspaceId→rootPath를 lookup해 변환. 즉 EditorView가 `useWorkspacesStore.getState().workspaces.find(w=>w.id===workspaceId).rootPath`로 root 얻고 `relPath = path.relative(root, filePath)` 계산해 IPC 인자에 사용.\n- 성공 시 monaco model.setValue(content), didOpen(text=content) 호출. 기존 `handleEditorDidMount`의 `model.getValue()` 부분은 빈 문자열을 보내고 있어 의미 없었음 → readFile 결과를 didOpen에 사용하도록 재구성.\n- isBinary면 Monaco 영역 위에 absolute overlay로 \"Cannot display binary file\" 메시지 표시(또는 Monaco 자체를 렌더하지 않고 메시지 div로 대체 — 후자가 단순). 에러 phase도 동일.\n- readonly: 첫 사이클은 모든 모델이 readonly. `<Editor options={{ readOnly: true, ... }}>`. 저장 기능 추가 시 변경.\n- `defaultLanguage=\"typescript\"` 제거(이슈 #4).\n- `ipcListen(\"fs\", \"changed\", ...)` 등록(이슈 #6 자동 reload).\n\n**기각된 대안:**\n- result를 discriminated union(`{ ok: true, ...} | {ok:false, code,...}`)으로 만들기: 안전하지만 nexus-code의 다른 채널 컨벤션(throw)과 깨짐. 첫 채널 도입 가치보다 일관성 우선.\n- abs path 직접 IPC 전송: 보안 경계(resolveSafe)를 우회하게 됨. 절대 안 됨. relPath 변환 필수.\n- 새 store(`useFileContentStore`) 추가: ad-hoc 로드로 충분. Monaco model이 자체 캐시.\n- vite 환경에서 `path` 모듈 — Node `path` 모듈은 renderer에서 사용 가능(electron에서 contextIsolation 켜져 있어도 require 안 되면 path-browserify 또는 절대→상대 자체 구현). 첫 사이클은 자체 구현(`absToRel(abs, root)` 헬퍼)이 안전. 이미 helpers.ts의 `absPathToRel`이 이걸 함 → 재사용.\n\n**가정**: workspaces store에서 workspaceId로 rootPath를 안정적으로 조회 가능. Tab 생성 시점에 워크스페이스가 존재하므로 보장됨."
+          }
+        ],
+        "research_summary": "vscode 정책 조사 결과: (1) 로컬 파일 large file confirm 한도 1024MB (`getLargeFileConfirmationLimit` in `references/vscode/src/vs/platform/files/common/files.ts:1630`), `FILE_TOO_LARGE` 에러 발행, (2) 바이너리 검출은 처음 512 바이트 null-byte 휴리스틱(`encoding.ts:442-508`, `ZERO_BYTE_DETECTION_BUFFER_MAX_LEN=512`), DecodeStreamError(STREAM_IS_BINARY)로 변환, (3) 기본 UTF-8 + BOM 자동 감지(UTF-8/UTF-16 LE/BE), `files.autoGuessEncoding` 옵션 시 jschardet 사용, (4) 확장자→languageId는 ILanguageService.guessLanguageIdByFilepathOrFirstLine, plaintext 폴백, (5) `onDidFilesChange` 시 clean→자동 reload, dirty→confirm(`textFileEditorModelManager.ts:124-133`), (6) FileOperationResult enum 11종(ENOENT/EACCES/EISDIR/TOO_LARGE 등 in `files.ts:1485-1497`), (7) onDidChangeContent→autoSave 조건→writeFile 흐름. nexus-code 내부: ipc-contract zod 패턴 확정(call(args, result)), main/ipc/channels/fs.ts에 register 패턴 정형, resolveSafe로 traversal 차단, EditorView가 ipcCall 직접 호출 가능(store 통과 불요), `<Editor path={uri}>`만 설정되어 빈 모델 표시 중, ipcListen(\"fs\",\"changed\") 인프라 이미 존재.",
+        "created_at": "2026-05-03T09:13:24.873Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "shared 계약 추가: fs.readFile zod 스키마와 FileContent 타입",
+          "status": "completed",
+          "context": "현재 `src/shared/ipc-contract.ts:229-256`의 `fs.call`에는 readdir/stat/watch/unwatch/getExpanded/setExpanded만 있고 readFile 없음. 결정 #7대로 args/result 스키마 추가. result는 `{ content, encoding: \"utf8\"|\"utf8-bom\", sizeBytes, isBinary }`. types/fs.ts에 FileContent 타입 export(다른 모듈이 import할 수 있도록).",
+          "acceptance": "- `tsc --noEmit -p tsconfig.shared.json` 통과\n- ipcContract.fs.call.readFile.args/result 모두 zod ZodType\n- result 스키마가 `{content: string, encoding: \"utf8\"|\"utf8-bom\", sizeBytes: number(int), isBinary: boolean}` 정확히 정의\n- FileContent 타입이 `src/shared/types/fs.ts`에서 export",
+          "approach": "1) `src/shared/types/fs.ts`에 `FileContentSchema` zod 정의 + `FileContent = z.infer<...>` export. 2) `src/shared/ipc-contract.ts`에서 import 후 `fs.call.readFile = call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), FileContentSchema)` 추가. 3) 추가 후 typecheck로 zod schema 정합성 검증.",
+          "risk": "기존 fs 채널 사용처가 깨지지 않아야 함(타입 호환). zod refinement 누락 시 sizeBytes 음수 허용 등 이슈.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9720657a0eff8e85",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T09:17:24.140Z"
+        },
+        {
+          "id": 2,
+          "title": "main readFile 핸들러: 5MB/바이너리/BOM/에러 분류 정책 구현",
+          "status": "completed",
+          "context": "결정 #1, #2, #3, #5, #7 통합. `src/main/ipc/channels/fs.ts`에 readFileHandler 추가하고 registerFsChannel에 등록. resolveSafe로 traversal 차단 후 lstat→사이즈 검사→readFile→BOM 검사→null-byte 검사 순. 에러는 `Error.message`에 `\"NOT_FOUND:\" / \"PERMISSION_DENIED:\" / \"IS_DIRECTORY:\" / \"TOO_LARGE:\"` prefix로 throw. fs-defaults.ts에 MAX_READABLE_FILE_SIZE = 5*1024*1024, BINARY_DETECTION_BYTES = 512 상수 추가.",
+          "acceptance": "- 통과: 정상 utf-8 파일 읽기, content/encoding/sizeBytes/isBinary 정확\n- 통과: utf-8 BOM 파일에서 BOM 제거된 content 반환, encoding=\"utf8-bom\"\n- 통과: 5MB 초과 파일에서 \"TOO_LARGE:\" prefix Error throw\n- 통과: 디렉토리에서 \"IS_DIRECTORY:\" prefix Error throw\n- 통과: 존재하지 않는 파일에서 \"NOT_FOUND:\" prefix Error throw\n- 통과: 권한 없는 파일에서 \"PERMISSION_DENIED:\" prefix Error throw (chmod 000 fixture)\n- 통과: 첫 512바이트에 0x00 포함된 파일에서 isBinary=true, content=\"\"\n- 통과: UTF-16 BOM 파일에서 isBinary=true\n- resolveSafe 외부 경로(`../../etc/passwd` 등)는 기존 traversal guard로 차단\n- typecheck 통과",
+          "approach": "1) `src/shared/fs-defaults.ts`에 상수 2개 추가(공유: 메시지에서 한도 표시할 때 renderer도 참조). 2) `src/main/ipc/channels/fs.ts`에 `readFileHandler(manager: WorkspaceManager): (args:unknown)=>Promise<FileContent>` 작성. 흐름: validateArgs→resolveSafe→lstat(size>MAX→TOO_LARGE throw, isDirectory→IS_DIRECTORY throw)→readFile(buffer)→BOM(0xEF 0xBB 0xBF→utf8-bom slice 3, UTF-16 BOM→isBinary)→null-byte(첫 512바이트 0x00 포함→isBinary)→buffer.toString('utf8'). catch ENOENT→\"NOT_FOUND:\" prefix throw, EACCES→\"PERMISSION_DENIED:\" prefix throw. 3) registerFsChannel의 call 객체에 `readFile: readFileHandler(manager)` 추가.",
+          "risk": "큰 파일 readFile은 메모리 부담. 5MB 한도 내에서는 안전하지만 readFile 전에 size 검사가 반드시 선행돼야. lstat이 symlink 따라가지 않으므로 symlink는 별도 확인 필요(첫 사이클은 따라가지 않는 동작 유지).",
+          "plan_issue": 7,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9720657a0eff8e85",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T09:17:42.134Z"
+        },
+        {
+          "id": 3,
+          "title": "readFile 단위 테스트: zod 스키마 + main 핸들러 정책 검증",
+          "status": "completed",
+          "context": "결정 #1~#5와 task #2 acceptance를 코드로 고정. tests/unit/ipc-contract-fs.test.ts에 readFile args/result 스키마 케이스, tests/unit/fs-channel.test.ts에 readFileHandler 단위 테스트(임시 디렉토리 fixture 활용). nexus-code의 기존 fs-channel.test.ts 패턴 따름.",
+          "acceptance": "- bun test tests/unit/ipc-contract-fs.test.ts 통과 (readFile 스키마 케이스 8건 신규)\n- bun test tests/unit/fs-channel.test.ts 통과 (readFileHandler 케이스 8건 신규)\n- 각 case가 task #2 acceptance 항목과 1:1 매핑되어 회귀 방어 가능",
+          "approach": "1) ipc-contract-fs.test.ts: `ipcContract.fs.call.readFile.args.safeParse(...)` 정상/이상 케이스 4건, result.safeParse(...) 정상/encoding enum 거부/sizeBytes 음수 거부 케이스 4건. 2) fs-channel.test.ts: tmpdir 만들고 readFileHandler 직접 호출. utf-8 정상, utf-8-bom 파일(`Buffer.concat([Buffer.from([0xEF,0xBB,0xBF]), Buffer.from(\"hello\",\"utf8\")])`), null byte 포함 파일, UTF-16 LE BOM 파일, 6MB 텍스트 파일, 디렉토리, 존재하지 않는 경로, EACCES(`fs.chmodSync(file, 0o000)` + afterEach restore). traversal `../foo`는 기존 resolveSafe 테스트와 동일 패턴으로 1건 추가.",
+          "risk": "EACCES 테스트는 macOS에서 root로 실행 시 chmod 000도 권한 부여하므로 skipif(process.getuid()===0). chmod restore 누락 시 cleanup 실패. fixture 디렉토리는 매 테스트 fresh tmpdir로 격리.",
+          "plan_issue": 7,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9720657a0eff8e85",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T09:17:56.709Z"
+        },
+        {
+          "id": 4,
+          "title": "EditorView 통합: readFile 로드 + readonly + 바이너리/에러 메시지 + 자동 reload",
+          "status": "completed",
+          "context": "결정 #4, #6, #7. 현재 `src/renderer/components/EditorView.tsx`는 `<Editor path={uri} defaultLanguage=\"typescript\">`로 빈 모델 표시. readFile 호출과 phase 상태 관리를 추가하고, `defaultLanguage` 제거(Monaco가 path로 자동 추론), readonly 모드, isBinary/error 시 메시지 div 폴백, fs.changed 자동 reload. abs→rel 변환은 useWorkspacesStore에서 rootPath 조회 후 helpers.absPathToRel 재사용. didOpen은 readFile 결과 텍스트로 호출되도록 재구성.",
+          "acceptance": "- 텍스트 파일 클릭 시 EditorView에 실제 내용이 syntax highlight된 상태로 표시\n- defaultLanguage=\"typescript\" 제거 후에도 .ts/.tsx/.js/.json/.md/.css/.py 등이 올바른 언어로 highlight (Monaco path 추론)\n- 알 수 없는 확장자(.xyz)는 plaintext로 폴백\n- readonly: 키보드 입력해도 에디터 내용 변경 안 됨\n- 바이너리 파일(.png 등) 클릭 시 \"Cannot display binary file\" 메시지 표시(Monaco 미렌더)\n- 5MB 초과 파일 클릭 시 \"File too large to open (max 5 MB)\" 메시지\n- ENOENT/EACCES/EISDIR 각각 다른 메시지 표시\n- 외부에서 파일 수정 시 (echo 등) 1초 이내 EditorView 내용 자동 갱신\n- typecheck 통과",
+          "approach": "1) `src/renderer/lib/file-error.ts`(신규) `parseFileErrorCode(message: string): \"NOT_FOUND\"|\"PERMISSION_DENIED\"|\"IS_DIRECTORY\"|\"TOO_LARGE\"|\"OTHER\"`와 `fileErrorMessage(code, max?: number): string` 헬퍼. 2) EditorView 재구성:\n   - `useState<{phase:\"loading\"|\"ready\"|\"binary\"|\"error\", content:string, errorCode?, encoding?}>`\n   - useEffect([filePath, workspaceId]): rootPath 조회→absPathToRel→ipcCall(\"fs\",\"readFile\")→result.isBinary면 phase=\"binary\", 에러면 parseFileErrorCode로 errorCode 분류 후 phase=\"error\", 정상이면 phase=\"ready\"+content\n   - phase!==\"ready\"면 Monaco 대신 메시지 div 렌더(loading/ binary/ error별 텍스트)\n   - phase===\"ready\"이면 `<Editor path={uri} value={state.content} options={{readOnly:true, ...}}>` (defaultLanguage 제거)\n   - handleEditorDidMount: readFile content로 didOpen 호출(기존 model.getValue() 빈문자열 보냈던 부분 수정)\n   - useEffect로 ipcListen(\"fs\",\"changed\") 등록: changes 중 자기 relPath 매칭 시 readFile 재호출→state 갱신(setValue는 Editor의 value prop 갱신으로 자동 적용)\n3) TabContent.tsx는 변경 없음(props 흐름 동일).",
+          "risk": "- Monaco path 추론에 실패하는 확장자가 있을 수 있음 → plaintext 폴백 정상이면 OK.\n- `<Editor value=...>`와 `path=...` 동시 사용 시 Monaco가 모델을 reset하는 경우 cursor 포지션 손실. 첫 사이클은 readonly이고 reload만 발생하므로 영향 적음.\n- ipcListen unsubscribe 누락 시 leak — useEffect cleanup에서 반드시 해제.\n- abs→rel 변환에서 rootPath가 일치하지 않거나 다른 워크스페이스 파일을 받으면 음의 결과. defensive guard 필요.",
+          "plan_issue": 7,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a19922467378be19f",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T09:18:23.323Z"
+        },
+        {
+          "id": 5,
+          "title": "parseFileErrorCode 헬퍼 단위 테스트",
+          "status": "completed",
+          "context": "결정 #5. EditorView가 사용자 메시지로 분기할 때 의존하는 핵심 헬퍼. main이 던지는 prefix(`NOT_FOUND:` 등)와 EditorView의 메시지 매핑 사이를 정확히 잇는지 검증.",
+          "acceptance": "- bun test tests/unit/file-error.test.ts 통과 (11건 신규)\n- 각 테스트가 결정 #5의 4종 분류 + OTHER 폴백을 모두 커버",
+          "approach": "tests/unit/file-error.test.ts 신규 생성. parseFileErrorCode 입력 6건(`NOT_FOUND: ...`, `PERMISSION_DENIED: ...`, `IS_DIRECTORY: ...`, `TOO_LARGE: ...`, prefix 없는 일반 message, 빈 문자열) → 각각 `\"NOT_FOUND\"|\"PERMISSION_DENIED\"|\"IS_DIRECTORY\"|\"TOO_LARGE\"|\"OTHER\"|\"OTHER\"` 반환 검증. fileErrorMessage 입력 5건 → 사용자 메시지 일치 검증 (TOO_LARGE는 \"max 5 MB\" 텍스트 포함).",
+          "risk": "정규식 매칭이 message 중간 텍스트에 prefix가 포함된 경우 오인할 가능성(예: \"Description: NOT_FOUND: ...\"). `^` anchor 필수. 테스트로 그 케이스 1건 추가.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a19922467378be19f",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T09:18:34.302Z"
+        },
+        {
+          "id": 6,
+          "title": "tester 검증: 실제 파일 열기/바이너리/외부 변경 reload runtime 확인",
+          "status": "completed",
+          "context": "결정 #1, #2, #4, #6, #7의 runtime 동작 검증. 단위 테스트로 잡기 어려운 통합/UI 동작을 dev server에서 실제로 검증. Monaco는 jsdom에서 mock이 어렵기 때문에 manual electron run이 필요할 수 있음.",
+          "acceptance": "- 위 7개 항목 수동 검증 완료, 각 항목 PASS/FAIL 기록을 보고에 포함\n- 각 acceptance가 EditorView 결정과 1:1 매핑되어 회귀 검증 가능\n- 어느 항목이 FAIL이면 task 미완료, engineer로 회귀 보고",
+          "approach": "1) `bun run dev`로 electron 띄움. 2) 워크스페이스를 references/ 같은 큰 트리로 설정. 3) 각 케이스 수동 검증:\n  - .ts/.tsx/.js/.json/.md/.css 파일 클릭 시 syntax highlight (총 6건)\n  - 알 수 없는 확장자(.xyz 임시 파일) → plaintext\n  - 5MB 초과 텍스트 파일(`fallocate -l 6M /tmp/big.txt`) → \"File too large\" 메시지\n  - .png 등 바이너리 → \"Cannot display binary file\"\n  - 읽기 권한 없는 파일(`chmod 000`) → \"Permission denied\"\n  - 에디터 열린 채 외부 `echo \"new\" >> file.ts` → 1초 이내 자동 반영\n  - 키보드 입력 시 readonly로 변경 안 됨\n4) 통합 테스트가 jsdom에서 가능한 부분(bin/ binary 분기 logic 단위)은 코드로 fix. UI 시각 검증은 수동.",
+          "risk": "manual 검증이라 환경에 따라 비결정적. 큰 파일 fixture 경로가 OS별로 다름(macOS는 mkfile 사용). chmod 000 파일은 cleanup 누락 시 git이 손대지 못함.",
+          "plan_issue": 7,
+          "deps": [
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a9b643395fef9427b",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T09:18:50.010Z"
+        },
+        {
+          "id": 7,
+          "title": "최종 검증: typecheck + 전체 테스트 + production build",
+          "status": "completed",
+          "context": "사이클 종결 직전의 sanity 검증. 모든 코드 변경이 type/build/test 합쳐 깨지지 않았는지 확인.",
+          "acceptance": "- typecheck 통과 (모든 tsconfig)\n- bun test tests/unit tests/integration 통과, 기존 338건 + 신규 ~27건(8 ipc-contract + 8 fs-channel + 11 file-error)\n- bun run build 통과 (electron-vite main/preload/renderer 모두 성공)\n- 회귀 0건",
+          "approach": "1) `bun run typecheck` 통과 확인. 2) `bun run test` (tests/unit + tests/integration) 통과 확인. 3) `bun run build` 통과 확인. 4) 결과 보고 시 신규 통과 케이스 수와 회귀 0 보고.",
+          "risk": "없음(검증 단계).",
+          "plan_issue": 7,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-03T09:18:58.167Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T12:00:44.044Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 9,
+        "topic": "WorkspacePanel split-view (터미널/에디터 분할)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "트리 모델 형태 결정 (binary split|leaf vs 그리드 vs 평면)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "binary tree (split|leaf) 권장. split 노드는 orientation+ratio+two children, leaf는 tabIds+activeTabId. Zustand 불변성과 React 재조정에 가장 잘 맞고 vscode/Theia 선례와 일치. n-ary grid는 우리 규모에 과잉.",
+                "recorded_at": "2026-05-03T11:26:06.627Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "Binary tree 채택. 노드는 두 종류: split { kind, id, orientation: \"horizontal\"|\"vertical\", ratio: number(0..1), first, second } | leaf { kind, id, tabIds: string[], activeTabId: string|null }. orientation은 자식 두 개의 배치 축을 의미하며 ratio는 first child의 비율. 트리는 워크스페이스마다 1개, 항상 비어 있지 않음(최소 1 leaf). 기각: (a) n-ary GridView — 우리 규모(개인 IDE, 보통 2~4 panes)에 과잉이며 sash 계산이 복잡. (b) 평면 group 배열 + container layout — 임의 중첩 split이 어렵고 vscode가 binary tree로 승리한 이유와 동일. 가정: 자식 ratio는 0.05~0.95로 클램프, 0/1은 허용 안 함(빈 pane 회피)."
+          },
+          {
+            "id": 2,
+            "title": "스토어 구조 결정 (tabs.ts 슬림화 + layout.ts 신설 여부)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "tabs.ts는 record-only registry로 슬림화(Tab 레코드 맵 + create/remove). layout.ts 신설하여 트리 + 그룹 ordering + activeGroupId 소유. 분리 이유: tab 레코드는 group 이동 시 변하지 않고 id만 leaf 사이를 이동하므로 god-store 회피 가능. composite 동작(openTab=create+attach)은 hook/action helper에서 오케스트레이션.",
+                "recorded_at": "2026-05-03T11:26:10.816Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "tabs.ts는 record-only registry로 슬림화하고 layout.ts(렌더러 store)를 신설. tabs.ts는 byWorkspace: Record<wsId, Record<tabId, Tab>> + createTab/removeTab/renameTab만 가짐. layout.ts는 byWorkspace: Record<wsId, { root: LayoutNode, activeGroupId: string }> + ensureLayout/splitGroup/closeGroup/setSplitRatio/setActiveGroup/attachTab/detachTab/moveTab/setActiveTabInGroup. composite 동작(openTab=create+attach+activate, closeTab=detach+remove, 빈 leaf collapse)은 별도 helper(예: store/tabs/operations.ts)에서 두 store를 묶어 처리. 기각: (a) tabs.ts에 트리까지 합치는 god-store — 500줄 분리 사이클 직후라 같은 실수 반복 위험. (b) Tab 자체에 groupId 필드 — 이동마다 mutate 필요하고 트리와 이중 진실 소스가 됨. 가정: 트리 식별자(groupId, splitId)는 crypto.randomUUID로 생성."
+          },
+          {
+            "id": 3,
+            "title": "탭 식별자 스코프 결정 (workspace-scoped vs group-scoped)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "workspace-scoped tab.id 유지(현 상태). 트리는 id로만 참조하므로 탭 이동은 두 leaf의 tabIds만 편집. group-scoped 식별자로 만들면 이동마다 id 재발급 필요 → 마운트 키 깨짐 위험. vscode도 동일 정책.",
+                "recorded_at": "2026-05-03T11:26:14.028Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "workspace-scoped tab.id 유지(현 상태). 트리 leaf는 tabId만 참조하므로 그룹 이동은 두 leaf의 tabIds 배열 편집으로 끝나고 React 마운트 키(=tab.id)는 보존됨. 이는 §6의 portal pool 전략의 전제 조건이기도 함(터미널 마운트가 그룹 이동에도 유지). 기각: (a) group-scoped id — 이동마다 id 재발급 → 마운트 키 깨짐 → PTY 재시작. (b) {workspaceId, tabId} 합성 키 — tab.id 자체가 UUID라 충돌 가능성이 0에 가까움, 합성 키는 코드만 늘림. vscode 정책과 동일."
+          },
+          {
+            "id": 4,
+            "title": "active group/active tab 상태 위치 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "activeGroupId는 워크스페이스별 layout 슬라이스에 저장(파생 아님). 새 탭 오픈 위치/키보드 포커스의 단일 진실 소스. setActiveTabInGroup 시 activateGroup 옵션을 받게 설계해 디자이너의 UX 선택과 분리.",
+                "recorded_at": "2026-05-03T11:26:16.934Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "activeGroupId는 layout 슬라이스에 저장(파생 아님). 워크스페이스마다 1개. 그룹 leaf 안의 activeTabId는 leaf 자체에 저장. setActiveTabInGroup({ workspaceId, groupId, tabId, activateGroup?: boolean = true })로 한 호출에서 그룹 활성화 동시 처리(UX는 §10에서 결정). 새 탭은 항상 activeGroupId 안으로 들어감. 기각: (a) activeGroupId를 매번 트리 순회로 파생 — 키보드 포커스/새 탭 라우팅의 의도가 불명확하고 closeGroup 시 라우팅 로직과 충돌. (b) 전역 active(workspace×group) 매트릭스 — 워크스페이스마다 독립 트리이므로 워크스페이스 슬라이스에 종속시키는 편이 가비지 컬렉션과 일치."
+          },
+          {
+            "id": 5,
+            "title": "그룹 lifecycle/collapse 규칙 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "collapse-and-hoist 알고리즘: detach 후 leaf가 비고 root가 아니면 부모 split을 sibling으로 교체(승격). 단일 leaf만 남으면 비어있어도 placeholder로 유지. activeGroupId가 사라진 leaf를 가리키면 hoisted sibling의 leftmost leaf로 이동. 모든 IDE 선례와 일치, orphan split 방지.",
+                "recorded_at": "2026-05-03T11:26:21.176Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "collapse-and-hoist: detachTab 후 leaf가 비고 트리의 유일 leaf가 아니면 부모 split을 sibling으로 즉시 교체(승격). leaf가 트리의 유일 leaf면 비어도 placeholder로 보존. activeTabId가 사라지면 prev else next else null. activeGroupId가 사라진 leaf를 가리키면 hoisted sibling의 leftmost leaf로 이동. closeGroup(명시적)도 같은 알고리즘. 기각: (a) 빈 leaf를 항상 placeholder로 유지 — 일반 IDE 멘탈 모델과 다르고 빈 그룹이 화면을 점유. (b) 빈 leaf를 형제로 merge하지 않고 sibling 옆에 배치만 — orphan split 발생. 가정: ratio 재정규화는 sibling 승격 시 상위 split의 ratio를 그대로 유지(승격된 sibling이 부모 자리를 차지하므로 별도 조정 불필요)."
+          },
+          {
+            "id": 6,
+            "title": "터미널 PTY 생존 마운트 전략 결정 (portal pool 도입 여부)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "portal-style 플랫 풀 권장: WorkspacePanel 내부에 LayoutTree와 별도로 TerminalPool 컴포넌트가 워크스페이스의 모든 터미널 탭을 한번씩 절대좌표로 렌더(key=tab.id). 레이아웃 트리는 group slot div만 그리고, 각 TerminalHost가 owner group slot을 ResizeObserver로 추적해 reposition. split/move/closeOthers 모두 CSS 위치 변경만 → remount 없음 → PTY 생존. 위험: ResizeObserver 부하(현실적 panel 수에서는 무시 가능), focus DOM 라우팅 복잡성.",
+                "recorded_at": "2026-05-03T11:26:26.659Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "portal-style 플랫 풀 도입. WorkspacePanel 안에 두 형제 영역: (a) LayoutTree — split/leaf 트리를 따라 TabBar + 빈 group slot div를 렌더(슬롯은 절대좌표 추적 대상), (b) ContentPool — 워크스페이스의 모든 탭(터미널/에디터)을 한번씩 절대좌표 컨테이너에 렌더(key=tab.id). 각 ContentHost는 자기 owner group slot을 layout store 구독으로 알고, ResizeObserver+layout store 변화로 reposition. owner leaf의 activeTabId 와 일치하고 그 그룹이 visible이면 표시, 아니면 visibility:hidden+pointer-events:none. 그룹 이동 시 host는 unmount되지 않고 다른 slot으로 reposition만. tab.close/workspace 제거 시에만 unmount → PTY kill. 에디터도 동일 패턴 적용해 일관성 유지. 기각: (a) leaf 안에 직접 mount — split/이동마다 React 키 재배치로 remount 발생 → PTY 끊김. (b) React Portal(createPortal)로 leaf DOM에 직접 portal — 트리 이동 시 portal target id가 바뀌면 sometimes remount, slot 측정도 더 어려움. 위험: ResizeObserver/layout 동기화 비용은 panel 수가 적어 무시 가능, focus 라우팅은 tabIndex+ref forwarding으로 해결."
+          },
+          {
+            "id": 7,
+            "title": "레이아웃 영속화 스키마 결정 (appState 확장)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "appState에 layoutByWorkspace?: Record<wsId, {root: SerializedNode, activeGroupId, tabs: SerializedTab[]}> 추가. tabs도 함께 직렬화(현재는 영속 안 됨)되어야 layout이 가리키는 id가 hydrate 시 살아남음. ratio는 0..1 정규화. hydrate 시 dangling id 검증/복구. 영속은 sidebar width와 동일 debounce 패턴.",
+                "recorded_at": "2026-05-03T11:26:31.330Z",
+                "agent_id": "af794bdfeac71d896"
+              }
+            ],
+            "decision": "AppStateSchema에 layoutByWorkspace?: Record<wsId, WorkspaceLayoutSnapshot> 추가. WorkspaceLayoutSnapshot = { root: SerializedNode, activeGroupId: string, tabs: SerializedTab[] }. SerializedNode는 앞서 정한 leaf|split 형태 그대로(orientation/ratio/tabIds/activeTabId/id), SerializedTab = { id, type, title, props } where TabProps는 TerminalTabProps|EditorTabProps. ratio 0.05~0.95 클램프. hydrate 시: (1) 각 wsId별 tab 레코드 복원, (2) 트리 순회하며 dangling tabId 제거, 빈 leaf 발견 시 collapse-and-hoist 알고리즘으로 정리, (3) activeGroupId가 죽은 그룹이면 leftmost leaf로 fallback. persist는 ui store와 동일 debounce(예: 250ms). schema 변경은 zod 새 필드만 추가(optional)하여 backward-compat 유지. 기각: (a) tab 레코드 영속 안 함 — 트리가 가리키는 id가 다음 부팅에 부재. (b) workspace별 별도 파일 — 현재 appState 단일 파일 패턴을 깨고 배포 단위 늘림. 가정: 부분 손상 layout은 부팅을 막지 않고 silent repair."
+          },
+          {
+            "id": 8,
+            "title": "split 진입 어포던스 결정 (우클릭/단축키/드래그)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "primary는 탭 우클릭 컨텍스트 메뉴(Close/Close Others/Close All to Right/Split Right/Split Down). discoverability 핵심. 단축키 보조: Cmd+\\(split right), Cmd+Shift+\\(split down). DnD edge drop은 v1 deferred — 컨텍스트 메뉴만으로 핵심 기능 도달. v1.5에서 2-edge(right/bottom)+center 추가.",
+                "recorded_at": "2026-05-03T11:26:35.703Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "v1 primary는 탭 우클릭 컨텍스트 메뉴(Radix ContextMenu, 기존 Tooltip과 동일한 Radix 패턴 재사용). 메뉴 항목: Close · Close Others · Close All to the Right · ─ · Split Right · Split Down. 보조: 단축키 Cmd+\\ (split right), Cmd+Shift+\\ (split down). DnD(edge drop, center drop)는 v1 deferred — 별도 사이클(v1.5)로 분리. 결정: 디자이너 open question \"native menu vs overlay\" → Radix ContextMenu(렌더러 오버레이) 채택, 토큰(bg-muted/border-mist-border/text-app-ui-sm) 재사용. 기각: (a) drag-to-edge primary — 드롭존 오버레이 컴포넌트 선행 필요, 어포던스 invisible. (b) 툴바 버튼 — h-9 TabBar 밀집도 문제, §11과 충돌. (c) 단축키 only — discoverability 0."
+          },
+          {
+            "id": 9,
+            "title": "sash 비주얼/방향/리셋 정책 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "기존 ResizeHandle 재사용. vertical sash(좌우 그룹) cursor-col-resize, horizontal sash(상하 그룹) cursor-row-resize+aria-orientation horizontal 변형 추가. 1px collapsed → hover 2px, hit area 8px, --splitter/--splitter-hover 토큰. double-click → 형제들 사이 균등 분할(50/50). Warp의 flat-elevation 원칙 준수.",
+                "recorded_at": "2026-05-03T11:26:39.563Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "기존 ResizeHandle 컴포넌트 재사용 + 방향 prop 확장. 현 ResizeHandle은 vertical(좌우 사이드바/files panel용)만 지원하므로 orientation: \"vertical\" | \"horizontal\" prop 추가하여 가로 sash(상하 그룹 사이) 지원. 비주얼: 1px collapsed → hover/active 2px, hit area 8px, --splitter / --splitter-hover 토큰 그대로. cursor-col-resize(수직)/cursor-row-resize(수평), aria-orientation 동기화. double-click → split의 ratio = 0.5로 리셋. 기각: (a) 신규 GroupSash 컴포넌트 — 동일 동작 두 벌, 회귀 위험. (b) 두꺼운 sash — Warp의 flat-elevation 원칙 위반. 가정: ResizeHandle props 확장은 현 사용처(sidebar, files-panel) 기본 동작 유지하는 default 제공."
+          },
+          {
+            "id": 10,
+            "title": "active group 시각 표시 결정 (모노크롬 토큰 재사용)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "active group은 그 group의 TabBar에 bg-frosted-veil(rgba(255,255,255,0.04)) 적용으로만 표시. 컨테이너 테두리 추가는 sash와 시각 충돌 → 금지. 비활성 그룹의 active 탭 텍스트는 text-stone-gray로 한 단 demote. 새 토큰 도입 없음.",
+                "recorded_at": "2026-05-03T11:26:42.770Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "active group의 TabBar에 bg-frosted-veil(rgba(255,255,255,0.04)) 적용으로만 표시. 그룹 컨테이너에 추가 테두리/링 없음(sash와 시각 충돌 방지). 비활성 그룹에서는 active 탭 텍스트를 한 단 demote(text-foreground → text-stone-gray). 새 토큰 도입 없음. 탭 클릭은 always activateGroup=true(그룹 + 그 그룹의 탭 동시 활성), Cmd+Alt+Arrow 그룹 포커스 이동도 동일 시멘틱. 기각: (a) active group 컨테이너 1px mist-border 링 — 이중 보더+sash 시각 충돌, Warp flat-elevation 위반. (b) 색상 액센트 — 모노크롬 팔레트 위반. 가정: visibility만 다른 비활성 워크스페이스 panel과 별개로, 활성 워크스페이스 안에서 그룹 단위 시각 차이는 위 정도면 충분."
+          },
+          {
+            "id": 11,
+            "title": "그룹 너비 임계 및 탭바 오버플로 정책 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "그룹 min width 180px(이하로는 sash drag 클램프). ≥180px에서 탭바는 horizontal scroll(스크롤바 hover 시만 표시), active 탭 scrollIntoView. overflow chevron이나 단일탭-fullwidth는 채택 안 함(개인 IDE 규모에서 단순함이 우선).",
+                "recorded_at": "2026-05-03T11:26:46.896Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "그룹 min width 180px(sash drag clamp). ≥180px에서 TabBar는 horizontal scroll(overflow-x: auto, [scrollbar-width:none] 기본 + hover 시만 표시 또는 항상 hidden — 기존 TabBar의 scrollbar 숨김 패턴 유지). 활성 탭은 scrollIntoView({ inline: \"nearest\" })로 노출. overflow chevron/popover 미도입(개인 IDE 규모, 단순함 우선). 단일 그룹의 워크스페이스에서는 min-width clamp가 작동하지 않으므로(영향 없음) — split 시에만 의미. 기각: (a) overflow 메뉴 chevron — 키보드 라우팅 추가 부담, v1 범위 밖. (b) 단일 탭 fullwidth collapse — 탭 정체성 상실. 가정: 가로 스크롤바 제어는 기존 TabBar 클래스 패턴([&::-webkit-scrollbar]:hidden)을 그대로 따른다."
+          },
+          {
+            "id": 12,
+            "title": "빈 그룹/빈 워크스페이스 placeholder 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "단독 leaf가 비었을 때만 \"No tab open\" 유지(text-stone-gray, app-ui-sm) + 보조 한 줄 \"Press Cmd+E to open a file\"(app-ui-xs). 비단독 빈 leaf는 collapse-and-hoist로 즉시 사라지므로 placeholder 없음. 일관성 위해 현 카피 유지.",
+                "recorded_at": "2026-05-03T11:26:49.763Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "단독 leaf가 비었을 때만 placeholder 표시: \"No tab open\" (현 카피 유지, text-stone-gray, app-ui-sm) + 보조 \"Press Cmd+E to open a file\" (app-ui-xs, text-muted-foreground). 비단독 빈 leaf는 §5 collapse-and-hoist로 즉시 사라지므로 placeholder 없음. 워크스페이스 자체가 없을 때(현 App.tsx의 \"No workspace selected\") 텍스트는 변경 없음. 기각: (a) 일러스트레이션/ASCII art — Warp restraint 위반. (b) \"Empty workspace\" 같은 카피 변경 — 의미 모호(탭 영역이 비어있는 것이지 workspace가 비어있는 게 아님)."
+          },
+          {
+            "id": 13,
+            "title": "키바인딩 셋 확정 및 충돌 회피",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "v1 셋: Cmd+\\(split right), Cmd+Shift+\\(split down), Cmd+Shift+W(close active group). 그룹 포커스 이동은 Cmd+Alt+ArrowLeft/Right/Up/Down(Cmd+K chord 대신 단순화). 모든 핸들러는 isInEditable(target)일 때 suppress(Cmd+E 가드와 동일). Cmd+W는 close-tab 컨벤션 예약, Cmd+1/2/3은 미래 tab-by-index 예약.",
+                "recorded_at": "2026-05-03T11:26:54.376Z",
+                "agent_id": "ad6b9cee5c2e8308c"
+              }
+            ],
+            "decision": "v1 키바인딩: Cmd+\\ (split right), Cmd+Shift+\\ (split down), Cmd+Shift+W (close active group). 그룹 포커스 이동: Cmd+Alt+ArrowLeft/Right/Up/Down. 모든 핸들러는 keybindings/global.ts의 isInEditable(target) 가드로 입력 컨텍스트에서 무시. Cmd+W는 close-tab(미래) 예약, Cmd+1/2/3은 tab-by-index(미래) 예약, Cmd+E/Cmd+R 기존과 충돌 없음. Cmd+K chord 프리픽스는 선택지였으나 단일키 조합이 단순하고 macOS-first에서 Alt+화살표로 group 포커스를 옮기는 패턴이 자연스러움. 기각: (a) Cmd+K chord — 학습 비용 증가, 한 번에 한 액션 수행 원칙 위반. (b) Cmd+W close-group — 향후 close-tab 컨벤션 충돌. 가정: focus 라우팅은 layout store의 setActiveGroup만 호출하면 portal pool host가 자동으로 visibility 갱신하므로 DOM focus는 별도 요청(예: TabBar의 첫 탭에 focus())로 처리."
+          }
+        ],
+        "research_summary": "VSCode 정책(Explore): group이 leaf인 binary tree, GroupDirection {UP/DOWN/LEFT/RIGHT}, Sizing 전략(Distribute/Split/Auto/Invisible), 마지막 탭 닫으면 group merge, activeGroup 명시 추적+이벤트, 4-edge+center DnD, 전체 layout 직렬화. Architect 메모: split|leaf binary tree, 새 layout.ts + tabs.ts는 record-only로 슬림화, workspace-scoped tab.id 유지, activeGroupId 저장, collapse-and-hoist closing rule, 핵심으로 portal-style 플랫 풀로 터미널 PTY 생존 보장(레이아웃 변경 시 remount 없이 CSS reposition). Designer 메모: 우클릭 컨텍스트 메뉴를 primary, ResizeHandle 재사용+horizontal variant, active group은 bg-frosted-veil로만 표시(테두리 없음), min-width 180px+가로스크롤, 2-edge DnD(right/bottom)+center 이동, \"No tab open\" placeholder는 sole-leaf만, Cmd+\\ 계열 단축키. 현재 코드: tabs.ts(WorkspaceSlice 평면), TabContent 단일 active tab, TerminalView는 tabId/cwd로 키된 mount, FilesPanel과 Sidebar는 ResizeHandle + appState 영속화 패턴 확립.",
+        "created_at": "2026-05-03T11:25:53.514Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "shared 스키마/타입 확장 (LayoutNode + SerializedTab + AppState)",
+          "status": "completed",
+          "context": "layout 트리·tab 레코드·activeGroup을 직렬화해 영속화하기 위한 zod 스키마와 TS 타입을 shared에 정의한다. 트리는 binary(split|leaf), tab은 type+title+props, AppStateSchema에 layoutByWorkspace를 optional로 추가한다(backward-compat).",
+          "acceptance": "- src/shared/types/layout.ts 신설 및 zod 파싱이 합법/불법 입력에 정확히 통과/실패한다(min/max ratio, 잘못된 kind, dangling discriminator).\n- AppStateSchema가 layoutByWorkspace 없는 기존 영속 데이터도 그대로 파싱한다.\n- shared d.ts(out/shared)가 새 export를 포함한다.\n- bun test 단위 테스트(스키마 라운드트립)가 통과한다.",
+          "approach": "새 파일 src/shared/types/layout.ts: SplitOrientation = z.enum([\"horizontal\",\"vertical\"]); SerializedLeafSchema = {kind:\"leaf\", id:uuid, tabIds:string[], activeTabId:string|null}; SerializedSplitSchema(z.lazy)는 {kind:\"split\", id:uuid, orientation, ratio:number().min(0.05).max(0.95), first:SerializedNode, second:SerializedNode}; SerializedNodeSchema = z.discriminatedUnion(\"kind\",[leaf,split]); SerializedTabSchema = {id:uuid, type:enum[\"terminal\",\"editor\"], title:string, props:union(TerminalTabProps, EditorTabProps)}; WorkspaceLayoutSnapshot = {root, activeGroupId:uuid, tabs:SerializedTab[]}. src/shared/types/appState.ts에 layoutByWorkspace?: Record<string, WorkspaceLayoutSnapshot> 추가. types/index.ts에 re-export. 빌드: bunx tsc -b tsconfig.shared.json으로 d.ts 재생성.",
+          "risk": "discriminated union + z.lazy 재귀 정의의 타입 추론이 흔들릴 수 있음 → SerializedNode 타입을 z.infer 대신 명시적 interface로 선언해 회피.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "addb02f54fd903ae8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:29:32.321Z"
+        },
+        {
+          "id": 2,
+          "title": "tabs.ts를 record-only registry로 슬림화",
+          "status": "completed",
+          "context": "현 useTabsStore는 byWorkspace: Record<wsId, {tabs[], activeTabId}> 형태로 ordering+active까지 갖는다. layout.ts가 ordering/active를 인계받으므로 tabs.ts는 Tab 레코드 맵만 남긴다. WorkspacePanel/App.tsx 등 기존 호출지점은 layout.ts(operations helper)로 이동하므로 본 task에서는 store만 변경한다.",
+          "acceptance": "- tabs.ts 호출 가능한 액션은 createTab/removeTab/renameTab/closeAllForWorkspace 4종.\n- byWorkspace 형태가 평면 record로 변경되었고 ordering/activeTabId 필드가 사라진다.\n- workspace:removed 이벤트로 해당 wsId 슬라이스가 삭제된다.\n- 단위 테스트 통과 + 기존 컴파일러 깨짐은 T7에서 해결할 부분만 남는다.",
+          "approach": "src/renderer/store/tabs.ts 재작성: byWorkspace: Record<wsId, Record<tabId, Tab>>; createTab(workspaceId, type, props): Tab; removeTab(workspaceId, tabId): void; renameTab(workspaceId, tabId, title): void; closeAllForWorkspace(workspaceId): void(workspace:removed 구독 유지). useWorkspaceTabs 셀렉터는 제거(layout이 ordering 보유). useTabsStore는 그대로 유지. 기존 호출지점은 일단 임시로 type assertion이나 placeholder로 깨지지 않도록 type-shim 유지하되, 실제 마이그레이션은 T7에서 일괄. 단위 테스트 tests/unit/tabs-store.test.ts 신설(create/remove/rename/closeAll/workspace:removed 트리거).",
+          "risk": "호출 지점이 동시에 깨지면 dev/test 진행이 막힌다 → T2 작업 중에는 useTabsStore re-export 자리에 deprecated façade를 두지 말고 곧바로 T7과 같은 사이클 안에서 일괄 마이그레이션 순서로 진행. 본 task는 store 자체와 testfile에 집중.",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8a782ac15545fd17",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:29:45.641Z"
+        },
+        {
+          "id": 3,
+          "title": "layout.ts 스토어(트리·active·collapse) 신설",
+          "status": "completed",
+          "context": "트리(binary split|leaf) + activeGroupId per workspace를 소유. 트리 동작과 collapse-and-hoist 알고리즘은 store/files의 types/helpers/store 패턴을 따른다. 트리 식별자는 crypto.randomUUID. ratio 0.05~0.95 클램프. tabs.ts와는 단순히 tabId 참조만 공유.",
+          "acceptance": "- ensureLayout 호출 시 빈 leaf root + activeGroupId가 생긴다.\n- splitGroup(orientation, side)이 트리에 split 노드를 끼우고 새 leaf id를 반환한다.\n- detachTab 결과로 leaf가 비면 root가 아닌 한 collapse-and-hoist 동작한다(부모 split이 sibling으로 교체).\n- setSplitRatio가 0.05~0.95로 클램프된다.\n- moveTab(tabId, toGroupId)이 두 leaf의 tabIds만 변경하며 tab.id 자체에는 손대지 않는다.\n- hydrate가 dangling tabId/빈 leaf를 silent repair하고 activeGroupId를 leftmost로 fallback한다.\n- 단위 테스트 통과(20개 이상 시나리오).",
+          "approach": "src/renderer/store/layout/{types.ts, helpers.ts, store.ts, index.ts} 구성. types: LayoutNode = LayoutLeaf|LayoutSplit (kind 구분), WorkspaceLayout = {root, activeGroupId}. helpers(순수): findGroup(root, groupId), parentSplitOf(root, leafId), leftmostLeaf(node), replaceNode(root, target, replacement), insertSplit(root, leafId, orientation, side, newLeaf), detachTab(root, tabId): {root', changed, hostedLeafId}, removeLeafAndHoist(root, leafId), clampRatio. store: ensureLayout/splitGroup/closeGroup/setSplitRatio(splitId, ratio)/setActiveGroup/attachTab(groupId, tabId, index?)/detachTab(tabId)/moveTab(tabId, toGroupId, index?)/setActiveTabInGroup({groupId, tabId, activateGroup?=true})/closeAllForWorkspace(wsId)/hydrate(wsId, snapshot). subscribe to ipc workspace:removed → closeAllForWorkspace. ratio default 0.5. 단위 테스트 tests/unit/layout-store.test.ts: split/close 후 hoist, ratio clamp, leftmost leaf 추적, activeGroupId 라우팅, attach/detach/move 시퀀스, hydrate 시 dangling tabId silent repair.",
+          "risk": "collapse-and-hoist의 재귀와 ratio 보존 엣지 케이스(중첩 split, 비대칭 트리). helpers는 항상 새 객체를 반환(불변)하도록 클론 헬퍼 통일.",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afd9554d112a86dbf",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:02.626Z"
+        },
+        {
+          "id": 4,
+          "title": "ResizeHandle orientation prop 확장 (horizontal sash 지원)",
+          "status": "completed",
+          "context": "현재 ResizeHandle은 사이드바/files panel 좌우 sash 전용이다. group 사이의 가로 sash(상하 분할)도 같은 컴포넌트로 처리하기 위해 orientation prop을 추가한다. 기존 호출지점의 동작은 변경되면 안 된다.",
+          "acceptance": "- orientation 미지정 시 기존 동작과 100% 동일(현재 사용처 회귀 없음).\n- orientation=\"horizontal\"일 때 cursor-row-resize, aria-orientation=\"horizontal\", h-2 hit area로 렌더된다.\n- 드래그 시 horizontal에서는 clientY 변화에 따라 onResize 호출.\n- onReset(double-click)이 두 방향 모두에서 호출된다.\n- 새 단위 테스트 통과 + 기존 ui-store/files-panel 테스트 회귀 없음.",
+          "approach": "src/renderer/components/ResizeHandle.tsx에 orientation: \"vertical\"|\"horizontal\" prop을 추가(default \"vertical\"). pointer 좌표축을 orientation에 따라 분기(vertical은 clientX delta, horizontal은 clientY delta). cursor 클래스는 cursor-col-resize/cursor-row-resize. 컨테이너 absolute 위치 클래스도 분기(top-0 bottom-0 right-0 w-2 vs left-0 right-0 bottom-0 h-2). aria-orientation 동기화. double-click 콜백은 onReset 그대로(부모가 ratio=0.5로 리셋). 단위 테스트 tests/unit/resize-handle.test.ts에 horizontal 분기 케이스 추가(클릭/드래그 좌표 변환, cursor 토큰 포함).",
+          "risk": "기존 css 좌우 클래스 하드코딩에서 prop-driven으로 바뀌며 토큰이 빠질 수 있음 → 변경 후 sidebar/files-panel 시각 회귀 수동 확인 항목 포함.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3431bc8f2485d3ab",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:14.471Z"
+        },
+        {
+          "id": 5,
+          "title": "LayoutTree + GroupView + ContextMenu 컴포넌트",
+          "status": "completed",
+          "context": "layout store의 트리를 따라 split/leaf를 재귀 렌더한다. leaf는 GroupView(TabBar 래퍼 + 빈 placeholder + 우클릭 메뉴)이고, split은 두 자식 사이에 ResizeHandle(horizontal/vertical) 배치. GroupView는 active group일 때 bg-frosted-veil을 TabBar에 적용. 우클릭은 Radix ContextMenu — Close/Close Others/Close All to Right/Split Right/Split Down.",
+          "acceptance": "- LayoutTree가 임의 깊이 binary tree를 정확히 렌더(가로/세로 혼합 split 포함).\n- split 사이 sash drag으로 ratio가 layout store에 반영되고, double-click이 0.5로 리셋된다.\n- GroupView 클릭 시 setActiveGroup이 호출되고 active group의 TabBar에 bg-frosted-veil이 들어간다.\n- 우클릭 메뉴 5개 항목이 보이고 각 동작이 layout/tabs operations로 위임된다.\n- 빈 root leaf만 placeholder(\"No tab open\" + Cmd+E)를 표시하고, 비단독 빈 leaf는 collapse-and-hoist에 의해 사라진다.",
+          "approach": "src/renderer/components/workspace/LayoutTree.tsx: props {workspaceId, root, onActivateGroup}. split 노드는 flex(orientation에 따라 row/col)로 두 자식 + ResizeHandle 사이 배치, ratio는 inline style flex-basis %로 적용. ResizeHandle onResize에서 setSplitRatio(splitId, newRatio), onReset에서 setSplitRatio(splitId, 0.5). leaf 노드는 GroupView 렌더. GroupView.tsx: TabBar(workspace+group 슬라이스의 tabs/activeTabId/operations.openTab/operations.closeTab/operations.setActive/onContextMenu) + slot div(data-group-slot={leaf.id}). active group 여부에 따라 className 토큰 분기(bg-frosted-veil + 비활성 시 stone-gray). leaf.tabIds.length===0 && root이면 placeholder (\"No tab open\" + Cmd+E hint). ContextMenu(Radix)는 TabBar의 각 trigger를 ContextMenu.Trigger로 래핑(Tooltip과 sibling 패턴 유지)하고 메뉴는 ContextMenu.Portal+Content로 렌더, 클래스는 bg-muted/border-mist-border/text-app-ui-sm/4px radius. 메뉴 액션: Close → operations.closeTab(tabId); Close Others → tabIds 중 그것만 제외 모두 closeTab; Close All to Right → 인덱스 우측 전체; Split Right → operations.splitGroupAndMove(groupId, \"horizontal\", \"after\", tabId); Split Down → (\"vertical\",\"after\"). 라이브 active group은 layout.activeGroupId.",
+          "risk": "flex-basis 퍼센트 + min-width 클램프 충돌이 시각 깨짐을 유발할 수 있음 → ResizeHandle drag clamp에서 min 180px를 percent로 환산해 가드.",
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5328dcc08e54bd61",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:33.928Z"
+        },
+        {
+          "id": 6,
+          "title": "ContentPool (portal pool) — TerminalView/EditorView 리포지셔닝",
+          "status": "completed",
+          "context": "PTY 생존 보장을 위해 워크스페이스의 모든 탭을 한번씩만 마운트하고, layout 트리 변경 시 React 트리를 그대로 둔 채 CSS 위치만 갱신한다. 그룹 이동은 ContentHost를 다른 slot으로 reposition만, 탭 close/workspace 제거에서만 unmount되어 PTY가 자연 종료된다.",
+          "acceptance": "- 한 터미널 탭이 group A → group B로 이동해도 TerminalView가 unmount되지 않는다(ipc kill 호출 없음 확인).\n- 워크스페이스 비활성 시 모든 ContentHost가 visibility:hidden, 활성 시 leaf.activeTabId만 visible.\n- split/sash drag 중에도 콘텐츠 위치가 슬롯과 일치해 흔들림 없이 따라간다(ResizeObserver 갱신).\n- 탭이 닫히면 그 ContentHost가 unmount된다.\n- 단위 테스트는 layout selector 셀렉션 로직만 분리해 검증(DOM 측정은 수동 확인).",
+          "approach": "src/renderer/components/workspace/ContentPool.tsx: props {workspaceId, isWorkspaceActive}. 워크스페이스의 모든 tab 레코드를 useTabsStore로 구독, tab.id를 key로 ContentHost 1개씩 렌더. ContentHost 내부에서 layout store 셀렉터로 ownerLeafId(tab이 속한 leaf), isActiveTab(leaf.activeTabId===tab.id), isActiveGroup(activeGroupId===ownerLeafId)을 도출. data-group-slot={ownerLeafId} DOM 노드를 querySelector로 찾고 그 element를 ResizeObserver로 관찰해 absolute position(top/left/width/height)을 React state에 갱신. 자기 wrapper div를 absolute 위치로 렌더하며 visibility는 isActiveTab && isWorkspaceActive ? \"visible\" : \"hidden\", pointer-events 동일. 내부에 tab.type === \"terminal\" ? <TerminalView/> : <EditorView/>. 슬롯이 사라지면(detach) 1프레임 안에 visibility hidden으로 떨어지고, removeTab 시 unmount → PTY kill. 추가 효과: layout store subscribe로 슬롯이 바뀐 직후 즉시 rect 재계산(ResizeObserver만으로는 즉시 트리거되지 않을 수 있음).",
+          "risk": "ResizeObserver가 react render 사이클과 어긋나며 1프레임 깜빡임 발생 가능 → useLayoutEffect로 측정 타이밍 보정. 슬롯이 일시적으로 0 사이즈인 경우 visibility를 hidden로 유지해 보호.",
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae7030d2f4c490bdd",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:30:51.273Z"
+        },
+        {
+          "id": 7,
+          "title": "WorkspacePanel/App 재배선 + 키바인딩 + persistence",
+          "status": "completed",
+          "context": "기존 WorkspacePanel의 TabBar+TabContent 직접 렌더를 LayoutTree+ContentPool 조합으로 교체. 새 탭 추가 경로(seed terminal, Cmd+E)는 layout-aware로(active group 안으로 attach) 변경. 키바인딩 추가. AppState read/write 라운드트립으로 layoutByWorkspace 영속화.",
+          "acceptance": "- 워크스페이스 첫 마운트 시 단일 leaf + 단일 터미널 탭 자동 시드(현 동작 보존).\n- Cmd+E로 파일 선택 시 active group 안에 editor 탭이 추가된다.\n- Cmd+\\ / Cmd+Shift+\\로 active group이 right/down split된다.\n- Cmd+Shift+W로 active group이 닫힌다(collapse-and-hoist 적용).\n- Cmd+Alt+ArrowLeft/Right/Up/Down으로 그룹 포커스가 이동한다.\n- 종료 후 재실행 시 layout/tabs가 복원되며 dangling tab id가 있어도 부팅이 깨지지 않는다.\n- isInEditable(target) 시 모든 단축키가 무시된다.\n- bun test/typecheck/build 모두 통과.",
+          "approach": "src/renderer/store/operations.ts(또는 store/tabs/operations.ts) 신설: openTab(wsId, type, props, opts:{groupId?:string|\"active\"} = {}) → tabsStore.createTab + layoutStore.attachTab(groupId ?? activeGroupId) + setActiveTabInGroup; closeTab(wsId, tabId) → layoutStore.detachTab + tabsStore.removeTab. WorkspacePanel.tsx: 첫 마운트에서 layoutStore.ensureLayout(wsId), tab 슬라이스가 비어있으면 operations.openTab(wsId,\"terminal\",{cwd}). 렌더는 <LayoutTree workspaceId={ws.id} ... /> + <ContentPool workspaceId={ws.id} isWorkspaceActive={isActive} />. App.tsx의 Cmd+E 핸들러는 useTabsStore.addTab → operations.openTab으로 교체. keybindings/global.ts: handleSplitRight/Down/CloseGroup/MoveFocus 추가, isInEditable 가드 유지. App.tsx의 keydown 라우터에서 Cmd+\\, Cmd+Shift+\\, Cmd+Shift+W, Cmd+Alt+Arrow를 라우팅(getActiveWorkspaceId 보유). main 영속화: ipc-contract appState.get/set 스키마는 T1으로 자동 확장. App.tsx boot effect에 layoutByWorkspace hydrate 추가, layoutStore 변경 시 250ms debounce로 ipcCall(\"appState\",\"set\",{layoutByWorkspace}). 직렬화 도우미는 store/layout/helpers.ts에 toSnapshot(wsId)/fromSnapshot(wsId, snap). T2의 호출지점 깨짐 일괄 해결.",
+          "risk": "키바인딩 정확성(modifier 조합), persistence debounce 타이밍, hydrate-에서 발생하는 silent repair가 사용자 데이터 손실로 비춰질 수 있음 → 손상된 항목만 제거하고 나머지는 유지.",
+          "deps": [
+            2,
+            3,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a06c1816242338fb4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:31:12.753Z"
+        },
+        {
+          "id": 8,
+          "title": "통합/회귀 테스트 + 수동 UI 검증 체크리스트 작성",
+          "status": "completed",
+          "context": "엔지니어가 짠 단위 테스트만으로는 portal pool의 위치 추적/PTY 생존/persistence 라운드트립 같은 끝-끝 동작을 검증하기 어렵다. 통합 테스트가 가능한 부분(layout snapshot 라운드트립, operations openTab/closeTab의 store 사이드이펙트)을 작성하고, DOM/시각 동작은 수동 체크리스트로 사용자에게 명세를 전달한다.",
+          "acceptance": "- 통합 테스트 2개 파일 모두 통과(시나리오 8개 이상 합산).\n- 회귀 테스트(ui-store, files-panel, fs-channel, file-tree-keys 등) 모두 통과.\n- bunx tsc -b, bun run build 모두 통과.\n- 사용자 manual 체크리스트(7항목) 본문 보고 — 파일은 생성하지 않는다.",
+          "approach": "tests/integration/layout-persistence.test.ts: layoutStore.ensureLayout → split/move/close → toSnapshot → fromSnapshot 비교, dangling tabId 주입 시 silent repair, 빈 leaf만 있는 snapshot의 placeholder 동작. tests/integration/operations.test.ts: openTab/closeTab가 두 store 모두 일관되게 갱신, closeTab 후 leaf collapse-and-hoist. 수동 체크리스트는 docs 대신 사용자 보고용 메시지로 정리(파일 생성 금지). 항목: (1) Cmd+\\으로 우측 split이 생성되고 sash drag/double-click reset이 동작, (2) 우클릭 메뉴 5개 항목 동작, (3) 터미널 탭이 split된 group으로 이동 시 PTY가 살아있음(echo 명령으로 확인), (4) 활성 그룹 TabBar에 bg-frosted-veil이 들어가는지, (5) Cmd+Shift+W로 그룹이 닫히고 sibling이 hoist되는지, (6) 종료/재시작 후 layout/tab 복원, (7) min-width 180px 클램프 동작. typecheck/lint/build 통과 보고.",
+          "risk": "portal pool DOM 측정/visibility 같은 시각 동작은 자동화 어려움 → 사용자 manual 체크리스트로 명시하고 가능한 한 단위/통합 테스트에서 분리 가능한 부분을 다루는 것에 집중.",
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a7a61f826da1015d7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T11:31:26.335Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T13:04:22.444Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 10,
+        "topic": "split-view를 VSCode 표준 시멘틱으로 재정렬 + 컨텍스트 메뉴 fix + 폴더/컴포넌트 분할",
+        "issues": [
+          {
+            "id": 1,
+            "title": "시멘틱 변경: Cmd+\\\\ 동작(반 leaf → active tab 복제) 및 우클릭 Split Right/Down(이동 → 복제)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Cmd+\\\\은 source leaf의 active tab을 복제(새 Tab record + 새 leaf)로 변경. active tab이 없으면 no-op. 우클릭 Split Right/Down도 동일 시멘틱(복제)로 통일. terminal 복제는 새 Tab record가 ContentPool에 새 ContentHost를 mount → 자연스럽게 새 PTY spawn. editor 복제는 같은 filePath의 새 Tab record. splitGroup은 low-level primitive로 유지하되, 새 operations 레이어 함수에서 호출.",
+                "recorded_at": "2026-05-03T12:27:40.419Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "Cmd+\\\\과 우클릭 Split Right/Down 모두 시멘틱을 \"active tab 복제\"로 통일. source leaf의 active tab(Cmd+\\\\) 또는 우클릭 대상 tab(메뉴)을 input으로 받아 새 Tab record(새 UUID, 같은 type/title/props)를 만들고 새 leaf에 attach. terminal은 새 PTY가 ContentPool 마운트 시 자연스럽게 spawn(같은 cwd). active tab이 없거나 source가 비어있으면 no-op(VSCode 동일). 기각: (a) 빈 leaf 생성 — VSCode 정신과 어긋나며 사용자 의도 흐름을 별도 학습 필요, (b) source tab 이동(현 우리 구현) — 같은 콘텐츠를 두 곳에서 보는 vscode 표준 use case 미충족."
+          },
+          {
+            "id": 2,
+            "title": "operations layer 확장: splitAndDuplicate / openTabInNewSplit / closeGroup / seedDefaultTerminalIfEmpty 추가, splitAndMoveTab 삭제",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "operations.ts에 추가: splitAndDuplicate(wsId, sourceLeafId, sourceTabId, orientation, side) → {newLeafId, newTabId} (active tab 없으면 null), openTabInNewSplit(wsId, type, props, orientation, side) → {newLeafId, tabId}, closeGroup(wsId, leafId) (layoutStore.closeGroup + tabsStore에서 leaf의 모든 tabIds removeTab), seedDefaultTerminalIfEmpty(wsId, rootPath) (idempotent — 워크스페이스에 어떤 탭도 없을 때만 시드). splitAndMoveTab은 호출자 모두 splitAndDuplicate로 이동 후 삭제. layoutStore.splitGroup 시그니처는 변경 없음.",
+                "recorded_at": "2026-05-03T12:27:45.811Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "operations.ts에 4종 추가, 1종 삭제. 추가: (a) splitAndDuplicate(workspaceId, sourceLeafId, sourceTabId, orientation, side): {newLeafId, newTabId} | null — sourceTabId 기반 새 Tab record 생성+새 leaf attach, source 미존재/null이면 null 반환. (b) openTabInNewSplit(workspaceId, type, props, orientation, side): {newLeafId, tabId} — 현재 active leaf 우/하단에 새 leaf 생성+그 안에 새 탭. (c) closeGroup(workspaceId, leafId) — layoutStore.closeGroup 호출 + leaf의 모든 tabIds에 해당하는 Tab record를 tabsStore에서 제거(tab record stale leak 방지). (d) seedDefaultTerminalIfEmpty(workspaceId, rootPath) — idempotent, tabsStore.byWorkspace[wsId]가 비었을 때만 openTab 호출. 삭제: splitAndMoveTab (호출자 모두 splitAndDuplicate로 마이그레이션). layoutStore.splitGroup 시그니처 변경 없음(low-level primitive 유지). 기각: splitGroup에 옵션 분기 — 단일 책임 위반, low/high 레이어 혼합으로 테스트 면적 커짐."
+          },
+          {
+            "id": 3,
+            "title": "파일트리 Cmd+Enter (Open to the Side) 추가 + 포커스 소스 컨텍스트",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "파일트리 Cmd+Enter는 explorer.openToSide 시멘틱: 현재 active group의 우측에 새 leaf 생성 + 그 leaf에 새 editor tab 추가(파일트리에서 선택한 파일). 포커스 컨텍스트 결정: data-files-panel-focus DOM attribute로 활성 surface 추적은 fragile하므로 useUIStore에 focusedSurface: \"files\"|\"terminal\"|\"editor\"|null 필드 도입(focusin/focusout 이벤트로 갱신). keybindings/global.ts에 Cmd+Enter 매칭 + focusedSurface === \"files\"일 때만 발화 가드. 단, FileTree에 keydown 핸들러로 직접 잡는 것이 단순(focus 추적 없이 row가 focus된 상태에서만 동작). 권장: 후자 — FileTree.tsx에 키 핸들러 신설.",
+                "recorded_at": "2026-05-03T12:27:52.888Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "파일트리 컨텍스트에서만 동작하는 Cmd+Enter 추가. FileTree.tsx의 row(또는 tree root)에 onKeyDown 핸들러를 직접 부착하여 row가 focus된 상태에서만 발화 — useUIStore.focusedSurface 같은 글로벌 상태 도입 회피(focus 추적은 fragile). 동작: 현재 hovered/focused row의 absPath가 디렉토리면 no-op(또는 expand), 파일이면 operations.openTabInNewSplit(workspaceId, \"editor\", {filePath, workspaceId}, \"horizontal\", \"after\"). 단축키 hint는 placeholder(\"⌘↵ Open file in split\")에서 학습 표면 제공. 기각: keybindings/global.ts에 등록 — 컨텍스트 가드를 위해 어차피 focus 정보가 필요하므로 컴포넌트 로컬 핸들러가 더 단순."
+          },
+          {
+            "id": 4,
+            "title": "closeGroup 시멘틱 + 빈 group placeholder 정책 (sole-leaf empty 보존)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "옵션 A 권장 — 빈 group placeholder는 학습 표면으로 보존. nexus-code는 터미널 중심이지만 *자동 시드는 사용자가 의도하지 않은 PTY를 띄워* 자원/혼란 유발. placeholder는 신규 사용자에게 단축키(Cmd+E, Cmd+Enter)를 학습시킬 유일한 표면. 표시 조건: sole leaf의 tabIds.length === 0(현 정책 유지). 카피: \"No tab open\" + \"⌘E New Terminal\" + \"⌘↵ Open file in split\"(작은 hint). closeGroup가 sole leaf를 비울 때 tabsStore의 그 leaf 탭 record들도 removeTab (현재는 stale로 남음 → 메모리/persist 정합성 문제).",
+                "recorded_at": "2026-05-03T12:28:00.252Z",
+                "agent_id": "a311254eee608a864"
+              }
+            ],
+            "decision": "옵션 A 채택 — 빈 group placeholder 보존. 표시 조건: 트리에 leaf 1개만 있고 그 leaf의 tabIds.length === 0 (sole-leaf empty). 카피: \"No tab open\" (text-stone-gray, text-app-ui-sm) + 두 hint 줄(text-muted-foreground, text-app-ui-xs): \"⌘E New Terminal\" / \"⌘↵ Open file in split\". 위치: 슬롯 영역 중앙 약간 위쪽(약 35~40% from top) — 비대칭 배치로 정중앙 회피. closeGroup이 sole leaf empty 상태로 만들 때 layoutStore.closeGroup의 sole-leaf 분기는 이미 leaf.tabIds=[]로 비움. 다만 issue 2의 operations.closeGroup이 tabsStore에서도 그 탭들을 제거하도록 보장 — placeholder는 정확히 \"워크스페이스에 어떤 탭도 없는 상태\"와 일치. 기각: (a) auto-seed terminal — 사용자 의도 없는 PTY가 spawn되어 자원 사용 + 학습 표면 손실. (b) welcome page — 추가 컴포넌트 비용 대비 가치 낮음."
+          },
+          {
+            "id": 5,
+            "title": "키매칭 fix: Cmd+\\\\ 을 e.code Backslash||Slash 둘 다 인정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "사용자 환경에서 Cmd+\\\\ 입력 시 e.code \"Slash\"로 관측됨(한국어 키보드 / 또는 OS 매핑 차이). 코드의 e.key === \"\\\\\" 매칭 실패. fix: e.code === \"Backslash\" || e.code === \"Slash\" 둘 다 매칭. Cmd+Shift+\\\\은 e.shiftKey + (Backslash || Slash). 의미상 사용자가 누른 키와 무관하게 \"수직선 키\"가 split 트리거가 되도록 통일. 다른 단축키(Cmd+Shift+W, Cmd+Alt+Arrow)는 e.code 기반 매칭 추가 안 함(현재 정상 입력됨).",
+                "recorded_at": "2026-05-03T12:28:05.282Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "keybindings/global.ts의 split 매칭을 e.code 기반으로 강화. 변경: e.key === \"\\\\\" 검사 → e.code === \"Backslash\" || e.code === \"Slash\". 한국어 키보드(또는 OS 매핑 차이)에서 Cmd+\\\\ 입력 시 e.code \"Slash\"로 들어오는 케이스를 흡수하면서, 명시적으로 Backslash 키를 누른 사용자도 동일 동작. Cmd+Shift+\\\\ 매칭도 동일 패턴. 다른 단축키(Cmd+Shift+W, Cmd+Alt+Arrow)는 사용자 환경에서 정상 입력됨이 확인되어 변경 없음. 기각: e.key fallback 추가만으로 처리 — e.key는 keyboard layout/locale 의존이라 신뢰성 낮음, e.code가 물리키 식별로 더 견고."
+          },
+          {
+            "id": 6,
+            "title": "우클릭 tabId 캐펼 fix: TabBar에 onTabContextMenu prop 추가, DOM walk 제거",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "현 GroupView의 handleContextMenuCapture는 DOM walk-up으로 button.value 또는 button.data-value를 찾는데 RadixTabs.Trigger가 raw HTML attribute로 value를 박지 않을 수 있어 contextTabIdRef가 \"\"로 떨어지고 모든 메뉴 핸들러가 가드에서 early return → 메뉴 항목 무반응. fix: TabBar에 onTabContextMenu(tabId, event)? prop 추가, RadixTabs.Trigger의 onContextMenu에서 tabId를 React 이벤트로 GroupView에 전달. GroupView는 ref/state로 보관 후 메뉴 항목 클릭 시 사용. DOM walk 제거.",
+                "recorded_at": "2026-05-03T12:28:11.107Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "TabBar에 onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void prop 추가. RadixTabs.Trigger 또는 그 형제 close button과 같은 위치(div wrapper)에 onContextMenu handler 부착해 onTabContextMenu(tab.id, e) 호출. GroupContextMenu(분할 후 신설)는 onTabContextMenu에서 받은 tabId를 useState로 보관하고 메뉴 항목 클릭 시 사용. 기존 contextTabIdRef + DOM walk-up 코드 완전 제거. data-tab-id attribute로 보강할 필요 없음(React 이벤트로 직접 전달). 기각: data-tab-id attribute + DOM walk — 우회 로직이지 정공법 아님."
+          },
+          {
+            "id": 7,
+            "title": "컨텍스트 메뉴 토큰화: bg-popover/text-popover-foreground + data-[highlighted]/data-[disabled] state + shortcut hint",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "현재 bg-muted는 잘못된 의도 매핑(--popover가 따로 정의됨에도 미사용). shadcn 표준은 ContextMenu/Popover/DropdownMenu 모두 bg-popover text-popover-foreground. 또 Item이 hover만 정의 — 키보드 nav(data-[highlighted])/disabled 누락 → WCAG 2.1.1 위반. 권장 className: Content=\"bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50\", Item=\"flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none\". shortcut hint span: text-muted-foreground ml-4. --popover-foreground 토큰 정의 확인 필요(없으면 design-tokens.ts에 추가).",
+                "recorded_at": "2026-05-03T12:28:17.788Z",
+                "agent_id": "a311254eee608a864"
+              }
+            ],
+            "decision": "컨텍스트 메뉴 className 교체 + state 보강. Content: \"bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50\". Item: \"flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none\". Item 우측에 단축키 hint span(text-muted-foreground ml-4 font-mono)으로 \"⌘\\\\\" / \"⌘⇧\\\\\" 표시. Separator: h-px bg-mist-border my-1. 효과: bg-popover로 솔리드 배경 보장(투명 문제 해결), 키보드 nav data-highlighted로 a11y 충족, shortcut hint로 discoverability+expert 효율. 기각: !bg-popover로 강제 priority — Tailwind v4에서 클래스 순서로 충분."
+          },
+          {
+            "id": 8,
+            "title": "컴포넌트 분할 + 폴더 구조: workspace/{layout, group, content} 재구조",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "workspace/ 폴더를 layout/group/content 3 서브폴더로 재구조화. layout/{LayoutTree.tsx(entry), SplitPane.tsx(split 노드+sash), LeafPane.tsx(leaf 노드 → GroupView), useSplitSash.ts(px↔ratio + ResizeHandle 바인딩)}. group/{GroupView.tsx(얇은 wrapper, active 클래스, slot div), GroupContextMenu.tsx(Radix 메뉴 + 메뉴 아이템), GroupPlaceholder.tsx(빈 placeholder), useGroupActions.ts(close/closeOthers/closeRight/splitDuplicate/newTerminal 액션 묶음 hook)}. content/{ContentPool.tsx(entry), ContentHost.tsx(개별 host), useSlotRect.ts(querySelector+ResizeObserver), selectors.ts(기존 contentPool-helpers.ts → 명확한 이름)}. workspace/index.ts barrel export. Pane=물리적 분할, Group=논리적 탭 묶음으로 명명 의미 분리.",
+                "recorded_at": "2026-05-03T12:28:24.613Z",
+                "agent_id": "abc14d85ac74442ca"
+              }
+            ],
+            "decision": "workspace/ 폴더를 layout/group/content 3 서브폴더로 재구조화. 정확한 매핑:\n- workspace/index.ts — barrel export (LayoutTree, ContentPool, GroupView)\n- workspace/layout/{LayoutTree.tsx (entry, 트리 순회), SplitPane.tsx (split 노드 + sash 배치), LeafPane.tsx (leaf → GroupView), useSplitSash.ts (px↔ratio 변환 + ResizeHandle 바인딩)}\n- workspace/group/{GroupView.tsx (얇은 wrapper: active 클래스, click 활성화, slot div + GroupContextMenu 렌더), GroupContextMenu.tsx (Radix Root+Trigger+Portal+Content+Items 전체), GroupPlaceholder.tsx (sole-leaf-empty placeholder), useGroupActions.ts (close/closeOthers/closeRight/splitDuplicate/newTerminal 액션 hook — workspaceId+leafId 인자)}\n- workspace/content/{ContentPool.tsx (entry), ContentHost.tsx (개별 호스트 + visibility), useSlotRect.ts (querySelector + ResizeObserver), selectors.ts (기존 contentPool-helpers.ts 이전+이름 정리)}\n명명 일관성: Pane=물리적 분할 영역(layout 측), Group=논리적 탭 묶음(group 측). LeafPane이 GroupView를 1개 보유하는 구조. 기각: 평면 구조 유지 — 9개 파일이 한 폴더에 평면이면 의미 그룹화가 약하고 import path가 길어짐."
+          },
+          {
+            "id": 9,
+            "title": "토큰 하드코딩 audit 및 --popover-foreground 정의 점검",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "5룰: (1) 색상은 bg-/text-/border-{token} 또는 design-tokens.ts named export만, inline hex/rgba 금지(theme.generated.css와 design-tokens.ts 자체 정의 제외). (2) Radius는 rounded-[4|6|8|12px]만, 그 외는 design-tokens.ts에 등록 후. (3) Spacing은 4pt scale(p-1, gap-2 등). 임의 px 금지. (4) Font-size는 text-app-ui-{xs|sm|body}만, text-[Npx] 임의값 금지. (5) Shadow는 shadow-sm/shadow-md만, opacity는 frosted-veil-* 토큰 또는 opacity-{50|70} 정도. 새 코드는 모두 룰 통과해야 하며, 리팩터 시 기존 하드코딩(있다면) 함께 정리. --popover-foreground 정의가 없으면 design-tokens.ts에 추가(warmParchment 매핑).",
+                "recorded_at": "2026-05-03T12:28:31.516Z",
+                "agent_id": "a311254eee608a864"
+              }
+            ],
+            "decision": "5룰 + --popover-foreground 토큰 점검. 룰: (1) 색상은 bg-/text-/border-{token} 또는 design-tokens.ts named export만, inline hex/rgba 금지(theme.generated.css와 design-tokens.ts 자체 정의 제외). (2) Radius는 rounded-[4|6|8|12px]만, 그 외는 design-tokens.ts에 등록 후. (3) Spacing은 4pt scale(p-1, gap-2 등). 임의 px 금지. (4) Font-size는 text-app-ui-{xs|sm|body}만. (5) Shadow는 shadow-sm/shadow-md만, opacity는 frosted-veil-* 토큰 또는 opacity-{50|70}. --popover-foreground는 buildSemanticTokens()에 정의되어 있어야 ContextMenu가 정확한 텍스트 색상을 받음 — 점검 후 누락 시 design-tokens.ts에 warmParchment를 매핑(--popover와 동일 분기). 새 코드는 모두 룰 통과, 리팩터 시 기존 코드(현 GroupView/LayoutTree/ContentPool)도 audit. 기각: ESLint/biome 룰로 강제 — 이번 사이클에 자동 enforcement까지는 과잉, 코드 리뷰 가이드로 충분."
+          }
+        ],
+        "research_summary": "VSCode 검증(이전 Explore 결과): Cmd+\\\\ = active editor 복제(빈 group에서는 no-op), 빈 group 자체 없음, 파일트리 Cmd+Enter = explorer.openToSide(새 split + 파일 동시 열기), 우클릭 Split Right/Down = 복제(이동 아님). 우리 현재 구현은 Cmd+\\\\이 빈 leaf 생성, 우클릭은 이동, Cmd+Enter 없음 — 모두 어긋남. Architect 권장: splitGroup은 low-level primitive 유지 + operations.splitAndDuplicate/openTabInNewSplit/seedDefaultTerminalIfEmpty 추가, splitAndMoveTab 삭제, 폴더 workspace/{layout,group,content}로 분할(GroupView 260줄 → GroupContextMenu/Placeholder/useGroupActions 분리, LayoutTree → SplitPane/LeafPane/useSplitSash, ContentPool → ContentHost/useSlotRect/selectors). Designer 권장: 빈 placeholder는 학습 표면이라 유지(opt A), 메뉴 토큰을 bg-popover/text-popover-foreground로 교체(현재 bg-muted 잘못 매핑), Item에 data-[highlighted]/data-[disabled] state 추가(키보드 a11y), shortcut hint 우측 정렬. 추가 검증: --popover-foreground 토큰 정의 확인 필요. 키 fix: e.code Backslash||Slash 둘 다 매칭(한국어 키보드), TabBar onTabContextMenu prop 추가로 DOM walk-up 제거.",
+        "created_at": "2026-05-03T12:27:32.953Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "토큰 점검 + --popover-foreground 정의 보강",
+          "status": "completed",
+          "context": "컨텍스트 메뉴 className을 bg-popover/text-popover-foreground로 옮기는 사전 작업. design-tokens.ts의 buildSemanticTokens()에 --popover와 --popover-foreground가 정의되어 있는지 점검하고, 누락 시 추가한다. theme.generated.css가 자동 생성이라면 토큰 source 파일에서 추가 후 재생성.",
+          "acceptance": "- buildSemanticTokens()에 --popover와 --popover-foreground가 모두 정의되어 있다.\n- theme.generated.css에 --popover-foreground가 컴파일되어 들어간다(자동 생성 스크립트 또는 직접 편집).\n- 새 토큰이 Tailwind v4 클래스 bg-popover/text-popover-foreground로 즉시 사용 가능하다(임시 컴포넌트로 검증 또는 Tailwind config 확인).\n- bunx tsc --noEmit, bun test tests/unit 통과(회귀 없음).",
+          "approach": "src/shared/design-tokens.ts의 buildSemanticTokens() Read해 --popover/--popover-foreground 매핑 확인. 현 상태에서 --popover는 mutedSurfaceHex로 정의됨이 확인됨. --popover-foreground 누락 시 warmParchment로 매핑 추가(--card-foreground와 동일 분기). theme.generated.css도 동일 분기 추가(또는 자동 생성 스크립트 실행). audit 룰 5종(색상/radius/spacing/font-size/shadow)은 이번 task에서 코드 변경 없이 후속 task의 가이드로만 적용 — 룰 자체를 어딘가에 문서로 남기지 않음(plan 결정에 기록됨).",
+          "risk": "theme.generated.css가 자동 생성 스크립트로 만들어진다면 그 스크립트도 함께 갱신 필요. 손으로 편집한 결과가 다음 빌드에서 덮어씌워지지 않도록 source-of-truth를 design-tokens.ts에 둘 것.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aaa75af5281bbfc1c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:30:28.648Z"
+        },
+        {
+          "id": 2,
+          "title": "workspace/ 폴더 재구조 (layout/group/content 분할, behavior preservation)",
+          "status": "completed",
+          "context": "현 workspace/ 평면 구조(LayoutTree.tsx 195줄, GroupView.tsx 260줄, ContentPool.tsx 178줄)를 layout/group/content 3 서브폴더로 재구조화. 시멘틱 변경 없이 *순수 이동/추출*만 수행해 회귀 없음을 보장(architect 권장 2-PR 중 1단계).",
+          "acceptance": "- 폴더 구조가 spec과 일치(파일 9개 + barrel index.ts).\n- 모든 외부 import path가 새 위치를 가리킨다.\n- bunx tsc --noEmit 0 errors.\n- 기존 단위/통합 테스트(작년 사이클 463개) 전부 pass — 회귀 0.\n- bun run build 통과.\n- behavior(우클릭 메뉴 동작, sash drag, ContentPool reposition)은 기능 측 시멘틱 변경 task(T6, T7) 전에는 *동일하게* 작동.",
+          "approach": "새 폴더 구조:\n- workspace/index.ts — barrel: LayoutTree, ContentPool, GroupView 재export\n- workspace/layout/{LayoutTree.tsx(entry), SplitPane.tsx(split 노드+sash), LeafPane.tsx(leaf→GroupView), useSplitSash.ts(px↔ratio 훅)}\n- workspace/group/{GroupView.tsx(thin wrapper), GroupContextMenu.tsx(Radix 메뉴 전체), GroupPlaceholder.tsx(empty placeholder, T7에서 카피 보강 — 이 task에서는 현 placeholder 그대로 이동), useGroupActions.ts(close/closeOthers/closeRight/splitDup/newTerminal hook)}\n- workspace/content/{ContentPool.tsx, ContentHost.tsx, useSlotRect.ts, selectors.ts(former contentPool-helpers.ts)}\n재구조 시 모든 import path 갱신(특히 src/renderer/components/WorkspacePanel.tsx, App.tsx, 통합 테스트). git mv 사용해 history 보존. tests/unit/content-pool-selector.test.ts의 import path도 갱신. behavior 동일성 검증: bun test 전체 통과.",
+          "risk": "파일 분할 시 GroupView의 7개 핸들러를 useGroupActions로 이동하면서 closure/state 캡처 누락 가능. 검증: 분할 직후 dev server에서 우클릭 메뉴 클릭으로 1회 시각 확인(테스트 외).",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "af8e038ff8aa3f339",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:30:43.269Z"
+        },
+        {
+          "id": 3,
+          "title": "TabBar onTabContextMenu prop 추가 + DOM walk 제거",
+          "status": "completed",
+          "context": "현 GroupView의 handleContextMenuCapture는 DOM에서 button.value/data-value를 walk-up으로 찾는다. 사용자 환경에서 이 캡처가 빈 문자열을 반환해 모든 메뉴 핸들러가 일찍 return → 메뉴 항목 무반응 버그의 직접 원인. React 이벤트로 tabId를 직접 전달하는 정공법으로 변경.",
+          "acceptance": "- TabBar에 onTabContextMenu prop 추가, 시그니처는 (tabId, event)=>void.\n- 각 탭의 wrapper div에 onContextMenu가 부착되어 우클릭 시 prop 호출.\n- GroupContextMenu(또는 그 위치)에서 우클릭으로 contextTabId가 정확히 캡처되고, 메뉴 항목 클릭 시 그 tabId로 동작 — 기존 DOM walk fallback 빈 문자열 분기 제거.\n- bunx tsc --noEmit 0 errors.\n- 단위 테스트: TabBar의 우클릭 wrapper가 onTabContextMenu를 정확한 tabId로 호출하는지 mocked 핸들러로 검증.\n- 회귀: 기존 unit/integration 통과.",
+          "approach": "src/renderer/components/TabBar.tsx에 onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void prop 추가. 각 탭의 trigger wrapper(현 line 42 `<div key={tab.id} className=\"relative ...\">`)에 onContextMenu 핸들러 부착해 onTabContextMenu(tab.id, e) 호출. workspace/group/GroupContextMenu.tsx(T2 분할 후 신설) 내부에 useState<string|null> contextTabId 두고 onTabContextMenu에서 set. 메뉴 항목 핸들러는 contextTabId state 사용. 기존 contextTabIdRef + walk-up + handleContextMenuCapture 함수 완전 삭제. TabBar 사용처(현재 GroupView뿐) 호출 시그니처 갱신.",
+          "risk": "RadixContextMenu.Trigger asChild에서 자식 div의 onContextMenu가 Radix의 메뉴 띄우기 default와 chain 호출되어야 함 — 우리가 e.preventDefault를 부르면 Radix forward가 깨질 수 있음. preventDefault 호출 금지.",
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a56d4b82d5ba69042",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:30:57.205Z"
+        },
+        {
+          "id": 4,
+          "title": "operations 4종 추가 + splitAndMoveTab 삭제 + 단위 테스트",
+          "status": "completed",
+          "context": "VSCode 시멘틱(splitEditor=복제, openToSide, closeGroup with tabs 정리, auto-seed)을 위해 operations 레이어를 확장. 호출자 마이그레이션은 T6/T7에서 별도 진행.",
+          "acceptance": "- operations.ts에 4종 추가 export.\n- splitAndMoveTab 삭제(미사용 확인).\n- 단위 테스트 6+ 시나리오 모두 pass.\n- bunx tsc --noEmit는 본 task 종료 시 splitAndMoveTab 호출지점(GroupContextMenu)이 깨질 것 — 깨짐 목록 보고에 명시(T6/T7에서 정리).\n- 회귀: 다른 영역 unit/integration 통과.",
+          "approach": "src/renderer/store/operations.ts에 추가:\n- splitAndDuplicate(workspaceId, sourceLeafId, sourceTabId, orientation, side): {newLeafId, newTabId} | null\n  - sourceTab = tabsStore.byWorkspace[wsId][sourceTabId] 검색, 없으면 null 반환\n  - layoutStore.splitGroup(wsId, sourceLeafId, orientation, side) → newLeafId\n  - tabsStore.createTab(wsId, sourceTab.type, sourceTab.props) → newTab\n  - layoutStore.attachTab(wsId, newLeafId, newTab.id)\n  - layoutStore.setActiveTabInGroup({wsId, groupId: newLeafId, tabId: newTab.id, activateGroup: true})\n  - return {newLeafId, newTabId: newTab.id}\n- openTabInNewSplit(workspaceId, type, props, orientation, side): {newLeafId, tabId}\n  - layoutStore에 layout 없으면 ensureLayout\n  - activeGroupId 가져와 splitGroup 호출 → newLeafId\n  - createTab + attachTab + setActiveTabInGroup\n- closeGroup(workspaceId, leafId): void\n  - layout = layoutStore.byWorkspace[wsId]; if (!layout) return;\n  - leaf = findLeaf(layout.root, leafId); if (!leaf) return;\n  - tabIds 복사: const ids = [...leaf.tabIds]\n  - layoutStore.closeGroup(wsId, leafId)  // hoist 또는 sole-leaf 분기는 store가 처리\n  - for (const id of ids) tabsStore.removeTab(wsId, id)\n- seedDefaultTerminalIfEmpty(workspaceId, rootPath): void\n  - tabs = tabsStore.byWorkspace[wsId]; if (tabs && Object.keys(tabs).length > 0) return;\n  - openTab(wsId, \"terminal\", { cwd: rootPath })\n삭제: splitAndMoveTab (이번 task에서 호출자 없음 확인 후 즉시 제거 — 또는 T6/T7 직후로 미룬다면 본 task에서는 둠. 권장: 본 task에서 함수만 삭제하고 import 깨짐을 다음 task가 해결).\n단위 테스트 tests/unit/operations.test.ts 보강(또는 기존 tests/integration/operations.test.ts 보강): splitAndDuplicate happy path, sourceTabId 미존재 → null, terminal 복제 시 새 tab.id+같은 cwd, openTabInNewSplit happy path, closeGroup이 leaf+그 leaf의 모든 tab record를 제거, seedDefaultTerminalIfEmpty idempotent.",
+          "risk": "splitAndDuplicate의 source tab 복제에서 props가 deep object일 때 reference 공유 위험 → 안전을 위해 structuredClone(sourceTab.props) 또는 명시적 spread 사용. terminal 복제 시 새 PTY가 같은 cwd로 spawn되는지 ContentPool 측 의존성 확인(테스트는 PTY 자체를 띄우지 않으므로 mock 또는 spawn 호출 검증).",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a215ac81c3c476140",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:31:32.549Z"
+        },
+        {
+          "id": 5,
+          "title": "컨텍스트 메뉴 토큰화 + shortcut hint + a11y state",
+          "status": "completed",
+          "context": "현 메뉴는 bg-muted를 쓰지만 portal 환경에서 투명 보임. shadcn 표준 popover 토큰으로 교체하고, 키보드 nav data-[highlighted] 추가, 우측 단축키 hint 표시.",
+          "acceptance": "- ContextMenu Content가 솔리드 dark 배경(--popover)으로 표시.\n- 메뉴 항목이 readable contrast로 표시(--popover-foreground).\n- 키보드 ↑/↓ 네비게이션 시 highlighted 항목이 frosted-veil-strong 배경.\n- Split Right/Down 항목 우측에 단축키 hint(⌘\\, ⌘⇧\\)가 muted-foreground + font-mono로 정렬.\n- separator가 mist-border로 1px 라인.\n- 회귀 테스트 통과.\n- 시각 확인은 manual 체크리스트(T8) 항목.",
+          "approach": "workspace/group/GroupContextMenu.tsx의 className 교체:\n- Content: \"bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50\"\n- Item: \"flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none\"\n- Separator: \"h-px bg-mist-border my-1\"\n각 Item에 shortcut hint span: <span className=\"text-muted-foreground ml-4 font-mono\">⌘\\</span> 등. 매핑: Close=hint 없음(우클릭 메뉴 단독 액션), Close Others/Close All to Right=없음, Split Right=⌘\\, Split Down=⌘⇧\\. label과 hint는 flex justify-between로 양 끝 배치. 기존 hover:bg-frosted-veil-strong는 data-highlighted로 대체됨.",
+          "risk": "Tailwind v4의 Radix data-[*] selector 컴파일 누락. 검증: 컴파일된 CSS에서 data-[highlighted] 선택자 존재 확인 또는 dev server에서 키보드 nav 1회 시각 확인.",
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aada7afa7ef4f459c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:32:58.346Z"
+        },
+        {
+          "id": 6,
+          "title": "시멘틱 적용: Cmd+\\ 복제 + 우클릭 Split 복제 + Cmd+Enter Open to Side + e.code 키매칭",
+          "status": "completed",
+          "context": "operations 함수가 준비되면 호출자(App.tsx, GroupContextMenu, FileTree.tsx, keybindings/global.ts)를 모두 새 시멘틱으로 마이그레이션. T4의 splitAndMoveTab 삭제로 인한 호출지점 깨짐도 본 task에서 해결.",
+          "acceptance": "- Cmd+\\ (Backslash 또는 Slash 키) 입력 시 active tab이 있으면 새 leaf에 그 tab을 복제, 없으면 no-op.\n- Cmd+Shift+\\ 입력 시 동일하지만 vertical split.\n- 우클릭 → Split Right/Down 클릭 시 그 탭이 새 leaf에 복제(이동 아님).\n- 파일트리 row focus 상태에서 Cmd+Enter 입력 시 active group 우측에 새 leaf + 그 파일을 editor 탭으로 열음.\n- splitAndMoveTab import 깨짐이 모두 해결됨.\n- bunx tsc --noEmit 0 errors.\n- bun test 전체 통과.",
+          "approach": "src/renderer/keybindings/global.ts:\n- e.code === \"Backslash\" || e.code === \"Slash\" 매칭으로 변경(Cmd+\\\\, Cmd+Shift+\\\\ 둘 다).\n- splitActiveGroup deps의 시그니처 갱신 또는 주입 함수 측에서 source 결정.\nsrc/renderer/App.tsx:\n- splitActiveGroup 핸들러: layout=layoutStore.byWorkspace[wsId]; activeLeaf=findLeaf(layout.root, layout.activeGroupId); if (!activeLeaf||!activeLeaf.activeTabId) return; operations.splitAndDuplicate(wsId, activeLeaf.id, activeLeaf.activeTabId, orientation, \"after\"). closeActiveGroup도 operations.closeGroup으로 변경.\nsrc/renderer/components/workspace/group/GroupContextMenu.tsx:\n- handleContextSplitRight/Down을 splitAndDuplicate로 변경. contextTabId가 source.\n- import splitAndMoveTab 제거.\nsrc/renderer/components/files/FileTree.tsx:\n- row 또는 tree root에 onKeyDown 부착. e.metaKey + e.key === \"Enter\" + 현재 focused row가 파일이면 operations.openTabInNewSplit(wsId, \"editor\", {filePath, workspaceId: wsId}, \"horizontal\", \"after\"). 디렉토리면 no-op.\n- isInEditable 가드 적용.\ntypecheck 0, 기존 테스트 회귀 없음.",
+          "risk": "e.code 변경이 다른 키 처리(Cmd+E, Cmd+R)에 영향 없는지 확인. FileTree row focus 상태 추적은 tabIndex 부여 + 자체 keydown 핸들러로 처리.",
+          "deps": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afc42b23a0ecfca76",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:33:22.329Z"
+        },
+        {
+          "id": 7,
+          "title": "GroupPlaceholder 신설 + closeGroup 시 tab record 정리 (sole-leaf empty 보존)",
+          "status": "completed",
+          "context": "옵션 A 정책: sole-leaf empty placeholder 보존. T2에서 빈 GroupPlaceholder.tsx 파일을 만들었다면 카피/레이아웃을 채우고, GroupView가 이를 렌더하도록 wiring. T4의 operations.closeGroup이 tabsStore에서도 탭들을 제거하므로 sole-leaf empty + tabsStore empty 상태가 정확히 정합.",
+          "acceptance": "- 단일 leaf + tabIds 0개일 때 GroupPlaceholder가 슬롯에 렌더된다.\n- 카피와 레이아웃이 spec과 일치.\n- 비단독 leaf empty는 collapse-and-hoist로 placeholder 안 보임.\n- closeGroup 후 tabsStore의 그 탭들이 제거되고 placeholder가 떠야(통합 테스트로 검증).\n- 시각 확인은 T8 manual 체크리스트.\n- 회귀 통과.",
+          "approach": "workspace/group/GroupPlaceholder.tsx:\n- props: 없음.\n- render: <div className=\"absolute inset-0 flex flex-col items-center pt-12 gap-1 pointer-events-none select-none\">\n  <span className=\"text-app-ui-sm text-stone-gray\">No tab open</span>\n  <span className=\"text-app-ui-xs text-muted-foreground\">⌘E New Terminal</span>\n  <span className=\"text-app-ui-xs text-muted-foreground\">⌘↵ Open file in split</span>\n  </div>\n- 위치는 슬롯 영역 내 absolute inset-0이며 pt-12로 약간 위쪽 배치(4pt scale 준수, 정중앙 회피).\nGroupView.tsx:\n- isRootLeaf 또는 layoutStore에서 root.id===leaf.id 체크 후, leaf.tabIds.length===0 && isRootLeaf일 때 <GroupPlaceholder/>를 슬롯 div 내부에 렌더.\noperations.closeGroup은 T4에서 이미 tab record cleanup. 본 task는 GroupView가 그 결과 placeholder를 띄우는 wiring과 카피/레이아웃 마무리.\ntypecheck/tests 통과.",
+          "risk": "pt-12 같은 4pt scale 값을 쓰되 디자인 의도(35% from top)와 약간 다를 수 있음. 사용자 화면 해상도에 따라 균형 다를 수 있어 manual에서 시각 확인.",
+          "deps": [
+            2,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "abd190a5486d08d8e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:33:38.603Z"
+        },
+        {
+          "id": 8,
+          "title": "통합/회귀 테스트 + 수동 UI 체크리스트",
+          "status": "completed",
+          "context": "시멘틱 + 폴더 재구조 + 메뉴 토큰화 + closeGroup cleanup이 모두 끝나면 끝-끝 검증. 자동화 가능한 부분(operations 흐름, store 정합성, e.code 매칭)은 통합 테스트로, DOM/시각/PTY 동작은 manual 체크리스트로.",
+          "acceptance": "- 신설/보강 통합 테스트 ≥6 시나리오 통과.\n- 전체 bun test 통과(0 fail).\n- bunx tsc --noEmit 0 errors.\n- bun run build 성공.\n- manual 체크리스트 8항목 본문 보고.",
+          "approach": "tests/integration/split-duplicate.test.ts 신설(또는 기존 operations.test.ts에 보강):\n- splitAndDuplicate 후 source/dest leaf 각각에 다른 tabId가 있고 둘 다 tabsStore에 record로 존재.\n- splitAndDuplicate에서 source가 빈 leaf면 null 반환.\n- openTabInNewSplit이 새 leaf에 새 tab 추가, active 이동.\n- closeGroup이 leaf+그 leaf 탭 record 모두 제거.\n- closeGroup이 sole leaf인 경우 tabIds=[]로 비우고 tab record 모두 삭제.\n- e.code === \"Slash\"로 keydown 모킹 시 split 핸들러가 정상 호출(global.ts 단위 테스트).\n회귀:\n- 기존 463개 + 새 task 단위 테스트 모두 pass.\n- bunx tsc --noEmit 0.\n- bun run build 통과.\nmanual 체크리스트(파일 생성 X, 본문 보고로):\n1. Cmd+\\ → 현재 active tab이 새 우측 leaf에 *복제*.\n2. Cmd+Shift+\\ → 동일하나 아래로.\n3. 우클릭 메뉴 → Split Right/Down 동작(이동 아닌 복제), 메뉴 배경이 솔리드 popover, 키보드 ↑↓로 highlighted, 우측에 ⌘\\ hint.\n4. 파일트리에서 row focus 후 Cmd+Enter → 새 split + 그 파일이 editor 탭.\n5. 단축키가 한국어 키보드에서도 동작(/ 키로 입력해도 동일 split).\n6. Cmd+Shift+W로 마지막 그룹의 마지막 탭 닫으면 빈 leaf placeholder 표시.\n7. terminal 탭 split 후 새 셸이 spawn(별도 세션 확인).\n8. 종료 → 재시작 시 layout/tabs 복원.",
+          "risk": "terminal 복제 시 새 PTY spawn은 자동 테스트 어려움 — manual 체크리스트로 명시. ContentPool의 새 host mount가 ResizeObserver에 의존 — 복제 후 1프레임 깜빡임 가능성도 manual에서 확인.",
+          "deps": [
+            6,
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a7c46db5b9a9d7f85",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-03T12:33:56.984Z"
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T13:53:39.558Z",
+      "branch": "refactor/split-engine",
+      "plan": {
+        "id": 11,
+        "topic": "VSCode 패턴을 따라 분할 로직 전담 엔진 레이어 도입 + 안전 마이그레이션",
+        "issues": [
+          {
+            "id": 1,
+            "title": "엔진 레이어 경계와 모듈 위치 (split-engine 신설 범위)",
+            "status": "decided",
+            "decision": "**결정**: `src/renderer/split-engine/` 디렉터리 신설. VSCode `base/browser/ui/grid/` 등가물로, **도메인 무관 제네릭 분할 트리 엔진**만 책임. 노출 대상: 트리 데이터 타입(`SplitNode = SplitLeaf<TView> | SplitBranch<TView>`), 구조 변환 순수 함수(`addView`, `removeView`, `moveView`, `swapViews`, `findView`, `getNeighbor`), sash 수학(`pxToRatio`, `clampRatio`, `ratioToPx`), 직렬화(`serialize`, `deserialize`), 트리 불변식 복구(`collapseEmptyLeaves`). 모듈 내부에서 `crypto.randomUUID()`를 직접 부르지 않고 `idFactory: () => string` 매개변수로 주입(architect 권고 (a)) — 결정성/테스트 더블/미래 SSR 호환을 한 번에 해결.\\n\\n**기각 대안**:\\n- `src/shared/split-engine/` (main 측 공유): main 프로세스는 직렬화된 JSON만 파일로 저장할 뿐 트리 알고리즘이 필요 없음. 공유 시 main 번들에 불필요 의존성 추가.\\n- `src/renderer/lib/split-grid/`: lib는 일반 유틸리티 위치라 의도가 약함. `split-engine`이라는 이름이 \"분할 엔진 전담\"이라는 책임을 더 명확히 신호.\\n- `src/renderer/store/layout/engine/` 하위 폴더: 엔진을 store 종속으로 인식시킴. VSCode가 base/ → workbench/ 단방향 의존을 강제하는 이유와 어긋남."
+          },
+          {
+            "id": 2,
+            "title": "좌표계 및 공개 API 표면 (Direction 열거형 vs orientation+side, 함수 명명)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "순수 함수 네임스페이스는 zustand set 콜백 내부 동기 실행이라 React 동시성/StrictMode와 격리되어 안전. 단, crypto.randomUUID()를 엔진 함수 내부에서 직접 호출하지 말고 idFactory: ()=>string 파라미터로 주입할 것 — deserialize 결정성/테스트 더블/미래 SSR을 모두 해결. 이게 빠지면 순수 함수 결정의 가치가 절반.",
+                "recorded_at": "2026-05-03T13:24:26.906Z",
+                "agent_id": "ab5f8b39ee253d15c"
+              }
+            ],
+            "decision": "**결정**: **순수 함수 네임스페이스** (`Grid.addView(tree, ...) -> tree'`). 좌표계는 `Direction` 열거형 단일화 — `\"up\" | \"down\" | \"left\" | \"right\"` 문자열 리터럴 유니온. orientation+side 이중 표현 폐기. 함수 명명은 VSCode 표준에 맞춤(`addView`, `removeView`, `moveView`, `swapViews`, `findView`). idFactory는 함수 인자로 주입하거나 모듈 옵션으로 한 번 설정.\\n\\n**근거**: zustand의 `set` 콜백은 이벤트 핸들러 동기 실행 컨텍스트로 React 동시성과 격리되므로 순수 함수 네임스페이스는 StrictMode 이중 호출/렌더 중 호출 위험 없음. 트리는 불변 데이터, 함수는 변환자 — 현 helpers.ts 패턴을 그대로 살리되 단일 모듈로 응집. Direction 단일 좌표계는 호출 측 코드가 \"horizontal+after\"를 \"right\"로 부를 수 있게 하여 의미가 즉시 드러남.\\n\\n**기각 대안**:\\n- 클래스 인스턴스 (VSCode `Grid<T>` 직역): 내부 mutable 상태는 zustand의 불변 스냅샷 모델과 충돌. 매 set마다 인스턴스를 재생성하면 메서드 바인딩/identity 비용. React 18 동시성에서 외부 mutable 인스턴스는 useSyncExternalStore 비호환 위험.\\n- orientation+side 유지: VSCode가 Direction으로 통일한 이유 (호출자 의도 즉시 표현)와 정면 충돌. \"horizontal split, after side\"는 5단어가 필요하지만 \"right\"는 1단어.\\n- 이름 보존(`splitGroup`, `addLeaf`): 도메인 어휘와 엔진 어휘를 섞으면 코드 리뷰에서 레이어 경계가 흐려짐. 엔진은 `View`(레퍼런스 타입), 어댑터는 `Group`/`Leaf`(도메인 타입)으로 어휘 분리."
+          },
+          {
+            "id": 3,
+            "title": "트리 형태 (이진 유지 vs n-ary 업그레이드)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "이진 유지는 기능 동등하나 같은 방향 3분할 시 가운데 sash 드래그가 좌측 분기 비율만 바꾸고 우측은 보존되는 비직관 동작 발생. VSCode가 GridView를 SplitView 하나로 펼친 이유. 권고: 이진 유지하되 ADR Consequences에 \"체인 내 균등 분배 의미 미보장\" 명시하고 n-ary 전환을 후속 task로 못박을 것. 그래야 Sizing.Distribute 정책이 거짓말이 되지 않음.",
+                "recorded_at": "2026-05-03T13:24:14.763Z",
+                "agent_id": "ab5f8b39ee253d15c"
+              }
+            ],
+            "decision": "**결정**: **이진 트리 유지**. 같은 방향 체인은 중첩 이진으로 표현. 단, **ADR Consequences에 \"체인 내 균등 분배 미보장 — 3분할 시 가운데 sash가 좌측 분기 비율만 변경\" 명시**하고, n-ary 전환을 별도 후속 task로 백로그 등록(이번 사이클 범위 외).\\n\\n**근거**: architect 지적대로 같은 방향 3분할에서 가운데 sash 드래그가 비직관적이지만, (1) 우리 사용자 시나리오는 ≤4 pane이 일반적이고 동방향 3분할은 드물며, (2) n-ary 전환은 트리 알고리즘 전체(insertSplit/removeLeafAndHoist/sanitize/replaceNode)를 다시 써야 하는 큰 변경이라 이번 사이클의 \"안전성\"과 충돌, (3) 현 helpers.ts 알고리즘과 모든 테스트(layout-store, layout-schema, layout-persistence, split-duplicate)가 이진 가정을 깔고 있어 이진 유지 시 Phase A 병존 동치 테스트가 가능. ADR로 한계를 정직하게 표시하면 사용자가 마주칠 비직관 동작이 \"엔진 결함\"이 아니라 \"알려진 후속 항목\"으로 남음.\\n\\n**기각 대안**:\\n- n-ary 즉시 전환: 이번 사이클의 \"안전한 마이그레이션\" 의도와 정면 충돌. 동치 테스트가 불가능해져 Phase A 회귀 검증 핵심 도구가 사라짐.\\n- 이진 유지하고 n-ary 한계를 문서화 안 함: architect 지적의 \"Sizing.Distribute가 거짓말이 됨\"을 그대로 안고 감 — 결정 4와 결합해 침묵하는 결함이 됨."
+          },
+          {
+            "id": 4,
+            "title": "Sizing 정책 및 리사이즈 모델 (Distribute/Split/Auto, 최소/최대, sash 수학 분리)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Sizing 타입을 노출하면서 Distribute만 구현하면 호출자가 합리적으로 추론한 Split/Auto/Invisible 동작이 침묵으로 무시되는 leaky abstraction. 권고: 타입에서 제외하고 addView 시그니처를 (tree, view, location, direction)로만 시작. 미래에 인자 추가는 비파괴적, 거짓 옵션 회수는 파괴적.",
+                "recorded_at": "2026-05-03T13:24:17.382Z",
+                "agent_id": "ab5f8b39ee253d15c"
+              }
+            ],
+            "decision": "**결정**: **Sizing 정책 객체 도입 보류**. `addView(tree, view, refViewId, direction, idFactory)` 시그니처로 시작. 새 split의 ratio는 항상 0.5 고정, 기존 split의 ratio는 보존. `clampRatio`/`pxToRatio`/`ratioToPx`는 엔진 모듈에 추출하여 useSplitSash가 호출(현 직접 산술 폐기).\\n\\n**근거**: architect 지적대로 Sizing 타입을 노출하면서 Distribute만 구현하면 호출자가 합리적으로 추론한 Split/Auto/Invisible이 침묵으로 무시되는 leaky abstraction. 이진 트리 유지(결정 3) 상태에서 Sizing.Distribute의 \"체인 균등 분배\" 의미가 보장 불가하므로 타입 자체가 거짓말 가능. 미래에 n-ary 전환 시 Sizing 인자를 비파괴적으로 추가 가능, 거짓 옵션 회수는 파괴적.\\n\\n**기각 대안**:\\n- Sizing 타입 + Distribute만 구현: leaky abstraction. 미래 호출자가 `Sizing.Split` 전달했을 때 0.5 고정 동작이 침묵으로 발생.\\n- Sizing 정책 4종 모두 구현: 이번 사이클 범위 폭증, 이진 트리에서 의미 보장 불가, 마이그레이션 안전성 저하.\\n- 현 ratio 직접 노출 유지: 호출자가 `setSplitRatio(splitId, 0.42)` 같은 절차적 호출을 강제. 엔진 책임이 흐려짐."
+          },
+          {
+            "id": 5,
+            "title": "직렬화/sanitize 소유권 (engine vs domain 어댑터)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "현 sanitize는 stripDanglingTabs(도메인: tabId 지식 필요) + collapseEmptyLeaves(구조: 트리 불변식) 두 책임 혼재. VSCode IViewDeserializer 패턴은 정확히 이를 분리. 권고: 엔진이 Grid.collapseEmptyLeaves(tree)와 Grid.deserialize(json, viewFactory)를 노출, 어댑터가 stripDanglingTabs(tree, knownTabIds) 후 Grid.collapseEmptyLeaves 호출. helpers.ts:179 while 루프는 엔진 책임.",
+                "recorded_at": "2026-05-03T13:24:20.546Z",
+                "agent_id": "ab5f8b39ee253d15c"
+              }
+            ],
+            "decision": "**결정**: VSCode `IViewDeserializer` 패턴 차용. **엔진**은 `Grid.serialize(tree)`, `Grid.deserialize(json, viewFactory)`, `Grid.collapseEmptyLeaves(tree)`를 노출. **도메인 어댑터(layout store)**는 `stripDanglingTabs(tree, knownTabIds)`를 보유, 하이드레이션 시 `stripDanglingTabs → Grid.collapseEmptyLeaves` 순으로 호출. 현 `helpers.ts:sanitize`(while 루프 포함) 본체는 엔진의 `collapseEmptyLeaves`로 이동, while 패턴 보존.\\n\\n**근거**: architect 지적대로 sanitize는 두 책임 혼재 — stripDanglingTabs는 tabId 지식이 필요한 도메인 연산, collapseEmptyLeaves는 트리 불변식 복구라 구조 연산. VSCode가 IViewDeserializer로 도메인 view 복원을 위임하고 트리 형태 복구는 GridView가 책임지는 분리를 그대로 모방. 분리하면 엔진 deserialize는 \"트리 형태만 복구\", 도메인은 \"어떤 tabId가 살아있나만 결정\"으로 단일 책임.\\n\\n**기각 대안**:\\n- sanitize 통째 엔진 이동: 엔진이 tabId/Tab 도메인 개념을 알게 되어 제네릭 `<TView>`가 깨짐.\\n- sanitize 통째 도메인 잔류: 트리 불변식 복구 알고리즘이 도메인 코드에 갇혀 다른 영역(미래 panel split 등)에서 재사용 불가.\\n- IViewDeserializer 인터페이스 형식 직역: 클래스/인터페이스 OOP 패턴이라 우리 순수 함수 네임스페이스와 충돌. 콜백 함수 `viewFactory: (id, data) => TView`로 단순화."
+          },
+          {
+            "id": 6,
+            "title": "도메인 어댑터 형태 (layout store + operations.ts 적응 방식, 탭 연산 분리)",
+            "status": "decided",
+            "decision": "**결정**: layout store를 **두 개로 갈라지지 않고 한 store 내부에서 책임만 분리**. zustand store가 보유하는 트리는 엔진의 `SplitNode<TabIds>` 그대로(별도 도메인 트리 타입 없음). store 메서드는 두 그룹으로 어휘 정리:\\n- **구조 위임 메서드** (엔진 호출만): `splitGroup` → `Grid.addView`, `closeGroup` → `Grid.removeView`, `setSplitRatio` → `Grid.setRatio`, `swapGroups` → `Grid.swapViews` (신규).\\n- **도메인 메서드** (탭 record 직접 조작): `attachTab`, `detachTab`, `moveTab`, `setActiveTabInGroup`, `setActiveGroup` — leaf의 `tabIds`/`activeTabId` 필드 갱신은 엔진 모름.\\n\\noperations.ts는 **트랜잭션 표면 그대로 유지** — 시그니처(`openTab`/`closeTab`/`splitAndDuplicate`/`openTabInNewSplit`/`closeGroup`/`seedDefaultTerminalIfEmpty`) 보존하고 내부 구현만 새 store API 호출. 외부 호출자(App.tsx, useGroupActions, FileTree, GroupView) 변경 0.\\n\\n**근거**: store를 둘로 쪼개면 zustand 구독자 fan-out, persistence subscriber 재배선, 7개 컴포넌트 import 경로 갱신 등 변경 표면이 폭증해 안전성 저하. 한 store 내부에서 메서드 그룹만 갈라도 코드 리뷰 시 \"구조 = 엔진 호출 한 줄 / 도메인 = leaf field 갱신\"으로 경계 명확. operations.ts 시그니처 보존은 호출자 코드 회귀 위험을 0으로 줄임.\\n\\n**기각 대안**:\\n- layout store + structure store 분리: 변경 표면 폭증, persistence subscriber 재설계 필요.\\n- operations.ts API 변경 (Direction 노출): App.tsx의 `splitActiveGroup(\"horizontal\")` 같은 8개 호출처를 모두 수정 필요. 외부에는 도메인 어휘 유지하고 내부에서만 Direction 사용이 안전."
+          },
+          {
+            "id": 7,
+            "title": "영속화 스키마 호환성 (SerializedNode 변경 vs 무손실 호환)",
+            "status": "decided",
+            "decision": "**결정**: **무손실 호환 유지**. `src/shared/types/layout.ts`의 `SerializedNode` 스키마는 변경 없음. 기존 영속 파일(`appState.json`)이 그대로 로드되어야 함. 엔진 내부 `SplitNode` 타입은 SerializedNode와 1:1 매핑 — 같은 필드 이름(`kind`, `id`, `orientation`, `ratio`, `first`, `second`, `tabIds`, `activeTabId`) 사용. `Grid.serialize`/`deserialize`는 사실상 항등 변환(타입 표시만 변환).\\n\\n**근거**: 사용자가 이미 사용 중인 워크스페이스의 layoutByWorkspace 영속 데이터가 깨지면 재시작 시 모든 탭 손실 — \"안전하게\" 의도와 정면 충돌. 스키마 변경 시 마이그레이션 코드(v1→v2)와 zod 스키마 갱신, layout-schema.test.ts 갱신, 사용자 데이터 백업/복구 로직 등 부수 작업 폭증. 이번 사이클은 **내부 구조 정리**가 목표지 영속 포맷 진화가 아님. 미래에 n-ary 전환 시점에 `version` 필드와 함께 일괄 마이그레이션이 자연스러움.\\n\\n**기각 대안**:\\n- SerializedNode를 엔진 형태로 재설계: 사용자 데이터 손실 위험. 마이그레이션 코드 무관 작업 발생.\\n- 엔진은 새 포맷, 도메인 어댑터에서 양방향 변환: 변환 코드가 두 곳에서 다시 진실의 원천(source of truth)을 다툼. 영속화 라운드트립 회귀 가능."
+          },
+          {
+            "id": 8,
+            "title": "마이그레이션 단계 및 리스크 게이트 (shim 단계 계획, 각 단계의 테스트 그린 요건)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Phase B(store 위임)가 가장 위험. moveTab의 detach→hoist→destination-disappeared 폴백 분기가 도메인+구조 혼재라 경계 모호. 권고: B를 B1(구조 연산만: splitGroup/closeGroup/setSplitRatio)과 B2(detach/move 도메인 연산)로 쪼개고 사이에 split-duplicate/layout-persistence 테스트 게이트 배치. Phase A 병존 기간에는 helpers vs 엔진 속성 기반 동치 테스트 한 줄을 넣어 회귀 비용 0화.",
+                "recorded_at": "2026-05-03T13:24:23.642Z",
+                "agent_id": "ab5f8b39ee253d15c"
+              }
+            ],
+            "decision": "**결정**: architect 권고대로 **4단계** 마이그레이션. 각 단계 종료 시 typecheck 0 + 전체 테스트 그린(현 504/504) + build 성공이 게이트.\\n\\n- **Phase A** (엔진 신설): `src/renderer/split-engine/` 디렉터리 생성. `Grid` 네임스페이스, 순수 함수 본체는 `helpers.ts`에서 복사+재정비(이름 변경, Direction 도입, idFactory 주입, collapseEmptyLeaves 분리). **helpers.ts는 그대로 유지**(병존). `tests/unit/split-engine.test.ts` 신설 + `tests/unit/split-engine-equivalence.test.ts` 추가 — 임의 입력 트리에 대해 helpers vs 엔진 출력이 동일한지 속성 기반 동치 검증.\\n- **Phase B1** (구조 위임): layout store의 구조 메서드 3개(`splitGroup`/`closeGroup`/`setSplitRatio`)만 엔진으로 위임. 도메인 메서드는 helpers 호출 유지. 게이트: `layout-store.test.ts`, `split-duplicate.test.ts` 통과.\\n- **Phase B2** (도메인+sanitize 위임): `attachTab`/`detachTab`/`moveTab`/`hydrate` 위임. `sanitize` → `stripDanglingTabs` + `Grid.collapseEmptyLeaves` 분리. 게이트: `layout-persistence.test.ts`, `operations.test.ts` 통과.\\n- **Phase C** (정리): helpers.ts 본체 삭제(타입과 얇은 re-export만 남기거나 전체 제거 후 import 경로 일괄 갱신), useSplitSash가 `Grid.pxToRatio` 사용. 게이트: 504/504 테스트, typecheck, build, **수동 UI 체크리스트** (Cmd+\\\\, Cmd+Shift+\\\\, sash 드래그, Cmd+Enter 파일 열기, Cmd+Shift+W).\\n\\n**근거**: architect 지적의 핵심 핫스팟 `moveTab`(detach→hoist→destination-disappeared 폴백)을 B1과 분리하면 한 단계당 변경 표면이 작아 회귀 발생 시 원인 격리 가능. Phase A 동치 테스트는 회귀 비용을 0에 가깝게 만든다(architect 핵심 권고). 단계마다 typecheck/테스트/빌드를 게이트로 두면 진행 정지 신호가 즉각.\\n\\n**기각 대안**:\\n- 단일 PR 빅뱅: 회귀 시 원인 격리 불가, \"안전\" 의도 위배.\\n- 3단계(B 묶기): architect 지적의 핫스팟이 한 단계에 몰림.\\n- 5단계 이상 세분화: 각 단계의 변경 표면이 너무 작아 게이트 비용이 본 작업 비용을 초과."
+          },
+          {
+            "id": 9,
+            "title": "Sash UX 및 ResizeHandle 재사용 (현 컴포넌트 보존, 수학만 분리)",
+            "status": "decided",
+            "decision": "**결정**: `ResizeHandle` 컴포넌트 그대로 유지(드래그 이벤트 처리, 키보드 접근성, ARIA 등). `useSplitSash` 훅도 시그니처 보존. 변경 사항은 **수학만 엔진 모듈로 추출**:\\n- 현재 `useSplitSash:38-43`의 인라인 산술(`Math.min/max + px/size`)을 `Grid.pxToRatio(px, totalSize)` / `Grid.clampRatio(ratio)` 호출로 치환.\\n- `useSplitSash:54-56`의 min/max(ratio*0.05/*0.95)도 `Grid.MIN_RATIO`/`Grid.MAX_RATIO` 상수 노출 후 참조.\\n- 더블클릭 리셋(`onReset`)은 도메인 store가 `setSplitRatio(0.5)` 호출로 유지 — VSCode 더블클릭 onDidSashReset 이벤트와 동등한 의미.\\n\\n**근거**: ResizeHandle은 11개 props와 키보드 핸들러까지 갖춘 React 컴포넌트로 이미 잘 작동 중. 수학만 분리하면 (a) 단위 테스트가 트리/store 없이 가능, (b) 미래 다른 sash 컨텍스트(예: Files 패널 폭)에서 재사용 가능, (c) 시각/UX 회귀 위험 0. ResizeHandle 자체를 엔진으로 옮기면 React 의존성이 엔진에 들어와 \"도메인 무관\" 원칙(결정 1) 위배.\\n\\n**기각 대안**:\\n- ResizeHandle을 엔진으로 이동: React 의존성 엔진 침투, 결정 1 위배.\\n- 현 인라인 산술 유지: useSplitSash 내부에 5% 최소값 같은 매직 넘버가 박혀 있어 향후 변경 시 검색 누락 위험.\\n- VSCode `Sash` 클래스 직역(684줄): 이번 사이클 범위 폭증, 우리 ResizeHandle이 이미 충분."
+          }
+        ],
+        "research_summary": "VSCode 레퍼런스 분석 결과 핵심 3-레이어 발견. (1) base/browser/ui/grid/{grid.ts:951, gridview.ts:1842}, splitview/splitview.ts:1504, sash/sash.ts:684 — 도메인 무관 제네릭 엔진. Grid<T extends IView> 클래스가 addView/removeView/moveView/swapViews를 Direction(UP/DOWN/LEFT/RIGHT) 단일 좌표계로 노출. Sizing 정책 객체 (Distribute/Split/Auto/Invisible)와 SerializableGrid 1급 시민. getRelativeLocation 알고리즘으로 같은 방향이면 기존 분기에 sibling 추가, 다른 방향이면 새 분기 생성. (2) workbench/browser/parts/editor/editorPart.ts:1530 — SerializableGrid<IEditorGroupView> 한 인스턴스를 보유하는 얇은 도메인 오케스트레이터, 트리 회전·sash·비례 재배분 모름. (3) services/editor/common/editorGroupsService.ts:1091 — 순수 인터페이스/타입 (IEditorGroupsService, GroupDirection, GroupOrientation, GroupsArrangement, MergeGroupMode). 우리 측 현재 상태: src/renderer/store/layout/{types.ts:61, helpers.ts:217, store.ts:341} + operations.ts:190. LayoutState가 구조 연산(splitGroup/closeGroup/setSplitRatio)과 도메인 연산(attachTab/detachTab/moveTab/setActiveTabInGroup)을 혼재. orientation+side 이중 표현. ratio 단일 sizing. helpers.ts에 트리 알고리즘 산재. 소비자: App.tsx, WorkspacePanel.tsx, useSplitSash.ts(setSplitRatio 직접 호출), useGroupActions.ts, ContentPool.tsx, FileTree.tsx, persistLayout.ts, GroupView.tsx. 테스트 10개 파일이 layout/operations 영역에 의존: layout-store, layout-schema, layout-persistence, operations, split-duplicate, content-pool-selector, files-panel, keybindings-global, file-tree-keys, resize-handle. 사용자 의도: VSCode 패턴 모방으로 안정적인 분할 전담 레이어 신설 + \"여러 문제들\" 일괄 해소. 안전성 강조 → 점진 shim 마이그레이션 필요.",
+        "created_at": "2026-05-03T13:22:36.606Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase A — split-engine 모듈 신설 + ADR 작성",
+          "status": "completed",
+          "context": "현재 src/renderer/store/layout/{types.ts:61, helpers.ts:217, store.ts:341}에 트리 알고리즘이 산재하며 LayoutState 11개 메서드가 구조 연산과 도메인 연산을 혼재. VSCode base/browser/ui/grid/grid.ts(951줄) 패턴을 참조하여 도메인 무관 제네릭 분할 엔진 레이어를 신설. 결정 1·2·5·9 적용.",
+          "acceptance": "- src/renderer/split-engine/ 5~6개 파일 생성, index.ts에서 Grid 네임스페이스 export\\n- Direction 타입은 \"up\"|\"down\"|\"left\"|\"right\" 문자열 리터럴 유니온\\n- 모든 트리 변환 함수가 idFactory 인자를 받음 (or 모듈 옵션 setIdFactory)\\n- helpers.ts 본체는 변경 없음 (Phase A는 병존)\\n- typecheck 0 errors, 기존 504 테스트 모두 그린 유지\\n- .nexus/context/adr/split-engine.md 생성, Consequences 섹션에 이진 한계 + Sizing 보류 명시",
+          "approach": "1) `src/renderer/split-engine/` 디렉터리 생성. 파일 구성: `index.ts`(barrel), `types.ts`(SplitNode, SplitLeaf, SplitBranch, Direction, IdFactory), `tree.ts`(addView/removeView/moveView/swapViews/findView/setRatio/replaceView), `traversal.ts`(allLeaves, leftmostLeaf, parentOf, findView), `serialize.ts`(serialize/deserialize/collapseEmptyLeaves), `sash-math.ts`(pxToRatio, ratioToPx, clampRatio, MIN_RATIO=0.05, MAX_RATIO=0.95). 2) helpers.ts의 알고리즘을 복사+재정비: orientation+side를 Direction(\"up\"|\"down\"|\"left\"|\"right\")로 변환하는 내부 유틸 추가, crypto.randomUUID 직접 호출 제거하고 idFactory 인자 도입. 3) sanitize 본체에서 stripDanglingTabs는 도메인 잔류 표시 주석만 달고 collapseEmptyLeaves(while 루프)만 엔진으로. 4) helpers.ts는 그대로 유지(병존). 5) `.nexus/context/adr/split-engine.md` 작성: 9개 결정 요약 + Consequences에 \"이진 트리 한계: 동방향 3분할 가운데 sash가 좌측 분기 비율만 변경\" + \"Sizing 정책 도입 보류 — 미래 n-ary 전환 시 함께 진화\" 명시.",
+          "risk": "helpers.ts 알고리즘을 옮기면서 미세한 동작 차이 발생 가능 (특히 removeLeafAndHoist의 hoistedSiblingLeafId 반환 의미). T2에서 동치 테스트로 잡아야 함.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ad36879fa3a4536e4"
+          },
+          "created_at": "2026-05-03T13:27:23.480Z"
+        },
+        {
+          "id": 2,
+          "title": "Phase A — split-engine 단위 테스트 + helpers 동치 테스트",
+          "status": "completed",
+          "context": "architect 권고 (e): Phase A 병존 기간에 helpers와 엔진 사이에 속성 기반 동치 테스트 한 줄을 두면 회귀 비용이 거의 0. 결정 8 게이트.",
+          "acceptance": "- tests/unit/split-engine.test.ts 생성, 최소 20개 케이스, 모두 통과\\n- tests/unit/split-engine-equivalence.test.ts 생성, 6개 시나리오(addView 4방향+removeView+sanitize) × 3~5개 입력 = 최소 18개 케이스, 모두 통과\\n- 기존 504 테스트 모두 그린 유지\\n- 동치 테스트 실패 시 helpers.ts 알고리즘이 진실의 원천이라는 가정으로 엔진 측 수정 (Phase A는 병존이므로)",
+          "approach": "tests/unit/split-engine.test.ts: addView(up/down/left/right 4방향), removeView(sole leaf 보존, 형제 hoist), moveView, swapViews, setRatio, findView, allLeaves, collapseEmptyLeaves, serialize/deserialize 라운드트립, sash-math(pxToRatio/clampRatio/MIN/MAX). tests/unit/split-engine-equivalence.test.ts: 시나리오 기반 동치 — (a) helpers.insertSplit(\"horizontal\",\"after\") == Grid.addView(direction:\"right\"), (b) helpers.removeLeafAndHoist == Grid.removeView, (c) helpers.sanitize == stripDanglingTabs+Grid.collapseEmptyLeaves. 각 케이스마다 입력 트리 3~5개(sole leaf, 2분할, 3중첩, 깊은 트리)에서 출력 트리 deepEqual.",
+          "risk": "동치 테스트가 false positive(둘 다 같은 버그)를 못 잡음. 따라서 split-engine.test.ts는 helpers와 무관하게 기대 출력을 명시적으로 작성해야 함.",
+          "plan_issue": 8,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "persistent",
+            "agent_id": "a04f0185ac02b0182"
+          },
+          "created_at": "2026-05-03T13:27:38.219Z"
+        },
+        {
+          "id": 3,
+          "title": "Phase B1 — layout store 구조 메서드 엔진 위임",
+          "status": "completed",
+          "context": "결정 6·8 적용. layout store의 구조 연산 3개(splitGroup/closeGroup/setSplitRatio)를 엔진 호출 한 줄로 치환. 도메인 메서드(attachTab/detachTab/moveTab/hydrate)는 helpers 호출 유지(B2에서 처리).",
+          "acceptance": "- store.ts의 splitGroup/closeGroup/setSplitRatio가 Grid.* 호출로 위임됨\\n- LayoutState 인터페이스 시그니처 변경 없음\\n- helpers.ts의 attachTab/detachTab/moveTab/sanitize 관련 함수는 여전히 사용 중\\n- typecheck 0 errors",
+          "approach": "src/renderer/store/layout/store.ts 수정:\\n- splitGroup: helpers.insertSplit 호출을 Grid.addView(layout.root, refLeafId, direction, idFactory)로 치환. orientation+side → Direction 매핑 ({\"horizontal\",\"before\"}→\"left\", {\"horizontal\",\"after\"}→\"right\", {\"vertical\",\"before\"}→\"up\", {\"vertical\",\"after\"}→\"down\").\\n- closeGroup: helpers.removeLeafAndHoist 호출을 Grid.removeView(layout.root, groupId)로 치환. sole-leaf 보존 분기는 store가 유지(엔진은 트리 변환만, 도메인 의미인 \"사용자에게 보이는 빈 placeholder\"는 store 책임).\\n- setSplitRatio: Grid.setRatio(layout.root, splitId, ratio) 호출.\\n- store가 idFactory로 crypto.randomUUID 주입.\\n- LayoutState 인터페이스의 splitGroup 시그니처는 보존(orientation+side) — operations.ts/외부 호출자 변경 0. 내부에서만 Direction으로 변환.",
+          "risk": "orientation+side → Direction 매핑 4가지 케이스 중 하나라도 잘못되면 split이 반대 방향으로 생김. T4에서 split-duplicate 통합 테스트로 검증.",
+          "plan_issue": 6,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "a09d86775e0b1ff7c"
+          },
+          "created_at": "2026-05-03T13:27:50.064Z"
+        },
+        {
+          "id": 4,
+          "title": "Phase B1 — 구조 위임 게이트 검증",
+          "status": "completed",
+          "context": "결정 8 게이트. B1 종료 시 layout-store.test.ts와 split-duplicate.test.ts 통과 + typecheck/build 성공이 필수 조건.",
+          "acceptance": "- layout-store.test.ts 모든 케이스 그린\\n- split-duplicate.test.ts 모든 케이스 그린\\n- 전체 테스트 504/504 (또는 T2에서 늘어난 신규 수만큼 증가)\\n- typecheck 0 errors\\n- build 성공",
+          "approach": "1) bun test tests/unit/layout-store.test.ts → 모든 케이스 통과 확인. 실패 시 T3로 회송.\\n2) bun test tests/integration/split-duplicate.test.ts → 17개 시나리오 모두 통과 확인.\\n3) bun test 전체 (504/504 유지).\\n4) bun run typecheck → 0 errors.\\n5) bun run build → 성공.\\n6) 실패 시 escalation chain 적용 (Do→Check fail 2회 시 architect 검토).",
+          "risk": "없음 (검증 task).",
+          "plan_issue": 8,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-03T13:27:56.965Z"
+        },
+        {
+          "id": 5,
+          "title": "Phase B2 — 도메인 메서드 + sanitize 분리 위임",
+          "status": "completed",
+          "context": "결정 5·6·8 적용. layout store의 도메인 연산(attachTab/detachTab/moveTab/hydrate)을 엔진 helper와 도메인 책임으로 명확히 분리. architect 핵심 핫스팟인 moveTab의 detach→hoist→destination-disappeared 폴백을 안전하게 위임.",
+          "acceptance": "- store.ts attachTab/detachTab/moveTab/hydrate가 엔진 + 명시적 도메인 코드로 분리\\n- helpers.ts의 sanitize/detachTabId/replaceNode 호출은 이 시점에 모두 제거\\n- stripDanglingTabs가 도메인 위치(store/layout/)에 명시적으로 정의됨\\n- operations.ts 변경 없음\\n- typecheck 0 errors",
+          "approach": "1) attachTab: 엔진의 findView/replaceView 사용, leaf 필드(tabIds/activeTabId) 갱신은 store가 직접(도메인).\\n2) detachTab: 엔진 helper로 트리 갱신 후, ownerLeafEmpty면 Grid.removeView로 hoist. 도메인 의미인 \"active tab 라우팅(prev→next→null)\"은 store가 직접 결정.\\n3) moveTab: detach + (필요시 hoist via Grid.removeView) + attach. destination-disappeared 폴백은 store 잔류(도메인 결정).\\n4) hydrate: snapshot.root → stripDanglingTabs(tree, knownTabIds) → Grid.collapseEmptyLeaves(tree) → leftmostLeaf로 activeGroupId 폴백. helpers.sanitize 호출 제거.\\n5) stripDanglingTabs는 store/layout/sanitize.ts(또는 store.ts 내부 private 함수)로 도메인 위치에 명시.\\n6) operations.ts 시그니처/구현 변경 0 (외부 호출자 회귀 방지).",
+          "risk": "moveTab destination-disappeared 분기 회귀 가능성 — 출발지 leaf가 hoist되면서 도착지 leaf id가 사라진 케이스. T7에서 operations.test.ts와 layout-persistence.test.ts로 검증.",
+          "plan_issue": 6,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "a78c74ccc017f0da4"
+          },
+          "created_at": "2026-05-03T13:28:10.800Z"
+        },
+        {
+          "id": 6,
+          "title": "Phase B2 — 도메인 위임 게이트 검증",
+          "status": "completed",
+          "context": "결정 8 게이트. B2 종료 시 layout-persistence와 operations 테스트 통과가 필수.",
+          "acceptance": "- layout-persistence.test.ts 모든 케이스 그린\\n- operations.test.ts 모든 케이스 그린\\n- 전체 테스트 그린, typecheck 0, build 성공",
+          "approach": "1) bun test tests/integration/layout-persistence.test.ts → 라운드트립 무손실 확인.\\n2) bun test tests/integration/operations.test.ts → 트랜잭션 합성 확인.\\n3) bun test tests/unit/layout-store.test.ts → 회귀 없음.\\n4) bun test 전체.\\n5) bun run typecheck/build.\\n6) 실패 시 escalation chain.",
+          "risk": "없음 (검증).",
+          "plan_issue": 8,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-03T13:28:15.089Z"
+        },
+        {
+          "id": 7,
+          "title": "Phase C — helpers.ts 정리 + sash 수학 치환",
+          "status": "completed",
+          "context": "결정 8 Phase C, 결정 9 적용. 병존 기간 종료 — helpers.ts 본체 제거, useSplitSash가 엔진 sash-math 사용.",
+          "acceptance": "- helpers.ts 파일 본체 제거 (또는 ≤10줄의 re-export 잔류)\\n- useSplitSash가 Grid.pxToRatio/Grid.clampRatio/Grid.MIN_RATIO/Grid.MAX_RATIO 사용\\n- helpers 직접 import한 모든 모듈이 split-engine 또는 store/layout/index 경로로 갱신\\n- typecheck 0 errors\\n- 전체 테스트 그린",
+          "approach": "1) src/renderer/store/layout/helpers.ts 본체 삭제. 다른 모듈이 import하던 항목(findLeaf, allLeaves, leftmostLeaf 등)은 src/renderer/store/layout/index.ts에서 split-engine의 동일 함수 re-export로 호환 유지(또는 import 경로 일괄 갱신 — 변경 표면이 작으면 후자 선호).\\n2) src/renderer/components/workspace/layout/useSplitSash.ts:38-43의 인라인 산술을 Grid.pxToRatio(px, totalSize) + Grid.clampRatio로 치환.\\n3) useSplitSash:54-56의 0.05/0.95를 Grid.MIN_RATIO/Grid.MAX_RATIO로 치환.\\n4) ContentPool, GroupView, persistLayout 등의 helpers import를 split-engine import로 정리.\\n5) tests/unit/layout-helpers.* 같은 helpers 단위 테스트가 있다면 split-engine 테스트와 중복이므로 삭제 또는 합병.",
+          "risk": "helpers re-export 누락 시 import 에러. 일괄 grep으로 확인.",
+          "plan_issue": 8,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "af085047648489570"
+          },
+          "created_at": "2026-05-03T13:28:25.970Z"
+        },
+        {
+          "id": 8,
+          "title": "Phase C — 최종 게이트 + 수동 UI 체크리스트",
+          "status": "completed",
+          "context": "결정 8 최종 게이트. 자동화 테스트 통과 + 사용자가 수동 검증할 5단계 시나리오 체크리스트 작성.",
+          "acceptance": "- 전체 테스트 그린\\n- typecheck 0 errors\\n- build 성공\\n- helpers.ts 잔류 import 0건\\n- 수동 체크리스트 8항목이 최종 보고에 포함",
+          "approach": "1) bun test 전체 → 504/504(신규 추가분 포함) 그린.\\n2) bun run typecheck → 0 errors.\\n3) bun run build → 성공.\\n4) helpers 제거 후 import 누락 없는지 grep \"from.*layout/helpers\" 결과 없음 확인.\\n5) 수동 UI 체크리스트 작성 (Lead가 보고서에 포함):\\n   - Cmd+\\\\ 가로 분할 → 활성 탭 복제\\n   - Cmd+Shift+\\\\ 세로 분할 → 활성 탭 복제\\n   - sash 드래그 → 비율 조정 (5%/95% 클램프)\\n   - sash 더블클릭 → 0.5 리셋\\n   - 파일트리 Cmd+Enter → 새 split에서 파일 열림\\n   - Cmd+Shift+W → 활성 그룹 닫기, 단일 leaf 시 빈 placeholder\\n   - 우클릭 메뉴 Split Right/Down/Close 동작\\n   - 워크스페이스 전환 후 분할 상태 영속",
+          "risk": "없음 (검증).",
+          "plan_issue": 8,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-03T13:28:35.029Z"
+        }
+      ]
     }
   ]
 }

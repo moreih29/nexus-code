@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sidebar } from "./components/Sidebar";
-import { TitleBar } from "./components/TitleBar";
-import { WorkspacePanel } from "./components/WorkspacePanel";
+import { FilesPanel } from "./components/files";
+import { Sidebar } from "./components/workbench/sidebar";
+import { TitleBar } from "./components/workbench/title-bar";
+import { WorkspacePanel } from "./components/workspace/workspace-panel";
 import { ipcCall } from "./ipc/client";
+import { handleGlobalKeyDown } from "./keybindings/global";
 import { useActiveStore } from "./store/active";
+import { useFilesStore } from "./store/files";
+import { useLayoutStore } from "./store/layout";
+import { Grid } from "./engine/split";
+import { closeGroup, openTab, splitAndDuplicate } from "./store/operations";
+import { registerLayoutPersistence } from "./store/persist-layout";
 import { useTabsStore } from "./store/tabs";
 import { useUIStore } from "./store/ui";
 import { useWorkspacesStore } from "./store/workspaces";
@@ -17,10 +24,44 @@ export function App() {
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
 
-  // Boot: hydrate UI state (sidebar width) from persisted app state.
+  // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
   useEffect(() => {
     ipcCall("appState", "get", undefined).then((state) => {
-      useUIStore.getState().hydrate(state.sidebarWidth);
+      useUIStore.getState().hydrate({
+        sidebarWidth: state.sidebarWidth,
+        filesPanelWidth: state.filesPanelWidth,
+      });
+
+      // Hydrate layout + tabs from persisted snapshots
+      if (state.layoutByWorkspace) {
+        for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
+          try {
+            // Restore tabs record
+            const tabsMap: Record<string, (typeof snap.tabs)[number]> = {};
+            for (const t of snap.tabs) {
+              tabsMap[t.id] = t;
+            }
+            useTabsStore.setState((s) => ({
+              byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
+            }));
+
+            // Restore layout (sanitize against known tab ids)
+            const knownTabIds = new Set(snap.tabs.map((t) => t.id));
+            useLayoutStore.getState().hydrate(
+              wsId,
+              { root: snap.root, activeGroupId: snap.activeGroupId },
+              knownTabIds,
+            );
+          } catch {
+            // Silent repair: skip invalid snapshot for this workspace
+          }
+        }
+      }
+
+      // Register persistence subscriber after hydrate to avoid write-storm
+      // Use a brief timer so the store subscriptions don't fire during the
+      // synchronous hydrate state updates.
+      setTimeout(registerLayoutPersistence, 100);
     });
   }, []);
 
@@ -113,28 +154,67 @@ export function App() {
     [workspaces],
   );
 
-  // Cmd+E: open file picker and add an EditorView tab to the active workspace.
+  // Global keybindings: Cmd+E / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey && e.key === "e") {
-        e.preventDefault();
-        const wsId = useActiveStore.getState().activeWorkspaceId;
-        if (!wsId) return;
-        ipcCall("dialog", "showOpenFile", {
-          title: "Open File",
-          filters: [
-            { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-            { name: "All Files", extensions: ["*"] },
-          ],
-        })
-          .then(({ canceled, filePaths }) => {
-            if (canceled || filePaths.length === 0) return;
-            useTabsStore
-              .getState()
-              .addTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
-          })
-          .catch(() => {});
-      }
+      handleGlobalKeyDown(e, {
+        getActiveWorkspaceId: () => useActiveStore.getState().activeWorkspaceId,
+        refresh: (wsId) => useFilesStore.getState().refresh(wsId),
+        openFileDialog: async (wsId) => {
+          const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
+            title: "Open File",
+            filters: [
+              { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
+              { name: "All Files", extensions: ["*"] },
+            ],
+          });
+          if (canceled || filePaths.length === 0) return;
+          openTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
+        },
+
+        splitActiveGroup: (orientation) => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+          const activeLeaf = Grid.findView(layout.root, layout.activeGroupId);
+          if (!activeLeaf || !activeLeaf.activeTabId) return;
+          splitAndDuplicate(wsId, activeLeaf.id, activeLeaf.activeTabId, orientation, "after");
+        },
+
+        closeActiveGroup: () => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+          closeGroup(wsId, layout.activeGroupId);
+        },
+
+        moveFocus: (direction) => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+
+          const leaves = Grid.allLeaves(layout.root);
+          if (leaves.length <= 1) return;
+
+          const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
+          if (currentIdx === -1) return;
+
+          let nextIdx: number;
+          if (direction === "left" || direction === "up") {
+            nextIdx = currentIdx > 0 ? currentIdx - 1 : leaves.length - 1;
+          } else {
+            nextIdx = currentIdx < leaves.length - 1 ? currentIdx + 1 : 0;
+          }
+
+          const nextLeaf = leaves[nextIdx];
+          if (nextLeaf) {
+            useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+          }
+        },
+      });
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -157,6 +237,7 @@ export function App() {
           onAddWorkspace={handleAddWorkspace}
           onRemoveWorkspace={handleRemoveWorkspace}
         />
+        <FilesPanel />
         <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
           {workspaces.length === 0 && (
             <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">

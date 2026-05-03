@@ -2,7 +2,7 @@
 // The main process creates a MessageChannelMain and sends one end to this
 // process via process.parentPort. All LSP traffic flows over that port.
 
-import { LspManager } from "./lspManager";
+import { LspManager } from "./lsp-manager";
 
 const manager = new LspManager();
 

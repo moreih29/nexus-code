@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ColorToneSchema } from "./colorTone";
+import { ColorToneSchema } from "./color-tone";
 import { TabMetaSchema } from "./tab";
 
 export const WorkspaceMetaSchema = z.object({

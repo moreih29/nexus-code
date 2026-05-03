@@ -3,7 +3,7 @@
 // Utility diagnostics events are broadcast to all renderers.
 
 import { ipcContract } from "../../../shared/ipc-contract";
-import type { LspHostHandle } from "../../hosts/lspHost";
+import type { LspHostHandle } from "../../hosts/lsp-host";
 import { broadcast, register, validateArgs } from "../router";
 
 const c = ipcContract.lsp.call;
