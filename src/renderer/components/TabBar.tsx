@@ -36,34 +36,39 @@ export function TabBar({
       >
         <RadixTabs.List className="flex items-center h-full" aria-label="Open tabs">
           {tabs.map((tab) => (
-            <RadixTabs.Trigger
-              key={tab.id}
-              value={tab.id}
-              className={cn(
-                // base layout
-                "flex items-center gap-1.5 px-3 h-full",
-                // text
-                "text-[12px] whitespace-nowrap select-none cursor-pointer",
+            // Wrapper makes the close button a sibling of the trigger so
+            // <button> is never nested inside <button> (HTML invalid; React
+            // 19 hydration warning). Same pattern as Sidebar.tsx workspace
+            // × button.
+            <div key={tab.id} className="relative flex items-center h-full">
+              <RadixTabs.Trigger
+                value={tab.id}
+                className={cn(
+                  // base layout — pr-7 reserves space for the absolute × button
+                  "flex items-center gap-1.5 pl-3 pr-7 h-full",
+                  // text
+                  "text-[12px] whitespace-nowrap select-none cursor-pointer",
 
-                // rest state
-                "text-muted-foreground hover:bg-[--color-frosted-veil] hover:text-foreground",
-                // active state: frosted veil bg + mist-border bottom indicator (1px, mist-border token)
-                "data-[state=active]:bg-[--color-frosted-veil] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[--color-mist-border]",
-                // focus
-                "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
-                // reset button defaults
-                "bg-transparent",
-              )}
-            >
-              <span>{tab.title}</span>
+                  // rest state
+                  "text-muted-foreground hover:bg-[--color-frosted-veil] hover:text-foreground",
+                  // active state: frosted veil bg + mist-border bottom indicator (1px, mist-border token)
+                  "data-[state=active]:bg-[--color-frosted-veil] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[--color-mist-border]",
+                  // focus
+                  "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
+                  // reset button defaults
+                  "bg-transparent",
+                )}
+              >
+                <span>{tab.title}</span>
+              </RadixTabs.Trigger>
 
-              {/* Close button with Tooltip */}
+              {/* Close button with Tooltip — sibling of trigger */}
               <RadixTooltip.Root>
                 <RadixTooltip.Trigger asChild>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="size-4 opacity-50 hover:opacity-100 hover:bg-[--color-frosted-veil-strong] shrink-0"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 size-4 opacity-50 hover:opacity-100 hover:bg-[--color-frosted-veil-strong] shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseTab(tab.id);
@@ -82,7 +87,7 @@ export function TabBar({
                   </RadixTooltip.Content>
                 </RadixTooltip.Portal>
               </RadixTooltip.Root>
-            </RadixTabs.Trigger>
+            </div>
           ))}
         </RadixTabs.List>
 
