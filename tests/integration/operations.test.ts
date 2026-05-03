@@ -1,8 +1,6 @@
 /**
  * Integration: split-view operations — openTab / closeTab / new helpers
  *
- * agent_id: tester
- *
  * SCOPE
  * -----
  * Verifies the cross-store coordination in src/renderer/store/operations.ts.

@@ -1,8 +1,6 @@
 /**
  * Integration: split-duplicate end-to-end verification
  *
- * agent_id: tester
- *
  * SCOPE
  * -----
  * Scenario A — splitAndDuplicate: additional coverage beyond operations.test.ts

@@ -1,8 +1,6 @@
 /**
  * Integration: layout persistence — toSnapshot round-trip + hydrate + sanitize
  *
- * agent_id: tester
- *
  * SCOPE
  * -----
  * Verifies that the layout + tabs stores can be serialized into a

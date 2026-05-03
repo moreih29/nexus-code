@@ -1,11 +1,9 @@
 /**
- * Integration: PR1 FilesPanel + FileTree + files store + tabs store + UI store
- *
- * agent_id: tester
+ * Integration: FilesPanel + FileTree + files store + tabs store + UI store
  *
  * SCOPE
  * -----
- * Six scenarios from the PR1 acceptance checklist. Each scenario is classified
+ * Six scenarios verifying the FilesPanel / FileTree integration. Each scenario is classified
  * as one of:
  *   AUTO      — fully automated; runs in bun:test with mock ipcCall
  *   PARTIAL   — the store/logic side is automated; the component / Electron /
