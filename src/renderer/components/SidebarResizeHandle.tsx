@@ -92,8 +92,8 @@ export function SidebarResizeHandle() {
       <div
         className={
           isDragging
-            ? "absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 bg-[var(--splitter-hover)]"
-            : "absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]"
+            ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
+            : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]"
         }
       />
     </div>
