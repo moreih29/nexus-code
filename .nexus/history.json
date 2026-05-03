@@ -1141,6 +1141,434 @@
           "created_at": "2026-05-03T02:36:55.201Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T06:28:26.561Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 6,
+        "topic": "좌측 사이드바 우측에 워크스페이스 파일트리 패널 추가 (가상화 + 안정성 우선)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[1] 레이아웃 통합 — 파일트리를 어디에 어떻게 붙일지 (별도 패널 vs Sidebar 확장, resize/접힘, 워크스페이스 전환과의 결합)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "레이아웃: (b) Sidebar 우측 별도 FilesPanel 권고. 책임 분리(워크스페이스 목록=전역, 트리=활성 워크스페이스 종속), 사용자 명시 의도, useUIStore에 filesPanelWidth/Collapsed 추가로 sidebarWidth 패턴 재사용. (c) WorkspacePanel 내부는 트리 인스턴스 N개 + 데이터 중복으로 과잉. (a) Sidebar 내부 통합은 god-object.",
+                "recorded_at": "2026-05-03T05:16:16.086Z",
+                "agent_id": "a8a27b22933b070f3"
+              },
+              {
+                "role": "designer",
+                "summary": "(b)+동일톤 하이브리드: bg-muted 동일 + border-r-mist-border 1px hairline. 헤더는 워크스페이스 이름을 uppercase Small Label(text-app-ui-xs, tracking-2.4px, text-stone-gray)로 표시 — Warp editorial 신호와 일치, 컨텍스트 보존. 액션 버튼(refresh/collapse-all)은 hover 시 노출. resize handle은 SidebarResizeHandle 패턴 재사용. M0 open Q: 터치 지원 여부, 헤더 액션 포함, 우클릭 메뉴.",
+                "recorded_at": "2026-05-03T05:16:21.214Z",
+                "agent_id": "a383d1df99ef1e941"
+              }
+            ],
+            "decision": "**채택**: Sidebar 우측에 별도 `FilesPanel` 컴포넌트를 추가한다. 시각적으로는 동일 `bg-muted` + `border-r-mist-border` hairline 으로 \"Sidebar의 확장처럼\" 보이게 한다. 헤더는 활성 워크스페이스 이름을 uppercase Small Label(`text-app-ui-xs`/12px, tracking 2.4px, `text-stone-gray`, px-3 py-2)로 표시 — 워크스페이스 다중 운용 시 컨텍스트 보존이 헤더 비용을 정당화한다.\n\n레이아웃: `<div flex> <Sidebar/> <FilesPanel/> <grid>{WorkspacePanel*}</grid> </div>`. Width/접힘 상태는 `useUIStore`에 `filesPanelWidth` / `filesPanelCollapsed` 추가, 기존 `sidebarWidth` 영속화 패턴(appState IPC) 그대로 재사용. resize handle 은 SidebarResizeHandle을 prop 받는 일반 `ResizeHandle`로 추출하여 두 곳이 공유.\n\n워크스페이스 미선택 시에도 패널은 표시하되 헤더 비움 + 빈 상태 메시지. 워크스페이스 전환은 트리 컴포넌트 1개 + store 캐시(treesByWorkspaceId)로 처리해 DOM 재마운트 회피.\n\n**기각**:\n- (a) 현재 Sidebar 내부 통합 — Sidebar.tsx가 워크스페이스 목록과 트리 두 책임을 떠안고 스크롤/리사이즈 충돌, 멘탈 모델 혼합. 디자인 안정성 원칙 위배.\n- (c) WorkspacePanel 내부 트리 — WorkspacePanel은 PTY 생존을 위해 lazy mount + CSS hide로 N개 상주하는 패턴. 트리는 활성 워크스페이스 1개만 보이면 충분하므로 N개 트리 인스턴스 + 데이터 중복은 과잉.\n- 두 번째 패널을 다른 톤으로 분리(b 원형) — Warp의 monochromatic + \"depth via border, not shadow\" 원칙 위배.\n\n**M0 스코프 결정 (Designer open Q 응답)**:\n- 터치 지원: M0 비포함 (macOS 데스크탑 한정, 행 24px 유지)\n- 헤더 액션 버튼(refresh/collapse-all): M0 비포함, 우클릭/단축키로 후속\n- 우클릭 컨텍스트 메뉴: M0 비포함"
+          },
+          {
+            "id": 2,
+            "title": "[2] 가상화 라이브러리 선택 — react-arborist vs flat + @tanstack/react-virtual vs headless-tree",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "@tanstack/react-virtual + 자체 flat-tree. Tailwind 자유도, 활발한 유지보수, React 19 호환(compiler opt-out 한 줄), VSCode 평탄화 패턴 그대로 이식. react-arborist는 DnD 비필수 + react-window 유지보수 중단 리스크로 기각. headless-tree는 beta로 시기상조.",
+                "recorded_at": "2026-05-03T05:16:25.049Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: `@tanstack/react-virtual` + 자체 flat-tree 구현.\n\n근거: (1) Tailwind warm-dark 토큰을 행 렌더에 그대로 적용하는 디자인 자유도가 보장되고, (2) 활발한 유지보수 + React 19 호환이 검증되며, (3) VSCode의 평탄화 IndexTreeModel 패턴을 그대로 이식 가능해 \"수만 노드 + 고정 22~24px 행\" 케이스에서 단순한 `estimateSize: () => 24`로 충분하다. React 19 + React Compiler 충돌은 해당 컴포넌트에 `\"use no memo\"` 한 줄로 우회 — 명시 risk로 task에 기록한다.\n\n**기각**:\n- `react-arborist` — 트리 전용 + 내장 가상화로 빠르나 (a) M0에 DnD 비필수라 가장 큰 이점이 사라지고, (b) 내부 react-window 유지보수 중단 리스크가 장기 부채, (c) rowHeight 고정 + 컨테이너/스크롤러 라이브러리 소유로 향후 그룹 헤더/가변 행 같은 확장이 막힘.\n- `@headless-tree/react` — beta 상태 + React Compiler 별도 entrypoint로 프로덕션 채택은 시기상조.\n- VSCode 위젯 직접 포팅 — 우리 스택(React 19 + Tailwind)에 동치 비용이 react-virtual 채택보다 크다.\n\n신규 의존성: `@tanstack/react-virtual` 1개만 추가."
+          },
+          {
+            "id": 3,
+            "title": "[3] 트리 데이터 모델 & lazy expand 상태 — 노드 모델, 평탄화 인덱싱, expand 상태 영속화 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "노드: Map&lt;absPath, TreeNode&gt;, children=string[] (경로 = 자연 unique key). Expand 상태: Set&lt;absPath&gt; Zustand. 평탄화: Zustand selector + memo (expanded 변경 시 재계산, 수만 노드도 ms 단위, 추후 incremental splice 가능). 영속화: 워크스페이스별 expanded set, SQLite (better-sqlite3 이미 사용). 워크스페이스 전환: 트리 컴포넌트 1개, store에 treesByWorkspaceId 캐시 (expand set + 로드된 디렉토리 결과). PTY 같은 long-lived 리소스 없으므로 캐시 무효화 자유.",
+                "recorded_at": "2026-05-03T05:16:31.320Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: Architect 권고 그대로.\n\n- **노드 저장**: `Map<absPath, TreeNode>`, children은 `string[]` (절대경로 ID). 평탄화/이동/갱신이 모두 Map lookup 한 번.\n- **Expand 상태**: `Set<absPath>` Zustand store. 외부 reveal API(파일 클릭→경로 펼치며 스크롤)에 필요.\n- **평탄화 인덱스**: Zustand selector + memo, expand 변경 시 전체 재계산. 수만 노드도 ms 단위라 조기 최적화 회피. 측정 후 필요 시 incremental splice 도입.\n- **워크스페이스 전환**: 트리 컴포넌트는 1개, store에 `treesByWorkspaceId`로 expand set + 로드된 디렉토리 결과 캐시. PTY 같은 long-lived 리소스가 없어 캐시 무효화 자유.\n- **영속화 범위 (M0 조정)**: 워크스페이스별 expand set만 영속화하되, **첫 PR은 메모리 only (workspaceStorage SQLite 미터치)**, 두 번째 PR에서 better-sqlite3 기반 영구 저장 추가. 이유: 첫 PR을 작게 유지(가시 가치 우선), DB 마이그레이션 복잡도를 별 PR로 분리. 사용자 기대(VSCode식 재시작 후 펼침 유지)는 두 번째 PR에서 충족.\n\n**기각**:\n- 트리 객체 중첩 모델 — 부분 invalidate(특정 디렉토리만 갱신) 어려움.\n- expand 상태를 ref/local state — reveal API 외부 호출 불가.\n- 트리를 워크스페이스별로 N개 인스턴스 마운트 — Issue #1 결정과 모순."
+          },
+          {
+            "id": 4,
+            "title": "[4] filesystem IPC 채널 설계 — readdir/stat 인터페이스, 보안 경계(워크스페이스 root 외 접근 차단), 이벤트 형식",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "채널 'fs' 신규. call: readdir({workspaceId, relPath}) → Array&lt;{name,type,size?,mtime?}&gt;, stat({workspaceId, relPath}). listen: changed({workspaceId, changes:[{relPath, kind:added|modified|deleted}]}) - 반드시 batch 형태. 보안 경계: 모든 path는 workspaceId+relPath 쌍, main에서 root 외 escape 검사(path.relative startsWith '..'). 심볼릭 링크는 lstat로 type 판정, traverse는 기본 차단. 결합: registerFsChannel(manager, watcher) 생성자 주입. M0에서 .gitignore 적용은 보류.",
+                "recorded_at": "2026-05-03T05:16:37.063Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: 신규 채널 `fs` 추가.\n\n- **위치**: `src/main/ipc/channels/fs.ts`, `ipcContract.fs` 항목 추가, `main/index.ts`에서 `registerFsChannel(workspaceManager, fileWatcher)` 호출.\n- **call 메서드**:\n  - `readdir({ workspaceId: uuid, relPath: string }) → Array<{ name, type: 'file'|'dir'|'symlink', size?: number, mtime?: string }>`\n  - `stat({ workspaceId: uuid, relPath: string }) → { type, size, mtime, isSymlink }`\n- **listen 이벤트**:\n  - `changed: { workspaceId: uuid, changes: Array<{ relPath: string, kind: 'added'|'modified'|'deleted' }> }` — **batch 형태 강제**, 단건 broadcast 금지.\n- **보안 경계 (불가침)**: 모든 path는 workspaceId + relPath 쌍. main 측에서 `WorkspaceManager.get(id).rootPath` resolve → `path.resolve(root, rel)` → `path.relative(root, abs)` 가 `..`로 시작하면 throw. 렌더러에서 절대경로를 IPC로 보내지 않는다.\n- **심볼릭 링크**: `lstat` 기반 type 판정, traverse(target follow)는 기본 차단해 root escape 방지. 후속에서 옵션화.\n- **결합 방식**: `registerFsChannel(manager: WorkspaceManager, watcher: FileWatcher)` 생성자 주입. WorkspaceManager는 root 조회 + `workspace:removed` broadcast 구독 시 watcher cleanup 트리거에만 의존, 양방향 결합 회피.\n\n**기각**:\n- 절대경로 직접 IPC — 보안 경계 흐려져 root 외 readdir 가능성 차단 어려움.\n- 워크스페이스별 채널 분기(`fs:<id>`) — 채널 폭증, 라우터/contract 패턴 깨짐.\n- M0에 `.gitignore` 적용 — 별도 이슈(#6)와 분리, 후속 옵트인."
+          },
+          {
+            "id": 5,
+            "title": "[5] 파일 워처 — 라이브러리 선택(chokidar / parcel-watcher / fs.watch), 재귀 vs lazy watch, 배치 디바운스 정책",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "chokidar + lazy(펼친 디렉토리만) watch + 300ms 디바운스 배치. macOS 단독이라 fsevents 자동 사용. 재귀 root watch는 node_modules/.git로 수만 inode → 메모리 낭비, lazy가 정답(VSCode visible-only와 일치). @parcel/watcher는 prebuild 부담(이미 node-pty/better-sqlite3 rebuild 중) 대비 효익 작음. node:fs.watch 직접은 macOS recursive 이벤트 누락 이슈로 기각. 워처 도입을 두 번째 PR로 분리 권고: 1차 = readdir+virtualize+expand, 2차 = watcher.",
+                "recorded_at": "2026-05-03T05:16:42.762Z",
+                "agent_id": "a8a27b22933b070f3"
+              }
+            ],
+            "decision": "**채택**: `chokidar` + lazy(펼친 디렉토리 only) watch + 300ms 디바운스 batch broadcast.\n\n- **라이브러리**: chokidar — macOS fsevents 자동 사용, symlink/ignore 처리 내장, 가장 검증된 채택. Architect 분석을 그대로 수용.\n- **watch 정책**: 사용자가 트리에서 expand한 디렉토리만 `watcher.add(absDir)`, collapse 시 `unwatch`. 워크스페이스 root 전체 재귀 watch 금지(node_modules/.git 등으로 메모리 폭발). VSCode visible-only 정책과 동일.\n- **배치**: 워크스페이스별 변경 버퍼 + 300ms 디바운스 후 `changed` 1회 broadcast. VSCode 500ms 보다 약간 짧게 — 체감 즉시성 향상.\n- **default ignore**: `.git`, `node_modules`, `dist`, `out`, `.DS_Store` (chokidar `ignored` option). 사용자 설정은 후속.\n- **Manager**: `src/main/filesystem/FileWatcher.ts` 신규 클래스, `WorkspaceManager`의 `workspace:removed` 이벤트 구독해 해당 워크스페이스 모든 watch 해제.\n\n**리스 분리 결정 (Lead 추가 판단)**: Architect 의 \"워처를 두 번째 PR로 분리\" 권고를 채택. 1차 PR = readdir + virtualize + lazy expand (자동 새로고침 없음 — 수동 새로고침 단축키 제공), 2차 PR = chokidar + lazy watch. 이유: (1) 1차 PR이 단위 테스트 가능한 가장 작은 슬라이스로 떨어지고, (2) chokidar 의존성 추가 + bundle/cold start 영향 측정을 별도로 수행하며, (3) 사용자가 1차 PR 사용 중 워처 부재가 결정적 페인이 되는지 검증 후 2차 진행 가능.\n\n**기각**:\n- `@parcel/watcher` — Rust 네이티브로 빠르나 prebuild 의존성 추가 + electron-rebuild 대상 늘어남. macOS 한정에서 chokidar/FSEvents 만으로 충분.\n- `node:fs.watch` 직접 — macOS recursive 옵션의 이벤트 누락/일관성 이슈로 자체 정규화 코드 = chokidar 재발명.\n- 재귀 root watch — 대형 repo에서 inode 폭발로 깨짐."
+          },
+          {
+            "id": 6,
+            "title": "[6] 필터/exclude 정책 — node_modules·.git·dotfiles·.gitignore 처리 범위 (M0 vs 후속)",
+            "status": "decided",
+            "decision": "**채택 (Lead 단독 결정 — 도메인 단순)**: M0 디폴트 hidden 정책 + 토글 단축키 비포함.\n\n- **고정 제외 패턴 (M0, 코드 상수)**: `.git`, `node_modules`, `dist`, `out`, `.DS_Store`, `.next`, `.turbo`, `.cache`, `.vscode-test`. → readdir 결과에서 main 측 필터링(렌더러로 보내지 않음).\n- **dotfile 정책 (M0)**: dotfile(이름이 `.`로 시작)은 위 고정 목록 외에는 **표시**. (사용자 본인 프로젝트의 `.env`, `.eslintrc` 등 발견 가능성 우선.) 숨김 토글 UI는 후속.\n- **`.gitignore` 파싱 (M0 비포함)**: VSCode `explorer.excludeGitIgnore`에 해당. M0에서는 보류 — 라이브러리(`ignore` 또는 자체) + 폴더별 ignore 합성 + 워처 연동까지 묶이면 별 PR 1개 이상의 복잡도. 별도 후속 이슈로 등록.\n- **사용자 커스텀 exclude**: M0 비포함. 위 고정 목록을 const로 두되 단일 위치(`src/shared/fs-defaults.ts`)에 모아 향후 사용자 설정/persistence로 확장 가능한 형태로 작성.\n\n**근거**: (a) macOS 단독 데스크탑이고 워크스페이스 root는 보통 코드 프로젝트. 위 9개 패턴 제외만으로 트리 노이즈의 90%+ 제거. (b) 사용자 설정 + .gitignore + UI 토글까지 한 번에 넣으면 M0 슬립이 깨짐. (c) 고정 목록 + 단일 const 위치는 후속 확장 마이그레이션 비용이 거의 0.\n\n**기각**: M0에 `.gitignore` 즉시 지원 — VSCode가 explorer.excludeGitIgnore를 default off로 둔 이유와 같다(파싱 비용 + 워처와의 race + 폴더별 합성 복잡도). 후속 옵트인 기능으로 분리."
+          },
+          {
+            "id": 7,
+            "title": "[7] UX 디테일 — 클릭 동작(에디터 탭 열기), hover/active 비주얼, indent guide, 아이콘 정책, 빈 상태/로딩/에러 표시",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "클릭: 단일 클릭 = editor 탭 즉시 열기(preview 제거, M0 단순화). 행: 24px 높이, mx-2 없이 full-bleed + pl-[indent], hover bg-frosted-veil-strong, selected bg-frosted-veil + border-l-mist-border. Indent: 12px/단계, indent guide 라인 없음(monochromatic 노이즈). 아이콘: 폴더 chevron-only, 파일은 빈 size-3.5 spacer (alignment), chevron text-stone-gray + 150ms rotate. 빈/로딩/에러: Sidebar 톤과 동일 center muted, 첫 200ms 무표시 후 정적 'Loading...' (스피너 X), 에러는 사용자 언어 + Retry ghost. Truncate: end truncate + title tooltip + min-w-0. focus-visible 링 명시 필요.",
+                "recorded_at": "2026-05-03T05:16:50.252Z",
+                "agent_id": "a383d1df99ef1e941"
+              }
+            ],
+            "decision": "**채택**: Designer 권고 전체 수용 + Lead 의 M0 스코프 가지치기.\n\n- **클릭**: 단일 클릭 = editor 탭 즉시 열기(=pinned). preview/double-pin 패턴 비도입 — Cmd+E 와 동일 경로(`tabs.addTab(wsId, \"editor\", { filePath, workspaceId })`). 폴더 단일 클릭 = expand/collapse 토글.\n- **행 외관**:\n  - 높이 24px, full-bleed (mx-2 없음) + `pl-[depth*12px+8px]` (chevron/spacer 정렬 후 텍스트 시작).\n  - hover: `bg-frosted-veil-strong`, selected: `bg-frosted-veil` + `border-l-2 border-l-mist-border` (Sidebar 일관성).\n  - focus-visible: `focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset` (Designer 명시 조건).\n- **Indent**: 12px / 단계, indent guide 라인 미도입 (monochromatic noise 회피).\n- **아이콘**: 폴더 chevron-only (size-3.5, text-stone-gray, 150ms ease-out rotate), 파일은 같은 size 빈 spacer로 정렬. 컬러풀 파일 아이콘 라이브러리 미도입 — 디자인 시스템 정면 위배.\n- **빈/로딩/에러**:\n  - 워크스페이스 미선택: \"Select a workspace to browse files.\" center, py-6, `text-app-ui-sm text-muted-foreground`.\n  - 빈 디렉토리: \"This folder is empty.\" 동일 톤.\n  - readdir 실패: \"Couldn't read this folder.\" + 사용자 언어 보조 줄(ENOENT/EACCES 노출 금지) + ghost `Retry` 텍스트 버튼.\n  - 로딩: 첫 200ms 무표시 → 그 이후 정적 \"Loading...\" (스피너 X, prefers-reduced-motion 자동 준수).\n- **Truncate**: end truncate + `title={node.name}` tooltip + `min-w-0` (현 Sidebar 일관).\n- **a11y 검증**: Mist Border가 dark `bg-muted` 위 1px hairline으로 contrast 충족하는지 구현 시 시각 검증 (Designer 조건).\n\n**M0 비포함 (Issue #1 결정과 짝)**:\n- 우클릭 컨텍스트 메뉴 (Reveal in Finder, Copy path 등)\n- 헤더 액션 버튼 (refresh/collapse-all)\n- 인라인 리네임/생성/DnD\n- Cut/Copy/Paste 키바인딩\n\n**기각**: VSCode 식 single-click=preview / double-click=pinned — M0 단순화 원칙 위배, italic/회색점/auto-replace 등 미묘한 신호 학습 비용. 사용자 피드백으로 \"탭이 너무 빨리 쌓인다\" 나오면 그때 도입."
+          }
+        ],
+        "research_summary": "\n[기존 코드 (Explore)]\n- App.tsx: TitleBar + (Sidebar | grid(WorkspacePanel*)) 구조. Sidebar는 워크스페이스 목록 패널 (resize handle 보유, useUIStore.sidebarWidth 영속화).\n- WorkspacePanel: workspace 별로 lazy mount + CSS hidden 유지로 PTY 생존. tabs는 byWorkspace map.\n- IPC: 중앙 router (`ipc:call` / broadcast `ipc:event`), Zod 검증, ipcContract에서 채널/스키마 선언. 채널은 `src/main/ipc/channels/*` (workspace, dialog, appState 등).\n- 기존 fs 사용: node:fs sync API (storage 모듈에서). 파일 워처 의존성 없음.\n- Zustand 영속화 패턴: ipcCall(\"appState\",\"get/set\", ...) + hydrate.\n- 기존 클릭→파일 열기는 Cmd+E 핫키로 dialog→tabs.addTab(\"editor\"). 파일트리 클릭과 일관 처리 가능.\n\n[VSCode 패턴 (references/vscode)]\n- ExplorerItem + AsyncDataTree: lazy children resolve, _isDirectoryResolved 플래그.\n- 가상화: IndexTreeModel + IListVirtualDelegate (고정 22px), 평탄화 + viewport 인덱스 재계산.\n- 워처: IFileService.onDidFilesChange + 500ms RunOnceScheduler 배치, 영향 노드만 갱신.\n- 필터: FilesFilter + CachedParsedExpression (files.exclude glob), TernarySearchTree로 .gitignore 폴더별 캐시.\n- 인라인 편집/DnD/컨텍스트 메뉴 분리.\n\n[가상화 라이브러리 조사 (researcher)]\n- react-arborist 3.5.0 — 트리 전용, 내장 react-window. rowHeight 고정 제약, react-window 유지보수 중단 리스크.\n- @tanstack/react-virtual — 트리 미지원이지만 활발 유지, 동적 높이 measureElement, React 19 호환 (compiler opt-out 필요).\n- @headless-tree/react — beta, React Compiler 별도 entrypoint.\n- 결론: 수만 노드 + 디자인 자유도 중시 + Tailwind 커스텀 행 → flat + @tanstack/react-virtual 조합이 안전. DnD 1순위면 react-arborist.\n\n[디자인 컨텍스트]\n- Warp 영감 warm dark, 거의 monochromatic. Sidebar는 bg-muted, hover bg-frosted-veil-strong, active bg-frosted-veil + border-l mist-border.\n- 행 높이 22~24px, indent 8~12px, 트리 행은 button + truncate 패턴 일관성 유지.\n",
+        "created_at": "2026-05-03T05:13:14.548Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[PR1-01] shared 타입 + fs-defaults 상수 추가",
+          "status": "completed",
+          "context": "파일트리 IPC/렌더러 양쪽이 공유할 타입과 hidden 패턴 상수의 단일 위치. 후속 사용자 설정/.gitignore 확장 시 이 파일만 마이그레이션하면 되도록 분리. 작업 디렉토리: /Users/kih/workspaces/areas/nexus-code",
+          "acceptance": "- src/shared/types/fs.ts 생성, Zod 스키마 + TS 타입 export\\n- src/shared/fs-defaults.ts 생성, HIDDEN_NAMES Set + isHiddenName 함수\\n- src/shared/types/index.ts 에 fs 타입 re-export\\n- bun run typecheck 통과",
+          "approach": "신규 파일 `src/shared/types/fs.ts` 에 `DirEntry`, `FsEntryType('file'|'dir'|'symlink')`, `FsChangeKind('added'|'modified'|'deleted')`, `FsChange` Zod 스키마 + 타입 export. 신규 `src/shared/fs-defaults.ts` 에 `HIDDEN_NAMES = new Set(['.git','node_modules','dist','out','.DS_Store','.next','.turbo','.cache','.vscode-test'])` const 와 `isHiddenName(name): boolean` 함수. types/index.ts barrel 에 export 추가.",
+          "risk": "없음 (신규 파일만, 기존 코드 미영향)",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab435599d1c7ba764",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:19:42.034Z"
+        },
+        {
+          "id": 2,
+          "title": "[PR1-02] ipcContract 에 fs 채널 등록 (call: readdir/stat)",
+          "status": "completed",
+          "context": "신규 `fs` 채널 schema 등록. PR1 에서는 listen 없이 call 만 — 워처는 PR2에서 추가.",
+          "acceptance": "- ipcContract.fs 추가, Zod 스키마 정의\\n- typecheck 통과 (renderer/main 양쪽)\\n- 기존 채널 시그니처 변화 없음 (회귀 0)",
+          "approach": "`src/shared/ipc-contract.ts` 의 `ipcContract` 객체에 `fs:{ call:{ readdir, stat }, listen:{} }` 항목 추가. readdir args = `{workspaceId: z.string().uuid(), relPath: z.string()}`, result = `z.array(DirEntrySchema)`. stat args 동일, result = `z.object({type, size, mtime, isSymlink})`. shared/types/fs.ts 의 스키마 import 사용.",
+          "risk": "contract 변경은 양쪽 빌드 영향 — typecheck 게이트로 잡힘",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9c0e37e38469e2f7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:19:48.681Z"
+        },
+        {
+          "id": 3,
+          "title": "[PR1-03] main 측 fs 채널 구현 + root escape 보안 경계",
+          "status": "completed",
+          "context": "readdir/stat 핸들러. **보안 critical**: workspaceId+relPath → workspace.rootPath resolve → path.relative(root, abs).startsWith('..') 면 throw. HIDDEN_NAMES 필터를 main 측에서 적용해 렌더러로 누설 안 함.",
+          "acceptance": "- src/main/ipc/channels/fs.ts 생성, registerFsChannel export\\n- main/index.ts 에 등록 호출 추가 (workspace 채널 register 직후)\\n- bun run typecheck 통과\\n- workspaceId 미존재 시 throw 'workspace not found'\\n- relPath 가 root escape 시도 시 throw 'path escapes workspace root'\\n- HIDDEN_NAMES 의 항목은 readdir 결과에 포함되지 않음",
+          "approach": "신규 파일 `src/main/ipc/channels/fs.ts`. 구조:\\n```\\nexport function registerFsChannel(manager: WorkspaceManager) {\\n  function resolveSafe(workspaceId, relPath): string\\n  register('fs', { call: { readdir, stat }, listen: {} })\\n}\\n```\\n- `resolveSafe`: `manager.list().find(w=>w.id===id)` → throw if not found → `path.resolve(root, relPath || '.')` → `path.relative(root, abs)` 가 빈 문자열/'.'/'..' 검사 → throw on '..'. 결과 절대경로 반환.\\n- `readdir`: `fs.promises.readdir(absPath, { withFileTypes: true })` → HIDDEN_NAMES 필터 → 각 entry `{name, type: dirent.isDirectory()?'dir':dirent.isSymbolicLink()?'symlink':'file'}`. size/mtime 은 비싼 추가 stat 회피 — 옵션화는 후속.\\n- `stat`: `fs.promises.lstat(abs)` → type/size/mtime/isSymlink. 심볼릭 링크 traverse 안 함.\\n- 에러: ENOENT/EACCES → throw 그대로 (router 에서 사용자 표시는 렌더러 책임)",
+          "risk": "**HIGH**: 보안 경계 — escape 검사 누락 시 임의 파일시스템 readdir 가능. 단위 테스트 필수.",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a53dc0e0475959cdb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:02.208Z"
+        },
+        {
+          "id": 4,
+          "title": "[PR1-04] tester: fs 채널 boundary + filter 단위 테스트",
+          "status": "completed",
+          "context": "PR1-03의 보안 critical 부분을 테스트로 가드. 보안 회귀 검출이 핵심 목적.",
+          "acceptance": "- bun test tests/unit/main/fs-channel.test.ts 통과 (9 케이스 all green)\\n- escape 케이스 3가지 모두 throw 검증",
+          "approach": "`tests/unit/main/fs-channel.test.ts` 신규. tmp 디렉토리에 가짜 워크스페이스 root 생성, WorkspaceManager mock 또는 in-memory 인스턴스 사용. 테스트 케이스:\\n1. readdir({workspaceId, relPath:'.'}) 정상\\n2. readdir({workspaceId, relPath:'subdir'}) 정상\\n3. readdir({workspaceId, relPath:'../etc'}) → throw\\n4. readdir({workspaceId, relPath:'/absolute/path'}) → throw (path.resolve 결과가 root 밖)\\n5. readdir({workspaceId, relPath:'sub/../../etc'}) → throw (정규화 후 escape)\\n6. workspaceId 미존재 → throw\\n7. 심볼릭 링크가 root 밖을 가리켜도 type 만 'symlink'로 반환, follow 안 함\\n8. HIDDEN_NAMES 항목(.git, node_modules)이 readdir 결과에서 제외됨\\n9. dotfile(.env)은 결과에 포함됨",
+          "risk": "tmp 디렉토리 cleanup 누락 시 CI noise — afterEach 로 보장",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a47a6a1d79bdb8ee9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:10.693Z"
+        },
+        {
+          "id": 5,
+          "title": "[PR1-05] useUIStore 확장: filesPanelWidth / filesPanelCollapsed + appState 스키마",
+          "status": "completed",
+          "context": "FilesPanel 의 width/접힘 상태를 sidebarWidth 와 동일 패턴으로 영속화. AppStateSchema 에 두 필드 추가, ui store 에 setter, App.tsx hydrate 호출 확장.",
+          "acceptance": "- AppStateSchema 에 두 필드 추가, Zod parse 통과\\n- useUIStore 에 두 필드 + setter, set 호출 시 ipcCall('appState','set',...) 트리거\\n- typecheck 통과, 기존 sidebarWidth 동작 회귀 없음",
+          "approach": "- `src/shared/types/appState.ts` AppStateSchema 에 `filesPanelWidth?: number`, `filesPanelCollapsed?: boolean` 추가 (optional, default 240/false)\\n- `src/renderer/store/ui.ts` 에 동일 필드 + setter (`setFilesPanelWidth`, `toggleFilesPanel`) + hydrate 시 두 값 받도록 시그니처 확장\\n- `src/main/storage/migrations.ts` 만약 존재하면 새 필드 default 부여 (없어도 z.optional 이라 무시)\\n- `src/renderer/App.tsx` boot 의 hydrate 호출 갱신 — 단, App.tsx 변경은 PR1-13 통합 단계에서 합쳐도 OK",
+          "risk": "기존 저장된 appState 가 새 필드 없는 상태 — Zod optional 로 자동 backward-compatible",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8d5119884d87887a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:19.918Z"
+        },
+        {
+          "id": 6,
+          "title": "[PR1-06] ResizeHandle 일반화 + SidebarResizeHandle 리팩터",
+          "status": "completed",
+          "context": "FilesPanel 도 resize handle 이 필요. SidebarResizeHandle 로직을 일반 컴포넌트로 추출해 두 곳이 공유. 단일 파일 작은 리팩터 → Lead 직접 수행.",
+          "acceptance": "- src/renderer/components/ResizeHandle.tsx 생성\\n- SidebarResizeHandle 사용처 (Sidebar.tsx) 동작 변화 없음 (수동: dev 모드에서 사이드바 리사이즈 정상)\\n- typecheck/lint 통과",
+          "approach": "`src/renderer/components/ResizeHandle.tsx` 신규: props = `{ side: 'right'|'left', minWidth, maxWidth, onResize(width:number), value:number }`. 기존 SidebarResizeHandle 의 mousedown/mousemove/mouseup + cursor 처리 로직 그대로 이식. SidebarResizeHandle 은 `useUIStore.sidebarWidth` 를 props 로 wrap 하는 얇은 어댑터 (혹은 직접 ResizeHandle 사용으로 교체). 시각/동작 변화 없음.",
+          "risk": "리사이즈 동작 회귀 — 수동 검증 필요 (자동 테스트는 PR1-08의 통합 검증에 묶음)",
+          "plan_issue": 1,
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:28.538Z"
+        },
+        {
+          "id": 7,
+          "title": "[PR1-07] renderer 파일트리 store: 노드 Map + expand Set + 평탄화 selector",
+          "status": "completed",
+          "context": "Issue #3 결정 그대로. treesByWorkspaceId 캐시 (M0 메모리 only). 외부 reveal API 도 함께 정의.",
+          "acceptance": "- src/renderer/store/files.ts 생성, 위 actions/selector export\\n- toggleExpand 가 lazy loadChildren 트리거\\n- selectFlat 결과가 expanded 상태에 따라 평탄화 배열 반환\\n- typecheck 통과",
+          "approach": "신규 `src/renderer/store/files.ts`. 형태:\\n```\\ntype TreeNode = { absPath: string; name: string; type: 'file'|'dir'|'symlink'; childrenLoaded: boolean; children: string[] }\\ntype WorkspaceTree = { nodes: Map<string, TreeNode>; expanded: Set<string>; loading: Set<string>; errors: Map<string, string> }\\nstate: { trees: Map<workspaceId, WorkspaceTree> }\\nactions:\\n  ensureRoot(workspaceId, rootAbsPath)\\n  toggleExpand(workspaceId, absPath) — if dir & !childrenLoaded → loadChildren\\n  loadChildren(workspaceId, absPath) — ipcCall('fs','readdir', {workspaceId, relPath}) → Map insert\\n  reveal(workspaceId, absPath) — ancestor 모두 expand 후 await loadChildren\\n  refresh(workspaceId, absPath?) — invalidate childrenLoaded → reload\\nselector: selectFlat(workspaceId): Array<{node, depth}>\\n```\\n- workspace-rel 로 변환은 store 내부에서 처리 (rootAbsPath 보유)\\n- selector 는 useShallow + useMemo 로 expand/nodes 변경 시만 재계산\\n- 'use no memo' 디렉티브를 이 파일 또는 사용 컴포넌트에 (React Compiler opt-out)",
+          "risk": "selector 재계산 비용은 첫 측정 후 incremental splice 도입 여부 판단. 수만 노드도 ms 단위 예상.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a4ad45eb70fcfbcbe",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:40.893Z"
+        },
+        {
+          "id": 8,
+          "title": "[PR1-08] @tanstack/react-virtual 의존성 추가",
+          "status": "completed",
+          "context": "단순 의존성 추가 후 PR1-09에서 사용. 따로 분리하는 이유 = lockfile diff 와 코드 변경 PR 리뷰 분리.",
+          "acceptance": "- package.json/bun.lock 에 @tanstack/react-virtual 추가\\n- bun run build 통과\\n- 번들 크기 변화 measurement comment (이전 vs 이후, kb)",
+          "approach": "`bun add @tanstack/react-virtual`. tsconfig.renderer.json 에 별도 path mapping 불필요. 번들 크기 영향 측정 (build 후 out/renderer 사이즈 체크 — 정량 기록).",
+          "risk": "없음",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:46.342Z"
+        },
+        {
+          "id": 9,
+          "title": "[PR1-09] FileTreeRow 컴포넌트 (행 렌더 + 클릭 + a11y)",
+          "status": "completed",
+          "context": "Issue #7 결정 그대로. full-bleed 24px 행, chevron-only 폴더, focus-visible ring, end truncate + tooltip.",
+          "acceptance": "- src/renderer/components/FileTreeRow.tsx 생성\\n- Storybook/screenshot 없음, 시각 검증은 PR1-12 통합 후\\n- typecheck/lint 통과\\n- a11y: role=treeitem, aria-level, aria-expanded 정확",
+          "approach": "신규 `src/renderer/components/FileTreeRow.tsx`. props = `{node, depth, isExpanded, isSelected, onToggle, onClick}`. 마크업:\\n```\\n<button role=treeitem aria-level={depth+1} aria-expanded={dir?isExpanded:undefined}\\n  className=cn(\\n    'flex items-center h-6 w-full text-left cursor-pointer select-none',\\n    'border-l-2 border-l-transparent',\\n    'hover:bg-frosted-veil-strong',\\n    'focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset',\\n    isSelected && 'bg-frosted-veil border-l-mist-border text-foreground'\\n  )\\n  style={{ paddingLeft: depth*12 + 8 }}\\n  onClick={isDir ? onToggle : onClick}\\n  title={node.name}\\n>\\n  {isDir\\n    ? <ChevronRightIcon className=cn('size-3.5 shrink-0 text-stone-gray transition-transform duration-150 ease-out', isExpanded && 'rotate-90') />\\n    : <span className='size-3.5 shrink-0' aria-hidden />}\\n  <span className='ml-1 truncate min-w-0 text-app-body'>{node.name}</span>\\n</button>\\n```\\n- ChevronRightIcon 은 인라인 SVG (radix-ui 의존 회피, 단순)\\n- 'use no memo' 컴파일러 opt-out (react-virtual 호스트 컴포넌트에서)\\n- TS strict: node 타입은 store TreeNode",
+          "risk": "디자인 토큰 누락 — bg-frosted-veil-strong / border-l-mist-border / text-stone-gray 가 기존 design-tokens.ts 에 정의되어 있는지 PR1-09 시작 시 확인. 없으면 PR1-09 안에서 token 추가.",
+          "plan_issue": 7,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9fb7624575404d3a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:20:59.010Z"
+        },
+        {
+          "id": 10,
+          "title": "[PR1-10] FileTree 컴포넌트 (react-virtual 호스트)",
+          "status": "completed",
+          "context": "평탄화 배열을 useVirtualizer 로 가상 렌더. 키보드 네비게이션은 기본만 (↑↓ Enter/Space 토글, ←→ collapse/expand) — M0 최소 a11y.",
+          "acceptance": "- src/renderer/components/FileTree.tsx 생성\\n- 키보드 ↑↓ 이동, ←→ collapse/expand, Enter 탭 열기 동작\\n- 빈/로딩/에러 분기 모두 렌더 가능 (수동 검증)\\n- typecheck/lint 통과",
+          "approach": "신규 `src/renderer/components/FileTree.tsx`. props = `{workspaceId, rootAbsPath}`.\\n- useFilesStore selector 로 flat array 구독\\n- useVirtualizer({count, getScrollElement, estimateSize: () => 24, overscan: 10})\\n- div ref + role=tree + tabIndex=0\\n- onKeyDown 핸들러: ArrowUp/Down → activeIndex 이동 + scrollToIndex, ArrowRight → expand if dir, ArrowLeft → collapse 또는 부모로, Enter → onClick (파일이면 탭 열기 호출)\\n- 빈/로딩/에러 렌더 분기:\\n  - flat.length===0 && rootLoading → 빈 div (200ms 후 'Loading...')\\n  - flat.length===0 && rootError → 'Couldn\\\\'t read this folder.' + Retry\\n  - flat.length===0 && rootLoaded → 'This folder is empty.'\\n  - else → virtualizer items map → FileTreeRow\\n- 200ms 로딩 지연: useState + setTimeout cleanup",
+          "risk": "react-virtual + React 19 compiler 경고/오작동 — 'use no memo' 명시. measureElement 미사용(고정 24px) 이라 issue #743 회피.",
+          "plan_issue": 2,
+          "deps": [
+            7,
+            8,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a6d37e7f09a495b65",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:10.295Z"
+        },
+        {
+          "id": 11,
+          "title": "[PR1-11] FilesPanel 컨테이너 (헤더 + 트리 + resize)",
+          "status": "completed",
+          "context": "Issue #1 결정 그대로. bg-muted + border-r-mist-border + uppercase 워크스페이스 헤더. 워크스페이스 미선택 시 빈 상태.",
+          "acceptance": "- src/renderer/components/FilesPanel.tsx 생성\\n- 워크스페이스 선택 시 헤더 + 트리, 미선택 시 빈 상태\\n- resize 동작 (160~600px)\\n- typecheck/lint 통과",
+          "approach": "신규 `src/renderer/components/FilesPanel.tsx`. 구조:\\n```\\n<aside className='relative shrink-0 bg-muted border-r border-r-mist-border flex flex-col' style={{ width: filesPanelWidth }}>\\n  {activeWorkspace ? (\\n    <>\\n      <div className='px-3 pt-3 pb-2 text-app-ui-xs uppercase tracking-[2.4px] text-stone-gray select-none truncate'>{activeWorkspace.name}</div>\\n      <div className='flex-1 min-h-0 overflow-hidden'>\\n        <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />\\n      </div>\\n    </>\\n  ) : (\\n    <div className='px-4 py-6 text-center text-app-ui-sm text-muted-foreground'>Select a workspace<br/>to browse files.</div>\\n  )}\\n  <ResizeHandle side='right' value={filesPanelWidth} minWidth={160} maxWidth={600} onResize={setFilesPanelWidth} />\\n</aside>\\n```\\n- 워크스페이스 변경 시 store ensureRoot 호출 (effect)\\n- collapsed 상태일 때는 width 0 + 토글 버튼 — M0 비포함 (Lead 결정), 단 store 필드는 둠.",
+          "risk": "디자인 토큰 (text-app-ui-xs, text-stone-gray) 미존재 가능 — design-tokens.ts 점검 필요",
+          "plan_issue": 1,
+          "deps": [
+            5,
+            6,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afd3ad6470bc7c748",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:19.509Z"
+        },
+        {
+          "id": 12,
+          "title": "[PR1-12] App.tsx 통합 + Cmd+R 수동 새로고침",
+          "status": "completed",
+          "context": "FilesPanel 을 App 레이아웃에 끼워 넣고, 워처 부재(PR1)를 보완할 수동 새로고침 단축키 등록.",
+          "acceptance": "- App.tsx 레이아웃에 FilesPanel 추가, dev 모드에서 좌측 두번째 패널 가시\\n- Cmd+R 시 활성 워크스페이스 트리 재로드 (페이지 reload 차단)\\n- 기존 워크스페이스 전환/PTY/에디터 탭 회귀 없음 (수동 검증)\\n- typecheck/lint 통과",
+          "approach": "- `src/renderer/App.tsx`: `<Sidebar/>` 와 `<grid>` 사이에 `<FilesPanel/>` 삽입\\n- boot 의 ipcCall('appState','get') 후 hydrate 호출에 filesPanelWidth/Collapsed 전달\\n- onKeyDown 글로벌에 Cmd+R: e.preventDefault() + useFilesStore.getState().refresh(activeWorkspaceId) — '소프트 새로고침' (트리만 재로드, 페이지 reload 아님)\\n- 워크스페이스 클릭 시 FilesPanel 자동 트리 마운트 (FilesPanel 내부 effect)",
+          "risk": "**HIGH**: Cmd+R 글로벌 캡처가 기존 동작(electron 기본 reload)을 막아야 함 — preventDefault 누락 시 페이지 reload 로 PTY 끊김. 통합 테스트 필수.",
+          "plan_issue": 1,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a2b1fde73b4e4fda3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:29.529Z"
+        },
+        {
+          "id": 13,
+          "title": "[PR1-13] tester: 통합 시나리오 검증 (트리 클릭→탭 열기, 워크스페이스 전환, Cmd+R)",
+          "status": "completed",
+          "context": "PR1 의 시나리오 단위 통합 검증. 단위 테스트 외 — 가능하면 integration test, 어렵다면 수동 체크리스트.",
+          "acceptance": "- 6 시나리오 모두 PASS (integration 또는 RUNBOOK 형태)\\n- Cmd+R 후 PTY 생존 확인\\n- bun test 의 integration suite 추가 시 green",
+          "approach": "우선 `tests/integration/files-panel.test.ts` 작성 시도. tests/setup 패턴(기존 integration 테스트 살펴) 따라 ipc 모킹 + Zustand store 직접 호출. 어려우면 RUNBOOK 식 수동 체크리스트로 결과 보고.\\n시나리오:\\n1. 워크스페이스 선택 → FilesPanel 헤더 = ws.name, 트리 root readdir 호출\\n2. 폴더 클릭 → expand + children 로드\\n3. 파일 클릭 → tabs.addTab('editor', ...) 호출 + EditorView 마운트\\n4. 워크스페이스 전환 → 동일 트리 컴포넌트 + 새 store entry, 이전 워크스페이스 PTY 생존 (CSS hide 회귀)\\n5. Cmd+R → 활성 트리 invalidate + 재 readdir, 페이지 reload 안 됨\\n6. resize handle drag → filesPanelWidth 갱신, appState 영속",
+          "risk": "integration 환경에서 ipc/electron 모킹 난도 — RUNBOOK fallback 명시",
+          "plan_issue": 1,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a34ae7ee490ca00fb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:39.710Z"
+        },
+        {
+          "id": 14,
+          "title": "[PR2-01] chokidar 의존성 + FileWatcher 클래스 (lazy watch + 300ms 배치)",
+          "status": "completed",
+          "context": "PR1 의 manual refresh 보완. 사용자가 expand 한 디렉토리만 watch, 변경은 워크스페이스별 300ms 디바운스 후 batch broadcast.",
+          "acceptance": "- src/main/filesystem/FileWatcher.ts 생성\\n- chokidar 의존성 추가\\n- bun run build 통과 (electron-rebuild 영향 점검)\\n- watch/unwatch API 호출 시 fs 이벤트 broadcast 됨 (수동 또는 단위 테스트)",
+          "approach": "- `bun add chokidar`\\n- 신규 `src/main/filesystem/FileWatcher.ts`:\\n  - `watch(workspaceId, absDir)` / `unwatch(workspaceId, absDir)` API\\n  - 워크스페이스별 chokidar 인스턴스 1개 (`new chokidar.FSWatcher({ ignored: [HIDDEN_NAMES patterns], ignoreInitial: true, awaitWriteFinish:false, depth: 0 (per-add)})` — 단, depth:0 은 옵션화 검토. 핵심: `non-recursive add` 동작.\\n  - 변경 이벤트 → 워크스페이스 버퍼 push → 300ms 디바운스 후 broadcast `fs.changed { workspaceId, changes:[...] }`\\n  - `disposeWorkspace(workspaceId)` — workspace removed broadcast 구독\\n- WorkspaceManager.broadcast 가 'workspace.removed' 발화 → FileWatcher 가 해당 ws 모두 unwatch\\n- main/index.ts 에 `const fileWatcher = new FileWatcher(broadcast); registerFsChannel(workspaceManager, fileWatcher)`",
+          "risk": "chokidar non-recursive 옵션 동작이 macOS fsevents 와 어떻게 결합되는지 확인 필요 (재귀로 동작하면 의도 위배). 측정 필수.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aaf65dc1701ed9dfe",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:21:51.762Z"
+        },
+        {
+          "id": 15,
+          "title": "[PR2-02] fs 채널에 listen.changed 추가 + files store 가 변경 이벤트 소비",
+          "status": "completed",
+          "context": "PR2-01 의 broadcast 를 ipcContract 에 정식 등록 + 렌더러 store 가 구독해 트리 갱신.",
+          "acceptance": "- ipcContract.fs.listen.changed 추가\\n- ipcContract.fs.call.watch / unwatch 추가\\n- files store 가 changed 이벤트로 트리 갱신\\n- 외부 도구로 파일 추가/삭제 시 트리 즉시 반영 (수동 검증)",
+          "approach": "- `src/shared/ipc-contract.ts`: `fs.listen.changed: listen(FsChangedSchema)` 추가 (FsChange 타입은 PR1-01 에서 정의)\\n- `src/renderer/store/files.ts`: 모듈 로드 시 `ipcListen('fs','changed', handler)` — handler 는 workspace tree 의 영향 노드(부모 디렉토리) 만 invalidate + 자동 재로드 (이미 expanded 면 readdir 재호출, 아니면 mark stale 만)\\n- 토글 expand 시 watch 호출, collapse 시 unwatch — files store 가 main 측 watcher API 호출 (`ipcCall('fs','watch'/'unwatch', ...)` — 신규 method 2개 추가 필요. 또는 expand 신호를 main 이 알 수 없으므로 명시 method 추가가 자연스러움)",
+          "risk": "expand → watch IPC 추가 메서드는 PR2 에서 contract 변경 — 호환성 점검",
+          "plan_issue": 5,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa5ada132c63d32af",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:02.821Z"
+        },
+        {
+          "id": 16,
+          "title": "[PR2-03] expand 상태 SQLite 영속화 (워크스페이스별)",
+          "status": "completed",
+          "context": "Issue #3 의 후속 슬라이스. better-sqlite3 기반 workspaceStorage 에 expanded 경로 set 저장.",
+          "acceptance": "- workspaceStorage 마이그레이션 통과 (기존 DB backward-compatible)\\n- expand 상태가 앱 재시작 후 복원\\n- 워크스페이스 삭제 시 해당 데이터 정리",
+          "approach": "- `src/main/storage/workspaceStorage.ts` 에 expanded paths 테이블/컬럼 추가 (마이그레이션). 형태: 워크스페이스별 string[] 또는 별도 테이블.\\n- ipc 또는 workspaceManager 에 getExpanded/setExpanded API\\n- files store 의 toggleExpand 가 디바운스 후 setExpanded 호출\\n- ensureRoot 시 getExpanded → store 에 hydrate",
+          "risk": "DB 마이그레이션 회귀 — 단위 테스트로 가드",
+          "plan_issue": 3,
+          "deps": [
+            15
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3dc6eeb4e9178ca0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:09.471Z"
+        },
+        {
+          "id": 17,
+          "title": "[PR2-04] tester: 워처 동작 + 영속화 통합 검증",
+          "status": "completed",
+          "context": "PR2 통합 검증.",
+          "acceptance": "- 6 시나리오 모두 PASS\\n- 메모리 leak 없음 (수동: dev tools heap snapshot, 워크스페이스 add/remove 반복)",
+          "approach": "시나리오:\\n1. 폴더 expand → main 측 watch 등록 확인\\n2. 외부 파일 생성 → 300ms 후 트리에 반영\\n3. 폴더 collapse → unwatch\\n4. 워크스페이스 삭제 → 해당 watcher 모두 dispose\\n5. 앱 재시작 → 이전 expand 상태 복원\\n6. 대량 변경(npm install 흉내) → 디바운스로 1회만 readdir, UI 멈춤 없음",
+          "risk": "대량 변경 시나리오는 실제 npm install 로 검증 권장 — CI 어려우므로 RUNBOOK",
+          "plan_issue": 5,
+          "deps": [
+            15,
+            16
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a28c79eb0de2ec698",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T05:22:15.253Z"
+        }
+      ]
     }
   ]
 }

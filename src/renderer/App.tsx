@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { FilesPanel } from "./components/FilesPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ipcCall } from "./ipc/client";
 import { useActiveStore } from "./store/active";
+import { useFilesStore } from "./store/files";
 import { useTabsStore } from "./store/tabs";
 import { useUIStore } from "./store/ui";
 import { useWorkspacesStore } from "./store/workspaces";
@@ -17,10 +19,14 @@ export function App() {
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
 
-  // Boot: hydrate UI state (sidebar width) from persisted app state.
+  // Boot: hydrate UI state (sidebar width, files panel) from persisted app state.
   useEffect(() => {
     ipcCall("appState", "get", undefined).then((state) => {
-      useUIStore.getState().hydrate(state.sidebarWidth);
+      useUIStore.getState().hydrate({
+        sidebarWidth: state.sidebarWidth,
+        filesPanelWidth: state.filesPanelWidth,
+        filesPanelCollapsed: state.filesPanelCollapsed,
+      });
     });
   }, []);
 
@@ -114,8 +120,21 @@ export function App() {
   );
 
   // Cmd+E: open file picker and add an EditorView tab to the active workspace.
+  // Cmd+R: soft-refresh the active workspace file tree (prevents page reload).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.key === "r" && !e.shiftKey) {
+        e.preventDefault();
+        const wsId = useActiveStore.getState().activeWorkspaceId;
+        if (wsId) {
+          useFilesStore
+            .getState()
+            .refresh(wsId)
+            .catch(() => {});
+        }
+        return;
+      }
+
       if (e.metaKey && e.key === "e") {
         e.preventDefault();
         const wsId = useActiveStore.getState().activeWorkspaceId;
@@ -157,6 +176,7 @@ export function App() {
           onAddWorkspace={handleAddWorkspace}
           onRemoveWorkspace={handleRemoveWorkspace}
         />
+        <FilesPanel />
         <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
           {workspaces.length === 0 && (
             <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">

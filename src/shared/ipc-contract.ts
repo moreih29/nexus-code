@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppStateSchema } from "./types/appState";
 import { ColorToneSchema } from "./types/colorTone";
+import { DirEntrySchema, FsChangedEventSchema, FsStatSchema } from "./types/fs";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
 
@@ -223,6 +224,35 @@ export const ipcContract = {
       set: call(AppStateSchema.partial(), z.void()),
     },
     listen: {},
+  },
+
+  fs: {
+    call: {
+      readdir: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
+        z.array(DirEntrySchema),
+      ),
+      stat: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), FsStatSchema),
+      watch: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
+        z.void(),
+      ),
+      unwatch: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
+        z.void(),
+      ),
+      getExpanded: call(
+        z.object({ workspaceId: z.string().uuid() }),
+        z.object({ relPaths: z.array(z.string()) }),
+      ),
+      setExpanded: call(
+        z.object({ workspaceId: z.string().uuid(), relPaths: z.array(z.string()) }),
+        z.void(),
+      ),
+    },
+    listen: {
+      changed: listen(FsChangedEventSchema),
+    },
   },
 } as const;
 

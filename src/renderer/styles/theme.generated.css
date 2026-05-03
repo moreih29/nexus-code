@@ -6,6 +6,8 @@
   --color-muted-purple: oklch(0.5067 0.0082 304.11);
   --color-dark-charcoal: oklch(0.3904 0 0);
   --color-bg-canvas: #1a1917;
+  --color-ash-gray-hex: #afaeac;
+  --color-muted-surface-hex: #252422;
   --color-frosted-veil: rgba(255, 255, 255, 0.04);
   --color-frosted-veil-strong: rgba(255, 255, 255, 0.1);
   --color-frosted-tag: rgba(255, 255, 255, 0.16);
@@ -111,6 +113,10 @@
   --text-app-ui-sm--line-height: 1.5;
   --text-app-ui-sm--letter-spacing: 0px;
   --text-app-ui-sm--font-weight: 400;
+  --text-app-ui-xs: 12px;
+  --text-app-ui-xs--line-height: 1.35;
+  --text-app-ui-xs--letter-spacing: 2.4px;
+  --text-app-ui-xs--font-weight: 400;
   --space-1: 1px;
   --space-4: 4px;
   --space-5: 5px;

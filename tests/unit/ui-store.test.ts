@@ -56,23 +56,23 @@ describe("useUIStore", () => {
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
   });
 
-  it("2. hydrate(undefined) keeps DEFAULT", () => {
-    useUIStore.getState().hydrate(undefined);
+  it("2. hydrate({}) keeps DEFAULT", () => {
+    useUIStore.getState().hydrate({});
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
   });
 
-  it("3. hydrate(320) sets width to 320", () => {
-    useUIStore.getState().hydrate(320);
+  it("3. hydrate({sidebarWidth:320}) sets width to 320", () => {
+    useUIStore.getState().hydrate({ sidebarWidth: 320 });
     expect(useUIStore.getState().sidebarWidth).toBe(320);
   });
 
-  it("4. hydrate(100) clamps up to MIN", () => {
-    useUIStore.getState().hydrate(100);
+  it("4. hydrate({sidebarWidth:100}) clamps up to MIN", () => {
+    useUIStore.getState().hydrate({ sidebarWidth: 100 });
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MIN);
   });
 
-  it("5. hydrate(600) clamps down to MAX", () => {
-    useUIStore.getState().hydrate(600);
+  it("5. hydrate({sidebarWidth:600}) clamps down to MAX", () => {
+    useUIStore.getState().hydrate({ sidebarWidth: 600 });
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MAX);
   });
 

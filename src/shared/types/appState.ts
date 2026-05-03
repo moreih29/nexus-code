@@ -11,6 +11,8 @@ export const AppStateSchema = z.object({
   windowBounds: WindowBoundsSchema.optional(),
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: z.number().int().positive().optional(),
+  filesPanelWidth: z.number().int().positive().optional(),
+  filesPanelCollapsed: z.boolean().optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;
