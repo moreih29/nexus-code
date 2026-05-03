@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { LayoutSplit } from "@/store/layout";
 import { useLayoutStore } from "@/store/layout";
-import { Grid } from "@/lib/split-engine";
+import { Grid } from "@/engine/split";
 
 interface UseSplitSashOptions {
   workspaceId: string;
@@ -20,7 +20,7 @@ interface SashProps {
 }
 
 interface UseSplitSashResult {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   sashProps: SashProps;
 }
 

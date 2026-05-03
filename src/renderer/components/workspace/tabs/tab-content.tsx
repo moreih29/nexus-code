@@ -1,6 +1,6 @@
-import type { EditorTabProps, Tab, TerminalTabProps } from "../store/tabs";
-import { EditorView } from "./EditorView";
-import { TerminalView } from "./TerminalView";
+import type { EditorTabProps, Tab, TerminalTabProps } from "../../../store/tabs";
+import { EditorView } from "../content/editor-view";
+import { TerminalView } from "../content/terminal-view";
 
 // ---------------------------------------------------------------------------
 // Props

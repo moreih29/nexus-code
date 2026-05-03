@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { selectFlat, useFilesStore } from "../../store/files";
 import { isInEditable } from "../../keybindings/global";
 import { openTab, openTabInNewSplit } from "../../store/operations";
-import { FileTreeRow } from "./FileTreeRow";
+import { FileTreeRow } from "./file-tree-row";
 import { computeParentJumpIndex } from "./keys";
 
 interface FileTreeProps {

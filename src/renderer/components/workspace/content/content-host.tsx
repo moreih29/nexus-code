@@ -1,7 +1,7 @@
-import type { EditorTabProps, Tab, TerminalTabProps } from "../../../store/tabs";
-import { EditorView } from "../../EditorView";
-import { TerminalView } from "../../TerminalView";
-import { useSlotRect } from "./useSlotRect";
+import type { EditorTabProps, Tab, TerminalTabProps } from "@/store/tabs";
+import { EditorView } from "./editor-view";
+import { TerminalView } from "./terminal-view";
+import { useSlotRect } from "./use-slot-rect";
 
 interface ContentHostProps {
   workspaceId: string;
@@ -9,7 +9,7 @@ interface ContentHostProps {
   ownerLeafId: string | null;
   isActiveTab: boolean;
   isWorkspaceActive: boolean;
-  poolRef: React.RefObject<HTMLDivElement>;
+  poolRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export function ContentHost({

@@ -8,7 +8,7 @@ interface Rect {
 }
 
 export function useSlotRect(
-  poolRef: React.RefObject<HTMLDivElement>,
+  poolRef: React.RefObject<HTMLDivElement | null>,
   ownerLeafId: string | null,
 ): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null);

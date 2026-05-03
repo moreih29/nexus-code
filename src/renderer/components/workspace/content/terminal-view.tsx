@@ -4,8 +4,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { color, fontFamily, typeScale } from "../../shared/design-tokens";
-import { ipcCall, ipcListen } from "../ipc/client";
+import { color, fontFamily, typeScale } from "../../../../shared/design-tokens";
+import { ipcCall, ipcListen } from "../../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // FlowControl constants (must match utility/pty-host/flowControl.ts)

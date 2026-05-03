@@ -6,8 +6,8 @@ import {
   useUIStore,
 } from "../../store/ui";
 import { useWorkspacesStore } from "../../store/workspaces";
-import { ResizeHandle } from "../ResizeHandle";
-import { FileTree } from "./FileTree";
+import { ResizeHandle } from "../ui/resize-handle";
+import { FileTree } from "./file-tree";
 
 export function FilesPanel() {
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);

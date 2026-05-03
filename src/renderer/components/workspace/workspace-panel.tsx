@@ -1,10 +1,10 @@
 import { useEffect } from "react";
-import { cn } from "@/lib/utils";
-import type { WorkspaceMeta } from "../../shared/types/workspace";
-import { useLayoutStore } from "../store/layout";
-import { openTab } from "../store/operations";
-import { useTabsStore } from "../store/tabs";
-import { ContentPool, LayoutTree } from "./workspace";
+import { cn } from "@/utils/cn";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { useLayoutStore } from "../../store/layout";
+import { openTab } from "../../store/operations";
+import { useTabsStore } from "../../store/tabs";
+import { ContentPool, LayoutTree } from ".";
 
 // ---------------------------------------------------------------------------
 // Props

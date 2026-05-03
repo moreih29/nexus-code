@@ -1,6 +1,6 @@
-import { cn } from "@/lib/utils";
-import { useActiveStore } from "../store/active";
-import { useWorkspacesStore } from "../store/workspaces";
+import { cn } from "@/utils/cn";
+import { useActiveStore } from "../../store/active";
+import { useWorkspacesStore } from "../../store/workspaces";
 
 // ---------------------------------------------------------------------------
 // TitleBar — custom frameless titlebar

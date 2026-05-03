@@ -1,6 +1,6 @@
 import type { LayoutNode, LayoutSplit } from "@/store/layout";
-import { ResizeHandle } from "../../ResizeHandle";
-import { useSplitSash } from "./useSplitSash";
+import { ResizeHandle } from "../../ui/resize-handle";
+import { useSplitSash } from "./use-split-sash";
 
 interface SplitPaneProps {
   workspaceId: string;

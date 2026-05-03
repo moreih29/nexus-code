@@ -1,8 +1,8 @@
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 import { useState } from "react";
 import type { Tab } from "@/store/tabs";
-import { TabBar } from "../../TabBar";
-import { useGroupActions } from "./useGroupActions";
+import { TabBar } from "../tabs/tab-bar";
+import { useGroupActions } from "./use-group-actions";
 
 interface GroupContextMenuProps {
   workspaceId: string;

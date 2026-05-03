@@ -1,9 +1,9 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/cn";
 import type { LayoutLeaf } from "@/store/layout";
 import { useLayoutStore } from "@/store/layout";
 import { useTabsStore } from "@/store/tabs";
-import { GroupContextMenu } from "./GroupContextMenu";
-import { GroupPlaceholder } from "./GroupPlaceholder";
+import { GroupContextMenu } from "./group-context-menu";
+import { GroupPlaceholder } from "./group-placeholder";
 
 // ---------------------------------------------------------------------------
 // Props

@@ -11,12 +11,12 @@
 import Editor, { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
-import { MAX_READABLE_FILE_SIZE } from "../../shared/fs-defaults";
-import { fontFamily, typeScale } from "../../shared/design-tokens";
-import { ipcCall, ipcListen } from "../ipc/client";
-import { fileErrorMessage, parseFileErrorCode, type FileErrorCode } from "../lib/file-error";
-import { absPathToRel } from "../store/files/helpers";
-import { useWorkspacesStore } from "../store/workspaces";
+import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
+import { fontFamily, typeScale } from "../../../../shared/design-tokens";
+import { ipcCall, ipcListen } from "../../../ipc/client";
+import { fileErrorMessage, parseFileErrorCode, type FileErrorCode } from "@/utils/file-error";
+import { absPathToRel } from "../../../store/files/helpers";
+import { useWorkspacesStore } from "../../../store/workspaces";
 
 // ---------------------------------------------------------------------------
 // Helpers

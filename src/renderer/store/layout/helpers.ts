@@ -1,4 +1,4 @@
-import { Grid } from "../../lib/split-engine";
+import { Grid } from "@/engine/split";
 export { sanitize } from "./sanitize";
 export const allLeaves = Grid.allLeaves;
 export const clampRatio = Grid.clampRatio;

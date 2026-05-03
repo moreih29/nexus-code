@@ -10,10 +10,9 @@
  *   registerLayoutPersistence();
  */
 
-import type { AppState } from "../../shared/types/appState";
+import type { AppState } from "../../shared/types/app-state";
 import { ipcCall } from "../ipc/client";
 import { useLayoutStore } from "./layout";
-import type { Tab } from "./tabs";
 import { useTabsStore } from "./tabs";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +27,11 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
 
   if (!layout) return null;
 
-  const tabs: Tab[] = Object.values(tabRecord);
+  // Tab is structurally compatible with SerializedTab — both share the same
+  // (type, props) invariant enforced at createTab. The discriminated-union
+  // narrowing isn't expressible on the renderer-side Tab type yet, so we
+  // assert into the snapshot's tabs shape here.
+  const tabs = Object.values(tabRecord) as LayoutSnapshot["tabs"];
   return {
     root: layout.root,
     activeGroupId: layout.activeGroupId,

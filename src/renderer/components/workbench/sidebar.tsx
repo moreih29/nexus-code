@@ -1,7 +1,7 @@
-import { cn } from "@/lib/utils";
-import type { WorkspaceMeta } from "../../shared/types/workspace";
-import { useUIStore } from "../store/ui";
-import { SidebarResizeHandle } from "./SidebarResizeHandle";
+import { cn } from "@/utils/cn";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { useUIStore } from "../../store/ui";
+import { SidebarResizeHandle } from "./sidebar-resize-handle";
 
 // ---------------------------------------------------------------------------
 // Props

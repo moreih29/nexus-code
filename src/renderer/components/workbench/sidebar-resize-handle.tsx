@@ -3,8 +3,8 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../store/ui";
-import { ResizeHandle } from "./ResizeHandle";
+} from "../../store/ui";
+import { ResizeHandle } from "../ui/resize-handle";
 
 // ---------------------------------------------------------------------------
 // Thin adapter — wires the generic ResizeHandle to the sidebarWidth slice.

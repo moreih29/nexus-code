@@ -1,6 +1,6 @@
 import type { LayoutLeaf, LayoutNode, LayoutSplit } from "@/store/layout";
-import { LeafPane } from "./LeafPane";
-import { SplitPane } from "./SplitPane";
+import { LeafPane } from "./leaf-pane";
+import { SplitPane } from "./split-pane";
 
 // ---------------------------------------------------------------------------
 // Props
