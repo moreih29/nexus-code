@@ -19,47 +19,140 @@ const pty = require("node-pty") as typeof import("node-pty");
 // zsh's PROMPT_SP option (default ON) pads every prompt with inverse-video
 // spaces and a PROMPT_EOL_MARK glyph (default '%') when the previous
 // command's output didn't end with a newline. In a GUI terminal this is
-// noise — iTerm2 / Warp / Ghostty all suppress it. PROMPT_EOL_MARK can be
-// blanked via env, but PROMPT_SP is a zsh shell option (not an env var)
-// so it can only be turned off from inside an rc file.
+// noise. PROMPT_EOL_MARK can be blanked via env, but PROMPT_SP is a zsh
+// shell option (not an env var) and can only be turned off from inside an
+// rc file.
 //
-// We create a small ZDOTDIR with wrapper rc files that:
-//   1. source the user's real ~/.{zshenv,zprofile,zshrc,zlogin} so the
-//      user's environment is fully preserved
-//   2. additionally `unsetopt PROMPT_SP` + clear PROMPT_EOL_MARK
+// We follow VSCode's pattern (see references/vscode/.../shellIntegration-*.zsh
+// and src/vs/platform/terminal/node/terminalEnvironment.ts L212-257):
 //
-// `unsetopt` is intentionally placed BEFORE sourcing ~/.zshrc so that a
-// user who explicitly wants PROMPT_SP can re-enable it in their own rc.
+//   1. Create a private ZDOTDIR under tmpdir (username-namespaced, sticky-bit
+//      0o1700 so other users on the host can't tamper).
+//   2. Pass USER_ZDOTDIR = original $ZDOTDIR (or $HOME if unset) so the
+//      wrapper rc can find the user's real dotfiles.
+//   3. Each wrapper rc temporarily restores ZDOTDIR to USER_ZDOTDIR before
+//      sourcing the user's file, then restores ours. Recursion is guarded
+//      via marker variables.
+//   4. .zshrc additionally turns off PROMPT_SP / PROMPT_EOL_MARK BEFORE
+//      sourcing the user's ~/.zshrc so a user who explicitly wants the
+//      behavior can re-enable it in their own rc.
 //
-// Non-zsh shells (bash, fish, sh) ignore ZDOTDIR, so setting it on every
-// PTY spawn is safe regardless of which shell the user runs.
+// Non-zsh shells (bash, fish, sh) ignore ZDOTDIR, so the env addition is
+// a no-op for them.
 // ---------------------------------------------------------------------------
 
 let zshInitDir: string | null = null;
 
 function ensureZshInitDir(): string {
   if (zshInitDir) return zshInitDir;
-  const dir = path.join(os.tmpdir(), "nexus-code-zsh-init");
+  let username = "unknown";
+  try {
+    username = os.userInfo().username;
+  } catch {
+    // fall back to "unknown" — userInfo can fail in unusual containerized envs
+  }
+  const realTmpDir = fs.realpathSync(os.tmpdir());
+  const dir = path.join(realTmpDir, `${username}-nexus-code-zsh`);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, ".zshenv"), `[ -f "$HOME/.zshenv" ] && . "$HOME/.zshenv"\n`);
+  try {
+    // Sticky bit + owner-only permissions so other local users cannot tamper.
+    fs.chmodSync(dir, 0o1700);
+  } catch {
+    // ignore — best-effort hardening
+  }
+
+  // .zshenv — always sourced. Temporarily swap ZDOTDIR so the user's
+  // ~/.zshenv (or $USER_ZDOTDIR/.zshenv) sees its expected ZDOTDIR.
   fs.writeFileSync(
-    path.join(dir, ".zprofile"),
-    `[ -f "$HOME/.zprofile" ] && . "$HOME/.zprofile"\n`,
-  );
-  fs.writeFileSync(
-    path.join(dir, ".zshrc"),
+    path.join(dir, ".zshenv"),
     [
-      "# nexus-code: GUI-terminal defaults — set BEFORE sourcing user rc so",
-      "# the user can re-enable in ~/.zshrc if desired.",
-      "unsetopt PROMPT_SP 2>/dev/null",
-      "PROMPT_EOL_MARK=''",
-      '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc"',
+      'if [[ -f "$USER_ZDOTDIR/.zshenv" ]]; then',
+      '  NEXUS_ZDOTDIR="$ZDOTDIR"',
+      '  ZDOTDIR="$USER_ZDOTDIR"',
+      '  if [[ "$USER_ZDOTDIR" != "$NEXUS_ZDOTDIR" ]]; then',
+      '    . "$USER_ZDOTDIR/.zshenv"',
+      "  fi",
+      '  USER_ZDOTDIR="$ZDOTDIR"',
+      '  ZDOTDIR="$NEXUS_ZDOTDIR"',
+      "fi",
       "",
     ].join("\n"),
   );
-  fs.writeFileSync(path.join(dir, ".zlogin"), `[ -f "$HOME/.zlogin" ] && . "$HOME/.zlogin"\n`);
+
+  // .zprofile — login-shell only. Recursion-guarded.
+  fs.writeFileSync(
+    path.join(dir, ".zprofile"),
+    [
+      'if [[ -n "$NEXUS_PROFILE_INITIALIZED" ]]; then',
+      "  return",
+      "fi",
+      "export NEXUS_PROFILE_INITIALIZED=1",
+      'if [[ $options[norcs] = off && -o "login" ]]; then',
+      '  if [[ -f "$USER_ZDOTDIR/.zprofile" ]]; then',
+      '    NEXUS_ZDOTDIR="$ZDOTDIR"',
+      '    ZDOTDIR="$USER_ZDOTDIR"',
+      '    . "$USER_ZDOTDIR/.zprofile"',
+      '    ZDOTDIR="$NEXUS_ZDOTDIR"',
+      "  fi",
+      "fi",
+      "",
+    ].join("\n"),
+  );
+
+  // .zshrc — interactive shells. Apply our GUI defaults BEFORE sourcing
+  // the user's ~/.zshrc so the user can re-enable PROMPT_SP in their rc.
+  fs.writeFileSync(
+    path.join(dir, ".zshrc"),
+    [
+      "# nexus-code: GUI-terminal defaults — set BEFORE sourcing user rc",
+      "# so the user can re-enable PROMPT_SP / PROMPT_EOL_MARK in ~/.zshrc.",
+      "unsetopt PROMPT_SP 2>/dev/null",
+      "PROMPT_EOL_MARK=''",
+      "",
+      "# Prevent recursive sourcing if .zshrc somehow re-enters.",
+      'if [[ -n "$NEXUS_ZSH_RC_LOADED" ]]; then',
+      '  ZDOTDIR="$USER_ZDOTDIR"',
+      "  return",
+      "fi",
+      "export NEXUS_ZSH_RC_LOADED=1",
+      "",
+      "# zsh defaults HISTFILE to $ZDOTDIR; keep history in the user's dir.",
+      'HISTFILE="$USER_ZDOTDIR/.zsh_history"',
+      "",
+      'if [[ $options[norcs] = off && -f "$USER_ZDOTDIR/.zshrc" ]]; then',
+      '  NEXUS_ZDOTDIR="$ZDOTDIR"',
+      '  ZDOTDIR="$USER_ZDOTDIR"',
+      '  . "$USER_ZDOTDIR/.zshrc"',
+      "  # leave ZDOTDIR pointing at the user's dir for the rest of the session",
+      "fi",
+      "",
+    ].join("\n"),
+  );
+
+  // .zlogin — login-shell only. Restore ZDOTDIR to the user's dir for
+  // the rest of the session (matches VSCode's behavior).
+  fs.writeFileSync(
+    path.join(dir, ".zlogin"),
+    [
+      'ZDOTDIR="$USER_ZDOTDIR"',
+      'if [[ $options[norcs] = off && -o "login" && -f "$ZDOTDIR/.zlogin" ]]; then',
+      '  . "$ZDOTDIR/.zlogin"',
+      "fi",
+      "",
+    ].join("\n"),
+  );
+
   zshInitDir = dir;
   return dir;
+}
+
+// Resolve the user's effective ZDOTDIR for USER_ZDOTDIR.
+// If they had ZDOTDIR set in their environment, preserve it; otherwise
+// fall back to $HOME (which is where standard zsh dotfiles live).
+function resolveUserZdotdir(): string {
+  const existing = process.env.ZDOTDIR;
+  if (existing && existing.length > 0) return existing;
+  return os.homedir() || "~";
 }
 
 interface TabState {
@@ -154,12 +247,14 @@ export class PtyManager {
         cwd,
         env: {
           ...(process.env as Record<string, string>),
-          // Point zsh at our ZDOTDIR wrapper which sources the user's
-          // real rc files AND disables PROMPT_SP / PROMPT_EOL_MARK.
-          // PROMPT_EOL_MARK is also re-asserted here for the rare case
-          // where zshrc is skipped (e.g. --no-rcs); for non-zsh shells
-          // both ZDOTDIR and PROMPT_EOL_MARK are simply unused.
+          // Point zsh at our ZDOTDIR wrapper, and tell the wrapper where
+          // the user's real dotfiles live via USER_ZDOTDIR (= the user's
+          // pre-existing ZDOTDIR if any, otherwise $HOME). This mirrors
+          // VSCode's terminalEnvironment.ts pattern. PROMPT_EOL_MARK is
+          // also re-asserted in env for the --no-rcs case where the
+          // wrapper rc would be skipped. Non-zsh shells ignore all three.
           ZDOTDIR: ensureZshInitDir(),
+          USER_ZDOTDIR: resolveUserZdotdir(),
           PROMPT_EOL_MARK: "",
         },
       });
