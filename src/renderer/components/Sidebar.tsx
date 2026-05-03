@@ -57,9 +57,9 @@ export function Sidebar({
                   // text + interaction
                   "text-left cursor-pointer select-none font-sans transition-colors",
                   // rest state
-                  "text-foreground bg-transparent hover:bg-[--color-frosted-veil]",
+                  "text-foreground bg-transparent hover:bg-frosted-veil-strong",
                   // active state: frosted veil bg + left accent bar (mist-border tone)
-                  isActive && "bg-[--color-frosted-veil] border-l-[--color-mist-border]",
+                  isActive && "bg-frosted-veil border-l-mist-border",
                 )}
               >
                 {/* Workspace name — 14px body, truncate for long names */}
@@ -88,7 +88,7 @@ export function Sidebar({
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
                   "size-5 rounded-[4px] text-[14px] leading-none",
-                  "text-muted-foreground hover:bg-[--color-frosted-veil-strong] hover:text-foreground",
+                  "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
                   "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
                 )}
               >

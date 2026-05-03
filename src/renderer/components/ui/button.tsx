@@ -15,16 +15,16 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20",
         outline:
-          "border border-border bg-background hover:bg-[--color-frosted-veil] hover:text-foreground",
+          "border border-border bg-background hover:bg-frosted-veil-strong hover:text-foreground",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         link: "text-primary underline-offset-4 hover:underline",
-        // ── ghost: frostedVeil hover, no background at rest ──
-        ghost: "hover:bg-[--color-frosted-veil] hover:text-foreground",
+        // ── ghost: frostedVeilStrong hover, no background at rest ──
+        ghost: "hover:bg-frosted-veil-strong hover:text-foreground",
         // ── pill: earthGray bg, warmParchment text, 50px radius ──
         pill: "rounded-[50px] bg-primary text-primary-foreground hover:bg-primary/90 py-[10px] px-[10px]",
         // ── frostedTag: translucent white bg, dark text, 6px radius, tight padding ──
         frostedTag:
-          "rounded-[6px] bg-[--color-frosted-tag] text-black hover:bg-[--color-frosted-tag-hover] py-[1px] px-[6px] text-xs",
+          "rounded-[6px] bg-frosted-tag text-black hover:bg-frosted-tag-hover py-[1px] px-[6px] text-xs",
       },
       size: {
         default: "h-9 px-4 py-2 text-base has-[>svg]:px-3",

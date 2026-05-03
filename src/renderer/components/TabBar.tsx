@@ -50,9 +50,9 @@ export function TabBar({
                   "text-[12px] whitespace-nowrap select-none cursor-pointer",
 
                   // rest state
-                  "text-muted-foreground hover:bg-[--color-frosted-veil] hover:text-foreground",
+                  "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
                   // active state: frosted veil bg + mist-border bottom indicator (1px, mist-border token)
-                  "data-[state=active]:bg-[--color-frosted-veil] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[--color-mist-border]",
+                  "data-[state=active]:bg-frosted-veil data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-mist-border",
                   // focus
                   "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
                   // reset button defaults
@@ -68,7 +68,7 @@ export function TabBar({
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 size-4 opacity-50 hover:opacity-100 hover:bg-[--color-frosted-veil-strong] shrink-0"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 size-4 opacity-50 hover:opacity-100 hover:bg-frosted-veil-strong shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseTab(tab.id);
