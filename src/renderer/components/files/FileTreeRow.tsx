@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { TreeNode } from "../store/files";
+import type { TreeNode } from "../../store/files";
 
 // ---------------------------------------------------------------------------
 // Inline icon — avoids external icon library dependency

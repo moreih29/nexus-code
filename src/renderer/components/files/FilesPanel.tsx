@@ -1,13 +1,13 @@
-import { useActiveStore } from "../store/active";
+import { useActiveStore } from "../../store/active";
 import {
   FILES_PANEL_WIDTH_DEFAULT,
   FILES_PANEL_WIDTH_MAX,
   FILES_PANEL_WIDTH_MIN,
   useUIStore,
-} from "../store/ui";
-import { useWorkspacesStore } from "../store/workspaces";
+} from "../../store/ui";
+import { useWorkspacesStore } from "../../store/workspaces";
+import { ResizeHandle } from "../ResizeHandle";
 import { FileTree } from "./FileTree";
-import { ResizeHandle } from "./ResizeHandle";
 
 export function FilesPanel() {
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);

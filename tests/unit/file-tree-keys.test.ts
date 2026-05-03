@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "bun:test";
 import type { FlatItem } from "../../src/renderer/store/files";
-import { computeParentJumpIndex } from "../../src/renderer/file-tree-keys";
+import { computeParentJumpIndex } from "../../src/renderer/components/files/keys";
 
 // ---------------------------------------------------------------------------
 // Helpers

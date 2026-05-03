@@ -1,10 +1,10 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { selectFlat, useFilesStore } from "../store/files";
-import { computeParentJumpIndex } from "../file-tree-keys";
-import { useTabsStore } from "../store/tabs";
+import { selectFlat, useFilesStore } from "../../store/files";
+import { useTabsStore } from "../../store/tabs";
 import { FileTreeRow } from "./FileTreeRow";
+import { computeParentJumpIndex } from "./keys";
 
 interface FileTreeProps {
   workspaceId: string;

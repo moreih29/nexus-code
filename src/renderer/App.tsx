@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FilesPanel } from "./components/FilesPanel";
+import { FilesPanel } from "./components/files";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
