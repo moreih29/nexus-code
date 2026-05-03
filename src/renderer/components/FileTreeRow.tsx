@@ -32,6 +32,7 @@ interface FileTreeRowProps {
   depth: number;
   isExpanded: boolean;
   isSelected: boolean;
+  isLoading?: boolean;
   onToggle: () => void; // dir click
   onClick: () => void; // file click
 }
@@ -45,6 +46,7 @@ export function FileTreeRow({
   depth,
   isExpanded,
   isSelected,
+  isLoading = false,
   onToggle,
   onClick,
 }: FileTreeRowProps) {
@@ -73,6 +75,7 @@ export function FileTreeRow({
           className={cn(
             "size-3.5 shrink-0 text-stone-gray transition-transform duration-150 ease-out",
             isExpanded && "rotate-90",
+            isLoading && "opacity-50 animate-pulse",
           )}
         />
       ) : (

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DirEntry } from "../../shared/types/fs";
+import type { DirEntry, FsChangedEvent } from "../../shared/types/fs";
 import { ipcCall, ipcListen } from "../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ function setTree(
   return next;
 }
 
-function parentOf(absPath: string, rootAbsPath: string): string {
+export function parentOf(absPath: string, rootAbsPath: string): string {
   const lastSlash = absPath.lastIndexOf("/");
   if (lastSlash <= 0) return rootAbsPath;
   const parent = absPath.slice(0, lastSlash);
@@ -114,6 +114,7 @@ function parentOf(absPath: string, rootAbsPath: string): string {
 // ---------------------------------------------------------------------------
 
 const _saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const _ensureRootPromises = new Map<string, Promise<void>>();
 
 function scheduleSave(workspaceId: string): void {
   const existing = _saveTimers.get(workspaceId);
@@ -142,79 +143,99 @@ export const useFilesStore = create<FilesState>((set, get) => ({
   trees: new Map(),
 
   async ensureRoot(workspaceId, rootAbsPath) {
-    const existing = get().trees.get(workspaceId);
-    if (existing) return;
+    const inflight = _ensureRootPromises.get(workspaceId);
+    if (inflight) return inflight;
 
-    // Fetch persisted expanded relPaths before building initial tree state.
-    let persistedRelPaths: string[] = [];
-    try {
-      const result = await ipcCall("fs", "getExpanded", { workspaceId });
-      persistedRelPaths = result.relPaths;
-    } catch {
-      // Non-fatal — proceed with empty expanded set.
-    }
+    const promise = (async () => {
+      const existing = get().trees.get(workspaceId);
+      if (existing) return;
 
-    // Build initial tree with root + seeded expanded set.
-    const rootNode: TreeNode = {
-      absPath: rootAbsPath,
-      name: rootAbsPath.split("/").filter(Boolean).pop() ?? rootAbsPath,
-      type: "dir",
-      childrenLoaded: false,
-      children: [],
-    };
-
-    // Seed expanded set: root is always expanded, then add ancestors-first
-    // for each persisted relPath so no child is expanded while its parent is not.
-    const expandedSet = new Set<string>([rootAbsPath]);
-    // Sort by length (ascending) = ancestors before descendants.
-    const sortedRel = [...persistedRelPaths].sort((a, b) => a.length - b.length);
-    for (const rel of sortedRel) {
-      const abs = rel ? `${rootAbsPath}/${rel}` : rootAbsPath;
-      // Also expand all intermediate ancestors.
-      const parts = rel.split("/");
-      let cur = rootAbsPath;
-      for (const part of parts) {
-        if (!part) continue;
-        cur = `${cur}/${part}`;
-        expandedSet.add(cur);
+      // Fetch persisted expanded relPaths before building initial tree state.
+      let persistedRelPaths: string[] = [];
+      try {
+        const result = await ipcCall("fs", "getExpanded", { workspaceId });
+        persistedRelPaths = result.relPaths;
+      } catch {
+        // Non-fatal — proceed with empty expanded set.
       }
-      expandedSet.add(abs);
-    }
 
-    const tree: WorkspaceTree = {
-      rootAbsPath,
-      nodes: new Map([[rootAbsPath, rootNode]]),
-      expanded: expandedSet,
-      loading: new Set(),
-      errors: new Map(),
-    };
+      // Build initial tree with root + seeded expanded set.
+      const rootNode: TreeNode = {
+        absPath: rootAbsPath,
+        name: rootAbsPath.split("/").filter(Boolean).pop() ?? rootAbsPath,
+        type: "dir",
+        childrenLoaded: false,
+        children: [],
+      };
 
-    set((state) => ({ trees: setTree(state.trees, workspaceId, tree) }));
-
-    // Watch root.
-    ipcCall("fs", "watch", { workspaceId, relPath: "" }).catch((err) => {
-      console.error("[files] watch root failed", err);
-    });
-
-    // Load root children first.
-    await get().loadChildren(workspaceId, rootAbsPath);
-
-    // Then hydrate each persisted expanded dir (ancestors-first = shorter relPath first).
-    // This ensures parent nodes are loaded before children are attempted.
-    for (const rel of sortedRel) {
-      const abs = rel ? `${rootAbsPath}/${rel}` : rootAbsPath;
-      if (abs === rootAbsPath) continue; // already loaded above
-      const currentTree = get().trees.get(workspaceId);
-      if (!currentTree) break;
-      const node = currentTree.nodes.get(abs);
-      if (node && node.type === "dir" && !node.childrenLoaded) {
-        await get().loadChildren(workspaceId, abs);
+      // Seed expanded set: root is always expanded, then add ancestors-first
+      // for each persisted relPath so no child is expanded while its parent is not.
+      const expandedSet = new Set<string>([rootAbsPath]);
+      // Sort by length (ascending) = ancestors before descendants.
+      const sortedRel = [...persistedRelPaths].sort((a, b) => a.length - b.length);
+      for (const rel of sortedRel) {
+        const abs = rel ? `${rootAbsPath}/${rel}` : rootAbsPath;
+        // Also expand all intermediate ancestors.
+        const parts = rel.split("/");
+        let cur = rootAbsPath;
+        for (const part of parts) {
+          if (!part) continue;
+          cur = `${cur}/${part}`;
+          expandedSet.add(cur);
+        }
+        expandedSet.add(abs);
       }
-      // Re-register watch for each hydrated expanded dir.
-      ipcCall("fs", "watch", { workspaceId, relPath: rel }).catch((err) => {
-        console.error("[files] watch hydrated dir failed", err);
+
+      const tree: WorkspaceTree = {
+        rootAbsPath,
+        nodes: new Map([[rootAbsPath, rootNode]]),
+        expanded: expandedSet,
+        loading: new Set(),
+        errors: new Map(),
+      };
+
+      set((state) => ({ trees: setTree(state.trees, workspaceId, tree) }));
+
+      // Watch root.
+      ipcCall("fs", "watch", { workspaceId, relPath: "" }).catch((err) => {
+        console.error("[files] watch root failed", err);
       });
-    }
+
+      // Load root children first.
+      await get().loadChildren(workspaceId, rootAbsPath);
+
+      // Hydrate persisted expanded dirs in parallel within each depth level.
+      // Depth-grouped Promise.all preserves ancestors-first ordering:
+      // depth 1 group fully completes before depth 2 starts, ensuring parent
+      // nodes are loaded before their children are attempted.
+      const groupsByDepth = new Map<number, string[]>();
+      for (const rel of sortedRel) {
+        if (!rel) continue; // root already loaded above
+        const depth = rel.split("/").length;
+        if (!groupsByDepth.has(depth)) groupsByDepth.set(depth, []);
+        groupsByDepth.get(depth)!.push(rel);
+      }
+      const sortedDepths = Array.from(groupsByDepth.keys()).sort((a, b) => a - b);
+      for (const depth of sortedDepths) {
+        const group = groupsByDepth.get(depth)!;
+        await Promise.all(
+          group.map(async (rel) => {
+            const abs = `${rootAbsPath}/${rel}`;
+            const node = get().trees.get(workspaceId)?.nodes.get(abs);
+            if (node && node.type === "dir" && !node.childrenLoaded) {
+              await get().loadChildren(workspaceId, abs);
+            }
+            ipcCall("fs", "watch", { workspaceId, relPath: rel }).catch((err) => {
+              console.error("[files] watch hydrated dir failed", err);
+            });
+          }),
+        );
+      }
+    })();
+
+    _ensureRootPromises.set(workspaceId, promise);
+    promise.finally(() => _ensureRootPromises.delete(workspaceId));
+    return promise;
   },
 
   async toggleExpand(workspaceId, absPath) {
@@ -265,6 +286,8 @@ export const useFilesStore = create<FilesState>((set, get) => ({
   async loadChildren(workspaceId, absPath) {
     const tree = get().trees.get(workspaceId);
     if (!tree) return;
+
+    if (tree.loading.has(absPath)) return;
 
     const { rootAbsPath } = tree;
     const relPath = absPathToRel(absPath, rootAbsPath);
@@ -441,7 +464,7 @@ export function selectFlat(state: FilesState, workspaceId: string): FlatItem[] {
 // is kept internally for potential future cleanup (e.g., HMR).
 // ---------------------------------------------------------------------------
 
-export function handleFsChanged(event: { workspaceId: string; changes: { relPath: string; kind: string }[] }): void {
+export function handleFsChanged(event: FsChangedEvent): void {
   const { workspaceId, changes } = event;
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;

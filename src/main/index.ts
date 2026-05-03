@@ -32,8 +32,8 @@ const fileWatcher = new FileWatcher(broadcast);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "removed") {
-    const { id } = args as { id: string };
-    fileWatcher.disposeWorkspace(id);
+    const removedWorkspaceId = (args as { id: string }).id;
+    fileWatcher.disposeWorkspace(removedWorkspaceId);
   }
   broadcast(channelName, event, args);
 }

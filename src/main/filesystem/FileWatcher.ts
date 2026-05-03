@@ -55,7 +55,7 @@ export class FileWatcher {
       ignoreInitial: true,
       persistent: true,
       awaitWriteFinish: false,
-      ignored: (p: string) => HIDDEN_NAMES.has(path.basename(p)),
+      ignored: (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p)),
     });
 
     const handleEvent = (kind: FsChangeKind, absPath: string): void => {

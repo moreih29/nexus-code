@@ -40,7 +40,6 @@ import {
 function resetStore() {
   useUIStore.setState({
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-    filesPanelCollapsed: false,
   });
 }
 
@@ -82,48 +81,15 @@ describe("useUIStore — filesPanelWidth", () => {
   });
 });
 
-describe("useUIStore — filesPanelCollapsed / toggleFilesPanel", () => {
+describe("useUIStore — hydrate with filesPanelWidth", () => {
   beforeEach(() => {
     resetStore();
     mockIpcCall.mockClear();
   });
 
-  it("initial filesPanelCollapsed is false", () => {
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(false);
-  });
-
-  it("toggleFilesPanel flips collapsed to true and persists", () => {
-    useUIStore.getState().toggleFilesPanel();
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(true);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelCollapsed: true });
-  });
-
-  it("toggleFilesPanel flips back to false and persists", () => {
-    useUIStore.setState({ filesPanelCollapsed: true });
-    useUIStore.getState().toggleFilesPanel();
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(false);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelCollapsed: false });
-  });
-
-  it("toggleFilesPanel always persists (no persist flag needed)", () => {
-    useUIStore.getState().toggleFilesPanel();
-    useUIStore.getState().toggleFilesPanel();
-    expect(mockIpcCall).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("useUIStore — hydrate with filesPanelWidth and filesPanelCollapsed", () => {
-  beforeEach(() => {
-    resetStore();
-    mockIpcCall.mockClear();
-  });
-
-  it("hydrate({}) keeps files panel defaults", () => {
+  it("hydrate({}) keeps files panel default", () => {
     useUIStore.getState().hydrate({});
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_DEFAULT);
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(false);
   });
 
   it("hydrate({filesPanelWidth:400}) sets filesPanelWidth to 400", () => {
@@ -141,24 +107,8 @@ describe("useUIStore — hydrate with filesPanelWidth and filesPanelCollapsed", 
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MAX);
   });
 
-  it("hydrate({filesPanelCollapsed:true}) sets collapsed to true", () => {
-    useUIStore.getState().hydrate({ filesPanelCollapsed: true });
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(true);
-  });
-
-  it("hydrate with all opts sets all values correctly", () => {
-    useUIStore.getState().hydrate({
-      sidebarWidth: 300,
-      filesPanelWidth: 350,
-      filesPanelCollapsed: true,
-    });
-    expect(useUIStore.getState().sidebarWidth).toBe(300);
-    expect(useUIStore.getState().filesPanelWidth).toBe(350);
-    expect(useUIStore.getState().filesPanelCollapsed).toBe(true);
-  });
-
   it("hydrate does not call ipcCall", () => {
-    useUIStore.getState().hydrate({ filesPanelWidth: 300, filesPanelCollapsed: true });
+    useUIStore.getState().hydrate({ filesPanelWidth: 300 });
     expect(mockIpcCall).not.toHaveBeenCalled();
   });
 });

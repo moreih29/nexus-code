@@ -454,6 +454,148 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Scenario 10: ensureRoot 동시 호출 시 readdir이 1회만 발화
+// ---------------------------------------------------------------------------
+
+describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
+  beforeEach(resetStore);
+
+  it("fires readdir exactly once when ensureRoot is called concurrently", async () => {
+    setupReaddir(new Map([["", [dirEntry("src", "dir")]]]));
+
+    // Fire two concurrent calls without awaiting the first
+    await Promise.all([
+      useFilesStore.getState().ensureRoot(WS_ID, ROOT),
+      useFilesStore.getState().ensureRoot(WS_ID, ROOT),
+    ]);
+
+    const readdirCalls = mockIpcCall.mock.calls.filter(
+      ([, method]) => method === "readdir",
+    );
+    expect(readdirCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 11: loadChildren 동시 호출 시 readdir이 1회만 발화
+// ---------------------------------------------------------------------------
+
+describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
+  beforeEach(resetStore);
+
+  it("fires readdir exactly once when loadChildren is called concurrently for the same path", async () => {
+    setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
+
+    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    // Reset root node so it is not yet loaded (simulate a fresh path)
+    useFilesStore.setState((state) => {
+      const tree = state.trees.get(WS_ID);
+      if (!tree) return state;
+      const next = {
+        ...tree,
+        nodes: new Map(tree.nodes),
+        loading: new Set<string>(),
+      };
+      const rootNode = next.nodes.get(ROOT);
+      if (rootNode) {
+        next.nodes.set(ROOT, { ...rootNode, childrenLoaded: false, children: [] });
+      }
+      const trees = new Map(state.trees);
+      trees.set(WS_ID, next);
+      return { trees };
+    });
+
+    mockIpcCall.mockClear();
+
+    // Fire two concurrent loadChildren for the same path
+    await Promise.all([
+      useFilesStore.getState().loadChildren(WS_ID, ROOT),
+      useFilesStore.getState().loadChildren(WS_ID, ROOT),
+    ]);
+
+    const readdirCalls = mockIpcCall.mock.calls.filter(
+      ([, method]) => method === "readdir",
+    );
+    expect(readdirCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 12: ensureRoot hydrate — depth-grouped parallel readdir calls
+// ---------------------------------------------------------------------------
+
+describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
+  beforeEach(resetStore);
+
+  it("issues 1 + N readdir calls total when N dirs are in persisted expanded set", async () => {
+    // 10 sibling dirs at depth-1: a0..a9
+    const dirs = Array.from({ length: 10 }, (_, i) => `a${i}`);
+    const readdirResponses: Record<string, DirEntry[]> = {
+      "": dirs.map((d) => dirEntry(d, "dir")),
+    };
+    for (const d of dirs) {
+      readdirResponses[d] = [];
+    }
+
+    mockIpcCall.mockImplementation(
+      (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
+        if (method === "getExpanded") {
+          return Promise.resolve({ relPaths: dirs });
+        }
+        if (method === "readdir") {
+          return Promise.resolve(readdirResponses[args.relPath] ?? []);
+        }
+        return Promise.resolve(undefined);
+      },
+    );
+
+    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+
+    const readdirCalls = mockIpcCall.mock.calls.filter(([, m]) => m === "readdir");
+    // 1 root readdir + 10 child readdirs = 11 total
+    expect(readdirCalls).toHaveLength(11);
+  });
+
+  it("ancestors-first: depth-1 readdir completes before depth-2 readdir is issued", async () => {
+    // Structure: root → a (depth 1) → a/b (depth 2)
+    const callOrder: string[] = [];
+
+    mockIpcCall.mockImplementation(
+      (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
+        if (method === "getExpanded") {
+          return Promise.resolve({ relPaths: ["a", "a/b", "c"] });
+        }
+        if (method === "readdir") {
+          callOrder.push(args.relPath);
+          const responses: Record<string, DirEntry[]> = {
+            "": [dirEntry("a", "dir"), dirEntry("c", "dir")],
+            a: [dirEntry("b", "dir")],
+            "a/b": [],
+            c: [],
+          };
+          return Promise.resolve(responses[args.relPath] ?? []);
+        }
+        return Promise.resolve(undefined);
+      },
+    );
+
+    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+
+    // Root readdir ("") must come before "a" and "c".
+    // "a" must come before "a/b" (depth-1 group completes before depth-2 starts).
+    const rootIdx = callOrder.indexOf("");
+    const aIdx = callOrder.indexOf("a");
+    const cIdx = callOrder.indexOf("c");
+    const abIdx = callOrder.indexOf("a/b");
+
+    expect(rootIdx).toBeLessThan(aIdx);
+    expect(rootIdx).toBeLessThan(cIdx);
+    expect(aIdx).toBeLessThan(abIdx);
+    expect(cIdx).toBeLessThan(abIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Scenario 9: toggleExpand schedules setExpanded persist after 200ms
 // ---------------------------------------------------------------------------
 

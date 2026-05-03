@@ -87,21 +87,31 @@ export function statHandler(manager: WorkspaceManager): (args: unknown) => Promi
   };
 }
 
+function assertWorkspaceExists(manager: WorkspaceManager, workspaceId: string): void {
+  if (!manager.list().some((w) => w.id === workspaceId)) {
+    throw new Error(`workspace not found: ${workspaceId}`);
+  }
+}
+
 export function getExpandedHandler(
+  manager: WorkspaceManager,
   storage: WorkspaceStorage,
 ): (args: unknown) => Promise<{ relPaths: string[] }> {
   return async (args: unknown): Promise<{ relPaths: string[] }> => {
     const { workspaceId } = validateArgs(c.getExpanded.args, args);
+    assertWorkspaceExists(manager, workspaceId);
     const relPaths = storage.getExpandedPaths(workspaceId);
     return { relPaths };
   };
 }
 
 export function setExpandedHandler(
+  manager: WorkspaceManager,
   storage: WorkspaceStorage,
 ): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, relPaths } = validateArgs(c.setExpanded.args, args);
+    assertWorkspaceExists(manager, workspaceId);
     storage.setExpandedPaths(workspaceId, relPaths);
   };
 }
@@ -117,8 +127,8 @@ export function registerFsChannel(
       stat: statHandler(manager),
       watch: watchHandler(manager, watcher),
       unwatch: unwatchHandler(manager, watcher),
-      getExpanded: getExpandedHandler(storage),
-      setExpanded: setExpandedHandler(storage),
+      getExpanded: getExpandedHandler(manager, storage),
+      setExpanded: setExpandedHandler(manager, storage),
     },
     listen: {},
   });

@@ -220,15 +220,22 @@ describe("getExpandedHandler", () => {
       getExpandedPaths: (_id: string) => ["src", "src/components"],
       setExpandedPaths: () => {},
     };
-    const handler = getExpandedHandler(mockStorage as never);
+    const handler = getExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
     const result = await handler({ workspaceId: VALID_UUID });
     expect(result).toEqual({ relPaths: ["src", "src/components"] });
   });
 
   it("rejects when workspaceId is not a valid UUID", async () => {
     const mockStorage = { getExpandedPaths: () => [], setExpandedPaths: () => {} };
-    const handler = getExpandedHandler(mockStorage as never);
+    const handler = getExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
     await expect(handler({ workspaceId: "not-a-uuid" })).rejects.toThrow();
+  });
+
+  it("throws 'workspace not found' when workspaceId is a valid UUID not in manager", async () => {
+    const unknownId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const mockStorage = { getExpandedPaths: () => [], setExpandedPaths: () => {} };
+    const handler = getExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
+    await expect(handler({ workspaceId: unknownId })).rejects.toThrow("workspace not found");
   });
 });
 
@@ -247,7 +254,7 @@ describe("setExpandedHandler", () => {
         capturedPaths = paths;
       },
     };
-    const handler = setExpandedHandler(mockStorage as never);
+    const handler = setExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
     await handler({ workspaceId: VALID_UUID, relPaths: ["src", "lib"] });
     expect(capturedId).toBe(VALID_UUID);
     expect(capturedPaths).toEqual(["src", "lib"]);
@@ -255,7 +262,16 @@ describe("setExpandedHandler", () => {
 
   it("rejects when workspaceId is not a valid UUID", async () => {
     const mockStorage = { getExpandedPaths: () => [], setExpandedPaths: () => {} };
-    const handler = setExpandedHandler(mockStorage as never);
+    const handler = setExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
     await expect(handler({ workspaceId: "bad", relPaths: [] })).rejects.toThrow();
+  });
+
+  it("throws 'workspace not found' when workspaceId is a valid UUID not in manager", async () => {
+    const unknownId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const mockStorage = { getExpandedPaths: () => [], setExpandedPaths: () => {} };
+    const handler = setExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
+    await expect(handler({ workspaceId: unknownId, relPaths: [] })).rejects.toThrow(
+      "workspace not found",
+    );
   });
 });

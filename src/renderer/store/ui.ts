@@ -32,36 +32,31 @@ function clampFilesPanel(value: number): number {
 interface HydrateOpts {
   sidebarWidth?: number;
   filesPanelWidth?: number;
-  filesPanelCollapsed?: boolean;
 }
 
 interface UIState {
   sidebarWidth: number;
   filesPanelWidth: number;
-  filesPanelCollapsed: boolean;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
-  toggleFilesPanel(): void;
 }
 
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
-export const useUIStore = create<UIState>((set, get) => ({
+export const useUIStore = create<UIState>((set) => ({
   sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
   filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-  filesPanelCollapsed: false,
 
-  hydrate({ sidebarWidth, filesPanelWidth, filesPanelCollapsed }) {
+  hydrate({ sidebarWidth, filesPanelWidth }) {
     set({
       sidebarWidth: sidebarWidth !== undefined ? clampSidebar(sidebarWidth) : SIDEBAR_WIDTH_DEFAULT,
       filesPanelWidth:
         filesPanelWidth !== undefined
           ? clampFilesPanel(filesPanelWidth)
           : FILES_PANEL_WIDTH_DEFAULT,
-      filesPanelCollapsed: filesPanelCollapsed ?? false,
     });
   },
 
@@ -79,11 +74,5 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (persist) {
       ipcCall("appState", "set", { filesPanelWidth: next }).catch(() => {});
     }
-  },
-
-  toggleFilesPanel() {
-    const next = !get().filesPanelCollapsed;
-    set({ filesPanelCollapsed: next });
-    ipcCall("appState", "set", { filesPanelCollapsed: next }).catch(() => {});
   },
 }));

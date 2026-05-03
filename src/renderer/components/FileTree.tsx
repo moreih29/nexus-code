@@ -1,7 +1,9 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { selectFlat, useFilesStore } from "../store/files";
+import { computeParentJumpIndex } from "../file-tree-keys";
 import { useTabsStore } from "../store/tabs";
 import { FileTreeRow } from "./FileTreeRow";
 
@@ -12,11 +14,8 @@ interface FileTreeProps {
 
 export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const flat = useFilesStore(useShallow((s) => selectFlat(s, workspaceId)));
   const tree = useFilesStore((s) => s.trees.get(workspaceId));
-  const flat = useMemo(() => {
-    if (!tree) return [];
-    return selectFlat(useFilesStore.getState(), workspaceId);
-  }, [tree, workspaceId]);
 
   // ensureRoot on mount/workspaceId change
   useEffect(() => {
@@ -101,8 +100,13 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
       e.preventDefault();
       if (isDir && tree?.expanded.has(item.absPath)) {
         useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+      } else {
+        const parentIdx = computeParentJumpIndex(flat, item, rootAbsPath);
+        if (parentIdx !== null) {
+          setActiveIndex(parentIdx);
+          virtualizer.scrollToIndex(parentIdx);
+        }
       }
-      // (parent navigation은 후속, M0는 단순)
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (isDir) {
@@ -158,6 +162,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
                 depth={item.depth}
                 isExpanded={isExpanded}
                 isSelected={vi.index === activeIndex}
+                isLoading={tree?.loading.has(item.absPath) ?? false}
                 onToggle={() => handleRowClick(vi.index, item)}
                 onClick={() => handleRowClick(vi.index, item)}
               />

@@ -1569,6 +1569,221 @@
           "created_at": "2026-05-03T05:22:15.253Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-03T08:39:38.037Z",
+      "branch": "feat/files-panel",
+      "plan": {
+        "id": 7,
+        "topic": "PR1+PR2 검토에서 발견된 결함 및 개선 항목 수정 계획 (FilesPanel/FileTree 후속 정리)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[1] files store 정합성 — useMemo 외부 store 호출, ensureRoot race, loadChildren dedup, handleFsChanged 타입 정합성",
+            "status": "decided",
+            "decision": "**채택**: 네 결함을 한 번의 store 정합성 PR로 묶어 처리.\n\n(A) **useMemo 외부 store 호출** — `FileTree.tsx:16~19`\n- `useFilesStore(useShallow(s => selectFlat(s, workspaceId)))` 패턴으로 교체. zustand v5의 `useShallow`는 selector 결과 reference 안정화로 매 render 새 배열 반환에 의한 무한 re-render를 막음. selectFlat은 함수 시그니처 그대로 두되, 매번 새 배열을 만들어도 `useShallow`가 element-wise 비교해 reference 안정.\n\n(B) **ensureRoot race** — `files.ts:144~`\n- 모듈 레벨 `Map<workspaceId, Promise<void>>` (이름: `_ensureRootPromises`)로 in-flight Promise dedup. 두 번째 호출은 첫 번째 Promise를 그대로 await. resolve 후 Map에서 제거. 성공/실패 둘 다 정리하기 위해 `.finally`로 cleanup.\n\n(C) **loadChildren dedup** — `files.ts:265~`\n- 함수 진입 직후 `if (tree.loading.has(absPath)) return;` 가드 한 줄. 이미 loading set에 있는 경로는 같은 IPC 발화 회피. 단순함이 핵심 — `Promise<void>` 캐시까지 안 가도 충분.\n\n(D) **handleFsChanged inline 타입** — `files.ts:444`\n- `import type { FsChangedEvent } from '../../shared/types/fs'` 후 `event: FsChangedEvent` 시그니처. `kind: string` → `FsChangeKind` 자동 좁힘. 컴파일 타임 정합성 확보.\n\n**기각**:\n- (A) 대안 — `selectFlat`을 store action으로 끌어올려 미리 계산 캐시: 트리 변경 시마다 actions 안에서 flat 캐시를 재계산해 셀렉터 호출 없이 바로 읽기. 거부 이유 = action 책임이 부풀고, derived 계산은 selector 영역이 OO. selector + useShallow가 표준 zustand 패턴.\n- (B) 대안 — useEffect의 cleanup으로 race 회피 (마지막 호출만 반영). 거부 이유 = 호출 순서가 컴포넌트 mount/unmount 흐름에 종속되어 잠복 race가 남음. Promise dedup이 더 결정적.\n- (C) 대안 — `Promise<void>` 캐시로 fully await-able 동시 호출: 호출자가 `await loadChildren`을 두 번 해도 같은 Promise를 받음. 거부 이유 = 현재 호출 흐름은 fire-and-forget이 다수라 단순 가드로 충분. 비용 대비 이득 적음.\n- (D) 대안 — Zod 스키마 `FsChangedEventSchema.parse`로 런타임 검증. 거부 이유 = ipcListen이 이미 schema를 통과한 데이터만 전달하므로 이중 검증 비용. 컴파일 타임 타입 좁힘만으로 충분.\n\n**가정**: zustand v5의 `useShallow`가 의존성으로 사용 가능. (이미 다른 store에서 사용 중이라면 추가 의존성 없이 적용; 미사용 시 `import { useShallow } from 'zustand/react/shallow'` 추가).\n\n**검증 기준**: `bun run typecheck` 통과, 기존 단위 테스트 fail 0, `loadChildren` dedup 단위 테스트 1건 추가, ensureRoot 동시 호출 단위 테스트 1건 추가."
+          },
+          {
+            "id": 2,
+            "title": "[2] 글로벌 키바인딩 정책 — Cmd+R/Cmd+Shift+R hard-reload 차단 범위, Cmd+E와 Editor 영역 충돌",
+            "status": "decided",
+            "decision": "**채택**: 글로벌 키바인딩 정책을 명시화하고 두 결함 모두 처리.\n\n**Cmd+R / Cmd+Shift+R** — `App.tsx:124~135`\n- 현재 핸들러를 `e.metaKey && (e.key === \"r\" || e.key === \"R\")` 로 확장 (Cmd+Shift+R도 캡처). 두 키 조합 모두 `preventDefault()` 후 `useFilesStore.refresh(activeWorkspaceId)` 동일 동작. 페이지 reload는 모든 macOS 사용자 워크플로에서 PTY 손실을 동반하는 사고이므로 disaster recovery 통로로 두지 않는다 — 강제 재시작이 필요한 사용자는 `Cmd+Q` → 재실행으로 동등.\n\n**Cmd+E와 Editor 영역 conflict** — `App.tsx:138`\n- 핸들러 진입 즉시 활성 요소 검사 추가:\n  ```ts\n  const target = e.target as HTMLElement | null;\n  const inEditable = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable === true || target?.closest('.cm-editor');\n  if (inEditable) return; // editor/textarea/input은 글로벌 단축키 캡처 안 함\n  ```\n- `cm-editor`는 CodeMirror 6 root 클래스. EditorView의 컨테이너에 자동 부여되므로 selector로 충분. 다른 코드에디터 도입 시 selector 확장. preventDefault는 현재처럼 글로벌 의도일 때만.\n\n**기각**:\n- Cmd+Shift+R은 의도적 disaster recovery로 두기: 거부 이유 = PTY 손실 비용이 크고, 유저 멘탈모델(\"Shift는 hard\")이 PTY 손실을 정당화하지 않음. 가시적 알림 없이 워크스페이스 상태가 사라지는 것은 안전한 escape hatch가 아님.\n- Editor 안에서만 Cmd+E 비활성: closest 검사 외에 Cmd+E를 EditorView 자체가 해석하도록 위임. 거부 이유 = M0에 EditorView의 검색 기능 없음. 단순 가드만으로 충분.\n- 글로벌 핸들러를 capture 단계 (`addEventListener('keydown', fn, true)`) 로 전환: 거부 이유 = 모든 input/editable에서 글로벌 단축키가 우선되면 텍스트 편집 흐름 끊김. bubble 단계 + editable 가드가 정공법.\n\n**가정**: 현재 EditorView는 CodeMirror 기반(파일트리 task에서 EditorView 통합 완료 상태). 추후 다른 에디터 도입 시 selector 확장이 필요하지만 그건 그 시점에 추적.\n\n**검증 기준**: 단위 테스트 신규 — Cmd+R/Cmd+Shift+R 모두 refresh 호출 + preventDefault 호출 검증. Cmd+E가 input/textarea/contenteditable 안에서는 무시 검증. RUNBOOK — Cmd+Shift+R 실제 누름 후 PTY 생존 + 파일트리 새로고침 확인."
+          },
+          {
+            "id": 3,
+            "title": "[3] ResizeHandle 안정성 — onResize deps 변경에 따른 effect 재등록, 인접 두 핸들의 히트영역 겹침",
+            "status": "decided",
+            "decision": "**채택**: 콜백 ref 패턴으로 effect 재등록 회피 + 히트영역 정렬 조정.\n\n**onResize ref 패턴** — `ResizeHandle.tsx:60~92`\n- `onResizeRef = useRef(onResize); onResizeRef.current = onResize;` 매 render 시 mirror.\n- useEffect deps에서 `onResize` 제거 → `[isDragging]`만. effect 안에서는 `onResizeRef.current(width, persist)` 호출.\n- 결과: drag 중 store update → re-render → 새 onResize는 ref에 mirror만 되고 effect는 cleanup/재등록 안 됨. body cursor/userSelect 사이드이펙트도 한 번만 setup/teardown.\n\n**히트영역 인접 겹침** — Sidebar/FilesPanel 두 ResizeHandle\n- 현재: `right-0 + translate-x-1/2`로 양쪽 모두 자기 패널 우측 경계 위 `w-2`(8px) hit-area. SidebarResizeHandle hit-area의 우측 절반(~4px)이 FilesPanel 좌측 첫 8px 패딩과 겹침.\n- 수정: SidebarResizeHandle을 `translate-x-1/2`(centered) 대신 `right-0` (translate 없음 = 좌측으로 8px 들어가는 형태)으로 두고, FilesPanel ResizeHandle은 그대로. 결과: 사이드바 핸들이 사이드바 안쪽으로만 점유. 두 핸들 사이 겹침 0.\n- 반론: 사이드바 핸들이 안쪽으로 들어가면 사이드바 우측 가장자리 클릭 시 핸들이 잡히지 않음. 절충: `right-0 -translate-x-1/2` (사이드바 안쪽으로 4px) — hit-area 8px 중 4px는 사이드바, 나머지 4px가 시각 hairline 위. FilesPanel 핸들은 동일 패턴 유지 — 시각적 대칭 깨지지만 사용자가 두 핸들을 동시에 다루는 경우는 없으므로 OK.\n- ResizeHandle props에 `placement: 'rightCentered' | 'rightInside'` 추가하고 두 호출자가 다른 placement 사용. SidebarResizeHandle은 `rightInside`, FilesPanel은 `rightCentered`.\n\n**기각**:\n- onResize 변경에 의한 effect 재등록을 그대로 두기: 거부 이유 = drag 중 매 mousemove에서 listener add/remove가 발생. 60Hz 입력에서 GC 압박/jank 가능. 표준 ref-mirror 패턴으로 5줄 추가에 해결.\n- 두 핸들을 모두 `rightInside`로 통일: 거부 이유 = FilesPanel 우측 경계는 가장 우측이므로 안쪽 패딩이 줄어들어 클릭 어려움. 가장 우측 패널은 centered가 자연스러움.\n- ResizeHandle props 추가 대신 호출 측에서 className 오버라이드만으로 위치 조정: 거부 이유 = position 클래스를 매번 호출자가 적기 시작하면 일관성 깨짐. enum props 한 개가 명료.\n\n**가정**: 현재 Sidebar의 우측 경계 hairline은 FilesPanel의 `border-r`이 그리는 것이 아니라 Sidebar 자체에 있음(별도 read 후 확인 필요). 만약 Sidebar에 hairline 없으면 위 조정으로 시각 변화는 없음.\n\n**검증 기준**: ResizeHandle deps 회귀를 단위 테스트로 직접 잡기 어려움 — `effect re-run count`를 직접 측정 불가. 대신 RUNBOOK: 워크스페이스 큰 트리 100+ 행 띄운 상태로 사이드바/파일패널 드래그 → 60fps 유지 시각 확인. 히트영역 — RUNBOOK: 사이드바 우측 경계 8px 안쪽 클릭 시 사이드바 리사이즈, 그 외 영역 클릭 시 파일패널 핸들 작동 안 함 확인."
+          },
+          {
+            "id": 4,
+            "title": "[4] filesPanelCollapsed dead state — store/persist 필드는 있으나 UI 미연결: 즉시 제거 vs M1까지 보류 vs 즉시 anchor",
+            "status": "decided",
+            "decision": "**채택**: 즉시 제거 (store/AppStateSchema 양쪽에서 `filesPanelCollapsed` 필드 삭제).\n\n**근거**:\n- 현재 상태 = store에 필드+setter+IPC persist가 있으나 어떤 컴포넌트도 읽지 않음. UI에 collapse 토글 진입점도 없음. 100% dead state.\n- M1에 collapse가 들어올지 미정. \"혹시\" 위해 둔 코드는 일관되게 부패한다 (예: 누군가 collapsed=true로 만들었는데 UI는 무반응 → 디버깅 시간 낭비).\n- AppState는 사용자 영속 데이터. 미래 사용 가능성을 명목으로 schema에 필드가 누적되면 schema 압박. 필요해질 때 추가하는 것이 견고한 운영 패턴.\n- 영속 데이터 backward-compat: `AppStateSchema`에서 `filesPanelCollapsed: z.boolean().optional()` 제거 시 기존 영속된 값은 `parse` 시 `unknown keys` 처리에 따라 다름. Zod default는 unknown keys strip이라 안전. 별도 마이그레이션 불필요.\n\n**기각**:\n- M1까지 보류: 거부 이유 = 위에 적은 dead state 부패 비용. 6주 후 누가 만들 때 store 코드 본인이 짠 게 아니어서 이 필드의 용도/UI를 못 찾고 다시 결정해야 함.\n- 즉시 anchor (UI에 토글 버튼 + collapsed=true시 width=0 + 좌측 가장자리에 펼침 버튼): 거부 이유 = M0 결정에서 명시적으로 비포함했고, 현재 PR의 범위를 벗어남. UI/UX 결정이 추가로 필요(어디에 토글 버튼을 둘 것인가, collapsed 상태에서 어떻게 펼칠 것인가, FilesPanel을 width 0으로 두면 ResizeHandle도 안 보이는데 어떻게 부활시킬 것인가). 별도 issue로 분리 후 그 시점에 다시 결정.\n\n**범위**:\n- `src/renderer/store/ui.ts`: `filesPanelCollapsed`, `toggleFilesPanel` 제거. `HydrateOpts`에서 필드 제거.\n- `src/shared/types/appState.ts`: `filesPanelCollapsed` 필드 제거.\n- `src/renderer/App.tsx`: hydrate 호출에서 `filesPanelCollapsed` 인자 제거.\n- 관련 테스트: `tests/unit/ui-store.test.ts`, `tests/unit/ui-store-files-panel.test.ts`에서 collapsed 케이스 제거 또는 테스트 자체 삭제.\n\n**검증 기준**: typecheck 통과, 단위 테스트 fail 0. 기존 영속된 appState.json에 `filesPanelCollapsed` 키가 있어도 앱 부팅 정상 (Zod strip)."
+          },
+          {
+            "id": 5,
+            "title": "[5] 트리 UX 보강 — 키보드 ←로 부모 점프, 자식 디렉토리 readdir 시 시각 피드백",
+            "status": "decided",
+            "decision": "**채택**: 즉시 처리(코드 5~10줄)로 분류 가능한 두 항목 모두 본 PR에 포함.\n\n**키보드 ←로 부모 점프** — `FileTree.tsx:100~104`\n- 현재: collapsed dir에서 ←는 무동작 (주석 \"M0 단순\"으로 의도적). 그러나 VSCode 사용자에게 가장 흔한 트리 키바인딩이고, 구현은 단순.\n- 수정: ←에서\n  - 현재 노드가 dir이고 expanded면 collapse (현재 동작 유지),\n  - 그 외는 부모로 점프(activeIndex를 부모 absPath의 flat index로 이동 + scrollToIndex). 부모가 root일 때는 root로 이동, 이미 root면 무동작.\n- 부모 absPath 계산은 `flat[activeIndex - k]`에서 depth가 현재보다 1 작은 첫 번째 항목을 찾는 단순 backwards scan. 또는 `parentOf(item.absPath, rootAbsPath)` 활용 후 flat에서 해당 absPath의 index 검색 (`flat.findIndex(i => i.absPath === parentAbs)`). 후자가 명료.\n\n**자식 디렉토리 readdir 시 시각 피드백** — `FileTree.tsx`, `FileTreeRow.tsx`\n- 현재: 자식 dir loading 시 chevron만 그대로. 200ms 이상 readdir이 걸리는 대형 디렉토리(예: ~50k entries) 사용자가 클릭 후 무반응으로 인지.\n- 수정: FileTreeRow에 `isLoading?: boolean` props 추가. true이면 chevron이 회전 인디케이터 또는 약간의 opacity 감소. 가장 가벼운 옵션은 chevron을 `animate-pulse` 또는 `opacity-50`. 200ms threshold(루트와 동일 정책)를 적용해 작은 readdir엔 깜박임 회피.\n- FileTree 컴포넌트 변경: row 렌더 시 `isLoading={(tree?.loading.has(item.absPath) ?? false) && shouldShowChildLoading[item.absPath]}` 형태. shouldShowChildLoading은 loading.has가 200ms 이상 지속될 때 true로 set하는 effect. **단순화**: 200ms threshold는 루트만 적용하고 자식은 즉시 표시(작은 loading은 깜박임 발생하지만 낮은 비용). 실용 결정 = 즉시 표시.\n\n**기각**:\n- 두 항목 모두 후속 issue로 미루기: 거부 이유 = 둘 다 PR1의 미완 결정으로 보고됐고, 본 검토 후속 PR에 5~10줄 추가로 합쳐 처리 비용이 가장 낮음. 별도 PR 분리 시 review/merge 오버헤드만 증가.\n- ←에서 부모 점프 대신 collapsed dir에서 ←가 무동작 유지: 거부 이유 = 다른 트리 사용자(VSCode/Finder) 모두 부모 점프가 표준. 단순함보다 표준 따름이 우선.\n- 자식 loading 표시를 spinner 아이콘으로: 거부 이유 = chokidar가 차후 자동 갱신을 하므로 사용자 체감 readdir은 expand 클릭 직후 한 번뿐. 별도 spinner 도입은 디자인 시스템(monochromatic, no spinner)과 충돌. opacity/pulse가 디자인 일관.\n\n**가정**: 부모 점프가 root에서 멈출 때 wrap 안 함 (Home/End는 후속). depth=0의 root는 ←가 무동작.\n\n**검증 기준**: 단위 테스트 — flat 배열 mock으로 ArrowLeft 시 activeIndex 이동 검증 (collapsed dir, file row, root row 세 케이스). 자식 loading 표시는 RUNBOOK으로 처리(react-virtual + transform 결합으로 spinner의 시각 검증은 자동 어려움)."
+          },
+          {
+            "id": 6,
+            "title": "[6] main fs 채널/워처 견고성 — getExpanded/setExpanded workspace 존재 검증, FileWatcher.ignored가 root 자체 차단 가능성, hydrate 시 직렬 readdir 비용",
+            "status": "decided",
+            "decision": "**채택**: 세 결함 모두 처리. 한 PR에 묶기 (모두 main 측 fs/watcher 영역).\n\n**(A) getExpanded/setExpanded의 workspace 존재 검증** — `fs.ts:90~107`\n- 현재: workspaceId UUID만 맞으면 storage 호출 통과. open되지 않은 workspaceId면 storage 측에서 throw하므로 결과적으로 거부되지만, 다른 핸들러(readdir/stat/watch/unwatch)가 `resolveSafe`를 통해 manager.list().find로 검증하는 것과 비대칭.\n- 수정: 두 핸들러도 동일 검사 유틸 거치도록. `resolveSafe`는 path resolve 책임이라 재사용 어색. 별도 헬퍼 `assertWorkspaceExists(manager, workspaceId)` 추가:\n  ```ts\n  function assertWorkspaceExists(manager: WorkspaceManager, workspaceId: string): void {\n    if (!manager.list().some(w => w.id === workspaceId)) {\n      throw new Error(`workspace not found: ${workspaceId}`);\n    }\n  }\n  ```\n- getExpandedHandler/setExpandedHandler 둘 다 manager 인자 추가 + 진입 시 호출.\n- registerFsChannel 시그니처는 변경 없음(이미 manager 보유).\n\n**(B) FileWatcher.ignored가 root 자체 차단** — `FileWatcher.ts:58`\n- 현재: `ignored: (p) => HIDDEN_NAMES.has(path.basename(p))`. 워크스페이스 root가 `dist`/`node_modules` 같은 이름이면 watch 자체 무력화.\n- 수정: `ignored: (p) => p !== absDir && HIDDEN_NAMES.has(path.basename(p))`. `absDir`은 watch 함수 클로저 안에서 참조 가능.\n- 부수 효과: 각 watcher 인스턴스가 자기 root는 통과, 자식 중 hidden은 차단. 의도 정확.\n\n**(C) hydrate 시 직렬 readdir** — `files.ts:204~217`\n- 현재: persisted expand가 N개일 때 `for (const rel of sortedRel) await loadChildren(...)` 직렬. N*RTT.\n- 수정: 같은 depth 항목은 병렬화. depth 단계별로 grouping(`Map<depth, relPath[]>`) 후 `for (const depth of sortedDepths) await Promise.all(group.map(rel => loadChildren(rel)))`. parent-child 의존성은 depth 오름차순으로 보장.\n- depth 계산은 `rel.split('/').length` (rel이 빈 문자열이면 depth=0=root). loadChildren 호출 측은 absPath이므로 `${rootAbsPath}/${rel}` 변환.\n- watch 등록도 같은 그룹 안에서 병렬화 가능 — 이미 fire-and-forget이므로 자동.\n\n**기각**:\n- (A) 검증 위치를 storage 측에 두고 fs.ts는 그대로: 거부 이유 = 채널 내 일관성을 위해 IPC 핸들러 단에서 검증하는 것이 관례. storage 입력 검증은 방어적 중복으로 유지.\n- (A) workspace 존재 검사를 모든 fs 핸들러에서 빼고 storage 측만 신뢰: 거부 이유 = 보안 경계 일관성을 깨는 방향. resolveSafe가 이미 검사하므로 두 핸들러만 누락된 형국, 일관성으로 묶는 게 안전.\n- (B) HIDDEN_NAMES 자체에서 root 검사 책임 빼기 (root 검사는 호출자 책임): 거부 이유 = ignored 함수가 모든 path에 대해 호출되는 단일 진입점이라 그 안에서 root skip이 가장 명료. 호출자가 root 검사를 따로 하면 이중 책임.\n- (C) 병렬화 대신 hydrate 자체를 첫 expand 시점으로 미루기 (lazy hydrate): 거부 이유 = 사용자 기대(재시작 직후 즉시 펼침 복원)를 깨뜨림. 병렬화로 5~10x 가속이 더 단순 정공법.\n- (C) Promise.all 대신 동시성 제한 (예: 5개 concurrent): 거부 이유 = readdir IPC는 lightweight(파일시스템 read만), 한 워크스페이스 hydrate가 100개 디렉토리 넘는 경우는 드물고 그조차 macOS fs는 동시 read에 강함. 단순 Promise.all로 충분.\n\n**가정**: hydrate 동시성 제한이 필요한 시점은 한 워크스페이스에 expand 깊이가 매우 큰(>500) 경우. 그런 사용자가 나타나면 후속에 동시성 큐 도입.\n\n**검증 기준**: \n- (A) 단위 테스트 — getExpanded/setExpanded를 미존재 workspaceId로 호출 시 throw 검증 (fs-channel.test.ts에 케이스 추가).\n- (B) 단위 테스트 — FileWatcher.watch에 root와 같은 이름의 dir(예: `/tmp/dist`)을 root로 줄 때 chokidar instance 정상 생성 검증.\n- (C) 단위 테스트 — files-store.test.ts hydrate 케이스에 N=10 expand 사용 후 ipcCall(readdir) 호출 횟수 = 10 검증, 동시성은 mock으로 직접 검증 어려우므로 RUNBOOK(실측 시간)."
+          },
+          {
+            "id": 7,
+            "title": "[7] 일관성 + 테스트 게이트 + RUNBOOK — workspace.removed payload 명명, bun run test 단일 게이트, 메모리 leak/재시작 펼침 RUNBOOK 등록",
+            "status": "decided",
+            "decision": "**채택**: 세 항목 모두 처리하되, 명명 통일은 비파괴적으로 추가, 게이트는 acceptance 템플릿화, RUNBOOK은 단일 마크다운 파일로 등록.\n\n**(A) workspace.removed payload 명명**\n- 현재: `workspace.removed` listen schema가 `WorkspaceIdSchema = { id: string.uuid() }`. 신규 채널(fs.changed, fs.watch 등)은 모두 `workspaceId`를 사용. payload key 비대칭.\n- 수정 옵션 비교:\n  - **옵션 A**: `workspace.removed` payload를 `{ workspaceId }`로 breaking change. 거부 — 렌더러 측 구독자(tabs store 등)도 함께 수정 필요, 회귀 위험.\n  - **옵션 B**: 채택. listen 이벤트 payload는 기존 `{ id }` 유지하되 신규 채널/내부 함수 인자명은 모두 `workspaceId`로 통일. 컨벤션 문서화는 별도 docs 미생성(README/ADR 신규 생성은 본 PR 범위 밖). 단, **내부 임시 변수명**에서 `workspaceId`/`id` 혼용을 피하도록 wrappedBroadcast의 `args as { id: string }`을 가독성 있게: `const removedWorkspaceId = (args as { id: string }).id;` 같은 짧은 alias.\n- 결정: 옵션 B. breaking change 대신 컨벤션을 신규 코드에만 강제. workspace 채널은 원형 보존.\n\n**(B) bun run test 단일 게이트**\n- 현재: engineer task acceptance가 `bun test tests/unit/...` 식 selective 게이트. PR2-03이 통합 테스트(files-panel.test.ts)를 회귀시키고 PR2-04에서 발견한 사고 재발 방지.\n- 수정: nx_task_add 시 acceptance 끝에 `bun run test 통과 (단위+통합 동시)` 라인을 표준 항목으로 포함. 본 PR의 모든 task가 이 게이트 사용. 추후 plan에도 적용되도록 본 결정 텍스트에 명시.\n- 추가 보조 게이트: `bun run typecheck`. 두 개를 acceptance 표준 라인으로.\n\n**(C) RUNBOOK 등록**\n- 위치: `docs/runbooks/files-panel.md` 신규 (또는 기존 docs 디렉토리 패턴 따름). 파일 1개에 누적.\n- 등록 항목:\n  1. 메모리 leak 수동 검증 (PR2-04 보고 RUNBOOK-PR2-01).\n  2. 앱 재시작 후 펼침 복원 (PR2-04 보고 RUNBOOK-PR2-02).\n  3. **본 후속 PR 추가**:\n     - Cmd+Shift+R 누름 → PTY 생존 + 트리 재로드 검증.\n     - Sidebar/FilesPanel ResizeHandle 히트영역 안 겹침 검증.\n     - 자식 디렉토리 readdir 동안 chevron opacity/pulse 시각 확인.\n     - 큰 트리(100+ 행) drag 시 60fps 유지.\n- 형식: 항목별로 `## 목표 / 사전 조건 / 단계 / 합격 기준 / 결과 기록 칸` 5섹션. 회귀 발견 시 항목 추가.\n\n**기각 (큰 그림)**:\n- workspace 채널까지 breaking 통일: 거부 이유 = 회귀 위험 대비 이득 미미 (외부 API 아닌 내부 IPC).\n- bun run test 게이트를 lint hook(pre-commit)에 강제: 거부 이유 = 본 결정 범위는 acceptance 표준화. pre-commit hook은 별도 토픽이라 분리.\n- RUNBOOK을 docs 사이트 정식 페이지로: 거부 이유 = 현재 docs 사이트 없음. 마크다운 파일로 시작 → 누적되면 정식화.\n\n**가정**: `docs/` 또는 동등 디렉토리가 이미 있거나, 없으면 생성. 기존 RUNBOOK 형식 우선.\n\n**검증 기준**:\n- 결정 자체가 프로세스/문서이므로 코드 게이트는 없음. 본 PR의 모든 task acceptance에 `bun run test + bun run typecheck` 라인 포함되어 있는지 review 시 체크. RUNBOOK 파일이 생성되어 있는지 review 시 체크."
+          }
+        ],
+        "research_summary": "직전에 사용자 요청으로 PR1(작업 1~13)과 PR2(작업 14~17) 산출물을 직접 read하며 코드 리뷰를 수행. 검토한 파일: src/main/filesystem/FileWatcher.ts, src/main/ipc/channels/fs.ts, src/main/storage/workspaceStorage.ts, src/main/index.ts, src/renderer/store/files.ts, src/renderer/store/ui.ts, src/renderer/components/{FileTree,FileTreeRow,FilesPanel,ResizeHandle,SidebarResizeHandle}.tsx, src/renderer/App.tsx, src/shared/types/{fs,appState}.ts, src/shared/fs-defaults.ts. 발견 결함 13개 + 일관성/프로세스 3건. 분류: High 2건(FileTree useMemo 외부 store 호출, App.tsx Cmd+Shift+R hard-reload 누락), Medium-PR1 6건(ResizeHandle deps 회귀, filesPanelCollapsed dead state, 두 ResizeHandle 히트영역 인접, 키보드 nav 미흡, 자식 loading 표시 부재, Cmd+E conflict), Medium-PR2 6건(loadChildren dedup 부재, ensureRoot race, handleFsChanged inline type, getExpanded/setExpanded workspace 검증 누락, FileWatcher.ignored가 root 차단 corner case, hydrate 직렬 readdir), 일관성 1건(workspace.removed payload 명명 불일치), 프로세스 2건(통합 테스트 게이트 통일, RUNBOOK 등록). 추가 외부 리서치 불필요 — 문제 도출 자체가 코드 review에서 직접 나옴. .nexus/memory/, .nexus/context/는 본 변경과 직접 관련 없음. 결정 영역이 코드/UX/프로세스에 분산되어 일부 issue는 architect/designer 분석 사용.",
+        "created_at": "2026-05-03T08:11:06.564Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[T-01] files store 정합성 (useShallow + ensureRoot dedup + loadChildren guard + 타입)",
+          "status": "completed",
+          "context": "Issue 1의 4개 결함을 한 PR로. 모두 src/renderer/store/files.ts 또는 그 사용처(FileTree.tsx)에 집중. T-06이 같은 파일에 hydrate 병렬화를 추가하므로 직렬 처리 필요. 작업 디렉토리: /Users/kih/workspaces/areas/nexus-code (브랜치: feat/files-panel 또는 신규 브랜치).",
+          "acceptance": "- src/renderer/components/FileTree.tsx에 useShallow 적용, store.getState() 직접 호출 제거.\n- src/renderer/store/files.ts: _ensureRootPromises Map + dedup 동작; loadChildren의 loading.has 가드; handleFsChanged 타입 좁힘.\n- 단위 테스트 신규 2건: ensureRoot 동시 호출 시 readdir 1회만 발화, loadChildren 동시 호출 시 readdir 1회만.\n- bun run typecheck 통과.\n- bun run test 통과 (단위+통합 동시) — 표준 게이트.",
+          "approach": "(A) FileTree.tsx의 `useMemo` 패턴을 `useFilesStore(useShallow(s => selectFlat(s, workspaceId)))`로 전환. zustand v5의 useShallow가 selector 결과를 element-wise 비교해 reference 안정. (B) files.ts 모듈 레벨에 `_ensureRootPromises: Map<workspaceId, Promise<void>>` 추가. ensureRoot 시작 시 in-flight Promise 있으면 그대로 await; 새로 시작하면 Map에 저장 후 .finally로 cleanup. (C) loadChildren 진입 직후 `if (tree.loading.has(absPath)) return;` 가드. (D) handleFsChanged 시그니처 `event: FsChangedEvent` 로 교체 (import type from '../../shared/types/fs').",
+          "risk": "useShallow가 zustand v5 export 경로 확인 필요. 미설치면 'zustand/react/shallow' import 추가. ensureRoot Promise dedup은 reject 시 cleanup 누락이면 다음 호출이 영원히 stale Promise를 await할 수 있음 — .finally 필수.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a2ae2ae34a6150b99",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:15:38.413Z"
+        },
+        {
+          "id": 2,
+          "title": "[T-02] App.tsx 글로벌 키바인딩 정책 (Cmd+R/Cmd+Shift+R 통합 + Cmd+E editable 가드)",
+          "status": "completed",
+          "context": "Issue 2. 현재 Cmd+Shift+R는 페이지 reload로 PTY 손실; Cmd+E는 input/textarea/editor 안에서도 무조건 캡처. App.tsx 단일 파일 변경.",
+          "acceptance": "- src/renderer/App.tsx: Cmd+R / Cmd+Shift+R 모두 preventDefault + refresh 호출.\n- Cmd+E가 input/textarea/contenteditable/.cm-editor 컨테이너 안에서는 무동작.\n- 단위 테스트 신규: keydown event 시뮬레이션으로 (1) Cmd+R refresh, (2) Cmd+Shift+R refresh + preventDefault, (3) input 안 Cmd+E 무동작 검증.\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "- 현재 `e.metaKey && e.key === \"r\" && !e.shiftKey` 분기를 `e.metaKey && (e.key === \"r\" || e.key === \"R\")` 로 교체. preventDefault + refresh 동일 동작.\n- Cmd+E 분기 진입 직후 가드 추가:\n  ```\n  const target = e.target as HTMLElement | null;\n  const inEditable = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable === true || target?.closest('.cm-editor') != null;\n  if (inEditable) return;\n  ```\n- 단위 테스트는 keydown event 모킹으로 처리 (DOM jsdom 환경).",
+          "risk": "jsdom의 isContentEditable / closest 구현이 jsdom 버전에 따라 차이. 시뮬레이션이 어려우면 핸들러를 export해 직접 호출하는 단위 테스트로 전환.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afa013682119f43c3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:15:48.237Z"
+        },
+        {
+          "id": 3,
+          "title": "[T-03] ResizeHandle 안정성 (콜백 ref 패턴 + placement props)",
+          "status": "completed",
+          "context": "Issue 3. drag 중 store update가 onResize prop 새 reference를 만들어 useEffect cleanup/재등록 반복. 추가로 SidebarResizeHandle과 FilesPanel ResizeHandle의 hit-area가 인접 패널 첫 4px와 겹침.",
+          "acceptance": "- ResizeHandle.tsx: onResizeRef 패턴 적용, useEffect deps에 onResize 없음.\n- placement enum props 추가, 두 변형 클래스 적용.\n- SidebarResizeHandle/FilesPanel 호출 갱신.\n- 단위 테스트 1건: ResizeHandle 컴포넌트가 placement='rightInside'일 때 className에 '-translate-x-1/2' 포함, default일 때 'translate-x-1/2'.\n- bun run typecheck 통과.\n- bun run test 통과.\n- RUNBOOK 항목 (T-09에 추가): 큰 트리 100+ 행 떠있을 때 사이드바/파일패널 drag 시 60fps 유지, 두 핸들 hit-area 겹침 없음.",
+          "approach": "- ResizeHandle.tsx: `onResizeRef = useRef(onResize); onResizeRef.current = onResize;`를 본체 매 render에서 동기화. useEffect의 deps에서 `onResize` 제거 → `[isDragging]`만. effect 안에서는 `onResizeRef.current(...)` 사용.\n- placement props 추가: `placement: 'rightCentered' | 'rightInside'` (default 'rightCentered'). DEFAULT_POSITION_CLASS를 두 변형으로 분리:\n  - rightCentered (현재): `right-0 ... translate-x-1/2`\n  - rightInside: `right-0 ... -translate-x-1/2` (사이드바 안쪽으로 4px)\n- SidebarResizeHandle.tsx: ResizeHandle에 `placement=\"rightInside\"` 전달.\n- FilesPanel.tsx: ResizeHandle에 `placement=\"rightCentered\"` (또는 default 활용).\n- ResizeHandle 단위 테스트는 effect 재등록 횟수를 직접 측정 어려움 — RUNBOOK으로 검증 (T-09에 항목 등록).",
+          "risk": "'-translate-x-1/2'로 사이드바 우측 가장자리에서 4px 안으로 들어가면 사이드바 우측 hairline 위에서 정확히 클릭 시 핸들이 안 잡힐 수 있음 — 시각 검증 필요.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5817fbe1437838c6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:04.335Z"
+        },
+        {
+          "id": 4,
+          "title": "[T-04] filesPanelCollapsed dead state 제거",
+          "status": "completed",
+          "context": "Issue 4. store/persist에는 있으나 UI 미연결. Zod schema strip이 backward-compat 보장. 6개 파일 소규모 변경.",
+          "acceptance": "- ui store에 filesPanelCollapsed/toggleFilesPanel 흔적 없음.\n- AppStateSchema에 해당 필드 없음.\n- App.tsx hydrate 호출이 두 필드(sidebarWidth, filesPanelWidth)만 전달.\n- 기존 영속된 appState.json에 filesPanelCollapsed 키가 있어도 부팅 정상 (수동 검증 또는 unit 테스트로 strip 확인).\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "- src/renderer/store/ui.ts: UIState/HydrateOpts에서 filesPanelCollapsed/toggleFilesPanel 제거.\n- src/shared/types/appState.ts: filesPanelCollapsed 필드 제거.\n- src/renderer/App.tsx: hydrate 호출 인자 정리.\n- tests/unit/ui-store.test.ts, tests/unit/ui-store-files-panel.test.ts: collapsed 관련 케이스 제거.\n- ipcContract.ts에는 영향 없음 (AppState는 partial schema 사용).",
+          "risk": "없음 (Zod default strip).",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "acb048b29bf8b32c5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:13.028Z"
+        },
+        {
+          "id": 5,
+          "title": "[T-05] 트리 UX 보강 (ArrowLeft 부모 점프 + 자식 readdir 시각 피드백)",
+          "status": "completed",
+          "context": "Issue 5. ArrowLeft가 collapsed dir에서 무동작이라 VSCode 사용자 손에 안 맞음. 자식 readdir 동안 chevron 무반응.",
+          "acceptance": "- ArrowLeft가 collapsed dir / file에서 부모 점프, expanded dir에서 collapse.\n- FileTreeRow에 isLoading props, chevron이 loading 상태일 때 시각적 변화.\n- 단위 테스트 신규 3건.\n- bun run typecheck 통과.\n- bun run test 통과.\n- RUNBOOK 항목 (T-09): 자식 dir expand 시 chevron 시각 변화 확인.",
+          "approach": "- FileTree.tsx handleKeyDown의 ArrowLeft:\n  - dir이고 expanded면 collapse (현재 동작 유지),\n  - 그 외(file 또는 collapsed dir)면 부모 absPath 계산: `parentOf(item.absPath, rootAbsPath)` 활용. flat에서 해당 absPath의 index 검색. 찾으면 setActiveIndex + scrollToIndex. root이면 무동작.\n- FileTreeRow.tsx: `isLoading?: boolean` props 추가. true이면 chevron에 `opacity-50` 또는 `animate-pulse` 클래스 추가 (cn 조건부).\n- FileTree.tsx 행 렌더 시 `isLoading={tree?.loading.has(item.absPath) ?? false}` 즉시 표시 (200ms threshold는 root만, 자식은 단순 즉시 표시 — 결정대로).\n- 단위 테스트: 부모 점프 케이스 3가지 (collapsed dir, file row, root row=무동작).",
+          "risk": "parentOf가 root 자체에 대해 root를 반환하는 동작에 의존 (이미 그렇게 구현). flat.findIndex가 O(N) — 트리 1만 행에서도 1ms 미만이라 무시 가능.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad9eddea36159030c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:26.494Z"
+        },
+        {
+          "id": 6,
+          "title": "[T-06] main fs/watcher 견고성 (workspace 검증 + root ignored skip + hydrate 병렬화 + alias)",
+          "status": "completed",
+          "context": "Issue 6 + Issue 7-A. main fs.ts의 getExpanded/setExpanded가 workspace 존재 검증 누락(다른 핸들러와 비대칭), FileWatcher.ignored가 root와 같은 이름의 hidden일 때 watch 무력화, files store hydrate가 직렬 readdir로 N*RTT. 추가로 main/index.ts wrappedBroadcast의 `args as { id: string }` alias 정리. T-01과 같이 files.ts hydrate를 만지므로 T-01 완료 후.",
+          "acceptance": "- fs.ts: assertWorkspaceExists 추가, getExpanded/setExpanded handler가 호출.\n- FileWatcher.ts: ignored 함수가 root skip 가드 포함.\n- files.ts: ensureRoot hydrate가 depth-grouped Promise.all로 병렬화.\n- main/index.ts: removedWorkspaceId alias 적용.\n- 단위 테스트 신규 3건 이상 (위 3 시나리오).\n- bun run typecheck 통과.\n- bun run test 통과.",
+          "approach": "(A) src/main/ipc/channels/fs.ts: `assertWorkspaceExists(manager, workspaceId)` 헬퍼 추가 후 getExpandedHandler/setExpandedHandler 진입 시 호출. 두 handler factory 시그니처에 manager 인자 추가, registerFsChannel은 이미 manager 보유하므로 호출만 갱신.\n(B) src/main/filesystem/FileWatcher.ts: chokidar.watch 옵션의 ignored 함수를 `(p) => p !== absDir && HIDDEN_NAMES.has(path.basename(p))` 로 교체.\n(C) src/renderer/store/files.ts ensureRoot의 hydrate 루프를 depth-grouped 병렬화: `Map<depth, relPath[]>` 생성 후 sortedDepths 오름차순으로 `Promise.all(group.map(...))`. watch 호출도 같은 그룹 안에서 병렬.\n(D) src/main/index.ts wrappedBroadcast: `const removedWorkspaceId = (args as { id: string }).id;` alias 추가, fileWatcher.disposeWorkspace(removedWorkspaceId) 호출.\n- 단위 테스트:\n  - fs-channel.test.ts: getExpanded/setExpanded를 미존재 workspaceId로 호출 시 throw.\n  - integration/pr2-watcher.test.ts (또는 신규): root='/tmp/dist' 같은 hidden 이름 경우 watch가 정상 등록되는지 (chokidar 직접 호출 stub으로 검증, 또는 ignored 함수 단위 테스트).\n  - files-store.test.ts: hydrate 시 readdir 호출 N개 발화 확인 (직렬 vs 병렬은 mock 호출 시점 비교로).",
+          "risk": "hydrate 병렬화 시 같은 depth 안에서도 부모-자식 관계가 있을 수 있음 (rel='a'와 rel='a/b'는 depth 1, depth 2이므로 다른 그룹). 같은 depth에 부모-자식 없는 것 보장됨 — 다만 ensureRoot 호출 흐름에서 root readdir이 먼저 끝나야 depth 1 노드들이 nodes Map에 존재함. 코드는 root readdir await 후 그룹 루프이므로 OK. 검증.",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "abd2b52c8e091e59f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:16:49.592Z"
+        },
+        {
+          "id": 7,
+          "title": "[T-07] 통합 회귀 검증 (모든 변경 후 단위+통합 테스트 + 시나리오 점검)",
+          "status": "completed",
+          "context": "T-01..T-06이 끝난 시점에 회귀 점검. PR2-03 → files-panel.test.ts 회귀 사고 재발 방지. tester가 단일 게이트(bun run test)로 통합 회귀를 잡고, 추가로 본 후속 PR이 다루는 6개 시나리오를 RUNBOOK 적용 가능 여부로 분류.",
+          "acceptance": "- bun run test fail 0.\n- bun run typecheck clean.\n- 시나리오 6개 분류 매트릭스 보고 (auto / RUNBOOK / N/A).\n- 회귀 발견 시 owner-engineer로 escalation.",
+          "approach": "- bun run test (단위 + 통합) 전수 실행, fail 0 확인.\n- bun run typecheck 전수 실행.\n- 시나리오 회귀 점검:\n  1. 워크스페이스 add → 트리 root expand → 자식 dir click → expand → tabs 열기 (PR1 기본 흐름)\n  2. Cmd+R 누름 → 트리 재로드, PTY 생존 (T-02 변경 회귀 없음)\n  3. Cmd+Shift+R 누름 → 트리 재로드, 페이지 reload 안 됨 (T-02 신규)\n  4. Cmd+E (Editor 안) → 무동작 (T-02 신규)\n  5. resize handle drag → width 갱신 + persist (T-03 회귀)\n  6. 외부 파일 추가 → 300ms 후 트리 반영 (PR2 회귀 없음)\n- 자동 테스트로 커버 안 되는 시나리오는 RUNBOOK 후보로 분류해 T-08에 전달.",
+          "risk": "jsdom 환경에서 Cmd+Shift+R / Cmd+E 시뮬레이션이 영문 KeyboardEvent 객체로 reproducible한지 확인 필요. 어려우면 RUNBOOK으로 분류.",
+          "plan_issue": 7,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a795e8a0631943bf1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:03.324Z"
+        },
+        {
+          "id": 8,
+          "title": "[T-08] RUNBOOK 작성 (docs/runbooks/files-panel.md)",
+          "status": "completed",
+          "context": "Issue 7-C. PR2-04 보고에서 정의된 2건 + 본 후속 PR의 4건을 한 마크다운 파일에 누적. 형식: 항목별 5섹션 (목표 / 사전 조건 / 단계 / 합격 기준 / 결과 기록 칸).",
+          "acceptance": "- docs/runbooks/files-panel.md 파일 생성 (또는 기존 위치).\n- 6개 항목, 각 5섹션 형식.\n- 마크다운 lint 위반 없음 (있다면 prettier/markdownlint 통과).\n- 항목 IDs 안정 (RUNBOOK-PR2-01, RUNBOOK-FU-01 등) — 후속 회귀 등록 시 ID 재사용 안 함.",
+          "approach": "- 파일 위치: `docs/runbooks/files-panel.md` 신규 (또는 기존 docs 디렉토리 패턴 따름).\n- 등록 항목 6개:\n  1. RUNBOOK-PR2-01: 메모리 leak 수동 검증 (PTY/FSWatcher heap 점검)\n  2. RUNBOOK-PR2-02: 앱 재시작 후 펼침 복원\n  3. RUNBOOK-FU-01: Cmd+Shift+R 누름 → PTY 생존 + 트리 재로드\n  4. RUNBOOK-FU-02: Sidebar/FilesPanel ResizeHandle 히트영역 안 겹침\n  5. RUNBOOK-FU-03: 자식 dir readdir 동안 chevron opacity/pulse 시각 확인\n  6. RUNBOOK-FU-04: 큰 트리(100+ 행) drag 시 60fps 유지 (DevTools Performance 탭)\n- 각 항목은 5섹션 정형 형식. 결과 기록 칸은 빈 상태 (사용자가 채움).\n- 헤더에 본 PR 메타(작성일, plan_id 7) + 검증 절차 가이드 1단락.",
+          "risk": "docs 디렉토리가 없거나 기존 RUNBOOK 표준 형식이 다른 패턴이면 일관성 깨짐 — 시작 전 docs/ 점검.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "writer",
+            "agent_id": "a2e4cdfbfa29a1aad",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:16.759Z"
+        },
+        {
+          "id": 9,
+          "title": "[T-09] RUNBOOK 검증 (형식/누락/명료성)",
+          "status": "completed",
+          "context": "Issue 7-C 후속. writer가 작성한 RUNBOOK이 정형 5섹션을 모두 갖추고, 6개 항목이 빠짐없으며, 사용자가 단계만 따라가도 검증할 수 있을 만큼 구체적인지 reviewer가 검증.",
+          "acceptance": "- 6개 항목 5섹션 정합성 PASS 또는 issue 리스트.\n- 마크다운 형식 위반 0.\n- 보고서 형식: PASS/FAIL + 발견 이슈.",
+          "approach": "- docs/runbooks/files-panel.md를 read.\n- 항목 6개 모두 존재, 각 항목 5섹션 (목표/사전 조건/단계/합격 기준/결과 기록 칸) 빠짐없음.\n- 단계 텍스트가 명확한 명령형, 합격 기준이 측정 가능한 표현(O/X 분기) 사용.\n- 항목 ID 충돌 없음.\n- 마크다운 헤딩 레벨 일관.\n- 이슈 발견 시 writer에게 escalation, 통과면 reviewer 보고서로 마무리.",
+          "risk": "없음.",
+          "plan_issue": 7,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "aec516a2e8dc19de0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-03T08:17:24.363Z"
+        }
+      ]
     }
   ]
 }

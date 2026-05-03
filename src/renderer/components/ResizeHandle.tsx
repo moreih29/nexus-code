@@ -32,10 +32,22 @@ interface ResizeHandleProps {
    * of the parent and centers the hit-area across the boundary.
    */
   className?: string;
+  /**
+   * Controls hit-area alignment relative to the parent's right edge.
+   * - 'rightCentered' (default): translates +1/2 width outward, centering the
+   *   hit-area on the boundary (shared 50/50 between parent and neighbour).
+   * - 'rightInside': translates -1/2 width inward, keeping the hit-area fully
+   *   inside the parent so it does not overlap the adjacent panel.
+   */
+  placement?: "rightCentered" | "rightInside";
 }
 
-const DEFAULT_POSITION_CLASS =
-  "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-1/2 [-webkit-app-region:no-drag]";
+const POSITION_CLASS = {
+  rightCentered:
+    "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-1/2 [-webkit-app-region:no-drag]",
+  rightInside:
+    "group absolute right-0 top-0 h-full w-2 cursor-col-resize -translate-x-1/2 [-webkit-app-region:no-drag]",
+} as const;
 
 const KEYBOARD_NUDGE_PX = 10;
 
@@ -47,6 +59,7 @@ export function ResizeHandle({
   onReset,
   ariaLabel,
   className,
+  placement,
 }: ResizeHandleProps) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -56,6 +69,12 @@ export function ResizeHandle({
   const valueRef = useRef(value);
   // Mirror prop on every render so the mouseup commit uses the latest store value.
   valueRef.current = value;
+
+  // Mirror onResize on every render so the effect closure always calls the
+  // latest version without re-registering document listeners on each re-render
+  // (which would happen if onResize were in the effect deps list).
+  const onResizeRef = useRef(onResize);
+  onResizeRef.current = onResize;
 
   useEffect(() => {
     if (!isDragging) return;
@@ -67,7 +86,7 @@ export function ResizeHandle({
     document.body.style.userSelect = "none";
 
     function onMouseMove(e: MouseEvent) {
-      onResize(startValueRef.current + (e.clientX - startXRef.current), false);
+      onResizeRef.current(startValueRef.current + (e.clientX - startXRef.current), false);
     }
 
     function onMouseUp() {
@@ -76,7 +95,7 @@ export function ResizeHandle({
       document.body.style.cursor = originalCursor;
       document.body.style.userSelect = originalUserSelect;
       // Persist the latest (post-clamp) value via the caller.
-      onResize(valueRef.current, true);
+      onResizeRef.current(valueRef.current, true);
       setIsDragging(false);
     }
 
@@ -89,7 +108,7 @@ export function ResizeHandle({
       document.body.style.cursor = originalCursor;
       document.body.style.userSelect = originalUserSelect;
     };
-  }, [isDragging, onResize]);
+  }, [isDragging]);
 
   function handleMouseDown(e: React.MouseEvent) {
     e.preventDefault();
@@ -125,7 +144,7 @@ export function ResizeHandle({
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
-      className={cn(DEFAULT_POSITION_CLASS, className)}
+      className={cn(POSITION_CLASS[placement ?? "rightCentered"], className)}
     >
       <div
         className={

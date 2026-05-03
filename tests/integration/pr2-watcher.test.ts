@@ -34,6 +34,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { FileWatcher } from "../../src/main/filesystem/FileWatcher";
+import { HIDDEN_NAMES } from "../../src/shared/fs-defaults";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -365,5 +366,51 @@ describe("FileWatcher.unwatch selectivity", () => {
 
     // Broadcast should still fire because subDir watcher is still active.
     expect(broadcast.calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FileWatcher.ignored — root skip guard (Change B regression tests)
+//
+// The chokidar `ignored` predicate must allow the watched root itself through
+// even when the root's basename is in HIDDEN_NAMES (e.g. 'dist', 'node_modules').
+// Without the root-skip guard, chokidar ignores the root itself and never
+// delivers any events for that directory.
+// ---------------------------------------------------------------------------
+
+describe("FileWatcher.ignored root-skip guard", () => {
+  it("allows root through even when root basename is in HIDDEN_NAMES", () => {
+    const absDir = "/projects/dist";
+    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
+
+    expect(ignored(absDir)).toBe(false);
+  });
+
+  it("allows non-hidden child through", () => {
+    const absDir = "/projects/myapp";
+    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
+
+    expect(ignored(`${absDir}/src`)).toBe(false);
+    expect(ignored(`${absDir}/index.ts`)).toBe(false);
+  });
+
+  it("blocks hidden child names", () => {
+    const absDir = "/projects/myapp";
+    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
+
+    expect(ignored(`${absDir}/.git`)).toBe(true);
+    expect(ignored(`${absDir}/node_modules`)).toBe(true);
+    expect(ignored(`${absDir}/dist`)).toBe(true);
+  });
+
+  it("root with hidden name: root passes, its hidden siblings are blocked", () => {
+    // Root dir named 'dist' — root must pass, nested .git inside it is blocked.
+    const absDir = "/projects/dist";
+    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
+
+    expect(ignored(absDir)).toBe(false);
+    expect(ignored(`${absDir}/.git`)).toBe(true);
+    expect(ignored(`${absDir}/node_modules`)).toBe(true);
+    expect(ignored(`${absDir}/src`)).toBe(false);
   });
 });

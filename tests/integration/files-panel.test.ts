@@ -117,7 +117,6 @@ function resetAllStores() {
   useTabsStore.setState({ byWorkspace: {} });
   useUIStore.setState({
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-    filesPanelCollapsed: false,
   });
   mockIpcCall.mockClear();
 }
@@ -584,7 +583,6 @@ describe("Scenario 6 (AUTO): resize drag → filesPanelWidth + appState persiste
   beforeEach(() => {
     useUIStore.setState({
       filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-      filesPanelCollapsed: false,
     });
     mockIpcCall.mockClear();
   });

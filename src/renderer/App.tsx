@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ipcCall } from "./ipc/client";
+import { handleGlobalKeyDown } from "./keybindings/global";
 import { useActiveStore } from "./store/active";
 import { useFilesStore } from "./store/files";
 import { useTabsStore } from "./store/tabs";
@@ -25,7 +26,6 @@ export function App() {
       useUIStore.getState().hydrate({
         sidebarWidth: state.sidebarWidth,
         filesPanelWidth: state.filesPanelWidth,
-        filesPanelCollapsed: state.filesPanelCollapsed,
       });
     });
   }, []);
@@ -120,40 +120,26 @@ export function App() {
   );
 
   // Cmd+E: open file picker and add an EditorView tab to the active workspace.
-  // Cmd+R: soft-refresh the active workspace file tree (prevents page reload).
+  // Cmd+R / Cmd+Shift+R: soft-refresh the active workspace file tree (prevents page reload).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey && e.key === "r" && !e.shiftKey) {
-        e.preventDefault();
-        const wsId = useActiveStore.getState().activeWorkspaceId;
-        if (wsId) {
-          useFilesStore
+      handleGlobalKeyDown(e, {
+        getActiveWorkspaceId: () => useActiveStore.getState().activeWorkspaceId,
+        refresh: (wsId) => useFilesStore.getState().refresh(wsId),
+        openFileDialog: async (wsId) => {
+          const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
+            title: "Open File",
+            filters: [
+              { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
+              { name: "All Files", extensions: ["*"] },
+            ],
+          });
+          if (canceled || filePaths.length === 0) return;
+          useTabsStore
             .getState()
-            .refresh(wsId)
-            .catch(() => {});
-        }
-        return;
-      }
-
-      if (e.metaKey && e.key === "e") {
-        e.preventDefault();
-        const wsId = useActiveStore.getState().activeWorkspaceId;
-        if (!wsId) return;
-        ipcCall("dialog", "showOpenFile", {
-          title: "Open File",
-          filters: [
-            { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-            { name: "All Files", extensions: ["*"] },
-          ],
-        })
-          .then(({ canceled, filePaths }) => {
-            if (canceled || filePaths.length === 0) return;
-            useTabsStore
-              .getState()
-              .addTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
-          })
-          .catch(() => {});
-      }
+            .addTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
+        },
+      });
     }
 
     window.addEventListener("keydown", onKeyDown);
