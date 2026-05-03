@@ -100,7 +100,17 @@ export class PtyManager {
         cols,
         rows,
         cwd,
-        env: process.env as Record<string, string>,
+        env: {
+          ...(process.env as Record<string, string>),
+          // zsh prints an inverse-video "%" before each prompt when the
+          // previous command's output did not end with a newline (its
+          // PROMPT_EOL_MARK default is "%"). In GUI terminals this marker
+          // is noisy and rarely useful, so iTerm2 / Warp / Ghostty users
+          // typically blank it out. Set it here so a fresh shell in this
+          // app doesn't surface that artifact regardless of the user's
+          // zshrc. Other shells (bash/fish) ignore the variable.
+          PROMPT_EOL_MARK: "",
+        },
       });
     } catch {
       this.send({ type: "exit", tabId, code: 1, signal: undefined });
