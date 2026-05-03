@@ -8,7 +8,7 @@ import { handleGlobalKeyDown } from "./keybindings/global";
 import { useActiveStore } from "./store/active";
 import { useFilesStore } from "./store/files";
 import { useLayoutStore } from "./store/layout";
-import { Grid } from "./split-engine";
+import { Grid } from "./lib/split-engine";
 import { closeGroup, openTab, splitAndDuplicate } from "./store/operations";
 import { registerLayoutPersistence } from "./store/persistLayout";
 import { useTabsStore } from "./store/tabs";

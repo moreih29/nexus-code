@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { Grid } from "../../split-engine";
-import type { Direction } from "../../split-engine";
+import { Grid } from "../../lib/split-engine";
+import type { Direction } from "../../lib/split-engine";
 import { stripDanglingTabs } from "./sanitize";
 import type { LayoutLeaf, LayoutNode, LayoutState, SplitOrientation, WorkspaceLayout } from "./types";
 

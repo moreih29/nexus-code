@@ -9,7 +9,7 @@
 
 import { useRef } from "react";
 import { useLayoutStore } from "../../../store/layout";
-import { Grid } from "../../../split-engine";
+import { Grid } from "../../../lib/split-engine";
 import { useTabsStore } from "../../../store/tabs";
 import { ContentHost } from "./ContentHost";
 import { ownerLeafIdOf } from "./selectors";
