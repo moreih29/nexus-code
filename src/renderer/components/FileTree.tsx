@@ -1,7 +1,6 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectFlat, useFilesStore } from "../store/files";
 import { computeParentJumpIndex } from "../file-tree-keys";
 import { useTabsStore } from "../store/tabs";
@@ -14,8 +13,17 @@ interface FileTreeProps {
 
 export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const flat = useFilesStore(useShallow((s) => selectFlat(s, workspaceId)));
+  // Subscribe to the workspace's tree slice; recompute the flat list only when
+  // that slice's reference changes. selectFlat always returns a fresh array of
+  // fresh wrapper objects, so any selector with reference comparison (Object.is
+  // or shallow element-wise) would forceStoreRerender on every store tick and
+  // trigger "Maximum update depth exceeded". Using `tree` as the useMemo dep
+  // keeps the flat array stable between unrelated store updates.
   const tree = useFilesStore((s) => s.trees.get(workspaceId));
+  const flat = useMemo(() => {
+    if (!tree) return [];
+    return selectFlat(useFilesStore.getState(), workspaceId);
+  }, [tree, workspaceId]);
 
   // ensureRoot on mount/workspaceId change
   useEffect(() => {
