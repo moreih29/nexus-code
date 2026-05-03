@@ -33,3 +33,11 @@ export const FsChangedEventSchema = z.object({
   changes: z.array(FsChangeSchema),
 });
 export type FsChangedEvent = z.infer<typeof FsChangedEventSchema>;
+
+export const FileContentSchema = z.object({
+  content: z.string(),
+  encoding: z.enum(["utf8", "utf8-bom"]),
+  sizeBytes: z.number().int().min(0),
+  isBinary: z.boolean(),
+});
+export type FileContent = z.infer<typeof FileContentSchema>;

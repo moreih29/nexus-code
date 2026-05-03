@@ -249,3 +249,82 @@ describe("ipcContract.fs.call.setExpanded args", () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fs.call.readFile
+// ---------------------------------------------------------------------------
+
+describe("ipcContract.fs.call.readFile args", () => {
+  const schema = ipcContract.fs.call.readFile.args;
+
+  test("accepts valid uuid and relPath", () => {
+    const result = schema.safeParse({ workspaceId: VALID_UUID, relPath: "src/index.ts" });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects non-uuid workspaceId", () => {
+    const result = schema.safeParse({ workspaceId: "not-a-uuid", relPath: "src/index.ts" });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing relPath", () => {
+    const result = schema.safeParse({ workspaceId: VALID_UUID });
+    expect(result.success).toBe(false);
+  });
+
+  test("strips unknown extra properties", () => {
+    const result = schema.safeParse({
+      workspaceId: VALID_UUID,
+      relPath: "src/index.ts",
+      extra: "should-be-stripped",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).extra).toBeUndefined();
+    }
+  });
+});
+
+describe("ipcContract.fs.call.readFile result", () => {
+  const schema = ipcContract.fs.call.readFile.result;
+
+  test("accepts valid utf8 result", () => {
+    const result = schema.safeParse({
+      content: "hello world",
+      encoding: "utf8",
+      sizeBytes: 11,
+      isBinary: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts valid utf8-bom result", () => {
+    const result = schema.safeParse({
+      content: "hello world",
+      encoding: "utf8-bom",
+      sizeBytes: 14,
+      isBinary: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects invalid encoding value", () => {
+    const result = schema.safeParse({
+      content: "",
+      encoding: "utf16",
+      sizeBytes: 0,
+      isBinary: true,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects negative sizeBytes", () => {
+    const result = schema.safeParse({
+      content: "",
+      encoding: "utf8",
+      sizeBytes: -1,
+      isBinary: false,
+    });
+    expect(result.success).toBe(false);
+  });
+});

@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   getExpandedHandler,
   readdirHandler,
+  readFileHandler,
   resolveSafe,
   setExpandedHandler,
 } from "../../src/main/ipc/channels/fs";
@@ -272,6 +273,133 @@ describe("setExpandedHandler", () => {
     const handler = setExpandedHandler(makeManager(tmpRoot) as never, mockStorage as never);
     await expect(handler({ workspaceId: unknownId, relPaths: [] })).rejects.toThrow(
       "workspace not found",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readFileHandler
+// ---------------------------------------------------------------------------
+
+function callReadFile(
+  manager: { list: () => WorkspaceMeta[] },
+  workspaceId: string,
+  relPath: string,
+) {
+  const handler = readFileHandler(manager as never);
+  return handler({ workspaceId, relPath });
+}
+
+describe("readFileHandler — utf-8 plain text", () => {
+  it("returns content, encoding=utf8, correct sizeBytes, isBinary=false", async () => {
+    const filePath = path.join(tmpRoot, "plain.ts");
+    const text = "export const x = 1;\n";
+    await fs.promises.writeFile(filePath, text, "utf8");
+
+    const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "plain.ts");
+
+    expect(result.content).toBe(text);
+    expect(result.encoding).toBe("utf8");
+    expect(result.sizeBytes).toBe(Buffer.byteLength(text, "utf8"));
+    expect(result.isBinary).toBe(false);
+  });
+});
+
+describe("readFileHandler — utf-8 BOM file", () => {
+  it("strips BOM and returns encoding=utf8-bom", async () => {
+    const filePath = path.join(tmpRoot, "bom.ts");
+    const text = "const a = 1;";
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    await fs.promises.writeFile(filePath, Buffer.concat([bom, Buffer.from(text, "utf8")]));
+
+    const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "bom.ts");
+
+    expect(result.encoding).toBe("utf8-bom");
+    expect(result.content).toBe(text);
+    expect(result.isBinary).toBe(false);
+  });
+});
+
+describe("readFileHandler — 6MB file exceeds limit", () => {
+  it("throws with TOO_LARGE prefix", async () => {
+    const filePath = path.join(tmpRoot, "big.bin");
+    const buf = Buffer.alloc(6 * 1024 * 1024 + 1, "x".charCodeAt(0));
+    await fs.promises.writeFile(filePath, buf);
+
+    await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "big.bin")).rejects.toThrow(
+      /^TOO_LARGE:/,
+    );
+  });
+});
+
+describe("readFileHandler — path is a directory", () => {
+  it("throws with IS_DIRECTORY prefix", async () => {
+    fs.mkdirSync(path.join(tmpRoot, "adir"));
+
+    await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "adir")).rejects.toThrow(
+      /^IS_DIRECTORY:/,
+    );
+  });
+});
+
+describe("readFileHandler — non-existent file", () => {
+  it("throws with NOT_FOUND prefix", async () => {
+    await expect(
+      callReadFile(makeManager(tmpRoot), VALID_UUID, "no-such-file.ts"),
+    ).rejects.toThrow(/^NOT_FOUND:/);
+  });
+});
+
+describe("readFileHandler — EACCES (permission denied)", () => {
+  it("throws with PERMISSION_DENIED prefix", async () => {
+    if (process.getuid?.() === 0) {
+      // root can read any file regardless of permissions
+      return;
+    }
+    const filePath = path.join(tmpRoot, "secret.ts");
+    await fs.promises.writeFile(filePath, "secret");
+    await fs.promises.chmod(filePath, 0o000);
+
+    try {
+      await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "secret.ts")).rejects.toThrow(
+        /^PERMISSION_DENIED:/,
+      );
+    } finally {
+      await fs.promises.chmod(filePath, 0o644);
+    }
+  });
+});
+
+describe("readFileHandler — null byte binary detection", () => {
+  it("returns isBinary=true and content='' when first 512 bytes contain 0x00", async () => {
+    const filePath = path.join(tmpRoot, "binary.bin");
+    const buf = Buffer.alloc(512, 0x00);
+    await fs.promises.writeFile(filePath, buf);
+
+    const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "binary.bin");
+
+    expect(result.isBinary).toBe(true);
+    expect(result.content).toBe("");
+  });
+});
+
+describe("readFileHandler — UTF-16 LE BOM", () => {
+  it("returns isBinary=true for UTF-16 LE BOM file", async () => {
+    const filePath = path.join(tmpRoot, "utf16le.txt");
+    const buf = Buffer.from([0xff, 0xfe, 0x68, 0x00, 0x69, 0x00]); // LE BOM + "hi"
+    await fs.promises.writeFile(filePath, buf);
+
+    const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "utf16le.txt");
+
+    expect(result.isBinary).toBe(true);
+    expect(result.content).toBe("");
+  });
+});
+
+describe("readFileHandler — path traversal '../foo'", () => {
+  it("throws before reaching disk when relPath escapes workspace root", async () => {
+    await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "../foo")).rejects.toThrow(
+      "path escapes workspace root",
     );
   });
 });

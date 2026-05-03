@@ -10,17 +10,33 @@
 
 import Editor, { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MAX_READABLE_FILE_SIZE } from "../../shared/fs-defaults";
 import { fontFamily, typeScale } from "../../shared/design-tokens";
 import { ipcCall, ipcListen } from "../ipc/client";
+import { fileErrorMessage, parseFileErrorCode, type FileErrorCode } from "../lib/file-error";
+import { absPathToRel } from "../store/files/helpers";
+import { useWorkspacesStore } from "../store/workspaces";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function filePathToUri(filePath: string): string {
-  // Monaco uses file:// URIs
   return `file://${filePath}`;
+}
+
+// ---------------------------------------------------------------------------
+// State shape
+// ---------------------------------------------------------------------------
+
+type FilePhase = "loading" | "ready" | "binary" | "error";
+
+interface FileState {
+  phase: FilePhase;
+  content: string;
+  errorCode?: FileErrorCode;
+  encoding?: "utf8" | "utf8-bom";
 }
 
 // ---------------------------------------------------------------------------
@@ -38,19 +54,100 @@ interface EditorViewProps {
 
 export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   const monaco = useMonaco();
-  // Disposables accumulated during the mount so we can clean up on unmount
   const disposablesRef = useRef<Monaco.IDisposable[]>([]);
   const versionRef = useRef(1);
   const uri = filePathToUri(filePath);
+
+  const [state, setState] = useState<FileState>({ phase: "loading", content: "" });
+  // Ref allows the fs.changed handler to call readFile without stale closure on state
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Load file content
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    setState({ phase: "loading", content: "" });
+
+    const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) {
+      setState({ phase: "error", content: "", errorCode: "OTHER" });
+      return;
+    }
+
+    const relPath = absPathToRel(filePath, workspace.rootPath);
+
+    let cancelled = false;
+
+    ipcCall("fs", "readFile", { workspaceId, relPath })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.isBinary) {
+          setState({ phase: "binary", content: "" });
+        } else {
+          setState({ phase: "ready", content: result.content, encoding: result.encoding });
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setState({ phase: "error", content: "", errorCode: parseFileErrorCode(message) });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, workspaceId]);
+
+  // -------------------------------------------------------------------------
+  // Auto-reload on external changes (fs.changed events)
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) return;
+
+    const relPath = absPathToRel(filePath, workspace.rootPath);
+
+    const unlisten = ipcListen("fs", "changed", (event) => {
+      if (event.workspaceId !== workspaceId) return;
+      const matched = event.changes.some((c) => c.relPath === relPath);
+      if (!matched) return;
+
+      ipcCall("fs", "readFile", { workspaceId, relPath })
+        .then((result) => {
+          if (result.isBinary) {
+            setState({ phase: "binary", content: "" });
+          } else {
+            setState({ phase: "ready", content: result.content, encoding: result.encoding });
+            // Update the live model value without triggering a full remount
+            const editor = editorRef.current;
+            if (editor) {
+              const model = editor.getModel();
+              if (model && model.getValue() !== result.content) {
+                model.setValue(result.content);
+              }
+            }
+          }
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setState({ phase: "error", content: "", errorCode: parseFileErrorCode(message) });
+        });
+    });
+
+    return unlisten;
+  }, [filePath, workspaceId]);
+
+  // -------------------------------------------------------------------------
+  // LSP providers + diagnostics
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
     if (!monaco) return;
 
     const disposables = disposablesRef.current;
 
-    // -----------------------------------------------------------------------
-    // Hover provider
-    // -----------------------------------------------------------------------
     disposables.push(
       monaco.languages.registerHoverProvider("typescript", {
         async provideHover(model, position) {
@@ -62,9 +159,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
               character: position.column - 1,
             });
             if (!result) return undefined;
-            return {
-              contents: [{ value: result.contents }],
-            };
+            return { contents: [{ value: result.contents }] };
           } catch {
             return undefined;
           }
@@ -72,9 +167,6 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       }),
     );
 
-    // -----------------------------------------------------------------------
-    // Definition provider
-    // -----------------------------------------------------------------------
     disposables.push(
       monaco.languages.registerDefinitionProvider("typescript", {
         async provideDefinition(model, position) {
@@ -102,9 +194,6 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       }),
     );
 
-    // -----------------------------------------------------------------------
-    // Completion provider
-    // -----------------------------------------------------------------------
     disposables.push(
       monaco.languages.registerCompletionItemProvider("typescript", {
         triggerCharacters: [".", '"', "'", "`", "/", "@", "<"],
@@ -138,9 +227,6 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       }),
     );
 
-    // -----------------------------------------------------------------------
-    // Diagnostics listener
-    // -----------------------------------------------------------------------
     const unlistenDiagnostics = ipcListen("lsp", "diagnostics", (args) => {
       if (args.uri !== uri) return;
       const model = monaco.editor.getModel(monaco.Uri.parse(uri));
@@ -173,11 +259,15 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     };
   }, [monaco, uri]);
 
-  // Send didOpen when the model is created / file first loaded
+  // -------------------------------------------------------------------------
+  // Handlers
+  // -------------------------------------------------------------------------
+
   function handleEditorDidMount(
-    _editor: Monaco.editor.IStandaloneCodeEditor,
+    editor: Monaco.editor.IStandaloneCodeEditor,
     monacoInstance: typeof Monaco,
   ): void {
+    editorRef.current = editor;
     const model = monacoInstance.editor.getModel(monacoInstance.Uri.parse(uri));
     if (!model) return;
     ipcCall("lsp", "didOpen", {
@@ -185,7 +275,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       uri,
       languageId: "typescript",
       version: versionRef.current,
-      text: model.getValue(),
+      text: state.content,
     }).catch(() => {});
   }
 
@@ -199,15 +289,44 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     }).catch(() => {});
   }
 
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
+  if (state.phase === "loading") {
+    return (
+      <div className="flex flex-1 min-h-0 items-center justify-center text-app-ui-sm text-muted-foreground">
+        Loading...
+      </div>
+    );
+  }
+
+  if (state.phase === "binary") {
+    return (
+      <div className="flex flex-1 min-h-0 items-center justify-center text-app-ui-sm text-muted-foreground">
+        Cannot display binary file.
+      </div>
+    );
+  }
+
+  if (state.phase === "error") {
+    return (
+      <div className="flex flex-1 min-h-0 items-center justify-center text-app-ui-sm text-muted-foreground">
+        {fileErrorMessage(state.errorCode ?? "OTHER", MAX_READABLE_FILE_SIZE / (1024 * 1024))}
+      </div>
+    );
+  }
+
   return (
     <Editor
       height="100%"
-      defaultLanguage="typescript"
       path={uri}
+      value={state.content}
       onMount={handleEditorDidMount}
       onChange={handleChange}
       theme="vs-dark"
       options={{
+        readOnly: true,
         minimap: { enabled: false },
         fontSize: typeScale.codeBody.fontSize,
         fontFamily: fontFamily.monoBody,
