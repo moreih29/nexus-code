@@ -27,7 +27,10 @@ import {
 interface MockEvent {
   metaKey: boolean;
   shiftKey: boolean;
+  altKey: boolean;
+  ctrlKey: boolean;
   key: string;
+  code: string;
   target: unknown;
   defaultPrevented: boolean;
   preventDefault: () => void;
@@ -35,13 +38,16 @@ interface MockEvent {
 
 function makeEvent(
   key: string,
-  opts: { metaKey?: boolean; shiftKey?: boolean; target?: unknown } = {},
+  opts: { metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; code?: string; target?: unknown } = {},
 ): MockEvent {
   let prevented = false;
   return {
     key,
+    code: opts.code ?? "",
     metaKey: opts.metaKey ?? false,
     shiftKey: opts.shiftKey ?? false,
+    altKey: opts.altKey ?? false,
+    ctrlKey: opts.ctrlKey ?? false,
     target: opts.target ?? null,
     get defaultPrevented() {
       return prevented;
@@ -243,5 +249,81 @@ describe("handleGlobalKeyDown — Cmd+E editable guard", () => {
     expect(deps.openFileDialogMock).not.toHaveBeenCalled();
     // preventDefault is still called before the wsId guard
     expect(e.defaultPrevented).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGlobalKeyDown — split via e.code (Backslash / Slash)
+// ---------------------------------------------------------------------------
+
+describe("handleGlobalKeyDown — splitActiveGroup via e.code", () => {
+  function makeSplitDeps() {
+    const splitMock = mock((_orientation: "horizontal" | "vertical") => {});
+    const deps: GlobalKeyDeps = {
+      ...makeDeps("ws-1"),
+      splitActiveGroup: splitMock as unknown as GlobalKeyDeps["splitActiveGroup"],
+    };
+    return { deps, splitMock };
+  }
+
+  it("calls splitActiveGroup(horizontal) on Cmd+\\ (code=Backslash)", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const e = makeEvent("\\", { metaKey: true, code: "Backslash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).toHaveBeenCalledTimes(1);
+    expect(splitMock).toHaveBeenCalledWith("horizontal");
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("calls splitActiveGroup(horizontal) on Cmd+/ (code=Slash) — Korean keyboard", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const e = makeEvent("/", { metaKey: true, code: "Slash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).toHaveBeenCalledTimes(1);
+    expect(splitMock).toHaveBeenCalledWith("horizontal");
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("calls splitActiveGroup(vertical) on Cmd+Shift+\\ (code=Backslash)", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const e = makeEvent("\\", { metaKey: true, shiftKey: true, code: "Backslash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).toHaveBeenCalledTimes(1);
+    expect(splitMock).toHaveBeenCalledWith("vertical");
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("calls splitActiveGroup(vertical) on Cmd+Shift+/ (code=Slash) — Korean keyboard", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const e = makeEvent("/", { metaKey: true, shiftKey: true, code: "Slash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).toHaveBeenCalledTimes(1);
+    expect(splitMock).toHaveBeenCalledWith("vertical");
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("does not fire split when shiftKey is set on horizontal variant", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    // shiftKey=true should route to vertical, not horizontal — so horizontal branch is skipped
+    const e = makeEvent("\\", { metaKey: true, shiftKey: true, code: "Backslash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    // splitMock is still called — but for vertical, not horizontal
+    expect(splitMock).toHaveBeenCalledWith("vertical");
+  });
+
+  it("does not fire split when altKey is set", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const e = makeEvent("\\", { metaKey: true, altKey: true, code: "Backslash" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fire split when target is INPUT", () => {
+    const { deps, splitMock } = makeSplitDeps();
+    const target = { tagName: "INPUT" } as HTMLElement;
+    const e = makeEvent("\\", { metaKey: true, code: "Backslash", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+    expect(splitMock).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
   });
 });

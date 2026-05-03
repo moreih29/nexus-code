@@ -4,8 +4,7 @@ import type { WorkspaceMeta } from "../../shared/types/workspace";
 import { useLayoutStore } from "../store/layout";
 import { openTab } from "../store/operations";
 import { useTabsStore } from "../store/tabs";
-import { ContentPool } from "./workspace/ContentPool";
-import { LayoutTree } from "./workspace/LayoutTree";
+import { ContentPool, LayoutTree } from "./workspace";
 
 // ---------------------------------------------------------------------------
 // Props

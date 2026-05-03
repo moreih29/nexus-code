@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ownerLeafIdOf } from "../../src/renderer/components/workspace/contentPool-helpers";
+import { ownerLeafIdOf } from "../../src/renderer/components/workspace/content/selectors";
 import type { LayoutLeaf, LayoutNode } from "../../src/renderer/store/layout/types";
 
 // ---------------------------------------------------------------------------

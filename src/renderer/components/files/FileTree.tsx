@@ -2,7 +2,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { selectFlat, useFilesStore } from "../../store/files";
-import { openTab } from "../../store/operations";
+import { isInEditable } from "../../keybindings/global";
+import { openTab, openTabInNewSplit } from "../../store/operations";
 import { FileTreeRow } from "./FileTreeRow";
 import { computeParentJumpIndex } from "./keys";
 
@@ -115,6 +116,11 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
           virtualizer.scrollToIndex(parentIdx);
         }
       }
+    } else if (e.key === "Enter" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      if (isInEditable(e.target as HTMLElement)) return;
+      if (isDir) return;
+      e.preventDefault();
+      openTabInNewSplit(workspaceId, "editor", { filePath: item.absPath, workspaceId }, "horizontal", "after");
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (isDir) {

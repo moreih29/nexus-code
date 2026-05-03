@@ -9,7 +9,8 @@ import { useActiveStore } from "./store/active";
 import { useFilesStore } from "./store/files";
 import { useLayoutStore } from "./store/layout";
 import { layoutHelpers } from "./store/layout";
-import { openTab } from "./store/operations";
+import { closeGroup, openTab, splitAndDuplicate } from "./store/operations";
+import { findLeaf } from "./store/layout/helpers";
 import { registerLayoutPersistence } from "./store/persistLayout";
 import { useTabsStore } from "./store/tabs";
 import { useUIStore } from "./store/ui";
@@ -177,8 +178,9 @@ export function App() {
           if (!wsId) return;
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
-          const activeGroupId = layout.activeGroupId;
-          useLayoutStore.getState().splitGroup(wsId, activeGroupId, orientation, "after");
+          const activeLeaf = findLeaf(layout.root, layout.activeGroupId);
+          if (!activeLeaf || !activeLeaf.activeTabId) return;
+          splitAndDuplicate(wsId, activeLeaf.id, activeLeaf.activeTabId, orientation, "after");
         },
 
         closeActiveGroup: () => {
@@ -186,7 +188,7 @@ export function App() {
           if (!wsId) return;
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
-          useLayoutStore.getState().closeGroup(wsId, layout.activeGroupId);
+          closeGroup(wsId, layout.activeGroupId);
         },
 
         moveFocus: (direction) => {

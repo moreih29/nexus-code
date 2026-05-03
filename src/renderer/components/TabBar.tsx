@@ -13,6 +13,7 @@ interface TabBarProps {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onNewTerminalTab: () => void;
+  onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,7 @@ export function TabBar({
   onSelectTab,
   onCloseTab,
   onNewTerminalTab,
+  onTabContextMenu,
 }: TabBarProps) {
   return (
     <RadixTooltip.Provider delayDuration={600}>
@@ -39,7 +41,11 @@ export function TabBar({
             // <button> is never nested inside <button> (HTML invalid; React
             // 19 hydration warning). Same pattern as Sidebar.tsx workspace
             // × button.
-            <div key={tab.id} className="relative flex items-center h-full">
+            <div
+              key={tab.id}
+              className="relative flex items-center h-full"
+              onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
+            >
               <RadixTabs.Trigger
                 value={tab.id}
                 className={cn(
