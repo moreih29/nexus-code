@@ -106,7 +106,8 @@ export function Sidebar({
           className={cn(
             "block w-[calc(100%-16px)] mx-2 px-4 py-2 rounded-[6px]",
             "text-left cursor-pointer select-none font-sans transition-colors",
-            "text-[13px] text-muted-foreground bg-transparent hover:bg-[--color-frosted-veil] hover:text-foreground",
+            "text-[13px] text-muted-foreground bg-transparent",
+            "hover:bg-earth-gray hover:text-foreground",
           )}
           aria-label="Add workspace"
         >
