@@ -43,9 +43,15 @@ interface IpcBridge {
   ): void;
 }
 
+interface HostBridge {
+  /** process.platform from the preload — "darwin" | "win32" | "linux" | ... */
+  platform: NodeJS.Platform;
+}
+
 declare global {
   interface Window {
     ipc: IpcBridge;
+    host: HostBridge;
   }
 
   // Vite env variables used in renderer.

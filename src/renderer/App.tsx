@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
+import { TitleBar } from "./components/TitleBar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ipcCall } from "./ipc/client";
 import { useActiveStore } from "./store/active";
@@ -146,23 +147,26 @@ export function App() {
   const mountedWorkspaces = workspaces.filter((w) => mountedIds.has(w.id));
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <Sidebar
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
-        onSelectWorkspace={handleSelectWorkspace}
-        onAddWorkspace={handleAddWorkspace}
-        onRemoveWorkspace={handleRemoveWorkspace}
-      />
-      <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
-        {workspaces.length === 0 && (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">
-            No workspace selected. Add one from the sidebar.
-          </div>
-        )}
-        {mountedWorkspaces.map((ws) => (
-          <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
-        ))}
+    <div className="flex flex-col h-full overflow-hidden">
+      <TitleBar />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <Sidebar
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onSelectWorkspace={handleSelectWorkspace}
+          onAddWorkspace={handleAddWorkspace}
+          onRemoveWorkspace={handleRemoveWorkspace}
+        />
+        <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
+          {workspaces.length === 0 && (
+            <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">
+              No workspace selected. Add one from the sidebar.
+            </div>
+          )}
+          {mountedWorkspaces.map((ws) => (
+            <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
+          ))}
+        </div>
       </div>
     </div>
   );

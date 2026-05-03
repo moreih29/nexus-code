@@ -38,3 +38,9 @@ const ipcApi = {
 };
 
 contextBridge.exposeInMainWorld("ipc", ipcApi);
+
+// Static host info — exposed once at preload time so the renderer can adapt
+// chrome (e.g. titlebar padding) without an IPC round-trip.
+contextBridge.exposeInMainWorld("host", {
+  platform: process.platform as NodeJS.Platform,
+});

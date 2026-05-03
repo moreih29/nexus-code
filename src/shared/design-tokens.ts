@@ -33,6 +33,16 @@ export const color = {
   // Canvas — kept as hex because xterm.js Terminal theme.background API
   // accepts only string color literals (no CSS var resolution at runtime).
   bgCanvas: "#1a1917",
+  // Hex twin of ashGray — kept as hex for native-widget APIs that don't
+  // parse OKLCH (Electron BrowserWindow.titleBarOverlay.symbolColor, etc.).
+  // Source of truth: design.md "Ash Gray (#afaeac)".
+  ashGrayHex: "#afaeac",
+  // Muted surface — shared by sidebar, tab bar, and the custom titlebar so
+  // the chrome reads as one continuous "L-shape" against the canvas. Same
+  // value drives the --muted / --card / --popover / --secondary semantic
+  // tokens below. Hex (not OKLCH) because Electron titleBarOverlay.color
+  // also consumes this literal.
+  mutedSurfaceHex: "#252422",
   // Surfaces — keep as rgba; alpha is load-bearing.
   // Frosted veil tiers: 0.04 (subtle hover/active bg) → 0.1 (stronger hover) → 0.16 (frosted tag) → 0.24 (tag hover)
   frostedVeil: "rgba(255, 255, 255, 0.04)",
@@ -60,20 +70,20 @@ export function buildSemanticTokens(): Record<string, string> {
     // Canvas / page background
     "--background": color.bgCanvas,
     "--foreground": color.warmParchment,
-    // Muted surfaces (sidebar, tab bar)
-    "--muted": "#252422",
+    // Muted surfaces (sidebar, tab bar, titlebar)
+    "--muted": color.mutedSurfaceHex,
     "--muted-foreground": color.stoneGray,
     // Card surfaces
-    "--card": "#252422",
+    "--card": color.mutedSurfaceHex,
     "--card-foreground": color.warmParchment,
     // Popover
-    "--popover": "#252422",
+    "--popover": color.mutedSurfaceHex,
     "--popover-foreground": color.warmParchment,
     // Primary action (earthGray —봉인)
     "--primary": color.earthGray,
     "--primary-foreground": color.warmParchment,
     // Secondary
-    "--secondary": "#252422",
+    "--secondary": color.mutedSurfaceHex,
     "--secondary-foreground": color.warmParchment,
     // Accent (ashGray — 봉인)
     "--accent": color.ashGray,

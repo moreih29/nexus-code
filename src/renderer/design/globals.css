@@ -68,3 +68,17 @@
     height: 100%;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Frameless-window drag regions (custom titlebar)
+   - .app-drag    → area is draggable to move the OS window
+   - .app-no-drag → carve out interactive children inside a draggable parent
+   --------------------------------------------------------------------------- */
+
+@utility app-drag {
+  -webkit-app-region: drag;
+}
+
+@utility app-no-drag {
+  -webkit-app-region: no-drag;
+}
