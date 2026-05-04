@@ -22,6 +22,7 @@ export interface Tab {
   type: TabType;
   title: string;
   props: TabProps;
+  isPreview: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -30,10 +31,12 @@ export interface Tab {
 
 interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
-  createTab: (workspaceId: string, type: TabType, props: TabProps) => Tab;
+  createTab: (workspaceId: string, type: TabType, props: TabProps, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
+  promoteFromPreview: (workspaceId: string, tabId: string) => void;
+  replacePreviewTab: (workspaceId: string, tabId: string, props: TabProps, title: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,12 +69,13 @@ export const useTabsStore = create<TabsState>((set, get) => {
   return {
     byWorkspace: {},
 
-    createTab(workspaceId, type, props) {
+    createTab(workspaceId, type, props, isPreview = false) {
       const tab: Tab = {
         id: crypto.randomUUID(),
         type,
         title: defaultTitle(type, props),
         props,
+        isPreview,
       };
       set((state) => ({
         byWorkspace: {
@@ -110,6 +114,41 @@ export const useTabsStore = create<TabsState>((set, get) => {
             [workspaceId]: {
               ...wsRecord,
               [tabId]: { ...wsRecord[tabId], title },
+            },
+          },
+        };
+      });
+    },
+
+    promoteFromPreview(workspaceId, tabId) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        if (!tab.isPreview) return state;
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: { ...tab, isPreview: false },
+            },
+          },
+        };
+      });
+    },
+
+    replacePreviewTab(workspaceId, tabId, props, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: { ...tab, props, title, isPreview: true },
             },
           },
         };

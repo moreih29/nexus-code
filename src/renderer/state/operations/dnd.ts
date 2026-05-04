@@ -16,6 +16,10 @@ import type { SplitOrientation } from "../stores/layout/types";
 import { type EditorTabProps, useTabsStore } from "../stores/tabs";
 import { openEditorTab, revealTab } from "./tabs";
 
+function promoteTabIfPreview(workspaceId: string, tabId: string): void {
+  useTabsStore.getState().promoteFromPreview(workspaceId, tabId);
+}
+
 function zoneToSplit(
   zone: DropZone,
 ): { orientation: SplitOrientation; side: "before" | "after" } | null {
@@ -84,8 +88,11 @@ export function moveTabToZone(
     }
   }
 
+  const isCrossGroup = owner.id !== destLeaf.id;
+
   if (target.zone === "center") {
     useLayoutStore.getState().moveTab(workspaceId, tabId, destLeaf.id, target.index);
+    if (isCrossGroup) promoteTabIfPreview(workspaceId, tabId);
     return { kind: "moved", groupId: destLeaf.id, tabId };
   }
 
@@ -101,6 +108,8 @@ export function moveTabToZone(
     .getState()
     .splitAndAttach(workspaceId, destLeaf.id, split.orientation, split.side, tabId);
   if (!newLeafId) return null;
+  // Edge drops always land in a new leaf — always cross-group.
+  promoteTabIfPreview(workspaceId, tabId);
   return { kind: "split", groupId: newLeafId, tabId };
 }
 

@@ -5,7 +5,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cn } from "@/utils/cn";
 import type { Tab } from "../../../state/stores/tabs";
-import { type TabDragPayload, MIME_TAB } from "../dnd/types";
+import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
           "bg-transparent",
         )}
       >
-        <span>{tab.title}</span>
+        <span className={tab.isPreview ? "italic" : undefined}>{tab.title}</span>
       </RadixTabs.Trigger>
 
       {/* Close button with Tooltip — sibling of trigger */}

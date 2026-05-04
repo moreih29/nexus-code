@@ -26,6 +26,7 @@ function openTabRecord(
   type: TabType,
   props: TabProps,
   opts?: { groupId?: string | "active" },
+  isPreview = false,
 ): Tab {
   const tabsStore = useTabsStore.getState();
   const layoutStore = useLayoutStore.getState();
@@ -40,7 +41,7 @@ function openTabRecord(
     groupId = opts.groupId;
   }
 
-  const tab = tabsStore.createTab(workspaceId, type, props);
+  const tab = tabsStore.createTab(workspaceId, type, props, isPreview);
 
   layoutStore.attachTab(workspaceId, groupId, tab.id);
   layoutStore.setActiveTabInGroup({
@@ -69,8 +70,9 @@ export function openEditorTab(
   workspaceId: string,
   props: EditorTabProps,
   opts?: { groupId?: string | "active" },
+  isPreview = false,
 ): Tab {
-  return openTabRecord(workspaceId, "editor", props, opts);
+  return openTabRecord(workspaceId, "editor", props, opts, isPreview);
 }
 
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {

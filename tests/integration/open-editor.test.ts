@@ -58,7 +58,9 @@ describe("openOrRevealEditor", () => {
     expect(tabsFor(WS_B)).toHaveLength(1);
   });
 
-  it("revealIfOpened=false creates another editor tab in the active group", () => {
+  it("revealIfOpened=false reuses the preview slot for the same file (preview-mode behaviour)", () => {
+    // With PREVIEW_ENABLED, revealIfOpened=false skips the reveal-dedup check but the preview
+    // slot logic still reuses the existing slot — same file → same tabId returned.
     const first = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
     const second = openOrRevealEditor(
       { workspaceId: WS_A, filePath: "/workspace/a.ts" },
@@ -66,8 +68,8 @@ describe("openOrRevealEditor", () => {
     );
 
     expect(second.groupId).toBe(first.groupId);
-    expect(second.tabId).not.toBe(first.tabId);
-    expect(tabsFor(WS_A)).toHaveLength(2);
+    expect(second.tabId).toBe(first.tabId);
+    expect(tabsFor(WS_A)).toHaveLength(1);
   });
 
   it("newSplit always creates a new split and a new editor tab", () => {

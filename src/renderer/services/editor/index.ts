@@ -7,7 +7,9 @@ export {
   closeEditor,
   findEditorTab,
   findEditorTabInGroup,
+  findPreviewTabInGroup,
   openOrRevealEditor,
+  PREVIEW_ENABLED,
 } from "./open-editor";
 export type { EditorInput, EditorTabLocation, EditorTabProps, OpenEditorOptions } from "./types";
 

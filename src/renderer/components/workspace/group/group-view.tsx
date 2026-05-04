@@ -8,8 +8,8 @@ import { cn } from "@/utils/cn";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
 import { useDropTarget } from "../dnd/use-drop-target";
-import { GroupTabBar } from "./group-tab-bar";
 import { GroupPlaceholder } from "./group-placeholder";
+import { GroupTabBar } from "./group-tab-bar";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -54,6 +54,7 @@ export function GroupView({
   // ---------------------------------------------------------------------------
 
   function handleSelectTab(tabId: string) {
+    const currentActiveTabId = leaf.activeTabId;
     layoutStore.setActiveTabInGroup({
       workspaceId,
       groupId: leaf.id,
@@ -61,6 +62,10 @@ export function GroupView({
       activateGroup: true,
     });
     onActivateGroup(leaf.id);
+    // Re-selecting the already-active tab promotes it from preview (VSCode behaviour).
+    if (tabId === currentActiveTabId) {
+      useTabsStore.getState().promoteFromPreview(workspaceId, tabId);
+    }
   }
 
   function handleCloseTab(tabId: string) {
@@ -168,11 +173,7 @@ export function GroupView({
       />
 
       {/* Content slot — portal target registered in slotRegistry for ContentHost */}
-      <div
-        ref={slotRef}
-        data-group-slot={leaf.id}
-        className="flex-1 min-h-0 min-w-0 relative"
-      >
+      <div ref={slotRef} data-group-slot={leaf.id} className="flex-1 min-h-0 min-w-0 relative">
         {showPlaceholder && <GroupPlaceholder />}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
