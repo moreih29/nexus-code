@@ -3485,6 +3485,125 @@
           "created_at": "2026-05-04T05:26:29.391Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-04T16:05:44.462Z",
+      "branch": "feat/editor-parity",
+      "plan": {
+        "id": 14,
+        "topic": "VSCode parity for editor area: dedup, focus, preview, open-to-side, pinned tabs",
+        "issues": [
+          {
+            "id": 1,
+            "title": "dedup-policy: file open dedup 동작을 VSCode default(revealIfOpen=false)와 일치시키기. 같은 그룹 내만 dedup+reveal, 다른 그룹은 새 탭 생성. D&D center drop도 같은 dedup 적용",
+            "status": "decided",
+            "decision": "openOrRevealEditor의 reveal 검색을 active group 한정으로 좁힌다 (또는 동일 동작을 위한 옵션 분기). 다른 그룹에 같은 파일이 있더라도 새 탭은 active group에 생성. D&D openFileAtZone(center)는 dest group 내 동일 filePath 탭이 있으면 reveal+선택적 reorder, 없으면 새로 생성. edge zone(split) 경로는 항상 새 탭 (의도된 분할 비교 use case 보존)."
+          },
+          {
+            "id": 2,
+            "title": "focus-tracking: active group 갱신 신호를 click 외에 focusin도 사용하도록 확장 (group 컨테이너의 native focusin 핸들러 추가)",
+            "status": "decided",
+            "decision": "group-view 외곽 div에 native focusin 핸들러 추가. focusin 발생 시 해당 leaf가 비활성이면 setActiveGroup 호출. 이미 active면 no-op (setActiveGroup이 동등성 가드 없으면 추가). React onFocus 대신 native addEventListener를 쓰는 이유는 ContentHost가 createPortal로 분리되어 React 트리상 children이 아니더라도 DOM bubble로 도달시키기 위함 (D&D 핸들러와 동일 패턴)."
+          },
+          {
+            "id": 3,
+            "title": "preview-tab: VSCode enablePreview 모델 도입 — single-click은 미리보기 슬롯 1개 재사용(이탤릭), double-click 또는 편집 시 영구 탭으로 승격. default ON",
+            "status": "decided",
+            "decision": "Tab 모델에 `isPreview: boolean` 필드 추가. openOrRevealEditor 진입 시 기본 isPreview=true, 동일 그룹에 기존 preview 탭이 있으면 그 탭의 props/title을 새 파일로 교체(슬롯 재사용). 다음 중 하나가 일어나면 preview→permanent 승격: (a) 동일 탭 재선택/double-click, (b) 편집(dirty 진입), (c) 명시적 pin, (d) 다른 그룹으로 이동. UI는 탭 제목 이탤릭으로 표시. setting toggle은 일단 코드 상수(`PREVIEW_ENABLED = true`)로 노출, 사용자 설정화는 후속."
+          },
+          {
+            "id": 4,
+            "title": "open-to-side: file-tree에서 modifier-click(Cmd/Ctrl+Click) 시 새 그룹에 split하며 파일 열기",
+            "status": "decided",
+            "decision": "file-tree row 클릭 핸들러에서 modifier(metaKey/ctrlKey) 감지 시 openOrRevealEditor 대신 openTabInNewSplit 또는 openFileAtZone(zone='right')로 분기. 새 그룹은 active group의 오른쪽에 horizontal split으로 만든다. 새로 만들어진 group이 active로 됨."
+          },
+          {
+            "id": 5,
+            "title": "pinned-tabs: 탭 핀 고정 모델 — 핀 탭은 좌측 정렬, close-others/close-all-to-right에서 제외, 시각적 구분 표시",
+            "status": "decided",
+            "decision": "Tab 모델에 `isPinned: boolean` 추가. layout/tabs store에 togglePin 액션. tab-bar 렌더 시 pinned 탭들을 unpinned 앞으로 정렬(stable). closeOthers/closeAllToRight 액션이 pinned 탭은 제외. 컨텍스트 메뉴에 Pin/Unpin Tab 항목 추가. 시각 표시는 탭 좌측 핀 아이콘. preview tab은 pin 시 permanent로 자동 승격."
+          }
+        ],
+        "research_summary": "VSCode 정책 검증 완료 (researcher Primary 인용): (1) `workbench.editor.revealIfOpen` 기본 false — 다른 그룹의 동일 파일은 active group에 새 탭 생성. 같은 그룹 내는 자연 dedup. (2) routing은 항상 last-active editor group, 사이드바 포커스는 갱신 신호 아님. (3) `enablePreview` default ON — single-click 미리보기 슬롯 재사용. (4) explorer modifier-click → Open to the Side. (5) Pinned tabs는 좌측 정렬 + close 정책 제외. 우리 코드 현황 (Explore 검증): openOrRevealEditor는 워크스페이스 전체 reveal(VSCode revealIfOpen=true 동작)이라 default와 불일치. D&D openFileAtZone center는 dedup 자체 없음 (사용자 보고 같은 그룹 중복은 이 경로). preview/open-to-side/pinned 모두 미구현. 사용자 결정: VSCode 동등 목표, Stage3(locked groups, floating window)는 포기.",
+        "created_at": "2026-05-04T15:34:38.797Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Stage 1A — Editor file-open dedup을 VSCode default와 일치",
+          "status": "completed",
+          "context": "현재 openOrRevealEditor는 워크스페이스 전체에서 같은 filePath 탭을 검색해 reveal한다 (VSCode revealIfOpen=true에 해당). VSCode default는 false — 다른 그룹에 있어도 active group에 새 탭을 만든다. 또한 D&D openFileAtZone(center)는 dedup 자체가 없어 같은 그룹에 같은 파일을 떨구면 중복 탭이 생긴다 (사용자 보고된 버그).\n\n핵심 변경 파일:\n- src/renderer/services/editor/open-editor.ts: openOrRevealEditor / findEditorTab\n- src/renderer/state/operations/dnd.ts: openFileAtZone center 분기에 dedup 추가\n- (필요 시) src/renderer/state/operations/tabs.ts: openEditorTab dedup 옵션",
+          "acceptance": "- openOrRevealEditor가 active group 내에서만 dedup하여 reveal. 다른 그룹에 같은 파일이 있어도 active group에 새 탭 생성 (VSCode default).\n- openFileAtZone(target.zone='center')는 dest group 내 동일 filePath 탭이 있으면 그 탭을 reveal (선택적 reorder index 적용), 없을 때만 새 탭.\n- openFileAtZone edge zone(top/bottom/left/right)은 항상 새 탭 생성 (분할 비교 use case 보존).\n- 단위 테스트: tests/unit/renderer/state/operations 또는 services/editor에 dedup 동작 케이스 추가 (active-group dedup, cross-group new tab, D&D center dedup, edge always-new).\n- bunx tsc --noEmit -p tsconfig.renderer.json 통과, bun test tests/unit tests/integration 전부 통과.",
+          "approach": "findEditorTab을 active group에 한정한 짧은 헬퍼(findEditorTabInGroup)와 기존 워크스페이스 전체 검색으로 분리. openOrRevealEditor는 active-only를 사용. openFileAtZone(center)에서는 dest group 한정 dedup 헬퍼로 분기. revealIfOpen 같은 옵션 노출은 후속 사이클로 미룸 (default 동작 일치만).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-04T15:35:25.082Z"
+        },
+        {
+          "id": 2,
+          "title": "Stage 1B — Group focusin → active group 갱신",
+          "status": "completed",
+          "context": "현재 active group은 클릭 이벤트(handleSelectTab, handleGroupClick)로만 갱신된다. 키보드 포커스가 다른 그룹의 에디터/터미널로 이동해도 activeGroupId가 따라가지 않아, 사용자가 \"포커스는 다른 그룹에 줬는데 파일이 마지막에 클릭한 그룹에 열린다\"고 보고됨.\n\n핵심 변경 파일:\n- src/renderer/components/workspace/group/group-view.tsx: 외곽 div에 native addEventListener('focusin') 추가. ContentHost는 createPortal로 분리되므로 React onFocus 대신 native bubble을 활용 (기존 D&D 핸들러와 동일 패턴).",
+          "acceptance": "- group-view 외곽 div가 native focusin을 listen하고, 발생 시 해당 leaf가 비활성이면 setActiveGroup 호출.\n- 이미 active인 그룹의 focusin은 no-op (state set 자체를 스킵하거나 store가 동등성 가드).\n- 다른 그룹의 에디터/터미널에 키보드 포커스를 옮긴 후 file-tree click → 새로 active가 된 그룹에 파일이 열린다.\n- D&D 핸들러 cleanup과 동일한 useEffect cleanup 패턴.\n- bunx tsc 통과, bun test tests/unit tests/integration 전부 통과. 가능하면 focusin 동작 단위 테스트 추가 (jsdom 가능 범위 안에서).",
+          "approach": "attachRef와 별개의 ref를 만들 필요는 없고, attachRef 콜백에서 listener add/remove. listener는 capture=false (focusin은 bubble 가능). leaf가 active인지 확인하는 ref 또는 store getState().byWorkspace[workspaceId].activeGroupId 비교.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-04T15:35:36.661Z"
+        },
+        {
+          "id": 3,
+          "title": "Stage 2A — Preview tab 모델 도입",
+          "status": "completed",
+          "context": "VSCode enablePreview 모델: single-click으로 파일을 열면 미리보기 슬롯 1개를 재사용(이탤릭 표시), double-click 또는 편집 시 영구 탭으로 승격. 현재는 매 클릭마다 영구 탭이 쌓인다.\n\n핵심 변경 파일:\n- src/renderer/state/stores/tabs/types.ts (또는 store.ts): Tab 모델에 isPreview 필드 추가\n- src/renderer/state/operations/tabs.ts: openEditorTab/openOrRevealEditor 진입 시 기본 isPreview=true, 같은 그룹에 기존 preview 탭 있으면 props/title 교체(슬롯 재사용)\n- src/renderer/services/editor/open-editor.ts: double-click 또는 동일 탭 재선택 시 promoteFromPreview 호출\n- src/renderer/components/workspace/tabs/tab-bar.tsx 또는 tab.tsx: isPreview 시 제목 이탤릭\n- src/renderer/state/operations/dnd.ts: 다른 그룹으로 이동 시 promoteFromPreview\n- (편집 dirty trigger는 에디터 통합 지점이 명확하지 않으면 후속 — 일단 (a)(c)(d) 트리거만)",
+          "acceptance": "- Tab 타입에 isPreview: boolean 필드 추가, 기존 직렬화/store에 호환.\n- openOrRevealEditor가 같은 그룹에 isPreview=true 탭이 있으면 그 탭 슬롯을 재사용(props/title 교체) — 새 탭을 만들지 않음.\n- 동일 탭을 다시 선택(클릭)하거나 double-click 시 isPreview=false로 승격.\n- D&D 또는 다른 그룹으로 탭 이동 시 isPreview=false로 승격.\n- pin 액션 시 isPreview=false로 자동 승격 (Stage 2C에서 호출).\n- UI: isPreview=true 탭 제목 이탤릭 표시.\n- 단위 테스트: preview slot 재사용, 승격 트리거 4가지 (재선택/double/이동/pin) 검증.\n- bunx tsc 통과, bun test 전부 통과.",
+          "approach": "PREVIEW_ENABLED 상수 (src/renderer/services/editor/open-editor.ts 상단). false면 기존 동작 유지. promoteFromPreview(workspaceId, tabId) 헬퍼를 tabs store에 추가. preview slot 검색은 leaf.tabIds 순회 + tabsById 조회.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-04T15:35:48.571Z"
+        },
+        {
+          "id": 4,
+          "title": "Stage 2B — Open to the Side (modifier-click)",
+          "status": "completed",
+          "context": "VSCode explorer에서 Cmd/Ctrl+Click 시 새 editor group에 split하며 파일 열기. 우리 file-tree는 modifier 무시.\n\n핵심 변경 파일:\n- src/renderer/components/files/file-tree.tsx: handleRowClick의 click 이벤트에서 metaKey/ctrlKey 감지\n- 기존 openTabInNewSplit (state/operations/tabs.ts) 또는 openFileAtZone(zone='right') 활용",
+          "acceptance": "- file-tree 파일 행 클릭 시 event.metaKey || event.ctrlKey 가 true면 새 그룹에 split하며 열기.\n- 새 그룹은 현재 active group의 오른쪽에 horizontal split으로 생성. 새 그룹이 active 됨.\n- modifier 없이 클릭하면 기존 openOrRevealEditor 동작.\n- preview tab 정책과의 상호작용: split으로 새로 만들어진 탭은 isPreview=true로 둔다 (VSCode와 동일 — modifier-click도 single-click이면 preview).\n- 단위 테스트는 추가하기 어려우므로 (DOM 상호작용) 적어도 분기 로직을 추출한 헬퍼에 대한 테스트 또는 e2e 후속.\n- bunx tsc 통과, bun test 전부 통과.",
+          "approach": "handleRowClick 시그니처에 React.MouseEvent 추가하거나 onClick에서 evt 받도록 변경. modifier 분기 후 openFileAtZone({ groupId: activeGroupId, zone: 'right' }) 호출. 또는 openTabInNewSplit 사용 — 둘의 시멘틱 차이 확인 필요.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-04T15:35:58.667Z"
+        },
+        {
+          "id": 5,
+          "title": "Stage 2C — Pinned tabs",
+          "status": "completed",
+          "context": "VSCode pinned tab: 좌측 정렬, close-others/close-all-to-right에서 제외, 시각적 구분(아이콘). preview tab과의 관계: pin 시 자동 promote.\n\n핵심 변경 파일:\n- src/renderer/state/stores/tabs/types.ts: Tab에 isPinned: boolean\n- src/renderer/state/stores/tabs/store.ts (or layout/store.ts): togglePin 액션\n- src/renderer/components/workspace/tabs/tab-bar.tsx: 렌더 시 pinned 우선 정렬 (stable sort), 핀 아이콘 표시\n- src/renderer/components/workspace/group/use-group-actions.ts: closeOthers/closeAllToRight에서 pinned 제외\n- src/renderer/components/workspace/group/group-tab-bar.tsx: 컨텍스트 메뉴에 Pin/Unpin Tab 항목 추가",
+          "acceptance": "- Tab 타입에 isPinned 필드 추가, default false.\n- togglePin(workspaceId, tabId) 액션 — pin 시 isPreview=false 자동 promote.\n- TabBar 렌더 시 pinned tabs가 unpinned 앞에 정렬 (stable, 원본 순서 보존).\n- 컨텍스트 메뉴에 'Pin Tab' / 'Unpin Tab' 항목 (현재 컨텍스트 탭의 isPinned에 따라 동적). 'Close' 항목은 pinned도 허용.\n- 'Close Others' / 'Close All to the Right' 액션이 pinned 탭은 건너뜀.\n- 시각: 탭 좌측에 핀 아이콘 (Lucide Pin 또는 유사).\n- D&D 시 pinned 탭은 정상 이동 가능 (이동 시 isPinned 유지).\n- 단위 테스트: togglePin, close-others-skips-pinned, sort-pinned-first.\n- bunx tsc 통과, bun test 전부 통과.",
+          "approach": "tabs store에 togglePin 추가, 내부에서 promoteFromPreview 호출 (Stage 2A에서 만든 헬퍼). TabBar 렌더 시 useMemo로 sortedTabs = [...pinned, ...unpinned] 도출. close 액션은 use-group-actions.ts에서 tabsById 조회로 isPinned 필터.",
+          "plan_issue": 5,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-04T15:36:09.519Z"
+        }
+      ]
     }
   ]
 }
