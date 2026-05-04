@@ -11,10 +11,10 @@
 import Editor, { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
-import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
+import { type FileErrorCode, fileErrorMessage, parseFileErrorCode } from "@/utils/file-error";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
+import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
 import { ipcCall, ipcListen } from "../../../ipc/client";
-import { fileErrorMessage, parseFileErrorCode, type FileErrorCode } from "@/utils/file-error";
 import { absPathToRel } from "../../../store/files/helpers";
 import { useWorkspacesStore } from "../../../store/workspaces";
 
@@ -326,7 +326,6 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       onChange={handleChange}
       theme="vs-dark"
       options={{
-        readOnly: true,
         minimap: { enabled: false },
         fontSize: typeScale.codeBody.fontSize,
         fontFamily: fontFamily.monoBody,
