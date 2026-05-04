@@ -10,13 +10,11 @@
 
 import type { DropZone } from "@/components/workspace/dnd/types";
 import { Grid } from "@/engine/split";
+import { findEditorTabInGroup } from "@/services/editor/open-editor";
 import { useLayoutStore } from "../stores/layout";
 import type { SplitOrientation } from "../stores/layout/types";
-import {
-  type EditorTabProps,
-  useTabsStore,
-} from "../stores/tabs";
-import { openEditorTab } from "./tabs";
+import { type EditorTabProps, useTabsStore } from "../stores/tabs";
+import { openEditorTab, revealTab } from "./tabs";
 
 function zoneToSplit(
   zone: DropZone,
@@ -128,6 +126,14 @@ export function openFileAtZone(
   const props: EditorTabProps = { workspaceId, filePath };
 
   if (target.zone === "center") {
+    const existing = findEditorTabInGroup(workspaceId, destLeaf.id, filePath);
+    if (existing) {
+      revealTab(workspaceId, existing.groupId, existing.tabId);
+      if (target.index !== undefined) {
+        useLayoutStore.getState().attachTab(workspaceId, destLeaf.id, existing.tabId, target.index);
+      }
+      return { kind: "moved", groupId: existing.groupId, tabId: existing.tabId };
+    }
     const tab = openEditorTab(workspaceId, props, { groupId: destLeaf.id });
     if (target.index !== undefined) {
       // openEditorTab attaches at the end; re-attach at the requested index

@@ -2,7 +2,7 @@
 // Owns openOrReveal semantics and group routing for editor tabs; implementation follows Stage 4.
 
 import { Grid } from "@/engine/split";
-import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations";
+import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
 import { useLayoutStore } from "@/state/stores/layout";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
@@ -59,6 +59,37 @@ export function findEditorTab(workspaceId: string, filePath: string): EditorTabL
   return { groupId: found.leaf.id, tabId: found.tabId };
 }
 
+/**
+ * Search for an editor tab with the given filePath only within the specified
+ * group (leaf). Returns null when the group does not exist or has no matching
+ * tab.
+ */
+export function findEditorTabInGroup(
+  workspaceId: string,
+  groupId: string,
+  filePath: string,
+): EditorTabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+
+  const leaf = Grid.findView(layout.root, groupId);
+  if (!leaf) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const targetPath = normalizeFilePath(filePath);
+
+  const tabId = leaf.tabIds.find((id) => {
+    const tab = tabsById[id];
+    return (
+      tab?.type === "editor" &&
+      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath
+    );
+  });
+
+  if (!tabId) return null;
+  return { groupId: leaf.id, tabId };
+}
+
 export function openOrRevealEditor(
   input: EditorInput,
   opts: OpenEditorOptions = {},
@@ -78,10 +109,17 @@ export function openOrRevealEditor(
   }
 
   if (opts.revealIfOpened ?? true) {
-    const existing = findEditorTab(input.workspaceId, input.filePath);
-    if (existing) {
-      revealTab(input.workspaceId, existing.groupId, existing.tabId);
-      return existing;
+    const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
+    if (layout) {
+      const existing = findEditorTabInGroup(
+        input.workspaceId,
+        layout.activeGroupId,
+        input.filePath,
+      );
+      if (existing) {
+        revealTab(input.workspaceId, existing.groupId, existing.tabId);
+        return existing;
+      }
     }
   }
 

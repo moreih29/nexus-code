@@ -104,7 +104,7 @@ describe("openOrRevealEditor", () => {
     expect(findEditorTab(WS_A, "/workspace/a.ts")).toEqual(left);
   });
 
-  it("revealing a tab activates its owning group without creating a tab", () => {
+  it("cross-group open creates a new tab in the active group (VSCode revealIfOpen=false default)", () => {
     const left = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
     const right = openOrRevealEditor(
       { workspaceId: WS_A, filePath: "/workspace/b.ts" },
@@ -113,15 +113,17 @@ describe("openOrRevealEditor", () => {
 
     expect(useLayoutStore.getState().byWorkspace[WS_A]?.activeGroupId).toBe(right.groupId);
 
-    const revealed = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
+    // a.ts is in the left group but NOT in the right (active) group. The
+    // VSCode-default policy (revealIfOpen=false) means: ignore the other
+    // group's copy and open a new tab in the active group.
+    const inActiveGroup = openOrRevealEditor({ workspaceId: WS_A, filePath: "/workspace/a.ts" });
     const layout = useLayoutStore.getState().byWorkspace[WS_A];
     if (!layout) throw new Error(`layout slice not found for ${WS_A}`);
-    const leaf = findLeaf(layout.root, left.groupId);
 
-    expect(revealed).toEqual(left);
-    expect(tabsFor(WS_A)).toHaveLength(2);
-    expect(layout?.activeGroupId).toBe(left.groupId);
-    expect(leaf?.activeTabId).toBe(left.tabId);
+    expect(inActiveGroup.groupId).toBe(right.groupId);
+    expect(inActiveGroup.tabId).not.toBe(left.tabId);
+    expect(tabsFor(WS_A)).toHaveLength(3);
+    expect(layout.activeGroupId).toBe(right.groupId);
   });
 
   it("creates the initial layout automatically", () => {
