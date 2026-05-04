@@ -27,6 +27,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     title: z.string(),
     props: TerminalTabPropsSchema,
     isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
   }),
   z.object({
     id: z.string().uuid(),
@@ -34,6 +35,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     title: z.string(),
     props: EditorTabPropsSchema,
     isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
   }),
 ]);
 export type SerializedTab = z.infer<typeof SerializedTabSchema>;

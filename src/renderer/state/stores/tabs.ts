@@ -23,6 +23,7 @@ export interface Tab {
   title: string;
   props: TabProps;
   isPreview: boolean;
+  isPinned: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ interface TabsState {
   closeAllForWorkspace: (workspaceId: string) => void;
   promoteFromPreview: (workspaceId: string, tabId: string) => void;
   replacePreviewTab: (workspaceId: string, tabId: string, props: TabProps, title: string) => void;
+  togglePin: (workspaceId: string, tabId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         title: defaultTitle(type, props),
         props,
         isPreview,
+        isPinned: false,
       };
       set((state) => ({
         byWorkspace: {
@@ -150,6 +153,27 @@ export const useTabsStore = create<TabsState>((set, get) => {
               ...wsRecord,
               [tabId]: { ...tab, props, title, isPreview: true },
             },
+          },
+        };
+      });
+    },
+
+    togglePin(workspaceId, tabId) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        const nextPinned = !tab.isPinned;
+        const updatedTab: Tab = {
+          ...tab,
+          isPinned: nextPinned,
+          // Pin implies permanent: clear preview flag when pinning
+          isPreview: nextPinned ? false : tab.isPreview,
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: updatedTab },
           },
         };
       });

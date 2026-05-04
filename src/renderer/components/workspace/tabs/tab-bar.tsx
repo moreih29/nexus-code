@@ -24,6 +24,30 @@ interface TabBarProps {
 }
 
 // ---------------------------------------------------------------------------
+// Inline pin icon — avoids external icon library dependency
+// ---------------------------------------------------------------------------
+
+function PinIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+    >
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17H19V16L17 10V5H18V3H6V5H7V10L5 16V17Z" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Single tab item — split out so each can call useDragSource (rules of hooks
 // forbid calling hooks inside a .map iteration on the parent).
 //
@@ -81,6 +105,7 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
           "bg-transparent",
         )}
       >
+        {tab.isPinned && <PinIcon />}
         <span className={tab.isPreview ? "italic" : undefined}>{tab.title}</span>
       </RadixTabs.Trigger>
 
@@ -132,6 +157,13 @@ export function TabBar({
 }: TabBarProps) {
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
 
+  // Stable sort: pinned group first, then unpinned — original order preserved within each group.
+  const sortedTabs = useMemo(() => {
+    const pinned = tabs.filter((t) => t.isPinned);
+    const unpinned = tabs.filter((t) => !t.isPinned);
+    return [...pinned, ...unpinned];
+  }, [tabs]);
+
   return (
     <RadixTooltip.Provider delayDuration={600}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
@@ -155,7 +187,7 @@ export function TabBar({
             className="relative flex items-center h-full"
             aria-label="Open tabs"
           >
-            {tabs.map((tab) => (
+            {sortedTabs.map((tab) => (
               // Wrapper makes the close button a sibling of the trigger so
               // <button> is never nested inside <button> (HTML invalid; React
               // 19 hydration warning). Same pattern as Sidebar.tsx workspace

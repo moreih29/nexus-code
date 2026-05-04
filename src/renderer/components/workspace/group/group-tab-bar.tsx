@@ -14,7 +14,7 @@
  */
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 import { useState } from "react";
-import type { Tab } from "@/state/stores/tabs";
+import { useTabsStore, type Tab } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
 import { useGroupActions } from "./use-group-actions";
 
@@ -45,6 +45,10 @@ export function GroupTabBar({
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
 
+  const contextTab = contextTabId
+    ? useTabsStore.getState().byWorkspace[workspaceId]?.[contextTabId]
+    : null;
+
   const actions = useGroupActions({
     workspaceId,
     leafId,
@@ -73,6 +77,18 @@ export function GroupTabBar({
 
       <RadixContextMenu.Portal>
         <RadixContextMenu.Content className="bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50">
+          <RadixContextMenu.Item
+            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
+            onSelect={() => {
+              if (!contextTabId) return;
+              useTabsStore.getState().togglePin(workspaceId, contextTabId);
+            }}
+          >
+            <span>{contextTab?.isPinned ? "Unpin Tab" : "Pin Tab"}</span>
+          </RadixContextMenu.Item>
+
+          <RadixContextMenu.Separator className="h-px bg-mist-border my-1" />
+
           <RadixContextMenu.Item
             className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
             onSelect={() => {

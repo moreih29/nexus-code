@@ -37,7 +37,11 @@ export function useGroupActions({
 
   function closeOthers() {
     const targetTabId = getContextTabId();
-    const others = getTabIds().filter((id) => id !== targetTabId);
+    const wsRecord = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+    const others = getTabIds().filter((id) => {
+      if (id === targetTabId) return false;
+      return !wsRecord[id]?.isPinned;
+    });
     for (const id of others) {
       closeTabForId(id);
     }
@@ -48,7 +52,8 @@ export function useGroupActions({
     const tabIds = getTabIds();
     const idx = tabIds.indexOf(targetTabId);
     if (idx === -1) return;
-    const toClose = tabIds.slice(idx + 1);
+    const wsRecord = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+    const toClose = tabIds.slice(idx + 1).filter((id) => !wsRecord[id]?.isPinned);
     for (const id of toClose) {
       closeTabForId(id);
     }
