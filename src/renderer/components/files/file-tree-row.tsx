@@ -39,7 +39,7 @@ interface FileTreeRowProps {
   isSelected: boolean;
   isLoading?: boolean;
   onToggle: () => void; // dir click
-  onClick: () => void; // file click
+  onClick: (e: React.MouseEvent) => void; // file click
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ export function FileTreeRow({
       aria-level={depth + 1}
       aria-expanded={isDir ? isExpanded : undefined}
       aria-selected={isSelected}
-      onClick={isDir ? onToggle : onClick}
+      onClick={isDir ? onToggle : (e) => onClick(e)}
       title={node.name}
       draggable={!isDir}
       onDragStart={isDir ? undefined : onDragStart}

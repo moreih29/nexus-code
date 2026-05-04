@@ -126,13 +126,14 @@ export function openOrRevealEditor(
   useLayoutStore.getState().ensureLayout(input.workspaceId);
 
   if (opts.newSplit) {
-    const { orientation, side } = opts.newSplit;
+    const { orientation, side, isPreview = false } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
       input.workspaceId,
       "editor",
       input,
       orientation,
       side,
+      isPreview,
     );
     return { groupId: newLeafId, tabId };
   }

@@ -147,6 +147,7 @@ export function openTabInNewSplit(
   props: TabProps,
   orientation: "horizontal" | "vertical",
   side: "before" | "after",
+  isPreview = false,
 ): { newLeafId: string; tabId: string } {
   useLayoutStore.getState().ensureLayout(workspaceId);
 
@@ -158,7 +159,7 @@ export function openTabInNewSplit(
     .getState()
     .splitGroup(workspaceId, activeGroupId, orientation, side);
 
-  const tab = useTabsStore.getState().createTab(workspaceId, type, props);
+  const tab = useTabsStore.getState().createTab(workspaceId, type, props, isPreview);
 
   useLayoutStore.getState().attachTab(workspaceId, newLeafId, tab.id);
   useLayoutStore.getState().setActiveTabInGroup({
