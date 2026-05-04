@@ -164,12 +164,19 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 
   setActiveGroup(workspaceId, groupId) {
-    set((state) => ({
-      byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
-        ...l,
-        activeGroupId: groupId,
-      })),
-    }));
+    set((state) => {
+      const layout = state.byWorkspace[workspaceId];
+      // Equality guard — focusin / repeated clicks fire frequently and we
+      // don't want to invalidate every layout-store subscriber on no-op
+      // activations.
+      if (!layout || layout.activeGroupId === groupId) return state;
+      return {
+        byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
+          ...l,
+          activeGroupId: groupId,
+        })),
+      };
+    });
   },
 
   attachTab(workspaceId, groupId, tabId, index) {

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { closeEditor } from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
 import type { LayoutLeaf } from "@/state/stores/layout";
@@ -111,6 +111,32 @@ export function GroupView({
   //             "center" (drop "into the group").
   const { dropZone, attachRef, zoneRef } = useDropTarget({ workspaceId, groupId: leaf.id });
 
+  // Native focusin listener — keyboard focus moving into this group
+  // (editor textarea, terminal, etc.) should make it the active group.
+  // We use native addEventListener for the same reason as D&D handlers:
+  // ContentHost children are inserted via createPortal and so don't
+  // bubble through the React tree to this component. focusin bubbles in
+  // the DOM tree, which reaches us.
+  const [outerEl, setOuterEl] = useState<HTMLElement | null>(null);
+  const wrapperRef = useCallback(
+    (el: HTMLElement | null) => {
+      setOuterEl(el);
+      attachRef(el);
+    },
+    [attachRef],
+  );
+  useEffect(() => {
+    if (!outerEl) return;
+    const onFocusIn = () => {
+      const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+      if (!layout || layout.activeGroupId === leaf.id) return;
+      useLayoutStore.getState().setActiveGroup(workspaceId, leaf.id);
+      onActivateGroup(leaf.id);
+    };
+    outerEl.addEventListener("focusin", onFocusIn);
+    return () => outerEl.removeEventListener("focusin", onFocusIn);
+  }, [outerEl, workspaceId, leaf.id, onActivateGroup]);
+
   // Merge slotRegistry callback with the dnd zoneRef on the slot div.
   const slotRef = useCallback(
     (el: HTMLElement | null) => {
@@ -124,7 +150,7 @@ export function GroupView({
     // biome-ignore lint/a11y/useKeyWithClickEvents: click activates group; keyboard handled by focusable children
     // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
-      ref={attachRef}
+      ref={wrapperRef}
       className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-frosted-veil")}
       onClick={handleGroupClick}
     >
