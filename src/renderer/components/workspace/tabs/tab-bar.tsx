@@ -1,16 +1,12 @@
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
-import { moveTabToZone, openFileAtZone } from "@/state/operations";
+import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { cn } from "@/utils/cn";
 import type { Tab } from "../../../state/stores/tabs";
-import {
-  type FileDragPayload,
-  MIME_FILE,
-  MIME_TAB,
-  type TabDragPayload,
-} from "../dnd/types";
+import { type TabDragPayload, MIME_TAB } from "../dnd/types";
+import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -31,7 +27,7 @@ interface TabBarProps {
 // Single tab item — split out so each can call useDragSource (rules of hooks
 // forbid calling hooks inside a .map iteration on the parent).
 //
-// The drop-target lives one level up on the tab list (TabBar). Tab items
+// The drop-target lives one level up on the tab bar (TabBar). Tab items
 // here are drag *sources* only; the indicator they show comes from a single
 // "|" element rendered by TabBar at the computed insertion x.
 // ---------------------------------------------------------------------------
@@ -63,7 +59,7 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
     <div
       key={tab.id}
       className="relative flex items-center h-full"
-      data-dnd-tab-item
+      {...{ [DND_TAB_ITEM_ATTR]: "" }}
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
@@ -118,15 +114,11 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// TabBar — renders the bar wrapper (drop-target carrier) + tab list
+// (measurement basis) + "+" button. The D&D logic lives in the
+// useTabBarDropTarget hook; TabBar wires the returned refs into the JSX
+// and renders the "|" indicator at the hook-computed x.
 // ---------------------------------------------------------------------------
-
-interface InsertionState {
-  /** Insertion line x in coordinates relative to the tab list element. */
-  x: number;
-  /** Resulting tab index for the insertion. */
-  index: number;
-}
 
 export function TabBar({
   workspaceId,
@@ -138,149 +130,19 @@ export function TabBar({
   onNewTerminalTab,
   onTabContextMenu,
 }: TabBarProps) {
-  // Tab-bar-level drop target — VSCode pattern. dropping anywhere on the
-  // tab strip shows a single "|" insertion line at the appropriate edge:
-  // - empty list → x=0, index=0
-  // - cursor left of tab N's center → at N's left edge, index=N
-  // - cursor right of last tab's center → at last tab's right edge,
-  //   index=tabs.length (drop into the trailing empty area)
-  //
-  // Listeners are attached to the OUTER bar container (Root), not the inner
-  // List, so the cursor anywhere in the tab-bar (including the empty area
-  // beyond the last tab and around the "+" button) is treated as a tab-bar
-  // drop. Group-level dropTarget defers via the data-dnd-tab-bar marker on
-  // the same outer container, suppressing the block indicator.
-  const barRef = useRef<HTMLDivElement | null>(null);
-  const tabsListRef = useRef<HTMLDivElement | null>(null);
-  const [insertion, setInsertion] = useState<InsertionState | null>(null);
-
-  useEffect(() => {
-    const bar = barRef.current;
-    const list = tabsListRef.current;
-    if (!bar || !list) return;
-
-    function isSupported(types: ReadonlyArray<string>): boolean {
-      return types.includes(MIME_TAB) || types.includes(MIME_FILE);
-    }
-
-    function getInsertion(clientX: number): InsertionState {
-      // list is non-null past the guard above; function decls don't preserve
-      // narrowing into closures so we re-assert here.
-      const items = Array.from(list!.querySelectorAll<HTMLElement>("[data-dnd-tab-item]"));
-      const listRect = list!.getBoundingClientRect();
-
-      if (items.length === 0) {
-        return { x: 0, index: 0 };
-      }
-
-      for (let i = 0; i < items.length; i++) {
-        const r = items[i].getBoundingClientRect();
-        const center = r.left + r.width / 2;
-        if (clientX < center) {
-          return { x: r.left - listRect.left, index: i };
-        }
-      }
-
-      const lastRect = items[items.length - 1].getBoundingClientRect();
-      return { x: lastRect.right - listRect.left, index: items.length };
-    }
-
-    function onEnter(e: DragEvent) {
-      if (!e.dataTransfer || !isSupported(e.dataTransfer.types)) return;
-      e.stopPropagation();
-      setInsertion(getInsertion(e.clientX));
-    }
-
-    function onOver(e: DragEvent) {
-      if (!e.dataTransfer || !isSupported(e.dataTransfer.types)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const isFile = e.dataTransfer.types.includes(MIME_FILE);
-      e.dataTransfer.dropEffect = isFile ? "copy" : "move";
-      const next = getInsertion(e.clientX);
-      setInsertion((prev) =>
-        prev && prev.x === next.x && prev.index === next.index ? prev : next,
-      );
-    }
-
-    function onLeave(e: DragEvent) {
-      if (!e.dataTransfer || !isSupported(e.dataTransfer.types)) return;
-      e.stopPropagation();
-      // dragleave fires for every descendant exit; only clear when the
-      // cursor truly leaves the bar.
-      const related = e.relatedTarget as Node | null;
-      if (related && bar!.contains(related)) return;
-      setInsertion(null);
-    }
-
-    function onDrop(e: DragEvent) {
-      if (!e.dataTransfer) return;
-      const tabRaw = e.dataTransfer.getData(MIME_TAB);
-      const fileRaw = e.dataTransfer.getData(MIME_FILE);
-      if (!tabRaw && !fileRaw) {
-        setInsertion(null);
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      const next = getInsertion(e.clientX);
-
-      try {
-        if (tabRaw) {
-          let parsed: TabDragPayload;
-          try {
-            parsed = JSON.parse(tabRaw) as TabDragPayload;
-          } catch {
-            return;
-          }
-          if (parsed.workspaceId !== workspaceId) return;
-          moveTabToZone(workspaceId, parsed.tabId, {
-            groupId: leafId,
-            zone: "center",
-            index: next.index,
-          });
-        } else if (fileRaw) {
-          let parsed: FileDragPayload;
-          try {
-            parsed = JSON.parse(fileRaw) as FileDragPayload;
-          } catch {
-            return;
-          }
-          if (parsed.workspaceId !== workspaceId) return;
-          openFileAtZone(workspaceId, parsed.filePath, {
-            groupId: leafId,
-            zone: "center",
-            index: next.index,
-          });
-        }
-      } finally {
-        setInsertion(null);
-      }
-    }
-
-    bar.addEventListener("dragenter", onEnter, true);
-    bar.addEventListener("dragover", onOver, true);
-    bar.addEventListener("dragleave", onLeave, true);
-    bar.addEventListener("drop", onDrop, true);
-
-    return () => {
-      bar.removeEventListener("dragenter", onEnter, true);
-      bar.removeEventListener("dragover", onOver, true);
-      bar.removeEventListener("dragleave", onLeave, true);
-      bar.removeEventListener("drop", onDrop, true);
-    };
-  }, [workspaceId, leafId, tabs.length]);
+  const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
 
   return (
     <RadixTooltip.Provider delayDuration={600}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
-          listeners so the entire bar (including the empty area beyond the
-          last tab and around the "+" button) is treated as a tab-bar drop
-          zone. The inner List is still used for measurement so the "|"
-          insertion line is positioned relative to the actual tab strip. */}
+          listeners (via barRef) so the entire bar — including the empty
+          area beyond the last tab and around the "+" button — is treated
+          as a tab-bar drop zone. The inner List is used for measurement
+          so the "|" insertion line is positioned relative to the actual
+          tab strip. */}
       <div
         ref={barRef}
-        data-dnd-tab-bar
+        {...{ [DND_TAB_BAR_ATTR]: "" }}
         className="flex items-center h-9 shrink-0 bg-muted overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <RadixTabs.Root
@@ -293,31 +155,31 @@ export function TabBar({
             className="relative flex items-center h-full"
             aria-label="Open tabs"
           >
-          {tabs.map((tab) => (
-            // Wrapper makes the close button a sibling of the trigger so
-            // <button> is never nested inside <button> (HTML invalid; React
-            // 19 hydration warning). Same pattern as Sidebar.tsx workspace
-            // × button.
-            <TabItem
-              key={tab.id}
-              workspaceId={workspaceId}
-              leafId={leafId}
-              tab={tab}
-              onCloseTab={onCloseTab}
-              onTabContextMenu={onTabContextMenu}
-            />
-          ))}
+            {tabs.map((tab) => (
+              // Wrapper makes the close button a sibling of the trigger so
+              // <button> is never nested inside <button> (HTML invalid; React
+              // 19 hydration warning). Same pattern as Sidebar.tsx workspace
+              // × button.
+              <TabItem
+                key={tab.id}
+                workspaceId={workspaceId}
+                leafId={leafId}
+                tab={tab}
+                onCloseTab={onCloseTab}
+                onTabContextMenu={onTabContextMenu}
+              />
+            ))}
 
-          {/* Single "|" insertion-line indicator. Position is recomputed on
-              dragover. Visible only while a supported drag is over the list. */}
-          {insertion && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
-              style={{ left: insertion.x, transform: "translateX(-1px)" }}
-            />
-          )}
-        </RadixTabs.List>
+            {/* Single "|" insertion-line indicator. Position is recomputed on
+                dragover. Visible only while a supported drag is over the bar. */}
+            {insertion && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
+                style={{ left: insertion.x, transform: "translateX(-1px)" }}
+              />
+            )}
+          </RadixTabs.List>
 
           {/* New terminal tab button */}
           <Button

@@ -21,13 +21,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
-import {
-  type DropZone,
-  type FileDragPayload,
-  MIME_FILE,
-  MIME_TAB,
-  type TabDragPayload,
-} from "./types";
+import { DND_TAB_BAR_SELECTOR } from "./markers";
+import { hasSupportedMime, parseDragPayload } from "./payload";
+import { type DropZone, MIME_FILE } from "./types";
 
 const EDGE_THRESHOLD = 1 / 3;
 
@@ -71,47 +67,14 @@ function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number): DropZo
   return minZone;
 }
 
-function readPayload(
-  dt: DataTransfer,
-): { kind: "tab"; payload: TabDragPayload } | { kind: "file"; payload: FileDragPayload } | null {
-  const tabRaw = dt.getData(MIME_TAB);
-  if (tabRaw) {
-    try {
-      return { kind: "tab", payload: JSON.parse(tabRaw) as TabDragPayload };
-    } catch {
-      return null;
-    }
-  }
-  const fileRaw = dt.getData(MIME_FILE);
-  if (fileRaw) {
-    try {
-      return { kind: "file", payload: JSON.parse(fileRaw) as FileDragPayload };
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-/**
- * The MIME types we recognise. dataTransfer.types is exposed during dragenter
- * and dragover (but not the data itself for cross-window security), so we can
- * decide whether to even show the indicator before drop.
- */
-function hasSupportedMime(types: ReadonlyArray<string>): boolean {
-  return types.includes(MIME_TAB) || types.includes(MIME_FILE);
-}
-
 /**
  * Test whether the event target is inside the tab bar that owns its own
  * dropTarget (single "|" insertion-line indicator with precise index).
  * When true, the group-level handler defers — it doesn't stopPropagation,
  * so the capture phase continues to the tab bar's listeners.
  */
-const TAB_BAR_DATA_ATTR = "data-dnd-tab-bar";
-
 function isInTabBar(target: EventTarget | null): boolean {
-  return (target as HTMLElement | null)?.closest(`[${TAB_BAR_DATA_ATTR}]`) != null;
+  return (target as HTMLElement | null)?.closest(DND_TAB_BAR_SELECTOR) != null;
 }
 
 export interface UseDropTargetOptions {
@@ -228,7 +191,7 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
       if (!e.dataTransfer) return;
       // Tab item handled it — exit before consuming the event.
       if (isInTabBar(e.target)) return;
-      const parsed = readPayload(e.dataTransfer);
+      const parsed = parseDragPayload(e.dataTransfer);
       if (!parsed) return;
 
       e.preventDefault();
