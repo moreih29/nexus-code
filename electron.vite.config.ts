@@ -19,66 +19,21 @@ const NATIVE_EXTERNALS = ["node-pty", "better-sqlite3"];
 // ---------------------------------------------------------------------------
 // Vite plugin: emit src/renderer/styles/theme.generated.css at build start.
 // Only registered in the renderer config so it never runs in main/preload.
+//
+// Single source of truth for the generator lives in
+// scripts/generate-theme-css.ts. Both `bun run scripts/generate-theme-css.ts`
+// and the dev/build pipeline call the same function so output is identical.
 // ---------------------------------------------------------------------------
 function themeTokensPlugin(): Plugin {
   return {
     name: "vite-plugin-theme-tokens",
     buildStart() {
-      // Dynamic import to avoid caching issues — re-evaluate each build.
-      // Use require-style sync import via bun/node module resolution.
-      const {
-        appTypeScale,
-        borderRadius,
-        buildSemanticTokens,
-        color,
-        fontFamily,
-        spacing,
-        typeScale,
-      } = require("./src/shared/design-tokens") as typeof import("./src/shared/design-tokens");
-
-      function camelToKebab(s: string): string {
-        return s.replace(/([A-Z])/g, (m) => `-${m.toLowerCase()}`);
-      }
-
-      const lines: string[] = [];
-
-      lines.push("@theme {");
-      for (const [key, value] of Object.entries(color)) {
-        lines.push(`  --color-${camelToKebab(key)}: ${value};`);
-      }
-      const TAILWIND_FONT_KEYS = new Set(["sans", "mono"]);
-      for (const [key, value] of Object.entries(fontFamily)) {
-        const varName = TAILWIND_FONT_KEYS.has(key)
-          ? `--font-${camelToKebab(key)}`
-          : `--font-family-${camelToKebab(key)}`;
-        lines.push(`  ${varName}: ${value};`);
-      }
-      for (const [role, def] of [...Object.entries(typeScale), ...Object.entries(appTypeScale)]) {
-        const kebab = camelToKebab(role);
-        lines.push(`  --text-${kebab}: ${def.fontSize}px;`);
-        lines.push(`  --text-${kebab}--line-height: ${def.lineHeight};`);
-        lines.push(`  --text-${kebab}--letter-spacing: ${def.letterSpacing}px;`);
-        lines.push(`  --text-${kebab}--font-weight: ${def.fontWeight};`);
-      }
-      for (const value of spacing) {
-        lines.push(`  --space-${value}: ${value}px;`);
-      }
-      for (const [key, value] of Object.entries(borderRadius)) {
-        lines.push(`  --radius-${camelToKebab(key)}: ${value}px;`);
-      }
-      lines.push("}");
-      lines.push("");
-
-      lines.push(":root {");
-      const semantic = buildSemanticTokens();
-      for (const [key, value] of Object.entries(semantic)) {
-        lines.push(`  ${key}: ${value};`);
-      }
-      lines.push("}");
-      lines.push("");
+      // Dynamic require to avoid caching issues — re-evaluate each build.
+      const { generateThemeCss } =
+        require("./scripts/generate-theme-css") as typeof import("./scripts/generate-theme-css");
 
       const outPath = resolve(__dirname, "src/renderer/styles/theme.generated.css");
-      writeFileSync(outPath, lines.join("\n"), "utf-8");
+      writeFileSync(outPath, generateThemeCss(), "utf-8");
     },
   };
 }

@@ -55,7 +55,13 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
 
   // Cmd+\ — split active group right (horizontal split, after)
   // e.code used for Korean keyboard compatibility (Backslash or Slash)
-  if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && (e.code === "Backslash" || e.code === "Slash")) {
+  if (
+    e.metaKey &&
+    !e.shiftKey &&
+    !e.altKey &&
+    !e.ctrlKey &&
+    (e.code === "Backslash" || e.code === "Slash")
+  ) {
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     deps.splitActiveGroup?.("horizontal");
@@ -64,7 +70,13 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
 
   // Cmd+Shift+\ (or Cmd+Shift+|) — split active group down (vertical split, after)
   // e.code used for Korean keyboard compatibility (Backslash or Slash)
-  if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && (e.code === "Backslash" || e.code === "Slash")) {
+  if (
+    e.metaKey &&
+    e.shiftKey &&
+    !e.altKey &&
+    !e.ctrlKey &&
+    (e.code === "Backslash" || e.code === "Slash")
+  ) {
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     deps.splitActiveGroup?.("vertical");

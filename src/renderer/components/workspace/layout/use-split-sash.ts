@@ -1,7 +1,7 @@
 import { useRef } from "react";
+import { Grid } from "@/engine/split";
 import type { LayoutSplit } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
-import { Grid } from "@/engine/split";
 
 interface UseSplitSashOptions {
   workspaceId: string;
@@ -10,10 +10,11 @@ interface UseSplitSashOptions {
 
 interface SashProps {
   orientation: "horizontal" | "vertical";
-  value: number;
-  min: number;
-  max: number;
-  onResize: (px: number, persist: boolean) => void;
+  ratio: number;
+  minRatio: number;
+  maxRatio: number;
+  getContainerSize: () => number;
+  onResize: (ratio: number, persist: boolean) => void;
   onReset: () => void;
   ariaLabel: string;
   placement?: "rightCentered";
@@ -30,16 +31,16 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
 
   const isHorizontal = split.orientation === "horizontal";
 
+  // Always reads the live container size at the moment of use. Returning 0
+  // (instead of a fallback like 1) makes "not yet measurable" explicit so the
+  // sash handle can no-op rather than divide by a fake value.
   function getContainerSize(): number {
     const el = containerRef.current;
-    if (!el) return 1;
+    if (!el) return 0;
     return isHorizontal ? el.getBoundingClientRect().width : el.getBoundingClientRect().height;
   }
 
-  function onResize(px: number, _persist: boolean) {
-    const size = getContainerSize();
-    if (size === 0) return;
-    const ratio = Grid.pxToRatio(px, size);
+  function onResize(ratio: number, _persist: boolean) {
     layoutStore.setSplitRatio(workspaceId, split.id, ratio);
   }
 
@@ -47,14 +48,14 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
     layoutStore.setSplitRatio(workspaceId, split.id, 0.5);
   }
 
-  const containerSize = getContainerSize();
   const sashOrientation = isHorizontal ? "vertical" : "horizontal";
 
   const sashProps: SashProps = {
     orientation: sashOrientation,
-    value: split.ratio * containerSize,
-    min: Grid.MIN_RATIO * containerSize,
-    max: Grid.MAX_RATIO * containerSize,
+    ratio: split.ratio,
+    minRatio: Grid.MIN_RATIO,
+    maxRatio: Grid.MAX_RATIO,
+    getContainerSize,
     onResize,
     onReset,
     ariaLabel: isHorizontal ? "Resize panels horizontally" : "Resize panels vertically",
