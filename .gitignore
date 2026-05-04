@@ -1,18 +1,18 @@
 # references
 references/
-
 # dependencies
 node_modules/
-
 # build outputs
 out/
 dist/
 *.log
 *.tsbuildinfo
-
 # OS
 .DS_Store
-
 # environment
 .env
 .env.local
+.nexus/state/
+.codex/
+.agents/
+plugins/
