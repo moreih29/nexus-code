@@ -1,7 +1,9 @@
+import { createPortal } from "react-dom";
 import type { EditorTabProps, Tab, TerminalTabProps } from "@/store/tabs";
+import { useHiddenPortalEl } from "./content-pool";
 import { EditorView } from "./editor-view";
+import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
-import { useSlotRect } from "./use-slot-rect";
 
 interface ContentHostProps {
   workspaceId: string;
@@ -9,7 +11,6 @@ interface ContentHostProps {
   ownerLeafId: string | null;
   isActiveTab: boolean;
   isWorkspaceActive: boolean;
-  poolRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export function ContentHost({
@@ -18,22 +19,16 @@ export function ContentHost({
   ownerLeafId,
   isActiveTab,
   isWorkspaceActive,
-  poolRef,
 }: ContentHostProps) {
-  const rect = useSlotRect(poolRef, ownerLeafId);
+  const slotEl = useSlotElement(workspaceId, ownerLeafId);
+  const hiddenEl = useHiddenPortalEl();
+  const target = slotEl ?? hiddenEl;
 
   const isVisible = isActiveTab && isWorkspaceActive;
-  const visibilityClass =
-    rect !== null && isVisible ? "pointer-events-auto" : "invisible pointer-events-none";
 
-  return (
+  const inner = (
     <div
-      className={`absolute ${visibilityClass}`}
-      style={
-        rect !== null
-          ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-          : { top: 0, left: 0, width: 0, height: 0 }
-      }
+      className={isVisible ? "absolute inset-0" : "absolute inset-0 invisible pointer-events-none"}
     >
       {tab.type === "terminal" ? (
         <TerminalView tabId={tab.id} cwd={(tab.props as TerminalTabProps).cwd} />
@@ -42,4 +37,7 @@ export function ContentHost({
       )}
     </div>
   );
+
+  if (!target) return null;
+  return createPortal(inner, target);
 }

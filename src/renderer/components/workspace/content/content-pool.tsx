@@ -1,18 +1,23 @@
-// ContentPool — mounts every workspace tab exactly once and positions each
-// ContentHost over its corresponding group-slot element via absolute CSS.
-//
-// Placement contract:
-//   ContentPool renders as `absolute inset-0` — this requires its parent
-//   container to be `position: relative`. T7 (WorkspacePanel) is responsible
-//   for establishing that positioning context by layering ContentPool as an
-//   absolute sibling on top of the LayoutTree.
+// ContentPool — mounts every workspace tab exactly once.
+// Each ContentHost portals its content into the corresponding group-slot
+// element via slotRegistry. No absolute positioning layer needed here.
 
-import { useRef } from "react";
-import { useLayoutStore } from "../../../store/layout";
+import React, { useCallback, useState } from "react";
 import { Grid } from "@/engine/split";
+import { useLayoutStore } from "../../../store/layout";
 import { useTabsStore } from "../../../store/tabs";
 import { ContentHost } from "./content-host";
 import { ownerLeafIdOf } from "./selectors";
+
+// ---------------------------------------------------------------------------
+// HiddenPortalContext — stable off-screen container for ContentHost fallback
+// ---------------------------------------------------------------------------
+
+const HiddenPortalContext = React.createContext<HTMLElement | null>(null);
+
+export function useHiddenPortalEl(): HTMLElement | null {
+  return React.useContext(HiddenPortalContext);
+}
 
 // ---------------------------------------------------------------------------
 // ContentPool — renders one ContentHost per tab record
@@ -25,10 +30,11 @@ export function ContentPool({
   workspaceId: string;
   isWorkspaceActive: boolean;
 }) {
-  const poolRef = useRef<HTMLDivElement>(null);
-
   const tabRecord = useTabsStore((s) => s.byWorkspace[workspaceId] ?? {});
   const layout = useLayoutStore((s) => s.byWorkspace[workspaceId]);
+
+  const [hiddenDivEl, setHiddenDivEl] = useState<HTMLDivElement | null>(null);
+  const setHiddenEl = useCallback((el: HTMLDivElement | null) => setHiddenDivEl(el), []);
 
   // Derive activeTabId for each leaf once so ContentHost can get isActiveTab.
   const activeTabByLeaf: Record<string, string | null> = {};
@@ -39,23 +45,41 @@ export function ContentPool({
   }
 
   return (
-    <div ref={poolRef} className="absolute inset-0 pointer-events-none">
-      {Object.values(tabRecord).map((tab) => {
-        const ownerLeafId = layout ? ownerLeafIdOf(layout.root, tab.id) : null;
-        const isActiveTab = ownerLeafId !== null ? activeTabByLeaf[ownerLeafId] === tab.id : false;
+    <>
+      <div
+        ref={setHiddenEl}
+        aria-hidden
+        inert
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+          visibility: "hidden",
+          pointerEvents: "none",
+          contain: "strict",
+        }}
+      />
+      <HiddenPortalContext.Provider value={hiddenDivEl}>
+        {Object.values(tabRecord).map((tab) => {
+          const ownerLeafId = layout ? ownerLeafIdOf(layout.root, tab.id) : null;
+          const isActiveTab =
+            ownerLeafId !== null ? activeTabByLeaf[ownerLeafId] === tab.id : false;
 
-        return (
-          <ContentHost
-            key={tab.id}
-            workspaceId={workspaceId}
-            tab={tab}
-            ownerLeafId={ownerLeafId}
-            isActiveTab={isActiveTab}
-            isWorkspaceActive={isWorkspaceActive}
-            poolRef={poolRef}
-          />
-        );
-      })}
-    </div>
+          return (
+            <ContentHost
+              key={tab.id}
+              workspaceId={workspaceId}
+              tab={tab}
+              ownerLeafId={ownerLeafId}
+              isActiveTab={isActiveTab}
+              isWorkspaceActive={isWorkspaceActive}
+            />
+          );
+        })}
+      </HiddenPortalContext.Provider>
+    </>
   );
 }

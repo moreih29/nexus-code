@@ -1,7 +1,9 @@
-import { cn } from "@/utils/cn";
+import { useCallback } from "react";
 import type { LayoutLeaf } from "@/store/layout";
 import { useLayoutStore } from "@/store/layout";
 import { useTabsStore } from "@/store/tabs";
+import { cn } from "@/utils/cn";
+import { slotRegistry } from "../content/slot-registry";
 import { GroupContextMenu } from "./group-context-menu";
 import { GroupPlaceholder } from "./group-placeholder";
 
@@ -90,6 +92,13 @@ export function GroupView({
 
   const showPlaceholder = isRootLeaf && leaf.tabIds.length === 0;
 
+  const slotRef = useCallback(
+    (el: HTMLElement | null) => {
+      slotRegistry.set(workspaceId, leaf.id, el);
+    },
+    [workspaceId, leaf.id],
+  );
+
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: click activates group; keyboard handled by focusable children
     <div
@@ -109,8 +118,8 @@ export function GroupView({
         onActivateGroup={onActivateGroup}
       />
 
-      {/* Content slot — ContentPool uses querySelector('[data-group-slot="..."]') */}
-      <div data-group-slot={leaf.id} className="flex-1 min-h-0 min-w-0 relative">
+      {/* Content slot — portal target registered in slotRegistry for ContentHost */}
+      <div ref={slotRef} data-group-slot={leaf.id} className="flex-1 min-h-0 min-w-0 relative">
         {showPlaceholder && <GroupPlaceholder />}
       </div>
     </div>
