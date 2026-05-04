@@ -1,9 +1,9 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { isInEditable } from "../../keybindings/global";
 import { openOrRevealEditor } from "../../services/editor";
+import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { FileTreeRow } from "./file-tree-row";
 import { computeParentJumpIndex } from "./keys";
 
@@ -169,6 +169,8 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
               }}
             >
               <FileTreeRow
+                workspaceId={workspaceId}
+                absPath={item.absPath}
                 node={item.node}
                 depth={item.depth}
                 isExpanded={isExpanded}

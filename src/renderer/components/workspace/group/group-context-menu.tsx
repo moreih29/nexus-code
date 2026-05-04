@@ -45,6 +45,8 @@ export function GroupContextMenu({
       <RadixContextMenu.Trigger asChild>
         <div>
           <TabBar
+            workspaceId={workspaceId}
+            leafId={leafId}
             tabs={tabs}
             activeTabId={activeTabId}
             onSelectTab={onSelectTab}
@@ -59,21 +61,30 @@ export function GroupContextMenu({
         <RadixContextMenu.Content className="bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50">
           <RadixContextMenu.Item
             className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => { if (!contextTabId) return; actions.close(); }}
+            onSelect={() => {
+              if (!contextTabId) return;
+              actions.close();
+            }}
           >
             <span>Close</span>
           </RadixContextMenu.Item>
 
           <RadixContextMenu.Item
             className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => { if (!contextTabId) return; actions.closeOthers(); }}
+            onSelect={() => {
+              if (!contextTabId) return;
+              actions.closeOthers();
+            }}
           >
             <span>Close Others</span>
           </RadixContextMenu.Item>
 
           <RadixContextMenu.Item
             className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => { if (!contextTabId) return; actions.closeAllToRight(); }}
+            onSelect={() => {
+              if (!contextTabId) return;
+              actions.closeAllToRight();
+            }}
           >
             <span>Close All to the Right</span>
           </RadixContextMenu.Item>
