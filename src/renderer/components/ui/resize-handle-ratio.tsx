@@ -3,50 +3,39 @@ import { cn } from "@/utils/cn";
 import { useDragHandle } from "./use-drag-handle";
 
 // ---------------------------------------------------------------------------
-// Pixel-based resize handle (for fixed-width / fixed-height panels)
+// Ratio-based resize handle (for split panes)
 //
-// Owns: drag math (start value + delta px → new px width), ←/→ keyboard
-//       nudge, double-click reset.
-// Caller owns: state storage, persistence, clamping. The handle calls back
-//              with raw (unclamped) widths and lets the caller clamp inside
-//              `onResize`.
-//
-// `value` is used for aria-valuenow + initial closure capture; we keep it in
-// a ref so mouseup can read the *latest* value after re-renders (avoids
-// stale closure on the persist commit).
+// Owns: ratio↔px conversion at *usage* time (mousedown/mousemove/keydown), so
+//       a stale container size cannot poison the drag start. The container
+//       size is always read from `getContainerSize()` at the moment it is
+//       needed — never cached as a prop.
+// Caller owns: ratio state storage and persistence. The handle clamps to
+//              [minRatio, maxRatio] internally before invoking onResize.
 // ---------------------------------------------------------------------------
 
-interface ResizeHandleProps {
-  value: number;
-  min: number;
-  max: number;
+interface ResizeHandleRatioProps {
+  /** Current ratio in [0, 1]. */
+  ratio: number;
+  /** Lower bound for the ratio after clamping. */
+  minRatio: number;
+  /** Upper bound for the ratio after clamping. */
+  maxRatio: number;
+  /**
+   * Callback that returns the *current* container size (px) along the drag
+   * axis. Called at mousemove and keydown time so conversion never relies on
+   * a stale measurement.
+   */
+  getContainerSize: () => number;
   /**
    * Called on mousemove (persist=false) and on mouseup commit (persist=true).
-   * Caller is responsible for clamping; pass through to the store directly.
+   * Receives a clamped ratio.
    */
-  onResize: (width: number, persist: boolean) => void;
-  /** Optional double-click reset (e.g. restore to default width). */
+  onResize: (ratio: number, persist: boolean) => void;
+  /** Optional double-click reset. */
   onReset?: () => void;
   ariaLabel: string;
-  /**
-   * Override absolute positioning; default puts the handle on the right edge
-   * of the parent and centers the hit-area across the boundary.
-   */
   className?: string;
-  /**
-   * Controls hit-area alignment relative to the parent's right edge.
-   * - 'rightCentered' (default): translates +1/2 width outward, centering the
-   *   hit-area on the boundary (shared 50/50 between parent and neighbour).
-   * - 'rightInside': translates -1/2 width inward, keeping the hit-area fully
-   *   inside the parent so it does not overlap the adjacent panel.
-   * Only applies when orientation="vertical".
-   */
   placement?: "rightCentered" | "rightInside";
-  /**
-   * Axis of the sash line.
-   * - 'vertical' (default): a vertical divider dragged left/right (col-resize).
-   * - 'horizontal': a horizontal divider dragged up/down (row-resize).
-   */
   orientation?: "vertical" | "horizontal";
 }
 
@@ -61,37 +50,47 @@ const POSITION_CLASS = {
 
 const KEYBOARD_NUDGE_PX = 10;
 
-export function ResizeHandle({
-  value,
-  min,
-  max,
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function ResizeHandleRatio({
+  ratio,
+  minRatio,
+  maxRatio,
+  getContainerSize,
   onResize,
   onReset,
   ariaLabel,
   className,
   placement,
   orientation = "vertical",
-}: ResizeHandleProps) {
-  // Refs avoid stale closures in document listeners.
-  const startValueRef = useRef(0);
-  const valueRef = useRef(value);
-  // Mirror prop on every render so the mouseup commit uses the latest store value.
-  valueRef.current = value;
+}: ResizeHandleRatioProps) {
+  // Refs avoid stale closures in document listeners and let mouseup commit
+  // read the latest store-roundtrip ratio.
+  const startRatioRef = useRef(ratio);
+  const ratioRef = useRef(ratio);
+  ratioRef.current = ratio;
 
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
 
+  const getContainerSizeRef = useRef(getContainerSize);
+  getContainerSizeRef.current = getContainerSize;
+
   const { isDragging, handleMouseDown } = useDragHandle({
     orientation,
     onDragStart: () => {
-      startValueRef.current = valueRef.current;
+      startRatioRef.current = ratioRef.current;
     },
     onDragMove: (deltaPx) => {
-      onResizeRef.current(startValueRef.current + deltaPx, false);
+      const size = getContainerSizeRef.current();
+      if (size <= 0) return;
+      const next = clamp(startRatioRef.current + deltaPx / size, minRatio, maxRatio);
+      onResizeRef.current(next, false);
     },
     onDragEnd: () => {
-      // Persist the latest (post-clamp) value via the caller.
-      onResizeRef.current(valueRef.current, true);
+      onResizeRef.current(ratioRef.current, true);
     },
   });
 
@@ -100,21 +99,25 @@ export function ResizeHandle({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    const size = getContainerSize();
+    if (size <= 0) return;
+    const deltaRatio = KEYBOARD_NUDGE_PX / size;
+
     if (orientation === "horizontal") {
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
+        onResize(clamp(ratio - deltaRatio, minRatio, maxRatio), true);
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+        onResize(clamp(ratio + deltaRatio, minRatio, maxRatio), true);
       }
     } else {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
+        onResize(clamp(ratio - deltaRatio, minRatio, maxRatio), true);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+        onResize(clamp(ratio + deltaRatio, minRatio, maxRatio), true);
       }
     }
   }
@@ -133,15 +136,20 @@ export function ResizeHandle({
         ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
         : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]";
 
+  // Expose ratio in 0–100 for the standard ARIA convention.
+  const ariaNow = Math.round(ratio * 100);
+  const ariaMin = Math.round(minRatio * 100);
+  const ariaMax = Math.round(maxRatio * 100);
+
   return (
     // biome-ignore lint/a11y/useSemanticElements: separator/handle is not a button
     <div
       role="separator"
       aria-orientation={orientation}
       aria-label={ariaLabel}
-      aria-valuenow={value}
-      aria-valuemin={min}
-      aria-valuemax={max}
+      aria-valuenow={ariaNow}
+      aria-valuemin={ariaMin}
+      aria-valuemax={ariaMax}
       tabIndex={0}
       onMouseDown={handleMouseDown}
       onDoubleClick={handleDoubleClick}

@@ -1,5 +1,5 @@
 import type { LayoutNode, LayoutSplit } from "@/state/stores/layout";
-import { ResizeHandle } from "../../ui/resize-handle";
+import { ResizeHandleRatio } from "../../ui/resize-handle-ratio";
 import { useSplitSash } from "./use-split-sash";
 
 interface SplitPaneProps {
@@ -30,8 +30,8 @@ export function SplitPane({ workspaceId, split, renderNode }: SplitPaneProps) {
       >
         {renderNode(split.first)}
 
-        {/* ResizeHandle is positioned relative to the first child's right/bottom edge */}
-        <ResizeHandle {...sashProps} />
+        {/* ResizeHandleRatio is positioned relative to the first child's right/bottom edge */}
+        <ResizeHandleRatio {...sashProps} />
       </div>
 
       {/* Second child */}
