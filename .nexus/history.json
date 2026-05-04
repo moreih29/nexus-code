@@ -2857,6 +2857,252 @@
           "created_at": "2026-05-03T13:28:35.029Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-04T04:23:43.538Z",
+      "branch": "feat/portal-content-host",
+      "plan": {
+        "id": 12,
+        "topic": "VSCode 식 createPortal 전환 — measure-rect 패턴 제거로 split 결함 클래스 봉합",
+        "issues": [
+          {
+            "id": 1,
+            "title": "포털 타깃 해소 방식: querySelector 유지 / GroupView callback ref / 전역 ref registry 중 어느 것을 채택할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Option B(callback-ref slot registry, useSyncExternalStore 소비) 권장. React commit 순서상 slot ref 콜백은 ContentHost의 useLayoutEffect보다 먼저 발화 → 별도 race 없음. slotEl이 한 commit 동안 null이어도 `slotEl ? createPortal(...) : null`로 안전 흡수, ContentHost React 트리는 stable해서 PTY/Monaco 보존. Option A(querySelector)는 성능 문제 아니라 (1) 문자열 결합, (2) 워크스페이스 cross-DOM aliasing 잠재 버그(현재는 pool.parentElement scope에 묵시적으로 의존), (3) measure-rect 사고 패턴 잔존 — 따라서 권장 안 함. Option C(Context)는 ContentPool이 LeafPane 자손이 아니므로 구조적으로 불가. 등록 키는 `${workspaceId}:${leafId}` 네임스페이스 필수. 신규 파일 src/renderer/components/workspace/content/slot-registry.ts(plain Map + useSyncExternalStore subscribe). 핵심 sharp edge: GroupView 슬롯 ref는 useCallback([workspaceId, leaf.id])로 묶어야 매 렌더 thrash 방지. StrictMode 이중 호출, HMR(레지스트리 모듈 변경 시 reload), 하이드레이션은 모두 안전 검증 완료. 마이그레이션 완료 후 use-slot-rect.ts 삭제 + ContentPool의 absolute inset-0 positioning 제거 가능 (logical container로 축소).",
+                "recorded_at": "2026-05-04T01:45:30.684Z",
+                "agent_id": "a662edcefc23433ce"
+              }
+            ],
+            "decision": "Option B 채택 — callback-ref 기반 slot registry를 신규 모듈 src/renderer/components/workspace/content/slot-registry.ts에 module-scoped Map으로 두고, useSyncExternalStore로 구독. 등록 키는 `${workspaceId}:${leafId}` 네임스페이스. GroupView 슬롯 div의 ref는 useCallback([workspaceId, leaf.id])로 메모이즈 (thrash 방지). ContentHost는 `slotEl ? createPortal(content, slotEl) : null` 패턴으로 한 commit 갭을 흡수. 마이그레이션 완료 후 use-slot-rect.ts 삭제 + ContentPool의 absolute inset-0 positioning은 logical container로 축소."
+          },
+          {
+            "id": 2,
+            "title": "split-pane.tsx 픽셀 누적 layout(subpixel-gap fix)을 같은 사이클에 포함할 것인가, 별도 사이클로 분리할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "직전 architect 분석(a594b8c124f17f74f)에서 split-pane.tsx의 `flexBasis: ratio*100%` 패턴이 분수 픽셀에서 합 100%가 안 되어 형제 사이 1px 갭이 잠재한다고 지적됨. portal 전환과 독립된 결함 클래스. 추가 도메인 분석 없이 Lead가 scope 결정. (1) 같은 사이클 포함: 동일 영역(workspace layout) 동일 사용자 경험(스플릿 안정성)이라 사용자 입장에서 \"스플릿 결함을 한 번에 봉합\"이 자연스럽고, portal 전환 후 회귀 테스트 시 splitter 이동/리사이즈 시나리오가 어차피 돌므로 px 정확도 동시 검증이 효율. 단점: 변경 표면 확대(레이아웃 계산은 ResizeObserver로 부모 측정 → 자식에 px style 직접 부여하는 imperative 패턴 도입), PR 리뷰 비용 증가, 회귀 위험 면적 증가. (2) 별도 사이클 분리: portal 전환 검증 끝난 뒤 stable한 상태에서 픽셀 layout만 따로 검증 가능, 회귀 격리 용이. 단점: 같은 영역 두 번 만지므로 컨벤션 일관성 깨질 위험(임시로 percent 기반 머문다가 다시 px로 갈 때 conflict). [Lead 권고] portal 전환은 \"측정/portal 패턴 → 트리 내장 portal\" 패러다임 변경 자체로 이미 큰 리스크. subpixel-gap은 사용자 시야에 거의 안 보이는 1px 수준이고 잠재적이지 별개의 리포트가 들어온 적 없음. 같은 사이클에 묶으면 portal 회귀 분석에 픽셀 계산 회귀까지 섞여 디버그 비용↑. 분리 권장.",
+                "recorded_at": "2026-05-04T01:46:46.824Z"
+              }
+            ],
+            "decision": "Option B 채택 — 이번 사이클은 portal 전환에 집중하고 split-pane.tsx의 픽셀 누적 layout fix(subpixel-gap)는 별도 후속 사이클로 분리. portal 전환 stable 검증 후, split-pane.tsx의 percent → 픽셀 누적(parent ResizeObserver로 측정 → imperative px style) 패러다임 변경은 별도 plan/이슈로 다룬다. 이번 사이클의 split-pane.tsx 변경은 portal 전환에 필요한 최소 수정만 허용 (예: 슬롯 노출 방식 정리)."
+          },
+          {
+            "id": 3,
+            "title": "PTY/Monaco DOM 이동 안전성 검증 범위: 자동 테스트(jsdom 한계) vs 수동/integration 테스트 어디까지 묶을 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "tester",
+                "summary": "현재 인프라: bun:test + jsdom 한정 (Playwright/Spectron/Electron e2e 부재). [자동 가능] (1) slot registry contract — atomicity, useCallback ref keying, StrictMode 이중호출, unmount cleanup; (2) ContentHost portal DOM ancestry — 스토어 mutation 후 portal child가 올바른 [data-group-slot] 후손인지; (3) 워크스페이스 cross-DOM 네임스페이싱 (등록 키 충돌 없음); (4) 하이드레이션 순서 — hydrate() 후 ContentHost 구독 전에 registry populate; (5) nested split 구조 정합성 — 세 leaf, 세 slot, 키 일관성. [자동 불가/수동 smoke 필수] PTY socket 연속성(IPC + node-pty 라이브 필요), xterm WebGL context loss / canvas fallback(GPU 드라이버 의존), Monaco cursor/scroll/dirty 보존(Monaco는 jsdom 비활성), 시각적 갭(real layout 계산 필요). Monaco IPC 진단 리스너 재구독은 자동 가능(분리). 권장 사이클 범위: 자동 5개 + 수동 smoke checklist(Terminal split 후 PTY 출력 지속 / Editor split 후 cursor·dirty 보존 / nested split 시각 갭 부재) — Electron e2e 하네스 신규 도입은 별도 사이클. [tester 의견] 이 범위가 현 인프라/스코프에서 합리적 균형.",
+                "recorded_at": "2026-05-04T01:50:09.937Z",
+                "agent_id": "ab70db4cd98256c13"
+              }
+            ],
+            "decision": "Option B 채택 — 자동 테스트 5개 + 수동 smoke checklist. [자동(bun:test+jsdom)] (1) slot registry contract: set/get/subscribe atomicity, useCallback ref keying, StrictMode 이중호출 내성, unmount cleanup. (2) ContentHost portal DOM ancestry: 스토어 mutation 후 portal child가 올바른 [data-group-slot] 후손. (3) 워크스페이스 cross-DOM 네임스페이싱: 두 워크스페이스 슬롯 공존 시 키 충돌 없음. (4) 하이드레이션 순서: hydrate() 완료 후 ContentHost 구독 전에 registry populate. (5) nested split 구조: 세 leaf · 세 slot · 키 일관성. [수동 smoke checklist] (a) Terminal split 후 양쪽 PTY 출력 끊김 없음, (b) Editor split 후 cursor·scroll·dirty 보존, (c) nested split (좌우→우측 상하) 시각 갭 부재 + 양쪽 정상 렌더, (d) 워크스페이스 스위치 후 양쪽 컨텐츠 정상. Electron e2e 하네스 신규 도입은 이번 사이클 scope에서 제외하고 별도 후속 사이클로 둔다."
+          }
+        ],
+        "research_summary": "[기존 진단 — architect agent ae8498cce5635fbae] 빈 영역의 원인은 split 엔진이 아니라 useSlotRect의 stale ResizeObserver. split 트리 변경 시 LeafPane이 새 SplitPane을 거쳐 자식이 되어 GroupView가 unmount+remount되고 data-group-slot DOM이 새 노드로 교체되지만, useSlotRect의 effect deps가 [ownerLeafId, poolRef]뿐이라 재구독되지 않아 detach된 옛 노드를 관찰하는 좀비 상태. [VSCode 비교 — architect agent a594b8c124f17f74f] VSCode는 컨텐츠를 split tree 안에 직접 마운트하고 구조 변경 시 appendChild로 DOM을 이동시킴(EditorGroupView.element 평생 보존, splitview.ts:1204의 appendChild). 사이즈 전파는 imperative top-down 픽셀 누적(splitview.ts:1353-1369)이라 자식 합이 정확히 100%, 라운딩 누수 없음. [Stage 1 minimal fix(structureVersion deps)는 증상만 잡고 클래스는 못 막음 — flicker frame, subpixel-gap, querySelector global scope 잔존]. [Stage 2 정공법] React idiom으로는 ReactDOM.createPortal(content, slotEl) — ContentPool은 컴포넌트 트리 stable하게 유지(PTY/Monaco React 인스턴스 보존), 실제 DOM은 portal에 의해 새 slot으로 이동. measure-rect/useSlotRect 패턴 자체 제거 → stale rect 클래스 소멸. [핵심 contract] TerminalView가 xterm Terminal 인스턴스를 useEffect 내부에 보유, EditorView가 Monaco editor model을 보유 — 둘 다 unmount되면 상태 손실, ContentPool이 평생 같은 React 트리를 유지하는 게 PTY 생존의 본질. portal 패턴은 이 contract을 보존. [영향 파일] use-slot-rect.ts(삭제 후보), content-host.tsx(portal 전환), content-pool.tsx(target 해소 메커니즘), group-view.tsx(slot 노출 방식), split-pane.tsx(subpixel fix 별건), 테스트 파일들. [기존 nexus history 검색 결과 0건 — 신규 결정 영역].",
+        "created_at": "2026-05-04T01:42:51.795Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "slot-registry.ts 신규 모듈 작성",
+          "status": "completed",
+          "context": "VSCode 식 createPortal 전환의 기반. ContentHost가 portal target slot DOM을 O(1)로 조회할 수 있도록 module-scoped Map + useSyncExternalStore subscribe 형태의 registry를 신설한다. 이슈 1 결정 참조.",
+          "acceptance": "- 파일 src/renderer/components/workspace/content/slot-registry.ts가 생성되었고, 위 API를 export한다.\n- TypeScript 컴파일 통과 (bun run typecheck 동급 명령).\n- 모듈 단독으로 import해도 사이드이펙트 없음 (라이브 DOM 의존 0).\n- 동일 element를 같은 키로 두 번 set 호출 시 subscribe 콜백이 1회만 호출됨 (StrictMode 보호).",
+          "approach": "파일: src/renderer/components/workspace/content/slot-registry.ts (신규).\n- 내부 상태: `Map<key, HTMLElement>`. key = `${workspaceId}:${leafId}`.\n- API: `slotRegistry.set(workspaceId, leafId, el | null)` (null이면 delete), `slotRegistry.get(workspaceId, leafId)`, `slotRegistry.subscribe(fn)`.\n- React hook: `useSlotElement(workspaceId, leafId | null)` — useSyncExternalStore로 변경 알림. leafId=null이면 null 반환.\n- StrictMode 내성: set이 idempotent하도록 동일 element 재set 시 listener 호출 생략(같은 값이면 notify skip).\n- 모듈 내 listeners는 Set, 변경 시마다 모두 호출. SSR snapshot은 () => null.\nDOM 노드를 Zustand에 넣지 않고 plain module로 분리(deep equality 비용 회피).",
+          "risk": "React 19/StrictMode에서의 ref 콜백 호출 순서 가정이 어긋날 가능성 — 가정이 깨지면 한 commit 동안 slotEl=null 윈도우가 길어질 수 있음. ContentHost 측 `slotEl ? createPortal : null` 패턴이 이를 흡수하는지는 T2/T3에서 검증.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a54bf69a3218ab39a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-04T01:52:33.576Z"
+        },
+        {
+          "id": 2,
+          "title": "GroupView slot ref 등록 + ContentHost createPortal 전환 + ContentPool/use-slot-rect 정리",
+          "status": "completed",
+          "context": "이슈 1 결정에 따른 핵심 마이그레이션 — measure-rect 패턴을 React createPortal로 교체. ContentHost는 더 이상 absolute + 좌표 복사로 그리지 않고, 각 leaf의 slot div 안으로 portal한다. PTY/Monaco React 인스턴스는 ContentPool 트리에 stable, 실제 DOM은 portal에 의해 새 slot으로 이동.",
+          "acceptance": "- group-view.tsx: 슬롯 div에 useCallback 기반 callback ref 부착, slotRegistry.set 호출 (mount/unmount 모두).\n- content-host.tsx: useSlotRect 미사용, useSlotElement 도입, `slotEl ? createPortal(content, slotEl) : null` 구조.\n- content-pool.tsx: absolute 레이어 제거 (ContentPool은 positioning을 하지 않는 컨테이너).\n- src/renderer/components/workspace/content/use-slot-rect.ts 파일 삭제. 어떤 파일에서도 import 잔존 없음 (`grep -r use-slot-rect src/` 결과 0).\n- TypeScript 컴파일/biome 통과.\n- 기존 unit/integration 테스트 회귀 0 (split-engine, layout-store, layout-persistence, split-duplicate, layout-schema). 단, useSlotRect 직접 테스트가 있다면 삭제하고 신규 테스트로 대체.\n- 수동 dev 빌드 띄워서 좌우 split → 우측 상하 split 시 빈 갭 없음 (스크린샷 결함 시나리오 직접 재현 후 통과).",
+          "approach": "1) src/renderer/components/workspace/group/group-view.tsx\n- slot div(`<div data-group-slot=...>`)에 callback ref 부착: `useCallback((el) => slotRegistry.set(workspaceId, leaf.id, el), [workspaceId, leaf.id])`. unmount 시 자동으로 null로 호출되어 delete됨.\n- data-group-slot attribute는 디버깅 가독성 유지 차원에서 남겨둠 (registry는 별개 채널).\n\n2) src/renderer/components/workspace/content/content-host.tsx\n- useSlotRect import 제거.\n- `useSlotElement(workspaceId, ownerLeafId)`로 slotEl 구독.\n- 반환: `slotEl ? createPortal(<TerminalView .../> | <EditorView .../>, slotEl) : null`.\n- visibility 토글: 기존엔 invisible 클래스로 절대 위치 컨테이너를 숨겼지만, portal 후엔 portal child(또는 그 wrapper)에 isVisible 기반 클래스 부여.\n- workspaceId prop이 useSlotElement에 필요하므로 ContentHostProps에 추가.\n\n3) src/renderer/components/workspace/content/content-pool.tsx\n- `absolute inset-0 pointer-events-none` 제거. ContentPool은 logical container로 축소(빈 fragment 또는 비-positioning div).\n- poolRef도 필요 없으면 제거. 자식 ContentHost에 workspaceId 전달.\n\n4) src/renderer/components/workspace/workspace-panel.tsx\n- ContentPool이 absolute 레이어가 아니게 되므로 `relative` parent 의존성 정리. 단, layout 자체는 LayoutTree가 그리므로 영향 최소.\n\n5) src/renderer/components/workspace/content/use-slot-rect.ts\n- 파일 삭제. 사용처 없는지 grep 확인.\n\nCRITICAL invariant:\n- GroupView 슬롯 ref는 반드시 useCallback으로 메모이즈 (workspaceId/leaf.id 의존). 인라인 arrow면 매 렌더 set/clear thrash.\n- portal target 변경 시 React가 같은 child fiber로 DOM을 appendChild 이동시킴 → TerminalView/EditorView 컴포넌트 인스턴스는 unmount되지 않음 (이게 PTY/Monaco 보존의 본질).",
+          "risk": "- ContentHost가 absolute 컨테이너를 잃으면서 visibility 토글 시 잔류 자식이 슬롯 안에 그대로 남음. invisible 클래스를 portal child wrapper에 정확히 적용 필요.\n- xterm/Monaco 컨테이너가 portal target 이동 시 WebGL context loss/Monaco resize 재트리거 필요할 수 있음 (수동 smoke로 확인).\n- React StrictMode에서 callback ref 이중 호출 — 동일 키 set이 idempotent해야 함 (T1에서 보장, T2에서 사용 검증).",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "abb3568ef3d85bc11",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-04T01:53:06.385Z"
+        },
+        {
+          "id": 3,
+          "title": "slot registry contract 자동 테스트",
+          "status": "completed",
+          "context": "이슈 3 결정의 자동 테스트 #1. T1에서 만든 slot-registry 모듈의 외부 계약(set/get/subscribe atomicity, namespacing, idempotency, unmount 정리, StrictMode 이중 호출 내성)을 단위 테스트로 검증한다.",
+          "acceptance": "- 위 8개 케이스 모두 bun:test에서 통과.\n- 테스트가 ContentHost/GroupView 등 상위 컴포넌트에 의존하지 않음 (registry 모듈만 단독 검증).\n- 회귀 시 어떤 invariant가 깨졌는지 1대1 매핑되도록 테스트명 명확.",
+          "approach": "파일: tests/unit/renderer/components/workspace/content/slot-registry.test.ts (신규).\n케이스:\n1) set + get: 같은 (workspaceId, leafId)에 element를 set하면 get이 같은 element 반환.\n2) namespacing: workspaceId가 다르면 같은 leafId라도 격리. (ws1, leafA)와 (ws2, leafA) 동시 set → 각각 정확히 자기 element 반환.\n3) null set: set(ws, leaf, null)은 entry 삭제, get → null.\n4) subscribe 알림: subscribe된 listener가 set/clear 시점에 호출됨.\n5) idempotent set (StrictMode 보호): 동일 element를 같은 키로 두 번 set → listener 1회만.\n6) unsubscribe: 반환된 disposer 호출 후엔 listener 미호출.\n7) useSlotElement 훅: React Testing Library + bun:test로 컴포넌트 마운트, registry.set 후 렌더 결과가 갱신되는지 확인.\n8) StrictMode 이중 마운트 시뮬레이션: <StrictMode>로 컴포넌트 wrap, mount→unmount→mount 시 registry 일관성 유지.",
+          "risk": "React 19의 strict-mode/concurrent rendering에서 useSyncExternalStore 동작이 예상과 다를 수 있음 — 케이스 8에서 발견되면 T1 수정 필요.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "ad8ffdf5203879513",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T01:53:22.361Z"
+        },
+        {
+          "id": 4,
+          "title": "ContentHost portal DOM ancestry 자동 테스트",
+          "status": "completed",
+          "context": "이슈 3 결정의 자동 테스트 #2. T2 portal 전환의 핵심 계약 — split mutation 후 ContentHost가 올바른 [data-group-slot] 후손 DOM에 portal했는지 구조적으로 검증.",
+          "acceptance": "- 4개 시나리오 모두 bun:test 통과.\n- 핵심 단언: `slotEl.contains(contentHostChildEl) === true`.\n- React 인스턴스 보존 단언(가능하면): split mutation 전후로 ContentHost의 컴포넌트 인스턴스 ref가 동일.",
+          "approach": "파일: tests/integration/portal-dom-ancestry.test.ts (신규) — 또는 tests/integration/ 기존 분류 따름.\n시나리오:\n1) 단일 leaf 워크스페이스 마운트 후 한 탭의 ContentHost 자식이 해당 slot div의 DOM 후손인지 contains() 검증.\n2) splitGroup 호출(좌우 분할) → 새 leaf의 slot이 마운트되고, 기존 탭의 ContentHost 자식 DOM이 여전히 동일 React 인스턴스로 살아있고, 새 portal target slot의 후손인지 검증.\n3) 우측 leaf를 다시 상하 분할 → 우측 탭의 ContentHost가 새 slot 후손에 portal됨을 확인. (우측 leaf id 유지 + slot DOM 교체 시나리오 정확 재현)\n4) closeGroup으로 leaf 제거 시 ContentHost는 unmount 또는 slotEl=null로 portal 미수행 — 어느 쪽이든 stale 자식 DOM 잔존 없음.\n모킹: ipc(client) 모듈은 layout-persistence.test.ts 패턴 참고하여 shim. TerminalView/EditorView 자체를 가벼운 stub으로 대체해도 좋음(WebGL/Monaco 실제 마운트 회피).",
+          "risk": "jsdom의 createPortal 지원이 제한적일 수 있어 실제 동작과 차이 발생 가능 — 발견 시 통합 테스트 신뢰도 한계 명시 + 수동 smoke로 대체.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "ade83b9ce9f3209b2",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T01:53:38.392Z"
+        },
+        {
+          "id": 5,
+          "title": "워크스페이스 cross-DOM 네임스페이싱 자동 테스트",
+          "status": "completed",
+          "context": "이슈 3 결정의 자동 테스트 #3. ${workspaceId}:${leafId} 키 네임스페이싱이 두 워크스페이스 슬롯이 DOM에 공존하는 상황(현재 구조: 비활성 워크스페이스도 invisible로 마운트 유지)에서 키 충돌 없이 격리되는지 검증.",
+          "acceptance": "- 5개 단언 모두 통과.\n- 키 충돌이 발생하지 않음을 증명하는 회귀 그물.",
+          "approach": "파일: tests/integration/slot-registry-namespacing.test.ts (신규).\n시나리오:\n1) 두 워크스페이스 ws1, ws2를 동시 마운트(둘 다 WorkspacePanel mount, 한쪽은 isActive=false).\n2) 우연히 또는 의도적으로 같은 leafId 문자열이 양쪽에 존재하도록 유도 (테스트용 id 주입 helper 추가 또는 hydrate snapshot 직접 구성).\n3) slotRegistry.get(ws1, leafA) 와 slotRegistry.get(ws2, leafA)가 서로 다른 element를 반환.\n4) 한쪽 워크스페이스 unmount 시 다른 쪽 entry는 영향 없음.\n5) ContentHost가 자기 워크스페이스의 slot에만 portal하는지 contains() 검증.",
+          "risk": "테스트용 leafId 주입이 production crypto.randomUUID와 충돌하지 않도록 hydrate 경로로만 시도. 인프라 제약 시 단일 워크스페이스 + 가짜 cross-mount 시뮬레이션으로 축소.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a800ba78773ce50d1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T01:53:50.465Z"
+        },
+        {
+          "id": 6,
+          "title": "하이드레이션 순서 자동 테스트",
+          "status": "completed",
+          "context": "이슈 3 결정의 자동 테스트 #4. 앱 부팅 시 persisted layout snapshot → hydrate() → GroupView 슬롯 ref 발화 → ContentHost useSyncExternalStore 구독 순서가 꼬이지 않는지 검증. 핵심: hydrate 후 첫 commit에서 ContentHost가 portal 가능한 상태(slotEl !== null)에 도달.",
+          "acceptance": "- 첫 paint(첫 commit) 직후 모든 ContentHost가 portal target을 보유.\n- registry의 키 집합 == sanitize된 layout root의 leaf 집합과 일치.\n- 회귀 시 \"hydrate 후 첫 프레임 빈 화면\"을 잡는 그물.",
+          "approach": "파일: tests/integration/slot-registry-hydration.test.ts (신규).\n시나리오:\n1) layout-persistence.test.ts 패턴 참고. snapshot 객체로 layout.hydrate(workspaceId, snapshot, knownTabIds) 직접 호출.\n2) WorkspacePanel + ContentPool을 같이 마운트한 직후의 첫 commit에서:\n   - 모든 leaf의 slotRegistry.get이 non-null인지\n   - 각 ContentHost가 createPortal 호출 (slotEl 비-null)\n3) 비활성 워크스페이스가 함께 hydrate된 케이스(여러 워크스페이스 동시)에서도 동일.\n4) hydrate 결과 활성 leaf가 hoisted/sanitize된 시점에서도 registry가 sanitize 후 leaf id로 등록.",
+          "risk": "React act() 밖에서의 commit 타이밍이 jsdom과 어긋날 수 있음 — flushSync 또는 act로 커밋 강제 동기화 필요.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a598aca587886d15d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T01:54:04.302Z"
+        },
+        {
+          "id": 7,
+          "title": "nested split 구조 자동 테스트",
+          "status": "completed",
+          "context": "이슈 3 결정의 자동 테스트 #5. 사용자 보고 결함 시나리오(좌우 split → 우측 상하 split) 그대로 재현하여 leaf 3개 · slot DOM 3개 · registry 키 3개가 정확히 매핑되는지 회귀 그물.",
+          "acceptance": "- 4개 단언 모두 통과.\n- 결함 시나리오 재현 후 통과 (회귀 보호).",
+          "approach": "파일: tests/integration/nested-split-structure.test.ts (신규).\n시나리오:\n1) 단일 leaf 워크스페이스 마운트.\n2) 우측 split (splitGroup orientation=\"horizontal\", side=\"after\") → leaf 2개.\n3) 새로 생긴 우측 leaf를 다시 splitGroup orientation=\"vertical\", side=\"after\" → leaf 3개.\n4) 기대값:\n   - Grid.allLeaves(layout.root).length === 3\n   - 각 leaf id에 대해 [data-group-slot] DOM 노드 1개 정확히 존재\n   - slotRegistry.get(workspaceId, leafId)가 그 DOM 노드 반환\n   - 각 ContentHost가 자기 portal target에 portal됨\n5) 결함 회귀 시 핀포인트: 보고된 결함은 우측 leaf B의 slot DOM이 split 직후 새 노드로 교체되는데 registry stale로 ContentHost가 옛 노드 그대로 유지되어 갭 발생 — 이 흐름이 케이스 3 시점에 검출돼야 함.",
+          "risk": "jsdom에서 실제 layout box 크기 비교는 의미 없음 — 구조적 contains/registry 키 검증으로 한정. 시각적 갭 검증은 manual smoke로 대체.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a1f92887e945fabad",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T01:54:17.577Z"
+        },
+        {
+          "id": 8,
+          "title": "수동 smoke checklist 정의 + Electron 실행 검증",
+          "status": "in_progress",
+          "context": "이슈 3 결정의 manual smoke 4종. jsdom에서 검증 불가능한 런타임 fidelity(PTY 연속성, WebGL context, Monaco cursor/scroll/dirty, 시각 갭 부재)를 실제 Electron 빌드로 사람이 직접 확인.",
+          "acceptance": "- checklist 4개 항목 모두 PASS, PR/이슈에 결과 기록.\n- nested split 케이스(c) 스크린샷이 보고된 결함과 동일 시나리오에서 갭 부재를 보임.",
+          "approach": "1) checklist 문서화: tests/manual/portal-smoke.md 또는 PR description에 inline (작은 prefer).\n체크 항목:\n(a) Terminal split — 좌측 터미널에서 `for i in $(seq 1 100); do echo $i; sleep 0.05; done` 흘리는 중 우측으로 split → 좌측 출력 끊김 없음, 우측 새 PTY는 별도 동작.\n(b) Editor split — test4.py 같은 파일 열기, cursor를 특정 행에 두고 dirty 만든 후 우측으로 split → 좌측 cursor·scroll·dirty 표시 보존, 우측은 같은 파일이지만 별도 view.\n(c) nested split (보고된 결함 재현) — 좌우 split → 우측 상하 split. 빈 갭 없이 두 우측 패널이 자기 영역을 가득 채움. 스크린샷 첨부.\n(d) 워크스페이스 스위치 — 두 워크스페이스 띄우고 양쪽에 split 구성. 스위치 왕복 시 PTY 출력 유지 + 에디터 상태 유지.\n2) bun dev로 Electron 띄워서 위 4개 직접 수행, 결과 PR comment에 체크 표시 + 필요 시 스크린샷.\n3) 실패한 항목은 회귀로 간주, 코드 수정 후 재실행.",
+          "risk": "- WebGL context loss는 일부 GPU 환경에서만 재현될 수 있음 — fallback 동작이 매끄럽지 않으면 별도 follow-up 이슈 등록.\n- 워크스페이스 스위치 후 xterm renderer가 reflow 안 되는 케이스가 있다면 ResizeObserver/FitAddon refit 필요.",
+          "plan_issue": 3,
+          "deps": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-04T01:54:35.240Z"
+        },
+        {
+          "id": 9,
+          "title": "[fix] hidden portal container 도입 + EditorView readOnly 제거",
+          "status": "completed",
+          "context": "T8 사용자 검증에서 5개 결함 발견. architect 종합 진단 결과 핵심 원인은 ContentHost의 fallback 분기(`<div>{inner}</div>` vs `createPortal(inner, slotEl)`)가 React에 다른 fiber 부모로 보여 slotEl 토글마다 TerminalView/EditorView가 unmount+remount되며 PTY socket / Monaco model / IPC subscription이 dispose됨. 결함 1·2a·3·4·5가 모두 이 단일 churn에서 파생. 별개로 EditorView Monaco config에 `readOnly: true`가 hardcoded (결함 2b). 이번 task로 두 fix를 함께 처리.",
+          "acceptance": "- content-pool.tsx: hidden portal container div 마운트 + Context로 노출. position: fixed, 0×0, visibility: hidden, pointer-events: none, inert, aria-hidden, contain: strict.\n- content-host.tsx: fallback `<div>{inner}</div>` 분기 제거. 항상 createPortal(inner, slotEl ?? hiddenEl) 또는 target 둘 다 null일 때만 return null.\n- editor-view.tsx: `readOnly: true` 제거.\n- TypeScript 컴파일 통과 (새 에러 0).\n- biome check 통과.\n- `bun test`로 기존 회귀 0 (T3~T7 5개 자동 테스트 모두 PASS 유지).\n- T7 또는 동급 테스트가 통과되더라도, 본 task는 사용자 재검증 필수 의존.",
+          "approach": "**F1: ContentPool stable hidden portal container 도입**\n\nsrc/renderer/components/workspace/content/content-pool.tsx:\n- useRef로 hidden div 1개 마운트. positioning: `position: fixed; inset: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none`. aria-hidden + inert. + `contain: strict`로 스택 컨텍스트 격리.\n- 이 div의 element를 자식 ContentHost에 prop 또는 React Context로 전달. (간단성을 위해 Context 권장: HiddenPortalContext)\n- 자식 마운트 순서: hidden div가 먼저 mount된 commit이 있어야 ContentHost 첫 렌더에서 사용 가능. 첫 렌더에는 ref가 null이므로 ContentHost는 `target = slotEl ?? hiddenEl ?? null`. 셋 다 null이면 한 commit `return null` 허용.\n\nsrc/renderer/components/workspace/content/content-host.tsx:\n- fallback 분기(`if (!slotEl) return <div ...>{inner}</div>`) **완전 제거**.\n- target = slotEl ?? hiddenEl. target null이면 `return null` (첫 commit 한 번 후 hidden ref가 등록되어 즉시 회복).\n- 항상 `return createPortal(inner, target)` — fiber position 불변.\n- inner의 wrapper div는 `absolute inset-0` + isVisible 토글. portal target이 hidden container일 때는 0×0 안에서 absolute → 자연스럽게 안 보임.\n\n**F2: EditorView readOnly 제거**\n\nsrc/renderer/components/workspace/content/editor-view.tsx (line ~329):\n- Monaco editor options에서 `readOnly: true` 줄 삭제. 다른 옵션(자동 저장, dirty 표시 등)은 별도 후속 사이클.\n\n**F3: T7에 fiber identity 회귀 그물 추가** — 이건 별도 task에서 처리 (T10).\n\nCRITICAL: hidden container의 React fiber 위치도 stable해야 한다. ContentPool 안에 fragment 첫 자식으로 두고, ContentHost들이 그 다음에 오도록 — Context Provider로 감싸서 ref값을 자식에게 공급. ContentPool 자체는 매 렌더 같은 컴포넌트 instance라 fiber position 안정.\n\nCRITICAL invariant 재확인:\n- ContentHost는 절대로 conditional unmount 되지 않음 (PTY/Monaco 보존).\n- target swap 시 React가 createPortal 자식의 fiber identity 보존 (내부적으로 appendChild 이동).",
+          "risk": "- hidden container의 fiber 위치가 ContentPool 매 렌더마다 stable하지 않으면 fiber churn 재발생. fragment + Context Provider 구조로 stable 유지 필요.\n- Context value(hiddenEl)가 null → ref 할당 후 non-null로 바뀌는 첫 commit에서 ContentHost가 한 번 더 렌더되어야 함. useSyncExternalStore 또는 useRef + useState로 ref-callback 통해 트리거.\n- contain: strict가 xterm 내부 absolute 스택에 영향 줄 수 있음 — 시각 확인 필요.\n- React Context Provider의 value가 ref.current인 경우 Provider는 매 렌더 같은 객체 식별을 유지해야 함 (useState로 element 보관 권장).",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "acb52641443dc9ac1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T03:05:48.498Z"
+        },
+        {
+          "id": 10,
+          "title": "[fix] T7에 fiber identity 회귀 그물 추가",
+          "status": "completed",
+          "context": "T8 사용자 재검증에서 fiber churn 결함이 잡혔으나 자동 테스트(T7 등)가 못 잡았던 이유: 단언이 \"DOM ancestry\"였지 \"컴포넌트 인스턴스 ref 동일성\"이 아니었음. 또한 happy-dom의 React reconciliation이 실제 Chrome과 일부 다름. 회귀 그물 보강 필요.",
+          "acceptance": "- 추가 단언 또는 신규 테스트 파일이 fiber identity 보존을 검증.\n- T9 완료 후 본 테스트가 통과.\n- T9 적용 전 코드(현재 fallback 분기 있는 상태)에서 본 테스트가 실패함을 mutation check로 확인 (선택적이지만 권장).\n- bun test 회귀 0.\n- biome 통과.",
+          "approach": "tests/integration/nested-split-structure.test.ts (T7 산출물)에 추가 또는 신규 별도 테스트 파일 작성 — 어느 쪽이든 됨, 본인 판단.\n\n추가 단언:\n1) split 호출 전 ContentHost의 child(stub) DOM 노드 ref 캡처.\n2) splitGroup 호출 후 같은 child DOM 노드 ref가 유지되는지 — `expect(refBefore).toBe(refAfter)`.\n3) (가능하다면) TerminalView/EditorView mock에서 mount/unmount lifecycle 카운터 노출 → split 전후 mount 카운터 증가 0 단언.\n4) closeGroup 후 해당 ContentHost의 mount 카운터가 0 추가 (단, closeGroup으로 leaf 제거 시 tab 자체도 제거되면 unmount 1회는 정상 — 시나리오에 따라 단언 명확히).\n\n추가 시나리오 (별개 회귀 그물):\n5) slotEl이 A → null → B 순으로 변할 때 (예: GroupView remount race) ContentHost child fiber identity 유지.\n   - 직접 slotRegistry.set(ws, leaf, elA), set(ws, leaf, null), set(ws, leaf, elB) 시퀀스 후 ContentHost mount 카운터 0 증가.\n\nhappy-dom 한계로 일부 단언이 jsdom 환경과 다르게 동작할 수 있음 — 시나리오 5는 직접 registry API로 시뮬레이션하면 React 렌더링과 무관하게 검증 가능.\n\nCRITICAL: T9 fix 적용 후 이 회귀 그물이 통과해야 의미 있음. T9 완료 후 작성.",
+          "risk": "happy-dom의 React 19 reconciler가 실제 Chrome과 동일한 fiber 보존 동작을 하지 않을 수 있음 — 이 경우 mutation check가 false positive를 생성할 수 있음. 본 시나리오 5처럼 registry API 직접 호출로 우회 권고.",
+          "plan_issue": 3,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "ab362217bb3808bb3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T03:06:10.570Z"
+        }
+      ]
     }
   ]
 }
