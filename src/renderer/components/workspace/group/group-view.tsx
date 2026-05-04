@@ -8,7 +8,7 @@ import { cn } from "@/utils/cn";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
 import { useDropTarget } from "../dnd/use-drop-target";
-import { GroupContextMenu } from "./group-context-menu";
+import { GroupTabBar } from "./group-tab-bar";
 import { GroupPlaceholder } from "./group-placeholder";
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ export function GroupView({
       className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-frosted-veil")}
       onClick={handleGroupClick}
     >
-      <GroupContextMenu
+      <GroupTabBar
         workspaceId={workspaceId}
         leafId={leaf.id}
         tabIds={leaf.tabIds}

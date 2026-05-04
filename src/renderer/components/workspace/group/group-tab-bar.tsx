@@ -1,10 +1,24 @@
+/**
+ * GroupTabBar — the tab strip for a layout leaf, plus its right-click
+ * context menu (Close / Close Others / Close All to the Right / Split
+ * Right / Split Down).
+ *
+ * Earlier name was `GroupContextMenu` but the component's primary
+ * responsibility is rendering the tab bar; the ContextMenu is a layer
+ * around it. The name is now organised around the visible deliverable
+ * (the tab bar in a group), with the menu as a co-located concern.
+ *
+ * The dumb `TabBar` lives in `tabs/` and is reused; this wrapper adds
+ * the group-policy concerns (which actions to expose, which tab the
+ * menu is currently anchored to).
+ */
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 import { useState } from "react";
 import type { Tab } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
 import { useGroupActions } from "./use-group-actions";
 
-interface GroupContextMenuProps {
+interface GroupTabBarProps {
   workspaceId: string;
   leafId: string;
   tabIds: string[];
@@ -17,7 +31,7 @@ interface GroupContextMenuProps {
   onActivateGroup: (groupId: string) => void;
 }
 
-export function GroupContextMenu({
+export function GroupTabBar({
   workspaceId,
   leafId,
   tabIds,
@@ -28,7 +42,7 @@ export function GroupContextMenu({
   onCloseTab,
   onNewTerminalTab,
   onActivateGroup,
-}: GroupContextMenuProps) {
+}: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
 
   const actions = useGroupActions({
