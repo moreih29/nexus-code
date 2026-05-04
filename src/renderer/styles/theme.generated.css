@@ -142,6 +142,33 @@
   --radius-large-section: 40px;
   --radius-pill: 50px;
   --radius-progress-bar: 200px;
+
+  /* shadcn semantic aliases — Tailwind v4 utility namespace */
+  --color-background: #1a1917;
+  --color-foreground: oklch(0.982 0.0041 91.45);
+  --color-muted: #252422;
+  --color-muted-foreground: oklch(0.6173 0.0019 67.79);
+  --color-card: #252422;
+  --color-card-foreground: oklch(0.982 0.0041 91.45);
+  --color-popover: #252422;
+  --color-popover-foreground: oklch(0.982 0.0041 91.45);
+  --color-primary: oklch(0.3286 0.0017 106.49);
+  --color-primary-foreground: oklch(0.982 0.0041 91.45);
+  --color-secondary: #252422;
+  --color-secondary-foreground: oklch(0.982 0.0041 91.45);
+  --color-accent: oklch(0.751 0.0031 84.56);
+  --color-accent-foreground: oklch(0.3286 0.0017 106.49);
+  --color-destructive: oklch(0.577 0.245 27.33);
+  --color-destructive-foreground: oklch(0.982 0.0041 91.45);
+  --color-border: rgba(226, 226, 226, 0.15);
+  --color-input: rgba(226, 226, 226, 0.15);
+  --color-ring: oklch(0.751 0.0031 84.56);
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
 }
 
 :root {

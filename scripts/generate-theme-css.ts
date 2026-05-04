@@ -1,8 +1,8 @@
-#!/usr/bin/env bun
 // Standalone script to emit src/renderer/styles/theme.generated.css.
 // Run: bun run scripts/generate-theme-css.ts
-// Also called automatically by the vite-plugin-theme-tokens Vite plugin
-// embedded in electron.vite.config.ts.
+// Also imported by the vite-plugin-theme-tokens Vite plugin in
+// electron.vite.config.ts — keep this file shebang-free so esbuild can
+// require() it without a parse error on the leading "#!".
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -63,12 +63,68 @@ export function generateThemeCss(): string {
     lines.push(`  --radius-${camelToKebab(key)}: ${value}px;`);
   }
 
+  // ---------------------------------------------------------------------------
+  // shadcn semantic aliases — emitted *inside* @theme so Tailwind v4 generates
+  // matching utilities (bg-popover, shadow-sm, etc). The same values are also
+  // emitted in :root below as the bare shadcn names (--popover, --shadow-sm)
+  // so ad-hoc CSS and arbitrary-value classes (bg-[var(--popover)]) keep
+  // working for both naming conventions.
+  // ---------------------------------------------------------------------------
+  const semantic = buildSemanticTokens();
+
+  // Color aliases → --color-{name} so bg-{name} / text-{name} / border-{name}
+  // / ring-{name} utilities resolve.
+  const SEMANTIC_COLOR_KEYS = new Set([
+    "--background",
+    "--foreground",
+    "--muted",
+    "--muted-foreground",
+    "--card",
+    "--card-foreground",
+    "--popover",
+    "--popover-foreground",
+    "--primary",
+    "--primary-foreground",
+    "--secondary",
+    "--secondary-foreground",
+    "--accent",
+    "--accent-foreground",
+    "--destructive",
+    "--destructive-foreground",
+    "--border",
+    "--input",
+    "--ring",
+  ]);
+
+  // Shadow aliases — already in the --shadow-* namespace; emit verbatim so
+  // shadow / shadow-sm / shadow-md / ... utilities pick them up (and stay
+  // sealed to "none" per project policy).
+  const SEMANTIC_SHADOW_KEYS = new Set([
+    "--shadow",
+    "--shadow-sm",
+    "--shadow-md",
+    "--shadow-lg",
+    "--shadow-xl",
+    "--shadow-2xl",
+  ]);
+
+  lines.push("");
+  lines.push("  /* shadcn semantic aliases — Tailwind v4 utility namespace */");
+  for (const [key, value] of Object.entries(semantic)) {
+    if (SEMANTIC_COLOR_KEYS.has(key)) {
+      // --popover → --color-popover, --popover-foreground → --color-popover-foreground
+      lines.push(`  --color-${key.slice(2)}: ${value};`);
+    } else if (SEMANTIC_SHADOW_KEYS.has(key)) {
+      lines.push(`  ${key}: ${value};`);
+    }
+  }
+
   lines.push("}");
   lines.push("");
 
-  // :root — semantic aliases (shadcn convention)
+  // :root — semantic aliases under their bare shadcn names (--popover, etc.)
+  // so direct CSS-var consumers and arbitrary-value classes still resolve.
   lines.push(":root {");
-  const semantic = buildSemanticTokens();
   for (const [key, value] of Object.entries(semantic)) {
     lines.push(`  ${key}: ${value};`);
   }
@@ -78,7 +134,15 @@ export function generateThemeCss(): string {
   return lines.join("\n");
 }
 
-// When run directly as a script
-const outPath = resolve(import.meta.dir, "../src/renderer/styles/theme.generated.css");
-writeFileSync(outPath, generateThemeCss(), "utf-8");
-console.log(`[theme] Written: ${outPath}`);
+export function writeThemeCss(): void {
+  const outPath = resolve(import.meta.dir, "../src/renderer/styles/theme.generated.css");
+  writeFileSync(outPath, generateThemeCss(), "utf-8");
+  console.log(`[theme] Written: ${outPath}`);
+}
+
+// Run only when invoked as a CLI (`bun run scripts/generate-theme-css.ts`).
+// When imported by vite-plugin-theme-tokens this guard prevents a duplicate
+// write at module-load time.
+if (import.meta.main) {
+  writeThemeCss();
+}
