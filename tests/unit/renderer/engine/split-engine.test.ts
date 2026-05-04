@@ -242,13 +242,59 @@ describe("Grid.findView", () => {
     const branch = makeBranch("B1", "horizontal", l1, l2);
     const found = Grid.findView(branch, "L1");
     expect(found).not.toBeNull();
-    expect(found!.id).toBe("L1");
-    expect(found!.tabIds).toEqual(["t1"]);
+    expect(found?.id).toBe("L1");
+    expect(found?.tabIds).toEqual(["t1"]);
   });
 
   it("returns null for unknown id", () => {
     const leaf = makeLeaf("L1");
     expect(Grid.findView(leaf, "NOPE")).toBeNull();
+  });
+});
+
+describe("Grid.findLeafByTab", () => {
+  it("returns null for a tree with no tabs", () => {
+    const root = makeBranch("root", "horizontal", makeLeaf("empty-left"), makeLeaf("empty-right"));
+
+    expect(Grid.findLeafByTab(root, () => true)).toBeNull();
+  });
+
+  it("returns the matching tab and leaf for a single leaf", () => {
+    const leaf = makeLeaf("L1", ["tab-a", "tab-b"], "tab-a");
+
+    const found = Grid.findLeafByTab(leaf, (tabId) => tabId === "tab-b");
+
+    expect(found).toEqual({ leaf, tabId: "tab-b" });
+  });
+
+  it("finds a matching tab in one leaf of a split tree", () => {
+    const l1 = makeLeaf("L1", ["tab-a"], "tab-a");
+    const l2 = makeLeaf("L2", ["tab-b"], "tab-b");
+    const root = makeBranch("root", "horizontal", l1, l2);
+
+    const found = Grid.findLeafByTab(root, (tabId) => tabId === "tab-b");
+
+    expect(found).toEqual({ leaf: l2, tabId: "tab-b" });
+  });
+
+  it("returns the leftmost DFS match when multiple leaves match", () => {
+    const l1 = makeLeaf("L1", ["other"], "other");
+    const l2 = makeLeaf("L2", ["match-left"], "match-left");
+    const l3 = makeLeaf("L3", ["match-right"], "match-right");
+    const inner = makeBranch("inner", "vertical", l1, l2);
+    const root = makeBranch("root", "horizontal", inner, l3);
+
+    const found = Grid.findLeafByTab(root, (tabId) => tabId.startsWith("match"));
+
+    expect(found).toEqual({ leaf: l2, tabId: "match-left" });
+  });
+
+  it("returns null when the predicate matches no tabs", () => {
+    const l1 = makeLeaf("L1", ["tab-a"], "tab-a");
+    const l2 = makeLeaf("L2", ["tab-b"], "tab-b");
+    const root = makeBranch("root", "horizontal", l1, l2);
+
+    expect(Grid.findLeafByTab(root, () => false)).toBeNull();
   });
 });
 
@@ -259,7 +305,7 @@ describe("Grid.findBranch", () => {
     const branch = makeBranch("B1", "vertical", l1, l2);
     const found = Grid.findBranch(branch, "B1");
     expect(found).not.toBeNull();
-    expect(found!.orientation).toBe("vertical");
+    expect(found?.orientation).toBe("vertical");
   });
 
   it("returns null when searching a leaf node", () => {
@@ -275,7 +321,7 @@ describe("Grid.parentBranchOf", () => {
     const branch = makeBranch("B1", "horizontal", l1, l2);
     const parent = Grid.parentBranchOf(branch, "L2");
     expect(parent).not.toBeNull();
-    expect(parent!.id).toBe("B1");
+    expect(parent?.id).toBe("B1");
   });
 
   it("returns null for sole root leaf", () => {

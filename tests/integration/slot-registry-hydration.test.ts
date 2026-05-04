@@ -63,10 +63,10 @@ mock.module("../../src/renderer/ipc/client", () => ({
 
 import { ownerLeafIdOf } from "../../src/renderer/components/workspace/content/selectors";
 import { slotRegistry } from "../../src/renderer/components/workspace/content/slot-registry";
-import { useLayoutStore } from "../../src/renderer/store/layout";
-import { allLeaves } from "../../src/renderer/store/layout/helpers";
-import type { LayoutLeaf, LayoutNode } from "../../src/renderer/store/layout/types";
-import { useTabsStore } from "../../src/renderer/store/tabs";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
+import { allLeaves } from "../../src/renderer/state/stores/layout/helpers";
+import type { LayoutLeaf, LayoutNode } from "../../src/renderer/state/stores/layout/types";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Minimal HTMLElement stand-in — mirrors the approach in slot-registry.test.ts.

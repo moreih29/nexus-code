@@ -1,0 +1,5 @@
+export const TERMINAL_FLOW_CONTROL = {
+  HIGH_WATERMARK: 100000,
+  LOW_WATERMARK: 5000,
+  ACK_SIZE: 5000,
+} as const;

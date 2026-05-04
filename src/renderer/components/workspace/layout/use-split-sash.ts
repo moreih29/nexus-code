@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import type { LayoutSplit } from "@/store/layout";
-import { useLayoutStore } from "@/store/layout";
+import type { LayoutSplit } from "@/state/stores/layout";
+import { useLayoutStore } from "@/state/stores/layout";
 import { Grid } from "@/engine/split";
 
 interface UseSplitSashOptions {

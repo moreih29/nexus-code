@@ -151,6 +151,7 @@ export const ipcContract = {
         }),
         z.void(),
       ),
+      didClose: call(z.object({ uri: z.string() }), z.void()),
       hover: call(
         z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
         z.object({ contents: z.string() }).nullable(),
@@ -233,14 +234,8 @@ export const ipcContract = {
         z.array(DirEntrySchema),
       ),
       stat: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), FsStatSchema),
-      watch: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        z.void(),
-      ),
-      unwatch: call(
-        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        z.void(),
-      ),
+      watch: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
+      unwatch: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       getExpanded: call(
         z.object({ workspaceId: z.string().uuid() }),
         z.object({ relPaths: z.array(z.string()) }),

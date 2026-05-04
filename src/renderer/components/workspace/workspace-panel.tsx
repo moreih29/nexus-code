@@ -1,9 +1,9 @@
 import { useEffect } from "react";
+import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { useLayoutStore } from "../../store/layout";
-import { openTab } from "../../store/operations";
-import { useTabsStore } from "../../store/tabs";
+import { useLayoutStore } from "../../state/stores/layout";
+import { useTabsStore } from "../../state/stores/tabs";
 import { ContentPool, LayoutTree } from ".";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
     const hasNoTabs = !tabsForWs || Object.keys(tabsForWs).length === 0;
 
     if (hasNoTabs) {
-      openTab(workspace.id, "terminal", { cwd: workspace.rootPath });
+      openTerminal({ workspaceId: workspace.id, cwd: workspace.rootPath });
     }
     // Run only once on mount per workspace id
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -49,7 +49,6 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
         isActive ? "visible pointer-events-auto" : "invisible pointer-events-none",
       )}
       aria-hidden={!isActive || undefined}
-      // biome-ignore lint/a11y/noAriaHiddenOnFocusable: intentional CSS-hide pattern for workspace switching
       inert={!isActive || undefined}
     >
       <LayoutTree

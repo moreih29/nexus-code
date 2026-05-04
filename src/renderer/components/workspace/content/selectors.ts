@@ -1,5 +1,5 @@
 import { Grid } from "@/engine/split";
-import type { LayoutNode } from "../../../store/layout/types";
+import type { LayoutNode } from "../../../state/stores/layout/types";
 
 /**
  * Returns the id of the first leaf in `root` whose tabIds includes `tabId`,

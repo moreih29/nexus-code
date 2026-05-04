@@ -15,8 +15,9 @@ export interface GlobalKeyDeps {
 }
 
 /**
- * Returns true if the event target is an editable element where Cmd+E should
- * not fire (input, textarea, contenteditable, or inside .cm-editor).
+ * Returns true if the event target is an editable element where global file
+ * open shortcuts should not fire (input, textarea, contenteditable, or inside
+ * .cm-editor).
  *
  * Exported for unit testing.
  */
@@ -40,10 +41,10 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
     return;
   }
 
-  // Cmd+E — open file picker to add an EditorView tab.
+  // Cmd+E / Cmd+O — open file picker to add an EditorView tab.
   // Skipped when the event originates inside an editable element so as not to
   // interrupt text-editing workflows.
-  if (e.metaKey && e.key === "e") {
+  if (e.metaKey && (e.key === "e" || e.key === "o")) {
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     const wsId = deps.getActiveWorkspaceId();

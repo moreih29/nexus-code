@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Tab props schemas (serialization form — mirrors renderer/store/tabs.ts
+// Tab props schemas (serialization form — mirrors renderer/state/stores/tabs.ts
 // interfaces but as zod schemas for persistence)
 // ---------------------------------------------------------------------------
 

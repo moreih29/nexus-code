@@ -61,7 +61,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../../../../src/renderer/store/ui";
+} from "../../../../src/renderer/state/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Pure drag-math helper — mirrors the exact expression in the component's

@@ -7,6 +7,19 @@ export function findView(tree: SplitNode, id: string): SplitLeaf | null {
   return findView(tree.first, id) ?? findView(tree.second, id);
 }
 
+export function findLeafByTab(
+  root: SplitNode,
+  predicate: (tabId: string) => boolean,
+): { leaf: SplitLeaf; tabId: string } | null {
+  if (root.kind === "leaf") {
+    for (const tabId of root.tabIds) {
+      if (predicate(tabId)) return { leaf: root, tabId };
+    }
+    return null;
+  }
+  return findLeafByTab(root.first, predicate) ?? findLeafByTab(root.second, predicate);
+}
+
 export function findBranch(tree: SplitNode, id: string): SplitBranch | null {
   if (tree.kind === "leaf") return null;
   if (tree.id === id) return tree;

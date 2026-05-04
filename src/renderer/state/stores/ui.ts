@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipcCall } from "../ipc/client";
+import { ipcCall } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Constants

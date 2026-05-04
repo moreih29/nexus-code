@@ -31,7 +31,7 @@ import {
   FILES_PANEL_WIDTH_MAX,
   FILES_PANEL_WIDTH_MIN,
   useUIStore,
-} from "../../../../src/renderer/store/ui";
+} from "../../../../src/renderer/state/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -3103,6 +3103,388 @@
           "created_at": "2026-05-04T03:06:10.570Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-04T07:36:34.314Z",
+      "branch": "refactor/state-services",
+      "plan": {
+        "id": 13,
+        "topic": "renderer state·services 레이어 재구조화 — store/services 책임 분리 + 중복 탭 버그 해소",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Stage 1: store/ → state/ rename + 내부 재구조화 (stores/ 서브폴더, persist-layout → persistence)",
+            "status": "decided",
+            "decision": "## 결정\n`src/renderer/store/` 전체를 `src/renderer/state/`로 rename하고 내부를 다음과 같이 재구조화한다:\n\n```\nsrc/renderer/state/\n  stores/\n    tabs.ts            (← store/tabs.ts)\n    workspaces.ts      (← store/workspaces.ts)\n    ui.ts              (← store/ui.ts)\n    active.ts          (← store/active.ts)\n    files/             (← store/files/)\n    layout/            (← store/layout/)\n  operations.ts        (← store/operations.ts, 그대로)\n  persistence.ts       (← store/persist-layout.ts rename)\n```\n\n## 선택 이유\n- 사용자와의 토론에서 합의: \"store에 store가 아닌 게 섞여있으면 store에서 빼야 한다\"는 원칙. `operations.ts`는 첫 줄 주석에 \"Not a zustand store\" 명시, `persist-layout.ts`는 layout+tabs 둘 다 영속화하므로 이름 부정확\n- `state/`는 더 큰 우산 이름으로, `state/stores/`(보유자) + `state/operations`/`persistence`(횡단 조정자)가 대등하게 자리잡아 폴더명=내용 약속이 일관됨\n- 작은 store(tabs/workspaces/ui/active 22~129줄)는 폴더화 거부 — 폴더화의 정당화는 *내부 분해 필요성*이지 일관성 자체가 아님. 단일 파일을 폴더 안 단일 파일로 옮기는 건 디렉토리 깊이만 늘림\n\n## 기각된 대안\n- **(B) 모든 store를 폴더화** — 일관성은 표면적, active.ts 22줄에 폴더는 과함\n- **(C) 현재 유지 + 이름만 정정** — 카테고리 혼재 그대로 남음\n- **operations/persistence를 services/로 이동** — services 정의(외부 자원·도메인 의미)와 안 맞음. operations는 도메인 의미 모르고 외부 자원 안 만짐\n- **별도 최상위 `coordination/` 신설** — 두 파일짜리 최상위는 무게 안 맞음\n\n## 가정\n- import path 일괄 갱신은 sed + tsc 빌드 에러 따라 수정으로 가능 (영향 파일 수십~백여)\n- 기능 변화 0이라 회귀는 빌드+기존 테스트 통과로 검증 충분\n\n## 위험\n- import 누락 시 빌드 에러 → tsc로 즉시 감지 가능\n- `persist-layout.ts` 내부 함수명(`registerLayoutPersistence` 등)도 함께 정정 필요"
+          },
+          {
+            "id": 2,
+            "title": "Stage 2: engine/split/traversal.ts에 findLeafByTab 헬퍼 추가",
+            "status": "decided",
+            "decision": "## 결정\n`src/renderer/engine/split/traversal.ts`에 다음 헬퍼를 추가한다:\n\n```ts\nexport function findLeafByTab(\n  root: SplitNode,\n  predicate: (tabId: string) => boolean,\n): { leaf: SplitLeaf; tabId: string } | null\n```\n\n순회는 기존 `findView`/`parentBranchOf`와 같은 재귀 패턴. 매칭 시 첫 결과 반환.\n\n## 선택 이유\n- engine은 *순수 함수 + 자료구조 알고리즘*이라는 정의에 정확히 부합 — leaf 메타(filePath 등)는 안 받고 tabId predicate만 받아 트리 순회만 책임\n- predicate 기반 시그니처: services에서 `tabId => tabsStore.byWorkspace[wsId][tabId]?.props.filePath === target`처럼 클로저로 도메인 정보 주입. engine은 도메인 모름 유지\n- 이 헬퍼가 services/editor의 dedupe 정책(Issue 4)·model-cache의 GC(Issue 5) 양쪽에서 재사용됨\n\n## 기각된 대안\n- **services 안에 직접 트리 순회 구현** — 트리 알고리즘이 services에 새는 것. engine 분리 원칙 위반\n- **leaf 직접 반환 (tabId 없이)** — 호출자가 매칭된 tabId를 다시 찾아야 해서 비효율\n- **모든 매칭 leaf 반환 (배열)** — 현재 사용 케이스(첫 매칭으로 충분)에 과한 시그니처. 필요 시 `findAllLeavesByTab` 별도 추가\n\n## 가정\n- traversal.ts의 기존 findView/parentBranchOf와 같은 패턴 따름 (순수 재귀, 가시성 export)\n\n## 위험\n- 없음. 신규 함수 추가만"
+          },
+          {
+            "id": 3,
+            "title": "Stage 3: services/editor/editor-service.ts → open-editor.ts rename (stutter 제거)",
+            "status": "decided",
+            "decision": "## 결정\n`src/renderer/services/editor/editor-service.ts`(빈 stub) 삭제 + `src/renderer/services/editor/open-editor.ts` 신설.\n\n이 단계는 빈 파일 교체. 실제 구현은 Issue 4에서.\n\n## 선택 이유\n- `services/editor/editor-service.ts`는 폴더명을 반복하는 stutter naming. 형제 파일들(`file-loader.ts`, `lsp-bridge.ts`, `model-cache.ts`)은 모두 *동작 단위 명사*인데 이 파일만 *추상 컨테이너* 이름이라 응집 안 됨\n- 헤더 주석의 두 책임 중 *\"owns openOrReveal semantics + group routing\"* (구체 동작)은 새 파일 `open-editor.ts`로, *\"composes ...\"* (진입점·조합)은 `index.ts`의 자연스러운 책임으로 흡수\n- \"service\"라는 단어는 폴더 `services/`가 이미 의미함 — 파일명에서 반복하면 정보량 0\n\n## 기각된 대안\n- **이름만 `editor.ts`로** — 여전히 폴더명 반복(폴더 `editor/` + `editor.ts`)\n- **`controller.ts`/`composer.ts`** — 추상 역할명. 형제 파일들은 *동작 단위*라 패턴 깨짐\n- **유지** — stutter 명백, 형제와 결 불일치\n\n## 위험\n- 없음. 빈 stub 교체\n\n## 후속\n- Issue 4에서 `open-editor.ts`에 실제 정책 구현\n- Issue 5에서 `index.ts`가 모든 public API re-export"
+          },
+          {
+            "id": 4,
+            "title": "Stage 4: open-editor.ts 구현 + 파일 open 진입점 통일 (중복 탭 버그 해소)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 8개 정책 결정 (architect approved)\n\n1. **dedupe scope = workspace 단위** (cross-workspace는 도메인 무관)\n2. **매칭 키 = path.normalize 후 case-sensitive 정확 비교** (symlink resolve 안 함, realpathSync는 sync I/O 비용·테스트 격리 깨짐). macOS APFS case-insensitive는 현 UI에서 다른 case 입력 수단 부재라 무시\n3. **다중 leaf reveal 우선순위 = active group 우선 → leftmost DFS** (MRU는 store 추가 필요, scope 초과)\n4. **revealIfOpened=false = dedupe 무시 + active group에 신규 탭** (split 의미 없음 — newSplit 별도 옵션)\n5. **newSplit 우선, dedupe 완전 무시** (Cmd+Enter 의도 보존)\n6. **opts.groupId 없을 때 = activeGroupId** (현재 operations와 동일 → 회귀 위험 0). ensureLayout 먼저 호출\n7. **진입점 통일 = 옵션 C(좁히기)**: `state/operations.openTab`을 `type: \"terminal\"`만 받도록 시그니처 좁힘. editor는 무조건 services 경유. 타입 시스템이 enforce\n8. **트랜잭션 = services → operations → stores 단방향**: services가 stores 직접 mutation 금지(read만). reveal 경로는 `operations.revealTab(ws, groupId, tabId)` 헬퍼 추가 권장\n\n## API 시그니처 (의사코드 핵심)\n\n```ts\nopenOrRevealEditor(input: EditorInput, opts?: OpenEditorOptions): EditorTabLocation\n// 1. ensureLayout\n// 2. newSplit이면 openTabInNewSplit (operations) → 즉시 반환\n// 3. reveal=true이면 findEditorTab → 매칭 시 setActiveTabInGroup → 반환\n// 4. 미매칭 시 openTab (operations) → 반환\n```\n\n내부 헬퍼 `findEditorTab(ws, filePath)`: active group 우선 검사 후 `Grid.allLeaves` (또는 Issue 2의 findLeafByTab) DFS. EditorTabProps의 filePath와 비교\n\n## Findings\n- **critical**: 0\n- **warning(2)**:\n  - `EditorTabProps`(state/tabs.ts:14-17)와 `EditorInput`(services/editor/types.ts:4-7) 같은 필드 중복 정의 → 통일 권장 (이 issue 작업 중 자연스럽게 해소)\n  - file-tree.tsx:123 Cmd+Enter는 services 도입 후 `{ newSplit: ... }` 옵션으로 표현해 일관성 유지\n- **suggestion(2)**:\n  - `findEditorTab` 헬퍼 services 내부 분리 → 단위 테스트 용이\n  - `seedDefaultTerminalIfEmpty:189`는 terminal만 호출이라 옵션 C 좁히기에 영향 없음 (안전)\n- **note(1)**: portal KNOWN ISSUE는 dedupe 강제로 *대부분* 해소. 단 명시적 newSplit으로 같은 파일이 여러 leaf 분포 가능 → Issue 5(Monaco model 라이프사이클)에서 model 공유 vs 분리 결정 필요\n\n## Risks\n- layout slice 부재 타이밍 → ensureLayout이 dedupe lookup *전에* 호출 (알고리즘에 순서 명시됨)\n- cross-workspace 같은 파일 → dedupe 안 됨이 의도(데이터 격리)\n- idempotent reveal → 안전 (동일 ref면 selector rerender 0)\n\n## Approach Approved 평결\n8개 결정 + 의사코드대로 구현 가능. EditorTabProps/EditorInput 중복은 본 issue 작업 중 처리 권장.",
+                "recorded_at": "2026-05-04T05:08:11.837Z",
+                "agent_id": "adac25ab96524365e"
+              }
+            ],
+            "decision": "## 결정 — architect 8개 항목 그대로 채택 + 추가 정리\n\n### 핵심 채택 사항\n1. `services/editor/open-editor.ts` (Issue 3에서 rename된 자리)에 `openOrRevealEditor(input: EditorInput, opts?: OpenEditorOptions): EditorTabLocation` 구현\n2. **dedupe**: workspace 단위 + path.normalize 정확 비교 + active group 우선 → leftmost DFS\n3. **옵션 동작**:\n   - `revealIfOpened` (default true): false면 dedupe 무시 + active group 신규 탭\n   - `newSplit`: 무조건 신규 split + 신규 탭, dedupe·reveal 무시\n4. **진입점 통일 = 옵션 C(좁히기)**: `state/operations.openTab` 시그니처를 `type: \"terminal\"`만 받도록 좁힘. editor open은 무조건 services 경유. 컴파일러가 enforce\n5. **트랜잭션 = services → operations → stores**: services는 stores read만, mutation은 operations. reveal 경로용 `operations.revealTab(ws, groupId, tabId)` 헬퍼 추가\n6. 진입점 변경:\n   - `file-tree.tsx:129-145`: `openOrRevealEditor({ workspaceId, filePath })` 사용\n   - `file-tree.tsx:123` (Cmd+Enter): `openOrRevealEditor({ workspaceId, filePath }, { newSplit: { orientation: \"horizontal\", side: \"after\" } })` 사용 (warning 2 해소)\n   - `App.tsx:172` (Cmd+O): 동상\n\n### 추가 정리 (architect warning 2 — 이번 issue 작업 중 처리)\n- `EditorTabProps`(state/tabs.ts:14-17)와 `EditorInput`(services/editor/types.ts:4-7) 중복 정의 통일:\n  - **state/tabs.ts의 EditorTabProps를 services/editor/types.ts의 EditorInput과 정렬** (또는 services types를 single source로 import). state는 도메인 props 모양만 알면 됨\n  - 시그니처 깔끔: `createTab(ws, \"editor\", input: EditorInput)`\n\n### 기각된 대안\n- **옵션 A (state.openTab과 services 공존)** — 사회적 규칙은 깨짐, 컴파일러 enforce 못 함\n- **옵션 B (operations가 services 호출)** — layer 역전, services 의존이 state로 들어감\n- **services가 stores 직접 mutation** — operations 존재 이유 소거\n- **MRU group routing** — 별도 store 추가 필요, scope 초과\n- **realpathSync 매칭** — sync I/O가 services에 박힘, 테스트 격리 깨짐\n- **cross-workspace dedupe** — 도메인 격리 위반\n\n### 가정\n- `engine/split/traversal.ts`에 Issue 2의 `findLeafByTab` 또는 기존 `allLeaves` 활용 — Lead 판단으로 traversal 헬퍼 두 형태 모두 가능. architect 의사코드는 `Grid.allLeaves` 기준이지만 `findLeafByTab`도 동등 작동\n- `path.normalize` 사용 — 별도 normalize util 미신설(Node `path` 모듈로 충분)\n\n### 위험\n- `state/operations.openTab` 좁히기로 *기존 호출자 모두 컴파일 에러 발생* — 의도된 안전망. 모든 호출자 services 경유로 변환 후 빌드\n- portal KNOWN ISSUE는 명시적 newSplit으로 같은 파일을 두 leaf에 띄우는 케이스가 남음 → Issue 5에서 Monaco model 공유 정책으로 해소\n- `EditorTabProps` 통일은 `state/persistence.ts`의 직렬화에 영향 가능 — Issue 1 작업과 정합 필요\n\n### 검증\n- 같은 파일 두 번 클릭 → 1개 탭 + 두 번째 클릭 시 focus만 이동\n- Cmd+Enter → 명시적 split + 신규 탭\n- Cmd+O 다이얼로그도 dedupe 동작\n- 다른 워크스페이스 같은 파일 → 각각 1탭 (dedupe 안 됨)"
+          },
+          {
+            "id": 5,
+            "title": "Stage 5: services/editor 나머지 stub 구현 (model-cache, file-loader, lsp-bridge) + editor-view.tsx 슬림화 — Monaco model 라이프사이클·LSP provider 중복 해소",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 8개 라이프사이클 결정 (architect approved)\n\n**A. Monaco model 공유 = uri 기준 강제 공유 + ref counting + count==0 즉시 dispose** (debounce 없음). 분리는 \"두 view 다르게 편집 + 한 파일 저장\" 모순 발생. portal 사이클로 ContentHost는 탭 살아있는 한 unmount 안 되므로 release는 탭 close에서만 → 잦은 churn 없음\n\n**B. model 생성·dispose 책임 = `<Editor model>` raw 주입 패턴**. `<Editor path={uri}>` 사용 중단(@monaco-editor/react가 path 변경 시 자동 dispose하므로 ref count 외부화 불가). model-cache가 명시적 createModel + onMount에서 `editor.setModel(model)` 강제. 단 @monaco-editor/react API 검증 필요(`path`/`value` 미지정 시 동작 — 구현 직전 context7 확인 권장)\n\n**C. LSP provider 등록 = language별 전역 1회 (workspace-level 아님)**. monaco는 단일 인스턴스라 provider도 1회로 충분. 워크스페이스 close 시 dispose 안 함. 현재의 URI 필터(`if (model.uri.toString() !== uri)`) 코드는 **삭제** — provider는 모든 model에 작동, ipc 호출의 uri만 동적\n\n**D. didOpen/didChange/didClose = model-cache 소유**. acquire(uri, ws) 첫 count==1일 때 file-loader → createModel → didOpen, model.onDidChangeContent 단일 listen → debounced didChange, release count==0 → didClose → model.dispose\n\n**E. Diagnostics = lsp-bridge 전역 listener, ownerId 고정 \"lsp\"**. ipcListen(\"lsp\",\"diagnostics\") 모듈-level 1회. monaco.editor.getModel(Uri.parse(uri)) lookup → setModelMarkers. ownerId 통일 시 alias replace로 중복 자연 방지\n\n**F. fs.changed reload = model-cache가 listen, clean이면 setValue, dirty면 externalChangePending flag**. M0 단계는 저장 기능 미구현이라 항상 clean → setValue 안전. dirty 분기는 인터페이스만 미리 두고 구현은 별 issue로 미룸\n\n**G. editor-view.tsx ~50줄 = DOM mount + cursor/scroll/selection view-state만**. props 그대로(`{filePath, workspaceId}`). 내부 `useSharedModel({ws, path})` hook → `{model, phase, errorCode}` 받아 phase별 placeholder 렌더 또는 `<Editor>` + onMount에서 setModel(model). file-load/LSP/fs 전부 services로 이관\n\n**H. services/editor/index.ts = openOrRevealEditor + useSharedModel + initializeEditorServices(monaco)**. model-cache는 internal (직접 노출 시 release 누락 위험). bootstrap은 App.tsx가 monaco ready 시 1회 호출\n\n## API 시그니처 (요지)\n\n```ts\n// model-cache\nacquireModel(input): Promise<{model, phase, errorCode?}>\nreleaseModel(input): void\nuseSharedModel(input): {model, phase, errorCode?}\n\n// file-loader\nreadFileForModel(input): Promise<{content, isBinary, encoding}>\nsubscribeFsChanged(input, onChange): () => void\n\n// lsp-bridge\ninitializeLspBridge(monaco): void   // 전역 providers + diagnostics listener\nnotifyDidOpen/notifyDidChange/notifyDidClose(uri, ...): void\n\n// index\nopenOrRevealEditor, useSharedModel, initializeEditorServices(monaco)\n```\n\n## 라이프사이클 다이어그램\n\n- App boot: monaco ready → initializeEditorServices → providers 전역 등록 + diagnostics listener attach\n- File open: openOrRevealEditor → operations.openTab → ContentHost mount → EditorView mount → useSharedModel.acquire (count 0→1: read+createModel+didOpen+subFs)\n- onChange: model.onDidChangeContent (단일 listen) → debounced didChange\n- fs.changed: subscribeFsChanged callback → clean이면 setValue (모든 view 자동 반영)\n- Tab close: closeTab → unmount → release (count 1→0: didClose+unsub+dispose)\n- Workspace close: 각 탭 close 자연 처리. provider는 dispose 안 함 (다른 ws 사용 가능, 전역이라 안전)\n\n## Findings\n- **critical(2)**:\n  - editor-view.tsx:152-228 LSP provider per-view 등록 → 중복 결과 버그(같은 파일 두 view 시 hover/completion N배). dedupe로 대부분 해소되나 newSplit 의도적 중복에서 발현\n  - editor-view.tsx:230-251 diagnostics listener per-view → listener 누수 + 중복 marker write\n- **warning(2)**:\n  - editor-view.tsx:128 dirty 무시 setValue — 현 단계 안전이나 저장 기능 도입 시 데이터 유실\n  - editor-view.tsx:273 didOpen versionRef view-local → 두 view 각자 1부터 카운트 → LSP server 버전 충돌\n- **suggestion(1)**: filePathToUri(line 25) services/editor/utils로 이전 + percent encoding 안전화\n\n## Open Risks\n- @monaco-editor/react `<Editor model>` raw API 검증 필요 — 구현 직전 context7 확인. onMount setModel 우회로 충분히 안전하나 path/value prop 미지정 시 동작 확인 필수\n- workspace-prefixed uri vs 글로벌 file:// — architect는 글로벌 file:// + LSP host idempotent 가정 권장. 다중 ws 동시 사용 시점에 별 ADR\n- dirty conflict 처리는 본 task scope 외 — 저장 기능 도입과 동시에 별 ADR\n- Issue 6(pty) 인계: services의 외부 자원 ref counting 패턴이 pty에도 적용. 단 pty는 탭 단위 격리(공유 없음)이라 단순 owner 패턴 충분할 가능성\n\n## Approach Approved 평결\n8개 결정 채택. model-cache가 model+LSP+fs lifecycle 단일 소유. 구현 전 context7로 @monaco-editor/react `<Editor model>` API 검증.",
+                "recorded_at": "2026-05-04T05:12:56.026Z",
+                "agent_id": "adac25ab96524365e"
+              }
+            ],
+            "decision": "## 결정 — architect 8개 항목 그대로 채택 + 위험 분리\n\n### 핵심 채택 사항\n1. **Monaco model**: uri 기준 강제 공유 + ref counting + count==0 즉시 dispose. debounce 없음\n2. **`<Editor model>` raw 주입 패턴**: `path`/`value` prop 사용 중단. model-cache가 명시적 createModel + onMount에서 `editor.setModel(model)`. **구현 직전 context7로 @monaco-editor/react `<Editor model>` API 검증 필수** (path/value 미지정 동작 확인)\n3. **LSP provider = language별 전역 1회**. workspace-level 아님. URI 필터 코드(`if (model.uri.toString() !== uri)`) **삭제**\n4. **didOpen/didChange/didClose = model-cache가 소유**: acquire 첫 count==1 시 didOpen, model.onDidChangeContent 단일 listen → debounced didChange, release 0 시 didClose + dispose\n5. **Diagnostics**: lsp-bridge 모듈-level 1회 listen, ownerId 고정 `\"lsp\"`. 알 수 없는 uri는 무시\n6. **fs.changed**: model-cache가 listen. 본 task에서는 *clean only setValue*만 구현. dirty 처리(externalChangePending)는 인터페이스만 남기고 별 issue로\n7. **editor-view.tsx ~50줄**: `useSharedModel({workspaceId, filePath})` hook → `{model, phase, errorCode}` → phase별 placeholder 또는 `<Editor>` + `onMount`에서 `editor.setModel(model)`. cursor/scroll/selection 같은 view-state만 view에 남김\n8. **services/editor/index.ts API**: `openOrRevealEditor`, `useSharedModel`, `initializeEditorServices(monaco)` 외부 export. model-cache는 internal. App.tsx가 monaco ready 시 `initializeEditorServices` 1회 호출\n\n### URI 정책 (architect 권장 채택)\n- **글로벌 `file://{absPath}` 단일 namespace** (workspace-prefixed 안 함). LSP host가 idempotent하게 처리 가정. model-cache는 cross-workspace dedupe도 수행 — *model layer는 글로벌, tab layer는 workspace-scoped*. 의도된 layer 분리. `.nexus/context/architecture.md`(Issue 8)에 명문화\n\n### 분리되는 follow-up issues (본 plan에 추가)\n1. **dirty conflict 처리** (저장 기능과 함께) — 별도 사이클 권고\n2. **workspace-prefixed uri로의 전환** (다중 ws 동시 사용 시점) — 별도 사이클 권고\n3. **EditorTabProps/EditorInput 타입 통일** — Issue 4 결정에 포함되어 본 작업 중 처리\n\n### 기각된 대안\n- **model 분리**: 두 view 다르게 편집 + 한 파일 저장 모순\n- **model 영구 보유(LRU 없음)**: 메모리 누수\n- **dispose debounce**: dedupe로 reopen이 이미 제한 → 의미 없음\n- **`<Editor path>` 유지**: @monaco-editor/react의 자동 dispose가 ref count와 충돌 (두 소유자 안티패턴)\n- **per-view LSP provider 등록 (현재)**: 같은 파일 두 view 시 hover/completion N배 — critical 버그\n- **per-workspace provider 등록**: 다중 ws에서 같은 ts 파일 시 등록 다중. 의미 없음\n- **lsp-bridge가 별도 lifecycle 관리**: model-cache와 ref counting 두 개 → 동기화 버그\n- **per-view diagnostics listener (현재)**: listener 누수 + 중복 marker write\n- **setValue 무조건 (현재)**: dirty 도입 즉시 데이터 유실\n- **editor-view를 services hook 단순 wrapper**: view-state(cursor)는 view-local\n\n### 위험·완화\n- **@monaco-editor/react `<Editor model>` API**: 구현 직전 context7 확인 (engineer task에 명시)\n- **dirty conflict 본 단계 부재**: M0 단계 저장 기능 미구현이라 항상 clean → 안전. 인터페이스 미리 둠\n- **versionRef view-local 충돌**: model-cache가 model당 단일 version 카운터 보유로 해소\n- **listener 누수**: 모듈-level 등록은 SPA 수명 = monaco 수명이라 누수 불가능 (전역 1회)\n\n### 검증 (회귀)\n- 기본 파일 열기·LSP hover·diagnostics·fs 외부 변경 reload — 모두 동작 유지\n- 같은 파일 두 leaf (newSplit으로 의도 생성) → 한쪽 편집이 즉시 다른 쪽 반영 (model 공유 검증)\n- 같은 파일 두 leaf 한쪽 close → 모델 dispose 안 됨, 다른 쪽 정상 동작 (count 1)\n- 두 leaf 모두 close → dispose + didClose 호출 검증\n- LSP provider 등록 횟수 = language 종류 수 (view 수와 무관)"
+          },
+          {
+            "id": 6,
+            "title": "Stage 6: services/terminal/ 신설 (open-terminal, pty-client, terminal-controller, flow-control) + terminal-view.tsx 슬림화 + group-view createTab 직접 호출 정리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 8개 결정 + critical 발견 (architect approved with one open question)\n\n**Critical 발견**: 현재 `terminal-view.tsx:174` view-unmount-driven kill이 ContentPool unmount 시나리오(workspace 전환 시 conditional render)에서 살아있는 탭 pty를 종료시킴. ContentPool은 workspace 단위로 마운트되므로(content-pool.tsx:33) workspace 다중 routing 도입 즉시 회귀. M0 결정의 TerminalRecorder/replay와도 모순(pty 살아있고 buffer 누적, re-attach 시 replay 전제).\n\n## 결정 항목\n\n**A. 파일 분해 = 3파일** (open-terminal + pty-client + terminal-controller + index/types). flow-control은 pty-client 내장 — ack 카운터 1개 + 임계값 비교뿐이라 over-decomposition 회피. editor의 3분할은 *서로 다른 자원*이라 정당, terminal은 자원이 pty 하나뿐\n\n**B. xterm 인스턴스 = 단순 owner 패턴, ref counting 없음**. 한 tabId당 controller 하나. pty 공유 시나리오 0 (같은 cwd라도 새 탭 = 새 pty). 인계 메모 가정 PASS\n\n**C. pty kill ≠ controller dispose (CRITICAL)**: terminal-view unmount 시 `controller.dispose()`(xterm/observer/listener 정리)만, **pty kill은 호출 안 함**. pty kill은 명시적 close 신호(`closeTerminal(tabId)`)에서만. workspace 전환·portal detach 시 pty 생존 보장 + replay 전제와 정합\n\n**D. flow control = pty-client 내장, tabId 단위 모듈-private 카운터** (view-local 아님 — view unmount 후에도 ack 정확). 임계값 상수는 `shared/terminal-constants.ts`로 utility 측 FlowController와 단일 정의\n\n**E. terminal-view ~40줄**: useEffect 1개에서 `createTerminalController({tabId, cwd, container})` 호출 + cleanup에서 `dispose()`만. xterm/font/observer/ipc 전부 controller로\n\n**F. group-view 진입점 = `services/terminal/openTerminal({ws, cwd}, opts?)`**. group-view는 직접 store 호출(group-view.tsx:69-79) 제거 → openTerminal만 호출. editor와 대칭\n\n**G. openTerminal 정책 = 항상 신규, newSplit 옵션 미리 지원**. dedupe 없음 (정책 명시). newSplit는 향후 키바인딩 대비 — 비용 0이고 표면 정의 의미\n\n**H. close = fire-and-forget kill**. `closeTerminal(tabId)` → `pty-client.killSession(tabId)` (catch{}) → `operations.closeTab`. 응답 안 기다림. UX 지연 회피, 누수 회피는 utility 책임\n\n## API 시그니처 (요지)\n```ts\n// open-terminal\nopenTerminal(input, opts?): TerminalTabLocation\ncloseTerminal(tabId): void  // wraps killSession + operations.closeTab\n\n// pty-client (internal)\nspawnSession/writeInput/resizeSession/subscribeData(tabId, onChunk) [ack 내장]/subscribeExit/killSession\n\n// terminal-controller (internal)\ncreateTerminalController({tabId, cwd, container}): Promise<{dispose}>\n```\n\n## 라이프사이클 다이어그램\n- App boot: bootstrap 불요 (pty-client lazy)\n- New Terminal: openTerminal → operations.openTab → ContentHost mount → TerminalView mount → createTerminalController (xterm+addon+spawnSession+subscribeData/Exit+ResizeObserver)\n- Workspace switch (ContentPool 생존): visibility 토글만 → 영향 0\n- Workspace switch (ContentPool unmount): view unmount → controller dispose, **pty 생존**, 재진입 시 새 controller subscribe → utility ring buffer replay\n- Tab close: closeTerminal → killSession (fire-and-forget) → operations.closeTab → unmount → controller dispose\n\n## Findings\n- **critical(1)**: terminal-view:174 view-unmount-driven kill (위 C로 해소)\n- **warning(2)**:\n  - terminal-view:117 pendingAckChars view-local → 본 ADR 적용 후엔 pty-client가 tabId 단위 카운터 유지 (ack 손실 방지)\n  - group-view.tsx:41-42 셀렉터 없는 전체 store 구독 (scope 외이나 권장)\n- **suggestion(1)**: CHAR_COUNT_ACK_SIZE → shared/terminal-constants.ts 단일 출처\n\n## Open Question (Lead 결정 필요)\n**closeTab type 분기 vs services wrapper**:\n- 옵션 1: `services/{terminal,editor}/{closeTerminal,closeEditor}` wrapper를 컴포넌트가 type별로 직접 호출 → architect 권장 (Issue 4 옵션 C와 정합, 컴파일러 enforce)\n- 옵션 2: `operations.closeTab`이 type lookup 후 services 콜백 디스패치 → layer 역전 (state → services), callback registration 패턴으로 회피 가능하나 복잡\n\n## Open Risks\n- TerminalRecorder/replay 구현 상태 확인 필요 — 미구현이면 controller가 detach buffer 책임 추가 (engineer task에 확인 명시)\n- closeTab 분기 처리 방식 (위 open question 결정 따라)\n\n## 인계 메모\nservices 패턴이 두 도메인(editor 공유 hook + terminal 격리 controller)에 걸쳐 정착. 향후 신규 도메인(image viewer, diff view) 추가 시 자원 종류에 따라 hook/controller 선택만 결정. 진입점=services, 트랜잭션=operations, mutation=stores 단방향 일관\n\n## Approach Approved 평결\n8개 결정 채택 가능, open question은 architect 권장(services wrapper, 옵션 1) 채택 권고.",
+                "recorded_at": "2026-05-04T05:17:15.729Z",
+                "agent_id": "adac25ab96524365e"
+              }
+            ],
+            "decision": "## 결정 — architect 8개 채택 + open question은 services wrapper로 결정\n\n### 핵심 채택 사항\n1. **파일 분해 = 3파일**: `open-terminal.ts` + `pty-client.ts` (flow control 내장) + `terminal-controller.ts` + `index.ts` + `types.ts`\n2. **xterm = 단순 owner 패턴, ref counting 없음** (한 tabId당 controller 하나)\n3. **CRITICAL 해소: pty kill ≠ controller dispose**. terminal-view unmount 시 controller dispose만, **pty kill은 명시적 close 신호에서만**. workspace 전환·portal detach 시 pty 생존 + replay 정합\n4. **flow control = pty-client 내장, tabId 단위 모듈-private 카운터** (view-local 아님 — view unmount 후에도 ack 정확). 임계값 상수는 `shared/terminal-constants.ts`로 utility 측 FlowController와 단일 출처\n5. **terminal-view ~40줄**: useEffect에서 createTerminalController + cleanup에서 dispose만\n6. **group-view 진입점 = `services/terminal/openTerminal`**. 직접 store 호출 제거. editor와 대칭\n7. **openTerminal 정책 = 항상 신규, newSplit 옵션 미리 지원** (향후 키바인딩 대비, 표면 비용 0)\n8. **close = fire-and-forget kill**. closeTerminal → killSession → operations.closeTab. 응답 안 기다림\n\n### Open question 결정 — services wrapper 채택 (옵션 1)\n- `services/terminal/closeTerminal(tabId)` + `services/editor/closeEditor(tabId)` wrapper 신설\n- 컴포넌트(탭 close 버튼·키바인딩)는 type별로 services wrapper 호출\n- `operations.closeTab`은 단순 트랜잭션 헬퍼로 유지 — type 모름. wrapper가 type별 정리(killSession / releaseModel) 후 closeTab 호출\n- **근거**: Issue 4 옵션 C와 정합 (services가 진입점, operations는 트랜잭션). 옵션 2(callback registration)는 layer 역전 회피 위해 추가 패턴 도입 — 인지 비용 큼. wrapper는 컴파일러가 enforce, 컴포넌트는 services API만 알면 됨\n- **기각**: callback registration 패턴 — 동작은 가능하나 services와 state의 관계가 *간접*해져 디버깅 어려움. wrapper가 명시적\n\n### 추가 결정 (architect Open risk 처리)\n- **TerminalRecorder/replay 구현 상태 확인**: engineer task 시작 시 utility 측 `pty-host`·`terminalRecorder` 코드 빠르게 확인. 미구현이면 controller에 detach buffer 책임 *임시 추가* + 별 follow-up issue 등록\n- **warning 처리**: pendingAckChars의 pty-client tabId 단위 카운터화는 본 task 포함. group-view 셀렉터 정리는 scope 외 (별 follow-up 권고)\n\n### 기각된 대안\n- **5파일 분해(flow-control 분리)** — over-decomposition\n- **2파일 분해(controller가 pty-client 흡수)** — xterm DOM과 IPC 라이프사이클 분리 정책 표현 어려움\n- **현재 view-unmount-driven kill 유지** — workspace 다중 routing/portal detach 시 회귀 (CRITICAL)\n- **pty kill을 utility process가 idle timeout으로 자율 판단** — 사용자 의도와 무관\n- **hook 패턴(useTerminalBinding)** — xterm은 명령형 + container 주입 필요, hook으로 감싸도 effect 한 번 더 통과\n- **flow control이 view에 남기** — view-state와 무관한 IPC 정책 leaky\n- **응답 await close** — UX 지연\n- **callback registration 패턴 (open question 옵션 2)** — 간접도 증가, 디버깅 어려움\n\n### 위험·완화\n- **services wrapper 도입으로 진입점 증가** (`openTerminal`/`closeTerminal`/`openOrRevealEditor`/`closeEditor`) — index.ts에서 깔끔하게 export하면 호출자 입장 단순. 컴파일러가 type 검증\n- **TerminalRecorder 미구현 시 detach 데이터 유실** — engineer task에 확인 단계 명시. 발견 즉시 controller buffer로 임시 처리 + 별 issue\n- **closeTab 호출자 모두 변경 필요** — operations.closeTab 직접 호출하는 컴포넌트 모두 services wrapper로. 컴파일러가 안내하지는 못하나 (operations.closeTab 시그니처 안 변함) — `state/operations.closeTab`도 type='terminal'·'editor' 분기 가드를 두거나 deprecated 마크. 본 task에서 처리\n\n### 검증 (회귀)\n- 터미널 입출력·resize·close — 동작 유지\n- workspace 전환 시 (현재 ContentPool 동작 기준) pty 생존 또는 자연 정리 일관성 확인\n- 같은 cwd \"새 Terminal\" 두 번 → 두 개 탭 + 두 개 pty (dedupe 안 됨 정책 검증)\n- 탭 close → pty kill IPC 발사 + utility process 정리 (process 누수 없음)\n- ContentPool unmount 시나리오 시뮬레이션 → controller dispose만, pty 살아있음 (재진입 시 replay)"
+          },
+          {
+            "id": 7,
+            "title": "Stage 7: state/operations.openTab 단순화 (services가 정책 가졌으니)",
+            "status": "decided",
+            "decision": "## 결정 — operations.ts 정리 + services 경유 강제\n\nIssue 4·5·6 결정에 따라 `state/operations.ts`를 다음과 같이 정리한다.\n\n### 변경 사항\n\n**1. `openTab` 시그니처 좁힘** (Issue 4 결정 적용)\n- 기존: `openTab(workspaceId, type: TabType, props: TabProps, opts?)` — 모든 type\n- 신규: `openTab(workspaceId, type: \"terminal\", props: TerminalTabProps, opts?)` — 터미널만\n- editor open은 `services/editor/openOrRevealEditor` 경유 강제 (컴파일러 enforce)\n- 기존 editor 호출자는 모두 컴파일 에러 → services로 이전 후 빌드\n\n**2. `revealTab(workspaceId, groupId, tabId)` 헬퍼 신설** (Issue 4 architect 권고)\n- services가 dedupe 시 setActiveTabInGroup 호출 패턴을 캡슐화\n- 시그니처 단순: `setActiveTabInGroup({ workspaceId, groupId, tabId, activateGroup: true })` 한 줄 wrapping\n- 명시적 reveal 경로가 코드에 표현됨\n\n**3. `closeTab` 시그니처 유지 + 가드 추가**\n- Issue 6 결정대로 services wrapper(`closeTerminal`/`closeEditor`)가 type별 정리 후 호출\n- operations.closeTab은 단순 트랜잭션 헬퍼로 유지 (type 모름)\n- 단 *직접 호출 방지*를 위해 JSDoc에 `@internal — Use services/{editor,terminal}/close* wrappers` 표시\n- 가능하면 export 이름을 `closeTabInternal` 또는 `closeTabTransaction`으로 변경 — 명시적으로 wrapper용임을 표현\n\n**4. `splitAndDuplicate` 처리**\n- 현재 editor·terminal 모두 처리 (deep clone props로 복제)\n- editor 복제 시 dedupe 정책과 모순(같은 filePath면 복제 의미 없음) → editor의 경우 services 경유로 newSplit 옵션 사용이 자연\n- 결정: **`splitAndDuplicate` deprecated 표시**. 호출자는 type별 services 사용:\n  - editor → `openOrRevealEditor(input, { newSplit: ... })`\n  - terminal → `openTerminal(input, { newSplit: ... })` (다른 cwd면 새 인스턴스, 같은 cwd 복제는 의미 모호 → 거부)\n- 별 follow-up issue: `splitAndDuplicate` 호출처 제거 후 함수 자체 삭제\n\n**5. `openTabInNewSplit` 처리**\n- services 내부에서 호출하는 트랜잭션 헬퍼 (newSplit 옵션 처리)\n- 시그니처도 좁히기 적용: type 인자를 받지만 services 경유에서만 호출되니 호출자가 controlled\n- 또는 services 전용으로 export 표현 (`@internal`)\n\n**6. `closeGroup` 처리**\n- 여러 탭을 한 번에 닫음 — 각 탭 type별로 services wrapper 호출 필요\n- 결정: **`closeGroup` 내부에서 각 탭 lookup 후 type별 dispatch**\n  - editor 탭이면 `releaseModel({workspaceId, filePath})` 호출 (services/editor 경유)\n  - terminal 탭이면 `pty-client.killSession(tabId)` 호출 (services/terminal 경유)\n  - 그 후 기존 layout/tabs mutation\n- 이 함수는 layer 역전 위험 (state → services 호출) — 회피 방법:\n  - 옵션 A: closeGroup을 services 레이어로 이전 (`services/workspace/closeGroup`)\n  - 옵션 B: services에서 receiver pattern 등록 (`registerCloseHandler(type, fn)`)\n  - 옵션 C: closeGroup이 `tab.type` 분기로 직접 services 호출 (단방향 깨짐)\n- **결정: 옵션 A** — closeGroup을 `services/workspace/close-group.ts`로 이전. operations.closeGroup은 deprecated. workspace는 향후 confirm dialog·dirty 체크 등 services 책임 자연 누적\n- 본 task에서는 옵션 A 신설은 scope 크니 **옵션 C 임시 적용** + 별 follow-up issue로 옵션 A 마이그레이션\n\n**7. `seedDefaultTerminalIfEmpty` 처리**\n- 현재: terminal type만 호출 → openTab 호출\n- 결정: `services/terminal/openTerminal(...)`로 변경. operations에서 services 호출이지만 단방향 위반 — 이 함수도 services 레이어로 이전 (`services/workspace/seed-default.ts`) 또는 App.tsx boot 코드에 인라인. **결정: App.tsx 부트 코드에 인라인** — 단발성 호출이라 모듈화 가치 낮음\n\n### 위험\n- **layer 역전 위험**: closeGroup·seedDefaultTerminalIfEmpty가 services 호출하면 state → services 의존 발생. 본 task는 옵션 C(임시) + App.tsx 인라인으로 회피. 별 follow-up에서 services/workspace 신설로 정리\n- **호출자 누락**: openTab 시그니처 좁히기로 컴파일 에러 발생 → 모두 services로 이전. closeTab은 시그니처 안 변하므로 컴파일러 안내 없음 → grep으로 확인 + JSDoc 가드\n\n### 기각된 대안\n- **openTab을 그대로 두고 services와 공존** — Issue 4에서 기각된 옵션 A (사회적 규칙은 깨짐)\n- **closeTab도 type 인자로 분기** — operations가 도메인 의미 알게 됨 (services 정의 침해)\n- **closeGroup을 옵션 B(callback registration)** — Issue 6과 동일 이유로 기각\n- **splitAndDuplicate 유지** — editor에서 dedupe 정책과 모순\n\n### 검증\n- `state/operations.ts` 라인 수 감소 (200줄 미만 예상)\n- 모든 editor open 경로가 services 경유 (file-tree, App.tsx, 향후 quick-open)\n- 모든 terminal open 경로가 services 경유 (group-view)\n- 컴파일 에러 0\n- 기존 회귀 테스트 통과"
+          },
+          {
+            "id": 8,
+            "title": "Stage 8: 통합 회귀 검증 + .nexus/context/architecture.md 신설 (3-레이어 정의 명문화)",
+            "status": "decided",
+            "decision": "## 결정 — 통합 회귀 시나리오 정의 + architecture.md 신설\n\n### Part A: 통합 회귀 검증 시나리오 (tester가 수행)\n\n**탭 라이프사이클:**\n- 같은 파일 두 번 클릭 → 1탭 + focus만 이동 (중복 탭 버그 해소)\n- Cmd+Enter (file-tree) → 명시적 split + 새 탭 (newSplit 옵션 동작)\n- Cmd+O 다이얼로그 → dedupe 동작 (file-tree와 동일 정책)\n- 다른 워크스페이스 같은 파일 → 각각 1탭 (cross-workspace dedupe 안 됨)\n\n**Monaco model 공유:**\n- newSplit으로 같은 파일 두 leaf → 한쪽 편집이 즉시 다른 쪽 반영\n- 두 leaf 중 한쪽 close → 모델 dispose 안 됨, 다른 쪽 정상\n- 두 leaf 모두 close → didClose + dispose 호출 (devtools/log 확인)\n\n**LSP:**\n- hover/definition/completion 동작 유지\n- provider 등록 횟수 = language 종류 수 (view 수와 무관 — performance 메트릭으로 검증)\n- diagnostics setModelMarkers ownerId=\"lsp\" 통일, 중복 marker 없음\n\n**fs 외부 변경:**\n- 파일 외부 수정 → 모든 view 자동 reload (model 공유로 자동 반영)\n- M0 단계는 dirty 미구현 → 항상 clean → setValue 안전\n\n**Terminal:**\n- 새 Terminal → openTerminal 경유 → 탭 + xterm 인스턴스 + pty 생성\n- 입출력·resize·flow control(5000자 ack) 동작\n- 같은 cwd 두 번 새 Terminal → 두 개 탭 + 두 개 pty (dedupe 안 됨)\n- 탭 close → kill IPC + utility process 정리 (process 누수 0)\n- ContentPool unmount 시뮬레이션 → controller dispose만, pty 살아있음 (재진입 시 utility ring buffer replay)\n\n**구조 회귀:**\n- import path 모두 `@/state/...`, `@/services/...` 경로로 갱신\n- `state/operations.openTab` editor 직접 호출 컴파일 에러 0\n- `services/editor/editor-service.ts` 파일 부재 (rename 완료)\n- builds: tsc + lint + 기존 테스트 모두 통과\n\n### Part B: `.nexus/context/architecture.md` 신설\n\n목차:\n1. **개요** — 4-레이어 정의 (engine/state/services/components)\n2. **레이어 정의표**\n   | 레이어 | 답하는 질문 | 외부 세계 | 상태 | 의존 방향 |\n   |---|---|---|---|---|\n   | engine | \"자료구조를 어떻게 변형하나?\" | 0 | 무 | 없음 |\n   | state | \"지금 시스템 상태는 무엇인가?\" | 0 (engine만) | 보유 | engine |\n   | services | \"사용자 행동의 의미 + 외부 자원 라이프사이클\" | 있음(Monaco·LSP·fs·pty·IPC) | 가능(model cache) | engine, state |\n   | components | \"DOM 마운트 + view-state\" | 없음 | view-local | services, state(read), engine |\n\n3. **state/ 하위 구조**\n   - `state/stores/` (zustand 보유자) vs `state/operations.ts`(트랜잭션) vs `state/persistence.ts`(영속화)\n   - \"store 폴더에는 store만\" 원칙\n\n4. **services/ 패턴**\n   - 도메인별 폴더 (`editor/`, `terminal/`, 향후 `workspace/`)\n   - 자원 종류에 따라 hook(공유, model-cache 패턴) vs controller(격리, terminal-controller 패턴) 선택\n   - 진입점 = services 함수 (`openOrRevealEditor`, `openTerminal`, `closeEditor`, `closeTerminal`)\n   - 트랜잭션 = `state/operations` 경유, store mutation은 마지막 단계\n   - 의존 방향 단방향: services → operations → stores\n\n5. **engine/ 원칙**\n   - 부수효과 0\n   - 도메인 모름 (workspace·tab·filePath 같은 개념 노출 안 함)\n   - predicate/factory 주입으로 호출자가 도메인 책임\n\n6. **개방된 ADR 후속**\n   - workspace-prefixed uri (현재: 글로벌 file:// + LSP host idempotent 가정)\n   - dirty conflict 처리 (저장 기능과 함께)\n   - splitAndDuplicate 함수 자체 삭제\n   - closeGroup·seedDefaultTerminalIfEmpty의 services/workspace 이전\n   - EditorTabProps/EditorInput 통일 (Issue 4에서 처리되나 정착 검증)\n\n7. **각 layer 추가 시 결정 가이드**\n   - 새 코드 작성 시 \"외부 세계 만지나? 도메인 의미 결정하나?\" → Y면 services\n   - \"상태 갱신만? 외부 무관?\" → state\n   - \"순수 변형, 도메인 무관?\" → engine\n   - \"DOM 책임?\" → components\n\n### 위험·완화\n- architecture.md 작성 시 본 사이클 결정과 정합 검증 — Issue 1·4·5·6 결정문 인용\n- 향후 코드 추가 시 이 문서 위반 자동 감지는 어려움 → CI에 layer 체크 추가는 별 follow-up\n\n### 검증\n- 신규 개발자가 architecture.md만 읽고 \"openTerminal·openOrRevealEditor 어디 있는지\" 추론 가능\n- 본 사이클 모든 결정이 문서로 흔적 남음 (history.json + .nexus/context/architecture.md)\n\n### 별 follow-up issues 정리 (본 plan 외)\n1. dirty conflict 처리 + 저장 기능\n2. workspace-prefixed uri 도입 (다중 ws 동시 사용 시점)\n3. `splitAndDuplicate` 함수 삭제 (호출처 정리 후)\n4. `closeGroup`·`seedDefaultTerminalIfEmpty`의 `services/workspace` 신설·이전\n5. group-view.tsx의 store 셀렉터 정리 (전체 구독 → 셀렉터)\n6. CI에 layer dependency 체크 (services → state 단방향, state → services 금지)",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "User explicitly canceled the .nexus/context/architecture.md creation/review scope after Stage 7 verification. Tasks #13/#14 were therefore completed as no-op/canceled, and final regression proceeded against source/runtime behavior only.",
+                "recorded_at": "2026-05-04T07:36:31.793Z"
+              }
+            ]
+          }
+        ],
+        "research_summary": "## 사전 조사 결과 (verified)\n\n### 코드 현황\n- `src/renderer/store/`: tabs/workspaces/ui/active(작은 store, 플랫) + files/layout(폴더) + operations.ts(190줄, \"Not a zustand store\" 주석) + persist-layout.ts(91줄, 이름과 달리 layout+tabs 둘 다 영속화)\n- `src/renderer/engine/split/`: 순수 함수 트리 알고리즘. tree/traversal/sash-math/serialize/types. React·Zustand·Electron 의존 0\n- `src/renderer/services/editor/`: 5개 파일 모두 stub. 헤더 주석에 책임 명시되어있으나 구현 0. 아무도 import 안 함\n- `src/renderer/services/terminal/`: 부재\n\n### editor-view.tsx (337줄) — services로 옮길 책임\n1. Monaco model 라이프사이클 — 현재 `<Editor path={uri} />`로 @monaco-editor/react가 uri별 model 관리. monaco.editor.getModel(uri)로 *암묵적* 공유는 되나 명시적 ref counting 없음\n2. **LSP provider 매 view마다 register/dispose** (lines 152-227) — 같은 파일 2개 leaf 시 hover/definition/completion provider 중복 등록. diagnostics listener도 중복 → setModelMarkers 2회 호출 위험\n3. fs IPC: readFile (lines 82-100, 117-137), fs.changed listen (line 112), 외부 변경 시 model.setValue로 현재 view만 업데이트\n4. LSP didOpen/didChange (lines 273-289) — view-level인데 model-level이어야 함\n\n### terminal-view.tsx (192줄) — services로 옮길 책임\n1. xterm 인스턴스 + addon(Canvas/Webgl/Fit) 라이프사이클\n2. pty IPC: spawn/write/resize/ack/kill via ipcCall(\"pty\", ...)\n3. flow control: CHAR_COUNT_ACK_SIZE=5000, pendingAckChars 상태\n4. portal 사이클로 ContentHost는 unmount 안 됨 → pty 자연 생존 (탭 record 살아있는 한)\n5. group-view.tsx:69-79의 \"새 Terminal\"이 createTab 직접 호출 — operations 우회\n\n### 중복 탭 버그 원인 (확인됨)\n- `store/operations.ts:openTab` → `tabs.createTab` → `layout.attachTab` 어디에도 dedupe 검사 없음\n- 진입점 4곳: file-tree.tsx:129-145, App.tsx:172, group-view.tsx:69-79\n- `services/editor/types.ts:9-14`에 이미 `OpenEditorOptions { revealIfOpened?: boolean }` 정의됨 — 설계만 하고 구현 안 됨\n\n### Prior decisions (history.json M0 사이클)\n- React 18 + electron-vite + bun, single-package layered tsconfig\n- Zustand 단일 store + zod IPC + VSCode식 call/listen primitive\n- pty/lsp는 Electron UtilityProcess + MessagePort\n- FlowControl HighWatermark=100000 / LowWatermark=5000 / Ack=5000 (VSCode terminal.ts:868-889 차용)\n- 10MB TerminalRecorder ring buffer\n- Monaco는 @monaco-editor/react로 시작 (raw monaco 옵션 열려둠)\n\n### 외부 참조\n- VSCode `ITextModelService` 패턴 = 모델 ref counting 표준. monaco-editor/react는 이를 일부 흡수하나 LSP provider 등록은 직접 책임\n\n### 합의된 레이어 정의\n- engine = 순수 함수 (외부 0, 무상태)\n- state = stores(보유) + operations(트랜잭션) + persistence(영속화)\n- services = 도메인 의미 결정 + 외부 자원(Monaco·LSP·fs·pty) 라이프사이클\n- components = services 인스턴스 DOM 마운트만",
+        "created_at": "2026-05-04T05:03:59.342Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Stage 1: state/ rename + 내부 재구조화",
+          "status": "completed",
+          "context": "Issue 1 결정 적용. src/renderer/store/ → src/renderer/state/로 전체 rename. 내부:\n- state/stores/{tabs.ts, workspaces.ts, ui.ts, active.ts, files/, layout/}\n- state/operations.ts (그대로)\n- state/persistence.ts (← persist-layout.ts rename)\n\nimport path 일괄 갱신 — sed 또는 IDE rename + tsc 빌드 에러 따라 수정. 영향 범위: 거의 모든 컴포넌트·services 파일 (수십~백여 곳).\n\npersist-layout.ts 내부 함수명도 함께 정정 (registerLayoutPersistence → registerStatePersistence 등).\n\n이 단계는 mechanical, 기능 변화 0.",
+          "acceptance": "- src/renderer/store/ 디렉토리 부재\n- src/renderer/state/{stores/, operations.ts, persistence.ts} 구조 완성\n- tsc 에러 0\n- biome lint 통과\n- 기존 단위 테스트·통합 테스트 모두 통과 (회귀 0)\n- 애플리케이션 부팅 + 기본 워크스페이스 열기 + 탭 열기 동작 (smoke)",
+          "approach": "1. mkdir state/stores\n2. git mv store/{tabs,workspaces,ui,active}.ts state/stores/\n3. git mv store/{files,layout} state/stores/\n4. git mv store/operations.ts state/\n5. git mv store/persist-layout.ts state/persistence.ts\n6. rmdir store/\n7. sed로 import path 일괄: `from \"@/store/...` → `from \"@/state/stores/...` (tabs/workspaces/ui/active/files/layout) 또는 `from \"@/state/...` (operations/persistence)\n8. tsc 빌드 → 에러 따라 누락 import 수정\n9. persist-layout.ts 내부 함수명·주석 정정\n10. 기존 테스트 실행 → 통과 확인\n11. 단일 commit",
+          "risk": "import path 누락 → tsc로 즉시 감지. persistence 내부 함수명 정정 누락 시 직렬화 키 변경 가능 — 기존 영속 데이터 호환 확인 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "019df175-946d-7c53-b3d1-ce94b075bfbb"
+          },
+          "created_at": "2026-05-04T05:20:19.413Z"
+        },
+        {
+          "id": 2,
+          "title": "Stage 1 검증: state rename 회귀 확인",
+          "status": "completed",
+          "context": "Stage 1(task #1) 완료 후 회귀 검증. 기능 변화 0이라 기존 기능이 모두 동작해야 함. 영속 상태 호환성도 확인.",
+          "acceptance": "- tsc·biome·기존 테스트 모두 pass\n- smoke: 앱 부팅 + 워크스페이스 열기 + 파일 탭 1개 열기/닫기 + 분할 한 번 + 터미널 탭 열기 동작\n- persistence: 기존 appState 부팅 후 layout 복원 동작 (영속 키 변경 시 마이그레이션 필요 여부 보고)\n- 회귀 발견 시 즉시 task #1로 재호송",
+          "approach": "1. tsc + biome 빌드 통과 확인\n2. 기존 단위 테스트·통합 테스트 실행\n3. dev 모드로 앱 부팅 → 워크스페이스 열기 + 탭 열기/닫기/분할 smoke\n4. persist-layout 영속 데이터 호환성: 기존 appState 파일이 있다면 부팅 후 layout/tabs 복원 확인",
+          "risk": "persistence 내부 함수명/key 변경이 기존 appState와 incompatible이면 부팅 후 빈 상태로 시작 — 사용자 데이터 유실. 마이그레이션 필요 여부 명시 보고.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df17c-73f7-7892-8ca8-168e834559b3"
+          },
+          "created_at": "2026-05-04T05:20:30.743Z"
+        },
+        {
+          "id": 3,
+          "title": "Stage 2: engine/split traversal에 findLeafByTab 추가",
+          "status": "completed",
+          "context": "Issue 2 결정 적용. engine/split/traversal.ts에 신규 헬퍼 추가:\n\n```ts\nexport function findLeafByTab(\n  root: SplitNode,\n  predicate: (tabId: string) => boolean,\n): { leaf: SplitLeaf; tabId: string } | null\n```\n\npredicate 기반 시그니처 — engine은 도메인 모름 유지. services에서 클로저로 도메인 정보 주입. Stage 4의 dedupe에서 사용.",
+          "acceptance": "- engine/split/traversal.ts에 findLeafByTab export됨\n- 단위 테스트 5개 시나리오 모두 pass\n- engine/split/index.ts Grid namespace에 노출\n- engine 의존 0 유지 (React/Zustand/Electron import 없음)",
+          "approach": "1. engine/split/traversal.ts에 findLeafByTab 추가 (기존 findView/parentBranchOf와 같은 재귀 패턴)\n2. engine/split/index.ts의 Grid namespace에 노출 확인\n3. tests/unit/renderer/engine/split/ 또는 기존 테스트 위치에 단위 테스트 추가:\n   - 빈 트리 → null\n   - 단일 leaf, 매칭 → 그 leaf\n   - 분할 트리, 매칭 leaf 1개 → 그 leaf\n   - 매칭 leaf 여러 개 → 첫 발견 (leftmost DFS)\n   - predicate가 false만 반환 → null\n4. tsc + lint + 단위 테스트 통과 확인\n5. 단일 commit (Stage 1과 독립이라 병행 가능하나 Stage 1 이후 머지 권장 — import path 안정 후)",
+          "risk": "없음. 신규 함수 추가만, 기존 코드 영향 0.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df17c-9509-7561-96bc-a85a7b05c51c"
+          },
+          "created_at": "2026-05-04T05:20:51.575Z"
+        },
+        {
+          "id": 4,
+          "title": "Stage 3: editor-service.ts → open-editor.ts rename",
+          "status": "completed",
+          "context": "Issue 3 결정 적용. services/editor/editor-service.ts(빈 stub) 삭제 + services/editor/open-editor.ts 신설. 빈 placeholder 상태로 둠 (실제 구현은 task #5 Stage 4).\n\nstutter naming 제거 — 형제 파일들(file-loader, lsp-bridge, model-cache)과 같은 *동작 단위 명사* 패턴 정렬.\n\n단일 파일 작업이라 Lead 직접 처리.",
+          "acceptance": "- services/editor/editor-service.ts 부재\n- services/editor/open-editor.ts 존재 (헤더 주석 포함)\n- tsc 에러 0",
+          "approach": "1. git rm src/renderer/services/editor/editor-service.ts\n2. 신규 파일 src/renderer/services/editor/open-editor.ts 생성, 헤더 주석에 책임 명시 (openOrReveal semantics + group routing)\n3. services/editor/index.ts는 변경 없음 (재export 추가는 Stage 4·5에서)\n4. tsc 통과 확인\n5. 단일 commit",
+          "risk": "없음. 빈 stub 교체.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-04T05:21:02.160Z"
+        },
+        {
+          "id": 5,
+          "title": "Stage 4: open-editor 구현 + 진입점 통일 (중복 탭 버그 해소)",
+          "status": "completed",
+          "context": "Issue 4 결정 적용. services/editor/open-editor.ts에 정책 구현 + 모든 editor open 진입점 services 경유로 통일.\n\narchitect ADR 8개 항목 (decision 본문 참조):\n1. dedupe = workspace 단위 + path.normalize + active group 우선 → leftmost DFS\n2. revealIfOpened/newSplit 옵션 동작\n3. operations.openTab 시그니처를 type: \"terminal\"만으로 좁힘 (컴파일러 enforce)\n4. services → operations → stores 단방향\n5. revealTab 헬퍼를 state/operations에 추가\n6. file-tree·App.tsx 진입점 services 경유로 변경\n7. EditorTabProps와 EditorInput 타입 통일 (architect warning 2 해소)\n\n이 단계가 *원래 사용자 보고한 중복 탭 버그를 해소*하는 핵심 단계.",
+          "acceptance": "- services/editor/open-editor.ts 구현 완료, tsc 통과\n- state/operations.openTab 시그니처가 type: \"terminal\"만 받음\n- state/operations.revealTab 헬퍼 존재\n- EditorTabProps와 EditorInput 통일 (single source)\n- 진입점 변경 완료: file-tree(클릭+Enter+Cmd+Enter), App.tsx Cmd+O\n- 빌드 + lint 통과\n- (회귀는 task #6 tester 검증)",
+          "approach": "1. EditorTabProps(state/stores/tabs.ts) ↔ EditorInput(services/editor/types.ts) 타입 통일\n   - services/editor/types.ts의 EditorInput을 single source로\n   - state/stores/tabs.ts에서 import\n\n2. state/operations.ts에 revealTab 헬퍼 추가:\n   ```ts\n   export function revealTab(workspaceId: string, groupId: string, tabId: string): void {\n     useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId, activateGroup: true });\n   }\n   ```\n\n3. state/operations.openTab 시그니처 좁힘:\n   - `openTab(ws, type: \"terminal\", props: TerminalTabProps, opts?)`\n   - editor 호출자는 이 단계 후 모두 컴파일 에러 발생 (의도)\n\n4. services/editor/open-editor.ts 구현:\n   ```ts\n   export function openOrRevealEditor(\n     input: EditorInput,\n     opts: OpenEditorOptions = {},\n   ): EditorTabLocation {\n     const { workspaceId, filePath } = input;\n     const reveal = opts.revealIfOpened ?? true;\n     useLayoutStore.getState().ensureLayout(workspaceId);\n     if (opts.newSplit) {\n       const { newLeafId, tabId } = openTabInNewSplit(...);\n       return { groupId: newLeafId, tabId };\n     }\n     if (reveal) {\n       const hit = findEditorTab(workspaceId, filePath);\n       if (hit) {\n         revealTab(workspaceId, hit.groupId, hit.tabId);\n         return hit;\n       }\n     }\n     const tab = ... // 신규 생성: services는 stores 직접 lookup만, mutation은 operations 헬퍼\n     return { groupId, tabId: tab.id };\n   }\n   ```\n\n5. findEditorTab 내부 헬퍼:\n   - Issue 2의 Grid.findLeafByTab 활용\n   - active group 우선 검사 후 leftmost DFS\n   - tabsStore에서 EditorTabProps의 filePath 비교 (path.normalize 후)\n\n6. services/editor/index.ts에 openOrRevealEditor + EditorInput/Options/TabLocation export\n\n7. 진입점 변경:\n   - components/files/file-tree.tsx:\n     - line 129-145 (트리 클릭/Enter): openOrRevealEditor({ workspaceId, filePath: item.absPath })\n     - line 123 (Cmd+Enter): openOrRevealEditor({ ... }, { newSplit: { orientation: \"horizontal\", side: \"after\" } })\n   - App.tsx:172 (Cmd+O): openOrRevealEditor 사용\n\n8. tsc 빌드 → 컴파일 에러 따라 누락 진입점 정정 (operations.openTab editor 호출 잔재 검색)\n\n9. 단일 commit",
+          "risk": "- operations.openTab 시그니처 좁히기로 *모든* editor 호출자가 컴파일 에러 → 누락 시 빌드 안 됨 (안전망)\n- EditorTabProps 통일이 state/persistence 직렬화에 영향 가능 → Stage 1 완료 후 시작이라 정합성 검증 가능\n- findEditorTab의 path.normalize 호출 위치 — Node path 모듈 사용 (renderer에서 Node 모듈 사용 가능 여부 확인 — electron-vite는 OK)",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "019df17e-ec94-7c72-9edf-88af16553fe5"
+          },
+          "created_at": "2026-05-04T05:21:32.768Z"
+        },
+        {
+          "id": 6,
+          "title": "Stage 4 검증: 중복 탭 버그 해소 + dedupe 시나리오",
+          "status": "completed",
+          "context": "Stage 4(task #5) 완료 후 핵심 버그 해소 검증. 사용자가 처음 보고한 *분할 안 된 단일 워크스페이스에서 같은 파일이 여러 번 열림* 시나리오 직접 테스트.",
+          "acceptance": "- 모든 시나리오 1~7 pass\n- edge case 3개 pass\n- 회귀 점검 3개 pass\n- 발견된 버그는 task #5로 즉시 재호송\n- 회귀 보고에 시나리오별 결과 명시",
+          "approach": "시나리오 (실제 dev 모드 + devtools):\n1. 단일 워크스페이스에서 file-tree로 파일 A 클릭 → 탭 1개 생성 확인\n2. 같은 파일 A 두 번째 클릭 → 새 탭 생성 안 됨, 기존 탭 focus만 이동 (✓ 버그 해소)\n3. 파일 A에서 Enter 키 → 위와 동일 동작 (dedupe)\n4. 파일 A에서 Cmd+Enter → 분할 + 새 탭 (newSplit 옵션 동작)\n5. App에서 Cmd+O → 이미 열린 파일 선택 → reveal (dedupe 동작)\n6. 두 워크스페이스 열고 양쪽에 같은 파일 → 각각 1탭 (cross-workspace dedupe 안 됨, 의도)\n7. 분할 상태에서 active group 외 leaf에 파일 A가 있을 때 file-tree 클릭 → 그 leaf로 focus 이동 (active group 우선 → leftmost DFS 동작)\n\nEdge cases:\n- 빈 워크스페이스에서 첫 파일 클릭 → ensureLayout 자동 호출 + 탭 생성\n- revealIfOpened 옵션 false (직접 호출) → dedupe 무시\n- newSplit + 기존 파일 열려있음 → newSplit 우선 (dedupe 무시)\n\n회귀 점검:\n- LSP hover/diagnostics는 이전과 동일 동작 (Stage 5 전이라 view-level provider 등록 그대로)\n- 탭 close, drag, drop 동작 그대로",
+          "risk": "findEditorTab의 active group 우선순위가 잘못되면 깜빡 점프 UX. 의도된 동작인지 사용자 시각으로 확인.",
+          "plan_issue": 4,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df195-2127-7d40-897e-3725f39bd5ba"
+          },
+          "created_at": "2026-05-04T05:21:49.694Z"
+        },
+        {
+          "id": 7,
+          "title": "Stage 5: services/editor 채움 + editor-view 슬림화 (Monaco model + LSP 라이프사이클)",
+          "status": "completed",
+          "context": "Issue 5 결정 적용. services/editor의 4개 stub(model-cache, file-loader, lsp-bridge, index)을 구현하고 editor-view.tsx(337줄)를 ~50줄로 슬림화.\n\narchitect ADR 8개 항목:\nA. Monaco model = uri 기준 강제 공유 + ref counting + count==0 즉시 dispose\nB. `<Editor model>` raw 주입 (path/value 안 씀) + onMount에서 setModel\nC. LSP provider = language별 전역 1회 등록, URI 필터 코드 삭제\nD. didOpen/didChange/didClose = model-cache 소유\nE. Diagnostics = lsp-bridge 모듈-level 1회 listen, ownerId=\"lsp\"\nF. fs.changed = clean only setValue (dirty 분기는 인터페이스만)\nG. editor-view = view-state(cursor/scroll/selection)만, ~50줄\nH. index.ts API = openOrRevealEditor + useSharedModel + initializeEditorServices(monaco)\n\nURI 정책: 글로벌 file://{absPath} 단일 namespace (workspace-prefixed 안 함). LSP host idempotent 가정.\n\n⚠️ **사전 확인 필수**: context7로 @monaco-editor/react `<Editor model>` API 검증. path/value prop 미지정 시 동작 확인. onMount에서 setModel 우회로 충분히 안전하나 spec 확인 권장.",
+          "acceptance": "- services/editor/{model-cache, file-loader, lsp-bridge}.ts 모두 구현 완료\n- services/editor/index.ts에 useSharedModel + initializeEditorServices export\n- editor-view.tsx ~50줄 (현재 337줄)\n- LSP provider 등록 횟수 = language 종류 수 (devtools console 또는 메트릭 확인)\n- 같은 파일 두 view 시 model 공유 (devtools에서 monaco.editor.getModels() 확인)\n- 두 view 모두 close 시 model dispose (메모리 누수 0)\n- tsc + biome 통과\n- (회귀 + 시나리오 검증은 task #8 tester)",
+          "approach": "**0단계 (사전):** context7로 @monaco-editor/react 최신 docs 조회 — `<Editor>` props 중 model 관련, path/value 미지정 시 internal model 생성 동작, defaultModelPath 의미 확인. 문제 발견 시 architect resume.\n\n**1. file-loader.ts 구현:**\n```ts\nexport function readFileForModel(input: EditorInput): Promise<{\n  content: string; isBinary: boolean; encoding: \"utf8\" | \"utf8-bom\";\n}>;\nexport function subscribeFsChanged(input, onChange): () => void;\n```\n- 현재 editor-view:82-100, 117-137의 readFile 로직 이전\n- ipcCall(\"fs\", \"read\", ...) + 에러 코드 파싱\n- ipcListen(\"fs\", \"changed\", ...) — input.filePath 매칭 시 onChange 호출\n\n**2. lsp-bridge.ts 구현:**\n```ts\nexport function initializeLspBridge(monaco: typeof Monaco): void;\nexport function notifyDidOpen(uri, workspaceId, languageId, text): void;\nexport function notifyDidChange(uri, text): void;\nexport function notifyDidClose(uri): void;\n```\n- initializeLspBridge: language별(typescript/javascript) 전역 provider 등록 (hover/definition/completion). URI 필터 코드 삭제. ipcListen(\"lsp\",\"diagnostics\") 모듈-level 1회 → setModelMarkers(model, \"lsp\", ...). 알 수 없는 uri 무시\n- notify*: ipcCall(\"lsp\", \"didOpen\"/\"didChange\"/\"didClose\", ...) wrapper\n- versionRef는 lsp-bridge 내부에서 uri별 카운터 (view-local 아님)\n\n**3. model-cache.ts 구현:**\n```ts\nconst refCounts = new Map<string, number>();\nconst fsUnsubscribers = new Map<string, () => void>();\n\nexport async function acquireModel(input): Promise<{model, phase, errorCode?}> {\n  const uri = `file://${input.filePath}`;\n  const count = (refCounts.get(uri) ?? 0) + 1;\n  refCounts.set(uri, count);\n  if (count === 1) {\n    const result = await readFileForModel(input);\n    if (result.isBinary) return {model: null, phase: \"binary\"};\n    if (result.error) return {model: null, phase: \"error\", errorCode};\n    const model = monaco.editor.createModel(result.content, langFromExt, Uri.parse(uri));\n    notifyDidOpen(uri, input.workspaceId, langId, result.content);\n    model.onDidChangeContent(() => notifyDidChange(uri, model.getValue())); // debounced\n    fsUnsubscribers.set(uri, subscribeFsChanged(input, ({content, isBinary}) => {\n      if (!isBinary && model.getValue() === lastSavedValue) model.setValue(content); // clean only\n    }));\n  }\n  return {model: monaco.editor.getModel(Uri.parse(uri)), phase: \"ready\"};\n}\n\nexport function releaseModel(input): void {\n  const uri = `file://${input.filePath}`;\n  const count = (refCounts.get(uri) ?? 0) - 1;\n  if (count <= 0) {\n    refCounts.delete(uri);\n    fsUnsubscribers.get(uri)?.();\n    fsUnsubscribers.delete(uri);\n    notifyDidClose(uri);\n    monaco.editor.getModel(Uri.parse(uri))?.dispose();\n  } else {\n    refCounts.set(uri, count);\n  }\n}\n\nexport function useSharedModel(input): {model, phase, errorCode?} {\n  // useState + useEffect로 acquire/release. cleanup에서 release.\n}\n```\n\n**4. index.ts:**\n```ts\nexport { openOrRevealEditor } from \"./open-editor\";\nexport { useSharedModel } from \"./model-cache\";\nexport { initializeLspBridge as initializeEditorServices } from \"./lsp-bridge\";\n// or wrap in initializeEditorServices(monaco) → calls initializeLspBridge(monaco)\nexport type { EditorInput, OpenEditorOptions, EditorTabLocation } from \"./types\";\n```\n\n**5. App.tsx에서 monaco ready 시점에 initializeEditorServices(monaco) 호출** (1회). useMonaco hook 결과가 truthy일 때 useEffect.\n\n**6. editor-view.tsx 슬림화 (architect 골격 준수, ~50줄):**\n```tsx\nexport function EditorView({ filePath, workspaceId }: Props) {\n  const { model, phase, errorCode } = useSharedModel({ workspaceId, filePath });\n  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);\n  useEffect(() => {\n    if (editorRef.current && model) editorRef.current.setModel(model);\n  }, [model]);\n  if (phase === \"loading\") return <Centered>Loading…</Centered>;\n  if (phase === \"binary\") return <Centered>Cannot display binary file.</Centered>;\n  if (phase === \"error\") return <Centered>{fileErrorMessage(errorCode ?? \"OTHER\", MAX_READABLE_FILE_SIZE / (1024*1024))}</Centered>;\n  return <Editor height=\"100%\" onMount={(editor) => { editorRef.current = editor; if (model) editor.setModel(model); }} theme=\"vs-dark\" options={{...}} />;\n}\n```\n- LSP provider 등록·diagnostics listener·didOpen/didChange/didClose·fs.changed listen·readFile 모두 services로 이전\n- view-state(cursor 위치)는 view 내부 유지 (서로 다른 view면 cursor 다름)\n\n**7. 확장자→languageId 매핑** (lsp-bridge 또는 utils):\n- .ts/.tsx → typescript, .js/.jsx → javascript, etc.\n\n**8. tsc + lint + 단위 테스트 통과**\n\n**9. 단일 commit (또는 파일별 commit 가능)**",
+          "risk": "- @monaco-editor/react `<Editor model>` API 동작 — 사전 context7 확인 필수\n- model.onDidChangeContent의 didChange가 너무 자주 호출되어 LSP 부하 → debounce 필요 (lodash 또는 자체 구현)\n- ipcListen 등록·해제 누수 — fsUnsubscribers Map으로 추적\n- 기존 editor-view에서 사용하던 작은 동작(cursor 위치 복원 등) 누락 가능 — 회귀 검증에서 발견",
+          "plan_issue": 5,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "019df198-7b90-7e90-830c-637a09863d94"
+          },
+          "created_at": "2026-05-04T05:22:40.996Z"
+        },
+        {
+          "id": 8,
+          "title": "Stage 5 검증: model 공유 + LSP + fs 회귀",
+          "status": "completed",
+          "context": "Stage 5(task #7) 완료 후 services/editor 풀스택 검증. Monaco model 공유·LSP provider 단일 등록·fs 외부 변경 reload 모두 점검.",
+          "acceptance": "- 모든 시나리오 1~17 pass\n- model 공유·dispose·LSP 단일 등록·fs reload 모두 동작\n- 메모리 누수 없음 (model count == open editor count)\n- 회귀 보고에 측정값(IPC 호출 횟수, model 수 등) 포함",
+          "approach": "**기본 회귀:**\n1. 파일 열기 → 내용 표시 (loading→ready phase)\n2. binary 파일 열기 → \"Cannot display binary file\" placeholder\n3. error 파일 (권한 없음/존재하지 않음) → 적절한 errorCode 메시지\n4. LSP hover → tooltip 표시\n5. LSP completion → 자동완성 popup\n6. LSP diagnostics → 마커(빨간 밑줄) 표시\n\n**핵심 신규 검증 (Monaco model 공유):**\n7. file-tree에서 파일 A 열기 → Cmd+Enter로 newSplit → 같은 파일 두 leaf\n   - 한 leaf에서 텍스트 입력 → 다른 leaf 즉시 반영 (model 공유 ✓)\n   - devtools console: `monaco.editor.getModels().length === 1` (uri별 단일 model)\n8. 두 leaf 중 한쪽 close → 다른 쪽 정상 동작, model 살아있음\n   - devtools: refCount === 1 확인 (services/editor/model-cache 내부 상태 노출 hook 필요 시 디버그용 추가)\n9. 두 leaf 모두 close → model dispose, didClose 호출\n   - devtools: `monaco.editor.getModels()` 해당 uri 부재\n   - LSP host 로그: didClose 1회 도착 (view 수와 무관)\n\n**LSP provider 단일 등록:**\n10. 같은 파일 두 view → hover 1회 호출 (provider N배 호출 안 됨)\n   - devtools network/IPC 모니터로 hover IPC 횟수 확인\n11. completion suggestion 결과가 N배 안 옴\n\n**fs 외부 변경:**\n12. 파일 외부 수정(터미널/에디터 외부에서 echo > file) → 모든 view 자동 reload\n13. dirty 미구현 단계라 항상 setValue 안전\n\n**회귀 (Stage 4 재확인):**\n14. 중복 탭 dedupe 동작 유지\n15. cursor 위치는 view마다 독립\n\n**라이프사이클:**\n16. 워크스페이스 close → 모든 탭 close → model dispose, didClose 호출\n17. App 종료 → cleanup 정상 (장시간 dev session 메모리 안 늚)\n\n발견 시:\n- 회귀는 task #7로 재호송\n- 신규 버그는 plan에 follow-up issue 등록 권고",
+          "risk": "- @monaco-editor/react가 onMount setModel 후 새로 model을 만들어버리는 케이스 — 빌드 후 즉시 발현\n- LSP didChange debounce가 너무 길면 hover stale (반대로 짧으면 부하)\n- fs.changed 매칭 키 부정확 시 다른 파일 변경에 잘못 반응",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df1b3-fbea-7222-b18c-840ae302fe36"
+          },
+          "created_at": "2026-05-04T05:23:05.074Z"
+        },
+        {
+          "id": 9,
+          "title": "Stage 6: services/terminal 신설 + terminal-view 슬림화 + group-view 정리",
+          "status": "completed",
+          "context": "Issue 6 결정 적용. services/terminal/ 폴더 신설 + 4개 모듈 구현 + terminal-view.tsx(192줄)를 ~40줄로 슬림화 + group-view.tsx의 createTab 직접 호출 제거.\n\narchitect ADR 8개 결정:\nA. 3파일 분해: open-terminal + pty-client (flow control 내장) + terminal-controller + index/types\nB. xterm = 단순 owner 패턴, ref counting 없음\nC. **CRITICAL: pty kill ≠ controller dispose** — view unmount 시 dispose만, kill은 명시적 close 신호에서만\nD. flow control = pty-client 내장, tabId 단위 모듈-private 카운터\nE. terminal-view ~40줄\nF. group-view 진입점 = openTerminal()\nG. openTerminal 정책 = 항상 신규, newSplit 옵션 미리 지원\nH. close = fire-and-forget kill\n\nOpen question 결정: services wrapper 채택 — closeTerminal/closeEditor 신설\n\n⚠️ **사전 확인**: src/utility/pty-host/terminalRecorder.ts 또는 ring buffer 구현 상태 확인. 미구현이면 controller에 detach buffer 책임 추가 + follow-up issue 등록.",
+          "acceptance": "- services/terminal/{open-terminal, pty-client, terminal-controller, types, index}.ts 모두 구현\n- services/editor/open-editor.ts에 closeEditor wrapper 추가\n- terminal-view.tsx ~40줄 (현재 192줄)\n- group-view.tsx의 createTab 직접 호출 제거 → openTerminal 사용\n- shared/terminal-constants.ts FLOW_CONTROL 상수 단일 출처 (utility와 공유)\n- 탭 close 진입점이 services wrapper(closeTerminal/closeEditor) 경유\n- pty kill은 close 신호에서만 (view unmount는 controller.dispose만)\n- tsc + biome 통과\n- (회귀 + 라이프사이클 검증은 task #10 tester)",
+          "approach": "**0단계 (사전):**\n- `src/utility/pty-host/` 디렉토리 확인 — TerminalRecorder/ring buffer 구현 여부\n- 미구현이면 controller에 detach buffer 임시 추가 + follow-up issue\n- M0 결정에 따른 FlowControl 상수 (HighWatermark=100000, LowWatermark=5000, Ack=5000) shared 위치 확인\n\n**1. shared/terminal-constants.ts 신설** (또는 기존 위치):\n```ts\nexport const FLOW_CONTROL = {\n  HIGH_WATERMARK: 100000,\n  LOW_WATERMARK: 5000,\n  ACK_SIZE: 5000,\n} as const;\n```\n- utility 측 FlowController가 같은 상수 import (drift 방지)\n\n**2. services/terminal/types.ts:**\n```ts\nexport interface OpenTerminalInput { workspaceId: string; cwd: string; }\nexport interface OpenTerminalOptions {\n  groupId?: string;\n  newSplit?: { orientation: \"horizontal\" | \"vertical\"; side: \"before\" | \"after\" };\n}\nexport interface TerminalTabLocation { groupId: string; tabId: string; }\n```\n\n**3. services/terminal/pty-client.ts (flow control 내장):**\n```ts\nconst ackCounters = new Map<string, number>();\n\nexport async function spawnSession({tabId, cwd, cols, rows}): Promise<void> {\n  await ipcCall(\"pty\", \"spawn\", {tabId, cwd, cols, rows});\n}\nexport function writeInput(tabId, data): void { ipcCall(\"pty\",\"write\",{tabId,data}); }\nexport function resizeSession(tabId, cols, rows): void { ipcCall(\"pty\",\"resize\",...); }\nexport function killSession(tabId): void {\n  ackCounters.delete(tabId);\n  ipcCall(\"pty\",\"kill\",{tabId}).catch(()=>{}); // fire-and-forget\n}\nexport function subscribeData(tabId, onChunk): () => void {\n  return ipcListen(\"pty\",\"data\", (msg) => {\n    if (msg.tabId !== tabId) return;\n    onChunk(msg.data);\n    const count = (ackCounters.get(tabId) ?? 0) + msg.data.length;\n    if (count >= FLOW_CONTROL.ACK_SIZE) {\n      ipcCall(\"pty\",\"ack\",{tabId, bytes: count});\n      ackCounters.set(tabId, 0);\n    } else {\n      ackCounters.set(tabId, count);\n    }\n  });\n}\nexport function subscribeExit(tabId, onExit): () => void { ... }\n```\n\n**4. services/terminal/terminal-controller.ts:**\n```ts\nexport interface TerminalController { dispose(): void; }\nexport async function createTerminalController({tabId, cwd, container}): Promise<TerminalController> {\n  await fonts.load(...);\n  const term = new Terminal({...});\n  const fit = new FitAddon();\n  term.loadAddon(fit);\n  // WebGL fallback Canvas\n  term.open(container);\n  fit.fit();\n  await spawnSession({tabId, cwd, cols: term.cols, rows: term.rows});\n  const unsubData = subscribeData(tabId, chunk => term.write(chunk));\n  const unsubExit = subscribeExit(tabId, () => term.write(\"\\\\r\\\\n[Process exited]\"));\n  term.onData(d => writeInput(tabId, d));\n  const ro = new ResizeObserver(debounced(() => { fit.fit(); resizeSession(tabId, term.cols, term.rows); }));\n  ro.observe(container);\n  return {\n    dispose() {\n      unsubData(); unsubExit(); ro.disconnect(); term.dispose();\n      // pty kill은 호출 안 함 — close 신호에서만\n    }\n  };\n}\n```\n\n**5. services/terminal/open-terminal.ts:**\n```ts\nexport function openTerminal(input: OpenTerminalInput, opts: OpenTerminalOptions = {}): TerminalTabLocation {\n  if (opts.newSplit) {\n    return openTabInNewSplit(input.workspaceId, \"terminal\", {cwd: input.cwd}, opts.newSplit.orientation, opts.newSplit.side);\n  }\n  const tab = openTab(input.workspaceId, \"terminal\", {cwd: input.cwd}, {groupId: opts.groupId});\n  const groupId = useLayoutStore.getState().byWorkspace[input.workspaceId]!.activeGroupId;\n  return {groupId, tabId: tab.id};\n}\n\nexport function closeTerminal(tabId: string): void {\n  killSession(tabId); // fire-and-forget\n  // workspaceId lookup 필요 — tab record에서\n  const tab = lookupTab(tabId);\n  if (tab) closeTab(tab.workspaceId, tabId);\n}\n```\n\n**6. services/terminal/index.ts:**\n```ts\nexport { openTerminal, closeTerminal } from \"./open-terminal\";\nexport { createTerminalController } from \"./terminal-controller\";\nexport type { OpenTerminalInput, OpenTerminalOptions, TerminalTabLocation } from \"./types\";\n```\n\n**7. services/editor/open-editor.ts에 closeEditor wrapper 추가** (Issue 6 open question 결정):\n```ts\nexport function closeEditor(tabId: string): void {\n  const tab = lookupTab(tabId);\n  if (tab && tab.type === \"editor\") {\n    releaseModel({workspaceId: tab.workspaceId, filePath: (tab.props as EditorTabProps).filePath});\n  }\n  closeTab(tab.workspaceId, tabId);\n}\n```\n\n**8. terminal-view.tsx 슬림화 (~40줄, architect 골격 준수):**\n```tsx\nexport function TerminalView({ tabId, cwd }: Props) {\n  const containerRef = useRef<HTMLDivElement>(null);\n  useEffect(() => {\n    const container = containerRef.current;\n    if (!container) return;\n    let controller: TerminalController | null = null;\n    let cancelled = false;\n    createTerminalController({tabId, cwd, container}).then(c => {\n      if (cancelled) c.dispose();\n      else controller = c;\n    });\n    return () => { cancelled = true; controller?.dispose(); };\n  }, [tabId, cwd]);\n  return <div ref={containerRef} className=\"w-full h-full bg-background\" />;\n}\n```\n\n**9. group-view.tsx:69-79 변경:**\n- 기존: createTab 직접 호출\n- 신규: `openTerminal({workspaceId, cwd: rootPath}, {groupId: leaf.id})` 호출\n- 다른 store 직접 호출도 함께 정리 (단 셀렉터 정리는 본 task scope 외)\n\n**10. 탭 close 호출자도 services wrapper 사용:**\n- 탭 X 버튼·키바인딩에서 `tab.type === \"terminal\" ? closeTerminal(tab.id) : closeEditor(tab.id)`\n- (또는 통합 wrapper `closeTabByType`을 services 어딘가에 둘 수도)\n\n**11. tsc + biome + 단위 테스트 통과**\n\n**12. 단일 commit**",
+          "risk": "- TerminalRecorder 미구현 시 detach 데이터 유실 — 사전 확인에서 처리\n- closeTerminal의 workspaceId lookup이 tab record에서 정상 동작 (Stage 4 EditorTabProps 통일과 정합)\n- group-view의 다른 store 직접 호출 잔재 — grep 검색\n- 탭 close 진입점 누락 시 pty 누수 → utility process 모니터 필요",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "019df1b6-ba5c-7011-b4a8-4ceade5feb04"
+          },
+          "created_at": "2026-05-04T05:23:54.445Z"
+        },
+        {
+          "id": 10,
+          "title": "Stage 6 검증: 터미널 + pty 라이프사이클 회귀",
+          "status": "completed",
+          "context": "Stage 6(task #9) 완료 후 services/terminal 풀스택 검증. xterm·pty IPC·flow control·라이프사이클 모두 점검. 특히 pty kill 타이밍이 *명시적 close에서만* 발동하는지 확인 (architect critical).",
+          "acceptance": "- 모든 시나리오 1~18 pass\n- pty kill 타이밍이 *명시적 close에서만* 발동 (workspace 전환·view unmount는 영향 0)\n- 모든 close 진입점이 services wrapper 경유\n- OS process 누수 0 (ps aux 또는 Activity Monitor 확인)\n- flow control ack 정확 (큰 출력에서 pty pause 안 일어남)\n- 회귀 보고에 process count 측정값 포함",
+          "approach": "**기본 회귀:**\n1. group-view \"새 Terminal\" 클릭 → 탭 생성 + xterm 인스턴스 + pty 프로세스 spawn\n2. 터미널에 입력 → echo 동작\n3. 큰 출력(예: `find / -name '*.ts' 2>/dev/null | head -10000`) → flow control ack 정상 (pty가 backpressure로 멈추지 않음)\n4. resize (창 크기 변경) → cols/rows IPC 전송 + xterm fit\n5. 터미널 탭 close → pty kill IPC 발사 + utility process 종료\n   - OS process 모니터(macOS Activity Monitor 또는 `ps aux | grep ptyhost-child`) — 누수 0 확인\n\n**핵심 신규 검증 (CRITICAL — pty 생존):**\n6. 같은 cwd \"새 Terminal\" 두 번 → 두 개 탭 + 두 개 pty (dedupe 안 됨, 정책 검증)\n7. 터미널 A에서 작업 중 다른 워크스페이스로 전환 → A의 pty 살아있음 검증\n   - 다시 원래 워크스페이스로 → 터미널 A 화면 복원 (utility ring buffer replay)\n   - ⚠️ 워크스페이스 전환 시 ContentPool unmount 정책에 따라 결과 다름 — 현재 동작 기준으로 측정·기록\n8. terminal-view unmount(workspace 전환) 시 controller.dispose만 발동 — pty kill 안 됨 확인\n   - utility process 살아있음 확인\n9. 명시적 close 클릭 → pty kill 발동, process 종료\n\n**flow control 정확성:**\n10. flow control 카운터가 view-local 아님 — view 잠시 unmount 후 재마운트해도 ack 누락 없음 (pty-client 모듈-private)\n\n**진입점 통일:**\n11. group-view \"새 Terminal\"이 services/terminal/openTerminal 경유 (createTab 직접 호출 잔재 0)\n12. 모든 탭 close 진입점이 closeTerminal/closeEditor wrapper 경유\n\n**회귀 (Stage 1·4·5 재확인):**\n13. state rename 회귀 없음\n14. 중복 탭 dedupe 동작 유지\n15. Monaco model 공유·LSP 동작 유지\n\n**스트레스:**\n16. 10개 터미널 탭 동시 → 모두 정상 동작\n17. 모두 close → 10개 pty 모두 kill (process count 0)\n18. 워크스페이스 close → 모든 탭 자동 close → pty 누수 0\n\n발견 시:\n- pty 누수는 critical → 즉시 task #9로 재호송\n- 회귀는 task #9로 재호송",
+          "risk": "- ContentPool unmount 정책에 따라 시나리오 7·8 결과 다를 수 있음 → 현재 동작 기준으로 측정만 (정책 변경은 별 issue)\n- TerminalRecorder/replay 미구현이면 시나리오 7 시각 복원 안 됨 — task #9 사전 확인 결과 반영\n- Stage 7 전이라 closeGroup 호출은 일부 누수 가능 (다음 단계에서 정정)",
+          "plan_issue": 6,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df1d5-33f2-79e3-b2bb-5c0fb516572f"
+          },
+          "created_at": "2026-05-04T05:24:22.211Z"
+        },
+        {
+          "id": 11,
+          "title": "Stage 7: state/operations.ts 정리 + closeGroup·seedDefault 처리",
+          "status": "completed",
+          "context": "Issue 7 결정 적용. operations.ts에서 services 도입 후 정리 사항 처리.\n\n**변경 항목:**\n1. openTab은 이미 type:\"terminal\"만 (Stage 4에서 처리) — 검증\n2. closeTab JSDoc `@internal` 가드 + 이름 검토 (closeTabTransaction?)\n3. revealTab은 이미 추가 (Stage 4) — 검증\n4. splitAndDuplicate deprecated 표시 + 호출처 services로 이전\n5. closeGroup type 분기로 services 호출 (옵션 C 임시 — services/workspace 신설은 follow-up)\n6. seedDefaultTerminalIfEmpty → App.tsx 부트 코드에 인라인 + operations에서 제거\n7. openTabInNewSplit `@internal` 표시 (services 전용)",
+          "acceptance": "- operations.ts 라인 수 감소 (200줄 미만 목표)\n- splitAndDuplicate deprecated 표시 + 호출처 0 (또는 follow-up 등록)\n- closeGroup이 type별 services 호출 (또는 services/workspace로 이전)\n- seedDefaultTerminalIfEmpty 함수 부재 (App.tsx 인라인 완료)\n- closeTab `@internal` JSDoc\n- 모든 close 진입점이 services wrapper 경유 (grep 검증)\n- tsc + biome 통과",
+          "approach": "**1. closeTab 가드:**\n- JSDoc 추가: `@internal — Use services/{editor,terminal}/close* wrappers`\n- export 이름은 유지 (호환성) 또는 closeTabInternal로 변경 — 호출처 grep 결과에 따라 결정\n- closeTab 직접 호출자 모두 services wrapper로 이전\n\n**2. splitAndDuplicate deprecated:**\n- JSDoc `@deprecated — Use openOrRevealEditor/openTerminal with newSplit option`\n- 호출처(group-context-menu? use-group-actions?) 확인 후 services로 이전\n- 본 task에서 함수 자체 삭제는 하지 않음 (별 follow-up issue)\n\n**3. closeGroup 정리 (옵션 C 임시):**\n```ts\nexport function closeGroup(workspaceId: string, leafId: string): void {\n  const layout = useLayoutStore.getState().byWorkspace[workspaceId];\n  if (!layout) return;\n  const leaf = findLeaf(layout.root, leafId);\n  if (!leaf) return;\n  const ids = [...leaf.tabIds];\n  const tabsState = useTabsStore.getState().byWorkspace[workspaceId] ?? {};\n  \n  // type별 services 호출 (단방향 깨짐 — 임시)\n  for (const tabId of ids) {\n    const tab = tabsState[tabId];\n    if (tab?.type === \"editor\") {\n      // dynamic import 또는 직접 import (services → state 단방향 위반 vs 양방향 — 후자는 import cycle 위험)\n      // 본 task: 직접 import 허용 (단방향 깨짐 인정), follow-up에서 services/workspace 이전\n      const { releaseModel } = await import(\"@/services/editor\");\n      releaseModel({workspaceId, filePath: (tab.props as EditorTabProps).filePath});\n    } else if (tab?.type === \"terminal\") {\n      const { killSession } = await import(\"@/services/terminal/pty-client\");\n      killSession(tabId);\n    }\n  }\n  \n  useLayoutStore.getState().closeGroup(workspaceId, leafId);\n  for (const tabId of ids) useTabsStore.getState().removeTab(workspaceId, tabId);\n}\n```\n- ⚠️ 또는 더 깨끗하게: `closeGroup` 자체를 services/workspace로 이전(옵션 A) — 본 task 시간 허용 시 시도, 안 되면 옵션 C\n- 위험: dynamic import는 async라 closeGroup 시그니처가 sync→async 변경 → 호출자 await 필요\n\n**4. seedDefaultTerminalIfEmpty 인라인:**\n- App.tsx의 부트 코드에서 직접 호출:\n```tsx\nuseEffect(() => {\n  if (workspaceTabs.length === 0) {\n    openTerminal({workspaceId, cwd: rootPath});\n  }\n}, [workspaceId]);\n```\n- operations.ts에서 함수 제거\n\n**5. openTabInNewSplit `@internal` 표시:**\n- services 내부에서만 호출되므로 외부 사용 차단 의도 표명\n\n**6. 빌드 + lint + 단위 테스트 통과**\n\n**7. 단일 commit**",
+          "risk": "- closeGroup의 dynamic import → sync→async 변환 시 호출자 모두 await 필요. 영향 범위 grep 후 결정\n- splitAndDuplicate 호출처가 키바인딩에 박혀있으면 함수 삭제 시 회귀 — 본 task에서는 삭제 안 함\n- closeGroup의 옵션 C(layer 역전) 임시 적용 — follow-up issue 등록 명시",
+          "plan_issue": 7,
+          "deps": [
+            5,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df1da-bb7a-7c60-9cab-7aad485c8ff9"
+          },
+          "created_at": "2026-05-04T05:24:54.501Z"
+        },
+        {
+          "id": 12,
+          "title": "Stage 7 검증: operations 정리 + 자원 누수 회귀",
+          "status": "completed",
+          "context": "Stage 7(task #11) 완료 후 closeGroup·seedDefault 동작 검증. 특히 closeGroup이 type별 services 호출로 *모든 자원* 정리하는지 확인.",
+          "acceptance": "- closeGroup이 모든 type 자원 정리 (model + pty)\n- seedDefault 동작 유지 (신규 워크스페이스에 터미널 1개)\n- splitAndDuplicate 호출 0 (또는 follow-up 등록)\n- openTab/closeTab 직접 호출 잔재 grep 0\n- 회귀 sampled scenarios pass\n- 자원 누수 0 측정",
+          "approach": "1. 신규 워크스페이스 열기 → seedDefault 인라인 동작 (터미널 1개 자동 생성)\n2. 그룹에 editor 탭 + terminal 탭 섞어 두고 closeGroup 키바인딩(또는 컨텍스트 메뉴)\n   - editor 탭의 model dispose 확인 (devtools)\n   - terminal 탭의 pty kill 확인 (process count)\n   - layout에서 leaf 제거 확인\n3. closeGroup이 sole leaf일 때 (마지막 그룹) — 빈 placeholder 유지 + 자원 정리 (현재 동작 보존)\n4. splitAndDuplicate 키바인딩(있다면) → openOrRevealEditor newSplit 또는 openTerminal newSplit 동작\n5. openTab 직접 호출 잔재 grep — editor type 호출 0\n6. closeTab 직접 호출 잔재 grep — services wrapper 외 0\n\n회귀:\n- Stage 4·5·6 시나리오 재실행 (1~30개 정도 sampled)\n- 자원 누수 모니터: 10번 워크스페이스 열고/닫고 → process count 증가 0, model count 증가 0",
+          "risk": "closeGroup의 dynamic import가 async → 호출자 await 누락 시 자원 정리 race. tester가 명시적으로 확인.",
+          "plan_issue": 7,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df1e1-9ae9-7312-9fd5-b2e6cdf64135"
+          },
+          "created_at": "2026-05-04T05:25:34.024Z"
+        },
+        {
+          "id": 13,
+          "title": "Stage 8a: .nexus/context/architecture.md 신설",
+          "status": "completed",
+          "context": "Issue 8 결정 적용 (Part B). 4-레이어(engine/state/services/components) 정의를 명문화. Issue 1·4·5·6·7의 모든 결정 인용. 향후 코드 추가 시 결정 가이드.\n\n목차 (Issue 8 결정 본문 참조):\n1. 개요 + 4-레이어 정의표\n2. 레이어별 답하는 질문 + 외부 의존 + 상태 + 의존 방향\n3. state/ 하위 구조 (stores vs operations vs persistence)\n4. services/ 패턴 (도메인별 폴더, hook vs controller, 진입점/트랜잭션/mutation 단방향)\n5. engine/ 원칙 (부수효과 0, 도메인 모름, predicate 주입)\n6. 개방된 ADR follow-up 목록\n7. 새 코드 작성 시 결정 가이드",
+          "acceptance": "- .nexus/context/architecture.md 존재\n- 4-레이어 정의표 포함\n- 각 layer 의존 방향 명시\n- 결정 가이드 (개발자가 자가 판단 가능한 의사결정 트리)\n- 개방 ADR follow-up 목록\n- Issue 1·4·5·6·7 결정 인용 (plan #13 참조)\n- 마크다운 syntax 정확",
+          "approach": "1. .nexus/context/architecture.md 작성\n2. Issue 1~7 결정문에서 핵심 인용 (history.json plan #13에서 가져옴)\n3. 표·목록 위주, 추상 설명 최소화\n4. 코드 예시는 실제 파일 경로 인용 (services/editor/open-editor.ts:openOrRevealEditor 등)\n5. 개방 ADR 목록 명시 (저장 시 dirty conflict, workspace-prefixed uri, splitAndDuplicate 삭제, services/workspace 신설, group-view 셀렉터, CI layer check)\n6. 신규 개발자 관점에서 \"openTerminal/openOrRevealEditor 어디 있는지\" 추론 가능한지 자체 검토\n7. 단일 파일 commit",
+          "risk": "문서 시점 명시 안 하면 stale 가능 — \"as of plan #13 (refactor/state-services 사이클)\" 명시",
+          "plan_issue": 8,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "writer",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T05:25:54.673Z"
+        },
+        {
+          "id": 14,
+          "title": "Stage 8a 검증: architecture.md 정확성·실용성 리뷰",
+          "status": "completed",
+          "context": "task #13(architecture.md) 작성 후 reviewer 검증. 신규 개발자 관점에서 read-and-act 가능한지 평가.",
+          "acceptance": "- 4-레이어 정의 실제 코드와 일치\n- 결정 가이드 read-and-act 가능\n- 의존 방향 정확\n- follow-up 목록 plan과 정합\n- 마크다운/링크/문법 0 issue",
+          "approach": "1. 4-레이어 정의가 실제 코드 구조(refactor 후)와 일치하는지 spot-check (state/, services/, engine/, components/)\n2. 결정 가이드가 실제 사용 가능한지 — \"openTerminal·openOrRevealEditor 어디 있나?\" 질문 시 문서만으로 답 가능한지\n3. 의존 방향 도식이 정확 (services → operations → stores 단방향)\n4. 개방 ADR follow-up 목록이 plan #13 결정과 일치\n5. 마크다운 syntax + 깨진 링크 0\n6. 한국어 문법·맞춤법\n7. 누락 발견 시 task #13으로 재호송",
+          "risk": "없음. 문서 검토만",
+          "plan_issue": 8,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "reviewer",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-04T05:26:04.516Z"
+        },
+        {
+          "id": 15,
+          "title": "Stage 8b: 통합 회귀 검증 (full pass)",
+          "status": "completed",
+          "context": "Issue 8 결정 적용 (Part A). 모든 Stage 완료 후 전체 시나리오 통합 회귀. plan #13 사이클의 최종 검증.\n\n이전 stage tester들이 stage별 회귀했지만, 본 task는 *전체 시나리오를 한 번에* 통과시켜 stage 간 상호작용 회귀가 없는지 확인.",
+          "acceptance": "- 모든 시나리오 1~23 pass\n- 측정값 보고: model count, process count, IPC 호출 횟수\n- portal KNOWN ISSUE 해소 검증\n- plan #13 사이클 close 가능 상태",
+          "approach": "**탭 라이프사이클:**\n1. 단일 ws에서 같은 파일 두 번 클릭 → 1탭, focus만 이동\n2. Cmd+Enter (file-tree) → newSplit\n3. Cmd+O 다이얼로그 → dedupe\n4. 다른 ws 같은 파일 → 각각 1탭\n\n**Monaco model 공유:**\n5. newSplit으로 같은 파일 두 leaf → 한쪽 편집 즉시 다른 쪽 반영\n6. 한 leaf close → model 살아있음\n7. 두 leaf close → model dispose + didClose\n\n**LSP:**\n8. hover/definition/completion 동작\n9. provider 등록 횟수 = language 종류 수 (view 수와 무관)\n10. diagnostics ownerId=\"lsp\" 통일\n\n**fs 외부 변경:**\n11. 외부 수정 → 모든 view 자동 reload (clean only)\n\n**Terminal:**\n12. 새 Terminal → openTerminal 경유\n13. 입출력·resize·flow control(5000자 ack) 동작\n14. 같은 cwd 두 번 → 두 개 탭+pty\n15. 탭 close → kill IPC + process 정리\n16. workspace 전환 시 (ContentPool 동작 기준) pty 생존 또는 자연 정리\n\n**구조 회귀:**\n17. import path: state/services 신규 경로\n18. operations.openTab editor 호출 컴파일 에러 0\n19. services/editor/editor-service.ts 부재\n20. tsc + biome + 기존 테스트 모두 pass\n\n**자원 라이프사이클:**\n21. 10번 워크스페이스 열고/닫고 → process count 증가 0, model count 증가 0\n22. 30분 유휴 dev session → 메모리 안정\n\n**critical 회귀:**\n23. portal KNOWN ISSUE(\"같은 파일 여러 leaf attach 시 한 leaf 닫으면 컨텐츠 사라짐\") 해소 검증\n\n발견:\n- 회귀: 책임 stage task로 재호송 (예: stage 5 회귀 → task #7)\n- 신규 버그: plan에 follow-up issue 등록 권고",
+          "risk": "stage 간 상호작용 회귀 — Stage 4·5·6·7 단계별로는 통과했어도 통합 시 발현 가능. 발견 시 책임 stage task로 정확히 routing 필요",
+          "plan_issue": 8,
+          "deps": [
+            2,
+            3,
+            4,
+            6,
+            8,
+            10,
+            12,
+            14
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019df1e5-b521-7ae3-91c0-bc165fcfb75c"
+          },
+          "created_at": "2026-05-04T05:26:29.391Z"
+        }
+      ]
     }
   ]
 }

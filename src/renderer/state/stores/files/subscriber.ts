@@ -1,5 +1,5 @@
-import type { FsChangedEvent } from "../../../shared/types/fs";
-import { ipcListen } from "../../ipc/client";
+import type { FsChangedEvent } from "../../../../shared/types/fs";
+import { ipcListen } from "../../../ipc/client";
 import { cloneTree, joinPath, parentOf, setTree } from "./helpers";
 import { useFilesStore } from "./store";
 

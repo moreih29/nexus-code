@@ -3,7 +3,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../../store/ui";
+} from "../../state/stores/ui";
 import { ResizeHandle } from "../ui/resize-handle";
 
 // ---------------------------------------------------------------------------

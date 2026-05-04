@@ -163,10 +163,10 @@ describe("handleGlobalKeyDown — Cmd+R", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleGlobalKeyDown — Cmd+E editable guard
+// handleGlobalKeyDown — Cmd+E / Cmd+O editable guard
 // ---------------------------------------------------------------------------
 
-describe("handleGlobalKeyDown — Cmd+E editable guard", () => {
+describe("handleGlobalKeyDown — Cmd+E / Cmd+O editable guard", () => {
   it("does not call openFileDialog or preventDefault when target is INPUT", () => {
     const deps = makeDeps("ws-1");
     const target = { tagName: "INPUT" } as HTMLElement;
@@ -233,6 +233,33 @@ describe("handleGlobalKeyDown — Cmd+E editable guard", () => {
     expect(deps.openFileDialogMock).toHaveBeenCalledTimes(1);
     expect(deps.openFileDialogMock).toHaveBeenCalledWith("ws-1");
     expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("calls openFileDialog and preventDefault on Cmd+O for a plain non-editable element", () => {
+    const deps = makeDeps("ws-1");
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const e = makeEvent("o", { metaKey: true, target });
+
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+
+    expect(deps.openFileDialogMock).toHaveBeenCalledTimes(1);
+    expect(deps.openFileDialogMock).toHaveBeenCalledWith("ws-1");
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("does not call openFileDialog or preventDefault on Cmd+O when target is editable", () => {
+    const deps = makeDeps("ws-1");
+    const target = { tagName: "INPUT" } as HTMLElement;
+    const e = makeEvent("o", { metaKey: true, target });
+
+    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
+
+    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
   });
 
   it("does not call openFileDialog when no active workspace", () => {

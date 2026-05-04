@@ -3,29 +3,24 @@
  *
  * These functions coordinate mutations across useTabsStore and useLayoutStore
  * so callers never need to know the exact ordering of operations.
- *
- * Not a zustand store — plain exported functions.
  */
 
-import { useLayoutStore } from "./layout";
-import { findLeaf } from "./layout/helpers";
-import { type Tab, type TabProps, type TabType, useTabsStore } from "./tabs";
-
-// ---------------------------------------------------------------------------
-// openTab
-// ---------------------------------------------------------------------------
+import { killSession } from "@/services/terminal/pty-client";
+import { useLayoutStore } from "./stores/layout";
+import { findLeaf } from "./stores/layout/helpers";
+import {
+  type EditorTabProps,
+  type Tab,
+  type TabProps,
+  type TabType,
+  type TerminalTabProps,
+  useTabsStore,
+} from "./stores/tabs";
 
 /**
  * Create a new tab and attach it to a group in the layout.
- *
- * @param workspaceId  - Target workspace
- * @param type         - "terminal" | "editor"
- * @param props        - Type-specific tab props
- * @param opts.groupId - Which group to attach to:
- *                       undefined or "active" → active group for the workspace
- *                       explicit id            → use that leaf id directly
  */
-export function openTab(
+function openTabRecord(
   workspaceId: string,
   type: TabType,
   props: TabProps,
@@ -34,10 +29,8 @@ export function openTab(
   const tabsStore = useTabsStore.getState();
   const layoutStore = useLayoutStore.getState();
 
-  // Ensure a layout slice exists for this workspace
   layoutStore.ensureLayout(workspaceId);
 
-  // Determine target group id
   const activeGroupId = useLayoutStore.getState().byWorkspace[workspaceId]?.activeGroupId;
   let groupId: string;
   if (!opts?.groupId || opts.groupId === "active") {
@@ -46,10 +39,8 @@ export function openTab(
     groupId = opts.groupId;
   }
 
-  // Create the tab record
   const tab = tabsStore.createTab(workspaceId, type, props);
 
-  // Attach to the layout leaf
   layoutStore.attachTab(workspaceId, groupId, tab.id);
   layoutStore.setActiveTabInGroup({
     workspaceId,
@@ -61,27 +52,54 @@ export function openTab(
   return tab;
 }
 
-// ---------------------------------------------------------------------------
-// closeTab
-// ---------------------------------------------------------------------------
+export function openTab(
+  workspaceId: string,
+  type: "terminal",
+  props: TerminalTabProps,
+  opts?: { groupId?: string | "active" },
+): Tab {
+  return openTabRecord(workspaceId, type, props, opts);
+}
+
+/**
+ * @internal Use services/editor.openOrRevealEditor for user-facing editor opens.
+ */
+export function openEditorTab(
+  workspaceId: string,
+  props: EditorTabProps,
+  opts?: { groupId?: string | "active" },
+): Tab {
+  return openTabRecord(workspaceId, "editor", props, opts);
+}
+
+export function revealTab(workspaceId: string, groupId: string, tabId: string): void {
+  useLayoutStore.getState().setActiveTabInGroup({
+    workspaceId,
+    groupId,
+    tabId,
+    activateGroup: true,
+  });
+}
 
 /**
  * Remove a tab from its layout leaf and delete its record from the tabs store.
  * The layout store handles empty-leaf hoist and active group re-routing.
+ *
+ * @internal — Use services/editor.closeEditor or services/terminal.closeTerminal
+ * for user-facing closes.
  */
 export function closeTab(workspaceId: string, tabId: string): void {
   useLayoutStore.getState().detachTab(workspaceId, tabId);
   useTabsStore.getState().removeTab(workspaceId, tabId);
 }
 
-// ---------------------------------------------------------------------------
-// splitAndDuplicate
-// ---------------------------------------------------------------------------
-
 /**
  * Split the given leaf and open a duplicate of the source tab in the new leaf.
  * The source tab remains in its original leaf; a new tab record is created with
  * the same type and a deep-cloned copy of the source tab's props.
+ *
+ * @deprecated Use services/editor.openOrRevealEditor or services/terminal.openTerminal
+ * with a newSplit option for user-facing split opens.
  */
 export function splitAndDuplicate(
   workspaceId: string,
@@ -114,12 +132,11 @@ export function splitAndDuplicate(
   return { newLeafId, newTabId: newTab.id };
 }
 
-// ---------------------------------------------------------------------------
-// openTabInNewSplit
-// ---------------------------------------------------------------------------
-
 /**
  * Split the active group and open a brand-new tab in the resulting new leaf.
+ *
+ * @internal Services-only transaction helper; use domain services for
+ * user-facing split opens.
  */
 export function openTabInNewSplit(
   workspaceId: string,
@@ -130,7 +147,8 @@ export function openTabInNewSplit(
 ): { newLeafId: string; tabId: string } {
   useLayoutStore.getState().ensureLayout(workspaceId);
 
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId]!;
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) throw new Error(`layout slice not found for ${workspaceId}`);
   const activeGroupId = layout.activeGroupId;
 
   const newLeafId = useLayoutStore
@@ -150,10 +168,6 @@ export function openTabInNewSplit(
   return { newLeafId, tabId: tab.id };
 }
 
-// ---------------------------------------------------------------------------
-// closeGroup
-// ---------------------------------------------------------------------------
-
 /**
  * Close all tabs in a layout leaf and remove the leaf from the tree.
  * If the leaf is the sole leaf it is preserved as an empty placeholder.
@@ -167,24 +181,18 @@ export function closeGroup(workspaceId: string, leafId: string): void {
   if (!leaf) return;
 
   const ids = [...leaf.tabIds];
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  for (const tabId of ids) {
+    // Temporary layer trade-off: group close is still a state transaction, but
+    // terminal PTY records must die before terminal tab records are removed.
+    if (tabsById[tabId]?.type === "terminal") {
+      killSession(tabId);
+    }
+  }
 
   useLayoutStore.getState().closeGroup(workspaceId, leafId);
 
   for (const tabId of ids) {
     useTabsStore.getState().removeTab(workspaceId, tabId);
   }
-}
-
-// ---------------------------------------------------------------------------
-// seedDefaultTerminalIfEmpty
-// ---------------------------------------------------------------------------
-
-/**
- * Open a single terminal tab for a workspace when no tabs exist yet.
- * Idempotent — does nothing if the workspace already has at least one tab.
- */
-export function seedDefaultTerminalIfEmpty(workspaceId: string, rootPath: string): void {
-  const tabs = useTabsStore.getState().byWorkspace[workspaceId];
-  if (tabs && Object.keys(tabs).length > 0) return;
-  openTab(workspaceId, "terminal", { cwd: rootPath });
 }

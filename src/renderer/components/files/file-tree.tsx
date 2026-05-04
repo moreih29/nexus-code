@@ -1,9 +1,9 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { selectFlat, useFilesStore } from "../../store/files";
+import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { isInEditable } from "../../keybindings/global";
-import { openTab, openTabInNewSplit } from "../../store/operations";
+import { openOrRevealEditor } from "../../services/editor";
 import { FileTreeRow } from "./file-tree-row";
 import { computeParentJumpIndex } from "./keys";
 
@@ -120,16 +120,16 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
       if (isInEditable(e.target as HTMLElement)) return;
       if (isDir) return;
       e.preventDefault();
-      openTabInNewSplit(workspaceId, "editor", { filePath: item.absPath, workspaceId }, "horizontal", "after");
+      openOrRevealEditor(
+        { workspaceId, filePath: item.absPath },
+        { newSplit: { orientation: "horizontal", side: "after" } },
+      );
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (isDir) {
         useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
       } else {
-        openTab(workspaceId, "editor", {
-          filePath: item.absPath,
-          workspaceId,
-        });
+        openOrRevealEditor({ workspaceId, filePath: item.absPath });
       }
     }
   }
@@ -139,10 +139,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     if (item.node.type === "dir") {
       useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
     } else {
-      openTab(workspaceId, "editor", {
-        filePath: item.absPath,
-        workspaceId,
-      });
+      openOrRevealEditor({ workspaceId, filePath: item.absPath });
     }
   }
 

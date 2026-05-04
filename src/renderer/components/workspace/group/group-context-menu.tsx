@@ -1,6 +1,6 @@
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 import { useState } from "react";
-import type { Tab } from "@/store/tabs";
+import type { Tab } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
 import { useGroupActions } from "./use-group-actions";
 

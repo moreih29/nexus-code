@@ -1,11 +1,11 @@
-import { useActiveStore } from "../../store/active";
+import { useActiveStore } from "../../state/stores/active";
 import {
   FILES_PANEL_WIDTH_DEFAULT,
   FILES_PANEL_WIDTH_MAX,
   FILES_PANEL_WIDTH_MIN,
   useUIStore,
-} from "../../store/ui";
-import { useWorkspacesStore } from "../../store/workspaces";
+} from "../../state/stores/ui";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
 

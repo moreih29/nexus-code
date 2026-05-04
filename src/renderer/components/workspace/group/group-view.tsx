@@ -1,7 +1,9 @@
 import { useCallback } from "react";
-import type { LayoutLeaf } from "@/store/layout";
-import { useLayoutStore } from "@/store/layout";
-import { useTabsStore } from "@/store/tabs";
+import { closeEditor } from "@/services/editor";
+import { closeTerminal, openTerminal } from "@/services/terminal";
+import type { LayoutLeaf } from "@/state/stores/layout";
+import { useLayoutStore } from "@/state/stores/layout";
+import { useTabsStore } from "@/state/stores/tabs";
 import { cn } from "@/utils/cn";
 import { slotRegistry } from "../content/slot-registry";
 import { GroupContextMenu } from "./group-context-menu";
@@ -39,7 +41,6 @@ export function GroupView({
   const tabsMap = useTabsStore((s) => s.byWorkspace[workspaceId] ?? {});
 
   const layoutStore = useLayoutStore();
-  const tabsStore = useTabsStore();
 
   const isActive = activeGroupId === leaf.id;
   const tabs = leaf.tabIds
@@ -61,21 +62,18 @@ export function GroupView({
   }
 
   function handleCloseTab(tabId: string) {
-    layoutStore.detachTab(workspaceId, tabId);
-    tabsStore.removeTab(workspaceId, tabId);
+    const tab = tabsMap[tabId];
+    if (tab?.type === "terminal") {
+      closeTerminal(tabId);
+      return;
+    }
+    if (tab?.type === "editor") {
+      closeEditor(tabId);
+    }
   }
 
   function handleNewTerminalTab() {
-    const tab = tabsStore.createTab(workspaceId, "terminal", {
-      cwd: workspaceRootPath,
-    });
-    layoutStore.attachTab(workspaceId, leaf.id, tab.id);
-    layoutStore.setActiveTabInGroup({
-      workspaceId,
-      groupId: leaf.id,
-      tabId: tab.id,
-      activateGroup: true,
-    });
+    openTerminal({ workspaceId, cwd: workspaceRootPath }, { groupId: leaf.id });
     onActivateGroup(leaf.id);
   }
 
@@ -101,6 +99,7 @@ export function GroupView({
 
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: click activates group; keyboard handled by focusable children
+    // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
       className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-frosted-veil")}
       onClick={handleGroupClick}

@@ -1,4 +1,4 @@
-import { ipcListen } from "../../ipc/client";
+import { ipcListen } from "../../../ipc/client";
 import { useLayoutStore } from "./store";
 
 // Module-level workspace:removed subscription.

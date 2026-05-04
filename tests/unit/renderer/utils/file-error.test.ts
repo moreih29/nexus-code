@@ -26,25 +26,41 @@ describe("parseFileErrorCode", () => {
     expect(parseFileErrorCode("")).toBe("OTHER");
   });
 
-  it('7. prefix in middle of message → "OTHER" (anchor ^ enforced)', () => {
+  it('7. arbitrary mid-string prefix does not match', () => {
     expect(parseFileErrorCode("Description: NOT_FOUND: /path")).toBe("OTHER");
+  });
+
+  it("8. Electron-wrapped remote errors preserve known code", () => {
+    expect(
+      parseFileErrorCode(
+        "Error invoking remote method 'ipc:call': Error: NOT_FOUND: /tmp/vanish.ts",
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
+  it("9. Electron-wrapped permission errors preserve known code", () => {
+    expect(
+      parseFileErrorCode(
+        "Error invoking remote method 'ipc:call': Error: PERMISSION_DENIED: /secret",
+      ),
+    ).toBe("PERMISSION_DENIED");
   });
 });
 
 describe("fileErrorMessage", () => {
-  it('8. NOT_FOUND → "File not found."', () => {
+  it('10. NOT_FOUND → "File not found."', () => {
     expect(fileErrorMessage("NOT_FOUND")).toBe("File not found.");
   });
 
-  it('9. PERMISSION_DENIED → "Permission denied."', () => {
+  it('11. PERMISSION_DENIED → "Permission denied."', () => {
     expect(fileErrorMessage("PERMISSION_DENIED")).toBe("Permission denied.");
   });
 
-  it("10. TOO_LARGE with maxMb=5 → contains \"max 5 MB\"", () => {
+  it("12. TOO_LARGE with maxMb=5 → contains \"max 5 MB\"", () => {
     expect(fileErrorMessage("TOO_LARGE", 5)).toContain("max 5 MB");
   });
 
-  it('11. OTHER → "Failed to open file."', () => {
+  it('13. OTHER → "Failed to open file."', () => {
     expect(fileErrorMessage("OTHER")).toBe("Failed to open file.");
   });
 });

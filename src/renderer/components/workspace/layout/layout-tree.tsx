@@ -1,4 +1,4 @@
-import type { LayoutLeaf, LayoutNode, LayoutSplit } from "@/store/layout";
+import type { LayoutLeaf, LayoutNode, LayoutSplit } from "@/state/stores/layout";
 import { LeafPane } from "./leaf-pane";
 import { SplitPane } from "./split-pane";
 

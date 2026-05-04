@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipcCall } from "../../ipc/client";
+import { ipcCall } from "../../../ipc/client";
 import { absPathToRel, cloneTree, getAncestors, joinPath, setTree, sortEntries } from "./helpers";
 import type { FilesState, TreeNode, WorkspaceTree } from "./types";
 

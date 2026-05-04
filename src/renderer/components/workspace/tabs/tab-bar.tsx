@@ -1,7 +1,7 @@
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
-import type { Tab } from "../../../store/tabs";
+import type { Tab } from "../../../state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -41,6 +41,7 @@ export function TabBar({
             // <button> is never nested inside <button> (HTML invalid; React
             // 19 hydration warning). Same pattern as Sidebar.tsx workspace
             // × button.
+            // biome-ignore lint/a11y/noStaticElementInteractions: wrapper owns tab context menu; trigger handles tab keyboard interaction
             <div
               key={tab.id}
               className="relative flex items-center h-full"

@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import { ipcListen } from "../ipc/client";
+import type { EditorInput } from "@/services/editor/types";
+import { killSession } from "@/services/terminal/pty-client";
+import { ipcListen } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,10 +13,7 @@ export interface TerminalTabProps {
   cwd: string;
 }
 
-export interface EditorTabProps {
-  filePath: string;
-  workspaceId: string;
-}
+export type EditorTabProps = EditorInput;
 
 export type TabProps = TerminalTabProps | EditorTabProps;
 
@@ -118,6 +117,15 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     closeAllForWorkspace(workspaceId) {
+      const wsRecord = get().byWorkspace[workspaceId];
+      if (!wsRecord) return;
+
+      for (const tab of Object.values(wsRecord)) {
+        if (tab.type === "terminal") {
+          killSession(tab.id);
+        }
+      }
+
       set((state) => {
         if (!(workspaceId in state.byWorkspace)) return state;
         const next = { ...state.byWorkspace };

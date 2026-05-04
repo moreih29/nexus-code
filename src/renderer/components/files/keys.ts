@@ -1,5 +1,5 @@
-import { parentOf } from "../../store/files";
-import type { FlatItem } from "../../store/files";
+import { parentOf } from "../../state/stores/files";
+import type { FlatItem } from "../../state/stores/files";
 
 /**
  * Returns the flat-list index of the parent dir for the given item, or null if

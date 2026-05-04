@@ -4,8 +4,8 @@
 
 import React, { useCallback, useState } from "react";
 import { Grid } from "@/engine/split";
-import { useLayoutStore } from "../../../store/layout";
-import { useTabsStore } from "../../../store/tabs";
+import { useLayoutStore } from "../../../state/stores/layout";
+import { useTabsStore } from "../../../state/stores/tabs";
 import { ContentHost } from "./content-host";
 import { ownerLeafIdOf } from "./selectors";
 

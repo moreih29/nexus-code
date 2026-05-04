@@ -1,6 +1,6 @@
-import { useLayoutStore } from "@/store/layout";
-import { splitAndDuplicate } from "@/store/operations";
-import { useTabsStore } from "@/store/tabs";
+import { closeEditor, openOrRevealEditor, type EditorTabProps } from "@/services/editor";
+import { closeTerminal, openTerminal } from "@/services/terminal";
+import { type TerminalTabProps, useTabsStore } from "@/state/stores/tabs";
 
 interface UseGroupActionsOptions {
   workspaceId: string;
@@ -19,21 +19,27 @@ export function useGroupActions({
   getTabIds,
   onActivateGroup,
 }: UseGroupActionsOptions) {
-  const layoutStore = useLayoutStore();
-  const tabsStore = useTabsStore();
+  function closeTabForId(tabId: string) {
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (tab?.type === "terminal") {
+      closeTerminal(tabId);
+      return;
+    }
+    if (tab?.type === "editor") {
+      closeEditor(tabId);
+    }
+  }
 
   function close() {
     const tabId = getContextTabId();
-    layoutStore.detachTab(workspaceId, tabId);
-    tabsStore.removeTab(workspaceId, tabId);
+    closeTabForId(tabId);
   }
 
   function closeOthers() {
     const targetTabId = getContextTabId();
     const others = getTabIds().filter((id) => id !== targetTabId);
     for (const id of others) {
-      layoutStore.detachTab(workspaceId, id);
-      tabsStore.removeTab(workspaceId, id);
+      closeTabForId(id);
     }
   }
 
@@ -44,32 +50,43 @@ export function useGroupActions({
     if (idx === -1) return;
     const toClose = tabIds.slice(idx + 1);
     for (const id of toClose) {
-      layoutStore.detachTab(workspaceId, id);
-      tabsStore.removeTab(workspaceId, id);
+      closeTabForId(id);
+    }
+  }
+
+  function splitContextTab(orientation: "horizontal" | "vertical") {
+    const tabId = getContextTabId();
+    if (!tabId) return;
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (!tab) return;
+
+    if (tab.type === "editor") {
+      onActivateGroup(leafId);
+      openOrRevealEditor(tab.props as EditorTabProps, {
+        newSplit: { orientation, side: "after" },
+      });
+      return;
+    }
+
+    if (tab.type === "terminal") {
+      const props = tab.props as TerminalTabProps;
+      openTerminal(
+        { workspaceId, cwd: props.cwd },
+        { groupId: leafId, newSplit: { orientation, side: "after" } },
+      );
     }
   }
 
   function splitRight() {
-    const tabId = getContextTabId();
-    if (!tabId) return;
-    splitAndDuplicate(workspaceId, leafId, tabId, "horizontal", "after");
+    splitContextTab("horizontal");
   }
 
   function splitDown() {
-    const tabId = getContextTabId();
-    if (!tabId) return;
-    splitAndDuplicate(workspaceId, leafId, tabId, "vertical", "after");
+    splitContextTab("vertical");
   }
 
   function newTerminal() {
-    const tab = tabsStore.createTab(workspaceId, "terminal", { cwd: workspaceRootPath });
-    layoutStore.attachTab(workspaceId, leafId, tab.id);
-    layoutStore.setActiveTabInGroup({
-      workspaceId,
-      groupId: leafId,
-      tabId: tab.id,
-      activateGroup: true,
-    });
+    openTerminal({ workspaceId, cwd: workspaceRootPath }, { groupId: leafId });
     onActivateGroup(leafId);
   }
 

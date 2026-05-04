@@ -27,6 +27,11 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
         await lspHost.call("didChange", { uri, version, text });
       },
 
+      didClose: async (args: unknown) => {
+        const { uri } = validateArgs(c.didClose.args, args);
+        await lspHost.call("didClose", { uri });
+      },
+
       hover: async (args: unknown) => {
         const { uri, line, character } = validateArgs(c.hover.args, args);
         const result = await lspHost.call("hover", { uri, line, character });

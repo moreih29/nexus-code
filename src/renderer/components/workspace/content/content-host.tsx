@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import type { EditorTabProps, Tab, TerminalTabProps } from "@/store/tabs";
+import type { EditorTabProps, Tab, TerminalTabProps } from "@/state/stores/tabs";
 import { useHiddenPortalEl } from "./content-pool";
 import { EditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";

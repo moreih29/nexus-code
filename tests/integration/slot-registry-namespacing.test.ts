@@ -51,10 +51,10 @@ mock.module("../../src/renderer/ipc/client", () => ({
 
 import { ownerLeafIdOf } from "../../src/renderer/components/workspace/content/selectors";
 import { slotRegistry } from "../../src/renderer/components/workspace/content/slot-registry";
-import { useLayoutStore } from "../../src/renderer/store/layout";
-import type { LayoutNode } from "../../src/renderer/store/layout/types";
-import { openTab } from "../../src/renderer/store/operations";
-import { useTabsStore } from "../../src/renderer/store/tabs";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
+import type { LayoutNode } from "../../src/renderer/state/stores/layout/types";
+import { openTab } from "../../src/renderer/state/operations";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Helpers

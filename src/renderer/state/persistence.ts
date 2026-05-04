@@ -1,19 +1,19 @@
 /**
- * Persistence subscriber for layout + tabs state.
+ * Persistence subscriber for renderer state.
  *
- * Subscribes to both stores and debounces writes to appState via IPC.
+ * Subscribes to layout + tabs stores and debounces writes to appState via IPC.
  * Registration is deferred until after the boot hydrate completes so the
  * initial hydrate does not immediately trigger a write-storm.
  *
  * Usage (from App.tsx boot effect, once after hydrate):
- *   import { registerLayoutPersistence } from "./store/persistLayout";
- *   registerLayoutPersistence();
+ *   import { registerStatePersistence } from "./state/persistence";
+ *   registerStatePersistence();
  */
 
 import type { AppState } from "../../shared/types/app-state";
 import { ipcCall } from "../ipc/client";
-import { useLayoutStore } from "./layout";
-import { useTabsStore } from "./tabs";
+import { useLayoutStore } from "./stores/layout";
+import { useTabsStore } from "./stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Serialization
@@ -61,7 +61,7 @@ function debounce(fn: () => void, ms: number): () => void {
 let unsubLayout: (() => void) | null = null;
 let unsubTabs: (() => void) | null = null;
 
-export function registerLayoutPersistence(): void {
+export function registerStatePersistence(): void {
   // Only register once
   if (unsubLayout !== null) return;
 
@@ -83,7 +83,7 @@ export function registerLayoutPersistence(): void {
   unsubTabs = useTabsStore.subscribe(flush);
 }
 
-export function unregisterLayoutPersistence(): void {
+export function unregisterStatePersistence(): void {
   unsubLayout?.();
   unsubTabs?.();
   unsubLayout = null;

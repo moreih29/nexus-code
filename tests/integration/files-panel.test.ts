@@ -28,7 +28,7 @@
  * ----------------
  *   1. Workspace selection → ensureRoot + readdir          AUTO
  *   2. Folder click → expand + children + selectFlat       AUTO
- *   3. File click → addTab('editor', …) + store state      AUTO
+ *   3. File click → openOrRevealEditor + store state       AUTO
  *   4. Workspace switch → two tree entries + PTY survival  PARTIAL (store AUTO; PTY RUNBOOK)
  *   5. Cmd+R → refresh + re-readdir, no page reload        PARTIAL (store AUTO; preventDefault RUNBOOK)
  *   6. Resize drag → filesPanelWidth + ipcCall persist     AUTO
@@ -66,15 +66,15 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks are installed
 // ---------------------------------------------------------------------------
 
-import { selectFlat, useFilesStore } from "../../src/renderer/store/files";
-import { useLayoutStore } from "../../src/renderer/store/layout";
-import { openTab } from "../../src/renderer/store/operations";
-import { useTabsStore } from "../../src/renderer/store/tabs";
+import { selectFlat, useFilesStore } from "../../src/renderer/state/stores/files";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
+import { openOrRevealEditor } from "../../src/renderer/services/editor";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 import {
   FILES_PANEL_WIDTH_DEFAULT,
   FILES_PANEL_WIDTH_MIN,
   useUIStore,
-} from "../../src/renderer/store/ui";
+} from "../../src/renderer/state/stores/ui";
 import type { DirEntry } from "../../src/shared/types/fs";
 
 // ---------------------------------------------------------------------------
@@ -287,10 +287,10 @@ describe("Scenario 2 (AUTO): folder click → expand + children + selectFlat", (
 
 // ---------------------------------------------------------------------------
 // Scenario 3 — AUTO
-// File click → addTab('editor', …) + EditorView tab appears in tabs store
+// File click → openOrRevealEditor + EditorView tab appears in tabs store
 //
 // The FileTree component's handleRowClick (for a file node) calls:
-//   useTabsStore.getState().addTab(workspaceId, "editor", { filePath, workspaceId })
+//   openOrRevealEditor({ workspaceId, filePath })
 // We replicate that call directly and verify the tabs store state.
 //
 // EditorView mounting gap (RUNBOOK — Scenario 3b):
@@ -301,13 +301,13 @@ describe("Scenario 2 (AUTO): folder click → expand + children + selectFlat", (
 //     4. Verify the tab content area shows an editor (not a terminal).
 // ---------------------------------------------------------------------------
 
-describe("Scenario 3 (AUTO): file click → openTab + tab store reflects new editor tab", () => {
+describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store reflects editor tab", () => {
   beforeEach(resetAllStores);
 
-  it("openTab with type='editor' creates a tab in the workspace slice", () => {
+  it("openOrRevealEditor creates a tab in the workspace slice", () => {
     const filePath = `${ROOT_A}/src/index.ts`;
 
-    openTab(WS_A, "editor", { filePath, workspaceId: WS_A });
+    openOrRevealEditor({ workspaceId: WS_A, filePath });
 
     const record = useTabsStore.getState().byWorkspace[WS_A];
     expect(record).toBeDefined();
@@ -319,7 +319,7 @@ describe("Scenario 3 (AUTO): file click → openTab + tab store reflects new edi
   it("added editor tab carries filePath and workspaceId props", () => {
     const filePath = `${ROOT_A}/src/App.tsx`;
 
-    openTab(WS_A, "editor", { filePath, workspaceId: WS_A });
+    openOrRevealEditor({ workspaceId: WS_A, filePath });
 
     const tabs = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
     expect(tabs[0]?.props).toEqual({ filePath, workspaceId: WS_A });
@@ -328,7 +328,7 @@ describe("Scenario 3 (AUTO): file click → openTab + tab store reflects new edi
   it("added editor tab title defaults to the file's basename", () => {
     const filePath = `${ROOT_A}/src/utils.ts`;
 
-    openTab(WS_A, "editor", { filePath, workspaceId: WS_A });
+    openOrRevealEditor({ workspaceId: WS_A, filePath });
 
     const tabs = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
     expect(tabs[0]?.title).toBe("utils.ts");
@@ -337,27 +337,18 @@ describe("Scenario 3 (AUTO): file click → openTab + tab store reflects new edi
   it("newly added tab becomes the active tab in its layout group", () => {
     const filePath = `${ROOT_A}/src/main.ts`;
 
-    const tab = openTab(WS_A, "editor", {
-      filePath,
-      workspaceId: WS_A,
-    });
+    const tab = openOrRevealEditor({ workspaceId: WS_A, filePath });
 
     const layout = useLayoutStore.getState().byWorkspace[WS_A];
     expect(layout).toBeDefined();
     // The active group's leaf should have this tab as active
     const activeGroupId = layout?.activeGroupId;
-    expect(activeGroupId).toBeDefined();
+    expect(activeGroupId).toBe(tab.groupId);
   });
 
   it("clicking two different files creates two editor tabs", () => {
-    openTab(WS_A, "editor", {
-      filePath: `${ROOT_A}/a.ts`,
-      workspaceId: WS_A,
-    });
-    openTab(WS_A, "editor", {
-      filePath: `${ROOT_A}/b.ts`,
-      workspaceId: WS_A,
-    });
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/a.ts` });
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/b.ts` });
 
     const tabs = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
     expect(tabs).toHaveLength(2);
@@ -656,24 +647,15 @@ describe("Scenario 6 (AUTO): resize drag → filesPanelWidth + appState persiste
 describe("Cross-store: editor tabs are workspace-scoped, do not leak across workspaces", () => {
   beforeEach(resetAllStores);
 
-  it("openTab for WS_A does not create entries for WS_B", () => {
-    openTab(WS_A, "editor", {
-      filePath: `${ROOT_A}/src/index.ts`,
-      workspaceId: WS_A,
-    });
+  it("openOrRevealEditor for WS_A does not create entries for WS_B", () => {
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/index.ts` });
 
     expect(useTabsStore.getState().byWorkspace[WS_B]).toBeUndefined();
   });
 
-  it("openTab for WS_B does not affect WS_A tabs", () => {
-    openTab(WS_A, "editor", {
-      filePath: `${ROOT_A}/src/a.ts`,
-      workspaceId: WS_A,
-    });
-    openTab(WS_B, "editor", {
-      filePath: `${ROOT_B}/src/b.ts`,
-      workspaceId: WS_B,
-    });
+  it("openOrRevealEditor for WS_B does not affect WS_A tabs", () => {
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/a.ts` });
+    openOrRevealEditor({ workspaceId: WS_B, filePath: `${ROOT_B}/src/b.ts` });
 
     const tabsA = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
     const tabsB = Object.values(useTabsStore.getState().byWorkspace[WS_B] ?? {});

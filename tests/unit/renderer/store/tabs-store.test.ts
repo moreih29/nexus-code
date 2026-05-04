@@ -28,7 +28,7 @@ if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
 // Import store after shims
 // ---------------------------------------------------------------------------
 
-import { useTabsStore } from "../../../../src/renderer/store/tabs";
+import { useTabsStore } from "../../../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Helpers

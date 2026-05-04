@@ -32,7 +32,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../../../../src/renderer/store/ui";
+} from "../../../../src/renderer/state/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Helpers

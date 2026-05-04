@@ -6,6 +6,8 @@ export interface EditorInput {
   filePath: string;
 }
 
+export type EditorTabProps = EditorInput;
+
 export interface OpenEditorOptions {
   /** When the input is already open in any group, focus that group. Defaults to true. */
   revealIfOpened?: boolean;

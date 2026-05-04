@@ -16,12 +16,12 @@
  *   B3. tabsStore gains exactly one new tab record
  *
  * Scenario C — FileTree handleKeyDown branching (dir vs file) — pure function test
- *   C1. File node + Cmd+Enter routes to openTabInNewSplit (not openTab)
+ *   C1. File node + Cmd+Enter routes to openOrRevealEditor({ newSplit })
  *   C2. Dir node + Cmd+Enter is a no-op (neither open function called)
- *   C3. File node + Enter routes to openTab (not openTabInNewSplit)
- *   C4. Dir node + Enter calls toggleExpand, not openTab
+ *   C3. File node + Enter routes to openOrRevealEditor
+ *   C4. Dir node + Enter calls toggleExpand, not openOrRevealEditor
  *
- * Scenario D — useGroupActions.splitRight/splitDown → splitAndDuplicate store state
+ * Scenario D — useGroupActions.splitRight/splitDown → service newSplit state
  *   D1. splitRight produces a second leaf, source tab unchanged
  *   D2. splitDown produces a vertical split leaf
  *   D3. Two tab records exist in tabsStore after splitRight
@@ -33,7 +33,7 @@
  *   - Store-level state changes for split + duplicate operations
  *   - openTabInNewSplit on an empty workspace (ensureLayout path)
  *   - handleKeyDown logic extracted as inline handler mirrors (no DOM/React)
- *   - useGroupActions wired directly to store (no React component lifecycle)
+ *   - useGroupActions service-dispatch contract mirrored without React lifecycle
  *
  * What is NOT automated (DOM/Electron boundary):
  *   - React rendering of the FileTree virtualizer
@@ -69,14 +69,20 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../src/renderer/store/layout";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import {
   openTab,
   openTabInNewSplit,
   splitAndDuplicate,
-} from "../../src/renderer/store/operations";
-import { useTabsStore } from "../../src/renderer/store/tabs";
-import { allLeaves, findLeaf } from "../../src/renderer/store/layout/helpers";
+} from "../../src/renderer/state/operations";
+import { openOrRevealEditor } from "../../src/renderer/services/editor";
+import { openTerminal } from "../../src/renderer/services/terminal";
+import {
+  type EditorTabProps,
+  type TerminalTabProps,
+  useTabsStore,
+} from "../../src/renderer/state/stores/tabs";
+import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -91,8 +97,13 @@ function resetStores() {
 
 function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
-  if (!layout) throw new Error("layout slice not found for " + WS);
+  if (!layout) throw new Error(`layout slice not found for ${WS}`);
   return layout;
+}
+
+function must<T>(value: T | null | undefined, label: string): T {
+  if (value == null) throw new Error(`expected ${label}`);
+  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,10 +117,12 @@ describe("Scenario A1: source and destination tabs have distinct ids in tabsStor
     const tab = openTab(WS, "terminal", { cwd: "/root" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
-    expect(result).not.toBeNull();
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
+      "split result",
+    );
 
-    const wsRecord = useTabsStore.getState().byWorkspace[WS]!;
+    const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
     const ids = Object.keys(wsRecord);
     expect(ids.length).toBe(2);
     expect(ids[0]).not.toBe(ids[1]);
@@ -117,7 +130,7 @@ describe("Scenario A1: source and destination tabs have distinct ids in tabsStor
     const leaves = allLeaves(getLayout().root);
     const allTabIds = leaves.flatMap((l) => l.tabIds);
     expect(allTabIds).toContain(tab.id);
-    expect(allTabIds).toContain(result!.newTabId);
+    expect(allTabIds).toContain(result.newTabId);
   });
 });
 
@@ -141,14 +154,17 @@ describe("Scenario A3: horizontal split places new leaf as second child", () => 
     const tab = openTab(WS, "terminal", { cwd: "/a" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
+      "split result",
+    );
 
     const root = getLayout().root;
     expect(root.kind).toBe("split");
     if (root.kind === "split") {
       expect(root.orientation).toBe("horizontal");
       expect(root.first.id).toBe(sourceLeafId);
-      expect(root.second.id).toBe(result!.newLeafId);
+      expect(root.second.id).toBe(result.newLeafId);
     }
   });
 });
@@ -175,9 +191,12 @@ describe("Scenario A5: destination leaf becomes active group after splitAndDupli
     const tab = openTab(WS, "terminal", { cwd: "/c" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
+      "split result",
+    );
 
-    expect(getLayout().activeGroupId).toBe(result!.newLeafId);
+    expect(getLayout().activeGroupId).toBe(result.newLeafId);
   });
 });
 
@@ -208,17 +227,20 @@ describe("Scenario B2: openTabInNewSplit on empty layout produces kind:split roo
   });
 });
 
-describe("Scenario B3: openTabInNewSplit on empty layout creates exactly one tab record", () => {
+describe("Scenario B3: openOrRevealEditor newSplit on empty layout creates one editor tab", () => {
   beforeEach(resetStores);
 
   it("tabsStore gains exactly one tab on empty workspace", () => {
-    const result = openTabInNewSplit(WS, "editor", { filePath: "/index.ts", workspaceId: WS }, "horizontal", "after");
+    const result = openOrRevealEditor(
+      { workspaceId: WS, filePath: "/index.ts" },
+      { newSplit: { orientation: "horizontal", side: "after" } },
+    );
 
     const wsRecord = useTabsStore.getState().byWorkspace[WS];
-    expect(wsRecord).toBeDefined();
-    expect(Object.keys(wsRecord!).length).toBe(1);
-    expect(wsRecord![result.tabId]).toBeDefined();
-    expect(wsRecord![result.tabId]?.type).toBe("editor");
+    const tabs = must(wsRecord, "workspace tabs");
+    expect(Object.keys(tabs).length).toBe(1);
+    expect(tabs[result.tabId]).toBeDefined();
+    expect(tabs[result.tabId]?.type).toBe("editor");
   });
 });
 
@@ -274,8 +296,10 @@ function handleFileTreeKey(
   item: MockFlatItem,
   e: MockKeyEvent,
   deps: {
-    openTab: (wsId: string, type: string, props: object) => void;
-    openTabInNewSplit: (wsId: string, type: string, props: object, orientation: string, side: string) => void;
+    openOrRevealEditor: (
+      input: { workspaceId: string; filePath: string },
+      opts?: { newSplit?: { orientation: "horizontal" | "vertical"; side: "before" | "after" } },
+    ) => void;
     toggleExpand: (wsId: string, absPath: string) => void;
     isInEditable: (target: unknown) => boolean;
   },
@@ -287,7 +311,10 @@ function handleFileTreeKey(
     if (deps.isInEditable(e.target)) return;
     if (isDir) return;
     e.preventDefault();
-    deps.openTabInNewSplit(workspaceId, "editor", { filePath: item.absPath, workspaceId }, "horizontal", "after");
+    deps.openOrRevealEditor(
+      { workspaceId, filePath: item.absPath },
+      { newSplit: { orientation: "horizontal", side: "after" } },
+    );
     return;
   }
 
@@ -296,109 +323,100 @@ function handleFileTreeKey(
     if (isDir) {
       deps.toggleExpand(workspaceId, item.absPath);
     } else {
-      deps.openTab(workspaceId, "editor", { filePath: item.absPath, workspaceId });
+      deps.openOrRevealEditor({ workspaceId, filePath: item.absPath });
     }
   }
 }
 
-describe("Scenario C1: FileTree Cmd+Enter on a file calls openTabInNewSplit", () => {
-  it("routes to openTabInNewSplit and NOT openTab", () => {
-    const openTabMock = mock(() => {});
-    const openTabInNewSplitMock = mock(() => {});
+describe("Scenario C1: FileTree Cmd+Enter on a file calls openOrRevealEditor newSplit", () => {
+  it("routes to openOrRevealEditor with newSplit", () => {
+    const openOrRevealEditorMock = mock(() => {});
     const toggleExpandMock = mock(() => {});
     const fileItem: MockFlatItem = { absPath: "/proj/src/index.ts", node: { type: "file" } };
     const e = makeMockKeyEvent("Enter", { metaKey: true });
 
     handleFileTreeKey(fileItem, e, {
-      openTab: openTabMock,
-      openTabInNewSplit: openTabInNewSplitMock,
+      openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: toggleExpandMock,
       isInEditable: () => false,
     }, "ws-test");
 
-    expect(openTabInNewSplitMock).toHaveBeenCalledTimes(1);
-    expect(openTabMock).not.toHaveBeenCalled();
+    expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
     expect(toggleExpandMock).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("passes correct filePath and orientation to openTabInNewSplit", () => {
-    const openTabInNewSplitMock = mock(
-      (_wsId: string, _type: string, _props: object, _orientation: string, _side: string) => {}
+  it("passes correct filePath and orientation to openOrRevealEditor", () => {
+    const openOrRevealEditorMock = mock(
+      (
+        _input: { workspaceId: string; filePath: string },
+        _opts?: { newSplit?: { orientation: "horizontal" | "vertical"; side: "before" | "after" } },
+      ) => {},
     );
     const fileItem: MockFlatItem = { absPath: "/app/main.ts", node: { type: "file" } };
     const e = makeMockKeyEvent("Enter", { metaKey: true });
 
     handleFileTreeKey(fileItem, e, {
-      openTab: mock(() => {}),
-      openTabInNewSplit: openTabInNewSplitMock,
+      openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: mock(() => {}),
       isInEditable: () => false,
     }, "ws-1");
 
-    const call = openTabInNewSplitMock.mock.calls[0];
-    expect(call[2]).toMatchObject({ filePath: "/app/main.ts" });
-    expect(call[3]).toBe("horizontal");
-    expect(call[4]).toBe("after");
+    const call = openOrRevealEditorMock.mock.calls[0];
+    expect(call[0]).toMatchObject({ filePath: "/app/main.ts" });
+    expect(call[1]).toEqual({ newSplit: { orientation: "horizontal", side: "after" } });
   });
 });
 
 describe("Scenario C2: FileTree Cmd+Enter on a dir is a no-op", () => {
-  it("neither openTab nor openTabInNewSplit is called for a directory", () => {
-    const openTabMock = mock(() => {});
-    const openTabInNewSplitMock = mock(() => {});
+  it("openOrRevealEditor is not called for a directory", () => {
+    const openOrRevealEditorMock = mock(() => {});
     const dirItem: MockFlatItem = { absPath: "/proj/src", node: { type: "dir" } };
     const e = makeMockKeyEvent("Enter", { metaKey: true });
 
     handleFileTreeKey(dirItem, e, {
-      openTab: openTabMock,
-      openTabInNewSplit: openTabInNewSplitMock,
+      openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: mock(() => {}),
       isInEditable: () => false,
     }, "ws-test");
 
-    expect(openTabInNewSplitMock).not.toHaveBeenCalled();
-    expect(openTabMock).not.toHaveBeenCalled();
+    expect(openOrRevealEditorMock).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(false);
   });
 });
 
-describe("Scenario C3: FileTree plain Enter on a file calls openTab (not openTabInNewSplit)", () => {
-  it("routes to openTab for a file on plain Enter", () => {
-    const openTabMock = mock(() => {});
-    const openTabInNewSplitMock = mock(() => {});
+describe("Scenario C3: FileTree plain Enter on a file calls openOrRevealEditor", () => {
+  it("routes to openOrRevealEditor for a file on plain Enter", () => {
+    const openOrRevealEditorMock = mock(() => {});
     const fileItem: MockFlatItem = { absPath: "/proj/README.md", node: { type: "file" } };
     const e = makeMockKeyEvent("Enter", { metaKey: false });
 
     handleFileTreeKey(fileItem, e, {
-      openTab: openTabMock,
-      openTabInNewSplit: openTabInNewSplitMock,
+      openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: mock(() => {}),
       isInEditable: () => false,
     }, "ws-1");
 
-    expect(openTabMock).toHaveBeenCalledTimes(1);
-    expect(openTabInNewSplitMock).not.toHaveBeenCalled();
+    expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 });
 
-describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not openTab", () => {
+describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not openOrRevealEditor", () => {
   it("routes to toggleExpand for a directory on plain Enter", () => {
-    const openTabMock = mock(() => {});
+    const openOrRevealEditorMock = mock(() => {});
     const toggleExpandMock = mock(() => {});
     const dirItem: MockFlatItem = { absPath: "/proj/src", node: { type: "dir" } };
     const e = makeMockKeyEvent("Enter", { metaKey: false });
 
     handleFileTreeKey(dirItem, e, {
-      openTab: openTabMock,
-      openTabInNewSplit: mock(() => {}),
+      openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: toggleExpandMock,
       isInEditable: () => false,
     }, "ws-1");
 
     expect(toggleExpandMock).toHaveBeenCalledTimes(1);
-    expect(openTabMock).not.toHaveBeenCalled();
+    expect(openOrRevealEditorMock).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
   });
 });
@@ -406,20 +424,9 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
 // ---------------------------------------------------------------------------
 // Scenario D — splitRight/splitDown contract: simulate useGroupActions behavior
 //
-// useGroupActions.ts uses "@/" path aliases which are not resolvable in the
-// Bun test runner (no bunfig.toml / tsconfig.json with paths at the root).
-// Rather than importing the hook directly, we verify the same store-level
-// contract by reproducing the exact code path that useGroupActions.splitRight
-// and splitDown execute:
-//
-//   function splitRight() {
-//     const tabId = getContextTabId();
-//     if (!tabId) return;
-//     splitAndDuplicate(workspaceId, leafId, tabId, "horizontal", "after");
-//   }
-//
-// This validates the integration between the context-menu action and the
-// underlying split operation without requiring the @/ alias to resolve.
+// Rather than importing the hook into a non-React test, we mirror its service
+// dispatch: editor tabs route to openOrRevealEditor({ newSplit }) and terminal
+// tabs route to openTerminal({ newSplit, groupId: leafId }).
 // ---------------------------------------------------------------------------
 
 /** Mirror of useGroupActions.splitRight/splitDown for test purposes */
@@ -428,16 +435,35 @@ function makeSplitActions(
   leafId: string,
   getContextTabId: () => string,
 ) {
+  function split(orientation: "horizontal" | "vertical") {
+    const tabId = getContextTabId();
+    if (!tabId) return;
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (!tab) return;
+
+    if (tab.type === "editor") {
+      useLayoutStore.getState().setActiveGroup(workspaceId, leafId);
+      openOrRevealEditor(tab.props as EditorTabProps, {
+        newSplit: { orientation, side: "after" },
+      });
+      return;
+    }
+
+    if (tab.type === "terminal") {
+      const props = tab.props as TerminalTabProps;
+      openTerminal(
+        { workspaceId, cwd: props.cwd },
+        { groupId: leafId, newSplit: { orientation, side: "after" } },
+      );
+    }
+  }
+
   return {
     splitRight() {
-      const tabId = getContextTabId();
-      if (!tabId) return;
-      splitAndDuplicate(workspaceId, leafId, tabId, "horizontal", "after");
+      split("horizontal");
     },
     splitDown() {
-      const tabId = getContextTabId();
-      if (!tabId) return;
-      splitAndDuplicate(workspaceId, leafId, tabId, "vertical", "after");
+      split("vertical");
     },
   };
 }
@@ -483,13 +509,13 @@ describe("Scenario D3: splitRight (useGroupActions mirror) — two tab records i
   beforeEach(resetStores);
 
   it("tabsStore contains exactly 2 records with different ids after splitRight", () => {
-    const tab = openTab(WS, "editor", { filePath: "/file.ts", workspaceId: WS });
+    const tab = openOrRevealEditor({ workspaceId: WS, filePath: "/file.ts" });
     const leafId = getLayout().activeGroupId;
 
-    const actions = makeSplitActions(WS, leafId, () => tab.id);
+    const actions = makeSplitActions(WS, leafId, () => tab.tabId);
     actions.splitRight();
 
-    const wsRecord = useTabsStore.getState().byWorkspace[WS]!;
+    const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
     const ids = Object.keys(wsRecord);
     expect(ids.length).toBe(2);
     expect(ids[0]).not.toBe(ids[1]);

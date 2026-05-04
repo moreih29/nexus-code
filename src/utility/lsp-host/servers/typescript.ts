@@ -128,6 +128,13 @@ export class TypeScriptServer {
     });
   }
 
+  async didClose(uri: string): Promise<void> {
+    if (!this.initialized) return;
+    this.notify("textDocument/didClose", {
+      textDocument: { uri },
+    });
+  }
+
   async hover(uri: string, line: number, character: number): Promise<HoverResult | null> {
     if (!this.initialized) return null;
     const result = await this.request("textDocument/hover", {

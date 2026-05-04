@@ -8,11 +8,11 @@ export type FileErrorCode =
   | "OTHER";
 
 export function parseFileErrorCode(message: string): FileErrorCode {
-  if (/^NOT_FOUND:/.test(message)) return "NOT_FOUND";
-  if (/^PERMISSION_DENIED:/.test(message)) return "PERMISSION_DENIED";
-  if (/^IS_DIRECTORY:/.test(message)) return "IS_DIRECTORY";
-  if (/^TOO_LARGE:/.test(message)) return "TOO_LARGE";
-  return "OTHER";
+  const match = /(?:^|\bError:\s)(NOT_FOUND|PERMISSION_DENIED|IS_DIRECTORY|TOO_LARGE):/.exec(
+    message,
+  );
+  if (!match) return "OTHER";
+  return match[1] as FileErrorCode;
 }
 
 export function fileErrorMessage(

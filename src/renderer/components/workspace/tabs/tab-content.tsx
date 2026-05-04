@@ -1,4 +1,4 @@
-import type { EditorTabProps, Tab, TerminalTabProps } from "../../../store/tabs";
+import type { EditorTabProps, Tab, TerminalTabProps } from "../../../state/stores/tabs";
 import { EditorView } from "../content/editor-view";
 import { TerminalView } from "../content/terminal-view";
 

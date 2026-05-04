@@ -2,15 +2,17 @@
 // Mirrors VSCode FlowControlConstants but owns no I/O — callers push state and
 // read back whether the producer should be paused or resumed.
 
-export const HighWatermarkChars = 100000;
-export const LowWatermarkChars = 5000;
-export const CharCountAckSize = 5000;
+import { TERMINAL_FLOW_CONTROL } from "../../shared/terminal-flow-control";
+
+export const HighWatermarkChars = TERMINAL_FLOW_CONTROL.HIGH_WATERMARK;
+export const LowWatermarkChars = TERMINAL_FLOW_CONTROL.LOW_WATERMARK;
+export const CharCountAckSize = TERMINAL_FLOW_CONTROL.ACK_SIZE;
 
 export class FlowController {
   private unacknowledged = 0;
   private paused = false;
 
-  // Called by the producer when new data bytes are sent.
+  // Called by the producer when new data chars are sent.
   // Returns true if the producer should now be paused.
   onData(charCount: number): boolean {
     this.unacknowledged += charCount;

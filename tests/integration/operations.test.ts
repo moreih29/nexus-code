@@ -3,7 +3,7 @@
  *
  * SCOPE
  * -----
- * Verifies the cross-store coordination in src/renderer/store/operations.ts.
+ * Verifies the cross-store coordination in src/renderer/state/operations.ts.
  * Each scenario exercises the collaboration between useLayoutStore and
  * useTabsStore without any DOM or Electron involvement.
  *
@@ -19,7 +19,6 @@
  *   - splitAndDuplicate creates new leaf + cloned tab, source unchanged
  *   - openTabInNewSplit creates new leaf with a fresh tab
  *   - closeGroup removes leaf and all its tab records
- *   - seedDefaultTerminalIfEmpty seeds once, idempotent on repeat
  *
  * What is NOT automated (DOM/Electron boundary):
  *   - React rendering of leaf content, resize handles, tab bar
@@ -56,17 +55,16 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks are installed
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../src/renderer/store/layout";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import {
   closeGroup,
   closeTab,
   openTab,
   openTabInNewSplit,
-  seedDefaultTerminalIfEmpty,
   splitAndDuplicate,
-} from "../../src/renderer/store/operations";
-import { useTabsStore } from "../../src/renderer/store/tabs";
-import { allLeaves, findLeaf } from "../../src/renderer/store/layout/helpers";
+} from "../../src/renderer/state/operations";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
+import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -81,8 +79,13 @@ function resetStores() {
 
 function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
-  if (!layout) throw new Error("layout slice not found for " + WS);
+  if (!layout) throw new Error(`layout slice not found for ${WS}`);
   return layout;
+}
+
+function must<T>(value: T | null | undefined, label: string): T {
+  if (value == null) throw new Error(`expected ${label}`);
+  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,12 +188,10 @@ describe("Scenario 4: closeTab removes tab from layout and tabsStore", () => {
 
   it("tab is absent from layout leaf after closeTab", () => {
     const tab = openTab(WS, "terminal", { cwd: "/c" });
-    const leafId = getLayout().activeGroupId;
 
     closeTab(WS, tab.id);
 
     const layout = getLayout();
-    const leaf = findLeaf(layout.root, leafId);
     // Leaf may still exist as an empty placeholder (sole leaf case)
     const allLeafIds = allLeaves(layout.root).flatMap((l) => l.tabIds);
     expect(allLeafIds).not.toContain(tab.id);
@@ -253,7 +254,7 @@ describe("Scenario 6: non-sole empty leaf collapses, activeGroupId falls back to
 
   it("parent split is replaced by the sibling after last tab in a non-sole leaf closes", () => {
     // Setup: two leaves (split). leafA and leafB side-by-side.
-    const tabA = openTab(WS, "terminal", { cwd: "/left" });
+    openTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
     // Create the second leaf via splitGroup
@@ -275,7 +276,7 @@ describe("Scenario 6: non-sole empty leaf collapses, activeGroupId falls back to
   });
 
   it("activeGroupId falls back to the hoisted sibling's leftmost leaf", () => {
-    const tabA = openTab(WS, "terminal", { cwd: "/left" });
+    openTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
@@ -328,12 +329,15 @@ describe("Scenario 7: splitAndDuplicate happy path", () => {
     const tab = openTab(WS, "terminal", { cwd: "/src" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
+      "split result",
+    );
     const layout = getLayout();
-    const newLeaf = findLeaf(layout.root, result!.newLeafId);
+    const newLeaf = findLeaf(layout.root, result.newLeafId);
 
-    expect(newLeaf?.tabIds).toContain(result?.newTabId);
-    const newTabRecord = useTabsStore.getState().byWorkspace[WS]?.[result!.newTabId];
+    expect(newLeaf?.tabIds).toContain(result.newTabId);
+    const newTabRecord = useTabsStore.getState().byWorkspace[WS]?.[result.newTabId];
     expect(newTabRecord?.type).toBe("terminal");
     expect((newTabRecord?.props as { cwd: string }).cwd).toBe("/src");
   });
@@ -342,11 +346,14 @@ describe("Scenario 7: splitAndDuplicate happy path", () => {
     const tab = openTab(WS, "terminal", { cwd: "/proj" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "vertical", "after");
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "vertical", "after"),
+      "split result",
+    );
 
     const wsRecord = useTabsStore.getState().byWorkspace[WS];
     expect(Object.keys(wsRecord ?? {}).length).toBe(2);
-    const newTab = wsRecord?.[result!.newTabId];
+    const newTab = wsRecord?.[result.newTabId];
     expect(newTab?.id).not.toBe(tab.id);
     expect(newTab?.type).toBe(tab.type);
   });
@@ -383,11 +390,14 @@ describe("Scenario 9: splitAndDuplicate deep-clones props", () => {
     const tab = openTab(WS, "terminal", { cwd: "/foo" });
     const sourceLeafId = getLayout().activeGroupId;
 
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
+    const result = must(
+      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
+      "split result",
+    );
 
-    const wsRecord = useTabsStore.getState().byWorkspace[WS]!;
-    const sourceProps = wsRecord[tab.id]!.props;
-    const newProps = wsRecord[result!.newTabId]!.props;
+    const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
+    const sourceProps = must(wsRecord[tab.id], "source tab").props;
+    const newProps = must(wsRecord[result.newTabId], "new tab").props;
 
     expect(newProps).not.toBe(sourceProps);
     expect(newProps).toEqual(sourceProps);
@@ -477,7 +487,7 @@ describe("Scenario 12: closeGroup on sole leaf empties it without removing it", 
   beforeEach(resetStores);
 
   it("sole leaf is preserved with empty tabIds", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/only" });
+    openTab(WS, "terminal", { cwd: "/only" });
     const leafId = getLayout().activeGroupId;
 
     closeGroup(WS, leafId);
@@ -485,7 +495,7 @@ describe("Scenario 12: closeGroup on sole leaf empties it without removing it", 
     const layout = getLayout();
     expect(layout.root.kind).toBe("leaf");
     expect(layout.root.id).toBe(leafId);
-    expect((layout.root as import("../../src/renderer/store/layout/types").LayoutLeaf).tabIds.length).toBe(0);
+    expect((layout.root as import("../../src/renderer/state/stores/layout/types").LayoutLeaf).tabIds.length).toBe(0);
   });
 
   it("tab record is removed from tabsStore after sole-leaf closeGroup", () => {
@@ -496,41 +506,5 @@ describe("Scenario 12: closeGroup on sole leaf empties it without removing it", 
 
     const wsRecord = useTabsStore.getState().byWorkspace[WS];
     expect(wsRecord?.[tab.id]).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 13 — seedDefaultTerminalIfEmpty
-// ---------------------------------------------------------------------------
-
-describe("Scenario 13: seedDefaultTerminalIfEmpty", () => {
-  beforeEach(resetStores);
-
-  it("seeds a terminal tab when the workspace has no tabs", () => {
-    seedDefaultTerminalIfEmpty(WS, "/workspace");
-
-    const wsRecord = useTabsStore.getState().byWorkspace[WS];
-    expect(Object.keys(wsRecord ?? {}).length).toBe(1);
-    const [tabRecord] = Object.values(wsRecord ?? {});
-    expect(tabRecord?.type).toBe("terminal");
-    expect((tabRecord?.props as { cwd: string }).cwd).toBe("/workspace");
-  });
-
-  it("is idempotent — second call does not add a second tab", () => {
-    seedDefaultTerminalIfEmpty(WS, "/workspace");
-    seedDefaultTerminalIfEmpty(WS, "/workspace");
-
-    const wsRecord = useTabsStore.getState().byWorkspace[WS];
-    expect(Object.keys(wsRecord ?? {}).length).toBe(1);
-  });
-
-  it("does nothing when a tab already exists (regardless of type)", () => {
-    openTab(WS, "editor", { filePath: "/README.md", workspaceId: WS });
-    const countBefore = Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}).length;
-
-    seedDefaultTerminalIfEmpty(WS, "/workspace");
-
-    const countAfter = Object.keys(useTabsStore.getState().byWorkspace[WS] ?? {}).length;
-    expect(countAfter).toBe(countBefore);
   });
 });

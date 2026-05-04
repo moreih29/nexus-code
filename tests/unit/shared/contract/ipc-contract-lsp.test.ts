@@ -2,8 +2,6 @@
 import { describe, expect, test } from "bun:test";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 
-const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
-
 describe("ipcContract.lsp.call.hover", () => {
   const schema = ipcContract.lsp.call.hover.args;
 
@@ -48,6 +46,20 @@ describe("ipcContract.lsp.call.completion", () => {
   test("accepts valid completion position", () => {
     const result = schema.safeParse({ uri: "file:///src/foo.ts", line: 3, character: 12 });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("ipcContract.lsp.call.didClose", () => {
+  const schema = ipcContract.lsp.call.didClose.args;
+
+  test("accepts a document uri", () => {
+    const result = schema.safeParse({ uri: "file:///src/index.ts" });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing uri", () => {
+    const result = schema.safeParse({});
+    expect(result.success).toBe(false);
   });
 });
 

@@ -33,7 +33,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { handleFsChanged, selectFlat, useFilesStore } from "../../../../src/renderer/store/files";
+import { handleFsChanged, selectFlat, useFilesStore } from "../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../src/shared/types/fs";
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { DirEntry } from "../../../shared/types/fs";
+import type { DirEntry } from "../../../../shared/types/fs";
 import type { FilesState, FlatItem, WorkspaceTree } from "./types";
 
 export function absPathToRel(absPath: string, rootAbsPath: string): string {

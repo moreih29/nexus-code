@@ -23,8 +23,8 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../../../src/renderer/store/layout/store";
-import type { LayoutLeaf, LayoutNode, LayoutSplit } from "../../../../src/renderer/store/layout/types";
+import { useLayoutStore } from "../../../../src/renderer/state/stores/layout/store";
+import type { LayoutLeaf, LayoutNode, LayoutSplit } from "../../../../src/renderer/state/stores/layout/types";
 import {
   allLeaves,
   clampRatio,
@@ -32,7 +32,7 @@ import {
   findSplit,
   leftmostLeaf,
   parentSplitOf,
-} from "../../../../src/renderer/store/layout/helpers";
+} from "../../../../src/renderer/state/stores/layout/helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers

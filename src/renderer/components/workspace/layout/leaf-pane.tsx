@@ -1,4 +1,4 @@
-import type { LayoutLeaf, LayoutNode } from "@/store/layout";
+import type { LayoutLeaf, LayoutNode } from "@/state/stores/layout";
 import { GroupView } from "../group/group-view";
 
 interface LeafPaneProps {

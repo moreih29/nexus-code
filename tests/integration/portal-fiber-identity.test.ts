@@ -94,9 +94,9 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { slotRegistry } from "../../src/renderer/components/workspace/content/slot-registry";
-import { allLeaves } from "../../src/renderer/store/layout/helpers";
-import { useLayoutStore } from "../../src/renderer/store/layout/store";
-import { useTabsStore } from "../../src/renderer/store/tabs";
+import { allLeaves } from "../../src/renderer/state/stores/layout/helpers";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout/store";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Minimal HTMLElement stand-in

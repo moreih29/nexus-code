@@ -1,6 +1,6 @@
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { useUIStore } from "../../store/ui";
+import { useUIStore } from "../../state/stores/ui";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { LayoutNode, LayoutSplit } from "@/store/layout";
+import type { LayoutNode, LayoutSplit } from "@/state/stores/layout";
 import { ResizeHandle } from "../../ui/resize-handle";
 import { useSplitSash } from "./use-split-sash";
 

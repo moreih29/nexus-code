@@ -1,21 +1,25 @@
+import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
 import { FilesPanel } from "./components/files";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WorkspacePanel } from "./components/workspace/workspace-panel";
+import { Grid } from "./engine/split";
 import { ipcCall } from "./ipc/client";
 import { handleGlobalKeyDown } from "./keybindings/global";
-import { useActiveStore } from "./store/active";
-import { useFilesStore } from "./store/files";
-import { useLayoutStore } from "./store/layout";
-import { Grid } from "./engine/split";
-import { closeGroup, openTab, splitAndDuplicate } from "./store/operations";
-import { registerLayoutPersistence } from "./store/persist-layout";
-import { useTabsStore } from "./store/tabs";
-import { useUIStore } from "./store/ui";
-import { useWorkspacesStore } from "./store/workspaces";
+import { initializeEditorServices, openOrRevealEditor } from "./services/editor";
+import { openTerminal } from "./services/terminal";
+import { closeGroup } from "./state/operations";
+import { registerStatePersistence } from "./state/persistence";
+import { useActiveStore } from "./state/stores/active";
+import { useFilesStore } from "./state/stores/files";
+import { useLayoutStore } from "./state/stores/layout";
+import { type EditorTabProps, type TerminalTabProps, useTabsStore } from "./state/stores/tabs";
+import { useUIStore } from "./state/stores/ui";
+import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
+  const monaco = useMonaco();
   const { workspaces, setAll } = useWorkspacesStore();
   const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
 
@@ -23,6 +27,11 @@ export function App() {
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!monaco) return;
+    initializeEditorServices(monaco);
+  }, [monaco]);
 
   // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
   useEffect(() => {
@@ -47,11 +56,9 @@ export function App() {
 
             // Restore layout (sanitize against known tab ids)
             const knownTabIds = new Set(snap.tabs.map((t) => t.id));
-            useLayoutStore.getState().hydrate(
-              wsId,
-              { root: snap.root, activeGroupId: snap.activeGroupId },
-              knownTabIds,
-            );
+            useLayoutStore
+              .getState()
+              .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
           } catch {
             // Silent repair: skip invalid snapshot for this workspace
           }
@@ -61,7 +68,7 @@ export function App() {
       // Register persistence subscriber after hydrate to avoid write-storm
       // Use a brief timer so the store subscriptions don't fire during the
       // synchronous hydrate state updates.
-      setTimeout(registerLayoutPersistence, 100);
+      setTimeout(registerStatePersistence, 100);
     });
   }, []);
 
@@ -89,8 +96,9 @@ export function App() {
     });
   }, [activeWorkspaceId]);
 
-  // Prune mounted set when a workspace disappears so its panel unmounts and
-  // TerminalView cleanup kills its PTYs.
+  // Prune mounted set when a workspace disappears. Tab-record cleanup
+  // (closeAllForWorkspace / close wrappers) kills PTYs; panel unmount only
+  // disposes view/controller instances.
   useEffect(() => {
     setMountedIds((prev) => {
       const alive = new Set(workspaces.map((w) => w.id));
@@ -148,13 +156,13 @@ export function App() {
       );
       if (!ok) return;
       // tabs store subscribes to `workspace:removed` and clears its slice;
-      // panel unmount triggers TerminalView cleanup → PTY kill.
+      // that tab-record cleanup kills PTYs before panel unmount disposes views.
       ipcCall("workspace", "remove", { id }).catch(() => {});
     },
     [workspaces],
   );
 
-  // Global keybindings: Cmd+E / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
+  // Global keybindings: Cmd+E / Cmd+O / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       handleGlobalKeyDown(e, {
@@ -169,7 +177,7 @@ export function App() {
             ],
           });
           if (canceled || filePaths.length === 0) return;
-          openTab(wsId, "editor", { filePath: filePaths[0], workspaceId: wsId });
+          openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
         },
 
         splitActiveGroup: (orientation) => {
@@ -178,8 +186,24 @@ export function App() {
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
           const activeLeaf = Grid.findView(layout.root, layout.activeGroupId);
-          if (!activeLeaf || !activeLeaf.activeTabId) return;
-          splitAndDuplicate(wsId, activeLeaf.id, activeLeaf.activeTabId, orientation, "after");
+          if (!activeLeaf?.activeTabId) return;
+          const tab = useTabsStore.getState().byWorkspace[wsId]?.[activeLeaf.activeTabId];
+          if (!tab) return;
+
+          if (tab.type === "editor") {
+            openOrRevealEditor(tab.props as EditorTabProps, {
+              newSplit: { orientation, side: "after" },
+            });
+            return;
+          }
+
+          if (tab.type === "terminal") {
+            const props = tab.props as TerminalTabProps;
+            openTerminal(
+              { workspaceId: wsId, cwd: props.cwd },
+              { groupId: activeLeaf.id, newSplit: { orientation, side: "after" } },
+            );
+          }
         },
 
         closeActiveGroup: () => {

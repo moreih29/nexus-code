@@ -89,6 +89,19 @@ export class LspManager {
         this.send({ type: "response", id, result: null });
         break;
       }
+      case "didClose": {
+        const uri = a.uri as string;
+        const workspaceId = this.findWorkspaceForUri(uri);
+        if (workspaceId) {
+          const server = this.servers.get(workspaceId);
+          if (server) {
+            this.resetIdleTimer(workspaceId);
+            await server.didClose(uri);
+          }
+        }
+        this.send({ type: "response", id, result: null });
+        break;
+      }
       case "hover": {
         const uri = a.uri as string;
         const workspaceId = this.findWorkspaceForUri(uri);

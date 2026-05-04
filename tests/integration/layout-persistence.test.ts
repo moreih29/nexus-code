@@ -10,7 +10,7 @@
  *   - non-sole empty leaves are collapsed
  *   - sole empty leaf is preserved
  *
- * toSnapshot is a private helper in persistLayout.ts (not exported).
+ * toSnapshot is a private helper in persistence.ts (not exported).
  * We reconstruct the same logic inline here so that tests remain
  * self-contained — any future export refactor that happens to make it
  * public would only simplify these tests, not break them.
@@ -44,14 +44,15 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../src/renderer/store/layout";
-import { allLeaves, findLeaf, sanitize } from "../../src/renderer/store/layout/helpers";
-import { openTab } from "../../src/renderer/store/operations";
-import { useTabsStore } from "../../src/renderer/store/tabs";
-import type { Tab } from "../../src/renderer/store/tabs";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
+import { allLeaves, findLeaf, sanitize } from "../../src/renderer/state/stores/layout/helpers";
+import { openTab } from "../../src/renderer/state/operations";
+import { openOrRevealEditor } from "../../src/renderer/services/editor";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
+import type { Tab } from "../../src/renderer/state/stores/tabs";
 import { WorkspaceLayoutSnapshotSchema } from "../../src/shared/types/layout";
 import type { WorkspaceLayoutSnapshot } from "../../src/shared/types/layout";
-import type { LayoutNode } from "../../src/renderer/store/layout/types";
+import type { LayoutNode } from "../../src/renderer/state/stores/layout/types";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -71,7 +72,7 @@ function getLayout() {
 }
 
 /**
- * Inline equivalent of persistLayout.ts toSnapshot().
+ * Inline equivalent of persistence.ts toSnapshot().
  * Builds { root, activeGroupId, tabs } from live store state.
  */
 function buildSnapshot(workspaceId: string): WorkspaceLayoutSnapshot | null {
@@ -104,7 +105,7 @@ describe("Scenario 1: snapshot round-trip — buildSnapshot + zod parse passes",
   });
 
   it("snapshot of a workspace with one editor tab passes zod parse", () => {
-    openTab(WS, "editor", { filePath: "/home/user/main.ts", workspaceId: WS });
+    openOrRevealEditor({ workspaceId: WS, filePath: "/home/user/main.ts" });
 
     const snapshot = buildSnapshot(WS);
     const result = WorkspaceLayoutSnapshotSchema.safeParse(snapshot);
