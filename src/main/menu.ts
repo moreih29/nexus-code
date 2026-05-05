@@ -44,6 +44,25 @@ function toElectron(spec: MenuItemSpec): MenuItemConstructorOptions {
       return {
         label: spec.label,
         accelerator: spec.accelerator,
+        // macOS Cocoa intercepts menu accelerators *before* they reach
+        // the renderer's keydown listener. Letting the menu register
+        // ⌘W (or any other command shortcut) means the renderer never
+        // sees the second key of a chord like ⌘K ⌘W — Cocoa fires
+        // `tab.close` from the menu while the renderer's pending state
+        // sits idle until it times out.
+        //
+        // `registerAccelerator: false` tells Electron to *display* the
+        // shortcut in the menu but skip the system registration, so
+        // the renderer becomes the sole owner of every keystroke.
+        // Single-key bindings still work (the renderer's BINDINGS
+        // table catches them); chord bindings work for the same
+        // reason. Mouse clicks on menu items still fire `click`, so
+        // discoverability is preserved.
+        //
+        // Role items (Cut/Copy/Paste/Quit/Hide/DevTools/zoom/…) keep
+        // the default registration so Cocoa continues to handle them
+        // natively against whatever element owns focus.
+        registerAccelerator: false,
         click: () => fireCommand(spec.command),
       };
   }
