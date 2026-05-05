@@ -80,7 +80,15 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   if (pendingLeader !== null) {
     for (const c of CHORDS) {
       if (c.leaderId !== pendingLeader) continue;
-      if (matchesEvent(c.secondary, e)) {
+      // Mask leader-only modifiers when matching the secondary so
+      // users who keep ⌘ held through a `⌘K U` chord aren't punished
+      // (`KeyU` with metaKey set would otherwise fail an exact match
+      // against a secondary declared as bare `U`). VSCode's exact
+      // matcher requires releasing ⌘ between halves; this is a
+      // strict-superset relaxation that still lets every VSCode-style
+      // press complete.
+      const masked = maskLeaderModifiers(e, c.leader, c.secondary);
+      if (matchesEvent(c.secondary, masked)) {
         return { kind: "chord-completed", command: c.decl.command };
       }
     }
@@ -104,4 +112,34 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   }
 
   return { kind: "none" };
+}
+
+/**
+ * Return an event-shaped object with leader-only modifiers cleared.
+ * "Leader-only" means a modifier the leader requires but the secondary
+ * does not — those modifiers might still be physically held as the
+ * user transitions from leader to secondary, and we don't want that
+ * to make the secondary miss its match.
+ *
+ * Modifiers required by both leader and secondary (or required only
+ * by the secondary) pass through unchanged so an explicit
+ * `CmdOrCtrl+W` secondary still requires the user to be holding ⌘.
+ */
+function maskLeaderModifiers(
+  e: KeyboardEvent,
+  leader: ParsedKeystroke,
+  secondary: ParsedKeystroke,
+): KeyboardEvent {
+  const stripCmd = leader.cmd && !secondary.cmd;
+  const stripShift = leader.shift && !secondary.shift;
+  const stripAlt = leader.alt && !secondary.alt;
+  if (!stripCmd && !stripShift && !stripAlt) return e;
+  return {
+    code: e.code,
+    key: e.key,
+    metaKey: stripCmd ? false : e.metaKey,
+    ctrlKey: stripCmd ? false : e.ctrlKey,
+    shiftKey: stripShift ? false : e.shiftKey,
+    altKey: stripAlt ? false : e.altKey,
+  } as KeyboardEvent;
 }

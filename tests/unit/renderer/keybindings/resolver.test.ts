@@ -103,6 +103,18 @@ describe("resolveEvent — chord pending", () => {
     expect(r.command).toBe(COMMANDS.tabCloseSaved);
   });
 
+  it("returns chord-completed for ⌘U when leader required ⌘ (strict-superset of VSCode)", () => {
+    // The user kept ⌘ held through ⌘K → ⌘U. VSCode's exact matcher
+    // would treat this as a miss; we mask the leader-only modifier
+    // so the chord still completes.
+    const r = resolveEvent(
+      ev("KeyU", { metaKey: true }) as unknown as KeyboardEvent,
+      PENDING,
+    );
+    if (r.kind !== "chord-completed") throw new Error("unreachable");
+    expect(r.command).toBe(COMMANDS.tabCloseSaved);
+  });
+
   it("returns chord-completed for ⌘⇧Enter during pending", () => {
     const r = resolveEvent(
       ev("Enter", { metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
