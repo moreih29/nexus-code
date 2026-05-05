@@ -1,7 +1,13 @@
-import { isInEditable } from "@/keybindings/global";
+import { isInEditable } from "@/keybindings/dispatcher";
 import { openOrRevealEditor } from "@/services/editor";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
 import { parentOf, useFilesStore } from "@/state/stores/files";
+// `openToSide` (⌘↵) is no longer handled here — the global dispatcher
+// fires `COMMANDS.openToSide` with `when: "fileTreeFocus"`, which
+// covers any row in the tree without component-local plumbing.
+//
+// What stays here is the local navigation (Arrows / Enter / Space) the
+// global dispatcher has no business owning.
 
 /**
  * Returns the flat-list index of the parent dir for the given item, or null if
@@ -88,13 +94,6 @@ export function createFileTreeKeydownHandler(
           scrollToIndex(parentIdx);
         }
       }
-    } else if (e.key === "Enter" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
-      if (isDir) return;
-      e.preventDefault();
-      openOrRevealEditor(
-        { workspaceId, filePath: item.absPath },
-        { newSplit: { orientation: "horizontal", side: "after" } },
-      );
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (isDir) {

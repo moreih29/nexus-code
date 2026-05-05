@@ -47,7 +47,22 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const isLoading = tree?.loading.has(rootAbsPath) ?? false;
   const showLoading = useDelayedLoading(isLoading, LOADING_FLASH_DELAY_MS);
 
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndexLocal] = useState(0);
+  // Mirror the active row's absPath into the files store so global
+  // handlers (e.g. the `openToSide` keybinding) can act on it without
+  // having access to the tree's component-local state. We funnel every
+  // setActiveIndex callsite through this wrapper so the two stay in
+  // sync; missing rows (e.g. while the flat list is rebuilding) become
+  // null in the store.
+  const setActiveIndex = (next: number) => {
+    setActiveIndexLocal(next);
+    const path = flat[next]?.absPath ?? null;
+    useFilesStore.getState().setActiveAbsPath(workspaceId, path);
+  };
+  useEffect(() => {
+    const path = flat[activeIndex]?.absPath ?? null;
+    useFilesStore.getState().setActiveAbsPath(workspaceId, path);
+  }, [flat, activeIndex, workspaceId]);
   // Anchor for the right-click menu — set in the row's onContextMenu (bubble
   // phase) so it lands in state before Radix's Trigger opens the menu.
   const [contextTarget, setContextTarget] = useState<FileTreeActionTarget | null>(null);
@@ -154,7 +169,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
           tabIndex={0}
           onKeyDown={handleKeyDown}
           onContextMenu={handleAreaContextMenu}
-          className="h-full overflow-auto focus:outline-none"
+          className="h-full overflow-auto app-scrollbar focus:outline-none"
         >
           <FileTreeVirtualBody
             workspaceId={workspaceId}

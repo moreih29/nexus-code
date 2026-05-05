@@ -7,9 +7,14 @@
  * <ContextMenuItems items={...} />.
  */
 import type { MenuItemSpec } from "@/components/ui/context-menu";
+import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
 import type { FileTreeActionTarget, useFileTreeActions } from "./use-file-tree-actions";
 
 type FileTreeActions = ReturnType<typeof useFileTreeActions>;
+
+// `Reveal in Finder` is the macOS title; the underlying VSCode command
+// (`revealFileInOS`) renames itself per platform — match here.
+const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
 
 export function buildFileTreeMenuItems(
   target: FileTreeActionTarget | null,
@@ -36,15 +41,30 @@ export function buildFileTreeMenuItems(
   // Open to the Side are file-only.
   if (!isDir) {
     items.push({ kind: "item", label: "Open", onSelect: actions.open });
-    items.push({ kind: "item", label: "Open to the Side", onSelect: actions.openToSide });
+    items.push({
+      kind: "item",
+      label: "Open to the Side",
+      shortcut: SHORTCUTS.openToSide,
+      onSelect: actions.openToSide,
+    });
     items.push({ kind: "separator" });
   }
 
   // Reveal + Copy Path apply to every target. ContextMenuItems collapses
   // any orphaned separators automatically.
-  items.push({ kind: "item", label: "Reveal in Finder", onSelect: actions.reveal });
+  items.push({
+    kind: "item",
+    label: REVEAL_LABEL,
+    shortcut: SHORTCUTS.revealInOS,
+    onSelect: actions.reveal,
+  });
   items.push({ kind: "separator" });
-  items.push({ kind: "item", label: "Copy Path", onSelect: actions.copyPath });
+  items.push({
+    kind: "item",
+    label: "Copy Path",
+    shortcut: SHORTCUTS.copyPath,
+    onSelect: actions.copyPath,
+  });
 
   // Copy Relative Path is meaningless at the workspace root (would copy
   // an empty string). Hide it specifically there.
@@ -52,6 +72,7 @@ export function buildFileTreeMenuItems(
     items.push({
       kind: "item",
       label: "Copy Relative Path",
+      shortcut: SHORTCUTS.copyRelativePath,
       onSelect: actions.copyRelativePath,
     });
   }

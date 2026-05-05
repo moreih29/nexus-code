@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CommandIdSchema } from "./commands";
 import { AppStateSchema } from "./types/app-state";
 import { ColorToneSchema } from "./types/color-tone";
 import {
@@ -232,6 +233,19 @@ export const ipcContract = {
       set: call(AppStateSchema.partial(), z.void()),
     },
     listen: {},
+  },
+
+  // Application menu → renderer command bridge.
+  //
+  // Menu items, defined in main, fire `command.invoke` events with the
+  // command's catalog ID. The renderer's command registry executes the
+  // matching handler. Keyboard shortcuts go through the same registry,
+  // so menu and keyboard always share one implementation.
+  command: {
+    call: {},
+    listen: {
+      invoke: listen(z.object({ id: CommandIdSchema })),
+    },
   },
 
   fs: {

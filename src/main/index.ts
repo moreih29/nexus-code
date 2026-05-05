@@ -11,6 +11,7 @@ import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
+import { installAppMenu } from "./menu";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
@@ -51,6 +52,13 @@ registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
 
 app.whenReady().then(() => {
+  // Replace Electron's default menu (which still binds Cmd+W to "Close
+  // Window" and Cmd+R to "Reload") with our command-driven template
+  // before any window opens. Menu accelerators belong to the menu, not
+  // the renderer, so installing late lets the defaults steal keystrokes
+  // during boot.
+  installAppMenu();
+
   workspaceManager.init();
 
   const ptyHost = startPtyHost();

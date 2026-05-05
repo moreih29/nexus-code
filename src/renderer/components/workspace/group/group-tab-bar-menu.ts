@@ -7,9 +7,12 @@
  * mounting Radix or the tab tree.
  */
 import type { MenuItemSpec } from "@/components/ui/context-menu";
+import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
 import type { useGroupActions } from "./use-group-actions";
 
 type GroupActions = ReturnType<typeof useGroupActions>;
+
+const REVEAL_LABEL = isMac ? "Reveal in Finder" : "Reveal in File Explorer";
 
 export interface TabContextInfo {
   isPinned: boolean;
@@ -40,30 +43,76 @@ export function buildGroupTabBarMenuItems({
   items.push({
     kind: "item",
     label: context.isPinned ? "Unpin Tab" : "Pin Tab",
+    shortcut: SHORTCUTS.pinTab,
     onSelect: togglePin,
   });
   items.push({ kind: "separator" });
 
-  items.push({ kind: "item", label: "Close", onSelect: actions.close });
-  items.push({ kind: "item", label: "Close Others", onSelect: actions.closeOthers });
+  items.push({
+    kind: "item",
+    label: "Close",
+    shortcut: SHORTCUTS.closeTab,
+    onSelect: actions.close,
+  });
+  items.push({
+    kind: "item",
+    label: "Close Others",
+    shortcut: SHORTCUTS.closeOthers || undefined,
+    onSelect: actions.closeOthers,
+  });
   items.push({
     kind: "item",
     label: "Close All to the Right",
     onSelect: actions.closeAllToRight,
   });
-  items.push({ kind: "item", label: "Close Saved", onSelect: actions.closeSaved });
-  items.push({ kind: "item", label: "Close All", onSelect: actions.closeAll });
+  items.push({
+    kind: "item",
+    label: "Close Saved",
+    shortcut: SHORTCUTS.closeSaved,
+    onSelect: actions.closeSaved,
+  });
+  items.push({
+    kind: "item",
+    label: "Close All",
+    shortcut: SHORTCUTS.closeAll,
+    onSelect: actions.closeAll,
+  });
   items.push({ kind: "separator" });
 
-  items.push({ kind: "item", label: "Split Right", shortcut: "⌘\\", onSelect: actions.splitRight });
-  items.push({ kind: "item", label: "Split Down", shortcut: "⌘⇧\\", onSelect: actions.splitDown });
+  items.push({
+    kind: "item",
+    label: "Split Right",
+    shortcut: SHORTCUTS.splitRight,
+    onSelect: actions.splitRight,
+  });
+  items.push({
+    kind: "item",
+    label: "Split Down",
+    shortcut: SHORTCUTS.splitDown,
+    onSelect: actions.splitDown,
+  });
 
   if (context.isEditor) {
     items.push({ kind: "separator" });
-    items.push({ kind: "item", label: "Reveal in Finder", onSelect: revealInFinder });
+    items.push({
+      kind: "item",
+      label: REVEAL_LABEL,
+      shortcut: SHORTCUTS.revealInOS,
+      onSelect: revealInFinder,
+    });
     items.push({ kind: "separator" });
-    items.push({ kind: "item", label: "Copy Path", onSelect: copyPath });
-    items.push({ kind: "item", label: "Copy Relative Path", onSelect: copyRelativePath });
+    items.push({
+      kind: "item",
+      label: "Copy Path",
+      shortcut: SHORTCUTS.copyPath,
+      onSelect: copyPath,
+    });
+    items.push({
+      kind: "item",
+      label: "Copy Relative Path",
+      shortcut: SHORTCUTS.copyRelativePath,
+      onSelect: copyRelativePath,
+    });
   }
 
   return items;

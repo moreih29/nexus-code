@@ -15,11 +15,11 @@
  *   B2. Layout slice exists and root becomes kind:split after the call
  *   B3. tabsStore gains exactly one new tab record
  *
- * Scenario C — FileTree handleKeyDown branching (dir vs file) — pure function test
- *   C1. File node + Cmd+Enter routes to openOrRevealEditor({ newSplit })
- *   C2. Dir node + Cmd+Enter is a no-op (neither open function called)
+ * Scenario C — FileTree plain-Enter / Space branching (dir vs file)
  *   C3. File node + Enter routes to openOrRevealEditor
  *   C4. Dir node + Enter calls toggleExpand, not openOrRevealEditor
+ *   (Cmd+Enter / open-to-side moved to the global dispatcher in Phase 3
+ *    and is covered by `tests/unit/renderer/keybindings/dispatcher.test.ts`.)
  *
  * Scenario D — useGroupActions.splitRight/splitDown → service newSplit state
  *   D1. splitRight produces a second leaf, source tab unchanged
@@ -289,34 +289,22 @@ function makeMockKeyEvent(
 }
 
 /**
- * Mirrors the handleKeyDown logic from FileTree.tsx for branch testing.
- * Kept in sync with the component's Enter / Cmd+Enter branches.
+ * Mirrors the plain-Enter / Space branches of FileTree.tsx for routing
+ * verification. Cmd+Enter (open-to-side) used to live here too; that
+ * keystroke is now driven by the global dispatcher's `openToSide`
+ * binding (`when: "fileTreeFocus"`) and is covered by
+ * `tests/unit/renderer/keybindings/dispatcher.test.ts`.
  */
 function handleFileTreeKey(
   item: MockFlatItem,
   e: MockKeyEvent,
   deps: {
-    openOrRevealEditor: (
-      input: { workspaceId: string; filePath: string },
-      opts?: { newSplit?: { orientation: "horizontal" | "vertical"; side: "before" | "after" } },
-    ) => void;
+    openOrRevealEditor: (input: { workspaceId: string; filePath: string }) => void;
     toggleExpand: (wsId: string, absPath: string) => void;
-    isInEditable: (target: unknown) => boolean;
   },
   workspaceId: string,
 ) {
   const isDir = item.node.type === "dir";
-
-  if (e.key === "Enter" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
-    if (deps.isInEditable(e.target)) return;
-    if (isDir) return;
-    e.preventDefault();
-    deps.openOrRevealEditor(
-      { workspaceId, filePath: item.absPath },
-      { newSplit: { orientation: "horizontal", side: "after" } },
-    );
-    return;
-  }
 
   if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
@@ -328,63 +316,6 @@ function handleFileTreeKey(
   }
 }
 
-describe("Scenario C1: FileTree Cmd+Enter on a file calls openOrRevealEditor newSplit", () => {
-  it("routes to openOrRevealEditor with newSplit", () => {
-    const openOrRevealEditorMock = mock(() => {});
-    const toggleExpandMock = mock(() => {});
-    const fileItem: MockFlatItem = { absPath: "/proj/src/index.ts", node: { type: "file" } };
-    const e = makeMockKeyEvent("Enter", { metaKey: true });
-
-    handleFileTreeKey(fileItem, e, {
-      openOrRevealEditor: openOrRevealEditorMock,
-      toggleExpand: toggleExpandMock,
-      isInEditable: () => false,
-    }, "ws-test");
-
-    expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
-    expect(toggleExpandMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("passes correct filePath and orientation to openOrRevealEditor", () => {
-    const openOrRevealEditorMock = mock(
-      (
-        _input: { workspaceId: string; filePath: string },
-        _opts?: { newSplit?: { orientation: "horizontal" | "vertical"; side: "before" | "after" } },
-      ) => {},
-    );
-    const fileItem: MockFlatItem = { absPath: "/app/main.ts", node: { type: "file" } };
-    const e = makeMockKeyEvent("Enter", { metaKey: true });
-
-    handleFileTreeKey(fileItem, e, {
-      openOrRevealEditor: openOrRevealEditorMock,
-      toggleExpand: mock(() => {}),
-      isInEditable: () => false,
-    }, "ws-1");
-
-    const call = openOrRevealEditorMock.mock.calls[0];
-    expect(call[0]).toMatchObject({ filePath: "/app/main.ts" });
-    expect(call[1]).toEqual({ newSplit: { orientation: "horizontal", side: "after" } });
-  });
-});
-
-describe("Scenario C2: FileTree Cmd+Enter on a dir is a no-op", () => {
-  it("openOrRevealEditor is not called for a directory", () => {
-    const openOrRevealEditorMock = mock(() => {});
-    const dirItem: MockFlatItem = { absPath: "/proj/src", node: { type: "dir" } };
-    const e = makeMockKeyEvent("Enter", { metaKey: true });
-
-    handleFileTreeKey(dirItem, e, {
-      openOrRevealEditor: openOrRevealEditorMock,
-      toggleExpand: mock(() => {}),
-      isInEditable: () => false,
-    }, "ws-test");
-
-    expect(openOrRevealEditorMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-});
-
 describe("Scenario C3: FileTree plain Enter on a file calls openOrRevealEditor", () => {
   it("routes to openOrRevealEditor for a file on plain Enter", () => {
     const openOrRevealEditorMock = mock(() => {});
@@ -394,7 +325,6 @@ describe("Scenario C3: FileTree plain Enter on a file calls openOrRevealEditor",
     handleFileTreeKey(fileItem, e, {
       openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: mock(() => {}),
-      isInEditable: () => false,
     }, "ws-1");
 
     expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
@@ -412,7 +342,6 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
     handleFileTreeKey(dirItem, e, {
       openOrRevealEditor: openOrRevealEditorMock,
       toggleExpand: toggleExpandMock,
-      isInEditable: () => false,
     }, "ws-1");
 
     expect(toggleExpandMock).toHaveBeenCalledTimes(1);
