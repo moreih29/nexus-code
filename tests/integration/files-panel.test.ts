@@ -1,37 +1,43 @@
 /**
- * Integration: FilesPanel + FileTree + files store + tabs store + UI store
+ * Integration: FilesPanel + FileTree + files store + tabs store
  *
  * SCOPE
  * -----
- * Six scenarios verifying the FilesPanel / FileTree integration. Each scenario is classified
- * as one of:
- *   AUTO      — fully automated; runs in bun:test with mock ipcCall
- *   PARTIAL   — the store/logic side is automated; the component / Electron /
- *               DOM side has a RUNBOOK block explaining the gap
- *   RUNBOOK   — no automated coverage possible without real Electron; manual
- *               steps are written inline
+ * Cross-store integration only. Scenarios that exercise a single store
+ * (files store ensure/toggle/refresh, UI store resize) live in their
+ * unit suites — running them again here added duplication without
+ * additional cross-store coverage.
+ *
+ * What stays here:
+ *   - File click → openOrRevealEditor: files store + tabs store + layout
+ *   - Workspace isolation: state in WS_A does not bleed into WS_B
+ *   - Editor tabs are workspace-scoped (Cross-store)
  *
  * AUTOMATION BOUNDARIES
  * ---------------------
- * What CAN be automated (bun:test, no DOM):
- *   - Store method calls and resulting state mutations
- *   - Mock ipcCall invocation counts and argument verification
- *   - Cross-store coordination (files + tabs + ui stores)
+ * Automated (this file):
+ *   - Cross-store coordination (files + tabs + layout)
+ *   - Per-workspace store entry isolation
  *
- * What CANNOT be automated without DOM / Electron:
+ * NOT automated (DOM / Electron only):
  *   - React component rendering (no jsdom in bun:test)
- *   - PTY process survival across workspace switches (Electron renderer process)
- *   - KeyboardEvent.preventDefault() side-effects (requires real browser event)
- *   - CSS visibility toggling (requires real DOM style resolution)
+ *   - PTY process survival across workspace switches
+ *   - Cmd+R browser-level page-reload prevention
+ *   - CSS visibility toggling on workspace switch
  *
- * SCENARIOS STATUS
- * ----------------
- *   1. Workspace selection → ensureRoot + readdir          AUTO
- *   2. Folder click → expand + children + selectFlat       AUTO
- *   3. File click → openOrRevealEditor + store state       AUTO
- *   4. Workspace switch → two tree entries + PTY survival  PARTIAL (store AUTO; PTY RUNBOOK)
- *   5. Cmd+R → refresh + re-readdir, no page reload        PARTIAL (store AUTO; preventDefault RUNBOOK)
- *   6. Resize drag → filesPanelWidth + ipcCall persist     AUTO
+ * RUNBOOK (manual smoke):
+ *   PTY survival on workspace switch
+ *     1. Launch Nexus, create two workspaces (WS-A, WS-B).
+ *     2. With WS-A active, run `ping localhost` in a terminal tab.
+ *     3. Switch to WS-B; wait 3s; switch back to WS-A.
+ *     4. PASS: ping output continues without restart, cursor preserved.
+ *     5. PASS: WS-B opens with its own (independent) terminal.
+ *
+ *   Cmd+R refresh blocks Chromium reload
+ *     1. Launch Nexus, open a workspace with files.
+ *     2. Press Cmd+R while focused inside the window.
+ *     3. PASS: app does NOT reload (no DevTools network reset, no
+ *        workspace re-init flash). The file tree re-populates.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -67,14 +73,9 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { selectFlat, useFilesStore } from "../../src/renderer/state/stores/files";
+import { useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
-import {
-  FILES_PANEL_WIDTH_DEFAULT,
-  FILES_PANEL_WIDTH_MIN,
-  useUIStore,
-} from "../../src/renderer/state/stores/ui";
 import type { DirEntry } from "../../src/shared/types/fs";
 
 // ---------------------------------------------------------------------------
@@ -116,192 +117,22 @@ function resetAllStores() {
   useFilesStore.setState({ trees: new Map() });
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
-  useUIStore.setState({
-    filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-  });
   mockIpcCall.mockClear();
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 1 — AUTO
-// Workspace selection → FilesPanel header shows workspace.name
-//                     → ensureRoot calls readdir exactly once for root
+// File click → openOrRevealEditor + tabs/layout stores reflect the result
 //
-// Component gap (RUNBOOK — Scenario 1b):
-//   The FilesPanel header text rendering requires a real React DOM environment.
-//   Manual steps:
-//     1. Launch Nexus (`bun run dev`).
-//     2. Add a workspace via the sidebar "+".
-//     3. Verify the FilesPanel header reads exactly <workspace.name> in
-//        uppercase tracking text (class: text-stone-gray tracking-[2.4px]).
-//     4. Switch workspaces and verify the header updates to the new name.
-// ---------------------------------------------------------------------------
-
-describe("Scenario 1 (AUTO): workspace selection → ensureRoot calls readdir once", () => {
-  beforeEach(resetAllStores);
-
-  it("ensureRoot creates a tree entry for the workspace", async () => {
-    setupReaddir(new Map([["", [dirEntry("src", "dir"), dirEntry("README.md", "file")]]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-
-    const tree = useFilesStore.getState().trees.get(WS_A);
-    expect(tree).toBeDefined();
-    expect(tree?.rootAbsPath).toBe(ROOT_A);
-  });
-
-  it("ensureRoot issues exactly one readdir IPC call for the root path", async () => {
-    setupReaddir(new Map([["", [dirEntry("src", "dir")]]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-
-    // ensureRoot calls getExpanded + watch (async, fire-and-forget) + readdir.
-    // Assert that readdir was called exactly once with the root relPath.
-    const readdirCalls = (
-      mockIpcCall.mock.calls as Array<[string, string, { relPath: string }]>
-    ).filter(([, method]) => method === "readdir");
-    expect(readdirCalls).toHaveLength(1);
-    expect(readdirCalls[0][2].relPath).toBe("");
-  });
-
-  it("ensureRoot populates root node with children returned by readdir", async () => {
-    setupReaddir(new Map([["", [dirEntry("src", "dir"), dirEntry("package.json", "file")]]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-
-    const tree = useFilesStore.getState().trees.get(WS_A);
-    const rootNode = tree?.nodes.get(ROOT_A);
-    expect(rootNode?.childrenLoaded).toBe(true);
-    expect(rootNode?.children).toHaveLength(2);
-  });
-
-  it("calling ensureRoot again for the same workspace does not trigger another readdir", async () => {
-    setupReaddir(new Map([["", []]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    mockIpcCall.mockClear();
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    expect(mockIpcCall).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 2 — AUTO
-// Folder click → tree expands, children loaded, selectFlat includes child
-//
-// The FileTree component's handleRowClick calls
-//   useFilesStore.getState().toggleExpand(workspaceId, absPath)
-// directly. We exercise the same code path by calling toggleExpand on the
-// store and verifying: expanded set, childrenLoaded flag, selectFlat result.
-// ---------------------------------------------------------------------------
-
-describe("Scenario 2 (AUTO): folder click → expand + children + selectFlat", () => {
-  beforeEach(resetAllStores);
-
-  it("toggleExpand marks dir as expanded and loads children", async () => {
-    const srcAbs = `${ROOT_A}/src`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("index.ts", "file"), dirEntry("utils.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs);
-
-    const tree = useFilesStore.getState().trees.get(WS_A);
-    expect(tree?.expanded.has(srcAbs)).toBe(true);
-
-    const srcNode = tree?.nodes.get(srcAbs);
-    expect(srcNode?.childrenLoaded).toBe(true);
-    expect(srcNode?.children).toHaveLength(2);
-  });
-
-  it("selectFlat after expand includes child paths", async () => {
-    const srcAbs = `${ROOT_A}/src`;
-    const indexAbs = `${ROOT_A}/src/index.ts`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("index.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs);
-
-    const flat = selectFlat(useFilesStore.getState(), WS_A);
-    const paths = flat.map((i) => i.absPath);
-
-    expect(paths).toContain(srcAbs);
-    expect(paths).toContain(indexAbs);
-  });
-
-  it("selectFlat after collapse does not include grandchildren", async () => {
-    const srcAbs = `${ROOT_A}/src`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("index.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs); // expand
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs); // collapse
-
-    const flat = selectFlat(useFilesStore.getState(), WS_A);
-    const paths = flat.map((i) => i.absPath);
-
-    expect(paths).not.toContain(`${srcAbs}/index.ts`);
-  });
-
-  it("readdir for child dir is called with correct relPath", async () => {
-    const srcAbs = `${ROOT_A}/src`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", []],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    mockIpcCall.mockClear();
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs);
-
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
-      workspaceId: WS_A,
-      relPath: "src",
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 3 — AUTO
-// File click → openOrRevealEditor + EditorView tab appears in tabs store
-//
-// The FileTree component's handleRowClick (for a file node) calls:
+// The FileTree component's handleRowClick (for a file node) calls
 //   openOrRevealEditor({ workspaceId, filePath })
-// We replicate that call directly and verify the tabs store state.
-//
-// EditorView mounting gap (RUNBOOK — Scenario 3b):
-//   React component mounting requires jsdom / real renderer. Manual steps:
-//     1. Launch Nexus (`bun run dev`), open a workspace.
-//     2. Click any file in the FileTree.
-//     3. Verify a new tab appears in the TabBar with the file's basename.
-//     4. Verify the tab content area shows an editor (not a terminal).
+// We replicate that call directly and verify the *cross-store* outcome
+// (files store + tabs store + layout store all converge correctly).
 // ---------------------------------------------------------------------------
 
-describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store reflects editor tab", () => {
+describe("File click → openOrRevealEditor wires tabs + layout stores together", () => {
   beforeEach(resetAllStores);
 
-  it("openOrRevealEditor creates a tab in the workspace slice", () => {
+  it("openOrRevealEditor creates an editor tab in the workspace slice", () => {
     const filePath = `${ROOT_A}/src/index.ts`;
 
     openOrRevealEditor({ workspaceId: WS_A, filePath });
@@ -313,7 +144,7 @@ describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store refle
     expect(tabs[0]?.type).toBe("editor");
   });
 
-  it("added editor tab carries filePath and workspaceId props", () => {
+  it("the new tab carries filePath and workspaceId props", () => {
     const filePath = `${ROOT_A}/src/App.tsx`;
 
     openOrRevealEditor({ workspaceId: WS_A, filePath });
@@ -322,7 +153,7 @@ describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store refle
     expect(tabs[0]?.props).toEqual({ filePath, workspaceId: WS_A });
   });
 
-  it("added editor tab title defaults to the file's basename", () => {
+  it("the new tab title defaults to the file's basename", () => {
     const filePath = `${ROOT_A}/src/utils.ts`;
 
     openOrRevealEditor({ workspaceId: WS_A, filePath });
@@ -331,22 +162,21 @@ describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store refle
     expect(tabs[0]?.title).toBe("utils.ts");
   });
 
-  it("newly added tab becomes the active tab in its layout group", () => {
+  it("the new tab becomes the active tab in its layout group", () => {
     const filePath = `${ROOT_A}/src/main.ts`;
 
     const tab = openOrRevealEditor({ workspaceId: WS_A, filePath });
 
     const layout = useLayoutStore.getState().byWorkspace[WS_A];
     expect(layout).toBeDefined();
-    // The active group's leaf should have this tab as active
-    const activeGroupId = layout?.activeGroupId;
-    expect(activeGroupId).toBe(tab.groupId);
+    expect(layout?.activeGroupId).toBe(tab.groupId);
   });
 
   it("clicking two different files reuses the preview slot (second replaces first)", () => {
-    // With PREVIEW_ENABLED, a single-click on a.ts opens it as a preview tab.
-    // A subsequent single-click on b.ts replaces the same preview slot with b.ts,
-    // so only one tab exists at any time — matching VSCode's preview-slot policy.
+    // PREVIEW_ENABLED: a single-click on a.ts opens it as a preview tab; a
+    // subsequent single-click on b.ts replaces the same preview slot with
+    // b.ts. This is a cross-store invariant — preview-slot reuse lives in
+    // services/editor while the resulting record lives in tabsStore.
     openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/a.ts` });
     openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/b.ts` });
 
@@ -359,36 +189,14 @@ describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store refle
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 4 — PARTIAL
+// Per-workspace isolation across the files / tabs / layout stores.
 //
-// AUTO part: workspace switch → files store has two distinct tree entries
-// RUNBOOK:   PTY survival across workspace switches (CSS hide mechanism)
-//
-// RUNBOOK (Scenario 4b — PTY survival, CANNOT be automated):
-//   The PTY survival mechanism lives in WorkspacePanel.tsx + App.tsx.
-//   App.tsx maintains `mountedIds` (Set<string>) that grows monotonically;
-//   WorkspacePanel renders with class "invisible pointer-events-none" (not
-//   display:none) when `isActive=false`, keeping the DOM alive.
-//   TerminalView + xterm.js + the PTY IPC listener are all alive as long as
-//   the DOM element exists.
-//
-//   Manual verification steps:
-//     1. Launch Nexus. Create two workspaces (WS-A, WS-B).
-//     2. With WS-A active, start a shell command that produces ongoing output
-//        (e.g. `ping localhost`).
-//     3. Switch to WS-B via the sidebar. WS-A's panel becomes invisible.
-//     4. Wait 3 seconds; switch back to WS-A.
-//     5. PASS if: ping output has continued accumulating without restart; no
-//        re-connect flash; cursor position preserved.
-//     6. PASS if: WS-B opens with its own terminal (fresh PTY) independently.
-//
-//   Regression check for CSS hide:
-//     In WorkspacePanel.tsx confirm the inactive branch is:
-//       "invisible pointer-events-none"   ← CSS hide (not display:none)
-//     NOT "hidden" or conditional {isActive && <WorkspacePanel>} (unmount).
+// The files store is per-workspace by design; verifying isolation here is
+// cross-cutting because the test exercises both store boundaries (no leaked
+// trees AND no leaked tabs across workspaces).
 // ---------------------------------------------------------------------------
 
-describe("Scenario 4 (AUTO): workspace switch → two separate tree entries in files store", () => {
+describe("Per-workspace isolation across files + tabs stores", () => {
   beforeEach(resetAllStores);
 
   it("ensureRoot for WS_A then WS_B creates two distinct tree entries", async () => {
@@ -401,16 +209,8 @@ describe("Scenario 4 (AUTO): workspace switch → two separate tree entries in f
     expect(trees.has(WS_A)).toBe(true);
     expect(trees.has(WS_B)).toBe(true);
     expect(trees.size).toBe(2);
-  });
-
-  it("WS_A tree root path is independent of WS_B tree root path", async () => {
-    setupReaddir(new Map([["", []]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
-
-    expect(useFilesStore.getState().trees.get(WS_A)?.rootAbsPath).toBe(ROOT_A);
-    expect(useFilesStore.getState().trees.get(WS_B)?.rootAbsPath).toBe(ROOT_B);
+    expect(trees.get(WS_A)?.rootAbsPath).toBe(ROOT_A);
+    expect(trees.get(WS_B)?.rootAbsPath).toBe(ROOT_B);
   });
 
   it("expansion state in WS_A does not affect WS_B tree", async () => {
@@ -427,110 +227,28 @@ describe("Scenario 4 (AUTO): workspace switch → two separate tree entries in f
     await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
     await useFilesStore.getState().toggleExpand(WS_A, srcA);
 
-    const treeA = useFilesStore.getState().trees.get(WS_A);
-    const treeB = useFilesStore.getState().trees.get(WS_B);
-
-    expect(treeA?.expanded.has(srcA)).toBe(true);
-    // WS_B has no srcA path at all — its expanded set should not contain it
-    expect(treeB?.expanded.has(srcA)).toBe(false);
+    expect(useFilesStore.getState().trees.get(WS_A)?.expanded.has(srcA)).toBe(true);
+    // WS_B has no srcA path — its expanded set should not contain it.
+    expect(useFilesStore.getState().trees.get(WS_B)?.expanded.has(srcA)).toBe(false);
   });
 
-  it("readdir is called once per workspace (not shared across switches)", async () => {
-    setupReaddir(new Map([["", []]]));
+  it("openOrRevealEditor for WS_A does not create entries for WS_B", () => {
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/index.ts` });
 
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
-
-    // Each ensureRoot issues: getExpanded + readdir (+ async watch fire-and-forget).
-    // Assert that readdir was called exactly once for each workspace.
-    const calls = mockIpcCall.mock.calls as Array<
-      [string, string, { workspaceId: string; relPath: string }]
-    >;
-    const readdirCalls = calls.filter(([, method]) => method === "readdir");
-    expect(readdirCalls).toHaveLength(2);
-    const wsIds = readdirCalls.map((c) => c[2].workspaceId);
-    expect(wsIds).toContain(WS_A);
-    expect(wsIds).toContain(WS_B);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 5 — PARTIAL
-//
-// AUTO part: store.refresh → invalidates children + re-issues readdir
-// RUNBOOK:   Cmd+R key handler — preventDefault prevents page reload
-//
-// The logic under test in App.tsx:
-//   window.addEventListener("keydown", (e) => {
-//     if (e.metaKey && e.key === "r" && !e.shiftKey) {
-//       e.preventDefault();          ← stops Chrome/Electron page reload
-//       useFilesStore.getState().refresh(activeWorkspaceId)
-//     }
-//   })
-//
-// RUNBOOK (Scenario 5b — Cmd+R browser-level, CANNOT be automated):
-//   Manual verification steps:
-//     1. Launch Nexus (`bun run dev`). Open a workspace with some files.
-//     2. Focus the Nexus window (click inside it).
-//     3. Press Cmd+R (macOS) / Ctrl+R (Linux).
-//     4. PASS if: the app does NOT reload (DevTools network tab stays quiet;
-//        the workspace panel does not flash/reinitialize).
-//     5. PASS if: the file tree briefly shows a loading state (if root has
-//        children) and then re-populates with the same or updated file list.
-//     6. Repeat after adding a file to the workspace directory externally.
-//        PASS if: the new file appears in the tree after Cmd+R.
-// ---------------------------------------------------------------------------
-
-describe("Scenario 5 (AUTO): refresh → invalidates children, re-issues readdir", () => {
-  beforeEach(resetAllStores);
-
-  it("refresh resets childrenLoaded on the root node", async () => {
-    setupReaddir(new Map([["", [dirEntry("a.ts", "file")]]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-
-    const before = useFilesStore.getState().trees.get(WS_A)?.nodes.get(ROOT_A);
-    expect(before?.childrenLoaded).toBe(true);
-
-    mockIpcCall.mockClear();
-    setupReaddir(new Map([["", [dirEntry("a.ts", "file"), dirEntry("b.ts", "file")]]]));
-
-    await useFilesStore.getState().refresh(WS_A);
-
-    const after = useFilesStore.getState().trees.get(WS_A)?.nodes.get(ROOT_A);
-    expect(after?.childrenLoaded).toBe(true);
+    expect(useTabsStore.getState().byWorkspace[WS_B]).toBeUndefined();
   });
 
-  it("refresh re-issues exactly one readdir call for the root", async () => {
-    setupReaddir(new Map([["", []]]));
+  it("opening the same file in two workspaces produces two independent tabs", () => {
+    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/a.ts` });
+    openOrRevealEditor({ workspaceId: WS_B, filePath: `${ROOT_B}/src/b.ts` });
 
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    mockIpcCall.mockClear();
-
-    setupReaddir(new Map([["", [dirEntry("new-file.ts", "file")]]]));
-    await useFilesStore.getState().refresh(WS_A);
-
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("fs", "readdir", {
-      workspaceId: WS_A,
-      relPath: "",
-    });
+    const tabsA = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
+    const tabsB = Object.values(useTabsStore.getState().byWorkspace[WS_B] ?? {});
+    expect(tabsA).toHaveLength(1);
+    expect(tabsB).toHaveLength(1);
   });
 
-  it("refresh updates root children with new entries from readdir", async () => {
-    setupReaddir(new Map([["", [dirEntry("original.ts", "file")]]]));
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-
-    setupReaddir(new Map([["", [dirEntry("original.ts", "file"), dirEntry("added.ts", "file")]]]));
-    await useFilesStore.getState().refresh(WS_A);
-
-    const tree = useFilesStore.getState().trees.get(WS_A);
-    const rootNode = tree?.nodes.get(ROOT_A);
-    expect(rootNode?.children).toHaveLength(2);
-  });
-
-  it("refresh on WS_A does not disturb WS_B tree", async () => {
+  it("refresh on WS_A does not disturb WS_B tree (cross-workspace isolation under invalidation)", async () => {
     setupReaddir(new Map([["", [dirEntry("file.ts", "file")]]]));
 
     await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
@@ -539,181 +257,6 @@ describe("Scenario 5 (AUTO): refresh → invalidates children, re-issues readdir
     setupReaddir(new Map([["", []]]));
     await useFilesStore.getState().refresh(WS_A);
 
-    // WS_B tree should still exist and be untouched
     expect(useFilesStore.getState().trees.has(WS_B)).toBe(true);
-  });
-
-  it("refresh re-issues readdir for previously-expanded subdirectories", async () => {
-    // Bug regression: the wipe step preserves the `expanded` set but
-    // resets `childrenLoaded` on every removed node. Without a
-    // BFS-reload the user sees an "expanded" chevron over an empty
-    // subtree until they manually collapse + reopen.
-    const srcAbs = `${ROOT_A}/src`;
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("a.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().toggleExpand(WS_A, srcAbs);
-
-    expect(useFilesStore.getState().trees.get(WS_A)?.expanded.has(srcAbs)).toBe(true);
-    const beforeSrc = useFilesStore.getState().trees.get(WS_A)?.nodes.get(srcAbs);
-    expect(beforeSrc?.childrenLoaded).toBe(true);
-    expect(beforeSrc?.children).toHaveLength(1);
-
-    mockIpcCall.mockClear();
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir"), dirEntry("README.md", "file")]],
-        ["src", [dirEntry("a.ts", "file"), dirEntry("b.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().refresh(WS_A);
-
-    const afterSrc = useFilesStore.getState().trees.get(WS_A)?.nodes.get(srcAbs);
-    expect(afterSrc?.childrenLoaded).toBe(true);
-    expect(afterSrc?.children).toHaveLength(2);
-
-    // Two readdirs: one for the root, one for the previously-expanded `src`.
-    const readdirCalls = mockIpcCall.mock.calls.filter((c) => c[1] === "readdir");
-    expect(readdirCalls).toHaveLength(2);
-    expect(readdirCalls.map((c) => (c[2] as { relPath: string }).relPath).sort()).toEqual([
-      "",
-      "src",
-    ]);
-  });
-
-  it("refresh re-issues readdir for nested expanded chains", async () => {
-    // /r/sub/inner — both expanded. After refresh both subtrees must
-    // come back loaded so the user doesn't see two empty chevrons.
-    const subAbs = `${ROOT_A}/sub`;
-    const innerAbs = `${subAbs}/inner`;
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("sub", "dir")]],
-        ["sub", [dirEntry("inner", "dir")]],
-        ["sub/inner", [dirEntry("x.ts", "file")]],
-      ]),
-    );
-
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().toggleExpand(WS_A, subAbs);
-    await useFilesStore.getState().toggleExpand(WS_A, innerAbs);
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("sub", "dir")]],
-        ["sub", [dirEntry("inner", "dir")]],
-        ["sub/inner", [dirEntry("x.ts", "file"), dirEntry("y.ts", "file")]],
-      ]),
-    );
-    await useFilesStore.getState().refresh(WS_A);
-
-    const innerNode = useFilesStore.getState().trees.get(WS_A)?.nodes.get(innerAbs);
-    expect(innerNode?.childrenLoaded).toBe(true);
-    expect(innerNode?.children).toHaveLength(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 6 — AUTO
-// Resize handle drag → filesPanelWidth updated + ipcCall("appState","set") called
-//
-// The ResizeHandle component's onResize callback calls:
-//   useUIStore.getState().setFilesPanelWidth(width, persist)
-// onReset calls:
-//   useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT, true)
-// We verify the store state changes and the IPC persistence behavior.
-// ---------------------------------------------------------------------------
-
-describe("Scenario 6 (AUTO): resize drag → filesPanelWidth + appState persistence", () => {
-  beforeEach(() => {
-    useUIStore.setState({
-      filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-    });
-    mockIpcCall.mockClear();
-  });
-
-  it("setFilesPanelWidth(300, false) updates store but does NOT call ipcCall", () => {
-    useUIStore.getState().setFilesPanelWidth(300, false);
-
-    expect(useUIStore.getState().filesPanelWidth).toBe(300);
-    expect(mockIpcCall).not.toHaveBeenCalled();
-  });
-
-  it("setFilesPanelWidth(350, true) calls ipcCall once with {filesPanelWidth:350}", () => {
-    useUIStore.getState().setFilesPanelWidth(350, true);
-
-    expect(useUIStore.getState().filesPanelWidth).toBe(350);
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 350 });
-  });
-
-  it("resize does not persist during mousemove (persist=false on every tick)", () => {
-    // Simulate continuous drag: 10 mousemove ticks, persist=false
-    for (let dx = 10; dx <= 100; dx += 10) {
-      useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT + dx, false);
-    }
-
-    expect(mockIpcCall).not.toHaveBeenCalled();
-  });
-
-  it("on mouseup commit (persist=true), exactly one ipcCall is made with final width", () => {
-    // Simulate drag sequence: multiple non-persist ticks then one persist commit
-    useUIStore.getState().setFilesPanelWidth(260, false);
-    useUIStore.getState().setFilesPanelWidth(280, false);
-    useUIStore.getState().setFilesPanelWidth(300, false);
-
-    // mouseup commit
-    const currentWidth = useUIStore.getState().filesPanelWidth;
-    useUIStore.getState().setFilesPanelWidth(currentWidth, true);
-
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", { filesPanelWidth: 300 });
-  });
-
-  it("setFilesPanelWidth clamps below FILES_PANEL_WIDTH_MIN to minimum", () => {
-    useUIStore.getState().setFilesPanelWidth(10, false);
-
-    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MIN);
-  });
-
-  it("double-click reset calls setFilesPanelWidth(default, true) → one ipcCall", () => {
-    // Mirrors ResizeHandle's onReset: setFilesPanelWidth(DEFAULT, true)
-    useUIStore.getState().setFilesPanelWidth(FILES_PANEL_WIDTH_DEFAULT, true);
-
-    expect(mockIpcCall).toHaveBeenCalledTimes(1);
-    expect(mockIpcCall).toHaveBeenCalledWith("appState", "set", {
-      filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Cross-store coordination — Scenario 3 + 4 integration
-// File tab opened in WS_A must not appear in WS_B's tab slice
-// ---------------------------------------------------------------------------
-
-describe("Cross-store: editor tabs are workspace-scoped, do not leak across workspaces", () => {
-  beforeEach(resetAllStores);
-
-  it("openOrRevealEditor for WS_A does not create entries for WS_B", () => {
-    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/index.ts` });
-
-    expect(useTabsStore.getState().byWorkspace[WS_B]).toBeUndefined();
-  });
-
-  it("openOrRevealEditor for WS_B does not affect WS_A tabs", () => {
-    openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/src/a.ts` });
-    openOrRevealEditor({ workspaceId: WS_B, filePath: `${ROOT_B}/src/b.ts` });
-
-    const tabsA = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
-    const tabsB = Object.values(useTabsStore.getState().byWorkspace[WS_B] ?? {});
-    expect(tabsA).toHaveLength(1);
-    expect(tabsB).toHaveLength(1);
   });
 });
