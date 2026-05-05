@@ -6,7 +6,6 @@ import { startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
-import { startTickBroadcast } from "./ipc/channels/hello";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
@@ -72,11 +71,7 @@ app.whenReady().then(() => {
     lspHost.dispose();
   });
 
-  const win = createMainWindow();
-
-  win.webContents.once("did-finish-load", () => {
-    startTickBroadcast();
-  });
+  createMainWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

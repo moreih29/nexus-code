@@ -3,13 +3,6 @@
  *
  * SCOPE
  * -----
- * Scenario A — splitAndDuplicate: additional coverage beyond operations.test.ts
- *   A1. Both source and destination tabs have distinct ids in tabsStore
- *   A2. After duplication, root becomes kind:split (two leaves)
- *   A3. Horizontal split places new leaf as second child
- *   A4. Vertical split creates a vertical split node
- *   A5. Destination leaf becomes the active group after split
- *
  * Scenario B — openTabInNewSplit on empty layout (ensureLayout auto-call)
  *   B1. Works when no prior openTab was called (ensureLayout triggered internally)
  *   B2. Layout slice exists and root becomes kind:split after the call
@@ -69,20 +62,16 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../src/renderer/state/stores/layout";
-import {
-  openTab,
-  openTabInNewSplit,
-  splitAndDuplicate,
-} from "../../src/renderer/state/operations";
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
 import { openTerminal } from "../../src/renderer/services/terminal";
+import { openTab, openTabInNewSplit } from "../../src/renderer/state/operations";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
+import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 import {
   type EditorTabProps,
   type TerminalTabProps,
   useTabsStore,
 } from "../../src/renderer/state/stores/tabs";
-import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -107,100 +96,6 @@ function must<T>(value: T | null | undefined, label: string): T {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario A — splitAndDuplicate: additional coverage
-// ---------------------------------------------------------------------------
-
-describe("Scenario A1: source and destination tabs have distinct ids in tabsStore", () => {
-  beforeEach(resetStores);
-
-  it("tabsStore has exactly 2 records with different ids after splitAndDuplicate", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/root" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
-      "split result",
-    );
-
-    const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
-    const ids = Object.keys(wsRecord);
-    expect(ids.length).toBe(2);
-    expect(ids[0]).not.toBe(ids[1]);
-    // Both ids referenced by layout leaves
-    const leaves = allLeaves(getLayout().root);
-    const allTabIds = leaves.flatMap((l) => l.tabIds);
-    expect(allTabIds).toContain(tab.id);
-    expect(allTabIds).toContain(result.newTabId);
-  });
-});
-
-describe("Scenario A2: root becomes kind:split after splitAndDuplicate", () => {
-  beforeEach(resetStores);
-
-  it("root node kind changes from leaf to split", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/src" });
-    expect(getLayout().root.kind).toBe("leaf");
-
-    splitAndDuplicate(WS, getLayout().activeGroupId, tab.id, "horizontal", "after");
-
-    expect(getLayout().root.kind).toBe("split");
-  });
-});
-
-describe("Scenario A3: horizontal split places new leaf as second child", () => {
-  beforeEach(resetStores);
-
-  it("source leaf is the first child; new leaf is the second child after side=after", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/a" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
-      "split result",
-    );
-
-    const root = getLayout().root;
-    expect(root.kind).toBe("split");
-    if (root.kind === "split") {
-      expect(root.orientation).toBe("horizontal");
-      expect(root.first.id).toBe(sourceLeafId);
-      expect(root.second.id).toBe(result.newLeafId);
-    }
-  });
-});
-
-describe("Scenario A4: vertical split creates a vertical split node", () => {
-  beforeEach(resetStores);
-
-  it("split orientation is vertical when requested", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/b" });
-    splitAndDuplicate(WS, getLayout().activeGroupId, tab.id, "vertical", "after");
-
-    const root = getLayout().root;
-    expect(root.kind).toBe("split");
-    if (root.kind === "split") {
-      expect(root.orientation).toBe("vertical");
-    }
-  });
-});
-
-describe("Scenario A5: destination leaf becomes active group after splitAndDuplicate", () => {
-  beforeEach(resetStores);
-
-  it("activeGroupId points to newLeafId after split", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/c" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
-      "split result",
-    );
-
-    expect(getLayout().activeGroupId).toBe(result.newLeafId);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Scenario B — openTabInNewSplit on empty layout (ensureLayout auto-call)
 // ---------------------------------------------------------------------------
 
@@ -210,7 +105,12 @@ describe("Scenario B1: openTabInNewSplit works on a fresh workspace with no prio
   it("ensureLayout is triggered — byWorkspace entry is created", () => {
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
 
-    const result = openTabInNewSplit(WS, "terminal", { cwd: "/new" }, "horizontal", "after");
+    const result = openTabInNewSplit(
+      WS,
+      { type: "terminal", props: { cwd: "/new" } },
+      "horizontal",
+      "after",
+    );
 
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
     expect(result.newLeafId).toBeTruthy();
@@ -222,7 +122,7 @@ describe("Scenario B2: openTabInNewSplit on empty layout produces kind:split roo
   beforeEach(resetStores);
 
   it("root kind is split after openTabInNewSplit on empty workspace", () => {
-    openTabInNewSplit(WS, "terminal", { cwd: "/initial" }, "horizontal", "after");
+    openTabInNewSplit(WS, { type: "terminal", props: { cwd: "/initial" } }, "horizontal", "after");
     expect(getLayout().root.kind).toBe("split");
   });
 });
@@ -273,7 +173,13 @@ interface MockKeyEvent {
 
 function makeMockKeyEvent(
   key: string,
-  opts: { metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; target?: unknown } = {},
+  opts: {
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    target?: unknown;
+  } = {},
 ): MockKeyEvent {
   let prevented = false;
   return {
@@ -283,8 +189,12 @@ function makeMockKeyEvent(
     altKey: opts.altKey ?? false,
     ctrlKey: opts.ctrlKey ?? false,
     target: opts.target ?? null,
-    get defaultPrevented() { return prevented; },
-    preventDefault() { prevented = true; },
+    get defaultPrevented() {
+      return prevented;
+    },
+    preventDefault() {
+      prevented = true;
+    },
   };
 }
 
@@ -322,10 +232,15 @@ describe("Scenario C3: FileTree plain Enter on a file calls openOrRevealEditor",
     const fileItem: MockFlatItem = { absPath: "/proj/README.md", node: { type: "file" } };
     const e = makeMockKeyEvent("Enter", { metaKey: false });
 
-    handleFileTreeKey(fileItem, e, {
-      openOrRevealEditor: openOrRevealEditorMock,
-      toggleExpand: mock(() => {}),
-    }, "ws-1");
+    handleFileTreeKey(
+      fileItem,
+      e,
+      {
+        openOrRevealEditor: openOrRevealEditorMock,
+        toggleExpand: mock(() => {}),
+      },
+      "ws-1",
+    );
 
     expect(openOrRevealEditorMock).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
@@ -339,10 +254,15 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
     const dirItem: MockFlatItem = { absPath: "/proj/src", node: { type: "dir" } };
     const e = makeMockKeyEvent("Enter", { metaKey: false });
 
-    handleFileTreeKey(dirItem, e, {
-      openOrRevealEditor: openOrRevealEditorMock,
-      toggleExpand: toggleExpandMock,
-    }, "ws-1");
+    handleFileTreeKey(
+      dirItem,
+      e,
+      {
+        openOrRevealEditor: openOrRevealEditorMock,
+        toggleExpand: toggleExpandMock,
+      },
+      "ws-1",
+    );
 
     expect(toggleExpandMock).toHaveBeenCalledTimes(1);
     expect(openOrRevealEditorMock).not.toHaveBeenCalled();
@@ -359,11 +279,7 @@ describe("Scenario C4: FileTree plain Enter on a dir calls toggleExpand, not ope
 // ---------------------------------------------------------------------------
 
 /** Mirror of useGroupActions.splitRight/splitDown for test purposes */
-function makeSplitActions(
-  workspaceId: string,
-  leafId: string,
-  getContextTabId: () => string,
-) {
+function makeSplitActions(workspaceId: string, leafId: string, getContextTabId: () => string) {
   function split(orientation: "horizontal" | "vertical") {
     const tabId = getContextTabId();
     if (!tabId) return;

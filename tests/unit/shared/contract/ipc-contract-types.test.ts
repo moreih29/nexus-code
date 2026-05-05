@@ -1,4 +1,4 @@
-import { type InferArgs, type InferReturn, ipcContract } from "../../../../src/shared/ipc-contract";
+import type { InferArgs, InferReturn, ipcContract } from "../../../../src/shared/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Compile-time type assertion helpers
@@ -20,8 +20,9 @@ type CreateReturn = InferReturn<typeof ipcContract.workspace.call.create>;
 assertType<CreateReturn extends { id: string; rootPath: string } ? true : false>();
 
 // ---------------------------------------------------------------------------
-// hello.call.ping
+// dialog.call.showOpenFile — exercises a literal-typed return shape so the
+// inference helpers stay covered after the demo `hello` channel was retired.
 // ---------------------------------------------------------------------------
 
-type PingReturn = InferReturn<typeof ipcContract.hello.call.ping>;
-assertType<Equals<PingReturn, "pong">>();
+type OpenFileReturn = InferReturn<typeof ipcContract.dialog.call.showOpenFile>;
+assertType<Equals<OpenFileReturn, { canceled: boolean; filePaths: string[] }>>();

@@ -10,10 +10,9 @@
 
 import { useLayoutStore } from "../stores/layout";
 import {
+  type CreateTabArgs,
   type EditorTabProps,
   type Tab,
-  type TabProps,
-  type TabType,
   type TerminalTabProps,
   useTabsStore,
 } from "../stores/tabs";
@@ -23,8 +22,7 @@ import {
  */
 function openTabRecord(
   workspaceId: string,
-  type: TabType,
-  props: TabProps,
+  args: CreateTabArgs,
   opts?: { groupId?: string | "active" },
   isPreview = false,
 ): Tab {
@@ -41,7 +39,7 @@ function openTabRecord(
     groupId = opts.groupId;
   }
 
-  const tab = tabsStore.createTab(workspaceId, type, props, isPreview);
+  const tab = tabsStore.createTab(workspaceId, args, isPreview);
 
   layoutStore.attachTab(workspaceId, groupId, tab.id);
   layoutStore.setActiveTabInGroup({
@@ -60,7 +58,7 @@ export function openTab(
   props: TerminalTabProps,
   opts?: { groupId?: string | "active" },
 ): Tab {
-  return openTabRecord(workspaceId, type, props, opts);
+  return openTabRecord(workspaceId, { type, props }, opts);
 }
 
 /**
@@ -72,7 +70,7 @@ export function openEditorTab(
   opts?: { groupId?: string | "active" },
   isPreview = false,
 ): Tab {
-  return openTabRecord(workspaceId, "editor", props, opts, isPreview);
+  return openTabRecord(workspaceId, { type: "editor", props }, opts, isPreview);
 }
 
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {
@@ -97,45 +95,6 @@ export function closeTab(workspaceId: string, tabId: string): void {
 }
 
 /**
- * Split the given leaf and open a duplicate of the source tab in the new leaf.
- * The source tab remains in its original leaf; a new tab record is created with
- * the same type and a deep-cloned copy of the source tab's props.
- *
- * @deprecated Use services/editor.openOrRevealEditor or services/terminal.openTerminal
- * with a newSplit option for user-facing split opens.
- */
-export function splitAndDuplicate(
-  workspaceId: string,
-  sourceLeafId: string,
-  sourceTabId: string,
-  orientation: "horizontal" | "vertical",
-  side: "before" | "after",
-): { newLeafId: string; newTabId: string } | null {
-  const tabsStore = useTabsStore.getState();
-  const layoutStore = useLayoutStore.getState();
-
-  const sourceTab = tabsStore.byWorkspace[workspaceId]?.[sourceTabId];
-  if (!sourceTab) return null;
-
-  const newLeafId = layoutStore.splitGroup(workspaceId, sourceLeafId, orientation, side);
-  if (!newLeafId) return null;
-
-  const newTab = useTabsStore
-    .getState()
-    .createTab(workspaceId, sourceTab.type, structuredClone(sourceTab.props));
-
-  useLayoutStore.getState().attachTab(workspaceId, newLeafId, newTab.id);
-  useLayoutStore.getState().setActiveTabInGroup({
-    workspaceId,
-    groupId: newLeafId,
-    tabId: newTab.id,
-    activateGroup: true,
-  });
-
-  return { newLeafId, newTabId: newTab.id };
-}
-
-/**
  * Split the active group and open a brand-new tab in the resulting new leaf.
  *
  * @internal Services-only transaction helper; use domain services for
@@ -143,8 +102,7 @@ export function splitAndDuplicate(
  */
 export function openTabInNewSplit(
   workspaceId: string,
-  type: TabType,
-  props: TabProps,
+  args: CreateTabArgs,
   orientation: "horizontal" | "vertical",
   side: "before" | "after",
   isPreview = false,
@@ -159,7 +117,7 @@ export function openTabInNewSplit(
     .getState()
     .splitGroup(workspaceId, activeGroupId, orientation, side);
 
-  const tab = useTabsStore.getState().createTab(workspaceId, type, props, isPreview);
+  const tab = useTabsStore.getState().createTab(workspaceId, args, isPreview);
 
   useLayoutStore.getState().attachTab(workspaceId, newLeafId, tab.id);
   useLayoutStore.getState().setActiveTabInGroup({

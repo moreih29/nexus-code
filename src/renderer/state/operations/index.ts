@@ -7,15 +7,12 @@
  * import from `@/state/operations/dnd` (or `/tabs`, `/groups`) directly.
  */
 
+export { type DropResult, moveTabToZone, openFileAtZone } from "./dnd";
+export { closeGroup } from "./groups";
 export {
   closeTab,
   openEditorTab,
   openTab,
   openTabInNewSplit,
   revealTab,
-  splitAndDuplicate,
 } from "./tabs";
-
-export { type DropResult, moveTabToZone, openFileAtZone } from "./dnd";
-
-export { closeGroup } from "./groups";

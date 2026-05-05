@@ -16,7 +16,6 @@
  *   - closeTab removes from both stores
  *   - sole-leaf preservation after last tab close
  *   - non-sole empty leaf collapse-and-hoist + activeGroupId fallback
- *   - splitAndDuplicate creates new leaf + cloned tab, source unchanged
  *   - openTabInNewSplit creates new leaf with a fresh tab
  *   - closeGroup removes leaf and all its tab records
  *
@@ -55,16 +54,15 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks are installed
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import {
   closeGroup,
   closeTab,
   openTab,
   openTabInNewSplit,
-  splitAndDuplicate,
 } from "../../src/renderer/state/operations";
-import { useTabsStore } from "../../src/renderer/state/stores/tabs";
+import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -81,11 +79,6 @@ function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
   if (!layout) throw new Error(`layout slice not found for ${WS}`);
   return layout;
-}
-
-function must<T>(value: T | null | undefined, label: string): T {
-  if (value == null) throw new Error(`expected ${label}`);
-  return value;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,114 +290,6 @@ describe("Scenario 6: non-sole empty leaf collapses, activeGroupId falls back to
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 7 — splitAndDuplicate: happy path
-// ---------------------------------------------------------------------------
-
-describe("Scenario 7: splitAndDuplicate happy path", () => {
-  beforeEach(resetStores);
-
-  it("returns non-null with distinct newLeafId and newTabId", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/src" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
-
-    expect(result).not.toBeNull();
-    expect(result?.newLeafId).not.toBe(sourceLeafId);
-    expect(result?.newTabId).not.toBe(tab.id);
-  });
-
-  it("source tab remains in the original leaf after duplication", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/src" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after");
-
-    const layout = getLayout();
-    const sourceLeaf = findLeaf(layout.root, sourceLeafId);
-    expect(sourceLeaf?.tabIds).toContain(tab.id);
-  });
-
-  it("new leaf holds the duplicate tab with same type and props", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/src" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
-      "split result",
-    );
-    const layout = getLayout();
-    const newLeaf = findLeaf(layout.root, result.newLeafId);
-
-    expect(newLeaf?.tabIds).toContain(result.newTabId);
-    const newTabRecord = useTabsStore.getState().byWorkspace[WS]?.[result.newTabId];
-    expect(newTabRecord?.type).toBe("terminal");
-    expect((newTabRecord?.props as { cwd: string }).cwd).toBe("/src");
-  });
-
-  it("two tab records exist with different ids but same type/props", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/proj" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "vertical", "after"),
-      "split result",
-    );
-
-    const wsRecord = useTabsStore.getState().byWorkspace[WS];
-    expect(Object.keys(wsRecord ?? {}).length).toBe(2);
-    const newTab = wsRecord?.[result.newTabId];
-    expect(newTab?.id).not.toBe(tab.id);
-    expect(newTab?.type).toBe(tab.type);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 8 — splitAndDuplicate: unknown sourceTabId returns null
-// ---------------------------------------------------------------------------
-
-describe("Scenario 8: splitAndDuplicate returns null for unknown sourceTabId", () => {
-  beforeEach(resetStores);
-
-  it("returns null without modifying the layout tree", () => {
-    openTab(WS, "terminal", { cwd: "/a" });
-    const layoutBefore = getLayout();
-
-    const result = splitAndDuplicate(WS, layoutBefore.activeGroupId, "nonexistent-tab", "horizontal", "after");
-
-    expect(result).toBeNull();
-    // Layout tree is structurally unchanged (still sole leaf)
-    expect(getLayout().root.kind).toBe("leaf");
-    expect(allLeaves(getLayout().root).length).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 9 — splitAndDuplicate: terminal props deep-cloned
-// ---------------------------------------------------------------------------
-
-describe("Scenario 9: splitAndDuplicate deep-clones props", () => {
-  beforeEach(resetStores);
-
-  it("new tab props object is not reference-equal to source props", () => {
-    const tab = openTab(WS, "terminal", { cwd: "/foo" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const result = must(
-      splitAndDuplicate(WS, sourceLeafId, tab.id, "horizontal", "after"),
-      "split result",
-    );
-
-    const wsRecord = must(useTabsStore.getState().byWorkspace[WS], "workspace tabs");
-    const sourceProps = must(wsRecord[tab.id], "source tab").props;
-    const newProps = must(wsRecord[result.newTabId], "new tab").props;
-
-    expect(newProps).not.toBe(sourceProps);
-    expect(newProps).toEqual(sourceProps);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Scenario 10 — openTabInNewSplit: happy path from empty layout
 // ---------------------------------------------------------------------------
 
@@ -415,7 +300,12 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
     openTab(WS, "terminal", { cwd: "/base" });
     const originalActiveGroupId = getLayout().activeGroupId;
 
-    const result = openTabInNewSplit(WS, "terminal", { cwd: "/split" }, "horizontal", "after");
+    const result = openTabInNewSplit(
+      WS,
+      { type: "terminal", props: { cwd: "/split" } },
+      "horizontal",
+      "after",
+    );
 
     expect(result.newLeafId).not.toBe(originalActiveGroupId);
   });
@@ -423,7 +313,12 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   it("new tab is in the new leaf and the new leaf is the active group", () => {
     openTab(WS, "terminal", { cwd: "/base" });
 
-    const result = openTabInNewSplit(WS, "terminal", { cwd: "/split" }, "vertical", "after");
+    const result = openTabInNewSplit(
+      WS,
+      { type: "terminal", props: { cwd: "/split" } },
+      "vertical",
+      "after",
+    );
     const layout = getLayout();
     const newLeaf = findLeaf(layout.root, result.newLeafId);
 
@@ -434,7 +329,7 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   it("creates a layout split so root becomes kind:split", () => {
     openTab(WS, "terminal", { cwd: "/base" });
 
-    openTabInNewSplit(WS, "terminal", { cwd: "/split" }, "horizontal", "before");
+    openTabInNewSplit(WS, { type: "terminal", props: { cwd: "/split" } }, "horizontal", "before");
 
     expect(getLayout().root.kind).toBe("split");
   });
@@ -442,7 +337,12 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
   it("works on a fresh workspace with no prior openTab (calls ensureLayout)", () => {
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
 
-    const result = openTabInNewSplit(WS, "terminal", { cwd: "/new" }, "horizontal", "after");
+    const result = openTabInNewSplit(
+      WS,
+      { type: "terminal", props: { cwd: "/new" } },
+      "horizontal",
+      "after",
+    );
 
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
     expect(result.newLeafId).toBeTruthy();
@@ -495,7 +395,10 @@ describe("Scenario 12: closeGroup on sole leaf empties it without removing it", 
     const layout = getLayout();
     expect(layout.root.kind).toBe("leaf");
     expect(layout.root.id).toBe(leafId);
-    expect((layout.root as import("../../src/renderer/state/stores/layout/types").LayoutLeaf).tabIds.length).toBe(0);
+    expect(
+      (layout.root as import("../../src/renderer/state/stores/layout/types").LayoutLeaf).tabIds
+        .length,
+    ).toBe(0);
   });
 
   it("tab record is removed from tabsStore after sole-leaf closeGroup", () => {

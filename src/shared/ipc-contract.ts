@@ -218,15 +218,6 @@ export const ipcContract = {
     listen: {},
   },
 
-  hello: {
-    call: {
-      ping: call(z.void(), z.literal("pong")),
-    },
-    listen: {
-      tick: listen(z.number()),
-    },
-  },
-
   appState: {
     call: {
       get: call(z.void(), AppStateSchema),
