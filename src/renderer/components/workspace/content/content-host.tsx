@@ -91,7 +91,17 @@ export function ContentHost({
           isVisible={isVisible}
         />
       ) : (
-        <EditorView filePath={(tab.props as EditorTabProps).filePath} workspaceId={workspaceId} />
+        // key on filePath: preview-slot reuse (Stage 2A) swaps props.filePath on
+        // the same Tab id, so without a key the EditorView would keep the same
+        // monaco editor instance while useSharedModel disposed the old model
+        // out from under it — triggering "InstantiationService has been disposed"
+        // when setModel ran against the half-torn editor. Remounting on filePath
+        // change gives @monaco-editor/react a clean dispose + create cycle.
+        <EditorView
+          key={(tab.props as EditorTabProps).filePath}
+          filePath={(tab.props as EditorTabProps).filePath}
+          workspaceId={workspaceId}
+        />
       )}
     </div>
   );
