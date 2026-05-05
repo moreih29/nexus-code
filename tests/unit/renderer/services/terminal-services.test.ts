@@ -256,3 +256,91 @@ describe("services/terminal pty-client flow control", () => {
     expect(ipcCalls.some((call) => call.channel === "pty" && call.method === "kill")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// PTY exit lifecycle — verifies the renderer-side cleanup that happens AFTER
+// the main process emits 'pty:exit'. The previous tests only assert that the
+// renderer sent 'pty:kill'; this section closes the loop by simulating the
+// exit echo and asserting that onExit fires, listeners stop firing, and a
+// subsequent spawn for the same tabId is not deduped against the dead session.
+// ---------------------------------------------------------------------------
+
+describe("services/terminal pty-client exit lifecycle", () => {
+  beforeEach(resetIpc);
+
+  it("on pty:exit, onExit fires with the exit code and data is no longer delivered", () => {
+    let received = "";
+    const exits: Array<{ code: number | null }> = [];
+    const client = createPtyClient({
+      tabId: "tab-exit",
+      cwd: "/workspace",
+      onData: (chunk) => {
+        received += chunk;
+      },
+      onExit: (info) => {
+        exits.push(info);
+      },
+    });
+
+    emit("pty", "data", { tabId: "tab-exit", chunk: "alive" });
+    expect(received).toBe("alive");
+
+    emit("pty", "exit", { tabId: "tab-exit", code: 0 });
+    expect(exits).toEqual([{ code: 0 }]);
+
+    // Late-arriving data after exit should still flow through onData (the listener
+    // is removed by dispose, not by exit) — but a subsequent dispose must not double-fire onExit.
+    emit("pty", "data", { tabId: "tab-exit", chunk: "ghost" });
+    expect(received).toBe("aliveghost");
+
+    client.dispose();
+    emit("pty", "exit", { tabId: "tab-exit", code: 0 });
+    expect(exits).toEqual([{ code: 0 }]);
+  });
+
+  it("after pty:exit, the next spawnSession for the same tabId is not short-circuited as already-live", async () => {
+    const client = createPtyClient({
+      tabId: "tab-respawn",
+      cwd: "/workspace",
+      onData: () => {},
+      onExit: () => {},
+    });
+
+    const first = await client.spawn({ cols: 80, rows: 24 });
+    expect(first).toEqual({ pid: 1234 });
+
+    // Exit echo from main process — should clear the live-session marker.
+    emit("pty", "exit", { tabId: "tab-respawn", code: 0 });
+
+    // Next spawn must hit the IPC again (not be deduped as already-live).
+    const beforeCount = ipcCalls.filter(
+      (c) => c.channel === "pty" && c.method === "spawn",
+    ).length;
+    const second = await client.spawn({ cols: 80, rows: 24 });
+    const afterCount = ipcCalls.filter(
+      (c) => c.channel === "pty" && c.method === "spawn",
+    ).length;
+
+    expect(second).toEqual({ pid: 1234 });
+    expect(afterCount - beforeCount).toBe(1);
+
+    client.dispose();
+  });
+
+  it("ignores pty:exit destined for a different tabId", () => {
+    let exitFired = false;
+    const client = createPtyClient({
+      tabId: "tab-self",
+      cwd: "/workspace",
+      onData: () => {},
+      onExit: () => {
+        exitFired = true;
+      },
+    });
+
+    emit("pty", "exit", { tabId: "tab-other", code: 1 });
+    expect(exitFired).toBe(false);
+
+    client.dispose();
+  });
+});

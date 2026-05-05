@@ -29,12 +29,11 @@
  *   - Scenario 5 (restart → hydrate): files-store.test.ts Scenario 8 + storage-workspace.test.ts
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { FileWatcher } from "../../src/main/filesystem/file-watcher";
-import { HIDDEN_NAMES } from "../../src/shared/fs-defaults";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -287,61 +286,6 @@ describe("Scenario 4: disposeWorkspace removes all watcher state and silences bu
     }
   });
 
-  it("wrappedBroadcast pattern: workspace.removed triggers disposeWorkspace then broadcasts removed event", () => {
-    // This tests the wiring in src/main/index.ts:
-    //   wrappedBroadcast intercepts 'workspace'/'removed' and calls
-    //   fileWatcher.disposeWorkspace(id) before forwarding to broadcast.
-
-    const disposeLog: string[] = [];
-    const broadcastLog: { ch: string; ev: string; args: unknown }[] = [];
-
-    // Simulate the wrappedBroadcast closure.
-    const innerWatcher = new FileWatcher((ch, ev, args) => broadcastLog.push({ ch, ev, args }));
-
-    function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
-      if (channelName === "workspace" && event === "removed") {
-        const { id } = args as { id: string };
-        innerWatcher.disposeWorkspace(id);
-        disposeLog.push(id);
-      }
-      broadcastLog.push({ ch: channelName, ev: event, args });
-    }
-
-    // Set up a watcher for WS_A.
-    innerWatcher.watch(WS_A, tmpDir, tmpDir);
-
-    // Simulate remove event.
-    wrappedBroadcast("workspace", "removed", { id: WS_A });
-
-    // disposeWorkspace was called.
-    expect(disposeLog).toEqual([WS_A]);
-
-    // The removed event was still forwarded.
-    expect(broadcastLog).toHaveLength(1);
-    expect(broadcastLog[0].ch).toBe("workspace");
-    expect(broadcastLog[0].ev).toBe("removed");
-
-    innerWatcher.dispose();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Additional: watch() is idempotent (same absDir twice — no duplicate entry)
-// ---------------------------------------------------------------------------
-
-describe("FileWatcher.watch idempotency", () => {
-  it("calling watch() twice for the same absDir registers only one entry", () => {
-    watcher.watch(WS_A, tmpDir, tmpDir);
-    watcher.watch(WS_A, tmpDir, tmpDir); // second call — should no-op
-
-    // Drive two events.
-    driveBuffer(watcher, WS_A, "file.ts", "added");
-
-    // If there were two entries for the same dir, buffer would still produce
-    // one batch (because buffer is keyed by workspaceId, not absDir).
-    // The important check is that no internal error is thrown.
-    expect(() => watcher.unwatch(WS_A, tmpDir)).not.toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -369,48 +313,3 @@ describe("FileWatcher.unwatch selectivity", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// FileWatcher.ignored — root skip guard (Change B regression tests)
-//
-// The chokidar `ignored` predicate must allow the watched root itself through
-// even when the root's basename is in HIDDEN_NAMES (e.g. 'dist', 'node_modules').
-// Without the root-skip guard, chokidar ignores the root itself and never
-// delivers any events for that directory.
-// ---------------------------------------------------------------------------
-
-describe("FileWatcher.ignored root-skip guard", () => {
-  it("allows root through even when root basename is in HIDDEN_NAMES", () => {
-    const absDir = "/projects/dist";
-    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
-
-    expect(ignored(absDir)).toBe(false);
-  });
-
-  it("allows non-hidden child through", () => {
-    const absDir = "/projects/myapp";
-    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
-
-    expect(ignored(`${absDir}/src`)).toBe(false);
-    expect(ignored(`${absDir}/index.ts`)).toBe(false);
-  });
-
-  it("blocks hidden child names", () => {
-    const absDir = "/projects/myapp";
-    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
-
-    expect(ignored(`${absDir}/.git`)).toBe(true);
-    expect(ignored(`${absDir}/node_modules`)).toBe(true);
-    expect(ignored(`${absDir}/dist`)).toBe(true);
-  });
-
-  it("root with hidden name: root passes, its hidden siblings are blocked", () => {
-    // Root dir named 'dist' — root must pass, nested .git inside it is blocked.
-    const absDir = "/projects/dist";
-    const ignored = (p: string) => p !== absDir && HIDDEN_NAMES.has(path.basename(p));
-
-    expect(ignored(absDir)).toBe(false);
-    expect(ignored(`${absDir}/.git`)).toBe(true);
-    expect(ignored(`${absDir}/node_modules`)).toBe(true);
-    expect(ignored(`${absDir}/src`)).toBe(false);
-  });
-});

@@ -23,7 +23,12 @@ interface IMessagePort {
   postMessage: (data: unknown) => void;
 }
 
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+export interface LspManagerOpts {
+  /** Override the idle shutdown timeout. Defaults to 30 minutes; only set in tests. */
+  idleTimeoutMs?: number;
+}
 
 export class LspManager {
   private port: IMessagePort | null = null;
@@ -31,6 +36,11 @@ export class LspManager {
   private servers = new Map<string, TypeScriptServer>();
   // keyed by workspaceId — timer handle for idle shutdown
   private idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly idleTimeoutMs: number;
+
+  constructor(opts: LspManagerOpts = {}) {
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  }
 
   attachPort(port: IMessagePort): void {
     this.port = port;
@@ -175,7 +185,7 @@ export class LspManager {
     const handle = setTimeout(() => {
       this.idleTimers.delete(workspaceId);
       this.shutdownServer(workspaceId);
-    }, IDLE_TIMEOUT_MS);
+    }, this.idleTimeoutMs);
     this.idleTimers.set(workspaceId, handle);
   }
 

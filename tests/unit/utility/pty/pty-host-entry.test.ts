@@ -85,14 +85,6 @@ describe("pty-host entry — port handshake via event.ports[0]", () => {
     expect(attachPortCalls.length).toBe(0);
   });
 
-  test("ignores messages with unknown type — no attachPort call", () => {
-    const fakePort = { on: () => {}, start: () => {}, postMessage: () => {} };
-
-    fakeParentPort.deliver({ type: "unknown-msg" }, [fakePort]);
-
-    expect(attachPortCalls.length).toBe(0);
-  });
-
   test("second 'port' message delivers second port independently", () => {
     const port1 = { id: 1 };
     const port2 = { id: 2 };

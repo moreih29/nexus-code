@@ -14,7 +14,7 @@ const mockIpcListen = mock((_ch: string, _ev: string, _cb: unknown) => () => {})
   },
 };
 
-mock.module("../../../../src/renderer/ipc/client", () => ({
+mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock(() => Promise.resolve()),
   ipcListen: mockIpcListen,
 }));
@@ -23,8 +23,8 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../../../src/renderer/state/stores/layout/store";
-import type { LayoutLeaf, LayoutNode, LayoutSplit } from "../../../../src/renderer/state/stores/layout/types";
+import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
+import type { LayoutLeaf, LayoutNode, LayoutSplit } from "../../../../../../src/renderer/state/stores/layout/types";
 import {
   allLeaves,
   clampRatio,
@@ -32,7 +32,7 @@ import {
   findSplit,
   leftmostLeaf,
   parentSplitOf,
-} from "../../../../src/renderer/state/stores/layout/helpers";
+} from "../../../../../../src/renderer/state/stores/layout/helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -398,6 +398,71 @@ describe("useLayoutStore", () => {
     const leaves = allLeaves(root);
     const leafIds = new Set(leaves.map((l) => l.id));
     expect(leafIds.has(layout.activeGroupId)).toBe(true);
+  });
+
+  // 19b — mixed dangling: only one leaf has all-dangling tabs, the other survives
+  it("19b. hydrate with one all-dangling leaf and one valid leaf collapses the dangling leaf", () => {
+    const validTab = crypto.randomUUID();
+
+    const goodLeaf: LayoutLeaf = {
+      kind: "leaf",
+      id: crypto.randomUUID(),
+      tabIds: [validTab],
+      activeTabId: validTab,
+    };
+    const danglingLeaf: LayoutLeaf = {
+      kind: "leaf",
+      id: crypto.randomUUID(),
+      tabIds: [crypto.randomUUID(), crypto.randomUUID()], // all dangling
+      activeTabId: null,
+    };
+    const split: LayoutSplit = {
+      kind: "split",
+      id: crypto.randomUUID(),
+      orientation: "horizontal",
+      ratio: 0.5,
+      first: danglingLeaf,
+      second: goodLeaf,
+    };
+
+    useLayoutStore
+      .getState()
+      .hydrate(WS, { root: split, activeGroupId: danglingLeaf.id }, new Set([validTab]));
+
+    const layout = getLayout();
+    const root = layout.root;
+
+    // The dangling leaf should be hoisted away — the good leaf becomes the root.
+    expect(root.kind).toBe("leaf");
+    expect((root as LayoutLeaf).id).toBe(goodLeaf.id);
+    expect((root as LayoutLeaf).tabIds).toEqual([validTab]);
+
+    // activeGroupId must reroute to the surviving leaf since its prior target vanished.
+    expect(layout.activeGroupId).toBe(goodLeaf.id);
+  });
+
+  // 19c — partial dangling: a leaf with mixed valid + dangling tabs keeps only the valid ones
+  it("19c. hydrate with mixed valid/dangling tabs in one leaf strips just the dangling ones", () => {
+    const valid1 = crypto.randomUUID();
+    const valid2 = crypto.randomUUID();
+    const dangling1 = crypto.randomUUID();
+    const dangling2 = crypto.randomUUID();
+
+    const leaf: LayoutLeaf = {
+      kind: "leaf",
+      id: crypto.randomUUID(),
+      tabIds: [valid1, dangling1, valid2, dangling2],
+      activeTabId: dangling2,
+    };
+
+    useLayoutStore
+      .getState()
+      .hydrate(WS, { root: leaf, activeGroupId: leaf.id }, new Set([valid1, valid2]));
+
+    const root = getRoot() as LayoutLeaf;
+    expect(root.tabIds).toEqual([valid1, valid2]);
+    // Active tab id pointed at a dangling tab — should fall back to a surviving sibling.
+    expect(root.activeTabId === valid1 || root.activeTabId === valid2).toBe(true);
   });
 
   // 20

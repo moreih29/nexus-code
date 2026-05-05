@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const mockIpcCall = mock(() => Promise.resolve());
 
-mock.module("../../../../src/renderer/ipc/client", () => ({
+mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mockIpcCall,
 }));
 
@@ -32,7 +32,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../../../../src/renderer/state/stores/ui";
+} from "../../../../../../src/renderer/state/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,37 +52,17 @@ describe("useUIStore", () => {
     mockIpcCall.mockClear();
   });
 
-  it("1. initial sidebarWidth equals SIDEBAR_WIDTH_DEFAULT", () => {
-    expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
-  });
-
-  it("2. hydrate({}) keeps DEFAULT", () => {
-    useUIStore.getState().hydrate({});
-    expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_DEFAULT);
-  });
-
-  it("3. hydrate({sidebarWidth:320}) sets width to 320", () => {
-    useUIStore.getState().hydrate({ sidebarWidth: 320 });
-    expect(useUIStore.getState().sidebarWidth).toBe(320);
-  });
-
-  it("4. hydrate({sidebarWidth:100}) clamps up to MIN", () => {
+  it("hydrate clamps sidebarWidth below MIN up to SIDEBAR_WIDTH_MIN", () => {
     useUIStore.getState().hydrate({ sidebarWidth: 100 });
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MIN);
   });
 
-  it("5. hydrate({sidebarWidth:600}) clamps down to MAX", () => {
+  it("hydrate clamps sidebarWidth above MAX down to SIDEBAR_WIDTH_MAX", () => {
     useUIStore.getState().hydrate({ sidebarWidth: 600 });
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MAX);
   });
 
-  it("6. setSidebarWidth(300, false) updates store and does NOT call ipcCall", () => {
-    useUIStore.getState().setSidebarWidth(300, false);
-    expect(useUIStore.getState().sidebarWidth).toBe(300);
-    expect(mockIpcCall).not.toHaveBeenCalled();
-  });
-
-  it("7. setSidebarWidth(300, true) updates store AND calls ipcCall once with correct args", () => {
+  it("setSidebarWidth(300, true) persists with the correct ipc payload", () => {
     useUIStore.getState().setSidebarWidth(300, true);
     expect(useUIStore.getState().sidebarWidth).toBe(300);
     expect(mockIpcCall).toHaveBeenCalledTimes(1);

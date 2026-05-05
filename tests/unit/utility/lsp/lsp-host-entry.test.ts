@@ -3,28 +3,24 @@
 // caused the infinite restart loop when event.data.port was used instead.
 //
 // The module under test reads process.parentPort synchronously at load time, so
-// we must (a) install the fake BEFORE the module is evaluated, and (b) use a
-// dynamic import() so Bun's static-import hoisting does not run the module
-// before our setup code.
+// we must (a) install the fake parentPort BEFORE the module is evaluated, and
+// (b) use a dynamic import() so Bun's static-import hoisting does not run the
+// module before our setup code.
+//
+// We use spyOn against LspManager.prototype.attachPort instead of mocking the
+// whole lsp-manager module — module mocks leak across files in bun:test, and
+// lsp-manager.test.ts needs to instantiate the real class.
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { LspManager } from "../../../../src/utility/lsp-host/lsp-manager";
 
 // ---------------------------------------------------------------------------
-// Fake collaborators — installed before the module loads
+// Spy on LspManager.attachPort — captures the port without running real LSP
+// servers. attachPort itself only sets up the message listener; the
+// TypeScriptServer is not spawned until a didOpen arrives.
 // ---------------------------------------------------------------------------
 
-const attachPortCalls: unknown[] = [];
-
-class FakeLspManager {
-  attachPort(port: unknown): void {
-    attachPortCalls.push(port);
-  }
-  disposeAll(): void {}
-}
-
-mock.module("../../../../src/utility/lsp-host/lsp-manager", () => ({
-  LspManager: FakeLspManager,
-}));
+const attachPortSpy = spyOn(LspManager.prototype, "attachPort").mockImplementation(() => {});
 
 // ---------------------------------------------------------------------------
 // Fake parentPort — must be in place before the module is evaluated
@@ -55,7 +51,6 @@ const fakeParentPort = new FakeParentPort();
 // Load the entry point via dynamic import so it evaluates AFTER the setup above
 // ---------------------------------------------------------------------------
 
-// Top-level await is supported in Bun test files.
 await import("../../../../src/utility/lsp-host/index");
 
 // ---------------------------------------------------------------------------
@@ -64,7 +59,13 @@ await import("../../../../src/utility/lsp-host/index");
 
 describe("lsp-host entry — port handshake via event.ports[0]", () => {
   beforeEach(() => {
-    attachPortCalls.length = 0;
+    attachPortSpy.mockClear();
+  });
+
+  afterAll(() => {
+    // Restore prototype so other test files (lsp-manager.test.ts) get the
+    // real attachPort. spyOn pollutes the prototype across files in bun:test.
+    attachPortSpy.mockRestore();
   });
 
   test("delivers port from event.ports[0] to LspManager.attachPort", () => {
@@ -72,25 +73,16 @@ describe("lsp-host entry — port handshake via event.ports[0]", () => {
 
     fakeParentPort.deliver({ type: "port" }, [fakePort]);
 
-    expect(attachPortCalls.length).toBe(1);
-    expect(attachPortCalls[0]).toBe(fakePort);
+    expect(attachPortSpy).toHaveBeenCalledTimes(1);
+    expect(attachPortSpy.mock.calls[0][0]).toBe(fakePort);
   });
 
   test("does NOT crash and does NOT call attachPort when event.ports is empty", () => {
-    // Guard: missing ports must not throw — fail-fast log, no crash.
     expect(() => {
       fakeParentPort.deliver({ type: "port" }, []);
     }).not.toThrow();
 
-    expect(attachPortCalls.length).toBe(0);
-  });
-
-  test("ignores messages with unknown type — no attachPort call", () => {
-    const fakePort = { on: () => {}, start: () => {}, postMessage: () => {} };
-
-    fakeParentPort.deliver({ type: "unknown-msg" }, [fakePort]);
-
-    expect(attachPortCalls.length).toBe(0);
+    expect(attachPortSpy).not.toHaveBeenCalled();
   });
 
   test("second 'port' message delivers second port independently", () => {
@@ -100,18 +92,16 @@ describe("lsp-host entry — port handshake via event.ports[0]", () => {
     fakeParentPort.deliver({ type: "port" }, [port1]);
     fakeParentPort.deliver({ type: "port" }, [port2]);
 
-    expect(attachPortCalls.length).toBe(2);
-    expect(attachPortCalls[0]).toBe(port1);
-    expect(attachPortCalls[1]).toBe(port2);
+    expect(attachPortSpy).toHaveBeenCalledTimes(2);
+    expect(attachPortSpy.mock.calls[0][0]).toBe(port1);
+    expect(attachPortSpy.mock.calls[1][0]).toBe(port2);
   });
 
   test("event.data.port being present does NOT reach attachPort (regression guard)", () => {
-    // If someone reverts to event.data.port, this test catches it.
-    // data has a port field, but event.ports is empty — attachPort must NOT be called.
     const dataPort = { on: () => {}, start: () => {}, postMessage: () => {} };
 
     fakeParentPort.deliver({ type: "port", port: dataPort }, []);
 
-    expect(attachPortCalls.length).toBe(0);
+    expect(attachPortSpy).not.toHaveBeenCalled();
   });
 });

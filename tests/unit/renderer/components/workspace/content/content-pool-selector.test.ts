@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { ownerLeafIdOf } from "../../../../src/renderer/components/workspace/content/selectors";
-import type { LayoutLeaf, LayoutNode } from "../../../../src/renderer/state/stores/layout/types";
+import { ownerLeafIdOf } from "../../../../../../src/renderer/components/workspace/content/selectors";
+import type { LayoutLeaf, LayoutNode } from "../../../../../../src/renderer/state/stores/layout/types";
 
 // ---------------------------------------------------------------------------
 // Fixtures

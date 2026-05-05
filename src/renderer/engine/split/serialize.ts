@@ -1,6 +1,6 @@
-import type { SplitLeaf, SplitNode, SerializedNode } from "./types";
 import { allLeaves } from "./traversal";
-import { removeView } from "./tree";
+import { removeLeaf } from "./tree";
+import type { SerializedNode, SplitLeaf, SplitNode } from "./types";
 
 export function serialize(tree: SplitNode): SerializedNode {
   return tree;
@@ -8,23 +8,23 @@ export function serialize(tree: SplitNode): SerializedNode {
 
 export function deserialize(
   json: SerializedNode,
-  viewFactory?: (id: string, leafData: SplitLeaf) => SplitLeaf,
+  leafFactory?: (id: string, leafData: SplitLeaf) => SplitLeaf,
 ): SplitNode {
-  if (!viewFactory) return json;
-  return applyViewFactory(json, viewFactory);
+  if (!leafFactory) return json;
+  return applyLeafFactory(json, leafFactory);
 }
 
-function applyViewFactory(
+function applyLeafFactory(
   node: SplitNode,
-  viewFactory: (id: string, leafData: SplitLeaf) => SplitLeaf,
+  leafFactory: (id: string, leafData: SplitLeaf) => SplitLeaf,
 ): SplitNode {
   if (node.kind === "leaf") {
-    return viewFactory(node.id, node);
+    return leafFactory(node.id, node);
   }
   return {
     ...node,
-    first: applyViewFactory(node.first, viewFactory),
-    second: applyViewFactory(node.second, viewFactory),
+    first: applyLeafFactory(node.first, leafFactory),
+    second: applyLeafFactory(node.second, leafFactory),
   };
 }
 
@@ -36,7 +36,7 @@ export function collapseEmptyLeaves(tree: SplitNode): SplitNode {
     const leaves = allLeaves(current);
     for (const leaf of leaves) {
       if (leaf.tabIds.length === 0) {
-        const { root: next, hoistedSiblingLeafId } = removeView(current, leaf.id);
+        const { root: next, hoistedSiblingLeafId } = removeLeaf(current, leaf.id);
         if (hoistedSiblingLeafId !== null) {
           current = next;
           changed = true;

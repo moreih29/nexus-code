@@ -52,7 +52,7 @@ export function findEditorTab(workspaceId: string, filePath: string): EditorTabL
     );
   };
 
-  const activeLeaf = Grid.findView(layout.root, layout.activeGroupId);
+  const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
   const activeTabId = activeLeaf?.tabIds.find(matchesEditorPath);
   if (activeLeaf && activeTabId) {
     return { groupId: activeLeaf.id, tabId: activeTabId };
@@ -76,7 +76,7 @@ export function findEditorTabInGroup(
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
 
-  const leaf = Grid.findView(layout.root, groupId);
+  const leaf = Grid.findLeaf(layout.root, groupId);
   if (!leaf) return null;
 
   const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
@@ -105,7 +105,7 @@ export function findPreviewTabInGroup(
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
 
-  const leaf = Grid.findView(layout.root, groupId);
+  const leaf = Grid.findLeaf(layout.root, groupId);
   if (!leaf) return null;
 
   const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};

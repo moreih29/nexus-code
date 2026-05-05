@@ -65,7 +65,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     if (!layout) return "";
 
     const direction = toDirection(orientation, side);
-    const { root: newRoot, newLeafId } = Grid.addView(
+    const { root: newRoot, newLeafId } = Grid.addLeaf(
       layout.root,
       groupId,
       direction,
@@ -87,7 +87,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     if (!layout) return "";
 
     const direction = toDirection(orientation, side);
-    const { root: afterSplit, newLeafId } = Grid.addView(
+    const { root: afterSplit, newLeafId } = Grid.addLeaf(
       layout.root,
       sourceLeafId,
       direction,
@@ -130,7 +130,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         };
       }
 
-      const { root: newRoot, hoistedSiblingLeafId } = Grid.removeView(root, groupId);
+      const { root: newRoot, hoistedSiblingLeafId } = Grid.removeLeaf(root, groupId);
 
       // Route activeGroupId: if active group was the one removed, move to hoisted sibling
       let nextActive = activeGroupId;
@@ -184,7 +184,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      if (!Grid.findView(layout.root, groupId)) return state;
+      if (!Grid.findLeaf(layout.root, groupId)) return state;
 
       const newRoot = Grid.replaceLeaf(layout.root, groupId, (leaf) => {
         const tabIds = [...leaf.tabIds];
@@ -242,7 +242,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       let nextActive = activeGroupId;
 
       if (nextTabIds.length === 0) {
-        const { root: hoistedRoot, hoistedSiblingLeafId } = Grid.removeView(afterDetach, owner.id);
+        const { root: hoistedRoot, hoistedSiblingLeafId } = Grid.removeLeaf(afterDetach, owner.id);
         if (hoistedSiblingLeafId !== null) {
           finalRoot = hoistedRoot;
           if (activeGroupId === owner.id) {
@@ -291,7 +291,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
         // Step 1b: structural — hoist if source leaf became empty
         if (nextTabIds.length === 0) {
-          const { root: hoisted, hoistedSiblingLeafId } = Grid.removeView(
+          const { root: hoisted, hoistedSiblingLeafId } = Grid.removeLeaf(
             intermediateRoot,
             owner.id,
           );
@@ -305,11 +305,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       }
 
       // Step 2: attach to destination — re-query after possible hoist
-      const destLeaf = Grid.findView(intermediateRoot, toGroupId);
+      const destLeaf = Grid.findLeaf(intermediateRoot, toGroupId);
 
       if (!destLeaf) {
         // Destination disappeared (hoisted away) — put tab in active group
-        const fallbackLeaf = Grid.findView(intermediateRoot, nextActive);
+        const fallbackLeaf = Grid.findLeaf(intermediateRoot, nextActive);
         if (!fallbackLeaf) return state;
 
         const finalRoot = Grid.replaceLeaf(intermediateRoot, nextActive, (leaf) => {
@@ -354,7 +354,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       const layout = state.byWorkspace[workspaceId];
       if (!layout) return state;
 
-      const leaf = Grid.findView(layout.root, groupId);
+      const leaf = Grid.findLeaf(layout.root, groupId);
       if (!leaf || !leaf.tabIds.includes(tabId)) return state;
 
       const newRoot = Grid.replaceLeaf(layout.root, groupId, (l) => ({ ...l, activeTabId: tabId }));

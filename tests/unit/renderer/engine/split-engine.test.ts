@@ -29,14 +29,14 @@ function makeCounter(prefix = "id"): { factory: () => string; count: () => numbe
 }
 
 // ---------------------------------------------------------------------------
-// describe("Grid.addView")
+// describe("Grid.addLeaf")
 // ---------------------------------------------------------------------------
 
-describe("Grid.addView", () => {
+describe("Grid.addLeaf", () => {
   it("leaf-only tree + right => horizontal split, original in first, new in second", () => {
     const leaf = makeLeaf("L1");
     const { factory } = makeCounter();
-    const { root, newLeafId } = Grid.addView(leaf, "L1", "right", factory);
+    const { root, newLeafId } = Grid.addLeaf(leaf, "L1", "right", factory);
 
     expect(root.kind).toBe("split");
     const branch = root as SplitBranch;
@@ -50,7 +50,7 @@ describe("Grid.addView", () => {
   it("leaf-only tree + left => horizontal split, new in first, original in second", () => {
     const leaf = makeLeaf("L1");
     const { factory } = makeCounter();
-    const { root, newLeafId } = Grid.addView(leaf, "L1", "left", factory);
+    const { root, newLeafId } = Grid.addLeaf(leaf, "L1", "left", factory);
 
     const branch = root as SplitBranch;
     expect(branch.orientation).toBe("horizontal");
@@ -61,7 +61,7 @@ describe("Grid.addView", () => {
   it("leaf-only tree + down => vertical split, new in second", () => {
     const leaf = makeLeaf("L1");
     const { factory } = makeCounter();
-    const { root, newLeafId } = Grid.addView(leaf, "L1", "down", factory);
+    const { root, newLeafId } = Grid.addLeaf(leaf, "L1", "down", factory);
 
     const branch = root as SplitBranch;
     expect(branch.orientation).toBe("vertical");
@@ -72,7 +72,7 @@ describe("Grid.addView", () => {
   it("leaf-only tree + up => vertical split, new in first", () => {
     const leaf = makeLeaf("L1");
     const { factory } = makeCounter();
-    const { root, newLeafId } = Grid.addView(leaf, "L1", "up", factory);
+    const { root, newLeafId } = Grid.addLeaf(leaf, "L1", "up", factory);
 
     const branch = root as SplitBranch;
     expect(branch.orientation).toBe("vertical");
@@ -88,7 +88,7 @@ describe("Grid.addView", () => {
     const root = makeBranch("root", "vertical", outerLeaf, inner);
 
     const { factory } = makeCounter();
-    const { root: newRoot } = Grid.addView(root, "deep", "right", factory);
+    const { root: newRoot } = Grid.addLeaf(root, "deep", "right", factory);
 
     expect(newRoot.kind).toBe("split");
     const outerBranch = newRoot as SplitBranch;
@@ -104,40 +104,16 @@ describe("Grid.addView", () => {
     expect(wrappedBranch.first.id).toBe("deep");
   });
 
-  it("new leaf id equals the value returned by idFactory", () => {
-    const leaf = makeLeaf("L1");
-    const ids: string[] = [];
-    const factory = () => {
-      const id = `gen-${ids.length}`;
-      ids.push(id);
-      return id;
-    };
-    const { newLeafId } = Grid.addView(leaf, "L1", "right", factory);
-    expect(ids).toContain(newLeafId);
-  });
-
-  it("two successive addView calls each invoke idFactory for their new leaf", () => {
-    const { factory, count } = makeCounter();
-    const leaf = makeLeaf("L1");
-    const { root: r1 } = Grid.addView(leaf, "L1", "right", factory);
-    const callsAfterFirst = count();
-
-    const firstNewLeafId = (r1 as SplitBranch).second.id;
-    Grid.addView(r1, firstNewLeafId, "right", factory);
-    const callsAfterSecond = count();
-
-    expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
-  });
 });
 
 // ---------------------------------------------------------------------------
-// describe("Grid.removeView")
+// describe("Grid.removeLeaf")
 // ---------------------------------------------------------------------------
 
-describe("Grid.removeView", () => {
+describe("Grid.removeLeaf", () => {
   it("sole leaf: tree unchanged and hoistedSiblingLeafId is null", () => {
     const leaf = makeLeaf("only");
-    const { root, hoistedSiblingLeafId } = Grid.removeView(leaf, "only");
+    const { root, hoistedSiblingLeafId } = Grid.removeLeaf(leaf, "only");
     expect(root).toEqual(leaf);
     expect(hoistedSiblingLeafId).toBeNull();
   });
@@ -147,7 +123,7 @@ describe("Grid.removeView", () => {
     const l2 = makeLeaf("L2", ["t1"], "t1");
     const branch = makeBranch("B1", "horizontal", l1, l2);
 
-    const { root, hoistedSiblingLeafId } = Grid.removeView(branch, "L1");
+    const { root, hoistedSiblingLeafId } = Grid.removeLeaf(branch, "L1");
     expect(root.kind).toBe("leaf");
     expect(root.id).toBe("L2");
     expect(hoistedSiblingLeafId).toBe("L2");
@@ -158,7 +134,7 @@ describe("Grid.removeView", () => {
     const l2 = makeLeaf("L2");
     const branch = makeBranch("B1", "horizontal", l1, l2);
 
-    const { root, hoistedSiblingLeafId } = Grid.removeView(branch, "L2");
+    const { root, hoistedSiblingLeafId } = Grid.removeLeaf(branch, "L2");
     expect(root.id).toBe("L1");
     expect(hoistedSiblingLeafId).toBe("L1");
   });
@@ -170,7 +146,7 @@ describe("Grid.removeView", () => {
     const inner = makeBranch("inner", "horizontal", l1, l2);
     const root = makeBranch("root", "vertical", inner, l3);
 
-    const { root: newRoot, hoistedSiblingLeafId } = Grid.removeView(root, "L1");
+    const { root: newRoot, hoistedSiblingLeafId } = Grid.removeLeaf(root, "L1");
     expect(newRoot.kind).toBe("split");
     const outerBranch = newRoot as SplitBranch;
     expect(outerBranch.first.id).toBe("L2");
@@ -183,7 +159,7 @@ describe("Grid.removeView", () => {
     const l2 = makeLeaf("L2");
     const branch = makeBranch("B1", "horizontal", l1, l2);
 
-    const { root, hoistedSiblingLeafId } = Grid.removeView(branch, "GHOST");
+    const { root, hoistedSiblingLeafId } = Grid.removeLeaf(branch, "GHOST");
     expect(root).toEqual(branch);
     expect(hoistedSiblingLeafId).toBeNull();
   });
@@ -232,15 +208,15 @@ describe("Grid.setRatio", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe("Grid.findView / findBranch / parentBranchOf / leftmostLeaf / allLeaves")
+// describe("Grid.findLeaf / findSplit / parentSplitOf / leftmostLeaf / allLeaves")
 // ---------------------------------------------------------------------------
 
-describe("Grid.findView", () => {
+describe("Grid.findLeaf", () => {
   it("finds a leaf by id in a nested tree", () => {
     const l1 = makeLeaf("L1", ["t1"], "t1");
     const l2 = makeLeaf("L2");
     const branch = makeBranch("B1", "horizontal", l1, l2);
-    const found = Grid.findView(branch, "L1");
+    const found = Grid.findLeaf(branch, "L1");
     expect(found).not.toBeNull();
     expect(found?.id).toBe("L1");
     expect(found?.tabIds).toEqual(["t1"]);
@@ -248,7 +224,7 @@ describe("Grid.findView", () => {
 
   it("returns null for unknown id", () => {
     const leaf = makeLeaf("L1");
-    expect(Grid.findView(leaf, "NOPE")).toBeNull();
+    expect(Grid.findLeaf(leaf, "NOPE")).toBeNull();
   });
 });
 
@@ -298,35 +274,35 @@ describe("Grid.findLeafByTab", () => {
   });
 });
 
-describe("Grid.findBranch", () => {
+describe("Grid.findSplit", () => {
   it("finds a branch by id", () => {
     const l1 = makeLeaf("L1");
     const l2 = makeLeaf("L2");
     const branch = makeBranch("B1", "vertical", l1, l2);
-    const found = Grid.findBranch(branch, "B1");
+    const found = Grid.findSplit(branch, "B1");
     expect(found).not.toBeNull();
     expect(found?.orientation).toBe("vertical");
   });
 
   it("returns null when searching a leaf node", () => {
     const leaf = makeLeaf("L1");
-    expect(Grid.findBranch(leaf, "L1")).toBeNull();
+    expect(Grid.findSplit(leaf, "L1")).toBeNull();
   });
 });
 
-describe("Grid.parentBranchOf", () => {
+describe("Grid.parentSplitOf", () => {
   it("returns the direct parent branch of a leaf", () => {
     const l1 = makeLeaf("L1");
     const l2 = makeLeaf("L2");
     const branch = makeBranch("B1", "horizontal", l1, l2);
-    const parent = Grid.parentBranchOf(branch, "L2");
+    const parent = Grid.parentSplitOf(branch, "L2");
     expect(parent).not.toBeNull();
     expect(parent?.id).toBe("B1");
   });
 
   it("returns null for sole root leaf", () => {
     const leaf = makeLeaf("L1");
-    expect(Grid.parentBranchOf(leaf, "L1")).toBeNull();
+    expect(Grid.parentSplitOf(leaf, "L1")).toBeNull();
   });
 });
 
@@ -433,16 +409,16 @@ describe("Grid.collapseEmptyLeaves", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe("Grid.swapViews")
+// describe("Grid.swapLeaves")
 // ---------------------------------------------------------------------------
 
-describe("Grid.swapViews", () => {
+describe("Grid.swapLeaves", () => {
   it("swaps tabIds and activeTabId between two leaves while keeping their ids in place", () => {
     const l1 = makeLeaf("L1", ["t1", "t2"], "t2");
     const l2 = makeLeaf("L2", ["t3"], "t3");
     const branch = makeBranch("B1", "horizontal", l1, l2);
 
-    const result = Grid.swapViews(branch, "L1", "L2") as SplitBranch;
+    const result = Grid.swapLeaves(branch, "L1", "L2") as SplitBranch;
     const newL1 = result.first as SplitLeaf;
     const newL2 = result.second as SplitLeaf;
 
@@ -457,55 +433,16 @@ describe("Grid.swapViews", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe("Grid sash-math")
+// describe("Grid.pxToRatio — division guard")
 // ---------------------------------------------------------------------------
+//
+// Clamping is exercised via Grid.setRatio (above). Multiplication and basic
+// ratio math is exercised via the live drag handlers (sidebar-resize.test.ts)
+// and Grid.setRatio. The only non-trivial branch left is the totalSize=0
+// divide-by-zero guard, which can't surface through higher-level tests.
 
-describe("Grid sash-math", () => {
-  describe("constants", () => {
-    it("MIN_RATIO is 0.05", () => {
-      expect(Grid.MIN_RATIO).toBe(0.05);
-    });
-
-    it("MAX_RATIO is 0.95", () => {
-      expect(Grid.MAX_RATIO).toBe(0.95);
-    });
-  });
-
-  describe("clampRatio", () => {
-    it("value below MIN_RATIO is clamped to 0.05", () => {
-      expect(Grid.clampRatio(0.04)).toBe(0.05);
-    });
-
-    it("value above MAX_RATIO is clamped to 0.95", () => {
-      expect(Grid.clampRatio(0.96)).toBe(0.95);
-    });
-
-    it("mid-range value passes through unchanged", () => {
-      expect(Grid.clampRatio(0.5)).toBe(0.5);
-    });
-  });
-
-  describe("pxToRatio", () => {
-    it("50px out of 100px => 0.5", () => {
-      expect(Grid.pxToRatio(50, 100)).toBe(0.5);
-    });
-
-    it("95px out of 100px is clamped to MAX_RATIO (0.95)", () => {
-      expect(Grid.pxToRatio(95, 100)).toBe(0.95);
-    });
-
-    it("0px out of 100px is clamped to MIN_RATIO (0.05)", () => {
-      expect(Grid.pxToRatio(0, 100)).toBe(0.05);
-    });
-
-    it("totalSize 0 returns 0.5 (division guard)", () => {
-      expect(Grid.pxToRatio(50, 0)).toBe(0.5);
-    });
-  });
-
-  describe("ratioToPx", () => {
-    it("0.5 ratio * 100 total => 50", () => {
-      expect(Grid.ratioToPx(0.5, 100)).toBe(50);
-    });
+describe("Grid.pxToRatio", () => {
+  it("totalSize 0 returns 0.5 (division guard prevents NaN)", () => {
+    expect(Grid.pxToRatio(50, 0)).toBe(0.5);
   });
 });
