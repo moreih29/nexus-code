@@ -29,6 +29,7 @@ interface TabBarProps {
 
 function PinIcon() {
   return (
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative pin icon, hidden via aria-hidden
     <svg
       aria-hidden
       width="12"
