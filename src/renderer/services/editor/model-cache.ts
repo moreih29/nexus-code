@@ -1,9 +1,9 @@
 // Monaco TextModel reference counting.
 // Mirrors VSCode ITextModelService — models are owned by the cache, not by editor instances.
-// Public surface: useSharedModel(uri) hook + acquire/release primitives.
+// Framework-agnostic surface: acquire/release primitives, subscribeModel, isMonacoReady.
+// React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
-import { useEffect, useState } from "react";
 import { type FileErrorCode, parseFileErrorCode } from "../../utils/file-error";
 import {
   attachDirtyTracker,
@@ -76,7 +76,6 @@ export function filePathToModelUri(filePath: string): string {
 export function cacheUriToFilePath(cacheUri: string): string | null {
   return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
 }
-
 
 function requireMonaco(): typeof Monaco {
   if (!monacoRef) {
@@ -270,12 +269,52 @@ function cacheUriForInput(input: EditorInput): string {
   return filePathToModelUri(input.filePath);
 }
 
-function subscribeEntry(input: EditorInput, onChange: () => void): () => void {
+/**
+ * Subscribe to phase / model changes for a tracked entry. Returns a
+ * no-op when the entry is unknown so callers don't need an extra
+ * existence check. The unsubscribe returned removes the listener and
+ * is idempotent.
+ */
+export function subscribeModel(input: EditorInput, onChange: () => void): () => void {
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return () => {};
   entry.subscribers.add(onChange);
   return () => {
     entry.subscribers.delete(onChange);
+  };
+}
+
+/**
+ * Read the current snapshot for a tracked entry, or null when no entry
+ * exists. Pure read — does not affect ref-counts.
+ */
+export function getModelSnapshot(input: EditorInput): SharedModelState | null {
+  const entry = entries.get(cacheUriForInput(input));
+  return entry ? snapshot(entry) : null;
+}
+
+/**
+ * Coerce an arbitrary thrown value to a FileErrorCode. Exposed for the
+ * React binding so it can map a rejected acquire promise to the
+ * `error` phase without re-implementing the heuristic.
+ */
+export function toFileErrorCode(error: unknown): FileErrorCode {
+  return errorCodeFromUnknown(error);
+}
+
+export function isMonacoReady(): boolean {
+  return monacoRef !== null;
+}
+
+/**
+ * Register a callback fired the first time `initializeModelCache` runs.
+ * Returns an unsubscribe. Used by the React binding to flip from
+ * "loading" to a real acquire once Monaco mounts.
+ */
+export function onMonacoReady(listener: () => void): () => void {
+  initializeListeners.add(listener);
+  return () => {
+    initializeListeners.delete(listener);
   };
 }
 
@@ -327,67 +366,4 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
     filePath: entry.input.filePath,
     languageId: entry.languageId,
   };
-}
-
-export function useSharedModel(input: EditorInput): SharedModelState {
-  const { workspaceId, filePath } = input;
-  const [state, setState] = useState<SharedModelState>({
-    phase: "loading",
-    model: null,
-  });
-  const [isMonacoReady, setIsMonacoReady] = useState(monacoRef !== null);
-
-  useEffect(() => {
-    if (monacoRef) return;
-    const listener = () => setIsMonacoReady(true);
-    initializeListeners.add(listener);
-    return () => {
-      initializeListeners.delete(listener);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let acquired = false;
-    let unsubscribe = () => {};
-    const sharedInput = { workspaceId, filePath };
-
-    if (!isMonacoReady || !monacoRef) {
-      setState({ phase: "loading", model: null });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setState({ phase: "loading", model: null });
-
-    acquireModel(sharedInput)
-      .then((nextState) => {
-        acquired = true;
-        if (cancelled) {
-          releaseModel(sharedInput);
-          return;
-        }
-
-        setState(nextState);
-        unsubscribe = subscribeEntry(sharedInput, () => {
-          const entry = entries.get(cacheUriForInput(sharedInput));
-          if (entry) setState(snapshot(entry));
-        });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setState({ phase: "error", model: null, errorCode: errorCodeFromUnknown(error) });
-      });
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-      if (acquired) {
-        releaseModel(sharedInput);
-      }
-    };
-  }, [workspaceId, filePath, isMonacoReady]);
-
-  return state;
 }
