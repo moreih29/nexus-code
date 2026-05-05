@@ -8,14 +8,16 @@
  */
 
 // `window.host` is provided by the preload bridge in production; in unit
-// tests there is no window — fall back to checking `process.platform`,
-// then assume mac (the dev primary) so labels still resolve.
+// tests there is no window — fall back to a node-y `process.platform`
+// probe (the renderer doesn't ship node types, so we read it through
+// `globalThis` to avoid a TS error). Defaults to mac (the dev primary).
 function detectIsMac(): boolean {
   if (typeof window !== "undefined" && window.host?.platform) {
     return window.host.platform === "darwin";
   }
-  if (typeof process !== "undefined" && typeof process.platform === "string") {
-    return process.platform === "darwin";
+  const proc = (globalThis as { process?: { platform?: string } }).process;
+  if (proc && typeof proc.platform === "string") {
+    return proc.platform === "darwin";
   }
   return true;
 }

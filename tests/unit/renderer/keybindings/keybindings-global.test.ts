@@ -1,28 +1,15 @@
 /**
  * Unit tests for src/renderer/keybindings/global.ts
  *
- * Tests use plain objects that satisfy the minimal shape required by the
- * handler — no DOM, jsdom, or React environment needed. This matches the
- * project's established pattern (see workspace-panel-mount.test.ts).
- *
- * isInEditable() is tested separately with plain HTMLElement-shaped objects
- * so the tagName/isContentEditable/closest logic can be verified without
- * constructing real DOM nodes.
- *
- * handleGlobalKeyDown() receives a minimal KeyboardEvent-shaped mock that
- * exposes: metaKey, shiftKey, key, target, preventDefault(), defaultPrevented.
+ * The router resolves keystrokes to command IDs and dispatches through
+ * the command registry. Tests register fake handlers per command and
+ * assert that the right one fires for each shortcut. No DOM, no React.
  */
 
-import { describe, expect, it, mock } from "bun:test";
-import {
-  type GlobalKeyDeps,
-  handleGlobalKeyDown,
-  isInEditable,
-} from "../../../../src/renderer/keybindings/global";
-
-// ---------------------------------------------------------------------------
-// Minimal event mock — no DOM/browser API required
-// ---------------------------------------------------------------------------
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { COMMANDS } from "../../../../src/shared/commands";
+import { __resetCommandsForTests, registerCommand } from "../../../../src/renderer/commands/registry";
+import { handleGlobalKeyDown, isInEditable } from "../../../../src/renderer/keybindings/global";
 
 interface MockEvent {
   metaKey: boolean;
@@ -38,7 +25,14 @@ interface MockEvent {
 
 function makeEvent(
   key: string,
-  opts: { metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; code?: string; target?: unknown } = {},
+  opts: {
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    code?: string;
+    target?: unknown;
+  } = {},
 ): MockEvent {
   let prevented = false;
   return {
@@ -58,23 +52,26 @@ function makeEvent(
   };
 }
 
-function makeDeps(wsId: string | null = "ws-1"): GlobalKeyDeps & {
-  refreshMock: ReturnType<typeof mock>;
-  openFileDialogMock: ReturnType<typeof mock>;
-} {
-  const refreshMock = mock(() => Promise.resolve());
-  const openFileDialogMock = mock(() => Promise.resolve());
-  return {
-    getActiveWorkspaceId: () => wsId,
-    refresh: refreshMock as unknown as (wsId: string) => Promise<void>,
-    openFileDialog: openFileDialogMock as unknown as (wsId: string) => Promise<void>,
-    refreshMock,
-    openFileDialogMock,
-  };
+function setupCommandSpies(): Record<string, ReturnType<typeof mock>> {
+  const spies: Record<string, ReturnType<typeof mock>> = {};
+  for (const id of Object.values(COMMANDS)) {
+    const fn = mock(() => {});
+    spies[id] = fn;
+    registerCommand(id, fn as () => void);
+  }
+  return spies;
 }
 
+beforeEach(() => {
+  __resetCommandsForTests();
+});
+
+afterEach(() => {
+  __resetCommandsForTests();
+});
+
 // ---------------------------------------------------------------------------
-// isInEditable — tested with plain objects that mimic HTMLElement shape
+// isInEditable
 // ---------------------------------------------------------------------------
 
 describe("isInEditable", () => {
@@ -87,11 +84,15 @@ describe("isInEditable", () => {
   });
 
   it("returns true for contentEditable element", () => {
-    const el = { tagName: "DIV", isContentEditable: true, closest: () => null } as unknown as HTMLElement;
+    const el = {
+      tagName: "DIV",
+      isContentEditable: true,
+      closest: () => null,
+    } as unknown as HTMLElement;
     expect(isInEditable(el)).toBe(true);
   });
 
-  it("returns true when element is inside .cm-editor (closest returns truthy)", () => {
+  it("returns true when element is inside .cm-editor", () => {
     const el = {
       tagName: "SPAN",
       isContentEditable: false,
@@ -115,222 +116,169 @@ describe("isInEditable", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleGlobalKeyDown — Cmd+R
+// handleGlobalKeyDown — file commands
 // ---------------------------------------------------------------------------
 
-describe("handleGlobalKeyDown — Cmd+R", () => {
-  it("calls deps.refresh and preventDefault on Cmd+R (lowercase r)", () => {
-    const deps = makeDeps("ws-1");
+describe("handleGlobalKeyDown — refresh", () => {
+  it("fires files.refresh on Cmd+R", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("r", { metaKey: true });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.refreshMock).toHaveBeenCalledTimes(1);
-    expect(deps.refreshMock).toHaveBeenCalledWith("ws-1");
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("still calls preventDefault even when no active workspace", () => {
-    const deps = makeDeps(null);
-    const e = makeEvent("r", { metaKey: true });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.refreshMock).not.toHaveBeenCalled();
+  it("still fires files.refresh inside an editable (matches the prior page-reload override)", () => {
+    const spies = setupCommandSpies();
+    const target = { tagName: "INPUT" } as HTMLElement;
+    const e = makeEvent("r", { metaKey: true, target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("does not intercept Cmd+R when metaKey is false", () => {
-    const deps = makeDeps("ws-1");
+  it("does not fire on plain r without modifier", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("r", { metaKey: false });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.filesRefresh]).not.toHaveBeenCalled();
+  });
+});
 
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.refreshMock).not.toHaveBeenCalled();
+describe("handleGlobalKeyDown — fileOpen editable guard", () => {
+  it("does not fire file.open when target is INPUT", () => {
+    const spies = setupCommandSpies();
+    const target = { tagName: "INPUT" } as HTMLElement;
+    const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.fileOpen]).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("fires file.open on Cmd+E for non-editable target", () => {
+    const spies = setupCommandSpies();
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("fires file.open on Cmd+O for non-editable target", () => {
+    const spies = setupCommandSpies();
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const e = makeEvent("o", { metaKey: true, code: "KeyO", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// handleGlobalKeyDown — Cmd+E / Cmd+O editable guard
+// handleGlobalKeyDown — split (Backslash / Slash for Korean keyboards)
 // ---------------------------------------------------------------------------
 
-describe("handleGlobalKeyDown — Cmd+E / Cmd+O editable guard", () => {
-  it("does not call openFileDialog or preventDefault when target is INPUT", () => {
-    const deps = makeDeps("ws-1");
-    const target = { tagName: "INPUT" } as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-
-  it("does not call openFileDialog when target is TEXTAREA", () => {
-    const deps = makeDeps("ws-1");
-    const target = { tagName: "TEXTAREA" } as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-
-  it("does not call openFileDialog when target is contentEditable", () => {
-    const deps = makeDeps("ws-1");
-    const target = {
-      tagName: "DIV",
-      isContentEditable: true,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-
-  it("does not call openFileDialog when target is nested inside .cm-editor", () => {
-    const deps = makeDeps("ws-1");
-    const target = {
-      tagName: "SPAN",
-      isContentEditable: false,
-      closest: (sel: string) => (sel === ".cm-editor" ? {} : null),
-    } as unknown as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-
-  it("calls openFileDialog and preventDefault when target is a plain non-editable element", () => {
-    const deps = makeDeps("ws-1");
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).toHaveBeenCalledTimes(1);
-    expect(deps.openFileDialogMock).toHaveBeenCalledWith("ws-1");
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("calls openFileDialog and preventDefault on Cmd+O for a plain non-editable element", () => {
-    const deps = makeDeps("ws-1");
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("o", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).toHaveBeenCalledTimes(1);
-    expect(deps.openFileDialogMock).toHaveBeenCalledWith("ws-1");
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("does not call openFileDialog or preventDefault on Cmd+O when target is editable", () => {
-    const deps = makeDeps("ws-1");
-    const target = { tagName: "INPUT" } as HTMLElement;
-    const e = makeEvent("o", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
-  });
-
-  it("does not call openFileDialog when no active workspace", () => {
-    const deps = makeDeps(null);
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    const e = makeEvent("e", { metaKey: true, target });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.openFileDialogMock).not.toHaveBeenCalled();
-    // preventDefault is still called before the wsId guard
-    expect(e.defaultPrevented).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// handleGlobalKeyDown — split via e.code (Backslash / Slash)
-// ---------------------------------------------------------------------------
-
-describe("handleGlobalKeyDown — splitActiveGroup via e.code", () => {
-  function makeSplitDeps() {
-    const splitMock = mock((_orientation: "horizontal" | "vertical") => {});
-    const deps: GlobalKeyDeps = {
-      ...makeDeps("ws-1"),
-      splitActiveGroup: splitMock as unknown as GlobalKeyDeps["splitActiveGroup"],
-    };
-    return { deps, splitMock };
-  }
-
-  it("calls splitActiveGroup(horizontal) on Cmd+\\ (code=Backslash)", () => {
-    const { deps, splitMock } = makeSplitDeps();
+describe("handleGlobalKeyDown — split", () => {
+  it("fires group.splitRight on Cmd+\\ (code=Backslash)", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("\\", { metaKey: true, code: "Backslash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).toHaveBeenCalledTimes(1);
-    expect(splitMock).toHaveBeenCalledWith("horizontal");
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupSplitRight]).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("calls splitActiveGroup(horizontal) on Cmd+/ (code=Slash) — Korean keyboard", () => {
-    const { deps, splitMock } = makeSplitDeps();
+  it("fires group.splitRight on Cmd+/ (code=Slash) — Korean keyboard", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("/", { metaKey: true, code: "Slash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).toHaveBeenCalledTimes(1);
-    expect(splitMock).toHaveBeenCalledWith("horizontal");
-    expect(e.defaultPrevented).toBe(true);
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupSplitRight]).toHaveBeenCalledTimes(1);
   });
 
-  it("calls splitActiveGroup(vertical) on Cmd+Shift+\\ (code=Backslash)", () => {
-    const { deps, splitMock } = makeSplitDeps();
+  it("fires group.splitDown on Cmd+Shift+\\", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("\\", { metaKey: true, shiftKey: true, code: "Backslash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).toHaveBeenCalledTimes(1);
-    expect(splitMock).toHaveBeenCalledWith("vertical");
-    expect(e.defaultPrevented).toBe(true);
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupSplitDown]).toHaveBeenCalledTimes(1);
   });
 
-  it("calls splitActiveGroup(vertical) on Cmd+Shift+/ (code=Slash) — Korean keyboard", () => {
-    const { deps, splitMock } = makeSplitDeps();
-    const e = makeEvent("/", { metaKey: true, shiftKey: true, code: "Slash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).toHaveBeenCalledTimes(1);
-    expect(splitMock).toHaveBeenCalledWith("vertical");
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("does not fire split when altKey is set", () => {
-    const { deps, splitMock } = makeSplitDeps();
+  it("does not fire split when altKey is set (would clash with Cmd+Alt+...)", () => {
+    const spies = setupCommandSpies();
     const e = makeEvent("\\", { metaKey: true, altKey: true, code: "Backslash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).not.toHaveBeenCalled();
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupSplitRight]).not.toHaveBeenCalled();
   });
 
   it("does not fire split when target is INPUT", () => {
-    const { deps, splitMock } = makeSplitDeps();
+    const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
     const e = makeEvent("\\", { metaKey: true, code: "Backslash", target });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    expect(splitMock).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupSplitRight]).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGlobalKeyDown — tab close family
+// ---------------------------------------------------------------------------
+
+describe("handleGlobalKeyDown — tab close", () => {
+  it("Cmd+Shift+W fires group.close (more specific match wins over Cmd+W)", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("w", { metaKey: true, shiftKey: true, code: "KeyW" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.groupClose]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+W fires tab.close", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("w", { metaKey: true, code: "KeyW" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.groupClose]).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+Alt+T fires tab.closeOthers", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("t", { metaKey: true, altKey: true, code: "KeyT" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabCloseOthers]).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("handleGlobalKeyDown — path actions", () => {
+  it("Cmd+Alt+R fires path.reveal", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("r", { metaKey: true, altKey: true, code: "KeyR" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.pathReveal]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.filesRefresh]).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+Alt+C fires path.copy", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("c", { metaKey: true, altKey: true, code: "KeyC" });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.pathCopy]).toHaveBeenCalledTimes(1);
+  });
+
+  it("Cmd+Shift+Alt+C fires path.copyRelative", () => {
+    const spies = setupCommandSpies();
+    const e = makeEvent("c", {
+      metaKey: true,
+      shiftKey: true,
+      altKey: true,
+      code: "KeyC",
+    });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.pathCopyRelative]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.pathCopy]).not.toHaveBeenCalled();
   });
 });

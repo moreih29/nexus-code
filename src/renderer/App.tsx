@@ -1,5 +1,6 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
+import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { Sidebar } from "./components/workbench/sidebar";
@@ -166,8 +167,11 @@ export function App() {
     [workspaces],
   );
 
-  // Global keybindings: Cmd+E / Cmd+O / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
+  // Wire the keyboard dispatcher and the Application Menu IPC bridge to
+  // the same command registry. Both surfaces resolve to one
+  // implementation per command.
   useGlobalKeybindings();
+  useCommandBridge();
 
   // Render panels for every mounted workspace; only the active is visible.
   // Filter through `workspaces` so a deleted workspace's panel disappears

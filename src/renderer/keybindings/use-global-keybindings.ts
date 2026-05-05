@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { COMMANDS } from "../../shared/commands";
+import { registerCommand } from "../commands/registry";
 import { Grid } from "../engine/split";
 import { ipcCall } from "../ipc/client";
 import { closeEditorWithConfirm, openOrRevealEditor, saveModel } from "../services/editor";
@@ -40,8 +42,6 @@ function getWorkspaceRootPath(workspaceId: string): string | null {
  * Build the path-action trio anchored to the currently active editor.
  * Returns null when there is no active editor (or no workspace), so the
  * caller can no-op without each shortcut handler re-walking the chain.
- * The resolver re-reads the tab on each invocation — by the time the
- * user hits the key the active tab might have changed.
  */
 function getActiveEditorPathActions() {
   const ctx = getActiveTabContext();
@@ -74,138 +74,171 @@ async function closeTabById(workspaceId: string, tabId: string): Promise<"closed
 }
 
 /**
- * Wires the global keydown listener on `window` and dispatches via
- * `handleGlobalKeyDown`. Every dependency is resolved through the live store
- * state at handler time, so this hook can stay mounted for the entire app
- * lifetime without re-binding when active workspace changes.
+ * Register every command implementation and wire the global keydown
+ * listener. Both surfaces (keyboard and Application Menu) execute
+ * commands through the registry, so the implementations live in one
+ * place. Mounted once at the app root for the entire app lifetime.
  */
 export function useGlobalKeybindings(): void {
   useEffect(() => {
+    const unregister: Array<() => void> = [];
+
+    unregister.push(
+      registerCommand(COMMANDS.filesRefresh, () => {
+        const wsId = useActiveStore.getState().activeWorkspaceId;
+        if (!wsId) return;
+        useFilesStore
+          .getState()
+          .refresh(wsId)
+          .catch(() => {});
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.fileOpen, async () => {
+        const wsId = useActiveStore.getState().activeWorkspaceId;
+        if (!wsId) return;
+        const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
+          title: "Open File",
+          filters: [
+            { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
+            { name: "All Files", extensions: ["*"] },
+          ],
+        });
+        if (canceled || filePaths.length === 0) return;
+        openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.fileSave, () => {
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        const tab = useTabsStore.getState().byWorkspace[ctx.wsId]?.[ctx.tabId];
+        if (!tab || tab.type !== "editor") return;
+        const props = tab.props as EditorTabProps;
+        saveModel({ workspaceId: ctx.wsId, filePath: props.filePath }).catch(() => {});
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.tabClose, () => {
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        void closeTabById(ctx.wsId, ctx.tabId);
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.tabCloseOthers, async () => {
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        // Pin protection mirrors `useGroupActions.closeOthers`.
+        const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
+        const others = ctx.leaf.tabIds.filter(
+          (id) => id !== ctx.tabId && !wsRecord[id]?.isPinned,
+        );
+        for (const id of others) {
+          const outcome = await closeTabById(ctx.wsId, id);
+          if (outcome === "cancelled") return;
+        }
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.groupSplitRight, () => splitActiveGroup("horizontal")),
+    );
+    unregister.push(
+      registerCommand(COMMANDS.groupSplitDown, () => splitActiveGroup("vertical")),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.groupClose, () => {
+        const wsId = useActiveStore.getState().activeWorkspaceId;
+        if (!wsId) return;
+        const layout = useLayoutStore.getState().byWorkspace[wsId];
+        if (!layout) return;
+        closeGroup(wsId, layout.activeGroupId);
+      }),
+    );
+
+    unregister.push(registerCommand(COMMANDS.groupFocusLeft, () => moveFocus("left")));
+    unregister.push(registerCommand(COMMANDS.groupFocusRight, () => moveFocus("right")));
+    unregister.push(registerCommand(COMMANDS.groupFocusUp, () => moveFocus("up")));
+    unregister.push(registerCommand(COMMANDS.groupFocusDown, () => moveFocus("down")));
+
+    unregister.push(
+      registerCommand(COMMANDS.pathReveal, () => {
+        getActiveEditorPathActions()?.revealInFinder();
+      }),
+    );
+    unregister.push(
+      registerCommand(COMMANDS.pathCopy, () => {
+        getActiveEditorPathActions()?.copyPath();
+      }),
+    );
+    unregister.push(
+      registerCommand(COMMANDS.pathCopyRelative, () => {
+        getActiveEditorPathActions()?.copyRelativePath();
+      }),
+    );
+
     function onKeyDown(e: KeyboardEvent) {
-      handleGlobalKeyDown(e, {
-        getActiveWorkspaceId: () => useActiveStore.getState().activeWorkspaceId,
-        refresh: (wsId) => useFilesStore.getState().refresh(wsId),
-        openFileDialog: async (wsId) => {
-          const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
-            title: "Open File",
-            filters: [
-              { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-              { name: "All Files", extensions: ["*"] },
-            ],
-          });
-          if (canceled || filePaths.length === 0) return;
-          openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
-        },
-
-        splitActiveGroup: (orientation) => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-          const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
-          if (!activeLeaf?.activeTabId) return;
-          const tab = useTabsStore.getState().byWorkspace[wsId]?.[activeLeaf.activeTabId];
-          if (!tab) return;
-
-          if (tab.type === "editor") {
-            openOrRevealEditor(tab.props as EditorTabProps, {
-              newSplit: { orientation, side: "after" },
-            });
-            return;
-          }
-
-          if (tab.type === "terminal") {
-            const props = tab.props as TerminalTabProps;
-            openTerminal(
-              { workspaceId: wsId, cwd: props.cwd },
-              { groupId: activeLeaf.id, newSplit: { orientation, side: "after" } },
-            );
-          }
-        },
-
-        closeActiveGroup: () => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-          closeGroup(wsId, layout.activeGroupId);
-        },
-
-        saveActiveEditor: () => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-          const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
-          const tabId = activeLeaf?.activeTabId;
-          if (!tabId) return;
-          const tab = useTabsStore.getState().byWorkspace[wsId]?.[tabId];
-          if (!tab || tab.type !== "editor") return;
-          const props = tab.props as EditorTabProps;
-          saveModel({ workspaceId: wsId, filePath: props.filePath }).catch(() => {});
-        },
-
-        closeActiveTab: () => {
-          const ctx = getActiveTabContext();
-          if (!ctx) return;
-          void closeTabById(ctx.wsId, ctx.tabId);
-        },
-
-        closeOthersInActiveGroup: async () => {
-          const ctx = getActiveTabContext();
-          if (!ctx) return;
-          // Pin protection mirrors `useGroupActions.closeOthers` —
-          // pinned tabs aren't swept up by bulk-close gestures.
-          const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
-          const others = ctx.leaf.tabIds.filter(
-            (id) => id !== ctx.tabId && !wsRecord[id]?.isPinned,
-          );
-          for (const id of others) {
-            const outcome = await closeTabById(ctx.wsId, id);
-            if (outcome === "cancelled") return;
-          }
-        },
-
-        revealActiveFile: () => {
-          getActiveEditorPathActions()?.revealInFinder();
-        },
-
-        copyActivePath: () => {
-          getActiveEditorPathActions()?.copyPath();
-        },
-
-        copyActiveRelativePath: () => {
-          getActiveEditorPathActions()?.copyRelativePath();
-        },
-
-        moveFocus: (direction) => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-
-          const leaves = Grid.allLeaves(layout.root);
-          if (leaves.length <= 1) return;
-
-          const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
-          if (currentIdx === -1) return;
-
-          let nextIdx: number;
-          if (direction === "left" || direction === "up") {
-            nextIdx = currentIdx > 0 ? currentIdx - 1 : leaves.length - 1;
-          } else {
-            nextIdx = currentIdx < leaves.length - 1 ? currentIdx + 1 : 0;
-          }
-
-          const nextLeaf = leaves[nextIdx];
-          if (nextLeaf) {
-            useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
-          }
-        },
-      });
+      handleGlobalKeyDown(e);
     }
-
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      for (const off of unregister) off();
+    };
   }, []);
+}
+
+function splitActiveGroup(orientation: "horizontal" | "vertical"): void {
+  const wsId = useActiveStore.getState().activeWorkspaceId;
+  if (!wsId) return;
+  const layout = useLayoutStore.getState().byWorkspace[wsId];
+  if (!layout) return;
+  const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
+  if (!activeLeaf?.activeTabId) return;
+  const tab = useTabsStore.getState().byWorkspace[wsId]?.[activeLeaf.activeTabId];
+  if (!tab) return;
+
+  if (tab.type === "editor") {
+    openOrRevealEditor(tab.props as EditorTabProps, {
+      newSplit: { orientation, side: "after" },
+    });
+    return;
+  }
+  if (tab.type === "terminal") {
+    const props = tab.props as TerminalTabProps;
+    openTerminal(
+      { workspaceId: wsId, cwd: props.cwd },
+      { groupId: activeLeaf.id, newSplit: { orientation, side: "after" } },
+    );
+  }
+}
+
+function moveFocus(direction: "left" | "right" | "up" | "down"): void {
+  const wsId = useActiveStore.getState().activeWorkspaceId;
+  if (!wsId) return;
+  const layout = useLayoutStore.getState().byWorkspace[wsId];
+  if (!layout) return;
+  const leaves = Grid.allLeaves(layout.root);
+  if (leaves.length <= 1) return;
+  const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
+  if (currentIdx === -1) return;
+  const nextIdx =
+    direction === "left" || direction === "up"
+      ? currentIdx > 0
+        ? currentIdx - 1
+        : leaves.length - 1
+      : currentIdx < leaves.length - 1
+        ? currentIdx + 1
+        : 0;
+  const nextLeaf = leaves[nextIdx];
+  if (nextLeaf) {
+    useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
+  }
 }
