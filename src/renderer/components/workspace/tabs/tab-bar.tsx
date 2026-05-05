@@ -73,9 +73,7 @@ interface TabItemProps {
  */
 function useTabDirty(tab: Tab): boolean {
   const cacheUri =
-    tab.type === "editor"
-      ? filePathToModelUri((tab.props as EditorTabProps).filePath)
-      : null;
+    tab.type === "editor" ? filePathToModelUri((tab.props as EditorTabProps).filePath) : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeDirty(cacheUri, cb) : () => {}),
     [cacheUri],

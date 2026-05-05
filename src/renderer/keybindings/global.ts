@@ -106,12 +106,7 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
   // any other editable element. e.code is used (not e.key) for the
   // same Korean-keyboard reason as the split shortcuts above — when
   // IME is engaged, e.key may surface a Hangul jamo instead of "s".
-  if (
-    (e.metaKey || e.ctrlKey) &&
-    !e.shiftKey &&
-    !e.altKey &&
-    e.code === "KeyS"
-  ) {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === "KeyS") {
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     deps.saveActiveEditor?.();
