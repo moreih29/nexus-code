@@ -1,19 +1,17 @@
-// TODO: Keep this file in sync with .nexus/context/design.md.
-// When design.md is updated, review and update the token values below accordingly.
-
-// ---------------------------------------------------------------------------
-// Scale separation policy (Decision #1, 2026-05-03)
-// ---------------------------------------------------------------------------
-// typeScale   — Warp marketing scale (18 roles). Synced with design.md.
-//               Used on marketing/landing surfaces. Kept as-is; do not modify
-//               without a design.md sync.
-// appTypeScale — Application-UI scale (3 roles). Source: Designer Q1 guidance.
-//               NOT synced with design.md — this is an independent source of
-//               truth for in-app UI components (sidebar, tab bar, panels, etc.).
-//               font-family is recorded for documentation; it is NOT emitted to
-//               CSS (Tailwind v4 --text-* modifier does not support font-family).
-//               EditorView / TerminalView use fontFamily via JS import directly.
-// ---------------------------------------------------------------------------
+// Design tokens for the application chrome.
+//
+// Update policy:
+//   1. Color palette + spacing + radius + breakpoints  → in sync with
+//      `.nexus/context/design.md`. Update both at the same time.
+//   2. typeScale (codeUi / codeBody)                   → consumed by
+//      Monaco / xterm directly via JS import; not part of design.md.
+//   3. appTypeScale                                    → Designer Q1
+//      guidance, independent source of truth for in-app UI components.
+//   4. Marketing scale (18 roles)                      → lives in
+//      `./design-tokens-marketing.ts` so updates to design.md don't
+//      have to scroll past the chrome tokens. Re-imported here only
+//      for the public `typeScale` export so existing consumers keep
+//      working.
 
 // ---------------------------------------------------------------------------
 // Color palette — OKLCH (converted from hex via culori for perceptual accuracy)
@@ -112,143 +110,21 @@ export function buildSemanticTokens(): Record<string, string> {
 }
 
 // ---------------------------------------------------------------------------
-// Typography — font families (M1: Matter → Pretendard; mono → JetBrains Mono)
+// Typography — font families. Authoritative source: `./design-tokens-fonts.ts`
+// (lifted out so the marketing scale and the in-app code scale can both
+// import it without forming a circular dependency through this module).
 // ---------------------------------------------------------------------------
 
-export const fontFamily = {
-  // Tailwind utility overrides — font-sans / font-mono map to these
-  sans: "Pretendard, system-ui, -apple-system, sans-serif",
-  mono: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
-  // display/body/caption roles → Pretendard (han-first, M1)
-  display: "Pretendard, system-ui, -apple-system, sans-serif",
-  // medium/square/uiSupplement: Pretendard placeholder (revisit when assets arrive)
-  medium: "Pretendard, system-ui, -apple-system, sans-serif",
-  square: "Pretendard, system-ui, -apple-system, sans-serif",
-  uiSupplement: "Pretendard, system-ui, -apple-system, sans-serif",
-  // mono roles → JetBrains Mono Nerd Font + Sarasa Term K fallback
-  monoDisplay: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
-  monoBody: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
-} as const;
+export { fontFamily } from "./design-tokens-fonts";
+
+import { fontFamily } from "./design-tokens-fonts";
 
 // ---------------------------------------------------------------------------
-// Typography — hierarchy
-// Role → { fontFamily, fontSize, fontWeight, lineHeight, letterSpacing }
+// Code type scale — consumed by Monaco / xterm directly.
 // fontSize and letterSpacing are in px; lineHeight is unitless ratio.
 // ---------------------------------------------------------------------------
 
-export const typeScale = {
-  displayHero: {
-    fontFamily: fontFamily.display,
-    fontSize: 80,
-    fontWeight: 400,
-    lineHeight: 1.0,
-    letterSpacing: -2.4,
-  },
-  sectionDisplay: {
-    fontFamily: fontFamily.display,
-    fontSize: 56,
-    fontWeight: 400,
-    lineHeight: 1.2,
-    letterSpacing: -0.56,
-  },
-  sectionHeading: {
-    fontFamily: fontFamily.display,
-    fontSize: 48,
-    fontWeight: 400,
-    lineHeight: 1.2,
-    letterSpacing: -0.48,
-  },
-  featureHeading: {
-    fontFamily: fontFamily.display,
-    fontSize: 40,
-    fontWeight: 400,
-    lineHeight: 1.1,
-    letterSpacing: -0.4,
-  },
-  subHeadingLarge: {
-    fontFamily: fontFamily.display,
-    fontSize: 36,
-    fontWeight: 400,
-    lineHeight: 1.15,
-    letterSpacing: -0.72,
-  },
-  cardDisplay: {
-    fontFamily: fontFamily.square,
-    fontSize: 42,
-    fontWeight: 400,
-    lineHeight: 1.0,
-    letterSpacing: 0,
-  },
-  subHeading: {
-    fontFamily: fontFamily.display,
-    fontSize: 32,
-    fontWeight: 400,
-    lineHeight: 1.19,
-    letterSpacing: 0,
-  },
-  bodyHeading: {
-    fontFamily: fontFamily.display,
-    fontSize: 24,
-    fontWeight: 400,
-    lineHeight: 1.2,
-    letterSpacing: -0.72,
-  },
-  cardTitle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 22,
-    fontWeight: 500,
-    lineHeight: 1.14,
-    letterSpacing: 0,
-  },
-  bodyLarge: {
-    fontFamily: fontFamily.display,
-    fontSize: 20,
-    fontWeight: 400,
-    lineHeight: 1.4,
-    letterSpacing: -0.2,
-  },
-  body: {
-    fontFamily: fontFamily.display,
-    fontSize: 18,
-    fontWeight: 400,
-    lineHeight: 1.3,
-    letterSpacing: -0.18,
-  },
-  navUi: {
-    fontFamily: fontFamily.display,
-    fontSize: 16,
-    fontWeight: 400,
-    lineHeight: 1.2,
-    letterSpacing: 0,
-  },
-  buttonText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 16,
-    fontWeight: 500,
-    lineHeight: 1.2,
-    letterSpacing: 0,
-  },
-  caption: {
-    fontFamily: fontFamily.display,
-    fontSize: 14,
-    fontWeight: 400,
-    lineHeight: 1.0,
-    letterSpacing: 1.4,
-  },
-  smallLabel: {
-    fontFamily: fontFamily.display,
-    fontSize: 12,
-    fontWeight: 400,
-    lineHeight: 1.35,
-    letterSpacing: 2.4,
-  },
-  micro: {
-    fontFamily: fontFamily.display,
-    fontSize: 11,
-    fontWeight: 400,
-    lineHeight: 1.2,
-    letterSpacing: 0,
-  },
+const codeTypeScale = {
   codeUi: {
     fontFamily: fontFamily.monoDisplay,
     fontSize: 16,
@@ -263,19 +139,25 @@ export const typeScale = {
     lineHeight: 1.0,
     letterSpacing: -0.2,
   },
-  uiSupplement: {
-    fontFamily: fontFamily.uiSupplement,
-    fontSize: 16,
-    fontWeight: 500,
-    lineHeight: 1.0,
-    letterSpacing: -0.2,
-  },
 } as const;
 
 // ---------------------------------------------------------------------------
-// Application-UI type scale (see scale separation policy above)
+// Public typeScale — composes the marketing 18-role scale (separate file)
+// with the in-app code roles. Public surface is unchanged so existing
+// consumers (cn.ts, generator, EditorView, TerminalView) keep working.
+// ---------------------------------------------------------------------------
+
+import { marketingTypeScale } from "./design-tokens-marketing";
+
+export const typeScale = {
+  ...marketingTypeScale,
+  ...codeTypeScale,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Application-UI type scale — Designer Q1 guidance. micro (11px / 1.2 / 0)
+// already lives in marketing typeScale, so it is not duplicated here.
 // fontSize and letterSpacing are in px; lineHeight is unitless ratio.
-// micro (11px / 1.2 / 0) is covered by typeScale.micro — not duplicated here.
 // ---------------------------------------------------------------------------
 
 export const appTypeScale = {
