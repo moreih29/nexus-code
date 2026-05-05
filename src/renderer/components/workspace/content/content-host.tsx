@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { EditorTabProps, Tab, TerminalTabProps } from "@/state/stores/tabs";
-import { useHiddenPortalEl } from "./content-pool";
 import { EditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
+import { useViewPark } from "./view-park";
 
 interface ContentHostProps {
   workspaceId: string;
@@ -29,8 +29,18 @@ interface ContentHostProps {
  * stable per-tab `<div>` for the lifetime of the tab. createPortal always
  * targets that stable element — so the React subtree is never unmounted
  * during a tab move. We then imperatively appendChild the stable element
- * into the current parent (slot or hidden pool) whenever the parent
+ * into the current parent (slot or view park) whenever the parent
  * changes. The DOM moves; the React tree does not.
+ *
+ * Parent selection:
+ *   - workspace active + slot registered → workspace's slot (visible)
+ *   - workspace active + slot pending     → view park (transient)
+ *   - workspace inactive                  → view park
+ *
+ * The inactive→park rule is what fixes cross-workspace canvas bleed-through:
+ * GPU-composited content (xterm WebGL canvas) does not reliably honor
+ * `visibility:hidden` on an ancestor WorkspacePanel, so we move the DOM
+ * out of the inactive panel entirely. See view-park.tsx for the rationale.
  *
  * Note: WebGL/Canvas renderers can still lose their rasterized buffer
  * across DOM detach/reattach. TerminalView refresh() (called on parent
@@ -44,8 +54,8 @@ export function ContentHost({
   isWorkspaceActive,
 }: ContentHostProps) {
   const slotEl = useSlotElement(workspaceId, ownerLeafId);
-  const hiddenEl = useHiddenPortalEl();
-  const currentParent = slotEl ?? hiddenEl;
+  const parkEl = useViewPark();
+  const currentParent = isWorkspaceActive ? (slotEl ?? parkEl) : parkEl;
 
   // Stable per-tab portal target. Created once on first render and reused
   // for the component's entire lifetime. Use lazy-init via ref so we don't
@@ -60,8 +70,9 @@ export function ContentHost({
   const portalTarget = portalTargetRef.current;
 
   // Reparent the stable portal target into the current parent (slot or
-  // hidden pool) whenever the parent changes. This is what actually moves
-  // the DOM during a tab move — the React tree above stays put.
+  // view park) whenever the parent changes. This is what actually moves
+  // the DOM during a tab move or workspace switch — the React tree above
+  // stays put.
   useEffect(() => {
     if (!currentParent) return;
     if (portalTarget.parentElement !== currentParent) {
