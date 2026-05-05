@@ -66,9 +66,9 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks are installed
 // ---------------------------------------------------------------------------
 
+import { openOrRevealEditor } from "../../src/renderer/services/editor";
 import { selectFlat, useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
-import { openOrRevealEditor } from "../../src/renderer/services/editor";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
 import {
   FILES_PANEL_WIDTH_DEFAULT,
@@ -141,9 +141,7 @@ describe("Scenario 1 (AUTO): workspace selection → ensureRoot calls readdir on
   beforeEach(resetAllStores);
 
   it("ensureRoot creates a tree entry for the workspace", async () => {
-    setupReaddir(
-      new Map([["", [dirEntry("src", "dir"), dirEntry("README.md", "file")]]]),
-    );
+    setupReaddir(new Map([["", [dirEntry("src", "dir"), dirEntry("README.md", "file")]]]));
 
     await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
 
@@ -159,16 +157,15 @@ describe("Scenario 1 (AUTO): workspace selection → ensureRoot calls readdir on
 
     // ensureRoot calls getExpanded + watch (async, fire-and-forget) + readdir.
     // Assert that readdir was called exactly once with the root relPath.
-    const readdirCalls = (mockIpcCall.mock.calls as Array<[string, string, { relPath: string }]>)
-      .filter(([, method]) => method === "readdir");
+    const readdirCalls = (
+      mockIpcCall.mock.calls as Array<[string, string, { relPath: string }]>
+    ).filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
     expect(readdirCalls[0][2].relPath).toBe("");
   });
 
   it("ensureRoot populates root node with children returned by readdir", async () => {
-    setupReaddir(
-      new Map([["", [dirEntry("src", "dir"), dirEntry("package.json", "file")]]]),
-    );
+    setupReaddir(new Map([["", [dirEntry("src", "dir"), dirEntry("package.json", "file")]]]));
 
     await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
 
@@ -346,16 +343,18 @@ describe("Scenario 3 (AUTO): file click → openOrRevealEditor + tab store refle
     expect(activeGroupId).toBe(tab.groupId);
   });
 
-  it("clicking two different files creates two editor tabs", () => {
+  it("clicking two different files reuses the preview slot (second replaces first)", () => {
+    // With PREVIEW_ENABLED, a single-click on a.ts opens it as a preview tab.
+    // A subsequent single-click on b.ts replaces the same preview slot with b.ts,
+    // so only one tab exists at any time — matching VSCode's preview-slot policy.
     openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/a.ts` });
     openOrRevealEditor({ workspaceId: WS_A, filePath: `${ROOT_A}/b.ts` });
 
     const tabs = Object.values(useTabsStore.getState().byWorkspace[WS_A] ?? {});
-    expect(tabs).toHaveLength(2);
-    const filePaths = tabs
-      .map((t) => (t.props as { filePath: string }).filePath)
-      .sort();
-    expect(filePaths).toEqual([`${ROOT_A}/a.ts`, `${ROOT_A}/b.ts`].sort());
+    expect(tabs).toHaveLength(1);
+    const tab = tabs[0];
+    expect((tab?.props as { filePath: string }).filePath).toBe(`${ROOT_A}/b.ts`);
+    expect(tab?.isPreview).toBe(true);
   });
 });
 
@@ -393,11 +392,7 @@ describe("Scenario 4 (AUTO): workspace switch → two separate tree entries in f
   beforeEach(resetAllStores);
 
   it("ensureRoot for WS_A then WS_B creates two distinct tree entries", async () => {
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-      ]),
-    );
+    setupReaddir(new Map([["", [dirEntry("src", "dir")]]]));
 
     await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
     await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
@@ -448,7 +443,9 @@ describe("Scenario 4 (AUTO): workspace switch → two separate tree entries in f
 
     // Each ensureRoot issues: getExpanded + readdir (+ async watch fire-and-forget).
     // Assert that readdir was called exactly once for each workspace.
-    const calls = mockIpcCall.mock.calls as Array<[string, string, { workspaceId: string; relPath: string }]>;
+    const calls = mockIpcCall.mock.calls as Array<
+      [string, string, { workspaceId: string; relPath: string }]
+    >;
     const readdirCalls = calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(2);
     const wsIds = readdirCalls.map((c) => c[2].workspaceId);
@@ -525,9 +522,7 @@ describe("Scenario 5 (AUTO): refresh → invalidates children, re-issues readdir
 
     await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
 
-    setupReaddir(
-      new Map([["", [dirEntry("original.ts", "file"), dirEntry("added.ts", "file")]]]),
-    );
+    setupReaddir(new Map([["", [dirEntry("original.ts", "file"), dirEntry("added.ts", "file")]]]));
     await useFilesStore.getState().refresh(WS_A);
 
     const tree = useFilesStore.getState().trees.get(WS_A);

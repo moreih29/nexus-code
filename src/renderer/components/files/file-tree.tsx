@@ -1,9 +1,9 @@
 "use no memo";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { isInEditable } from "../../keybindings/global";
 import { openOrRevealEditor } from "../../services/editor";
+import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { FileTreeRow } from "./file-tree-row";
 import { computeParentJumpIndex } from "./keys";
 
@@ -134,10 +134,15 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     }
   }
 
-  function handleRowClick(idx: number, item: (typeof flat)[number]) {
+  function handleRowClick(idx: number, item: (typeof flat)[number], e?: React.MouseEvent) {
     setActiveIndex(idx);
     if (item.node.type === "dir") {
       useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+    } else if (e && (e.metaKey || e.ctrlKey)) {
+      openOrRevealEditor(
+        { workspaceId, filePath: item.absPath },
+        { newSplit: { orientation: "horizontal", side: "after", isPreview: true } },
+      );
     } else {
       openOrRevealEditor({ workspaceId, filePath: item.absPath });
     }
@@ -169,13 +174,15 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
               }}
             >
               <FileTreeRow
+                workspaceId={workspaceId}
+                absPath={item.absPath}
                 node={item.node}
                 depth={item.depth}
                 isExpanded={isExpanded}
                 isSelected={vi.index === activeIndex}
                 isLoading={tree?.loading.has(item.absPath) ?? false}
                 onToggle={() => handleRowClick(vi.index, item)}
-                onClick={() => handleRowClick(vi.index, item)}
+                onClick={(e) => handleRowClick(vi.index, item, e)}
               />
             </div>
           );

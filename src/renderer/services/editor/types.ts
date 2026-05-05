@@ -12,7 +12,11 @@ export interface OpenEditorOptions {
   /** When the input is already open in any group, focus that group. Defaults to true. */
   revealIfOpened?: boolean;
   /** Force open in a new split rather than reuse. */
-  newSplit?: { orientation: "horizontal" | "vertical"; side: "before" | "after" };
+  newSplit?: {
+    orientation: "horizontal" | "vertical";
+    side: "before" | "after";
+    isPreview?: boolean;
+  };
 }
 
 export interface EditorTabLocation {

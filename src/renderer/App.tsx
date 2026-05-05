@@ -45,10 +45,17 @@ export function App() {
       if (state.layoutByWorkspace) {
         for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
           try {
-            // Restore tabs record
-            const tabsMap: Record<string, (typeof snap.tabs)[number]> = {};
+            // Restore tabs record; normalize isPreview/isPinned (missing in old snapshots → false)
+            const tabsMap: Record<
+              string,
+              (typeof snap.tabs)[number] & { isPreview: boolean; isPinned: boolean }
+            > = {};
             for (const t of snap.tabs) {
-              tabsMap[t.id] = t;
+              const isPreview =
+                "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
+              const isPinned =
+                "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
+              tabsMap[t.id] = { ...t, isPreview, isPinned };
             }
             useTabsStore.setState((s) => ({
               byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },

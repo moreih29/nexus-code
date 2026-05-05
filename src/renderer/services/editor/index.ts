@@ -3,7 +3,14 @@ import { initializeLspBridge } from "./lsp-bridge";
 import { initializeModelCache } from "./model-cache";
 
 export { useSharedModel } from "./model-cache";
-export { closeEditor, findEditorTab, openOrRevealEditor } from "./open-editor";
+export {
+  closeEditor,
+  findEditorTab,
+  findEditorTabInGroup,
+  findPreviewTabInGroup,
+  openOrRevealEditor,
+  PREVIEW_ENABLED,
+} from "./open-editor";
 export type { EditorInput, EditorTabLocation, EditorTabProps, OpenEditorOptions } from "./types";
 
 export function initializeEditorServices(monaco: typeof Monaco): void {

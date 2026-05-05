@@ -42,5 +42,13 @@ export interface TerminalControllerOptions {
 }
 
 export interface TerminalController {
+  /**
+   * Re-rasterize the visible viewport from xterm's in-memory line buffer.
+   * Call after the underlying DOM container is moved (e.g. createPortal
+   * target swap when a tab is dragged into another group) — WebGL/Canvas
+   * renderer addons can lose their rasterized buffer in transit, leaving
+   * a black viewport until the next data arrives.
+   */
+  refresh: () => void;
   dispose: () => void;
 }

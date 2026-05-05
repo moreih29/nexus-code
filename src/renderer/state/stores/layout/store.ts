@@ -1,8 +1,14 @@
 import { create } from "zustand";
-import { Grid } from "@/engine/split";
 import type { Direction } from "@/engine/split";
+import { Grid } from "@/engine/split";
 import { stripDanglingTabs } from "./sanitize";
-import type { LayoutLeaf, LayoutNode, LayoutState, SplitOrientation, WorkspaceLayout } from "./types";
+import type {
+  LayoutLeaf,
+  LayoutNode,
+  LayoutState,
+  SplitOrientation,
+  WorkspaceLayout,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,11 +65,46 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     if (!layout) return "";
 
     const direction = toDirection(orientation, side);
-    const { root: newRoot, newLeafId } = Grid.addView(layout.root, groupId, direction, crypto.randomUUID.bind(crypto));
+    const { root: newRoot, newLeafId } = Grid.addView(
+      layout.root,
+      groupId,
+      direction,
+      crypto.randomUUID.bind(crypto),
+    );
 
     set((state) => ({
       byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
         root: newRoot,
+        activeGroupId: newLeafId,
+      })),
+    }));
+
+    return newLeafId;
+  },
+
+  splitAndAttach(workspaceId, sourceLeafId, orientation, side, tabId) {
+    const layout = get().byWorkspace[workspaceId];
+    if (!layout) return "";
+
+    const direction = toDirection(orientation, side);
+    const { root: afterSplit, newLeafId } = Grid.addView(
+      layout.root,
+      sourceLeafId,
+      direction,
+      crypto.randomUUID.bind(crypto),
+    );
+
+    // Attach tab to the freshly created leaf in the same set call so React
+    // sees a single transition: source leaf → split with tab in new leaf.
+    const finalRoot = Grid.replaceLeaf(afterSplit, newLeafId, (leaf) => ({
+      ...leaf,
+      tabIds: [tabId],
+      activeTabId: tabId,
+    }));
+
+    set((state) => ({
+      byWorkspace: updateLayout(state.byWorkspace, workspaceId, () => ({
+        root: finalRoot,
         activeGroupId: newLeafId,
       })),
     }));
@@ -123,12 +164,19 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 
   setActiveGroup(workspaceId, groupId) {
-    set((state) => ({
-      byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
-        ...l,
-        activeGroupId: groupId,
-      })),
-    }));
+    set((state) => {
+      const layout = state.byWorkspace[workspaceId];
+      // Equality guard — focusin / repeated clicks fire frequently and we
+      // don't want to invalidate every layout-store subscriber on no-op
+      // activations.
+      if (!layout || layout.activeGroupId === groupId) return state;
+      return {
+        byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
+          ...l,
+          activeGroupId: groupId,
+        })),
+      };
+    });
   },
 
   attachTab(workspaceId, groupId, tabId, index) {
@@ -243,7 +291,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
         // Step 1b: structural — hoist if source leaf became empty
         if (nextTabIds.length === 0) {
-          const { root: hoisted, hoistedSiblingLeafId } = Grid.removeView(intermediateRoot, owner.id);
+          const { root: hoisted, hoistedSiblingLeafId } = Grid.removeView(
+            intermediateRoot,
+            owner.id,
+          );
           if (hoistedSiblingLeafId !== null) {
             intermediateRoot = hoisted;
             if (nextActive === owner.id) {
@@ -354,8 +405,7 @@ export function buildInitialLayout(): WorkspaceLayout {
   return { root, activeGroupId: root.id };
 }
 
-// Export makeEmptyLeaf for subscriber / hydration utilities
-export { makeEmptyLeaf };
-
 // Re-export LayoutNode type for subscriber
 export type { LayoutNode };
+// Export makeEmptyLeaf for subscriber / hydration utilities
+export { makeEmptyLeaf };

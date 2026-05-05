@@ -45,6 +45,24 @@ class XtermTerminalController implements TerminalController {
     });
   }
 
+  refresh(): void {
+    if (this.disposed) return;
+    const term = this.term;
+    if (!term) return;
+    // VSCode pattern (terminalInstance.ts L1057-1062): re-bind xterm to its
+    // own element after a DOM reparent. `term.open(existingElement)`
+    // re-attaches the DOM/canvas/webgl renderer to the (same) node and
+    // restores rasterized state lost in transit. `refresh()` alone is
+    // insufficient — the WebGL context is bound to the renderer that was
+    // disconnected when the parent changed.
+    const el = term.element;
+    if (el) {
+      term.open(el);
+    }
+    this.runFit();
+    term.refresh(0, term.rows - 1);
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

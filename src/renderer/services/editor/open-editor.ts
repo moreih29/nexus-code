@@ -2,10 +2,14 @@
 // Owns openOrReveal semantics and group routing for editor tabs; implementation follows Stage 4.
 
 import { Grid } from "@/engine/split";
-import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations";
+import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
 import { useLayoutStore } from "@/state/stores/layout";
-import { useTabsStore } from "@/state/stores/tabs";
+import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
+
+// When true, single-click file opens use a shared preview slot per group
+// (VSCode-style: italic title, replaced on next single-click).
+export const PREVIEW_ENABLED = true;
 
 function normalizeFilePath(filePath: string): string {
   if (filePath === "") return ".";
@@ -59,6 +63,62 @@ export function findEditorTab(workspaceId: string, filePath: string): EditorTabL
   return { groupId: found.leaf.id, tabId: found.tabId };
 }
 
+/**
+ * Search for an editor tab with the given filePath only within the specified
+ * group (leaf). Returns null when the group does not exist or has no matching
+ * tab.
+ */
+export function findEditorTabInGroup(
+  workspaceId: string,
+  groupId: string,
+  filePath: string,
+): EditorTabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+
+  const leaf = Grid.findView(layout.root, groupId);
+  if (!leaf) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const targetPath = normalizeFilePath(filePath);
+
+  const tabId = leaf.tabIds.find((id) => {
+    const tab = tabsById[id];
+    return (
+      tab?.type === "editor" &&
+      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath
+    );
+  });
+
+  if (!tabId) return null;
+  return { groupId: leaf.id, tabId };
+}
+
+/**
+ * Find the preview slot (the single isPreview=true editor tab) in a group.
+ * Returns null when none exists.
+ */
+export function findPreviewTabInGroup(
+  workspaceId: string,
+  groupId: string,
+): EditorTabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+
+  const leaf = Grid.findView(layout.root, groupId);
+  if (!leaf) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+
+  const tabId = leaf.tabIds.find((id) => {
+    const tab = tabsById[id];
+    return tab?.type === "editor" && tab.isPreview;
+  });
+
+  if (!tabId) return null;
+  return { groupId: leaf.id, tabId };
+}
+
 export function openOrRevealEditor(
   input: EditorInput,
   opts: OpenEditorOptions = {},
@@ -66,26 +126,53 @@ export function openOrRevealEditor(
   useLayoutStore.getState().ensureLayout(input.workspaceId);
 
   if (opts.newSplit) {
-    const { orientation, side } = opts.newSplit;
+    const { orientation, side, isPreview = false } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
       input.workspaceId,
       "editor",
       input,
       orientation,
       side,
+      isPreview,
     );
     return { groupId: newLeafId, tabId };
   }
 
   if (opts.revealIfOpened ?? true) {
-    const existing = findEditorTab(input.workspaceId, input.filePath);
-    if (existing) {
-      revealTab(input.workspaceId, existing.groupId, existing.tabId);
-      return existing;
+    const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
+    if (layout) {
+      const existing = findEditorTabInGroup(
+        input.workspaceId,
+        layout.activeGroupId,
+        input.filePath,
+      );
+      if (existing) {
+        revealTab(input.workspaceId, existing.groupId, existing.tabId);
+        // Re-selecting an existing tab promotes it from preview (if it was one).
+        useTabsStore.getState().promoteFromPreview(input.workspaceId, existing.tabId);
+        return existing;
+      }
     }
   }
 
-  const tab = openEditorTab(input.workspaceId, input);
+  if (PREVIEW_ENABLED) {
+    const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
+    if (layout) {
+      const previewSlot = findPreviewTabInGroup(input.workspaceId, layout.activeGroupId);
+      if (previewSlot) {
+        // Reuse the existing preview slot: swap filePath/title, keep isPreview=true.
+        const newTitle = defaultTitle("editor", input);
+        useTabsStore
+          .getState()
+          .replacePreviewTab(input.workspaceId, previewSlot.tabId, input, newTitle);
+        revealTab(input.workspaceId, previewSlot.groupId, previewSlot.tabId);
+        return previewSlot;
+      }
+    }
+  }
+
+  const isPreview = PREVIEW_ENABLED;
+  const tab = openEditorTab(input.workspaceId, input, undefined, isPreview);
   const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
   if (!layout) throw new Error(`layout slice not found for ${input.workspaceId}`);
   const groupId = layout.activeGroupId;

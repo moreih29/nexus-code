@@ -1,13 +1,14 @@
 /**
- * Cross-store transaction helpers.
+ * Tab lifecycle transactions across the tabs and layout stores.
  *
- * These functions coordinate mutations across useTabsStore and useLayoutStore
- * so callers never need to know the exact ordering of operations.
+ * These helpers coordinate the two stores so callers never need to know
+ * the exact ordering — create the tab record, attach to the layout leaf,
+ * route activation, etc. Domain services (services/editor, services/
+ * terminal) call into this module rather than touching the stores
+ * directly so the cross-store invariants live in one place.
  */
 
-import { killSession } from "@/services/terminal/pty-client";
-import { useLayoutStore } from "./stores/layout";
-import { findLeaf } from "./stores/layout/helpers";
+import { useLayoutStore } from "../stores/layout";
 import {
   type EditorTabProps,
   type Tab,
@@ -15,7 +16,7 @@ import {
   type TabType,
   type TerminalTabProps,
   useTabsStore,
-} from "./stores/tabs";
+} from "../stores/tabs";
 
 /**
  * Create a new tab and attach it to a group in the layout.
@@ -25,6 +26,7 @@ function openTabRecord(
   type: TabType,
   props: TabProps,
   opts?: { groupId?: string | "active" },
+  isPreview = false,
 ): Tab {
   const tabsStore = useTabsStore.getState();
   const layoutStore = useLayoutStore.getState();
@@ -39,7 +41,7 @@ function openTabRecord(
     groupId = opts.groupId;
   }
 
-  const tab = tabsStore.createTab(workspaceId, type, props);
+  const tab = tabsStore.createTab(workspaceId, type, props, isPreview);
 
   layoutStore.attachTab(workspaceId, groupId, tab.id);
   layoutStore.setActiveTabInGroup({
@@ -68,8 +70,9 @@ export function openEditorTab(
   workspaceId: string,
   props: EditorTabProps,
   opts?: { groupId?: string | "active" },
+  isPreview = false,
 ): Tab {
-  return openTabRecord(workspaceId, "editor", props, opts);
+  return openTabRecord(workspaceId, "editor", props, opts, isPreview);
 }
 
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {
@@ -144,6 +147,7 @@ export function openTabInNewSplit(
   props: TabProps,
   orientation: "horizontal" | "vertical",
   side: "before" | "after",
+  isPreview = false,
 ): { newLeafId: string; tabId: string } {
   useLayoutStore.getState().ensureLayout(workspaceId);
 
@@ -155,7 +159,7 @@ export function openTabInNewSplit(
     .getState()
     .splitGroup(workspaceId, activeGroupId, orientation, side);
 
-  const tab = useTabsStore.getState().createTab(workspaceId, type, props);
+  const tab = useTabsStore.getState().createTab(workspaceId, type, props, isPreview);
 
   useLayoutStore.getState().attachTab(workspaceId, newLeafId, tab.id);
   useLayoutStore.getState().setActiveTabInGroup({
@@ -166,33 +170,4 @@ export function openTabInNewSplit(
   });
 
   return { newLeafId, tabId: tab.id };
-}
-
-/**
- * Close all tabs in a layout leaf and remove the leaf from the tree.
- * If the leaf is the sole leaf it is preserved as an empty placeholder.
- * All tab records belonging to the leaf are deleted from the tabs store.
- */
-export function closeGroup(workspaceId: string, leafId: string): void {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return;
-
-  const leaf = findLeaf(layout.root, leafId);
-  if (!leaf) return;
-
-  const ids = [...leaf.tabIds];
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  for (const tabId of ids) {
-    // Temporary layer trade-off: group close is still a state transaction, but
-    // terminal PTY records must die before terminal tab records are removed.
-    if (tabsById[tabId]?.type === "terminal") {
-      killSession(tabId);
-    }
-  }
-
-  useLayoutStore.getState().closeGroup(workspaceId, leafId);
-
-  for (const tabId of ids) {
-    useTabsStore.getState().removeTab(workspaceId, tabId);
-  }
 }

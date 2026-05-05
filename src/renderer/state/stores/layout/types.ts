@@ -40,6 +40,21 @@ export interface LayoutState {
     orientation: SplitOrientation,
     side: "before" | "after",
   ): string;
+  /**
+   * Atomic split + attach for D&D drops onto an edge zone.
+   *
+   * Splits `sourceLeafId` and immediately attaches `tabId` to the new leaf in
+   * a single store update so intermediate placeholder states never render.
+   * Returns the new leaf id, or "" when the split could not be applied.
+   * Caller must detach the tab from its previous owner separately if needed.
+   */
+  splitAndAttach(
+    workspaceId: string,
+    sourceLeafId: string,
+    orientation: SplitOrientation,
+    side: "before" | "after",
+    tabId: string,
+  ): string;
   closeGroup(workspaceId: string, groupId: string): void;
   setSplitRatio(workspaceId: string, splitId: string, ratio: number): void;
   setActiveGroup(workspaceId: string, groupId: string): void;
