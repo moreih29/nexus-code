@@ -1,4 +1,4 @@
-import { isInEditable } from "@/keybindings/dispatcher";
+import { evaluateContextKey } from "@/keybindings/context-keys";
 import { openOrRevealEditor } from "@/services/editor";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
 import { parentOf, useFilesStore } from "@/state/stores/files";
@@ -60,7 +60,8 @@ export function createFileTreeKeydownHandler(
     // Enter to commit the name would otherwise also toggle the active tree
     // row, visibly collapsing it (or, worse, the root). Arrow keys would
     // shift the tree's active row while the user is mid-edit.
-    if (isInEditable(e.target as HTMLElement)) return;
+    const ke = e.nativeEvent;
+    if (evaluateContextKey("inputFocus", ke) || evaluateContextKey("editorFocus", ke)) return;
 
     const { flat, tree, workspaceId, rootAbsPath, activeIndex, setActiveIndex, scrollToIndex } =
       deps;

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { EditorTabProps, Tab, TerminalTabProps } from "@/state/stores/tabs";
+import type { Tab } from "@/state/stores/tabs";
 import { EditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";
 import { TerminalView } from "./terminal-view";
@@ -116,7 +116,7 @@ export function ContentHost({
       {tab.type === "terminal" ? (
         <TerminalView
           tabId={tab.id}
-          cwd={(tab.props as TerminalTabProps).cwd}
+          cwd={tab.props.cwd}
           ownerLeafId={ownerLeafId}
           parentEl={currentParent}
           isVisible={isVisible}
@@ -129,8 +129,8 @@ export function ContentHost({
         // when setModel ran against the half-torn editor. Remounting on filePath
         // change gives @monaco-editor/react a clean dispose + create cycle.
         <EditorView
-          key={(tab.props as EditorTabProps).filePath}
-          filePath={(tab.props as EditorTabProps).filePath}
+          key={tab.props.filePath}
+          filePath={tab.props.filePath}
           workspaceId={workspaceId}
         />
       )}

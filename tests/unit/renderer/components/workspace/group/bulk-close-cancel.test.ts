@@ -58,7 +58,9 @@ function reset() {
 }
 
 function makeEditorTab(filePath: string) {
-  return useTabsStore.getState().createTab(WS, "editor", { filePath, workspaceId: WS });
+  return useTabsStore
+    .getState()
+    .createTab(WS, { type: "editor", props: { filePath, workspaceId: WS } });
 }
 
 function buildActions(opts: { contextTabId: string; tabIds: string[] }) {

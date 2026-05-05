@@ -5,7 +5,9 @@ import { basename } from "@/utils/path";
 import { ipcListen } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — Tab is a discriminated union, narrowed by `type`. Callers no longer
+// cast `tab.props as EditorTabProps`; instead, gating on `tab.type === "editor"`
+// gives the compiler a typed `props` automatically.
 // ---------------------------------------------------------------------------
 
 export type TabType = "terminal" | "editor";
@@ -18,27 +20,52 @@ export type EditorTabProps = EditorInput;
 
 export type TabProps = TerminalTabProps | EditorTabProps;
 
-export interface Tab {
+interface TabBase {
   id: string;
-  type: TabType;
   title: string;
-  props: TabProps;
   isPreview: boolean;
   isPinned: boolean;
 }
+
+export interface EditorTab extends TabBase {
+  type: "editor";
+  props: EditorTabProps;
+}
+
+export interface TerminalTab extends TabBase {
+  type: "terminal";
+  props: TerminalTabProps;
+}
+
+export type Tab = EditorTab | TerminalTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
 // ---------------------------------------------------------------------------
 
+/**
+ * Discriminated input for `createTab`. Keeping `(type, props)` together as
+ * a tagged record means the compiler refuses mismatched pairs at the call
+ * site, and the body can branch on `args.type` to construct the matching
+ * Tab branch without casts.
+ */
+export type CreateTabArgs =
+  | { type: "editor"; props: EditorTabProps }
+  | { type: "terminal"; props: TerminalTabProps };
+
 interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
-  createTab: (workspaceId: string, type: TabType, props: TabProps, isPreview?: boolean) => Tab;
+  createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
   promoteFromPreview: (workspaceId: string, tabId: string) => void;
-  replacePreviewTab: (workspaceId: string, tabId: string, props: TabProps, title: string) => void;
+  replacePreviewTab: (
+    workspaceId: string,
+    tabId: string,
+    props: EditorTabProps,
+    title: string,
+  ) => void;
   togglePin: (workspaceId: string, tabId: string) => void;
 }
 
@@ -46,10 +73,9 @@ interface TabsState {
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function defaultTitle(type: TabType, props: TabProps): string {
-  if (type === "terminal") return "Terminal";
-  const ep = props as EditorTabProps;
-  return basename(ep.filePath) || "Editor";
+export function defaultTitle(args: CreateTabArgs): string {
+  if (args.type === "terminal") return "Terminal";
+  return basename(args.props.filePath) || "Editor";
 }
 
 // ---------------------------------------------------------------------------
@@ -71,15 +97,17 @@ export const useTabsStore = create<TabsState>((set, get) => {
   return {
     byWorkspace: {},
 
-    createTab(workspaceId, type, props, isPreview = false) {
-      const tab: Tab = {
+    createTab(workspaceId, args, isPreview = false) {
+      const base = {
         id: crypto.randomUUID(),
-        type,
-        title: defaultTitle(type, props),
-        props,
+        title: defaultTitle(args),
         isPreview,
         isPinned: false,
       };
+      const tab: Tab =
+        args.type === "editor"
+          ? { ...base, type: "editor", props: args.props }
+          : { ...base, type: "terminal", props: args.props };
       set((state) => ({
         byWorkspace: {
           ...state.byWorkspace,
@@ -146,12 +174,15 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const wsRecord = state.byWorkspace[workspaceId];
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
+        // Only editor tabs have a preview slot; replace is otherwise a no-op.
+        if (tab.type !== "editor") return state;
+        const next: EditorTab = { ...tab, props, title, isPreview: true };
         return {
           byWorkspace: {
             ...state.byWorkspace,
             [workspaceId]: {
               ...wsRecord,
-              [tabId]: { ...tab, props, title, isPreview: true },
+              [tabId]: next,
             },
           },
         };
@@ -164,12 +195,12 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
         const nextPinned = !tab.isPinned;
-        const updatedTab: Tab = {
-          ...tab,
-          isPinned: nextPinned,
-          // Pin implies permanent: clear preview flag when pinning
-          isPreview: nextPinned ? false : tab.isPreview,
-        };
+        // Pin implies permanent: clear preview flag when pinning. Reconstruct
+        // each branch so the union narrowing survives the spread.
+        const updatedTab: Tab =
+          tab.type === "editor"
+            ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
+            : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
         return {
           byWorkspace: {
             ...state.byWorkspace,

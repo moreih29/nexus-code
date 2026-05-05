@@ -131,9 +131,10 @@ describe("services/terminal open and close", () => {
   it("workspace tab-record cleanup kills each terminal session before deleting records", () => {
     const first = openTerminal({ workspaceId: WS, cwd: "/workspace/a" });
     const second = openTerminal({ workspaceId: WS, cwd: "/workspace/b" });
-    useTabsStore
-      .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/workspace/file.ts" });
+    useTabsStore.getState().createTab(WS, {
+      type: "editor",
+      props: { workspaceId: WS, filePath: "/workspace/file.ts" },
+    });
 
     useTabsStore.getState().closeAllForWorkspace(WS);
 
@@ -153,9 +154,10 @@ describe("services/terminal open and close", () => {
       { workspaceId: WS, cwd: "/workspace/right" },
       { groupId: rightGroupId },
     );
-    const editor = useTabsStore
-      .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/workspace/file.ts" });
+    const editor = useTabsStore.getState().createTab(WS, {
+      type: "editor",
+      props: { workspaceId: WS, filePath: "/workspace/file.ts" },
+    });
     useLayoutStore.getState().attachTab(WS, rightGroupId, editor.id);
 
     closeGroup(WS, rightGroupId);
@@ -313,13 +315,9 @@ describe("services/terminal pty-client exit lifecycle", () => {
     emit("pty", "exit", { tabId: "tab-respawn", code: 0 });
 
     // Next spawn must hit the IPC again (not be deduped as already-live).
-    const beforeCount = ipcCalls.filter(
-      (c) => c.channel === "pty" && c.method === "spawn",
-    ).length;
+    const beforeCount = ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
     const second = await client.spawn({ cols: 80, rows: 24 });
-    const afterCount = ipcCalls.filter(
-      (c) => c.channel === "pty" && c.method === "spawn",
-    ).length;
+    const afterCount = ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
 
     expect(second).toEqual({ pid: 1234 });
     expect(afterCount - beforeCount).toBe(1);

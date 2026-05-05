@@ -407,12 +407,14 @@ describe("Scenario 3: closeGroup — no stale slot registration after leaf remov
     if (!layout) throw new Error("layout not found");
 
     const leafAId = layout.activeGroupId;
-    const tab1 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/ws" });
+    const tab1 = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/ws" } });
     useLayoutStore.getState().attachTab(WS, leafAId, tab1.id);
 
     // Horizontal split → leafA | leafB
     const leafBId = useLayoutStore.getState().splitGroup(WS, leafAId, "horizontal", "after");
-    const tab2 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/ws2" });
+    const tab2 = useTabsStore
+      .getState()
+      .createTab(WS, { type: "terminal", props: { cwd: "/ws2" } });
     useLayoutStore.getState().attachTab(WS, leafBId, tab2.id);
 
     // Both GroupViews mount their slots
@@ -581,15 +583,15 @@ describe("Scenario 5: multi-leaf split — each leaf has a distinct stable porta
     if (!layout) throw new Error("layout not found");
 
     const leftId = layout.activeGroupId;
-    const tab1 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/" });
+    const tab1 = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     useLayoutStore.getState().attachTab(WS, leftId, tab1.id);
 
     const rightId = useLayoutStore.getState().splitGroup(WS, leftId, "horizontal", "after");
-    const tab2 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/b" });
+    const tab2 = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/b" } });
     useLayoutStore.getState().attachTab(WS, rightId, tab2.id);
 
     const bottomId = useLayoutStore.getState().splitGroup(WS, rightId, "vertical", "after");
-    const tab3 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/c" });
+    const tab3 = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/c" } });
     useLayoutStore.getState().attachTab(WS, bottomId, tab3.id);
 
     const elLeft = makeEl("left");

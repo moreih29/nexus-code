@@ -34,35 +34,11 @@ import {
 import { resolveEvent } from "./resolver";
 
 // ---------------------------------------------------------------------------
-// Editable detection
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true if the event target is an editable element where global
- * shortcuts should not fire (input, textarea, contenteditable, inside
- * a CodeMirror editor, or inside a Monaco editor).
- *
- * Exported for unit testing.
- */
-export function isInEditable(target: HTMLElement | null): boolean {
-  return (
-    target?.tagName === "INPUT" ||
-    target?.tagName === "TEXTAREA" ||
-    target?.isContentEditable === true ||
-    target?.closest(".cm-editor") != null ||
-    target?.closest(".monaco-editor") != null
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Test hooks (re-exported for tests that previously imported from this
 // file directly).
 // ---------------------------------------------------------------------------
 
-export {
-  __resetChordStateForTests,
-  __setClockForTests as __setChordClockForTests,
-};
+export { __resetChordStateForTests, __setClockForTests as __setChordClockForTests };
 
 // ---------------------------------------------------------------------------
 // Dispatch

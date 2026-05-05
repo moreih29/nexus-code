@@ -36,8 +36,7 @@ export function openTerminal(
     const { orientation, side } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
       input.workspaceId,
-      "terminal",
-      { cwd: input.cwd },
+      { type: "terminal", props: { cwd: input.cwd } },
       orientation,
       side,
     );

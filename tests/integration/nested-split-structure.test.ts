@@ -213,7 +213,9 @@ describe("Nested split regression: horizontal then vertical on right leaf", () =
     const leftLeafId = getLayout().activeGroupId;
 
     // Create tab1 and attach to left leaf
-    const tab1 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/workspace" });
+    const tab1 = useTabsStore
+      .getState()
+      .createTab(WS, { type: "terminal", props: { cwd: "/workspace" } });
     useLayoutStore.getState().attachTab(WS, leftLeafId, tab1.id);
 
     // GroupView mounts for the initial single leaf
@@ -244,7 +246,9 @@ describe("Nested split regression: horizontal then vertical on right leaf", () =
     simulateGroupViewMount(rightLeafId);
 
     // Attach tab to right leaf
-    const tab2 = useTabsStore.getState().createTab(WS, "terminal", { cwd: "/workspace" });
+    const tab2 = useTabsStore
+      .getState()
+      .createTab(WS, { type: "terminal", props: { cwd: "/workspace" } });
     useLayoutStore.getState().attachTab(WS, rightLeafId, tab2.id);
 
     return rightLeafId;

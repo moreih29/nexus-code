@@ -137,8 +137,7 @@ export function openOrRevealEditor(
     const { orientation, side, isPreview = false } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
       input.workspaceId,
-      "editor",
-      input,
+      { type: "editor", props: input },
       orientation,
       side,
       isPreview,
@@ -169,7 +168,7 @@ export function openOrRevealEditor(
       const previewSlot = findPreviewTabInGroup(input.workspaceId, layout.activeGroupId);
       if (previewSlot) {
         // Reuse the existing preview slot: swap filePath/title, keep isPreview=true.
-        const newTitle = defaultTitle("editor", input);
+        const newTitle = defaultTitle({ type: "editor", props: input });
         useTabsStore
           .getState()
           .replacePreviewTab(input.workspaceId, previewSlot.tabId, input, newTitle);

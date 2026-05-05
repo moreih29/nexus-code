@@ -45,7 +45,7 @@ describe("promote-on-dirty policy", () => {
   it("promotes the preview editor tab pointing at a file when it first becomes dirty", () => {
     const tab = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
     expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][tab.id].isPreview).toBe(true);
 
     const model = makeModel(1);
@@ -64,7 +64,7 @@ describe("promote-on-dirty policy", () => {
   it("does not re-promote on subsequent edits (only flips trigger)", () => {
     const tab = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
 
     let promoteCalls = 0;
     const original = tabsStoreMod.useTabsStore.getState().promoteFromPreview;
@@ -94,7 +94,7 @@ describe("promote-on-dirty policy", () => {
   it("does not promote when transitioning back to clean (dirty → clean)", () => {
     tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
 
     const model = makeModel(1);
     dirtyMod.attachDirtyTracker({
@@ -108,7 +108,7 @@ describe("promote-on-dirty policy", () => {
     // Simulate a fresh preview tab created for the same file *after* promote.
     const tab2 = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/b.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/b.ts" } }, true);
 
     // Edit on b.ts file would only fire its tracker — the a.ts return-to-clean
     // (model.edit(1)) must not promote unrelated b.ts.
@@ -121,10 +121,14 @@ describe("promote-on-dirty policy", () => {
 
     const t1 = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
     const t2 = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS2, "editor", { workspaceId: WS2, filePath: "/repo/a.ts" }, true);
+      .createTab(
+        WS2,
+        { type: "editor", props: { workspaceId: WS2, filePath: "/repo/a.ts" } },
+        true,
+      );
 
     const model = makeModel(1);
     dirtyMod.attachDirtyTracker({
@@ -143,7 +147,11 @@ describe("promote-on-dirty policy", () => {
   it("ignores non-editor tabs and tabs whose filePath does not match", () => {
     const previewWrong = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/other.ts" }, true);
+      .createTab(
+        WS,
+        { type: "editor", props: { workspaceId: WS, filePath: "/repo/other.ts" } },
+        true,
+      );
 
     const model = makeModel(1);
     dirtyMod.attachDirtyTracker({
@@ -170,7 +178,7 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
   it("promotes all preview tabs at the given filePath without involving the dirty-tracker", () => {
     const t = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
     expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(true);
 
     // No attachDirtyTracker call. The helper should still find and promote.
@@ -182,7 +190,7 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
   it("is a no-op when no preview tab matches the given path", () => {
     const t = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
 
     promotePolicyMod.promoteAllPreviewTabsForFile("/repo/other.ts");
 
@@ -193,7 +201,7 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
   it("is idempotent for already-permanent tabs", () => {
     const t = tabsStoreMod.useTabsStore
       .getState()
-      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+      .createTab(WS, { type: "editor", props: { workspaceId: WS, filePath: "/repo/a.ts" } }, true);
     tabsStoreMod.useTabsStore.getState().promoteFromPreview(WS, t.id);
     expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(false);
 

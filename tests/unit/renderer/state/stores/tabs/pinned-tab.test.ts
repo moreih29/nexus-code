@@ -65,7 +65,9 @@ function resetStores() {
 }
 
 function makeEditorTab(filePath: string) {
-  return useTabsStore.getState().createTab(WS, "editor", { filePath, workspaceId: WS });
+  return useTabsStore
+    .getState()
+    .createTab(WS, { type: "editor", props: { filePath, workspaceId: WS } });
 }
 
 function buildActions(opts: { contextTabId: string; tabIds: string[] }) {
@@ -99,8 +101,7 @@ describe("useTabsStore.togglePin", () => {
   it("clears isPreview when pinning a preview tab (preview → pinned promotion)", () => {
     const tab = useTabsStore.getState().createTab(
       WS,
-      "editor",
-      { filePath: "/repo/a.ts", workspaceId: WS },
+      { type: "editor", props: { filePath: "/repo/a.ts", workspaceId: WS } },
       true, // isPreview
     );
 

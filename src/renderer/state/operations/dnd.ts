@@ -97,8 +97,7 @@ export function moveTabToZone(
     if (isCrossGroup) {
       const sourceTab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
       if (sourceTab?.type === "editor") {
-        const filePath = (sourceTab.props as EditorTabProps).filePath;
-        const existing = findEditorTabInGroup(workspaceId, destLeaf.id, filePath);
+        const existing = findEditorTabInGroup(workspaceId, destLeaf.id, sourceTab.props.filePath);
         if (existing && existing.tabId !== tabId) {
           revealTab(workspaceId, existing.groupId, existing.tabId);
           if (target.index !== undefined) {
@@ -181,7 +180,7 @@ export function openFileAtZone(
   const split = zoneToSplit(target.zone);
   if (!split) return null;
 
-  const tab = useTabsStore.getState().createTab(workspaceId, "editor", props);
+  const tab = useTabsStore.getState().createTab(workspaceId, { type: "editor", props });
   const newLeafId = useLayoutStore
     .getState()
     .splitAndAttach(workspaceId, destLeaf.id, split.orientation, split.side, tab.id);

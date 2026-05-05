@@ -5,9 +5,20 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { filePathToModelUri, isDirty, subscribeDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
-import { type EditorTabProps, type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Delay before the close-tab tooltip surfaces. Long enough that pointer
+ * dwell during ordinary use doesn't flash a tooltip every time the mouse
+ * crosses a tab; matches the cadence Radix's default uses for menus.
+ */
+const TOOLTIP_DELAY_MS = 600;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -72,8 +83,7 @@ interface TabItemProps {
  * (the tracker creates entries lazily on model load).
  */
 function useTabDirty(tab: Tab): boolean {
-  const cacheUri =
-    tab.type === "editor" ? filePathToModelUri((tab.props as EditorTabProps).filePath) : null;
+  const cacheUri = tab.type === "editor" ? filePathToModelUri(tab.props.filePath) : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeDirty(cacheUri, cb) : () => {}),
     [cacheUri],
@@ -210,7 +220,7 @@ export function TabBar({
   }, [tabs]);
 
   return (
-    <RadixTooltip.Provider delayDuration={600}>
+    <RadixTooltip.Provider delayDuration={TOOLTIP_DELAY_MS}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
           listeners (via barRef) so the entire bar — including the empty
           area beyond the last tab and around the "+" button — is treated

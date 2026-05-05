@@ -2,21 +2,22 @@
  * Unit tests for the dispatcher (`src/renderer/keybindings/dispatcher.ts`).
  *
  * Resolver and chord-state are tested in their own files; this file
- * focuses on dispatcher orchestration: keystroke → command, the
- * editable guard for single-key bindings, chord lifecycle (Escape,
- * mismatch, expiry), and the boolean return that drives the
- * listener's `stopImmediatePropagation()` decision.
+ * focuses on dispatcher orchestration: keystroke → command, chord
+ * lifecycle (Escape, mismatch, expiry), and the boolean return that
+ * drives the listener's `stopImmediatePropagation()` decision.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { COMMANDS } from "../../../../src/shared/commands";
-import { __resetCommandsForTests, registerCommand } from "../../../../src/renderer/commands/registry";
+import {
+  __resetCommandsForTests,
+  registerCommand,
+} from "../../../../src/renderer/commands/registry";
 import {
   __resetChordStateForTests,
   __setChordClockForTests,
   handleGlobalKeyDown,
-  isInEditable,
 } from "../../../../src/renderer/keybindings/dispatcher";
+import { COMMANDS } from "../../../../src/shared/commands";
 
 interface MockEvent {
   metaKey: boolean;
@@ -77,51 +78,6 @@ beforeEach(() => {
 afterEach(() => {
   __resetCommandsForTests();
   __resetChordStateForTests();
-});
-
-// ---------------------------------------------------------------------------
-// isInEditable
-// ---------------------------------------------------------------------------
-
-describe("isInEditable", () => {
-  it("returns true for INPUT element", () => {
-    expect(isInEditable({ tagName: "INPUT" } as HTMLElement)).toBe(true);
-  });
-
-  it("returns true for TEXTAREA element", () => {
-    expect(isInEditable({ tagName: "TEXTAREA" } as HTMLElement)).toBe(true);
-  });
-
-  it("returns true for contentEditable element", () => {
-    const el = {
-      tagName: "DIV",
-      isContentEditable: true,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    expect(isInEditable(el)).toBe(true);
-  });
-
-  it("returns true when element is inside .cm-editor", () => {
-    const el = {
-      tagName: "SPAN",
-      isContentEditable: false,
-      closest: (sel: string) => (sel === ".cm-editor" ? {} : null),
-    } as unknown as HTMLElement;
-    expect(isInEditable(el)).toBe(true);
-  });
-
-  it("returns false for a plain non-editable DIV", () => {
-    const el = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: () => null,
-    } as unknown as HTMLElement;
-    expect(isInEditable(el)).toBe(false);
-  });
-
-  it("returns false for null target", () => {
-    expect(isInEditable(null)).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------

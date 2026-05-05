@@ -49,7 +49,9 @@ describe("useTabsStore — createTab", () => {
   beforeEach(reset);
 
   it("adds a Tab to the workspace record and returns it", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/home/user" });
+    const tab = useTabsStore
+      .getState()
+      .createTab(WS_A, { type: "terminal", props: { cwd: "/home/user" } });
 
     const wsRecord = useTabsStore.getState().byWorkspace[WS_A];
     expect(wsRecord).toBeDefined();
@@ -57,33 +59,34 @@ describe("useTabsStore — createTab", () => {
   });
 
   it("assigns a non-empty uuid as tab id", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     expect(tab.id).toBeTruthy();
   });
 
   it("derives title 'Terminal' for terminal type", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     expect(tab.title).toBe("Terminal");
   });
 
   it("derives title from filePath basename for editor type", () => {
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS_A, "editor", { filePath: "/project/src/main.ts", workspaceId: WS_A });
+    const tab = useTabsStore.getState().createTab(WS_A, {
+      type: "editor",
+      props: { filePath: "/project/src/main.ts", workspaceId: WS_A },
+    });
     expect(tab.title).toBe("main.ts");
   });
 
   it("accumulates multiple tabs in the same workspace record", () => {
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/tmp" });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/tmp" } });
 
     const ids = Object.keys(useTabsStore.getState().byWorkspace[WS_A]);
     expect(ids).toHaveLength(2);
   });
 
   it("keeps workspace records independent", () => {
-    const ta = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a" });
-    const tb = useTabsStore.getState().createTab(WS_B, "terminal", { cwd: "/b" });
+    const ta = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
+    const tb = useTabsStore.getState().createTab(WS_B, { type: "terminal", props: { cwd: "/b" } });
 
     const state = useTabsStore.getState();
     expect(Object.keys(state.byWorkspace[WS_A])).toHaveLength(1);
@@ -101,8 +104,8 @@ describe("useTabsStore — removeTab", () => {
   beforeEach(reset);
 
   it("removes the specified tab from the workspace record", () => {
-    const t1 = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/tmp" });
+    const t1 = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/tmp" } });
 
     useTabsStore.getState().removeTab(WS_A, t1.id);
 
@@ -112,8 +115,8 @@ describe("useTabsStore — removeTab", () => {
   });
 
   it("does not touch other workspace records", () => {
-    const ta = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a" });
-    const tb = useTabsStore.getState().createTab(WS_B, "terminal", { cwd: "/b" });
+    const ta = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
+    const tb = useTabsStore.getState().createTab(WS_B, { type: "terminal", props: { cwd: "/b" } });
 
     useTabsStore.getState().removeTab(WS_A, ta.id);
 
@@ -127,7 +130,7 @@ describe("useTabsStore — removeTab", () => {
   });
 
   it("is a no-op for an unknown tab id within an existing workspace", () => {
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     const countBefore = Object.keys(useTabsStore.getState().byWorkspace[WS_A]).length;
 
     useTabsStore.getState().removeTab(WS_A, "non-existent-tab");
@@ -144,7 +147,7 @@ describe("useTabsStore — renameTab", () => {
   beforeEach(reset);
 
   it("updates the title of the specified tab", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
 
     useTabsStore.getState().renameTab(WS_A, tab.id, "My Session");
 
@@ -152,7 +155,7 @@ describe("useTabsStore — renameTab", () => {
   });
 
   it("does not mutate other fields of the tab", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     useTabsStore.getState().renameTab(WS_A, tab.id, "Renamed");
 
     const updated = useTabsStore.getState().byWorkspace[WS_A][tab.id];
@@ -168,7 +171,7 @@ describe("useTabsStore — renameTab", () => {
   });
 
   it("is a no-op for an unknown tab id", () => {
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/" });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     const before = useTabsStore.getState().byWorkspace[WS_A];
 
     useTabsStore.getState().renameTab(WS_A, "non-existent-tab", "Irrelevant");
@@ -185,8 +188,8 @@ describe("useTabsStore — closeAllForWorkspace", () => {
   beforeEach(reset);
 
   it("removes the workspace's record entirely", () => {
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a" });
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a2" });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a2" } });
 
     useTabsStore.getState().closeAllForWorkspace(WS_A);
 
@@ -194,8 +197,8 @@ describe("useTabsStore — closeAllForWorkspace", () => {
   });
 
   it("leaves other workspace records intact", () => {
-    const tb = useTabsStore.getState().createTab(WS_B, "terminal", { cwd: "/b" });
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a" });
+    const tb = useTabsStore.getState().createTab(WS_B, { type: "terminal", props: { cwd: "/b" } });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
 
     useTabsStore.getState().closeAllForWorkspace(WS_A);
 
@@ -219,7 +222,7 @@ describe("useTabsStore — workspace:removed IPC dispatch", () => {
   beforeEach(reset);
 
   it("closeAllForWorkspace removes the workspace record when called directly (simulating IPC)", () => {
-    useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/a" });
+    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
 
     // In bun:test the ipcListen subscriber is never registered (typeof window
     // guard prevents it). We simulate the event by calling the action directly,

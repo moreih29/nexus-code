@@ -16,7 +16,6 @@ import {
   ContextMenuRoot,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import type { EditorTabProps } from "@/services/editor";
 import { createPathActions } from "@/services/fs-mutations";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { TabBar } from "../tabs/tab-bar";
@@ -74,9 +73,7 @@ export function GroupTabBar({
     workspaceId,
     workspaceRootPath,
     getAbsPath: () =>
-      contextTab && contextTab.type === "editor"
-        ? (contextTab.props as EditorTabProps).filePath
-        : null,
+      contextTab && contextTab.type === "editor" ? contextTab.props.filePath : null,
   });
 
   function togglePin() {

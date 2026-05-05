@@ -11,7 +11,6 @@
 // would survive otherwise and surprise the user when their typed changes
 // look like they vanished on a single-click of another file.
 
-import type { EditorTabProps } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { subscribeTransitions } from "./dirty-tracker";
 import { cacheUriToFilePath } from "./model-cache";
@@ -33,7 +32,7 @@ export function promoteAllPreviewTabsForFile(filePath: string): void {
     for (const tab of Object.values(wsRecord)) {
       if (tab.type !== "editor") continue;
       if (!tab.isPreview) continue;
-      if ((tab.props as EditorTabProps).filePath !== filePath) continue;
+      if (tab.props.filePath !== filePath) continue;
       tabsStore.promoteFromPreview(workspaceId, tab.id);
     }
   }

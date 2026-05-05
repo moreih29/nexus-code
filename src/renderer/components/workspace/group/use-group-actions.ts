@@ -2,13 +2,12 @@ import {
   type CloseTabOutcome,
   closeEditor,
   closeEditorWithConfirm,
-  type EditorTabProps,
   filePathToModelUri,
   isDirty,
   openOrRevealEditor,
 } from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
-import { type TerminalTabProps, useTabsStore } from "@/state/stores/tabs";
+import { useTabsStore } from "@/state/stores/tabs";
 
 interface UseGroupActionsOptions {
   workspaceId: string;
@@ -101,8 +100,7 @@ export function useGroupActions({
     for (const id of getTabIds()) {
       const tab = wsRecord[id];
       if (tab?.type !== "editor") continue;
-      const filePath = (tab.props as EditorTabProps).filePath;
-      if (isDirty(filePathToModelUri(filePath))) continue;
+      if (isDirty(filePathToModelUri(tab.props.filePath))) continue;
       closeEditor(id);
     }
   }
@@ -115,16 +113,15 @@ export function useGroupActions({
 
     if (tab.type === "editor") {
       onActivateGroup(leafId);
-      openOrRevealEditor(tab.props as EditorTabProps, {
+      openOrRevealEditor(tab.props, {
         newSplit: { orientation, side: "after" },
       });
       return;
     }
 
     if (tab.type === "terminal") {
-      const props = tab.props as TerminalTabProps;
       openTerminal(
-        { workspaceId, cwd: props.cwd },
+        { workspaceId, cwd: tab.props.cwd },
         { groupId: leafId, newSplit: { orientation, side: "after" } },
       );
     }

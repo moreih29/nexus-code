@@ -12,7 +12,6 @@
 // run concurrently for different tabs without races on either side.
 
 import { showSaveConfirm } from "@/components/ui/save-confirm-dialog";
-import type { EditorTabProps } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
 import { isDirty } from "./dirty-tracker";
@@ -41,7 +40,7 @@ export async function closeEditorWithConfirm(
     return "closed";
   }
 
-  const filePath = (tab.props as EditorTabProps).filePath;
+  const filePath = tab.props.filePath;
   if (!isDirty(filePathToModelUri(filePath))) {
     closeEditor(tabId);
     return "closed";

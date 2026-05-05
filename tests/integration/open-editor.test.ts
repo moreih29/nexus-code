@@ -153,7 +153,9 @@ describe("openOrRevealEditor", () => {
 
   it("closeEditor is a no-op for a terminal tab id", () => {
     useLayoutStore.getState().ensureLayout(WS_A);
-    const terminal = useTabsStore.getState().createTab(WS_A, "terminal", { cwd: "/workspace" });
+    const terminal = useTabsStore
+      .getState()
+      .createTab(WS_A, { type: "terminal", props: { cwd: "/workspace" } });
     const layout = useLayoutStore.getState().byWorkspace[WS_A];
     if (!layout) throw new Error(`layout slice not found for ${WS_A}`);
     useLayoutStore.getState().attachTab(WS_A, layout.activeGroupId, terminal.id);
