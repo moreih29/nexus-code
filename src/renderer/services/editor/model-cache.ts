@@ -4,15 +4,17 @@
 // React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
+import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../shared/file-uri";
 import { type FileErrorCode, parseFileErrorCode } from "../../utils/file-error";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
-import { readFileForModel, subscribeFsChanged } from "./file-loader";
+import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
 import { isLspLanguage } from "./language";
 import {
+  ensureProvidersFor,
   notifyDidChange,
   notifyDidClose,
   notifyDidOpen,
@@ -63,7 +65,7 @@ export function initializeModelCache(monaco: typeof Monaco): void {
 }
 
 export function filePathToModelUri(filePath: string): string {
-  return `file://${filePath}`;
+  return absolutePathToFileUri(filePath);
 }
 
 /**
@@ -74,7 +76,7 @@ export function filePathToModelUri(filePath: string): string {
  * inline; the prefix shape is owned here.
  */
 export function cacheUriToFilePath(cacheUri: string): string | null {
-  return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
+  return fileUriToAbsolutePath(cacheUri);
 }
 
 function requireMonaco(): typeof Monaco {
@@ -133,6 +135,7 @@ function createEntry(input: EditorInput): ModelEntry {
 
 async function loadEntry(entry: ModelEntry): Promise<void> {
   try {
+    const workspaceRoot = workspaceRootForInput(entry.input);
     const result = await readFileForModel(entry.input);
     if (entry.disposed) return;
 
@@ -173,10 +176,12 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     registerKnownModelUri(entry.lspUri);
 
     if (isLspLanguage(entry.languageId)) {
+      ensureProvidersFor(model.getLanguageId());
       entry.lspOpened = true;
       notifyDidOpen(
         entry.lspUri,
         entry.input.workspaceId,
+        workspaceRoot,
         entry.languageId,
         entry.version,
         result.content,

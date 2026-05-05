@@ -144,6 +144,7 @@ export const ipcContract = {
       didOpen: call(
         z.object({
           workspaceId: z.string().uuid(),
+          workspaceRoot: z.string(),
           uri: z.string(),
           languageId: z.string(),
           version: z.number().int(),

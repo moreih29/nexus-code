@@ -17,7 +17,7 @@ import { LspManager } from "../../../../src/utility/lsp-host/lsp-manager";
 // ---------------------------------------------------------------------------
 // Spy on LspManager.attachPort — captures the port without running real LSP
 // servers. attachPort itself only sets up the message listener; the
-// TypeScriptServer is not spawned until a didOpen arrives.
+// Stdio LSP adapters are not spawned until a didOpen arrives.
 // ---------------------------------------------------------------------------
 
 const attachPortSpy = spyOn(LspManager.prototype, "attachPort").mockImplementation(() => {});

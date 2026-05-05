@@ -20,6 +20,25 @@ type CreateReturn = InferReturn<typeof ipcContract.workspace.call.create>;
 assertType<CreateReturn extends { id: string; rootPath: string } ? true : false>();
 
 // ---------------------------------------------------------------------------
+// lsp.call.didOpen
+// ---------------------------------------------------------------------------
+
+type DidOpenArgs = InferArgs<typeof ipcContract.lsp.call.didOpen>;
+assertType<
+  Equals<
+    DidOpenArgs,
+    {
+      workspaceId: string;
+      workspaceRoot: string;
+      uri: string;
+      languageId: string;
+      version: number;
+      text: string;
+    }
+  >
+>();
+
+// ---------------------------------------------------------------------------
 // dialog.call.showOpenFile — exercises a literal-typed return shape so the
 // inference helpers stay covered after the demo `hello` channel was retired.
 // ---------------------------------------------------------------------------

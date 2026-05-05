@@ -1,4 +1,4 @@
-// Unit tests for JSON-RPC framing in TypeScriptServer.
+// Unit tests for JSON-RPC framing in the stdio LSP adapter.
 // Tests the Content-Length header encoding and multi-message buffering logic.
 //
 // We test the framing by encoding a known message and verifying the wire format,
@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Replicate the encodeMessage helper (same logic as servers/typescript.ts)
+// Replicate the encodeMessage helper (same logic as servers/stdio-lsp-adapter.ts)
 // ---------------------------------------------------------------------------
 
 function encodeMessage(msg: unknown): Buffer {

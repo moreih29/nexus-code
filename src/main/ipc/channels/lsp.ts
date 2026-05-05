@@ -18,8 +18,18 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
   register("lsp", {
     call: {
       didOpen: async (args: unknown) => {
-        const { workspaceId, uri, languageId, version, text } = validateArgs(c.didOpen.args, args);
-        await lspHost.call("didOpen", { workspaceId, uri, languageId, version, text });
+        const { workspaceId, workspaceRoot, uri, languageId, version, text } = validateArgs(
+          c.didOpen.args,
+          args,
+        );
+        await lspHost.call("didOpen", {
+          workspaceId,
+          workspaceRoot,
+          uri,
+          languageId,
+          version,
+          text,
+        });
       },
 
       didChange: async (args: unknown) => {

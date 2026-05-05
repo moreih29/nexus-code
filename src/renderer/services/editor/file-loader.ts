@@ -14,7 +14,7 @@ export interface FsChangedForFile {
   relPath: string;
 }
 
-export function relPathForInput(input: EditorInput): string {
+export function workspaceRootForInput(input: EditorInput): string {
   const workspace = useWorkspacesStore
     .getState()
     .workspaces.find((candidate) => candidate.id === input.workspaceId);
@@ -23,7 +23,11 @@ export function relPathForInput(input: EditorInput): string {
     throw new Error(`WORKSPACE_NOT_FOUND: ${input.workspaceId}`);
   }
 
-  return absPathToRel(input.filePath, workspace.rootPath);
+  return workspace.rootPath;
+}
+
+export function relPathForInput(input: EditorInput): string {
+  return absPathToRel(input.filePath, workspaceRootForInput(input));
 }
 
 export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {

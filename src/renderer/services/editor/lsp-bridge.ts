@@ -3,7 +3,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { ipcCall, ipcListen } from "../../ipc/client";
-import { LSP_LANGUAGES } from "./language";
+import { isLspLanguage } from "./language";
 
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
 const MARKER_OWNER = "lsp";
@@ -11,6 +11,7 @@ const MARKER_OWNER = "lsp";
 const registeredProviderLanguages = new Set<string>();
 const knownModelUris = new Set<string>();
 
+let monacoRef: typeof Monaco | null = null;
 let diagnosticsUnlisten: (() => void) | null = null;
 
 function markerSeverity(monaco: typeof Monaco, severity: number): Monaco.MarkerSeverity {
@@ -20,34 +21,37 @@ function markerSeverity(monaco: typeof Monaco, severity: number): Monaco.MarkerS
 }
 
 function registerLanguageProviders(monaco: typeof Monaco, languageId: string): void {
+  if (!isLspLanguage(languageId)) return;
   if (registeredProviderLanguages.has(languageId)) return;
   registeredProviderLanguages.add(languageId);
 
   monaco.languages.registerHoverProvider(languageId, {
     async provideHover(model, position) {
+      if (!isLspLanguage(model.getLanguageId())) return null;
       try {
         const result = await ipcCall("lsp", "hover", {
           uri: model.uri.toString(),
           line: position.lineNumber - 1,
           character: position.column - 1,
         });
-        if (!result) return undefined;
+        if (!result || !isLspLanguage(model.getLanguageId())) return null;
         return { contents: [{ value: result.contents }] };
       } catch {
-        return undefined;
+        return null;
       }
     },
   });
 
   monaco.languages.registerDefinitionProvider(languageId, {
     async provideDefinition(model, position) {
+      if (!isLspLanguage(model.getLanguageId())) return null;
       try {
         const results = await ipcCall("lsp", "definition", {
           uri: model.uri.toString(),
           line: position.lineNumber - 1,
           character: position.column - 1,
         });
-        if (results.length === 0) return undefined;
+        if (results.length === 0 || !isLspLanguage(model.getLanguageId())) return null;
         return results.map((location) => ({
           uri: monaco.Uri.parse(location.uri),
           range: {
@@ -58,7 +62,7 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
           },
         }));
       } catch {
-        return undefined;
+        return null;
       }
     },
   });
@@ -66,6 +70,7 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
   monaco.languages.registerCompletionItemProvider(languageId, {
     triggerCharacters: COMPLETION_TRIGGER_CHARACTERS,
     async provideCompletionItems(model, position) {
+      if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
       try {
         const results = await ipcCall("lsp", "completion", {
           uri: model.uri.toString(),
@@ -80,6 +85,7 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
           endColumn: word.endColumn,
         };
 
+        if (!isLspLanguage(model.getLanguageId())) return { suggestions: [] };
         return {
           suggestions: results.map((item) => ({
             label: item.label,
@@ -93,6 +99,15 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
       }
     },
   });
+}
+
+function setMonaco(monaco: typeof Monaco): void {
+  if (monacoRef === monaco) return;
+
+  monacoRef = monaco;
+  registeredProviderLanguages.clear();
+  diagnosticsUnlisten?.();
+  diagnosticsUnlisten = null;
 }
 
 function registerDiagnosticsListener(monaco: typeof Monaco): void {
@@ -121,10 +136,16 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
 }
 
 export function initializeLspBridge(monaco: typeof Monaco): void {
-  for (const languageId of LSP_LANGUAGES) {
-    registerLanguageProviders(monaco, languageId);
-  }
+  setMonaco(monaco);
   registerDiagnosticsListener(monaco);
+}
+
+export function ensureProvidersFor(languageId: string): void {
+  if (!isLspLanguage(languageId)) return;
+  if (!monacoRef) {
+    throw new Error("LSP bridge is not initialized. Call initializeEditorServices(monaco) first.");
+  }
+  registerLanguageProviders(monacoRef, languageId);
 }
 
 export function registerKnownModelUri(uri: string): void {
@@ -138,11 +159,12 @@ export function unregisterKnownModelUri(uri: string): void {
 export function notifyDidOpen(
   uri: string,
   workspaceId: string,
+  workspaceRoot: string,
   languageId: string,
   version: number,
   text: string,
 ): Promise<void> {
-  return ipcCall("lsp", "didOpen", { workspaceId, uri, languageId, version, text });
+  return ipcCall("lsp", "didOpen", { workspaceId, workspaceRoot, uri, languageId, version, text });
 }
 
 export function notifyDidChange(uri: string, version: number, text: string): Promise<void> {

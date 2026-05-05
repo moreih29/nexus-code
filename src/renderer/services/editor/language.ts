@@ -12,9 +12,24 @@
 // project policy (driven by which language servers we actually run in
 // the lsp-host), not something Monaco can decide for us.
 
-export const LSP_LANGUAGES = ["typescript", "javascript"] as const;
+import {
+  BUILTIN_LSP_PRESETS,
+  isSupportedLspLanguage,
+  type LSP_LANGUAGE_PRESET_ALIASES,
+} from "../../../shared/lsp-config";
+
+const JAVASCRIPT_LSP_COVERAGE = [
+  "javascript",
+] as const satisfies readonly (keyof typeof LSP_LANGUAGE_PRESET_ALIASES)[];
+
+export const LSP_LANGUAGES: readonly (
+  | (typeof BUILTIN_LSP_PRESETS)[number]["languageId"]
+  | (typeof JAVASCRIPT_LSP_COVERAGE)[number]
+)[] = [...BUILTIN_LSP_PRESETS.map((preset) => preset.languageId), ...JAVASCRIPT_LSP_COVERAGE];
 export type LspLanguage = (typeof LSP_LANGUAGES)[number];
 
 export function isLspLanguage(languageId: string): languageId is LspLanguage {
-  return (LSP_LANGUAGES as readonly string[]).includes(languageId);
+  return (
+    (LSP_LANGUAGES as readonly string[]).includes(languageId) && isSupportedLspLanguage(languageId)
+  );
 }

@@ -1,41 +1,46 @@
-// TypeScript language server wrapper.
-// Spawns typescript-language-server --stdio as a child process and
-// bridges JSON-RPC over stdio to the LSP manager.
+// Generic stdio LSP adapter.
+// Spawns a configured language server process and bridges JSON-RPC over stdio.
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { resolve as resolvePath } from "node:path";
+import type { LspServerSpec } from "../../../shared/lsp-config";
+import { resolveBundledBinary } from "../resolve-bundled-binary";
 
-// ---------------------------------------------------------------------------
-// LSP message types (minimal subset used by M0)
-// ---------------------------------------------------------------------------
+export type { LspServerSpec } from "../../../shared/lsp-config";
 
-interface DiagnosticItem {
+export interface DiagnosticItem {
   line: number;
   character: number;
   message: string;
   severity: number;
 }
 
-interface HoverResult {
+export interface HoverResult {
   contents: string;
 }
 
-interface LocationResult {
+export interface LocationResult {
   uri: string;
   line: number;
   character: number;
 }
 
-interface CompletionItem {
+export interface CompletionItem {
   label: string;
   kind?: number;
 }
 
-type DiagnosticsCallback = (uri: string, diagnostics: DiagnosticItem[]) => void;
+export type DiagnosticsCallback = (uri: string, diagnostics: DiagnosticItem[]) => void;
 
-// ---------------------------------------------------------------------------
-// JSON-RPC framing helpers
-// ---------------------------------------------------------------------------
+export interface LspAdapter {
+  start(): Promise<void>;
+  didOpen(uri: string, languageId: string, version: number, text: string): Promise<void>;
+  didChange(uri: string, version: number, text: string): Promise<void>;
+  didClose(uri: string): Promise<void>;
+  hover(uri: string, line: number, character: number): Promise<HoverResult | null>;
+  definition(uri: string, line: number, character: number): Promise<LocationResult[]>;
+  completion(uri: string, line: number, character: number): Promise<CompletionItem[]>;
+  dispose(): void;
+}
 
 function encodeMessage(msg: unknown): Buffer {
   const body = JSON.stringify(msg);
@@ -43,11 +48,7 @@ function encodeMessage(msg: unknown): Buffer {
   return Buffer.concat([Buffer.from(header, "ascii"), Buffer.from(body, "utf8")]);
 }
 
-// ---------------------------------------------------------------------------
-// TypeScriptServer
-// ---------------------------------------------------------------------------
-
-export class TypeScriptServer {
+export class StdioLspAdapter implements LspAdapter {
   private proc: ChildProcess | null = null;
   private buffer = Buffer.alloc(0);
   private nextId = 1;
@@ -59,16 +60,21 @@ export class TypeScriptServer {
   private disposed = false;
 
   constructor(
+    private readonly spec: LspServerSpec,
     private readonly workspaceId: string,
+    private readonly workspaceRootUri: string | null,
     private readonly onDiagnostics: DiagnosticsCallback,
   ) {}
 
-  async start(): Promise<void> {
-    // In dev: __dirname = <project>/out/main; binary is at <project>/node_modules/.bin/
-    // Go up two levels from out/main to reach project root.
-    const binPath = resolvePath(__dirname, "../../node_modules/.bin/typescript-language-server");
+  private get logPrefix(): string {
+    const label = this.spec.languageId === "typescript" ? "ts" : this.spec.languageId;
+    return `[lsp-${label}:${this.workspaceId}]`;
+  }
 
-    this.proc = spawn(binPath, ["--stdio"], {
+  async start(): Promise<void> {
+    const binaryPath = resolveBundledBinary(this.spec.binary);
+
+    this.proc = spawn(binaryPath, this.spec.args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -77,14 +83,14 @@ export class TypeScriptServer {
     this.proc.stdout!.on("data", (chunk: Buffer) => this.onData(chunk));
     // biome-ignore lint/style/noNonNullAssertion: stdio:'pipe' guarantees stderr is non-null
     this.proc.stderr!.on("data", (chunk: Buffer) => {
-      process.stderr.write(`[lsp-ts:${this.workspaceId}] ${chunk}`);
+      process.stderr.write(`${this.logPrefix} ${chunk}`);
     });
     this.proc.on("exit", (code) => {
       if (!this.disposed) {
-        console.warn(`[lsp-ts:${this.workspaceId}] exited with code ${code}`);
+        console.warn(`${this.logPrefix} exited with code ${code}`);
       }
       for (const [, p] of this.pending) {
-        p.reject(new Error("typescript-language-server process exited"));
+        p.reject(new Error(`${this.spec.binary} process exited`));
       }
       this.pending.clear();
     });
@@ -94,9 +100,23 @@ export class TypeScriptServer {
   }
 
   private async sendInitialize(): Promise<void> {
+    const workspaceRoot = this.workspaceRootUri;
+    const workspaceFields =
+      workspaceRoot !== null
+        ? {
+            workspaceFolders: [
+              {
+                uri: workspaceRoot,
+                name: this.workspaceId,
+              },
+            ],
+          }
+        : {};
+
     await this.request("initialize", {
       processId: process.pid,
-      rootUri: null,
+      rootUri: workspaceRoot,
+      ...workspaceFields,
       capabilities: {
         textDocument: {
           hover: { contentFormat: ["plaintext", "markdown"] },
@@ -108,7 +128,7 @@ export class TypeScriptServer {
         },
         workspace: {},
       },
-      initializationOptions: {},
+      initializationOptions: this.spec.initializationOptions ?? {},
     });
     this.notify("initialized", {});
   }
@@ -209,10 +229,6 @@ export class TypeScriptServer {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // JSON-RPC low-level
-  // ---------------------------------------------------------------------------
-
   private request(method: string, params: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (this.disposed || !this.proc) {
@@ -241,14 +257,12 @@ export class TypeScriptServer {
 
   private parseMessages(): void {
     while (true) {
-      // Find header boundary
       const sep = this.buffer.indexOf("\r\n\r\n");
       if (sep === -1) break;
 
       const header = this.buffer.slice(0, sep).toString("ascii");
       const match = /Content-Length:\s*(\d+)/i.exec(header);
       if (!match) {
-        // Malformed — discard up to separator
         this.buffer = this.buffer.slice(sep + 4);
         continue;
       }
@@ -273,7 +287,6 @@ export class TypeScriptServer {
 
   private handleMessage(msg: Record<string, unknown>): void {
     if ("id" in msg && ("result" in msg || "error" in msg)) {
-      // Response
       const id = msg.id as number;
       const pending = this.pending.get(id);
       if (pending) {
@@ -286,7 +299,6 @@ export class TypeScriptServer {
         }
       }
     } else if ("method" in msg && !("id" in msg)) {
-      // Notification from server
       const method = msg.method as string;
       if (method === "textDocument/publishDiagnostics") {
         const params = msg.params as {

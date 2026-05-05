@@ -9,6 +9,7 @@ type ListenerRecord = { channel: string; event: string; callback: (args: unknown
 const ipcCalls: IpcCallRecord[] = [];
 const listeners: ListenerRecord[] = [];
 const fileContents = new Map<string, string>();
+const eventLog: string[] = [];
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -21,6 +22,10 @@ const fileContents = new Map<string, string>();
 mock.module("../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
+    if (channel === "lsp" && method === "didOpen") {
+      const { languageId } = args as { languageId: string };
+      eventLog.push(`didOpen:${languageId}`);
+    }
 
     if (channel === "fs" && method === "readFile") {
       const { relPath } = args as { relPath: string };
@@ -46,7 +51,9 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   }),
 }));
 
-const { initializeLspBridge } = await import("../../../../src/renderer/services/editor/lsp-bridge");
+const { ensureProvidersFor, initializeLspBridge } = await import(
+  "../../../../src/renderer/services/editor/lsp-bridge"
+);
 const { acquireModel, initializeModelCache, releaseModel } = await import(
   "../../../../src/renderer/services/editor/model-cache"
 );
@@ -76,6 +83,7 @@ const FAKE_LANGUAGE_BY_EXT: Record<string, string> = {
   ".tsx": "typescript",
   ".js": "javascript",
   ".jsx": "javascript",
+  ".py": "python",
   ".json": "json",
 };
 
@@ -145,14 +153,17 @@ function createFakeMonaco() {
       CompletionItemKind: { Text: 1 },
       registerHoverProvider(languageId: string) {
         providerCalls.hover.push(languageId);
+        eventLog.push(`provider:hover:${languageId}`);
         return { dispose: () => {} };
       },
       registerDefinitionProvider(languageId: string) {
         providerCalls.definition.push(languageId);
+        eventLog.push(`provider:definition:${languageId}`);
         return { dispose: () => {} };
       },
       registerCompletionItemProvider(languageId: string) {
         providerCalls.completion.push(languageId);
+        eventLog.push(`provider:completion:${languageId}`);
         return { dispose: () => {} };
       },
     },
@@ -195,9 +206,12 @@ describe("services/editor model cache", () => {
   beforeEach(() => {
     ipcCalls.length = 0;
     listeners.length = 0;
+    eventLog.length = 0;
     fileContents.clear();
     resetWorkspaceStore();
-    initializeModelCache(createFakeMonaco());
+    const monaco = createFakeMonaco();
+    initializeModelCache(monaco);
+    initializeLspBridge(monaco);
   });
 
   test("shares one Monaco model per file URI and sends didClose after the last release", async () => {
@@ -209,9 +223,24 @@ describe("services/editor model cache", () => {
 
     expect(first.phase).toBe("ready");
     expect(first.model).toBe(second.model);
-    expect(
-      ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen"),
-    ).toHaveLength(1);
+    const didOpenCalls = ipcCalls.filter(
+      (call) => call.channel === "lsp" && call.method === "didOpen",
+    );
+    expect(didOpenCalls).toHaveLength(1);
+    expect(didOpenCalls[0]?.args).toEqual({
+      workspaceId: WS_ID,
+      workspaceRoot: "/workspace",
+      uri: "file:///workspace/src/a.ts",
+      languageId: "typescript",
+      version: 1,
+      text: "const a = 1;\n",
+    });
+    expect(eventLog.slice(0, 4)).toEqual([
+      "provider:hover:typescript",
+      "provider:definition:typescript",
+      "provider:completion:typescript",
+      "didOpen:typescript",
+    ]);
 
     releaseModel(input);
     expect(first.model?.isDisposed()).toBe(false);
@@ -254,17 +283,95 @@ describe("services/editor model cache", () => {
     expect(model.getValue()).toBe("dirty");
     releaseModel(input);
   });
+
+  test("second supported model of the same language does not register providers again", async () => {
+    const firstInput = { workspaceId: WS_ID, filePath: "/workspace/src/a.ts" };
+    const secondInput = { workspaceId: WS_ID, filePath: "/workspace/src/b.ts" };
+    fileContents.set("src/a.ts", "export const a = 1;\n");
+    fileContents.set("src/b.ts", "export const b = 2;\n");
+
+    const first = await acquireModel(firstInput);
+    const second = await acquireModel(secondInput);
+
+    expect(first.phase).toBe("ready");
+    expect(second.phase).toBe("ready");
+    expect(
+      ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen"),
+    ).toHaveLength(2);
+    expect(eventLog.filter((entry) => entry === "provider:hover:typescript")).toHaveLength(1);
+    expect(eventLog.filter((entry) => entry === "provider:definition:typescript")).toHaveLength(1);
+    expect(eventLog.filter((entry) => entry === "provider:completion:typescript")).toHaveLength(1);
+
+    releaseModel(firstInput);
+    releaseModel(secondInput);
+  });
+
+  test("python model acquire registers providers and sends didOpen", async () => {
+    const input = { workspaceId: WS_ID, filePath: "/workspace/src with space/main file.py" };
+    fileContents.set("src with space/main file.py", "value = 1\n");
+
+    const acquired = await acquireModel(input);
+
+    expect(acquired.phase).toBe("ready");
+    expect(
+      ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen"),
+    ).toEqual([
+      {
+        channel: "lsp",
+        method: "didOpen",
+        args: {
+          workspaceId: WS_ID,
+          workspaceRoot: "/workspace",
+          uri: "file:///workspace/src%20with%20space/main%20file.py",
+          languageId: "python",
+          version: 1,
+          text: "value = 1\n",
+        },
+      },
+    ]);
+    expect(eventLog.slice(0, 4)).toEqual([
+      "provider:hover:python",
+      "provider:definition:python",
+      "provider:completion:python",
+      "didOpen:python",
+    ]);
+
+    releaseModel(input);
+  });
+
+  test("plaintext model acquire does not register providers or send didOpen", async () => {
+    const input = { workspaceId: WS_ID, filePath: "/workspace/notes/readme.txt" };
+    fileContents.set("notes/readme.txt", "plain text\n");
+
+    const acquired = await acquireModel(input);
+
+    expect(acquired.phase).toBe("ready");
+    expect(eventLog.filter((entry) => entry.startsWith("provider:"))).toEqual([]);
+    expect(
+      ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen"),
+    ).toHaveLength(0);
+
+    releaseModel(input);
+  });
 });
 
 describe("services/editor LSP bridge", () => {
-  test("registers providers once per supported language", () => {
+  test("registers providers lazily once per supported language", () => {
     const monaco = createFakeMonaco();
 
     initializeLspBridge(monaco);
     initializeLspBridge(monaco);
+    expect(monaco.__providerCalls.hover).toEqual([]);
+    expect(monaco.__providerCalls.definition).toEqual([]);
+    expect(monaco.__providerCalls.completion).toEqual([]);
 
-    expect(monaco.__providerCalls.hover).toEqual(["typescript", "javascript"]);
-    expect(monaco.__providerCalls.definition).toEqual(["typescript", "javascript"]);
-    expect(monaco.__providerCalls.completion).toEqual(["typescript", "javascript"]);
+    ensureProvidersFor("typescript");
+    ensureProvidersFor("typescript");
+    ensureProvidersFor("javascript");
+    ensureProvidersFor("python");
+
+    expect(monaco.__providerCalls.hover).toEqual(["typescript", "javascript", "python"]);
+    expect(monaco.__providerCalls.definition).toEqual(["typescript", "javascript", "python"]);
+    expect(monaco.__providerCalls.completion).toEqual(["typescript", "javascript", "python"]);
   });
 });

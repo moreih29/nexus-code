@@ -3604,6 +3604,319 @@
           "created_at": "2026-05-04T15:36:09.519Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-05T15:38:44.766Z",
+      "branch": "feat/multilanguage-lsp-pyright",
+      "plan": {
+        "id": 15,
+        "topic": "멀티-언어 LSP 토대 + Python(pyright) 빌트인 추가 — PR1/PR2 분할 진행",
+        "issues": [
+          {
+            "id": 1,
+            "title": "lsp-config.ts 모듈 레이아웃 — 빌트인 프리셋 데이터 구조, 바이너리 경로 리졸버 위치, language.ts 도출 방식",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "prior architect doc (이 세션 초반): src/shared/lsp-config.ts에 LspServerSpec 타입 + BUILTIN_LSP_PRESETS 데이터 단독 배치. 빌트인 바이너리 경로 resolve는 별도 헬퍼(resolveBundledBinary)로 분리 — 현 TypeScriptServer가 `__dirname/../../node_modules/.bin/`을 인라인하는 패턴을 옮겨오는 자리. language.ts는 LSP_LANGUAGES = BUILTIN_LSP_PRESETS.map(p=>p.languageId)로 도출. shared 디렉토리 배치는 main/utility/renderer 모두 동일 데이터 참조 가능하도록.",
+                "recorded_at": "2026-05-05T14:28:28.715Z",
+                "agent_id": "a6ccd59bdf929267d"
+              }
+            ],
+            "decision": "**채택**: `src/shared/lsp-config.ts` 신규 파일에 `LspServerSpec` 타입 + `BUILTIN_LSP_PRESETS: readonly LspServerSpec[]` 데이터를 단독 배치. 바이너리 경로 resolve는 별도 헬퍼 `src/utility/lsp-host/resolve-bundled-binary.ts`로 분리 — 현 TypeScriptServer가 인라인하던 `__dirname/../../node_modules/.bin/<binary>` 패턴을 옮김. `language.ts`는 `LSP_LANGUAGES = BUILTIN_LSP_PRESETS.map(p => p.languageId)`로 도출.\n\n**LspServerSpec 시그니처** (PR1용 최소): `{ languageId: string; binary: string; args: string[]; initializationOptions?: unknown }`. env/inheritEnv/fileExtensions/disabled 등 user-config 전용 필드는 추후 settings 도입 시 확장.\n\n**기각 대안**: (a) 메인-only 데이터 — 렌더러 `language.ts`가 같은 데이터 도출 못 함. (b) 메인+렌더러 양쪽 중복 정의 — drift 위험. (c) 바이너리 경로를 spec 자체에 절대경로로 박기 — 빌드/런타임 경로 분리로 인해 spec이 정적 데이터가 아니게 됨, resolver를 거쳐야 함.\n\n**가정**: shared 디렉토리는 main/utility/renderer 모두 import 가능 (현 ipc-contract.ts와 동일 패턴)."
+          },
+          {
+            "id": 2,
+            "title": "StdioLspAdapter 인터페이스/라이프사이클 + 기존 TypeScriptServer 마이그레이션 방식",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "단일 StdioLspAdapter 클래스로 통합 (BundledServerAdapter/GenericStdioAdapter 분리 거부 — 중복 비용 > 통합 가치). 인터페이스: languageId, workspaceId, initialize(rootUri), didOpen/didChange/didClose, hover/definition/completion, onDiagnostics, dispose, deprecated, health. TypeScriptServer 마이그레이션 순서: (a) URI 인덱스 additive 추가 (b) Adapter 추출, TypeScriptServer는 thin caller로 (c) BUILTIN_LSP_PRESETS 도입 (typescript only) (d) TypeScriptServer가 preset에서 argv/initOptions 읽도록 전환. 각 커밋이 빌드+기존 테스트 통과해야 bisect 가능. JSON-RPC framing/initialize/dispatch 로직은 90%가 이미 generic — argv 한 줄만 spec 화하면 됨.",
+                "recorded_at": "2026-05-05T14:28:28.741Z",
+                "agent_id": "a450bc7a9d5c7b088"
+              }
+            ],
+            "decision": "**채택**: 단일 `StdioLspAdapter` 클래스를 `src/utility/lsp-host/servers/stdio-lsp-adapter.ts`에 추출. BundledServerAdapter/GenericStdioAdapter 분리 거부 — 현 TypeScriptServer의 90%(JSON-RPC framing, initialize, request/notify, dispatch, dispose)가 이미 generic.\n\n**인터페이스**:\n```ts\ninterface StdioLspAdapter {\n  readonly languageId: string;\n  readonly workspaceId: string;\n  start(): Promise<void>;          // spawn + initialize handshake\n  didOpen(uri, version, text): Promise<void>;\n  didChange(uri, version, text): Promise<void>;\n  didClose(uri): Promise<void>;\n  hover(uri, line, character): Promise<HoverResult | null>;\n  definition(uri, line, character): Promise<LocationResult[]>;\n  completion(uri, line, character): Promise<CompletionItem[]>;\n  dispose(): void;\n}\n```\n생성자: `new StdioLspAdapter(spec, workspaceId, workspaceRootUri, onDiagnostics)`.\n\n**TypeScriptServer 마이그레이션**: 클래스 자체는 제거하고 매니저가 `StdioLspAdapter`를 직접 spawn. `TypeScriptServer`라는 이름이 더 이상 의미 없음(generic adapter가 됨). 기존 import는 manager 한 곳뿐이라 영향 작음. 단, architect 권고 ordering의 commit 2~4는 \"TypeScriptServer가 thin caller로 남는다 → preset에서 argv 읽도록 전환\"의 과도기를 권하지만, 단일 commit으로 묶어도 build green이라 collapse 가능. 본 결정은 collapse로 — 마지막에 TypeScriptServer 파일 삭제까지 한 단계로 처리.\n\n**기각 대안**: (a) 두 클래스 분리 — 중복 비용 > 통합 가치. (b) TypeScriptServer를 thin wrapper로 보존 — 향후 user config가 들어올 때 어차피 제거. 지금 한 번에 빼는 게 깨끗."
+          },
+          {
+            "id": 3,
+            "title": "lsp-manager 리팩터 — Map<wsId, Map<langId, Adapter>> 키잉, URI 인덱스, 아이들 타임아웃",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "키 변경: Map<wsId, TypeScriptServer> → Map<wsId, Map<langId, StdioLspAdapter>>. URI 인덱스: Map<uri, {wsId, langId}>를 didOpen 시 등록, didClose 시 제거. didChange/hover/def/completion은 인덱스로 O(1) lookup, 미스 시 null/[] 반환 (현 동작과 일치). 현 findWorkspaceForUri 스텁(첫 키 반환)은 멀티-워크스페이스에서 잠복 버그 → URI 인덱스로 자연스럽게 해소. idle 타임아웃 30분은 (wsId, langId) 단위로 유지 — TS+Python 동시 활성 워크스페이스에서 각각 독립 타임아웃. 핵심 위험 단계는 키 변경 commit이며 manager 단위 테스트가 regression net.",
+                "recorded_at": "2026-05-05T14:28:28.766Z",
+                "agent_id": "a6ccd59bdf929267d"
+              }
+            ],
+            "decision": "**채택**: 매니저 키 `Map<wsId, Map<langId, StdioLspAdapter>>`. URI 인덱스 `Map<uri, {wsId, langId}>` 별도 유지. didOpen 시 인덱스 등록, didClose 시 제거. didChange/hover/def/completion은 인덱스 lookup → 어댑터 dispatch, 미스 시 null/[] 반환 (현 동작 일치).\n\n**잠복 버그 픽스**: 현 `findWorkspaceForUri`(첫 키 반환 stub) 제거. 멀티-워크스페이스에서 동일 파일명이 잘못 라우팅되는 잠복 버그가 URI 인덱스로 자연스럽게 해소.\n\n**Idle 타임아웃**: 현 30분 유지하되 (wsId, langId) 단위. 한 워크스페이스의 TS와 Python이 독립적으로 타임아웃. 전체 매니저 단위 타임아웃 방식 거부 — 한쪽 활성이 다른 쪽 무관 어댑터의 GC를 방해하는 건 비논리적.\n\n**아이덴티티**: 어댑터 키는 `(workspaceId, languageId)` 튜플로 결정. URI 1개가 두 어댑터에 동시 라우팅되는 시나리오 없음 (Monaco가 모델당 단일 languageId 보장).\n\n**기각 대안**: (a) 키를 URI prefix로 — 워크스페이스 추적 잃음. (b) URI 인덱스 없이 매번 워크스페이스 스캔 — O(W·L), 멀티-워크스페이스에서 회귀."
+          },
+          {
+            "id": 4,
+            "title": "렌더러 lazy provider 등록 메커니즘 — 트리거 지점, 멱등성, basic-languages 로딩 race 방지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "트리거 위치: model-cache.notifyDidOpen 진입 시점 (Monaco language event 아님 — 우리가 이미 languageId 알고 있음). model-cache가 isLspLanguage 게이트를 통과하면 lsp-bridge.ensureProvidersFor(languageId) 호출 후 IPC didOpen 발사. 등록은 idempotent (registeredProviderLanguages Set). Provider unregister 절대 금지 — Monaco IDisposable 호출 시 재등록 race. 비활성 시 provider 내부에서 isActiveLspLanguage 체크 후 빈 응답. basic-languages 로딩 race는 model-cache가 model.getLanguageId()로 Monaco가 이미 resolve한 후 호출하므로 자연 회피.",
+                "recorded_at": "2026-05-05T14:28:28.791Z",
+                "agent_id": "a6ccd59bdf929267d"
+              }
+            ],
+            "decision": "**채택**: lazy provider 등록은 `model-cache.notifyDidOpen` 진입 직전에 트리거. lsp-bridge는 `ensureProvidersFor(languageId)` 함수를 export, idempotent (`registeredProviderLanguages: Set<string>`).\n\n**Init 시점**: `initializeLspBridge`는 진단 listener 등록만. provider 등록 루프 제거 → lazy로 이동.\n\n**Unregister 금지**: Monaco IDisposable 호출 안 함. 비활성 언어는 provider 내부에서 빈 응답 (`return null`/`[]`) — 향후 settings에서 disable 시에도 동일.\n\n**Race**: model-cache가 `model.getLanguageId()`를 호출하는 시점에 Monaco는 이미 basic-languages를 resolve한 상태이므로 race 자연 회피. 별도 polling/await 불필요.\n\n**시점**: 등록은 IPC didOpen **이전**에 동기적으로 완료. 이후 Monaco가 hover/completion 이벤트 받을 때 provider 누락 없음.\n\n**기각 대안**: (a) Monaco의 onDidChangeLanguage 이벤트 hook — 우리가 이미 languageId를 알고 있는데 굳이 우회. (b) init-time 모든 언어 등록 — Python 등 나중에 추가될 때마다 추가 코드 필요, 데이터-드리븐 원칙 위반. (c) provider unregister + 재등록 — race 위험."
+          },
+          {
+            "id": 5,
+            "title": "PR1/PR2 테스트·검증 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Essential (PR1 필수 2건): (1) tests/unit/main/lsp/lsp-manager.test.ts 신규 — FakeAdapter 주입 후 검증: 두 워크스페이스×동일 언어가 별도 어댑터 spawn / .ts URI가 해당 워크스페이스의 typescript 어댑터로 라우팅 / 워크스페이스 close 시 해당 어댑터만 dispose. 이게 키잉 변경 commit의 regression net. (2) 기존 editor-services.test.ts 확장 (신규 파일 X) — lazy 등록 케이스: 첫 모델에서 등록 / 동일 언어 두 번째 모델은 재등록 안 함 / 무관 언어는 트리거 X. Skip: StdioLspAdapter 단위 테스트 (child_process mock surface 큼, 어댑터는 thin pass-through, 매니저 테스트가 FakeAdapter로 커버, 두 번째 non-stdio 어댑터 등장 시 재고). PR2 검증: 자동화 테스트 추가 안 함 (pyright는 외부 프로세스, 단위 테스트로 의미 있는 경계 잡기 어려움) — 수동 스모크: .py 열어 hover/def/completion/diagnostics 4개 작동 확인.",
+                "recorded_at": "2026-05-05T14:28:28.819Z",
+                "agent_id": "a450bc7a9d5c7b088"
+              }
+            ],
+            "decision": "**채택 (PR1)**: 두 개의 테스트 변경.\n\n(1) **신규** `tests/unit/main/lsp/lsp-manager.test.ts` — `FakeAdapter` 주입(StdioLspAdapter 인터페이스 구현)으로 검증:\n- 두 워크스페이스 × 동일 언어가 별도 어댑터 spawn\n- `.ts` URI didOpen → 해당 워크스페이스의 typescript 어댑터로 라우팅 (URI 인덱스 정확성)\n- 워크스페이스 disposal 시 해당 워크스페이스의 어댑터들만 dispose, 다른 워크스페이스 영향 없음\n- 동일 워크스페이스에 typescript + (가짜)python 동시 활성 시 didOpen이 languageId로 정확히 분기\n\n(2) **기존 확장** `tests/unit/renderer/services/editor-services.test.ts` — lazy 등록 시나리오 추가:\n- 첫 모델에서 provider 등록\n- 동일 언어 두 번째 모델은 재등록 안 함 (Set으로 idempotent)\n- 무관 언어(예: plaintext)는 provider 등록 트리거 X\n\n**Skip**: StdioLspAdapter 단위 테스트 (child_process mock surface가 크고 thin pass-through라 가성비 낮음, FakeAdapter 매니저 테스트로 경계 커버).\n\n**채택 (PR2)**: 자동화 단위 테스트 추가 안 함. 수동 스모크 — `bun run dev`에서 `.py` 파일 1개 생성 → hover/go-to-def/completion/diagnostics 4가지 동작 확인. pyright는 외부 프로세스이고 실제 LSP 통신을 mock하면 의미 없는 테스트.\n\n**기각 대안**: (a) E2E 통합 테스트 — Electron + 실제 pyright spawn은 CI 비용·flakiness 큼, 본 단계에서 가성비 낮음. (b) 테스트 0건 — 키잉 변경은 silent regression 위험(잠복 버그 그대로 재도입 가능), 최소 안전망 필수."
+          },
+          {
+            "id": 6,
+            "title": "PR2 pyright 프리셋 — 바이너리, args, initializationOptions, 검증 방법",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "researcher",
+                "summary": "pyright-langserver 사실: (1) CLI는 `pyright-langserver --stdio` 단일 형태, 다른 플래그 없음 (Issue #7600에서 maintainer 명시 — 모든 옵션은 LSP로). (2) initializationOptions 표준 키: python.analysis.typeCheckingMode 기본 \"standard\"(off|basic|standard|strict), diagnosticMode 기본 \"openFilesOnly\"(maintainer 확인, 중규모 레포 안전), autoImportCompletions/useLibraryCodeForTypes/autoSearchPaths 모두 기본 true. (3) **임계 발견**: rootUri:null 시 pyright는 진단을 produce하지 않음 (Issue #6874 closed-not-planned, 의도된 동작). workspaceFolders 또는 rootPath/rootUri 중 하나는 필수. 현 TypeScriptServer는 rootUri:null로 작동하므로 PR2에서 워크스페이스 경로 plumbing 추가 필요. (4) 번들 typeshed로 Python 인터프리터 없어도 기본 타입체크 작동, 단 third-party import resolution은 실패. pyrightconfig.json 없을 때 initializationOptions가 그 역할.",
+                "recorded_at": "2026-05-05T14:29:03.661Z",
+                "agent_id": "ab71c24c2b63c04e8"
+              }
+            ],
+            "decision": "**채택**: pyright 빌트인 프리셋\n```ts\n{\n  languageId: \"python\",\n  binary: \"pyright-langserver\",        // resolveBundledBinary로 node_modules/.bin/ 경로 도출\n  args: [\"--stdio\"],\n  initializationOptions: {\n    \"python.analysis.typeCheckingMode\": \"standard\",   // pyright 자체 기본값\n    \"python.analysis.diagnosticMode\": \"openFilesOnly\", // maintainer 확인, 중규모 레포 안전\n    \"python.analysis.autoImportCompletions\": true,\n    \"python.analysis.useLibraryCodeForTypes\": true\n  }\n}\n```\n\n**근거** (researcher 1차 출처): CLI는 `pyright-langserver --stdio` 외 의미있는 플래그 없음 (Issue #7600 maintainer 확인). typeCheckingMode 기본 \"standard\" + diagnosticMode 기본 \"openFilesOnly\"는 pyright의 자체 기본값과 동일, 재명시함으로써 pyrightconfig.json 부재 시에도 동작 보장.\n\n**중요 의존성**: pyright는 `rootUri: null`이면 publishDiagnostics 자체를 안 보냄 (Issue #6874, intentional). → 이슈 7에서 workspaceRoot plumbing으로 해결.\n\n**검증**: PR2 머지 전 수동 스모크 — `.py` 파일 1개에서 hover/go-to-def/completion/diagnostics 4가지 작동.\n\n**Python 인터프리터 부재 시**: 번들 typeshed로 stdlib 타입체크는 작동하지만 third-party import는 \"not found\"로 실패. v1에서 허용 — 사용자가 settings 도입 후 `pythonPath`로 venv 지정 가능.\n\n**기각 대안**: (a) basedpyright — 더 활발하지만 빌트인은 보수적으로 microsoft 본가가 적합 (사용자 결정 영역). (b) typeCheckingMode \"basic\" — 더 조용하지만 pyright의 자체 default와 다름, 사용자 기대값 어긋남. (c) initializationOptions 빈값 — pyrightconfig.json 부재 시 모든 옵션 default라 동등하지만 명시가 디버깅 친화적."
+          },
+          {
+            "id": 7,
+            "title": "워크스페이스 루트 plumbing — pyright가 workspaceFolders 요구하므로 lsp.didOpen IPC 페이로드에 workspaceRoot 추가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "researcher 발견(이슈 6)이 트리거. pyright는 rootUri:null이면 publishDiagnostics 자체를 안 보냄. 해결안 비교: (A) lsp.didOpen IPC 페이로드에 workspaceRoot 필드 추가 — 추가형(backwards compat), 렌더러가 useWorkspacesStore.workspaces[wsId].rootPath 이미 보유, manager는 첫 didOpen 시 workspaceFolders=[{uri:file://workspaceRoot,name}]로 어댑터 initialize. (B) main이 lsp-host MessagePort로 workspaceId→rootPath 미리 push — 추가 RPC 필요, lifecycle 더 복잡. (C) manager가 main에 역방향 query — 의존성 방향 역전. (A) 채택 — 정보가 이미 흐르는 방향(렌더러→유틸리티)으로 한 필드 추가만 하면 됨. 결정: PR1에서 처리 (PR1이 어차피 initialize/IPC plumbing 만지므로 PR2에 미루면 두 번 만짐). PR1 단계에서 TypeScript 어댑터는 workspaceRoot를 받아도 rootUri:null과 동등 동작 (현 동작 유지) — 다만 더 정확한 rootUri 전달이 ts-language-server에도 마이너스 없음.",
+                "recorded_at": "2026-05-05T14:29:23.565Z"
+              }
+            ],
+            "decision": "**채택**: `lsp.didOpen` IPC 페이로드에 `workspaceRoot: string` 필드 추가 (절대경로). 렌더러는 `useWorkspacesStore.workspaces[wsId].rootPath`에서 읽어 전달. 매니저는 첫 어댑터 spawn 시 `workspaceFolders: [{ uri: \\`file://${workspaceRoot}\\`, name: <workspace name or basename> }]`을 InitializeParams에 포함하고 `rootUri`도 동일 값으로 설정 (basedpyright Issue #635 참조 — rootPath/rootUri 양쪽 안전망).\n\n**도입 시점**: PR1 (PR2 아님). PR1이 어차피 initialize/IPC plumbing 전반을 수정하므로 같은 PR에서 처리하는 게 두 번 만지지 않음. PR1 시점 TypeScript 어댑터는 새 필드를 받아도 동등 동작 (ts-language-server는 rootUri:null로도 작동했고, 실제 경로 전달도 무해).\n\n**커밋 위치**: architect의 7-commit ordering의 commit 0 (URI 인덱스 도입 전, 가장 기초) — IPC 계약 변경은 하부 변경의 전제이므로 가장 먼저.\n\n**렌더러 변경 범위**: `lsp-bridge.ts`의 `notifyDidOpen` 호출부와 `model-cache.ts`의 호출 사이트(`entry.input.workspaceId`로 store lookup). 추가 필드 1개라 minimal.\n\n**기각 대안**: (a) main에서 lsp-host MessagePort로 별도 RPC `setWorkspaceRoot(wsId, path)` 사전 push — 추가 lifecycle 복잡, didOpen 순서와의 race 위험. (b) 매니저가 main에 역방향 query — 의존성 방향 역전. (c) PR2로 미루기 — IPC 계약 churn 두 번, PR2 범위 부풀림.\n\n**가정**: 한 워크스페이스의 rootPath는 lifetime 동안 불변 (현 워크스페이스 모델 일치). 변경 시나리오는 별도 이슈."
+          }
+        ],
+        "research_summary": "선행 조사 완료: (1) Explore가 현 LSP 코드 구조 매핑 — 렌더러 lsp-bridge/language.ts/model-cache, 메인 lsp-host/ipc/channels/lsp.ts, 유틸리티 lsp-manager(Map<wsId, TypeScriptServer>)/servers/typescript.ts(JSON-RPC stdio), IPC 계약은 이미 languageId 필드 보유, settings 채널은 빈 스캐폴드. (2) Architect(agent a6ccd59bdf929267d)가 6레이어 설계 doc 산출 — L4 URI 인덱스, L5 단일 StdioLspAdapter, L6 user override = full replacement, lazy provider gating(unregister 금지). (3) Researcher(agent a6028e8cd3bcc75b9)가 Python LSP 4종 비교 후 basedpyright 추천했으나 Lead 판단으로 빌트인은 보수적인 pyright 채택. 프로젝트가 개발 단계라 사용자 결정으로 settings 영속화/회로차단/spawn 보안 가드는 드롭, 확장성 훅(StdioLspAdapter, 매니저 키잉, BUILTIN_LSP_PRESETS 데이터 구조, lazy 등록)만 보존. 현 TypeScriptServer는 빈 initializationOptions + 표준 capabilities로 마이그레이션 단순.",
+        "created_at": "2026-05-05T14:25:23.149Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PR1-1: lsp.didOpen IPC 계약에 workspaceRoot 필드 추가",
+          "status": "completed",
+          "context": "현 lsp.didOpen 페이로드는 {workspaceId, uri, languageId, version, text}. pyright는 rootUri:null이면 publishDiagnostics를 안 보냄(Issue #6874). 워크스페이스 루트를 InitializeParams의 workspaceFolders로 전달해야 함. PR1 가장 첫 commit (계약 변경은 하부 변경의 전제). plan_issue=7.",
+          "acceptance": "(a) ipc-contract.ts에 workspaceRoot 필드 정의됨. (b) 렌더러가 실제 rootPath 값을 전달함 (수동 확인: console.log 또는 디버거). (c) `bun run build` 통과. (d) `bun test` 기존 테스트 모두 통과 (editor-services.test.ts 포함). (e) 동작 회귀 없음 — 기존 .ts 파일 LSP 정상.",
+          "approach": "(1) src/shared/ipc-contract.ts: lsp.didOpen.args에 `workspaceRoot: string` (절대경로) 추가. (2) src/renderer/services/editor/lsp-bridge.ts notifyDidOpen 시그니처/호출부 수정 — useWorkspacesStore에서 workspaces[wsId].rootPath 읽어 포함. (3) src/renderer/services/editor/model-cache.ts에서 notifyDidOpen 호출 사이트 갱신. (4) src/main/ipc/channels/lsp.ts: forward 그대로 (필드만 통과). (5) src/utility/lsp-host/lsp-manager.ts: 새 필드 받지만 PR1 이 단계에서는 무시 (T4에서 적용).",
+          "risk": "렌더러에서 useWorkspacesStore가 hydrate 안 된 시점에 호출되면 rootPath가 undefined일 수 있음. model-cache가 acquireModel 받는 시점에는 store가 워크스페이스 보유한다고 가정 (현 코드 흐름과 일치). 만약 race가 발견되면 model-cache에서 가드 추가.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df897-d8c3-7451-83a9-a3a91a1d4450",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:32:40.085Z"
+        },
+        {
+          "id": 2,
+          "title": "PR1-2: lsp-manager에 URI 인덱스 additive 도입",
+          "status": "completed",
+          "context": "현 lsp-manager의 findWorkspaceForUri는 첫 키를 반환하는 M0 stub — 멀티-워크스페이스에서 동일 파일명이 잘못 라우팅되는 잠복 버그. URI 인덱스를 additive하게 먼저 도입해 다음 commit에서 dispatch에 사용. plan_issue=3.",
+          "acceptance": "(a) uriIndex 필드 도입, didOpen/didClose 시 일관성 유지. (b) 기존 동작 동일 — findWorkspaceForUri는 그대로. (c) `bun run build` + `bun test` 통과. (d) 디버거로 didOpen 후 인덱스에 항목이 추가됨을 확인.",
+          "approach": "src/utility/lsp-host/lsp-manager.ts에 `private uriIndex: Map<string, {workspaceId: string; languageId: string}>` 필드 추가. didOpen 처리 시 등록, didClose 시 제거. 기존 findWorkspaceForUri 로직은 아직 변경하지 않음 — 이 commit은 데이터 구조만 추가하고 동작은 동일. 다음 단계(T5)에서 dispatch가 인덱스 lookup으로 전환됨.",
+          "risk": "인덱스에 누수 발생 가능성 — 어댑터 dispose 시 인덱스 entries 정리 필요. didClose가 안 오는 케이스(워크스페이스 강제 종료) 대비해 dispose 시 해당 어댑터의 모든 URI를 인덱스에서 제거.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df89d-8fb0-7772-9747-9fd4d7bbefc0",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:33:09.684Z"
+        },
+        {
+          "id": 3,
+          "title": "PR1-3: lsp-config.ts (LspServerSpec + BUILTIN_LSP_PRESETS) + binary resolver 신규",
+          "status": "completed",
+          "context": "렌더러/메인/유틸리티 모두 참조하는 빌트인 LSP 프리셋 데이터 구조 도입. 향후 user config가 같은 형태로 합쳐질 예정. plan_issue=1.",
+          "acceptance": "(a) 두 신규 파일 생성, type-check 통과. (b) BUILTIN_LSP_PRESETS에 typescript 1개 entry. (c) `bun run build` + `bun test` 통과. (d) javascript 처리 방식 결정 — TypeScript 서버가 처리하므로 LSP_LANGUAGES에 \"javascript\" 명시 추가하는 보조 상수 또는 spec.fileExtensions/aliases 필드로 표현 (T6와 함께 결정).",
+          "approach": "(1) src/shared/lsp-config.ts 신규: 타입 `LspServerSpec = { languageId: string; binary: string; args: string[]; initializationOptions?: unknown }` + 상수 `BUILTIN_LSP_PRESETS: readonly LspServerSpec[] = [{ languageId: \"typescript\", binary: \"typescript-language-server\", args: [\"--stdio\"], initializationOptions: {} }]`. javascript도 typescript와 같은 서버 사용 — 별도 entry 필요한지 검토. ts-language-server는 javascript도 처리하므로 별도 entry 안 만들고 LSP_LANGUAGES 도출 시 fileExtensions 또는 별칭 처리 검토 (T6에서 다룸). (2) src/utility/lsp-host/resolve-bundled-binary.ts 신규: `resolveBundledBinary(binary: string)` 함수, 현 TypeScriptServer.ts의 `resolvePath(__dirname, \"../../node_modules/.bin/<binary>\")` 로직을 옮김. (3) 이 commit은 데이터/헬퍼만 도입, 아무도 안 씀.",
+          "risk": "javascript를 별도 spec entry로 하면 매니저가 동일 ts-language-server를 두 번 spawn하는 사고 가능. 해결: 매니저가 (wsId, langId) 키로 스폰하되 spec에 `aliases?: string[]` 필드를 추가하지 않고, 대신 LSP_LANGUAGES 도출 로직에서 typescript spec이 javascript도 커버한다고 명시. 본 결정은 T6 구현 시 마무리.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df8a0-91e7-7f00-8280-a551434056f7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:33:27.714Z"
+        },
+        {
+          "id": 4,
+          "title": "PR1-4: StdioLspAdapter 추출 — 현 TypeScriptServer 90% 로직을 spec 기반 generic 클래스로",
+          "status": "completed",
+          "context": "현 TypeScriptServer는 JSON-RPC framing/initialize/dispatch가 90% generic. spec 기반으로 추출하면 향후 pyright/사용자 정의 LSP가 동일 클래스로 동작. plan_issue=2.",
+          "acceptance": "(a) StdioLspAdapter 클래스 + 인터페이스 정의됨, build 통과. (b) TypeScriptServer가 내부적으로 StdioLspAdapter를 사용하도록 전환 (외부 호출자 영향 없음). (c) dev 모드에서 .ts 파일 hover/go-to-def/completion/diagnostics 모두 정상 동작 — 수동 스모크. (d) `bun test` 통과 — 기존 editor-services.test.ts 영향 없음.",
+          "approach": "(1) src/utility/lsp-host/servers/stdio-lsp-adapter.ts 신규. 클래스 시그니처: `new StdioLspAdapter(spec: LspServerSpec, workspaceId: string, workspaceRootUri: string | null, onDiagnostics: DiagnosticsCallback)`. 메서드: start, didOpen(uri,version,text), didChange, didClose, hover, definition, completion, dispose. start()는 resolveBundledBinary(spec.binary)로 경로 구하고 spawn(path, spec.args). sendInitialize는 workspaceFolders=[{uri:workspaceRootUri,name}] + rootUri=workspaceRootUri + initializationOptions=spec.initializationOptions로 구성 (workspaceRootUri 있을 때만, null이면 현 동작 유지). (2) TypeScriptServer는 임시로 StdioLspAdapter를 wrapping해 동일 외부 인터페이스 유지 — 매니저 변경은 다음 commit. (3) didOpen 시 languageId는 spec.languageId 사용 (LSP textDocument/didOpen의 languageId 필드).",
+          "risk": "spawn/initialize 타이밍 회귀 위험. 현 TypeScriptServer.start()의 sendInitialize 흐름을 정확히 보존해야 함. 특히 initialized notification이 didOpen 전에 가도록 순서 유지.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df8a2-9401-7f32-a2de-ff4186a35736",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:33:46.430Z"
+        },
+        {
+          "id": 5,
+          "title": "PR1-5: 매니저 키잉 변경 — Map<wsId, Map<langId, Adapter>> + URI 인덱스 dispatch + TypeScriptServer 제거",
+          "status": "completed",
+          "context": "PR1의 핵심 commit. 잠복 버그(findWorkspaceForUri stub) 해소 + 멀티-언어 라우팅 활성화. plan_issue=3.",
+          "acceptance": "(a) lsp-manager.ts가 새 키잉 구조로 동작, findWorkspaceForUri 스텁 제거. (b) typescript.ts 파일 삭제됨. (c) `bun run build` + `bun test` 통과. (d) dev 모드 .ts 파일 hover/go-to-def/completion/diagnostics 정상. (e) 멀티-워크스페이스 시나리오 — 두 워크스페이스에서 동일 파일명 .ts 열기, 각각 정확한 어댑터로 라우팅 (수동 또는 T7 단위 테스트로 검증).",
+          "approach": "(1) src/utility/lsp-host/lsp-manager.ts 키잉을 `Map<workspaceId, Map<languageId, StdioLspAdapter>>`로 변경. (2) didOpen 처리: (wsId, langId)로 어댑터 lookup, 없으면 BUILTIN_LSP_PRESETS에서 spec 찾아 spawn (`new StdioLspAdapter(spec, wsId, workspaceRootUri, onDiagnostics).start()`). (3) didChange/didClose/hover/definition/completion: T2의 uriIndex로 (wsId, langId) lookup → 어댑터 dispatch, 미스 시 null/[] 반환 (현 동작 일치). (4) findWorkspaceForUri 스텁 제거. (5) workspace dispose 시 해당 wsId의 모든 (langId → adapter)를 dispose하고 uriIndex에서 해당 wsId의 모든 entries 제거. (6) idle 타임아웃: (wsId, langId) 단위로 유지 — Map의 inner entry 단위로 lastActivityAt 추적. (7) src/utility/lsp-host/servers/typescript.ts 파일 삭제, manager가 StdioLspAdapter 직접 사용. (8) workspaceRoot가 null/empty인 경우 (T1에서 도입한 필드) 어떻게 할지 — TS는 무해하지만 매니저는 null 허용해야 함, 추후 PR2에서 pyright는 필수.",
+          "risk": "키잉 변경 + 파일 삭제 + dispatch 변경이 한 commit이라 regression 발생 시 bisect 어려움. 완화: T7 단위 테스트(FakeAdapter)로 즉시 회귀 검출. 단계 전환 시점에 build 깨지면 롤백 후 더 작게 쪼갬.",
+          "plan_issue": 3,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df8a8-128d-7402-a125-5e65c1e08757",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:34:06.178Z"
+        },
+        {
+          "id": 6,
+          "title": "PR1-6: 렌더러 — language.ts presets 도출 + lsp-bridge lazy provider 등록",
+          "status": "completed",
+          "context": "렌더러 측 데이터-드리븐화 + race-free 등록. 향후 새 언어 추가 시 lsp-config.ts만 수정하면 자동 활성. plan_issue=1, 4.",
+          "acceptance": "(a) language.ts가 BUILTIN_LSP_PRESETS에서 도출, 결과적으로 [\"typescript\", \"javascript\"] 동일. (b) lsp-bridge가 lazy 등록, init-time 루프 제거. (c) ensureProvidersFor가 idempotent (Set 가드). (d) model-cache에서 호출 시점이 didOpen IPC 이전. (e) `bun run build` + `bun test` 통과 — 기존 editor-services.test.ts는 새 lazy 흐름과 호환되어야 함, 필요 시 mock 보강.",
+          "approach": "(1) src/renderer/services/editor/language.ts: `LSP_LANGUAGES`를 `BUILTIN_LSP_PRESETS`에서 도출. typescript spec이 javascript도 커버하므로 도출 시 javascript를 명시적으로 포함하는 보조 상수 또는 spec 측에 별칭 표시 — 예: `[...BUILTIN_LSP_PRESETS.map(p=>p.languageId), \"javascript\"]`로 명시 union (typescript spec이 javascript도 처리한다는 사실을 코드 레벨에서 표현). (2) src/renderer/services/editor/lsp-bridge.ts: `ensureProvidersFor(languageId)` export 함수 신규, idempotent (`registeredProviderLanguages: Set<string>`). 내부에서 isActiveLspLanguage 체크 후 monaco.languages.registerHoverProvider/registerDefinitionProvider/registerCompletionItemProvider 호출. (3) `initializeLspBridge`의 init-time provider 등록 루프 제거 → 진단 listener만 남김. (4) src/renderer/services/editor/model-cache.ts: `notifyDidOpen` 호출 직전 `ensureProvidersFor(model.getLanguageId())` 호출 (isLspLanguage 게이트 통과 시점). (5) provider 내부에서 isActiveLspLanguage 체크해 비활성 언어면 빈 응답.",
+          "risk": "기존 editor-services.test.ts가 init-time 등록을 가정하면 깨질 수 있음. T7에서 테스트 확장 시 함께 마이그레이션. javascript 별칭 처리를 spec.aliases 같은 새 필드 도입 vs 도출 로직 인라인 union 중 선택 — 후자가 단순, 채택.",
+          "plan_issue": 4,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df8ae-896a-7621-b41d-12a0e5b63187",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:34:24.816Z"
+        },
+        {
+          "id": 7,
+          "title": "PR1-7: 테스트 추가 — lsp-manager 단위 테스트 + editor-services lazy 등록 케이스",
+          "status": "completed",
+          "context": "PR1의 핵심 변경(키잉, URI 인덱스, lazy 등록)에 대한 regression net. plan_issue=5.",
+          "acceptance": "(a) lsp-manager.test.ts에 4개 케이스 모두 통과. (b) editor-services.test.ts에 lazy 등록 3개 케이스 추가 + 기존 케이스 통과. (c) `bun test` 전체 grren. (d) FakeAdapter 인터페이스가 StdioLspAdapter와 일치 — 향후 인터페이스 변경 시 컴파일 에러로 검출.",
+          "approach": "(1) tests/unit/main/lsp/lsp-manager.test.ts 신규. FakeAdapter (StdioLspAdapter 인터페이스 구현, 호출 기록만) 주입. 테스트 케이스: (a) 두 워크스페이스에 동일 .ts 파일 didOpen → 별도 어댑터 spawn (b) didOpen 후 hover URI lookup이 정확한 어댑터로 라우팅 (c) workspace dispose가 해당 워크스페이스의 어댑터만 dispose (d) 동일 워크스페이스에 typescript + (가짜) python 동시 활성 시 didOpen이 languageId로 정확히 분기, hover/completion도 해당 어댑터로. (2) tests/unit/renderer/services/editor-services.test.ts 확장: lazy 등록 시나리오 — 첫 모델 acquire 시 ensureProvidersFor 호출되어 monaco.__providerCalls 채워짐 / 동일 언어 두 번째 모델 acquire 시 추가 등록 없음 (idempotent) / plaintext 등 무관 언어 acquire 시 provider 등록 안 함. 기존 케이스는 새 lazy 흐름에 맞게 수정.",
+          "risk": "매니저 단위 테스트는 utility-process 코드를 단독 실행하므로 mock 범위가 child_process가 아닌 어댑터 자체. spec/resolver/매니저 import 경로가 utility 빌드에 의존적이지 않은지 확인 필요. 필요시 매니저 코드를 import-friendly하게 약간 리팩터.",
+          "plan_issue": 5,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-05T14:34:41.616Z"
+        },
+        {
+          "id": 8,
+          "title": "PR1-Verify: PR1 종합 검증 (수동 스모크 + 전체 테스트)",
+          "status": "completed",
+          "context": "PR1의 누적 변경(IPC 계약, 매니저 키잉, 어댑터, lazy 등록)에 대한 end-to-end 검증. T7의 단위 테스트 외에 실제 LSP 통신이 끊기지 않았는지 dev 모드로 확인. plan_issue=5.",
+          "acceptance": "(a) 전체 테스트 그린. (b) production 빌드 통과. (c) 수동 스모크 4가지 모두 정상 — 회귀 0건. (d) 발견된 이슈가 있으면 fix-up commit으로 처리하고 재검증.",
+          "approach": "(1) `bun test` 전체 통과 확인. (2) `bun run build` production 빌드 통과. (3) `bun run dev` 실행 후 수동 스모크: (a) .ts 파일 열어 hover/go-to-def/completion/diagnostics 4가지 동작 (b) 두 워크스페이스 열어 동일 파일명 .ts 라우팅 (c) workspace 닫기 후 어댑터 정리 확인 (lsof 또는 프로세스 모니터로 typescript-language-server 프로세스 종료 확인). (4) 회귀 발견 시 어느 commit에서 발생했는지 bisect — 각 commit이 build green이라는 acceptance를 활용.",
+          "risk": "수동 스모크는 환경 의존적. CI에서 자동화 안 되므로 사람이 직접 확인 필요. dev 환경에서 monaco-editor의 basic-languages가 typescript/javascript를 자동 로드하는지 PR1 변경 후에도 동일한지 확인.",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019df8ba-8a92-75d2-a377-eca42cc32f2c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-05T14:34:55.534Z"
+        },
+        {
+          "id": 9,
+          "title": "PR2-1: pyright 빌트인 추가 — bun add pyright + python 프리셋",
+          "status": "completed",
+          "context": "PR1 토대 위에 Python LSP 활성화. pyright는 npm 패키지로 typescript-language-server와 동일 spawn 패턴. plan_issue=6.",
+          "acceptance": "(a) pyright가 devDependency 또는 dependency로 설치됨 (현 typescript-language-server와 동일 위치). (b) BUILTIN_LSP_PRESETS에 python entry 추가. (c) `bun run build` + `bun test` 통과. (d) `bun run dev` 실행 시 .py 파일 열면 pyright-langserver 자식 프로세스 spawn 확인.",
+          "approach": "(1) `bun add pyright` 실행 — package.json + bun.lock 갱신. (2) src/shared/lsp-config.ts의 BUILTIN_LSP_PRESETS에 python 프리셋 추가:\n```ts\n{\n  languageId: \"python\",\n  binary: \"pyright-langserver\",\n  args: [\"--stdio\"],\n  initializationOptions: {\n    \"python.analysis.typeCheckingMode\": \"standard\",\n    \"python.analysis.diagnosticMode\": \"openFilesOnly\",\n    \"python.analysis.autoImportCompletions\": true,\n    \"python.analysis.useLibraryCodeForTypes\": true,\n  },\n}\n```\n(3) 렌더러 LSP_LANGUAGES 도출 결과에 자동으로 \"python\" 포함됨 — 코드 변경 없음. (4) 매니저는 pyright의 workspaceFolders 요구를 만족시키기 위해 InitializeParams에 workspaceRoot 기반 workspaceFolders + rootUri 양쪽 설정 (T4의 StdioLspAdapter가 이미 처리). (5) 만약 워크스페이스 rootPath가 절대경로 아니면 pyright가 침묵으로 실패할 수 있음 — 절대경로 보장 검증.",
+          "risk": "pyright의 npm 패키지가 어떤 entry point를 노출하는지 확인 필요 — `node_modules/.bin/pyright-langserver`가 실제로 존재하는지 설치 후 ls로 확인. 없으면 `node_modules/pyright/dist/pyright-langserver.js`를 직접 spawn하는 fallback 검토.",
+          "plan_issue": 6,
+          "deps": [
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019df8be-36bd-71d1-97f3-c32bb261f0a4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-05T14:35:11.492Z"
+        },
+        {
+          "id": 10,
+          "title": "PR2-Verify: Python LSP 수동 스모크 (hover/def/completion/diagnostics)",
+          "status": "completed",
+          "context": "pyright의 4가지 LSP 기능이 실제로 작동하는지 dev 모드에서 확인. 자동화 테스트 거부 결정(plan #15 issue 5) 따라 수동 검증. plan_issue=6.",
+          "acceptance": "(a) hover/go-to-def/completion/diagnostics 4가지 모두 작동. (b) 작동 안 하는 항목 0건 OR 명시적 사유 기록(예: \"go-to-def는 stdlib 진입 시 stub 위치로 점프 — 의도된 동작\"). (c) .ts 파일 LSP 회귀 0건. (d) `bun test` 전체 그린.",
+          "approach": "(1) `bun run dev` 실행. (2) 워크스페이스에 .py 파일 1개 생성 (예: `test.py`):\n```python\nimport os\ndef greet(name: str) -> str:\n    return f\"Hello, {name}\"\nx: int = \"string\"  # 의도적 타입 에러\ngreet(123)         # 의도적 타입 에러\nresult = os.\n```\n(3) 검증 항목: (a) **hover**: `os` 위에 hover → os 모듈 시그니처 표시 / `greet` 위에 hover → 함수 시그니처 표시 (b) **go-to-def**: `greet` 호출에서 cmd-click → 정의로 점프 (c) **completion**: `os.` 입력 후 → `os.path`, `os.environ` 등 멤버 자동완성 표시 (d) **diagnostics**: `x: int = \"string\"` 줄에 타입 에러 마커 / `greet(123)` 줄에 타입 에러 마커. (4) 4가지 중 작동 안 하는 게 있으면 pyright 프로세스 stderr 로그 확인 + workspaceFolders/initializationOptions 전달 여부 디버깅. (5) 단일 워크스페이스에 .ts와 .py 동시 열어 두 어댑터가 독립 동작 (TS LSP 회귀 0건).",
+          "risk": "pyright가 workspaceFolders 없이는 진단을 안 보냄 (researcher 발견). 만약 진단이 안 나오면 T4의 StdioLspAdapter가 workspaceRoot를 받아 실제로 InitializeParams에 포함하는지 검증 필요. third-party import는 시스템 Python 부재 시 \"not found\" 표시 — 정상 동작 (사용자가 추후 settings에서 pythonPath 지정).",
+          "plan_issue": 6,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019df8c3-3efd-7e00-ba16-a7c14c173935",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-05T14:35:30.393Z"
+        },
+        {
+          "id": 11,
+          "title": "Fix-up: LSP file URI encoding for paths with spaces/special characters",
+          "status": "completed",
+          "context": "Task 10 verified Python LSP functionality but found a concrete edge bug: raw `file://${path}` URI construction can make Pyright diagnostics time out for paths containing spaces; percent-encoded file URLs succeeded. Existing raw construction lives in renderer model-cache filePathToModelUri/cacheUriToFilePath and utility lsp-manager workspaceRootToFileUri.",
+          "acceptance": "(a) file paths and workspace roots are converted to standards-compliant encoded file URIs. (b) cacheUriToFilePath decodes encoded file URIs back to absolute paths. (c) tests cover path-with-space/special-character URI generation and Python didOpen payload. (d) `bun run typecheck`, targeted tests, and `bun test` pass.",
+          "approach": "Add a small shared file URI helper or equivalent; use it from renderer model-cache and utility lsp-manager. Keep POSIX/macOS paths stable and avoid changing public APIs beyond encoded URI output.",
+          "risk": "Encoded URI output changes exact strings in tests and dirty-cache keys for files with special characters; existing unencoded paths without spaces should remain unchanged.",
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-05T15:36:52.918Z"
+        }
+      ]
     }
   ]
 }

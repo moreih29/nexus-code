@@ -2,6 +2,33 @@
 import { describe, expect, test } from "bun:test";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 
+describe("ipcContract.lsp.call.didOpen", () => {
+  const schema = ipcContract.lsp.call.didOpen.args;
+
+  test("accepts document payload with workspace root", () => {
+    const result = schema.safeParse({
+      workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+      workspaceRoot: "/workspace",
+      uri: "file:///workspace/src/index.ts",
+      languageId: "typescript",
+      version: 1,
+      text: "const value = 1;\n",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing workspace root", () => {
+    const result = schema.safeParse({
+      workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+      uri: "file:///workspace/src/index.ts",
+      languageId: "typescript",
+      version: 1,
+      text: "const value = 1;\n",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("ipcContract.lsp.call.hover", () => {
   const schema = ipcContract.lsp.call.hover.args;
 
