@@ -16,6 +16,7 @@ import { ipcCall } from "@/ipc/client";
 import { openOrRevealEditor } from "@/services/editor";
 import { useFilesStore } from "@/state/stores/files";
 import { relPath } from "@/utils/path";
+import { FS_ERROR } from "../../../shared/fs-errors";
 import { toFsToast } from "./errors";
 
 export interface NewFileInput {
@@ -29,7 +30,7 @@ export async function createNewFile(input: NewFileInput): Promise<boolean> {
   const absPath = `${input.parentAbsPath}/${input.name}`;
   const rel = relPath(absPath, input.workspaceRootPath);
   if (rel === absPath) {
-    toFsToast(new Error("OUT_OF_WORKSPACE"), {
+    toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
       fallback: "This path is outside the workspace.",
     });
     return false;

@@ -10,5 +10,7 @@ export type { NewFileInput } from "./new-file";
 export { createNewFile } from "./new-file";
 export type { NewFolderInput } from "./new-folder";
 export { createNewFolder } from "./new-folder";
+export type { PathActionContext, PathActions } from "./path-actions";
+export { createPathActions } from "./path-actions";
 export type { RevealInput } from "./reveal";
 export { revealInFinder } from "./reveal";

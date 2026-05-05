@@ -3,6 +3,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { type FileDragPayload, MIME_FILE } from "@/components/workspace/dnd/types";
 import { cn } from "@/utils/cn";
 import type { TreeNode } from "../../state/stores/files";
+import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
 
 // ---------------------------------------------------------------------------
 // Inline icon — avoids external icon library dependency
@@ -98,9 +99,9 @@ export function FileTreeRow({
       title={node.name}
       draggable={!isDir}
       onDragStart={isDir ? undefined : onDragStart}
-      style={{ paddingLeft: depth * 12 + 8 }}
+      style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
-        "flex items-center h-6 w-full text-left cursor-pointer select-none",
+        "flex items-center w-full text-left cursor-pointer select-none",
         "border-l-2 border-l-transparent",
         "hover:bg-frosted-veil-strong",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset",

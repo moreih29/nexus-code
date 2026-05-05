@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import { shell } from "electron";
+import { fsCodeFromErrno, fsErrorMessage } from "../../../../shared/fs-errors";
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import { validateArgs } from "../../router";
@@ -29,9 +30,8 @@ export function showItemInFolderHandler(
     try {
       await fs.promises.access(abs);
     } catch (e: unknown) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") throw new Error(`NOT_FOUND: ${abs}`);
-      if (code === "EACCES") throw new Error(`PERMISSION_DENIED: ${abs}`);
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
 

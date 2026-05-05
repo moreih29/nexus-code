@@ -17,10 +17,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { EditorTabProps } from "@/services/editor";
-import { revealInFinder as revealInFinderService } from "@/services/fs-mutations";
+import { createPathActions } from "@/services/fs-mutations";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { copyText } from "@/utils/clipboard";
-import { relPath } from "@/utils/path";
 import { TabBar } from "../tabs/tab-bar";
 import { buildGroupTabBarMenuItems, type TabContextInfo } from "./group-tab-bar-menu";
 import { useGroupActions } from "./use-group-actions";
@@ -68,45 +66,31 @@ export function GroupTabBar({
     onActivateGroup,
   });
 
-  function getEditorFilePath(): string | null {
-    if (!contextTab || contextTab.type !== "editor") return null;
-    return (contextTab.props as EditorTabProps).filePath;
-  }
+  // Anchor the path actions to whichever tab the menu currently points at.
+  // The resolver returns null for non-editor tabs (terminals, etc.) so the
+  // shared `createPathActions` no-ops cleanly without each menu callsite
+  // re-checking tab type.
+  const pathActions = createPathActions({
+    workspaceId,
+    workspaceRootPath,
+    getAbsPath: () =>
+      contextTab && contextTab.type === "editor"
+        ? (contextTab.props as EditorTabProps).filePath
+        : null,
+  });
 
   function togglePin() {
     if (!contextTabId) return;
     useTabsStore.getState().togglePin(workspaceId, contextTabId);
   }
 
-  function copyPath() {
-    const filePath = getEditorFilePath();
-    if (!filePath) return;
-    copyText(filePath);
-  }
-
-  function copyRelativePath() {
-    const filePath = getEditorFilePath();
-    if (!filePath) return;
-    copyText(relPath(filePath, workspaceRootPath));
-  }
-
-  function revealInFinder() {
-    const filePath = getEditorFilePath();
-    if (!filePath) return;
-    void revealInFinderService({
-      workspaceId,
-      workspaceRootPath,
-      absPath: filePath,
-    });
-  }
-
   const menuItems = buildGroupTabBarMenuItems({
     context: contextInfo,
     actions,
     togglePin,
-    copyPath,
-    copyRelativePath,
-    revealInFinder,
+    copyPath: pathActions.copyPath,
+    copyRelativePath: pathActions.copyRelativePath,
+    revealInFinder: pathActions.revealInFinder,
   });
 
   return (
