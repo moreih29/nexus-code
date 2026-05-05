@@ -12,12 +12,7 @@
  * security), so we can decide whether to even respond to the drag based
  * on MIME alone.
  */
-import {
-  type FileDragPayload,
-  MIME_FILE,
-  MIME_TAB,
-  type TabDragPayload,
-} from "./types";
+import { type FileDragPayload, MIME_FILE, MIME_TAB, type TabDragPayload } from "./types";
 
 export type ParsedDragPayload =
   | { kind: "tab"; payload: TabDragPayload }

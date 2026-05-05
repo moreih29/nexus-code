@@ -129,12 +129,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function openFile(
-  port: FakePort,
-  workspaceId: string,
-  uri: string,
-  id: string | number = 1,
-) {
+async function openFile(port: FakePort, workspaceId: string, uri: string, id: string | number = 1) {
   port.deliver(
     makeCallMsg(
       "didOpen",

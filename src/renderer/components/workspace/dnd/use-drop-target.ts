@@ -36,12 +36,7 @@ const EDGE_THRESHOLD = 1 / 3;
  *   wins, beyond that → center.
  */
 function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number): DropZone {
-  if (
-    clientX < rect.left ||
-    clientX > rect.right ||
-    clientY < rect.top ||
-    clientY > rect.bottom
-  ) {
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
     return "center";
   }
 
@@ -129,8 +124,7 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
   useEffect(() => {
     if (!attachEl) return;
     const element = attachEl;
-    const getZoneRect = () =>
-      (zoneElRef.current ?? element).getBoundingClientRect();
+    const getZoneRect = () => (zoneElRef.current ?? element).getBoundingClientRect();
 
     function onEnter(e: DragEvent) {
       if (!e.dataTransfer) return;

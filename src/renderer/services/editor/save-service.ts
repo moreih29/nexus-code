@@ -56,7 +56,7 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
       // Re-read the entry inside the gate — by the time we got here the
       // user could have undone back to the saved baseline (dirty=false).
       const dirtyEntryNow = getDirtyEntry(resolved.cacheUri);
-      if (!dirtyEntryNow || !dirtyEntryNow.isDirty) {
+      if (!dirtyEntryNow?.isDirty) {
         return { kind: "not-dirty" } satisfies SaveResult;
       }
 

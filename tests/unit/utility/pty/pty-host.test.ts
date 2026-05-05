@@ -42,8 +42,8 @@ let lastChannel: { port1: FakePort; port2: FakePort } = {
   port2: new FakePort(),
 };
 
-// The process created by the last `electron.utilityProcess.fork()` call
-// biome-ignore lint/style/noNonNullAssertion: assigned by fork() before any test reads it
+// The process created by the last `electron.utilityProcess.fork()` call.
+// Initialised in the test bootstrap before any read.
 let lastProc: FakeProc = null!;
 
 class FakeProc {

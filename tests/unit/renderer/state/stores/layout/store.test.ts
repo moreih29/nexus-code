@@ -23,16 +23,18 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
-import type { LayoutLeaf, LayoutNode, LayoutSplit } from "../../../../../../src/renderer/state/stores/layout/types";
 import {
   allLeaves,
   clampRatio,
   findLeaf,
-  findSplit,
-  leftmostLeaf,
   parentSplitOf,
 } from "../../../../../../src/renderer/state/stores/layout/helpers";
+import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
+import type {
+  LayoutLeaf,
+  LayoutNode,
+  LayoutSplit,
+} from "../../../../../../src/renderer/state/stores/layout/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,7 +49,7 @@ function resetStore() {
 
 function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
-  if (!layout) throw new Error("layout not found for " + WS);
+  if (!layout) throw new Error(`layout not found for ${WS}`);
   return layout;
 }
 
@@ -351,9 +353,7 @@ describe("useLayoutStore", () => {
       activeTabId: danglingTabId,
     };
 
-    useLayoutStore
-      .getState()
-      .hydrate(WS, { root, activeGroupId: root.id }, new Set([knownTabId]));
+    useLayoutStore.getState().hydrate(WS, { root, activeGroupId: root.id }, new Set([knownTabId]));
 
     const leaf = getRoot() as LayoutLeaf;
     expect(leaf.tabIds).toContain(knownTabId);
@@ -385,9 +385,7 @@ describe("useLayoutStore", () => {
       second: leafB,
     };
 
-    useLayoutStore
-      .getState()
-      .hydrate(WS, { root: split, activeGroupId: leafA.id }, new Set([]));
+    useLayoutStore.getState().hydrate(WS, { root: split, activeGroupId: leafA.id }, new Set([]));
 
     const layout = getLayout();
     const root = layout.root;

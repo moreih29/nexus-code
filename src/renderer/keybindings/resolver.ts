@@ -14,10 +14,14 @@
  *     the dispatcher.
  */
 
-import { matchesEvent, type ParsedKeystroke, parseAccelerator } from "../../shared/keybinding-parse";
-import { type KeybindingDecl, KEYBINDINGS } from "../../shared/keybindings";
-import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybinding-when";
 import type { CommandId } from "../../shared/commands";
+import {
+  matchesEvent,
+  type ParsedKeystroke,
+  parseAccelerator,
+} from "../../shared/keybinding-parse";
+import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybinding-when";
+import { KEYBINDINGS, type KeybindingDecl } from "../../shared/keybindings";
 import { evaluateContextKey } from "./context-keys";
 
 interface CompiledPrimary {

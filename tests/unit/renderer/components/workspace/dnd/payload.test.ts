@@ -21,10 +21,7 @@ import {
   hasSupportedMime,
   parseDragPayload,
 } from "../../../../../../src/renderer/components/workspace/dnd/payload";
-import {
-  MIME_FILE,
-  MIME_TAB,
-} from "../../../../../../src/renderer/components/workspace/dnd/types";
+import { MIME_FILE, MIME_TAB } from "../../../../../../src/renderer/components/workspace/dnd/types";
 
 function fakeDt(record: Record<string, string>): DataTransfer {
   return {

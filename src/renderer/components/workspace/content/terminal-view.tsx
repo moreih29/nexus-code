@@ -34,13 +34,7 @@ interface TerminalViewProps {
   isVisible: boolean;
 }
 
-export function TerminalView({
-  tabId,
-  cwd,
-  ownerLeafId,
-  parentEl,
-  isVisible,
-}: TerminalViewProps) {
+export function TerminalView({ tabId, cwd, ownerLeafId, parentEl, isVisible }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
 
@@ -57,8 +51,12 @@ export function TerminalView({
   }, [tabId, cwd]);
 
   // Refresh xterm whenever the DOM was reparented or visibility flipped
-  // back to true. Each of these can leave the renderer with a stale
-  // rasterized buffer that must be rebuilt from the line buffer.
+  // back to true. `ownerLeafId` is read by the effect indirectly: when the
+  // portal target swaps to a new leaf, the leaf id changes even when the
+  // refs we use inside the body don't, and we need the refresh to re-run.
+  // Listed as a dep on purpose — biome's exhaustive-deps rule sees it as
+  // unused, but removing it would skip the refresh on reparent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ownerLeafId is the reparent signal
   useEffect(() => {
     if (!parentEl) return;
     if (!isVisible) return;

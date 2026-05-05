@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { Grid } from "../../../../src/renderer/engine/split";
 import type { SplitBranch, SplitLeaf, SplitNode } from "../../../../src/renderer/engine/split";
+import { Grid } from "../../../../src/renderer/engine/split";
 
 // ---------------------------------------------------------------------------
 // Factories
@@ -103,7 +103,6 @@ describe("Grid.addLeaf", () => {
     expect(wrappedBranch.orientation).toBe("horizontal");
     expect(wrappedBranch.first.id).toBe("deep");
   });
-
 });
 
 // ---------------------------------------------------------------------------

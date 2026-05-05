@@ -118,17 +118,15 @@ describe("matchesEvent", () => {
 
   it("matches CmdOrCtrl+\\ on both Backslash and Slash physical keys", () => {
     const p = parseAccelerator("CmdOrCtrl+\\");
-    expect(
-      matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     expect(matchesEvent(p, ev("Slash", { metaKey: true }) as unknown as KeyboardEvent)).toBe(true);
   });
 
   it("matches Shift+Enter without Cmd", () => {
     const p = parseAccelerator("Shift+Enter");
-    expect(
-      matchesEvent(p, ev("Enter", { shiftKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(matchesEvent(p, ev("Enter", { shiftKey: true }) as unknown as KeyboardEvent)).toBe(true);
     // ⌘⇧Enter must not match (extra modifier)
     expect(
       matchesEvent(p, ev("Enter", { shiftKey: true, metaKey: true }) as unknown as KeyboardEvent),

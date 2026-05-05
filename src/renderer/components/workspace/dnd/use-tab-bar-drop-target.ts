@@ -61,9 +61,7 @@ export interface UseTabBarDropTargetResult {
   insertion: InsertionState | null;
 }
 
-export function useTabBarDropTarget(
-  opts: UseTabBarDropTargetOptions,
-): UseTabBarDropTargetResult {
+export function useTabBarDropTarget(opts: UseTabBarDropTargetOptions): UseTabBarDropTargetResult {
   const { workspaceId, leafId } = opts;
 
   // State-backed callback refs so the effect re-runs when the elements
@@ -76,14 +74,17 @@ export function useTabBarDropTarget(
 
   useEffect(() => {
     if (!bar || !list) return;
+    // Capture into const locals so the closures below keep the narrowed
+    // type without `!` — React's effect cleanup guarantees these refs
+    // outlive every handler we install.
+    const barEl = bar;
+    const listEl = list;
 
     // querySelectorAll is run on every cursor move, so live tab-list
     // changes are picked up automatically; no `tabs.length` dep needed.
     function getInsertion(clientX: number): InsertionState {
-      const items = Array.from(
-        list!.querySelectorAll<HTMLElement>(DND_TAB_ITEM_SELECTOR),
-      );
-      const listRect = list!.getBoundingClientRect();
+      const items = Array.from(listEl.querySelectorAll<HTMLElement>(DND_TAB_ITEM_SELECTOR));
+      const listRect = listEl.getBoundingClientRect();
 
       if (items.length === 0) {
         return { x: 0, index: 0 };
@@ -131,7 +132,7 @@ export function useTabBarDropTarget(
       // dragleave fires for every descendant exit; only clear when the
       // cursor truly leaves the bar.
       const related = e.relatedTarget as Node | null;
-      if (related && bar!.contains(related)) return;
+      if (related && barEl.contains(related)) return;
       setInsertion(null);
     }
 
@@ -167,16 +168,16 @@ export function useTabBarDropTarget(
       }
     }
 
-    bar.addEventListener("dragenter", onEnter, true);
-    bar.addEventListener("dragover", onOver, true);
-    bar.addEventListener("dragleave", onLeave, true);
-    bar.addEventListener("drop", onDrop, true);
+    barEl.addEventListener("dragenter", onEnter, true);
+    barEl.addEventListener("dragover", onOver, true);
+    barEl.addEventListener("dragleave", onLeave, true);
+    barEl.addEventListener("drop", onDrop, true);
 
     return () => {
-      bar.removeEventListener("dragenter", onEnter, true);
-      bar.removeEventListener("dragover", onOver, true);
-      bar.removeEventListener("dragleave", onLeave, true);
-      bar.removeEventListener("drop", onDrop, true);
+      barEl.removeEventListener("dragenter", onEnter, true);
+      barEl.removeEventListener("dragover", onOver, true);
+      barEl.removeEventListener("dragleave", onLeave, true);
+      barEl.removeEventListener("drop", onDrop, true);
     };
   }, [bar, list, workspaceId, leafId]);
 

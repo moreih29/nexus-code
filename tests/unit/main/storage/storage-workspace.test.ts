@@ -189,9 +189,9 @@ describe("WorkspaceStorage.getExpandedPaths / setExpandedPaths", () => {
   });
 
   it("setExpandedPaths throws when workspace is not open", () => {
-    expect(() =>
-      storage.setExpandedPaths("00000000-0000-0000-0000-000000000099", ["src"]),
-    ).toThrow("workspace storage not open");
+    expect(() => storage.setExpandedPaths("00000000-0000-0000-0000-000000000099", ["src"])).toThrow(
+      "workspace storage not open",
+    );
   });
 });
 

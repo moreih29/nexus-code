@@ -15,8 +15,8 @@ import { buildFileTreeMenuItems } from "./file-tree-menu";
 import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree-metrics";
 import { FileTreeStatusView } from "./file-tree-status-view";
 import { FileTreeVirtualBody } from "./file-tree-virtual-body";
-import { useDelayedLoading } from "./use-delayed-loading";
 import { createFileTreeKeydownHandler } from "./keys";
+import { useDelayedLoading } from "./use-delayed-loading";
 import { type FileTreeActionTarget, useFileTreeActions } from "./use-file-tree-actions";
 import { useFileTreePendingCreate } from "./use-file-tree-pending-create";
 

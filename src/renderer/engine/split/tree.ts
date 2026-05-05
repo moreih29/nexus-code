@@ -82,11 +82,7 @@ export function removeLeaf(
   return { root: newRoot, hoistedSiblingLeafId };
 }
 
-export function setRatio(
-  tree: SplitNode,
-  branchId: string,
-  ratio: number,
-): SplitNode {
+export function setRatio(tree: SplitNode, branchId: string, ratio: number): SplitNode {
   const branch = findSplit(tree, branchId);
   if (!branch) return tree;
   return replaceNode(tree, branchId, { ...branch, ratio: clampRatio(ratio) });

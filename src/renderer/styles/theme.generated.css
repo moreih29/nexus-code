@@ -89,6 +89,10 @@
   --text-micro--line-height: 1.2;
   --text-micro--letter-spacing: 0px;
   --text-micro--font-weight: 400;
+  --text-ui-supplement: 16px;
+  --text-ui-supplement--line-height: 1;
+  --text-ui-supplement--letter-spacing: -0.2px;
+  --text-ui-supplement--font-weight: 500;
   --text-code-ui: 16px;
   --text-code-ui--line-height: 1;
   --text-code-ui--letter-spacing: 0px;
@@ -97,10 +101,6 @@
   --text-code-body--line-height: 1;
   --text-code-body--letter-spacing: -0.2px;
   --text-code-body--font-weight: 400;
-  --text-ui-supplement: 16px;
-  --text-ui-supplement--line-height: 1;
-  --text-ui-supplement--letter-spacing: -0.2px;
-  --text-ui-supplement--font-weight: 500;
   --text-app-body: 13px;
   --text-app-body--line-height: 1.4;
   --text-app-body--letter-spacing: 0px;

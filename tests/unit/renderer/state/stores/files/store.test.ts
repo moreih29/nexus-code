@@ -20,9 +20,7 @@ const mockIpcCall = mock((_channel: string, _method: string, _args: unknown) =>
   Promise.resolve([]),
 );
 
-const mockIpcListen = mock(
-  (_channel: string, _event: string, _cb: unknown) => () => {},
-);
+const mockIpcListen = mock((_channel: string, _event: string, _cb: unknown) => () => {});
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mockIpcCall,
@@ -33,7 +31,11 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { handleFsChanged, selectFlat, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
+import {
+  handleFsChanged,
+  selectFlat,
+  useFilesStore,
+} from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/types/fs";
 
 // ---------------------------------------------------------------------------
@@ -400,7 +402,7 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
     const componentsAbs = `${ROOT}/src/components`;
 
     mockIpcCall.mockImplementation(
-      (channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
+      (_channel: string, method: string, args: { workspaceId: string; relPath: string }) => {
         if (method === "getExpanded") {
           return Promise.resolve({ relPaths: ["src", "src/components"] });
         }
@@ -434,15 +436,13 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
   });
 
   it("proceeds gracefully when getExpanded throws (non-fatal)", async () => {
-    mockIpcCall.mockImplementation(
-      (_channel: string, method: string, _args: unknown) => {
-        if (method === "getExpanded") {
-          return Promise.reject(new Error("storage not open"));
-        }
-        if (method === "readdir") return Promise.resolve([]);
-        return Promise.resolve(undefined);
-      },
-    );
+    mockIpcCall.mockImplementation((_channel: string, method: string, _args: unknown) => {
+      if (method === "getExpanded") {
+        return Promise.reject(new Error("storage not open"));
+      }
+      if (method === "readdir") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
 
     // Should not throw.
     await expect(useFilesStore.getState().ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
@@ -469,9 +469,7 @@ describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
       useFilesStore.getState().ensureRoot(WS_ID, ROOT),
     ]);
 
-    const readdirCalls = mockIpcCall.mock.calls.filter(
-      ([, method]) => method === "readdir",
-    );
+    const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
   });
 });
@@ -513,9 +511,7 @@ describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
       useFilesStore.getState().loadChildren(WS_ID, ROOT),
     ]);
 
-    const readdirCalls = mockIpcCall.mock.calls.filter(
-      ([, method]) => method === "readdir",
-    );
+    const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
   });
 });
@@ -618,7 +614,11 @@ describe("Scenario 9: toggleExpand debounces setExpanded persist", () => {
     // Re-install mock so setExpanded is tracked but other calls resolve cleanly.
     const setExpandedCalls: { workspaceId: string; relPaths: string[] }[] = [];
     mockIpcCall.mockImplementation(
-      (_channel: string, method: string, args: { workspaceId: string; relPaths?: string[]; relPath?: string }) => {
+      (
+        _channel: string,
+        method: string,
+        args: { workspaceId: string; relPaths?: string[]; relPath?: string },
+      ) => {
         if (method === "setExpanded") {
           setExpandedCalls.push({ workspaceId: args.workspaceId, relPaths: args.relPaths ?? [] });
           return Promise.resolve(undefined);

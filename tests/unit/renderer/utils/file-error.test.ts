@@ -26,7 +26,7 @@ describe("parseFileErrorCode", () => {
     expect(parseFileErrorCode("")).toBe("OTHER");
   });
 
-  it('7. arbitrary mid-string prefix does not match', () => {
+  it("7. arbitrary mid-string prefix does not match", () => {
     expect(parseFileErrorCode("Description: NOT_FOUND: /path")).toBe("OTHER");
   });
 
@@ -56,7 +56,7 @@ describe("fileErrorMessage", () => {
     expect(fileErrorMessage("PERMISSION_DENIED")).toBe("Permission denied.");
   });
 
-  it("12. TOO_LARGE with maxMb=5 → contains \"max 5 MB\"", () => {
+  it('12. TOO_LARGE with maxMb=5 → contains "max 5 MB"', () => {
     expect(fileErrorMessage("TOO_LARGE", 5)).toContain("max 5 MB");
   });
 

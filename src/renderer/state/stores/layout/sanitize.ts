@@ -1,5 +1,5 @@
-import { Grid } from "@/engine/split";
 import type { SplitNode } from "@/engine/split";
+import { Grid } from "@/engine/split";
 
 export function sanitize(root: SplitNode, knownTabIds: Set<string>): SplitNode {
   const stripped = stripDanglingTabs(root, knownTabIds);

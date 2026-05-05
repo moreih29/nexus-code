@@ -27,9 +27,12 @@ export function handleFsChanged(event: FsChangedEvent): void {
 
     if (currentTree.expanded.has(parentAbsPath) && parentNode.childrenLoaded) {
       // Directory is currently visible — reload children immediately
-      useFilesStore.getState().loadChildren(workspaceId, parentAbsPath).catch((err) => {
-        console.error("[files] changed reload failed", err);
-      });
+      useFilesStore
+        .getState()
+        .loadChildren(workspaceId, parentAbsPath)
+        .catch((err) => {
+          console.error("[files] changed reload failed", err);
+        });
     } else {
       // Directory is collapsed or not yet loaded — mark stale so next expand reloads
       useFilesStore.setState((state) => {

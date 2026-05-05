@@ -24,8 +24,7 @@
 // Both are DOM registries consumed by ContentHost via useSyncExternalStore.
 // ---------------------------------------------------------------------------
 
-import { useCallback } from "react";
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 let parkEl: HTMLElement | null = null;
 const listeners = new Set<() => void>();

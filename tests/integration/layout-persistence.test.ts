@@ -44,15 +44,15 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks
 // ---------------------------------------------------------------------------
 
+import { openOrRevealEditor } from "../../src/renderer/services/editor";
+import { openTab } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf, sanitize } from "../../src/renderer/state/stores/layout/helpers";
-import { openTab } from "../../src/renderer/state/operations";
-import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { useTabsStore } from "../../src/renderer/state/stores/tabs";
-import type { Tab } from "../../src/renderer/state/stores/tabs";
-import { WorkspaceLayoutSnapshotSchema } from "../../src/shared/types/layout";
-import type { WorkspaceLayoutSnapshot } from "../../src/shared/types/layout";
 import type { LayoutNode } from "../../src/renderer/state/stores/layout/types";
+import type { Tab } from "../../src/renderer/state/stores/tabs";
+import { useTabsStore } from "../../src/renderer/state/stores/tabs";
+import type { WorkspaceLayoutSnapshot } from "../../src/shared/types/layout";
+import { WorkspaceLayoutSnapshotSchema } from "../../src/shared/types/layout";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -67,7 +67,7 @@ function resetStores() {
 
 function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
-  if (!layout) throw new Error("layout slice not found for " + WS);
+  if (!layout) throw new Error(`layout slice not found for ${WS}`);
   return layout;
 }
 

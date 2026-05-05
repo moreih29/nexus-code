@@ -42,11 +42,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import {
-  moveTabToZone,
-  openFileAtZone,
-  openTab,
-} from "../../src/renderer/state/operations";
+import { moveTabToZone, openFileAtZone, openTab } from "../../src/renderer/state/operations";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
@@ -80,9 +76,7 @@ describe("Scenario 1: moveTabToZone center", () => {
   it("moves a tab from source leaf to destination leaf", () => {
     // Setup: leaf A with tab a1, then split to create leaf B; open tab b1 in B.
     const a1 = openTab(WS, "terminal", { cwd: "/" });
-    useLayoutStore
-      .getState()
-      .splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
+    useLayoutStore.getState().splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
     const b1 = openTab(WS, "terminal", { cwd: "/" });
 
     const ownerOfB1 = findOwnerLeafId(b1.id);
@@ -98,9 +92,7 @@ describe("Scenario 1: moveTabToZone center", () => {
 
   it("hoists the source leaf when its last tab is moved away", () => {
     const a1 = openTab(WS, "terminal", { cwd: "/" });
-    useLayoutStore
-      .getState()
-      .splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
+    useLayoutStore.getState().splitGroup(WS, getLayout().activeGroupId, "horizontal", "after");
     const b1 = openTab(WS, "terminal", { cwd: "/" });
     const destLeaf = findOwnerLeafId(b1.id)!;
 
@@ -141,7 +133,7 @@ describe("Scenario 2: moveTabToZone edge", () => {
   });
 
   it("bottom zone splits vertically (orientation 'vertical', side 'after')", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
+    openTab(WS, "terminal", { cwd: "/" });
     const t2 = openTab(WS, "terminal", { cwd: "/" });
     const sourceLeafId = getLayout().activeGroupId;
 
@@ -253,4 +245,3 @@ describe("Scenario 4: openFileAtZone", () => {
     expect(tabsAfter).toBe(tabsBefore);
   });
 });
-

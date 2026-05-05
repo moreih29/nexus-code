@@ -1,10 +1,10 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
+import { AppStateSchema } from "../../../../src/shared/types/app-state";
 import {
   SerializedLeafSchema,
   SerializedNodeSchema,
   WorkspaceLayoutSnapshotSchema,
 } from "../../../../src/shared/types/layout";
-import { AppStateSchema } from "../../../../src/shared/types/app-state";
 
 // ---------------------------------------------------------------------------
 // Fixtures

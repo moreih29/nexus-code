@@ -8,8 +8,8 @@
  * only on mac; Quit migrates into File on Win/Linux).
  */
 import { describe, expect, it } from "bun:test";
-import { COMMANDS } from "../../../../src/shared/commands";
 import { buildMenuTemplate, type MenuItemSpec } from "../../../../src/main/menu/template";
+import { COMMANDS } from "../../../../src/shared/commands";
 
 function flatten(specs: MenuItemSpec[]): MenuItemSpec[] {
   const out: MenuItemSpec[] = [];
@@ -73,7 +73,9 @@ describe("buildMenuTemplate (mac)", () => {
     expect(edit).toBeDefined();
     if (edit?.type !== "submenu") throw new Error("unreachable");
     expect(edit.role).toBe("editMenu");
-    const roles = edit.submenu.filter((s) => s.type === "role").map((s) => (s as { role: string }).role);
+    const roles = edit.submenu
+      .filter((s) => s.type === "role")
+      .map((s) => (s as { role: string }).role);
     for (const r of ["undo", "redo", "cut", "copy", "paste", "selectAll"]) {
       expect(roles).toContain(r);
     }
@@ -82,7 +84,9 @@ describe("buildMenuTemplate (mac)", () => {
   it("keeps DevTools and zoom roles in View", () => {
     const view = specs.find((s) => s.type === "submenu" && s.label === "View");
     if (view?.type !== "submenu") throw new Error("unreachable");
-    const roles = view.submenu.filter((s) => s.type === "role").map((s) => (s as { role: string }).role);
+    const roles = view.submenu
+      .filter((s) => s.type === "role")
+      .map((s) => (s as { role: string }).role);
     expect(roles).toContain("toggleDevTools");
     expect(roles).toContain("resetZoom");
     expect(roles).toContain("zoomIn");
@@ -107,7 +111,9 @@ describe("buildMenuTemplate (mac)", () => {
   it("split / focus shortcuts live under Workspace", () => {
     const ws = specs.find((s) => s.type === "submenu" && s.label === "Workspace");
     if (ws?.type !== "submenu") throw new Error("unreachable");
-    const cmds = ws.submenu.filter((s) => s.type === "command").map((s) => (s as { command: string }).command);
+    const cmds = ws.submenu
+      .filter((s) => s.type === "command")
+      .map((s) => (s as { command: string }).command);
     expect(cmds).toContain(COMMANDS.groupSplitRight);
     expect(cmds).toContain(COMMANDS.groupSplitDown);
     expect(cmds).toContain(COMMANDS.groupClose);

@@ -48,7 +48,6 @@ describe("LSP JSON-RPC framing — encodeMessage", () => {
     const match = /Content-Length:\s*(\d+)/.exec(header);
     expect(match).not.toBeNull();
 
-    // biome-ignore lint/style/noNonNullAssertion: asserted non-null on previous line
     const declaredLength = parseInt(match![1], 10);
     const bodyStr = buf.slice(headerEnd + 4);
     expect(bodyStr.length).toBe(declaredLength);
@@ -73,7 +72,6 @@ describe("LSP JSON-RPC framing — encodeMessage", () => {
     const byteLen = Buffer.byteLength(body, "utf8");
     const buf = encodeMessage(msg);
     const str = buf.toString("ascii");
-    // biome-ignore lint/style/noNonNullAssertion: encodeMessage always emits Content-Length header
     const match = /Content-Length:\s*(\d+)/.exec(str)!;
     expect(parseInt(match[1], 10)).toBe(byteLen);
   });

@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import type { FlatItem } from "../../../../src/renderer/state/stores/files";
 import { computeParentJumpIndex } from "../../../../src/renderer/components/files/keys";
+import type { FlatItem } from "../../../../src/renderer/state/stores/files";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,10 +39,7 @@ function makeItem(absPath: string, type: "file" | "dir" = "file", depth = 0): Fl
 describe("computeParentJumpIndex — collapsed dir", () => {
   it("returns the flat index of the parent dir", () => {
     const srcAbs = `${ROOT}/src`;
-    const flat: FlatItem[] = [
-      makeItem(ROOT, "dir", 0),
-      makeItem(srcAbs, "dir", 1),
-    ];
+    const flat: FlatItem[] = [makeItem(ROOT, "dir", 0), makeItem(srcAbs, "dir", 1)];
 
     const result = computeParentJumpIndex(flat, flat[1], ROOT);
 
@@ -83,4 +80,3 @@ describe("computeParentJumpIndex — root row", () => {
     expect(result).toBeNull();
   });
 });
-

@@ -5,6 +5,8 @@ import * as tree from "./tree";
 
 export const Grid = { ...tree, ...serialize, ...traversal, ...sashMath };
 
+export { clampRatio } from "./sash-math";
+export { collapseEmptyLeaves, deserialize, serialize } from "./serialize";
 export {
   allLeaves,
   findLeaf,
@@ -14,8 +16,6 @@ export {
   parentSplitOf,
 } from "./traversal";
 export { addLeaf, removeLeaf, replaceLeaf, replaceNode, setRatio, swapLeaves } from "./tree";
-export { collapseEmptyLeaves, deserialize, serialize } from "./serialize";
-export { clampRatio } from "./sash-math";
 
 export type {
   Direction,

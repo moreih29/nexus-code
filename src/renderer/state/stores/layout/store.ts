@@ -355,7 +355,7 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       if (!layout) return state;
 
       const leaf = Grid.findLeaf(layout.root, groupId);
-      if (!leaf || !leaf.tabIds.includes(tabId)) return state;
+      if (!leaf?.tabIds.includes(tabId)) return state;
 
       const newRoot = Grid.replaceLeaf(layout.root, groupId, (l) => ({ ...l, activeTabId: tabId }));
 

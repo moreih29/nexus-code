@@ -31,8 +31,7 @@ export function ContentPool({
     <>
       {Object.values(tabRecord).map((tab) => {
         const ownerLeafId = layout ? ownerLeafIdOf(layout.root, tab.id) : null;
-        const isActiveTab =
-          ownerLeafId !== null ? activeTabByLeaf[ownerLeafId] === tab.id : false;
+        const isActiveTab = ownerLeafId !== null ? activeTabByLeaf[ownerLeafId] === tab.id : false;
 
         return (
           <ContentHost

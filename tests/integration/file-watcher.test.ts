@@ -48,7 +48,10 @@ const WS_B = "bbbbbbbb-0000-0000-0000-000000000002";
 
 type BroadcastCall = { channel: string; event: string; args: unknown };
 
-function makeBroadcast(): { broadcast: (ch: string, ev: string, args: unknown) => void; calls: BroadcastCall[] } {
+function makeBroadcast(): {
+  broadcast: (ch: string, ev: string, args: unknown) => void;
+  calls: BroadcastCall[];
+} {
   const calls: BroadcastCall[] = [];
   const broadcast = (channel: string, event: string, args: unknown) => {
     calls.push({ channel, event, args });
@@ -57,10 +60,19 @@ function makeBroadcast(): { broadcast: (ch: string, ev: string, args: unknown) =
 }
 
 /** Drive the internal buffer path without waiting on real fsevents. */
-function driveBuffer(watcher: FileWatcher, workspaceId: string, relPath: string, kind: "added" | "modified" | "deleted"): void {
+function driveBuffer(
+  watcher: FileWatcher,
+  workspaceId: string,
+  relPath: string,
+  kind: "added" | "modified" | "deleted",
+): void {
   // FileWatcher.buffer is private but we access it via cast for test purposes.
   // This is the same path that chokidar event handlers invoke.
-  (watcher as unknown as { buffer(wsId: string, rel: string, k: string): void }).buffer(workspaceId, relPath, kind);
+  (watcher as unknown as { buffer(wsId: string, rel: string, k: string): void }).buffer(
+    workspaceId,
+    relPath,
+    kind,
+  );
 }
 
 function makeTmpDir(): string {
@@ -168,7 +180,10 @@ describe("Scenario 6: burst of changes debounced to single broadcast", () => {
     // Must be exactly 1 broadcast.
     expect(broadcast.calls).toHaveLength(1);
 
-    const args = broadcast.calls[0].args as { workspaceId: string; changes: { relPath: string; kind: string }[] };
+    const args = broadcast.calls[0].args as {
+      workspaceId: string;
+      changes: { relPath: string; kind: string }[];
+    };
     expect(args.workspaceId).toBe(WS_A);
     // All 10 paths included in one batch.
     expect(args.changes).toHaveLength(10);
@@ -285,7 +300,6 @@ describe("Scenario 4: disposeWorkspace removes all watcher state and silences bu
       fs.rmSync(tmpDirB, { recursive: true, force: true });
     }
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -312,4 +326,3 @@ describe("FileWatcher.unwatch selectivity", () => {
     expect(broadcast.calls).toHaveLength(1);
   });
 });
-

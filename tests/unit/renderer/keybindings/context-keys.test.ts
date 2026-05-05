@@ -45,23 +45,19 @@ describe("evaluateContextKey", () => {
     });
 
     it("is true for TEXTAREA", () => {
-      expect(evaluateContextKey("inputFocus", evt(makeTarget({ tagName: "TEXTAREA" })))).toBe(
-        true,
-      );
+      expect(evaluateContextKey("inputFocus", evt(makeTarget({ tagName: "TEXTAREA" })))).toBe(true);
     });
 
     it("is true for contentEditable DIV", () => {
-      expect(
-        evaluateContextKey("inputFocus", evt(makeTarget({ isContentEditable: true }))),
-      ).toBe(true);
+      expect(evaluateContextKey("inputFocus", evt(makeTarget({ isContentEditable: true })))).toBe(
+        true,
+      );
     });
 
     it("is false inside Monaco (those are editorFocus, not inputFocus)", () => {
       // Monaco's host is a contentEditable but we want callers to scope
       // by `editorFocus` and reserve `inputFocus` for plain inputs.
-      const e = evt(
-        makeTarget({ isContentEditable: true, matches: [".monaco-editor"] }),
-      );
+      const e = evt(makeTarget({ isContentEditable: true, matches: [".monaco-editor"] }));
       expect(evaluateContextKey("inputFocus", e)).toBe(false);
     });
   });
