@@ -1,17 +1,21 @@
+/**
+ * Read-only fs handlers — readdir / stat / readFile + the watch
+ * lifecycle and the renderer's expanded-folder persistence (which is
+ * read-only with respect to *files*, just touches our own SQLite).
+ */
 import fs from "node:fs";
-import path from "node:path";
 import {
   BINARY_DETECTION_BYTES,
   isHiddenName,
   MAX_READABLE_FILE_SIZE,
-} from "../../../shared/fs-defaults";
-import { ipcContract } from "../../../shared/ipc-contract";
-import type { DirEntry, FileContent, FsStat, WriteFileResult } from "../../../shared/types/fs";
-import { atomicWriteFile } from "../../filesystem/atomic-write";
-import type { FileWatcher } from "../../filesystem/file-watcher";
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { register, validateArgs } from "../router";
+} from "../../../../shared/fs-defaults";
+import { ipcContract } from "../../../../shared/ipc-contract";
+import type { DirEntry, FileContent, FsStat } from "../../../../shared/types/fs";
+import type { FileWatcher } from "../../../filesystem/file-watcher";
+import type { WorkspaceStorage } from "../../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import { validateArgs } from "../../router";
+import { assertWorkspaceExists, resolveSafe } from "./path-safety";
 
 const c = ipcContract.fs.call;
 
@@ -23,7 +27,8 @@ export function watchHandler(
     const { workspaceId, relPath } = validateArgs(c.watch.args, args);
     // resolveSafe throws if workspace not found or path escapes root
     const absDir = resolveSafe(manager, workspaceId, relPath);
-    const workspaceRoot = manager.list().find((w) => w.id === workspaceId)!.rootPath;
+    const workspaceRoot = manager.list().find((w) => w.id === workspaceId)?.rootPath;
+    if (!workspaceRoot) throw new Error(`workspace not found: ${workspaceId}`);
     watcher.watch(workspaceId, workspaceRoot, absDir);
   };
 }
@@ -37,30 +42,6 @@ export function unwatchHandler(
     const absDir = resolveSafe(manager, workspaceId, relPath);
     watcher.unwatch(workspaceId, absDir);
   };
-}
-
-export function resolveSafe(
-  manager: WorkspaceManager,
-  workspaceId: string,
-  relPath: string,
-): string {
-  const workspace = manager.list().find((w) => w.id === workspaceId);
-  if (!workspace) {
-    throw new Error(`workspace not found: ${workspaceId}`);
-  }
-
-  const rootPath = workspace.rootPath;
-  const abs = path.resolve(rootPath, relPath || ".");
-  const rel = path.relative(rootPath, abs);
-
-  if (rel === "" || rel === ".") {
-    return abs;
-  }
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    throw new Error("path escapes workspace root");
-  }
-
-  return abs;
 }
 
 export function readdirHandler(manager: WorkspaceManager): (args: unknown) => Promise<DirEntry[]> {
@@ -90,12 +71,6 @@ export function statHandler(manager: WorkspaceManager): (args: unknown) => Promi
       isSymlink: stat.isSymbolicLink(),
     };
   };
-}
-
-function assertWorkspaceExists(manager: WorkspaceManager, workspaceId: string): void {
-  if (!manager.list().some((w) => w.id === workspaceId)) {
-    throw new Error(`workspace not found: ${workspaceId}`);
-  }
 }
 
 export function getExpandedHandler(
@@ -194,43 +169,4 @@ export function readFileHandler(
       mtime,
     };
   };
-}
-
-export function writeFileHandler(
-  manager: WorkspaceManager,
-): (args: unknown) => Promise<WriteFileResult> {
-  return async (args: unknown): Promise<WriteFileResult> => {
-    const { workspaceId, relPath, content, expected } = validateArgs(c.writeFile.args, args);
-    const abs = resolveSafe(manager, workspaceId, relPath);
-
-    // Refuse oversized writes — same threshold as readFile so we don't
-    // create files we couldn't reload. Cheap guard against pathological
-    // editor states.
-    const byteLength = Buffer.byteLength(content, "utf8");
-    if (byteLength > MAX_READABLE_FILE_SIZE) {
-      throw new Error(`TOO_LARGE: ${abs} (${byteLength} bytes)`);
-    }
-
-    return atomicWriteFile(abs, content, { expected });
-  };
-}
-
-export function registerFsChannel(
-  manager: WorkspaceManager,
-  watcher: FileWatcher,
-  storage: WorkspaceStorage,
-): void {
-  register("fs", {
-    call: {
-      readdir: readdirHandler(manager),
-      stat: statHandler(manager),
-      watch: watchHandler(manager, watcher),
-      unwatch: unwatchHandler(manager, watcher),
-      getExpanded: getExpandedHandler(manager, storage),
-      setExpanded: setExpandedHandler(manager, storage),
-      readFile: readFileHandler(manager),
-      writeFile: writeFileHandler(manager),
-    },
-    listen: {},
-  });
 }

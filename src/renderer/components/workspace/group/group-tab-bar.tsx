@@ -1,21 +1,28 @@
 /**
  * GroupTabBar — the tab strip for a layout leaf, plus its right-click
- * context menu (Close / Close Others / Close All to the Right / Split
- * Right / Split Down).
- *
- * Earlier name was `GroupContextMenu` but the component's primary
- * responsibility is rendering the tab bar; the ContextMenu is a layer
- * around it. The name is now organised around the visible deliverable
- * (the tab bar in a group), with the menu as a co-located concern.
+ * context menu (Pin / Close family / Split / Copy Path family for editor
+ * tabs).
  *
  * The dumb `TabBar` lives in `tabs/` and is reused; this wrapper adds
- * the group-policy concerns (which actions to expose, which tab the
- * menu is currently anchored to).
+ * the group-policy concerns: which actions to expose, which tab the
+ * menu is currently anchored to. The menu *contents* live in
+ * `group-tab-bar-menu.ts` as a pure builder so the branching logic can
+ * be unit-tested without mounting React.
  */
-import { ContextMenu as RadixContextMenu } from "radix-ui";
 import { useState } from "react";
-import { useTabsStore, type Tab } from "@/state/stores/tabs";
+import {
+  ContextMenuContent,
+  ContextMenuItems,
+  ContextMenuRoot,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import type { EditorTabProps } from "@/services/editor";
+import { revealInFinder as revealInFinderService } from "@/services/fs-mutations";
+import { type Tab, useTabsStore } from "@/state/stores/tabs";
+import { copyText } from "@/utils/clipboard";
+import { relPath } from "@/utils/path";
 import { TabBar } from "../tabs/tab-bar";
+import { buildGroupTabBarMenuItems, type TabContextInfo } from "./group-tab-bar-menu";
 import { useGroupActions } from "./use-group-actions";
 
 interface GroupTabBarProps {
@@ -48,6 +55,9 @@ export function GroupTabBar({
   const contextTab = contextTabId
     ? useTabsStore.getState().byWorkspace[workspaceId]?.[contextTabId]
     : null;
+  const contextInfo: TabContextInfo | null = contextTab
+    ? { isPinned: !!contextTab.isPinned, isEditor: contextTab.type === "editor" }
+    : null;
 
   const actions = useGroupActions({
     workspaceId,
@@ -58,9 +68,50 @@ export function GroupTabBar({
     onActivateGroup,
   });
 
+  function getEditorFilePath(): string | null {
+    if (!contextTab || contextTab.type !== "editor") return null;
+    return (contextTab.props as EditorTabProps).filePath;
+  }
+
+  function togglePin() {
+    if (!contextTabId) return;
+    useTabsStore.getState().togglePin(workspaceId, contextTabId);
+  }
+
+  function copyPath() {
+    const filePath = getEditorFilePath();
+    if (!filePath) return;
+    copyText(filePath);
+  }
+
+  function copyRelativePath() {
+    const filePath = getEditorFilePath();
+    if (!filePath) return;
+    copyText(relPath(filePath, workspaceRootPath));
+  }
+
+  function revealInFinder() {
+    const filePath = getEditorFilePath();
+    if (!filePath) return;
+    void revealInFinderService({
+      workspaceId,
+      workspaceRootPath,
+      absPath: filePath,
+    });
+  }
+
+  const menuItems = buildGroupTabBarMenuItems({
+    context: contextInfo,
+    actions,
+    togglePin,
+    copyPath,
+    copyRelativePath,
+    revealInFinder,
+  });
+
   return (
-    <RadixContextMenu.Root onOpenChange={(open) => !open && setContextTabId(null)}>
-      <RadixContextMenu.Trigger asChild>
+    <ContextMenuRoot onOpenChange={(open) => !open && setContextTabId(null)}>
+      <ContextMenuTrigger>
         <div>
           <TabBar
             workspaceId={workspaceId}
@@ -73,71 +124,11 @@ export function GroupTabBar({
             onTabContextMenu={(tabId) => setContextTabId(tabId)}
           />
         </div>
-      </RadixContextMenu.Trigger>
+      </ContextMenuTrigger>
 
-      <RadixContextMenu.Portal>
-        <RadixContextMenu.Content className="bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50">
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => {
-              if (!contextTabId) return;
-              useTabsStore.getState().togglePin(workspaceId, contextTabId);
-            }}
-          >
-            <span>{contextTab?.isPinned ? "Unpin Tab" : "Pin Tab"}</span>
-          </RadixContextMenu.Item>
-
-          <RadixContextMenu.Separator className="h-px bg-mist-border my-1" />
-
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => {
-              if (!contextTabId) return;
-              actions.close();
-            }}
-          >
-            <span>Close</span>
-          </RadixContextMenu.Item>
-
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => {
-              if (!contextTabId) return;
-              actions.closeOthers();
-            }}
-          >
-            <span>Close Others</span>
-          </RadixContextMenu.Item>
-
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={() => {
-              if (!contextTabId) return;
-              actions.closeAllToRight();
-            }}
-          >
-            <span>Close All to the Right</span>
-          </RadixContextMenu.Item>
-
-          <RadixContextMenu.Separator className="h-px bg-mist-border my-1" />
-
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={actions.splitRight}
-          >
-            <span>Split Right</span>
-            <span className="text-muted-foreground ml-4 font-mono">⌘\</span>
-          </RadixContextMenu.Item>
-
-          <RadixContextMenu.Item
-            className="flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-            onSelect={actions.splitDown}
-          >
-            <span>Split Down</span>
-            <span className="text-muted-foreground ml-4 font-mono">⌘⇧\</span>
-          </RadixContextMenu.Item>
-        </RadixContextMenu.Content>
-      </RadixContextMenu.Portal>
-    </RadixContextMenu.Root>
+      <ContextMenuContent>
+        <ContextMenuItems items={menuItems} />
+      </ContextMenuContent>
+    </ContextMenuRoot>
   );
 }

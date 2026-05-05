@@ -29,12 +29,22 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-// Track which tabs were closed via the editor service.
+// Track which tabs were closed via the editor service. The production hook
+// now routes through `closeEditorWithConfirm` (the dirty-aware wrapper) so
+// bulk-close paths can't silently drop unsaved buffers — the mock wires
+// that wrapper to record the tabId synchronously, matching the unit-under-
+// test (the *filter logic* of which tabs reach the close call).
 const editorCloseCalls: string[] = [];
 mock.module("../../../../../../src/renderer/services/editor", () => ({
   closeEditor: (tabId: string) => {
     editorCloseCalls.push(tabId);
   },
+  closeEditorWithConfirm: async (_workspaceId: string, tabId: string) => {
+    editorCloseCalls.push(tabId);
+    return "closed" as const;
+  },
+  filePathToModelUri: (filePath: string) => `file://${filePath}`,
+  isDirty: () => false,
   openOrRevealEditor: () => null,
 }));
 mock.module("../../../../../../src/renderer/services/terminal", () => ({
@@ -55,9 +65,7 @@ function resetStores() {
 }
 
 function makeEditorTab(filePath: string) {
-  return useTabsStore
-    .getState()
-    .createTab(WS, "editor", { filePath, workspaceId: WS });
+  return useTabsStore.getState().createTab(WS, "editor", { filePath, workspaceId: WS });
 }
 
 function buildActions(opts: { contextTabId: string; tabIds: string[] }) {
@@ -126,7 +134,7 @@ describe("useTabsStore.togglePin", () => {
 describe("useGroupActions.closeOthers — pinned tabs are skipped", () => {
   beforeEach(resetStores);
 
-  it("closes only unpinned tabs that are not the context tab", () => {
+  it("closes only unpinned tabs that are not the context tab", async () => {
     const a = makeEditorTab("/repo/a.ts");
     const b = makeEditorTab("/repo/b.ts");
     const c = makeEditorTab("/repo/c.ts");
@@ -137,13 +145,13 @@ describe("useGroupActions.closeOthers — pinned tabs are skipped", () => {
       contextTabId: a.id,
       tabIds: [a.id, b.id, c.id],
     });
-    actions.closeOthers();
+    await actions.closeOthers();
 
     // a is the context (excluded), b is pinned (excluded), c gets closed.
     expect(editorCloseCalls).toEqual([c.id]);
   });
 
-  it("never closes the context tab even if multiple pinned tabs exist", () => {
+  it("never closes the context tab even if multiple pinned tabs exist", async () => {
     const a = makeEditorTab("/repo/a.ts");
     const b = makeEditorTab("/repo/b.ts");
     const c = makeEditorTab("/repo/c.ts");
@@ -155,7 +163,7 @@ describe("useGroupActions.closeOthers — pinned tabs are skipped", () => {
       contextTabId: c.id,
       tabIds: [a.id, b.id, c.id],
     });
-    actions.closeOthers();
+    await actions.closeOthers();
 
     // a and b are pinned; c is the context — nothing should be closed.
     expect(editorCloseCalls).toEqual([]);
@@ -169,7 +177,7 @@ describe("useGroupActions.closeOthers — pinned tabs are skipped", () => {
 describe("useGroupActions.closeAllToRight — pinned tabs to the right are skipped", () => {
   beforeEach(resetStores);
 
-  it("closes unpinned tabs to the right of the context tab", () => {
+  it("closes unpinned tabs to the right of the context tab", async () => {
     const a = makeEditorTab("/repo/a.ts");
     const b = makeEditorTab("/repo/b.ts");
     const c = makeEditorTab("/repo/c.ts");
@@ -181,13 +189,13 @@ describe("useGroupActions.closeAllToRight — pinned tabs to the right are skipp
       contextTabId: a.id,
       tabIds: [a.id, b.id, c.id, d.id],
     });
-    actions.closeAllToRight();
+    await actions.closeAllToRight();
 
     // To the right of a: b, c (pinned, skipped), d.
     expect(editorCloseCalls).toEqual([b.id, d.id]);
   });
 
-  it("is a no-op when context tab is the rightmost", () => {
+  it("is a no-op when context tab is the rightmost", async () => {
     const a = makeEditorTab("/repo/a.ts");
     const b = makeEditorTab("/repo/b.ts");
 
@@ -195,12 +203,12 @@ describe("useGroupActions.closeAllToRight — pinned tabs to the right are skipp
       contextTabId: b.id,
       tabIds: [a.id, b.id],
     });
-    actions.closeAllToRight();
+    await actions.closeAllToRight();
 
     expect(editorCloseCalls).toEqual([]);
   });
 
-  it("is a no-op when context tab is not in the list", () => {
+  it("is a no-op when context tab is not in the list", async () => {
     const a = makeEditorTab("/repo/a.ts");
     const b = makeEditorTab("/repo/b.ts");
 
@@ -208,7 +216,7 @@ describe("useGroupActions.closeAllToRight — pinned tabs to the right are skipp
       contextTabId: "ghost",
       tabIds: [a.id, b.id],
     });
-    actions.closeAllToRight();
+    await actions.closeAllToRight();
 
     expect(editorCloseCalls).toEqual([]);
   });

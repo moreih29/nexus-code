@@ -45,6 +45,12 @@ interface FileTreeRowProps {
    * open as a permanent (non-preview) tab" gesture.
    */
   onDoubleClick?: (e: React.MouseEvent) => void;
+  /**
+   * Right-click on the row. The parent file-tree consumes this to set
+   * its menu anchor *before* Radix's ContextMenu.Trigger opens (React's
+   * bubble order — child handler fires before the trigger's).
+   */
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +68,7 @@ export function FileTreeRow({
   onToggle,
   onClick,
   onDoubleClick,
+  onContextMenu,
 }: FileTreeRowProps) {
   const isDir = node.type === "dir";
 
@@ -87,6 +94,7 @@ export function FileTreeRow({
       aria-selected={isSelected}
       onClick={isDir ? onToggle : (e) => onClick(e)}
       onDoubleClick={isDir ? undefined : onDoubleClick}
+      onContextMenu={onContextMenu}
       title={node.name}
       draggable={!isDir}
       onDragStart={isDir ? undefined : onDragStart}

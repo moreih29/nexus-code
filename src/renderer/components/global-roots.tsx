@@ -7,6 +7,7 @@
 // React tree.
 
 import { SaveConfirmDialogRoot } from "./ui/save-confirm-dialog";
+import { ToastRoot } from "./ui/toast";
 import { ViewParkRoot } from "./workspace/content/view-park";
 
 export function GlobalRoots(): React.JSX.Element {
@@ -14,6 +15,7 @@ export function GlobalRoots(): React.JSX.Element {
     <>
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
+      <ToastRoot />
     </>
   );
 }

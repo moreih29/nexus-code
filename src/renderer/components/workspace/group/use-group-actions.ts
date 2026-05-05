@@ -1,4 +1,12 @@
-import { closeEditor, openOrRevealEditor, type EditorTabProps } from "@/services/editor";
+import {
+  type CloseTabOutcome,
+  closeEditor,
+  closeEditorWithConfirm,
+  type EditorTabProps,
+  filePathToModelUri,
+  isDirty,
+  openOrRevealEditor,
+} from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
 import { type TerminalTabProps, useTabsStore } from "@/state/stores/tabs";
 
@@ -19,43 +27,83 @@ export function useGroupActions({
   getTabIds,
   onActivateGroup,
 }: UseGroupActionsOptions) {
-  function closeTabForId(tabId: string) {
+  /**
+   * Close one tab. For editor tabs the close goes through the dirty-aware
+   * confirm flow (so bulk-close paths can't silently discard buffer edits).
+   * Returns "no-tab" when the id is unknown or already gone.
+   */
+  async function closeTabForId(tabId: string): Promise<CloseTabOutcome | "no-tab"> {
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-    if (tab?.type === "terminal") {
+    if (!tab) return "no-tab";
+    if (tab.type === "terminal") {
       closeTerminal(tabId);
-      return;
+      return "closed";
     }
-    if (tab?.type === "editor") {
-      closeEditor(tabId);
+    if (tab.type === "editor") {
+      return await closeEditorWithConfirm(workspaceId, tabId);
+    }
+    return "no-tab";
+  }
+
+  /**
+   * Close a list of tabs sequentially. Aborts on the first user-cancel
+   * (matches VSCode bulk-close cancel semantics) and skips tabs whose
+   * save fails so the user can react.
+   */
+  async function closeMany(tabIds: string[]): Promise<void> {
+    for (const id of tabIds) {
+      const outcome = await closeTabForId(id);
+      if (outcome === "cancelled") return;
     }
   }
 
-  function close() {
-    const tabId = getContextTabId();
-    closeTabForId(tabId);
+  // The bulk-close methods return Promise<void> because the underlying
+  // confirm flow is async. Menu callers (Radix `onSelect`) discard the
+  // promise; tests can `await` it to assert post-close state.
+  async function close(): Promise<void> {
+    await closeTabForId(getContextTabId());
   }
 
-  function closeOthers() {
+  async function closeOthers(): Promise<void> {
     const targetTabId = getContextTabId();
     const wsRecord = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
     const others = getTabIds().filter((id) => {
       if (id === targetTabId) return false;
       return !wsRecord[id]?.isPinned;
     });
-    for (const id of others) {
-      closeTabForId(id);
-    }
+    await closeMany(others);
   }
 
-  function closeAllToRight() {
+  async function closeAllToRight(): Promise<void> {
     const targetTabId = getContextTabId();
     const tabIds = getTabIds();
     const idx = tabIds.indexOf(targetTabId);
     if (idx === -1) return;
     const wsRecord = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
     const toClose = tabIds.slice(idx + 1).filter((id) => !wsRecord[id]?.isPinned);
-    for (const id of toClose) {
-      closeTabForId(id);
+    await closeMany(toClose);
+  }
+
+  // VSCode parity: "Close All Editors" closes pinned tabs too — pin only
+  // protects against the *bulk* "Close Others / to the right" gestures.
+  async function closeAll(): Promise<void> {
+    await closeMany([...getTabIds()]);
+  }
+
+  /**
+   * Close every editor tab in the group whose buffer is clean. No prompts,
+   * no save calls — clean tabs by definition have no unsaved work. Pinned
+   * tabs are closed too (a saved-clean pin is still saved-clean), matching
+   * VSCode's "Close Saved" command.
+   */
+  function closeSaved() {
+    const wsRecord = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+    for (const id of getTabIds()) {
+      const tab = wsRecord[id];
+      if (tab?.type !== "editor") continue;
+      const filePath = (tab.props as EditorTabProps).filePath;
+      if (isDirty(filePathToModelUri(filePath))) continue;
+      closeEditor(id);
     }
   }
 
@@ -95,5 +143,14 @@ export function useGroupActions({
     onActivateGroup(leafId);
   }
 
-  return { close, closeOthers, closeAllToRight, splitRight, splitDown, newTerminal };
+  return {
+    close,
+    closeOthers,
+    closeAllToRight,
+    closeAll,
+    closeSaved,
+    splitRight,
+    splitDown,
+    newTerminal,
+  };
 }

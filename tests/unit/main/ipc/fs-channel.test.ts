@@ -1,21 +1,26 @@
 /**
- * Security regression tests for src/main/ipc/channels/fs.ts
+ * Security regression tests for src/main/ipc/channels/fs/.
  *
  * Tests resolveSafe() path-escape guards and readdirHandler() filter behavior
  * using minimal duck-typed WorkspaceManager mocks — no real manager import.
+ *
+ * Imports come from sub-files (read-handlers / path-safety) rather than the
+ * channel barrel so the test process never has to load `move-handlers.ts`,
+ * which depends on Electron's `shell` module — that fails to import under
+ * Bun's test runtime.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { resolveSafe } from "../../../../src/main/ipc/channels/fs/path-safety";
 import {
   getExpandedHandler,
   readdirHandler,
   readFileHandler,
-  resolveSafe,
   setExpandedHandler,
-} from "../../../../src/main/ipc/channels/fs";
+} from "../../../../src/main/ipc/channels/fs/read-handlers";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -344,9 +349,9 @@ describe("readFileHandler — path is a directory", () => {
 
 describe("readFileHandler — non-existent file", () => {
   it("throws with NOT_FOUND prefix", async () => {
-    await expect(
-      callReadFile(makeManager(tmpRoot), VALID_UUID, "no-such-file.ts"),
-    ).rejects.toThrow(/^NOT_FOUND:/);
+    await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "no-such-file.ts")).rejects.toThrow(
+      /^NOT_FOUND:/,
+    );
   });
 });
 
