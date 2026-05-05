@@ -14,17 +14,13 @@
 import { showSaveConfirm } from "@/components/ui/save-confirm-dialog";
 import type { EditorTabProps } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
+import { basename } from "@/utils/path";
 import { isDirty } from "./dirty-tracker";
 import { filePathToModelUri } from "./model-cache";
 import { closeEditor } from "./open-editor";
 import { saveModel } from "./save-service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";
-
-function basenameOf(filePath: string): string {
-  const idx = filePath.lastIndexOf("/");
-  return idx === -1 ? filePath : filePath.slice(idx + 1);
-}
 
 function findTab(workspaceId: string, tabId: string) {
   return useTabsStore.getState().byWorkspace[workspaceId]?.[tabId] ?? null;
@@ -51,7 +47,7 @@ export async function closeEditorWithConfirm(
     return "closed";
   }
 
-  const choice = await showSaveConfirm(basenameOf(filePath));
+  const choice = await showSaveConfirm(basename(filePath));
 
   if (choice === "cancel") return "cancelled";
 
