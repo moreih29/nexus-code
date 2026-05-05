@@ -20,6 +20,20 @@ interface UseFileTreePendingCreateOptions {
   rootAbsPath: string;
 }
 
+/**
+ * Toggle the parent open if it isn't already, so the inline-edit row is
+ * visible when the pending sentinel is injected. The workspace root is
+ * always rendered as expanded by the tree, so we skip the toggle in
+ * that case.
+ */
+function expandIfCollapsed(workspaceId: string, parentAbsPath: string): void {
+  const tree = useFilesStore.getState().trees.get(workspaceId);
+  if (!tree) return;
+  if (parentAbsPath === tree.rootAbsPath) return;
+  if (tree.expanded.has(parentAbsPath)) return;
+  useFilesStore.getState().toggleExpand(workspaceId, parentAbsPath);
+}
+
 export function useFileTreePendingCreate({
   workspaceId,
   rootAbsPath,
@@ -28,11 +42,7 @@ export function useFileTreePendingCreate({
 
   const startCreate = useCallback(
     (parentAbsPath: string, kind: EntryKind) => {
-      // Ensure the parent is expanded so the input row is visible.
-      const tree = useFilesStore.getState().trees.get(workspaceId);
-      if (tree && parentAbsPath !== tree.rootAbsPath && !tree.expanded.has(parentAbsPath)) {
-        useFilesStore.getState().toggleExpand(workspaceId, parentAbsPath);
-      }
+      expandIfCollapsed(workspaceId, parentAbsPath);
       setPending({ parentAbsPath, kind });
     },
     [workspaceId],

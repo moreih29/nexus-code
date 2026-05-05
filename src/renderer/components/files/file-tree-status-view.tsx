@@ -7,6 +7,7 @@
  */
 
 import { useFilesStore } from "@/state/stores/files";
+import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
 
 interface FileTreeStatusViewProps {
   workspaceId: string;
@@ -55,7 +56,14 @@ export function FileTreeStatusView({
 }
 
 function toUserMessage(err: string): string {
-  if (err.includes("ENOENT")) return "Folder not found.";
-  if (err.includes("EACCES")) return "Permission denied.";
+  // Errors flow through three layers before landing here:
+  //   1. Node throws an errno (`ENOENT`, `EACCES`).
+  //   2. The fs handler wraps it as `FS_ERROR.NOT_FOUND` etc.
+  //   3. The renderer subscriber stores `err.message` on the tree slice.
+  // Older error strings can still leak through from layers that haven't
+  // been migrated to the shared codes — accept both forms here.
+  if (hasFsErrorCode(err, FS_ERROR.NOT_FOUND) || err.includes("ENOENT")) return "Folder not found.";
+  if (hasFsErrorCode(err, FS_ERROR.PERMISSION_DENIED) || err.includes("EACCES"))
+    return "Permission denied.";
   return "Unexpected error.";
 }

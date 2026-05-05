@@ -13,6 +13,7 @@
  */
 import fs from "node:fs";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
+import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../../shared/fs-errors";
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { WriteFileResult } from "../../../../shared/types/fs";
 import { atomicWriteFile } from "../../../filesystem/atomic-write";
@@ -34,7 +35,7 @@ export function writeFileHandler(
     // editor states.
     const byteLength = Buffer.byteLength(content, "utf8");
     if (byteLength > MAX_READABLE_FILE_SIZE) {
-      throw new Error(`TOO_LARGE: ${abs} (${byteLength} bytes)`);
+      throw new Error(fsErrorMessage(FS_ERROR.TOO_LARGE, `${abs} (${byteLength} bytes)`));
     }
 
     return atomicWriteFile(abs, content, { expected });
@@ -53,10 +54,8 @@ export function createFileHandler(manager: WorkspaceManager): (args: unknown) =>
       const handle = await fs.promises.open(abs, "wx");
       await handle.close();
     } catch (e: unknown) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "EEXIST") throw new Error(`ALREADY_EXISTS: ${abs}`);
-      if (code === "EACCES") throw new Error(`PERMISSION_DENIED: ${abs}`);
-      if (code === "ENOENT") throw new Error(`NOT_FOUND: ${abs}`);
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
   };
@@ -70,10 +69,8 @@ export function mkdirHandler(manager: WorkspaceManager): (args: unknown) => Prom
     try {
       await fs.promises.mkdir(abs, { recursive: false });
     } catch (e: unknown) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "EEXIST") throw new Error(`ALREADY_EXISTS: ${abs}`);
-      if (code === "EACCES") throw new Error(`PERMISSION_DENIED: ${abs}`);
-      if (code === "ENOENT") throw new Error(`NOT_FOUND: ${abs}`);
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
   };

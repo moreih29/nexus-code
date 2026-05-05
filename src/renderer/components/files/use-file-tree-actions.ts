@@ -10,10 +10,8 @@
  * rendering / virtualization code.
  */
 import { openOrRevealEditor } from "@/services/editor";
-import { revealInFinder } from "@/services/fs-mutations";
+import { createPathActions } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
-import { copyText } from "@/utils/clipboard";
-import { relPath } from "@/utils/path";
 import type { EntryKind } from "./file-tree-display";
 
 export interface FileTreeActionTarget {
@@ -47,6 +45,12 @@ export function useFileTreeActions({
   getTarget,
   startCreate,
 }: UseFileTreeActionsOptions) {
+  const pathActions = createPathActions({
+    workspaceId,
+    workspaceRootPath: rootAbsPath,
+    getAbsPath: () => getTarget()?.absPath ?? null,
+  });
+
   function resolveCreateParent(): string {
     const t = getTarget();
     if (!t) return rootAbsPath;
@@ -68,28 +72,6 @@ export function useFileTreeActions({
     );
   }
 
-  function copyPath() {
-    const t = getTarget();
-    if (!t) return;
-    copyText(t.absPath);
-  }
-
-  function copyRelativePath() {
-    const t = getTarget();
-    if (!t) return;
-    copyText(relPath(t.absPath, rootAbsPath));
-  }
-
-  function reveal() {
-    const t = getTarget();
-    if (!t) return;
-    void revealInFinder({
-      workspaceId,
-      workspaceRootPath: rootAbsPath,
-      absPath: t.absPath,
-    });
-  }
-
   function newFile() {
     startCreate(resolveCreateParent(), "file");
   }
@@ -98,5 +80,13 @@ export function useFileTreeActions({
     startCreate(resolveCreateParent(), "folder");
   }
 
-  return { open, openToSide, copyPath, copyRelativePath, reveal, newFile, newFolder };
+  return {
+    open,
+    openToSide,
+    copyPath: pathActions.copyPath,
+    copyRelativePath: pathActions.copyRelativePath,
+    reveal: pathActions.revealInFinder,
+    newFile,
+    newFolder,
+  };
 }

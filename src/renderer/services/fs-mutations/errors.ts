@@ -9,6 +9,7 @@
  */
 
 import { showToast } from "@/components/ui/toast";
+import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
 
 export interface FsToastMessages {
   /** Generic fallback when no code matches. */
@@ -22,17 +23,15 @@ export interface FsToastMessages {
 }
 
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
-  const raw = error instanceof Error ? error.message : String(error);
-
-  if (raw.includes("ALREADY_EXISTS")) {
+  if (hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) {
     showToast({ kind: "error", message: msgs.alreadyExists ?? "Already exists." });
     return;
   }
-  if (raw.includes("NOT_FOUND")) {
+  if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) {
     showToast({ kind: "error", message: msgs.notFound ?? "Path not found." });
     return;
   }
-  if (raw.includes("PERMISSION_DENIED")) {
+  if (hasFsErrorCode(error, FS_ERROR.PERMISSION_DENIED)) {
     showToast({ kind: "error", message: msgs.permissionDenied ?? "Permission denied." });
     return;
   }

@@ -89,7 +89,6 @@ export function createFileTreeKeydownHandler(
         }
       }
     } else if (e.key === "Enter" && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
-      if (isInEditable(e.target as HTMLElement)) return;
       if (isDir) return;
       e.preventDefault();
       openOrRevealEditor(

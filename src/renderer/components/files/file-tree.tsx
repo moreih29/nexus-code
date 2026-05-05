@@ -7,13 +7,15 @@ import {
   ContextMenuRoot,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useContextMenuHandoff } from "@/components/ui/use-context-menu-handoff";
 import { openOrRevealEditor } from "../../services/editor";
 import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { getDisplayFlat } from "./file-tree-display";
-import { FileTreeEditRow } from "./file-tree-edit-row";
 import { buildFileTreeMenuItems } from "./file-tree-menu";
-import { FileTreeRow } from "./file-tree-row";
+import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree-metrics";
 import { FileTreeStatusView } from "./file-tree-status-view";
+import { FileTreeVirtualBody } from "./file-tree-virtual-body";
+import { useDelayedLoading } from "./use-delayed-loading";
 import { createFileTreeKeydownHandler } from "./keys";
 import { type FileTreeActionTarget, useFileTreeActions } from "./use-file-tree-actions";
 import { useFileTreePendingCreate } from "./use-file-tree-pending-create";
@@ -42,17 +44,8 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     useFilesStore.getState().ensureRoot(workspaceId, rootAbsPath);
   }, [workspaceId, rootAbsPath]);
 
-  // 200ms loading delay state
-  const [showLoading, setShowLoading] = useState(false);
-  useEffect(() => {
-    const isLoading = tree?.loading.has(rootAbsPath) ?? false;
-    if (!isLoading) {
-      setShowLoading(false);
-      return;
-    }
-    const t = setTimeout(() => setShowLoading(true), 200);
-    return () => clearTimeout(t);
-  }, [tree, rootAbsPath]);
+  const isLoading = tree?.loading.has(rootAbsPath) ?? false;
+  const showLoading = useDelayedLoading(isLoading, LOADING_FLASH_DELAY_MS);
 
   const [activeIndex, setActiveIndex] = useState(0);
   // Anchor for the right-click menu — set in the row's onContextMenu (bubble
@@ -61,27 +54,18 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
 
   const pendingCreate = useFileTreePendingCreate({ workspaceId, rootAbsPath });
 
-  // Holds a New-File/New-Folder request raised from a menu item until the
-  // surrounding ContextMenu has fully closed. Mounting the inline-edit
-  // row earlier (synchronously inside onSelect) doesn't work: while
-  // Radix's <FocusScope> is still active during the close animation, any
-  // focus() call from the freshly-mounted input is intercepted and pulled
-  // back into the menu. Replaying the request from onCloseAutoFocus —
-  // which fires after FocusScope releases — lets the input's autoFocus
-  // claim the caret cleanly. The ref also serves as the "should we
-  // suppress the trigger refocus?" signal, so generic menu items
-  // (Reveal, Copy Path) keep their default focus-return behavior.
-  const pendingCreateRequestRef = useRef<{
-    parentAbsPath: string;
-    kind: "file" | "folder";
-  } | null>(null);
+  // New-File / New-Folder need their inline-edit row mounted *after* the
+  // ContextMenu's FocusScope releases — see useContextMenuHandoff for
+  // the reasoning. Generic items (Reveal, Copy Path) skip the handoff
+  // entirely, so Radix's default trigger refocus still runs for them.
+  const menuHandoff = useContextMenuHandoff();
 
   const fileTreeActions = useFileTreeActions({
     workspaceId,
     rootAbsPath,
     getTarget: () => contextTarget,
     startCreate: (parentAbsPath, kind) => {
-      pendingCreateRequestRef.current = { parentAbsPath, kind };
+      menuHandoff.defer(() => pendingCreate.startCreate(parentAbsPath, kind));
     },
   });
 
@@ -96,7 +80,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const virtualizer = useVirtualizer({
     count: displayFlat.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: () => 24,
+    estimateSize: () => ROW_HEIGHT_PX,
     overscan: 10,
   });
 
@@ -108,7 +92,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
         workspaceId={workspaceId}
         rootAbsPath={rootAbsPath}
         rootError={tree?.errors.get(rootAbsPath)}
-        isLoading={tree?.loading.has(rootAbsPath) ?? false}
+        isLoading={isLoading}
         showLoading={showLoading}
         treeKnown={!!tree}
       />
@@ -172,75 +156,28 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
           onContextMenu={handleAreaContextMenu}
           className="h-full overflow-auto focus:outline-none"
         >
-          <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
-            {virtualizer.getVirtualItems().map((vi) => {
-              const item = displayFlat[vi.index];
-              if (!item) return null;
-              const wrapperStyle: React.CSSProperties = {
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: 24,
-                transform: `translateY(${vi.start}px)`,
-              };
-
-              if (item.kind === "pending") {
-                return (
-                  <div key={`pending-${item.parentAbsPath}`} style={wrapperStyle}>
-                    <FileTreeEditRow
-                      kind={item.entryKind}
-                      depth={item.depth}
-                      onCommit={async (name) => {
-                        await pendingCreate.commit(name);
-                      }}
-                      onCancel={pendingCreate.cancel}
-                    />
-                  </div>
-                );
-              }
-
-              const isExpanded = tree?.expanded.has(item.absPath) ?? false;
-              const flatIdx = flat.findIndex((f) => f.absPath === item.absPath);
-              return (
-                <div key={item.absPath} style={wrapperStyle}>
-                  <FileTreeRow
-                    workspaceId={workspaceId}
-                    absPath={item.absPath}
-                    node={item.node}
-                    depth={item.depth}
-                    isExpanded={isExpanded}
-                    isSelected={item.absPath === activeAbsPath}
-                    isLoading={tree?.loading.has(item.absPath) ?? false}
-                    onToggle={() => handleRowClick(flatIdx, item)}
-                    onClick={(e) => handleRowClick(flatIdx, item, e)}
-                    onDoubleClick={() => handleRowDoubleClick(flatIdx, item)}
-                    onContextMenu={() => {
-                      if (flatIdx >= 0) setActiveIndex(flatIdx);
-                      setContextTarget({ absPath: item.absPath, type: item.node.type });
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+          <FileTreeVirtualBody
+            workspaceId={workspaceId}
+            tree={tree}
+            displayFlat={displayFlat}
+            flat={flat}
+            activeAbsPath={activeAbsPath}
+            virtualizer={virtualizer}
+            onRowClick={handleRowClick}
+            onRowDoubleClick={handleRowDoubleClick}
+            onRowContextMenu={(flatIdx, item) => {
+              if (flatIdx >= 0) setActiveIndex(flatIdx);
+              setContextTarget({ absPath: item.absPath, type: item.node.type });
+            }}
+            onPendingCommit={async (name) => {
+              await pendingCreate.commit(name);
+            }}
+            onPendingCancel={pendingCreate.cancel}
+          />
         </div>
       </ContextMenuTrigger>
 
-      <ContextMenuContent
-        onCloseAutoFocus={(e) => {
-          // If a New-File/New-Folder request was queued by an onSelect,
-          // replay it now that Radix's FocusScope has released. Suppress
-          // the default "focus the trigger" so the inline-edit row's
-          // autoFocus can take the caret cleanly on the next render.
-          const req = pendingCreateRequestRef.current;
-          if (req) {
-            e.preventDefault();
-            pendingCreateRequestRef.current = null;
-            pendingCreate.startCreate(req.parentAbsPath, req.kind);
-          }
-        }}
-      >
+      <ContextMenuContent onCloseAutoFocus={menuHandoff.onCloseAutoFocus}>
         <ContextMenuItems items={buildFileTreeMenuItems(contextTarget, fileTreeActions)} />
       </ContextMenuContent>
     </ContextMenuRoot>

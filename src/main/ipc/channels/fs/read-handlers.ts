@@ -9,6 +9,7 @@ import {
   isHiddenName,
   MAX_READABLE_FILE_SIZE,
 } from "../../../../shared/fs-defaults";
+import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../../shared/fs-errors";
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { DirEntry, FileContent, FsStat } from "../../../../shared/types/fs";
 import type { FileWatcher } from "../../../filesystem/file-watcher";
@@ -107,27 +108,25 @@ export function readFileHandler(
     try {
       stat = await fs.promises.lstat(abs);
     } catch (e: unknown) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") throw new Error(`NOT_FOUND: ${abs}`);
-      if (code === "EACCES") throw new Error(`PERMISSION_DENIED: ${abs}`);
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
 
     if (stat.isDirectory()) {
-      throw new Error(`IS_DIRECTORY: ${abs}`);
+      throw new Error(fsErrorMessage(FS_ERROR.IS_DIRECTORY, abs));
     }
 
     if (stat.size > MAX_READABLE_FILE_SIZE) {
-      throw new Error(`TOO_LARGE: ${abs} (${stat.size} bytes)`);
+      throw new Error(fsErrorMessage(FS_ERROR.TOO_LARGE, `${abs} (${stat.size} bytes)`));
     }
 
     let buf: Buffer;
     try {
       buf = await fs.promises.readFile(abs);
     } catch (e: unknown) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") throw new Error(`NOT_FOUND: ${abs}`);
-      if (code === "EACCES") throw new Error(`PERMISSION_DENIED: ${abs}`);
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
 

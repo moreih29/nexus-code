@@ -17,6 +17,7 @@
 import { useState } from "react";
 import { cn } from "@/utils/cn";
 import type { EntryKind } from "./file-tree-display";
+import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
 import { validateNewEntryName } from "./name-validator";
 
 interface FileTreeEditRowProps {
@@ -26,11 +27,12 @@ interface FileTreeEditRowProps {
   onCancel: () => void;
 }
 
-// The caller (file-tree) is responsible for suppressing the surrounding
-// ContextMenu's onCloseAutoFocus when it triggers a new edit row. Without
-// that handoff, Radix would return focus to the menu trigger after close
-// and immediately blur the input below, firing onBlur on an empty value
-// and unmounting the row before the user can type.
+// The caller (file-tree) routes New-File / New-Folder through
+// useContextMenuHandoff so the row is mounted only after Radix's
+// FocusScope releases. Without that handoff Radix would return focus to
+// the menu trigger after close and immediately blur the input below,
+// firing onBlur on an empty value and unmounting the row before the
+// user can type.
 export function FileTreeEditRow({ kind, depth, onCommit, onCancel }: FileTreeEditRowProps) {
   const [value, setValue] = useState("");
   const validationError = value.length > 0 ? validateNewEntryName(value) : null;
@@ -57,12 +59,8 @@ export function FileTreeEditRow({ kind, depth, onCommit, onCancel }: FileTreeEdi
   }
 
   return (
-    <div
-      className="flex flex-col"
-      // Indent matches FileTreeRow: depth * 12 + 8.
-      style={{ paddingLeft: depth * 12 + 8 }}
-    >
-      <div className="flex items-center h-6">
+    <div className="flex flex-col" style={{ paddingLeft: indentPaddingLeft(depth) }}>
+      <div className="flex items-center" style={{ height: ROW_HEIGHT_PX }}>
         {/* Same 14px chevron slot reserved as a regular row, kept blank. */}
         <span className="size-3.5 shrink-0" aria-hidden />
         <input
