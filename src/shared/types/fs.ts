@@ -39,5 +39,28 @@ export const FileContentSchema = z.object({
   encoding: z.enum(["utf8", "utf8-bom"]),
   sizeBytes: z.number().int().min(0),
   isBinary: z.boolean(),
+  mtime: z.string(),
 });
 export type FileContent = z.infer<typeof FileContentSchema>;
+
+// Writer-side state used by atomic write to detect external modifications
+// since the renderer last observed the file. `exists:false` is the
+// "first save of a new file" case.
+export const ExpectedFileStateSchema = z.discriminatedUnion("exists", [
+  z.object({ exists: z.literal(false) }),
+  z.object({ exists: z.literal(true), mtime: z.string(), size: z.number().int().nonnegative() }),
+]);
+export type ExpectedFileStateContract = z.infer<typeof ExpectedFileStateSchema>;
+
+export const WriteFileResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    mtime: z.string(),
+    size: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("conflict"),
+    actual: ExpectedFileStateSchema,
+  }),
+]);
+export type WriteFileResult = z.infer<typeof WriteFileResultSchema>;

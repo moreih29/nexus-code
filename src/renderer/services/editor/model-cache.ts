@@ -5,6 +5,11 @@
 import type * as Monaco from "monaco-editor";
 import { useEffect, useState } from "react";
 import { type FileErrorCode, parseFileErrorCode } from "../../utils/file-error";
+import {
+  attachDirtyTracker,
+  detachDirtyTracker,
+  markSaved as markDirtyTrackerSaved,
+} from "./dirty-tracker";
 import { readFileForModel, subscribeFsChanged } from "./file-loader";
 import {
   isLspLanguage,
@@ -169,6 +174,13 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     entry.errorCode = undefined;
     entry.lastLoadedValue = result.content;
 
+    attachDirtyTracker({
+      cacheUri: entry.cacheUri,
+      model,
+      loadedMtime: result.mtime,
+      loadedSize: result.sizeBytes,
+    });
+
     registerKnownModelUri(entry.cacheUri);
     registerKnownModelUri(entry.lspUri);
 
@@ -231,6 +243,18 @@ async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
     if (model.getValue() !== result.content) {
       model.setValue(result.content);
     }
+
+    // External reload only happens when the buffer was clean
+    // (reconcile guard above). The post-setValue alt id becomes the new
+    // saved baseline, and on-disk metadata advances to the loaded values.
+    markDirtyTrackerSaved({
+      cacheUri: entry.cacheUri,
+      model,
+      savedAlternativeVersionId: model.getAlternativeVersionId(),
+      loadedMtime: result.mtime,
+      loadedSize: result.sizeBytes,
+    });
+
     notifySubscribers(entry);
   } catch (error) {
     if (entry.disposed) return;
@@ -245,6 +269,7 @@ function cleanupEntry(entry: ModelEntry): void {
   entry.disposed = true;
   entry.fsUnsubscribe?.();
   entry.contentDisposable?.dispose();
+  detachDirtyTracker(entry.cacheUri);
   unregisterKnownModelUri(entry.cacheUri);
   unregisterKnownModelUri(entry.lspUri);
 
@@ -295,6 +320,31 @@ export function releaseModel(input: EditorInput): void {
 
   entries.delete(cacheUri);
   cleanupEntry(entry);
+}
+
+/**
+ * Read-only view of a resolved model entry. Exposed for the save-service
+ * (and similar consumers) so they can act on a tracked model without
+ * having to peek at the entry map directly.
+ */
+export interface ResolvedModelView {
+  model: Monaco.editor.ITextModel;
+  cacheUri: string;
+  workspaceId: string;
+  filePath: string;
+  languageId: string;
+}
+
+export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry || entry.phase !== "ready" || !entry.model) return null;
+  return {
+    model: entry.model,
+    cacheUri: entry.cacheUri,
+    workspaceId: entry.input.workspaceId,
+    filePath: entry.input.filePath,
+    languageId: entry.languageId,
+  };
 }
 
 export function useSharedModel(input: EditorInput): SharedModelState {

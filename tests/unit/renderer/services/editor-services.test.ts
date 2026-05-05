@@ -30,6 +30,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
         encoding: "utf8",
         sizeBytes: content.length,
         isBinary: false,
+        mtime: new Date().toISOString(),
       });
     }
 
@@ -60,6 +61,7 @@ interface FakeModel {
   uri: FakeUri;
   getValue: () => string;
   setValue: (nextValue: string) => void;
+  getAlternativeVersionId: () => number;
   onDidChangeContent: (listener: () => void) => Monaco.IDisposable;
   isDisposed: () => boolean;
   dispose: () => void;
@@ -84,6 +86,7 @@ function createFakeMonaco() {
     editor: {
       createModel(value: string, _languageId: string, uri: FakeUri) {
         let currentValue = value;
+        let altVersionId = 1;
         let disposed = false;
         const changeListeners = new Set<() => void>();
         const model: FakeModel = {
@@ -91,8 +94,10 @@ function createFakeMonaco() {
           getValue: () => currentValue,
           setValue(nextValue: string) {
             currentValue = nextValue;
+            altVersionId += 1;
             for (const listener of changeListeners) listener();
           },
+          getAlternativeVersionId: () => altVersionId,
           onDidChangeContent(listener: () => void) {
             changeListeners.add(listener);
             return { dispose: () => changeListeners.delete(listener) };

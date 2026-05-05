@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { closeEditor } from "@/services/editor";
+import { closeEditorWithConfirm } from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
@@ -75,7 +75,11 @@ export function GroupView({
       return;
     }
     if (tab?.type === "editor") {
-      closeEditor(tabId);
+      // Fire-and-forget: close-handler runs the dirty confirm flow,
+      // which is async because it may await user input. Group-view
+      // doesn't react to the outcome — the close itself updates layout
+      // via the tabs store, which re-renders us.
+      void closeEditorWithConfirm(workspaceId, tabId);
     }
   }
 

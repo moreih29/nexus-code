@@ -1,6 +1,7 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
 import { FilesPanel } from "./components/files";
+import { SaveConfirmDialogRoot } from "./components/ui/save-confirm-dialog";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { ViewParkRoot } from "./components/workspace/content/view-park";
@@ -178,6 +179,7 @@ export function App() {
     <div className="flex flex-col h-full overflow-hidden">
       <TitleBar />
       <ViewParkRoot />
+      <SaveConfirmDialogRoot />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           workspaces={workspaces}

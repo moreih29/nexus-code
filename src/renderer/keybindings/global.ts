@@ -12,12 +12,21 @@ export interface GlobalKeyDeps {
   splitActiveGroup?: (orientation: "horizontal" | "vertical") => void;
   closeActiveGroup?: () => void;
   moveFocus?: (direction: "left" | "right" | "up" | "down") => void;
+  /**
+   * Save the active editor tab's buffer. No-op when there is no active
+   * editor (e.g. focus is in the file tree, the active tab is a
+   * terminal, or no workspace is active). The action runs only when
+   * monaco didn't already handle the keystroke via its own keybinding —
+   * see `isInEditable`.
+   */
+  saveActiveEditor?: () => void;
 }
 
 /**
  * Returns true if the event target is an editable element where global file
- * open shortcuts should not fire (input, textarea, contenteditable, or inside
- * .cm-editor).
+ * open shortcuts should not fire (input, textarea, contenteditable, inside
+ * .cm-editor, or inside a monaco editor — monaco's own textarea sits
+ * under `.monaco-editor` and registers its own keybindings).
  *
  * Exported for unit testing.
  */
@@ -26,7 +35,8 @@ export function isInEditable(target: HTMLElement | null): boolean {
     target?.tagName === "INPUT" ||
     target?.tagName === "TEXTAREA" ||
     target?.isContentEditable === true ||
-    target?.closest(".cm-editor") != null
+    target?.closest(".cm-editor") != null ||
+    target?.closest(".monaco-editor") != null
   );
 }
 
@@ -88,6 +98,16 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     deps.closeActiveGroup?.();
+    return;
+  }
+
+  // Cmd/Ctrl+S — save active editor tab. Skipped when focus is inside
+  // a monaco editor (handled by editor.addAction so no double-save) or
+  // any other editable element.
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "s" || e.key === "S")) {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.saveActiveEditor?.();
     return;
   }
 

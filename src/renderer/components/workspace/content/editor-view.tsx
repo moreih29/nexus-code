@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
-import { useSharedModel } from "../../../services/editor";
+import { saveModel, useSharedModel } from "../../../services/editor";
 import { fileErrorMessage } from "../../../utils/file-error";
 
 interface EditorViewProps {
@@ -83,10 +83,29 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
       height="100%"
       keepCurrentModel
       saveViewState={false}
-      onMount={(editor) => {
+      onMount={(editor, monaco) => {
         editorRef.current = editor;
         temporaryModelRef.current = editor.getModel();
         attachSharedModel(editor);
+
+        // Cmd/Ctrl+S — registered on the editor instance so monaco's
+        // built-in keybinding service handles it inside its textarea
+        // (no double-fire with global handler). Reads the bound props
+        // through closure: filePath/workspaceId stay current because
+        // EditorView remounts on filePath change (key on filePath in
+        // ContentHost).
+        editor.addAction({
+          id: "nexus.file.save",
+          label: "Save File",
+          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+          run: () => {
+            saveModel({ workspaceId, filePath }).catch(() => {
+              // Errors are reported via SaveResult — promise rejection
+              // here would be a programming error. Swallow to keep the
+              // command from logging unhandled rejection noise.
+            });
+          },
+        });
       }}
       theme="vs-dark"
       options={editorOptions}

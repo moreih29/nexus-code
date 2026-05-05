@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Grid } from "../engine/split";
 import { ipcCall } from "../ipc/client";
-import { openOrRevealEditor } from "../services/editor";
+import { openOrRevealEditor, saveModel } from "../services/editor";
 import { openTerminal } from "../services/terminal";
 import { closeGroup } from "../state/operations";
 import { useActiveStore } from "../state/stores/active";
@@ -66,6 +66,20 @@ export function useGlobalKeybindings(): void {
           const layout = useLayoutStore.getState().byWorkspace[wsId];
           if (!layout) return;
           closeGroup(wsId, layout.activeGroupId);
+        },
+
+        saveActiveEditor: () => {
+          const wsId = useActiveStore.getState().activeWorkspaceId;
+          if (!wsId) return;
+          const layout = useLayoutStore.getState().byWorkspace[wsId];
+          if (!layout) return;
+          const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
+          const tabId = activeLeaf?.activeTabId;
+          if (!tabId) return;
+          const tab = useTabsStore.getState().byWorkspace[wsId]?.[tabId];
+          if (!tab || tab.type !== "editor") return;
+          const props = tab.props as EditorTabProps;
+          saveModel({ workspaceId: wsId, filePath: props.filePath }).catch(() => {});
         },
 
         moveFocus: (direction) => {

@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { BINARY_DETECTION_BYTES, MAX_READABLE_FILE_SIZE, isHiddenName } from "../../../shared/fs-defaults";
+import {
+  BINARY_DETECTION_BYTES,
+  isHiddenName,
+  MAX_READABLE_FILE_SIZE,
+} from "../../../shared/fs-defaults";
 import { ipcContract } from "../../../shared/ipc-contract";
-import type { DirEntry, FileContent, FsStat } from "../../../shared/types/fs";
+import type { DirEntry, FileContent, FsStat, WriteFileResult } from "../../../shared/types/fs";
+import { atomicWriteFile } from "../../filesystem/atomic-write";
 import type { FileWatcher } from "../../filesystem/file-watcher";
 import type { WorkspaceStorage } from "../../storage/workspace-storage";
 import type { WorkspaceManager } from "../../workspace/workspace-manager";
@@ -116,7 +121,9 @@ export function setExpandedHandler(
   };
 }
 
-export function readFileHandler(manager: WorkspaceManager): (args: unknown) => Promise<FileContent> {
+export function readFileHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<FileContent> {
   return async (args: unknown): Promise<FileContent> => {
     const { workspaceId, relPath } = validateArgs(c.readFile.args, args);
     const abs = resolveSafe(manager, workspaceId, relPath);
@@ -151,18 +158,20 @@ export function readFileHandler(manager: WorkspaceManager): (args: unknown) => P
 
     const probe = buf.slice(0, BINARY_DETECTION_BYTES);
 
+    const mtime = stat.mtime.toISOString();
+
     // UTF-16 LE or BE BOM — treat as binary
     if (
       (probe.length >= 2 && probe[0] === 0xff && probe[1] === 0xfe) ||
       (probe.length >= 2 && probe[0] === 0xfe && probe[1] === 0xff)
     ) {
-      return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true };
+      return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
     }
 
     // null-byte binary detection
     for (let i = 0; i < probe.length; i++) {
       if (probe[i] === 0x00) {
-        return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true };
+        return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
       }
     }
 
@@ -173,6 +182,7 @@ export function readFileHandler(manager: WorkspaceManager): (args: unknown) => P
         encoding: "utf8-bom",
         sizeBytes: stat.size,
         isBinary: false,
+        mtime,
       };
     }
 
@@ -181,7 +191,27 @@ export function readFileHandler(manager: WorkspaceManager): (args: unknown) => P
       encoding: "utf8",
       sizeBytes: stat.size,
       isBinary: false,
+      mtime,
     };
+  };
+}
+
+export function writeFileHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<WriteFileResult> {
+  return async (args: unknown): Promise<WriteFileResult> => {
+    const { workspaceId, relPath, content, expected } = validateArgs(c.writeFile.args, args);
+    const abs = resolveSafe(manager, workspaceId, relPath);
+
+    // Refuse oversized writes — same threshold as readFile so we don't
+    // create files we couldn't reload. Cheap guard against pathological
+    // editor states.
+    const byteLength = Buffer.byteLength(content, "utf8");
+    if (byteLength > MAX_READABLE_FILE_SIZE) {
+      throw new Error(`TOO_LARGE: ${abs} (${byteLength} bytes)`);
+    }
+
+    return atomicWriteFile(abs, content, { expected });
   };
 }
 
@@ -199,6 +229,7 @@ export function registerFsChannel(
       getExpanded: getExpandedHandler(manager, storage),
       setExpanded: setExpandedHandler(manager, storage),
       readFile: readFileHandler(manager),
+      writeFile: writeFileHandler(manager),
     },
     listen: {},
   });

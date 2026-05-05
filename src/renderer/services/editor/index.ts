@@ -1,7 +1,11 @@
 import type * as Monaco from "monaco-editor";
 import { initializeLspBridge } from "./lsp-bridge";
 import { initializeModelCache } from "./model-cache";
+import { startPromoteOnDirtyPolicy } from "./promote-policy";
 
+export type { CloseTabOutcome } from "./close-handler";
+export { closeEditorWithConfirm } from "./close-handler";
+export { isDirty, subscribeFile as subscribeDirty } from "./dirty-tracker";
 export { useSharedModel } from "./model-cache";
 export {
   closeEditor,
@@ -11,9 +15,12 @@ export {
   openOrRevealEditor,
   PREVIEW_ENABLED,
 } from "./open-editor";
+export type { SaveResult } from "./save-service";
+export { saveModel } from "./save-service";
 export type { EditorInput, EditorTabLocation, EditorTabProps, OpenEditorOptions } from "./types";
 
 export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeModelCache(monaco);
   initializeLspBridge(monaco);
+  startPromoteOnDirtyPolicy();
 }
