@@ -14,7 +14,7 @@ export interface FsChangedForFile {
   relPath: string;
 }
 
-function relPathForInput(input: EditorInput): string {
+export function relPathForInput(input: EditorInput): string {
   const workspace = useWorkspacesStore
     .getState()
     .workspaces.find((candidate) => candidate.id === input.workspaceId);
