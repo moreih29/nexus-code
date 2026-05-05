@@ -15,3 +15,16 @@ export function basename(filePath: string): string {
   const idx = filePath.lastIndexOf("/");
   return idx === -1 ? filePath : filePath.slice(idx + 1);
 }
+
+/**
+ * Compute a workspace-relative POSIX path from an absolute file path.
+ * Returns the absolute path unchanged when the file is not under the
+ * given root (mirrors VSCode's `Copy Relative Path` falling back to the
+ * absolute path for files outside the workspace).
+ */
+export function relPath(absPath: string, rootPath: string): string {
+  const rootWithSep = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
+  if (absPath === rootPath) return "";
+  if (absPath.startsWith(rootWithSep)) return absPath.slice(rootWithSep.length);
+  return absPath;
+}

@@ -264,6 +264,12 @@ export const ipcContract = {
         }),
         WriteFileResultSchema,
       ),
+      showItemInFolder: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
+        z.void(),
+      ),
+      createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
+      mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
     },
     listen: {
       changed: listen(FsChangedEventSchema),

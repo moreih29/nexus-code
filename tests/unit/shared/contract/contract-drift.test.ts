@@ -23,7 +23,11 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { readdirHandler, readFileHandler, statHandler } from "../../../../src/main/ipc/channels/fs";
+import {
+  readdirHandler,
+  readFileHandler,
+  statHandler,
+} from "../../../../src/main/ipc/channels/fs/read-handlers";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
