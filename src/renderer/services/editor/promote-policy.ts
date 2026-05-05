@@ -14,14 +14,7 @@
 import type { EditorTabProps } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { subscribeTransitions } from "./dirty-tracker";
-
-/**
- * `cacheUri` for editor tabs is `file://${filePath}` (see model-cache).
- * Strip the prefix to get the absolute filePath stored in tab.props.
- */
-function filePathFromCacheUri(cacheUri: string): string | null {
-  return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
-}
+import { cacheUriToFilePath } from "./model-cache";
 
 let unsubscribe: (() => void) | null = null;
 
@@ -31,7 +24,7 @@ export function startPromoteOnDirtyPolicy(): void {
   unsubscribe = subscribeTransitions((event) => {
     if (!event.isDirty) return; // we only care about clean → dirty
 
-    const filePath = filePathFromCacheUri(event.cacheUri);
+    const filePath = cacheUriToFilePath(event.cacheUri);
     if (!filePath) return;
 
     const tabsStore = useTabsStore.getState();

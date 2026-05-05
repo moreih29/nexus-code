@@ -66,6 +66,17 @@ export function filePathToModelUri(filePath: string): string {
   return `file://${filePath}`;
 }
 
+/**
+ * Inverse of `filePathToModelUri`. Returns null when the cacheUri is not
+ * one we produced (defensive — protects callers from mistakenly slicing
+ * an unrelated string). Callers that need the file path of a tracked
+ * model should always use this rather than slicing the prefix off
+ * inline; the prefix shape is owned here.
+ */
+export function cacheUriToFilePath(cacheUri: string): string | null {
+  return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
+}
+
 export function languageIdForPath(filePath: string): string {
   const basename = filePath.slice(filePath.lastIndexOf("/") + 1);
   const extension = basename.includes(".")

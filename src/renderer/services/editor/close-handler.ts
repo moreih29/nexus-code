@@ -15,6 +15,7 @@ import { showSaveConfirm } from "@/components/ui/save-confirm-dialog";
 import type { EditorTabProps } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import { isDirty } from "./dirty-tracker";
+import { filePathToModelUri } from "./model-cache";
 import { closeEditor } from "./open-editor";
 import { saveModel } from "./save-service";
 
@@ -27,10 +28,6 @@ function basenameOf(filePath: string): string {
 
 function findTab(workspaceId: string, tabId: string) {
   return useTabsStore.getState().byWorkspace[workspaceId]?.[tabId] ?? null;
-}
-
-function dirtyKeyForTab(filePath: string): string {
-  return `file://${filePath}`;
 }
 
 /**
@@ -49,7 +46,7 @@ export async function closeEditorWithConfirm(
   }
 
   const filePath = (tab.props as EditorTabProps).filePath;
-  if (!isDirty(dirtyKeyForTab(filePath))) {
+  if (!isDirty(filePathToModelUri(filePath))) {
     closeEditor(tabId);
     return "closed";
   }
