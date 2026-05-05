@@ -11,8 +11,8 @@ import {
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import { readFileForModel, subscribeFsChanged } from "./file-loader";
+import { isLspLanguage, languageIdForPath } from "./language";
 import {
-  isLspLanguage,
   notifyDidChange,
   notifyDidClose,
   notifyDidOpen,
@@ -77,35 +77,6 @@ export function cacheUriToFilePath(cacheUri: string): string | null {
   return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
 }
 
-export function languageIdForPath(filePath: string): string {
-  const basename = filePath.slice(filePath.lastIndexOf("/") + 1);
-  const extension = basename.includes(".")
-    ? basename.slice(basename.lastIndexOf(".")).toLowerCase()
-    : "";
-
-  switch (extension) {
-    case ".ts":
-    case ".tsx":
-      return "typescript";
-    case ".js":
-    case ".jsx":
-    case ".mjs":
-    case ".cjs":
-      return "javascript";
-    case ".json":
-      return "json";
-    case ".css":
-      return "css";
-    case ".html":
-    case ".htm":
-      return "html";
-    case ".md":
-    case ".markdown":
-      return "markdown";
-    default:
-      return "plaintext";
-  }
-}
 
 function requireMonaco(): typeof Monaco {
   if (!monacoRef) {

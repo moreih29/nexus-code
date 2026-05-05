@@ -3,8 +3,8 @@
 
 import type * as Monaco from "monaco-editor";
 import { ipcCall, ipcListen } from "../../ipc/client";
+import { LSP_LANGUAGES } from "./language";
 
-const LSP_LANGUAGES = ["typescript", "javascript"] as const;
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
 const MARKER_OWNER = "lsp";
 
@@ -125,10 +125,6 @@ export function initializeLspBridge(monaco: typeof Monaco): void {
     registerLanguageProviders(monaco, languageId);
   }
   registerDiagnosticsListener(monaco);
-}
-
-export function isLspLanguage(languageId: string): boolean {
-  return LSP_LANGUAGES.includes(languageId as (typeof LSP_LANGUAGES)[number]);
 }
 
 export function registerKnownModelUri(uri: string): void {
