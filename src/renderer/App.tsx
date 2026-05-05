@@ -4,17 +4,13 @@ import { FilesPanel } from "./components/files";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WorkspacePanel } from "./components/workspace/workspace-panel";
-import { Grid } from "./engine/split";
 import { ipcCall } from "./ipc/client";
-import { handleGlobalKeyDown } from "./keybindings/global";
-import { initializeEditorServices, openOrRevealEditor } from "./services/editor";
-import { openTerminal } from "./services/terminal";
-import { closeGroup } from "./state/operations";
+import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
+import { initializeEditorServices } from "./services/editor";
 import { registerStatePersistence } from "./state/persistence";
 import { useActiveStore } from "./state/stores/active";
-import { useFilesStore } from "./state/stores/files";
 import { useLayoutStore } from "./state/stores/layout";
-import { type EditorTabProps, type TerminalTabProps, useTabsStore } from "./state/stores/tabs";
+import { useTabsStore } from "./state/stores/tabs";
 import { useUIStore } from "./state/stores/ui";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
@@ -72,10 +68,10 @@ export function App() {
         }
       }
 
-      // Register persistence subscriber after hydrate to avoid write-storm
-      // Use a brief timer so the store subscriptions don't fire during the
-      // synchronous hydrate state updates.
-      setTimeout(registerStatePersistence, 100);
+      // Register persistence subscriber after hydrate. Zustand `subscribe` fires
+      // only on subsequent state changes — past hydrate setStates have already
+      // flushed synchronously by the time this line runs, so no replay storm.
+      registerStatePersistence();
     });
   }, []);
 
@@ -170,87 +166,7 @@ export function App() {
   );
 
   // Global keybindings: Cmd+E / Cmd+O / Cmd+R / Cmd+\ / Cmd+Shift+\ / Cmd+Shift+W / Cmd+Alt+Arrow
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      handleGlobalKeyDown(e, {
-        getActiveWorkspaceId: () => useActiveStore.getState().activeWorkspaceId,
-        refresh: (wsId) => useFilesStore.getState().refresh(wsId),
-        openFileDialog: async (wsId) => {
-          const { canceled, filePaths } = await ipcCall("dialog", "showOpenFile", {
-            title: "Open File",
-            filters: [
-              { name: "TypeScript / JavaScript", extensions: ["ts", "tsx", "js", "jsx"] },
-              { name: "All Files", extensions: ["*"] },
-            ],
-          });
-          if (canceled || filePaths.length === 0) return;
-          openOrRevealEditor({ workspaceId: wsId, filePath: filePaths[0] });
-        },
-
-        splitActiveGroup: (orientation) => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-          const activeLeaf = Grid.findView(layout.root, layout.activeGroupId);
-          if (!activeLeaf?.activeTabId) return;
-          const tab = useTabsStore.getState().byWorkspace[wsId]?.[activeLeaf.activeTabId];
-          if (!tab) return;
-
-          if (tab.type === "editor") {
-            openOrRevealEditor(tab.props as EditorTabProps, {
-              newSplit: { orientation, side: "after" },
-            });
-            return;
-          }
-
-          if (tab.type === "terminal") {
-            const props = tab.props as TerminalTabProps;
-            openTerminal(
-              { workspaceId: wsId, cwd: props.cwd },
-              { groupId: activeLeaf.id, newSplit: { orientation, side: "after" } },
-            );
-          }
-        },
-
-        closeActiveGroup: () => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-          closeGroup(wsId, layout.activeGroupId);
-        },
-
-        moveFocus: (direction) => {
-          const wsId = useActiveStore.getState().activeWorkspaceId;
-          if (!wsId) return;
-          const layout = useLayoutStore.getState().byWorkspace[wsId];
-          if (!layout) return;
-
-          const leaves = Grid.allLeaves(layout.root);
-          if (leaves.length <= 1) return;
-
-          const currentIdx = leaves.findIndex((l) => l.id === layout.activeGroupId);
-          if (currentIdx === -1) return;
-
-          let nextIdx: number;
-          if (direction === "left" || direction === "up") {
-            nextIdx = currentIdx > 0 ? currentIdx - 1 : leaves.length - 1;
-          } else {
-            nextIdx = currentIdx < leaves.length - 1 ? currentIdx + 1 : 0;
-          }
-
-          const nextLeaf = leaves[nextIdx];
-          if (nextLeaf) {
-            useLayoutStore.getState().setActiveGroup(wsId, nextLeaf.id);
-          }
-        },
-      });
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useGlobalKeybindings();
 
   // Render panels for every mounted workspace; only the active is visible.
   // Filter through `workspaces` so a deleted workspace's panel disappears

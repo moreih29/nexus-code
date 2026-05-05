@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const mockIpcCall = mock(() => Promise.resolve());
 
-mock.module("../../../../src/renderer/ipc/client", () => ({
+mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mockIpcCall,
 }));
 
@@ -32,7 +32,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   useUIStore,
-} from "../../../../src/renderer/state/stores/ui";
+} from "../../../../../../src/renderer/state/stores/ui";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -1,10 +1,10 @@
 import type { SplitBranch, SplitLeaf, SplitNode } from "./types";
 
-export function findView(tree: SplitNode, id: string): SplitLeaf | null {
+export function findLeaf(tree: SplitNode, id: string): SplitLeaf | null {
   if (tree.kind === "leaf") {
     return tree.id === id ? tree : null;
   }
-  return findView(tree.first, id) ?? findView(tree.second, id);
+  return findLeaf(tree.first, id) ?? findLeaf(tree.second, id);
 }
 
 export function findLeafByTab(
@@ -20,13 +20,13 @@ export function findLeafByTab(
   return findLeafByTab(root.first, predicate) ?? findLeafByTab(root.second, predicate);
 }
 
-export function findBranch(tree: SplitNode, id: string): SplitBranch | null {
+export function findSplit(tree: SplitNode, id: string): SplitBranch | null {
   if (tree.kind === "leaf") return null;
   if (tree.id === id) return tree;
-  return findBranch(tree.first, id) ?? findBranch(tree.second, id);
+  return findSplit(tree.first, id) ?? findSplit(tree.second, id);
 }
 
-export function parentBranchOf(tree: SplitNode, leafId: string): SplitBranch | null {
+export function parentSplitOf(tree: SplitNode, leafId: string): SplitBranch | null {
   if (tree.kind === "leaf") return null;
   if (
     (tree.first.kind === "leaf" && tree.first.id === leafId) ||
@@ -34,7 +34,7 @@ export function parentBranchOf(tree: SplitNode, leafId: string): SplitBranch | n
   ) {
     return tree;
   }
-  return parentBranchOf(tree.first, leafId) ?? parentBranchOf(tree.second, leafId);
+  return parentSplitOf(tree.first, leafId) ?? parentSplitOf(tree.second, leafId);
 }
 
 export function leftmostLeaf(node: SplitNode): SplitLeaf {

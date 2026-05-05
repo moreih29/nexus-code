@@ -1,6 +1,6 @@
 import { clampRatio } from "./sash-math";
+import { findLeaf, findSplit, leftmostLeaf, parentSplitOf } from "./traversal";
 import type { Direction, IdFactory, SplitBranch, SplitLeaf, SplitNode } from "./types";
-import { findBranch, findView, leftmostLeaf, parentBranchOf } from "./traversal";
 
 function directionToSplit(direction: Direction): {
   orientation: "horizontal" | "vertical";
@@ -33,18 +33,18 @@ export function replaceLeaf(
   leafId: string,
   updater: (leaf: SplitLeaf) => SplitLeaf,
 ): SplitNode {
-  const leaf = findView(tree, leafId);
+  const leaf = findLeaf(tree, leafId);
   if (!leaf) return tree;
   return replaceNode(tree, leafId, updater(leaf));
 }
 
-export function addView(
+export function addLeaf(
   tree: SplitNode,
   refLeafId: string,
   direction: Direction,
   idFactory: IdFactory,
 ): { root: SplitNode; newLeafId: string } {
-  const target = findView(tree, refLeafId);
+  const target = findLeaf(tree, refLeafId);
   if (!target) return { root: tree, newLeafId: "" };
 
   const { orientation, side } = directionToSplit(direction);
@@ -63,7 +63,7 @@ export function addView(
   return { root: replaceNode(tree, refLeafId, branch), newLeafId };
 }
 
-export function removeView(
+export function removeLeaf(
   tree: SplitNode,
   leafId: string,
 ): { root: SplitNode; hoistedSiblingLeafId: string | null } {
@@ -71,7 +71,7 @@ export function removeView(
     return { root: tree, hoistedSiblingLeafId: null };
   }
 
-  const parent = parentBranchOf(tree, leafId);
+  const parent = parentSplitOf(tree, leafId);
   if (!parent) {
     return { root: tree, hoistedSiblingLeafId: null };
   }
@@ -87,14 +87,14 @@ export function setRatio(
   branchId: string,
   ratio: number,
 ): SplitNode {
-  const branch = findBranch(tree, branchId);
+  const branch = findSplit(tree, branchId);
   if (!branch) return tree;
   return replaceNode(tree, branchId, { ...branch, ratio: clampRatio(ratio) });
 }
 
-export function swapViews(tree: SplitNode, leafAId: string, leafBId: string): SplitNode {
-  const leafA = findView(tree, leafAId);
-  const leafB = findView(tree, leafBId);
+export function swapLeaves(tree: SplitNode, leafAId: string, leafBId: string): SplitNode {
+  const leafA = findLeaf(tree, leafAId);
+  const leafB = findLeaf(tree, leafBId);
   if (!leafA || !leafB) return tree;
 
   const afterA = replaceNode(tree, leafAId, { ...leafB, id: leafAId });

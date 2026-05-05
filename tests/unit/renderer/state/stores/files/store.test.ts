@@ -24,7 +24,7 @@ const mockIpcListen = mock(
   (_channel: string, _event: string, _cb: unknown) => () => {},
 );
 
-mock.module("../../../../src/renderer/ipc/client", () => ({
+mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mockIpcCall,
   ipcListen: mockIpcListen,
 }));
@@ -33,8 +33,8 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { handleFsChanged, selectFlat, useFilesStore } from "../../../../src/renderer/state/stores/files";
-import type { DirEntry } from "../../../../src/shared/types/fs";
+import { handleFsChanged, selectFlat, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
+import type { DirEntry } from "../../../../../../src/shared/types/fs";
 
 // ---------------------------------------------------------------------------
 // Constants

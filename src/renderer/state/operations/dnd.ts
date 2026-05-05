@@ -67,7 +67,7 @@ export function moveTabToZone(
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
 
-  const destLeaf = Grid.findView(layout.root, target.groupId);
+  const destLeaf = Grid.findLeaf(layout.root, target.groupId);
   if (!destLeaf) return null;
 
   const owner = Grid.allLeaves(layout.root).find((l) => l.tabIds.includes(tabId));
@@ -151,7 +151,7 @@ export function openFileAtZone(
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
 
-  const destLeaf = Grid.findView(layout.root, target.groupId);
+  const destLeaf = Grid.findLeaf(layout.root, target.groupId);
   if (!destLeaf) return null;
 
   const props: EditorTabProps = { workspaceId, filePath };
