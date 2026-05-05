@@ -543,6 +543,80 @@ describe("Scenario 5 (AUTO): refresh → invalidates children, re-issues readdir
     expect(useFilesStore.getState().trees.has(WS_B)).toBe(true);
   });
 
+  it("refresh re-issues readdir for previously-expanded subdirectories", async () => {
+    // Bug regression: the wipe step preserves the `expanded` set but
+    // resets `childrenLoaded` on every removed node. Without a
+    // BFS-reload the user sees an "expanded" chevron over an empty
+    // subtree until they manually collapse + reopen.
+    const srcAbs = `${ROOT_A}/src`;
+    setupReaddir(
+      new Map([
+        ["", [dirEntry("src", "dir")]],
+        ["src", [dirEntry("a.ts", "file")]],
+      ]),
+    );
+
+    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
+    await useFilesStore.getState().toggleExpand(WS_A, srcAbs);
+
+    expect(useFilesStore.getState().trees.get(WS_A)?.expanded.has(srcAbs)).toBe(true);
+    const beforeSrc = useFilesStore.getState().trees.get(WS_A)?.nodes.get(srcAbs);
+    expect(beforeSrc?.childrenLoaded).toBe(true);
+    expect(beforeSrc?.children).toHaveLength(1);
+
+    mockIpcCall.mockClear();
+    setupReaddir(
+      new Map([
+        ["", [dirEntry("src", "dir"), dirEntry("README.md", "file")]],
+        ["src", [dirEntry("a.ts", "file"), dirEntry("b.ts", "file")]],
+      ]),
+    );
+
+    await useFilesStore.getState().refresh(WS_A);
+
+    const afterSrc = useFilesStore.getState().trees.get(WS_A)?.nodes.get(srcAbs);
+    expect(afterSrc?.childrenLoaded).toBe(true);
+    expect(afterSrc?.children).toHaveLength(2);
+
+    // Two readdirs: one for the root, one for the previously-expanded `src`.
+    const readdirCalls = mockIpcCall.mock.calls.filter((c) => c[1] === "readdir");
+    expect(readdirCalls).toHaveLength(2);
+    expect(readdirCalls.map((c) => (c[2] as { relPath: string }).relPath).sort()).toEqual([
+      "",
+      "src",
+    ]);
+  });
+
+  it("refresh re-issues readdir for nested expanded chains", async () => {
+    // /r/sub/inner — both expanded. After refresh both subtrees must
+    // come back loaded so the user doesn't see two empty chevrons.
+    const subAbs = `${ROOT_A}/sub`;
+    const innerAbs = `${subAbs}/inner`;
+    setupReaddir(
+      new Map([
+        ["", [dirEntry("sub", "dir")]],
+        ["sub", [dirEntry("inner", "dir")]],
+        ["sub/inner", [dirEntry("x.ts", "file")]],
+      ]),
+    );
+
+    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
+    await useFilesStore.getState().toggleExpand(WS_A, subAbs);
+    await useFilesStore.getState().toggleExpand(WS_A, innerAbs);
+
+    setupReaddir(
+      new Map([
+        ["", [dirEntry("sub", "dir")]],
+        ["sub", [dirEntry("inner", "dir")]],
+        ["sub/inner", [dirEntry("x.ts", "file"), dirEntry("y.ts", "file")]],
+      ]),
+    );
+    await useFilesStore.getState().refresh(WS_A);
+
+    const innerNode = useFilesStore.getState().trees.get(WS_A)?.nodes.get(innerAbs);
+    expect(innerNode?.childrenLoaded).toBe(true);
+    expect(innerNode?.children).toHaveLength(2);
+  });
 });
 
 // ---------------------------------------------------------------------------

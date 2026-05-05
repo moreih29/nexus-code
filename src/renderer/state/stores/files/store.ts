@@ -248,13 +248,21 @@ export const useFilesStore = create<FilesState>((set, get) => ({
     const node = tree.nodes.get(targetPath);
     if (!node) return;
 
-    // Remove all descendant nodes, reset childrenLoaded
+    // Snapshot the expanded set BEFORE wiping. The wipe deletes nodes
+    // but intentionally keeps `expanded` intact so the user's open
+    // chevrons aren't all lost on every refresh — but that means we
+    // must re-issue readdir for those expanded paths, otherwise the
+    // tree shows expanded chevrons over empty subtrees until the user
+    // collapses + reopens each one. (See issue: ⌘R left a UI in the
+    // "expanded but no children loaded" state.)
+    const expandedSnapshot = new Set(tree.expanded);
+
+    // Remove all descendant nodes, reset childrenLoaded on the target.
     set((state) => {
       const t = state.trees.get(workspaceId);
       if (!t) return state;
       const next = cloneTree(t);
 
-      // Collect all descendants to remove
       const toRemove = new Set<string>();
       const queue = [...(next.nodes.get(targetPath)?.children ?? [])];
       while (queue.length > 0) {
@@ -285,7 +293,28 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       return { trees: setTree(state.trees, workspaceId, next) };
     });
 
-    await get().loadChildren(workspaceId, targetPath);
+    // BFS-reload along the previously-expanded subtree. Siblings load
+    // in parallel; each depth waits for the previous so deeper paths
+    // (which only exist as nodes once their parent's readdir lands)
+    // are visible before we try to recurse into them.
+    let frontier = [targetPath];
+    while (frontier.length > 0) {
+      await Promise.all(frontier.map((p) => get().loadChildren(workspaceId, p)));
+
+      const t = get().trees.get(workspaceId);
+      if (!t) break;
+      const nextFrontier: string[] = [];
+      for (const p of frontier) {
+        const n = t.nodes.get(p);
+        if (!n) continue;
+        for (const child of n.children) {
+          if (!expandedSnapshot.has(child)) continue;
+          const childNode = t.nodes.get(child);
+          if (childNode?.type === "dir") nextFrontier.push(child);
+        }
+      }
+      frontier = nextFrontier;
+    }
   },
 
   async reveal(workspaceId, absPath) {
