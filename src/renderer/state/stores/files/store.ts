@@ -30,6 +30,17 @@ function scheduleSave(workspaceId: string): void {
 
 export const useFilesStore = create<FilesState>((set, get) => ({
   trees: new Map(),
+  activeAbsPath: new Map(),
+
+  setActiveAbsPath(workspaceId, absPath) {
+    set((state) => {
+      const cur = state.activeAbsPath.get(workspaceId) ?? null;
+      if (cur === absPath) return state;
+      const next = new Map(state.activeAbsPath);
+      next.set(workspaceId, absPath);
+      return { activeAbsPath: next };
+    });
+  },
 
   async ensureRoot(workspaceId, rootAbsPath) {
     const inflight = _ensureRootPromises.get(workspaceId);

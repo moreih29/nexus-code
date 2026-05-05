@@ -6,12 +6,10 @@
  * current platform — the underlying binding lives next to the command
  * declaration.
  *
- * `openToSide` does not have a global keybinding declaration: it's
- * scoped to the file-tree's own keydown handler in
- * `components/files/keys.ts`. Phase 3 will fold it into the registry
- * with a `when: "fileTreeFocus"` context; until then the label sits
- * in {@link MANUAL_SHORTCUT_LABELS} below as the one acknowledged
- * exception.
+ * Every command surfaced in a context menu now has a `KEYBINDINGS`
+ * entry, including `openToSide` (registered with `when: "fileTreeFocus"`
+ * since Phase 3). There is no longer a separate map of hand-written
+ * labels.
  */
 
 import { COMMANDS, type CommandId } from "../../shared/commands";
@@ -53,16 +51,6 @@ export function shortcutFor(command: CommandId): string | undefined {
 }
 
 /**
- * One-off shortcut labels for surfaces that don't (yet) flow through
- * the global registry. Currently only Open-to-Side, which is owned by
- * the file-tree's own key handler. Phase 3 will retire this map once
- * `when` contexts are wired up.
- */
-export const MANUAL_SHORTCUT_LABELS = {
-  openToSide: isMac ? "⌘↵" : "Ctrl+Enter",
-} as const;
-
-/**
  * Back-compat shim: the previous `SHORTCUTS` map is still consumed in
  * a handful of places. New callers should prefer `shortcutFor(...)`.
  * Each value is computed once at module load by looking up the
@@ -79,5 +67,5 @@ export const SHORTCUTS = {
   revealInOS: shortcutFor(COMMANDS.pathReveal) ?? "",
   copyPath: shortcutFor(COMMANDS.pathCopy) ?? "",
   copyRelativePath: shortcutFor(COMMANDS.pathCopyRelative) ?? "",
-  openToSide: MANUAL_SHORTCUT_LABELS.openToSide,
+  openToSide: shortcutFor(COMMANDS.openToSide) ?? "",
 } as const;

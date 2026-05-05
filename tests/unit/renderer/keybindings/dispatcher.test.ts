@@ -154,17 +154,20 @@ describe("handleGlobalKeyDown — refresh", () => {
   });
 });
 
-describe("handleGlobalKeyDown — fileOpen editable guard", () => {
-  it("does not fire file.open when target is INPUT", () => {
+describe("handleGlobalKeyDown — fileOpen fires regardless of focus", () => {
+  // Phase 3: VSCode-default behaviour — application-level shortcuts
+  // fire even from inside an INPUT / editor unless their declaration
+  // explicitly scopes via `when`.
+  it("fires file.open on Cmd+E even when target is INPUT", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
     const e = makeEvent("e", { metaKey: true, code: "KeyE", target });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.fileOpen]).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
+    expect(spies[COMMANDS.fileOpen]).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
   });
 
-  it("fires file.open on Cmd+E for non-editable target", () => {
+  it("fires file.open on Cmd+E for a plain target", () => {
     const spies = setupCommandSpies();
     const target = {
       tagName: "DIV",
@@ -177,7 +180,7 @@ describe("handleGlobalKeyDown — fileOpen editable guard", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("fires file.open on Cmd+O for non-editable target", () => {
+  it("fires file.open on Cmd+O", () => {
     const spies = setupCommandSpies();
     const target = {
       tagName: "DIV",
@@ -224,12 +227,12 @@ describe("handleGlobalKeyDown — split", () => {
     expect(spies[COMMANDS.groupSplitRight]).not.toHaveBeenCalled();
   });
 
-  it("does not fire split when target is INPUT", () => {
+  it("fires split even when target is INPUT (no when scoping on split bindings)", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
     const e = makeEvent("\\", { metaKey: true, code: "Backslash", target });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.groupSplitRight]).not.toHaveBeenCalled();
+    expect(spies[COMMANDS.groupSplitRight]).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -259,6 +262,34 @@ describe("handleGlobalKeyDown — tab close", () => {
     const e = makeEvent("t", { metaKey: true, altKey: true, code: "KeyT" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.tabCloseOthers]).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("handleGlobalKeyDown — when scoping (openToSide)", () => {
+  it("Cmd+Enter fires openToSide when target is inside [role='tree']", () => {
+    const spies = setupCommandSpies();
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
+    } as unknown as HTMLElement;
+    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.openToSide]).toHaveBeenCalledTimes(1);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("Cmd+Enter does NOT fire openToSide outside the file tree", () => {
+    const spies = setupCommandSpies();
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const e = makeEvent("Enter", { metaKey: true, code: "Enter", target });
+    handleGlobalKeyDown(e as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.openToSide]).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(false);
   });
 });
 

@@ -51,7 +51,7 @@ describe("resolveEvent — no chord pending", () => {
     expect(r.kind).toBe("none");
   });
 
-  it("respects guardEditable: false on files.refresh", () => {
+  it("matches files.refresh on ⌘R regardless of focus (no when)", () => {
     const r = resolveEvent(
       ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent,
       null,
@@ -59,16 +59,6 @@ describe("resolveEvent — no chord pending", () => {
     expect(r.kind).toBe("single");
     if (r.kind !== "single") throw new Error("unreachable");
     expect(r.command).toBe(COMMANDS.filesRefresh);
-    expect(r.respectGuardEditable).toBe(false);
-  });
-
-  it("respects guardEditable: true (default) on tabClose", () => {
-    const r = resolveEvent(
-      ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent,
-      null,
-    );
-    if (r.kind !== "single") throw new Error("unreachable");
-    expect(r.respectGuardEditable).toBe(true);
   });
 
   it("matches ⌘\\ on both Backslash and Slash codes (Korean keyboard parity)", () => {
@@ -81,6 +71,33 @@ describe("resolveEvent — no chord pending", () => {
     expect(
       resolveEvent(ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
     ).toBe("single");
+  });
+});
+
+describe("resolveEvent — when scoping", () => {
+  function withTarget(
+    code: string,
+    mods: Partial<Omit<MockKE, "code" | "key">>,
+    matches: string[],
+  ): KeyboardEvent {
+    const target = {
+      tagName: "DIV",
+      isContentEditable: false,
+      closest: (sel: string) => (matches.includes(sel) ? ({} as HTMLElement) : null),
+    };
+    return { ...ev(code, mods), target } as unknown as KeyboardEvent;
+  }
+
+  it("⌘↵ matches openToSide inside the file tree (fileTreeFocus = true)", () => {
+    const e = withTarget("Enter", { metaKey: true }, ['[role="tree"]']);
+    const r = resolveEvent(e, null);
+    if (r.kind !== "single") throw new Error("expected single match");
+    expect(r.command).toBe(COMMANDS.openToSide);
+  });
+
+  it("⌘↵ does not match outside the file tree (fileTreeFocus = false)", () => {
+    const e = withTarget("Enter", { metaKey: true }, []);
+    expect(resolveEvent(e, null).kind).toBe("none");
   });
 });
 

@@ -16,11 +16,14 @@
 
 import { matchesEvent, type ParsedKeystroke, parseAccelerator } from "../../shared/keybinding-parse";
 import { type KeybindingDecl, KEYBINDINGS } from "../../shared/keybindings";
+import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybinding-when";
 import type { CommandId } from "../../shared/commands";
+import { evaluateContextKey } from "./context-keys";
 
 interface CompiledPrimary {
   decl: KeybindingDecl;
   parsed: ParsedKeystroke;
+  when: WhenExpr | null;
 }
 
 interface CompiledChord {
@@ -30,14 +33,16 @@ interface CompiledChord {
   /** The leader's accelerator string, used as a stable id when filtering
    *  chord secondaries that share the same first half. */
   leaderId: string;
+  when: WhenExpr | null;
 }
 
 const PRIMARIES: CompiledPrimary[] = [];
 const CHORDS: CompiledChord[] = [];
 
 for (const decl of KEYBINDINGS) {
+  const when = decl.when !== undefined ? parseWhen(decl.when) : null;
   if (decl.primary !== undefined) {
-    PRIMARIES.push({ decl, parsed: parseAccelerator(decl.primary) });
+    PRIMARIES.push({ decl, parsed: parseAccelerator(decl.primary), when });
   }
   if (decl.chord !== undefined) {
     CHORDS.push({
@@ -45,19 +50,17 @@ for (const decl of KEYBINDINGS) {
       leader: parseAccelerator(decl.chord[0]),
       secondary: parseAccelerator(decl.chord[1]),
       leaderId: decl.chord[0],
+      when,
     });
   }
 }
 
 /**
- * Result of resolving a single keydown.
- *
- * `respectGuardEditable` lets the dispatcher decide whether to honor
- * the legacy "no shortcut while typing" rule for that match. Phase 3
- * will replace it with a `when` context expression.
+ * Result of resolving a single keydown. The dispatcher decides what to
+ * do with each variant; the resolver itself never touches the DOM.
  */
 export type Resolution =
-  | { kind: "single"; command: CommandId; respectGuardEditable: boolean }
+  | { kind: "single"; command: CommandId }
   | { kind: "chord-leader"; leaderId: string }
   | { kind: "chord-completed"; command: CommandId }
   | { kind: "chord-mismatch" }
@@ -80,6 +83,7 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   if (pendingLeader !== null) {
     for (const c of CHORDS) {
       if (c.leaderId !== pendingLeader) continue;
+      if (!whenMatches(c.when, e)) continue;
       // Mask leader-only modifiers when matching the secondary so
       // users who keep ⌘ held through a `⌘K U` chord aren't punished
       // (`KeyU` with metaKey set would otherwise fail an exact match
@@ -96,22 +100,23 @@ export function resolveEvent(e: KeyboardEvent, pendingLeader: string | null): Re
   }
 
   for (const p of PRIMARIES) {
-    if (matchesEvent(p.parsed, e)) {
-      return {
-        kind: "single",
-        command: p.decl.command,
-        respectGuardEditable: p.decl.guardEditable !== false,
-      };
-    }
+    if (!matchesEvent(p.parsed, e)) continue;
+    if (!whenMatches(p.when, e)) continue;
+    return { kind: "single", command: p.decl.command };
   }
 
   for (const c of CHORDS) {
-    if (matchesEvent(c.leader, e)) {
-      return { kind: "chord-leader", leaderId: c.leaderId };
-    }
+    if (!matchesEvent(c.leader, e)) continue;
+    if (!whenMatches(c.when, e)) continue;
+    return { kind: "chord-leader", leaderId: c.leaderId };
   }
 
   return { kind: "none" };
+}
+
+function whenMatches(expr: WhenExpr | null, e: KeyboardEvent): boolean {
+  if (expr === null) return true;
+  return evaluateWhen(expr, (name) => evaluateContextKey(name, e));
 }
 
 /**

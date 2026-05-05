@@ -41,13 +41,17 @@ export interface KeybindingDecl {
    */
   chord?: readonly [AcceleratorString, AcceleratorString];
   /**
-   * If false, the binding fires regardless of where focus is. If
-   * absent or true, the binding is suppressed when focus is in a
-   * text-editing element (input, textarea, contenteditable, Monaco,
-   * CodeMirror). Phase 3 will replace this with a context-key
-   * expression.
+   * VSCode-style focus-scoping expression. Evaluated against the
+   * keydown's target before the command fires; if the expression is
+   * falsy the binding does not match and the dispatcher reports
+   * `none`. Absent means "fires regardless of focus" (the VSCode
+   * default for application-level shortcuts).
+   *
+   * Supported keys are listed in `renderer/keybindings/context-keys.ts`.
+   * Grammar (`!`, `&&`, `||`, parentheses) is parsed by
+   * `shared/keybinding-when.ts`.
    */
-  guardEditable?: boolean;
+  when?: string;
 }
 
 /**
@@ -60,10 +64,13 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+E" },
   { command: COMMANDS.fileOpen, primary: "CmdOrCtrl+O" },
   { command: COMMANDS.fileSave, primary: "CmdOrCtrl+S" },
-  // Refresh fires even inside editables (matches the prior behaviour
-  // that intentionally blocks the page-level reload regardless of focus).
-  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+R", guardEditable: false },
-  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+Shift+R", guardEditable: false },
+  // Refresh blocks the page-level reload regardless of focus.
+  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+R" },
+  { command: COMMANDS.filesRefresh, primary: "CmdOrCtrl+Shift+R" },
+
+  // Open the active file-tree row in a side split. Scoped to the
+  // tree so ⌘↵ inside a code editor still inserts a new line.
+  { command: COMMANDS.openToSide, primary: "CmdOrCtrl+Enter", when: "fileTreeFocus" },
 
   // Tabs
   { command: COMMANDS.tabClose, primary: "CmdOrCtrl+W" },

@@ -102,6 +102,28 @@ export function useGlobalKeybindings(): void {
     );
 
     unregister.push(
+      registerCommand(COMMANDS.openToSide, () => {
+        const wsId = useActiveStore.getState().activeWorkspaceId;
+        if (!wsId) return;
+        const path = useFilesStore.getState().activeAbsPath.get(wsId);
+        if (!path) return;
+        // Mirror the file-tree's local "open in side split" — the
+        // explorer publishes the active row's absPath to the store so
+        // this handler can act without seeing the tree's component
+        // state. Directories are filtered here (not in the file-tree)
+        // because the global dispatcher fires regardless of the row's
+        // node type.
+        const tree = useFilesStore.getState().trees.get(wsId);
+        const node = tree?.nodes.get(path);
+        if (!node || node.type !== "file") return;
+        openOrRevealEditor(
+          { workspaceId: wsId, filePath: path },
+          { newSplit: { orientation: "horizontal", side: "after" } },
+        );
+      }),
+    );
+
+    unregister.push(
       registerCommand(COMMANDS.fileOpen, async () => {
         const wsId = useActiveStore.getState().activeWorkspaceId;
         if (!wsId) return;
@@ -244,8 +266,6 @@ export function useGlobalKeybindings(): void {
       }
     }
     window.addEventListener("keydown", onKeyDown, { capture: true });
-    // TEMPORARY: chord-debug. Confirms the listener actually mounted.
-    console.log("[chord] global keydown listener attached (capture)");
 
     return () => {
       window.removeEventListener("keydown", onKeyDown, { capture: true });

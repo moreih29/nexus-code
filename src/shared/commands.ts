@@ -19,6 +19,9 @@ export const COMMANDS = {
   fileOpen: "file.open",
   fileSave: "file.save",
   filesRefresh: "files.refresh",
+  // Opens the focused file-tree row in a side split (VSCode parity:
+  // explorer-only, scoped via `when: "fileTreeFocus"`).
+  openToSide: "explorer.openToSide",
 
   // Tabs
   tabClose: "tab.close",
