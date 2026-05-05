@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FilesPanel } from "./components/files";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
+import { ViewParkRoot } from "./components/workspace/content/view-park";
 import { WorkspacePanel } from "./components/workspace/workspace-panel";
 import { ipcCall } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
@@ -176,6 +177,7 @@ export function App() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <TitleBar />
+      <ViewParkRoot />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           workspaces={workspaces}
