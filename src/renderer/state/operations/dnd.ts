@@ -14,7 +14,7 @@ import { findEditorTabInGroup } from "@/services/editor/open-editor";
 import { useLayoutStore } from "../stores/layout";
 import type { SplitOrientation } from "../stores/layout/types";
 import { type EditorTabProps, useTabsStore } from "../stores/tabs";
-import { openEditorTab, revealTab } from "./tabs";
+import { closeTab, openEditorTab, revealTab } from "./tabs";
 
 function promoteTabIfPreview(workspaceId: string, tabId: string): void {
   useTabsStore.getState().promoteFromPreview(workspaceId, tabId);
@@ -91,6 +91,28 @@ export function moveTabToZone(
   const isCrossGroup = owner.id !== destLeaf.id;
 
   if (target.zone === "center") {
+    // VSCode parity: cross-group move where dest already has the same file →
+    // reveal the existing tab and close the source. Without this, the same
+    // file ends up in the dest group twice.
+    if (isCrossGroup) {
+      const sourceTab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+      if (sourceTab?.type === "editor") {
+        const filePath = (sourceTab.props as EditorTabProps).filePath;
+        const existing = findEditorTabInGroup(workspaceId, destLeaf.id, filePath);
+        if (existing && existing.tabId !== tabId) {
+          revealTab(workspaceId, existing.groupId, existing.tabId);
+          if (target.index !== undefined) {
+            useLayoutStore
+              .getState()
+              .attachTab(workspaceId, existing.groupId, existing.tabId, target.index);
+          }
+          promoteTabIfPreview(workspaceId, existing.tabId);
+          closeTab(workspaceId, tabId);
+          return { kind: "moved", groupId: existing.groupId, tabId: existing.tabId };
+        }
+      }
+    }
+
     useLayoutStore.getState().moveTab(workspaceId, tabId, destLeaf.id, target.index);
     if (isCrossGroup) promoteTabIfPreview(workspaceId, tabId);
     return { kind: "moved", groupId: destLeaf.id, tabId };

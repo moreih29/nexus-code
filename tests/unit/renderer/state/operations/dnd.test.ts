@@ -22,7 +22,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { openFileAtZone } from "../../../../../src/renderer/state/operations";
+import { moveTabToZone, openFileAtZone } from "../../../../../src/renderer/state/operations";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../../../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
@@ -197,5 +197,82 @@ describe("openFileAtZone edge always-new", () => {
 
     expect(result?.kind).toBe("split");
     expect(allLeaves(getLayout().root)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// moveTabToZone cross-group dedup — VSCode parity
+// ---------------------------------------------------------------------------
+
+describe("moveTabToZone cross-group center dedup", () => {
+  beforeEach(resetStores);
+
+  it("reveals dest existing tab and closes source when same file exists in dest", () => {
+    const leftLeafId = initLayout();
+    const leftFoo = openFileAtZone(WS, "/repo/foo.ts", { groupId: leftLeafId, zone: "center" });
+    const rightLeafId = useLayoutStore.getState().splitGroup(WS, leftLeafId, "horizontal", "after");
+    expect(rightLeafId).not.toBeNull();
+    const rightFoo = openFileAtZone(WS, "/repo/foo.ts", {
+      groupId: rightLeafId!,
+      zone: "center",
+    });
+
+    // Drag right's foo onto left's center — dest already has foo.
+    const result = moveTabToZone(WS, rightFoo!.tabId, { groupId: leftLeafId, zone: "center" });
+
+    expect(result?.kind).toBe("moved");
+    expect(result?.groupId).toBe(leftLeafId);
+    expect(result?.tabId).toBe(leftFoo!.tabId); // dest existing wins
+    // Source tab should have been closed.
+    expect(useTabsStore.getState().byWorkspace[WS]?.[rightFoo!.tabId]).toBeUndefined();
+    // Only one foo.ts editor record overall.
+    const editors = Object.values(useTabsStore.getState().byWorkspace[WS] ?? {}).filter(
+      (t) => t.type === "editor",
+    );
+    expect(editors).toHaveLength(1);
+  });
+
+  it("plain moves the tab when dest has no matching file", () => {
+    const leftLeafId = initLayout();
+    openFileAtZone(WS, "/repo/foo.ts", { groupId: leftLeafId, zone: "center" });
+    const rightLeafId = useLayoutStore.getState().splitGroup(WS, leftLeafId, "horizontal", "after");
+    const rightBar = openFileAtZone(WS, "/repo/bar.ts", {
+      groupId: rightLeafId!,
+      zone: "center",
+    });
+
+    const result = moveTabToZone(WS, rightBar!.tabId, { groupId: leftLeafId, zone: "center" });
+
+    expect(result?.kind).toBe("moved");
+    expect(result?.tabId).toBe(rightBar!.tabId); // source moved, not deduped
+    const leftLeaf = findLeaf(getLayout().root, leftLeafId)!;
+    expect(leftLeaf.tabIds).toContain(rightBar!.tabId);
+  });
+
+  it("promotes the dest preview tab when deduping (cross-group move semantics)", () => {
+    const leftLeafId = initLayout();
+    // Open foo as preview on left (single-click default).
+    const leftFoo = openFileAtZone(WS, "/repo/foo.ts", { groupId: leftLeafId, zone: "center" });
+    // Mark as preview to mirror real openOrRevealEditor flow.
+    useTabsStore.setState((s) => ({
+      byWorkspace: {
+        ...s.byWorkspace,
+        [WS]: {
+          ...s.byWorkspace[WS],
+          [leftFoo!.tabId]: { ...s.byWorkspace[WS][leftFoo!.tabId], isPreview: true },
+        },
+      },
+    }));
+
+    const rightLeafId = useLayoutStore.getState().splitGroup(WS, leftLeafId, "horizontal", "after");
+    const rightFoo = openFileAtZone(WS, "/repo/foo.ts", {
+      groupId: rightLeafId!,
+      zone: "center",
+    });
+
+    moveTabToZone(WS, rightFoo!.tabId, { groupId: leftLeafId, zone: "center" });
+
+    // Dest existing should be promoted to permanent.
+    expect(useTabsStore.getState().byWorkspace[WS]?.[leftFoo!.tabId]?.isPreview).toBe(false);
   });
 });
