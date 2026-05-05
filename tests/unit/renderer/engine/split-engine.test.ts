@@ -104,30 +104,6 @@ describe("Grid.addLeaf", () => {
     expect(wrappedBranch.first.id).toBe("deep");
   });
 
-  it("new leaf id equals the value returned by idFactory", () => {
-    const leaf = makeLeaf("L1");
-    const ids: string[] = [];
-    const factory = () => {
-      const id = `gen-${ids.length}`;
-      ids.push(id);
-      return id;
-    };
-    const { newLeafId } = Grid.addLeaf(leaf, "L1", "right", factory);
-    expect(ids).toContain(newLeafId);
-  });
-
-  it("two successive addView calls each invoke idFactory for their new leaf", () => {
-    const { factory, count } = makeCounter();
-    const leaf = makeLeaf("L1");
-    const { root: r1 } = Grid.addLeaf(leaf, "L1", "right", factory);
-    const callsAfterFirst = count();
-
-    const firstNewLeafId = (r1 as SplitBranch).second.id;
-    Grid.addLeaf(r1, firstNewLeafId, "right", factory);
-    const callsAfterSecond = count();
-
-    expect(callsAfterSecond).toBeGreaterThan(callsAfterFirst);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -457,55 +433,16 @@ describe("Grid.swapLeaves", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe("Grid sash-math")
+// describe("Grid.pxToRatio — division guard")
 // ---------------------------------------------------------------------------
+//
+// Clamping is exercised via Grid.setRatio (above). Multiplication and basic
+// ratio math is exercised via the live drag handlers (sidebar-resize.test.ts)
+// and Grid.setRatio. The only non-trivial branch left is the totalSize=0
+// divide-by-zero guard, which can't surface through higher-level tests.
 
-describe("Grid sash-math", () => {
-  describe("constants", () => {
-    it("MIN_RATIO is 0.05", () => {
-      expect(Grid.MIN_RATIO).toBe(0.05);
-    });
-
-    it("MAX_RATIO is 0.95", () => {
-      expect(Grid.MAX_RATIO).toBe(0.95);
-    });
-  });
-
-  describe("clampRatio", () => {
-    it("value below MIN_RATIO is clamped to 0.05", () => {
-      expect(Grid.clampRatio(0.04)).toBe(0.05);
-    });
-
-    it("value above MAX_RATIO is clamped to 0.95", () => {
-      expect(Grid.clampRatio(0.96)).toBe(0.95);
-    });
-
-    it("mid-range value passes through unchanged", () => {
-      expect(Grid.clampRatio(0.5)).toBe(0.5);
-    });
-  });
-
-  describe("pxToRatio", () => {
-    it("50px out of 100px => 0.5", () => {
-      expect(Grid.pxToRatio(50, 100)).toBe(0.5);
-    });
-
-    it("95px out of 100px is clamped to MAX_RATIO (0.95)", () => {
-      expect(Grid.pxToRatio(95, 100)).toBe(0.95);
-    });
-
-    it("0px out of 100px is clamped to MIN_RATIO (0.05)", () => {
-      expect(Grid.pxToRatio(0, 100)).toBe(0.05);
-    });
-
-    it("totalSize 0 returns 0.5 (division guard)", () => {
-      expect(Grid.pxToRatio(50, 0)).toBe(0.5);
-    });
-  });
-
-  describe("ratioToPx", () => {
-    it("0.5 ratio * 100 total => 50", () => {
-      expect(Grid.ratioToPx(0.5, 100)).toBe(50);
-    });
+describe("Grid.pxToRatio", () => {
+  it("totalSize 0 returns 0.5 (division guard prevents NaN)", () => {
+    expect(Grid.pxToRatio(50, 0)).toBe(0.5);
   });
 });

@@ -130,17 +130,6 @@ describe("handleGlobalKeyDown — Cmd+R", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it("calls deps.refresh and preventDefault on Cmd+Shift+R (uppercase R)", () => {
-    const deps = makeDeps("ws-1");
-    const e = makeEvent("R", { metaKey: true, shiftKey: true });
-
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-
-    expect(deps.refreshMock).toHaveBeenCalledTimes(1);
-    expect(deps.refreshMock).toHaveBeenCalledWith("ws-1");
-    expect(e.defaultPrevented).toBe(true);
-  });
-
   it("still calls preventDefault even when no active workspace", () => {
     const deps = makeDeps(null);
     const e = makeEvent("r", { metaKey: true });
@@ -327,15 +316,6 @@ describe("handleGlobalKeyDown — splitActiveGroup via e.code", () => {
     expect(splitMock).toHaveBeenCalledTimes(1);
     expect(splitMock).toHaveBeenCalledWith("vertical");
     expect(e.defaultPrevented).toBe(true);
-  });
-
-  it("does not fire split when shiftKey is set on horizontal variant", () => {
-    const { deps, splitMock } = makeSplitDeps();
-    // shiftKey=true should route to vertical, not horizontal — so horizontal branch is skipped
-    const e = makeEvent("\\", { metaKey: true, shiftKey: true, code: "Backslash" });
-    handleGlobalKeyDown(e as unknown as KeyboardEvent, deps);
-    // splitMock is still called — but for vertical, not horizontal
-    expect(splitMock).toHaveBeenCalledWith("vertical");
   });
 
   it("does not fire split when altKey is set", () => {

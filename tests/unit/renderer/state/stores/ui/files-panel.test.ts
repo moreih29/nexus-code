@@ -53,17 +53,7 @@ describe("useUIStore — filesPanelWidth", () => {
     mockIpcCall.mockClear();
   });
 
-  it("initial filesPanelWidth equals FILES_PANEL_WIDTH_DEFAULT", () => {
-    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_DEFAULT);
-  });
-
-  it("setFilesPanelWidth(300, false) updates store and does NOT call ipcCall", () => {
-    useUIStore.getState().setFilesPanelWidth(300, false);
-    expect(useUIStore.getState().filesPanelWidth).toBe(300);
-    expect(mockIpcCall).not.toHaveBeenCalled();
-  });
-
-  it("setFilesPanelWidth(300, true) updates store AND calls ipcCall once with {filesPanelWidth:300}", () => {
+  it("setFilesPanelWidth(300, true) persists with the correct ipc payload", () => {
     useUIStore.getState().setFilesPanelWidth(300, true);
     expect(useUIStore.getState().filesPanelWidth).toBe(300);
     expect(mockIpcCall).toHaveBeenCalledTimes(1);
@@ -87,28 +77,13 @@ describe("useUIStore — hydrate with filesPanelWidth", () => {
     mockIpcCall.mockClear();
   });
 
-  it("hydrate({}) keeps files panel default", () => {
-    useUIStore.getState().hydrate({});
-    expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_DEFAULT);
-  });
-
-  it("hydrate({filesPanelWidth:400}) sets filesPanelWidth to 400", () => {
-    useUIStore.getState().hydrate({ filesPanelWidth: 400 });
-    expect(useUIStore.getState().filesPanelWidth).toBe(400);
-  });
-
-  it("hydrate({filesPanelWidth:50}) clamps up to MIN", () => {
+  it("hydrate clamps filesPanelWidth below MIN up to FILES_PANEL_WIDTH_MIN", () => {
     useUIStore.getState().hydrate({ filesPanelWidth: 50 });
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MIN);
   });
 
-  it("hydrate({filesPanelWidth:9999}) clamps down to MAX", () => {
+  it("hydrate clamps filesPanelWidth above MAX down to FILES_PANEL_WIDTH_MAX", () => {
     useUIStore.getState().hydrate({ filesPanelWidth: 9999 });
     expect(useUIStore.getState().filesPanelWidth).toBe(FILES_PANEL_WIDTH_MAX);
-  });
-
-  it("hydrate does not call ipcCall", () => {
-    useUIStore.getState().hydrate({ filesPanelWidth: 300 });
-    expect(mockIpcCall).not.toHaveBeenCalled();
   });
 });

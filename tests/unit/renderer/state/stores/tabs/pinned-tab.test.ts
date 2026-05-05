@@ -1,12 +1,17 @@
 /**
- * Unit tests for pinned-tab behaviour.
+ * Pinned-tab behaviour
  *
- * Covers:
- *   - togglePin: false → true sets isPinned=true and clears isPreview
- *   - togglePin: true → false sets isPinned=false (isPreview unchanged)
- *   - togglePin no-op on unknown tabId
- *   - sortedTabs stable sort helper (pinned left, unpinned right, each group order-preserved)
- *   - closeOthers skips pinned tabs
+ * Two layers under test:
+ *   1. useTabsStore.togglePin — flag mutation, isPreview promotion, no-op on
+ *      unknown tab.
+ *   2. useGroupActions.closeOthers / closeAllToRight — actually invoked
+ *      against the real hook (not a re-implementation in the test). Pinned
+ *      tabs must be skipped.
+ *
+ * The previous version of this file simulated the closeOthers/closeAllToRight
+ * logic inline, which meant a bug in the production hook would not surface.
+ * This rewrite calls the real hook with a tracked closeEditor mock so the
+ * production filter is the unit under test.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -24,31 +29,58 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
+// Track which tabs were closed via the editor service.
+const editorCloseCalls: string[] = [];
+mock.module("../../../../../../src/renderer/services/editor", () => ({
+  closeEditor: (tabId: string) => {
+    editorCloseCalls.push(tabId);
+  },
+  openOrRevealEditor: () => null,
+}));
+mock.module("../../../../../../src/renderer/services/terminal", () => ({
+  closeTerminal: () => {},
+  openTerminal: () => null,
+}));
+
+import { useGroupActions } from "../../../../../../src/renderer/components/workspace/group/use-group-actions";
 import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
 
 const WS = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
+const LEAF = "leaf-1";
+const ROOT = "/repo";
 
 function resetStores() {
   useTabsStore.setState({ byWorkspace: {} });
+  editorCloseCalls.length = 0;
 }
 
-function makeTab(overrides: Partial<Parameters<typeof useTabsStore.getState>["0"]> = {}) {
-  const store = useTabsStore.getState();
-  return store.createTab(WS, "editor", { filePath: "/repo/a.ts", workspaceId: WS });
+function makeEditorTab(filePath: string) {
+  return useTabsStore
+    .getState()
+    .createTab(WS, "editor", { filePath, workspaceId: WS });
+}
+
+function buildActions(opts: { contextTabId: string; tabIds: string[] }) {
+  // biome-ignore lint/correctness/useHookAtTopLevel: useGroupActions is a plain factory despite the "use" prefix; no React hooks inside
+  return useGroupActions({
+    workspaceId: WS,
+    leafId: LEAF,
+    workspaceRootPath: ROOT,
+    getContextTabId: () => opts.contextTabId,
+    getTabIds: () => opts.tabIds,
+    onActivateGroup: () => {},
+  });
 }
 
 // ---------------------------------------------------------------------------
-// togglePin — pin (false → true)
+// togglePin
 // ---------------------------------------------------------------------------
 
-describe("useTabsStore.togglePin — pin", () => {
+describe("useTabsStore.togglePin", () => {
   beforeEach(resetStores);
 
-  it("sets isPinned to true when tab was not pinned", () => {
-    const tab = useTabsStore.getState().createTab(WS, "editor", {
-      filePath: "/repo/a.ts",
-      workspaceId: WS,
-    });
+  it("flips isPinned false → true", () => {
+    const tab = makeEditorTab("/repo/a.ts");
     expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPinned).toBe(false);
 
     useTabsStore.getState().togglePin(WS, tab.id);
@@ -56,14 +88,13 @@ describe("useTabsStore.togglePin — pin", () => {
     expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPinned).toBe(true);
   });
 
-  it("clears isPreview when pinning a preview tab", () => {
+  it("clears isPreview when pinning a preview tab (preview → pinned promotion)", () => {
     const tab = useTabsStore.getState().createTab(
       WS,
       "editor",
       { filePath: "/repo/a.ts", workspaceId: WS },
-      true, // isPreview = true
+      true, // isPreview
     );
-    expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPreview).toBe(true);
 
     useTabsStore.getState().togglePin(WS, tab.id);
 
@@ -71,161 +102,114 @@ describe("useTabsStore.togglePin — pin", () => {
     expect(result?.isPinned).toBe(true);
     expect(result?.isPreview).toBe(false);
   });
-});
 
-// ---------------------------------------------------------------------------
-// togglePin — unpin (true → false)
-// ---------------------------------------------------------------------------
+  it("flips isPinned true → false on second toggle", () => {
+    const tab = makeEditorTab("/repo/a.ts");
 
-describe("useTabsStore.togglePin — unpin", () => {
-  beforeEach(resetStores);
-
-  it("sets isPinned to false when tab was pinned", () => {
-    const tab = useTabsStore.getState().createTab(WS, "editor", {
-      filePath: "/repo/a.ts",
-      workspaceId: WS,
-    });
-
-    // Pin first
     useTabsStore.getState().togglePin(WS, tab.id);
-    expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPinned).toBe(true);
-
-    // Unpin
     useTabsStore.getState().togglePin(WS, tab.id);
+
     expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPinned).toBe(false);
   });
 
-  it("does not change isPreview when unpinning", () => {
-    const tab = useTabsStore.getState().createTab(WS, "editor", {
-      filePath: "/repo/a.ts",
-      workspaceId: WS,
-    });
-
-    // Pin (promotes from preview if preview; here it's already false)
-    useTabsStore.getState().togglePin(WS, tab.id);
-    // Unpin
-    useTabsStore.getState().togglePin(WS, tab.id);
-
-    // isPreview should still be false (was false before pin)
-    expect(useTabsStore.getState().byWorkspace[WS]?.[tab.id]?.isPreview).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// togglePin — unknown tabId is a no-op
-// ---------------------------------------------------------------------------
-
-describe("useTabsStore.togglePin — unknown tabId", () => {
-  beforeEach(resetStores);
-
-  it("returns the same state reference for an unknown tabId", () => {
+  it("returns the same byWorkspace reference for an unknown tabId (no-op)", () => {
     const before = useTabsStore.getState().byWorkspace;
-    useTabsStore.getState().togglePin(WS, "nonexistent-tab-id");
+    useTabsStore.getState().togglePin(WS, "nonexistent");
     expect(useTabsStore.getState().byWorkspace).toBe(before);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Stable sort helper — pinned group first, unpinned group second
+// useGroupActions.closeOthers — exercises the production filter
 // ---------------------------------------------------------------------------
 
-describe("pinned tab stable sort", () => {
+describe("useGroupActions.closeOthers — pinned tabs are skipped", () => {
   beforeEach(resetStores);
 
-  it("pinned tabs appear before unpinned tabs", () => {
-    const store = useTabsStore.getState();
-    const tabA = store.createTab(WS, "editor", { filePath: "/repo/a.ts", workspaceId: WS });
-    const tabB = store.createTab(WS, "editor", { filePath: "/repo/b.ts", workspaceId: WS });
-    const tabC = store.createTab(WS, "editor", { filePath: "/repo/c.ts", workspaceId: WS });
+  it("closes only unpinned tabs that are not the context tab", () => {
+    const a = makeEditorTab("/repo/a.ts");
+    const b = makeEditorTab("/repo/b.ts");
+    const c = makeEditorTab("/repo/c.ts");
 
-    // Pin B (middle tab)
-    useTabsStore.getState().togglePin(WS, tabB.id);
+    useTabsStore.getState().togglePin(WS, b.id);
 
-    const allTabs = [tabA, tabB, tabC];
-    const pinned = allTabs.filter((t) => useTabsStore.getState().byWorkspace[WS]?.[t.id]?.isPinned);
-    const unpinned = allTabs.filter(
-      (t) => !useTabsStore.getState().byWorkspace[WS]?.[t.id]?.isPinned,
-    );
-    const sorted = [...pinned, ...unpinned];
+    const actions = buildActions({
+      contextTabId: a.id,
+      tabIds: [a.id, b.id, c.id],
+    });
+    actions.closeOthers();
 
-    expect(sorted[0]?.id).toBe(tabB.id);
-    expect(sorted[1]?.id).toBe(tabA.id);
-    expect(sorted[2]?.id).toBe(tabC.id);
+    // a is the context (excluded), b is pinned (excluded), c gets closed.
+    expect(editorCloseCalls).toEqual([c.id]);
   });
 
-  it("preserves original order within each group (stable)", () => {
-    const store = useTabsStore.getState();
-    const tabA = store.createTab(WS, "editor", { filePath: "/repo/a.ts", workspaceId: WS });
-    const tabB = store.createTab(WS, "editor", { filePath: "/repo/b.ts", workspaceId: WS });
-    const tabC = store.createTab(WS, "editor", { filePath: "/repo/c.ts", workspaceId: WS });
-    const tabD = store.createTab(WS, "editor", { filePath: "/repo/d.ts", workspaceId: WS });
+  it("never closes the context tab even if multiple pinned tabs exist", () => {
+    const a = makeEditorTab("/repo/a.ts");
+    const b = makeEditorTab("/repo/b.ts");
+    const c = makeEditorTab("/repo/c.ts");
 
-    // Pin A and C
-    useTabsStore.getState().togglePin(WS, tabA.id);
-    useTabsStore.getState().togglePin(WS, tabC.id);
+    useTabsStore.getState().togglePin(WS, a.id);
+    useTabsStore.getState().togglePin(WS, b.id);
 
-    const allTabs = [tabA, tabB, tabC, tabD];
-    const pinned = allTabs.filter((t) => useTabsStore.getState().byWorkspace[WS]?.[t.id]?.isPinned);
-    const unpinned = allTabs.filter(
-      (t) => !useTabsStore.getState().byWorkspace[WS]?.[t.id]?.isPinned,
-    );
-    const sorted = [...pinned, ...unpinned];
+    const actions = buildActions({
+      contextTabId: c.id,
+      tabIds: [a.id, b.id, c.id],
+    });
+    actions.closeOthers();
 
-    // Pinned group: A, C (in original order)
-    expect(sorted[0]?.id).toBe(tabA.id);
-    expect(sorted[1]?.id).toBe(tabC.id);
-    // Unpinned group: B, D (in original order)
-    expect(sorted[2]?.id).toBe(tabB.id);
-    expect(sorted[3]?.id).toBe(tabD.id);
+    // a and b are pinned; c is the context — nothing should be closed.
+    expect(editorCloseCalls).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// closeOthers skips pinned tabs
+// useGroupActions.closeAllToRight — exercises the production filter
 // ---------------------------------------------------------------------------
 
-describe("closeOthers — skips pinned tabs", () => {
+describe("useGroupActions.closeAllToRight — pinned tabs to the right are skipped", () => {
   beforeEach(resetStores);
 
-  it("does not close pinned tabs when closing others", () => {
-    const store = useTabsStore.getState();
-    const tabA = store.createTab(WS, "editor", { filePath: "/repo/a.ts", workspaceId: WS });
-    const tabB = store.createTab(WS, "editor", { filePath: "/repo/b.ts", workspaceId: WS });
-    const tabC = store.createTab(WS, "editor", { filePath: "/repo/c.ts", workspaceId: WS });
+  it("closes unpinned tabs to the right of the context tab", () => {
+    const a = makeEditorTab("/repo/a.ts");
+    const b = makeEditorTab("/repo/b.ts");
+    const c = makeEditorTab("/repo/c.ts");
+    const d = makeEditorTab("/repo/d.ts");
 
-    // Pin B
-    useTabsStore.getState().togglePin(WS, tabB.id);
+    useTabsStore.getState().togglePin(WS, c.id);
 
-    // Simulate closeOthers logic: close all tabs except tabA that are not pinned
-    const targetTabId = tabA.id;
-    const wsRecord = useTabsStore.getState().byWorkspace[WS] ?? {};
-    const others = [tabA.id, tabB.id, tabC.id].filter((id) => {
-      if (id === targetTabId) return false;
-      return !wsRecord[id]?.isPinned;
+    const actions = buildActions({
+      contextTabId: a.id,
+      tabIds: [a.id, b.id, c.id, d.id],
     });
+    actions.closeAllToRight();
 
-    // Only tabC should be in the list (tabB is pinned)
-    expect(others).toEqual([tabC.id]);
-    expect(others).not.toContain(tabB.id);
+    // To the right of a: b, c (pinned, skipped), d.
+    expect(editorCloseCalls).toEqual([b.id, d.id]);
   });
 
-  it("closeAllToRight skips pinned tabs to the right", () => {
-    const store = useTabsStore.getState();
-    const tabA = store.createTab(WS, "editor", { filePath: "/repo/a.ts", workspaceId: WS });
-    const tabB = store.createTab(WS, "editor", { filePath: "/repo/b.ts", workspaceId: WS });
-    const tabC = store.createTab(WS, "editor", { filePath: "/repo/c.ts", workspaceId: WS });
+  it("is a no-op when context tab is the rightmost", () => {
+    const a = makeEditorTab("/repo/a.ts");
+    const b = makeEditorTab("/repo/b.ts");
 
-    // Pin C
-    useTabsStore.getState().togglePin(WS, tabC.id);
+    const actions = buildActions({
+      contextTabId: b.id,
+      tabIds: [a.id, b.id],
+    });
+    actions.closeAllToRight();
 
-    const tabIds = [tabA.id, tabB.id, tabC.id];
-    const targetTabId = tabA.id;
-    const idx = tabIds.indexOf(targetTabId);
-    const wsRecord = useTabsStore.getState().byWorkspace[WS] ?? {};
-    const toClose = tabIds.slice(idx + 1).filter((id) => !wsRecord[id]?.isPinned);
+    expect(editorCloseCalls).toEqual([]);
+  });
 
-    // Only tabB should be closed (tabC is pinned)
-    expect(toClose).toEqual([tabB.id]);
-    expect(toClose).not.toContain(tabC.id);
+  it("is a no-op when context tab is not in the list", () => {
+    const a = makeEditorTab("/repo/a.ts");
+    const b = makeEditorTab("/repo/b.ts");
+
+    const actions = buildActions({
+      contextTabId: "ghost",
+      tabIds: [a.id, b.id],
+    });
+    actions.closeAllToRight();
+
+    expect(editorCloseCalls).toEqual([]);
   });
 });

@@ -17,7 +17,9 @@
  *   - openFileAtZone center: new editor tab attached to destination
  *   - openFileAtZone edge: split + new editor tab in the new leaf
  *   - openFileAtZone failure path rolls back the orphan tab record
- *   - splitAndAttach store action: single set produces split + populated leaf
+ *
+ * splitAndAttach store action is exercised directly in
+ * tests/integration/operations.test.ts (Scenario 10 — openTabInNewSplit).
  *
  * What is NOT automated (DOM / browser boundary):
  *   - HTML5 dragstart/dragover/drop event wiring
@@ -252,34 +254,3 @@ describe("Scenario 4: openFileAtZone", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario 5 — splitAndAttach store action
-// ---------------------------------------------------------------------------
-
-describe("Scenario 5: splitAndAttach", () => {
-  beforeEach(resetStores);
-
-  it("creates a new leaf containing only the supplied tabId", () => {
-    const t1 = openTab(WS, "terminal", { cwd: "/" });
-    const t2 = openTab(WS, "terminal", { cwd: "/" });
-    const sourceLeafId = getLayout().activeGroupId;
-
-    const newLeafId = useLayoutStore
-      .getState()
-      .splitAndAttach(WS, sourceLeafId, "horizontal", "after", t2.id);
-
-    expect(newLeafId).not.toBe("");
-    const newLeaf = findLeaf(getLayout().root, newLeafId)!;
-    expect(newLeaf.tabIds).toEqual([t2.id]);
-    expect(newLeaf.activeTabId).toBe(t2.id);
-    // Source leaf still contains the original tabs (no detach was performed).
-    expect(findLeaf(getLayout().root, sourceLeafId)?.tabIds).toEqual([t1.id, t2.id]);
-  });
-
-  it("returns empty string when the workspace layout is missing", () => {
-    const newLeafId = useLayoutStore
-      .getState()
-      .splitAndAttach("missing-ws", "anything", "horizontal", "after", "anything");
-    expect(newLeafId).toBe("");
-  });
-});

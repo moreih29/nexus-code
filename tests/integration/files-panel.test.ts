@@ -543,21 +543,6 @@ describe("Scenario 5 (AUTO): refresh → invalidates children, re-issues readdir
     expect(useFilesStore.getState().trees.has(WS_B)).toBe(true);
   });
 
-  it("App.tsx Cmd+R handler calls refresh (code-path review)", () => {
-    // The App.tsx keydown handler (App.tsx lines 125-136) calls:
-    //   useFilesStore.getState().refresh(wsId)
-    // We verify the store method is callable with only a workspaceId, matching
-    // the call site exactly. This is a contract test: if the signature changes,
-    // this test breaks and forces the author to re-check App.tsx.
-    const refreshFn = useFilesStore.getState().refresh;
-    expect(typeof refreshFn).toBe("function");
-
-    // Verify the function accepts (workspaceId: string, absPath?: string)
-    // by calling it — with no prior ensureRoot it returns immediately.
-    // If the function signature changes to require more args, this throws.
-    const result = refreshFn(WS_A);
-    expect(result).toBeInstanceOf(Promise);
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { openOrRevealEditor } from "../../../../../src/renderer/services/editor";
+import { closeEditor, openOrRevealEditor } from "../../../../../src/renderer/services/editor";
 import type { EditorInput } from "../../../../../src/renderer/services/editor/types";
 import { moveTabToZone } from "../../../../../src/renderer/state/operations/dnd";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
@@ -121,6 +121,32 @@ describe("openOrRevealEditor — same file re-entry promotes preview", () => {
 
     expect(newLoc.tabId).not.toBe(first.tabId);
     expect(useTabsStore.getState().byWorkspace[WS]?.[newLoc.tabId]?.isPreview).toBe(true);
+    expect(editorTabsFor(WS)).toHaveLength(2);
+  });
+
+  it("closing a promoted tab clears the slot for a fresh preview on the next open", () => {
+    // Open A, promote it.
+    const locA = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/a.ts" });
+    openOrRevealEditor({ workspaceId: WS, filePath: "/repo/a.ts" });
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locA.tabId]?.isPreview).toBe(false);
+
+    // Open B → it lands in a fresh preview slot (separate from A).
+    const locB = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/b.ts" });
+    expect(locB.tabId).not.toBe(locA.tabId);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locB.tabId]?.isPreview).toBe(true);
+    expect(editorTabsFor(WS)).toHaveLength(2);
+
+    // Close B (the current preview).
+    closeEditor(locB.tabId);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locB.tabId]).toBeUndefined();
+    expect(editorTabsFor(WS)).toHaveLength(1);
+
+    // Open C — must NOT replace promoted A. Goes into a brand-new preview slot.
+    const locC = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/c.ts" });
+    expect(locC.tabId).not.toBe(locA.tabId);
+    expect(locC.tabId).not.toBe(locB.tabId);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locC.tabId]?.isPreview).toBe(true);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locA.tabId]?.isPreview).toBe(false);
     expect(editorTabsFor(WS)).toHaveLength(2);
   });
 });
