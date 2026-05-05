@@ -233,6 +233,8 @@ export function useGlobalKeybindings(): void {
       handleGlobalKeyDown(e);
     }
     window.addEventListener("keydown", onKeyDown);
+    // TEMPORARY: chord-debug. Confirms the listener actually mounted.
+    console.log("[chord] global keydown listener attached");
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);

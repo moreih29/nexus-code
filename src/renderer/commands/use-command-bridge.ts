@@ -10,6 +10,10 @@ import { executeCommand } from "./registry";
 
 export function useCommandBridge(): void {
   useEffect(() => {
-    return ipcListen("command", "invoke", ({ id }) => executeCommand(id));
+    return ipcListen("command", "invoke", ({ id }) => {
+      // TEMPORARY: chord-debug. Remove with the chord debug logs.
+      console.log("[chord] menu→IPC dispatch", { id });
+      executeCommand(id);
+    });
   }, []);
 }

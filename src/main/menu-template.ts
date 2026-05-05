@@ -2,11 +2,13 @@
  * Pure builder for the Application Menu.
  *
  * Returns a tree of {@link MenuItemSpec} that the Electron-aware
- * installer (`menu.ts`) maps to `MenuItemConstructorOptions`. Splitting
- * the structure away from the install lets the template be unit-tested
- * without booting Electron — tests assert that, e.g., the File submenu
- * binds Cmd+W to `tab.close` rather than leaving Electron's default
- * "Close Window" accelerator in place.
+ * installer (`menu.ts`) maps to `MenuItemConstructorOptions`.
+ *
+ * Single source of truth for keybindings: every command-typed item
+ * looks up its accelerator in `shared/keybindings.ts`. Single-key
+ * bindings come back through Electron's normal `accelerator` field;
+ * chord bindings (`⌘K …`) cannot be Electron-registered, so we
+ * suffix the menu label with `[⌘K ⌘W]` exactly as VSCode does.
  *
  * Key conflicts with Electron's default menu (mac):
  *   - Cmd+W   → "Close Window" replaced by "Close Editor" (tab.close).
@@ -18,6 +20,8 @@
  * handle them uniformly.
  */
 import { type CommandId, COMMANDS } from "../shared/commands";
+import { chordToLabel } from "../shared/keybinding-parse";
+import { findChordBinding, findPrimaryBinding } from "../shared/keybindings";
 
 export type MenuItemSpec =
   | { type: "separator" }
@@ -74,7 +78,17 @@ export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
     menu.push(windowMenu());
   }
 
-  return menu;
+  return enrichWithKeybindings(menu, opts.isMac);
+}
+
+/**
+ * Tiny helper that constructs a command spec without an inline
+ * accelerator — the post-process step below fills it in by looking up
+ * `shared/keybindings.ts`. Keeps the menu structure declarative and
+ * removes the parallel-table-of-strings smell.
+ */
+function cmd(label: string, command: CommandId): MenuItemSpec {
+  return { type: "command", label, command };
 }
 
 function appMenu(appName: string): MenuItemSpec {
@@ -96,40 +110,13 @@ function appMenu(appName: string): MenuItemSpec {
 
 function fileMenu(isMac: boolean): MenuItemSpec {
   const items: MenuItemSpec[] = [
-    {
-      type: "command",
-      label: "Open File…",
-      command: COMMANDS.fileOpen,
-      accelerator: "CmdOrCtrl+E",
-    },
-    {
-      type: "command",
-      label: "Save",
-      command: COMMANDS.fileSave,
-      accelerator: "CmdOrCtrl+S",
-    },
+    cmd("Open File…", COMMANDS.fileOpen),
+    cmd("Save", COMMANDS.fileSave),
     { type: "separator" },
-    {
-      type: "command",
-      label: "Close Editor",
-      command: COMMANDS.tabClose,
-      accelerator: "CmdOrCtrl+W",
-    },
-    {
-      type: "command",
-      label: "Close Others",
-      command: COMMANDS.tabCloseOthers,
-      // Mac-only in VSCode; Electron parses this same accelerator on
-      // every platform, so leaving it on Win/Linux is harmless.
-      accelerator: "CmdOrCtrl+Alt+T",
-    },
+    cmd("Close Editor", COMMANDS.tabClose),
+    cmd("Close Others", COMMANDS.tabCloseOthers),
     { type: "separator" },
-    {
-      type: "command",
-      label: "Refresh Files",
-      command: COMMANDS.filesRefresh,
-      accelerator: "CmdOrCtrl+R",
-    },
+    cmd("Refresh Files", COMMANDS.filesRefresh),
   ];
 
   // Win/Linux don't get the App menu, so Quit lives in File.
@@ -168,24 +155,9 @@ function viewMenu(): MenuItemSpec {
     type: "submenu",
     label: "View",
     submenu: [
-      {
-        type: "command",
-        label: "Reveal in Finder",
-        command: COMMANDS.pathReveal,
-        accelerator: "CmdOrCtrl+Alt+R",
-      },
-      {
-        type: "command",
-        label: "Copy Path",
-        command: COMMANDS.pathCopy,
-        accelerator: "CmdOrCtrl+Alt+C",
-      },
-      {
-        type: "command",
-        label: "Copy Relative Path",
-        command: COMMANDS.pathCopyRelative,
-        accelerator: "CmdOrCtrl+Shift+Alt+C",
-      },
+      cmd("Reveal in Finder", COMMANDS.pathReveal),
+      cmd("Copy Path", COMMANDS.pathCopy),
+      cmd("Copy Relative Path", COMMANDS.pathCopyRelative),
       { type: "separator" },
       { type: "role", role: "toggleDevTools" },
       { type: "separator" },
@@ -203,49 +175,14 @@ function workspaceMenu(): MenuItemSpec {
     type: "submenu",
     label: "Workspace",
     submenu: [
-      {
-        type: "command",
-        label: "Split Right",
-        command: COMMANDS.groupSplitRight,
-        accelerator: "CmdOrCtrl+\\",
-      },
-      {
-        type: "command",
-        label: "Split Down",
-        command: COMMANDS.groupSplitDown,
-        accelerator: "CmdOrCtrl+Shift+\\",
-      },
-      {
-        type: "command",
-        label: "Close Group",
-        command: COMMANDS.groupClose,
-        accelerator: "CmdOrCtrl+Shift+W",
-      },
+      cmd("Split Right", COMMANDS.groupSplitRight),
+      cmd("Split Down", COMMANDS.groupSplitDown),
+      cmd("Close Group", COMMANDS.groupClose),
       { type: "separator" },
-      {
-        type: "command",
-        label: "Focus Group Left",
-        command: COMMANDS.groupFocusLeft,
-        accelerator: "CmdOrCtrl+Alt+Left",
-      },
-      {
-        type: "command",
-        label: "Focus Group Right",
-        command: COMMANDS.groupFocusRight,
-        accelerator: "CmdOrCtrl+Alt+Right",
-      },
-      {
-        type: "command",
-        label: "Focus Group Up",
-        command: COMMANDS.groupFocusUp,
-        accelerator: "CmdOrCtrl+Alt+Up",
-      },
-      {
-        type: "command",
-        label: "Focus Group Down",
-        command: COMMANDS.groupFocusDown,
-        accelerator: "CmdOrCtrl+Alt+Down",
-      },
+      cmd("Focus Group Left", COMMANDS.groupFocusLeft),
+      cmd("Focus Group Right", COMMANDS.groupFocusRight),
+      cmd("Focus Group Up", COMMANDS.groupFocusUp),
+      cmd("Focus Group Down", COMMANDS.groupFocusDown),
     ],
   };
 }
@@ -262,4 +199,34 @@ function windowMenu(): MenuItemSpec {
       { type: "role", role: "front" },
     ],
   };
+}
+
+/**
+ * Walk the spec tree and fill in `accelerator` (and the chord label
+ * suffix) for each command item from `shared/keybindings.ts`. Pure
+ * over the spec — no Electron access here.
+ *
+ * Mirrors VSCode's `withKeybinding` strategy:
+ *   - Single-key binding → set `accelerator` (Electron registers it).
+ *   - Chord binding → no accelerator, append `[⌘K ⌘W]` to the label
+ *     (Electron can't register chords; renderer dispatches them).
+ */
+function enrichWithKeybindings(specs: MenuItemSpec[], isMac: boolean): MenuItemSpec[] {
+  return specs.map((spec): MenuItemSpec => {
+    if (spec.type === "submenu") {
+      return { ...spec, submenu: enrichWithKeybindings(spec.submenu, isMac) };
+    }
+    if (spec.type !== "command") return spec;
+
+    const primary = findPrimaryBinding(spec.command);
+    if (primary?.primary !== undefined) {
+      return { ...spec, accelerator: primary.primary };
+    }
+    const chord = findChordBinding(spec.command);
+    if (chord?.chord !== undefined) {
+      const label = chordToLabel(chord.chord, { isMac });
+      return { ...spec, label: `${spec.label} [${label}]` };
+    }
+    return spec;
+  });
 }

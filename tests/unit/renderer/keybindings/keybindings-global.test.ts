@@ -129,7 +129,7 @@ describe("isInEditable", () => {
 describe("handleGlobalKeyDown — refresh", () => {
   it("fires files.refresh on Cmd+R", () => {
     const spies = setupCommandSpies();
-    const e = makeEvent("r", { metaKey: true });
+    const e = makeEvent("r", { metaKey: true, code: "KeyR" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
@@ -138,7 +138,7 @@ describe("handleGlobalKeyDown — refresh", () => {
   it("still fires files.refresh inside an editable (matches the prior page-reload override)", () => {
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
-    const e = makeEvent("r", { metaKey: true, target });
+    const e = makeEvent("r", { metaKey: true, code: "KeyR", target });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
     expect(e.defaultPrevented).toBe(true);
@@ -146,7 +146,7 @@ describe("handleGlobalKeyDown — refresh", () => {
 
   it("does not fire on plain r without modifier", () => {
     const spies = setupCommandSpies();
-    const e = makeEvent("r", { metaKey: false });
+    const e = makeEvent("r", { metaKey: false, code: "KeyR" });
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.filesRefresh]).not.toHaveBeenCalled();
   });
