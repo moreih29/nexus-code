@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { AppStateSchema } from "./types/app-state";
 import { ColorToneSchema } from "./types/color-tone";
-import { DirEntrySchema, FileContentSchema, FsChangedEventSchema, FsStatSchema } from "./types/fs";
+import {
+  DirEntrySchema,
+  ExpectedFileStateSchema,
+  FileContentSchema,
+  FsChangedEventSchema,
+  FsStatSchema,
+  WriteFileResultSchema,
+} from "./types/fs";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
 
@@ -247,6 +254,15 @@ export const ipcContract = {
       readFile: call(
         z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
         FileContentSchema,
+      ),
+      writeFile: call(
+        z.object({
+          workspaceId: z.string().uuid(),
+          relPath: z.string(),
+          content: z.string(),
+          expected: ExpectedFileStateSchema,
+        }),
+        WriteFileResultSchema,
       ),
     },
     listen: {

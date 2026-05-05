@@ -288,12 +288,15 @@ describe("ipcContract.fs.call.readFile args", () => {
 describe("ipcContract.fs.call.readFile result", () => {
   const schema = ipcContract.fs.call.readFile.result;
 
+  const SAMPLE_MTIME = "2025-01-01T00:00:00.000Z";
+
   test("accepts valid utf8 result", () => {
     const result = schema.safeParse({
       content: "hello world",
       encoding: "utf8",
       sizeBytes: 11,
       isBinary: false,
+      mtime: SAMPLE_MTIME,
     });
     expect(result.success).toBe(true);
   });
@@ -304,6 +307,7 @@ describe("ipcContract.fs.call.readFile result", () => {
       encoding: "utf8-bom",
       sizeBytes: 14,
       isBinary: false,
+      mtime: SAMPLE_MTIME,
     });
     expect(result.success).toBe(true);
   });
@@ -314,6 +318,7 @@ describe("ipcContract.fs.call.readFile result", () => {
       encoding: "utf16",
       sizeBytes: 0,
       isBinary: true,
+      mtime: SAMPLE_MTIME,
     });
     expect(result.success).toBe(false);
   });
@@ -323,6 +328,17 @@ describe("ipcContract.fs.call.readFile result", () => {
       content: "",
       encoding: "utf8",
       sizeBytes: -1,
+      isBinary: false,
+      mtime: SAMPLE_MTIME,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing mtime", () => {
+    const result = schema.safeParse({
+      content: "",
+      encoding: "utf8",
+      sizeBytes: 0,
       isBinary: false,
     });
     expect(result.success).toBe(false);
