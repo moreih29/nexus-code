@@ -5,7 +5,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { filePathToModelUri, isDirty, subscribeDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
-import type { EditorTabProps, Tab } from "../../../state/stores/tabs";
+import { type EditorTabProps, type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 
@@ -107,6 +107,14 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
+      // VSCode parity: double-click on a preview tab promotes it. We have no
+      // sticky/maximize behaviour to branch on (multiEditorTabsControl checks
+      // `isPinned` first, but that's their *sticky* concept) — promote-only.
+      onDoubleClick={() => {
+        if (tab.isPreview) {
+          useTabsStore.getState().promoteFromPreview(workspaceId, tab.id);
+        }
+      }}
     >
       <RadixTabs.Trigger
         value={tab.id}

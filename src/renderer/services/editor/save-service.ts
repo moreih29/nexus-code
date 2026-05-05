@@ -14,6 +14,7 @@ import { ipcCall } from "../../ipc/client";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "./dirty-tracker";
 import { relPathForInput } from "./file-loader";
 import { getResolvedModel } from "./model-cache";
+import { promoteAllPreviewTabsForFile } from "./promote-policy";
 import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
 import type { EditorInput } from "./types";
 
@@ -37,6 +38,13 @@ const sequentializer = new SaveSequentializer();
 export async function saveModel(input: EditorInput): Promise<SaveResult> {
   const resolved = getResolvedModel(input);
   if (!resolved) return { kind: "no-model" };
+
+  // VSCode parity: an explicit save promotes the editor regardless of
+  // dirty state. editorService.save() pinEditor's the editor on
+  // SaveReason.EXPLICIT before invoking the model's save. saveModel is
+  // only called from explicit user gestures (Cmd+S, close-confirm), so
+  // every entry counts as EXPLICIT.
+  promoteAllPreviewTabsForFile(resolved.filePath);
 
   const dirtyEntry = getDirtyEntry(resolved.cacheUri);
   if (!dirtyEntry) return { kind: "no-model" };

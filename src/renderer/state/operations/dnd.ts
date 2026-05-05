@@ -114,7 +114,11 @@ export function moveTabToZone(
     }
 
     useLayoutStore.getState().moveTab(workspaceId, tabId, destLeaf.id, target.index);
-    if (isCrossGroup) promoteTabIfPreview(workspaceId, tabId);
+    // VSCode parity: editorGroupView.moveEditor unconditionally calls
+    // model.pin(editor) — i.e. *any* drop-driven move (including a same-group
+    // reorder) promotes the tab. Self-drop no-op cases were filtered above so
+    // we never promote spuriously.
+    promoteTabIfPreview(workspaceId, tabId);
     return { kind: "moved", groupId: destLeaf.id, tabId };
   }
 
