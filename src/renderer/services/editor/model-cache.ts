@@ -11,8 +11,8 @@ import {
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import { readFileForModel, subscribeFsChanged } from "./file-loader";
+import { isLspLanguage, languageIdForPath } from "./language";
 import {
-  isLspLanguage,
   notifyDidChange,
   notifyDidClose,
   notifyDidOpen,
@@ -66,35 +66,17 @@ export function filePathToModelUri(filePath: string): string {
   return `file://${filePath}`;
 }
 
-export function languageIdForPath(filePath: string): string {
-  const basename = filePath.slice(filePath.lastIndexOf("/") + 1);
-  const extension = basename.includes(".")
-    ? basename.slice(basename.lastIndexOf(".")).toLowerCase()
-    : "";
-
-  switch (extension) {
-    case ".ts":
-    case ".tsx":
-      return "typescript";
-    case ".js":
-    case ".jsx":
-    case ".mjs":
-    case ".cjs":
-      return "javascript";
-    case ".json":
-      return "json";
-    case ".css":
-      return "css";
-    case ".html":
-    case ".htm":
-      return "html";
-    case ".md":
-    case ".markdown":
-      return "markdown";
-    default:
-      return "plaintext";
-  }
+/**
+ * Inverse of `filePathToModelUri`. Returns null when the cacheUri is not
+ * one we produced (defensive — protects callers from mistakenly slicing
+ * an unrelated string). Callers that need the file path of a tracked
+ * model should always use this rather than slicing the prefix off
+ * inline; the prefix shape is owned here.
+ */
+export function cacheUriToFilePath(cacheUri: string): string | null {
+  return cacheUri.startsWith("file://") ? cacheUri.slice("file://".length) : null;
 }
+
 
 function requireMonaco(): typeof Monaco {
   if (!monacoRef) {

@@ -3,7 +3,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
-import { isDirty, subscribeDirty } from "@/services/editor";
+import { filePathToModelUri, isDirty, subscribeDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
 import type { EditorTabProps, Tab } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
@@ -73,7 +73,7 @@ interface TabItemProps {
  */
 function useTabDirty(tab: Tab): boolean {
   const cacheUri =
-    tab.type === "editor" ? `file://${(tab.props as EditorTabProps).filePath}` : null;
+    tab.type === "editor" ? filePathToModelUri((tab.props as EditorTabProps).filePath) : null;
   const subscribe = useCallback(
     (cb: () => void) => (cacheUri ? subscribeDirty(cacheUri, cb) : () => {}),
     [cacheUri],

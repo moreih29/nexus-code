@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
+import { basename } from "@/utils/path";
 import { ipcListen } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -48,8 +49,7 @@ interface TabsState {
 export function defaultTitle(type: TabType, props: TabProps): string {
   if (type === "terminal") return "Terminal";
   const ep = props as EditorTabProps;
-  const parts = ep.filePath.split("/");
-  return parts[parts.length - 1] ?? "Editor";
+  return basename(ep.filePath) || "Editor";
 }
 
 // ---------------------------------------------------------------------------

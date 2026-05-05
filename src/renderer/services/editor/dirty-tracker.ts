@@ -31,7 +31,6 @@ export interface DirtyEntry {
   loadedMtime: string;
   loadedSize: number;
   contentDisposable: Monaco.IDisposable;
-  subscribers: Set<() => void>;
 }
 
 const entriesByCacheUri = new Map<string, DirtyEntry>();
@@ -48,10 +47,6 @@ export type DirtyTransitionListener = (event: DirtyTransitionEvent) => void;
 export interface DirtyTransitionEvent {
   cacheUri: string;
   isDirty: boolean;
-}
-
-function notifyEntry(entry: DirtyEntry): void {
-  for (const fn of entry.subscribers) fn();
 }
 
 function notifyFile(cacheUri: string): void {
@@ -92,14 +87,12 @@ export function attachDirtyTracker({
     loadedMtime,
     loadedSize,
     contentDisposable: { dispose: () => {} },
-    subscribers: new Set(),
   };
 
   entry.contentDisposable = model.onDidChangeContent(() => {
     const next = model.getAlternativeVersionId() !== entry.savedAlternativeVersionId;
     if (next === entry.isDirty) return;
     entry.isDirty = next;
-    notifyEntry(entry);
     notifyFile(cacheUri);
     notifyTransition(cacheUri, next);
   });
@@ -116,7 +109,6 @@ export function detachDirtyTracker(cacheUri: string): void {
   const entry = entriesByCacheUri.get(cacheUri);
   if (!entry) return;
   entry.contentDisposable.dispose();
-  entry.subscribers.clear();
   entriesByCacheUri.delete(cacheUri);
   // File subscribers persist across detach (e.g. tab still mounted but
   // model unloaded); notify them so they re-read (isDirty becomes false
@@ -159,7 +151,6 @@ export function markSaved({
   const next = model.getAlternativeVersionId() !== entry.savedAlternativeVersionId;
   if (next !== entry.isDirty) {
     entry.isDirty = next;
-    notifyEntry(entry);
     notifyFile(cacheUri);
     notifyTransition(cacheUri, next);
   }
@@ -187,21 +178,11 @@ export function isDirty(cacheUri: string): boolean {
   return entriesByCacheUri.get(cacheUri)?.isDirty ?? false;
 }
 
-export function subscribeEntry(cacheUri: string, listener: () => void): () => void {
-  const entry = entriesByCacheUri.get(cacheUri);
-  if (!entry) return () => {};
-  entry.subscribers.add(listener);
-  return () => {
-    entry.subscribers.delete(listener);
-  };
-}
-
 /**
- * Subscribe to dirty state for a specific cacheUri, regardless of
- * whether an entry is currently attached. UI consumers
- * (useSyncExternalStore) should use this — it stays valid across
- * attach / detach / re-attach cycles, which can happen when a tab is
- * scrolled out of and back into a leaf, or when the model is reloaded.
+ * Subscribe to dirty state for a specific cacheUri. Stays valid across
+ * attach / detach / re-attach cycles (a tab may outlive its model when
+ * scrolled out of and back into a leaf, or the model may be reloaded).
+ * Notifications fire on transitions only, not on every keystroke.
  */
 export function subscribeFile(cacheUri: string, listener: () => void): () => void {
   let set = fileListeners.get(cacheUri);
@@ -235,7 +216,6 @@ export function subscribeTransitions(listener: DirtyTransitionListener): () => v
 export function __resetDirtyTrackerForTests(): void {
   for (const entry of entriesByCacheUri.values()) {
     entry.contentDisposable.dispose();
-    entry.subscribers.clear();
   }
   entriesByCacheUri.clear();
   transitionListeners.clear();
