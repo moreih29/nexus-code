@@ -3,6 +3,7 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { type FileDragPayload, MIME_FILE } from "@/components/workspace/dnd/types";
 import { cn } from "@/utils/cn";
 import type { TreeNode } from "../../state/stores/files";
+import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./file-tree-icons";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,16 @@ export function FileTreeRow({
 }: FileTreeRowProps) {
   const isDir = node.type === "dir";
 
+  // Type icon: folder open/closed for directories, file-family glyph
+  // (FileCode, FileJson, ...) for files. The chevron stays as the
+  // expand affordance; this slot answers "what kind of node is this?"
+  // and aligns vertically across the tree regardless of nesting depth.
+  const TypeIcon = isDir
+    ? isExpanded
+      ? FOLDER_OPEN_ICON
+      : FOLDER_ICON
+    : getFileIcon(node.name);
+
   // Drag source — files only. Directories aren't draggable; opening "the
   // folder" as an editor tab has no semantics.
   const payload = useMemo<FileDragPayload>(
@@ -119,7 +130,15 @@ export function FileTreeRow({
       ) : (
         <span className="size-3.5 shrink-0" aria-hidden />
       )}
-      <span className="ml-1 truncate min-w-0 text-app-body">{node.name}</span>
+      <TypeIcon
+        className={cn(
+          "size-3.5 shrink-0 ml-1 text-stone-gray",
+          isLoading && "opacity-50 animate-pulse",
+        )}
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      <span className="ml-1.5 truncate min-w-0 text-app-body">{node.name}</span>
     </button>
   );
 }
