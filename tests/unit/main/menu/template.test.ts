@@ -8,8 +8,8 @@
  * only on mac; Quit migrates into File on Win/Linux).
  */
 import { describe, expect, it } from "bun:test";
-import { COMMANDS } from "../../../src/shared/commands";
-import { buildMenuTemplate, type MenuItemSpec } from "../../../src/main/menu-template";
+import { COMMANDS } from "../../../../src/shared/commands";
+import { buildMenuTemplate, type MenuItemSpec } from "../../../../src/main/menu/template";
 
 function flatten(specs: MenuItemSpec[]): MenuItemSpec[] {
   const out: MenuItemSpec[] = [];

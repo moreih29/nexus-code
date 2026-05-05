@@ -12,8 +12,8 @@
  */
 
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
-import type { CommandId } from "../shared/commands";
-import { buildMenuTemplate, type MenuItemSpec } from "./menu-template";
+import type { CommandId } from "../../shared/commands";
+import { buildMenuTemplate, type MenuItemSpec } from "./template";
 
 export function installAppMenu(): void {
   const template = buildMenuTemplate({

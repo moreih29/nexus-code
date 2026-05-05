@@ -1,4 +1,4 @@
-import { isInEditable } from "@/keybindings/global";
+import { isInEditable } from "@/keybindings/dispatcher";
 import { openOrRevealEditor } from "@/services/editor";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
 import { parentOf, useFilesStore } from "@/state/stores/files";

@@ -19,9 +19,9 @@
  * Cmd+Alt+I) keep their Electron-built `role`s so Chromium and macOS
  * handle them uniformly.
  */
-import { type CommandId, COMMANDS } from "../shared/commands";
-import { chordToLabel } from "../shared/keybinding-parse";
-import { findChordBinding, findPrimaryBinding } from "../shared/keybindings";
+import { type CommandId, COMMANDS } from "../../shared/commands";
+import { chordToLabel } from "../../shared/keybinding-parse";
+import { findChordBinding, findPrimaryBinding } from "../../shared/keybindings";
 
 export type MenuItemSpec =
   | { type: "separator" }

@@ -1,9 +1,11 @@
 /**
- * Unit tests for src/renderer/keybindings/global.ts
+ * Unit tests for the dispatcher (`src/renderer/keybindings/dispatcher.ts`).
  *
- * The router resolves keystrokes to command IDs and dispatches through
- * the command registry. Tests register fake handlers per command and
- * assert that the right one fires for each shortcut. No DOM, no React.
+ * Resolver and chord-state are tested in their own files; this file
+ * focuses on dispatcher orchestration: keystroke → command, the
+ * editable guard for single-key bindings, chord lifecycle (Escape,
+ * mismatch, expiry), and the boolean return that drives the
+ * listener's `stopImmediatePropagation()` decision.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -14,7 +16,7 @@ import {
   __setChordClockForTests,
   handleGlobalKeyDown,
   isInEditable,
-} from "../../../../src/renderer/keybindings/global";
+} from "../../../../src/renderer/keybindings/dispatcher";
 
 interface MockEvent {
   metaKey: boolean;
@@ -396,16 +398,19 @@ describe("handleGlobalKeyDown — KeyChord", () => {
     }
   });
 
-  it("Cmd+K is suppressed when focus is inside an editable", () => {
+  it("Cmd+K enters pending even when focus is inside an editable (chord is intentional)", () => {
+    // Phase 2 removed the editable guard from the chord pipeline:
+    // ⌘K is never accidentally typed, so even from inside Monaco /
+    // an input we treat it as the user beginning a chord.
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
     const leader = makeEvent("k", { metaKey: true, code: "KeyK", target });
     handleGlobalKeyDown(leader as unknown as KeyboardEvent);
-    expect(leader.defaultPrevented).toBe(false);
+    expect(leader.defaultPrevented).toBe(true);
 
-    // Pending wasn't entered — the next ⌘W should fire tab.close.
-    const next = makeEvent("w", { metaKey: true, code: "KeyW" });
+    const next = makeEvent("w", { metaKey: true, code: "KeyW", target });
     handleGlobalKeyDown(next as unknown as KeyboardEvent);
-    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.tabCloseAll]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
   });
 });

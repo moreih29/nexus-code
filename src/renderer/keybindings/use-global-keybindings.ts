@@ -19,7 +19,7 @@ import { useFilesStore } from "../state/stores/files";
 import { useLayoutStore } from "../state/stores/layout";
 import { type EditorTabProps, type TerminalTabProps, useTabsStore } from "../state/stores/tabs";
 import { useWorkspacesStore } from "../state/stores/workspaces";
-import { handleGlobalKeyDown } from "./global";
+import { handleGlobalKeyDown } from "./dispatcher";
 
 /**
  * Resolve the active group's currently focused tab. Returns null if any
@@ -229,15 +229,26 @@ export function useGlobalKeybindings(): void {
       }),
     );
 
+    // Capture phase puts our handler ahead of Monaco's standalone
+    // keybinding service (which sits on the editor container in the
+    // bubble phase). Without capture, ⌘K keystrokes typed inside
+    // Monaco never reach our chord pipeline because Monaco's
+    // dispatcher consumes them for its own ⌘K-led shortcuts.
     function onKeyDown(e: KeyboardEvent) {
-      handleGlobalKeyDown(e);
+      if (handleGlobalKeyDown(e)) {
+        // We claimed the event — stop propagation so Monaco / xterm
+        // don't re-process the same key. (Cocoa menu accelerators are
+        // a separate path and can still fire; that's intentional and
+        // benign for our currently-bound commands.)
+        e.stopImmediatePropagation();
+      }
     }
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, { capture: true });
     // TEMPORARY: chord-debug. Confirms the listener actually mounted.
-    console.log("[chord] global keydown listener attached");
+    console.log("[chord] global keydown listener attached (capture)");
 
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
       for (const off of unregister) off();
     };
   }, []);
