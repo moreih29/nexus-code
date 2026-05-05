@@ -1,10 +1,11 @@
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useMemo } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
+import { isDirty, subscribeDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
-import type { Tab } from "../../../state/stores/tabs";
+import type { EditorTabProps, Tab } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 
@@ -65,11 +66,29 @@ interface TabItemProps {
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
+/**
+ * Subscribe to dirty state for an editor tab. Returns false for
+ * non-editor tabs and for tabs whose model has not yet been attached
+ * (the tracker creates entries lazily on model load).
+ */
+function useTabDirty(tab: Tab): boolean {
+  const cacheUri =
+    tab.type === "editor" ? `file://${(tab.props as EditorTabProps).filePath}` : null;
+  const subscribe = useCallback(
+    (cb: () => void) => (cacheUri ? subscribeDirty(cacheUri, cb) : () => {}),
+    [cacheUri],
+  );
+  const getSnapshot = useCallback(() => (cacheUri ? isDirty(cacheUri) : false), [cacheUri]);
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
+}
+
 function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: TabItemProps) {
   const payload = useMemo<TabDragPayload>(
     () => ({ workspaceId, tabId: tab.id, sourceGroupId: leafId }),
     [workspaceId, tab.id, leafId],
   );
+
+  const dirty = useTabDirty(tab);
 
   // VSCode anchors the drag image at (0, 0) of the tab DOM so the cursor sits
   // at the top-left corner, leaving room for drop-border feedback.
@@ -83,7 +102,7 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
     // biome-ignore lint/a11y/noStaticElementInteractions: wrapper owns context menu and drag source; trigger handles tab keyboard interaction
     <div
       key={tab.id}
-      className="relative flex items-center h-full"
+      className="group relative flex items-center h-full"
       {...{ [DND_TAB_ITEM_ATTR]: "" }}
       draggable
       onDragStart={onDragStart}
@@ -92,7 +111,7 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
       <RadixTabs.Trigger
         value={tab.id}
         className={cn(
-          // base layout — pr-7 reserves space for the absolute × button
+          // base layout — pr-7 reserves space for the absolute × / dirty-dot
           "flex items-center gap-1.5 pl-3 pr-7 h-full",
           // text
           "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
@@ -110,13 +129,30 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
         <span className={tab.isPreview ? "italic" : undefined}>{tab.title}</span>
       </RadixTabs.Trigger>
 
-      {/* Close button with Tooltip — sibling of trigger */}
+      {/* Dirty indicator — same outer box as the close button below
+          (size-4 + same inset) so the visual centers line up; the inner
+          8×8 circle is flex-centered. Hover swaps to close ×.
+          Aria-hidden because the close button already labels the action. */}
+      {dirty && (
+        <span
+          aria-hidden
+          className="absolute right-1 top-1/2 -translate-y-1/2 size-4 flex items-center justify-center group-hover:hidden"
+        >
+          <span className="size-2 rounded-full bg-foreground/70" />
+        </span>
+      )}
+
+      {/* Close button with Tooltip — sibling of trigger.
+          When dirty, hidden at rest and shown on hover (replacing the dot). */}
       <RadixTooltip.Root>
         <RadixTooltip.Trigger asChild>
           <Button
             variant="ghost"
             size="icon-sm"
-            className="absolute right-1 top-1/2 -translate-y-1/2 size-4 opacity-50 hover:opacity-100 hover:bg-frosted-veil-strong shrink-0"
+            className={cn(
+              "absolute right-1 top-1/2 -translate-y-1/2 size-4 hover:bg-frosted-veil-strong shrink-0",
+              dirty ? "hidden group-hover:flex opacity-100" : "flex opacity-50 hover:opacity-100",
+            )}
             onClick={(e) => {
               e.stopPropagation();
               onCloseTab(tab.id);
