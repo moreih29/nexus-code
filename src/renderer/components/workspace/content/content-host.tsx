@@ -32,15 +32,33 @@ interface ContentHostProps {
  * into the current parent (slot or view park) whenever the parent
  * changes. The DOM moves; the React tree does not.
  *
- * Parent selection:
- *   - workspace active + slot registered → workspace's slot (visible)
- *   - workspace active + slot pending     → view park (transient)
- *   - workspace inactive                  → view park
+ * Parent selection — single rule, leaf-aware:
+ *   visible = isWorkspaceActive AND isActiveTab
+ *     → slot when registered, transient park otherwise
+ *   not visible (inactive workspace OR inactive tab in active workspace)
+ *     → view park
  *
- * The inactive→park rule is what fixes cross-workspace canvas bleed-through:
- * GPU-composited content (xterm WebGL canvas) does not reliably honor
- * `visibility:hidden` on an ancestor WorkspacePanel, so we move the DOM
- * out of the inactive panel entirely. See view-park.tsx for the rationale.
+ * Why route inactive *tabs* (not just inactive workspaces) to the park:
+ * each tab's portalTarget is `position:absolute; inset:0` over the same
+ * leaf slot. If we kept all of a leaf's tabs' portalTargets stacked in
+ * the slot — relying on inner CSS (`invisible pointer-events-none`) to
+ * hide non-active ones — the topmost portalTarget would still intercept
+ * pointer events because its own box has `pointer-events: auto` and an
+ * empty parent box absorbs any event whose target child has
+ * `pointer-events: none`. Result: clicks/scroll meant for the active
+ * editor get swallowed by whichever portalTarget happens to be last in
+ * DOM order (typically the most-recently-opened tab in the leaf).
+ *
+ * Routing inactive tabs to the park makes the slot's invariant strict:
+ * AT MOST ONE portalTarget lives in any slot at a time — the active
+ * tab's. Stacking conflicts become structurally impossible, and the same
+ * mechanism also resolves the cross-leaf GPU canvas leak (xterm WebGL
+ * not honoring ancestor `visibility:hidden`) at the leaf level — which
+ * the workspace-only park previously handled only across workspaces.
+ *
+ * Pairing with slot-registry:
+ *   slot-registry  → positive resolution (where to show what's visible)
+ *   view-park      → negative resolution (where to keep what is not)
  *
  * Note: WebGL/Canvas renderers can still lose their rasterized buffer
  * across DOM detach/reattach. TerminalView refresh() (called on parent
@@ -55,7 +73,8 @@ export function ContentHost({
 }: ContentHostProps) {
   const slotEl = useSlotElement(workspaceId, ownerLeafId);
   const parkEl = useViewPark();
-  const currentParent = isWorkspaceActive ? (slotEl ?? parkEl) : parkEl;
+  const isVisible = isActiveTab && isWorkspaceActive;
+  const currentParent = isVisible ? (slotEl ?? parkEl) : parkEl;
 
   // Stable per-tab portal target. Created once on first render and reused
   // for the component's entire lifetime. Use lazy-init via ref so we don't
@@ -87,12 +106,13 @@ export function ContentHost({
     };
   }, [portalTarget]);
 
-  const isVisible = isActiveTab && isWorkspaceActive;
-
+  // No CSS-based visibility masking on the inner wrapper: when the tab is
+  // not visible, its portalTarget lives in the view park (off-screen, inert,
+  // visibility:hidden, contain:strict), so it is already neither painted nor
+  // hit-tested. Adding `invisible pointer-events-none` here would be dead
+  // weight and previously caused the stacking bug this rule fixes.
   const inner = (
-    <div
-      className={isVisible ? "absolute inset-0" : "absolute inset-0 invisible pointer-events-none"}
-    >
+    <div className="absolute inset-0">
       {tab.type === "terminal" ? (
         <TerminalView
           tabId={tab.id}
