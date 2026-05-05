@@ -9,7 +9,12 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { COMMANDS } from "../../../../src/shared/commands";
 import { __resetCommandsForTests, registerCommand } from "../../../../src/renderer/commands/registry";
-import { handleGlobalKeyDown, isInEditable } from "../../../../src/renderer/keybindings/global";
+import {
+  __resetChordStateForTests,
+  __setChordClockForTests,
+  handleGlobalKeyDown,
+  isInEditable,
+} from "../../../../src/renderer/keybindings/global";
 
 interface MockEvent {
   metaKey: boolean;
@@ -64,10 +69,12 @@ function setupCommandSpies(): Record<string, ReturnType<typeof mock>> {
 
 beforeEach(() => {
   __resetCommandsForTests();
+  __resetChordStateForTests();
 });
 
 afterEach(() => {
   __resetCommandsForTests();
+  __resetChordStateForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -280,5 +287,125 @@ describe("handleGlobalKeyDown — path actions", () => {
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
     expect(spies[COMMANDS.pathCopyRelative]).toHaveBeenCalledTimes(1);
     expect(spies[COMMANDS.pathCopy]).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGlobalKeyDown — KeyChord (⌘K …)
+// ---------------------------------------------------------------------------
+
+describe("handleGlobalKeyDown — KeyChord", () => {
+  it("Cmd+K alone enters pending state and fires no command", () => {
+    const spies = setupCommandSpies();
+    const leader = makeEvent("k", { metaKey: true, code: "KeyK" });
+    handleGlobalKeyDown(leader as unknown as KeyboardEvent);
+    expect(leader.defaultPrevented).toBe(true);
+    for (const id of Object.values(COMMANDS)) {
+      expect(spies[id]).not.toHaveBeenCalled();
+    }
+  });
+
+  it("Cmd+K then U fires tab.closeSaved", () => {
+    const spies = setupCommandSpies();
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    const second = makeEvent("u", { code: "KeyU" });
+    handleGlobalKeyDown(second as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabCloseSaved]).toHaveBeenCalledTimes(1);
+    expect(second.defaultPrevented).toBe(true);
+  });
+
+  it("Cmd+K then Cmd+W fires tab.closeAll (not tab.close)", () => {
+    const spies = setupCommandSpies();
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    const second = makeEvent("w", { metaKey: true, code: "KeyW" });
+    handleGlobalKeyDown(second as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabCloseAll]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+K then Cmd+Shift+Enter fires tab.pinToggle", () => {
+    const spies = setupCommandSpies();
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    const second = makeEvent("Enter", { metaKey: true, shiftKey: true, code: "Enter" });
+    handleGlobalKeyDown(second as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabPinToggle]).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape during pending cancels the chord without firing", () => {
+    const spies = setupCommandSpies();
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    const esc = makeEvent("Escape", { code: "Escape" });
+    handleGlobalKeyDown(esc as unknown as KeyboardEvent);
+    expect(esc.defaultPrevented).toBe(true);
+    for (const id of Object.values(COMMANDS)) {
+      expect(spies[id]).not.toHaveBeenCalled();
+    }
+
+    // After cancel, a fresh ⌘W resolves to tab.close (not tab.closeAll).
+    const after = makeEvent("w", { metaKey: true, code: "KeyW" });
+    handleGlobalKeyDown(after as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
+    expect(spies[COMMANDS.tabCloseAll]).not.toHaveBeenCalled();
+  });
+
+  it("a non-chord key after the leader is swallowed and clears pending", () => {
+    const spies = setupCommandSpies();
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    // Random "a" — no chord exists for it. Should swallow + clear.
+    const stray = makeEvent("a", { code: "KeyA" });
+    handleGlobalKeyDown(stray as unknown as KeyboardEvent);
+    expect(stray.defaultPrevented).toBe(true);
+    for (const id of Object.values(COMMANDS)) {
+      expect(spies[id]).not.toHaveBeenCalled();
+    }
+
+    // Pending cleared — fresh ⌘W resolves normally.
+    const after = makeEvent("w", { metaKey: true, code: "KeyW" });
+    handleGlobalKeyDown(after as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
+  });
+
+  it("expired pending state lets the next key route normally", () => {
+    const spies = setupCommandSpies();
+    let now = 1_000_000;
+    __setChordClockForTests(() => now);
+
+    handleGlobalKeyDown(
+      makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
+    );
+    // Advance past the chord timeout (1500ms).
+    now += 2000;
+
+    const second = makeEvent("u", { code: "KeyU" });
+    handleGlobalKeyDown(second as unknown as KeyboardEvent);
+
+    // No chord fires (pending expired); plain "u" matches no single
+    // binding either, so nothing happens at all.
+    for (const id of Object.values(COMMANDS)) {
+      expect(spies[id]).not.toHaveBeenCalled();
+    }
+  });
+
+  it("Cmd+K is suppressed when focus is inside an editable", () => {
+    const spies = setupCommandSpies();
+    const target = { tagName: "INPUT" } as HTMLElement;
+    const leader = makeEvent("k", { metaKey: true, code: "KeyK", target });
+    handleGlobalKeyDown(leader as unknown as KeyboardEvent);
+    expect(leader.defaultPrevented).toBe(false);
+
+    // Pending wasn't entered — the next ⌘W should fire tab.close.
+    const next = makeEvent("w", { metaKey: true, code: "KeyW" });
+    handleGlobalKeyDown(next as unknown as KeyboardEvent);
+    expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
   });
 });

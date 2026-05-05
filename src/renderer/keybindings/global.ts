@@ -149,7 +149,128 @@ const BINDINGS: KeyMatch[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// KeyChord support — VSCode-style two-step shortcuts (`⌘K U`, `⌘K ⌘W`, etc.).
+//
+// The first key (the *leader*) is matched but does not dispatch a command.
+// Instead the dispatcher enters a pending state for `CHORD_TIMEOUT_MS`. The
+// next key, if it matches a `SecondBinding` for the same leader, completes
+// the chord and dispatches. Anything else (timeout, mismatched second,
+// Escape) clears the pending state silently.
+//
+// Native OS menus and Electron accelerators don't support chords, so the
+// chord here is purely keyboard-side. The context menus advertise the
+// chord labels via `shortcut-labels.ts`.
+// ---------------------------------------------------------------------------
+
+const CHORD_TIMEOUT_MS = 1500;
+
+const LEADERS = {
+  // ⌘K — opens the chord namespace VSCode uses for tab/window commands.
+  cmdK: (e: KeyboardEvent): boolean => isPlainCmd(e) && e.code === "KeyK",
+} as const satisfies Record<string, (e: KeyboardEvent) => boolean>;
+
+type LeaderId = keyof typeof LEADERS;
+
+interface SecondBinding {
+  command: CommandId;
+  leader: LeaderId;
+  match: (e: KeyboardEvent) => boolean;
+  guardEditable?: boolean;
+}
+
+const SECOND_BINDINGS: SecondBinding[] = [
+  // ⌘K U — close every saved (clean) editor in the active group.
+  {
+    command: COMMANDS.tabCloseSaved,
+    leader: "cmdK",
+    match: (e) => e.code === "KeyU" && !e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey,
+  },
+  // ⌘K ⌘W — close every editor in the active group.
+  {
+    command: COMMANDS.tabCloseAll,
+    leader: "cmdK",
+    match: (e) => isPlainCmd(e) && e.code === "KeyW",
+  },
+  // ⌘K ⇧Enter — toggle pin on the active tab.
+  {
+    command: COMMANDS.tabPinToggle,
+    leader: "cmdK",
+    match: (e) => isCmdShift(e) && e.code === "Enter",
+  },
+];
+
+interface PendingChord {
+  leader: LeaderId;
+  expiresAt: number;
+}
+
+let pending: PendingChord | null = null;
+
+/**
+ * Clock injection point so unit tests can drive timeouts deterministically
+ * without sleeping. Production stays on `Date.now()`.
+ */
+let nowMs: () => number = () => Date.now();
+
+export function __setChordClockForTests(fn: () => number): void {
+  nowMs = fn;
+}
+
+export function __resetChordStateForTests(): void {
+  pending = null;
+  nowMs = () => Date.now();
+}
+
+function tryCompleteChord(e: KeyboardEvent): boolean {
+  if (!pending) return false;
+  if (nowMs() > pending.expiresAt) {
+    pending = null;
+    return false;
+  }
+  // Escape during pending cancels silently. Matches VSCode.
+  if (e.key === "Escape" && !e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+    pending = null;
+    e.preventDefault();
+    return true;
+  }
+  for (const b of SECOND_BINDINGS) {
+    if (b.leader !== pending.leader) continue;
+    if (!b.match(e)) continue;
+    if (b.guardEditable !== false && isInEditable(e.target as HTMLElement | null)) {
+      pending = null;
+      return true;
+    }
+    e.preventDefault();
+    executeCommand(b.command);
+    pending = null;
+    return true;
+  }
+  // Pending was active but the second key didn't match any chord. Swallow
+  // the keystroke so a stray letter doesn't accidentally type into the
+  // surrounding UI, and clear the chord. (VSCode behaves the same way.)
+  pending = null;
+  e.preventDefault();
+  return true;
+}
+
+function tryEnterChord(e: KeyboardEvent): boolean {
+  for (const id of Object.keys(LEADERS) as LeaderId[]) {
+    if (!LEADERS[id](e)) continue;
+    if (isInEditable(e.target as HTMLElement | null)) return false;
+    e.preventDefault();
+    pending = { leader: id, expiresAt: nowMs() + CHORD_TIMEOUT_MS };
+    return true;
+  }
+  return false;
+}
+
 export function handleGlobalKeyDown(e: KeyboardEvent): void {
+  // 1) Pending chord takes priority — second key resolves the chord
+  //    (or the pending state is cleared on timeout / Escape / miss).
+  if (tryCompleteChord(e)) return;
+
+  // 2) Single-keystroke bindings.
   for (const binding of BINDINGS) {
     if (!binding.match(e)) continue;
     if (binding.guardEditable !== false && isInEditable(e.target as HTMLElement | null)) {
@@ -161,4 +282,7 @@ export function handleGlobalKeyDown(e: KeyboardEvent): void {
     executeCommand(binding.command);
     return;
   }
+
+  // 3) Chord leader — enter pending state without dispatching.
+  tryEnterChord(e);
 }

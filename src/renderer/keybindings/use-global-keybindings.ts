@@ -3,7 +3,14 @@ import { COMMANDS } from "../../shared/commands";
 import { registerCommand } from "../commands/registry";
 import { Grid } from "../engine/split";
 import { ipcCall } from "../ipc/client";
-import { closeEditorWithConfirm, openOrRevealEditor, saveModel } from "../services/editor";
+import {
+  closeEditor,
+  closeEditorWithConfirm,
+  filePathToModelUri,
+  isDirty,
+  openOrRevealEditor,
+  saveModel,
+} from "../services/editor";
 import { createPathActions } from "../services/fs-mutations";
 import { closeTerminal, openTerminal } from "../services/terminal";
 import { closeGroup } from "../state/operations";
@@ -142,6 +149,45 @@ export function useGlobalKeybindings(): void {
           const outcome = await closeTabById(ctx.wsId, id);
           if (outcome === "cancelled") return;
         }
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.tabCloseSaved, () => {
+        // Close every editor tab in the active group whose buffer is
+        // clean. No confirms — saved-clean tabs by definition have no
+        // unsaved work. Mirrors `useGroupActions.closeSaved`.
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
+        for (const id of ctx.leaf.tabIds) {
+          const tab = wsRecord[id];
+          if (tab?.type !== "editor") continue;
+          const filePath = (tab.props as EditorTabProps).filePath;
+          if (isDirty(filePathToModelUri(filePath))) continue;
+          closeEditor(id);
+        }
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.tabCloseAll, async () => {
+        // VSCode "Close All Editors": closes pinned tabs too — pin only
+        // protects against bulk Close Others / Close-to-Right gestures.
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        for (const id of [...ctx.leaf.tabIds]) {
+          const outcome = await closeTabById(ctx.wsId, id);
+          if (outcome === "cancelled") return;
+        }
+      }),
+    );
+
+    unregister.push(
+      registerCommand(COMMANDS.tabPinToggle, () => {
+        const ctx = getActiveTabContext();
+        if (!ctx) return;
+        useTabsStore.getState().togglePin(ctx.wsId, ctx.tabId);
       }),
     );
 

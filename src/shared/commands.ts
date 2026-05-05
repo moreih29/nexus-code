@@ -23,6 +23,10 @@ export const COMMANDS = {
   // Tabs
   tabClose: "tab.close",
   tabCloseOthers: "tab.closeOthers",
+  // Chord-only commands (⌘K …) — see keybindings/global.ts.
+  tabCloseSaved: "tab.closeSaved",
+  tabCloseAll: "tab.closeAll",
+  tabPinToggle: "tab.pinToggle",
 
   // Groups (panels)
   groupSplitRight: "group.splitRight",
