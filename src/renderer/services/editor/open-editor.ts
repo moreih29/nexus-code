@@ -125,6 +125,14 @@ export function openOrRevealEditor(
 ): EditorTabLocation {
   useLayoutStore.getState().ensureLayout(input.workspaceId);
 
+  // VSCode parity: callers can opt out of the preview slot entirely
+  // (e.g. file-tree double-click). When `preview === false`, we
+  //   - skip preview-slot reuse,
+  //   - create new tabs as permanent (isPreview=false),
+  //   - still promote any existing tab to permanent on reveal.
+  // The default stays `true` to preserve current single-click behaviour.
+  const allowPreview = opts.preview !== false && PREVIEW_ENABLED;
+
   if (opts.newSplit) {
     const { orientation, side, isPreview = false } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
@@ -155,7 +163,7 @@ export function openOrRevealEditor(
     }
   }
 
-  if (PREVIEW_ENABLED) {
+  if (allowPreview) {
     const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
     if (layout) {
       const previewSlot = findPreviewTabInGroup(input.workspaceId, layout.activeGroupId);
@@ -171,7 +179,7 @@ export function openOrRevealEditor(
     }
   }
 
-  const isPreview = PREVIEW_ENABLED;
+  const isPreview = allowPreview;
   const tab = openEditorTab(input.workspaceId, input, undefined, isPreview);
   const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
   if (!layout) throw new Error(`layout slice not found for ${input.workspaceId}`);

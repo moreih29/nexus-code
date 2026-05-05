@@ -40,6 +40,11 @@ interface FileTreeRowProps {
   isLoading?: boolean;
   onToggle: () => void; // dir click
   onClick: (e: React.MouseEvent) => void; // file click
+  /**
+   * File-only double-click. Mirrors VSCode explorer's "double-click =
+   * open as a permanent (non-preview) tab" gesture.
+   */
+  onDoubleClick?: (e: React.MouseEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +61,7 @@ export function FileTreeRow({
   isLoading = false,
   onToggle,
   onClick,
+  onDoubleClick,
 }: FileTreeRowProps) {
   const isDir = node.type === "dir";
 
@@ -80,6 +86,7 @@ export function FileTreeRow({
       aria-expanded={isDir ? isExpanded : undefined}
       aria-selected={isSelected}
       onClick={isDir ? onToggle : (e) => onClick(e)}
+      onDoubleClick={isDir ? undefined : onDoubleClick}
       title={node.name}
       draggable={!isDir}
       onDragStart={isDir ? undefined : onDragStart}

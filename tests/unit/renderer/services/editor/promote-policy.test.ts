@@ -160,3 +160,45 @@ describe("promote-on-dirty policy", () => {
     );
   });
 });
+
+describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
+  beforeEach(() => {
+    tabsStoreMod.useTabsStore.setState({ byWorkspace: {} });
+    dirtyMod.__resetDirtyTrackerForTests();
+  });
+
+  it("promotes all preview tabs at the given filePath without involving the dirty-tracker", () => {
+    const t = tabsStoreMod.useTabsStore
+      .getState()
+      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(true);
+
+    // No attachDirtyTracker call. The helper should still find and promote.
+    promotePolicyMod.promoteAllPreviewTabsForFile("/repo/a.ts");
+
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(false);
+  });
+
+  it("is a no-op when no preview tab matches the given path", () => {
+    const t = tabsStoreMod.useTabsStore
+      .getState()
+      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+
+    promotePolicyMod.promoteAllPreviewTabsForFile("/repo/other.ts");
+
+    // a.ts is untouched.
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(true);
+  });
+
+  it("is idempotent for already-permanent tabs", () => {
+    const t = tabsStoreMod.useTabsStore
+      .getState()
+      .createTab(WS, "editor", { workspaceId: WS, filePath: "/repo/a.ts" }, true);
+    tabsStoreMod.useTabsStore.getState().promoteFromPreview(WS, t.id);
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(false);
+
+    // Calling again is fine — no error, no state change.
+    promotePolicyMod.promoteAllPreviewTabsForFile("/repo/a.ts");
+    expect(tabsStoreMod.useTabsStore.getState().byWorkspace[WS][t.id].isPreview).toBe(false);
+  });
+});

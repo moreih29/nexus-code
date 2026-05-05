@@ -89,6 +89,31 @@ describe("openOrRevealEditor — preview slot reuse", () => {
     // All three opens reused the single preview slot — still 1 tab
     expect(editorTabsFor(WS)).toHaveLength(1);
   });
+
+  it("opens as a permanent tab when preview:false is passed", () => {
+    const loc = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/a.ts" }, { preview: false });
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[loc.tabId];
+    expect(tab?.isPreview).toBe(false);
+  });
+
+  it("preview:false does not reuse an existing preview slot — opens a fresh permanent tab", () => {
+    // First a preview tab for a.ts.
+    const previewLoc = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/a.ts" });
+    expect(useTabsStore.getState().byWorkspace[WS]?.[previewLoc.tabId]?.isPreview).toBe(true);
+
+    // Open b.ts with preview:false. The a.ts preview slot must NOT be
+    // overwritten — we get a separate permanent tab.
+    const newLoc = openOrRevealEditor(
+      { workspaceId: WS, filePath: "/repo/b.ts" },
+      { preview: false },
+    );
+
+    expect(newLoc.tabId).not.toBe(previewLoc.tabId);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[newLoc.tabId]?.isPreview).toBe(false);
+    // a.ts is still in its preview slot.
+    expect(useTabsStore.getState().byWorkspace[WS]?.[previewLoc.tabId]?.isPreview).toBe(true);
+    expect(editorTabsFor(WS)).toHaveLength(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -230,7 +255,7 @@ describe("moveTabToZone — cross-group move promotes preview tab", () => {
     expect(useTabsStore.getState().byWorkspace[WS]?.[locB.tabId]?.isPreview).toBe(false);
   });
 
-  it("does not promote when moving within the same group (reorder)", () => {
+  it("promotes a preview tab on same-group reorder (VSCode moveEditor → pin)", () => {
     const locA = openOrRevealEditor({ workspaceId: WS, filePath: "/repo/a.ts" });
     useTabsStore.getState().promoteFromPreview(WS, locA.tabId);
 
@@ -239,10 +264,11 @@ describe("moveTabToZone — cross-group move promotes preview tab", () => {
 
     const groupId = getLayout().activeGroupId;
 
-    // Reorder within the same group (index 0 → move to front)
+    // Reorder within the same group (move b.ts to front of the group).
     moveTabToZone(WS, locB.tabId, { groupId, zone: "center", index: 0 });
 
-    // isPreview should still be true (same-group reorder → no promote)
-    expect(useTabsStore.getState().byWorkspace[WS]?.[locB.tabId]?.isPreview).toBe(true);
+    // VSCode editorGroupView.moveEditor pins on every move — including
+    // same-group reorder. We mirror that.
+    expect(useTabsStore.getState().byWorkspace[WS]?.[locB.tabId]?.isPreview).toBe(false);
   });
 });

@@ -148,6 +148,15 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     }
   }
 
+  function handleRowDoubleClick(idx: number, item: (typeof flat)[number]) {
+    if (item.node.type !== "file") return;
+    setActiveIndex(idx);
+    // VSCode parity: double-click in the explorer opens the file as a
+    // permanent tab (no preview slot, no italic title). Goes through
+    // openOrRevealEditor so existing-tab reveal still applies.
+    openOrRevealEditor({ workspaceId, filePath: item.absPath }, { preview: false });
+  }
+
   return (
     <div
       ref={containerRef}
@@ -183,6 +192,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
                 isLoading={tree?.loading.has(item.absPath) ?? false}
                 onToggle={() => handleRowClick(vi.index, item)}
                 onClick={(e) => handleRowClick(vi.index, item, e)}
+                onDoubleClick={() => handleRowDoubleClick(vi.index, item)}
               />
             </div>
           );
