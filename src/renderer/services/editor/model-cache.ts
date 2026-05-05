@@ -11,7 +11,7 @@ import {
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
 import { readFileForModel, subscribeFsChanged } from "./file-loader";
-import { isLspLanguage, languageIdForPath } from "./language";
+import { isLspLanguage } from "./language";
 import {
   notifyDidChange,
   notifyDidClose,
@@ -107,13 +107,15 @@ function createEntry(input: EditorInput): ModelEntry {
   const monaco = requireMonaco();
   const cacheUri = filePathToModelUri(input.filePath);
   const monacoUri = monaco.Uri.parse(cacheUri);
-  const languageId = languageIdForPath(input.filePath);
+  // languageId is resolved by Monaco from the URI's extension at model
+  // creation time (see loadEntry). Initialized empty here so the entry
+  // shape is complete before loadEntry assigns the real id.
   const entry: ModelEntry = {
     input,
     cacheUri,
     lspUri: monacoUri.toString(),
     monacoUri,
-    languageId,
+    languageId: "",
     refCount: 0,
     version: 1,
     phase: "loading",
@@ -142,15 +144,20 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
     }
 
     const monaco = requireMonaco();
+    // Pass `undefined` for the language argument so Monaco resolves it
+    // from the URI's file extension via its registered basic-languages
+    // contributions (python, go, rust, yaml, etc. all auto-detected).
+    // Unknown extensions fall back to "plaintext", same as before.
     const model =
       monaco.editor.getModel(entry.monacoUri) ??
-      monaco.editor.createModel(result.content, entry.languageId, entry.monacoUri);
+      monaco.editor.createModel(result.content, undefined, entry.monacoUri);
 
     if (model.getValue() !== result.content) {
       model.setValue(result.content);
     }
 
     entry.model = model;
+    entry.languageId = model.getLanguageId();
     entry.phase = "ready";
     entry.errorCode = undefined;
     entry.lastLoadedValue = result.content;

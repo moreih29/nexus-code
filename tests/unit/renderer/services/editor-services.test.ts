@@ -62,9 +62,29 @@ interface FakeModel {
   getValue: () => string;
   setValue: (nextValue: string) => void;
   getAlternativeVersionId: () => number;
+  getLanguageId: () => string;
   onDidChangeContent: (listener: () => void) => Monaco.IDisposable;
   isDisposed: () => boolean;
   dispose: () => void;
+}
+
+// Mirror the slice of Monaco's basic-languages auto-detect that this
+// test surface needs — model-cache now passes `undefined` as the
+// language and reads `model.getLanguageId()` post-creation.
+const FAKE_LANGUAGE_BY_EXT: Record<string, string> = {
+  ".ts": "typescript",
+  ".tsx": "typescript",
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".json": "json",
+};
+
+function fakeLanguageIdForUri(rawUri: string): string {
+  const path = rawUri.replace(/^file:\/\//, "");
+  const dot = path.lastIndexOf(".");
+  if (dot < 0) return "plaintext";
+  const ext = path.slice(dot).toLowerCase();
+  return FAKE_LANGUAGE_BY_EXT[ext] ?? "plaintext";
 }
 
 function createFakeMonaco() {
@@ -84,11 +104,12 @@ function createFakeMonaco() {
     Uri: { parse: uriParse },
     MarkerSeverity: { Error: 8, Warning: 4, Info: 2 },
     editor: {
-      createModel(value: string, _languageId: string, uri: FakeUri) {
+      createModel(value: string, languageId: string | undefined, uri: FakeUri) {
         let currentValue = value;
         let altVersionId = 1;
         let disposed = false;
         const changeListeners = new Set<() => void>();
+        const resolvedLanguageId = languageId ?? fakeLanguageIdForUri(uri.toString());
         const model: FakeModel = {
           uri,
           getValue: () => currentValue,
@@ -98,6 +119,7 @@ function createFakeMonaco() {
             for (const listener of changeListeners) listener();
           },
           getAlternativeVersionId: () => altVersionId,
+          getLanguageId: () => resolvedLanguageId,
           onDidChangeContent(listener: () => void) {
             changeListeners.add(listener);
             return { dispose: () => changeListeners.delete(listener) };
