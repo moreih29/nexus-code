@@ -25,9 +25,23 @@ export type ToastKind = "info" | "error";
 export interface ToastInput {
   kind: ToastKind;
   message: string;
-  /** Override auto-dismiss in ms. Defaults: info 4000, error 6000. */
+  /** Override auto-dismiss in ms. Defaults: see TOAST_INFO_MS / TOAST_ERROR_MS. */
   durationMs?: number;
 }
+
+/**
+ * Default auto-dismiss durations. Errors hold longer so the user can
+ * still read the toast after switching focus to investigate.
+ */
+export const TOAST_INFO_MS = 4000;
+export const TOAST_ERROR_MS = 6000;
+
+/**
+ * Sweep interval for the dismissal timer. Single periodic sweep avoids
+ * one-timer-per-toast races; 250ms is fast enough that a 4000ms toast
+ * is dismissed within ~2 frames of its deadline.
+ */
+const TOAST_SWEEP_INTERVAL_MS = 250;
 
 interface ActiveToast {
   id: number;
@@ -46,7 +60,7 @@ function notify(): void {
 }
 
 function defaultDuration(kind: ToastKind): number {
-  return kind === "error" ? 6000 : 4000;
+  return kind === "error" ? TOAST_ERROR_MS : TOAST_INFO_MS;
 }
 
 /** Imperative entry point; safe to call from any module. */
@@ -103,7 +117,7 @@ export function ToastRoot(): React.JSX.Element | null {
         active = surviving;
         notify();
       }
-    }, 250);
+    }, TOAST_SWEEP_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [toasts.length]);
 

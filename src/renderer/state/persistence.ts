@@ -40,6 +40,18 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait this long after the last layout/tabs change before pushing a
+ * snapshot to appState. Long enough to coalesce a burst (drag-end +
+ * focus + active-tab tick all fire within ~50ms), short enough that a
+ * crash window still loses at most ~250ms of user-visible state.
+ */
+export const STATE_PERSIST_DEBOUNCE_MS = 250;
+
+// ---------------------------------------------------------------------------
 // Debounce helper
 // ---------------------------------------------------------------------------
 
@@ -77,10 +89,29 @@ export function registerStatePersistence(): void {
     }
 
     ipcCall("appState", "set", { layoutByWorkspace }).catch(() => {});
-  }, 250);
+  }, STATE_PERSIST_DEBOUNCE_MS);
 
-  unsubLayout = useLayoutStore.subscribe(flush);
-  unsubTabs = useTabsStore.subscribe(flush);
+  // Slice-scoped subscriptions: only re-flush when `byWorkspace` (the
+  // serialised slice) actually changes reference. The bare `subscribe(fn)`
+  // form fires for every store mutation — including non-persisted slots
+  // a future store might add — and the resulting unconditional flush
+  // would be wasted work even with the 250ms debounce. Implemented as
+  // manual diffing so we don't have to drag in `subscribeWithSelector`
+  // middleware for two callers.
+  let prevLayout = useLayoutStore.getState().byWorkspace;
+  let prevTabs = useTabsStore.getState().byWorkspace;
+  unsubLayout = useLayoutStore.subscribe((state) => {
+    if (state.byWorkspace !== prevLayout) {
+      prevLayout = state.byWorkspace;
+      flush();
+    }
+  });
+  unsubTabs = useTabsStore.subscribe((state) => {
+    if (state.byWorkspace !== prevTabs) {
+      prevTabs = state.byWorkspace;
+      flush();
+    }
+  });
 }
 
 export function unregisterStatePersistence(): void {

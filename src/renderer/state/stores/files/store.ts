@@ -9,6 +9,13 @@ import type { FilesState, TreeNode, WorkspaceTree } from "./types";
 const _saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _ensureRootPromises = new Map<string, Promise<void>>();
 
+/**
+ * Wait this long after the last expand/collapse before persisting the
+ * expanded-set. Coalesces a rapid succession of toggles (e.g. user
+ * keyboard-collapsing several rows) into a single IPC write.
+ */
+const FS_EXPANDED_SAVE_DEBOUNCE_MS = 200;
+
 function scheduleSave(workspaceId: string): void {
   const existing = _saveTimers.get(workspaceId);
   if (existing !== undefined) clearTimeout(existing);
@@ -24,7 +31,7 @@ function scheduleSave(workspaceId: string): void {
     ipcCall("fs", "setExpanded", { workspaceId, relPaths }).catch((err) => {
       console.error("[files] setExpanded failed", err);
     });
-  }, 200);
+  }, FS_EXPANDED_SAVE_DEBOUNCE_MS);
   _saveTimers.set(workspaceId, timer);
 }
 
@@ -112,12 +119,14 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       for (const rel of sortedRel) {
         if (!rel) continue; // root already loaded above
         const depth = rel.split("/").length;
-        if (!groupsByDepth.has(depth)) groupsByDepth.set(depth, []);
-        groupsByDepth.get(depth)!.push(rel);
+        const existing = groupsByDepth.get(depth);
+        if (existing) existing.push(rel);
+        else groupsByDepth.set(depth, [rel]);
       }
       const sortedDepths = Array.from(groupsByDepth.keys()).sort((a, b) => a - b);
       for (const depth of sortedDepths) {
-        const group = groupsByDepth.get(depth)!;
+        const group = groupsByDepth.get(depth);
+        if (!group) continue; // unreachable — depth came from .keys() above
         await Promise.all(
           group.map(async (rel) => {
             const abs = `${rootAbsPath}/${rel}`;
