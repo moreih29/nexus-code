@@ -82,3 +82,34 @@
 @utility app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* ---------------------------------------------------------------------------
+   Custom scrollbar — VSCode-style thin track, dimmed thumb.
+   - Always-visible thumb so virtualized panes (file tree) advertise
+     their scroll position. Hover bumps contrast.
+   - Transparent track keeps the surface flat against the panel.
+   - Width 10px on Y, 8px on X (matches VSCode's defaults).
+   --------------------------------------------------------------------------- */
+
+@utility app-scrollbar {
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 8px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-mist-border);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--color-stone-gray);
+    background-clip: padding-box;
+  }
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}

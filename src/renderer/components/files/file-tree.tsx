@@ -154,7 +154,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
           tabIndex={0}
           onKeyDown={handleKeyDown}
           onContextMenu={handleAreaContextMenu}
-          className="h-full overflow-auto focus:outline-none"
+          className="h-full overflow-auto app-scrollbar focus:outline-none"
         >
           <FileTreeVirtualBody
             workspaceId={workspaceId}

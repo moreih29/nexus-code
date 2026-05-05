@@ -30,7 +30,7 @@ export function Sidebar({
 
   return (
     <aside className="relative shrink-0 bg-muted flex flex-col" style={{ width: sidebarWidth }}>
-      <div className="py-3 flex-1 overflow-y-auto">
+      <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
         {workspaces.length === 0 && (
           <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
             No workspaces yet.

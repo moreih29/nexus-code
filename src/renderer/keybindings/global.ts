@@ -20,6 +20,31 @@ export interface GlobalKeyDeps {
    * see `isInEditable`.
    */
   saveActiveEditor?: () => void;
+  /**
+   * Close the active tab in the active group (with the dirty-confirm
+   * flow when it's an editor). Mirrors VSCode `⌘W`.
+   */
+  closeActiveTab?: () => void;
+  /**
+   * Close every other tab in the active group, keeping the active one.
+   * Mirrors VSCode `⌘⌥T` (mac-only by default).
+   */
+  closeOthersInActiveGroup?: () => void;
+  /**
+   * Reveal the active editor's file in the OS file manager. No-op when
+   * the active tab isn't an editor. Mirrors VSCode `⌘⌥R`.
+   */
+  revealActiveFile?: () => void;
+  /**
+   * Copy the active editor's absolute path. No-op when the active tab
+   * isn't an editor. Mirrors VSCode `⌘⌥C` (when editor not focused).
+   */
+  copyActivePath?: () => void;
+  /**
+   * Copy the active editor's workspace-relative path. Mirrors VSCode
+   * `⌘⇧⌥C` (when editor not focused).
+   */
+  copyActiveRelativePath?: () => void;
 }
 
 /**
@@ -98,6 +123,51 @@ export function handleGlobalKeyDown(e: KeyboardEvent, deps: GlobalKeyDeps): void
     if (isInEditable(e.target as HTMLElement | null)) return;
     e.preventDefault();
     deps.closeActiveGroup?.();
+    return;
+  }
+
+  // Cmd+W — close active tab. Note: this must come AFTER the Cmd+Shift+W
+  // branch above; otherwise the shift-less form would also match
+  // Cmd+Shift+W on layouts where `e.key` ignores the shift modifier.
+  if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.code === "KeyW") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.closeActiveTab?.();
+    return;
+  }
+
+  // Cmd+Alt+T — close every other tab in the active group (mac-only in
+  // VSCode, but matching it on every platform is harmless and useful).
+  if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === "KeyT") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.closeOthersInActiveGroup?.();
+    return;
+  }
+
+  // Cmd+Alt+R — reveal active editor's file in Finder.
+  if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === "KeyR") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.revealActiveFile?.();
+    return;
+  }
+
+  // Cmd+Alt+C — copy active editor's absolute path. VSCode disables
+  // this while the editor has focus (so Cmd+Alt+C inside monaco can do
+  // its own thing); we use the same isInEditable guard.
+  if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey && e.code === "KeyC") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.copyActivePath?.();
+    return;
+  }
+
+  // Cmd+Shift+Alt+C — copy active editor's workspace-relative path.
+  if (e.metaKey && e.altKey && e.shiftKey && !e.ctrlKey && e.code === "KeyC") {
+    if (isInEditable(e.target as HTMLElement | null)) return;
+    e.preventDefault();
+    deps.copyActiveRelativePath?.();
     return;
   }
 
