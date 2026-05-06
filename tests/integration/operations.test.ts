@@ -357,7 +357,11 @@ describe("Scenario 10: openTabInNewSplit creates new leaf with fresh tab", () =>
 describe("Scenario 11: closeGroup removes a non-sole leaf and its tab records", () => {
   beforeEach(resetStores);
 
-  it("leaf and its tabs are removed; sibling is hoisted to root", () => {
+  // Layout shape (root.kind === "leaf", root.id === survivingLeafId, hoist 동작)
+  // 검증은 unit layout/store.test.ts "13. closeGroup on non-root → hoist sibling"
+  // 에서 이미 커버됨. 이 통합 케이스는 closeGroup 호출이 tabsStore를 함께 정리
+  // 하는 cross-store coordination만 검증한다.
+  it("closed leaf의 tab record는 tabsStore에서 제거되고, 살아남은 leaf의 tab record는 보존된다", () => {
     const tabA = openTab(WS, "terminal", { cwd: "/left" });
     const leafAId = getLayout().activeGroupId;
 
@@ -366,15 +370,8 @@ describe("Scenario 11: closeGroup removes a non-sole leaf and its tab records", 
 
     closeGroup(WS, leafBId);
 
-    const layout = getLayout();
-    // leafB is gone — root should be leafA
-    expect(layout.root.kind).toBe("leaf");
-    expect(layout.root.id).toBe(leafAId);
-
-    // tabB record removed from tabsStore
     const wsRecord = useTabsStore.getState().byWorkspace[WS];
     expect(wsRecord?.[tabB.id]).toBeUndefined();
-    // tabA still present
     expect(wsRecord?.[tabA.id]).toBeDefined();
   });
 });
@@ -386,20 +383,10 @@ describe("Scenario 11: closeGroup removes a non-sole leaf and its tab records", 
 describe("Scenario 12: closeGroup on sole leaf empties it without removing it", () => {
   beforeEach(resetStores);
 
-  it("sole leaf is preserved with empty tabIds", () => {
-    openTab(WS, "terminal", { cwd: "/only" });
-    const leafId = getLayout().activeGroupId;
-
-    closeGroup(WS, leafId);
-
-    const layout = getLayout();
-    expect(layout.root.kind).toBe("leaf");
-    expect(layout.root.id).toBe(leafId);
-    expect(
-      (layout.root as import("../../src/renderer/state/stores/layout/types").LayoutLeaf).tabIds
-        .length,
-    ).toBe(0);
-  });
+  // Layout shape (sole leaf preserved with empty tabIds) 검증은 unit
+  // layout/store.test.ts "14. closeGroup on root (sole leaf) → leaf preserved,
+  // tabs cleared" 에서 이미 커버됨. 이 통합 case는 sole-leaf closeGroup 호출이
+  // tabsStore에서도 tab record를 제거하는 cross-store coordination만 검증.
 
   it("tab record is removed from tabsStore after sole-leaf closeGroup", () => {
     const tab = openTab(WS, "terminal", { cwd: "/only" });
