@@ -593,7 +593,7 @@ describe("Scenario 5: sanitize 결과 hoisted된 leaf id로 registry 등록", ()
     expect(slotRegistry.get(WS_A, emptyLeafId)).toBeNull();
   });
 
-  it("sole empty leaf (after full sanitize) は sole leaf として保持され root leaf id で slot 登録", () => {
+  it("full sanitize 후 단일 빈 leaf: sole leaf로 보존되고 root leaf id로 slot 등록", () => {
     const soleLeafId = "68686868-6868-4686-b868-686868686868";
     const danglingTabId = "td686868-6868-4686-b868-686868686868";
 

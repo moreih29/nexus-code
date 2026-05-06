@@ -216,6 +216,41 @@ describe("slotRegistry", () => {
   });
 
   // 8 -----------------------------------------------------------------------
+  // useSyncExternalStore 계약: getSnapshot은 store 상태가 변하지 않으면 동일
+  // 참조를 반환해야 한다. 아래 한 케이스로 모든 상태(element / 미등록 / set(null)
+  // 후)에서의 참조 안정성을 통합 검증한다.
+  // (이전에는 통합 테스트 portal-fiber-identity Scenario 4의 4 케이스로 분산되어
+  //  있었으나, layoutStore와 무관한 순수 registry 계약이므로 unit으로 통합.)
+  it("getSnapshot 참조 안정성: 모든 상태에서 연속 get()이 Object.is 동일", () => {
+    const WS = "ws-ref-stability";
+    const LEAF_PRESENT = "leaf-present";
+    const LEAF_ABSENT = "leaf-absent";
+    const el = makeEl();
+
+    // (1) element가 등록된 경우: 연속 get()이 같은 참조
+    trackedSet(WS, LEAF_PRESENT, el);
+    const r1 = slotRegistry.get(WS, LEAF_PRESENT);
+    const r2 = slotRegistry.get(WS, LEAF_PRESENT);
+    const r3 = slotRegistry.get(WS, LEAF_PRESENT);
+    expect(Object.is(r1, r2)).toBe(true);
+    expect(Object.is(r2, r3)).toBe(true);
+    expect(r1).toBe(el);
+
+    // (2) key가 미등록인 경우: 연속 get()이 null로 안정
+    const a1 = slotRegistry.get(WS, LEAF_ABSENT);
+    const a2 = slotRegistry.get(WS, LEAF_ABSENT);
+    expect(a1).toBeNull();
+    expect(Object.is(a1, a2)).toBe(true);
+
+    // (3) set(null)로 entry를 지운 후: 연속 get()이 null로 안정
+    slotRegistry.set(WS, LEAF_PRESENT, null);
+    const n1 = slotRegistry.get(WS, LEAF_PRESENT);
+    const n2 = slotRegistry.get(WS, LEAF_PRESENT);
+    expect(n1).toBeNull();
+    expect(Object.is(n1, n2)).toBe(true);
+  });
+
+  // 9 -----------------------------------------------------------------------
   it("StrictMode 이중 마운트 시뮬레이션: (el → null → el) 시퀀스 후 최종 상태 element 보유", () => {
     const WS = "ws8";
     const LEAF = "leaf8";

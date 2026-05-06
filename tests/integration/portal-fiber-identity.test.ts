@@ -180,30 +180,10 @@ const WS = "f1be1d00-f1be-4f1b-e1db-e1dbe1dbe1db";
 describe("Scenario 1: set(A) → set(null) → set(B) registry atomicity", () => {
   const LEAF = "leaf-s1-0000-0000-0000-000000000000";
 
-  it("get() returns B after the full A → null → B sequence", () => {
-    const elA = makeEl("slot-A");
-    const elB = makeEl("slot-B");
-
-    trackedSet(WS, LEAF, elA);
-    slotRegistry.set(WS, LEAF, null);
-    trackedSet(WS, LEAF, elB);
-
-    expect(slotRegistry.get(WS, LEAF)).toBe(elB);
-  });
-
-  it("listener receives exactly 3 notifications across the A → null → B sequence", () => {
-    const listener = mock(() => {});
-    trackedSubscribe(listener);
-
-    const elA = makeEl("slot-A");
-    const elB = makeEl("slot-B");
-
-    trackedSet(WS, LEAF, elA); // notification 1: null → A
-    slotRegistry.set(WS, LEAF, null); // notification 2: A → null
-    trackedSet(WS, LEAF, elB); // notification 3: null → B
-
-    expect(listener).toHaveBeenCalledTimes(3);
-  });
+  // Scenario 1.1 (final-state-only get())과 Scenario 1.2 (listener count)는
+  // 아래 1.3 (snapshot transitions)에 흡수됨. 1.3은 listener 안에서 매 단계의
+  // snapshot을 캡처하므로 final state, 알림 횟수, 단계별 snapshot 전이를 한
+  // 케이스에서 모두 검증한다.
 
   it("snapshot transitions correctly at each step: A, null, B", () => {
     // Simulate useSyncExternalStore: track the snapshot value each time the
@@ -228,21 +208,10 @@ describe("Scenario 1: set(A) → set(null) → set(B) registry atomicity", () =>
     expect(snapshots[2]).toBe(elB); // after set(B): ContentHost targets elB
   });
 
-  it("inner React element is portal-target-independent: get() changes but registry identity is stable per call", () => {
-    // This verifies that get(ws, leaf) returns a reference-stable value each call
-    // (same reference for the same current state). ContentHost's getSnapshot
-    // uses slotRegistry.get() and useSyncExternalStore requires getSnapshot to
-    // return the same reference across calls when the store has not changed.
-    const elA = makeEl("slot-A");
-    trackedSet(WS, LEAF, elA);
-
-    const snap1 = slotRegistry.get(WS, LEAF);
-    const snap2 = slotRegistry.get(WS, LEAF);
-
-    // Two consecutive calls with no intervening set → same reference
-    expect(snap1).toBe(snap2);
-    expect(snap1).toBe(elA);
-  });
+  // 이전에 있던 "inner React element is portal-target-independent" 케이스는
+  // 순수 registry get() 참조 안정성 검증으로 unit slot-registry.test.ts의
+  // "getSnapshot 참조 안정성: 모든 상태에서 연속 get()이 Object.is 동일"
+  // 케이스로 통합됨.
 
   it("no spurious extra notification when set() is called with the same element after A → null → A", () => {
     // StrictMode scenario: React fires ref callbacks el → null → el.
@@ -275,37 +244,10 @@ describe("Scenario 1: set(A) → set(null) → set(B) registry atomicity", () =>
 describe("Scenario 2: portal target swap after slot DOM node replacement (T4 absorption)", () => {
   const LEAF = "leaf-s2-0000-0000-0000-000000000000";
 
-  it("registry holds new node after slot DOM node replacement (unmount → remount with new element)", () => {
-    const elOld = makeEl("old-slot");
-    const elNew = makeEl("new-slot");
-
-    // GroupView mounts: registers old node
-    trackedSet(WS, LEAF, elOld);
-    expect(slotRegistry.get(WS, LEAF)).toBe(elOld);
-
-    // Split mutation: GroupView unmounts (clears old), remounts (registers new)
-    slotRegistry.set(WS, LEAF, null);
-    trackedSet(WS, LEAF, elNew);
-
-    // ContentHost's next render reads elNew — not the stale elOld
-    expect(slotRegistry.get(WS, LEAF)).toBe(elNew);
-    expect(slotRegistry.get(WS, LEAF)).not.toBe(elOld);
-  });
-
-  it("old node is no longer accessible via registry after replacement", () => {
-    const elOld = makeEl("old-slot");
-    const elNew = makeEl("new-slot");
-
-    trackedSet(WS, LEAF, elOld);
-    slotRegistry.set(WS, LEAF, null);
-    trackedSet(WS, LEAF, elNew);
-
-    // Verify the stale node is completely gone from the registry's perspective.
-    // ContentHost cannot accidentally retrieve it.
-    const retrieved = slotRegistry.get(WS, LEAF);
-    expect(retrieved).not.toBe(elOld);
-    expect(retrieved).toBe(elNew);
-  });
+  // Scenario 2.1 ("registry holds new node after replacement")과 2.2 ("old node
+  // is no longer accessible") 는 순수 registry set/get/null-set 계약 검증으로
+  // unit slot-registry.test.ts에서 이미 커버됨. 아래 두 케이스(listener 알림,
+  // store-driven splitGroup 통합)만 통합 테스트의 가치가 있어 남김.
 
   it("ContentHost subscription receives notification when portal target changes to new slot", () => {
     // Mirrors ContentHost's useSyncExternalStore subscription.
@@ -468,71 +410,10 @@ describe("Scenario 3: closeGroup — no stale slot registration after leaf remov
   });
 });
 
-// ===========================================================================
-// Scenario 4 — Fiber identity surrogate: getSnapshot reference stability
-//
-// useSyncExternalStore contract: getSnapshot must return the same reference
-// on consecutive calls when the store has not changed. If it returns a new
-// reference each call, React will warn and may schedule extra re-renders that
-// could disrupt fiber continuity.
-//
-// We verify that slotRegistry.get() is referentially stable between
-// notifications — i.e., two consecutive calls without an intervening set()
-// return Object.is equal values.
-// ===========================================================================
-
-describe("Scenario 4: getSnapshot reference stability (useSyncExternalStore contract)", () => {
-  const LEAF = "leaf-s4-0000-0000-0000-000000000000";
-
-  it("get() returns the same reference on consecutive calls when no set() occurred", () => {
-    const el = makeEl("stable-slot");
-    trackedSet(WS, LEAF, el);
-
-    const r1 = slotRegistry.get(WS, LEAF);
-    const r2 = slotRegistry.get(WS, LEAF);
-    const r3 = slotRegistry.get(WS, LEAF);
-
-    expect(Object.is(r1, r2)).toBe(true);
-    expect(Object.is(r2, r3)).toBe(true);
-    expect(r1).toBe(el);
-  });
-
-  it("get() returns null consistently when key is absent (null is Object.is stable)", () => {
-    // No element registered for this leaf
-    const r1 = slotRegistry.get(WS, LEAF);
-    const r2 = slotRegistry.get(WS, LEAF);
-
-    expect(r1).toBeNull();
-    expect(Object.is(r1, r2)).toBe(true);
-  });
-
-  it("get() after set(null) returns null stably — fallback to hiddenEl is stable", () => {
-    const el = makeEl("transient-slot");
-    trackedSet(WS, LEAF, el);
-    slotRegistry.set(WS, LEAF, null); // simulate GroupView unmount
-
-    const r1 = slotRegistry.get(WS, LEAF);
-    const r2 = slotRegistry.get(WS, LEAF);
-
-    expect(r1).toBeNull();
-    expect(Object.is(r1, r2)).toBe(true);
-  });
-
-  it("after set(B) following set(A) → set(null), get() returns B stably", () => {
-    const elA = makeEl("slot-A");
-    const elB = makeEl("slot-B");
-
-    trackedSet(WS, LEAF, elA);
-    slotRegistry.set(WS, LEAF, null);
-    trackedSet(WS, LEAF, elB);
-
-    const r1 = slotRegistry.get(WS, LEAF);
-    const r2 = slotRegistry.get(WS, LEAF);
-
-    expect(Object.is(r1, r2)).toBe(true);
-    expect(r1).toBe(elB);
-  });
-});
+// Scenario 4 (getSnapshot 참조 안정성)은 unit slot-registry.test.ts로 이동.
+// layoutStore와 무관한 순수 registry 계약 검증이므로 통합 테스트의 가치가 없음.
+// 자세한 내용: tests/unit/renderer/components/workspace/content/slot-registry.test.ts
+// 의 "getSnapshot 참조 안정성: 모든 상태에서 연속 get()이 Object.is 동일" 케이스 참고.
 
 // ===========================================================================
 // Scenario 5 — Multi-leaf split: each leaf has a unique stable portal target
