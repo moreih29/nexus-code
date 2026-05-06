@@ -14,17 +14,22 @@ import {
 } from "../../shared/lsp-config";
 import {
   ApplyWorkspaceEditParamsSchema,
+  type ApplyWorkspaceEditResult,
   ApplyWorkspaceEditResultSchema,
   CompletionItemSchema,
   ConfigurationParamsSchema,
+  type Diagnostic,
   DiagnosticSchema,
   FileChangeType,
+  type FileEvent,
   HoverResultSchema,
+  type Location,
   LocationLinkSchema,
   LocationSchema,
   type LspServerEventMethod,
   MarkupContentSchema,
   RangeSchema,
+  type Registration,
   RegistrationParamsSchema,
   ShowMessageRequestParamsSchema,
   TextDocumentContentChangeEventSchema,
@@ -32,14 +37,9 @@ import {
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
   WorkDoneProgressCreateParamsSchema,
-  type ApplyWorkspaceEditResult,
-  type Diagnostic,
-  type FileEvent,
-  type Location,
-  type Registration,
 } from "../../shared/lsp-types";
-import { FsChangeKindSchema } from "../../shared/types/fs";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
+import { FsChangeKindSchema } from "../../shared/types/fs";
 import { type LspAdapter, StdioLspAdapter } from "./servers/stdio-lsp-adapter";
 
 // Inbound message shapes (main → utility)
@@ -342,7 +342,11 @@ function flattenInitializationOptions(
   return output;
 }
 
-function setNestedConfigValue(target: Record<string, unknown>, pathParts: string[], value: unknown) {
+function setNestedConfigValue(
+  target: Record<string, unknown>,
+  pathParts: string[],
+  value: unknown,
+) {
   let cursor = target;
   for (let index = 0; index < pathParts.length - 1; index += 1) {
     const part = pathParts[index];

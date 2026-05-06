@@ -73,11 +73,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import {
-  ensureRoot,
-  refresh,
-  toggleExpand,
-} from "../../src/renderer/state/operations/files";
+import { ensureRoot, refresh, toggleExpand } from "../../src/renderer/state/operations/files";
 import { useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";

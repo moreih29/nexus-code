@@ -17,13 +17,13 @@
  */
 
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/utils/cn";
 import {
   UI_TOAST_ERROR_MS,
   UI_TOAST_INFO_MS,
   UI_TOAST_SWEEP_INTERVAL_MS,
 } from "../../../shared/timing-constants";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/utils/cn";
 
 export type ToastKind = "info" | "error";
 

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { LspServerEvent } from "../../../../src/shared/lsp-types";
 import {
   disposeLspServerUxRouter,
   getWorkDoneProgressState,
   routeLspServerEvent,
 } from "../../../../src/renderer/services/lsp/server-ux-router";
+import type { LspServerEvent } from "../../../../src/shared/lsp-types";
 
 const originalConsole = {
   error: console.error,
@@ -57,9 +57,7 @@ describe("LSP server UX router", () => {
   });
 
   test("registers window/workDoneProgress/create tokens", () => {
-    routeLspServerEvent(
-      serverEvent("window/workDoneProgress/create", { token: "progress-token" }),
-    );
+    routeLspServerEvent(serverEvent("window/workDoneProgress/create", { token: "progress-token" }));
 
     expect(getWorkDoneProgressState("ws-1", "typescript", "progress-token")).toEqual({
       workspaceId: "ws-1",

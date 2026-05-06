@@ -10,8 +10,8 @@
  *   registerStatePersistence();
  */
 
-import type { AppState } from "../../shared/types/app-state";
 import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/timing-constants";
+import type { AppState } from "../../shared/types/app-state";
 import { ipcCall } from "../ipc/client";
 import { useLayoutStore } from "./stores/layout";
 import { useTabsStore } from "./stores/tabs";

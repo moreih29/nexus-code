@@ -1,12 +1,12 @@
 import {
+  type LspServerEvent,
+  type MessageType,
   ProgressParamsSchema,
+  type ProgressToken,
   ShowMessageParamsSchema,
   ShowMessageRequestParamsSchema,
   WorkDoneProgressCreateParamsSchema,
   WorkDoneProgressValueSchema,
-  type LspServerEvent,
-  type MessageType,
-  type ProgressToken,
 } from "../../../shared/lsp-types";
 import { ipcListen } from "../../ipc/client";
 

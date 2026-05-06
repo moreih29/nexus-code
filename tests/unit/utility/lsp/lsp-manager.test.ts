@@ -8,8 +8,8 @@
 // language-server binaries.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { LspAdapter } from "../../../../src/utility/lsp-host/servers/stdio-lsp-adapter";
 import { LspManager, type LspManagerOpts } from "../../../../src/utility/lsp-host/lsp-manager";
+import type { LspAdapter } from "../../../../src/utility/lsp-host/servers/stdio-lsp-adapter";
 
 // ---------------------------------------------------------------------------
 // Fake StdioLspAdapter — injected through LspManagerOpts.adapterFactory
@@ -299,10 +299,7 @@ function adapterFor(workspaceId: string): FakeStdioLspAdapter {
   return adapter;
 }
 
-function serverRequestHandler(
-  adapter: FakeStdioLspAdapter,
-  method: string,
-): ServerRequestHandler {
+function serverRequestHandler(adapter: FakeStdioLspAdapter, method: string): ServerRequestHandler {
   const handler = adapter.requestHandlers.get(method);
   if (!handler) {
     throw new Error(`server request handler not found for ${method}`);
@@ -566,7 +563,10 @@ describe("LspManager — workspace integration server requests", () => {
     });
     const adapter = adapterFor("ws-watch");
 
-    const registerResult = await serverRequestHandler(adapter, "client/registerCapability")({
+    const registerResult = await serverRequestHandler(
+      adapter,
+      "client/registerCapability",
+    )({
       registrations: [
         {
           id: "watch-1",
@@ -611,7 +611,10 @@ describe("LspManager — workspace integration server requests", () => {
     });
     const adapter = adapterFor("ws-ignore");
 
-    const registerResult = await serverRequestHandler(adapter, "client/registerCapability")({
+    const registerResult = await serverRequestHandler(
+      adapter,
+      "client/registerCapability",
+    )({
       registrations: [
         {
           id: "show-message",
