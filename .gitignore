@@ -12,7 +12,15 @@ dist/
 # environment
 .env
 .env.local
+
+# nexus
 .nexus/state/
+
+# codex nexus
 .codex/
 .agents/
 plugins/
+
+# opencode nexus
+opencode.json
+.opencode/
