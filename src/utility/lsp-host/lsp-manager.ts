@@ -4,8 +4,10 @@
 //
 // Lifecycle: lazy spawn on first didOpen, 30-minute idle graceful shutdown.
 
+import { z } from "zod";
 import { absolutePathToFileUri } from "../../shared/file-uri";
 import { resolveLspPreset, resolveLspPresetLanguageId } from "../../shared/lsp-config";
+import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
 import { type LspAdapter, StdioLspAdapter } from "./servers/stdio-lsp-adapter";
 
 // Inbound message shapes (main → utility)
@@ -17,15 +19,6 @@ interface CallMsg {
 }
 
 type InboundMsg = CallMsg;
-
-interface DidOpenArgs {
-  workspaceId: string;
-  workspaceRoot: string;
-  uri: string;
-  languageId: string;
-  version: number;
-  text: string;
-}
 
 interface UriIndexEntry {
   workspaceId: string;
@@ -39,24 +32,138 @@ interface IMessagePort {
   postMessage: (data: unknown) => void;
 }
 
-const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-
 export interface LspManagerOpts {
-  /** Override the idle shutdown timeout. Defaults to 30 minutes; only set in tests. */
+  /** Override the idle shutdown timeout. Defaults to LSP_DEFAULT_IDLE_MS; only set in tests. */
   idleTimeoutMs?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Argument schemas — mirrors ipc-contract.lsp.call shapes, but without
+// UUID-strictness so the utility process does not depend on renderer-level
+// validation constraints.
+// ---------------------------------------------------------------------------
+
+const argSchemas = {
+  didOpen: z.object({
+    workspaceId: z.string(),
+    workspaceRoot: z.string(),
+    uri: z.string(),
+    languageId: z.string(),
+    version: z.number().int(),
+    text: z.string(),
+  }),
+  didChange: z.object({
+    uri: z.string(),
+    version: z.number().int(),
+    text: z.string(),
+  }),
+  didClose: z.object({ uri: z.string() }),
+  hover: z.object({
+    uri: z.string(),
+    line: z.number().int(),
+    character: z.number().int(),
+  }),
+  definition: z.object({
+    uri: z.string(),
+    line: z.number().int(),
+    character: z.number().int(),
+  }),
+  completion: z.object({
+    uri: z.string(),
+    line: z.number().int(),
+    character: z.number().int(),
+  }),
+} as const;
+
+type ArgSchemas = typeof argSchemas;
+type MethodName = keyof ArgSchemas;
+type ArgsFor<K extends MethodName> = z.infer<ArgSchemas[K]>;
+
+// ---------------------------------------------------------------------------
+// Handler table
+// ---------------------------------------------------------------------------
+
+interface HandlerCtx {
+  manager: LspManager;
+}
+
+type Handler<K extends MethodName> = (ctx: HandlerCtx, args: ArgsFor<K>) => Promise<unknown>;
+
+type RequestHandlers = { [K in MethodName]: Handler<K> };
+
+const requestHandlers: RequestHandlers = {
+  async didOpen(
+    { manager },
+    { workspaceId, workspaceRoot, uri, languageId, version, text },
+  ) {
+    const presetLanguageId = resolveLspPresetLanguageId(languageId);
+    const adapter = presetLanguageId
+      ? await manager.getOrCreateAdapter(workspaceId, languageId, workspaceRoot)
+      : null;
+    if (adapter && presetLanguageId) {
+      manager.resetIdleTimer(workspaceId, presetLanguageId);
+      await adapter.didOpen(uri, languageId, version, text);
+      manager.uriIndex.set(uri, { workspaceId, presetLanguageId });
+    }
+    return null;
+  },
+
+  async didChange({ manager }, { uri, version, text }) {
+    const routed = manager.findAdapterForUri(uri);
+    if (routed) {
+      manager.resetIdleTimer(routed.workspaceId, routed.languageId);
+      await routed.adapter.didChange(uri, version, text);
+    }
+    return null;
+  },
+
+  async didClose({ manager }, { uri }) {
+    const routed = manager.findAdapterForUri(uri);
+    if (routed) {
+      manager.resetIdleTimer(routed.workspaceId, routed.languageId);
+      await routed.adapter.didClose(uri);
+    }
+    manager.uriIndex.delete(uri);
+    return null;
+  },
+
+  async hover({ manager }, { uri, line, character }) {
+    const routed = manager.findAdapterForUri(uri);
+    if (!routed) return null;
+    manager.resetIdleTimer(routed.workspaceId, routed.languageId);
+    return routed.adapter.hover(uri, line, character);
+  },
+
+  async definition({ manager }, { uri, line, character }) {
+    const routed = manager.findAdapterForUri(uri);
+    if (!routed) return [];
+    manager.resetIdleTimer(routed.workspaceId, routed.languageId);
+    return routed.adapter.definition(uri, line, character);
+  },
+
+  async completion({ manager }, { uri, line, character }) {
+    const routed = manager.findAdapterForUri(uri);
+    if (!routed) return [];
+    manager.resetIdleTimer(routed.workspaceId, routed.languageId);
+    return routed.adapter.completion(uri, line, character);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// LspManager
+// ---------------------------------------------------------------------------
 
 export class LspManager {
   private port: IMessagePort | null = null;
   // keyed by workspaceId, then preset languageId
-  private adapters = new Map<string, Map<string, LspAdapter>>();
+  /** @internal */ adapters = new Map<string, Map<string, LspAdapter>>();
   // keyed by workspaceId, then preset languageId — timer handle for idle shutdown
   private idleTimers = new Map<string, Map<string, ReturnType<typeof setTimeout>>>();
-  private uriIndex = new Map<string, UriIndexEntry>();
+  /** @internal */ uriIndex = new Map<string, UriIndexEntry>();
   private readonly idleTimeoutMs: number;
 
   constructor(opts: LspManagerOpts = {}) {
-    this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    this.idleTimeoutMs = opts.idleTimeoutMs ?? LSP_DEFAULT_IDLE_MS;
   }
 
   attachPort(port: IMessagePort): void {
@@ -86,95 +193,27 @@ export class LspManager {
   }
 
   private async handleCall(msg: CallMsg): Promise<void> {
-    const { id, method, args } = msg;
-    const a = args as Record<string, unknown>;
-
-    switch (method) {
-      case "didOpen": {
-        const { workspaceId, workspaceRoot, uri, languageId, version, text } = args as DidOpenArgs;
-        const presetLanguageId = resolveLspPresetLanguageId(languageId);
-        const adapter = presetLanguageId
-          ? await this.getOrCreateAdapter(workspaceId, languageId, workspaceRoot)
-          : null;
-        if (adapter && presetLanguageId) {
-          this.resetIdleTimer(workspaceId, presetLanguageId);
-          await adapter.didOpen(uri, languageId, version, text);
-          this.uriIndex.set(uri, { workspaceId, presetLanguageId });
-        }
-        this.send({ type: "response", id, result: null });
-        break;
-      }
-      case "didChange": {
-        const uri = a.uri as string;
-        const routed = this.findAdapterForUri(uri);
-        if (routed) {
-          this.resetIdleTimer(routed.workspaceId, routed.languageId);
-          await routed.adapter.didChange(uri, a.version as number, a.text as string);
-        }
-        this.send({ type: "response", id, result: null });
-        break;
-      }
-      case "didClose": {
-        const uri = a.uri as string;
-        const routed = this.findAdapterForUri(uri);
-        if (routed) {
-          this.resetIdleTimer(routed.workspaceId, routed.languageId);
-          await routed.adapter.didClose(uri);
-        }
-        this.uriIndex.delete(uri);
-        this.send({ type: "response", id, result: null });
-        break;
-      }
-      case "hover": {
-        const uri = a.uri as string;
-        const routed = this.findAdapterForUri(uri);
-        if (routed) {
-          this.resetIdleTimer(routed.workspaceId, routed.languageId);
-          const result = await routed.adapter.hover(uri, a.line as number, a.character as number);
-          this.send({ type: "response", id, result });
-        } else {
-          this.send({ type: "response", id, result: null });
-        }
-        break;
-      }
-      case "definition": {
-        const uri = a.uri as string;
-        const routed = this.findAdapterForUri(uri);
-        if (routed) {
-          this.resetIdleTimer(routed.workspaceId, routed.languageId);
-          const result = await routed.adapter.definition(
-            uri,
-            a.line as number,
-            a.character as number,
-          );
-          this.send({ type: "response", id, result });
-        } else {
-          this.send({ type: "response", id, result: [] });
-        }
-        break;
-      }
-      case "completion": {
-        const uri = a.uri as string;
-        const routed = this.findAdapterForUri(uri);
-        if (routed) {
-          this.resetIdleTimer(routed.workspaceId, routed.languageId);
-          const result = await routed.adapter.completion(
-            uri,
-            a.line as number,
-            a.character as number,
-          );
-          this.send({ type: "response", id, result });
-        } else {
-          this.send({ type: "response", id, result: [] });
-        }
-        break;
-      }
-      default:
-        this.send({ type: "response", id, error: `unknown method: ${method}` });
+    const { id, method } = msg;
+    const handler = requestHandlers[method as MethodName];
+    if (!handler) {
+      this.send({ type: "response", id, error: `unknown method: ${method}` });
+      return;
     }
+    const schema = argSchemas[method as MethodName];
+    const parsed = schema.safeParse(msg.args);
+    if (!parsed.success) {
+      this.send({ type: "response", id, error: parsed.error.message });
+      return;
+    }
+    const result = await (handler as Handler<MethodName>)(
+      { manager: this },
+      parsed.data as ArgsFor<MethodName>,
+    );
+    this.send({ type: "response", id, result: result ?? null });
   }
 
-  private async getOrCreateAdapter(
+  /** @internal */
+  async getOrCreateAdapter(
     workspaceId: string,
     languageId: string,
     workspaceRoot: string,
@@ -205,7 +244,8 @@ export class LspManager {
     return adapter;
   }
 
-  private findAdapterForUri(uri: string):
+  /** @internal */
+  findAdapterForUri(uri: string):
     | {
         workspaceId: string;
         languageId: string;
@@ -223,7 +263,8 @@ export class LspManager {
     };
   }
 
-  private resetIdleTimer(workspaceId: string, languageId: string): void {
+  /** @internal */
+  resetIdleTimer(workspaceId: string, languageId: string): void {
     let workspaceTimers = this.idleTimers.get(workspaceId);
     if (!workspaceTimers) {
       workspaceTimers = new Map<string, ReturnType<typeof setTimeout>>();
