@@ -5,6 +5,8 @@
  * scroll positions drift.
  */
 
+import { UI_LOADING_FLASH_DELAY_MS } from "../../../shared/timing-constants";
+
 export const ROW_HEIGHT_PX = 24;
 export const INDENT_STEP_PX = 12;
 export const INDENT_BASE_PX = 8;
@@ -19,8 +21,8 @@ export function indentPaddingLeft(depth: number): number {
 }
 
 /**
- * Delay before the loading indicator appears. Below this threshold
- * fast IPC round-trips finish without ever flashing the spinner —
- * matches the well-known "skeleton vs flash" UX threshold.
+ * Delay before the loading indicator appears. Re-exported under a
+ * file-tree-local name so existing call sites stay unchanged.
+ * See `shared/timing-constants.ts` for the canonical definition.
  */
-export const LOADING_FLASH_DELAY_MS = 200;
+export const LOADING_FLASH_DELAY_MS = UI_LOADING_FLASH_DELAY_MS;

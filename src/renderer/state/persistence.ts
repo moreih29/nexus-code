@@ -11,9 +11,13 @@
  */
 
 import type { AppState } from "../../shared/types/app-state";
+import { STATE_PERSIST_DEBOUNCE_MS } from "../../shared/timing-constants";
 import { ipcCall } from "../ipc/client";
 import { useLayoutStore } from "./stores/layout";
 import { useTabsStore } from "./stores/tabs";
+
+// Re-exported so existing callers (e.g. tests) can keep importing from this module.
+export { STATE_PERSIST_DEBOUNCE_MS };
 
 // ---------------------------------------------------------------------------
 // Serialization
@@ -38,18 +42,6 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
     tabs,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Wait this long after the last layout/tabs change before pushing a
- * snapshot to appState. Long enough to coalesce a burst (drag-end +
- * focus + active-tab tick all fire within ~50ms), short enough that a
- * crash window still loses at most ~250ms of user-visible state.
- */
-export const STATE_PERSIST_DEBOUNCE_MS = 250;
 
 // ---------------------------------------------------------------------------
 // Debounce helper

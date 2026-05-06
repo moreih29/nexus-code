@@ -3,6 +3,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import type { LspServerSpec } from "../../../shared/lsp-config";
+import { LSP_DISPOSE_GRACE_MS } from "../../../shared/timing-constants";
 import { resolveBundledBinary } from "../resolve-bundled-binary";
 
 export type { LspServerSpec } from "../../../shared/lsp-config";
@@ -222,7 +223,7 @@ export class StdioLspAdapter implements LspAdapter {
           } catch {
             /* ignore */
           }
-        }, 5000);
+        }, LSP_DISPOSE_GRACE_MS);
       } catch {
         /* ignore */
       }

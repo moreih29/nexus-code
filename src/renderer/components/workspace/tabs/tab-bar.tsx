@@ -1,5 +1,6 @@
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
@@ -8,17 +9,6 @@ import { cn } from "@/utils/cn";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Delay before the close-tab tooltip surfaces. Long enough that pointer
- * dwell during ordinary use doesn't flash a tooltip every time the mouse
- * crosses a tab; matches the cadence Radix's default uses for menus.
- */
-const TOOLTIP_DELAY_MS = 600;
 
 // ---------------------------------------------------------------------------
 // Props
@@ -220,7 +210,7 @@ export function TabBar({
   }, [tabs]);
 
   return (
-    <RadixTooltip.Provider delayDuration={TOOLTIP_DELAY_MS}>
+    <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
           listeners (via barRef) so the entire bar — including the empty
           area beyond the last tab and around the "+" button — is treated

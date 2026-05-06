@@ -18,7 +18,7 @@
  *     behaviour and would otherwise tear down the chord.
  */
 
-const DEFAULT_TIMEOUT_MS = 1500;
+import { CHORD_DEFAULT_TIMEOUT_MS } from "../../shared/timing-constants";
 
 interface PendingChord {
   /** The leader's accelerator string (used to filter chord secondaries). */
@@ -47,7 +47,7 @@ export function isPending(): boolean {
 }
 
 /** Arm the chord with a fresh timeout. Replaces any prior pending. */
-export function enterPending(leaderId: string, timeoutMs: number = DEFAULT_TIMEOUT_MS): void {
+export function enterPending(leaderId: string, timeoutMs: number = CHORD_DEFAULT_TIMEOUT_MS): void {
   pending = { leaderId, expiresAt: clock() + timeoutMs };
 }
 

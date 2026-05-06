@@ -1,6 +1,7 @@
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { HIDDEN_NAMES } from "../../shared/fs-defaults";
+import { FS_WATCHER_DEBOUNCE_MS } from "../../shared/timing-constants";
 import type { FsChange, FsChangeKind } from "../../shared/types/fs";
 import type { BroadcastFn } from "../workspace/workspace-manager";
 
@@ -147,7 +148,7 @@ export class FileWatcher {
     const timer = setTimeout(() => {
       this.timers.delete(workspaceId);
       this.flush(workspaceId);
-    }, 300);
+    }, FS_WATCHER_DEBOUNCE_MS);
 
     this.timers.set(workspaceId, timer);
   }

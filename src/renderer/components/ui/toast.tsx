@@ -17,6 +17,11 @@
  */
 
 import { useEffect, useState } from "react";
+import {
+  UI_TOAST_ERROR_MS,
+  UI_TOAST_INFO_MS,
+  UI_TOAST_SWEEP_INTERVAL_MS,
+} from "../../../shared/timing-constants";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 
@@ -32,16 +37,15 @@ export interface ToastInput {
 /**
  * Default auto-dismiss durations. Errors hold longer so the user can
  * still read the toast after switching focus to investigate.
+ *
+ * Re-exported under toast-local names so existing callers stay unchanged.
+ * See `shared/timing-constants.ts` for the canonical definitions.
  */
-export const TOAST_INFO_MS = 4000;
-export const TOAST_ERROR_MS = 6000;
+export const TOAST_INFO_MS = UI_TOAST_INFO_MS;
+export const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
 
-/**
- * Sweep interval for the dismissal timer. Single periodic sweep avoids
- * one-timer-per-toast races; 250ms is fast enough that a 4000ms toast
- * is dismissed within ~2 frames of its deadline.
- */
-const TOAST_SWEEP_INTERVAL_MS = 250;
+/** Sweep interval for the dismissal timer (see canonical doc in shared/timing-constants). */
+const TOAST_SWEEP_INTERVAL_MS = UI_TOAST_SWEEP_INTERVAL_MS;
 
 interface ActiveToast {
   id: number;
