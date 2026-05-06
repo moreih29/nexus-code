@@ -20,8 +20,8 @@ function bunSqliteFactory(dbPath: string): Database {
 // ---------------------------------------------------------------------------
 // NEXUS_RESET_STORAGE=1 tests
 //
-// NOTE: This behaviour is intentionally limited to M0/M1 and will be removed
-// in M2 as specified in the architecture plan.
+// NOTE: This behaviour is temporary and should be removed once the
+// storage reset UX is formalized.
 // ---------------------------------------------------------------------------
 
 describe("NEXUS_RESET_STORAGE=1", () => {

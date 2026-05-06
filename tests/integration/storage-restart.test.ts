@@ -5,7 +5,7 @@
  * test verifies that GlobalStorage + StateService survive a close/re-open cycle
  * without data loss — the scenario that an in-memory DB cannot exercise.
  *
- * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
+ * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
 
 import { Database } from "bun:sqlite";

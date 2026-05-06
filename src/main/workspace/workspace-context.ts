@@ -4,7 +4,7 @@ import type { WorkspaceStorage } from "../storage/workspace-storage";
 // ---------------------------------------------------------------------------
 // WorkspaceContext — one instance per open workspace.
 // Holds a reference to the per-workspace storage handle and the in-memory
-// cached meta. M0: tabs are not persisted (M1).
+// cached meta. Tab layout/session persistence is handled outside this context.
 // ---------------------------------------------------------------------------
 
 export class WorkspaceContext {

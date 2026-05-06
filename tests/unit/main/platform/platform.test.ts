@@ -57,11 +57,11 @@ describe("getDefaultShell", () => {
 
   it("throws on win32", () => {
     setPlatform("win32");
-    expect(() => getDefaultShell()).toThrow("not implemented in M0");
+    expect(() => getDefaultShell()).toThrow("not implemented for this platform");
   });
 
   it("throws on linux", () => {
     setPlatform("linux");
-    expect(() => getDefaultShell()).toThrow("not implemented in M0");
+    expect(() => getDefaultShell()).toThrow("not implemented for this platform");
   });
 });

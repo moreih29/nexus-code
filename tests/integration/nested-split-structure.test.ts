@@ -12,7 +12,7 @@
  * was still holding a stale slot ref from before the split, causing the
  * portal to target an unmounted node.
  *
- * Fix (T2): ContentHost uses useSyncExternalStore + slotRegistry so it
+ * Fix: ContentHost uses useSyncExternalStore + slotRegistry so it
  * always reads the *current* slot element; a stale ref can no longer cause
  * a mismatch.
  *

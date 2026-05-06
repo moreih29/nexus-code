@@ -5,7 +5,7 @@
  * Exercises the full path: register → validateArgs (zod) → call handler →
  * broadcast → fake listener.
  *
- * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
+ * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
 
 import { beforeAll, describe, expect, it, mock } from "bun:test";

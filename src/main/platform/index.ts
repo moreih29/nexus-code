@@ -2,9 +2,9 @@
  * src/main/platform/index.ts
  *
  * Single entry point for all platform-branching functions.
- * M0: macOS only. All other platforms throw explicitly — no silent fallbacks.
+ * Current support: macOS only. All other platforms throw explicitly — no silent fallbacks.
  *
- * M3+ cross-OS checklist:
+ * Cross-OS support checklist:
  *   getDefaultShell
  *     - Windows: pwsh -> powershell.exe -> cmd.exe -> WSL
  *     - Linux:   $SHELL -> /bin/bash fallback

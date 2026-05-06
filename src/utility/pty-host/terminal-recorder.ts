@@ -1,5 +1,5 @@
 // Per-tab terminal recorder — 10 MB ring buffer.
-// M0: in-memory only. Dump/load deferred to M2.
+// In-memory only; dump/load persistence is deferred until replay storage ships.
 
 const MAX_RECORDER_DATA_SIZE = 10 * 1024 * 1024; // 10 MB
 

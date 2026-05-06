@@ -1,9 +1,9 @@
 /**
  * portal-fiber-identity — regression guard for ContentHost fiber identity and portal target.
  *
- * DEFECT SCENARIO (T9 fix target)
+ * DEFECT SCENARIO (portal target fallback regression)
  * --------------------------------
- * Before T9 fix, ContentHost had a conditional branch:
+ * Before the fallback fix, ContentHost had a conditional branch:
  *
  *   if (!slotEl) return null;           // fallback branch A
  *   return createPortal(inner, slotEl); // live branch B
@@ -12,7 +12,7 @@
  * saw the component switch between returning null and returning a portal. The fiber
  * inside "inner" was destroyed and recreated on each toggle, unmounting PTY/Monaco.
  *
- * T9 fix: ContentHost always returns createPortal(inner, slotEl ?? hiddenEl).
+ * Fallback fix: ContentHost always returns createPortal(inner, slotEl ?? hiddenEl).
  * The portal target changes from hiddenEl → slotEl, but the *inner* React subtree
  * is always present and React can reconcile it in place — no unmount/remount.
  *
@@ -36,11 +36,11 @@
  *    component type), React preserves the fiber — the test verifies the registry
  *    side of this contract so the renderer side cannot be sabotaged.
  *
- * 3. Portal target swap (T4 absorption): after slot DOM node replacement the
+ * 3. Portal target swap: after slot DOM node replacement the
  *    registry holds the new node, not the stale one. ContentHost — reading via
  *    useSyncExternalStore — will receive the new node on next render.
  *
- * 4. closeGroup residue absence (T4 absorption): after leaf removal via
+ * 4. closeGroup residue absence: after leaf removal via
  *    closeGroup, the stale slot registration is cleaned up so get() returns null.
  *    ContentHost falls back to hiddenEl — its inner subtree is still alive inside
  *    hiddenEl, not parked in a detached DOM node.
@@ -59,12 +59,12 @@
  *   - Stale registration absence after closeGroup
  *   - Snapshot transition fidelity (every intermediate state observable by ContentHost)
  *
- * Not automated (manual T8 smoke):
+ * Not automated (manual browser smoke):
  *   - React fiber survival: useEffect mount/unmount counts in TerminalView/EditorView
  *   - PTY and Monaco actual lifecycle (requires browser DevTools or Playwright)
  *   - CSS visibility of the portal content in the correct slot
  *
- * T8 manual smoke covers what this file cannot: actual React reconciler behavior
+ * Manual browser smoke covers what this file cannot: actual React reconciler behavior
  * when slotEl toggles. This file ensures the registry contract that drives that
  * reconciler behavior is correct.
  */
@@ -234,14 +234,14 @@ describe("Scenario 1: set(A) → set(null) → set(B) registry atomicity", () =>
 
 // ===========================================================================
 // Scenario 2 — Portal target swap: slot DOM node replacement after split mutation
-// (T4 portal-dom-ancestry absorption)
+// Portal DOM ancestry regression coverage
 //
 // When a split mutation causes GroupView to remount with a new DOM node, the
 // registry must hold the NEW node (not the stale pre-mutation node). This is
 // the precondition for ContentHost to portal into the correct live node.
 // ===========================================================================
 
-describe("Scenario 2: portal target swap after slot DOM node replacement (T4 absorption)", () => {
+describe("Scenario 2: portal target swap after slot DOM node replacement", () => {
   const LEAF = "leaf-s2-0000-0000-0000-000000000000";
 
   // Scenario 2.1 ("registry holds new node after replacement")과 2.2 ("old node
@@ -312,7 +312,7 @@ describe("Scenario 2: portal target swap after slot DOM node replacement (T4 abs
 });
 
 // ===========================================================================
-// Scenario 3 — closeGroup residue absence (T4 absorption)
+// Scenario 3 — closeGroup residue absence
 //
 // After a leaf is removed via closeGroup (or via detachTab that hoists), the
 // slot registration for that leaf must be cleaned up. ContentHost should not
@@ -322,7 +322,7 @@ describe("Scenario 2: portal target swap after slot DOM node replacement (T4 abs
 // exactly slotRegistry.set(ws, leafId, null). We verify the post-cleanup state.
 // ===========================================================================
 
-describe("Scenario 3: closeGroup — no stale slot registration after leaf removal (T4 absorption)", () => {
+describe("Scenario 3: closeGroup — no stale slot registration after leaf removal", () => {
   it("after closeGroup simulation, removed leaf's slot registration is null", () => {
     const LEAF_LEFT = "leaf-s3-left-0000-0000-000000000000";
     const LEAF_RIGHT = "leaf-s3-right-000-0000-000000000000";
@@ -495,16 +495,16 @@ describe("Scenario 5: multi-leaf split — each leaf has a distinct stable porta
 });
 
 // ===========================================================================
-// Scenario 6 — T9 fix contract: portal always has a target (hiddenEl fallback)
+// Scenario 6 — portal always has a target (hiddenEl fallback)
 //
-// The T9 fix ensures ContentHost always returns createPortal(inner, target)
+// The hidden fallback ensures ContentHost always returns createPortal(inner, target)
 // where target = slotEl ?? hiddenEl. This test verifies the registry side:
 // slotEl is null only when the leaf has no registration, which is exactly
 // when ContentHost should use hiddenEl. We verify the null→element→null
 // lifecycle produces the correct target sequence at each step.
 // ===========================================================================
 
-describe("Scenario 6: T9 fix contract — portal target is never undefined (hiddenEl fallback)", () => {
+describe("Scenario 6: portal target is never undefined (hiddenEl fallback)", () => {
   const LEAF = "leaf-s6-0000-0000-0000-000000000000";
 
   it("before GroupView mount: slotEl is null → ContentHost targets hiddenEl", () => {

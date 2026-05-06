@@ -4,9 +4,9 @@
  * Tests the cross-slice lifecycle: create → list → update → state.db +
  * workspace.json written → listen.changed broadcast fired → remove →
  * listen.removed broadcast fired → workspace directory still on disk
- * (M0 spec: no auto-delete).
+ * (current retention policy: no auto-delete).
  *
- * Monaco + xterm renderer integration is deferred to T13 (manual scenario).
+ * Monaco + xterm renderer integration requires a browser-level manual scenario.
  */
 
 import { Database } from "bun:sqlite";
@@ -185,10 +185,10 @@ describe("workspace-lifecycle — update propagates to storage + broadcast", () 
 });
 
 // ---------------------------------------------------------------------------
-// remove → directory remains on disk (M0 spec: no auto-delete)
+// remove → directory remains on disk (current retention policy: no auto-delete)
 // ---------------------------------------------------------------------------
 
-describe("workspace-lifecycle — remove keeps directory on disk (M0 spec)", () => {
+describe("workspace-lifecycle — remove keeps directory on disk", () => {
   let tmpDir: string;
   let fixtures: Fixtures;
   let wsId: string;
@@ -216,7 +216,7 @@ describe("workspace-lifecycle — remove keeps directory on disk (M0 spec)", () 
     expect(fixtures.manager.list().length).toBe(0);
   });
 
-  it("remove keeps workspace directory on disk (M0: no auto-delete)", () => {
+  it("remove keeps workspace directory on disk", () => {
     expect(fs.existsSync(wsDir)).toBe(true);
     fixtures.manager.remove(wsId);
     expect(fs.existsSync(wsDir)).toBe(true);
@@ -293,7 +293,7 @@ describe("workspace-lifecycle — full scenario (create → update → remove)",
     expect(ev).toBe("removed");
     expect(args.id).toBe(ws.id);
 
-    // Directory must still exist (M0 spec)
+    // Directory must still exist under the current retention policy
     expect(fs.existsSync(wsDir)).toBe(true);
 
     globalStorage.close();

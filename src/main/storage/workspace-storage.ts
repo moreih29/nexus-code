@@ -52,13 +52,13 @@ function applyWorkspaceMigrations(db: SqliteDb): void {
 // WorkspaceStorage — per-workspace SQLite DB + workspace.json recovery dump.
 //
 // Directory layout (under userData/workspaces/<uuid>/):
-//   state.db      — SQLite KV store for tabs/session/ring-buffer (M0: meta only)
+//   state.db      — SQLite store for workspace metadata and persisted UI state
 //   workspace.json — WorkspaceMeta JSON dump for recovery when state.db is corrupt
 //
 // NEXUS_RESET_STORAGE=1 environment variable:
 //   On first open, if this var is set, the workspace storage folder is renamed
 //   to backup-{timestamp} and a fresh directory is created.
-//   This fast path is intentionally limited to M0/M1 and will be removed in M2.
+//   This fast path is temporary and will be removed once reset UX is formalized.
 // ---------------------------------------------------------------------------
 
 interface PerWorkspaceEntry {
@@ -89,7 +89,7 @@ export class WorkspaceStorage {
   /**
    * Open (or lazily create) per-workspace storage.
    * Applies NEXUS_RESET_STORAGE=1 fast path when the env var is set.
-   * This env-var behaviour is limited to M0/M1 — remove in M2.
+   * This env-var behaviour is temporary — remove once reset UX is formalized.
    */
   openForWorkspace(workspaceId: string): void {
     if (this.entries.has(workspaceId)) {
@@ -98,7 +98,7 @@ export class WorkspaceStorage {
 
     const workspaceDir = path.join(this.baseDir, workspaceId);
 
-    // NEXUS_RESET_STORAGE=1 fast path (M0/M1 only — remove in M2).
+    // NEXUS_RESET_STORAGE=1 fast path; temporary until reset UX is formalized.
     if (process.env.NEXUS_RESET_STORAGE === "1" && fs.existsSync(workspaceDir)) {
       const backupName = `backup-${Date.now()}`;
       const backupDir = path.join(this.baseDir, backupName);

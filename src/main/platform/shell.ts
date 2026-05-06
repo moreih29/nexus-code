@@ -6,8 +6,8 @@ export function getDefaultShell(): string {
   }
 
   if (platform === "win32") {
-    throw new Error("getDefaultShell: not implemented in M0 — see deployment ADR");
+    throw new Error("getDefaultShell: not implemented for this platform — see deployment ADR");
   }
 
-  throw new Error("getDefaultShell: not implemented in M0 — see deployment ADR");
+  throw new Error("getDefaultShell: not implemented for this platform — see deployment ADR");
 }

@@ -11,7 +11,7 @@ const manager = new LspManager();
 // being in scope (utility tsconfig has node types only).
 //
 // IMPORTANT: Electron's MessageEvent shape — transferred ports arrive in
-// event.ports[], NOT in event.data. See Electron docs / T7 fix note:
+// event.ports[], NOT in event.data. See Electron MessagePort transfer docs:
 // event.ports[0] is the correct accessor (NOT event.data.port).
 const parentPort = (
   process as unknown as {
