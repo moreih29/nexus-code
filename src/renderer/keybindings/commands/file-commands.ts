@@ -9,6 +9,7 @@ import { COMMANDS } from "../../../shared/commands";
 import { registerCommand } from "../../commands/registry";
 import { ipcCall } from "../../ipc/client";
 import { openOrRevealEditor, saveModel } from "../../services/editor";
+import { refresh } from "../../state/operations/files";
 import { useActiveStore } from "../../state/stores/active";
 import { useFilesStore } from "../../state/stores/files";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -19,10 +20,7 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.filesRefresh, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
-      useFilesStore
-        .getState()
-        .refresh(wsId)
-        .catch(() => {});
+      refresh(wsId).catch(() => {});
     }),
 
     registerCommand(COMMANDS.openToSide, () => {

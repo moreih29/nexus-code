@@ -6,7 +6,7 @@
  * pose — the caller branches on the same condition there.
  */
 
-import { useFilesStore } from "@/state/stores/files";
+import { refresh } from "@/state/operations/files";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
 
 interface FileTreeStatusViewProps {
@@ -32,7 +32,7 @@ export function FileTreeStatusView({
         <div className="mt-1 text-micro text-stone-gray">{toUserMessage(rootError)}</div>
         <button
           type="button"
-          onClick={() => useFilesStore.getState().refresh(workspaceId)}
+          onClick={() => refresh(workspaceId)}
           className="mt-3 underline text-foreground hover:text-foreground/80"
         >
           Retry

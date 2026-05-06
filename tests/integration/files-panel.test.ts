@@ -73,6 +73,11 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
+import {
+  ensureRoot,
+  refresh,
+  toggleExpand,
+} from "../../src/renderer/state/operations/files";
 import { useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
@@ -202,8 +207,8 @@ describe("Per-workspace isolation across files + tabs stores", () => {
   it("ensureRoot for WS_A then WS_B creates two distinct tree entries", async () => {
     setupReaddir(new Map([["", [dirEntry("src", "dir")]]]));
 
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
+    await ensureRoot(WS_A, ROOT_A);
+    await ensureRoot(WS_B, ROOT_B);
 
     const trees = useFilesStore.getState().trees;
     expect(trees.has(WS_A)).toBe(true);
@@ -223,9 +228,9 @@ describe("Per-workspace isolation across files + tabs stores", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
-    await useFilesStore.getState().toggleExpand(WS_A, srcA);
+    await ensureRoot(WS_A, ROOT_A);
+    await ensureRoot(WS_B, ROOT_B);
+    await toggleExpand(WS_A, srcA);
 
     expect(useFilesStore.getState().trees.get(WS_A)?.expanded.has(srcA)).toBe(true);
     // WS_B has no srcA path — its expanded set should not contain it.
@@ -251,11 +256,11 @@ describe("Per-workspace isolation across files + tabs stores", () => {
   it("refresh on WS_A does not disturb WS_B tree (cross-workspace isolation under invalidation)", async () => {
     setupReaddir(new Map([["", [dirEntry("file.ts", "file")]]]));
 
-    await useFilesStore.getState().ensureRoot(WS_A, ROOT_A);
-    await useFilesStore.getState().ensureRoot(WS_B, ROOT_B);
+    await ensureRoot(WS_A, ROOT_A);
+    await ensureRoot(WS_B, ROOT_B);
 
     setupReaddir(new Map([["", []]]));
-    await useFilesStore.getState().refresh(WS_A);
+    await refresh(WS_A);
 
     expect(useFilesStore.getState().trees.has(WS_B)).toBe(true);
   });

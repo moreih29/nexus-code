@@ -14,7 +14,7 @@
 
 import { ipcCall } from "@/ipc/client";
 import { openOrRevealEditor } from "@/services/editor";
-import { useFilesStore } from "@/state/stores/files";
+import { loadChildren } from "@/state/operations/files";
 import { relPath } from "@/utils/path";
 import { FS_ERROR } from "../../../shared/fs-errors";
 import { toFsToast } from "./errors";
@@ -54,7 +54,7 @@ export async function createNewFile(input: NewFileInput): Promise<boolean> {
   // wipes all descendant nodes, which would visually collapse any
   // already-expanded sub-trees under this parent (the chevrons stay open
   // but the children disappear until clicked twice).
-  await useFilesStore.getState().loadChildren(input.workspaceId, input.parentAbsPath);
+  await loadChildren(input.workspaceId, input.parentAbsPath);
 
   // VSCode parity: New File leaves the new file open and focused, as a
   // permanent tab (not preview).

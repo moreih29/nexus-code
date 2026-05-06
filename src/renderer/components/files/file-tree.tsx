@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useContextMenuHandoff } from "@/components/ui/use-context-menu-handoff";
 import { openOrRevealEditor } from "../../services/editor";
+import { ensureRoot, toggleExpand } from "../../state/operations/files";
 import { selectFlat, useFilesStore } from "../../state/stores/files";
 import { getDisplayFlat } from "./file-tree-display";
 import { buildFileTreeMenuItems } from "./file-tree-menu";
@@ -41,7 +42,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
 
   // ensureRoot on mount/workspaceId change
   useEffect(() => {
-    useFilesStore.getState().ensureRoot(workspaceId, rootAbsPath);
+    ensureRoot(workspaceId, rootAbsPath);
   }, [workspaceId, rootAbsPath]);
 
   const isLoading = tree?.loading.has(rootAbsPath) ?? false;
@@ -127,7 +128,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   function handleRowClick(idx: number, item: (typeof flat)[number], e?: React.MouseEvent) {
     setActiveIndex(idx);
     if (item.node.type === "dir") {
-      useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+      toggleExpand(workspaceId, item.absPath);
     } else if (e && (e.metaKey || e.ctrlKey)) {
       openOrRevealEditor(
         { workspaceId, filePath: item.absPath },

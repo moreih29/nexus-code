@@ -1,7 +1,8 @@
 import { evaluateContextKey } from "@/keybindings/context-keys";
 import { openOrRevealEditor } from "@/services/editor";
+import { toggleExpand } from "@/state/operations/files";
 import type { FlatItem, WorkspaceTree } from "@/state/stores/files";
-import { parentOf, useFilesStore } from "@/state/stores/files";
+import { parentOf } from "@/state/stores/files";
 // `openToSide` (⌘↵) is no longer handled here — the global dispatcher
 // fires `COMMANDS.openToSide` with `when: "fileTreeFocus"`, which
 // covers any row in the tree without component-local plumbing.
@@ -82,12 +83,12 @@ export function createFileTreeKeydownHandler(
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
       if (isDir && !tree?.expanded.has(item.absPath)) {
-        useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+        toggleExpand(workspaceId, item.absPath);
       }
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       if (isDir && tree?.expanded.has(item.absPath)) {
-        useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+        toggleExpand(workspaceId, item.absPath);
       } else {
         const parentIdx = computeParentJumpIndex(flat, item, rootAbsPath);
         if (parentIdx !== null) {
@@ -98,7 +99,7 @@ export function createFileTreeKeydownHandler(
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (isDir) {
-        useFilesStore.getState().toggleExpand(workspaceId, item.absPath);
+        toggleExpand(workspaceId, item.absPath);
       } else {
         openOrRevealEditor({ workspaceId, filePath: item.absPath });
       }

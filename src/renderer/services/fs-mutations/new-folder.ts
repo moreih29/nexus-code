@@ -7,7 +7,7 @@
  */
 
 import { ipcCall } from "@/ipc/client";
-import { useFilesStore } from "@/state/stores/files";
+import { loadChildren } from "@/state/operations/files";
 import { relPath } from "@/utils/path";
 import { FS_ERROR } from "../../../shared/fs-errors";
 import { toFsToast } from "./errors";
@@ -44,6 +44,6 @@ export async function createNewFolder(input: NewFolderInput): Promise<boolean> {
 
   // See createNewFile: loadChildren merges the new entry into the
   // existing tree without disturbing already-loaded sub-trees.
-  await useFilesStore.getState().loadChildren(input.workspaceId, input.parentAbsPath);
+  await loadChildren(input.workspaceId, input.parentAbsPath);
   return true;
 }

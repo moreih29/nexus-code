@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useState } from "react";
+import { toggleExpand } from "@/state/operations/files";
 import { createNewFile, createNewFolder } from "@/services/fs-mutations";
 import { useFilesStore } from "@/state/stores/files";
 import type { EntryKind, PendingCreate } from "./file-tree-display";
@@ -31,7 +32,7 @@ function expandIfCollapsed(workspaceId: string, parentAbsPath: string): void {
   if (!tree) return;
   if (parentAbsPath === tree.rootAbsPath) return;
   if (tree.expanded.has(parentAbsPath)) return;
-  useFilesStore.getState().toggleExpand(workspaceId, parentAbsPath);
+  toggleExpand(workspaceId, parentAbsPath);
 }
 
 export function useFileTreePendingCreate({

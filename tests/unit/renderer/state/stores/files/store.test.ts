@@ -32,6 +32,13 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // ---------------------------------------------------------------------------
 
 import {
+  ensureRoot,
+  loadChildren,
+  refresh,
+  reveal,
+  toggleExpand,
+} from "../../../../../../src/renderer/state/operations/files";
+import {
   handleFsChanged,
   selectFlat,
   useFilesStore,
@@ -82,7 +89,7 @@ describe("Scenario 1: ensureRoot", () => {
   it("creates root node and calls readdir exactly once", async () => {
     setupReaddir(new Map([["", [dirEntry("src", "dir"), dirEntry("package.json", "file")]]]));
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree).toBeDefined();
@@ -106,10 +113,10 @@ describe("Scenario 1: ensureRoot", () => {
 
   it("is a no-op if called again for the same workspaceId", async () => {
     setupReaddir(new Map([["", []]]));
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
     mockIpcCall.mockClear();
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
     expect(mockIpcCall).not.toHaveBeenCalled();
   });
 });
@@ -132,8 +139,8 @@ describe("Scenario 2: toggleExpand child dir", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await toggleExpand(WS_ID, srcAbs);
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     const srcNode = tree?.nodes.get(srcAbs);
@@ -171,13 +178,13 @@ describe("Scenario 3: toggleExpand twice collapses", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await toggleExpand(WS_ID, srcAbs);
 
     const flatExpanded = selectFlat(useFilesStore.getState(), WS_ID);
     expect(flatExpanded.length).toBeGreaterThan(2);
 
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await toggleExpand(WS_ID, srcAbs);
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree?.expanded.has(srcAbs)).toBe(false);
@@ -206,7 +213,7 @@ describe("Scenario 4: refresh reloads", () => {
   it("resets childrenLoaded and calls readdir again", async () => {
     setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     const before = useFilesStore.getState().trees.get(WS_ID);
     expect(before?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
@@ -215,7 +222,7 @@ describe("Scenario 4: refresh reloads", () => {
     // Simulate file system change: new entry appears
     setupReaddir(new Map([["", [dirEntry("a.txt", "file"), dirEntry("b.txt", "file")]]]));
 
-    await useFilesStore.getState().refresh(WS_ID);
+    await refresh(WS_ID);
 
     expect(mockIpcCall).toHaveBeenCalledTimes(1);
     const after = useFilesStore.getState().trees.get(WS_ID);
@@ -244,8 +251,8 @@ describe("Scenario 5: reveal expands ancestors", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().reveal(WS_ID, buttonAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await reveal(WS_ID, buttonAbs);
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree?.expanded.has(ROOT)).toBe(true);
@@ -279,7 +286,7 @@ describe("Scenario 6: selectFlat ordering — dirs first then alphabetical", () 
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     const flat = selectFlat(useFilesStore.getState(), WS_ID);
     // flat[0] is root itself
@@ -301,8 +308,8 @@ describe("Scenario 6: selectFlat ordering — dirs first then alphabetical", () 
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await toggleExpand(WS_ID, srcAbs);
 
     const flat = selectFlat(useFilesStore.getState(), WS_ID);
     const rootItem = flat.find((i) => i.absPath === ROOT);
@@ -332,8 +339,8 @@ describe("Scenario 7: fs.changed handler", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await toggleExpand(WS_ID, srcAbs);
 
     mockIpcCall.mockClear();
     // Update readdir to return a new file
@@ -368,10 +375,10 @@ describe("Scenario 7: fs.changed handler", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await ensureRoot(WS_ID, ROOT);
+    await toggleExpand(WS_ID, srcAbs);
     // Collapse src
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await toggleExpand(WS_ID, srcAbs);
 
     const beforeTree = useFilesStore.getState().trees.get(WS_ID);
     expect(beforeTree?.expanded.has(srcAbs)).toBe(false);
@@ -418,7 +425,7 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
       },
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     // Both dirs should be in the expanded set.
@@ -445,7 +452,7 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
     });
 
     // Should not throw.
-    await expect(useFilesStore.getState().ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
+    await expect(ensureRoot(WS_ID, ROOT)).resolves.toBeUndefined();
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree).toBeDefined();
     // Root still expanded.
@@ -464,10 +471,7 @@ describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
     setupReaddir(new Map([["", [dirEntry("src", "dir")]]]));
 
     // Fire two concurrent calls without awaiting the first
-    await Promise.all([
-      useFilesStore.getState().ensureRoot(WS_ID, ROOT),
-      useFilesStore.getState().ensureRoot(WS_ID, ROOT),
-    ]);
+    await Promise.all([ensureRoot(WS_ID, ROOT), ensureRoot(WS_ID, ROOT)]);
 
     const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
@@ -484,7 +488,7 @@ describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
   it("fires readdir exactly once when loadChildren is called concurrently for the same path", async () => {
     setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
     // Reset root node so it is not yet loaded (simulate a fresh path)
     useFilesStore.setState((state) => {
       const tree = state.trees.get(WS_ID);
@@ -506,10 +510,7 @@ describe("Scenario 11: loadChildren concurrent calls deduplicate", () => {
     mockIpcCall.mockClear();
 
     // Fire two concurrent loadChildren for the same path
-    await Promise.all([
-      useFilesStore.getState().loadChildren(WS_ID, ROOT),
-      useFilesStore.getState().loadChildren(WS_ID, ROOT),
-    ]);
+    await Promise.all([loadChildren(WS_ID, ROOT), loadChildren(WS_ID, ROOT)]);
 
     const readdirCalls = mockIpcCall.mock.calls.filter(([, method]) => method === "readdir");
     expect(readdirCalls).toHaveLength(1);
@@ -545,7 +546,7 @@ describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
       },
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     const readdirCalls = mockIpcCall.mock.calls.filter(([, m]) => m === "readdir");
     // 1 root readdir + 10 child readdirs = 11 total
@@ -575,7 +576,7 @@ describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
       },
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
 
     // Root readdir ("") must come before "a" and "c".
     // "a" must come before "a/b" (depth-1 group completes before depth-2 starts).
@@ -608,7 +609,7 @@ describe("Scenario 9: toggleExpand debounces setExpanded persist", () => {
       ]),
     );
 
-    await useFilesStore.getState().ensureRoot(WS_ID, ROOT);
+    await ensureRoot(WS_ID, ROOT);
     mockIpcCall.mockClear();
 
     // Re-install mock so setExpanded is tracked but other calls resolve cleanly.
@@ -628,7 +629,7 @@ describe("Scenario 9: toggleExpand debounces setExpanded persist", () => {
       },
     );
 
-    await useFilesStore.getState().toggleExpand(WS_ID, srcAbs);
+    await toggleExpand(WS_ID, srcAbs);
 
     // Wait for debounce (200ms) to fire.
     await new Promise((r) => setTimeout(r, 250));

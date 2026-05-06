@@ -8,6 +8,7 @@
  */
 
 export { type DropResult, moveTabToZone, openFileAtZone } from "./dnd";
+export { ensureRoot, loadChildren, refresh, reveal, toggleExpand } from "./files";
 export { closeGroup } from "./groups";
 export {
   closeTab,

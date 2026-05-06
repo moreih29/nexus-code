@@ -1,3 +1,5 @@
+import type { DirEntry } from "../../../../shared/types/fs";
+
 export interface TreeNode {
   absPath: string;
   name: string;
@@ -18,23 +20,17 @@ export type FlatItem = { absPath: string; node: TreeNode; depth: number };
 
 export interface FilesState {
   trees: Map<string, WorkspaceTree>; // key = workspaceId
-
-  /**
-   * Per-workspace mirror of the file-tree's currently-active row. The
-   * tree component still owns its own `activeIndex` for arrow-key
-   * navigation; this map is the surface that global handlers (notably
-   * the `openToSide` keybinding, which fires from outside the tree's
-   * local handler) read to find out which row to act on.
-   *
-   * `null` (or missing) means no row is active — typical after a
-   * refresh that wipes the visible flat list.
-   */
   activeAbsPath: Map<string, string | null>;
 
-  ensureRoot(workspaceId: string, rootAbsPath: string): Promise<void>;
-  toggleExpand(workspaceId: string, absPath: string): Promise<void>;
-  loadChildren(workspaceId: string, absPath: string): Promise<void>;
-  refresh(workspaceId: string, absPath?: string): Promise<void>;
-  reveal(workspaceId: string, absPath: string): Promise<void>;
   setActiveAbsPath(workspaceId: string, absPath: string | null): void;
+
+  // Pure reducers — no side effects
+  initTree(workspaceId: string, rootAbsPath: string, persistedRelPaths: string[]): void;
+  markChildrenLoading(workspaceId: string, absPath: string): void;
+  setChildren(workspaceId: string, absPath: string, entries: DirEntry[]): void;
+  setChildrenError(workspaceId: string, absPath: string, message: string): void;
+  expandDir(workspaceId: string, absPath: string): void;
+  collapseDir(workspaceId: string, absPath: string): void;
+  markChildrenStale(workspaceId: string, absPath: string): void;
+  wipeSubtree(workspaceId: string, targetPath: string): void;
 }
