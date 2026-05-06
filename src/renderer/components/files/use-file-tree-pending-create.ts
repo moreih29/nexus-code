@@ -11,8 +11,8 @@
  */
 
 import { useCallback, useState } from "react";
-import { toggleExpand } from "@/state/operations/files";
 import { createNewFile, createNewFolder } from "@/services/fs-mutations";
+import { toggleExpand } from "@/state/operations/files";
 import { useFilesStore } from "@/state/stores/files";
 import type { EntryKind, PendingCreate } from "./file-tree-display";
 

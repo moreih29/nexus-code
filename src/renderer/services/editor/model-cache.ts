@@ -11,12 +11,14 @@ import {
   createEntry,
   errorCodeFromUnknown,
   type ModelEntry,
-  snapshot,
   type SharedModelState,
+  snapshot,
 } from "./model-entry";
 import { initializeMonacoSingleton } from "./monaco-singleton";
-export { isMonacoReady, onMonacoReady } from "./monaco-singleton";
+
 export type { SharedModelPhase, SharedModelState } from "./model-entry";
+export { isMonacoReady, onMonacoReady } from "./monaco-singleton";
+
 import type { EditorInput } from "./types";
 
 export function filePathToModelUri(filePath: string): string {

@@ -192,9 +192,7 @@ export const WorkDoneProgressCreateParamsSchema = z
     token: ProgressTokenSchema,
   })
   .passthrough();
-export type WorkDoneProgressCreateParams = z.infer<
-  typeof WorkDoneProgressCreateParamsSchema
->;
+export type WorkDoneProgressCreateParams = z.infer<typeof WorkDoneProgressCreateParamsSchema>;
 
 export const WorkDoneProgressBeginSchema = z
   .object({

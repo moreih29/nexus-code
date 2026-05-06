@@ -28,7 +28,9 @@ function fallbackApplyEditResult(failureReason: string): ApplyWorkspaceEditResul
   return { applied: false, failureReason };
 }
 
-function requestRendererApplyEdit(params: ApplyWorkspaceEditParams): Promise<ApplyWorkspaceEditResult> {
+function requestRendererApplyEdit(
+  params: ApplyWorkspaceEditParams,
+): Promise<ApplyWorkspaceEditResult> {
   const requestId = `apply-edit-${nextApplyEditRequestId++}`;
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
@@ -42,10 +44,7 @@ function requestRendererApplyEdit(params: ApplyWorkspaceEditParams): Promise<App
   });
 }
 
-function resolveRendererApplyEdit(
-  requestId: string,
-  result: ApplyWorkspaceEditResult,
-): void {
+function resolveRendererApplyEdit(requestId: string, result: ApplyWorkspaceEditResult): void {
   const pending = pendingApplyEditRequests.get(requestId);
   if (!pending) return;
 

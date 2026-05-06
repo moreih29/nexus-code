@@ -4,9 +4,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { LspServerSpec } from "../../../shared/lsp-config";
 import {
+  type IncrementalTextDocumentContentChangeEvent,
   type ServerCapabilities,
   ServerCapabilitiesSchema,
-  type IncrementalTextDocumentContentChangeEvent,
   type TextDocumentContentChangeEvent,
   TextDocumentSyncKind,
   type TextDocumentSyncKind as TextDocumentSyncKindValue,
@@ -19,7 +19,6 @@ export type { LspServerSpec } from "../../../shared/lsp-config";
 type JsonRpcId = string | number | null;
 
 export interface LspRequestOptions {
-  /** Reserved for T4 cancellation plumbing. */
   signal?: AbortSignal;
 }
 

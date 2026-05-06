@@ -9,8 +9,8 @@ import type {
   DiagnosticRelatedInformation,
   MarkupContentOrString,
   Range,
-  TextEdit,
   TextDocumentContentChangeEvent,
+  TextEdit,
   WorkspaceDocumentChange,
 } from "../../../shared/lsp-types";
 import { ipcCall, ipcListen } from "../../ipc/client";

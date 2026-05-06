@@ -78,11 +78,7 @@ export function FileTreeRow({
   // (FileCode, FileJson, ...) for files. The chevron stays as the
   // expand affordance; this slot answers "what kind of node is this?"
   // and aligns vertically across the tree regardless of nesting depth.
-  const TypeIcon = isDir
-    ? isExpanded
-      ? FOLDER_OPEN_ICON
-      : FOLDER_ICON
-    : getFileIcon(node.name);
+  const TypeIcon = isDir ? (isExpanded ? FOLDER_OPEN_ICON : FOLDER_ICON) : getFileIcon(node.name);
 
   // Drag source — files only. Directories aren't draggable; opening "the
   // folder" as an editor tab has no semantics.

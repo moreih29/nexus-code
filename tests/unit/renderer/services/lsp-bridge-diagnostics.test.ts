@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
-import type { Diagnostic } from "../../../../src/shared/lsp-types";
 import {
   applyWorkspaceEdit,
   lspDiagnosticToMonacoMarker,
   monacoContentChangesToLsp,
   tokenToAbortSignal,
 } from "../../../../src/renderer/services/editor/lsp-bridge";
+import type { Diagnostic } from "../../../../src/shared/lsp-types";
 
 interface FakeUri {
   readonly raw: string;
