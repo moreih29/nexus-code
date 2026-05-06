@@ -12,8 +12,15 @@ import path from "node:path";
 
 type EventCallback = (args: unknown) => void;
 
+export interface LspHostCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface LspHostHandle {
-  call: (method: string, args: unknown) => Promise<unknown>;
+  call: (method: string, args: unknown, opts?: LspHostCallOptions) => Promise<unknown>;
+  notify: (method: string, args: unknown) => void;
+  respondServerRequest: (id: string | number, result: unknown) => void;
+  rejectServerRequest: (id: string | number, message: string) => void;
   on: (event: string, cb: EventCallback) => () => void;
   isAlive: () => boolean;
   dispose: () => void;
@@ -77,7 +84,7 @@ export function startLspHost(): LspHostHandle {
   let nextId = 1;
   const pendingCalls = new Map<
     string | number,
-    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+    { resolve: (v: unknown) => void; reject: (e: Error) => void; cleanup: () => void }
   >();
 
   const entryPoint = path.join(electron.app.getAppPath(), "out", "main", "lsp-host.js");
@@ -119,6 +126,7 @@ export function startLspHost(): LspHostHandle {
           const pending = pendingCalls.get(id);
           if (pending) {
             pendingCalls.delete(id);
+            pending.cleanup();
             if (msg.error) {
               pending.reject(new Error(msg.error as string));
             } else {
@@ -129,6 +137,21 @@ export function startLspHost(): LspHostHandle {
         }
         case "diagnostics":
           emit("diagnostics", { uri: msg.uri, diagnostics: msg.diagnostics });
+          break;
+        case "serverRequest":
+          emit("serverRequest", {
+            id: msg.id,
+            method: msg.method,
+            params: msg.params,
+          });
+          break;
+        case "serverEvent":
+          emit("serverEvent", {
+            workspaceId: msg.workspaceId,
+            languageId: msg.languageId,
+            method: msg.method,
+            params: msg.params,
+          });
           break;
       }
     });
@@ -142,6 +165,7 @@ export function startLspHost(): LspHostHandle {
     console.warn("[lsp-host] utility process exited — restarting");
 
     for (const [, pending] of pendingCalls) {
+      pending.cleanup();
       pending.reject(new Error("LSP host restarted"));
     }
     pendingCalls.clear();
@@ -168,12 +192,44 @@ export function startLspHost(): LspHostHandle {
   // Public API
   // ---------------------------------------------------------------------------
 
-  function call(method: string, args: unknown): Promise<unknown> {
+  function call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = nextId++;
-      pendingCalls.set(id, { resolve, reject });
+      const signal = opts.signal;
+      const onAbort = () => {
+        if (pendingCalls.has(id)) {
+          mainPort.postMessage({ type: "cancel", id });
+        }
+      };
+      const cleanup = () => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+
+      if (signal && !signal.aborted) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      pendingCalls.set(id, { resolve, reject, cleanup });
       mainPort.postMessage({ type: "call", id, method, args });
+      if (signal?.aborted) {
+        onAbort();
+      }
     });
+  }
+
+  function notify(method: string, args: unknown): void {
+    if (disposed) return;
+    mainPort.postMessage({ type: "notify", method, args });
+  }
+
+  function respondServerRequest(id: string | number, result: unknown): void {
+    if (disposed) return;
+    mainPort.postMessage({ type: "serverResponse", id, result });
+  }
+
+  function rejectServerRequest(id: string | number, message: string): void {
+    if (disposed) return;
+    mainPort.postMessage({ type: "serverResponse", id, error: message });
   }
 
   function on(event: string, cb: EventCallback): () => void {
@@ -207,5 +263,5 @@ export function startLspHost(): LspHostHandle {
     }
   }
 
-  return { call, on, isAlive, dispose };
+  return { call, notify, respondServerRequest, rejectServerRequest, on, isAlive, dispose };
 }

@@ -39,6 +39,16 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       });
     }
 
+    if (channel === "fs" && method === "writeFile") {
+      const { relPath, content } = args as { relPath: string; content: string };
+      fileContents.set(relPath, content);
+      return Promise.resolve({
+        kind: "ok",
+        mtime: new Date().toISOString(),
+        size: content.length,
+      });
+    }
+
     return Promise.resolve(undefined);
   }),
   ipcListen: mock((channel: string, event: string, callback: (args: unknown) => void) => {
@@ -57,6 +67,7 @@ const { ensureProvidersFor, initializeLspBridge } = await import(
 const { acquireModel, initializeModelCache, releaseModel } = await import(
   "../../../../src/renderer/services/editor/model-cache"
 );
+const { saveModel } = await import("../../../../src/renderer/services/editor/save-service");
 const { useWorkspacesStore } = await import("../../../../src/renderer/state/stores/workspaces");
 
 interface FakeUri {
@@ -70,7 +81,9 @@ interface FakeModel {
   setValue: (nextValue: string) => void;
   getAlternativeVersionId: () => number;
   getLanguageId: () => string;
-  onDidChangeContent: (listener: () => void) => Monaco.IDisposable;
+  onDidChangeContent: (
+    listener: (event: Monaco.editor.IModelContentChangedEvent) => void,
+  ) => Monaco.IDisposable;
   isDisposed: () => boolean;
   dispose: () => void;
 }
@@ -95,6 +108,41 @@ function fakeLanguageIdForUri(rawUri: string): string {
   return FAKE_LANGUAGE_BY_EXT[ext] ?? "plaintext";
 }
 
+function fullRangeForValue(value: string): Monaco.IRange {
+  const lines = value.split(/\r\n|\r|\n/);
+  const lastLine = lines.at(-1) ?? "";
+  return {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber: lines.length,
+    endColumn: lastLine.length + 1,
+  };
+}
+
+function contentChangedEvent(
+  previousValue: string,
+  nextValue: string,
+  versionId: number,
+): Monaco.editor.IModelContentChangedEvent {
+  return {
+    changes: [
+      {
+        range: fullRangeForValue(previousValue),
+        rangeOffset: 0,
+        rangeLength: previousValue.length,
+        text: nextValue,
+        forceMoveMarkers: false,
+      },
+    ],
+    eol: "\n",
+    versionId,
+    isUndoing: false,
+    isRedoing: false,
+    isFlush: true,
+    isEolChange: false,
+  } as Monaco.editor.IModelContentChangedEvent;
+}
+
 function createFakeMonaco() {
   const models = new Map<string, FakeModel>();
   const providerCalls = {
@@ -116,19 +164,21 @@ function createFakeMonaco() {
         let currentValue = value;
         let altVersionId = 1;
         let disposed = false;
-        const changeListeners = new Set<() => void>();
+        const changeListeners = new Set<(event: Monaco.editor.IModelContentChangedEvent) => void>();
         const resolvedLanguageId = languageId ?? fakeLanguageIdForUri(uri.toString());
         const model: FakeModel = {
           uri,
           getValue: () => currentValue,
           setValue(nextValue: string) {
+            const previousValue = currentValue;
             currentValue = nextValue;
             altVersionId += 1;
-            for (const listener of changeListeners) listener();
+            const event = contentChangedEvent(previousValue, nextValue, altVersionId);
+            for (const listener of changeListeners) listener(event);
           },
           getAlternativeVersionId: () => altVersionId,
           getLanguageId: () => resolvedLanguageId,
-          onDidChangeContent(listener: () => void) {
+          onDidChangeContent(listener: (event: Monaco.editor.IModelContentChangedEvent) => void) {
             changeListeners.add(listener);
             return { dispose: () => changeListeners.delete(listener) };
           },
@@ -284,6 +334,34 @@ describe("services/editor model cache", () => {
     releaseModel(input);
   });
 
+  test("saveModel sends didSave with the text that was written", async () => {
+    const input = { workspaceId: WS_ID, filePath: "/workspace/src/save.ts" };
+    fileContents.set("src/save.ts", "before");
+
+    const acquired = await acquireModel(input);
+    const model = acquired.model;
+    if (!model) throw new Error("expected ready model");
+
+    model.setValue("after");
+    ipcCalls.length = 0;
+
+    const result = await saveModel(input);
+
+    expect(result.kind).toBe("saved");
+    expect(ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didSave")).toEqual([
+      {
+        channel: "lsp",
+        method: "didSave",
+        args: {
+          uri: "file:///workspace/src/save.ts",
+          text: "after",
+        },
+      },
+    ]);
+
+    releaseModel(input);
+  });
+
   test("second supported model of the same language does not register providers again", async () => {
     const firstInput = { workspaceId: WS_ID, filePath: "/workspace/src/a.ts" };
     const secondInput = { workspaceId: WS_ID, filePath: "/workspace/src/b.ts" };
@@ -313,9 +391,7 @@ describe("services/editor model cache", () => {
     const acquired = await acquireModel(input);
 
     expect(acquired.phase).toBe("ready");
-    expect(
-      ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen"),
-    ).toEqual([
+    expect(ipcCalls.filter((call) => call.channel === "lsp" && call.method === "didOpen")).toEqual([
       {
         channel: "lsp",
         method: "didOpen",

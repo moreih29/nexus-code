@@ -23,12 +23,17 @@ type ListenArgs<C extends ListenChannels, E extends ListenEvents<C>> = InferArgs
   Contract[C]["listen"][E]
 >;
 
+type IpcRequestId = string;
+
 interface IpcBridge {
   call<C extends CallChannels, M extends CallMethods<C>>(
     channel: C,
     method: M,
     args: CallArgs<C, M>,
+    requestId?: IpcRequestId,
   ): Promise<CallReturn<C, M>>;
+
+  cancel(requestId: IpcRequestId): void;
 
   listen<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,

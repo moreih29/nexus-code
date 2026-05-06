@@ -1,4 +1,5 @@
 import type * as Monaco from "monaco-editor";
+import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
 import { initializeLspBridge } from "./lsp-bridge";
 import { initializeModelCache } from "./model-cache";
 import { startPromoteOnDirtyPolicy } from "./promote-policy";
@@ -23,5 +24,6 @@ export { useSharedModel } from "./use-shared-model";
 export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeModelCache(monaco);
   initializeLspBridge(monaco);
+  initializeLspServerUxRouter();
   startPromoteOnDirtyPolicy();
 }

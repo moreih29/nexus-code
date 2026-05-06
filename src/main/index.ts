@@ -1,7 +1,7 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { FileWatcher } from "./filesystem/file-watcher";
-import { startLspHost } from "./hosts/lsp-host";
+import { type LspHostHandle, startLspHost } from "./hosts/lsp-host";
 import { startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerDialogChannel } from "./ipc/channels/dialog";
@@ -29,14 +29,23 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // Wrap broadcast so workspace.removed events clean up file watchers.
 // This avoids modifying WorkspaceManager and keeps the hook co-located with
 // the wiring that owns both fileWatcher and workspaceManager.
-const fileWatcher = new FileWatcher(broadcast);
+let lspHost: LspHostHandle | null = null;
+
+function forwardBroadcast(channelName: string, event: string, args: unknown): void {
+  if (channelName === "fs" && event === "changed") {
+    lspHost?.notify("fsChanged", args);
+  }
+  broadcast(channelName, event, args);
+}
+
+const fileWatcher = new FileWatcher(forwardBroadcast);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "removed") {
     const removedWorkspaceId = (args as { id: string }).id;
     fileWatcher.disposeWorkspace(removedWorkspaceId);
   }
-  broadcast(channelName, event, args);
+  forwardBroadcast(channelName, event, args);
 }
 
 const workspaceManager = new WorkspaceManager(
@@ -64,12 +73,12 @@ app.whenReady().then(() => {
   const ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
 
-  const lspHost = startLspHost();
+  lspHost = startLspHost();
   registerLspChannel(lspHost);
 
   app.on("before-quit", () => {
     ptyHost.dispose();
-    lspHost.dispose();
+    lspHost?.dispose();
   });
 
   createMainWindow();
