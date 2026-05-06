@@ -3917,6 +3917,115 @@
           "created_at": "2026-05-05T15:36:52.918Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-06T03:20:50.771Z",
+      "branch": "main",
+      "tasks": [
+        {
+          "id": 1,
+          "title": "M5: Centralize timing constants",
+          "status": "completed",
+          "context": "감사에서 식별: chord-state.ts(1500ms), file-watcher.ts(300ms), stdio-lsp-adapter.ts(5000ms), 다수 250ms 디바운스가 산재. lsp-manager.test.ts:460–474는 하드코딩 ms로 CI 레이스 위험.",
+          "acceptance": "1) src/shared/timing-constants.ts 생성, 모든 산재 ms 상수 export 2) 5+ 사용처가 신규 상수 import로 교체 3) typecheck/test/lint 통과",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-06T01:56:11.041Z"
+        },
+        {
+          "id": 2,
+          "title": "M3: Slot-registry test consolidation",
+          "status": "completed",
+          "context": "3개 통합 파일(portal-fiber-identity 706, hydration 665, namespacing 474)이 unit slot-registry.test.ts(242)와 동일 경계를 삼중 검증. portal-fiber-identity는 이름과 달리 fiber 검증 안 함.",
+          "acceptance": "1) Scenario 4(참조 안정성 4 케이스) 삭제 또는 unit으로 통합 2) Scenario 1–2 unit으로 통폐합 3) integration은 layoutStore↔slotRegistry 교차점만 검증 4) 800–1000 LoC 감소 5) 테스트 통과",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-06T01:56:25.286Z"
+        },
+        {
+          "id": 3,
+          "title": "m2+m3: Design tokens & platform util consolidation",
+          "status": "completed",
+          "context": "use-drag-source.ts에 hex 폴백(#2a2a2a, #f0f0f0, #404040) 직접 박힘. process.platform === \"darwin\" 3곳 중복(window.ts:10, index.ts:84, menu/index.ts:20).",
+          "acceptance": "1) drag image 색상이 design-tokens 또는 CSS 변수로 통합 2) isPlatformMac() 추상 함수 생성, 3곳 중복 제거 3) typecheck/test 통과",
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-06T01:56:29.394Z"
+        },
+        {
+          "id": 4,
+          "title": "M1: Split files store IPC into operations layer",
+          "status": "completed",
+          "context": "files/store.ts(370 LoC)가 ipcCall(\"fs\", ...)를 7곳에서 직접 호출. 다른 store들은 IPC 호출 없이 state/operations/로 분리되어 있어 컨벤션 위반.",
+          "acceptance": "1) src/renderer/state/operations/files.ts 신설 2) IPC 호출은 operations로 이동 3) store는 setLoading/setEntries/setError 등 reducer만 노출 4) 기존 호출자(file-tree 등) operations 사용으로 갱신 5) 기존 테스트가 IPC 모킹 없이도 store reducer 단위 테스트 가능 6) typecheck/test 통과",
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "afe2522e62e809e4d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-06T01:56:39.602Z"
+        },
+        {
+          "id": 5,
+          "title": "M2: Decompose model-cache.ts",
+          "status": "completed",
+          "context": "model-cache.ts(381 LoC)가 Monaco 싱글턴/ModelEntry ref-count/디스크 reconcile/LSP 브릿지/dirty-tracker/에러 변환 6+ 책임. 같은 폴더의 dirty-tracker/lsp-bridge/file-loader는 이미 분해 패턴.",
+          "acceptance": "1) monaco-singleton.ts 분리(initialize/onMonacoReady/monacoRef) 2) model-entry.ts 분리(createEntry/loadEntry/cleanupEntry/ModelEntry) 3) model-registry.ts 또는 model-cache.ts 슬림화(acquire/release만) 4) 외부 import 호환 유지 5) typecheck/test 통과",
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ad8abd107399779c4",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-06T01:56:45.434Z"
+        },
+        {
+          "id": 6,
+          "title": "M4: LspManager dispatcher table",
+          "status": "completed",
+          "context": "lsp-manager.ts:88–175의 handleCall이 6개 메서드를 거의 동일 패턴으로 6번 반복. zod-discriminated-union이 ipc-contract.ts에 이미 존재하지만 utility는 args as Record<string, unknown> 수동 캐스팅 중.",
+          "acceptance": "1) requestHandlers: Record<MethodName, Handler> 테이블화 2) idle-timer 리셋은 handleCall 진입 시 한 번 3) 메서드별 case 코드 ~80% 감소 4) 기존 테스트 그대로 통과 (LspManager 외부 인터페이스 불변)",
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a560628a4c2c8fb96",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-06T01:56:50.463Z"
+        },
+        {
+          "id": 7,
+          "title": "m4+m5: Operations test slim & test name unify",
+          "status": "completed",
+          "context": "operations.test.ts Scenario 11/12의 layout shape assertion이 unit과 중복. slot-registry-hydration.test.ts:596에 일본어 조사 섞임(\"は\", \"として保持\", \"登録\").",
+          "acceptance": "1) operations Scenario 11/12에서 layout shape assertion 제거, cross-store coordination만 남김 2) hydration:596 테스트 이름 한국어 통일 3) 위 케이스 동작 중복 여부 확인하여 중복이면 삭제 4) 테스트 통과",
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-06T01:56:54.666Z"
+        }
+      ]
     }
   ]
 }
