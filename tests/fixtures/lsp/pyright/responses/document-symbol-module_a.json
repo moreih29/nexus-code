@@ -1,0 +1,349 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/documentSymbol",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py"
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "document-symbol-module_a",
+    "result": [
+      {
+        "name": "Greeter",
+        "kind": 5,
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 8,
+            "character": 49
+          }
+        },
+        "selectionRange": {
+          "start": {
+            "line": 3,
+            "character": 6
+          },
+          "end": {
+            "line": 3,
+            "character": 13
+          }
+        },
+        "children": [
+          {
+            "name": "__init__",
+            "kind": 6,
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 4
+              },
+              "end": {
+                "line": 5,
+                "character": 28
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 4,
+                "character": 8
+              },
+              "end": {
+                "line": 4,
+                "character": 16
+              }
+            },
+            "children": [
+              {
+                "name": "prefix",
+                "kind": 13,
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 23
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 44
+                  }
+                },
+                "selectionRange": {
+                  "start": {
+                    "line": 4,
+                    "character": 23
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 44
+                  }
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "greet",
+            "kind": 6,
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 4
+              },
+              "end": {
+                "line": 8,
+                "character": 49
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 7,
+                "character": 8
+              },
+              "end": {
+                "line": 7,
+                "character": 13
+              }
+            },
+            "children": [
+              {
+                "name": "name",
+                "kind": 13,
+                "range": {
+                  "start": {
+                    "line": 7,
+                    "character": 20
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 29
+                  }
+                },
+                "selectionRange": {
+                  "start": {
+                    "line": 7,
+                    "character": 20
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 29
+                  }
+                },
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "prefix",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 13
+              },
+              "end": {
+                "line": 5,
+                "character": 19
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 5,
+                "character": 13
+              },
+              "end": {
+                "line": 5,
+                "character": 19
+              }
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "format_greeting",
+        "kind": 12,
+        "range": {
+          "start": {
+            "line": 11,
+            "character": 0
+          },
+          "end": {
+            "line": 12,
+            "character": 31
+          }
+        },
+        "selectionRange": {
+          "start": {
+            "line": 11,
+            "character": 4
+          },
+          "end": {
+            "line": 11,
+            "character": 19
+          }
+        },
+        "children": [
+          {
+            "name": "prefix",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 11,
+                "character": 20
+              },
+              "end": {
+                "line": 11,
+                "character": 31
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 11,
+                "character": 20
+              },
+              "end": {
+                "line": 11,
+                "character": 31
+              }
+            },
+            "children": []
+          },
+          {
+            "name": "name",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 11,
+                "character": 33
+              },
+              "end": {
+                "line": 11,
+                "character": 42
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 11,
+                "character": 33
+              },
+              "end": {
+                "line": 11,
+                "character": 42
+              }
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "make_greeter",
+        "kind": 12,
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 0
+          },
+          "end": {
+            "line": 17,
+            "character": 18
+          }
+        },
+        "selectionRange": {
+          "start": {
+            "line": 15,
+            "character": 4
+          },
+          "end": {
+            "line": 15,
+            "character": 16
+          }
+        },
+        "children": [
+          {
+            "name": "greeter",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 4
+              },
+              "end": {
+                "line": 16,
+                "character": 11
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 16,
+                "character": 4
+              },
+              "end": {
+                "line": 16,
+                "character": 11
+              }
+            },
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "update_counter",
+        "kind": 12,
+        "range": {
+          "start": {
+            "line": 20,
+            "character": 0
+          },
+          "end": {
+            "line": 23,
+            "character": 18
+          }
+        },
+        "selectionRange": {
+          "start": {
+            "line": 20,
+            "character": 4
+          },
+          "end": {
+            "line": 20,
+            "character": 18
+          }
+        },
+        "children": [
+          {
+            "name": "counter",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 21,
+                "character": 4
+              },
+              "end": {
+                "line": 21,
+                "character": 11
+              }
+            },
+            "selectionRange": {
+              "start": {
+                "line": 21,
+                "character": 4
+              },
+              "end": {
+                "line": 21,
+                "character": 11
+              }
+            },
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

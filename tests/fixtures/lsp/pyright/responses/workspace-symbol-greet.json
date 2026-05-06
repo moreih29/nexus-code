@@ -1,0 +1,155 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "workspace/symbol",
+    "params": {
+      "query": "greet"
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "workspace-symbol-greet",
+    "result": [
+      {
+        "name": "Greeter",
+        "kind": 5,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+          "range": {
+            "start": {
+              "line": 3,
+              "character": 6
+            },
+            "end": {
+              "line": 3,
+              "character": 13
+            }
+          }
+        }
+      },
+      {
+        "name": "greet",
+        "kind": 6,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+          "range": {
+            "start": {
+              "line": 7,
+              "character": 8
+            },
+            "end": {
+              "line": 7,
+              "character": 13
+            }
+          }
+        },
+        "containerName": "Greeter"
+      },
+      {
+        "name": "format_greeting",
+        "kind": 12,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+          "range": {
+            "start": {
+              "line": 11,
+              "character": 4
+            },
+            "end": {
+              "line": 11,
+              "character": 19
+            }
+          }
+        }
+      },
+      {
+        "name": "make_greeter",
+        "kind": 12,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+          "range": {
+            "start": {
+              "line": 15,
+              "character": 4
+            },
+            "end": {
+              "line": 15,
+              "character": 16
+            }
+          }
+        }
+      },
+      {
+        "name": "greeter",
+        "kind": 13,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+          "range": {
+            "start": {
+              "line": 16,
+              "character": 4
+            },
+            "end": {
+              "line": 16,
+              "character": 11
+            }
+          }
+        },
+        "containerName": "make_greeter"
+      },
+      {
+        "name": "greet_user",
+        "kind": 12,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py",
+          "range": {
+            "start": {
+              "line": 3,
+              "character": 4
+            },
+            "end": {
+              "line": 3,
+              "character": 14
+            }
+          }
+        }
+      },
+      {
+        "name": "greeter",
+        "kind": 13,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py",
+          "range": {
+            "start": {
+              "line": 4,
+              "character": 4
+            },
+            "end": {
+              "line": 4,
+              "character": 11
+            }
+          }
+        },
+        "containerName": "greet_user"
+      },
+      {
+        "name": "FriendlyGreeter",
+        "kind": 5,
+        "location": {
+          "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py",
+          "range": {
+            "start": {
+              "line": 8,
+              "character": 6
+            },
+            "end": {
+              "line": 8,
+              "character": 21
+            }
+          }
+        }
+      }
+    ]
+  }
+}

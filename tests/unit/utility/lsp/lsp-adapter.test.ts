@@ -132,6 +132,12 @@ describe("StdioLspAdapter — server-initiated messages", () => {
           },
           hover: { dynamicRegistration: false, contentFormat: ["plaintext", "markdown"] },
           definition: { dynamicRegistration: false },
+          references: { dynamicRegistration: false },
+          documentHighlight: { dynamicRegistration: false },
+          documentSymbol: {
+            dynamicRegistration: false,
+            hierarchicalDocumentSymbolSupport: true,
+          },
           completion: {
             dynamicRegistration: false,
             completionItem: { snippetSupport: false },
@@ -142,6 +148,7 @@ describe("StdioLspAdapter — server-initiated messages", () => {
         },
         workspace: {
           didChangeWatchedFiles: { dynamicRegistration: true },
+          symbol: { dynamicRegistration: false },
         },
       },
     });

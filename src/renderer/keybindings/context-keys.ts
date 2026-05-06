@@ -22,13 +22,19 @@
  *   - `fileTreeFocus`  — target is inside the file-tree container
  *                        (`role="tree"`).
  *   - `terminalFocus`  — target is inside an xterm.js terminal.
+ *   - `commandPaletteFocus` — target is inside the command palette modal.
  *
  * Unknown names resolve to `false`. Treating an unknown context key
  * as "not active" matches VSCode's behaviour and keeps a typo'd
  * binding fail-safe (it just won't match) rather than fail-loud.
  */
 
-export type ContextKeyName = "editorFocus" | "inputFocus" | "fileTreeFocus" | "terminalFocus";
+export type ContextKeyName =
+  | "editorFocus"
+  | "inputFocus"
+  | "fileTreeFocus"
+  | "terminalFocus"
+  | "commandPaletteFocus";
 
 export function evaluateContextKey(name: string, event: KeyboardEvent): boolean {
   const target = (event.target as HTMLElement | null) ?? null;
@@ -41,14 +47,15 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
       return isInFileTree(target);
     case "terminalFocus":
       return isInTerminal(target);
+    case "commandPaletteFocus":
+      return isInCommandPalette(target);
     default:
       return false;
   }
 }
 
 function isInCodeEditor(target: HTMLElement | null): boolean {
-  if (!target) return false;
-  return target.closest(".cm-editor") != null || target.closest(".monaco-editor") != null;
+  return closest(target, ".cm-editor") != null || closest(target, ".monaco-editor") != null;
 }
 
 function isInPlainInput(target: HTMLElement | null): boolean {
@@ -58,19 +65,26 @@ function isInPlainInput(target: HTMLElement | null): boolean {
   // `inputFocus`, so callers can scope a binding to "real" inputs
   // only — keep this exclusion *before* the input/textarea checks so
   // a Monaco-hosted contentEditable doesn't trip the input branch.
-  if (target.closest(".cm-editor") != null) return false;
-  if (target.closest(".monaco-editor") != null) return false;
+  if (closest(target, ".cm-editor") != null) return false;
+  if (closest(target, ".monaco-editor") != null) return false;
   if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return true;
   if (target.isContentEditable === true) return true;
   return false;
 }
 
 function isInFileTree(target: HTMLElement | null): boolean {
-  if (!target) return false;
-  return target.closest('[role="tree"]') != null;
+  return closest(target, '[role="tree"]') != null;
 }
 
 function isInTerminal(target: HTMLElement | null): boolean {
-  if (!target) return false;
-  return target.closest(".xterm") != null;
+  return closest(target, ".xterm") != null;
+}
+
+function isInCommandPalette(target: HTMLElement | null): boolean {
+  return closest(target, "[data-command-palette-root]") != null;
+}
+
+function closest(target: HTMLElement | null, selector: string): Element | null {
+  if (!target || typeof target.closest !== "function") return null;
+  return target.closest(selector);
 }

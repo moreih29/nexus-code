@@ -1,0 +1,389 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/completion",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py"
+      },
+      "position": {
+        "line": 8,
+        "character": 36
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "completion-module_a-context",
+    "result": {
+      "items": [
+        {
+          "label": "__doc__",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__doc__"
+          },
+          "sortText": "11.9999.__doc__"
+        },
+        {
+          "label": "__module__",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__module__"
+          },
+          "sortText": "11.9999.__module__"
+        },
+        {
+          "label": "__qualname__",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__qualname__"
+          },
+          "sortText": "11.9999.__qualname__"
+        },
+        {
+          "label": "__init__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__init__"
+          },
+          "sortText": "11.9999.__init__"
+        },
+        {
+          "label": "greet",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "greet"
+          },
+          "sortText": "09.9999.greet"
+        },
+        {
+          "label": "prefix",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "prefix"
+          },
+          "sortText": "09.9999.prefix"
+        },
+        {
+          "label": "__dict__",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__dict__"
+          },
+          "sortText": "11.9999.__dict__"
+        },
+        {
+          "label": "__annotations__",
+          "kind": 6,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__annotations__"
+          },
+          "sortText": "11.9999.__annotations__"
+        },
+        {
+          "label": "__class__",
+          "kind": 10,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__class__"
+          },
+          "sortText": "11.9999.__class__"
+        },
+        {
+          "label": "__new__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__new__"
+          },
+          "sortText": "11.9999.__new__"
+        },
+        {
+          "label": "__setattr__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__setattr__"
+          },
+          "sortText": "11.9999.__setattr__"
+        },
+        {
+          "label": "__delattr__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__delattr__"
+          },
+          "sortText": "11.9999.__delattr__"
+        },
+        {
+          "label": "__eq__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__eq__"
+          },
+          "sortText": "11.9999.__eq__"
+        },
+        {
+          "label": "__ne__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__ne__"
+          },
+          "sortText": "11.9999.__ne__"
+        },
+        {
+          "label": "__str__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__str__"
+          },
+          "sortText": "11.9999.__str__"
+        },
+        {
+          "label": "__repr__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__repr__"
+          },
+          "sortText": "11.9999.__repr__"
+        },
+        {
+          "label": "__hash__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__hash__"
+          },
+          "sortText": "11.9999.__hash__"
+        },
+        {
+          "label": "__format__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__format__"
+          },
+          "sortText": "11.9999.__format__"
+        },
+        {
+          "label": "__getattribute__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__getattribute__"
+          },
+          "sortText": "11.9999.__getattribute__"
+        },
+        {
+          "label": "__sizeof__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__sizeof__"
+          },
+          "sortText": "11.9999.__sizeof__"
+        },
+        {
+          "label": "__reduce__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__reduce__"
+          },
+          "sortText": "11.9999.__reduce__"
+        },
+        {
+          "label": "__reduce_ex__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__reduce_ex__"
+          },
+          "sortText": "11.9999.__reduce_ex__"
+        },
+        {
+          "label": "__getstate__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__getstate__"
+          },
+          "sortText": "11.9999.__getstate__"
+        },
+        {
+          "label": "__dir__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__dir__"
+          },
+          "sortText": "11.9999.__dir__"
+        },
+        {
+          "label": "__init_subclass__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__init_subclass__"
+          },
+          "sortText": "11.9999.__init_subclass__"
+        },
+        {
+          "label": "__subclasshook__",
+          "kind": 2,
+          "data": {
+            "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+            "position": {
+              "line": 8,
+              "character": 36
+            },
+            "funcParensDisabled": true,
+            "symbolLabel": "__subclasshook__"
+          },
+          "sortText": "11.9999.__subclasshook__"
+        }
+      ],
+      "isIncomplete": true
+    }
+  }
+}

@@ -15,6 +15,7 @@
   --color-frosted-tag: rgba(255, 255, 255, 0.16);
   --color-frosted-tag-hover: rgba(255, 255, 255, 0.24);
   --color-mist-border: rgba(226, 226, 226, 0.35);
+  --color-mist-border-focus: rgba(226, 226, 226, 0.6);
   --color-splitter: rgba(226, 226, 226, 0.35);
   --color-splitter-hover: rgba(226, 226, 226, 0.6);
   --color-translucent-parchment: rgba(250, 249, 246, 0.9);

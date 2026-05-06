@@ -20,6 +20,8 @@ import {
   ConfigurationParamsSchema,
   type Diagnostic,
   DiagnosticSchema,
+  DocumentHighlightSchema,
+  DocumentSymbolSchema,
   FileChangeType,
   type FileEvent,
   HoverResultSchema,
@@ -29,14 +31,17 @@ import {
   type LspServerEventMethod,
   MarkupContentSchema,
   RangeSchema,
+  ReferencesArgsSchema,
   type Registration,
   RegistrationParamsSchema,
   ShowMessageRequestParamsSchema,
+  SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
   WorkDoneProgressCreateParamsSchema,
+  WorkspaceSymbolArgsSchema,
 } from "../../shared/lsp-types";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
 import { FsChangeKindSchema } from "../../shared/types/fs";
@@ -147,7 +152,10 @@ interface HandlerMeta {
   inSchema: z.ZodTypeAny;
   outSchema: z.ZodTypeAny;
   emptyResponse: unknown;
-  route: (manager: LspManager, args: unknown) => Promise<RoutedAdapter | undefined>;
+  route: (
+    manager: LspManager,
+    args: unknown,
+  ) => Promise<RoutedAdapter | RoutedAdapter[] | undefined>;
   params: (args: unknown) => unknown;
   transform?: (result: unknown) => unknown;
   invoke?: (
@@ -167,8 +175,11 @@ interface HandlerMetaInput<S extends z.ZodTypeAny> {
   outSchema: z.ZodTypeAny;
   emptyResponse: unknown;
   route:
-    | ((manager: LspManager, args: z.infer<S>) => Promise<RoutedAdapter | undefined>)
-    | ((manager: LspManager, args: z.infer<S>) => RoutedAdapter | undefined);
+    | ((
+        manager: LspManager,
+        args: z.infer<S>,
+      ) => Promise<RoutedAdapter | RoutedAdapter[] | undefined>)
+    | ((manager: LspManager, args: z.infer<S>) => RoutedAdapter | RoutedAdapter[] | undefined);
   params: (args: z.infer<S>) => unknown;
   transform?: (result: unknown) => unknown;
   invoke?: (
@@ -202,6 +213,19 @@ function routeByUri(manager: LspManager, args: { uri: string }): RoutedAdapter |
   return manager.findAdapterForUri(args.uri);
 }
 
+function routeWorkspaceAdapters(
+  manager: LspManager,
+  args: z.infer<typeof WorkspaceSymbolArgsSchema>,
+): RoutedAdapter[] {
+  const workspaceAdapters = manager.adapters.get(args.workspaceId);
+  if (!workspaceAdapters) return [];
+  return Array.from(workspaceAdapters, ([languageId, adapter]) => ({
+    workspaceId: args.workspaceId,
+    languageId,
+    adapter,
+  }));
+}
+
 async function routeOpenedDocument(
   manager: LspManager,
   args: z.infer<typeof DidOpenArgsSchema>,
@@ -219,11 +243,25 @@ async function routeOpenedDocument(
     : undefined;
 }
 
-function textDocumentPositionParams(args: z.infer<typeof TextDocumentPositionArgsSchema>): unknown {
+function textDocumentPositionParams(args: z.infer<typeof TextDocumentPositionArgsSchema>): {
+  textDocument: { uri: string };
+  position: { line: number; character: number };
+} {
   return {
     textDocument: { uri: args.uri },
     position: { line: args.line, character: args.character },
   };
+}
+
+function referencesParams(args: z.infer<typeof ReferencesArgsSchema>): unknown {
+  return {
+    ...textDocumentPositionParams(args),
+    context: { includeDeclaration: args.includeDeclaration },
+  };
+}
+
+function documentSymbolParams(args: z.infer<typeof TextDocumentIdentifierSchema>): unknown {
+  return { textDocument: { uri: args.uri } };
 }
 
 function markedStringToMarkdown(raw: unknown): string {
@@ -286,6 +324,29 @@ function normalizeDefinitionResult(raw: unknown): unknown {
   return items.flatMap((item) => {
     const normalized = normalizeDefinitionItem(item);
     return normalized ? [normalized] : [];
+  });
+}
+
+function normalizeDocumentHighlightResult(raw: unknown): unknown {
+  return raw ?? [];
+}
+
+function normalizeDocumentSymbolResult(raw: unknown): unknown {
+  const parsed = z.array(DocumentSymbolSchema).safeParse(raw);
+  if (parsed.success) return parsed.data;
+
+  console.warn("[lsp-manager] textDocument/documentSymbol returned non-hierarchical symbols", {
+    issues: parsed.error.issues,
+  });
+  return [];
+}
+
+function normalizeWorkspaceSymbolResult(raw: unknown): unknown {
+  if (!raw) return [];
+  const items = Array.isArray(raw) ? raw : [];
+  return items.flatMap((item) => {
+    const parsed = SymbolInformationSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
   });
 }
 
@@ -499,6 +560,54 @@ const handlerMetadata = {
     params: textDocumentPositionParams,
     transform: normalizeCompletionResult,
   }),
+
+  references: defineHandler({
+    kind: "request",
+    lspMethod: "textDocument/references",
+    capabilityKey: "referencesProvider",
+    inSchema: ReferencesArgsSchema,
+    outSchema: z.array(LocationSchema),
+    emptyResponse: [],
+    route: routeByUri,
+    params: referencesParams,
+    transform: normalizeDefinitionResult,
+  }),
+
+  documentHighlight: defineHandler({
+    kind: "request",
+    lspMethod: "textDocument/documentHighlight",
+    capabilityKey: "documentHighlightProvider",
+    inSchema: TextDocumentPositionArgsSchema,
+    outSchema: z.array(DocumentHighlightSchema),
+    emptyResponse: [],
+    route: routeByUri,
+    params: textDocumentPositionParams,
+    transform: normalizeDocumentHighlightResult,
+  }),
+
+  documentSymbol: defineHandler({
+    kind: "request",
+    lspMethod: "textDocument/documentSymbol",
+    capabilityKey: "documentSymbolProvider",
+    inSchema: TextDocumentIdentifierSchema,
+    outSchema: z.array(DocumentSymbolSchema),
+    emptyResponse: [],
+    route: routeByUri,
+    params: documentSymbolParams,
+    transform: normalizeDocumentSymbolResult,
+  }),
+
+  workspaceSymbol: defineHandler({
+    kind: "request",
+    lspMethod: "workspace/symbol",
+    capabilityKey: "workspaceSymbolProvider",
+    inSchema: WorkspaceSymbolArgsSchema,
+    outSchema: z.array(SymbolInformationSchema),
+    emptyResponse: [],
+    route: routeWorkspaceAdapters,
+    params: ({ query }) => ({ query }),
+    transform: normalizeWorkspaceSymbolResult,
+  }),
 } as const;
 
 type MethodName = keyof typeof handlerMetadata;
@@ -671,6 +780,11 @@ export class LspManager {
       return;
     }
 
+    if (Array.isArray(routed)) {
+      await this.dispatchFanOutCall(id, meta, parsed.data, routed, signal);
+      return;
+    }
+
     if (meta.capabilityKey && !routed.adapter.hasCapability(meta.capabilityKey)) {
       const result = meta.outSchema.parse(meta.emptyResponse);
       this.send({ type: "response", id, result: result ?? null });
@@ -683,6 +797,55 @@ export class LspManager {
       await invokeLspHandler(meta, routed.adapter, parsed.data, signal),
     );
     meta.after?.(this, parsed.data, routed);
+    this.send({ type: "response", id, result: result ?? null });
+  }
+
+  private async dispatchFanOutCall(
+    id: string | number,
+    meta: HandlerMeta,
+    args: unknown,
+    routedAdapters: RoutedAdapter[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (routedAdapters.length === 0) {
+      const result = meta.outSchema.parse(meta.emptyResponse);
+      this.send({ type: "response", id, result: result ?? null });
+      return;
+    }
+
+    for (const routed of routedAdapters) {
+      this.resetIdleTimer(routed.workspaceId, routed.languageId);
+    }
+
+    const supportedAdapters = routedAdapters.filter(
+      (routed) => !meta.capabilityKey || routed.adapter.hasCapability(meta.capabilityKey),
+    );
+    if (supportedAdapters.length === 0) {
+      const result = meta.outSchema.parse(meta.emptyResponse);
+      this.send({ type: "response", id, result: result ?? null });
+      return;
+    }
+
+    const settled = await Promise.allSettled(
+      supportedAdapters.map(async (routed) =>
+        parseHandlerOutput(meta, await invokeLspHandler(meta, routed.adapter, args, signal)),
+      ),
+    );
+
+    const merged: unknown[] = [];
+    for (const item of settled) {
+      if (item.status === "fulfilled") {
+        if (Array.isArray(item.value)) {
+          merged.push(...item.value);
+        } else {
+          merged.push(item.value);
+        }
+      } else {
+        console.warn(`[lsp-manager] ${meta.lspMethod} fan-out request failed`, item.reason);
+      }
+    }
+
+    const result = meta.outSchema.parse(merged);
     this.send({ type: "response", id, result: result ?? null });
   }
 

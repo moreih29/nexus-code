@@ -149,6 +149,9 @@ function createFakeMonaco() {
     hover: [] as string[],
     definition: [] as string[],
     completion: [] as string[],
+    reference: [] as string[],
+    documentHighlight: [] as string[],
+    documentSymbol: [] as string[],
   };
 
   const uriParse = (raw: string): FakeUri => ({
@@ -214,6 +217,21 @@ function createFakeMonaco() {
       registerCompletionItemProvider(languageId: string) {
         providerCalls.completion.push(languageId);
         eventLog.push(`provider:completion:${languageId}`);
+        return { dispose: () => {} };
+      },
+      registerReferenceProvider(languageId: string) {
+        providerCalls.reference.push(languageId);
+        eventLog.push(`provider:reference:${languageId}`);
+        return { dispose: () => {} };
+      },
+      registerDocumentHighlightProvider(languageId: string) {
+        providerCalls.documentHighlight.push(languageId);
+        eventLog.push(`provider:documentHighlight:${languageId}`);
+        return { dispose: () => {} };
+      },
+      registerDocumentSymbolProvider(languageId: string) {
+        providerCalls.documentSymbol.push(languageId);
+        eventLog.push(`provider:documentSymbol:${languageId}`);
         return { dispose: () => {} };
       },
     },
@@ -285,10 +303,13 @@ describe("services/editor model cache", () => {
       version: 1,
       text: "const a = 1;\n",
     });
-    expect(eventLog.slice(0, 4)).toEqual([
+    expect(eventLog.slice(0, 7)).toEqual([
       "provider:hover:typescript",
       "provider:definition:typescript",
       "provider:completion:typescript",
+      "provider:reference:typescript",
+      "provider:documentHighlight:typescript",
+      "provider:documentSymbol:typescript",
       "didOpen:typescript",
     ]);
 
@@ -379,6 +400,13 @@ describe("services/editor model cache", () => {
     expect(eventLog.filter((entry) => entry === "provider:hover:typescript")).toHaveLength(1);
     expect(eventLog.filter((entry) => entry === "provider:definition:typescript")).toHaveLength(1);
     expect(eventLog.filter((entry) => entry === "provider:completion:typescript")).toHaveLength(1);
+    expect(eventLog.filter((entry) => entry === "provider:reference:typescript")).toHaveLength(1);
+    expect(
+      eventLog.filter((entry) => entry === "provider:documentHighlight:typescript"),
+    ).toHaveLength(1);
+    expect(eventLog.filter((entry) => entry === "provider:documentSymbol:typescript")).toHaveLength(
+      1,
+    );
 
     releaseModel(firstInput);
     releaseModel(secondInput);
@@ -405,10 +433,13 @@ describe("services/editor model cache", () => {
         },
       },
     ]);
-    expect(eventLog.slice(0, 4)).toEqual([
+    expect(eventLog.slice(0, 7)).toEqual([
       "provider:hover:python",
       "provider:definition:python",
       "provider:completion:python",
+      "provider:reference:python",
+      "provider:documentHighlight:python",
+      "provider:documentSymbol:python",
       "didOpen:python",
     ]);
 
@@ -440,6 +471,9 @@ describe("services/editor LSP bridge", () => {
     expect(monaco.__providerCalls.hover).toEqual([]);
     expect(monaco.__providerCalls.definition).toEqual([]);
     expect(monaco.__providerCalls.completion).toEqual([]);
+    expect(monaco.__providerCalls.reference).toEqual([]);
+    expect(monaco.__providerCalls.documentHighlight).toEqual([]);
+    expect(monaco.__providerCalls.documentSymbol).toEqual([]);
 
     ensureProvidersFor("typescript");
     ensureProvidersFor("typescript");
@@ -449,5 +483,12 @@ describe("services/editor LSP bridge", () => {
     expect(monaco.__providerCalls.hover).toEqual(["typescript", "javascript", "python"]);
     expect(monaco.__providerCalls.definition).toEqual(["typescript", "javascript", "python"]);
     expect(monaco.__providerCalls.completion).toEqual(["typescript", "javascript", "python"]);
+    expect(monaco.__providerCalls.reference).toEqual(["typescript", "javascript", "python"]);
+    expect(monaco.__providerCalls.documentHighlight).toEqual([
+      "typescript",
+      "javascript",
+      "python",
+    ]);
+    expect(monaco.__providerCalls.documentSymbol).toEqual(["typescript", "javascript", "python"]);
   });
 });

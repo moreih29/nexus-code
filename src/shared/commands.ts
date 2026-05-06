@@ -40,6 +40,9 @@ export const COMMANDS = {
   groupFocusUp: "group.focusUp",
   groupFocusDown: "group.focusDown",
 
+  // Workspace navigation
+  workspaceSymbolSearch: "workspace.symbolSearch",
+
   // Path actions on the active editor (mirrors VSCode's "when editor not focused")
   pathReveal: "path.reveal",
   pathCopy: "path.copy",

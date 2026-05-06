@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   CodeActionSchema,
   DiagnosticSchema,
+  DocumentHighlightKindSchema,
+  DocumentHighlightSchema,
   DocumentSymbolSchema,
   HoverResultSchema,
   LocationLinkSchema,
@@ -9,11 +11,13 @@ import {
   MarkupContentSchema,
   PositionSchema,
   RangeSchema,
+  ReferencesArgsSchema,
   ServerCapabilitiesSchema,
   SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextEditSchema,
   WorkspaceEditSchema,
+  WorkspaceSymbolArgsSchema,
 } from "../../../src/shared/lsp-types";
 
 const range = {
@@ -135,6 +139,66 @@ describe("LSP zod types", () => {
       selectionRange: range,
       children: [{ name: "method", kind: 6, range, selectionRange: range }],
     });
+  });
+
+  test("parses ReferencesArgsSchema with explicit includeDeclaration", () => {
+    expect(
+      roundTrip(ReferencesArgsSchema, {
+        uri: "file:///workspace/main.py",
+        line: 3,
+        character: 7,
+        includeDeclaration: true,
+      }),
+    ).toEqual({
+      uri: "file:///workspace/main.py",
+      line: 3,
+      character: 7,
+      includeDeclaration: true,
+    });
+    expect(
+      roundTrip(ReferencesArgsSchema, {
+        uri: "file:///workspace/main.py",
+        line: 3,
+        character: 7,
+        includeDeclaration: false,
+      }),
+    ).toEqual({
+      uri: "file:///workspace/main.py",
+      line: 3,
+      character: 7,
+      includeDeclaration: false,
+    });
+    expect(
+      ReferencesArgsSchema.safeParse({
+        uri: "file:///workspace/main.py",
+        line: 3,
+        character: 7,
+      }).success,
+    ).toBe(false);
+  });
+
+  test("parses DocumentHighlightSchema kind enum and optional kind", () => {
+    expect(DocumentHighlightKindSchema.safeParse(1).success).toBe(true);
+    expect(DocumentHighlightKindSchema.safeParse(2).success).toBe(true);
+    expect(DocumentHighlightKindSchema.safeParse(3).success).toBe(true);
+    expect(roundTrip(DocumentHighlightSchema, { range, kind: 1 })).toEqual({ range, kind: 1 });
+    expect(roundTrip(DocumentHighlightSchema, { range, kind: 2 })).toEqual({ range, kind: 2 });
+    expect(roundTrip(DocumentHighlightSchema, { range, kind: 3 })).toEqual({ range, kind: 3 });
+    expect(roundTrip(DocumentHighlightSchema, { range })).toEqual({ range });
+    expect(DocumentHighlightSchema.safeParse({ range, kind: 4 }).success).toBe(false);
+  });
+
+  test("parses WorkspaceSymbolArgsSchema", () => {
+    expect(
+      roundTrip(WorkspaceSymbolArgsSchema, {
+        workspaceId: "ws-1",
+        query: "Controller",
+      }),
+    ).toEqual({
+      workspaceId: "ws-1",
+      query: "Controller",
+    });
+    expect(WorkspaceSymbolArgsSchema.safeParse({ workspaceId: "ws-1" }).success).toBe(false);
   });
 
   test("round-trips full Diagnostic fields", () => {

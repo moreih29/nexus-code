@@ -21,6 +21,15 @@ export { isMonacoReady, onMonacoReady } from "./monaco-singleton";
 
 import type { EditorInput } from "./types";
 
+export interface ReleasedModelInfo {
+  input: EditorInput;
+  cacheUri: string;
+  lspUri: string;
+  languageId: string;
+}
+
+export type ModelReleaseSubscriber = (released: ReleasedModelInfo) => void;
+
 export function filePathToModelUri(filePath: string): string {
   return absolutePathToFileUri(filePath);
 }
@@ -41,9 +50,27 @@ export function initializeModelCache(monaco: typeof Monaco): void {
 }
 
 const entries = new Map<string, ModelEntry>();
+const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
   return filePathToModelUri(input.filePath);
+}
+
+export function subscribeOnRelease(callback: ModelReleaseSubscriber): () => void {
+  releaseSubscribers.add(callback);
+  return () => {
+    releaseSubscribers.delete(callback);
+  };
+}
+
+function notifyReleased(released: ReleasedModelInfo): void {
+  for (const subscriber of releaseSubscribers) {
+    try {
+      subscriber(released);
+    } catch {
+      // Release cleanup must not be blocked by secondary cache invalidators.
+    }
+  }
 }
 
 /**
@@ -101,7 +128,14 @@ export function releaseModel(input: EditorInput): void {
   if (entry.refCount > 0) return;
 
   entries.delete(cacheUri);
+  const released: ReleasedModelInfo = {
+    input: entry.input,
+    cacheUri: entry.cacheUri,
+    lspUri: entry.lspUri,
+    languageId: entry.languageId,
+  };
   cleanupEntry(entry);
+  notifyReleased(released);
 }
 
 /**

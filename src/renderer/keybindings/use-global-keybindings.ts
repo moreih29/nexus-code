@@ -15,6 +15,7 @@
 import { useEffect } from "react";
 import { registerFileCommands } from "./commands/file-commands";
 import { registerGroupCommands } from "./commands/group-commands";
+import { registerPaletteCommands } from "./commands/palette-commands";
 import { registerPathCommands } from "./commands/path-commands";
 import { registerTabCommands } from "./commands/tab-commands";
 import { handleGlobalKeyDown } from "./dispatcher";
@@ -26,6 +27,7 @@ export function useGlobalKeybindings(): void {
       ...registerTabCommands(),
       ...registerGroupCommands(),
       ...registerPathCommands(),
+      ...registerPaletteCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

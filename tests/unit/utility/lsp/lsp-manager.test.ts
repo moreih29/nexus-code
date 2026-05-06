@@ -24,6 +24,11 @@ type DeferredRequest = {
   resolve: (value: unknown) => void;
 };
 
+const lspRange = {
+  start: { line: 0, character: 0 },
+  end: { line: 0, character: 4 },
+};
+
 interface FakeLspServerSpec {
   languageId: string;
 }
@@ -59,10 +64,22 @@ class FakeStdioLspAdapter implements LspAdapter {
   readonly hoverUris: string[] = [];
   readonly definitionUris: string[] = [];
   readonly completionUris: string[] = [];
+  readonly referencesUris: string[] = [];
+  readonly documentHighlightUris: string[] = [];
+  readonly documentSymbolUris: string[] = [];
+  readonly workspaceSymbolQueries: string[] = [];
   readonly requestMethods: string[] = [];
   readonly notificationMethods: string[] = [];
   readonly notificationParams: unknown[] = [];
-  readonly capabilities = new Set(["hoverProvider", "definitionProvider", "completionProvider"]);
+  readonly capabilities = new Set([
+    "hoverProvider",
+    "definitionProvider",
+    "completionProvider",
+    "referencesProvider",
+    "documentHighlightProvider",
+    "documentSymbolProvider",
+    "workspaceSymbolProvider",
+  ]);
   syncKind = 2;
   saveSupported = false;
   saveIncludeText = false;
@@ -70,6 +87,18 @@ class FakeStdioLspAdapter implements LspAdapter {
   readonly requestHandlers = new Map<string, ServerRequestHandler>();
   readonly deferredMethods = new Set<string>();
   readonly deferredRequests: DeferredRequest[] = [];
+  readonly failingMethods = new Set<string>();
+  documentHighlightResult: unknown = [{ range: lspRange, kind: 3 }];
+  documentSymbolResult: unknown = [
+    {
+      name: "FakeClass",
+      kind: 5,
+      range: lspRange,
+      selectionRange: lspRange,
+      children: [{ name: "method", kind: 6, range: lspRange, selectionRange: lspRange }],
+    },
+  ];
+  workspaceSymbolResult: unknown | undefined;
 
   constructor(spec: FakeLspServerSpec, workspaceId: string, workspaceRootUri: string | null) {
     this.languageId = spec.languageId;
@@ -89,6 +118,9 @@ class FakeStdioLspAdapter implements LspAdapter {
   ): Promise<TOut> {
     this.requestMethods.push(method);
     const uri = extractTextDocumentUri(params);
+    if (this.failingMethods.has(method)) {
+      throw new Error(`${method} failed for ${this.workspaceId}`);
+    }
     if (this.deferredMethods.has(method)) {
       return new Promise<TOut>((resolve, reject) => {
         const abort = () => reject(new Error("Request cancelled"));
@@ -110,14 +142,8 @@ class FakeStdioLspAdapter implements LspAdapter {
       return [
         {
           targetUri: uri,
-          targetRange: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 4 },
-          },
-          targetSelectionRange: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 4 },
-          },
+          targetRange: lspRange,
+          targetSelectionRange: lspRange,
         },
       ] as TOut;
     }
@@ -126,6 +152,33 @@ class FakeStdioLspAdapter implements LspAdapter {
       return {
         items: [{ label: `fakeCompletion ${this.workspaceId}` }, { sortText: "invalid" }],
       } as TOut;
+    }
+    if (method === "textDocument/references") {
+      this.referencesUris.push(uri);
+      return [{ targetUri: uri, targetRange: lspRange, targetSelectionRange: lspRange }] as TOut;
+    }
+    if (method === "textDocument/documentHighlight") {
+      this.documentHighlightUris.push(uri);
+      return this.documentHighlightResult as TOut;
+    }
+    if (method === "textDocument/documentSymbol") {
+      this.documentSymbolUris.push(uri);
+      return this.documentSymbolResult as TOut;
+    }
+    if (method === "workspace/symbol") {
+      const query = (params as { query?: unknown }).query;
+      this.workspaceSymbolQueries.push(typeof query === "string" ? query : "");
+      return (this.workspaceSymbolResult ?? [
+        {
+          name: `WorkspaceSymbol ${this.workspaceId}`,
+          kind: 12,
+          location: {
+            uri: `file:///${this.workspaceId}/symbol.ts`,
+            range: lspRange,
+          },
+          containerName: this.languageId,
+        },
+      ]) as TOut;
     }
     return null as TOut;
   }
@@ -295,6 +348,16 @@ function adapterFor(workspaceId: string): FakeStdioLspAdapter {
   const adapter = adapterInstances.find((instance) => instance.workspaceId === workspaceId);
   if (!adapter) {
     throw new Error(`adapter not found for ${workspaceId}`);
+  }
+  return adapter;
+}
+
+function adapterForLanguage(workspaceId: string, languageId: string): FakeStdioLspAdapter {
+  const adapter = adapterInstances.find(
+    (instance) => instance.workspaceId === workspaceId && instance.languageId === languageId,
+  );
+  if (!adapter) {
+    throw new Error(`adapter not found for ${workspaceId}/${languageId}`);
   }
   return adapter;
 }
@@ -955,6 +1018,97 @@ describe("LspManager — URI-based routing", () => {
       result: [{ label: "fakeCompletion ws-b" }],
     });
   });
+
+  test("references, documentHighlight, and documentSymbol dispatch to the adapter indexed for the uri", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+
+    await openFile(port, "ws-a", "file:///a.ts", 1);
+    await openFile(port, "ws-b", "file:///b.ts", 2);
+
+    port.deliver(
+      makeCallMsg(
+        "references",
+        {
+          uri: "file:///b.ts",
+          line: 1,
+          character: 2,
+          includeDeclaration: false,
+        },
+        3,
+      ),
+    );
+    await port.waitForMessages(3);
+    port.deliver(
+      makeCallMsg("documentHighlight", { uri: "file:///b.ts", line: 1, character: 2 }, 4),
+    );
+    await port.waitForMessages(4);
+    port.deliver(makeCallMsg("documentSymbol", { uri: "file:///b.ts" }, 5));
+    await port.waitForMessages(5);
+
+    expect(adapterFor("ws-a").referencesUris).toEqual([]);
+    expect(adapterFor("ws-a").documentHighlightUris).toEqual([]);
+    expect(adapterFor("ws-a").documentSymbolUris).toEqual([]);
+    expect(adapterFor("ws-b").referencesUris).toEqual(["file:///b.ts"]);
+    expect(adapterFor("ws-b").documentHighlightUris).toEqual(["file:///b.ts"]);
+    expect(adapterFor("ws-b").documentSymbolUris).toEqual(["file:///b.ts"]);
+    expect(port.sent[2]).toMatchObject({
+      type: "response",
+      id: 3,
+      result: [{ uri: "file:///b.ts", range: lspRange }],
+    });
+    expect(port.sent[3]).toMatchObject({
+      type: "response",
+      id: 4,
+      result: [{ range: lspRange, kind: 3 }],
+    });
+    expect(port.sent[4]).toMatchObject({
+      type: "response",
+      id: 5,
+      result: [
+        {
+          name: "FakeClass",
+          kind: 5,
+          range: lspRange,
+          selectionRange: lspRange,
+          children: [{ name: "method", kind: 6, range: lspRange, selectionRange: lspRange }],
+        },
+      ],
+    });
+  });
+
+  test("documentSymbol returns [] and warns when a server returns flat symbols", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await openFile(port, "ws-flat-symbols", "file:///flat.ts", 1);
+      adapterFor("ws-flat-symbols").documentSymbolResult = [
+        {
+          name: "flat",
+          kind: 12,
+          location: { uri: "file:///flat.ts", range: lspRange },
+        },
+      ];
+
+      port.deliver(makeCallMsg("documentSymbol", { uri: "file:///flat.ts" }, 2));
+      await port.waitForMessages(2);
+
+      expect(port.sent[1]).toMatchObject({ type: "response", id: 2, result: [] });
+      expect(warnings[0]?.[0]).toBe(
+        "[lsp-manager] textDocument/documentSymbol returned non-hierarchical symbols",
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
 
 describe("LspManager — URI index", () => {
@@ -1024,6 +1178,158 @@ describe("LspManager — URI index", () => {
   });
 });
 
+describe("LspManager — workspace/symbol fan-out", () => {
+  let manager: InstanceType<typeof LspManager>;
+
+  beforeEach(() => {
+    adapterInstances.length = 0;
+  });
+
+  afterEach(() => {
+    manager?.disposeAll();
+  });
+
+  test("workspaceSymbol fans out to all adapters in the workspace and concatenates fulfilled results", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+
+    await openFile(port, "ws-symbol", "file:///workspace/main.ts", 1);
+    await openFile(port, "ws-symbol", "file:///workspace/main.py", 2, { languageId: "python" });
+    const ts = adapterForLanguage("ws-symbol", "typescript");
+    const py = adapterForLanguage("ws-symbol", "python");
+    ts.workspaceSymbolResult = [
+      {
+        name: "TsSymbol",
+        kind: 12,
+        location: { uri: "file:///workspace/main.ts", range: lspRange },
+      },
+    ];
+    py.workspaceSymbolResult = [
+      { name: "invalid" },
+      {
+        name: "PySymbol",
+        kind: 12,
+        location: { uri: "file:///workspace/main.py", range: lspRange },
+      },
+    ];
+
+    port.deliver(makeCallMsg("workspaceSymbol", { workspaceId: "ws-symbol", query: "Symbol" }, 3));
+    await port.waitForMessages(3);
+
+    expect(ts.workspaceSymbolQueries).toEqual(["Symbol"]);
+    expect(py.workspaceSymbolQueries).toEqual(["Symbol"]);
+    expect(port.sent[2]).toMatchObject({
+      type: "response",
+      id: 3,
+      result: [
+        {
+          name: "TsSymbol",
+          kind: 12,
+          location: { uri: "file:///workspace/main.ts", range: lspRange },
+        },
+        {
+          name: "PySymbol",
+          kind: 12,
+          location: { uri: "file:///workspace/main.py", range: lspRange },
+        },
+      ],
+    });
+  });
+
+  test("workspaceSymbol returns fulfilled results and warns when one adapter rejects", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await openFile(port, "ws-one-fails", "file:///workspace/main.ts", 1);
+      await openFile(port, "ws-one-fails", "file:///workspace/main.py", 2, {
+        languageId: "python",
+      });
+      const ts = adapterForLanguage("ws-one-fails", "typescript");
+      const py = adapterForLanguage("ws-one-fails", "python");
+      py.failingMethods.add("workspace/symbol");
+      ts.workspaceSymbolResult = [
+        {
+          name: "OnlySuccess",
+          kind: 12,
+          location: { uri: "file:///workspace/main.ts", range: lspRange },
+        },
+      ];
+
+      port.deliver(
+        makeCallMsg("workspaceSymbol", { workspaceId: "ws-one-fails", query: "Only" }, 3),
+      );
+      await port.waitForMessages(3);
+
+      expect(ts.requestMethods).toContain("workspace/symbol");
+      expect(py.requestMethods).toContain("workspace/symbol");
+      expect(port.sent[2]).toMatchObject({
+        type: "response",
+        id: 3,
+        result: [
+          {
+            name: "OnlySuccess",
+            kind: 12,
+            location: { uri: "file:///workspace/main.ts", range: lspRange },
+          },
+        ],
+      });
+      expect(warnings[0]?.[0]).toBe("[lsp-manager] workspace/symbol fan-out request failed");
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("workspaceSymbol returns [] and warns when all adapters reject", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await openFile(port, "ws-all-fail", "file:///workspace/main.ts", 1);
+      await openFile(port, "ws-all-fail", "file:///workspace/main.py", 2, {
+        languageId: "python",
+      });
+      adapterForLanguage("ws-all-fail", "typescript").failingMethods.add("workspace/symbol");
+      adapterForLanguage("ws-all-fail", "python").failingMethods.add("workspace/symbol");
+
+      port.deliver(
+        makeCallMsg("workspaceSymbol", { workspaceId: "ws-all-fail", query: "Missing" }, 3),
+      );
+      await port.waitForMessages(3);
+
+      expect(port.sent[2]).toMatchObject({ type: "response", id: 3, result: [] });
+      expect(warnings).toHaveLength(2);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("workspaceSymbol returns [] when there are zero adapters for the workspace", async () => {
+    manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
+    const port = new FakePort();
+    manager.attachPort(port);
+
+    port.deliver(makeCallMsg("workspaceSymbol", { workspaceId: "ws-empty", query: "Anything" }, 1));
+    await port.waitForMessages(1);
+
+    expect(adapterInstances).toHaveLength(0);
+    expect(port.sent[0]).toMatchObject({ type: "response", id: 1, result: [] });
+  });
+});
+
 describe("LspManager — server capability gating", () => {
   let manager: InstanceType<typeof LspManager>;
 
@@ -1035,7 +1341,7 @@ describe("LspManager — server capability gating", () => {
     manager?.disposeAll();
   });
 
-  test("unsupported hover, definition, and completion return empty responses without LSP requests", async () => {
+  test("unsupported request providers return empty responses without LSP requests", async () => {
     manager = makeManager({ idleTimeoutMs: FAST_IDLE_MS });
     const port = new FakePort();
     manager.attachPort(port);
@@ -1045,6 +1351,10 @@ describe("LspManager — server capability gating", () => {
     adapter.capabilities.delete("hoverProvider");
     adapter.capabilities.delete("definitionProvider");
     adapter.capabilities.delete("completionProvider");
+    adapter.capabilities.delete("referencesProvider");
+    adapter.capabilities.delete("documentHighlightProvider");
+    adapter.capabilities.delete("documentSymbolProvider");
+    adapter.capabilities.delete("workspaceSymbolProvider");
 
     port.deliver(makeCallMsg("hover", { uri: "file:///caps.ts", line: 0, character: 0 }, 2));
     await port.waitForMessages(2);
@@ -1052,11 +1362,31 @@ describe("LspManager — server capability gating", () => {
     await port.waitForMessages(3);
     port.deliver(makeCallMsg("completion", { uri: "file:///caps.ts", line: 0, character: 0 }, 4));
     await port.waitForMessages(4);
+    port.deliver(
+      makeCallMsg(
+        "references",
+        { uri: "file:///caps.ts", line: 0, character: 0, includeDeclaration: true },
+        5,
+      ),
+    );
+    await port.waitForMessages(5);
+    port.deliver(
+      makeCallMsg("documentHighlight", { uri: "file:///caps.ts", line: 0, character: 0 }, 6),
+    );
+    await port.waitForMessages(6);
+    port.deliver(makeCallMsg("documentSymbol", { uri: "file:///caps.ts" }, 7));
+    await port.waitForMessages(7);
+    port.deliver(makeCallMsg("workspaceSymbol", { workspaceId: "ws-caps", query: "Caps" }, 8));
+    await port.waitForMessages(8);
 
     expect(adapter.requestMethods).toEqual([]);
     expect(port.sent[1]).toMatchObject({ type: "response", id: 2, result: null });
     expect(port.sent[2]).toMatchObject({ type: "response", id: 3, result: [] });
     expect(port.sent[3]).toMatchObject({ type: "response", id: 4, result: [] });
+    expect(port.sent[4]).toMatchObject({ type: "response", id: 5, result: [] });
+    expect(port.sent[5]).toMatchObject({ type: "response", id: 6, result: [] });
+    expect(port.sent[6]).toMatchObject({ type: "response", id: 7, result: [] });
+    expect(port.sent[7]).toMatchObject({ type: "response", id: 8, result: [] });
   });
 });
 

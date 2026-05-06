@@ -7,8 +7,11 @@ import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,
   CompletionItem,
+  DocumentHighlight,
+  DocumentSymbol,
   HoverResult,
   Location,
+  SymbolInformation,
 } from "../../../shared/lsp-types";
 import type { LspHostHandle } from "../../hosts/lsp-host";
 import { broadcast, type CallContext, register, validateArgs } from "../router";
@@ -152,6 +155,42 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
           { signal: ctx?.signal },
         );
         return result as CompletionItem[];
+      },
+
+      references: async (args: unknown, ctx?: CallContext) => {
+        const { uri, line, character, includeDeclaration } = validateArgs(c.references.args, args);
+        const result = await lspHost.call(
+          "references",
+          { uri, line, character, includeDeclaration },
+          { signal: ctx?.signal },
+        );
+        return result as Location[];
+      },
+
+      documentHighlight: async (args: unknown, ctx?: CallContext) => {
+        const { uri, line, character } = validateArgs(c.documentHighlight.args, args);
+        const result = await lspHost.call(
+          "documentHighlight",
+          { uri, line, character },
+          { signal: ctx?.signal },
+        );
+        return result as DocumentHighlight[];
+      },
+
+      documentSymbol: async (args: unknown, ctx?: CallContext) => {
+        const { uri } = validateArgs(c.documentSymbol.args, args);
+        const result = await lspHost.call("documentSymbol", { uri }, { signal: ctx?.signal });
+        return result as DocumentSymbol[];
+      },
+
+      workspaceSymbol: async (args: unknown, ctx?: CallContext) => {
+        const { workspaceId, query } = validateArgs(c.workspaceSymbol.args, args);
+        const result = await lspHost.call(
+          "workspaceSymbol",
+          { workspaceId, query },
+          { signal: ctx?.signal },
+        );
+        return result as SymbolInformation[];
       },
 
       applyEditResult: async (args: unknown) => {

@@ -7,8 +7,12 @@ import type {
   ApplyWorkspaceEditResult,
   Diagnostic,
   DiagnosticRelatedInformation,
+  DocumentHighlight,
+  DocumentSymbol,
+  Location,
   MarkupContentOrString,
   Range,
+  SymbolInformation,
   TextDocumentContentChangeEvent,
   TextEdit,
   WorkspaceDocumentChange,
@@ -21,6 +25,8 @@ const MARKER_OWNER = "lsp";
 const MARKDOWN_PLAINTEXT_ESCAPE_PATTERN = /([\\`*_{}[\]()#+\-.!|>])/g;
 const LSP_DIAGNOSTIC_TAG_UNNECESSARY = 1;
 const LSP_DIAGNOSTIC_TAG_DEPRECATED = 2;
+const LSP_SYMBOL_KIND_OFFSET = 1;
+const LSP_DOCUMENT_HIGHLIGHT_KIND_OFFSET = 1;
 
 const registeredProviderLanguages = new Set<string>();
 const knownModelUris = new Set<string>();
@@ -45,6 +51,71 @@ function lspRangeToMonacoRange(range: Range): Monaco.IRange {
     startColumn: range.start.character + 1,
     endLineNumber: range.end.line + 1,
     endColumn: range.end.character + 1,
+  };
+}
+
+export function lspLocationToMonacoLocation(
+  monaco: typeof Monaco,
+  location: Location,
+): Monaco.languages.Location {
+  return {
+    uri: monaco.Uri.parse(location.uri),
+    range: lspRangeToMonacoRange(location.range),
+  };
+}
+
+function lspSymbolKindToMonacoKind(kind: number): Monaco.languages.SymbolKind {
+  return (kind - LSP_SYMBOL_KIND_OFFSET) as Monaco.languages.SymbolKind;
+}
+
+function lspDocumentHighlightKindToMonacoKind(
+  kind: DocumentHighlight["kind"],
+): Monaco.languages.DocumentHighlightKind | undefined {
+  if (kind === undefined) return undefined;
+  return (kind - LSP_DOCUMENT_HIGHLIGHT_KIND_OFFSET) as Monaco.languages.DocumentHighlightKind;
+}
+
+export function lspDocumentHighlightToMonacoHighlight(
+  highlight: DocumentHighlight,
+): Monaco.languages.DocumentHighlight {
+  return {
+    range: lspRangeToMonacoRange(highlight.range),
+    kind: lspDocumentHighlightKindToMonacoKind(highlight.kind),
+  };
+}
+
+export function lspDocumentSymbolToMonacoSymbol(
+  symbol: DocumentSymbol,
+): Monaco.languages.DocumentSymbol {
+  return {
+    name: symbol.name,
+    detail: symbol.detail ?? "",
+    kind: lspSymbolKindToMonacoKind(symbol.kind),
+    tags: (symbol.tags ?? []) as Monaco.languages.SymbolTag[],
+    range: lspRangeToMonacoRange(symbol.range),
+    selectionRange: lspRangeToMonacoRange(symbol.selectionRange),
+    children: symbol.children?.map((child) => lspDocumentSymbolToMonacoSymbol(child)),
+  };
+}
+
+export type WorkspaceSymbolResult = {
+  name: string;
+  kind: Monaco.languages.SymbolKind;
+  tags?: readonly Monaco.languages.SymbolTag[];
+  containerName?: string;
+  location: Monaco.languages.Location;
+};
+
+export function lspSymbolInformationToWorkspaceSymbol(
+  monaco: typeof Monaco,
+  symbol: SymbolInformation,
+): WorkspaceSymbolResult {
+  return {
+    name: symbol.name,
+    kind: lspSymbolKindToMonacoKind(symbol.kind),
+    tags: symbol.tags as Monaco.languages.SymbolTag[] | undefined,
+    containerName: symbol.containerName,
+    location: lspLocationToMonacoLocation(monaco, symbol.location),
   };
 }
 
@@ -287,10 +358,7 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
           { signal },
         );
         if (results.length === 0 || !isLspLanguage(model.getLanguageId())) return null;
-        return results.map((location) => ({
-          uri: monaco.Uri.parse(location.uri),
-          range: lspRangeToMonacoRange(location.range),
-        }));
+        return results.map((location) => lspLocationToMonacoLocation(monaco, location));
       } catch {
         return null;
       }
@@ -332,6 +400,67 @@ function registerLanguageProviders(monaco: typeof Monaco, languageId: string): v
         };
       } catch {
         return { suggestions: [] };
+      }
+    },
+  });
+
+  monaco.languages.registerReferenceProvider(languageId, {
+    async provideReferences(model, position, context, token) {
+      if (!isLspLanguage(model.getLanguageId())) return [];
+      try {
+        const signal = tokenToAbortSignal(token);
+        const results = await ipcCall(
+          "lsp",
+          "references",
+          {
+            uri: model.uri.toString(),
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+            includeDeclaration: context.includeDeclaration,
+          },
+          { signal },
+        );
+        if (!isLspLanguage(model.getLanguageId())) return [];
+        return results.map((location) => lspLocationToMonacoLocation(monaco, location));
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  monaco.languages.registerDocumentHighlightProvider(languageId, {
+    async provideDocumentHighlights(model, position, token) {
+      if (!isLspLanguage(model.getLanguageId())) return [];
+      try {
+        const signal = tokenToAbortSignal(token);
+        const results = await ipcCall(
+          "lsp",
+          "documentHighlight",
+          {
+            uri: model.uri.toString(),
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+          },
+          { signal },
+        );
+        if (!isLspLanguage(model.getLanguageId())) return [];
+        return results.map((highlight) => lspDocumentHighlightToMonacoHighlight(highlight));
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  monaco.languages.registerDocumentSymbolProvider(languageId, {
+    async provideDocumentSymbols(model, token) {
+      if (!isLspLanguage(model.getLanguageId())) return [];
+      try {
+        const signal = tokenToAbortSignal(token);
+        const results = await fetchDocumentSymbols(model.uri.toString(), signal);
+        if (!isLspLanguage(model.getLanguageId())) return [];
+        return results.map((symbol) => lspDocumentSymbolToMonacoSymbol(symbol));
+      } catch {
+        return [];
       }
     },
   });
@@ -429,4 +558,20 @@ export function notifyDidSave(uri: string, text?: string): Promise<void> {
 
 export function notifyDidClose(uri: string): Promise<void> {
   return ipcCall("lsp", "didClose", { uri });
+}
+
+export function fetchDocumentSymbols(uri: string, signal?: AbortSignal): Promise<DocumentSymbol[]> {
+  return ipcCall("lsp", "documentSymbol", { uri }, { signal });
+}
+
+export async function provideWorkspaceSymbols(
+  monaco: typeof Monaco,
+  workspaceId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceSymbolResult[]> {
+  if (query.trim().length < 1) return [];
+
+  const symbols = await ipcCall("lsp", "workspaceSymbol", { workspaceId, query }, { signal });
+  return symbols.map((symbol) => lspSymbolInformationToWorkspaceSymbol(monaco, symbol));
 }

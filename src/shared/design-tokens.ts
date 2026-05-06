@@ -57,6 +57,7 @@ export const color = {
   frostedTag: "rgba(255, 255, 255, 0.16)",
   frostedTagHover: "rgba(255, 255, 255, 0.24)",
   mistBorder: "rgba(226, 226, 226, 0.35)",
+  mistBorderFocus: "rgba(226, 226, 226, 0.6)",
   splitter: "rgba(226, 226, 226, 0.35)",
   splitterHover: "rgba(226, 226, 226, 0.6)",
   translucentParchment: "rgba(250, 249, 246, 0.9)",

@@ -1,0 +1,74 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/documentHighlight",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py"
+      },
+      "position": {
+        "line": 22,
+        "character": 7
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "document-highlight-module_a-readwrite",
+    "result": [
+      {
+        "kind": 3,
+        "range": {
+          "start": {
+            "line": 21,
+            "character": 4
+          },
+          "end": {
+            "line": 21,
+            "character": 11
+          }
+        }
+      },
+      {
+        "kind": 3,
+        "range": {
+          "start": {
+            "line": 22,
+            "character": 4
+          },
+          "end": {
+            "line": 22,
+            "character": 11
+          }
+        }
+      },
+      {
+        "kind": 2,
+        "range": {
+          "start": {
+            "line": 22,
+            "character": 14
+          },
+          "end": {
+            "line": 22,
+            "character": 21
+          }
+        }
+      },
+      {
+        "kind": 2,
+        "range": {
+          "start": {
+            "line": 23,
+            "character": 11
+          },
+          "end": {
+            "line": 23,
+            "character": 18
+          }
+        }
+      }
+    ]
+  }
+}

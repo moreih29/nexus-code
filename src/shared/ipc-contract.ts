@@ -5,13 +5,18 @@ import {
   ApplyWorkspaceEditResultSchema,
   CompletionItemSchema,
   DiagnosticSchema,
+  DocumentHighlightSchema,
+  DocumentSymbolSchema,
   HoverResultSchema,
   LocationSchema,
   LspServerEventSchema,
+  ReferencesArgsSchema,
+  SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
+  WorkspaceSymbolArgsSchema,
 } from "./lsp-types";
 import { AppStateSchema } from "./types/app-state";
 import { ColorToneSchema } from "./types/color-tone";
@@ -196,6 +201,10 @@ export const ipcContract = {
       hover: call(TextDocumentPositionArgsSchema, HoverResultSchema.nullable()),
       definition: call(TextDocumentPositionArgsSchema, z.array(LocationSchema)),
       completion: call(TextDocumentPositionArgsSchema, z.array(CompletionItemSchema)),
+      references: call(ReferencesArgsSchema, z.array(LocationSchema)),
+      documentHighlight: call(TextDocumentPositionArgsSchema, z.array(DocumentHighlightSchema)),
+      documentSymbol: call(TextDocumentIdentifierSchema, z.array(DocumentSymbolSchema)),
+      workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
     },
     listen: {

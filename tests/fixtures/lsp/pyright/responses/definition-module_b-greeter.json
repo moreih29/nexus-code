@@ -1,0 +1,35 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/definition",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py"
+      },
+      "position": {
+        "line": 8,
+        "character": 26
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "definition-module_b-greeter",
+    "result": [
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 6
+          },
+          "end": {
+            "line": 3,
+            "character": 13
+          }
+        }
+      }
+    ]
+  }
+}

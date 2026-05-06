@@ -1,0 +1,36 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/hover",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py"
+      },
+      "position": {
+        "line": 7,
+        "character": 10
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "hover-module_a-greet",
+    "result": {
+      "contents": {
+        "kind": "plaintext",
+        "value": "(method) def greet(\n    self: Self@Greeter,\n    name: str\n) -> str"
+      },
+      "range": {
+        "start": {
+          "line": 7,
+          "character": 8
+        },
+        "end": {
+          "line": 7,
+          "character": 13
+        }
+      }
+    }
+  }
+}

@@ -20,7 +20,7 @@
         "lucide-react": "^1.14.0",
         "monaco-languageclient": "^10.7.0",
         "node-pty": "^1.1.0",
-        "pyright": "^1.1.409",
+        "pyright": "1.1.409",
         "radix-ui": "^1.4.3",
         "react": "^19.2.5",
         "react-dom": "^19.2.5",

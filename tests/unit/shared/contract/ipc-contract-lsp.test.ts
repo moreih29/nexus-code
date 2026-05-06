@@ -143,6 +143,101 @@ describe("ipcContract.lsp.call.completion", () => {
   });
 });
 
+describe("ipcContract.lsp.call.references", () => {
+  const schema = ipcContract.lsp.call.references.args;
+
+  test("accepts valid reference position with includeDeclaration", () => {
+    const result = schema.safeParse({
+      uri: "file:///src/foo.ts",
+      line: 3,
+      character: 12,
+      includeDeclaration: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing includeDeclaration", () => {
+    const result = schema.safeParse({ uri: "file:///src/foo.ts", line: 3, character: 12 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ipcContract.lsp.call.documentHighlight", () => {
+  const schema = ipcContract.lsp.call.documentHighlight.args;
+
+  test("accepts valid document highlight position", () => {
+    const result = schema.safeParse({ uri: "file:///src/foo.ts", line: 3, character: 12 });
+    expect(result.success).toBe(true);
+  });
+
+  test("result accepts document highlight ranges with optional kind", () => {
+    const result = ipcContract.lsp.call.documentHighlight.result.safeParse([
+      { range, kind: 1 },
+      { range },
+    ]);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("ipcContract.lsp.call.documentSymbol", () => {
+  const schema = ipcContract.lsp.call.documentSymbol.args;
+
+  test("accepts document uri args", () => {
+    const result = schema.safeParse({ uri: "file:///src/foo.ts" });
+    expect(result.success).toBe(true);
+  });
+
+  test("result accepts hierarchical document symbols", () => {
+    const result = ipcContract.lsp.call.documentSymbol.result.safeParse([
+      {
+        name: "ClassName",
+        kind: 5,
+        range,
+        selectionRange: range,
+        children: [{ name: "method", kind: 6, range, selectionRange: range }],
+      },
+    ]);
+    expect(result.success).toBe(true);
+  });
+
+  test("result rejects flat SymbolInformation", () => {
+    const result = ipcContract.lsp.call.documentSymbol.result.safeParse([
+      {
+        name: "flat",
+        kind: 12,
+        location: { uri: "file:///src/foo.ts", range },
+      },
+    ]);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("ipcContract.lsp.call.workspaceSymbol", () => {
+  const schema = ipcContract.lsp.call.workspaceSymbol.args;
+
+  test("accepts workspace symbol query args", () => {
+    const result = schema.safeParse({ workspaceId: "ws-1", query: "ClassName" });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects missing query", () => {
+    const result = schema.safeParse({ workspaceId: "ws-1" });
+    expect(result.success).toBe(false);
+  });
+
+  test("result accepts symbol information with locations", () => {
+    const result = ipcContract.lsp.call.workspaceSymbol.result.safeParse([
+      {
+        name: "ClassName",
+        kind: 5,
+        location: { uri: "file:///src/foo.ts", range },
+        containerName: "module",
+      },
+    ]);
+    expect(result.success).toBe(true);
+  });
+});
+
 describe("ipcContract.lsp.call.didClose", () => {
   const schema = ipcContract.lsp.call.didClose.args;
 

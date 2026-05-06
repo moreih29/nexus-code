@@ -94,6 +94,9 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.groupFocusUp, primary: "CmdOrCtrl+Alt+Up" },
   { command: COMMANDS.groupFocusDown, primary: "CmdOrCtrl+Alt+Down" },
 
+  // Workspace navigation
+  { command: COMMANDS.workspaceSymbolSearch, primary: "CmdOrCtrl+T" },
+
   // Path actions on the active editor
   { command: COMMANDS.pathReveal, primary: "CmdOrCtrl+Alt+R" },
   { command: COMMANDS.pathCopy, primary: "CmdOrCtrl+Alt+C" },

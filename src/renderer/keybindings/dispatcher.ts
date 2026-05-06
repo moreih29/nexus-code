@@ -31,6 +31,7 @@ import {
   isModifierKeyOnly,
   purgeExpired,
 } from "./chord-state";
+import { evaluateContextKey } from "./context-keys";
 import { resolveEvent } from "./resolver";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,8 @@ export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
   //       disturb the pending state (releasing / re-pressing ⌘ between
   //       leader and second key is normal user behaviour).
   if (isModifierKeyOnly(e)) return false;
+
+  if (evaluateContextKey("commandPaletteFocus", e)) return false;
 
   // ── 2. Escape during pending cancels silently. Outside pending,
   //       Escape isn't ours; let it through.

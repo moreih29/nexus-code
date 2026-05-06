@@ -123,6 +123,15 @@ export const SymbolInformationSchema = z.object({
 });
 export type SymbolInformation = z.infer<typeof SymbolInformationSchema>;
 
+export const DocumentHighlightKindSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+export type DocumentHighlightKind = z.infer<typeof DocumentHighlightKindSchema>;
+
+export const DocumentHighlightSchema = z.object({
+  range: RangeSchema,
+  kind: DocumentHighlightKindSchema.optional(),
+});
+export type DocumentHighlight = z.infer<typeof DocumentHighlightSchema>;
+
 export interface DocumentSymbol {
   name: string;
   detail?: string | undefined;
@@ -457,3 +466,14 @@ export const TextDocumentPositionArgsSchema = z.object({
   character: PositionSchema.shape.character,
 });
 export type TextDocumentPositionArgs = z.infer<typeof TextDocumentPositionArgsSchema>;
+
+export const ReferencesArgsSchema = TextDocumentPositionArgsSchema.extend({
+  includeDeclaration: z.boolean(),
+});
+export type ReferencesArgs = z.infer<typeof ReferencesArgsSchema>;
+
+export const WorkspaceSymbolArgsSchema = z.object({
+  workspaceId: z.string(),
+  query: z.string(),
+});
+export type WorkspaceSymbolArgs = z.infer<typeof WorkspaceSymbolArgsSchema>;

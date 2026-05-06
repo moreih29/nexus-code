@@ -2,6 +2,7 @@ import type * as Monaco from "monaco-editor";
 import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
 import { initializeLspBridge } from "./lsp-bridge";
 import { initializeModelCache } from "./model-cache";
+import { initializeMonacoTheme } from "./monaco-theme";
 import { startPromoteOnDirtyPolicy } from "./promote-policy";
 
 export type { CloseTabOutcome } from "./close-handler";
@@ -22,6 +23,7 @@ export type { EditorInput, EditorTabLocation, EditorTabProps, OpenEditorOptions 
 export { useSharedModel } from "./use-shared-model";
 
 export function initializeEditorServices(monaco: typeof Monaco): void {
+  initializeMonacoTheme(monaco);
   initializeModelCache(monaco);
   initializeLspBridge(monaco);
   initializeLspServerUxRouter();

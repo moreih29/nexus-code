@@ -81,6 +81,13 @@ describe("evaluateContextKey", () => {
     });
   });
 
+  describe("commandPaletteFocus", () => {
+    it("is true when target is inside the command palette root", () => {
+      const e = evt(makeTarget({ matches: ["[data-command-palette-root]"] }));
+      expect(evaluateContextKey("commandPaletteFocus", e)).toBe(true);
+    });
+  });
+
   describe("unknown / null", () => {
     it("returns false for an unknown key", () => {
       expect(evaluateContextKey("nonsense", evt(makeTarget({})))).toBe(false);

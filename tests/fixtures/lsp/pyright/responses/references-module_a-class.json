@@ -1,0 +1,90 @@
+{
+  "pyrightVersion": "1.1.409",
+  "workspaceRoot": "file:///__PYRIGHT_FIXTURE_WORKSPACE__",
+  "request": {
+    "method": "textDocument/references",
+    "params": {
+      "textDocument": {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py"
+      },
+      "position": {
+        "line": 3,
+        "character": 9
+      },
+      "context": {
+        "includeDeclaration": true
+      }
+    }
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": "references-module_a-class",
+    "result": [
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 6
+          },
+          "end": {
+            "line": 3,
+            "character": 13
+          }
+        }
+      },
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 22
+          },
+          "end": {
+            "line": 15,
+            "character": 29
+          }
+        }
+      },
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_a.py",
+        "range": {
+          "start": {
+            "line": 16,
+            "character": 14
+          },
+          "end": {
+            "line": 16,
+            "character": 21
+          }
+        }
+      },
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 21
+          },
+          "end": {
+            "line": 0,
+            "character": 28
+          }
+        }
+      },
+      {
+        "uri": "file:///__PYRIGHT_FIXTURE_WORKSPACE__/module_b.py",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 22
+          },
+          "end": {
+            "line": 8,
+            "character": 29
+          }
+        }
+      }
+    ]
+  }
+}
