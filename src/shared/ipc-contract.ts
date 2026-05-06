@@ -1,5 +1,18 @@
 import { z } from "zod";
 import { CommandIdSchema } from "./commands";
+import {
+  ApplyWorkspaceEditParamsSchema,
+  ApplyWorkspaceEditResultSchema,
+  CompletionItemSchema,
+  DiagnosticSchema,
+  HoverResultSchema,
+  LocationSchema,
+  LspServerEventSchema,
+  TextDocumentContentChangeEventSchema,
+  TextDocumentIdentifierSchema,
+  TextDocumentItemSchema,
+  TextDocumentPositionArgsSchema,
+} from "./lsp-types";
 import { AppStateSchema } from "./types/app-state";
 import { ColorToneSchema } from "./types/color-tone";
 import {
@@ -71,6 +84,41 @@ const WorkspaceUpdateArgsSchema = z.object({
 
 const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
 
+const LspDidOpenArgsSchema = TextDocumentItemSchema.extend({
+  workspaceId: z.string().uuid(),
+  workspaceRoot: z.string(),
+});
+
+const LspDidChangeArgsSchema = z.object({
+  uri: TextDocumentIdentifierSchema.shape.uri,
+  version: TextDocumentItemSchema.shape.version,
+  contentChanges: z.array(TextDocumentContentChangeEventSchema).refine((changes) => {
+    const hasFull = changes.some((change) => !("range" in change));
+    const hasIncremental = changes.some((change) => "range" in change);
+    return !(hasFull && hasIncremental);
+  }, "contentChanges must not mix full and incremental change events"),
+});
+
+const LspDidSaveArgsSchema = z.object({
+  uri: TextDocumentIdentifierSchema.shape.uri,
+  text: TextDocumentItemSchema.shape.text.optional(),
+});
+
+const LspDiagnosticsEventSchema = z.object({
+  uri: TextDocumentIdentifierSchema.shape.uri,
+  diagnostics: z.array(DiagnosticSchema),
+});
+
+const LspApplyEditEventSchema = z.object({
+  requestId: z.string(),
+  params: ApplyWorkspaceEditParamsSchema,
+});
+
+const LspApplyEditResultArgsSchema = z.object({
+  requestId: z.string(),
+  result: ApplyWorkspaceEditResultSchema,
+});
+
 // ---------------------------------------------------------------------------
 // IPC contract map
 // ---------------------------------------------------------------------------
@@ -141,53 +189,19 @@ export const ipcContract = {
 
   lsp: {
     call: {
-      didOpen: call(
-        z.object({
-          workspaceId: z.string().uuid(),
-          workspaceRoot: z.string(),
-          uri: z.string(),
-          languageId: z.string(),
-          version: z.number().int(),
-          text: z.string(),
-        }),
-        z.void(),
-      ),
-      didChange: call(
-        z.object({
-          uri: z.string(),
-          version: z.number().int(),
-          text: z.string(),
-        }),
-        z.void(),
-      ),
-      didClose: call(z.object({ uri: z.string() }), z.void()),
-      hover: call(
-        z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.object({ contents: z.string() }).nullable(),
-      ),
-      definition: call(
-        z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.array(z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() })),
-      ),
-      completion: call(
-        z.object({ uri: z.string(), line: z.number().int(), character: z.number().int() }),
-        z.array(z.object({ label: z.string(), kind: z.number().int().optional() })),
-      ),
+      didOpen: call(LspDidOpenArgsSchema, z.void()),
+      didChange: call(LspDidChangeArgsSchema, z.void()),
+      didSave: call(LspDidSaveArgsSchema, z.void()),
+      didClose: call(TextDocumentIdentifierSchema, z.void()),
+      hover: call(TextDocumentPositionArgsSchema, HoverResultSchema.nullable()),
+      definition: call(TextDocumentPositionArgsSchema, z.array(LocationSchema)),
+      completion: call(TextDocumentPositionArgsSchema, z.array(CompletionItemSchema)),
+      applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
     },
     listen: {
-      diagnostics: listen(
-        z.object({
-          uri: z.string(),
-          diagnostics: z.array(
-            z.object({
-              line: z.number().int(),
-              character: z.number().int(),
-              message: z.string(),
-              severity: z.number().int(),
-            }),
-          ),
-        }),
-      ),
+      diagnostics: listen(LspDiagnosticsEventSchema),
+      applyEdit: listen(LspApplyEditEventSchema),
+      serverEvent: listen(LspServerEventSchema),
     },
   },
 

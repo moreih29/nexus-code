@@ -16,10 +16,11 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 type IpcCallHandler = (
-  event: unknown,
+  event: { sender?: { id?: number } },
   channelName: string,
   method: string,
   args: unknown,
+  requestId?: unknown,
 ) => Promise<unknown>;
 
 let capturedIpcCallHandler: IpcCallHandler | null = null;
@@ -29,6 +30,7 @@ const fakeIpcMainHandle = mock((channel: string, handler: IpcCallHandler) => {
     capturedIpcCallHandler = handler;
   }
 });
+const fakeIpcMainOn = mock((_channel: string, _handler: unknown) => {});
 
 const fakeListeners: { isDestroyed: () => boolean; send: ReturnType<typeof mock> }[] = [];
 
@@ -37,6 +39,7 @@ const fakeGetAllWebContents = mock(() => fakeListeners);
 mock.module("electron", () => ({
   ipcMain: {
     handle: fakeIpcMainHandle,
+    on: fakeIpcMainOn,
   },
   webContents: {
     getAllWebContents: fakeGetAllWebContents,

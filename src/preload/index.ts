@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 type ListenCallback = (args: unknown) => void;
+type IpcRequestId = string;
 
 // key: `${channel}:${event}` → Set of callbacks
 const listeners = new Map<string, Set<ListenCallback>>();
@@ -17,8 +18,17 @@ ipcRenderer.on("ipc:event", (_event, channelName: string, eventName: string, arg
 });
 
 const ipcApi = {
-  call(channelName: string, method: string, args: unknown): Promise<unknown> {
-    return ipcRenderer.invoke("ipc:call", channelName, method, args);
+  call(
+    channelName: string,
+    method: string,
+    args: unknown,
+    requestId?: IpcRequestId,
+  ): Promise<unknown> {
+    return ipcRenderer.invoke("ipc:call", channelName, method, args, requestId);
+  },
+
+  cancel(requestId: IpcRequestId): void {
+    ipcRenderer.send("ipc:cancel", requestId);
   },
 
   listen(channelName: string, eventName: string, callback: ListenCallback): void {

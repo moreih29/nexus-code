@@ -4,7 +4,15 @@ import type { z } from "zod";
 // Types
 // ---------------------------------------------------------------------------
 
-type CallHandlers = Record<string, (args: unknown) => Promise<unknown> | unknown>;
+export interface CallContext {
+  requestId?: string;
+  signal?: AbortSignal;
+}
+
+type CallHandlers = Record<
+  string,
+  (args: unknown, ctx?: CallContext) => Promise<unknown> | unknown
+>;
 type ListenHandlers = Record<string, unknown>;
 
 interface ChannelDef {
@@ -13,6 +21,9 @@ interface ChannelDef {
 }
 
 const channels = new Map<string, ChannelDef>();
+const pendingCallControllers = new Map<string, AbortController>();
+const preCanceledRequests = new Map<string, ReturnType<typeof setTimeout>>();
+const PRECANCELED_REQUEST_TTL_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // register
@@ -29,13 +40,26 @@ export function register(channelName: string, def: ChannelDef): void {
 export function setupRouter(): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { ipcMain } = require("electron") as typeof import("electron");
+  ipcMain.on("ipc:cancel", (event: import("electron").IpcMainEvent, requestId: unknown) => {
+    if (typeof requestId !== "string" || requestId.length === 0) return;
+
+    const key = requestKey(event, requestId);
+    const pending = pendingCallControllers.get(key);
+    if (pending) {
+      pending.abort();
+      return;
+    }
+
+    rememberPreCanceledRequest(key);
+  });
   ipcMain.handle(
     "ipc:call",
     async (
-      _event: import("electron").IpcMainInvokeEvent,
+      event: import("electron").IpcMainInvokeEvent,
       channelName: string,
       method: string,
       args: unknown,
+      requestId?: unknown,
     ) => {
       const channel = channels.get(channelName);
       if (!channel) {
@@ -45,9 +69,62 @@ export function setupRouter(): void {
       if (typeof handler !== "function") {
         throw new Error(`ipc:call — unknown method: ${channelName}.${method}`);
       }
-      return handler(args);
+
+      const callContext = createCallContext(event, requestId);
+      try {
+        return await handler(args, callContext.ctx);
+      } finally {
+        if (callContext.key) {
+          pendingCallControllers.delete(callContext.key);
+        }
+      }
     },
   );
+}
+
+function senderId(event: { sender?: { id?: number } }): string {
+  return typeof event.sender?.id === "number" ? String(event.sender.id) : "unknown";
+}
+
+function requestKey(event: { sender?: { id?: number } }, requestId: string): string {
+  return `${senderId(event)}:${requestId}`;
+}
+
+function rememberPreCanceledRequest(key: string): void {
+  const existing = preCanceledRequests.get(key);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+  }
+  const timeout = setTimeout(() => {
+    preCanceledRequests.delete(key);
+  }, PRECANCELED_REQUEST_TTL_MS);
+  (timeout as { unref?: () => void }).unref?.();
+  preCanceledRequests.set(key, timeout);
+}
+
+function consumePreCanceledRequest(key: string): boolean {
+  const timeout = preCanceledRequests.get(key);
+  if (timeout === undefined) return false;
+  clearTimeout(timeout);
+  preCanceledRequests.delete(key);
+  return true;
+}
+
+function createCallContext(
+  event: import("electron").IpcMainInvokeEvent,
+  requestId: unknown,
+): { key?: string; ctx?: CallContext } {
+  if (typeof requestId !== "string" || requestId.length === 0) {
+    return {};
+  }
+
+  const key = requestKey(event, requestId);
+  const controller = new AbortController();
+  pendingCallControllers.set(key, controller);
+  if (consumePreCanceledRequest(key)) {
+    controller.abort();
+  }
+  return { key, ctx: { requestId, signal: controller.signal } };
 }
 
 // ---------------------------------------------------------------------------

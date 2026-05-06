@@ -13,6 +13,7 @@
 import { ipcCall } from "../../ipc/client";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "./dirty-tracker";
 import { relPathForInput } from "./file-loader";
+import { notifyDidSave } from "./lsp-bridge";
 import { getResolvedModel } from "./model-cache";
 import { promoteAllPreviewTabsForFile } from "./promote-policy";
 import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
@@ -97,6 +98,8 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
         loadedMtime: ipcResult.mtime,
         loadedSize: ipcResult.size,
       });
+
+      notifyDidSave(resolved.cacheUri, content).catch(() => {});
 
       return { kind: "saved", mtime: ipcResult.mtime, size: ipcResult.size } satisfies SaveResult;
     });

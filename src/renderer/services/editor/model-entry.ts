@@ -12,6 +12,7 @@ import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./f
 import { isLspLanguage } from "./language";
 import {
   ensureProvidersFor,
+  monacoContentChangesToLsp,
   notifyDidChange,
   notifyDidClose,
   notifyDidOpen,
@@ -143,10 +144,12 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
       ).catch(() => {});
     }
 
-    entry.contentDisposable = model.onDidChangeContent(() => {
+    entry.contentDisposable = model.onDidChangeContent((event) => {
       entry.version += 1;
       if (!entry.lspOpened) return;
-      notifyDidChange(entry.lspUri, entry.version, model.getValue()).catch(() => {});
+      const contentChanges = monacoContentChangesToLsp(event.changes);
+      if (contentChanges.length === 0) return;
+      notifyDidChange(entry.lspUri, entry.version, contentChanges).catch(() => {});
     });
 
     entry.fsUnsubscribe = subscribeFsChanged(entry.input, () => {
