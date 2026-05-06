@@ -13,11 +13,12 @@
 
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
 import type { CommandId } from "../../shared/commands";
+import { isMac } from "../platform";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
 
 export function installAppMenu(): void {
   const template = buildMenuTemplate({
-    isMac: process.platform === "darwin",
+    isMac: isMac(),
     appName: app.getName(),
   });
 

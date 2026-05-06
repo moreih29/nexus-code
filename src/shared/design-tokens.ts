@@ -35,6 +35,15 @@ export const color = {
   // parse OKLCH (Electron BrowserWindow.titleBarOverlay.symbolColor, etc.).
   // Source of truth: design.md "Ash Gray (#afaeac)".
   ashGrayHex: "#afaeac",
+  // Hex twin of warmParchment — kept for direct DOM-style fallbacks (e.g.
+  // imperative drag-image labels) that need a literal value when CSS
+  // variable resolution may not be guaranteed.
+  // Source of truth: design.md "Warm Parchment (#faf9f6)".
+  warmParchmentHex: "#faf9f6",
+  // Default border for non-CSS-variable contexts. Matches the --border
+  // semantic token below (rgba 0.15) — kept here so direct DOM styles
+  // can use the same value without depending on CSS variable resolution.
+  borderDefault: "rgba(226, 226, 226, 0.15)",
   // Muted surface — shared by sidebar, tab bar, and the custom titlebar so
   // the chrome reads as one continuous "L-shape" against the canvas. Same
   // value drives the --muted / --card / --popover / --secondary semantic

@@ -20,3 +20,12 @@
 
 export { getUserConfigPath, getUserDataPath, getWorkspaceStoragePath } from "./paths";
 export { getDefaultShell } from "./shell";
+
+/**
+ * True when the current process is running on macOS. Centralized here so
+ * the `process.platform === "darwin"` literal lives in one place — the
+ * platform module — and consumers stay readable.
+ */
+export function isMac(): boolean {
+  return process.platform === "darwin";
+}

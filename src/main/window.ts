@@ -1,13 +1,14 @@
 import { join } from "node:path";
 import { BrowserWindow, shell } from "electron";
 import { color } from "../shared/design-tokens";
+import { isMac } from "./platform";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
 const TITLEBAR_HEIGHT = 36;
 
 export function createMainWindow(): BrowserWindow {
-  const isMac = process.platform === "darwin";
+  const mac = isMac();
 
   const win = new BrowserWindow({
     width: 1280,
@@ -17,8 +18,8 @@ export function createMainWindow(): BrowserWindow {
     // controls are preserved per-OS:
     //   - macOS: hiddenInset keeps the traffic lights interactive at top-left.
     //   - Win/Linux: titleBarOverlay renders themed min/max/close at top-right.
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    ...(isMac
+    titleBarStyle: mac ? "hiddenInset" : "hidden",
+    ...(mac
       ? {}
       : {
           titleBarOverlay: {

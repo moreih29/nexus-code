@@ -11,6 +11,7 @@ import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
 import { installAppMenu } from "./menu";
+import { isMac } from "./platform";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
@@ -81,7 +82,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (!isMac()) {
     app.quit();
   }
 });

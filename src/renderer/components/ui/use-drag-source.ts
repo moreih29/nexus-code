@@ -12,6 +12,7 @@
  * VSCode's pattern of removing it on the next macrotask (setTimeout 0).
  */
 import { useCallback } from "react";
+import { color } from "../../../shared/design-tokens";
 
 export type DragImageSpec =
   | { kind: "self" }
@@ -49,9 +50,13 @@ function applyTextDragImage(
   label.style.padding = "4px 8px";
   label.style.borderRadius = "4px";
   label.style.font = "12px system-ui, sans-serif";
-  label.style.background = "var(--popover, #2a2a2a)";
-  label.style.color = "var(--popover-foreground, #f0f0f0)";
-  label.style.border = "1px solid var(--border, #404040)";
+  // Fallbacks come from `shared/design-tokens` so the literal values match
+  // the actual semantic tokens (--popover, --popover-foreground, --border).
+  // Previously the fallbacks were guess-hex values (#2a2a2a / #f0f0f0 /
+  // #404040) which drifted from the real palette.
+  label.style.background = `var(--popover, ${color.mutedSurfaceHex})`;
+  label.style.color = `var(--popover-foreground, ${color.warmParchmentHex})`;
+  label.style.border = `1px solid var(--border, ${color.borderDefault})`;
   label.style.pointerEvents = "none";
   label.style.whiteSpace = "nowrap";
 

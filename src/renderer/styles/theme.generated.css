@@ -7,6 +7,8 @@
   --color-dark-charcoal: oklch(0.3904 0 0);
   --color-bg-canvas: #1a1917;
   --color-ash-gray-hex: #afaeac;
+  --color-warm-parchment-hex: #faf9f6;
+  --color-border-default: rgba(226, 226, 226, 0.15);
   --color-muted-surface-hex: #252422;
   --color-frosted-veil: rgba(255, 255, 255, 0.04);
   --color-frosted-veil-strong: rgba(255, 255, 255, 0.1);
