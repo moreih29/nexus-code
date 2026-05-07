@@ -3,8 +3,7 @@
 // bun:test runs without jsdom/happy-dom so useEffect does not execute in
 // renderToStaticMarkup. The effect logic (setActiveOutlineUri calls) is
 // covered by outline-live-refresh.test.ts. This suite guards against
-// render regressions and verifies that OUTLINE_REFRESH_DEBOUNCE_MS is
-// still exported for backward compat.
+// render regressions only.
 
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
@@ -14,7 +13,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 // subscriptions) does not interfere with the static render.
 mock.module("../../../../../src/renderer/state/stores/outline-live-refresh", () => ({
   setActiveOutlineUri: mock(() => {}),
-  OUTLINE_REFRESH_DEBOUNCE_MS: 400,
   __setOutlineRefreshSubscribersForTests: mock(() => {}),
   __resetOutlineRefreshSubscribersForTests: mock(() => {}),
 }));
@@ -34,15 +32,9 @@ mock.module("../../../../../src/renderer/state/stores/outline", () => ({
     }),
 }));
 
-const { OutlineSection, OUTLINE_REFRESH_DEBOUNCE_MS } = await import(
+const { OutlineSection } = await import(
   "../../../../../src/renderer/components/lsp/outline/outline-section"
 );
-
-describe("OutlineSection backward-compat exports", () => {
-  test("OUTLINE_REFRESH_DEBOUNCE_MS is still exported from outline-section", () => {
-    expect(OUTLINE_REFRESH_DEBOUNCE_MS).toBe(400);
-  });
-});
 
 describe("OutlineSection render regression", () => {
   test("renders with no active input (idle state)", () => {

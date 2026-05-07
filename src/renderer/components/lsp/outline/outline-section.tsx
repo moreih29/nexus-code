@@ -8,8 +8,6 @@ import { cn } from "../../../utils/cn";
 import { basename } from "../../../utils/path";
 import { OutlineContent, type OutlineViewState } from "./outline-content";
 
-export const OUTLINE_REFRESH_DEBOUNCE_MS = 400;
-
 interface OutlineSectionProps {
   activeInput: EditorInput | null;
   collapsed: boolean;
