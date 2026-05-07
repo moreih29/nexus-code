@@ -300,6 +300,7 @@ export const ipcContract = {
       createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       readExternal: call(z.object({ absolutePath: z.string() }), FileContentSchema),
+      revealInFinder: call(z.object({ absolutePath: z.string() }), z.void()),
     },
     listen: {
       changed: listen(FsChangedEventSchema),

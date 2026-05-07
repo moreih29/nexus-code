@@ -1,3 +1,4 @@
+import { Lock } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -5,10 +6,13 @@ import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { filePathToModelUri, isDirty, subscribeFileDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
+import { basename } from "@/utils/path";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
-import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { type EditorTab, type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
+
+// TODO: when Find/Replace is implemented, exclude readOnly tabs from search target enumeration
 
 // ---------------------------------------------------------------------------
 // Props
@@ -63,6 +67,8 @@ interface TabItemProps {
   workspaceId: string;
   leafId: string;
   tab: Tab;
+  displayTitle: string;
+  parentDirSuffix?: string;
   onCloseTab: (id: string) => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
@@ -82,7 +88,15 @@ function useTabDirty(tab: Tab): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
-function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: TabItemProps) {
+function TabItem({
+  workspaceId,
+  leafId,
+  tab,
+  displayTitle,
+  parentDirSuffix,
+  onCloseTab,
+  onTabContextMenu,
+}: TabItemProps) {
   const payload = useMemo<TabDragPayload>(
     () => ({ workspaceId, tabId: tab.id, sourceGroupId: leafId }),
     [workspaceId, tab.id, leafId],
@@ -134,7 +148,23 @@ function TabItem({ workspaceId, leafId, tab, onCloseTab, onTabContextMenu }: Tab
         )}
       >
         {tab.isPinned && <PinIcon />}
-        <span className={tab.isPreview ? "italic" : undefined}>{tab.title}</span>
+        {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
+          <span role="img" aria-label="Read-only">
+            <Lock
+              aria-hidden
+              width={12}
+              height={12}
+              strokeWidth={1.5}
+              className="shrink-0 text-muted-foreground"
+            />
+          </span>
+        )}
+        <span className={tab.isPreview ? "italic" : undefined}>
+          {displayTitle}
+          {parentDirSuffix && (
+            <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
+          )}
+        </span>
       </RadixTabs.Trigger>
 
       {/* Dirty indicator — same outer box as the close button below
@@ -209,6 +239,32 @@ export function TabBar({
     return [...pinned, ...unpinned];
   }, [tabs]);
 
+  // Basename collision disambiguation for external tabs in this group.
+  // When ≥2 external editor tabs share the same basename, append the parent
+  // directory name as a suffix so the user can distinguish them.
+  const externalTabParentDir = useMemo(() => {
+    const suffixMap = new Map<string, string | undefined>();
+    const externalTabs = tabs.filter(
+      (t): t is EditorTab => t.type === "editor" && t.props.origin === "external",
+    );
+    // Count how many external tabs share each basename.
+    const basenameCount = new Map<string, number>();
+    for (const t of externalTabs) {
+      const name = basename(t.props.filePath);
+      basenameCount.set(name, (basenameCount.get(name) ?? 0) + 1);
+    }
+    for (const t of externalTabs) {
+      const name = basename(t.props.filePath);
+      if ((basenameCount.get(name) ?? 0) > 1) {
+        // Extract the parent dir name from the absolute path.
+        const parts = t.props.filePath.split("/");
+        const parentDir = parts.length >= 2 ? parts[parts.length - 2] : undefined;
+        suffixMap.set(t.id, parentDir);
+      }
+    }
+    return suffixMap;
+  }, [tabs]);
+
   return (
     <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
       {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
@@ -242,6 +298,8 @@ export function TabBar({
                 workspaceId={workspaceId}
                 leafId={leafId}
                 tab={tab}
+                displayTitle={tab.title}
+                parentDirSuffix={externalTabParentDir.get(tab.id)}
                 onCloseTab={onCloseTab}
                 onTabContextMenu={onTabContextMenu}
               />

@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
 import type { MonacoRange } from "../../../../shared/monaco-range";
+import { ipcCall } from "../../../ipc/client";
 import {
   cacheUriToFilePath,
   openOrRevealEditor,
@@ -16,6 +17,7 @@ import {
   takePendingEditorReveal,
 } from "../../../services/editor/pending-reveal";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { ReadOnlyBanner } from "./read-only-banner";
 
 interface EditorViewProps {
   filePath: string;
@@ -201,47 +203,57 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   }
 
   return (
-    <Editor
-      height="100%"
-      keepCurrentModel
-      saveViewState={false}
-      onMount={(editor, monaco) => {
-        editorRef.current = editor;
-        temporaryModelRef.current = editor.getModel();
-        attachSharedModel(editor);
-        applyPendingReveal(editor, workspaceId, filePath);
+    <div className="flex flex-col h-full">
+      {readOnly && (
+        <ReadOnlyBanner
+          filePath={filePath}
+          onRevealInFinder={() => {
+            ipcCall("fs", "revealInFinder", { absolutePath: filePath }).catch(() => {});
+          }}
+        />
+      )}
+      <Editor
+        height="100%"
+        keepCurrentModel
+        saveViewState={false}
+        onMount={(editor, monaco) => {
+          editorRef.current = editor;
+          temporaryModelRef.current = editor.getModel();
+          attachSharedModel(editor);
+          applyPendingReveal(editor, workspaceId, filePath);
 
-        openerDisposableRef.current?.dispose();
-        const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
-          getWorkspaceId: () => workspaceIdRef.current,
-          sourceEditor: editor,
-        });
-        openerDisposableRef.current = monaco.editor.registerEditorOpener({
-          openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
-            openCodeEditorOpener.openCodeEditor(source, resource),
-        });
+          openerDisposableRef.current?.dispose();
+          const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
+            getWorkspaceId: () => workspaceIdRef.current,
+            sourceEditor: editor,
+          });
+          openerDisposableRef.current = monaco.editor.registerEditorOpener({
+            openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
+              openCodeEditorOpener.openCodeEditor(source, resource),
+          });
 
-        // Cmd/Ctrl+S — registered on the editor instance so monaco's
-        // built-in keybinding service handles it inside its textarea
-        // (no double-fire with global handler). Reads the bound props
-        // through closure: filePath/workspaceId stay current because
-        // EditorView remounts on filePath change (key on filePath in
-        // ContentHost).
-        editor.addAction({
-          id: "nexus.file.save",
-          label: "Save File",
-          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
-          run: () => {
-            saveModel({ workspaceId, filePath }).catch(() => {
-              // Errors are reported via SaveResult — promise rejection
-              // here would be a programming error. Swallow to keep the
-              // command from logging unhandled rejection noise.
-            });
-          },
-        });
-      }}
-      theme={NEXUS_DARK_THEME_NAME}
-      options={editorOptions}
-    />
+          // Cmd/Ctrl+S — registered on the editor instance so monaco's
+          // built-in keybinding service handles it inside its textarea
+          // (no double-fire with global handler). Reads the bound props
+          // through closure: filePath/workspaceId stay current because
+          // EditorView remounts on filePath change (key on filePath in
+          // ContentHost).
+          editor.addAction({
+            id: "nexus.file.save",
+            label: "Save File",
+            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+            run: () => {
+              saveModel({ workspaceId, filePath }).catch(() => {
+                // Errors are reported via SaveResult — promise rejection
+                // here would be a programming error. Swallow to keep the
+                // command from logging unhandled rejection noise.
+              });
+            },
+          });
+        }}
+        theme={NEXUS_DARK_THEME_NAME}
+        options={editorOptions}
+      />
+    </div>
   );
 }

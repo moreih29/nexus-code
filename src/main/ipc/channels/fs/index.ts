@@ -9,7 +9,7 @@ import type { FileWatcher } from "../../../filesystem/file-watcher";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import { register } from "../../router";
-import { showItemInFolderHandler } from "./move-handlers";
+import { revealInFinderHandler, showItemInFolderHandler } from "./move-handlers";
 import {
   getExpandedHandler,
   readdirHandler,
@@ -43,6 +43,7 @@ export function registerFsChannel(
       setExpanded: setExpandedHandler(manager, storage),
       readFile: readFileHandler(manager),
       readExternal: readExternalHandler(),
+      revealInFinder: revealInFinderHandler(),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),
