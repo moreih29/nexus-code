@@ -1,9 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
 
-// Stub the monaco singleton. This mock persists in the bun process, but
-// model-cache-release.test.ts already mocks monaco-singleton the same way,
-// so running both files together is safe.
+// Bun mock.module is process-global. We pre-load real exports and spread them
+// so other editor/* test files (e.g., save-service.test.ts) see the full module
+// surface even after this file has run.
+const realMonacoSingleton = await import(
+  "../../../../../src/renderer/services/editor/monaco-singleton"
+);
+const realFileLoader = await import("../../../../../src/renderer/services/editor/file-loader");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+
 mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+  ...realMonacoSingleton,
   requireMonaco: () => ({
     Uri: {
       parse: (raw: string) => ({
@@ -11,30 +18,24 @@ mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () =
       }),
     },
   }),
-  initializeMonacoSingleton: () => {},
   isMonacoReady: () => false,
-  onMonacoReady: () => () => {},
 }));
 
 // Return a never-resolving promise so loadEntry never progresses past the
 // initial readFileForModel call, which means attachDirtyTracker (from the real
-// dirty-tracker module) is never invoked.  This avoids the need to mock
-// dirty-tracker, which would break dirty-tracker.test.ts when both files run
-// in the same bun session.
+// dirty-tracker module) is never invoked.
 mock.module("../../../../../src/renderer/services/editor/file-loader", () => ({
+  ...realFileLoader,
   readFileForModel: () => new Promise(() => {}),
-  subscribeFsChanged: () => () => {},
-  workspaceRootForInput: () => "/workspace",
 }));
 
 mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+  ...realLspBridge,
   ensureProvidersFor: () => {},
-  monacoContentChangesToLsp: () => [],
   notifyDidChange: () => Promise.resolve(),
   notifyDidClose: () => Promise.resolve(),
   notifyDidOpen: () => Promise.resolve(),
-  registerKnownModelUri: () => {},
-  unregisterKnownModelUri: () => {},
+  notifyDidSave: () => Promise.resolve(),
 }));
 
 const { createEntry, snapshot } = await import(

@@ -8,6 +8,19 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
   },
 };
 
+// IMPORTANT: Bun's `mock.module` is PROCESS-GLOBAL — replacing a module here
+// affects every other test file that imports it later in the same process.
+// We mock ONLY the modules whose behavior the read-only/no-op branches of
+// saveModel actually depend on. Both tests below short-circuit before save-
+// service touches promote-policy / lsp-bridge / file-loader / save-sequentializer,
+// so those are intentionally NOT mocked.
+//
+// For the modules we do mock (dirty-tracker, model-cache, ipc/client, toast),
+// we spread the real exports first so other test files (e.g., promote-policy
+// .test.ts) can still import their full surface.
+const realDirty = await import("../../../../../src/renderer/services/editor/dirty-tracker");
+const realModelCache = await import("../../../../../src/renderer/services/editor/model-cache");
+
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock(() => Promise.resolve()),
   ipcListen: () => () => {},
@@ -26,37 +39,16 @@ const getDirtyEntryMock = mock((_cacheUri: string) => ({
 }));
 
 mock.module("../../../../../src/renderer/services/editor/dirty-tracker", () => ({
+  ...realDirty,
   getDirtyEntry: getDirtyEntryMock,
-  markSaved: () => {},
 }));
 
 const getResolvedModelMock = mock((_input: unknown) => null as unknown);
 
 mock.module("../../../../../src/renderer/services/editor/model-cache", () => ({
+  ...realModelCache,
   getResolvedModel: getResolvedModelMock,
 }));
-
-mock.module("../../../../../src/renderer/services/editor/promote-policy", () => ({
-  promoteAllPreviewTabsForFile: () => {},
-}));
-
-mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
-  notifyDidSave: () => Promise.resolve(),
-}));
-
-mock.module("../../../../../src/renderer/services/editor/file-loader", () => ({
-  relPathForInput: (input: { filePath: string; workspaceId: string }) => input.filePath,
-}));
-
-mock.module("../../../../../src/renderer/services/editor/save-sequentializer", () => {
-  class SaveSupersededError extends Error {}
-  class SaveSequentializer {
-    async run(_key: string, fn: () => Promise<unknown>) {
-      return fn();
-    }
-  }
-  return { SaveSequentializer, SaveSupersededError };
-});
 
 const { saveModel } = await import("../../../../../src/renderer/services/editor/save-service");
 
