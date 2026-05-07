@@ -97,6 +97,8 @@ function setup(uri: string): void {
       })
     : () => {};
 
+  _getLoad()(uri).catch(() => {});
+
   _disposeAll = () => {
     if (cancelPending) {
       cancelPending();
