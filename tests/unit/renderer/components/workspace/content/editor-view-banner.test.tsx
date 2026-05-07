@@ -79,10 +79,11 @@ mock.module("../../../../../../src/renderer/services/editor", () => ({
 }));
 
 // Mock pending-reveal module
-mock.module("../../../../../../src/renderer/services/editor/pending-reveal", () => ({
-  subscribePendingEditorReveal: mock(() => () => {}),
-  takePendingEditorReveal: mock(() => null),
-}));
+// pending-reveal is intentionally NOT mocked. The real implementation returns
+// null from takePendingEditorReveal when no reveal is pending (the case in
+// every test below) and a real subscriber is harmless. Mocking it would
+// pollute pending-reveal exports for other test files (Bun mock.module is
+// process-global), notably workspace-symbol-source.test.ts.
 
 // ---------------------------------------------------------------------------
 // Import component after mocks
