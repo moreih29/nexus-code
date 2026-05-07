@@ -4934,6 +4934,183 @@
           "created_at": "2026-05-07T01:08:07.387Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-07T02:29:40.484Z",
+      "branch": "chore/code-audit-followups",
+      "plan": {
+        "id": 19,
+        "topic": "Code audit follow-up — 17 findings across 4 axes (hardcoding / god-file / bottom-up / test-signal)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Bundle ordering — 17 findings를 몇 개 task로 묶고 어떤 파동(wave)으로 실행할지",
+            "status": "decided",
+            "decision": "8 task로 분해 / 4 wave로 직렬화. Wave 1 (4 task 병렬): T1 shared modules 신규 5개 파일(listener-bus / pending-request-map / keyed-debouncer / timer-scheduler / monaco-range), T2 lsp-manager.ts 4-way split + 동반 lsp-manager.test.ts 분리, T3 lsp-bridge.ts 4-way split, T7 chore consolidation(M3+L1+L2+L3 + theme.generated.css regen). Wave 2 (3 task 병렬, deps T1±T2): T4 listener-bus + timer-scheduler + MonacoRange + L5 dirty-tracker rename 마이그레이션, T5 pending-request-map + keyed-debouncer 마이그레이션 (slim lsp-manager 필요 → deps T1+T2), T6 test cleanup (H3+H4+M5+L4). Wave 3: T8 통합 검증 (tester only, deps 1-7). 거부 대안: (a) 17 finding을 17 task로 분해 — 오버헤드 폭증, file-touch 단위 응집 깨짐. (b) 단일 거대 task — 회귀 시 디버깅 코스트 ↑ + 1 task = 1 commit 패턴 깨짐. (c) Cycle X/Y/Z 3 cycle 분할 (사용자 원래 권장 옵션) — 사용자가 \"전체 한묶음\" 명시적 지시로 기각. 가정: 8 task 내부 file-touch 충돌은 4 wave 순서 + task 묶음으로 모두 해소 검증 완료."
+          },
+          {
+            "id": 2,
+            "title": "lsp-manager.ts 4-way split 시 encapsulation 전략 (internal export 방침)",
+            "status": "decided",
+            "decision": "분할 후 4개 신규 파일(lsp-handlers.ts / lsp-result-normalizers.ts / lsp-server-request-handlers.ts / slim lsp-manager.ts)을 모두 src/utility/lsp-host/ 동일 패키지 내부에 둔다. Public surface 변경 0건 — `export class LspManager` 1개 진입점만 외부로 유지하고 내부 모듈 간에는 직접 import (barrel 추가하지 않음). handlerMetadata / normalizers / server-request-handler factory는 named export 하되 패키지 내부 호출자에게만 import 의존성 발생. 거부 대안: (a) 별도 src/utility/lsp-handlers/ subpackage — 디렉토리 깊이 +1, public surface 변경 위험. (b) 모든 헬퍼를 그대로 lsp-manager.ts 내부 함수로 유지 — 분할 의미 소멸. 근거: architect Open Risk 명시한 `@internal` 표면(adapters/uriIndex/findAdapterForUri/resetIdleTimer)은 동일 디렉토리 module-private import로 충분히 캡슐화 유지 가능. ESLint/biome 설정에 별도 lint rule 추가 불필요."
+          },
+          {
+            "id": 3,
+            "title": "outline-tree indent step 14 vs file-tree 12 불일치 — designer 자문 vs 즉시 constantize",
+            "status": "decided",
+            "decision": "현 outline-tree padding 식 `8 + depth*14`를 그대로 보존하고 outline-tree.tsx 내부에 `OUTLINE_INDENT_BASE_PX = 8`, `OUTLINE_INDENT_STEP_PX = 14` named constant로만 추출. file-tree의 12와 통합하지 않음. 사유: (a) 14가 의도된 시각적 차이일 가능성 있음 — outline은 아이콘+레이블 2-row 구조, file-tree는 1-row이므로 hierarchy depth 인지 비용이 다름. (b) 통합은 디자이너 검토 필요한 UX 결정인데 본 cycle은 리팩터링 cycle이지 디자인 cycle이 아님. (c) 하드코딩 정책 위반(magic number)은 named constant로 충족. 거부 대안: (a) 즉시 12로 통일 — 디자이너 미합의 변경. (b) designer 자문 spawn — cycle scope 확장 (사용자 \"전체 한묶음\" 의도는 이미 식별된 17 finding 한정). 통일 여부는 후속 cycle에서 designer가 outline ↔ file-tree 시각적 contrast 검토 후 결정."
+          }
+        ],
+        "research_summary": "4-축 병렬 audit 완료. (1) Hardcoding agent: 6 findings (OUTLINE_REFRESH_DEBOUNCE_MS 중복, outline-tree indent 매직넘버 14 vs file-tree 12, KEYBOARD_NUDGE_PX 중복, title-bar fallback 12, Tailwind arbitrary px, window dims). (2) God-file agent: lsp-manager.ts 1193 LoC 6-concern (Critical), lsp-bridge.ts 577 LoC 6-concern (Critical), 그 외 8개 Borderline/Clean. (3) Bottom-up agent: createListenerBus 8+ duplicate (Strong), PendingRequestMap 3 duplicate + identical unref cast (Strong), keyed-debouncer 3 duplicate (Strong), MonacoRange interface 2 duplicate, path-helper 2 duplicate, TimerScheduler shape 2 variant, dirty-tracker subscription naming inconsistency. (4) Test-signal agent: plan18-adversarial.test.ts T4↔focus-restore 1:1 중복 (479 LoC), lsp-manager.test.ts 1428 LoC 6-subject mix, real-setTimeout 2 flake hooks, 7 useless typeof asserts, files/store.test.ts (643), layout/store.test.ts (629) 분리 후보. File-touch 충돌 분석 완료: lsp-manager.ts(C1+H2+M1 3중), pending-reveal.ts(H1+M2 2중), dirty-tracker.ts(H1+L5 2중), store.test.ts(H4+M5 2중). 모두 wave-aware 순서 또는 task-bundling으로 해결 가능. theme.generated.css는 Plan 18의 design-tokens.ts editorWordHighlight 추가 후 regen 누락분(3 lines)으로 chore에 포함.",
+        "created_at": "2026-05-07T01:48:27.055Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: Shared modules — listener-bus / pending-request-map / keyed-debouncer / timer-scheduler / monaco-range",
+          "status": "completed",
+          "context": "Bottom-up audit 발견의 5개 공통 패턴 추출 foundation. 본 task는 신규 파일 생성 + 단위 테스트만 — 콜사이트 마이그레이션은 T4/T5 책임. Wave 1 병렬 실행.",
+          "acceptance": "\n- src/shared/{listener-bus,pending-request-map,keyed-debouncer,timer-scheduler,monaco-range}.ts 5개 파일 생성 (혹은 monaco-range는 lsp-types.ts에 통합 — engineer 결정 명시)\n- 각 파일에 대응 unit test 존재 + bun test PASS\n- 명세된 API surface 모두 구현 (listener-bus의 keyed variant 포함, pending-request-map의 unref cast internalize 포함)\n- typecheck PASS, check:ci PASS\n- 마이그레이션 0건 (다른 src/ 파일 수정 0). 위반 시 reject\n",
+          "approach": "\nsrc/shared/ 5 신규 파일:\n1) listener-bus.ts — `createListenerBus<T = void>()` returns `{ subscribe(listener) → unsub, notify(value), clear, size }`. + `createKeyedListenerBus<K, T>()` for per-key variant. Audit가 식별한 8+ 콜사이트 패턴 cover (save-confirm-dialog, toast, workspace-symbol-palette-state, view-park, slot-registry, monaco-singleton, pending-reveal, dirty-tracker 3 variants).\n2) pending-request-map.ts — `class PendingRequestMap<TKey, TResult>` with `register({key, timeoutMs, onTimeout})`, `resolve(key, value)`, `reject(key, err)`, `clearAll(reason)`, `size`. Internalize the `(timeout as { unref?: () => void }).unref?.()` cast.\n3) keyed-debouncer.ts — `createKeyedDebouncer<K>({ delayMs })` returns `{ schedule(key, fn), cancel(key), clearAll(), size }`.\n4) timer-scheduler.ts — `interface TimerScheduler { setTimeout(cb: () => void, ms: number): unknown; clearTimeout(handle: unknown): void }` + `defaultTimerScheduler`.\n5) monaco-range.ts — `interface MonacoRange { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }`. (또는 src/shared/lsp-types.ts에 추가하되 LSP Range와 별개 export로 명확히 구분 — engineer 판단으로 위치 선택)\n\n각 파일에 단위 테스트 (tests/unit/shared/<name>.test.ts). 콜사이트 마이그레이션 금지 (T4/T5 책임).\n",
+          "risk": "인터페이스 너무 좁게 설계 시 T4/T5에서 추가 메서드 필요 → blocking. 사전에 8+ 콜사이트 사용 패턴(notify with arg vs without, keyed variant) 검토 후 first-pass에서 cover.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aafb62d1214229904",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:52:53.553Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: Split lsp-manager.ts (1193 LoC) — handlers / normalizers / server-request-handlers / slim manager + paired test split",
+          "status": "completed",
+          "context": "architect Critical: 6개 변경 축 누적 (handlerMetadata + 정규화 + 서버 요청 핸들러 + workspace config + adapter lifecycle + MessagePort I/O). 정규화 함수 단위 테스트 시 MessagePort/AdapterFactory 전체 mocking 필요한 untestable 구조. C1+C3 동시. Plan issue 2 결정: src/utility/lsp-host/ 동일 패키지 module-private import 유지, public surface 0 변경.",
+          "acceptance": "\n- src/utility/lsp-host/lsp-manager.ts ≤ 450 LoC. 신규 3 파일 각 ≤ 400 LoC.\n- 신규 파일 모두 src/utility/lsp-host/ 내부 거주. 외부 export 0 (LspManager class만 외부 노출).\n- tests/unit/utility/lsp/ 내 lsp-manager-*.test.ts 분리 (2~3 파일).\n- bun test PASS, typecheck PASS, check:ci PASS.\n- public API behavior 동일 (LSP IPC 변경 0).\n- LSP_INTEGRATION fixture replay test의 사전 존재 fail (R2 pyright fixture drift)은 본 task 책임 아님 — Plan 18 baseline 동일 또는 그 이상이면 PASS.\n",
+          "approach": "\n코드 분할 (architect 분석 라인 범위 기준):\n- src/utility/lsp-host/lsp-handlers.ts ← handlerMetadata 카탈로그 + defineHandler + route helpers (params/transform). 446-611 라인 범위.\n- src/utility/lsp-host/lsp-result-normalizers.ts ← hover/definition/highlight/symbol/completion/diagnostics 정규화 (pure functions, stateless). 267-379 라인 범위.\n- src/utility/lsp-host/lsp-server-request-handlers.ts ← configuration / registerCapability / applyEdit / showMessageRequest / workDoneProgress 핸들러 (880-1035) + config flatten/lookup (381-438).\n- slim src/utility/lsp-host/lsp-manager.ts (~400 LoC) ← adapter lifecycle, idle timer, URI index, MessagePort dispatch만.\n\nhandlerMetadata가 LspManager 인스턴스 메서드(adapters/uriIndex 등)에 closure 의존 시 → context object 또는 `this`-bound factory 패턴으로 의존성 주입. Lead가 architect 분석에서 받은 Open Risk: `@internal` 표면 노출 — 동일 디렉토리 module-private import로 캡슐화 유지 (named export하되 외부 import 금지는 convention). barrel index 추가하지 않음.\n\n테스트 분할: tests/unit/utility/lsp/lsp-manager.test.ts (1428 LoC, 6 subjects) →\n- lsp-manager-routing.test.ts ← URI routing, workspace-symbol fan-out, server capability gating, cancellation\n- lsp-manager-lifecycle.test.ts ← lazy-spawn, idle-shutdown\n(또는 cancellation 별도 파일 — engineer 판단으로 합리적 분할)\n",
+          "risk": "handlerMetadata가 LspManager closure 의존 시 분할 후 함수 시그니처 변경 필요 → context object 패턴으로 해결. 분할 시 lsp-manager 내부 호출 그래프 검증 필수.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8f2782f0efce0eb1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:53:11.645Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: Split lsp-bridge.ts (577 LoC) — converters / workspace-edit / providers / slim bridge",
+          "status": "completed",
+          "context": "architect Critical: 6 concerns (변환부 / WorkspaceEdit / provider 등록 / IPC listener / 모듈 전역 / IPC notify wrapper). 변환 함수가 모듈-레벨 전역(monacoRef/knownModelUris)과 동거하여 변환부만 import해도 side-effect 발동.",
+          "acceptance": "\n- lsp-bridge.ts ≤ 200 LoC. 신규 3 파일 각 ≤ 350 LoC.\n- 신규 public export는 internal만 (외부 import surface 0 추가). 기존 lsp-bridge.ts export 모두 유지.\n- bun test PASS, typecheck PASS, check:ci PASS.\n- Monaco provider 등록 동작 동일 (E2E).\n",
+          "approach": "\nsrc/renderer/services/editor/lsp-bridge.ts → 4 files:\n- lsp-monaco-converters.ts ← 변환 함수들 (markerSeverity / lspRange* / lspSymbol* / lspDiagnostic* / hoverContents / monacoContentChangeToLsp / tokenToAbortSignal). 38-297 라인. pure / stateless.\n- lsp-workspace-edit.ts ← applyWorkspaceEdit + edit batch helpers. 122-205 라인.\n- lsp-providers.ts ← registerLanguageProviders (6 provider 등록). 314-467 라인.\n- slim lsp-bridge.ts (~150 LoC) ← initialize / setMonaco / 두 listener 등록 / IPC notify wrappers.\n\n모듈-레벨 전역(monacoRef, knownModelUris, *Unlisten)은 slim lsp-bridge.ts 소유 유지. 다른 파일은 setMonaco 결과를 받는 함수형 시그니처(monaco 인스턴스를 인자로) 또는 lazy getter로 호출.\n",
+          "risk": "monacoRef lifetime ownership — slim bridge에 잔류, 다른 모듈은 setMonaco 결과 의존성 주입 형태로. 잘못 분할 시 provider register 시 monaco null pointer.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1c0a29e71395fd06",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:53:25.400Z"
+        },
+        {
+          "id": 4,
+          "title": "T4: Migrate listener-bus + timer-scheduler + MonacoRange + dirty-tracker rename + outline-section dead re-export 제거",
+          "status": "completed",
+          "context": "T1 shared modules 사용처 마이그레이션. 파일 충돌 atomic 해소: pending-reveal.ts (H1+M2), dirty-tracker.ts (H1+L5), outline-section.tsx (M4+L1) 모두 단일 task. T1 완료 의존.",
+          "acceptance": "\n- H1 콜사이트 8+ 모두 createListenerBus 사용. 잔존 raw `Set<()=>void>` + `notify` 패턴 grep 0건 (위 8 파일 한정).\n- workspace-symbol-registry / pending-reveal이 shared MonacoRange import (별도 interface 정의 0).\n- palette/controller / outline-section이 shared TimerScheduler import.\n- dirty-tracker 외부 export 이름이 canonical (subscribeFileDirty/subscribeAllDirtyTransitions/subscribeAllSaved). services/editor/index.ts에 alias-rename 0건.\n- outline-section.tsx에 OUTLINE_REFRESH_DEBOUNCE_MS / scheduleDebouncedOutlineLoad re-export 0건. outline-section.test.tsx에 typeof check 0건.\n- bun test PASS, typecheck PASS, check:ci PASS. public behavior 동일.\n",
+          "approach": "\nH1 listener-bus migration (8+ sites): src/renderer/components/ui/save-confirm-dialog.tsx, toast.tsx, src/renderer/components/lsp/palette/workspace-symbol-palette-state.ts, src/renderer/components/workspace/content/view-park.tsx, slot-registry.ts, src/renderer/services/editor/monaco-singleton.ts, pending-reveal.ts, src/renderer/services/editor/dirty-tracker.ts (3 variants — fileListeners keyed + transitions + saved). 각 사이트의 `Set<()=>void>` + `notify()` + `subscribe(returns unsub)` 패턴을 createListenerBus / createKeyedListenerBus로 교체. `__reset*ForTests`는 listener-bus의 `.clear()` 사용.\n\nM2 MonacoRange unification: src/renderer/services/lsp/workspace-symbol-registry.ts의 WorkspaceSymbolRange + src/renderer/services/editor/pending-reveal.ts의 EditorRevealRange 모두 shared MonacoRange interface로 교체.\n\nM4 TimerScheduler unification: src/renderer/components/lsp/palette/controller.ts (PaletteScheduler) + src/renderer/components/lsp/outline/outline-section.tsx (setTimeoutFn/clearTimeoutFn 인자) 모두 shared TimerScheduler 사용.\n\nL5 dirty-tracker rename: subscribeFile → subscribeFileDirty, subscribeTransitions → subscribeAllDirtyTransitions, subscribeSaved → subscribeAllSaved. src/renderer/services/editor/index.ts의 alias-rename(`subscribeDirty`) 제거. 모든 콜사이트 업데이트.\n\nL1 outline-section.tsx의 OUTLINE_REFRESH_DEBOUNCE_MS / scheduleDebouncedOutlineLoad backward-compat re-export 제거 (Plan 18 dead code) + tests/unit/renderer/components/lsp/outline-section.test.tsx 의 `scheduleDebouncedOutlineLoad is still exported` typeof check 제거.\n",
+          "risk": "L5 rename 콜사이트 광범위 가능성 (dirty-tracker는 save-service / save-confirm-dialog / cross-file-opener 등 의존). typecheck로 모두 잡힘. notify-with-arg vs notify-no-arg variants 처리 (T1의 listener-bus 제너릭 설계가 cover해야 함).",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aebc3ea187cc08774",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:53:46.165Z"
+        },
+        {
+          "id": 5,
+          "title": "T5: Migrate PendingRequestMap (3 sites) + createKeyedDebouncer (3 sites) including slim lsp-manager",
+          "status": "completed",
+          "context": "T1 shared modules + T2 lsp-manager 분할 후 진입. unref cast 텍스트 중복 3건 + idleTimers/saveTimers/file-watcher 중복 3건 정리. T2 결과물(slim lsp-manager 또는 분리된 sub-module 위치) 기준으로 마이그레이션.",
+          "acceptance": "\n- H2 3 콜사이트 모두 PendingRequestMap 사용.\n- `(timeout as { unref?: () => void }).unref?.()` grep 0 occurrences in src/.\n- M1 3 콜사이트 모두 createKeyedDebouncer 사용.\n- 위 3 콜사이트에서 raw `setTimeout` + `Map<key, timer>` debounce 패턴 0건.\n- bun test PASS (lsp-manager idle shutdown / file-watcher debounce / file save debounce 회귀 0).\n- typecheck PASS, check:ci PASS.\n",
+          "approach": "\nH2 PendingRequestMap migration:\n- src/main/ipc/channels/lsp.ts (현재 22-57 라인 인접) — pending applyEdit 처리 → PendingRequestMap 사용\n- src/main/ipc/router.ts (24, 93-128) — request id pending map → PendingRequestMap 사용\n- slim src/utility/lsp-host/lsp-manager.ts post-T2 (또는 분리된 server-request-handlers/handlers의 위치) — pending requests + applyEdit pending → PendingRequestMap 사용. T2 분할 결과의 위치를 먼저 grep으로 확인.\n- `(timeout as { unref?: () => void }).unref?.()` cast 0 occurrences (PendingRequestMap 내부에서만 발생).\n\nM1 keyed-debouncer migration:\n- src/main/filesystem/file-watcher.ts (143-153) — 파일별 debounce timer Map → createKeyedDebouncer.\n- slim src/utility/lsp-host/lsp-manager.ts post-T2 idleTimers (1081-1112 영역의 새 위치) → createKeyedDebouncer.\n- src/renderer/state/operations/files.ts (15, 18-35 saveTimers) → createKeyedDebouncer.\n",
+          "risk": "T2 후 lsp-manager 분할 결과로 idleTimers/pendingRequests 위치가 sub-module일 수 있음. 마이그레이션 시 grep으로 정확한 위치 추적 필요.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7c76de9acdecc3d8",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:53:59.992Z"
+        },
+        {
+          "id": 6,
+          "title": "T6: Test cleanup — plan18-adversarial 정리 + fake-timer 마이그레이션 + high-LoC 분리 + useless typeof 삭제",
+          "status": "completed",
+          "context": "tester audit 발견. Source migration과 무관한 test signal 정리. Wave 1 parallel 실행 가능 (다른 task와 file overlap 0).",
+          "acceptance": "\n- plan18-adversarial.test.ts 파일 삭제 또는 unique 케이스만 ≤ 100 LoC.\n- focus-restore와 1:1 중복 케이스 0건.\n- `await new Promise(r => setTimeout(r, 250))` grep 0 occurrences in tests/unit/renderer/state/operations/files.test.ts, tests/unit/renderer/state/stores/files/**/*.test.ts.\n- files/store.test.ts 합산 ≤ 700 LoC across 분리된 파일들 (또는 도메인별 ≤ 350 LoC).\n- layout/store.test.ts 도메인별 ≤ 350 LoC.\n- 명시된 typeof / smoke 케이스 6+ 삭제.\n- bun test PASS (전체 test count 감소 정상). 테스트 회귀 0건 (이관된 케이스가 새 위치에서 동일 동작 검증).\n",
+          "approach": "\nH3 plan18-adversarial.test.ts 정리 (479 LoC, 4 도메인 혼재):\n- T4 4 케이스 (lines 442-479): tests/unit/renderer/components/lsp/palette/palette-focus-restore.test.tsx와 1:1 중복 → 삭제 (focus-restore 파일에 동일 5 케이스 이미 존재).\n- T1 (monaco theme): tests/unit/renderer/services/monaco-theme.test.ts로 이관 — 단, 기존 case와 중복 시 unique scenario만.\n- T2 (outline live-refresh): tests/unit/renderer/state/stores/outline-live-refresh.test.ts (없으면 신설) 또는 outline-section.test.tsx로 이관.\n- T3 (palette dim): tests/unit/renderer/components/lsp/palette/palette-controller.test.ts로 이관 — `dispose-after-setQuery-during-debounce` 케이스만 추가 가치, 나머지 중복.\n- 이관 완료 후 plan18-adversarial.test.ts 파일 자체 삭제.\n\nH4 fake-timer migration:\n- tests/unit/renderer/state/operations/files.test.ts:219의 `await new Promise(r => setTimeout(r, 250))` → bun fake timers (`jest.useFakeTimers()` 또는 bun 등가 패턴).\n- tests/unit/renderer/state/stores/files/store.test.ts:635 동일 처리.\n\nM5 high-LoC test split:\n- tests/unit/renderer/state/stores/files/store.test.ts (643 LoC) → 합리적 도메인 분할 (watch-unwatch / expand-persistence / readdir-cache 등).\n- tests/unit/renderer/state/stores/layout/store.test.ts (629 LoC) → mutation / hydration 분리.\n\nL4 useless typeof / smoke 삭제:\n- tests/unit/utility/pty/pty-host.test.ts:105 (typeof 4개 it 전체) + 121 (unsub typeof it 전체).\n- tests/unit/main/ipc/fs-channel.test.ts:91 (typeof 줄만 — 또는 실제 entry name 검증으로 rewrite).\n- tests/unit/utility/pty/terminal-recorder.test.ts:98 (typeof 줄만 삭제).\n- tests/unit/main/storage/storage-workspace.test.ts:67, 138 (smoke `.not.toThrow()` 전체 — 의미 있는 assertion으로 rewrite 또는 삭제).\n- (제외) tests/unit/utility/lsp/lsp-fixture-replay.test.ts:356-357 — Lead 판단으로 fixture drift 안전망 유지.\n- (제외) outline-section.test.tsx:46 — T4가 처리.\n",
+          "risk": "H3 이관 시 새 도메인 파일에 동일 이름 case 충돌 → prefix 추가. fake-timer migration 시 bun runner 호환성 확인 (다른 fake-timer 사용 사이트 패턴 따름).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a6ca99f5d29a190bc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:54:24.296Z"
+        },
+        {
+          "id": 7,
+          "title": "T7: Chore consolidation — path-helper 통합 + outline-tree indent constants + KEYBOARD_NUDGE_PX dedup + theme.generated.css regen",
+          "status": "completed",
+          "context": "작은 정리 묶음. Plan issue 3 결정: outline-tree indent 14 named constant로만 추출, file-tree 12 통합 안 함. theme.generated.css는 Plan 18 design-tokens 추가 후 regen drift (3 lines).",
+          "acceptance": "\n- absPathToRel 정의 0 occurrences in src/.\n- 모든 prior absPathToRel 콜사이트가 utils/path 모듈 import.\n- outline-tree.tsx에 magic number `14` (indent context) 또는 `8` (indent context) 0건 — named constant 사용.\n- KEYBOARD_NUDGE_PX 정의 1 location only. 두 resize-handle 콜사이트 import.\n- theme.generated.css commit에 포함됨 (git status clean post-commit).\n- bun test PASS, typecheck PASS, check:ci PASS.\n",
+          "approach": "\nM3 path-helper 통합:\n- src/renderer/state/stores/files/helpers.ts의 absPathToRel (4-11) 삭제 또는 src/renderer/utils/path.ts의 relPath로 위임.\n- 모든 콜사이트가 utils/path.relPath import.\n\nL2 outline-tree indent constants:\n- src/renderer/components/lsp/outline/outline-tree.tsx:233의 `8 + row.depth * 14` → 파일 상단에 `const OUTLINE_INDENT_BASE_PX = 8;` `const OUTLINE_INDENT_STEP_PX = 14;` 추출. file-tree-metrics.ts 통합 금지 (issue 3 결정).\n\nL3 KEYBOARD_NUDGE_PX dedup:\n- src/renderer/components/ui/resize-handle.tsx:62 + resize-handle-ratio.tsx:51의 `const KEYBOARD_NUDGE_PX = 10` 중복 → src/renderer/components/ui/resize-handle-constants.ts 신설 (또는 둘 중 하나에 export) → 다른 쪽 import.\n\ntheme.generated.css:\n- 현재 unstaged 3 lines (`--color-editor-word-highlight`, `-strong`, `-text`) commit에 포함. regen 스크립트 재실행 불필요 (이미 regen 상태 일치 확인).\n",
+          "risk": "absPathToRel 콜사이트 미스 1~2개 → typecheck로 잡힘. resize-handle constants 위치 — 별도 파일 vs 한쪽 export 둘 다 OK; engineer 판단.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a23437bdff259797f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:54:40.148Z"
+        },
+        {
+          "id": 8,
+          "title": "T8: Final integration — full test + typecheck + check:ci + foundation drift report",
+          "status": "completed",
+          "context": "T1-T7 종합 검증. cross-cutting tester pass. 회귀 / 시그널 누락 / drift 검증.",
+          "acceptance": "\n- 위 5개 명령 모두 PASS (LSP_INTEGRATION은 baseline 이상).\n- 6개 sanity grep 모두 0 (KEYBOARD_NUDGE_PX 1 location 제외).\n- Foundation drift report 보고: \"Plan 17 sealed surfaces 변경 0건\" 또는 의도적 변경 사유 명시 (1줄).\n- 회귀 0건. 신규 fail 0.\n- 발견 시 해당 task로 회귀 (escalation chain).\n",
+          "approach": "\n1) `bun test tests/unit tests/integration` — 전체 PASS 확인.\n2) `bun run typecheck` — PASS.\n3) `bun run check:ci` — PASS.\n4) `LSP_INTEGRATION=1 bun test tests/integration/lsp-pyright.test.ts` 실행 — Plan 18 close 시점 baseline (R2 pyright fixture drift 1건 known) 동일 또는 그 이상이면 PASS. 신규 fail 0.\n5) Sanity grep:\n- `Set<.*=>.*void>` raw 패턴 in src/ — 마이그레이션 잔재 0\n- `(timeout as { unref` cast — 0 occurrences in src/\n- `setTimeout` + `Map<` debounce 패턴 — 콜사이트별 createKeyedDebouncer 적용 확인\n- `subscribeFile\\b|subscribeTransitions\\b|subscribeSaved\\b` (old names) — 0 occurrences\n- magic indent number `14`, `8` (outline-tree context) — 0\n- absPathToRel 정의 — 0\n- `KEYBOARD_NUDGE_PX = 10` 정의 — 1 location only\n6) Foundation drift report: Plan 17 sealed surfaces (HandlerMeta.route fan-out, capability table, IPC contract export shape, LSP_HANDLER_NAMES, providerLanguages 등) 의도적 변경 0 확인. 변경된 부분이 있으면 명시 (\"none\" 한 줄로 충족 가능).\n",
+          "risk": "T2 lsp-manager 분할 후 LSP fixture replay drift 가능성 — 단순 위치 변경이므로 동일 result 기대. fail 시 cycle 미종료, T2로 escalation. fake-timer migration이 다른 시점 의존 테스트 깨면 T6로.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a78144105adbd9d8c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-07T01:54:57.584Z"
+        }
+      ]
     }
   ]
 }
