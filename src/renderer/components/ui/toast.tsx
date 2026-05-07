@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
+import { createListenerBus } from "../../../shared/listener-bus";
 import {
   UI_TOAST_ERROR_MS,
   UI_TOAST_INFO_MS,
@@ -57,11 +58,7 @@ interface ActiveToast {
 
 let nextId = 1;
 let active: ActiveToast[] = [];
-const subscribers = new Set<() => void>();
-
-function notify(): void {
-  for (const fn of subscribers) fn();
-}
+const bus = createListenerBus();
 
 function defaultDuration(kind: ToastKind): number {
   return kind === "error" ? TOAST_ERROR_MS : TOAST_INFO_MS;
@@ -80,18 +77,19 @@ export function showToast(input: ToastInput): void {
       expiresAt: Date.now() + duration,
     },
   ];
-  notify();
+  bus.notify();
 }
 
 function dismiss(id: number): void {
   active = active.filter((t) => t.id !== id);
-  notify();
+  bus.notify();
 }
 
 // Test helper — clears the queue between tests.
 export function __resetToastsForTests(): void {
   active = [];
-  notify();
+  bus.notify();
+  bus.clear();
 }
 
 /**
@@ -102,11 +100,7 @@ export function ToastRoot(): React.JSX.Element | null {
   const [toasts, setToasts] = useState<ActiveToast[]>(active);
 
   useEffect(() => {
-    const listener = () => setToasts([...active]);
-    subscribers.add(listener);
-    return () => {
-      subscribers.delete(listener);
-    };
+    return bus.subscribe(() => setToasts([...active]));
   }, []);
 
   // Single periodic sweep keeps the dismissal logic in one place. We
@@ -119,7 +113,7 @@ export function ToastRoot(): React.JSX.Element | null {
       const surviving = active.filter((t) => t.expiresAt > now);
       if (surviving.length !== active.length) {
         active = surviving;
-        notify();
+        bus.notify();
       }
     }, TOAST_SWEEP_INTERVAL_MS);
     return () => clearInterval(interval);

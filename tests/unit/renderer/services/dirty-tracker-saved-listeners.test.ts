@@ -3,7 +3,7 @@ import {
   __resetDirtyTrackerForTests,
   attachDirtyTracker,
   markSaved,
-  subscribeSaved,
+  subscribeAllSaved,
 } from "../../../../src/renderer/services/editor/dirty-tracker";
 
 function makeModel(initialAltId = 1) {
@@ -39,7 +39,7 @@ describe("dirty-tracker subscribeSaved", () => {
     });
 
     const events: Array<{ cacheUri: string }> = [];
-    subscribeSaved((e) => events.push(e));
+    subscribeAllSaved((e) => events.push(e));
 
     markSaved({
       cacheUri: "file:///a",
@@ -69,7 +69,7 @@ describe("dirty-tracker subscribeSaved", () => {
     });
 
     const events: Array<{ cacheUri: string }> = [];
-    subscribeSaved((e) => events.push(e));
+    subscribeAllSaved((e) => events.push(e));
 
     markSaved({
       cacheUri: "file:///b",
@@ -93,8 +93,8 @@ describe("dirty-tracker subscribeSaved", () => {
 
     const calls1: string[] = [];
     const calls2: string[] = [];
-    subscribeSaved((e) => calls1.push(e.cacheUri));
-    subscribeSaved((e) => calls2.push(e.cacheUri));
+    subscribeAllSaved((e) => calls1.push(e.cacheUri));
+    subscribeAllSaved((e) => calls2.push(e.cacheUri));
 
     markSaved({
       cacheUri: "file:///a",
@@ -118,7 +118,7 @@ describe("dirty-tracker subscribeSaved", () => {
     });
 
     const events: Array<{ cacheUri: string }> = [];
-    const dispose = subscribeSaved((e) => events.push(e));
+    const dispose = subscribeAllSaved((e) => events.push(e));
 
     dispose();
 
@@ -146,11 +146,11 @@ describe("dirty-tracker subscribeSaved", () => {
     let disposeSecond!: () => void;
 
     // First listener removes the second listener while iterating.
-    subscribeSaved(() => {
+    subscribeAllSaved(() => {
       calls.push("first");
       disposeSecond();
     });
-    disposeSecond = subscribeSaved(() => {
+    disposeSecond = subscribeAllSaved(() => {
       calls.push("second");
     });
 
@@ -179,10 +179,10 @@ describe("dirty-tracker subscribeSaved", () => {
 
     const calls: string[] = [];
 
-    subscribeSaved(() => {
+    subscribeAllSaved(() => {
       calls.push("original");
       // add a new listener mid-iteration
-      subscribeSaved(() => {
+      subscribeAllSaved(() => {
         calls.push("added-during");
       });
     });
@@ -201,7 +201,7 @@ describe("dirty-tracker subscribeSaved", () => {
 
   it("does not fire when markSaved is called for an unknown cacheUri", () => {
     const events: Array<{ cacheUri: string }> = [];
-    subscribeSaved((e) => events.push(e));
+    subscribeAllSaved((e) => events.push(e));
 
     // markSaved with no attached entry is a no-op — no notification expected.
     const model = makeModel(5);

@@ -1,18 +1,18 @@
 // Active-URI tracking for outline live-refresh.
 //
 // Owns three subscriptions for the currently active editor URI:
-//   1. subscribeTransitions: debounced reload on dirty-state change (edit)
-//   2. subscribeSaved: immediate force-reload on save
+//   1. subscribeAllDirtyTransitions: debounced reload on dirty-state change (edit)
+//   2. subscribeAllSaved: immediate force-reload on save
 //   3. subscribeOnRelease: cancel pending debounce when the model is released
 //
 // Driven by outline-section.tsx via setActiveOutlineUri.
 // All subscriptions for the previous URI are torn down on every URI change.
 
-import { scheduleDebouncedOutlineLoad } from "../../components/lsp/outline/outline-section";
+import { defaultTimerScheduler, type TimerScheduler } from "../../../shared/timer-scheduler";
 import {
   type DirtyTransitionListener,
-  subscribeSaved,
-  subscribeTransitions,
+  subscribeAllDirtyTransitions,
+  subscribeAllSaved,
 } from "../../services/editor/dirty-tracker";
 import type { SubscribeOnModelRelease } from "./outline";
 import { useOutlineStore } from "./outline";
@@ -24,23 +24,34 @@ type OutlineLoad = (
   signal?: AbortSignal,
   options?: { force?: boolean },
 ) => Promise<void>;
-type OutlineTimerId = ReturnType<typeof setTimeout>;
 
-// Injectable scheduler for testing the debounce timer.
-export interface OutlineRefreshScheduler {
-  setTimeout: (callback: () => void, delayMs: number) => OutlineTimerId;
-  clearTimeout: (timerId: OutlineTimerId) => void;
+function scheduleDebouncedOutlineLoad(options: {
+  uri: string;
+  load: (uri: string, signal?: AbortSignal) => Promise<void>;
+  delayMs: number;
+  scheduler: TimerScheduler;
+}): () => void {
+  const { uri, load, delayMs, scheduler } = options;
+  const controller = new AbortController();
+  const handle = scheduler.setTimeout(() => {
+    load(uri, controller.signal).catch(() => {});
+  }, delayMs);
+
+  return () => {
+    scheduler.clearTimeout(handle);
+    controller.abort();
+  };
 }
 
 // Injectable subscribers for testing.
-type SubscribeTransitionsFn = (listener: DirtyTransitionListener) => () => void;
-type SubscribeSavedFn = (listener: (e: { cacheUri: string }) => void) => () => void;
+type SubscribeDirtyTransitionsFn = (listener: DirtyTransitionListener) => () => void;
+type SubscribeAllSavedFn = (listener: (e: { cacheUri: string }) => void) => () => void;
 type SubscribeOnReleaseFn = SubscribeOnModelRelease;
 
-let _subscribeTransitions: SubscribeTransitionsFn = subscribeTransitions;
-let _subscribeSaved: SubscribeSavedFn = subscribeSaved;
+let _subscribeDirtyTransitions: SubscribeDirtyTransitionsFn = subscribeAllDirtyTransitions;
+let _subscribeAllSaved: SubscribeAllSavedFn = subscribeAllSaved;
 let _subscribeOnRelease: SubscribeOnReleaseFn | null = null;
-let _scheduler: OutlineRefreshScheduler = { setTimeout, clearTimeout };
+let _scheduler: TimerScheduler = defaultTimerScheduler;
 let _getLoad: () => OutlineLoad = () => useOutlineStore.getState().load;
 
 let _activeUri: string | null = null;
@@ -55,7 +66,7 @@ function teardown(): void {
 function setup(uri: string): void {
   let cancelPending: (() => void) | null = null;
 
-  const disposeTransitions = _subscribeTransitions((event) => {
+  const disposeTransitions = _subscribeDirtyTransitions((event) => {
     if (event.cacheUri !== uri) return;
     if (cancelPending) cancelPending();
     const load = _getLoad();
@@ -63,12 +74,11 @@ function setup(uri: string): void {
       uri,
       load: (u, s) => load(u, s, { force: true }),
       delayMs: OUTLINE_REFRESH_DEBOUNCE_MS,
-      setTimeoutFn: _scheduler.setTimeout,
-      clearTimeoutFn: _scheduler.clearTimeout,
+      scheduler: _scheduler,
     });
   });
 
-  const disposeSaved = _subscribeSaved((event) => {
+  const disposeSaved = _subscribeAllSaved((event) => {
     if (event.cacheUri !== uri) return;
     if (cancelPending) {
       cancelPending();
@@ -112,15 +122,15 @@ export function setActiveOutlineUri(uri: string | null): void {
 }
 
 export function __setOutlineRefreshSubscribersForTests(overrides: {
-  subscribeTransitions?: SubscribeTransitionsFn;
-  subscribeSaved?: SubscribeSavedFn;
+  subscribeDirtyTransitions?: SubscribeDirtyTransitionsFn;
+  subscribeAllSaved?: SubscribeAllSavedFn;
   subscribeOnRelease?: SubscribeOnReleaseFn;
-  scheduler?: OutlineRefreshScheduler;
+  scheduler?: TimerScheduler;
   getLoad?: () => OutlineLoad;
 }): void {
-  if (overrides.subscribeTransitions !== undefined)
-    _subscribeTransitions = overrides.subscribeTransitions;
-  if (overrides.subscribeSaved !== undefined) _subscribeSaved = overrides.subscribeSaved;
+  if (overrides.subscribeDirtyTransitions !== undefined)
+    _subscribeDirtyTransitions = overrides.subscribeDirtyTransitions;
+  if (overrides.subscribeAllSaved !== undefined) _subscribeAllSaved = overrides.subscribeAllSaved;
   if (overrides.subscribeOnRelease !== undefined)
     _subscribeOnRelease = overrides.subscribeOnRelease;
   if (overrides.scheduler !== undefined) _scheduler = overrides.scheduler;
@@ -129,9 +139,9 @@ export function __setOutlineRefreshSubscribersForTests(overrides: {
 
 export function __resetOutlineRefreshSubscribersForTests(): void {
   teardown();
-  _subscribeTransitions = subscribeTransitions;
-  _subscribeSaved = subscribeSaved;
+  _subscribeDirtyTransitions = subscribeAllDirtyTransitions;
+  _subscribeAllSaved = subscribeAllSaved;
   _subscribeOnRelease = null;
-  _scheduler = { setTimeout, clearTimeout };
+  _scheduler = defaultTimerScheduler;
   _getLoad = () => useOutlineStore.getState().load;
 }

@@ -3,6 +3,7 @@ import type * as Monaco from "monaco-editor";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
+import type { MonacoRange } from "../../../../shared/monaco-range";
 import {
   cacheUriToFilePath,
   openOrRevealEditor,
@@ -11,7 +12,6 @@ import {
 } from "../../../services/editor";
 import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/monaco-theme";
 import {
-  type EditorRevealRange,
   subscribePendingEditorReveal,
   takePendingEditorReveal,
 } from "../../../services/editor/pending-reveal";
@@ -105,7 +105,7 @@ export function createCrossFileOpenCodeEditorOpener({
   };
 }
 
-function revealRange(editor: Monaco.editor.IStandaloneCodeEditor, range: EditorRevealRange): void {
+function revealRange(editor: Monaco.editor.IStandaloneCodeEditor, range: MonacoRange): void {
   editor.setSelection(range);
   editor.revealRangeInCenter(range);
 }

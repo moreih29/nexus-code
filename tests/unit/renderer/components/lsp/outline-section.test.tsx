@@ -3,8 +3,8 @@
 // bun:test runs without jsdom/happy-dom so useEffect does not execute in
 // renderToStaticMarkup. The effect logic (setActiveOutlineUri calls) is
 // covered by outline-live-refresh.test.ts. This suite guards against
-// render regressions and verifies that scheduleDebouncedOutlineLoad /
-// OUTLINE_REFRESH_DEBOUNCE_MS are still exported for backward compat.
+// render regressions and verifies that OUTLINE_REFRESH_DEBOUNCE_MS is
+// still exported for backward compat.
 
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
@@ -34,17 +34,13 @@ mock.module("../../../../../src/renderer/state/stores/outline", () => ({
     }),
 }));
 
-const { OutlineSection, OUTLINE_REFRESH_DEBOUNCE_MS, scheduleDebouncedOutlineLoad } = await import(
+const { OutlineSection, OUTLINE_REFRESH_DEBOUNCE_MS } = await import(
   "../../../../../src/renderer/components/lsp/outline/outline-section"
 );
 
 describe("OutlineSection backward-compat exports", () => {
   test("OUTLINE_REFRESH_DEBOUNCE_MS is still exported from outline-section", () => {
     expect(OUTLINE_REFRESH_DEBOUNCE_MS).toBe(400);
-  });
-
-  test("scheduleDebouncedOutlineLoad is still exported from outline-section", () => {
-    expect(typeof scheduleDebouncedOutlineLoad).toBe("function");
   });
 });
 

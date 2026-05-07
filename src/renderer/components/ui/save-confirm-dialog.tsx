@@ -13,6 +13,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { createListenerBus } from "../../../shared/listener-bus";
 
 export type SaveConfirmChoice = "save" | "dont-save" | "cancel";
 
@@ -22,11 +23,7 @@ interface PendingPrompt {
 }
 
 let queue: PendingPrompt[] = [];
-const subscribers = new Set<() => void>();
-
-function notify(): void {
-  for (const fn of subscribers) fn();
-}
+const bus = createListenerBus();
 
 function getActive(): PendingPrompt | null {
   return queue[0] ?? null;
@@ -35,7 +32,7 @@ function getActive(): PendingPrompt | null {
 function pushPrompt(filename: string): Promise<SaveConfirmChoice> {
   return new Promise((resolve) => {
     queue.push({ filename, resolve });
-    notify();
+    bus.notify();
   });
 }
 
@@ -44,7 +41,7 @@ function resolveActive(choice: SaveConfirmChoice): void {
   if (!active) return;
   queue = queue.slice(1);
   active.resolve(choice);
-  notify();
+  bus.notify();
 }
 
 /**
@@ -59,7 +56,8 @@ export function showSaveConfirm(filename: string): Promise<SaveConfirmChoice> {
 export function __resetSaveConfirmForTests(): void {
   for (const p of queue) p.resolve("cancel");
   queue = [];
-  notify();
+  bus.notify();
+  bus.clear();
 }
 
 /**
@@ -70,11 +68,7 @@ export function SaveConfirmDialogRoot(): React.JSX.Element {
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
 
   useEffect(() => {
-    const listener = () => setActive(getActive());
-    subscribers.add(listener);
-    return () => {
-      subscribers.delete(listener);
-    };
+    return bus.subscribe(() => setActive(getActive()));
   }, []);
 
   const open = active !== null;

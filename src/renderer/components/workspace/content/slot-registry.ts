@@ -5,18 +5,13 @@
 // ---------------------------------------------------------------------------
 
 import { useCallback, useSyncExternalStore } from "react";
+import { createListenerBus } from "../../../../shared/listener-bus";
 
 type WorkspaceId = string;
 type LeafId = string;
 
 const slots = new Map<string, HTMLElement>();
-const listeners = new Set<() => void>();
-
-function notify(): void {
-  for (const fn of listeners) {
-    fn();
-  }
-}
+const bus = createListenerBus();
 
 export const slotRegistry: {
   set(workspaceId: WorkspaceId, leafId: LeafId, el: HTMLElement | null): void;
@@ -28,7 +23,7 @@ export const slotRegistry: {
     if (el === null) {
       if (slots.has(key)) {
         slots.delete(key);
-        notify();
+        bus.notify();
       }
       return;
     }
@@ -36,7 +31,7 @@ export const slotRegistry: {
       return;
     }
     slots.set(key, el);
-    notify();
+    bus.notify();
   },
 
   get(workspaceId, leafId) {
@@ -44,10 +39,7 @@ export const slotRegistry: {
   },
 
   subscribe(listener) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
+    return bus.subscribe(listener);
   },
 };
 

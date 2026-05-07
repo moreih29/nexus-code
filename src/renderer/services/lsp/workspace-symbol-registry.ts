@@ -1,9 +1,4 @@
-export interface WorkspaceSymbolRange {
-  startLineNumber: number;
-  startColumn: number;
-  endLineNumber: number;
-  endColumn: number;
-}
+import type { MonacoRange } from "../../../shared/monaco-range";
 
 export interface WorkspaceSymbolEntry {
   name: string;
@@ -12,7 +7,7 @@ export interface WorkspaceSymbolEntry {
   containerName?: string;
   location: {
     uri: string | { toString(): string };
-    range: WorkspaceSymbolRange;
+    range: MonacoRange;
   };
 }
 

@@ -118,8 +118,8 @@ beforeEach(() => {
   });
 
   __setOutlineRefreshSubscribersForTests({
-    subscribeTransitions: channels.subscribeTransitions,
-    subscribeSaved: channels.subscribeSaved,
+    subscribeDirtyTransitions: channels.subscribeTransitions,
+    subscribeAllSaved: channels.subscribeSaved,
     subscribeOnRelease: channels.subscribeOnRelease,
     scheduler: {
       setTimeout: (cb, ms) => scheduler.setTimeout(cb, ms),

@@ -12,7 +12,7 @@
 // look like they vanished on a single-click of another file.
 
 import { useTabsStore } from "@/state/stores/tabs";
-import { subscribeTransitions } from "./dirty-tracker";
+import { subscribeAllDirtyTransitions } from "./dirty-tracker";
 import { cacheUriToFilePath } from "./model-cache";
 
 /**
@@ -43,7 +43,7 @@ let unsubscribe: (() => void) | null = null;
 export function startPromoteOnDirtyPolicy(): void {
   if (unsubscribe) return;
 
-  unsubscribe = subscribeTransitions((event) => {
+  unsubscribe = subscribeAllDirtyTransitions((event) => {
     if (!event.isDirty) return; // we only care about clean → dirty
 
     const filePath = cacheUriToFilePath(event.cacheUri);

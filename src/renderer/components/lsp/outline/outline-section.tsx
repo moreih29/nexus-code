@@ -10,35 +10,6 @@ import { OutlineContent, type OutlineViewState } from "./outline-content";
 
 export const OUTLINE_REFRESH_DEBOUNCE_MS = 400;
 
-type OutlineLoad = (uri: string, signal?: AbortSignal) => Promise<void>;
-type OutlineTimerId = ReturnType<typeof setTimeout>;
-
-interface DebouncedOutlineLoadOptions {
-  uri: string;
-  load: OutlineLoad;
-  delayMs?: number;
-  setTimeoutFn?: (callback: () => void, delayMs: number) => OutlineTimerId;
-  clearTimeoutFn?: (timerId: OutlineTimerId) => void;
-}
-
-export function scheduleDebouncedOutlineLoad({
-  uri,
-  load,
-  delayMs = OUTLINE_REFRESH_DEBOUNCE_MS,
-  setTimeoutFn = setTimeout,
-  clearTimeoutFn = clearTimeout,
-}: DebouncedOutlineLoadOptions): () => void {
-  const controller = new AbortController();
-  const timerId = setTimeoutFn(() => {
-    load(uri, controller.signal).catch(() => {});
-  }, delayMs);
-
-  return () => {
-    clearTimeoutFn(timerId);
-    controller.abort();
-  };
-}
-
 interface OutlineSectionProps {
   activeInput: EditorInput | null;
   collapsed: boolean;

@@ -1,3 +1,4 @@
+import { defaultTimerScheduler, type TimerScheduler } from "../../../../shared/timer-scheduler";
 import type { PaletteItem, PaletteSource } from "./types";
 
 export const WORKSPACE_SYMBOL_DEBOUNCE_MS = 200;
@@ -21,15 +22,8 @@ export interface PaletteSearchSnapshot<TItem extends PaletteItem = PaletteItem> 
   error?: unknown;
 }
 
-export interface PaletteScheduler {
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(handle: unknown): void;
-}
-
-export const browserPaletteScheduler: PaletteScheduler = {
-  setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
-  clearTimeout: (handle) => window.clearTimeout(handle as number),
-};
+export type { TimerScheduler as PaletteScheduler };
+export { defaultTimerScheduler as browserPaletteScheduler };
 
 export function initialPaletteSearchSnapshot<
   TItem extends PaletteItem,
@@ -49,7 +43,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
   constructor(
     private readonly source: PaletteSource<TItem>,
     private readonly onChange: (snapshot: PaletteSearchSnapshot<TItem>) => void,
-    private readonly scheduler: PaletteScheduler = browserPaletteScheduler,
+    private readonly scheduler: TimerScheduler = defaultTimerScheduler,
     private readonly debounceMs = WORKSPACE_SYMBOL_DEBOUNCE_MS,
   ) {}
 
