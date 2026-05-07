@@ -6,6 +6,7 @@
  * and dispatch the resulting state changes through the store's reducers.
  */
 
+import { createKeyedDebouncer } from "../../../shared/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/timing-constants";
 import { ipcCall } from "../../ipc/client";
 import { relPath } from "../../utils/path";
@@ -13,14 +14,11 @@ import { getAncestors } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
 
 // Module-level singletons — shared across all subscribers within this module.
-const _saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_DEBOUNCE_MS });
 const _ensureRootPromises = new Map<string, Promise<void>>();
 
 function scheduleSave(workspaceId: string): void {
-  const existing = _saveTimers.get(workspaceId);
-  if (existing !== undefined) clearTimeout(existing);
-  const timer = setTimeout(() => {
-    _saveTimers.delete(workspaceId);
+  _saveDebouncer.schedule(workspaceId, () => {
     const tree = useFilesStore.getState().trees.get(workspaceId);
     if (!tree) return;
     const relPaths: string[] = [];
@@ -31,8 +29,7 @@ function scheduleSave(workspaceId: string): void {
     ipcCall("fs", "setExpanded", { workspaceId, relPaths }).catch((err) => {
       console.error("[files] setExpanded failed", err);
     });
-  }, FS_EXPANDED_SAVE_DEBOUNCE_MS);
-  _saveTimers.set(workspaceId, timer);
+  });
 }
 
 export async function ensureRoot(workspaceId: string, rootAbsPath: string): Promise<void> {

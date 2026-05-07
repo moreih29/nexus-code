@@ -6,12 +6,14 @@
 
 import path from "node:path";
 import { absolutePathToFileUri } from "../../shared/file-uri";
+import { createKeyedDebouncer, type KeyedDebouncer } from "../../shared/keyed-debouncer";
 import {
   type LspServerSpec,
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../shared/lsp-config";
 import type { Registration } from "../../shared/lsp-types";
+import { PendingRequestMap } from "../../shared/pending-request-map";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
 import {
   FsChangedArgsSchema,
@@ -103,24 +105,17 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
   private port: IMessagePort | null = null;
   // keyed by workspaceId, then preset languageId
   /** @internal */ adapters = new Map<string, Map<string, LspAdapter>>();
-  // keyed by workspaceId, then preset languageId — timer handle for idle shutdown
-  private idleTimers = new Map<string, Map<string, ReturnType<typeof setTimeout>>>();
   /** @internal */ uriIndex = new Map<string, UriIndexEntry>();
   /** @internal */ configurationStore = new Map<string, Map<string, Map<string, unknown>>>();
   /** @internal */ watchedFileRegistrations = new Map<string, Map<string, Registration[]>>();
   private readonly workspaceRoots = new Map<string, string>();
   private readonly inFlightCalls = new Map<string | number, AbortController>();
-  private readonly pendingMainRequests = new Map<
-    string | number,
-    {
-      resolve: (value: unknown) => void;
-      reject: (err: Error) => void;
-      timeout: ReturnType<typeof setTimeout>;
-    }
-  >();
+  private readonly pendingMainRequests = new PendingRequestMap<string | number, unknown>();
   private nextMainRequestId = 1;
   private readonly idleTimeoutMs: number;
   private readonly adapterFactory: LspAdapterFactory;
+  // keyed by composite "workspaceId\0languageId" — timer handle for idle shutdown
+  private readonly idleTimers: KeyedDebouncer<string>;
 
   constructor(opts: LspManagerOpts = {}) {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? LSP_DEFAULT_IDLE_MS;
@@ -128,6 +123,7 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
       opts.adapterFactory ??
       ((spec, workspaceId, workspaceRootUri) =>
         new StdioLspAdapter(spec, workspaceId, workspaceRootUri));
+    this.idleTimers = createKeyedDebouncer<string>({ delayMs: this.idleTimeoutMs });
   }
 
   attachPort(port: IMessagePort): void {
@@ -175,16 +171,11 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
   }
 
   private handleMainResponse(msg: ServerResponseMsg): void {
-    const pending = this.pendingMainRequests.get(msg.id);
-    if (!pending) return;
-
-    this.pendingMainRequests.delete(msg.id);
-    clearTimeout(pending.timeout);
     if (msg.error) {
-      pending.reject(new Error(String(msg.error)));
-      return;
+      this.pendingMainRequests.reject(msg.id, new Error(String(msg.error)));
+    } else {
+      this.pendingMainRequests.resolve(msg.id, msg.result ?? null);
     }
-    pending.resolve(msg.result ?? null);
   }
 
   private async handleNotification(msg: NotifyMsg): Promise<void> {
@@ -200,16 +191,13 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
     }
 
     const id = `server-${this.nextMainRequestId++}`;
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingMainRequests.delete(id);
-        reject(new Error(`server request timed out: ${method}`));
-      }, MAIN_SERVER_REQUEST_TIMEOUT_MS);
-      (timeout as { unref?: () => void }).unref?.();
-
-      this.pendingMainRequests.set(id, { resolve, reject, timeout });
-      this.send({ type: "serverRequest", id, method, params });
+    const promise = this.pendingMainRequests.register({
+      key: id,
+      timeoutMs: MAIN_SERVER_REQUEST_TIMEOUT_MS,
+      onTimeout: () => new Error(`server request timed out: ${method}`),
     });
+    this.send({ type: "serverRequest", id, method, params });
+    return promise;
   }
 
   private async handleCall(msg: CallMsg): Promise<void> {
@@ -440,36 +428,13 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
 
   /** @internal */
   resetIdleTimer(workspaceId: string, languageId: string): void {
-    let workspaceTimers = this.idleTimers.get(workspaceId);
-    if (!workspaceTimers) {
-      workspaceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-      this.idleTimers.set(workspaceId, workspaceTimers);
-    }
-
-    const existing = workspaceTimers.get(languageId);
-    if (existing !== undefined) {
-      clearTimeout(existing);
-    }
-
-    const handle = setTimeout(() => {
+    this.idleTimers.schedule(`${workspaceId}\0${languageId}`, () => {
       this.shutdownAdapter(workspaceId, languageId);
-    }, this.idleTimeoutMs);
-    workspaceTimers.set(languageId, handle);
+    });
   }
 
   private clearIdleTimer(workspaceId: string, languageId: string): void {
-    const workspaceTimers = this.idleTimers.get(workspaceId);
-    if (!workspaceTimers) return;
-
-    const handle = workspaceTimers.get(languageId);
-    if (handle !== undefined) {
-      clearTimeout(handle);
-      workspaceTimers.delete(languageId);
-    }
-
-    if (workspaceTimers.size === 0) {
-      this.idleTimers.delete(workspaceId);
-    }
+    this.idleTimers.cancel(`${workspaceId}\0${languageId}`);
   }
 
   private shutdownAdapter(workspaceId: string, presetLanguageId: string): void {
@@ -508,7 +473,6 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
       adapter.dispose();
     }
     this.adapters.delete(workspaceId);
-    this.idleTimers.delete(workspaceId);
     this.configurationStore.delete(workspaceId);
     this.watchedFileRegistrations.delete(workspaceId);
     this.workspaceRoots.delete(workspaceId);
@@ -535,20 +499,11 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
     for (const workspaceId of Array.from(this.adapters.keys())) {
       this.shutdownWorkspace(workspaceId);
     }
-    for (const [workspaceId, workspaceTimers] of this.idleTimers) {
-      for (const languageId of Array.from(workspaceTimers.keys())) {
-        this.clearIdleTimer(workspaceId, languageId);
-      }
-    }
-    this.idleTimers.clear();
+    this.idleTimers.clearAll();
     this.uriIndex.clear();
     this.configurationStore.clear();
     this.watchedFileRegistrations.clear();
     this.workspaceRoots.clear();
-    for (const [id, pending] of this.pendingMainRequests) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error("LSP manager disposed"));
-      this.pendingMainRequests.delete(id);
-    }
+    this.pendingMainRequests.clearAll("LSP manager disposed");
   }
 }

@@ -13,47 +13,38 @@ import type {
   Location,
   SymbolInformation,
 } from "../../../shared/lsp-types";
+import { PendingRequestMap } from "../../../shared/pending-request-map";
 import type { LspHostHandle } from "../../hosts/lsp-host";
 import { broadcast, type CallContext, register, validateArgs } from "../router";
 
 const c = ipcContract.lsp.call;
 const APPLY_EDIT_RESPONSE_TIMEOUT_MS = 10_000;
 
-type PendingApplyEditRequest = {
-  resolve: (result: ApplyWorkspaceEditResult) => void;
-  timeout: ReturnType<typeof setTimeout>;
-};
-
 let nextApplyEditRequestId = 1;
-const pendingApplyEditRequests = new Map<string, PendingApplyEditRequest>();
+const pendingApplyEditRequests = new PendingRequestMap<string, ApplyWorkspaceEditResult>();
 
 function fallbackApplyEditResult(failureReason: string): ApplyWorkspaceEditResult {
   return { applied: false, failureReason };
 }
 
-function requestRendererApplyEdit(
+async function requestRendererApplyEdit(
   params: ApplyWorkspaceEditParams,
 ): Promise<ApplyWorkspaceEditResult> {
   const requestId = `apply-edit-${nextApplyEditRequestId++}`;
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      pendingApplyEditRequests.delete(requestId);
-      resolve(fallbackApplyEditResult("Timed out waiting for renderer applyEdit response"));
-    }, APPLY_EDIT_RESPONSE_TIMEOUT_MS);
-    (timeout as { unref?: () => void }).unref?.();
-
-    pendingApplyEditRequests.set(requestId, { resolve, timeout });
-    broadcast("lsp", "applyEdit", { requestId, params });
+  const promise = pendingApplyEditRequests.register({
+    key: requestId,
+    timeoutMs: APPLY_EDIT_RESPONSE_TIMEOUT_MS,
   });
+  broadcast("lsp", "applyEdit", { requestId, params });
+  try {
+    return await promise;
+  } catch {
+    return fallbackApplyEditResult("Timed out waiting for renderer applyEdit response");
+  }
 }
 
 function resolveRendererApplyEdit(requestId: string, result: ApplyWorkspaceEditResult): void {
-  const pending = pendingApplyEditRequests.get(requestId);
-  if (!pending) return;
-
-  pendingApplyEditRequests.delete(requestId);
-  clearTimeout(pending.timeout);
-  pending.resolve(result);
+  pendingApplyEditRequests.resolve(requestId, result);
 }
 
 async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promise<void> {

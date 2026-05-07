@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { PendingRequestMap } from "../../shared/pending-request-map";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +23,7 @@ interface ChannelDef {
 
 const channels = new Map<string, ChannelDef>();
 const pendingCallControllers = new Map<string, AbortController>();
-const preCanceledRequests = new Map<string, ReturnType<typeof setTimeout>>();
+const preCanceledRequests = new PendingRequestMap<string, void>();
 const PRECANCELED_REQUEST_TTL_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -91,23 +92,14 @@ function requestKey(event: { sender?: { id?: number } }, requestId: string): str
 }
 
 function rememberPreCanceledRequest(key: string): void {
-  const existing = preCanceledRequests.get(key);
-  if (existing !== undefined) {
-    clearTimeout(existing);
+  if (preCanceledRequests.has(key)) {
+    preCanceledRequests.reject(key, new Error("replaced"));
   }
-  const timeout = setTimeout(() => {
-    preCanceledRequests.delete(key);
-  }, PRECANCELED_REQUEST_TTL_MS);
-  (timeout as { unref?: () => void }).unref?.();
-  preCanceledRequests.set(key, timeout);
+  preCanceledRequests.register({ key, timeoutMs: PRECANCELED_REQUEST_TTL_MS }).catch(() => {});
 }
 
 function consumePreCanceledRequest(key: string): boolean {
-  const timeout = preCanceledRequests.get(key);
-  if (timeout === undefined) return false;
-  clearTimeout(timeout);
-  preCanceledRequests.delete(key);
-  return true;
+  return preCanceledRequests.resolve(key, undefined);
 }
 
 function createCallContext(
