@@ -1,11 +1,12 @@
 import type * as Monaco from "monaco-editor";
+import { color } from "../../../shared/design-tokens";
 
 export const NEXUS_DARK_THEME_NAME = "nexus-dark";
 
 export const NEXUS_DARK_THEME_COLORS = {
-  "editor.wordHighlightBackground": "rgba(250,249,246,0.06)",
-  "editor.wordHighlightStrongBackground": "rgba(250,249,246,0.12)",
-  "editor.wordHighlightTextBackground": "rgba(250,249,246,0.04)",
+  "editor.wordHighlightBackground": color.editorWordHighlight,
+  "editor.wordHighlightStrongBackground": color.editorWordHighlightStrong,
+  "editor.wordHighlightTextBackground": color.editorWordHighlightText,
 } satisfies Monaco.editor.IColors;
 
 const initializedThemeMonacos = new WeakSet<object>();

@@ -9,6 +9,7 @@ import {
   saveModel,
   useSharedModel,
 } from "../../../services/editor";
+import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/monaco-theme";
 import {
   type EditorRevealRange,
   subscribePendingEditorReveal,
@@ -237,7 +238,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
           },
         });
       }}
-      theme="nexus-dark"
+      theme={NEXUS_DARK_THEME_NAME}
       options={editorOptions}
     />
   );

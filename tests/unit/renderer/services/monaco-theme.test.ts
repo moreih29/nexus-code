@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
+import { color } from "../../../../src/shared/design-tokens";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -77,9 +78,9 @@ describe("nexus-dark Monaco theme", () => {
       rules: [],
     });
     expect(monaco.__themeCalls[0]?.theme.colors).toEqual({
-      "editor.wordHighlightBackground": "rgba(250,249,246,0.06)",
-      "editor.wordHighlightStrongBackground": "rgba(250,249,246,0.12)",
-      "editor.wordHighlightTextBackground": "rgba(250,249,246,0.04)",
+      "editor.wordHighlightBackground": color.editorWordHighlight,
+      "editor.wordHighlightStrongBackground": color.editorWordHighlightStrong,
+      "editor.wordHighlightTextBackground": color.editorWordHighlightText,
     });
   });
 
