@@ -28,6 +28,7 @@ export function CommandPalette<TItem extends PaletteItem>({
   const controllerRef = useRef<PaletteSearchController<TItem> | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -60,7 +61,17 @@ export function CommandPalette<TItem extends PaletteItem>({
 
   useEffect(() => {
     if (!open) return;
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    previouslyFocusedRef.current = previouslyFocused;
     inputRef.current?.focus();
+    return () => {
+      const target = previouslyFocusedRef.current;
+      previouslyFocusedRef.current = null;
+      if (target?.isConnected && !target.hasAttribute("disabled")) {
+        target.focus({ preventScroll: true });
+      }
+    };
   }, [open]);
 
   if (!open) return null;
