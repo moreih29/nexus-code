@@ -4,6 +4,7 @@
  * read-only with respect to *files*, just touches our own SQLite).
  */
 import fs from "node:fs";
+import path from "node:path";
 import {
   BINARY_DETECTION_BYTES,
   isHiddenName,
@@ -97,6 +98,49 @@ export function setExpandedHandler(
   };
 }
 
+/**
+ * Detect whether a buffer is binary and build the appropriate FileContent.
+ * Extracted to avoid duplicating the detection logic between readFile and readExternal.
+ */
+function buildFileContent(buf: Buffer, stat: fs.Stats): FileContent {
+  const probe = buf.slice(0, BINARY_DETECTION_BYTES);
+  const mtime = stat.mtime.toISOString();
+
+  // UTF-16 LE or BE BOM — treat as binary
+  if (
+    (probe.length >= 2 && probe[0] === 0xff && probe[1] === 0xfe) ||
+    (probe.length >= 2 && probe[0] === 0xfe && probe[1] === 0xff)
+  ) {
+    return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
+  }
+
+  // null-byte binary detection
+  for (let i = 0; i < probe.length; i++) {
+    if (probe[i] === 0x00) {
+      return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
+    }
+  }
+
+  // UTF-8 BOM detection
+  if (probe.length >= 3 && probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf) {
+    return {
+      content: buf.slice(3).toString("utf8"),
+      encoding: "utf8-bom",
+      sizeBytes: stat.size,
+      isBinary: false,
+      mtime,
+    };
+  }
+
+  return {
+    content: buf.toString("utf8"),
+    encoding: "utf8",
+    sizeBytes: stat.size,
+    isBinary: false,
+    mtime,
+  };
+}
+
 export function readFileHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<FileContent> {
@@ -130,42 +174,44 @@ export function readFileHandler(
       throw e;
     }
 
-    const probe = buf.slice(0, BINARY_DETECTION_BYTES);
+    return buildFileContent(buf, stat);
+  };
+}
 
-    const mtime = stat.mtime.toISOString();
+export function readExternalHandler(): (args: unknown) => Promise<FileContent> {
+  return async (args: unknown): Promise<FileContent> => {
+    const { absolutePath } = validateArgs(c.readExternal.args, args);
 
-    // UTF-16 LE or BE BOM — treat as binary
-    if (
-      (probe.length >= 2 && probe[0] === 0xff && probe[1] === 0xfe) ||
-      (probe.length >= 2 && probe[0] === 0xfe && probe[1] === 0xff)
-    ) {
-      return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
+    if (!path.isAbsolute(absolutePath)) {
+      throw new Error(`${FS_ERROR.NOT_FOUND}: path must be absolute: ${absolutePath}`);
     }
 
-    // null-byte binary detection
-    for (let i = 0; i < probe.length; i++) {
-      if (probe[i] === 0x00) {
-        return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
-      }
+    let stat: fs.Stats;
+    try {
+      stat = await fs.promises.lstat(absolutePath);
+    } catch (e: unknown) {
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, absolutePath));
+      throw e;
     }
 
-    // UTF-8 BOM detection
-    if (probe.length >= 3 && probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf) {
-      return {
-        content: buf.slice(3).toString("utf8"),
-        encoding: "utf8-bom",
-        sizeBytes: stat.size,
-        isBinary: false,
-        mtime,
-      };
+    if (stat.isDirectory()) {
+      throw new Error(fsErrorMessage(FS_ERROR.IS_DIRECTORY, absolutePath));
     }
 
-    return {
-      content: buf.toString("utf8"),
-      encoding: "utf8",
-      sizeBytes: stat.size,
-      isBinary: false,
-      mtime,
-    };
+    if (stat.size > MAX_READABLE_FILE_SIZE) {
+      throw new Error(fsErrorMessage(FS_ERROR.TOO_LARGE, `${absolutePath} (${stat.size} bytes)`));
+    }
+
+    let buf: Buffer;
+    try {
+      buf = await fs.promises.readFile(absolutePath);
+    } catch (e: unknown) {
+      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      if (code) throw new Error(fsErrorMessage(code, absolutePath));
+      throw e;
+    }
+
+    return buildFileContent(buf, stat);
   };
 }

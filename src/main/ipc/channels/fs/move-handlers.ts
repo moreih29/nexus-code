@@ -16,6 +16,15 @@ import { resolveSafe } from "./path-safety";
 
 const c = ipcContract.fs.call;
 
+export function revealInFinderHandler(
+  shellImpl: { showItemInFolder: (path: string) => void } = shell,
+): (args: unknown) => Promise<void> {
+  return async (args: unknown): Promise<void> => {
+    const { absolutePath } = validateArgs(c.revealInFinder.args, args);
+    shellImpl.showItemInFolder(absolutePath);
+  };
+}
+
 export function showItemInFolderHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<void> {

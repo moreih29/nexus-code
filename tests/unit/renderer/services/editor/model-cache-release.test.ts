@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Bun mock.module is process-global. Spread real exports so other editor/*
+// test files see the full module surface after this file runs.
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+
 const cleanupEntry = mock((_entry: unknown) => {});
 
 mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+  ...realLspBridge,
   ensureProvidersFor: () => {},
   fetchDocumentSymbols: mock(() => Promise.resolve([])),
-  monacoContentChangesToLsp: () => [],
   notifyDidChange: () => Promise.resolve(),
   notifyDidClose: () => Promise.resolve(),
   notifyDidOpen: () => Promise.resolve(),
-  registerKnownModelUri: () => {},
-  unregisterKnownModelUri: () => {},
+  notifyDidSave: () => Promise.resolve(),
 }));
 
 mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
@@ -27,9 +30,10 @@ mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
     subscribers: new Set<() => void>(),
   }),
   errorCodeFromUnknown: () => "OTHER",
-  snapshot: (entry: { phase: string; model: unknown }) => ({
+  snapshot: (entry: { phase: string; model: unknown; readOnly?: boolean }) => ({
     phase: entry.phase,
     model: entry.model,
+    readOnly: entry.readOnly ?? false,
   }),
 }));
 

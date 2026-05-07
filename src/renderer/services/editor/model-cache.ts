@@ -5,7 +5,9 @@
 
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../shared/file-uri";
+import { ipcListen } from "../../ipc/client";
 import type { FileErrorCode } from "../../utils/file-error";
+import { loadExternalEntry } from "./load-external-entry";
 import {
   cleanupEntry,
   createEntry,
@@ -47,6 +49,15 @@ export function cacheUriToFilePath(cacheUri: string): string | null {
 
 export function initializeModelCache(monaco: typeof Monaco): void {
   initializeMonacoSingleton(monaco);
+
+  // Evict external models tied to a workspace when that workspace closes.
+  // The `typeof window` guard keeps the module importable from bun:test
+  // where `window.ipc` is not installed.
+  if (typeof window !== "undefined") {
+    ipcListen("workspace", "removed", ({ id }) => {
+      forceDisposeExternalsForWorkspace(id);
+    });
+  }
 }
 
 const entries = new Map<string, ModelEntry>();
@@ -110,7 +121,11 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   const cacheUri = cacheUriForInput(input);
   let entry = entries.get(cacheUri);
   if (!entry) {
-    entry = createEntry(input, cacheUri);
+    if (input.origin === "external") {
+      entry = await loadExternalEntry(input);
+    } else {
+      entry = createEntry(input, cacheUri);
+    }
     entries.set(cacheUri, entry);
   }
 
@@ -149,6 +164,7 @@ export interface ResolvedModelView {
   workspaceId: string;
   filePath: string;
   languageId: string;
+  readOnly: boolean;
 }
 
 export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
@@ -160,5 +176,51 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
     workspaceId: entry.input.workspaceId,
     filePath: entry.input.filePath,
     languageId: entry.languageId,
+    readOnly: entry.readOnly,
   };
+}
+
+/**
+ * Lightweight metadata view keyed by cacheUri (rather than EditorInput).
+ * Exposed so consumers that hold only a monaco URI (e.g. an LSP provider
+ * receiving a model from monaco) can recover the originating workspaceId
+ * and origin without having to thread an EditorInput through.
+ *
+ * Returns null when the URI is not tracked. Read-only — does not affect
+ * ref-counts.
+ */
+export interface EntryMetadata {
+  workspaceId: string;
+  filePath: string;
+  origin: "workspace" | "external";
+  readOnly: boolean;
+}
+
+export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
+  const entry = entries.get(cacheUri);
+  if (!entry) return null;
+  return {
+    workspaceId: entry.input.workspaceId,
+    filePath: entry.input.filePath,
+    origin: entry.origin,
+    readOnly: entry.readOnly,
+  };
+}
+
+/**
+ * Force-dispose all external model entries whose originatingWorkspaceId matches
+ * the given workspaceId. Called when a workspace closes so externally-opened
+ * read-only models are not held in memory indefinitely.
+ *
+ * This bypasses the normal refCount mechanism intentionally — the tabs
+ * referencing these models are already removed by `closeAllForWorkspace` in
+ * the tabs store, so there will be no further release() calls to drain them.
+ */
+export function forceDisposeExternalsForWorkspace(workspaceId: string): void {
+  for (const [cacheUri, entry] of entries) {
+    if (entry.origin === "external" && entry.originatingWorkspaceId === workspaceId) {
+      entries.delete(cacheUri);
+      cleanupEntry(entry);
+    }
+  }
 }

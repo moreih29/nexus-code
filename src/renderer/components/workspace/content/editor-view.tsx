@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
 import type { MonacoRange } from "../../../../shared/monaco-range";
+import { ipcCall } from "../../../ipc/client";
 import {
   cacheUriToFilePath,
   openOrRevealEditor,
@@ -11,11 +12,15 @@ import {
   useSharedModel,
 } from "../../../services/editor";
 import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/monaco-theme";
+import { openExternalEditor } from "../../../services/editor/open-editor";
 import {
   subscribePendingEditorReveal,
   takePendingEditorReveal,
 } from "../../../services/editor/pending-reveal";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { isWithinWorkspace } from "../../../utils/path";
+import { ReadOnlyBanner } from "./read-only-banner";
 
 interface EditorViewProps {
   filePath: string;
@@ -40,8 +45,10 @@ interface CrossFileOpenCodeEditorOpener {
 
 interface CreateCrossFileOpenCodeEditorOpenerInput {
   getWorkspaceId: () => string;
+  getWorkspaceRoot: () => string | null;
   sourceEditor: unknown;
   openEditor?: (input: { workspaceId: string; filePath: string }) => unknown;
+  openExternal?: (input: { workspaceId: string; filePath: string }) => unknown;
   uriToFilePath?: (cacheUri: string) => string | null;
 }
 
@@ -83,8 +90,10 @@ function sourceModelUri(source: unknown): string | null {
 
 export function createCrossFileOpenCodeEditorOpener({
   getWorkspaceId,
+  getWorkspaceRoot,
   sourceEditor,
   openEditor = openOrRevealEditor,
+  openExternal = openExternalEditor,
   uriToFilePath = cacheUriToFilePath,
 }: CreateCrossFileOpenCodeEditorOpenerInput): CrossFileOpenCodeEditorOpener {
   return {
@@ -99,7 +108,15 @@ export function createCrossFileOpenCodeEditorOpener({
       const filePath = uriToFilePath(resourceUri);
       if (filePath === null) return false;
 
-      openEditor({ workspaceId: getWorkspaceId(), filePath });
+      const workspaceId = getWorkspaceId();
+      const workspaceRoot = getWorkspaceRoot();
+
+      if (workspaceRoot !== null && isWithinWorkspace(filePath, workspaceRoot)) {
+        openEditor({ workspaceId, filePath });
+      } else {
+        // Fire-and-forget: Monaco requires a synchronous boolean return.
+        openExternal({ workspaceId, filePath });
+      }
       return true;
     },
   };
@@ -129,7 +146,7 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 export function EditorView({ filePath, workspaceId }: EditorViewProps) {
-  const { model, phase, errorCode } = useSharedModel({ workspaceId, filePath });
+  const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const openerDisposableRef = useRef<Monaco.IDisposable | null>(null);
   const workspaceIdRef = useRef(workspaceId);
@@ -140,17 +157,19 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     (editor: Monaco.editor.IStandaloneCodeEditor): void => {
       if (!model) return;
       const currentModel = editor.getModel();
-      if (currentModel === model) return;
+      if (currentModel !== model) {
+        editor.setModel(model);
 
-      editor.setModel(model);
-
-      const temporaryModel = temporaryModelRef.current;
-      if (temporaryModel && temporaryModel !== model && !temporaryModel.isDisposed()) {
-        temporaryModel.dispose();
+        const temporaryModel = temporaryModelRef.current;
+        if (temporaryModel && temporaryModel !== model && !temporaryModel.isDisposed()) {
+          temporaryModel.dispose();
+        }
+        temporaryModelRef.current = null;
       }
-      temporaryModelRef.current = null;
+
+      editor.updateOptions({ readOnly });
     },
-    [model],
+    [model, readOnly],
   );
 
   useEffect(() => {
@@ -199,47 +218,63 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   }
 
   return (
-    <Editor
-      height="100%"
-      keepCurrentModel
-      saveViewState={false}
-      onMount={(editor, monaco) => {
-        editorRef.current = editor;
-        temporaryModelRef.current = editor.getModel();
-        attachSharedModel(editor);
-        applyPendingReveal(editor, workspaceId, filePath);
+    <div className="flex flex-col h-full">
+      {readOnly && (
+        <ReadOnlyBanner
+          filePath={filePath}
+          onRevealInFinder={() => {
+            ipcCall("fs", "revealInFinder", { absolutePath: filePath }).catch(() => {});
+          }}
+        />
+      )}
+      <Editor
+        height="100%"
+        keepCurrentModel
+        saveViewState={false}
+        onMount={(editor, monaco) => {
+          editorRef.current = editor;
+          temporaryModelRef.current = editor.getModel();
+          attachSharedModel(editor);
+          applyPendingReveal(editor, workspaceId, filePath);
 
-        openerDisposableRef.current?.dispose();
-        const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
-          getWorkspaceId: () => workspaceIdRef.current,
-          sourceEditor: editor,
-        });
-        openerDisposableRef.current = monaco.editor.registerEditorOpener({
-          openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
-            openCodeEditorOpener.openCodeEditor(source, resource),
-        });
+          openerDisposableRef.current?.dispose();
+          const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
+            getWorkspaceId: () => workspaceIdRef.current,
+            getWorkspaceRoot: () => {
+              const ws = useWorkspacesStore
+                .getState()
+                .workspaces.find((w) => w.id === workspaceIdRef.current);
+              return ws?.rootPath ?? null;
+            },
+            sourceEditor: editor,
+          });
+          openerDisposableRef.current = monaco.editor.registerEditorOpener({
+            openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
+              openCodeEditorOpener.openCodeEditor(source, resource),
+          });
 
-        // Cmd/Ctrl+S — registered on the editor instance so monaco's
-        // built-in keybinding service handles it inside its textarea
-        // (no double-fire with global handler). Reads the bound props
-        // through closure: filePath/workspaceId stay current because
-        // EditorView remounts on filePath change (key on filePath in
-        // ContentHost).
-        editor.addAction({
-          id: "nexus.file.save",
-          label: "Save File",
-          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
-          run: () => {
-            saveModel({ workspaceId, filePath }).catch(() => {
-              // Errors are reported via SaveResult — promise rejection
-              // here would be a programming error. Swallow to keep the
-              // command from logging unhandled rejection noise.
-            });
-          },
-        });
-      }}
-      theme={NEXUS_DARK_THEME_NAME}
-      options={editorOptions}
-    />
+          // Cmd/Ctrl+S — registered on the editor instance so monaco's
+          // built-in keybinding service handles it inside its textarea
+          // (no double-fire with global handler). Reads the bound props
+          // through closure: filePath/workspaceId stay current because
+          // EditorView remounts on filePath change (key on filePath in
+          // ContentHost).
+          editor.addAction({
+            id: "nexus.file.save",
+            label: "Save File",
+            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+            run: () => {
+              saveModel({ workspaceId, filePath }).catch(() => {
+                // Errors are reported via SaveResult — promise rejection
+                // here would be a programming error. Swallow to keep the
+                // command from logging unhandled rejection noise.
+              });
+            },
+          });
+        }}
+        theme={NEXUS_DARK_THEME_NAME}
+        options={editorOptions}
+      />
+    </div>
   );
 }

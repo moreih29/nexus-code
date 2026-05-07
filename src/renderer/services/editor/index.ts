@@ -14,6 +14,7 @@ export {
   findEditorTab,
   findEditorTabInGroup,
   findPreviewTabInGroup,
+  openExternalEditor,
   openOrRevealEditor,
   PREVIEW_ENABLED,
 } from "./open-editor";
