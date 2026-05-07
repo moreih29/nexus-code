@@ -80,17 +80,14 @@ function callReaddir(
 // ---------------------------------------------------------------------------
 
 describe("readdir — root (relPath: '')", () => {
-  it("returns entries whose shape has name and type", async () => {
-    // Create one visible file so the root listing is non-trivial.
+  it("returns the created file in the listing with correct type", async () => {
     fs.writeFileSync(path.join(tmpRoot, "hello.txt"), "hi");
 
     const entries = await callReaddir(makeManager(tmpRoot), VALID_UUID, "");
 
-    expect(entries.length).toBeGreaterThanOrEqual(1);
-    for (const e of entries) {
-      expect(typeof e.name).toBe("string");
-      expect(["file", "dir", "symlink"]).toContain(e.type);
-    }
+    expect(entries.map((e) => e.name)).toContain("hello.txt");
+    const helloEntry = entries.find((e) => e.name === "hello.txt");
+    expect(helloEntry?.type).toBe("file");
   });
 });
 

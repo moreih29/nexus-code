@@ -220,6 +220,60 @@ describe("outline-live-refresh", () => {
     });
   });
 
+  describe("rapid burst and save-then-new-change adversarial cases", () => {
+    test("four rapid didChange events produce exactly one load after the final debounce", () => {
+      setActiveOutlineUri(URI_A);
+
+      // t=0
+      channels.emitTransition(URI_A, true);
+      scheduler.advanceBy(50);
+      // t=50
+      channels.emitTransition(URI_A, true);
+      scheduler.advanceBy(100);
+      // t=150
+      channels.emitTransition(URI_A, true);
+      scheduler.advanceBy(150);
+      // t=300
+      channels.emitTransition(URI_A, true);
+
+      // Advance to just before 4th-debounce expiry
+      scheduler.advanceBy(OUTLINE_REFRESH_DEBOUNCE_MS - 1);
+      expect(loadCalls).toHaveLength(0);
+
+      // Fire the 4th debounce
+      scheduler.advanceBy(1);
+      expect(loadCalls).toHaveLength(1);
+      expect(loadCalls[0]?.uri).toBe(URI_A);
+      expect(loadCalls[0]?.force).toBe(true);
+    });
+
+    test("save mid-debounce fires immediately; subsequent didChange starts a fresh debounce", () => {
+      setActiveOutlineUri(URI_A);
+
+      // Start debounce
+      channels.emitTransition(URI_A, true);
+      scheduler.advanceBy(200); // midway
+
+      // Save arrives — immediate load, debounce cancelled
+      channels.emitSaved(URI_A);
+      expect(loadCalls).toHaveLength(1);
+      expect(loadCalls[0]?.force).toBe(true);
+
+      // Remaining 200ms of the old debounce fires — must NOT produce a second load
+      scheduler.advanceBy(200);
+      expect(loadCalls).toHaveLength(1);
+
+      // New didChange after save starts a fresh debounce
+      channels.emitTransition(URI_A, true);
+      scheduler.advanceBy(OUTLINE_REFRESH_DEBOUNCE_MS - 1);
+      expect(loadCalls).toHaveLength(1); // still 1
+
+      scheduler.advanceBy(1);
+      expect(loadCalls).toHaveLength(2); // fresh debounce fired
+      expect(loadCalls[1]?.uri).toBe(URI_A);
+    });
+  });
+
   describe("setActiveOutlineUri URI transition", () => {
     test("switching to a new URI disposes previous subscriptions", () => {
       setActiveOutlineUri(URI_A);

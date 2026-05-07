@@ -16,7 +16,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { initializeEditorServices } = await import("../../../../src/renderer/services/editor");
-const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME } = await import(
+const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME, NEXUS_DARK_THEME_COLORS } = await import(
   "../../../../src/renderer/services/editor/monaco-theme"
 );
 
@@ -61,6 +61,35 @@ function createFakeMonaco(): typeof Monaco & {
     __themeCalls: ThemeCall[];
   };
 }
+
+describe("nexus-dark Monaco theme — two distinct instances are tracked independently", () => {
+  test("each instance gets defineTheme called exactly once, regardless of the other", () => {
+    const monacoA = createFakeMonaco();
+    const monacoB = createFakeMonaco();
+
+    // First instance: two calls → only first registers
+    initializeMonacoTheme(monacoA);
+    initializeMonacoTheme(monacoA);
+
+    // Second instance: first call should register (not share WeakSet entry with A)
+    initializeMonacoTheme(monacoB);
+
+    expect(monacoA.__defineTheme).toHaveBeenCalledTimes(1);
+    expect(monacoB.__defineTheme).toHaveBeenCalledTimes(1);
+  });
+
+  test("NEXUS_DARK_THEME_COLORS reference values match color tokens exactly", () => {
+    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightBackground"]).toBe(
+      color.editorWordHighlight,
+    );
+    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightStrongBackground"]).toBe(
+      color.editorWordHighlightStrong,
+    );
+    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightTextBackground"]).toBe(
+      color.editorWordHighlightText,
+    );
+  });
+});
 
 describe("nexus-dark Monaco theme", () => {
   test("defines warm word-highlight colors once per Monaco instance", () => {

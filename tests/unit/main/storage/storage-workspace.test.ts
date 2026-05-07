@@ -64,10 +64,11 @@ describe("WorkspaceStorage.openForWorkspace", () => {
     expect(fs.existsSync(dbPath)).toBe(true);
   });
 
-  it("is idempotent — opening the same workspace twice does not throw", () => {
+  it("is idempotent — opening the same workspace twice keeps it open", () => {
     const id = "00000000-0000-0000-0000-000000000001";
     storage.openForWorkspace(id);
-    expect(() => storage.openForWorkspace(id)).not.toThrow();
+    storage.openForWorkspace(id);
+    expect(storage.isOpen(id)).toBe(true);
   });
 });
 
@@ -135,8 +136,11 @@ describe("WorkspaceStorage.closeForWorkspace", () => {
     expect(storage.isOpen(id)).toBe(false);
   });
 
-  it("closeForWorkspace on a non-open workspace is a no-op", () => {
-    expect(() => storage.closeForWorkspace("00000000-0000-0000-0000-000000000099")).not.toThrow();
+  it("closeForWorkspace on a non-open workspace leaves other workspaces unaffected", () => {
+    const openId = "00000000-0000-0000-0000-000000000003";
+    storage.openForWorkspace(openId);
+    storage.closeForWorkspace("00000000-0000-0000-0000-000000000099");
+    expect(storage.isOpen(openId)).toBe(true);
   });
 });
 

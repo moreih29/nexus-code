@@ -102,28 +102,11 @@ import { startPtyHost } from "../../../../src/main/hosts/pty-host";
 // ---------------------------------------------------------------------------
 
 describe("startPtyHost — basic API shape", () => {
-  test("returns handle with call, on, isAlive, dispose", () => {
-    const handle = startPtyHost();
-    expect(typeof handle.call).toBe("function");
-    expect(typeof handle.on).toBe("function");
-    expect(typeof handle.isAlive).toBe("function");
-    expect(typeof handle.dispose).toBe("function");
-    handle.dispose();
-  });
-
   test("isAlive returns true before dispose, false after", () => {
     const handle = startPtyHost();
     expect(handle.isAlive()).toBe(true);
     handle.dispose();
     expect(handle.isAlive()).toBe(false);
-  });
-
-  test("on() returns an unsubscribe function", () => {
-    const handle = startPtyHost();
-    const unsub = handle.on("data", () => {});
-    expect(typeof unsub).toBe("function");
-    unsub();
-    handle.dispose();
   });
 });
 

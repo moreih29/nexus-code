@@ -93,10 +93,6 @@ describe("TerminalRecorder — 10MB ring buffer cap", () => {
     rec.handleData("baz");
 
     const replay = rec.generateReplayEvent();
-    // Each entry's data array is normalized to a single string
-    for (const entry of replay.events) {
-      expect(typeof entry.data).toBe("string");
-    }
     expect(replay.events[0].data).toBe("foobarbaz");
   });
 

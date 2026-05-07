@@ -291,6 +291,28 @@ describe("stale-list dim behavior", () => {
   });
 });
 
+describe("dispose after setQuery during debounce", () => {
+  it("no further emissions after dispose, and setQuery after dispose is a no-op", () => {
+    const scheduler = new FakeScheduler();
+    const snapshots: PaletteSearchSnapshot[] = [];
+    const controller = new PaletteSearchController(
+      source(async () => [item("Z")]),
+      (snapshot) => snapshots.push(snapshot),
+      scheduler,
+    );
+
+    controller.setQuery("z");
+    const countBeforeDispose = snapshots.length;
+    controller.dispose();
+
+    // setQuery after dispose must be a no-op
+    controller.setQuery("zz");
+    scheduler.advanceBy(300);
+
+    expect(snapshots.length).toBe(countBeforeDispose);
+  });
+});
+
 describe("palette keyboard behavior", () => {
   it("wraps ArrowDown and ArrowUp", () => {
     expect(nextPaletteIndex(2, 3, 1)).toBe(0);
