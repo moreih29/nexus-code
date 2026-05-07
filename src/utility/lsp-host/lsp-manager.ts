@@ -5,49 +5,42 @@
 // Lifecycle: lazy spawn on first didOpen, 30-minute idle graceful shutdown.
 
 import path from "node:path";
-import { z } from "zod";
 import { absolutePathToFileUri } from "../../shared/file-uri";
 import {
   type LspServerSpec,
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../shared/lsp-config";
-import {
-  ApplyWorkspaceEditParamsSchema,
-  type ApplyWorkspaceEditResult,
-  ApplyWorkspaceEditResultSchema,
-  CompletionItemSchema,
-  ConfigurationParamsSchema,
-  type Diagnostic,
-  DiagnosticSchema,
-  DocumentHighlightSchema,
-  DocumentSymbolSchema,
-  FileChangeType,
-  type FileEvent,
-  HoverResultSchema,
-  type Location,
-  LocationLinkSchema,
-  LocationSchema,
-  type LspServerEventMethod,
-  MarkupContentSchema,
-  RangeSchema,
-  ReferencesArgsSchema,
-  type Registration,
-  RegistrationParamsSchema,
-  ShowMessageRequestParamsSchema,
-  SymbolInformationSchema,
-  TextDocumentContentChangeEventSchema,
-  TextDocumentIdentifierSchema,
-  TextDocumentItemSchema,
-  TextDocumentPositionArgsSchema,
-  WorkDoneProgressCreateParamsSchema,
-  WorkspaceSymbolArgsSchema,
-} from "../../shared/lsp-types";
+import type { Registration } from "../../shared/lsp-types";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
-import { FsChangeKindSchema } from "../../shared/types/fs";
+import {
+  FsChangedArgsSchema,
+  fsChangeKindToLspType,
+  type HandlerMeta,
+  handlerMetadata,
+  invokeLspHandler,
+  type LspManagerContext,
+  type MethodName,
+  parseHandlerOutput,
+  type RoutedAdapter,
+} from "./lsp-handlers";
+import { parsePublishDiagnostics } from "./lsp-result-normalizers";
+import {
+  flattenInitializationOptions,
+  forwardServerEvent,
+  handleClientRegisterCapability,
+  handleShowMessageRequest,
+  handleWorkDoneProgressCreate,
+  handleWorkspaceApplyEdit,
+  handleWorkspaceConfiguration,
+  type ServerHandlerContext,
+} from "./lsp-server-request-handlers";
 import { type LspAdapter, StdioLspAdapter } from "./servers/stdio-lsp-adapter";
 
+// ---------------------------------------------------------------------------
 // Inbound message shapes (main → utility)
+// ---------------------------------------------------------------------------
+
 interface CallMsg {
   type: "call";
   id: string | number;
@@ -87,6 +80,8 @@ interface IMessagePort {
   postMessage: (data: unknown) => void;
 }
 
+const MAIN_SERVER_REQUEST_TIMEOUT_MS = 10_000;
+
 export interface LspManagerOpts {
   /** Override the idle shutdown timeout. Defaults to LSP_DEFAULT_IDLE_MS; only set in tests. */
   idleTimeoutMs?: number;
@@ -101,544 +96,10 @@ export type LspAdapterFactory = (
 ) => LspAdapter;
 
 // ---------------------------------------------------------------------------
-// Handler metadata
-// ---------------------------------------------------------------------------
-
-const DidOpenArgsSchema = TextDocumentItemSchema.extend({
-  workspaceId: z.string(),
-  workspaceRoot: z.string(),
-});
-
-const DidChangeArgsSchema = z.object({
-  uri: TextDocumentIdentifierSchema.shape.uri,
-  version: TextDocumentItemSchema.shape.version,
-  contentChanges: z.array(TextDocumentContentChangeEventSchema),
-});
-
-const DidSaveArgsSchema = z.object({
-  uri: TextDocumentIdentifierSchema.shape.uri,
-  text: TextDocumentItemSchema.shape.text.optional(),
-});
-
-const FsChangedArgsSchema = z.object({
-  workspaceId: z.string(),
-  changes: z.array(
-    z.object({
-      relPath: z.string(),
-      kind: FsChangeKindSchema,
-    }),
-  ),
-});
-
-const VoidResultSchema = z.null();
-const PublishDiagnosticsParamsSchema = z.object({
-  uri: TextDocumentIdentifierSchema.shape.uri,
-  diagnostics: z.array(z.unknown()).optional(),
-});
-
-const WATCHED_FILES_METHOD = "workspace/didChangeWatchedFiles";
-const MAIN_SERVER_REQUEST_TIMEOUT_MS = 10_000;
-
-interface RoutedAdapter {
-  workspaceId: string;
-  languageId: string;
-  adapter: LspAdapter;
-}
-
-interface HandlerMeta {
-  kind: "request" | "notify";
-  lspMethod: string;
-  capabilityKey?: string;
-  inSchema: z.ZodTypeAny;
-  outSchema: z.ZodTypeAny;
-  emptyResponse: unknown;
-  route: (
-    manager: LspManager,
-    args: unknown,
-  ) => Promise<RoutedAdapter | RoutedAdapter[] | undefined>;
-  params: (args: unknown) => unknown;
-  transform?: (result: unknown) => unknown;
-  invoke?: (
-    adapter: LspAdapter,
-    lspMethod: string,
-    params: unknown,
-    signal?: AbortSignal,
-  ) => Promise<unknown> | unknown;
-  after?: (manager: LspManager, args: unknown, routed: RoutedAdapter) => void;
-}
-
-interface HandlerMetaInput<S extends z.ZodTypeAny> {
-  kind: HandlerMeta["kind"];
-  lspMethod: string;
-  capabilityKey?: string;
-  inSchema: S;
-  outSchema: z.ZodTypeAny;
-  emptyResponse: unknown;
-  route:
-    | ((
-        manager: LspManager,
-        args: z.infer<S>,
-      ) => Promise<RoutedAdapter | RoutedAdapter[] | undefined>)
-    | ((manager: LspManager, args: z.infer<S>) => RoutedAdapter | RoutedAdapter[] | undefined);
-  params: (args: z.infer<S>) => unknown;
-  transform?: (result: unknown) => unknown;
-  invoke?: (
-    adapter: LspAdapter,
-    lspMethod: string,
-    params: unknown,
-    signal?: AbortSignal,
-  ) => Promise<unknown> | unknown;
-  after?: (manager: LspManager, args: z.infer<S>, routed: RoutedAdapter) => void;
-}
-
-function defineHandler<S extends z.ZodTypeAny>(input: HandlerMetaInput<S>): HandlerMeta {
-  return {
-    kind: input.kind,
-    lspMethod: input.lspMethod,
-    capabilityKey: input.capabilityKey,
-    inSchema: input.inSchema,
-    outSchema: input.outSchema,
-    emptyResponse: input.emptyResponse,
-    route: (manager, args) => Promise.resolve(input.route(manager, args as z.infer<S>)),
-    params: (args) => input.params(args as z.infer<S>),
-    transform: input.transform,
-    invoke: input.invoke,
-    after: input.after
-      ? (manager, args, routed) => input.after?.(manager, args as z.infer<S>, routed)
-      : undefined,
-  };
-}
-
-function routeByUri(manager: LspManager, args: { uri: string }): RoutedAdapter | undefined {
-  return manager.findAdapterForUri(args.uri);
-}
-
-function routeWorkspaceAdapters(
-  manager: LspManager,
-  args: z.infer<typeof WorkspaceSymbolArgsSchema>,
-): RoutedAdapter[] {
-  const workspaceAdapters = manager.adapters.get(args.workspaceId);
-  if (!workspaceAdapters) return [];
-  return Array.from(workspaceAdapters, ([languageId, adapter]) => ({
-    workspaceId: args.workspaceId,
-    languageId,
-    adapter,
-  }));
-}
-
-async function routeOpenedDocument(
-  manager: LspManager,
-  args: z.infer<typeof DidOpenArgsSchema>,
-): Promise<RoutedAdapter | undefined> {
-  const presetLanguageId = resolveLspPresetLanguageId(args.languageId);
-  if (!presetLanguageId) return undefined;
-
-  const adapter = await manager.getOrCreateAdapter(
-    args.workspaceId,
-    args.languageId,
-    args.workspaceRoot,
-  );
-  return adapter
-    ? { workspaceId: args.workspaceId, languageId: presetLanguageId, adapter }
-    : undefined;
-}
-
-function textDocumentPositionParams(args: z.infer<typeof TextDocumentPositionArgsSchema>): {
-  textDocument: { uri: string };
-  position: { line: number; character: number };
-} {
-  return {
-    textDocument: { uri: args.uri },
-    position: { line: args.line, character: args.character },
-  };
-}
-
-function referencesParams(args: z.infer<typeof ReferencesArgsSchema>): unknown {
-  return {
-    ...textDocumentPositionParams(args),
-    context: { includeDeclaration: args.includeDeclaration },
-  };
-}
-
-function documentSymbolParams(args: z.infer<typeof TextDocumentIdentifierSchema>): unknown {
-  return { textDocument: { uri: args.uri } };
-}
-
-function markedStringToMarkdown(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (typeof raw !== "object" || raw === null || !("value" in raw)) return "";
-
-  const value = (raw as { value?: unknown }).value;
-  if (typeof value !== "string") return "";
-
-  const language = (raw as { language?: unknown }).language;
-  if (typeof language === "string" && language.length > 0) {
-    return `\`\`\`${language}\n${value}\n\`\`\``;
-  }
-  return value;
-}
-
-function normalizeHoverContents(raw: unknown): unknown {
-  const markup = MarkupContentSchema.safeParse(raw);
-  if (markup.success) return markup.data;
-
-  if (Array.isArray(raw)) {
-    const text = raw.map(markedStringToMarkdown).filter(Boolean).join("\n\n");
-    return text.length > 0 ? text : null;
-  }
-
-  if (typeof raw === "string") return raw;
-
-  const marked = markedStringToMarkdown(raw);
-  return marked.length > 0 ? marked : null;
-}
-
-function normalizeHoverResult(raw: unknown): unknown {
-  if (typeof raw !== "object" || raw === null) return null;
-  const result = raw as { contents?: unknown; range?: unknown };
-  const contents = normalizeHoverContents(result.contents);
-  if (contents === null) return null;
-
-  const range = RangeSchema.safeParse(result.range);
-  return range.success ? { contents, range: range.data } : { contents };
-}
-
-function normalizeDefinitionItem(raw: unknown): Location | null {
-  const location = LocationSchema.safeParse(raw);
-  if (location.success) return location.data;
-
-  const locationLink = LocationLinkSchema.safeParse(raw);
-  if (locationLink.success) {
-    return {
-      uri: locationLink.data.targetUri,
-      range: locationLink.data.targetSelectionRange,
-    };
-  }
-
-  return null;
-}
-
-function normalizeDefinitionResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const items = Array.isArray(raw) ? raw : [raw];
-  return items.flatMap((item) => {
-    const normalized = normalizeDefinitionItem(item);
-    return normalized ? [normalized] : [];
-  });
-}
-
-function normalizeDocumentHighlightResult(raw: unknown): unknown {
-  return raw ?? [];
-}
-
-function normalizeDocumentSymbolResult(raw: unknown): unknown {
-  const parsed = z.array(DocumentSymbolSchema).safeParse(raw);
-  if (parsed.success) return parsed.data;
-
-  console.warn("[lsp-manager] textDocument/documentSymbol returned non-hierarchical symbols", {
-    issues: parsed.error.issues,
-  });
-  return [];
-}
-
-function normalizeWorkspaceSymbolResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const items = Array.isArray(raw) ? raw : [];
-  return items.flatMap((item) => {
-    const parsed = SymbolInformationSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function normalizeCompletionResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const rawItems =
-    Array.isArray(raw) || typeof raw !== "object" || raw === null
-      ? raw
-      : (raw as { items?: unknown }).items;
-  const items = Array.isArray(rawItems) ? rawItems : [];
-  return items.flatMap((item) => {
-    const parsed = CompletionItemSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function parsePublishDiagnostics(
-  params: unknown,
-): { uri: string; diagnostics: Diagnostic[] } | null {
-  const parsed = PublishDiagnosticsParamsSchema.safeParse(params);
-  if (!parsed.success) return null;
-
-  return {
-    uri: parsed.data.uri,
-    diagnostics: (parsed.data.diagnostics ?? []).flatMap((diagnostic) => {
-      const item = DiagnosticSchema.safeParse(diagnostic);
-      return item.success ? [item.data] : [];
-    }),
-  };
-}
-
-function isPlainConfigObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function flattenInitializationOptions(
-  value: unknown,
-  prefix = "",
-  output = new Map<string, unknown>(),
-): Map<string, unknown> {
-  if (!isPlainConfigObject(value)) {
-    if (prefix.length > 0) output.set(prefix, value);
-    return output;
-  }
-
-  for (const [key, child] of Object.entries(value)) {
-    const childKey = prefix.length > 0 ? `${prefix}.${key}` : key;
-    if (isPlainConfigObject(child)) {
-      flattenInitializationOptions(child, childKey, output);
-    } else {
-      output.set(childKey, child);
-    }
-  }
-  return output;
-}
-
-function setNestedConfigValue(
-  target: Record<string, unknown>,
-  pathParts: string[],
-  value: unknown,
-) {
-  let cursor = target;
-  for (let index = 0; index < pathParts.length - 1; index += 1) {
-    const part = pathParts[index];
-    const existing = cursor[part];
-    if (!isPlainConfigObject(existing)) {
-      cursor[part] = {};
-    }
-    cursor = cursor[part] as Record<string, unknown>;
-  }
-  const leaf = pathParts.at(-1);
-  if (leaf !== undefined) {
-    cursor[leaf] = value;
-  }
-}
-
-function lookupFlattenedConfig(flatConfig: Map<string, unknown>, section: string): unknown {
-  if (flatConfig.has(section)) return flatConfig.get(section);
-
-  const prefix = `${section}.`;
-  const sectionValue: Record<string, unknown> = {};
-  let found = false;
-  for (const [key, value] of flatConfig) {
-    if (!key.startsWith(prefix)) continue;
-    found = true;
-    setNestedConfigValue(sectionValue, key.slice(prefix.length).split("."), value);
-  }
-  return found ? sectionValue : null;
-}
-
-function fsChangeKindToLspType(kind: z.infer<typeof FsChangeKindSchema>): FileEvent["type"] {
-  if (kind === "added") return FileChangeType.Created;
-  if (kind === "deleted") return FileChangeType.Deleted;
-  return FileChangeType.Changed;
-}
-
-const handlerMetadata = {
-  didOpen: defineHandler({
-    kind: "notify",
-    lspMethod: "textDocument/didOpen",
-    inSchema: DidOpenArgsSchema,
-    outSchema: VoidResultSchema,
-    emptyResponse: null,
-    route: routeOpenedDocument,
-    params: ({ uri, languageId, version, text }) => ({
-      textDocument: { uri, languageId, version, text },
-    }),
-    invoke: (adapter, _lspMethod, params) => {
-      adapter.notifyTextDocumentDidOpen(
-        params as Parameters<LspAdapter["notifyTextDocumentDidOpen"]>[0],
-      );
-      return null;
-    },
-    after: (manager, { uri }, routed) => {
-      manager.uriIndex.set(uri, {
-        workspaceId: routed.workspaceId,
-        presetLanguageId: routed.languageId,
-      });
-    },
-  }),
-
-  didChange: defineHandler({
-    kind: "notify",
-    lspMethod: "textDocument/didChange",
-    inSchema: DidChangeArgsSchema,
-    outSchema: VoidResultSchema,
-    emptyResponse: null,
-    route: routeByUri,
-    params: ({ uri, version, contentChanges }) => ({
-      textDocument: { uri, version },
-      contentChanges,
-    }),
-    invoke: (adapter, _lspMethod, params) => {
-      adapter.notifyTextDocumentDidChange(
-        params as Parameters<LspAdapter["notifyTextDocumentDidChange"]>[0],
-      );
-      return null;
-    },
-  }),
-
-  didSave: defineHandler({
-    kind: "notify",
-    lspMethod: "textDocument/didSave",
-    inSchema: DidSaveArgsSchema,
-    outSchema: VoidResultSchema,
-    emptyResponse: null,
-    route: routeByUri,
-    params: ({ uri, text }) => ({
-      textDocument: { uri },
-      ...(text !== undefined ? { text } : {}),
-    }),
-    invoke: (adapter, _lspMethod, params) => {
-      adapter.notifyTextDocumentDidSave(
-        params as Parameters<LspAdapter["notifyTextDocumentDidSave"]>[0],
-      );
-      return null;
-    },
-  }),
-
-  didClose: defineHandler({
-    kind: "notify",
-    lspMethod: "textDocument/didClose",
-    inSchema: TextDocumentIdentifierSchema,
-    outSchema: VoidResultSchema,
-    emptyResponse: null,
-    route: routeByUri,
-    params: ({ uri }) => ({ textDocument: { uri } }),
-    invoke: (adapter, _lspMethod, params) => {
-      adapter.notifyTextDocumentDidClose(
-        params as Parameters<LspAdapter["notifyTextDocumentDidClose"]>[0],
-      );
-      return null;
-    },
-    after: (manager, { uri }) => {
-      manager.uriIndex.delete(uri);
-    },
-  }),
-
-  hover: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/hover",
-    capabilityKey: "hoverProvider",
-    inSchema: TextDocumentPositionArgsSchema,
-    outSchema: HoverResultSchema.nullable(),
-    emptyResponse: null,
-    route: routeByUri,
-    params: textDocumentPositionParams,
-    transform: normalizeHoverResult,
-  }),
-
-  definition: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/definition",
-    capabilityKey: "definitionProvider",
-    inSchema: TextDocumentPositionArgsSchema,
-    outSchema: z.array(LocationSchema),
-    emptyResponse: [],
-    route: routeByUri,
-    params: textDocumentPositionParams,
-    transform: normalizeDefinitionResult,
-  }),
-
-  completion: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/completion",
-    capabilityKey: "completionProvider",
-    inSchema: TextDocumentPositionArgsSchema,
-    outSchema: z.array(CompletionItemSchema),
-    emptyResponse: [],
-    route: routeByUri,
-    params: textDocumentPositionParams,
-    transform: normalizeCompletionResult,
-  }),
-
-  references: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/references",
-    capabilityKey: "referencesProvider",
-    inSchema: ReferencesArgsSchema,
-    outSchema: z.array(LocationSchema),
-    emptyResponse: [],
-    route: routeByUri,
-    params: referencesParams,
-    transform: normalizeDefinitionResult,
-  }),
-
-  documentHighlight: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/documentHighlight",
-    capabilityKey: "documentHighlightProvider",
-    inSchema: TextDocumentPositionArgsSchema,
-    outSchema: z.array(DocumentHighlightSchema),
-    emptyResponse: [],
-    route: routeByUri,
-    params: textDocumentPositionParams,
-    transform: normalizeDocumentHighlightResult,
-  }),
-
-  documentSymbol: defineHandler({
-    kind: "request",
-    lspMethod: "textDocument/documentSymbol",
-    capabilityKey: "documentSymbolProvider",
-    inSchema: TextDocumentIdentifierSchema,
-    outSchema: z.array(DocumentSymbolSchema),
-    emptyResponse: [],
-    route: routeByUri,
-    params: documentSymbolParams,
-    transform: normalizeDocumentSymbolResult,
-  }),
-
-  workspaceSymbol: defineHandler({
-    kind: "request",
-    lspMethod: "workspace/symbol",
-    capabilityKey: "workspaceSymbolProvider",
-    inSchema: WorkspaceSymbolArgsSchema,
-    outSchema: z.array(SymbolInformationSchema),
-    emptyResponse: [],
-    route: routeWorkspaceAdapters,
-    params: ({ query }) => ({ query }),
-    transform: normalizeWorkspaceSymbolResult,
-  }),
-} as const;
-
-type MethodName = keyof typeof handlerMetadata;
-
-async function invokeLspHandler(
-  meta: HandlerMeta,
-  adapter: LspAdapter,
-  args: unknown,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const params = meta.params(args);
-  if (meta.invoke) {
-    return meta.invoke(adapter, meta.lspMethod, params, signal);
-  }
-  if (meta.kind === "notify") {
-    adapter.notify(meta.lspMethod, params);
-    return null;
-  }
-  return adapter.request(meta.lspMethod, params, { signal });
-}
-
-function parseHandlerOutput(meta: HandlerMeta, raw: unknown): unknown {
-  const result = meta.transform ? meta.transform(raw) : raw;
-  return meta.outSchema.parse(result);
-}
-
-// ---------------------------------------------------------------------------
 // LspManager
 // ---------------------------------------------------------------------------
 
-export class LspManager {
+export class LspManager implements LspManagerContext, ServerHandlerContext {
   private port: IMessagePort | null = null;
   // keyed by workspaceId, then preset languageId
   /** @internal */ adapters = new Map<string, Map<string, LspAdapter>>();
@@ -677,7 +138,8 @@ export class LspManager {
     port.start();
   }
 
-  private send(msg: unknown): void {
+  /** @internal */
+  send(msg: unknown): void {
     if (this.port) {
       this.port.postMessage(msg);
     }
@@ -731,7 +193,8 @@ export class LspManager {
     }
   }
 
-  private requestMain(method: string, params: unknown): Promise<unknown> {
+  /** @internal */
+  requestMain(method: string, params: unknown): Promise<unknown> {
     if (!this.port) {
       return Promise.reject(new Error("main port is not attached"));
     }
@@ -893,45 +356,30 @@ export class LspManager {
       }
     });
     adapter.onServerNotification("window/logMessage", (params) => {
-      this.forwardServerEvent(workspaceId, presetLanguageId, "window/logMessage", params);
+      forwardServerEvent(this, workspaceId, presetLanguageId, "window/logMessage", params);
     });
     adapter.onServerNotification("window/showMessage", (params) => {
-      this.forwardServerEvent(workspaceId, presetLanguageId, "window/showMessage", params);
+      forwardServerEvent(this, workspaceId, presetLanguageId, "window/showMessage", params);
     });
     adapter.onServerNotification("$/progress", (params) => {
-      this.forwardServerEvent(workspaceId, presetLanguageId, "$/progress", params);
+      forwardServerEvent(this, workspaceId, presetLanguageId, "$/progress", params);
     });
 
     adapter.onServerRequest("workspace/configuration", (params) =>
-      this.handleWorkspaceConfiguration(workspaceId, presetLanguageId, params),
+      handleWorkspaceConfiguration(this, workspaceId, presetLanguageId, params),
     );
     adapter.onServerRequest("client/registerCapability", (params) =>
-      this.handleClientRegisterCapability(workspaceId, presetLanguageId, params),
+      handleClientRegisterCapability(this, workspaceId, presetLanguageId, params),
     );
     adapter.onServerRequest("workspace/applyEdit", (params) =>
-      this.handleWorkspaceApplyEdit(params),
+      handleWorkspaceApplyEdit(this, params),
     );
     adapter.onServerRequest("window/showMessageRequest", (params) =>
-      this.handleShowMessageRequest(workspaceId, presetLanguageId, params),
+      handleShowMessageRequest(this, workspaceId, presetLanguageId, params),
     );
     adapter.onServerRequest("window/workDoneProgress/create", (params) =>
-      this.handleWorkDoneProgressCreate(workspaceId, presetLanguageId, params),
+      handleWorkDoneProgressCreate(this, workspaceId, presetLanguageId, params),
     );
-  }
-
-  private forwardServerEvent(
-    workspaceId: string,
-    languageId: string,
-    method: LspServerEventMethod,
-    params: unknown,
-  ): void {
-    this.send({
-      type: "serverEvent",
-      workspaceId,
-      languageId,
-      method,
-      params,
-    });
   }
 
   private storeInitializationOptions(
@@ -947,93 +395,6 @@ export class LspManager {
     workspaceConfig.set(presetLanguageId, flattenInitializationOptions(initializationOptions));
   }
 
-  private handleWorkspaceConfiguration(
-    workspaceId: string,
-    presetLanguageId: string,
-    params: unknown,
-  ): unknown[] {
-    const parsed = ConfigurationParamsSchema.safeParse(params);
-    if (!parsed.success) return [];
-
-    const flatConfig = this.configurationStore.get(workspaceId)?.get(presetLanguageId);
-    return parsed.data.items.map((item) => {
-      if (!flatConfig || typeof item.section !== "string" || item.section.length === 0) {
-        return null;
-      }
-      return lookupFlattenedConfig(flatConfig, item.section);
-    });
-  }
-
-  private handleClientRegisterCapability(
-    workspaceId: string,
-    presetLanguageId: string,
-    params: unknown,
-  ): null {
-    const parsed = RegistrationParamsSchema.safeParse(params);
-    if (!parsed.success) return null;
-
-    const watchedFileRegistrations = parsed.data.registrations.filter(
-      (registration) => registration.method === WATCHED_FILES_METHOD,
-    );
-    if (watchedFileRegistrations.length === 0) return null;
-
-    let workspaceRegistrations = this.watchedFileRegistrations.get(workspaceId);
-    if (!workspaceRegistrations) {
-      workspaceRegistrations = new Map<string, Registration[]>();
-      this.watchedFileRegistrations.set(workspaceId, workspaceRegistrations);
-    }
-
-    const existing = workspaceRegistrations.get(presetLanguageId) ?? [];
-    workspaceRegistrations.set(presetLanguageId, existing.concat(watchedFileRegistrations));
-    return null;
-  }
-
-  private async handleWorkspaceApplyEdit(params: unknown): Promise<ApplyWorkspaceEditResult> {
-    const parsed = ApplyWorkspaceEditParamsSchema.safeParse(params);
-    if (!parsed.success) {
-      return { applied: false, failureReason: "Invalid workspace/applyEdit params" };
-    }
-
-    try {
-      const result = await this.requestMain("workspace/applyEdit", parsed.data);
-      const parsedResult = ApplyWorkspaceEditResultSchema.safeParse(result);
-      if (parsedResult.success) return parsedResult.data;
-      return { applied: false, failureReason: "Invalid workspace/applyEdit response" };
-    } catch (error) {
-      return {
-        applied: false,
-        failureReason: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  private handleShowMessageRequest(
-    workspaceId: string,
-    presetLanguageId: string,
-    params: unknown,
-  ): unknown {
-    this.forwardServerEvent(workspaceId, presetLanguageId, "window/showMessageRequest", params);
-
-    const parsed = ShowMessageRequestParamsSchema.safeParse(params);
-    if (!parsed.success) return null;
-    return parsed.data.actions?.[0] ?? null;
-  }
-
-  private handleWorkDoneProgressCreate(
-    workspaceId: string,
-    presetLanguageId: string,
-    params: unknown,
-  ): null {
-    const parsed = WorkDoneProgressCreateParamsSchema.safeParse(params);
-    this.forwardServerEvent(
-      workspaceId,
-      presetLanguageId,
-      "window/workDoneProgress/create",
-      parsed.success ? parsed.data : params,
-    );
-    return null;
-  }
-
   private handleFsChanged(params: unknown): void {
     const parsed = FsChangedArgsSchema.safeParse(params);
     if (!parsed.success) return;
@@ -1043,7 +404,7 @@ export class LspManager {
     const workspaceRoot = this.workspaceRoots.get(parsed.data.workspaceId);
     if (!workspaceAdapters || !workspaceRegistrations || !workspaceRoot) return;
 
-    const changes: FileEvent[] = parsed.data.changes.map((change) => ({
+    const changes = parsed.data.changes.map((change) => ({
       uri: absolutePathToFileUri(path.join(workspaceRoot, change.relPath)),
       type: fsChangeKindToLspType(change.kind),
     }));
@@ -1053,7 +414,7 @@ export class LspManager {
       const registrations = workspaceRegistrations.get(presetLanguageId);
       if (!registrations || registrations.length === 0) continue;
 
-      adapter.notify(WATCHED_FILES_METHOD, { changes });
+      adapter.notify("workspace/didChangeWatchedFiles", { changes });
       this.resetIdleTimer(parsed.data.workspaceId, presetLanguageId);
     }
   }
