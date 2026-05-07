@@ -7,7 +7,7 @@ import { startPromoteOnDirtyPolicy } from "./promote-policy";
 
 export type { CloseTabOutcome } from "./close-handler";
 export { closeEditorWithConfirm } from "./close-handler";
-export { isDirty, subscribeFile as subscribeDirty } from "./dirty-tracker";
+export { isDirty, subscribeFileDirty } from "./dirty-tracker";
 export { cacheUriToFilePath, filePathToModelUri } from "./model-cache";
 export {
   closeEditor,

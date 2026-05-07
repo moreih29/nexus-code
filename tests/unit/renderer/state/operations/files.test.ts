@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shims
@@ -205,23 +205,28 @@ describe("toggleExpand: calls watch/unwatch and debounces setExpanded", () => {
   });
 
   it("fires setExpanded after debounce", async () => {
-    setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
-    await ensureRoot(WS_ID, ROOT);
+    jest.useFakeTimers();
+    try {
+      setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
+      await ensureRoot(WS_ID, ROOT);
 
-    const libAbs = `${ROOT}/lib`;
-    const setExpandedArgs: unknown[] = [];
-    mockIpcCall.mockImplementation((_ch: string, method: string, args: unknown) => {
-      if (method === "setExpanded") setExpandedArgs.push(args);
-      return Promise.resolve(undefined);
-    });
+      const libAbs = `${ROOT}/lib`;
+      const setExpandedArgs: unknown[] = [];
+      mockIpcCall.mockImplementation((_ch: string, method: string, args: unknown) => {
+        if (method === "setExpanded") setExpandedArgs.push(args);
+        return Promise.resolve(undefined);
+      });
 
-    await toggleExpand(WS_ID, libAbs);
-    await new Promise((r) => setTimeout(r, 250));
+      await toggleExpand(WS_ID, libAbs);
+      jest.advanceTimersByTime(250);
 
-    expect(setExpandedArgs).toHaveLength(1);
-    const arg = setExpandedArgs[0] as { workspaceId: string; relPaths: string[] };
-    expect(arg.workspaceId).toBe(WS_ID);
-    expect(arg.relPaths).toContain("lib");
+      expect(setExpandedArgs).toHaveLength(1);
+      const arg = setExpandedArgs[0] as { workspaceId: string; relPaths: string[] };
+      expect(arg.workspaceId).toBe(WS_ID);
+      expect(arg.relPaths).toContain("lib");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

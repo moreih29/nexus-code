@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { cn } from "@/utils/cn";
+import { KEYBOARD_NUDGE_PX } from "./resize-handle";
 import { useDragHandle } from "./use-drag-handle";
 
 // ---------------------------------------------------------------------------
@@ -47,8 +48,6 @@ const POSITION_CLASS = {
   horizontal:
     "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-1/2 [-webkit-app-region:no-drag]",
 } as const;
-
-const KEYBOARD_NUDGE_PX = 10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

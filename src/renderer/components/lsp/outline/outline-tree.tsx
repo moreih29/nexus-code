@@ -4,6 +4,8 @@ import type { DocumentSymbol, Position } from "../../../../shared/lsp-types";
 import { iconForSymbolKind } from "./outline-icons";
 
 const ROW_HEIGHT_PX = 24;
+const OUTLINE_INDENT_BASE_PX = 8;
+const OUTLINE_INDENT_STEP_PX = 14;
 
 export interface OutlineRow {
   id: string;
@@ -230,7 +232,10 @@ export function OutlineTree({ symbols, cursorPosition = null, onSelectSymbol }: 
             title={
               row.symbol.detail ? `${row.symbol.name} — ${row.symbol.detail}` : row.symbol.name
             }
-            style={{ paddingLeft: 8 + row.depth * 14, height: ROW_HEIGHT_PX }}
+            style={{
+              paddingLeft: OUTLINE_INDENT_BASE_PX + row.depth * OUTLINE_INDENT_STEP_PX,
+              height: ROW_HEIGHT_PX,
+            }}
             className={cn(
               "flex w-full items-center border-l-2 border-l-transparent text-left text-app-body select-none",
               "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",

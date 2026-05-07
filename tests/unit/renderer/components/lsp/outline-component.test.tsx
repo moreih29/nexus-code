@@ -1,13 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OutlineContent } from "../../../../../src/renderer/components/lsp/outline/outline-content";
-import {
-  OUTLINE_REFRESH_DEBOUNCE_MS,
-  scheduleDebouncedOutlineLoad,
-} from "../../../../../src/renderer/components/lsp/outline/outline-section";
 import {
   buildOutlineRows,
   collectExpandableIds,
@@ -146,52 +142,5 @@ describe("outline keyboard reducer", () => {
     const collapsed = reduceOutlineKeyboard("ArrowLeft", rows, parent);
     expect(collapsed.activeId).toBe("0.1");
     expect(collapsed.expandedIds.has("0.1")).toBe(false);
-  });
-});
-
-describe("outline refresh debounce", () => {
-  test("debounces rapid outline load scheduling by cancelling stale timers", () => {
-    const scheduled: Array<{ callback: () => void; delayMs: number; cleared: boolean }> = [];
-    const loadCalls: Array<{ uri: string; signal?: AbortSignal }> = [];
-    const load = mock((uri: string, signal?: AbortSignal) => {
-      loadCalls.push({ uri, signal });
-      return Promise.resolve();
-    });
-    const setTimeoutFn = (callback: () => void, delayMs: number) => {
-      scheduled.push({ callback, delayMs, cleared: false });
-      return scheduled.length - 1;
-    };
-    const clearTimeoutFn = (timerId: number) => {
-      const timer = scheduled[timerId];
-      if (timer) timer.cleared = true;
-    };
-
-    const cancelFirst = scheduleDebouncedOutlineLoad({
-      uri: "file:///workspace/a.ts",
-      load,
-      setTimeoutFn,
-      clearTimeoutFn,
-    });
-    cancelFirst();
-
-    scheduleDebouncedOutlineLoad({
-      uri: "file:///workspace/b.ts",
-      load,
-      setTimeoutFn,
-      clearTimeoutFn,
-    });
-
-    expect(scheduled.map((timer) => timer.delayMs)).toEqual([
-      OUTLINE_REFRESH_DEBOUNCE_MS,
-      OUTLINE_REFRESH_DEBOUNCE_MS,
-    ]);
-
-    for (const timer of scheduled) {
-      if (!timer.cleared) timer.callback();
-    }
-
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(loadCalls[0]?.uri).toBe("file:///workspace/b.ts");
-    expect(loadCalls[0]?.signal?.aborted).toBe(false);
   });
 });

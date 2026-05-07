@@ -25,13 +25,10 @@
 // ---------------------------------------------------------------------------
 
 import { useCallback, useSyncExternalStore } from "react";
+import { createListenerBus } from "../../../../shared/listener-bus";
 
 let parkEl: HTMLElement | null = null;
-const listeners = new Set<() => void>();
-
-function notify(): void {
-  for (const fn of listeners) fn();
-}
+const bus = createListenerBus();
 
 export const viewPark: {
   set(el: HTMLElement | null): void;
@@ -41,16 +38,13 @@ export const viewPark: {
   set(el) {
     if (parkEl === el) return;
     parkEl = el;
-    notify();
+    bus.notify();
   },
   get() {
     return parkEl;
   },
   subscribe(listener) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
+    return bus.subscribe(listener);
   },
 };
 

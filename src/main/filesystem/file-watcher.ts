@@ -1,6 +1,7 @@
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { HIDDEN_NAMES } from "../../shared/fs-defaults";
+import { createKeyedDebouncer, type KeyedDebouncer } from "../../shared/keyed-debouncer";
 import { FS_WATCHER_DEBOUNCE_MS } from "../../shared/timing-constants";
 import type { FsChange, FsChangeKind } from "../../shared/types/fs";
 import type { BroadcastFn } from "../workspace/workspace-manager";
@@ -35,11 +36,11 @@ export class FileWatcher {
   // workspaceId -> Map<relPath, FsChangeKind>  (change buffer)
   private readonly buffers = new Map<string, Map<string, FsChangeKind>>();
 
-  // workspaceId -> pending debounce timer
-  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly timers: KeyedDebouncer<string>;
 
   constructor(broadcast: BroadcastFn) {
     this.broadcast = broadcast;
+    this.timers = createKeyedDebouncer<string>({ delayMs: FS_WATCHER_DEBOUNCE_MS });
   }
 
   // ---------------------------------------------------------------------------
@@ -93,11 +94,7 @@ export class FileWatcher {
 
   disposeWorkspace(workspaceId: string): void {
     // Stop debounce timer
-    const timer = this.timers.get(workspaceId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      this.timers.delete(workspaceId);
-    }
+    this.timers.cancel(workspaceId);
 
     // Discard buffered changes
     this.buffers.delete(workspaceId);
@@ -113,10 +110,7 @@ export class FileWatcher {
 
   dispose(): void {
     // Clear all timers
-    for (const timer of this.timers.values()) {
-      clearTimeout(timer);
-    }
-    this.timers.clear();
+    this.timers.clearAll();
     this.buffers.clear();
 
     // Close all watchers
@@ -140,17 +134,9 @@ export class FileWatcher {
     // debounce window, keep only the most recent kind.
     buf.set(relPath, kind);
 
-    const existing = this.timers.get(workspaceId);
-    if (existing !== undefined) {
-      clearTimeout(existing);
-    }
-
-    const timer = setTimeout(() => {
-      this.timers.delete(workspaceId);
+    this.timers.schedule(workspaceId, () => {
       this.flush(workspaceId);
-    }, FS_WATCHER_DEBOUNCE_MS);
-
-    this.timers.set(workspaceId, timer);
+    });
   }
 
   private flush(workspaceId: string): void {

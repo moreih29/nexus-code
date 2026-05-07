@@ -3,8 +3,8 @@
 
 import type { FileContent, FsChangedEvent } from "../../../shared/types/fs";
 import { ipcCall, ipcListen } from "../../ipc/client";
-import { absPathToRel } from "../../state/stores/files/helpers";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { relPath } from "../../utils/path";
 import type { EditorInput } from "./types";
 
 export type FileLoadResult = FileContent;
@@ -27,7 +27,7 @@ export function workspaceRootForInput(input: EditorInput): string {
 }
 
 export function relPathForInput(input: EditorInput): string {
-  return absPathToRel(input.filePath, workspaceRootForInput(input));
+  return relPath(input.filePath, workspaceRootForInput(input));
 }
 
 export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {

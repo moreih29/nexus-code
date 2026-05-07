@@ -1,3 +1,4 @@
+import { defaultTimerScheduler, type TimerScheduler } from "../../../../shared/timer-scheduler";
 import type { PaletteItem, PaletteSource } from "./types";
 
 export const WORKSPACE_SYMBOL_DEBOUNCE_MS = 200;
@@ -17,18 +18,12 @@ export interface PaletteSearchSnapshot<TItem extends PaletteItem = PaletteItem> 
   query: string;
   items: readonly TItem[];
   activeIndex: number;
+  dimmed?: boolean;
   error?: unknown;
 }
 
-export interface PaletteScheduler {
-  setTimeout(callback: () => void, delayMs: number): unknown;
-  clearTimeout(handle: unknown): void;
-}
-
-export const browserPaletteScheduler: PaletteScheduler = {
-  setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
-  clearTimeout: (handle) => window.clearTimeout(handle as number),
-};
+export type { TimerScheduler as PaletteScheduler };
+export { defaultTimerScheduler as browserPaletteScheduler };
 
 export function initialPaletteSearchSnapshot<
   TItem extends PaletteItem,
@@ -36,21 +31,25 @@ export function initialPaletteSearchSnapshot<
   return { status: "idle", query: "", items: [], activeIndex: -1 };
 }
 
+const GRACE_PERIOD_MS = 100;
+
 export class PaletteSearchController<TItem extends PaletteItem> {
-  private timer: unknown | null = null;
+  private debounceTimer: unknown | null = null;
+  private graceTimer: unknown | null = null;
   private abortController: AbortController | null = null;
+  private lastSnapshot: PaletteSearchSnapshot<TItem> | null = null;
   private disposed = false;
 
   constructor(
     private readonly source: PaletteSource<TItem>,
     private readonly onChange: (snapshot: PaletteSearchSnapshot<TItem>) => void,
-    private readonly scheduler: PaletteScheduler = browserPaletteScheduler,
+    private readonly scheduler: TimerScheduler = defaultTimerScheduler,
     private readonly debounceMs = WORKSPACE_SYMBOL_DEBOUNCE_MS,
   ) {}
 
   setQuery(query: string): void {
     if (this.disposed) return;
-    this.cancelTimer();
+    this.cancelTimers();
     this.abortInFlight();
 
     if (query.trim().length < 1) {
@@ -58,24 +57,54 @@ export class PaletteSearchController<TItem extends PaletteItem> {
       return;
     }
 
-    this.emit({ status: "debouncing", query, items: [], activeIndex: -1 });
-    this.timer = this.scheduler.setTimeout(() => {
-      this.timer = null;
+    const previousItems = this.lastSnapshot?.items ?? [];
+    const previousActiveIndex = this.lastSnapshot?.activeIndex ?? -1;
+    this.emit({
+      status: "debouncing",
+      query,
+      items: previousItems,
+      activeIndex: previousActiveIndex,
+      dimmed: false,
+    });
+
+    this.graceTimer = this.scheduler.setTimeout(() => {
+      this.graceTimer = null;
+      if (this.disposed) return;
+      this.emit({
+        status: "debouncing",
+        query,
+        items: this.lastSnapshot?.items ?? [],
+        activeIndex: this.lastSnapshot?.activeIndex ?? -1,
+        dimmed: true,
+      });
+    }, GRACE_PERIOD_MS);
+
+    this.debounceTimer = this.scheduler.setTimeout(() => {
+      this.debounceTimer = null;
       void this.run(query);
     }, this.debounceMs);
   }
 
   dispose(): void {
     this.disposed = true;
-    this.cancelTimer();
+    this.cancelTimers();
     this.abortInFlight();
+    this.lastSnapshot = null;
   }
 
   private async run(query: string): Promise<void> {
     if (this.disposed) return;
     const abortController = new AbortController();
     this.abortController = abortController;
-    this.emit({ status: "loading", query, items: [], activeIndex: -1 });
+    const previousItems = this.lastSnapshot?.items ?? [];
+    const previousActiveIndex = this.lastSnapshot?.activeIndex ?? -1;
+    this.emit({
+      status: "loading",
+      query,
+      items: previousItems,
+      activeIndex: previousActiveIndex,
+      dimmed: true,
+    });
 
     try {
       const items = await this.source.search(query, abortController.signal);
@@ -85,6 +114,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
         query,
         items,
         activeIndex: items.length > 0 ? 0 : -1,
+        dimmed: false,
       });
     } catch (error) {
       if (this.disposed || abortController.signal.aborted) return;
@@ -95,13 +125,19 @@ export class PaletteSearchController<TItem extends PaletteItem> {
   }
 
   private emit(snapshot: PaletteSearchSnapshot<TItem>): void {
+    this.lastSnapshot = snapshot;
     this.onChange(snapshot);
   }
 
-  private cancelTimer(): void {
-    if (this.timer === null) return;
-    this.scheduler.clearTimeout(this.timer);
-    this.timer = null;
+  private cancelTimers(): void {
+    if (this.debounceTimer !== null) {
+      this.scheduler.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.graceTimer !== null) {
+      this.scheduler.clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
   }
 
   private abortInFlight(): void {

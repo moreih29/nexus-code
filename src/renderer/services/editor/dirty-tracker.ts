@@ -14,6 +14,7 @@
 // VSCode's TextFileEditorModel uses the same comparison.
 
 import type * as Monaco from "monaco-editor";
+import { createKeyedListenerBus, createListenerBus } from "../../../shared/listener-bus";
 
 export interface DirtyEntry {
   isDirty: boolean;
@@ -34,29 +35,18 @@ export interface DirtyEntry {
 }
 
 const entriesByCacheUri = new Map<string, DirtyEntry>();
-const transitionListeners = new Set<DirtyTransitionListener>();
-// File-level subscribers exist independently of the entry lifecycle:
-// React UI subscribes via useSyncExternalStore *before* the model
-// finishes loading (and thus before attachDirtyTracker runs). Storing
-// listeners by cacheUri lets us notify on the attach itself, and
-// keeps subscriptions valid across detach/reattach.
-const fileListeners = new Map<string, Set<() => void>>();
+// fileListeners: keyed by cacheUri, notified with void on dirty-state change.
+const fileListeners = createKeyedListenerBus<string, void>();
+// transitionListeners: notified with DirtyTransitionEvent on every dirty flip.
+const transitionListeners = createListenerBus<DirtyTransitionEvent>();
+// savedListeners: notified with { cacheUri } on every successful markSaved.
+const savedListeners = createListenerBus<{ cacheUri: string }>();
 
 export type DirtyTransitionListener = (event: DirtyTransitionEvent) => void;
 
 export interface DirtyTransitionEvent {
   cacheUri: string;
   isDirty: boolean;
-}
-
-function notifyFile(cacheUri: string): void {
-  const set = fileListeners.get(cacheUri);
-  if (!set) return;
-  for (const fn of set) fn();
-}
-
-function notifyTransition(cacheUri: string, isDirty: boolean): void {
-  for (const fn of transitionListeners) fn({ cacheUri, isDirty });
 }
 
 export interface AttachOptions {
@@ -93,15 +83,15 @@ export function attachDirtyTracker({
     const next = model.getAlternativeVersionId() !== entry.savedAlternativeVersionId;
     if (next === entry.isDirty) return;
     entry.isDirty = next;
-    notifyFile(cacheUri);
-    notifyTransition(cacheUri, next);
+    fileListeners.notify(cacheUri, undefined);
+    transitionListeners.notify({ cacheUri, isDirty: next });
   });
 
   entriesByCacheUri.set(cacheUri, entry);
   // A subscriber that registered before the entry existed is waiting on
   // exactly this moment — fire so its hook re-reads isDirty (which
   // flipped from "no entry" to "entry, isDirty=false").
-  notifyFile(cacheUri);
+  fileListeners.notify(cacheUri, undefined);
   return entry;
 }
 
@@ -113,7 +103,7 @@ export function detachDirtyTracker(cacheUri: string): void {
   // File subscribers persist across detach (e.g. tab still mounted but
   // model unloaded); notify them so they re-read (isDirty becomes false
   // for an absent entry).
-  notifyFile(cacheUri);
+  fileListeners.notify(cacheUri, undefined);
 }
 
 /**
@@ -151,9 +141,11 @@ export function markSaved({
   const next = model.getAlternativeVersionId() !== entry.savedAlternativeVersionId;
   if (next !== entry.isDirty) {
     entry.isDirty = next;
-    notifyFile(cacheUri);
-    notifyTransition(cacheUri, next);
+    fileListeners.notify(cacheUri, undefined);
+    transitionListeners.notify({ cacheUri, isDirty: next });
   }
+
+  savedListeners.notify({ cacheUri });
 }
 
 /**
@@ -184,19 +176,8 @@ export function isDirty(cacheUri: string): boolean {
  * scrolled out of and back into a leaf, or the model may be reloaded).
  * Notifications fire on transitions only, not on every keystroke.
  */
-export function subscribeFile(cacheUri: string, listener: () => void): () => void {
-  let set = fileListeners.get(cacheUri);
-  if (!set) {
-    set = new Set();
-    fileListeners.set(cacheUri, set);
-  }
-  set.add(listener);
-  return () => {
-    const s = fileListeners.get(cacheUri);
-    if (!s) return;
-    s.delete(listener);
-    if (s.size === 0) fileListeners.delete(cacheUri);
-  };
+export function subscribeFileDirty(cacheUri: string, listener: () => void): () => void {
+  return fileListeners.subscribe(cacheUri, () => listener());
 }
 
 /**
@@ -204,11 +185,17 @@ export function subscribeFile(cacheUri: string, listener: () => void): () => voi
  * promote-on-dirty policy and by any process-wide observer (e.g.
  * "do you have unsaved work?" checks).
  */
-export function subscribeTransitions(listener: DirtyTransitionListener): () => void {
-  transitionListeners.add(listener);
-  return () => {
-    transitionListeners.delete(listener);
-  };
+export function subscribeAllDirtyTransitions(listener: DirtyTransitionListener): () => void {
+  return transitionListeners.subscribe(listener);
+}
+
+/**
+ * Subscribe to successful saves across ALL files. Fires once per
+ * markSaved call, after dirty state is updated. Use cacheUri to
+ * filter to a specific file.
+ */
+export function subscribeAllSaved(listener: (e: { cacheUri: string }) => void): () => void {
+  return savedListeners.subscribe(listener);
 }
 
 // Test helper: wipe global state between unit tests. Not exported from
@@ -220,4 +207,5 @@ export function __resetDirtyTrackerForTests(): void {
   entriesByCacheUri.clear();
   transitionListeners.clear();
   fileListeners.clear();
+  savedListeners.clear();
 }

@@ -6,7 +6,7 @@ import {
   getDirtyEntry,
   isDirty,
   markSaved,
-  subscribeTransitions,
+  subscribeAllDirtyTransitions,
   updateLoadedMetadata,
 } from "../../../../../src/renderer/services/editor/dirty-tracker";
 
@@ -74,7 +74,7 @@ describe("dirty-tracker", () => {
 
   it("emits transition events only on flips, not on every edit", () => {
     const events: Array<{ cacheUri: string; isDirty: boolean }> = [];
-    subscribeTransitions((e) => events.push(e));
+    subscribeAllDirtyTransitions((e) => events.push(e));
 
     const model = makeModel(5);
     attachDirtyTracker({
@@ -167,7 +167,7 @@ describe("dirty-tracker", () => {
 
     // After detach, edits don't update tracker state.
     const events: Array<{ cacheUri: string; isDirty: boolean }> = [];
-    subscribeTransitions((e) => events.push(e));
+    subscribeAllDirtyTransitions((e) => events.push(e));
     model.edit(6);
     expect(events).toEqual([]);
   });

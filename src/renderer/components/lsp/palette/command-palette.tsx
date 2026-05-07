@@ -28,6 +28,7 @@ export function CommandPalette<TItem extends PaletteItem>({
   const controllerRef = useRef<PaletteSearchController<TItem> | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -60,7 +61,17 @@ export function CommandPalette<TItem extends PaletteItem>({
 
   useEffect(() => {
     if (!open) return;
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    previouslyFocusedRef.current = previouslyFocused;
     inputRef.current?.focus();
+    return () => {
+      const target = previouslyFocusedRef.current;
+      previouslyFocusedRef.current = null;
+      if (target?.isConnected && !target.hasAttribute("disabled")) {
+        target.focus({ preventScroll: true });
+      }
+    };
   }, [open]);
 
   if (!open) return null;
@@ -109,6 +120,7 @@ export function CommandPalette<TItem extends PaletteItem>({
       query={query}
       items={snapshot.items}
       activeIndex={snapshot.activeIndex}
+      dimmed={snapshot.dimmed ?? false}
       emptyQueryMessage={source?.emptyQueryMessage ?? "Open a workspace to search symbols."}
       noResultsMessage={source?.noResultsMessage ?? "No workspace symbols found."}
       onQueryChange={setQuery}
@@ -133,6 +145,7 @@ interface CommandPaletteFrameProps<TItem extends PaletteItem> {
   query: string;
   items: readonly TItem[];
   activeIndex: number;
+  dimmed?: boolean;
   emptyQueryMessage: string;
   noResultsMessage: string;
   onQueryChange?: (query: string) => void;
@@ -153,6 +166,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   query,
   items,
   activeIndex,
+  dimmed = false,
   emptyQueryMessage,
   noResultsMessage,
   onQueryChange,
@@ -200,7 +214,13 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
             className="h-9 w-full bg-transparent text-app-body-emphasis text-warm-parchment outline-none placeholder:text-stone-gray"
           />
         </div>
-        <div className="max-h-[360px] overflow-y-auto p-1">
+        <div
+          className={cn(
+            "max-h-[360px] overflow-y-auto p-1 transition-opacity duration-150",
+            dimmed ? "opacity-50 pointer-events-none" : "opacity-100",
+          )}
+          aria-busy={dimmed ? true : undefined}
+        >
           {status === "results" ? (
             <div id={listboxId} role="listbox" aria-label={title} className="space-y-0.5">
               {items.map((item, index) => {

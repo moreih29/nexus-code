@@ -1,20 +1,18 @@
-let open = false;
-const subscribers = new Set<() => void>();
+import { createListenerBus } from "../../../../shared/listener-bus";
 
-function notify(): void {
-  for (const subscriber of subscribers) subscriber();
-}
+let open = false;
+const bus = createListenerBus();
 
 export function openWorkspaceSymbolPalette(): void {
   if (open) return;
   open = true;
-  notify();
+  bus.notify();
 }
 
 export function closeWorkspaceSymbolPalette(): void {
   if (!open) return;
   open = false;
-  notify();
+  bus.notify();
 }
 
 export function isWorkspaceSymbolPaletteOpen(): boolean {
@@ -22,13 +20,10 @@ export function isWorkspaceSymbolPaletteOpen(): boolean {
 }
 
 export function subscribeWorkspaceSymbolPalette(listener: () => void): () => void {
-  subscribers.add(listener);
-  return () => {
-    subscribers.delete(listener);
-  };
+  return bus.subscribe(listener);
 }
 
 export function __resetWorkspaceSymbolPaletteStateForTests(): void {
   open = false;
-  subscribers.clear();
+  bus.clear();
 }

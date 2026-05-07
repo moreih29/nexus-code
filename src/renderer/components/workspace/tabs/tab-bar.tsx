@@ -3,7 +3,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_BAR_ATTR, DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
-import { filePathToModelUri, isDirty, subscribeDirty } from "@/services/editor";
+import { filePathToModelUri, isDirty, subscribeFileDirty } from "@/services/editor";
 import { cn } from "@/utils/cn";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
@@ -75,7 +75,7 @@ interface TabItemProps {
 function useTabDirty(tab: Tab): boolean {
   const cacheUri = tab.type === "editor" ? filePathToModelUri(tab.props.filePath) : null;
   const subscribe = useCallback(
-    (cb: () => void) => (cacheUri ? subscribeDirty(cacheUri, cb) : () => {}),
+    (cb: () => void) => (cacheUri ? subscribeFileDirty(cacheUri, cb) : () => {}),
     [cacheUri],
   );
   const getSnapshot = useCallback(() => (cacheUri ? isDirty(cacheUri) : false), [cacheUri]);

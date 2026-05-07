@@ -60,6 +60,11 @@ export const color = {
   mistBorderFocus: "rgba(226, 226, 226, 0.6)",
   splitter: "rgba(226, 226, 226, 0.35)",
   splitterHover: "rgba(226, 226, 226, 0.6)",
+  // Word-highlight tiers for Monaco editor: base warmParchment (rgba 250,249,246),
+  // alpha 0.04 (text / near-invisible mark) → 0.06 (subtle occurrence bg) → 0.12 (strong/definition bg)
+  editorWordHighlight: "rgba(250, 249, 246, 0.06)",
+  editorWordHighlightStrong: "rgba(250, 249, 246, 0.12)",
+  editorWordHighlightText: "rgba(250, 249, 246, 0.04)",
   translucentParchment: "rgba(250, 249, 246, 0.9)",
   // Depth / elevation
   ambientShadow: "rgba(0, 0, 0, 0.2)",

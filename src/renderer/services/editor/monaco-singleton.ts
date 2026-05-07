@@ -3,16 +3,15 @@
 // All other editor modules call requireMonaco() rather than holding their own ref.
 
 import type * as Monaco from "monaco-editor";
+import { createListenerBus } from "../../../shared/listener-bus";
 
 let monacoRef: typeof Monaco | null = null;
-const initializeListeners = new Set<() => void>();
+const bus = createListenerBus();
 
 export function initializeMonacoSingleton(monaco: typeof Monaco): void {
   if (monacoRef === monaco) return;
   monacoRef = monaco;
-  for (const listener of initializeListeners) {
-    listener();
-  }
+  bus.notify();
 }
 
 export function requireMonaco(): typeof Monaco {
@@ -32,8 +31,5 @@ export function isMonacoReady(): boolean {
  * "loading" to a real acquire once Monaco mounts.
  */
 export function onMonacoReady(listener: () => void): () => void {
-  initializeListeners.add(listener);
-  return () => {
-    initializeListeners.delete(listener);
-  };
+  return bus.subscribe(listener);
 }
