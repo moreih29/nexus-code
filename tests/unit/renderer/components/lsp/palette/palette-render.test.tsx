@@ -15,7 +15,7 @@ const resultItems: PaletteItem[] = [
   },
 ];
 
-function render(status: PaletteViewStatus): string {
+function render(status: PaletteViewStatus, dimmed = false): string {
   return renderToStaticMarkup(
     <CommandPaletteFrame
       status={status}
@@ -24,6 +24,7 @@ function render(status: PaletteViewStatus): string {
       query={status === "idle" || status === "closed" || status === "no-workspace" ? "" : "Gre"}
       items={status === "results" ? resultItems : []}
       activeIndex={status === "results" ? 0 : -1}
+      dimmed={dimmed}
       emptyQueryMessage="Type a symbol name to search the workspace."
       noResultsMessage="No workspace symbols found."
       onQueryChange={() => {}}
@@ -75,5 +76,33 @@ describe("CommandPaletteFrame render states", () => {
     expect(html).toContain("bg-frosted-veil-strong");
     expect(html).toContain("bg-frosted-veil");
     expect(html).toContain('title="/workspace/src/greet.ts"');
+  });
+
+  it("list container has opacity-100 and no aria-busy when not dimmed", () => {
+    const html = render("results", false);
+
+    expect(html).toContain("opacity-100");
+    expect(html).not.toContain("opacity-50");
+    expect(html).not.toContain("pointer-events-none");
+    expect(html).not.toContain("aria-busy");
+  });
+
+  it("list container has opacity-50, pointer-events-none, aria-busy=true when dimmed", () => {
+    const html = render("results", true);
+
+    expect(html).toContain("opacity-50");
+    expect(html).toContain("pointer-events-none");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).not.toContain("opacity-100");
+  });
+
+  it("list container always has transition-opacity duration-150", () => {
+    const notDimmed = render("results", false);
+    const dimmedHtml = render("results", true);
+
+    expect(notDimmed).toContain("transition-opacity");
+    expect(notDimmed).toContain("duration-150");
+    expect(dimmedHtml).toContain("transition-opacity");
+    expect(dimmedHtml).toContain("duration-150");
   });
 });

@@ -63,7 +63,7 @@ export function createWorkspaceSymbolPaletteSource({
     id: "workspace-symbols",
     title: "Go to Symbol in Workspace",
     placeholder: "Search workspace symbols",
-    emptyQueryMessage: "Type a symbol name to search the workspace.",
+    emptyQueryMessage: "Type to search",
     noResultsMessage: "No workspace symbols found.",
     async search(query, signal) {
       const symbols = await search({ workspaceId, query, signal });
