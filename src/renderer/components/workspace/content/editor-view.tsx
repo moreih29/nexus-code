@@ -12,11 +12,14 @@ import {
   useSharedModel,
 } from "../../../services/editor";
 import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/monaco-theme";
+import { openExternalEditor } from "../../../services/editor/open-editor";
 import {
   subscribePendingEditorReveal,
   takePendingEditorReveal,
 } from "../../../services/editor/pending-reveal";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { isWithinWorkspace } from "../../../utils/path";
 import { ReadOnlyBanner } from "./read-only-banner";
 
 interface EditorViewProps {
@@ -42,8 +45,10 @@ interface CrossFileOpenCodeEditorOpener {
 
 interface CreateCrossFileOpenCodeEditorOpenerInput {
   getWorkspaceId: () => string;
+  getWorkspaceRoot: () => string | null;
   sourceEditor: unknown;
   openEditor?: (input: { workspaceId: string; filePath: string }) => unknown;
+  openExternal?: (input: { workspaceId: string; filePath: string }) => unknown;
   uriToFilePath?: (cacheUri: string) => string | null;
 }
 
@@ -85,8 +90,10 @@ function sourceModelUri(source: unknown): string | null {
 
 export function createCrossFileOpenCodeEditorOpener({
   getWorkspaceId,
+  getWorkspaceRoot,
   sourceEditor,
   openEditor = openOrRevealEditor,
+  openExternal = openExternalEditor,
   uriToFilePath = cacheUriToFilePath,
 }: CreateCrossFileOpenCodeEditorOpenerInput): CrossFileOpenCodeEditorOpener {
   return {
@@ -101,7 +108,15 @@ export function createCrossFileOpenCodeEditorOpener({
       const filePath = uriToFilePath(resourceUri);
       if (filePath === null) return false;
 
-      openEditor({ workspaceId: getWorkspaceId(), filePath });
+      const workspaceId = getWorkspaceId();
+      const workspaceRoot = getWorkspaceRoot();
+
+      if (workspaceRoot !== null && isWithinWorkspace(filePath, workspaceRoot)) {
+        openEditor({ workspaceId, filePath });
+      } else {
+        // Fire-and-forget: Monaco requires a synchronous boolean return.
+        openExternal({ workspaceId, filePath });
+      }
       return true;
     },
   };
@@ -225,6 +240,12 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
           openerDisposableRef.current?.dispose();
           const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
             getWorkspaceId: () => workspaceIdRef.current,
+            getWorkspaceRoot: () => {
+              const ws = useWorkspacesStore
+                .getState()
+                .workspaces.find((w) => w.id === workspaceIdRef.current);
+              return ws?.rootPath ?? null;
+            },
             sourceEditor: editor,
           });
           openerDisposableRef.current = monaco.editor.registerEditorOpener({
