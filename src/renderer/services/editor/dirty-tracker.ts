@@ -41,6 +41,7 @@ const transitionListeners = new Set<DirtyTransitionListener>();
 // listeners by cacheUri lets us notify on the attach itself, and
 // keeps subscriptions valid across detach/reattach.
 const fileListeners = new Map<string, Set<() => void>>();
+const savedListeners = new Set<(e: { cacheUri: string }) => void>();
 
 export type DirtyTransitionListener = (event: DirtyTransitionEvent) => void;
 
@@ -57,6 +58,10 @@ function notifyFile(cacheUri: string): void {
 
 function notifyTransition(cacheUri: string, isDirty: boolean): void {
   for (const fn of transitionListeners) fn({ cacheUri, isDirty });
+}
+
+function notifySaved(cacheUri: string): void {
+  for (const fn of Array.from(savedListeners)) fn({ cacheUri });
 }
 
 export interface AttachOptions {
@@ -154,6 +159,8 @@ export function markSaved({
     notifyFile(cacheUri);
     notifyTransition(cacheUri, next);
   }
+
+  notifySaved(cacheUri);
 }
 
 /**
@@ -211,6 +218,18 @@ export function subscribeTransitions(listener: DirtyTransitionListener): () => v
   };
 }
 
+/**
+ * Subscribe to successful saves across ALL files. Fires once per
+ * markSaved call, after dirty state is updated. Use cacheUri to
+ * filter to a specific file.
+ */
+export function subscribeSaved(listener: (e: { cacheUri: string }) => void): () => void {
+  savedListeners.add(listener);
+  return () => {
+    savedListeners.delete(listener);
+  };
+}
+
 // Test helper: wipe global state between unit tests. Not exported from
 // the package barrel; intentionally module-private to consumers.
 export function __resetDirtyTrackerForTests(): void {
@@ -220,4 +239,5 @@ export function __resetDirtyTrackerForTests(): void {
   entriesByCacheUri.clear();
   transitionListeners.clear();
   fileListeners.clear();
+  savedListeners.clear();
 }

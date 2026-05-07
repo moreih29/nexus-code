@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import { absolutePathToFileUri } from "../../../../shared/file-uri";
 import type { EditorInput } from "../../../services/editor/types";
 import { useOutlineStore } from "../../../state/stores/outline";
+import { setActiveOutlineUri } from "../../../state/stores/outline-live-refresh";
 import { cn } from "../../../utils/cn";
 import { basename } from "../../../utils/path";
 import { OutlineContent, type OutlineViewState } from "./outline-content";
@@ -61,9 +62,13 @@ export function OutlineSection({ activeInput, collapsed, onToggleCollapsed }: Ou
   }, []);
 
   useEffect(() => {
-    if (!uri || collapsed) return;
-    return scheduleDebouncedOutlineLoad({ uri, load });
-  }, [uri, collapsed, load]);
+    if (!uri || collapsed) {
+      setActiveOutlineUri(null);
+      return;
+    }
+    setActiveOutlineUri(uri);
+    return () => setActiveOutlineUri(null);
+  }, [uri, collapsed]);
 
   const viewState = useMemo<OutlineViewState>(() => {
     if (!uri) return { phase: "idle", symbols: [] };
