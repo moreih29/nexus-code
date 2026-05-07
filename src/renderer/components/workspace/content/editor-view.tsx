@@ -129,7 +129,7 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 export function EditorView({ filePath, workspaceId }: EditorViewProps) {
-  const { model, phase, errorCode } = useSharedModel({ workspaceId, filePath });
+  const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const openerDisposableRef = useRef<Monaco.IDisposable | null>(null);
   const workspaceIdRef = useRef(workspaceId);
@@ -140,17 +140,19 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     (editor: Monaco.editor.IStandaloneCodeEditor): void => {
       if (!model) return;
       const currentModel = editor.getModel();
-      if (currentModel === model) return;
+      if (currentModel !== model) {
+        editor.setModel(model);
 
-      editor.setModel(model);
-
-      const temporaryModel = temporaryModelRef.current;
-      if (temporaryModel && temporaryModel !== model && !temporaryModel.isDisposed()) {
-        temporaryModel.dispose();
+        const temporaryModel = temporaryModelRef.current;
+        if (temporaryModel && temporaryModel !== model && !temporaryModel.isDisposed()) {
+          temporaryModel.dispose();
+        }
+        temporaryModelRef.current = null;
       }
-      temporaryModelRef.current = null;
+
+      editor.updateOptions({ readOnly });
     },
-    [model],
+    [model, readOnly],
   );
 
   useEffect(() => {

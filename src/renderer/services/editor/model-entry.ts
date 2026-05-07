@@ -28,6 +28,7 @@ export interface SharedModelState {
   phase: SharedModelPhase;
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
+  readOnly: boolean;
 }
 
 export interface ModelEntry {
@@ -48,6 +49,10 @@ export interface ModelEntry {
   lspOpened: boolean;
   disposed: boolean;
   subscribers: Set<() => void>;
+  origin: "workspace" | "external";
+  readOnly: boolean;
+  /** Set only when origin === "external"; identifies the workspace the opener came from. */
+  originatingWorkspaceId?: string;
 }
 
 export function errorCodeFromUnknown(error: unknown): FileErrorCode {
@@ -60,6 +65,7 @@ export function snapshot(entry: ModelEntry): SharedModelState {
     phase: entry.phase,
     model: entry.phase === "ready" ? entry.model : null,
     errorCode: entry.errorCode,
+    readOnly: entry.readOnly,
   };
 }
 
@@ -72,6 +78,8 @@ export function notifySubscribers(entry: ModelEntry): void {
 export function createEntry(input: EditorInput, cacheUri: string): ModelEntry {
   const monaco = requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
+  const origin: "workspace" | "external" = input.origin ?? "workspace";
+  const readOnly: boolean = input.readOnly ?? false;
   const entry: ModelEntry = {
     input,
     cacheUri,
@@ -87,6 +95,9 @@ export function createEntry(input: EditorInput, cacheUri: string): ModelEntry {
     lspOpened: false,
     disposed: false,
     subscribers: new Set(),
+    origin,
+    readOnly,
+    originatingWorkspaceId: input.origin === "external" ? input.workspaceId : undefined,
   };
 
   entry.loadPromise = loadEntry(entry);

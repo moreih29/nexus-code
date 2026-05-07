@@ -29,6 +29,7 @@ export function useSharedModel(input: EditorInput): SharedModelState {
   const [state, setState] = useState<SharedModelState>({
     phase: "loading",
     model: null,
+    readOnly: false,
   });
   const [monacoReady, setMonacoReady] = useState(isMonacoReady());
 
@@ -44,13 +45,13 @@ export function useSharedModel(input: EditorInput): SharedModelState {
     const sharedInput = { workspaceId, filePath };
 
     if (!monacoReady) {
-      setState({ phase: "loading", model: null });
+      setState({ phase: "loading", model: null, readOnly: false });
       return () => {
         cancelled = true;
       };
     }
 
-    setState({ phase: "loading", model: null });
+    setState({ phase: "loading", model: null, readOnly: false });
 
     acquireModel(sharedInput)
       .then((nextState) => {
@@ -68,7 +69,12 @@ export function useSharedModel(input: EditorInput): SharedModelState {
       })
       .catch((error) => {
         if (cancelled) return;
-        setState({ phase: "error", model: null, errorCode: toFileErrorCode(error) });
+        setState({
+          phase: "error",
+          model: null,
+          errorCode: toFileErrorCode(error),
+          readOnly: false,
+        });
       });
 
     return () => {

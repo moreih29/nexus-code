@@ -149,6 +149,7 @@ export interface ResolvedModelView {
   workspaceId: string;
   filePath: string;
   languageId: string;
+  readOnly: boolean;
 }
 
 export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
@@ -160,5 +161,6 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
     workspaceId: entry.input.workspaceId,
     filePath: entry.input.filePath,
     languageId: entry.languageId,
+    readOnly: entry.readOnly,
   };
 }

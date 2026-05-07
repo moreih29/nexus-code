@@ -4,6 +4,10 @@
 export interface EditorInput {
   workspaceId: string;
   filePath: string;
+  /** Defaults to "workspace". External files (T4/T5) set "external". */
+  origin?: "workspace" | "external";
+  /** Defaults to false. When true the editor and save-service enforce read-only. */
+  readOnly?: boolean;
 }
 
 export type EditorTabProps = EditorInput;

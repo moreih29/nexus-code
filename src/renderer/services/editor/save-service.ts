@@ -10,6 +10,7 @@
 // so callers (Cmd+S handler, close-handler, save participants) decide
 // what to do with conflict/error without re-implementing the dispatch.
 
+import { showToast } from "../../components/ui/toast";
 import { ipcCall } from "../../ipc/client";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "./dirty-tracker";
 import { relPathForInput } from "./file-loader";
@@ -23,6 +24,7 @@ export type SaveResult =
   | { kind: "saved"; mtime: string; size: number }
   | { kind: "not-dirty" }
   | { kind: "no-model" }
+  | { kind: "read-only" }
   | { kind: "conflict"; actual: { exists: false } | { exists: true; mtime: string; size: number } }
   | { kind: "superseded" }
   | { kind: "error"; message: string };
@@ -39,6 +41,12 @@ const sequentializer = new SaveSequentializer();
 export async function saveModel(input: EditorInput): Promise<SaveResult> {
   const resolved = getResolvedModel(input);
   if (!resolved) return { kind: "no-model" };
+
+  // Read-only guard — must short-circuit before any dirty-tracker access.
+  if (resolved.readOnly) {
+    showToast({ kind: "info", message: "File is read-only" });
+    return { kind: "read-only" };
+  }
 
   // VSCode parity: an explicit save promotes the editor regardless of
   // dirty state. editorService.save() pinEditor's the editor on

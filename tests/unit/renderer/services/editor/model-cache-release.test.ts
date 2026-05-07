@@ -27,9 +27,10 @@ mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
     subscribers: new Set<() => void>(),
   }),
   errorCodeFromUnknown: () => "OTHER",
-  snapshot: (entry: { phase: string; model: unknown }) => ({
+  snapshot: (entry: { phase: string; model: unknown; readOnly?: boolean }) => ({
     phase: entry.phase,
     model: entry.model,
+    readOnly: entry.readOnly ?? false,
   }),
 }));
 
