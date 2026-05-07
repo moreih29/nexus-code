@@ -13,6 +13,7 @@ import { showItemInFolderHandler } from "./move-handlers";
 import {
   getExpandedHandler,
   readdirHandler,
+  readExternalHandler,
   readFileHandler,
   setExpandedHandler,
   statHandler,
@@ -41,6 +42,7 @@ export function registerFsChannel(
       getExpanded: getExpandedHandler(manager, storage),
       setExpanded: setExpandedHandler(manager, storage),
       readFile: readFileHandler(manager),
+      readExternal: readExternalHandler(),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),
