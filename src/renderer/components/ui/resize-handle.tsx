@@ -59,7 +59,7 @@ const POSITION_CLASS = {
     "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-1/2 [-webkit-app-region:no-drag]",
 } as const;
 
-const KEYBOARD_NUDGE_PX = 10;
+export const KEYBOARD_NUDGE_PX = 10;
 
 export function ResizeHandle({
   value,

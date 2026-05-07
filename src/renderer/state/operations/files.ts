@@ -8,7 +8,8 @@
 
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/timing-constants";
 import { ipcCall } from "../../ipc/client";
-import { absPathToRel, getAncestors } from "../stores/files/helpers";
+import { relPath } from "../../utils/path";
+import { getAncestors } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
 
 // Module-level singletons — shared across all subscribers within this module.
@@ -25,7 +26,7 @@ function scheduleSave(workspaceId: string): void {
     const relPaths: string[] = [];
     for (const absPath of tree.expanded) {
       if (absPath === tree.rootAbsPath) continue;
-      relPaths.push(absPathToRel(absPath, tree.rootAbsPath));
+      relPaths.push(relPath(absPath, tree.rootAbsPath));
     }
     ipcCall("fs", "setExpanded", { workspaceId, relPaths }).catch((err) => {
       console.error("[files] setExpanded failed", err);
@@ -99,12 +100,12 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   if (tree.loading.has(absPath)) return;
 
   const { rootAbsPath } = tree;
-  const relPath = absPathToRel(absPath, rootAbsPath);
+  const rel = relPath(absPath, rootAbsPath);
 
   useFilesStore.getState().markChildrenLoading(workspaceId, absPath);
 
   try {
-    const entries = await ipcCall("fs", "readdir", { workspaceId, relPath });
+    const entries = await ipcCall("fs", "readdir", { workspaceId, relPath: rel });
     useFilesStore.getState().setChildren(workspaceId, absPath, entries);
   } catch (err) {
     useFilesStore
@@ -121,17 +122,17 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
   if (!node || node.type !== "dir") return;
 
   const isExpanded = tree.expanded.has(absPath);
-  const relPath = absPathToRel(absPath, tree.rootAbsPath);
+  const rel = relPath(absPath, tree.rootAbsPath);
 
   if (isExpanded) {
     useFilesStore.getState().collapseDir(workspaceId, absPath);
-    ipcCall("fs", "unwatch", { workspaceId, relPath }).catch((err) => {
+    ipcCall("fs", "unwatch", { workspaceId, relPath: rel }).catch((err) => {
       console.error("[files] unwatch failed", err);
     });
     scheduleSave(workspaceId);
   } else {
     useFilesStore.getState().expandDir(workspaceId, absPath);
-    ipcCall("fs", "watch", { workspaceId, relPath }).catch((err) => {
+    ipcCall("fs", "watch", { workspaceId, relPath: rel }).catch((err) => {
       console.error("[files] watch failed", err);
     });
     scheduleSave(workspaceId);

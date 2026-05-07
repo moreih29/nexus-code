@@ -18,6 +18,9 @@
   --color-mist-border-focus: rgba(226, 226, 226, 0.6);
   --color-splitter: rgba(226, 226, 226, 0.35);
   --color-splitter-hover: rgba(226, 226, 226, 0.6);
+  --color-editor-word-highlight: rgba(250, 249, 246, 0.06);
+  --color-editor-word-highlight-strong: rgba(250, 249, 246, 0.12);
+  --color-editor-word-highlight-text: rgba(250, 249, 246, 0.04);
   --color-translucent-parchment: rgba(250, 249, 246, 0.9);
   --color-ambient-shadow: rgba(0, 0, 0, 0.2);
   --font-sans: Pretendard, system-ui, -apple-system, sans-serif;

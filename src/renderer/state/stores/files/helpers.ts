@@ -1,14 +1,6 @@
 import type { DirEntry } from "../../../../shared/types/fs";
+import { relPath } from "../../../utils/path";
 import type { FilesState, FlatItem, WorkspaceTree } from "./types";
-
-export function absPathToRel(absPath: string, rootAbsPath: string): string {
-  if (absPath === rootAbsPath) return "";
-  const prefix = rootAbsPath.endsWith("/") ? rootAbsPath : `${rootAbsPath}/`;
-  if (absPath.startsWith(prefix)) {
-    return absPath.slice(prefix.length);
-  }
-  return absPath;
-}
 
 export function joinPath(base: string, name: string): string {
   const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -17,7 +9,7 @@ export function joinPath(base: string, name: string): string {
 
 export function getAncestors(rootAbsPath: string, absPath: string): string[] {
   if (absPath === rootAbsPath) return [];
-  const rel = absPathToRel(absPath, rootAbsPath);
+  const rel = relPath(absPath, rootAbsPath);
   const parts = rel.split("/");
   const ancestors: string[] = [];
   let current = rootAbsPath;
