@@ -12,6 +12,7 @@ import {
   lspRangeToMonacoRange,
   tokenToAbortSignal,
 } from "./lsp-monaco-converters";
+import { preAcquireLocationModels } from "./lsp-result-preacquire";
 
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
 
@@ -70,7 +71,13 @@ export function registerLanguageProviders(
           { signal },
         );
         if (results.length === 0 || !isLspLanguage(model.getLanguageId())) return null;
-        return results.map((location) => lspLocationToMonacoLocation(monaco, location));
+        const monacoLocations = results.map((location) =>
+          lspLocationToMonacoLocation(monaco, location),
+        );
+        // Pre-acquire result models so monaco's peek widget can resolve
+        // them via createModelReference without throwing "Model not found".
+        await preAcquireLocationModels(monacoLocations, model.uri.toString());
+        return monacoLocations;
       } catch {
         return null;
       }
@@ -133,7 +140,15 @@ export function registerLanguageProviders(
           { signal },
         );
         if (!isLspLanguage(model.getLanguageId())) return [];
-        return results.map((location) => lspLocationToMonacoLocation(monaco, location));
+        const monacoLocations = results.map((location) =>
+          lspLocationToMonacoLocation(monaco, location),
+        );
+        // Pre-acquire — same rationale as provideDefinition. Find-references
+        // peek can include many locations; we still pre-acquire all of them
+        // since peek expands on user click and any unresolved URI would
+        // throw at that moment.
+        await preAcquireLocationModels(monacoLocations, model.uri.toString());
+        return monacoLocations;
       } catch {
         return [];
       }

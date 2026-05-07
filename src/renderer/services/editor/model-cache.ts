@@ -181,6 +181,33 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
 }
 
 /**
+ * Lightweight metadata view keyed by cacheUri (rather than EditorInput).
+ * Exposed so consumers that hold only a monaco URI (e.g. an LSP provider
+ * receiving a model from monaco) can recover the originating workspaceId
+ * and origin without having to thread an EditorInput through.
+ *
+ * Returns null when the URI is not tracked. Read-only — does not affect
+ * ref-counts.
+ */
+export interface EntryMetadata {
+  workspaceId: string;
+  filePath: string;
+  origin: "workspace" | "external";
+  readOnly: boolean;
+}
+
+export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
+  const entry = entries.get(cacheUri);
+  if (!entry) return null;
+  return {
+    workspaceId: entry.input.workspaceId,
+    filePath: entry.input.filePath,
+    origin: entry.origin,
+    readOnly: entry.readOnly,
+  };
+}
+
+/**
  * Force-dispose all external model entries whose originatingWorkspaceId matches
  * the given workspaceId. Called when a workspace closes so externally-opened
  * read-only models are not held in memory indefinitely.
