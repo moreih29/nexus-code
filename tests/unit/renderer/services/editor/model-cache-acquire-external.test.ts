@@ -9,12 +9,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Bun mock.module is process-global. Spread real exports so other editor/*
 // test files see the full module surface after this file runs.
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
 const realMonacoSingleton = await import(
-  "../../../../../src/renderer/services/editor/monaco-singleton"
+  "../../../../../src/renderer/services/editor/runtime/monaco-singleton"
 );
 
-mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
@@ -23,7 +23,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
   notifyDidSave: () => Promise.resolve(),
 }));
 
-mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   ...realMonacoSingleton,
   initializeMonacoSingleton: () => {},
   isMonacoReady: () => true,
@@ -76,10 +76,10 @@ const createEntryMock = mock(
   }),
 );
 
-const realModelEntry = await import("../../../../../src/renderer/services/editor/model-entry");
+const realModelEntry = await import("../../../../../src/renderer/services/editor/model/model-entry");
 const cleanupEntryMock = mock(() => {});
 
-mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({
   ...realModelEntry,
   createEntry: createEntryMock,
   cleanupEntry: cleanupEntryMock,
@@ -91,7 +91,7 @@ mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
 }));
 
 const realLoadExternalEntry = await import(
-  "../../../../../src/renderer/services/editor/load-external-entry"
+  "../../../../../src/renderer/services/editor/model/load-external-entry"
 );
 
 const loadExternalEntryMock = mock(async (input: { workspaceId: string; filePath: string }) => ({
@@ -110,13 +110,13 @@ const loadExternalEntryMock = mock(async (input: { workspaceId: string; filePath
   originatingWorkspaceId: input.workspaceId,
 }));
 
-mock.module("../../../../../src/renderer/services/editor/load-external-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/load-external-entry", () => ({
   ...realLoadExternalEntry,
   loadExternalEntry: loadExternalEntryMock,
 }));
 
 const { acquireModel, getModelSnapshot, releaseModel } = await import(
-  "../../../../../src/renderer/services/editor/model-cache"
+  "../../../../../src/renderer/services/editor/model/model-cache"
 );
 
 const WS_INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };

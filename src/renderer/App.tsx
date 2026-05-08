@@ -1,5 +1,6 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
+import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
@@ -9,11 +10,7 @@ import { WorkspacePanel } from "./components/workspace/workspace-panel";
 import { ipcCall } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
-import { registerStatePersistence } from "./state/persistence";
 import { useActiveStore } from "./state/stores/active";
-import { useLayoutStore } from "./state/stores/layout";
-import { useTabsStore } from "./state/stores/tabs";
-import { useUIStore } from "./state/stores/ui";
 import { useWorkspacesStore } from "./state/stores/workspaces";
 
 export function App() {
@@ -33,61 +30,13 @@ export function App() {
 
   // Boot: hydrate UI state (sidebar width, files panel) and layout/tabs from persisted app state.
   useEffect(() => {
-    ipcCall("appState", "get", undefined).then((state) => {
-      useUIStore.getState().hydrate({
-        sidebarWidth: state.sidebarWidth,
-        filesPanelWidth: state.filesPanelWidth,
-      });
-
-      // Hydrate layout + tabs from persisted snapshots
-      if (state.layoutByWorkspace) {
-        for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {
-          try {
-            // Restore tabs record; normalize isPreview/isPinned (missing in old snapshots → false)
-            const tabsMap: Record<
-              string,
-              (typeof snap.tabs)[number] & { isPreview: boolean; isPinned: boolean }
-            > = {};
-            for (const t of snap.tabs) {
-              const isPreview =
-                "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
-              const isPinned =
-                "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-              tabsMap[t.id] = { ...t, isPreview, isPinned };
-            }
-            useTabsStore.setState((s) => ({
-              byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
-            }));
-
-            // Restore layout (sanitize against known tab ids)
-            const knownTabIds = new Set(snap.tabs.map((t) => t.id));
-            useLayoutStore
-              .getState()
-              .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
-          } catch {
-            // Silent repair: skip invalid snapshot for this workspace
-          }
-        }
-      }
-
-      // Register persistence subscriber after hydrate. Zustand `subscribe` fires
-      // only on subsequent state changes — past hydrate setStates have already
-      // flushed synchronously by the time this line runs, so no replay storm.
-      registerStatePersistence();
-    });
+    bootstrapAppState();
   }, []);
 
   // Boot: load workspaces from main, activate first.
   // biome-ignore lint/correctness/useExhaustiveDependencies: boot-once effect; store setters are stable
   useEffect(() => {
-    ipcCall("workspace", "list", undefined).then((list) => {
-      setAll(list);
-      if (list.length > 0) {
-        const first = list[0];
-        setActiveWorkspaceId(first.id);
-        ipcCall("workspace", "activate", { id: first.id }).catch(() => {});
-      }
-    });
+    bootstrapWorkspaces(setAll, setActiveWorkspaceId);
   }, []);
 
   // Mark the active workspace as mounted (one-way; lazy-mount + persist).

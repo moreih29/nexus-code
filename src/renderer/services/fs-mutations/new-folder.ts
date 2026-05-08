@@ -7,10 +7,7 @@
  */
 
 import { ipcCall } from "@/ipc/client";
-import { loadChildren } from "@/state/operations/files";
-import { relPath } from "@/utils/path";
-import { FS_ERROR } from "../../../shared/fs-errors";
-import { toFsToast } from "./errors";
+import { runFsMutation } from "./helpers";
 
 export interface NewFolderInput {
   workspaceId: string;
@@ -20,30 +17,13 @@ export interface NewFolderInput {
 }
 
 export async function createNewFolder(input: NewFolderInput): Promise<boolean> {
-  const absPath = `${input.parentAbsPath}/${input.name}`;
-  const rel = relPath(absPath, input.workspaceRootPath);
-  if (rel === absPath) {
-    toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
-      fallback: "This path is outside the workspace.",
-    });
-    return false;
-  }
-
-  try {
-    await ipcCall("fs", "mkdir", {
-      workspaceId: input.workspaceId,
-      relPath: rel,
-    });
-  } catch (e: unknown) {
-    toFsToast(e, {
+  return runFsMutation({
+    ...input,
+    ipcAction: (_abs, rel) =>
+      ipcCall("fs", "mkdir", { workspaceId: input.workspaceId, relPath: rel }),
+    errorMessages: {
       fallback: "Couldn't create folder.",
       alreadyExists: "A file or folder with that name already exists.",
-    });
-    return false;
-  }
-
-  // See createNewFile: loadChildren merges the new entry into the
-  // existing tree without disturbing already-loaded sub-trees.
-  await loadChildren(input.workspaceId, input.parentAbsPath);
-  return true;
+    },
+  });
 }

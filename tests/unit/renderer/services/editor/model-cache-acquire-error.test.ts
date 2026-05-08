@@ -27,16 +27,16 @@ function makeEntry(input: ExternalInput, loadPromise: Promise<void> = Promise.re
 }
 
 const realLoadExternalEntry = await import(
-  "../../../../../src/renderer/services/editor/load-external-entry"
+  "../../../../../src/renderer/services/editor/model/load-external-entry"
 );
 const loadExternalEntryMock = mock(async (input: ExternalInput) => makeEntry(input));
-mock.module("../../../../../src/renderer/services/editor/load-external-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/load-external-entry", () => ({
   ...realLoadExternalEntry,
   loadExternalEntry: loadExternalEntryMock,
 }));
 
 const { acquireModel, getModelSnapshot, releaseModel } = await import(
-  "../../../../../src/renderer/services/editor/model-cache"
+  "../../../../../src/renderer/services/editor/model/model-cache"
 );
 
 beforeEach(() => {

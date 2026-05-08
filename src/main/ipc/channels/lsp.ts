@@ -12,7 +12,7 @@ import type {
   HoverResult,
   Location,
   SymbolInformation,
-} from "../../../shared/lsp-types";
+} from "../../../shared/lsp";
 import { PendingRequestMap } from "../../../shared/pending-request-map";
 import type { LspHostHandle } from "../../hosts/lsp-host";
 import { broadcast, type CallContext, register, validateArgs } from "../router";

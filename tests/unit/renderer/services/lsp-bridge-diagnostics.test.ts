@@ -5,8 +5,8 @@ import {
   lspDiagnosticToMonacoMarker,
   monacoContentChangesToLsp,
   tokenToAbortSignal,
-} from "../../../../src/renderer/services/editor/lsp-bridge";
-import type { Diagnostic } from "../../../../src/shared/lsp-types";
+} from "../../../../src/renderer/services/editor/lsp/lsp-bridge";
+import type { Diagnostic } from "../../../../src/shared/lsp";
 
 interface FakeUri {
   readonly raw: string;

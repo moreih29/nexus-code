@@ -14,7 +14,7 @@ import {
   Tag,
   Variable,
 } from "lucide-react";
-import type { SymbolKind } from "../../../../shared/lsp-types";
+import type { SymbolKind } from "../../../../shared/lsp";
 
 const SYMBOL_ICON_BY_KIND: Partial<Record<SymbolKind, LucideIcon>> = {
   2: Package,

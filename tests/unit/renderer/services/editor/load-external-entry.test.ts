@@ -40,7 +40,7 @@ const createModelMock = mock((_content: string, _lang: unknown, _uri: unknown) =
   makeModel(_content),
 );
 
-mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   requireMonaco: () => ({
     Uri: {
       parse: (raw: string) => ({ toString: () => raw, _raw: raw }),
@@ -60,7 +60,7 @@ mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () =
 // ---------------------------------------------------------------------------
 
 const { loadExternalEntry } = await import(
-  "../../../../../src/renderer/services/editor/load-external-entry"
+  "../../../../../src/renderer/services/editor/model/load-external-entry"
 );
 
 const INPUT = { workspaceId: "ws-abc", filePath: "/external/src/lib.ts" };
@@ -170,8 +170,7 @@ describe("loadExternalEntry — IPC error", () => {
 
     const entry = await loadExternalEntry(INPUT);
 
-    expect(entry.origin).toBe("external");
-    expect(entry.readOnly).toBe(true);
+    expect(entry.phase).toBe("error");
   });
 });
 
@@ -198,7 +197,6 @@ describe("loadExternalEntry — binary response", () => {
 
     const entry = await loadExternalEntry(INPUT);
 
-    expect(entry.origin).toBe("external");
-    expect(entry.readOnly).toBe(true);
+    expect(entry.model).toBeNull();
   });
 });

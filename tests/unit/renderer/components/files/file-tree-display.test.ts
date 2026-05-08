@@ -3,7 +3,7 @@
  * "pending create" sentinel row at the right depth/position.
  */
 import { describe, expect, it } from "bun:test";
-import { getDisplayFlat } from "../../../../../src/renderer/components/files/file-tree-display";
+import { getDisplayFlat } from "../../../../../src/renderer/components/files/file-tree/file-tree-display";
 import type { FlatItem, TreeNode } from "../../../../../src/renderer/state/stores/files";
 
 function dirNode(name: string): TreeNode {

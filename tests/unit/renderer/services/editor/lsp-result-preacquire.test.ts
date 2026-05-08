@@ -28,11 +28,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { PEEK_PREACQUIRE_HOLD_MS, preAcquireLocationModels } = await import(
-  "../../../../../src/renderer/services/editor/lsp-result-preacquire"
+  "../../../../../src/renderer/services/editor/lsp/lsp-result-preacquire"
 );
 
-import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp-result-preacquire";
-import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model-cache";
+import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp/lsp-result-preacquire";
+import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model/model-cache";
 
 const SOURCE_URI = "file:///workspace/src/main.ts";
 const SOURCE_META: EntryMetadata = {
@@ -53,6 +53,7 @@ let acquireMock: ReturnType<typeof mock>;
 let releaseMock: ReturnType<typeof mock>;
 let getEntryMetadataMock: ReturnType<typeof mock>;
 let workspaceRootMock: ReturnType<typeof mock>;
+let cacheUriToFilePathMock: ReturnType<typeof mock>;
 let deps: PreAcquireDeps;
 
 beforeEach(() => {
@@ -62,11 +63,18 @@ beforeEach(() => {
   releaseMock = mock((_input: unknown) => {});
   getEntryMetadataMock = mock((_uri: string) => SOURCE_META as EntryMetadata | null);
   workspaceRootMock = mock((_id: string) => "/workspace" as string | null);
+  // Default: strip the "file://" scheme to derive a file path (mirrors
+  // model-cache.cacheUriToFilePath behaviour for file:// URIs).
+  cacheUriToFilePathMock = mock((uri: string) => {
+    if (uri.startsWith("file://")) return uri.slice("file://".length);
+    return null;
+  });
   deps = {
     acquireModel: acquireMock as unknown as PreAcquireDeps["acquireModel"],
     releaseModel: releaseMock as unknown as PreAcquireDeps["releaseModel"],
     getEntryMetadata: getEntryMetadataMock as unknown as PreAcquireDeps["getEntryMetadata"],
     workspaceRootForId: workspaceRootMock as unknown as PreAcquireDeps["workspaceRootForId"],
+    cacheUriToFilePath: cacheUriToFilePathMock as unknown as PreAcquireDeps["cacheUriToFilePath"],
   };
 });
 

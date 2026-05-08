@@ -20,7 +20,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { openExternalEditor } from "../../../../../src/renderer/services/editor/open-editor";
+import { openExternalEditor } from "../../../../../src/renderer/services/editor/tabs/open-editor";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
@@ -38,7 +38,10 @@ function tabsFor(workspaceId: string) {
 describe("openExternalEditor", () => {
   beforeEach(resetStores);
 
-  it("creates a tab with origin=external and readOnly=true", () => {
+  // merged from 3 separate tests per audit IMPORTANT-4
+  it("creates external read-only tab with isPreview=true and initialized layout", () => {
+    expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
+
     const location = openExternalEditor({ workspaceId: WS, filePath: "/external/lib/util.py" });
 
     expect(location.tabId).toBeDefined();
@@ -54,28 +57,32 @@ describe("openExternalEditor", () => {
       expect(tab.props.filePath).toBe("/external/lib/util.py");
       expect(tab.props.workspaceId).toBe(WS);
     }
-  });
-
-  it("creates the tab as isPreview=true", () => {
-    openExternalEditor({ workspaceId: WS, filePath: "/external/lib/util.py" });
-
-    const tabs = tabsFor(WS);
-    expect(tabs).toHaveLength(1);
     expect(tabs[0]?.isPreview).toBe(true);
-  });
-
-  it("returns tabId matching the created tab", () => {
-    const location = openExternalEditor({ workspaceId: WS, filePath: "/external/a.ts" });
-
-    const tabs = tabsFor(WS);
-    expect(tabs[0]?.id).toBe(location.tabId);
-  });
-
-  it("initializes the workspace layout when none exists", () => {
-    expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
-
-    openExternalEditor({ workspaceId: WS, filePath: "/external/a.ts" });
 
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
+  });
+
+  // Documents the dedup contract per audit recommendation: openExternalEditor
+  // delegates to openEditorTab which does NOT dedup by filePath. Two calls
+  // with the same filePath create two distinct tabs. Callers that want
+  // dedup-and-reveal should use openOrRevealEditor instead.
+  it("does NOT dedup — two calls with same filePath create two distinct tabs", () => {
+    const FILE = "/external/lib/util.py";
+
+    const first = openExternalEditor({ workspaceId: WS, filePath: FILE });
+    const second = openExternalEditor({ workspaceId: WS, filePath: FILE });
+
+    expect(first.tabId).not.toBe(second.tabId);
+
+    const tabs = tabsFor(WS);
+    expect(tabs).toHaveLength(2);
+    for (const tab of tabs) {
+      expect(tab?.type).toBe("editor");
+      if (tab?.type === "editor") {
+        expect(tab.props.filePath).toBe(FILE);
+        expect(tab.props.origin).toBe("external");
+        expect(tab.props.readOnly).toBe(true);
+      }
+    }
   });
 });

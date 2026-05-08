@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Bun mock.module is process-global. Spread real exports so other editor/*
 // test files see the full module surface after this file runs.
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
 
 const cleanupEntry = mock((_entry: unknown) => {});
 
-mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   fetchDocumentSymbols: mock(() => Promise.resolve([])),
@@ -16,7 +16,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
   notifyDidSave: () => Promise.resolve(),
 }));
 
-mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({
   cleanupEntry,
   createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) => ({
     input,
@@ -37,14 +37,14 @@ mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
   }),
 }));
 
-mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   initializeMonacoSingleton: () => {},
   isMonacoReady: () => true,
   onMonacoReady: () => () => {},
 }));
 
 const { acquireModel, releaseModel, subscribeOnRelease } = await import(
-  "../../../../../src/renderer/services/editor/model-cache"
+  "../../../../../src/renderer/services/editor/model/model-cache"
 );
 
 const INPUT = { workspaceId: "ws-a", filePath: "/workspace/src/a.ts" };

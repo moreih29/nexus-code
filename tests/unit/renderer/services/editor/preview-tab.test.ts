@@ -23,7 +23,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { closeEditor, openOrRevealEditor } from "../../../../../src/renderer/services/editor";
+import { openOrRevealEditor } from "../../../../../src/renderer/services/editor";
+import { closeEditor } from "../../../../../src/renderer/services/editor/tabs/open-editor";
 import type { EditorInput } from "../../../../../src/renderer/services/editor/types";
 import { moveTabToZone } from "../../../../../src/renderer/state/operations/dnd";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";

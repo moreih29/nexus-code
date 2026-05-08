@@ -13,7 +13,7 @@ import {
   type DirtyTransitionListener,
   subscribeAllDirtyTransitions,
   subscribeAllSaved,
-} from "../../services/editor/dirty-tracker";
+} from "../../services/editor/model/dirty-tracker";
 import type { SubscribeOnModelRelease } from "./outline";
 import { useOutlineStore } from "./outline";
 

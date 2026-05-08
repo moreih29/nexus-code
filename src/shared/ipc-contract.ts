@@ -17,7 +17,7 @@ import {
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
-} from "./lsp-types";
+} from "./lsp";
 import { AppStateSchema } from "./types/app-state";
 import { ColorToneSchema } from "./types/color-tone";
 import {

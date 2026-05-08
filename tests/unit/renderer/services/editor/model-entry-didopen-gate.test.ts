@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { ModelEntryDeps } from "../../../../../src/renderer/services/editor/model-entry";
+import type { ModelEntryDeps } from "../../../../../src/renderer/services/editor/model/model-entry";
 
 type Change = { text: string };
 
@@ -37,7 +37,7 @@ function makeFakeModel() {
 }
 
 const { cleanupEntry, createEntry } = await import(
-  "../../../../../src/renderer/services/editor/model-entry.ts?didopen-gate"
+  "../../../../../src/renderer/services/editor/model/model-entry.ts?didopen-gate"
 );
 
 function makeHarness(

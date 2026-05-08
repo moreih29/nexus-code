@@ -12,7 +12,7 @@ import {
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../shared/lsp-config";
-import type { Registration } from "../../shared/lsp-types";
+import type { Registration } from "../../shared/lsp";
 import { PendingRequestMap } from "../../shared/pending-request-map";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
 import {
@@ -455,7 +455,9 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
       this.workspaceRoots.delete(workspaceId);
     }
 
-    this.removeUriIndexEntriesForAdapter(workspaceId, presetLanguageId);
+    this.removeUriIndexEntriesWhere(
+      (e) => e.workspaceId === workspaceId && e.presetLanguageId === presetLanguageId,
+    );
   }
 
   private shutdownWorkspace(workspaceId: string): void {
@@ -464,7 +466,7 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
       this.configurationStore.delete(workspaceId);
       this.watchedFileRegistrations.delete(workspaceId);
       this.workspaceRoots.delete(workspaceId);
-      this.removeUriIndexEntriesForWorkspace(workspaceId);
+      this.removeUriIndexEntriesWhere((e) => e.workspaceId === workspaceId);
       return;
     }
 
@@ -476,20 +478,12 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
     this.configurationStore.delete(workspaceId);
     this.watchedFileRegistrations.delete(workspaceId);
     this.workspaceRoots.delete(workspaceId);
-    this.removeUriIndexEntriesForWorkspace(workspaceId);
+    this.removeUriIndexEntriesWhere((e) => e.workspaceId === workspaceId);
   }
 
-  private removeUriIndexEntriesForAdapter(workspaceId: string, presetLanguageId: string): void {
+  private removeUriIndexEntriesWhere(predicate: (entry: UriIndexEntry) => boolean): void {
     for (const [uri, entry] of this.uriIndex) {
-      if (entry.workspaceId === workspaceId && entry.presetLanguageId === presetLanguageId) {
-        this.uriIndex.delete(uri);
-      }
-    }
-  }
-
-  private removeUriIndexEntriesForWorkspace(workspaceId: string): void {
-    for (const [uri, entry] of this.uriIndex) {
-      if (entry.workspaceId === workspaceId) {
+      if (predicate(entry)) {
         this.uriIndex.delete(uri);
       }
     }

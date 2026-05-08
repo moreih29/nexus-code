@@ -18,7 +18,7 @@ import {
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
-} from "../../shared/lsp-types";
+} from "../../shared/lsp";
 import { FsChangeKindSchema } from "../../shared/types/fs";
 import {
   normalizeCompletionResult,

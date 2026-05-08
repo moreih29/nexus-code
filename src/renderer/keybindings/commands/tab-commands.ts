@@ -4,7 +4,9 @@
 
 import { COMMANDS } from "../../../shared/commands";
 import { registerCommand } from "../../commands/registry";
-import { closeEditor, filePathToModelUri, isDirty } from "../../services/editor";
+import { isDirty } from "../../services/editor/model/dirty-tracker";
+import { filePathToModelUri } from "../../services/editor/model/model-cache";
+import { closeEditor } from "../../services/editor/tabs/open-editor";
 import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "./context";
 

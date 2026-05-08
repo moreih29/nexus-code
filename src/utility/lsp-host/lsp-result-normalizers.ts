@@ -13,7 +13,7 @@ import {
   RangeSchema,
   SymbolInformationSchema,
   TextDocumentIdentifierSchema,
-} from "../../shared/lsp-types";
+} from "../../shared/lsp";
 
 const PublishDiagnosticsParamsSchema = z.object({
   uri: TextDocumentIdentifierSchema.shape.uri,

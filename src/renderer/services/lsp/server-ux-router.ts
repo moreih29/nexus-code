@@ -7,7 +7,7 @@ import {
   ShowMessageRequestParamsSchema,
   WorkDoneProgressCreateParamsSchema,
   WorkDoneProgressValueSchema,
-} from "../../../shared/lsp-types";
+} from "../../../shared/lsp";
 import { ipcListen } from "../../ipc/client";
 
 type ConsoleWriter = (message?: unknown, ...optionalParams: unknown[]) => void;

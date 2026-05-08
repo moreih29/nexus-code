@@ -17,7 +17,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 
 const { initializeEditorServices } = await import("../../../../src/renderer/services/editor");
 const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME, buildEditorColors } = await import(
-  "../../../../src/renderer/services/editor/monaco-theme"
+  "../../../../src/renderer/services/editor/runtime/monaco-theme"
 );
 
 interface ThemeCall {

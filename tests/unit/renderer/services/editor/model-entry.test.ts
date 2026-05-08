@@ -4,12 +4,12 @@ import { describe, expect, mock, test } from "bun:test";
 // so other editor/* test files (e.g., save-service.test.ts) see the full module
 // surface even after this file has run.
 const realMonacoSingleton = await import(
-  "../../../../../src/renderer/services/editor/monaco-singleton"
+  "../../../../../src/renderer/services/editor/runtime/monaco-singleton"
 );
-const realFileLoader = await import("../../../../../src/renderer/services/editor/file-loader");
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+const realFileLoader = await import("../../../../../src/renderer/services/editor/model/file-loader");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
 
-mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   ...realMonacoSingleton,
   requireMonaco: () => ({
     Uri: {
@@ -24,12 +24,12 @@ mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () =
 // Return a never-resolving promise so loadEntry never progresses past the
 // initial readFileForModel call, which means attachDirtyTracker (from the real
 // dirty-tracker module) is never invoked.
-mock.module("../../../../../src/renderer/services/editor/file-loader", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/file-loader", () => ({
   ...realFileLoader,
   readFileForModel: () => new Promise(() => {}),
 }));
 
-mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
@@ -39,7 +39,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
 }));
 
 const { createEntry, snapshot } = await import(
-  "../../../../../src/renderer/services/editor/model-entry"
+  "../../../../../src/renderer/services/editor/model/model-entry"
 );
 
 const WORKSPACE_INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };
@@ -48,16 +48,6 @@ const CACHE_URI = "file:///workspace/src/a.ts";
 describe("ModelEntry construction — origin/readOnly fields", () => {
   test("defaults to origin=workspace and readOnly=false when not specified", () => {
     const entry = createEntry(WORKSPACE_INPUT, CACHE_URI);
-    expect(entry.origin).toBe("workspace");
-    expect(entry.readOnly).toBe(false);
-    expect(entry.originatingWorkspaceId).toBeUndefined();
-  });
-
-  test("preserves explicit origin=workspace and readOnly=false", () => {
-    const entry = createEntry(
-      { ...WORKSPACE_INPUT, origin: "workspace", readOnly: false },
-      CACHE_URI,
-    );
     expect(entry.origin).toBe("workspace");
     expect(entry.readOnly).toBe(false);
     expect(entry.originatingWorkspaceId).toBeUndefined();

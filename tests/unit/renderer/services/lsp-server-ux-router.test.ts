@@ -4,7 +4,7 @@ import {
   getWorkDoneProgressState,
   routeLspServerEvent,
 } from "../../../../src/renderer/services/lsp/server-ux-router";
-import type { LspServerEvent } from "../../../../src/shared/lsp-types";
+import type { LspServerEvent } from "../../../../src/shared/lsp";
 
 const originalConsole = {
   error: console.error,

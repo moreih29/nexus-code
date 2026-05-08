@@ -10,7 +10,7 @@ import {
   currentSymbolId,
   reduceOutlineKeyboard,
 } from "../../../../../src/renderer/components/lsp/outline/outline-tree";
-import type { DocumentSymbol } from "../../../../../src/shared/lsp-types";
+import type { DocumentSymbol } from "../../../../../src/shared/lsp";
 
 function loadDocumentSymbolFixture(): DocumentSymbol[] {
   const fixturePath = join(
