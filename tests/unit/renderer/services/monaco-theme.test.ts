@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
-import { color } from "../../../../src/shared/design-tokens";
+import { nexusDarkPalette } from "../../../../src/shared/editor-palette";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -16,7 +16,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { initializeEditorServices } = await import("../../../../src/renderer/services/editor");
-const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME, NEXUS_DARK_THEME_COLORS } = await import(
+const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME, buildEditorColors } = await import(
   "../../../../src/renderer/services/editor/monaco-theme"
 );
 
@@ -78,15 +78,14 @@ describe("nexus-dark Monaco theme — two distinct instances are tracked indepen
     expect(monacoB.__defineTheme).toHaveBeenCalledTimes(1);
   });
 
-  test("NEXUS_DARK_THEME_COLORS reference values match color tokens exactly", () => {
-    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightBackground"]).toBe(
-      color.editorWordHighlight,
+  test("buildEditorColors reference values match editor palette exactly", () => {
+    const colors = buildEditorColors(nexusDarkPalette);
+    expect(colors["editor.wordHighlightBackground"]).toBe(nexusDarkPalette.wordHighlightBackground);
+    expect(colors["editor.wordHighlightStrongBackground"]).toBe(
+      nexusDarkPalette.wordHighlightStrongBackground,
     );
-    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightStrongBackground"]).toBe(
-      color.editorWordHighlightStrong,
-    );
-    expect(NEXUS_DARK_THEME_COLORS["editor.wordHighlightTextBackground"]).toBe(
-      color.editorWordHighlightText,
+    expect(colors["editor.wordHighlightTextBackground"]).toBe(
+      nexusDarkPalette.wordHighlightTextBackground,
     );
   });
 });
@@ -106,10 +105,10 @@ describe("nexus-dark Monaco theme", () => {
       inherit: true,
       rules: [],
     });
-    expect(monaco.__themeCalls[0]?.theme.colors).toEqual({
-      "editor.wordHighlightBackground": color.editorWordHighlight,
-      "editor.wordHighlightStrongBackground": color.editorWordHighlightStrong,
-      "editor.wordHighlightTextBackground": color.editorWordHighlightText,
+    expect(monaco.__themeCalls[0]?.theme.colors).toMatchObject({
+      "editor.wordHighlightBackground": nexusDarkPalette.wordHighlightBackground,
+      "editor.wordHighlightStrongBackground": nexusDarkPalette.wordHighlightStrongBackground,
+      "editor.wordHighlightTextBackground": nexusDarkPalette.wordHighlightTextBackground,
     });
   });
 
@@ -121,5 +120,128 @@ describe("nexus-dark Monaco theme", () => {
 
     expect(monaco.__defineTheme).toHaveBeenCalledTimes(1);
     expect(monaco.__themeCalls.map((call) => call.name)).toEqual([NEXUS_DARK_THEME_NAME]);
+  });
+});
+
+describe("buildEditorColors — mapper", () => {
+  test("1:1 palette key preservation — no derivation", () => {
+    const altPalette = {
+      wordHighlightBackground: "test:wordHighlightBackground",
+      wordHighlightStrongBackground: "test:wordHighlightStrongBackground",
+      wordHighlightTextBackground: "test:wordHighlightTextBackground",
+      findRangeHighlightBackground: "test:findRangeHighlightBackground",
+      findMatchHighlightBackground: "test:findMatchHighlightBackground",
+      findMatchBackground: "test:findMatchBackground",
+      peekViewBorder: "test:peekViewBorder",
+      peekViewEditorMatchHighlightBackground: "test:peekViewEditorMatchHighlightBackground",
+      peekViewResultMatchHighlightBackground: "test:peekViewResultMatchHighlightBackground",
+      peekViewResultBackground: "test:peekViewResultBackground",
+      linkForeground: "test:linkForeground",
+      linkActiveForeground: "test:linkActiveForeground",
+      selectionBackground: "test:selectionBackground",
+      inactiveSelectionBackground: "test:inactiveSelectionBackground",
+      selectionHighlightBackground: "test:selectionHighlightBackground",
+      hoverWidgetBackground: "test:hoverWidgetBackground",
+      hoverWidgetBorder: "test:hoverWidgetBorder",
+      editorWidgetBackground: "test:editorWidgetBackground",
+      editorWidgetBorder: "test:editorWidgetBorder",
+      errorForeground: "test:errorForeground",
+      warningForeground: "test:warningForeground",
+      infoForeground: "test:infoForeground",
+      hintForeground: "test:hintForeground",
+      errorBackground: "test:errorBackground",
+      warningBackground: "test:warningBackground",
+      infoBackground: "test:infoBackground",
+      hintBackground: "test:hintBackground",
+    };
+
+    const result = buildEditorColors(altPalette);
+
+    expect(result["editor.wordHighlightBackground"]).toBe(altPalette.wordHighlightBackground);
+    expect(result["editor.wordHighlightStrongBackground"]).toBe(
+      altPalette.wordHighlightStrongBackground,
+    );
+    expect(result["editor.wordHighlightTextBackground"]).toBe(
+      altPalette.wordHighlightTextBackground,
+    );
+    expect(result["editor.findRangeHighlightBackground"]).toBe(
+      altPalette.findRangeHighlightBackground,
+    );
+    expect(result["editor.findMatchHighlightBackground"]).toBe(
+      altPalette.findMatchHighlightBackground,
+    );
+    expect(result["editor.findMatchBackground"]).toBe(altPalette.findMatchBackground);
+    expect(result["peekView.border"]).toBe(altPalette.peekViewBorder);
+    expect(result["peekViewEditor.matchHighlightBackground"]).toBe(
+      altPalette.peekViewEditorMatchHighlightBackground,
+    );
+    expect(result["peekViewResult.matchHighlightBackground"]).toBe(
+      altPalette.peekViewResultMatchHighlightBackground,
+    );
+    expect(result["peekViewResult.background"]).toBe(altPalette.peekViewResultBackground);
+    expect(result["editorLink.activeForeground"]).toBe(altPalette.linkActiveForeground);
+    expect(result["editor.selectionBackground"]).toBe(altPalette.selectionBackground);
+    expect(result["editor.inactiveSelectionBackground"]).toBe(
+      altPalette.inactiveSelectionBackground,
+    );
+    expect(result["editor.selectionHighlightBackground"]).toBe(
+      altPalette.selectionHighlightBackground,
+    );
+    expect(result["editorHoverWidget.background"]).toBe(altPalette.hoverWidgetBackground);
+    expect(result["editorHoverWidget.border"]).toBe(altPalette.hoverWidgetBorder);
+    expect(result["editorWidget.background"]).toBe(altPalette.editorWidgetBackground);
+    expect(result["editorWidget.border"]).toBe(altPalette.editorWidgetBorder);
+    expect(result["editorError.foreground"]).toBe(altPalette.errorForeground);
+    expect(result["editorWarning.foreground"]).toBe(altPalette.warningForeground);
+    expect(result["editorInfo.foreground"]).toBe(altPalette.infoForeground);
+    expect(result["editorHint.foreground"]).toBe(altPalette.hintForeground);
+    expect(result["editorError.background"]).toBe(altPalette.errorBackground);
+    expect(result["editorWarning.background"]).toBe(altPalette.warningBackground);
+    expect(result["editorInfo.background"]).toBe(altPalette.infoBackground);
+    expect(result["editorHint.background"]).toBe(altPalette.hintBackground);
+  });
+
+  test("monaco token coverage — all expected keys present", () => {
+    const result = buildEditorColors(nexusDarkPalette);
+    const expectedKeys = [
+      "editor.findMatchBackground",
+      "editor.findMatchHighlightBackground",
+      "editor.findRangeHighlightBackground",
+      "editor.inactiveSelectionBackground",
+      "editor.selectionBackground",
+      "editor.selectionHighlightBackground",
+      "editor.wordHighlightBackground",
+      "editor.wordHighlightStrongBackground",
+      "editor.wordHighlightTextBackground",
+      "editorError.background",
+      "editorError.foreground",
+      "editorHint.background",
+      "editorHint.foreground",
+      "editorHoverWidget.background",
+      "editorHoverWidget.border",
+      "editorInfo.background",
+      "editorInfo.foreground",
+      "editorLink.activeForeground",
+      "editorWarning.background",
+      "editorWarning.foreground",
+      "editorWidget.background",
+      "editorWidget.border",
+      "peekView.border",
+      "peekViewEditor.matchHighlightBackground",
+      "peekViewResult.background",
+      "peekViewResult.matchHighlightBackground",
+    ];
+    expect(Object.keys(result).sort()).toEqual(expectedKeys.sort());
+  });
+
+  test("values from real dark palette match nexusDarkPalette", () => {
+    const result = buildEditorColors(nexusDarkPalette);
+
+    expect(result["editor.findMatchBackground"]).toBe(nexusDarkPalette.findMatchBackground);
+    expect(result["peekView.border"]).toBe(nexusDarkPalette.peekViewBorder);
+    expect(result["editorLink.activeForeground"]).toBe(nexusDarkPalette.linkActiveForeground);
+    expect(result["editor.selectionBackground"]).toBe(nexusDarkPalette.selectionBackground);
+    expect(result["editorError.foreground"]).toBe(nexusDarkPalette.errorForeground);
+    expect(result["editorHoverWidget.background"]).toBe(nexusDarkPalette.hoverWidgetBackground);
   });
 });

@@ -5571,6 +5571,118 @@
           "created_at": "2026-05-08T00:56:23.517Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-08T03:39:33.596Z",
+      "branch": "feat/monaco-theme-system",
+      "plan": {
+        "id": 22,
+        "topic": "Monaco editor theme system — connect design tokens to monaco's color registry",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Scope: coverage breadth and future-flexibility commitments for this cycle",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends (b2, d2) — selective coverage of ~25-40 \"loud-conflict\" tokens (find match, peek, link, error/warning, selection, hover border) + EditorPalette interface with single dark implementation. Justification: (b1) exhaustive wastes cycle on already-monochrome tokens (gutter, scrollbar); (b3) layered defers visible conflicts; (d2) is near-zero extra cost (one type + one mapper) vs full rewrite cost if light theme is ever needed. monaco's `editor.setTheme(name)` is sufficient for second-theme registration later. Three user-decision items flagged: (1) light theme intent — answer now or accept full re-audit cost later, especially because alpha-on-parchment tiers don't invert cleanly to alpha-on-charcoal; (2) confirm \"loud conflicts\" list matches user visual priority (gutter/minimap polish in or out?); (3) diff editor in-scope this cycle? vs-dark diff colors red/green violate design.md but only matter when diff view ships.",
+                "recorded_at": "2026-05-08T03:14:34.186Z",
+                "agent_id": "a0a510f151a13f366"
+              }
+            ],
+            "decision": "Scope (B + D):\n- Coverage 이번 사이클: monaco의 ~250개 토큰 중 design.md \"monochromatic warm grays\" 규칙과 시각적으로 충돌하는 ~25-40개(\"loud conflicts\")만 override. 포함: find/match/range, peek (3 영역), editorLink, editorError/Warning/Info/Hint, selection, hoverWidget border, editorWidget border. 제외(이번 사이클): gutter, scrollbar, minimap, indent guide, bracket pair guides, inlay hints, snippet, diff editor.\n- Future flexibility: `EditorPalette` semantic-key 인터페이스 + `buildEditorColors(palette: EditorPalette): Monaco.editor.IColors` thin 1:1 mapper. 매퍼에 derivation 로직 금지(라이트/colorful/custom 등 미래 N개 테마가 palette 객체 supply만으로 동작 가능). 이번 cycle은 다크 palette 1개만 구현.\n- Diff editor 토큰은 git diff UI 도입 cycle로 deferred — 현재 visual surface 부재로 검증 불가능 + 그때 인터페이스 확장만으로 추가 가능.\n- 제외된 그룹들(gutter/scrollbar/minimap/indent/bracket/inlay/snippet)도 인터페이스 확장으로 미래 추가 가능 — 톤 어긋남이 사용자 시각에 거슬리는 시점에 별도 cycle.\nRejected: (b1) exhaustive overkill, (b3) layered defers visible conflicts, (d3) dual-theme skeleton speculative without designer input. Architect agent_id a0a510f151a13f366 분석 기반."
+          },
+          {
+            "id": 2,
+            "title": "Source-of-truth location and file organization for the editor palette",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends (a2, e1): EditorPalette interface + nexusDarkPalette const in new `src/shared/editor-palette.ts`; mapper + initializer stay in single-file `src/renderer/services/editor/monaco-theme.ts`. Rationale: a2 mirrors `design-tokens-marketing.ts` / `design-tokens-fonts.ts` precedent, prevents monaco type leakage into shared/, keeps chrome and editor concerns split. e1 matches the one-file-per-concern convention of all 24 sibling files in services/editor/; mapper+init are tightly coupled and ~120 LoC stays manageable. Rejected: a1 bloats design-tokens.ts and mixes concerns; a3 misplaces raw-color SoT outside shared/; e2 (folder) is premature with no other service using folder shape; e3 (grouped sub-records) imposes structure on consumer, belongs in palette file if anywhere. Migration note: move existing 3 `editorWordHighlight*` keys from design-tokens.ts color object into nexusDarkPalette to avoid two SoTs. Sub-decisions flagged: future per-theme file split (defer until N≥2), design-tokens.ts rename (cosmetic, out of scope), exact key naming convention (Lead/Designer in Issue #3).",
+                "recorded_at": "2026-05-08T03:19:34.943Z",
+                "agent_id": "a7e1a5748566acc94"
+              }
+            ],
+            "decision": "SoT & 파일 구조 (A + E):\n- `src/shared/editor-palette.ts` 신설: `EditorPalette` 인터페이스 + `nexusDarkPalette` const + (선택) future palette consts. 기존 `design-tokens-marketing.ts` / `design-tokens-fonts.ts` split 컨벤션 동형.\n- `src/renderer/services/editor/monaco-theme.ts` 단일 파일 유지: `buildEditorColors(palette: EditorPalette): Monaco.editor.IColors` mapper + `initializeMonacoTheme(monaco)` initializer. 예상 ~120 LoC.\n- 의존 방향: `editor-palette.ts` ← imports raw colors from `design-tokens.ts`; `monaco-theme.ts` ← imports `editor-palette.ts` + monaco types. monaco 타입 shared/ 미오염.\n- Migration: 기존 `design-tokens.ts` `color.editorWordHighlight*` 3개 키를 `nexusDarkPalette`로 이동. design-tokens.ts 상단 sync 주석을 양쪽 파일 가리키도록 갱신.\n- palette 키 명명 규칙은 Issue #3에서 designer 매핑과 함께 결정 (defer).\n- Rejected: (a1) chrome+editor 섞임 컨벤션 위반, (a3) shared/ raw-color SoT 패턴 위반, (e2) 폴더화 premature, (e3) consumer-side grouping은 producer-side에서 결정할 일.\nArchitect agent_id a7e1a5748566acc94 분석 기반."
+          },
+          {
+            "id": 3,
+            "title": "Semantic mapping from our design palette to monaco editor roles",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Naming: camelCase flat (mirrors monaco's dot-namespaced keys without traversal cost; grep/autocomplete friendly). Proposes ~25 EditorPalette keys mapped to existing design-tokens or new alpha tiers on warmParchment. Implied tier ladder (alpha on warmParchment): 0.04 (text/word) → 0.06 (occurrence/highlight) → 0.08 (error line bg, NEW) → 0.12 (strong word) → 0.16 (selection, NEW) → 0.18 (find match, NEW) → 0.20 (peek match, NEW). Existing tokens reused: editorWordHighlight*, mistBorder/Focus, frostedVeil/Strong, mutedSurface, ashGray, stoneGray, warmParchment. New alpha tiers introduced: 0.05, 0.08, 0.16, 0.18, 0.20 plus ashGray-alpha-0.5 for hint. Diagnostic hierarchy strategy: s2 (dual-axis — underline style + alpha) with wavy underline for error/warning and dotted for info/hint, leveraging monaco's errorBorder/warningBorder/infoBorder tokens. Rejected: s1 (pure alpha) fails WCAG 1.4.1 — error vs warning becomes ambiguous at glance; s3 (desaturated tints) violates design.md \"no red/green/blue\" mandate explicitly. Tradeoff flagged: at <13px font sizes wavy/dotted distinction degrades — mitigation is keeping monaco's gutter severity icons enabled as third channel. Escalation suggestion: if real-world usage shows error/warning confusion despite s2, treat as design.md amendment (not silent drift).",
+                "recorded_at": "2026-05-08T03:21:53.047Z",
+                "agent_id": "a95875e91c24021a4"
+              }
+            ],
+            "decision": "Semantic mapping (camelCase flat naming + ~25 EditorPalette keys + diagnostic strategy):\n\n**Naming convention**: camelCase flat (e.g. `findMatchBackground`, `peekViewBorder`). monaco의 토큰명이 이미 dot-namespaced이므로 nested 객체가 추가 가치 없음. grep/autocomplete 친화.\n\n**EditorPalette 키 그룹** (designer agent_id a95875e91c24021a4 매핑 채택, Lead β 단순화 1건 적용):\n- word highlight (3, 기존 마이그레이션): wordHighlightTextBackground α0.04 / wordHighlightBackground α0.06 / wordHighlightStrongBackground α0.12 — 모두 warmParchment alpha\n- find/match (3): findRangeHighlightBackground = frostedVeil(α0.04 white) / findMatchHighlightBackground = warmParchment α0.06 / findMatchBackground = warmParchment α**0.20**\n- peek (4): peekViewBorder = mistBorderFocus / peekViewEditorMatchHighlightBackground = warmParchment α**0.20** / peekViewResultMatchHighlightBackground = warmParchment α0.12 / peekViewResultBackground = mutedSurfaceHex\n- link (2): linkForeground = ashGray / linkActiveForeground = warmParchment (Cmd+hover 시 luminance lift만, 색상 hue 변경 없음 — designer 통합 매핑 채택)\n- selection (3): selectionBackground = warmParchment α**0.16** / inactiveSelectionBackground = frostedVeilStrong α0.10 / selectionHighlightBackground = warmParchment α0.06\n- widget surfaces (4): hoverWidgetBackground = mutedSurfaceHex / hoverWidgetBorder = mistBorder / editorWidgetBackground = mutedSurfaceHex / editorWidgetBorder = mistBorderFocus\n- diagnostic (8): errorForeground = warmParchment α1.0 + wavy / warningForeground = warmParchment α0.75 + wavy / infoForeground = stoneGray + dotted / hintForeground = ashGray α0.5 + dotted / errorBackground = warmParchment α0.08 / warningBackground = warmParchment α0.05 / infoBackground = transparent / hintBackground = transparent\n\n**Alpha tier ladder (highlight 강도)** — Lead β 채택: 0.04 / 0.06 / 0.08 / 0.12 / 0.16 / 0.20. designer 원안의 0.18(find)을 0.20으로 통합하여 인접 tier 간 ~10% 대비 확보 + 사다리 단순화. 0.05 (warningBackground)는 진단 전용 narrow exception.\n\n**Diagnostic 계층 전략**: s2 — dual-axis (밑줄 스타일 + alpha). error/warning은 wavy 밑줄, info/hint는 dotted 밑줄로 monaco의 errorBorder/warningBorder/infoBorder/hintBorder 토큰 활용. WCAG 1.4.1(색만으로 정보 전달 금지) 준수 + design.md \"no bold accent colors\" 준수. <13px 폰트에서 wavy/dotted 변별 어려운 점은 monaco 기본 gutter severity 아이콘이 third channel로 보완. 미래 사용에서 error/warning 혼동 심하면 design.md amendment 거쳐 s3(채도 낮춘 색조)로 이행 — silent drift 금지.\n\n**Rejected**:\n- (α) designer 원안 7-tier: 0.18/0.20이 너무 가까워 인접 변별 약함\n- (γ) frostedVeil 4-tier 재사용: selection<find<peek 우선순위 표현 불가 (granularity 부족)\n- (s1) 순수 alpha 단계 진단: WCAG 1.4.1 위반 (error/warning 변별 불가)\n- (s3) 채도 낮춘 색조 진단: design.md 명시 금지(red/green/blue) — design.md amendment 없이 silent 도입 부적절"
+          }
+        ],
+        "research_summary": "Current state: src/renderer/services/editor/monaco-theme.ts overrides 3 tokens (editor.wordHighlight* tiers) and inherits everything else from monaco's vs-dark. vs-dark contains hardcoded saturated colors (find match red #ea5c00-ish, editorLink blue, editorError red, etc.) that violate .nexus/context/design.md's explicit \"almost monochromatic warm grays — NO bold accent colors (blue, red, green)\" rule. design-tokens.ts already has 3 editor-specific entries (editorWordHighlight/Strong/Text) at warmParchment alpha tiers; rest of the 21-color palette is OKLCH warm earth tones (warmParchment, earthGray, stoneGray, ashGray, mistBorder, frostedVeil tiers, mutedSurfaceHex). Monaco's color registry has ~250 tokens organized in ~12 buckets (editor base, gutter, search/find, word highlight, brackets/indent, diagnostics, peek, hover/widget, link, scrollbar/minimap, diff, inlay/snippet). nx_history_search shows no prior decisions on monaco theme integration — greenfield. The recently-merged Plan #21 introduced rejection-sink, lsp-channel cancel handling, and monaco-compensations facade in the same editor service area, so any new theme module fits cleanly under src/renderer/services/editor/.",
+        "created_at": "2026-05-08T03:13:19.387Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Create editor-palette.ts with EditorPalette interface + nexusDarkPalette + migrate existing keys",
+          "status": "completed",
+          "context": "Plan #22 / Issue #2 결정에 따라 `src/shared/editor-palette.ts`를 신설하고 Issue #3에서 정의된 ~25개 EditorPalette 키와 다크 palette 구현을 작성. 동시에 `src/shared/design-tokens.ts`의 `color.editorWordHighlight`, `color.editorWordHighlightStrong`, `color.editorWordHighlightText` 3개 키를 새 파일로 이동. 기존 `design-tokens-marketing.ts` / `design-tokens-fonts.ts`와 동일한 split 컨벤션 따름.",
+          "acceptance": "- `src/shared/editor-palette.ts` 생성됨, `EditorPalette` 인터페이스 export, `nexusDarkPalette` const export\n- 25개 키 모두 Issue #3 결정문의 value와 일치 (직접 비교 가능)\n- `src/shared/design-tokens.ts`의 `color` 객체에 `editorWordHighlight*` 3개 키 부재\n- design-tokens.ts 헤더 sync 주석이 editor-palette.ts를 가리킴\n- `bun run typecheck` PASS\n- `bun run check:ci` PASS  \n- `bun run test` 기존 1227 pass 유지 (회귀 0)\n- monaco-theme.ts가 일시적으로 컴파일 가능 (T2 도착 전 stub 형태로라도)",
+          "approach": "1) `src/shared/editor-palette.ts` 신설:\n   - `EditorPalette` 인터페이스 (camelCase flat 키, ~25개): word highlight 3 + find 3 + peek 4 + link 2 + selection 3 + widget 4 + diagnostic 8\n   - `nexusDarkPalette: EditorPalette` const — Issue #3 결정문의 값 그대로 (warmParchment alpha 사다리 0.04/0.06/0.08/0.12/0.16/0.20 + 0.05 narrow exception for warningBackground; mistBorder/Focus, frostedVeil/Strong, mutedSurfaceHex, ashGray, stoneGray 재사용)\n   - 파일 상단 주석에 \"consumed by src/renderer/services/editor/monaco-theme.ts\" + design.md sync 주석\n2) `src/shared/design-tokens.ts` 마이그레이션:\n   - `color` 객체에서 `editorWordHighlight`, `editorWordHighlightStrong`, `editorWordHighlightText` 3개 라인 제거\n   - 헤더 주석(line 1-14)을 갱신: \"Color palette + ... → in sync with `.nexus/context/design.md`. Editor-specific palette은 `./editor-palette.ts` 참조.\"\n3) 기존 consumer 업데이트: `src/renderer/services/editor/monaco-theme.ts`의 `color.editorWordHighlight*` 참조를 nexusDarkPalette 키로 일시적으로 변경 (T2가 mapper로 정식 정리 — T2 도착 전 빌드 파손 방지용)\n4) typecheck / biome / 기존 테스트 통과 확인",
+          "risk": "- 마이그레이션 시 grep 누락으로 `color.editorWordHighlight*` 참조 남아 빌드 파손 → 작업 전 `grep -rn \"editorWordHighlight\" src/`로 모든 참조 확인 필수\n- monaco-theme.ts가 T1 단독으로는 의미적으로 깨진 상태 (T2 전까지) → 컴파일은 통과시키되 동작은 T2에서 정리",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "af1849e8b6a01c93d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-08T03:26:40.300Z"
+        },
+        {
+          "id": 2,
+          "title": "Refactor monaco-theme.ts with buildEditorColors mapper + diagnostic dual-axis underlines",
+          "status": "completed",
+          "context": "Plan #22 / Issue #1, #2, #3 결정에 따라 `src/renderer/services/editor/monaco-theme.ts`를 thin mapper 패턴으로 재작성. 현재 24 LoC 파일이 ~120 LoC로 확장되며, 25개 EditorPalette 키를 25개 monaco IColors 키로 1:1 매핑하는 `buildEditorColors(palette)` 함수와 `initializeMonacoTheme(monaco)` initializer로 구성됨. Diagnostic은 s2 전략(밑줄 스타일 + alpha) 적용.",
+          "acceptance": "- `monaco-theme.ts`가 `buildEditorColors(palette: EditorPalette): Monaco.editor.IColors` 함수 export\n- 함수 본체에 derivation 로직(lighten/alpha 함수 호출 등) 없음 — 순수 dictionary 매핑만\n- `initializeMonacoTheme(monaco)`가 `buildEditorColors(nexusDarkPalette)` 결과를 `defineTheme` colors에 전달\n- monaco가 inherit하던 vs-dark 빨간 find match / 빨간 error squiggle / 파란 link 색이 더 이상 출현하지 않음 (런타임 visual 확인은 T3 영역)\n- `bun run typecheck` PASS\n- `bun run check:ci` PASS\n- `bun run test` 1228+ pass (T2가 추가하는 테스트 만큼 증가, 기존 회귀 0)\n- 신규 단위 테스트 `monaco-theme.test.ts`에 최소 3 케이스 (mapper 1:1 보존, 25 키 coverage, alternate palette 응답)",
+          "approach": "1) `src/renderer/services/editor/monaco-theme.ts`에 다음 추가:\n   - `import { type EditorPalette, nexusDarkPalette } from \"../../../shared/editor-palette\"`\n   - `export function buildEditorColors(palette: EditorPalette): Monaco.editor.IColors` — palette 키 25개를 monaco 토큰 키 25개로 매핑하는 thin dictionary. NO derivation logic. 매핑 표:\n     - word highlight 3개 → editor.wordHighlightBackground / Strong / Text\n     - find 3개 → editor.findRangeHighlightBackground / findMatchHighlightBackground / findMatchBackground\n     - peek 4개 → peekView.border / peekViewEditor.matchHighlightBackground / peekViewResult.matchHighlightBackground / peekViewResult.background\n     - link 2개 → editorLink.foreground (있으면) / editorLink.activeForeground\n     - selection 3개 → editor.selectionBackground / inactiveSelectionBackground / selectionHighlightBackground\n     - widget 4개 → editorHoverWidget.background / .border / editorWidget.background / .border\n     - diagnostic 8개 → editorError.foreground/background / editorError.border (wavy 발현용) + warning/info/hint 동일 패턴\n2) `initializeMonacoTheme(monaco)`를 `monaco.editor.defineTheme(NEXUS_DARK_THEME_NAME, { base: \"vs-dark\", inherit: true, rules: [], colors: buildEditorColors(nexusDarkPalette) })`로 갱신. WeakSet 가드 유지.\n3) 단위 테스트 신설 `tests/unit/renderer/services/editor/monaco-theme.test.ts`:\n   - `buildEditorColors(nexusDarkPalette)` 호출 → IColors 객체 반환 검증\n   - 25개 monaco 키가 모두 string 값 보유\n   - 임의 alternate palette를 만들어 supply했을 때 결과가 1:1 변경되는지 (no derivation) 확인 — 미래 N-theme 인터페이스 보존 검증\n4) typecheck / biome / 모든 test 통과 확인",
+          "risk": "- monaco의 일부 토큰 키 명칭 오타 시 vs-dark 기본값으로 silent fallback → 단위 테스트로 25 키 enumeration 검증으로 방지\n- diagnostic의 wavy/dotted 밑줄이 monaco 표준 토큰(editorError.border 등)으로 자동 발현 안 될 수 있음 → 그 경우 monaco 문서 재확인 후 IEditorOptions 또는 별도 decoration 필요. 단위 검증보단 T3 visual에서 잡히는 부분\n- T1과 동시 작업 시 `editor-palette.ts` import path 충돌 → 순차 진행으로 회피",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac490b230faf25577",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T03:27:08.873Z"
+        },
+        {
+          "id": 3,
+          "title": "Visual + integration verification of nexus-dark monaco theme",
+          "status": "completed",
+          "context": "Plan #22 / T1 + T2 결과의 런타임 시각 검증. 자동 테스트로는 색상 hex 값과 키 매핑까지만 검증 가능하고, 실제 monaco 렌더링 시 vs-dark fallback 방지 + 디자인 톤 충돌 부재는 사용자 dev 환경 시각 확인 필요 (R1 — visual self-PASS prohibition). tester는 자동화 가능한 부분(빌드 통과, 테스트 통과, 키 enumeration)만 PASS 표기하고 시각 항목은 \"visual not verified\" 명시.",
+          "acceptance": "- 자동 검증 부분 모두 PASS:\n  - `bun run build` PASS\n  - `bun run typecheck` PASS\n  - `bun run check:ci` PASS\n  - `bun run test` 회귀 0 + T2 신규 테스트 포함 모두 PASS\n  - `out/renderer/assets/index-*.js`에 25개 monaco 토큰 키 모두 출현 (grep 검증)\n- 시각 항목 8개는 모두 \"visual not verified — user dev confirmation required\"로 표기 (PASS 금지). 항목 목록을 보고서에 명시:\n  1. find match 색\n  2. peek border + match 색\n  3. editorLink Cmd+hover 색\n  4. error squiggle 색 + 스타일\n  5. warning squiggle 색 + 스타일\n  6. info/hint dotted 밑줄\n  7. selection 색\n  8. gutter severity 아이콘 여전히 표시",
+          "approach": "1) 자동 검증 (tester 직접 PASS):\n   - `bun run build` PASS\n   - `bun run test` 회귀 0\n   - `out/renderer/assets/index-*.js` bundle에 25개 monaco 토큰 키 모두 string 리터럴로 출현 확인 (silent fallback 방지)\n   - `monaco-theme.test.ts` 통과\n2) 시각 항목 (R1: 사용자 dev 확인 필요 — tester는 \"visual not verified\" 표기):\n   - **find match**: 파일 열고 Cmd+F로 단어 검색 → 매치된 위치 배경이 빨강이 아니라 warmParchment 톤 (alpha 0.20)\n   - **peek (Find All References)**: 심볼 우클릭 → \"Find All References\" → peek 위젯 테두리가 mistBorderFocus(거의 흰색 alpha 0.6) 톤, 매치 하이라이트가 warmParchment 톤\n   - **editorLink (Cmd+hover)**: 코드의 import 경로나 심볼에 Cmd 누르고 hover → 색이 ashGray 톤 (현재는 파랑이 아닌 회색)\n   - **error squiggle**: 일부러 syntax error 발생시킴(예: TS 파일에 `let x: number = \"string\"`) → 빨간 wavy가 아닌 warmParchment 톤 wavy\n   - **warning squiggle**: ESLint warning 등 → α 0.75 warmParchment wavy\n   - **info/hint**: dotted 밑줄로 표시\n   - **selection**: 텍스트 선택 → warmParchment α 0.16 배경\n   - **gutter severity 아이콘**: 진단 있는 라인 옆에 monaco 기본 아이콘이 여전히 보이는지 (s2 전략의 third channel)\n3) tester는 위 시각 항목을 acceptance 텍스트에 명시적으로 \"visual not verified — user dev confirmation required\" 라고 PASS 대신 표기하고, Lead가 사용자에게 dev 재현 요청",
+          "risk": "- monaco가 standalone 빌드라 일부 진단 관련 토큰(editorError.border 등)이 등록 안 돼있을 가능성 → bundle grep에서 누락 발견 시 T2로 회귀\n- R1 위반(visual을 PASS 표기)이 가장 큰 리스크 — `.nexus/memory/empirical-codex-self-pass.md`의 R1 룰 강조 필수",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a4839f055ec82d428",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T03:27:35.241Z"
+        }
+      ]
     }
   ]
 }
