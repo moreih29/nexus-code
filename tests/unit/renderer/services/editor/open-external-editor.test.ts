@@ -61,4 +61,28 @@ describe("openExternalEditor", () => {
 
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
   });
+
+  // Documents the dedup contract per audit recommendation: openExternalEditor
+  // delegates to openEditorTab which does NOT dedup by filePath. Two calls
+  // with the same filePath create two distinct tabs. Callers that want
+  // dedup-and-reveal should use openOrRevealEditor instead.
+  it("does NOT dedup — two calls with same filePath create two distinct tabs", () => {
+    const FILE = "/external/lib/util.py";
+
+    const first = openExternalEditor({ workspaceId: WS, filePath: FILE });
+    const second = openExternalEditor({ workspaceId: WS, filePath: FILE });
+
+    expect(first.tabId).not.toBe(second.tabId);
+
+    const tabs = tabsFor(WS);
+    expect(tabs).toHaveLength(2);
+    for (const tab of tabs) {
+      expect(tab?.type).toBe("editor");
+      if (tab?.type === "editor") {
+        expect(tab.props.filePath).toBe(FILE);
+        expect(tab.props.origin).toBe("external");
+        expect(tab.props.readOnly).toBe(true);
+      }
+    }
+  });
 });
