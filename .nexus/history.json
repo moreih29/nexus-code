@@ -5683,6 +5683,352 @@
           "created_at": "2026-05-08T03:27:35.241Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-08T05:36:45.268Z",
+      "branch": "chore/audit-cleanup",
+      "plan": {
+        "id": 23,
+        "topic": "audit-cleanup: 22 architect findings + 11 tester findings 일괄 수정",
+        "issues": [
+          {
+            "id": 1,
+            "title": "패턴 D — layout/store.ts 411 LoC 자체 중복 18% 헬퍼 추출",
+            "status": "decided",
+            "decision": "layout/store.ts 411 LoC + 18% 자체 중복 해소: \"leaf hoist + tabIds splice + active fallback\" 4회 반복 패턴을 attachTabAt(leafId, tabId, index) 등 헬퍼로 추출. 단일 파일 내부 작업으로 인터페이스 변경 없음. 기존 411 → 약 340 LoC 추정. 회피한 옵션: 큰 분할(WorkspaceLayoutStore 클래스 분해) — 외부 API 손상 위험으로 거부. 단순 헬퍼 추출만 진행."
+          },
+          {
+            "id": 2,
+            "title": "패턴 C — save-service conflict/superseded/race 테스트 3 시나리오 추가",
+            "status": "decided",
+            "decision": "save-service.test.ts에 3개 시나리오 추가: (1) conflict — mtime guard 실패 시 SaveResult.conflict 반환 + dirty-tracker baseline 미변경, (2) superseded — sequentializer gate 내부 동시 호출 시 두 번째 호출 superseded 반환, (3) race — gate 내부 dirty=false 재확인 분기(undo to baseline). FakeFs/FakeIPC 사용. 회피한 옵션: 통합 테스트(electron 실행) — 단위 테스트로 충분히 격리 가능, 거부."
+          },
+          {
+            "id": 3,
+            "title": "패턴 E small cleanups — 중복 테스트 4건 삭제 + ipc-contract-types 리네임 + new-file/folder 클론 헬퍼 + F5.5 open-editor 자기-중복 + F5.6 ipc 타입 derivation 추출",
+            "status": "decided",
+            "decision": "small cleanups 6항목: (a) model-entry.test.ts \"preserves explicit origin=workspace and readOnly=false\" test 삭제(중복), (b) load-external-entry.test.ts \"still origin=external on error\" + \"still origin=external on binary\" 어설션 정리(중복), (c) open-external-editor.test.ts \"tabId matching\" test 삭제(외부 함수 검증), (d) ipc-contract-types.test.ts → ipc-contract-types.typecheck.ts 리네임(타입 전용), (e) F5.5 open-editor.ts 자기-중복 11 LoC + load-external-entry/model-entry 10 LoC 헬퍼 추출, (f) F5.6 src/renderer/global.d.ts와 src/renderer/ipc/client.ts의 IPC 타입 derivation 22 LoC를 src/renderer/ipc/types.ts 신설로 추출. (g) F5.4 new-file/new-folder 12 LoC runFsMutation(spec) 헬퍼 추출."
+          },
+          {
+            "id": 4,
+            "title": "패턴 A.1 — editor 6모듈 사이클 끊기 (DI 역전)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "사이클 끊는 edge: lsp-result-preacquire → model-cache (line 32). DI 역전으로 해소. defaultPreAcquireDeps를 monaco-compensations.ts(설치 seam)로 이동, preAcquireLocationModels 3rd param 필수화. providers는 lsp-bridge로부터 curried preAcquire(locations,uri) 클로저 받음. madge --circular로 검증. 옵션 (b) type-only import은 erased라 runtime arrow 그대로 — 거부. 옵션 (c) 새 파사드 파일은 indirection 추가만 — 거부. 옵션 (d) preacquire를 model-cache로 흡수는 LSP semantics를 model 레이어로 끌어들임 — 거부.",
+                "recorded_at": "2026-05-08T04:28:10.220Z",
+                "agent_id": "a40eab3a9501c9bbf"
+              }
+            ],
+            "decision": "DI 역전 채택. defaultPreAcquireDeps를 lsp-result-preacquire.ts에서 제거하고 monaco-compensations.ts로 이동(installLocationModelPreAcquire가 이미 deps 주입 seam 보유). preAcquireLocationModels의 3rd param(deps)를 필수화. lsp-providers.ts:79,150에서 preacquire를 직접 import 호출하는 대신 lsp-bridge가 curried preAcquire(locations, uri) 클로저를 ensureProvidersFor 경유로 providers에 전달. 검증: madge --circular src/renderer/services/editor/ 으로 사이클 0 확인. 옵션 b(type-only)는 erased라 무효, 거부. 옵션 c(파사드 추가)는 indirection 비용만 증가, 거부. 옵션 d(model-cache로 흡수)는 LSP→model 레이어링 위반, 거부."
+          },
+          {
+            "id": 5,
+            "title": "패턴 A.2 — editor/ 24 파일 5-folder split (model/lsp/save/tabs/runtime)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "5-folder split {model, lsp, save, tabs, runtime} + types.ts/index.ts 루트. 매핑: model={model-cache, model-entry, load-external-entry, dirty-tracker, file-loader, use-shared-model}, lsp={lsp-bridge, lsp-providers, lsp-result-preacquire, lsp-monaco-converters, lsp-workspace-edit, language}, save={save-service, save-sequentializer, close-handler}, tabs={open-editor, pending-reveal, promote-policy}, runtime={monaco-singleton, monaco-theme, monaco-compensations, rejection-sink}. 4-folder는 tabs(223 LoC open-editor 등) 4번째 도메인 숨김으로 거부. 3-folder는 runtime(194 LoC, 4파일) 폴더 가치 있어 거부. 의존 방향: runtime ← model ← {save, tabs}, runtime ← lsp ← model. dirty-tracker는 model 소속(entry가 attach), close-handler는 save 소속(dialog 흐름이 save 관심).",
+                "recorded_at": "2026-05-08T04:28:17.429Z",
+                "agent_id": "a40eab3a9501c9bbf"
+              }
+            ],
+            "decision": "5-folder split 채택: src/renderer/services/editor/{model, lsp, save, tabs, runtime}/ + types.ts/index.ts 루트. 매핑 확정 — model: model-cache, model-entry, load-external-entry, dirty-tracker, file-loader, use-shared-model. lsp: lsp-bridge, lsp-providers, lsp-result-preacquire, lsp-monaco-converters, lsp-workspace-edit, language. save: save-service, save-sequentializer, close-handler. tabs: open-editor, pending-reveal, promote-policy. runtime: monaco-singleton, monaco-theme, monaco-compensations, rejection-sink. 의존 방향 규칙: runtime은 다른 sub-folder에 의존 안 함. model→runtime, lsp 가능. save/tabs→model 가능. lsp는 model 안 import(A.1로 보장됨). 4-folder/3-folder 거부 사유는 architect 분석 참조."
+          },
+          {
+            "id": 6,
+            "title": "패턴 A.3 — slim root barrel + per-sub-folder index.ts",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "옵션 (c) 슬림 root barrel + per-sub-folder index. Root는 7 심볼만: initializeEditorServices, openOrRevealEditor, closeEditorWithConfirm, saveModel, useSharedModel + 타입 EditorInput/EditorTabLocation/OpenEditorOptions. 나머지 30+ 심볼은 sub-folder index에서 export. consumer 영향 grep: 25 unique 파일 중 ~6 unchanged + ~8 path 변경 + ~11 sub-path 이미 사용 중 (이름만 갱신) + 1 split (tab-commands는 2 도메인 import). Net 약 20 파일 1-3 라인 변경. 옵션 (a)는 F2.2 미해소(거부), (b)는 ergonomic single-import 손실(거부).",
+                "recorded_at": "2026-05-08T04:28:23.989Z",
+                "agent_id": "a40eab3a9501c9bbf"
+              }
+            ],
+            "decision": "슬림 root barrel + per-sub-folder index. Root editor/index.ts: initializeEditorServices, openOrRevealEditor, closeEditorWithConfirm, saveModel, useSharedModel + 타입 EditorInput/EditorTabLocation/OpenEditorOptions(7 심볼). 나머지는 sub-folder index에서. 컨벤션: prefer sub-path; root은 자주 쓰는 것의 편의 facade. consumer 영향 ~20 파일 1-3 라인 변경 — sub-folder별 commit으로 분할 권장. 옵션 (a) 유지하면 F2.2 미해소, 거부. 옵션 (b) root barrel 제거는 ergonomic single-import 손실(initializeEditorServices, openOrReveal 같은 빈번 사용), 거부."
+          },
+          {
+            "id": 7,
+            "title": "패턴 A.4 — editor-view.tsx 281 LoC 4-axis 분해",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "4-axis 추출: (1) cross-file-opener.ts → tabs/ (createCrossFileOpenCodeEditorOpener + resourceToString + sourceModelUri, 순수), (2) reveal.ts → tabs/ (revealRange + applyPendingReveal, 순수), (3) install-save-keybinding → save/save-service.ts에 installEditorSaveAction 추가 (Cmd+S installer), (4) useEditorMount hook → components/workspace/content/use-editor-mount.ts (refs+effects+attachSharedModel). EditorView 잔존 ~80-100 LoC 렌더 셸. 옵션 (a) 일부만 추출은 model-attach 임시모델 dispose 분기 묻힘(거부), (b) one mega-hook은 seam 숨김(거부).",
+                "recorded_at": "2026-05-08T04:28:30.407Z",
+                "agent_id": "a40eab3a9501c9bbf"
+              }
+            ],
+            "decision": "4-axis 추출: (1) services/editor/tabs/cross-file-opener.ts(createCrossFileOpenCodeEditorOpener + helpers, 순수), (2) services/editor/tabs/reveal.ts(revealRange + applyPendingReveal, 순수), (3) save-service.ts에 installEditorSaveAction(editor, monaco, input) 추가(Cmd+S keybinding), (4) components/workspace/content/use-editor-mount.ts(refs+effects+attachSharedModel, React hook). EditorView 잔존 ~80-100 LoC 렌더 셸. 옵션 (a) 일부만 추출은 model-attach 임시모델 dispose 분기 묻힘, 거부. 옵션 (b) one-mega-hook은 seam 숨김, 거부."
+          },
+          {
+            "id": 8,
+            "title": "패턴 B.1 — createUtilityHost factory 추출 (lsp-host ↔ pty-host)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "createUtilityHost<TInbound>(opts) factory 추출 to src/main/hosts/utility-host.ts (~120 LoC). 추출 범위: process spawn, stdio pipe, port wire (port1/port2 핸드셰이크 + parentPort 전달), proc-exit 재시작 루프, dispose, 이벤트 emitter (on/emit). 비추출: 인바운드 메시지 디스패치(콜백 주입), public API 시그니처(call/notify), pending 맵(도메인마다 다른 키). opts: serviceName, entryRelative, logPrefix, onMessage(msg, ctx), onRestart?(ctx). ctx: post, emit, isDisposed. 핸들: post, on/off, isAlive, dispose. LoC: 두 host 합 500 → 120(common) + ~150(lsp) + ~120(pty) = ~390, ~110 LoC 감소(22%). 핵심 가치는 onProcExit 재시작 시퀀스 단일 진실원으로 drift 차단(현재 두 곳 분기 — 한쪽 패치 누락 시 silent breakage). 옵션 B(class subclass)는 abstract method 1개라 over-engineering, 거부.",
+                "recorded_at": "2026-05-08T04:28:40.529Z",
+                "agent_id": "a7cc967c1d2c3ddc8"
+              }
+            ],
+            "decision": "createUtilityHost<TInbound>(opts) factory 추출 to src/main/hosts/utility-host.ts. 추출 범위: utilityProcess.fork + stdio pipe + MessageChannel 핸드셰이크 + onProcExit 재시작 루프 + dispose + on/emit emitter. opts={serviceName, entryRelative, logPrefix, onMessage(msg,ctx), onRestart?(ctx)}. ctx={post, emit, isDisposed}. 핸들={post, on, isAlive, dispose}. lsp-host.ts/pty-host.ts는 factory 호출 + 도메인 디스패치/pending-맵만 보유로 슬림화. 핵심 가치: 재시작 시퀀스 단일 진실원 → drift 차단. 옵션 B(class subclass)는 abstract 메서드 1개로 over-engineering, 거부. 옵션 C(추출 안 함)는 클론 6건 유지, 거부."
+          },
+          {
+            "id": 9,
+            "title": "패턴 B.2 — stdio-lsp-adapter 582 LoC 3-way split",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "3-way split (servers/ 폴더 내부 유지). 신설: (1) json-rpc-codec.ts ~35 LoC (encodeMessage, jsonRpcId, isObjectLike, capabilityValueIsSupported), (2) lsp-capability-negotiation.ts ~70 LoC (initializeResultCapabilities + negotiated{TextDocumentSyncKind, OpenClose, Save} + helpers), (3) text-document-changes.ts ~55 LoC (applyTextDocumentContentChanges + isIncrementalChange/lineEndOffset/offsetAt). 잔존 stdio-lsp-adapter.ts ~370 LoC (LspAdapter 인터페이스 + StdioLspAdapter 클래스). abortError는 codec에 안 두고 잔존 파일 private — 응집도 우선. LspAdapter 인터페이스 분리는 현재 하나뿐이라 YAGNI(거부). 클래스 본체 추가 분할(C)은 cohesive state(proc/buffer/pending/cap)을 인위 분리 → shotgun surgery(거부). lsp-manager 509 LoC는 이미 외부화 완료, 분할 안 함 결정.",
+                "recorded_at": "2026-05-08T04:28:48.800Z",
+                "agent_id": "a7cc967c1d2c3ddc8"
+              }
+            ],
+            "decision": "stdio-lsp-adapter.ts 3-way split (servers/ 폴더 내부 유지): (1) json-rpc-codec.ts ~35 LoC (encodeMessage, jsonRpcId, isObjectLike, capabilityValueIsSupported), (2) lsp-capability-negotiation.ts ~70 LoC (initializeResultCapabilities, negotiated{TextDocumentSyncKind,OpenClose,Save}), (3) text-document-changes.ts ~55 LoC (applyTextDocumentContentChanges + helpers). 잔존 stdio-lsp-adapter.ts ~370 LoC (LspAdapter 인터페이스 + StdioLspAdapter 클래스). abortError는 잔존 파일 private 유지(응집도). LspAdapter 인터페이스 분리는 YAGNI(현재 1개 구현체뿐), 거부. 클래스 추가 분할(C)은 cohesive state(proc/buffer/pending/cap) 인위 분리 → shotgun surgery, 거부. lsp-manager 509 LoC는 이미 외부화 완료(lsp-handlers, lsp-server-request-handlers), 분할 안 함."
+          },
+          {
+            "id": 10,
+            "title": "패턴 B.3 — lsp-handlers.ts (419 LoC) 직접 단위 테스트 추가",
+            "status": "decided",
+            "decision": "tests/unit/utility/lsp/lsp-handlers.test.ts 신설. 직접 테스트 대상: invokeLspHandler(kind:\"call\" vs \"notify\" 분기), parseHandlerOutput(schema validation 실패 throw), fsChangeKindToLspType(added/deleted/fallback→Changed). FakeAdapter 모킹 없이 순수 함수 단위 테스트. handlerMetadata 카탈로그 8개 핸들러는 input/output schema 정상 케이스 + 실패 케이스 1개씩. 회피한 옵션: lsp-manager 통한 간접 테스트만 추가 — FakeAdapter 경유라 실제 dispatch+schema 미검증, 거부."
+          },
+          {
+            "id": 11,
+            "title": "패턴 E.4 — command-palette/tab-bar/outline-tree 컴포넌트 분해",
+            "status": "decided",
+            "decision": "3개 컴포넌트 분해: (1) command-palette.tsx 341 LoC → CommandPalette(상태/effects)+CommandPaletteFrame(presentation 분리)+PaletteStatusMessage 별도 파일+trapTab을 utils로. main 컴포넌트 100~120 LoC. (2) tab-bar.tsx 333 LoC → TabItem 별도 파일. PinIcon SVG는 별도 분리 가치 적어 inline 유지. (3) outline-tree.tsx 276 LoC → outline-tree-keyboard.ts에 reduceOutlineKeyboard + 헬퍼 추출. view 본체 100 LoC. 회피한 옵션: 더 미세 분할은 ROI 부족, 거부."
+          },
+          {
+            "id": 12,
+            "title": "패턴 E.5 — components/files/ 16 파일 sub-folder 분할 + App.tsx bootstrap 모듈",
+            "status": "decided",
+            "decision": "components/files/ 16 파일 → file-tree/(rendering: display, edit-row, icons, metrics, row, status-view, virtual-body) + hooks/(use-file-tree-actions, use-file-tree-pending-create, use-delayed-loading) 2단 분리. menu/keys/name-validator는 root 유지 (utility 성격). App.tsx 207 LoC → renderer/bootstrap.ts 신설(initializeEditorServices, IPC wiring 등 init 시퀀스 모듈화). App.tsx 잔존 ~120 LoC. 회피한 옵션: 더 깊은 폴더 계층(file-tree/components/, file-tree/hooks/)은 over-engineering, 거부."
+          },
+          {
+            "id": 13,
+            "title": "패턴 E.1 — drift-prone 테스트 2건 강화 (A.4/E.4 의존)",
+            "status": "decided",
+            "decision": "drift-prone test 2건 강화: (1) editor-readonly-options.test.ts — 로컬 makeAttachSharedModel 복사본 제거. A.4에서 추출되는 useEditorMount(또는 attachSharedModel)을 import해 실제 구현 검증 + 임시 모델 dispose 분기 포함. (2) palette-focus-restore.test.tsx — 로컬 runCleanup 복사본 제거. E.4에서 분리된 CommandPalette focus restore cleanup을 export해 import 기반 검증. A.4와 E.4 작업 후 실행해야 함(deps 4, 7, 11). 회피한 옵션: 로컬 복사본 유지 + drift detection comment 강화 — 근본 해결 안 됨, 거부."
+          }
+        ],
+        "research_summary": "감사 결과 33개 finding 식별 (22 architect + 11 tester). 패턴 5개로 그룹화: A(editor 재구조 — 사이클+god barrel+컴포넌트), B(utility 레이어 — host 클론+adapter 분할+테스트 공백), C(save-service 테스트 공백), D(layout/store 자체 중복 18%), E(nice-to-have 정리). Architect 설계 결정 2건 완료: A는 DI 역전+5-folder+슬림 barrel+4-axis 분해, B는 createUtilityHost factory+3-way split+lsp-manager 분할 거부. F5.6(global.d.ts↔ipc/client.ts) 직접 verify로 진짜 중복 확인. 사용자 결정: 한 사이클에 전부 처리, 큰 변화 단위마다 commit으로 복구 가능성 확보.",
+        "created_at": "2026-05-08T04:27:49.814Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T1: layout/store.ts 자체 중복 18% 헬퍼 추출",
+          "status": "completed",
+          "context": "audit Plan #23 issue #1 결정. 단일 파일 작업, 외부 인터페이스 변경 없음. 시작점: src/renderer/state/stores/layout/store.ts (411 LoC). 4회 반복 패턴: leaf hoist + tabIds splice + active fallback (라인 223-234, 275-286, 316-326, 333-349).",
+          "acceptance": "store.ts LoC 411 → 약 340. tests/unit/renderer/state/stores/layout/ 4 파일 전부 PASS. bun test 전체 PASS. jscpd로 자체 중복 측정 시 18% → 5% 미만.",
+          "approach": "attachTabAt(leafId, tabId, index) 내부 헬퍼 추출. 다른 반복 패턴(detachTab, moveTab) 헬퍼화. 외부 export 시그니처 동일 유지.",
+          "risk": "attach/detach/move 분기 패턴이 미세하게 다를 수 있어 헬퍼 통합시 행동 변화 위험. 기존 layout 테스트가 가드.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:30:58.640Z"
+        },
+        {
+          "id": 2,
+          "title": "T2: save-service conflict/superseded/race 테스트 3 시나리오",
+          "status": "completed",
+          "context": "audit Plan #23 issue #2 결정. tester CRITICAL-1 발견: save-service.ts의 SaveResult 7-way 중 conflict/superseded/race(dirty=false 재확인) 어떤 테스트도 없음. 시작점: tests/unit/renderer/services/editor/save-service.test.ts, src/renderer/services/editor/save-service.ts:63-113.",
+          "acceptance": "3 시나리오 PASS. grep -rn \"conflict|superseded\" tests/unit/renderer/services/editor/save-service.test.ts 양수 hit. bun test 전체 PASS.",
+          "approach": "기존 save-service.test.ts에 추가. (1) conflict: mtime guard 실패 모킹 → SaveResult.conflict 반환 검증 + dirty-tracker baseline 미변경. (2) superseded: sequentializer gate 안 동시 호출 → 두 번째 superseded. (3) race: gate 진입 후 사용자 undo로 dirty=false 모킹 → 분기 검증. FakeFs/FakeIPC 사용.",
+          "risk": "save-service 내부 구현이 mock 시나리오와 미세 차이 있을 수 있음.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:31:06.955Z"
+        },
+        {
+          "id": 3,
+          "title": "T3: E small cleanups 7항목",
+          "status": "completed",
+          "context": "audit Plan #23 issue #3 결정. 7개 작은 정리 한 commit. (a-g) 결정문 그대로 실행.",
+          "acceptance": "7 항목 모두 적용. bun test 전체 PASS. jscpd 결과 F5.4/F5.5/F5.6 클론 사라짐. 삭제된 테스트 3건 확인 후 bun test 카운트 약간 감소.",
+          "approach": "(a) tests/unit/renderer/services/editor/model-entry.test.ts 의 \"preserves explicit origin=workspace and readOnly=false\" test 삭제. (b) tests/unit/renderer/services/editor/load-external-entry.test.ts 의 \"still origin=external on error\" + \"still origin=external on binary\" 어설션 정리. (c) tests/unit/renderer/services/editor/open-external-editor.test.ts 의 \"tabId matching\" test 삭제. (d) tests/unit/shared/contract/ipc-contract-types.test.ts → ipc-contract-types.typecheck.ts 리네임 (+ bun test config 확인 — *.test.ts 패턴만 픽업하면 자동 제외). (e) src/renderer/services/editor/open-editor.ts 자기-중복 11 LoC + load-external-entry/model-entry 10 LoC: ensureModelWithContent(uri, content) 헬퍼 추출. (f) src/renderer/global.d.ts와 src/renderer/ipc/client.ts의 IPC 타입 derivation 22 LoC를 src/renderer/ipc/types.ts 신설로 추출하고 양쪽에서 import. (g) src/renderer/services/fs-mutations/new-file.ts와 new-folder.ts의 12 LoC 동일 시퀀스를 runFsMutation(spec) 헬퍼로 같은 폴더 helpers.ts에 추출.",
+          "risk": "(d) 리네임 시 bun test config가 *.test.ts 외 패턴 픽업할 가능성 — package.json 또는 bun.lock 확인 필요. (f) global.d.ts 위치는 ambient typing이므로 import 추가시 효과 변경 가능.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:31:20.364Z"
+        },
+        {
+          "id": 4,
+          "title": "T4: A.1 editor 사이클 끊기 (DI 역전)",
+          "status": "completed",
+          "context": "audit Plan #23 issue #4 결정. 6모듈 사이클 (model-cache → load-external-entry → model-entry → lsp-bridge → lsp-providers → lsp-result-preacquire → model-cache). 시작점: src/renderer/services/editor/lsp-result-preacquire.ts:32-38, monaco-compensations.ts:25-34, lsp-providers.ts:79,150, lsp-bridge.ts:99-110.",
+          "acceptance": "madge --circular 결과 0 사이클. tests/unit/renderer/services/editor/ 전체 PASS. typecheck PASS. lsp-result-preacquire.ts에서 from \"./model-cache\" import 0건 (grep).",
+          "approach": "(1) lsp-result-preacquire.ts에서 defaultPreAcquireDeps 제거. (2) preAcquireLocationModels의 3rd param(deps)를 필수화. (3) monaco-compensations.ts 또는 새 runtime/install-preacquire.ts에서 defaultPreAcquireDeps 구성 + installLocationModelPreAcquire에서 closure로 전달. (4) lsp-bridge.ts의 ensureProvidersFor에서 curried preAcquire(locations, uri) 클로저를 providers에 전달. (5) lsp-providers.ts에서 preacquire 직접 import 제거하고 closure 받도록 변경. 검증: bunx madge --circular --extensions ts,tsx src 실행 후 0 cycle.",
+          "risk": "test mock(./model-cache)을 사용하는 기존 테스트는 deps 주입으로 재배선 필요. providers 시그니처 변경 영향 — test setup도 같이 수정.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:31:30.888Z"
+        },
+        {
+          "id": 5,
+          "title": "T5: A.2+A.3 editor 5-folder split + barrel update (atomic)",
+          "status": "completed",
+          "context": "audit Plan #23 issue #5+#6 결정. 24 파일 → {model, lsp, save, tabs, runtime} sub-folder. 동시에 root index.ts 슬림화 + per-sub-folder index.ts 신설 (atomic 필요 — 폴더 이동만 하고 barrel 안 고치면 빌드 깨짐). T4(사이클 끊기) 완료 후 진행.",
+          "acceptance": "bun test 전체 PASS. typecheck PASS. lint PASS. ls src/renderer/services/editor/ 결과 model/ lsp/ save/ tabs/ runtime/ 5 폴더 + types.ts + index.ts. root index.ts export 7 심볼. madge --circular 0 사이클 유지.",
+          "approach": "(1) 5 sub-folder 생성. (2) git mv로 24 파일 sub-folder로 이동. mapping은 issue #5 결정문 그대로. (3) sub-folder별 index.ts 작성 (각 폴더 모듈의 export 모음). (4) root editor/index.ts를 7 심볼만 남기게 트림 (initializeEditorServices, openOrRevealEditor, closeEditorWithConfirm, saveModel, useSharedModel + EditorInput/EditorTabLocation/OpenEditorOptions). (5) consumer 약 20 파일 import path 갱신: from \"...services/editor\" → from \"...services/editor/<sub>\" 분기. tab-commands.ts는 2 도메인 split 필요. (6) editor 폴더 내부 import도 ./X → ./X 또는 ../<sub>/X 갱신.",
+          "risk": "파일 이동시 git이 rename 추적 못 할 수 있음 — git mv 사용 강제. 24 파일 이동 + 20+ consumer 파일 변경 = 큰 diff. 빌드 깨지지 않도록 atomic 작업.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:31:42.684Z"
+        },
+        {
+          "id": 6,
+          "title": "T6: A.4 editor-view.tsx 4-axis 분해",
+          "status": "completed",
+          "context": "audit Plan #23 issue #7 결정. 281 LoC editor-view.tsx를 4개 단위로 분해. T5 후 진행 (sub-folder 구조 위에서 작업).",
+          "acceptance": "editor-view.tsx LoC 281 → 80-120. 새 4 모듈 모두 export. bun test PASS. tests/unit/renderer/services/editor/editor-readonly-options.test.ts는 T7(E.1)에서 강화 — 지금은 PASS 유지(현재 로컬 복사본 형태 그대로).",
+          "approach": "(1) services/editor/tabs/cross-file-opener.ts 신설 — createCrossFileOpenCodeEditorOpener + resourceToString + sourceModelUri 이동. (2) services/editor/tabs/reveal.ts 신설 — revealRange + applyPendingReveal 이동. (3) services/editor/save/save-service.ts에 installEditorSaveAction(editor, monaco, input) 추가. editor-view에서 Cmd+S 등록 부분 위임. (4) components/workspace/content/use-editor-mount.ts 신설 — refs + effects + attachSharedModel 캡슐화. (5) editor-view.tsx 리팩터: 각 추출 단위 import + 호출. 잔존 ~80-100 LoC 렌더 셸.",
+          "risk": "React useEffect 의존성 배열이 hook 분리 시 누락 가능. 모니터링 lifecycle 변경.",
+          "plan_issue": 7,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:31:53.083Z"
+        },
+        {
+          "id": 7,
+          "title": "T7: B.1 createUtilityHost factory 추출",
+          "status": "completed",
+          "context": "audit Plan #23 issue #8 결정. lsp-host.ts(267) + pty-host.ts(233)에서 공통 부분 추출. 시작점: src/main/hosts/lsp-host.ts, src/main/hosts/pty-host.ts.",
+          "acceptance": "utility-host.ts 신설. lsp-host.ts ~150 LoC, pty-host.ts ~120 LoC. 두 파일 합 500 → ~390. tests/unit/utility/lsp/, tests/unit/utility/pty/ PASS. main 프로세스 실제 부팅 정상 (electron-builder 또는 vite-electron 검증). jscpd로 두 host 파일 클론 5건 이상 사라짐.",
+          "approach": "(1) src/main/hosts/utility-host.ts 신설 ~120 LoC. createUtilityHost<TInbound>(opts) factory 구현 — utilityProcess.fork + stdio pipe + MessageChannel handshake + onProcExit restart loop + dispose + on/emit emitter. (2) lsp-host.ts 슬림화 — factory 호출 + onMessage 콜백에서 도메인 디스패치(response/diagnostics/serverRequest/serverEvent) + onRestart에서 pendingCalls reject + public API(call/notify/respondServerRequest/rejectServerRequest)는 host.post wrapping. (3) pty-host.ts 동일하게 슬림화. (4) utility 측 entry index.ts 양쪽 21 LoC 동일 부분도 createUtilityProcessEntry 같은 헬퍼로 추출 (가능하면).",
+          "risk": "electron utilityProcess 동작 모킹 어려움. 기존 lsp-host/pty-host 테스트가 fake utility로 가는지 확인. onProcExit 재시작 loop이 factory에서 lsp/pty 동일하게 동작하는지 매뉴얼 검증.",
+          "plan_issue": 8,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:04.834Z"
+        },
+        {
+          "id": 8,
+          "title": "T8: B.2 stdio-lsp-adapter 3-way split",
+          "status": "completed",
+          "context": "audit Plan #23 issue #9 결정. 582 LoC를 3 모듈로 분할. 시작점: src/utility/lsp-host/servers/stdio-lsp-adapter.ts.",
+          "acceptance": "stdio-lsp-adapter.ts ~370 LoC. 신규 3 파일 합 ~160 LoC. tests/unit/utility/lsp/ 전체 PASS. typecheck PASS. lsp-manager.ts에서 negotiated*/applyTextDocumentContentChanges import 경로 정상.",
+          "approach": "(1) src/utility/lsp-host/servers/json-rpc-codec.ts 신설 — encodeMessage, jsonRpcId, isObjectLike, capabilityValueIsSupported (현재 :76-95). (2) src/utility/lsp-host/servers/lsp-capability-negotiation.ts 신설 — initializeResultCapabilities, negotiated{TextDocumentSyncKind, OpenClose, Save} + helpers (현재 :97-154). (3) src/utility/lsp-host/servers/text-document-changes.ts 신설 — applyTextDocumentContentChanges + isIncrementalChange/lineEndOffset/offsetAt (현재 :156-207). (4) stdio-lsp-adapter.ts에서 위 3개 import. abortError는 잔존 파일 private 유지. (5) 외부 import (lsp-manager 등) 경로 갱신.",
+          "risk": "applyTextDocumentContentChanges가 export되어 외부에서 import 중일 수 있음 — 경로 갱신 필요. 외부 import grep으로 확인.",
+          "plan_issue": 9,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:13.729Z"
+        },
+        {
+          "id": 9,
+          "title": "T9: B.3 lsp-handlers.ts 직접 단위 테스트 신설",
+          "status": "completed",
+          "context": "audit Plan #23 issue #10 결정. tester CRITICAL-2 발견: lsp-handlers.ts 419 LoC에 직접 테스트 0개. 시작점: src/utility/lsp-host/lsp-handlers.ts.",
+          "acceptance": "tests/unit/utility/lsp/lsp-handlers.test.ts 신설. 약 15-25개 test. bun test 전체 PASS. grep \"invokeLspHandler|parseHandlerOutput|fsChangeKindToLspType\" tests/ 다수 hit.",
+          "approach": "tests/unit/utility/lsp/lsp-handlers.test.ts 신설. 테스트 케이스: (1) invokeLspHandler — kind:\"call\" path (FakeAdapter call 호출 검증) vs kind:\"notify\" (FakeAdapter notify 호출) 분기. (2) parseHandlerOutput — 각 handler 정상 schema 1건 + 실패 schema 1건(throw 검증). (3) fsChangeKindToLspType — \"added\" → Created, \"deleted\" → Deleted, \"modified\"/unknown → Changed fallback. (4) handlerMetadata 카탈로그 8 핸들러(hover, definition, references, documentSymbol, completion, fsChanged 등) input/output schema 정상 케이스 sample.",
+          "risk": "FakeAdapter 만드는 비용. 기존 lsp-manager 테스트의 FakeAdapter 재사용 가능.",
+          "plan_issue": 10,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:22.533Z"
+        },
+        {
+          "id": 10,
+          "title": "T10: E.4 컴포넌트 3종 분해",
+          "status": "completed",
+          "context": "audit Plan #23 issue #11 결정. command-palette/tab-bar/outline-tree 3 컴포넌트 분해.",
+          "acceptance": "3 컴포넌트 모두 LoC 감소: 341→<150, 333→<150, 276→<150. tests/unit/renderer/components/lsp/palette/, tests/unit/renderer/components/workspace/tabs/, tests/unit/renderer/components/lsp/outline/ 전체 PASS. typecheck PASS.",
+          "approach": "(1) command-palette.tsx 341 → src/renderer/components/lsp/palette/command-palette-frame.tsx (presentation), palette-status-message.tsx 별도, trapTab을 palette/utils.ts로 추출. main CommandPalette ~100-120 LoC. focus restore cleanup 함수도 별도 export(T12 E.1에서 import할 것 — 그래서 export 필요). (2) tab-bar.tsx 333 → tab-item.tsx 별도 파일. PinIcon은 inline 유지. main TabBar ~100 LoC. (3) outline-tree.tsx 276 → outline-tree-keyboard.ts(reduceOutlineKeyboard + 헬퍼 추출). view 본체 ~100 LoC.",
+          "risk": "컴포넌트 분리 시 prop drilling 증가 가능. focus restore cleanup의 export는 T12에서 필요.",
+          "plan_issue": 11,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:30.800Z"
+        },
+        {
+          "id": 11,
+          "title": "T11: E.5 components/files 폴더 분할 + App.tsx bootstrap 모듈",
+          "status": "completed",
+          "context": "audit Plan #23 issue #12 결정. components/files 16 파일 평탄 폴더 구조화 + App.tsx 207 LoC bootstrap 분리.",
+          "acceptance": "files/ 평탄 16 → file-tree/ 7 + hooks/ 3 + root 잔존 6. App.tsx 207 → ~120. bun test PASS. typecheck PASS.",
+          "approach": "(1) src/renderer/components/files/file-tree/ 폴더 신설. file-tree-display.ts, file-tree-edit-row.tsx, file-tree-icons.tsx, file-tree-metrics.ts, file-tree-row.tsx, file-tree-status-view.tsx, file-tree-virtual-body.tsx 7파일 이동 (이름은 file-tree- prefix 유지 또는 짧게 정리). (2) src/renderer/components/files/hooks/ 신설. use-file-tree-actions.ts, use-file-tree-pending-create.ts, use-delayed-loading.ts 3파일 이동. (3) menu/keys/name-validator/files-panel/file-tree(main).tsx/index.ts는 root 유지. (4) consumer import path 갱신. (5) src/renderer/bootstrap.ts 신설 — App.tsx의 init 시퀀스 (initializeEditorServices, IPC wiring 등) 이동. App.tsx에서 useEffect로 호출. App.tsx ~120 LoC.",
+          "risk": "파일 이동시 git rename 추적. consumer import 누락 가능.",
+          "plan_issue": 12,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:40.188Z"
+        },
+        {
+          "id": 12,
+          "title": "T12: E.1 drift-prone 테스트 2건 강화",
+          "status": "completed",
+          "context": "audit Plan #23 issue #13 결정. tester IMPORTANT-1+IMPORTANT-3 발견. T6(A.4)와 T10(E.4) 후 진행 — 추출된 hook/cleanup을 import할 수 있어야 함.",
+          "acceptance": "두 테스트 파일에서 로컬 복사본 함수 제거됨. 실제 구현 import 사용. bun test PASS. 두 테스트가 실제 구현 변경을 감지할 수 있음 (수동 검증: 임의로 구현 변경 시 테스트 실패).",
+          "approach": "(1) tests/unit/renderer/services/editor/editor-readonly-options.test.ts 재작성. 로컬 makeAttachSharedModel 함수 제거. T6에서 추출된 useEditorMount 또는 attachSharedModel을 import. 임시 모델 dispose 분기 포함하도록 시나리오 추가. (2) tests/unit/renderer/components/lsp/palette/palette-focus-restore.test.tsx 재작성. 로컬 runCleanup 함수 제거. T10에서 export된 CommandPalette focus restore cleanup을 import해 검증.",
+          "risk": "A.4/E.4가 cleanup/attach 로직을 정확히 export하도록 했는지 의존. T6, T10에서 export 누락시 추가 작업 필요.",
+          "plan_issue": 13,
+          "deps": [
+            6,
+            10
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T04:32:49.492Z"
+        },
+        {
+          "id": 13,
+          "title": "T13: 최종 검증 + 작업 종료 정리",
+          "status": "completed",
+          "context": "전체 작업 완료 후 최종 sweep.",
+          "acceptance": "모든 자동 검증 PASS. 부분 실패는 즉시 수정 또는 이슈 보고. 최종 commit (있다면 README 업데이트 또는 누락 동기화).",
+          "approach": "(1) bun test 전체 PASS 확인. (2) bun typecheck PASS 확인. (3) bun lint PASS (또는 eslint --max-warnings=0). (4) madge --circular src 0 사이클 확인. (5) jscpd src 결과 비교 — Pattern A/B/D 클론 사라짐 확인. (6) 폴더 구조 ls 결과 spot-check (editor 5폴더, files 분할). (7) Optional: 변경된 파일 LoC 분포 spot-check (목표 LoC 달성 여부).",
+          "risk": "중간 commit들에서 빌드 깨졌으나 전체에서만 발견되는 케이스 가능 — 이 경우 root cause 추적.",
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-08T04:32:57.148Z"
+        }
+      ]
     }
   ]
 }
