@@ -28,6 +28,7 @@ import {
   FsStatSchema,
   WriteFileResultSchema,
 } from "./types/fs";
+import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
 
@@ -301,9 +302,14 @@ export const ipcContract = {
       mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       readExternal: call(z.object({ absolutePath: z.string() }), FileContentSchema),
       revealInFinder: call(z.object({ absolutePath: z.string() }), z.void()),
+      searchText: call(
+        z.object({ workspaceId: z.string().uuid(), query: TextSearchQuerySchema }),
+        SearchCompleteSchema,
+      ),
     },
     listen: {
       changed: listen(FsChangedEventSchema),
+      searchProgress: listen(SearchProgressSchema),
     },
   },
 } as const;

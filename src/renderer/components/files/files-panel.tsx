@@ -13,6 +13,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
+import { SearchPanel } from "./search";
 
 interface ModeButton {
   mode: FilesPanelMode;
@@ -72,6 +73,10 @@ export function FilesPanel() {
             {filesPanelMode === "tree" ? (
               <div className="flex-1 min-h-0 overflow-hidden">
                 <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />
+              </div>
+            ) : filesPanelMode === "search" ? (
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <SearchPanel workspaceId={activeWorkspace.id} />
               </div>
             ) : (
               <ComingSoon mode={filesPanelMode} />

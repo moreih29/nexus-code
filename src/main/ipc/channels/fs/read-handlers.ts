@@ -13,6 +13,7 @@ import {
 import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../../shared/fs-errors";
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { DirEntry, FileContent, FsStat } from "../../../../shared/types/fs";
+import { isBinaryProbe } from "../../../filesystem/binary-detect";
 import type { FileWatcher } from "../../../filesystem/file-watcher";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
@@ -106,19 +107,8 @@ function buildFileContent(buf: Buffer, stat: fs.Stats): FileContent {
   const probe = buf.slice(0, BINARY_DETECTION_BYTES);
   const mtime = stat.mtime.toISOString();
 
-  // UTF-16 LE or BE BOM — treat as binary
-  if (
-    (probe.length >= 2 && probe[0] === 0xff && probe[1] === 0xfe) ||
-    (probe.length >= 2 && probe[0] === 0xfe && probe[1] === 0xff)
-  ) {
+  if (isBinaryProbe(probe)) {
     return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
-  }
-
-  // null-byte binary detection
-  for (let i = 0; i < probe.length; i++) {
-    if (probe[i] === 0x00) {
-      return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
-    }
   }
 
   // UTF-8 BOM detection
