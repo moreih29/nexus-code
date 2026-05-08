@@ -244,4 +244,20 @@ describe("buildEditorColors — mapper", () => {
     expect(result["editorError.foreground"]).toBe(nexusDarkPalette.errorForeground);
     expect(result["editorHoverWidget.background"]).toBe(nexusDarkPalette.hoverWidgetBackground);
   });
+
+  // Monaco standalone's defineTheme color parser silently rejects rgba()/rgb()/
+  // hsl()/named-color forms and falls back to a #ff0000 sentinel. The first
+  // Plan #22 ship leaked rgba() values through and produced visible bright-red
+  // find/peek/selection highlights. Lock down the format so the regression
+  // can't sneak back in.
+  test("nexusDarkPalette values are hex-only (monaco accepts only #rrggbb / #rrggbbaa)", () => {
+    const hexPattern = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+    for (const [key, value] of Object.entries(nexusDarkPalette)) {
+      expect({ key, value, matches: hexPattern.test(value) }).toEqual({
+        key,
+        value,
+        matches: true,
+      });
+    }
+  });
 });
