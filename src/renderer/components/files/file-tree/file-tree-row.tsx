@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { type FileDragPayload, MIME_FILE } from "@/components/workspace/dnd/types";
 import { cn } from "@/utils/cn";
-import type { TreeNode } from "../../state/stores/files";
+import type { TreeNode } from "../../../state/stores/files";
 import { FOLDER_ICON, FOLDER_OPEN_ICON, getFileIcon } from "./file-tree-icons";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
 

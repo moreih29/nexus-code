@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { buildFileTreeMenuItems } from "../../../../../src/renderer/components/files/file-tree-menu";
-import type { useFileTreeActions } from "../../../../../src/renderer/components/files/use-file-tree-actions";
+import type { useFileTreeActions } from "../../../../../src/renderer/components/files/hooks/use-file-tree-actions";
 
 type Actions = ReturnType<typeof useFileTreeActions>;
 

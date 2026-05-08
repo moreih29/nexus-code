@@ -7,7 +7,7 @@
  */
 
 import { refresh } from "@/state/operations/files";
-import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
+import { FS_ERROR, hasFsErrorCode } from "../../../../shared/fs-errors";
 
 interface FileTreeStatusViewProps {
   workspaceId: string;

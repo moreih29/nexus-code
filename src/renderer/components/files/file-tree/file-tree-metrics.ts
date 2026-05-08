@@ -5,7 +5,7 @@
  * scroll positions drift.
  */
 
-import { UI_LOADING_FLASH_DELAY_MS } from "../../../shared/timing-constants";
+import { UI_LOADING_FLASH_DELAY_MS } from "../../../../shared/timing-constants";
 
 export const ROW_HEIGHT_PX = 24;
 export const INDENT_STEP_PX = 12;

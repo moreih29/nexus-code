@@ -11,15 +11,15 @@ import { useContextMenuHandoff } from "@/components/ui/use-context-menu-handoff"
 import { openOrRevealEditor } from "../../services/editor";
 import { ensureRoot, toggleExpand } from "../../state/operations/files";
 import { selectFlat, useFilesStore } from "../../state/stores/files";
-import { getDisplayFlat } from "./file-tree-display";
+import { getDisplayFlat } from "./file-tree/file-tree-display";
 import { buildFileTreeMenuItems } from "./file-tree-menu";
-import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree-metrics";
-import { FileTreeStatusView } from "./file-tree-status-view";
-import { FileTreeVirtualBody } from "./file-tree-virtual-body";
+import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree/file-tree-metrics";
+import { FileTreeStatusView } from "./file-tree/file-tree-status-view";
+import { FileTreeVirtualBody } from "./file-tree/file-tree-virtual-body";
 import { createFileTreeKeydownHandler } from "./keys";
-import { useDelayedLoading } from "./use-delayed-loading";
-import { type FileTreeActionTarget, useFileTreeActions } from "./use-file-tree-actions";
-import { useFileTreePendingCreate } from "./use-file-tree-pending-create";
+import { useDelayedLoading } from "./hooks/use-delayed-loading";
+import { type FileTreeActionTarget, useFileTreeActions } from "./hooks/use-file-tree-actions";
+import { useFileTreePendingCreate } from "./hooks/use-file-tree-pending-create";
 
 interface FileTreeProps {
   workspaceId: string;

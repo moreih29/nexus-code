@@ -12,7 +12,7 @@
 import { openOrRevealEditor } from "@/services/editor";
 import { createPathActions } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
-import type { EntryKind } from "./file-tree-display";
+import type { EntryKind } from "../file-tree/file-tree-display";
 
 export interface FileTreeActionTarget {
   absPath: string;

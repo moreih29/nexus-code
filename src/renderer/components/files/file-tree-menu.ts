@@ -8,7 +8,7 @@
  */
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { isMac, SHORTCUTS } from "@/keybindings/shortcut-labels";
-import type { FileTreeActionTarget, useFileTreeActions } from "./use-file-tree-actions";
+import type { FileTreeActionTarget, useFileTreeActions } from "./hooks/use-file-tree-actions";
 
 type FileTreeActions = ReturnType<typeof useFileTreeActions>;
 

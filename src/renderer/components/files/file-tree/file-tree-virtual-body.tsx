@@ -9,7 +9,7 @@
  */
 
 import type { Virtualizer } from "@tanstack/react-virtual";
-import type { FlatItem, WorkspaceTree } from "../../state/stores/files";
+import type { FlatItem, WorkspaceTree } from "../../../state/stores/files";
 import type { DisplayItem } from "./file-tree-display";
 import { FileTreeEditRow } from "./file-tree-edit-row";
 import { ROW_HEIGHT_PX } from "./file-tree-metrics";
