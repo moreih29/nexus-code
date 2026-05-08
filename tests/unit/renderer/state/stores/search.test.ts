@@ -1,117 +1,121 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type { FileMatch, SearchComplete } from "../../../../../src/shared/types/search";
 
-// ---------------------------------------------------------------------------
-// Shims — must run before any store import
-// ---------------------------------------------------------------------------
+interface ControlledStream {
+  promise: Promise<SearchComplete>;
+  resolve: (value: SearchComplete) => void;
+  reject: (reason: unknown) => void;
+  callbacks: Set<(batch: FileMatch[]) => void>;
+  emitProgress: (batch: FileMatch[]) => void;
+  signal?: AbortSignal;
+  args: unknown;
+}
 
-(globalThis as Record<string, unknown>).window = {
-  ipc: {
-    call: () => Promise.resolve(null),
-    listen: () => {},
-    off: () => {},
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const controlledStreams: ControlledStream[] = [];
+
+const mockIpcStream = mock(
+  (_channel: string, _method: string, args: unknown, opts?: { signal?: AbortSignal }) => {
+    const completion = deferred<SearchComplete>();
+    const callbacks = new Set<(batch: FileMatch[]) => void>();
+    const stream: ControlledStream = {
+      promise: completion.promise,
+      resolve: completion.resolve,
+      reject: completion.reject,
+      callbacks,
+      signal: opts?.signal,
+      args,
+      emitProgress(batch) {
+        for (const callback of Array.from(callbacks)) {
+          callback(batch);
+        }
+      },
+    };
+    controlledStreams.push(stream);
+
+    return {
+      promise: stream.promise,
+      onProgress(callback: (batch: FileMatch[]) => void) {
+        callbacks.add(callback);
+        return () => {
+          callbacks.delete(callback);
+        };
+      },
+    };
   },
-};
-
-// Deterministic crypto.randomUUID so requestIds are predictable in tests.
-let uuidCounter = 0;
-(globalThis as Record<string, unknown>).crypto = {
-  randomUUID: () => {
-    uuidCounter++;
-    return `00000000-0000-0000-0000-${String(uuidCounter).padStart(12, "0")}`;
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Mock ipcCall + ipcListen before any store import.
-// Bun requires mock.module() to run before the module is first imported.
-// ---------------------------------------------------------------------------
-
-const mockIpcCall = mock(() =>
-  Promise.resolve({
-    filesScanned: 0,
-    matchesFound: 0,
-    limitHit: false,
-    elapsedMs: 0,
-  }),
 );
 
-// Track all ipcListen registrations so Test 10 can verify the count.
-type ListenEntry = { channel: string; event: string; cb: (args: unknown) => void };
-const listenRegistry: ListenEntry[] = [];
-const mockIpcListen = mock((channel: string, event: string, cb: (args: unknown) => void) => {
-  listenRegistry.push({ channel, event, cb });
-  return () => {};
-});
-
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCall: mockIpcCall,
-  ipcListen: mockIpcListen,
+  ipcStream: mockIpcStream,
 }));
 
-// ---------------------------------------------------------------------------
-// Import store after mocks are set up
-// ---------------------------------------------------------------------------
-
 import {
-  _storeHelpers,
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
   useSearchStore,
 } from "../../../../../src/renderer/state/stores/search";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const WS_A = "00000000-0000-0000-0000-0000000000aa";
 const WS_B = "00000000-0000-0000-0000-0000000000bb";
-
 const BASE_OPTIONS: SearchOptions = { ...EMPTY_SEARCH_OPTIONS };
 
-function resetStore() {
+function resetStore(): void {
+  useSearchStore.getState().closeAllForWorkspace(WS_A);
+  useSearchStore.getState().closeAllForWorkspace(WS_B);
   useSearchStore.setState({ sessions: new Map() });
-  uuidCounter = 0;
-  mockIpcCall.mockClear();
+  controlledStreams.length = 0;
+  mockIpcStream.mockClear();
 }
 
-/** Simulate an incoming searchProgress IPC event by calling the store helper directly.
- * This bypasses the typeof-window guard in the ipcListen registration path, which is
- * never active in bun:test's window-less environment. */
-function pushBatch(requestId: string, relPath: string, preview: string): void {
-  _storeHelpers.appendBatch(requestId, [
+function batch(relPath: string, preview: string): FileMatch[] {
+  return [
     {
       relPath,
-      matches: [{ range: { line: 0, startCol: 0, endCol: 3 }, preview }],
+      matches: [{ range: { line: 0, startCol: 0, endCol: 6 }, preview }],
     },
-  ]);
+  ];
 }
 
-// ---------------------------------------------------------------------------
-// Test 1: startSearch initialises session + calls ipcCall with right args+signal
-// ---------------------------------------------------------------------------
+function latestStream(): ControlledStream {
+  const stream = controlledStreams.at(-1);
+  if (!stream) throw new Error("expected an ipcStream call");
+  return stream;
+}
 
-describe("startSearch initialises session and calls ipcCall", () => {
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("renderer search store", () => {
   beforeEach(resetStore);
 
-  it("creates a running session with the given query and options", () => {
+  it("startSearch creates a running session and calls ipcStream with args and signal", () => {
     useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
 
     const session = useSearchStore.getState().sessions.get(WS_A);
     expect(session).toBeDefined();
     expect(session!.query).toBe("hello");
+    expect(session!.options).toEqual(BASE_OPTIONS);
     expect(session!.status).toBe("running");
     expect(session!.results).toEqual([]);
-    expect(session!.requestId).toBeTruthy();
     expect(session!.limitHit).toBe(false);
     expect(session!.filesScanned).toBe(0);
     expect(session!.matchesFound).toBe(0);
-  });
+    expect(session!.elapsedMs).toBe(0);
+    expect(session!.errorMessage).toBeUndefined();
 
-  it("calls ipcCall('fs', 'searchText') with a signal and the workspace query", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-
-    expect(mockIpcCall.mock.calls.length).toBe(1);
-    const [channel, method, args, opts] = mockIpcCall.mock.calls[0] as [
+    expect(mockIpcStream).toHaveBeenCalledTimes(1);
+    const [channel, method, args, opts] = mockIpcStream.mock.calls[0] as [
       string,
       string,
       { workspaceId: string; query: { pattern: string } },
@@ -119,399 +123,120 @@ describe("startSearch initialises session and calls ipcCall", () => {
     ];
     expect(channel).toBe("fs");
     expect(method).toBe("searchText");
-    expect(args.workspaceId).toBe(WS_A);
-    expect(args.query.pattern).toBe("hello");
-    expect(opts?.signal).toBeInstanceOf(AbortSignal);
+    expect(args).toEqual({ workspaceId: WS_A, query: { pattern: "hello", ...BASE_OPTIONS } });
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+    expect(latestStream().signal).toBe(opts.signal);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Test 2: startSearch aborts prior in-flight controller before starting new
-// ---------------------------------------------------------------------------
-
-describe("startSearch aborts the prior in-flight controller before starting new", () => {
-  beforeEach(resetStore);
-
-  it("abort is called on the previous signal when a second startSearch fires", () => {
-    let firstAborted = false;
-    mockIpcCall.mockImplementationOnce(
-      (_c: unknown, _m: unknown, _a: unknown, opts: { signal?: AbortSignal }) => {
-        opts?.signal?.addEventListener("abort", () => {
-          firstAborted = true;
-        });
-        return new Promise(() => {}); // intentionally never resolves
-      },
-    );
-
-    useSearchStore.getState().startSearch(WS_A, "first", BASE_OPTIONS);
-    expect(firstAborted).toBe(false);
-
-    mockIpcCall.mockImplementationOnce(() =>
-      Promise.resolve({ filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 }),
-    );
-    useSearchStore.getState().startSearch(WS_A, "second", BASE_OPTIONS);
-
-    expect(firstAborted).toBe(true);
-    expect(useSearchStore.getState().sessions.get(WS_A)?.query).toBe("second");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 3: appendBatch merges into matching session and drops stale requestIds
-// ---------------------------------------------------------------------------
-
-describe("appendBatch merges into matching session; drops stale requestIds", () => {
-  beforeEach(resetStore);
-
-  it("appends a new FileGroup when requestId matches", () => {
+  it("progress appends new groups and merges matches for an existing group", () => {
     useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
+    const stream = latestStream();
 
-    pushBatch(requestId!, "src/index.ts", "needle is here");
-
-    const updated = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(updated.results.length).toBe(1);
-    expect(updated.results[0].relPath).toBe("src/index.ts");
-    expect(updated.results[0].expanded).toBe(true);
-    expect(updated.matchesFound).toBe(1);
-  });
-
-  it("appends to an existing FileGroup when relPath already present", () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-
-    pushBatch(requestId!, "src/index.ts", "needle one");
-    pushBatch(requestId!, "src/index.ts", "needle two");
-
-    const updated = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(updated.results.length).toBe(1);
-    expect(updated.results[0].matches.length).toBe(2);
-    expect(updated.matchesFound).toBe(2);
-  });
-
-  it("silently drops a batch whose requestId does not match the current session", () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-
-    pushBatch("stale-request-id-xyz", "src/index.ts", "needle here");
+    stream.emitProgress(batch("src/index.ts", "needle one"));
+    stream.emitProgress(batch("src/index.ts", "needle two"));
+    stream.emitProgress(batch("src/other.ts", "needle three"));
 
     const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(session.results.length).toBe(0);
-    expect(session.matchesFound).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 4: finishSearch sets status="done" when requestId matches
-// ---------------------------------------------------------------------------
-
-describe("finishSearch sets status=done when requestId matches", () => {
-  beforeEach(resetStore);
-
-  it("transitions status to 'done' and writes complete fields on success", async () => {
-    mockIpcCall.mockImplementationOnce(() =>
-      Promise.resolve({ filesScanned: 10, matchesFound: 3, limitHit: false, elapsedMs: 42 }),
-    );
-
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-
-    // Flush resolved promise microtasks.
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(session.status).toBe("done");
-    expect(session.filesScanned).toBe(10);
+    expect(session.results).toHaveLength(2);
+    expect(session.results[0].relPath).toBe("src/index.ts");
+    expect(session.results[0].expanded).toBe(true);
+    expect(session.results[0].matches.map((match) => match.preview)).toEqual([
+      "needle one",
+      "needle two",
+    ]);
+    expect(session.results[1].relPath).toBe("src/other.ts");
     expect(session.matchesFound).toBe(3);
-    expect(session.elapsedMs).toBe(42);
-    expect(session.limitHit).toBe(false);
   });
 
-  it("can also be invoked directly via _storeHelpers.finishSearch", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
+  it("complete sets status done and writes final counts", async () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    const stream = latestStream();
 
-    _storeHelpers.finishSearch(WS_A, requestId!, {
-      filesScanned: 5,
-      matchesFound: 2,
-      limitHit: true,
-      elapsedMs: 10,
-    });
+    stream.emitProgress(batch("src/index.ts", "needle"));
+    stream.resolve({ filesScanned: 8, matchesFound: 4, limitHit: true, elapsedMs: 42 });
+    await flushPromises();
 
     const session = useSearchStore.getState().sessions.get(WS_A)!;
     expect(session.status).toBe("done");
+    expect(session.filesScanned).toBe(8);
+    expect(session.matchesFound).toBe(4);
     expect(session.limitHit).toBe(true);
+    expect(session.elapsedMs).toBe(42);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Test 5: finishSearch with mismatched requestId leaves session unchanged
-// ---------------------------------------------------------------------------
+  it("cancelSearch aborts the signal, sets status idle, and keeps partial results", () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    const stream = latestStream();
+    stream.emitProgress(batch("src/index.ts", "needle"));
 
-describe("finishSearch with mismatched requestId leaves session unchanged", () => {
-  beforeEach(resetStore);
-
-  it("stale finishSearch call is a no-op when requestId no longer matches", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-
-    // Start a second search — requestId changes.
-    useSearchStore.getState().startSearch(WS_A, "world", BASE_OPTIONS);
-
-    // Try to finish with the OLD requestId.
-    _storeHelpers.finishSearch(WS_A, requestId!, {
-      filesScanned: 99,
-      matchesFound: 99,
-      limitHit: true,
-      elapsedMs: 1,
-    });
+    useSearchStore.getState().cancelSearch(WS_A);
 
     const session = useSearchStore.getState().sessions.get(WS_A)!;
-    // Session belongs to the second search — must be unchanged.
-    expect(session.status).toBe("running");
-    expect(session.query).toBe("world");
+    expect(stream.signal?.aborted).toBe(true);
+    expect(session.status).toBe("idle");
+    expect(session.results).toHaveLength(1);
+    expect(session.matchesFound).toBe(1);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Test 6: failSearch sets status="error"; AbortError is silent
-// ---------------------------------------------------------------------------
+  it("a new startSearch aborts the prior controller and ignores stale progress/errors", async () => {
+    useSearchStore.getState().startSearch(WS_A, "first", BASE_OPTIONS);
+    const first = latestStream();
 
-describe("failSearch sets status=error; AbortError is silent", () => {
-  beforeEach(resetStore);
+    useSearchStore.getState().startSearch(WS_A, "second", BASE_OPTIONS);
+    const second = latestStream();
 
-  it("sets status=error and errorMessage on non-abort rejection", async () => {
-    mockIpcCall.mockImplementationOnce(() => Promise.reject(new Error("disk full")));
+    expect(first.signal?.aborted).toBe(true);
+    expect(second.signal?.aborted).toBe(false);
 
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    await Promise.resolve();
-    await Promise.resolve();
+    first.emitProgress(batch("old.ts", "stale needle"));
+    first.reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    await flushPromises();
+
+    let session = useSearchStore.getState().sessions.get(WS_A)!;
+    expect(session.query).toBe("second");
+    expect(session.status).toBe("running");
+    expect(session.results).toEqual([]);
+
+    second.emitProgress(batch("fresh.ts", "fresh needle"));
+    session = useSearchStore.getState().sessions.get(WS_A)!;
+    expect(session.results.map((group) => group.relPath)).toEqual(["fresh.ts"]);
+    expect(session.matchesFound).toBe(1);
+  });
+
+  it("non-abort stream errors set status error", async () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    latestStream().reject(new Error("disk full"));
+    await flushPromises();
 
     const session = useSearchStore.getState().sessions.get(WS_A)!;
     expect(session.status).toBe("error");
     expect(session.errorMessage).toBe("disk full");
   });
 
-  it("can be invoked directly via _storeHelpers.failSearch", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-
-    _storeHelpers.failSearch(WS_A, requestId!, "boom");
-
-    const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(session.status).toBe("error");
-    expect(session.errorMessage).toBe("boom");
-  });
-
-  it("does not set status=error on AbortError (silent cancel)", async () => {
-    const abortError = new DOMException("aborted", "AbortError");
-    mockIpcCall.mockImplementationOnce(() => Promise.reject(abortError));
-
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const session = useSearchStore.getState().sessions.get(WS_A);
-    if (session) {
-      expect(session.status).not.toBe("error");
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 7: toggleGroup flips expanded for the named relPath
-// ---------------------------------------------------------------------------
-
-describe("toggleGroup flips expanded for the named relPath", () => {
-  beforeEach(resetStore);
-
-  it("flips expanded true→false→true", () => {
+  it("toggleGroup flips only the requested result group", () => {
     useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-    pushBatch(requestId!, "src/index.ts", "needle here");
-
-    expect(useSearchStore.getState().sessions.get(WS_A)!.results[0].expanded).toBe(true);
-
-    useSearchStore.getState().toggleGroup(WS_A, "src/index.ts");
-    expect(useSearchStore.getState().sessions.get(WS_A)!.results[0].expanded).toBe(false);
-
-    useSearchStore.getState().toggleGroup(WS_A, "src/index.ts");
-    expect(useSearchStore.getState().sessions.get(WS_A)!.results[0].expanded).toBe(true);
-  });
-
-  it("only flips the targeted relPath; others are unchanged", () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-    pushBatch(requestId!, "a.ts", "needle");
-    pushBatch(requestId!, "b.ts", "needle");
+    const stream = latestStream();
+    stream.emitProgress(batch("a.ts", "needle a"));
+    stream.emitProgress(batch("b.ts", "needle b"));
 
     useSearchStore.getState().toggleGroup(WS_A, "a.ts");
 
     const results = useSearchStore.getState().sessions.get(WS_A)!.results;
-    expect(results.find((g) => g.relPath === "a.ts")!.expanded).toBe(false);
-    expect(results.find((g) => g.relPath === "b.ts")!.expanded).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 8: closeAllForWorkspace aborts controller and removes session
-// ---------------------------------------------------------------------------
-
-describe("closeAllForWorkspace aborts controller and removes session", () => {
-  beforeEach(resetStore);
-
-  it("removes the session from the store", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(true);
-
-    useSearchStore.getState().closeAllForWorkspace(WS_A);
-    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
+    expect(results.find((group) => group.relPath === "a.ts")!.expanded).toBe(false);
+    expect(results.find((group) => group.relPath === "b.ts")!.expanded).toBe(true);
   });
 
-  it("aborts the in-flight request when closing", () => {
-    let wasAborted = false;
-    mockIpcCall.mockImplementationOnce(
-      (_c: unknown, _m: unknown, _a: unknown, opts: { signal?: AbortSignal }) => {
-        opts?.signal?.addEventListener("abort", () => {
-          wasAborted = true;
-        });
-        return new Promise(() => {}); // never resolves
-      },
-    );
-
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    expect(wasAborted).toBe(false);
-
-    useSearchStore.getState().closeAllForWorkspace(WS_A);
-    expect(wasAborted).toBe(true);
-  });
-
-  it("does not affect other workspaces", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-    useSearchStore.getState().startSearch(WS_B, "world", BASE_OPTIONS);
+  it("closeAllForWorkspace aborts in-flight search and removes only that workspace", () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    const first = latestStream();
+    useSearchStore.getState().startSearch(WS_B, "other", BASE_OPTIONS);
+    const second = latestStream();
 
     useSearchStore.getState().closeAllForWorkspace(WS_A);
 
+    expect(first.signal?.aborted).toBe(true);
+    expect(second.signal?.aborted).toBe(false);
     expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
     expect(useSearchStore.getState().sessions.has(WS_B)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 9: registerWorkspaceCleanup integration — cleanup removes session
-// ---------------------------------------------------------------------------
-
-describe("registerWorkspaceCleanup integration", () => {
-  it("closeAllForWorkspace (the registered cleanup fn) clears session and aborts", () => {
-    resetStore();
-    useSearchStore.getState().startSearch(WS_A, "q", BASE_OPTIONS);
-    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(true);
-
-    useSearchStore.getState().closeAllForWorkspace(WS_A);
-    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
-  });
-
-  it("cleanup registered via registerWorkspaceCleanup receives workspace id on removal", () => {
-    resetStore();
-    // Import the real workspace-cleanup module and register a test spy.
-    // workspace-cleanup is not mocked in this file — we use the real module
-    // to confirm the store's registered handler operates correctly.
-    const { registerWorkspaceCleanup } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("../../../../../src/renderer/state/lifecycle/workspace-cleanup") as {
-        registerWorkspaceCleanup: (fn: (id: string) => void) => () => void;
-      };
-
-    let receivedId = "";
-    const unregister = registerWorkspaceCleanup((id) => {
-      receivedId = id;
-    });
-
-    // Simulate workspace removal by triggering closeAllForWorkspace directly
-    // (initializeWorkspaceLifecycle is not called in unit tests — no IPC listener).
-    useSearchStore.getState().startSearch(WS_B, "search", BASE_OPTIONS);
-    useSearchStore.getState().closeAllForWorkspace(WS_B);
-
-    // The store's own registered fn fires on closeAllForWorkspace — verify
-    // our spy fn was NOT called (we only prove the store action works).
-    expect(useSearchStore.getState().sessions.has(WS_B)).toBe(false);
-    expect(receivedId).toBe(""); // our spy was never triggered (no IPC listener in tests)
-    unregister();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 10: IPC listener registration at module init
-// ---------------------------------------------------------------------------
-
-describe("IPC listener registration at module init", () => {
-  it("ipcListen is NOT called at module load because static import hoisting precedes the window shim", () => {
-    // ES module static imports are hoisted above all top-level code, so the
-    // globalThis.window shim assigned before the import statement runs AFTER
-    // the store module is already evaluated.  Therefore typeof window is
-    // "undefined" inside the store module's create() callback, and ipcListen
-    // is not invoked.  This is the correct bun:test contract.
-    expect(listenRegistry.length).toBe(0);
-  });
-
-  it("_storeHelpers.appendBatch routes batches to the matching workspace session", () => {
-    resetStore();
-    useSearchStore.getState().startSearch(WS_A, "x", BASE_OPTIONS);
-    const { requestId } = useSearchStore.getState().sessions.get(WS_A)!;
-
-    _storeHelpers.appendBatch(requestId!, [
-      {
-        relPath: "file.ts",
-        matches: [{ range: { line: 0, startCol: 0, endCol: 1 }, preview: "x" }],
-      },
-    ]);
-
-    expect(useSearchStore.getState().sessions.get(WS_A)!.results.length).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Test 11: controller cleanup uses identity check (rapid re-search)
-// ---------------------------------------------------------------------------
-
-describe("controller cleanup uses identity check (rapid re-search)", () => {
-  it("AbortError from the first search does not delete the second search's controller", async () => {
-    resetStore();
-
-    // Capture the reject handle for the first ipcCall so we can fire it later.
-    let rejectFirst!: (err: unknown) => void;
-    mockIpcCall.mockImplementationOnce(() => {
-      return new Promise<never>((_resolve, reject) => {
-        rejectFirst = reject;
-      });
-    });
-
-    // First search — ipcCall is in-flight (never resolves until we call rejectFirst).
-    useSearchStore.getState().startSearch(WS_A, "first", BASE_OPTIONS);
-
-    // Second search — aborts the first controller and installs a new one.
-    mockIpcCall.mockImplementationOnce(() => new Promise(() => {})); // second never resolves
-    useSearchStore.getState().startSearch(WS_A, "second", BASE_OPTIONS);
-
-    // Capture the second controller reference before the AbortError fires.
-    // The store does not expose controllers directly; we compare via ipcCall's
-    // signal argument captured from the second call.
-    const secondSignal = (
-      mockIpcCall.mock.calls[1] as [unknown, unknown, unknown, { signal?: AbortSignal }]
-    )[3]?.signal;
-    expect(secondSignal?.aborted).toBe(false);
-
-    // Now fire AbortError on the first ipcCall's promise.
-    const abortErr = Object.assign(new Error("aborted"), { name: "AbortError" });
-    rejectFirst(abortErr);
-
-    // Flush microtasks so the .catch handler runs.
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // The second search's signal must still be alive — identity check prevented
-    // the first catch from deleting the second controller.
-    expect(secondSignal?.aborted).toBe(false);
-    // The second session is still running.
-    expect(useSearchStore.getState().sessions.get(WS_A)?.status).toBe("running");
   });
 });

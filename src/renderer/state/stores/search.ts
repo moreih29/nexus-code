@@ -5,7 +5,7 @@ import type {
   SearchRange,
   TextSearchQuery,
 } from "../../../shared/types/search";
-import { ipcCall, ipcListen } from "../../ipc/client";
+import { ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,6 @@ export interface SearchSession {
   filesScanned: number;
   matchesFound: number;
   elapsedMs: number;
-  requestId: string | null;
   errorMessage?: string;
 }
 
@@ -59,63 +58,21 @@ interface SearchState {
 const controllers = new Map<string, AbortController>();
 
 // ---------------------------------------------------------------------------
-// Internal helper bridge — assigned by the store's create() callback so tests
-// can call them directly without going through the IPC listener path.
-// The store is created synchronously at module load, so _storeHelpers is
-// populated before any test code can run.
-// ---------------------------------------------------------------------------
-
-interface StoreHelpers {
-  appendBatch: (requestId: string, batch: FileMatch[]) => void;
-  finishSearch: (wsId: string, requestId: string, complete: SearchComplete) => void;
-  failSearch: (wsId: string, requestId: string, message: string) => void;
-}
-
-// Declare before create() so the callback can assign into it without TDZ errors.
-// Production code should never call these directly.
-export let _storeHelpers: StoreHelpers = {
-  appendBatch: () => {},
-  finishSearch: () => {},
-  failSearch: () => {},
-};
-
-// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
 export const useSearchStore = create<SearchState>((set, get) => {
-  // Wire searchProgress listen events to the batch-append helper.
-  // typeof window guard keeps this safe under bun:test without a DOM.
-  if (typeof window !== "undefined") {
-    ipcListen("fs", "searchProgress", ({ requestId, batch }) => {
-      appendBatch(requestId, batch);
-    });
-  }
-
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
   });
 
   // ------------------------------------------------------------------
-  // Internal helpers — closed over set/get; exported at module scope
-  // below so tests can call them directly without going through the
-  // IPC listener (which is skipped in bun:test's window-less env).
+  // Internal helpers — closed over set/get.
   // ------------------------------------------------------------------
 
-  function appendBatch(requestId: string, batch: FileMatch[]): void {
-    // Find the workspace whose current session owns this requestId.
-    for (const [wsId, session] of get().sessions) {
-      if (session.requestId === requestId) {
-        _appendBatchForSession(wsId, requestId, batch);
-        return;
-      }
-    }
-    // Stale or unknown requestId — drop silently.
-  }
-
-  function _appendBatchForSession(wsId: string, requestId: string, batch: FileMatch[]): void {
+  function appendBatch(wsId: string, batch: FileMatch[]): void {
     const session = get().sessions.get(wsId);
-    if (!session || session.requestId !== requestId) return;
+    if (!session || session.status !== "running") return;
 
     const groupMap = new Map<string, FileGroup>(session.results.map((g) => [g.relPath, g]));
 
@@ -145,7 +102,7 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
     set((state) => {
       const cur = state.sessions.get(wsId);
-      if (!cur || cur.requestId !== requestId) return state;
+      if (!cur || cur.status !== "running") return state;
       const next = new Map(state.sessions);
       next.set(wsId, {
         ...cur,
@@ -156,15 +113,14 @@ export const useSearchStore = create<SearchState>((set, get) => {
     });
   }
 
-  function finishSearch(wsId: string, requestId: string, complete: SearchComplete): void {
-    const session = get().sessions.get(wsId);
-    if (!session || session.requestId !== requestId) return;
+  function finishSearch(wsId: string, ctrl: AbortController, complete: SearchComplete): void {
+    if (controllers.get(wsId) !== ctrl) return;
 
     controllers.delete(wsId);
 
     set((state) => {
       const cur = state.sessions.get(wsId);
-      if (!cur || cur.requestId !== requestId) return state;
+      if (!cur) return state;
       const next = new Map(state.sessions);
       next.set(wsId, {
         ...cur,
@@ -178,23 +134,33 @@ export const useSearchStore = create<SearchState>((set, get) => {
     });
   }
 
-  function failSearch(wsId: string, requestId: string, message: string): void {
-    const session = get().sessions.get(wsId);
-    if (!session || session.requestId !== requestId) return;
+  function idleSearch(wsId: string, ctrl: AbortController): void {
+    if (controllers.get(wsId) !== ctrl) return;
 
     controllers.delete(wsId);
 
     set((state) => {
       const cur = state.sessions.get(wsId);
-      if (!cur || cur.requestId !== requestId) return state;
+      if (!cur || cur.status !== "running") return state;
+      const next = new Map(state.sessions);
+      next.set(wsId, { ...cur, status: "idle" });
+      return { sessions: next };
+    });
+  }
+
+  function failSearch(wsId: string, ctrl: AbortController, message: string): void {
+    if (controllers.get(wsId) !== ctrl) return;
+
+    controllers.delete(wsId);
+
+    set((state) => {
+      const cur = state.sessions.get(wsId);
+      if (!cur) return state;
       const next = new Map(state.sessions);
       next.set(wsId, { ...cur, status: "error", errorMessage: message });
       return { sessions: next };
     });
   }
-
-  // Bind module-level exports to this store instance's set/get.
-  _storeHelpers = { appendBatch, finishSearch, failSearch };
 
   return {
     sessions: new Map(),
@@ -208,7 +174,6 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
       const ctrl = new AbortController();
       controllers.set(wsId, ctrl);
-      const requestId = crypto.randomUUID();
 
       set((state) => {
         const next = new Map(state.sessions);
@@ -221,30 +186,37 @@ export const useSearchStore = create<SearchState>((set, get) => {
           filesScanned: 0,
           matchesFound: 0,
           elapsedMs: 0,
-          requestId,
           errorMessage: undefined,
         });
         return { sessions: next };
       });
 
       const tsq = { pattern: query, ...options } as TextSearchQuery;
+      const stream = ipcStream(
+        "fs",
+        "searchText",
+        { workspaceId: wsId, query: tsq },
+        {
+          signal: ctrl.signal,
+        },
+      );
 
-      ipcCall("fs", "searchText", { workspaceId: wsId, query: tsq }, { signal: ctrl.signal })
+      stream.onProgress((batch) => {
+        if (controllers.get(wsId) !== ctrl) return;
+        appendBatch(wsId, batch);
+      });
+
+      stream.promise
         .then((complete) => {
-          finishSearch(wsId, requestId, complete);
-          if (controllers.get(wsId) === ctrl) controllers.delete(wsId);
+          finishSearch(wsId, ctrl, complete);
         })
         .catch((err: unknown) => {
           const errObj = err as { name?: string; message?: string };
           if (errObj?.name === "AbortError") {
-            // Walker absorbed AbortError and returned a partial SearchComplete;
-            // the renderer's requestId guard drops stale finish events from
-            // cancelled queries.
-            if (controllers.get(wsId) === ctrl) controllers.delete(wsId);
+            idleSearch(wsId, ctrl);
             return;
           }
-          failSearch(wsId, requestId, errObj?.message ?? String(err));
-          if (controllers.get(wsId) === ctrl) controllers.delete(wsId);
+          failSearch(wsId, ctrl, errObj?.message ?? String(err));
         });
     },
 

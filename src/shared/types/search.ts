@@ -26,10 +26,7 @@ export const FileMatchSchema = z.object({
 });
 export type FileMatch = z.infer<typeof FileMatchSchema>;
 
-export const SearchProgressSchema = z.object({
-  requestId: z.string(),
-  batch: z.array(FileMatchSchema),
-});
+export const SearchProgressSchema = z.array(FileMatchSchema);
 export type SearchProgress = z.infer<typeof SearchProgressSchema>;
 
 export const SearchCompleteSchema = z.object({

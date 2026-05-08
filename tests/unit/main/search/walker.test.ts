@@ -230,7 +230,7 @@ describe("walker — maxResults limit", () => {
 // ---------------------------------------------------------------------------
 
 describe("walker — AbortController cancellation", () => {
-  test("pre-aborted signal exits quickly without throwing fatal", async () => {
+  test("pre-aborted signal throws AbortError", async () => {
     for (let i = 0; i < 10; i++) {
       fs.writeFileSync(path.join(tmpRoot, `file${i}.ts`), "hello\n");
     }
@@ -238,21 +238,19 @@ describe("walker — AbortController cancellation", () => {
     const ctrl = new AbortController();
     ctrl.abort();
 
-    // Should not throw
     const batches: FileMatch[][] = [];
-    const result = await walkAndSearch(tmpRoot, baseQuery({ pattern: "hello" }), {
-      signal: ctrl.signal,
-      onBatch: (b) => batches.push(b),
-    });
-
-    // limitHit is false for abort (not a result limit)
-    expect(result.limitHit).toBe(false);
-    // matchesFound reflects partial work (likely 0 since abort was pre-set)
+    await expect(
+      walkAndSearch(tmpRoot, baseQuery({ pattern: "hello" }), {
+        signal: ctrl.signal,
+        onBatch: (b) => batches.push(b),
+      }),
+    ).rejects.toThrow("aborted");
+    expect(batches).toEqual([]);
   });
 
-  test("abort mid-walk: total matches are consistent (no phantom results)", async () => {
-    // Create 50 files
-    for (let i = 0; i < 50; i++) {
+  test("abort mid-walk throws AbortError after the current batch", async () => {
+    // Create enough files that the first flush happens before the walk is complete.
+    for (let i = 0; i < 120; i++) {
       fs.writeFileSync(path.join(tmpRoot, `f${i}.ts`), "needle\n");
     }
 
@@ -270,11 +268,9 @@ describe("walker — AbortController cancellation", () => {
       },
     });
 
-    const result = await resultP;
-    expect(result.limitHit).toBe(false);
-    // matchesFound must equal total from all batches
-    const batchTotal = batches.flat().reduce((s, fm) => s + fm.matches.length, 0);
-    expect(result.matchesFound).toBe(batchTotal);
+    await expect(resultP).rejects.toThrow("aborted");
+    expect(batches.length).toBe(1);
+    expect(ctrl.signal.aborted).toBe(true);
   });
 });
 

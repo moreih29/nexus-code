@@ -20,7 +20,7 @@ import {
   unwatchHandler,
   watchHandler,
 } from "./read-handlers";
-import { searchTextHandler } from "./search-handlers";
+import { searchTextStream } from "./search-handlers";
 import { createFileHandler, mkdirHandler, writeFileHandler } from "./write-handlers";
 
 // NOTE: do not re-export individual handler factories here — `move-handlers`
@@ -49,11 +49,12 @@ export function registerFsChannel(
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),
       showItemInFolder: showItemInFolderHandler(manager),
-      searchText: searchTextHandler(manager),
     },
     listen: {
       changed: {},
-      searchProgress: {},
+    },
+    stream: {
+      searchText: searchTextStream(manager),
     },
   });
 }

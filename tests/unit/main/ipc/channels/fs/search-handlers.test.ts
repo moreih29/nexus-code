@@ -1,54 +1,70 @@
-/**
- * Handler-level tests for searchTextHandler.
- *
- * Imports come directly from search-handlers.ts (not the channel barrel)
- * to avoid loading move-handlers.ts, which depends on Electron's shell module.
- * The broadcast function from router.ts IS exercised indirectly: the handler
- * calls it, and we capture the output via a mock webContents.send.
- */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-// Mock electron before any module that require()s it is imported.
-mock.module("electron", () => ({
-  webContents: {
-    getAllWebContents: () => [],
-  },
-}));
-
 import {
-  searchTextHandler,
+  searchTextStream,
   WorkspaceNotFoundError,
 } from "../../../../../../src/main/ipc/channels/fs/search-handlers";
-import type { SearchProgress } from "../../../../../../src/shared/types/search";
+import type { StreamContext } from "../../../../../../src/main/ipc/router";
+import { InvalidSearchPatternError } from "../../../../../../src/main/search/matcher";
+import type {
+  FileMatch,
+  SearchComplete,
+  TextSearchQuery,
+} from "../../../../../../src/shared/types/search";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174001";
+const UNKNOWN_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
-function makeManager(rootPath: string) {
+function baseQuery(overrides: Partial<TextSearchQuery> & { pattern: string }): TextSearchQuery {
   return {
-    list: (): WorkspaceMeta[] => [
-      {
-        id: VALID_UUID,
-        name: "test-workspace",
-        rootPath,
-        colorTone: "default",
-        pinned: false,
-        lastOpenedAt: new Date().toISOString(),
-        tabs: [],
-      },
-    ],
+    isRegExp: false,
+    isCaseSensitive: false,
+    isWordMatch: false,
+    includes: [],
+    excludes: [],
+    maxResults: 2000,
+    maxFileSize: 5 * 1024 * 1024,
+    ...overrides,
   };
 }
 
-function noSignal(): AbortSignal {
-  return new AbortController().signal;
+function makeManager(rootPath: string, workspaces: WorkspaceMeta[] = [makeWorkspace(rootPath)]) {
+  return {
+    list: (): WorkspaceMeta[] => workspaces,
+  };
+}
+
+function makeWorkspace(rootPath: string, id = VALID_UUID): WorkspaceMeta {
+  return {
+    id,
+    name: "test-workspace",
+    rootPath,
+    colorTone: "default",
+    pinned: false,
+    lastOpenedAt: new Date().toISOString(),
+    tabs: [],
+  };
+}
+
+function context(signal: AbortSignal = new AbortController().signal): StreamContext {
+  return { signal };
+}
+
+async function consumeSearch(
+  generator: AsyncGenerator<FileMatch[], SearchComplete, unknown>,
+): Promise<{ progress: FileMatch[][]; complete: SearchComplete }> {
+  const progress: FileMatch[][] = [];
+
+  while (true) {
+    const next = await generator.next();
+    if (next.done) {
+      return { progress, complete: next.value };
+    }
+    progress.push(next.value);
+  }
 }
 
 let tmpRoot: string;
@@ -61,112 +77,81 @@ afterEach(() => {
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-// ---------------------------------------------------------------------------
-// Happy path
-// ---------------------------------------------------------------------------
+describe("searchTextStream", () => {
+  test("returns an empty completion and yields no progress when there are no matches", async () => {
+    fs.writeFileSync(path.join(tmpRoot, "readme.md"), "No matching text here.\n");
 
-describe("searchTextHandler — happy path", () => {
-  test("returns SearchComplete with correct counts; broadcaster receives batches with requestId", async () => {
-    fs.writeFileSync(path.join(tmpRoot, "a.ts"), "const hello = 'hello world';\n");
-    fs.writeFileSync(path.join(tmpRoot, "b.ts"), "no match here\n");
-
-    const capturedPayloads: SearchProgress[] = [];
-
-    const mockSend = mock((_channel: string, _ns: string, _event: string, payload: unknown) => {
-      capturedPayloads.push(payload as SearchProgress);
-    });
-
-    // Re-override electron mock to capture wc.send calls.
-    mock.module("electron", () => ({
-      webContents: {
-        getAllWebContents: () => [{ isDestroyed: () => false, send: mockSend }],
-      },
-    }));
-
-    const handler = searchTextHandler(makeManager(tmpRoot) as never);
-    const result = await handler(
-      {
-        workspaceId: VALID_UUID,
-        query: { pattern: "hello" },
-      },
-      { requestId: "req-abc", signal: noSignal() },
+    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const { progress, complete } = await consumeSearch(
+      handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
     );
 
-    // Both files are text — both reach the matcher. a.ts has a match, b.ts does not.
-    expect(result.filesScanned).toBe(2);
-    expect(result.matchesFound).toBeGreaterThanOrEqual(1);
-    expect(result.limitHit).toBe(false);
-    expect(typeof result.elapsedMs).toBe("number");
-
-    // All captured progress payloads should carry the same requestId.
-    for (const p of capturedPayloads) {
-      if (typeof p === "object" && p !== null && "requestId" in p) {
-        expect(p.requestId).toBe("req-abc");
-      }
-    }
+    expect(progress).toEqual([]);
+    expect(complete.filesScanned).toBe(1);
+    expect(complete.matchesFound).toBe(0);
+    expect(complete.limitHit).toBe(false);
+    expect(complete.elapsedMs).toEqual(expect.any(Number));
   });
-});
 
-// ---------------------------------------------------------------------------
-// Invalid regex
-// ---------------------------------------------------------------------------
-
-describe("searchTextHandler — invalid regex", () => {
-  test("rejects with InvalidSearchPatternError-shaped error for bad regex", async () => {
-    const { InvalidSearchPatternError } = await import("../../../../../../src/main/search/matcher");
-    const handler = searchTextHandler(makeManager(tmpRoot) as never);
-    await expect(
-      handler(
-        {
-          workspaceId: VALID_UUID,
-          query: { pattern: "[invalid", isRegExp: true },
-        },
-        { signal: noSignal() },
-      ),
-    ).rejects.toBeInstanceOf(InvalidSearchPatternError);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Abort propagation
-// ---------------------------------------------------------------------------
-
-describe("searchTextHandler — abort propagation", () => {
-  test("pre-aborted signal: handler returns without throwing fatal", async () => {
-    for (let i = 0; i < 5; i++) {
-      fs.writeFileSync(path.join(tmpRoot, `f${i}.ts`), "hello\n");
+  test("yields FileMatch[] batches and returns final search counts", async () => {
+    for (let i = 0; i < 60; i++) {
+      fs.writeFileSync(path.join(tmpRoot, `file-${i}.ts`), "needle\n");
     }
 
+    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const { progress, complete } = await consumeSearch(
+      handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
+    );
+
+    const allMatches = progress.flat();
+    const totalMatches = allMatches.reduce((sum, file) => sum + file.matches.length, 0);
+
+    expect(progress.length).toBeGreaterThanOrEqual(2);
+    expect(allMatches).toHaveLength(60);
+    expect(totalMatches).toBe(60);
+    expect(complete.filesScanned).toBe(60);
+    expect(complete.matchesFound).toBe(60);
+    expect(complete.limitHit).toBe(false);
+    expect(complete.elapsedMs).toEqual(expect.any(Number));
+  });
+
+  test("throws AbortError when the stream signal is already aborted", async () => {
+    fs.writeFileSync(path.join(tmpRoot, "a.ts"), "needle\n");
     const ctrl = new AbortController();
     ctrl.abort();
 
-    const handler = searchTextHandler(makeManager(tmpRoot) as never);
-    // Walker catches AbortError and returns a partial result — handler should not throw.
-    const result = await handler(
-      { workspaceId: VALID_UUID, query: { pattern: "hello" } },
-      { requestId: "req-abort", signal: ctrl.signal },
+    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const generator = handler(
+      { workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) },
+      context(ctrl.signal),
     );
 
-    expect(result.limitHit).toBe(false);
-    expect(typeof result.elapsedMs).toBe("number");
+    await expect(generator.next()).rejects.toThrow("aborted");
   });
-});
 
-// ---------------------------------------------------------------------------
-// Unknown workspace
-// ---------------------------------------------------------------------------
+  test("throws InvalidSearchPatternError for an invalid regex", async () => {
+    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const generator = handler(
+      {
+        workspaceId: VALID_UUID,
+        query: baseQuery({ pattern: "[invalid", isRegExp: true }),
+      },
+      context(),
+    );
 
-describe("searchTextHandler — unknown workspace", () => {
-  test("throws WorkspaceNotFoundError for unknown workspaceId", async () => {
-    const unknownId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    const handler = searchTextHandler(makeManager(tmpRoot) as never);
-    const err = await handler(
-      { workspaceId: unknownId, query: { pattern: "hello" } },
-      { signal: noSignal() },
-    ).catch((e: unknown) => e);
+    await expect(generator.next()).rejects.toBeInstanceOf(InvalidSearchPatternError);
+  });
 
+  test("throws WorkspaceNotFoundError for an unknown workspace", async () => {
+    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const generator = handler(
+      { workspaceId: UNKNOWN_UUID, query: baseQuery({ pattern: "needle" }) },
+      context(),
+    );
+
+    const err = await generator.next().catch((error: unknown) => error);
     expect(err).toBeInstanceOf(WorkspaceNotFoundError);
     expect((err as WorkspaceNotFoundError).name).toBe("WorkspaceNotFoundError");
-    expect((err as WorkspaceNotFoundError).workspaceId).toBe(unknownId);
+    expect((err as WorkspaceNotFoundError).workspaceId).toBe(UNKNOWN_UUID);
   });
 });
