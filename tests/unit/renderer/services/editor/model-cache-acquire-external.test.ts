@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Bun mock.module is process-global. Spread real exports so other editor/*
 // test files see the full module surface after this file runs.
 const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+const realMonacoSingleton = await import(
+  "../../../../../src/renderer/services/editor/monaco-singleton"
+);
 
 mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
   ...realLspBridge,
@@ -21,6 +24,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
 }));
 
 mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+  ...realMonacoSingleton,
   initializeMonacoSingleton: () => {},
   isMonacoReady: () => true,
   onMonacoReady: () => () => {},
@@ -46,7 +50,10 @@ mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () =
   },
 };
 
+const realIpcClient = await import("../../../../../src/renderer/ipc/client");
+
 mock.module("../../../../../src/renderer/ipc/client", () => ({
+  ...realIpcClient,
   ipcCall: mock(() => Promise.resolve()),
   ipcListen: () => () => {},
 }));
@@ -70,11 +77,12 @@ const createEntryMock = mock(
 );
 
 const realModelEntry = await import("../../../../../src/renderer/services/editor/model-entry");
+const cleanupEntryMock = mock(() => {});
 
 mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
   ...realModelEntry,
   createEntry: createEntryMock,
-  cleanupEntry: mock(() => {}),
+  cleanupEntry: cleanupEntryMock,
   snapshot: (entry: { phase: string; model: unknown; readOnly?: boolean }) => ({
     phase: entry.phase,
     model: entry.model,
@@ -91,7 +99,7 @@ const loadExternalEntryMock = mock(async (input: { workspaceId: string; filePath
   cacheUri: `file://${input.filePath}`,
   lspUri: `file://${input.filePath}`,
   languageId: "python",
-  refCount: 1,
+  refCount: 0,
   phase: "ready" as const,
   model: { id: `file://${input.filePath}` },
   loadPromise: Promise.resolve(),
@@ -107,7 +115,7 @@ mock.module("../../../../../src/renderer/services/editor/load-external-entry", (
   loadExternalEntry: loadExternalEntryMock,
 }));
 
-const { acquireModel, releaseModel } = await import(
+const { acquireModel, getModelSnapshot, releaseModel } = await import(
   "../../../../../src/renderer/services/editor/model-cache"
 );
 
@@ -120,11 +128,12 @@ const EXT_INPUT = {
 };
 
 beforeEach(() => {
-  createEntryMock.mockClear();
-  loadExternalEntryMock.mockClear();
   // Release any cached entries to keep tests independent.
   releaseModel(WS_INPUT);
   releaseModel(EXT_INPUT);
+  createEntryMock.mockClear();
+  loadExternalEntryMock.mockClear();
+  cleanupEntryMock.mockClear();
 });
 
 describe("acquireModel — origin branching", () => {
@@ -156,6 +165,20 @@ describe("acquireModel — origin branching", () => {
     await acquireModel(EXT_INPUT);
     expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);
     releaseModel(EXT_INPUT);
+    releaseModel(EXT_INPUT);
+  });
+
+  test("external acquire/release roundtrip cleans cache for equal reacquire", async () => {
+    const first = await acquireModel(EXT_INPUT);
+    releaseModel(EXT_INPUT);
+
+    expect(getModelSnapshot(EXT_INPUT)).toBeNull();
+    expect(cleanupEntryMock).toHaveBeenCalledTimes(1);
+
+    const second = await acquireModel(EXT_INPUT);
+
+    expect(second).toEqual(first);
+    expect(loadExternalEntryMock).toHaveBeenCalledTimes(2);
     releaseModel(EXT_INPUT);
   });
 });

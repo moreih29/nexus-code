@@ -2,6 +2,7 @@ import type * as Monaco from "monaco-editor";
 import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
 import { initializeLspBridge } from "./lsp-bridge";
 import { initializeModelCache } from "./model-cache";
+import { installMonacoCompensations } from "./monaco-compensations";
 import { initializeMonacoTheme } from "./monaco-theme";
 import { startPromoteOnDirtyPolicy } from "./promote-policy";
 
@@ -9,6 +10,11 @@ export type { CloseTabOutcome } from "./close-handler";
 export { closeEditorWithConfirm } from "./close-handler";
 export { isDirty, subscribeFileDirty } from "./dirty-tracker";
 export { cacheUriToFilePath, filePathToModelUri } from "./model-cache";
+export {
+  installEditorOpener,
+  installLocationModelPreAcquire,
+  installMonacoCompensations,
+} from "./monaco-compensations";
 export {
   closeEditor,
   findEditorTab,
@@ -27,6 +33,7 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeMonacoTheme(monaco);
   initializeModelCache(monaco);
   initializeLspBridge(monaco);
+  installMonacoCompensations(monaco);
   initializeLspServerUxRouter();
   startPromoteOnDirtyPolicy();
 }
