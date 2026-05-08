@@ -4,6 +4,7 @@
 import { Grid } from "@/engine/split";
 import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
 import { useLayoutStore } from "@/state/stores/layout";
+import type { Tab } from "@/state/stores/tabs";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
 
@@ -36,6 +37,18 @@ function normalizeFilePath(filePath: string): string {
   if (normalized === "") normalized = isAbsolute ? "/" : ".";
   if (hasTrailingSlash && normalized !== "/") normalized += "/";
   return normalized;
+}
+
+function getLeafAndTabs(
+  workspaceId: string,
+  groupId: string,
+): { leaf: NonNullable<ReturnType<typeof Grid.findLeaf>>; tabsById: Record<string, Tab> } | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+  const leaf = Grid.findLeaf(layout.root, groupId);
+  if (!leaf) return null;
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  return { leaf, tabsById };
 }
 
 export function findEditorTab(workspaceId: string, filePath: string): EditorTabLocation | null {
@@ -73,13 +86,9 @@ export function findEditorTabInGroup(
   groupId: string,
   filePath: string,
 ): EditorTabLocation | null {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return null;
-
-  const leaf = Grid.findLeaf(layout.root, groupId);
-  if (!leaf) return null;
-
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const result = getLeafAndTabs(workspaceId, groupId);
+  if (!result) return null;
+  const { leaf, tabsById } = result;
   const targetPath = normalizeFilePath(filePath);
 
   const tabId = leaf.tabIds.find((id) => {
@@ -102,13 +111,9 @@ export function findPreviewTabInGroup(
   workspaceId: string,
   groupId: string,
 ): EditorTabLocation | null {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return null;
-
-  const leaf = Grid.findLeaf(layout.root, groupId);
-  if (!leaf) return null;
-
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const result = getLeafAndTabs(workspaceId, groupId);
+  if (!result) return null;
+  const { leaf, tabsById } = result;
 
   const tabId = leaf.tabIds.find((id) => {
     const tab = tabsById[id];

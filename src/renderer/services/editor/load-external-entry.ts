@@ -4,6 +4,7 @@
 
 import { absolutePathToFileUri } from "../../../shared/file-uri";
 import { ipcCall } from "../../ipc/client";
+import { ensureModelWithContent } from "./ensure-model";
 import { errorCodeFromUnknown, type ModelEntry } from "./model-entry";
 import { requireMonaco } from "./monaco-singleton";
 
@@ -48,13 +49,7 @@ export async function loadExternalEntry(input: {
       return entry;
     }
 
-    const model =
-      monaco.editor.getModel(monacoUri) ??
-      monaco.editor.createModel(result.content, undefined, monacoUri);
-
-    if (model.getValue() !== result.content) {
-      model.setValue(result.content);
-    }
+    const model = ensureModelWithContent(monaco, monacoUri, result.content);
 
     entry.model = model;
     entry.languageId = model.getLanguageId();

@@ -170,8 +170,7 @@ describe("loadExternalEntry — IPC error", () => {
 
     const entry = await loadExternalEntry(INPUT);
 
-    expect(entry.origin).toBe("external");
-    expect(entry.readOnly).toBe(true);
+    expect(entry.phase).toBe("error");
   });
 });
 
@@ -198,7 +197,6 @@ describe("loadExternalEntry — binary response", () => {
 
     const entry = await loadExternalEntry(INPUT);
 
-    expect(entry.origin).toBe("external");
-    expect(entry.readOnly).toBe(true);
+    expect(entry.model).toBeNull();
   });
 });

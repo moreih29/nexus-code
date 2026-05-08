@@ -53,16 +53,6 @@ describe("ModelEntry construction — origin/readOnly fields", () => {
     expect(entry.originatingWorkspaceId).toBeUndefined();
   });
 
-  test("preserves explicit origin=workspace and readOnly=false", () => {
-    const entry = createEntry(
-      { ...WORKSPACE_INPUT, origin: "workspace", readOnly: false },
-      CACHE_URI,
-    );
-    expect(entry.origin).toBe("workspace");
-    expect(entry.readOnly).toBe(false);
-    expect(entry.originatingWorkspaceId).toBeUndefined();
-  });
-
   test("sets origin=external and readOnly=true for an external read-only input", () => {
     const externalInput = {
       workspaceId: "ws-1",

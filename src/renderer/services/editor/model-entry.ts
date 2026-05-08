@@ -8,6 +8,7 @@ import {
   detachDirtyTracker,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
+import { ensureModelWithContent } from "./ensure-model";
 import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
 import { isLspLanguage } from "./language";
 import {
@@ -153,13 +154,7 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
     }
 
     const monaco = deps.requireMonaco();
-    const model =
-      monaco.editor.getModel(entry.monacoUri) ??
-      monaco.editor.createModel(result.content, undefined, entry.monacoUri);
-
-    if (model.getValue() !== result.content) {
-      model.setValue(result.content);
-    }
+    const model = ensureModelWithContent(monaco, entry.monacoUri, result.content);
 
     entry.model = model;
     entry.languageId = model.getLanguageId();

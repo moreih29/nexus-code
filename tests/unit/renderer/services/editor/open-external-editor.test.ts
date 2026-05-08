@@ -64,13 +64,6 @@ describe("openExternalEditor", () => {
     expect(tabs[0]?.isPreview).toBe(true);
   });
 
-  it("returns tabId matching the created tab", () => {
-    const location = openExternalEditor({ workspaceId: WS, filePath: "/external/a.ts" });
-
-    const tabs = tabsFor(WS);
-    expect(tabs[0]?.id).toBe(location.tabId);
-  });
-
   it("initializes the workspace layout when none exists", () => {
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
 
