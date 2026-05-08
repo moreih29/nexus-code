@@ -4,19 +4,34 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { LspServerSpec } from "../../../shared/lsp-config";
 import {
-  type IncrementalTextDocumentContentChangeEvent,
   type ServerCapabilities,
-  ServerCapabilitiesSchema,
-  type TextDocumentContentChangeEvent,
   TextDocumentSyncKind,
-  type TextDocumentSyncKind as TextDocumentSyncKindValue,
+  type TextDocumentContentChangeEvent,
 } from "../../../shared/lsp-types";
 import { LSP_DISPOSE_GRACE_MS } from "../../../shared/timing-constants";
 import { resolveBundledBinary } from "../resolve-bundled-binary";
+import {
+  type JsonRpcId,
+  encodeMessage,
+  jsonRpcId,
+  isObjectLike,
+  capabilityValueIsSupported,
+} from "./json-rpc-codec";
+import {
+  initializeResultCapabilities,
+  negotiatedTextDocumentSyncKind,
+  negotiatedTextDocumentOpenClose,
+  negotiatedTextDocumentSave,
+} from "./lsp-capability-negotiation";
+import { applyTextDocumentContentChanges } from "./text-document-changes";
 
 export type { LspServerSpec } from "../../../shared/lsp-config";
-
-type JsonRpcId = string | number | null;
+export { applyTextDocumentContentChanges } from "./text-document-changes";
+export {
+  negotiatedTextDocumentSyncKind,
+  negotiatedTextDocumentOpenClose,
+  negotiatedTextDocumentSave,
+} from "./lsp-capability-negotiation";
 
 export interface LspRequestOptions {
   signal?: AbortSignal;
@@ -71,139 +86,6 @@ export interface LspAdapter {
   onServerRequest(method: string, handler: ServerRequestHandler): void;
   hasCapability(key: string, sub?: string): boolean;
   dispose(): void;
-}
-
-function encodeMessage(msg: unknown): Buffer {
-  const body = JSON.stringify(msg);
-  const header = `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n`;
-  return Buffer.concat([Buffer.from(header, "ascii"), Buffer.from(body, "utf8")]);
-}
-
-function jsonRpcId(value: unknown): JsonRpcId {
-  if (typeof value === "string" || typeof value === "number" || value === null) return value;
-  return null;
-}
-
-function isObjectLike(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function capabilityValueIsSupported(value: unknown): boolean {
-  if (value === false || value === null || value === undefined) return false;
-  if (typeof value === "number") return value !== 0;
-  return Boolean(value);
-}
-
-function initializeResultCapabilities(result: unknown): ServerCapabilities {
-  if (!isObjectLike(result)) return {};
-
-  const parsed = ServerCapabilitiesSchema.safeParse(result.capabilities);
-  return parsed.success ? parsed.data : {};
-}
-
-function textDocumentSyncCapability(
-  capabilities: ServerCapabilities,
-): number | Record<string, unknown> | undefined {
-  const value = capabilities.textDocumentSync;
-  if (typeof value === "number" || isObjectLike(value)) return value;
-  return undefined;
-}
-
-function validTextDocumentSyncKind(value: unknown): TextDocumentSyncKindValue | null {
-  if (
-    value === TextDocumentSyncKind.None ||
-    value === TextDocumentSyncKind.Full ||
-    value === TextDocumentSyncKind.Incremental
-  ) {
-    return value;
-  }
-  return null;
-}
-
-export function negotiatedTextDocumentSyncKind(
-  capabilities: ServerCapabilities,
-): TextDocumentSyncKindValue {
-  const sync = textDocumentSyncCapability(capabilities);
-  const numeric = validTextDocumentSyncKind(sync);
-  if (numeric !== null) return numeric;
-  if (isObjectLike(sync))
-    return validTextDocumentSyncKind(sync.change) ?? TextDocumentSyncKind.None;
-  return TextDocumentSyncKind.None;
-}
-
-export function negotiatedTextDocumentOpenClose(capabilities: ServerCapabilities): boolean {
-  const sync = textDocumentSyncCapability(capabilities);
-  const numeric = validTextDocumentSyncKind(sync);
-  if (numeric !== null) return numeric !== TextDocumentSyncKind.None;
-  return isObjectLike(sync) && sync.openClose === true;
-}
-
-export function negotiatedTextDocumentSave(capabilities: ServerCapabilities): {
-  supported: boolean;
-  includeText: boolean;
-} {
-  const sync = textDocumentSyncCapability(capabilities);
-  if (!isObjectLike(sync)) return { supported: false, includeText: false };
-
-  const save = sync.save;
-  if (save === true) return { supported: true, includeText: false };
-  if (isObjectLike(save)) {
-    return { supported: true, includeText: save.includeText === true };
-  }
-  return { supported: false, includeText: false };
-}
-
-function isIncrementalChange(
-  change: TextDocumentContentChangeEvent,
-): change is IncrementalTextDocumentContentChangeEvent {
-  return "range" in change;
-}
-
-function lineEndOffset(text: string, lineStart: number): number {
-  let index = lineStart;
-  while (index < text.length) {
-    const code = text.charCodeAt(index);
-    if (code === 10 || code === 13) break;
-    index += 1;
-  }
-  return index;
-}
-
-function offsetAt(text: string, position: { line: number; character: number }): number {
-  let index = 0;
-  let line = 0;
-
-  while (line < position.line && index < text.length) {
-    const code = text.charCodeAt(index);
-    index += 1;
-    if (code === 13) {
-      if (text.charCodeAt(index) === 10) index += 1;
-      line += 1;
-    } else if (code === 10) {
-      line += 1;
-    }
-  }
-
-  const lineEnd = lineEndOffset(text, index);
-  return Math.min(index + position.character, lineEnd);
-}
-
-export function applyTextDocumentContentChanges(
-  text: string,
-  contentChanges: readonly TextDocumentContentChangeEvent[],
-): string {
-  let nextText = text;
-  for (const change of contentChanges) {
-    if (!isIncrementalChange(change)) {
-      nextText = change.text;
-      continue;
-    }
-
-    const start = offsetAt(nextText, change.range.start);
-    const end = offsetAt(nextText, change.range.end);
-    nextText = `${nextText.slice(0, start)}${change.text}${nextText.slice(end)}`;
-  }
-  return nextText;
 }
 
 export class StdioLspAdapter implements LspAdapter {
@@ -450,8 +332,8 @@ export class StdioLspAdapter implements LspAdapter {
   private reconstructMissingCache(
     contentChanges: readonly TextDocumentContentChangeEvent[],
   ): string | undefined {
-    if (contentChanges.length === 1 && !isIncrementalChange(contentChanges[0])) {
-      return contentChanges[0].text;
+    for (const change of contentChanges) {
+      if (!("range" in change)) return change.text;
     }
     return undefined;
   }
