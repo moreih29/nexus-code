@@ -112,7 +112,14 @@ export function useEditorMount({
       editorRef.current = editor;
       temporaryModelRef.current = editor.getModel();
       attachSharedModel(editor);
-      applyPendingReveal(editor, workspaceId, filePath);
+      // Apply the pending reveal here only when the shared model is already
+      // attached (instant-ready / cache hit). Otherwise the empty temporary
+      // model is still in place — taking the pending entry now would consume
+      // it against the wrong model and the request would be lost. The
+      // phase=ready useEffect below picks it up once loading finishes.
+      if (model !== null) {
+        applyPendingReveal(editor, workspaceId, filePath);
+      }
 
       openerDisposableRef.current?.dispose();
       const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
@@ -134,8 +141,11 @@ export function useEditorMount({
       installEditorSaveAction(editor, monaco, input);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // workspaceId and filePath are stable per mount — EditorView remounts on filePath change
-    [attachSharedModel, filePath, workspaceId],
+    // workspaceId and filePath are stable per mount — EditorView remounts on filePath change.
+    // `model` is included so the pending-reveal gate above sees the latest value,
+    // but Monaco only invokes onMount once per editor instance so this re-binding
+    // is effectively read-once.
+    [attachSharedModel, filePath, workspaceId, model],
   );
 
   return { onMount, attachSharedModel };
