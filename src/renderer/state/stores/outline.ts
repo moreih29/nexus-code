@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DocumentSymbol, Position } from "../../../shared/lsp-types";
+import type { DocumentSymbol, Position } from "../../../shared/lsp";
 import { fetchDocumentSymbols } from "../../services/editor/lsp/lsp-bridge";
 
 export type OutlinePhase = "loading" | "ready" | "error";

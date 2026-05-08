@@ -8,7 +8,7 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   FileChangeType,
   type FileEvent,
-} from "../../../../src/shared/lsp-types";
+} from "../../../../src/shared/lsp";
 import type { LspAdapter } from "../../../../src/utility/lsp-host/servers/stdio-lsp-adapter";
 import {
   fsChangeKindToLspType,

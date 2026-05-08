@@ -18,7 +18,7 @@ import {
   TextEditSchema,
   WorkspaceEditSchema,
   WorkspaceSymbolArgsSchema,
-} from "../../../src/shared/lsp-types";
+} from "../../../src/shared/lsp";
 
 const range = {
   start: { line: 1, character: 2 },

@@ -10,7 +10,7 @@ import {
   HoverResultSchema,
   LocationSchema,
   SymbolInformationSchema,
-} from "../../src/shared/lsp-types";
+} from "../../src/shared/lsp";
 
 interface FixtureSnapshot {
   pyrightVersion: string;

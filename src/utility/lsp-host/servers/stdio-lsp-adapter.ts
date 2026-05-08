@@ -7,7 +7,7 @@ import {
   type ServerCapabilities,
   TextDocumentSyncKind,
   type TextDocumentContentChangeEvent,
-} from "../../../shared/lsp-types";
+} from "../../../shared/lsp";
 import { LSP_DISPOSE_GRACE_MS } from "../../../shared/timing-constants";
 import { resolveBundledBinary } from "../resolve-bundled-binary";
 import {

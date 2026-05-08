@@ -1,4 +1,4 @@
-import type { DocumentSymbol, Position } from "../../../../shared/lsp-types";
+import type { DocumentSymbol, Position } from "../../../../shared/lsp";
 
 export interface OutlineRow {
   id: string;

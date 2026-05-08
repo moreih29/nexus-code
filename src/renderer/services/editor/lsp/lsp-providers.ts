@@ -28,7 +28,7 @@ export function registerLanguageProviders(
   fetchDocumentSymbols: (
     uri: string,
     signal?: AbortSignal,
-  ) => Promise<import("../../../../shared/lsp-types").DocumentSymbol[]>,
+  ) => Promise<import("../../../../shared/lsp").DocumentSymbol[]>,
   preAcquire: PreAcquireFn,
 ): void {
   if (!isLspLanguage(languageId)) return;

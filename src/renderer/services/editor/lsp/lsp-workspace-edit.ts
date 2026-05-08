@@ -7,7 +7,7 @@ import type {
   ApplyWorkspaceEditResult,
   TextEdit,
   WorkspaceDocumentChange,
-} from "../../../../shared/lsp-types";
+} from "../../../../shared/lsp";
 import { lspRangeToMonacoRange } from "./lsp-monaco-converters";
 
 function lspTextEditToMonacoEdit(edit: TextEdit): Monaco.editor.IIdentifiedSingleEditOperation {

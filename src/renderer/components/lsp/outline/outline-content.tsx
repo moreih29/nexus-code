@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
-import type { DocumentSymbol, Position } from "../../../../shared/lsp-types";
+import type { DocumentSymbol, Position } from "../../../../shared/lsp";
 import { OutlineTree } from "./outline-tree";
 
 export type OutlineViewPhase = "idle" | "loading" | "empty" | "error" | "ready";

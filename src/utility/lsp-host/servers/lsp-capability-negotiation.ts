@@ -5,7 +5,7 @@ import {
   ServerCapabilitiesSchema,
   TextDocumentSyncKind,
   type TextDocumentSyncKind as TextDocumentSyncKindValue,
-} from "../../../shared/lsp-types";
+} from "../../../shared/lsp";
 import { isObjectLike } from "./json-rpc-codec";
 
 export function initializeResultCapabilities(result: unknown): ServerCapabilities {

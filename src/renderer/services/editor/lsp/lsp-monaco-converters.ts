@@ -12,7 +12,7 @@ import type {
   Range,
   SymbolInformation,
   TextDocumentContentChangeEvent,
-} from "../../../../shared/lsp-types";
+} from "../../../../shared/lsp";
 
 const MARKDOWN_PLAINTEXT_ESCAPE_PATTERN = /([\\`*_{}[\]()#+\-.!|>])/g;
 const LSP_DIAGNOSTIC_TAG_UNNECESSARY = 1;

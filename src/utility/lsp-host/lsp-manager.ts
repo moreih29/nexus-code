@@ -12,7 +12,7 @@ import {
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../shared/lsp-config";
-import type { Registration } from "../../shared/lsp-types";
+import type { Registration } from "../../shared/lsp";
 import { PendingRequestMap } from "../../shared/pending-request-map";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
 import {

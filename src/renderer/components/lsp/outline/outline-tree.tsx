@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/utils/cn";
-import type { DocumentSymbol, Position } from "../../../../shared/lsp-types";
+import type { DocumentSymbol, Position } from "../../../../shared/lsp";
 import { iconForSymbolKind } from "./outline-icons";
 import {
   buildOutlineRows,

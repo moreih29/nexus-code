@@ -12,7 +12,7 @@ import {
   RegistrationParamsSchema,
   ShowMessageRequestParamsSchema,
   WorkDoneProgressCreateParamsSchema,
-} from "../../shared/lsp-types";
+} from "../../shared/lsp";
 
 const WATCHED_FILES_METHOD = "workspace/didChangeWatchedFiles";
 

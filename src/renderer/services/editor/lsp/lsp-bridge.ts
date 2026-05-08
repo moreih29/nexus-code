@@ -6,7 +6,7 @@ import type {
   DocumentSymbol,
   SymbolInformation,
   TextDocumentContentChangeEvent,
-} from "../../../../shared/lsp-types";
+} from "../../../../shared/lsp";
 import { ipcCall, ipcListen } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { DocumentSymbol } from "../../../../src/shared/lsp-types";
+import type { DocumentSymbol } from "../../../../src/shared/lsp";
 
 const fetchDocumentSymbols = mock((_uri: string, _signal?: AbortSignal) =>
   Promise.resolve([] as DocumentSymbol[]),

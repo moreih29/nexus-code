@@ -3,7 +3,7 @@
 import type {
   IncrementalTextDocumentContentChangeEvent,
   TextDocumentContentChangeEvent,
-} from "../../../shared/lsp-types";
+} from "../../../shared/lsp";
 
 function isIncrementalChange(
   change: TextDocumentContentChangeEvent,
