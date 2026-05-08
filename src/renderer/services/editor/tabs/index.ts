@@ -19,3 +19,10 @@ export {
   startPromoteOnDirtyPolicy,
   stopPromoteOnDirtyPolicyForTests,
 } from "./promote-policy";
+export { createCrossFileOpenCodeEditorOpener } from "./cross-file-opener";
+export type {
+  CrossFileOpenCodeEditorOpener,
+  CreateCrossFileOpenCodeEditorOpenerInput,
+  ResourceUriLike,
+} from "./cross-file-opener";
+export { revealRange, applyPendingReveal } from "./reveal";

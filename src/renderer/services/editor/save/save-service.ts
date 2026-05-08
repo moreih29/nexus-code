@@ -6,10 +6,9 @@
 //   - model-cache       (read-only model view)
 //   - fs.writeFile IPC  (atomic write with mtime/size guard)
 //
-// One public function: saveModel(input). Result is a discriminated union
-// so callers (Cmd+S handler, close-handler, save participants) decide
-// what to do with conflict/error without re-implementing the dispatch.
+// Public functions: saveModel(input), installEditorSaveAction(editor, monaco, input).
 
+import type * as Monaco from "monaco-editor";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCall } from "../../../ipc/client";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
@@ -19,6 +18,25 @@ import { getResolvedModel } from "../model/model-cache";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
 import type { EditorInput } from "../types";
+
+export function installEditorSaveAction(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  monaco: typeof Monaco,
+  input: EditorInput,
+): Monaco.IDisposable {
+  return editor.addAction({
+    id: "nexus.file.save",
+    label: "Save File",
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+    run: () => {
+      saveModel(input).catch(() => {
+        // Errors are reported via SaveResult — promise rejection here
+        // would be a programming error. Swallow to keep the command
+        // from logging unhandled rejection noise.
+      });
+    },
+  });
+}
 
 export type SaveResult =
   | { kind: "saved"; mtime: string; size: number }
