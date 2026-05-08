@@ -38,7 +38,10 @@ function tabsFor(workspaceId: string) {
 describe("openExternalEditor", () => {
   beforeEach(resetStores);
 
-  it("creates a tab with origin=external and readOnly=true", () => {
+  // merged from 3 separate tests per audit IMPORTANT-4
+  it("creates external read-only tab with isPreview=true and initialized layout", () => {
+    expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
+
     const location = openExternalEditor({ workspaceId: WS, filePath: "/external/lib/util.py" });
 
     expect(location.tabId).toBeDefined();
@@ -54,20 +57,7 @@ describe("openExternalEditor", () => {
       expect(tab.props.filePath).toBe("/external/lib/util.py");
       expect(tab.props.workspaceId).toBe(WS);
     }
-  });
-
-  it("creates the tab as isPreview=true", () => {
-    openExternalEditor({ workspaceId: WS, filePath: "/external/lib/util.py" });
-
-    const tabs = tabsFor(WS);
-    expect(tabs).toHaveLength(1);
     expect(tabs[0]?.isPreview).toBe(true);
-  });
-
-  it("initializes the workspace layout when none exists", () => {
-    expect(useLayoutStore.getState().byWorkspace[WS]).toBeUndefined();
-
-    openExternalEditor({ workspaceId: WS, filePath: "/external/a.ts" });
 
     expect(useLayoutStore.getState().byWorkspace[WS]).toBeDefined();
   });
