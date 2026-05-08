@@ -43,6 +43,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const session = useSearchSession(workspaceId);
   const startSearch = useSearchStore((s) => s.startSearch);
   const cancelSearch = useSearchStore((s) => s.cancelSearch);
+  const clearSearch = useSearchStore((s) => s.clearSearch);
   const toggleGroup = useSearchStore((s) => s.toggleGroup);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -150,9 +151,16 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
     // Cancel pending debounce
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
 
-    if (!value) return;
+    if (!value) {
+      // Empty input — drop the session entirely so results disappear with
+      // the query. cancelSearch keeps results in idle state, which would
+      // leave stale match groups visible in the panel.
+      clearSearch(workspaceId);
+      return;
+    }
 
     // Schedule debounced search
     debounceTimerRef.current = setTimeout(() => {
@@ -172,13 +180,15 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
 
   function handleEsc() {
     if (inputValue) {
-      // First Esc: clear value.
+      // First Esc: clear value AND drop the session — same semantics as the
+      // X button or backspacing to empty.
       setInputValue("");
       setRegexError(null);
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
+      clearSearch(workspaceId);
     } else {
       // Second Esc (empty value): blur.
       inputRef.current?.blur();

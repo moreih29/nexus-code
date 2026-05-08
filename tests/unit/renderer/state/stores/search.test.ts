@@ -239,4 +239,36 @@ describe("renderer search store", () => {
     expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
     expect(useSearchStore.getState().sessions.has(WS_B)).toBe(true);
   });
+
+  it("clearSearch aborts in-flight stream and removes the session entirely", () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    const stream = latestStream();
+    stream.emitProgress(batch("a.ts", "needle a"));
+
+    expect(useSearchStore.getState().sessions.get(WS_A)!.results.length).toBe(1);
+
+    useSearchStore.getState().clearSearch(WS_A);
+
+    expect(stream.signal?.aborted).toBe(true);
+    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
+  });
+
+  it("clearSearch removes a completed session (results no longer survive an empty input)", async () => {
+    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
+    const stream = latestStream();
+    stream.emitProgress(batch("a.ts", "needle a"));
+    stream.resolve({
+      filesScanned: 1,
+      matchesFound: 1,
+      limitHit: false,
+      elapsedMs: 1,
+    });
+    await flushPromises();
+
+    expect(useSearchStore.getState().sessions.get(WS_A)!.status).toBe("done");
+
+    useSearchStore.getState().clearSearch(WS_A);
+
+    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
+  });
 });

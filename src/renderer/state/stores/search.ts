@@ -46,6 +46,13 @@ interface SearchState {
   sessions: Map<string, SearchSession>;
   startSearch: (workspaceId: string, query: string, options: SearchOptions) => void;
   cancelSearch: (workspaceId: string) => void;
+  /**
+   * Drop the entire search session — aborts any in-flight stream and removes
+   * the workspace's session entry. Use this when the user clears the search
+   * input (X button, Esc, or backspaced to empty); `cancelSearch` only flips
+   * status to idle and keeps the existing results around.
+   */
+  clearSearch: (workspaceId: string) => void;
   toggleGroup: (workspaceId: string, relPath: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
 }
@@ -231,6 +238,20 @@ export const useSearchStore = create<SearchState>((set, get) => {
         if (!cur || cur.status !== "running") return state;
         const next = new Map(state.sessions);
         next.set(wsId, { ...cur, status: "idle" });
+        return { sessions: next };
+      });
+    },
+
+    clearSearch(wsId) {
+      const ctrl = controllers.get(wsId);
+      if (ctrl) {
+        ctrl.abort();
+        controllers.delete(wsId);
+      }
+      set((state) => {
+        if (!state.sessions.has(wsId)) return state;
+        const next = new Map(state.sessions);
+        next.delete(wsId);
         return { sessions: next };
       });
     },
