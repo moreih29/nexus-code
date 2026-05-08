@@ -16,8 +16,9 @@
 //      the opener's own acquireModel to take a real reference. Short
 //      enough that an unused pre-acquire releases promptly.
 //
-// Dependency injection: production callers use {@link defaultPreAcquireDeps}
-// implicitly (param defaulted). Tests pass their own deps map to avoid
+// Dependency injection: the deps map is required (no default). Production
+// callers receive a pre-built closure from the installation seam
+// (monaco-compensations.ts). Tests pass their own deps map to avoid
 // process-global mock.module pollution of model-cache exports — Bun's
 // `mock.module` replaces modules across all test files in the same
 // process, so we deliberately keep production-side mocks limited to
@@ -27,15 +28,7 @@
 // monaco-vscode-api with an IFileService overlay (separate effort).
 
 import type * as Monaco from "monaco-editor";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isWithinWorkspace } from "../../utils/path";
-import {
-  acquireModel,
-  cacheUriToFilePath,
-  type EntryMetadata,
-  getEntryMetadata,
-  releaseModel,
-} from "./model-cache";
 import type { EditorInput } from "./types";
 
 /**
@@ -44,22 +37,18 @@ import type { EditorInput } from "./types";
  */
 export const PEEK_PREACQUIRE_HOLD_MS = 30_000;
 
+/** Minimal cache metadata needed to derive a target EditorInput. */
+export interface CacheEntryMeta {
+  workspaceId: string;
+}
+
 export interface PreAcquireDeps {
   acquireModel: (input: EditorInput) => Promise<unknown>;
   releaseModel: (input: EditorInput) => void;
-  getEntryMetadata: (cacheUri: string) => EntryMetadata | null;
+  getEntryMetadata: (cacheUri: string) => CacheEntryMeta | null;
   workspaceRootForId: (workspaceId: string) => string | null;
+  cacheUriToFilePath: (cacheUri: string) => string | null;
 }
-
-export const defaultPreAcquireDeps: PreAcquireDeps = {
-  acquireModel,
-  releaseModel,
-  getEntryMetadata,
-  workspaceRootForId(workspaceId) {
-    const ws = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-    return ws?.rootPath ?? null;
-  },
-};
 
 function inputForLocation(
   filePath: string,
@@ -82,12 +71,14 @@ function inputForLocation(
  * @param sourceCacheUri The `model.uri.toString()` of the model that fired
  *        the provider. Used to look up the source workspace and to filter
  *        out self-references.
- * @param deps Injectable dependency map (defaults to production deps).
+ * @param deps Injectable dependency map. Production callers supply
+ *        {@link defaultPreAcquireDeps} from the installation seam
+ *        (monaco-compensations.ts); tests pass their own mock deps.
  */
 export async function preAcquireLocationModels(
   locations: readonly Monaco.languages.Location[],
   sourceCacheUri: string,
-  deps: PreAcquireDeps = defaultPreAcquireDeps,
+  deps: PreAcquireDeps,
 ): Promise<void> {
   if (locations.length === 0) return;
 
@@ -107,7 +98,7 @@ export async function preAcquireLocationModels(
     const targetUri = location.uri.toString();
     if (targetUri === sourceCacheUri) continue;
 
-    const filePath = cacheUriToFilePath(targetUri);
+    const filePath = deps.cacheUriToFilePath(targetUri);
     if (filePath === null) continue;
     if (seenPaths.has(filePath)) continue;
     seenPaths.add(filePath);

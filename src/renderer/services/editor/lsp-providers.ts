@@ -12,9 +12,14 @@ import {
   lspRangeToMonacoRange,
   tokenToAbortSignal,
 } from "./lsp-monaco-converters";
-import { preAcquireLocationModels } from "./lsp-result-preacquire";
 
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "`", "/", "@", "<"];
+
+/** Curried pre-acquire closure: takes locations + source URI, returns Promise. */
+export type PreAcquireFn = (
+  locations: readonly Monaco.languages.Location[],
+  sourceUri: string,
+) => Promise<void>;
 
 export function registerLanguageProviders(
   monaco: typeof Monaco,
@@ -24,6 +29,7 @@ export function registerLanguageProviders(
     uri: string,
     signal?: AbortSignal,
   ) => Promise<import("../../../shared/lsp-types").DocumentSymbol[]>,
+  preAcquire: PreAcquireFn,
 ): void {
   if (!isLspLanguage(languageId)) return;
   if (registeredLanguages.has(languageId)) return;
@@ -76,7 +82,7 @@ export function registerLanguageProviders(
         );
         // Pre-acquire result models so monaco's peek widget can resolve
         // them via createModelReference without throwing "Model not found".
-        await preAcquireLocationModels(monacoLocations, model.uri.toString());
+        await preAcquire(monacoLocations, model.uri.toString());
         return monacoLocations;
       } catch {
         return null;
@@ -147,7 +153,7 @@ export function registerLanguageProviders(
         // peek can include many locations; we still pre-acquire all of them
         // since peek expands on user click and any unresolved URI would
         // throw at that moment.
-        await preAcquireLocationModels(monacoLocations, model.uri.toString());
+        await preAcquire(monacoLocations, model.uri.toString());
         return monacoLocations;
       } catch {
         return [];

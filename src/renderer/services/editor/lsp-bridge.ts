@@ -20,7 +20,7 @@ import {
   tokenToAbortSignal,
   type WorkspaceSymbolResult,
 } from "./lsp-monaco-converters";
-import { registerLanguageProviders } from "./lsp-providers";
+import { registerLanguageProviders, type PreAcquireFn } from "./lsp-providers";
 import { applyWorkspaceEdit } from "./lsp-workspace-edit";
 
 export type { WorkspaceSymbolResult };
@@ -44,6 +44,7 @@ const knownModelUris = new Set<string>();
 let monacoRef: typeof Monaco | null = null;
 let diagnosticsUnlisten: (() => void) | null = null;
 let applyEditUnlisten: (() => void) | null = null;
+let preAcquireFn: PreAcquireFn = async () => {};
 
 function setMonaco(monaco: typeof Monaco): void {
   if (monacoRef === monaco) return;
@@ -90,6 +91,15 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
   });
 }
 
+/**
+ * Inject the pre-acquire closure produced by the installation seam
+ * (monaco-compensations.ts / index.ts). Must be called before any
+ * `ensureProvidersFor` invocation that should trigger pre-acquisition.
+ */
+export function setPreAcquireFn(fn: PreAcquireFn): void {
+  preAcquireFn = fn;
+}
+
 export function initializeLspBridge(monaco: typeof Monaco): void {
   setMonaco(monaco);
   registerDiagnosticsListener(monaco);
@@ -106,6 +116,7 @@ export function ensureProvidersFor(languageId: string): void {
     languageId,
     registeredProviderLanguages,
     fetchDocumentSymbols,
+    preAcquireFn,
   );
 }
 
