@@ -6,8 +6,8 @@ import type {
   DocumentSymbol,
   SymbolInformation,
   TextDocumentContentChangeEvent,
-} from "../../../shared/lsp-types";
-import { ipcCall, ipcListen } from "../../ipc/client";
+} from "../../../../shared/lsp-types";
+import { ipcCall, ipcListen } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   lspDiagnosticToMonacoMarker,

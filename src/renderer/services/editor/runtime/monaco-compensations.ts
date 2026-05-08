@@ -1,16 +1,16 @@
 import type * as Monaco from "monaco-editor";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { setPreAcquireFn } from "./lsp-bridge";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { setPreAcquireFn } from "../lsp/lsp-bridge";
 import {
   acquireModel,
   cacheUriToFilePath,
   getEntryMetadata,
   releaseModel,
-} from "./model-cache";
+} from "../model/model-cache";
 import {
   preAcquireLocationModels,
   type PreAcquireDeps,
-} from "./lsp-result-preacquire";
+} from "../lsp/lsp-result-preacquire";
 
 export type MonacoCompensationInstaller = (monaco: typeof Monaco) => Monaco.IDisposable;
 

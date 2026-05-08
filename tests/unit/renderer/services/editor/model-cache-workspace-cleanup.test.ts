@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Bun mock.module is process-global. Spread real exports so other editor/*
 // test files see the full module surface after this file runs.
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp-bridge");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
 
-mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
@@ -22,10 +22,10 @@ mock.module("../../../../../src/renderer/services/editor/lsp-bridge", () => ({
 }));
 
 const realMonacoSingleton = await import(
-  "../../../../../src/renderer/services/editor/monaco-singleton"
+  "../../../../../src/renderer/services/editor/runtime/monaco-singleton"
 );
 
-mock.module("../../../../../src/renderer/services/editor/monaco-singleton", () => ({
+mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   ...realMonacoSingleton,
   initializeMonacoSingleton: () => {},
   isMonacoReady: () => true,
@@ -71,9 +71,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 
 const cleanupEntryMock = mock((_entry: unknown) => {});
 
-const realModelEntry = await import("../../../../../src/renderer/services/editor/model-entry");
+const realModelEntry = await import("../../../../../src/renderer/services/editor/model/model-entry");
 
-mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({
   ...realModelEntry,
   cleanupEntry: cleanupEntryMock,
   createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) => ({
@@ -95,7 +95,7 @@ mock.module("../../../../../src/renderer/services/editor/model-entry", () => ({
 }));
 
 const { acquireModel, forceDisposeExternalsForWorkspace, getModelSnapshot, releaseModel } =
-  await import("../../../../../src/renderer/services/editor/model-cache");
+  await import("../../../../../src/renderer/services/editor/model/model-cache");
 
 const WS_A = "ws-aaa";
 const WS_B = "ws-bbb";

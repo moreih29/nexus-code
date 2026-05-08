@@ -23,11 +23,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
+import { openOrRevealEditor } from "../../../../../src/renderer/services/editor";
 import {
   findEditorTab,
   findEditorTabInGroup,
-  openOrRevealEditor,
-} from "../../../../../src/renderer/services/editor";
+} from "../../../../../src/renderer/services/editor/tabs/open-editor";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { allLeaves } from "../../../../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";

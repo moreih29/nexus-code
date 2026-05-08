@@ -28,8 +28,8 @@
 // monaco-vscode-api with an IFileService overlay (separate effort).
 
 import type * as Monaco from "monaco-editor";
-import { isWithinWorkspace } from "../../utils/path";
-import type { EditorInput } from "./types";
+import { isWithinWorkspace } from "../../../utils/path";
+import type { EditorInput } from "../types";
 
 /**
  * How long pre-acquired models are held before scheduled release.

@@ -2,7 +2,7 @@
 // Owns: model creation, dirty-tracker attachment, LSP open/change/close, fs subscription.
 
 import type * as Monaco from "monaco-editor";
-import { type FileErrorCode, parseFileErrorCode } from "../../utils/file-error";
+import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
@@ -10,7 +10,7 @@ import {
 } from "./dirty-tracker";
 import { ensureModelWithContent } from "./ensure-model";
 import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
-import { isLspLanguage } from "./language";
+import { isLspLanguage } from "../lsp/language";
 import {
   ensureProvidersFor,
   monacoContentChangesToLsp,
@@ -19,9 +19,9 @@ import {
   notifyDidOpen,
   registerKnownModelUri,
   unregisterKnownModelUri,
-} from "./lsp-bridge";
-import { requireMonaco } from "./monaco-singleton";
-import type { EditorInput } from "./types";
+} from "../lsp/lsp-bridge";
+import { requireMonaco } from "../runtime/monaco-singleton";
+import type { EditorInput } from "../types";
 
 const defaultModelEntryDeps = {
   attachDirtyTracker,

@@ -3,7 +3,7 @@ import { createWorkspaceSymbolPaletteSource } from "../../../../../../src/render
 import {
   __resetPendingEditorRevealsForTests,
   takePendingEditorReveal,
-} from "../../../../../../src/renderer/services/editor/pending-reveal";
+} from "../../../../../../src/renderer/services/editor/tabs/pending-reveal";
 import type { WorkspaceSymbolEntry } from "../../../../../../src/renderer/services/lsp/workspace-symbol-registry";
 
 const greetSymbol: WorkspaceSymbolEntry = {

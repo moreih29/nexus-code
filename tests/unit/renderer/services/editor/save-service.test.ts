@@ -19,9 +19,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 //   - notifyDidSave calls ipcCall, which IS mocked below.
 // file-loader IS mocked: relPathForInput calls useWorkspacesStore which throws
 // WORKSPACE_NOT_FOUND when no workspaces are seeded.
-const realDirty = await import("../../../../../src/renderer/services/editor/dirty-tracker");
-const realModelCache = await import("../../../../../src/renderer/services/editor/model-cache");
-const realFileLoader = await import("../../../../../src/renderer/services/editor/file-loader");
+const realDirty = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
+const realModelCache = await import("../../../../../src/renderer/services/editor/model/model-cache");
+const realFileLoader = await import("../../../../../src/renderer/services/editor/model/file-loader");
 
 const ipcCallMock = mock((_service: unknown, _method: unknown, _args: unknown) =>
   Promise.resolve({ mtime: "T1", size: 42 }),
@@ -46,7 +46,7 @@ const getDirtyEntryMock = mock((_cacheUri: string) => ({
 
 const markSavedMock = mock((_opts: unknown) => {});
 
-mock.module("../../../../../src/renderer/services/editor/dirty-tracker", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/dirty-tracker", () => ({
   ...realDirty,
   getDirtyEntry: getDirtyEntryMock,
   markSaved: markSavedMock,
@@ -54,17 +54,17 @@ mock.module("../../../../../src/renderer/services/editor/dirty-tracker", () => (
 
 const getResolvedModelMock = mock((_input: unknown) => null as unknown);
 
-mock.module("../../../../../src/renderer/services/editor/model-cache", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/model-cache", () => ({
   ...realModelCache,
   getResolvedModel: getResolvedModelMock,
 }));
 
-mock.module("../../../../../src/renderer/services/editor/file-loader", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/file-loader", () => ({
   ...realFileLoader,
   relPathForInput: mock((_input: unknown) => "src/a.ts"),
 }));
 
-const { saveModel } = await import("../../../../../src/renderer/services/editor/save-service");
+const { saveModel } = await import("../../../../../src/renderer/services/editor/save/save-service");
 
 const INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };
 const CACHE_URI = "file:///workspace/src/a.ts";

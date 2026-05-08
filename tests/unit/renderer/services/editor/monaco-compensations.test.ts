@@ -5,7 +5,7 @@ import {
   installLocationModelPreAcquire,
   installMonacoCompensations,
   type MonacoCompensationInstaller,
-} from "../../../../../src/renderer/services/editor/monaco-compensations";
+} from "../../../../../src/renderer/services/editor/runtime/monaco-compensations";
 
 function installer(name: string, events: string[]): MonacoCompensationInstaller {
   return () => {

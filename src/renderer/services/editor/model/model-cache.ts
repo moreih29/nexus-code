@@ -4,9 +4,9 @@
 // React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
-import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../shared/file-uri";
-import { ipcListen } from "../../ipc/client";
-import type { FileErrorCode } from "../../utils/file-error";
+import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/file-uri";
+import { ipcListen } from "../../../ipc/client";
+import type { FileErrorCode } from "../../../utils/file-error";
 import { loadExternalEntry } from "./load-external-entry";
 import {
   cleanupEntry,
@@ -16,12 +16,12 @@ import {
   type SharedModelState,
   snapshot,
 } from "./model-entry";
-import { initializeMonacoSingleton } from "./monaco-singleton";
+import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
 
 export type { SharedModelPhase, SharedModelState } from "./model-entry";
-export { isMonacoReady, onMonacoReady } from "./monaco-singleton";
+export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
 
-import type { EditorInput } from "./types";
+import type { EditorInput } from "../types";
 
 export interface ReleasedModelInfo {
   input: EditorInput;

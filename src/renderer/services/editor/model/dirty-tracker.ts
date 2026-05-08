@@ -14,7 +14,7 @@
 // VSCode's TextFileEditorModel uses the same comparison.
 
 import type * as Monaco from "monaco-editor";
-import { createKeyedListenerBus, createListenerBus } from "../../../shared/listener-bus";
+import { createKeyedListenerBus, createListenerBus } from "../../../../shared/listener-bus";
 
 export interface DirtyEntry {
   isDirty: boolean;

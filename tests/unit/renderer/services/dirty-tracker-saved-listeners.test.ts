@@ -4,7 +4,7 @@ import {
   attachDirtyTracker,
   markSaved,
   subscribeAllSaved,
-} from "../../../../src/renderer/services/editor/dirty-tracker";
+} from "../../../../src/renderer/services/editor/model/dirty-tracker";
 
 function makeModel(initialAltId = 1) {
   let altId = initialAltId;

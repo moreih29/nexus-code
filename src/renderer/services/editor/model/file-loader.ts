@@ -1,11 +1,11 @@
 // File content loading and external-change reconciliation.
 // Owns readFile via fs IPC, encoding detection, and fs.changed event-driven reload.
 
-import type { FileContent, FsChangedEvent } from "../../../shared/types/fs";
-import { ipcCall, ipcListen } from "../../ipc/client";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { relPath } from "../../utils/path";
-import type { EditorInput } from "./types";
+import type { FileContent, FsChangedEvent } from "../../../../shared/types/fs";
+import { ipcCall, ipcListen } from "../../../ipc/client";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { relPath } from "../../../utils/path";
+import type { EditorInput } from "../types";
 
 export type FileLoadResult = FileContent;
 

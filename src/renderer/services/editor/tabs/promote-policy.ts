@@ -12,8 +12,8 @@
 // look like they vanished on a single-click of another file.
 
 import { useTabsStore } from "@/state/stores/tabs";
-import { subscribeAllDirtyTransitions } from "./dirty-tracker";
-import { cacheUriToFilePath } from "./model-cache";
+import { subscribeAllDirtyTransitions } from "../model/dirty-tracker";
+import { cacheUriToFilePath } from "../model/model-cache";
 
 /**
  * Promote every preview editor tab pointing at `filePath` to permanent

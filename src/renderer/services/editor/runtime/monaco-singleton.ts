@@ -3,7 +3,7 @@
 // All other editor modules call requireMonaco() rather than holding their own ref.
 
 import type * as Monaco from "monaco-editor";
-import { createListenerBus } from "../../../shared/listener-bus";
+import { createListenerBus } from "../../../../shared/listener-bus";
 
 let monacoRef: typeof Monaco | null = null;
 const bus = createListenerBus();

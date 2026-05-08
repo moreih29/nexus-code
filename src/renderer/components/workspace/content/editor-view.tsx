@@ -5,19 +5,15 @@ import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
 import type { MonacoRange } from "../../../../shared/monaco-range";
 import { ipcCall } from "../../../ipc/client";
-import {
-  cacheUriToFilePath,
-  installEditorOpener,
-  openOrRevealEditor,
-  saveModel,
-  useSharedModel,
-} from "../../../services/editor";
-import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/monaco-theme";
-import { openExternalEditor } from "../../../services/editor/open-editor";
+import { cacheUriToFilePath } from "../../../services/editor/model/model-cache";
+import { installEditorOpener } from "../../../services/editor/runtime/monaco-compensations";
+import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";
+import { openOrRevealEditor, saveModel, useSharedModel } from "../../../services/editor";
+import { openExternalEditor } from "../../../services/editor/tabs/open-editor";
 import {
   subscribePendingEditorReveal,
   takePendingEditorReveal,
-} from "../../../services/editor/pending-reveal";
+} from "../../../services/editor/tabs/pending-reveal";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { fileErrorMessage } from "../../../utils/file-error";
 import { isWithinWorkspace } from "../../../utils/path";

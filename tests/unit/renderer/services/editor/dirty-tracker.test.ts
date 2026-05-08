@@ -8,7 +8,7 @@ import {
   markSaved,
   subscribeAllDirtyTransitions,
   updateLoadedMetadata,
-} from "../../../../../src/renderer/services/editor/dirty-tracker";
+} from "../../../../../src/renderer/services/editor/model/dirty-tracker";
 
 // Minimal Monaco model stub. Only the surface dirty-tracker actually uses.
 function makeModel(initialAltId = 1) {

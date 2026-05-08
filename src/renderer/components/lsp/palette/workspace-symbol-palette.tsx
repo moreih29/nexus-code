@@ -1,6 +1,6 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useEffect, useMemo, useState } from "react";
-import { provideWorkspaceSymbols } from "../../../services/editor/lsp-bridge";
+import { provideWorkspaceSymbols } from "../../../services/editor/lsp/lsp-bridge";
 import { registerWorkspaceSymbolProvider } from "../../../services/lsp/workspace-symbol-registry";
 import { useActiveStore } from "../../../state/stores/active";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";

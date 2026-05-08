@@ -28,11 +28,11 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { PEEK_PREACQUIRE_HOLD_MS, preAcquireLocationModels } = await import(
-  "../../../../../src/renderer/services/editor/lsp-result-preacquire"
+  "../../../../../src/renderer/services/editor/lsp/lsp-result-preacquire"
 );
 
-import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp-result-preacquire";
-import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model-cache";
+import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp/lsp-result-preacquire";
+import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model/model-cache";
 
 const SOURCE_URI = "file:///workspace/src/main.ts";
 const SOURCE_META: EntryMetadata = {

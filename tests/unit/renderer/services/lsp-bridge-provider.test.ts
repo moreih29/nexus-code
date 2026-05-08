@@ -28,7 +28,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { ensureProvidersFor, initializeLspBridge, provideWorkspaceSymbols } = await import(
-  "../../../../src/renderer/services/editor/lsp-bridge"
+  "../../../../src/renderer/services/editor/lsp/lsp-bridge"
 );
 
 interface FakeUri {

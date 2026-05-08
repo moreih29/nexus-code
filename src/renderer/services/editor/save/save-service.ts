@@ -10,15 +10,15 @@
 // so callers (Cmd+S handler, close-handler, save participants) decide
 // what to do with conflict/error without re-implementing the dispatch.
 
-import { showToast } from "../../components/ui/toast";
-import { ipcCall } from "../../ipc/client";
-import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "./dirty-tracker";
-import { relPathForInput } from "./file-loader";
-import { notifyDidSave } from "./lsp-bridge";
-import { getResolvedModel } from "./model-cache";
-import { promoteAllPreviewTabsForFile } from "./promote-policy";
+import { showToast } from "../../../components/ui/toast";
+import { ipcCall } from "../../../ipc/client";
+import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
+import { relPathForInput } from "../model/file-loader";
+import { notifyDidSave } from "../lsp/lsp-bridge";
+import { getResolvedModel } from "../model/model-cache";
+import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
-import type { EditorInput } from "./types";
+import type { EditorInput } from "../types";
 
 export type SaveResult =
   | { kind: "saved"; mtime: string; size: number }

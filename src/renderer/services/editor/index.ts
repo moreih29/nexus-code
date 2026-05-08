@@ -1,33 +1,16 @@
 import type * as Monaco from "monaco-editor";
 import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
-import { initializeLspBridge } from "./lsp-bridge";
-import { initializeModelCache } from "./model-cache";
-import { installMonacoCompensations } from "./monaco-compensations";
-import { initializeMonacoTheme } from "./monaco-theme";
-import { startPromoteOnDirtyPolicy } from "./promote-policy";
+import { initializeLspBridge } from "./lsp/lsp-bridge";
+import { initializeModelCache } from "./model/model-cache";
+import { installMonacoCompensations } from "./runtime/monaco-compensations";
+import { initializeMonacoTheme } from "./runtime/monaco-theme";
+import { startPromoteOnDirtyPolicy } from "./tabs/promote-policy";
 
-export type { CloseTabOutcome } from "./close-handler";
-export { closeEditorWithConfirm } from "./close-handler";
-export { isDirty, subscribeFileDirty } from "./dirty-tracker";
-export { cacheUriToFilePath, filePathToModelUri } from "./model-cache";
-export {
-  installEditorOpener,
-  installLocationModelPreAcquire,
-  installMonacoCompensations,
-} from "./monaco-compensations";
-export {
-  closeEditor,
-  findEditorTab,
-  findEditorTabInGroup,
-  findPreviewTabInGroup,
-  openExternalEditor,
-  openOrRevealEditor,
-  PREVIEW_ENABLED,
-} from "./open-editor";
-export type { SaveResult } from "./save-service";
-export { saveModel } from "./save-service";
-export type { EditorInput, EditorTabLocation, EditorTabProps, OpenEditorOptions } from "./types";
-export { useSharedModel } from "./use-shared-model";
+export { closeEditorWithConfirm } from "./save/close-handler";
+export { saveModel } from "./save/save-service";
+export { openOrRevealEditor } from "./tabs/open-editor";
+export type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
+export { useSharedModel } from "./model/use-shared-model";
 
 export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeMonacoTheme(monaco);

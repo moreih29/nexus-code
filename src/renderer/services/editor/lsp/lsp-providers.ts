@@ -2,7 +2,7 @@
 // No module-level state — all state (registeredProviderLanguages) is managed by the caller.
 
 import type * as Monaco from "monaco-editor";
-import { ipcCall } from "../../ipc/client";
+import { ipcCall } from "../../../ipc/client";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
@@ -28,7 +28,7 @@ export function registerLanguageProviders(
   fetchDocumentSymbols: (
     uri: string,
     signal?: AbortSignal,
-  ) => Promise<import("../../../shared/lsp-types").DocumentSymbol[]>,
+  ) => Promise<import("../../../../shared/lsp-types").DocumentSymbol[]>,
   preAcquire: PreAcquireFn,
 ): void {
   if (!isLspLanguage(languageId)) return;

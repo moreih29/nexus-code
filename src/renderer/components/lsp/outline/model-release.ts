@@ -1,4 +1,4 @@
-import { subscribeOnRelease } from "../../../services/editor/model-cache";
+import { subscribeOnRelease } from "../../../services/editor/model/model-cache";
 import { bindOutlineToModelRelease } from "../../../state/stores/outline";
 
 let unsubscribe: (() => void) | null = null;

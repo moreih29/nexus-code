@@ -10,7 +10,7 @@
 
 import type { DropZone } from "@/components/workspace/dnd/types";
 import { Grid } from "@/engine/split";
-import { findEditorTabInGroup } from "@/services/editor/open-editor";
+import { findEditorTabInGroup } from "@/services/editor/tabs/open-editor";
 import { useLayoutStore } from "../stores/layout";
 import type { SplitOrientation } from "../stores/layout/types";
 import { type EditorTabProps, useTabsStore } from "../stores/tabs";

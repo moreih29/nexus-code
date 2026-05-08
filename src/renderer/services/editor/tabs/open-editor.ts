@@ -6,7 +6,7 @@ import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/o
 import { useLayoutStore } from "@/state/stores/layout";
 import type { Tab } from "@/state/stores/tabs";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
-import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
+import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "../types";
 
 // When true, single-click file opens use a shared preview slot per group
 // (VSCode-style: italic title, replaced on next single-click).

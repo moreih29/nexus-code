@@ -16,7 +16,7 @@ import {
   BUILTIN_LSP_PRESETS,
   isSupportedLspLanguage,
   type LSP_LANGUAGE_PRESET_ALIASES,
-} from "../../../shared/lsp-config";
+} from "../../../../shared/lsp-config";
 
 const JAVASCRIPT_LSP_COVERAGE = [
   "javascript",

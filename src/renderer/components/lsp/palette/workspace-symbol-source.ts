@@ -1,6 +1,6 @@
 import { fileUriToAbsolutePath } from "../../../../shared/file-uri";
 import { type OpenEditorOptions, openOrRevealEditor } from "../../../services/editor";
-import { requestEditorReveal } from "../../../services/editor/pending-reveal";
+import { requestEditorReveal } from "../../../services/editor/tabs/pending-reveal";
 import {
   searchWorkspaceSymbols,
   symbolUriToString,

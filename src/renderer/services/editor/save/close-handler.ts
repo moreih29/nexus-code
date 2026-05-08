@@ -14,9 +14,9 @@
 import { showSaveConfirm } from "@/components/ui/save-confirm-dialog";
 import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
-import { isDirty } from "./dirty-tracker";
-import { filePathToModelUri } from "./model-cache";
-import { closeEditor } from "./open-editor";
+import { isDirty } from "../model/dirty-tracker";
+import { filePathToModelUri } from "../model/model-cache";
+import { closeEditor } from "../tabs/open-editor";
 import { saveModel } from "./save-service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";

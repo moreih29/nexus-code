@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { installRejectionSink } from "../../../../../src/renderer/services/editor/rejection-sink";
+import { installRejectionSink } from "../../../../../src/renderer/services/editor/runtime/rejection-sink";
 
 type Listener = (event: { reason: unknown; preventDefault(): void }) => void;
 let listener: Listener | null = null;
