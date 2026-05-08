@@ -7,7 +7,7 @@ import {
 import {
   __resetWorkspaceSymbolPaletteStateForTests,
   isWorkspaceSymbolPaletteOpen,
-} from "../../../../src/renderer/components/lsp/palette/workspace-symbol-palette-state";
+} from "../../../../src/renderer/components/lsp/workspace-symbol/workspace-symbol-palette-state";
 import { registerPaletteCommands } from "../../../../src/renderer/keybindings/commands/palette-commands";
 import { evaluateContextKey } from "../../../../src/renderer/keybindings/context-keys";
 import {

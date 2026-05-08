@@ -4,7 +4,7 @@ import { provideWorkspaceSymbols } from "../../../services/editor/lsp/lsp-bridge
 import { registerWorkspaceSymbolProvider } from "../../../services/lsp/workspace-symbol-registry";
 import { useActiveStore } from "../../../state/stores/active";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { CommandPalette } from "./command-palette";
+import { CommandPalette } from "../../ui/palette/command-palette";
 import {
   closeWorkspaceSymbolPalette,
   isWorkspaceSymbolPaletteOpen,

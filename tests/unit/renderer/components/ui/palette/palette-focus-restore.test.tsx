@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { restoreFocusOnUnmount } from "../../../../../../src/renderer/components/lsp/palette/command-palette";
+import { restoreFocusOnUnmount } from "../../../../../../src/renderer/components/ui/palette/command-palette";
 
 interface FakeElement {
   isConnected: boolean;

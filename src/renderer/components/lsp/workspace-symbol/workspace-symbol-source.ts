@@ -8,7 +8,7 @@ import {
   workspaceSymbolDedupeKey,
 } from "../../../services/lsp/workspace-symbol-registry";
 import { relPath } from "../../../utils/path";
-import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "./types";
+import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../ui/palette/types";
 
 export interface WorkspaceSymbolPaletteItem extends PaletteItem {
   symbol: WorkspaceSymbolEntry;

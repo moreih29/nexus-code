@@ -6,7 +6,7 @@
 // listen for app-level state — they just need a fixed place in the
 // React tree.
 
-import { WorkspaceSymbolPaletteRoot } from "./lsp/palette";
+import { WorkspaceSymbolPaletteRoot } from "./lsp/workspace-symbol/workspace-symbol-palette";
 import { SaveConfirmDialogRoot } from "./ui/save-confirm-dialog";
 import { ToastRoot } from "./ui/toast";
 import { ViewParkRoot } from "./workspace/content/view-park";

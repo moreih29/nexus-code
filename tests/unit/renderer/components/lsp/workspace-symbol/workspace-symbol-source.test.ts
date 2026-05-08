@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { createWorkspaceSymbolPaletteSource } from "../../../../../../src/renderer/components/lsp/palette/workspace-symbol-source";
+import { createWorkspaceSymbolPaletteSource } from "../../../../../../src/renderer/components/lsp/workspace-symbol/workspace-symbol-source";
 import {
   __resetPendingEditorRevealsForTests,
   takePendingEditorReveal,

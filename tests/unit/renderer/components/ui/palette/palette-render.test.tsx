@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CommandPaletteFrame } from "../../../../../../src/renderer/components/lsp/palette/command-palette";
-import type { PaletteViewStatus } from "../../../../../../src/renderer/components/lsp/palette/controller";
-import type { PaletteItem } from "../../../../../../src/renderer/components/lsp/palette/types";
+import { CommandPaletteFrame } from "../../../../../../src/renderer/components/ui/palette/command-palette";
+import type { PaletteViewStatus } from "../../../../../../src/renderer/components/ui/palette/controller";
+import type { PaletteItem } from "../../../../../../src/renderer/components/ui/palette/types";
 
 const resultItems: PaletteItem[] = [
   {

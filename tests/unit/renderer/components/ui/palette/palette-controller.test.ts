@@ -6,11 +6,11 @@ import {
   type PaletteSearchSnapshot,
   resolvePaletteKeyAction,
   WORKSPACE_SYMBOL_DEBOUNCE_MS,
-} from "../../../../../../src/renderer/components/lsp/palette/controller";
+} from "../../../../../../src/renderer/components/ui/palette/controller";
 import type {
   PaletteItem,
   PaletteSource,
-} from "../../../../../../src/renderer/components/lsp/palette/types";
+} from "../../../../../../src/renderer/components/ui/palette/types";
 
 interface TimerEntry {
   id: number;
