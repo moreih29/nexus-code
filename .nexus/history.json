@@ -6029,6 +6029,146 @@
           "created_at": "2026-05-08T04:32:57.148Z"
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-08T05:57:45.768Z",
+      "branch": "chore/audit-cleanup",
+      "plan": {
+        "id": 24,
+        "topic": "audit-cleanup 잔여 7건 100% 처리",
+        "issues": [
+          {
+            "id": 1,
+            "title": "F4.3 lsp-types.ts 479 LoC 도메인별 분할",
+            "status": "decided",
+            "decision": "lsp-types.ts 479 LoC를 src/shared/lsp/{text-document,symbols,workspace,diagnostics}.ts 4 도메인 파일로 분할. 기존 src/shared/lsp-types.ts는 제거하고 폴더로 대체. 외부 import는 src/shared/lsp/index.ts 통한 re-export 또는 sub-path. 35+ Zod 스키마를 도메인별로 그루핑. 회피한 옵션: lsp-types/ 폴더로 단순 이동(파일 1개 그대로) — 분할 가치 X, 거부."
+          },
+          {
+            "id": 2,
+            "title": "F3.3 components/lsp/palette generic vs LSP-specific 분리",
+            "status": "decided",
+            "decision": "palette/ 9 파일을 UI generic vs LSP-specific으로 분리. UI generic 6 파일 → src/renderer/components/ui/palette/ (command-palette.tsx, command-palette-frame.tsx, controller.ts, types.ts, utils.ts, index.ts). LSP-specific 3 파일 → src/renderer/components/lsp/workspace-symbol/ (workspace-symbol-palette-state.ts, workspace-symbol-palette.tsx, workspace-symbol-source.ts). outline/ 폴더는 그대로 (진짜 LSP 전용 UI). 회피한 옵션: components/lsp/ 전체를 다른 이름으로 리네임 — outline은 LSP 전용이라 의미 적절, 거부. palette 그대로 유지 — 사용자 \"100%\" 요구 미충족, 거부."
+          },
+          {
+            "id": 3,
+            "title": "F5.2 utility entry index.ts 21 LoC createUtilityProcessEntry 추출",
+            "status": "decided",
+            "decision": "src/utility/createUtilityProcessEntry(opts) 헬퍼 추출. opts={managerFactory, logPrefix, teardownMethod}. lsp-host/index.ts와 pty-host/index.ts 양쪽이 호출. 21 LoC 동일 부분(parentPort setup + port handshake + beforeExit hook) 단일 진실원으로 통합. T7 engineer가 \"ROI 부족\"으로 skip했으나 사용자 \"100%\" 지시에 따라 처리. 회피한 옵션: 그대로 유지 — 사용자 요구 미충족, 거부."
+          },
+          {
+            "id": 4,
+            "title": "Tester cleanups 3건 — IMPORTANT-4 open-external-editor 3 테스트 병합 + IMPORTANT-5/INFO-1 대입의 monaco-compensations delegate 테스트 2건 삭제",
+            "status": "decided",
+            "decision": "Tester cleanup 3건 한 commit에. (a) open-external-editor.test.ts: 처음 3 테스트(creates external tab, isPreview=true tab, layout init)를 단일 통합 테스트로 병합 — \"creates external read-only tab with isPreview=true and initialized layout\". (b) monaco-compensations.test.ts에서 \"installEditorOpener delegates to monaco registerEditorOpener\" 테스트 삭제(1:1 위임 재확인). (c) monaco-compensations.test.ts에서 \"installLocationModelPreAcquire delegates through the supplied pre-acquirer\" 테스트 삭제(tautology). 회피한 옵션: 모두 유지 — 가치 없는 테스트 누적, 거부."
+          },
+          {
+            "id": 5,
+            "title": "Tester IMPORTANT-6 editor-view 컴포넌트 테스트 부재 — 결정 기록 (.nexus/memory)",
+            "status": "decided",
+            "decision": ".nexus/memory/empirical-editor-view-component-test.md 신설하여 결정 기록. 결정 내용: editor-view.tsx 컴포넌트 테스트는 의도적으로 부재. 사유: (1) Electron + jsdom 환경에서 monaco-editor의 실제 렌더 동작 모킹 비용이 검증 가치 대비 큼. (2) 컴포넌트 잔존 책임은 phase 분기 + 추출된 hook/service 호출 — phase 분기는 단순 conditional render, hook/service는 각각 단위 테스트로 커버됨. (3) 회귀 위험은 통합 테스트 또는 수동 verification으로 커버. 향후 Storybook 도입 또는 Playwright e2e 등으로 보완 검토. 회피한 옵션: jsdom으로 컴포넌트 테스트 작성 — monaco render 모킹 비용 + 가짜 통과 위험, 거부."
+          },
+          {
+            "id": 6,
+            "title": "최종 검증 + cycle close",
+            "status": "decided",
+            "decision": "전체 검증: bun test tests/unit/, bun run typecheck, madge --circular, 폴더 구조 spot-check. 통과 시 nx_task_close + history.json archive commit. Plan #24 cycle 종료."
+          }
+        ],
+        "research_summary": "이전 cycle (Plan #23, 13 commit on chore/audit-cleanup)에서 33개 finding 중 7개 누락 식별. 자기 감사 후 사용자가 100% 마무리 요청. 미처리 항목: F4.3 (계획 누락), F3.3 (계획 누락), F5.2 (engineer skip을 Lead가 푸시백 안 함), Tester IMPORTANT-4 (부분 처리), Tester IMPORTANT-5/INFO-1 (계획 누락), Tester IMPORTANT-6 (결정 미기록). 작업 디렉토리/브랜치 동일.",
+        "created_at": "2026-05-08T05:42:59.149Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "T14: F4.3 lsp-types.ts 4도메인 분할",
+          "status": "completed",
+          "context": "Plan #24 issue #1. 479 LoC 35+ Zod 스키마 단일 파일.",
+          "acceptance": "src/shared/lsp/ 4 sub-file 신설. 각 ~100-150 LoC. lsp-types.ts 삭제. 외부 import (lsp-host, lsp-handlers, ipc-contract 등) 정상. bun test tests/unit/ 0 fail. typecheck clean.",
+          "approach": "src/shared/lsp/ 폴더 신설하고 4 sub-file로 분할: text-document.ts (didOpen/didChange/didSave/didClose 등), symbols.ts (DocumentSymbol/SymbolInformation/references/definition/documentHighlight 등), workspace.ts (workspaceSymbol/applyWorkspaceEdit 등), diagnostics.ts (Diagnostic/Hover/completion 등). src/shared/lsp/index.ts에서 모두 re-export. 기존 src/shared/lsp-types.ts 삭제. 외부 import는 src/shared/lsp 또는 sub-path. 도메인 분류는 LSP 스펙 그루핑 따라.",
+          "risk": "35+ schema의 import 의존도 — lsp-handlers/manager 등이 다수 import. mass import path 갱신 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T05:43:47.028Z"
+        },
+        {
+          "id": 2,
+          "title": "T15: F3.3 palette UI/LSP 분리",
+          "status": "completed",
+          "context": "Plan #24 issue #2. components/lsp/palette/ 9 파일 중 6 파일이 generic palette 인프라.",
+          "acceptance": "components/ui/palette/ 6 파일, components/lsp/workspace-symbol/ 3 파일. lsp/palette/ 폴더 없음. consumer import 갱신 (palette-commands, tests 등). bun test tests/unit/ 0 fail. typecheck clean. madge --circular 0.",
+          "approach": "src/renderer/components/ui/palette/ 신설 + 6 generic 파일 git mv (command-palette.tsx, command-palette-frame.tsx, controller.ts, types.ts, utils.ts, index.ts). src/renderer/components/lsp/workspace-symbol/ 신설 + 3 LSP-specific 파일 git mv (workspace-symbol-palette-state.ts, workspace-symbol-palette.tsx, workspace-symbol-source.ts). lsp/palette/ 폴더 제거. 모든 consumer import path 갱신.",
+          "risk": "consumer가 lsp/palette/<X> 절대경로로 import 사용 시 갱신 필요. tests/unit/renderer/components/lsp/palette/ 폴더는 그대로 둘지 ui/palette/로 이동할지 자율 판단.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T05:43:54.334Z"
+        },
+        {
+          "id": 3,
+          "title": "T16: F5.2 createUtilityProcessEntry 추출",
+          "status": "completed",
+          "context": "Plan #24 issue #3. lsp-host/index.ts ↔ pty-host/index.ts 21 LoC 동일.",
+          "acceptance": "utility-process-entry.ts 신설. lsp-host/index.ts와 pty-host/index.ts 각 <20 LoC. bun test tests/unit/utility/ 0 fail. typecheck clean.",
+          "approach": "src/utility/utility-process-entry.ts 신설. createUtilityProcessEntry({managerFactory, logPrefix, teardownMethod})  helper 구현 — parentPort setup + port handshake + beforeExit. lsp-host/index.ts와 pty-host/index.ts에서 호출. 양쪽 entry 파일 ~10-15 LoC로 슬림화.",
+          "risk": "parentPort 메시지 핸들링 미세 차이 가능 — 두 entry 본체 정확히 비교 후 진행.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T05:43:59.484Z"
+        },
+        {
+          "id": 4,
+          "title": "T17: Tester cleanups 3건",
+          "status": "completed",
+          "context": "Plan #24 issue #4. tester IMPORTANT-4 + IMPORTANT-5 + INFO-1.",
+          "acceptance": "open-external-editor 4 → 2 테스트 (3 병합 + tabId matching는 이미 T3에서 삭제됨). monaco-compensations 2건 삭제. bun test tests/unit/ 0 fail.",
+          "approach": "(a) tests/unit/renderer/services/editor/open-external-editor.test.ts: 처음 3 테스트(creates external tab + isPreview tab + layout init)를 단일 \"creates external read-only tab with isPreview=true and initialized layout\"로 병합. expect 문은 모두 살리되 한 it() 안에. (b) tests/unit/renderer/services/editor/monaco-compensations.test.ts에서 \"installEditorOpener delegates to monaco registerEditorOpener\" 테스트 삭제. (c) 같은 파일에서 \"installLocationModelPreAcquire delegates through the supplied pre-acquirer\" 테스트 삭제.",
+          "risk": "병합 시 expect 문 하나라도 누락하면 검증 약화 — 신중하게.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-08T05:44:05.539Z"
+        },
+        {
+          "id": 5,
+          "title": "T18: editor-view 테스트 부재 결정 memory 기록",
+          "status": "completed",
+          "context": "Plan #24 issue #5. tester IMPORTANT-6 권고: 명시적 결정 필요.",
+          "acceptance": ".nexus/memory/empirical-editor-view-component-test.md 존재. 사유 3가지 명시. 향후 검토 옵션 명시.",
+          "approach": ".nexus/memory/empirical-editor-view-component-test.md 신설. 결정 사유: (1) Electron + jsdom monaco render 모킹 비용 큼, (2) editor-view 잔존 책임은 phase 분기 + hook/service 호출, hook/service는 단위테스트로 커버됨, (3) 회귀는 수동 또는 통합 테스트로 커버. 향후 Storybook/Playwright 검토. Lead 작업 — 짧은 markdown 파일.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-08T05:44:10.499Z"
+        },
+        {
+          "id": 6,
+          "title": "T19: 최종 검증 + cycle close",
+          "status": "completed",
+          "context": "Plan #24 issue #6.",
+          "acceptance": "모든 게이트 PASS. cycle close 완료. archive commit.",
+          "approach": "bun test tests/unit/, bun run typecheck, madge --circular, 폴더 구조 ls, top-15 LoC. 통과 시 nx_task_close.",
+          "plan_issue": 6,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-08T05:44:27.153Z"
+        }
+      ]
     }
   ]
 }
