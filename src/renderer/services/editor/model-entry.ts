@@ -22,6 +22,26 @@ import {
 import { requireMonaco } from "./monaco-singleton";
 import type { EditorInput } from "./types";
 
+const defaultModelEntryDeps = {
+  attachDirtyTracker,
+  detachDirtyTracker,
+  markDirtyTrackerSaved,
+  readFileForModel,
+  subscribeFsChanged,
+  workspaceRootForInput,
+  isLspLanguage,
+  ensureProvidersFor,
+  monacoContentChangesToLsp,
+  notifyDidChange,
+  notifyDidClose,
+  notifyDidOpen,
+  registerKnownModelUri,
+  unregisterKnownModelUri,
+  requireMonaco: () => requireMonaco(),
+};
+
+export type ModelEntryDeps = typeof defaultModelEntryDeps;
+
 export type SharedModelPhase = "loading" | "ready" | "binary" | "error";
 
 export interface SharedModelState {
@@ -47,10 +67,13 @@ export interface ModelEntry {
   contentDisposable?: Monaco.IDisposable;
   fsUnsubscribe?: () => void;
   lspOpened: boolean;
+  didOpenPromise?: Promise<void>;
+  lspDegraded?: boolean;
   disposed: boolean;
   subscribers: Set<() => void>;
   origin: "workspace" | "external";
   readOnly: boolean;
+  deps?: ModelEntryDeps;
   /** Set only when origin === "external"; identifies the workspace the opener came from. */
   originatingWorkspaceId?: string;
 }
@@ -75,8 +98,16 @@ export function notifySubscribers(entry: ModelEntry): void {
   }
 }
 
-export function createEntry(input: EditorInput, cacheUri: string): ModelEntry {
-  const monaco = requireMonaco();
+function depsFor(entry: ModelEntry): ModelEntryDeps {
+  return entry.deps ?? defaultModelEntryDeps;
+}
+
+export function createEntry(
+  input: EditorInput,
+  cacheUri: string,
+  deps: ModelEntryDeps = defaultModelEntryDeps,
+): ModelEntry {
+  const monaco = deps.requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
   const origin: "workspace" | "external" = input.origin ?? "workspace";
   const readOnly: boolean = input.readOnly ?? false;
@@ -93,10 +124,13 @@ export function createEntry(input: EditorInput, cacheUri: string): ModelEntry {
     lastLoadedValue: "",
     loadPromise: Promise.resolve(),
     lspOpened: false,
+    didOpenPromise: Promise.resolve(),
+    lspDegraded: false,
     disposed: false,
     subscribers: new Set(),
     origin,
     readOnly,
+    deps,
     originatingWorkspaceId: input.origin === "external" ? input.workspaceId : undefined,
   };
 
@@ -105,9 +139,10 @@ export function createEntry(input: EditorInput, cacheUri: string): ModelEntry {
 }
 
 export async function loadEntry(entry: ModelEntry): Promise<void> {
+  const deps = depsFor(entry);
   try {
-    const workspaceRoot = workspaceRootForInput(entry.input);
-    const result = await readFileForModel(entry.input);
+    const workspaceRoot = deps.workspaceRootForInput(entry.input);
+    const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
 
     if (result.isBinary) {
@@ -117,7 +152,7 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
       return;
     }
 
-    const monaco = requireMonaco();
+    const monaco = deps.requireMonaco();
     const model =
       monaco.editor.getModel(entry.monacoUri) ??
       monaco.editor.createModel(result.content, undefined, entry.monacoUri);
@@ -132,38 +167,51 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
     entry.errorCode = undefined;
     entry.lastLoadedValue = result.content;
 
-    attachDirtyTracker({
+    deps.attachDirtyTracker({
       cacheUri: entry.cacheUri,
       model,
       loadedMtime: result.mtime,
       loadedSize: result.sizeBytes,
     });
 
-    registerKnownModelUri(entry.cacheUri);
-    registerKnownModelUri(entry.lspUri);
+    deps.registerKnownModelUri(entry.cacheUri);
+    deps.registerKnownModelUri(entry.lspUri);
 
-    if (isLspLanguage(entry.languageId)) {
-      ensureProvidersFor(model.getLanguageId());
-      entry.lspOpened = true;
-      notifyDidOpen(
-        entry.lspUri,
-        entry.input.workspaceId,
-        workspaceRoot,
-        entry.languageId,
-        entry.version,
-        result.content,
-      ).catch(() => {});
+    if (deps.isLspLanguage(entry.languageId)) {
+      deps.ensureProvidersFor(model.getLanguageId());
+      entry.didOpenPromise = deps
+        .notifyDidOpen(
+          entry.lspUri,
+          entry.input.workspaceId,
+          workspaceRoot,
+          entry.languageId,
+          entry.version,
+          result.content,
+        )
+        .then(
+          () => {
+            entry.lspOpened = true;
+          },
+          () => {
+            entry.lspOpened = false;
+            entry.lspDegraded = true;
+          },
+        );
     }
 
-    entry.contentDisposable = model.onDidChangeContent((event) => {
+    entry.contentDisposable = model.onDidChangeContent(async (event) => {
       entry.version += 1;
-      if (!entry.lspOpened) return;
-      const contentChanges = monacoContentChangesToLsp(event.changes);
+      const version = entry.version;
+      const contentChanges = deps.monacoContentChangesToLsp(event.changes);
       if (contentChanges.length === 0) return;
-      notifyDidChange(entry.lspUri, entry.version, contentChanges).catch(() => {});
+      await entry.didOpenPromise;
+      if (!entry.lspOpened || entry.disposed) return;
+      deps.notifyDidChange(entry.lspUri, version, contentChanges).catch(() => {
+        entry.lspDegraded = true;
+      });
     });
 
-    entry.fsUnsubscribe = subscribeFsChanged(entry.input, () => {
+    entry.fsUnsubscribe = deps.subscribeFsChanged(entry.input, () => {
       reconcileExternalChange(entry).catch(() => {});
     });
 
@@ -179,9 +227,10 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
 
 export async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
+  const deps = depsFor(entry);
 
   try {
-    const result = await readFileForModel(entry.input);
+    const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
 
     if (result.isBinary) {
@@ -204,7 +253,7 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
       model.setValue(result.content);
     }
 
-    markDirtyTrackerSaved({
+    deps.markDirtyTrackerSaved({
       cacheUri: entry.cacheUri,
       model,
       savedAlternativeVersionId: model.getAlternativeVersionId(),
@@ -221,18 +270,33 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
   }
 }
 
+async function notifyDidCloseAfterDidOpen(entry: ModelEntry): Promise<void> {
+  await entry.didOpenPromise;
+  if (!entry.lspOpened) return;
+
+  try {
+    await depsFor(entry).notifyDidClose(entry.lspUri);
+  } catch {
+    entry.lspDegraded = true;
+  }
+}
+
 export function cleanupEntry(entry: ModelEntry): void {
   if (entry.disposed) return;
   entry.disposed = true;
+  const deps = depsFor(entry);
   entry.fsUnsubscribe?.();
   entry.contentDisposable?.dispose();
-  detachDirtyTracker(entry.cacheUri);
-  unregisterKnownModelUri(entry.cacheUri);
-  unregisterKnownModelUri(entry.lspUri);
+  deps.detachDirtyTracker(entry.cacheUri);
+  deps.unregisterKnownModelUri(entry.cacheUri);
+  deps.unregisterKnownModelUri(entry.lspUri);
 
-  if (entry.lspOpened) {
-    notifyDidClose(entry.lspUri).catch(() => {});
-  }
+  const didClosePromise = entry.lspOpened
+    ? deps.notifyDidClose(entry.lspUri)
+    : notifyDidCloseAfterDidOpen(entry);
+  didClosePromise.catch(() => {
+    entry.lspDegraded = true;
+  });
 
   if (entry.model && !entry.model.isDisposed()) {
     entry.model.dispose();

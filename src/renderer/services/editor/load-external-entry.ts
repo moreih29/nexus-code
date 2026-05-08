@@ -26,7 +26,7 @@ export async function loadExternalEntry(input: {
     lspUri: monacoUri.toString(),
     monacoUri,
     languageId: "",
-    refCount: 1,
+    refCount: 0,
     version: 1,
     phase: "loading",
     model: null,

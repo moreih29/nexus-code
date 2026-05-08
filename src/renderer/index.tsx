@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installRejectionSink } from "./services/editor/rejection-sink";
 
 const root = document.getElementById("root");
 if (root === null) {
@@ -11,4 +12,5 @@ if (root === null) {
 // that cannot be made idempotent across StrictMode's double-invoke pattern
 // without race conditions. StrictMode is a no-op in production builds, so
 // disabling it only affects dev-mode warnings.
+installRejectionSink();
 createRoot(root).render(<App />);

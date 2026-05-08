@@ -27,6 +27,33 @@ function fallbackApplyEditResult(failureReason: string): ApplyWorkspaceEditResul
   return { applied: false, failureReason };
 }
 
+/**
+ * Catches abort-induced rejections from `lspHost.call` so they don't bubble
+ * out of the IPC handler. Without this wrapper, electron's `ipcMain.handle`
+ * logs every cancellation as `Error occurred in handler for 'ipc:call': Error:
+ * Request cancelled` whenever the renderer fires `ipc:cancel` (e.g. ESC after
+ * Cmd+Shift+O). The cancel itself is expected — the renderer-side provider
+ * already has try/catch that handles an empty result identically to a thrown
+ * cancellation, so resolving with the method-appropriate empty value is
+ * functionally equivalent and quieter.
+ *
+ * Non-cancel rejections (LSP server crashed, malformed response, etc.) still
+ * propagate — we only treat the rejection as expected when the call's signal
+ * is aborted.
+ */
+export async function withCancelDefault<T>(
+  promise: Promise<unknown>,
+  signal: AbortSignal | undefined,
+  emptyValue: T,
+): Promise<T> {
+  try {
+    return (await promise) as T;
+  } catch (error) {
+    if (signal?.aborted) return emptyValue;
+    throw error;
+  }
+}
+
 async function requestRendererApplyEdit(
   params: ApplyWorkspaceEditParams,
 ): Promise<ApplyWorkspaceEditResult> {
@@ -120,68 +147,69 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
 
       hover: async (args: unknown, ctx?: CallContext) => {
         const { uri, line, character } = validateArgs(c.hover.args, args);
-        const result = await lspHost.call(
-          "hover",
-          { uri, line, character },
-          { signal: ctx?.signal },
+        return withCancelDefault<HoverResult | null>(
+          lspHost.call("hover", { uri, line, character }, { signal: ctx?.signal }),
+          ctx?.signal,
+          null,
         );
-        return result as HoverResult | null;
       },
 
       definition: async (args: unknown, ctx?: CallContext) => {
         const { uri, line, character } = validateArgs(c.definition.args, args);
-        const result = await lspHost.call(
-          "definition",
-          { uri, line, character },
-          { signal: ctx?.signal },
+        return withCancelDefault<Location[]>(
+          lspHost.call("definition", { uri, line, character }, { signal: ctx?.signal }),
+          ctx?.signal,
+          [],
         );
-        return result as Location[];
       },
 
       completion: async (args: unknown, ctx?: CallContext) => {
         const { uri, line, character } = validateArgs(c.completion.args, args);
-        const result = await lspHost.call(
-          "completion",
-          { uri, line, character },
-          { signal: ctx?.signal },
+        return withCancelDefault<CompletionItem[]>(
+          lspHost.call("completion", { uri, line, character }, { signal: ctx?.signal }),
+          ctx?.signal,
+          [],
         );
-        return result as CompletionItem[];
       },
 
       references: async (args: unknown, ctx?: CallContext) => {
         const { uri, line, character, includeDeclaration } = validateArgs(c.references.args, args);
-        const result = await lspHost.call(
-          "references",
-          { uri, line, character, includeDeclaration },
-          { signal: ctx?.signal },
+        return withCancelDefault<Location[]>(
+          lspHost.call(
+            "references",
+            { uri, line, character, includeDeclaration },
+            { signal: ctx?.signal },
+          ),
+          ctx?.signal,
+          [],
         );
-        return result as Location[];
       },
 
       documentHighlight: async (args: unknown, ctx?: CallContext) => {
         const { uri, line, character } = validateArgs(c.documentHighlight.args, args);
-        const result = await lspHost.call(
-          "documentHighlight",
-          { uri, line, character },
-          { signal: ctx?.signal },
+        return withCancelDefault<DocumentHighlight[]>(
+          lspHost.call("documentHighlight", { uri, line, character }, { signal: ctx?.signal }),
+          ctx?.signal,
+          [],
         );
-        return result as DocumentHighlight[];
       },
 
       documentSymbol: async (args: unknown, ctx?: CallContext) => {
         const { uri } = validateArgs(c.documentSymbol.args, args);
-        const result = await lspHost.call("documentSymbol", { uri }, { signal: ctx?.signal });
-        return result as DocumentSymbol[];
+        return withCancelDefault<DocumentSymbol[]>(
+          lspHost.call("documentSymbol", { uri }, { signal: ctx?.signal }),
+          ctx?.signal,
+          [],
+        );
       },
 
       workspaceSymbol: async (args: unknown, ctx?: CallContext) => {
         const { workspaceId, query } = validateArgs(c.workspaceSymbol.args, args);
-        const result = await lspHost.call(
-          "workspaceSymbol",
-          { workspaceId, query },
-          { signal: ctx?.signal },
+        return withCancelDefault<SymbolInformation[]>(
+          lspHost.call("workspaceSymbol", { workspaceId, query }, { signal: ctx?.signal }),
+          ctx?.signal,
+          [],
         );
-        return result as SymbolInformation[];
       },
 
       applyEditResult: async (args: unknown) => {

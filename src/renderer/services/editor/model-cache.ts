@@ -130,8 +130,17 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
   }
 
   entry.refCount += 1;
-  await entry.loadPromise;
-  return snapshot(entry);
+  try {
+    await entry.loadPromise;
+    return snapshot(entry);
+  } catch (error) {
+    entry.refCount -= 1;
+    if (entry.refCount === 0 && entries.get(cacheUri) === entry) {
+      entries.delete(cacheUri);
+      cleanupEntry(entry);
+    }
+    throw error;
+  }
 }
 
 export function releaseModel(input: EditorInput): void {

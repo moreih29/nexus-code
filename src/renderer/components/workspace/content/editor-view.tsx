@@ -7,6 +7,7 @@ import type { MonacoRange } from "../../../../shared/monaco-range";
 import { ipcCall } from "../../../ipc/client";
 import {
   cacheUriToFilePath,
+  installEditorOpener,
   openOrRevealEditor,
   saveModel,
   useSharedModel,
@@ -248,7 +249,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
             },
             sourceEditor: editor,
           });
-          openerDisposableRef.current = monaco.editor.registerEditorOpener({
+          openerDisposableRef.current = installEditorOpener(monaco, {
             openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
               openCodeEditorOpener.openCodeEditor(source, resource),
           });
