@@ -9,6 +9,7 @@ import {
   WorkDoneProgressValueSchema,
 } from "../../../shared/lsp";
 import { ipcListen } from "../../ipc/client";
+import { registerWorkspaceCleanup } from "../../state/lifecycle/workspace-cleanup";
 
 type ConsoleWriter = (message?: unknown, ...optionalParams: unknown[]) => void;
 
@@ -28,6 +29,7 @@ export interface WorkDoneProgressState {
 
 const workDoneProgressByKey = new Map<string, WorkDoneProgressState>();
 let serverEventUnlisten: (() => void) | null = null;
+let workspaceCleanupUnregister: (() => void) | null = null;
 
 function sourcePrefix(event: LspServerEvent): string {
   return `[lsp:${event.languageId}:${event.workspaceId}]`;
@@ -150,14 +152,32 @@ export function routeLspServerEvent(event: LspServerEvent): void {
   }
 }
 
+/**
+ * Drop all in-flight work-done progress entries owned by a workspace.
+ * Called when a workspace is removed so its lingering LSP progress state
+ * (begin/report frames that never received an "end") doesn't accumulate.
+ */
+export function clearProgressForWorkspace(workspaceId: string): void {
+  for (const [key, state] of workDoneProgressByKey) {
+    if (state.workspaceId === workspaceId) {
+      workDoneProgressByKey.delete(key);
+    }
+  }
+}
+
 export function initializeLspServerUxRouter(): void {
   if (serverEventUnlisten) return;
   serverEventUnlisten = ipcListen("lsp", "serverEvent", routeLspServerEvent);
+  // Drop workspace-keyed progress entries when the workspace is removed.
+  // The central registry owns the IPC listener; we just register intent.
+  workspaceCleanupUnregister = registerWorkspaceCleanup(clearProgressForWorkspace);
 }
 
 export function disposeLspServerUxRouter(): void {
   serverEventUnlisten?.();
   serverEventUnlisten = null;
+  workspaceCleanupUnregister?.();
+  workspaceCleanupUnregister = null;
   workDoneProgressByKey.clear();
 }
 

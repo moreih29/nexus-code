@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
-import { ipcListen } from "../../ipc/client";
+import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // Types — Tab is a discriminated union, narrowed by `type`. Callers no longer
@@ -83,16 +83,12 @@ export function defaultTitle(args: CreateTabArgs): string {
 // ---------------------------------------------------------------------------
 
 export const useTabsStore = create<TabsState>((set, get) => {
-  // Mirror the workspaces store pattern: subscribe to main-process removed
-  // events so a deleted workspace's tab metadata is cleaned up automatically,
-  // regardless of where the deletion was initiated.
-  // The `typeof window` guard keeps the module importable from bun:test where
-  // `window.ipc` isn't installed.
-  if (typeof window !== "undefined") {
-    ipcListen("workspace", "removed", ({ id }) => {
-      get().closeAllForWorkspace(id);
-    });
-  }
+  // A deleted workspace's tab records (and their PTYs) are cleaned up via
+  // the central workspace-cleanup registry — no need to re-implement the
+  // IPC listener here.
+  registerWorkspaceCleanup((id) => {
+    get().closeAllForWorkspace(id);
+  });
 
   return {
     byWorkspace: {},

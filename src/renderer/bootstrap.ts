@@ -7,6 +7,7 @@
 
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCall } from "./ipc/client";
+import { initializeWorkspaceLifecycle } from "./state/lifecycle/workspace-cleanup";
 import { registerStatePersistence } from "./state/persistence";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
@@ -22,6 +23,11 @@ import { useUIStore } from "./state/stores/ui";
  * flushed synchronously by the time the subscriber is attached.
  */
 export async function bootstrapAppState(): Promise<void> {
+  // Install the central workspace:removed listener before any async I/O —
+  // registered cleanup functions sit in memory regardless, but the listener
+  // itself must be live before the first user-initiated workspace removal.
+  initializeWorkspaceLifecycle();
+
   const state = await ipcCall("appState", "get", undefined);
 
   useUIStore.getState().hydrate({

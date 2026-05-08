@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcListen } from "../../ipc/client";
+import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -18,7 +19,10 @@ interface WorkspacesState {
 // ---------------------------------------------------------------------------
 
 export const useWorkspacesStore = create<WorkspacesState>((set) => {
-  // Subscribe to main-process changed events so store stays in sync
+  // Subscribe to main-process changed events so store stays in sync.
+  // `removed` is handled by the central workspace-cleanup registry; only
+  // `changed` needs an inline ipcListen here (it's a workspaces-only event,
+  // not a generic lifecycle signal).
   if (typeof window !== "undefined") {
     ipcListen("workspace", "changed", (meta) => {
       set((state) => {
@@ -32,13 +36,13 @@ export const useWorkspacesStore = create<WorkspacesState>((set) => {
         return { workspaces: next };
       });
     });
-
-    ipcListen("workspace", "removed", ({ id }) => {
-      set((state) => ({
-        workspaces: state.workspaces.filter((w) => w.id !== id),
-      }));
-    });
   }
+
+  registerWorkspaceCleanup((id) => {
+    set((state) => ({
+      workspaces: state.workspaces.filter((w) => w.id !== id),
+    }));
+  });
 
   return {
     workspaces: [],

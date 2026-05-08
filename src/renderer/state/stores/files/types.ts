@@ -33,4 +33,11 @@ export interface FilesState {
   collapseDir(workspaceId: string, absPath: string): void;
   markChildrenStale(workspaceId: string, absPath: string): void;
   wipeSubtree(workspaceId: string, targetPath: string): void;
+  /**
+   * Drop all workspace-keyed state for a removed workspace.
+   * Mirrors the pattern in tabs / layout / model-cache stores: triggered by
+   * the `workspace:removed` IPC event so a deleted workspace's tree nodes,
+   * expanded set, and active-path entry don't linger in memory.
+   */
+  closeAllForWorkspace(workspaceId: string): void;
 }

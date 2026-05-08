@@ -1,15 +1,9 @@
-import { ipcListen } from "../../../ipc/client";
+import { registerWorkspaceCleanup } from "../../lifecycle/workspace-cleanup";
 import { useLayoutStore } from "./store";
 
-// Module-level workspace:removed subscription.
-// Registers once when this module is first imported.
-// The `typeof window` guard keeps this importable from bun:test
-// where `window.ipc` isn't installed.
-const _unsubscribeWorkspaceRemoved =
-  typeof window !== "undefined"
-    ? ipcListen("workspace", "removed", ({ id }) => {
-        useLayoutStore.getState().closeAllForWorkspace(id);
-      })
-    : undefined;
-
-void _unsubscribeWorkspaceRemoved;
+// Module-level workspace cleanup registration. Runs once when this module
+// is first imported. The central registry (initialized from bootstrap)
+// owns the IPC listener and dispatches to every registered handler.
+registerWorkspaceCleanup((id) => {
+  useLayoutStore.getState().closeAllForWorkspace(id);
+});

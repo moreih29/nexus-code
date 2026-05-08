@@ -5,7 +5,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/file-uri";
-import { ipcListen } from "../../../ipc/client";
+import { registerWorkspaceCleanup } from "../../../state/lifecycle/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { loadExternalEntry } from "./load-external-entry";
 import {
@@ -51,13 +51,9 @@ export function initializeModelCache(monaco: typeof Monaco): void {
   initializeMonacoSingleton(monaco);
 
   // Evict external models tied to a workspace when that workspace closes.
-  // The `typeof window` guard keeps the module importable from bun:test
-  // where `window.ipc` is not installed.
-  if (typeof window !== "undefined") {
-    ipcListen("workspace", "removed", ({ id }) => {
-      forceDisposeExternalsForWorkspace(id);
-    });
-  }
+  // Registering by name (rather than an inline closure) makes this safe
+  // against double-init: the Set keeps a single reference.
+  registerWorkspaceCleanup(forceDisposeExternalsForWorkspace);
 }
 
 const entries = new Map<string, ModelEntry>();
