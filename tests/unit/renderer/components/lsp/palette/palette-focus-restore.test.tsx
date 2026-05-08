@@ -12,11 +12,12 @@
  *   2. caller was detached before close (isConnected = false) → focus() not called
  *   3. caller was disabled before close → focus() not called
  *
- * The restore callback mirrors the useEffect cleanup in command-palette.tsx
- * so that logic changes in the component are caught by these tests.
+ * restoreFocusOnUnmount is imported directly from command-palette.tsx so that
+ * changes to the real implementation are caught at compile time.
  */
 
 import { describe, expect, it } from "bun:test";
+import { restoreFocusOnUnmount } from "../../../../../../src/renderer/components/lsp/palette/command-palette";
 
 interface FakeElement {
   isConnected: boolean;
@@ -41,37 +42,27 @@ function makeFakeElement(opts: { isConnected: boolean; disabled: boolean }): Fak
   return el;
 }
 
-/**
- * Mirrors the useEffect cleanup extracted from command-palette.tsx.
- * If the implementation changes, update this function to match.
- */
-function runCleanup(target: FakeElement | null): void {
-  if (target?.isConnected && !target.hasAttribute("disabled")) {
-    target.focus({ preventScroll: true });
-  }
-}
-
 describe("focus-restore cleanup guard", () => {
   it("restores focus to a connected, enabled caller element", () => {
     const caller = makeFakeElement({ isConnected: true, disabled: false });
-    runCleanup(caller);
+    restoreFocusOnUnmount(caller as unknown as HTMLElement);
     expect(caller.focusCalls).toBe(1);
   });
 
   it("skips focus restore when caller is detached (isConnected = false)", () => {
     const caller = makeFakeElement({ isConnected: false, disabled: false });
-    runCleanup(caller);
+    restoreFocusOnUnmount(caller as unknown as HTMLElement);
     expect(caller.focusCalls).toBe(0);
   });
 
   it("skips focus restore when caller has the disabled attribute", () => {
     const caller = makeFakeElement({ isConnected: true, disabled: true });
-    runCleanup(caller);
+    restoreFocusOnUnmount(caller as unknown as HTMLElement);
     expect(caller.focusCalls).toBe(0);
   });
 
   it("skips focus restore silently when previouslyFocused is null (no prior focus captured)", () => {
-    expect(() => runCleanup(null)).not.toThrow();
+    expect(() => restoreFocusOnUnmount(null)).not.toThrow();
   });
 });
 
@@ -83,10 +74,10 @@ describe("previouslyFocusedRef lifecycle", () => {
     let ref: FakeElement | null = caller;
     const target = ref;
     ref = null;
-    runCleanup(target);
+    restoreFocusOnUnmount(target as unknown as HTMLElement);
 
     // ref is now null — a second cleanup call with null is silent
-    runCleanup(ref);
+    restoreFocusOnUnmount(ref as unknown as HTMLElement | null);
 
     expect(caller.focusCalls).toBe(1);
   });
