@@ -14,7 +14,7 @@ import {
   LocationLinkSchema,
   LocationSchema,
   SymbolInformationSchema,
-} from "../src/shared/lsp-types";
+} from "../src/shared/lsp";
 
 type JsonRpcId = number | string | null;
 
