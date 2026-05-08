@@ -67,6 +67,23 @@
   #root {
     height: 100%;
   }
+
+  /*
+   * Hide Chromium's native search-cancel button (the blue X) so search
+   * inputs render with the app's own clear control only. We keep
+   * type="search" for semantic role="searchbox" + virtual-keyboard
+   * affordances, but normalize the visual chrome to the design system.
+   */
+  input[type="search"] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+    display: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

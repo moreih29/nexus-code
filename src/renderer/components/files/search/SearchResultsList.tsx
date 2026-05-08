@@ -12,8 +12,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
-import { requestEditorReveal } from "@/services/editor/tabs";
-import { useTabsStore } from "@/state/stores/tabs";
+import { openOrRevealEditor, requestEditorReveal } from "@/services/editor/tabs";
 import type { FileGroup } from "../../../state/stores/search";
 import { ROW_HEIGHT_PX } from "../file-tree/file-tree-metrics";
 import { SearchResultFileRow } from "./SearchResultFileRow";
@@ -66,14 +65,12 @@ export function SearchResultsList({
 
     const absPath = rootPath.endsWith("/") ? `${rootPath}${relP}` : `${rootPath}/${relP}`;
 
-    const tab = useTabsStore.getState().createTab(
-      workspaceId,
-      {
-        type: "editor",
-        props: { workspaceId, filePath: absPath },
-      },
-      /* isPreview */ true,
-    );
+    // openOrRevealEditor handles tab creation, layout attach, and active-tab
+    // promotion as a single transaction (same path used by file-tree clicks
+    // and the workspace-symbol palette). Calling useTabsStore.createTab
+    // directly would only mutate the tabs record without attaching to a
+    // group leaf, leaving the editor unmounted and the click visibly inert.
+    openOrRevealEditor({ workspaceId, filePath: absPath });
 
     // Request a reveal at the match line/col. requestEditorReveal queues the
     // position which the editor picks up on mount or when already open.
@@ -87,8 +84,6 @@ export function SearchResultsList({
         endColumn: match.range.endCol + 1,
       },
     });
-
-    void tab;
   }
 
   return (

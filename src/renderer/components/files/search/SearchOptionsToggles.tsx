@@ -15,6 +15,13 @@ interface SearchOptionsTogglesProps {
   ) => void;
 }
 
+// ON-state styling: an inset ring + foreground text + frosted background.
+// The ring is what distinguishes "pressed" from "hover" — the ghost
+// variant's hover state shares the same bg-frosted-veil-strong, so a bg
+// change alone would let pressed and hover look identical.
+const TOGGLE_ON_CLASS =
+  "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
+
 export function SearchOptionsToggles({ options, onToggle }: SearchOptionsTogglesProps) {
   return (
     <>
@@ -25,10 +32,7 @@ export function SearchOptionsToggles({ options, onToggle }: SearchOptionsToggles
         aria-label="Match case"
         aria-pressed={options.isCaseSensitive}
         title="Match case (Alt+C)"
-        className={cn(
-          "shrink-0",
-          options.isCaseSensitive && "bg-frosted-veil-strong text-foreground",
-        )}
+        className={cn("shrink-0", options.isCaseSensitive && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isCaseSensitive")}
       >
         <CaseSensitive aria-hidden="true" />
@@ -40,7 +44,7 @@ export function SearchOptionsToggles({ options, onToggle }: SearchOptionsToggles
         aria-label="Match whole word"
         aria-pressed={options.isWordMatch}
         title="Match whole word (Alt+W)"
-        className={cn("shrink-0", options.isWordMatch && "bg-frosted-veil-strong text-foreground")}
+        className={cn("shrink-0", options.isWordMatch && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isWordMatch")}
       >
         <WholeWord aria-hidden="true" />
@@ -52,7 +56,7 @@ export function SearchOptionsToggles({ options, onToggle }: SearchOptionsToggles
         aria-label="Use regular expression"
         aria-pressed={options.isRegExp}
         title="Use regular expression (Alt+R)"
-        className={cn("shrink-0", options.isRegExp && "bg-frosted-veil-strong text-foreground")}
+        className={cn("shrink-0", options.isRegExp && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isRegExp")}
       >
         <Regex aria-hidden="true" />

@@ -46,8 +46,10 @@ export function SearchInput({
     <div className="px-2 pt-2 pb-1 flex flex-col gap-1">
       <div
         className={cn(
-          "flex items-center gap-0.5 rounded border bg-background",
-          regexError ? "border-destructive" : "border-mist-border",
+          "flex items-center gap-0.5 rounded border bg-background transition-colors",
+          regexError
+            ? "border-destructive focus-within:border-destructive"
+            : "border-mist-border focus-within:border-mist-border-focus",
         )}
       >
         <input
