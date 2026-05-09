@@ -2,15 +2,18 @@
  * Search panel — top-level container.
  *
  * Responsibilities:
- *  - Owns input value (local state) + debounce timer (useRef).
- *  - Validates regex when isRegExp is ON, suppresses startSearch on invalid.
- *  - Wires keyboard: Cmd/Ctrl+F → focus+select while panel is mounted.
+ *  - Owns input value (local state) + regex-error state.
+ *  - Validates regex via validateRegexPattern; suppresses startSearch on invalid.
+ *  - Wires keyboard: Cmd/Ctrl+F → focus+select while panel is mounted
+ *    (via useGlobalSearchHotkey).
+ *  - Debounces search dispatch via useSearchDebounce.
+ *  - Converts running status to delayed loader visibility via useLoaderDelay.
  *  - Delegates rendering to SearchInput, SearchStatusHeader, SearchResultsList,
  *    and the inline empty/no-results/error states.
  */
 
 import { CircleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import {
   EMPTY_SEARCH_OPTIONS,
@@ -20,9 +23,11 @@ import {
 } from "../../../state/stores/search";
 import { SearchInput } from "./SearchInput";
 import { SearchResultsList } from "./SearchResultsList";
-import { LOADER_DELAY_MS, SearchStatusHeader } from "./SearchStatusHeader";
-
-const DEBOUNCE_MS = 300;
+import { SearchStatusHeader } from "./SearchStatusHeader";
+import { useGlobalSearchHotkey } from "./useGlobalSearchHotkey";
+import { useLoaderDelay } from "./useLoaderDelay";
+import { useSearchDebounce } from "./useSearchDebounce";
+import { validateRegexPattern } from "./validateRegexPattern";
 
 interface SearchPanelProps {
   workspaceId: string;
@@ -36,10 +41,6 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const [options, setOptions] = useState<SearchOptions>({ ...EMPTY_SEARCH_OPTIONS });
   const [regexError, setRegexError] = useState<string | null>(null);
 
-  // Loader: visible only after 250ms of running status.
-  const [showLoader, setShowLoader] = useState(false);
-  const loaderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const session = useSearchSession(workspaceId);
   const startSearch = useSearchStore((s) => s.startSearch);
   const cancelSearch = useSearchStore((s) => s.cancelSearch);
@@ -47,91 +48,15 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const toggleGroup = useSearchStore((s) => s.toggleGroup);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Track the last workspaceId so we cancel timers on workspace switch.
-  const prevWorkspaceIdRef = useRef(workspaceId);
-
-  // Cancel debounce and loader timers when workspaceId changes.
-  useEffect(() => {
-    if (prevWorkspaceIdRef.current !== workspaceId) {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      if (loaderTimerRef.current !== null) {
-        clearTimeout(loaderTimerRef.current);
-        loaderTimerRef.current = null;
-      }
-      setShowLoader(false);
-      prevWorkspaceIdRef.current = workspaceId;
-    }
-  }, [workspaceId]);
-
-  // Cancel debounce timer on unmount.
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, []);
-
-  // Loader delay timer — start when status transitions to "running", clear otherwise.
-  useEffect(() => {
-    if (session?.status === "running") {
-      loaderTimerRef.current = setTimeout(() => setShowLoader(true), LOADER_DELAY_MS);
-    } else {
-      if (loaderTimerRef.current !== null) {
-        clearTimeout(loaderTimerRef.current);
-        loaderTimerRef.current = null;
-      }
-      setShowLoader(false);
-    }
-    return () => {
-      if (loaderTimerRef.current !== null) {
-        clearTimeout(loaderTimerRef.current);
-        loaderTimerRef.current = null;
-      }
-    };
-  }, [session?.status]);
-
-  // Cmd/Ctrl+F handler — focuses + selects the input while panel is mounted.
-  useEffect(() => {
-    function handleGlobalKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }
-    }
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, []);
-
-  function validateRegex(pattern: string): string | null {
-    if (!options.isRegExp) return null;
-    try {
-      new RegExp(pattern);
-      return null;
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
-    }
-  }
+  const { trigger, flush, cancel } = useSearchDebounce(workspaceId);
+  const showLoader = useLoaderDelay(session?.status);
+  useGlobalSearchHotkey(inputRef);
 
   function runSearch(query: string, opts: SearchOptions) {
     if (!query) return;
-    const error = opts.isRegExp
-      ? (() => {
-          try {
-            new RegExp(query);
-            return null;
-          } catch (err) {
-            return err instanceof Error ? err.message : String(err);
-          }
-        })()
-      : null;
-    if (error) {
-      setRegexError(error);
+    const result = validateRegexPattern(query, opts.isRegExp);
+    if (!result.valid) {
+      setRegexError(result.error);
       return;
     }
     setRegexError(null);
@@ -141,41 +66,31 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   function handleChange(value: string) {
     setInputValue(value);
 
-    // Live regex validation
+    // Live regex validation.
     if (options.isRegExp && value) {
-      setRegexError(validateRegex(value));
+      const result = validateRegexPattern(value, true);
+      setRegexError(result.valid ? null : result.error);
     } else {
       setRegexError(null);
     }
 
-    // Cancel pending debounce
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
+    // Suppress debounced dispatch when regex is invalid.
+    if (options.isRegExp && value) {
+      const result = validateRegexPattern(value, true);
+      if (!result.valid) {
+        cancel();
+        return;
+      }
     }
 
-    if (!value) {
-      // Empty input — drop the session entirely so results disappear with
-      // the query. cancelSearch keeps results in idle state, which would
-      // leave stale match groups visible in the panel.
-      clearSearch(workspaceId);
-      return;
-    }
-
-    // Schedule debounced search
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null;
-      runSearch(value, options);
-    }, DEBOUNCE_MS);
+    trigger(value, options);
   }
 
   function handleEnter() {
-    // Cancel pending debounce — Enter fires immediately.
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
     runSearch(inputValue, options);
+    // flush is not used here because runSearch already calls startSearch
+    // directly and handles regex validation; trigger/flush are for the
+    // debounce path only.
   }
 
   function handleEsc() {
@@ -184,10 +99,7 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
       // X button or backspacing to empty.
       setInputValue("");
       setRegexError(null);
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
+      cancel();
       clearSearch(workspaceId);
     } else {
       // Second Esc (empty value): blur.
@@ -200,45 +112,26 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   ) {
     setOptions((prev) => {
       const next = { ...prev, [key]: !prev[key] };
+
       // Re-validate regex with toggled state.
       if (key === "isRegExp") {
-        const willBeRegex = next.isRegExp;
-        if (willBeRegex && inputValue) {
-          setRegexError(
-            (() => {
-              try {
-                new RegExp(inputValue);
-                return null;
-              } catch (err) {
-                return err instanceof Error ? err.message : String(err);
-              }
-            })(),
-          );
+        if (next.isRegExp && inputValue) {
+          const result = validateRegexPattern(inputValue, true);
+          setRegexError(result.valid ? null : result.error);
         } else {
           setRegexError(null);
         }
       }
+
       // Re-run search with updated options when value present and no error.
       if (inputValue) {
-        const error = next.isRegExp
-          ? (() => {
-              try {
-                new RegExp(inputValue);
-                return null;
-              } catch (err) {
-                return err instanceof Error ? err.message : String(err);
-              }
-            })()
-          : null;
-        if (!error) {
-          // Cancel pending debounce and fire immediately.
-          if (debounceTimerRef.current !== null) {
-            clearTimeout(debounceTimerRef.current);
-            debounceTimerRef.current = null;
-          }
+        const result = validateRegexPattern(inputValue, next.isRegExp);
+        if (result.valid) {
+          cancel();
           startSearch(workspaceId, inputValue, next);
         }
       }
+
       return next;
     });
   }
