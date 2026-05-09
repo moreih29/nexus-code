@@ -8,7 +8,6 @@ import {
   detachDirtyTracker,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
-import { ensureModelWithContent } from "./ensure-model";
 import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
 import { isLspLanguage } from "../lsp/language";
 import {
@@ -22,6 +21,10 @@ import {
 } from "../lsp/lsp-bridge";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
+import { readAndPlaceContent } from "./read-and-place-content";
+import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
+import { attachLspBridge } from "./attach-lsp-bridge";
+import { attachFsSubscription } from "./attach-fs-subscription";
 
 const defaultModelEntryDeps = {
   attachDirtyTracker,
@@ -143,70 +146,35 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
   const deps = depsFor(entry);
   try {
     const workspaceRoot = deps.workspaceRootForInput(entry.input);
-    const result = await deps.readFileForModel(entry.input);
+    const placed = await readAndPlaceContent(entry.input, entry.monacoUri, deps);
     if (entry.disposed) return;
 
-    if (result.isBinary) {
+    if (placed.isBinary) {
       entry.phase = "binary";
       entry.model = null;
       notifySubscribers(entry);
       return;
     }
 
-    const monaco = deps.requireMonaco();
-    const model = ensureModelWithContent(monaco, entry.monacoUri, result.content);
-
-    entry.model = model;
-    entry.languageId = model.getLanguageId();
+    entry.model = placed.model;
+    entry.languageId = placed.model.getLanguageId();
     entry.phase = "ready";
     entry.errorCode = undefined;
-    entry.lastLoadedValue = result.content;
+    entry.lastLoadedValue = placed.content;
 
-    deps.attachDirtyTracker({
+    attachDirtyAndUriTracking({
       cacheUri: entry.cacheUri,
-      model,
-      loadedMtime: result.mtime,
-      loadedSize: result.sizeBytes,
+      lspUri: entry.lspUri,
+      model: placed.model,
+      mtime: placed.mtime,
+      sizeBytes: placed.sizeBytes,
+      deps,
     });
 
-    deps.registerKnownModelUri(entry.cacheUri);
-    deps.registerKnownModelUri(entry.lspUri);
+    const { contentDisposable } = attachLspBridge(entry, workspaceRoot, deps);
+    entry.contentDisposable = contentDisposable;
 
-    if (deps.isLspLanguage(entry.languageId)) {
-      deps.ensureProvidersFor(model.getLanguageId());
-      entry.didOpenPromise = deps
-        .notifyDidOpen(
-          entry.lspUri,
-          entry.input.workspaceId,
-          workspaceRoot,
-          entry.languageId,
-          entry.version,
-          result.content,
-        )
-        .then(
-          () => {
-            entry.lspOpened = true;
-          },
-          () => {
-            entry.lspOpened = false;
-            entry.lspDegraded = true;
-          },
-        );
-    }
-
-    entry.contentDisposable = model.onDidChangeContent(async (event) => {
-      entry.version += 1;
-      const version = entry.version;
-      const contentChanges = deps.monacoContentChangesToLsp(event.changes);
-      if (contentChanges.length === 0) return;
-      await entry.didOpenPromise;
-      if (!entry.lspOpened || entry.disposed) return;
-      deps.notifyDidChange(entry.lspUri, version, contentChanges).catch(() => {
-        entry.lspDegraded = true;
-      });
-    });
-
-    entry.fsUnsubscribe = deps.subscribeFsChanged(entry.input, () => {
+    entry.fsUnsubscribe = attachFsSubscription(entry, deps, () => {
       reconcileExternalChange(entry).catch(() => {});
     });
 
