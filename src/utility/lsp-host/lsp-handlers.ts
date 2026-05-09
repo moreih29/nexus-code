@@ -94,9 +94,14 @@ export interface HandlerMeta {
   after?: (manager: LspManagerContext, args: unknown, routed: RoutedAdapter) => void;
 }
 
-// Minimal context surface needed by handler callbacks — avoids importing LspManager
-// (which would create a circular dependency) while still giving handlers access to
-// the state they need.
+/**
+ * Minimal context surface that each handler's `route` / `after` callback
+ * needs from the manager. Defined as a structural interface (not as a
+ * type alias on `LspManager`) so that handlers can be authored in this
+ * module without importing the manager — `LspManager` imports the
+ * handler catalog, so the reverse direction would be a cycle. The
+ * manager satisfies this interface by structural typing.
+ */
 export interface LspManagerContext {
   adapters: Map<string, Map<string, LspAdapter>>;
   uriIndex: Map<string, { workspaceId: string; presetLanguageId: string }>;
@@ -140,6 +145,12 @@ interface HandlerMetaInput<S extends z.ZodTypeAny> {
 // defineHandler + route helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a `HandlerMeta` entry for the catalog. Wraps the `route`
+ * callback so it always returns a `Promise` (handlers can be sync or
+ * async, but the call site only needs the async path) and applies
+ * default `transform`/`invoke` shims so handler declarations stay terse.
+ */
 export function defineHandler<S extends z.ZodTypeAny>(input: HandlerMetaInput<S>): HandlerMeta {
   return {
     kind: input.kind,
@@ -396,6 +407,13 @@ export type MethodName = keyof typeof handlerMetadata;
 // Handler invocation helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Run a handler's translated args through its underlying LSP method.
+ * If the handler defines a custom `invoke` (used by handlers that need
+ * to override the default request/notify split — e.g. to fan out across
+ * multiple adapters) that takes precedence; otherwise we send a
+ * notification or a request based on `meta.kind`.
+ */
 export async function invokeLspHandler(
   meta: HandlerMeta,
   adapter: LspAdapter,
@@ -413,6 +431,12 @@ export async function invokeLspHandler(
   return adapter.request(meta.lspMethod, params, { signal });
 }
 
+/**
+ * Validate and normalize a handler's raw LSP response into the shape
+ * declared by `outSchema`. The optional `transform` step runs first
+ * (e.g. converting LSP `Location | Location[] | LocationLink[]` into a
+ * stable form the schema can parse), then zod enforces the contract.
+ */
 export function parseHandlerOutput(meta: HandlerMeta, raw: unknown): unknown {
   const result = meta.transform ? meta.transform(raw) : raw;
   return meta.outSchema.parse(result);

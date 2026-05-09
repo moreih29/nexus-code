@@ -79,6 +79,12 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
   // Public surface
   // ---------------------------------------------------------------------------
 
+  /**
+   * Attach the cross-process MessagePort that carries inbound calls
+   * from the main process and outbound responses / events back. Called
+   * once during utility-process startup; the rest of the manager
+   * surface is inert until the port is attached.
+   */
   attachPort(port: IMessagePort): void {
     this.transport.attachPort(port);
   }
@@ -128,6 +134,11 @@ export class LspManager implements LspManagerContext, ServerHandlerContext {
   // Teardown
   // ---------------------------------------------------------------------------
 
+  /**
+   * Tear down everything: shut down all adapters via the registry, drop
+   * the URI index, and reject any pending main-process requests so
+   * their callers don't hang. Used during utility-process shutdown.
+   */
   disposeAll(): void {
     this.registry.disposeAll();
     this.uriIndex.clear();

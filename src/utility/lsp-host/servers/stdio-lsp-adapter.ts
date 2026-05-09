@@ -88,6 +88,19 @@ export interface LspAdapter {
   dispose(): void;
 }
 
+/**
+ * stdio-based LSP adapter. Spawns the language server as a child
+ * process, frames JSON-RPC messages with the LSP `Content-Length`
+ * header on stdin/stdout, and exposes the request / notify /
+ * subscribe surface declared by `LspAdapter`. One adapter instance
+ * corresponds to one (workspace, languageId) pair — `AdapterRegistry`
+ * owns the map and decides when to (re)spawn or tear down.
+ *
+ * Capability negotiation runs once during `start()`; from then on
+ * `hasCapability` is a synchronous read against the cached
+ * `ServerCapabilities` so handlers can gate calls without waiting on
+ * the server.
+ */
 export class StdioLspAdapter implements LspAdapter {
   private proc: ChildProcess | null = null;
   private buffer = Buffer.alloc(0);

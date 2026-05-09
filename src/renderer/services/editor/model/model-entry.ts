@@ -82,11 +82,25 @@ export interface ModelEntry {
   originatingWorkspaceId?: string;
 }
 
+/**
+ * Map an arbitrary thrown value into the channel-error vocabulary the
+ * UI knows how to render. The dirty-tracker, fs IPC, and Monaco model
+ * code all surface failures with a `code:` prefix in the message; this
+ * helper normalizes that prefix into a `FileErrorCode` and falls back
+ * to "unknown" when no prefix is present.
+ */
 export function errorCodeFromUnknown(error: unknown): FileErrorCode {
   const message = error instanceof Error ? error.message : String(error);
   return parseFileErrorCode(message);
 }
 
+/**
+ * Stable snapshot of an entry suitable for `useSyncExternalStore`'s
+ * `getSnapshot` contract. Returns the current phase, the live model
+ * (only while phase === "ready" — callers don't see mid-load state),
+ * the error code, and the read-only flag. The shape is intentionally
+ * narrow so React's referential equality check stays meaningful.
+ */
 export function snapshot(entry: ModelEntry): SharedModelState {
   return {
     phase: entry.phase,
@@ -96,6 +110,11 @@ export function snapshot(entry: ModelEntry): SharedModelState {
   };
 }
 
+/**
+ * Fan a state-change event out to every `useSyncExternalStore`
+ * subscriber listening on this entry. Called after any field that
+ * `snapshot` reads is mutated.
+ */
 export function notifySubscribers(entry: ModelEntry): void {
   for (const subscriber of entry.subscribers) {
     subscriber();
@@ -106,6 +125,15 @@ function depsFor(entry: ModelEntry): ModelEntryDeps {
   return entry.deps ?? defaultModelEntryDeps;
 }
 
+/**
+ * Construct a fresh `ModelEntry` and kick off its load. The returned
+ * entry is in `phase: "loading"` and its `loadPromise` resolves once
+ * `loadEntry` has either filled in the model + LSP/fs wiring (success)
+ * or moved the entry to `phase: "error"` with an `errorCode` (failure).
+ * Callers should subscribe before awaiting `loadPromise` so the
+ * loading→ready transition fires through the same notify path as
+ * later updates.
+ */
 export function createEntry(
   input: EditorInput,
   cacheUri: string,
@@ -142,6 +170,14 @@ export function createEntry(
   return entry;
 }
 
+/**
+ * Load the file behind `entry`: read content, place it into a Monaco
+ * model, and attach dirty-tracker + LSP didOpen + fs.changed watching.
+ * Each phase is delegated to a stage helper in this directory so this
+ * function reads as a linear coordinator. On any failure the entry
+ * moves to `phase: "error"` with the mapped error code; on disposal
+ * mid-load we abandon early without writing partial state.
+ */
 export async function loadEntry(entry: ModelEntry): Promise<void> {
   const deps = depsFor(entry);
   try {
@@ -188,6 +224,15 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
   }
 }
 
+/**
+ * Re-read the file from disk after fs.changed fires and merge the
+ * result back into the entry. If the on-disk content matches the buffer
+ * (i.e. the user's edits are identical to the new disk version, or the
+ * change originated from the editor's own save) the function is a
+ * no-op. If the buffer has unsaved local edits and the disk content
+ * has diverged, we leave the buffer alone — conflict resolution is the
+ * save layer's job, not the loader's.
+ */
 export async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
@@ -244,6 +289,14 @@ async function notifyDidCloseAfterDidOpen(entry: ModelEntry): Promise<void> {
   }
 }
 
+/**
+ * Tear down everything `loadEntry` attached: fs subscription, LSP
+ * didChange disposable, dirty tracker, cacheUri/lspUri map entries,
+ * and the LSP didClose notification. Idempotent — second call is a
+ * no-op via the `disposed` flag. didClose is sequenced after the
+ * pending didOpen completes when the entry is closed mid-open, so the
+ * server never sees a close-before-open.
+ */
 export function cleanupEntry(entry: ModelEntry): void {
   if (entry.disposed) return;
   entry.disposed = true;
