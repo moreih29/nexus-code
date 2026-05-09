@@ -16,7 +16,7 @@ import { useTabsStore } from "@/state/stores/tabs";
 import { basename } from "@/utils/path";
 import { isDirty } from "../model/dirty-tracker";
 import { filePathToModelUri } from "../model/model-cache";
-import { closeEditor } from "../tabs/open-editor";
+import { closeEditor } from "../tabs";
 import { saveModel } from "./save-service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";

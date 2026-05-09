@@ -27,7 +27,7 @@ import { openOrRevealEditor } from "../../../../../src/renderer/services/editor"
 import {
   findEditorTab,
   findEditorTabInGroup,
-} from "../../../../../src/renderer/services/editor/tabs/open-editor";
+} from "../../../../../src/renderer/services/editor/tabs";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { allLeaves } from "../../../../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";

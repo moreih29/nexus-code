@@ -2,15 +2,10 @@
 // (__resetXxxForTests, stopXxxForTests) live in `./testing.ts` so the
 // surface here stays free of internals app code shouldn't reach for.
 
-export {
-  closeEditor,
-  findEditorTab,
-  findEditorTabInGroup,
-  findPreviewTabInGroup,
-  openExternalEditor,
-  openOrRevealEditor,
-  PREVIEW_ENABLED,
-} from "./open-editor";
+export { closeEditor } from "./close-editor";
+export { openExternalEditor } from "./open-external-editor";
+export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
+export { findEditorTab, findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
 export { revealEditorAt, type RevealEditorAtOptions } from "./reveal-editor-at";
 export { registerRevealTarget, type PendingEditorReveal } from "./pending-reveal";
 export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";

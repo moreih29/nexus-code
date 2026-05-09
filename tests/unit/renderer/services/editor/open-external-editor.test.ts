@@ -20,7 +20,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-import { openExternalEditor } from "../../../../../src/renderer/services/editor/tabs/open-editor";
+import { openExternalEditor } from "../../../../../src/renderer/services/editor/tabs";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 

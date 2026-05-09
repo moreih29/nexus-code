@@ -18,7 +18,7 @@ mock.module("../../src/renderer/ipc/client", () => ({
 }));
 
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
-import { closeEditor, findEditorTab } from "../../src/renderer/services/editor/tabs/open-editor";
+import { closeEditor, findEditorTab } from "../../src/renderer/services/editor/tabs";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf } from "../../src/renderer/state/stores/layout/helpers";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
