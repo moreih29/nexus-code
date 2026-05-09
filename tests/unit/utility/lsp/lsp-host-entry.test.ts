@@ -9,7 +9,7 @@
 //
 // We use spyOn against LspManager.prototype.attachPort instead of mocking the
 // whole lsp-manager module — module mocks leak across files in bun:test, and
-// lsp-manager.test.ts needs to instantiate the real class.
+// the lifecycle / routing test files need to instantiate the real class.
 
 import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { LspManager } from "../../../../src/utility/lsp-host/lsp-manager";
@@ -63,8 +63,9 @@ describe("lsp-host entry — port handshake via event.ports[0]", () => {
   });
 
   afterAll(() => {
-    // Restore prototype so other test files (lsp-manager.test.ts) get the
-    // real attachPort. spyOn pollutes the prototype across files in bun:test.
+    // Restore prototype so other test files (lsp-manager-lifecycle/routing)
+    // get the real attachPort. spyOn pollutes the prototype across files in
+    // bun:test.
     attachPortSpy.mockRestore();
   });
 
