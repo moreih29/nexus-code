@@ -1,6 +1,5 @@
 import type * as Monaco from "monaco-editor";
 import type { MonacoRange } from "../../../../shared/monaco-range";
-import { takePendingEditorReveal } from "./pending-reveal";
 
 /**
  * Move the editor's selection/cursor to `range` and bring it into view.
@@ -26,14 +25,4 @@ export function revealRange(
   editor.focus();
   editor.setSelection(range);
   editor.revealRangeInCenter(range);
-}
-
-export function applyPendingReveal(
-  editor: Monaco.editor.IStandaloneCodeEditor,
-  workspaceId: string,
-  filePath: string,
-): void {
-  const range = takePendingEditorReveal({ workspaceId, filePath });
-  if (!range) return;
-  revealRange(editor, range);
 }

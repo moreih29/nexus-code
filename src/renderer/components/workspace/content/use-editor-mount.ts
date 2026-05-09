@@ -1,49 +1,19 @@
 import type * as Monaco from "monaco-editor";
-import { useCallback, useEffect, useRef } from "react";
-import { installEditorOpener } from "../../../services/editor/runtime/monaco-compensations";
-import { installEditorSaveAction } from "../../../services/editor/save/save-service";
-import { createCrossFileOpenCodeEditorOpener } from "../../../services/editor/tabs/cross-file-opener";
-import {
-  applyPendingReveal,
-  subscribePendingEditorReveal,
-} from "../../../services/editor/tabs";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import type { EditorInput } from "../../../services/editor";
+import { installEditorIntegrations } from "./editor-mount/install-editor-integrations";
+import { useRevealTargetRegistration } from "./editor-mount/use-reveal-target-registration";
+import { useSharedModelAttach } from "./editor-mount/use-shared-model-attach";
 
-export interface AttachSharedModelTemporaryModel {
-  isDisposed(): boolean;
-  dispose(): void;
-}
-
-// Minimal editor surface required by applySharedModel — kept structurally
-// compatible with Monaco.editor.IStandaloneCodeEditor so tests can pass stubs.
-export interface ApplySharedModelEditor {
-  getModel(): unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setModel(m: any): void;
-  updateOptions(opts: { readOnly: boolean }): void;
-}
-
-export function applySharedModel(
-  editor: ApplySharedModelEditor,
-  model: object | null,
-  readOnly: boolean,
-  temporaryModelRef: { current: AttachSharedModelTemporaryModel | null },
-): void {
-  if (!model) return;
-  const currentModel = editor.getModel();
-  if (currentModel !== model) {
-    editor.setModel(model);
-
-    const temporaryModel = temporaryModelRef.current;
-    if (temporaryModel && temporaryModel !== model && !temporaryModel.isDisposed()) {
-      temporaryModel.dispose();
-    }
-    temporaryModelRef.current = null;
-  }
-
-  editor.updateOptions({ readOnly });
-}
+// Re-export for backwards-compatible test imports. Existing call sites
+// (`tests/unit/renderer/services/editor/editor-readonly-options.test.ts`)
+// pull `applySharedModel` from this module — keeping the re-export here
+// avoids churning unrelated tests during the split.
+export {
+  applySharedModel,
+  type ApplySharedModelEditor,
+  type AttachSharedModelTemporaryModel,
+} from "./editor-mount/apply-shared-model";
 
 export interface UseEditorMountOptions {
   filePath: string;
@@ -58,6 +28,21 @@ export interface UseEditorMountResult {
   attachSharedModel: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
 }
 
+/**
+ * Orchestrates the lifecycle of a Monaco editor instance for a single
+ * `(workspaceId, filePath)` mount. Composition only — each side-effect
+ * lives in its own focused module under `./editor-mount/`:
+ *
+ *   - `useSharedModelAttach`           — model attach + temp-model disposal
+ *   - `useRevealTargetRegistration`    — reveal-target registry registration
+ *   - `installEditorIntegrations`      — cross-file opener + save action
+ *
+ * What this hook owns:
+ *   - `editorRef`              the live editor instance for sync side-effect callers
+ *   - `mountedEditor` state    triggers the registry effect once Monaco fires onMount
+ *   - `openerDisposableRef`    holds the integration disposer for cleanup
+ *   - `workspaceIdRef`         late-bound resolver for cross-file navigation
+ */
 export function useEditorMount({
   filePath,
   workspaceId,
@@ -68,41 +53,34 @@ export function useEditorMount({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const openerDisposableRef = useRef<Monaco.IDisposable | null>(null);
   const workspaceIdRef = useRef(workspaceId);
-  const temporaryModelRef = useRef<Monaco.editor.ITextModel | null>(null);
   workspaceIdRef.current = workspaceId;
 
-  const attachSharedModel = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor): void => {
-      applySharedModel(editor, model, readOnly, temporaryModelRef);
-    },
-    [model, readOnly],
-  );
+  // Triggers re-render after Monaco's async onMount fires. The reveal-target
+  // registration effect depends on this so it fires once the editor instance
+  // is actually live (otherwise its first commit happens before onMount and
+  // there's no editor to register).
+  const [mountedEditor, setMountedEditor] = useState<
+    Monaco.editor.IStandaloneCodeEditor | null
+  >(null);
 
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (editor) attachSharedModel(editor);
-  }, [attachSharedModel]);
+  const { attach: attachSharedModel, rememberAsTemporary } = useSharedModelAttach({
+    editorRef,
+    model,
+    readOnly,
+  });
 
-  useEffect(() => {
-    if (phase !== "ready") return;
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    applyPendingReveal(editor, workspaceId, filePath);
-    return subscribePendingEditorReveal((pending) => {
-      if (pending.workspaceId !== workspaceId || pending.filePath !== filePath) return;
-      const currentEditor = editorRef.current;
-      if (!currentEditor) return;
-      applyPendingReveal(currentEditor, workspaceId, filePath);
-    });
-  }, [phase, workspaceId, filePath]);
+  useRevealTargetRegistration({
+    workspaceId,
+    filePath,
+    editor: mountedEditor,
+    ready: phase === "ready",
+  });
 
   useEffect(
     () => () => {
       openerDisposableRef.current?.dispose();
       openerDisposableRef.current = null;
       editorRef.current = null;
-      temporaryModelRef.current = null;
     },
     [],
   );
@@ -110,19 +88,19 @@ export function useEditorMount({
   const onMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco): void => {
       editorRef.current = editor;
-      temporaryModelRef.current = editor.getModel();
+      rememberAsTemporary(editor);
       attachSharedModel(editor);
-      // Apply the pending reveal here only when the shared model is already
-      // attached (instant-ready / cache hit). Otherwise the empty temporary
-      // model is still in place — taking the pending entry now would consume
-      // it against the wrong model and the request would be lost. The
-      // phase=ready useEffect below picks it up once loading finishes.
-      if (model !== null) {
-        applyPendingReveal(editor, workspaceId, filePath);
-      }
+      // Publish the live editor so the registry effect can fire. setState
+      // here is intentionally after attachSharedModel so the real model is
+      // in place before any queued reveal flushes against it — flushing
+      // against the temporary empty model would land on the wrong text.
+      setMountedEditor(editor);
 
       openerDisposableRef.current?.dispose();
-      const openCodeEditorOpener = createCrossFileOpenCodeEditorOpener({
+      openerDisposableRef.current = installEditorIntegrations({
+        editor,
+        monaco,
+        input: { workspaceId, filePath },
         getWorkspaceId: () => workspaceIdRef.current,
         getWorkspaceRoot: () => {
           const ws = useWorkspacesStore
@@ -130,22 +108,9 @@ export function useEditorMount({
             .workspaces.find((w) => w.id === workspaceIdRef.current);
           return ws?.rootPath ?? null;
         },
-        sourceEditor: editor,
       });
-      openerDisposableRef.current = installEditorOpener(monaco, {
-        openCodeEditor: (source: Monaco.editor.ICodeEditor, resource: Monaco.Uri) =>
-          openCodeEditorOpener.openCodeEditor(source, resource),
-      });
-
-      const input: EditorInput = { workspaceId, filePath };
-      installEditorSaveAction(editor, monaco, input);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // workspaceId and filePath are stable per mount — EditorView remounts on filePath change.
-    // `model` is included so the pending-reveal gate above sees the latest value,
-    // but Monaco only invokes onMount once per editor instance so this re-binding
-    // is effectively read-once.
-    [attachSharedModel, filePath, workspaceId, model],
+    [attachSharedModel, rememberAsTemporary, filePath, workspaceId],
   );
 
   return { onMount, attachSharedModel };
