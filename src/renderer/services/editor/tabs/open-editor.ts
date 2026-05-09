@@ -1,128 +1,20 @@
-// Editor open/reveal service entry point.
-// Owns openOrReveal semantics and group routing for editor tabs; implementation follows Stage 4.
+/**
+ * Open / reveal an editor tab in the active group, with VSCode-parity
+ * preview-slot semantics. The two related but distinct concerns —
+ * lookup over the existing layout, and tab close/external-open variants —
+ * live in their own files (`tab-lookup.ts`, `close-editor.ts`,
+ * `open-external-editor.ts`); this file is just the open/reveal entry.
+ */
 
-import { Grid } from "@/engine/split";
-import { closeTab, openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
+import { openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/tabs";
 import { useLayoutStore } from "@/state/stores/layout";
-import type { Tab } from "@/state/stores/tabs";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "../types";
+import { findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
 
 // When true, single-click file opens use a shared preview slot per group
 // (VSCode-style: italic title, replaced on next single-click).
 export const PREVIEW_ENABLED = true;
-
-function normalizeFilePath(filePath: string): string {
-  if (filePath === "") return ".";
-
-  const isAbsolute = filePath.startsWith("/");
-  const hasTrailingSlash = filePath.endsWith("/");
-  const parts: string[] = [];
-
-  for (const part of filePath.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      const previous = parts.at(-1);
-      if (previous && previous !== "..") {
-        parts.pop();
-      } else if (!isAbsolute) {
-        parts.push(part);
-      }
-      continue;
-    }
-    parts.push(part);
-  }
-
-  let normalized = `${isAbsolute ? "/" : ""}${parts.join("/")}`;
-  if (normalized === "") normalized = isAbsolute ? "/" : ".";
-  if (hasTrailingSlash && normalized !== "/") normalized += "/";
-  return normalized;
-}
-
-function getLeafAndTabs(
-  workspaceId: string,
-  groupId: string,
-): { leaf: NonNullable<ReturnType<typeof Grid.findLeaf>>; tabsById: Record<string, Tab> } | null {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return null;
-  const leaf = Grid.findLeaf(layout.root, groupId);
-  if (!leaf) return null;
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  return { leaf, tabsById };
-}
-
-export function findEditorTab(workspaceId: string, filePath: string): EditorTabLocation | null {
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  if (!layout) return null;
-
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  const targetPath = normalizeFilePath(filePath);
-  const matchesEditorPath = (tabId: string) => {
-    const tab = tabsById[tabId];
-    return (
-      tab?.type === "editor" &&
-      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath
-    );
-  };
-
-  const activeLeaf = Grid.findLeaf(layout.root, layout.activeGroupId);
-  const activeTabId = activeLeaf?.tabIds.find(matchesEditorPath);
-  if (activeLeaf && activeTabId) {
-    return { groupId: activeLeaf.id, tabId: activeTabId };
-  }
-
-  const found = Grid.findLeafByTab(layout.root, matchesEditorPath);
-  if (!found) return null;
-  return { groupId: found.leaf.id, tabId: found.tabId };
-}
-
-/**
- * Search for an editor tab with the given filePath only within the specified
- * group (leaf). Returns null when the group does not exist or has no matching
- * tab.
- */
-export function findEditorTabInGroup(
-  workspaceId: string,
-  groupId: string,
-  filePath: string,
-): EditorTabLocation | null {
-  const result = getLeafAndTabs(workspaceId, groupId);
-  if (!result) return null;
-  const { leaf, tabsById } = result;
-  const targetPath = normalizeFilePath(filePath);
-
-  const tabId = leaf.tabIds.find((id) => {
-    const tab = tabsById[id];
-    return (
-      tab?.type === "editor" &&
-      normalizeFilePath((tab.props as EditorInput).filePath) === targetPath
-    );
-  });
-
-  if (!tabId) return null;
-  return { groupId: leaf.id, tabId };
-}
-
-/**
- * Find the preview slot (the single isPreview=true editor tab) in a group.
- * Returns null when none exists.
- */
-export function findPreviewTabInGroup(
-  workspaceId: string,
-  groupId: string,
-): EditorTabLocation | null {
-  const result = getLeafAndTabs(workspaceId, groupId);
-  if (!result) return null;
-  const { leaf, tabsById } = result;
-
-  const tabId = leaf.tabIds.find((id) => {
-    const tab = tabsById[id];
-    return tab?.type === "editor" && tab.isPreview;
-  });
-
-  if (!tabId) return null;
-  return { groupId: leaf.id, tabId };
-}
 
 export function openOrRevealEditor(
   input: EditorInput,
@@ -189,39 +81,4 @@ export function openOrRevealEditor(
   if (!layout) throw new Error(`layout slice not found for ${input.workspaceId}`);
   const groupId = layout.activeGroupId;
   return { groupId, tabId: tab.id };
-}
-
-export function closeEditor(tabId: string): void {
-  const byWorkspace = useTabsStore.getState().byWorkspace;
-  for (const [workspaceId, tabs] of Object.entries(byWorkspace)) {
-    if (tabs[tabId]?.type !== "editor") continue;
-    closeTab(workspaceId, tabId);
-    return;
-  }
-}
-
-/**
- * Open an external (out-of-workspace) file as a read-only preview tab in the
- * given workspace. Uses the regular tab/layout machinery so the tab appears in
- * the active group like any other editor tab, but sets origin="external" and
- * readOnly=true so the model layer uses loadExternalEntry and the UX shows the
- * ReadOnlyBanner and lock icon (T6).
- */
-export function openExternalEditor(input: {
-  workspaceId: string;
-  filePath: string;
-}): EditorTabLocation {
-  useLayoutStore.getState().ensureLayout(input.workspaceId);
-
-  const props: EditorInput = {
-    workspaceId: input.workspaceId,
-    filePath: input.filePath,
-    origin: "external",
-    readOnly: true,
-  };
-
-  const tab = openEditorTab(input.workspaceId, props, undefined, /* isPreview */ true);
-  const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
-  if (!layout) throw new Error(`layout slice not found for ${input.workspaceId}`);
-  return { groupId: layout.activeGroupId, tabId: tab.id };
 }

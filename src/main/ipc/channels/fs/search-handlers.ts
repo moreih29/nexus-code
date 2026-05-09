@@ -1,12 +1,21 @@
-import { randomUUID } from "node:crypto";
-import { ipcContract } from "../../../../shared/ipc-contract";
-import type { SearchComplete } from "../../../../shared/types/search";
-import { InvalidSearchPatternError } from "../../../search/matcher";
-import { walkAndSearch } from "../../../search/walker";
+import type {
+  InferArgs,
+  InferComplete,
+  InferProgress,
+  ipcContract,
+} from "../../../../shared/ipc-contract";
+import { walkAndSearchIter } from "../../../search/walker";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
-import { broadcast, type CallContext, validateArgs } from "../../router";
+import type { StreamContext } from "../../router";
 
-const c = ipcContract.fs.call;
+type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
+type SearchTextArgs = InferArgs<SearchTextStreamProcedure>;
+type SearchTextProgress = InferProgress<SearchTextStreamProcedure>;
+type SearchTextComplete = InferComplete<SearchTextStreamProcedure>;
+type SearchTextStreamHandler = (
+  args: SearchTextArgs,
+  ctx: StreamContext,
+) => AsyncGenerator<SearchTextProgress, SearchTextComplete, unknown>;
 
 export class WorkspaceNotFoundError extends Error {
   readonly name = "WorkspaceNotFoundError";
@@ -15,42 +24,32 @@ export class WorkspaceNotFoundError extends Error {
   }
 }
 
-export function searchTextHandler(
-  manager: WorkspaceManager,
-): (args: unknown, ctx?: CallContext) => Promise<SearchComplete> {
-  return async (args: unknown, ctx?: CallContext): Promise<SearchComplete> => {
-    const { workspaceId, query } = validateArgs(c.searchText.args, args);
-
+export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHandler {
+  return async function* (
+    { workspaceId, query }: SearchTextArgs,
+    ctx: StreamContext,
+  ): AsyncGenerator<SearchTextProgress, SearchTextComplete, unknown> {
     const workspace = manager.list().find((w) => w.id === workspaceId);
     if (!workspace) {
       throw new WorkspaceNotFoundError(workspaceId);
     }
 
     const rootAbs = workspace.rootPath;
-    const requestId = ctx?.requestId ?? randomUUID();
-    const signal = ctx?.signal ?? new AbortController().signal;
     const startMs = Date.now();
+    const search = walkAndSearchIter(rootAbs, query, ctx.signal);
+    let next = await search.next();
 
-    try {
-      const result = await walkAndSearch(rootAbs, query, {
-        signal,
-        onBatch: (batch) => {
-          broadcast("fs", "searchProgress", { requestId, batch });
-        },
-      });
-
-      return {
-        filesScanned: result.filesScanned,
-        matchesFound: result.matchesFound,
-        limitHit: result.limitHit,
-        elapsedMs: Date.now() - startMs,
-      };
-    } catch (err) {
-      // InvalidSearchPatternError and AbortError both propagate to the caller.
-      // Walker absorbs AbortError and returns a partial SearchComplete; the
-      // renderer's requestId guard drops stale finish events from cancelled queries.
-      if (err instanceof InvalidSearchPatternError) throw err;
-      throw err;
+    while (!next.done) {
+      yield next.value;
+      next = await search.next();
     }
+
+    const result = next.value;
+    return {
+      filesScanned: result.filesScanned,
+      matchesFound: result.matchesFound,
+      limitHit: result.limitHit,
+      elapsedMs: Date.now() - startMs,
+    };
   };
 }

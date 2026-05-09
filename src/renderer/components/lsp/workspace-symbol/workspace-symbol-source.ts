@@ -1,6 +1,6 @@
 import { fileUriToAbsolutePath } from "../../../../shared/file-uri";
-import { type OpenEditorOptions, openOrRevealEditor } from "../../../services/editor";
-import { requestEditorReveal } from "../../../services/editor/tabs/pending-reveal";
+import type { OpenEditorOptions } from "../../../services/editor";
+import { revealEditorAt } from "../../../services/editor/tabs";
 import {
   searchWorkspaceSymbols,
   symbolUriToString,
@@ -19,8 +19,12 @@ interface CreateWorkspaceSymbolPaletteSourceInput {
   workspaceId: string;
   workspaceRoot: string;
   search?: typeof searchWorkspaceSymbols;
-  openEditor?: typeof openOrRevealEditor;
-  revealEditor?: typeof requestEditorReveal;
+  /**
+   * Editor open + selection seam — defaults to `revealEditorAt`. Tests
+   * inject a stub to assert the open + selection arguments without
+   * touching the real tab/registry stores.
+   */
+  openEditor?: typeof revealEditorAt;
 }
 
 const SYMBOL_KIND_LABELS: Record<number, string> = {
@@ -56,8 +60,7 @@ export function createWorkspaceSymbolPaletteSource({
   workspaceId,
   workspaceRoot,
   search = searchWorkspaceSymbols,
-  openEditor = openOrRevealEditor,
-  revealEditor = requestEditorReveal,
+  openEditor = revealEditorAt,
 }: CreateWorkspaceSymbolPaletteSourceInput): PaletteSource<WorkspaceSymbolPaletteItem> {
   return {
     id: "workspace-symbols",
@@ -71,9 +74,10 @@ export function createWorkspaceSymbolPaletteSource({
     },
     accept(item, context) {
       if (!item.filePath) return;
-      const openOptions = openOptionsForContext(context);
-      openEditor({ workspaceId, filePath: item.filePath }, openOptions);
-      revealEditor({ workspaceId, filePath: item.filePath, range: item.symbol.location.range });
+      openEditor(
+        { workspaceId, filePath: item.filePath },
+        { ...openOptionsForContext(context), selection: item.symbol.location.range },
+      );
     },
   };
 }

@@ -48,6 +48,23 @@ interface ListenProcedure<A extends z.ZodTypeAny> {
   args: A;
 }
 
+// stream: request-scoped progress channel — renderer→main start, main→renderer progress
+export interface StreamProcedure<
+  A extends z.ZodTypeAny,
+  P extends z.ZodTypeAny,
+  R extends z.ZodTypeAny,
+> {
+  args: A;
+  progress: P;
+  result: R;
+}
+
+type ChannelDefinition = {
+  call: Record<string, CallProcedure<z.ZodTypeAny, z.ZodTypeAny>>;
+  listen: Record<string, ListenProcedure<z.ZodTypeAny>>;
+  stream?: Record<string, StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny>>;
+};
+
 function call<A extends z.ZodTypeAny, R extends z.ZodTypeAny>(
   args: A,
   result: R,
@@ -59,18 +76,39 @@ function listen<A extends z.ZodTypeAny>(args: A): ListenProcedure<A> {
   return { args };
 }
 
+export function stream<A extends z.ZodTypeAny, P extends z.ZodTypeAny, R extends z.ZodTypeAny>(
+  args: A,
+  progress: P,
+  result: R,
+): StreamProcedure<A, P, R> {
+  return { args, progress, result };
+}
+
 // ---------------------------------------------------------------------------
 // Inference utilities
 // ---------------------------------------------------------------------------
 
 export type InferArgs<T> =
-  T extends CallProcedure<infer A, z.ZodTypeAny>
+  T extends StreamProcedure<infer A, z.ZodTypeAny, z.ZodTypeAny>
     ? z.infer<A>
-    : T extends ListenProcedure<infer A>
+    : T extends CallProcedure<infer A, z.ZodTypeAny>
       ? z.infer<A>
+      : T extends ListenProcedure<infer A>
+        ? z.infer<A>
+        : never;
+
+export type InferReturn<T> =
+  T extends StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny>
+    ? never
+    : T extends CallProcedure<z.ZodTypeAny, infer R>
+      ? z.infer<R>
       : never;
 
-export type InferReturn<T> = T extends CallProcedure<z.ZodTypeAny, infer R> ? z.infer<R> : never;
+export type InferProgress<T> =
+  T extends StreamProcedure<z.ZodTypeAny, infer P, z.ZodTypeAny> ? z.infer<P> : never;
+
+export type InferComplete<T> =
+  T extends StreamProcedure<z.ZodTypeAny, z.ZodTypeAny, infer R> ? z.infer<R> : never;
 
 // ---------------------------------------------------------------------------
 // Shared sub-schemas (used across channels)
@@ -302,16 +340,18 @@ export const ipcContract = {
       mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       readExternal: call(z.object({ absolutePath: z.string() }), FileContentSchema),
       revealInFinder: call(z.object({ absolutePath: z.string() }), z.void()),
-      searchText: call(
-        z.object({ workspaceId: z.string().uuid(), query: TextSearchQuerySchema }),
-        SearchCompleteSchema,
-      ),
     },
     listen: {
       changed: listen(FsChangedEventSchema),
-      searchProgress: listen(SearchProgressSchema),
+    },
+    stream: {
+      searchText: stream(
+        z.object({ workspaceId: z.string().uuid(), query: TextSearchQuerySchema }),
+        SearchProgressSchema,
+        SearchCompleteSchema,
+      ),
     },
   },
-} as const;
+} as const satisfies Record<string, ChannelDefinition>;
 
 export type IpcContract = typeof ipcContract;

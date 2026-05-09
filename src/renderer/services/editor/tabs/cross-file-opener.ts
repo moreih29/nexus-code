@@ -1,5 +1,6 @@
 import { cacheUriToFilePath } from "../model/model-cache";
-import { openOrRevealEditor, openExternalEditor } from "./open-editor";
+import { openOrRevealEditor } from "./open-editor";
+import { openExternalEditor } from "./open-external-editor";
 import { isWithinWorkspace } from "../../../utils/path";
 
 export interface ResourceUriLike {

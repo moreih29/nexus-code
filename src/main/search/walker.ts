@@ -100,21 +100,31 @@ const BATCH_MATCHES_TRIGGER = 200;
 const BATCH_MS_TRIGGER = 30;
 const PER_FILE_MATCH_CAP = 1000;
 
-function maybeFlush(state: BatchState, onBatch: WalkerOptions["onBatch"]): void {
-  if (
+function shouldFlush(state: BatchState): boolean {
+  return (
     state.pending.length >= BATCH_COUNT_TRIGGER ||
     state.matchesSinceFlush >= BATCH_MATCHES_TRIGGER ||
     Date.now() - state.lastFlushAt >= BATCH_MS_TRIGGER
-  ) {
-    flush(state, onBatch);
-  }
+  );
 }
 
-function flush(state: BatchState, onBatch: WalkerOptions["onBatch"]): void {
-  if (state.pending.length === 0) return;
-  onBatch(state.pending.splice(0));
+function takeBatch(state: BatchState): FileMatch[] | undefined {
+  if (state.pending.length === 0) return undefined;
+  const batch = state.pending.splice(0);
   state.matchesSinceFlush = 0;
   state.lastFlushAt = Date.now();
+  return batch;
+}
+
+function maybeTakeBatch(state: BatchState): FileMatch[] | undefined {
+  if (!shouldFlush(state)) return undefined;
+  return takeBatch(state);
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DOMException("aborted", "AbortError");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +170,20 @@ export async function walkAndSearch(
   query: TextSearchQuery,
   opts: WalkerOptions,
 ): Promise<WalkerResult> {
+  const iterator = walkAndSearchIter(rootAbs, query, opts.signal);
+
+  while (true) {
+    const next = await iterator.next();
+    if (next.done) return next.value;
+    opts.onBatch(next.value);
+  }
+}
+
+export async function* walkAndSearchIter(
+  rootAbs: string,
+  query: TextSearchQuery,
+  signal: AbortSignal,
+): AsyncGenerator<FileMatch[], WalkerResult, unknown> {
   // Throws InvalidSearchPatternError synchronously if pattern is bad.
   const regex = compileSearchRegExp(query);
 
@@ -177,7 +201,9 @@ export async function walkAndSearch(
 
   let filesScanned = 0;
 
-  async function recurse(dirAbs: string): Promise<void> {
+  async function* recurse(dirAbs: string): AsyncGenerator<FileMatch[], void, unknown> {
+    throwIfAborted(signal);
+
     let dir: fs.Dir;
     try {
       dir = await fs.promises.opendir(dirAbs, { bufferSize: 64 });
@@ -188,16 +214,14 @@ export async function walkAndSearch(
 
     try {
       for await (const dirent of dir) {
-        if (opts.signal.aborted) {
-          throw new DOMException("aborted", "AbortError");
-        }
+        throwIfAborted(signal);
 
         const name = dirent.name;
 
         if (dirent.isDirectory()) {
           if (HIDDEN_NAMES.has(name)) continue;
           if (defaultExclude.matchesDir(name) || userExclude.matchesDir(name)) continue;
-          await recurse(path.join(dirAbs, name));
+          yield* recurse(path.join(dirAbs, name));
           if (state.limitHit) return;
           continue;
         }
@@ -231,11 +255,13 @@ export async function walkAndSearch(
 
           if (state.matchesFound >= query.maxResults) {
             state.limitHit = true;
-            flush(state, opts.onBatch);
+            const batch = takeBatch(state);
+            if (batch) yield batch;
             return;
           }
 
-          maybeFlush(state, opts.onBatch);
+          const batch = maybeTakeBatch(state);
+          if (batch) yield batch;
         } catch (err) {
           if (isAbortError(err)) throw err;
           // EACCES, ENOENT race, etc. — log and continue.
@@ -248,17 +274,11 @@ export async function walkAndSearch(
     }
   }
 
-  try {
-    await recurse(rootAbs);
-  } catch (err) {
-    if (isAbortError(err)) {
-      flush(state, opts.onBatch);
-      return { filesScanned, matchesFound: state.matchesFound, limitHit: false };
-    }
-    throw err;
-  }
+  yield* recurse(rootAbs);
+  throwIfAborted(signal);
 
-  flush(state, opts.onBatch);
+  const batch = takeBatch(state);
+  if (batch) yield batch;
   return { filesScanned, matchesFound: state.matchesFound, limitHit: state.limitHit };
 }
 

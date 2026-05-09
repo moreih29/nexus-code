@@ -1,7 +1,7 @@
 import { isDirty } from "@/services/editor/model/dirty-tracker";
 import { filePathToModelUri } from "@/services/editor/model/model-cache";
 import { closeEditorWithConfirm, type CloseTabOutcome } from "@/services/editor/save/close-handler";
-import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs/open-editor";
+import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs";
 import { closeTerminal, openTerminal } from "@/services/terminal";
 import { useTabsStore } from "@/state/stores/tabs";
 

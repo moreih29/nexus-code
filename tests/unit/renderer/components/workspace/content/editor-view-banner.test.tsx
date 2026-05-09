@@ -79,9 +79,9 @@ mock.module("../../../../../../src/renderer/services/editor", () => ({
 }));
 
 // Mock pending-reveal module
-// pending-reveal is intentionally NOT mocked. The real implementation returns
-// null from takePendingEditorReveal when no reveal is pending (the case in
-// every test below) and a real subscriber is harmless. Mocking it would
+// pending-reveal is intentionally NOT mocked. The real implementation is
+// idempotent for tests where no reveal is queued (the case in every test
+// below), and a real registry registration is harmless. Mocking it would
 // pollute pending-reveal exports for other test files (Bun mock.module is
 // process-global), notably workspace-symbol-source.test.ts.
 

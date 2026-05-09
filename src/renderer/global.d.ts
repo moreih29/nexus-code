@@ -7,7 +7,15 @@ import type {
   ListenArg as ListenArgs,
   ListenChannels,
   ListenEvents,
+  StreamArgs,
+  StreamChannels,
+  StreamMethods,
 } from "./ipc/types";
+
+type IpcStreamEvent =
+  | { streamId: IpcRequestId; kind: "progress"; data: unknown }
+  | { streamId: IpcRequestId; kind: "complete"; data: unknown }
+  | { streamId: IpcRequestId; kind: "error"; data: unknown };
 
 interface IpcBridge {
   call<C extends CallChannels, M extends CallMethods<C>>(
@@ -18,6 +26,14 @@ interface IpcBridge {
   ): Promise<CallReturn<C, M>>;
 
   cancel(requestId: IpcRequestId): void;
+
+  streamStart<C extends StreamChannels, M extends StreamMethods<C>>(
+    channel: C,
+    method: M,
+    args: StreamArgs<C, M>,
+  ): Promise<{ streamId: IpcRequestId }>;
+
+  onStreamEvent(streamId: IpcRequestId, callback: (event: IpcStreamEvent) => void): () => void;
 
   listen<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_SEARCHABLE_FILE_SIZE } from "../../../../src/shared/fs-defaults";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
-import { TextSearchQuerySchema } from "../../../../src/shared/types/search";
+import { SearchProgressSchema, TextSearchQuerySchema } from "../../../../src/shared/types/search";
 
 describe("TextSearchQuerySchema", () => {
   test("parses minimal {pattern: 'x'} and fills defaults", () => {
@@ -39,27 +39,59 @@ describe("TextSearchQuerySchema", () => {
   });
 });
 
-describe("ipcContract.fs search entries", () => {
-  test("searchText call args parse valid payload", () => {
-    const result = ipcContract.fs.call.searchText.args.parse({
+describe("SearchProgressSchema", () => {
+  test("parses a FileMatch[] batch without request transport metadata", () => {
+    const result = SearchProgressSchema.parse([
+      {
+        relPath: "src/index.ts",
+        matches: [{ range: { line: 0, startCol: 0, endCol: 3 }, preview: "foo bar" }],
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].relPath).toBe("src/index.ts");
+    expect(result[0].matches).toHaveLength(1);
+    expect("requestId" in result[0]).toBe(false);
+  });
+});
+
+describe("ipcContract.fs search stream entries", () => {
+  test("searchText moved from call/listen to stream", () => {
+    expect("searchText" in ipcContract.fs.call).toBe(false);
+    expect("searchProgress" in ipcContract.fs.listen).toBe(false);
+    expect("searchText" in ipcContract.fs.stream).toBe(true);
+  });
+
+  test("searchText stream args parse valid payload", () => {
+    const result = ipcContract.fs.stream.searchText.args.parse({
       workspaceId: "12345678-1234-1234-1234-123456789012",
       query: { pattern: "foo" },
     });
+
     expect(result.query.pattern).toBe("foo");
     expect(result.query.maxResults).toBe(2000);
   });
 
-  test("searchProgress listen args parse valid payload", () => {
-    const result = ipcContract.fs.listen.searchProgress.args.parse({
-      requestId: "req-1",
-      batch: [
-        {
-          relPath: "src/index.ts",
-          matches: [{ range: { line: 0, startCol: 0, endCol: 3 }, preview: "foo bar" }],
-        },
-      ],
+  test("searchText stream progress parses FileMatch[] batches", () => {
+    const result = ipcContract.fs.stream.searchText.progress.parse([
+      {
+        relPath: "src/index.ts",
+        matches: [{ range: { line: 0, startCol: 0, endCol: 3 }, preview: "foo bar" }],
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].relPath).toBe("src/index.ts");
+  });
+
+  test("searchText stream result parses SearchComplete", () => {
+    const result = ipcContract.fs.stream.searchText.result.parse({
+      filesScanned: 3,
+      matchesFound: 4,
+      limitHit: false,
+      elapsedMs: 12,
     });
-    expect(result.requestId).toBe("req-1");
-    expect(result.batch).toHaveLength(1);
+
+    expect(result).toEqual({ filesScanned: 3, matchesFound: 4, limitHit: false, elapsedMs: 12 });
   });
 });
