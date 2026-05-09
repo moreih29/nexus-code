@@ -11,11 +11,8 @@ export {
   openOrRevealEditor,
   PREVIEW_ENABLED,
 } from "./open-editor";
-export {
-  registerRevealTarget,
-  requestEditorReveal,
-  type PendingEditorReveal,
-} from "./pending-reveal";
+export { revealEditorAt, type RevealEditorAtOptions } from "./reveal-editor-at";
+export { registerRevealTarget, type PendingEditorReveal } from "./pending-reveal";
 export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";
 export { createCrossFileOpenCodeEditorOpener } from "./cross-file-opener";
 export type {

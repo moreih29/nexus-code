@@ -12,7 +12,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
-import { openOrRevealEditor, requestEditorReveal } from "@/services/editor/tabs";
+import { revealEditorAt } from "@/services/editor/tabs";
 import type { FileGroup } from "../../../state/stores/search";
 import { ROW_HEIGHT_PX } from "../file-tree/file-tree-metrics";
 import { SearchResultFileRow } from "./SearchResultFileRow";
@@ -65,25 +65,23 @@ export function SearchResultsList({
 
     const absPath = rootPath.endsWith("/") ? `${rootPath}${relP}` : `${rootPath}/${relP}`;
 
-    // openOrRevealEditor handles tab creation, layout attach, and active-tab
-    // promotion as a single transaction (same path used by file-tree clicks
-    // and the workspace-symbol palette). Calling useTabsStore.createTab
-    // directly would only mutate the tabs record without attaching to a
-    // group leaf, leaving the editor unmounted and the click visibly inert.
-    openOrRevealEditor({ workspaceId, filePath: absPath });
-
-    // Request a reveal at the match line/col. requestEditorReveal queues the
-    // position which the editor picks up on mount or when already open.
-    requestEditorReveal({
-      workspaceId,
-      filePath: absPath,
-      range: {
-        startLineNumber: match.range.line + 1,
-        startColumn: match.range.startCol + 1,
-        endLineNumber: match.range.line + 1,
-        endColumn: match.range.endCol + 1,
+    // revealEditorAt opens (or reveals) the tab and forwards the selection
+    // to the reveal-target registry as a single atomic call — the open and
+    // selection sides used to be two separate calls at every nav surface,
+    // which leaked the "queue may flush after mount" contract into every
+    // call site. See `services/editor/tabs/reveal-editor-at.ts` for the
+    // contract details.
+    revealEditorAt(
+      { workspaceId, filePath: absPath },
+      {
+        selection: {
+          startLineNumber: match.range.line + 1,
+          startColumn: match.range.startCol + 1,
+          endLineNumber: match.range.line + 1,
+          endColumn: match.range.endCol + 1,
+        },
       },
-    });
+    );
   }
 
   return (
