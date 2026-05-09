@@ -9,7 +9,10 @@ export const fontFamily = {
   mono: `"JetBrains Mono Nerd Font", "Sarasa Term K", ui-monospace, monospace`,
   // display/body/caption roles → Pretendard with Korean-first rendering
   display: "Pretendard, system-ui, -apple-system, sans-serif",
-  // medium/square/uiSupplement: Pretendard placeholder (revisit when assets arrive)
+  // medium/square/uiSupplement currently alias to Pretendard. Distinct roles
+  // exist in the token vocabulary so callers can opt into specialized faces
+  // later without churning component code; today they all resolve to the same
+  // family.
   medium: "Pretendard, system-ui, -apple-system, sans-serif",
   square: "Pretendard, system-ui, -apple-system, sans-serif",
   uiSupplement: "Pretendard, system-ui, -apple-system, sans-serif",

@@ -53,10 +53,9 @@ export async function closeEditorWithConfirm(
   if (choice === "save") {
     const result = await saveModel({ workspaceId, filePath });
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
-      // conflict / error / superseded / no-model — keep the tab open
-      // so the user can react. close-handler does not surface UI for
-      // these here; the eventual error toast / conflict modal is the
-      // caller's job. For now we simply do not close.
+      // conflict / error / superseded / no-model — keep the tab open so the
+      // user can react. Surfacing the failure (toast, conflict modal) is the
+      // caller's job; we just signal the outcome and leave the buffer alive.
       return "save-failed";
     }
   }

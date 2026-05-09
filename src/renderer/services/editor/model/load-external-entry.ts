@@ -1,6 +1,8 @@
 // Sibling loader for external (out-of-workspace) files.
-// Intentionally does NOT reuse loadEntry — external files skip dirty tracking,
-// fs.changed subscriptions, and LSP open (Plan 20 Phase 1 decision).
+// Intentionally does NOT reuse loadEntry — external files are read-only previews,
+// so they skip dirty tracking, fs.changed subscriptions, and LSP open: there is no
+// edit lifecycle to track, and routing LSP traffic for an unrelated workspace would
+// confuse server roots.
 
 import { absolutePathToFileUri } from "../../../../shared/file-uri";
 import { ipcCall } from "../../../ipc/client";

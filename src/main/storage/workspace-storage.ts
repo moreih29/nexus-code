@@ -57,8 +57,9 @@ function applyWorkspaceMigrations(db: SqliteDb): void {
 //
 // NEXUS_RESET_STORAGE=1 environment variable:
 //   On first open, if this var is set, the workspace storage folder is renamed
-//   to backup-{timestamp} and a fresh directory is created.
-//   This fast path is temporary and will be removed once reset UX is formalized.
+//   to backup-{timestamp} and a fresh directory is created. Intended as a
+//   developer escape hatch for corrupt-state recovery; the rename (rather than
+//   delete) preserves the prior state for postmortem inspection.
 // ---------------------------------------------------------------------------
 
 interface PerWorkspaceEntry {
@@ -88,8 +89,8 @@ export class WorkspaceStorage {
 
   /**
    * Open (or lazily create) per-workspace storage.
-   * Applies NEXUS_RESET_STORAGE=1 fast path when the env var is set.
-   * This env-var behaviour is temporary — remove once reset UX is formalized.
+   * Honors NEXUS_RESET_STORAGE=1 as a developer escape hatch — see the
+   * file-level comment for the rename-to-backup semantics.
    */
   openForWorkspace(workspaceId: string): void {
     if (this.entries.has(workspaceId)) {
@@ -98,7 +99,7 @@ export class WorkspaceStorage {
 
     const workspaceDir = path.join(this.baseDir, workspaceId);
 
-    // NEXUS_RESET_STORAGE=1 fast path; temporary until reset UX is formalized.
+    // NEXUS_RESET_STORAGE=1 developer escape hatch — see the file-level comment.
     if (process.env.NEXUS_RESET_STORAGE === "1" && fs.existsSync(workspaceDir)) {
       const backupName = `backup-${Date.now()}`;
       const backupDir = path.join(this.baseDir, backupName);

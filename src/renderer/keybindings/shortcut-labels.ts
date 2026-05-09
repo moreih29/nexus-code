@@ -6,9 +6,9 @@
  * current platform — the underlying binding lives next to the command
  * declaration.
  *
- * Every command surfaced in a context menu now has a `KEYBINDINGS`
- * entry, including `openToSide` (registered with `when: "fileTreeFocus"`
- * since Phase 3). There is no longer a separate map of hand-written
+ * Every command surfaced in a context menu has a `KEYBINDINGS` entry —
+ * including context-scoped ones like `openToSide` (registered with
+ * `when: "fileTreeFocus"`). There is no separate map of hand-written
  * labels.
  */
 

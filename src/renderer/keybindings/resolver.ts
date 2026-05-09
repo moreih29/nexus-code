@@ -10,8 +10,9 @@
  * Splitting this away from the dispatcher means:
  *   - Match logic is testable without DOM, React, or event listener
  *     plumbing.
- *   - Adding `when` context evaluation in Phase 3 lands here, not in
- *     the dispatcher.
+ *   - `when` context evaluation lives here, not in the dispatcher: the
+ *     resolver decides whether a binding applies, the dispatcher only
+ *     decides what to do with the resolution.
  */
 
 import type { CommandId } from "../../shared/commands";

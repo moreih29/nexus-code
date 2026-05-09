@@ -122,7 +122,7 @@ export function ContentHost({
           isVisible={isVisible}
         />
       ) : (
-        // key on filePath: preview-slot reuse (Stage 2A) swaps props.filePath on
+        // key on filePath: the preview-slot reuse path swaps props.filePath on
         // the same Tab id, so without a key the EditorView would keep the same
         // monaco editor instance while useSharedModel disposed the old model
         // out from under it — triggering "InstantiationService has been disposed"

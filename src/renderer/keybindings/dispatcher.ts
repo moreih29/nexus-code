@@ -2,9 +2,9 @@
  * Keyboard shortcut dispatcher.
  *
  * Composes three pure modules:
- *   - {@link ./resolver} maps each keydown to a {@link Resolution} —
- *     also evaluates the binding's `when` expression (Phase 3) against
- *     the keydown event's target.
+ *   - {@link ./resolver} maps each keydown to a {@link Resolution} and
+ *     evaluates the binding's `when` expression against the keydown
+ *     event's target.
  *   - {@link ./chord-state} owns the pending-chord state machine.
  *   - {@link ../../shared/keybindings} owns the binding catalog.
  *
