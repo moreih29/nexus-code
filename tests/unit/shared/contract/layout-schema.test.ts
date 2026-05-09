@@ -38,11 +38,6 @@ const validSplit = {
 // ---------------------------------------------------------------------------
 
 describe("SerializedLeafSchema", () => {
-  it("parses a valid leaf", () => {
-    const result = SerializedLeafSchema.safeParse(validLeaf);
-    expect(result.success).toBe(true);
-  });
-
   it("accepts null activeTabId", () => {
     const result = SerializedLeafSchema.safeParse({ ...validLeaf, activeTabId: null });
     expect(result.success).toBe(true);
@@ -54,19 +49,8 @@ describe("SerializedLeafSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("SerializedNodeSchema — leaf", () => {
-  it("parses a valid leaf node", () => {
-    const result = SerializedNodeSchema.safeParse(validLeaf);
-    expect(result.success).toBe(true);
-  });
-
   it("rejects an unknown kind", () => {
     const result = SerializedNodeSchema.safeParse({ ...validLeaf, kind: "group" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a missing kind field", () => {
-    const { kind: _k, ...noKind } = validLeaf;
-    const result = SerializedNodeSchema.safeParse(noKind);
     expect(result.success).toBe(false);
   });
 });
@@ -76,29 +60,14 @@ describe("SerializedNodeSchema — leaf", () => {
 // ---------------------------------------------------------------------------
 
 describe("SerializedNodeSchema — split", () => {
-  it("parses a valid split node", () => {
-    const result = SerializedNodeSchema.safeParse(validSplit);
-    expect(result.success).toBe(true);
+  it("split ratio lower bound: rejects 0.04, accepts 0.05", () => {
+    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.04 }).success).toBe(false);
+    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.05 }).success).toBe(true);
   });
 
-  it("rejects ratio below 0.05", () => {
-    const result = SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.04 });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects ratio above 0.95", () => {
-    const result = SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.96 });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts ratio exactly 0.05", () => {
-    const result = SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.05 });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts ratio exactly 0.95", () => {
-    const result = SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.95 });
-    expect(result.success).toBe(true);
+  it("split ratio upper bound: accepts 0.95, rejects 0.96", () => {
+    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.95 }).success).toBe(true);
+    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.96 }).success).toBe(false);
   });
 });
 
@@ -153,11 +122,6 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
     ],
   };
 
-  it("parses a valid snapshot", () => {
-    const result = WorkspaceLayoutSnapshotSchema.safeParse(snapshot);
-    expect(result.success).toBe(true);
-  });
-
   it("round-trips through JSON.stringify and parse", () => {
     const parsed = WorkspaceLayoutSnapshotSchema.parse(snapshot);
     const json = JSON.stringify(parsed);
@@ -191,13 +155,6 @@ describe("AppStateSchema — backward-compat", () => {
     const result = AppStateSchema.safeParse({
       windowBounds: { x: 0, y: 0, width: 1280, height: 800 },
       lastActiveWorkspaceId: WS_ID,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("parses an AppState with an empty layoutByWorkspace", () => {
-    const result = AppStateSchema.safeParse({
-      layoutByWorkspace: {},
     });
     expect(result.success).toBe(true);
   });

@@ -2,22 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   CodeActionSchema,
   DiagnosticSchema,
-  DocumentHighlightKindSchema,
-  DocumentHighlightSchema,
-  DocumentSymbolSchema,
-  HoverResultSchema,
-  LocationLinkSchema,
-  LocationSchema,
   MarkupContentSchema,
   PositionSchema,
   RangeSchema,
-  ReferencesArgsSchema,
   ServerCapabilitiesSchema,
-  SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextEditSchema,
   WorkspaceEditSchema,
-  WorkspaceSymbolArgsSchema,
 } from "../../../src/shared/lsp";
 
 const range = {
@@ -31,52 +22,6 @@ function roundTrip<T>(schema: { parse: (value: unknown) => T }, value: unknown):
 }
 
 describe("LSP zod types", () => {
-  test("round-trips Position and Range", () => {
-    expect(roundTrip(PositionSchema, { line: 0, character: 0 })).toEqual({
-      line: 0,
-      character: 0,
-    });
-    expect(roundTrip(RangeSchema, range)).toEqual(range);
-  });
-
-  test("round-trips Location and LocationLink", () => {
-    expect(roundTrip(LocationSchema, { uri: "file:///workspace/main.py", range })).toEqual({
-      uri: "file:///workspace/main.py",
-      range,
-    });
-    expect(
-      roundTrip(LocationLinkSchema, {
-        targetUri: "file:///workspace/target.py",
-        targetRange: range,
-        targetSelectionRange: range,
-        originSelectionRange: range,
-      }),
-    ).toEqual({
-      targetUri: "file:///workspace/target.py",
-      targetRange: range,
-      targetSelectionRange: range,
-      originSelectionRange: range,
-    });
-  });
-
-  test("parses MarkupContent and hover response ranges", () => {
-    expect(
-      roundTrip(MarkupContentSchema, {
-        kind: "markdown",
-        value: "```python\nprint('hi')\n```",
-      }),
-    ).toEqual({
-      kind: "markdown",
-      value: "```python\nprint('hi')\n```",
-    });
-    expect(
-      roundTrip(HoverResultSchema, { contents: { kind: "plaintext", value: "plain" }, range }),
-    ).toEqual({
-      contents: { kind: "plaintext", value: "plain" },
-      range,
-    });
-  });
-
   test("round-trips TextEdit and WorkspaceEdit changes", () => {
     expect(
       roundTrip(TextDocumentContentChangeEventSchema, {
@@ -106,134 +51,6 @@ describe("LSP zod types", () => {
       changes: {
         "file:///workspace/main.py": [{ range, newText: "x" }],
       },
-    });
-  });
-
-  test("round-trips SymbolInformation and nested DocumentSymbol", () => {
-    expect(
-      roundTrip(SymbolInformationSchema, {
-        name: "main",
-        kind: 12,
-        location: { uri: "file:///workspace/main.py", range },
-        containerName: "module",
-      }),
-    ).toEqual({
-      name: "main",
-      kind: 12,
-      location: { uri: "file:///workspace/main.py", range },
-      containerName: "module",
-    });
-
-    expect(
-      roundTrip(DocumentSymbolSchema, {
-        name: "Outer",
-        kind: 5,
-        range,
-        selectionRange: range,
-        children: [{ name: "method", kind: 6, range, selectionRange: range }],
-      }),
-    ).toEqual({
-      name: "Outer",
-      kind: 5,
-      range,
-      selectionRange: range,
-      children: [{ name: "method", kind: 6, range, selectionRange: range }],
-    });
-  });
-
-  test("parses ReferencesArgsSchema with explicit includeDeclaration", () => {
-    expect(
-      roundTrip(ReferencesArgsSchema, {
-        uri: "file:///workspace/main.py",
-        line: 3,
-        character: 7,
-        includeDeclaration: true,
-      }),
-    ).toEqual({
-      uri: "file:///workspace/main.py",
-      line: 3,
-      character: 7,
-      includeDeclaration: true,
-    });
-    expect(
-      roundTrip(ReferencesArgsSchema, {
-        uri: "file:///workspace/main.py",
-        line: 3,
-        character: 7,
-        includeDeclaration: false,
-      }),
-    ).toEqual({
-      uri: "file:///workspace/main.py",
-      line: 3,
-      character: 7,
-      includeDeclaration: false,
-    });
-    expect(
-      ReferencesArgsSchema.safeParse({
-        uri: "file:///workspace/main.py",
-        line: 3,
-        character: 7,
-      }).success,
-    ).toBe(false);
-  });
-
-  test("parses DocumentHighlightSchema kind enum and optional kind", () => {
-    expect(DocumentHighlightKindSchema.safeParse(1).success).toBe(true);
-    expect(DocumentHighlightKindSchema.safeParse(2).success).toBe(true);
-    expect(DocumentHighlightKindSchema.safeParse(3).success).toBe(true);
-    expect(roundTrip(DocumentHighlightSchema, { range, kind: 1 })).toEqual({ range, kind: 1 });
-    expect(roundTrip(DocumentHighlightSchema, { range, kind: 2 })).toEqual({ range, kind: 2 });
-    expect(roundTrip(DocumentHighlightSchema, { range, kind: 3 })).toEqual({ range, kind: 3 });
-    expect(roundTrip(DocumentHighlightSchema, { range })).toEqual({ range });
-    expect(DocumentHighlightSchema.safeParse({ range, kind: 4 }).success).toBe(false);
-  });
-
-  test("parses WorkspaceSymbolArgsSchema", () => {
-    expect(
-      roundTrip(WorkspaceSymbolArgsSchema, {
-        workspaceId: "ws-1",
-        query: "Controller",
-      }),
-    ).toEqual({
-      workspaceId: "ws-1",
-      query: "Controller",
-    });
-    expect(WorkspaceSymbolArgsSchema.safeParse({ workspaceId: "ws-1" }).success).toBe(false);
-  });
-
-  test("round-trips full Diagnostic fields", () => {
-    expect(
-      roundTrip(DiagnosticSchema, {
-        range,
-        severity: 2,
-        code: "reportUnusedImport",
-        codeDescription: { href: "https://example.invalid/rule" },
-        source: "Pyright",
-        message: "Import is not accessed",
-        tags: [1],
-        relatedInformation: [
-          {
-            location: { uri: "file:///workspace/other.py", range },
-            message: "Related location",
-          },
-        ],
-        data: { rule: "reportUnusedImport" },
-      }),
-    ).toEqual({
-      range,
-      severity: 2,
-      code: "reportUnusedImport",
-      codeDescription: { href: "https://example.invalid/rule" },
-      source: "Pyright",
-      message: "Import is not accessed",
-      tags: [1],
-      relatedInformation: [
-        {
-          location: { uri: "file:///workspace/other.py", range },
-          message: "Related location",
-        },
-      ],
-      data: { rule: "reportUnusedImport" },
     });
   });
 

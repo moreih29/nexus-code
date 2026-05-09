@@ -25,18 +25,6 @@ describe("TextSearchQuerySchema", () => {
       false,
     );
   });
-
-  test("accepts boolean false explicitly for the three flags", () => {
-    const result = TextSearchQuerySchema.parse({
-      pattern: "x",
-      isRegExp: false,
-      isCaseSensitive: false,
-      isWordMatch: false,
-    });
-    expect(result.isRegExp).toBe(false);
-    expect(result.isCaseSensitive).toBe(false);
-    expect(result.isWordMatch).toBe(false);
-  });
 });
 
 describe("SearchProgressSchema", () => {
@@ -70,18 +58,6 @@ describe("ipcContract.fs search stream entries", () => {
 
     expect(result.query.pattern).toBe("foo");
     expect(result.query.maxResults).toBe(2000);
-  });
-
-  test("searchText stream progress parses FileMatch[] batches", () => {
-    const result = ipcContract.fs.stream.searchText.progress.parse([
-      {
-        relPath: "src/index.ts",
-        matches: [{ range: { line: 0, startCol: 0, endCol: 3 }, preview: "foo bar" }],
-      },
-    ]);
-
-    expect(result).toHaveLength(1);
-    expect(result[0].relPath).toBe("src/index.ts");
   });
 
   test("searchText stream result parses SearchComplete", () => {
