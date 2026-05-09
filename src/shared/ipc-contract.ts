@@ -28,6 +28,22 @@ import {
   FsStatSchema,
   WriteFileResultSchema,
 } from "./types/fs";
+import {
+  BranchListSchema,
+  CommitResultSchema,
+  DiffChunkSchema,
+  DiffCompleteSchema,
+  DiffSpecSchema,
+  GitExpandedGroupKeySchema,
+  GitPanelStateSchema,
+  GitPanelStateUpdateSchema,
+  GitStatusSchema,
+  LogChunkSchema,
+  LogCompleteSchema,
+  PullResultSchema,
+  PushResultSchema,
+  RepoInfoSchema,
+} from "./types/git";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
@@ -163,6 +179,18 @@ const LspApplyEditResultArgsSchema = z.object({
   result: ApplyWorkspaceEditResultSchema,
 });
 
+const GitWorkspaceIdSchema = z.object({ workspaceId: z.string().uuid() });
+
+const GitRelPathsArgsSchema = GitWorkspaceIdSchema.extend({
+  relPaths: z.array(z.string().min(1)).min(1),
+});
+
+const GitDiscardChangesArgsSchema = GitRelPathsArgsSchema.extend({
+  source: GitExpandedGroupKeySchema.optional(),
+});
+
+const GitSetPanelStateArgsSchema = GitWorkspaceIdSchema.merge(GitPanelStateUpdateSchema);
+
 // ---------------------------------------------------------------------------
 // IPC contract map
 // ---------------------------------------------------------------------------
@@ -188,7 +216,7 @@ export const ipcContract = {
       create: call(
         z.object({
           workspaceId: z.string().uuid(),
-          type: z.enum(["terminal", "agent", "editor"]),
+          type: z.enum(["terminal", "agent", "editor", "editor.diff"]),
           title: z.string().optional(),
           cwd: z.string().optional(),
         }),
@@ -299,6 +327,69 @@ export const ipcContract = {
     call: {},
     listen: {
       invoke: listen(z.object({ id: CommandIdSchema })),
+    },
+  },
+
+  git: {
+    call: {
+      getRepoInfo: call(GitWorkspaceIdSchema, RepoInfoSchema),
+      refreshDetection: call(GitWorkspaceIdSchema, RepoInfoSchema),
+      init: call(GitWorkspaceIdSchema, RepoInfoSchema),
+      getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
+      stage: call(GitRelPathsArgsSchema, z.void()),
+      unstage: call(GitRelPathsArgsSchema, z.void()),
+      discardChanges: call(GitDiscardChangesArgsSchema, z.void()),
+      commit: call(
+        GitWorkspaceIdSchema.extend({
+          message: z.string(),
+          amend: z.boolean().optional(),
+          signoff: z.boolean().optional(),
+        }),
+        CommitResultSchema,
+      ),
+      checkout: call(GitWorkspaceIdSchema.extend({ ref: z.string().min(1) }), z.void()),
+      createBranch: call(
+        GitWorkspaceIdSchema.extend({
+          name: z.string().min(1),
+          checkout: z.boolean().optional(),
+        }),
+        z.void(),
+      ),
+      listBranches: call(GitWorkspaceIdSchema, BranchListSchema),
+      fetch: call(GitWorkspaceIdSchema.extend({ remote: z.string().min(1).optional() }), z.void()),
+      pull: call(GitWorkspaceIdSchema, PullResultSchema),
+      push: call(GitWorkspaceIdSchema.extend({ force: z.boolean().optional() }), PushResultSchema),
+      stash: call(GitWorkspaceIdSchema.extend({ message: z.string().optional() }), z.void()),
+      stashPop: call(GitWorkspaceIdSchema, z.void()),
+      getFileContent: call(
+        GitWorkspaceIdSchema.extend({
+          ref: z.string().min(1),
+          relPath: z.string().min(1),
+        }),
+        FileContentSchema,
+      ),
+      getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
+      setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
+    },
+    listen: {
+      repoInfoChanged: listen(GitWorkspaceIdSchema.extend({ info: RepoInfoSchema })),
+      statusChanged: listen(GitWorkspaceIdSchema.extend({ status: GitStatusSchema })),
+    },
+    stream: {
+      log: stream(
+        GitWorkspaceIdSchema.extend({
+          ref: z.string().min(1).optional(),
+          skip: z.number().int().nonnegative().optional(),
+          limit: z.number().int().positive().optional(),
+        }),
+        LogChunkSchema,
+        LogCompleteSchema,
+      ),
+      diff: stream(
+        GitWorkspaceIdSchema.extend({ spec: DiffSpecSchema }),
+        DiffChunkSchema,
+        DiffCompleteSchema,
+      ),
     },
   },
 

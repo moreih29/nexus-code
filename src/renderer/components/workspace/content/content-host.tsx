@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { DiffTab } from "@/components/editor/diff-tab";
 import type { Tab } from "@/state/stores/tabs";
 import { EditorView } from "./editor-view";
 import { useSlotElement } from "./slot-registry";
@@ -121,7 +122,7 @@ export function ContentHost({
           parentEl={currentParent}
           isVisible={isVisible}
         />
-      ) : (
+      ) : tab.type === "editor" ? (
         // key on filePath: the preview-slot reuse path swaps props.filePath on
         // the same Tab id, so without a key the EditorView would keep the same
         // monaco editor instance while useSharedModel disposed the old model
@@ -133,6 +134,8 @@ export function ContentHost({
           filePath={tab.props.filePath}
           workspaceId={workspaceId}
         />
+      ) : (
+        <DiffTab {...tab.props} />
       )}
     </div>
   );

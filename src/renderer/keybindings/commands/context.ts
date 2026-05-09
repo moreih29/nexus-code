@@ -11,6 +11,7 @@ import { Grid } from "../../engine/split";
 import { closeEditorWithConfirm } from "../../services/editor";
 import { createPathActions } from "../../services/fs-mutations";
 import { closeTerminal } from "../../services/terminal";
+import { closeTab } from "../../state/operations/tabs";
 import { useActiveStore } from "../../state/stores/active";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -76,6 +77,9 @@ export async function closeTabById(
   if (tab.type === "editor") {
     const outcome = await closeEditorWithConfirm(workspaceId, tabId);
     return outcome === "cancelled" ? "cancelled" : "closed";
+  }
+  if (tab.type === "editor.diff") {
+    closeTab(workspaceId, tabId);
   }
   return "closed";
 }

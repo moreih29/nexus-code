@@ -6401,6 +6401,887 @@
           }
         }
       ]
+    },
+    {
+      "completed_at": "2026-05-09T12:08:18.471Z",
+      "branch": "main",
+      "plan": {
+        "id": 26,
+        "topic": "ipcStream 프리미티브 도입 + search 마이그레이션 (search \"0 files\" 버그 동시 해소)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "ipcStream API 형태 (메인/렌더러 시그니처, 반환값, abort 통합)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**렌더러 측 (Q1)**: `{ promise, onProgress }` 권고. AbortSignal 옵션 통합. onProgress는 promise await 전 등록 필요(JSDoc 계약). 거부: Observable(외부 의존·zustand에 오버킬), AsyncIterator 단독(microtask 지연으로 hot-path 손해), onProgress+AsyncIterable 동시(visibility 위반).\n\n**메인 측 (Q2)**: AsyncGenerator 시그니처 권고 — `(args, ctx) => AsyncGenerator<TProgress, TComplete>`. yield=progress, return=complete. router가 generator.return()으로 자동 abort 처리. 거부: emit 콜백 방식(클로저 누수로 abort 후에도 호출 가능, visibility 침해), call 슬롯 합치기(call의 one-shot 의미 흐려짐+타입 합집합 더러움).\n\n**리스크**: AsyncGenerator return value 협약은 router 한 곳에 캡슐화하고 README에 멘탈 모델(\"yield=progress, return=complete\") 명시 필요. onProgress 등록 타이밍 누락 가능성은 API 계약으로 못 박음.",
+                "recorded_at": "2026-05-08T13:10:35.751Z",
+                "agent_id": "a8226313e82dacff3"
+              }
+            ],
+            "decision": "## 결정: AsyncGenerator(메인) + `{ promise, onProgress }`(렌더러)\n\n### 메인 측 시그니처\n```ts\nregister(\"fs\", { stream: {\n  searchText: async function* (args, ctx): AsyncGenerator<TProgress, TComplete> {\n    const validated = validateArgs(...);\n    for await (const batch of walkAndSearchIter(validated, ctx.signal)) {\n      yield batch;        // progress\n    }\n    return { ... };       // complete\n  }\n}});\n```\n\n`ctx`는 `{ streamId: string, signal: AbortSignal }`. router가 generator의 `return()`을 호출해 abort 전파. yield 시점에 router가 zod 검증 수행. throw → caller promise reject.\n\n### 렌더러 측 시그니처\n```ts\nconst { promise, onProgress } = ipcStream(\"fs\", \"searchText\", args, { signal });\nconst off = onProgress((batch) => { /* zustand set */ });\nconst complete = await promise.finally(off);\n```\n\nJSDoc에 \"onProgress는 promise await 전 등록해야 한다\" 명시. 첫 batch 누락 방지를 위한 microtask 트릭은 visibility 침해이므로 도입하지 않음.\n\n### 거부된 대안\n- **emit 콜백 방식 `(args, ctx, emit) => Promise<complete>`**: emit이 abort 후에도 호출 가능한 클로저 누수 위험, 차단 로직이 도메인 코드에 새어 visibility 침해. AsyncGenerator는 yield 시점에 router가 자동 abort 체크 가능.\n- **Observable `.subscribe({next, complete, error})`**: 외부 의존 또는 자체 mini-Observable 시민화 비용. zustand store 사용 패턴(per-batch 즉시 set)에 오버킬.\n- **AsyncIterator만**: `for await` 매 iteration이 microtask 한 단계 늦어서 hot-path 지연. backpressure/drop 의미 새로 정의 필요.\n- **onProgress + AsyncIterable 동시 노출**: 어느 쪽이 정본인지 불분명. 단순 사용처에 표면적 두 배.\n\n### 리스크와 완화\n- AsyncGenerator의 `{value, done:true}` 협약은 router 한 곳에 캡슐화. 도메인 코드는 \"yield=progress, return=complete\" 멘탈 모델만 알면 됨 → README 한 단락 명시.\n- onProgress 등록 타이밍 누락은 API 계약(JSDoc)으로 못 박음. `useIpcStream` React hook은 본 사이클 scope 비대화 방지 위해 후속 이슈로 분리."
+          },
+          {
+            "id": 2,
+            "title": "streamId 자동 주입·매칭 메커니즘 (transport vs contract 레이어)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**CRITICAL — streamId 권위 소스 단일화 (Q3+Q7)**:\n- 생성: main router 단독 (`crypto.randomUUID()`). renderer는 받기만 함. 위조 표면 0.\n- 전달: ipc:call invoke가 streamId를 먼저 반환 + 후속 progress/complete를 별도 sender-targeted event로 송신. 도메인 args에 streamId 포함 금지(zod schema 깨끗 유지).\n- 매칭: **sender-targeted send 도입** — `getAllWebContents()` broadcast 대신 호출자 webContents에만 `wc.send(\"ipc:streamEvent\", streamId, payload)`. 기존 broadcast(fs.changed/lsp.diagnostics)는 그대로 유지하고 streamEvent는 별도 path.\n- preload demux: 기존 `ipc:event` listeners Map은 그대로 두고 streamId 키의 별도 Map 추가. 변경 표면 작음.\n\n**책임 분리**: transport=streamId 발급/sender 라우팅/abort/lifecycle. 도메인=yield 값만.\n\n**거부**: renderer가 streamId 생성 후 args 전달(zod 더러움+위조 가능), 양쪽 생성 후 매칭(현 버그 원인), `renderer-N` 그대로 사용(AbortSignal 미사용 시 비대칭), listen 채널 piggyback(동시성·sender targeting 깨짐).\n\n**보안 (Q7)**: progress zod 검증 main yield 시점에 ON 기본. complete도 ON. opt-out hook은 후속 이슈로. 현 listen 검증 OFF 정책은 답습 X (사용자 정규식이 만든 경로 포함이라 안전상 검증 필요).",
+                "recorded_at": "2026-05-08T13:10:50.904Z",
+                "agent_id": "a8226313e82dacff3"
+              }
+            ],
+            "decision": "## 결정: streamId는 main router 단독 권위 발급 + sender-targeted send\n\n### 메커니즘\n1. **생성**: main `router.ts`가 ipc 진입 시점에 `crypto.randomUUID()`로 streamId 발급. renderer는 절대 생성하지 않음.\n2. **전달**: 새 IPC 표면 도입.\n   - `ipc:streamStart` invoke → main이 streamId 즉시 반환 + 백그라운드에서 generator spawn\n   - 진행: `wc.send(\"ipc:streamEvent\", { streamId, kind: \"progress\" | \"complete\" | \"error\", payload })` (호출자 webContents 한정)\n   - 취소: 기존 `ipc:cancel` 재사용 (streamId를 cancel key로)\n3. **매칭**: preload에 streamId 키 별도 demux Map 추가. 기존 `ipc:event` listeners Map은 무관.\n4. **도메인 schema는 streamId를 모름**: TextSearchQuery·SearchProgress 어디에도 streamId 필드 없음. Q3 architect 권고 그대로.\n\n### sender-targeted send 도입 (CRITICAL)\n기존 `broadcast(channel, event, args)`는 `webContents.getAllWebContents()` 일괄 송신 — multi-window/devtools에서 잠재 오작동. ipcStream용은 `wc.send(...)` 호출자 한정으로 분리. 기존 broadcast 경로(fs.changed, lsp.diagnostics, pty.data 등)는 그대로 유지.\n\n### zod 검증 정책\n- Args: 기존 `validateArgs` 그대로 (renderer→main).\n- Progress: main yield 시점에 router가 검증. **검증 ON 기본**. 거부 사유: search batch는 사용자 정규식이 만든 경로 포함이라 잘못된 payload가 store reducer 깨뜨릴 수 있음. 현 listen 정책(검증 OFF)을 답습하지 않음.\n- Complete: 사이클당 1회라 비용 무시 가능, ON.\n- 향후 hot-path 사용처가 등장하면 stream descriptor에 `hot: true` opt-out 옵션 추가 여지만 남김. 본 사이클 미도입.\n\n### 거부된 대안\n- **renderer가 streamId 생성 후 args로 전달**: 도메인 zod schema에 transport 메타 누수 + 위조 가능. 거부.\n- **양쪽이 각자 생성 후 매칭**: 정확히 현 버그의 원인. 거부.\n- **transport `renderer-N` requestId 그대로 streamId 사용**: AbortSignal 미사용 시 requestId 자체가 없어 비대칭. ipcStream의 invariant(\"항상 streamId 보유\") 위반. 거부.\n- **listen 채널 piggyback**: 동시성·sender targeting·도메인-transport 분리 모두 깨짐 (= 현 버그 패턴). 거부.\n\n### 리스크 / 완화\n- streamId UUID 충돌 무시 가능(2^122).\n- 잘못된 streamId 수신 시 preload demux drop → 디버그용 unknown streamId 카운터 console.warn 한 줄 추가.\n- 책임 분리 라인: transport=streamId 발급/sender 라우팅/abort/lifecycle/zod 검증, 도메인=yield 값만."
+          },
+          {
+            "id": 3,
+            "title": "ipc-contract에 defineStream 통합 (기존 call/listen과 공존)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**CRITICAL — `ipcContract.<channel>.stream` 카테고리 신설 (Q4)**:\n\n```ts\nfs: {\n  call: { /* readdir, readFile, ... — searchText 제거 */ },\n  listen: { changed: listen(FsChangedEventSchema) },  // searchProgress 제거\n  stream: {\n    searchText: stream({\n      args: z.object({ workspaceId, query }),\n      progress: SearchProgressBatchSchema,  // requestId 필드 제거 — batch만\n      complete: SearchCompleteSchema,\n    }),\n  },\n}\n```\n\n핵심: progress schema에서 `requestId` 필드를 제거. streamId는 transport 계약이지 도메인 페이로드가 아님(현 SearchProgressSchema의 `{requestId, batch}`가 누수의 증거).\n\n**거부 대안**:\n- call에 progress 옵션 추가: call의 one-shot 의미 흐려짐, InferReturn이 progress인지 complete인지 모호.\n- listen 유지 + stream 별도 공존: progress 이벤트가 두 경로로 노출되면 도메인 코드가 어느 쪽 구독할지 갈림 → 현 버그 재발 위험.\n\n**리스크**: 기존 contract drift 테스트가 `fs.call.searchText`/`fs.listen.searchProgress`를 expect — 함께 업데이트. grep로 추적 가능, 일회성 비용.\n\n**의존**: Q1·Q2의 타입 anchor. InferArgs/InferReturn에 InferProgress/InferComplete 추가 필요.",
+                "recorded_at": "2026-05-08T13:11:03.909Z",
+                "agent_id": "a8226313e82dacff3"
+              }
+            ],
+            "decision": "## 결정: `ipcContract.<channel>.stream` 카테고리 신설\n\n### 형태\n```ts\n// shared/ipc-contract.ts에 새 procedure descriptor + factory\ninterface StreamProcedure<A, P, R> { args: A; progress: P; result: R; }\n\nfunction stream<A, P, R>(args: A, progress: P, result: R): StreamProcedure<A, P, R>;\n\n// 사용 예\nfs: {\n  call: { /* readdir, readFile, ... — searchText 제거 */ },\n  listen: { changed: listen(FsChangedEventSchema) },  // searchProgress 제거\n  stream: {\n    searchText: stream(\n      z.object({ workspaceId: z.string().uuid(), query: TextSearchQuerySchema }),\n      FileMatchSchema,           // progress = batch entry (or array — Issue 5에서 확정)\n      SearchCompleteSchema,\n    ),\n  },\n}\n```\n\n### 추론 유틸 확장\n`shared/ipc-contract.ts`에 추가:\n```ts\ntype InferProgress<T> = T extends StreamProcedure<any, infer P, any> ? z.infer<P> : never;\ntype InferComplete<T> = T extends StreamProcedure<any, any, infer R> ? z.infer<R> : never;\n```\n\n`renderer/ipc/types.ts`에 `StreamChannels`, `StreamMethods<C>`, `StreamArgs/Progress/Complete<C, M>` 추가.\n\n### 핵심 원칙\n**progress schema에서 streamId 필드 제거**. 현 `SearchProgressSchema = { requestId, batch }`가 누수의 증거. 새 progress schema는 도메인 페이로드만(batch 그 자체).\n\n### 거부된 대안\n- **call에 `progress` 옵션 추가 (`call(args, result, { progress })`)**: call의 의미(\"one-shot, return on complete\")가 흐려짐. `InferReturn`이 progress인지 complete인지 모호. 거부.\n- **listen은 그대로 두고 stream을 별도 추가, 기존 fs.searchProgress listen 유지**: progress 이벤트가 두 경로로 노출되면 도메인 코드가 어느 쪽 구독할지 갈림 → 현 버그 클래스 재발 위험. 거부.\n- **별도 contract 파일로 stream만 분리**: cohesion 손실. fs/lsp 같은 도메인 묶음 안에서 call·listen·stream을 함께 보는 게 자연스러움. 거부.\n\n### 영향 범위\n- `src/shared/ipc-contract.ts`: stream factory + StreamProcedure 추가, `fs.stream.searchText` 신규, `fs.call.searchText`/`fs.listen.searchProgress` 제거.\n- `src/renderer/ipc/types.ts`: 추론 타입 확장.\n- contract drift 단위 테스트: 새 형태로 업데이트.\n\n### 리스크\ncontract drift 테스트 grep 후 일괄 업데이트. 일회성 비용. listen 카테고리는 `fs.changed`만 남으므로 빈 객체가 되지 않음. fs.listen이 비게 되는 도메인은 발생하지 않을 것이지만, 만약 그럴 경우 빈 객체 허용은 contract 자체가 이미 지원함(다른 채널도 listen 빈 case 있음 — `command.call: {}` 패턴 동일)."
+          },
+          {
+            "id": 4,
+            "title": "subscription 모델과의 경계 명확화 (fs.changed/pty.data/lsp.diagnostics/lsp.applyEdit는 미흡수)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**subscription 모델 모두 유지, 흡수하지 않음 (Q5)**.\n\n선택 기준: lifecycle이 caller request에 묶여 있는가? ipcStream은 unit-of-work, subscription은 외부 이벤트 소스에 붙은 long-lived.\n\n| 기능 | 모델 | 근거 |\n|---|---|---|\n| fs.changed | subscription 유지 | workspaceId 기반 long-lived, unit-of-work 아님 |\n| pty.data/exit | subscription 유지 | tabId 라이프사이클이 PTY 자체 |\n| lsp.diagnostics | subscription 유지 | 서버 push, caller 무관 |\n| lsp.applyEdit | 별도 패턴 유지 | main→renderer 역방향 round-trip, 방향 반대 |\n| fs.searchText | **ipcStream 전환** | 본 이슈 |\n| (예정) find&replace, quick-open 인덱싱, git status walk | ipcStream | unit-of-work |\n\n**거부**: subscription도 ipcStream으로 통합 — pty.data는 reconnect 시 streamId 재발급 협상 필요해지는데 lifecycle이 caller-driven이 아니라 의미 안 맞음.\n\n**리스크**: 두 프리미티브 공존 비용 → README에 선택 가이드 한 단락으로 회수.\n\n**Q6 동시성**: streamId 권위로 같은 workspaceId 다중 stream 자연스러움. abort=AbortError reject 단일 의미(부분 complete 송신 금지). 이는 현 walker의 partial-return 동작과 충돌하므로 함께 정리 필요.",
+                "recorded_at": "2026-05-08T13:11:18.270Z",
+                "agent_id": "a8226313e82dacff3"
+              }
+            ],
+            "decision": "## 결정: 모든 subscription·역방향 round-trip 모델 그대로 유지 (흡수 없음)\n\n### 분류 기준 — lifecycle ownership\n\n| 패턴 | lifecycle | 모델 |\n|---|---|---|\n| **ipcStream** | caller request에 묶인 unit-of-work (시작·진행·완료) | 신설 |\n| **subscription** | 외부 이벤트 소스에 붙은 long-lived. caller는 listen만 | 기존 broadcast+listen 유지 |\n| **inverted request** | main → renderer 역방향 round-trip | 기존 `lsp.applyEdit` 패턴 유지 |\n\n### 구체 분류\n\n| 기능 | 모델 | 근거 |\n|---|---|---|\n| `fs.changed` (workspaceId) | subscription 유지 | file watcher가 발생원, caller request 무관 |\n| `pty.data` / `pty.exit` (tabId) | subscription 유지 | PTY tab의 lifecycle = 데이터 흐름의 lifecycle |\n| `lsp.diagnostics` (uri) | subscription 유지 | LSP 서버 push, caller 무관 |\n| `lsp.applyEdit` | inverted request 유지 | main이 renderer에 요청, renderer가 응답. 방향 반대 |\n| `lsp.serverEvent` | subscription 유지 | LSP host 이벤트 forwarding |\n| `command.invoke` | subscription 유지 | keybinding 이벤트 분배 |\n| **`fs.searchText`** | **ipcStream 전환** | unit-of-work, 본 이슈 |\n| (예정) `fs.findReplace` | ipcStream | unit-of-work 확장 |\n| (예정) quick-open 인덱싱 | ipcStream | 단, 캐시 hit 시 listen 모델이 더 나을 가능성 — 후속 사이클에서 별도 결정 |\n| (예정) git status walk / log paginate / blame | ipcStream | unit-of-work |\n\n### sender-targeted send 분리 (Issue 2와 연결)\n- 기존 `broadcast(channel, event, args)` (= `webContents.getAllWebContents()`): subscription 전용 그대로 유지.\n- 신규 `wc.send(\"ipc:streamEvent\", ...)`: ipcStream 전용. 호출자 한정.\n- 두 path는 무간섭.\n\n### abort 시멘틱 일원화 (Issue 6 사전조건)\nipcStream의 abort = AbortError reject 단일 의미. 부분 complete 송신 금지. 현재 walker는 abort 시 partial SearchComplete를 return하는데, ipcStream으로 가면 `signal.aborted` 시 throw로 통일. 이 walker 동작 변경은 Issue 5 마이그레이션 작업에 포함.\n\n### 거부된 대안\n- **subscription도 ipcStream으로 통합**: pty.data가 streamId를 갖게 되면 reconnect/resubscribe 시 streamId 재발급 협상이 필요해지지만 lifecycle이 caller-driven이 아니라서 의미가 안 맞음. 또한 multi-listener 자연스러움(broadcast의 강점)을 잃음. 거부.\n- **lsp.applyEdit를 ipcStream 역방향 변형으로 흡수**: 방향이 반대라 streamId 발급 권위 라인이 거꾸로. AsyncGenerator 모델과 호환 안 됨. 거부.\n\n### 리스크와 완화\n- \"비슷해 보이는 두 프리미티브 공존\" 학습 비용 → ipc-contract.ts 상단 또는 `src/shared/ipc-README.md`(신규)에 **선택 가이드 한 단락** 명시: \"caller가 시작하고 일이 끝나면 종료되는가? → stream. 외부 이벤트 소스에 붙어 long-lived인가? → listen.\""
+          },
+          {
+            "id": 5,
+            "title": "search 마이그레이션 범위 (search-handlers, search.ts store, 스키마, 테스트)",
+            "status": "decided",
+            "decision": "## 결정: search 마이그레이션 — store에서 streamId/requestId 흔적 완전 제거 + walker abort 시멘틱 정렬\n\n본 이슈는 architect 직접 분석 항목은 아니지만, Issue 1~4의 결정으로 마이그레이션 모양이 거의 결정됨. Lead가 직접 결정하되 변경 파일을 상세히 명시.\n\n### A. 변경 파일과 변경 형태\n\n| 파일 | 변경 |\n|---|---|\n| `src/shared/types/search.ts` | `SearchProgressSchema`에서 `requestId` 필드 제거. progress payload는 batch 자체(`z.array(FileMatchSchema)`) 또는 batch wrapper. **batch 그대로 노출 권장** — wrapper 추가 가치 없음. 따라서 `SearchProgressSchema = z.array(FileMatchSchema)`로 단순화. 또는 `FileMatchSchema` 자체를 progress entry로 쓰고 batch는 generator 내부에서만 묶어 yield. **결정: 한 번의 yield = `FileMatch[]` (batch 단위)**. SearchProgressSchema는 `z.array(FileMatchSchema)`로 정리. |\n| `src/shared/ipc-contract.ts` | `fs.call.searchText` 제거. `fs.listen.searchProgress` 제거. `fs.stream.searchText` 신설(args, progress=`z.array(FileMatchSchema)`, complete=SearchCompleteSchema). |\n| `src/main/ipc/channels/fs/search-handlers.ts` | `searchTextHandler` factory 제거 또는 stream registration 함수로 변경. `broadcast(...)` 호출 제거. AsyncGenerator로 변환: `for await (const batch of walkAndSearchIter(...)) yield batch; return summary;`. `randomUUID()`·`ctx.requestId`·`InvalidSearchPatternError` re-throw 분기 정리. |\n| `src/main/search/walker.ts` | `walkAndSearch` 함수의 abort 동작 변경: 현재는 `signal.aborted` 시 partial `SearchComplete`를 return하는데, ipcStream에서는 throw `AbortError`로 통일. 또는 generator 친화적으로 `walkAndSearchIter` 신설(yield batch + 마지막 summary는 함수의 return). **권고: 기존 `walkAndSearch`를 두 함수로 분리** — `walkAndSearchIter(root, query, signal): AsyncIterable<FileMatch[]>`(yield batches) + 호출자가 종합한 summary. handler가 walker iter를 소비하면서 카운터 누적해 마지막에 return. |\n| `src/main/search/matcher.ts` | 영향 없음 가능성 높음 (matcher는 query별 단일 파일 매칭). `InvalidSearchPatternError`는 그대로 두되 generator 안에서 throw 시 router가 stream:error event로 변환. |\n| `src/main/index.ts` | `registerFsChannel` 호출은 그대로. fs 채널 등록 함수 내부에서 stream 등록 추가. |\n| `src/preload/index.ts` | streamStart invoke wrapper + streamEvent demux Map 추가. 기존 `call`/`listen`/`cancel` 그대로. |\n| `src/renderer/ipc/client.ts` | 기존 `ipcCall` 그대로. `ipcStream(channel, method, args, opts)` 추가. |\n| `src/renderer/state/stores/search.ts` | **session.requestId 필드 제거**. `controllers` Map 그대로 유지(AbortController는 ipcStream에 signal로 전달). `_storeHelpers.appendBatch/finishSearch/failSearch` 내부 구현은 ipcStream 호출 후 onProgress/promise.then/catch에서 직접 set 호출. helper 외부 export 제거 가능 — 또는 테스트 호환을 위해 일시적으로 유지하되 다음 사이클에서 정리. **권고: 본 사이클에서 helper export 제거하고 새 round-trip 통합 테스트로 대체** (Issue 6 참조). |\n| `src/renderer/components/files/search/*` | 영향 없음. 컴포넌트는 store만 소비. |\n| `tests/unit/main/search/walker.test.ts` | abort 시 throw로 동작 변경됨 — 해당 테스트 케이스 업데이트. |\n| `tests/unit/main/ipc/channels/fs/search-handlers.test.ts` | broadcast 호출 검증 → 새 stream emit 검증으로 변경. AsyncGenerator의 yield 시퀀스 검증. |\n| `tests/unit/renderer/state/stores/search.test.ts` | helper 직접 호출 패턴(`_storeHelpers.appendBatch`) 제거. 대신 `ipcStream` mock에서 onProgress 콜백을 호출해 progress 흐름 시뮬레이션. |\n| `tests/unit/shared/types/search.test.ts` | SearchProgressSchema 변경 반영. |\n| (신규) `tests/integration/renderer/search/round-trip.test.ts` | 실제 IPC 경로(call → stream emit → store)를 통과하는 통합 테스트. Issue 6에서 상세화. |\n\n### B. 제거되는 데드코드\n- `SearchProgress.requestId`\n- `_storeHelpers.appendBatch/finishSearch/failSearch` export (선택적 — 단위 테스트 대체 후)\n- search store의 `session.requestId` 필드와 매칭 분기\n- search-handlers의 `randomUUID()`/`ctx.requestId` 분기\n\n### C. 거부된 대안\n- **store가 ipcStream API에 적응하지 않고 progress payload만 변경**: 현재 helper 직접 호출 단위 테스트가 잡지 못한 클래스 버그를 재발 방지하려면 store의 매칭 로직 자체가 사라져야 함 (transport가 책임 짐). 단순 schema 변경만으로는 부족. 거부.\n- **walker는 그대로 두고 handler가 iterable로 감싸기**: handler가 push → pull 어댑터 만들어야 함. 복잡도만 추가. walker를 generator로 직접 노출이 깔끔. 거부.\n- **batch 단위가 아닌 단일 FileMatch 단위로 yield**: 현재 walker의 batching 정책(50 files / 200 matches / 30 ms flush)을 깨뜨림. zustand set 호출 빈도가 폭증. 거부.\n\n### D. 리스크\n- walker abort 시멘틱 변경(return → throw)이 기존 search-handlers의 try/catch 분기와 미세하게 다름. 새 generator 모델에서는 try/finally로 자연스레 정리됨.\n- ipcStream 자체가 신규라 마이그레이션 PR 크기 큼 — Issue 7의 작업 순서로 단계별 검증 강제."
+          },
+          {
+            "id": 6,
+            "title": "테스트 전략 (프리미티브 단위 + search round-trip 통합 + abort/concurrent/stale 시나리오)",
+            "status": "decided",
+            "decision": "## 결정: 3계층 테스트 전략 — 프리미티브 단위 + 채널 단위 + round-trip 통합\n\n### A. 프리미티브 단위 테스트 (신규)\n\n**`tests/unit/main/ipc/router-stream.test.ts`** (신규)\n- streamId 발급의 권위성: register된 stream을 ipc:streamStart로 호출 → main이 UUID 반환, 동일 UUID로 streamEvent 송신.\n- AsyncGenerator yield → `wc.send(\"ipc:streamEvent\", { streamId, kind: \"progress\", payload })` 호출 검증.\n- AsyncGenerator return → kind: \"complete\" 송신.\n- AsyncGenerator throw → kind: \"error\" 송신.\n- AbortSignal abort → generator.return() 호출 + 더 이상 progress 송신 안 됨 + caller promise reject(AbortError).\n- progress payload zod 검증 실패 → kind: \"error\" 송신.\n- bun:test의 mock.module로 electron의 webContents/ipcMain stub.\n\n**`tests/unit/renderer/ipc/client-stream.test.ts`** (신규)\n- ipcStream({signal})이 `window.ipc.streamStart` invoke 후 streamId 반환을 받음.\n- streamEvent demux: 같은 streamId의 progress 이벤트 → onProgress 콜백 호출, 다른 streamId는 무시.\n- complete 이벤트 → promise resolve.\n- error 이벤트 → promise reject.\n- AbortSignal abort → window.ipc.cancel(streamId) 호출 + onProgress unsubscribe 자동.\n- onProgress 등록 → 반환된 unsubscribe 함수 호출 시 더 이상 호출 안 됨.\n\n### B. 채널 단위 테스트 (search 마이그레이션 대상)\n\n**`tests/unit/main/ipc/channels/fs/search-handlers.test.ts`** (재작성)\n- 기존 `searchTextHandler` factory 호출 + broadcast 검증 패턴 → 새 stream registration 검증으로.\n- AsyncGenerator를 직접 소비해 yield 시퀀스(`FileMatch[]` batch들)와 마지막 return value(SearchComplete) 검증.\n- 빈 결과 케이스, batch 다수 케이스, abort 케이스(throw 검증), invalid regex(throw 검증).\n\n**`tests/unit/main/search/walker.test.ts`** (수정)\n- abort 동작이 partial-return → throw로 변경됨. `expect(...).rejects.toThrow(/abort/i)` 식.\n- 그 외 walker 자체 behavior 테스트는 그대로.\n\n**`tests/unit/renderer/state/stores/search.test.ts`** (재작성)\n- 기존 `_storeHelpers.appendBatch` 직접 호출 패턴 제거.\n- mock pattern: `mock.module(\"../../../../../src/renderer/ipc/client\", () => ({ ipcStream: mock(...) }))`. ipcStream mock이 `{ promise, onProgress }`를 반환. 테스트가 onProgress 콜백을 직접 invoke해 progress 흐름 시뮬레이션, promise를 resolve/reject로 시뮬레이션.\n- 테스트 시나리오: startSearch → progress 두 batch 흐름 → done. cancelSearch 중간에 abort. 새 startSearch가 prior session 즉시 종료.\n- helper export 자체는 삭제.\n\n### C. Round-trip 통합 테스트 (신규 — 회귀 방지 핵심)\n\n**`tests/integration/renderer/search/round-trip.test.ts`** (신규)\n\n이 테스트가 직전 사이클에서 잡지 못한 \"0 files\" 클래스 버그의 회귀 방지선.\n\n- mock보다 한 단계 위: ipc-contract layer를 통과하되 electron webContents/ipcMain 양쪽을 in-memory pair로 페어링. \n- 시나리오: store.startSearch → main router가 stream registered handler 호출 → AsyncGenerator yield batch → preload demux → store onProgress → state update.\n- 검증: `session.results.length > 0` (= \"0 files\" 버그가 다시 생기면 즉시 fail).\n- 추가 시나리오: 동시 다중 stream(같은 workspace에 두 startSearch), abort 미들 batch, stale event(이전 streamId의 batch가 새 streamId 세션에 영향 없음).\n- 구현 형태: bun:test에서 electron mock pair(`MockWebContents`/`MockIpcMain`)를 직접 만들어 send/receive 직결. 새 helper 모듈 `tests/helpers/ipc-pair.ts` 신설.\n\n### D. 제거되는 테스트 패턴\n- `_storeHelpers.appendBatch(requestId, batch)` 직접 호출 — 매칭 규약을 우회하던 패턴. round-trip 통합 테스트가 대체.\n\n### E. 거부된 대안\n- **integration 테스트 없이 단위 테스트만 강화**: 직전 사이클에서 단위 테스트는 helper 직접 호출로 항상 통과했으나 실제 round-trip이 깨졌다. 동일 우회 위험. 거부.\n- **end-to-end Playwright/Spectron 테스트**: 비용 대비 회귀 방지 효과 적음. 본 사이클 scope 비대화. 거부.\n- **broadcast 자체 hook으로 전수 모니터링**: ipcStream만의 검증으론 과함. 거부.\n\n### F. Coverage 목표 (informational)\n- ipcStream 프리미티브: lifecycle 모든 분기 (start/progress/complete/error/abort).\n- search round-trip: \"0 files\" 버그 시나리오 명시적 케이스 1개 + 동시성 1개 + abort 1개 = 3개 이상.\n- 기존 walker/matcher 테스트는 회귀 없도록 유지."
+          },
+          {
+            "id": 7,
+            "title": "한 사이클 내부 작업 순서 (프리미티브 → search 적용 → 테스트 정리 → 버그 검증)",
+            "status": "decided",
+            "decision": "## 결정: 8단계 파이프라인 (의존성 그래프 기반 순차+일부 병렬)\n\n각 단계는 직전 단계의 산출물에 의존하며, 단계 종료 시 명확한 검증 게이트를 둠. 본 사이클은 한 PR로 머지하되 내부 커밋 단위는 단계별로 분리 권장.\n\n### Step 1. ipc-contract `stream` 카테고리 + 추론 타입 (선행 — 모든 후속의 anchor)\n- 파일: `src/shared/ipc-contract.ts`, `src/renderer/ipc/types.ts`\n- 산출: `StreamProcedure<A,P,R>`, `stream(args, progress, result)` factory, `InferProgress`/`InferComplete`, `StreamChannels`/`StreamMethods<C>` 등 타입 유틸.\n- 게이트: `bun tsc --noEmit` 통과. 기존 ipc 호출 사이트는 영향 없음(사용처 0이므로).\n\n### Step 2. preload bridge 확장 (transport)\n- 파일: `src/preload/index.ts`\n- 산출: `window.ipc.streamStart(channel, method, args)` invoke wrapper, streamId 키 demux Map, `streamEvent` 송신 처리.\n- 게이트: 기존 `call/listen/cancel/off` 변경 없음. 단위 테스트(있다면) 통과.\n\n### Step 3. main router의 stream 등록·실행 (transport)\n- 파일: `src/main/ipc/router.ts`, `src/main/index.ts`\n- 산출: \n  - `register(\"fs\", { stream: { searchText: handler } })` 형태 수용.\n  - `ipcMain.handle(\"ipc:streamStart\", ...)`: streamId 발급, AsyncGenerator spawn, yield→`wc.send(\"ipc:streamEvent\", ...)` 전송, return→complete event, throw→error event.\n  - sender-targeted send (호출자 webContents 한정).\n  - 기존 broadcast/listen 경로 무변경.\n  - AbortController 통합 (기존 pendingCallControllers와 별도 pendingStreamControllers Map).\n- 게이트: `tests/unit/main/ipc/router-stream.test.ts` 통과 (Step 6에서 작성).\n\n### Step 4. renderer ipcStream 클라이언트 (transport)\n- 파일: `src/renderer/ipc/client.ts`\n- 산출: `ipcStream(channel, method, args, opts)` 함수. `{ promise, onProgress }` 반환. AbortSignal 통합 (`window.ipc.cancel(streamId)`).\n- 게이트: `tests/unit/renderer/ipc/client-stream.test.ts` 통과 (Step 6에서 작성).\n\n### Step 5. search 마이그레이션 (도메인)\n- 파일들: Issue 5의 변경 표 그대로.\n- 순서:\n  1. `walker.ts`를 `walkAndSearchIter`(generator)로 분리, abort=throw 시멘틱 정렬.\n  2. `search-handlers.ts`를 stream registration으로 변환, broadcast 코드 제거.\n  3. `shared/types/search.ts`에서 `SearchProgress.requestId` 제거.\n  4. `ipc-contract.ts`에 `fs.stream.searchText` 추가, `fs.call.searchText`/`fs.listen.searchProgress` 제거.\n  5. `renderer/state/stores/search.ts`를 ipcStream 사용으로 변환, `session.requestId`/매칭 분기/`_storeHelpers` export 제거.\n- 게이트: `bun tsc --noEmit` 통과. UI 컴포넌트 컴파일 OK.\n\n### Step 6. 단위 테스트 작성·갱신 (Step 3·4·5와 병렬 가능)\n- ipcStream 프리미티브 단위 테스트 (router-stream, client-stream): Step 3·4와 동시 작성 권장.\n- search-handlers 테스트: Step 5와 동시.\n- walker 테스트 abort 케이스 갱신: Step 5와 동시.\n- store 테스트 재작성: Step 5와 동시.\n- search 타입 schema 테스트 갱신.\n- 게이트: `bun test` 전 영역 통과.\n\n### Step 7. Round-trip 통합 테스트 (회귀 방지)\n- `tests/helpers/ipc-pair.ts` (in-memory webContents/ipcMain pair).\n- `tests/integration/renderer/search/round-trip.test.ts`: \"0 files\" 버그 시나리오 + 동시 다중 stream + abort + stale event drop.\n- 게이트: 통합 테스트 통과 = 사용자 보고한 \"0 files\" 클래스 버그가 자동 검출되는 회귀 방지선 확립.\n\n### Step 8. 수동 검증 + 정리\n- `bun dev`로 실제 앱에서 검색이 결과를 보여주는지 사용자 흐름 검증 (사용자에게 검증 요청).\n- biome lint/format 통과.\n- 사이클 마무리 작업: `nx_task_close` per task, `.nexus/memory/`에 lesson 추가 후보(예: `pattern-ipc-stream.md`, `empirical-broadcast-correlation-bug.md`).\n\n### 의존성 그래프\n\n```\nStep 1 (contract) \n  ├─ Step 2 (preload) ─┐\n  └─ Step 3 (main router) ─ Step 5 (search migration) ─ Step 7 (round-trip integration) ─ Step 8 (verify)\n     └─ Step 4 (renderer client) ─┘\n                                  │\n                                  Step 6 (unit tests, parallel with 3·4·5)\n```\n\nStep 2와 Step 3·4는 병렬 가능. Step 6은 Step 3/4/5 각각의 종료 시점에 해당 부분 단위 테스트가 동시 작성되도록.\n\n### 거부된 대안\n- **search 마이그레이션 먼저 후 프리미티브 정리**: 프리미티브가 없으면 마이그레이션할 대상이 없음. 순서 불가능. 거부.\n- **모든 단계 한 큰 커밋**: 디버깅·롤백·코드 리뷰 비용 폭증. 거부.\n- **8단계 모두 직렬**: Step 6 단위 테스트가 Step 3·4·5 종료 후 한꺼번에 작성되면 통합 시점 거대 회귀 블록 발생. TDD-식 동시 작성이 안전. 거부.\n\n### 본 사이클 acceptance\n1. `bun test` 모든 영역 통과(기존 + 신규).\n2. `bun tsc --noEmit` 통과.\n3. biome lint/format 통과.\n4. 실제 앱(`bun dev`)에서 검색 시 \"X results in Y files\"의 Y > 0 확인.\n5. round-trip 통합 테스트가 \"0 files\" 시나리오를 명시적으로 검출."
+          }
+        ],
+        "research_summary": "## 사전 분석 (이전 대화에서 완료)\n\n**버그 원인 (verified)**: requestId 두 네임스페이스 불일치\n- store는 crypto.randomUUID()로 session.requestId 생성 (search.ts:211)\n- ipc client는 별도 `renderer-N` requestId 생성 (client.ts:18-20)\n- main이 `ctx.requestId`(=`renderer-N`)로 broadcast (search-handlers.ts:30,38)\n- store가 broadcast.requestId(`renderer-N`) vs session.requestId(UUID) 매칭 → 항상 fail → batch silently drop (search.ts:113)\n- finishSearch는 클로저 변수로 동작해서 matchesFound:4만 전달됨 → \"4 results in 0 files\"\n\n**구조적 진단 (verified by code grep)**: broadcast 사용처 전수 조사 결과 search만 transport requestId를 도메인 매칭에 사용하는 이질적 패턴. 다른 채널은 모두 도메인 식별자(workspaceId/tabId/uri)로 상관관계.\n- src/main/index.ts:38, file-watcher.ts:155 (workspaceId)\n- pty.ts:16,21 (tabId)\n- lsp.ts:65 (apply-edit-N — main이 생성한 도메인 id, 별도 round-trip 패턴)\n- lsp.ts:103 (uri)\n- fs/search-handlers.ts:38 (transport requestId — 유일 이질)\n\n**향후 streaming 사용처 (사용자 확인)**: find&replace, quick-open/인덱싱, git 패널. Rule of Three 충족 → 프리미티브 시민화 정당화.\n\n**경로 결정 (사용자 승인)**: Path X — ipcStream 프리미티브 먼저 만들고 search 마이그레이션을 같은 사이클에 묶음. A안(streamId-in-args 핫픽스) 건너뜀.\n\n**현행 구조 파악**:\n- ipc-contract.ts: `call(args, result)` / `listen(args)` 두 가지 procedure descriptor. 모두 zod 기반. searchText/searchProgress는 이 모델로 정의됨.\n- preload bridge (preload/index.ts): `window.ipc = { call, cancel, listen, off }`. `ipc:event` 단일 구독을 demultiplex하는 listeners Map 보유.\n- router.ts: `setupRouter`가 ipc:call/ipc:cancel handle. broadcast는 `webContents.getAllWebContents()` 일괄 송신. `CallContext = { requestId?, signal? }`.\n- types.ts: contract 추론으로 CallChannels/ListenChannels/CallArgs/CallReturn/ListenArg 생성.\n\n**Bun mock 컨벤션 (memory에서 확인)**: DI-first / leaf-only mock.module / `*Deps` seam 노출 / real export spread. ipcStream 테스트 시 ipc client/router는 leaf로 mock.module 가능, 도메인 모듈은 deps seam 권장.\n\n**제약**: subscription 모델(fs.changed/pty.data/lsp.diagnostics)·lsp.applyEdit·기존 ipcCall non-streaming 호출 모두 영향 없어야 함. biome lint, bun test 통과.\n\n이슈 7건은 architect와 함께 깊이 분석하고 Lead가 이들의 결과를 종합해 자율적으로 결정합니다.",
+        "created_at": "2026-05-08T13:06:54.871Z"
+      },
+      "tasks": []
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-09T13:50:44.887Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 27,
+        "topic": "Per-workspace Source Control (Git) panel — v1 implementation",
+        "issues": [
+          {
+            "id": 1,
+            "title": "v1 feature scope — which operations, status groups, status codes mirror VSCode (and what is explicitly out)",
+            "status": "decided",
+            "decision": "**v1 scope is intentionally narrow: a usable single-repo Source Control panel mirroring vscode's mental model, with everything that needs auth, multi-repo, or hunk-level granularity deferred.**\n\n**Operations included (10):** stage (per file), unstage (per file), discard changes (per file), stage-all-in-group, unstage-all-in-group, commit, fetch, pull, push, checkout existing branch, create branch. Stash + stash pop are added because vscode research called them out as standard SCM verbs and they're cheap (one CLI invocation each); they live in the more-menu, not the toolbar.\n\n**Status groups (4):** Merge (conflicts) · Staged (Index) · Changes (Working Tree, tracked) · Untracked. Empty groups are hidden (designer Q3) so the panel doesn't carry four 0-count headers at our 240–360 px width.\n\n**Status codes surfaced:** M, A, D, R, C in Index; M, D, T (type-changed) in Working Tree; ? in Untracked; ! for any conflict cell (vscode's BOTH_*, ADDED_BY_*, DELETED_BY_* all collapse to one symbol — full conflict resolution UI is v2). Renames are reported as a single row with old→new path, not two rows.\n\n**Diff:** clicking any changed row opens a Monaco DiffEditor in a new tab (issue 6 decision). No inline diff in the panel.\n\n**Branch chrome:** current branch + ahead/behind in a panel-local 28 px footer (designer Q5). No global status bar.\n\n**Explicitly out of v1** — not \"missing features\" but conscious cuts to keep the surface tractable: submodules, multi-repo per workspace, nested repos, LFS, GitHub PR integration, askpass / credential helper UI, hunk staging, blame, history/log visualization (the IPC `git.log` stream lands but a graph UI does not — first consumer is just the diff tab's \"previous version\" button), tag and remote management, merge/rebase/cherry-pick orchestration, conflict-resolution UI inside the panel (we send users to the diff editor; resolved-then-staged is the supported flow), commit-message linting / Conventional-Commit enforcement, .gitconfig editing, sign-off / GPG signing toggles.\n\n**Rationale.** The vscode git extension exposes ~40 OperationKind values and ~5 KLOC of commands; mirroring all of that for a v1 dilutes the \"small-files / SRP\" principle in `mission.md` and risks shipping a thin layer over each. The 10 ops above are the verbs a user uses in 95% of their daily Git interaction; everything cut is either auth-blocked (push-with-credentials), needs UI we'd have to invent (hunk staging, history graph), or is a power-user accelerator that the in-app terminal can already cover (rebase/cherry-pick).\n\n**Rejected alternatives.** (a) Mirror vscode 1-for-1 — too large, too much UI we'd have to design; (b) ship status-only \"read-only\" v1 — wastes the IPC scaffolding cost when commit/stage are the primary verbs anyway; (c) include push/pull/auth in v1 — askpass IPC is ~500 LOC in vscode and inflates scope (see issue 8 decision); we ship push/pull but only for repos where credentials are already configured (HTTPS cached creds / SSH agent), surface stderr on auth failure.\n\n**Assumptions.** Users currently rely on a separate terminal for advanced ops; the panel does not need to be a complete git client. Stash is included rather than deferred because the cost is one extra CLI call and one menu entry — it pays for itself any day the user wants to switch branches with dirty state."
+          },
+          {
+            "id": 2,
+            "title": "Git binary access strategy — child_process spawn vs library, locating git, per-repo serialization",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommend shelling out to system `git` via child_process.spawn, wrapped in a per-workspace `GitRepository` class owning a serial promise chain. No utility-process host (LSP/PTY pattern overkill for short-lived ops). Locate binary by (1) state.gitPath override, (2) `which git`/`where git` on first detection, (3) `/usr/bin/git` fallback. Reject isomorphic-git (drift on credential helpers/hooks/.gitattributes), simple-git (still spawns + hides behavior), nodegit (Electron ABI rebuild pain). Risks: no git on PATH → disable panel; long output OOM → stream stdout for log/diff; hung askpass → spawn with GIT_TERMINAL_PROMPT=0 + GIT_ASKPASS=echo + AbortSignal kill. Files: src/main/git/{git-binary.ts, git-process.ts, git-repository.ts, git-error.ts}. Conditions/warnings: every git invocation goes through the queue (no read-only bypass) — concurrent checkout would otherwise tear getFileContent.",
+                "recorded_at": "2026-05-09T12:12:31.600Z",
+                "agent_id": "aafba63780eedd360"
+              }
+            ],
+            "decision": "**Shell out to the system `git` binary via `child_process.spawn`, wrapped in a per-workspace `GitRepository` class that owns a serial promise chain. No utility-process host.**\n\nPer the architect's analysis: vscode shells out for a reason — the system git is the only implementation that respects every user-side `.gitconfig`, credential helper, hook, and `.gitattributes` rule. Git invocations are short-lived (tens to hundreds of ms), so the LSP/PTY utility-process pattern adds IPC ceremony without payoff. A per-repo serial chain (every invocation flows through `GitRepository.queue(...)`) is enough for v1; cross-repo runs in parallel.\n\n**Binary location:** (1) `state.gitPath` override (settable but no UI in v1), (2) `which git` / `where git` resolved on first detection (issue 3), (3) `/usr/bin/git` fallback on macOS/Linux. Cache the resolved `{path, version}` on a process-level singleton; if no git found, the panel renders a single-line \"Git not found on PATH\" notice and offers no operations.\n\n**Concurrency:** every git invocation goes through `GitRepository.queue(...)` — no read-only fast path. Concurrent `checkout` would otherwise tear `getFileContent` for the diff tab. Cross-repo parallelism is fine.\n\n**Process hygiene:** spawn with `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=echo`, `GIT_FLUSH=1`. AbortSignal kills the child. Stdout is streamed for `log` and `diff` (see issue 4 streams), buffered with a 10 MB cap for `status --porcelain=v2` and `getFileContent`.\n\n**Rejected alternatives.** isomorphic-git (pure JS, but credential-helper / hooks / .gitattributes parity is a moving target — drift risk); simple-git (still spawns git underneath, adds a third-party dep that hides behavior we want to control); nodegit (native build, Electron ABI rebuild pain, unmaintained-ish); utility-process git-host (gains nothing — git is already a separate OS process; double-forking adds latency and IPC). The decision is explicitly *reversible* — `GitRepository` is process-agnostic; if huge `git log` ever blocks the main loop in practice, we can swap the implementation behind the same interface.\n\n**Files this decision creates:** `src/main/git/git-binary.ts` (resolver), `src/main/git/git-process.ts` (`runGit` + `streamGit`), `src/main/git/git-repository.ts` (the queued repo class), `src/main/git/git-error.ts` (typed error with code/stderr/argv)."
+          },
+          {
+            "id": 3,
+            "title": "Repository detection & per-workspace lifecycle — when to detect, what to do for non-repo workspaces, init/clone flows",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommend lazy detection on first activation of the SCM panel via `git rev-parse --show-toplevel --git-dir`, cached on WorkspaceContext as `RepoInfo = { kind: \"repo\" | \"non-repo\" | \"detecting\" }`. Re-detect on three triggers: (1) renderer-initiated `git.init` call, (2) external `.git` creation observed by GitWatcher, (3) explicit `git.refreshDetection` call. Non-repo workspaces show panel with single CTA: Initialize Repository (no silent hide). Cache lives on `GitRegistry`, disposed via existing `wrappedBroadcast` workspace:removed pattern. Reject: eager detect on workspace add (waste), eager on app start (cold start), watcher-only (invisible until something changes). Risks: repo root above workspace root → use `--show-toplevel` as truth (document fs vs git path mismatch); nested repos → out of v1, treat as non-repo; race on panel-open-before-detect → return \"detecting\" → renderer skeleton. Files: src/main/git/{git-detect.ts, git-registry.ts}.",
+                "recorded_at": "2026-05-09T12:12:39.726Z",
+                "agent_id": "aafba63780eedd360"
+              }
+            ],
+            "decision": "**Detect lazily on first activation of the SCM panel for a workspace; cache a tri-state `RepoInfo` on a new `GitRegistry` keyed by workspaceId; non-repo workspaces show the panel with one CTA — Initialize Repository.**\n\nPer the architect's analysis: detection runs `git rev-parse --show-toplevel --git-dir` from `workspaceRoot`. The result is `RepoInfo = { kind: \"repo\"; gitDir; topLevel } | { kind: \"non-repo\" } | { kind: \"detecting\" }` and is cached on `GitRegistry` until invalidated. Three invalidation triggers: (a) renderer-initiated `git.init` call, (b) external `.git/HEAD` creation observed by `GitWatcher` (issue 5), (c) explicit `git.refreshDetection` call (used by the more-menu's Refresh entry).\n\n**Lifecycle:** `GitRegistry` is a singleton constructed in `main/index.ts` after `WorkspaceManager.init()`. Disposal hooks into the existing `wrappedBroadcast` `workspace:removed` interception — same shape as `FileWatcher.disposeWorkspace`. On disposal, in-flight git invocations are aborted via the `GitRepository` queue's signal, and the `GitWatcher` for that gitDir is torn down.\n\n**Workspace-root vs. repo-root discrepancy:** `--show-toplevel` is the source of truth for git operations; `workspaceRoot` remains the source of truth for fs operations. If the user opens a subdirectory of a larger repo, staging affects the parent repo — documented at the top of `git-repository.ts` and surfaced in the panel's footer tooltip (\"Repository at /full/path\"). Nested repos discovered later (i.e., a `.git` inside `topLevel`) are ignored in v1; they fall through to `non-repo` UX from the parent's perspective.\n\n**UX for non-repo:** the panel always renders so the icon never appears dead — a centered uppercase caption + Initialize Repository pill button (designer Q6). Initialize calls `git init` on `workspaceRoot`, then re-runs detection.\n\n**Rejected alternatives.** Eager detection at workspace add (pays the spawn cost N times for panels never opened — most users have many workspaces); detection at app start (amplifies cold-start latency for a feature nothing depends on before panel mount); watcher-only detection (reactive but invisible until something changes — bad first paint); silently hiding the git icon for non-repos (poor discoverability + breaks the workspace-uniformity invariant the project values).\n\n**Risks & mitigations.** Race where the panel opens before detection resolves → return `kind: \"detecting\"` and the renderer shows a skeleton (designer Q6); `git init` from a terminal tab inside the workspace → caught by the `GitWatcher` `.git/HEAD` watch and triggers re-detection automatically.\n\n**Files this decision creates:** `src/main/git/git-detect.ts` (one-shot detector), `src/main/git/git-registry.ts` (the workspaceId-keyed registry)."
+          },
+          {
+            "id": 4,
+            "title": "IPC contract shape for git channel — call/listen/stream mix, workspaceId routing, schema for status/diff/log",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommend single `git` channel mirroring fs's call/listen/stream split. `getStatus` is a one-shot CALL (snapshot) — pushed updates flow via LISTEN `statusChanged` keyed by workspaceId. Operations don't return new status; main pushes statusChanged after post-op refresh — single source of truth. Streams reserved for paginated/cancellable work (log, diff). Calls: getRepoInfo, init, getStatus, stage, unstage, discardChanges, commit, checkout, getFileContent. Listens: repoInfoChanged, statusChanged. Streams: log, diff. Reject: getStatus as long-lived listen (duplicates cleanup lifecycle), bundling commit result with status (two refresh paths to keep aligned), one stream per op (commit/stage finish <100ms — stream framing is overhead). Risks: statusChanged storms → per-workspace coalescer 100ms in main; renderer subscribed to inactive workspace → filter by workspaceId. Files: src/shared/types/git.ts (schemas), src/main/ipc/channels/git/{index.ts, repo-handlers.ts, status-handlers.ts, stage-handlers.ts, commit-handlers.ts, content-handlers.ts, log-stream.ts, diff-stream.ts}, src/renderer/state/stores/git.ts.",
+                "recorded_at": "2026-05-09T12:12:49.273Z",
+                "agent_id": "aafba63780eedd360"
+              }
+            ],
+            "decision": "**Single `git` channel mirroring `fs`'s call/listen/stream split. `getStatus` is a one-shot CALL; pushed updates flow via a LISTEN `statusChanged` keyed by workspaceId. Long-running paginated/cancellable operations are STREAMs.**\n\nPer the architect's analysis. Final surface:\n\n```ts\ngit: {\n  call: {\n    getRepoInfo:    call({ workspaceId },                       RepoInfoSchema),\n    init:           call({ workspaceId },                       RepoInfoSchema),\n    getStatus:      call({ workspaceId },                       GitStatusSchema),\n    stage:          call({ workspaceId, relPaths: string[] },   z.void()),\n    unstage:        call({ workspaceId, relPaths: string[] },   z.void()),\n    discardChanges: call({ workspaceId, relPaths: string[] },   z.void()),\n    commit:         call({ workspaceId, message, amend?, signoff? }, { sha }),\n    checkout:       call({ workspaceId, ref },                  z.void()),\n    createBranch:   call({ workspaceId, name, checkout? },      z.void()),\n    listBranches:   call({ workspaceId },                       BranchListSchema),\n    fetch:          call({ workspaceId, remote? },              z.void()),\n    pull:           call({ workspaceId },                       PullResultSchema),\n    push:           call({ workspaceId, force? },               PushResultSchema),\n    stash:          call({ workspaceId, message? },             z.void()),\n    stashPop:       call({ workspaceId },                       z.void()),\n    getFileContent: call({ workspaceId, ref, relPath },         FileContentSchema),\n  },\n  listen: {\n    repoInfoChanged: listen({ workspaceId, info: RepoInfoSchema }),\n    statusChanged:   listen({ workspaceId, status: GitStatusSchema }),\n  },\n  stream: {\n    log:  stream({ workspaceId, ref?, skip?, limit? }, LogChunkSchema, LogCompleteSchema),\n    diff: stream({ workspaceId, spec: DiffSpec },      DiffChunkSchema, DiffCompleteSchema),\n  },\n}\n```\n\n**Why this shape.** Mutations don't return a fresh status — main pushes `statusChanged` after the post-op refresh, giving the renderer one source of truth. The four extra calls beyond the architect's draft (`listBranches`, `fetch`, `pull`, `push`, `createBranch`, `stash`, `stashPop`) are the v1 ops from issue 1 not covered in the original sketch; `pull`/`push` return a small typed result so the renderer can show \"pushed N commits\" or surface a typed conflict/auth error without re-running status. `log` and `diff` are streams because they're cancellable and can grow large; everything else finishes in <100 ms and stream framing would be overhead.\n\n**Schemas land in `src/shared/types/git.ts`** before any handler — typed surface gates implementation. Reused: `FileContentSchema` from `src/shared/types/fs.ts`. New: `RepoInfoSchema`, `GitStatusSchema` (entries grouped by Merge/Index/WorkingTree/Untracked, each entry carries `relPath`, `oldRelPath?` for renames, `xy` two-letter porcelain code), `BranchListSchema`, `PullResultSchema`, `PushResultSchema`, `DiffSpec` discriminated union (`{ kind: \"wt-vs-index\" | \"index-vs-head\" | \"wt-vs-head\" | \"ref-vs-ref\"; ... }`), `LogEntrySchema`, `LogChunkSchema`/`LogCompleteSchema`, `DiffChunkSchema`/`DiffCompleteSchema`.\n\n**Rejected alternatives.** `getStatus` as long-lived `listen` activated per workspace (duplicates the cleanup lifecycle the existing `registerWorkspaceCleanup` already covers); bundling `commit` result with new status (creates two refresh paths — call result + broadcast — that must stay aligned forever); one stream per operation including commit/stage/etc. (commit/stage finish in <100 ms — stream framing is needless overhead). A separate `git.operationProgress` listen was considered for showing a footer spinner during pull/push, but the call's pending Promise already serves that purpose in the renderer store; we don't need a parallel channel.\n\n**Risks & mitigations.** `statusChanged` storms during `git fetch`/`git pull` → main coalesces with a 100 ms trailing debounce per workspace (issue 5). Renderer subscribed to a workspace it isn't currently displaying → broadcast-and-filter by `workspaceId`; cleanup happens via `registerWorkspaceCleanup`. Schema drift over time → the `GitStatusSchema` is the single contract; any UI that wants extra fields adds them to the schema, not to a side channel.\n\n**Files this decision creates:** `src/shared/types/git.ts`, `src/main/ipc/channels/git/{index.ts, repo-handlers.ts, status-handlers.ts, stage-handlers.ts, commit-handlers.ts, branch-handlers.ts, sync-handlers.ts, stash-handlers.ts, content-handlers.ts, log-stream.ts, diff-stream.ts}`. The contract block in `src/shared/ipc-contract.ts` is added before any handler."
+          },
+          {
+            "id": 5,
+            "title": "Status refresh strategy — .git/ file watcher integration, debounce, manual + post-op refresh",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommend dedicated `GitWatcher` per repo (separate from FileWatcher). Watches gitDir/HEAD, gitDir/index, gitDir/refs/, gitDir/MERGE_HEAD via one chokidar instance per repo with depth:2 rooted at gitDir. Working-tree changes piggyback on existing `fs.changed` broadcast — renderer's git store treats it as a hint to call `getStatus`. Post-op handlers (commit/stage/etc.) explicitly invoke `repository.refreshStatus()` BEFORE returning so broadcast lands ahead of call resolution — no UI lag waiting on watcher. Three triggers (post-op + watcher + fs.changed hint) all converge on a single per-workspace coalescer (100ms trailing debounce) that runs `getStatus` and broadcasts. Reject: extending FileWatcher (violates depth:0 single contract, forces conditional ignore logic), watcher-only refresh (50–500ms perceptible lag after commit), polling on a timer (wasteful + still laggy). Risks: refs/ churn on fetch → debounce + dedupe by (workspaceId, gitDir); index.lock files → ignore *.lock; watcher leak on workspace removal → register with wrappedBroadcast same as FileWatcher. Files: src/main/git/{git-watcher.ts, status-coalescer.ts}.",
+                "recorded_at": "2026-05-09T12:12:58.448Z",
+                "agent_id": "aafba63780eedd360"
+              },
+              {
+                "role": "retrospective",
+                "summary": "End-of-cycle architecture review found three v1 blockers (no fs.changed-driven git status refresh, manual refresh could not re-detect cached non-repos, and path-only discard could erase both sides of MM files). Task 23 resolved them by adding git.refreshDetection, passive renderer fs.changed status hints, source-scoped discard semantics, and real-git tests for refreshDetection plus MM discard safety. Re-review passed with no remaining blockers in the blocker-fix scope.",
+                "recorded_at": "2026-05-09T13:50:33.272Z"
+              }
+            ],
+            "decision": "**A dedicated `GitWatcher` per repo (separate from `FileWatcher`) watches `.git/HEAD`, `.git/index`, `.git/refs/`, `.git/MERGE_HEAD` via one chokidar instance with depth:2 rooted at `gitDir`. All refresh triggers (post-op, watcher, fs.changed hint) converge on a single per-workspace `StatusCoalescer` (100 ms trailing debounce) that runs `getStatus` and broadcasts `statusChanged`. Post-op handlers explicitly invoke `repository.refreshStatus()` BEFORE returning so the broadcast lands ahead of call resolution — no UI lag waiting on the watcher.**\n\nPer the architect's analysis. The \"no extending FileWatcher\" call is correct: `FileWatcher`'s contract is `depth:0` per absolute directory + ignore HIDDEN_NAMES (which already excludes `.git`), and bending it to also track `.git/` would force conditional ignore logic and a depth exception per call — a clear SRP violation. Two collaborators with one shape each beats one collaborator with two shapes.\n\n**De-dup strategy.** Three triggers fire status refreshes: (a) post-op proactive (`commit`, `stage`, `unstage`, `discardChanges`, `checkout`, `pull`, `push`, `fetch`, `stash*`, `createBranch`); (b) `GitWatcher` `.git/`-dirty events; (c) renderer-side `fs.changed` events for working-tree files (the renderer treats this as a hint and calls `getStatus` itself — main does not push on every fs change, only on `.git/`-internal events). The `StatusCoalescer` collapses (a) and (b) by `workspaceId` with a 100 ms trailing debounce; (c) is a renderer-side concern and uses the same `getStatus` call, which the coalescer will collapse if a watcher event lands at the same moment.\n\n**Watch list specifics.** `HEAD` (HEAD ref movement → checkout), `index` (staging changes), `refs/heads/`, `refs/remotes/` (branch creates/deletes, fetch updates), `MERGE_HEAD`/`REBASE_HEAD`/`CHERRY_PICK_HEAD` (merge state). Ignore `*.lock` basenames (chokidar fires on `index.lock` write/unlink during every git op). Ignore `objects/` and `logs/` entirely — too noisy and irrelevant to status.\n\n**Rejected alternatives.** Extend `FileWatcher` (violates depth:0 single contract); watcher-only refresh (50–500 ms perceptible lag after commit — bad UX); periodic poll of `git status` (wasteful, still laggy, and our serial queue would interleave it badly with user ops); coalescing inside each handler (forces every handler to know about every other — pulls cross-cutting logic into op code).\n\n**Risks & mitigations.** `refs/` directory churn during `git fetch` (every ref update fires a chokidar event) → coalescer absorbs the burst at 100 ms. `index.lock` write/unlink storms during every op → ignore basename match. Watcher leak on workspace removal → `GitWatcher.disposeWorkspace(id)` registered with the existing `wrappedBroadcast` interception in `main/index.ts`, same shape as `FileWatcher`. Race where post-op refresh completes before watcher debounce fires (resulting in a duplicate status broadcast) → the coalescer is keyed by `workspaceId`, so the second trigger collapses into the first while it is in flight; if a new trigger arrives mid-flight, we re-run.\n\n**Files this decision creates:** `src/main/git/git-watcher.ts` (chokidar wrapper, broadcast-emit on dirty), `src/main/git/status-coalescer.ts` (per-workspaceId trailing debouncer that runs `repository.refreshStatus`). Wiring: `GitWatcher` is constructed in `main/index.ts` and registered with `wrappedBroadcast` for `workspace:removed`; `GitRegistry.refreshStatus(workspaceId)` is the convergence point — every trigger calls it, the coalescer rate-limits, the result broadcasts via `git.statusChanged`."
+          },
+          {
+            "id": 6,
+            "title": "Diff view integration — Monaco diff editor wiring, content source (git show vs cached), URI/scheme model",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommend Monaco DiffEditor in a new editor tab with new tab subtype `editor.diff` (discriminated union extension on TabMeta). Compare content from in-memory string returned by `git.getFileContent({ workspaceId, ref, relPath })` (left = HEAD/INDEX); right uses existing `fs.readFile` for working-tree (or git show :ref for INDEX). Diff tab subscribes to `fs.changed` + `git.statusChanged` to refetch on change. Reject: inline diff in panel (couples lifecycle, can't multi-diff), single-file editor with decorations only (doesn't show against HEAD), virtual `git://` URI scheme (custom protocol handler + cache invalidation = large surface for v1 with no benefit over a typed call), temp files (cleanup risk on crash, cross-platform path quirks). Risks: large files → cap getFileContent at ~10MB, typed error → renderer shows \"too large to diff\"; binary files → use existing binary-detect.ts → render placeholder; refresh race → version each side (mtime/oid), only apply newer responses; tab leaks → existing tab cleanup by workspaceId already covers. Files: src/shared/types/tab.ts (extend union to include \"editor.diff\" with DiffTabPayload), src/renderer/components/editor/{diff-tab.tsx, diff-content-loader.ts}, src/renderer/state/stores/tabs.ts (openDiffTab).",
+                "recorded_at": "2026-05-09T12:13:09.113Z",
+                "agent_id": "aafba63780eedd360"
+              }
+            ],
+            "decision": "**Open a Monaco `DiffEditor` in a new editor tab with a new tab subtype `editor.diff`. Compare content comes from in-memory strings: left side via `git.getFileContent({ workspaceId, ref, relPath })`, right side via the existing `fs.readFile` (working-tree) or `git.getFileContent` for the index. No virtual `git://` URI scheme. No temp files. The diff tab subscribes to `fs.changed` + `git.statusChanged` and refetches on changes affecting its `relPath`.**\n\nPer the architect's analysis. The tab subtype is a discriminated extension on `TabMeta`, not a string convention — added to `src/shared/types/tab.ts`. `DiffTabPayload = { workspaceId; relPath; leftRef: \"HEAD\" | \"INDEX\" | string; rightRef: \"WORKING\" | \"INDEX\"; oldRelPath?: string }`. Renames open with both paths visible in the tab title and labelled left/right.\n\n**Why a new tab and not an inline panel diff.** vscode's full diff editor is the user's mental model; a 240–360 px panel cannot host a usable side-by-side Monaco instance, and an inline single-pane diff is materially worse than what we already have when the user clicks a regular file. Reusing the existing tab system also means the diff tab inherits workspace-scoped tab cleanup (closeAllForWorkspace) for free.\n\n**Why typed call instead of `git://` URI scheme.** A custom Electron protocol handler (`protocol.handle(\"git\", …)`) would have to wire URI parsing, content loading, cache invalidation on `git.statusChanged`, and probably a custom `model.uri` strategy for Monaco. That's hundreds of lines of plumbing for v1 with no advantage over a typed `getFileContent` call that returns a string. The architect's call is correct: small typed surface > large generic surface, especially when the only consumers are the diff tab and (future) the editor's \"go to git original\" command.\n\n**Live-update strategy.** Diff tab keeps a per-side version token (`leftSideOid`, `rightSideMtime`). On `fs.changed` containing `relPath`, refetch the right side. On `git.statusChanged` for the workspace, refetch the left side (HEAD/INDEX content can move when the user commits or stages). Apply a fetch only if the response token is newer than what's currently displayed — a slow response from a stale fetch never overwrites a fresh one.\n\n**Edge cases.**\n- *Large files* — `getFileContent` caps at 10 MB and throws a typed error; renderer shows \"File too large to diff.\" Configurable later, not in v1.\n- *Binary files* — main calls existing `binary-detect.ts`; if either side is binary, return `{ binary: true }` and the renderer renders a placeholder with file size, not a Monaco model.\n- *File deleted on the right* — left renders the HEAD content, right renders empty with a \"(deleted)\" placeholder.\n- *File added on the right* — left renders empty with a \"(new file)\" placeholder, right renders the working content.\n- *Renames* — title shows `oldRelPath → relPath`; left side fetches `getFileContent({ ref: \"HEAD\", relPath: oldRelPath })`.\n\n**Rejected alternatives.** Inline diff in the SCM panel (couples lifecycle to the panel, can't open multiple diffs); single-file editor with gutter decorations only (doesn't show \"what changed against HEAD\" — the core SCM task); virtual `git://` URI scheme (large protocol-handler + cache-coherence surface, no v1 benefit); writing temp files (cleanup risk on crash, cross-platform path quirks, makes workspace deletion non-atomic).\n\n**Risks & mitigations.** Refresh races (file changes mid-diff and two responses arrive out of order) → version each side, only apply newer; tab leaks on workspace removal → existing tab cleanup handles by workspaceId; diff editor instantiation cost (Monaco's DiffEditor is heavier than the editor) → lazy-load the diff tab component, share the Monaco instance from `@monaco-editor/react`.\n\n**Files this decision creates:** `src/shared/types/tab.ts` (extend the union to include `\"editor.diff\"` with `DiffTabPayload`), `src/renderer/components/editor/diff-tab.tsx`, `src/renderer/components/editor/diff-content-loader.ts` (the dual-side fetch + version-tracking hook), `src/renderer/state/operations/tabs.ts` gains `openDiffTab(workspaceId, relPath, leftRef, rightRef, oldRelPath?)`. The `git.getFileContent` call is added in issue 4's contract."
+          },
+          {
+            "id": 7,
+            "title": "Renderer state and UI structure — zustand store shape, panel sections (commit input + groups + file rows), workspace-cleanup hookup",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Panel layout (top-down): mode-bar (existing) → 32px GitHeader (uppercase \"SOURCE CONTROL\" caption + refresh icon + overflow), → GitCommitInput (autosize textarea ABOVE groups, ⌘Enter triggers, full-width split Commit button below with Amend/Commit & Push in chevron) → group sections (only non-empty groups shown — Merge/Staged/Changes/Untracked, 28px headers with chevron+label+count+hover-revealed group actions) → 28px GitBranchBar footer (branch name truncate-end, ↓N ↑M only when non-zero, Sync button consolidates push+pull, more-menu retains explicit Push/Pull/Fetch). File rows: 24px tall (matches search/file-tree row), 4 zones — status badge + filename (front-truncated via direction:rtl) + hover/focus-revealed inline actions + trailing slot. Default click = open Monaco DiffEditor tab; second click = focus existing tab (no toggle); reveal-in-tree only via right-click (no surprise side effects). Status badge token map: M/T→warning, A/?→success, D→destructive, R/C→muted-foreground, !→destructive+bg/10 (letter is primary signifier, color secondary for a11y). Empty/non-repo state: centered \"NOT A GIT REPOSITORY\" caption + Initialize Repository pill button. Components to create: GitPanel, GitHeader, GitMoreMenu, GitCommitInput, GitCommitButton, GitGroup, GitGroupHeader, GitFileRow, GitStatusBadge, GitBranchBar, GitBranchPopover, GitInlineBanner, GitEmptyState, GitLoadingSkeleton, useGitSession, useGitOpHotkey, confirmDiscardDialog. Keyboard contract: Tab order header→commit→groups→rows; Enter=open diff, Space=toggle stage, Backspace=discard with confirm, ⌘Enter=commit. Warnings: text-success contrast on bg-frosted-veil-strong must be measured at impl time; hover-only actions must also reveal on row focus; sync conflates push/pull → keep explicit entries in more-menu. Out of v1: hunk staging, blame, file-history graph, branch graph, conflict resolution UI in panel, tag/remote management, PR integration, commit-message linting, global status bar.",
+                "recorded_at": "2026-05-09T12:13:27.565Z",
+                "agent_id": "a132421f910db2c53"
+              }
+            ],
+            "decision": "**Adopt the designer's full layout: 32 px GitHeader → autosize GitCommitInput with split Commit button → only-non-empty groups in order Merge/Staged/Changes/Untracked → 28 px GitBranchBar footer. Renderer state lives in a new `useGitStore` zustand store keyed by workspaceId, mirroring `useSearchStore`'s session-map shape and registering `closeAllForWorkspace` with `registerWorkspaceCleanup`.**\n\n**Layout specifics (per designer Q1–Q5).**\n- *GitHeader (32 px)*: uppercase \"SOURCE CONTROL\" caption (`text-small-label uppercase tracking-[2.4px]`) + refresh icon button + overflow icon. More-menu carries Stash, Stash pop, Fetch, Pull, Push, Checkout…, Create branch…, Initialize / open in terminal, Discard all (with confirm).\n- *GitCommitInput (above groups)*: 3-line autosize textarea, full-width split button below — primary `Commit`, chevron offers `Amend last commit`, `Commit & Push`, `Commit Staged`. ⌘Enter from anywhere in the panel triggers primary. Empty/no-staged/committing states per Q2.\n- *Group headers (28 px)*: chevron + label + count + hover/focus-revealed group-level actions (Stage all / Unstage all / Discard all). Empty groups hidden entirely.\n- *File rows (24 px)*: status badge (16 px) + RTL-truncated path (`direction:rtl;text-align:left;unicode-bidi:plaintext`) + hover/focus-revealed inline actions + tooltip with full path + `aria-label` carrying the full path for screen readers. Default click opens the diff tab; right-click menu offers Open File, Reveal in File Tree, Stage/Unstage, Discard.\n- *GitBranchBar (28 px footer)*: branch name (truncate-end) · `↓N ↑M` only when non-zero · button label adapts: `Sync` (both), `Push` (only ahead), `Pull` (only behind), disabled with \"Up to date\" tooltip when zero.\n\n**Status badge token map (per designer):** M/T → `text-warning` · A/? → `text-success` · D → `text-destructive` · R/C → `text-muted-foreground` · ! → `text-destructive` + subtle `bg-destructive/10`. Single-letter glyph is the primary signifier; color is supplementary so colorblind users aren't dependent on hue. **Pre-impl verification:** measure `text-success` contrast on `bg-frosted-veil-strong` (the row hover background) — if it falls below 4.5:1, drop hover background opacity for status-bearing rows or shift status to bold weight (designer's flagged warning).\n\n**Keyboard contract.** Tab order: header buttons → commit input → commit button → group headers → file rows. Within a row: Enter opens the diff, Space toggles staged/unstaged, Backspace discards (with confirm), ⌘Enter commits from anywhere. Hover-revealed inline actions also become visible on row focus. Esc from commit input blurs to previous focus; Esc on a row clears row selection. `confirmDiscardDialog` uses `role=\"alertdialog\"` with default focus on Cancel for destructive actions.\n\n**State shape.**\n```ts\ninterface GitSession {\n  repoInfo: RepoInfo;          // detecting | non-repo | repo\n  status: GitStatus | null;    // last broadcast\n  statusFetching: boolean;\n  branchInfo: { current: string; ahead: number; behind: number; upstream: string | null } | null;\n  commitDraft: string;         // persisted (issue 9)\n  expandedGroups: Record<\"merge\" | \"staged\" | \"working\" | \"untracked\", boolean>;\n  inFlightOp: { kind: \"commit\" | \"push\" | \"pull\" | …; startedAt: number } | null;\n  lastError: { kind: string; message: string; details?: string } | null;\n}\nconst useGitStore = create<{ sessions: Map<workspaceId, GitSession>; … }>(…);\n```\n\nThe store subscribes to `git.statusChanged` and `git.repoInfoChanged` once at module init (single IPC subscription, fan-out by workspaceId). It registers `closeAllForWorkspace` with `registerWorkspaceCleanup` so a removed workspace's session disappears together with its in-flight op AbortController (mirrors `useSearchStore`).\n\n**Components to create (designer-named):** `GitPanel`, `GitHeader`, `GitMoreMenu`, `GitCommitInput`, `GitCommitButton`, `GitGroup`, `GitGroupHeader`, `GitFileRow`, `GitStatusBadge`, `GitBranchBar`, `GitBranchPopover`, `GitInlineBanner`, `GitEmptyState`, `GitLoadingSkeleton`. Hooks: `useGitSession(workspaceId)`, `useGitOpHotkey()`, plus reuse of the existing `useLoaderDelay` (no new git-specific delay hook). Plus `confirmDiscardDialog`.\n\n**Mounting wiring.** `FilesPanel` already routes `mode === \"git\"` to `ComingSoon`; this decision replaces that branch with `<GitPanel workspaceId={activeWorkspace.id} />`.\n\n**Rejected alternatives.** Branch chrome in the header (fails the legibility check at 240 px when squeezed against refresh + overflow); show all four groups always (predictable but wastes vertical real estate when 2–3 are typically empty); single-button Commit (loses the Amend/Commit-and-Push affordance for power users — split button costs little and earns its width); inline diff in the panel (rejected upstream in issue 6); auto-reveal file in tree on diff click (surprise side-effect on a different panel — violates locality); a separate global status bar (out of v1 scope, the panel-local footer covers branch/sync needs).\n\n**Out of v1 (designer):** inline diff hovers on rows, hunk staging, blame, history graph, conflict-resolution UI in the panel (we send users to the diff tab; resolved-then-staged is the supported flow), tag/remote management, PR integration, commit-message linting / Conventional Commits enforcement, global status bar, new accent colors or typefaces."
+          },
+          {
+            "id": 8,
+            "title": "Authentication for push/pull — defer to v2 with surface-error stub, or include minimal askpass",
+            "status": "decided",
+            "decision": "**Defer interactive auth (askpass / credential helper UI) to v2. v1 ships push/pull/fetch as ordinary git invocations: they succeed when credentials are already available (HTTPS cached creds, SSH agent, OS keychain helper) and surface stderr as a typed error when they are not. No GIT_ASKPASS IPC server, no in-app credential prompt, no SSH passphrase modal.**\n\n**Why defer.** Research showed vscode's askpass mechanism is ~500 LOC across `askpass.ts`, `askpassManager.ts`, and a small Node.js IPC server invoked via `GIT_ASKPASS` env, plus a separate SSH askpass for `SSH_ASKPASS`/`SSH_ASKPASS_REQUIRE`. Building a correct askpass is on the same order of complexity as the entire SCM panel UI we are designing in v1; it is not a single afternoon. Most users on macOS/Linux already have either an OS keychain helper (osxkeychain) or `ssh-agent` running, in which case push/pull \"just work\" with zero in-app interaction. The fraction of users who need interactive credentials in v1 is small; for them, the in-app terminal already exists and works perfectly.\n\n**v1 behavior on auth failure.** Spawn child with `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=echo` (returns empty so git fails immediately rather than blocking on stdin), and `SSH_ASKPASS_REQUIRE=force`/`SSH_ASKPASS=echo` for SSH. When git exits non-zero with stderr matching auth patterns (\"could not read Username\", \"Permission denied (publickey)\", \"fatal: Authentication failed\", \"remote: Invalid username or password\"), the IPC handler returns a typed `GitError` with `kind: \"auth\"`. The renderer's GitInlineBanner shows: \"Authentication required. Set up credentials in Terminal: `git push` once to cache them.\" with a `Open Terminal` action that creates a terminal tab in the workspace. This is the minimum-viable teach-the-user flow — explicit, recoverable, no false claims of capability.\n\n**Push/pull are still in v1's op set.** They are not gated behind auth — they run, they succeed for cached-credential users, they fail with a clear error otherwise. The ratio of \"useful for the majority\" vs. \"blocks the minority into a workaround\" is correct.\n\n**Rejected alternatives.**\n1. *Include minimal askpass in v1* — would mean spawning a small Node IPC server that listens on a Unix socket (or named pipe on Windows) and routes to a renderer modal. The complexity (server lifecycle, transport security, modal UX, credential persistence policy, SSH passphrase vs. HTTPS password vs. 2FA token disambiguation) materially threatens v1 scope.\n2. *Hide push/pull until auth is configured* — discoverability hit; users wouldn't know the panel can do it; we'd then need a separate \"configure git\" flow which is its own UI.\n3. *Pop a system-style password dialog from main with `dialog.showInputBox`* — Electron has no such API by default; we'd be building a renderer modal anyway. Same problem as (1) with a worse UX.\n4. *Spawn `git` with the user's terminal attached so prompts work* — feasible only because we have a PTY host, but conflates SCM operations with terminal sessions and breaks our serial queue + abort model. Out of architecture.\n\n**Risks & mitigations.** Users on Windows without Git Credential Manager configured will see auth failures every push → the Open Terminal CTA in the inline banner runs `git push` in PTY where Git Credential Manager *can* prompt and cache. After credentials cache, a subsequent in-app push from the panel succeeds with no extra UI. SSH key-with-passphrase users without `ssh-agent` running will see Permission denied → same Open Terminal CTA, same recovery path. Documented as known v1 limitation in the panel's onboarding tooltip (\"First push may need terminal — credentials cache after\").\n\n**v2 follow-on.** When askpass is built, the IPC contract added in issue 4 needs no change; only main-side process spawning and a new renderer modal are added. The decision is forward-compatible."
+          },
+          {
+            "id": 9,
+            "title": "Per-workspace persistence — what (if anything) to persist (commit message draft, expanded groups, last fetched, …) and how it integrates with WorkspaceStorage migrations",
+            "status": "decided",
+            "decision": "**Persist exactly two pieces of per-workspace state for the SCM panel: the unsubmitted commit message draft, and the user's expand/collapse state for the four groups. Add one new SQLite migration (version 3) to `WorkspaceStorage` for both. Nothing else is persisted in v1 — repo info, status, branch info are all derived state and are recomputed on panel open.**\n\n**Why these two and only these two.**\n1. *Commit message draft* — a partially-typed message that disappears on workspace switch or app restart is the single most user-hostile bug an SCM panel can have. Persisting per workspace also handles the multi-workspace case correctly: a draft for repo A doesn't leak into repo B. Trivially implemented as a single string row.\n2. *Group expand state* — the user's preference (e.g., always-collapsed Untracked because the workspace has many generated files) should survive sessions to match the file-tree expand state pattern (`expanded_paths` table, migration v2). Stored as a small JSON blob since the schema is a fixed map of four booleans.\n\n**Why nothing else.**\n- *Repo info / status / branch / ahead-behind* — all derived from git itself; persisting them creates two sources of truth and a stale-data window on app restart (status will be wrong until the first refresh anyway). The 100–300 ms cost of running `git status` on panel open is acceptable; users expect freshness from a SCM panel, not \"what we knew yesterday.\"\n- *Last fetched timestamp* — implies a \"fetch every N minutes\" auto-fetch loop, which is out of v1 scope. Add when auto-fetch lands.\n- *Last commit SHA / log cache* — `git.log` is a stream and the diff tab is the only consumer in v1; caching here optimizes nothing.\n- *Resolved git binary path* — process-level singleton, not per-workspace; lives in memory only (re-resolved on next launch).\n\n**Migration shape (added to `WORKSPACE_DB_MIGRATIONS` in `src/main/storage/workspace-storage.ts`):**\n```ts\n{\n  version: 3,\n  up: (db) => {\n    db.exec(`\n      CREATE TABLE IF NOT EXISTS git_panel_state (\n        key   TEXT NOT NULL PRIMARY KEY,\n        value TEXT NOT NULL\n      );\n    `);\n    // keys: \"commitDraft\" -> string, \"expandedGroups\" -> JSON.stringify({merge,staged,working,untracked}: boolean)\n  },\n}\n```\nSingle key/value table over two dedicated columns because the schema may grow in v2 (e.g., last selected branch in the popover) and a kv table avoids further migrations. Two `WorkspaceStorage` accessor pairs land alongside `getExpandedPaths`/`setExpandedPaths`: `getGitPanelState(id)` / `setGitPanelState(id, state)`. Renderer reads via two new `git` channel calls? — **no**, persistence is set/get for the panel only and doesn't need a dedicated channel. Wire instead through the existing `appState`-style pattern is overkill too. Cleanest: extend the existing `fs` channel? No — git's panel state is git's responsibility. **Final**: two thin calls on the `git` channel: `getPanelState({ workspaceId })` and `setPanelState({ workspaceId, ... })`. Added to issue 4's contract during implementation, not a separate channel.\n\n**Rejected alternatives.**\n- *Persist nothing and store draft in zustand only* — drafts vanish on app restart; users will type a long message, command-tab away, come back to nothing. This is the bug we are explicitly preventing.\n- *Persist everything (status, branch, last log)* — invites stale-data bugs and contributes nothing to UX since status must be re-run anyway.\n- *Use a separate file (`git-panel.json`) per workspace next to `workspace.json`* — adds another recovery dump path and another file to clean up; the migration table is the established mechanism.\n- *Two dedicated tables (one for draft, one for groups)* — overengineers a 2-key kv use case.\n\n**Risks & mitigations.** Schema growth in v2 (last branch, search filter, etc.) → kv shape absorbs new keys without migration. Concurrent write storms (every keystroke writes draft) → renderer debounces draft persistence at 500 ms idle, just like `setFilesPanelWidth`'s debounced persist. Stale draft for a deleted-and-recreated branch → the draft is per workspace, not per branch; users are free to clear it. Acceptable tradeoff vs. the complexity of branch-keyed drafts.\n\n**Files this decision touches:** `src/main/storage/workspace-storage.ts` (migration v3 + two accessors), `src/main/ipc/channels/git/repo-handlers.ts` (or a sibling `state-handlers.ts`) for the two thin getPanelState/setPanelState calls wired to the storage methods."
+          }
+        ],
+        "research_summary": "VSCode git extension structure mapped (model.ts/repository.ts/git.ts/operation.ts/staging.ts/commands.ts/decorationProvider.ts/quickDiffProvider.ts/askpass*.ts) — repos are auto-detected from .git/, status held as Index/WorkingTree/Merge/Untracked groups, ~40 operations exposed but a v1 of 10 (stage/unstage/discard/commit/pull/push/fetch/checkout/create-branch/stash) is reasonable, status codes M/A/D/R/C + U + ! for conflicts, diffs served via virtual git:// FS provider that calls `git show` + `git diff` on demand, askpass IPC is ~500 LOC and reasonable to defer. Current nexus-code patterns mapped: WorkspaceManager + WorkspaceContext lifecycle in src/main/workspace, registerWorkspaceCleanup central registry in renderer, ipc-contract.ts uses call/listen/stream split with workspaceId UUID in every method, SearchPanel illustrates the ipcStream pattern with AbortController-per-workspace and zustand session map keyed by workspaceId, FilesPanel already has a \"git\" mode showing ComingSoon — the UI store key is `filesPanelModes`, WorkspaceStorage migration list in src/main/storage/workspace-storage.ts is the place to add a git-related table (version 3+), lsp-host/pty-host show the precedent for spawn-on-demand utility processes with pendingCalls request queue. file-watcher.ts is disposed per-workspace via wrappedBroadcast in main/index.ts when workspace is removed.",
+        "created_at": "2026-05-09T12:08:18.524Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "ipc-contract `stream` 카테고리 + 추론 타입 도입",
+          "status": "completed",
+          "context": "ipcStream 프리미티브의 타입 anchor 신설. 모든 후속 단계가 이 카테고리에 의존하므로 가장 먼저 진행. `src/shared/ipc-contract.ts`에 새 procedure descriptor와 factory를, `src/renderer/ipc/types.ts`에 추론 유틸을 추가. 기존 call/listen 사용처에는 영향 없음.</context>\n<parameter name=\"approach\">1. `src/shared/ipc-contract.ts`에 `interface StreamProcedure<A,P,R> { args: A; progress: P; result: R; }` 정의.\n2. 같은 파일에 `function stream<A,P,R>(args, progress, result): StreamProcedure<A,P,R>` factory.\n3. `InferProgress<T>`, `InferComplete<T>` 추론 타입 추가 (기존 InferArgs/InferReturn 옆에).\n4. 기존 channel definition 객체가 `stream?: Record<string, StreamProcedure>` 필드를 선택적으로 가질 수 있도록 타입 허용.\n5. `src/renderer/ipc/types.ts`에 `StreamChannels`, `StreamMethods<C>`, `StreamArgs<C,M>`, `StreamProgress<C,M>`, `StreamComplete<C,M>` 타입 유틸 추가.\n6. 본 단계에서는 ipc-contract의 fs.stream 등록은 하지 않음 (Task 6의 search 마이그레이션 단계에서). 타입 시스템만 준비.",
+          "acceptance": "- `bun tsc --noEmit` 통과.\n- `StreamProcedure`, `stream()` factory, `InferProgress`/`InferComplete`이 contract에 export되고, `StreamChannels`/`StreamMethods<C>`/`StreamArgs/Progress/Complete<C,M>`이 ipc/types에 export됨.\n- 기존 `InferArgs`/`InferReturn` 동작 변경 없음.\n- biome lint 통과.",
+          "risk": "사소한 위험: 기존 channel definition 타입을 확장할 때 `as const` 추론이 깨질 수 있음. 해결: `stream` 필드를 선택적으로 두고 사용처에서 점진 도입.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e07c1-def2-7600-86ce-ed0f37e0c829",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:15:37.269Z",
+          "approach": "1. `src/shared/ipc-contract.ts`에 `interface StreamProcedure<A,P,R> { args: A; progress: P; result: R; }` 정의.\n2. 같은 파일에 `function stream<A,P,R>(args, progress, result): StreamProcedure<A,P,R>` factory.\n3. `InferProgress<T>`, `InferComplete<T>` 추론 타입 추가 (기존 InferArgs/InferReturn 옆에).\n4. 기존 channel definition 객체가 `stream?: Record<string, StreamProcedure>` 필드를 선택적으로 가질 수 있도록 타입 허용.\n5. `src/renderer/ipc/types.ts`에 `StreamChannels`, `StreamMethods<C>`, `StreamArgs<C,M>`, `StreamProgress<C,M>`, `StreamComplete<C,M>` 타입 유틸 추가.\n6. 본 단계에서는 ipc-contract의 fs.stream 등록은 하지 않음 (Task 6의 search 마이그레이션 단계에서). 타입 시스템만 준비.",
+          "result": {
+            "outcome": "success",
+            "summary": "Added exported stream procedure descriptor/factory and progress/complete inference types in the shared IPC contract, plus renderer stream channel/method/args/progress/complete derivation types. Verified with bun tsc --noEmit and Biome checks on touched files.",
+            "artifacts": [
+              "src/shared/ipc-contract.ts",
+              "src/renderer/ipc/types.ts"
+            ],
+            "recorded_at": "2026-05-08T13:27:29.104Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "preload bridge에 streamStart invoke + streamEvent demux 추가",
+          "status": "completed",
+          "context": "renderer가 main의 stream을 호출할 때 사용할 transport 표면. 기존 preload bridge(`window.ipc.call/cancel/listen/off`)는 그대로 두고, 새 streaming 경로를 별도로 추가. streamId 키 demux Map은 기존 listeners Map과 무관하게 동작.",
+          "acceptance": "- 기존 `window.ipc.{call, cancel, listen, off}` 시그니처와 동작 무변경.\n- `window.ipc.streamStart(channel, method, args)`가 `Promise<{ streamId: string }>`을 반환.\n- `window.ipc.onStreamEvent(streamId, cb)`가 demux 등록 + unregister 함수 반환.\n- `bun tsc --noEmit` 통과.",
+          "approach": "1. `src/preload/index.ts`에 `streamListeners: Map<string, (event: StreamEvent) => void>` 추가 (key=streamId).\n2. `ipcRenderer.on(\"ipc:streamEvent\", (_event, payload: { streamId, kind, data }) => { streamListeners.get(streamId)?.(payload); })` 단일 demux 구독 추가.\n3. `ipcApi`에 새 메서드 추가:\n   - `streamStart(channelName, method, args): Promise<{ streamId: string }>` → `ipcRenderer.invoke(\"ipc:streamStart\", channelName, method, args)`.\n   - `onStreamEvent(streamId, callback)` → streamListeners에 등록, 반환값은 unregister 함수.\n4. 기존 `cancel(requestId)`을 그대로 streamId 취소에도 재사용 (router 측에서 동일 cancel 라우팅).\n5. unknown streamId 수신 시 `console.warn(\"[ipcStream] unknown streamId\", streamId)` 한 줄.",
+          "risk": "contextBridge 노출 객체 변경은 preload 재빌드가 필요. 기존 ambient 타입 선언(`global.d.ts` 등)도 함께 업데이트해야 함.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e07c6-a5d4-76e0-8def-0299ff969c82",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:16:36.816Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added preload streamStart invoke wrapper, streamId-keyed streamEvent demux, unknown-stream warning, unregister support, and ambient window.ipc typings without changing existing call/cancel/listen/off behavior. Verified by engineer with bun tsc --noEmit and Biome lint on touched files.",
+            "artifacts": [
+              "src/preload/index.ts",
+              "src/renderer/global.d.ts"
+            ],
+            "recorded_at": "2026-05-08T13:37:04.174Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "main router에 stream 등록·실행 (sender-targeted send + AbortController + zod 검증)",
+          "status": "completed",
+          "context": "streamId 권위 발급과 AsyncGenerator 실행을 담당하는 transport 핵심. 기존 `ipcMain.handle(\"ipc:call\")`/`broadcast` 경로는 무변경. 새 `ipc:streamStart` invoke와 sender-targeted `ipc:streamEvent` send 경로를 별도 추가. 도메인 코드는 streamId를 모름.",
+          "acceptance": "- `register(\"fs\", { stream: { searchText: handler } })` 호출이 타입 안전하게 수용됨.\n- ipc:streamStart invoke가 streamId를 즉시 반환, generator가 백그라운드에서 spawn.\n- generator yield → 호출자 webContents에만 streamEvent 송신 (다른 webContents에 송신 안 됨).\n- generator throw → kind:\"error\" 이벤트 송신.\n- generator return → kind:\"complete\" 이벤트 송신.\n- AbortSignal abort → generator.return() 호출 + 더 이상 progress 송신 안 됨.\n- progress payload zod 검증 실패 시 kind:\"error\" 송신.\n- 기존 broadcast/listen/call 경로 동작 무변경.\n- `bun tsc --noEmit` 통과.",
+          "approach": "1. `src/main/ipc/router.ts`의 `register()` 시그니처를 확장: `def: { call, listen, stream? }`. stream handler는 `(args, ctx) => AsyncGenerator<TProgress, TComplete>` 형태.\n2. `pendingStreamControllers: Map<string, AbortController>` 별도 추가 (기존 pendingCallControllers와 분리).\n3. `ipcMain.handle(\"ipc:streamStart\", async (event, channelName, method, args) => {...})`:\n   - streamId = `crypto.randomUUID()` (main 단독 권위)\n   - AbortController 생성 후 controller를 pendingStreamControllers에 등록\n   - 즉시 `{ streamId }` 반환 (이후 send는 비동기로 진행)\n   - `void runStream(event.sender, channelName, method, args, streamId, controller.signal)` 비동기 spawn\n4. `runStream` 함수가 generator 실행:\n   - `validateArgs`로 args zod 검증\n   - generator 인스턴스 생성\n   - `for await (const progress of gen)`: progress schema로 zod 검증 후 `event.sender.send(\"ipc:streamEvent\", { streamId, kind: \"progress\", data: progress })` (sender-targeted)\n   - generator return → complete schema 검증 후 `kind: \"complete\"` 송신\n   - throw → `kind: \"error\"` 송신 (AbortError 포함)\n   - finally: `pendingStreamControllers.delete(streamId)`\n5. `ipcMain.on(\"ipc:cancel\")` 핸들러를 확장하여 streamId도 처리: pendingStreamControllers에서 찾으면 `controller.abort()` → generator의 next iteration이 throw AbortError → kind:error 송신 후 정리.\n6. `src/main/index.ts`에 변경 없음. 기존 `setupRouter()` 호출에서 stream 경로도 함께 등록되도록 router.ts 내부에서 처리.",
+          "risk": "AsyncGenerator의 `return()` 호출 후 finally 블록 실행 보장은 표준이지만 generator 내부에서 try/finally 누락 시 cleanup 누락 가능 — 도메인 코드에서 신경쓰지 않도록 router가 try/finally로 cleanup 책임을 흡수해야 함. zod 검증 hot-path 비용은 search batch 규모(50 files / 200 matches per batch)에선 무시 가능.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e07c6-ab2e-7bf2-9a50-b180f13936a7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:17:00.294Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extended the main IPC router with optional stream handlers, ipc:streamStart registration, main-issued streamId lifecycle, sender-targeted ipc:streamEvent progress/complete/error events, zod validation from the shared contract, and AbortController cancellation while preserving existing call/broadcast behavior. Verified by engineer with bun tsc --noEmit, Biome check on router, and existing IPC tests.",
+            "artifacts": [
+              "src/main/ipc/router.ts"
+            ],
+            "recorded_at": "2026-05-08T13:37:04.477Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "renderer ipcStream 클라이언트 구현 (`{ promise, onProgress }` + AbortSignal)",
+          "status": "completed",
+          "context": "렌더러 측 ipcStream 함수가 store/컴포넌트에서 호출될 표면. preload bridge(Task 2)와 main router(Task 3)가 준비된 후, 둘을 잇는 도메인 친화 API를 제공. 기존 `ipcCall` 시그니처는 그대로 두고 별도 함수로 추가.",
+          "acceptance": "- `ipcStream(channel, method, args, { signal })` 호출이 `{ promise, onProgress }` 반환.\n- onProgress 콜백은 progress 이벤트 수신 시마다 동기 호출됨.\n- promise는 complete payload로 resolve, error payload로 reject.\n- AbortSignal abort 시 `window.ipc.cancel(streamId)` 호출 + promise는 AbortError로 reject.\n- onProgress의 unregister 함수 호출 후 더 이상 콜백 호출 안 됨.\n- 타입 추론: 채널·메서드 명에서 args/progress/complete 타입이 자동 추론됨.\n- 기존 `ipcCall` 동작 무변경.",
+          "approach": "1. `src/renderer/ipc/client.ts`에 `ipcStream<C, M>` 함수 추가:\n```ts\nexport interface IpcStreamHandle<TProgress, TComplete> {\n  promise: Promise<TComplete>;\n  onProgress(cb: (data: TProgress) => void): () => void;\n}\n\nexport function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(\n  channel: C, method: M,\n  args: StreamArgs<C, M>,\n  opts?: { signal?: AbortSignal },\n): IpcStreamHandle<StreamProgress<C, M>, StreamComplete<C, M>>;\n```\n2. 구현:\n   - `streamStart` invoke 호출 → streamId 반환받음\n   - progress callbacks 배열 보유, `onProgress(cb)` → 배열에 추가, unregister 함수 반환\n   - 내부적으로 `window.ipc.onStreamEvent(streamId, ev => {...})` 등록:\n     - kind:progress → 모든 progress callbacks 호출\n     - kind:complete → resolve(data) + onStreamEvent unregister\n     - kind:error → reject(new Error(message)) + unregister\n   - signal.aborted 시 즉시 cancel + reject(AbortError)\n   - signal.addEventListener(\"abort\", () => { window.ipc.cancel(streamId); reject(AbortError); }, { once: true })\n   - promise resolve/reject finally에서 onStreamEvent unregister 자동\n3. JSDoc에 명시: \"onProgress는 promise를 await 하기 전에 등록해야 한다. 그렇지 않으면 등록 직전 도착한 progress가 누락될 수 있다.\"\n4. `useIpcStream` React hook은 본 사이클 scope 외 (Issue 1 결정).",
+          "risk": "onProgress 등록 타이밍이 promise await 이후라 첫 batch가 누락될 가능성 → API 계약(JSDoc)으로 명시. microtask 트릭은 visibility 침해라 도입하지 않음.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e07ce-a1be-73d2-8a7f-2e062fa807fc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:17:21.988Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added the typed renderer ipcStream client returning { promise, onProgress }, with progress callback registration/unregistration, complete/error settlement, serialized error conversion, AbortSignal cancellation including pre-start abort handling, and cleanup while leaving ipcCall/ipcListen unchanged. Verified by engineer with bun tsc --noEmit and Biome check on the touched file.",
+            "artifacts": [
+              "src/renderer/ipc/client.ts"
+            ],
+            "recorded_at": "2026-05-08T13:41:16.437Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "ipcStream 프리미티브 단위 테스트 (router-stream + client-stream)",
+          "status": "completed",
+          "context": "Task 3·4의 transport 코드가 lifecycle 모든 분기(start/progress/complete/error/abort/zod 검증)에서 정확히 동작하는지 검증. bun:test 환경에서 electron의 webContents/ipcMain·window.ipc는 mock.module로 leaf-only stub. memory의 pattern-bun-mock-conventions 규약 준수.",
+          "acceptance": "- `bun test tests/unit/main/ipc/router-stream.test.ts`: 모든 시나리오 (yield/return/throw/abort/zod-fail/sender-target) 통과.\n- `bun test tests/unit/renderer/ipc/client-stream.test.ts`: 모든 시나리오 (progress/complete/error/abort/unregister/wrong-streamId) 통과.\n- 두 테스트 파일이 다른 테스트와 독립적으로 (process-global mock 오염 없이) 실행됨.",
+          "approach": "1. **`tests/unit/main/ipc/router-stream.test.ts`** (신규):\n   - electron의 `ipcMain`/`webContents` mock을 mock.module로 stub\n   - `register(\"test\", { stream: { ping: handler } })` 후 `ipcMain.handle(\"ipc:streamStart\")`를 직접 invoke 시뮬레이션\n   - 시나리오: AsyncGenerator yield 3회 → 3 progress events / generator throw → 1 error event / abort 호출 → generator.return() / progress payload zod fail → error event / sender-targeted 검증(다른 webContents에는 안 감)\n2. **`tests/unit/renderer/ipc/client-stream.test.ts`** (신규):\n   - `window.ipc`를 globalThis stub으로 주입\n   - ipcStream 호출 후 streamStart invoke가 일어나고 streamId 반환받는지\n   - onStreamEvent 콜백을 직접 invoke해 progress/complete/error 흐름 시뮬레이션\n   - 시나리오: progress 콜백 호출 / complete promise resolve / error promise reject / signal abort → cancel + AbortError reject / onProgress unregister 후 호출 안 됨 / 다른 streamId의 이벤트는 무시\n3. 두 테스트 모두 `pattern-bun-mock-conventions.md`의 DI-first / leaf-only 규약 준수. real export spread 패턴 사용.",
+          "risk": "electron mock이 process-global이면 다른 ipc 테스트 오염 가능 — bun:test scope에서 leaf 모듈만 mock하고 spread real exports로 격리. AsyncGenerator return() 동작 검증은 generator 인스턴스 레퍼런스 보유 후 직접 호출로 가능.",
+          "plan_issue": 6,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e07d2-fb5d-7722-9e43-a9668ddf9d52",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:17:41.415Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added unit coverage for the ipcStream router primitive and renderer client primitive. Router tests mock Electron and inject a local stream contract descriptor to cover progress, complete, throw/error, cancellation with generator.return(), zod progress validation failure, and sender-targeted delivery. Client tests use an isolated window.ipc bridge registration map to cover start/registration, synchronous progress callbacks, complete/error settlement, AbortSignal cancellation, unregister, and wrong streamId isolation. Targeted bun tests and Biome check pass.",
+            "artifacts": [
+              "tests/unit/main/ipc/router-stream.test.ts",
+              "tests/unit/renderer/ipc/client-stream.test.ts"
+            ],
+            "recorded_at": "2026-05-08T13:48:39.053Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "search 마이그레이션: walker → handler → schema → contract → store",
+          "status": "completed",
+          "context": "\"4 results in 0 files\" 버그를 ipcStream 위에서 해소. Issue 5의 변경 표 그대로 진행. 5개 모듈을 순차 변경하되, 단일 PR 내부 커밋으로 분리. 각 모듈 변경 후 컴파일 통과 게이트.",
+          "acceptance": "- `bun tsc --noEmit` 통과 (전체 프로젝트).\n- `src/renderer/state/stores/search.ts`에서 `requestId`라는 단어가 사라짐.\n- `src/main/ipc/channels/fs/search-handlers.ts`에서 `broadcast` import와 호출이 사라짐.\n- `src/shared/types/search.ts`의 `SearchProgressSchema`에 `requestId` 필드 없음.\n- 기존 search UI 컴포넌트(SearchPanel/SearchInput/SearchResultsList 등) 컴파일 변경 없이 통과.\n- biome lint/format 통과.",
+          "approach": "### 변경 순서 (모듈 의존성 역순)\n1. **`src/main/search/walker.ts`**: `walkAndSearch`를 `walkAndSearchIter(rootAbs, query, signal): AsyncIterable<FileMatch[]>`로 분리. yield는 batch(`FileMatch[]`), 최종 통계(filesScanned/matchesFound/limitHit)는 caller가 누적. abort 시 partial-return 동작 제거 → throw `AbortError`로 통일.\n2. **`src/main/ipc/channels/fs/search-handlers.ts`**: 기존 `searchTextHandler` factory 제거. 새 stream registration 함수로 변환:\n   ```ts\n   export async function* searchTextStream(args, ctx) {\n     const { workspaceId, query } = validateArgs(...);\n     const workspace = manager.list().find(w => w.id === workspaceId);\n     if (!workspace) throw new WorkspaceNotFoundError(workspaceId);\n     const startMs = Date.now();\n     let filesScanned = 0, matchesFound = 0, limitHit = false;\n     for await (const batch of walkAndSearchIter(workspace.rootPath, query, ctx.signal)) {\n       yield batch;\n       filesScanned += /* batch metadata 누적 */;\n       matchesFound += /* ... */;\n     }\n     return { filesScanned, matchesFound, limitHit, elapsedMs: Date.now() - startMs };\n   }\n   ```\n   `broadcast(...)` 호출 완전 제거. `randomUUID`/`ctx.requestId` 사용 제거.\n3. **`src/shared/types/search.ts`**: `SearchProgressSchema`를 `z.array(FileMatchSchema)`로 단순화 (requestId 필드 제거).\n4. **`src/shared/ipc-contract.ts`**: `fs.call.searchText` 제거, `fs.listen.searchProgress` 제거, `fs.stream.searchText = stream(args, FileMatchSchema의 array, SearchCompleteSchema)` 추가.\n5. **`src/main/ipc/channels/fs/index.ts`**: 기존 channel 등록에서 stream 슬롯에 `searchText` 핸들러 등록.\n6. **`src/renderer/state/stores/search.ts`**: \n   - `SearchSession.requestId` 필드 제거.\n   - `_storeHelpers.appendBatch/finishSearch/failSearch` export 제거.\n   - `startSearch` 내부:\n     ```ts\n     const ctrl = new AbortController();\n     controllers.set(wsId, ctrl);\n     const stream = ipcStream(\"fs\", \"searchText\", { workspaceId: wsId, query: tsq }, { signal: ctrl.signal });\n     stream.onProgress(batch => { /* set state: append batch to results */ });\n     stream.promise\n       .then(complete => { /* set state: status=done, copy stats */ })\n       .catch(err => {\n         if (err.name === \"AbortError\") { /* status=idle */ }\n         else { /* status=error */ }\n       })\n       .finally(() => { if (controllers.get(wsId) === ctrl) controllers.delete(wsId); });\n     ```\n   - 매칭 분기 (session.requestId === requestId) 모두 제거. ipcStream이 streamId를 알아서 매칭.\n7. **`src/renderer/components/files/search/*`**: 변경 없음 (store 인터페이스 호환 유지).",
+          "risk": "walker abort 시멘틱 변경(return → throw)이 walker 단위 테스트의 기대 동작과 충돌 → Task 7에서 함께 갱신. store의 `_storeHelpers` export 제거가 기존 단위 테스트 파일을 깨뜨림 → Task 7에서 재작성. 변경 범위 크지만 의존성이 일방향이라 중간 컴파일 게이트로 안전.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e07d3-009c-7571-a6b3-5caacd5d070e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:18:11.018Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Migrated search to ipcStream and completed the revision to align with plan decisions: added walker-level walkAndSearchIter with AbortError-throwing abort semantics, refactored searchTextStream to consume the iterator directly, simplified SearchProgressSchema to FileMatch[] batches, moved fs.searchText from call/listen to stream registration, and updated the renderer search store to use ipcStream with controller-identity stale suppression and no requestId. Verified with bun tsc --noEmit, Biome check on touched search files, and targeted primitive stream tests.",
+            "artifacts": [
+              "src/main/search/walker.ts",
+              "src/main/ipc/channels/fs/search-handlers.ts",
+              "src/main/ipc/channels/fs/index.ts",
+              "src/shared/types/search.ts",
+              "src/shared/ipc-contract.ts",
+              "src/renderer/state/stores/search.ts"
+            ],
+            "recorded_at": "2026-05-08T13:52:52.157Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "search 채널 단위 테스트 갱신 + round-trip 통합 테스트 신설",
+          "status": "completed",
+          "context": "Task 6의 마이그레이션 결과를 검증. 기존 helper 직접 호출 단위 테스트(`_storeHelpers.appendBatch`)를 제거하고 ipcStream mock 기반으로 재작성. 핵심: round-trip 통합 테스트가 직전 사이클이 잡지 못한 \"0 files\" 클래스 버그의 회귀 방지선이 됨.",
+          "acceptance": "- `bun test tests/unit/main/search/walker.test.ts` 통과 (abort 케이스 새 시멘틱 반영).\n- `bun test tests/unit/main/ipc/channels/fs/search-handlers.test.ts` 통과 (AsyncGenerator 시퀀스 검증).\n- `bun test tests/unit/renderer/state/stores/search.test.ts` 통과 (`_storeHelpers` 사용 없음).\n- `bun test tests/unit/shared/types/search.test.ts` 통과.\n- `bun test tests/integration/renderer/search/round-trip.test.ts` 통과 — 시나리오 A가 명시적으로 `results.length > 0` 검증.\n- 통합 테스트 시나리오 A·B·C·D 모두 통과.",
+          "approach": "### A. 단위 테스트 갱신\n1. **`tests/unit/main/search/walker.test.ts`**: abort 케이스를 `await expect(...).rejects.toThrow(/abort/i)`로 변경. 그 외 walker 동작 테스트는 유지.\n2. **`tests/unit/main/ipc/channels/fs/search-handlers.test.ts`**: 재작성. 기존 broadcast 호출 mock 검증 → `searchTextStream` AsyncGenerator를 직접 소비해 yield 시퀀스(`FileMatch[]` batches)와 final return value(SearchComplete) 검증. 시나리오: 빈 결과, batch 다수, abort throw, invalid regex throw, workspace not found throw.\n3. **`tests/unit/renderer/state/stores/search.test.ts`**: 재작성. `_storeHelpers` 직접 호출 패턴 제거. mock pattern: `mock.module(\".../ipc/client\", () => ({ ipcStream: mockFn }))`. mockFn은 `{ promise, onProgress }`를 반환하되 promise는 controlled (test가 resolve/reject 가능), onProgress는 등록된 콜백 배열을 노출. 테스트 시나리오: startSearch → onProgress 두 번 호출 시 results 누적 / cancelSearch 시 controller.abort 호출 / 새 startSearch가 prior controller abort.\n4. **`tests/unit/shared/types/search.test.ts`**: `SearchProgressSchema` 변경 반영.\n\n### B. Round-trip 통합 테스트 (신규 — 회귀 방지 핵심)\n5. **`tests/helpers/ipc-pair.ts`** (신규): in-memory MockWebContents/MockIpcMain pair. send/invoke가 직결. 양쪽이 router(main)와 client(renderer) 양 끝에 부착.\n6. **`tests/integration/renderer/search/round-trip.test.ts`** (신규):\n   - 시나리오 A — \"0 files 회귀 방지\": 워크스페이스 fixture(파일 3개에 'needle' 매치 4건)를 만들고 store.startSearch 호출 → router가 streamStart 처리 → 실제 walkAndSearchIter generator 실행 → progress 이벤트가 store까지 도달 → `session.results.length === 3` 확인 (= 3 files). matchesFound === 4. **이 검증이 직전 버그 시나리오를 정확히 reproduce**.\n   - 시나리오 B — 동시 다중 stream: 같은 workspace에서 두 startSearch 연속 → 두 번째가 첫 번째를 즉시 abort + 새 stream으로 진행 → 첫 stream의 stale progress가 store에 안 들어감.\n   - 시나리오 C — abort: 검색 중간에 cancelSearch → AbortError + 부분 results 보존 + status=idle.\n   - 시나리오 D — sender targeting: 두 mock webContents pair가 있을 때 한 pair의 progress가 다른 pair에 도달하지 않음.",
+          "risk": "in-memory ipc pair의 정확도가 실제 electron 동작과 100% 일치하지 않을 수 있음 — sender-targeted send 동작이 mock에서도 정확히 흐르도록 webContents 객체 식별성 검증. 통합 테스트가 search 도메인 코드까지 실제로 실행하므로 fixture 디렉토리 생성/정리 책임 필요(tmpdir).",
+          "plan_issue": 6,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e07dd-41cb-7862-bb94-3a2f0a406bae",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:18:38.915Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Updated search migration tests for ipcStream semantics: walker abort assertions now expect AbortError, searchTextStream handler tests consume AsyncGenerator yields/final return, renderer search store tests mock ipcStream with controlled progress/complete/error/abort flows and no _storeHelpers usage, shared schema/contract tests assert fs.stream.searchText and FileMatch[] progress. Added a focused in-memory IPC pair helper and renderer round-trip integration coverage for the 3-file/4-match regression, concurrent stale progress, abort partial results, and sender targeting. Required targeted tests, bun tsc --noEmit, and Biome check all pass.",
+            "artifacts": [
+              "tests/unit/main/search/walker.test.ts",
+              "tests/unit/main/ipc/channels/fs/search-handlers.test.ts",
+              "tests/unit/renderer/state/stores/search.test.ts",
+              "tests/unit/shared/types/search.test.ts",
+              "tests/helpers/ipc-pair.ts",
+              "tests/integration/renderer/search/round-trip.test.ts"
+            ],
+            "recorded_at": "2026-05-08T14:03:13.257Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "최종 검증 + 메모리 패턴 기록 + 사이클 마무리",
+          "status": "completed",
+          "context": "실제 앱에서 search 동작 회복 확인 + 차후 streaming 사용처(find&replace, quick-open, git)가 같은 클래스 버그를 답습하지 않도록 학습 자산 기록. 본 사이클의 마무리 작업.",
+          "acceptance": "- 사용자가 `bun dev`에서 검색이 결과를 제대로 보여준다고 확인.\n- `bun test` 전체 통과.\n- biome lint/format 통과.\n- `.nexus/memory/pattern-ipc-stream.md` 파일 존재 및 ipcStream/subscription/inverted-request 선택 가이드 명확.\n- `.nexus/memory/empirical-broadcast-correlation-bug.md` 파일 존재 및 본 lesson 기록.\n- `.nexus/context/conventions.md`에 broadcast 상관관계 키 규약 명시.",
+          "approach": "1. **수동 검증** (사용자에게 요청):\n   - `bun dev` 실행 → 워크스페이스에서 검색어 입력 → \"X results in Y files\"의 Y > 0 확인.\n   - 큰 워크스페이스에서 검색 중 cancel 동작 확인.\n2. **lint/format 통과**: `bun run lint` (biome) / `bun run format` 차이 없음 확인.\n3. **`.nexus/memory/pattern-ipc-stream.md` 신설**:\n   - \"ipcStream vs subscription vs inverted-request 선택 가이드\" 한 문서.\n   - lifecycle ownership 기준, AsyncGenerator 사용 패턴, streamId 권위 규칙, sender-targeted send 의의.\n   - 향후 find&replace/quick-open/git이 참조할 표준.\n4. **`.nexus/memory/empirical-broadcast-correlation-bug.md` 신설**:\n   - 본 사이클의 lesson: \"transport requestId를 도메인 매칭에 쓰면 두 네임스페이스 분리 사고. 단위 테스트가 helper 직접 호출로 우회하면 이 클래스 버그가 통과한다. round-trip 통합 테스트로만 회귀 방지 가능.\"\n5. **`.nexus/context/conventions.md`** (없으면 신설, 있으면 추가):\n   - \"broadcast 이벤트 상관관계 키는 도메인 식별자(workspaceId/tabId/uri)를 사용한다. transport requestId를 사용하지 않는다.\" 한 줄.\n6. **사이클 close**: 모든 task `nx_task_close` 호출. PR 생성은 사용자 요청 시.",
+          "risk": "사용자 수동 검증이 본 task의 마지막 게이트라 자동화 불가. 메모리 파일은 향후 사용처가 실제로 참조해야 가치 발휘 — 다음 사이클 진입 시 Lead가 검색하도록 의존.",
+          "plan_issue": 7,
+          "deps": [
+            5,
+            7
+          ],
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-08T13:19:00.018Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Verified the available automated gates and learning artifacts: bun test passed across the suite (1244 pass / 1 skip / 0 fail), bun run typecheck passed, git diff --check passed, Tailwind syntax check passed, Biome check passed for all changed files, the ipcStream and broadcast-correlation memory files exist, and conventions.md contains the broadcast correlation-key rule. Two acceptance items remain not fully satisfied from this CLI run: user manual bun dev search confirmation was not available, and full-repo biome check reports unrelated pre-existing diagnostics outside the touched files, so I did not restyle unrelated code.",
+            "artifacts": [
+              ".nexus/memory/pattern-ipc-stream.md",
+              ".nexus/memory/empirical-broadcast-correlation-bug.md",
+              ".nexus/context/conventions.md"
+            ],
+            "recorded_at": "2026-05-09T13:36:56.749Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "Land git contract: shared/types/git.ts + git block in ipc-contract.ts",
+          "status": "completed",
+          "context": "Issue 4 decision gates everything else: the typed contract surface is added before any handler. Schemas land in `src/shared/types/git.ts` and the `git` channel block is added to `src/shared/ipc-contract.ts`. The exact call/listen/stream split is fixed in the issue 4 decision text — including the two persistence calls (getPanelState, setPanelState) added per issue 9. Reuse `FileContentSchema` from `src/shared/types/fs.ts`.",
+          "acceptance": "- New file `src/shared/types/git.ts` exports all schemas listed above\n- `src/shared/ipc-contract.ts` has a top-level `git` block with the 15 calls, 2 listens, 2 streams from issue 4\n- `tsc --noEmit` (or `bun run typecheck`) passes; existing tests still pass\n- No handler files exist yet — this task is contract-only",
+          "approach": "Create `src/shared/types/git.ts` exporting: RepoInfoSchema (discriminated union: detecting | non-repo | repo with gitDir+topLevel), GitStatusEntrySchema (relPath, oldRelPath?, xy two-letter porcelain code), GitStatusSchema (entries grouped merge/staged/working/untracked), BranchInfoSchema (current, upstream?, ahead, behind), BranchListSchema, PullResultSchema, PushResultSchema, DiffSpec discriminated union, LogEntry/LogChunk/LogComplete, DiffChunk/DiffComplete, GitPanelStateSchema (commitDraft + expandedGroups). Then add the `git` block to `src/shared/ipc-contract.ts` exactly per issue 4 decision (15 calls + 2 listens + 2 streams).",
+          "risk": "Schema drift later — mitigated by listing every field in the decision text up front. Reuse of FileContentSchema must not duplicate; import directly.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cb3-4743-7403-8337-02188bb138e8",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:18:44.516Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added Git shared schemas/types in src/shared/types/git.ts and wired the top-level git IPC contract in src/shared/ipc-contract.ts with read/write calls, repo/status listens, log/diff streams, and panel-state calls. Verified by the engineer with bun run typecheck and targeted Biome lint; review confirmed no git handler files were introduced in this contract-only task.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/ipc-contract.ts"
+            ],
+            "recorded_at": "2026-05-09T12:31:13.072Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "Implement git binary resolver and process runner (git-binary.ts, git-process.ts)",
+          "status": "completed",
+          "context": "Issue 2 decision: shell out to system git via child_process.spawn. The binary resolver caches a process-level singleton; the process runner exposes runGit (buffered, capped at 10 MB stdout) and streamGit (AsyncIterable of stdout chunks for log/diff). Both honor AbortSignal and spawn with GIT_TERMINAL_PROMPT=0 + GIT_ASKPASS=echo + SSH_ASKPASS_REQUIRE=force + SSH_ASKPASS=echo so push/pull fail fast on missing credentials (issue 8).",
+          "acceptance": "- `git-binary.ts` resolves on macOS/Linux dev box; returns null and does not throw when git is absent\n- `runGit` rejects with `GitError` (typed via task 3) when git exits non-zero, with stderr captured\n- `runGit` rejects with `AbortError` when signal aborts mid-run; child process is killed\n- `streamGit` yields stdout chunks until exit; consumer can break to abort\n- 10 MB stdout cap on `runGit` throws typed error, not OOMs\n- No tests for \"child_process spawns\" (Node guarantees) — focus is the contract above",
+          "approach": "`src/main/git/git-binary.ts`: `resolveGitBinary()` tries (1) state.gitPath override (no UI in v1, just read the value if present), (2) `which git` / `where git`, (3) `/usr/bin/git` fallback. Returns `{ path, version } | null`. Cached in module scope. `src/main/git/git-process.ts`: `runGit({ bin, cwd, args, env?, signal? })` returns `{ stdout: string, stderr: string, code: number }`. `streamGit(opts)` returns `AsyncIterable<Buffer>` for stdout. Both kill the child on signal abort. Stdout cap at 10 MB throws GitError(kind:\"output-too-large\").",
+          "risk": "Cross-platform binary resolution flakiness on Windows — explicitly noted as v1 best-effort; Windows users without git on PATH see \"Git not found\" panel notice.",
+          "plan_issue": 2,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cb9-252c-73a0-9d40-1b20c70f7a86",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:19:01.282Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added main-process GitError foundation, git binary resolver, and git process runner/streamer. The implementation resolves the system git binary without throwing when absent, runs git with non-interactive auth env, buffers runGit stdout with a 10 MiB cap, classifies non-zero exits into typed GitError objects, abort-kills child processes, and exposes streamGit as an async generator for log/diff flows. Verified by the engineer with bun run typecheck, targeted Biome check, and smoke checks for resolver/run/abort/cap/stream break behavior.",
+            "artifacts": [
+              "src/main/git/git-error.ts",
+              "src/main/git/git-binary.ts",
+              "src/main/git/git-process.ts"
+            ],
+            "recorded_at": "2026-05-09T12:40:19.877Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "Implement GitError + GitRepository (queue, status parser, op methods)",
+          "status": "completed",
+          "context": "Issue 2 decision: GitRepository owns a serial promise chain — every git invocation, including reads, flows through `queue<T>(fn)` so concurrent checkout cannot tear getFileContent. The status parser consumes `git status --porcelain=v2 -z` output and produces GitStatusSchema-conformant entries grouped by Merge/Index/WorkingTree/Untracked. Ahead/behind comes from the `# branch.ab` header in v2 porcelain.",
+          "acceptance": "- Every public method on GitRepository invokes `runGit`/`streamGit` via `queue` (verified by reading the class)\n- `parseV2Porcelain` correctly groups M/A/D/R/C entries into Index, M/D/T into WorkingTree, ? into Untracked, and any conflict cell (DD/AU/UD/UA/DU/AA/UU) into Merge with xy preserved\n- Renames produce one entry with both `relPath` and `oldRelPath`\n- `# branch.ab +N -M` is parsed into `{ ahead: N, behind: M }`\n- `commit(\"\")` rejects with GitError before spawning git\n- `dispose()` aborts all queued + in-flight operations\n- The class does not import any IPC machinery — it's pure main-side",
+          "approach": "`src/main/git/git-error.ts`: `class GitError extends Error { kind: \"auth\"|\"conflict\"|\"not-repo\"|\"output-too-large\"|\"git-missing\"|\"unknown\"; code?: number; stderr?: string; argv?: string[] }`. The auth-kind detection logic lives here as a helper that classifies stderr against the patterns from issue 8. `src/main/git/git-repository.ts`: `class GitRepository { constructor(workspaceId, topLevel, gitDir, bin); private queue<T>(fn): Promise<T>; status(): Promise<GitStatus>; stage(rel: string[]); unstage; discard; commit(message, opts); checkout(ref); createBranch(name, checkout?); listBranches; fetch(remote?); pull(); push(force?); stash(message?); stashPop; getFileContent(ref, relPath); diff(spec, signal): AsyncIterable; log(args, signal): AsyncIterable; refreshStatus(): Promise<void> // runs status + emits via injected broadcast; dispose() }`. Includes `parseV2Porcelain(text: string): GitStatus` exported separately for direct unit testing.",
+          "risk": "Porcelain v2 NUL-delimited parsing is fiddly — make `parseV2Porcelain` a pure function over string input so we can run scenario tests against captured fixtures.",
+          "plan_issue": 2,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cc1-262c-7e63-bd7b-b67093fea3c3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:19:17.951Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Refined the typed GitError foundation to the planned kind union and added GitRepository with serialized queued operations, exported parseV2Porcelain, status grouping, branch ahead/behind parsing, repository read/write ops, bounded diff/log streams, getFileContent for git refs/index, and dispose-driven abort handling. Verified by the engineer with bun run typecheck, targeted Biome check, and ad-hoc smoke checks for parser grouping, real repo operations, and queued/in-flight abort.",
+            "artifacts": [
+              "src/main/git/git-error.ts",
+              "src/main/git/git-repository.ts"
+            ],
+            "recorded_at": "2026-05-09T12:55:03.353Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "Implement git-detect.ts and GitRegistry (per-workspace lazy detection)",
+          "status": "completed",
+          "context": "Issue 3 decision: lazy detection on first SCM panel activation. `git rev-parse --show-toplevel --git-dir` returns gitDir+topLevel; cached on GitRegistry. Three invalidation triggers: renderer-initiated init call, watcher-observed .git/HEAD creation, explicit refreshDetection. Disposal hooks `wrappedBroadcast` workspace:removed.",
+          "acceptance": "- `getOrDetect` returns the cached repo on second call without spawning git\n- `getOrDetect` for a non-repo workspace returns null and caches `{ kind: \"non-repo\" }`\n- `reinit` runs `git init` and flips kind to \"repo\"\n- `dispose(id)` aborts the repo's queue and removes from the map\n- `disposeAll` is called from main app `before-quit`\n- The registry never imports renderer-side modules",
+          "approach": "`src/main/git/git-detect.ts`: `async function detectRepository(root, bin): Promise<RepoInfo>` — runs `git -C <root> rev-parse --show-toplevel --git-dir`, returns `{ kind: \"repo\", gitDir, topLevel }` on exit-0, `{ kind: \"non-repo\" }` on exit-128. `src/main/git/git-registry.ts`: `class GitRegistry { constructor(workspaceManager, broadcast, bin); getOrDetect(workspaceId): Promise<GitRepository | null>; reinit(workspaceId): Promise<RepoInfo> // git init + re-detect; refreshDetection(workspaceId): Promise<RepoInfo>; refreshStatus(workspaceId): Promise<void> // calls repo.refreshStatus, emits statusChanged; getRepoInfo(workspaceId): RepoInfo; dispose(workspaceId): void; disposeAll(): void }`. The registry is the single owner of `Map<workspaceId, GitRepository>`; it injects the broadcast fn into each repo so refreshStatus emits through one place.",
+          "risk": "Race where panel opens before detection resolves — `getOrDetect` returns a Promise; the channel handler awaits before responding. Initial state in the renderer is `kind: \"detecting\"` per issue 3.",
+          "plan_issue": 3,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cce-b59c-7b10-a815-c7ab83852849",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:19:30.151Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added git repository detection and GitRegistry ownership. detectRepository wraps rev-parse into repo/non-repo RepoInfo, and GitRegistry caches per-workspace RepoInfo/GitRepository instances, supports lazy getOrDetect, refreshDetection, reinit, refreshStatus broadcasting, and workspace/all disposal while treating missing git as a typed GitError for repository-required calls. Verified by the engineer with bun run typecheck, targeted Biome check, and fake-git sanity checks for repo/non-repo/caching/reinit/missing-git behavior.",
+            "artifacts": [
+              "src/main/git/git-detect.ts",
+              "src/main/git/git-registry.ts"
+            ],
+            "recorded_at": "2026-05-09T13:03:18.531Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "Implement GitWatcher and StatusCoalescer (.git/ watch + per-workspace debounce)",
+          "status": "completed",
+          "context": "Issue 5 decision: dedicated GitWatcher (separate from FileWatcher) watches gitDir/{HEAD,index,refs,MERGE_HEAD,REBASE_HEAD,CHERRY_PICK_HEAD} via one chokidar instance per repo. Ignore *.lock basenames and objects/, logs/ entirely. All refresh triggers (post-op, watcher dirty events, renderer fs.changed-driven getStatus) converge on a per-workspace StatusCoalescer with 100 ms trailing debounce, which calls `registry.refreshStatus(workspaceId)`.",
+          "acceptance": "- A burst of 50 file events on `.git/refs/remotes/...` produces a single statusChanged broadcast (debounce works)\n- Touching `.git/index.lock` does NOT trigger a refresh (ignore works)\n- `disposeWorkspace(id)` closes the chokidar instance and cancels the coalescer entry\n- Watcher leak test: after dispose, no fs handles remain on the gitDir\n- All convergence: a post-op explicit `refreshStatus` followed within 50 ms by a watcher dirty event produces ONE broadcast, not two",
+          "approach": "`src/main/git/git-watcher.ts`: `class GitWatcher { constructor(broadcast, onDirty); watch(workspaceId, gitDir); unwatch(workspaceId); disposeWorkspace(workspaceId); dispose(); }` — one chokidar instance per repo with depth:2 rooted at gitDir, ignored: *.lock + objects/ + logs/. On any add/change/unlink, calls `onDirty(workspaceId)`. `src/main/git/status-coalescer.ts`: `function createStatusCoalescer({ delayMs: 100 }): { schedule(workspaceId, runFn): void; cancel(workspaceId): void; clearAll(): void; }` — uses `createKeyedDebouncer` from `src/shared/keyed-debouncer.ts`. Wiring: GitRegistry constructor takes a coalescer; `refreshStatus(id)` schedules with the coalescer; the coalescer's run function calls `repository.refreshStatus()` then `broadcast(\"git\", \"statusChanged\", { workspaceId, status })`.",
+          "risk": "Chokidar depth:2 may miss `.git/refs/remotes/origin/main` if structure deepens — verify in scenario test on a real fetched repo. If miss, switch to depth:Infinity with explicit ignore.",
+          "plan_issue": 5,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0ccf-08ca-73a1-a3fa-3dac6d699631",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:19:44.722Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added GitWatcher and StatusCoalescer. GitWatcher maintains one chokidar watcher per workspace gitDir, ignores lock/object/log noise, and emits dirty callbacks for status-relevant add/change/unlink events. createStatusCoalescer provides trailing per-workspace debounce and collapses triggers during an active refresh into exactly one follow-up run. Verified by the engineer with bun run typecheck, targeted Biome check, and ad-hoc checks for coalescer burst/follow-up behavior plus ignore helper behavior.",
+            "artifacts": [
+              "src/main/git/git-watcher.ts",
+              "src/main/git/status-coalescer.ts"
+            ],
+            "recorded_at": "2026-05-09T13:03:18.816Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "Add WorkspaceStorage migration v3 and git_panel_state accessors",
+          "status": "completed",
+          "context": "Issue 9 decision: persist exactly two pieces of per-workspace state — commitDraft (string) and expandedGroups (JSON of {merge,staged,working,untracked}: boolean) — in a single kv table `git_panel_state`. Migration is added to `WORKSPACE_DB_MIGRATIONS` in `src/main/storage/workspace-storage.ts` as version 3. Accessors mirror `getExpandedPaths`/`setExpandedPaths`.",
+          "acceptance": "- Existing workspace DBs (schemaVersion 2) auto-migrate to v3 on next open\n- `getGitPanelState` on a fresh workspace returns `{ commitDraft: \"\", expandedGroups: { merge: true, staged: true, working: true, untracked: true } }`\n- `setGitPanelState({ commitDraft: \"WIP\" })` persists across `closeForWorkspace` + `openForWorkspace`\n- Corrupt expandedGroups JSON in the DB does not throw — accessor logs and returns defaults\n- Existing migrations (v1, v2) remain unmodified per the file's comment \"Once shipped, do NOT edit\"",
+          "approach": "In `src/main/storage/workspace-storage.ts` append migration v3: `CREATE TABLE IF NOT EXISTS git_panel_state (key TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)`. Add two methods on WorkspaceStorage: `getGitPanelState(workspaceId): { commitDraft: string; expandedGroups: ExpandedGroups }` (returns defaults when rows absent), and `setGitPanelState(workspaceId, partial: Partial<...>)` — uses INSERT OR REPLACE per key, in a transaction. Validate the JSON via the GitPanelStateSchema from task 9 on read so corrupt rows fall back to defaults rather than throwing.",
+          "risk": "v2 migration's transaction pattern (BEGIN/COMMIT around prepared statements) must be matched exactly — the file's existing comment block is the contract.",
+          "plan_issue": 9,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cb9-2a62-7f93-bca0-155122e110a3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:19:55.670Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Appended WorkspaceStorage migration v3 for git_panel_state and added getGitPanelState/setGitPanelState accessors using shared Git panel schemas/defaults. Fresh workspaces return default panel state, partial updates persist as key/value rows, and corrupt expandedGroups JSON logs a warning and falls back to defaults without throwing. Verified by the engineer with bun run typecheck, targeted Biome lint, diff whitespace check, and an ad-hoc SQLite behavior check for defaults/migration/persistence/corruption.",
+            "artifacts": [
+              "src/main/storage/workspace-storage.ts"
+            ],
+            "recorded_at": "2026-05-09T12:40:20.168Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "Implement read/state git channel handlers (getRepoInfo, init, getStatus, getFileContent, listBranches, getPanelState, setPanelState)",
+          "status": "completed",
+          "context": "Issue 4 decision: handlers live in `src/main/ipc/channels/git/` split by concern. This task covers the read-side and panel-state handlers. They all delegate to GitRegistry / GitRepository / WorkspaceStorage and validate args via the contract schemas. getFileContent caps at 10 MB, runs binary detection (existing src/main/filesystem/binary-detect.ts), returns `{ binary: true }` placeholder for binaries.",
+          "acceptance": "- Each handler validates args with the contract schema and rejects malformed payloads with a uniform error\n- `getStatus` for a non-repo workspace returns the empty-groups status, not an error\n- `getFileContent` for a 12 MB file rejects with GitError(kind:\"output-too-large\"); renderer-visible message is \"File too large to diff\"\n- `getFileContent` for a known-binary file returns `{ binary: true, size }` without spawning git show\n- `getPanelState` returns sensible defaults for fresh workspaces\n- `setPanelState({ commitDraft: \"...\" })` round-trips through the DB\n- Handlers do not import renderer modules; they use the broadcast already injected into the registry",
+          "approach": "Create `src/main/ipc/channels/git/index.ts` with `registerGitChannel(registry, storage)` that calls `register(\"git\", { call, listen, stream })`. Split handlers across files mirroring the fs channel pattern: `repo-handlers.ts` (getRepoInfo, init), `status-handlers.ts` (getStatus), `content-handlers.ts` (getFileContent — runs through repository.getFileContent, applies size cap and binary check), `branch-handlers.ts` (listBranches — read side only), `state-handlers.ts` (getPanelState, setPanelState — wrap WorkspaceStorage accessors, validate via GitPanelStateSchema).",
+          "risk": "Binary detection on git-show output requires reading the buffer first — perform the cap check before binary-detect to avoid loading 100 MB into memory.",
+          "plan_issue": 4,
+          "deps": [
+            12,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cd6-339b-7ba2-a5f3-6f6970209104",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:20:07.108Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added git IPC read/state channel registration and handlers for getRepoInfo, init, getStatus, getFileContent, listBranches, getPanelState, and setPanelState. Handlers validate with shared contract schemas, delegate to GitRegistry/GitRepository/WorkspaceStorage, return empty status/branch shapes for non-repos, and convert git blob content into FileContent with binary probing. Verified by the engineer with targeted Biome check and bun run typecheck. Write/op handlers and log/diff streams remain for task 16.",
+            "artifacts": [
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/repo-handlers.ts",
+              "src/main/ipc/channels/git/status-handlers.ts",
+              "src/main/ipc/channels/git/content-handlers.ts",
+              "src/main/ipc/channels/git/branch-handlers.ts",
+              "src/main/ipc/channels/git/state-handlers.ts"
+            ],
+            "recorded_at": "2026-05-09T13:08:24.062Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "Implement write/op git channel handlers and streams (stage, unstage, discard, commit, checkout, createBranch, fetch, pull, push, stash, stashPop, log, diff)",
+          "status": "completed",
+          "context": "Issue 4 decision: write handlers and the two streams. Every write handler calls the corresponding GitRepository method and then `registry.refreshStatus(workspaceId)` BEFORE returning so the statusChanged broadcast lands ahead of the call resolution (issue 5 decision). pull/push return typed results; auth failures from issue 8 surface as GitError(kind:\"auth\"). log and diff are async generators per the existing fs.searchText stream pattern.",
+          "acceptance": "- After `commit`, the renderer receives a `git.statusChanged` event before the call's promise resolves (verified by ordering trace)\n- `push` against a remote requiring auth resolves with GitError(kind:\"auth\") and stderr-derived message; the panel surfaces \"Open Terminal\" CTA per issue 8\n- `discardChanges` for an untracked file deletes it (`git clean -f -- <relPath>`) and refreshes\n- `log` stream is cancellable mid-iteration via AbortSignal — the child git process is killed, no zombies\n- `diff` stream emits DiffChunk batches no larger than 1 MB each (back-pressure)\n- Validation errors from contract schemas are converted to typed errors uniformly",
+          "approach": "Files in `src/main/ipc/channels/git/`: `stage-handlers.ts` (stage, unstage, discardChanges), `commit-handlers.ts` (commit), `branch-handlers.ts` (checkout, createBranch — write side; listBranches stays in task 14's read file), `sync-handlers.ts` (fetch, pull, push), `stash-handlers.ts` (stash, stashPop), `log-stream.ts` (log async generator — `git log --pretty=format:... -z` consumer, yields LogChunk batches, returns LogComplete), `diff-stream.ts` (diff async generator — consumes streamGit output for `git diff`/`git diff --cached`/`git show`, yields DiffChunk batches). All write handlers end with `await registry.refreshStatus(workspaceId)` before returning.",
+          "risk": "discardChanges semantics differ for staged vs. unstaged vs. untracked files — must dispatch on current status to invoke the right git verb (checkout/restore for tracked, clean for untracked). Document in stage-handlers.ts comment.",
+          "plan_issue": 4,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cda-ab9f-7d20-8ffa-cf20736bb815",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:20:21.242Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added main-side write/op git IPC handlers for stage, unstage, discardChanges, commit, checkout, createBranch, fetch, pull, push, stash, and stashPop. Each successful mutation delegates to GitRepository and awaits registry.refreshStatus(workspaceId) before returning, preserving statusChanged-before-resolution ordering. Added log/diff stream handlers that wrap repository streams with ctx.signal cancellation. Verified by the engineer with bun run typecheck and targeted Biome check; Lead re-ran typecheck and targeted Biome after integration wiring.",
+            "artifacts": [
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/branch-handlers.ts",
+              "src/main/ipc/channels/git/stage-handlers.ts",
+              "src/main/ipc/channels/git/commit-handlers.ts",
+              "src/main/ipc/channels/git/sync-handlers.ts",
+              "src/main/ipc/channels/git/stash-handlers.ts",
+              "src/main/ipc/channels/git/log-stream.ts",
+              "src/main/ipc/channels/git/diff-stream.ts"
+            ],
+            "recorded_at": "2026-05-09T13:13:02.923Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "Wire GitRegistry + GitWatcher into main/index.ts and register git channel",
+          "status": "completed",
+          "context": "Tie all main-side pieces together: build resolveGitBinary at app.whenReady, instantiate StatusCoalescer + GitWatcher + GitRegistry with the wrappedBroadcast, register the git channel, and ensure workspace:removed cleanup hooks GitWatcher and GitRegistry exactly like FileWatcher does today.",
+          "acceptance": "- App starts with `git` not on PATH and panel renders a \"Git not found\" notice (no crash)\n- App starts with git on PATH and SCM panel works end-to-end\n- Removing a workspace immediately disposes its GitWatcher and any in-flight GitRepository operations (verified by no lingering chokidar handles, no orphaned child processes)\n- `before-quit` cleanly shuts down all registries and watchers\n- No double-registration of the git channel on hot reload — register is \"last wins\" but should be called exactly once per process",
+          "approach": "In `src/main/index.ts`: extend `wrappedBroadcast` to also call `gitWatcher.disposeWorkspace(removedWorkspaceId)` and `gitRegistry.dispose(removedWorkspaceId)` on `workspace:removed`, in the same block where `fileWatcher.disposeWorkspace` is called. After `app.whenReady()`, `await resolveGitBinary()`, instantiate the coalescer/watcher/registry, call `registerGitChannel(gitRegistry, workspaceStorage)`. Add `gitRegistry.disposeAll(); gitWatcher.dispose();` to the existing `app.on(\"before-quit\", ...)` block. The git binary, if not found, leaves the registry in a \"git-missing\" mode where every call returns GitError(kind:\"git-missing\") — no panel-only branch needed.",
+          "risk": "The wrappedBroadcast pattern is currently single-purpose for FileWatcher; expanding it must keep the if-blocks orthogonal so a future fourth subscriber doesn't tangle them. Keep each domain in its own `if (channelName === \"workspace\" && event === \"removed\")` block.",
+          "plan_issue": 3,
+          "deps": [
+            15
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-09T12:20:33.860Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Wired main-process Git lifecycle into src/main/index.ts: resolved git binary at app readiness, created StatusCoalescer, GitWatcher, and GitRegistry, registered the git IPC channel, hooked repoInfoChanged into watcher registration, scheduled status refreshes from watcher dirty events, and disposed registry/watcher/coalescer on workspace removal and before-quit. Added a small GitRegistry onRepoInfoChanged callback option to support watcher wiring without coupling the registry to chokidar. Verified with bun run typecheck and targeted Biome check on main/index, git-registry, and git channel files.",
+            "artifacts": [
+              "src/main/index.ts",
+              "src/main/git/git-registry.ts"
+            ],
+            "recorded_at": "2026-05-09T13:13:03.213Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "Implement renderer useGitStore (zustand) with statusChanged subscription and workspace-cleanup hookup",
+          "status": "completed",
+          "context": "Issue 7 decision: `useGitStore` mirrors `useSearchStore`'s session-map shape, keyed by workspaceId. Subscribes once at module init to `git.statusChanged` and `git.repoInfoChanged`, fans out by workspaceId. Registers `closeAllForWorkspace` with `registerWorkspaceCleanup`. Holds: repoInfo, status, branchInfo, commitDraft (debounced-persisted via setPanelState), expandedGroups (persisted on toggle), inFlightOp (commit/push/pull/...), lastError. Selectors expose the current workspace's session.",
+          "acceptance": "- Switching workspaces does not re-fetch status if a session already exists for the target workspace (cache hit)\n- Removing a workspace clears its session entirely and aborts any in-flight op\n- Typing in the commit input debounces persistence — 5 keystrokes within 500 ms produce 1 setPanelState call\n- An in-flight op is reflected in the UI via `inFlightOp` and cleared on resolution\n- A `git.statusChanged` event for an unmounted workspace is dropped silently (broadcast-and-filter)\n- `useGitSession(workspaceId)` is a stable selector hook that returns the session or undefined",
+          "approach": "`src/renderer/state/stores/git.ts`: `interface GitSession { repoInfo, status, statusFetching, branchInfo, commitDraft, expandedGroups, inFlightOp, lastError }`. Module-scope `controllers = new Map<workspaceId, AbortController>()` for in-flight ops (mirrors search.ts). Module-init subscribes to `window.ipc.on(\"git\", \"statusChanged\", ...)` and applies the new status to the matching session. On first activation per workspace, dispatch `getRepoInfo` + `getStatus` + `getPanelState` in parallel to seed. Actions: `loadInitial(workspaceId)`, `refresh(workspaceId)`, `setCommitDraft(workspaceId, text)` (debounced 500 ms persist via setPanelState), `setExpandedGroup(workspaceId, group, expanded)` (persist immediately), `stage/unstage/discard/commit/...` (each runs the call, sets inFlightOp during, clears + sets lastError on outcome), `closeAllForWorkspace(workspaceId)`. Register cleanup with registerWorkspaceCleanup at store creation, exactly like useSearchStore does.",
+          "risk": "commitDraft persistence timing — the 500 ms debounce must flush on workspace switch and on app close-attempt; otherwise the user's last keystrokes vanish. Add a flush on visibilitychange or window blur.",
+          "plan_issue": 7,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cb9-2f5c-7822-b87b-f2d91ddb2af6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:20:49.959Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added renderer useGitStore/useGitSession with per-workspace sessions, module-level git.statusChanged/repoInfoChanged fan-out, workspace cleanup, commit draft debounce + flush hooks, panel-state persistence, and inFlightOp-tracked actions for the planned git operations. Verified by the engineer with bun run typecheck and targeted Biome check; end-to-end exercise is deferred until main handlers are wired.",
+            "artifacts": [
+              "src/renderer/state/stores/git.ts"
+            ],
+            "recorded_at": "2026-05-09T12:40:20.464Z"
+          }
+        },
+        {
+          "id": 19,
+          "title": "Build Source Control panel UI components (GitPanel and 13 sub-components)",
+          "status": "completed",
+          "context": "Issue 7 designer decision spelled out the component list and the geometry. Assemble `src/renderer/components/files/git/` mirroring `src/renderer/components/files/search/` layout. Reuse existing tokens (text-app-ui-sm, text-app-body, text-muted-foreground, bg-frosted-veil, bg-frosted-veil-strong, border-mist-border, text-warning/success/destructive, etc.). RTL truncation for filenames, hover/focus-revealed inline actions, status badge with color+letter (letter primary signifier).",
+          "acceptance": "- Empty groups are not rendered (per designer Q3)\n- A file row's path is truncated from the front via direction:rtl with full path tooltip + aria-label\n- Status badge color matches token map: M/T→warning, A/?→success, D→destructive, R/C→muted-foreground, !→destructive+bg-destructive/10\n- ⌘Enter commits from anywhere inside the panel\n- Discard confirms via alertdialog with default focus on Cancel\n- Non-repo workspace renders GitEmptyState with Initialize Repository pill button that calls `git.init`\n- Loading skeleton appears only after 250 ms (reuses useLoaderDelay)\n- All icon buttons have aria-label; group headers have aria-expanded\n- Visual review on macOS dev box matches the ASCII sketch in the designer's deliverable",
+          "approach": "Create directory `src/renderer/components/files/git/` with one file per component: GitPanel.tsx (top-level container, mirrors SearchPanel.tsx), GitHeader.tsx, GitMoreMenu.tsx, GitCommitInput.tsx, GitCommitButton.tsx (split button), GitGroup.tsx, GitGroupHeader.tsx, GitFileRow.tsx (with RTL truncation), GitStatusBadge.tsx (token map per designer Q4), GitBranchBar.tsx, GitBranchPopover.tsx, GitInlineBanner.tsx, GitEmptyState.tsx, GitLoadingSkeleton.tsx, plus index.ts barrel. Hooks in same dir: useGitSession.ts (thin wrapper around useGitStore), useGitOpHotkey.ts (⌘Enter to commit, scoped to panel). Plus `confirmDiscardDialog.tsx` (could live alongside as it's panel-local). Default click on a row dispatches openDiffTab from task 18; right-click menu offers Open File / Reveal in File Tree / Stage|Unstage / Discard.",
+          "risk": "text-success contrast on bg-frosted-veil-strong — measure at impl time per designer's flagged warning. If <4.5:1, drop hover background for status-bearing rows or add font-medium to the badge letter only.",
+          "plan_issue": 7,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cdf-3472-7fc3-ae3f-8ffa4a11c722",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:21:09.266Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Implemented the Source Control panel component tree under src/renderer/components/files/git with the planned header, commit input, groups, file rows, status badges, branch footer, empty/loading/error states, hotkey, and discard confirmation behavior. Verified compile/targeted lint via bun run typecheck and Biome; the macOS visual-review acceptance item remains manually unverifiable from the CLI session and is carried as a cycle risk.",
+            "artifacts": [
+              "src/renderer/components/files/git/"
+            ],
+            "recorded_at": "2026-05-09T13:28:45.623Z"
+          }
+        },
+        {
+          "id": 20,
+          "title": "Add editor.diff tab subtype and Monaco DiffEditor tab implementation",
+          "status": "completed",
+          "context": "Issue 6 decision: extend TabMeta with a discriminated `editor.diff` subtype. Diff tab fetches left via git.getFileContent, right via fs.readFile (or git.getFileContent for INDEX). Subscribes to fs.changed + git.statusChanged for live update. Per-side version tokens reject stale responses. Lazy-load the Monaco DiffEditor.",
+          "acceptance": "- Clicking a changed file row in the SCM panel opens a Monaco DiffEditor in a new tab with correct left/right content\n- Editing the working-tree file from outside (e.g. another editor) updates the right pane within ~200 ms (debounced fs.changed)\n- Committing the staged change shifts the diff: file moves out of the SCM panel; if the diff tab was index-vs-head, it recomputes\n- Renamed files render with `oldRelPath → relPath` in the tab title and load HEAD content from oldRelPath\n- A 12 MB file shows \"File too large to diff\" instead of crashing the editor\n- A binary file shows a placeholder, not Monaco, and reports file size\n- Closing the workspace closes the diff tab via existing closeAllForWorkspace",
+          "approach": "Update `src/shared/types/tab.ts`: TabMeta union becomes a discriminated union on `type`, with `\"editor.diff\"` carrying `DiffTabPayload = { workspaceId; relPath; leftRef; rightRef; oldRelPath? }`. Existing tab.create call args may need a payload field (or a new method `createDiffTab`). Update `src/renderer/state/operations/tabs.ts` with `openDiffTab(workspaceId, relPath, leftRef, rightRef, oldRelPath?)` that creates the tab and routes a click. Create `src/renderer/components/editor/diff-tab.tsx` consuming `@monaco-editor/react`'s DiffEditor; create `src/renderer/components/editor/diff-content-loader.ts` exporting `useDiffContent(workspaceId, relPath, leftRef, rightRef): { left, right, status, reload }` that subscribes to fs.changed + git.statusChanged via the existing IPC client and uses per-side version tokens. The workspace-panel's tab renderer must dispatch on `tab.type === \"editor.diff\"`.",
+          "risk": "TabMeta is currently a flat shape; turning it into a discriminated union may require changes to the tabs store and existing renderers — verify all call sites of `tab.type === \"editor\"` etc. still narrow correctly. Bun's TS server can flag mismatches.",
+          "plan_issue": 6,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e0cdf-399f-7013-9db0-c826bc443c38",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:21:25.242Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added the editor.diff tab subtype, openDiffTab transaction, lazy DiffEditor renderer, diff-content loader with git/fs content fetching and change subscriptions, and workspace content/group handling for diff tabs. Verified with typecheck, targeted Biome, lint:tw, and targeted tab/content tests in the implementation pass.",
+            "artifacts": [
+              "src/shared/types/tab.ts",
+              "src/shared/types/layout.ts",
+              "src/shared/ipc-contract.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/state/operations/tabs.ts",
+              "src/renderer/state/operations/index.ts",
+              "src/renderer/components/editor/diff-tab.tsx",
+              "src/renderer/components/editor/diff-content-loader.ts",
+              "src/renderer/components/workspace/content/content-host.tsx",
+              "src/renderer/components/workspace/group/group-view.tsx",
+              "src/renderer/components/workspace/group/use-group-actions.ts",
+              "src/renderer/keybindings/commands/context.ts"
+            ],
+            "recorded_at": "2026-05-09T13:28:45.908Z"
+          }
+        },
+        {
+          "id": 21,
+          "title": "Mount GitPanel in FilesPanel: replace ComingSoon with the real component",
+          "status": "completed",
+          "context": "FilesPanel's `mode === \"git\"` currently routes to ComingSoon. After the GitPanel components are in place, swap the branch and remove the ComingSoon helper if it's no longer needed for any other mode.",
+          "acceptance": "- Switching to the git icon in the FilesPanel mode bar mounts the real GitPanel\n- The \"coming soon\" copy no longer appears anywhere in the renderer\n- Switching workspaces preserves per-workspace git state across mode switches (no cross-talk)\n- No unused-import warnings remain",
+          "approach": "In `src/renderer/components/files/files-panel.tsx`, replace the `else` branch that renders `<ComingSoon mode={filesPanelMode} />` with a switch that renders `<GitPanel workspaceId={activeWorkspace.id} />` for `mode === \"git\"`. If the ComingSoon component is now unreferenced (it was only used for git), delete it. Update the import surface accordingly.",
+          "risk": "Trivial — single file change. Just verify hot-reload picks up the import.",
+          "plan_issue": 7,
+          "deps": [
+            18,
+            19
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-09T12:21:31.716Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Replaced the FilesPanel git-mode placeholder with the real GitPanel, removed the ComingSoon helper/copy, and wired GitPanel row clicks to openDiffTab with group-appropriate HEAD/INDEX/WORKING refs. Verified no renderer 'coming soon' copy remains, bun run typecheck passes, and Biome check passes for the touched file.",
+            "artifacts": [
+              "src/renderer/components/files/files-panel.tsx"
+            ],
+            "recorded_at": "2026-05-09T13:28:46.198Z"
+          }
+        },
+        {
+          "id": 22,
+          "title": "Scenario tests: porcelain v2 parser, GitRepository queue serialization, StatusCoalescer convergence, round-trip stage→commit→refresh",
+          "status": "completed",
+          "context": "Per project rule \"only meaningful scenario tests\" (.nexus/context/conventions.md): no zod re-validation, no library/type re-statement. Real bug surface for git work is (1) porcelain v2 parsing across edge cases (renames, conflicts, untracked binary names with spaces), (2) GitRepository's queue actually serializes (a slow read does not interleave with a fast write), (3) StatusCoalescer absorbs bursts and produces ONE broadcast, (4) full round-trip: a renderer-initiated stage → commit → resulting statusChanged broadcast lands at the renderer with the file moved out of Index.",
+          "acceptance": "- All four spec files pass with `bun test`\n- Porcelain test covers ≥6 fixture cases including renames + conflicts + spaces in path\n- Queue test runs without flakes 5x in a row\n- Coalescer test asserts call-count, not just timing\n- Round-trip test uses a real tmp git repo (created with `git init` + `git add` from within the test) — no mocked git\n- Tests do not duplicate existing search round-trip test patterns; reuse helpers where possible",
+          "approach": "Tests live under `tests/` (matching existing test layout). Four spec files: `tests/git/porcelain-v2.spec.ts` (table-driven against captured fixtures: clean repo, mixed M/A/D, rename, conflict, untracked-with-spaces; assert grouping + xy + oldRelPath); `tests/git/git-repository-queue.spec.ts` (queue concurrent slow-read + fast-write, assert sequential ordering); `tests/git/status-coalescer.spec.ts` (50 schedules within 50 ms produce 1 run; schedule mid-flight triggers 2 runs); `tests/git/round-trip.spec.ts` (set up tmp git repo, exercise the channel via a test harness wrapping registerGitChannel, stage → commit → assert statusChanged received with empty Index group). No tests for \"git binary spawns\" (Node guarantees), \"schemas validate\" (zod guarantees), \"channel routes by name\" (router-level test exists already — reuse).",
+          "risk": "Round-trip test depends on actual `git` binary being on PATH in CI — gate the test with `it.skip` if `which git` fails; document the requirement in the test file's header.",
+          "plan_issue": 5,
+          "deps": [
+            16,
+            20
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e0ced-580b-79d2-82bf-4396c9d09ead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T12:21:48.310Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added four targeted Git scenario test files covering porcelain v2 parsing fixtures, GitRepository queue serialization, StatusCoalescer call-count convergence, and a real temporary git repository IPC round-trip stage→commit→statusChanged refresh. Verified all four files with bun test, reran the queue file 5 consecutive times, and checked formatting/lint on the new test files.",
+            "artifacts": [
+              "tests/unit/main/git/porcelain-v2.test.ts",
+              "tests/unit/main/git/git-repository-queue.test.ts",
+              "tests/unit/main/git/status-coalescer.test.ts",
+              "tests/integration/main/git/round-trip.test.ts"
+            ],
+            "recorded_at": "2026-05-09T13:35:05.238Z"
+          }
+        },
+        {
+          "id": 23,
+          "title": "End-of-cycle blocker fixes: git status refresh, re-detection, and safe discard scope",
+          "status": "completed",
+          "context": "Architect review found three v1 blockers: working-tree edits do not refresh SCM status, cached non-repo workspaces cannot be re-detected by Refresh after external git init, and discard by path can erase both staged and unstaged changes for an MM file. Fix within original Git panel v1 scope.",
+          "acceptance": "- Existing git sessions refresh status from fs.changed hints without aborting unrelated in-flight git operations.\n- Manual Git Refresh re-runs repository detection so external git init/clone transitions non-repo -> repo without app restart.\n- Row/group discard carries source group context so Working discard on an MM file preserves staged content; Staged discard does not erase unstaged content.\n- Add or extend tests to cover at least the safe-discard MM behavior and refreshDetection IPC path.\n- bun run typecheck, targeted git tests, changed-file Biome, and Tailwind syntax check pass.",
+          "approach": "Add git.refreshDetection to the shared contract and repo handlers, route renderer refresh through it, add fs.changed-driven passive status refresh to useGitStore, and extend discardChanges args with optional GitExpandedGroupKey source. Thread source through GitGroup/GitPanel/ConfirmDiscardDialog/store/handler into GitRepository.discard, splitting index-only/worktree-only/clean behavior by source. Add targeted tests under tests/unit/main/git or tests/integration/main/git.",
+          "risk": "Discard semantics are data-loss-sensitive. Prefer conservative row-level behavior that preserves the other side of an MM file, even if pure staged additions become untracked instead of being deleted in one click.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-09T13:44:04.746Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Fixed the architecture-review blockers: added git.refreshDetection IPC and renderer Refresh re-detection, added passive fs.changed-driven Git status refreshes that do not abort user operations, threaded discard source group context through UI/store/IPC/repository, and split discard behavior so Working/Staged row actions preserve the other side of an MM file. Added real-git tests for MM discard safety and refreshDetection recovery. Verified typecheck, targeted git tests, full bun test, changed-file Biome, Tailwind syntax check, and git diff --check.",
+            "artifacts": [
+              "src/shared/ipc-contract.ts",
+              "src/main/ipc/channels/git/repo-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/stage-handlers.ts",
+              "src/main/git/git-repository.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/confirmDiscardDialog.tsx",
+              "src/renderer/components/files/git/GitGroup.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/main/git/git-repository-discard.test.ts",
+              "tests/integration/main/git/round-trip.test.ts"
+            ],
+            "recorded_at": "2026-05-09T13:48:10.319Z"
+          }
+        }
+      ]
     }
   ]
 }

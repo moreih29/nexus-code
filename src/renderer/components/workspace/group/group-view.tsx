@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { closeEditorWithConfirm } from "@/services/editor";
 import { closeTerminal, openTerminal } from "@/services/terminal";
+import { closeTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 import { useTabsStore } from "@/state/stores/tabs";
@@ -80,6 +81,10 @@ export function GroupView({
       // doesn't react to the outcome — the close itself updates layout
       // via the tabs store, which re-renders us.
       void closeEditorWithConfirm(workspaceId, tabId);
+      return;
+    }
+    if (tab?.type === "editor.diff") {
+      closeTab(workspaceId, tabId);
     }
   }
 

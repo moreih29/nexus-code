@@ -12,6 +12,7 @@ export { ensureRoot, loadChildren, refresh, reveal, toggleExpand } from "./files
 export { closeGroup } from "./groups";
 export {
   closeTab,
+  openDiffTab,
   openEditorTab,
   openTab,
   openTabInNewSplit,

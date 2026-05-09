@@ -1,0 +1,37 @@
+/**
+ * Log stream handler — wraps GitRepository.log for cancellable IPC streams.
+ */
+import type {
+  InferArgs,
+  InferComplete,
+  InferProgress,
+  ipcContract,
+} from "../../../../shared/ipc-contract";
+import { GitError } from "../../../git/git-error";
+import type { GitRegistry } from "../../../git/git-registry";
+import type { StreamContext } from "../../router";
+
+type LogStreamProcedure = (typeof ipcContract)["git"]["stream"]["log"];
+type LogStreamArgs = InferArgs<LogStreamProcedure>;
+type LogStreamProgress = InferProgress<LogStreamProcedure>;
+type LogStreamComplete = InferComplete<LogStreamProcedure>;
+type LogStreamHandler = (
+  args: LogStreamArgs,
+  ctx: StreamContext,
+) => AsyncGenerator<LogStreamProgress, LogStreamComplete, unknown>;
+
+/**
+ * Builds the log stream handler. The router validates stream args/progress and
+ * owns cancellation; this handler passes ctx.signal into repository streaming.
+ */
+export function logStream(registry: GitRegistry): LogStreamHandler {
+  return async function* (
+    { workspaceId, ref, skip, limit }: LogStreamArgs,
+    ctx: StreamContext,
+  ): AsyncGenerator<LogStreamProgress, LogStreamComplete, unknown> {
+    const repo = await registry.getOrDetect(workspaceId, ctx.signal);
+    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+
+    return yield* repo.log({ ref, skip, limit }, ctx.signal);
+  };
+}

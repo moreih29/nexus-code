@@ -1,8 +1,10 @@
+import { closeEditorWithConfirm } from "@/services/editor";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
 import { filePathToModelUri } from "@/services/editor/model/model-cache";
-import { closeEditorWithConfirm, type CloseTabOutcome } from "@/services/editor/save/close-handler";
+import type { CloseTabOutcome } from "@/services/editor/save/close-handler";
 import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs";
 import { closeTerminal, openTerminal } from "@/services/terminal";
+import { closeTab as closeTabRecord, openTabInNewSplit } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 
 interface UseGroupActionsOptions {
@@ -36,6 +38,10 @@ export function useGroupActions({
     }
     if (tab.type === "editor") {
       return await closeEditorWithConfirm(workspaceId, tabId);
+    }
+    if (tab.type === "editor.diff") {
+      closeTabRecord(workspaceId, tabId);
+      return "closed";
     }
     return "no-tab";
   }
@@ -112,6 +118,17 @@ export function useGroupActions({
       openOrRevealEditor(tab.props, {
         newSplit: { orientation, side: "after" },
       });
+      return;
+    }
+
+    if (tab.type === "editor.diff") {
+      onActivateGroup(leafId);
+      openTabInNewSplit(
+        workspaceId,
+        { type: "editor.diff", props: tab.props },
+        orientation,
+        "after",
+      );
       return;
     }
 

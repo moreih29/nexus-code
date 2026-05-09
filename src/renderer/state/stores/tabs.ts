@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
+import type { DiffTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -10,15 +11,16 @@ import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 // gives the compiler a typed `props` automatically.
 // ---------------------------------------------------------------------------
 
-export type TabType = "terminal" | "editor";
+export type TabType = "terminal" | "editor" | "editor.diff";
 
 export interface TerminalTabProps {
   cwd: string;
 }
 
 export type EditorTabProps = EditorInput;
+export type DiffTabProps = DiffTabPayload;
 
-export type TabProps = TerminalTabProps | EditorTabProps;
+export type TabProps = TerminalTabProps | EditorTabProps | DiffTabProps;
 
 interface TabBase {
   id: string;
@@ -32,12 +34,17 @@ export interface EditorTab extends TabBase {
   props: EditorTabProps;
 }
 
+export interface DiffTab extends TabBase {
+  type: "editor.diff";
+  props: DiffTabProps;
+}
+
 export interface TerminalTab extends TabBase {
   type: "terminal";
   props: TerminalTabProps;
 }
 
-export type Tab = EditorTab | TerminalTab;
+export type Tab = EditorTab | DiffTab | TerminalTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
@@ -51,6 +58,7 @@ export type Tab = EditorTab | TerminalTab;
  */
 export type CreateTabArgs =
   | { type: "editor"; props: EditorTabProps }
+  | { type: "editor.diff"; props: DiffTabProps }
   | { type: "terminal"; props: TerminalTabProps };
 
 interface TabsState {
@@ -73,8 +81,16 @@ interface TabsState {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Builds the display title used for a new tab when the caller does not
+ * provide an explicit rename after creation.
+ */
 export function defaultTitle(args: CreateTabArgs): string {
   if (args.type === "terminal") return "Terminal";
+  if (args.type === "editor.diff") {
+    if (args.props.oldRelPath) return `${args.props.oldRelPath} → ${args.props.relPath}`;
+    return basename(args.props.relPath) || "Diff";
+  }
   return basename(args.props.filePath) || "Editor";
 }
 
@@ -100,10 +116,14 @@ export const useTabsStore = create<TabsState>((set, get) => {
         isPreview,
         isPinned: false,
       };
-      const tab: Tab =
-        args.type === "editor"
-          ? { ...base, type: "editor", props: args.props }
-          : { ...base, type: "terminal", props: args.props };
+      let tab: Tab;
+      if (args.type === "editor") {
+        tab = { ...base, type: "editor", props: args.props };
+      } else if (args.type === "editor.diff") {
+        tab = { ...base, type: "editor.diff", props: args.props };
+      } else {
+        tab = { ...base, type: "terminal", props: args.props };
+      }
       set((state) => ({
         byWorkspace: {
           ...state.byWorkspace,
@@ -196,7 +216,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const updatedTab: Tab =
           tab.type === "editor"
             ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-            : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
+            : tab.type === "editor.diff"
+              ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
+              : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
         return {
           byWorkspace: {
             ...state.byWorkspace,

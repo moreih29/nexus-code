@@ -1,11 +1,16 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { FileWatcher } from "./filesystem/file-watcher";
+import { resolveGitBinary } from "./git/git-binary";
+import { GitRegistry } from "./git/git-registry";
+import { GitWatcher } from "./git/git-watcher";
+import { createStatusCoalescer, type StatusCoalescer } from "./git/status-coalescer";
 import { type LspHostHandle, startLspHost } from "./hosts/lsp-host";
 import { startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
+import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
@@ -30,6 +35,9 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // This avoids modifying WorkspaceManager and keeps the hook co-located with
 // the wiring that owns both fileWatcher and workspaceManager.
 let lspHost: LspHostHandle | null = null;
+let gitRegistry: GitRegistry | null = null;
+let gitWatcher: GitWatcher | null = null;
+let gitStatusCoalescer: StatusCoalescer | null = null;
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "fs" && event === "changed") {
@@ -44,6 +52,12 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
   if (channelName === "workspace" && event === "removed") {
     const removedWorkspaceId = (args as { id: string }).id;
     fileWatcher.disposeWorkspace(removedWorkspaceId);
+  }
+  if (channelName === "workspace" && event === "removed") {
+    const removedWorkspaceId = (args as { id: string }).id;
+    gitWatcher?.disposeWorkspace(removedWorkspaceId);
+    gitStatusCoalescer?.cancel(removedWorkspaceId);
+    gitRegistry?.dispose(removedWorkspaceId);
   }
   forwardBroadcast(channelName, event, args);
 }
@@ -60,7 +74,7 @@ registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Replace Electron's default menu (which still binds Cmd+W to "Close
   // Window" and Cmd+R to "Reload") with our command-driven template
   // before any window opens. Menu accelerators belong to the menu, not
@@ -69,6 +83,25 @@ app.whenReady().then(() => {
   installAppMenu();
 
   workspaceManager.init();
+
+  const gitBinary = await resolveGitBinary();
+  gitStatusCoalescer = createStatusCoalescer({ delayMs: 100 });
+  gitWatcher = new GitWatcher((workspaceId) => {
+    gitStatusCoalescer?.schedule(workspaceId, async () => {
+      await gitRegistry?.refreshStatus(workspaceId);
+    });
+  });
+  gitRegistry = new GitRegistry(workspaceManager, forwardBroadcast, gitBinary, {
+    onRepoInfoChanged(workspaceId, info) {
+      if (info.kind === "repo") {
+        gitWatcher?.watch(workspaceId, info.gitDir);
+      } else {
+        gitWatcher?.disposeWorkspace(workspaceId);
+        gitStatusCoalescer?.cancel(workspaceId);
+      }
+    },
+  });
+  registerGitChannel(gitRegistry, workspaceStorage);
 
   const ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
@@ -79,6 +112,9 @@ app.whenReady().then(() => {
   app.on("before-quit", () => {
     ptyHost.dispose();
     lspHost?.dispose();
+    gitStatusCoalescer?.clearAll();
+    gitWatcher?.dispose();
+    gitRegistry?.disposeAll();
   });
 
   createMainWindow();
@@ -98,5 +134,8 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   fileWatcher.dispose();
+  gitStatusCoalescer?.clearAll();
+  gitWatcher?.dispose();
+  gitRegistry?.disposeAll();
   workspaceManager.close();
 });

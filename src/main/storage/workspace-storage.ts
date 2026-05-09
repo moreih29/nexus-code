@@ -1,5 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  DEFAULT_GIT_PANEL_STATE,
+  type GitExpandedGroups,
+  type GitPanelState,
+  GitPanelStateSchema,
+  type GitPanelStateUpdate,
+} from "../../shared/types/git";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 import type { SqliteDb } from "./migrations";
 
@@ -30,7 +37,56 @@ const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
+  // v3 → git_panel_state table for persisting Source Control panel UI state.
+  {
+    version: 3,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_panel_state (
+          key   TEXT NOT NULL PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
+
+const GIT_PANEL_COMMIT_DRAFT_KEY = "commitDraft";
+const GIT_PANEL_EXPANDED_GROUPS_KEY = "expandedGroups";
+
+function defaultGitExpandedGroups(): GitExpandedGroups {
+  return { ...DEFAULT_GIT_PANEL_STATE.expandedGroups };
+}
+
+function defaultGitPanelState(): GitPanelState {
+  return {
+    commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
+    expandedGroups: defaultGitExpandedGroups(),
+  };
+}
+
+function parseGitExpandedGroups(
+  workspaceId: string,
+  raw: string | undefined,
+): GitExpandedGroups | null {
+  if (raw === undefined) {
+    return defaultGitExpandedGroups();
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
+      expandedGroups: JSON.parse(raw) as unknown,
+    });
+    return state.expandedGroups;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state expandedGroups for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return null;
+  }
+}
 
 function applyWorkspaceMigrations(db: SqliteDb): void {
   const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
@@ -218,6 +274,75 @@ export class WorkspaceStorage {
       del.run();
       for (const rp of relPaths) {
         ins.run(rp);
+      }
+      entry.db.exec("COMMIT");
+    } catch (err) {
+      entry.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  /**
+   * Returns the persisted Source Control panel state for a workspace.
+   * Missing rows fall back to defaults; invalid expandedGroups JSON logs and
+   * falls back to the default panel state without throwing.
+   */
+  getGitPanelState(workspaceId: string): GitPanelState {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+
+    const rows = entry.db.prepare("SELECT key, value FROM git_panel_state").all() as {
+      key: string;
+      value: string;
+    }[];
+    const values = new Map(rows.map((row) => [row.key, row.value]));
+    const expandedGroups = parseGitExpandedGroups(
+      workspaceId,
+      values.get(GIT_PANEL_EXPANDED_GROUPS_KEY),
+    );
+    if (expandedGroups === null) {
+      return defaultGitPanelState();
+    }
+
+    const state = {
+      commitDraft: values.get(GIT_PANEL_COMMIT_DRAFT_KEY) ?? DEFAULT_GIT_PANEL_STATE.commitDraft,
+      expandedGroups,
+    };
+    const parsed = GitPanelStateSchema.safeParse(state);
+    if (!parsed.success) {
+      console.warn(
+        `[WorkspaceStorage] Invalid git_panel_state for workspace ${workspaceId}; using defaults.`,
+        parsed.error,
+      );
+      return defaultGitPanelState();
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Persists partial Source Control panel state for a workspace.
+   * Only provided keys are replaced so callers can update the draft or group
+   * expansion state independently.
+   */
+  setGitPanelState(workspaceId: string, state: GitPanelStateUpdate): void {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+
+    const parsed = GitPanelStateSchema.partial().parse(state);
+    const ins = entry.db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value) VALUES (?, ?)",
+    );
+    entry.db.exec("BEGIN");
+    try {
+      if (parsed.commitDraft !== undefined) {
+        ins.run(GIT_PANEL_COMMIT_DRAFT_KEY, parsed.commitDraft);
+      }
+      if (parsed.expandedGroups !== undefined) {
+        ins.run(GIT_PANEL_EXPANDED_GROUPS_KEY, JSON.stringify(parsed.expandedGroups));
       }
       entry.db.exec("COMMIT");
     } catch (err) {

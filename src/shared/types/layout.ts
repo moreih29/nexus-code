@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DiffTabPayloadSchema } from "./tab";
 
 // ---------------------------------------------------------------------------
 // Tab props schemas (serialization form — mirrors renderer/state/stores/tabs.ts
@@ -15,6 +16,9 @@ export const EditorTabPropsSchema = z.object({
   workspaceId: z.string().uuid(),
 });
 export type EditorTabProps = z.infer<typeof EditorTabPropsSchema>;
+
+export const DiffTabPropsSchema = DiffTabPayloadSchema;
+export type DiffTabProps = z.infer<typeof DiffTabPropsSchema>;
 
 // ---------------------------------------------------------------------------
 // SerializedTab
@@ -34,6 +38,14 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("editor"),
     title: z.string(),
     props: EditorTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("editor.diff"),
+    title: z.string(),
+    props: DiffTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

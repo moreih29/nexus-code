@@ -1,5 +1,6 @@
 import { Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
 import {
   FILES_PANEL_MODE_DEFAULT,
@@ -13,6 +14,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
+import { GitPanel, type GitPanelOpenDiffInput } from "./git";
 import { SearchPanel } from "./search";
 
 interface ModeButton {
@@ -78,8 +80,16 @@ export function FilesPanel() {
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                 <SearchPanel workspaceId={activeWorkspace.id} />
               </div>
+            ) : filesPanelMode === "git" ? (
+              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <GitPanel
+                  workspaceId={activeWorkspace.id}
+                  workspaceRootPath={activeWorkspace.rootPath}
+                  onOpenDiff={openGitDiffFromRow}
+                />
+              </div>
             ) : (
-              <ComingSoon mode={filesPanelMode} />
+              <FileTree workspaceId={activeWorkspace.id} rootAbsPath={activeWorkspace.rootPath} />
             )}
           </div>
         </>
@@ -102,13 +112,16 @@ export function FilesPanel() {
   );
 }
 
-function ComingSoon({ mode }: { mode: Exclude<FilesPanelMode, "tree"> }) {
-  const title = mode === "search" ? "Search" : "Source control";
-  return (
-    <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
-      {title}
-      <br />
-      coming soon.
-    </div>
-  );
+function openGitDiffFromRow({ workspaceId, groupKey, entry }: GitPanelOpenDiffInput): void {
+  const refs = refsForGitGroup(groupKey);
+  openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath);
+}
+
+function refsForGitGroup(groupKey: GitPanelOpenDiffInput["groupKey"]): {
+  leftRef: string;
+  rightRef: string;
+} {
+  if (groupKey === "staged") return { leftRef: "HEAD", rightRef: "INDEX" };
+  if (groupKey === "working") return { leftRef: "INDEX", rightRef: "WORKING" };
+  return { leftRef: "HEAD", rightRef: "WORKING" };
 }

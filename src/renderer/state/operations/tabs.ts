@@ -11,6 +11,7 @@
 import { useLayoutStore } from "../stores/layout";
 import {
   type CreateTabArgs,
+  type DiffTabProps,
   type EditorTabProps,
   type Tab,
   type TerminalTabProps,
@@ -71,6 +72,27 @@ export function openEditorTab(
   isPreview = false,
 ): Tab {
   return openTabRecord(workspaceId, { type: "editor", props }, opts, isPreview);
+}
+
+/**
+ * Open a read-only source-control diff tab in the active group.
+ */
+export function openDiffTab(
+  workspaceId: string,
+  relPath: string,
+  leftRef: string,
+  rightRef: string,
+  oldRelPath?: string,
+  opts?: { groupId?: string | "active" },
+): Tab {
+  const props: DiffTabProps = {
+    workspaceId,
+    relPath,
+    leftRef,
+    rightRef,
+    ...(oldRelPath ? { oldRelPath } : {}),
+  };
+  return openTabRecord(workspaceId, { type: "editor.diff", props }, opts);
 }
 
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {

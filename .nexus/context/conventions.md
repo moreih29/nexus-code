@@ -1,4 +1,5 @@
 ## 코드 스타일
+- broadcast 이벤트 상관관계 키는 transport requestId가 아니라 도메인 식별자(workspaceId/tabId/uri 등)를 사용한다.
 - 폴더 구조는 사람이 인지하기 쉽도록 계층화함
 - 클래스 및 함수에는 주석을 통해 의미를 반드시 작성 (단, M0, Phase1 같은 일시적인 내용은 담지 않음)
 
