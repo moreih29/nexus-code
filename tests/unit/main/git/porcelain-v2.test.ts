@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseV2Porcelain } from "../../../../src/main/git/git-repository";
+import { parseV2Porcelain } from "../../../../src/main/git/porcelain-v2";
 import type { GitStatus } from "../../../../src/shared/types/git";
 
 const HASH = "0123456789abcdef0123456789abcdef01234567";

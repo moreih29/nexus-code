@@ -12,6 +12,7 @@ export interface StatusCoalescer {
   schedule(workspaceId: string, runFn: StatusRunFn): void;
   cancel(workspaceId: string): void;
   clearAll(): void;
+  markRecentlyRefreshed(workspaceId: string): void;
   readonly size: number;
 }
 
@@ -35,9 +36,16 @@ export function createStatusCoalescer({
 }: StatusCoalescerOptions): StatusCoalescer {
   const entries = new Map<string, StatusCoalescerEntry>();
   const timers: KeyedDebouncer<string> = createKeyedDebouncer<string>({ delayMs, scheduler });
+  const lastRefreshedAt = new Map<string, number>();
 
   return {
     schedule(workspaceId, runFn) {
+      const now = Date.now();
+      const lastAt = lastRefreshedAt.get(workspaceId);
+      if (lastAt !== undefined && now - lastAt < delayMs) {
+        return;
+      }
+
       const entry = getOrCreateEntry(workspaceId, runFn);
       entry.runFn = runFn;
 
@@ -58,6 +66,7 @@ export function createStatusCoalescer({
 
     cancel(workspaceId) {
       timers.cancel(workspaceId);
+      lastRefreshedAt.delete(workspaceId);
       const entry = entries.get(workspaceId);
       if (!entry) {
         return;
@@ -71,12 +80,17 @@ export function createStatusCoalescer({
 
     clearAll() {
       timers.clearAll();
+      lastRefreshedAt.clear();
       for (const [workspaceId, entry] of entries) {
         entry.followUpRequested = false;
         if (!entry.running) {
           entries.delete(workspaceId);
         }
       }
+    },
+
+    markRecentlyRefreshed(workspaceId) {
+      lastRefreshedAt.set(workspaceId, Date.now());
     },
 
     get size() {

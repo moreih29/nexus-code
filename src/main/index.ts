@@ -1,12 +1,13 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
+import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
 import { FileWatcher } from "./filesystem/file-watcher";
 import { resolveGitBinary } from "./git/git-binary";
 import { GitRegistry } from "./git/git-registry";
 import { GitWatcher } from "./git/git-watcher";
 import { createStatusCoalescer, type StatusCoalescer } from "./git/status-coalescer";
 import { type LspHostHandle, startLspHost } from "./hosts/lsp-host";
-import { startPtyHost } from "./hosts/pty-host";
+import { startPtyHost, type PtyHostHandle } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
@@ -31,10 +32,12 @@ const globalStorage = GlobalStorage.openFile(path.join(userData, "state.db"));
 const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"));
 const stateService = new StateService(path.join(userData, "state.json"));
 
-// Wrap broadcast so workspace.removed events clean up file watchers.
-// This avoids modifying WorkspaceManager and keeps the hook co-located with
-// the wiring that owns both fileWatcher and workspaceManager.
+// Per-domain disposers wired into the workspace:removed interception below.
+// Each subsystem (fileWatcher, git*, lsp) owns its own per-workspace cleanup
+// without modifying WorkspaceManager, so the hook stays co-located with
+// the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
+let ptyHost: PtyHostHandle | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: GitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -50,11 +53,11 @@ const fileWatcher = new FileWatcher(forwardBroadcast);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "removed") {
+    // Run every per-workspace disposer in one place. New subsystems with
+    // workspace-scoped state should add their dispose call here rather
+    // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
     fileWatcher.disposeWorkspace(removedWorkspaceId);
-  }
-  if (channelName === "workspace" && event === "removed") {
-    const removedWorkspaceId = (args as { id: string }).id;
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
@@ -85,13 +88,14 @@ app.whenReady().then(async () => {
   workspaceManager.init();
 
   const gitBinary = await resolveGitBinary();
-  gitStatusCoalescer = createStatusCoalescer({ delayMs: 100 });
+  gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitWatcher = new GitWatcher((workspaceId) => {
     gitStatusCoalescer?.schedule(workspaceId, async () => {
       await gitRegistry?.refreshStatus(workspaceId);
     });
   });
   gitRegistry = new GitRegistry(workspaceManager, forwardBroadcast, gitBinary, {
+    coalescer: gitStatusCoalescer ?? undefined,
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
         gitWatcher?.watch(workspaceId, info.gitDir);
@@ -103,19 +107,11 @@ app.whenReady().then(async () => {
   });
   registerGitChannel(gitRegistry, workspaceStorage);
 
-  const ptyHost = startPtyHost();
+  ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
 
   lspHost = startLspHost();
   registerLspChannel(lspHost);
-
-  app.on("before-quit", () => {
-    ptyHost.dispose();
-    lspHost?.dispose();
-    gitStatusCoalescer?.clearAll();
-    gitWatcher?.dispose();
-    gitRegistry?.disposeAll();
-  });
 
   createMainWindow();
 
@@ -132,7 +128,13 @@ app.on("window-all-closed", () => {
   }
 });
 
+// Single dispose path on quit. Order: process hosts first (kill children),
+// then process-local watchers/coalescers, then the registry that owns repo
+// queues, then storage close. Each disposer must be idempotent so this stays
+// safe regardless of how far whenReady() progressed.
 app.on("before-quit", () => {
+  ptyHost?.dispose();
+  lspHost?.dispose();
   fileWatcher.dispose();
   gitStatusCoalescer?.clearAll();
   gitWatcher?.dispose();

@@ -7282,6 +7282,108 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-09T15:22:11.089Z",
+      "branch": "feat/git-source-control-panel",
+      "tasks": [
+        {
+          "id": 1,
+          "title": "main/index.ts cleanup + git timing constants centralization",
+          "status": "completed",
+          "context": "WARN-1 + INFO-1 + INFO-4 (combined): src/main/index.ts has (a) two `app.on(\"before-quit\", ...)` registrations — one inside `whenReady().then(...)` (lines 112-118) and one at module top level (lines 135-141) — causing double-dispose on quit; (b) two adjacent `if (channelName === \"workspace\" && event === \"removed\")` blocks in `wrappedBroadcast` (lines 51-63) that should be consolidated; (c) inline magic timing `delayMs: 100` for the StatusCoalescer (line 88). The renderer git store also has inline magic timings: `GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS = 500` and `GIT_STATUS_HINT_DEBOUNCE_MS = 150` at src/renderer/state/stores/git.ts:92-93. Project convention is for timing values to live in src/shared/timing-constants.ts under prefix groups (FS_*, LSP_*, STATE_*, UI_*, CHORD_*).",
+          "acceptance": "- src/main/index.ts has exactly one `app.on(\"before-quit\", ...)` registration\n- src/main/index.ts `wrappedBroadcast` has exactly one `if (channelName === \"workspace\" && event === \"removed\")` block\n- src/main/index.ts no longer carries `delayMs: 100` literal — uses GIT_STATUS_COALESCE_DEBOUNCE_MS\n- src/renderer/state/stores/git.ts no longer defines `GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS` or `GIT_STATUS_HINT_DEBOUNCE_MS` locally — imports from shared\n- New constants in src/shared/timing-constants.ts under a GIT_* section header, each with a one-paragraph doc comment\n- All five tsc projects (main/renderer/shared/preload/utility) compile clean\n- Full bun test suite passes\n- No behavior change: dispose ordering at quit must still be ptyHost → lspHost → fileWatcher → git* → workspaceManager.close (or close-equivalent ordering), justified in a comment",
+          "approach": "In one pass: (1) Add a new GIT_* group to src/shared/timing-constants.ts with `GIT_STATUS_COALESCE_DEBOUNCE_MS = 100`, `GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS = 500`, `GIT_STATUS_HINT_DEBOUNCE_MS = 150`, each with a doc comment matching the existing convention. (2) In src/main/index.ts, merge the two workspace:removed if-blocks into one (single `if`, single `removedWorkspaceId` extraction) with a comment listing all per-domain disposers. (3) Consolidate the two `before-quit` handlers into ONE registered at top level — move ptyHost / lspHost dispose out by capturing them into module-level lets like the existing pattern, OR keep the in-`whenReady` handler and DELETE the top-level one (whichever yields fewer changes). Choose the minimum-diff path. (4) Replace inline `delayMs: 100` with `GIT_STATUS_COALESCE_DEBOUNCE_MS`. (5) In renderer git store, replace the two inline constants with imports from shared/timing-constants.ts.",
+          "risk": "Two dispose handlers fire today — collapsing them changes ordering. Run the full test suite plus a manual `bun run dev → quit` smoke check is ideal but not in CI; confirm by reading the existing handler bodies and preserving order in the consolidated handler.",
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-09T15:13:19.625Z",
+          "result": {
+            "outcome": "success",
+            "summary": "main/index.ts now has a single workspace:removed if-block (merged) and a single before-quit handler (consolidated); inline delayMs:100 replaced with GIT_STATUS_COALESCE_DEBOUNCE_MS. Renderer git store imports GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS / GIT_STATUS_HINT_DEBOUNCE_MS from shared/timing-constants instead of declaring them locally. New GIT_* group added to timing-constants.ts with three documented constants. All five tsc projects compile clean; 1247/1248 tests pass.",
+            "artifacts": [
+              "src/main/index.ts",
+              "src/shared/timing-constants.ts",
+              "src/renderer/state/stores/git.ts"
+            ],
+            "recorded_at": "2026-05-09T15:18:13.755Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "StatusCoalescer suppression: avoid duplicate broadcast after post-op refresh",
+          "status": "completed",
+          "context": "WARN-2: After every commit/stage/checkout/etc., the renderer receives TWO `git.statusChanged` broadcasts — one from the post-op handler's direct `registry.refreshStatus()` call, and a second from the GitWatcher firing on .git/index|HEAD changes ~100ms later (which goes through StatusCoalescer.schedule). Architect specifically pre-flagged this risk in the planning cycle. Data is identical so it's not a correctness bug, but every commit causes an extra full-status fetch + IPC broadcast.",
+          "acceptance": "- src/main/git/status-coalescer.ts exports `markRecentlyRefreshed(workspaceId: string): void` on the StatusCoalescer interface\n- Calling `markRecentlyRefreshed` then `schedule` within delayMs results in 0 invocations of the run function\n- Calling `markRecentlyRefreshed` then `schedule` after delayMs+ results in normal trailing-debounced execution\n- src/main/git/git-registry.ts `refreshStatus` calls `markRecentlyRefreshed` after broadcasting (when a coalescer is wired)\n- src/main/index.ts wires the coalescer into the GitRegistry constructor\n- The existing \"burst → 1 broadcast\" test still passes\n- New test added covers the suppression window\n- `bun test` full suite passes\n- Five tsc projects all compile clean",
+          "approach": "Extend StatusCoalescer (src/main/git/status-coalescer.ts) with a `markRecentlyRefreshed(workspaceId)` method that records a per-workspace timestamp. The coalescer's `schedule(...)` checks the timestamp: if a refresh occurred within the last `delayMs` window (i.e., a post-op direct refresh happened recently), skip the schedule entirely. This collapses the watcher-driven follow-up into the just-completed post-op refresh. Then in src/main/git/git-registry.ts, after `refreshStatus(workspaceId)` broadcasts (line ~110), call `coalescer?.markRecentlyRefreshed(workspaceId)` to inform the coalescer. Wire the coalescer into GitRegistry: extend the GitRegistryOptions to optionally accept a coalescer, and wire it from main/index.ts. Update tests/unit/main/git/status-coalescer.test.ts with one new scenario: \"schedule called within delayMs after markRecentlyRefreshed is dropped, but a schedule after the window runs.\"",
+          "risk": "Mark-suppress logic must reset its timestamp on dispose so a long-lived workspace whose first post-op happened 10 minutes ago doesn't continue to suppress legitimate later watcher events. Use a per-workspace map cleared by `cancel(workspaceId)` and `clearAll()`.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a81776822fae09b73",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T15:13:36.387Z",
+          "result": {
+            "outcome": "success",
+            "summary": "StatusCoalescer.markRecentlyRefreshed(workspaceId) added; schedule() drops calls within delayMs of the last mark. cancel/clearAll clear the per-workspace timestamp. GitRegistry stores optional coalescer, calls markRecentlyRefreshed after each refreshStatus broadcast — watcher follow-up event is now suppressed within the same window. main/index.ts passes the coalescer into GitRegistry options. Test count 1247 → 1248 (one new test). All five tsc projects clean.",
+            "artifacts": [
+              "src/main/git/status-coalescer.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/index.ts",
+              "tests/unit/main/git/status-coalescer.test.ts"
+            ],
+            "recorded_at": "2026-05-09T15:21:47.016Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Clarify getRepoInfo dead branch in git-registry.ts",
+          "status": "completed",
+          "context": "INFO-2: src/main/git/git-registry.ts:73-77 has a duplicate-return cleanup oversight. Both branches return `{ kind: \"detecting\" }`:\n```\nconst cachedInfo = this.repoInfos.get(workspaceId);\nif (cachedInfo) return cachedInfo;\nif (this.detections.has(workspaceId)) return { kind: \"detecting\" };\nreturn { kind: \"detecting\" };\n```\nThe clear intent is \"if I have cached info, use it; otherwise we're either detecting or haven't started yet — both surface as 'detecting' to the renderer skeleton.\" But the dead branch with the same return is sloppy.",
+          "acceptance": "- src/main/git/git-registry.ts `getRepoInfo` has a single trailing `return { kind: \"detecting\" }` instead of two\n- A comment explains why both states collapse\n- All five tsc projects compile clean\n- Full bun test suite passes\n- No behavior change (it was already a no-op duplicate)",
+          "approach": "Collapse the two duplicate returns into one. Add a one-line comment explaining that the renderer treats `detecting` as \"show skeleton\" — both \"actively running detection\" and \"never asked before\" map to that state. The function becomes:\n```\nconst cachedInfo = this.repoInfos.get(workspaceId);\nif (cachedInfo) return cachedInfo;\n// Both in-flight and never-started detections show as `detecting`\n// so the renderer renders the skeleton consistently.\nreturn { kind: \"detecting\" };\n```",
+          "risk": "None — this is a code-clarity-only change with no behavior delta.",
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-09T15:13:45.008Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Collapsed the duplicate `return { kind: 'detecting' }` in git-registry.ts getRepoInfo into a single trailing return with a clarifying comment that both in-flight and never-started detections show as 'detecting' so the renderer renders the same skeleton.",
+            "artifacts": [
+              "src/main/git/git-registry.ts"
+            ],
+            "recorded_at": "2026-05-09T15:18:16.702Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Extract parseV2Porcelain (and its helpers) into a sibling porcelain-v2.ts file",
+          "status": "completed",
+          "context": "INFO-3: src/main/git/git-repository.ts is 919 lines — borderline against the project mission's \"한 클래스에 너무 많은 기능 X\" rule. The status parser (`parseV2Porcelain` and its helpers `parseRecord`/`parseV2BranchHeader`/`splitNulRecords`/etc.) is a pure function that operates on string input — it has no dependency on the GitRepository class state and is ALREADY exported separately (the porcelain-v2.test.ts imports it directly). Extracting it into a sibling file `src/main/git/porcelain-v2.ts` reduces git-repository.ts by ~150-200 lines and makes the parser's pure-function contract obvious from its file location.",
+          "acceptance": "- New file src/main/git/porcelain-v2.ts exports `parseV2Porcelain` and any private helpers needed\n- src/main/git/git-repository.ts is reduced by at least 100 lines and imports parseV2Porcelain from the sibling\n- tests/unit/main/git/porcelain-v2.test.ts imports from the new path and continues to pass all 6+ fixture cases\n- All five tsc projects compile clean\n- Full bun test suite passes (especially porcelain-v2 + round-trip)\n- No call-site changes outside git-repository.ts and the test file\n- Constants like CONFLICT_XY_CODES that are ONLY used by the parser move with it; constants used by the class (e.g. DIFF_CHUNK_MAX_BYTES) stay in git-repository.ts",
+          "approach": "(1) Identify the parser surface in git-repository.ts: `parseV2Porcelain` is the public symbol; trace its helper functions (likely `parseRecord`, `parseV2BranchHeader`, splitter for NUL records, the conflict/staged/working-code Set constants `CONFLICT_XY_CODES`, `STAGED_STATUS_CODES`, `WORKING_STATUS_CODES`). (2) Move the parser function, its helpers, and its constants to a new file `src/main/git/porcelain-v2.ts`. Keep TypeScript types co-located OR import from `src/shared/types/git.ts`. (3) Update `git-repository.ts` to `import { parseV2Porcelain } from \"./porcelain-v2\"`. (4) Update `tests/unit/main/git/porcelain-v2.test.ts` import path to point at the new file (it currently imports from git-repository.ts). (5) Verify the function is genuinely pure: no `this` references; if any local helper uses repo state, leave it in git-repository.ts. (6) Run tests + typecheck.",
+          "risk": "Some helpers may share state with class methods (e.g. status grouping logic). If so, leave them in place and split only the truly pure parser. Aim to reduce the file but not at the cost of a torn abstraction.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "aa0db7464de483173",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-09T15:14:00.662Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extracted parseV2Porcelain plus its parser-only helpers (CONFLICT_XY_CODES, STAGED_STATUS_CODES, WORKING_STATUS_CODES, BranchHeaders type, ParsedStatusRecord type, and six private helper functions) from git-repository.ts into a new sibling porcelain-v2.ts (209 lines). git-repository.ts reduced 919→727 lines (-192). Test import updated to point at the new path. All five tsc projects compile clean; 1247/1248 tests pass.",
+            "artifacts": [
+              "src/main/git/porcelain-v2.ts",
+              "src/main/git/git-repository.ts",
+              "tests/unit/main/git/porcelain-v2.test.ts"
+            ],
+            "recorded_at": "2026-05-09T15:18:20.305Z"
+          }
+        }
+      ]
     }
   ]
 }

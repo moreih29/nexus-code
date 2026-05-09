@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import {
+  GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
+  GIT_STATUS_HINT_DEBOUNCE_MS,
+} from "../../../shared/timing-constants";
 import type {
   BranchInfo,
   CommitResult,
@@ -86,11 +90,8 @@ interface GitState {
 }
 
 // ---------------------------------------------------------------------------
-// Constants and module state
+// Module state
 // ---------------------------------------------------------------------------
-
-const GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS = 500;
-const GIT_STATUS_HINT_DEBOUNCE_MS = 150;
 
 const controllers = new Map<string, AbortController>();
 const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();

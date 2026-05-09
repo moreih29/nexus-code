@@ -17,6 +17,7 @@
  * - "STATE_*"  zustand-store / app-state persistence
  * - "UI_*"     visible UI affordances (tooltips, toasts, loading flashes)
  * - "CHORD_*"  keyboard chord (multi-step) timing
+ * - "GIT_*"    Source Control panel refresh / persistence cadence
  *
  * All values are in milliseconds. Suffix `_MS` is kept for symmetry with
  * existing call sites and for grep-ability.
@@ -111,3 +112,29 @@ export const UI_TOAST_ERROR_MS = 6_000;
  * toast is dismissed within ~2 frames of its deadline.
  */
 export const UI_TOAST_SWEEP_INTERVAL_MS = 250;
+
+// ---------------------------------------------------------------------------
+// Source Control (Git)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-workspace trailing-debounce window for the StatusCoalescer. Bursty
+ * `.git/refs/...` events from a `git fetch` collapse into one `getStatus`
+ * + broadcast within this window, preventing renderer storms after sync.
+ */
+export const GIT_STATUS_COALESCE_DEBOUNCE_MS = 100;
+
+/**
+ * Idle window after the last keystroke before the renderer persists the
+ * commit-message draft to per-workspace storage. Tuned to absorb burst
+ * typing (one IPC write per "thought," not per character).
+ */
+export const GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS = 500;
+
+/**
+ * Renderer-side debounce for fs.changed-driven passive status hints.
+ * Working-tree edits don't always touch `.git/`, so the renderer pulls a
+ * fresh snapshot via `getStatus` rather than waiting on the watcher; this
+ * window collapses save-cascades into one call.
+ */
+export const GIT_STATUS_HINT_DEBOUNCE_MS = 150;

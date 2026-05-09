@@ -9,9 +9,11 @@ import { detectRepository } from "./git-detect";
 import { GitError } from "./git-error";
 import { runGit } from "./git-process";
 import { GitRepository } from "./git-repository";
+import type { StatusCoalescer } from "./status-coalescer";
 
 export interface GitRegistryOptions {
   readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
+  readonly coalescer?: StatusCoalescer;
 }
 
 /**
@@ -29,6 +31,7 @@ export class GitRegistry {
   private readonly generations = new Map<string, number>();
   private gitUnavailable = false;
   private readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
+  private readonly coalescer?: StatusCoalescer;
 
   constructor(
     workspaceManager: WorkspaceManager,
@@ -40,6 +43,7 @@ export class GitRegistry {
     this.broadcast = broadcast;
     this.bin = bin;
     this.onRepoInfoChanged = options.onRepoInfoChanged;
+    this.coalescer = options.coalescer;
   }
 
   /**
@@ -72,7 +76,8 @@ export class GitRegistry {
     if (!this.bin || this.gitUnavailable) return { kind: "non-repo" };
     const cachedInfo = this.repoInfos.get(workspaceId);
     if (cachedInfo) return cachedInfo;
-    if (this.detections.has(workspaceId)) return { kind: "detecting" };
+    // Both an in-flight detection and a never-started workspace report as
+    // "detecting" so the renderer renders the same skeleton in both cases.
     return { kind: "detecting" };
   }
 
@@ -108,6 +113,7 @@ export class GitRegistry {
     const repo = await this.getOrDetect(workspaceId, signal);
     const status = repo ? await repo.refreshStatus(signal) : createEmptyGitStatus();
     this.broadcast("git", "statusChanged", { workspaceId, status });
+    this.coalescer?.markRecentlyRefreshed(workspaceId);
     return status;
   }
 
