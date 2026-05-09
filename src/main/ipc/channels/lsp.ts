@@ -96,6 +96,13 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
   }
 }
 
+/**
+ * Wire the LSP IPC channel: register every method the renderer can call
+ * (call surface) and forward main-side LSP host events (diagnostics,
+ * serverRequest, serverStatus, ...) onto the channel as broadcasts.
+ * Single entry point so `main/index` can hand the lsp-host handle over
+ * once during startup and not maintain it per-event.
+ */
 export function registerLspChannel(lspHost: LspHostHandle): void {
   // Forward utility→main diagnostics events to renderers
   lspHost.on("diagnostics", (args) => {

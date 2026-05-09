@@ -29,6 +29,16 @@ function createRequestId(): IpcRequestId {
   return `renderer-${nextRequestId++}`;
 }
 
+/**
+ * Type-safe `ipc:call` from the renderer. Channel + method + args are
+ * checked against the IPC contract so a stale schema fails compilation
+ * rather than at runtime.
+ *
+ * Pass `opts.signal` to make the call cancellable: aborting the signal
+ * sends an `ipc:cancel` to the matching main-side request and the
+ * returned promise rejects with the abort. Without a signal the call is
+ * fire-and-forget for cancellation purposes.
+ */
 export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
   channel: C,
   method: M,
@@ -63,6 +73,13 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
   }
 }
 
+/**
+ * Subscribe to a broadcast event on the given channel. Returns the
+ * unsubscribe function — call it on unmount or when the listener is no
+ * longer needed. The callback identity is preserved across the
+ * listen / off pair so a `() => unsubscribe` adapter works correctly
+ * inside React effects.
+ */
 export function ipcListen<C extends ListenChannels, E extends ListenEvents<C>>(
   channel: C,
   event: E,

@@ -234,21 +234,17 @@ describe("Test 2 — debounce contract (static render)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test 3: Enter bypasses debounce (logic extracted to handleEnter in SearchPanel)
-// Verified via direct invocation contract: Enter callback → startSearch called.
+// Test 3: SearchInput structural render (input element present + accessible
+// label). The Enter-triggers-search behavior cannot be verified through
+// renderToStaticMarkup — it requires a real DOM to dispatch keydown into.
+// Coverage of the behavioural path (Enter → handleEnter → startSearch) lives
+// in the integration suite where a real DOM is mounted.
 // ---------------------------------------------------------------------------
 
-describe("Test 3 — Enter immediately triggers search (unit-level via direct invocation)", () => {
+describe("Test 3 — SearchInput structural render", () => {
   beforeEach(resetMocks);
 
-  it("SearchPanel initial render has the input element present", () => {
-    // The onEnter wiring is confirmed by the presence of the input,
-    // which routes keyDown Enter → handleEnter → runSearch → startSearch.
-    const html = renderToStaticMarkup(<SearchPanel workspaceId={WS_ID} />);
-    expect(html).toContain('aria-label="Search workspace"');
-  });
-
-  it("SearchInput renders with onEnter-capable keyDown handler (input is present)", () => {
+  it("renders the search input with the workspace-search aria-label", () => {
     const inputRef = { current: null } as React.RefObject<HTMLInputElement | null>;
     const html = renderToStaticMarkup(
       <SearchInput
@@ -262,7 +258,6 @@ describe("Test 3 — Enter immediately triggers search (unit-level via direct in
         onToggleOption={() => {}}
       />,
     );
-    // Presence of input with the right role confirms the wiring exists.
     expect(html).toContain('aria-label="Search workspace"');
   });
 });

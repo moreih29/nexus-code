@@ -105,6 +105,12 @@ const PRECANCELED_REQUEST_TTL_MS = 30_000;
 // register
 // ---------------------------------------------------------------------------
 
+/**
+ * Register a channel — its event names, the methods it implements, and the
+ * zod schemas the router uses to validate inbound `ipc:call` payloads
+ * before invoking the channel's method handler. One call per channel,
+ * during main-process startup; later calls overwrite (last-registered wins).
+ */
 export function register<C extends string>(channelName: C, def: RegisterChannelDef<C>): void {
   channels.set(channelName, def as ChannelDef);
 }
@@ -113,6 +119,13 @@ export function register<C extends string>(channelName: C, def: RegisterChannelD
 // setupRouter — attach the central ipcMain handle (call once from main/index)
 // ---------------------------------------------------------------------------
 
+/**
+ * Wire the singleton main-process IPC dispatch surface: one `ipc:call`
+ * handler that routes by channel + method, plus an `ipc:cancel` listener
+ * that aborts the matching in-flight call or stream. Idempotent in spirit
+ * but Electron's ipcMain rejects a second `handle` for the same name —
+ * call this exactly once from `main/index`.
+ */
 export function setupRouter(): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { ipcMain } = require("electron") as typeof import("electron");
@@ -375,6 +388,12 @@ function serializeError(error: unknown): SerializedError {
 // broadcast — send an event to all active webContents
 // ---------------------------------------------------------------------------
 
+/**
+ * Push a channel event to every live renderer. Used by main-side
+ * subscriptions (fs.changed, lsp.serverStatus, …) that need fan-out
+ * to all open windows. Skips destroyed webContents to avoid the EPIPE
+ * Electron throws on send-after-close.
+ */
 export function broadcast(channelName: string, event: string, args: unknown): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { webContents } = require("electron") as typeof import("electron");
@@ -390,6 +409,13 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
 // validateArgs — zod parse helper used by channel implementations
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse a method's `args` against its zod schema and throw a
+ * uniformly-formatted error on failure. Channel handlers call this at
+ * the top of their body so a malformed renderer payload never reaches
+ * the business logic — the thrown error propagates back to the renderer
+ * as an `ipc:call` rejection.
+ */
 export function validateArgs<T extends z.ZodTypeAny>(schema: T, args: unknown): z.infer<T> {
   const result = schema.safeParse(args);
   if (!result.success) {

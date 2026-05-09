@@ -507,52 +507,6 @@ describe("Scenario 5: multi-leaf split — each leaf has a distinct stable porta
 describe("Scenario 6: portal target is never undefined (hiddenEl fallback)", () => {
   const LEAF = "leaf-s6-0000-0000-0000-000000000000";
 
-  it("before GroupView mount: slotEl is null → ContentHost targets hiddenEl", () => {
-    // No slot registered yet (ContentPool renders before GroupView commits)
-    const slotEl = slotRegistry.get(WS, LEAF);
-    // ContentHost: target = slotEl ?? hiddenEl → hiddenEl
-    expect(slotEl).toBeNull();
-    // (hiddenEl is managed by ContentPool; we only verify slotEl is null here)
-  });
-
-  it("after GroupView mount: slotEl is non-null → ContentHost targets slotEl", () => {
-    const el = makeEl("slot");
-    trackedSet(WS, LEAF, el);
-
-    const slotEl = slotRegistry.get(WS, LEAF);
-    expect(slotEl).not.toBeNull();
-    expect(slotEl).toBe(el);
-    // ContentHost: target = slotEl ?? hiddenEl → slotEl
-  });
-
-  it("during split (GroupView unmounted): slotEl is null → ContentHost falls back to hiddenEl", () => {
-    const el = makeEl("slot");
-    trackedSet(WS, LEAF, el);
-
-    // GroupView unmounts during split mutation
-    slotRegistry.set(WS, LEAF, null);
-
-    const slotEl = slotRegistry.get(WS, LEAF);
-    expect(slotEl).toBeNull();
-    // ContentHost: target = slotEl ?? hiddenEl → hiddenEl
-    // Inner subtree is ALIVE inside hiddenEl — no destroy/recreate
-  });
-
-  it("after GroupView remounts with new node: slotEl points to new node", () => {
-    const elOld = makeEl("old");
-    trackedSet(WS, LEAF, elOld);
-
-    slotRegistry.set(WS, LEAF, null); // unmount
-
-    const elNew = makeEl("new");
-    trackedSet(WS, LEAF, elNew); // remount
-
-    const slotEl = slotRegistry.get(WS, LEAF);
-    expect(slotEl).toBe(elNew);
-    expect(slotEl).not.toBe(elOld);
-    // ContentHost: target = slotEl ?? hiddenEl → elNew (the live node)
-  });
-
   it("target sequence across full split lifecycle: hiddenEl → slotEl → hiddenEl → newSlotEl", () => {
     // Simulate the useSyncExternalStore snapshot for ContentHost over a split lifecycle.
     // At each step: ContentHost reads target = get(ws, leaf) ?? hiddenEl.

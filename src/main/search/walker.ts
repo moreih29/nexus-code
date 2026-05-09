@@ -165,6 +165,13 @@ async function readForSearch(absPath: string, fileSize: number): Promise<Buffer 
 // walkAndSearch
 // ---------------------------------------------------------------------------
 
+/**
+ * Drain the search iterator into the caller's `onBatch` sink and return
+ * the final summary. Wraps `walkAndSearchIter` so callers that just want
+ * "stream-as-you-find" semantics don't need to write the iteration loop
+ * themselves; the iterator form remains exported for callers that want
+ * back-pressure or cancellation between batches.
+ */
 export async function walkAndSearch(
   rootAbs: string,
   query: TextSearchQuery,

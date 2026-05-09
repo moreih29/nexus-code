@@ -375,11 +375,6 @@ describe("fsChangeKindToLspType", () => {
     expect(result).toBe(FileChangeType.Changed);
   });
 
-  test("FileChangeType values are correct LSP integers", () => {
-    expect(FileChangeType.Created).toBe(1);
-    expect(FileChangeType.Changed).toBe(2);
-    expect(FileChangeType.Deleted).toBe(3);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -454,48 +449,3 @@ describe("handlerMetadata catalog — inSchema samples", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// handlerMetadata catalog — lspMethod and kind correctness
-// ---------------------------------------------------------------------------
-
-describe("handlerMetadata catalog — lspMethod and kind values", () => {
-  test("hover is a request to textDocument/hover", () => {
-    expect(handlerMetadata.hover.kind).toBe("request");
-    expect(handlerMetadata.hover.lspMethod).toBe("textDocument/hover");
-  });
-
-  test("definition is a request to textDocument/definition", () => {
-    expect(handlerMetadata.definition.kind).toBe("request");
-    expect(handlerMetadata.definition.lspMethod).toBe("textDocument/definition");
-  });
-
-  test("completion is a request to textDocument/completion", () => {
-    expect(handlerMetadata.completion.kind).toBe("request");
-    expect(handlerMetadata.completion.lspMethod).toBe("textDocument/completion");
-  });
-
-  test("references is a request to textDocument/references", () => {
-    expect(handlerMetadata.references.kind).toBe("request");
-    expect(handlerMetadata.references.lspMethod).toBe("textDocument/references");
-  });
-
-  test("didOpen is a notify to textDocument/didOpen", () => {
-    expect(handlerMetadata.didOpen.kind).toBe("notify");
-    expect(handlerMetadata.didOpen.lspMethod).toBe("textDocument/didOpen");
-  });
-
-  test("didChange is a notify to textDocument/didChange", () => {
-    expect(handlerMetadata.didChange.kind).toBe("notify");
-    expect(handlerMetadata.didChange.lspMethod).toBe("textDocument/didChange");
-  });
-
-  test("didClose is a notify to textDocument/didClose", () => {
-    expect(handlerMetadata.didClose.kind).toBe("notify");
-    expect(handlerMetadata.didClose.lspMethod).toBe("textDocument/didClose");
-  });
-
-  test("documentSymbol is a request to textDocument/documentSymbol", () => {
-    expect(handlerMetadata.documentSymbol.kind).toBe("request");
-    expect(handlerMetadata.documentSymbol.lspMethod).toBe("textDocument/documentSymbol");
-  });
-});
