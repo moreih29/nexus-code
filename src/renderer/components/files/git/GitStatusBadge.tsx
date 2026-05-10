@@ -1,5 +1,12 @@
 /**
  * GitStatusBadge renders the one-letter Source Control status signifier.
+ *
+ * Per design.md "almost monochromatic" mission, color is intentionally NOT the
+ * primary signifier — the letter glyph (M / A / D / R / C / ? / T / !) is.
+ * Active changes (M / T / A / ?) get full-emphasis foreground with semibold
+ * weight; passive structural changes (R / C) use muted-foreground; only
+ * destructive (D) and conflict (!) draw on the destructive token, with
+ * conflict adding a subtle bg tint to differentiate at a glance.
  */
 import { cn } from "@/utils/cn";
 
@@ -7,28 +14,20 @@ interface GitStatusBadgeProps {
   code: string;
 }
 
-const FALLBACK_STATUS_COLORS: Record<string, React.CSSProperties | undefined> = {
-  M: { color: "var(--color-warning, #d6a94d)" },
-  T: { color: "var(--color-warning, #d6a94d)" },
-  A: { color: "var(--color-success, #75b978)" },
-  "?": { color: "var(--color-success, #75b978)" },
-};
-
 function statusBadgeClass(code: string): string {
   switch (code) {
     case "M":
     case "T":
-      return "text-warning";
     case "A":
     case "?":
-      return "text-success";
+      return "text-foreground font-semibold";
     case "D":
       return "text-destructive";
     case "R":
     case "C":
       return "text-muted-foreground";
     case "!":
-      return "text-destructive bg-destructive/10";
+      return "text-destructive bg-destructive/10 font-semibold";
     default:
       return "text-muted-foreground";
   }
@@ -39,10 +38,9 @@ export function GitStatusBadge({ code }: GitStatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex size-4 shrink-0 items-center justify-center rounded-[3px] font-mono text-app-ui-sm font-medium leading-none",
+        "inline-flex size-4 shrink-0 items-center justify-center rounded-[3px] font-mono text-app-ui-sm leading-none",
         statusBadgeClass(code),
       )}
-      style={FALLBACK_STATUS_COLORS[code]}
       role="img"
       aria-label={`Git status ${label}`}
       title={`Git status ${label}`}

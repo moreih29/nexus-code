@@ -288,13 +288,23 @@ function isAbortError(error: unknown): boolean {
 
 /**
  * Maps not-found reads to an empty side so added/deleted files can still diff.
+ * Prefers the typed GitError kind ("missing") when the main process classified
+ * the failure; falls back to a regex on the message for non-Git error shapes.
  */
 function isMissingContentError(error: unknown): boolean {
   if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) return true;
+  if (isRecord(error) && error.kind === "missing") return true;
   const message = errorMessage(error);
-  return /path .+ does not exist in|exists on disk, but not in|did not match any file|pathspec .+ did not match/i.test(
+  return /invalid object name|path .+ does not exist in|exists on disk, but not in|did not match any file|pathspec .+ did not match|unknown revision or path not in the working tree/i.test(
     message,
   );
+}
+
+/**
+ * Narrow unknown values to object records for safe property access.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**

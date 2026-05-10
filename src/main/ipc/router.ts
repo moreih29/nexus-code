@@ -7,6 +7,7 @@ import {
   ipcContract,
   type StreamProcedure,
 } from "../../shared/ipc-contract";
+import { IPC_ABORT_SENTINEL } from "../../shared/ipc-abort-sentinel";
 import { PendingRequestMap } from "../../shared/pending-request-map";
 
 // ---------------------------------------------------------------------------
@@ -168,6 +169,9 @@ export function setupRouter(): void {
       const callContext = createCallContext(event, requestId);
       try {
         return await handler(args, callContext.ctx);
+      } catch (error) {
+        if (callContext.ctx?.signal?.aborted) return IPC_ABORT_SENTINEL;
+        throw error;
       } finally {
         if (callContext.key) {
           pendingCallControllers.delete(callContext.key);

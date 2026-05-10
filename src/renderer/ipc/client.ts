@@ -13,6 +13,7 @@ import type {
   StreamMethods,
   StreamProgress,
 } from "./types";
+import { isIpcAbortSentinel } from "../../shared/ipc-abort-sentinel";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;
@@ -64,9 +65,14 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
     if (signal.aborted) {
       cancel();
     }
-    return promise.finally(() => {
-      signal.removeEventListener("abort", cancel);
-    });
+    return promise
+      .then((value) => {
+        if (isIpcAbortSentinel(value)) throw createAbortError();
+        return value;
+      })
+      .finally(() => {
+        signal.removeEventListener("abort", cancel);
+      });
   } catch (err) {
     signal.removeEventListener("abort", cancel);
     throw err;

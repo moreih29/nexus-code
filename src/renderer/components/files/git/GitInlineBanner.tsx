@@ -15,16 +15,17 @@ interface GitInlineBannerProps {
   onAction?: () => void;
 }
 
+// Per design.md "almost monochromatic" mission, only `destructive` carries a
+// non-monochrome semantic. Warning / success / info all render with the same
+// frosted-veil chrome; the icon (CircleAlert vs Info) carries severity.
 function bannerClass(variant: GitInlineBannerVariant): string {
   switch (variant) {
     case "error":
       return "border-destructive/60 bg-destructive/10 text-destructive";
     case "warning":
-      return "border-mist-border bg-frosted-veil text-warning";
     case "success":
-      return "border-mist-border bg-frosted-veil text-success";
     default:
-      return "border-mist-border bg-frosted-veil text-muted-foreground";
+      return "border-mist-border bg-frosted-veil text-foreground";
   }
 }
 

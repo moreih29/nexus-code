@@ -6,6 +6,7 @@ export type GitErrorKind =
   | "auth"
   | "conflict"
   | "not-repo"
+  | "missing"
   | "output-too-large"
   | "git-missing"
   | "unknown";
@@ -47,6 +48,20 @@ const NOT_REPO_STDERR_PATTERNS = [
   /no git repository/i,
   /not in a git directory/i,
   /must be run in a work tree/i,
+];
+
+// Patterns Git emits when a requested ref or path could not be resolved to an
+// object. Surfaced as kind:"missing" so read-op consumers (diff tab) can render
+// the (missing) placeholder instead of an error banner. Classifier ordering
+// puts conflict before missing because "would be overwritten by checkout"
+// mentions paths and would otherwise be miscategorized.
+const MISSING_STDERR_PATTERNS = [
+  /invalid object name/i,
+  /pathspec .+ did not match/i,
+  /path .+ does not exist in/i,
+  /exists on disk, but not in/i,
+  /did not match any file/i,
+  /unknown revision or path not in the working tree/i,
 ];
 
 /**
@@ -96,12 +111,24 @@ export function isNotRepoStderr(stderr: string): boolean {
 }
 
 /**
+ * Classifies stderr emitted when a ref or path cannot be resolved to a Git
+ * object — used by read ops (diff tab, future blame/log-at-ref) to surface a
+ * (missing) placeholder instead of an error.
+ */
+export function isMissingStderr(stderr: string): boolean {
+  return MISSING_STDERR_PATTERNS.some((pattern) => pattern.test(stderr));
+}
+
+/**
  * Maps a Git stderr payload to the closest renderer-visible error kind.
+ * Conflict is checked before missing because "would be overwritten by
+ * checkout" mentions paths and would otherwise misclassify as missing.
  */
 export function classifyGitStderr(stderr: string): GitErrorKind {
   if (isAuthStderr(stderr)) return "auth";
   if (isConflictStderr(stderr)) return "conflict";
   if (isNotRepoStderr(stderr)) return "not-repo";
+  if (isMissingStderr(stderr)) return "missing";
   return "unknown";
 }
 
@@ -200,6 +227,7 @@ function messageFromGitFailure(
   if (kind === "auth") return "Git authentication failed";
   if (kind === "conflict") return "Git operation conflicted";
   if (kind === "not-repo") return "Not a Git repository";
+  if (kind === "missing") return "Object or path not found in Git";
   return `${renderedCommand} failed`;
 }
 
