@@ -5,6 +5,7 @@ import {
 } from "../../../shared/timing-constants";
 import type {
   BranchInfo,
+  BranchList,
   CommitResult,
   GitExpandedGroupKey,
   GitExpandedGroups,
@@ -88,6 +89,7 @@ interface GitState {
   stashPop: (workspaceId: string) => Promise<void>;
   checkout: (workspaceId: string, ref: string) => Promise<void>;
   createBranch: (workspaceId: string, name: string, checkout?: boolean) => Promise<void>;
+  listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   setCommitDraft: (workspaceId: string, text: string) => void;
   flushCommitDraft: (workspaceId: string) => void;
   flushAllCommitDrafts: () => void;
@@ -422,6 +424,15 @@ export const useGitStore = create<GitState>((set, get) => {
       await runOperation(workspaceId, "createBranch", (signal) =>
         ipcCall("git", "createBranch", { workspaceId, name, checkout }, { signal }),
       );
+    },
+
+    async listBranches(workspaceId, signal) {
+      try {
+        return await ipcCall("git", "listBranches", { workspaceId }, signal ? { signal } : {});
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        throw error;
+      }
     },
 
     setCommitDraft(workspaceId, text) {

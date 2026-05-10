@@ -11,16 +11,14 @@ interface GitBranchPopoverProps {
   branch: BranchInfo | null;
   repoPath?: string;
   disabled?: boolean;
-  onCheckout: () => void;
-  onCreateBranch: () => void;
+  onSwitchBranch: () => void;
 }
 
 export function GitBranchPopover({
   branch,
   repoPath,
   disabled = false,
-  onCheckout,
-  onCreateBranch,
+  onSwitchBranch,
 }: GitBranchPopoverProps) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -83,18 +81,9 @@ export function GitBranchPopover({
               variant="outline"
               size="sm"
               className="h-7 flex-1 text-app-ui-sm"
-              onClick={() => run(onCheckout)}
+              onClick={() => run(onSwitchBranch)}
             >
-              Checkout…
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 flex-1 text-app-ui-sm"
-              onClick={() => run(onCreateBranch)}
-            >
-              New…
+              Switch Branch…
             </Button>
           </div>
         </div>

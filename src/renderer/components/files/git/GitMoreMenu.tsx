@@ -17,8 +17,7 @@ interface GitMoreMenuProps {
   onPush: () => void;
   onStash: () => void;
   onStashPop: () => void;
-  onCheckout: () => void;
-  onCreateBranch: () => void;
+  onSwitchBranch: () => void;
   onDiscardAll: () => void;
 }
 
@@ -33,8 +32,7 @@ export function GitMoreMenu({
   onPush,
   onStash,
   onStashPop,
-  onCheckout,
-  onCreateBranch,
+  onSwitchBranch,
   onDiscardAll,
 }: GitMoreMenuProps) {
   const [open, setOpen] = useState(false);
@@ -83,13 +81,8 @@ export function GitMoreMenu({
           <MenuButton label="Push" onClick={() => run(onPush)} disabled={disabled || canInit} />
           <MenuSeparator />
           <MenuButton
-            label="Checkout…"
-            onClick={() => run(onCheckout)}
-            disabled={disabled || canInit}
-          />
-          <MenuButton
-            label="Create Branch…"
-            onClick={() => run(onCreateBranch)}
+            label="Switch Branch…"
+            onClick={() => run(onSwitchBranch)}
             disabled={disabled || canInit}
           />
           <MenuSeparator />

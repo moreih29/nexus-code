@@ -25,8 +25,7 @@ interface GitHeaderProps {
   onPush: () => void;
   onStash: () => void;
   onStashPop: () => void;
-  onCheckout: () => void;
-  onCreateBranch: () => void;
+  onSwitchBranch: () => void;
   onDiscardAll: () => void;
 }
 
@@ -47,8 +46,7 @@ export function GitHeader({
   onPush,
   onStash,
   onStashPop,
-  onCheckout,
-  onCreateBranch,
+  onSwitchBranch,
   onDiscardAll,
 }: GitHeaderProps) {
   return (
@@ -89,8 +87,7 @@ export function GitHeader({
           onPush={onPush}
           onStash={onStash}
           onStashPop={onStashPop}
-          onCheckout={onCheckout}
-          onCreateBranch={onCreateBranch}
+          onSwitchBranch={onSwitchBranch}
           onDiscardAll={onDiscardAll}
         />
       </div>

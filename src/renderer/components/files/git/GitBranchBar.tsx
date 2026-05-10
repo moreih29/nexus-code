@@ -10,8 +10,7 @@ interface GitBranchBarProps {
   repoPath?: string;
   disabled?: boolean;
   onSync: () => void;
-  onCheckout: () => void;
-  onCreateBranch: () => void;
+  onSwitchBranch: () => void;
 }
 
 function syncLabel(branch: BranchInfo | null): string {
@@ -27,8 +26,7 @@ export function GitBranchBar({
   repoPath,
   disabled = false,
   onSync,
-  onCheckout,
-  onCreateBranch,
+  onSwitchBranch,
 }: GitBranchBarProps) {
   const hasRemoteDelta = Boolean(branch && (branch.ahead > 0 || branch.behind > 0));
   const label = syncLabel(branch);
@@ -39,8 +37,7 @@ export function GitBranchBar({
         branch={branch}
         repoPath={repoPath}
         disabled={disabled}
-        onCheckout={onCheckout}
-        onCreateBranch={onCreateBranch}
+        onSwitchBranch={onSwitchBranch}
       />
       {branch && (branch.behind > 0 || branch.ahead > 0) ? (
         <span className="shrink-0 font-mono text-app-ui-sm text-muted-foreground">
