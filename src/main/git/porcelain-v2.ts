@@ -20,6 +20,7 @@ const WORKING_STATUS_CODES = new Set(["M", "D", "T"]);
 /** Accumulated branch header fields parsed from `# branch.*` records. */
 interface BranchHeaders {
   head?: string;
+  oid?: string;
   upstream?: string;
   ahead: number;
   behind: number;
@@ -104,6 +105,10 @@ function parseBranchHeader(record: string, branch: BranchHeaders): void {
     branch.head = line.slice("branch.head ".length);
     return;
   }
+  if (line.startsWith("branch.oid ")) {
+    branch.oid = line.slice("branch.oid ".length);
+    return;
+  }
   if (line.startsWith("branch.upstream ")) {
     branch.upstream = line.slice("branch.upstream ".length);
     return;
@@ -119,6 +124,8 @@ function parseBranchHeader(record: string, branch: BranchHeaders): void {
 
 /**
  * Builds the branch object required by the shared status schema.
+ * isUnborn is true when branch.oid is "(initial)", which git emits for
+ * repositories that have no commits yet.
  */
 function buildBranchInfo(headers: BranchHeaders): BranchInfo | null {
   if (!headers.head) return null;
@@ -127,6 +134,7 @@ function buildBranchInfo(headers: BranchHeaders): BranchInfo | null {
     upstream: headers.upstream ?? null,
     ahead: headers.ahead,
     behind: headers.behind,
+    isUnborn: headers.oid === "(initial)",
   };
 }
 

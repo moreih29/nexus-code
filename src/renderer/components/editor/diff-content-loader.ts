@@ -3,6 +3,7 @@ import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
 import type { FileContent } from "../../../shared/types/fs";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCall, ipcListen } from "../../ipc/client";
+import { EMPTY_TREE } from "./diff-refs";
 
 const RELOAD_DEBOUNCE_MS = 120;
 
@@ -200,11 +201,19 @@ function buildRequests(payload: DiffTabPayload): SideRefs<DiffSideRequest> {
 
 /**
  * Reads one side through the correct IPC channel.
+ * When ref is EMPTY_TREE (unborn repository left side), no IPC call is issued
+ * and empty content is returned immediately — BranchInfo.isUnborn=true origin.
+ *
+ * Exported for unit testing of the EMPTY_TREE short-circuit path.
  */
-async function readSideContent(
+export async function readSideContent(
   request: DiffSideRequest,
   signal: AbortSignal,
 ): Promise<Omit<DiffSideReadyState, "phase" | "request">> {
+  if (request.ref === EMPTY_TREE) {
+    return { content: "", encoding: "utf8", sizeBytes: 0, isBinary: false, mtime: new Date().toISOString() };
+  }
+
   const content =
     request.source === "fs"
       ? await ipcCall(

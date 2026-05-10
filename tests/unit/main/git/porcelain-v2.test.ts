@@ -22,15 +22,21 @@ const cleanStatus: GitStatus = {
 const fixtures: PorcelainFixture[] = [
   {
     name: "clean branch with upstream counters",
-    text: records("# branch.head main", "# branch.upstream origin/main", "# branch.ab +2 -1"),
+    text: records(
+      "# branch.oid " + HASH,
+      "# branch.head main",
+      "# branch.upstream origin/main",
+      "# branch.ab +2 -1",
+    ),
     expected: {
       ...cleanStatus,
-      branch: { current: "main", upstream: "origin/main", ahead: 2, behind: 1 },
+      branch: { current: "main", upstream: "origin/main", ahead: 2, behind: 1, isUnborn: false },
     },
   },
   {
     name: "mixed staged, working, deleted, and untracked groups",
     text: records(
+      "# branch.oid " + HASH,
       "# branch.head feature/git-panel",
       tracked("M.", "src/staged.ts"),
       tracked(".M", "src/working dir/file one.ts"),
@@ -42,7 +48,20 @@ const fixtures: PorcelainFixture[] = [
       staged: [entry("src/staged.ts", "M."), entry("src/deleted.ts", "D.")],
       working: [entry("src/working dir/file one.ts", ".M")],
       untracked: [entry("notes/todo item.md", "??")],
-      branch: { current: "feature/git-panel", upstream: null, ahead: 0, behind: 0 },
+      branch: { current: "feature/git-panel", upstream: null, ahead: 0, behind: 0, isUnborn: false },
+    },
+  },
+  {
+    name: "unborn repository emits isUnborn=true when branch.oid is (initial)",
+    text: records(
+      "# branch.oid (initial)",
+      "# branch.head main",
+      tracked("A.", "src/new-file.ts"),
+    ),
+    expected: {
+      ...cleanStatus,
+      staged: [entry("src/new-file.ts", "A.")],
+      branch: { current: "main", upstream: null, ahead: 0, behind: 0, isUnborn: true },
     },
   },
   {

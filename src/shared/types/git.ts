@@ -31,6 +31,7 @@ export const BranchInfoSchema = z.object({
   upstream: z.string().nullable().default(null),
   ahead: z.number().int().nonnegative(),
   behind: z.number().int().nonnegative(),
+  isUnborn: z.boolean(),
 });
 export type BranchInfo = z.infer<typeof BranchInfoSchema>;
 

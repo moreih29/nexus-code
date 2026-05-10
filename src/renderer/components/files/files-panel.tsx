@@ -1,7 +1,9 @@
 import { Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { EMPTY_TREE } from "../editor/diff-refs";
 import { openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
+import { useGitStore } from "../../state/stores/git";
 import {
   FILES_PANEL_MODE_DEFAULT,
   FILES_PANEL_WIDTH_DEFAULT,
@@ -113,15 +115,20 @@ export function FilesPanel() {
 }
 
 function openGitDiffFromRow({ workspaceId, groupKey, entry }: GitPanelOpenDiffInput): void {
-  const refs = refsForGitGroup(groupKey);
+  const isUnborn =
+    useGitStore.getState().sessions.get(workspaceId)?.status?.branch?.isUnborn ?? false;
+  const refs = refsForGitGroup(groupKey, isUnborn);
   openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath);
 }
 
-function refsForGitGroup(groupKey: GitPanelOpenDiffInput["groupKey"]): {
+export function refsForGitGroup(
+  groupKey: GitPanelOpenDiffInput["groupKey"],
+  isUnborn: boolean,
+): {
   leftRef: string;
   rightRef: string;
 } {
-  if (groupKey === "staged") return { leftRef: "HEAD", rightRef: "INDEX" };
+  if (groupKey === "staged") return { leftRef: isUnborn ? EMPTY_TREE : "HEAD", rightRef: "INDEX" };
   if (groupKey === "working") return { leftRef: "INDEX", rightRef: "WORKING" };
-  return { leftRef: "HEAD", rightRef: "WORKING" };
+  return { leftRef: isUnborn ? EMPTY_TREE : "HEAD", rightRef: "WORKING" };
 }
