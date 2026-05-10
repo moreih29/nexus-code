@@ -1,5 +1,11 @@
 import { defaultTimerScheduler, type TimerScheduler } from "../../../../shared/timer-scheduler";
-import type { PaletteItem, PaletteSource } from "./types";
+import type {
+  PaletteAcceptContext,
+  PaletteAcceptModifiers,
+  PaletteItem,
+  PaletteOpenMode,
+  PaletteSource,
+} from "./types";
 
 export const WORKSPACE_SYMBOL_DEBOUNCE_MS = 200;
 
@@ -171,6 +177,49 @@ export interface PaletteKeyInput {
   key: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+}
+
+/**
+ * Converts a keyboard or pointer event shape into the modifier payload passed
+ * to PaletteSource.accept so sources can branch on user intent without reading
+ * DOM events directly.
+ */
+export function paletteModifiersFromInput(input: {
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+}): PaletteAcceptModifiers {
+  return {
+    meta: input.metaKey === true,
+    ctrl: input.ctrlKey === true,
+    alt: input.altKey === true,
+    shift: input.shiftKey === true,
+  };
+}
+
+/**
+ * Builds the accept context used by the frame/controller boundary. Mode keeps
+ * the existing Cmd/Ctrl+Enter split-open contract while modifiers exposes the
+ * raw key state for git pickers and future palette actions.
+ */
+export function paletteAcceptContextFromInput(
+  input: {
+    key?: string;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+    shiftKey?: boolean;
+  },
+  mode: PaletteOpenMode,
+): PaletteAcceptContext {
+  return {
+    mode,
+    ...(input.key !== undefined ? { key: input.key } : {}),
+    modifiers: paletteModifiersFromInput(input),
+  };
 }
 
 export function resolvePaletteKeyAction(
@@ -186,6 +235,15 @@ export function resolvePaletteKeyAction(
   }
   if (input.key === "Enter") {
     return { kind: "accept", mode: input.metaKey || input.ctrlKey ? "side" : "default" };
+  }
+  if ((input.key === "Backspace" || input.key === "Delete") && (input.metaKey || input.ctrlKey)) {
+    return { kind: "accept", mode: "default" };
+  }
+  if ((input.key === "r" || input.key === "R") && (input.metaKey || input.ctrlKey)) {
+    return { kind: "accept", mode: "default" };
+  }
+  if ((input.key === "u" || input.key === "U") && (input.metaKey || input.ctrlKey)) {
+    return { kind: "accept", mode: "default" };
   }
   if (input.key === "Escape") return { kind: "close" };
   if (input.key === "Tab") return { kind: "trap-tab" };

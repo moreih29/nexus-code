@@ -1,14 +1,15 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { CommandPaletteFrame as Frame } from "./command-palette-frame";
 import {
   initialPaletteSearchSnapshot,
   PaletteSearchController,
   type PaletteSearchSnapshot,
   type PaletteViewStatus,
+  paletteAcceptContextFromInput,
   resolvePaletteKeyAction,
 } from "./controller";
-import type { PaletteItem, PaletteSource } from "./types";
+import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "./types";
 import { trapTab } from "./utils";
-import { CommandPaletteFrame as Frame } from "./command-palette-frame";
 
 export { CommandPaletteFrame, type CommandPaletteFrameProps } from "./command-palette-frame";
 
@@ -16,6 +17,7 @@ interface CommandPaletteProps<TItem extends PaletteItem> {
   open: boolean;
   source: PaletteSource<TItem> | null;
   onClose: () => void;
+  footer?: React.ReactNode;
 }
 
 export function restoreFocusOnUnmount(target: HTMLElement | null): void {
@@ -28,6 +30,7 @@ export function CommandPalette<TItem extends PaletteItem>({
   open,
   source,
   onClose,
+  footer,
 }: CommandPaletteProps<TItem>): React.JSX.Element | null {
   const [query, setQuery] = useState("");
   const [snapshot, setSnapshot] = useState<PaletteSearchSnapshot<TItem>>(() =>
@@ -106,17 +109,23 @@ export function CommandPalette<TItem extends PaletteItem>({
 
   const status: PaletteViewStatus = source ? snapshot.status : "no-workspace";
 
-  function accept(mode: "default" | "side"): void {
+  function accept(context: PaletteAcceptContext): void {
     if (!source || snapshot.activeIndex < 0) return;
     const item = snapshot.items[snapshot.activeIndex];
     if (!item) return;
     onClose();
-    source.accept(item, { mode });
+    source.accept(item, context);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     const action = resolvePaletteKeyAction(
-      { key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey },
+      {
+        key: e.key,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+      },
       snapshot.activeIndex,
       snapshot.items.length,
     );
@@ -127,7 +136,7 @@ export function CommandPalette<TItem extends PaletteItem>({
     if (action.kind === "move") {
       setSnapshot((current) => ({ ...current, activeIndex: action.activeIndex }));
     } else if (action.kind === "accept") {
-      accept(action.mode);
+      accept(paletteAcceptContextFromInput(e, action.mode));
     } else if (action.kind === "close") {
       onClose();
     } else if (action.kind === "trap-tab") {
@@ -154,6 +163,7 @@ export function CommandPalette<TItem extends PaletteItem>({
       onQueryChange={setQuery}
       onKeyDown={handleKeyDown}
       onOverlayClick={onClose}
+      footer={footer}
       onHoverItem={(index) => setSnapshot((current) => ({ ...current, activeIndex: index }))}
       onAcceptItem={(index) => {
         setSnapshot((current) => ({ ...current, activeIndex: index }));
@@ -161,7 +171,7 @@ export function CommandPalette<TItem extends PaletteItem>({
         const item = snapshot.items[index];
         if (!item) return;
         onClose();
-        source.accept(item, { mode: "default" });
+        source.accept(item, paletteAcceptContextFromInput({}, "default"));
       }}
     />
   );

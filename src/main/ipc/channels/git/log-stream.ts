@@ -26,12 +26,12 @@ type LogStreamHandler = (
  */
 export function logStream(registry: GitRegistry): LogStreamHandler {
   return async function* (
-    { workspaceId, ref, skip, limit }: LogStreamArgs,
+    { workspaceId, ref, afterSha, grep, skip, limit }: LogStreamArgs,
     ctx: StreamContext,
   ): AsyncGenerator<LogStreamProgress, LogStreamComplete, unknown> {
     const repo = await registry.getOrDetect(workspaceId, ctx.signal);
     if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    return yield* repo.log({ ref, skip, limit }, ctx.signal);
+    return yield* repo.log({ ref, afterSha, grep, skip, limit }, ctx.signal);
   };
 }

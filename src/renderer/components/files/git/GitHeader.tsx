@@ -2,7 +2,7 @@
  * GitHeader renders the Source Control title and top-level action buttons.
  */
 import { RefreshCw } from "lucide-react";
-import type { RepoCapabilities } from "../../../../shared/types/git";
+import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../shared/types/git";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { Button } from "../../ui/button";
 import { ViewModeToggle } from "../view-mode-toggle/ViewModeToggle";
@@ -28,8 +28,18 @@ interface GitHeaderProps {
   onPush: () => void;
   onStash: () => void;
   onStashPop: () => void;
+  onOpenStashes: () => void;
+  onOpenTags: () => void;
   onSwitchBranch: () => void;
+  onMergeBranch: () => void;
+  onRebaseBranch: () => void;
+  onCherryPick: () => void;
+  onAddRemote: () => void;
+  onRemoveRemote: (remote: string) => void;
   onDiscardAll: () => void;
+  autofetchIntervalMin: GitAutofetchIntervalMin;
+  lastFetchedAt: number | null;
+  onSetAutofetchInterval: (intervalMin: GitAutofetchIntervalMin) => void;
 }
 
 export function GitHeader({
@@ -50,8 +60,18 @@ export function GitHeader({
   onPush,
   onStash,
   onStashPop,
+  onOpenStashes,
+  onOpenTags,
   onSwitchBranch,
+  onMergeBranch,
+  onRebaseBranch,
+  onCherryPick,
+  onAddRemote,
+  onRemoveRemote,
   onDiscardAll,
+  autofetchIntervalMin,
+  lastFetchedAt,
+  onSetAutofetchInterval,
 }: GitHeaderProps) {
   return (
     <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-mist-border px-2">
@@ -92,8 +112,18 @@ export function GitHeader({
           onPush={onPush}
           onStash={onStash}
           onStashPop={onStashPop}
+          onOpenStashes={onOpenStashes}
+          onOpenTags={onOpenTags}
           onSwitchBranch={onSwitchBranch}
+          onMergeBranch={onMergeBranch}
+          onRebaseBranch={onRebaseBranch}
+          onCherryPick={onCherryPick}
+          onAddRemote={onAddRemote}
+          onRemoveRemote={onRemoveRemote}
           onDiscardAll={onDiscardAll}
+          autofetchIntervalMin={autofetchIntervalMin}
+          lastFetchedAt={lastFetchedAt}
+          onSetAutofetchInterval={onSetAutofetchInterval}
         />
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CommandPaletteFrame } from "../../../../../../src/renderer/components/ui/palette/command-palette";
 import type { PaletteViewStatus } from "../../../../../../src/renderer/components/ui/palette/controller";
@@ -15,7 +16,7 @@ const resultItems: PaletteItem[] = [
   },
 ];
 
-function render(status: PaletteViewStatus, dimmed = false): string {
+function render(status: PaletteViewStatus, dimmed = false, footer?: ReactNode): string {
   return renderToStaticMarkup(
     <CommandPaletteFrame
       status={status}
@@ -27,6 +28,23 @@ function render(status: PaletteViewStatus, dimmed = false): string {
       dimmed={dimmed}
       emptyQueryMessage="Type a symbol name to search the workspace."
       noResultsMessage="No workspace symbols found."
+      onQueryChange={() => {}}
+      footer={footer}
+    />,
+  );
+}
+
+function renderWithQuery(status: PaletteViewStatus, query: string): string {
+  return renderToStaticMarkup(
+    <CommandPaletteFrame
+      status={status}
+      title="Stashes"
+      placeholder="Search stashes"
+      query={query}
+      items={[]}
+      activeIndex={-1}
+      emptyQueryMessage="Loading stashes…"
+      noResultsMessage="No matching stashes."
       onQueryChange={() => {}}
     />,
   );
@@ -104,5 +122,20 @@ describe("CommandPaletteFrame render states", () => {
     expect(notDimmed).toContain("duration-150");
     expect(dimmedHtml).toContain("transition-opacity");
     expect(dimmedHtml).toContain("duration-150");
+  });
+
+  it("renders an optional footer hint slot", () => {
+    const html = render("results", false, "Enter checkout · Cmd+Enter tracks remote");
+
+    expect(html).toContain("Enter checkout");
+    expect(html).toContain("Cmd+Enter");
+    expect(html).toContain("border-t");
+  });
+
+  it("uses the source empty-query message while an empty-query picker loads", () => {
+    const html = renderWithQuery("loading", "");
+
+    expect(html).toContain("Loading stashes");
+    expect(html).not.toContain("Searching");
   });
 });

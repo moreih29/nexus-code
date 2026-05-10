@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
+import { DEFAULT_GIT_PANEL_STATE } from "../../../../src/shared/types/git";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -267,6 +268,50 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
     expect(state.commitDraft).toBe("keep me");
     expect(state.expandedTreeNodes.staged).toEqual(["a"]);
   });
+
+  it("fresh workspace returns defaults for git panel preferences", () => {
+    const state = storage.getGitPanelState(id);
+
+    expect(state.commitOptions).toEqual(DEFAULT_GIT_PANEL_STATE.commitOptions);
+    expect(state.autofetchIntervalMin).toBe(0);
+    expect(state.autofetchManualPaused).toBe(false);
+    expect(state.protectedBranches).toEqual([]);
+    expect(state.panelSegment).toBe("changes");
+    expect(state.historyDetailWidth).toBe(0);
+    expect(state.historyRef).toBe("HEAD");
+  });
+
+  it("round-trips git panel preferences without clobbering draft or groups", () => {
+    storage.setGitPanelState(id, {
+      commitDraft: "keep this draft",
+      expandedGroups: { merge: false, staged: true, working: false, untracked: true },
+    });
+    storage.setGitPanelState(id, {
+      commitOptions: { sign: true, signoff: true, noVerify: false },
+      autofetchIntervalMin: 5,
+      autofetchManualPaused: true,
+      protectedBranches: ["main", "release/*"],
+      panelSegment: "history",
+      historyDetailWidth: 420,
+      historyRef: "origin/main",
+    });
+
+    const state = storage.getGitPanelState(id);
+    expect(state.commitDraft).toBe("keep this draft");
+    expect(state.expandedGroups).toEqual({
+      merge: false,
+      staged: true,
+      working: false,
+      untracked: true,
+    });
+    expect(state.commitOptions).toEqual({ sign: true, signoff: true, noVerify: false });
+    expect(state.autofetchIntervalMin).toBe(5);
+    expect(state.autofetchManualPaused).toBe(true);
+    expect(state.protectedBranches).toEqual(["main", "release/*"]);
+    expect(state.panelSegment).toBe("history");
+    expect(state.historyDetailWidth).toBe(420);
+    expect(state.historyRef).toBe("origin/main");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -318,5 +363,101 @@ describe("WorkspaceStorage schema v2 migration from v1 DB", () => {
     expect(meta).toBeUndefined(); // workspaceMeta row was never written
 
     storage.closeForWorkspace(id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema v5 migration backward-compat — git panel preferences
+// ---------------------------------------------------------------------------
+
+describe("WorkspaceStorage schema v5 migration for git panel preferences", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("adds preference columns and preserves legacy git_panel_state rows", () => {
+    const id = "00000000-0000-0000-0000-000000000040";
+    const workspaceDir = path.join(tmpDir, id);
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    const dbPath = path.join(workspaceDir, "state.db");
+
+    const v4Db = bunSqliteFactory(dbPath);
+    v4Db.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS expanded_paths (
+        rel_path TEXT NOT NULL PRIMARY KEY
+      );
+      CREATE TABLE IF NOT EXISTS git_panel_state (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS panel_view_options (
+        panel_kind       TEXT    NOT NULL PRIMARY KEY,
+        view_mode        TEXT    NOT NULL,
+        compact_folders  INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    v4Db.prepare("INSERT INTO _meta (key, value) VALUES ('schemaVersion', '4')").run();
+    v4Db
+      .prepare("INSERT INTO git_panel_state (key, value) VALUES (?, ?)")
+      .run("commitDraft", "legacy draft");
+    v4Db
+      .prepare("INSERT INTO git_panel_state (key, value) VALUES (?, ?)")
+      .run(
+        "expandedGroups",
+        JSON.stringify({ merge: false, staged: true, working: false, untracked: true }),
+      );
+    v4Db.close();
+
+    const storage = new WorkspaceStorage(tmpDir, bunSqliteFactory);
+    storage.openForWorkspace(id);
+    const state = storage.getGitPanelState(id);
+    expect(state.commitDraft).toBe("legacy draft");
+    expect(state.expandedGroups).toEqual({
+      merge: false,
+      staged: true,
+      working: false,
+      untracked: true,
+    });
+    expect(state.commitOptions).toEqual(DEFAULT_GIT_PANEL_STATE.commitOptions);
+    expect(state.autofetchIntervalMin).toBe(0);
+    expect(state.autofetchManualPaused).toBe(false);
+    expect(state.protectedBranches).toEqual([]);
+    expect(state.panelSegment).toBe("changes");
+    expect(state.historyDetailWidth).toBe(0);
+    expect(state.historyRef).toBe("HEAD");
+    storage.closeForWorkspace(id);
+
+    const migratedDb = bunSqliteFactory(dbPath);
+    const columns = migratedDb.prepare("PRAGMA table_info(git_panel_state)").all() as {
+      name: string;
+    }[];
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "commit_options",
+        "autofetch_interval_min",
+        "autofetch_manual_paused",
+        "protected_branches",
+      ]),
+    );
+    const version = migratedDb
+      .prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'")
+      .get() as { value: string };
+    expect(version.value).toBe("5");
+    migratedDb.close();
+
+    const reopened = new WorkspaceStorage(tmpDir, bunSqliteFactory);
+    reopened.openForWorkspace(id);
+    expect(reopened.getGitPanelState(id).commitDraft).toBe("legacy draft");
+    reopened.closeForWorkspace(id);
   });
 });

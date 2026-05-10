@@ -11,6 +11,7 @@ export interface DiscardConfirmRequest {
   description: string;
   relPaths: string[];
   source?: GitExpandedGroupKey;
+  confirmLabel?: string;
 }
 
 interface ConfirmDiscardDialogProps {
@@ -58,7 +59,7 @@ export function ConfirmDiscardDialog({
                   if (request) onConfirm(request);
                 }}
               >
-                Discard
+                {request?.confirmLabel ?? "Discard"}
               </Button>
             </RadixAlertDialog.Action>
           </div>

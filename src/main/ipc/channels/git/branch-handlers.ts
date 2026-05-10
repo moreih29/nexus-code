@@ -61,23 +61,6 @@ export function checkoutTrackingHandler(
 }
 
 /**
- * Builds the createBranch handler; optional checkout is delegated to
- * GitRepository and the resulting branch/status snapshot is broadcast first.
- */
-export function createBranchHandler(
-  registry: GitRegistry,
-): (args: unknown, ctx?: CallContext) => Promise<void> {
-  return async (args: unknown, ctx?: CallContext): Promise<void> => {
-    const { workspaceId, name, checkout } = validateArgs(c.createBranch.args, args);
-    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
-    if (!repo) throw new GitError("not-repo", "Not a Git repository");
-
-    await repo.createBranch(name, checkout ?? false, ctx?.signal);
-    await registry.refreshStatus(workspaceId);
-  };
-}
-
-/**
  * Builds the empty branch list shape used for non-repository workspaces.
  */
 function createEmptyBranchList(): BranchList {

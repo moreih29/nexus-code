@@ -14,6 +14,7 @@ interface GitWatchEntry {
 }
 
 const IGNORED_TOP_LEVEL_DIRS = new Set(["objects", "logs"]);
+const WATCHED_GIT_EVENTS = ["add", "addDir", "change", "unlink", "unlinkDir"] as const;
 
 /**
  * Maintains one chokidar watcher per workspace/repository `.git` directory.
@@ -24,6 +25,13 @@ export class GitWatcher {
 
   constructor(onDirty: GitDirtyCallback) {
     this.onDirty = onDirty;
+  }
+
+  /**
+   * Returns the filesystem events considered status-relevant.
+   */
+  static watchedEvents(): readonly string[] {
+    return WATCHED_GIT_EVENTS;
   }
 
   /**
@@ -54,9 +62,9 @@ export class GitWatcher {
       this.onDirty(workspaceId);
     };
 
-    watcher.on("add", handleDirty);
-    watcher.on("change", handleDirty);
-    watcher.on("unlink", handleDirty);
+    for (const eventName of WATCHED_GIT_EVENTS) {
+      watcher.on(eventName, handleDirty);
+    }
 
     this.entries.set(workspaceId, { workspaceId, gitDir: absGitDir, watcher });
   }

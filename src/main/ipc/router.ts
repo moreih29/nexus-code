@@ -80,6 +80,7 @@ interface SerializedError {
 
 interface PendingStream {
   controller: AbortController;
+  cancelMode: "router" | "handler";
   sender: import("electron").WebContents;
   streamId: string;
   generator?: StreamGenerator;
@@ -217,6 +218,7 @@ export function setupRouter(): void {
       const key = requestKey(event, streamId);
       const pendingStream: PendingStream = {
         controller: new AbortController(),
+        cancelMode: descriptor.cancelMode ?? "router",
         sender: event.sender,
         streamId,
         closed: false,
@@ -333,7 +335,10 @@ async function runStream(
     }
   } catch (error) {
     if (!pendingStream.errorSent) {
-      const streamError = pendingStream.controller.signal.aborted ? createAbortError() : error;
+      const streamError =
+        pendingStream.controller.signal.aborted && pendingStream.cancelMode !== "handler"
+          ? createAbortError()
+          : error;
       sendStreamError(pendingStream, streamError);
     }
   } finally {
@@ -359,13 +364,16 @@ async function cleanupStream(key: string, pendingStream: PendingStream): Promise
 function shouldStopStream(key: string, pendingStream: PendingStream): boolean {
   return (
     pendingStream.closed ||
-    pendingStream.controller.signal.aborted ||
+    (pendingStream.controller.signal.aborted && pendingStream.cancelMode !== "handler") ||
     pendingStreamControllers.get(key) !== pendingStream
   );
 }
 
 function cancelStream(key: string, pendingStream: PendingStream): void {
   pendingStream.controller.abort();
+  if (pendingStream.cancelMode === "handler") {
+    return;
+  }
   sendStreamError(pendingStream, createAbortError());
   pendingStream.closed = true;
   pendingStreamControllers.delete(key);

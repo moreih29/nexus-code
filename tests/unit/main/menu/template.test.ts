@@ -60,6 +60,13 @@ describe("buildMenuTemplate (mac)", () => {
     expect(item.accelerator).toBe("CmdOrCtrl+R");
   });
 
+  it("surfaces Clone Repository in the File menu through the command bridge", () => {
+    const item = findCommand(specs, COMMANDS.gitCloneRepository);
+    expect(item).toBeDefined();
+    if (item?.type !== "command") throw new Error("unreachable");
+    expect(item.label).toBe("Clone Repository…");
+  });
+
   it("does not surface Force Reload at Cmd+Shift+R", () => {
     const items = flatten(specs);
     const forceReload = items.find(

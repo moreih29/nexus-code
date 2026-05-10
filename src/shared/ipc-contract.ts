@@ -23,27 +23,53 @@ import { ColorToneSchema } from "./types/color-tone";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
-  FileContentSchema,
   FileReadResultSchema,
   FsChangedEventSchema,
   FsStatSchema,
   WriteFileResultSchema,
 } from "./types/fs";
 import {
+  AskpassPromptSchema,
+  AskpassRespondArgsSchema,
   BranchListSchema,
+  CommitDetailSchema,
   CommitResultSchema,
+  CommitSearchResultSchema,
   DiffChunkSchema,
   DiffCompleteSchema,
   DiffSpecSchema,
+  GitAutofetchIntervalMinSchema,
+  GitAutofetchStateChangedSchema,
+  GitBlobChunkSchema,
+  GitBlobCompleteSchema,
+  GitCherryPickResultSchema,
+  GitCloneArgsSchema,
+  GitCloneStreamProgressEventSchema,
+  GitCloneStreamResultEventSchema,
+  GitContinueOpResultSchema,
+  GitEditorPromptSchema,
+  GitEditorSaveArgsSchema,
   GitExpandedGroupKeySchema,
+  GitFastForwardResultSchema,
+  GitFetchAllResultSchema,
+  GitHelperPromptIdArgsSchema,
+  GitIgnoreAppendResultSchema,
+  GitMarkResolvedResultSchema,
+  GitMergeModeSchema,
+  GitMergeResultSchema,
+  GitOpenFileAtHeadResultSchema,
   GitPanelStateSchema,
   GitPanelStateUpdateSchema,
+  GitRebaseResultSchema,
   GitStatusSchema,
+  GitSyncResultSchema,
   LogChunkSchema,
   LogCompleteSchema,
   PullResultSchema,
   PushResultSchema,
   RepoInfoSchema,
+  StashEntrySchema,
+  TagSchema,
 } from "./types/git";
 import {
   PanelGetViewOptionsArgsSchema,
@@ -79,6 +105,7 @@ export interface StreamProcedure<
   args: A;
   progress: P;
   result: R;
+  cancelMode?: "router" | "handler";
 }
 
 type ChannelDefinition = {
@@ -102,8 +129,9 @@ export function stream<A extends z.ZodTypeAny, P extends z.ZodTypeAny, R extends
   args: A,
   progress: P,
   result: R,
+  options: { cancelMode?: "router" | "handler" } = {},
 ): StreamProcedure<A, P, R> {
-  return { args, progress, result };
+  return { args, progress, result, ...options };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,15 +215,125 @@ const LspApplyEditResultArgsSchema = z.object({
 
 const GitWorkspaceIdSchema = z.object({ workspaceId: z.string().uuid() });
 
+const GitBranchNameSchema = z.string().min(1);
+
+const GitBranchTargetArgsSchema = GitWorkspaceIdSchema.extend({
+  name: GitBranchNameSchema,
+});
+
+const GitRemoteNameSchema = z.string().min(1);
+
+const GitAddRemoteArgsSchema = GitWorkspaceIdSchema.extend({
+  name: GitRemoteNameSchema,
+  url: z.string().min(1),
+});
+
+const GitRemoteTargetArgsSchema = GitWorkspaceIdSchema.extend({
+  name: GitRemoteNameSchema,
+});
+
+const GitDeleteRemoteBranchArgsSchema = GitWorkspaceIdSchema.extend({
+  remote: z.string().min(1),
+  name: GitBranchNameSchema,
+});
+
+const GitRenameBranchArgsSchema = GitWorkspaceIdSchema.extend({
+  from: GitBranchNameSchema,
+  to: GitBranchNameSchema,
+});
+
+const GitSetUpstreamArgsSchema = GitWorkspaceIdSchema.extend({
+  branch: GitBranchNameSchema,
+  upstream: z.string().min(1).nullable(),
+});
+
+const GitFastForwardBranchArgsSchema = GitWorkspaceIdSchema.extend({
+  branch: GitBranchNameSchema,
+  remote: z.string().min(1),
+  remoteRef: z.string().min(1),
+});
+
+const GitMergeArgsSchema = GitWorkspaceIdSchema.extend({
+  branch: z.string().min(1),
+  mode: GitMergeModeSchema.default("default"),
+});
+
+const GitRebaseArgsSchema = GitWorkspaceIdSchema.extend({
+  onto: z.string().min(1),
+});
+
+const GitCherryPickArgsSchema = GitWorkspaceIdSchema.extend({
+  sha: z.string().min(1),
+});
+
+const GitCommitShaArgsSchema = GitWorkspaceIdSchema.extend({
+  sha: z.string().min(1),
+});
+
+const GitCommitSearchArgsSchema = GitWorkspaceIdSchema.extend({
+  query: z.string(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+const GitResetSoftArgsSchema = GitWorkspaceIdSchema.extend({
+  targetSha: z.string().min(1),
+});
+
 const GitRelPathsArgsSchema = GitWorkspaceIdSchema.extend({
   relPaths: z.array(z.string().min(1)).min(1),
+});
+
+const GitMarkResolvedArgsSchema = GitWorkspaceIdSchema.extend({
+  paths: z.array(z.string().min(1)).min(1),
+});
+
+const GitRelPathArgsSchema = GitWorkspaceIdSchema.extend({
+  relPath: z.string().min(1),
 });
 
 const GitDiscardChangesArgsSchema = GitRelPathsArgsSchema.extend({
   source: GitExpandedGroupKeySchema.optional(),
 });
 
+const GitStashIndexArgsSchema = GitWorkspaceIdSchema.extend({
+  index: z.number().int().nonnegative(),
+});
+
+const GitStashGroupArgsSchema = GitWorkspaceIdSchema.extend({
+  paths: z.array(z.string().min(1)).min(1),
+  message: z.string().optional(),
+});
+
+const GitCreateTagArgsSchema = GitWorkspaceIdSchema.extend({
+  name: z.string().min(1),
+  ref: z.string().min(1).optional(),
+  message: z.string().optional(),
+});
+
+const GitTagTargetArgsSchema = GitWorkspaceIdSchema.extend({
+  name: z.string().min(1),
+});
+
+const GitDeleteRemoteTagArgsSchema = GitWorkspaceIdSchema.extend({
+  remote: z.string().min(1),
+  name: z.string().min(1),
+});
+
 const GitSetPanelStateArgsSchema = GitWorkspaceIdSchema.merge(GitPanelStateUpdateSchema);
+
+const SystemAbsPathArgsSchema = z.object({ absPath: z.string().min(1) });
+
+const SystemPathResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }),
+  z.object({
+    ok: z.literal(false),
+    error: z.object({
+      code: z.enum(["not-absolute", "not-found", "permission-denied", "open-failed"]),
+      message: z.string(),
+      absPath: z.string(),
+    }),
+  }),
+]);
 
 // ---------------------------------------------------------------------------
 // IPC contract map
@@ -344,6 +482,26 @@ export const ipcContract = {
     listen: {},
   },
 
+  askpass: {
+    call: {
+      respond: call(AskpassRespondArgsSchema, z.void()),
+      cancel: call(GitHelperPromptIdArgsSchema, z.void()),
+    },
+    listen: {
+      prompt: listen(AskpassPromptSchema),
+    },
+  },
+
+  editor: {
+    call: {
+      save: call(GitEditorSaveArgsSchema, z.void()),
+      cancel: call(GitHelperPromptIdArgsSchema, z.void()),
+    },
+    listen: {
+      prompt: listen(GitEditorPromptSchema),
+    },
+  },
+
   git: {
     call: {
       getRepoInfo: call(GitWorkspaceIdSchema, RepoInfoSchema),
@@ -357,7 +515,28 @@ export const ipcContract = {
         GitWorkspaceIdSchema.extend({
           message: z.string(),
           amend: z.boolean().optional(),
+          sign: z.boolean().optional(),
           signoff: z.boolean().optional(),
+          noVerify: z.boolean().optional(),
+        }),
+        CommitResultSchema,
+      ),
+      commitAmend: call(
+        GitWorkspaceIdSchema.extend({
+          message: z.string().optional(),
+          sign: z.boolean().optional(),
+          signoff: z.boolean().optional(),
+          noVerify: z.boolean().optional(),
+        }),
+        CommitResultSchema,
+      ),
+      undoLastCommit: call(GitWorkspaceIdSchema, z.void()),
+      commitEmpty: call(
+        GitWorkspaceIdSchema.extend({
+          message: z.string(),
+          sign: z.boolean().optional(),
+          signoff: z.boolean().optional(),
+          noVerify: z.boolean().optional(),
         }),
         CommitResultSchema,
       ),
@@ -378,12 +557,40 @@ export const ipcContract = {
       createBranch: call(
         GitWorkspaceIdSchema.extend({
           name: z.string().min(1),
+          fromRef: z.string().min(1).optional(),
           checkout: z.boolean().optional(),
         }),
         z.void(),
       ),
+      deleteBranch: call(
+        GitBranchTargetArgsSchema.extend({
+          force: z.boolean().optional(),
+        }),
+        z.void(),
+      ),
+      deleteRemoteBranch: call(GitDeleteRemoteBranchArgsSchema, z.void()),
+      renameBranch: call(GitRenameBranchArgsSchema, z.void()),
+      setUpstream: call(GitSetUpstreamArgsSchema, z.void()),
+      fastForwardBranch: call(GitFastForwardBranchArgsSchema, GitFastForwardResultSchema),
+      merge: call(GitMergeArgsSchema, GitMergeResultSchema),
+      rebase: call(GitRebaseArgsSchema, GitRebaseResultSchema),
+      cherryPick: call(GitCherryPickArgsSchema, GitCherryPickResultSchema),
+      commitDetail: call(GitCommitShaArgsSchema, CommitDetailSchema),
+      searchCommits: call(GitCommitSearchArgsSchema, CommitSearchResultSchema),
+      checkoutDetached: call(GitCommitShaArgsSchema, z.void()),
+      resetSoft: call(GitResetSoftArgsSchema, z.void()),
+      abortOp: call(GitWorkspaceIdSchema, z.void()),
+      continueOp: call(GitWorkspaceIdSchema, GitContinueOpResultSchema),
+      markResolved: call(GitMarkResolvedArgsSchema, GitMarkResolvedResultSchema),
+      addRemote: call(GitAddRemoteArgsSchema, z.void()),
+      removeRemote: call(GitRemoteTargetArgsSchema, z.void()),
       listBranches: call(GitWorkspaceIdSchema, BranchListSchema),
+      listTags: call(GitWorkspaceIdSchema, z.array(TagSchema)),
+      createTag: call(GitCreateTagArgsSchema, z.void()),
+      deleteTag: call(GitTagTargetArgsSchema, z.void()),
+      deleteRemoteTag: call(GitDeleteRemoteTagArgsSchema, z.void()),
       fetch: call(GitWorkspaceIdSchema.extend({ remote: z.string().min(1).optional() }), z.void()),
+      fetchAll: call(GitWorkspaceIdSchema, GitFetchAllResultSchema),
       pull: call(GitWorkspaceIdSchema, PullResultSchema),
       push: call(
         GitWorkspaceIdSchema.extend({
@@ -398,8 +605,13 @@ export const ipcContract = {
         }),
         PushResultSchema,
       ),
+      sync: call(GitWorkspaceIdSchema, GitSyncResultSchema),
       stash: call(GitWorkspaceIdSchema.extend({ message: z.string().optional() }), z.void()),
       stashPop: call(GitWorkspaceIdSchema, z.void()),
+      stashList: call(GitWorkspaceIdSchema, z.array(StashEntrySchema)),
+      stashApply: call(GitStashIndexArgsSchema, z.void()),
+      stashDrop: call(GitStashIndexArgsSchema, z.void()),
+      stashGroup: call(GitStashGroupArgsSchema, z.void()),
       getFileContent: call(
         GitWorkspaceIdSchema.extend({
           ref: z.string().min(1),
@@ -407,6 +619,8 @@ export const ipcContract = {
         }),
         FileReadResultSchema,
       ),
+      openFileAtHead: call(GitRelPathArgsSchema, GitOpenFileAtHeadResultSchema),
+      addToGitignore: call(GitRelPathArgsSchema, GitIgnoreAppendResultSchema),
       getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
       setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
     },
@@ -418,6 +632,8 @@ export const ipcContract = {
       log: stream(
         GitWorkspaceIdSchema.extend({
           ref: z.string().min(1).optional(),
+          afterSha: z.string().min(1).optional(),
+          grep: z.string().min(1).optional(),
           skip: z.number().int().nonnegative().optional(),
           limit: z.number().int().positive().optional(),
         }),
@@ -429,6 +645,35 @@ export const ipcContract = {
         DiffChunkSchema,
         DiffCompleteSchema,
       ),
+      getFileBlob: stream(
+        GitWorkspaceIdSchema.extend({
+          ref: z.string().min(1),
+          relPath: z.string().min(1),
+        }),
+        GitBlobChunkSchema,
+        GitBlobCompleteSchema,
+      ),
+      stashShow: stream(GitStashIndexArgsSchema, DiffChunkSchema, DiffCompleteSchema),
+      clone: stream(
+        GitCloneArgsSchema,
+        GitCloneStreamProgressEventSchema,
+        GitCloneStreamResultEventSchema,
+        { cancelMode: "handler" },
+      ),
+    },
+  },
+
+  autofetch: {
+    call: {
+      setSchedule: call(
+        GitWorkspaceIdSchema.extend({ intervalMin: GitAutofetchIntervalMinSchema }),
+        z.void(),
+      ),
+      pause: call(GitWorkspaceIdSchema, z.void()),
+      resume: call(GitWorkspaceIdSchema, z.void()),
+    },
+    listen: {
+      stateChanged: listen(GitAutofetchStateChangedSchema),
     },
   },
 
@@ -481,6 +726,15 @@ export const ipcContract = {
         SearchCompleteSchema,
       ),
     },
+  },
+
+  system: {
+    call: {
+      openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
+      revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
+      openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
+    },
+    listen: {},
   },
 } as const satisfies Record<string, ChannelDefinition>;
 

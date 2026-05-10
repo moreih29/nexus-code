@@ -2,7 +2,12 @@
  * Per-workspace registry for lazy Git repository detection. It owns cached
  * RepoInfo state and the GitRepository instance for each workspaceId.
  */
-import { DEFAULT_REPO_CAPABILITIES, type GitStatus, type RepoInfo } from "../../shared/types/git";
+import {
+  DEFAULT_GIT_OPERATION_STATE,
+  DEFAULT_REPO_CAPABILITIES,
+  type GitStatus,
+  type RepoInfo,
+} from "../../shared/types/git";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import type { GitBinary } from "./git-binary";
 import { detectRepository } from "./git-detect";
@@ -118,6 +123,14 @@ export class GitRegistry {
   }
 
   /**
+   * Returns the resolved Git executable path for workspace-agnostic operations
+   * such as clone, where no GitRepository exists yet.
+   */
+  getGitBinaryPath(argv: readonly string[]): string {
+    return this.requireGitBinary(argv).path;
+  }
+
+  /**
    * Aborts queued repository work and removes all registry cache for a workspace.
    */
   dispose(workspaceId: string): void {
@@ -140,6 +153,14 @@ export class GitRegistry {
     for (const workspaceId of workspaceIds) {
       this.dispose(workspaceId);
     }
+  }
+
+  /**
+   * Increments the per-workspace token used to ignore stale detections and to
+   * mark explicit git mutations that should not rely on watcher coalescing.
+   */
+  bumpGeneration(workspaceId: string): void {
+    this.generations.set(workspaceId, this.currentGeneration(workspaceId) + 1);
   }
 
   /**
@@ -259,13 +280,6 @@ export class GitRegistry {
   }
 
   /**
-   * Increments the per-workspace token used to ignore stale detections.
-   */
-  private bumpGeneration(workspaceId: string): void {
-    this.generations.set(workspaceId, this.currentGeneration(workspaceId) + 1);
-  }
-
-  /**
    * Reads the stale-detection guard token for a workspace.
    */
   private currentGeneration(workspaceId: string): number {
@@ -284,5 +298,7 @@ function createEmptyGitStatus(): GitStatus {
     untracked: [],
     branch: null,
     capabilities: { ...DEFAULT_REPO_CAPABILITIES },
+    operationState: DEFAULT_GIT_OPERATION_STATE,
+    lastFetchedAt: null,
   };
 }

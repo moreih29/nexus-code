@@ -15,8 +15,21 @@ export const GitStatusEntrySchema = z.object({
   relPath: z.string(),
   oldRelPath: z.string().optional(),
   xy: z.string().length(2),
+  conflictType: z
+    .enum([
+      "both-deleted",
+      "added-by-us",
+      "deleted-by-them",
+      "added-by-them",
+      "deleted-by-us",
+      "both-added",
+      "both-modified",
+    ])
+    .nullable()
+    .default(null),
 });
 export type GitStatusEntry = z.infer<typeof GitStatusEntrySchema>;
+export type GitConflictType = GitStatusEntry["conflictType"];
 
 export const GitStatusGroupsSchema = z.object({
   merge: z.array(GitStatusEntrySchema),
@@ -29,8 +42,8 @@ export type GitStatusGroups = z.infer<typeof GitStatusGroupsSchema>;
 export const BranchInfoSchema = z.object({
   current: z.string(),
   upstream: z.string().nullable().default(null),
-  ahead: z.number().int().nonnegative(),
-  behind: z.number().int().nonnegative(),
+  ahead: z.number().int().nonnegative().default(0),
+  behind: z.number().int().nonnegative().default(0),
   isUnborn: z.boolean(),
 });
 export type BranchInfo = z.infer<typeof BranchInfoSchema>;
@@ -51,11 +64,14 @@ export type BranchInfo = z.infer<typeof BranchInfoSchema>;
  *   - `stashCount`  count of entries on the stash stack. Drives Stash Pop
  *                   enablement so the user never sees "No stash entries
  *                   found." after clicking the menu.
+ *   - `tagCount`    count of local tags. Lets later tag pickers render an
+ *                   empty state without issuing a second capability read.
  */
 export const RepoCapabilitiesSchema = z.object({
   hasHEAD: z.boolean(),
   remotes: z.array(z.string()),
   stashCount: z.number().int().nonnegative(),
+  tagCount: z.number().int().nonnegative().default(0),
 });
 export type RepoCapabilities = z.infer<typeof RepoCapabilitiesSchema>;
 
@@ -63,11 +79,54 @@ export const DEFAULT_REPO_CAPABILITIES: RepoCapabilities = {
   hasHEAD: false,
   remotes: [],
   stashCount: 0,
+  tagCount: 0,
 };
+
+/**
+ * Repository operation state derived from Git marker files under `.git/`.
+ */
+export const GitOperationStateSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }),
+  z.object({
+    kind: z.literal("merge"),
+    headRef: z.string().nullable(),
+    mergeRef: z.string().nullable(),
+    mergeLabel: z.string().optional(),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("rebase"),
+    variant: z.enum(["interactive", "apply", "merge"]),
+    headRef: z.string().nullable(),
+    ontoRef: z.string().nullable(),
+    ontoLabel: z.string().optional(),
+    doneCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    conflictCount: z.number().int().nonnegative(),
+    currentCommitSubject: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("cherry-pick"),
+    sourceSha: z.string().nullable(),
+    sourceSubject: z.string().optional(),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("revert"),
+    sourceSha: z.string().nullable(),
+    sourceSubject: z.string().optional(),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+]);
+export type GitOperationState = z.infer<typeof GitOperationStateSchema>;
+
+export const DEFAULT_GIT_OPERATION_STATE: GitOperationState = { kind: "none" };
 
 export const GitStatusSchema = GitStatusGroupsSchema.extend({
   branch: BranchInfoSchema.nullable(),
   capabilities: RepoCapabilitiesSchema,
+  operationState: GitOperationStateSchema.default(DEFAULT_GIT_OPERATION_STATE),
+  lastFetchedAt: z.number().int().nonnegative().nullable().default(null),
 });
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 
@@ -93,6 +152,12 @@ export const PullResultSchema = z.object({
 });
 export type PullResult = z.infer<typeof PullResultSchema>;
 
+export const GitFetchAllResultSchema = z.object({
+  fetched: z.boolean(),
+  lastFetchedAt: z.number().int().nonnegative().nullable(),
+});
+export type GitFetchAllResult = z.infer<typeof GitFetchAllResultSchema>;
+
 export const PushResultSchema = z.object({
   pushed: z.boolean(),
   remote: z.string().optional(),
@@ -101,6 +166,253 @@ export const PushResultSchema = z.object({
   summary: z.string().optional(),
 });
 export type PushResult = z.infer<typeof PushResultSchema>;
+
+export const GitFastForwardResultSchema = z.object({
+  advanced: z.boolean(),
+  fromSha: z.string(),
+  toSha: z.string(),
+});
+export type GitFastForwardResult = z.infer<typeof GitFastForwardResultSchema>;
+
+export const GitMergeModeSchema = z.enum(["default", "no-ff", "squash"]);
+export type GitMergeMode = z.infer<typeof GitMergeModeSchema>;
+
+export const GitMergeResultSchema = z.discriminatedUnion("result", [
+  z.object({ result: z.literal("clean") }),
+  z.object({
+    result: z.literal("conflicts"),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+]);
+export type GitMergeResult = z.infer<typeof GitMergeResultSchema>;
+
+export const GitRebaseResultSchema = z.discriminatedUnion("result", [
+  z.object({
+    result: z.literal("clean"),
+    conflictCount: z.number().int().nonnegative(),
+    doneCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    result: z.literal("conflicts"),
+    conflictCount: z.number().int().nonnegative(),
+    doneCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+  }),
+]);
+export type GitRebaseResult = z.infer<typeof GitRebaseResultSchema>;
+
+export const GitCherryPickResultSchema = z.discriminatedUnion("result", [
+  z.object({ result: z.literal("clean") }),
+  z.object({
+    result: z.literal("conflicts"),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+]);
+export type GitCherryPickResult = z.infer<typeof GitCherryPickResultSchema>;
+
+export const GitContinueOpResultSchema = z.discriminatedUnion("result", [
+  z.object({ result: z.literal("completed") }),
+  z.object({
+    result: z.literal("clean"),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    result: z.literal("conflicts"),
+    conflictCount: z.number().int().nonnegative(),
+  }),
+]);
+export type GitContinueOpResult = z.infer<typeof GitContinueOpResultSchema>;
+
+export const GitMarkResolvedResultSchema = z.object({
+  remainingConflicts: z.number().int().nonnegative(),
+});
+export type GitMarkResolvedResult = z.infer<typeof GitMarkResolvedResultSchema>;
+
+/**
+ * Result envelope for the primary Sync action. `git.sync` owns one repository
+ * queue slot and performs pull before push, so a non-ok pull state always
+ * leaves `pushed` as `skipped`. Pull failures carry a minimal typed error
+ * copy so the renderer can keep its inline banner behavior without making the
+ * IPC call reject.
+ */
+export const GitSyncErrorSchema = z.object({
+  kind: z.string().min(1),
+  message: z.string(),
+  details: z.string().optional(),
+});
+export type GitSyncError = z.infer<typeof GitSyncErrorSchema>;
+
+export const GitSyncResultSchema = z.object({
+  pulled: z.enum(["ok", "cancelled", "error"]),
+  pushed: z.enum(["ok", "skipped", "error"]),
+  pullError: GitSyncErrorSchema.optional(),
+});
+export type GitSyncResult = z.infer<typeof GitSyncResultSchema>;
+
+export const GitOpenFileAtHeadResultSchema = z.object({
+  content: z.string(),
+  encoding: z.enum(["utf8", "utf8-bom"]),
+  sizeBytes: z.number().int().nonnegative(),
+});
+export type GitOpenFileAtHeadResult = z.infer<typeof GitOpenFileAtHeadResultSchema>;
+
+const Uint8ArrayChunkSchema = z.custom<Uint8Array<ArrayBufferLike>>(
+  (value) => value instanceof Uint8Array,
+);
+
+export const GitBlobChunkSchema = z.object({
+  chunk: Uint8ArrayChunkSchema,
+});
+export type GitBlobChunk = z.infer<typeof GitBlobChunkSchema>;
+
+export const GitBlobCompleteSchema = z.object({
+  bytes: z.number().int().nonnegative(),
+});
+export type GitBlobComplete = z.infer<typeof GitBlobCompleteSchema>;
+
+export const GitIgnoreAppendResultSchema = z.object({
+  added: z.boolean(),
+  alreadyIgnored: z.boolean(),
+});
+export type GitIgnoreAppendResult = z.infer<typeof GitIgnoreAppendResultSchema>;
+
+export const GitClonePhaseSchema = z.enum([
+  "counting",
+  "compressing",
+  "receiving",
+  "resolving",
+  "checkout",
+]);
+export type GitClonePhase = z.infer<typeof GitClonePhaseSchema>;
+
+export const GitCloneArgsSchema = z.object({
+  url: z.string(),
+  destination: z.string(),
+  name: z.string().optional(),
+  branch: z.string().optional(),
+  recurseSubmodules: z.boolean().optional(),
+});
+export type GitCloneArgs = z.infer<typeof GitCloneArgsSchema>;
+
+export const GitCloneStartedEventSchema = z.object({
+  kind: z.literal("started"),
+  absPath: z.string(),
+});
+export type GitCloneStartedEvent = z.infer<typeof GitCloneStartedEventSchema>;
+
+export const GitCloneProgressEventSchema = z.object({
+  kind: z.literal("progress"),
+  phase: GitClonePhaseSchema,
+  pct: z.number().min(0).max(100),
+  received: z.number().int().nonnegative().optional(),
+  total: z.number().int().nonnegative().optional(),
+});
+export type GitCloneProgressEvent = z.infer<typeof GitCloneProgressEventSchema>;
+
+export const GitClonePhaseEventSchema = z.object({
+  kind: z.literal("phase"),
+  phase: GitClonePhaseSchema,
+});
+export type GitClonePhaseEvent = z.infer<typeof GitClonePhaseEventSchema>;
+
+export const GitCloneCompleteEventSchema = z.object({
+  kind: z.literal("complete"),
+  absPath: z.string(),
+});
+export type GitCloneCompleteEvent = z.infer<typeof GitCloneCompleteEventSchema>;
+
+export const GitCloneCancelledEventSchema = z.object({
+  kind: z.literal("cancelled"),
+  absPath: z.string(),
+  cleaned: z.boolean(),
+});
+export type GitCloneCancelledEvent = z.infer<typeof GitCloneCancelledEventSchema>;
+
+export const GitCloneStreamProgressEventSchema = z.discriminatedUnion("kind", [
+  GitCloneStartedEventSchema,
+  GitCloneProgressEventSchema,
+  GitClonePhaseEventSchema,
+]);
+export type GitCloneStreamProgressEvent = z.infer<typeof GitCloneStreamProgressEventSchema>;
+
+export const GitCloneStreamResultEventSchema = z.discriminatedUnion("kind", [
+  GitCloneCompleteEventSchema,
+  GitCloneCancelledEventSchema,
+]);
+export type GitCloneStreamResultEvent = z.infer<typeof GitCloneStreamResultEventSchema>;
+
+export const GitCloneEventSchema = z.discriminatedUnion("kind", [
+  GitCloneStartedEventSchema,
+  GitCloneProgressEventSchema,
+  GitClonePhaseEventSchema,
+  GitCloneCompleteEventSchema,
+  GitCloneCancelledEventSchema,
+]);
+export type GitCloneEvent = z.infer<typeof GitCloneEventSchema>;
+
+export const GitHelperPromptIdSchema = z.string().min(1);
+export type GitHelperPromptId = z.infer<typeof GitHelperPromptIdSchema>;
+
+export const GitHelperWorkspaceIdSchema = z.string().uuid().optional();
+
+/**
+ * Main-to-renderer askpass prompt payload. `promptId` is the domain
+ * correlation key used by responses; it is intentionally independent from
+ * transport request ids because the helper process is not an IPC caller.
+ */
+export const AskpassPromptSchema = z.object({
+  promptId: GitHelperPromptIdSchema,
+  workspaceId: GitHelperWorkspaceIdSchema,
+  prompt: z.string(),
+  field: z.enum(["username", "password", "passphrase", "text"]),
+  service: z.string().optional(),
+});
+export type AskpassPrompt = z.infer<typeof AskpassPromptSchema>;
+
+/**
+ * Main-to-renderer commit-message editor payload. The renderer edits the
+ * provided content and responds with the same `promptId` so main can write the
+ * exact file path opened by Git's editor hook.
+ */
+export const GitEditorPromptSchema = z.object({
+  promptId: GitHelperPromptIdSchema,
+  workspaceId: GitHelperWorkspaceIdSchema,
+  kind: z.literal("commit-message"),
+  filePath: z.string(),
+  initialContent: z.string(),
+});
+export type GitEditorPrompt = z.infer<typeof GitEditorPromptSchema>;
+
+export const GitHelperPromptIdArgsSchema = z.object({
+  promptId: GitHelperPromptIdSchema,
+});
+
+export const AskpassRespondArgsSchema = GitHelperPromptIdArgsSchema.extend({
+  value: z.string(),
+});
+
+export const GitEditorSaveArgsSchema = GitHelperPromptIdArgsSchema.extend({
+  content: z.string(),
+});
+
+export const StashEntrySchema = z.object({
+  index: z.number().int().nonnegative(),
+  sha: z.string(),
+  message: z.string(),
+  branch: z.string().nullable(),
+  createdAt: z.number().int().nonnegative(),
+});
+export type StashEntry = z.infer<typeof StashEntrySchema>;
+
+export const TagSchema = z.object({
+  name: z.string(),
+  sha: z.string(),
+  message: z.string().nullable(),
+  type: z.enum(["annotated", "lightweight"]),
+  taggerDate: z.number().int().nonnegative().nullable(),
+});
+export type Tag = z.infer<typeof TagSchema>;
 
 const DiffPathShape = {
   relPath: z.string().min(1).optional(),
@@ -143,6 +455,38 @@ export const LogCompleteSchema = z.object({
 });
 export type LogComplete = z.infer<typeof LogCompleteSchema>;
 
+export const CommitFileChangeSchema = z.object({
+  path: z.string(),
+  status: z.string(),
+  oldPath: z.string().optional(),
+});
+export type CommitFileChange = z.infer<typeof CommitFileChangeSchema>;
+
+export const CommitDetailSchema = z.object({
+  sha: z.string(),
+  parents: z.array(z.string()),
+  subject: z.string(),
+  author: z.string(),
+  authorEmail: z.string(),
+  committerTs: z.string(),
+  message: z.string(),
+  body: z.string(),
+  files: z.array(CommitFileChangeSchema),
+});
+export type CommitDetail = z.infer<typeof CommitDetailSchema>;
+
+export const CommitSearchResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("sha"),
+    detail: CommitDetailSchema,
+  }),
+  z.object({
+    kind: z.literal("grep"),
+    entries: z.array(LogEntrySchema),
+  }),
+]);
+export type CommitSearchResult = z.infer<typeof CommitSearchResultSchema>;
+
 export const DiffChunkSchema = z.object({
   text: z.string(),
 });
@@ -179,6 +523,16 @@ export type DiffComplete = z.infer<typeof DiffCompleteSchema>;
  *   - `ambiguous-remote`      Multiple remotes carry the same short name —
  *                              the renderer surfaces a chooser instead of
  *                              guessing.
+ *   - `force-delete-available` A branch delete failed because it is not fully
+ *                              merged; the renderer can offer an explicit
+ *                              force-delete retry.
+ *   - `pull-then-retry`       A push was rejected as non-fast-forward and can
+ *                              be retried after a user-approved pull.
+ *   - `fetch-then-force`      A force-with-lease push failed because the
+ *                              remote moved; fetch refreshes the lease.
+ *   - `allow-unrelated-histories` Git refused to merge unrelated histories.
+ *   - `allow-empty`           Cherry-pick produced an empty commit.
+ *   - `configure-signing`     Commit signing failed and needs user config.
  */
 export const GitActionHintSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -197,6 +551,15 @@ export const GitActionHintSchema = z.discriminatedUnion("kind", [
     kind: z.literal("ambiguous-remote"),
     candidates: z.array(z.string()),
   }),
+  z.object({
+    kind: z.literal("force-delete-available"),
+    branch: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("pull-then-retry") }),
+  z.object({ kind: z.literal("fetch-then-force") }),
+  z.object({ kind: z.literal("allow-unrelated-histories") }),
+  z.object({ kind: z.literal("allow-empty") }),
+  z.object({ kind: z.literal("configure-signing") }),
 ]);
 export type GitActionHint = z.infer<typeof GitActionHintSchema>;
 
@@ -233,10 +596,59 @@ export const DEFAULT_GIT_EXPANDED_TREE_NODES: GitExpandedTreeNodes = {
   untracked: [],
 };
 
+export const GitCommitOptionsSchema = z.object({
+  sign: z.boolean().default(false),
+  signoff: z.boolean().default(false),
+  noVerify: z.boolean().default(false),
+});
+export type GitCommitOptions = z.infer<typeof GitCommitOptionsSchema>;
+
+export const DEFAULT_GIT_COMMIT_OPTIONS: GitCommitOptions = {
+  sign: false,
+  signoff: false,
+  noVerify: false,
+};
+
+export const GitAutofetchIntervalMinSchema = z.union([
+  z.literal(0),
+  z.literal(1),
+  z.literal(3),
+  z.literal(5),
+  z.literal(15),
+]);
+export type GitAutofetchIntervalMin = z.infer<typeof GitAutofetchIntervalMinSchema>;
+
+export const GitAutofetchErrorSchema = z.object({
+  kind: z.string().min(1),
+  message: z.string(),
+  sticky: z.boolean(),
+});
+export type GitAutofetchError = z.infer<typeof GitAutofetchErrorSchema>;
+
+export const GitAutofetchStateChangedSchema = z.object({
+  workspaceId: z.string().uuid(),
+  fetching: z.boolean(),
+  paused: z.boolean(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  lastError: GitAutofetchErrorSchema.nullable(),
+  showPausedBanner: z.boolean().default(false),
+});
+export type GitAutofetchStateChanged = z.infer<typeof GitAutofetchStateChangedSchema>;
+
+export const GitPanelSegmentSchema = z.enum(["changes", "history"]);
+export type GitPanelSegment = z.infer<typeof GitPanelSegmentSchema>;
+
 export const GitPanelStateSchema = z.object({
   commitDraft: z.string(),
   expandedGroups: GitExpandedGroupsSchema,
   expandedTreeNodes: GitExpandedTreeNodesSchema,
+  commitOptions: GitCommitOptionsSchema.default(DEFAULT_GIT_COMMIT_OPTIONS),
+  autofetchIntervalMin: GitAutofetchIntervalMinSchema.default(0),
+  autofetchManualPaused: z.boolean().default(false),
+  protectedBranches: z.array(z.string()).default([]),
+  panelSegment: GitPanelSegmentSchema.default("changes"),
+  historyDetailWidth: z.number().int().nonnegative().default(0),
+  historyRef: z.string().default("HEAD"),
 });
 export type GitPanelState = z.infer<typeof GitPanelStateSchema>;
 
@@ -247,4 +659,11 @@ export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {
   commitDraft: "",
   expandedGroups: { ...DEFAULT_GIT_EXPANDED_GROUPS },
   expandedTreeNodes: { ...DEFAULT_GIT_EXPANDED_TREE_NODES },
+  commitOptions: { ...DEFAULT_GIT_COMMIT_OPTIONS },
+  autofetchIntervalMin: 0,
+  autofetchManualPaused: false,
+  protectedBranches: [],
+  panelSegment: "changes",
+  historyDetailWidth: 0,
+  historyRef: "HEAD",
 };

@@ -5,7 +5,7 @@
  * primary signifier — the letter glyph (M / A / D / R / C / ? / T / !) is.
  * Active changes (M / T / A / ?) get full-emphasis foreground with semibold
  * weight; passive structural changes (R / C) use muted-foreground; only
- * destructive (D) and conflict (!) draw on the destructive token, with
+ * destructive (D) and conflict (!) draw on Git's readable destructive text, with
  * conflict adding a subtle bg tint to differentiate at a glance.
  */
 import { cn } from "@/utils/cn";
@@ -22,12 +22,12 @@ function statusBadgeClass(code: string): string {
     case "?":
       return "text-foreground font-semibold";
     case "D":
-      return "text-destructive";
+      return "git-destructive-text";
     case "R":
     case "C":
       return "text-muted-foreground";
     case "!":
-      return "text-destructive bg-destructive/10 font-semibold";
+      return "git-destructive-text bg-destructive/10 font-semibold";
     default:
       return "text-muted-foreground";
   }

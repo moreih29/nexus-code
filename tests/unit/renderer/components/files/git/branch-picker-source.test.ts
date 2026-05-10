@@ -43,18 +43,35 @@ function buildSource(list: BranchList): {
   checkout: ReturnType<typeof mock>;
   checkoutTracking: ReturnType<typeof mock>;
   createBranch: ReturnType<typeof mock>;
+  requestDelete: ReturnType<typeof mock>;
+  requestRename: ReturnType<typeof mock>;
+  requestSetUpstream: ReturnType<typeof mock>;
 } {
   const checkout = mock(async () => {});
   const checkoutTracking = mock(async () => {});
   const createBranch = mock(async () => {});
+  const requestDelete = mock(() => {});
+  const requestRename = mock(() => {});
+  const requestSetUpstream = mock(() => {});
   const source = createBranchPickerSource({
     workspaceId: "ws-1",
     listBranches: async () => list,
     checkout,
     checkoutTracking,
     createBranch,
+    requestDelete,
+    requestRename,
+    requestSetUpstream,
   });
-  return { source, checkout, checkoutTracking, createBranch };
+  return {
+    source,
+    checkout,
+    checkoutTracking,
+    createBranch,
+    requestDelete,
+    requestRename,
+    requestSetUpstream,
+  };
 }
 
 async function search(
@@ -211,17 +228,13 @@ describe("createBranchPickerSource — Create new branch row", () => {
   });
 
   it("is suppressed when the typed name exactly matches an existing local branch", async () => {
-    const { source } = buildSource(
-      fixture({ local: ["feat/work", "main"], remote: [] }),
-    );
+    const { source } = buildSource(fixture({ local: ["feat/work", "main"], remote: [] }));
     const items = await search(source, "main");
     expect(items.some((it) => it.id.startsWith("create:"))).toBe(false);
   });
 
   it("is suppressed when the typed name exactly matches a remote short name", async () => {
-    const { source } = buildSource(
-      fixture({ local: ["feat/work"], remote: ["origin/main"] }),
-    );
+    const { source } = buildSource(fixture({ local: ["feat/work"], remote: ["origin/main"] }));
     const items = await search(source, "main");
     expect(items.some((it) => it.id.startsWith("create:"))).toBe(false);
   });
@@ -269,4 +282,64 @@ describe("createBranchPickerSource — accept routing", () => {
     expect(checkout).not.toHaveBeenCalled();
     expect(checkoutTracking).not.toHaveBeenCalled();
   });
+
+  it("routes Cmd/Ctrl branch shortcuts to delete, rename, and upstream callbacks", async () => {
+    const { source, requestDelete, requestRename, requestSetUpstream, checkout } = buildSource(
+      fixture({ local: ["feat/work", "main"], remote: [] }),
+    );
+    const items = await search(source, "");
+    const local = items.find((it) => it.id === "local:main");
+    if (!local) throw new Error("expected local item");
+
+    source.accept(local, { mode: "default", key: "Backspace", modifiers: metaModifiers() });
+    source.accept(local, { mode: "default", key: "r", modifiers: metaModifiers() });
+    source.accept(local, { mode: "default", key: "u", modifiers: ctrlModifiers() });
+
+    expect(requestDelete).toHaveBeenCalledWith(local);
+    expect(requestRename).toHaveBeenCalledWith(local);
+    expect(requestSetUpstream).toHaveBeenCalledWith(local);
+    expect(checkout).not.toHaveBeenCalled();
+  });
+
+  it("can retarget a ref without checkout or create side effects", async () => {
+    const list = fixture({ local: ["feat/work", "main"], remote: ["origin/release"] });
+    const acceptRef = mock(() => {});
+    const checkout = mock(async () => {});
+    const checkoutTracking = mock(async () => {});
+    const createBranch = mock(async () => {});
+    const source = createBranchPickerSource({
+      workspaceId: "ws-1",
+      listBranches: async () => list,
+      checkout,
+      checkoutTracking,
+      createBranch,
+      allowCreate: false,
+      acceptRef,
+      title: "View history of",
+    });
+
+    const typedItems = await search(source, "scratch");
+    expect(typedItems.some((it) => it.id.startsWith("create:"))).toBe(false);
+
+    const items = await search(source, "release");
+    const remote = items.find((it) => it.id === "remote:origin/release");
+    if (!remote) throw new Error("expected remote ref item");
+
+    source.accept(remote, { mode: "default" });
+
+    expect(acceptRef).toHaveBeenCalledWith("origin/release", remote);
+    expect(checkout).not.toHaveBeenCalled();
+    expect(checkoutTracking).not.toHaveBeenCalled();
+    expect(createBranch).not.toHaveBeenCalled();
+  });
 });
+
+/** Returns modifier payload for Cmd shortcuts. */
+function metaModifiers() {
+  return { meta: true, ctrl: false, alt: false, shift: false };
+}
+
+/** Returns modifier payload for Ctrl shortcuts. */
+function ctrlModifiers() {
+  return { meta: false, ctrl: true, alt: false, shift: false };
+}

@@ -71,11 +71,101 @@ const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
+  // v5 → persisted git panel preferences added after the original key/value
+  //      Source Control panel table. The table keeps its legacy rows so
+  //      existing commit drafts and expanded groups are not rewritten.
+  {
+    version: 5,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_panel_state (
+          key   TEXT NOT NULL PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+      addColumnIfMissing(
+        db,
+        "git_panel_state",
+        "commit_options",
+        `commit_options TEXT NOT NULL DEFAULT ${sqliteStringLiteral(
+          JSON.stringify(DEFAULT_GIT_PANEL_STATE.commitOptions),
+        )}`,
+      );
+      addColumnIfMissing(
+        db,
+        "git_panel_state",
+        "autofetch_interval_min",
+        "autofetch_interval_min INTEGER NOT NULL DEFAULT 0",
+      );
+      addColumnIfMissing(
+        db,
+        "git_panel_state",
+        "autofetch_manual_paused",
+        "autofetch_manual_paused INTEGER NOT NULL DEFAULT 0",
+      );
+      addColumnIfMissing(
+        db,
+        "git_panel_state",
+        "protected_branches",
+        `protected_branches TEXT NOT NULL DEFAULT ${sqliteStringLiteral(
+          JSON.stringify(DEFAULT_GIT_PANEL_STATE.protectedBranches),
+        )}`,
+      );
+    },
+  },
 ];
 
 const GIT_PANEL_COMMIT_DRAFT_KEY = "commitDraft";
 const GIT_PANEL_EXPANDED_GROUPS_KEY = "expandedGroups";
 const GIT_PANEL_EXPANDED_TREE_NODES_KEY = "expandedTreeNodes";
+const GIT_PANEL_COMMIT_OPTIONS_KEY = "commitOptions";
+const GIT_PANEL_AUTOFETCH_INTERVAL_MIN_KEY = "autofetchIntervalMin";
+const GIT_PANEL_AUTOFETCH_MANUAL_PAUSED_KEY = "autofetchManualPaused";
+const GIT_PANEL_PROTECTED_BRANCHES_KEY = "protectedBranches";
+const GIT_PANEL_PANEL_SEGMENT_KEY = "panelSegment";
+const GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY = "historyDetailWidth";
+const GIT_PANEL_HISTORY_REF_KEY = "historyRef";
+
+interface GitPanelStateRow {
+  key: string;
+  value: string;
+  commit_options?: string;
+  autofetch_interval_min?: number;
+  autofetch_manual_paused?: number;
+  protected_branches?: string;
+}
+
+/**
+ * Escapes a JS string for use as a SQLite string literal in static migration
+ * DDL. Migrations cannot bind parameters in DEFAULT clauses, so the literal
+ * must be embedded safely.
+ */
+function sqliteStringLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Returns whether the named column is present on a workspace-local table.
+ * Used by idempotent ALTER TABLE migrations that may run after partial setup.
+ */
+function hasColumn(db: SqliteDb, tableName: string, columnName: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
+  return rows.some((row) => row.name === columnName);
+}
+
+/**
+ * Adds a column only when absent so rerunning a migration against a partially
+ * upgraded workspace database does not fail with "duplicate column name".
+ */
+function addColumnIfMissing(
+  db: SqliteDb,
+  tableName: string,
+  columnName: string,
+  columnSql: string,
+): void {
+  if (hasColumn(db, tableName, columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
+}
 
 function defaultGitExpandedGroups(): GitExpandedGroups {
   return { ...DEFAULT_GIT_PANEL_STATE.expandedGroups };
@@ -95,6 +185,13 @@ function defaultGitPanelState(): GitPanelState {
     commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: defaultGitExpandedGroups(),
     expandedTreeNodes: defaultGitExpandedTreeNodes(),
+    commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },
+    autofetchIntervalMin: DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin,
+    autofetchManualPaused: DEFAULT_GIT_PANEL_STATE.autofetchManualPaused,
+    protectedBranches: [...DEFAULT_GIT_PANEL_STATE.protectedBranches],
+    panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
+    historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
+    historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
   };
 }
 
@@ -143,6 +240,185 @@ function parseGitExpandedTreeNodes(
       err,
     );
     return defaultGitExpandedTreeNodes();
+  }
+}
+
+/**
+ * Parses the persisted commit option JSON, falling back to schema defaults
+ * when the column or legacy key/value row is absent.
+ */
+function parseGitCommitOptions(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["commitOptions"] {
+  if (raw === undefined) {
+    return { ...DEFAULT_GIT_PANEL_STATE.commitOptions };
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      commitOptions: JSON.parse(raw) as unknown,
+    });
+    return state.commitOptions;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state commitOptions for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return { ...DEFAULT_GIT_PANEL_STATE.commitOptions };
+  }
+}
+
+/**
+ * Parses the persisted autofetch interval. The value may come from SQLite as
+ * a number column or from a legacy key/value row as a numeric string.
+ */
+function parseGitAutofetchIntervalMin(
+  workspaceId: string,
+  raw: string | number | undefined,
+): GitPanelState["autofetchIntervalMin"] {
+  if (raw === undefined) {
+    return DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin;
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      autofetchIntervalMin: typeof raw === "number" ? raw : Number(raw),
+    });
+    return state.autofetchIntervalMin;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state autofetchIntervalMin for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin;
+  }
+}
+
+/**
+ * Parses the persisted manual-pause flag from SQLite integer or legacy string
+ * storage while preserving the default for absent values.
+ */
+function parseGitAutofetchManualPaused(
+  workspaceId: string,
+  raw: string | number | undefined,
+): boolean {
+  if (raw === undefined) {
+    return DEFAULT_GIT_PANEL_STATE.autofetchManualPaused;
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      autofetchManualPaused: raw === 1 || raw === "1" || raw === "true",
+    });
+    return state.autofetchManualPaused;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state autofetchManualPaused for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.autofetchManualPaused;
+  }
+}
+
+/**
+ * Parses the protected branch list JSON, defaulting to an empty list for fresh
+ * workspaces and invalid persisted values.
+ */
+function parseGitProtectedBranches(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["protectedBranches"] {
+  if (raw === undefined) {
+    return [...DEFAULT_GIT_PANEL_STATE.protectedBranches];
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      protectedBranches: JSON.parse(raw) as unknown,
+    });
+    return state.protectedBranches;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state protectedBranches for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return [...DEFAULT_GIT_PANEL_STATE.protectedBranches];
+  }
+}
+
+/**
+ * Parses the selected Source Control segment, defaulting to Changes for
+ * workspaces saved before the History panel existed.
+ */
+function parseGitPanelSegment(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["panelSegment"] {
+  if (raw === undefined) return DEFAULT_GIT_PANEL_STATE.panelSegment;
+
+  try {
+    return GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      panelSegment: raw,
+    }).panelSegment;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state panelSegment for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.panelSegment;
+  }
+}
+
+/**
+ * Parses the persisted detail width used by the draggable History split view.
+ */
+function parseGitHistoryDetailWidth(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["historyDetailWidth"] {
+  if (raw === undefined) return DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
+
+  try {
+    return GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      historyDetailWidth: Number(raw),
+    }).historyDetailWidth;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state historyDetailWidth for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
+  }
+}
+
+/**
+ * Parses the last viewed History ref, preserving HEAD as the no-selection
+ * default for older workspaces.
+ */
+function parseGitHistoryRef(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["historyRef"] {
+  if (raw === undefined) return DEFAULT_GIT_PANEL_STATE.historyRef;
+
+  try {
+    return GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      historyRef: raw,
+    }).historyRef;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state historyRef for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.historyRef;
   }
 }
 
@@ -351,11 +627,9 @@ export class WorkspaceStorage {
       throw new Error(`workspace storage not open: ${workspaceId}`);
     }
 
-    const rows = entry.db.prepare("SELECT key, value FROM git_panel_state").all() as {
-      key: string;
-      value: string;
-    }[];
+    const rows = entry.db.prepare("SELECT * FROM git_panel_state").all() as GitPanelStateRow[];
     const values = new Map(rows.map((row) => [row.key, row.value]));
+    const rowsByKey = new Map(rows.map((row) => [row.key, row]));
     const expandedGroups = parseGitExpandedGroups(
       workspaceId,
       values.get(GIT_PANEL_EXPANDED_GROUPS_KEY),
@@ -368,11 +642,39 @@ export class WorkspaceStorage {
       workspaceId,
       values.get(GIT_PANEL_EXPANDED_TREE_NODES_KEY),
     );
+    const commitOptionsRow = rowsByKey.get(GIT_PANEL_COMMIT_OPTIONS_KEY);
+    const autofetchIntervalRow = rowsByKey.get(GIT_PANEL_AUTOFETCH_INTERVAL_MIN_KEY);
+    const autofetchManualPausedRow = rowsByKey.get(GIT_PANEL_AUTOFETCH_MANUAL_PAUSED_KEY);
+    const protectedBranchesRow = rowsByKey.get(GIT_PANEL_PROTECTED_BRANCHES_KEY);
 
     const state = {
       commitDraft: values.get(GIT_PANEL_COMMIT_DRAFT_KEY) ?? DEFAULT_GIT_PANEL_STATE.commitDraft,
       expandedGroups,
       expandedTreeNodes,
+      commitOptions: parseGitCommitOptions(
+        workspaceId,
+        values.get(GIT_PANEL_COMMIT_OPTIONS_KEY) ?? commitOptionsRow?.commit_options,
+      ),
+      autofetchIntervalMin: parseGitAutofetchIntervalMin(
+        workspaceId,
+        values.get(GIT_PANEL_AUTOFETCH_INTERVAL_MIN_KEY) ??
+          autofetchIntervalRow?.autofetch_interval_min,
+      ),
+      autofetchManualPaused: parseGitAutofetchManualPaused(
+        workspaceId,
+        values.get(GIT_PANEL_AUTOFETCH_MANUAL_PAUSED_KEY) ??
+          autofetchManualPausedRow?.autofetch_manual_paused,
+      ),
+      protectedBranches: parseGitProtectedBranches(
+        workspaceId,
+        values.get(GIT_PANEL_PROTECTED_BRANCHES_KEY) ?? protectedBranchesRow?.protected_branches,
+      ),
+      panelSegment: parseGitPanelSegment(workspaceId, values.get(GIT_PANEL_PANEL_SEGMENT_KEY)),
+      historyDetailWidth: parseGitHistoryDetailWidth(
+        workspaceId,
+        values.get(GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY),
+      ),
+      historyRef: parseGitHistoryRef(workspaceId, values.get(GIT_PANEL_HISTORY_REF_KEY)),
     };
     const parsed = GitPanelStateSchema.safeParse(state);
     if (!parsed.success) {
@@ -400,6 +702,18 @@ export class WorkspaceStorage {
     const ins = entry.db.prepare(
       "INSERT OR REPLACE INTO git_panel_state (key, value) VALUES (?, ?)",
     );
+    const insCommitOptions = entry.db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value, commit_options) VALUES (?, ?, ?)",
+    );
+    const insAutofetchInterval = entry.db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value, autofetch_interval_min) VALUES (?, ?, ?)",
+    );
+    const insAutofetchManualPaused = entry.db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value, autofetch_manual_paused) VALUES (?, ?, ?)",
+    );
+    const insProtectedBranches = entry.db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value, protected_branches) VALUES (?, ?, ?)",
+    );
     entry.db.exec("BEGIN");
     try {
       if (parsed.commitDraft !== undefined) {
@@ -410,6 +724,34 @@ export class WorkspaceStorage {
       }
       if (parsed.expandedTreeNodes !== undefined) {
         ins.run(GIT_PANEL_EXPANDED_TREE_NODES_KEY, JSON.stringify(parsed.expandedTreeNodes));
+      }
+      if (parsed.commitOptions !== undefined) {
+        const serialized = JSON.stringify(parsed.commitOptions);
+        insCommitOptions.run(GIT_PANEL_COMMIT_OPTIONS_KEY, serialized, serialized);
+      }
+      if (parsed.autofetchIntervalMin !== undefined) {
+        insAutofetchInterval.run(
+          GIT_PANEL_AUTOFETCH_INTERVAL_MIN_KEY,
+          String(parsed.autofetchIntervalMin),
+          parsed.autofetchIntervalMin,
+        );
+      }
+      if (parsed.autofetchManualPaused !== undefined) {
+        const value = parsed.autofetchManualPaused ? 1 : 0;
+        insAutofetchManualPaused.run(GIT_PANEL_AUTOFETCH_MANUAL_PAUSED_KEY, String(value), value);
+      }
+      if (parsed.protectedBranches !== undefined) {
+        const serialized = JSON.stringify(parsed.protectedBranches);
+        insProtectedBranches.run(GIT_PANEL_PROTECTED_BRANCHES_KEY, serialized, serialized);
+      }
+      if (parsed.panelSegment !== undefined) {
+        ins.run(GIT_PANEL_PANEL_SEGMENT_KEY, parsed.panelSegment);
+      }
+      if (parsed.historyDetailWidth !== undefined) {
+        ins.run(GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY, String(parsed.historyDetailWidth));
+      }
+      if (parsed.historyRef !== undefined) {
+        ins.run(GIT_PANEL_HISTORY_REF_KEY, parsed.historyRef);
       }
       entry.db.exec("COMMIT");
     } catch (err) {
@@ -430,9 +772,7 @@ export class WorkspaceStorage {
     }
 
     const row = entry.db
-      .prepare(
-        "SELECT view_mode, compact_folders FROM panel_view_options WHERE panel_kind = ?",
-      )
+      .prepare("SELECT view_mode, compact_folders FROM panel_view_options WHERE panel_kind = ?")
       .get(panelKind) as { view_mode: string; compact_folders: number } | undefined;
 
     if (!row) {

@@ -8,19 +8,36 @@ import type {
   BranchList,
   CommitResult,
   GitActionHint,
+  GitAutofetchError,
+  GitAutofetchIntervalMin,
+  GitAutofetchStateChanged,
+  GitCommitOptions,
+  GitContinueOpResult,
   GitExpandedGroupKey,
   GitExpandedGroups,
   GitExpandedTreeNodes,
+  GitFastForwardResult,
+  GitFetchAllResult,
+  GitMarkResolvedResult,
+  GitMergeMode,
+  GitMergeResult,
+  GitPanelSegment,
   GitPanelStateUpdate,
+  GitRebaseResult,
   GitStatus,
+  GitSyncError,
+  GitSyncResult,
+  LogEntry,
   PullResult,
   PushResult,
   RepoInfo,
+  StashEntry,
+  Tag,
 } from "../../../shared/types/git";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
 import type { ViewMode } from "../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
-import { ipcCall, ipcListen } from "../../ipc/client";
+import { ipcCall, ipcListen, ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -37,11 +54,34 @@ export type GitOperationKind =
   | "push"
   | "stash"
   | "stashPop"
+  | "stashApply"
+  | "stashDrop"
+  | "stashGroup"
   | "checkout"
+  | "checkoutDetached"
   | "checkoutTracking"
   | "createBranch"
+  | "deleteBranch"
+  | "deleteRemoteBranch"
+  | "renameBranch"
+  | "setUpstream"
+  | "fastForwardBranch"
+  | "addRemote"
+  | "removeRemote"
+  | "createTag"
+  | "deleteTag"
+  | "deleteRemoteTag"
   | "refresh"
-  | "init";
+  | "init"
+  | "sync"
+  | "undoLastCommit"
+  | "resetSoft"
+  | "merge"
+  | "rebase"
+  | "cherryPick"
+  | "abortOp"
+  | "continueOp"
+  | "markResolved";
 
 export interface GitInFlightOp {
   kind: GitOperationKind;
@@ -62,6 +102,17 @@ export interface GitStoreError {
   hint?: GitActionHint;
 }
 
+export interface GitPushOptions {
+  force?: boolean;
+  publish?: boolean;
+}
+
+export interface PendingNonFFRetry {
+  branch: string;
+  attemptedAt: number;
+  originalPushOpts: GitPushOptions;
+}
+
 export interface GitSession {
   repoInfo: RepoInfo;
   status: GitStatus | null;
@@ -70,16 +121,34 @@ export interface GitSession {
   commitDraft: string;
   expandedGroups: GitExpandedGroups;
   expandedTreeNodes: GitExpandedTreeNodes;
+  commitOptions: GitCommitOptions;
+  autofetchIntervalMin: GitAutofetchIntervalMin;
+  autofetchManualPaused: boolean;
+  autofetchFetching: boolean;
+  autofetchConsecutiveFailures: number;
+  autofetchLastError: GitAutofetchError | null;
+  autofetchPausedBannerVisible: boolean;
+  panelSegment: GitPanelSegment;
+  historyDetailWidth: number;
+  historyRef: string;
   viewMode: ViewMode;
   compactFolders: boolean;
   inFlightOp: GitInFlightOp | null;
   lastError: GitStoreError | null;
+  pendingNonFFRetry: PendingNonFFRetry | null;
 }
 
 export interface CommitOptions {
   message?: string;
   amend?: boolean;
+  sign?: boolean;
   signoff?: boolean;
+  noVerify?: boolean;
+}
+
+export interface CreateBranchOptions {
+  checkout?: boolean;
+  fromRef?: string;
 }
 
 interface GitState {
@@ -91,25 +160,97 @@ interface GitState {
   unstage: (workspaceId: string, relPaths: string[]) => Promise<void>;
   discard: (workspaceId: string, relPaths: string[], source?: GitExpandedGroupKey) => Promise<void>;
   commit: (workspaceId: string, options?: CommitOptions) => Promise<CommitResult | undefined>;
-  fetch: (workspaceId: string, remote?: string) => Promise<void>;
-  pull: (workspaceId: string) => Promise<PullResult | undefined>;
-  push: (
+  commitAmend: (
     workspaceId: string,
-    options?: { force?: boolean; publish?: boolean },
-  ) => Promise<PushResult | undefined>;
+    options?: Omit<CommitOptions, "amend">,
+  ) => Promise<CommitResult | undefined>;
+  commitEmpty: (workspaceId: string, message: string) => Promise<CommitResult | undefined>;
+  undoLastCommit: (workspaceId: string) => Promise<void>;
+  fetch: (workspaceId: string, remote?: string) => Promise<void>;
+  fetchAll: (workspaceId: string) => Promise<GitFetchAllResult | undefined>;
+  pull: (workspaceId: string) => Promise<PullResult | undefined>;
+  push: (workspaceId: string, options?: GitPushOptions) => Promise<PushResult | undefined>;
+  sync: (workspaceId: string) => Promise<GitSyncResult | undefined>;
   stash: (workspaceId: string, message?: string) => Promise<void>;
   stashPop: (workspaceId: string) => Promise<void>;
+  listStashes: (workspaceId: string, signal?: AbortSignal) => Promise<StashEntry[] | undefined>;
+  stashApply: (workspaceId: string, index: number) => Promise<boolean>;
+  stashDrop: (workspaceId: string, index: number) => Promise<boolean>;
+  stashGroup: (workspaceId: string, paths: string[], message?: string) => Promise<boolean>;
   checkout: (workspaceId: string, ref: string) => Promise<void>;
+  checkoutDetached: (workspaceId: string, sha: string) => Promise<void>;
   checkoutTracking: (workspaceId: string, remoteRef: string) => Promise<void>;
-  createBranch: (workspaceId: string, name: string, checkout?: boolean) => Promise<void>;
+  merge: (
+    workspaceId: string,
+    branch: string,
+    mode?: GitMergeMode,
+  ) => Promise<GitMergeResult | undefined>;
+  rebase: (workspaceId: string, onto: string) => Promise<GitRebaseResult | undefined>;
+  cherryPick: (workspaceId: string, sha: string) => Promise<boolean>;
+  abortOp: (workspaceId: string) => Promise<void>;
+  continueOp: (workspaceId: string) => Promise<GitContinueOpResult | undefined>;
+  markResolved: (
+    workspaceId: string,
+    paths: string[],
+  ) => Promise<GitMarkResolvedResult | undefined>;
+  resetSoft: (workspaceId: string, targetSha: string) => Promise<boolean>;
+  createBranch: (
+    workspaceId: string,
+    name: string,
+    checkoutOrOptions?: boolean | CreateBranchOptions,
+  ) => Promise<void>;
+  deleteBranch: (workspaceId: string, name: string, force?: boolean) => Promise<void>;
+  deleteRemoteBranch: (workspaceId: string, remote: string, name: string) => Promise<void>;
+  renameBranch: (workspaceId: string, from: string, to: string) => Promise<void>;
+  setUpstream: (workspaceId: string, branch: string, upstream: string | null) => Promise<void>;
+  fastForwardBranch: (
+    workspaceId: string,
+    branch: string,
+    remote: string,
+    remoteRef: string,
+  ) => Promise<GitFastForwardResult | undefined>;
+  addRemote: (workspaceId: string, name: string, url: string) => Promise<boolean>;
+  removeRemote: (workspaceId: string, name: string) => Promise<boolean>;
   listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
+  listTags: (workspaceId: string, signal?: AbortSignal) => Promise<Tag[] | undefined>;
+  createTag: (
+    workspaceId: string,
+    name: string,
+    options?: { ref?: string; message?: string },
+  ) => Promise<boolean>;
+  deleteTag: (workspaceId: string, name: string) => Promise<boolean>;
+  deleteRemoteTag: (workspaceId: string, remote: string, name: string) => Promise<boolean>;
+  listRecentCommits: (
+    workspaceId: string,
+    signal?: AbortSignal,
+    ref?: string,
+  ) => Promise<LogEntry[] | undefined>;
   setCommitDraft: (workspaceId: string, text: string) => void;
   flushCommitDraft: (workspaceId: string) => void;
   flushAllCommitDrafts: () => void;
+  setCommitOption: <K extends keyof GitCommitOptions>(
+    workspaceId: string,
+    option: K,
+    value: GitCommitOptions[K],
+  ) => void;
+  setAutofetchInterval: (
+    workspaceId: string,
+    intervalMin: GitAutofetchIntervalMin,
+  ) => Promise<void>;
+  pauseAutofetch: (workspaceId: string) => Promise<void>;
+  resumeAutofetch: (workspaceId: string) => Promise<void>;
+  setPanelSegment: (workspaceId: string, segment: GitPanelSegment) => void;
+  setHistoryDetailWidth: (workspaceId: string, width: number) => void;
+  setHistoryRef: (workspaceId: string, ref: string) => void;
   setExpandedGroup: (workspaceId: string, group: GitExpandedGroupKey, expanded: boolean) => void;
   setViewMode: (workspaceId: string, viewMode: ViewMode) => void;
   setCompactFolders: (workspaceId: string, compactFolders: boolean) => void;
-  toggleExpandedTreeNode: (workspaceId: string, groupKey: GitExpandedGroupKey, relPath: string) => void;
+  clearPendingNonFFRetry: (workspaceId: string) => void;
+  toggleExpandedTreeNode: (
+    workspaceId: string,
+    groupKey: GitExpandedGroupKey,
+    relPath: string,
+  ) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
 }
 
@@ -179,6 +320,7 @@ export const useGitStore = create<GitState>((set, get) => {
     upsertSession(workspaceId, (session) => {
       const priorWasStatusFetch =
         session.inFlightOp?.kind === "refresh" || session.inFlightOp?.kind === "init";
+      const preservePendingRetry = kind === "pull" || kind === "push";
       return {
         ...session,
         statusFetching: isStatusFetchingOperation(kind)
@@ -188,6 +330,7 @@ export const useGitStore = create<GitState>((set, get) => {
             : session.statusFetching,
         inFlightOp: { kind, startedAt: Date.now() },
         lastError: null,
+        pendingNonFFRetry: preservePendingRetry ? session.pendingNonFFRetry : null,
       };
     });
 
@@ -233,6 +376,26 @@ export const useGitStore = create<GitState>((set, get) => {
   }
 
   /**
+   * Preserve the normal inline error banner for operations that intentionally
+   * return a typed failure envelope instead of rejecting the IPC call.
+   */
+  function recordEnvelopeError(
+    workspaceId: string,
+    kind: GitOperationKind,
+    error: GitSyncError,
+  ): void {
+    updateExistingSession(workspaceId, (session) => ({
+      ...session,
+      lastError: {
+        kind: error.kind,
+        message: error.message,
+        details: error.details,
+        operation: kind,
+      },
+    }));
+  }
+
+  /**
    * Shared operation wrapper: set `inFlightOp`, run the typed IPC call,
    * normalize errors into state, then clear the operation on completion.
    */
@@ -247,6 +410,27 @@ export const useGitStore = create<GitState>((set, get) => {
     } catch (error) {
       failOperation(workspaceId, kind, ctrl, error);
       return undefined;
+    } finally {
+      finishOperation(workspaceId, kind, ctrl);
+    }
+  }
+
+  /**
+   * Shared operation wrapper for branch flows whose caller needs to branch on
+   * the typed error (for example unmerged delete → force-delete confirmation).
+   * State still records the error before it is rethrown to the dialog owner.
+   */
+  async function runOperationStrict<T>(
+    workspaceId: string,
+    kind: GitOperationKind,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const ctrl = beginOperation(workspaceId, kind);
+    try {
+      return await run(ctrl.signal);
+    } catch (error) {
+      failOperation(workspaceId, kind, ctrl, error);
+      throw error;
     } finally {
       finishOperation(workspaceId, kind, ctrl);
     }
@@ -309,6 +493,30 @@ export const useGitStore = create<GitState>((set, get) => {
             panelStateResult.status === "fulfilled"
               ? { ...panelStateResult.value.expandedTreeNodes }
               : session.expandedTreeNodes,
+          commitOptions:
+            panelStateResult.status === "fulfilled"
+              ? { ...panelStateResult.value.commitOptions }
+              : session.commitOptions,
+          autofetchIntervalMin:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.autofetchIntervalMin
+              : session.autofetchIntervalMin,
+          autofetchManualPaused:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.autofetchManualPaused
+              : session.autofetchManualPaused,
+          panelSegment:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.panelSegment
+              : session.panelSegment,
+          historyDetailWidth:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.historyDetailWidth
+              : session.historyDetailWidth,
+          historyRef:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.historyRef
+              : session.historyRef,
           viewMode:
             viewOptionsResult.status === "fulfilled"
               ? viewOptionsResult.value.viewMode
@@ -376,6 +584,7 @@ export const useGitStore = create<GitState>((set, get) => {
 
     async commit(workspaceId, options = {}) {
       const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
+      const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
       const result = await runOperation(workspaceId, "commit", (signal) =>
         ipcCall(
           "git",
@@ -384,7 +593,9 @@ export const useGitStore = create<GitState>((set, get) => {
             workspaceId,
             message,
             amend: options.amend,
-            signoff: options.signoff,
+            sign: commitOptions.sign,
+            signoff: commitOptions.signoff,
+            noVerify: commitOptions.noVerify,
           },
           { signal },
         ),
@@ -397,9 +608,71 @@ export const useGitStore = create<GitState>((set, get) => {
       return result;
     },
 
+    async commitAmend(workspaceId, options = {}) {
+      const message = options.message ?? get().sessions.get(workspaceId)?.commitDraft ?? "";
+      const commitOptions = resolveCommitOptions(workspaceId, options, get().sessions);
+      const inlineMessage = message.trim().length > 0 ? message : undefined;
+      const result = await runOperation(workspaceId, "commit", (signal) =>
+        ipcCall(
+          "git",
+          "commitAmend",
+          {
+            workspaceId,
+            message: inlineMessage,
+            sign: commitOptions.sign,
+            signoff: commitOptions.signoff,
+            noVerify: commitOptions.noVerify,
+          },
+          { signal },
+        ),
+      );
+
+      if (result) {
+        clearCommitDraftAfterCommit(workspaceId);
+      }
+
+      return result;
+    },
+
+    async commitEmpty(workspaceId, message) {
+      const commitOptions = resolveCommitOptions(workspaceId, {}, get().sessions);
+      const result = await runOperation(workspaceId, "commit", (signal) =>
+        ipcCall(
+          "git",
+          "commitEmpty",
+          {
+            workspaceId,
+            message,
+            sign: commitOptions.sign,
+            signoff: commitOptions.signoff,
+            noVerify: commitOptions.noVerify,
+          },
+          { signal },
+        ),
+      );
+
+      if (result) {
+        clearCommitDraftAfterCommit(workspaceId);
+      }
+
+      return result;
+    },
+
+    async undoLastCommit(workspaceId) {
+      await runOperation(workspaceId, "undoLastCommit", (signal) =>
+        ipcCall("git", "undoLastCommit", { workspaceId }, { signal }),
+      );
+    },
+
     async fetch(workspaceId, remote) {
       await runOperation(workspaceId, "fetch", (signal) =>
         ipcCall("git", "fetch", { workspaceId, remote }, { signal }),
+      );
+    },
+
+    async fetchAll(workspaceId) {
+      return runOperation(workspaceId, "fetch", (signal) =>
+        ipcCall("git", "fetchAll", { workspaceId }, { signal }),
       );
     },
 
@@ -410,14 +683,43 @@ export const useGitStore = create<GitState>((set, get) => {
     },
 
     async push(workspaceId, options = {}) {
-      return runOperation(workspaceId, "push", (signal) =>
-        ipcCall(
+      const originalPushOpts = normalizePushOptions(options);
+      const ctrl = beginOperation(workspaceId, "push");
+      try {
+        const result = await ipcCall(
           "git",
           "push",
-          { workspaceId, force: options.force, publish: options.publish },
-          { signal },
-        ),
+          { workspaceId, force: originalPushOpts.force, publish: originalPushOpts.publish },
+          { signal: ctrl.signal },
+        );
+        updateExistingSession(workspaceId, (session) => ({
+          ...session,
+          pendingNonFFRetry: null,
+        }));
+        return result;
+      } catch (error) {
+        if (controllers.get(workspaceId) === ctrl && !isAbortError(error)) {
+          const lastError = gitStoreErrorFromUnknown(error, "push");
+          updateExistingSession(workspaceId, (session) => ({
+            ...session,
+            lastError,
+            pendingNonFFRetry: pendingRetryFromPushError(session, lastError, originalPushOpts),
+          }));
+        }
+        return undefined;
+      } finally {
+        finishOperation(workspaceId, "push", ctrl);
+      }
+    },
+
+    async sync(workspaceId) {
+      const result = await runOperation(workspaceId, "sync", (signal) =>
+        ipcCall("git", "sync", { workspaceId }, { signal }),
       );
+      if (result?.pulled === "error" && result.pullError) {
+        recordEnvelopeError(workspaceId, "sync", result.pullError);
+      }
+      return result;
     },
 
     async stash(workspaceId, message) {
@@ -432,9 +734,49 @@ export const useGitStore = create<GitState>((set, get) => {
       );
     },
 
+    async listStashes(workspaceId, signal) {
+      try {
+        return await ipcCall("git", "stashList", { workspaceId }, signal ? { signal } : {});
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        throw error;
+      }
+    },
+
+    async stashApply(workspaceId, index) {
+      const result = await runOperation(workspaceId, "stashApply", async (signal) => {
+        await ipcCall("git", "stashApply", { workspaceId, index }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async stashDrop(workspaceId, index) {
+      const result = await runOperation(workspaceId, "stashDrop", async (signal) => {
+        await ipcCall("git", "stashDrop", { workspaceId, index }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async stashGroup(workspaceId, paths, message) {
+      if (paths.length === 0) return false;
+      const result = await runOperation(workspaceId, "stashGroup", async (signal) => {
+        await ipcCall("git", "stashGroup", { workspaceId, paths, message }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
     async checkout(workspaceId, ref) {
       await runOperation(workspaceId, "checkout", (signal) =>
         ipcCall("git", "checkout", { workspaceId, ref }, { signal }),
+      );
+    },
+
+    async checkoutDetached(workspaceId, sha) {
+      await runOperation(workspaceId, "checkoutDetached", (signal) =>
+        ipcCall("git", "checkoutDetached", { workspaceId, sha }, { signal }),
       );
     },
 
@@ -444,15 +786,164 @@ export const useGitStore = create<GitState>((set, get) => {
       );
     },
 
-    async createBranch(workspaceId, name, checkout) {
-      await runOperation(workspaceId, "createBranch", (signal) =>
-        ipcCall("git", "createBranch", { workspaceId, name, checkout }, { signal }),
+    async merge(workspaceId, branch, mode = "default") {
+      return runOperation(workspaceId, "merge", (signal) =>
+        ipcCall("git", "merge", { workspaceId, branch, mode }, { signal }),
       );
+    },
+
+    async rebase(workspaceId, onto) {
+      return runOperation(workspaceId, "rebase", (signal) =>
+        ipcCall("git", "rebase", { workspaceId, onto }, { signal }),
+      );
+    },
+
+    async cherryPick(workspaceId, sha) {
+      const result = await runOperation(workspaceId, "cherryPick", async (signal) => {
+        await ipcCall("git", "cherryPick", { workspaceId, sha }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async abortOp(workspaceId) {
+      await runOperation(workspaceId, "abortOp", (signal) =>
+        ipcCall("git", "abortOp", { workspaceId }, { signal }),
+      );
+    },
+
+    async continueOp(workspaceId) {
+      return runOperation(workspaceId, "continueOp", (signal) =>
+        ipcCall("git", "continueOp", { workspaceId }, { signal }),
+      );
+    },
+
+    async markResolved(workspaceId, paths) {
+      if (paths.length === 0) return undefined;
+      return runOperation(workspaceId, "markResolved", (signal) =>
+        ipcCall("git", "markResolved", { workspaceId, paths }, { signal }),
+      );
+    },
+
+    async resetSoft(workspaceId, targetSha) {
+      const result = await runOperation(workspaceId, "resetSoft", async (signal) => {
+        await ipcCall("git", "resetSoft", { workspaceId, targetSha }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async createBranch(workspaceId, name, checkoutOrOptions) {
+      const options =
+        typeof checkoutOrOptions === "boolean"
+          ? { checkout: checkoutOrOptions }
+          : (checkoutOrOptions ?? {});
+      await runOperation(workspaceId, "createBranch", (signal) =>
+        ipcCall(
+          "git",
+          "createBranch",
+          { workspaceId, name, checkout: options.checkout, fromRef: options.fromRef },
+          { signal },
+        ),
+      );
+    },
+
+    async deleteBranch(workspaceId, name, force) {
+      await runOperationStrict(workspaceId, "deleteBranch", (signal) =>
+        ipcCall("git", "deleteBranch", { workspaceId, name, force }, { signal }),
+      );
+    },
+
+    async deleteRemoteBranch(workspaceId, remote, name) {
+      await runOperationStrict(workspaceId, "deleteRemoteBranch", (signal) =>
+        ipcCall("git", "deleteRemoteBranch", { workspaceId, remote, name }, { signal }),
+      );
+    },
+
+    async renameBranch(workspaceId, from, to) {
+      await runOperationStrict(workspaceId, "renameBranch", (signal) =>
+        ipcCall("git", "renameBranch", { workspaceId, from, to }, { signal }),
+      );
+    },
+
+    async setUpstream(workspaceId, branch, upstream) {
+      await runOperationStrict(workspaceId, "setUpstream", (signal) =>
+        ipcCall("git", "setUpstream", { workspaceId, branch, upstream }, { signal }),
+      );
+    },
+
+    async fastForwardBranch(workspaceId, branch, remote, remoteRef) {
+      return runOperation(workspaceId, "fastForwardBranch", (signal) =>
+        ipcCall("git", "fastForwardBranch", { workspaceId, branch, remote, remoteRef }, { signal }),
+      );
+    },
+
+    async addRemote(workspaceId, name, url) {
+      const result = await runOperation(workspaceId, "addRemote", async (signal) => {
+        await ipcCall("git", "addRemote", { workspaceId, name, url }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async removeRemote(workspaceId, name) {
+      const result = await runOperation(workspaceId, "removeRemote", async (signal) => {
+        await ipcCall("git", "removeRemote", { workspaceId, name }, { signal });
+        return true;
+      });
+      return result === true;
     },
 
     async listBranches(workspaceId, signal) {
       try {
         return await ipcCall("git", "listBranches", { workspaceId }, signal ? { signal } : {});
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        throw error;
+      }
+    },
+
+    async listTags(workspaceId, signal) {
+      try {
+        return await ipcCall("git", "listTags", { workspaceId }, signal ? { signal } : {});
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        throw error;
+      }
+    },
+
+    async createTag(workspaceId, name, options = {}) {
+      const result = await runOperation(workspaceId, "createTag", async (signal) => {
+        await ipcCall(
+          "git",
+          "createTag",
+          { workspaceId, name, ref: options.ref, message: options.message },
+          { signal },
+        );
+        return true;
+      });
+      return result === true;
+    },
+
+    async deleteTag(workspaceId, name) {
+      const result = await runOperation(workspaceId, "deleteTag", async (signal) => {
+        await ipcCall("git", "deleteTag", { workspaceId, name }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async deleteRemoteTag(workspaceId, remote, name) {
+      const result = await runOperation(workspaceId, "deleteRemoteTag", async (signal) => {
+        await ipcCall("git", "deleteRemoteTag", { workspaceId, remote, name }, { signal });
+        return true;
+      });
+      return result === true;
+    },
+
+    async listRecentCommits(workspaceId, signal, ref) {
+      try {
+        return await collectRecentCommits(workspaceId, signal, ref);
       } catch (error) {
         if (signal?.aborted) return undefined;
         throw error;
@@ -472,6 +963,76 @@ export const useGitStore = create<GitState>((set, get) => {
       flushAllCommitDraftSaves();
     },
 
+    setCommitOption(workspaceId, option, value) {
+      const session = get().sessions.get(workspaceId) ?? createDefaultSession();
+      const commitOptions = { ...session.commitOptions, [option]: value };
+      upsertSession(workspaceId, (cur) => ({ ...cur, commitOptions }));
+      persistPanelState(workspaceId, { commitOptions });
+    },
+
+    async setAutofetchInterval(workspaceId, autofetchIntervalMin) {
+      upsertSession(workspaceId, (session) => ({
+        ...session,
+        autofetchIntervalMin,
+        autofetchManualPaused: false,
+        autofetchPausedBannerVisible: false,
+        autofetchLastError: null,
+        autofetchConsecutiveFailures: 0,
+      }));
+      try {
+        await ipcCall("autofetch", "setSchedule", {
+          workspaceId,
+          intervalMin: autofetchIntervalMin,
+        });
+      } catch (error) {
+        console.error("[git] autofetch setSchedule failed", error);
+      }
+    },
+
+    async pauseAutofetch(workspaceId) {
+      upsertSession(workspaceId, (session) => ({
+        ...session,
+        autofetchManualPaused: true,
+      }));
+      try {
+        await ipcCall("autofetch", "pause", { workspaceId });
+      } catch (error) {
+        console.error("[git] autofetch pause failed", error);
+      }
+    },
+
+    async resumeAutofetch(workspaceId) {
+      upsertSession(workspaceId, (session) => ({
+        ...session,
+        autofetchManualPaused: false,
+        autofetchPausedBannerVisible: false,
+        autofetchLastError: null,
+        autofetchConsecutiveFailures: 0,
+      }));
+      try {
+        await ipcCall("autofetch", "resume", { workspaceId });
+      } catch (error) {
+        console.error("[git] autofetch resume failed", error);
+      }
+    },
+
+    setPanelSegment(workspaceId, panelSegment) {
+      upsertSession(workspaceId, (session) => ({ ...session, panelSegment }));
+      persistPanelState(workspaceId, { panelSegment });
+    },
+
+    setHistoryDetailWidth(workspaceId, historyDetailWidth) {
+      const width = Math.max(0, Math.round(historyDetailWidth));
+      upsertSession(workspaceId, (session) => ({ ...session, historyDetailWidth: width }));
+      persistPanelState(workspaceId, { historyDetailWidth: width });
+    },
+
+    setHistoryRef(workspaceId, historyRef) {
+      const ref = historyRef.trim() || DEFAULT_GIT_PANEL_STATE.historyRef;
+      upsertSession(workspaceId, (session) => ({ ...session, historyRef: ref }));
+      persistPanelState(workspaceId, { historyRef: ref });
+    },
+
     setExpandedGroup(workspaceId, group, expanded) {
       const session = get().sessions.get(workspaceId);
       if (!session) return;
@@ -489,6 +1050,14 @@ export const useGitStore = create<GitState>((set, get) => {
     setCompactFolders(workspaceId, compactFolders) {
       updateExistingSession(workspaceId, (cur) => ({ ...cur, compactFolders }));
       persistViewOptions(workspaceId, { compactFolders });
+    },
+
+    clearPendingNonFFRetry(workspaceId) {
+      updateExistingSession(workspaceId, (cur) => ({
+        ...cur,
+        pendingNonFFRetry: null,
+        lastError: isPendingNonFFError(cur.lastError) ? null : cur.lastError,
+      }));
     },
 
     toggleExpandedTreeNode(workspaceId, groupKey, relPath) {
@@ -549,10 +1118,21 @@ function createDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
     expandedTreeNodes: { ...DEFAULT_GIT_PANEL_STATE.expandedTreeNodes },
+    commitOptions: { ...DEFAULT_GIT_PANEL_STATE.commitOptions },
+    autofetchIntervalMin: DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin,
+    autofetchManualPaused: DEFAULT_GIT_PANEL_STATE.autofetchManualPaused,
+    autofetchFetching: false,
+    autofetchConsecutiveFailures: 0,
+    autofetchLastError: null,
+    autofetchPausedBannerVisible: false,
+    panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
+    historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
+    historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
     viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
     compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,
     lastError: null,
+    pendingNonFFRetry: null,
     ...overrides,
   };
 }
@@ -600,6 +1180,45 @@ function persistViewOptions(
       console.error("[git] setViewOptions failed", error);
     },
   );
+}
+
+/**
+ * Collects a bounded recent commit list from the existing git.log stream so
+ * the ref picker can include immutable commit targets without a bespoke IPC.
+ */
+async function collectRecentCommits(
+  workspaceId: string,
+  signal?: AbortSignal,
+  ref?: string,
+): Promise<LogEntry[]> {
+  const entries: LogEntry[] = [];
+  const handle = ipcStream(
+    "git",
+    "log",
+    { workspaceId, limit: 20, ref: ref?.trim() || undefined },
+    signal ? { signal } : {},
+  );
+  handle.onProgress((chunk) => {
+    entries.push(...chunk.entries);
+  });
+  await handle.promise;
+  return entries.slice(0, 20);
+}
+
+/**
+ * Merges per-workspace sticky commit options with one-off overrides.
+ */
+function resolveCommitOptions(
+  workspaceId: string,
+  overrides: Partial<GitCommitOptions>,
+  sessions: Map<string, GitSession>,
+): GitCommitOptions {
+  const sticky = sessions.get(workspaceId)?.commitOptions ?? DEFAULT_GIT_PANEL_STATE.commitOptions;
+  return {
+    sign: overrides.sign ?? sticky.sign,
+    signoff: overrides.signoff ?? sticky.signoff,
+    noVerify: overrides.noVerify ?? sticky.noVerify,
+  };
 }
 
 /**
@@ -713,6 +1332,30 @@ async function refreshStatusFromHint(workspaceId: string): Promise<void> {
 }
 
 /**
+ * Applies background autofetch state from main without overwriting unrelated
+ * Git operation errors. The paused banner is edge-triggered by main so it
+ * appears once per three-strikes pause.
+ */
+function applyAutofetchEvent(event: GitAutofetchStateChanged): void {
+  useGitStore.setState((state) => {
+    const session = state.sessions.get(event.workspaceId);
+    if (!session) return state;
+
+    const next = new Map(state.sessions);
+    next.set(event.workspaceId, {
+      ...session,
+      autofetchFetching: event.fetching,
+      autofetchManualPaused: event.paused,
+      autofetchConsecutiveFailures: event.consecutiveFailures,
+      autofetchLastError: event.lastError,
+      autofetchPausedBannerVisible:
+        event.showPausedBanner || (event.paused ? session.autofetchPausedBannerVisible : false),
+    });
+    return { sessions: next };
+  });
+}
+
+/**
  * Install git broadcast listeners once per renderer module instance.
  */
 function installGitEventSubscriptions(): void {
@@ -729,6 +1372,10 @@ function installGitEventSubscriptions(): void {
         status,
         statusFetching: false,
         branchInfo: status.branch,
+        pendingNonFFRetry:
+          session.pendingNonFFRetry?.branch === status.branch?.current
+            ? session.pendingNonFFRetry
+            : null,
       });
       return { sessions: next };
     });
@@ -750,6 +1397,10 @@ function installGitEventSubscriptions(): void {
     });
   });
 
+  ipcListen("autofetch", "stateChanged", (event) => {
+    applyAutofetchEvent(event);
+  });
+
   ipcListen("fs", "changed", ({ workspaceId, changes }) => {
     if (changes.length === 0) return;
     const session = useGitStore.getState().sessions.get(workspaceId);
@@ -763,11 +1414,11 @@ function installGitEventSubscriptions(): void {
  * hidden, covering input blur and app-background paths without UI code.
  */
 function installCommitDraftFlushListeners(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
 
   window.addEventListener("blur", flushAllCommitDraftSaves);
 
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
@@ -823,6 +1474,53 @@ function gitStoreErrorFromUnknown(error: unknown, operation?: GitOperationKind):
   }
 
   return { kind: "unknown", message: String(error), operation };
+}
+
+/**
+ * Copies only defined push options so pending retries reuse the user's
+ * original argv intent without storing transient `undefined` fields.
+ */
+function normalizePushOptions(options: GitPushOptions): GitPushOptions {
+  return {
+    ...(options.force !== undefined ? { force: options.force } : {}),
+    ...(options.publish !== undefined ? { publish: options.publish } : {}),
+  };
+}
+
+/**
+ * Captures enough context to offer a one-click retry after a non-FF push flow.
+ */
+function pendingRetryFromPushError(
+  session: GitSession,
+  error: GitStoreError,
+  originalPushOpts: GitPushOptions,
+): PendingNonFFRetry | null {
+  if (error.kind === "force-push-rejected" && session.pendingNonFFRetry) {
+    return session.pendingNonFFRetry;
+  }
+
+  if (error.kind !== "non-fast-forward" && error.kind !== "force-push-rejected") {
+    return null;
+  }
+
+  return {
+    branch: currentBranchName(session),
+    attemptedAt: Date.now(),
+    originalPushOpts,
+  };
+}
+
+/**
+ * Finds the current branch label for retry banners; non-FF push failures
+ * require a named branch in normal Git flows, so "HEAD" is only a fallback.
+ */
+function currentBranchName(session: GitSession): string {
+  return session.branchInfo?.current ?? session.status?.branch?.current ?? "HEAD";
+}
+
+/** Returns true for push guardrail errors that share the pending retry banner. */
+function isPendingNonFFError(error: GitStoreError | null): boolean {
+  return error?.kind === "non-fast-forward" || error?.kind === "force-push-rejected";
 }
 
 /**

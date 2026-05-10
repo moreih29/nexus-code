@@ -9,7 +9,7 @@
  * the `treeItemProps` spread (role="treeitem", tabIndex, aria-expanded, etc.)
  * so this component stays focused on visual rendering only.
  */
-import { Minus, Plus, Trash2, ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../shared/types/git";
 import { Button } from "../../ui/button";
 import { INDENT_STEP_PX } from "../file-tree/file-tree-metrics";
@@ -50,6 +50,12 @@ interface GitTreeRowLeafProps extends GitTreeRowBase {
   onStage?: () => void;
   onUnstage?: () => void;
   onDiscard: () => void;
+  onMarkResolved?: () => void;
+  onOpenFile?: () => void;
+  onRevealInOS?: () => void;
+  onCopyPath?: () => void;
+  onCopyRelativePath?: () => void;
+  onAddToGitignore?: () => void;
 }
 
 export type GitTreeRowProps = GitTreeRowDirProps | GitTreeRowLeafProps;
@@ -63,13 +69,22 @@ export function GitTreeRow(props: GitTreeRowProps) {
   const indentLeft = (depth - 1) * INDENT_STEP_PX + 8;
 
   if (props.kind === "dir") {
-    const { displayName, isExpanded, childCount, onToggle, onStagePaths, onUnstagePaths, onDiscardPaths } = props;
+    const {
+      displayName,
+      isExpanded,
+      childCount,
+      onToggle,
+      onStagePaths,
+      onUnstagePaths,
+      onDiscardPaths,
+    } = props;
     const Chevron = isExpanded ? ChevronDown : ChevronRight;
     const FolderIcon = isExpanded ? FolderOpen : Folder;
 
     return (
       <div
         {...treeItemProps}
+        role="treeitem"
         aria-expanded={isExpanded}
         className="group flex h-6 w-full cursor-pointer items-center gap-1 pr-1 text-app-body text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-mist-border"
         style={{ paddingLeft: indentLeft }}
@@ -87,10 +102,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
         <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
         {/* Inline actions — visible on hover/focus-within, hidden otherwise */}
-        <div
-          className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {onStagePaths ? (
             <Button
               type="button"
@@ -99,7 +111,10 @@ export function GitTreeRow(props: GitTreeRowProps) {
               className="size-6"
               aria-label={`Stage folder ${displayName}`}
               title={`Stage folder ${displayName}`}
-              onClick={onStagePaths}
+              onClick={(event) => {
+                event.stopPropagation();
+                onStagePaths();
+              }}
             >
               <Plus className="size-3.5" aria-hidden="true" />
             </Button>
@@ -112,7 +127,10 @@ export function GitTreeRow(props: GitTreeRowProps) {
               className="size-6"
               aria-label={`Unstage folder ${displayName}`}
               title={`Unstage folder ${displayName}`}
-              onClick={onUnstagePaths}
+              onClick={(event) => {
+                event.stopPropagation();
+                onUnstagePaths();
+              }}
             >
               <Minus className="size-3.5" aria-hidden="true" />
             </Button>
@@ -122,10 +140,13 @@ export function GitTreeRow(props: GitTreeRowProps) {
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-6 text-destructive hover:text-destructive"
+              className="size-6 git-destructive-text"
               aria-label={`Discard changes in folder ${displayName}`}
               title={`Discard changes in folder ${displayName}`}
-              onClick={onDiscardPaths}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDiscardPaths();
+              }}
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
             </Button>
@@ -139,11 +160,25 @@ export function GitTreeRow(props: GitTreeRowProps) {
   }
 
   // Leaf: wrap GitFileRow with indentation override.
-  const { entry, groupKey, onOpenDiff, onStage, onUnstage, onDiscard } = props;
+  const {
+    entry,
+    groupKey,
+    onOpenDiff,
+    onStage,
+    onUnstage,
+    onDiscard,
+    onMarkResolved,
+    onOpenFile,
+    onRevealInOS,
+    onCopyPath,
+    onCopyRelativePath,
+    onAddToGitignore,
+  } = props;
 
   return (
     <div
       {...treeItemProps}
+      role="treeitem"
       style={{ paddingLeft: indentLeft }}
       onFocus={onFocus}
       tabIndex={treeItemProps.tabIndex ?? -1}
@@ -155,6 +190,12 @@ export function GitTreeRow(props: GitTreeRowProps) {
         onStage={onStage}
         onUnstage={onUnstage}
         onDiscard={onDiscard}
+        onMarkResolved={onMarkResolved}
+        onOpenFile={onOpenFile}
+        onRevealInOS={onRevealInOS}
+        onCopyPath={onCopyPath}
+        onCopyRelativePath={onCopyRelativePath}
+        onAddToGitignore={onAddToGitignore}
       />
     </div>
   );

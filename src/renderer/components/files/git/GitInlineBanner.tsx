@@ -6,6 +6,13 @@ import { cn } from "@/utils/cn";
 import { Button } from "../../ui/button";
 
 type GitInlineBannerVariant = "info" | "warning" | "error" | "success";
+type GitInlineBannerActionVariant = "default" | "destructive" | "ghost";
+
+export interface GitInlineBannerAction {
+  label: string;
+  onAction: () => void;
+  variant?: GitInlineBannerActionVariant;
+}
 
 interface GitInlineBannerProps {
   variant?: GitInlineBannerVariant;
@@ -13,20 +20,15 @@ interface GitInlineBannerProps {
   details?: string;
   actionLabel?: string;
   onAction?: () => void;
+  actions?: GitInlineBannerAction[];
 }
 
 // Per design.md "almost monochromatic" mission, only `destructive` carries a
 // non-monochrome semantic. Warning / success / info all render with the same
 // frosted-veil chrome; the icon (CircleAlert vs Info) carries severity.
 function bannerClass(variant: GitInlineBannerVariant): string {
-  switch (variant) {
-    case "error":
-      return "border-destructive/60 bg-destructive/10 text-destructive";
-    case "warning":
-    case "success":
-    default:
-      return "border-mist-border bg-frosted-veil text-foreground";
-  }
+  if (variant === "error") return "border-destructive/60 bg-destructive/10 git-destructive-text";
+  return "border-mist-border bg-frosted-veil text-foreground";
 }
 
 export function GitInlineBanner({
@@ -35,8 +37,11 @@ export function GitInlineBanner({
   details,
   actionLabel,
   onAction,
+  actions,
 }: GitInlineBannerProps) {
   const Icon = variant === "error" || variant === "warning" ? CircleAlert : Info;
+  const renderedActions =
+    actions ?? (actionLabel && onAction ? [{ label: actionLabel, onAction }] : []);
 
   return (
     <div
@@ -48,13 +53,26 @@ export function GitInlineBanner({
     >
       <Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="break-words text-foreground">{message}</p>
-        {details ? <p className="mt-0.5 break-words text-muted-foreground">{details}</p> : null}
+        <p className="whitespace-pre-wrap break-words text-foreground">{message}</p>
+        {details ? (
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-muted-foreground">{details}</p>
+        ) : null}
       </div>
-      {actionLabel && onAction ? (
-        <Button type="button" variant="ghost" size="sm" className="h-6 px-2" onClick={onAction}>
-          {actionLabel}
-        </Button>
+      {renderedActions.length > 0 ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {renderedActions.map((action) => (
+            <Button
+              key={action.label}
+              type="button"
+              variant={action.variant ?? "ghost"}
+              size="sm"
+              className="h-6 px-2"
+              onClick={action.onAction}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
       ) : null}
     </div>
   );

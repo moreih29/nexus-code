@@ -18,8 +18,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitError } from "../../../../src/main/git/git-error";
+import type { GitError } from "../../../../src/main/git/git-error";
 import { GitRepository } from "../../../../src/main/git/git-repository";
+import { GitStatusSchema } from "../../../../src/shared/types/git";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -296,6 +297,27 @@ describe("GitRepository.readStatus — capabilities", () => {
       expect(status.capabilities.stashCount).toBe(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  realGitTest("returns schema-valid integer lastFetchedAt when FETCH_HEAD exists", async () => {
+    const { client, remoteUrl } = makeClonePair();
+    try {
+      const repo = new GitRepository(
+        "ws-status-last-fetch",
+        client,
+        path.join(client, ".git"),
+        gitOnPath!,
+      );
+      runGit(client, ["fetch", "origin"]);
+
+      const status = await repo.status();
+
+      expect(status.lastFetchedAt).not.toBeNull();
+      expect(Number.isInteger(status.lastFetchedAt)).toBe(true);
+      expect(GitStatusSchema.safeParse(status).success).toBe(true);
+    } finally {
+      cleanup(client, remoteUrl);
     }
   });
 });

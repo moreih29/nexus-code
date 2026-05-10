@@ -27,6 +27,7 @@ export interface IpcCallOptions {
 export interface IpcStreamHandle<TProgress, TComplete> {
   promise: Promise<TComplete>;
   onProgress(callback: (data: TProgress) => void): () => void;
+  cancel(): void;
 }
 
 let nextRequestId = 1;
@@ -208,11 +209,10 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
     window.ipc.streamStart(channel, method, args).then(
       ({ streamId: startedStreamId }) => {
         streamId = startedStreamId;
-        if (abortRequested) {
-          cancelKnownStream();
+        if (settled) {
+          if (abortRequested) cancelKnownStream();
           return;
         }
-        if (settled) return;
 
         unregisterStreamEvent = window.ipc.onStreamEvent(streamId, (event) => {
           if (settled) return;
@@ -231,6 +231,10 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
 
           settleReject(createStreamError(event.data));
         });
+
+        if (abortRequested) {
+          cancelKnownStream();
+        }
       },
       (error) => {
         settleReject(error);
@@ -247,6 +251,10 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
       return () => {
         progressCallbacks.delete(callback);
       };
+    },
+    cancel() {
+      abortRequested = true;
+      cancelKnownStream();
     },
   };
 }

@@ -1,62 +1,66 @@
 /**
- * GitBranchBar renders the panel footer with branch and sync affordances.
+ * GitBranchBar renders the panel footer branch/sync chip.
  */
-import type { BranchInfo } from "../../../../shared/types/git";
-import { Button } from "../../ui/button";
+import type {
+  BranchInfo,
+  GitAutofetchIntervalMin,
+  RepoCapabilities,
+} from "../../../../shared/types/git";
 import { GitBranchPopover } from "./GitBranchPopover";
 
 interface GitBranchBarProps {
+  workspaceId: string;
   branch: BranchInfo | null;
   repoPath?: string;
   disabled?: boolean;
+  capabilities?: RepoCapabilities;
+  autofetchIntervalMin: GitAutofetchIntervalMin;
+  autofetchFetching?: boolean;
+  autofetchFailed?: boolean;
   onSync: () => void;
+  onFetch: () => void;
+  onPull: () => void;
+  onPush: () => void;
+  onPublish: () => void;
+  onSetAutofetchInterval: (intervalMin: GitAutofetchIntervalMin) => void;
   onSwitchBranch: () => void;
-}
-
-function syncLabel(branch: BranchInfo | null): string {
-  if (!branch) return "No branch";
-  if (branch.ahead > 0 && branch.behind > 0) return "Sync";
-  if (branch.ahead > 0) return "Push";
-  if (branch.behind > 0) return "Pull";
-  return "Up to date";
+  onCreateFromRef: () => void;
 }
 
 export function GitBranchBar({
+  workspaceId,
   branch,
   repoPath,
   disabled = false,
+  capabilities,
+  autofetchIntervalMin,
+  autofetchFetching = false,
+  autofetchFailed = false,
   onSync,
-  onSwitchBranch,
+  onFetch,
+  onPull,
+  onPush,
+  onPublish,
+  onSetAutofetchInterval,
 }: GitBranchBarProps) {
-  const hasRemoteDelta = Boolean(branch && (branch.ahead > 0 || branch.behind > 0));
-  const label = syncLabel(branch);
-
   return (
     <div className="flex h-7 shrink-0 items-center gap-1 border-t border-mist-border bg-frosted-veil px-1 text-app-ui-sm text-muted-foreground">
       <GitBranchPopover
+        workspaceId={workspaceId}
         branch={branch}
         repoPath={repoPath}
         disabled={disabled}
-        onSwitchBranch={onSwitchBranch}
+        capabilities={capabilities}
+        autofetchIntervalMin={autofetchIntervalMin}
+        autofetchFetching={autofetchFetching}
+        autofetchFailed={autofetchFailed}
+        onSync={onSync}
+        onFetch={onFetch}
+        onPull={onPull}
+        onPush={onPush}
+        onPublish={onPublish}
+        onSetAutofetchInterval={onSetAutofetchInterval}
       />
-      {branch && (branch.behind > 0 || branch.ahead > 0) ? (
-        <span className="shrink-0 font-mono text-app-ui-sm text-muted-foreground">
-          {branch.behind > 0 ? `↓${branch.behind}` : ""}
-          {branch.behind > 0 && branch.ahead > 0 ? " " : ""}
-          {branch.ahead > 0 ? `↑${branch.ahead}` : ""}
-        </span>
-      ) : null}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-6 shrink-0 px-2 text-app-ui-sm"
-        disabled={disabled || !hasRemoteDelta}
-        title={hasRemoteDelta ? label : "Up to date"}
-        onClick={onSync}
-      >
-        {label}
-      </Button>
     </div>
   );
 }

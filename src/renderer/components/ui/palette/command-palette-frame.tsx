@@ -26,6 +26,7 @@ export interface CommandPaletteFrameProps<TItem extends PaletteItem> {
   titleId?: string;
   inputId?: string;
   listboxId?: string;
+  footer?: React.ReactNode;
 }
 
 export function CommandPaletteFrame<TItem extends PaletteItem>({
@@ -48,6 +49,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   titleId = "command-palette-title",
   inputId = "command-palette-input",
   listboxId = "command-palette-listbox",
+  footer,
 }: CommandPaletteFrameProps<TItem>): React.JSX.Element | null {
   if (status === "closed") return null;
 
@@ -55,18 +57,20 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   const activeDescendant = activeItem ? optionId(listboxId, activeItem.id) : undefined;
 
   return (
-    <div
-      className="fixed inset-0 z-[70] bg-frosted-veil-strong"
-      // Outside-click dismissal: the overlay div fills the viewport behind
-      // the dialog content. A click whose target is exactly this element
-      // (not the bubbled child dialog) means the user pressed outside the
-      // palette and expects it to close, matching Radix Dialog behavior.
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+    <div className="fixed inset-0 z-[70] bg-frosted-veil-strong">
+      <button
+        type="button"
+        aria-label="Close command palette"
+        tabIndex={-1}
+        className="absolute inset-0 h-full w-full cursor-default bg-transparent"
+        // Outside-click dismissal: the overlay button fills the viewport
+        // behind the dialog content, so pressing it means the user clicked
+        // outside the palette and expects it to close.
+        onMouseDown={(event) => {
+          event.preventDefault();
           onOverlayClick?.();
-        }
-      }}
-    >
+        }}
+      />
       <div
         ref={rootRef}
         role="dialog"
@@ -74,7 +78,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
         aria-labelledby={titleId}
         data-command-palette-root="true"
         onKeyDown={onKeyDown}
-        className="pointer-events-auto fixed left-1/2 top-[18vh] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-[12px] border border-mist-border bg-popover text-popover-foreground shadow-none"
+        className="pointer-events-auto fixed left-1/2 top-[18vh] z-[1] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-[12px] border border-mist-border bg-popover text-popover-foreground shadow-none"
       >
         <h2 id={titleId} className="sr-only">
           {title}
@@ -146,11 +150,17 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
           ) : (
             <PaletteStatusMessage
               status={status as Exclude<PaletteViewStatus, "closed" | "results">}
+              query={query}
               emptyQueryMessage={emptyQueryMessage}
               noResultsMessage={noResultsMessage}
             />
           )}
         </div>
+        {footer ? (
+          <div className="border-t border-mist-border/70 px-3 py-2 text-app-ui-xs text-stone-gray">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -158,10 +168,12 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
 
 function PaletteStatusMessage({
   status,
+  query,
   emptyQueryMessage,
   noResultsMessage,
 }: {
   status: Exclude<PaletteViewStatus, "closed" | "results">;
+  query: string;
   emptyQueryMessage: string;
   noResultsMessage: string;
 }): React.JSX.Element {
@@ -174,7 +186,7 @@ function PaletteStatusMessage({
       case "debouncing":
         return "Waiting for input…";
       case "loading":
-        return "Searching…";
+        return query.trim().length === 0 ? emptyQueryMessage : "Searching…";
       case "empty":
         return noResultsMessage;
       case "error":

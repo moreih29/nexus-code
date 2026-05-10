@@ -2,19 +2,23 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
 import { FileWatcher } from "./filesystem/file-watcher";
+import { GitAutofetchScheduler } from "./git/git-autofetch";
 import { resolveGitBinary } from "./git/git-binary";
+import { GitHelpersIpcManager, registerGitHelperIpcChannels } from "./git/git-helpers-ipc";
 import { GitRegistry } from "./git/git-registry";
 import { GitWatcher } from "./git/git-watcher";
 import { createStatusCoalescer, type StatusCoalescer } from "./git/status-coalescer";
 import { type LspHostHandle, startLspHost } from "./hosts/lsp-host";
-import { startPtyHost, type PtyHostHandle } from "./hosts/pty-host";
+import { type PtyHostHandle, startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
+import { registerAutofetchChannel } from "./ipc/channels/autofetch";
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
 import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPanelChannel } from "./ipc/channels/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
+import { registerSystemChannel } from "./ipc/channels/system";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
 import { installAppMenu } from "./menu";
@@ -42,6 +46,8 @@ let ptyHost: PtyHostHandle | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: GitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
+let gitHelpersIpc: GitHelpersIpcManager | null = null;
+let gitAutofetch: GitAutofetchScheduler | null = null;
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "fs" && event === "changed") {
@@ -61,6 +67,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     fileWatcher.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
+    gitAutofetch?.disposeWorkspace(removedWorkspaceId);
     gitRegistry?.dispose(removedWorkspaceId);
   }
   forwardBroadcast(channelName, event, args);
@@ -78,6 +85,7 @@ registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
+registerSystemChannel({ openNewWindow: createMainWindow });
 
 app.whenReady().then(async () => {
   // Replace Electron's default menu (which still binds Cmd+W to "Close
@@ -91,6 +99,9 @@ app.whenReady().then(async () => {
 
   const gitBinary = await resolveGitBinary();
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
+  gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });
+  await gitHelpersIpc.start();
+  registerGitHelperIpcChannels(gitHelpersIpc);
   gitWatcher = new GitWatcher((workspaceId) => {
     gitStatusCoalescer?.schedule(workspaceId, async () => {
       await gitRegistry?.refreshStatus(workspaceId);
@@ -107,7 +118,15 @@ app.whenReady().then(async () => {
       }
     },
   });
-  registerGitChannel(gitRegistry, workspaceStorage);
+  gitAutofetch = new GitAutofetchScheduler({
+    registry: gitRegistry,
+    storage: workspaceStorage,
+    workspaceManager,
+    broadcast: forwardBroadcast,
+  });
+  gitAutofetch.start();
+  registerAutofetchChannel(gitAutofetch);
+  registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch);
 
   ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
@@ -115,11 +134,11 @@ app.whenReady().then(async () => {
   lspHost = startLspHost();
   registerLspChannel(lspHost);
 
-  createMainWindow();
+  wireAutofetchWindowFocus(createMainWindow());
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      wireAutofetchWindowFocus(createMainWindow());
     }
   });
 });
@@ -140,6 +159,22 @@ app.on("before-quit", () => {
   fileWatcher.dispose();
   gitStatusCoalescer?.clearAll();
   gitWatcher?.dispose();
+  gitAutofetch?.dispose();
+  void gitHelpersIpc?.dispose();
   gitRegistry?.disposeAll();
   workspaceManager.close();
 });
+
+/**
+ * BrowserWindow focus/blur globally pauses only scheduler due checks. Any
+ * in-flight fetch continues through the repository queue; focus recomputes
+ * next due times instead of replaying missed background work immediately.
+ */
+function wireAutofetchWindowFocus(win: BrowserWindow): void {
+  win.on("blur", () => {
+    gitAutofetch?.setGlobalPaused(true);
+  });
+  win.on("focus", () => {
+    gitAutofetch?.setGlobalPaused(false);
+  });
+}

@@ -2,7 +2,11 @@
  * Status handlers — one-shot Git status snapshots for the Source Control panel.
  */
 import { ipcContract } from "../../../../shared/ipc-contract";
-import { DEFAULT_REPO_CAPABILITIES, type GitStatus } from "../../../../shared/types/git";
+import {
+  DEFAULT_GIT_OPERATION_STATE,
+  DEFAULT_REPO_CAPABILITIES,
+  type GitStatus,
+} from "../../../../shared/types/git";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { CallContext } from "../../router";
 import { validateArgs } from "../../router";
@@ -35,5 +39,7 @@ function createEmptyGitStatus(): GitStatus {
     untracked: [],
     branch: null,
     capabilities: { ...DEFAULT_REPO_CAPABILITIES },
+    operationState: DEFAULT_GIT_OPERATION_STATE,
+    lastFetchedAt: null,
   };
 }

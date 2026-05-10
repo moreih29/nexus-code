@@ -1,7 +1,16 @@
 export type PaletteOpenMode = "default" | "side";
 
+export interface PaletteAcceptModifiers {
+  meta: boolean;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+}
+
 export interface PaletteAcceptContext {
   mode: PaletteOpenMode;
+  modifiers?: PaletteAcceptModifiers;
+  key?: string;
 }
 
 export interface PaletteItem {
@@ -31,5 +40,5 @@ export interface PaletteSource<TItem extends PaletteItem = PaletteItem> {
    */
   searchOnEmptyQuery?: boolean;
   search(query: string, signal: AbortSignal): Promise<readonly TItem[]>;
-  accept(item: TItem, context: PaletteAcceptContext): void;
+  accept(item: TItem, context?: PaletteAcceptContext): void;
 }

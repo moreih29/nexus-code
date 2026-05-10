@@ -4,6 +4,8 @@ import {
   type PaletteScheduler,
   PaletteSearchController,
   type PaletteSearchSnapshot,
+  paletteAcceptContextFromInput,
+  paletteModifiersFromInput,
   resolvePaletteKeyAction,
   WORKSPACE_SYMBOL_DEBOUNCE_MS,
 } from "../../../../../../src/renderer/components/ui/palette/controller";
@@ -167,6 +169,32 @@ describe("PaletteSearchController", () => {
     expect(search).not.toHaveBeenCalled();
     scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
     expect(search).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resolvePaletteKeyAction", () => {
+  it("routes Cmd/Ctrl+Backspace to accept so git pickers can use destructive modifiers", () => {
+    expect(resolvePaletteKeyAction({ key: "Backspace", metaKey: true }, 0, 1)).toEqual({
+      kind: "accept",
+      mode: "default",
+    });
+    expect(resolvePaletteKeyAction({ key: "Delete", ctrlKey: true }, 0, 1)).toEqual({
+      kind: "accept",
+      mode: "default",
+    });
+    expect(resolvePaletteKeyAction({ key: "Backspace" }, 0, 1)).toEqual({ kind: "none" });
+  });
+
+  it("routes Cmd/Ctrl+R and Cmd/Ctrl+U to accept for branch picker secondary actions", () => {
+    expect(resolvePaletteKeyAction({ key: "r", metaKey: true }, 0, 1)).toEqual({
+      kind: "accept",
+      mode: "default",
+    });
+    expect(resolvePaletteKeyAction({ key: "U", ctrlKey: true }, 0, 1)).toEqual({
+      kind: "accept",
+      mode: "default",
+    });
+    expect(resolvePaletteKeyAction({ key: "r" }, 0, 1)).toEqual({ kind: "none" });
   });
 });
 
@@ -371,5 +399,29 @@ describe("palette keyboard behavior", () => {
     });
     expect(resolvePaletteKeyAction({ key: "Escape" }, 0, 1)).toEqual({ kind: "close" });
     expect(resolvePaletteKeyAction({ key: "Tab" }, 0, 1)).toEqual({ kind: "trap-tab" });
+  });
+
+  it("extracts all accept modifiers from key input", () => {
+    expect(
+      paletteModifiersFromInput({
+        metaKey: true,
+        ctrlKey: false,
+        altKey: true,
+        shiftKey: true,
+      }),
+    ).toEqual({ meta: true, ctrl: false, alt: true, shift: true });
+  });
+
+  it("builds accept context with split mode and raw modifiers", () => {
+    expect(
+      paletteAcceptContextFromInput(
+        { key: "r", metaKey: true, ctrlKey: true, altKey: false, shiftKey: true },
+        "side",
+      ),
+    ).toEqual({
+      mode: "side",
+      key: "r",
+      modifiers: { meta: true, ctrl: true, alt: false, shift: true },
+    });
   });
 });

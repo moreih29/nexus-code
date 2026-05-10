@@ -35,6 +35,12 @@ mock.module("../../../../src/shared/ipc-contract", () => ({
           progress: StreamProgressSchema,
           result: StreamCompleteSchema,
         },
+        handledCancel: {
+          args: StreamArgsSchema,
+          progress: StreamProgressSchema,
+          result: StreamCompleteSchema,
+          cancelMode: "handler",
+        },
         invalidProgress: {
           args: StreamArgsSchema,
           progress: StreamProgressSchema,
@@ -273,6 +279,34 @@ describe("ipc router stream primitive", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(streamEventsByKind(sender, "progress")).toHaveLength(0);
+  });
+
+  test("handler-owned cancellation lets a stream emit final domain progress and complete", async () => {
+    registerStream("handledCancel", async function* stream(_args, ctx) {
+      while (!ctx.signal.aborted) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      yield { step: 9 };
+      return { done: true };
+    });
+
+    const sender = makeSender(8);
+    const event = { sender };
+    const result = await getStreamStartHandler()(event, "streamTest", "handledCancel", {
+      token: "ok",
+    });
+
+    getCancelHandler()(event, result.streamId);
+
+    await waitFor(
+      () => streamEventsByKind(sender, "complete").length === 1,
+      "expected handler-owned cancel to complete",
+    );
+
+    expect(streamEvents(sender)).toEqual([
+      { streamId: result.streamId, kind: "progress", data: { step: 9 } },
+      { streamId: result.streamId, kind: "complete", data: { done: true } },
+    ]);
   });
 
   test('zod progress payload validation failure sends kind: "error"', async () => {

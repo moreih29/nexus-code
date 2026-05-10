@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { parseV2Porcelain } from "../../../../src/main/git/porcelain-v2";
-import { DEFAULT_REPO_CAPABILITIES, type GitStatus } from "../../../../src/shared/types/git";
+import {
+  DEFAULT_GIT_OPERATION_STATE,
+  DEFAULT_REPO_CAPABILITIES,
+  type GitConflictType,
+  type GitStatus,
+} from "../../../../src/shared/types/git";
 
 const HASH = "0123456789abcdef0123456789abcdef01234567";
 const ZERO = "0000000000000000000000000000000000000000";
@@ -20,13 +25,15 @@ const cleanStatus: GitStatus = {
   untracked: [],
   branch: null,
   capabilities: { ...DEFAULT_REPO_CAPABILITIES },
+  operationState: DEFAULT_GIT_OPERATION_STATE,
+  lastFetchedAt: null,
 };
 
 const fixtures: PorcelainFixture[] = [
   {
     name: "clean branch with upstream counters",
     text: records(
-      "# branch.oid " + HASH,
+      `# branch.oid ${HASH}`,
       "# branch.head main",
       "# branch.upstream origin/main",
       "# branch.ab +2 -1",
@@ -39,7 +46,7 @@ const fixtures: PorcelainFixture[] = [
   {
     name: "mixed staged, working, deleted, and untracked groups",
     text: records(
-      "# branch.oid " + HASH,
+      `# branch.oid ${HASH}`,
       "# branch.head feature/git-panel",
       tracked("M.", "src/staged.ts"),
       tracked(".M", "src/working dir/file one.ts"),
@@ -51,17 +58,21 @@ const fixtures: PorcelainFixture[] = [
       staged: [entry("src/staged.ts", "M."), entry("src/deleted.ts", "D.")],
       working: [entry("src/working dir/file one.ts", ".M")],
       untracked: [entry("notes/todo item.md", "??")],
-      branch: { current: "feature/git-panel", upstream: null, ahead: 0, behind: 0, isUnborn: false },
+      branch: {
+        current: "feature/git-panel",
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        isUnborn: false,
+      },
       capabilities: { ...DEFAULT_REPO_CAPABILITIES },
+      operationState: DEFAULT_GIT_OPERATION_STATE,
+      lastFetchedAt: null,
     },
   },
   {
     name: "unborn repository emits isUnborn=true when branch.oid is (initial)",
-    text: records(
-      "# branch.oid (initial)",
-      "# branch.head main",
-      tracked("A.", "src/new-file.ts"),
-    ),
+    text: records("# branch.oid (initial)", "# branch.head main", tracked("A.", "src/new-file.ts")),
     expected: {
       ...cleanStatus,
       staged: [entry("src/new-file.ts", "A.")],
@@ -81,7 +92,31 @@ const fixtures: PorcelainFixture[] = [
     text: records(unmerged("UU", "src/conflict file.txt")),
     expected: {
       ...cleanStatus,
-      merge: [entry("src/conflict file.txt", "UU")],
+      merge: [entry("src/conflict file.txt", "UU", undefined, "both-modified")],
+    },
+  },
+  {
+    name: "unmerged records map porcelain xy codes to conflict types",
+    text: records(
+      unmerged("UU", "src/both-modified.txt"),
+      unmerged("AA", "src/both-added.txt"),
+      unmerged("DD", "src/both-deleted.txt"),
+      unmerged("UD", "src/deleted-by-them.txt"),
+      unmerged("DU", "src/deleted-by-us.txt"),
+      unmerged("AU", "src/added-by-us.txt"),
+      unmerged("UA", "src/added-by-them.txt"),
+    ),
+    expected: {
+      ...cleanStatus,
+      merge: [
+        entry("src/both-modified.txt", "UU", undefined, "both-modified"),
+        entry("src/both-added.txt", "AA", undefined, "both-added"),
+        entry("src/both-deleted.txt", "DD", undefined, "both-deleted"),
+        entry("src/deleted-by-them.txt", "UD", undefined, "deleted-by-them"),
+        entry("src/deleted-by-us.txt", "DU", undefined, "deleted-by-us"),
+        entry("src/added-by-us.txt", "AU", undefined, "added-by-us"),
+        entry("src/added-by-them.txt", "UA", undefined, "added-by-them"),
+      ],
     },
   },
   {
@@ -131,6 +166,11 @@ function unmerged(xy: string, relPath: string): string {
 }
 
 /** Creates a status entry while keeping oldRelPath absent unless a rename needs it. */
-function entry(relPath: string, xy: string, oldRelPath?: string) {
-  return oldRelPath ? { relPath, oldRelPath, xy } : { relPath, xy };
+function entry(
+  relPath: string,
+  xy: string,
+  oldRelPath?: string,
+  conflictType: GitConflictType = null,
+) {
+  return oldRelPath ? { relPath, oldRelPath, xy, conflictType } : { relPath, xy, conflictType };
 }

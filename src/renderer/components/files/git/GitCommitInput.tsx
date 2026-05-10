@@ -1,34 +1,56 @@
 /**
  * GitCommitInput owns the commit-message editing surface above status groups.
  */
-import { GitCommitButton } from "./GitCommitButton";
+import type { GitCommitOptions } from "../../../../shared/types/git";
+import type { GitActionButtonState } from "../../../state/selectors/git-action-button";
+import { GitCommitButton, type GitCommitMenuEnablement } from "./GitCommitButton";
 
 interface GitCommitInputProps {
   value: string;
   disabled?: boolean;
-  commitDisabled?: boolean;
   busy?: boolean;
   hint?: string;
+  action: GitActionButtonState;
+  commitOptions: GitCommitOptions;
+  menuEnablement: GitCommitMenuEnablement;
   onChange: (value: string) => void;
   onBlur: () => void;
-  onCommit: () => void;
+  onPrimaryAction: () => void;
+  onCommitStaged: () => void;
+  onCommitAll: () => void;
   onAmend: () => void;
   onCommitAndPush: () => void;
-  onCommitStaged: () => void;
+  onCommitEmpty: () => void;
+  onUndoLastCommit: () => void;
+  onToggleCommitOption: <K extends keyof GitCommitOptions>(
+    option: K,
+    value: GitCommitOptions[K],
+  ) => void;
+  onPushOnly: () => void;
+  onPullOnly: () => void;
 }
 
+/** Renders the commit message input with the task-6 split action control. */
 export function GitCommitInput({
   value,
   disabled = false,
-  commitDisabled = false,
   busy = false,
   hint,
+  action,
+  commitOptions,
+  menuEnablement,
   onChange,
   onBlur,
-  onCommit,
+  onPrimaryAction,
+  onCommitStaged,
+  onCommitAll,
   onAmend,
   onCommitAndPush,
-  onCommitStaged,
+  onCommitEmpty,
+  onUndoLastCommit,
+  onToggleCommitOption,
+  onPushOnly,
+  onPullOnly,
 }: GitCommitInputProps) {
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === "Escape") {
@@ -52,12 +74,20 @@ export function GitCommitInput({
         aria-label="Commit message"
       />
       <GitCommitButton
-        disabled={commitDisabled}
+        action={action}
         busy={busy}
-        onCommit={onCommit}
+        commitOptions={commitOptions}
+        enablement={menuEnablement}
+        onPrimaryAction={onPrimaryAction}
+        onCommitStaged={onCommitStaged}
+        onCommitAll={onCommitAll}
         onAmend={onAmend}
         onCommitAndPush={onCommitAndPush}
-        onCommitStaged={onCommitStaged}
+        onCommitEmpty={onCommitEmpty}
+        onUndoLastCommit={onUndoLastCommit}
+        onToggleCommitOption={onToggleCommitOption}
+        onPushOnly={onPushOnly}
+        onPullOnly={onPullOnly}
       />
       {hint ? <p className="px-1 text-app-ui-sm text-muted-foreground">{hint}</p> : null}
     </div>

@@ -7,7 +7,7 @@
  */
 
 import { Dialog as RadixDialog } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "./button";
 
 export interface PromptRequest {
@@ -17,6 +17,13 @@ export interface PromptRequest {
   placeholder?: string;
   defaultValue?: string;
   confirmLabel?: string;
+  /**
+   * `none` turns the dialog into a confirm-only prompt for flows where an
+   * editable value would misrepresent the action being confirmed.
+   */
+  inputMode?: "text" | "none";
+  /** Allows confirmation with an empty value for optional-message prompts. */
+  allowEmpty?: boolean;
 }
 
 interface PromptDialogProps {
@@ -26,25 +33,29 @@ interface PromptDialogProps {
   onConfirm: (value: string) => void;
 }
 
-export function PromptDialog({
-  request,
-  busy = false,
-  onCancel,
-  onConfirm,
-}: PromptDialogProps) {
+export function PromptDialog({ request, busy = false, onCancel, onConfirm }: PromptDialogProps) {
   const [value, setValue] = useState("");
+  const inputId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const showInput = request?.inputMode !== "none";
 
   useEffect(() => {
     setValue(request?.defaultValue ?? "");
   }, [request]);
 
+  useEffect(() => {
+    if (!request || request.inputMode === "none") return;
+    inputRef.current?.focus();
+  }, [request]);
+
   const trimmed = value.trim();
-  const confirmDisabled = busy || trimmed.length === 0;
+  const confirmDisabled =
+    busy || (showInput && request?.allowEmpty !== true && trimmed.length === 0);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (confirmDisabled) return;
-    onConfirm(trimmed);
+    onConfirm(showInput ? trimmed : "");
   }
 
   return (
@@ -66,18 +77,25 @@ export function PromptDialog({
             </RadixDialog.Description>
           ) : null}
           <form className="mt-4 flex flex-col gap-2" onSubmit={handleSubmit}>
-            {request?.label ? (
-              <label className="text-app-ui-sm text-foreground">{request.label}</label>
+            {showInput ? (
+              <>
+                {request?.label ? (
+                  <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
+                    {request.label}
+                  </label>
+                ) : null}
+                <input
+                  ref={inputRef}
+                  id={inputId}
+                  type="text"
+                  value={value}
+                  onChange={(event) => setValue(event.target.value)}
+                  placeholder={request?.placeholder}
+                  className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-mist-border-focus"
+                  disabled={busy}
+                />
+              </>
             ) : null}
-            <input
-              type="text"
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              placeholder={request?.placeholder}
-              className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-mist-border-focus"
-              autoFocus
-              disabled={busy}
-            />
             <div className="mt-3 flex justify-end gap-2">
               <RadixDialog.Close asChild>
                 <Button type="button" variant="ghost" size="sm" disabled={busy}>

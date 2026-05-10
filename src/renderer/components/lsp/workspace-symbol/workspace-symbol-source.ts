@@ -106,8 +106,8 @@ export function workspaceSymbolToPaletteItem(
   };
 }
 
-function openOptionsForContext(context: PaletteAcceptContext): OpenEditorOptions | undefined {
-  if (context.mode === "side") {
+function openOptionsForContext(context?: PaletteAcceptContext): OpenEditorOptions | undefined {
+  if (context?.mode === "side") {
     return { newSplit: { orientation: "horizontal", side: "after" } };
   }
   return undefined;

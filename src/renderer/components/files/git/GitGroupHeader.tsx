@@ -1,10 +1,19 @@
 /**
  * GitGroupHeader renders an expandable Source Control section heading.
  */
-import { ChevronDown, ChevronRight, Minus, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import type { GitExpandedGroupKey } from "../../../../shared/types/git";
 import { Button } from "../../ui/button";
+import {
+  type GitContextMenuPoint,
+  GitGroupContextMenu,
+  pointFromButtonRect,
+  pointFromMouseEvent,
+} from "./GitFileContextMenu";
 
 interface GitGroupHeaderProps {
+  groupKey: GitExpandedGroupKey;
   label: string;
   count: number;
   expanded: boolean;
@@ -15,9 +24,12 @@ interface GitGroupHeaderProps {
   onStageAll?: () => void;
   onUnstageAll?: () => void;
   onDiscardAll?: () => void;
+  onAddToGitignore?: () => void;
+  onStashGroup?: () => void;
 }
 
 export function GitGroupHeader({
+  groupKey,
   label,
   count,
   expanded,
@@ -28,7 +40,10 @@ export function GitGroupHeader({
   onStageAll,
   onUnstageAll,
   onDiscardAll,
+  onAddToGitignore,
+  onStashGroup,
 }: GitGroupHeaderProps) {
+  const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
@@ -38,6 +53,10 @@ export function GitGroupHeader({
         className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={onToggle}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setContextMenuPoint(pointFromMouseEvent(event));
+        }}
       >
         <Chevron className="size-3.5 shrink-0" aria-hidden="true" />
         <span className="truncate uppercase tracking-[0.08em]">{label}</span>
@@ -75,7 +94,7 @@ export function GitGroupHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-6 text-destructive hover:text-destructive"
+            className="size-6 git-destructive-text"
             aria-label={discardActionLabel}
             title={discardActionLabel}
             onClick={onDiscardAll}
@@ -83,7 +102,35 @@ export function GitGroupHeader({
             <Trash2 className="size-3.5" aria-hidden="true" />
           </Button>
         ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-6"
+          aria-label={`${label} group actions`}
+          title={`${label} group actions`}
+          aria-haspopup="menu"
+          aria-expanded={contextMenuPoint !== null}
+          onClick={(event) => {
+            event.stopPropagation();
+            setContextMenuPoint(pointFromButtonRect(event.currentTarget.getBoundingClientRect()));
+          }}
+        >
+          <MoreHorizontal className="size-3.5" aria-hidden="true" />
+        </Button>
       </div>
+      <GitGroupContextMenu
+        point={contextMenuPoint}
+        groupKey={groupKey}
+        actions={{
+          stageAll: onStageAll,
+          unstageAll: onUnstageAll,
+          discardAll: onDiscardAll,
+          addToGitignore: onAddToGitignore,
+          stashGroup: onStashGroup,
+        }}
+        onClose={() => setContextMenuPoint(null)}
+      />
     </div>
   );
 }

@@ -56,6 +56,7 @@ function makeDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,
     lastError: null,
+    pendingNonFFRetry: null,
     ...overrides,
   };
 }

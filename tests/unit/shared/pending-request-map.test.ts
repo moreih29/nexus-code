@@ -70,12 +70,16 @@ describe("PendingRequestMap", () => {
   test("size reflects the number of pending requests", () => {
     const map = new PendingRequestMap<string, number>();
     expect(map.size).toBe(0);
-    map.register({ key: "k1", timeoutMs: 5_000 });
+    // Keep handles for each registered request so the test does not leave a
+    // pending timeout that can reject later in the full suite.
+    map.register({ key: "k1", timeoutMs: 5_000 }).catch(() => {});
     expect(map.size).toBe(1);
-    map.register({ key: "k2", timeoutMs: 5_000 });
+    map.register({ key: "k2", timeoutMs: 5_000 }).catch(() => {});
     expect(map.size).toBe(2);
     map.resolve("k1", 0);
     expect(map.size).toBe(1);
+    map.resolve("k2", 0);
+    expect(map.size).toBe(0);
   });
 
   test("has returns true for pending keys and false otherwise", () => {

@@ -39,7 +39,15 @@ interface GitGroupProps {
   onStagePaths: (paths: string[]) => void;
   onUnstagePaths: (paths: string[]) => void;
   onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
+  onMarkResolved: (entry: GitStatusEntry) => void;
   onOpenDiff: (entry: GitStatusEntry, groupKey: GitExpandedGroupKey) => void;
+  onOpenFile: (entry: GitStatusEntry) => void;
+  onRevealInOS: (entry: GitStatusEntry) => void;
+  onCopyPath: (entry: GitStatusEntry) => void;
+  onCopyRelativePath: (entry: GitStatusEntry) => void;
+  onAddToGitignore: (entry: GitStatusEntry) => void;
+  onAddPathsToGitignore: (paths: string[]) => void;
+  onStashGroup: (paths: string[], label: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,27 +102,40 @@ export function GitGroup({
   onStagePaths,
   onUnstagePaths,
   onDiscardPaths,
+  onMarkResolved,
   onOpenDiff,
+  onOpenFile,
+  onRevealInOS,
+  onCopyPath,
+  onCopyRelativePath,
+  onAddToGitignore,
+  onAddPathsToGitignore,
+  onStashGroup,
 }: GitGroupProps) {
   if (entries.length === 0) return null;
 
   const paths = collectGitEntryPaths(entries);
-  const canStage = groupKey !== "staged";
+  const canStageRows = groupKey !== "staged" && groupKey !== "merge";
+  const canStageHeader = groupKey === "working" || groupKey === "untracked";
   const canUnstage = groupKey === "staged";
+  const canDiscardHeader = groupKey === "working";
   const discardLabel = `Discard all ${label.toLowerCase()}`;
 
   const header = (
     <GitGroupHeader
+      groupKey={groupKey}
       label={label}
       count={entries.length}
       expanded={expanded}
       onToggle={onToggle}
-      stageActionLabel={canStage ? `Stage all ${label.toLowerCase()}` : undefined}
+      stageActionLabel={canStageHeader ? `Stage all ${label.toLowerCase()}` : undefined}
       unstageActionLabel={canUnstage ? "Unstage all staged changes" : undefined}
-      discardActionLabel={discardLabel}
-      onStageAll={canStage ? () => onStagePaths(paths) : undefined}
+      discardActionLabel={canDiscardHeader ? discardLabel : undefined}
+      onStageAll={canStageHeader ? () => onStagePaths(paths) : undefined}
       onUnstageAll={canUnstage ? () => onUnstagePaths(paths) : undefined}
-      onDiscardAll={() => onDiscardPaths(paths, label, groupKey)}
+      onDiscardAll={canDiscardHeader ? () => onDiscardPaths(paths, label, groupKey) : undefined}
+      onAddToGitignore={groupKey !== "merge" ? () => onAddPathsToGitignore(paths) : undefined}
+      onStashGroup={groupKey !== "merge" ? () => onStashGroup(paths, label) : undefined}
     />
   );
 
@@ -133,9 +154,15 @@ export function GitGroup({
               groupKey={groupKey}
               entry={entry}
               onOpenDiff={() => onOpenDiff(entry, groupKey)}
-              onStage={canStage ? () => onStagePaths([entry.relPath]) : undefined}
+              onStage={canStageRows ? () => onStagePaths([entry.relPath]) : undefined}
               onUnstage={canUnstage ? () => onUnstagePaths([entry.relPath]) : undefined}
               onDiscard={() => onDiscardPaths([entry.relPath], entry.relPath, groupKey)}
+              onMarkResolved={groupKey === "merge" ? () => onMarkResolved(entry) : undefined}
+              onOpenFile={() => onOpenFile(entry)}
+              onRevealInOS={() => onRevealInOS(entry)}
+              onCopyPath={() => onCopyPath(entry)}
+              onCopyRelativePath={() => onCopyRelativePath(entry)}
+              onAddToGitignore={() => onAddToGitignore(entry)}
             />
           ))}
         </div>
@@ -153,12 +180,18 @@ export function GitGroup({
         compactFolders={compactFolders}
         expandedTreeNodes={expandedTreeNodes}
         onToggleTreeNode={onToggleTreeNode}
-        canStage={canStage}
+        canStage={canStageRows}
         canUnstage={canUnstage}
         onStagePaths={onStagePaths}
         onUnstagePaths={onUnstagePaths}
         onDiscardPaths={onDiscardPaths}
+        onMarkResolved={onMarkResolved}
         onOpenDiff={onOpenDiff}
+        onOpenFile={onOpenFile}
+        onRevealInOS={onRevealInOS}
+        onCopyPath={onCopyPath}
+        onCopyRelativePath={onCopyRelativePath}
+        onAddToGitignore={onAddToGitignore}
       />
     </section>
   );
@@ -179,7 +212,13 @@ interface GitGroupTreeProps {
   onStagePaths: (paths: string[]) => void;
   onUnstagePaths: (paths: string[]) => void;
   onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
+  onMarkResolved: (entry: GitStatusEntry) => void;
   onOpenDiff: (entry: GitStatusEntry, groupKey: GitExpandedGroupKey) => void;
+  onOpenFile: (entry: GitStatusEntry) => void;
+  onRevealInOS: (entry: GitStatusEntry) => void;
+  onCopyPath: (entry: GitStatusEntry) => void;
+  onCopyRelativePath: (entry: GitStatusEntry) => void;
+  onAddToGitignore: (entry: GitStatusEntry) => void;
 }
 
 function GitGroupTree({
@@ -193,7 +232,13 @@ function GitGroupTree({
   onStagePaths,
   onUnstagePaths,
   onDiscardPaths,
+  onMarkResolved,
   onOpenDiff,
+  onOpenFile,
+  onRevealInOS,
+  onCopyPath,
+  onCopyRelativePath,
+  onAddToGitignore,
 }: GitGroupTreeProps) {
   // Build entry lookup by relPath for leaf actions.
   const entryByRelPath = useMemo(() => {
@@ -310,6 +355,12 @@ function GitGroupTree({
             onStage={canStage ? () => onStagePaths([entry.relPath]) : undefined}
             onUnstage={canUnstage ? () => onUnstagePaths([entry.relPath]) : undefined}
             onDiscard={() => onDiscardPaths([entry.relPath], entry.relPath, groupKey)}
+            onMarkResolved={groupKey === "merge" ? () => onMarkResolved(entry) : undefined}
+            onOpenFile={() => onOpenFile(entry)}
+            onRevealInOS={() => onRevealInOS(entry)}
+            onCopyPath={() => onCopyPath(entry)}
+            onCopyRelativePath={() => onCopyRelativePath(entry)}
+            onAddToGitignore={() => onAddToGitignore(entry)}
           />
         );
       })}

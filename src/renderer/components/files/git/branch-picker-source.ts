@@ -24,11 +24,7 @@
  */
 
 import type { BranchList } from "../../../../shared/types/git";
-import type {
-  PaletteAcceptContext,
-  PaletteItem,
-  PaletteSource,
-} from "../../ui/palette/types";
+import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../ui/palette/types";
 
 export type BranchPickAction =
   | { kind: "checkout"; ref: string }
@@ -41,17 +37,17 @@ export interface BranchPickItem extends PaletteItem {
 
 export interface CreateBranchPickerSourceInput {
   workspaceId: string;
-  listBranches: (
-    workspaceId: string,
-    signal?: AbortSignal,
-  ) => Promise<BranchList | undefined>;
+  listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   checkout: (workspaceId: string, ref: string) => Promise<void>;
   checkoutTracking: (workspaceId: string, remoteRef: string) => Promise<void>;
-  createBranch: (
-    workspaceId: string,
-    name: string,
-    checkout?: boolean,
-  ) => Promise<void>;
+  createBranch: (workspaceId: string, name: string, checkout?: boolean) => Promise<void>;
+  title?: string;
+  placeholder?: string;
+  allowCreate?: boolean;
+  acceptRef?: (ref: string, item: BranchPickItem) => void;
+  requestDelete?: (item: BranchPickItem) => void;
+  requestRename?: (item: BranchPickItem) => void;
+  requestSetUpstream?: (item: BranchPickItem) => void;
 }
 
 export function createBranchPickerSource(
@@ -59,8 +55,8 @@ export function createBranchPickerSource(
 ): PaletteSource<BranchPickItem> {
   return {
     id: "git.branch-picker",
-    title: "Checkout to",
-    placeholder: "Select a branch or type a name to create…",
+    title: input.title ?? "Checkout to",
+    placeholder: input.placeholder ?? "Select a branch or type a name to create…",
     emptyQueryMessage: "Loading branches…",
     noResultsMessage: "No matching branches.",
     searchOnEmptyQuery: true,
@@ -133,14 +129,18 @@ export function createBranchPickerSource(
       const items: BranchPickItem[] = [...localItems, ...remoteItems];
       const exactLocalMatch = localSet.has(trimmed);
       const exactRemoteShortMatch = remoteShortMatches.has(trimmed);
-      if (trimmed.length > 0 && !exactLocalMatch && !exactRemoteShortMatch) {
+      if (
+        input.allowCreate !== false &&
+        trimmed.length > 0 &&
+        !exactLocalMatch &&
+        !exactRemoteShortMatch
+      ) {
         // On an unborn HEAD (`git init` with no commits), `git checkout -b X`
         // does not "create alongside" — it re-points the unborn HEAD's
         // symbolic ref so the previous branch name vanishes from
         // `git branch --list`. Spell that out in the picker label so the
         // user knows what's about to happen before they click.
-        const unbornCurrent =
-          list.current?.isUnborn && currentName ? currentName : null;
+        const unbornCurrent = list.current?.isUnborn && currentName ? currentName : null;
         const label = unbornCurrent
           ? `Rename unborn '${unbornCurrent}' → '${trimmed}'`
           : `Create new branch: '${trimmed}'`;
@@ -158,7 +158,28 @@ export function createBranchPickerSource(
       return items;
     },
 
-    accept(item: BranchPickItem, _ctx: PaletteAcceptContext): void {
+    accept(item: BranchPickItem, ctx?: PaletteAcceptContext): void {
+      if (input.acceptRef) {
+        input.acceptRef(refFromBranchPickItem(item), item);
+        return;
+      }
+
+      const modifiers = ctx?.modifiers;
+      const metaOrCtrl = modifiers?.meta === true || modifiers?.ctrl === true;
+
+      if (metaOrCtrl && isDeleteKey(ctx?.key)) {
+        input.requestDelete?.(item);
+        return;
+      }
+      if (metaOrCtrl && isKey(ctx?.key, "r")) {
+        input.requestRename?.(item);
+        return;
+      }
+      if (metaOrCtrl && isKey(ctx?.key, "u")) {
+        input.requestSetUpstream?.(item);
+        return;
+      }
+
       switch (item.action.kind) {
         case "checkout":
           void input.checkout(input.workspaceId, item.action.ref);
@@ -172,6 +193,36 @@ export function createBranchPickerSource(
       }
     },
   };
+}
+
+/**
+ * Extracts the ref string represented by a branch picker item without running
+ * checkout. HistoryRefSwitcher uses this so viewing another ref never mutates
+ * the working tree.
+ */
+function refFromBranchPickItem(item: BranchPickItem): string {
+  switch (item.action.kind) {
+    case "checkout":
+      return item.action.ref;
+    case "checkout-tracking":
+      return item.action.remoteRef;
+    case "create-branch":
+      return item.action.name;
+  }
+}
+
+/**
+ * Checks whether an accept came from the destructive branch shortcut.
+ */
+function isDeleteKey(key: string | undefined): boolean {
+  return key === "Backspace" || key === "Delete";
+}
+
+/**
+ * Case-insensitive shortcut key matcher.
+ */
+function isKey(key: string | undefined, expected: string): boolean {
+  return key?.toLowerCase() === expected;
 }
 
 /**

@@ -100,6 +100,13 @@
   -webkit-app-region: no-drag;
 }
 
+/* Git popovers and inline banners use small text on #252422/#1a1917 dark
+   surfaces. The global destructive token is too dark there (≈3.18:1 on
+   popover), so Git uses this scoped warm red at ≥4.5:1 contrast. */
+@utility git-destructive-text {
+  color: #d67b75;
+}
+
 /* ---------------------------------------------------------------------------
    Custom scrollbar — VSCode-style thin track, dimmed thumb.
    - Always-visible thumb so virtualized panes (file tree) advertise

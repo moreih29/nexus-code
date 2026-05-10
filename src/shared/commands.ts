@@ -43,6 +43,9 @@ export const COMMANDS = {
   // Workspace navigation
   workspaceSymbolSearch: "workspace.symbolSearch",
 
+  // Git / workspace source control
+  gitCloneRepository: "git.cloneRepository",
+
   // Path actions on the active editor (mirrors VSCode's "when editor not focused")
   pathReveal: "path.reveal",
   pathCopy: "path.copy",

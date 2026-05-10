@@ -30,6 +30,8 @@ export interface GitProcessOptions {
   readonly cwd: string;
   readonly args: readonly string[];
   readonly env?: NodeJS.ProcessEnv;
+  /** True lets caller-provided askpass helpers handle prompts; false injects echo. */
+  readonly interactive?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -318,20 +320,48 @@ export async function* streamGit(
 function spawnGit(options: GitProcessOptions): GitChildProcess {
   return spawn(options.bin, [...options.args], {
     cwd: options.cwd,
-    env: buildGitEnv(options.env),
+    env: buildGitEnv(options.env, options.interactive ?? false),
+    detached: options.interactive === true && process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
 /**
- * Merges caller-supplied environment with mandatory non-interactive git vars.
+ * Merges caller-supplied environment with git prompt policy variables.
  */
-function buildGitEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return {
+function buildGitEnv(env: NodeJS.ProcessEnv | undefined, interactive: boolean): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = {
     ...process.env,
     ...env,
-    ...GIT_PROCESS_ENV,
+    GIT_TERMINAL_PROMPT: GIT_PROCESS_ENV.GIT_TERMINAL_PROMPT,
+    GIT_FLUSH: GIT_PROCESS_ENV.GIT_FLUSH,
   };
+
+  if (!interactive) {
+    return {
+      ...merged,
+      GIT_ASKPASS: GIT_PROCESS_ENV.GIT_ASKPASS,
+      SSH_ASKPASS_REQUIRE: GIT_PROCESS_ENV.SSH_ASKPASS_REQUIRE,
+      SSH_ASKPASS: GIT_PROCESS_ENV.SSH_ASKPASS,
+    };
+  }
+
+  unsetInheritedPromptEnv(merged, env, "GIT_ASKPASS");
+  unsetInheritedPromptEnv(merged, env, "SSH_ASKPASS");
+  unsetInheritedPromptEnv(merged, env, "SSH_ASKPASS_REQUIRE");
+  return merged;
+}
+
+/**
+ * Removes inherited prompt helpers unless the caller supplied an override.
+ */
+function unsetInheritedPromptEnv(
+  env: NodeJS.ProcessEnv,
+  overrides: NodeJS.ProcessEnv | undefined,
+  key: string,
+): void {
+  if (overrides && Object.hasOwn(overrides, key)) return;
+  delete env[key];
 }
 
 /**

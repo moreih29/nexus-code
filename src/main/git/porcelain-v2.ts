@@ -9,12 +9,25 @@
 import {
   type BranchInfo,
   DEFAULT_REPO_CAPABILITIES,
+  DEFAULT_GIT_OPERATION_STATE,
+  type GitConflictType,
   type GitStatus,
   type GitStatusEntry,
 } from "../../shared/types/git";
 
 /** XY codes that git status emits for unmerged (conflict) entries. */
 const CONFLICT_XY_CODES = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
+
+/** Semantic conflict labels keyed by porcelain-v2 unmerged XY code. */
+const CONFLICT_TYPE_BY_XY: ReadonlyMap<string, NonNullable<GitConflictType>> = new Map([
+  ["DD", "both-deleted"],
+  ["AU", "added-by-us"],
+  ["UD", "deleted-by-them"],
+  ["UA", "added-by-them"],
+  ["DU", "deleted-by-us"],
+  ["AA", "both-added"],
+  ["UU", "both-modified"],
+]);
 
 /** Index-column codes that indicate a change is staged. */
 const STAGED_STATUS_CODES = new Set(["M", "A", "D", "R", "C"]);
@@ -36,6 +49,7 @@ interface ParsedStatusRecord {
   readonly relPath: string;
   readonly oldRelPath?: string;
   readonly xy: string;
+  readonly conflictType: GitConflictType;
 }
 
 /**
@@ -51,6 +65,8 @@ export function parseV2Porcelain(text: string): GitStatus {
     untracked: [],
     branch: null,
     capabilities: { ...DEFAULT_REPO_CAPABILITIES },
+    operationState: DEFAULT_GIT_OPERATION_STATE,
+    lastFetchedAt: null,
   };
   const branch: BranchHeaders = { ahead: 0, behind: 0 };
   const records = splitPorcelainRecords(text);
@@ -88,7 +104,7 @@ export function parseV2Porcelain(text: string): GitStatus {
     }
 
     if (record.startsWith("? ")) {
-      status.untracked.push({ relPath: record.slice(2), xy: "??" });
+      status.untracked.push({ relPath: record.slice(2), xy: "??", conflictType: null });
     }
   }
 
@@ -154,7 +170,7 @@ function parseTrackedRecord(record: string, prefixFieldCount: number): ParsedSta
   if (!parsed) return null;
   const xy = parsed.fields[1];
   if (!xy || xy.length !== 2) return null;
-  return { relPath: parsed.path, xy };
+  return { relPath: parsed.path, xy, conflictType: conflictTypeFromXy(xy) };
 }
 
 /**
@@ -170,15 +186,22 @@ function parseRenamedOrCopiedRecord(
   if (!xy || xy.length !== 2) return null;
 
   if (nulOldPath !== undefined) {
-    return { relPath: parsed.path, oldRelPath: nulOldPath, xy };
+    return {
+      relPath: parsed.path,
+      oldRelPath: nulOldPath,
+      xy,
+      conflictType: conflictTypeFromXy(xy),
+    };
   }
 
+  const conflictType = conflictTypeFromXy(xy);
   const tabIndex = parsed.path.indexOf("\t");
-  if (tabIndex === -1) return { relPath: parsed.path, xy };
+  if (tabIndex === -1) return { relPath: parsed.path, xy, conflictType };
   return {
     relPath: parsed.path.slice(0, tabIndex),
     oldRelPath: parsed.path.slice(tabIndex + 1),
     xy,
+    conflictType,
   };
 }
 
@@ -222,4 +245,11 @@ function appendTrackedEntry(status: GitStatus, entry: GitStatusEntry): void {
   if (WORKING_STATUS_CODES.has(workingCode)) {
     status.working.push(entry);
   }
+}
+
+/**
+ * Converts porcelain conflict XY codes into stable renderer-facing labels.
+ */
+function conflictTypeFromXy(xy: string): GitConflictType {
+  return CONFLICT_TYPE_BY_XY.get(xy) ?? null;
 }

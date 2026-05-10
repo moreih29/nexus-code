@@ -2,30 +2,63 @@
  * Main-process wrapper around one repository. The repository root is the Git
  * toplevel, which may be above the opened workspace when a subdirectory is open.
  */
+
+import fs from "node:fs/promises";
+import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type {
   BranchList,
+  CommitDetail,
   CommitResult,
+  CommitSearchResult,
   DiffChunk,
   DiffComplete,
   DiffSpec,
+  GitCherryPickResult,
+  GitContinueOpResult,
   GitExpandedGroupKey,
+  GitFastForwardResult,
+  GitMarkResolvedResult,
+  GitMergeMode,
+  GitMergeResult,
+  GitRebaseResult,
   GitStatus,
   GitStatusEntry,
+  GitSyncError,
+  GitSyncResult,
   LogChunk,
   LogComplete,
   LogEntry,
   PullResult,
   PushResult,
   RepoCapabilities,
+  Tag,
 } from "../../shared/types/git";
 import type { GitBinary } from "./git-binary";
+import { readAtHead, streamBlob } from "./git-blob";
+import * as branchOps from "./git-branch-ops";
+import { buildCommitDetailArgs, parseCommitDetailOutput } from "./git-commit-detail";
+import { type GitConflictRunner, markResolved as markConflictResolved } from "./git-conflict";
+import { streamGitTextChunks } from "./git-diff-stream";
 import { GitError } from "./git-error";
+import { appendIgnoreEntry } from "./git-ignore";
+import { readGitOperationState } from "./git-operation-state";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import { type RunGitResult, runGit, streamGit } from "./git-process";
+import * as remoteOps from "./git-remote";
+import {
+  applyStash,
+  dropStash,
+  listStashes,
+  popLatestStash,
+  showStash,
+  stashGroup,
+} from "./git-stash";
+import * as tagOps from "./git-tag";
+import * as workflow from "./git-workflow";
+import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
 import { parseV2Porcelain } from "./porcelain-v2";
 
-const DIFF_CHUNK_MAX_BYTES = 1024 * 1024;
 const LOG_CHUNK_ENTRY_COUNT = 50;
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";
@@ -33,6 +66,8 @@ const LOG_FORMAT = `${["%H", "%h", "%P", "%an", "%ae", "%aI", "%s", "%b"].join("
 
 export interface GitLogArgs {
   readonly ref?: string;
+  readonly afterSha?: string;
+  readonly grep?: string;
   readonly skip?: number;
   readonly limit?: number;
 }
@@ -44,6 +79,15 @@ interface QueuedOperation {
 
 interface DiscardOptions {
   readonly source?: GitExpandedGroupKey;
+}
+
+interface CommitCommandOptions {
+  readonly amend?: boolean;
+  readonly allowEmpty?: boolean;
+  readonly edit?: boolean;
+  readonly sign?: boolean;
+  readonly signoff?: boolean;
+  readonly noVerify?: boolean;
 }
 
 interface DiscardPathsets {
@@ -147,21 +191,77 @@ export class GitRepository {
    */
   commit(
     message: string,
-    options: { readonly amend?: boolean; readonly signoff?: boolean } = {},
+    options: CommitCommandOptions = {},
     signal?: AbortSignal,
   ): Promise<CommitResult> {
     return this.queue(async (queuedSignal) => {
-      if (message.trim().length === 0) {
-        throw new GitError("unknown", "Commit message is required");
+      return this.commitWithinQueue(message, options, queuedSignal);
+    }, signal);
+  }
+
+  /**
+   * Amends HEAD, using the Git editor helper when no inline message is given.
+   */
+  commitAmend(
+    message: string | undefined,
+    options: Omit<CommitCommandOptions, "amend"> = {},
+    signal?: AbortSignal,
+  ): Promise<CommitResult> {
+    return this.queue(async (queuedSignal) => {
+      const status = await this.readStatus(queuedSignal);
+      assertHasHead(status.branch);
+      const inlineMessage = message?.trim();
+      return this.commitWithinQueue(
+        inlineMessage && inlineMessage.length > 0 ? inlineMessage : undefined,
+        { ...options, amend: true, edit: !inlineMessage || inlineMessage.length === 0 },
+        queuedSignal,
+      );
+    }, signal);
+  }
+
+  /**
+   * Creates an explicitly empty commit using a required inline message.
+   */
+  commitEmpty(
+    message: string,
+    options: Omit<CommitCommandOptions, "allowEmpty" | "edit"> = {},
+    signal?: AbortSignal,
+  ): Promise<CommitResult> {
+    return this.queue(async (queuedSignal) => {
+      return this.commitWithinQueue(message, { ...options, allowEmpty: true }, queuedSignal);
+    }, signal);
+  }
+
+  /**
+   * Soft-resets HEAD to its parent so the last commit becomes staged changes.
+   */
+  undoLastCommit(signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      try {
+        await this.run(["rev-parse", "--verify", "HEAD^"], queuedSignal);
+      } catch (error) {
+        if (error instanceof GitError) {
+          throw new GitError("no-parent", "HEAD has no parent commit.", {
+            argv: error.argv,
+            stderr: error.stderr,
+            stdout: error.stdout,
+            cause: error,
+          });
+        }
+        throw error;
       }
 
-      const args = ["commit", "-m", message];
-      if (options.amend) args.push("--amend");
-      if (options.signoff) args.push("--signoff");
-      await this.run(args, queuedSignal);
+      await this.run(["reset", "--soft", "HEAD^"], queuedSignal);
+    }, signal);
+  }
 
-      const { stdout } = await this.run(["rev-parse", "HEAD"], queuedSignal);
-      return { sha: stdout.trim() };
+  /**
+   * Soft-resets the current branch to an arbitrary history target, preserving
+   * the resulting changes in the index for the user to recommit.
+   */
+  resetSoft(targetSha: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      await this.run(["reset", "--soft", targetSha], queuedSignal);
     }, signal);
   }
 
@@ -194,6 +294,17 @@ export class GitRepository {
   }
 
   /**
+   * Checks out an immutable commit in detached-HEAD mode. This is intentionally
+   * separate from branch checkout so History actions never auto-track remotes
+   * or create local branches as a side effect.
+   */
+  checkoutDetached(sha: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      await this.run(["checkout", "--detach", sha], queuedSignal);
+    }, signal);
+  }
+
+  /**
    * Creates a local branch that tracks `remoteRef` and checks it out. The
    * branch name is derived by stripping the leading `<remote>/` segment, so
    * `origin/main` produces a local `main`. Uses the explicit `--track` form
@@ -218,13 +329,143 @@ export class GitRepository {
   }
 
   /**
-   * Creates a branch, optionally checking it out immediately.
+   * Creates a branch, optionally at a start ref and optionally checking it out.
    */
-  createBranch(name: string, checkout = false, signal?: AbortSignal): Promise<void> {
+  createBranch(
+    name: string,
+    checkoutOrOptions: boolean | branchOps.CreateBranchOptions = false,
+    signal?: AbortSignal,
+  ): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      if (name.trim().length === 0) throw new GitError("unknown", "Branch name is required");
-      await this.run(checkout ? ["checkout", "-b", name] : ["branch", name], queuedSignal);
+      const options =
+        typeof checkoutOrOptions === "boolean"
+          ? { checkout: checkoutOrOptions }
+          : checkoutOrOptions;
+      await branchOps.createBranch(this.branchOpsRunner(queuedSignal), name, options);
     }, signal);
+  }
+
+  /**
+   * Deletes one local branch. Force is reserved for the explicit second-step
+   * confirmation after an unmerged delete failure.
+   */
+  deleteBranch(name: string, force = false, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => branchOps.deleteBranch(this.branchOpsRunner(queuedSignal), name, force),
+      signal,
+    );
+  }
+
+  /**
+   * Deletes one remote branch through a prompt-capable push operation.
+   */
+  deleteRemoteBranch(remote: string, name: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) =>
+        branchOps.deleteRemoteBranch(this.branchOpsRunner(queuedSignal), remote, name),
+      signal,
+    );
+  }
+
+  /**
+   * Renames a local branch.
+   */
+  renameBranch(from: string, to: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => branchOps.renameBranch(this.branchOpsRunner(queuedSignal), from, to),
+      signal,
+    );
+  }
+
+  /**
+   * Sets or unsets a local branch upstream.
+   */
+  setUpstream(branch: string, upstream: string | null, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => branchOps.setUpstream(this.branchOpsRunner(queuedSignal), branch, upstream),
+      signal,
+    );
+  }
+
+  /**
+   * Fast-forwards a branch from a remote ref and reports the before/after SHAs.
+   */
+  fastForwardBranch(
+    branch: string,
+    remote: string,
+    remoteRef: string,
+    signal?: AbortSignal,
+  ): Promise<GitFastForwardResult> {
+    return this.queue(
+      (queuedSignal) =>
+        branchOps.fastForwardBranch(this.branchOpsRunner(queuedSignal), branch, remote, remoteRef),
+      signal,
+    );
+  }
+
+  /**
+   * Starts a merge workflow and returns conflicts as a normal result envelope.
+   */
+  merge(
+    branch: string,
+    mode: GitMergeMode = "default",
+    signal?: AbortSignal,
+  ): Promise<GitMergeResult> {
+    return this.queue(
+      (queuedSignal) => workflow.merge(this.workflowRunner(queuedSignal), branch, mode),
+      signal,
+    );
+  }
+
+  /**
+   * Starts a non-interactive rebase workflow.
+   */
+  rebase(onto: string, signal?: AbortSignal): Promise<GitRebaseResult> {
+    return this.queue(
+      (queuedSignal) => workflow.rebase(this.workflowRunner(queuedSignal), onto),
+      signal,
+    );
+  }
+
+  /**
+   * Cherry-picks one commit and surfaces conflicts as a result envelope.
+   */
+  cherryPick(sha: string, signal?: AbortSignal): Promise<GitCherryPickResult> {
+    return this.queue(
+      (queuedSignal) => workflow.cherryPick(this.workflowRunner(queuedSignal), sha),
+      signal,
+    );
+  }
+
+  /**
+   * Aborts the active workflow operation by reading Git's marker files.
+   */
+  abortOp(signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => workflow.abortOp(this.workflowRunner(queuedSignal)),
+      signal,
+    );
+  }
+
+  /**
+   * Continues the active workflow operation by reading Git's marker files.
+   */
+  continueOp(signal?: AbortSignal): Promise<GitContinueOpResult> {
+    return this.queue(
+      (queuedSignal) => workflow.continueOp(this.workflowRunner(queuedSignal)),
+      signal,
+    );
+  }
+
+  /**
+   * Marks currently-conflicted paths as resolved after conflict-specific
+   * validation.
+   */
+  markResolved(relPaths: readonly string[], signal?: AbortSignal): Promise<GitMarkResolvedResult> {
+    return this.queue(
+      (queuedSignal) => markConflictResolved(this.conflictRunner(queuedSignal), relPaths),
+      signal,
+    );
   }
 
   /**
@@ -232,6 +473,68 @@ export class GitRepository {
    */
   listBranches(signal?: AbortSignal): Promise<BranchList> {
     return this.queue(async (queuedSignal) => this.readBranchList(queuedSignal), signal);
+  }
+
+  /**
+   * Lists local tags for ref picker and tag picker search.
+   */
+  listTags(signal?: AbortSignal): Promise<Tag[]> {
+    return tagOps.listTags({ bin: this.binPath, cwd: this.topLevel }, signal);
+  }
+
+  /**
+   * Creates a local lightweight or annotated tag.
+   */
+  createTag(
+    name: string,
+    options: tagOps.CreateTagOptions = {},
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.queue(
+      (queuedSignal) => tagOps.createTag(this.tagOpsRunner(queuedSignal), name, options),
+      signal,
+    );
+  }
+
+  /**
+   * Deletes one local tag.
+   */
+  deleteTag(name: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => tagOps.deleteTag(this.tagOpsRunner(queuedSignal), name),
+      signal,
+    );
+  }
+
+  /**
+   * Deletes one tag from a remote with askpass helpers enabled.
+   */
+  deleteRemoteTag(remote: string, name: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => tagOps.deleteRemoteTag(this.tagOpsRunner(queuedSignal), remote, name),
+      signal,
+    );
+  }
+
+  /**
+   * Adds one configured remote using local URL-pattern validation only.
+   */
+  addRemote(name: string, url: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => remoteOps.addRemote(this.remoteOpsRunner(queuedSignal), name, url),
+      signal,
+    );
+  }
+
+  /**
+   * Removes one configured remote. If the current branch tracked that remote,
+   * the next status refresh naturally reports branch.upstream=null.
+   */
+  removeRemote(name: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => remoteOps.removeRemote(this.remoteOpsRunner(queuedSignal), name),
+      signal,
+    );
   }
 
   /**
@@ -244,6 +547,22 @@ export class GitRepository {
     return this.queue(async (queuedSignal) => {
       const trimmed = remote?.trim();
       const args = trimmed && trimmed.length > 0 ? ["fetch", trimmed] : ["fetch"];
+      await this.runWithHelpers(args, queuedSignal, { askpass: true });
+    }, signal);
+  }
+
+  /**
+   * Fetches every configured remote and prunes deleted remote refs. Explicit
+   * user calls allow askpass/editor helpers; background autofetch keeps Git in
+   * non-interactive mode so it never opens credential prompts off-screen.
+   */
+  fetchAll(options: { interactive?: boolean } = {}, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      const args = ["fetch", "--all", "--prune"];
+      if (options.interactive) {
+        await this.runWithHelpers(args, queuedSignal, { askpass: true });
+        return;
+      }
       await this.run(args, queuedSignal);
     }, signal);
   }
@@ -257,7 +576,9 @@ export class GitRepository {
    */
   pull(signal?: AbortSignal): Promise<PullResult> {
     return this.queue(async (queuedSignal) => {
-      const result = await this.run(["pull", "--no-edit"], queuedSignal);
+      const result = await this.runWithHelpers(["pull", "--no-edit"], queuedSignal, {
+        askpass: true,
+      });
       return parsePullResult(result);
     }, signal);
   }
@@ -278,11 +599,7 @@ export class GitRepository {
    * Publish keeps `assertHasHead` because the call needs `branch.current`
    * to construct argv and an unborn HEAD has no name to push.
    */
-  push(
-    force = false,
-    publish = false,
-    signal?: AbortSignal,
-  ): Promise<PushResult> {
+  push(force = false, publish = false, signal?: AbortSignal): Promise<PushResult> {
     return this.queue(async (queuedSignal) => {
       if (publish) {
         const status = await this.readStatus(queuedSignal);
@@ -304,15 +621,44 @@ export class GitRepository {
         const args = force
           ? ["push", "--force-with-lease", "-u", remote, branch.current]
           : ["push", "-u", remote, branch.current];
-        const result = await this.run(args, queuedSignal);
+        const result = await this.runWithHelpers(args, queuedSignal, { askpass: true });
         return parsePushResult(result);
       }
 
-      const result = await this.run(
+      const result = await this.runWithHelpers(
         force ? ["push", "--force-with-lease"] : ["push"],
         queuedSignal,
+        { askpass: true },
       );
       return parsePushResult(result);
+    }, signal);
+  }
+
+  /**
+   * Performs the primary Sync action in one queue slot: pull first, then push
+   * only if pull completed. A cancelled pull returns an envelope and never
+   * starts push. Typed Git pull failures return an error envelope so the
+   * renderer can show the pull failure while preserving the no-push contract;
+   * push failures still propagate.
+   */
+  sync(signal?: AbortSignal): Promise<GitSyncResult> {
+    return this.queue(async (queuedSignal) => {
+      try {
+        await this.runWithHelpers(["pull", "--no-edit"], queuedSignal, { askpass: true });
+      } catch (error) {
+        if (isAbortError(error)) return { pulled: "cancelled", pushed: "skipped" };
+        if (error instanceof GitError) {
+          return {
+            pulled: "error",
+            pushed: "skipped",
+            pullError: gitSyncErrorFromGitError(error),
+          };
+        }
+        throw error;
+      }
+
+      await this.runWithHelpers(["push"], queuedSignal, { askpass: true });
+      return { pulled: "ok", pushed: "ok" };
     }, signal);
   }
 
@@ -337,8 +683,59 @@ export class GitRepository {
    */
   stashPop(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      await this.run(["stash", "pop"], queuedSignal);
+      await popLatestStash({ bin: this.binPath, cwd: this.topLevel }, queuedSignal);
     }, signal);
+  }
+
+  /**
+   * Lists stash entries with parsed stack index, source branch, and timestamp.
+   */
+  listStashes(signal?: AbortSignal) {
+    return this.queue(
+      (queuedSignal) => listStashes({ bin: this.binPath, cwd: this.topLevel }, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Applies one stash entry without dropping it from the stash stack.
+   */
+  applyStash(index: number, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => applyStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Drops one stash entry from the stash stack.
+   */
+  dropStash(index: number, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) => dropStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Streams the patch for one stash entry as bounded text chunks.
+   */
+  async *showStash(index: number, signal?: AbortSignal) {
+    return yield* this.queueStream(
+      (queuedSignal) => showStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Stashes only the selected repository-relative paths.
+   */
+  stashGroup(paths: readonly string[], message?: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(
+      (queuedSignal) =>
+        stashGroup({ bin: this.binPath, cwd: this.topLevel }, paths, message, queuedSignal),
+      signal,
+    );
   }
 
   /**
@@ -357,6 +754,38 @@ export class GitRepository {
   }
 
   /**
+   * Reads a HEAD blob as bounded UTF-8 text for the file context menu's
+   * historical-content seam.
+   */
+  openFileAtHead(relPath: string, signal?: AbortSignal) {
+    return this.queue(
+      (queuedSignal) =>
+        readAtHead({ bin: this.binPath, cwd: this.topLevel }, relPath, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Streams a Git blob through the repository queue so large-object reads do
+   * not interleave with mutating Git operations.
+   */
+  async *getFileBlob(ref: string, relPath: string, signal?: AbortSignal) {
+    return yield* this.queueStream(
+      (queuedSignal) =>
+        streamBlob({ bin: this.binPath, cwd: this.topLevel }, ref, relPath, queuedSignal),
+      signal,
+    );
+  }
+
+  /**
+   * Appends one repository-relative path to `.gitignore` with idempotent
+   * dedupe semantics.
+   */
+  addToGitignore(relPath: string, signal?: AbortSignal) {
+    return this.queue(() => appendIgnoreEntry(this.topLevel, relPath), signal);
+  }
+
+  /**
    * Streams diff output in bounded chunks so IPC can apply back-pressure.
    */
   async *diff(
@@ -371,6 +800,38 @@ export class GitRepository {
    */
   async *log(args: GitLogArgs = {}, signal?: AbortSignal): AsyncGenerator<LogChunk, LogComplete> {
     return yield* this.queueStream((queuedSignal) => this.streamLog(args, queuedSignal), signal);
+  }
+
+  /**
+   * Reads one commit's metadata and per-file changes for the History detail
+   * pane. Merge commits intentionally return an empty file list.
+   */
+  commitDetail(sha: string, signal?: AbortSignal): Promise<CommitDetail> {
+    return this.queue((queuedSignal) => this.readCommitDetail(sha, queuedSignal), signal);
+  }
+
+  /**
+   * Searches commits using server-side Git primitives. Hex prefixes resolve to
+   * one commit detail; other text uses `git log --grep` so off-page commits
+   * are discoverable.
+   */
+  searchCommits(query: string, limit = 50, signal?: AbortSignal): Promise<CommitSearchResult> {
+    return this.queue(async (queuedSignal) => {
+      const trimmed = query.trim();
+      if (trimmed.length === 0) return { kind: "grep", entries: [] };
+
+      if (/^[0-9a-f]{4,40}$/i.test(trimmed)) {
+        const { stdout } = await this.resolveCommitPrefix(trimmed, queuedSignal);
+        const sha = stdout.trim();
+        if (!sha) throw new GitError("ref-not-found", `No commit found for '${trimmed}'.`);
+        return { kind: "sha", detail: await this.readCommitDetail(sha, queuedSignal) };
+      }
+
+      return {
+        kind: "grep",
+        entries: await this.readLogEntries({ grep: trimmed, limit }, queuedSignal),
+      };
+    }, signal);
   }
 
   /**
@@ -464,7 +925,105 @@ export class GitRepository {
    */
   private run(args: readonly string[], signal: AbortSignal): Promise<RunGitResult> {
     throwIfAborted(signal);
-    return runGit({ bin: this.binPath, cwd: this.topLevel, args, signal });
+    return runGit({ bin: this.binPath, cwd: this.topLevel, args, interactive: false, signal });
+  }
+
+  /**
+   * Runs a prompt-capable Git command with the helper socket environment
+   * scoped to this repository's workspace id.
+   */
+  private runWithHelpers(
+    args: readonly string[],
+    signal: AbortSignal,
+    helpers: BuildHelperEnvOptions,
+  ): Promise<RunGitResult> {
+    throwIfAborted(signal);
+    return runGit({
+      bin: this.binPath,
+      cwd: this.topLevel,
+      args,
+      env: buildHelperEnv({ ...helpers, workspaceId: this.workspaceId }),
+      interactive: true,
+      signal,
+    });
+  }
+
+  /**
+   * Adapts private queue-bound runners to the branch-ops helper module.
+   */
+  private branchOpsRunner(signal: AbortSignal): branchOps.GitBranchOpsRunner {
+    return {
+      run: (args) => this.run(args, signal),
+      runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
+      listBranches: () => this.readBranchList(signal),
+    };
+  }
+
+  /**
+   * Adapts private queue-bound runners to the remote helper module.
+   */
+  private remoteOpsRunner(signal: AbortSignal): remoteOps.GitRemoteRunner {
+    return {
+      run: (args) => this.run(args, signal),
+    };
+  }
+
+  /**
+   * Adapts private queue-bound runners to the tag helper module.
+   */
+  private tagOpsRunner(signal: AbortSignal): tagOps.GitTagMutationRunner {
+    return {
+      run: (args) => this.run(args, signal),
+      runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
+    };
+  }
+
+  /**
+   * Adapts private queue-bound runners to the workflow helper module.
+   */
+  private workflowRunner(signal: AbortSignal): workflow.GitWorkflowRunner {
+    return {
+      run: (args) => this.run(args, signal),
+      readStatus: () => this.readStatus(signal),
+      readOperationState: async () => {
+        const status = await this.readStatus(signal);
+        return status.operationState;
+      },
+    };
+  }
+
+  /**
+   * Adapts private queue-bound runners to the conflict helper module.
+   */
+  private conflictRunner(signal: AbortSignal): GitConflictRunner {
+    return {
+      topLevel: this.topLevel,
+      run: (args) => this.run(args, signal),
+      readStatus: () => this.readStatus(signal),
+    };
+  }
+
+  /**
+   * Runs one commit-family command while the caller already owns the queue.
+   * Inline messages use non-interactive `git commit -m`; editor-backed amend
+   * uses the helper environment so Git can open the renderer commit dialog.
+   */
+  private async commitWithinQueue(
+    message: string | undefined,
+    options: CommitCommandOptions,
+    signal: AbortSignal,
+  ): Promise<CommitResult> {
+    const args = buildCommitArgs(message, options);
+    const needsEditor = options.edit === true && message === undefined;
+
+    if (needsEditor) {
+      await this.runWithHelpers(args, signal, { editor: true });
+    } else {
+      await this.run(args, signal);
+    }
+
+    const { stdout } = await this.run(["rev-parse", "HEAD"], signal);
+    return { sha: stdout.trim() };
   }
 
   /**
@@ -483,16 +1042,20 @@ export class GitRepository {
       signal,
     );
     const status = parseV2Porcelain(stdout);
-    const [remotes, stashCount] = await Promise.all([
+    const [remotes, stashCount, tagCount, operationState, lastFetchedAt] = await Promise.all([
       this.readRemotes(signal),
       this.readStashCount(signal),
+      this.readTagCount(signal),
+      readGitOperationState(this.gitDir, { conflictCount: status.merge.length }),
+      readFetchHeadMtime(this.gitDir),
     ]);
     const capabilities: RepoCapabilities = {
       hasHEAD: status.branch !== null && !status.branch.isUnborn,
       remotes,
       stashCount,
+      tagCount,
     };
-    return { ...status, capabilities };
+    return { ...status, capabilities, operationState, lastFetchedAt };
   }
 
   /**
@@ -518,6 +1081,14 @@ export class GitRepository {
   }
 
   /**
+   * Counts local tags so menus can avoid opening an empty tag picker later.
+   */
+  private async readTagCount(signal: AbortSignal): Promise<number> {
+    const { stdout } = await this.run(["tag", "--list"], signal);
+    return stdout.split(/\r?\n/).filter((line) => line.length > 0).length;
+  }
+
+  /**
    * Snapshots local + remote branch names so checkout preflight can route a
    * bare ref to either `git checkout <local>` or `git checkout --track
    * <remote>/<ref>` without an extra round-trip.
@@ -525,10 +1096,7 @@ export class GitRepository {
   private async readBranchList(signal: AbortSignal): Promise<BranchList> {
     const status = await this.readStatus(signal);
     const local = await this.run(["branch", "--format=%(refname:short)", "--list"], signal);
-    const remote = await this.run(
-      ["branch", "--format=%(refname:short)", "--remotes"],
-      signal,
-    );
+    const remote = await this.run(["branch", "--format=%(refname:short)", "--remotes"], signal);
     return {
       current: status.branch,
       local: parseBranchLines(local.stdout),
@@ -543,43 +1111,12 @@ export class GitRepository {
     spec: DiffSpec,
     signal: AbortSignal,
   ): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
-    const args = buildDiffArgs(spec);
-    const decoder = new StringDecoder("utf8");
-    const buffers: Buffer[] = [];
-    let bufferedBytes = 0;
-    let totalBytes = 0;
-
-    const flush = (): DiffChunk | null => {
-      if (bufferedBytes === 0) return null;
-      const text = decoder.write(Buffer.concat(buffers, bufferedBytes));
-      buffers.length = 0;
-      bufferedBytes = 0;
-      return text.length > 0 ? { text } : null;
-    };
-
-    for await (const chunk of streamGit({ bin: this.binPath, cwd: this.topLevel, args, signal })) {
-      totalBytes += chunk.byteLength;
-      let offset = 0;
-      while (offset < chunk.byteLength) {
-        const remainingCapacity = DIFF_CHUNK_MAX_BYTES - bufferedBytes;
-        const take = Math.min(remainingCapacity, chunk.byteLength - offset);
-        buffers.push(chunk.subarray(offset, offset + take));
-        bufferedBytes += take;
-        offset += take;
-
-        if (bufferedBytes >= DIFF_CHUNK_MAX_BYTES) {
-          const flushed = flush();
-          if (flushed) yield flushed;
-        }
-      }
-    }
-
-    const flushed = flush();
-    if (flushed) yield flushed;
-    const trailing = decoder.end();
-    if (trailing.length > 0) yield { text: trailing };
-
-    return { bytes: totalBytes, truncated: false };
+    return yield* streamGitTextChunks({
+      bin: this.binPath,
+      cwd: this.topLevel,
+      args: buildDiffArgs(spec),
+      signal,
+    });
   }
 
   /**
@@ -635,6 +1172,48 @@ export class GitRepository {
 
     return { count, hasMore };
   }
+
+  /**
+   * Reads and parses a single commit detail while the queue slot is already
+   * held by the public caller.
+   */
+  private async readCommitDetail(sha: string, signal: AbortSignal): Promise<CommitDetail> {
+    const { stdout } = await this.run(buildCommitDetailArgs(sha), signal);
+    return parseCommitDetailOutput(stdout);
+  }
+
+  /**
+   * Resolves a user-typed SHA prefix into one commit SHA, normalizing Git's
+   * varied "unknown revision" failures into the History search contract.
+   */
+  private async resolveCommitPrefix(shaPrefix: string, signal: AbortSignal): Promise<RunGitResult> {
+    try {
+      return await this.run(["rev-parse", "--verify", `${shaPrefix}^{commit}`], signal);
+    } catch (error) {
+      if (error instanceof GitError) {
+        throw new GitError("ref-not-found", `No commit found for '${shaPrefix}'.`, {
+          argv: error.argv,
+          stderr: error.stderr,
+          stdout: error.stdout,
+          cause: error,
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Collects a bounded log stream into an array for non-streaming callers such
+   * as commit search. The underlying parser and limit behavior stay shared
+   * with `git.stream.log`.
+   */
+  private async readLogEntries(logArgs: GitLogArgs, signal: AbortSignal): Promise<LogEntry[]> {
+    const entries: LogEntry[] = [];
+    for await (const chunk of this.streamLog(logArgs, signal)) {
+      entries.push(...chunk.entries);
+    }
+    return entries;
+  }
 }
 
 /**
@@ -670,14 +1249,43 @@ function collectDiffPathspecs(spec: DiffSpec): string[] {
 }
 
 /**
+ * Builds the commit-family argv, keeping option flags before the message so
+ * `--amend`, `--allow-empty`, signing, signoff, and hook-skipping compose.
+ */
+function buildCommitArgs(message: string | undefined, options: CommitCommandOptions): string[] {
+  const trimmed = message?.trim();
+  if (!options.edit && (!trimmed || trimmed.length === 0)) {
+    throw new GitError("commit-aborted", "Commit message is required.");
+  }
+
+  const args = ["commit"];
+  if (options.amend) args.push("--amend");
+  if (options.allowEmpty) args.push("--allow-empty");
+  if (options.sign) args.push("-S");
+  if (options.signoff) args.push("--signoff");
+  if (options.noVerify) args.push("--no-verify");
+  if (options.edit) {
+    args.push("-e");
+  } else if (trimmed) {
+    args.push("-m", trimmed);
+  }
+  return args;
+}
+
+/**
  * Builds a `git log` command that fetches one extra row when paginating.
  */
 function buildLogArgs(args: GitLogArgs): string[] {
   const gitArgs = ["log", `--pretty=format:${LOG_FORMAT}`, "--date=iso-strict"];
 
+  if (args.grep && args.grep.trim().length > 0) gitArgs.push(`--grep=${args.grep.trim()}`);
   if (args.skip && args.skip > 0) gitArgs.push(`--skip=${args.skip}`);
   if (args.limit && args.limit > 0) gitArgs.push(`--max-count=${args.limit + 1}`);
-  if (args.ref && args.ref.trim().length > 0) gitArgs.push(args.ref);
+  if (args.afterSha && args.afterSha.trim().length > 0) {
+    gitArgs.push(`${args.afterSha.trim()}^@`);
+  } else if (args.ref && args.ref.trim().length > 0) {
+    gitArgs.push(args.ref);
+  }
 
   return gitArgs;
 }
@@ -730,6 +1338,48 @@ function parsePullResult(result: RunGitResult): PullResult {
     fastForward: /fast-forward/i.test(summary) || undefined,
     ...stats,
     summary: summary || undefined,
+  };
+}
+
+/**
+ * Reads `.git/FETCH_HEAD` mtime so external terminal fetches update the chip.
+ */
+async function readFetchHeadMtime(gitDir: string): Promise<number | null> {
+  try {
+    const stat = await fs.stat(path.join(gitDir, "FETCH_HEAD"));
+    return Math.trunc(stat.mtimeMs);
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Identifies a missing FETCH_HEAD without suppressing other filesystem errors.
+ */
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT"
+  );
+}
+
+/**
+ * Detects the standard AbortError shape emitted by the IPC cancellation path.
+ */
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+/**
+ * Copies the stable, renderer-facing subset of a pull GitError into the sync
+ * envelope. The full Error instance stays main-process-only; sync needs only
+ * enough detail to preserve the existing inline banner copy.
+ */
+function gitSyncErrorFromGitError(error: GitError): GitSyncError {
+  return {
+    kind: error.kind,
+    message: error.message,
+    ...(error.stderr ? { details: error.stderr } : {}),
   };
 }
 

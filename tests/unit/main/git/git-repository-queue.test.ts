@@ -32,7 +32,7 @@ function writeFakeGit(root: string): string {
   const gitBin = path.join(root, "fake-git.sh");
   const logPath = path.join(root, "git-queue.log");
   // GitRepository.readStatus issues an additional `git remote` and
-  // `git stash list` to enrich GitStatus.capabilities; the fake handles
+  // `git stash list` and `git tag --list` to enrich GitStatus.capabilities; the fake handles
   // both with empty output so the queue ordering test sees only the
   // user-relevant status:* / add:* trace events.
   const script = `#!/usr/bin/env bash
@@ -50,6 +50,9 @@ case "${"$"}1" in
     ;;
   stash)
     : # empty stash list
+    ;;
+  tag)
+    : # no tags configured
     ;;
   add)
     printf 'add:start\n' >> "${"$"}log"

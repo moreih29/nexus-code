@@ -8396,6 +8396,989 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T15:58:09.579Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 35,
+        "topic": "VSCode core git extension 대비 누락 기능 풍성화 (트랙 A 패널 UX + B 브랜치/원격/태그 + C 워크플로 + 자연 인프라)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "사이클 분해 전략 — 트랙 A/B/C + 인프라 묶음의 의존성·순서·가드(이번 사이클에 들이지 않을 항목 명시)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "의존성 그래프 + 6단계 시퀀싱(P1 인프라→P2 트랙A→P3 트랙B→P4 history/autofetch→P5 트랙C→P6 stretch) + 6개 컷 권고(3-way 충돌 UI 풀, status bar chip, submodules, history graph 토폴로지, branch protection, commit signed/no-verify를 별도 메뉴로) + 8개 cross-cutting rule + 3개 핵심 리스크(conflict UI 과소평가, askpass OS 차이, autofetch×watcher race). 핵심 메시지: P1 인프라가 모든 트랙의 prereq이므로 먼저 들어가야 추후 shotgun surgery 방지. 3-way merge editor는 별도 사이클로 분리하고 본 사이클은 \"external editor + mark-resolved + continue/abort\" MVP로 마감. status bar 컴포넌트가 없으므로 sync chip은 header에 흡수.",
+                "recorded_at": "2026-05-10T08:17:02.088Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              },
+              {
+                "role": "retrospective",
+                "summary": "End-of-cycle review ran twice. Initial HOW review found in-scope blockers: renderer helper prompt overwrite risk, publish prompt remote-footgun, stale tag reveal, and destructive text contrast. Follow-up tasks 17 and 18 resolved them with FIFO helper prompt serialization, truthful static first-remote publish prompt, tag reveal to History refs/tags/<tag>, and scoped git-destructive-text contrast coverage. Final Architect and Designer reviews returned CLOSE_OK. Verification evidence: final `bun run typecheck`, `bun test tests/unit tests/integration` (1669 pass / 1 skip / 0 fail), `bun run lint:tw`, and `git diff --check` all passed. Non-blocking coverage risks remain: Windows Git-for-Windows helper runtime, private HTTPS/SSH clone auth, and some Electron GUI interactions were not manually executed.",
+                "recorded_at": "2026-05-10T15:58:05.059Z"
+              }
+            ],
+            "decision": "**6단계 시퀀싱 + 본 사이클 컷 확정.**\n\n**채택 시퀀싱:**\n- P1 인프라 토대 (askpass, git editor hook, push error handler, GitErrorKind/ActionHint 확장, `GitOperationState` porcelain 추가)\n- P2 트랙 A 패널 UX 완성도 (file/group context, commit menu, Sync, Action button)\n- P3 트랙 B 브랜치/원격/태그 CRUD\n- P4 history/log 패널 MVP + autofetch chip(header 흡수)\n- P5 트랙 C 워크플로 (merge/rebase/cherry-pick + abort/continue, clone)\n- P6 stretch — branch protection prompt; conflict UI MVP는 P5에 포함\n\n**본 사이클 컷:**\n1. Full 3-way merge editor (Monaco diff) → \"external editor + mark-resolved + continue/abort\" MVP로 대체. Monaco 통합은 별도 사이클.\n2. Status bar branch/sync chip → 별도 status bar 컴포넌트가 없으므로 header(`GitHeader.tsx`)에 sync 인디케이터를 흡수.\n3. Submodule 지원 — 명시적 비범위; porcelain은 submodule 엔트리를 무시.\n4. History 그래프 토폴로지(레인/머지 시각화) → flat `git log --oneline` 리스트 MVP만.\n5. Branch protection prompt — P6 stretch. 서버 거부 메시지 분류가 fragile.\n6. Commit `--gpg-sign` / `--no-verify`를 별도 메뉴 항목 X → \"Commit options\" 서브메뉴로 통합해 메뉴 비대화 방지.\n\n**Cross-cutting 규칙(모든 트랙 강제):**\n1. 모든 신규 IPC mutation은 typed `GitError` + (해당 시) `GitActionHint` 반환, raw string 금지.\n2. 모든 신규 메뉴/버튼은 `RepoCapabilities` 또는 `GitOperationState` 게이트(상태 텍스트 파싱 X).\n3. 모든 long-running op은 `git-repository.ts` serial queue 경유.\n4. 모든 신규 모달/팝오버는 ESC + outside click 닫힘(c83d1ee 컨벤션).\n5. 모든 신규 picker는 `branch-picker-source.ts` interface 구현 — 베스포크 리스트 X.\n6. `src/main/git/`·`src/renderer/components/files/git/` 신규 파일은 단일 책임 — 기존 파일 비대화 X.\n7. 모든 기능 = 시나리오 테스트 1개 이상.\n8. IPC 경계 throw 금지 — 결과 envelope만.\n\n**기각 대안:**\n- \"한 번에 모두 진행\" — conflict UI 과소평가 + askpass OS 분기로 사이클이 발산함. 컷 없이는 미완성으로 끝남.\n- \"P1 인프라 없이 트랙 진행\" — 트랙 C가 git editor hook과 askpass를 무료로 가정하면 후반에 shotgun surgery로 모든 핸들러 재작업.\n- \"3-way conflict UI 풀 스코프\" — Monaco 머지 에디터는 다중-주(week) 단위 editor 작업; 본 사이클의 단일 이슈로 다루면 사이클 침몰.\n- \"status bar chip 신설 컴포넌트\" — 앱 셸 차원의 status bar가 없는데 git 사이클이 그 컨테이너까지 만드는 건 본분 이탈; header 흡수가 자연스러움.\n\n**가정:**\n- 사용자 정의 워크스페이스 진입점이 clone 후 새 워크스페이스 생성을 받아들일 수 있음. 별도 issue #5에서 구체화.\n- `git-watcher.ts`의 chokidar lock 무시 정책이 autofetch 시 충분한 디바운스를 제공함 — issue #7에서 검증."
+          },
+          {
+            "id": 2,
+            "title": "트랙 A — 패널 UX 완성도 surface 설계 (파일/그룹 컨텍스트 액션, Stash 목록, Commit 메뉴 확장, Sync, Action button)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "파일 컨텍스트 메뉴(Open File, Open Changes, Stage/Unstage, Discard, Reveal in Finder/OS, Copy Path/Relative Path, Add to .gitignore — 그룹별 hide/disable 룰), 그룹 헤더 hover-icon은 working/untracked/staged 유지하고 merge 그룹만 kebab(Stage All Resolved/Abort Merge)로 destructive 격리, 스태시 picker는 CommandPalette<T> 재사용에 키 modifier(Enter=apply / Cmd+Enter=pop / Cmd+Backspace=drop)로 secondary action — 단 footer hint slot 필요, commit 영역은 split control(action 버튼 + chevron 메뉴) — Commit options(sign/signoff/no-verify)는 nested popover 서브메뉴로 통합, action button 11-state state machine(Initialize/Make Initial Commit/Commit/Stage All/Sync/Push/Pull/Publish/Up-to-date 정지/Hidden) 정의. 오픈 이슈: onOpenDiff seam 처리 / ignored 상태 검사 방식 / palette 보조 액션 어떤 형태로 / footer hint slot 도입 시점.",
+                "recorded_at": "2026-05-10T08:20:53.073Z",
+                "agent_id": "a92c94146a6593ce7"
+              },
+              {
+                "role": "architect",
+                "summary": "신규 IPC 11개(file-handlers/ignore-handlers/stash-handlers 분리, sync-handlers 확장, system/reveal-handler 별도 모듈 — git 큐 오염 방지), 신규 git-stash.ts/git-ignore.ts/git-blob.ts 사이블링 모듈로 git-repository.ts 비대화 방지, 신규 GitErrorKind 8개(nothing-to-commit, no-parent, signing-failed, binary-too-large, file-not-in-head, path-not-in-repo, gitignore-write-failed, stash-conflict, stash-not-found) — amend-no-HEAD/sync-no-upstream은 기존 hint 재사용. BranchInfoSchema에 ahead/behind/upstream 추가(non-current 브랜치는 git for-each-ref로). RepoCapabilities는 Track A 신규 플래그 0. Sync는 단일 큐 enqueue → 순차 pull→push, push 중 취소 불가 정책, 결과 envelope { pulled, pushed }. Action button은 렌더러 스토어 derived selector(키스트로크마다 IPC 라운드트립 방지). 권고: schema/error-kind 선행 PR로 분리, git-diff-stream.ts 헬퍼를 P4 log stream과 공용으로 미리 추출.",
+                "recorded_at": "2026-05-10T08:21:01.645Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Track A surface 확정 — UX는 designer 안 채택, IPC/스키마는 architect 안 채택, 미해결 오픈 이슈는 아래로 결정.**\n\n**1. 파일 컨텍스트 메뉴(우클릭, leaf only):**\n- Open File / Open Changes / (sep) / Stage / Unstage / Discard / (sep) / Reveal in Finder|Explorer|Containing Folder / Copy Path / Copy Relative Path / (sep) / Add to .gitignore\n- 그룹별 hide/disable: staged 그룹은 Discard 숨김(unstage 먼저), merge 그룹은 .gitignore 숨김, untracked는 Open Changes 숨김. Reuse `GitMoreMenu`의 popover 프리미티브.\n- Open Changes 핸들러 미구현(`onOpenDiff` seam) 시: 메뉴 항목은 렌더하되 클릭 시 inline banner \"Diff view 곧 추가 예정\" 노출 (숨기지 않음 — discoverability 우선).\n\n**2. 그룹 헤더 액션:**\n- working / untracked / staged: 기존 hover-icon 패턴 유지 + `Stage All`/`Unstage All`/`Discard All` 추가 (working에만 Discard All)\n- merge 그룹: hover-icon 없이 kebab만 — 메뉴: `Stage All Resolved`(merge 잔여 0일 때만 활성), `Abort Merge`(destructive, confirm)\n- 그룹 우클릭 → \"Stash Changes in Group\"\n\n**3. Stash picker:**\n- `CommandPalette<T>` 재사용, 신규 source `git.stash-picker`, `searchOnEmptyQuery: true`\n- Item: `stash@{n} <subject>` + 상대시간 description + branch kindLabel\n- Modifier 보조 액션: Enter=apply, Cmd/Ctrl+Enter=pop, Cmd/Ctrl+Backspace=drop(confirm)\n- **PaletteSource 확장**: `accept(item, ctx)`에 `ctx.modifiers: { meta, ctrl, alt, shift }` 추가\n- **Command palette frame에 footer hint slot 도입** — modifier 안내(non-blocking 추가, branch picker도 차후 활용 가능). 본 이슈에서 함께 진행.\n\n**4. Commit area 재설계:**\n- Split control = action button + chevron, `GitCommitButton.tsx` 일반화\n- Chevron 메뉴 동적: action 라벨이 Commit 계열일 때 — `Commit Staged` / `Commit All` / `Amend Last Commit` / `Commit & Push` / `Commit Empty` / (sep) / `Undo Last Commit` / (sep) / `Commit Options` 서브메뉴(Sign / Signoff / Skip hooks). Sync 계열일 때 — `Push only` / `Pull only`로 교체.\n- Commit options 토글은 워크스페이스별 sticky persistence (기존 `git_panel_state`에 추가).\n\n**5. Action button state machine — 11-state, 평가 순서 top-to-bottom:**\n1. non-repo → \"Initialize Repository\"\n2. unborn + staged + draft → \"Make Initial Commit\"\n3. unborn + (no staged or no draft) → \"Commit\"(disabled, hint)\n4. staged + draft → \"Commit\"\n5. !staged + working/untracked → \"Stage All\"\n6. clean + ahead>0 + behind>0 → \"Sync\"\n7. clean + ahead>0 + upstream → \"Push\"\n8. clean + behind>0 + ahead==0 → \"Pull\"\n9. clean + !upstream + remote + hasHEAD → \"Publish Branch\"\n10. clean + no remote → 정적 라벨 \"No remote configured\"\n11. clean + up-to-date → 정적 라벨 \"Up to date\" (히든 X — 상태 피드백)\n\n**6. IPC/스키마/모듈 (architect 안):**\n- 신규 채널: `git.openFileAtHead`, `git.getFileBlob`(stream), `git.addToGitignore`, `git.stashList`, `git.stashApply`, `git.stashDrop`, `git.stashShow`(stream), `git.commitAmend`, `git.undoLastCommit`, `git.commitEmpty`, `git.sync`. Plus `system.revealInOS` (별도 모듈, git 큐 X).\n- 신규 모듈: `src/main/git/git-stash.ts`, `git-ignore.ts`, `git-blob.ts`, `src/main/ipc/channels/git/file-handlers.ts`, `ignore-handlers.ts`, `stash-handlers.ts`, `src/main/ipc/channels/system/reveal-handler.ts`. `git-repository.ts`에 thin wrapper만.\n- **`git-diff-stream.ts` 공용 헬퍼 미리 추출** — stash show + P4 log stream 양쪽 사용.\n- 신규 GitErrorKind 8개(`nothing-to-commit`, `no-parent`, `signing-failed`, `binary-too-large`, `file-not-in-head`, `path-not-in-repo`, `gitignore-write-failed`, `stash-conflict`, `stash-not-found`). amend-no-HEAD / sync-no-upstream은 기존 `make-initial-commit` / `publish-branch` hint 재사용.\n- 신규 hint variant: `configure-signing` (signing-failed에서 settings deep-link).\n- BranchInfoSchema에 `ahead/behind/upstream` 추가. porcelain header가 이미 current branch는 제공 — 변경 없음. Non-current 브랜치는 `branch-picker-source`에서 `git for-each-ref` 사용.\n- StashEntrySchema 신규 (`index, sha, message, branch, createdAt`).\n- RepoCapabilities 신규 플래그 X — Track A는 기존 플래그로 충분.\n\n**7. Sync semantics:**\n- 단일 큐 enqueue, 내부 순차 pull→push. 결과 envelope `{ pulled: 'ok'|'cancelled'|'error', pushed: 'ok'|'skipped'|'error' }`.\n- Pull 중 취소 → push 미실행. Push 중 취소 불가(데이터 무결성).\n- Pull conflict → push 미실행, `stash-conflict|merge-conflict` 에러 반환.\n\n**8. Action button derivation:**\n- 렌더러 스토어 derived selector — 신규 `src/renderer/state/selectors/git-action-button.ts`. 입력: RepoCapabilities + BranchInfo + dirty count + commit draft. React 무관, 단위 테스트 가능.\n\n**미해결 오픈 이슈 결정:**\n- **Open Changes seam 미구현 시** → 메뉴 표시 + inline banner placeholder (디자이너 권고 채택).\n- **.gitignore is-ignored 검사** → 경량으로 가지 않음. Idempotent append-if-missing — `git check-ignore -v` 라운드트립 비용이 메뉴 hover마다 발생할 위험. UI는 항상 활성, 동작이 멱등.\n- **Palette modifier secondary actions** → `accept(item, ctx)` + footer hint slot 둘 다 본 이슈에 포함.\n- **Undo Last Commit 첫 커밋** → `no-parent` 에러로 surface. 사전 disable은 추가 capability 필요(`headHasParent`) — 비용 대비 가치 낮음. 시도 후 typed error로 안내가 충분.\n\n**기각 대안:**\n- \"merge 그룹도 hover-icon 통일\" — destructive(Abort/Stage All Resolved)를 우발 트리거 위험. kebab으로 격리하는 designer 안 유지.\n- \"Action button을 main 측에서 계산\" — commit 입력 키스트로크마다 IPC RTT는 비합리적. 렌더러 selector 채택.\n- \"IPC `git.sync`를 두 개 큐 enqueue\" — 사이에 다른 op이 끼어들 수 있어 무결성 위반.\n- \"`.gitignore` 경로별 사전 검사\" — 위 결정 참조.\n- \"Commit options(signed/no-verify)를 메뉴 톱-레벨 항목\" — issue #1 컷 결정에 따라 서브메뉴 통합.\n- \"stash apply/pop/drop을 별도 sub-palette\" — 새 모달 패턴 발명 금지(cross-cutting rule). modifier 채택.\n\n**가정:**\n- `git_panel_state`(이전 사이클 schema)에 commit option toggles 컬럼을 마이그레이션 v5로 추가 — DB 마이그레이션 절차는 기존 `WORKSPACE_DB_MIGRATIONS` 컨벤션 따름.\n- Footer hint slot은 `command-palette-frame.tsx`에 추가 prop으로 비파괴 도입(기존 BranchPicker 영향 최소)."
+          },
+          {
+            "id": 3,
+            "title": "트랙 B — 브랜치/원격/태그 관리 surface 설계 (delete/rename/upstream/fast-forward, remote add/remove, tag create/delete)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Branch ops는 GitBranchPopover 푸터-메뉴 영역에 배치(Checkout to/Create branch/Create from ref → Rename/Set upstream/Fast-forward → Delete divider). BranchPicker는 fork 없이 modifier-accept으로 secondary action 확장(Enter checkout / Cmd+Enter checkout-tracking / Cmd+Backspace delete / Cmd+R rename / Cmd+U set-upstream). Create-from-ref은 별도 source `git.ref-picker`(branches+tags+recent commits). Remote는 GitMoreMenu \"Remotes\" 서브메뉴 + PromptDialog(name+URL, 인라인 URL 패턴 검증, 네트워크 probe 금지) / 제거는 ConfirmDiscardDialog(현재 브랜치 upstream인 경우 인라인 경고). Tag는 GitMoreMenu \"Tags…\" → `git.tag-picker`(searchOnEmptyQuery, modifier-accept으로 reveal/delete-local/delete-local+remote). Create tag PromptDialog에 message 필드 — 있으면 annotated, 없으면 lightweight(헬퍼 텍스트로 명시). Delete tag confirm에 \"Also delete on origin\" 체크박스 기본 OFF. Force delete 토글 기본 OFF. Action button 상태기는 capability/branch_info 변화로 자동 전이 — 별도 wiring 불필요. Caveat: fast-forward는 비-current 브랜치 ahead/behind 캐시 무효화 필요(architect 영역). Open: Cmd+R 단축키가 기존 palette controller 단축키와 충돌하는지 검증.",
+                "recorded_at": "2026-05-10T08:24:36.674Z",
+                "agent_id": "acaac1f7b2f7c9c0b"
+              },
+              {
+                "role": "architect",
+                "summary": "신규 IPC 12개(deleteBranch는 local-only, deleteRemoteBranch 분리 — 오류 분류 비대칭이 critical), renameBranch / setUpstream(null=unset) / fastForwardBranch(`git fetch <remote> <remoteRef>:<branch>` + advanced:false 정상값) / createBranch fromRef 확장 / addRemote / removeRemote / listTags / createTag(message 있으면 annotated) / deleteTag / deleteRemoteTag. 신규 모듈 git-branch-ops.ts/git-remote.ts/git-tag.ts(siblings, git-repository.ts thin wrapper만). 신규 GitErrorKind 9개(branch-not-fully-merged → hint=force-delete-available, branch-checked-out, branch-name-invalid, branch-exists, remote-exists, remote-name-invalid, remote-url-invalid, tag-exists, tag-not-found, tag-name-invalid, upstream-invalid) — auth-required와 remote-protocol-rejected 분리 유지(retry 전략이 다름). RepoCapabilities에 tagCount 추가(stashCount와 같은 정당화). 모든 mutation은 큐 경유 + 성공 후 gitRegistry.bumpGeneration(workspaceId) 호출 — chokidar config 이벤트 비신뢰. Listing(listTags)은 큐 우회. **renameRemote 컷** — 트래픽 낮고 remove+add로 우회 가능. fastForwardBranch는 advanced:false에도 bump(FETCH_HEAD 변경).",
+                "recorded_at": "2026-05-10T08:24:45.822Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Track B 확정 — UX는 designer 안 + IPC/스키마는 architect 안. rename remote 컷.**\n\n**1. 진입점 + 순서:**\n- Branch ops (delete/rename/set-upstream/fast-forward) → `GitBranchPopover.tsx` 푸터 메뉴 영역. 순서: Checkout to / Create branch / **Create from ref** / (sep) / Rename / Set upstream / Fast-forward / (sep) / Delete (destructive).\n- Remote add/remove → `GitMoreMenu.tsx`의 \"Remotes\" 서브메뉴.\n- Tag list/create/delete → `GitMoreMenu.tsx`의 \"Tags…\" → `git.tag-picker` palette.\n- 모든 disabled 항목은 위치 유지 + tooltip으로 게이트 사유 노출(`hasHEAD`, `remotes.length===0`, `ahead/behind` 등).\n\n**2. BranchPicker 확장(fork 없이):**\n- Modifier-accept 추가: Enter=checkout, Cmd/Ctrl+Enter=checkout-tracking, Cmd/Ctrl+Backspace=delete, Cmd/Ctrl+R=rename, Cmd/Ctrl+U=set-upstream.\n- Footer hint slot(이슈 #2 결정)으로 단축키 노출.\n- Right-click on row → 동일 메뉴(consistency).\n- \"Create from ref\"는 별도 source `git.ref-picker`(branches + tags + recent commits)로 분리. BranchPicker가 \"Checkout to…\" 본분을 유지하기 위함.\n\n**3. Remote management UX:**\n- Add: PromptDialog(name + URL). 인라인 URL 패턴 검증(`https://`, `git@`, `ssh://`, `file://`); 빈 값 비활성. 네트워크 probe 없음 — `git remote add` 에러를 typed로 surface.\n- Remove: ConfirmDiscardDialog. 현재 브랜치 upstream이면 인라인 경고(\"`<branch>` tracks `<remote>/...` Removing detaches upstream tracking.\") — 색상 X, 텍스트 only.\n- **Rename remote 컷** — 트래픽 낮음, remove+add로 우회 가능.\n\n**4. Tag management UX:**\n- `git.tag-picker` palette source — searchOnEmptyQuery, modifier-accept(Enter=reveal/jump to commit, Cmd/Ctrl+Backspace=delete local, Shift+Cmd/Ctrl+Backspace=delete local + remote).\n- Create tag: PromptDialog(name 필수, message 선택; message 있으면 annotated, 없으면 lightweight — 헬퍼 텍스트로 명시). 기본 ref=HEAD; \"at ref…\" 링크로 `git.ref-picker` 호출.\n- Delete tag: ConfirmDiscardDialog(이름 + 짧은 SHA). \"Also delete on `origin`\" 체크박스 기본 OFF. Remotes 없으면 비활성.\n\n**5. Per-action 가드:**\n- Delete current branch → 행 자체 picker에서 숨김.\n- Delete merged → 단순 confirm.\n- Delete unmerged → confirm + \"Force delete\" 토글(기본 OFF) → 토글 시 추가 라인 \"Commits will be unreachable\".\n- Delete remote branch → confirm + \"This affects the remote\" 서브라인. `remotes.length===0`일 때 항목 숨김.\n- Set upstream → `remotes.length===0` 비활성.\n- Fast-forward → `!upstream` 비활성, `behind===0`이면 행 비활성(\"Already up to date\").\n- Remove remote = 현재 upstream → detach 경고 라인 추가.\n- Create tag → `!hasHEAD` 비활성.\n- Delete tag → confirm.\n- Delete remote tag → confirm + 서브라인 \"Tag will be removed from `<remote>`\".\n\n**6. IPC/스키마/모듈 (architect 안):**\n- 신규 채널 12개: `git.deleteBranch{name, force}` (local only), `git.deleteRemoteBranch{remote, name}` (분리 — 오류 surface 비대칭이 critical), `git.renameBranch`, `git.setUpstream{branch, upstream|null}`, `git.fastForwardBranch{branch, remote, remoteRef}` (`fetch <remote> <remoteRef>:<branch>`, advanced:false 정상값), `git.createBranch` 확장(fromRef? + checkout?), `git.addRemote`, `git.removeRemote`, `git.listTags`, `git.createTag` (message 있으면 annotated), `git.deleteTag`, `git.deleteRemoteTag`.\n- 신규 모듈: `src/main/git/git-branch-ops.ts`, `git-remote.ts`, `git-tag.ts` (siblings, `git-repository.ts`에 thin wrapper만). 핸들러 분리: `src/main/ipc/channels/git/branch-ops-handlers.ts`, `remote-handlers.ts`, `tag-handlers.ts` 신규(기존 `branch-handlers.ts`는 list만 유지).\n- 신규 GitErrorKind 11개: `branch-not-fully-merged`(hint=`force-delete-available` 신규 variant), `branch-checked-out`, `branch-name-invalid`, `branch-exists`, `remote-exists`, `remote-name-invalid`, `remote-url-invalid`, `tag-exists`, `tag-not-found`, `tag-name-invalid`, `upstream-invalid`. **`auth-required`와 `remote-protocol-rejected` 분리 유지** — retry 전략이 다름(askpass vs 사용자 메시지). `remote-not-found`는 기존 `add-remote` hint 재사용.\n- 스키마: TagSchema(name, sha, message|null, type, taggerDate). RepoCapabilities에 `tagCount` 추가(stashCount와 동일 정당화).\n- BranchInfoSchema 추가는 #2 결정으로 충분.\n\n**7. 큐/캐시 무효화:**\n- 모든 mutation은 per-repo serial queue(`git-repository.ts`) 경유.\n- Read-only(`listTags`)는 큐 우회.\n- **모든 mutation 핸들러는 성공 후 `gitRegistry.bumpGeneration(workspaceId)` 호출** — chokidar 이벤트가 macOS에서 `.git/config` coalesce될 수 있어 watcher 의존 금지. RepoCapabilities + branch list + remote list + tag list 재계산.\n- `fastForwardBranch`는 `advanced:false`(이미 최신)에도 bump — `FETCH_HEAD` 변경 반영.\n\n**8. 충돌 검증(designer open):**\n- `Cmd/Ctrl+R` 등 modifier 단축키가 `command-palette/controller.ts` 기존 단축키(현재 Enter, Esc만 사용)와 충돌하지 않음 — 별도 검증 task로 분리.\n\n**기각 대안:**\n- \"deleteBranch + deleteRemoteBranch 단일화\" — 오류 분류, askpass 필요 여부, undo 비용(reflog vs irreversible)이 비대칭. critical asymmetry를 한 핸들러에 묶으면 hint/recovery 로직이 망가짐.\n- \"rename remote 포함\" — 트래픽 낮음, remove+add 우회 가능, 핸들러+모듈+테스트 비용이 본 사이클 분량을 키움. 사이클 P3 분량 안에서 컷.\n- \"auth-required 와 remote-protocol-rejected 통합\" — 전자는 askpass 재시도, 후자는 사용자에게 메시지 표시(pre-receive hook 등). 통합 시 retry 전략 분기 불가.\n- \"watcher만으로 capability 갱신\" — chokidar config event coalesce로 stale UI 발생. 명시적 bumpGeneration 필수.\n- \"annotated/lightweight 토글\" — UI 모드 토글이 직관 떨어짐. message 입력이 곧 annotated인 explicit-by-presence 유지.\n\n**가정:**\n- BranchPicker가 동시에 read 중인 상태에서 `bumpGeneration` 발생 시 picker re-fetch — 이미 있는 generation 패턴이 처리(branch-picker-source가 abort signal 인식)."
+          },
+          {
+            "id": 4,
+            "title": "트랙 C — 워크플로 ops + 충돌 UI 설계 (merge/rebase/cherry-pick + abort/continue, 3-way conflict resolution UI)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "진입점: GitMoreMenu 신규 섹션(Merge Branch…/Rebase Branch…/Cherry Pick…) + GitBranchPopover의 secondary 버튼(Merge into…/Rebase onto…). Cherry-pick은 popover 미배치(commit-pivoted). Picker는 BranchPicker 셸 재사용 + 소스 fork: `git.merge-target-picker`(Create new branch 행 제거, current 제거), `git.rebase-target-picker`, `git.commit-picker`(commit identity, ref와 분리). OperationBanner — GitInlineBanner의 thin variant, 항상 가시(merge group 위), Continue(primary, conflicts>0면 비활성)+Abort(ghost, destructive) **단일 소유** — 이슈 #2의 \"Abort Merge\" kebab 제거, 메뉴 중복 X. 작업 진행 중에는 GitCommitButton 영역을 banner의 Continue/Abort로 **교체**. Conflict row는 hover에 Mark resolved/Open in external editor/Discard, 컨텍스트 메뉴는 Open Diff/Open in External Editor/Mark Resolved/(Take Ours/Theirs/Both는 disabled with \"Available with the merge editor\" — 머지/리베이스에서 ours/theirs perspective inversion으로 silent data loss footgun). Default click=diff(wt-vs-head). MergeOptionsDialog 3 radio(Create merge commit/Fast-forward/Squash and commit manually) + 하단 squash 설명. Squash는 staged 상태로 종료 → 일반 commit 흐름으로 자연 합류, 별도 \"complete squash\" 버튼 X. Rebase 진행도는 banner 타이틀에 step k/N + 현재 적용 commit 제목; total 미상이면 \"step ?/?\" 금지. CRITICAL gap: shell.openPath IPC 미존재 — Architect 신규 추가 필요(현재 fs/move-handlers.ts에는 showItemInFolder만).",
+                "recorded_at": "2026-05-10T08:29:44.206Z",
+                "agent_id": "a51d0432b242da632"
+              },
+              {
+                "role": "architect",
+                "summary": "GitOperationState 스키마: discriminated union(none/merge{headRef,mergeRef,conflictCount}/rebase{variant: 'interactive'|'apply'|'merge', headRef, ontoRef, doneCount, totalCount, conflictCount}/cherry-pick{sourceSha, conflictCount}/revert{sourceSha, conflictCount}). revert도 day1부터(zero cost, 닫힌 union으로 외부 터미널 revert도 안전). rebase variant 분리(continue/abort 명령이 다름). 검출: **신규 sibling git-operation-state.ts**(porcelain-v2와 분리 — porcelain은 git status stdout 파싱, op state는 .git 파일 inspection). 검출 순서: MERGE_HEAD/rebase-merge/rebase-apply/CHERRY_PICK_HEAD/REVERT_HEAD. conflictCount는 porcelain의 u 라인에서만 — single source of truth. **Conflicts는 error가 아닌 success**: `{ result: 'clean'|'conflicts', conflictCount }` 반환. 에러는 진짜 실패(*-already-in-progress, dirty-tree, no-merge-base, unrelated-histories, ref-not-found, empty-commit, no-operation-in-progress, unresolved-conflicts, path-not-conflicted, no-operation)로 한정. **abortOp/continueOp은 client op 파라미터 무시** — main이 .git 디스크 상태를 직접 읽어 dispatch(렌더러 stale 회피). 큐는 짧게 enqueue+release — 사람 시간 동안 큐 holding 절대 X. markResolved → bumpGeneration → conflictCount 갱신; 0이 되어도 kind는 자동 'none' 전이 X(MERGE_HEAD 존재 그대로) — 렌더러가 \"Ready to continue\" affordance를 derive. 신규 IPC: git.merge/rebase/cherryPick/abortOp/continueOp/markResolved + checkoutOurs/checkoutTheirs(checkoutBoth는 cut — `--both` 옵션 부재). conflictType 신규 필드(both-modified/both-added/both-deleted/UD/DU/AU/UA) — 호출지마다 X/Y 재해석 방지. **신규 system.openPathExternal IPC**(shell.openPath, git.* 아님) — Track A \"open file at HEAD\"와 Track C 외부 에디터 열기에 공유. git-watcher 디바운스 ≥100ms 권고(rebase 단계마다 .git/rebase-merge/ 변동).",
+                "recorded_at": "2026-05-10T08:30:03.000Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Track C 워크플로 + 충돌 MVP 확정 — designer/architect 모두 채택, Take Ours/Theirs는 IPC도 컷.**\n\n**1. 진입점:**\n- `GitMoreMenu`에 신규 섹션: **Merge Branch…**, **Rebase Branch…**, **Cherry Pick…**. `hasHEAD` 게이트.\n- `GitBranchPopover`에 secondary: **Merge into…**, **Rebase onto…**(현재 브랜치 컨텍스트 단축).\n- Cherry-pick은 popover 미배치(commit-pivoted).\n\n**2. Picker:**\n- `BranchPicker` 셸 재사용, 소스 fork: `git.merge-target-picker`, `git.rebase-target-picker`, `git.commit-picker`. 각각 별도 파일(mission.md 모듈화).\n- merge/rebase target source는 \"Create new branch\" 행 + current 제거.\n- `git.commit-picker`는 ref-picker와 분리(commit identity ≠ moving label) — label/kindLabel/description: subject/shortSha/`<author> · <relTime>`. 첫 행 \"Pick from <current>\", 두 번째 헤더 \"Pick from another branch…\"로 두-단계(branches × commits 한 리스트는 Hick).\n- Multi-pick 컷(MVP).\n\n**3. OperationBanner — 단일 소유, 항상 가시:**\n- `GitInlineBanner`의 thin variant. `GitPanel.tsx` 머지 그룹 위 도킹.\n- Continue(primary, `conflictCount>0`이면 aria-disabled + tooltip \"Resolve N conflicts first.\") + Abort(ghost destructive). 위치 고정(spatial constancy).\n- **이슈 #2의 \"Abort Merge\" kebab 제거** — banner가 owner.\n- 작업 진행 중에는 `GitCommitButton` 영역을 banner의 Continue/Abort 페어로 **교체**(one immediate action 가시).\n- 메시지 표(ops × conflicts) 디자이너 안 채택.\n- States 커버: in-progress(conflicts) / in-progress(clean) / continuing / aborting / op-failed(variant=error + Retry/Abort).\n- accessibility: `role=\"status\"` / `role=\"alert\"`, Mark resolved 아이콘 버튼은 `aria-label=\"Mark <path> resolved\"` (path 포함).\n\n**4. Conflict file row:**\n- Default click → diff `kind: \"wt-vs-head\"`(working tree에 conflict marker 포함).\n- Hover icons: Mark resolved / Open in external editor / Discard.\n- Context menu(이슈 #2 row 메뉴 확장): Open Diff / Open in External Editor / Mark Resolved / sep / **Take Ours**(disabled, \"Available with the merge editor\") / **Take Theirs**(disabled) / sep / Discard.\n- **Take Ours / Theirs / Both — IPC도 컷**(architect 안 reverse). designer의 perspective-inversion footgun(rebase에서 ours/theirs 의미 반전 → silent data loss) 우려가 결정적. 메뉴 항목은 surface area 보존을 위해 disabled로 유지하되 IPC도 추가하지 않음 — UI consumer 없는 백엔드는 dead code.\n\n**5. MergeOptionsDialog:**\n- merge-target-picker가 ref 결정 → Dialog 3 radio: `Create a merge commit`(default) / `Fast-forward when possible` / `Squash and commit manually`. 하단 squash 설명(\"squash는 자동 커밋 X — 직접 커밋하세요\").\n- 버튼 라벨은 선택에 따라 변동: `Merge` ↔ `Squash`.\n- Squash 결과는 staged + no MERGE_HEAD → 기존 commit 흐름으로 자연 합류. 별도 \"complete squash\" 버튼 X.\n\n**6. Rebase 진행도:**\n- Banner 타이틀에 `step k of N · N conflicts remain` + 적용 중인 commit subject.\n- `total` 미상 시 \"step ?/?\" 금지 — 단순 \"Rebasing onto <base>\".\n- step/conflicts 변할 때만 re-render(스토어 셀렉터 메모).\n\n**7. GitOperationState 스키마 + 검출(architect 안):**\n- Discriminated union: `none | merge{headRef, mergeRef, conflictCount} | rebase{variant: 'interactive'|'apply'|'merge', headRef, ontoRef, doneCount, totalCount, conflictCount} | cherry-pick{sourceSha, conflictCount} | revert{sourceSha, conflictCount}`. revert 포함(zero cost, 외부 터미널 revert도 안전 처리).\n- rebase variant 분리(continue/abort 커맨드 차이).\n- 검출 모듈 **신규 `src/main/git/git-operation-state.ts`**(porcelain-v2 분리 — 입력/실패 모드 다름, axis of change 다름). 순서: `MERGE_HEAD` → `rebase-merge/` → `rebase-apply/` → `CHERRY_PICK_HEAD` → `REVERT_HEAD`. 진행도는 `rebase-merge/msgnum`+`end` 또는 `rebase-apply/next`+`last`.\n- `conflictCount`는 porcelain `u` 라인에서만 — single source of truth.\n- `git-watcher`가 이 마커 디렉토리들을 **lock-ignore에서 제외**하는지 사전 감사(audit).\n- `git-watcher` 디바운스 ≥100ms (rebase 단계 storm 방지).\n- `GitStatus`에 `operationState: GitOperationState` 추가, status refresh 시 1회 계산.\n\n**8. 신규 IPC:**\n- `git.merge({ branch, mode })` → `{ result: 'clean'|'conflicts', conflictCount } | GitError(...)`\n- `git.rebase({ onto })` → `{ result, conflictCount, doneCount, totalCount }`\n- `git.cherryPick({ sha })` → `{ result, conflictCount }`\n- `git.abortOp({ workspaceId })` — **op 파라미터 없음**, main이 disk state로 dispatch\n- `git.continueOp({ workspaceId })` — 동일\n- `git.markResolved({ paths })` → `{ remainingConflicts }` (semantic이라 git.add와 분리)\n- **`system.openPathExternal({ absPath })`** — `shell.openPath`, git.* 아님. Track A \"open file at HEAD\" 외부 보기 옵션도 공유.\n- 모듈: `src/main/ipc/channels/git/workflow-handlers.ts`(신규), `src/main/ipc/channels/system/open-path-handler.ts`(신규).\n\n**9. 에러/Hint:**\n- **Conflicts는 success** — error 아님. `result: 'conflicts'` envelope.\n- 신규 GitErrorKind: `merge-already-in-progress`, `rebase-already-in-progress`, `cherry-pick-already-in-progress`, `no-operation-in-progress`, `unresolved-conflicts`, `unrelated-histories`(hint=`{ kind: 'allow-unrelated-histories' }`), `no-merge-base`, `empty-commit`(hint=`{ kind: 'allow-empty' }` cherry-pick용), `path-not-conflicted`.\n- Reuse: `dirty-tree`, `ref-not-found`, `branch-not-found`.\n\n**10. 큐/Generation:**\n- 모든 워크플로 op은 짧게 enqueue/finish — 사람 시간 동안 큐 holding 금지(unrelated reads 굶김 방지).\n- `markResolved` → `bumpGeneration`. `conflictCount===0`이어도 server-side는 `kind` 자동 전이 X — 렌더러가 `kind!=='none' && conflictCount===0`로 \"Ready to continue\" derive.\n\n**11. Conflict 분류:**\n- `GitStatusEntry.conflictType: 'both-modified'|'both-added'|'both-deleted'|'us-modified-them-deleted'|'them-modified-us-deleted'|'us-added-them-modified'|'them-added-us-modified'|null`. 호출지마다 X/Y 재해석 방지.\n\n**12. Squash 자동 메시지:**\n- `--squash` 성공 → commit 입력 draft 자동 채움(`Squash merge of '<theirs>'\\n\\n* <subject 1>...` git 기본 squash msg).\n\n**기각 대안:**\n- \"abort/continue가 client `op` 파라미터로 dispatch\" — 렌더러 view stale 시 잘못된 op abort 가능. main이 disk state 단일 진실 원칙.\n- \"Conflicts를 GitError로\" — 렌더러가 `error.kind`로 non-error UI를 만들어야 해서 contract 도치. expected outcome은 envelope success.\n- \"porcelain-v2가 op state 함께 파싱\" — git status stdout(파서) vs .git 파일 inspection(시스템) 입력/실패 모드 다름. axis of change 다른 책임 분리.\n- \"큐를 op 종료까지 holding\" — 사람 시간 동안 status refresh/branch list/log read 굶음. 본 사이클의 watcher+capability 시스템과 충돌.\n- \"Take Ours/Theirs 메뉴 활성화\" — rebase 시 ours/theirs 의미 반전(replays your commits onto theirs). 패널에서 disambiguation 없이 노출 시 silent data loss footgun. 메뉴는 disabled 유지(surface area 보존), IPC는 미구현(dead code 방지).\n- \"Take Both 채택\" — `git checkout --both` 부재. 마커 편집/`merge-file` 별도 디자인 문제. 메뉴에서 surface 컷.\n- \"Abort 메뉴 항목 kebab + banner 동시\" — 같은 의미 두 위치는 Consistency 위반 + 사용자 혼동. banner 단일 소유.\n- \"OperationBanner를 menu 안에 숨김\" — 시스템 상태는 항상 perceivable해야 함(Load & Flow). 항상 가시.\n\n**가정:**\n- 디자이너 CRITICAL(`fs.openPath` 미존재) → architect 안의 `system.openPathExternal`로 해결. 새 IPC 모듈 추가 확정.\n- `git-preflight.ts`가 op-state shape 노출 — 본 결정에서 `git-operation-state.ts` 신규 모듈로 분리. preflight는 작업 진입 전 검증 책임만.\n- i18n은 본 사이클 비범위(mission.md 미명시); 영문 하드코딩 유지."
+          },
+          {
+            "id": 5,
+            "title": "트랙 C — Clone repo 흐름 + 워크스페이스 통합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "진입점: Command Palette `Git: Clone Repository…`(canonical) + 빈 워크스페이스 Welcome 어포던스 + File 메뉴. **GitMoreMenu에는 절대 X**(Consistency 위반 — workspace-scoped지 repo-scoped 아님). 단일 multi-field 다이얼로그(wizard X — 3필드 task에 wizard는 extrinsic load): URL(autofocus, monospace, 인라인 패턴 검증, blur 시 basename 파생) → Parent dir(read-only path + Choose…, last-used 또는 ~ 폴백, writable 검증) → Folder name(prefilled, 라이브 미리보기 \"Will clone to: …\") → Branch(optional placeholder \"default branch\") → Advanced ▸ disclosure(recurse submodules). 인라인 즉시 검증, submit URL+parent valid 시까지 비활성. 진행은 in-modal progress(modal stays open) + indeterminate bar + last stderr 라인. Cancel 버튼이 Clone CTA 교체, >50% 진행시만 confirm. Post-clone: default **Open in new window**(다중 워크스페이스 강점, 비파괴), secondary \"Add to workspaces\", tertiary \"Open in current window\"(현재 워크스페이스가 dirty면 경고 글리프). Submodules는 collapsed Advanced 체크박스 1개. 7개 에러 상태 인라인 banner copy. 미해결: PromptDialog 다중 필드 확장 vs FormDialog 신규 / workspace 매니저 API / 현재 워크스페이스 dirty probe.",
+                "recorded_at": "2026-05-10T08:33:49.047Z",
+                "agent_id": "a8aa9647fcb505ed3"
+              },
+              {
+                "role": "architect",
+                "summary": "**Stream IPC** `git.stream.clone({url, destination, name?, branch?, recurseSubmodules?})` → CloneEvent stream(started/progress{phase, pct, received?, total?}/phase/complete/cancelled{cleaned}). `git-process.ts` AbortSignal 이미 지원. **사전 존재 디렉토리 거부**(cleanup 모호함 제거) — name 우리가 만든 디렉토리만 SIGTERM 후 fs.rm. Progress는 main 파싱(stderr `\\r` 덮어쓰기 라인은 단일 파서가 정답): regex 5개(counting/compressing/receiving/resolving/checkout) — 신규 `src/main/git/git-clone-progress.ts`. 20/sec 스로틀(IPC 플러드 방지). 입력 검증: path.isAbsolute, parent W_OK, name `[A-Za-z0-9._-]+` ≤255 + 경로 separator/leading dot 금지. 신규 GitErrorKind 5개: clone-destination-invalid/not-writable/exists, clone-name-invalid, clone-url-invalid + 기존 auth-required, ref-not-found 재사용. **Clone IPC와 workspace 등록 IPC 분리 강력 권고** — 두 failure domain 결합 시 클론 성공 + 등록 실패가 owned dir을 hide함. 렌더러가 clone 완료 후 `workspace.create({ rootPath, name })`(기존 IPC) 호출. WorkspaceManager는 `src/main/workspace/workspace-manager.ts`에 `create` 진입점 확정. GitRegistry는 workspaceId 인덱스 — `getOrDetect`가 새 워크스페이스에서 lazy 감지. **Submodules 플래그 지원, UI 미렌더** — `--recurse-submodules` 한 플래그 비용 vs 사용자 가치 압도적. **Clone은 본 사이클의 큐 예외 단 하나** — 등록 전이라 GitRepository 인스턴스 없음. `git-clone.ts` 헤더에 명시. SSH passphrase는 `SSH_ASKPASS` + `SSH_ASKPASS_REQUIRE=force` + `detached:true` 필수.",
+                "recorded_at": "2026-05-10T08:34:03.104Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Clone 흐름 + 워크스페이스 통합 확정 — designer/architect 모두 채택.**\n\n**1. 진입점:**\n- Canonical: Command Palette `Git: Clone Repository…`\n- Secondary: 빈 워크스페이스 Welcome 어포던스(Open Folder…와 동등 weight)\n- 표준: File → Clone Repository…\n- **Reject GitMoreMenu 항목** (workspace-scoped op이지 repo-scoped 아님 → Consistency 위반)\n\n**2. 다이얼로그:**\n- 단일 multi-field. Wizard 컷(3-4필드 task에 wizard는 extrinsic load).\n- 다중 필드 호스팅 위해 **신규 `FormDialog`를 PromptDialog 프레임 재사용해서 sibling 도입** — 기존 모달 스타일 변경 X(cycle rule 준수). PromptDialog 자체 확장 X(단일 필드 본분 유지).\n- 필드: URL(autofocus, monospace) → Parent dir(read-only + Choose… 버튼, native dialog.showOpenDialog) → Folder name(prefilled, 라이브 preview \"Will clone to: …\") → Branch(optional) → `Advanced ▸` disclosure 안에 `Initialize submodules recursively` 체크박스\n- 인라인 즉시 검증; URL+parent 유효까지 Submit 비활성\n\n**3. 진행 UI:**\n- In-modal progress(designer 안). Form body가 progress region(indeterminate bar + 마지막 phase 라인)으로 전환.\n- Cancel 버튼이 Clone CTA 교체. >50% 진행 시만 ConfirmDiscardDialog.\n- 성공 시 modal에 post-clone CTA를 그대로 표시(상태 플래시 회피).\n\n**4. Post-clone CTA:**\n- Default primary: **Open in new window**\n- Secondary: Add to workspaces (백그라운드)\n- Tertiary, de-emphasized: Open in current window — 현재 워크스페이스 dirty probe 시 subtle warning 글리프\n- Last 선택을 세션 default로 persist\n- Architect WorkspaceManager API: `workspace.create({ rootPath, name })` → `workspace.activate(workspaceId)` 사용\n\n**5. IPC (architect 안 채택):**\n- **Stream**: `git.stream.clone({ url, destination, name?, branch?, recurseSubmodules? })` → `CloneEvent = { kind: 'started', absPath } | { kind: 'progress', phase, pct, received?, total? } | { kind: 'phase', phase } | { kind: 'complete', absPath } | { kind: 'cancelled', absPath, cleaned }`\n- **Clone IPC와 workspace.create IPC 분리** — 서버사이드 체이닝 X(두 failure domain 결합 시 owned dir hide). 렌더러가 순서대로 호출.\n- AbortSignal 통한 cancel → SIGTERM → 우리가 만든 destination 디렉토리 자동 cleanup.\n- **Pre-existing destination 거부** — cleanup 모호성 제거. `clone-destination-exists` 에러로 surface.\n- 입력 검증(architect 사양): `path.isAbsolute`, parent W_OK, `name` regex `[A-Za-z0-9._-]+` ≤255, 경로 separator·leading dot 금지.\n- Progress 파싱 main 측: 신규 `src/main/git/git-clone-progress.ts`(regex 5개, 20/sec 스로틀).\n\n**6. 모듈:**\n- `src/main/git/git-clone.ts` — primitive(`runClone(opts, onEvent, signal)`)\n- `src/main/git/git-clone-progress.ts` — stderr 파서(pure, 단위 테스트 가능)\n- `src/main/ipc/channels/git/clone-handlers.ts` — IPC stream\n- `git-clone.ts` 헤더에 **\"Clone은 큐 예외 — 등록 전이라 GitRepository 인스턴스 없음\"** 명시. cycle rule \"모든 mutation은 큐 경유\"의 유일 명시 예외.\n\n**7. 신규 GitErrorKind 5개:**\n- `clone-destination-invalid` / `clone-destination-not-writable` / `clone-destination-exists` / `clone-name-invalid` / `clone-url-invalid`. `auth-required`, `ref-not-found` 재사용.\n\n**8. Submodules:**\n- `recurseSubmodules: true` 플래그 **지원**, UI 컷. `--recurse-submodules` 한 줄 비용 vs broken working tree 회피 가치 압도적.\n- 정직한 한계: 클론 후 패널이 submodule 엔트리를 \"uninitialized\"로 표시할 수 있음 — 본 사이클은 management 컷, presence는 인정.\n\n**9. 인증 통합:**\n- 기존 `git-process.ts` env 주입 경로 그대로. **askpass infra(이슈 #6)에 SSH 패스프레이즈 케이스 위임**: `SSH_ASKPASS` + `SSH_ASKPASS_REQUIRE=force` + `detached:true` 필수 — 미충족 시 SSH는 askpass 무시하고 `/dev/tty`로 hang.\n\n**10. 등록 흐름:**\n- 클론 완료 → 렌더러 `workspace.create({ rootPath: absPath, name })` → `workspace.activate(workspaceId)` → `GitRegistry.getOrDetect(workspaceId)` lazy 감지로 자동 wiring. 명시적 `gitRegistry.register` X(기존 lazy 패턴이 커버).\n\n**기각 대안:**\n- \"Wizard 단계화\" — 3-4 필드 single decision에 wizard는 extrinsic load 증가, return-to-edit 비용 큼.\n- \"PromptDialog에 N 필드 확장\" — 단일 필드 본분 변질. sibling FormDialog로 책임 분리.\n- \"Pre-existing destination 허용(empty면 OK)\" — cleanup 모호성(우리가 만든 vs 기존). 거부 단순화로 cleanup 명확.\n- \"Clone IPC가 workspace 등록까지 chain\" — 두 failure domain 결합. 클론 성공 + 등록 실패 시 owned dir hide. 분리 IPC로 각 단계 독립 retry.\n- \"Submodules 플래그 컷\" — 의존 repo의 broken working tree 강제. 한 플래그 비용 대비 가치 압도.\n- \"GitMoreMenu 항목 추가\" — workspace-scoped op이 repo 컨텍스트로 노출되면 의미 도치(같은 form 다른 meaning).\n- \"Progress 파싱 렌더러 측\" — 모든 호출지가 동일 정규식 재구현. 단일 파서로 cohesion.\n- \"20/sec 스로틀 없음\" — stderr `\\r` flood로 IPC saturation.\n- \"Cancel 시 cleanup 안 함\" — 사용자가 owned 모르는 partial dir 잔재.\n\n**가정:**\n- WorkspaceManager `create` 시그니처 `{ rootPath: string, name?: string } → WorkspaceMeta`(architect 코드 검증). 차이가 있으면 task 구현 단계에서 보정.\n- 현재 워크스페이스 dirty probe API 부재 시 \"Open in current window\" 경고 글리프는 후속 — 본 사이클은 텍스트 라벨로만 destructive 함의 노출."
+          },
+          {
+            "id": 6,
+            "title": "인프라 — Askpass / 자격 증명 프롬프트 설계 (Electron IPC + 모달)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "VSCode askpass 구조(IPC server + GIT_ASKPASS=helper script + main socket prompt)는 그대로 차용 가능. **변형 2**: (1) 셸 스크립트 폐기, 모든 OS에서 단일 `.cjs` helper + `ELECTRON_RUN_AS_NODE=1`로 Electron 자체 실행파일을 Node 런타임으로 재사용(Node 별도 동봉 X), (2) Windows는 named pipe(`\\\\.\\pipe\\nexus-askpass-<pid>`). 신규 모듈: `askpass-helper.cjs`, `askpass-server.ts`(socket 추상화 darwin/linux=Unix 0700 + win32=named pipe), `askpass-launcher.ts`(env 빌더 — GIT_ASKPASS/SSH_ASKPASS/SSH_ASKPASS_REQUIRE=force/GIT_TERMINAL_PROMPT=0/NEXUS_ASKPASS_SOCKET/NEXUS_ASKPASS_TOKEN/ELECTRON_RUN_AS_NODE=1/DISPLAY 폴백). git-process.ts 수정: 현재 하드코딩된 `GIT_ASKPASS:'echo'`를 `interactive:boolean` 옵션으로 분리(기본 false, 네트워크 op만 true) — cross-cutting 회귀 주의. SSH는 `detached:true` + `stdio:['ignore','pipe','pipe']` 필수(macOS/Linux). 토큰: 부팅 시 32B random + 요청별 prompt-id nonce(임의 프로세스의 socket 발견 시에도 활성 prompt 없으면 거부). 모달 IPC: askpass.prompt({promptId, host, type, message}) / askpass.respond / askpass.cancel. 타임아웃 **무제한**(매니저 열기 시간 보다 짧으면 곤란). 큐 점유 banner 디자이너 요청. **자격증명 캐싱은 세션 메모리만**, OS keychain은 사이클 cut(macOS Keychain/Win Cred/libsecret 3분기 = risk register의 askpass complexity). 에러: 기존 auth-required 재사용. CRITICAL 검증: Windows Git for Windows OpenSSH의 SSH_ASKPASS 동작 manual test 필수. 렌더러: PromptDialog 재사용 + password masking prop, ESC+outside dismiss=cancel. 다중 prompt(user→pass)는 단일 모달 인스턴스가 prompt-id로 재렌더.",
+                "recorded_at": "2026-05-10T08:38:01.223Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Askpass 확정 — VSCode 패턴 차용 + 셸 폐기 + 단일 IPC manager.**\n\n**1. 차용 + 변형:**\n- VSCode `askpass.ts/askpass.sh/askpass-main.ts/askpassManager.ts/ipc/ipcServer.ts` 구조 차용.\n- **셸 스크립트 폐기, 모든 OS 단일 `.cjs` helper** + `ELECTRON_RUN_AS_NODE=1`(Electron 실행파일 = Node 런타임 재사용, 별도 동봉 X).\n- Windows는 named pipe(`\\\\.\\pipe\\nexus-askpass-<pid>`).\n\n**2. 신규 모듈:**\n- `src/main/git/askpass-helper.cjs` — argv prompt 메시지 파싱, env의 socket+토큰으로 main에 요청, stdout으로 응답.\n- `src/main/git/askpass-server.ts` — Unix socket(0700) 또는 named pipe, 토큰+nonce 검증.\n- `src/main/git/askpass-launcher.ts` — env 빌더(GIT_ASKPASS, SSH_ASKPASS, SSH_ASKPASS_REQUIRE=force, GIT_TERMINAL_PROMPT=0, NEXUS_ASKPASS_SOCKET, NEXUS_ASKPASS_TOKEN, ELECTRON_RUN_AS_NODE=1, DISPLAY 폴백 `:0`).\n\n**3. `git-process.ts` 수정:**\n- 현재 하드코딩 `GIT_ASKPASS:'echo'`를 `interactive:boolean` 옵션으로 분리. 기본 false(현행 비대화). 네트워크 op(fetch/pull/push/clone/sync/push tag/delete remote)만 true. 회귀 방지 위해 모든 호출지 명시 marker.\n\n**4. SSH:**\n- 네트워크 op spawn 시 `detached:true` + `stdio:['ignore','pipe','pipe']`(macOS/Linux). DISPLAY 폴백 필수.\n\n**5. 토큰 + nonce:**\n- 부팅 시 `crypto.randomBytes(32).toString('hex')`. 요청별 prompt-id nonce. 토큰 누설 시에도 활성 prompt 없으면 거부.\n- Socket 부모 dir = `app.getPath('userData')`, 권한 0700.\n\n**6. IPC:**\n- main → renderer broadcast: `askpass.prompt({ promptId, host, type: 'username'|'password'|'passphrase', message })`\n- renderer → main: `askpass.respond({ promptId, value })` 또는 `askpass.cancel({ promptId })`\n- **타임아웃 무제한** (매니저 열기 시간 수용). Cancel 시 helper SIGTERM → exit 1 → git auth fail → classifier `auth-required`.\n\n**7. 큐 점유 가시화:**\n- 모달 열린 동안 git op 큐 점유 — 디자이너에게 패널 헤더 banner \"Awaiting credentials…\" 요청. 본 사이클 issue #7과 묶어 GitInlineBanner 변형으로 처리.\n\n**8. 자격증명 캐싱:**\n- **세션 메모리 캐시만**. `Map<host, {username, password}>` in `askpass-server.ts`. 앱 재시작 시 소실.\n- **OS keychain 본 사이클 컷** — macOS Keychain/Win Credential Manager/libsecret 3분기 = risk register의 askpass complexity. 별도 사이클.\n\n**9. 에러:**\n- 기존 `auth-required` 재사용. 신규 kind 없음.\n\n**10. OS 검증:**\n- Windows Git for Windows OpenSSH의 `SSH_ASKPASS` 인식 차이 — manual test 필수. 출시 전 가드.\n\n**11. 렌더러 모달:**\n- `PromptDialog` 재사용 + `type: 'password'` masking prop. ESC + outside dismiss = cancel.\n- 다중 prompt(user → pass)는 단일 모달 인스턴스가 prompt-id로 재렌더.\n\n**기각 대안:**\n- \"셸 + Node 분기 helper\" — OS 분기 폭발, helper 유지보수 비용 2배. 단일 `.cjs` + `ELECTRON_RUN_AS_NODE`로 통일.\n- \"30초 타임아웃\" — 패스워드 매니저 열기보다 짧음. 사용자 cancel만 종료 신호.\n- \"OS keychain 동시 도입\" — 3분기 native binding/실패 모드. 사이클 risk register와 직접 충돌.\n- \"토큰만으로 검증\" — 1 spawn 다중 prompt 구분 X. nonce 필수."
+          },
+          {
+            "id": 7,
+            "title": "인프라 — Autofetch + Branch/Sync chip 설계",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Autofetch 설정은 GitMoreMenu의 \"Autofetch ▸\" 서브메뉴(별도 dialog 컷). per-workspace + 글로벌 default. 옵션: Off/Every 1/3(default)/5/15 min. 메뉴 caption에 \"Last fetched 2m ago\" 시스템 상태 피드백. **Sync indicator는 branch chip에 흡수**(GitBranchPopover/GitBranchBar/GitHeader 동일 chip 컴포넌트 공유). Glyph: ↑N/↓N(diverged 와이드: ↓N ↑N, 좁음: ↕A/B), `⊘`(no upstream), `⟳`(fetching, 400ms 디바운스), `!`(failed). 모두 monochrome. 좁은 폭에서 브랜치명 truncate, 카운트/glyph 보존(deltas는 actionable signal). Click=GitBranchPopover 열림 + 단일 CTA(Sync/Pull/Push/Publish/Fetch now — 상태별 라벨, Hick 회피). Right-click=context 메뉴(Fetch now/Pull/Push/Publish/Copy upstream/Autofetch ▸). Failure는 toast X(panel hidden 가능) — chip의 `!` glyph + popover footer \"Last fetch failed 1m ago — Retry\" + 3연속 실패 시 GitInlineBanner 1회(\"Autofetch paused — Resume\") + autofetch 일시 정지. Auth 실패는 sticky, network는 다음 성공 시 자동 클리어. Open: watcher 결합 정도, 윈도우 blur 시 일시정지(VSCode 패턴), multi-remote, last-fetched timestamp 출처(.git/FETCH_HEAD mtime vs main state).",
+                "recorded_at": "2026-05-10T08:38:27.225Z",
+                "agent_id": "ade60646e6004aaa1"
+              },
+              {
+                "role": "architect",
+                "summary": "신규 `src/main/git/git-autofetch.ts` 단일 마스터 스케줄러(워크스페이스별 nextFetchAt 비교 + 1초 tick) — 워크스페이스별 setInterval N개는 drift+blur 토글 비용. Pause 3종 분리: blur pause는 main의 BrowserWindow.on('blur'/'focus')→글로벌, 명시 disable=intervalMin:0(별도 paused 플래그 X), 3연속 실패=per-workspace consecutiveFailures 맵. **GitPanelStateSchema 확장(이미 SQLite 영구 저장 경로 보유, schema migration X)** — `autofetchIntervalMin`(0|1|3|5|15) + `autofetchManualPaused`. failure backoff 메모리만(재시작 시 클린). Last-fetched는 `.git/FETCH_HEAD` mtime(외부 터미널 fetch 잡힘 결정적 — 사용자 신뢰 기반). Watcher 대신 autofetch가 직접 bumpGeneration(중복 refresh 비용 회피, generation 동일 시 무해). `git fetch --all --prune` silently — askpass-required 시 prompt 안 띄우고 즉시 실패→consecutiveFailures 증가(VSCode 패턴, blur pause와 일관). Multi-remote 발산 surface 본 사이클 cut(upstream 1개만, 다중 remote 행은 Track D급). 신규 IPC: `git.fetchAll({workspaceId})`, `autofetch.setSchedule({workspaceId, intervalMin})`, `autofetch.pause/resume({workspaceId})`. store action X(스케줄러는 main).",
+                "recorded_at": "2026-05-10T08:43:16.665Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Autofetch + Branch/Sync chip 확정 — header 흡수 + 단일 마스터 스케줄러 + GitPanelState 확장.**\n\n**1. 설정 위치 + UX(designer 안):**\n- Autofetch 설정 = `GitMoreMenu`의 `Autofetch ▸` 서브메뉴(별도 dialog 컷). 옵션: Off/Every 1/3(default)/5/15 min + caption \"Last fetched 2m ago\".\n- Sync indicator는 branch chip에 흡수 — `GitBranchPopover`/`GitBranchBar`/`GitHeader` 동일 chip 컴포넌트 공유. Glyph: ↑N/↓N/↕A/B/⊘/⟳/!. 모두 monochrome.\n- Click=`GitBranchPopover` 열림 + 단일 CTA(Sync/Pull/Push/Publish/Fetch now — 상태별).\n- Right-click=context 메뉴(Fetch now/Pull/Push/Publish/Copy upstream/Autofetch ▸).\n- 실패 가시화: chip `!` glyph + popover footer \"Last fetch failed — Retry\" + 3연속 실패 시 GitInlineBanner 1회(\"Autofetch paused — Resume\") + 일시 정지. Auth 실패 sticky, network 실패 다음 성공 시 자동 클리어. **Toast 절대 X**(panel hidden 가능).\n\n**2. 스케줄러(architect 안):**\n- 신규 `src/main/git/git-autofetch.ts` — **단일 마스터 스케줄러**. 1초 tick → 워크스페이스별 `nextFetchAt` 비교 → due면 enqueue. setInterval N개는 drift+blur 토글 비용.\n\n**3. Pause 3종 분리:**\n- (a) Window blur: main의 `BrowserWindow.on('blur'|'focus')` → 글로벌 paused. (VSCode 패턴)\n- (b) 명시 disable: `intervalMin: 0`(별도 paused 플래그 X — 단일 source of truth).\n- (c) 3연속 실패: per-workspace `consecutiveFailures` Map. 3 도달 시 `autofetchManualPaused: true`로 전환, 명시 resume 또는 다음 성공 fetchAll까지 유지.\n- 두 차원(글로벌 blur vs per-workspace) 명확 분리 — race 회피.\n\n**4. 영구 저장:**\n- **`GitPanelStateSchema` 확장 채택** — 이미 SQLite 영구 저장 경로 보유, schema migration X.\n- 추가: `autofetchIntervalMin: 0|1|3|5|15`(default 0), `autofetchManualPaused: boolean`(default false).\n- failure backoff(`consecutiveFailures`)는 메모리만 — 재시작 시 클린 재시도가 사용자 멘탈 모델 부합.\n\n**5. Last-fetched timestamp:**\n- **`.git/FETCH_HEAD` mtime 채택** — 외부 터미널 fetch도 잡힘이 결정적(chip 정확성=신뢰). 실패 시 `null` 폴백. `GitStatus`에 `lastFetchedAt: number | null` 추가.\n\n**6. Watcher 결합:**\n- autofetch가 직접 `bumpGeneration` 호출 — race 회피, 중복 refresh 비용 없음. watcher 디바운스 ≥100ms는 외부 터미널 fetch 경로 위해 유지.\n\n**7. Multi-remote:**\n- **본 사이클 cut**. branch chip은 `BranchInfo.upstream` 1개. 다중 remote 발산 surface는 Track D급. autofetch 내부는 `--all --prune`으로 모든 remote 갱신, 표시는 upstream 1개.\n\n**8. 신규 IPC:**\n- `git.fetchAll({ workspaceId }) → { fetched: boolean, lastFetchedAt: number } | GitError(...)` — autofetch + 사용자 명시 fetch 공통.\n- **Autofetch는 askpass-required 시 prompt 안 띄우고 즉시 실패 → consecutiveFailures 증가**(VSCode/blur pause 패턴 일관). 사용자 명시 fetch는 askpass 동작.\n- `autofetch.setSchedule({ workspaceId, intervalMin })`\n- `autofetch.pause / resume({ workspaceId })`\n\n**9. Askpass 큐 점유 banner 통합:**\n- Issue #6의 \"Awaiting credentials…\" banner와 동일 GitInlineBanner 변형 활용 — autofetch는 askpass prompt 자체를 띄우지 않으니 banner도 안 뜸.\n\n**기각 대안:**\n- \"워크스페이스별 setInterval N개\" — drift 누적 + blur 시 N개 토글 비용. 단일 마스터 tick으로 통일.\n- \"git-registry.ts에 스케줄러 통합\" — repo 라이프사이클(detection)과 시간축 폴링은 axis of change 다름. god object 회피.\n- \"localStorage 저장\" — 머신 종속. SQLite GitPanelState로 portable 유지.\n- \"main process state로 last-fetched 추적\" — 외부 터미널 fetch 못잡음. mtime이 정확.\n- \"watcher 의존\" — 디바운스 race + 중복 refresh. autofetch 직접 bump.\n- \"autofetch가 askpass prompt 띄움\" — 백그라운드 op이 갑자기 모달 띄우면 사용자 깜놀(blur pause 의도와 충돌). 즉시 실패 후 사용자 명시 fetch에서 prompt.\n- \"Toast로 실패 알림\" — panel hidden 시 무용. chip glyph + popover footer가 공간 효율 + 사용자 의도 시 가시."
+          },
+          {
+            "id": 8,
+            "title": "인프라 — Git editor hook 범위 (commit message · rebase todo)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "본 사이클 범위 = `commit -e` / `commit --amend` 메시지 편집만. **rebase interactive todo / merge --edit 컷** — 본 사이클 rebase는 non-interactive `git rebase <onto>`만이라 todo 편집 hook 미필요. 신규 모듈: `git-editor-helper.cjs`(argv[1]=tmpPath, socket으로 main에 editor.open 송신), `GIT_EDITOR=<helper>` env 주입 launcher 동일 패턴. 흐름: git→helper→main→renderer 모달→사용자 저장→main이 fs.writeFile→helper exit 0; 사용자 cancel→파일 truncate→helper exit 1→git abort(빈 메시지). 신규 컴포넌트 `CommitMessageDialog`(GitCommitInput 재사용 부적합 — 패널 내장형 vs 모달 별도). Comment line(# ) 보존(git이 자동 strip). **askpass + editor 단일 IPC manager 통합 권고** — 신규 `git-helpers-ipc.ts`로 askpass.* + editor.* 라우트 다중화, 토큰/세션/socket 1회. 동일 launcher: `buildHelperEnv({askpass, editor})`. 신규 GitErrorKind `commit-aborted`(빈 메시지). 타임아웃 **무제한**(긴 변경 설명 수용). 큐 점유 명시 — 모달 동안 git-repository.ts 큐 점유, 디자이너에게 패널 헤더 banner \"Editing commit message…\" 요청(다른 op 대기 시 응답 없음 인지). 앱 강제 종료 시 helper SIGTERM + 모든 pending prompt cancel. 임시 파일 경로 공백 — argv 그대로(.cjs라 셸 인용 불요).",
+                "recorded_at": "2026-05-10T08:38:11.839Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**Git editor hook 확정 — commit message만, askpass와 IPC manager 통합.**\n\n**1. 본 사이클 범위:**\n- **포함**: `commit -e`, `commit --amend` 메시지 편집.\n- **컷**: rebase interactive todo 편집(본 사이클 rebase는 non-interactive `git rebase <onto>`만), merge `--edit`(기본 메시지 충분).\n- helper kind enum은 `commit-message` 하나만 라이브, 나머지는 helper에서 즉시 exit 1로 차단(향후 확장 여지).\n\n**2. 신규 모듈:**\n- `src/main/git/git-editor-helper.cjs` — argv[1]=tmpPath, socket으로 main에 `editor.open` 송신, 응답 수신 → exit code.\n- launcher 동일 패턴: `GIT_EDITOR=<helper-runner>` env 주입.\n- 임시 파일 경로 공백은 `.cjs` argv 그대로(셸 인용 불요).\n\n**3. 흐름:**\n- git → helper(`helper.cjs <tmpPath>`)\n- helper → main: `editor.open({ promptId, kind: 'commit-message', filePath, initialContent })`\n- main → renderer broadcast: `editor.prompt({ promptId, kind, initialContent })`\n- 사용자 저장 → `editor.save({ promptId, content })` → main이 `fs.writeFile(filePath, content)` → helper exit 0 → git 진행.\n- 사용자 cancel → `editor.cancel({ promptId })` → main이 파일 truncate → helper exit 1 → git이 빈 메시지로 abort.\n- comment 라인(`# `) 보존 — git이 커밋 시 자동 strip.\n\n**4. 렌더러 컴포넌트:**\n- `src/renderer/components/files/git/CommitMessageDialog.tsx` 신규. `GitCommitInput`은 패널 내장형 single+multiline 토글이라 모달 부적합 — 모달 별도.\n- 헤더 라벨: `kind` 별(\"Commit message\" / \"Amend message\"). monospace textarea, comment 라인 dim 색상(design.md monochromatic).\n- ESC + outside click → cancel.\n\n**5. askpass + editor 인프라 통합:**\n- **신규 `src/main/git/git-helpers-ipc.ts`** — askpass-server + editor-server 단일 manager로 라우트(`askpass.*`, `editor.*`) 다중화. 토큰/세션/socket 1회.\n- launcher 통합: `buildHelperEnv({ askpass: true, editor: true })`. 필요한 env만 주입.\n- 근거(cohesion): 둘 다 git→helper→main→응답 동일 패턴. 별도 socket은 boilerplate 2배.\n\n**6. 에러:**\n- 신규 `commit-aborted` GitErrorKind(빈 메시지로 git abort 시).\n- `rebase-aborted`/`merge-aborted`는 본 사이클 hook 미사용 — 추가 X(컷 결정 일관).\n- hint=none. UI는 banner로 표시만, 자동 재시도 X.\n\n**7. Timeout:**\n- **무제한**. 사용자 commit 메시지 컴포지션 시간(긴 변경 설명) 수용.\n- **큐 점유 가시화** — 모달 열린 동안 repo queue가 commit 호출에 점유. 패널 헤더 banner \"Editing commit message…\"(askpass와 같은 banner 패턴 공유).\n- 앱 강제 종료 시 `git-helpers-ipc.ts` shutdown hook이 모든 pending prompt cancel → helper SIGTERM → git rollback.\n\n**기각 대안:**\n- \"rebase todo / merge --edit 포함\" — 본 사이클 rebase 비-인터랙티브, 추가 hook은 unused. 컷 결정 일관.\n- \"askpass와 별도 socket/manager\" — 동일 패턴 boilerplate 2배. 단일 manager가 cohesion 정답.\n- \"GitCommitInput을 모달로 재사용\" — 패널 내장형 vs 모달 책임 다름. 별도 컴포넌트.\n- \"5분 idle 타임아웃\" — 사용자 작성 시간 수용 못함."
+          },
+          {
+            "id": 9,
+            "title": "인프라 — History/Log 패널 MVP 범위",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "History 패널은 GitPanel 안 sibling 세그먼트 [Changes][History]. 별도 패널 X(workspace 셸 비좁음, 컨텍스트 도치). Row: 단일 라인 28-32px — dot/subject(flex+ellipsis)/author(8ch)/relTime(4ch)/sha(monospace 7ch). hover=bg, selected=2px left accent + bg. Detail은 **side pane**(list 50% + detail 50%, draggable/persisted) — inline expand X(스크롤 위치 파괴), modal X(스캔 막힘). Narrow(<720px) 시 right overlay sheet. Pagination=load-more 버튼(50씩, 기존 log() chunking 일치) — infinite scroll X(키보드 nav/sr 앵커 손실). Search=top sticky 입력, 자동 분기(`[0-9a-f]{4,40}`이면 SHA prefix, else subject substring), 200ms debounce. Author 필터 defer. Per-commit context menu: Copy SHA / Copy message / sep / Cherry-pick this commit…(이슈 #4 재사용) / Checkout (detached)…(confirm) / sep / Reset branch to here (soft)…(confirm \"keeps changes staged\"). Mixed/hard 컷. Ref switcher = BranchPicker 재사용(checkout X, log re-target만; 부제 \"Viewing history of <ref>\"로 사용자 오해 차단). Open: detached HEAD warning surface, author 필터 v2 vs now, mixed reset 메뉴 구조 미리, ref 전환 시 selection 유지(no), empty repo state, streaming 첫 50 즉시 vs batch.",
+                "recorded_at": "2026-05-10T08:38:42.378Z",
+                "agent_id": "ae269b6caa21682cd"
+              },
+              {
+                "role": "architect",
+                "summary": "기존 `log()` AsyncGenerator + `streamLog`(`buildLogArgs`) 재사용. **페이징은 sha-시드(`<sha>^@`) 권고** — skip 기반은 도중 commit 추가 시 어긋남. 신규 `git.commitDetail({workspaceId, sha}) → CommitDetail{sha, parents[], author, authorEmail, committerTs, message, files: {path, status, oldPath?}[]}` — `git show --name-status --format=<NUL-template>`. **신규 `src/main/git/git-commit-detail.ts`**. **Merge commit cut**: `parents.length>1`이면 `files:[]` + UI에 \"Merge commit (N parents)\" 라벨, 한쪽 parent diff는 후속 사이클. Ref switcher: `GitLogArgs.ref?` 활용(없으면 추가), checkout 부수효과 명시 X — log re-target만. Cherry-pick은 issue #4의 `git.cherryPick({sha})` 그대로 재사용(추가 작업 0). **신규 `git.checkoutDetached({sha})`** 별도(branch checkout과 시맨틱 분리). **신규 `git.resetSoft({targetSha})`** — `undoLastCommit`(이슈 #2)과 별도 유지(전자 임의 sha, 후자 HEAD^ 의미 다름). Search **server-side 자동 분기**: `^[0-9a-f]{4,40}$`면 `git rev-parse --verify <prefix>^{commit}`, else `git log --grep=<term> --max-count=50`. 신규 `git.searchCommits` 분리(stream 불요). 클라이언트 필터 X(페이지에 없는 commit 못찾음). `--grep`은 message-only — author/`-S` 후속. 첫 50 즉시 + Load more. 모듈: 렌더러 `src/renderer/components/files/git/history/{HistoryList,HistoryRow,HistoryDetail,HistorySearch}.tsx`, main `git-commit-detail.ts` + `history-handlers.ts` 신규.",
+                "recorded_at": "2026-05-10T08:43:33.291Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**History/Log 패널 MVP 확정 — sibling 세그먼트 + side pane + sha-시드 페이징 + server-side search.**\n\n**1. 패널 배치(designer 안):**\n- `GitPanel.tsx` 안 sibling 세그먼트 `[Changes][History]`. 별도 패널 X(workspace 셸 비좁음, 컨텍스트 도치).\n- Detail은 **side pane**(list 50% + detail 50%, draggable 분할선, persisted 너비). Narrow(<720px)는 right overlay sheet. inline expand X(스크롤 위치 파괴), modal X(스캔 막힘).\n\n**2. Row 레이아웃:**\n- 단일 라인 28-32px: dot/subject(flex+ellipsis)/author(8ch)/relTime(4ch)/sha(monospace 7ch).\n- hover=bg-surface-hover, selected=2px left accent + bg, focus-visible=2px ring(≥3:1).\n- monochrome — dot은 signifier만(author/time도 차별).\n\n**3. Pagination(architect 안):**\n- **sha-시드(`<sha>^@`) 페이징 채택** — skip 기반은 도중 commit 추가 시 어긋남. 첫 50 즉시 렌더 → \"Load 50 more\" 버튼이 마지막 commit의 parent로 페이징. infinite scroll X(키보드 nav/sr 앵커 손실).\n- 기존 `git-repository.ts:372` `log()` AsyncGenerator + `streamLog`(`buildLogArgs`) 재사용 + `GitLogArgs`에 sha-시드 옵션 추가.\n\n**4. Search(architect 안):**\n- **server-side 자동 분기** — 입력 `^[0-9a-f]{4,40}$`이면 `git rev-parse --verify <prefix>^{commit}` → 단일 commit detail 또는 `ref-not-found`. else `git log --grep=<term> --max-count=50`.\n- 클라이언트 필터 X — 페이지에 없는 commit 못찾음.\n- `--grep`은 message-only — author/`-S<code>` 후속 사이클.\n- 신규 IPC `git.searchCommits({ query, limit })` 분리(stream 불요). 200ms debounce.\n- empty result: \"No commits match 'xyz'. [Clear search]\".\n\n**5. Per-commit detail(architect 안):**\n- 신규 IPC `git.commitDetail({ sha }) → CommitDetail{sha, parents[], author, authorEmail, committerTs, message, files:{path, status, oldPath?}[]}`. `git show --name-status --format=<NUL-template>`.\n- **Merge commit cut**: `parents.length>1`이면 `files:[]` + 라벨 \"Merge commit (N parents)\". 한쪽 parent diff는 후속.\n\n**6. Per-commit context 메뉴(designer 안):**\n- Copy SHA / Copy message / sep / Cherry-pick this commit…(이슈 #4 `git.cherryPick` 재사용, 추가 작업 0) / Checkout (detached)…(confirm) / sep / Reset branch to here (soft)…(confirm \"keeps changes staged\").\n- mixed/hard reset cut(이슈 #1 결정 일관).\n- Right-click row · 액션 toolbar · `Cmd/Ctrl+.` focused row 모두 동일 메뉴.\n\n**7. Ref switcher:**\n- `BranchPicker` 재사용(이슈 #3 결정 일관) — 기존 `branch-picker-source.ts` 그대로.\n- **log re-target만, checkout 부수효과 X**. 부제 \"Viewing history of <ref>\"로 명시(사용자 오해 차단).\n- Refresh ↻ 버튼 — 현재 ref의 HEAD에서 재실행.\n\n**8. 신규 IPC:**\n- `git.commitDetail({ sha })` → CommitDetail\n- `git.searchCommits({ query, limit })` → SearchResult\n- `git.checkoutDetached({ sha })` — branch checkout과 시맨틱 분리, 별도 path\n- `git.resetSoft({ targetSha })` — 임의 sha 대상; 이슈 #2 `undoLastCommit`(`HEAD^` 한정)과 별도 의미로 분리 유지\n\n**9. 모듈:**\n- 렌더러: `src/renderer/components/files/git/history/{HistoryList, HistoryRow, HistoryDetail, HistorySearch, HistoryRefSwitcher}.tsx`(mission.md 모듈화).\n- main: `src/main/git/git-commit-detail.ts`(parser), `src/main/ipc/channels/git/history-handlers.ts`(IPC).\n\n**기각 대안:**\n- \"별도 패널/탭\" — workspace 셸 비좁음. sibling 세그먼트가 컨텍스트 응집.\n- \"inline expand detail\" — 50행 + 가변 expand는 스크롤 위치 파괴, sr 앵커 손실.\n- \"modal detail\" — 인접 commit 스캔 막힘(코드 archaeology 흐름 단절).\n- \"infinite scroll\" — 키보드 nav 예측 불가, sr 앵커 손실, 기존 chunking 구조와 충돌.\n- \"skip 기반 페이징\" — 도중 commit 추가 시 어긋남. sha-시드가 정확.\n- \"클라이언트 필터\" — 페이지에 없는 commit 검색 불가.\n- \"checkout/checkoutDetached 통합\" — branch checkout과 detached 시맨틱 분리(현재 브랜치 추적 vs 디태치드 HEAD).\n- \"merge commit 한쪽 parent diff\" — `--cc` / first-parent 의미 모델 결정 필요. 후속."
+          },
+          {
+            "id": 10,
+            "title": "인프라 — 가드레일 (Branch protection + Push error handler / non-FF 재시도)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "기존 push-rejected/force-push-rejected는 평탄화. **신규 분리 3종**: `non-fast-forward`(우선 매칭, hint=`pull-then-retry` 신규 variant), `protected-branch`(`protected branch hook declined`, `GH006`, `branch is read-only` 패턴, hint=none — 사용자 액션 차단), `pre-receive-hook-rejected`(서버 메시지 그대로). `push-rejected`는 fallback로 잔존. classifier 순서 구체→일반(non-FF→protected→pre-receive→push-rejected). `force-push-rejected` hint=`fetch-then-force` 신규. Non-FF 재시도는 **수동만**(자동 X — pull conflict 가능 + 사용자 force 의도 가능). 흐름: push 실패→GitInlineBanner \"Remote has commits…\" + Pull/Force/Cancel→Pull 성공→banner \"Pulled. Retry push?\" 1-click. store: `pendingNonFFRetry`. **Force push은 본 사이클 confirm dialog 채택 + `--force-with-lease` 기본**(remote 변경 시 자동 거부 = 안전 force). protected branch 차단은 P6 settings 동반(분리 시 hardcode anti-pattern). **Branch protection prompt 본 사이클 cut**: settings UI 부재로 코드 레벨 기본값만 두면 워크플로우 다양성 못 맞춤 → 프로덕트 위험. 스키마는 미리(`GitPanelStateSchema.protectedBranches: string[].default([])`), 활성화는 P6 settings UI와 함께. 빈 배열은 명시 선택 존중. **Push error handler registry 본 사이클 cut** — 호출자 1/구현자 1로 premature generalization. 향후 `src/main/git/push-error-handlers/` 시점에 도입.",
+                "recorded_at": "2026-05-10T08:43:42.396Z",
+                "agent_id": "a63fb0f9ad06cc253"
+              }
+            ],
+            "decision": "**가드레일 확정 — Push error 3종 신규 분리 + Non-FF 수동 재시도 + Force는 confirm + lease, branch protection은 P6.**\n\n**1. Push error 분류(architect 안):**\n- 기존 `push-rejected`/`force-push-rejected`는 평탄화 — **신규 3종 분리**:\n  - `non-fast-forward` — 우선 매칭(`/non-fast-forward/i`, `failed to push some refs.*tip of your current branch is behind`). hint=**`pull-then-retry`**(신규 variant).\n  - `protected-branch` — 패턴 `protected branch hook declined`, `GH006`, `branch is read-only`. hint=none(사용자 액션 차단).\n  - `pre-receive-hook-rejected` — 패턴 `pre-receive hook declined` 외. hint=none, 메시지 그대로 표시(서버 정책 다양).\n- `push-rejected`는 fallback로 잔존(분류 못한 거부).\n- `force-push-rejected` hint=**`fetch-then-force`**(신규 variant).\n- classifier 순서 **구체→일반**: non-FF → protected → pre-receive → push-rejected fallback. 시나리오별 stderr fixture 테스트.\n\n**2. Non-FF 재시도 choreography(designer/architect 합의):**\n- push 실패 → `GitError(kind=non-fast-forward, hint=pull-then-retry)` → renderer의 `GitInlineBanner` \"Remote has commits you don't have. Pull first?\" + Pull / Force / Cancel.\n- **수동 재시도만** — 자동 재시도 X. 근거: pull이 conflict 만들 가능, 사용자 force 의도 가능. 자동은 사용자 의도 추정.\n- Pull 성공 → banner 갱신 \"Pulled. Retry push?\" + 1-click 재시도 버튼.\n- store 조각: `pendingNonFFRetry: { branch, attemptedAt } | null`.\n\n**3. Force push 가드:**\n- **본 사이클 채택**: ConfirmDialog \"Force push will overwrite remote. Are you sure?\" + **`--force-with-lease` 기본 사용**(remote 변경 시 자동 거부 = 안전 force).\n- `force-push-rejected`는 lease 거부 신호 → \"Fetch first\" hint(`fetch-then-force`).\n- Banner copy 분기: simple \"Push rejected\" vs \"Force push rejected (lease check failed) — Fetch first?\".\n\n**4. Branch protection prompt:**\n- **본 사이클 P6 stretch가 아니라 명시 cut** — settings UI 부재. 코드 레벨 기본값(`['main', 'master']` 등)만 차단하면 사용자 워크플로우 다양성에 못 맞춰 프로덕트 위험.\n- **스키마는 미리 추가**: `GitPanelStateSchema.protectedBranches: z.array(z.string()).default([])` (글로브). 활성화는 별도 사이클 settings UI와 함께. 빈 배열 default는 명시적 사용자 선택 존중.\n- 본 사이클 결과: 사용자가 `main` 브랜치에 직접 commit/force-push 가능(현재 동작 유지). 가드는 사용자 자체 git config(`branch.<name>.pushRemote` 등) 또는 server-side에 위임.\n\n**5. Push error handler registry:**\n- **본 사이클 cut**. 호출자 1/구현자 1 — premature generalization(시야축 위반).\n- 향후 `src/main/git/push-error-handlers/` 디렉토리 생기는 시점에 registry 도입(예: GitHub PR 핸들러).\n- 본 사이클은 단일 내부 함수 `classifyPushError(stderr): GitError`로 충분.\n\n**6. 신규 GitErrorKind:**\n- `non-fast-forward` (신규)\n- `protected-branch` (신규)\n- `pre-receive-hook-rejected` (신규)\n- `push-rejected` (기존, fallback로 잔존)\n- `force-push-rejected` (기존, hint variant 추가)\n\n**7. 신규 hint variant:**\n- `pull-then-retry` (non-FF용)\n- `fetch-then-force` (force-push-rejected용)\n\n**기각 대안:**\n- \"자동 non-FF 재시도(pull→push)\" — pull conflict 위험 + 사용자가 force 의도였을 가능성. 1-click 수동 재시도가 최소 친화도+안전성.\n- \"branch protection 코드 상수 기본값(`main`, `master`, `release/*`)\" — 사용자 워크플로우 다양성 못 맞춤. 빈 배열 default 유지.\n- \"Force push registry/플러그인 인터페이스\" — 호출자 1/구현자 1. premature generalization.\n- \"non-FF를 push-rejected로 평탄화 유지\" — 가장 흔한 케이스의 recovery path를 잃음. 분리해서 hint+1-click 재시도 가능.\n- \"force push 무가드(현재 그대로)\" — 우발 force는 history 손실. ConfirmDialog + lease 최소 안전망.\n- \"force push 절대 차단\" — 정당한 force(rebased history) 사용자 차단. confirm + lease가 옳음.\n\n**가정:**\n- 사용자가 force push 거부 시(banner \"Force\"가 아닌 \"Cancel\") 별도 액션 없음 — 다음 push 시 동일 banner 재현.\n- `pre-receive-hook-rejected` 메시지가 다국어/유저 에디트 가능 — 패턴 매칭 외에 stderr를 그대로 banner detail에 surface(사용자가 서버 메시지 직접 봐야 의미 있음)."
+          }
+        ],
+        "research_summary": "프로젝트는 Electron 기반 멀티-워크스페이스 IDE. 트랙 A/B/C + 자연 인프라 범위로 사용자 확정, D(에디터 통합) 제외. 현재 구현 surface 조사: stage/unstage/discard, commit (amend/signoff IPC만), branch list/checkout/checkout-tracking/create, fetch/pull/push, stash/stash-pop, init, RepoCapabilities (hasHEAD/remotes/stashCount), Branch picker quick-pick, GitMoreMenu (capability-gated), GitInlineBanner, log/diff streaming infra, typed GitError 23 kinds + ActionHint, preflight, retry, status-coalescer. VSCode core git surface 조사: ~90개 명령, 카테고리별 분포 확인. 이전 사이클들이 패널 기반(IPC envelope, capabilities, preflight, unborn banner, branch quick-pick)을 마련해놨고, 의식적으로 잘랐던 askpass/history-viz는 이번 사이클에서 부분 복원. mission.md 원칙: 모듈화/책임분리/시나리오 기반 테스트. design.md: Warp 톤(warm dark, monochromatic, 강조색 X). 갭 매트릭스 정리됨 — 패널 UX 완성도, 브랜치/원격/태그 관리, 워크플로(merge/rebase/cherry-pick + 충돌 UI), askpass/autofetch/git-editor-hook/history-log/guard-rails 인프라.",
+        "created_at": "2026-05-10T08:15:31.136Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "P1.1 — 스키마/에러/Hint/op-state 토대 prep",
+          "status": "completed",
+          "context": "스키마 + 에러/Hint + GitOperationState + push-error classifier 확장을 단일 prep PR로 묶어 모든 후속 task의 토대 마련. 자체 동작 변경 없이 타입/필드/kind만 추가 — P2-P6의 모든 task가 이를 import.\n\n추가 대상:\n- `src/shared/types/git.ts`: BranchInfoSchema에 `ahead/behind/upstream` 추가, RepoCapabilitiesSchema에 `tagCount` 추가, StashEntrySchema 신규, TagSchema 신규, GitStatusEntry에 `conflictType` 추가, GitStatus에 `operationState: GitOperationState` + `lastFetchedAt: number|null` 추가, GitOperationState discriminated union 신규(none/merge/rebase/cherry-pick/revert + rebase variant 분리), GitPanelStateSchema에 `commitOptions{sign,signoff,noVerify}`, `autofetchIntervalMin: 0|1|3|5|15`, `autofetchManualPaused`, `protectedBranches: string[]` 확장, GitActionHint에 신규 variant `force-delete-available`, `pull-then-retry`, `fetch-then-force`, `allow-unrelated-histories`, `allow-empty`, `configure-signing` 추가.\n- `src/main/git/git-error.ts`: 신규 GitErrorKind 다수 — Track A: `nothing-to-commit`, `no-parent`, `signing-failed`, `binary-too-large`, `file-not-in-head`, `path-not-in-repo`, `gitignore-write-failed`, `stash-conflict`, `stash-not-found`, `commit-aborted`. Track B: `branch-not-fully-merged`, `branch-checked-out`, `branch-name-invalid`, `branch-exists`, `remote-exists`, `remote-name-invalid`, `remote-url-invalid`, `tag-exists`, `tag-not-found`, `tag-name-invalid`, `upstream-invalid`. Track C: `merge-already-in-progress`, `rebase-already-in-progress`, `cherry-pick-already-in-progress`, `no-operation-in-progress`, `unresolved-conflicts`, `unrelated-histories`, `no-merge-base`, `empty-commit`, `path-not-conflicted`. Clone: `clone-destination-invalid`, `clone-destination-not-writable`, `clone-destination-exists`, `clone-name-invalid`, `clone-url-invalid`. Push: `non-fast-forward`, `protected-branch`, `pre-receive-hook-rejected`. classifier 패턴 추가, **순서 구체→일반**.\n- `src/main/git/git-process.ts`: `interactive: boolean` 옵션 추가(기본 false=현행 비대화). 호출지에 marker 명시 — 회귀 방지. 네트워크 op만 true.\n- `src/main/git/git-operation-state.ts` (신규): `.git/MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD` 검출. rebase variant 분리(interactive/apply/merge). doneCount/totalCount 파일 읽기. porcelain-v2와 분리(입력/실패 모드 다름).\n- `src/main/git/porcelain-v2.ts`: `u` 라인의 X/Y → `conflictType` 매핑.\n- `src/shared/git-error-ipc.ts`: 신규 hint variant 통과.\n- IPC 컨트랙트: `src/shared/ipc-contract.ts`에 후속 task가 사용할 채널 시그니처 stub만 등록(구현 X) — 또는 후속 task에서 채널 추가하도록 컨벤션 합의.\n- 테스트: 신규 GitErrorKind classifier fixture 단위 테스트, GitOperationState 검출 디스크 fixture 단위 테스트, porcelain conflictType 매핑 단위 테스트.",
+          "acceptance": "1) `BranchInfo`에 ahead/behind/upstream, `RepoCapabilities`에 tagCount, `GitStatus`에 operationState/lastFetchedAt, `GitStatusEntry`에 conflictType, `GitPanelState`에 commitOptions/autofetch*/protectedBranches 모두 z 스키마 + 타입 export. 기존 사용처 컴파일 깨지지 않음(default values).\n2) GitErrorKind 신규 30+개 추가. classifier가 stderr fixture에서 신규 kind를 정확히 매핑. 순서 구체→일반(fixture로 검증: `non-fast-forward`가 `push-rejected`보다 먼저 매칭).\n3) `git-operation-state.ts`가 `.git/MERGE_HEAD`/`rebase-merge/`/`rebase-apply/`/`CHERRY_PICK_HEAD`/`REVERT_HEAD` 디스크 fixture에서 정확한 union 반환. rebase variant 3종(interactive/apply/merge) 구별.\n4) porcelain-v2 `u UU/AA/DD/UD/DU/AU/UA` 라인이 conflictType 정확히 매핑. 비-conflict 엔트리는 `conflictType: null`.\n5) `git-process.ts` `interactive: boolean` 옵션 동작 — true면 `GIT_ASKPASS` 미설정(askpass-launcher가 후속 task에서 덮어씀), false면 기존 `'echo'` 동작 유지. 호출지 회귀 없음.\n6) 단위 테스트 — classifier fixture, op-state fixture, porcelain conflictType 매핑 추가. `bun test` 모두 통과.\n7) 기존 테스트 회귀 0.",
+          "approach": "단일 PR로 모두 — 동작 변경 없는 타입 추가가 본 사이클 모든 후속 task의 import 의존이 되므로 분리 시 PR-rebase 폭발. 후속 task가 이 PR base 위에 빌드.\n\n순서:\n1. `git.ts`(types) 스키마 확장 → 컴파일 통과 위해 default values 추가.\n2. `git-error.ts` GitErrorKind union 확장 + classifier 패턴 — 순서 구체→일반 보장.\n3. `git-operation-state.ts` 신규 모듈 — 순수 fs 검출 함수 + AsyncReader.\n4. `porcelain-v2.ts` u 라인 conflictType 매핑.\n5. `git-process.ts` interactive 옵션 분리 + 모든 호출지에 명시 marker.\n6. 테스트 — fixture 기반(mission.md 시나리오 기반 테스트만).",
+          "risk": "기존 코드의 `BranchInfo`/`GitStatus` consumer가 새 필드 미인지 시 `undefined` 처리 필요. default를 schema에 두지만 일부 consumer가 strict 비교할 수 있음 — git store에서 broadcast 받을 때 zod parse가 default 채우므로 안전하지만, persisted GitPanelState가 마이그레이션 없으면 zod default가 채움(다음 저장 시 신규 컬럼 자동 입력).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e111b-740b-7651-9106-93c69297f87d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:47:44.030Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Git schema/error/hint/operation-state foundation. Added conflictType parsing, GitOperationState disk detector, new GitErrorKind classifier coverage, interactive git-process env behavior, status default enrichment, and focused tests. Reworked lastFetchedAt to integer milliseconds after tester found schema mismatch. Verification passed: Git-focused tests, typecheck, and full unit/integration suite after unrelated test harness cleanup.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/main/git/git-error.ts",
+              "src/main/git/git-process.ts",
+              "src/main/git/git-operation-state.ts",
+              "src/main/git/porcelain-v2.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/status-handlers.ts",
+              "src/main/storage/workspace-storage.ts",
+              "tests/unit/main/git/git-error.test.ts",
+              "tests/unit/main/git/git-operation-state.test.ts",
+              "tests/unit/main/git/git-process-interactive.test.ts",
+              "tests/unit/main/git/git-repository-preflight.test.ts",
+              "tests/unit/main/git/git-repository-queue.test.ts",
+              "tests/unit/main/git/porcelain-v2.test.ts"
+            ],
+            "recorded_at": "2026-05-10T09:29:56.079Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "P1.2 — git-helpers-ipc.ts (askpass + editor 통합 manager)",
+          "status": "completed",
+          "context": "Askpass + Git editor hook을 단일 IPC manager로 통합. 둘 다 `git→helper→main→응답` 동일 패턴이라 별도 socket은 boilerplate 2배.\n\n**신규 모듈:**\n- `src/main/git/git-helpers-ipc.ts` — Unix socket(darwin/linux, 0700) / Windows named pipe(`\\\\.\\pipe\\nexus-helpers-<pid>`) 추상화. 부팅 시 32B 토큰 + 요청별 prompt-id nonce 발급. 라우트: `askpass.*`, `editor.*`.\n- `src/main/git/askpass-helper.cjs` — argv prompt 메시지 파싱(`Username for ...`, `Password for ...`, `Enter passphrase ...`) → env의 socket+토큰으로 main에 요청 → stdout 응답.\n- `src/main/git/git-editor-helper.cjs` — argv[1]=tmpPath, socket으로 `editor.open` 송신, 응답 수신 → exit code.\n- `src/main/git/helpers-launcher.ts` — `buildHelperEnv({ askpass, editor })` env 빌더. 출력: GIT_ASKPASS, SSH_ASKPASS, SSH_ASKPASS_REQUIRE=force, GIT_TERMINAL_PROMPT=0, GIT_EDITOR, NEXUS_HELPERS_SOCKET, NEXUS_HELPERS_TOKEN, ELECTRON_RUN_AS_NODE=1, DISPLAY 폴백 `:0`.\n- `git-process.ts` 수정: 네트워크 op spawn 시 `detached: true` + `stdio: ['ignore','pipe','pipe']`(macOS/Linux). interactive 옵션을 helpers-launcher와 연결.\n\n**렌더러:**\n- `src/renderer/components/files/git/CredentialPromptDialog.tsx` — PromptDialog 재사용 + `type: 'password'|'passphrase'` masking prop. ESC + outside dismiss = cancel. 다중 prompt(user→pass)는 단일 인스턴스가 prompt-id로 재렌더.\n- `src/renderer/components/files/git/CommitMessageDialog.tsx` — multi-line monospace textarea, comment line(`# `) dim 색상, ESC+outside dismiss=cancel.\n- IPC 라우트: renderer가 `askpass.prompt`/`editor.prompt` broadcast 수신 → 각 dialog 띄움. 응답은 `askpass.respond`/`editor.save` 또는 `askpass.cancel`/`editor.cancel`.\n\n**큐 점유 banner:**\n- `GitInlineBanner` 변형 추가 — \"Awaiting credentials…\" / \"Editing commit message…\". 프롬프트 활성 동안 패널 헤더에 노출(다른 op 대기 인지).\n\n**컷:** OS keychain 자격증명 영구 저장 — 별도 사이클. 본 사이클은 세션 메모리 캐시(`Map<host, {username, password}>`)만.\n\n**OS 검증:** Windows Git for Windows OpenSSH의 `SSH_ASKPASS` 동작 — manual test 필수.",
+          "acceptance": "1) `helpers-launcher.buildHelperEnv({askpass:true, editor:true})`가 정확한 env 반환(7개 키).\n2) 토큰 미부여 socket 요청 거부, 토큰 + 비활성 prompt-id 거부.\n3) Mock helper 통합 테스트: HTTPS clone 시 username→password 순차 prompt가 단일 모달 인스턴스에서 재렌더되며 정확한 응답이 helper stdout으로.\n4) Cancel 시 helper exit 1 → git auth fail → classifier `auth-required`.\n5) Commit message dialog: 저장 시 fs.writeFile + helper exit 0, cancel 시 file truncate + helper exit 1 → git abort with `commit-aborted`.\n6) 큐 점유 banner: prompt 활성 동안 패널 헤더에 노출, 응답/cancel 시 즉시 사라짐.\n7) macOS Unix socket 0700, 부모 = `app.getPath('userData')`. Windows named pipe 동작.\n8) 단위/통합 테스트 통과. macOS manual test 통과 — README에 Windows Git for Windows 검증 절차 명시.",
+          "approach": "1. `git-helpers-ipc.ts` socket 추상화 + 토큰/nonce 검증 layer.\n2. helper `.cjs` 2개 작성 + ELECTRON_RUN_AS_NODE 조건 분기.\n3. `helpers-launcher.ts` env 빌더 + git-process 통합.\n4. 렌더러 2개 dialog + IPC listener + banner 변형.\n5. 통합 테스트(mock helper + main socket): username/password 흐름, passphrase 흐름, cancel 흐름, commit message save/cancel 흐름.\n6. macOS/Windows manual test 절차 README.",
+          "risk": "SSH passphrase는 `SSH_ASKPASS_REQUIRE=force` + `detached:true` 둘 다 미설정 시 `/dev/tty`로 hang(silent breakage). 통합 테스트에 SSH 케이스 포함 필수. Windows OpenSSH 변종(Git for Windows vs Win32 OpenSSH)이 SSH_ASKPASS 인식 차이 — manual gate.",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e114d-0640-76d1-aa16-f43d884c8882",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:48:22.027Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Implemented secure unified askpass/editor helper IPC, helper scripts, executable wrapper-based launcher env, renderer credential/commit-message dialogs, prompt occupancy banner, IPC channels, and Windows manual verification docs. Prior real-Git launch failure from quoted helper command strings was fixed and verified on macOS via `git credential fill`; targeted/full tests and typecheck passed. Windows Git for Windows runtime remains unexecuted in this macOS environment, with static `.cmd`/named-pipe support and docs present.",
+            "artifacts": [
+              "docs/git-helpers-windows.md",
+              "src/main/git/askpass-helper.cjs",
+              "src/main/git/git-editor-helper.cjs",
+              "src/main/git/git-helpers-ipc.ts",
+              "src/main/git/helpers-launcher.ts",
+              "src/main/git/git-error.ts",
+              "src/main/git/git-process.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/index.ts",
+              "src/renderer/components/files/git/CredentialPromptDialog.tsx",
+              "src/renderer/components/files/git/CommitMessageDialog.tsx",
+              "src/renderer/components/files/git/useGitHelperPrompts.ts",
+              "tests/unit/main/git/git-helpers-ipc.test.ts",
+              "tests/unit/renderer/components/files/git/git-helper-dialogs.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T10:28:03.477Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "P1.3 — Palette infra + GitPanelState 마이그레이션 + FormDialog",
+          "status": "completed",
+          "context": "Track A/B/C 모든 picker가 의존하는 palette 인프라 + GitPanelState 영구 저장 마이그레이션 + Clone task가 사용할 FormDialog 프리미티브.\n\n**Palette 인프라:**\n- `src/renderer/components/ui/palette/types.ts`의 `PaletteSource.accept(item)`을 `accept(item, ctx)`로 확장 — `ctx.modifiers: { meta, ctrl, alt, shift }`. 기존 BranchPicker source 호환(파라미터 옵셔널).\n- `src/renderer/components/ui/palette/command-palette-frame.tsx`에 footer hint slot prop 추가 — `footer?: React.ReactNode`. modifier 단축키 안내(예: `Enter checkout · Cmd+Enter track · Cmd+Backspace delete`).\n- `src/renderer/components/ui/palette/controller.ts`: KeyboardEvent 핸들러가 modifier 추출해 source.accept(item, {modifiers}) 호출.\n\n**GitPanelState 마이그레이션:**\n- `src/main/storage/workspace-storage.ts` SQLite 마이그레이션 v6: `git_panel_state.commit_options TEXT`(JSON), `autofetch_interval_min INTEGER`(default 0), `autofetch_manual_paused INTEGER`(default 0), `protected_branches TEXT`(JSON, default `[]`).\n- 읽기/쓰기 함수가 zod parse → default 채움.\n\n**FormDialog primitive:**\n- `src/renderer/components/ui/form-dialog.tsx` 신규 — PromptDialog 프레임 재사용해 N개 필드 호스팅. props: `fields: { name, label, type, validate?, helperText? }[]`, `onSubmit({values})`, `submitLabel`, `cancelLabel`. ESC + outside dismiss.\n- 인라인 즉시 검증, 필수 필드 미입력 시 submit 비활성.\n- Clone(P5) + 가능 시 Tag create 등 다중 필드 모달 재사용.\n\n**system.openPathExternal IPC:**\n- `src/main/ipc/channels/system/open-path-handler.ts` 신규 — `shell.openPath(absPath)` wrapping. Track C \"Open in external editor\" + Track A \"Open file at HEAD external\" 공용. git.* 아님 — workspace-agnostic.\n- `system.revealInOS` (이미 존재 시 활용, 없으면 신규)는 `shell.showItemInFolder`. 별도 핸들러.",
+          "acceptance": "1) PaletteSource.accept 시그니처 변경 후 기존 BranchPicker source 동작 회귀 없음.\n2) Palette controller가 keydown modifier(Cmd/Ctrl/Alt/Shift) 정확히 추출해 ctx로 전달. fixture 단위 테스트.\n3) Command palette frame footer 노출 — BranchPicker에 시범 적용 시 modifier hint 표시.\n4) GitPanelState SQLite 마이그레이션 v6 적용 후 신구 워크스페이스 모두에서 default 값 정확. 기존 commit draft/expandedGroups 보존.\n5) FormDialog가 4-필드(URL/parent/name/branch) Clone case rendering. 인라인 검증, ESC dismiss, submit 비활성 룰 정확.\n6) `system.openPathExternal({ absPath })` IPC 동작 — 존재하지 않는 경로 시 typed error.\n7) 단위 + 통합 테스트 통과. 기존 palette 테스트 회귀 0.",
+          "approach": "1. PaletteSource type 확장 — 기존 `accept(item)` 시그니처 유지하면서 두 번째 인자 옵셔널 추가, BranchPicker source 코드는 그대로.\n2. controller.ts에 modifier 추출 + source.accept 호출.\n3. command-palette-frame footer prop.\n4. SQLite v6 마이그레이션 + zod schema parse.\n5. FormDialog 컴포넌트 — fields 배열 → 동적 input, 검증, submit handler.\n6. system.openPathExternal handler.\n7. 테스트: palette modifier accept 단위 테스트(BranchPicker 회귀 없음 확인), FormDialog 검증 단위 테스트, openPathExternal 통합 테스트(mock shell).",
+          "risk": "PaletteSource.accept 시그니처 변경이 기존 source 호출지를 깨면 회귀 — 반드시 옵셔널 두 번째 인자 + 기본값 처리. SQLite 마이그레이션 v6는 기존 v4/v5 워크스페이스 DB 보유 사용자에게 영향 — 마이그레이션 idempotent 보장.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1139-8864-7f22-ab3a-c4666b2abe25",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:48:48.110Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented palette modifier context/footer infrastructure, GitPanelState persistence migration v5, FormDialog primitive, and typed system open/reveal path IPC. Verification passed via targeted tests, typecheck, full unit/integration suite, and ad-hoc SQLite migration/default/preservation checks.",
+            "artifacts": [
+              "src/main/index.ts",
+              "src/main/ipc/channels/system/index.ts",
+              "src/main/ipc/channels/system/open-path-handler.ts",
+              "src/main/storage/workspace-storage.ts",
+              "src/renderer/components/files/git/BranchPicker.tsx",
+              "src/renderer/components/files/git/branch-picker-source.ts",
+              "src/renderer/components/lsp/workspace-symbol/workspace-symbol-source.ts",
+              "src/renderer/components/ui/form-dialog.tsx",
+              "src/renderer/components/ui/palette/command-palette-frame.tsx",
+              "src/renderer/components/ui/palette/command-palette.tsx",
+              "src/renderer/components/ui/palette/controller.ts",
+              "src/renderer/components/ui/palette/types.ts",
+              "src/shared/ipc-contract.ts",
+              "tests/unit/main/ipc/system-open-path-handler.test.ts",
+              "tests/unit/main/storage/storage-workspace.test.ts",
+              "tests/unit/renderer/components/ui/form-dialog.test.tsx",
+              "tests/unit/renderer/components/ui/palette/palette-controller.test.ts",
+              "tests/unit/renderer/components/ui/palette/palette-render.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T09:51:38.774Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "P2.1 — 파일/그룹 컨텍스트 메뉴 + Reveal/Open/.gitignore IPC",
+          "status": "completed",
+          "context": "Track A 파일 단위 + 그룹 단위 컨텍스트 액션. Source Control 패널에 우클릭 메뉴 도입.\n\n**IPC 신규:**\n- `git.openFileAtHead({ workspaceId, relPath }) → { content, encoding }` (call) — `src/main/ipc/channels/git/file-handlers.ts` 신규.\n- `git.getFileBlob({ workspaceId, ref, relPath }) → chunks<Uint8Array>` (stream) — large file streaming.\n- `git.addToGitignore({ workspaceId, relPath }) → { added, alreadyIgnored }` — `ignore-handlers.ts` 신규. 멱등 append-if-missing.\n- `system.revealInOS({ absPath })` — `shell.showItemInFolder`. (P1.3에서 도입됨, 활용)\n- `system.openPathExternal({ absPath })` — (P1.3에서 도입됨)\n\n**신규 모듈:**\n- `src/main/git/git-blob.ts` — `readAtHead(repo, relPath)`, `streamBlob(repo, ref, relPath)`. cat-file --batch 기반.\n- `src/main/git/git-ignore.ts` — `appendIgnoreEntry(repoRoot, relPath)`. 기존 라인 dedupe + glob 정규화 + 원자 쓰기(tmp+rename).\n\n**렌더러:**\n- `GitFileRow.tsx` / `GitTreeRow.tsx`에 right-click 핸들러 + 컨텍스트 메뉴 popover(`GitMoreMenu`의 popover 프리미티브 재사용).\n- 메뉴 항목 순서: Open File / Open Changes / sep / Stage / Unstage / Discard / sep / Reveal in Finder|Explorer|Containing Folder / Copy Path / Copy Relative Path / sep / Add to .gitignore.\n- 그룹별 hide 룰: staged 그룹은 Discard 숨김, merge 그룹은 .gitignore 숨김, untracked는 Open Changes 숨김.\n- `GitGroupHeader.tsx`에 그룹 단위 hover-icon 확장: working에 Stage All + Discard All, untracked에 Stage All, staged에 Unstage All. **merge 그룹은 hover-icon 없이 kebab만** — 메뉴: `Stage All Resolved`(merge 잔여 0일 때만 활성) + `Abort Merge`(destructive confirm) — Abort는 P5 OperationBanner가 owner라 본 task에서 일단 disabled 표시.\n- 그룹 우클릭 → \"Stash Changes in Group\" — 본 task에서는 hook만, 실제 IPC는 P2.2(stash)에서.\n\n**Open Changes seam:** `onOpenDiff` 미구현 시 inline banner placeholder(\"Diff view 곧 추가 예정\") — 메뉴 항목은 유지(discoverability).\n\n**OS 라벨:** macOS=Reveal in Finder, Windows=Reveal in Explorer, Linux=Open Containing Folder.",
+          "acceptance": "1) 우클릭 시 컨텍스트 메뉴 popover 표시. ESC + outside dismiss.\n2) 그룹별 항목 hide/disable 룰 정확. merge 그룹에 .gitignore 항목 미표시.\n3) Open File 클릭 → 워크스페이스의 working tree 파일 열기(diff seam 미구현 시 banner placeholder).\n4) Reveal in OS — macOS Finder hilight, Windows Explorer, Linux file manager.\n5) Add to .gitignore — 두 번 클릭 시 두 번째는 `alreadyIgnored:true`. .gitignore 마지막 줄에 trailing newline 보존, dedupe 동작.\n6) Copy Path / Copy Relative Path → 클립보드 정확.\n7) 그룹 hover-icon: working 그룹에 Stage All + Discard All, untracked에 Stage All, staged에 Unstage All. merge 그룹은 hover-icon 없음, kebab만.\n8) 시나리오 테스트 통과 — file/group 메뉴 시나리오, .gitignore 멱등, blob 큰 파일 stream.\n9) 기존 GitFileRow/GitTreeRow 동작 회귀 0(스테이지 토글, discard 등 기존 hover 액션 유지).",
+          "approach": "1. main 측 git-blob.ts + git-ignore.ts 모듈 + 핸들러 분리(file-handlers, ignore-handlers).\n2. shared ipc-contract에 채널 등록.\n3. 렌더러: 우클릭 핸들러 + 컨텍스트 메뉴 컴포넌트(`GitFileContextMenu.tsx` 신규).\n4. 그룹 헤더 hover-icon 확장 + merge 그룹 kebab.\n5. Reveal in OS 라벨 OS 분기.\n6. 시나리오 테스트(mission.md): openFileAtHead/binary 파일 → binary-too-large 에러, getFileBlob stream(중간 크기 fixture), addToGitignore 멱등성(두 번 호출 시 alreadyIgnored=true).",
+          "risk": "Reveal in OS의 OS 분기 라벨 i18n 미스. shell.showItemInFolder가 권한 없는 경로 호출 시 silent fail. .gitignore 글로브 정규화는 단순 라인 매치만(트레일링 슬래시/와일드카드 같은 기존 라인은 dedupe 못함) — 가정 명시.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e116e-81bb-7511-bd5f-7d0a707d925c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:49:19.852Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Git blob read/stream IPC, idempotent .gitignore append IPC, file/tree row context menus, group header hover/menu rules, OS reveal/open/copy actions, and Open Changes placeholder banner. Verification passed targeted tests, typecheck, full unit/integration suite, and UI logic inspection.",
+            "artifacts": [
+              "src/main/git/git-blob.ts",
+              "src/main/git/git-ignore.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/file-handlers.ts",
+              "src/main/ipc/channels/git/ignore-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/components/files/git/GitFileContextMenu.tsx",
+              "src/renderer/components/files/git/GitFileRow.tsx",
+              "src/renderer/components/files/git/GitTreeRow.tsx",
+              "src/renderer/components/files/git/GitGroupHeader.tsx",
+              "src/renderer/components/files/git/GitGroup.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/main/git/git-blob.test.ts",
+              "tests/unit/main/git/git-ignore.test.ts",
+              "tests/unit/renderer/components/files/git/git-context-menu.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T10:49:56.967Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "P2.2 — Stash list picker + 그룹 stash + git-diff-stream 공용 헬퍼",
+          "status": "completed",
+          "context": "Track A 스태시 목록 picker + 그룹 우클릭 \"Stash Changes in Group\" + P4 history와 공용으로 사용할 git-diff-stream 헬퍼 prep.\n\n**신규 IPC:**\n- `git.stashList({ workspaceId }) → StashEntry[]` — `git stash list --format=%gd%x00%H%x00%gs%x00%ct` parse. `stash-handlers.ts` 신규.\n- `git.stashApply({ workspaceId, index })`\n- `git.stashDrop({ workspaceId, index })`\n- `git.stashShow({ workspaceId, index }) → chunks<string>` (stream).\n- `git.stashGroup({ workspaceId, paths, message? })` — 특정 path만 stash(`git stash push -m <msg> -- <paths>`). 그룹 우클릭에서 사용.\n\n**신규 모듈:**\n- `src/main/git/git-stash.ts` — listStash, applyStash, dropStash, showStash(stream), stashGroup. 큐 경유.\n- `src/main/git/git-diff-stream.ts` (신규) — stash show + log show 양쪽 사용할 공용 stream/chunk 헬퍼. P4 task에서 재사용.\n\n**렌더러:**\n- `src/renderer/components/files/git/stash-picker-source.ts` 신규 — `git.stash-picker` source. label=`stash@{n} <subject>`, description=상대시간(client format), kindLabel=branch(다를 때).\n- modifier-accept(P1.3 인프라 활용): Enter=apply, Cmd/Ctrl+Enter=pop(=apply+drop), Cmd/Ctrl+Backspace=drop(ConfirmDiscardDialog).\n- searchOnEmptyQuery: true. emptyQueryMessage=\"Loading stashes…\", noResultsMessage=\"No matching stashes.\".\n- 그룹 우클릭 메뉴 항목 \"Stash Changes in Group\" → PromptDialog(message 선택) → `git.stashGroup` 호출.\n- GitMoreMenu의 기존 \"Stash\"/\"Stash Pop\"은 유지(quick path), 신규 \"Stashes…\" 항목으로 picker 호출.\n\n**상세 보기:** stash 항목 선택 시 stashShow stream으로 diff 뷰어 띄움(현재 onOpenDiff seam 활용 또는 모달 미니뷰어). 본 task에서는 일단 toast/banner로 대체 가능.",
+          "acceptance": "1) `git.stashList` 정확한 StashEntry[] 반환(index, sha, message, branch, createdAt 모두 채움).\n2) Stash picker 열림 시 즉시 목록 표시(searchOnEmptyQuery). Empty 상태 메시지 정확.\n3) Enter → apply, Cmd+Enter → pop(apply+drop), Cmd+Backspace → drop(ConfirmDiscardDialog 거쳐).\n4) Apply 시 conflict 발생 → `stash-conflict` typed error + UI banner.\n5) Drop 후 picker 자동 갱신(bumpGeneration).\n6) \"Stash Changes in Group\" → PromptDialog(message)→`git.stashGroup`→해당 path만 stash됨(다른 working tree 변경은 그대로).\n7) git-diff-stream.ts 단위 테스트 통과 — chunk 경계, abort 시그널.\n8) 기존 GitMoreMenu Stash/Stash Pop 동작 회귀 0.",
+          "approach": "1. git-diff-stream.ts 헬퍼 추출 — 기존 log streaming에서 diff 부분 분리(현재 git-repository.ts에 있을 것).\n2. git-stash.ts 모듈 — list parse + apply/drop/show + stashGroup.\n3. stash-handlers.ts 신규 + ipc-contract 등록.\n4. stash-picker-source.ts 신규.\n5. GitMoreMenu에 \"Stashes…\" 항목 추가.\n6. 그룹 우클릭 + PromptDialog → stashGroup wiring.\n7. 시나리오 테스트: stash list 파싱, apply 성공/conflict, drop 인덱스 변동, modifier-accept 분기.",
+          "risk": "stash list 포맷에 user-defined commit 메시지가 NUL 포함 시 파서 깨짐(현실에서는 매우 드묾). stashGroup 시 인덱스에 없는 untracked 포함 여부 사용자 기대와 다를 수 있음 — 기본 working tree만(--include-untracked 옵션 노출 고려).",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1182-545b-7a12-9993-de4385e8c7ea",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:49:45.759Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented stash list/apply/drop/pop/show/group repository helpers and IPC, reusable git-diff-stream helper, stash picker with modifier actions, group stash prompt wiring, and preserved quick stash/stash-pop flows. Verification passed targeted tests, typecheck, full unit/integration suite, and logic inspection.",
+            "artifacts": [
+              "src/main/git/git-diff-stream.ts",
+              "src/main/git/git-stash.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/stash-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/stash-picker-source.ts",
+              "src/renderer/components/files/git/StashPicker.tsx",
+              "src/renderer/components/files/git/confirmDiscardDialog.tsx",
+              "src/renderer/components/ui/prompt-dialog.tsx",
+              "src/renderer/components/ui/palette/controller.ts",
+              "src/renderer/components/ui/palette/command-palette-frame.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/GitGroup.tsx",
+              "src/renderer/components/files/git/GitGroupHeader.tsx",
+              "src/renderer/components/files/git/GitFileContextMenu.tsx",
+              "src/renderer/components/files/git/index.ts",
+              "tests/unit/main/git/git-diff-stream.test.ts",
+              "tests/unit/main/git/git-stash.test.ts",
+              "tests/unit/renderer/components/files/git/stash-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/git-context-menu.test.tsx",
+              "tests/unit/renderer/components/ui/palette/palette-controller.test.ts",
+              "tests/unit/renderer/components/ui/palette/palette-render.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T11:13:38.986Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "P2.3 — Commit area redesign (split control + chevron + amend/undo/empty + Sync + Action button)",
+          "status": "completed",
+          "context": "Track A의 핵심 — commit 영역 재설계. Split control(Action button + chevron), 11-state Action button selector, commit 메뉴 enrichment, Sync 액션.\n\n**신규 IPC:**\n- `git.commitAmend({ workspaceId, message? })` — `commit -e --amend` 또는 메시지 인라인.\n- `git.undoLastCommit({ workspaceId })` — `reset --soft HEAD^`. HEAD가 root commit이면 `no-parent` 에러.\n- `git.commitEmpty({ workspaceId, message })` — `commit --allow-empty`.\n- `git.sync({ workspaceId })` — 단일 큐 enqueue, 내부 순차 pull→push, 결과 envelope `{pulled: 'ok'|'cancelled'|'error', pushed: 'ok'|'skipped'|'error'}`. Pull 중 취소 → push 미실행. Pull conflict → push 미실행 + `merge-conflict|stash-conflict` 에러.\n\n**신규/확장 모듈:**\n- `src/main/ipc/channels/git/sync-handlers.ts` 확장 — git.sync 핸들러 추가.\n- 기존 commit-handlers.ts 확장 — amend/undo/empty.\n- `git-process.ts` interactive=true 적용(P1.2와 wiring).\n\n**렌더러:**\n- `src/renderer/state/selectors/git-action-button.ts` 신규 — derived selector. 입력: RepoCapabilities + BranchInfo(ahead/behind/upstream) + dirty count + commit draft. 11-state state machine(top-down 평가):\n  1. non-repo → \"Initialize Repository\"\n  2. unborn + staged + draft → \"Make Initial Commit\"\n  3. unborn + (no staged 또는 no draft) → \"Commit\"(disabled+hint)\n  4. staged + draft → \"Commit\"\n  5. !staged + working/untracked → \"Stage All\"\n  6. clean + ahead>0 + behind>0 → \"Sync\"\n  7. clean + ahead>0 + upstream → \"Push\"\n  8. clean + behind>0 + ahead==0 → \"Pull\"\n  9. clean + !upstream + remote + hasHEAD → \"Publish Branch\"\n  10. clean + no remote → 정적 라벨 \"No remote configured\"\n  11. clean + up-to-date → 정적 라벨 \"Up to date\"\n- `GitCommitButton.tsx` 일반화 → split control(`<button>` + chevron). chevron 메뉴는 selector 결과에 따라 동적:\n  - Commit 계열: `Commit Staged` / `Commit All` / `Amend Last Commit` / `Commit & Push` / `Commit Empty` / sep / `Undo Last Commit` / sep / `Commit Options ▸`(서브메뉴: Sign / Signoff / Skip hooks — sticky toggle persisted GitPanelState `commitOptions`).\n  - Sync 계열: `Push only` / `Pull only`로 교체.\n- `GitPanel.tsx`: action button + chevron 영역 wiring. 작업 중(`isBusy||isLoading`)이면 스피너 + 라벨 유지(spatial constancy).\n\n**Sync semantics 가시화:**\n- Sync 진행 중 banner \"Syncing… (pulling)\" → \"Syncing… (pushing)\".\n- Pull cancel → \"Sync cancelled (pull aborted before push)\".\n- Pull conflict → \"Pull conflict — push skipped.\" + Track C OperationBanner로 자연 인계.\n\n**테스트:**\n- selectActionButton 11-state 시나리오 테스트(mission.md 시나리오 기반).\n- amend/undo/empty 큐 + 에러 분기.\n- sync envelope 정확성(pull cancel during, pull conflict, push skip).",
+          "acceptance": "1) `selectActionButton` 11-state 테스트 모두 통과 — 평가 순서 top-down, 첫 매치 wins.\n2) Commit/Make Initial Commit/Stage All/Sync/Push/Pull/Publish Branch/Initialize Repository 라벨 + 핸들러 정확.\n3) \"No remote configured\", \"Up to date\" 정적 라벨로 노출(히든 X — 상태 피드백).\n4) Chevron 메뉴 동적 — Commit 라벨일 때 amend/undo/empty/options 서브메뉴, Sync 라벨일 때 Push only/Pull only.\n5) Amend on no-HEAD → `make-initial-commit` hint 재사용 banner. Undo on root commit → `no-parent` 에러 banner. Empty 시 메시지 검증.\n6) Commit Options(sign/signoff/no-verify) sticky persisted + commit 시 적절한 git argv flag.\n7) Sync 결과 envelope 정확. Pull 중 cancel → push 미실행. Pull conflict → push skip + 적절 banner.\n8) `isBusy` 시 스피너 + 라벨 유지(jump 없음).\n9) 기존 commit/push/pull 동작 회귀 0.",
+          "approach": "1. main-side: amend/undo/empty/sync 핸들러 + IPC 등록 + 큐 wiring.\n2. selectActionButton 셀렉터 + 단위 테스트.\n3. GitCommitButton 일반화 + chevron 메뉴 컴포넌트 분리(`GitCommitChevronMenu.tsx`).\n4. Commit Options 서브메뉴 + sticky toggle persistence(GitPanelState commitOptions).\n5. GitPanel.tsx wiring.\n6. Sync banner 상태.\n7. 시나리오 테스트.",
+          "risk": "Action button selector가 매 키스트로크 평가됨 — 메모이제이션 필수. 그러지 않으면 commit 입력 시 매 frame 재계산. Sync envelope에서 push 단계 cancel 불가 정책이 사용자 멘탈 모델과 충돌 가능 — 가시화 banner로 완화.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1198-1386-7f62-9721-a700a7ae45a0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:50:25.074Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented commit-area split control/action selector, sticky commit options, commit amend/undo/empty IPC, and single-queue sync. Reworked verifier findings: staged empty draft now disables commit instead of up-to-date; amend-empty maps to empty-commit; sync pull errors return envelope with pullError and skip push. Verification passed targeted task tests, typecheck, one-off store/cancel probes, and full unit/integration suite.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/git/git-error.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/commit-handlers.ts",
+              "src/main/ipc/channels/git/sync-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/state/selectors/git-action-button.ts",
+              "src/renderer/components/files/git/GitCommitButton.tsx",
+              "src/renderer/components/files/git/GitCommitInput.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/main/git/git-error.test.ts",
+              "tests/unit/main/git/git-repository-commit-actions.test.ts",
+              "tests/unit/renderer/state/selectors/git-action-button.test.ts",
+              "tests/unit/renderer/components/files/git/git-commit-button-menu.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T11:57:41.299Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "P3.1 — Branch ops (delete/rename/upstream/fast-forward/create-from-ref) + ref-picker",
+          "status": "completed",
+          "context": "Track B의 브랜치 ops + 신규 ref-picker source.\n\n**신규 IPC:**\n- `git.deleteBranch({ workspaceId, name, force })` — local only.\n- `git.deleteRemoteBranch({ workspaceId, remote, name })` — 분리 핸들러(askpass 필요, undo 비용 비대칭).\n- `git.renameBranch({ workspaceId, from, to })`.\n- `git.setUpstream({ workspaceId, branch, upstream | null })` — null=unset.\n- `git.fastForwardBranch({ workspaceId, branch, remote, remoteRef })` — `git fetch <remote> <remoteRef>:<branch>`. 결과 `{ advanced, fromSha, toSha }`. advanced:false도 정상.\n- `git.createBranch` 확장 — `fromRef?` + `checkout?`. resolveCheckoutTarget 재사용.\n\n**신규 모듈:**\n- `src/main/git/git-branch-ops.ts` — 위 ops의 git invocation + preflight.\n- `src/main/ipc/channels/git/branch-ops-handlers.ts` 신규(기존 branch-handlers는 list만).\n\n**렌더러:**\n- `branch-picker-source.ts` 확장 — modifier-accept secondary actions: Cmd/Ctrl+Backspace=delete(unmerged면 force 토글 confirm), Cmd/Ctrl+R=rename(PromptDialog), Cmd/Ctrl+U=set-upstream(remote/branch picker).\n- `GitBranchPopover.tsx` 푸터 메뉴 영역: Checkout to / Create branch / **Create from ref** / sep / Rename / Set upstream / Fast-forward / sep / Delete(destructive). 모든 disabled는 위치 유지 + tooltip.\n- 신규 `ref-picker-source.ts` (`git.ref-picker`) — branches + tags + recent commits 통합. Create from ref, Cherry-pick(P5에서 별도 source), Tag at ref 등에서 활용.\n\n**가드 룰:**\n- Delete current branch → 행 picker에서 숨김.\n- Delete merged → 단순 confirm.\n- Delete unmerged → confirm + \"Force delete\" 토글(기본 OFF) → 토글 시 추가 라인.\n- Delete remote branch → confirm + \"This affects the remote\" 서브라인. `remotes.length===0`일 때 항목 숨김.\n- Set upstream → `remotes.length===0` 비활성.\n- Fast-forward → `!upstream` 비활성, `behind===0`이면 행 비활성(\"Already up to date\").\n\n**bumpGeneration:**\n- 모든 mutation 핸들러는 성공 후 `gitRegistry.bumpGeneration(workspaceId)` 호출. fast-forward는 advanced:false에도 bump.",
+          "acceptance": "1) `deleteBranch` merged면 단순 OK, unmerged면 `branch-not-fully-merged`+hint=force-delete-available. force=true 시 성공.\n2) `deleteRemoteBranch` 별도 핸들러로 askpass 흐름 동작.\n3) `renameBranch` invalid 이름 → `branch-name-invalid`. `to`가 이미 존재 → `branch-exists`.\n4) `setUpstream` null → unset. 잘못된 upstream → `upstream-invalid`.\n5) `fastForwardBranch` advanced 시 fromSha/toSha 반환, no-op 시 `advanced:false`. 둘 다 bumpGeneration.\n6) `createBranch` fromRef 지정 시 그 위치에서 새 브랜치 생성. checkout=true면 즉시 전환.\n7) BranchPicker modifier-accept 분기 정확. Force delete confirm 두-단계.\n8) GitBranchPopover 푸터 메뉴 노출. disabled 위치 유지 + tooltip.\n9) ref-picker가 branches + tags + recent commits 통합 검색.\n10) 모든 mutation 후 capabilities/branch list 자동 갱신.",
+          "approach": "1. git-branch-ops.ts + branch-ops-handlers.ts.\n2. branch-picker-source.ts modifier-accept 분기.\n3. ref-picker-source.ts 신규.\n4. GitBranchPopover 푸터 메뉴.\n5. Confirm dialog 확장(force toggle, \"affects remote\" subline).\n6. bumpGeneration wiring.\n7. 시나리오 테스트: delete merged/unmerged/force, rename, set-upstream null/value, fast-forward advanced/no-op.",
+          "risk": "deleteBranch on current branch는 git이 거부하지만 picker에서 사전에 행 숨김 — 동기화 timing race 시 사용자 혼란 가능. set-upstream UI는 remote/branch 선택 sub-modal 필요(별도 picker 또는 PromptDialog 2-필드).",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e11c0-c837-7c30-8b4a-79ab7587ae99",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:50:52.744Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented branch mutation backend/IPC/store flows, create-from-ref support, ref-picker, BranchPicker shortcuts/confirm flows, and GitBranchPopover menu actions with disabled reasons retained. Verification passed targeted real-git/source/menu tests, typecheck, changed-file Biome, full unit/integration suite, and refresh/bump handler probe.",
+            "artifacts": [
+              "src/main/git/git-branch-ops.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/ipc/channels/git/branch-ops-handlers.ts",
+              "src/main/ipc/channels/git/branch-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/components/ui/palette/types.ts",
+              "src/renderer/components/ui/palette/controller.ts",
+              "src/renderer/components/ui/palette/command-palette.tsx",
+              "src/renderer/components/files/git/branch-picker-source.ts",
+              "src/renderer/components/files/git/BranchPicker.tsx",
+              "src/renderer/components/files/git/ref-picker-source.ts",
+              "src/renderer/components/files/git/RefPicker.tsx",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitBranchPopover.tsx",
+              "src/renderer/components/files/git/GitBranchBar.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/index.ts",
+              "tests/unit/main/git/git-branch-ops.test.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/ref-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/git-branch-popover-menu.test.ts",
+              "tests/unit/renderer/components/ui/palette/palette-controller.test.ts"
+            ],
+            "recorded_at": "2026-05-10T12:26:15.550Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "P3.2 — Remote management (add/remove + Remotes 서브메뉴)",
+          "status": "completed",
+          "context": "Track B 원격 관리.\n\n**신규 IPC:**\n- `git.addRemote({ workspaceId, name, url })` — `git remote add <name> <url>`.\n- `git.removeRemote({ workspaceId, name })` — `git remote remove <name>`.\n\n**신규 모듈:**\n- `src/main/git/git-remote.ts` — addRemote, removeRemote. 큐 경유 + bumpGeneration.\n- `src/main/ipc/channels/git/remote-handlers.ts` 신규.\n\n**렌더러:**\n- `GitMoreMenu.tsx`에 \"Remotes ▸\" 서브메뉴 신규: 현재 remotes 목록(read-only 라벨) + \"Add remote…\" / \"Remove remote…\".\n- Add: PromptDialog(2필드 — name + URL). 인라인 URL 패턴 검증(`https://`, `git@`, `ssh://`, `file://`). 빈 값 비활성. 네트워크 probe 없음.\n- Remove: 어떤 remote 제거할지 선택(기존 remotes 목록 → 행 클릭). ConfirmDiscardDialog. 현재 브랜치 upstream이면 인라인 경고 \"<branch> tracks <remote>/... Removing detaches upstream tracking.\" 색상 X 텍스트만.\n\n**Rename remote 컷** — 사이클 결정.\n\n**capability 갱신:** addRemote/removeRemote 성공 → bumpGeneration → RepoCapabilities.remotes 즉시 갱신 → Action button \"No remote configured\" → \"Publish Branch\" 자연 전이.",
+          "acceptance": "1) `addRemote` 정상 추가, RepoCapabilities.remotes 갱신.\n2) 중복 이름 → `remote-exists` 에러 + UI 인라인 메시지.\n3) URL 패턴 미매치 → `remote-url-invalid`.\n4) `removeRemote` 정상 제거. 현재 upstream 제거 시 confirm 경고 노출, 사용자 확정 후 BranchInfo.upstream=null.\n5) 비존재 remote 제거 → `remote-not-found`.\n6) Action button 자연 전이(\"No remote configured\"→\"Publish Branch\") 확인.\n7) GitMoreMenu Remotes 서브메뉴에 현재 remotes 목록 정확 노출.",
+          "approach": "1. git-remote.ts + remote-handlers.ts.\n2. GitMoreMenu Remotes 서브메뉴.\n3. Add remote PromptDialog 2필드 + 패턴 검증.\n4. Remove remote — remotes 목록에서 선택 후 ConfirmDiscardDialog + upstream 경고.\n5. 시나리오 테스트: add 중복 → remote-exists, add invalid url → remote-url-invalid, remove 비존재 → remote-not-found, remove upstream → 경고 + 정상 제거.",
+          "risk": "URL 패턴 검증이 너무 엄격하면 정당한 SSH alias(`git@host-alias:repo`)나 file URL을 거부할 수 있음. 4가지 prefix 외에 `[A-Za-z]+://` 일반 패턴도 허용하도록 완화.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e11da-cb91-76a1-8325-0ff38b0f2e5d",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:51:09.370Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented remote add/remove backend, typed IPC handlers, shared URL validation, renderer store actions, Remotes submenu, Add Remote form, and Remove Remote confirmation with upstream-detach warning. Verification passed targeted tests, typecheck, full unit/integration suite, and code inspection for refresh/UI surfacing.",
+            "artifacts": [
+              "src/shared/git-remote-validation.ts",
+              "src/main/git/git-remote.ts",
+              "src/main/git/git-error.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/remote-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/main/git/git-remote.test.ts",
+              "tests/unit/main/ipc/channels/git/remote-handlers.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts",
+              "tests/unit/renderer/state/selectors/git-action-button.test.ts",
+              "tests/unit/main/git/git-error.test.ts"
+            ],
+            "recorded_at": "2026-05-10T12:44:43.669Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "P3.3 — Tag management (list/create/delete/delete-remote + tag-picker)",
+          "status": "completed",
+          "context": "Track B 태그 관리.\n\n**신규 IPC:**\n- `git.listTags({ workspaceId }) → Tag[]` — `git for-each-ref --format='%(refname:short)%00%(objectname)%00%(*objectname)%00%(objecttype)%00%(taggerdate:unix)%00%(contents:subject)' refs/tags`. 큐 우회(read-only).\n- `git.createTag({ workspaceId, name, ref?, message? })` — message 있으면 annotated, 없으면 lightweight.\n- `git.deleteTag({ workspaceId, name })` — `git tag -d <name>`.\n- `git.deleteRemoteTag({ workspaceId, remote, name })` — `git push <remote> :refs/tags/<name>`. askpass 흐름.\n\n**신규 모듈:**\n- `src/main/git/git-tag.ts` — list parse + create + delete + deleteRemote.\n- `src/main/ipc/channels/git/tag-handlers.ts` 신규.\n\n**렌더러:**\n- `GitMoreMenu.tsx`에 \"Tags…\" 항목 → 신규 `tag-picker-source.ts`(`git.tag-picker`) 호출.\n- Tag picker: searchOnEmptyQuery, label=`<name>`, kindLabel=`<type>`(annotated/lightweight), description=`<authorOrCommitter date>`. modifier-accept: Enter=reveal(history 이동, history 패널 P4 lands 후 wiring 또는 임시 toast), Cmd/Ctrl+Backspace=delete local, Shift+Cmd/Ctrl+Backspace=delete local + remote.\n- Create tag: `FormDialog`(P1.3) — name(필수), message(optional, multiline), 기본 ref=HEAD + \"at ref…\" 링크로 ref-picker(P3.1) 호출. 헬퍼 텍스트로 message=annotated 명시.\n- Delete tag: ConfirmDiscardDialog(name + 짧은 SHA) + \"Also delete on `<remote>`\" 체크박스 기본 OFF. Remotes 없으면 비활성.\n\n**capability:** RepoCapabilities.tagCount 갱신 — listTags 성공 후 또는 mutation 후 bumpGeneration.",
+          "acceptance": "1) `listTags` Tag[] 정확 — name, sha, message(annotated만), type, taggerDate.\n2) `createTag` message 없으면 lightweight, 있으면 annotated. 중복 → `tag-exists`. 잘못된 ref → `ref-not-found`.\n3) `deleteTag` 비존재 → `tag-not-found`.\n4) `deleteRemoteTag` askpass 흐름 동작.\n5) Tag picker modifier-accept 정확.\n6) FormDialog로 create 시 ref-picker 통합 동작.\n7) \"Also delete on origin\" 체크박스 기본 OFF.\n8) RepoCapabilities.tagCount 갱신.",
+          "approach": "1. git-tag.ts 모듈 + tag-handlers.ts.\n2. tag-picker-source.ts.\n3. Create tag FormDialog + ref-picker 통합.\n4. Delete tag ConfirmDialog + 체크박스.\n5. GitMoreMenu Tags 항목.\n6. 시나리오 테스트: list 정확성, create lightweight/annotated, delete local 단독, delete with also-on-remote.",
+          "risk": "tag 이름이 ref-format invalid(공백, ~, ^ 등) 시 git이 거부 — `tag-name-invalid` classifier 패턴 확인. annotated tag signing(GPG)은 본 사이클 cut(`signing-failed` 에러 분기는 두지만 UX 노출 X).",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            3,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e11f2-6e18-7da1-b937-34126d65dd71",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:51:28.047Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented tag backend operations, IPC handlers/contracts, renderer tag picker/create/delete flows, ref-picker-backed tag creation, remote-tag deletion using interactive helper env, and tagCount refresh after mutations. Verification passed targeted real-git and UI tests, typecheck, full unit/integration suite, fake helper-env probe, and tagCount refresh probe.",
+            "artifacts": [
+              "src/main/git/git-tag.ts",
+              "src/main/git/git-branch-ops.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/git/git-error.ts",
+              "src/main/ipc/channels/git/tag-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/branch-ops-handlers.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/ui/form-dialog.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/TagPicker.tsx",
+              "src/renderer/components/files/git/tag-picker-source.ts",
+              "src/renderer/components/files/git/index.ts",
+              "tests/unit/main/git/git-tag.test.ts",
+              "tests/unit/main/ipc/channels/git/tag-handlers.test.ts",
+              "tests/unit/renderer/components/files/git/tag-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/tag-picker-dialogs.test.tsx",
+              "tests/unit/renderer/components/files/git/ref-picker-source.test.ts",
+              "tests/unit/main/git/git-error.test.ts"
+            ],
+            "recorded_at": "2026-05-10T13:21:07.279Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "P4.1 — Autofetch 스케줄러 + Branch/Sync chip + Autofetch 서브메뉴",
+          "status": "completed",
+          "context": "백그라운드 fetch + branch chip의 sync indicator(header 흡수).\n\n**신규 모듈:**\n- `src/main/git/git-autofetch.ts` — 단일 마스터 스케줄러. 1초 tick → 워크스페이스별 `nextFetchAt` 비교 → due면 enqueue. 워크스페이스별 `consecutiveFailures: Map`. blur=글로벌 paused.\n- `git fetch --all --prune` invocation. **askpass-required 시 prompt X, 즉시 실패 → consecutiveFailures++**.\n\n**신규 IPC:**\n- `git.fetchAll({ workspaceId }) → { fetched: boolean, lastFetchedAt: number } | GitError(...)` — autofetch 내부 + 사용자 명시 fetch 공통(사용자 명시 시는 askpass 동작).\n- `autofetch.setSchedule({ workspaceId, intervalMin: 0|1|3|5|15 })` — 0=off.\n- `autofetch.pause / resume({ workspaceId })`.\n\n**main 와이어링:**\n- `src/main/main.ts` — `BrowserWindow.on('blur'|'focus')`로 autofetch에 글로벌 pause/resume 송신.\n- 성공 후 `gitRegistry.bumpGeneration(workspaceId)` 직접 호출(watcher 의존 X).\n- GitStatus에 `lastFetchedAt: number | null` 채움 — `.git/FETCH_HEAD` mtime fs.stat. 실패 시 null.\n\n**렌더러:**\n- 기존 GitBranchPopover/GitBranchBar/GitHeader가 공유하는 단일 `BranchChip` 컴포넌트로 정규화 — 신규 `src/renderer/components/files/git/BranchChip.tsx`.\n- Glyph 시스템(monochrome): up-to-date=∅, ↑N(ahead), ↓N(behind), ↕A/B(diverged narrow) / `↓N ↑M`(diverged wide), `⊘`(no upstream), `⟳`(fetching, 400ms 디바운스 후 표시), `!`(failed).\n- Click → GitBranchPopover 열림 + popover body 단일 CTA(상태별 라벨: Sync/Pull/Push/Publish/Fetch now). Hick's law 회피.\n- Right-click → context: Fetch now / Pull / Push / Publish Branch / Copy upstream / Autofetch ▸.\n- GitMoreMenu에 \"Autofetch ▸\" 서브메뉴: Off / Every 1/3(default)/5/15 min + 메뉴 caption \"Last fetched 2m ago\".\n- 실패 가시화: chip `!` glyph + popover footer \"Last fetch failed — Retry\" + 3연속 실패 시 GitInlineBanner 1회 \"Autofetch paused — Resume\" + manualPaused=true. Auth 실패 sticky, network 실패는 다음 성공 시 자동 클리어. **Toast 절대 X**.\n\n**Watcher 결합:** `git-watcher` 디바운스 ≥100ms 유지(외부 터미널 fetch 경로). autofetch는 직접 bumpGeneration → race 회피.",
+          "acceptance": "1) Autofetch 스케줄러 1초 tick. intervalMin=3에서 3분 지나면 enqueue.\n2) BrowserWindow blur 시 글로벌 paused, focus 시 resume. paused 동안 due 누락 OK(다음 focus 후 재계산).\n3) 3연속 실패 시 워크스페이스만 paused + GitInlineBanner 1회. 명시 resume 또는 다음 성공 fetchAll까지 유지.\n4) `intervalMin: 0` 시 스케줄러 미발화. 별도 paused 플래그 X.\n5) lastFetchedAt이 외부 터미널 `git fetch` 후에도 mtime으로 정확 갱신.\n6) BranchChip glyph: ahead/behind/diverged/no-upstream/fetching/failed 7가지 상태 정확 렌더. Narrow polish ↕A/B 폴백.\n7) Click=popover open + 단일 CTA, Right-click=context 6항목.\n8) GitMoreMenu Autofetch 서브메뉴 5옵션 + caption.\n9) Auth 실패 sticky vs network 자동 클리어 동작.\n10) Toast 사용 0회.\n11) GitPanelState autofetchIntervalMin/autofetchManualPaused 영구 저장 동작.\n12) bumpGeneration 직접 호출로 status refresh 1회만(중복 X).",
+          "approach": "1. git-autofetch.ts 단일 마스터 스케줄러 + 큐 enqueue 로직 + 3-pause 차원 분리.\n2. fetchAll/setSchedule/pause/resume IPC + ipc-contract 등록.\n3. main.ts BrowserWindow blur/focus 라우팅.\n4. lastFetchedAt fs.stat 통합(porcelain status refresh 시).\n5. BranchChip 컴포넌트 정규화 + glyph 매핑 + 디바운스.\n6. GitBranchPopover body CTA 상태별.\n7. GitMoreMenu Autofetch 서브메뉴 + caption.\n8. 실패 가시화 흐름.\n9. 시나리오 테스트: 스케줄 due/blur pause/3실패 paused/명시 resume/lastFetchedAt mtime 정확.",
+          "risk": "macOS App Nap이 setInterval을 throttle할 수 있음 — 중요한 경우 power-saving 비활성 또는 별도 timer. blur 시점 즉시 pause vs in-flight fetch 처리(완료까지 진행 권고).",
+          "plan_issue": 7,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1251-65bc-7ad0-9421-617c5b9b2c58",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:52:08.085Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified autofetch scheduling/control, explicit fetch-all refresh, BranchChip sync/failure glyphs, branch popover single-CTA/context menu, GitMoreMenu Autofetch submenu, failure pause/banner state, and persistence. Verification PASS: source inspection, targeted autofetch/UI/storage tests, typecheck, no-toast scan, and full unit/integration suite all passed.",
+            "artifacts": [
+              "src/main/git/git-autofetch.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/index.ts",
+              "src/main/ipc/channels/autofetch.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/sync-handlers.ts",
+              "src/renderer/components/files/git/BranchChip.tsx",
+              "src/renderer/components/files/git/GitBranchBar.tsx",
+              "src/renderer/components/files/git/GitBranchPopover.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/index.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "tests/unit/main/git/git-autofetch.test.ts",
+              "tests/unit/renderer/components/files/git/git-branch-popover-menu.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-10T14:59:51.405Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "P4.2 — History/Log 패널 MVP (sibling 세그먼트 + side pane)",
+          "status": "completed",
+          "context": "History/Log 패널 MVP — Source Control 패널과 sibling 세그먼트.\n\n**신규 IPC:**\n- `git.commitDetail({ workspaceId, sha }) → CommitDetail{ sha, parents[], author, authorEmail, committerTs, message, files: { path, status, oldPath? }[] }` — `git show --name-status --format=<NUL-template>`. Merge commit(parents.length>1)은 `files: []` + UI에 \"Merge commit (N parents)\" 라벨.\n- `git.searchCommits({ workspaceId, query, limit }) → SearchResult` — 자동 분기: `^[0-9a-f]{4,40}$`이면 `git rev-parse --verify <prefix>^{commit}` → 단일 detail 또는 `ref-not-found`. else `git log --grep=<term> --max-count=50`.\n- `git.checkoutDetached({ workspaceId, sha })` — `git checkout <sha>`.\n- `git.resetSoft({ workspaceId, targetSha })` — `git reset --soft <sha>`. 임의 sha. (`undoLastCommit`과 별도 의미 유지.)\n- 기존 `log()` AsyncGenerator 재사용 + `GitLogArgs.ref?` 필드(없으면 추가) + sha-시드 페이징 옵션(`<sha>^@`).\n\n**신규 모듈:**\n- `src/main/git/git-commit-detail.ts` — `git show --name-status` 파서.\n- `src/main/ipc/channels/git/history-handlers.ts` 신규.\n\n**렌더러:**\n- `src/renderer/components/files/git/history/` 디렉토리:\n  - `HistorySegmentToggle.tsx` — `[Changes][History]` 세그먼트.\n  - `HistoryRefSwitcher.tsx` — BranchPicker 재사용. log re-target만, checkout 부수효과 X. 부제 \"Viewing history of <ref>\".\n  - `HistorySearch.tsx` — sticky top input, 200ms debounce.\n  - `HistoryList.tsx` — 가상 스크롤(또는 단순 list, 50 row), Load 50 more 버튼, sha-시드 페이징.\n  - `HistoryRow.tsx` — 단일 라인(dot/subject/author/time/sha). hover/selected/focus-visible 상태.\n  - `HistoryDetail.tsx` — side pane(50/50, draggable, persisted). subject/author/email/ISO time/full body/file list. Narrow(<720px)는 right overlay sheet.\n  - `HistoryCommitMenu.tsx` — context 메뉴. Copy SHA / Copy message / sep / Cherry-pick this commit…(이슈 #4 cherryPick 재사용) / Checkout (detached)…(confirm) / sep / Reset branch to here (soft)…(confirm \"keeps changes staged\"). Right-click row · 액션 toolbar · Cmd/Ctrl+. 모두 동일.\n- `GitPanel.tsx` 수정 — segment 분기, History 활성 시 HistoryList 렌더, Changes 활성 시 기존 그룹.\n\n**State:** GitPanelState에 `panelSegment: 'changes' | 'history'`(default 'changes'), `historyDetailWidth: number`, `historyRef: string`.",
+          "acceptance": "1) `[Changes][History]` 세그먼트 토글 동작. 선택 상태 GitPanelState 영구 저장.\n2) HistoryList 첫 50 즉시 렌더. \"Load 50 more\" 클릭 시 sha-시드(`<lastSha>^@`)로 다음 50 fetch — 도중 commit 추가에도 어긋남 없음.\n3) 행 hover=bg, selected=2px left accent + bg, focus-visible=2px ring.\n4) HistoryDetail 분할 view 50/50 draggable, persisted width. Narrow(<720px) right sheet.\n5) Search 자동 분기: `a3f9c1d` 입력 → SHA prefix matching → 단일 commit detail. `fix popover` 입력 → grep 결과.\n6) Commit detail: subject/author/email/ts/body/files 정확. Merge commit(parents>1)에 \"Merge commit (N parents)\" 라벨 + files=[].\n7) Context 메뉴: Copy SHA → 클립보드, Cherry-pick → P5 cherryPick 호출, Checkout (detached) → ConfirmDialog → checkoutDetached IPC, Reset branch to here (soft) → ConfirmDialog \"keeps changes staged\" → resetSoft IPC.\n8) HistoryRefSwitcher = BranchPicker 재사용. log re-target만, working tree 미터치(부제로 명시).\n9) Mixed/hard reset 메뉴 미노출(컷 결정 일관).\n10) 시나리오 테스트 통과.",
+          "approach": "1. main 측 git-commit-detail.ts + history-handlers.ts.\n2. log primitive에 sha-시드 페이징 옵션 추가.\n3. searchCommits 자동 분기 로직.\n4. checkoutDetached + resetSoft 핸들러.\n5. 렌더러 디렉토리 5+ 컴포넌트 분리(mission.md 모듈화).\n6. GitPanel segment 통합.\n7. 시나리오 테스트: log re-target ref 정확성, sha-시드 페이징(50→100→150), search SHA prefix vs grep, commit detail merge commit 라벨, checkoutDetached/resetSoft 동작.",
+          "risk": "대형 repo(100k+ commits)에서 첫 50 fetch는 빠르나 search `--grep`은 전체 스캔 — debounce 200ms로 부분 완화. sha-시드 페이징은 merge commit의 multi-parent 시 어느 parent를 따를지 모호 — 기본 first-parent(`<sha>^`로 단순화) 또는 명시 first-parent only 옵션. resetSoft 임의 sha는 사용자가 forward(future)를 선택할 수 있음 — UI에서 history 패널의 ref 컨텍스트 안 commit만 노출되므로 사실상 backward만 가능.",
+          "plan_issue": 9,
+          "deps": [
+            1,
+            3,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1219-dce2-7280-baf4-aadfd5f9d929",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:52:46.179Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified History/Log panel MVP. Added commit detail/search/log paging backend, history IPC, checkout-detached/reset-soft handlers, persisted panel segment/ref/detail-width state, BranchPicker-based history ref switching without checkout side effects, history list/detail/search/context menu UI, and scenario tests. Verification PASS: targeted history tests, typecheck, lint exit 0, full unit/integration suite, and UI render probe all passed.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/git/git-commit-detail.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/history-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/channels/git/log-stream.ts",
+              "src/main/storage/workspace-storage.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/BranchPicker.tsx",
+              "src/renderer/components/files/git/branch-picker-source.ts",
+              "src/renderer/components/files/git/index.ts",
+              "src/renderer/components/files/git/history/HistoryPanel.tsx",
+              "src/renderer/components/files/git/history/HistorySegmentToggle.tsx",
+              "src/renderer/components/files/git/history/HistoryRefSwitcher.tsx",
+              "src/renderer/components/files/git/history/HistorySearch.tsx",
+              "src/renderer/components/files/git/history/HistoryList.tsx",
+              "src/renderer/components/files/git/history/HistoryRow.tsx",
+              "src/renderer/components/files/git/history/HistoryDetail.tsx",
+              "src/renderer/components/files/git/history/HistoryCommitMenu.tsx",
+              "tests/unit/main/git/git-commit-detail.test.ts",
+              "tests/unit/main/git/git-repository-history.test.ts",
+              "tests/unit/main/ipc/channels/git/history-handlers.test.ts",
+              "tests/unit/main/storage/storage-workspace.test.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/history-menu.test.ts",
+              "tests/unit/renderer/components/files/git/history-detail.test.tsx",
+              "tests/unit/renderer/components/files/git/history-segment-toggle.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T14:02:46.366Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "P5.1 — 워크플로 ops 백엔드 (merge/rebase/cherry-pick + abort/continue + markResolved)",
+          "status": "completed",
+          "context": "Track C 워크플로 백엔드. 충돌은 success envelope, abort/continue는 disk state로 dispatch.\n\n**신규 IPC:**\n- `git.merge({ workspaceId, branch, mode: 'default'|'no-ff'|'squash' }) → { result: 'clean'|'conflicts', conflictCount } | GitError(merge-already-in-progress|dirty-tree|unrelated-histories|no-merge-base|branch-not-found|nothing-to-commit)`.\n- `git.rebase({ workspaceId, onto }) → { result, conflictCount, doneCount, totalCount } | GitError(rebase-already-in-progress|dirty-tree|ref-not-found|unrelated-histories)`. **Non-interactive `git rebase <onto>`만**. `--onto` MVP=skip.\n- `git.cherryPick({ workspaceId, sha }) → { result, conflictCount } | GitError(cherry-pick-already-in-progress|dirty-tree|ref-not-found|empty-commit)`.\n- `git.abortOp({ workspaceId }) → void | GitError(no-operation-in-progress)` — **op 파라미터 없음**, main이 GitOperationState로 dispatch(merge/rebase/cherry-pick/revert).\n- `git.continueOp({ workspaceId }) → { result: 'clean'|'conflicts'|'completed', conflictCount } | GitError(no-operation-in-progress|unresolved-conflicts|empty-commit)` — 동일 dispatch.\n- `git.markResolved({ workspaceId, paths: string[] }) → { remainingConflicts: number } | GitError(path-not-conflicted|path-not-in-repo)` — `git add <paths>`. semantic 분리(UI feedback \"marked\"가 \"staged\"와 다름).\n\n**신규 모듈:**\n- `src/main/git/git-workflow.ts` — merge/rebase/cherryPick/abortOp/continueOp 진입점 + GitOperationState dispatcher.\n- `src/main/git/git-conflict.ts` — markResolved + conflict path 검증.\n- `src/main/ipc/channels/git/workflow-handlers.ts` 신규.\n\n**큐 정책:**\n- 모든 op은 짧게 enqueue+release — 사람 시간 동안 큐 holding 금지. conflict 상태는 `.git/` 마커 + porcelain u-라인이 single source of truth.\n- markResolved → bumpGeneration → conflictCount 갱신. **conflictCount=0이어도 kind는 자동 'none' 전이 X**(MERGE_HEAD 존재 그대로) — 렌더러가 `kind!=='none' && conflictCount===0`로 \"Ready to continue\" derive.\n\n**git-watcher 디바운스:**\n- ≥100ms 검증(rebase 단계 storm 방지).\n- `MERGE_HEAD`/`rebase-merge/`/`rebase-apply/`/`CHERRY_PICK_HEAD`/`REVERT_HEAD`가 lock-ignore 필터에 포함되지 않음 audit.\n\n**Take Ours/Theirs/Both IPC 미구현 — UI는 disabled로 surface area만 보존.**",
+          "acceptance": "1) `git.merge` clean → result='clean'. conflicts 시 `result='conflicts', conflictCount=N`로 success(error 아님). 이미 진행 중이면 `merge-already-in-progress`.\n2) `git.rebase` non-interactive 동작. step별 doneCount/totalCount 반환. unrelated-histories 시 hint=allow-unrelated-histories.\n3) `git.cherryPick` 동작. empty commit 시 hint=allow-empty.\n4) `git.abortOp` op 파라미터 없이 GitOperationState로 자동 dispatch. 진행 op 없으면 `no-operation-in-progress`.\n5) `git.continueOp` 동일 dispatch. unresolved-conflicts → 에러. completed 시 `result='completed'`.\n6) `git.markResolved` `git add` 호출 + remainingConflicts 반환. non-conflicted path 시 `path-not-conflicted`.\n7) bumpGeneration 모든 mutation 후 호출.\n8) git-watcher가 마커 디렉토리 변동 잡고 디바운스 ≥100ms.\n9) 큐 holding 검증 — abort 대기 동안 다른 read op(status/log) 정상 진행.\n10) 시나리오 테스트 통과 — merge/rebase/cherry-pick 각 conflicts/clean/already-in-progress 흐름.",
+          "approach": "1. git-workflow.ts dispatcher + abort/continue가 GitOperationState 읽고 적절 git invocation.\n2. git-conflict.ts markResolved.\n3. workflow-handlers.ts IPC.\n4. ipc-contract 등록 + result 타입.\n5. git-watcher 마커 디렉토리 lock-ignore 미포함 audit + 디바운스 ≥100ms.\n6. 시나리오 테스트: merge clean/conflicts, rebase 단계별, cherry-pick clean/conflicts, abort 각 op, continue clean/conflicts/completed, markResolved 정상/non-conflicted path.",
+          "risk": "rebase variant(`rebase-apply` vs `rebase-merge`) abort 명령 차이 — 잘못된 dispatch 시 git이 거부. GitOperationState.variant 기반 분기 정확성 검증 필수. rebase 단계 mid에 외부 터미널이 abort/continue 시도하면 우리 IPC와 race — 권고: 우리가 abortOp 받기 전에 disk state 다시 읽어 stale 방지.",
+          "plan_issue": 4,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e11da-d14a-7ba1-9e2c-e6ff070e9c07",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:53:17.997Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented backend workflow operations for merge/rebase/cherry-pick, disk-state abort/continue dispatch, semantic markResolved validation, workflow IPC handlers/contracts, generation refresh after mutations, watcher marker coverage, and empty cherry-pick refresh-on-error handling. Verification passed targeted workflow tests, typecheck, full unit/integration suite, and ad-hoc real Git IPC-path probe.",
+            "artifacts": [
+              "src/main/git/git-workflow.ts",
+              "src/main/git/git-conflict.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/git/git-watcher.ts",
+              "src/main/ipc/channels/git/workflow-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "tests/unit/main/git/git-workflow.test.ts",
+              "tests/unit/main/git/git-watcher.test.ts",
+              "tests/unit/main/ipc/git-workflow-handlers.test.ts"
+            ],
+            "recorded_at": "2026-05-10T12:51:57.901Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "P5.2 — OperationBanner + MergeOptionsDialog + 충돌 row 확장 + picker 3종",
+          "status": "completed",
+          "context": "Track C UX 전반.\n\n**신규 picker source(separate files, mission.md 모듈화):**\n- `merge-target-picker-source.ts` (`git.merge-target-picker`) — title \"Merge branch into <current>\". \"Create new branch\" 행 제거, current 제거.\n- `rebase-target-picker-source.ts` (`git.rebase-target-picker`) — title \"Rebase <current> onto\".\n- `commit-picker-source.ts` (`git.commit-picker`) — cherry-pick용. ref와 분리(commit identity ≠ moving label). Item label=subject, kindLabel=`<shortSha>` monospace, description=`<author> · <relTime>`. 첫 행 \"Pick from <current>\", 두 번째 헤더 \"Pick from another branch…\"(메르지타겟 picker 진입). 단일 commit accept만(multi-pick 컷).\n\n**MergeOptionsDialog:**\n- merge-target-picker → ref 결정 후 신규 `MergeOptionsDialog.tsx` — 3 radio: `Create a merge commit`(default) / `Fast-forward when possible` / `Squash and commit manually`. 하단에 squash 선택 시 설명 라인. 버튼 라벨은 선택 따라 \"Merge\"↔\"Squash\". `git.merge` mode 파라미터로 wiring.\n- Squash 결과는 staged + no MERGE_HEAD → 기존 commit 흐름으로 자연 합류. 별도 \"complete squash\" 버튼 X. Commit 입력 draft 자동 채움(`Squash merge of '<theirs>'\\n\\n* <subj 1>...`).\n\n**OperationBanner:**\n- 신규 `src/renderer/components/files/git/OperationBanner.tsx` — `GitInlineBanner` thin variant. **단일 소유**: banner가 Continue/Abort 버튼 owner. issue #2의 merge 그룹 kebab \"Abort Merge\"는 본 task에서 banner로 이전(중복 제거).\n- `GitPanel.tsx`: merge 그룹 위 도킹. op 진행 중에는 GitCommitButton 영역을 Continue/Abort 페어로 **교체**(spatial constancy).\n- 메시지 표(이슈 #4 결정):\n  - merge conflicts>0: \"Merging <theirs> into <ours> — N conflicts remain\" + \"Resolve files below, then Continue.\"\n  - merge conflicts=0: \"Merge ready to continue\" + \"All conflicts resolved.\"\n  - rebase step k/N conflicts>0: \"Rebasing onto <base> — step k of N · N conflicts remain\" + currentCommitSubject\n  - rebase step k/N conflicts=0: \"Rebase paused at step k of N\" + \"Resolve, then Continue.\"\n  - cherry-pick conflicts>0: \"Cherry-picking <shortSha> — N conflicts remain\" + commitSubject\n  - cherry-pick conflicts=0: \"Cherry-pick ready to continue\"\n- Continue: aria-disabled if conflictCount>0 + tooltip \"Resolve N conflicts first.\"\n- States: in-progress(conflicts/clean) / continuing / aborting / op-failed(variant=error + Retry/Abort).\n- accessibility: role=\"status\"(in-progress), role=\"alert\"(failed). Mark resolved 아이콘 버튼 `aria-label=\"Mark <path> resolved\"`.\n- total 미상 시 \"step ?/?\" 금지 — 단순 \"Rebasing onto <base>\".\n\n**Conflict file row 확장:**\n- `GitFileRow.tsx` / `GitTreeRow.tsx` conflict 분기:\n  - Default click → diff `kind: \"wt-vs-head\"`(working tree에 conflict marker 포함).\n  - Hover icons: Mark resolved(Check) / Open in external editor(ExternalLink, system.openPathExternal 호출) / Discard.\n  - Context 메뉴(P2.1 row 메뉴 확장): Open Diff / **Open in External Editor** / Mark Resolved / sep / **Take Ours**(disabled \"Available with the merge editor\") / **Take Theirs**(disabled) / sep / Discard.\n  - Take Ours/Theirs/Both는 IPC 미구현, UI는 disabled with tooltip(surface area 보존).",
+          "acceptance": "1) merge-target-picker / rebase-target-picker / commit-picker 3종 별도 파일, \"Create new branch\" 행 제거 + current 제거(merge/rebase target).\n2) commit-picker가 현재 branch에서 첫 행, \"Pick from another branch…\"로 다른 branch 진입.\n3) MergeOptionsDialog 3 radio + Squash 설명 라인 + 버튼 라벨 \"Merge\"↔\"Squash\" 동적.\n4) Squash 성공 시 commit 입력 draft 자동 채움.\n5) OperationBanner 메시지 7가지 상태 정확. Continue conflictCount>0 시 aria-disabled + tooltip.\n6) GitCommitButton 영역이 Continue/Abort 페어로 교체(작업 진행 중).\n7) issue #2 merge 그룹 kebab \"Abort Merge\" 제거 — banner 단일 소유.\n8) Conflict row hover icons 3종 + context 메뉴 Take Ours/Theirs disabled with tooltip.\n9) Open in external editor → system.openPathExternal 정상 호출.\n10) accessibility role/aria-label 정확.\n11) rebase total 미상 시 \"step ?/?\" 미노출.",
+          "approach": "1. picker source 3종 신규 파일.\n2. MergeOptionsDialog.tsx + merge-target → 다이얼로그 → git.merge wiring.\n3. OperationBanner.tsx + GitPanel 통합.\n4. issue #2 merge kebab Abort 제거 + banner로 이전.\n5. GitCommitButton 영역 교체 로직.\n6. Conflict row 확장(GitFileRow/GitTreeRow conflict 분기).\n7. Squash 자동 메시지 draft.\n8. 시나리오 테스트: merge target picker 흐름, rebase target picker, commit picker(현재 branch + 다른 branch 진입), MergeOptionsDialog 3 radio 동작, OperationBanner 7 메시지 상태, conflict row 액션.",
+          "risk": "issue #2 merge 그룹 kebab \"Abort Merge\" 제거 시 사용자가 기존 위치 익숙해진 상태라면 friction — 첫 사용 시 banner의 Abort 버튼 위치가 더 명확해 보상. OperationBanner와 askpass/editor 큐 점유 banner가 동시에 노출될 수 있음 — 위/아래 정렬 정책 필요(banner 스택).",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            3,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1233-2526-7490-b97c-b9952ddc8eb0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:53:59.159Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified OperationBanner, MergeOptionsDialog, workflow picker sources, conflict row actions, and scoped Git panel/store wiring. Initial verification found Task 13 formatting/check failures and a merge-picker copy mismatch; rework fixed Biome/import formatting and restored merge-specific merge-picker copy. Re-verification PASS: targeted Biome check, source inspection, targeted tests, typecheck, and full unit/integration suite all passed.",
+            "artifacts": [
+              "src/main/git/git-operation-state.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitFileContextMenu.tsx",
+              "src/renderer/components/files/git/GitFileRow.tsx",
+              "src/renderer/components/files/git/GitGroup.tsx",
+              "src/renderer/components/files/git/GitTreeRow.tsx",
+              "src/renderer/components/files/git/MergeOptionsDialog.tsx",
+              "src/renderer/components/files/git/OperationBanner.tsx",
+              "src/renderer/components/files/git/merge-target-picker-source.ts",
+              "src/renderer/components/files/git/rebase-target-picker-source.ts",
+              "src/renderer/components/files/git/commit-picker-source.ts",
+              "src/renderer/components/files/git/index.ts",
+              "tests/unit/renderer/components/files/git/workflow-target-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/commit-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/merge-options-dialog.test.tsx",
+              "tests/unit/renderer/components/files/git/operation-banner.test.tsx",
+              "tests/unit/renderer/components/files/git/git-context-menu.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T14:35:54.787Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "P5.3 — Clone repo (백엔드 + UX) + workspace 통합",
+          "status": "completed",
+          "context": "Clone 흐름 — git-clone primitive + UX(FormDialog + Welcome + Command Palette).\n\n**신규 IPC:**\n- `git.stream.clone({ url, destination, name?, branch?, recurseSubmodules? }) → events<CloneEvent>` — `CloneEvent = { kind: 'started', absPath } | { kind: 'progress', phase, pct, received?, total? } | { kind: 'phase', phase } | { kind: 'complete', absPath } | { kind: 'cancelled', absPath, cleaned }`.\n- 분리: clone 완료 후 렌더러가 기존 `workspace.create({ rootPath, name })` + `workspace.activate(workspaceId)` 순차 호출. 서버사이드 chain 금지.\n\n**신규 모듈:**\n- `src/main/git/git-clone.ts` — `runClone(opts, onEvent, signal)`. 헤더에 \"Clone은 본 사이클의 큐 예외 — 등록 전이라 GitRepository 인스턴스 없음\" 명시.\n- `src/main/git/git-clone-progress.ts` — stderr 정규식 5개(counting/compressing/receiving/resolving/checkout). 20/sec 스로틀.\n- `src/main/ipc/channels/git/clone-handlers.ts` 신규.\n\n**입력 검증:**\n- `path.isAbsolute(destination)` else `clone-destination-invalid`.\n- parent W_OK else `clone-destination-not-writable`.\n- `path.join(destination, name)` 미존재 else `clone-destination-exists` — **pre-existing 거부**(cleanup 모호성 제거).\n- name regex `[A-Za-z0-9._-]+` ≤255 + 경로 separator/leading dot 금지 else `clone-name-invalid`.\n- url 빈 값 거부 else `clone-url-invalid`. 패턴 검증 옵션(완화).\n\n**Cancel 시 cleanup:**\n- AbortSignal → SIGTERM → fs.rm recursive(우리가 만든 destination만). 실패 시 `cleaned: false`.\n\n**askpass:** `git-process.ts` interactive=true + helpers-launcher의 SSH 옵션(SSH_ASKPASS, SSH_ASKPASS_REQUIRE=force, detached). passphrase prompt도 작동.\n\n**렌더러:**\n- 진입점 3:\n  - **Canonical**: Command Palette `Git: Clone Repository…` — 신규 command + palette source 또는 직접 핸들러.\n  - **Welcome screen** 어포던스(빈 워크스페이스 시) — Open Folder…와 동등 weight 신규 버튼.\n  - **File 메뉴** \"Clone Repository…\" — app-shell menu 추가.\n- **GitMoreMenu에는 추가 안 함**(workspace-scoped, repo-scoped 아님).\n- `CloneDialog.tsx` 신규 — FormDialog(P1.3) 기반. 4 필드: URL(autofocus, monospace) → Parent dir(read-only + Choose… 버튼, native dialog.showOpenDialog) → Folder name(prefilled, 라이브 preview \"Will clone to: …\") → Branch(optional placeholder \"default branch\") + `Advanced ▸` disclosure(체크박스 \"Initialize submodules recursively\"). 인라인 즉시 검증.\n- 진행 UI: form body가 progress region(indeterminate bar + 마지막 phase 라인)으로 전환. Cancel 버튼이 Clone CTA 교체. >50% 진행 시 ConfirmDiscardDialog로 cancel 확인.\n- Post-clone: dialog success state → 3 CTA: **Open in new window**(default primary) / Add to workspaces / Open in current window(de-emphasized; 현재 워크스페이스 dirty probe 시 subtle warning 글리프). 마지막 선택 세션 default persist.\n\n**에러 banner copy:** designer 안 7가지 메시지 채택.",
+          "acceptance": "1) `git.stream.clone` 5종 CloneEvent 순차 emit.\n2) Progress 파서: counting/compressing/receiving/resolving/checkout 5 phase 정확 매핑. 20/sec 스로틀.\n3) Cancel 후 우리가 만든 destination 디렉토리 삭제(cleaned: true). pre-existing 거부 동작.\n4) FormDialog 4 필드 + Advanced disclosure. URL+parent valid 시까지 Submit 비활성. 라이브 preview 정확.\n5) 진행 UI form→progress 전환. Cancel 버튼 동작 + >50% 진행 시 ConfirmDialog.\n6) Post-clone CTA 3종 + 마지막 선택 세션 default.\n7) workspace.create + activate 분리 호출 흐름.\n8) Command Palette 진입 + Welcome 어포던스 + File 메뉴 항목 모두 동작.\n9) GitMoreMenu에 Clone 항목 없음.\n10) askpass 흐름: HTTPS private repo clone 시 username/password prompt 동작. SSH passphrase 동작.\n11) 시나리오 테스트 통과.",
+          "approach": "1. git-clone-progress.ts 정규식 5개 + 스로틀.\n2. git-clone.ts primitive — runClone + 입력 검증 + cleanup-on-cancel.\n3. clone-handlers.ts stream IPC.\n4. CloneDialog.tsx FormDialog 통합 + 진행/cancel/post-clone CTA 상태.\n5. Command Palette command 등록.\n6. Welcome screen 어포던스 추가.\n7. App shell File 메뉴 항목.\n8. workspace.create + workspace.activate 렌더러 sequential.\n9. 시나리오 테스트: clone 성공/cancel(early/>50%)/auth-required/destination-exists/network-error.",
+          "risk": "git이 부분 다운로드 후 SIGTERM 받으면 .git 일부만 쓰는데 cleanup recursive로 destination 전체 삭제 — 안전. 단 destination 부모가 user의 의도와 다른 디렉토리일 경우(typo) cleanup이 의도한 곳을 깎을 위험은 없음(우리가 만든 절대경로만 삭제). pre-existing empty 디렉토리 거부는 일부 사용자(빈 폴더 미리 만든 패턴) 친화도 떨어뜨림 — 메시지에 \"Choose a different name or empty folder\" 명시로 완화.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e11f2-68e2-7350-b6ec-d76dc599c248",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:54:42.239Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Implemented clone backend stream support with progress parsing/throttling, validation, owned-destination cleanup, helper auth env, handler-owned IPC cancellation, CloneDialog UX, File menu/Welcome/command registration, post-clone workspace CTA flow with create→activate sequencing, and global helper prompt mounting so clone auth prompts are handled outside GitPanel. Verification passed targeted clone/helper/menu tests, typecheck, full unit/integration suite, local real clone smoke, and command registration probe. Real private HTTPS/SSH auth and Windows Git-for-Windows runtime remain environment-limited/unexecuted.",
+            "artifacts": [
+              "src/main/git/git-clone-progress.ts",
+              "src/main/git/git-clone.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/ipc/channels/git/clone-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/main/ipc/router.ts",
+              "src/main/ipc/channels/system/window-handler.ts",
+              "src/main/ipc/channels/system/index.ts",
+              "src/main/index.ts",
+              "src/main/menu/template.ts",
+              "src/renderer/ipc/client.ts",
+              "src/renderer/components/files/git/CloneDialog.tsx",
+              "src/renderer/components/files/git/clone-dialog-state.ts",
+              "src/renderer/components/files/git/index.ts",
+              "src/renderer/components/global-roots.tsx",
+              "src/renderer/components/ui/form-dialog.tsx",
+              "src/renderer/components/workbench/welcome-screen.tsx",
+              "src/renderer/App.tsx",
+              "src/renderer/keybindings/commands/palette-commands.ts",
+              "src/shared/commands.ts",
+              "src/shared/ipc-contract.ts",
+              "src/shared/types/git.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/useGitHelperPrompts.ts",
+              "tests/unit/main/git/git-clone-progress.test.ts",
+              "tests/unit/main/git/git-clone.test.ts",
+              "tests/unit/main/ipc/router-stream.test.ts",
+              "tests/unit/renderer/components/files/git/clone-dialog.test.tsx",
+              "tests/unit/main/menu/template.test.ts",
+              "tests/unit/renderer/components/files/git/git-helper-dialogs.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T13:33:38.589Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "P6.1 — 가드레일 (Non-FF banner + Force-with-lease + Push error 분류)",
+          "status": "completed",
+          "context": "Push 가드레일 통합 — non-FF 수동 재시도 + force-with-lease 기본 + protected/pre-receive 분류 + branch protection 스키마만 미리(UI 활성은 별도 사이클).\n\n**Push error classifier 확장(P1.1 prep + 본 task 통합):**\n- 신규 GitErrorKind 매핑 활성화: `non-fast-forward`(우선), `protected-branch`, `pre-receive-hook-rejected`. classifier 순서 구체→일반(P1.1에서 추가됨, 본 task에서 push handler가 정확히 사용).\n- 신규 hint variants 매핑: `non-fast-forward` → `pull-then-retry`, `force-push-rejected` → `fetch-then-force`, `protected-branch` / `pre-receive-hook-rejected` → hint=none.\n- `src/main/git/git-error.ts` push classifier 단위 테스트 fixture 확장(이미 P1.1에서 추가, 본 task는 흐름 통합).\n\n**Force push 가드:**\n- 기존 push handler 수정 — `force: true` 시 **`--force-with-lease` 기본 사용**(remote 변경 시 자동 거부 = 안전 force). 명시 옵션으로 `--force` 강제 가능하지만 UI 노출 X(본 사이클).\n- 렌더러: force push 트리거 시 ConfirmDialog \"Force push will overwrite remote. Are you sure?\" — 확정 시 push handler 호출.\n\n**Non-FF 재시도 흐름:**\n- push 실패(`non-fast-forward`) → renderer GitInlineBanner \"Remote has commits you don't have. Pull first?\" + 3 버튼 [Pull / Force / Cancel].\n- Pull 클릭 → `git.pull` → 성공 시 banner 갱신 \"Pulled. Retry push?\" + [Retry] 버튼(원래 push args 재사용).\n- Force 클릭 → 위 force ConfirmDialog → `--force-with-lease` push.\n- store: `pendingNonFFRetry: { branch, attemptedAt, originalPushOpts } | null`. Pull 성공 후 retry 1-click 가능.\n- Force-push-rejected(lease 실패) → banner 분기 \"Force push rejected (lease check failed) — Fetch first?\" + [Fetch] 버튼(`fetch-then-force` hint).\n\n**Protected/Pre-receive surface:**\n- `protected-branch` / `pre-receive-hook-rejected` → GitInlineBanner variant=error. 메시지에 stderr 그대로 surface(서버 정책 다양 — 사용자가 직접 봐야 의미). 액션 버튼 없음(차단).\n\n**Branch protection 스키마 prep:**\n- `GitPanelStateSchema.protectedBranches` (P1.1에서 추가됨)에 본 사이클은 default `[]`로만 두고 활성화 X. UI 차단 로직은 별도 사이클의 settings UI와 함께.",
+          "acceptance": "1) Push에 `--force-with-lease` 기본 적용. 명시 force-with-lease 거부 시 `force-push-rejected` + hint=fetch-then-force.\n2) Force push 트리거 시 ConfirmDialog 노출 + 사용자 확정 후 진행.\n3) Non-FF 실패 → banner \"Remote has commits you don't have. Pull first?\" + Pull/Force/Cancel.\n4) Pull 성공 → banner \"Pulled. Retry push?\" + 1-click Retry. Retry 시 원래 args 재사용.\n5) Force-push-rejected(lease 거부) → banner \"lease check failed — Fetch first?\" + Fetch 버튼.\n6) `protected-branch` 매칭 시 banner variant=error + 메시지 stderr 그대로. 액션 없음.\n7) `pre-receive-hook-rejected` 동일 — 메시지 그대로 노출.\n8) Classifier 순서 구체→일반 fixture 검증(P1.1 테스트 활용).\n9) `pendingNonFFRetry` store 슬라이스 정확.\n10) 시나리오 테스트 통과.",
+          "approach": "1. push handler `--force-with-lease` 기본 적용 + `force: 'with-lease'|'true'|false` 옵션화(현재 boolean force만 있다면 확장).\n2. ConfirmDialog 통합 — force push 트리거 지점.\n3. 렌더러 store에 `pendingNonFFRetry` 슬라이스 추가.\n4. GitInlineBanner 분기 — non-fast-forward / force-push-rejected / protected-branch / pre-receive-hook-rejected 4 케이스.\n5. Pull 성공 후 banner 갱신 + Retry 1-click.\n6. 시나리오 테스트: non-FF→Pull→Retry, non-FF→Force(lease)→성공, non-FF→Force(lease 거부)→fetch-then-force, protected-branch surface 정확, pre-receive 메시지 그대로 노출.",
+          "risk": "`--force-with-lease`가 현실에서 false negative(remote 변경 없는데도 거부)를 만드는 케이스 드묾 — 발생 시 사용자에게 retry path 제공. Pull 후 Retry 버튼 클릭 사이에 다른 사용자가 또 push하면 다시 non-FF — 재시도 banner가 chained 표시되어야(반복 OK). protected-branch 메시지 다국어/다양 — 패턴 매칭이 못 잡으면 push-rejected fallback로 떨어짐(허용).",
+          "plan_issue": 10,
+          "deps": [
+            1,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1267-5882-7710-9615-1bd71df7f98f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T08:55:15.029Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified push guardrails. Added pendingNonFFRetry store flow, non-FF Pull/Force/Cancel and post-pull Retry banners, force-push confirmation, force-with-lease rejection Fetch banner, protected/pre-receive actionless stderr banners, and regression tests. Initial verification found plain non-FF Git stderr misclassified as force-push-rejected; rework narrowed force-push patterns and added real-stderr fixture coverage. Re-verification PASS: real Git non-FF and force-with-lease probes, targeted tests, typecheck, and full suite all passed.",
+            "artifacts": [
+              "src/main/git/git-error.ts",
+              "src/renderer/components/files/git/GitInlineBanner.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/git-push-guard-banner.ts",
+              "src/renderer/state/stores/git.ts",
+              "tests/unit/main/git/git-error.test.ts",
+              "tests/unit/main/git/git-repository-push.test.ts",
+              "tests/unit/renderer/components/files/git/git-push-guard-banner.test.ts",
+              "tests/unit/renderer/state/stores/git-push-guard.test.ts",
+              "tests/unit/renderer/state/stores/git-view-mode.test.ts"
+            ],
+            "recorded_at": "2026-05-10T15:25:11.844Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "Test gate cleanup — PendingRequestMap unit test leak",
+          "status": "completed",
+          "context": "During Task 1 verification, Git-focused tests and typecheck passed but full `bun test tests/unit tests/integration` reported one unrelated unhandled timeout from `tests/unit/shared/pending-request-map.test.ts` key `k2`. Focused inspection showed tests registering a pending `k2` without resolving/rejecting/clearing it in the `size reflects the number of pending requests` scenario; when the full suite runs long enough, the unref timeout still rejects and appears as an unhandled error. Fix this test harness leak so full-suite verification can be meaningful for the git cycle.",
+          "acceptance": "1) `tests/unit/shared/pending-request-map.test.ts` leaves no intentionally discarded pending promises that can timeout after the test completes. 2) Focused `bun test tests/unit/shared/pending-request-map.test.ts` passes. 3) Full `bun test tests/unit tests/integration` no longer fails with the `PendingRequestMap` key `k2` timeout; any remaining failures are recorded separately.",
+          "approach": "Resolve or clear every registered promise in the affected test instead of leaving `k2` pending. Keep the production `PendingRequestMap` implementation unchanged unless a real implementation bug is found.",
+          "risk": "This is an unrelated pre-existing test harness issue; keep the edit minimal so it does not expand the git feature scope.",
+          "owner": {
+            "role": "lead",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-10T09:26:46.273Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Fixed an unrelated PendingRequestMap unit-test leak that left key k2 pending until full-suite timeout. The size test now resolves all registered requests. Focused pending-request-map test, Git-focused tests, typecheck, and full unit/integration suite pass.",
+            "artifacts": [
+              "tests/unit/shared/pending-request-map.test.ts"
+            ],
+            "recorded_at": "2026-05-10T09:29:59.620Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "Cycle follow-up — serialize Git helper prompts across concurrent operations",
+          "status": "completed",
+          "context": "End-of-cycle architecture review found that main helper manager supports multiple pending askpass/editor prompts but renderer `useGitHelperPrompts.ts` keeps only one credential and one editor prompt. Incoming prompts overwrite the visible prompt, and response/cancel only applies to the current prompt. In multi-workspace clone/repo operations this can orphan an earlier helper request and hang its Git subprocess. Fix within original askpass/editor + clone infrastructure scope.",
+          "acceptance": "1) Renderer helper prompt state queues or otherwise serializes multiple askpass prompts so a second prompt cannot overwrite/orphan the first. 2) Askpass+editor overlap is deterministic and neither prompt is lost; current UI may show one prompt at a time, but both pending prompt IDs remain answerable/cancellable. 3) Occupancy banners remain correct per workspace. 4) Tests cover two concurrent askpass prompts and askpass+editor overlap; no prompt is orphaned after responding/cancelling. 5) Typecheck and relevant tests pass.",
+          "approach": "Modify `src/renderer/components/files/git/useGitHelperPrompts.ts` to store pending prompt queues/maps instead of single overwrite slots while preserving the public active `credentialPrompt`/`editorPrompt` shape where possible. Update helper dialog tests to exercise concurrent prompt arrival and sequential response/cancel behavior. Keep main helper IPC unchanged unless a renderer-only fix proves impossible.",
+          "risk": "Queueing only in renderer must preserve existing global single-listener ownership from Task 14. Avoid adding multiple IPC listener owners, which could cause duplicate responses.",
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1285-1d85-7ad2-8165-82d7db916758"
+          },
+          "created_at": "2026-05-10T15:32:17.314Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified FIFO serialization for renderer Git helper prompts. Multiple askpass prompts and askpass+editor overlaps now queue instead of overwriting active prompt IDs, workspace occupancy accounts for queued prompts, and the global single listener/response-owner model is preserved. Verification PASS: source inspection, targeted helper dialog tests, renderer Git tests, typecheck, full suite, and mutation-sense check passed.",
+            "artifacts": [
+              "src/renderer/components/files/git/useGitHelperPrompts.ts",
+              "tests/unit/renderer/components/files/git/git-helper-dialogs.test.tsx"
+            ],
+            "recorded_at": "2026-05-10T15:53:50.435Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "Cycle follow-up — Git UI close blockers (publish prompt, tag reveal, destructive contrast)",
+          "status": "completed",
+          "context": "End-of-cycle UX review found Git UI close blockers inside the completed scope: (a) publish prompt exposes editable remote input but confirm ignores the user value and main publishes to the first remote, creating a multi-remote footgun; (b) destructive/error text uses `text-destructive` on dark popover/background with insufficient contrast for small Git UI text; (c) tag reveal still says History reveal will be available when History lands even though Task 11 shipped History. Fix only scoped Git/UI surfaces needed for this cycle; do not add cut features.",
+          "acceptance": "1) Publish prompt no longer implies a selectable/editable remote that is ignored. Either honor the chosen remote end-to-end or change the prompt to static copy for the actual first remote behavior; tests cover multi-remote copy/behavior. 2) Git destructive/error text used in this cycle meets readable contrast on dark popover/background surfaces, with a test or documented token assertion. Prefer a scoped token/class change that does not broad-restyle unrelated UI. 3) Tag reveal works with the History panel by switching to History/ref=tag, or the stale reveal affordance/copy is removed/relabelled consistently; no banner says History is future-only. 4) Existing push protected/pre-receive raw stderr no-action behavior remains as scoped in Task 15. 5) Targeted UI tests, typecheck, and relevant lint/check pass.",
+          "approach": "Inspect `GitPanel.tsx` publish and tag reveal paths, `TagPicker.tsx`/`tag-picker-source.ts`, destructive text usages in Git menu/dialog surfaces, and theme/token utilities. Keep changes minimal. If honoring remote is too invasive, make the publish dialog static/accurate rather than editable. Add/adjust scenario tests for publish prompt copy, tag reveal History state, and destructive contrast/class behavior.",
+          "risk": "Changing global destructive tokens could affect non-Git surfaces; keep the fix scoped or verify full tests/visual contracts. Honoring arbitrary remotes would require IPC/main option expansion; static copy may be safer if minimal and truthful.",
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1285-22ac-7ca3-ab51-722dae578197"
+          },
+          "created_at": "2026-05-10T15:32:28.515Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented and verified Git UI close-blocker fixes. Publish prompt is now confirm-only/static and truthfully describes first-remote publish behavior; tag reveal switches to History with `refs/tags/<tag>`; Git destructive/error small text uses scoped `git-destructive-text` with contrast coverage; protected/pre-receive no-action stderr behavior remains. Initial verification found a Biome formatting issue in `git-error.ts`; after formatting, re-verification PASS: Task 18 Biome check, targeted tests, typecheck, and full suite passed.",
+            "artifacts": [
+              "src/renderer/components/files/git/git-panel-actions.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/TagPicker.tsx",
+              "src/renderer/components/files/git/tag-picker-source.ts",
+              "src/renderer/components/ui/prompt-dialog.tsx",
+              "src/renderer/components/ui/form-dialog.tsx",
+              "src/renderer/styles/globals.css",
+              "src/renderer/components/files/git/GitCommitButton.tsx",
+              "src/renderer/components/files/git/GitFileContextMenu.tsx",
+              "src/renderer/components/files/git/GitFileRow.tsx",
+              "src/renderer/components/files/git/GitGroupHeader.tsx",
+              "src/renderer/components/files/git/GitInlineBanner.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitStatusBadge.tsx",
+              "src/renderer/components/files/git/GitTreeRow.tsx",
+              "src/renderer/components/files/git/OperationBanner.tsx",
+              "src/renderer/components/files/git/history/HistoryCommitMenu.tsx",
+              "src/renderer/components/files/git/CloneDialog.tsx",
+              "tests/unit/renderer/components/files/git/git-panel-actions.test.ts",
+              "tests/unit/renderer/components/files/git/git-destructive-contrast.test.ts",
+              "tests/unit/main/git/git-repository-push.test.ts"
+            ],
+            "recorded_at": "2026-05-10T15:53:59.802Z"
+          }
+        }
+      ]
     }
   ]
 }

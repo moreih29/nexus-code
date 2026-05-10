@@ -6,6 +6,7 @@ import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
+import { WelcomeScreen } from "./components/workbench/welcome-screen";
 import { WorkspacePanel } from "./components/workspace/workspace-panel";
 import { ipcCall } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
@@ -141,11 +142,7 @@ export function App() {
         />
         <FilesPanel />
         <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
-          {workspaces.length === 0 && (
-            <div className="flex flex-1 items-center justify-center text-muted-foreground text-app-body">
-              No workspace selected. Add one from the sidebar.
-            </div>
-          )}
+          {workspaces.length === 0 && <WelcomeScreen onOpenFolder={handleAddWorkspace} />}
           {mountedWorkspaces.map((ws) => (
             <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
           ))}
