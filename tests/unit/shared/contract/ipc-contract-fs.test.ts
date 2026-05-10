@@ -100,8 +100,9 @@ describe("ipcContract.fs.call.readFile result", () => {
 
   const SAMPLE_MTIME = "2025-01-01T00:00:00.000Z";
 
-  test("accepts valid utf8-bom result", () => {
+  test("accepts valid ok result with utf8-bom encoding", () => {
     const result = schema.safeParse({
+      kind: "ok",
       content: "hello world",
       encoding: "utf8-bom",
       sizeBytes: 14,
@@ -111,8 +112,14 @@ describe("ipcContract.fs.call.readFile result", () => {
     expect(result.success).toBe(true);
   });
 
-  test("rejects invalid encoding value", () => {
+  test("accepts missing result with not-found reason", () => {
+    const result = schema.safeParse({ kind: "missing", reason: "not-found" });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects ok result with invalid encoding value", () => {
     const result = schema.safeParse({
+      kind: "ok",
       content: "",
       encoding: "utf16",
       sizeBytes: 0,
@@ -122,14 +129,20 @@ describe("ipcContract.fs.call.readFile result", () => {
     expect(result.success).toBe(false);
   });
 
-  test("rejects negative sizeBytes", () => {
+  test("rejects ok result with negative sizeBytes", () => {
     const result = schema.safeParse({
+      kind: "ok",
       content: "",
       encoding: "utf8",
       sizeBytes: -1,
       isBinary: false,
       mtime: SAMPLE_MTIME,
     });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects missing result with invalid reason", () => {
+    const result = schema.safeParse({ kind: "missing", reason: "invalid-reason" });
     expect(result.success).toBe(false);
   });
 });

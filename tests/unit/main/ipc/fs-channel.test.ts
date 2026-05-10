@@ -293,13 +293,15 @@ function callReadFile(
 }
 
 describe("readFileHandler — utf-8 plain text", () => {
-  it("returns content, encoding=utf8, correct sizeBytes, isBinary=false", async () => {
+  it("returns ok result with content, encoding=utf8, correct sizeBytes, isBinary=false", async () => {
     const filePath = path.join(tmpRoot, "plain.ts");
     const text = "export const x = 1;\n";
     await fs.promises.writeFile(filePath, text, "utf8");
 
     const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "plain.ts");
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.content).toBe(text);
     expect(result.encoding).toBe("utf8");
     expect(result.sizeBytes).toBe(Buffer.byteLength(text, "utf8"));
@@ -308,7 +310,7 @@ describe("readFileHandler — utf-8 plain text", () => {
 });
 
 describe("readFileHandler — utf-8 BOM file", () => {
-  it("strips BOM and returns encoding=utf8-bom", async () => {
+  it("strips BOM and returns ok result with encoding=utf8-bom", async () => {
     const filePath = path.join(tmpRoot, "bom.ts");
     const text = "const a = 1;";
     const bom = Buffer.from([0xef, 0xbb, 0xbf]);
@@ -316,6 +318,8 @@ describe("readFileHandler — utf-8 BOM file", () => {
 
     const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "bom.ts");
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.encoding).toBe("utf8-bom");
     expect(result.content).toBe(text);
     expect(result.isBinary).toBe(false);
@@ -345,10 +349,11 @@ describe("readFileHandler — path is a directory", () => {
 });
 
 describe("readFileHandler — non-existent file", () => {
-  it("throws with NOT_FOUND prefix", async () => {
-    await expect(callReadFile(makeManager(tmpRoot), VALID_UUID, "no-such-file.ts")).rejects.toThrow(
-      /^NOT_FOUND:/,
-    );
+  it("returns missing result with reason=not-found (no throw)", async () => {
+    const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "no-such-file.ts");
+    expect(result.kind).toBe("missing");
+    if (result.kind !== "missing") return;
+    expect(result.reason).toBe("not-found");
   });
 });
 
@@ -373,26 +378,30 @@ describe("readFileHandler — EACCES (permission denied)", () => {
 });
 
 describe("readFileHandler — null byte binary detection", () => {
-  it("returns isBinary=true and content='' when first 512 bytes contain 0x00", async () => {
+  it("returns ok result with isBinary=true and content='' when first 512 bytes contain 0x00", async () => {
     const filePath = path.join(tmpRoot, "binary.bin");
     const buf = Buffer.alloc(512, 0x00);
     await fs.promises.writeFile(filePath, buf);
 
     const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "binary.bin");
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.isBinary).toBe(true);
     expect(result.content).toBe("");
   });
 });
 
 describe("readFileHandler — UTF-16 LE BOM", () => {
-  it("returns isBinary=true for UTF-16 LE BOM file", async () => {
+  it("returns ok result with isBinary=true for UTF-16 LE BOM file", async () => {
     const filePath = path.join(tmpRoot, "utf16le.txt");
     const buf = Buffer.from([0xff, 0xfe, 0x68, 0x00, 0x69, 0x00]); // LE BOM + "hi"
     await fs.promises.writeFile(filePath, buf);
 
     const result = await callReadFile(makeManager(tmpRoot), VALID_UUID, "utf16le.txt");
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.isBinary).toBe(true);
     expect(result.content).toBe("");
   });

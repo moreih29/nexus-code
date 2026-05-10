@@ -10,6 +10,7 @@ import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../shared/typ
 import type { ViewMode } from "../../../../shared/types/panel";
 import {
   buildPathTree,
+  collectDescendantLeafPaths,
   compactPathTree,
   type PathTreeNode,
 } from "../file-tree/tree-builder";
@@ -271,6 +272,7 @@ function GitGroupTree({
         const rowProps = getRowProps(idx);
 
         if (node.kind === "dir") {
+          const leafPaths = collectDescendantLeafPaths(node);
           return (
             <GitTreeRow
               key={node.relPath}
@@ -284,6 +286,9 @@ function GitGroupTree({
               treeItemProps={rowProps}
               onFocus={() => setFocusedIndex(idx)}
               onToggle={() => handleToggle(node.relPath)}
+              onStagePaths={canStage ? () => onStagePaths(leafPaths) : undefined}
+              onUnstagePaths={canUnstage ? () => onUnstagePaths(leafPaths) : undefined}
+              onDiscardPaths={() => onDiscardPaths(leafPaths, node.displayName, groupKey)}
             />
           );
         }

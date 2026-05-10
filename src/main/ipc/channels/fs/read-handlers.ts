@@ -12,7 +12,7 @@ import {
 } from "../../../../shared/fs-defaults";
 import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../../shared/fs-errors";
 import { ipcContract } from "../../../../shared/ipc-contract";
-import type { DirEntry, FileContent, FsStat } from "../../../../shared/types/fs";
+import type { DirEntry, FileContent, FileReadResult, FsStat } from "../../../../shared/types/fs";
 import { isBinaryProbe } from "../../../filesystem/binary-detect";
 import type { FileWatcher } from "../../../filesystem/file-watcher";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
@@ -100,20 +100,21 @@ export function setExpandedHandler(
 }
 
 /**
- * Detect whether a buffer is binary and build the appropriate FileContent.
+ * Detect whether a buffer is binary and build the appropriate FileReadResult "ok" variant.
  * Extracted to avoid duplicating the detection logic between readFile and readExternal.
  */
-function buildFileContent(buf: Buffer, stat: fs.Stats): FileContent {
+function buildFileContent(buf: Buffer, stat: fs.Stats): FileReadResult & { kind: "ok" } {
   const probe = buf.slice(0, BINARY_DETECTION_BYTES);
   const mtime = stat.mtime.toISOString();
 
   if (isBinaryProbe(probe)) {
-    return { content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
+    return { kind: "ok", content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
   }
 
   // UTF-8 BOM detection
   if (probe.length >= 3 && probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf) {
     return {
+      kind: "ok",
       content: buf.slice(3).toString("utf8"),
       encoding: "utf8-bom",
       sizeBytes: stat.size,
@@ -123,6 +124,7 @@ function buildFileContent(buf: Buffer, stat: fs.Stats): FileContent {
   }
 
   return {
+    kind: "ok",
     content: buf.toString("utf8"),
     encoding: "utf8",
     sizeBytes: stat.size,
@@ -133,8 +135,8 @@ function buildFileContent(buf: Buffer, stat: fs.Stats): FileContent {
 
 export function readFileHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<FileContent> {
-  return async (args: unknown): Promise<FileContent> => {
+): (args: unknown) => Promise<FileReadResult> {
+  return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, relPath } = validateArgs(c.readFile.args, args);
     const abs = resolveSafe(manager, workspaceId, relPath);
 
@@ -142,7 +144,9 @@ export function readFileHandler(
     try {
       stat = await fs.promises.lstat(abs);
     } catch (e: unknown) {
-      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      const errno = (e as NodeJS.ErrnoException).code;
+      if (errno === "ENOENT") return { kind: "missing", reason: "not-found" };
+      const code = fsCodeFromErrno(errno);
       if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
@@ -159,7 +163,9 @@ export function readFileHandler(
     try {
       buf = await fs.promises.readFile(abs);
     } catch (e: unknown) {
-      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      const errno = (e as NodeJS.ErrnoException).code;
+      if (errno === "ENOENT") return { kind: "missing", reason: "not-found" };
+      const code = fsCodeFromErrno(errno);
       if (code) throw new Error(fsErrorMessage(code, abs));
       throw e;
     }
@@ -168,8 +174,8 @@ export function readFileHandler(
   };
 }
 
-export function readExternalHandler(): (args: unknown) => Promise<FileContent> {
-  return async (args: unknown): Promise<FileContent> => {
+export function readExternalHandler(): (args: unknown) => Promise<FileReadResult> {
+  return async (args: unknown): Promise<FileReadResult> => {
     const { absolutePath } = validateArgs(c.readExternal.args, args);
 
     if (!path.isAbsolute(absolutePath)) {
@@ -180,7 +186,9 @@ export function readExternalHandler(): (args: unknown) => Promise<FileContent> {
     try {
       stat = await fs.promises.lstat(absolutePath);
     } catch (e: unknown) {
-      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      const errno = (e as NodeJS.ErrnoException).code;
+      if (errno === "ENOENT") return { kind: "missing", reason: "not-found" };
+      const code = fsCodeFromErrno(errno);
       if (code) throw new Error(fsErrorMessage(code, absolutePath));
       throw e;
     }
@@ -197,7 +205,9 @@ export function readExternalHandler(): (args: unknown) => Promise<FileContent> {
     try {
       buf = await fs.promises.readFile(absolutePath);
     } catch (e: unknown) {
-      const code = fsCodeFromErrno((e as NodeJS.ErrnoException).code);
+      const errno = (e as NodeJS.ErrnoException).code;
+      if (errno === "ENOENT") return { kind: "missing", reason: "not-found" };
+      const code = fsCodeFromErrno(errno);
       if (code) throw new Error(fsErrorMessage(code, absolutePath));
       throw e;
     }

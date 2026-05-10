@@ -31,13 +31,15 @@ function callReadExternal(absolutePath: string) {
 // ---------------------------------------------------------------------------
 
 describe("readExternalHandler — utf-8 plain text", () => {
-  it("returns content, encoding=utf8, correct sizeBytes, isBinary=false, and a valid mtime", async () => {
+  it("returns ok result with content, encoding=utf8, correct sizeBytes, isBinary=false, and a valid mtime", async () => {
     const filePath = path.join(tmpRoot, "hello.ts");
     const text = "export const x = 42;\n";
     await fs.promises.writeFile(filePath, text, "utf8");
 
     const result = await callReadExternal(filePath);
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.content).toBe(text);
     expect(result.encoding).toBe("utf8");
     expect(result.sizeBytes).toBe(Buffer.byteLength(text, "utf8"));
@@ -51,9 +53,12 @@ describe("readExternalHandler — utf-8 plain text", () => {
 // ---------------------------------------------------------------------------
 
 describe("readExternalHandler — nonexistent path", () => {
-  it("throws with NOT_FOUND prefix", async () => {
+  it("returns missing result with reason=not-found (no throw)", async () => {
     const missing = path.join(tmpRoot, "does-not-exist.ts");
-    await expect(callReadExternal(missing)).rejects.toThrow(/^NOT_FOUND:/);
+    const result = await callReadExternal(missing);
+    expect(result.kind).toBe("missing");
+    if (result.kind !== "missing") return;
+    expect(result.reason).toBe("not-found");
   });
 });
 
@@ -62,13 +67,15 @@ describe("readExternalHandler — nonexistent path", () => {
 // ---------------------------------------------------------------------------
 
 describe("readExternalHandler — binary file (null bytes)", () => {
-  it("returns isBinary=true and content=''", async () => {
+  it("returns ok result with isBinary=true and content=''", async () => {
     const filePath = path.join(tmpRoot, "binary.bin");
     const buf = Buffer.alloc(64, 0x00);
     await fs.promises.writeFile(filePath, buf);
 
     const result = await callReadExternal(filePath);
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.isBinary).toBe(true);
     expect(result.content).toBe("");
   });
@@ -86,6 +93,8 @@ describe("readExternalHandler — workspace-internal absolute path", () => {
 
     const result = await callReadExternal(filePath);
 
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
     expect(result.content).toBe(text);
     expect(result.isBinary).toBe(false);
   });

@@ -75,6 +75,7 @@ function makeFileContent(
   }> = {},
 ) {
   return {
+    kind: "ok" as const,
     content: "export const x = 1;\n",
     encoding: "utf8" as const,
     sizeBytes: 20,

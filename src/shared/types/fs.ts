@@ -64,3 +64,23 @@ export const WriteFileResultSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 export type WriteFileResult = z.infer<typeof WriteFileResultSchema>;
+
+// Discriminated-union result for all read IPC calls (git.getFileContent,
+// fs.readFile, fs.readExternal). The "missing" variant lets handlers resolve
+// instead of throw for domain-normal "not found" cases, eliminating the
+// Electron ipcMain stderr noise that results from throw paths.
+export const FileReadResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    content: z.string(),
+    encoding: z.enum(["utf8", "utf8-bom"]),
+    sizeBytes: z.number().int().min(0),
+    isBinary: z.boolean(),
+    mtime: z.string(),
+  }),
+  z.object({
+    kind: z.literal("missing"),
+    reason: z.enum(["ref", "path", "index", "not-found"]),
+  }),
+]);
+export type FileReadResult = z.infer<typeof FileReadResultSchema>;

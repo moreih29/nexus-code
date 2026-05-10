@@ -5,6 +5,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildPathTree,
+  collectDescendantLeafPaths,
   compactPathTree,
   type PathTreeNode,
 } from "../../../../../../src/renderer/components/files/file-tree/tree-builder";
@@ -195,5 +196,64 @@ describe("compactPathTree", () => {
 
     // The leaf should retain its full relPath.
     expect(chain.children![0].relPath).toBe("x/y/z/deep.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collectDescendantLeafPaths
+// ---------------------------------------------------------------------------
+
+describe("collectDescendantLeafPaths", () => {
+  it("file node → single element with its relPath", () => {
+    const root = buildPathTree(["a.ts"]);
+    const fileNode = root.children![0];
+    expect(fileNode.kind).toBe("file");
+    expect(collectDescendantLeafPaths(fileNode)).toEqual(["a.ts"]);
+  });
+
+  it("dir node → all descendant leaf relPaths flat", () => {
+    const root = buildPathTree([
+      "src/utils/helper.ts",
+      "src/index.ts",
+      "README.md",
+    ]);
+    // src dir has index.ts and utils/helper.ts as descendants.
+    const srcNode = root.children!.find((c) => c.relPath === "src")!;
+    expect(srcNode.kind).toBe("dir");
+    const paths = collectDescendantLeafPaths(srcNode);
+    expect(paths.sort()).toEqual(["src/index.ts", "src/utils/helper.ts"]);
+  });
+
+  it("root node → all file relPaths across entire tree", () => {
+    const root = buildPathTree([
+      "src/utils/helper.ts",
+      "src/index.ts",
+      "README.md",
+    ]);
+    const paths = collectDescendantLeafPaths(root);
+    expect(paths.sort()).toEqual(["README.md", "src/index.ts", "src/utils/helper.ts"]);
+  });
+
+  it("compact 후에도 children 유지되어 leaf walk 정상", () => {
+    const root = buildPathTree(["a/b/c/file1.ts", "a/b/c/file2.ts"]);
+    const compacted = compactPathTree(root);
+    // After compaction, root has one child: 'a/b/c' dir with two file children.
+    const chainNode = compacted.children![0];
+    expect(chainNode.kind).toBe("dir");
+    const paths = collectDescendantLeafPaths(chainNode);
+    expect(paths.sort()).toEqual(["a/b/c/file1.ts", "a/b/c/file2.ts"]);
+  });
+
+  it("dir with no children → empty array", () => {
+    // Manually construct a dir node with no children.
+    const emptyDir: PathTreeNode = {
+      name: "empty",
+      relPath: "empty",
+      kind: "dir",
+      depth: 1,
+      displayName: "empty",
+      children: [],
+    };
+    expect(collectDescendantLeafPaths(emptyDir)).toEqual([]);
   });
 });

@@ -2,14 +2,16 @@
  * GitTreeRow renders a single row in the Source Control tree view.
  *
  * - dir rows: collapsible folder with chevron + folder icon + displayName + child count.
+ *   On hover, inline stage/unstage/discard actions appear (VS Code SCM equivalent).
  * - leaf rows: wraps GitFileRow with an indent offset applied via paddingLeft.
  *
  * WAI-ARIA tree semantics and roving tabindex are delegated to the caller via
  * the `treeItemProps` spread (role="treeitem", tabIndex, aria-expanded, etc.)
  * so this component stays focused on visual rendering only.
  */
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import { Minus, Plus, Trash2, ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../shared/types/git";
+import { Button } from "../../ui/button";
 import { INDENT_STEP_PX } from "../file-tree/file-tree-metrics";
 import { GitFileRow } from "./GitFileRow";
 
@@ -33,6 +35,12 @@ interface GitTreeRowDirProps extends GitTreeRowBase {
   isExpanded: boolean;
   childCount: number;
   onToggle: () => void;
+  /** Called when the user clicks the stage (plus) action on a dir row. */
+  onStagePaths?: () => void;
+  /** Called when the user clicks the unstage (minus) action on a dir row. */
+  onUnstagePaths?: () => void;
+  /** Called when the user clicks the discard (trash) action on a dir row. */
+  onDiscardPaths?: () => void;
 }
 
 interface GitTreeRowLeafProps extends GitTreeRowBase {
@@ -55,7 +63,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
   const indentLeft = (depth - 1) * INDENT_STEP_PX + 8;
 
   if (props.kind === "dir") {
-    const { displayName, isExpanded, childCount, onToggle } = props;
+    const { displayName, isExpanded, childCount, onToggle, onStagePaths, onUnstagePaths, onDiscardPaths } = props;
     const Chevron = isExpanded ? ChevronDown : ChevronRight;
     const FolderIcon = isExpanded ? FolderOpen : Folder;
 
@@ -78,6 +86,51 @@ export function GitTreeRow(props: GitTreeRowProps) {
         <Chevron className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
+        {/* Inline actions — visible on hover/focus-within, hidden otherwise */}
+        <div
+          className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onStagePaths ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              aria-label={`Stage folder ${displayName}`}
+              title={`Stage folder ${displayName}`}
+              onClick={onStagePaths}
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
+          {onUnstagePaths ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              aria-label={`Unstage folder ${displayName}`}
+              title={`Unstage folder ${displayName}`}
+              onClick={onUnstagePaths}
+            >
+              <Minus className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
+          {onDiscardPaths ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 text-destructive hover:text-destructive"
+              aria-label={`Discard changes in folder ${displayName}`}
+              title={`Discard changes in folder ${displayName}`}
+              onClick={onDiscardPaths}
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
         <span className="shrink-0 rounded bg-frosted-veil-strong px-1 text-app-ui-sm text-muted-foreground">
           {childCount}
         </span>

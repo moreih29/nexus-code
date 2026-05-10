@@ -46,6 +46,12 @@ export async function loadExternalEntry(input: {
   try {
     const result = await ipcCall("fs", "readExternal", { absolutePath: input.filePath });
 
+    if (result.kind === "missing") {
+      entry.phase = "error";
+      entry.errorCode = "NOT_FOUND";
+      return entry;
+    }
+
     if (result.isBinary) {
       entry.phase = "binary";
       return entry;

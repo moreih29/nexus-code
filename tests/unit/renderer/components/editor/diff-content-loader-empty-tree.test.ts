@@ -25,6 +25,7 @@ const realIpcClient = await import("../../../../../src/renderer/ipc/client");
 
 const ipcCallMock = mock(() =>
   Promise.resolve({
+    kind: "ok" as const,
     content: "file content",
     encoding: "utf8" as const,
     sizeBytes: 12,

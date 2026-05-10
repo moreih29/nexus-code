@@ -24,6 +24,7 @@ import {
   DirEntrySchema,
   ExpectedFileStateSchema,
   FileContentSchema,
+  FileReadResultSchema,
   FsChangedEventSchema,
   FsStatSchema,
   WriteFileResultSchema,
@@ -379,7 +380,7 @@ export const ipcContract = {
           ref: z.string().min(1),
           relPath: z.string().min(1),
         }),
-        FileContentSchema,
+        FileReadResultSchema,
       ),
       getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
       setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
@@ -425,7 +426,7 @@ export const ipcContract = {
       ),
       readFile: call(
         z.object({ workspaceId: z.string().uuid(), relPath: z.string() }),
-        FileContentSchema,
+        FileReadResultSchema,
       ),
       writeFile: call(
         z.object({
@@ -442,7 +443,7 @@ export const ipcContract = {
       ),
       createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
-      readExternal: call(z.object({ absolutePath: z.string() }), FileContentSchema),
+      readExternal: call(z.object({ absolutePath: z.string() }), FileReadResultSchema),
       revealInFinder: call(z.object({ absolutePath: z.string() }), z.void()),
     },
     listen: {

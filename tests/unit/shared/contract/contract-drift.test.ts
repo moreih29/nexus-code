@@ -125,7 +125,8 @@ describe("ipcContract drift — fs handlers", () => {
     if (!parsed.success) {
       throw new Error(`readFile (binary) output failed schema:\n${parsed.error.toString()}`);
     }
-    expect(content.isBinary).toBe(true);
+    expect(content.kind).toBe("ok");
+    if (content.kind === "ok") expect(content.isBinary).toBe(true);
   });
 
   it("readFile handler output matches schema for utf-8 BOM file", async () => {
@@ -139,7 +140,8 @@ describe("ipcContract drift — fs handlers", () => {
     if (!parsed.success) {
       throw new Error(`readFile (BOM) output failed schema:\n${parsed.error.toString()}`);
     }
-    expect(content.encoding).toBe("utf8-bom");
+    expect(content.kind).toBe("ok");
+    if (content.kind === "ok") expect(content.encoding).toBe("utf8-bom");
   });
 });
 

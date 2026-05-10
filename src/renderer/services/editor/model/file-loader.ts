@@ -1,6 +1,7 @@
 // File content loading and external-change reconciliation.
 // Owns readFile via fs IPC, encoding detection, and fs.changed event-driven reload.
 
+import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs-errors";
 import type { FileContent, FsChangedEvent } from "../../../../shared/types/fs";
 import { ipcCall, ipcListen } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
@@ -31,8 +32,12 @@ export function relPathForInput(input: EditorInput): string {
 }
 
 export async function readFileForModel(input: EditorInput): Promise<FileLoadResult> {
-  const relPath = relPathForInput(input);
-  return ipcCall("fs", "readFile", { workspaceId: input.workspaceId, relPath });
+  const rp = relPathForInput(input);
+  const result = await ipcCall("fs", "readFile", { workspaceId: input.workspaceId, relPath: rp });
+  if (result.kind === "missing") {
+    throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, input.filePath));
+  }
+  return result;
 }
 
 export function subscribeFsChanged(

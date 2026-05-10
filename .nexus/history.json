@@ -7884,6 +7884,99 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T04:29:16.136Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 31,
+        "topic": "IPC 컨트랙트 정정(read missing union) + 폴더 단위 stage/unstage",
+        "issues": [
+          {
+            "id": 1,
+            "title": "IPC 컨트랙트 정정: getFileContent·readFile·readExternal를 결과 union으로 이행, 핸들러 missing throw 제거, 호출자 result.kind 분기 적용",
+            "status": "decided",
+            "decision": "새 FileReadResultSchema = z.discriminatedUnion(\"kind\", [{kind:\"ok\", ...FileContent}, {kind:\"missing\", reason: z.enum([\"ref\",\"path\",\"index\",\"not-found\"])}]) 도입. WriteFileResultSchema와 동일 패턴. 적용 대상: git.getFileContent, fs.readFile, fs.readExternal 모두. 핸들러는 GitError.kind===\"missing\" / fs ENOENT를 catch해 throw 대신 {kind:\"missing\"} resolve. 그 외 throw는 유지(권한·IO·라우터 검증·abort). 호출자(diff-content-loader.readSideContent)는 result.kind === \"missing\"이면 빈 사이드, \"ok\"면 기존 처리. 기존 isMissingContentError 폴백은 throw 외 다른 missing 시그널(레거시 catch path)에 호환성 보존을 위해 유지하되 우선순위는 result.kind 분기 후. 채택 사유: 도메인 정상값을 데이터로 표현해 throw → Electron 자동 로그 메커니즘 자체를 차단. 새 missing 케이스(rename across history, INDEX 부재 등) 자동 처리. 기각: 옵션1 sentinel(handler가 빈 FileContent resolve)만 — throw 막기 효과는 같지만 missing 의미가 데이터에 명시되지 않아 호출자가 빈 콘텐츠와 진짜 missing을 구분 못 함. 옵션2 호출 시점 회피만 — 사례별 처치, race·stale 못 막음."
+          },
+          {
+            "id": 2,
+            "title": "폴더 단위 stage/unstage/discard: GitTreeRow dir 행 hover 액션, descendants leaf paths 수집, 기존 git store action 호출",
+            "status": "decided",
+            "decision": "GitTreeRow dir 행에 GitFileRow 동등 hover 액션(plus/minus/revert) 추가. dir 행 클릭 시 해당 dir의 모든 자손 leaf 경로 수집해 onStagePaths/onUnstagePaths/onDiscardPaths에 paths[] 전달. 자손 수집은 buildPathTree 결과를 walk하는 collectDescendantLeafPaths(node) 헬퍼로 분리(같은 디렉토리에 추가). 기존 git store의 stage(workspaceId, paths[])·unstage·discard는 paths 그대로 받으므로 인프라 추가 없음. dir 행 hover 액션은 group의 canStage/canUnstage 정책 그대로 따름(staged 그룹은 unstage만, working 그룹은 stage·discard). 채택 사유: 기존 인프라 재사용으로 변경 면적 최소. dir의 자손 leaf만 수집하면 폴더 단위 동작 자연 구현. VS Code SCM 동등. 기각: 매번 자손 walk 대신 dir 노드에 paths 사전캐시 — 빌드 시점에 children leaves를 누산해 dir 노드에 두면 walk 불필요하나, 본 사이클은 헬퍼 한 번 호출로 충분(메모이제이션 후속)."
+          }
+        ],
+        "research_summary": "사용자 결정: 권고 1번 — IPC 컨트랙트 정정 사이클 + 폴더 단위 stage/unstage 동시 처리. nx-plan 다축 분석은 생략 직접 진행. 직전 사이클들의 사례 단위 처치(unborn HEAD EMPTY_TREE 단락, kind:\"missing\" 분류) 누적이 시스템적 안정성을 담보하지 못함을 인정. 진짜 근본은 IPC 컨트랙트가 도메인 정상값(파일 없음)을 throw로 표현하는 결함 — Electron ipcMain.handle의 throw 자동 stderr 로그와 결합되어 콘솔 노이즈 발생. 적용: git.getFileContent + fs.readFile + fs.readExternal를 결과 union(z.discriminatedUnion(\"kind\", [ok, missing]))으로 이행. 핸들러는 missing throw 대신 정상 resolve. 호출자(diff-content-loader)는 try/catch 분기 → result.kind 분기로 전환. 기존 isMissingContentError 폴백은 호환성 위해 유지(throw 외 다른 missing 시그널). diff stream missing은 chunk 안 발생 패턴이 아니라 본 사이클 외. 옵션2(EMPTY_TREE 단락)는 효율 최적화로 별도 가치, 그대로 유지. WriteFileResultSchema가 이미 동일 패턴 정착되어 있어 비용 낮음. 폴더 단위 stage/unstage는 GitTreeRow dir 행에 hover 액션 추가, dir 자손 leaf paths 수집 헬퍼, 기존 stage/unstage/discard(paths[] 받음) 그대로 호출.",
+        "created_at": "2026-05-10T04:13:38.674Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "IPC read 컨트랙트를 ok|missing union으로 이행",
+          "status": "completed",
+          "context": "참조 코드:\n- src/shared/types/fs.ts — FileContentSchema(line 37) + WriteFileResultSchema(line 55, 동일 union 패턴 정착 사례)\n- src/shared/ipc-contract.ts — git.getFileContent(line 377), fs.readFile(line 428), fs.readExternal(line 445) 모두 FileContentSchema 반환\n- src/main/ipc/channels/git/content-handlers.ts — GitError throw 시점\n- src/main/ipc/channels/fs/read-handlers.ts — ENOENT 등 fs 에러 throw 시점\n- src/main/git/git-error.ts — GitError.kind:\"missing\" 분류\n- src/renderer/components/editor/diff-content-loader.ts — readSideContent(line 200~), isMissingContentError(line 303)\n\n핵심 결정 (이슈 #1):\n- 새 FileReadResultSchema = z.discriminatedUnion(\"kind\", [\n    z.object({ kind: z.literal(\"ok\"), content, encoding, sizeBytes, isBinary, mtime }),\n    z.object({ kind: z.literal(\"missing\"), reason: z.enum([\"ref\",\"path\",\"index\",\"not-found\"]) })\n  ])\n- 적용: git.getFileContent + fs.readFile + fs.readExternal 반환 타입을 FileReadResultSchema로\n- 핸들러: GitError.kind===\"missing\" / fs ENOENT catch → throw 대신 {kind:\"missing\"} resolve. 그 외 throw 유지(권한·IO·라우터·abort)\n- 호출자(diff-content-loader.readSideContent): result.kind === \"missing\"이면 빈 사이드, \"ok\"면 기존 처리\n- isMissingContentError 폴백 유지(legacy throw 호환)",
+          "acceptance": "- FileReadResultSchema 정의, WriteFileResult 패턴과 일관\n- git.getFileContent + fs.readFile + fs.readExternal 반환 타입 교체\n- 핸들러 missing throw 제거, 정상 resolve로 변환\n- 모든 호출자 result.kind 분기 적용\n- 5개 tsc 빌드 통과\n- bun test 회귀 0\n- 기존 isMissingContentError 폴백 유지",
+          "approach": "1. src/shared/types/fs.ts:\n   - export FileReadResultSchema = z.discriminatedUnion(\"kind\", [okBranch, missingBranch])\n   - okBranch는 기존 FileContentSchema 필드를 kind:\"ok\"와 함께 inline (편의를 위해 FileContentSchema는 retain)\n   - missingBranch: { kind:\"missing\", reason: z.enum([\"ref\",\"path\",\"index\",\"not-found\"]) }\n   - export FileReadResult type\n2. src/shared/ipc-contract.ts:\n   - git.getFileContent / fs.readFile / fs.readExternal 반환 schema를 FileReadResultSchema로 교체\n3. src/main/ipc/channels/git/content-handlers.ts:\n   - getFileContentHandler를 try/catch로 감싸 GitError(kind===\"missing\")이면 reason 분류({kind:\"missing\", reason:<argv 분석 또는 stderr 패턴>}) resolve\n   - reason 매핑: argv가 ref===INDEX(\":\") → \"index\", HEAD/named ref → \"ref\", path 미존재 stderr → \"path\", default → \"not-found\"\n   - 단순화 위해 stderr 분기 없이 \"missing\" reason 모두 통합해도 OK — reason은 호출자 진단 보조용\n4. src/main/ipc/channels/fs/read-handlers.ts:\n   - readFileHandler / readExternalHandler가 ENOENT(또는 NOT_FOUND 메시지)면 {kind:\"missing\", reason:\"not-found\"} resolve\n   - 기존 fsErrorMessage(NOT_FOUND) throw 경로를 catch해 변환\n   - 다른 fs 에러(권한·IO·too large·is-directory)는 throw 유지\n5. src/renderer/components/editor/diff-content-loader.ts:\n   - readSideContent: 결과를 받고 result.kind === \"missing\"이면 빈 FileContent ready 즉시 반환, \"ok\"면 기존 분기\n   - isMissingContentError catch 폴백은 호환성으로 유지(다른 IPC가 throw하는 경우 대비)\n6. 영향 받는 다른 호출자 grep — 같은 IPC 채널을 부르는 모든 곳 result.kind 분기 적용 필요\n7. 5개 tsc 빌드 + bun test 회귀 확인\n\nCONSTRAINTS:\n- WriteFileResultSchema 패턴과 일관 유지\n- 기존 EMPTY_TREE 단락은 그대로(효율 가치 별도)\n- isMissingContentError 폴백 보존(레거시 호환)\n- dead code 청소 금지",
+          "risk": "- IPC 컨트랙트 반환 타입 변경 → 모든 호출자가 result.kind 분기 적용 안 하면 컴파일 에러. TS strict이라 즉시 발견되지만 grep으로 영향 범위 사전 점검.\n- 같은 메서드를 부르는 다른 곳(file-tree, search 등)이 있을 수 있음. grep 후 일괄 수정.\n- reason 분류 로직이 정확하지 않으면 호출자가 false positive. 단순화 위해 reason은 진단 보조로만 두고 분기는 kind만 보게.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ade947813fc58c698"
+          },
+          "created_at": "2026-05-10T04:14:34.698Z",
+          "result": {
+            "outcome": "success",
+            "summary": "FileReadResultSchema(ok|missing) 신규 + git.getFileContent·fs.readFile·fs.readExternal 반환 교체. 핸들러 missing throw 제거(GitError.kind=missing·ENOENT → resolve). 그 외 throw 경로(권한·IO·too large·is-directory·path-escape·not-repo·abort) 유지. 호출자 4곳 수정: diff-content-loader/file-loader/load-external-entry. isMissingContentError 폴백 유지(legacy 호환). 1372→1379 pass(+7). 5/5 tsc.",
+            "recorded_at": "2026-05-10T04:24:16.086Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "폴더 단위 stage/unstage/discard — GitTreeRow dir 행 액션",
+          "status": "completed",
+          "context": "참조 코드:\n- src/renderer/components/files/git/GitTreeRow.tsx — 현재 dir 행은 chevron+이름+카운트만, hover 액션 없음\n- src/renderer/components/files/git/GitFileRow.tsx — leaf hover 액션 패턴(plus/minus/revert)\n- src/renderer/components/files/git/GitGroup.tsx — onStagePaths/onUnstagePaths/onDiscardPaths(paths[]), canStage/canUnstage 정책\n- src/renderer/components/files/file-tree/tree-builder.ts — PathTreeNode 자료구조\n- src/renderer/state/stores/git.ts — stage(workspaceId, paths[])/unstage/discard 이미 paths[] 받음\n\n핵심 결정 (이슈 #2):\n- GitTreeRow dir 행에 GitFileRow 동등 hover 액션 추가\n- 자손 leaf 경로 수집은 collectDescendantLeafPaths(node) 헬퍼(tree-builder.ts에 추가)\n- 기존 stage/unstage/discard 그대로 호출\n- group의 canStage/canUnstage 정책 그대로 적용",
+          "acceptance": "- collectDescendantLeafPaths 헬퍼 export\n- GitTreeRow dir 행에 hover 액션(group 정책 따름)\n- GitGroup이 dir 액션 핸들러 props 전달\n- 폴더 행 stage/unstage/discard 클릭 시 자손 leaf 모두에 적용\n- 5개 tsc 빌드 + bun test 회귀 0",
+          "approach": "1. src/renderer/components/files/file-tree/tree-builder.ts:\n   - export function collectDescendantLeafPaths(node: PathTreeNode): string[]\n   - dir 노드면 children 재귀, file이면 [relPath] 반환\n2. src/renderer/components/files/git/GitTreeRow.tsx:\n   - dir 행에 hover 시 plus(stage)/minus(unstage)/revert(discard) 액션 추가, GitFileRow와 동일 ghost icon 패턴\n   - 액션 클릭 시 collectDescendantLeafPaths(treeNode) → onStagePaths/onUnstagePaths/onDiscardPaths(paths)\n   - props 추가: onStagePaths?, onUnstagePaths?, onDiscardPaths? (group 정책 따라 부모에서 전달)\n3. src/renderer/components/files/git/GitGroup.tsx (또는 GitGroupTree):\n   - GitTreeRow에 dir 노드 + canStage/canUnstage 따라 핸들러 props 전달\n   - dir 노드 hover 액션 정책: staged 그룹 → unstage만, working 그룹 → stage·discard, untracked → stage·discard, merge → stage·discard 그대로\n4. (선택) tests/unit/renderer/components/files/file-tree/tree-builder.test.ts에 collectDescendantLeafPaths 케이스 추가\n5. 5개 tsc 빌드 + bun test 회귀 확인\n\nCONSTRAINTS:\n- 기존 git store action 시그니처 변경 금지(이미 paths[] 받음)\n- 매번 walk vs 사전캐시 — 본 사이클은 헬퍼 호출 1회로 충분\n- dead code 청소 금지",
+          "risk": "- dir 행 hover 액션과 chevron expand toggle 영역 중복 클릭 — 액션 영역과 행 본체의 stop propagation 적용.\n- compact 모드에서 displayName이 \"a/b/c\"일 때 자손 수집은 PathTreeNode children 그대로 walk라 영향 없음.\n- 매우 깊은 dir에서 walk cost — 일반 워크스페이스에선 무시 가능.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "afa41ee1e3bdf20e0"
+          },
+          "created_at": "2026-05-10T04:14:52.718Z",
+          "result": {
+            "outcome": "success",
+            "summary": "collectDescendantLeafPaths 헬퍼 + GitTreeRow dir 행 hover 액션(plus/minus/trash) + GitGroup이 group 정책대로 핸들러 전달. canStage/canUnstage 따름. action 영역 stopPropagation으로 chevron 충돌 방지. 병렬 병합 후 1379 pass / 0 fail 확인.",
+            "recorded_at": "2026-05-10T04:24:20.675Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "통합 검증 — read union 동작 + 폴더 단위 동작 + 회귀",
+          "status": "completed",
+          "context": "엔지니어 task #1·#2 완료 후 실행. 검증 대상:\n- FileReadResult union round-trip (git.getFileContent / fs.readFile / fs.readExternal)\n- 핸들러 missing throw 제거 — INDEX 부재 시 콘솔에 \"Error occurred in handler for 'ipc:call'\" 미출현\n- 호출자 result.kind 분기 동작 (diff-content-loader)\n- 기존 isMissingContentError 폴백 호환성 유지(제거되지 않음)\n- collectDescendantLeafPaths 헬퍼 정확성\n- GitTreeRow dir 행 hover 액션 → 자손 leaf 모두에 stage/unstage/discard 적용\n- 회귀 — 직전 1372 → +α",
+          "acceptance": "- 신규 단위 테스트 ≥10건 통과\n- FileReadResult round-trip 검증\n- isMissingContentError 폴백 호환성 유지 확인\n- collectDescendantLeafPaths 단위 통과\n- 폴더 단위 stage/unstage/discard 통합 동작\n- 회귀 0 (1372 → +α)\n- 5개 tsc clean\n- 콘솔 무노이즈 시나리오 검증\n- 보고에 (a) 추가 테스트 개수 (b) 전체 통과 (c) 빌드 (d) 시나리오 결과 (e) FAIL 시 분류",
+          "approach": "1. content-handlers 단위:\n   - GitError(kind:\"missing\") catch → {kind:\"missing\", reason:...} resolve 검증\n   - 그 외 throw는 유지(권한 등)\n2. read-handlers 단위:\n   - ENOENT → {kind:\"missing\"} resolve\n   - 그 외 throw 유지(권한·IS_DIRECTORY·TOO_LARGE)\n3. diff-content-loader 단위:\n   - result.kind === \"missing\"이면 빈 FileContent ready\n   - \"ok\"이면 기존 처리\n   - throw 경로(legacy) isMissingContentError 폴백 호환성 — 제거되지 않음 확인\n4. tree-builder 단위:\n   - collectDescendantLeafPaths 케이스(빈 dir, 깊은 체인, compact 후 walk 동등)\n5. GitGroup·GitTreeRow 통합:\n   - dir 행 hover → stage 액션 → 자손 leaf paths 전달 검증\n   - canStage/canUnstage 정책 분기\n6. 콘솔 무노이즈 시나리오:\n   - INDEX missing 시뮬레이션(stub IPC) → handler가 throw 없이 missing resolve → Electron 자동 로그 발생 안 함을 stderr capture로 확인\n7. 회귀 — 1372 → +α\n8. tsc 5/5 clean\n\nPASS 조건: 1~7 모두 충족. FAIL 시 분류(simple-failure / design-flaw / environment / unverifiable).",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "a9c262c8daeb7eba4"
+          },
+          "created_at": "2026-05-10T04:15:08.447Z",
+          "result": {
+            "outcome": "success",
+            "summary": "VERDICT: PASS. 29건 신규(content-handlers-missing 11, content-handlers-console-noise 4, diff-content-loader-missing 6, git-group-folder-actions 8). bun test 1379→1408 pass / 0 fail / 1 skip. tsc 5/5 clean. 콘솔 무노이즈 stderr capture 도입 — INDEX missing 시나리오에서 handler resolve 시 Electron 자동 stderr 출력 0줄 확인. CRITICAL/WARNING/INFO 0.",
+            "recorded_at": "2026-05-10T04:29:14.713Z"
+          }
+        }
+      ]
     }
   ]
 }

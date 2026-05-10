@@ -214,7 +214,7 @@ export async function readSideContent(
     return { content: "", encoding: "utf8", sizeBytes: 0, isBinary: false, mtime: new Date().toISOString() };
   }
 
-  const content =
+  const result =
     request.source === "fs"
       ? await ipcCall(
           "fs",
@@ -229,12 +229,16 @@ export async function readSideContent(
           { signal },
         );
 
+  if (result.kind === "missing") {
+    return { content: "", encoding: "utf8", sizeBytes: 0, isBinary: false, mtime: new Date().toISOString(), placeholder: "missing" as const };
+  }
+
   return {
-    content: content.content,
-    encoding: content.encoding,
-    sizeBytes: content.sizeBytes,
-    isBinary: content.isBinary,
-    mtime: content.mtime,
+    content: result.content,
+    encoding: result.encoding,
+    sizeBytes: result.sizeBytes,
+    isBinary: result.isBinary,
+    mtime: result.mtime,
   };
 }
 

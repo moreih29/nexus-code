@@ -151,6 +151,28 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
  * The original `relPath` and `depth` values are preserved unchanged so
  * that callers can still resolve the correct filesystem path.
  */
+// ---------------------------------------------------------------------------
+// collectDescendantLeafPaths
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect the relPaths of all leaf (file) descendants of a node.
+ *
+ * - If the node is a file, returns `[node.relPath]`.
+ * - If the node is a dir, recurses through all children and flattens results.
+ *
+ * Works correctly on both raw and compacted trees because compaction preserves
+ * all `children` references.
+ */
+export function collectDescendantLeafPaths(node: PathTreeNode): string[] {
+  if (node.kind === "file") return [node.relPath];
+  return node.children?.flatMap(collectDescendantLeafPaths) ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// compactPathTree
+// ---------------------------------------------------------------------------
+
 export function compactPathTree(root: PathTreeNode): PathTreeNode {
   function compactNode(node: PathTreeNode): PathTreeNode {
     // Recurse children first.

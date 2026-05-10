@@ -31,6 +31,7 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       const { relPath } = args as { relPath: string };
       const content = fileContents.get(relPath) ?? "";
       return Promise.resolve({
+        kind: "ok",
         content,
         encoding: "utf8",
         sizeBytes: content.length,
