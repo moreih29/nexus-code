@@ -7630,6 +7630,260 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T04:00:54.280Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 30,
+        "topic": "검색·git 패널 List/Tree 토글 + Compact Folders",
+        "issues": [
+          {
+            "id": 1,
+            "title": "영구화 스키마 설계 — 함께 바꿔야 하는 viewMode·compactFolders를 어떤 곳에 둘지(기존 git_panel_state 확장 vs 통합 panel_view_options 신규 vs 다서어 분리)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고 (b) 통합 panel_view_options 테이블. PK=panel_kind(워크스페이스별 DB이므로 workspace_id 불요), columns=(panel_kind, view_mode, compact_folders), 누락 row→(list,false) fallback. WORKSPACE_DB_MIGRATIONS v4 1건 추가, 기존 git_panel_state는 commitDraft·expandedGroups 전용 유지. IPC는 단일 panel.getViewOptions/setViewOptions 채널 신설. 미채택 시 다음 패널 추가 시점에 v5/v6 줄줄이 필요(CRITICAL). 기각: (a) git_panel_state 확장 — 시각 옵션과 commitDraft가 관심사 다름, 응집도 저하 + search_panel_state 추가 시 패널마다 테이블·IPC 누적. (c) git은 그대로 두고 search만 — git이 곧 viewMode를 가져야 하므로 즉시 깨짐.",
+                "recorded_at": "2026-05-10T03:34:02.793Z",
+                "agent_id": "a7d0457f539d9b35c"
+              }
+            ],
+            "decision": "통합 테이블 도입: WORKSPACE_DB_MIGRATIONS v4로 panel_view_options(panel_kind PRIMARY KEY, view_mode TEXT, compact_folders INTEGER) 신규. 기존 git_panel_state는 commitDraft·expandedGroups + expandedTreeNodes 보유 전용으로 유지(이슈 #5 참조). IPC 컨트랙트는 신규 panel 채널: getViewOptions({workspaceId, panelKind})/setViewOptions({workspaceId, panelKind, viewMode?, compactFolders?}). 누락 row는 panelKind 기본값 fallback(\"search\"→list, \"git\"→tree). PanelKind 스키마는 z.enum([\"search\",\"git\"]).\n\n채택 사유: 다음 패널이 추가될 때 마이그레이션 v5/v6 줄줄이 따라오는 위험을 한 번에 차단. 응집도(시각 옵션 ↔ 패널별 작업 상태)도 분리. 기존 git_panel_state 데이터 손실 없음.\n\n기각 대안:\n- (a) git_panel_state에 viewMode/compactFolders 추가 + search_panel_state 신규 — 시각 옵션과 commitDraft가 관심사 다름, 패널마다 테이블·IPC 누적되는 구조적 부채.\n- (c) git은 그대로 두고 search만 추가 — 곧 git도 viewMode를 가져야 하므로 즉시 깨지고, 그때 다시 마이그.\n- search dir expand를 panel_view_options에 함께 — 검색 컨텍스트 의존 상태(좀비 키 발생) 분리 원칙. dir expand는 이슈 #4 결정에 따라 세션 한정."
+          },
+          {
+            "id": 2,
+            "title": "Tree builder + compact folders 공유 유틸 신도 — 위치, 자료구조, 알고리즘, 엣지 케이스",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: src/renderer/components/files/file-tree/tree-builder.ts 신규(primitive 옆), 경량 PathTreeNode {name, relPath, kind:\"dir\"|\"file\", children?, depth, displayName}. 빌드 시점 depth 사전계산(가상화 cost 비대칭 회피). compact 알고리즘: 단일 dir 자식이 dir이면 합쳐 displayName=parent/child 누적. 종료: (i) 자식이 file (ii) 자식 ≥2 (iii) 루트 자체. 엣지: 빈 dir은 paths-only 입력에서 자연 소멸. 루트 단일 파일은 압축 금지. 매우 깊은 경로 OK. Git rename은 leaf level에서 formatGitEntryPath 재사용. 기각: shared/util-tree.ts(main에서 쓸 일 없음, 도메인 외부), 렌더타임 depth 계산(N제곱 위험).",
+                "recorded_at": "2026-05-10T03:34:13.209Z",
+                "agent_id": "a7d0457f539d9b35c"
+              }
+            ],
+            "decision": "신규 src/renderer/components/files/file-tree/tree-builder.ts. 자료구조 PathTreeNode { name: string; relPath: string; kind: \"dir\"|\"file\"; depth: number; displayName: string; children?: PathTreeNode[] }. 빌드 시점에 depth 사전계산. compact 알고리즘: 단일 dir 자식이 dir이면 자식과 합쳐 displayName=parent/child 누적. 종료 조건 — (i) 자식이 file (ii) 자식 ≥ 2 (iii) 노드가 루트. 정렬: 폴더 우선, 같은 종류는 case-insensitive 이름 오름차순. 입력 paths는 정렬되지 않은 string[]을 받아 정규화·중복 제거 후 빌드.\n\n채택 사유: file-tree primitive(ROW_HEIGHT_PX/INDENT_STEP_PX/getFileIcon)와 같은 디렉토리에 두면 LoB 응집도. PathTreeNode는 paths-only 입력에 최적화된 경량 표현이라 파일트리 도메인 TreeNode와 결합 회피. 빌드 시점 depth는 가상화 인덱스→스타일 매핑 cost 비대칭 제거.\n\n기각 대안:\n- shared/util-tree.ts — main에서 paths→tree 변환 사용처 없음, 도메인 외부.\n- renderer/util/tree.ts — file-tree primitive와 결합도 흐려짐.\n- TreeNode 표준화(파일트리 store와 공유) — paths-only 시나리오엔 과한 결합, 라이프사이클 충돌.\n- 렌더타임 depth 계산 — 매 프레임 walk, N제곱.\n\n엣지 케이스 처리: 빈 dir은 paths-only 입력에서 자연 소멸. 루트 단일 파일은 압축 금지. 매우 깊은 단일 체인은 displayName에 \"/\"로 누적. Git rename(oldRelPath→relPath)은 leaf level에서 formatGitEntryPath 재사용."
+          },
+          {
+            "id": 3,
+            "title": "토글 UI — 정착 위치, 아이콘, 공유 컴포넌트 여부, compact-folders 보조 토글 표시 방식, 접근성 카피",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "A1 (CRITICAL): Search 토글은 SearchOptionsToggles 옆 4번째 ghost icon button(1px mist-border divider). Git 토글은 GitHeader 액션 영역(Refresh~MoreMenu 사이) — MoreMenu에 묻는 것은 발견성 저하로 기각. A2: 단일 segmented toggle, 아이콘 List↔ListTree(lucide). compact-folders는 modifier이므로 popover 보조(별도 peer 버튼은 list 모드에서 의미 없음 → State&Resilience 위반). A3: <ViewModeToggle> 공유 컴포넌트(검색은 compactFolders props 생략). A4: 카피 ko/en, \"리스트로 보기\"/\"트리로 보기\"/\"폴더 압축\". 글로벌 단축키 부여 안 함(Alt+C/W/R 충돌 위험). A5 (CRITICAL): Search 0결과 → toggle visible+disabled(layout shift 회피), Git non-repo/detecting → 헤더 액션 영역 자체 hide(loading은 disabled 유지). 위험: 280px 폭에서 4 아이콘 wrap 가능 — 그 경우 compact 토글은 popover-only로 강등.",
+                "recorded_at": "2026-05-10T03:34:21.786Z",
+                "agent_id": "a19bd15399b005d08"
+              }
+            ],
+            "decision": "공유 컴포넌트 <ViewModeToggle viewMode list|tree onViewModeChange compactFolders? onCompactChange? /> 신규(src/renderer/components/files/view-mode-toggle/). 단일 segmented toggle, 아이콘 List ↔ ListTree(lucide-react). compactFolders는 modifier이므로 popover 보조(ChevronDown split 또는 long-press) — 별도 peer 버튼은 list 모드에서 무의미하므로 기각. 정착 위치 — Search: SearchOptionsToggles 옆 4번째 ghost icon button(1px mist-border divider 분리). Git: GitHeader 액션 영역, Refresh ↔ MoreMenu 사이. MoreMenu 서브 메뉴 매립은 발견성 저하로 기각.\n\n상태 — Search 0결과: visible+disabled(layout shift 방지). Git non-repo/detecting: 헤더 액션 영역 자체 hide. Loading: disabled 유지(spinner 대체 금지).\n\n카피 — tooltip ko/en: \"리스트로 보기\"/\"View as List\", \"트리로 보기\"/\"View as Tree\", \"폴더 압축\"/\"Compact folders\". aria-pressed로 현재 모드 표현. 글로벌 단축키 부여 안 함(Alt+C/W/R 충돌 위험, VS Code도 기본 단축키 없음).\n\n기각 대안:\n- 두 인접 버튼(list+tree) — 동일 가중 CTA 두 개라 hierarchy 위반.\n- compact를 별도 peer 버튼 — list 모드에서 의미 없음.\n- 패널별 토글 컴포넌트 분리 — 일관성 손실, 시각 컨벤션 drift.\n- 단축키 부여 — 입력 필드 수정자 키와 충돌 위험.\n\n폭 위험 fallback: 280px 폭에서 4 아이콘 wrap 시 compact 토글은 popover-only로 강등(popover 내 checkable item)."
+          },
+          {
+            "id": 4,
+            "title": "Search 패널 트리 렌더러 — 가상화 패턴·행 타입 확장·디렉토리 expand 상태 수명·매치 카운트 롤업·스트림 진행 중 트리 재구성",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: 기존 buildFlatRows + @tanstack/react-virtual 패턴 유지, 행 타입을 {kind:\"dir\"|\"file\"|\"match\"}로 확장. dir expand 상태는 워크스페이스별 영구화 제외(세션 한정) — 검색 결과가 비영속이라 영구화 시 좀비 키 발생. 매치 카운트 롤업은 트리 빌드 시점에 1회 누산(렌더 시점 누산은 N제곱). useMemo([results, viewMode, compactFolders, expandedDirs])로 한 번만 빌드. 기각: dir expand DB 영구화(검색 컨텍스트 의존 상태를 워크스페이스 메타에 섞으면 응집도 저하). WARNING: search store가 progress chunk마다 results array 새로 만들면 reference 비교 깨짐 — 사이클 진입 전 1회 패턴 확인 필요. compact 토글 시 expand set 보존(쓰기 그대로, 읽기는 valid 노드만 적용).",
+                "recorded_at": "2026-05-10T03:34:33.645Z",
+                "agent_id": "a7d0457f539d9b35c"
+              }
+            ],
+            "decision": "기존 buildFlatRows + @tanstack/react-virtual 패턴 유지하면서 viewMode===\"tree\"이면 행 타입을 {kind:\"dir\"|\"file\"|\"match\"}로 확장. dir 행은 chevron + 폴더 아이콘 + displayName + 매치 카운트(자식 합) 표시. dir expand 상태는 zustand session 한정(워크스페이스별 영구화 제외) — 검색 컨텍스트 비영속이라 영구화 시 좀비 키. 매치 카운트 롤업은 트리 빌드 시점에 1회 누산 후 dir 노드에 캐시. useMemo([results, viewMode, compactFolders, expandedDirs]) 단일 빌드. compact 토글 시 expand set은 보존(쓰기 그대로, 읽기는 valid 노드만).\n\n사전 확인 사항(엔지니어 작업 진입 전): src/renderer/state/stores/search.ts의 progress chunk 갱신 패턴 — results array 매번 새로 만드는지 in-place append인지. reference equality가 깨지면 useMemo가 매 청크마다 재빌드되어 cost 누적. 필요 시 store 측에서 안정 reference 보장하도록 조정.\n\n채택 사유: 기존 가상화 패턴 유지로 변경 면적 최소. 매치 카운트는 빌드 시점 누산이 N제곱 회피.\n\n기각 대안:\n- dir expand 워크스페이스별 영구화 — 검색 컨텍스트 의존(다음 세션 다른 쿼리)이므로 좀비 키 발생, 청소 책임 누적.\n- 매치 카운트 렌더 시점 누산 — N제곱 cost.\n- 행을 분리해 두 개 가상화기로 운영 — 키 매니지먼트·focus 보존 복잡도 폭증."
+          },
+          {
+            "id": 5,
+            "title": "Git 패널 트리 렌더러 — 상태 그룹 외곽 유지 + 내부 트리, 행 재사용 전략, expand 상태 키 네임스페이스, rename·conflict 표기, 가상화 장소",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: (i) GitTreeRow 신규(트리 모드 dir+leaf 전용). GitFileRow는 List 모드 전용 유지. leaf 표현은 GitFileRow를 wrapper로 호출하거나 indent만 다르게 적용 — primitive 재사용 조건 충족. (ii) git_panel_state에 expandedTreeNodes:{staged:string[], working:string[], untracked:string[], merge:string[]} 추가. expandedGroups와는 별 키(통합 시 키공간 충돌). 그룹별 namespace로 staged의 src/a expand가 working의 src/a에 영향 없음. (iii) rename·conflict는 GitStatusBadge·formatGitEntryPath 재사용. (iv) Git 패널 가상화는 본 사이클 제외(후속) — 트리 도입과 동시 진입 시 변동 3축 risk 비대칭. 일반 워크스페이스 변경 파일 100건 미만 가정에서 비가상화 트리 충분. CRITICAL.",
+                "recorded_at": "2026-05-10T03:34:42.307Z",
+                "agent_id": "a7d0457f539d9b35c"
+              }
+            ],
+            "decision": "GitGroup 내부 entries.map 루프를 viewMode 분기로 교체. tree 모드일 때 신규 GitTreeRow 컴포넌트(dir+leaf 통합 행, indent에 INDENT_STEP_PX 적용). leaf 표현은 GitFileRow를 wrapper로 호출하거나 indent prop만 다르게 적용 — primitive 재사용. List 모드는 기존 GitFileRow 그대로. expand 상태는 git_panel_state 스키마에 expandedTreeNodes:{merge:string[], staged:string[], working:string[], untracked:string[]} 추가, 그룹별 namespace로 키공간 분리. expandedGroups는 그룹 헤더 펼침이라 의미 다름 — 통합 시 충돌 위험으로 별도 키 유지. rename은 formatGitEntryPath 재사용으로 leaf에 oldRelPath→relPath 표기. conflict는 GitStatusBadge xy code 그대로. Git 패널 가상화는 본 사이클 제외 — 트리 도입 + 가상화 동시 진입은 변동 3축 risk 비대칭. 일반 워크스페이스 변경 파일 100건 미만 가정에서 비가상화 트리 충분, 후속 사이클로 분리.\n\n채택 사유: GitFileRow는 path label·status badge·hover 액션의 leaf 책임에 응집. dir 행은 chevron+folder+자식 합계로 책임 축이 다름. row 분리가 LoB 양쪽 깨끗.\n\n기각 대안:\n- GitFileRow를 dir 행으로 그대로 재사용 — 책임 축 다름, 행 응집도 저하.\n- expandedGroups에 트리 노드 expand 통합 — 키공간 충돌, 그룹 헤더 펼침과 트리 펼침이 의미 다름.\n- 가상화 동시 도입 — risk 비대칭, 후속 사이클로 분리."
+          },
+          {
+            "id": 6,
+            "title": "키보드 내비게이션 설계 — WAI-ARIA tree 패턴, SearchInput→첫 행 포커스 핸드오프, focus virtualization 생존 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "B1-B3: WAI-ARIA tree pattern 그대로 — ↑/↓ 행 이동, ← collapse-or-go-to-parent, → expand-or-first-child, Home/End 첫/마지막 visible, Enter on file=open(검색 reveal·git diff), Enter on dir=expand toggle. Cmd+Enter는 useGitOpHotkey의 commit과 충돌이라 기각. B4 (CRITICAL): SearchInput 포커스에서 ↓ 누르면 입력 blur + 첫 트리 행 focus(현재 미구현). Esc는 기존 handleEsc 유지. B5 (CRITICAL): role=tree, treeitem, aria-level/expanded/setsize/posinset, **roving tabindex**(가상화 환경에서 unmount 시 focus 보존 필수). 스크롤·재마운트 시 focused path 저장 후 tabIndex=0 + .focus() 재적용. focus ring :focus-visible ring-1 ring-mist-border-focus(WCAG 2.4.7 ≥3:1). B6: live region role=status, \"32개 파일에서 247개 결과\", debounce settle 시점 갱신. compact folders 시 aria-label에 full path 보존(시각 텍스트는 압축).",
+                "recorded_at": "2026-05-10T03:34:51.191Z",
+                "agent_id": "a19bd15399b005d08"
+              }
+            ],
+            "decision": "WAI-ARIA tree pattern 그대로 채택. 키맵: ↑/↓ 행 이동, ← collapse(이미 collapsed면 부모로), → expand(이미 expanded면 첫 자식), Home/End 첫·마지막 visible, Enter on file=open(검색 reveal·git diff), Enter on dir=expand toggle, Space=선택(기존 동작 유지). Cmd+Enter \"open first child\" 기각 — useGitOpHotkey의 commit 단축키와 충돌. SearchInput→첫 행 포커스 핸드오프(B4 CRITICAL): 입력 포커스 상태에서 ↓ 누르면 입력 blur + 첫 트리 행 focus. Esc는 기존 handleEsc 유지. ARIA: container role=tree, 행 role=treeitem + aria-level + aria-expanded(dir 전용) + aria-setsize + aria-posinset. 가상화 환경 focus 보존을 위해 roving tabindex 도입(하나만 tabIndex=0, 나머지 -1). 스크롤·재마운트 시 focused relPath 저장 후 tabIndex=0 + .focus() 재적용. focus ring :focus-visible ring-1 ring-mist-border-focus(WCAG 2.4.7 ≥3:1). live region role=status로 매치 카운트 announce(\"32개 파일에서 247개 결과\"), debounce settle 시점 갱신. compact folders 시 aria-label에 full path 보존.\n\n채택 사유: WAI-ARIA tree는 표준 패턴, 사용자 학습 비용 0. roving tabindex는 가상화에서 focus 보존의 사실상 유일한 정답.\n\n기각 대안:\n- Cmd+Enter=첫 자식 — commit hotkey 충돌.\n- 모든 행 tabIndex=0 — 가상화 unmount 시 focus 손실, ARIA tree 위반.\n- SearchInput에서 ↓ 무동작 — 트리 모드 발견성·접근성 모두 저하(CRITICAL).\n- expand 상태 라이브 리전 announce — aria-expanded와 중복."
+          },
+          {
+            "id": 7,
+            "title": "테스트 커버리지 — tree builder/compact, 영구화 round-trip(IPC + storage), 트리 렌더 키보드, 회귀",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "HOW skip — 자명, 비가역성 낮음. 테스트 커버리지는 (a) tree-builder 단위(빈 dir, 단일 파일 루트, 깊은 경로, compact 체인 합치기, 정렬), (b) compact-folders 토글 시 expand 보존 동작, (c) panel_view_options storage round-trip(IPC + DB), (d) ViewModeToggle 키보드·aria-pressed, (e) WAI-ARIA tree 키맵(↑/↓/←/→/Home/End/Enter), (f) SearchInput→첫 행 포커스 핸드오프, (g) 회귀(기존 1276 → +N). 가상화 focus 보존은 본 사이클 범위에서 가능 시 간이 검증, 깊은 시나리오는 후속.",
+                "recorded_at": "2026-05-10T03:34:55.455Z"
+              }
+            ],
+            "decision": "테스트 커버리지: (a) tree-builder.test.ts — 빈 dir, 단일 파일 루트, 깊은 단일 체인, compact 알고리즘 종료조건 3종, 정렬 규칙(폴더 우선·case-insensitive). (b) compact 토글 시 expand set 보존(쓰기 그대로, 읽기는 valid 노드만). (c) panel_view_options storage round-trip — IPC getViewOptions/setViewOptions + WorkspaceStorage SQLite v4 마이그레이션, 누락 row fallback. (d) ViewModeToggle 키보드(Tab focus, Enter 토글, Space)·aria-pressed. (e) WAI-ARIA tree 키맵 unit(↑/↓/←/→/Home/End/Enter on file/dir). (f) SearchInput→첫 행 포커스 핸드오프(↓ 키). (g) 회귀 — 기존 1276 → +N 보고. 가상화 focus 보존 깊은 시나리오는 본 사이클은 간이 검증(roving tabindex 단위), 깊은 e2e는 후속.\n\n채택 사유: 결정의 위험점이 정확히 단위 테스트로 잠기는 항목들. round-trip은 마이그레이션 기존 데이터 손실 방지에 직접 대응.\n\n기각 대안: 통합 e2e만으로 잠금 — 빌드/마이그레이션·키보드·ARIA 단위 회귀가 안 잡힘. unit-only — round-trip 누락."
+          }
+        ],
+        "research_summary": "Lead 사전 검토 + Explore 1회 + Architect/Designer 병렬 검토. 핵심 파악: (1) file-tree primitives(ROW_HEIGHT_PX/INDENT_STEP_PX/INDENT_BASE_PX/indentPaddingLeft/getFileIcon) 재사용 가능, FileTreeRow는 TreeNode·WorkspaceTree 강결합으로 그대로 재사용 어려움 — 트리 행은 별도. (2) paths→tree 빌더 부재. file-tree-display.ts는 pending-row 헬퍼만. (3) 검색 store는 zustand 인메모리만, 영구화 IPC 없음. git store는 git_panel_state(commitDraft + expandedGroups) 영구화 중. WorkspaceStorage는 _meta·expanded_paths·git_panel_state 3 테이블 + WORKSPACE_DB_MIGRATIONS 배열. (4) GitGroup은 entries.map((entry)=><GitFileRow/>) — 트리 삽입점 명확. (5) 검색은 @tanstack/react-virtual 가상화, git은 비가상화. ROW_HEIGHT_PX=24 일관. Architect approved with conditions: 가상화는 본 사이클 제외(후속), Search dir expand 영구화 제외(세션 한정), compact 엣지 단위 테스트로 잠금. Designer approved with conditions: A1 placement·A5 state·B4 입력→첫행·B5 ARIA tree+roving tabindex는 CRITICAL로 본 사이클에 함께 착륙. .nexus/history.json·memory에 직접 적용할 선례 없음. USER 결정 4축 확정: 검색=List/Git=Tree 기본, 워크스페이스별 영구화, compact 포함, git 트리 모드는 상태 그룹 외곽 유지.",
+        "created_at": "2026-05-10T03:32:27.926Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "영구화 인프라 — panel_view_options 테이블·IPC 채널 신규",
+          "status": "completed",
+          "context": "참조 코드:\n- src/main/storage/workspace-storage.ts — WORKSPACE_DB_MIGRATIONS 배열, getGitPanelState/setGitPanelState 패턴(누락 row→default fallback)\n- src/main/ipc/channels/git/state-handlers.ts — getPanelStateHandler/setPanelStateHandler 형태\n- src/shared/types/git.ts — GitPanelStateSchema(zod)\n- src/shared/ipc-contract.ts — git.getPanelState/setPanelState 컨트랙트 위치\n\n핵심 결정 (이슈 #1):\n- 새 테이블 panel_view_options(panel_kind PRIMARY KEY TEXT, view_mode TEXT NOT NULL, compact_folders INTEGER NOT NULL)\n- v4 마이그레이션 추가, 기존 git_panel_state 무영향\n- panel.getViewOptions({workspaceId, panelKind})/setViewOptions({workspaceId, panelKind, viewMode?, compactFolders?})\n- PanelKind = z.enum([\"search\", \"git\"])\n- 기본값 fallback: search→{viewMode:\"list\", compactFolders:false}, git→{viewMode:\"tree\", compactFolders:false}",
+          "acceptance": "- 새 panel_view_options 테이블·v4 마이그 추가, 기존 v1~v3 무손실\n- PanelKindSchema, ViewModeSchema, PanelViewOptionsSchema 정의\n- panel.getViewOptions/setViewOptions IPC 등록\n- WorkspaceStorage.getPanelViewOptions/setPanelViewOptions 정상 round-trip\n- 기존 1276 → 회귀 0\n- 5개 tsc 프로젝트 빌드 통과",
+          "approach": "1. src/shared/types/panel.ts (신규):\n   - PanelKindSchema = z.enum([\"search\",\"git\"])\n   - ViewModeSchema = z.enum([\"list\",\"tree\"])\n   - PanelViewOptionsSchema = z.object({ viewMode, compactFolders })\n   - PanelViewOptionsArgsSchema, PanelViewOptionsUpdateSchema\n   - DEFAULT_VIEW_OPTIONS_BY_PANEL = {search:{...}, git:{...}}\n2. src/main/storage/workspace-storage.ts:\n   - WORKSPACE_DB_MIGRATIONS에 v4 추가: CREATE TABLE panel_view_options\n   - getPanelViewOptions(workspaceId, panelKind) — 누락이면 default 반환\n   - setPanelViewOptions(workspaceId, panelKind, partial) — INSERT OR REPLACE\n   - 기존 git_panel_state 마이그·접근 경로 무변경\n3. src/shared/ipc-contract.ts:\n   - 새 'panel' 채널: panel.call.getViewOptions/setViewOptions\n4. src/main/ipc/channels/panel/state-handlers.ts (신규) + index.ts:\n   - getViewOptionsHandler/setViewOptionsHandler — git/state-handlers.ts 패턴 차용\n5. src/main/ipc/channels/index.ts(또는 동등 등록 위치): registerPanelChannel 호출 와이어업\n6. src/main/index.ts: 등록 호출 추가\n7. 빌드 확인: bun run typecheck 5/5 + bun test 회귀 0",
+          "risk": "- v4 마이그가 기존 v1~v3 데이터를 건드리면 손실. CREATE TABLE IF NOT EXISTS만 사용, 기존 테이블 ALTER 없음.\n- panelKind enum 확장 시 PrimaryKey 충돌 — 이번엔 [\"search\",\"git\"] 둘만, 향후 추가는 row 추가로 해결.\n- IPC 채널 등록 누락 시 setupRouter가 throw. 등록 와이어업 단계 단위로 빌드 확인.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "abb3aafb5ba269a52"
+          },
+          "created_at": "2026-05-10T03:37:22.501Z",
+          "result": {
+            "outcome": "success",
+            "summary": "panel_view_options 테이블(v4 마이그) + getPanelViewOptions/setPanelViewOptions storage + panel IPC 채널 신규 + main 와이어업. 기본값 fallback search→list, git→tree. PanelKind enum 확장은 src/shared/types/panel.ts 한 곳에서 해결. bun test 1276 유지, 5/5 빌드.",
+            "recorded_at": "2026-05-10T03:42:23.560Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "tree-builder 유틸 + tree 키맵 hook",
+          "status": "completed",
+          "context": "참조 코드:\n- src/renderer/components/files/file-tree/file-tree-metrics.ts — ROW_HEIGHT_PX, INDENT_STEP_PX, INDENT_BASE_PX, indentPaddingLeft\n- src/renderer/components/files/file-tree/file-tree-icons.tsx — getFileIcon\n- src/renderer/components/files/git/git-status-utils.ts — formatGitEntryPath(rename 표기 패턴)\n\n핵심 결정 (이슈 #2·#6):\n- 위치: file-tree primitive 옆\n- PathTreeNode 자료구조, 빌드시점 depth\n- compact 알고리즘 종료조건 3종, 폴더 우선·case-insensitive 정렬\n- WAI-ARIA tree 키맵: ↑/↓/←/→/Home/End/Enter, roving tabindex",
+          "acceptance": "- tree-builder.ts buildPathTree·compactPathTree export\n- use-tree-keyboard.ts hook export\n- 단위 테스트 ≥6건(builder + compact + 정렬) 모두 통과\n- file-tree primitive 재사용(ROW_HEIGHT_PX 등) 확인\n- 5개 tsc 프로젝트 빌드 통과",
+          "approach": "1. src/renderer/components/files/file-tree/tree-builder.ts (신규):\n   - export interface PathTreeNode { name, relPath, kind, depth, displayName, children? }\n   - export function buildPathTree(paths: string[]): PathTreeNode (루트 노드)\n   - export function compactPathTree(root: PathTreeNode): PathTreeNode (재귀 단일-자식 dir 합치기)\n   - 정렬: 폴더 우선, case-insensitive\n   - 정규화: 입력 paths의 leading \"/\" 제거, 중복 제거\n2. src/renderer/components/files/file-tree/use-tree-keyboard.ts (신규 hook):\n   - useTreeKeyboard({rows, focusedIndex, onMove, onToggle, onActivate}) hook\n   - ←/→/↑/↓/Home/End/Enter 처리, dir vs file 분기\n   - roving tabindex: tabIndex={index===focused?0:-1}\n   - 가상화 unmount 후 focus 복원: useEffect로 focused row의 .focus() 재적용\n3. 단위 테스트:\n   - tests/unit/renderer/components/files/file-tree/tree-builder.test.ts\n   - 빈 dir·단일 파일 루트·깊은 단일 체인·compact 종료조건 3종·정렬",
+          "risk": "- Compact 시 displayName \"/\" 누적이 너무 길어지면 row 가독성 저하. 일단 자연 누적, 시각적 처리는 패널별로 className 적용.\n- roving tabindex가 가상화기와 충돌하지 않도록 focused index가 visible 범위 밖이면 scrollIntoView 트리거.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "acb1d0c7fa1b48f95"
+          },
+          "created_at": "2026-05-10T03:37:37.620Z",
+          "result": {
+            "outcome": "success",
+            "summary": "tree-builder.ts(buildPathTree·compactPathTree, 순수 함수) + use-tree-keyboard.ts(WAI-ARIA tree 키맵, roving tabindex). 단위 +11건 통과(1276→1287). 5/5 빌드.",
+            "recorded_at": "2026-05-10T03:42:25.824Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "ViewModeToggle 공유 컴포넌트",
+          "status": "completed",
+          "context": "참조:\n- src/renderer/components/files/search/SearchOptionsToggles.tsx — 기존 ghost icon button + TOGGLE_ON_CLASS 패턴\n- lucide-react: List, ListTree, ChevronDown 아이콘 사용\n- .nexus/context/design.md — almost monochromatic 원칙\n\n핵심 결정 (이슈 #3):\n- 단일 segmented toggle, List ↔ ListTree\n- compact는 modifier popover (ChevronDown split)\n- aria-pressed 현재 모드, tooltip ko/en\n- 글로벌 단축키 부여 안 함",
+          "acceptance": "- ViewModeToggle 컴포넌트 export, 단일 segmented toggle 시각 일관\n- aria-pressed·tooltip(ko/en) 적용\n- compactFolders props 미전달 시 popover 미렌더\n- 5개 tsc 프로젝트 빌드 통과",
+          "approach": "1. src/renderer/components/files/view-mode-toggle/ViewModeToggle.tsx (신규):\n   - props: viewMode, onViewModeChange, compactFolders?, onCompactChange?, disabled?\n   - 단일 segmented toggle 본체 + 옆에 compact dropdown trigger(compactFolders 전달 시만)\n   - aria-pressed, role=button, tooltip ko/en\n   - lucide List/ListTree 아이콘\n   - TOGGLE_ON_CLASS 재사용으로 기존 ghost 패턴 일치\n2. src/renderer/components/files/view-mode-toggle/index.ts: export ViewModeToggle, ViewModeToggleProps\n3. CompactFolders popover는 호출자에서 disable 가능하도록(compactFolders·onCompactChange 둘 다 undefined면 분기 hide)\n4. 280px 폭 wrap fallback: compact 토글이 popover-only로 강등될 때 호출자 측 styling 옵션",
+          "risk": "- 두 패널의 호출 컨벤션 차이(검색은 compact 없음, git은 있음)가 props optional로 안 깨지게 — 둘 다 undefined 시 popover 자체 미렌더.\n- aria-pressed 의미가 list/tree 둘 다에서 일관되게 — list 모드일 때 ListTree 버튼이 not-pressed, tree 모드일 때 pressed.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ad02b793d746eca3a"
+          },
+          "created_at": "2026-05-10T03:37:50.927Z",
+          "result": {
+            "outcome": "success",
+            "summary": "ViewModeToggle 공유 컴포넌트 신규. List↔Tree segmented + ChevronDown split popover(compactFolders props 전달 시만 렌더). aria-pressed, TOGGLE_ON_CLASS 재사용. 빌드 통과.",
+            "recorded_at": "2026-05-10T03:42:29.349Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Search 패널 트리 통합 — store·UI·키보드",
+          "status": "completed",
+          "context": "참조:\n- src/renderer/components/files/search/SearchPanel.tsx, SearchOptionsToggles.tsx, SearchResultsList.tsx\n- src/renderer/state/stores/search.ts — FileGroup 구조, progress chunk 갱신 패턴\n- 사전 확인: search store가 progress chunk마다 results array 새로 만드는지 in-place append인지 확인 필요(useMemo reference equality)\n\n핵심 결정 (이슈 #3·#4·#6):\n- SearchOptionsToggles 옆 4번째 ViewModeToggle 정착\n- 행 타입 {kind:\"dir\"|\"file\"|\"match\"}로 확장\n- dir expand 세션 한정(영구화 X)\n- 매치 카운트 빌드시점 누산\n- WAI-ARIA tree + roving tabindex + SearchInput↓→첫 행 핸드오프",
+          "acceptance": "- SearchOptionsToggles에 ViewModeToggle 정착\n- search store에 viewMode/compactFolders/expandedDirs 추가, IPC 영구화 round-trip\n- SearchResultsList tree 모드 정상 렌더(dir/file/match 행)\n- 매치 카운트 dir 행에 누산\n- WAI-ARIA tree + roving tabindex 적용\n- SearchInput ↓ → 첫 트리 행 focus\n- live region \"N개 파일에서 M개 결과\" announce\n- 5개 tsc 빌드 + 회귀 0",
+          "approach": "1. search store 확장:\n   - state에 viewMode, compactFolders, expandedDirs:Set<string>\n   - actions: setViewMode, setCompactFolders, toggleExpandedDir\n   - 워크스페이스 세션 시작 시 ipcCall(\"panel\",\"getViewOptions\",{workspaceId,panelKind:\"search\"})로 viewMode·compactFolders 로드\n   - 변경 시 setViewOptions 디바운스 영구화\n   - progress 갱신 패턴 사전 점검: results 새 배열인지 in-place인지 → 안정 reference로 통일(필요 시)\n2. SearchOptionsToggles에 ViewModeToggle 4번째 슬롯 추가(1px mist-border divider). 빈 결과면 disabled.\n3. SearchResultsList:\n   - viewMode===\"tree\"이면 buildPathTree(results.map(g=>g.relPath)) → compactFolders면 compactPathTree, dir 노드에 매치 카운트 누산\n   - flatRows 확장: {kind:\"dir\"|\"file\"|\"match\"}\n   - useMemo([results, viewMode, compactFolders, expandedDirs])\n   - useTreeKeyboard hook 적용, role=tree·treeitem·aria-level/expanded/setsize/posinset\n   - live region role=status로 매치 카운트 announce(\"N개 파일에서 M개 결과\", debounce settle)\n4. SearchInput에 onArrowDown 핸들러 추가 — 결과 있으면 첫 행 focus\n5. 기본 모드 list 진입, 토글 시 트리 진입·영구화",
+          "risk": "- store progress 갱신 패턴이 새 array마다 reference 바꾸는 구조면 useMemo 의미 없음. 사전 1회 확인 필수.\n- compact 토글 시 expand set 보존 — 쓰기는 그대로, 읽기 시 valid 노드만 적용.\n- 가상화 행이 unmount될 때 focus 복원 동작 점검.",
+          "plan_issue": 4,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "a7f498249e397600e"
+          },
+          "created_at": "2026-05-10T03:38:10.339Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Search 패널 트리 통합: store viewMode/compactFolders/expandedDirs 확장 + IPC 영구화 + SearchOptionsToggles에 ViewModeToggle 정착 + SearchResultsList tree 렌더(dir/file/match 행, 매치 카운트 누산) + WAI-ARIA tree + roving tabindex + SearchInput↓ 핸드오프 + live region announce. Progress chunk reference 안정성 확인(안정). +4 신규 스토어 단위.",
+            "recorded_at": "2026-05-10T03:52:56.692Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Git 패널 트리 통합 — store·UI·키보드·스키마",
+          "status": "completed",
+          "context": "참조:\n- src/renderer/components/files/git/GitPanel.tsx, GitHeader.tsx, GitGroup.tsx, GitFileRow.tsx, GitGroupHeader.tsx\n- src/renderer/state/stores/git.ts — GitSession, expandedGroups\n- src/shared/types/git.ts — GitPanelStateSchema\n- src/main/storage/workspace-storage.ts — getGitPanelState/setGitPanelState 패턴\n\n핵심 결정 (이슈 #3·#5·#6):\n- GitHeader 액션 영역에 ViewModeToggle (Refresh~MoreMenu 사이)\n- 신규 GitTreeRow(dir+leaf) — GitFileRow는 list 모드 전용 유지\n- git_panel_state.expandedTreeNodes:{merge,staged,working,untracked} 추가\n- 기본 tree 모드, compactFolders 토글 포함\n- 가상화는 본 사이클 제외",
+          "acceptance": "- GitPanelStateSchema에 expandedTreeNodes 추가, 기존 row 무손실\n- getGitPanelState/setGitPanelState round-trip 확장\n- GitHeader에 ViewModeToggle 정착(repo 미감지 시 hide)\n- 신규 GitTreeRow 컴포넌트, GitGroup이 viewMode 분기\n- 기본 tree 모드, compactFolders 토글 동작\n- WAI-ARIA tree + roving tabindex 적용\n- 5개 tsc 빌드 + 회귀 0",
+          "approach": "1. GitPanelStateSchema 확장:\n   - expandedTreeNodes: z.object({ merge: z.array(z.string()), staged: ..., working: ..., untracked: ... })\n   - DEFAULT_GIT_PANEL_STATE에 빈 배열 추가\n   - 기존 storage 로드 시 누락 → 빈 배열 fallback\n2. WorkspaceStorage getGitPanelState/setGitPanelState 갱신: expandedTreeNodes 직렬화·역직렬화·default fallback\n3. git store:\n   - viewMode, compactFolders 상태 + ipcCall(\"panel\",\"getViewOptions\",{workspaceId,panelKind:\"git\"}) 로드/영구화\n   - expandedTreeNodes 상태 + setExpandedTreeNode action(그룹 namespace)\n   - 변경 시 git.setPanelState로 expandedTreeNodes 영구화(기존 디바운스 패턴)\n4. GitHeader: ViewModeToggle 정착, repo 미감지/detecting 시 hide\n5. GitGroup: viewMode 분기 — tree 모드면 entries→buildPathTree(compactFolders면 compact)→GitTreeRow 렌더, list 모드면 기존 GitFileRow\n6. src/renderer/components/files/git/GitTreeRow.tsx (신규):\n   - dir 행: chevron, 폴더 아이콘, displayName, 자식 수\n   - leaf 행: GitFileRow를 wrapper로 호출(indent prop)\n   - rename·conflict 표기 그대로\n   - WAI-ARIA tree role + roving tabindex\n7. useGitOpHotkey와 충돌 점검(Cmd+Enter는 commit 그대로)",
+          "risk": "- expandedTreeNodes 마이그 — 기존 워크스페이스 row에 누락 시 빈 배열 fallback 보장. parseGitExpandedGroups 패턴 모방.\n- 변경 파일 100건 이상 워크스페이스에서 비가상화 트리 성능 — 후속 사이클로 가상화 분리 결정대로, 본 사이클은 비가상화 수용.\n- ViewModeToggle compact-popover trigger와 GitMoreMenu 트리거 사이 hit-zone 겹침 방지.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ac2a12f962a7aacea"
+          },
+          "created_at": "2026-05-10T03:38:30.139Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Git 패널 트리 통합: GitPanelStateSchema.expandedTreeNodes 추가 + WorkspaceStorage round-trip 확장 + git store viewMode/compactFolders/expandedTreeNodes + GitHeader에 ViewModeToggle(repo 미감지 시 hide) + GitGroup viewMode 분기 + 신규 GitTreeRow + WAI-ARIA tree + roving tabindex. 대기: 가상화 후속 사이클로 분리. +8 신규 단위. 사이드이펜트: search.test.ts mockIpcStreamFn 참조 버그 수정. 합친 총합 1295 pass, 0 fail, tsc clean.",
+            "recorded_at": "2026-05-10T03:53:04.255Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "통합 검증 — 단위·round-trip·키보드·회귀",
+          "status": "completed",
+          "context": "엔지니어 task #1~#5 완료 후 실행. 검증 대상은 각 task의 acceptance + 아래 통합 시나리오.\n\n핵심 검증:\n- panel_view_options round-trip(IPC + WorkspaceStorage v4 마이그·기본값 fallback)\n- ViewModeToggle aria-pressed·키보드(Tab focus, Enter 토글, Space)\n- WAI-ARIA tree 키맵(↑/↓/←/→/Home/End/Enter) — Search·Git 양쪽\n- SearchInput→첫 행 ↓ 핸드오프\n- compact 토글 시 expand 보존\n- Search dir expand 세션 한정(다음 워크스페이스 진입 시 reset)\n- Git expandedTreeNodes 영구화(워크스페이스 재진입 시 복원)\n- 회귀 — 기존 1276+α",
+          "acceptance": "- 신규 단위 테스트 ≥10건 통과\n- IPC + storage round-trip 검증 통과\n- 회귀 0건 (이전 1276 대비 +α 보고)\n- 5개 tsc 프로젝트 clean\n- WAI-ARIA tree 키맵 단위 검증\n- 보고에 (a) 추가 테스트 개수 (b) 전체 통과 수치 (c) 빌드 결과 (d) 가능 시 수동/통합 시나리오 결과 (e) FAIL 시 분류",
+          "approach": "1. tree-builder unit (task #2 엔지니어가 일부 작성, 보강): 빈 dir·단일 파일·깊은 체인·compact 종료조건·정렬 — 부족 시 추가\n2. ViewModeToggle 단위: aria-pressed, Tab focus, Enter 토글, compactFolders 미전달 시 popover 미렌더\n3. tree-keyboard hook 단위: ↑/↓/←/→/Home/End/Enter on file/dir, roving tabindex 변경\n4. SearchInput 핸드오프 단위: ↓ 키에서 첫 트리 행 focus, 결과 0건이면 무동작\n5. panel_view_options round-trip 통합:\n   - WorkspaceStorage 단위: v4 마이그 후 set/get 사이클, 누락 row default fallback\n   - IPC round-trip: setViewOptions → getViewOptions 동일 결과\n6. git_panel_state expandedTreeNodes 단위: set/get + 누락 row default\n7. compact 토글 시 expand 보존 통합: tree 모드에서 expand 후 compact 토글, 다시 토글 시 expand 복원 확인\n8. Search dir expand 세션 한정: 워크스페이스 변경 시 expandedDirs reset 확인\n9. 전체 bun test, tsc 5개 프로젝트\n10. 가능 시 e2e/수동: 빈 디렉토리 → init → 파일 stage → Git 패널 tree/list 토글 → 영구화 워크스페이스 재진입 시 복원 / 검색 결과로 트리 토글·compact 동작",
+          "plan_issue": 7,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "bounded",
+            "agent_id": "ab8da2dc6c2c6a1e1"
+          },
+          "created_at": "2026-05-10T03:38:47.962Z",
+          "result": {
+            "outcome": "success",
+            "summary": "VERDICT: PASS. 77건 신규 테스트(view-mode-toggle 16, use-tree-keyboard 26, panel-view storage 12, git-view-mode 13, search-view-mode 10). bun test 1295→1372 pass / 0 fail / 1 skip. tsc 5/5 clean. WAI-ARIA tree 키맵·compact 토글 시 expand 보존·Search 세션 한정·SearchInput↓ 핸드오프 검증 완료. INFO 2건(비차단): useCallback hook 컨텍스트 제약으로 hook은 순수 로직 추출 방식 검증, 팝오버 열림 상태 검증은 jsdom 필요로 다음 사이클. Flagged 없음.",
+            "recorded_at": "2026-05-10T04:00:53.951Z"
+          }
+        }
+      ]
     }
   ]
 }

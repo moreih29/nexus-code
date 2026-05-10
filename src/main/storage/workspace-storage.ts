@@ -3,10 +3,17 @@ import path from "node:path";
 import {
   DEFAULT_GIT_PANEL_STATE,
   type GitExpandedGroups,
+  type GitExpandedTreeNodes,
   type GitPanelState,
   GitPanelStateSchema,
   type GitPanelStateUpdate,
 } from "../../shared/types/git";
+import {
+  DEFAULT_VIEW_OPTIONS_BY_PANEL,
+  type PanelKind,
+  type PanelViewOptions,
+  PanelViewOptionsSchema,
+} from "../../shared/types/panel";
 import type { WorkspaceMeta } from "../../shared/types/workspace";
 import type { SqliteDb } from "./migrations";
 
@@ -49,19 +56,45 @@ const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
+  // v4 → panel_view_options table for persisting viewMode/compactFolders per panel kind.
+  //      panel_kind is the PRIMARY KEY so adding new panels requires only a new row,
+  //      not a schema change.
+  {
+    version: 4,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS panel_view_options (
+          panel_kind       TEXT    NOT NULL PRIMARY KEY,
+          view_mode        TEXT    NOT NULL,
+          compact_folders  INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+    },
+  },
 ];
 
 const GIT_PANEL_COMMIT_DRAFT_KEY = "commitDraft";
 const GIT_PANEL_EXPANDED_GROUPS_KEY = "expandedGroups";
+const GIT_PANEL_EXPANDED_TREE_NODES_KEY = "expandedTreeNodes";
 
 function defaultGitExpandedGroups(): GitExpandedGroups {
   return { ...DEFAULT_GIT_PANEL_STATE.expandedGroups };
+}
+
+function defaultGitExpandedTreeNodes(): GitExpandedTreeNodes {
+  return {
+    merge: [],
+    staged: [],
+    working: [],
+    untracked: [],
+  };
 }
 
 function defaultGitPanelState(): GitPanelState {
   return {
     commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: defaultGitExpandedGroups(),
+    expandedTreeNodes: defaultGitExpandedTreeNodes(),
   };
 }
 
@@ -77,6 +110,7 @@ function parseGitExpandedGroups(
     const state = GitPanelStateSchema.parse({
       commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
       expandedGroups: JSON.parse(raw) as unknown,
+      expandedTreeNodes: DEFAULT_GIT_PANEL_STATE.expandedTreeNodes,
     });
     return state.expandedGroups;
   } catch (err) {
@@ -85,6 +119,30 @@ function parseGitExpandedGroups(
       err,
     );
     return null;
+  }
+}
+
+function parseGitExpandedTreeNodes(
+  workspaceId: string,
+  raw: string | undefined,
+): GitExpandedTreeNodes {
+  if (raw === undefined) {
+    return defaultGitExpandedTreeNodes();
+  }
+
+  try {
+    const state = GitPanelStateSchema.parse({
+      commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
+      expandedGroups: DEFAULT_GIT_PANEL_STATE.expandedGroups,
+      expandedTreeNodes: JSON.parse(raw) as unknown,
+    });
+    return state.expandedTreeNodes;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state expandedTreeNodes for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return defaultGitExpandedTreeNodes();
   }
 }
 
@@ -306,9 +364,15 @@ export class WorkspaceStorage {
       return defaultGitPanelState();
     }
 
+    const expandedTreeNodes = parseGitExpandedTreeNodes(
+      workspaceId,
+      values.get(GIT_PANEL_EXPANDED_TREE_NODES_KEY),
+    );
+
     const state = {
       commitDraft: values.get(GIT_PANEL_COMMIT_DRAFT_KEY) ?? DEFAULT_GIT_PANEL_STATE.commitDraft,
       expandedGroups,
+      expandedTreeNodes,
     };
     const parsed = GitPanelStateSchema.safeParse(state);
     if (!parsed.success) {
@@ -344,10 +408,75 @@ export class WorkspaceStorage {
       if (parsed.expandedGroups !== undefined) {
         ins.run(GIT_PANEL_EXPANDED_GROUPS_KEY, JSON.stringify(parsed.expandedGroups));
       }
+      if (parsed.expandedTreeNodes !== undefined) {
+        ins.run(GIT_PANEL_EXPANDED_TREE_NODES_KEY, JSON.stringify(parsed.expandedTreeNodes));
+      }
       entry.db.exec("COMMIT");
     } catch (err) {
       entry.db.exec("ROLLBACK");
       throw err;
     }
+  }
+
+  /**
+   * Returns the persisted view options for the given panel kind in a workspace.
+   * Falls back to DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] when the row is
+   * absent (fresh workspace or newly introduced panel kind).
+   */
+  getPanelViewOptions(workspaceId: string, panelKind: PanelKind): PanelViewOptions {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+
+    const row = entry.db
+      .prepare(
+        "SELECT view_mode, compact_folders FROM panel_view_options WHERE panel_kind = ?",
+      )
+      .get(panelKind) as { view_mode: string; compact_folders: number } | undefined;
+
+    if (!row) {
+      return { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
+    }
+
+    const parsed = PanelViewOptionsSchema.safeParse({
+      viewMode: row.view_mode,
+      compactFolders: row.compact_folders !== 0,
+    });
+    if (!parsed.success) {
+      console.warn(
+        `[WorkspaceStorage] Invalid panel_view_options for workspace ${workspaceId} panel ${panelKind}; using defaults.`,
+        parsed.error,
+      );
+      return { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Persists partial view options for the given panel kind.
+   * Reads the current persisted row (or defaults) and merges the provided
+   * partial before writing, so callers may update viewMode or compactFolders
+   * independently. Uses INSERT OR REPLACE to upsert the row atomically.
+   */
+  setPanelViewOptions(
+    workspaceId: string,
+    panelKind: PanelKind,
+    partial: Partial<PanelViewOptions>,
+  ): void {
+    const entry = this.entries.get(workspaceId);
+    if (!entry) {
+      throw new Error(`workspace storage not open: ${workspaceId}`);
+    }
+
+    const current = this.getPanelViewOptions(workspaceId, panelKind);
+    const merged = PanelViewOptionsSchema.parse({ ...current, ...partial });
+
+    entry.db
+      .prepare(
+        `INSERT OR REPLACE INTO panel_view_options (panel_kind, view_mode, compact_folders)
+         VALUES (?, ?, ?)`,
+      )
+      .run(panelKind, merged.viewMode, merged.compactFolders ? 1 : 0);
   }
 }

@@ -54,6 +54,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const setCommitDraft = useGitStore((state) => state.setCommitDraft);
   const flushCommitDraft = useGitStore((state) => state.flushCommitDraft);
   const setExpandedGroup = useGitStore((state) => state.setExpandedGroup);
+  const setViewMode = useGitStore((state) => state.setViewMode);
+  const setCompactFolders = useGitStore((state) => state.setCompactFolders);
+  const toggleExpandedTreeNode = useGitStore((state) => state.toggleExpandedTreeNode);
 
   const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
 
@@ -143,6 +146,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   }
 
   const headerDisabled = isBusy || isLoading;
+  const isRepo = session?.repoInfo.kind === "repo";
+  const viewMode = session?.viewMode ?? "tree";
+  const compactFolders = session?.compactFolders ?? false;
 
   return (
     <fieldset
@@ -155,6 +161,11 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         refreshing={isRefreshing}
         canInit={session?.repoInfo.kind === "non-repo"}
         hasChanges={hasChanges}
+        showViewToggle={isRepo}
+        viewMode={viewMode}
+        compactFolders={compactFolders}
+        onViewModeChange={(next) => setViewMode(workspaceId, next)}
+        onCompactFoldersChange={(next) => setCompactFolders(workspaceId, next)}
         onRefresh={() => {
           void refresh(workspaceId);
         }}
@@ -246,8 +257,14 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
                   label={group.label}
                   entries={group.entries}
                   expanded={session.expandedGroups[group.key]}
+                  viewMode={viewMode}
+                  compactFolders={compactFolders}
+                  expandedTreeNodes={session.expandedTreeNodes[group.key]}
                   onToggle={() =>
                     setExpandedGroup(workspaceId, group.key, !session.expandedGroups[group.key])
+                  }
+                  onToggleTreeNode={(relPath) =>
+                    toggleExpandedTreeNode(workspaceId, group.key, relPath)
                   }
                   onStagePaths={(paths) => {
                     void stage(workspaceId, paths);

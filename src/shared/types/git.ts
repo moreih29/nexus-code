@@ -141,9 +141,25 @@ export const DEFAULT_GIT_EXPANDED_GROUPS: GitExpandedGroups = {
   untracked: true,
 };
 
+export const GitExpandedTreeNodesSchema = z.object({
+  merge: z.array(z.string()),
+  staged: z.array(z.string()),
+  working: z.array(z.string()),
+  untracked: z.array(z.string()),
+});
+export type GitExpandedTreeNodes = z.infer<typeof GitExpandedTreeNodesSchema>;
+
+export const DEFAULT_GIT_EXPANDED_TREE_NODES: GitExpandedTreeNodes = {
+  merge: [],
+  staged: [],
+  working: [],
+  untracked: [],
+};
+
 export const GitPanelStateSchema = z.object({
   commitDraft: z.string(),
   expandedGroups: GitExpandedGroupsSchema,
+  expandedTreeNodes: GitExpandedTreeNodesSchema,
 });
 export type GitPanelState = z.infer<typeof GitPanelStateSchema>;
 
@@ -153,4 +169,5 @@ export type GitPanelStateUpdate = z.infer<typeof GitPanelStateUpdateSchema>;
 export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {
   commitDraft: "",
   expandedGroups: { ...DEFAULT_GIT_EXPANDED_GROUPS },
+  expandedTreeNodes: { ...DEFAULT_GIT_EXPANDED_TREE_NODES },
 };

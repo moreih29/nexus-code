@@ -2,7 +2,9 @@
  * GitHeader renders the Source Control title and top-level action buttons.
  */
 import { RefreshCw } from "lucide-react";
+import type { ViewMode } from "../../../../shared/types/panel";
 import { Button } from "../../ui/button";
+import { ViewModeToggle } from "../view-mode-toggle/ViewModeToggle";
 import { GitMoreMenu } from "./GitMoreMenu";
 
 interface GitHeaderProps {
@@ -10,6 +12,12 @@ interface GitHeaderProps {
   refreshing?: boolean;
   canInit?: boolean;
   hasChanges?: boolean;
+  /** When true the repo is not yet detected/initialised — ViewModeToggle is hidden. */
+  showViewToggle?: boolean;
+  viewMode?: ViewMode;
+  compactFolders?: boolean;
+  onViewModeChange?: (next: ViewMode) => void;
+  onCompactFoldersChange?: (next: boolean) => void;
   onRefresh: () => void;
   onInit: () => void;
   onFetch: () => void;
@@ -27,6 +35,11 @@ export function GitHeader({
   refreshing = false,
   canInit = false,
   hasChanges = false,
+  showViewToggle = false,
+  viewMode = "tree",
+  compactFolders = false,
+  onViewModeChange,
+  onCompactFoldersChange,
   onRefresh,
   onInit,
   onFetch,
@@ -56,6 +69,15 @@ export function GitHeader({
         >
           <RefreshCw className={refreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
         </Button>
+        {showViewToggle && onViewModeChange ? (
+          <ViewModeToggle
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+            compactFolders={compactFolders}
+            onCompactChange={onCompactFoldersChange}
+            disabled={disabled}
+          />
+        ) : null}
         <GitMoreMenu
           disabled={disabled}
           canInit={canInit}

@@ -8,6 +8,7 @@ import type {
   CommitResult,
   GitExpandedGroupKey,
   GitExpandedGroups,
+  GitExpandedTreeNodes,
   GitPanelStateUpdate,
   GitStatus,
   PullResult,
@@ -15,6 +16,8 @@ import type {
   RepoInfo,
 } from "../../../shared/types/git";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
+import type { ViewMode } from "../../../shared/types/panel";
+import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcCall, ipcListen } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
@@ -56,6 +59,9 @@ export interface GitSession {
   branchInfo: BranchInfo | null;
   commitDraft: string;
   expandedGroups: GitExpandedGroups;
+  expandedTreeNodes: GitExpandedTreeNodes;
+  viewMode: ViewMode;
+  compactFolders: boolean;
   inFlightOp: GitInFlightOp | null;
   lastError: GitStoreError | null;
 }
@@ -86,6 +92,9 @@ interface GitState {
   flushCommitDraft: (workspaceId: string) => void;
   flushAllCommitDrafts: () => void;
   setExpandedGroup: (workspaceId: string, group: GitExpandedGroupKey, expanded: boolean) => void;
+  setViewMode: (workspaceId: string, viewMode: ViewMode) => void;
+  setCompactFolders: (workspaceId: string, compactFolders: boolean) => void;
+  toggleExpandedTreeNode: (workspaceId: string, groupKey: GitExpandedGroupKey, relPath: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
 }
 
@@ -251,14 +260,21 @@ export const useGitStore = create<GitState>((set, get) => {
         return { sessions: next };
       });
 
-      const [repoInfoResult, statusResult, panelStateResult] = await Promise.allSettled([
-        ipcCall("git", "getRepoInfo", { workspaceId }),
-        ipcCall("git", "getStatus", { workspaceId }),
-        ipcCall("git", "getPanelState", { workspaceId }),
-      ]);
+      const [repoInfoResult, statusResult, panelStateResult, viewOptionsResult] =
+        await Promise.allSettled([
+          ipcCall("git", "getRepoInfo", { workspaceId }),
+          ipcCall("git", "getStatus", { workspaceId }),
+          ipcCall("git", "getPanelState", { workspaceId }),
+          ipcCall("panel", "getViewOptions", { workspaceId, panelKind: "git" }),
+        ]);
 
       updateExistingSession(workspaceId, (session) => {
-        const firstError = firstRejectedReason(repoInfoResult, statusResult, panelStateResult);
+        const firstError = firstRejectedReason(
+          repoInfoResult,
+          statusResult,
+          panelStateResult,
+          viewOptionsResult,
+        );
         return {
           ...session,
           repoInfo: repoInfoResult.status === "fulfilled" ? repoInfoResult.value : session.repoInfo,
@@ -274,6 +290,18 @@ export const useGitStore = create<GitState>((set, get) => {
             panelStateResult.status === "fulfilled"
               ? { ...panelStateResult.value.expandedGroups }
               : session.expandedGroups,
+          expandedTreeNodes:
+            panelStateResult.status === "fulfilled"
+              ? { ...panelStateResult.value.expandedTreeNodes }
+              : session.expandedTreeNodes,
+          viewMode:
+            viewOptionsResult.status === "fulfilled"
+              ? viewOptionsResult.value.viewMode
+              : session.viewMode,
+          compactFolders:
+            viewOptionsResult.status === "fulfilled"
+              ? viewOptionsResult.value.compactFolders
+              : session.compactFolders,
           lastError: firstError ? gitStoreErrorFromUnknown(firstError) : null,
         };
       });
@@ -418,6 +446,28 @@ export const useGitStore = create<GitState>((set, get) => {
       persistPanelState(workspaceId, { expandedGroups });
     },
 
+    setViewMode(workspaceId, viewMode) {
+      updateExistingSession(workspaceId, (cur) => ({ ...cur, viewMode }));
+      persistViewOptions(workspaceId, { viewMode });
+    },
+
+    setCompactFolders(workspaceId, compactFolders) {
+      updateExistingSession(workspaceId, (cur) => ({ ...cur, compactFolders }));
+      persistViewOptions(workspaceId, { compactFolders });
+    },
+
+    toggleExpandedTreeNode(workspaceId, groupKey, relPath) {
+      const session = get().sessions.get(workspaceId);
+      if (!session) return;
+
+      const current = session.expandedTreeNodes[groupKey];
+      const isExpanded = current.includes(relPath);
+      const next = isExpanded ? current.filter((p) => p !== relPath) : [...current, relPath];
+      const expandedTreeNodes = { ...session.expandedTreeNodes, [groupKey]: next };
+      updateExistingSession(workspaceId, (cur) => ({ ...cur, expandedTreeNodes }));
+      persistPanelState(workspaceId, { expandedTreeNodes });
+    },
+
     closeAllForWorkspace(workspaceId) {
       const ctrl = controllers.get(workspaceId);
       if (ctrl) {
@@ -463,6 +513,9 @@ function createDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     branchInfo: null,
     commitDraft: DEFAULT_GIT_PANEL_STATE.commitDraft,
     expandedGroups: { ...DEFAULT_GIT_PANEL_STATE.expandedGroups },
+    expandedTreeNodes: { ...DEFAULT_GIT_PANEL_STATE.expandedTreeNodes },
+    viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
+    compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,
     lastError: null,
     ...overrides,
@@ -495,6 +548,23 @@ function persistPanelState(workspaceId: string, update: GitPanelStateUpdate): vo
   ipcCall("git", "setPanelState", { workspaceId, ...update }).catch((error: unknown) => {
     console.error("[git] setPanelState failed", error);
   });
+}
+
+/**
+ * Persist panel view-options through the panel channel. Failures are logged
+ * but do not roll back local UI state.
+ */
+function persistViewOptions(
+  workspaceId: string,
+  partial: { viewMode?: ViewMode; compactFolders?: boolean },
+): void {
+  if (!canUseIpcBridge()) return;
+
+  ipcCall("panel", "setViewOptions", { workspaceId, panelKind: "git", ...partial }).catch(
+    (error: unknown) => {
+      console.error("[git] setViewOptions failed", error);
+    },
+  );
 }
 
 /**

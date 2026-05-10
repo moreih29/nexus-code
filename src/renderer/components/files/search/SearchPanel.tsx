@@ -8,18 +8,24 @@
  *    (via useGlobalSearchHotkey).
  *  - Debounces search dispatch via useSearchDebounce.
  *  - Converts running status to delayed loader visibility via useLoaderDelay.
+ *  - Loads and persists per-workspace view options (list/tree, compact folders)
+ *    via the panel IPC channel.
+ *  - Provides a live region (role=status) announcing result counts after
+ *    the search settles.
  *  - Delegates rendering to SearchInput, SearchStatusHeader, SearchResultsList,
  *    and the inline empty/no-results/error states.
  */
 
 import { CircleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
+import type { ViewMode } from "../../../../shared/types/panel";
 import {
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
   useSearchSession,
   useSearchStore,
+  useSearchViewState,
 } from "../../../state/stores/search";
 import { SearchInput } from "./SearchInput";
 import { SearchResultsList } from "./SearchResultsList";
@@ -46,11 +52,44 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
   const cancelSearch = useSearchStore((s) => s.cancelSearch);
   const clearSearch = useSearchStore((s) => s.clearSearch);
   const toggleGroup = useSearchStore((s) => s.toggleGroup);
+  const loadViewOptions = useSearchStore((s) => s.loadViewOptions);
+  const setViewMode = useSearchStore((s) => s.setViewMode);
+  const setCompactFolders = useSearchStore((s) => s.setCompactFolders);
+  const toggleExpandedDir = useSearchStore((s) => s.toggleExpandedDir);
+
+  const viewState = useSearchViewState(workspaceId);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /** Ref to the focus-first-row function exposed by SearchResultsList. */
+  const firstRowFocusRef = useRef<(() => void) | null>(null);
   const { trigger, flush, cancel } = useSearchDebounce(workspaceId);
   const showLoader = useLoaderDelay(session?.status);
   useGlobalSearchHotkey(inputRef);
+
+  // Load persisted view options once per workspace mount.
+  useEffect(() => {
+    loadViewOptions(workspaceId);
+  }, [workspaceId, loadViewOptions]);
+
+  // ---- Live region announce ----
+  //
+  // Announce "N results in M files" once the search settles (status=done).
+  // We track the previous status to detect the done transition rather than
+  // firing on every re-render.
+  const [liveText, setLiveText] = useState("");
+  const prevStatusRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const status = session?.status;
+    if (status === "done" && prevStatusRef.current === "running") {
+      const matchCount = session?.matchesFound ?? 0;
+      const fileCount = session?.results.length ?? 0;
+      const matchLabel = matchCount === 1 ? "result" : "results";
+      const fileLabel = fileCount === 1 ? "file" : "files";
+      setLiveText(`${matchCount} ${matchLabel} in ${fileCount} ${fileLabel}`);
+    }
+    prevStatusRef.current = status;
+  }, [session?.status, session?.matchesFound, session?.results.length]);
 
   function runSearch(query: string, opts: SearchOptions) {
     if (!query) return;
@@ -136,6 +175,13 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
     });
   }
 
+  /** Arrow-down in the search input: blur input, focus first result row. */
+  function handleInputArrowDown() {
+    if (!session || session.results.length === 0) return;
+    inputRef.current?.blur();
+    firstRowFocusRef.current?.();
+  }
+
   // ---- Render states ----
 
   // isEmpty: no active search — no local input AND no session with a query.
@@ -147,6 +193,11 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Hidden live region for screen-reader result announcements */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveText}
+      </div>
+
       <SearchInput
         inputRef={inputRef}
         value={inputValue}
@@ -156,6 +207,12 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
         onEnter={handleEnter}
         onEsc={handleEsc}
         onToggleOption={handleToggleOption}
+        onArrowDown={handleInputArrowDown}
+        viewMode={viewState.viewMode}
+        onViewModeChange={(next: ViewMode) => setViewMode(workspaceId, next)}
+        compactFolders={viewState.compactFolders}
+        onCompactChange={(next) => setCompactFolders(workspaceId, next)}
+        viewModeDisabled={!hasResults}
       />
 
       {session && (session.status === "running" || session.status === "done") && (
@@ -202,6 +259,11 @@ export function SearchPanel({ workspaceId }: SearchPanelProps) {
             rootPath={rootPath}
             results={session.results}
             onToggleGroup={(relPath) => toggleGroup(workspaceId, relPath)}
+            viewMode={viewState.viewMode}
+            compactFolders={viewState.compactFolders}
+            expandedDirs={viewState.expandedDirs}
+            onToggleDir={(relPath) => toggleExpandedDir(workspaceId, relPath)}
+            firstRowFocusRef={firstRowFocusRef}
           />
         )}
       </div>

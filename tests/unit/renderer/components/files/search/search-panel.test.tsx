@@ -38,6 +38,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 const mockStartSearch = mock((_wsId: string, _query: string, _opts: unknown) => {});
 const mockCancelSearch = mock((_wsId: string) => {});
 const mockToggleGroup = mock((_wsId: string, _relPath: string) => {});
+const mockLoadViewOptions = mock((_wsId: string) => {});
+const mockSetViewMode = mock((_wsId: string, _next: unknown) => {});
+const mockSetCompactFolders = mock((_wsId: string, _next: unknown) => {});
+const mockToggleExpandedDir = mock((_wsId: string, _relPath: string) => {});
 const mockCreateTab = mock((_wsId: string, _args: unknown, _isPreview?: boolean) => ({
   id: "tab-new",
   type: "editor",
@@ -49,6 +53,13 @@ const mockCreateTab = mock((_wsId: string, _args: unknown, _isPreview?: boolean)
 
 // Current session state — mutated per test.
 let mockSession: unknown;
+
+// Default view state returned by useSearchViewState stub.
+const DEFAULT_VIEW_STATE = {
+  viewMode: "list" as const,
+  compactFolders: false,
+  expandedDirs: new Set<string>(),
+};
 
 mock.module("../../../../../../src/renderer/state/stores/search", () => ({
   EMPTY_SEARCH_OPTIONS: {
@@ -63,10 +74,15 @@ mock.module("../../../../../../src/renderer/state/stores/search", () => ({
       startSearch: mockStartSearch,
       cancelSearch: mockCancelSearch,
       toggleGroup: mockToggleGroup,
+      loadViewOptions: mockLoadViewOptions,
+      setViewMode: mockSetViewMode,
+      setCompactFolders: mockSetCompactFolders,
+      toggleExpandedDir: mockToggleExpandedDir,
     };
     return selector ? selector(store) : store;
   },
   useSearchSession: (_wsId: string) => mockSession,
+  useSearchViewState: (_wsId: string) => DEFAULT_VIEW_STATE,
 }));
 
 mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
@@ -169,10 +185,22 @@ function makeFileGroup(overrides: Partial<FileGroup> = {}): FileGroup {
   };
 }
 
+/** Shared view-mode props for SearchInput and SearchOptionsToggles test renders. */
+const VIEW_PROPS = {
+  viewMode: "list" as const,
+  onViewModeChange: () => {},
+  compactFolders: false,
+  onCompactChange: () => {},
+};
+
 function resetMocks() {
   mockStartSearch.mockClear();
   mockCancelSearch.mockClear();
   mockToggleGroup.mockClear();
+  mockLoadViewOptions.mockClear();
+  mockSetViewMode.mockClear();
+  mockSetCompactFolders.mockClear();
+  mockToggleExpandedDir.mockClear();
   mockCreateTab.mockClear();
   mockRequestEditorReveal.mockClear();
   mockSession = undefined;
@@ -226,6 +254,7 @@ describe("Test 2 — debounce contract (static render)", () => {
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain('value="hello"');
@@ -256,6 +285,7 @@ describe("Test 3 — SearchInput structural render", () => {
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain('aria-label="Search workspace"');
@@ -281,6 +311,7 @@ describe("Test 4 — Esc key states (SearchInput structure)", () => {
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain('aria-label="Clear search"');
@@ -298,6 +329,7 @@ describe("Test 4 — Esc key states (SearchInput structure)", () => {
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).not.toContain('aria-label="Clear search"');
@@ -313,7 +345,7 @@ describe("Test 5 — toggle CaseSensitive aria-pressed", () => {
 
   it("CaseSensitive toggle has aria-pressed=false when isCaseSensitive=false", () => {
     const html = renderToStaticMarkup(
-      <SearchOptionsToggles options={BASE_OPTIONS} onToggle={() => {}} />,
+      <SearchOptionsToggles options={BASE_OPTIONS} onToggle={() => {}} {...VIEW_PROPS} />,
     );
     // Check aria-pressed="false" for the CaseSensitive button (first toggle).
     expect(html).toContain('aria-label="Match case"');
@@ -325,6 +357,7 @@ describe("Test 5 — toggle CaseSensitive aria-pressed", () => {
       <SearchOptionsToggles
         options={{ ...BASE_OPTIONS, isCaseSensitive: true }}
         onToggle={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain('aria-pressed="true"');
@@ -335,6 +368,7 @@ describe("Test 5 — toggle CaseSensitive aria-pressed", () => {
       <SearchOptionsToggles
         options={{ ...BASE_OPTIONS, isCaseSensitive: true }}
         onToggle={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain("bg-frosted-veil-strong");
@@ -360,6 +394,7 @@ describe("Test 6 — regex invalid pattern shows error, startSearch suppressed",
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).toContain("Invalid regular expression: Unterminated character class");
@@ -378,6 +413,7 @@ describe("Test 6 — regex invalid pattern shows error, startSearch suppressed",
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).not.toContain("Invalid regular expression");
@@ -410,6 +446,7 @@ describe("Test 7 — regex ON + valid pattern renders without error", () => {
         onEnter={() => {}}
         onEsc={() => {}}
         onToggleOption={() => {}}
+        {...VIEW_PROPS}
       />,
     );
     expect(html).not.toContain("Invalid regular expression");

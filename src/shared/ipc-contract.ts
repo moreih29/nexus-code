@@ -44,6 +44,11 @@ import {
   PushResultSchema,
   RepoInfoSchema,
 } from "./types/git";
+import {
+  PanelGetViewOptionsArgsSchema,
+  PanelSetViewOptionsArgsSchema,
+  PanelViewOptionsSchema,
+} from "./types/panel";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
 import { TabMetaSchema } from "./types/tab";
 import { WorkspaceMetaSchema } from "./types/workspace";
@@ -328,6 +333,14 @@ export const ipcContract = {
     listen: {
       invoke: listen(z.object({ id: CommandIdSchema })),
     },
+  },
+
+  panel: {
+    call: {
+      getViewOptions: call(PanelGetViewOptionsArgsSchema, PanelViewOptionsSchema),
+      setViewOptions: call(PanelSetViewOptionsArgsSchema, z.void()),
+    },
+    listen: {},
   },
 
   git: {

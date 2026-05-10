@@ -1,11 +1,14 @@
 import { create } from "zustand";
+import { STATE_PERSIST_DEBOUNCE_MS } from "../../../shared/timing-constants";
+import type { ViewMode } from "../../../shared/types/panel";
+import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import type {
   FileMatch,
   SearchComplete,
   SearchRange,
   TextSearchQuery,
 } from "../../../shared/types/search";
-import { ipcStream } from "../../ipc/client";
+import { ipcCall, ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -42,8 +45,21 @@ export interface SearchSession {
   errorMessage?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Per-workspace view options (tree/list + compact) + expanded dir set
+// ---------------------------------------------------------------------------
+
+export interface SearchViewState {
+  viewMode: ViewMode;
+  compactFolders: boolean;
+  /** Expanded directory paths in tree mode — session-scoped, not persisted. */
+  expandedDirs: Set<string>;
+}
+
 interface SearchState {
   sessions: Map<string, SearchSession>;
+  /** Per-workspace view options (loaded from storage + local expandedDirs). */
+  viewStates: Map<string, SearchViewState>;
   startSearch: (workspaceId: string, query: string, options: SearchOptions) => void;
   cancelSearch: (workspaceId: string) => void;
   /**
@@ -55,6 +71,18 @@ interface SearchState {
   clearSearch: (workspaceId: string) => void;
   toggleGroup: (workspaceId: string, relPath: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
+  /**
+   * Load persisted view options (viewMode, compactFolders) for a workspace
+   * from the panel IPC channel. Safe to call multiple times — skips if
+   * already loaded.
+   */
+  loadViewOptions: (workspaceId: string) => void;
+  /** Change viewMode and persist asynchronously. */
+  setViewMode: (workspaceId: string, next: ViewMode) => void;
+  /** Change compactFolders and persist asynchronously. */
+  setCompactFolders: (workspaceId: string, next: boolean) => void;
+  /** Toggle a directory's expanded state (session-scoped, not persisted). */
+  toggleExpandedDir: (workspaceId: string, relPath: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +91,51 @@ interface SearchState {
 // ---------------------------------------------------------------------------
 
 const controllers = new Map<string, AbortController>();
+
+// ---------------------------------------------------------------------------
+// Module-scoped debounce state for view-options persistence.
+// ---------------------------------------------------------------------------
+
+const viewOptionsSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function canUseIpcBridge(): boolean {
+  return typeof window !== "undefined" && "ipc" in window;
+}
+
+const DEFAULT_SEARCH_VIEW: SearchViewState = {
+  viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.search.viewMode,
+  compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.search.compactFolders,
+  expandedDirs: new Set<string>(),
+};
+
+/**
+ * Schedule a debounced persist of viewMode + compactFolders for a workspace.
+ * Repeated calls within STATE_PERSIST_DEBOUNCE_MS reset the timer.
+ */
+function scheduleViewOptionsSave(
+  workspaceId: string,
+  viewMode: ViewMode,
+  compactFolders: boolean,
+): void {
+  if (!canUseIpcBridge()) return;
+
+  const existing = viewOptionsSaveTimers.get(workspaceId);
+  if (existing) clearTimeout(existing);
+
+  const handle = setTimeout(() => {
+    viewOptionsSaveTimers.delete(workspaceId);
+    ipcCall("panel", "setViewOptions", {
+      workspaceId,
+      panelKind: "search",
+      viewMode,
+      compactFolders,
+    }).catch((error: unknown) => {
+      console.error("[search] setViewOptions failed", error);
+    });
+  }, STATE_PERSIST_DEBOUNCE_MS);
+
+  viewOptionsSaveTimers.set(workspaceId, handle);
+}
 
 // ---------------------------------------------------------------------------
 // Store
@@ -171,6 +244,77 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
   return {
     sessions: new Map(),
+    viewStates: new Map(),
+
+    loadViewOptions(wsId) {
+      // Skip if already loaded for this workspace.
+      if (get().viewStates.has(wsId)) return;
+
+      // Set defaults immediately so components render without waiting for IPC.
+      set((state) => {
+        if (state.viewStates.has(wsId)) return state;
+        const next = new Map(state.viewStates);
+        next.set(wsId, { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() });
+        return { viewStates: next };
+      });
+
+      if (!canUseIpcBridge()) return;
+
+      ipcCall("panel", "getViewOptions", { workspaceId: wsId, panelKind: "search" })
+        .then((opts) => {
+          set((state) => {
+            const cur = state.viewStates.get(wsId);
+            const next = new Map(state.viewStates);
+            next.set(wsId, {
+              viewMode: opts.viewMode,
+              compactFolders: opts.compactFolders,
+              // Preserve in-memory expandedDirs; IPC load only touches persisted fields.
+              expandedDirs: cur?.expandedDirs ?? new Set(),
+            });
+            return { viewStates: next };
+          });
+        })
+        .catch((error: unknown) => {
+          console.error("[search] getViewOptions failed", error);
+        });
+    },
+
+    setViewMode(wsId, next) {
+      set((state) => {
+        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const updated: SearchViewState = { ...cur, viewMode: next };
+        const map = new Map(state.viewStates);
+        map.set(wsId, updated);
+        scheduleViewOptionsSave(wsId, updated.viewMode, updated.compactFolders);
+        return { viewStates: map };
+      });
+    },
+
+    setCompactFolders(wsId, next) {
+      set((state) => {
+        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const updated: SearchViewState = { ...cur, compactFolders: next };
+        const map = new Map(state.viewStates);
+        map.set(wsId, updated);
+        scheduleViewOptionsSave(wsId, updated.viewMode, updated.compactFolders);
+        return { viewStates: map };
+      });
+    },
+
+    toggleExpandedDir(wsId, relPath) {
+      set((state) => {
+        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const nextDirs = new Set(cur.expandedDirs);
+        if (nextDirs.has(relPath)) {
+          nextDirs.delete(relPath);
+        } else {
+          nextDirs.add(relPath);
+        }
+        const map = new Map(state.viewStates);
+        map.set(wsId, { ...cur, expandedDirs: nextDirs });
+        return { viewStates: map };
+      });
+    },
 
     startSearch(wsId, query, options) {
       const prior = controllers.get(wsId);
@@ -277,20 +421,38 @@ export const useSearchStore = create<SearchState>((set, get) => {
         ctrl.abort();
         controllers.delete(wsId);
       }
+      // Cancel any pending view-options debounce for this workspace.
+      const timer = viewOptionsSaveTimers.get(wsId);
+      if (timer) {
+        clearTimeout(timer);
+        viewOptionsSaveTimers.delete(wsId);
+      }
       set((state) => {
-        if (!state.sessions.has(wsId)) return state;
-        const next = new Map(state.sessions);
-        next.delete(wsId);
-        return { sessions: next };
+        const nextSessions = new Map(state.sessions);
+        nextSessions.delete(wsId);
+        // Reset expandedDirs (session-scoped) but keep persisted viewMode/compactFolders.
+        const nextViewStates = new Map(state.viewStates);
+        const cur = state.viewStates.get(wsId);
+        if (cur) {
+          nextViewStates.set(wsId, { ...cur, expandedDirs: new Set() });
+        }
+        if (!state.sessions.has(wsId) && !state.viewStates.has(wsId)) return state;
+        return { sessions: nextSessions, viewStates: nextViewStates };
       });
     },
   };
 });
 
 // ---------------------------------------------------------------------------
-// Selector helper
+// Selector helpers
 // ---------------------------------------------------------------------------
 
 export function useSearchSession(workspaceId: string): SearchSession | undefined {
   return useSearchStore((s) => s.sessions.get(workspaceId));
+}
+
+export function useSearchViewState(workspaceId: string): SearchViewState {
+  return useSearchStore(
+    (s) => s.viewStates.get(workspaceId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() },
+  );
 }

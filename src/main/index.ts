@@ -13,6 +13,7 @@ import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerFsChannel } from "./ipc/channels/fs";
 import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
+import { registerPanelChannel } from "./ipc/channels/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
@@ -76,6 +77,7 @@ registerWorkspaceChannel(workspaceManager);
 registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
+registerPanelChannel(workspaceStorage);
 
 app.whenReady().then(async () => {
   // Replace Electron's default menu (which still binds Cmd+W to "Close

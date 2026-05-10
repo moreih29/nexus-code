@@ -200,6 +200,76 @@ describe("WorkspaceStorage.getExpandedPaths / setExpandedPaths", () => {
 });
 
 // ---------------------------------------------------------------------------
+// git_panel_state expandedTreeNodes — round-trip + fallback
+// ---------------------------------------------------------------------------
+
+describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeNodes", () => {
+  let tmpDir: string;
+  let storage: WorkspaceStorage;
+  const id = "00000000-0000-0000-0000-000000000030";
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    storage = new WorkspaceStorage(tmpDir, bunSqliteFactory);
+    storage.openForWorkspace(id);
+  });
+
+  afterEach(() => {
+    storage.closeForWorkspace(id);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("getGitPanelState returns empty arrays for expandedTreeNodes on fresh workspace", () => {
+    const state = storage.getGitPanelState(id);
+    expect(state.expandedTreeNodes).toEqual({
+      merge: [],
+      staged: [],
+      working: [],
+      untracked: [],
+    });
+  });
+
+  it("setGitPanelState + getGitPanelState round-trips expandedTreeNodes", () => {
+    storage.setGitPanelState(id, {
+      expandedTreeNodes: {
+        merge: [],
+        staged: ["src", "src/components"],
+        working: ["lib"],
+        untracked: [],
+      },
+    });
+    const state = storage.getGitPanelState(id);
+    expect(state.expandedTreeNodes.staged.sort()).toEqual(["src", "src/components"].sort());
+    expect(state.expandedTreeNodes.working).toEqual(["lib"]);
+    expect(state.expandedTreeNodes.merge).toEqual([]);
+    expect(state.expandedTreeNodes.untracked).toEqual([]);
+  });
+
+  it("missing expandedTreeNodes row falls back to empty arrays without error", () => {
+    // Write only commitDraft — no expandedTreeNodes row.
+    storage.setGitPanelState(id, { commitDraft: "my draft" });
+    const state = storage.getGitPanelState(id);
+    expect(state.commitDraft).toBe("my draft");
+    expect(state.expandedTreeNodes).toEqual({
+      merge: [],
+      staged: [],
+      working: [],
+      untracked: [],
+    });
+  });
+
+  it("expandedTreeNodes partial update does not clobber commitDraft", () => {
+    storage.setGitPanelState(id, { commitDraft: "keep me" });
+    storage.setGitPanelState(id, {
+      expandedTreeNodes: { merge: [], staged: ["a"], working: [], untracked: [] },
+    });
+    const state = storage.getGitPanelState(id);
+    expect(state.commitDraft).toBe("keep me");
+    expect(state.expandedTreeNodes.staged).toEqual(["a"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Schema v2 migration backward-compat — a v1 DB gets the new table
 // ---------------------------------------------------------------------------
 

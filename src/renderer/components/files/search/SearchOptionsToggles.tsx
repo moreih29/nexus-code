@@ -1,11 +1,13 @@
 /**
- * Three toggle buttons: CaseSensitive, WholeWord, Regex.
- * Rendered inline-right inside the search input area.
+ * Search input option toggles: CaseSensitive, WholeWord, Regex, then a 1px
+ * mist-border divider, then a ViewModeToggle (list ↔ tree + compact folders).
  */
 
 import { CaseSensitive, Regex, WholeWord } from "lucide-react";
 import { cn } from "@/utils/cn";
+import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
+import { ViewModeToggle } from "../view-mode-toggle";
 import { Button } from "../../ui/button";
 
 interface SearchOptionsTogglesProps {
@@ -13,6 +15,16 @@ interface SearchOptionsTogglesProps {
   onToggle: (
     key: keyof Pick<SearchOptions, "isCaseSensitive" | "isWordMatch" | "isRegExp">,
   ) => void;
+  /** Current view mode for the view-mode toggle. */
+  viewMode: ViewMode;
+  /** Called when the user switches list ↔ tree. */
+  onViewModeChange: (next: ViewMode) => void;
+  /** Current compact-folders setting. */
+  compactFolders: boolean;
+  /** Called when the user toggles compact folders. */
+  onCompactChange: (next: boolean) => void;
+  /** Disable the view-mode toggle when there are no results to show. */
+  viewModeDisabled?: boolean;
 }
 
 // ON-state styling: an inset ring + foreground text + frosted background.
@@ -22,7 +34,15 @@ interface SearchOptionsTogglesProps {
 const TOGGLE_ON_CLASS =
   "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
 
-export function SearchOptionsToggles({ options, onToggle }: SearchOptionsTogglesProps) {
+export function SearchOptionsToggles({
+  options,
+  onToggle,
+  viewMode,
+  onViewModeChange,
+  compactFolders,
+  onCompactChange,
+  viewModeDisabled = false,
+}: SearchOptionsTogglesProps) {
   return (
     <>
       <Button
@@ -61,6 +81,15 @@ export function SearchOptionsToggles({ options, onToggle }: SearchOptionsToggles
       >
         <Regex aria-hidden="true" />
       </Button>
+      {/* 1px mist-border divider separating search-option toggles from view-mode toggle */}
+      <span className="w-px self-stretch bg-mist-border mx-0.5 shrink-0" aria-hidden="true" />
+      <ViewModeToggle
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        compactFolders={compactFolders}
+        onCompactChange={onCompactChange}
+        disabled={viewModeDisabled}
+      />
     </>
   );
 }

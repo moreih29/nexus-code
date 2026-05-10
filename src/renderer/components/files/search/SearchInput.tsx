@@ -5,6 +5,7 @@
 
 import { X } from "lucide-react";
 import { cn } from "@/utils/cn";
+import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
 import { Button } from "../../ui/button";
 import { SearchOptionsToggles } from "./SearchOptionsToggles";
@@ -20,6 +21,17 @@ interface SearchInputProps {
   onToggleOption: (
     key: keyof Pick<SearchOptions, "isCaseSensitive" | "isWordMatch" | "isRegExp">,
   ) => void;
+  /**
+   * Called when the user presses ↓ in the search input. The parent should
+   * blur the input and move focus to the first row of the results list.
+   */
+  onArrowDown?: () => void;
+  /** View-mode toggle props forwarded to SearchOptionsToggles. */
+  viewMode: ViewMode;
+  onViewModeChange: (next: ViewMode) => void;
+  compactFolders: boolean;
+  onCompactChange: (next: boolean) => void;
+  viewModeDisabled?: boolean;
 }
 
 export function SearchInput({
@@ -31,6 +43,12 @@ export function SearchInput({
   onEnter,
   onEsc,
   onToggleOption,
+  onArrowDown,
+  viewMode,
+  onViewModeChange,
+  compactFolders,
+  onCompactChange,
+  viewModeDisabled,
 }: SearchInputProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
@@ -39,6 +57,9 @@ export function SearchInput({
     } else if (e.key === "Escape") {
       e.preventDefault();
       onEsc();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      onArrowDown?.();
     }
   }
 
@@ -76,7 +97,15 @@ export function SearchInput({
           </Button>
         )}
         <div className="flex items-center gap-0.5 pr-0.5">
-          <SearchOptionsToggles options={options} onToggle={onToggleOption} />
+          <SearchOptionsToggles
+            options={options}
+            onToggle={onToggleOption}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+            compactFolders={compactFolders}
+            onCompactChange={onCompactChange}
+            viewModeDisabled={viewModeDisabled}
+          />
         </div>
       </div>
       {regexError && (
