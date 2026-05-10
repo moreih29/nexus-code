@@ -2,9 +2,10 @@
  * GitBranchPopover shows current branch details and simple branch actions.
  */
 import { GitBranch } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { BranchInfo } from "../../../../shared/types/git";
 import { Button } from "../../ui/button";
+import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
 
 interface GitBranchPopoverProps {
   branch: BranchInfo | null;
@@ -22,6 +23,9 @@ export function GitBranchPopover({
   onCreateBranch,
 }: GitBranchPopoverProps) {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismissOnOutsideClick(wrapperRef, open, close);
   const branchName = branch?.current ?? "No branch";
 
   function run(action: () => void): void {
@@ -30,7 +34,7 @@ export function GitBranchPopover({
   }
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative min-w-0 flex-1" ref={wrapperRef}>
       <Button
         type="button"
         variant="ghost"

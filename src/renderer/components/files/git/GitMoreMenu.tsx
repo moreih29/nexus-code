@@ -2,8 +2,9 @@
  * GitMoreMenu provides simple Source Control overflow operations.
  */
 import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "../../ui/button";
+import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
 
 interface GitMoreMenuProps {
   disabled?: boolean;
@@ -37,6 +38,9 @@ export function GitMoreMenu({
   onDiscardAll,
 }: GitMoreMenuProps) {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismissOnOutsideClick(wrapperRef, open, close);
 
   function run(action: () => void): void {
     setOpen(false);
@@ -44,7 +48,7 @@ export function GitMoreMenu({
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapperRef}>
       <Button
         type="button"
         variant="ghost"

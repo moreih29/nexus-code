@@ -11,11 +11,12 @@
  */
 
 import { ChevronDown, List, ListTree } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
 import { Button } from "../../ui/button";
+import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
 
 export interface ViewModeToggleProps {
   viewMode: "list" | "tree";
@@ -38,6 +39,9 @@ export function ViewModeToggle({
   disabled = false,
 }: ViewModeToggleProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const compactWrapperRef = useRef<HTMLDivElement>(null);
+  const closePopover = useCallback(() => setPopoverOpen(false), []);
+  useDismissOnOutsideClick(compactWrapperRef, popoverOpen, closePopover);
 
   const isTree = viewMode === "tree";
   const hasCompact = compactFolders !== undefined && onCompactChange !== undefined;
@@ -93,7 +97,7 @@ export function ViewModeToggle({
 
         {/* ── Compact folders split trigger — only when both props provided ── */}
         {hasCompact ? (
-          <div className="relative">
+          <div className="relative" ref={compactWrapperRef}>
             <RadixTooltip.Root>
               <RadixTooltip.Trigger asChild>
                 <Button
