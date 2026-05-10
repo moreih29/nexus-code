@@ -6,6 +6,7 @@ import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../shared/typ
 import { openTerminal } from "../../../services/terminal";
 import type { GitStoreError } from "../../../state/stores/git";
 import { useGitStore } from "../../../state/stores/git";
+import { PromptDialog, type PromptRequest } from "../../ui/prompt-dialog";
 import { useLoaderDelay } from "../search/useLoaderDelay";
 import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./confirmDiscardDialog";
 import { GitBranchBar } from "./GitBranchBar";
@@ -59,6 +60,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const toggleExpandedTreeNode = useGitStore((state) => state.toggleExpandedTreeNode);
 
   const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
+  const [activePrompt, setActivePrompt] = useState<"checkout" | "createBranch" | null>(null);
 
   useEffect(() => {
     void loadInitial(workspaceId);
@@ -124,18 +126,28 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     });
   }
 
-  function promptForRef(): string | null {
-    if (typeof window === "undefined") return null;
-    const value = window.prompt("Checkout branch or ref");
-    const trimmed = value?.trim() ?? "";
-    return trimmed.length > 0 ? trimmed : null;
-  }
+  const promptRequest: PromptRequest | null =
+    activePrompt === "checkout"
+      ? {
+          title: "Checkout branch or ref",
+          label: "Branch, tag, or commit-ish",
+          placeholder: "main / abc1234 / origin/feat-x",
+          confirmLabel: "Checkout",
+        }
+      : activePrompt === "createBranch"
+        ? {
+            title: "Create new branch",
+            label: "New branch name",
+            placeholder: "feat/your-branch",
+            confirmLabel: "Create",
+          }
+        : null;
 
-  function promptForBranch(): string | null {
-    if (typeof window === "undefined") return null;
-    const value = window.prompt("New branch name");
-    const trimmed = value?.trim() ?? "";
-    return trimmed.length > 0 ? trimmed : null;
+  function handlePromptConfirm(value: string): void {
+    const kind = activePrompt;
+    setActivePrompt(null);
+    if (kind === "checkout") void checkout(workspaceId, value);
+    else if (kind === "createBranch") void createBranch(workspaceId, value, true);
   }
 
   async function handleSync(): Promise<void> {
@@ -187,14 +199,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         onStashPop={() => {
           void stashPop(workspaceId);
         }}
-        onCheckout={() => {
-          const ref = promptForRef();
-          if (ref) void checkout(workspaceId, ref);
-        }}
-        onCreateBranch={() => {
-          const name = promptForBranch();
-          if (name) void createBranch(workspaceId, name, true);
-        }}
+        onCheckout={() => setActivePrompt("checkout")}
+        onCreateBranch={() => setActivePrompt("createBranch")}
         onDiscardAll={() => requestDiscard(allChangedPaths, "this repository")}
       />
 
@@ -287,14 +293,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
             onSync={() => {
               void handleSync();
             }}
-            onCheckout={() => {
-              const ref = promptForRef();
-              if (ref) void checkout(workspaceId, ref);
-            }}
-            onCreateBranch={() => {
-              const name = promptForBranch();
-              if (name) void createBranch(workspaceId, name, true);
-            }}
+            onCheckout={() => setActivePrompt("checkout")}
+            onCreateBranch={() => setActivePrompt("createBranch")}
           />
         </>
       )}
@@ -307,6 +307,16 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setDiscardRequest(null);
           void discard(workspaceId, request.relPaths, request.source);
         }}
+      />
+
+      <PromptDialog
+        request={promptRequest}
+        busy={
+          session?.inFlightOp?.kind === "checkout" ||
+          session?.inFlightOp?.kind === "createBranch"
+        }
+        onCancel={() => setActivePrompt(null)}
+        onConfirm={handlePromptConfirm}
       />
     </fieldset>
   );
