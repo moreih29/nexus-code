@@ -14,6 +14,11 @@ import type {
   StreamProgress,
 } from "./types";
 import { isIpcAbortSentinel } from "../../shared/ipc-abort-sentinel";
+import {
+  gitErrorFromIpcResult,
+  isIpcGitErrorResult,
+  rehydrateGitErrorFromCause,
+} from "../../shared/git-error-ipc";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;
@@ -48,7 +53,9 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
 ): Promise<CallReturn<C, M>> {
   const signal = opts.signal;
   if (!signal) {
-    return window.ipc.call(channel, method, args) as Promise<CallReturn<C, M>>;
+    return (window.ipc.call(channel, method, args) as Promise<unknown>)
+      .then(unwrapCallResult<CallReturn<C, M>>)
+      .catch(rethrowRehydratedGitError);
   }
 
   const requestId = createRequestId();
@@ -61,22 +68,53 @@ export function ipcCall<C extends CallChannels, M extends CallMethods<C>>(
   }
 
   try {
-    const promise = window.ipc.call(channel, method, args, requestId) as Promise<CallReturn<C, M>>;
+    const promise = window.ipc.call(channel, method, args, requestId) as Promise<unknown>;
     if (signal.aborted) {
       cancel();
     }
     return promise
       .then((value) => {
         if (isIpcAbortSentinel(value)) throw createAbortError();
-        return value;
+        return unwrapCallResult<CallReturn<C, M>>(value);
       })
+      .catch(rethrowRehydratedGitError)
       .finally(() => {
         signal.removeEventListener("abort", cancel);
       });
   } catch (err) {
     signal.removeEventListener("abort", cancel);
-    throw err;
+    throw rehydrateIfPossible(err);
   }
+}
+
+/**
+ * Resolves a raw `ipc:call` payload into the caller-typed value, throwing
+ * the reconstructed error when the main process returned a typed Git
+ * failure envelope (see `IPC_CALL_RESULT_MARK`). Done at the client edge
+ * so the rest of the renderer treats expected git failures as ordinary
+ * promise rejections.
+ */
+function unwrapCallResult<T>(value: unknown): T {
+  if (isIpcGitErrorResult(value)) throw gitErrorFromIpcResult(value);
+  return value as T;
+}
+
+/**
+ * Throws the supplied error, restoring typed GitError fields stashed in
+ * `cause` by the main-side IPC router (used for stream errors and any
+ * non-call rejection that still carries the cause envelope).
+ */
+function rethrowRehydratedGitError(error: unknown): never {
+  throw rehydrateIfPossible(error);
+}
+
+/**
+ * Mutates and returns the error when it carries a GitError IPC envelope,
+ * otherwise returns the original value untouched.
+ */
+function rehydrateIfPossible(error: unknown): unknown {
+  if (error instanceof Error) rehydrateGitErrorFromCause(error);
+  return error;
 }
 
 /**
@@ -225,6 +263,10 @@ function createStreamError(data: unknown): Error {
     if (data.name) {
       error.name = data.name;
     }
+    if ("cause" in data && data.cause !== undefined) {
+      (error as { cause?: unknown }).cause = data.cause;
+    }
+    rehydrateGitErrorFromCause(error);
     return error;
   }
 
@@ -235,7 +277,7 @@ function createStreamError(data: unknown): Error {
   return new Error("Stream failed");
 }
 
-function isErrorLike(data: unknown): data is { name?: string; message: string } {
+function isErrorLike(data: unknown): data is { name?: string; message: string; cause?: unknown } {
   return (
     typeof data === "object" &&
     data !== null &&

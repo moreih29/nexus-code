@@ -81,6 +81,27 @@ export function CommandPalette<TItem extends PaletteItem>({
     };
   }, [open]);
 
+  // Document-level Escape handler. The frame's onKeyDown only fires when
+  // focus is inside the dialog (input/listbox); if the user clicked
+  // through the overlay onto the underlying app or otherwise lost focus,
+  // a `keydown` on the body would never reach the dialog handler. The
+  // capture-phase listener guarantees Escape closes the palette as long
+  // as it is open, matching the behavior users expect from Radix Dialog
+  // and from VS Code's quick-pick.
+  useEffect(() => {
+    if (!open) return;
+    function handleDocumentKeyDown(event: KeyboardEvent): void {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+    document.addEventListener("keydown", handleDocumentKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleDocumentKeyDown, true);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const status: PaletteViewStatus = source ? snapshot.status : "no-workspace";
@@ -132,6 +153,7 @@ export function CommandPalette<TItem extends PaletteItem>({
       noResultsMessage={source?.noResultsMessage ?? "No workspace symbols found."}
       onQueryChange={setQuery}
       onKeyDown={handleKeyDown}
+      onOverlayClick={onClose}
       onHoverItem={(index) => setSnapshot((current) => ({ ...current, activeIndex: index }))}
       onAcceptItem={(index) => {
         setSnapshot((current) => ({ ...current, activeIndex: index }));

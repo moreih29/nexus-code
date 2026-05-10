@@ -43,6 +43,24 @@ export function checkoutHandler(
 }
 
 /**
+ * Builds the checkoutTracking handler — runs `git checkout --track
+ * <remoteRef>` so a remote-only ref (`origin/main`) lands as a local tracking
+ * branch deterministically, regardless of git version or auto-setup config.
+ */
+export function checkoutTrackingHandler(
+  registry: GitRegistry,
+): (args: unknown, ctx?: CallContext) => Promise<void> {
+  return async (args: unknown, ctx?: CallContext): Promise<void> => {
+    const { workspaceId, remoteRef } = validateArgs(c.checkoutTracking.args, args);
+    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+
+    await repo.checkoutTracking(remoteRef, ctx?.signal);
+    await registry.refreshStatus(workspaceId);
+  };
+}
+
+/**
  * Builds the createBranch handler; optional checkout is delegated to
  * GitRepository and the resulting branch/status snapshot is broadcast first.
  */

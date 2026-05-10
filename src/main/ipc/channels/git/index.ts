@@ -4,7 +4,12 @@
 import type { GitRegistry } from "../../../git/git-registry";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
 import { register } from "../../router";
-import { checkoutHandler, createBranchHandler, listBranchesHandler } from "./branch-handlers";
+import {
+  checkoutHandler,
+  checkoutTrackingHandler,
+  createBranchHandler,
+  listBranchesHandler,
+} from "./branch-handlers";
 import { commitHandler } from "./commit-handlers";
 import { getFileContentHandler } from "./content-handlers";
 import { diffStream } from "./diff-stream";
@@ -32,6 +37,7 @@ export function registerGitChannel(registry: GitRegistry, storage: WorkspaceStor
       discardChanges: discardChangesHandler(registry),
       commit: commitHandler(registry),
       checkout: checkoutHandler(registry),
+      checkoutTracking: checkoutTrackingHandler(registry),
       createBranch: createBranchHandler(registry),
       getFileContent: getFileContentHandler(registry),
       listBranches: listBranchesHandler(registry),

@@ -83,7 +83,7 @@ export function GitBranchPopover({
               className="h-7 flex-1 text-app-ui-sm"
               onClick={() => run(onSwitchBranch)}
             >
-              Switch Branch…
+              Checkout to…
             </Button>
           </div>
         </div>

@@ -20,6 +20,16 @@ export interface PaletteSource<TItem extends PaletteItem = PaletteItem> {
   placeholder: string;
   emptyQueryMessage: string;
   noResultsMessage: string;
+  /**
+   * When true, the controller invokes `search` for empty queries — including
+   * the initial open — instead of short-circuiting to `idle`. The empty-query
+   * path also bypasses the typing debounce so the picker shows results
+   * immediately (matching VS Code's QuickPick behavior for branch / ref
+   * pickers that pre-load an enumerable set).
+   *
+   * Defaults to false to preserve workspace-symbol "type-to-search" semantics.
+   */
+  searchOnEmptyQuery?: boolean;
   search(query: string, signal: AbortSignal): Promise<readonly TItem[]>;
   accept(item: TItem, context: PaletteAcceptContext): void;
 }

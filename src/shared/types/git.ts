@@ -35,8 +35,39 @@ export const BranchInfoSchema = z.object({
 });
 export type BranchInfo = z.infer<typeof BranchInfoSchema>;
 
+/**
+ * Repository-level capability flags that gate Source Control panel actions.
+ * Lives on `GitStatus` because it changes on the same events (`statusChanged`)
+ * — adding a remote, making the first commit, stashing, or pushing all flip
+ * one of these and all flow through a status refresh anyway.
+ *
+ *   - `hasHEAD`     true when at least one commit exists. False right after
+ *                   `git init` until the first commit lands. Disables Stash
+ *                   and Commit (which would emit "no initial commit yet").
+ *   - `remotes`     names of configured remotes (`git remote`). Empty when
+ *                   the repo has no remotes; disables Push/Pull until one is
+ *                   added; UI uses the first entry when prompting "Publish to
+ *                   <remote>?".
+ *   - `stashCount`  count of entries on the stash stack. Drives Stash Pop
+ *                   enablement so the user never sees "No stash entries
+ *                   found." after clicking the menu.
+ */
+export const RepoCapabilitiesSchema = z.object({
+  hasHEAD: z.boolean(),
+  remotes: z.array(z.string()),
+  stashCount: z.number().int().nonnegative(),
+});
+export type RepoCapabilities = z.infer<typeof RepoCapabilitiesSchema>;
+
+export const DEFAULT_REPO_CAPABILITIES: RepoCapabilities = {
+  hasHEAD: false,
+  remotes: [],
+  stashCount: 0,
+};
+
 export const GitStatusSchema = GitStatusGroupsSchema.extend({
   branch: BranchInfoSchema.nullable(),
+  capabilities: RepoCapabilitiesSchema,
 });
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 
@@ -122,6 +153,52 @@ export const DiffCompleteSchema = z.object({
   truncated: z.boolean(),
 });
 export type DiffComplete = z.infer<typeof DiffCompleteSchema>;
+
+/**
+ * Actionable next-step payload attached to typed Git errors so the renderer
+ * can render a one-click recovery instead of a raw stderr toast.
+ *
+ * Each variant identifies a recovery path the user can take:
+ *
+ *   - `publish-branch`        Push -u to the suggested remote so the current
+ *                              branch gains an upstream. Emitted by
+ *                              `pull`/`push` preflight when no upstream is
+ *                              configured but at least one remote exists.
+ *   - `remote-track-available` Run `checkout --track <remoteRef>` to
+ *                              materialize a local branch. Emitted by
+ *                              `checkout` preflight when the requested ref
+ *                              has no local match but exactly one remote.
+ *   - `make-initial-commit`   Create the repository's first commit before
+ *                              attempting an op that requires HEAD. Emitted
+ *                              by `stash`/`commit --amend` preflight.
+ *   - `add-remote`            Configure a remote before retrying. Emitted by
+ *                              `pull`/`push` preflight when no remotes exist.
+ *   - `stash-empty`           Stash stack is empty so Stash Pop has nothing
+ *                              to apply. UI uses this to disable the menu
+ *                              item and explain why.
+ *   - `ambiguous-remote`      Multiple remotes carry the same short name —
+ *                              the renderer surfaces a chooser instead of
+ *                              guessing.
+ */
+export const GitActionHintSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("publish-branch"),
+    branch: z.string(),
+    suggestedRemote: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("remote-track-available"),
+    remoteRef: z.string(),
+  }),
+  z.object({ kind: z.literal("make-initial-commit") }),
+  z.object({ kind: z.literal("add-remote") }),
+  z.object({ kind: z.literal("stash-empty") }),
+  z.object({
+    kind: z.literal("ambiguous-remote"),
+    candidates: z.array(z.string()),
+  }),
+]);
+export type GitActionHint = z.infer<typeof GitActionHintSchema>;
 
 export const GitExpandedGroupKeySchema = z.enum(["merge", "staged", "working", "untracked"]);
 export type GitExpandedGroupKey = z.infer<typeof GitExpandedGroupKeySchema>;

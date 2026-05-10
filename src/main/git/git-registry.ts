@@ -2,7 +2,7 @@
  * Per-workspace registry for lazy Git repository detection. It owns cached
  * RepoInfo state and the GitRepository instance for each workspaceId.
  */
-import type { GitStatus, RepoInfo } from "../../shared/types/git";
+import { DEFAULT_REPO_CAPABILITIES, type GitStatus, type RepoInfo } from "../../shared/types/git";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import type { GitBinary } from "./git-binary";
 import { detectRepository } from "./git-detect";
@@ -283,5 +283,6 @@ function createEmptyGitStatus(): GitStatus {
     working: [],
     untracked: [],
     branch: null,
+    capabilities: { ...DEFAULT_REPO_CAPABILITIES },
   };
 }

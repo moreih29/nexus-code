@@ -362,6 +362,19 @@ export const ipcContract = {
         CommitResultSchema,
       ),
       checkout: call(GitWorkspaceIdSchema.extend({ ref: z.string().min(1) }), z.void()),
+      /**
+       * Creates and checks out a local branch that tracks `remoteRef`. Used
+       * when the user picks a remote-only entry (e.g. `origin/main`) — the
+       * caller passes the full `<remote>/<short>` ref and the main process
+       * runs `git checkout --track <remoteRef>`. This is split from `checkout`
+       * because plain `git checkout <short>` only auto-tracks under
+       * environment-dependent git rules; the explicit `--track` form is
+       * deterministic across git versions and configs.
+       */
+      checkoutTracking: call(
+        GitWorkspaceIdSchema.extend({ remoteRef: z.string().min(1) }),
+        z.void(),
+      ),
       createBranch: call(
         GitWorkspaceIdSchema.extend({
           name: z.string().min(1),
@@ -372,7 +385,19 @@ export const ipcContract = {
       listBranches: call(GitWorkspaceIdSchema, BranchListSchema),
       fetch: call(GitWorkspaceIdSchema.extend({ remote: z.string().min(1).optional() }), z.void()),
       pull: call(GitWorkspaceIdSchema, PullResultSchema),
-      push: call(GitWorkspaceIdSchema.extend({ force: z.boolean().optional() }), PushResultSchema),
+      push: call(
+        GitWorkspaceIdSchema.extend({
+          force: z.boolean().optional(),
+          /**
+           * When true, push runs `push -u <firstRemote> <currentBranch>` so a
+           * branch without an upstream gains one in a single operation.
+           * Used by the renderer's "Publish branch?" prompt; ignored when an
+           * upstream already exists.
+           */
+          publish: z.boolean().optional(),
+        }),
+        PushResultSchema,
+      ),
       stash: call(GitWorkspaceIdSchema.extend({ message: z.string().optional() }), z.void()),
       stashPop: call(GitWorkspaceIdSchema, z.void()),
       getFileContent: call(

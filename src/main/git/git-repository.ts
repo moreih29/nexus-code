@@ -17,9 +17,11 @@ import type {
   LogEntry,
   PullResult,
   PushResult,
+  RepoCapabilities,
 } from "../../shared/types/git";
 import type { GitBinary } from "./git-binary";
 import { GitError } from "./git-error";
+import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import { type RunGitResult, runGit, streamGit } from "./git-process";
 import { parseV2Porcelain } from "./porcelain-v2";
 
@@ -165,11 +167,53 @@ export class GitRepository {
 
   /**
    * Checks out an existing branch, tag, or commit-ish reference.
+   *
+   * Resolution order:
+   *   1) If the trimmed ref matches a local branch, run `git checkout <ref>`.
+   *   2) If the ref is unique to one remote (`<remote>/<ref>`), run
+   *      `git checkout --track <remoteRef>` instead — this auto-promotes a
+   *      remote-only ref to a local tracking branch. The previous code
+   *      surfaced the bare `pathspec '<ref>' did not match` error here.
+   *   3) If the ref does not match locals or remotes, throw `no-such-ref`.
+   *
+   * Tag and commit-ish refs are not in `BranchList` and therefore fall into
+   * case (3); the renderer surfaces the `no-such-ref` message and the user
+   * can re-issue the request through a future "Checkout commit" flow.
    */
   checkout(ref: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      if (ref.trim().length === 0) throw new GitError("unknown", "Checkout ref is required");
-      await this.run(["checkout", ref], queuedSignal);
+      const branches = await this.readBranchList(queuedSignal);
+      const target = resolveCheckoutTarget(ref, branches);
+
+      if (target.kind === "local") {
+        await this.run(["checkout", target.ref], queuedSignal);
+        return;
+      }
+      await this.run(["checkout", "--track", target.remoteRef], queuedSignal);
+    }, signal);
+  }
+
+  /**
+   * Creates a local branch that tracks `remoteRef` and checks it out. The
+   * branch name is derived by stripping the leading `<remote>/` segment, so
+   * `origin/main` produces a local `main`. Uses the explicit `--track` form
+   * because the bare `git checkout <short>` auto-track behavior depends on
+   * git version, single-remote presence, and `branch.autoSetupMerge` config.
+   */
+  checkoutTracking(remoteRef: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      const trimmed = remoteRef.trim();
+      if (trimmed.length === 0) {
+        throw new GitError("unknown", "Tracking ref is required");
+      }
+      const slash = trimmed.indexOf("/");
+      if (slash <= 0 || slash === trimmed.length - 1) {
+        throw new GitError(
+          "unknown",
+          `Tracking ref must be in '<remote>/<branch>' form: ${trimmed}`,
+        );
+      }
+      await this.run(["checkout", "--track", trimmed], queuedSignal);
     }, signal);
   }
 
@@ -187,34 +231,29 @@ export class GitRepository {
    * Lists local and remote branch names with current branch metadata.
    */
   listBranches(signal?: AbortSignal): Promise<BranchList> {
-    return this.queue(async (queuedSignal) => {
-      const status = await this.readStatus(queuedSignal);
-      const local = await this.run(["branch", "--format=%(refname:short)", "--list"], queuedSignal);
-      const remote = await this.run(
-        ["branch", "--format=%(refname:short)", "--remotes"],
-        queuedSignal,
-      );
-
-      return {
-        current: status.branch,
-        local: parseBranchLines(local.stdout),
-        remote: parseBranchLines(remote.stdout).filter((name) => !name.endsWith("/HEAD")),
-      };
-    }, signal);
+    return this.queue(async (queuedSignal) => this.readBranchList(queuedSignal), signal);
   }
 
   /**
-   * Fetches from the configured remote or from a named remote.
+   * Fetches from the configured remote or from a named remote. Unconfigured
+   * remotes surface as `no-remote` via stderr classification; named remotes
+   * that do not exist surface the same way ("'foo' does not appear to be a
+   * git repository").
    */
   fetch(remote?: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      const args = remote && remote.trim().length > 0 ? ["fetch", remote] : ["fetch"];
+      const trimmed = remote?.trim();
+      const args = trimmed && trimmed.length > 0 ? ["fetch", trimmed] : ["fetch"];
       await this.run(args, queuedSignal);
     }, signal);
   }
 
   /**
    * Pulls from the current upstream and summarizes the successful result.
+   * Missing remote / upstream surface as typed `no-remote` / `no-upstream`
+   * via stderr classification rather than a hard preflight; the renderer
+   * UI gates the Pull action on `RepoCapabilities` so users normally do not
+   * reach this path with a misconfigured branch.
    */
   pull(signal?: AbortSignal): Promise<PullResult> {
     return this.queue(async (queuedSignal) => {
@@ -224,10 +263,51 @@ export class GitRepository {
   }
 
   /**
-   * Pushes the current branch, using force-with-lease for explicit force pushes.
+   * Pushes the current branch.
+   *
+   *   - `force=true`   uses `--force-with-lease` for safer explicit force pushes.
+   *   - `publish=true` runs `push -u <remote> <branch>` against the first
+   *     configured remote so a branch without an upstream gains one in a
+   *     single operation — this is the recovery path the renderer offers
+   *     after a `no-upstream` error.
+   *
+   * Plain push (`publish=false`) lets git surface its own stderr; the
+   * classifier maps `no-remote` / `no-upstream` / `push-rejected` so the
+   * renderer can branch on a stable `kind` without preflight here.
+   *
+   * Publish keeps `assertHasHead` because the call needs `branch.current`
+   * to construct argv and an unborn HEAD has no name to push.
    */
-  push(force = false, signal?: AbortSignal): Promise<PushResult> {
+  push(
+    force = false,
+    publish = false,
+    signal?: AbortSignal,
+  ): Promise<PushResult> {
     return this.queue(async (queuedSignal) => {
+      if (publish) {
+        const status = await this.readStatus(queuedSignal);
+        assertHasHead(status.branch);
+        const branch = status.branch;
+        if (!branch) throw new Error("unreachable: assertHasHead would have thrown");
+
+        const remote = status.capabilities.remotes[0];
+        if (!remote) {
+          // No remotes configured — git would reject downstream too, but a
+          // typed throw here lets the renderer render the publish prompt's
+          // "no remote configured" path uniformly with the no-remote stderr
+          // classification.
+          throw new GitError("no-remote", "No git remote configured.", {
+            hint: { kind: "add-remote" },
+          });
+        }
+
+        const args = force
+          ? ["push", "--force-with-lease", "-u", remote, branch.current]
+          : ["push", "-u", remote, branch.current];
+        const result = await this.run(args, queuedSignal);
+        return parsePushResult(result);
+      }
+
       const result = await this.run(
         force ? ["push", "--force-with-lease"] : ["push"],
         queuedSignal,
@@ -237,7 +317,10 @@ export class GitRepository {
   }
 
   /**
-   * Saves current changes on the stash stack.
+   * Saves current changes on the stash stack. Unborn-HEAD repos surface as
+   * `no-head` via stderr classification ("You do not have the initial
+   * commit yet"). The renderer disables Stash via `RepoCapabilities` so the
+   * raw failure path is only reachable through racing state changes.
    */
   stash(message?: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
@@ -248,7 +331,9 @@ export class GitRepository {
   }
 
   /**
-   * Applies and drops the most recent stash entry.
+   * Applies and drops the most recent stash entry. Empty-stack failures
+   * surface as `empty-stash` via stderr classification; the renderer
+   * disables Stash Pop on empty stash count via `RepoCapabilities`.
    */
   stashPop(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
@@ -383,14 +468,72 @@ export class GitRepository {
   }
 
   /**
-   * Parses `git status --porcelain=v2 -z -b` output for this repository.
+   * Parses `git status --porcelain=v2 -z -b` output for this repository and
+   * enriches it with the repo-level capability flags the renderer uses to
+   * gate Source Control panel actions.
+   *
+   * The two extra git calls (`remote`, `stash list`) are cheap (sub-ms even
+   * on large repos) and broadcast through the same `statusChanged` event,
+   * so the renderer never disagrees about Push/Stash/Stash-Pop enablement
+   * after a refresh.
    */
   private async readStatus(signal: AbortSignal): Promise<GitStatus> {
     const { stdout } = await this.run(
       ["status", "--porcelain=v2", "-z", "-b", "--untracked-files=all", "--renames"],
       signal,
     );
-    return parseV2Porcelain(stdout);
+    const status = parseV2Porcelain(stdout);
+    const [remotes, stashCount] = await Promise.all([
+      this.readRemotes(signal),
+      this.readStashCount(signal),
+    ]);
+    const capabilities: RepoCapabilities = {
+      hasHEAD: status.branch !== null && !status.branch.isUnborn,
+      remotes,
+      stashCount,
+    };
+    return { ...status, capabilities };
+  }
+
+  /**
+   * Lists configured remote names (one per line). Empty stdout (no remotes
+   * configured) maps to an empty array.
+   */
+  private async readRemotes(signal: AbortSignal): Promise<string[]> {
+    const { stdout } = await this.run(["remote"], signal);
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  /**
+   * Counts stash entries by listing the stash log and counting non-empty
+   * lines. Returns 0 when the stash is empty (`git stash list` exits
+   * cleanly with no output) or when stash storage does not exist yet.
+   */
+  private async readStashCount(signal: AbortSignal): Promise<number> {
+    const { stdout } = await this.run(["stash", "list"], signal);
+    return stdout.split(/\r?\n/).filter((line) => line.length > 0).length;
+  }
+
+  /**
+   * Snapshots local + remote branch names so checkout preflight can route a
+   * bare ref to either `git checkout <local>` or `git checkout --track
+   * <remote>/<ref>` without an extra round-trip.
+   */
+  private async readBranchList(signal: AbortSignal): Promise<BranchList> {
+    const status = await this.readStatus(signal);
+    const local = await this.run(["branch", "--format=%(refname:short)", "--list"], signal);
+    const remote = await this.run(
+      ["branch", "--format=%(refname:short)", "--remotes"],
+      signal,
+    );
+    return {
+      current: status.branch,
+      local: parseBranchLines(local.stdout),
+      remote: parseBranchLines(remote.stdout).filter((name) => !name.endsWith("/HEAD")),
+    };
   }
 
   /**

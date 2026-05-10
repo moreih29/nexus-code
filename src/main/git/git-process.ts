@@ -44,9 +44,102 @@ export interface RunGitResult {
 }
 
 /**
+ * Cap on the number of times `runGit` will re-attempt an operation that
+ * failed with `kind: "lock-busy"`. The total worst-case wait is
+ * `Σ(i² × LOCK_RETRY_BASE_DELAY_MS)` for `i ∈ [1..N]` ≈ 9.6s at the
+ * current settings, which mirrors the policy VS Code's git extension uses.
+ */
+export const LOCK_RETRY_MAX_ATTEMPTS = 10;
+export const LOCK_RETRY_BASE_DELAY_MS = 50;
+
+export interface WithLockRetryOptions {
+  readonly signal?: AbortSignal;
+  readonly maxAttempts?: number;
+  /** Delay (in milliseconds) before re-trying after attempt `n` (1-based). */
+  readonly backoffMs?: (attempt: number) => number;
+}
+
+/**
  * Runs git to completion, buffering stdout up to a bounded byte cap.
+ *
+ * Transient `kind: "lock-busy"` failures (`.git/index.lock` contention,
+ * "another git process seems to be running…") are retried with quadratic
+ * backoff. All other GitErrors propagate on the first attempt so callers
+ * see a single deterministic failure.
  */
 export function runGit(options: RunGitOptions): Promise<RunGitResult> {
+  return withLockRetry(() => runGitOnce(options), { signal: options.signal });
+}
+
+/**
+ * Re-invokes `attempt` up to `maxAttempts` times when it rejects with a
+ * `kind: "lock-busy"` GitError, sleeping `backoffMs(n)` between tries.
+ * Exported so the runtime call path and unit tests can share the same
+ * retry semantics; production callers normally go through `runGit`.
+ */
+export async function withLockRetry<T>(
+  attempt: () => Promise<T>,
+  options: WithLockRetryOptions = {},
+): Promise<T> {
+  const maxAttempts = options.maxAttempts ?? LOCK_RETRY_MAX_ATTEMPTS;
+  const backoff = options.backoffMs ?? defaultLockBackoffMs;
+
+  for (let i = 1; ; i++) {
+    if (options.signal?.aborted) throw createAbortError();
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!isRetryableLockError(error) || i >= maxAttempts) throw error;
+      await delayWithAbort(backoff(i), options.signal);
+    }
+  }
+}
+
+/**
+ * Default quadratic backoff curve. Attempt 1 → 50ms, attempt 2 → 200ms,
+ * …, attempt 10 → 5000ms.
+ */
+function defaultLockBackoffMs(attempt: number): number {
+  return attempt * attempt * LOCK_RETRY_BASE_DELAY_MS;
+}
+
+/**
+ * Lock contention is the only failure category the retry layer treats as
+ * transient. Auth/conflict/missing/etc. resolve to user action, not
+ * waiting, so they bypass the retry loop.
+ */
+function isRetryableLockError(error: unknown): boolean {
+  return error instanceof GitError && error.kind === "lock-busy";
+}
+
+/**
+ * Promise-based delay that respects an external AbortSignal — clearing the
+ * timer so an aborted retry does not hold an unhandled handle to the event
+ * loop.
+ */
+function delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Single-shot git invocation. Composed by `runGit` (with retry) and used
+ * directly by tests that want to observe the unwrapped failure mode.
+ */
+function runGitOnce(options: RunGitOptions): Promise<RunGitResult> {
   const stdoutCapBytes = options.stdoutCapBytes ?? RUN_GIT_STDOUT_CAP_BYTES;
   if (options.signal?.aborted) return Promise.reject(createAbortError());
 

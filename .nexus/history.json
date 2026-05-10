@@ -7977,6 +7977,425 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T06:01:31.102Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 32,
+        "topic": "Git 기능 안전성 리팩터링 — capability-aware preflight + smart UX",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Capabilities 모델 설계 — 어떤 필드를 status에 동봉할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "기존 status 응답을 `RepoCapabilities`로 확장한다. 이유: (a) status는 이미 broadcast 채널이 있어 동기화 비용 0, (b) BranchInfo.isUnborn/upstream/ahead/behind가 이미 들어있어 자연 확장, (c) 별도 channel 추가 시 staleness 동기화 문제. 추가 필드: `remotes: string[]`(`git remote`로 조회, 거의 변하지 않으므로 status 시 매번 호출해도 OK), `stashCount: number`(`git stash list --pretty=oneline | wc -l`로 빠르게 산출). 두 호출 모두 ms 단위로 빠름. 결과 타입: `GitStatus.capabilities = { remotes, stashCount, hasHEAD }`. hasHEAD는 BranchInfo가 있고 isUnborn=false. 새 필드는 BranchInfo와 분리해서 새 객체로 두면 zod 점진적 추가 쉬움.",
+                "recorded_at": "2026-05-10T05:43:39.394Z"
+              }
+            ],
+            "decision": "RepoCapabilities를 GitStatus에 동봉. shared/types/git.ts에 `RepoCapabilitiesSchema = { hasHEAD: boolean, remotes: string[], stashCount: number }` 추가. GitStatusSchema에 `capabilities: RepoCapabilitiesSchema` 추가. GitRepository.readStatus()가 status 본문 파싱 후 `git remote`/`git stash list` 두 번 추가 호출하여 capabilities 채움. 기존 statusChanged 브로드캐스트에 자동 포함. 별도 channel 추가하지 않음."
+          },
+          {
+            "id": 2,
+            "title": "Preflight 레이어 위치와 책임 — GitRepository vs handler",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Preflight는 GitRepository 메서드 내부에 둔다. 이유: (a) handler가 검사하면 단위 테스트가 IPC 레이어를 흉내내야 함 — 현재 GitRepository 단위 테스트 자산을 재활용 가능, (b) preflight의 본질은 git 상태 조회이므로 repo의 책임, (c) checkout fallback(자동 remote-track 승격)도 git 호출 시퀀스로서 repo 안에 두는 게 자연스러움. 새 헬퍼: 신규 파일 `git-preflight.ts`에 순수 함수 묶음 — `assertHasHead(status)`, `assertHasUpstream(status)`, `assertHasRemote(remotes)`, `assertNonEmptyStash(stashCount)`, `resolveCheckoutTarget(ref, branchList)`. GitRepository 메서드는 호출 직전에 `await this.readStatus()`/`this.listRemotes()` 등으로 상태 수집 후 preflight 호출 → 통과 시 git argv 실행. 이중 호출 우려 있으나 status는 ~5ms 수준이며 안전성 가치가 높음. checkout만 자동 fallback 로직 보유 — local 미존재 + 단일 remote/X 매치 시 자동 `--track`.",
+                "recorded_at": "2026-05-10T05:43:48.308Z"
+              }
+            ],
+            "decision": "Preflight를 GitRepository 메서드 내부에 둠. 신규 파일 src/main/git/git-preflight.ts에 순수 검증 함수 묶음 (assertHasHead, assertHasUpstream, assertHasRemote, assertNonEmptyStash) + checkout fallback 헬퍼 (resolveCheckoutTarget). 각 메서드는 검증 → git argv 실행 순서. handler 단은 변경 없음(repo 메서드만 호출)."
+          },
+          {
+            "id": 3,
+            "title": "GitErrorKind 확장과 actionable payload 형태",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "기존 GitErrorKind에 추가: `no-head`(unborn), `no-upstream`, `no-remote`, `no-such-ref`, `empty-stash`, `dirty-tree`. 각 kind는 사용자 친화 메시지를 본문에 갖고, optional `hint` 필드(객체 payload)에 다음 액션 정보 보관: 예) `no-upstream` → `{ kind: \"publish-branch\", branch: \"feat/x\", suggestedRemote: \"origin\" }`, `no-such-ref` → `{ kind: \"remote-track-available\", remoteRef: \"origin/feat/x\" }`. GitError 클래스에 `hint?: GitActionHint` 추가. classifier에는 stderr 패턴이 아니라 preflight가 직접 `new GitError(kind, msg, { hint, ... })`로 생성. 기존 stderr 분류는 그대로 유지(원격 git이 우리 preflight 통과 후 실제 실패하는 경우 대비). renderer에서는 hint 기반으로 dialog 분기.",
+                "recorded_at": "2026-05-10T05:43:55.092Z"
+              }
+            ],
+            "decision": "GitErrorKind 추가: no-head, no-upstream, no-remote, no-such-ref, empty-stash, dirty-tree. GitError 클래스에 optional hint?: GitActionHint 필드 추가. GitActionHint = discriminated union: { kind: \"publish-branch\", branch, suggestedRemote? } | { kind: \"remote-track-available\", remoteRef } | { kind: \"make-initial-commit\" } | { kind: \"add-remote\" } 등. 기존 stderr 분류는 fallback으로 유지."
+          },
+          {
+            "id": 4,
+            "title": "UI Smart-prompt 정책 매트릭스 (stash/pull/push/checkout)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "UI 정책 매트릭스(VS Code 패턴 기반): (1) Stash → hasHEAD=false → disable + tooltip \"Make a commit first\". (2) Stash Pop → stashCount=0 → disable + tooltip \"Stash is empty\". (3) Push → remotes=[] → disable + tooltip \"Add a remote first\" / remotes>0 + upstream=null → enabled, 클릭 시 PromptDialog \"Publish '{branch}' to '{remote}'?\" → push -u <remote> <branch> / upstream 있음 → 직접 push. (4) Pull → remotes=[] → disable / upstream=null + remotes>0 → enabled, 클릭 시 fetch만 수행 후 토스트 \"Fetched. No upstream — use 'Pull from…' to merge.\" (또는 향후 'Pull from...' 액션 추가) / upstream 있음 → 직접 pull. (5) Checkout → 자동 fallback은 main 레이어가 처리하므로 UI 변경 불요. 메뉴 일관성: GitMoreMenu가 capability-aware 함수가 받은 props를 검사해 disable 결정. ariaLabel에 disable 사유 포함 → screen reader 친화. Smart prompt는 기존 PromptDialog 컴포넌트 재사용(이미 git에서 사용 중) — 추가 다이얼로그 없이 일관된 UX.",
+                "recorded_at": "2026-05-10T05:44:04.061Z"
+              }
+            ],
+            "decision": "UI 매트릭스 확정. GitMoreMenu props에 capability 객체(hasHEAD/hasRemote/hasUpstream/stashCount) 추가. Stash/StashPop은 hasHEAD/stashCount 기반 disable + tooltip. Push/Pull은 hasRemote 기반 disable. Push without upstream → PromptDialog \"Publish branch?\" → store에 push({publish:true}) 옵션 추가. Pull without upstream → 1차 단순화: enabled로 두되 클릭 시 friendly toast \"No upstream configured\" 후 fetch만 수행. 향후 'Pull from...' 액션은 별도 사이클에서 추가. PromptDialog 재사용."
+          },
+          {
+            "id": 5,
+            "title": "Picker 안전 fallback — checkout missing 시 자동 remote-track 승격",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Picker는 이미 정확하지만, stale 시나리오 (listBranches 직후 외부 git 작업)와 사용자 직접 입력 경로를 위한 안전망이 main 레이어에 필요. 구현: `GitRepository.checkout(ref)` 메서드 변경 — 호출 시 (1) `git rev-parse --verify --quiet refs/heads/<ref>` 으로 local 존재 확인, (2) 없으면 `git for-each-ref --format='%(refname:short)' refs/remotes/*/<ref>` 로 remote 후보 수집, (3) 정확히 하나면 자동 `--track <remote>/<ref>` 승격, (4) 0개 또는 2개 이상이면 `no-such-ref` GitError(hint payload 포함). 단, picker가 명시적으로 `checkoutTracking`을 호출하면 그 경로는 그대로 유지(--track 직행). 이 fallback은 백워드 호환 — 기존 호출자는 변경 없이 더 안전해짐.",
+                "recorded_at": "2026-05-10T05:44:09.409Z"
+              }
+            ],
+            "decision": "GitRepository.checkout(ref)에 fallback 적용: rev-parse로 local 존재 검증 → 없으면 for-each-ref refs/remotes/*/<ref>로 remote 후보 수집 → 정확히 1개면 자동 --track 승격, 0개면 no-such-ref GitError, 2개 이상이면 hint=ambiguous-remote 포함한 no-such-ref. checkoutTracking은 그대로 유지."
+          }
+        ],
+        "research_summary": "현재 git 기능에서 6종 raw GitError가 사용자에게 노출됨: (1)(2) checkout main/feat/abc — pathspec missing, (3) stash push — initial commit 없음, (4) stash pop — 빈 stash, (5) pull --no-edit — upstream 미설정, (6) push — push destination 미설정.\n\n현 구조 분석:\n- Main `src/main/git/git-repository.ts` (752 lines): 모든 메서드가 `this.run([...argv])` 직행. precondition 검사 0개. trim 길이 검사만 존재.\n- Error 분류 (`git-error.ts`, 241 lines): `auth/conflict/not-repo/missing/output-too-large/git-missing/unknown` 7종. stderr 패턴 매칭. 분류는 정확하지만 actionable 정보 없음.\n- IPC (`branch-handlers.ts` etc): zod로 args 검증만 수행. GitError raw bubble up. `if (!repo) throw new GitError(\"not-repo\")` 외 추가 가공 없음.\n- Renderer store (`git.ts`, 811 lines): `runOperation` 래퍼가 try-catch로 `lastError`에 저장. 사용자 친화 메시지 없음, 그냥 stderr 노출.\n- UI: `GitMoreMenu`는 `disabled || canInit` 조건만 사용. upstream/remote/stashCount 미고려. `GitBranchPopover`는 upstream만 표시. `BranchPicker`는 이미 local/remote/create 3분류 정확히 동작 (단위 테스트 통과).\n- 기존 자산: `BranchInfo.isUnborn`(HEAD 부재 신호)이 status에 이미 포함. `checkoutTracking` 회귀 테스트(`autoSetupMerge=false` 시 bare checkout 실패) 이미 존재.\n\n요인 분류:\n- 카테고리 A (UI 능력 미인식): stash/stashPop/pull/push 모두 repo capability 무지 상태에서 활성화됨 → 4건\n- 카테고리 B (직접 입력 미검증): checkout ref가 stale일 때 fallback 없음 → 2건\n\n사용자 결정: 전면 리팩터링 + Smart prompt UX (1단계 해결 가능 액션은 enabled + 친화 다이얼로그). 본 plan은 5개 결정 축에 대해 단일 구조를 확정한다.",
+        "created_at": "2026-05-10T05:43:30.629Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Stage A: shared types — RepoCapabilities + GitErrorKind 확장",
+          "status": "completed",
+          "context": "현재 shared/types/git.ts에 GitStatusSchema가 BranchInfo만 갖고 있고, git-error.ts의 GitErrorKind는 7종으로 actionable payload가 없음. 이 두 곳에 정의를 추가해야 main/IPC/renderer 모든 레이어가 새 모델 위에서 동작 가능.",
+          "acceptance": "1) shared/types/git.ts에 RepoCapabilitiesSchema { hasHEAD, remotes:string[], stashCount:number } 추가 + GitStatusSchema에 capabilities 필드 추가. 2) GitActionHintSchema 추가 (discriminated union). 3) git-error.ts에 GitErrorKind 6종 추가 + GitError 클래스에 hint?: GitActionHint 필드 추가. 4) `bun run typecheck` 통과 — 모든 기존 코드가 새 schema 변경에 적응. 5) status 응답 어디서든 capabilities가 항상 포함됨(non-repo는 default 사용).",
+          "approach": "스키마부터 추가해 컴파일 에러로 변경 지점을 노출시킴. 기존 status 호출자는 빈 capabilities 기본값을 받도록 default 활용.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T05:44:41.654Z",
+          "result": {
+            "outcome": "success",
+            "summary": "RepoCapabilities/GitActionHint 스키마 추가, GitErrorKind 6종 확장(no-head/no-upstream/no-remote/no-such-ref/empty-stash/dirty-tree), GitError.hint 필드 추가. IPC 직렬화 레이어 신설(src/shared/git-error-ipc.ts) — main router가 GitError를 cause envelope에 패킹, 렌더러 client가 rehydrate. Electron의 V8 ValueSerializer가 커스텀 Error 필드를 손실하던 잠복 결함 해결. 모든 createEmptyGitStatus 호출처에 capabilities 기본값 추가. typecheck/관련 unit test 통과.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/git-error-ipc.ts",
+              "src/main/git/git-error.ts",
+              "src/main/ipc/router.ts",
+              "src/renderer/ipc/client.ts",
+              "src/main/ipc/channels/git/status-handlers.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/git/porcelain-v2.ts",
+              "tests/unit/main/git/porcelain-v2.test.ts"
+            ],
+            "recorded_at": "2026-05-10T05:50:35.450Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "Stage B: main/git — preflight 레이어 + GitRepository 적용",
+          "status": "completed",
+          "context": "현재 GitRepository 모든 메서드는 precondition 검사 없이 git argv 직행. Stage A에서 정의된 capability/hint 모델 위에 preflight 검증과 안전한 fallback을 구현.",
+          "acceptance": "1) src/main/git/git-preflight.ts 신설 — assertHasHead/assertHasUpstream/assertHasRemote/assertNonEmptyStash + resolveCheckoutTarget(ref, branchList) 5개 순수 함수. 2) GitRepository.readStatus()가 git remote/git stash list를 호출해 capabilities 채움. 3) checkout/stash/stashPop/pull/push 메서드 각각 호출 직전 preflight. preflight 실패 시 hint payload가 포함된 GitError throw. 4) checkout(ref)는 local 미존재 + remote/ref 단일 매치 시 자동 --track 승격 (수정 없이 안전). 5) 새로운 push(force, publish) 옵션 추가 — publish=true & upstream 없음 + remote 단일 시 push -u <remote> <branch> 발사. 6) `bun test tests/unit/main/git` 모두 통과.",
+          "approach": "git-preflight.ts 작성 → GitRepository.status에 두 헬퍼 추가(listRemotes, countStashes) → 각 메서드 preflight 적용 → checkout fallback 로직.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T05:44:50.570Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-preflight.ts 신설(assertHasHead/Upstream/Remote/NonEmptyStash + resolveCheckoutTarget). GitRepository.readStatus()가 git remote/git stash list 결과로 capabilities 채움. checkout은 ref 라우팅(local 매치 시 평범한 checkout, remote-only 단일 매치 시 자동 --track 승격, 충돌/부재 시 no-such-ref hint)하도록 재설계. push(force, publish)는 publish 옵션으로 push -u <first-remote> <branch>. pull/stash/stashPop/fetch 모두 preflight 적용. queue 테스트의 fake-git이 remote/stash 명령어도 처리하도록 업데이트. typecheck/main git unit test 21개 모두 통과.",
+            "artifacts": [
+              "src/main/git/git-preflight.ts",
+              "src/main/git/git-repository.ts",
+              "tests/unit/main/git/git-repository-queue.test.ts"
+            ],
+            "recorded_at": "2026-05-10T05:53:27.945Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Stage C: IPC contract — push.publish 옵션",
+          "status": "completed",
+          "context": "push 메서드에 publish 옵션이 새로 추가되며 IPC schema에서도 허용해야 함. 다른 메서드 시그니처는 그대로 유지(capability는 기존 GitStatus에 자연 포함되어 자동 전파).",
+          "acceptance": "1) ipcContract.git.call.push schema가 force?, publish? 둘 다 허용. 2) sync-handlers의 pushHandler가 publish 옵션 forwarding. 3) `bun run typecheck` 통과.",
+          "plan_issue": 4,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T05:44:54.761Z",
+          "result": {
+            "outcome": "success",
+            "summary": "ipcContract.git.call.push schema에 publish? 추가. pushHandler가 publish 옵션 forwarding. typecheck 통과.",
+            "artifacts": [
+              "src/shared/ipc-contract.ts",
+              "src/main/ipc/channels/git/sync-handlers.ts"
+            ],
+            "recorded_at": "2026-05-10T05:53:30.959Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Stage D: renderer — store/UI capability-aware + smart prompt",
+          "status": "completed",
+          "context": "store는 현재 stderr를 그대로 lastError에 저장하고, UI는 capability 무관하게 enable. Smart prompt 정책에 맞게 store action 시그니처와 GitMoreMenu props를 확장.",
+          "acceptance": "1) git store.push가 options.publish 받음. 2) GitMoreMenu props에 capability 추가(hasHEAD/hasRemote/hasUpstream/stashCount). Stash hasHEAD=false → disable+tooltip; StashPop stashCount=0 → disable; Push !hasRemote → disable; Pull !hasRemote → disable. 3) Push 클릭 시 hasUpstream=false면 PromptDialog \"Publish '<branch>' to '<remote>'?\" 띄우고 confirm 시 publish=true로 push. 4) GitBranchPopover/SourceControlPanel(또는 부모 컴포넌트)에서 capability 전달. 5) git error의 hint kind에 따라 사용자 친화 메시지 매핑. 6) `bun test tests/unit/renderer/components/files/git` 통과.",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T05:45:01.736Z",
+          "result": {
+            "outcome": "success",
+            "summary": "GitStoreError에 hint 필드 추가, store.push에 publish 옵션 추가, gitStoreErrorFromUnknown이 렌더러 측에 도착한 hint payload 추출. GitMoreMenu가 RepoCapabilities 기반으로 개별 액션 disable + tooltip 처리 (Fetch/Pull/Push: !hasRemote, Stash: !hasHEAD, Stash Pop: stashCount=0). GitHeader pass-through. GitPanel이 session.status.capabilities 제공 + Push without upstream을 PromptDialog 'Publish branch?'로 가로채서 push({publish:true}) 디스패치. typecheck·git unit test 41개 통과.",
+            "artifacts": [
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx"
+            ],
+            "recorded_at": "2026-05-10T05:58:17.472Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Stage E: 검증 — 회귀 테스트 + 타입 + 전체 빌드",
+          "status": "completed",
+          "context": "새로 추가된 preflight/fallback/capability를 시나리오 단위로 검증하고, 기존 회귀 케이스(특히 checkout main pathspec, stash unborn, pull no-upstream, push no-remote)가 모두 친화적 에러로 변환되는지 확인.",
+          "acceptance": "1) tests/unit/main/git에 git-repository-preflight.test.ts 추가 — 6개 회귀 케이스 모두 각 GitErrorKind/hint 검증. 2) tests/unit/main/git에 git-preflight.test.ts 추가 — 순수 함수 단위 테스트. 3) bun typecheck/bun lint/bun test 모두 통과. 4) renderer 테스트 capability props 변경 사항 반영.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-10T05:45:06.210Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-preflight.test.ts 17개 순수 함수 테스트(assertHas* · resolveCheckoutTarget 전 매트릭스) 추가. git-repository-preflight.test.ts 11개 실 git 회귀 테스트 추가 — 6개 원본 이슈(checkout 자동 승격, stash 엄본, stashPop 빈 스태, pull no-remote, pull no-upstream, push no-remote, push no-upstream)를 모두 typed kind+hint으로 전환 확인, publish=true 파이프, capabilities 필드 원자적 검증. git-error-ipc.test.ts 와이어 셔프 고정. typecheck 클린, scope 내 테스트 203개 통과, lint 내 변경 파일 이슈 없음(사전 존재 7 errors는 무관 파일). 전체 테스트 1456개 통과 + 1개 flaky queue 테스트는 단독 실행 시 통과(stash 적용 전후 동일 행동 - 내 변경과 무관).",
+            "artifacts": [
+              "tests/unit/main/git/git-preflight.test.ts",
+              "tests/unit/main/git/git-repository-preflight.test.ts",
+              "tests/unit/shared/git-error-ipc.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:01:27.825Z"
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T06:28:36.237Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 33,
+        "topic": "Git 안정화 2차 — VS Code 패턴 정렬",
+        "issues": [
+          {
+            "id": 1,
+            "title": "IPC 에러를 envelope 리턴으로 전환해 Electron 콘솔 노이즈 제거",
+            "status": "decided",
+            "decision": "router의 ipc:call 핸들러에서 GitError(즉 expected error) catch 시 throw하지 않고 envelope 객체 `{ __ipcError: true, payload: serializedGitError }`를 리턴. 비-GitError는 기존대로 throw해서 Electron이 console.error로 unexpected error를 잡게 둠. 렌더러 client는 응답이 envelope인지 체크 후 reconstructed Error로 reject. 이 방식이 IPC 전체 시그니처 변경 없이 expected/unexpected만 분기."
+          },
+          {
+            "id": 2,
+            "title": "stderr 분류 카탈로그 확충 (VS Code 45개 패턴 참조)",
+            "status": "decided",
+            "decision": "git-error.ts MISSING_STDERR_PATTERNS 등 기존 그룹에 VS Code 패턴 추가 + 새 GitErrorKind 도입: lock-busy(RepositoryIsLocked/CantLockRef), local-changes-overwritten, branch-exists, push-rejected, force-push-rejected, no-local-changes, branch-not-merged. classifier ordering은 기존 conflict→missing 우선순위 유지하면서 새 kind 매칭 추가. 단위 테스트로 회귀 방지."
+          },
+          {
+            "id": 3,
+            "title": "락 에러 퀴드라틱 backoff 재시도 추가",
+            "status": "decided",
+            "decision": "git-process.ts의 runGit() 안에 retry wrapper 추가. classifyGitStderr 결과가 lock-busy면 attempt^2 * 50ms backoff, 최대 10회. 다른 kind는 즉시 throw. AbortSignal 도착 시 retry 중단. streamGit은 retry 적용 X (스트림 진행 중이면 부분 출력이 이미 발생)."
+          },
+          {
+            "id": 4,
+            "title": "Preflight 재고 — redundant 검증 제거, hasHEAD/checkout fallback만 유지",
+            "status": "decided",
+            "decision": "유지: assertHasHead(stash/stashPop — stderr 'You do not have the initial commit yet'를 친화 메시지로 직접 분류 가능하면 이마저 제거 가능, 우선 보수적으로 유지) + resolveCheckoutTarget(자동 --track 승격은 기능적 가치가 있음). 제거: assertHasRemote, assertHasUpstream, assertNonEmptyStash — stderr 분류 카탈로그 확충(이슈 2)으로 동등한 typed kind 제공. UI gating(GitMoreMenu disable)은 capabilities로 그대로 동작. 결과적으로 preflight는 정말 필요한 자리만 남음."
+          }
+        ],
+        "research_summary": "VS Code git extension 소스 검토 결과(microsoft/vscode extensions/git/src/): 우리가 이전 사이클에 추가한 hard preflight 레이어는 VS Code 패턴과 다름. VS Code 핵심 구조: Git(process) + Repository(low-level argv) + Repository(high-level state) 2층. preflight 없음 — argv 실행 후 stderr regex로 ~45개 GitErrorCodes 분류. mutex/queue 없음, OperationManager는 추적만. mutating op 끝나면 무조건 updateModelState() 호출. RepositoryIsLocked/CantLockRef는 retryRun으로 quadratic backoff 최대 10회. capability struct 없이 Repository 플랫 필드(_HEAD/_remotes/_refs). fs watcher → 1초 debounce → idle+focus → status() 한 번. \\n\\n우리 현재 상태: typed kind 13개(VS Code 45개), preflight 6개, hard mutex queueTail 있음, 락 재시도 없음, capabilities struct + fs watcher 존재. Electron ipcMain.handle이 모든 throw를 console.error로 보고해 main 콘솔 노이즈 발생 해결책은 envelope 리턴 패턴 도입이 수월함.\\n\\n사용자 결정: 4개 조각 모두 자동 직렬 처리.",
+        "created_at": "2026-05-10T06:15:56.621Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Stage 1: IPC envelope — Electron 콘솔 노이즈 제거",
+          "status": "completed",
+          "context": "Electron ipcMain.handle은 모든 throw를 'Error occurred in handler for ipc:call'로 console.error에 찍음. 사용자가 typed preflight 거절(no-such-ref 등)을 봤을 때 메인 콘솔이 시끄러움. expected GitError를 throw가 아닌 envelope 리턴으로 전환하면 Electron이 로그 안 찍음.",
+          "acceptance": "1) src/main/ipc/router.ts의 ipc:call 핸들러가 GitError catch 시 throw 대신 `{ __ipcError: true, payload: { name, message, kind, stderr, argv, hint } }` envelope 리턴. 비-GitError는 기존대로 throw. 2) src/renderer/ipc/client.ts가 응답에서 envelope sentinel 감지 시 reconstructed Error throw (rehydrateGitErrorFromCause 재사용 가능). 3) bun typecheck/test 통과. 4) 수동 검증: GitError 발생 시 메인 콘솔에 'Error occurred in handler' 안 찍힘 (renderer는 정상 catch).",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:16:23.886Z",
+          "result": {
+            "outcome": "success",
+            "summary": "IPC 호출 응답에 GitError envelope 도입. router가 throw 대신 IpcGitErrorResult 리턴(동일 필드 kind/hint/stderr/argv 포함). renderer client unwrapCallResult에서 함팁 감지 후 reconstructed Error throw. 스트림 에러 경로는 기존 cause envelope 유지. 이제 expected GitError는 메인 콘솔의 'Error occurred in handler' 로그를 더 이상 일으키지 않음. typecheck/test 98개 통과.",
+            "artifacts": [
+              "src/shared/git-error-ipc.ts",
+              "src/main/ipc/router.ts",
+              "src/renderer/ipc/client.ts",
+              "tests/unit/shared/git-error-ipc.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:19:16.953Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "Stage 2: stderr 카탈로그 확충",
+          "status": "completed",
+          "context": "현재 git-error.ts는 7개 kind만 분류 (auth/conflict/not-repo/missing/output-too-large/git-missing/unknown). VS Code git extension은 ~45개 GitErrorCodes 보유. 우리도 lock/branch-exists/push-rejected/local-changes-overwritten 등 자주 발생하는 케이스를 분류해야 stderr이 친화 메시지로 변환되고, 락 재시도(이슈 3)의 트리거가 됨.",
+          "acceptance": "1) GitErrorKind에 새 kind 추가: lock-busy, local-changes-overwritten, branch-exists, push-rejected, force-push-rejected, no-local-changes, branch-not-merged. 2) classifyGitStderr 분류 우선순위 유지하면서 새 패턴 매칭 추가. 3) tests/unit/main/git/git-error.test.ts에 각 kind 회귀 케이스 추가. 4) bun test 통과.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:16:29.202Z",
+          "result": {
+            "outcome": "success",
+            "summary": "GitErrorKind 7종 추가(lock-busy, local-changes-overwritten, branch-exists, push-rejected, force-push-rejected, no-local-changes, branch-not-merged) + preflight-aligned 3종(no-head/no-upstream/no-remote는 stderr 패턴도 추가). VS Code 수준으로 stderr regex 카탈로그 확충. messageFromGitFailure switch 새 kind 대움. classifier 우선순위: lock-busy → local-changes-overwritten → force/push-rejected → 기존 conflict/not-repo/missing. 테스트 16개 추가, 전체 공수 87개 통과.",
+            "artifacts": [
+              "src/main/git/git-error.ts",
+              "tests/unit/main/git/git-error.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:21:35.745Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Stage 3: 락 에러 backoff 재시도",
+          "status": "completed",
+          "context": "git이 동시 작업 시 .git/index.lock 등으로 RepositoryIsLocked / CantLockRef 에러를 자주 발생. VS Code는 quadratic backoff 최대 10회 재시도. 우리 git-process.ts는 즉시 실패. 동일 정책 도입.",
+          "acceptance": "1) src/main/git/git-process.ts의 runGit() 내부에 retry wrapper. classifyGitStderr 결과가 lock-busy일 때만 재시도. attempt^2 * 50ms backoff, 최대 10회 (총 약 9.6s). 2) AbortSignal 도착 시 즉시 중단. 3) streamGit은 변경 안 함. 4) 단위 테스트: lock-busy stderr → 첫 시도 실패 후 재시도 성공 / 10회 모두 실패 시 throw / abort 시 즉시 중단 시나리오. 5) bun test 통과.",
+          "plan_issue": 3,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:16:34.978Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-process.ts에 withLockRetry 래퍼 추가. runGit은 내부적으로 runGitOnce를 lock-busy 재시도 로직에 감싸 호출. quadratic backoff(최대 10회, base 50ms) + AbortSignal 존중. backoff는 주입 가능해 테스트는 0ms. 7개 시나리오 테스트 통과(happy path, 재시도 성공, max에 달해 실패, non-retryable은 즉시 실패, 이미 abort, backoff 중 abort, non-Error throw).",
+            "artifacts": [
+              "src/main/git/git-process.ts",
+              "tests/unit/main/git/git-process-retry.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:22:59.944Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Stage 4: Preflight 재고 — redundant 제거",
+          "status": "completed",
+          "context": "stderr 분류 확충(Stage 2) 후 일부 preflight는 중복. assertHasRemote/Upstream/NonEmptyStash는 git CLI가 명확한 stderr를 내므로 분류만으로 동등한 UX 달성 가능. 유지: resolveCheckoutTarget(자동 --track은 기능), assertHasHead(unborn stderr가 모호함).",
+          "acceptance": "1) GitRepository.pull/push/stashPop/fetch에서 assertHasRemote/Upstream/NonEmptyStash 호출 제거. assertHasHead는 stash에 유지. resolveCheckoutTarget는 checkout에 유지. 2) push의 publish 분기는 유지(intent 변환). 3) git-preflight.ts에서 제거된 함수 삭제. 4) tests/unit/main/git/git-preflight.test.ts에서 제거된 함수 테스트 삭제. 5) tests/unit/main/git/git-repository-preflight.test.ts: pull/push/stashPop은 stderr 분류 결과를 검증하도록 수정 (no-remote는 lock-busy 아님 — VS Code엔 NoRemoteRepository 같은 코드 있음, 추가 패턴 필요 시 Stage 2와 연동). 6) Renderer GitStoreError consumer는 새 kind도 그대로 처리 (UI는 capabilities로 disable, banner는 message 출력). 7) bun typecheck/test 모두 통과.",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:16:47.752Z",
+          "result": {
+            "outcome": "success",
+            "summary": "preflight 사이즈 대폭 축소. 제거: assertHasRemote/Upstream/NonEmptyStash, fetch의 inline 'remote not configured' 검사, push 비-publish 분기의 head/upstream 검사, stashPop의 stashCount 검사, stash의 head 검사. 유지: assertHasHead(push --publish argv 구성 가드), resolveCheckoutTarget(remote auto --track 승격 기능). VS Code 스타일로 stderr 분류에 위임. empty-stash kind는 no-local-changes와 분리해 독립 버킷 차지. typecheck 클린, scope 테스트 111개 통과(1개는 사전 flake — 단독 실행 시 통과).",
+            "artifacts": [
+              "src/main/git/git-error.ts",
+              "src/main/git/git-preflight.ts",
+              "src/main/git/git-repository.ts",
+              "tests/unit/main/git/git-error.test.ts",
+              "tests/unit/main/git/git-preflight.test.ts",
+              "tests/unit/main/git/git-repository-preflight.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:28:36.056Z"
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-10T06:41:41.712Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 34,
+        "topic": "Unborn HEAD UX 명확화",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Picker create-row 레이블에 unborn rename 동작 명시",
+            "status": "decided",
+            "decision": "branch-picker-source.ts에서 list.current?.isUnborn=true일 때 create-row 레이블을 \"Rename unborn '<current>' → '<name>'\"로, 아닐 때 기존 \"Create new branch: '<name>'\" 유지. ariaLabel도 동일 분기. 단위 테스트 추가."
+          },
+          {
+            "id": 2,
+            "title": "Panel banner로 unborn HEAD 상태 상시 안내",
+            "status": "decided",
+            "decision": "GitPanel에 GitInlineBanner 한 줄 추가. branchInfo?.isUnborn=true일 때 info variant로 \"'<branch>' has no commits yet — it will be created on your first commit.\" 표시. 기존 lastError banner와 함께 표시되어도 OK(둘은 다른 정보). 추가 actionLabel 없음(사용자가 commit input으로 자연 유도됨)."
+          }
+        ],
+        "research_summary": "사용자가 git init 직후(커밋 0개) picker에서 새 브랜치 생성 시 원래 main이 사라진다고 보고. 테스트 재현해 backend 정상 확인: unborn HEAD는 git 시멘틱상 실제 ref가 아니므로 `git checkout -b X`는 unborn HEAD를 단순 리네임함. main은 처음부터 실제 브랜치가 아니었음. VS Code도 동일 거동하나 UX적으로 unborn 상태를 더 명확히 표시. 우리 일부 파일은 isUnborn 플래그를 사용하고 있으나(diff 계산) UI level에서는 아무 안내 없음. 사용자 결정: 둘 다 적용.",
+        "created_at": "2026-05-10T06:38:28.406Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Picker create-row unborn 안내",
+          "status": "completed",
+          "context": "branch-picker-source.ts에서 create-row 레이블이 unborn 상태에서 의미를 잘못 전달. 사용자가 클릭 전에 동작을 인지 못함.",
+          "acceptance": "1) list.current?.isUnborn=true 시 create-row label과 ariaLabel이 'Rename unborn'<current>' → '<name>''. 2) unborn 아닌 경우는 기존 'Create new branch: '<name>'' 유지. 3) 단위 테스트 2개 추가(unborn/non-unborn). 4) bun typecheck/test 통과.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:40:17.744Z",
+          "result": {
+            "outcome": "success",
+            "summary": "branch-picker-source.ts에서 list.current?.isUnborn=true 시 create-row 레이블을 'Rename unborn '<current>' → '<name>''로 변경. ariaLabel도 동일 분기. 테스트 13개 통과(기존 + 2개 추가).",
+            "artifacts": [
+              "src/renderer/components/files/git/branch-picker-source.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-source.test.ts"
+            ],
+            "recorded_at": "2026-05-10T06:40:55.838Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "Panel banner: unborn HEAD 상시 안내",
+          "status": "completed",
+          "context": "사용자가 unborn 상태에 있는지 picker 열기 전엔 모름. Panel 상단에 inline banner로 상시 표시하면 UX 명확해짐.",
+          "acceptance": "1) GitPanel에서 branchInfo?.isUnborn=true일 때 GitInlineBanner(variant='info') 표시: ''<branch>' has no commits yet — it will be created on your first commit.'. 2) lastError banner와 공존 가능(둘 다 표시됨). 3) GitInlineBanner가 'info' variant 지원하는지 확인하고 없으면 추가. 4) bun typecheck 통과.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-10T06:40:19.385Z",
+          "result": {
+            "outcome": "success",
+            "summary": "GitPanel에 unborn HEAD inline banner 추가. branchInfo?.isUnborn=true일 때 info variant로 ''<branch>' has no commits yet — it will be created on your first commit.' 표시. lastError banner와 독립적으로 공존. typecheck 클린, 관련 테스트 91개 통과.",
+            "artifacts": [
+              "src/renderer/components/files/git/GitPanel.tsx"
+            ],
+            "recorded_at": "2026-05-10T06:41:41.636Z"
+          }
+        }
+      ]
     }
   ]
 }

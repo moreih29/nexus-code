@@ -14,6 +14,11 @@ export interface CommandPaletteFrameProps<TItem extends PaletteItem> {
   noResultsMessage: string;
   onQueryChange?: (query: string) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+  /**
+   * Fires when the user clicks the modal overlay (the dimmed area outside
+   * the dialog content). Used to dismiss the palette on outside click.
+   */
+  onOverlayClick?: () => void;
   onHoverItem?: (index: number) => void;
   onAcceptItem?: (index: number) => void;
   rootRef?: React.Ref<HTMLDivElement>;
@@ -35,6 +40,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   noResultsMessage,
   onQueryChange,
   onKeyDown,
+  onOverlayClick,
   onHoverItem,
   onAcceptItem,
   rootRef,
@@ -49,7 +55,18 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   const activeDescendant = activeItem ? optionId(listboxId, activeItem.id) : undefined;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-frosted-veil-strong">
+    <div
+      className="fixed inset-0 z-[70] bg-frosted-veil-strong"
+      // Outside-click dismissal: the overlay div fills the viewport behind
+      // the dialog content. A click whose target is exactly this element
+      // (not the bubbled child dialog) means the user pressed outside the
+      // palette and expects it to close, matching Radix Dialog behavior.
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onOverlayClick?.();
+        }
+      }}
+    >
       <div
         ref={rootRef}
         role="dialog"

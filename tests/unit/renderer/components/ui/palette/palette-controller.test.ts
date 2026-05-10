@@ -50,13 +50,19 @@ function item(id: string): PaletteItem {
   return { id, label: id };
 }
 
-function source(search: PaletteSource["search"]): PaletteSource {
+function source(
+  search: PaletteSource["search"],
+  options: { searchOnEmptyQuery?: boolean } = {},
+): PaletteSource {
   return {
     id: "test",
     title: "Test",
     placeholder: "Search",
     emptyQueryMessage: "Type",
     noResultsMessage: "None",
+    ...(options.searchOnEmptyQuery !== undefined
+      ? { searchOnEmptyQuery: options.searchOnEmptyQuery }
+      : {}),
     search,
     accept: () => {},
   };
@@ -126,6 +132,41 @@ describe("PaletteSearchController", () => {
 
     expect(search).not.toHaveBeenCalled();
     expect(snapshots.at(-1)?.status).toBe("idle");
+  });
+
+  it("calls the source immediately for empty queries when searchOnEmptyQuery is true", async () => {
+    const scheduler = new FakeScheduler();
+    const search = mock(async () => [item("main"), item("dev")]);
+    const snapshots: PaletteSearchSnapshot[] = [];
+    const controller = new PaletteSearchController(
+      source(search, { searchOnEmptyQuery: true }),
+      (snapshot) => snapshots.push(snapshot),
+      scheduler,
+    );
+
+    // No debounce wait — the empty-query path should fire search() at once.
+    controller.setQuery("");
+    expect(search).toHaveBeenCalledTimes(1);
+    await flushMicrotasks();
+
+    const final = snapshots.at(-1);
+    expect(final?.status).toBe("results");
+    expect(final?.items).toHaveLength(2);
+  });
+
+  it("searchOnEmptyQuery still applies debounce for non-empty queries", async () => {
+    const scheduler = new FakeScheduler();
+    const search = mock(async () => [item("main")]);
+    const controller = new PaletteSearchController(
+      source(search, { searchOnEmptyQuery: true }),
+      () => {},
+      scheduler,
+    );
+
+    controller.setQuery("ma");
+    expect(search).not.toHaveBeenCalled();
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    expect(search).toHaveBeenCalledTimes(1);
   });
 });
 

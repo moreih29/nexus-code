@@ -47,17 +47,19 @@ export function pullHandler(
 
 /**
  * Builds the push handler; auth/conflict failures surface from GitRepository
- * while successful pushes refresh status before returning PushResult.
+ * while successful pushes refresh status before returning PushResult. The
+ * `publish` flag forwards to GitRepository.push so the renderer's
+ * "Publish branch?" dialog can wire up an upstream in one round-trip.
  */
 export function pushHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<PushResult> {
   return async (args: unknown, ctx?: CallContext): Promise<PushResult> => {
-    const { workspaceId, force } = validateArgs(c.push.args, args);
+    const { workspaceId, force, publish } = validateArgs(c.push.args, args);
     const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
     if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    const result = await repo.push(force ?? false, ctx?.signal);
+    const result = await repo.push(force ?? false, publish ?? false, ctx?.signal);
     await registry.refreshStatus(workspaceId);
     return result;
   };

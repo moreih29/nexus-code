@@ -2,6 +2,7 @@
  * GitHeader renders the Source Control title and top-level action buttons.
  */
 import { RefreshCw } from "lucide-react";
+import type { RepoCapabilities } from "../../../../shared/types/git";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { Button } from "../../ui/button";
 import { ViewModeToggle } from "../view-mode-toggle/ViewModeToggle";
@@ -12,6 +13,8 @@ interface GitHeaderProps {
   refreshing?: boolean;
   canInit?: boolean;
   hasChanges?: boolean;
+  /** Repo-level capability flags forwarded to GitMoreMenu for per-action enablement. */
+  capabilities?: RepoCapabilities;
   /** When true the repo is not yet detected/initialised — ViewModeToggle is hidden. */
   showViewToggle?: boolean;
   viewMode?: ViewMode;
@@ -34,6 +37,7 @@ export function GitHeader({
   refreshing = false,
   canInit = false,
   hasChanges = false,
+  capabilities,
   showViewToggle = false,
   viewMode = "tree",
   compactFolders = false,
@@ -80,6 +84,7 @@ export function GitHeader({
           disabled={disabled}
           canInit={canInit}
           hasChanges={hasChanges}
+          capabilities={capabilities}
           onRefresh={onRefresh}
           onInit={onInit}
           onFetch={onFetch}

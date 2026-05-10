@@ -31,6 +31,10 @@ describe("GitRepository operation queue", () => {
 function writeFakeGit(root: string): string {
   const gitBin = path.join(root, "fake-git.sh");
   const logPath = path.join(root, "git-queue.log");
+  // GitRepository.readStatus issues an additional `git remote` and
+  // `git stash list` to enrich GitStatus.capabilities; the fake handles
+  // both with empty output so the queue ordering test sees only the
+  // user-relevant status:* / add:* trace events.
   const script = `#!/usr/bin/env bash
 set -euo pipefail
 log=${shellQuote(logPath)}
@@ -40,6 +44,12 @@ case "${"$"}1" in
     sleep 0.05
     printf 'status:end\n' >> "${"$"}log"
     printf '# branch.head main\\0'
+    ;;
+  remote)
+    : # no remotes configured
+    ;;
+  stash)
+    : # empty stash list
     ;;
   add)
     printf 'add:start\n' >> "${"$"}log"

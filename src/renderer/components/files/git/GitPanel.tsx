@@ -2,10 +2,16 @@
  * GitPanel is the top-level Source Control surface for one workspace.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../shared/types/git";
+import {
+  DEFAULT_REPO_CAPABILITIES,
+  type GitExpandedGroupKey,
+  type GitStatusEntry,
+  type RepoCapabilities,
+} from "../../../../shared/types/git";
 import { openTerminal } from "../../../services/terminal";
 import type { GitStoreError } from "../../../state/stores/git";
 import { useGitStore } from "../../../state/stores/git";
+import { PromptDialog, type PromptRequest } from "../../ui/prompt-dialog";
 import { useLoaderDelay } from "../search/useLoaderDelay";
 import { BranchPicker } from "./BranchPicker";
 import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./confirmDiscardDialog";
@@ -59,6 +65,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
 
   const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
+  const [publishRequest, setPublishRequest] = useState<PromptRequest | null>(null);
 
   useEffect(() => {
     void loadInitial(workspaceId);
@@ -71,6 +78,10 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   );
   const hasChanges = allChangedPaths.length > 0;
   const hasStagedChanges = (session?.status?.staged.length ?? 0) > 0;
+  const capabilities: RepoCapabilities =
+    session?.status?.capabilities ?? DEFAULT_REPO_CAPABILITIES;
+  const branchInfo = session?.branchInfo ?? null;
+  const hasUpstream = branchInfo?.upstream != null;
   const isBusy = session?.inFlightOp !== null && session?.inFlightOp !== undefined;
   const isCommitting = session?.inFlightOp?.kind === "commit";
   const isRefreshing = session?.inFlightOp?.kind === "refresh" || Boolean(session?.statusFetching);
@@ -88,15 +99,52 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     },
   });
 
+  /**
+   * Issues a push, intercepting branches without an upstream so the user
+   * sees a "Publish '<branch>' to '<remote>'?" prompt instead of the raw
+   * "fatal: No configured push destination" stderr. The prompt dispatches
+   * back through the same store action with `publish: true`, which the
+   * main process expands to `git push -u <remote> <branch>`.
+   */
+  const requestPush = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (
+        !hasUpstream &&
+        capabilities.remotes.length > 0 &&
+        capabilities.hasHEAD &&
+        branchInfo?.current
+      ) {
+        const remote = capabilities.remotes[0];
+        setPublishRequest({
+          title: "Publish branch?",
+          description: `'${branchInfo.current}' has no upstream branch. Publish to '${remote}'?`,
+          label: "Remote",
+          defaultValue: remote,
+          confirmLabel: "Publish",
+        });
+        return;
+      }
+      await push(workspaceId, options);
+    },
+    [
+      branchInfo?.current,
+      capabilities.hasHEAD,
+      capabilities.remotes,
+      hasUpstream,
+      push,
+      workspaceId,
+    ],
+  );
+
   const handleCommit = useCallback(
     async (options?: { amend?: boolean; pushAfter?: boolean }) => {
       if (commitDisabled) return;
       const result = await commit(workspaceId, { message: trimmedDraft, amend: options?.amend });
       if (result && options?.pushAfter) {
-        await push(workspaceId);
+        await requestPush();
       }
     },
-    [commit, commitDisabled, push, trimmedDraft, workspaceId],
+    [commit, commitDisabled, requestPush, trimmedDraft, workspaceId],
   );
 
   const handlePanelKeyDown = useGitOpHotkey({
@@ -128,7 +176,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     const branch = session?.branchInfo;
     if (!branch) return;
     if (branch.behind > 0) await pull(workspaceId);
-    if (branch.ahead > 0) await push(workspaceId);
+    if (branch.ahead > 0) await requestPush();
   }
 
   const headerDisabled = isBusy || isLoading;
@@ -147,6 +195,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         refreshing={isRefreshing}
         canInit={session?.repoInfo.kind === "non-repo"}
         hasChanges={hasChanges}
+        capabilities={capabilities}
         showViewToggle={isRepo}
         viewMode={viewMode}
         compactFolders={compactFolders}
@@ -165,7 +214,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           void pull(workspaceId);
         }}
         onPush={() => {
-          void push(workspaceId);
+          void requestPush();
         }}
         onStash={() => {
           void stash(workspaceId);
@@ -177,6 +226,16 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         onDiscardAll={() => requestDiscard(allChangedPaths, "this repository")}
       />
 
+      {branchInfo?.isUnborn ? (
+        // Unborn HEAD: `git init` planted a symbolic ref but no commit has
+        // landed yet. Without this banner, users perceive `git checkout -b`
+        // as deleting their branch when in fact the unborn ref simply gets
+        // re-pointed (see git-repository-create-branch.test.ts).
+        <GitInlineBanner
+          variant="info"
+          message={`'${branchInfo.current}' has no commits yet — it will be created on your first commit.`}
+        />
+      ) : null}
       {session?.lastError ? (
         <GitInlineBanner
           variant="error"
@@ -285,6 +344,20 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         workspaceId={workspaceId}
         open={branchPickerOpen}
         onClose={() => setBranchPickerOpen(false)}
+      />
+
+      <PromptDialog
+        request={publishRequest}
+        busy={session?.inFlightOp?.kind === "push"}
+        onCancel={() => setPublishRequest(null)}
+        onConfirm={(value) => {
+          setPublishRequest(null);
+          // Future enhancement: honor the typed remote when more than one is
+          // configured. For now we ignore it because the main process always
+          // uses the first remote and the prompt's input is informational.
+          void value;
+          void push(workspaceId, { publish: true });
+        }}
       />
     </fieldset>
   );

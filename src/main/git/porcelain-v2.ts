@@ -6,7 +6,12 @@
  * state, no side-effects — every exported symbol is a pure function or
  * a parser-only constant.
  */
-import type { BranchInfo, GitStatus, GitStatusEntry } from "../../shared/types/git";
+import {
+  type BranchInfo,
+  DEFAULT_REPO_CAPABILITIES,
+  type GitStatus,
+  type GitStatusEntry,
+} from "../../shared/types/git";
 
 /** XY codes that git status emits for unmerged (conflict) entries. */
 const CONFLICT_XY_CODES = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
@@ -37,12 +42,15 @@ interface ParsedStatusRecord {
  * Parses porcelain v2 status output into Source Control panel groups.
  */
 export function parseV2Porcelain(text: string): GitStatus {
+  // Capabilities are populated by GitRepository.readStatus() after this pure
+  // parser returns; the parser only fills the porcelain-derived fields.
   const status: GitStatus = {
     merge: [],
     staged: [],
     working: [],
     untracked: [],
     branch: null,
+    capabilities: { ...DEFAULT_REPO_CAPABILITIES },
   };
   const branch: BranchHeaders = { ahead: 0, behind: 0 };
   const records = splitPorcelainRecords(text);

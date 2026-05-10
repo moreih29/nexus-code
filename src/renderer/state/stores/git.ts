@@ -7,6 +7,7 @@ import type {
   BranchInfo,
   BranchList,
   CommitResult,
+  GitActionHint,
   GitExpandedGroupKey,
   GitExpandedGroups,
   GitExpandedTreeNodes,
@@ -37,6 +38,7 @@ export type GitOperationKind =
   | "stash"
   | "stashPop"
   | "checkout"
+  | "checkoutTracking"
   | "createBranch"
   | "refresh"
   | "init";
@@ -51,6 +53,13 @@ export interface GitStoreError {
   message: string;
   details?: string;
   operation?: GitOperationKind;
+  /**
+   * Actionable next-step payload populated from `GitError.hint` when the
+   * main process emits a typed preflight failure. The Source Control panel
+   * uses this to render one-click recovery affordances (Publish branch,
+   * Track remote, Make initial commit) instead of a raw error toast.
+   */
+  hint?: GitActionHint;
 }
 
 export interface GitSession {
@@ -84,10 +93,14 @@ interface GitState {
   commit: (workspaceId: string, options?: CommitOptions) => Promise<CommitResult | undefined>;
   fetch: (workspaceId: string, remote?: string) => Promise<void>;
   pull: (workspaceId: string) => Promise<PullResult | undefined>;
-  push: (workspaceId: string, options?: { force?: boolean }) => Promise<PushResult | undefined>;
+  push: (
+    workspaceId: string,
+    options?: { force?: boolean; publish?: boolean },
+  ) => Promise<PushResult | undefined>;
   stash: (workspaceId: string, message?: string) => Promise<void>;
   stashPop: (workspaceId: string) => Promise<void>;
   checkout: (workspaceId: string, ref: string) => Promise<void>;
+  checkoutTracking: (workspaceId: string, remoteRef: string) => Promise<void>;
   createBranch: (workspaceId: string, name: string, checkout?: boolean) => Promise<void>;
   listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   setCommitDraft: (workspaceId: string, text: string) => void;
@@ -398,7 +411,12 @@ export const useGitStore = create<GitState>((set, get) => {
 
     async push(workspaceId, options = {}) {
       return runOperation(workspaceId, "push", (signal) =>
-        ipcCall("git", "push", { workspaceId, force: options.force }, { signal }),
+        ipcCall(
+          "git",
+          "push",
+          { workspaceId, force: options.force, publish: options.publish },
+          { signal },
+        ),
       );
     },
 
@@ -417,6 +435,12 @@ export const useGitStore = create<GitState>((set, get) => {
     async checkout(workspaceId, ref) {
       await runOperation(workspaceId, "checkout", (signal) =>
         ipcCall("git", "checkout", { workspaceId, ref }, { signal }),
+      );
+    },
+
+    async checkoutTracking(workspaceId, remoteRef) {
+      await runOperation(workspaceId, "checkoutTracking", (signal) =>
+        ipcCall("git", "checkoutTracking", { workspaceId, remoteRef }, { signal }),
       );
     },
 
@@ -771,6 +795,12 @@ function isAbortError(error: unknown): boolean {
 
 /**
  * Normalize arbitrary thrown values into the store's user-facing error shape.
+ *
+ * Reads `kind` and `hint` directly off the error instance — the renderer
+ * IPC client (src/renderer/ipc/client.ts) rehydrates these fields onto the
+ * thrown Error from the cause envelope set by the main router, so they are
+ * present here for typed Git errors. Falls back to `name` / message-based
+ * inference for non-GitError throws.
  */
 function gitStoreErrorFromUnknown(error: unknown, operation?: GitOperationKind): GitStoreError {
   if (isRecord(error)) {
@@ -787,11 +817,22 @@ function gitStoreErrorFromUnknown(error: unknown, operation?: GitOperationKind):
         : typeof error.stderr === "string"
           ? error.stderr
           : undefined;
+    const hint = isGitActionHint(error.hint) ? error.hint : undefined;
 
-    return { kind, message, details, operation };
+    return { kind, message, details, operation, hint };
   }
 
   return { kind: "unknown", message: String(error), operation };
+}
+
+/**
+ * Narrows a possibly-rehydrated hint payload to a GitActionHint discriminator
+ * the panel consumes. The renderer IPC layer copies hint shapes verbatim, so a
+ * `kind` string is the only field we need to validate before forwarding.
+ */
+function isGitActionHint(value: unknown): value is GitActionHint {
+  if (!isRecord(value)) return false;
+  return typeof value.kind === "string";
 }
 
 /**

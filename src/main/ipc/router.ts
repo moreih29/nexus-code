@@ -9,6 +9,13 @@ import {
 } from "../../shared/ipc-contract";
 import { IPC_ABORT_SENTINEL } from "../../shared/ipc-abort-sentinel";
 import { PendingRequestMap } from "../../shared/pending-request-map";
+import { GitError } from "../git/git-error";
+import {
+  IPC_CALL_RESULT_MARK,
+  IPC_GIT_ERROR_MARK,
+  type IpcGitErrorPayload,
+  type IpcGitErrorResult,
+} from "../../shared/git-error-ipc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +75,7 @@ type StreamEventPayload =
 interface SerializedError {
   name: string;
   message: string;
+  cause?: IpcGitErrorPayload;
 }
 
 interface PendingStream {
@@ -171,6 +179,14 @@ export function setupRouter(): void {
         return await handler(args, callContext.ctx);
       } catch (error) {
         if (callContext.ctx?.signal?.aborted) return IPC_ABORT_SENTINEL;
+        // Typed Git failures are an expected outcome of mutating ops (no
+        // upstream, missing ref, empty stash, …). Returning them as data
+        // keeps Electron's `Error occurred in handler for 'ipc:call'`
+        // console log silent — the renderer client unwraps the envelope
+        // and rejects the call promise on its side.
+        if (error instanceof GitError) {
+          return wrapGitErrorAsCallResult(error);
+        }
         throw error;
       } finally {
         if (callContext.key) {
@@ -379,13 +395,74 @@ function createAbortError(): Error {
 }
 
 function serializeError(error: unknown): SerializedError {
+  if (error instanceof GitError) {
+    const wrapped = repackGitErrorForStream(error);
+    return {
+      name: wrapped.name,
+      message: wrapped.message,
+      cause: extractIpcGitErrorPayload(wrapped),
+    };
+  }
   if (error instanceof Error) {
-    return { name: error.name || "Error", message: error.message };
+    return {
+      name: error.name || "Error",
+      message: error.message,
+    };
   }
   if (typeof error === "string") {
     return { name: "Error", message: error };
   }
   return { name: "Error", message: "Unknown error" };
+}
+
+/**
+ * Wire format for typed Git failures returned from `ipc:call`. The router
+ * returns this object instead of throwing so Electron's built-in
+ * unhandled-rejection logger stays quiet for expected outcomes; the
+ * renderer's `ipcCall` recognises `IPC_CALL_RESULT_MARK` and rejects the
+ * call promise in user code.
+ */
+function wrapGitErrorAsCallResult(error: GitError): IpcGitErrorResult {
+  return {
+    [IPC_CALL_RESULT_MARK]: true,
+    name: "GitError",
+    message: error.message,
+    stack: error.stack,
+    kind: error.kind,
+    stderr: error.stderr,
+    argv: error.argv,
+    hint: error.hint,
+  };
+}
+
+/**
+ * Stream errors still travel through `ipc:streamEvent`'s error data field,
+ * which already carries `cause` cleanly via structured clone. This helper
+ * keeps the legacy cause envelope path working for those callers without
+ * forcing them onto the new call-result shape.
+ */
+function repackGitErrorForStream(error: GitError): Error {
+  const payload: IpcGitErrorPayload = {
+    [IPC_GIT_ERROR_MARK]: true,
+    kind: error.kind,
+    stderr: error.stderr,
+    argv: error.argv,
+    hint: error.hint,
+  };
+  const wrapped = new Error(error.message, { cause: payload });
+  wrapped.name = "GitError";
+  if (error.stack) wrapped.stack = error.stack;
+  return wrapped;
+}
+
+/**
+ * Reads the GitError envelope back off a stream-side wrapped error.
+ */
+function extractIpcGitErrorPayload(error: Error): IpcGitErrorPayload | undefined {
+  const cause = (error as { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return undefined;
+  if ((cause as Record<string, unknown>)[IPC_GIT_ERROR_MARK] !== true) return undefined;
+  return cause as IpcGitErrorPayload;
 }
 
 // ---------------------------------------------------------------------------

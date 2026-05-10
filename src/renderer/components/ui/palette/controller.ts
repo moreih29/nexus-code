@@ -53,6 +53,14 @@ export class PaletteSearchController<TItem extends PaletteItem> {
     this.abortInFlight();
 
     if (query.trim().length < 1) {
+      // Sources that enumerate a small bounded set (branch picker, etc.) opt
+      // into running search() on empty query so the list appears as soon as
+      // the picker opens. The debounce path is skipped because there is no
+      // typing to coalesce.
+      if (this.source.searchOnEmptyQuery === true) {
+        void this.run(query);
+        return;
+      }
       this.emit({ status: "idle", query, items: [], activeIndex: -1 });
       return;
     }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseV2Porcelain } from "../../../../src/main/git/porcelain-v2";
-import type { GitStatus } from "../../../../src/shared/types/git";
+import { DEFAULT_REPO_CAPABILITIES, type GitStatus } from "../../../../src/shared/types/git";
 
 const HASH = "0123456789abcdef0123456789abcdef01234567";
 const ZERO = "0000000000000000000000000000000000000000";
@@ -11,12 +11,15 @@ interface PorcelainFixture {
   readonly expected: GitStatus;
 }
 
+// The pure parser fills capabilities with defaults; the GitRepository wraps
+// the parsed status with real `git remote` and stash counts before broadcast.
 const cleanStatus: GitStatus = {
   merge: [],
   staged: [],
   working: [],
   untracked: [],
   branch: null,
+  capabilities: { ...DEFAULT_REPO_CAPABILITIES },
 };
 
 const fixtures: PorcelainFixture[] = [
@@ -49,6 +52,7 @@ const fixtures: PorcelainFixture[] = [
       working: [entry("src/working dir/file one.ts", ".M")],
       untracked: [entry("notes/todo item.md", "??")],
       branch: { current: "feature/git-panel", upstream: null, ahead: 0, behind: 0, isUnborn: false },
+      capabilities: { ...DEFAULT_REPO_CAPABILITIES },
     },
   },
   {
