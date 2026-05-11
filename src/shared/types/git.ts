@@ -532,7 +532,6 @@ export type DiffComplete = z.infer<typeof DiffCompleteSchema>;
  *                              remote moved; fetch refreshes the lease.
  *   - `allow-unrelated-histories` Git refused to merge unrelated histories.
  *   - `allow-empty`           Cherry-pick produced an empty commit.
- *   - `configure-signing`     Commit signing failed and needs user config.
  */
 export const GitActionHintSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -559,7 +558,6 @@ export const GitActionHintSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("fetch-then-force") }),
   z.object({ kind: z.literal("allow-unrelated-histories") }),
   z.object({ kind: z.literal("allow-empty") }),
-  z.object({ kind: z.literal("configure-signing") }),
 ]);
 export type GitActionHint = z.infer<typeof GitActionHintSchema>;
 
@@ -609,14 +607,37 @@ export const DEFAULT_GIT_COMMIT_OPTIONS: GitCommitOptions = {
   noVerify: false,
 };
 
-export const GitAutofetchIntervalMinSchema = z.union([
-  z.literal(0),
-  z.literal(1),
-  z.literal(3),
-  z.literal(5),
-  z.literal(15),
-]);
+export const DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN = 3;
+
+const GitAutofetchIntervalMinValueSchema = z.union([z.literal(0), z.literal(3)]);
+
+/** Maps persisted legacy cadence values to the sole supported active interval. */
+function migrateGitAutofetchIntervalMinInput(value: unknown): unknown {
+  if (value === undefined) return value;
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN;
+  if (numeric === 0) return 0;
+  if (numeric === 1 || numeric === 3 || numeric === 5 || numeric === 15) {
+    return DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN;
+  }
+  return value;
+}
+
+export const GitAutofetchIntervalMinSchema = z.preprocess(
+  migrateGitAutofetchIntervalMinInput,
+  GitAutofetchIntervalMinValueSchema,
+);
 export type GitAutofetchIntervalMin = z.infer<typeof GitAutofetchIntervalMinSchema>;
+
+/** Normalizes legacy autofetch intervals to the single supported active cadence. */
+export function normalizeGitAutofetchIntervalMin(value: unknown): GitAutofetchIntervalMin {
+  const parsed = GitAutofetchIntervalMinSchema.safeParse(value);
+  return parsed.success ? parsed.data : DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN;
+}
 
 export const GitAutofetchErrorSchema = z.object({
   kind: z.string().min(1),
@@ -643,7 +664,7 @@ export const GitPanelStateSchema = z.object({
   expandedGroups: GitExpandedGroupsSchema,
   expandedTreeNodes: GitExpandedTreeNodesSchema,
   commitOptions: GitCommitOptionsSchema.default(DEFAULT_GIT_COMMIT_OPTIONS),
-  autofetchIntervalMin: GitAutofetchIntervalMinSchema.default(0),
+  autofetchIntervalMin: GitAutofetchIntervalMinSchema.default(DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN),
   autofetchManualPaused: z.boolean().default(false),
   protectedBranches: z.array(z.string()).default([]),
   panelSegment: GitPanelSegmentSchema.default("changes"),
@@ -660,7 +681,7 @@ export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {
   expandedGroups: { ...DEFAULT_GIT_EXPANDED_GROUPS },
   expandedTreeNodes: { ...DEFAULT_GIT_EXPANDED_TREE_NODES },
   commitOptions: { ...DEFAULT_GIT_COMMIT_OPTIONS },
-  autofetchIntervalMin: 0,
+  autofetchIntervalMin: DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN,
   autofetchManualPaused: false,
   protectedBranches: [],
   panelSegment: "changes",

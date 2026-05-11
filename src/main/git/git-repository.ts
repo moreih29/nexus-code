@@ -295,8 +295,10 @@ export class GitRepository {
 
   /**
    * Checks out an immutable commit in detached-HEAD mode. This is intentionally
-   * separate from branch checkout so History actions never auto-track remotes
-   * or create local branches as a side effect.
+   * separate from branch checkout: `checkout()` runs the branch-list preflight
+   * and may auto-track remote-only refs, while History actions target commits
+   * and must not silently create or move local branches; the explicit
+   * `--detach` also keeps short SHAs safe when they resemble branch names.
    */
   checkoutDetached(sha: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {

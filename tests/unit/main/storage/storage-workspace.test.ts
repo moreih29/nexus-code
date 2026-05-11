@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -273,7 +273,7 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
     const state = storage.getGitPanelState(id);
 
     expect(state.commitOptions).toEqual(DEFAULT_GIT_PANEL_STATE.commitOptions);
-    expect(state.autofetchIntervalMin).toBe(0);
+    expect(state.autofetchIntervalMin).toBe(3);
     expect(state.autofetchManualPaused).toBe(false);
     expect(state.protectedBranches).toEqual([]);
     expect(state.panelSegment).toBe("changes");
@@ -288,7 +288,7 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
     });
     storage.setGitPanelState(id, {
       commitOptions: { sign: true, signoff: true, noVerify: false },
-      autofetchIntervalMin: 5,
+      autofetchIntervalMin: 3,
       autofetchManualPaused: true,
       protectedBranches: ["main", "release/*"],
       panelSegment: "history",
@@ -305,12 +305,51 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
       untracked: true,
     });
     expect(state.commitOptions).toEqual({ sign: true, signoff: true, noVerify: false });
-    expect(state.autofetchIntervalMin).toBe(5);
+    expect(state.autofetchIntervalMin).toBe(3);
     expect(state.autofetchManualPaused).toBe(true);
     expect(state.protectedBranches).toEqual(["main", "release/*"]);
     expect(state.panelSegment).toBe("history");
     expect(state.historyDetailWidth).toBe(420);
     expect(state.historyRef).toBe("origin/main");
+  });
+
+  it("coerces legacy stored autofetch intervals to 3 while preserving Off", () => {
+    const dbPath = path.join(tmpDir, id, "state.db");
+    const db = bunSqliteFactory(dbPath);
+    const writeInterval = db.prepare(
+      "INSERT OR REPLACE INTO git_panel_state (key, value) VALUES (?, ?)",
+    );
+    const deleteInterval = db.prepare("DELETE FROM git_panel_state WHERE key = ?");
+    const cases: Array<readonly [string | undefined, 0 | 3]> = [
+      [undefined, 3],
+      ["0", 0],
+      ["1", 3],
+      ["3", 3],
+      ["5", 3],
+      ["15", 3],
+    ];
+    const warn = mock(() => {});
+    const originalWarn = console.warn;
+    console.warn = warn as typeof console.warn;
+
+    try {
+      for (const [legacyValue, expected] of cases) {
+        if (legacyValue === undefined) {
+          deleteInterval.run("autofetchIntervalMin");
+        } else {
+          writeInterval.run("autofetchIntervalMin", legacyValue);
+        }
+        let interval: 0 | 3 | undefined;
+        expect(() => {
+          interval = storage.getGitPanelState(id).autofetchIntervalMin;
+        }).not.toThrow();
+        expect(interval).toBe(expected);
+      }
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      console.warn = originalWarn;
+      db.close();
+    }
   });
 });
 
@@ -429,7 +468,7 @@ describe("WorkspaceStorage schema v5 migration for git panel preferences", () =>
       untracked: true,
     });
     expect(state.commitOptions).toEqual(DEFAULT_GIT_PANEL_STATE.commitOptions);
-    expect(state.autofetchIntervalMin).toBe(0);
+    expect(state.autofetchIntervalMin).toBe(3);
     expect(state.autofetchManualPaused).toBe(false);
     expect(state.protectedBranches).toEqual([]);
     expect(state.panelSegment).toBe("changes");

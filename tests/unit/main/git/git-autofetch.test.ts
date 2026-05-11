@@ -101,11 +101,10 @@ describe("GitAutofetchScheduler", () => {
 
   it("globally pauses on blur and recalculates due time on focus", async () => {
     const h = createHarness();
-    h.panelState.autofetchIntervalMin = 1;
     await h.scheduler.tick();
 
     h.scheduler.setGlobalPaused(true);
-    h.setNow(60_000);
+    h.setNow(180_000);
     await h.scheduler.tick();
     expect(h.repo.fetchAll).toHaveBeenCalledTimes(0);
 
@@ -113,20 +112,19 @@ describe("GitAutofetchScheduler", () => {
     await h.scheduler.tick();
     expect(h.repo.fetchAll).toHaveBeenCalledTimes(0);
 
-    h.setNow(120_000);
+    h.setNow(360_000);
     await h.scheduler.tick();
     expect(h.repo.fetchAll).toHaveBeenCalledTimes(1);
   });
 
   it("pauses only the failing workspace after three consecutive background failures", async () => {
     const h = createHarness();
-    h.panelState.autofetchIntervalMin = 1;
     h.repo.fetchAll.mockImplementation(async () => {
       throw new GitError("unknown", "network failed");
     });
 
     await h.scheduler.tick();
-    for (const dueAt of [60_000, 120_000, 180_000]) {
+    for (const dueAt of [180_000, 360_000, 540_000]) {
       h.setNow(dueAt);
       await h.scheduler.tick();
     }
@@ -150,15 +148,49 @@ describe("GitAutofetchScheduler", () => {
     expect(h.repo.fetchAll).toHaveBeenCalledTimes(0);
   });
 
+  it("normalizes legacy schedule inputs to the Off/3-minute matrix without throwing", () => {
+    const cases = [
+      [0, 0],
+      [1, 3],
+      [3, 3],
+      [5, 3],
+      [15, 3],
+      [undefined, 3],
+    ] as const;
+
+    for (const [input, expected] of cases) {
+      const h = createHarness();
+
+      expect(() => h.scheduler.setSchedule(workspaceId, input as never)).not.toThrow();
+      expect(h.panelState.autofetchIntervalMin).toBe(expected);
+      expect(h.panelState.autofetchManualPaused).toBe(false);
+    }
+  });
+
+  it("migrates a legacy scheduled interval to the supported 3-minute cadence", async () => {
+    const h = createHarness();
+
+    h.scheduler.setSchedule(workspaceId, 5 as never);
+    await h.scheduler.tick();
+    h.setNow(179_999);
+    await h.scheduler.tick();
+    expect(h.repo.fetchAll).toHaveBeenCalledTimes(0);
+
+    h.setNow(180_000);
+    await h.scheduler.tick();
+
+    expect(h.panelState.autofetchIntervalMin).toBe(3);
+    expect(h.repo.fetchAll).toHaveBeenCalledTimes(1);
+  });
+
   it("marks auth failures sticky and clears errors on the next successful explicit fetch", async () => {
     const h = createHarness();
-    h.panelState.autofetchIntervalMin = 1;
     h.repo.fetchAll.mockImplementationOnce(async () => {
       throw new GitError("auth-required", "credentials required");
     });
 
     await h.scheduler.tick();
-    h.setNow(60_000);
+    h.setNow(180_000);
     await h.scheduler.tick();
 
     const failureEvent = h.events.at(-1) as { lastError: { sticky: boolean } };
@@ -174,13 +206,12 @@ describe("GitAutofetchScheduler", () => {
 
   it("marks network failures non-sticky so the next success auto-clears them", async () => {
     const h = createHarness();
-    h.panelState.autofetchIntervalMin = 1;
     h.repo.fetchAll.mockImplementationOnce(async () => {
       throw new GitError("unknown", "network unavailable");
     });
 
     await h.scheduler.tick();
-    h.setNow(60_000);
+    h.setNow(180_000);
     await h.scheduler.tick();
 
     const failureEvent = h.events.at(-1) as { lastError: { sticky: boolean } };

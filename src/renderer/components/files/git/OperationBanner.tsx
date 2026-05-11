@@ -22,6 +22,8 @@ export interface OperationBannerView {
   continueAriaDisabled: boolean;
 }
 
+type OperationBannerBaseView = Omit<OperationBannerView, "message" | "details">;
+
 interface OperationBannerProps {
   state: ActiveGitOperationState;
   error?: GitStoreError | null;
@@ -75,11 +77,7 @@ export function buildOperationBannerView(
           details: "Resolve files below, then Continue.",
         };
       }
-      return {
-        ...base,
-        message: "Merge ready to continue",
-        details: "All conflicts resolved.",
-      };
+      return readyView("Merge", base);
     case "rebase":
       return rebaseBannerView(state, base);
     case "cherry-pick":
@@ -92,11 +90,7 @@ export function buildOperationBannerView(
           details: state.sourceSubject ?? "Resolve files below, then Continue.",
         };
       }
-      return {
-        ...base,
-        message: "Cherry-pick ready to continue",
-        details: "All conflicts resolved.",
-      };
+      return readyView("Cherry-pick", base);
     case "revert":
       if (conflictCount > 0) {
         return {
@@ -107,11 +101,7 @@ export function buildOperationBannerView(
           details: state.sourceSubject ?? "Resolve files below, then Continue.",
         };
       }
-      return {
-        ...base,
-        message: "Revert ready to continue",
-        details: "All conflicts resolved.",
-      };
+      return readyView("Revert", base);
   }
 }
 
@@ -193,7 +183,7 @@ export function OperationBanner({
  */
 function rebaseBannerView(
   state: Extract<ActiveGitOperationState, { kind: "rebase" }>,
-  base: Omit<OperationBannerView, "message" | "details">,
+  base: OperationBannerBaseView,
 ): OperationBannerView {
   const step = formatRebaseStep(state);
   const onto = formatRef(state.ontoLabel ?? state.ontoRef, "target");
@@ -211,6 +201,11 @@ function rebaseBannerView(
     message: step ? `Rebase paused at ${step}` : `Rebasing onto ${onto}`,
     details: "Resolve, then Continue.",
   };
+}
+
+/** Builds the shared clean workflow ready copy. */
+function readyView(verb: string, base: OperationBannerBaseView): OperationBannerView {
+  return { ...base, message: `${verb} ready to continue`, details: "All conflicts resolved." };
 }
 
 /** Formats rebase progress only when both counters are known. */

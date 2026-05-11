@@ -76,7 +76,7 @@ describe("createTagPickerSource", () => {
     expect(items[0]).toMatchObject({ kind: "create", defaultName: "rel" });
   });
 
-  it("routes Enter reveal, Cmd/Ctrl+Backspace delete, and Shift+Cmd/Ctrl+Backspace delete-remote", async () => {
+  it("routes Enter reveal and Cmd/Ctrl+Backspace delete without shift changing remote default", async () => {
     const { source, revealTag, requestDelete, requestCreate } = buildSource([tag()]);
     const items = await search(source, "");
     const createItem = items[0]!;
@@ -101,7 +101,8 @@ describe("createTagPickerSource", () => {
       modifiers: { ...noModifiers(), meta: true, shift: true },
       key: "Backspace",
     });
-    expect(requestDelete).toHaveBeenCalledWith(tagItem, true);
+    expect(requestDelete).toHaveBeenCalledTimes(2);
+    expect(requestDelete.mock.calls[1]).toEqual([tagItem, false]);
   });
 });
 

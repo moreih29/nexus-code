@@ -13,6 +13,7 @@ import type {
   GitAutofetchStateChanged,
   GitFetchAllResult,
 } from "../../shared/types/git";
+import { normalizeGitAutofetchIntervalMin } from "../../shared/types/git";
 import type { WorkspaceStorage } from "../storage/workspace-storage";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import { GitError } from "./git-error";
@@ -93,9 +94,10 @@ export class GitAutofetchScheduler {
 
   /** Persists and applies one workspace's autofetch cadence. */
   setSchedule(workspaceId: string, intervalMin: GitAutofetchIntervalMin): void {
-    if (intervalMin === 0) {
+    const normalizedIntervalMin = normalizeGitAutofetchIntervalMin(intervalMin);
+    if (normalizedIntervalMin === 0) {
       this.storage.setGitPanelState(workspaceId, {
-        autofetchIntervalMin: intervalMin,
+        autofetchIntervalMin: normalizedIntervalMin,
         autofetchManualPaused: false,
       });
       const state = this.stateFor(workspaceId);
@@ -108,11 +110,11 @@ export class GitAutofetchScheduler {
     }
 
     this.storage.setGitPanelState(workspaceId, {
-      autofetchIntervalMin: intervalMin,
+      autofetchIntervalMin: normalizedIntervalMin,
       autofetchManualPaused: false,
     });
     const state = this.stateFor(workspaceId);
-    state.nextFetchAt = this.now() + intervalToMs(intervalMin);
+    state.nextFetchAt = this.now() + intervalToMs(normalizedIntervalMin);
     state.consecutiveFailures = 0;
     state.lastError = null;
     state.pausedBannerShown = false;

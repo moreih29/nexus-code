@@ -26,8 +26,6 @@ describe("Git file context menu rules", () => {
       "Open Diff",
       "Open in External Editor",
       "Mark Resolved",
-      "Take Ours",
-      "Take Theirs",
       "Discard",
     ]);
     expect(mergeLabels).not.toContain("Add to .gitignore");
@@ -59,23 +57,6 @@ describe("Git file context menu rules", () => {
     expect(clipboard).toBe("/repo/src/app.ts");
     select(items, "Copy Relative Path");
     expect(clipboard).toBe("src/app.ts");
-  });
-
-  it("keeps unresolved take actions disabled until the merge editor exists", () => {
-    const items = buildGitFileContextMenuItems("merge", makeActions());
-    const takeOurs = items.find((item) => item.kind === "item" && item.label === "Take Ours");
-    const takeTheirs = items.find((item) => item.kind === "item" && item.label === "Take Theirs");
-
-    expect(takeOurs).toMatchObject({
-      kind: "item",
-      disabled: true,
-      title: "Available with the merge editor.",
-    });
-    expect(takeTheirs).toMatchObject({
-      kind: "item",
-      disabled: true,
-      title: "Available with the merge editor.",
-    });
   });
 
   it("renders conflict hover actions with path-specific mark-resolved aria label", () => {

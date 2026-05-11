@@ -5,8 +5,7 @@
  * Modifier accepts route destructive actions through the dialog owner:
  *
  *   - Enter                         → reveal the tag in the History panel.
- *   - Cmd/Ctrl+Backspace            → delete local tag.
- *   - Shift+Cmd/Ctrl+Backspace      → delete local tag and remote tag.
+ *   - Cmd/Ctrl+Backspace            → open the delete tag dialog.
  */
 import type { Tag } from "../../../../shared/types/git";
 import type { PaletteItem, PaletteSource } from "../../ui/palette/types";
@@ -65,7 +64,7 @@ export function createTagPickerSource(
 
       const metaOrCtrl = context?.modifiers?.meta === true || context?.modifiers?.ctrl === true;
       if (metaOrCtrl && isDeleteKey(context?.key)) {
-        input.requestDelete(item, context?.modifiers?.shift === true);
+        input.requestDelete(item, false);
         return;
       }
 

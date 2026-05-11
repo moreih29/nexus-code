@@ -3,7 +3,7 @@
  * context menu. Branch-management pickers remain owned by GitPanel; this
  * surface focuses on fetch/pull/push/publish decisions.
  */
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type {
   BranchInfo,
@@ -52,6 +52,17 @@ export interface GitBranchContextMenuItem {
 interface ContextPoint {
   readonly x: number;
   readonly y: number;
+}
+
+export interface GitBranchPopoverContentProps {
+  readonly branch: BranchInfo | null;
+  readonly repoPath?: string;
+  readonly disabled?: boolean;
+  readonly primaryAction: GitBranchPrimaryAction;
+  readonly autofetchFetching?: boolean;
+  readonly autofetchFailed?: boolean;
+  readonly onPrimary: () => void;
+  readonly onRetryFetch: () => void;
 }
 
 /** Chooses the single CTA shown in the branch popover body. */
@@ -149,7 +160,6 @@ export function GitBranchPopover({
   }, []);
   useDismissOnOutsideClick(wrapperRef, open || contextPoint !== null, close);
 
-  const branchName = branch?.current ?? "No branch";
   const primaryAction = getGitBranchPrimaryAction({
     branch,
     capabilities,
@@ -188,8 +198,6 @@ export function GitBranchPopover({
         repoPath={repoPath}
         disabled={disabled}
         open={open}
-        fetching={autofetchFetching}
-        failed={autofetchFailed}
         onClick={() => setOpen((value) => !value)}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -201,55 +209,24 @@ export function GitBranchPopover({
         <div
           role="dialog"
           aria-label="Branch details"
-          className="absolute bottom-8 left-0 z-40 w-[240px] rounded border border-mist-border bg-popover p-2 text-popover-foreground shadow-sm"
+          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] rounded border border-mist-border bg-popover p-2 text-popover-foreground shadow-sm"
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
           }}
         >
-          <p className="truncate text-app-body text-foreground" title={branchName}>
-            {branchName}
-          </p>
-          {branch?.upstream ? (
-            <p
-              className="mt-0.5 truncate text-app-ui-sm text-muted-foreground"
-              title={branch.upstream}
-            >
-              Tracking {branch.upstream}
-            </p>
-          ) : (
-            <p className="mt-0.5 text-app-ui-sm text-muted-foreground">No upstream configured</p>
-          )}
-          {repoPath ? (
-            <p className="mt-1 truncate text-app-ui-sm text-muted-foreground" title={repoPath}>
-              {repoPath}
-            </p>
-          ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="mt-2 h-7 w-full"
-            disabled={disabled || primaryAction.disabled}
-            title={primaryAction.reason ?? primaryAction.label}
-            onClick={runPrimary}
-          >
-            {primaryAction.label}
-          </Button>
-          {autofetchFailed ? (
-            <div className="mt-2 flex items-center justify-between gap-2 border-t border-mist-border pt-2 text-app-ui-sm text-muted-foreground">
-              <span>Last fetch failed</span>
-              <button
-                type="button"
-                className="rounded-[3px] px-1 text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
-                onClick={() => {
-                  setOpen(false);
-                  onFetch();
-                }}
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
+          <GitBranchPopoverContent
+            branch={branch}
+            repoPath={repoPath}
+            disabled={disabled}
+            primaryAction={primaryAction}
+            autofetchFetching={autofetchFetching}
+            autofetchFailed={autofetchFailed}
+            onPrimary={runPrimary}
+            onRetryFetch={() => {
+              setOpen(false);
+              onFetch();
+            }}
+          />
         </div>
       ) : null}
       <BranchContextMenu
@@ -276,6 +253,97 @@ export function GitBranchPopover({
           runAction(id);
         }}
       />
+    </div>
+  );
+}
+
+/** Renders the popover body so the header/status layout can be unit-tested. */
+export function GitBranchPopoverContent({
+  branch,
+  repoPath,
+  disabled = false,
+  primaryAction,
+  autofetchFetching = false,
+  autofetchFailed = false,
+  onPrimary,
+  onRetryFetch,
+}: GitBranchPopoverContentProps) {
+  const branchName = branch?.current ?? "No branch";
+
+  return (
+    <>
+      <p className="truncate text-app-body text-foreground" title={branchName}>
+        {branchName}
+      </p>
+      {branch?.upstream ? (
+        <p className="mt-0.5 truncate text-app-ui-sm text-muted-foreground" title={branch.upstream}>
+          Tracking {branch.upstream}
+        </p>
+      ) : (
+        <p className="mt-0.5 text-app-ui-sm text-muted-foreground">No upstream configured</p>
+      )}
+      {repoPath ? (
+        <p className="mt-1 truncate text-app-ui-sm text-muted-foreground" title={repoPath}>
+          {repoPath}
+        </p>
+      ) : null}
+      <GitBranchFetchStatus
+        fetching={autofetchFetching}
+        failed={autofetchFailed}
+        onRetry={onRetryFetch}
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="mt-2 h-7 w-full"
+        disabled={disabled || primaryAction.disabled}
+        title={primaryAction.reason ?? primaryAction.label}
+        onClick={onPrimary}
+      >
+        {primaryAction.label}
+      </Button>
+    </>
+  );
+}
+
+/** Renders fetch status in the popover header area rather than the trigger glyph. */
+function GitBranchFetchStatus({
+  fetching,
+  failed,
+  onRetry,
+}: {
+  fetching: boolean;
+  failed: boolean;
+  onRetry: () => void;
+}) {
+  if (fetching) {
+    return (
+      <div
+        role="status"
+        className="mt-2 flex items-center gap-1.5 rounded-sm bg-frosted-veil px-2 py-1 text-app-ui-sm text-muted-foreground"
+      >
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        <span>Fetching…</span>
+      </div>
+    );
+  }
+
+  if (!failed) return null;
+
+  return (
+    <div
+      role="alert"
+      className="mt-2 flex items-center justify-between gap-2 rounded-sm bg-frosted-veil px-2 py-1 text-app-ui-sm text-muted-foreground"
+    >
+      <span>Fetch failed</span>
+      <button
+        type="button"
+        className="rounded-[3px] px-1 text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+        onClick={onRetry}
+      >
+        Retry
+      </button>
     </div>
   );
 }

@@ -45,17 +45,14 @@ describe("GitMoreMenu Remotes submenu model", () => {
 });
 
 describe("GitMoreMenu Autofetch submenu model", () => {
-  it("offers Off and the accepted interval choices with 3 minutes marked as default", () => {
-    const labels = buildAutofetchMenuModel(3).map((item) =>
-      item.selected ? `selected:${item.label}` : item.label,
-    );
-
-    expect(labels).toEqual([
-      "Off",
-      "Every 1 min",
-      "selected:Every 3 min (default)",
-      "Every 5 min",
-      "Every 15 min",
+  it("offers exactly Off and Every 3 min with the selected interval checked", () => {
+    expect(buildAutofetchMenuModel(3)).toEqual([
+      { intervalMin: 0, label: "Off", selected: false },
+      { intervalMin: 3, label: "Every 3 min", selected: true },
+    ]);
+    expect(buildAutofetchMenuModel(0)).toEqual([
+      { intervalMin: 0, label: "Off", selected: true },
+      { intervalMin: 3, label: "Every 3 min", selected: false },
     ]);
   });
 

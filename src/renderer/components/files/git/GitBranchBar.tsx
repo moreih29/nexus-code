@@ -44,7 +44,7 @@ export function GitBranchBar({
   onSetAutofetchInterval,
 }: GitBranchBarProps) {
   return (
-    <div className="flex h-7 shrink-0 items-center gap-1 border-t border-mist-border bg-frosted-veil px-1 text-app-ui-sm text-muted-foreground">
+    <div className="flex h-11 shrink-0 items-center gap-1 border-t border-mist-border bg-frosted-veil px-1 text-app-ui-sm text-muted-foreground">
       <GitBranchPopover
         workspaceId={workspaceId}
         branch={branch}

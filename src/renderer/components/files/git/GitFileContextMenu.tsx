@@ -113,21 +113,6 @@ export function buildGitFileContextMenuItems(
         onSelect: actions.markResolved ?? noop,
       },
       { kind: "separator" },
-      {
-        kind: "item",
-        label: "Take Ours",
-        disabled: true,
-        title: "Available with the merge editor.",
-        onSelect: noop,
-      },
-      {
-        kind: "item",
-        label: "Take Theirs",
-        disabled: true,
-        title: "Available with the merge editor.",
-        onSelect: noop,
-      },
-      { kind: "separator" },
       { kind: "item", label: "Discard", destructive: true, onSelect: actions.discard ?? noop },
     ]);
   }

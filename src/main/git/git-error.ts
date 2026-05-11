@@ -653,8 +653,6 @@ export function gitErrorFromExit(options: {
  */
 function hintForGitErrorKind(kind: GitErrorKind): GitActionHint | undefined {
   switch (kind) {
-    case "signing-failed":
-      return { kind: "configure-signing" };
     case "non-fast-forward":
       return { kind: "pull-then-retry" };
     case "force-push-rejected":

@@ -140,7 +140,7 @@ describe("classifyGitStderr", () => {
     expect(error.hint).toEqual({ kind: "allow-empty" });
   });
 
-  test("attaches configure-signing hint to signing failures", () => {
+  test("classifies signing failures without an action hint", () => {
     const error = gitErrorFromExit({
       args: ["commit", "-S", "-m", "signed"],
       stderr: "error: gpg failed to sign the data\nfatal: failed to write commit object\n",
@@ -149,7 +149,7 @@ describe("classifyGitStderr", () => {
     });
 
     expect(error.kind).toBe("signing-failed");
-    expect(error.hint).toEqual({ kind: "configure-signing" });
+    expect(error.hint).toBeUndefined();
   });
 
   test("classifies branch-not-fully-merged as branch-not-fully-merged", () => {
