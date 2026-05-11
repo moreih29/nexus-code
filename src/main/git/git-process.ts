@@ -338,24 +338,30 @@ function buildGitEnv(env: NodeJS.ProcessEnv | undefined, interactive: boolean): 
   };
 
   if (!interactive) {
-    return {
+    const nonInteractive: NodeJS.ProcessEnv = {
       ...merged,
       GIT_ASKPASS: GIT_PROCESS_ENV.GIT_ASKPASS,
       SSH_ASKPASS_REQUIRE: GIT_PROCESS_ENV.SSH_ASKPASS_REQUIRE,
       SSH_ASKPASS: GIT_PROCESS_ENV.SSH_ASKPASS,
     };
+    // Non-interactive Git ops have no panel UX to surface an editor dialog,
+    // so we must not inherit the user's `GIT_EDITOR` (e.g. `nvim`, `code -w`).
+    // The helpers-launcher path (interactive=true with `editor: true`) is the
+    // sanctioned channel for editor-driven operations.
+    unsetInheritedEnv(nonInteractive, env, "GIT_EDITOR");
+    return nonInteractive;
   }
 
-  unsetInheritedPromptEnv(merged, env, "GIT_ASKPASS");
-  unsetInheritedPromptEnv(merged, env, "SSH_ASKPASS");
-  unsetInheritedPromptEnv(merged, env, "SSH_ASKPASS_REQUIRE");
+  unsetInheritedEnv(merged, env, "GIT_ASKPASS");
+  unsetInheritedEnv(merged, env, "SSH_ASKPASS");
+  unsetInheritedEnv(merged, env, "SSH_ASKPASS_REQUIRE");
   return merged;
 }
 
 /**
- * Removes inherited prompt helpers unless the caller supplied an override.
+ * Removes an inherited env var unless the caller supplied an explicit override.
  */
-function unsetInheritedPromptEnv(
+function unsetInheritedEnv(
   env: NodeJS.ProcessEnv,
   overrides: NodeJS.ProcessEnv | undefined,
   key: string,
