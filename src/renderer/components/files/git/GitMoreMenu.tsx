@@ -14,17 +14,27 @@
  *
  * Tooltips spell out the reason a disabled item is disabled so the user
  * knows what to do next without trial and error.
+ *
+ * All submenu flyout panels are rendered via React Portal (`document.body`)
+ * with `position: fixed` coordinates so they escape any `overflow: hidden`
+ * ancestor chain in the panel layout.  Outside-click containment uses
+ * `useDismissOnOutsideClickWithMarker` with the `data-popover-root="git-more"`
+ * attribute so portal nodes are correctly included in the "inside" region.
  */
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   BranchInfo,
   GitAutofetchIntervalMin,
   RepoCapabilities,
 } from "../../../../shared/types/git";
 import { Button } from "../../ui/button";
-import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
+import { useDismissOnOutsideClickWithMarker } from "../../ui/use-dismiss-on-outside-click";
 import { useSubmenuPlacement } from "../../ui/use-submenu-placement";
+
+/** Marker value shared by all portal panels in this menu. */
+const PORTAL_MARKER = "git-more";
 
 export type GitRemotesMenuSpec =
   | { kind: "remote"; remote: string; label: string }
@@ -491,7 +501,10 @@ export function GitMoreMenu({
     setTagOpen(false);
     setAutofetchOpen(false);
   }, []);
-  useDismissOnOutsideClick(wrapperRef, open, close);
+
+  // Use the marker-aware dismiss hook so portal panels (which live outside
+  // wrapperRef in the DOM) are treated as "inside" and do not trigger close.
+  useDismissOnOutsideClickWithMarker(wrapperRef, open, close, PORTAL_MARKER);
 
   function run(action: () => void): void {
     close();
@@ -666,7 +679,7 @@ function BranchSubmenu({
 }) {
   const model = buildGitBranchMenuModel({ disabled, hasHead });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
   const handlers: GitBranchMenuActionHandlers = {
     onMergeBranch,
     onRebaseBranch,
@@ -692,29 +705,32 @@ function BranchSubmenu({
         <span>Branch</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[220px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {model.map((item) =>
-            item.kind === "separator" ? (
-              <MenuSeparator key={item.id} />
-            ) : (
-              <MenuButton
-                key={item.id}
-                label={item.label}
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => runGitBranchMenuAction(item.id, handlers)}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[220px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {model.map((item) =>
+                item.kind === "separator" ? (
+                  <MenuSeparator key={item.id} />
+                ) : (
+                  <MenuButton
+                    key={item.id}
+                    label={item.label}
+                    disabled={item.disabled}
+                    title={item.title}
+                    onClick={() => runGitBranchMenuAction(item.id, handlers)}
+                  />
+                ),
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -743,7 +759,7 @@ function StashSubmenu({
 }) {
   const model = buildGitStashMenuModel({ disabled, hasHead, stashCount });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   function select(id: GitStashMenuItemId): void {
     switch (id) {
@@ -774,29 +790,32 @@ function StashSubmenu({
         <span>Stash</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {model.map((item) =>
-            item.kind === "separator" ? (
-              <MenuSeparator key="stash-separator" />
-            ) : (
-              <MenuButton
-                key={item.id}
-                label={item.label}
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => select(item.id)}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {model.map((item) =>
+                item.kind === "separator" ? (
+                  <MenuSeparator key="stash-separator" />
+                ) : (
+                  <MenuButton
+                    key={item.id}
+                    label={item.label}
+                    disabled={item.disabled}
+                    title={item.title}
+                    onClick={() => select(item.id)}
+                  />
+                ),
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -825,7 +844,7 @@ function TagSubmenu({
   const [deleteRemoteTagRemoteOpen, setDeleteRemoteTagRemoteOpen] = useState(false);
   const [pushTagsRemoteOpen, setPushTagsRemoteOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
   const tagHandlers: GitTagMenuActionHandlers = { onOpenTags };
 
   useEffect(() => {
@@ -862,45 +881,49 @@ function TagSubmenu({
         <span>Tag</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {model.map((item) =>
-            item.kind === "separator" ? (
-              <MenuSeparator key={item.id} />
-            ) : item.id === "delete-remote" && deleteRemoteTagAction.kind === "choose-remote" ? (
-              <DeleteRemoteTagRemoteSubmenu
-                key={item.id}
-                open={deleteRemoteTagRemoteOpen}
-                remotes={deleteRemoteTagAction.remotes}
-                onOpenChange={setDeleteRemoteTagRemoteOpen}
-                onOpenTags={onOpenTags}
-              />
-            ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
-              <PushTagsRemoteSubmenu
-                key={item.id}
-                open={pushTagsRemoteOpen}
-                remotes={pushTagsAction.remotes}
-                onOpenChange={setPushTagsRemoteOpen}
-                onPushTags={onPushTags}
-              />
-            ) : (
-              <MenuButton
-                key={item.id}
-                label={item.label}
-                disabled={item.disabled}
-                title={item.title}
-                onClick={() => select(item.id)}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {model.map((item) =>
+                item.kind === "separator" ? (
+                  <MenuSeparator key={item.id} />
+                ) : item.id === "delete-remote" &&
+                  deleteRemoteTagAction.kind === "choose-remote" ? (
+                  <DeleteRemoteTagRemoteSubmenu
+                    key={item.id}
+                    open={deleteRemoteTagRemoteOpen}
+                    remotes={deleteRemoteTagAction.remotes}
+                    onOpenChange={setDeleteRemoteTagRemoteOpen}
+                    onOpenTags={onOpenTags}
+                  />
+                ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
+                  <PushTagsRemoteSubmenu
+                    key={item.id}
+                    open={pushTagsRemoteOpen}
+                    remotes={pushTagsAction.remotes}
+                    onOpenChange={setPushTagsRemoteOpen}
+                    onPushTags={onPushTags}
+                  />
+                ) : (
+                  <MenuButton
+                    key={item.id}
+                    label={item.label}
+                    disabled={item.disabled}
+                    title={item.title}
+                    onClick={() => select(item.id)}
+                  />
+                ),
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -920,7 +943,7 @@ function DeleteRemoteTagRemoteSubmenu({
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
@@ -936,23 +959,26 @@ function DeleteRemoteTagRemoteSubmenu({
         <span>Delete Remote Tag…</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {remotes.map((remote) => (
-            <MenuButton
-              key={remote}
-              label={remote}
-              onClick={() => onOpenTags("delete-remote", remote)}
-            />
-          ))}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {remotes.map((remote) => (
+                <MenuButton
+                  key={remote}
+                  label={remote}
+                  onClick={() => onOpenTags("delete-remote", remote)}
+                />
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -972,7 +998,7 @@ function PushTagsRemoteSubmenu({
   onPushTags: (remote: string) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
@@ -988,19 +1014,22 @@ function PushTagsRemoteSubmenu({
         <span>Push Tags</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {remotes.map((remote) => (
-            <MenuButton key={remote} label={remote} onClick={() => onPushTags(remote)} />
-          ))}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {remotes.map((remote) => (
+                <MenuButton key={remote} label={remote} onClick={() => onPushTags(remote)} />
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -1032,7 +1061,7 @@ function RemotesSubmenu({
   const model = buildGitRemotesMenuModel(remotes);
   const currentRemotes = model.filter((item) => item.kind === "remote" || item.kind === "empty");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
@@ -1049,34 +1078,37 @@ function RemotesSubmenu({
         <span>Remote</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          <div className="max-h-[40vh] overflow-y-auto">
-            {currentRemotes.map((item) =>
-              item.kind === "remote" ? (
-                <RemoteLabel key={item.remote} label={item.label} />
-              ) : (
-                <RemoteLabel key="empty" label={item.label} muted />
-              ),
-            )}
-          </div>
-          <MenuSeparator />
-          <MenuButton label="Add remote…" onClick={onAddRemote} disabled={disabled} />
-          <RemoveRemoteSubmenu
-            open={removeOpen}
-            remotes={remotes}
-            disabled={disabled || remotes.length === 0}
-            onOpenChange={onRemoveOpenChange}
-            onRemoveRemote={onRemoveRemote}
-          />
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              <div className="max-h-[40vh] overflow-y-auto">
+                {currentRemotes.map((item) =>
+                  item.kind === "remote" ? (
+                    <RemoteLabel key={item.remote} label={item.label} />
+                  ) : (
+                    <RemoteLabel key="empty" label={item.label} muted />
+                  ),
+                )}
+              </div>
+              <MenuSeparator />
+              <MenuButton label="Add remote…" onClick={onAddRemote} disabled={disabled} />
+              <RemoveRemoteSubmenu
+                open={removeOpen}
+                remotes={remotes}
+                disabled={disabled || remotes.length === 0}
+                onOpenChange={onRemoveOpenChange}
+                onRemoveRemote={onRemoveRemote}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -1099,7 +1131,7 @@ function AutofetchSubmenu({
 }) {
   const model = buildAutofetchMenuModel(selected);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
@@ -1116,27 +1148,30 @@ function AutofetchSubmenu({
         <span>Autofetch</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {model.map((item) => (
-            <MenuButton
-              key={item.intervalMin}
-              label={`${item.selected ? "✓ " : ""}${item.label}`}
-              onClick={() => onSelect(item.intervalMin)}
-            />
-          ))}
-          <MenuSeparator />
-          <div className="px-2 py-1 text-app-ui-sm text-muted-foreground">
-            {formatLastFetchedCaption(lastFetchedAt)}
-          </div>
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {model.map((item) => (
+                <MenuButton
+                  key={item.intervalMin}
+                  label={`${item.selected ? "✓ " : ""}${item.label}`}
+                  onClick={() => onSelect(item.intervalMin)}
+                />
+              ))}
+              <MenuSeparator />
+              <div className="px-2 py-1 text-app-ui-sm text-muted-foreground">
+                {formatLastFetchedCaption(lastFetchedAt)}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -1160,6 +1195,9 @@ function RemoteLabel({ label, muted = false }: { label: string; muted?: boolean 
 
 /**
  * Renders the remove-remote picker nested under the Remotes flyout.
+ * This component is rendered inside the RemotesSubmenu portal, so it does
+ * NOT need its own portal — it is already in the body-level stacking context.
+ * Its nested submenu panel IS portaled separately.
  */
 function RemoveRemoteSubmenu({
   open,
@@ -1175,7 +1213,7 @@ function RemoveRemoteSubmenu({
   onRemoveRemote: (remote: string) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
@@ -1193,19 +1231,22 @@ function RemoveRemoteSubmenu({
         <span>Remove remote…</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          role="menu"
-          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
-            placement === "up" ? "bottom-0" : "top-0"
-          }`}
-        >
-          {remotes.map((remote) => (
-            <MenuButton key={remote} label={remote} onClick={() => onRemoveRemote(remote)} />
-          ))}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              data-popover-root={PORTAL_MARKER}
+              style={style}
+              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+            >
+              {remotes.map((remote) => (
+                <MenuButton key={remote} label={remote} onClick={() => onRemoveRemote(remote)} />
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
