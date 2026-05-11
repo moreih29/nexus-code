@@ -126,6 +126,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const setPanelSegment = useGitStore((state) => state.setPanelSegment);
   const setHistoryDetailWidth = useGitStore((state) => state.setHistoryDetailWidth);
   const setHistoryRef = useGitStore((state) => state.setHistoryRef);
+  const setHistoryScope = useGitStore((state) => state.setHistoryScope);
   const setExpandedGroup = useGitStore((state) => state.setExpandedGroup);
   const setViewMode = useGitStore((state) => state.setViewMode);
   const setCompactFolders = useGitStore((state) => state.setCompactFolders);
@@ -633,6 +634,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   function revealTagInHistory(tag: Tag): void {
     const ref = tagHistoryRef(tag);
     setHistoryRef(workspaceId, ref);
+    setHistoryScope(workspaceId, "ref");
     setPanelSegment(workspaceId, "history");
     setTagPickerOpen(false);
     setContextBanner({
@@ -647,6 +649,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const compactFolders = session?.compactFolders ?? false;
   const panelSegment = session?.panelSegment ?? DEFAULT_GIT_PANEL_STATE.panelSegment;
   const historyRef = session?.historyRef ?? DEFAULT_GIT_PANEL_STATE.historyRef;
+  const historyScope = session?.historyScope ?? DEFAULT_GIT_PANEL_STATE.historyScope;
   const historyDetailWidth =
     session?.historyDetailWidth ?? DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
   const hasRemote = capabilities.remotes.length > 0;
@@ -804,9 +807,11 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
             <HistoryPanel
               workspaceId={workspaceId}
               refName={historyRef}
+              historyScope={historyScope}
               detailWidth={historyDetailWidth}
               busy={isBusy}
               onRefChange={(nextRef) => setHistoryRef(workspaceId, nextRef)}
+              onScopeChange={(nextScope) => setHistoryScope(workspaceId, nextScope)}
               onDetailWidthChange={(width) => setHistoryDetailWidth(workspaceId, width)}
             />
           ) : (

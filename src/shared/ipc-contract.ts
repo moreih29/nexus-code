@@ -54,6 +54,7 @@ import {
   GitFetchAllResultSchema,
   GitHelperPromptIdArgsSchema,
   GitIgnoreAppendResultSchema,
+  GitLogScopeSchema,
   GitMarkResolvedResultSchema,
   GitMergeModeSchema,
   GitMergeResultSchema,
@@ -643,6 +644,7 @@ export const ipcContract = {
       log: stream(
         GitWorkspaceIdSchema.extend({
           ref: z.string().min(1).optional(),
+          scope: GitLogScopeSchema.optional(),
           afterSha: z.string().min(1).optional(),
           grep: z.string().min(1).optional(),
           skip: z.number().int().nonnegative().optional(),

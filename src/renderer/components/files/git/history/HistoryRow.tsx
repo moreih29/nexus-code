@@ -1,8 +1,15 @@
 /**
  * Single-line commit row for the History list.
  */
+
 import { MoreHorizontal } from "lucide-react";
+import type React from "react";
 import type { LogEntry } from "../../../../../shared/types/git";
+
+const HISTORY_ROW_GRID_CLASS =
+  "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px] items-center gap-2";
+const HISTORY_ROW_INTERACTION_CLASS =
+  "group border-l-2 pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
 export interface HistoryRowMenuRequest {
   entry: LogEntry;
@@ -12,15 +19,35 @@ export interface HistoryRowMenuRequest {
 interface HistoryRowProps {
   entry: LogEntry;
   selected: boolean;
+  tabIndex: 0 | -1;
+  ariaSetSize: number;
+  ariaPosInSet: number;
+  rowRef?: (element: HTMLDivElement | null) => void;
+  graphSlot?: React.ReactNode;
+  refSlot?: React.ReactNode;
+  onFocus: () => void;
   onSelect: (entry: LogEntry) => void;
   onOpenMenu: (request: HistoryRowMenuRequest) => void;
 }
 
 /** Renders one focusable commit row with hover, selected, and focus states. */
-export function HistoryRow({ entry, selected, onSelect, onOpenMenu }: HistoryRowProps) {
+export function HistoryRow({
+  entry,
+  selected,
+  tabIndex,
+  ariaSetSize,
+  ariaPosInSet,
+  rowRef,
+  graphSlot,
+  refSlot,
+  onFocus,
+  onSelect,
+  onOpenMenu,
+}: HistoryRowProps) {
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const subject = entry.subject || "(no subject)";
 
+  /** Opens the commit action menu aligned to the row or action trigger. */
   function openMenuFromElement(element: HTMLElement): void {
     const rect = element.getBoundingClientRect();
     onOpenMenu({
@@ -31,16 +58,21 @@ export function HistoryRow({ entry, selected, onSelect, onOpenMenu }: HistoryRow
 
   return (
     <div
+      ref={rowRef}
       role="option"
       aria-selected={selected}
-      tabIndex={0}
+      aria-setsize={ariaSetSize}
+      aria-posinset={ariaPosInSet}
+      tabIndex={tabIndex}
       className={
         selected
-          ? "group grid h-8 grid-cols-[10px_minmax(0,1fr)_8ch_5ch_7ch_24px] items-center gap-2 border-l-2 border-ring bg-frosted-veil-strong pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-          : "group grid h-8 grid-cols-[10px_minmax(0,1fr)_8ch_5ch_7ch_24px] items-center gap-2 border-l-2 border-transparent pl-1 pr-1 text-app-ui-sm text-foreground hover:bg-frosted-veil focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          ? `${HISTORY_ROW_GRID_CLASS} ${HISTORY_ROW_INTERACTION_CLASS} border-ring bg-frosted-veil-strong`
+          : `${HISTORY_ROW_GRID_CLASS} ${HISTORY_ROW_INTERACTION_CLASS} border-transparent hover:bg-frosted-veil`
       }
+      onFocus={onFocus}
       onClick={() => onSelect(entry)}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter") onSelect(entry);
         if (event.key === "." && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
@@ -52,8 +84,16 @@ export function HistoryRow({ entry, selected, onSelect, onOpenMenu }: HistoryRow
         onOpenMenu({ entry, point: { x: event.clientX, y: event.clientY } });
       }}
     >
-      <span className="size-1.5 rounded-full bg-muted-foreground/70" aria-hidden="true" />
-      <span className="truncate" title={subject}>
+      <span
+        className="flex min-w-0 items-center justify-center"
+        aria-hidden={graphSlot ? undefined : true}
+      >
+        {graphSlot ?? <span className="size-1.5 rounded-full bg-muted-foreground/70" />}
+      </span>
+      <span className="min-w-0 overflow-hidden" aria-hidden={refSlot ? undefined : true}>
+        {refSlot}
+      </span>
+      <span className="truncate leading-6" title={subject}>
         {subject}
       </span>
       <span className="truncate text-muted-foreground" title={entry.authorName}>
@@ -65,7 +105,7 @@ export function HistoryRow({ entry, selected, onSelect, onOpenMenu }: HistoryRow
       <span className="truncate font-mono text-muted-foreground">{shortSha}</span>
       <button
         type="button"
-        className="rounded p-1 text-muted-foreground opacity-0 hover:bg-frosted-veil-strong hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
+        className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-frosted-veil-strong hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
         aria-label={`Open commit actions for ${shortSha}`}
         onClick={(event) => {
           event.stopPropagation();

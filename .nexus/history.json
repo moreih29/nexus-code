@@ -10142,6 +10142,553 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-11T14:14:13.970Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 38,
+        "topic": "Git History 풀 graph 패널 (A안)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "IPC + LogEntry 스키마 확장 — --branches/--all 토글 지원, %D ref decoration 수집, refs 필드 추가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "IPC argv는 SHA-cursor pagination(`<sha>^@`). `%D` 추가 + main-side 파싱(renderer가 git 버전 grammar 노출되지 않게). `LogEntrySchema.refs: Array<{name, kind: \"head\"|\"branch\"|\"remote\"|\"tag\", isHead}>`. `scope` enum 별도 추가(\"ref\"/\"all\"/\"branches\") — `ref=\"--all\"` 문자열 conflation 금지(pagination semantics 깨짐). `--source` 추가해 `%S`로 originating ref 확보(첫 부모 lane stability). `skip` 폐기. page-boundary lane 연속성은 renderer-side stateful reducer가 책임(IPC contract엔 hint만). CRITICAL: `--source --all` cost 50k+ history에서 benchmark 필요. WARNING: HEAD 이동 시 페이지 간 decoration 불일치 → `statusChanged` refetch로 mitigate.",
+                "recorded_at": "2026-05-11T12:48:32.005Z",
+                "agent_id": "afc5aaeead4f10138"
+              }
+            ],
+            "decision": "**선택**: (1) `git log` argv에 `%D` 추가하고 main-side에서 파싱하여 `LogEntrySchema.refs: Array<{name: string, kind: \"head\"|\"branch\"|\"remote\"|\"tag\", isHead: boolean}>` 도입. (2) `git.stream.log` IPC에 `scope: \"ref\"|\"all\"|\"branches\"` enum 인자 별도 추가 — argv 분기를 enum으로 분리. (3) scope가 `all`/`branches`일 때 `--source` + `%S` 추가하여 originating ref(첫 부모 lane stability에 사용)를 페이로드에 포함. (4) `skip` 파라미터는 scope≠\"ref\"일 때 사용 금지(`--all`과 결합 시 ref 이동으로 결과 비결정성). (5) 페이지 boundary lane 연속성은 IPC contract엔 hint만 두고 renderer-side stateful reducer(이슈 2)가 책임.\n\n**기각**:\n- `refs: string[]` 원본 그대로 — renderer마다 git-version-coupled grammar 재파싱이라 거부. main 1곳 파싱이 단일 책임.\n- `--graph` argv — ASCII glyph만 emit하고 column index가 없어 Canvas에 무용. 거부.\n- `ref=\"--all\"` 문자열 conflation — pagination semantics(`<sha>^@`)를 깨뜨림. enum 분리가 필수.\n\n**가정 / 미해결**:\n- `--source --all`이 50k+ 커밋 packfile-heavy repo에서 cost 증가가 user-visible할지 미검증. 첫 구현 시 측정 task 필수.\n- HEAD가 page 1과 page 2 fetch 사이 이동 시 decoration 불일치 — 기존 `statusChanged` refetch 채널로 mitigate."
+          },
+          {
+            "id": 2,
+            "title": "Lane assignment 알고리즘 — forward sweep 자체 구현, octopus/criss-cross 정책, 페이지 streaming 일관성",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "순수 함수 reducer(`reduceLanes(prev: LaneState, page: LogEntry[]): LaneState`)로 페이지 boundary state caching 자연 구현. 위치 `src/renderer/components/files/git/history/graph/lane-assign.ts`. forward sweep \"first-parent stays\" 알고리즘. octopus(parents>2)는 각 추가 부모를 새 lane으로 발행 + dedupe(`openLanes.indexOf(p)`)로 criss-cross 자연 처리. `MAX_LANES=24` 캡 + spill indicator. Worker 이전 경로 보장(pure fn = seam). 테스트 fixture ≥6: linear/merge/octopus/criss-cross/orphan/detached. CRITICAL: scope=\"all\"의 graph 시각 복잡도 확인.",
+                "recorded_at": "2026-05-11T12:48:36.110Z",
+                "agent_id": "afc5aaeead4f10138"
+              }
+            ],
+            "decision": "**선택**: forward sweep \"first-parent stays\" 알고리즘을 순수 함수 reducer로 자체 구현. 위치 `src/renderer/components/files/git/history/graph/lane-assign.ts`. signature `reduceLanes(prev: LaneState, page: readonly LogEntry[]): LaneState` — `LaneState = { openLanes: ReadonlyArray<string|null>, laneByCommit: ReadonlyMap<sha, lane>, edges: ReadonlyArray<{from, to, fromLane, toLane, kind: \"parent\"|\"merge\"}> }`. 페이지 streaming 시 page 도착마다 `setLaneState(prev => reduceLanes(prev, chunk))`로 lane 연속성 자연 보존. refName/scope 변경 시 initial state로 리셋.\n\noctopus(parents > 2): 각 추가 부모를 새 lane으로 발행(VSCode/GitKraken 컨벤션 — 토폴로지 시각화가 octopus의 존재 이유). criss-cross: `openLanes.indexOf(p)` dedupe로 자연 처리, 특수 케이스 없음. `MAX_LANES = 24` 캡 + 초과 시 rightmost \"spill\" indicator.\n\n순수 함수 = Worker 이전 seam. 50k 이상에서 `useMemo` → Comlink worker call로 swap 가능.\n\n**기각**:\n- Reverse-topological pass(root→leaves) — 전체 log를 first row paint 전 보유 필요, streaming 불가능.\n- 라이브러리 포트(vscode-git-graph) — 라이선스 부재.\n- 페이지마다 from-scratch 재계산 — 페이지 join에서 merge edge 정렬 깨짐.\n- octopus collapse(추가 부모를 first-parent lane으로 흡수) — 토폴로지 시각화 손실.\n\n**가정 / 미해결**:\n- 테스트 fixture ≥6: linear, merge, octopus, criss-cross, orphan root, detached. PR 차단 조건.\n- `scope=\"all\"`의 그래프 시각 복잡도 — 사용자 의도 확인 필요(scope 결정은 issue 7)."
+          },
+          {
+            "id": 3,
+            "title": "Graph column 렌더링 전략 — Canvas strip + @tanstack/react-virtual scroll-sync 또는 다른 조합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Canvas strip(viewport-sized, 절대 total-sized 아님 — GPU texture limit 16384px), absolute + manual scrollTop subtract(`position: sticky` 브라우저 함정 회피). DPR scaling(`canvas.width = cssW * dpr`, `ctx.setTransform(dpr...)`). 테마는 CSS 변수 `getComputedStyle` 매 redraw(rAF throttled). Fixed row height 24px (file-tree/search 공유 상수 매칭, 변동 row height는 lane 수학 깨뜨림). Hit-testing은 **Canvas paint + DOM interact** — 각 row 안에 투명 `<button>`을 `left: lane * LANE_W + LANE_W/2`로 배치. SVG/WebGL 거부(SVG는 50k에서 노드 폭증, WebGL은 overkill). CRITICAL: paint 동기화 정책(rAF vs flushSync vs virtualizer onChange 콜백) 명시 — implicit이면 lane drift.",
+                "recorded_at": "2026-05-11T12:48:41.886Z",
+                "agent_id": "afc5aaeead4f10138"
+              }
+            ],
+            "decision": "**선택**: Canvas strip을 **viewport-sized**로 그리고 absolute positioning + manual scrollTop subtract로 가상화 list 좌측에 배치. DPR scaling 적용(`canvas.width = cssW * dpr`, `ctx.setTransform(dpr,0,0,dpr,0,0)`). 테마 색은 CSS 변수 `getComputedStyle().getPropertyValue(\"--color-git-lane-N\")` 매 redraw(rAF throttled). Fixed row height **24px**(file-tree/SearchResultsList 공유 상수 매칭). Paint 동기화는 `useVirtualizer`의 **`onChange` 콜백에서 rAF 스케줄**(1-frame stagger 명시적 수용 — `flushSync` 옵션은 commit overhead가 크고 scroll perf 저하).\n\n**Hit-testing은 Canvas paint + DOM interact 분리**: 각 row DOM 내부에 투명 `<button>`을 `left: lane * LANE_W + LANE_W/2`로 배치. Canvas는 시각만 책임, 클릭/hover/focus/ARIA는 DOM이. 기존 `tabIndex`/`role` semantics 보존.\n\n**기각**:\n- SVG strip per row — 페이지마다 SVG context 분리, 다중 row 머지 edge가 인위적으로 split됨. 거부.\n- SVG full(2k 이하만 가능) — 50k 목표(VSCode GitGraph parity) 미달.\n- WebGL — overkill.\n- Canvas-as-total-size — 50k × 24px = 1.2M px GPU texture limit 초과(macOS 16384px).\n- `position: sticky` — Safari/Chromium edge case 이력. absolute + manual scrollTop subtract로 회피.\n- Canvas 내부 hit-test(inverse transform) — DOM ARIA 손실.\n\n**가정 / 미해결**:\n- LANE_W는 CSS 변수(`--graph-w` + per-lane width)로 expose하여 향후 compact 모드 확장 1-property로 가능하게.\n- DPR 변경(monitor 이동) 감지: `window.matchMedia(\"(resolution:...)\")` listener. 첫 구현은 mount-once OK, follow-up."
+          },
+          {
+            "id": 4,
+            "title": "HistoryList 가상화 + grid 재구성 — fixed row height, graph + ref chip 컬럼 추가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "SearchResultsList 패턴 채택(FileTree보다 가까움 — 자체 scroller + firstRowFocusRef). `useVirtualizer({ count, estimateSize: () => 24, overscan: 10 })` + absolute-positioned rows in spacer `<div style={{ height: totalSize }}>`. 새 grid: `[var(--graph-w) minmax(0,auto) minmax(0,1fr) 12ch 5ch 7ch 24px]` (author 8ch→12ch, ref chips는 minmax(0,auto)로 비어있을 때 0폭). `--graph-w`는 `maxLanes` 변화 시 scrollRef style로 업데이트(remount 회피). ARIA: `role=\"listbox\"` 유지 + `aria-setsize`/`aria-posinset` per row(grid 전환 거부 — 변경 비용 vs 가치 비례 안 맞음). 키보드: focusedIndex state + `scrollToIndex` → `rowRefs.get(next).focus()`. Load-more 버튼은 spacer **밖**.",
+                "recorded_at": "2026-05-11T12:48:47.683Z",
+                "agent_id": "afc5aaeead4f10138"
+              }
+            ],
+            "decision": "**선택**: `useVirtualizer` 패턴은 **SearchResultsList template** 따라감(자체 scroller + firstRowFocusRef 노출, HistoryList의 flat 트리에 적합). `useVirtualizer({ count: entries.length, estimateSize: () => 24, overscan: 10 })` + absolute-positioned rows in `<div style={{ height: totalSize }}>` spacer. Load-more 버튼은 spacer **밖**(SearchResultsList convention).\n\n**새 row grid**: `grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px]` = graph · ref chips · subject · author(8→12ch, 잘림 완화) · time · sha · actions. `--graph-w`는 `maxLanes` 변화 시 scrollRef inline style로 업데이트(remount 회피).\n\n**ARIA**: `role=\"listbox\"`/`role=\"option\"` 유지 + 각 row에 `aria-setsize={count}` `aria-posinset={index+1}`. WAI-ARIA 1.2상 `aria-rowcount`/`aria-rowindex`는 `role=\"grid\"` 전용 — listbox에서 사용 불가. `grid` 전환은 변경 비용 대비 가치 부족으로 거부.\n\n**키보드**: native focus traversal은 virtualization에서 unmount 시 손실 — `focusedIndex` state + `Map<index, HTMLElement> rowRefs` + ArrowUp/Down/PgUp/PgDn 컨테이너 핸들러. 이동 시 `virtualizer.scrollToIndex(next)` → `rowRefs.current.get(next)?.focus()`.\n\n**기각**:\n- `react-window` — FileTree/SearchResultsList 일관성 손상.\n- `role=\"grid\"` 전환 — surface 변경 너무 큼, MVP에서 비례 안 맞음.\n- 동적 row height — lane 수학과 scroll-sync 모두 깨뜨림.\n- 매 row마다 grid 재정의 — CSS 변수 1곳 업데이트로 단일 경로.\n\n**가정 / 미해결**:\n- ResizeObserver는 불필요 — `useVirtualizer` 내부 observer + lane state는 React state로.\n- author 12ch도 긴 이름엔 truncate — title attr로 full name 노출."
+          },
+          {
+            "id": 5,
+            "title": "Ref chip UX 디자인 — 색상/shape/priority, branch vs tag vs remote vs HEAD 구분, 위치",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Inline 위치(graph-column-right / subject-left, mhutchie 패턴) — 1줄 dense 유지. 5 kind(HEAD→current, current, local, remote-tracking, tag) 구분은 **icon+shape primary, color secondary**(WCAG 1.4.1). HEAD만 filled chip(`bg-accent` 재사용), 나머지는 outlined. `max-width: 14ch` truncate. 최대 2개 visible + `+N` overflow popover. 우선순위: HEAD→current local→other local→remote→tag. 클릭=ref로 history view 전환(`onRefChange`). 컨텍스트 메뉴는 우클릭으로 forward. 새 tokens 추가 — scoped `--color-git-lane-0..7` OKLCH desaturated, `--color-git-chip-head-bg/fg`, `--color-git-chip-border`, `--color-git-chip-hover-bg`. CRITICAL: 8 lane 색 vs `#1a1917` 배경 WCAG 1.4.11 ≥3:1 비측정. HEAD row 전체 tint 거부(selection background와 충돌).",
+                "recorded_at": "2026-05-11T12:48:53.261Z",
+                "agent_id": "a5f2f5331f2fe531c"
+              }
+            ],
+            "decision": "**선택**: inline 위치(graph-column-right / subject-left, mhutchie 패턴) — 1줄 dense row 유지. 5종 ref 구분(HEAD→current / current / local / remote-tracking / tag)은 **icon + shape primary, color secondary**(WCAG 1.4.1 색-only 금지). HEAD만 filled chip(`bg-accent` 재사용), 나머지는 outlined `border-mist-border`. chip별 `max-width: 14ch` truncate + `title={fullName}`. 최대 **2개 visible + `+N` overflow popover**(narrow ≤720px container query에선 1개 + `+N`). 우선순위: HEAD → current local → other local → remote-tracking → tag. 클릭=ref로 history view 전환(`onRefChange` 호출), 우클릭=기존 commit context menu forward. focus-visible ring 기존 패턴.\n\n**새 design tokens (scoped, git-* prefix)** — `git-destructive-text` precedent 따름:\n- `--color-git-lane-0..7` (OKLCH 8-cycle, desaturated)\n- `--color-git-chip-head-bg` / `--color-git-chip-head-fg` (accent 재사용)\n- `--color-git-chip-border` / `--color-git-chip-border-strong`\n- `--color-git-chip-hover-bg`\n\n머지 노드: **hollow circle**(stroke만), 일반 commit은 filled. 같은 radius. dimming/diamond/larger 거부 — 형상 일관성 + 정보 손실 없음.\n\n**기각**:\n- 별도 chip row(GitLens 패턴) — row height 2배, dense scannability 손상.\n- 우측 끝 chip(Sourcetree) — author/time/sha 컬럼과 충돌 + lane semantic anchor 손실.\n- 5종 saturated color full palette — desaturated chrome과 충돌 + 색맹 사용자 여전히 icon 필요.\n- HEAD row 전체 tint(JetBrains) — selection 배경과 ambiguity. chip + 좌측 2px ring 옵션은 follow-up.\n- chip 클릭 = info popover만 — signifier of clickability 손실, 일반 use case 한 스텝 늘림.\n\n**가정 / 미해결**:\n- 8 lane 색 vs `#1a1917` 배경 WCAG 1.4.11 ≥3:1 측정 미시행. 구현 시 first-task 가드.\n- multi-ref 정렬(HEAD-first vs tag-first) 일부 워크플로(release engineering)에선 다를 수 있음 — 기본 HEAD-first로 가고 user feedback에서 재고.\n- hollow circle 5–6px 반경에서 anti-alias로 filled처럼 보일 위험 — architect와 구현 시 라디우스/stroke 조율."
+          },
+          {
+            "id": 6,
+            "title": "All branches 토글 + view-mode 모델 — 기존 단일-ref(historyRef) 상태 확장 방식, UI 위치",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "RefSwitcher **옆** 별도 `<button aria-pressed>` icon-only 토글(mhutchie 패턴). Picker 안의 virtual entry \"⟨All branches⟩\"는 mode 의미 손실 + 후속 filter 확장 불가 — 거부. Multi-select picker는 일반 사용자 unfamiliar — 거부. 토글 ON 시 subtitle \"Viewing all branches\" + 원 ref 옆에 dim breadcrumb. narrow(≤720px)에서 icon-only + tooltip(refresh와 동일 패턴). search+all-branches 조합 의미를 subtitle/`aria-live=polite`로 명시(\"filtered by ...\"). 자연 follow-up은 토글 아래 per-branch chip row(`[main ×] [origin/main ×] [+]`) — 옵션(2)만 이 확장을 수용. Tab 순서: switcher → 토글 → refresh.",
+                "recorded_at": "2026-05-11T12:48:58.467Z",
+                "agent_id": "a5f2f5331f2fe531c"
+              }
+            ],
+            "decision": "**선택**: RefSwitcher **옆**에 별도 `<button aria-pressed>` icon-only 토글(mhutchie 패턴 채택). 아이콘은 `Network` 또는 `GitBranchPlus`(lucide), pressed 상태는 `bg-frosted-veil-strong` + `ring-1 ring-mist-border-focus`로 2-signifier(WCAG 1.4.1). Tab 순서 `switcher → 토글 → refresh`. narrow(≤720px)에서도 icon-only 유지(refresh와 동일 컨벤션), label은 tooltip(\"Show all branches\"). \n\n토글 ON 시 subtitle wording: `\"Viewing all branches\"` + 직전 ref를 `text-muted-foreground`로 dimmed breadcrumb(\"was: <ref>\")로 표시해 quick-revert 시각 단서 제공. `aria-live=\"polite\"` wrap.\n\n**search ↔ all-branches 조합 시멘틱**(4가지 조합 매트릭스):\n| all-branches | search | 동작 |\n|---|---|---|\n| off | off | 단일 ref log (기존) |\n| off | on | 단일 ref 내 grep (기존) |\n| on | off | all-branches graph |\n| on | on | `git log --all --grep=...` (전 브랜치 검색) |\n\n조합 활성 시 subtitle을 `\"Viewing all branches · filtered by '...'\"` 으로 명시 + search input 아래 `text-app-ui-xs text-muted-foreground` 1줄 inline hint.\n\n**기각**:\n- (1) Picker 내부 virtual entry `⟨All branches⟩` — \"ref 선택\" mental model에 mode 의미 강제 주입, subtitle 어색, follow-up filter chip 확장 불가.\n- (3) Multi-select picker — VSCode 사용자에 unfamiliar, \"all branches\" 한 클릭→N 클릭으로 퇴화, BranchPicker `select-ref` 단일 contract와 충돌.\n\n**가정 / 미해결**:\n- 토글 아래 per-branch filter chip row(자연 follow-up)는 본 사이클 out-of-scope(issue 7).\n- 28×28px 토글이 WCAG 2.5.5 44×44 touch target 미달 — 기존 refresh 버튼과 동일 desktop-pointer deviation으로 일관 정책 채택."
+          },
+          {
+            "id": 7,
+            "title": "Scope 경계 — author/merge-only filter, Worker 도입, 단일-ref 호환 등 어디까지 본 사이클에 포함",
+            "status": "decided",
+            "decision": "**본 사이클 포함**:\n- 이슈 #1~#6 전부(IPC/스키마 / lane algo / Canvas / 가상화 / ref chips / all-branches 토글).\n- 단일-ref 호환: 토글 OFF가 default라 기존 `historyRef` 단일 ref 흐름은 자연 보존(자동 호환).\n- Hollow circle 머지 노드(이슈 5 결정에 포함).\n- search ↔ all-branches 4-조합 시멘틱 매트릭스 wiring(이슈 6 결정에 포함).\n\n**본 사이클 out-of-scope**(별도 후속 사이클):\n1. **Author/path/date filter 확장 + filter chip row** — designer가 명시적으로 next cycle 권고. 본 사이클의 toolbar density가 이미 무거움(switcher + toggle + refresh + search) — 추가 chip row는 사용자 demand 데이터 본 후 별도 사이클.\n2. **\"Merges only\" / \"Hide merges\" toggle** — designer가 narrow cohort + 그래프 hollow node가 이미 노이즈 완화한다고 판단. defer.\n3. **Worker 이전** — architect가 main thread는 50k까지 안전이라 명시. 본 사이클은 `reduceLanes`를 순수 함수로 두어 **swap seam 확보**까지만(`useMemo(() => reduceLanes(...))`). 50k 초과 user signal이 나오면 별도 사이클에 Comlink/worker로 교체.\n4. **DPR 변경(monitor 이동) live 감지** — `window.matchMedia(\"(resolution:...)\")` listener. 첫 구현은 mount-once OK. follow-up.\n5. **`--source --all` cost benchmark on 50k+ packfile-heavy repo** — architect의 CRITICAL 의문. 본 사이클의 첫 implementation task에 측정 step 1건 포함하되, 임계치를 넘으면 별도 사이클에서 fallback(예: scope=\"branches\"만, `--all` 미사용) 설계.\n6. **8 lane OKLCH 색의 WCAG 1.4.11 ≥3:1 contrast 측정** — designer의 CRITICAL. 본 사이클 첫 task에 측정 + 필요 시 색 조정. 별도 사이클 아님.\n\n**근거**:\n- 본 사이클 7개 이슈만으로도 큰 작업(IPC 변경 + 자체 algorithm + Canvas 신규 + 가상화 + 새 UI 컴포넌트 + 새 design tokens) — 단일 사이클 흡수 한계 근접.\n- filter/merges-only/worker는 모두 본 사이클 출력을 의존(데이터 모델/lane algo/순수 함수 seam)하므로 후속이 자연스러움. 본 사이클이 그 seam을 확보하는 것 자체가 후속 가치.\n- CRITICAL benchmark 2건(`--source --all` cost, lane 색 contrast)은 본 사이클의 첫 task에 측정 포함 — defer 시 잘못된 default가 박힘.",
+            "analysis": [
+              {
+                "role": "retrospective",
+                "summary": "End-of-cycle review initially found one CRITICAL gap: non-ref all-branches pagination repeated page 1 when `--all` was combined with `<afterSha>^@`. The cycle was reopened, fixed by stream-side seek-past-cursor for non-ref scopes, and verified with a real temp-repo regression (`commit 5..1` page 2 after cursor at `commit 6`). Re-review PASS. Residual non-blocking risks: GUI not manually launched (visual confidence from automated Canvas/DOM tests), `%D` short decoration heuristic may classify arbitrary remote names like `fork/main` as branch, and stream-side seek is O(cursor depth) for deep all-branches pagination.",
+                "recorded_at": "2026-05-11T14:14:05.111Z"
+              }
+            ]
+          }
+        ],
+        "research_summary": "## 현 상태 (explore)\n- IPC `git.stream.log`: argv `[\"log\", \"--pretty=format:<7-field>\", \"--date=iso-strict\"]` + `--grep`/`--skip`/`--max-count`/`<ref>`. `--all`/`--graph`/`%D` 미사용. 페이지 50, 스트리밍 async generator.\n- LogEntry: sha/shortSha/parents[]/authorName/authorEmail/authoredAt/subject/body. **refs 없음**.\n- HistoryList: plain `.map()`, **비-가상화**. grid `[10px _1fr_ 8ch_ 5ch_ 7ch_ 24px]`.\n- RefSwitcher: 단일 ref, BranchPicker `select-ref` mode 재사용. state `GitPanelState.historyRef` (default `\"HEAD\"`).\n- Search: server-side SHA prefix 또는 `--grep`. CommitSearchResult union.\n- Detail: 별도 IPC `git.commitDetail`. row 클릭 시 fetch.\n- **@tanstack/react-virtual v3.13.24 이미 dep**. FileTree, SearchResultsList가 사용. HistoryPanel은 미사용.\n- Worker setup 없음.\n\n## 외부 분석 (researcher)\n- 라이브러리: @gitgraph/react archived(2020), mhutchie/vscode-git-graph abandoned + no OSS license, GitLens proprietary. **자체 구현 유일 경로**.\n- 알고리즘: forward sweep (\"first-parent stays\") + 역-토폴로지(git log 자연 순서)로 streaming-friendly. O(N×W), W=peak active lane ≈ 5–30. **10k 커밋까지 main thread 안전, 50k+에서 Worker.**\n- 렌더링: **Canvas strip + @tanstack/virtual + scroll-sync (rAF)** 가 10k 커밋 최강. SVG는 2k 이하에서만. DOM-only는 < 500.\n- UX 추천: GitLens merge-row dimming · JetBrains 현재 브랜치 row 전체 하이라이트 · mhutchie inline pill ref chips.\n\n## 의사결정 dependency\n- 데이터 (#1) → 알고리즘 (#2) → 렌더링 (#3) → 가상화 (#4) → UI (#5/#6) → scope (#7)",
+        "created_at": "2026-05-11T12:44:39.120Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase 0 — `--source --all` cost benchmark",
+          "status": "completed",
+          "context": "architect CRITICAL: `git log --source --all`은 packfile-heavy 큰 repo에서 cost가 user-visible할 수 있어 format 확정 전 측정 필요. nexus-code 자체 repo 또는 큰 reference repo(react, linux)에서 1차 측정.",
+          "acceptance": "3가지 argv × 3가지 커밋 범위 = 9 측정값. walltime delta가 어느 임계(예: 25%) 넘으면 결정 #1의 `--source` 추가가 fallback 필요(예: 일정 커밋 수 미만에서만 활성) — 측정 결과로 결정. 결과는 .nexus/memory/에 기록. exit code 0.",
+          "approach": "임시 스크립트로 `--source --all` vs `--all` vs single-ref 3가지 argv를 1k/10k/50k 커밋 범위에서 walltime 측정. main process 안에 임시 측정 코드 또는 별도 bench 스크립트. 결과를 .nexus/memory/empirical-git-log-source-cost.md로 기록.",
+          "risk": "측정 환경 노이즈(cold cache vs warm). 3회 평균. nexus-code repo 자체 커밋 수가 50k 미만이면 reference repo 사용.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e171a-ee80-7703-bd9e-891f907d38ca",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:21.255Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Benchmark artifact recorded 9 measurement cells on references/vscode; verifier PASS. `--source --all` overhead stayed below the 25% fallback threshold, so later IPC work can keep `--source`.",
+            "artifacts": [
+              ".nexus/memory/empirical-git-log-source-cost.md"
+            ],
+            "recorded_at": "2026-05-11T13:00:58.907Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "IPC scope enum + LogEntry.refs 스키마 확장",
+          "status": "completed",
+          "context": "결정 #1. `git.stream.log` IPC와 LogEntry 스키마를 그래프 패널이 요구하는 데이터 모델로 확장.",
+          "acceptance": "- `LogEntrySchema` zod test로 새 필드 형식 검증. - main `buildLogArgs` test로 scope별 argv 정확 매칭. - `parseLogRecord` test로 decoration string 케이스 6개 이상(HEAD-only, branch+remote, tag, multi-tag, empty, mixed) 파싱 검증. - 기존 scope=\"ref\" 호출자는 default로 동작 변경 없음(refs는 []로 와도 OK).",
+          "approach": "(1) `LogEntrySchema`에 `refs: Array<{name, kind: \"head\"|\"branch\"|\"remote\"|\"tag\", isHead: boolean}>` 필드 추가(default []). (2) `git.stream.log` 인자에 `scope: \"ref\"|\"all\"|\"branches\"` enum 추가. (3) main-side `git-repository.ts:buildLogArgs`에서 scope별 argv 분기 — ref(기존), all(`--all` + `--source` + `%S`), branches(`--branches` + `--source` + `%S`). (4) `--pretty=format`에 `%D` 추가, scope≠ref면 `%S`도 추가. (5) `parseLogRecord`가 새 필드 파싱하고 `%D`는 git decoration grammar(`HEAD -> main`, `tag: v1`, `origin/x`) 파서로 normalized. (6) scope≠ref일 때 `skip` 사용 금지 가드. T1 benchmark 결과가 임계 초과면 fallback(예: scope=\"all\"에서 `--source` 조건부) 적용.",
+          "risk": "`%D` payload가 `\\x1f`/`\\x1e` 레코드 separator와 충돌하지 않는지(no — decoration엔 comma+space만). HEAD가 page 간 이동 시 decoration 불일치 — 기존 `statusChanged` refetch로 mitigate.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1720-ab04-7c41-967f-5677d773e3d6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:32.354Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented git log scope enum, LogEntry refs schema/defaulting, scope-specific argv with --source/%S for all/branches, skip guard for non-ref scopes, and %D decoration parsing. Engineer reported targeted tests, typecheck, build, and lint passing.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/ipc/channels/git/log-stream.ts",
+              "src/main/git/git-repository.ts",
+              "tests/unit/main/git/git-repository-history.test.ts"
+            ],
+            "recorded_at": "2026-05-11T13:12:01.707Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "IPC scope/refs 검증 테스트",
+          "status": "completed",
+          "context": "T2 runtime acceptance(argv 분기 + decoration 파싱) verification pairing.",
+          "acceptance": "- scope별 argv 6 케이스 통과. - decoration 파서 6+ 케이스 통과. - 기존 회귀 0건. - `bun test` green.",
+          "approach": "기존 unit test(git-repository.test.ts, ipc-contract test)에 새 케이스 추가. mock git output에 `%D` 포함 sample 라인 작성. scope enum별 argv assertion.",
+          "risk": "없음.",
+          "plan_issue": 1,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e172a-a289-7f00-a186-19f4a8c1f343",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:36.242Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Verified IPC scope/refs coverage: 6 exact argv cases, 6+ decoration parser cases, LogEntrySchema refs default/type, main git regression suite, and typecheck passed. Non-blocking warning remains: short `%D` decorations for arbitrary remotes like `fork/main` classify as branch unless remote name is origin/upstream.",
+            "artifacts": [
+              "tests/unit/main/git/git-repository-history.test.ts"
+            ],
+            "recorded_at": "2026-05-11T13:18:22.445Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "lane-assign 순수 함수 reducer 신규",
+          "status": "completed",
+          "context": "결정 #2. forward sweep \"first-parent stays\" 알고리즘. Worker swap seam을 보장하는 순수 함수 형태로.",
+          "acceptance": "- 6+ fixture 단위 테스트 통과: linear / merge / octopus(3-parent) / criss-cross / orphan root / detached HEAD. - 페이지 boundary 시나리오: 페이지1 끝의 open lane이 페이지2 commit 도착 시 정확히 종결되는지. - MAX_LANES 캡 동작 확인(spill indicator emit). - 순수 함수: 같은 입력에 같은 출력(referential transparency) test.",
+          "approach": "`src/renderer/components/files/git/history/graph/lane-assign.ts` 신규. `LaneState = { openLanes, laneByCommit, edges }` + `initialLaneState()` + `reduceLanes(prev, page): LaneState`. octopus는 추가 parent마다 new lane 발행(dedupe via `openLanes.indexOf`), criss-cross는 같은 dedupe로 자연 처리, MAX_LANES=24 캡 + spill indicator. 페이지 boundary에서 prev.openLanes 그대로 사용해 lane 연속성 자연 유지.",
+          "risk": "octopus 알고리즘 edge case(머지 commit 자신이 다른 머지의 parent인 경우). criss-cross에서 lane 재배치 시 시각적 churn. fixture로 회귀 잡음.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e171b-1792-75f0-b79f-f76d1a2e002a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:44.134Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added pure deterministic lane reducer with first-parent continuity, page-boundary open lane carryover, parent dedupe, MAX_LANES spill reporting, and exports for Canvas/tests. Dedicated tester task verified fixtures and typecheck.",
+            "artifacts": [
+              "src/renderer/components/files/git/history/graph/lane-assign.ts"
+            ],
+            "recorded_at": "2026-05-11T13:07:19.183Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "lane-assign fixture 회귀 테스트",
+          "status": "completed",
+          "context": "T4 algorithm acceptance pairing.",
+          "acceptance": "- 6 fixture × expected output 명시. - 페이지 boundary 시나리오 별도 1건. - bun test green. - 회귀 0건.",
+          "approach": "`lane-assign.test.ts` 신규. 각 fixture에 expected `laneByCommit` Map과 expected `edges` 배열을 명시. Tig/git-graph 알려진 케이스 참조. snapshot 사용 X(가독성 위해 명시).",
+          "risk": "expected 값 산출 정확성. graph 시각화 결과를 ASCII로 코멘트 박아 검증.",
+          "plan_issue": 2,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1721-6ad0-7773-9c45-3e51010260b5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:48.711Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added explicit lane-assign fixture tests for linear, merge, octopus, criss-cross, orphan root, detached/root-like, page-boundary closure, MAX_LANES spill, and referential transparency. Targeted and nearby tests passed.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/history/lane-assign.test.ts"
+            ],
+            "recorded_at": "2026-05-11T13:07:19.471Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Design tokens — lane 8색 OKLCH + chip 토큰 + contrast 측정",
+          "status": "completed",
+          "context": "결정 #5의 CRITICAL: 8 lane 색이 `#1a1917` 배경에서 WCAG 1.4.11 ≥3:1 미측정. designer 분석안 토대로 실제 측정 후 색 확정 + theme 토큰 추가.",
+          "acceptance": "- 8 lane × 2 테마(dark/light) contrast ratio 측정 값 문서화(.nexus/memory/external-git-lane-contrast.md 또는 commit message). - 모든 lane이 ≥3:1. - chip 토큰 dark/light 둘 다 정의. - 기존 토큰 충돌 없음.",
+          "approach": "(1) designer가 제안한 OKLCH 8-cycle 시작값 적용. (2) WCAG contrast 계산기(또는 자체 sRGB→relative luminance 변환)로 `--background` 대비 측정. (3) 미달 색은 lightness 조정. (4) `theme.generated.css` 또는 새 `git-tokens.css` partial에 `--color-git-lane-0..7`, `--color-git-chip-head-bg/fg`, `--color-git-chip-border`, `--color-git-chip-border-strong`, `--color-git-chip-hover-bg` 추가. dark/light 모두.",
+          "risk": "OKLCH 변환의 브라우저 fallback. 첫 구현은 OKLCH 직접 사용(modern Chromium electron이라 OK). polyfill 불필요.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e171b-41df-79f3-a3b1-404a764d7fe0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:51:55.688Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added dark/light git lane and chip tokens, documented all 16 lane/theme contrast values, and verifier recomputed PASS with dark min 3.64:1 and light min 3.36:1.",
+            "artifacts": [
+              "src/renderer/styles/globals.css",
+              ".nexus/memory/external-git-lane-contrast.md"
+            ],
+            "recorded_at": "2026-05-11T13:05:14.219Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "HistoryList 가상화 + new grid + ARIA + 키보드",
+          "status": "completed",
+          "context": "결정 #4. plain map → useVirtualizer 전환. 새 row grid (graph + chips + subject + author + time + sha + actions). SearchResultsList 패턴 따름.",
+          "acceptance": "- 가상화 정상 동작(스크롤 시 row recycle). - 새 grid에서 모든 컬럼 정렬. - 키보드 ArrowUp/Down/PgUp/PgDn으로 row 이동 + focus 따라옴. - 1000+ entry mock에서 scroll perf 정상(60fps). - ARIA attribute 정확.",
+          "approach": "(1) `HistoryList`에 `useVirtualizer({ count, estimateSize: () => 24, overscan: 10 })`. absolute-positioned rows in `<div style={{height: totalSize}}>`. Load-more는 spacer 밖. (2) row grid `[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px]`. `--graph-w`는 lane state의 maxLanes에서 계산해 scrollRef inline style로. (3) ARIA: `role=\"listbox\"`/`role=\"option\"` 유지 + `aria-setsize`/`aria-posinset` per row. (4) 키보드: `focusedIndex` state + ArrowUp/Down/PgUp/PgDn container handler + `scrollToIndex` → `rowRefs.get(next).focus()`. (5) HistoryRow는 ref-chip slot용 prop만 추가(실제 chip 렌더는 T8에서).",
+          "risk": "native focus 손실(virtualization unmount). `rowRefs` Map은 cleanup 필요(unmount 시 entry 제거). 키 핸들러가 detail panel typing과 충돌하지 않게 stopPropagation.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e171b-6d34-7820-9eb8-c4cbe354ce8f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:05.328Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented fixed-height HistoryList virtualization, new graph/ref/subject/author/time/sha/actions grid, listbox row ARIA metadata, and ArrowUp/Down/PageUp/PageDown focus navigation. Implementation worker reported typecheck/lint/nearby history tests passing.",
+            "artifacts": [
+              "src/renderer/components/files/git/history/HistoryList.tsx",
+              "src/renderer/components/files/git/history/HistoryRow.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:03:11.929Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "HistoryList 가상화 + 키보드 회귀 검증",
+          "status": "completed",
+          "context": "T7 runtime acceptance pairing.",
+          "acceptance": "- 키보드 시나리오 5+ 통과. - ARIA assertion 통과. - 기존 회귀 0.",
+          "approach": "existing HistoryPanel/HistoryList 테스트 확장. 키보드 ArrowUp/Down/Home/End scenario 단위 시뮬레이션. ARIA aria-setsize/posinset DOM assertion. virtualizer mount 시 visible row count 검증.",
+          "risk": "jsdom 환경에서 scroll 시뮬레이션 한계 — virtualizer는 mock height/scroll 주입.",
+          "plan_issue": 4,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1722-8dde-7802-8028-8bd079e3b41e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:08.983Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added HistoryList virtualization regression tests covering 5+ keyboard scenarios, ARIA listbox/option metadata, 1005-entry virtualized structure/recycling, and nearby/broader git component regressions. Verifier PASS.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/history-list-virtualization.test.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:12:52.043Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "Canvas graph strip 컴포넌트 신규",
+          "status": "completed",
+          "context": "결정 #3. viewport-sized Canvas + DPR + theme CSS 변수 + rAF redraw via virtualizer onChange.",
+          "acceptance": "- 1000-row mock에서 graph draw 정확(lane 위치, edge 연결). - DPR 1/2/3에서 sharp render. - 다크/라이트 테마 변경 시 색 즉시 반영(MutationObserver는 follow-up이라 mount-once OK, 단 theme switch는 redraw trigger 필요한가 — useEffect 의존성에 theme state 추가). - 머지 노드 hollow visible at radius 4-6px(anti-alias 함정 회피하려면 stroke width 1.5px+).",
+          "approach": "(1) `GraphCanvas` 컴포넌트 신규(`src/renderer/components/files/git/history/graph/GraphCanvas.tsx`). props: scrollElement ref, virtualizer instance, laneState, rowHeight, laneWidth. (2) `useEffect`로 `virtualizer.subscribe(...)` (또는 `onChange` 콜백) 등록 → rAF에서 ctx.clearRect + 가시 영역 row마다 lane edge/node draw. (3) 노드: 일반 commit filled circle, 머지 hollow circle(같은 radius, stroke만). (4) edge: parent edge는 같은 lane 수직선, merge edge는 lane 차이만큼 곡선(또는 직선+짧은 코너). (5) DPR scaling. (6) theme color는 `getComputedStyle(...).getPropertyValue(\"--color-git-lane-N\")`로 매 redraw 읽음(rAF throttled이라 cost OK). (7) absolute positioned + scrollTop subtract (sticky 회피).",
+          "risk": "paint sync drift(virtualizer onChange와 rAF 1-frame stagger). 측정 후 jank 보이면 `flushSync` 도입 검토. macOS 16384px GPU limit는 viewport-sized라 무관.",
+          "plan_issue": 3,
+          "deps": [
+            4,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1726-68b5-7343-ba7b-96897b2e2ec2",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:19.860Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added viewport-sized GraphCanvas with rAF redraw scheduling, scrollTop subtraction, DPR backing-store scaling, per-redraw CSS lane color reads, visible-window edge drawing, filled normal nodes, and hollow merge nodes. Integration remains task 15.",
+            "artifacts": [
+              "src/renderer/components/files/git/history/graph/GraphCanvas.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:16:44.610Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "Canvas graph strip 회귀 검증",
+          "status": "completed",
+          "context": "T9 runtime acceptance pairing.",
+          "acceptance": "- 3+ scenario 통과. - DPR scaling assertion. - 회귀 0.",
+          "approach": "단위 테스트: lane-assign 결과를 input으로 받아 Canvas mock(2d context jest spy)에 draw call 시퀀스 검증. 일부 시나리오(linear/merge)에서 expected arc/moveTo/lineTo 호출 순서 assert. visual snapshot은 skip — 단위 가능한 path 검증만.",
+          "risk": "Canvas 2d context를 jsdom에서 mock해야 함. 기존 패턴 부재 시 작은 helper 추가.",
+          "plan_issue": 3,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e172e-f908-7ab2-a9b5-f1990679333c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:24.572Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added GraphCanvas tests covering linear and merge draw paths, DPR 1/2/3 backing-store scaling, CSS theme variable reads, and hollow-vs-filled node distinction. Targeted/nearby tests and typecheck passed.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/history/graph-canvas.test.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:22:00.869Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "RefChip 컴포넌트 + overflow popover + click navigation",
+          "status": "completed",
+          "context": "결정 #5. inline pill ref chip(graph-right/subject-left), icon+shape primary, color secondary. HEAD filled, 나머지 outlined. max-width 14ch + truncate, 최대 2개 + `+N` overflow.",
+          "acceptance": "- 5 ref kind 각각 시각 구분(icon + 색). - HEAD chip filled visible. - 14ch truncate + title attr full name. - 2개 visible + `+N` popover 동작. - 클릭 → onRefChange 호출. - 우클릭 → onOpenMenu forward. - narrow 1개 visible 동작(container query).",
+          "approach": "(1) `RefChip` 컴포넌트 신규. props: ref(name, kind, isHead), onClick(refName). lucide icons: GitBranch(branch/remote), Tag(tag), 또는 HEAD 표시 dot. (2) `RefChipList` 컴포넌트: refs 배열 받아 우선순위 정렬(HEAD > current local > local > remote > tag), narrow 컨테이너 검사로 visible count(default 2, narrow 1) 결정, 초과는 `+N` chip + popover. (3) chip 클릭 → `onRefChange(refName)` 호출 = history view 그 ref로 전환. 우클릭 → 기존 `onOpenMenu` forward. (4) HistoryRow에서 ref-chip slot 위치에 `<RefChipList refs={entry.refs} onRefChange={...} />`.",
+          "risk": "container query 브라우저 지원(Electron Chromium 최신이라 OK). 다중 ref popover의 z-index — git submenu와 동일하게 portal+marker 패턴 재사용 권장.",
+          "plan_issue": 5,
+          "deps": [
+            6,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e172f-379e-74b0-93bb-dd562306c09e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:32.778Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added RefChip/RefChipList with HEAD/current/local/remote/tag visual treatments, 14ch truncation titles, priority sorting, 2-visible/1-visible narrow seam, +N portal overflow popover, click navigation, and right-click forwarding. Wired HistoryPanel ref slot.",
+            "artifacts": [
+              "src/renderer/components/files/git/history/RefChip.tsx",
+              "src/renderer/components/files/git/history/HistoryPanel.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:25:04.265Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "RefChip 컴포넌트 회귀 검증",
+          "status": "completed",
+          "context": "T11 acceptance pairing.",
+          "acceptance": "- 정렬 4 케이스, overflow 2 케이스, click 1, narrow 1 = 8+ 케이스 통과. - 회귀 0.",
+          "approach": "단위 테스트: 우선순위 정렬, overflow `+N` 활성 조건, click 핸들러, narrow 모드 visible count.",
+          "risk": "없음.",
+          "plan_issue": 5,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1736-8f71-7610-b274-892bd4286fc9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:35.827Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added RefChip regression tests covering sorting priority, overflow states, visible and overflow clicks, narrow visible count, title/truncation/full-name semantics, five accessible visual-kind labels, and right-click menu forwarding. Targeted/broader git component tests, mutation check, typecheck, and Biome passed.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/ref-chip.test.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:32:37.361Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "All-branches 토글 + subtitle live region + 4-조합 wiring",
+          "status": "completed",
+          "context": "결정 #6. RefSwitcher 옆 별도 `<button aria-pressed>` 토글. search+all-branches 4-조합 매트릭스 wiring.",
+          "acceptance": "- 토글 ON/OFF 시 IPC scope 정확 전달. - subtitle 텍스트 4 조합 매트릭스 통과. - aria-live 영역 mount + 모드 변경 시 SR 알림(JSdom assertion). - Tab order assertion. - narrow 모드 icon-only.",
+          "approach": "(1) `HistoryRefSwitcher` row에 `<button aria-pressed={allBranches}>` 추가. lucide `Network` 또는 `GitBranchPlus`. icon-only 항상(refresh 패턴). Tab 순서 switcher→토글→refresh. (2) state 모델: `GitPanelState`에 `historyScope: \"ref\"|\"all\"` 추가(default \"ref\"). historyRef와 직교. (3) toggle ON → IPC `scope=\"all\"` 전달. (4) subtitle text: `aria-live=\"polite\"` 래퍼 + \"Viewing all branches · was: <ref>\" breadcrumb(dimmed). search 활성 시 \"filtered by '<q>'\" 덧붙임. (5) search + all-branches 동시 활성 시 IPC argv는 `--all --grep=<q>` — git이 자동 처리. inline hint `text-app-ui-xs` 1줄.",
+          "risk": "historyRef와 historyScope 분리 상태가 storage 마이그레이션 필요한가 — 새 필드 default \"ref\"라 자동. ESC 등 dismiss와 충돌 없음.",
+          "plan_issue": 6,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1733-d23a-7520-b19e-cdee529d0314",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:44.684Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added persisted historyScope defaulting to ref; wired History log streams to send scope=ref/all plus grep; added icon-only all-branches toggle with aria-pressed and live-region subtitles for ref/all × search/no-search combinations. Implementation reported typecheck/build/lint and targeted tests passing.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/main/storage/workspace-storage.ts",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/history/HistoryPanel.tsx",
+              "src/renderer/components/files/git/history/HistoryRefSwitcher.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:31:50.087Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "All-branches 토글 + 4-조합 시멘틱 회귀",
+          "status": "completed",
+          "context": "T13 acceptance pairing.",
+          "acceptance": "- 4 조합 매트릭스 통과. - 키보드 토글 assertion. - 회귀 0.",
+          "approach": "HistoryPanel 단위 시나리오: 4 조합별 IPC argv assertion, subtitle 텍스트 assertion, aria-live 노드 존재. 토글 키보드 활성(Space/Enter) 동작.",
+          "risk": "없음.",
+          "plan_issue": 6,
+          "deps": [
+            13
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e173c-c87a-7793-aad5-a19963012cec",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:48.423Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added all-branches semantic tests covering ref/all × search/no-search, IPC log stream scope/ref/grep payloads, aria-live subtitle, tab order, and native Space/Enter toggle behavior. Targeted/broader git component and relevant state/storage tests plus typecheck and Biome passed.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/history-all-branches.test.tsx"
+            ],
+            "recorded_at": "2026-05-11T13:40:37.877Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "HistoryPanel 최종 orchestration + 전체 회귀",
+          "status": "completed",
+          "context": "모든 부속(IPC scope, lane state, Canvas, virtualized list, ref chips, toggle) 통합. lane state는 HistoryPanel state로 보관, 페이지 도착마다 reduceLanes 호출. ref/scope 변경 시 lane state 리셋.",
+          "acceptance": "- 단일 ref view(기존)와 all-branches view 모두 정상 렌더. - `bun run check` + `bun test` green. - HistoryPanel 단위 테스트 통과. - 수동 회귀: ⋯ 메뉴 cherry-pick / checkout / soft reset / refresh / search 정상.",
+          "approach": "(1) HistoryPanel에 `laneState` state 추가, IPC chunk onArrival 시 `setLaneState(prev => reduceLanes(prev, chunk))`. (2) `scope`/`refName` 변경 시 `setLaneState(initialLaneState())` + entries 초기화. (3) HistoryList에 laneState 전달. HistoryList 내부에서 GraphCanvas + virtualizer + rows 조립. (4) Mock repo로 visual smoke: linear / 머지 1건 / octopus 1건이 정상 렌더되는지 dev 환경 수동 확인 chevron. (5) 기존 cherry-pick / checkout-detached / reset 등 commit menu 동작 회귀 검증.",
+          "risk": "통합 단계에서 prop drilling 폭증 — 일부 context 도입 검토. lane state 리셋 타이밍 race(scope 변경 + chunk 도착 동시). useEffect cleanup으로 abort.",
+          "plan_issue": 7,
+          "deps": [
+            9,
+            11,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1755-e714-7693-90ae-80d2ac93cf97",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:52:57.285Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Fixed all-branches pagination by seeking past `afterSha` inside the streamed all-ref traversal instead of passing `<afterSha>^@` with `--all`. Ref-scope pagination remains unchanged. Added argv and real temp-repo regression tests proving page 2 advances without first-page repeats. Targeted main git tests, typecheck, check:ci, Biome, and diff check passed.",
+            "artifacts": [
+              "src/main/git/git-repository.ts",
+              "tests/unit/main/git/git-repository-history.test.ts"
+            ],
+            "recorded_at": "2026-05-11T14:05:06.495Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "전체 회귀 + 수동 시나리오 verification",
+          "status": "completed",
+          "context": "T15 final integration acceptance pairing.",
+          "acceptance": "- 자동 테스트 모두 green. - 수동 9 시나리오 OK. - perf 측정값(rAF redraw avg 시간) 기록.",
+          "approach": "자동: `bun run check` + `bun test` 전체. HistoryPanel 통합 시나리오 단위. 수동 시나리오 체크리스트: (a) 단일 ref view 기존 동작, (b) toggle ON → all-branches graph, (c) search + all-branches 4 매트릭스, (d) 머지 hollow / 일반 filled, (e) ref chip 클릭 → 그 ref view 전환, (f) chip overflow `+N` popover, (g) 키보드 ArrowUp/Down/PgUp/PgDn, (h) commit detail panel 변경 없음, (i) 1000+ commit perf 60fps.",
+          "risk": "수동 perf 측정 환경 의존. dev devtools timeline 캡처.",
+          "plan_issue": 7,
+          "deps": [
+            15
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e175b-3fd4-7e32-9710-c8e90d86331a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T12:53:02.312Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Final verification passed after all-branches pagination fix. Pagination regression proves page 2 advances without repeats; `bun run check:ci`, `bun run typecheck`, and `bun test` pass. Full suite: 1770 pass / 1 skip / 0 fail. Prior GraphCanvas perf retained: 1200 commits, 64 visible rows, DPR=2 avg 0.0721ms, p95 0.1205ms, max 1.2172ms. GUI was not launched; visual claims rely on automated Canvas/DOM evidence.",
+            "artifacts": [],
+            "recorded_at": "2026-05-11T14:10:18.395Z"
+          }
+        }
+      ]
     }
   ]
 }

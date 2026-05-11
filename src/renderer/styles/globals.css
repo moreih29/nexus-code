@@ -2,6 +2,48 @@
 @import "./theme.generated.css";
 
 /* ---------------------------------------------------------------------------
+   Git history graph + ref-chip tokens
+   - :root remains dark-theme default because the app chrome is currently dark.
+   - The light scope is pre-declared for future theme switching and measured
+     against Warm Parchment (#faf9f6).
+   --------------------------------------------------------------------------- */
+
+:root,
+[data-theme="dark"],
+.dark {
+  --color-git-lane-0: oklch(0.56 0.07 55);
+  --color-git-lane-1: oklch(0.56 0.075 95);
+  --color-git-lane-2: oklch(0.56 0.07 145);
+  --color-git-lane-3: oklch(0.56 0.065 190);
+  --color-git-lane-4: oklch(0.56 0.06 235);
+  --color-git-lane-5: oklch(0.56 0.065 285);
+  --color-git-lane-6: oklch(0.56 0.07 330);
+  --color-git-lane-7: oklch(0.56 0.065 25);
+  --color-git-chip-head-bg: oklch(0.751 0.0031 84.56);
+  --color-git-chip-head-fg: oklch(0.3286 0.0017 106.49);
+  --color-git-chip-border: rgba(226, 226, 226, 0.35);
+  --color-git-chip-border-strong: rgba(226, 226, 226, 0.6);
+  --color-git-chip-hover-bg: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"],
+.light {
+  --color-git-lane-0: oklch(0.62 0.075 55);
+  --color-git-lane-1: oklch(0.62 0.07 95);
+  --color-git-lane-2: oklch(0.62 0.065 145);
+  --color-git-lane-3: oklch(0.62 0.06 190);
+  --color-git-lane-4: oklch(0.62 0.055 235);
+  --color-git-lane-5: oklch(0.62 0.06 285);
+  --color-git-lane-6: oklch(0.62 0.065 330);
+  --color-git-lane-7: oklch(0.62 0.065 25);
+  --color-git-chip-head-bg: oklch(0.3286 0.0017 106.49);
+  --color-git-chip-head-fg: oklch(0.982 0.0041 91.45);
+  --color-git-chip-border: rgba(26, 25, 23, 0.24);
+  --color-git-chip-border-strong: rgba(26, 25, 23, 0.42);
+  --color-git-chip-hover-bg: rgba(26, 25, 23, 0.06);
+}
+
+/* ---------------------------------------------------------------------------
    Self-hosted @font-face declarations (no external font requests)
    --------------------------------------------------------------------------- */
 

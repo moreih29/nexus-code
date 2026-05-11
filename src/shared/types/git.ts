@@ -444,7 +444,35 @@ export const DiffSpecSchema = z.discriminatedUnion("kind", [
 ]);
 export type DiffSpec = z.infer<typeof DiffSpecSchema>;
 
-export const LogEntrySchema = z.object({
+export const GitLogScopeSchema = z.enum(["ref", "all", "branches"]);
+export type GitLogScope = z.infer<typeof GitLogScopeSchema>;
+
+export const GitHistoryScopeSchema = z.enum(["ref", "all"]);
+export type GitHistoryScope = z.infer<typeof GitHistoryScopeSchema>;
+
+export const LogEntryRefKindSchema = z.enum(["head", "branch", "remote", "tag"]);
+export type LogEntryRefKind = z.infer<typeof LogEntryRefKindSchema>;
+
+export const LogEntryRefSchema = z.object({
+  name: z.string(),
+  kind: LogEntryRefKindSchema,
+  isHead: z.boolean(),
+});
+export type LogEntryRef = z.infer<typeof LogEntryRefSchema>;
+
+export interface LogEntry {
+  sha: string;
+  shortSha?: string;
+  parents: string[];
+  authorName: string;
+  authorEmail?: string;
+  authoredAt: string;
+  subject: string;
+  body?: string;
+  refs?: LogEntryRef[];
+}
+
+export const LogEntrySchema: z.ZodType<LogEntry> = z.object({
   sha: z.string(),
   shortSha: z.string().optional(),
   parents: z.array(z.string()),
@@ -453,8 +481,8 @@ export const LogEntrySchema = z.object({
   authoredAt: z.string(),
   subject: z.string(),
   body: z.string().optional(),
+  refs: z.array(LogEntryRefSchema).default([]),
 });
-export type LogEntry = z.infer<typeof LogEntrySchema>;
 
 export const LogChunkSchema = z.object({
   entries: z.array(LogEntrySchema),
@@ -682,6 +710,7 @@ export const GitPanelStateSchema = z.object({
   panelSegment: GitPanelSegmentSchema.default("changes"),
   historyDetailWidth: z.number().int().nonnegative().default(0),
   historyRef: z.string().default("HEAD"),
+  historyScope: GitHistoryScopeSchema.default("ref"),
 });
 export type GitPanelState = z.infer<typeof GitPanelStateSchema>;
 
@@ -699,4 +728,5 @@ export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {
   panelSegment: "changes",
   historyDetailWidth: 0,
   historyRef: "HEAD",
+  historyScope: "ref",
 };

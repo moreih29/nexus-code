@@ -2,16 +2,24 @@
  * History ref switcher. It reuses BranchPicker in select-ref mode so selecting
  * a branch only retargets the log query and never checks out the working tree.
  */
-import { GitBranch, RefreshCw } from "lucide-react";
+import { GitBranch, Network, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import type { GitHistoryScope } from "../../../../../shared/types/git";
+import { cn } from "../../../../utils/cn";
 import { Button } from "../../../ui/button";
 import { BranchPicker } from "../BranchPicker";
+
+const HISTORY_SCOPE_TOGGLE_ON_CLASS =
+  "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
 
 interface HistoryRefSwitcherProps {
   workspaceId: string;
   refName: string;
+  historyScope: GitHistoryScope;
+  searchQuery: string;
   disabled?: boolean;
   onRefChange: (refName: string) => void;
+  onScopeChange: (scope: GitHistoryScope) => void;
   onRefresh: () => void;
 }
 
@@ -19,11 +27,16 @@ interface HistoryRefSwitcherProps {
 export function HistoryRefSwitcher({
   workspaceId,
   refName,
+  historyScope,
+  searchQuery,
   disabled = false,
   onRefChange,
+  onScopeChange,
   onRefresh,
 }: HistoryRefSwitcherProps) {
   const [open, setOpen] = useState(false);
+  const allBranches = historyScope === "all";
+  const trimmedQuery = searchQuery.trim();
 
   return (
     <div className="flex shrink-0 items-center justify-between gap-2 border-b border-mist-border px-2 py-2">
@@ -37,21 +50,55 @@ export function HistoryRefSwitcher({
           <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="truncate">{refName}</span>
         </button>
-        <p className="truncate px-1 text-app-ui-xs text-muted-foreground">
-          Viewing history of {refName}
+        <p
+          className="truncate px-1 text-app-ui-xs text-muted-foreground"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {allBranches ? (
+            trimmedQuery.length > 0 ? (
+              <>Viewing all branches · filtered by '{trimmedQuery}'</>
+            ) : (
+              <>
+                <span className="text-foreground">Viewing all branches</span>
+                {refName ? <span> · was: {refName}</span> : null}
+              </>
+            )
+          ) : (
+            <>
+              Viewing history of {refName}
+              {trimmedQuery.length > 0 ? <> · filtered by '{trimmedQuery}'</> : null}
+            </>
+          )}
         </p>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="size-7"
-        disabled={disabled}
-        aria-label="Refresh history"
-        onClick={onRefresh}
-      >
-        <RefreshCw className="size-3.5" aria-hidden="true" />
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn("size-7", allBranches && HISTORY_SCOPE_TOGGLE_ON_CLASS)}
+          disabled={disabled}
+          aria-label="Show all branches"
+          aria-pressed={allBranches}
+          title="Show all branches"
+          onClick={() => onScopeChange(allBranches ? "ref" : "all")}
+        >
+          <Network className="size-3.5" aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7"
+          disabled={disabled}
+          aria-label="Refresh history"
+          title="Refresh history"
+          onClick={onRefresh}
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" />
+        </Button>
+      </div>
       <BranchPicker
         workspaceId={workspaceId}
         open={open}

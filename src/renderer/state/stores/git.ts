@@ -18,6 +18,7 @@ import type {
   GitExpandedTreeNodes,
   GitFastForwardResult,
   GitFetchAllResult,
+  GitHistoryScope,
   GitMarkResolvedResult,
   GitMergeMode,
   GitMergeResult,
@@ -133,6 +134,7 @@ export interface GitSession {
   panelSegment: GitPanelSegment;
   historyDetailWidth: number;
   historyRef: string;
+  historyScope: GitHistoryScope;
   viewMode: ViewMode;
   compactFolders: boolean;
   inFlightOp: GitInFlightOp | null;
@@ -250,6 +252,7 @@ interface GitState {
   setPanelSegment: (workspaceId: string, segment: GitPanelSegment) => void;
   setHistoryDetailWidth: (workspaceId: string, width: number) => void;
   setHistoryRef: (workspaceId: string, ref: string) => void;
+  setHistoryScope: (workspaceId: string, scope: GitHistoryScope) => void;
   setExpandedGroup: (workspaceId: string, group: GitExpandedGroupKey, expanded: boolean) => void;
   setViewMode: (workspaceId: string, viewMode: ViewMode) => void;
   setCompactFolders: (workspaceId: string, compactFolders: boolean) => void;
@@ -525,6 +528,10 @@ export const useGitStore = create<GitState>((set, get) => {
             panelStateResult.status === "fulfilled"
               ? panelStateResult.value.historyRef
               : session.historyRef,
+          historyScope:
+            panelStateResult.status === "fulfilled"
+              ? panelStateResult.value.historyScope
+              : session.historyScope,
           viewMode:
             viewOptionsResult.status === "fulfilled"
               ? viewOptionsResult.value.viewMode
@@ -1061,6 +1068,11 @@ export const useGitStore = create<GitState>((set, get) => {
       persistPanelState(workspaceId, { historyRef: ref });
     },
 
+    setHistoryScope(workspaceId, historyScope) {
+      upsertSession(workspaceId, (session) => ({ ...session, historyScope }));
+      persistPanelState(workspaceId, { historyScope });
+    },
+
     setExpandedGroup(workspaceId, group, expanded) {
       const session = get().sessions.get(workspaceId);
       if (!session) return;
@@ -1156,6 +1168,7 @@ function createDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
     historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
+    historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
     viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,
     compactFolders: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.compactFolders,
     inFlightOp: null,

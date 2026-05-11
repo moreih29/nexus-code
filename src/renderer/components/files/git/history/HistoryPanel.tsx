@@ -4,16 +4,23 @@
  */
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/types/git";
+import type {
+  CommitDetail,
+  CommitSearchResult,
+  GitHistoryScope,
+  LogEntry,
+} from "../../../../../shared/types/git";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
 import { useGitStore } from "../../../../state/stores/git";
 import { GitInlineBanner } from "../GitInlineBanner";
+import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./HistoryCommitMenu";
 import { HistoryDetail } from "./HistoryDetail";
 import { HistoryList } from "./HistoryList";
 import { HistoryRefSwitcher } from "./HistoryRefSwitcher";
 import type { HistoryRowMenuRequest } from "./HistoryRow";
 import { HistorySearch } from "./HistorySearch";
+import { RefChipList } from "./RefChip";
 
 const HISTORY_PAGE_SIZE = 50;
 const HISTORY_SEARCH_DEBOUNCE_MS = 200;
@@ -22,9 +29,11 @@ const HISTORY_NARROW_WIDTH = 720;
 interface HistoryPanelProps {
   workspaceId: string;
   refName: string;
+  historyScope: GitHistoryScope;
   detailWidth: number;
   busy?: boolean;
   onRefChange: (refName: string) => void;
+  onScopeChange: (scope: GitHistoryScope) => void;
   onDetailWidthChange: (width: number) => void;
 }
 
@@ -40,9 +49,11 @@ interface HistoryLoadState {
 export function HistoryPanel({
   workspaceId,
   refName,
+  historyScope,
   detailWidth,
   busy = false,
   onRefChange,
+  onScopeChange,
   onDetailWidthChange,
 }: HistoryPanelProps) {
   const cherryPick = useGitStore((state) => state.cherryPick);
@@ -63,10 +74,29 @@ export function HistoryPanel({
     loadingMore: false,
     errorMessage: null,
   });
+  const [laneState, setLaneState] = useState(() => initialLaneState());
   const narrow = useIsNarrowHistoryLayout();
   const selectedEntry = useMemo(
     () => loadState.entries.find((entry) => entry.sha === selectedSha) ?? null,
     [loadState.entries, selectedSha],
+  );
+
+  const resetLaneState = useCallback(() => {
+    setLaneState(initialLaneState());
+  }, []);
+
+  const appendLaneChunk = useCallback((chunk: readonly LogEntry[]) => {
+    if (chunk.length === 0) return;
+    setLaneState((state) => reduceLanes(state, chunk));
+  }, []);
+
+  const changeHistoryRef = useCallback(
+    (nextRefName: string) => {
+      onRefChange(nextRefName);
+      onScopeChange("ref");
+      setQuery("");
+    },
+    [onRefChange, onScopeChange],
   );
 
   const loadFirstPage = useCallback(
@@ -74,6 +104,7 @@ export function HistoryPanel({
       setBanner(null);
       setDetail(null);
       setSelectedSha(null);
+      resetLaneState();
       setLoadState({
         entries: [],
         hasMore: false,
@@ -84,8 +115,10 @@ export function HistoryPanel({
       void loadLogPage({
         workspaceId,
         refName,
+        scope: historyScope,
         signal,
-        onChunk: (entries) => {
+        onChunk: (entries, chunk) => {
+          appendLaneChunk(chunk);
           setLoadState((state) => ({
             ...state,
             entries,
@@ -108,7 +141,7 @@ export function HistoryPanel({
         },
       });
     },
-    [refName, workspaceId],
+    [appendLaneChunk, historyScope, refName, resetLaneState, workspaceId],
   );
 
   useEffect(() => {
@@ -116,6 +149,7 @@ export function HistoryPanel({
     const refreshToken = searchNonce;
     if (trimmed.length > 0) {
       const controller = new AbortController();
+      resetLaneState();
       setLoadState({
         entries: [],
         hasMore: false,
@@ -125,26 +159,63 @@ export function HistoryPanel({
       });
       setDetail(null);
       setSelectedSha(null);
-      ipcCall(
-        "git",
-        "searchCommits",
-        { workspaceId, query: trimmed, limit: HISTORY_PAGE_SIZE },
-        {
-          signal: controller.signal,
-        },
-      )
-        .then((result) => applySearchResult(result, setLoadState, setSelectedSha, setDetail))
-        .catch((error) => {
-          if (controller.signal.aborted) return;
-          const message = gitErrorKind(error) === "ref-not-found" ? null : messageFromError(error);
-          setLoadState({
-            entries: [],
-            hasMore: false,
-            loading: false,
-            loadingMore: false,
-            errorMessage: message,
+      if (historyScope === "ref" && isShaPrefixQuery(trimmed)) {
+        ipcCall(
+          "git",
+          "searchCommits",
+          { workspaceId, query: trimmed, limit: HISTORY_PAGE_SIZE },
+          {
+            signal: controller.signal,
+          },
+        )
+          .then((result) => {
+            if (controller.signal.aborted) return;
+            const graphEntries = applySearchResult(result, setLoadState, setSelectedSha, setDetail);
+            setLaneState(reduceLanes(initialLaneState(), graphEntries));
+          })
+          .catch((error) => {
+            if (controller.signal.aborted) return;
+            const message =
+              gitErrorKind(error) === "ref-not-found" ? null : messageFromError(error);
+            setLoadState({
+              entries: [],
+              hasMore: false,
+              loading: false,
+              loadingMore: false,
+              errorMessage: message,
+            });
           });
+      } else {
+        void loadLogPage({
+          workspaceId,
+          refName,
+          scope: historyScope,
+          grep: trimmed,
+          signal: controller.signal,
+          onChunk: (entries, chunk) => {
+            appendLaneChunk(chunk);
+            setLoadState((state) => ({
+              ...state,
+              entries,
+              loading: false,
+              errorMessage: null,
+            }));
+            setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
+          },
+          onComplete: (hasMore) => {
+            setLoadState((state) => ({ ...state, loading: false, hasMore }));
+          },
+          onError: (message) => {
+            setLoadState({
+              entries: [],
+              hasMore: false,
+              loading: false,
+              loadingMore: false,
+              errorMessage: message,
+            });
+          },
         });
+      }
       return () => controller.abort();
     }
     if (refreshToken < 0) return;
@@ -153,7 +224,16 @@ export function HistoryPanel({
     setLoadState((state) => ({ ...state, loading: true, entries: [], errorMessage: null }));
     loadFirstPage(controller.signal);
     return () => controller.abort();
-  }, [debouncedQuery, loadFirstPage, searchNonce, workspaceId]);
+  }, [
+    appendLaneChunk,
+    debouncedQuery,
+    historyScope,
+    loadFirstPage,
+    refName,
+    resetLaneState,
+    searchNonce,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!selectedSha) {
@@ -177,15 +257,19 @@ export function HistoryPanel({
   }, [detail?.sha, selectedSha, workspaceId]);
 
   function loadMore(): void {
+    if (debouncedQuery.trim().length > 0) return;
     const lastSha = loadState.entries.at(-1)?.sha;
     if (!lastSha || loadState.loadingMore) return;
+    const laneSeenShas = new Set(loadState.entries.map((entry) => entry.sha));
     setLoadState((state) => ({ ...state, loadingMore: true }));
     void loadLogPage({
       workspaceId,
       refName,
+      scope: historyScope,
       afterSha: lastSha,
       signal: undefined,
-      onChunk: (entries) => {
+      onChunk: (entries, chunk) => {
+        appendLaneChunk(collectNewLaneEntries(laneSeenShas, chunk));
         setLoadState((state) => ({
           ...state,
           entries: appendUniqueEntries(state.entries, entries),
@@ -215,11 +299,11 @@ export function HistoryPanel({
       <HistoryRefSwitcher
         workspaceId={workspaceId}
         refName={refName}
+        historyScope={historyScope}
+        searchQuery={query}
         disabled={busy}
-        onRefChange={(nextRef) => {
-          onRefChange(nextRef);
-          setQuery("");
-        }}
+        onRefChange={changeHistoryRef}
+        onScopeChange={onScopeChange}
         onRefresh={() => {
           if (debouncedQuery.trim().length > 0) {
             setSearchNonce((value) => value + 1);
@@ -245,6 +329,18 @@ export function HistoryPanel({
             hasMore={loadState.hasMore}
             searchQuery={query}
             errorMessage={loadState.errorMessage}
+            laneState={laneState}
+            renderRefSlot={(entry) => (
+              <RefChipList
+                refs={entry.refs}
+                currentRefName={refName}
+                visibleCount={narrow ? 1 : 2}
+                onRefChange={changeHistoryRef}
+                onOpenMenu={(event) => {
+                  openMenu({ entry, point: { x: event.clientX, y: event.clientY } });
+                }}
+              />
+            )}
             onSelect={(entry) => setSelectedSha(entry.sha)}
             onLoadMore={loadMore}
             onOpenMenu={openMenu}
@@ -290,7 +386,9 @@ export function HistoryPanel({
 async function loadLogPage({
   workspaceId,
   refName,
+  scope,
   afterSha,
+  grep,
   signal,
   onChunk,
   onComplete,
@@ -298,30 +396,37 @@ async function loadLogPage({
 }: {
   workspaceId: string;
   refName: string;
+  scope: GitHistoryScope;
   afterSha?: string;
+  grep?: string;
   signal?: AbortSignal;
-  onChunk: (entries: LogEntry[]) => void;
+  onChunk: (entries: LogEntry[], chunk: readonly LogEntry[]) => void;
   onComplete: (hasMore: boolean) => void;
   onError: (message: string) => void;
 }): Promise<void> {
   const entries: LogEntry[] = [];
   try {
+    const trimmedGrep = grep?.trim();
     const handle = ipcStream(
       "git",
       "log",
       {
         workspaceId,
-        ref: afterSha ? undefined : refName,
+        ref: scope === "ref" && !afterSha ? refName : undefined,
+        scope,
         afterSha,
+        grep: trimmedGrep && trimmedGrep.length > 0 ? trimmedGrep : undefined,
         limit: HISTORY_PAGE_SIZE,
       },
       signal ? { signal } : {},
     );
     handle.onProgress((chunk) => {
+      if (signal?.aborted) return;
       entries.push(...chunk.entries);
-      onChunk([...entries]);
+      onChunk([...entries], chunk.entries);
     });
     const complete = await handle.promise;
+    if (signal?.aborted) return;
     onComplete(Boolean(complete.hasMore));
   } catch (error) {
     if (signal?.aborted) return;
@@ -335,7 +440,7 @@ function applySearchResult(
   setLoadState: React.Dispatch<React.SetStateAction<HistoryLoadState>>,
   setSelectedSha: React.Dispatch<React.SetStateAction<string | null>>,
   setDetail: React.Dispatch<React.SetStateAction<CommitDetail | null>>,
-): void {
+): readonly LogEntry[] {
   if (result.kind === "sha") {
     const entry = logEntryFromDetail(result.detail);
     setLoadState({
@@ -347,7 +452,7 @@ function applySearchResult(
     });
     setSelectedSha(result.detail.sha);
     setDetail(result.detail);
-    return;
+    return [entry];
   }
 
   setLoadState({
@@ -358,6 +463,7 @@ function applySearchResult(
     errorMessage: null,
   });
   setSelectedSha(result.entries[0]?.sha ?? null);
+  return result.entries;
 }
 
 /** Converts a detail response into the list-row shape for SHA search hits. */
@@ -371,6 +477,7 @@ function logEntryFromDetail(detail: CommitDetail): LogEntry {
     authoredAt: detail.committerTs,
     subject: detail.subject,
     body: detail.body || undefined,
+    refs: [],
   };
 }
 
@@ -379,6 +486,22 @@ function appendUniqueEntries(current: readonly LogEntry[], nextPage: readonly Lo
   const seen = new Set(current.map((entry) => entry.sha));
   const appended = nextPage.filter((entry) => !seen.has(entry.sha));
   return [...current, ...appended];
+}
+
+/** Returns only chunk entries that have not already advanced the graph reducer. */
+function collectNewLaneEntries(seenShas: Set<string>, chunk: readonly LogEntry[]): LogEntry[] {
+  const freshEntries: LogEntry[] = [];
+  for (const entry of chunk) {
+    if (seenShas.has(entry.sha)) continue;
+    seenShas.add(entry.sha);
+    freshEntries.push(entry);
+  }
+  return freshEntries;
+}
+
+/** Matches the legacy SHA-prefix search path for single-ref history queries. */
+function isShaPrefixQuery(query: string): boolean {
+  return /^[0-9a-f]{4,40}$/i.test(query.trim());
 }
 
 /** Small debounce hook used for History search. */

@@ -125,6 +125,7 @@ const GIT_PANEL_PROTECTED_BRANCHES_KEY = "protectedBranches";
 const GIT_PANEL_PANEL_SEGMENT_KEY = "panelSegment";
 const GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY = "historyDetailWidth";
 const GIT_PANEL_HISTORY_REF_KEY = "historyRef";
+const GIT_PANEL_HISTORY_SCOPE_KEY = "historyScope";
 
 interface GitPanelStateRow {
   key: string;
@@ -192,6 +193,7 @@ function defaultGitPanelState(): GitPanelState {
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
     historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
+    historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
   };
 }
 
@@ -419,6 +421,27 @@ function parseGitHistoryRef(
       err,
     );
     return DEFAULT_GIT_PANEL_STATE.historyRef;
+  }
+}
+
+/** Parses the persisted history scope, defaulting legacy workspaces to single-ref history. */
+function parseGitHistoryScope(
+  workspaceId: string,
+  raw: string | undefined,
+): GitPanelState["historyScope"] {
+  if (raw === undefined) return DEFAULT_GIT_PANEL_STATE.historyScope;
+
+  try {
+    return GitPanelStateSchema.parse({
+      ...defaultGitPanelState(),
+      historyScope: raw,
+    }).historyScope;
+  } catch (err) {
+    console.warn(
+      `[WorkspaceStorage] Invalid git_panel_state historyScope for workspace ${workspaceId}; using defaults.`,
+      err,
+    );
+    return DEFAULT_GIT_PANEL_STATE.historyScope;
   }
 }
 
@@ -675,6 +698,7 @@ export class WorkspaceStorage {
         values.get(GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY),
       ),
       historyRef: parseGitHistoryRef(workspaceId, values.get(GIT_PANEL_HISTORY_REF_KEY)),
+      historyScope: parseGitHistoryScope(workspaceId, values.get(GIT_PANEL_HISTORY_SCOPE_KEY)),
     };
     const parsed = GitPanelStateSchema.safeParse(state);
     if (!parsed.success) {
@@ -752,6 +776,9 @@ export class WorkspaceStorage {
       }
       if (parsed.historyRef !== undefined) {
         ins.run(GIT_PANEL_HISTORY_REF_KEY, parsed.historyRef);
+      }
+      if (parsed.historyScope !== undefined) {
+        ins.run(GIT_PANEL_HISTORY_SCOPE_KEY, parsed.historyScope);
       }
       entry.db.exec("COMMIT");
     } catch (err) {
