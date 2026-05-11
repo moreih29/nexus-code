@@ -64,6 +64,9 @@ export type GitTagMenuItemId = "create" | "delete" | "delete-remote" | "push-tag
 
 export type GitTagPickerMenuMode = "create" | "delete-local" | "delete-remote";
 
+/** Discriminator for the top-level submenu that may be open at any moment. */
+export type GitMoreL1Submenu = "branch" | "remote" | "stash" | "tag" | "autofetch";
+
 export interface GitBranchMenuActionHandlers {
   onMergeBranch: () => void;
   onRebaseBranch: () => void;
@@ -485,22 +488,25 @@ export function GitMoreMenu({
   onSetAutofetchInterval,
 }: GitMoreMenuProps) {
   const [open, setOpen] = useState(false);
-  const [branchOpen, setBranchOpen] = useState(false);
-  const [remotesOpen, setRemotesOpen] = useState(false);
+  // Only one top-level submenu can be open at a time so clicking a sibling
+  // trigger swaps the open flyout instead of stacking two side-by-side.
+  const [openL1, setOpenL1] = useState<GitMoreL1Submenu | null>(null);
   const [removeRemoteOpen, setRemoveRemoteOpen] = useState(false);
-  const [stashOpen, setStashOpen] = useState(false);
-  const [tagOpen, setTagOpen] = useState(false);
-  const [autofetchOpen, setAutofetchOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => {
     setOpen(false);
-    setBranchOpen(false);
-    setRemotesOpen(false);
+    setOpenL1(null);
     setRemoveRemoteOpen(false);
-    setStashOpen(false);
-    setTagOpen(false);
-    setAutofetchOpen(false);
   }, []);
+  const handleL1OpenChange = useCallback(
+    (kind: GitMoreL1Submenu) => (next: boolean) => {
+      setOpenL1(next ? kind : (prev) => (prev === kind ? null : prev));
+      // Closing the parent submenu naturally closes any nested L2 panel
+      // because TagSubmenu owns its own L2 state and resets on close.
+      if (!next) setRemoveRemoteOpen(false);
+    },
+    [],
+  );
 
   // Use the marker-aware dismiss hook so portal panels (which live outside
   // wrapperRef in the DOM) are treated as "inside" and do not trigger close.
@@ -585,10 +591,10 @@ export function GitMoreMenu({
             disabled={repoBusy}
           />
           <BranchSubmenu
-            open={branchOpen}
+            open={openL1 === "branch"}
             disabled={repoBusy}
             hasHead={hasHead}
-            onOpenChange={setBranchOpen}
+            onOpenChange={handleL1OpenChange("branch")}
             onMergeBranch={() => run(onMergeBranch)}
             onRebaseBranch={() => run(onRebaseBranch)}
             onCreateBranch={() => run(onCreateBranch)}
@@ -598,41 +604,41 @@ export function GitMoreMenu({
             onDeleteRemoteBranch={() => run(onDeleteRemoteBranch)}
           />
           <RemotesSubmenu
-            open={remotesOpen}
+            open={openL1 === "remote"}
             removeOpen={removeRemoteOpen}
             remotes={remotes}
             disabled={repoBusy}
-            onOpenChange={setRemotesOpen}
+            onOpenChange={handleL1OpenChange("remote")}
             onRemoveOpenChange={setRemoveRemoteOpen}
             onAddRemote={() => run(onAddRemote)}
             onRemoveRemote={(remote) => run(() => onRemoveRemote(remote))}
           />
           <StashSubmenu
-            open={stashOpen}
+            open={openL1 === "stash"}
             disabled={repoBusy}
             hasHead={hasHead}
             stashCount={stashCount}
-            onOpenChange={setStashOpen}
+            onOpenChange={handleL1OpenChange("stash")}
             onStash={() => run(onStash)}
             onStashPop={() => run(onStashPop)}
             onOpenStashes={() => run(onOpenStashes)}
           />
           <TagSubmenu
-            open={tagOpen}
+            open={openL1 === "tag"}
             disabled={repoBusy}
             hasHead={hasHead}
             remotes={remotes}
-            onOpenChange={setTagOpen}
+            onOpenChange={handleL1OpenChange("tag")}
             onOpenTags={(mode, remote) => run(() => onOpenTags(mode, remote))}
             onPushTags={(remote) => run(() => onPushTags(remote))}
           />
           <MenuSeparator />
           <AutofetchSubmenu
-            open={autofetchOpen}
+            open={openL1 === "autofetch"}
             selected={autofetchIntervalMin}
             lastFetchedAt={lastFetchedAt}
             disabled={disabled}
-            onOpenChange={setAutofetchOpen}
+            onOpenChange={handleL1OpenChange("autofetch")}
             onSelect={(intervalMin) => run(() => onSetAutofetchInterval(intervalMin))}
           />
           <MenuSeparator />
@@ -841,17 +847,20 @@ function TagSubmenu({
   const model = buildGitTagMenuModel({ disabled, hasHead, remotes });
   const deleteRemoteTagAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
   const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
-  const [deleteRemoteTagRemoteOpen, setDeleteRemoteTagRemoteOpen] = useState(false);
-  const [pushTagsRemoteOpen, setPushTagsRemoteOpen] = useState(false);
+  // Mirror the top-level rule: only one Tag-level remote picker open at a time.
+  const [openL2, setOpenL2] = useState<"delete-remote" | "push-tags" | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
   const tagHandlers: GitTagMenuActionHandlers = { onOpenTags };
+  const handleL2OpenChange = useCallback(
+    (kind: "delete-remote" | "push-tags") => (next: boolean) => {
+      setOpenL2(next ? kind : (prev) => (prev === kind ? null : prev));
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!open) {
-      setDeleteRemoteTagRemoteOpen(false);
-      setPushTagsRemoteOpen(false);
-    }
+    if (!open) setOpenL2(null);
   }, [open]);
 
   function select(id: GitTagMenuItemId): void {
@@ -897,17 +906,17 @@ function TagSubmenu({
                   deleteRemoteTagAction.kind === "choose-remote" ? (
                   <DeleteRemoteTagRemoteSubmenu
                     key={item.id}
-                    open={deleteRemoteTagRemoteOpen}
+                    open={openL2 === "delete-remote"}
                     remotes={deleteRemoteTagAction.remotes}
-                    onOpenChange={setDeleteRemoteTagRemoteOpen}
+                    onOpenChange={handleL2OpenChange("delete-remote")}
                     onOpenTags={onOpenTags}
                   />
                 ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
                   <PushTagsRemoteSubmenu
                     key={item.id}
-                    open={pushTagsRemoteOpen}
+                    open={openL2 === "push-tags"}
                     remotes={pushTagsAction.remotes}
-                    onOpenChange={setPushTagsRemoteOpen}
+                    onOpenChange={handleL2OpenChange("push-tags")}
                     onPushTags={onPushTags}
                   />
                 ) : (
