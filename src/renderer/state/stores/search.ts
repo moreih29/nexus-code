@@ -281,7 +281,10 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
     setViewMode(wsId, next) {
       set((state) => {
-        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const cur = state.viewStates.get(wsId) ?? {
+          ...DEFAULT_SEARCH_VIEW,
+          expandedDirs: new Set(),
+        };
         const updated: SearchViewState = { ...cur, viewMode: next };
         const map = new Map(state.viewStates);
         map.set(wsId, updated);
@@ -292,7 +295,10 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
     setCompactFolders(wsId, next) {
       set((state) => {
-        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const cur = state.viewStates.get(wsId) ?? {
+          ...DEFAULT_SEARCH_VIEW,
+          expandedDirs: new Set(),
+        };
         const updated: SearchViewState = { ...cur, compactFolders: next };
         const map = new Map(state.viewStates);
         map.set(wsId, updated);
@@ -303,7 +309,10 @@ export const useSearchStore = create<SearchState>((set, get) => {
 
     toggleExpandedDir(wsId, relPath) {
       set((state) => {
-        const cur = state.viewStates.get(wsId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() };
+        const cur = state.viewStates.get(wsId) ?? {
+          ...DEFAULT_SEARCH_VIEW,
+          expandedDirs: new Set(),
+        };
         const nextDirs = new Set(cur.expandedDirs);
         if (nextDirs.has(relPath)) {
           nextDirs.delete(relPath);
@@ -451,8 +460,16 @@ export function useSearchSession(workspaceId: string): SearchSession | undefined
   return useSearchStore((s) => s.sessions.get(workspaceId));
 }
 
+/**
+ * Stable fallback reference for `useSearchViewState`. Returning a fresh object
+ * (or fresh Set) from a `useSyncExternalStore` selector triggers React's
+ * "getSnapshot should be cached" warning and can cause infinite re-renders, so
+ * we reuse a single immutable snapshot when no per-workspace state exists yet.
+ * Mutators in this file always construct fresh maps/sets before storing, so
+ * this default is never mutated in place.
+ */
+const EMPTY_SEARCH_VIEW_STATE: SearchViewState = DEFAULT_SEARCH_VIEW;
+
 export function useSearchViewState(workspaceId: string): SearchViewState {
-  return useSearchStore(
-    (s) => s.viewStates.get(workspaceId) ?? { ...DEFAULT_SEARCH_VIEW, expandedDirs: new Set() },
-  );
+  return useSearchStore((s) => s.viewStates.get(workspaceId) ?? EMPTY_SEARCH_VIEW_STATE);
 }
