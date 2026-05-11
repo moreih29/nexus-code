@@ -414,6 +414,18 @@ export const TagSchema = z.object({
 });
 export type Tag = z.infer<typeof TagSchema>;
 
+/**
+ * Remote tag row returned from one selected remote. It intentionally stays
+ * separate from local `Tag` so local tag listings never imply remote presence.
+ */
+export const RemoteTagSchema = z.object({
+  remote: z.string(),
+  name: z.string(),
+  sha: z.string(),
+  scope: z.literal("remote"),
+});
+export type RemoteTag = z.infer<typeof RemoteTagSchema>;
+
 const DiffPathShape = {
   relPath: z.string().min(1).optional(),
   oldRelPath: z.string().min(1).optional(),

@@ -45,25 +45,28 @@ describe("GitRepository tag ops", () => {
     }
   });
 
-  realGitTest("creates lightweight and annotated tags and maps duplicate/bad-ref errors", async () => {
-    const root = makeRepoWithCommit();
-    try {
-      const repo = new GitRepository("ws-tags-create", root, path.join(root, ".git"), gitOnPath!);
+  realGitTest(
+    "creates lightweight and annotated tags and maps duplicate/bad-ref errors",
+    async () => {
+      const root = makeRepoWithCommit();
+      try {
+        const repo = new GitRepository("ws-tags-create", root, path.join(root, ".git"), gitOnPath!);
 
-      await repo.createTag("v-light");
-      expect(runGit(root, ["cat-file", "-t", "v-light"]).trim()).toBe("commit");
+        await repo.createTag("v-light");
+        expect(runGit(root, ["cat-file", "-t", "v-light"]).trim()).toBe("commit");
 
-      await repo.createTag("v-annotated", { message: "release notes" });
-      expect(runGit(root, ["cat-file", "-t", "v-annotated"]).trim()).toBe("tag");
+        await repo.createTag("v-annotated", { message: "release notes" });
+        expect(runGit(root, ["cat-file", "-t", "v-annotated"]).trim()).toBe("tag");
 
-      await expect(repo.createTag("v-light")).rejects.toMatchObject({ kind: "tag-exists" });
-      await expect(repo.createTag("v-missing", { ref: "definitely-missing" })).rejects.toMatchObject(
-        { kind: "ref-not-found" },
-      );
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+        await expect(repo.createTag("v-light")).rejects.toMatchObject({ kind: "tag-exists" });
+        await expect(
+          repo.createTag("v-missing", { ref: "definitely-missing" }),
+        ).rejects.toMatchObject({ kind: "ref-not-found" });
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   realGitTest("deletes local tags and maps nonexistent tags", async () => {
     const root = makeRepoWithCommit();
@@ -104,6 +107,40 @@ describe("GitRepository tag ops", () => {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });
+
+  test("listRemoteTags uses selected-remote ls-remote argv and parses tag refs", async () => {
+    const fixture = makeFakeRepo();
+    try {
+      const repo = new GitRepository(
+        "ws-list-remote-tags",
+        fixture.root,
+        fixture.gitDir,
+        fixture.gitBin,
+      );
+
+      const tags = await repo.listRemoteTags("origin");
+
+      expect(readLog(fixture.root)[0]).toMatch(
+        /^ls-remote --tags --refs origin\|askpass=.+\|terminal=0$/,
+      );
+      expect(tags).toEqual([
+        {
+          remote: "origin",
+          name: "v1.0.0",
+          sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          scope: "remote",
+        },
+        {
+          remote: "origin",
+          name: "release/candidate",
+          sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          scope: "remote",
+        },
+      ]);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
 });
 
 /** Creates a repository with a single committed file on main. */
@@ -118,7 +155,7 @@ function makeRepoWithCommit(): string {
   return root;
 }
 
-/** Creates a fake repo with a git-compatible script that logs push env. */
+/** Creates a fake repo with a git-compatible script that logs tag argv/env. */
 function makeFakeRepo(): { root: string; gitDir: string; gitBin: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-delete-remote-tag-"));
   const gitDir = path.join(root, ".git");
@@ -130,6 +167,10 @@ function makeFakeRepo(): { root: string; gitDir: string; gitBin: string } {
     `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s|askpass=%s|terminal=%s\n' "$*" "${"${"}GIT_ASKPASS:-}" "${"${"}GIT_TERMINAL_PROMPT:-}" >> ${shellQuote(logPath)}
+if [ "${"${"}1:-}" = "ls-remote" ]; then
+  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.0.0\n'
+  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/release/candidate\n'
+fi
 `,
     "utf8",
   );

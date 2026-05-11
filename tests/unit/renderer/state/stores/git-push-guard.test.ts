@@ -37,6 +37,7 @@ mock.module("../../../../../src/renderer/state/lifecycle/workspace-cleanup", () 
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
 
+import { type GitSession, useGitStore } from "../../../../../src/renderer/state/stores/git";
 import {
   DEFAULT_GIT_PANEL_STATE,
   DEFAULT_REPO_CAPABILITIES,
@@ -44,7 +45,6 @@ import {
   type GitStatus,
 } from "../../../../../src/shared/types/git";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
-import { type GitSession, useGitStore } from "../../../../../src/renderer/state/stores/git";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000015";
 
@@ -91,9 +91,7 @@ describe("git store — push guardrails", () => {
       throw new Error(`unexpected ${method}`);
     };
 
-    await useGitStore
-      .getState()
-      .push(WORKSPACE_ID, session?.pendingNonFFRetry?.originalPushOpts);
+    await useGitStore.getState().push(WORKSPACE_ID, session?.pendingNonFFRetry?.originalPushOpts);
 
     session = useGitStore.getState().sessions.get(WORKSPACE_ID);
     expect(ipcCalls.at(-1)?.args).toMatchObject({ workspaceId: WORKSPACE_ID, publish: true });
@@ -130,6 +128,32 @@ describe("git store — push guardrails", () => {
 
     expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.pendingNonFFRetry).toBeNull();
     expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.lastError).toBeNull();
+  });
+
+  it("pushTags calls the dedicated IPC route and tracks the in-flight operation", async () => {
+    let finishPushTags!: () => void;
+    ipcImpl = async (_channel, method) => {
+      if (method !== "pushTags") throw new Error(`unexpected ${method}`);
+      return new Promise<void>((resolve) => {
+        finishPushTags = resolve;
+      });
+    };
+
+    const pending = useGitStore.getState().pushTags(WORKSPACE_ID, "origin");
+
+    expect(ipcCalls).toEqual([
+      {
+        channel: "git",
+        method: "pushTags",
+        args: { workspaceId: WORKSPACE_ID, remote: "origin" },
+      },
+    ]);
+    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.inFlightOp?.kind).toBe("pushTags");
+
+    finishPushTags();
+    await pending;
+
+    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.inFlightOp).toBeNull();
   });
 });
 
@@ -195,12 +219,7 @@ function makeStatus(): GitStatus {
 }
 
 /** Creates an Error shaped like the renderer IPC rehydrated GitError. */
-function gitError(
-  kind: string,
-  message: string,
-  stderr = message,
-  hint?: GitActionHint,
-): Error {
+function gitError(kind: string, message: string, stderr = message, hint?: GitActionHint): Error {
   const error = new Error(message) as Error & {
     kind: string;
     stderr: string;

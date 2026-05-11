@@ -9703,6 +9703,445 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-11T11:15:03.734Z",
+      "branch": "feat/git-source-control-panel",
+      "plan": {
+        "id": 37,
+        "topic": "VSCode core git More 메뉴 뼈대 풀 미러 (reorganization + 1 small IPC)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "More 메뉴 최상위 재구조 — Branch▸/Stash▸/Tag▸ 신규 + Cherry-pick 제거 + Tags… 단일 버튼 폐기",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Approved with conditions. (1) Checkout to… top-level 유지 — 최고빈도 액션, Hick's Law 관점 한 단계 강요 비용 큼, BranchChip mental model과 일치. VSCode도 동일. (2) Autofetch ▸ 별도 그룹 유지 — Remote ▸ 내부로 넣으면 액션과 설정 혼재로 Consistency 위반. Tag ▸ 다음 단독 그룹 권장. (3) Discard All Changes 최하단 단독 separator 유지 + destructive color token 명시 필요(WARNING). (4) 순서: Fetch/Pull/Push → separator → Checkout to… → Branch ▸ 인접 배치(Checkout이 \"local 브랜치 작업\"이라 Branch와 인접). 권장 레이아웃:\n```\nRefresh / Init / —\nFetch / Pull / Push / —\nCheckout to… / Branch ▸ / Remote ▸ / Stash ▸ / Tag ▸ / —\nAutofetch ▸ / —\nDiscard All Changes (destructive)\n```",
+                "recorded_at": "2026-05-11T09:38:11.609Z",
+                "agent_id": "a9206f3044a57e6ef"
+              },
+              {
+                "role": "retrospective",
+                "summary": "End-of-cycle review found no additional work within the original More-menu mirror scope. Evidence: all 10 tasks completed; full `bun test tests/unit tests/integration` passed (1716 pass, 1 skip, 0 fail); changed-file Biome and git diff --check passed; typecheck/lint/build/focused regressions passed earlier; Architect cross-task review returned PASS with no warnings.",
+                "recorded_at": "2026-05-11T11:14:58.606Z"
+              }
+            ],
+            "decision": "**More 메뉴 최상위 재구성 — designer 권장 레이아웃 채택.**\n\nSelected layout:\n```\nRefresh\nInitialize Repository           (canInit일 때만)\n─\nFetch / Pull / Push             (각각 hasRemote 게이트)\n─\nCheckout to…                    (top-level 유지, Branch▸과 인접)\nBranch ▸\nRemote ▸                        (기존 Remotes ▸ 명칭만 단수형으로 VSCode 정렬)\nStash ▸                         (기존 flat 3개 그룹화)\nTag ▸                           (기존 \"Tags…\" 단일 버튼 폐기)\n─\nAutofetch ▸                     (별도 그룹 — 액션 아닌 설정)\n─\nDiscard All Changes             (destructive color token 명시)\n```\n\n핵심 변경:\n- `Cherry-pick Commit…` 최상위에서 제거(VSCode core는 More 메뉴에 cherry-pick 없음, HistoryCommitMenu 진입점만 유지)\n- `Merge Branch…` / `Rebase Current Branch…` → Branch ▸ 내부\n- `Stash` / `Stash Pop` / `Stashes…` → Stash ▸ 내부\n- `Tags…` 단일 버튼 → `Tag ▸` submenu\n- `Branch ▸` 신규 (issue #2에서 9개 액션 정의)\n- Discard All Changes 텍스트 색상을 destructive token으로 명시(WARNING 보정)\n\nRejected alternatives:\n- Checkout to…를 Branch ▸ 안으로 이동: 최고빈도 액션, BranchChip mental model과 일치, 한 단계 깊이가 Hick's Law 위반. VSCode도 top-level 유지.\n- Autofetch ▸를 Remote ▸ 내부로 흡수: 액션과 설정 혼재로 Consistency 위반. 별도 그룹이 깔끔.\n- Discard All Changes를 다른 그룹에 묶기: useful friction 의도된 위치, mis-click 위험 증가.\n- Remotes(복수) 유지: VSCode 뼈대 미러 정신이라 단수형으로 정렬.\n\nAssumptions: destructive color token이 디자인 시스템에 이미 존재(design.md warm-warning 톤). 없으면 task 시 토큰 신설."
+          },
+          {
+            "id": 2,
+            "title": "Branch ▸ 9개 액션 surface 신규 노출 — 각 액션의 진입 다이얼로그/picker 흐름 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Approved with conditions. **메뉴 = 진입점, BranchPicker = 선택+컨텍스트 액션 허브로 책임 분리.** (1) Create New Branch… → 단독 input dialog (b) — 사용자가 \"Create\" verb 선택한 시점에 mental model 이미 \"이름 정해 만든다\"로 완성, 검색 리스트는 Consistency 위반. (2) Create New Branch From… → ref picker 먼저 → 이름 입력 (a, 2-step) — 한 다이얼로그에 input+list+CTA 합치면 Load & Flow 적신호. (3) Rename / Delete / Delete Remote → BranchPicker mode prop (c, 작은 모드) — 검색-as-you-type 보존하면서 mode는 filter + accept-action 두 차원만 변경, \"+ Create\" row + 우클릭/단축키는 모드 진입 시 숨김. (4) Publish 중복 우려 — **popover primary 한 곳으로 통일 권장**, Branch ▸ 에서 제외. publish는 \"현재 브랜치 즉시 처리\"이지 \"선택해서 publish할 브랜치\"가 아님. VSCode가 메뉴에 둔 건 chip indicator가 없어서 — 우리는 더 나은 surface 보유. (5) Checkout 중복 배치 권장 X — 같은 verb를 두 surface에 두면 canonical 분열. WARNING: BranchPicker mode prop이 시각적 chrome(header label, 단축키 hint)까지 분기하면 컴포넌트 분리 신호로 재검토.",
+                "recorded_at": "2026-05-11T09:38:21.438Z",
+                "agent_id": "a9206f3044a57e6ef"
+              }
+            ],
+            "decision": "**Branch ▸ 8개 액션, designer의 책임 분리 권고 채택.**\n\n원칙: **메뉴 = 진입점, BranchPicker = 선택+컨텍스트 액션 허브**. mode prop은 filter + accept-action 2 차원만 캡슐화.\n\nSelected mapping:\n\n| Branch ▸ item | 진입 UI |\n|---|---|\n| Merge Branch… | 기존 MergeBranchPicker (변경 없음) |\n| Rebase Current Branch… | 기존 RebaseBranchPicker (변경 없음) |\n| ─ | |\n| Create New Branch… | **단독 input dialog** (name 입력 → createBranch(name, fromRef=current)) |\n| Create New Branch From… | **2-step**: ref picker → name input dialog → createBranch(name, fromRef) |\n| ─ | |\n| Rename Branch… | BranchPicker(mode=\"rename\") — accept = rename dialog |\n| Delete Branch… | BranchPicker(mode=\"delete-local\") — accept = delete confirm |\n| Delete Remote Branch… | BranchPicker(mode=\"delete-remote\") — remote ref만 표시, accept = delete confirm |\n\nBranch ▸ 항목 수: **8개** (Publish 제외).\n\n핵심 결정:\n- **Publish Branch는 Branch ▸ 에서 제외**, BranchChip popover primary action으로만 유지. publish는 \"현재 브랜치 즉시 처리\"라 메뉴 선택 시 \"어떤 브랜치를?\" 질문이 생기는 mental model 분열 발생. VSCode가 메뉴에 둔 건 chip indicator 부재 때문 — 우리는 더 나은 surface 보유.\n- **Checkout to…는 top-level만**, Branch ▸ 안에 중복 배치 금지(canonical surface 분열 방지).\n- BranchPicker mode prop은 (1) data filter (2) accept handler 두 차원만 변경. 시각적 chrome 변경 시 컴포넌트 분리 신호로 재검토(designer WARNING).\n\nRejected alternatives:\n- Create New Branch…를 BranchPicker로 진입: 사용자가 \"Create\" verb 선택 후 검색 리스트 보면 Consistency 위반.\n- Create From을 단일 다이얼로그(input + ref list): Load & Flow 적신호(input+큰 list+CTA 한 화면).\n- Rename/Delete를 단순 quickpick(검색 X): 검색-as-you-type UX 손실. 우리 도메인 가치 큼.\n- Publish를 Branch ▸ 와 popover 둘 다 노출: surface 중복으로 canonical 분열.\n\nAssumptions: 기존 BranchPicker가 mode prop 받을 수 있게 확장 가능. mode 변경이 헤더 라벨/placeholder까지만 영향. Rename dialog는 기존 BranchPicker 컨텍스트 Rename 흐름 재사용."
+          },
+          {
+            "id": 3,
+            "title": "Tag ▸ submenu + Push Tags IPC 신규 추가 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Approved — add dedicated `pushTags` route, include in this cycle.** (1) `push()` (git-repository.ts:604)는 current-branch 의미론 기반(status read, HEAD assert, PushResult 파싱). `git push --tags`는 bulk ref push로 도메인이 다름 — `tagsOnly` boolean 추가 시 argv 구성 + result parsing 모두 분기, 단일 책임 위반(god method 신호). 별도 route 권장. (2) Remote 선택: `fetch`(optional remote), `push --publish`(remotes[0] 암시적), `deleteRemoteTag`(필수 명시) 세 패턴 공존. **renderer에서 결정 권장** — capabilities.remotes 읽고 length==1이면 즉시, length>1이면 작은 remote picker. main은 optional remote 받음. (3) 에러 분류: 기존 GitErrorKind(non-fast-forward, push-rejected, auth, no-remote)로 충분 — classifier 변경 불요. INFO: `tag-already-on-remote` 별도 kind 가치 작음. (4) 사이클 포함 평결: 비용 ~30줄 + schema 1줄 + handler 1개 + 메뉴 wiring 1줄. skip 시 Tag▸ 4번째 자리에 hole. 포함 결정. argv: `[\"push\", remote, \"--tags\"]` 명시형(`--follow-tags`는 branch push와 결합). Risks: askpass helper env 누락 시 silent fail — `deleteRemoteTag` callsite 미러. status refresh post-push로 aheadBehind 갱신 권장.",
+                "recorded_at": "2026-05-11T09:38:38.408Z",
+                "agent_id": "a065cd1a5e65393c4"
+              }
+            ],
+            "decision": "**`pushTags` IPC 신규 추가 — 본 사이클 포함.**\n\narchitect 평결: 기존 `push()`에 `tagsOnly` 옵션 추가는 단일 책임 위반(current-branch 의미론 vs bulk ref push 의미론). 별도 route가 옳음.\n\nSelected:\n1. IPC contract `src/shared/ipc-contract.ts` 에 `pushTags: call(GitPushTagsArgsSchema, z.void())` 추가. Schema: `{ workspaceId, remote?: string }`.\n2. handler `src/main/ipc/channels/git/tag-handlers.ts`(또는 신규 파일) — argv `[\"push\", remote, \"--tags\"]` 명시형. `runWithHelpers({ askpass: true })` 적용(deleteRemoteTag callsite 미러).\n3. repo method `git-repository.ts`에 `pushTags(remote, signal)` 추가 — ~10줄.\n4. Renderer store `git.ts`에 `pushTags(workspaceId, remote?)` 메서드 추가.\n5. Tag ▸ \"Push Tags\" 클릭 흐름:\n   - `capabilities.remotes.length === 1`: 즉시 실행(remote=remotes[0])\n   - `length > 1`: 작은 remote-picker(또는 confirm dialog with remote selector) → 실행\n   - `length === 0`: 메뉴 항목 disabled\n6. 에러: 기존 GitErrorKind 재사용(non-fast-forward / push-rejected / auth / no-remote). 신규 kind 추가 X.\n7. Post-success: status refresh으로 aheadBehind 갱신(symmetry).\n\nRejected alternatives:\n- `push()`에 `tagsOnly: boolean` 추가: argv + result parsing 모두 분기, mode-flag smell, 단일 책임 위반.\n- 다음 사이클로 deferral: Tag ▸ 4번째 자리에 hole, 메뉴 미완성도. 비용 ~30줄로 작음.\n- argv `--follow-tags` 사용: branch push와 결합되어 Push Tags 의미론 흐려짐. `--tags` 명시형이 옳음.\n- main이 remote default 선택: deleteRemoteTag 컨벤션(필수 명시)과 불일치. renderer 결정이 일관.\n\nAssumptions: askpass helper env 누락 시 silent fail 방지 위해 `git-tag.ts` deleteRemoteTag 패턴 미러. remote selector UI는 기존 picker 인프라(SmallPicker 등) 활용."
+          },
+          {
+            "id": 4,
+            "title": "기존 TagPicker UX 처리 — 유지/모드화 vs 폐기",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "Approved with conditions. **(a) 모드화 + mode 차원 최소 캡슐화 권장.** (1) 모드화 가치: 태그는 semver/release name으로 prefix 검색 빈도 압도적 — 검색-as-you-type UX가 도메인적으로 가장 가치 큼. 모드 prop이 (1) data filter (2) accept handler 두 차원만 결정한다면 책임 분리 원칙 유지. mode가 시각적 chrome/단축키 dispatch 등 4-5 차원을 바꾸기 시작하면 분리 신호. (2) 항목 숨김: \"+ Create new tag\" row 숨김은 자연스러움(noise 제거). remote checkbox는 delete-local에선 숨김, delete-remote에선 항상 노출, create에선 숨김. **단 헤더에 모드 라벨 명시 필요**: 빈 검색 상태에서 \"Select a tag to delete\" 같은 1줄 hint를 placeholder 위 라벨로 — 사용자가 \"내가 어느 모드?\"를 매번 input 동작으로 확인하게 되면 State & Resilience 위반. (3) (b) 폐기 옵션의 가치 < search UX 손실(100+ 태그 리포에서 plain quickpick 사실상 사용 불가). 안전장치: destructive 모드 항목 hover 시 warm-warning token, empty state 모드별 카피 분기.",
+                "recorded_at": "2026-05-11T09:38:29.375Z",
+                "agent_id": "a9206f3044a57e6ef"
+              },
+              {
+                "role": "failure-note",
+                "summary": "Task 8 verification failed after TagPicker mode implementation. Evidence: delete-remote mode fabricated remote rows from local-only listTags output when remotes were configured, and destructive TagPicker rows lacked a palette styling channel. Architect advised a narrow listRemoteTags IPC/store/repo path for delete-remote only, keeping local Tag/listTags local-only, plus a minimal PaletteItem tone field for destructive rows.",
+                "recorded_at": "2026-05-11T10:49:12.222Z"
+              }
+            ],
+            "decision": "**TagPicker (a) 모드화 + mode 차원 최소 캡슐화 채택.**\n\ndesigner 평결: 태그 도메인은 semver/release name prefix 검색 빈도 압도적 → 검색-as-you-type 가치 가장 큼. 모드 prop이 (1) data filter (2) accept handler 두 차원만 결정하면 책임 분리 유지.\n\nSelected:\n1. TagPicker에 `mode: \"browse\" | \"create\" | \"delete-local\" | \"delete-remote\"` prop 추가. 기본값 \"browse\"(기존 진입 흐름 유지 — \"Tag ▸\" submenu 외부에서 직접 호출 시).\n2. mode별 동작:\n   - `browse`: 현 동작 유지(검색 + 우클릭/단축키로 액션). **단 Tag ▸가 진입점이 되면 browse 모드 직접 진입 경로는 사라짐**(필요 시 추후 정리).\n   - `create`: query 입력 시 \"+ Create new tag\" row만 표시, 기존 태그 리스트는 read-only label로 표시(이름 충돌 방지 시각화). accept = create dialog.\n   - `delete-local`: local tag만 표시, \"+ Create\" row 숨김, accept = delete confirm(local only).\n   - `delete-remote`: remote 정보 있는 tag만 표시, \"+ Create\" 숨김, accept = delete confirm(remote only).\n3. **헤더 라벨 명시**(designer WARNING 보정):\n   - create: \"Create a new tag\"\n   - delete-local: \"Select a tag to delete\"\n   - delete-remote: \"Select a remote tag to delete\"\n   placeholder도 모드별 분기.\n4. destructive 모드(delete-local/remote)에서 항목 hover 시 row 강조를 warm-warning token으로(Consistency & Mapping).\n5. empty state 카피 모드별 분기:\n   - create: \"Type to create your first tag\"\n   - delete-*: \"No tags to delete\"\n6. mode prop이 시각적 chrome(헤더 라벨/placeholder) 외 차원으로 확장될 조짐 보이면 컴포넌트 분리로 재검토(designer 감시 지점).\n\nRejected alternatives:\n- (b) 완전 폐기 + 3개 분리 컴포넌트: search UX 손실이 큼(100+ 태그 리포에서 plain quickpick 사실상 사용 불가). 가치 < 손실.\n- (c) 혼합(TagPicker 폐기하되 모드별 dialog 별도): TagPicker 폐기 명분 약함, 코드 중복.\n- mode prop을 시각적 chrome까지 분기시킴: 책임 경계 무너짐, 컴포넌트 분리 신호.\n\nAssumptions: 기존 tag-picker-source.ts에 mode-aware filter/accept 분기 가능. browse 모드를 outer caller에서 여전히 사용하는지는 task에서 검증(필요 없으면 함께 정리)."
+          },
+          {
+            "id": 5,
+            "title": "Tag 삭제 다이얼로그 local+remote 동시 체크박스 재검토",
+            "status": "decided",
+            "decision": "**Tag 삭제 다이얼로그의 local+remote 동시 체크박스 폐기 — 메뉴 레벨로 분리됨.**\n\n직전 사이클(과한 부분 제거)에서 단축키만 제거하고 체크박스는 \"한 번에 둘 다 처리 편함\"의 가치로 유지했음. 본 사이클은 Tag ▸ 메뉴에서 local/remote 삭제를 **별도 메뉴 항목**으로 분리하므로 다이얼로그 내부 동시 체크박스는 의미 잃음.\n\nSelected:\n1. `delete-local` 모드 진입: 다이얼로그는 단일 confirm — \"Delete tag 'X'?\" + 설명 카피. 체크박스 없음.\n2. `delete-remote` 모드 진입: 다이얼로그는 단일 confirm — \"Delete remote tag '<remote>/X'?\" + 사용 remote 표시. 체크박스 없음.\n3. 두 액션을 한 번에 처리하고 싶은 사용자는 메뉴를 두 번 사용(local 삭제 후 remote 삭제) — 명확성 ↔ 클릭 수 trade-off에서 VSCode 뼈대 미러 정신 우선.\n4. `TagPicker` browse 모드의 우클릭/단축키 흐름도 이번 사이클에서 정리 — Tag ▸ 메뉴가 단일 진입점이 되므로 browse 모드 자체 폐기 검토(issue 4 assumptions 연결).\n\nRejected alternatives:\n- 체크박스 유지(직전 사이클 결정 그대로): 메뉴에서 이미 local/remote 분리됐는데 다이얼로그가 또 분리/통합 선택을 묻는 건 mental model 중복.\n- 메뉴는 분리하되 다이얼로그에서 \"Also delete remote/local\" 옵트인 체크박스 유지: 직전 사이클의 over-engineering 비판과 같은 형태.\n- delete-remote 모드만 체크박스 제거하고 delete-local은 \"Also delete on remote\" 체크박스 유지: 비대칭 UX, 더 혼란.\n\nAssumptions: 기존 `TagDeleteConfirmDialog`(TagPicker.tsx L217-252)를 mode-aware로 변경하거나 두 개 단순 confirm dialog로 분리. 검색에서 검토."
+          },
+          {
+            "id": 6,
+            "title": "Branch 삭제 force 흐름 — VSCode modal 정렬 vs 우리 checkbox 재확인 유지",
+            "status": "decided",
+            "decision": "**Branch 삭제 force 흐름을 VSCode modal 패턴으로 정렬 — 1-step \"Delete anyway?\" yes/no.**\n\n사용자가 \"VSCode 뼈대 풀 미러\" 명시했고, 직전 explore에서 VSCode 흐름(commands.ts L3330-3344) 검증 완료: 일단 delete 시도 → `BranchNotFullyMerged` 에러만 캡처 → `showWarningMessage` modal \"The branch 'X' is not fully merged. Delete anyway?\" yes/no → force=true 재실행.\n\nSelected:\n1. `BranchPicker(mode=\"delete-local\")` accept 흐름:\n   - 1차 시도: `deleteBranch(workspaceId, name, force=false)`\n   - `branch-not-fully-merged` 에러 캐치: warning modal 표시 — \"Branch 'X' is not fully merged.\\n\\nDelete anyway? Unmerged commits may be lost.\" `Delete` / `Cancel` 두 액션.\n   - Delete 클릭: `deleteBranch(..., force=true)` 재실행.\n2. force checkbox UI 제거 — 기존 `BranchDeleteConfirmDialog`(BranchPicker.tsx L242-299) 단순화.\n3. Delete Remote Branch는 force 시도 자체가 없으므로 단일 confirm modal만(현 흐름과 동일).\n4. modal 카피는 위험성 명시: \"Unmerged commits may be lost.\" — 단일 step이지만 메시지로 deliberate intent 유도.\n\nRejected alternatives:\n- 기존 force checkbox + 재확인 흐름 유지: 클릭 수 3 vs VSCode 1, 사용자가 VSCode 정렬 명시적으로 요청.\n- modal 카피 단순화(\"Delete anyway?\"만): force 작업의 위험성(unmerged commits 손실)을 메시지로 명시하지 않으면 사용자가 의도 없이 yes 클릭 위험. 추가 한 문장으로 의도 명확화.\n- force-available을 별도 상태로 두고 다이얼로그 reopen: 직전 흐름의 over-engineering 신호.\n\nAssumptions: 우리 modal/alert dialog 인프라가 destructive variant + 두 버튼 + 카피 multi-line 지원. design.md의 warm-warning token 활용."
+          },
+          {
+            "id": 7,
+            "title": "Submenu clipping bug — viewport flip / Portal / floating-ui 선택",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Approved — (a) viewport-flip 이번 사이클, (c) Radix DropdownMenu 표준화는 별도 후속 사이클.** (1) (a) 한계: trigger-rect + estimated-height + bottom-0 fallback이 95%+ 케이스 커버. submenu가 left-full(오른쪽)로 펼쳐져 수평 clipping은 side-panel 레이아웃에서 희박. main 메뉴 자체가 패널보다 길어 vertical clipping되는 경우는 별개 이슈(허용). z-50 vs z-40 ordering 이미 정확 — Portal 불요 단, GitHeader/GitMoreMenu wrapper에 transform/filter 같은 stacking-context 재정의 없음을 verify. (2) (b) Portal 부작용: `useDismissOnOutsideClick`(use-dismiss-on-outside-click.ts:32)이 `container.contains(target)` 사용 — portal target이 wrapperRef 바깥이라 outside click으로 잘못 닫힘. **CRITICAL** if (b) 채택. (3) (c) 비용: package.json에 radix-ui 이미 존재(ContextMenu/Dialog/Tooltip 등). DropdownMenu 추가 ~5KB + flip/portal/dismiss/focus-trap/keyboard nav 자동. but GitMoreMenu/GitFileContextMenu/GitBranchPopover/GitCommitButton/HistoryCommitMenu/ViewModeToggle 일괄 마이그레이션은 multi-day — 본 사이클 X. (4) 권장 구현(option a ~7줄/submenu): `useSubmenuPlacement(open, triggerRef)` 공유 훅으로 추출 → 6개 submenu(기존 3 + 신규 3) 단일 seam. Radix 마이그레이션 시 이 훅이 boundary가 됨. Risks: ESTIMATED_HEIGHT 드리프트 → post-render measurement로 보정. 긴 brunch list submenu는 `max-h-[40vh] overflow-y-auto` 캡.",
+                "recorded_at": "2026-05-11T09:38:47.534Z",
+                "agent_id": "a065cd1a5e65393c4"
+              }
+            ],
+            "decision": "**(a) Viewport-flip + `useSubmenuPlacement` 공유 훅 — 본 사이클. (c) Radix DropdownMenu 표준화는 별도 후속 사이클.**\n\narchitect 평결: (a)는 95%+ 케이스 커버, (b) Portal은 `useDismissOnOutsideClick` CRITICAL 회귀 위험, (c)는 multi-day 작업으로 본 사이클 스코프 초과.\n\nSelected:\n1. `src/renderer/components/ui/use-submenu-placement.ts` 신규 — `useSubmenuPlacement(open: boolean, triggerRef: RefObject<HTMLElement>): \"down\" | \"up\"`.\n   - useLayoutEffect로 triggerRect 측정, `rect.top + ESTIMATED_HEIGHT > window.innerHeight` 면 \"up\" 반환.\n   - ESTIMATED_HEIGHT 상수 220px(우리 submenu 최장 길이 기준). 드리프트 위험은 post-render measurement 패스로 보정 — 첫 렌더 후 실제 submenu rect 측정해서 estimate 틀렸으면 한 번 더 swap.\n   - 긴 brunch list submenu는 `max-h-[40vh] overflow-y-auto`로 캡(높이 안정화).\n2. 기존 submenu 3개(Remotes / Autofetch / RemoveRemote) + 신규 submenu 3개(Branch / Stash / Tag) 모두 이 훅 사용.\n   - className 분기: `placement === \"up\" ? \"absolute left-full bottom-0\" : \"absolute left-full top-0\"`.\n3. 수평 flip(right-side viewport 잘림)은 본 사이클 스코프 X — side-panel 레이아웃에서 관측되지 않음(architect INFO).\n4. GitHeader/GitMoreMenu wrapper에 `transform`/`filter` 등 stacking-context 재정의 없음을 verify(architect INFO).\n5. Radix DropdownMenu 표준화는 본 사이클 종료 후 별도 사이클로 schedule — 본 훅이 마이그레이션 boundary 역할(훅 호출지를 Radix primitive로 치환).\n\nRejected alternatives:\n- (b) Portal + manual flip: `useDismissOnOutsideClick`(use-dismiss-on-outside-click.ts:32)의 `container.contains()` 검사가 portal target을 인식 못해 outside-click으로 submenu 즉시 닫힘 — CRITICAL 회귀.\n- (c) Radix DropdownMenu 본 사이클: GitMoreMenu/GitFileContextMenu/GitBranchPopover/GitCommitButton/HistoryCommitMenu/ViewModeToggle 일괄 마이그레이션 multi-day, 본 사이클 reorganization 스코프 초과.\n- 현 상태 유지(clipping 무시): 본 사이클이 submenu 3개 추가하므로 버그 확산. 방치 불가.\n- ESTIMATED_HEIGHT 측정 없이 추정만: 드리프트 시 잘못된 placement. measurement 패스 필수.\n\nAssumptions: useLayoutEffect 단일 패스로 충분(첫 측정 + 필요시 보정 1회). animation 충돌 가능성은 본 사이클에서 검증."
+          }
+        ],
+        "research_summary": "## 검증 출처\n- VSCode core git extension: `references/vscode/extensions/git/package.json` (메뉴 contribution) + `commands.ts` (명령 등록) 직접 확인 — 직전 턴들에서 인용된 라인은 검증 완료\n- 우리 코드: `src/renderer/components/files/git/GitMoreMenu.tsx`, BranchPicker, TagPicker, HistoryCommitMenu + IPC contract — 직전 explore + grep으로 확인 완료\n- 사용자가 VSCode More 메뉴 스크린샷 3장 제시(전체/Commit▸/Tag▸ 펼친 모습)\n- 직전 사이클(과한 부분 제거) 완료/커밋됨: f8caf01 \"Simplify git source-control surfaces\"\n\n## VSCode 핵심 사실\n1. **Cherry-pick은 More 메뉴에 없음** (`package.json` L1495-1501 commandPalette only + L2706-2710 graph context only). 추측이 아니라 직접 확인.\n2. **Tag ▸ 4 항목**: Create Tag…, Delete Tag…, Delete Remote Tag…, ---, Push Tags\n3. **Branch ▸ 8 항목**: Merge, Rebase, ---, Create New Branch, Create New Branch From, ---, Rename, Delete, Delete Remote, ---, Publish (스크린샷 확인)\n4. **Commit ▸ submenu**: Commit/Staged/All/Undo Last/Abort Rebase + Amend×3 + Signoff×3 — cherry-pick 없음(스크린샷 확인)\n\n## 우리 IPC 보유 vs 부재\n- ✓ 보유: createBranch, renameBranch, deleteBranch, deleteRemoteBranch, mergeBranch, rebase, publish(popover), createTag, deleteTag, deleteRemoteTag\n- ✗ 부재: pushTags(`git push --tags <remote>`) — 본 사이클 1개만 추가\n- ✗ 부재(별도 사이클): pull --rebase, push --follow-tags, commit amend/signoff 변형, undo last commit, stage all variants 등\n\n## 현재 More 메뉴 구조 (GitMoreMenu.tsx L201-309)\n```\nRefresh / Init / --- / Fetch / Pull / Push / Autofetch▸ / --- /\nCheckout to… / Merge Branch… / Rebase Current Branch… / Cherry-pick Commit… / Remotes▸ / Tags… / --- /\nStash / Stash Pop / Stashes… / --- / Discard All Changes\n```\n\n## Submenu 위치 패턴 (BUG 원인)\n- 모든 submenu: `absolute left-full top-0 z-50` (GitMoreMenu.tsx L356-360, L414-418, L484-488)\n- viewport-aware flip 없음 → 트리거가 viewport 중하단일 때 submenu가 아래로 빠져 잘림\n- More 버튼은 GitHeader(상단) → 메인 메뉴는 `top-8`로 아래 펼침 → submenu trigger 위치는 main 메뉴 길이에 따라 viewport 하단으로 이동 가능\n\n## 직전 사이클 관련 결정\n- #5 (signing-failed kind 유지 / hint만 제거): 정밀 분류 인프라 가치\n- #7 (checkoutDetached 통합 거절): preflight 우회 + --detach 안전성\n\n## .nexus/context 관련 원칙\n- mission.md: 단순함, 한 파일에 너무 많은 책임 X\n- conventions.md: 라이브러리/타입 시스템이 보장하는 동작 재검증 X\n\n## nx_history_search\n- 본 7개 이슈 관련 결정 이력 없음 (이전 사이클들은 다른 주제)\n\n## 제약\n- 본 사이클 = reorganization + 1 small IPC. 그 외 신규 기능 X\n- \"모자란 부분 9건\"은 별도 사이클\n- 추측 금지 — references/vscode 직접 확인\n- 기존 컨벤션 유지",
+        "created_at": "2026-05-11T09:34:50.345Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "useSubmenuPlacement 훅 신설 + 기존 3 submenu 적용",
+          "status": "completed",
+          "context": "GitMoreMenu의 submenu들(Remotes / Autofetch / RemoveRemote)이 모두 `absolute left-full top-0`로 펼쳐져 트리거가 viewport 하단일 때 메뉴가 잘림. 본 사이클이 Branch/Stash/Tag submenu 3개를 추가할 예정 → 같은 버그 확산. 공통 placement 훅을 먼저 도입하고 기존 + 신규 submenu 모두 동일 인터페이스로 통합.",
+          "acceptance": "1) `useSubmenuPlacement` 훅 단위 테스트: down/up 분기 정확. 2) 기존 3 submenu가 훅 사용으로 마이그레이션됨. 3) 트리거가 viewport 하단 근처일 때 수동 테스트로 submenu가 위로 펼쳐짐 확인. 4) animation/dismiss 동작 회귀 없음. 5) 빌드/lint/type-check 통과.",
+          "approach": "1) `src/renderer/components/ui/use-submenu-placement.ts` 신규 — `useSubmenuPlacement(open: boolean, triggerRef: RefObject<HTMLElement>): \"down\" | \"up\"`. useLayoutEffect로 trigger getBoundingClientRect 측정 → `rect.top + ESTIMATED_HEIGHT(220) > window.innerHeight`면 \"up\". 첫 렌더 후 panel rect로 보정 가능하도록 panelRef 받아 measurement pass 1회. 2) `GitMoreMenu.tsx`의 RemotesSubmenu(L320-381), AutofetchSubmenu(L384-434), RemoveRemoteSubmenu(L456-498) 각각에 훅 적용 — className에 `placement === \"up\" ? \"bottom-0\" : \"top-0\"` 분기. 3) 긴 잠재적 submenu(향후 Branch list)를 위해 panel에 `max-h-[40vh] overflow-y-auto` 적용. 4) GitHeader/GitMoreMenu wrapper에 transform/filter 등 stacking-context 재정의 없음 verify. 5) 단위 테스트: 훅이 viewport bottom near 케이스에서 \"up\" 반환하는지 jsdom 환경에서 검증(window.innerHeight + rect mock).",
+          "risk": "ESTIMATED_HEIGHT 드리프트 — 본 사이클에서 추가될 Tag/Branch submenu가 220px 초과 시 잘못된 placement. measurement pass로 보정 + max-h-[40vh] 캡으로 안정화. animation 충돌 가능성 별도 확인.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e166c-d822-7e72-b641-d25187a91841",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:41:23.895Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented shared viewport-aware submenu placement hook and migrated existing Remotes, Autofetch, and RemoveRemote GitMoreMenu flyouts to use up/down placement classes. Added resolver unit coverage. Independent visual/regression verification remains in Task 2.",
+            "artifacts": [
+              "src/renderer/components/ui/use-submenu-placement.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "tests/unit/renderer/components/ui/use-submenu-placement.test.ts"
+            ],
+            "recorded_at": "2026-05-11T09:52:32.476Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "useSubmenuPlacement 훅 회귀 검증",
+          "status": "completed",
+          "context": "Placement 훅이 down/up 분기를 viewport 측정 기반으로 정확히 반환하는지, 기존 dismiss/keyboard 동작 회귀 없는지 단위 + 통합 검증.",
+          "acceptance": "단위 테스트 3 케이스 통과 + 통합 테스트 2 시나리오 통과 + dismiss 회귀 없음.",
+          "approach": "단위: jsdom 환경에서 window.innerHeight + getBoundingClientRect mock으로 (1) trigger 상단(여유 충분) → \"down\", (2) trigger 하단(여유 부족) → \"up\", (3) open=false → 측정 안 함. 통합: GitMoreMenu의 RemotesSubmenu/AutofetchSubmenu trigger 시 placement 클래스가 올바르게 적용되는지 RTL로 검증. dismiss(useDismissOnOutsideClick) 시나리오: submenu open → 외부 클릭 → 닫힘 회귀 없음 확인.",
+          "risk": "jsdom의 innerHeight 기본값 처리 — 명시 mock 권장. layout effect 타이밍 이슈 시 act() 래핑 필요.",
+          "plan_issue": 7,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1674-04cf-7dd0-842e-e2cc6a75520a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:41:29.978Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Independent tester verified placement resolver coverage, open=false guard behavior, Remotes/Autofetch upward placement classes in an Electron offscreen harness, and outside-click dismiss preservation. Relevant targeted tests, typecheck, touched-file Biome check, Tailwind syntax check, and diff check passed; global check:ci has unrelated baseline issues.",
+            "artifacts": [
+              "tests/unit/renderer/components/ui/use-submenu-placement.test.ts",
+              "src/renderer/components/ui/use-submenu-placement.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx"
+            ],
+            "recorded_at": "2026-05-11T10:01:48.965Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "More 메뉴 reorganization 뼈대 — Stash▸/Branch▸/Tag▸ shell + Cherry-pick 제거 + layout reorder + destructive 토큰",
+          "status": "completed",
+          "context": "GitMoreMenu의 flat 구조를 VSCode core 뼈대로 정렬. 본 task는 메뉴 스켈레톤만 — Branch▸/Tag▸의 내용물(다이얼로그/picker wiring)은 후속 task가 채움. Stash▸는 기존 flat 3개 그룹화라 본 task에서 완결.",
+          "acceptance": "1) GitMoreMenu 렌더 시 위 레이아웃대로 항목 노출. 2) Cherry-pick 메뉴 항목 완전 제거(HistoryCommitMenu는 유지). 3) Stash ▸ submenu 열면 3개 항목, 핸들러 정상 동작. 4) Branch ▸ / Tag ▸ submenu shell 렌더 (내부 항목은 placeholder OK, 후속 task에서 wiring). 5) Discard All Changes destructive 색상 적용 확인. 6) 단위 테스트 통과 + 빌드/lint/type-check 통과.",
+          "approach": "1) `GitMoreMenu.tsx` 최상위 항목 재배치 (designer 권장 레이아웃):\n```\nRefresh / Init / —\nFetch / Pull / Push / —\nCheckout to… / Branch ▸ / Remote ▸ / Stash ▸ / Tag ▸ / —\nAutofetch ▸ / —\nDiscard All Changes (destructive)\n```\n2) `Cherry-pick Commit…` 항목 제거 (HistoryCommitMenu의 진입점은 유지). cherry-pick prop이 GitMoreMenu에 더 이상 필요없으면 prop signature에서도 제거 + 상위 GitHeader/GitPanel 호출지 정리.\n3) `Stash ▸` submenu 신설 — 기존 Stash / Stash Pop / Stashes… 항목 3개를 submenu로 이관. useSubmenuPlacement 훅 사용.\n4) `Branch ▸` submenu 신설 — 항목 8개 placeholder(각 항목 click handler는 후속 task가 채움, 본 task에서는 단순히 항목 구조 + 비활성 핸들러). 또는 후속 task와 합쳐 wiring까지 본 task에서 진행할지 검토 — 권장: shell만 만들고 후속에서 wiring.\n5) `Tag ▸` submenu 신설 — 항목 4개 placeholder(Create Tag…, Delete Tag…, Delete Remote Tag…, ─, Push Tags). `Tags…` 단일 버튼 제거.\n6) `Remotes ▸` → `Remote ▸` 이름 단수형 정렬.\n7) `Discard All Changes` 텍스트에 destructive color token 적용 — design.md warm-warning 톤. 토큰 없으면 새로 추가.\n8) 메뉴 구조 단위 테스트(menu items 배열 assertion) 갱신.",
+          "risk": "cherry-pick prop 제거 시 상위 컴포넌트 props chain 정리 누락 가능 — type-check가 잡음. Discard destructive 토큰이 디자인 시스템에 없으면 토큰 추가 작업 추가 필요.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e167c-97b9-7740-a776-b604593b8f00",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:41:45.503Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Reorganized GitMoreMenu shell into decided VSCode-like grouping, removed More-menu cherry-pick prop path while leaving HistoryCommitMenu untouched, added placement-aware Branch/Stash/Tag submenus, moved existing stash actions into Stash submenu, renamed Remote submenu trigger, and kept Discard All Changes destructive styling.",
+            "artifacts": [
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:12:53.929Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Branch ▸ Create New + Create From 2-step + 메뉴 wiring",
+          "status": "completed",
+          "context": "Branch ▸ submenu의 Create 영역 2 항목. 단순 input dialog와 2-step(ref picker → name input) 흐름. 백엔드 IPC(createBranch with fromRef)는 보유.",
+          "acceptance": "1) Branch ▸ \"Create New Branch…\" 클릭 → input dialog 열림, 이름 입력 후 Create 클릭 시 `createBranch` 호출되고 dialog 닫힘. 2) \"Create New Branch From…\" 클릭 → ref picker 진입, ref 선택 후 name input 다이얼로그 진입, 두 값 모두 IPC에 전달. 3) Empty/conflict name 시 적절한 에러 메시지. 4) 단위 테스트 + 빌드/lint/type-check 통과.",
+          "approach": "1) `BranchCreateDialog`(또는 기존 input dialog 재사용) 신규 — name 입력 + validation(empty/conflict) + Create/Cancel. accept → `store.createBranch(workspaceId, name, { fromRef: currentBranch, checkout: true })`. 2) Branch ▸ \"Create New Branch…\" 핸들러 → BranchCreateDialog open. 3) `BranchCreateFromDialog` 2-step:\n   - Step 1: 기존 ref picker 흐름 재사용(GitPanel.tsx L959 부근의 ref-from 다이얼로그 또는 BranchPicker를 ref-pick 모드로). ref 선택 시 step 2 진입.\n   - Step 2: BranchCreateDialog와 동일하되 fromRef 사전 결정 상태 — name 입력 → `createBranch(name, { fromRef: chosenRef, checkout: true })`.\n4) Branch ▸ \"Create New Branch From…\" 핸들러 → step 1 진입.\n5) `Cancel` / `Escape`은 단계 취소. step 2에서 cancel 시 step 1으로 돌아가는 게 자연스러우면 그렇게(또는 단순히 닫기).\n6) 단위 테스트: dialog 렌더 + validation + accept 시 store 호출 인자 검증.",
+          "risk": "ref picker가 기존 흐름 재사용 가능한지 task 진입 시 explore 필요 — 재사용 가능하면 비용 낮음, 불가능하면 작은 picker 컴포넌트 작성 필요.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1687-3802-7c73-9b06-2f6fd9da4a05",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:41:56.688Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Branch submenu Create New Branch and Create New Branch From wiring using a validated branch-create dialog, BranchPicker select-ref step for create-from, and createBranch calls with checkout/fromRef options. Added focused unit coverage for validation and create/create-from call arguments plus updated Branch submenu model expectations.",
+            "artifacts": [
+              "src/renderer/components/files/git/BranchCreateDialog.tsx",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/renderer/components/files/git/branch-create-dialog.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:22:30.532Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "BranchPicker mode prop (rename/delete-local/delete-remote) + Branch ▸ Rename/Delete/Delete Remote wiring + VSCode-style force delete modal",
+          "status": "completed",
+          "context": "Branch ▸ 의 Rename / Delete / Delete Remote 3 항목은 대상 브랜치 선택이 필요. BranchPicker에 mode prop을 추가해 filter + accept-action 두 차원만 변경하는 형태로 검색-as-you-type UX 보존. 또한 issue 6 결정(VSCode modal 정렬)으로 force delete 다이얼로그를 단순 yes/no modal로 변경.",
+          "acceptance": "1) Branch ▸ Rename Branch… → BranchPicker가 rename 모드로 열리고 local branches만 표시, accept → rename dialog. 2) Branch ▸ Delete Branch… → 동일 모드 진입 후 단일 confirm. fully-merged면 즉시 삭제, not-fully-merged면 warning modal → Delete 클릭 시 force=true 재실행. 3) Branch ▸ Delete Remote Branch… → remote branches만 표시, 단일 confirm. 4) mode === \"switch\"의 기존 동작 회귀 없음(우클릭/단축키/Create row 모두 정상). 5) 단위 테스트 + 빌드/lint/type-check 통과.",
+          "approach": "1) `BranchPicker.tsx`에 `mode: \"switch\" | \"rename\" | \"delete-local\" | \"delete-remote\"` prop 추가. 기본 \"switch\"(기존 흐름). 2) `branch-picker-source.ts` 필터/accept 분기:\n   - rename: local branches만, accept = rename dialog 진입(`renameBranch`).\n   - delete-local: local branches만, accept = delete confirm modal.\n   - delete-remote: remote branches만, accept = delete confirm modal.\n   - \"+ Create new branch:\" row는 mode === \"switch\"일 때만 노출.\n   - 우클릭/단축키는 mode === \"switch\"에서만 활성.\n3) 헤더 라벨 + placeholder 모드별 분기:\n   - rename: \"Select a branch to rename\"\n   - delete-local: \"Select a branch to delete\"\n   - delete-remote: \"Select a remote branch to delete\"\n4) **VSCode-style force delete modal** — `BranchDeleteConfirmDialog`(L242-299) 단순화:\n   - 1차 시도 `deleteBranch(name, force=false)`.\n   - `branch-not-fully-merged` 에러 캐치 → warning modal: title \"Branch is not fully merged\", body \"Branch 'X' is not fully merged.\\n\\nDelete anyway? Unmerged commits may be lost.\", actions {Cancel, Delete(destructive)}.\n   - Delete 클릭 → `deleteBranch(name, force=true)`.\n   - 기존 force checkbox UI 제거.\n5) Delete Remote는 force 없으므로 단일 confirm modal: \"Delete remote branch 'remote/X'?\".\n6) Branch ▸ 메뉴 핸들러 wiring — 각 항목이 BranchPicker(mode=…) open.\n7) 단위 테스트: 모드별 filter + accept 호출 검증, force modal 흐름 검증.",
+          "risk": "mode prop이 시각적 chrome(헤더 라벨/placeholder) 외 차원(단축키 dispatch 등)으로 확장되면 designer가 컴포넌트 분리 신호로 재검토 요청. 본 task는 filter + accept + 헤더 라벨 3개 차원만 캡슐화하여 경계 유지. force modal의 destructive button styling이 디자인 시스템에 있는지 확인 필요.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1690-96ae-77e1-982f-53df08f52fcb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:11.786Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented BranchPicker mode internals for switch/select-ref/rename/delete-local/delete-remote, VSCode-style not-fully-merged warning retry, and wired Branch submenu Rename/Delete/Delete Remote to open the corresponding BranchPicker modes. Focused BranchPicker/source/delete-flow and GitMoreMenu action tests passed; typecheck and touched-file checks passed after integration.",
+            "artifacts": [
+              "src/renderer/components/files/git/BranchPicker.tsx",
+              "src/renderer/components/files/git/branch-picker-source.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/renderer/components/files/git/branch-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-delete-flow.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:32:40.484Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Branch ▸ flows 회귀 검증 (Create/Create From/Rename/Delete/Delete Remote/force modal)",
+          "status": "completed",
+          "context": "Branch ▸ submenu 6 흐름을 시나리오 단위로 검증. 특히 force delete modal은 사용자 의도 명확화 + 위험 액션이라 핵심.",
+          "acceptance": "위 7 시나리오 모두 단위 또는 통합 테스트로 통과. force modal 카피 검증(\"Unmerged commits may be lost.\"). destructive button styling 적용 확인.",
+          "approach": "시나리오 테스트:\n(1) Create New Branch: dialog 진입 → 이름 입력 → createBranch IPC 호출 인자 검증\n(2) Create New Branch From: ref picker → ref 선택 → name input → createBranch(name, fromRef) 검증\n(3) Rename Branch: BranchPicker(rename) → 브랜치 선택 → rename dialog → renameBranch 호출\n(4) Delete Branch (fully-merged): BranchPicker(delete-local) → 선택 → confirm → 즉시 삭제 (force=false)\n(5) Delete Branch (not-fully-merged): confirm → not-fully-merged 에러 발생 (mock) → warning modal 노출 → Delete 클릭 → force=true 재실행\n(6) Delete Remote Branch: BranchPicker(delete-remote) → remote ref 선택 → confirm → deleteRemoteBranch 호출\n(7) BranchPicker switch 모드 회귀 — Create row + 우클릭 + 단축키 모두 정상.",
+          "risk": "통합 테스트가 GitStore mock 주입을 요구할 수 있음 — 기존 BranchPicker 테스트 헬퍼 재사용.",
+          "plan_issue": 2,
+          "deps": [
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1698-f6e6-79e1-a07b-af4a2e39d948",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:18.883Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Independent tester verified Branch create/create-from, rename, delete-local fully-merged, delete-local not-fully-merged warning/retry, delete-remote, and switch-mode regression. Targeted branch renderer/backend tests, reruns, typecheck, targeted lint/Tailwind, package lint, build, and diff check passed. Noted nonblocking gap: no DOM/E2E Radix portal click automation.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/branch-create-dialog.test.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/branch-picker-delete-flow.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts",
+              "tests/unit/main/git/git-branch-ops.test.ts",
+              "tests/unit/main/git/git-repository-create-branch.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:39:41.087Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "TagPicker mode prop (browse/create/delete-local/delete-remote) + Tag ▸ Create/Delete/Delete Remote wiring + 다이얼로그 단순화",
+          "status": "completed",
+          "context": "Tag ▸ submenu의 Create Tag… / Delete Tag… / Delete Remote Tag… 3 항목. TagPicker에 mode prop 추가, 모드별 filter + accept, 헤더 라벨, empty state 카피, destructive hover token 처리. local+remote 동시 체크박스 폐기.",
+          "acceptance": "1) Tag ▸ Create Tag… → TagPicker(create) 열림, 이름 입력 시 \"+ Create\" row 활성, accept → create dialog. 2) Tag ▸ Delete Tag… → TagPicker(delete-local) → local tag 선택 → 단일 confirm(\"Delete tag 'X'?\") → 삭제. 3) Tag ▸ Delete Remote Tag… → TagPicker(delete-remote) → 단일 confirm → 삭제. 4) 어떤 모드에서도 local+remote 동시 체크박스 노출 안 됨. 5) destructive 모드 hover 시 warm-warning token 적용 확인. 6) 모드별 헤더 라벨/placeholder/empty state 노출 확인. 7) 단위 테스트 + 빌드/lint/type-check 통과.",
+          "approach": "1) `TagPicker.tsx`에 `mode: \"browse\" | \"create\" | \"delete-local\" | \"delete-remote\"` prop 추가. 기본 \"browse\".\n2) `tag-picker-source.ts` 모드별 분기:\n   - create: query 입력 시 \"+ Create new tag\" row만 활성, 기존 tags는 read-only label(이름 충돌 시각화). accept = create dialog.\n   - delete-local: local tags만 표시, \"+ Create\" 숨김. accept = delete confirm(local only, 체크박스 없음).\n   - delete-remote: remote 정보 있는 tags만 표시, \"+ Create\" 숨김. accept = delete confirm(remote only, 체크박스 없음).\n   - browse: 현 동작 유지(검색 + 우클릭/단축키).\n3) 헤더 라벨 + placeholder 모드별 분기 (designer 권고):\n   - create: \"Create a new tag\"\n   - delete-local: \"Select a tag to delete\"\n   - delete-remote: \"Select a remote tag to delete\"\n4) **TagDeleteConfirmDialog 단순화** — local+remote 동시 체크박스 제거:\n   - delete-local 모드: \"Delete tag 'X'?\" 단일 confirm.\n   - delete-remote 모드: \"Delete remote tag '<remote>/X'?\" + 사용 remote 표시(읽기 전용).\n   - confirmDeleteTag 흐름에서 includeRemote 분기 제거 → 단순 path.\n5) destructive 모드 항목 hover row에 warm-warning token 적용 (Consistency & Mapping).\n6) empty state 카피 분기:\n   - create: \"Type to create your first tag\"\n   - delete-local: \"No tags to delete\"\n   - delete-remote: \"No remote tags to delete\"\n7) Tag ▸ 메뉴 핸들러 wiring — 각 항목이 TagPicker(mode=…) open.\n8) Tag ▸ submenu가 진입점이 됨에 따라 browse 모드를 outer caller에서 여전히 사용하는지 검증 — 사용처 없으면 browse 모드 제거 검토(또는 다음 사이클로 미룸).\n9) 단위 테스트: 모드별 filter, accept 흐름, 헤더 라벨 분기 검증.",
+          "risk": "browse 모드 사용처 정리 시 외부 caller 누락 시 빌드 깨짐 — type-check가 잡음. mode prop이 시각적 chrome 외 차원으로 확장되면 designer 분리 신호로 재검토.",
+          "plan_issue": 4,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e16a8-400c-70c1-a29e-5995eced3c5a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:33.085Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Reworked Tag delete-remote flow to use a truthful selected-remote `listRemoteTags` IPC/store/repository path using `ls-remote --tags --refs`; removed local-tag-to-remote fallback. Added palette `tone: destructive` support and set destructive tone for tag delete rows. Targeted tag/palette/push-preservation tests, typecheck, lint/touched-file checks, and build passed.",
+            "artifacts": [
+              "src/shared/types/git.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/git/git-tag.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/tag-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "src/renderer/components/files/git/TagPicker.tsx",
+              "src/renderer/components/files/git/tag-picker-source.ts",
+              "src/renderer/components/ui/palette/types.ts",
+              "src/renderer/components/ui/palette/command-palette-frame.tsx",
+              "tests/unit/main/git/git-tag.test.ts",
+              "tests/unit/main/ipc/channels/git/tag-handlers.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts",
+              "tests/unit/renderer/components/files/git/tag-picker-dialogs.test.tsx",
+              "tests/unit/renderer/components/files/git/tag-picker-source.test.ts",
+              "tests/unit/renderer/components/ui/palette/palette-render.test.tsx"
+            ],
+            "recorded_at": "2026-05-11T11:02:27.582Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "Tag ▸ flows 회귀 검증 (Create/Delete/Delete Remote + 다이얼로그 단순화)",
+          "status": "completed",
+          "context": "TagPicker mode prop의 4가지 동작 모두 시나리오 단위로 검증. 직전 사이클에서 결정 뒤집은 부분(체크박스 폐기)이라 회귀 위험 큼.",
+          "acceptance": "8 시나리오 통과. mock IPC 호출 인자가 모드별로 정확히 분리(local vs remote API 호출 매트릭스).",
+          "approach": "시나리오 테스트:\n(1) Create 모드: query 입력 시 \"+ Create\" row 활성 + 기존 tags read-only로 노출, accept → createTag 호출\n(2) Delete-local 모드: local tag만 노출, accept → 단일 confirm → deleteTag 호출 (deleteRemoteTag 호출 안 됨)\n(3) Delete-remote 모드: remote tag만 노출, accept → 단일 confirm → deleteRemoteTag 호출 (deleteTag 호출 안 됨)\n(4) 모든 모드에서 local+remote 동시 체크박스 미노출 확인\n(5) 헤더 라벨 모드별 분기 확인\n(6) destructive 모드 hover row 클래스 적용 확인\n(7) empty state 카피 모드별 분기 확인\n(8) browse 모드 회귀(외부 caller가 남아있다면) — 검색 + 우클릭/단축키 정상.",
+          "risk": "browse 모드 폐기 여부에 따라 시나리오 (8) 적용 가부 결정 — engineer task 완료 후 결정.",
+          "plan_issue": 4,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e16b4-0edb-7fe2-b115-4badaadbb78f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:40.409Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Independent re-verification passed after Task 7 rework. Tester verified create/delete-local/delete-remote/browse mode behavior, selected-remote listRemoteTags path with no local-tag fabrication, deleteRemoteTag-only routing, no simultaneous local+remote checkbox, mode-specific copy, destructive palette tone rendering, and relevant tests/typecheck/lint/build all passing. Gaps noted: no interactive DOM/E2E portal-click test and no mutation check.",
+            "artifacts": [
+              "tests/unit/renderer/components/files/git/tag-picker-source.test.ts",
+              "tests/unit/renderer/components/files/git/tag-picker-dialogs.test.tsx",
+              "tests/unit/renderer/components/ui/palette/palette-render.test.tsx",
+              "tests/unit/main/git/git-tag.test.ts",
+              "tests/unit/main/ipc/channels/git/tag-handlers.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-11T11:07:26.976Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "pushTags IPC route 신규 추가 + repo method + store + Tag ▸ Push Tags wiring",
+          "status": "completed",
+          "context": "VSCode Tag ▸ 4번째 항목 \"Push Tags\"는 bulk action으로 별도 UI 없이 `git push --tags <remote>` 실행. 기존 push()에 옵션 추가 대신 별도 IPC route로 단일 책임 유지(architect 권고).",
+          "acceptance": "1) Tag ▸ Push Tags 클릭 (single remote): 즉시 `git push origin --tags` 실행. 2) Multi-remote: remote picker → 선택 후 실행. 3) No remote: 메뉴 항목 disabled. 4) Push 성공 시 status refresh으로 aheadBehind 갱신. 5) Auth 실패 시 기존 GitErrorKind 분류 동작. 6) 단위 테스트 통과 + 빌드/lint/type-check 통과.",
+          "approach": "1) `src/shared/types/git.ts` (또는 동등): `GitPushTagsArgsSchema = z.object({ workspaceId: z.string(), remote: z.string().optional() })` 추가.\n2) `src/shared/ipc-contract.ts` git channel에 `pushTags: call(GitPushTagsArgsSchema, z.void())` 추가.\n3) `src/main/git/git-repository.ts`에 `pushTags(remote, signal): Promise<void>` 추가 — argv `[\"push\", remote, \"--tags\"]` 명시형, `runWithHelpers({ askpass: true })` 적용(deleteRemoteTag callsite 미러). ~10줄.\n4) `src/main/ipc/channels/git/tag-handlers.ts` (또는 신규)에 `pushTagsHandler(registry)` 추가 → validateArgs → repo.pushTags(remote) → post-success status refresh로 aheadBehind 갱신.\n5) `src/main/ipc/channels/git/index.ts`에 handler wiring.\n6) `src/renderer/state/stores/git.ts`에 `pushTags(workspaceId, remote?)` 메서드 추가 — runOperation으로 in-flight 추적.\n7) Tag ▸ \"Push Tags\" 항목 클릭 핸들러:\n   - capabilities.remotes.length === 0 → 항목 disabled + tooltip \"No remotes configured\"\n   - length === 1 → 즉시 실행(remote = remotes[0])\n   - length > 1 → 작은 remote picker dialog → 실행\n8) 에러 처리: 기존 GitErrorKind 분류 자동 활용(non-fast-forward, push-rejected, auth, no-remote).\n9) 단위 테스트: handler 인자 검증 + repo method argv 검증 + store 메서드 호출 검증.",
+          "risk": "askpass helper env 누락 시 silent fail — deleteRemoteTag callsite 미러로 회피. multi-remote picker UI는 기존 picker 인프라 활용 가능 여부 task 진입 시 확인.",
+          "plan_issue": 3,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1690-96ae-77e1-982f-53df08f52fcb",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:51.673Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added dedicated pushTags IPC contract, repository method with exact git push --tags argv and askpass helpers, main handler refresh wiring, renderer store method with in-flight tracking, and Tag ▸ Push Tags UI branching for no/single/multiple remotes. Focused repo/handler/store/menu tests and typecheck passed.",
+            "artifacts": [
+              "src/shared/ipc-contract.ts",
+              "src/main/git/git-repository.ts",
+              "src/main/ipc/channels/git/tag-handlers.ts",
+              "src/main/ipc/channels/git/index.ts",
+              "src/renderer/state/stores/git.ts",
+              "src/renderer/components/files/git/GitMoreMenu.tsx",
+              "src/renderer/components/files/git/GitHeader.tsx",
+              "src/renderer/components/files/git/GitPanel.tsx",
+              "tests/unit/main/ipc/channels/git/tag-handlers.test.ts",
+              "tests/unit/main/git/git-repository-push.test.ts",
+              "tests/unit/renderer/state/stores/git-push-guard.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:32:40.773Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "pushTags IPC + Push Tags 흐름 검증",
+          "status": "completed",
+          "context": "신규 IPC route + handler + repo method + UI 흐름이 single/multi/no remote 케이스에서 모두 정확히 동작하는지 검증.",
+          "acceptance": "5 시나리오 통과. argv 정확성이 가장 중요 — 잘못된 argv는 의도와 다른 git 동작 유발.",
+          "approach": "단위/통합 테스트:\n(1) `pushTagsHandler` — args validation 통과 시 repo.pushTags 호출 + 실패 시 GitError 분류\n(2) `git-repository.pushTags` — argv가 `[\"push\", \"origin\", \"--tags\"]` (remote 지정 시) 또는 `[\"push\", \"--tags\"]` (생략 시) 정확히 구성\n(3) 스토어 `pushTags` 메서드 — runOperation으로 in-flight 추적, IPC 호출 인자 검증, 성공 시 status refresh trigger\n(4) UI: capabilities.remotes 길이별 분기 (0/1/>1) — disabled / 즉시 / picker 분기 정확\n(5) Auth 실패 시 GitErrorKind === \"auth\" / \"auth-required\"로 분류되어 기존 UI flow로 전파.",
+          "risk": "argv 순서 오류(remote 위치) 시 git이 다른 의미로 해석. 단위 테스트로 명시 assert 필수.",
+          "plan_issue": 3,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e169e-cd8d-7bf2-8793-b1bc16d715df",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-11T09:42:57.821Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Independent tester verified pushTags handler validation/refresh, exact repository argv with and without remote, renderer store runOperation/in-flight tracking, UI remote-count branching, and existing GitErrorKind classification reuse. Targeted tests, typecheck, targeted lint/Tailwind, and build passed. Nonblocking warning: targeted Biome check reports formatting/organize-import issues to clean before merge.",
+            "artifacts": [
+              "tests/unit/main/git/git-repository-push.test.ts",
+              "tests/unit/main/ipc/channels/git/tag-handlers.test.ts",
+              "tests/unit/renderer/state/stores/git-push-guard.test.ts",
+              "tests/unit/renderer/components/files/git/git-more-menu-remotes.test.ts",
+              "tests/unit/main/git/git-error.test.ts",
+              "tests/unit/main/git/git-helpers-ipc.test.ts"
+            ],
+            "recorded_at": "2026-05-11T10:44:48.551Z"
+          }
+        }
+      ]
     }
   ]
 }

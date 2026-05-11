@@ -110,6 +110,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
             <div id={listboxId} role="listbox" aria-label={title} className="space-y-0.5">
               {items.map((item, index) => {
                 const selected = index === activeIndex;
+                const destructive = item.tone === "destructive";
                 return (
                   <div
                     key={item.id}
@@ -129,17 +130,33 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                     tabIndex={selected ? 0 : -1}
                     className={cn(
                       "grid min-h-[52px] cursor-default grid-cols-[1fr_auto] gap-x-3 rounded-[6px] px-3 py-2 text-app-ui-sm",
-                      selected ? "bg-frosted-veil" : "bg-transparent",
+                      selected
+                        ? destructive
+                          ? "bg-destructive/10"
+                          : "bg-frosted-veil"
+                        : "bg-transparent",
                     )}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-warm-parchment">{item.label}</div>
+                      <div
+                        className={cn(
+                          "truncate",
+                          destructive ? "git-destructive-text" : "text-warm-parchment",
+                        )}
+                      >
+                        {item.label}
+                      </div>
                       <div className="truncate text-stone-gray">
                         {item.detail ?? item.description}
                       </div>
                     </div>
                     {item.kindLabel ? (
-                      <div className="self-start text-app-ui-xs uppercase tracking-[1.4px] text-stone-gray">
+                      <div
+                        className={cn(
+                          "self-start text-app-ui-xs uppercase tracking-[1.4px]",
+                          destructive ? "git-destructive-text" : "text-stone-gray",
+                        )}
+                      >
                         {item.kindLabel}
                       </div>
                     ) : null}

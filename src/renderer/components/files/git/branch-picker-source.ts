@@ -11,12 +11,17 @@
  *   - `create-branch`    → `git checkout -b <name>` (typed name with no exact
  *                          match against either local or remote-short).
  *
- * Item layout (mirrors VS Code "Git: Checkout to..."):
+ * Switch-mode item layout (mirrors VS Code "Git: Checkout to..."):
  *   1) Local branches — current first (kindLabel "current"), then alphabetical.
  *   2) Remote branches — short-name labels, hidden when a local branch with
  *      the same short name already exists.
  *   3) `+ Create new branch: '<query>'` — only when the query is non-empty
  *      and does not exactly match an existing local or remote-short name.
+ *
+ * Branch action modes keep the same search-as-you-type chrome but narrow the
+ * row set and accept action: rename/delete-local use local branches,
+ * delete-remote uses remote branches, and only switch mode exposes create rows
+ * plus branch-management shortcuts.
  *
  * `searchOnEmptyQuery: true` opts out of the workspace-symbol "type-to-search"
  * default — `search("")` fires immediately on open, so the full branch list
@@ -35,12 +40,23 @@ export interface BranchPickItem extends PaletteItem {
   action: BranchPickAction;
 }
 
+export type BranchPickerSourceMode =
+  | "switch"
+  | "checkout"
+  | "select-ref"
+  | "rename"
+  | "delete-local"
+  | "delete-remote";
+
+type NormalizedBranchPickerSourceMode = Exclude<BranchPickerSourceMode, "checkout">;
+
 export interface CreateBranchPickerSourceInput {
   workspaceId: string;
   listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   checkout: (workspaceId: string, ref: string) => Promise<void>;
   checkoutTracking: (workspaceId: string, remoteRef: string) => Promise<void>;
   createBranch: (workspaceId: string, name: string, checkout?: boolean) => Promise<void>;
+  mode?: BranchPickerSourceMode;
   title?: string;
   placeholder?: string;
   allowCreate?: boolean;
@@ -53,10 +69,12 @@ export interface CreateBranchPickerSourceInput {
 export function createBranchPickerSource(
   input: CreateBranchPickerSourceInput,
 ): PaletteSource<BranchPickItem> {
+  const mode = normalizeBranchPickerSourceMode(input.mode);
+
   return {
     id: "git.branch-picker",
-    title: input.title ?? "Checkout to",
-    placeholder: input.placeholder ?? "Select a branch or type a name to create…",
+    title: input.title ?? defaultTitleForMode(mode),
+    placeholder: input.placeholder ?? defaultPlaceholderForMode(mode),
     emptyQueryMessage: "Loading branches…",
     noResultsMessage: "No matching branches.",
     searchOnEmptyQuery: true,
@@ -70,6 +88,8 @@ export function createBranchPickerSource(
       const currentName = list.current?.current ?? null;
       const isUnborn = list.current?.isUnborn === true;
       const localSet = new Set(list.local);
+      const includeLocals = mode !== "delete-remote";
+      const includeRemotes = mode === "switch" || mode === "select-ref" || mode === "delete-remote";
 
       // Local branches — current first, then alphabetical, all filtered.
       const otherLocals = list.local
@@ -84,7 +104,13 @@ export function createBranchPickerSource(
       // a checkout action on this entry would fail with `no-such-ref`.
       // The Source Control panel surfaces the unborn state via its own
       // banner; the picker just shows the create rows.
-      if (currentName && !isUnborn && matchesQuery(currentName, lowerQuery)) {
+      if (
+        includeLocals &&
+        mode !== "delete-local" &&
+        currentName &&
+        !isUnborn &&
+        matchesQuery(currentName, lowerQuery)
+      ) {
         localItems.push({
           id: `local:${currentName}`,
           label: currentName,
@@ -93,13 +119,15 @@ export function createBranchPickerSource(
           action: { kind: "checkout", ref: currentName },
         });
       }
-      for (const name of otherLocals) {
-        localItems.push({
-          id: `local:${name}`,
-          label: name,
-          description: "Local",
-          action: { kind: "checkout", ref: name },
-        });
+      if (includeLocals) {
+        for (const name of otherLocals) {
+          localItems.push({
+            id: `local:${name}`,
+            label: name,
+            description: "Local",
+            action: { kind: "checkout", ref: name },
+          });
+        }
       }
 
       // Remote branches — display by short name and dedupe against locals so
@@ -109,27 +137,31 @@ export function createBranchPickerSource(
       // of relying on the auto-setup shortcut.
       const remoteShortMatches = new Set<string>();
       const remoteItems: BranchPickItem[] = [];
-      for (const fullName of [...list.remote].sort((a, b) => a.localeCompare(b))) {
-        const shortName = stripRemotePrefix(fullName);
-        if (shortName.length === 0) continue;
-        if (localSet.has(shortName)) continue;
-        if (!matchesQuery(shortName, lowerQuery) && !matchesQuery(fullName, lowerQuery)) {
-          continue;
+      if (includeRemotes) {
+        const dedupeRemoteShortNames = mode !== "delete-remote";
+        for (const fullName of [...list.remote].sort((a, b) => a.localeCompare(b))) {
+          const shortName = stripRemotePrefix(fullName);
+          if (shortName.length === 0) continue;
+          if (dedupeRemoteShortNames && localSet.has(shortName)) continue;
+          if (!matchesQuery(shortName, lowerQuery) && !matchesQuery(fullName, lowerQuery)) {
+            continue;
+          }
+          if (dedupeRemoteShortNames && remoteShortMatches.has(shortName)) continue; // first remote wins
+          remoteShortMatches.add(shortName);
+          remoteItems.push({
+            id: `remote:${fullName}`,
+            label: shortName,
+            description: `Remote ${fullName}`,
+            action: { kind: "checkout-tracking", remoteRef: fullName },
+          });
         }
-        if (remoteShortMatches.has(shortName)) continue; // first remote wins
-        remoteShortMatches.add(shortName);
-        remoteItems.push({
-          id: `remote:${fullName}`,
-          label: shortName,
-          description: `Remote ${fullName}`,
-          action: { kind: "checkout-tracking", remoteRef: fullName },
-        });
       }
 
       const items: BranchPickItem[] = [...localItems, ...remoteItems];
       const exactLocalMatch = localSet.has(trimmed);
       const exactRemoteShortMatch = remoteShortMatches.has(trimmed);
       if (
+        mode === "switch" &&
         input.allowCreate !== false &&
         trimmed.length > 0 &&
         !exactLocalMatch &&
@@ -159,8 +191,17 @@ export function createBranchPickerSource(
     },
 
     accept(item: BranchPickItem, ctx?: PaletteAcceptContext): void {
-      if (input.acceptRef) {
-        input.acceptRef(refFromBranchPickItem(item), item);
+      if (mode === "select-ref" || input.acceptRef) {
+        input.acceptRef?.(refFromBranchPickItem(item), item);
+        return;
+      }
+
+      if (mode === "rename") {
+        input.requestRename?.(item);
+        return;
+      }
+      if (mode === "delete-local" || mode === "delete-remote") {
+        input.requestDelete?.(item);
         return;
       }
 
@@ -193,6 +234,53 @@ export function createBranchPickerSource(
       }
     },
   };
+}
+
+/**
+ * Keeps the historic `checkout` mode spelling as an alias for the default
+ * switch/checkout behavior used by the Source Control panel.
+ */
+function normalizeBranchPickerSourceMode(
+  mode: BranchPickerSourceMode | undefined,
+): NormalizedBranchPickerSourceMode {
+  if (!mode || mode === "checkout") return "switch";
+  return mode;
+}
+
+/**
+ * Provides the quick-pick input's accessible heading for each branch mode.
+ */
+function defaultTitleForMode(mode: NormalizedBranchPickerSourceMode): string {
+  switch (mode) {
+    case "switch":
+      return "Checkout to";
+    case "select-ref":
+      return "Select branch";
+    case "rename":
+      return "Rename branch";
+    case "delete-local":
+      return "Delete branch";
+    case "delete-remote":
+      return "Delete remote branch";
+  }
+}
+
+/**
+ * Provides the quick-pick search placeholder for each branch mode.
+ */
+function defaultPlaceholderForMode(mode: NormalizedBranchPickerSourceMode): string {
+  switch (mode) {
+    case "switch":
+      return "Select a branch or type a name to create…";
+    case "select-ref":
+      return "Select a branch…";
+    case "rename":
+      return "Select a branch to rename…";
+    case "delete-local":
+      return "Select a branch to delete…";
+    case "delete-remote":
+      return "Select a remote branch to delete…";
+  }
 }
 
 /**

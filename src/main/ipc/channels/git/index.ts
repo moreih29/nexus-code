@@ -58,7 +58,9 @@ import {
   createTagHandler,
   deleteRemoteTagHandler,
   deleteTagHandler,
+  listRemoteTagsHandler,
   listTagsHandler,
+  pushTagsHandler,
 } from "./tag-handlers";
 import {
   abortOpHandler,
@@ -116,9 +118,11 @@ export function registerGitChannel(
       addToGitignore: addToGitignoreHandler(registry),
       listBranches: listBranchesHandler(registry),
       listTags: listTagsHandler(registry),
+      listRemoteTags: listRemoteTagsHandler(registry),
       createTag: createTagHandler(registry),
       deleteTag: deleteTagHandler(registry),
       deleteRemoteTag: deleteRemoteTagHandler(registry),
+      pushTags: pushTagsHandler(registry),
       fetch: fetchHandler(registry),
       fetchAll: fetchAllHandler(registry, autofetch),
       pull: pullHandler(registry),

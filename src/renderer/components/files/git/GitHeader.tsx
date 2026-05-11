@@ -6,7 +6,7 @@ import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../shar
 import type { ViewMode } from "../../../../shared/types/panel";
 import { Button } from "../../ui/button";
 import { ViewModeToggle } from "../view-mode-toggle/ViewModeToggle";
-import { GitMoreMenu } from "./GitMoreMenu";
+import { GitMoreMenu, type GitTagPickerMenuMode } from "./GitMoreMenu";
 
 interface GitHeaderProps {
   disabled?: boolean;
@@ -29,11 +29,16 @@ interface GitHeaderProps {
   onStash: () => void;
   onStashPop: () => void;
   onOpenStashes: () => void;
-  onOpenTags: () => void;
+  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onSwitchBranch: () => void;
   onMergeBranch: () => void;
   onRebaseBranch: () => void;
-  onCherryPick: () => void;
+  onCreateBranch: () => void;
+  onCreateBranchFrom: () => void;
+  onRenameBranch: () => void;
+  onDeleteBranch: () => void;
+  onDeleteRemoteBranch: () => void;
+  onPushTags: (remote: string) => void;
   onAddRemote: () => void;
   onRemoveRemote: (remote: string) => void;
   onDiscardAll: () => void;
@@ -65,7 +70,12 @@ export function GitHeader({
   onSwitchBranch,
   onMergeBranch,
   onRebaseBranch,
-  onCherryPick,
+  onCreateBranch,
+  onCreateBranchFrom,
+  onRenameBranch,
+  onDeleteBranch,
+  onDeleteRemoteBranch,
+  onPushTags,
   onAddRemote,
   onRemoveRemote,
   onDiscardAll,
@@ -117,7 +127,12 @@ export function GitHeader({
           onSwitchBranch={onSwitchBranch}
           onMergeBranch={onMergeBranch}
           onRebaseBranch={onRebaseBranch}
-          onCherryPick={onCherryPick}
+          onCreateBranch={onCreateBranch}
+          onCreateBranchFrom={onCreateBranchFrom}
+          onRenameBranch={onRenameBranch}
+          onDeleteBranch={onDeleteBranch}
+          onDeleteRemoteBranch={onDeleteRemoteBranch}
+          onPushTags={onPushTags}
           onAddRemote={onAddRemote}
           onRemoveRemote={onRemoveRemote}
           onDiscardAll={onDiscardAll}

@@ -5,9 +5,9 @@
  * owns tag argv construction, typed preflight errors, and NUL-safe list
  * parsing so tag management stays separate from branch and remote helpers.
  */
-import type { Tag } from "../../shared/types/git";
+import type { RemoteTag, Tag } from "../../shared/types/git";
 import { GitError } from "./git-error";
-import { runGit, type RunGitResult } from "./git-process";
+import { type RunGitResult, runGit } from "./git-process";
 import type { BuildHelperEnvOptions } from "./helpers-launcher";
 
 export interface GitTagCommandContext {
@@ -44,10 +44,7 @@ const TAG_FORMAT = [
  * read-only and uses explicit record separators so subjects cannot disturb
  * field boundaries.
  */
-export async function listTags(
-  git: GitTagCommandContext,
-  signal?: AbortSignal,
-): Promise<Tag[]> {
+export async function listTags(git: GitTagCommandContext, signal?: AbortSignal): Promise<Tag[]> {
   const { stdout } = await runGit({
     bin: git.bin,
     cwd: git.cwd,
@@ -56,6 +53,23 @@ export async function listTags(
     signal,
   });
   return parseTagList(stdout);
+}
+
+/**
+ * Lists tag refs from one selected remote through askpass-capable `ls-remote`.
+ * This path is intentionally separate from local `listTags` so delete-remote
+ * never fabricates remote rows from local tags or queries every configured
+ * remote automatically.
+ */
+export async function listRemoteTags(
+  git: GitTagMutationRunner,
+  remote: string,
+): Promise<RemoteTag[]> {
+  const remoteName = normalizeRequiredRemoteName(remote);
+  const { stdout } = await git.runWithHelpers(["ls-remote", "--tags", "--refs", remoteName], {
+    askpass: true,
+  });
+  return parseRemoteTagList(stdout, remoteName);
 }
 
 /**
@@ -123,6 +137,33 @@ export function parseTagList(stdout: string): Tag[] {
       message: isAnnotated ? normalizeOptionalText(subject) : null,
       type: isAnnotated ? "annotated" : "lightweight",
       taggerDate: isAnnotated ? parseTaggerDate(taggerDate) : null,
+    });
+  }
+  return tags;
+}
+
+/**
+ * Parses `git ls-remote --tags --refs` output for one remote into rows the
+ * renderer can delete without relying on local tag state.
+ */
+export function parseRemoteTagList(stdout: string, remote: string): RemoteTag[] {
+  const remoteName = normalizeRequiredRemoteName(remote);
+  const tags: RemoteTag[] = [];
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const [sha, ref] = line.split(/\s+/, 2);
+    if (!sha || !ref?.startsWith("refs/tags/")) continue;
+
+    const name = ref.slice("refs/tags/".length);
+    if (!name || name.endsWith("^{}")) continue;
+
+    tags.push({
+      remote: remoteName,
+      name,
+      sha,
+      scope: "remote",
     });
   }
   return tags;

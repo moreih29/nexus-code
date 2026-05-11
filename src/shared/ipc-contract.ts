@@ -67,6 +67,7 @@ import {
   LogCompleteSchema,
   PullResultSchema,
   PushResultSchema,
+  RemoteTagSchema,
   RepoInfoSchema,
   StashEntrySchema,
   TagSchema,
@@ -314,9 +315,17 @@ const GitTagTargetArgsSchema = GitWorkspaceIdSchema.extend({
   name: z.string().min(1),
 });
 
+const GitListRemoteTagsArgsSchema = GitWorkspaceIdSchema.extend({
+  remote: z.string().min(1),
+});
+
 const GitDeleteRemoteTagArgsSchema = GitWorkspaceIdSchema.extend({
   remote: z.string().min(1),
   name: z.string().min(1),
+});
+
+const GitPushTagsArgsSchema = GitWorkspaceIdSchema.extend({
+  remote: z.string().min(1).optional(),
 });
 
 const GitSetPanelStateArgsSchema = GitWorkspaceIdSchema.merge(GitPanelStateUpdateSchema);
@@ -586,9 +595,11 @@ export const ipcContract = {
       removeRemote: call(GitRemoteTargetArgsSchema, z.void()),
       listBranches: call(GitWorkspaceIdSchema, BranchListSchema),
       listTags: call(GitWorkspaceIdSchema, z.array(TagSchema)),
+      listRemoteTags: call(GitListRemoteTagsArgsSchema, z.array(RemoteTagSchema)),
       createTag: call(GitCreateTagArgsSchema, z.void()),
       deleteTag: call(GitTagTargetArgsSchema, z.void()),
       deleteRemoteTag: call(GitDeleteRemoteTagArgsSchema, z.void()),
+      pushTags: call(GitPushTagsArgsSchema, z.void()),
       fetch: call(GitWorkspaceIdSchema.extend({ remote: z.string().min(1).optional() }), z.void()),
       fetchAll: call(GitWorkspaceIdSchema, GitFetchAllResultSchema),
       pull: call(GitWorkspaceIdSchema, PullResultSchema),

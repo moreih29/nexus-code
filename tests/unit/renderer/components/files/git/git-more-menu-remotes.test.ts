@@ -1,12 +1,20 @@
 /**
- * Scenario tests for GitMoreMenu remote-management rules.
+ * Scenario tests for GitMoreMenu shell and remote-management rules.
  */
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import {
   buildAutofetchMenuModel,
+  buildGitBranchMenuModel,
+  buildGitMoreMenuLayoutModel,
   buildGitRemotesMenuModel,
+  buildGitStashMenuModel,
+  buildGitTagMenuModel,
   buildRemoteUpstreamWarning,
   formatLastFetchedCaption,
+  resolveGitDeleteRemoteTagAction,
+  resolveGitPushTagsAction,
+  runGitBranchMenuAction,
+  runGitTagMenuAction,
 } from "../../../../../../src/renderer/components/files/git/GitMoreMenu";
 import { validateGitRemoteUrl } from "../../../../../../src/shared/git-remote-validation";
 import type { BranchInfo } from "../../../../../../src/shared/types/git";
@@ -18,6 +26,186 @@ const branch: BranchInfo = {
   behind: 0,
   isUnborn: false,
 };
+
+describe("GitMoreMenu top-level shell", () => {
+  it("matches the decided More menu order and removes top-level cherry-pick", () => {
+    const labels = buildGitMoreMenuLayoutModel().map((item) =>
+      item.kind === "separator" ? "—" : item.label,
+    );
+
+    expect(labels).toEqual([
+      "Refresh",
+      "—",
+      "Fetch",
+      "Pull",
+      "Push",
+      "—",
+      "Checkout to…",
+      "Branch",
+      "Remote",
+      "Stash",
+      "Tag",
+      "—",
+      "Autofetch",
+      "—",
+      "Discard All Changes",
+    ]);
+    expect(labels).not.toContain("Cherry-pick Commit…");
+    expect(labels).not.toContain("Tags…");
+    expect(labels).not.toContain("Remotes");
+  });
+
+  it("keeps init in the first group and marks Discard All Changes destructive", () => {
+    const model = buildGitMoreMenuLayoutModel(true);
+    const labels = model.map((item) => (item.kind === "separator" ? "—" : item.label));
+
+    expect(labels.slice(0, 3)).toEqual(["Refresh", "Initialize Repository", "—"]);
+    expect(model.at(-1)).toEqual({
+      kind: "item",
+      label: "Discard All Changes",
+      destructive: true,
+    });
+  });
+});
+
+describe("GitMoreMenu Branch/Stash/Tag submenu shells", () => {
+  it("wires branch workflow/create/management entries", () => {
+    const model = buildGitBranchMenuModel({ hasHead: true });
+
+    expect(labels(model)).toEqual([
+      "Merge Branch…",
+      "Rebase Current Branch…",
+      "—",
+      "Create New Branch…",
+      "Create New Branch From…",
+      "—",
+      "Rename Branch…",
+      "Delete Branch…",
+      "Delete Remote Branch…",
+    ]);
+    expect(disabledLabels(model)).toEqual([]);
+  });
+
+  it("dispatches Branch submenu management entries to the picker mode callbacks", () => {
+    const handlers = {
+      onMergeBranch: mock(() => {}),
+      onRebaseBranch: mock(() => {}),
+      onCreateBranch: mock(() => {}),
+      onCreateBranchFrom: mock(() => {}),
+      onRenameBranch: mock(() => {}),
+      onDeleteBranch: mock(() => {}),
+      onDeleteRemoteBranch: mock(() => {}),
+    };
+
+    runGitBranchMenuAction("rename", handlers);
+    runGitBranchMenuAction("delete", handlers);
+    runGitBranchMenuAction("delete-remote", handlers);
+
+    expect(handlers.onRenameBranch).toHaveBeenCalledTimes(1);
+    expect(handlers.onDeleteBranch).toHaveBeenCalledTimes(1);
+    expect(handlers.onDeleteRemoteBranch).toHaveBeenCalledTimes(1);
+    expect(handlers.onMergeBranch).not.toHaveBeenCalled();
+  });
+
+  it("moves the three existing stash actions into the Stash submenu with existing gates", () => {
+    const model = buildGitStashMenuModel({ hasHead: true, stashCount: 1 });
+
+    expect(labels(model)).toEqual(["Stash", "Stash Pop", "Stashes…"]);
+    expect(disabledLabels(model)).toEqual([]);
+
+    const empty = buildGitStashMenuModel({ hasHead: true, stashCount: 0 });
+    expect(disabledLabels(empty)).toEqual(["Stash Pop"]);
+  });
+
+  it("exposes the wired Tag submenu entries and keeps Push Tags enablement from remotes", () => {
+    const model = buildGitTagMenuModel({ hasHead: true, remotes: [] });
+
+    expect(labels(model)).toEqual([
+      "Create Tag…",
+      "Delete Tag…",
+      "Delete Remote Tag…",
+      "—",
+      "Push Tags",
+    ]);
+    expect(disabledLabels(model)).toEqual(["Delete Remote Tag…", "Push Tags"]);
+    expect(model.filter((item) => item.kind === "item" && item.placeholder === true)).toHaveLength(
+      0,
+    );
+    expect(model.filter((item) => item.kind === "item").map((item) => item.title)).not.toContain(
+      "Coming soon.",
+    );
+    expect(model.find((item) => item.kind === "item" && item.id === "push-tags")).toMatchObject({
+      disabled: true,
+      title: "No remotes configured",
+    });
+
+    const withRemote = buildGitTagMenuModel({ hasHead: true, remotes: ["origin"] });
+    expect(disabledLabels(withRemote)).toEqual([]);
+    expect(
+      withRemote.find((item) => item.kind === "item" && item.id === "push-tags"),
+    ).toMatchObject({
+      disabled: false,
+      title: undefined,
+    });
+  });
+
+  it("dispatches Tag submenu picker entries to their TagPicker modes", () => {
+    const handlers = {
+      onOpenTags: mock(() => {}),
+    };
+
+    runGitTagMenuAction("create", handlers);
+    runGitTagMenuAction("delete", handlers);
+    runGitTagMenuAction("delete-remote", handlers, "origin");
+
+    expect(handlers.onOpenTags).toHaveBeenCalledTimes(3);
+    expect(handlers.onOpenTags).toHaveBeenNthCalledWith(1, "create");
+    expect(handlers.onOpenTags).toHaveBeenNthCalledWith(2, "delete-local");
+    expect(handlers.onOpenTags).toHaveBeenNthCalledWith(3, "delete-remote", "origin");
+  });
+});
+
+describe("GitMoreMenu Delete Remote Tag remote branching", () => {
+  it("disables Delete Remote Tag with the no-remote reason when no remotes are configured", () => {
+    expect(resolveGitDeleteRemoteTagAction({ hasHead: true, remotes: [] })).toEqual({
+      kind: "disabled",
+      reason: "No remotes configured",
+    });
+  });
+
+  it("opens directly for one remote and opens a chooser for multiple remotes", () => {
+    expect(resolveGitDeleteRemoteTagAction({ hasHead: true, remotes: ["origin"] })).toEqual({
+      kind: "open-picker",
+      remote: "origin",
+    });
+    expect(
+      resolveGitDeleteRemoteTagAction({ hasHead: true, remotes: ["origin", "upstream"] }),
+    ).toEqual({
+      kind: "choose-remote",
+      remotes: ["origin", "upstream"],
+    });
+  });
+});
+
+describe("GitMoreMenu Push Tags remote branching", () => {
+  it("disables Push Tags with the no-remote reason when no remotes are configured", () => {
+    expect(resolveGitPushTagsAction({ hasHead: true, remotes: [] })).toEqual({
+      kind: "disabled",
+      reason: "No remotes configured",
+    });
+  });
+
+  it("pushes immediately for one remote and opens a chooser for multiple remotes", () => {
+    expect(resolveGitPushTagsAction({ hasHead: true, remotes: ["origin"] })).toEqual({
+      kind: "push",
+      remote: "origin",
+    });
+    expect(resolveGitPushTagsAction({ hasHead: true, remotes: ["origin", "upstream"] })).toEqual({
+      kind: "choose-remote",
+      remotes: ["origin", "upstream"],
+    });
+  });
+});
 
 describe("GitMoreMenu Remotes submenu model", () => {
   it("lists current remotes in order and keeps add/remove actions discoverable", () => {
@@ -43,6 +231,20 @@ describe("GitMoreMenu Remotes submenu model", () => {
     expect(remove).toMatchObject({ disabled: true });
   });
 });
+
+/** Collects user-visible labels from shell model entries. */
+function labels(model: ReadonlyArray<{ kind: string; label?: string }>): string[] {
+  return model.map((item) => (item.kind === "separator" ? "—" : (item.label ?? "")));
+}
+
+/** Collects disabled labels from shell model entries. */
+function disabledLabels(
+  model: ReadonlyArray<{ kind: string; label?: string; disabled?: boolean }>,
+): string[] {
+  return model
+    .filter((item) => item.kind === "item" && item.disabled === true)
+    .map((item) => item.label ?? "");
+}
 
 describe("GitMoreMenu Autofetch submenu model", () => {
   it("offers exactly Off and Every 3 min with the selected interval checked", () => {

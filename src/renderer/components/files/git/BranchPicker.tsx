@@ -1,7 +1,7 @@
 /**
- * BranchPicker — VS Code-style "Checkout to..." quick-pick (matches the
- * `git.checkout` command). Combines checkout (existing local/remote) and
- * create-branch (new name) in a single filtered list with keyboard navigation.
+ * BranchPicker — VS Code-style branch quick-pick. Switch mode matches the
+ * `git.checkout` command; branch action modes reuse the same list chrome while
+ * narrowing filter and accept behavior for rename/delete flows.
  */
 
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
@@ -13,18 +13,24 @@ import { useGitStore } from "../../../state/stores/git";
 import { Button } from "../../ui/button";
 import { CommandPalette } from "../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../ui/prompt-dialog";
-import { type BranchPickItem, createBranchPickerSource } from "./branch-picker-source";
+import {
+  type BranchPickerSourceMode,
+  type BranchPickItem,
+  createBranchPickerSource,
+} from "./branch-picker-source";
 
 interface BranchPickerProps {
   workspaceId: string;
   open: boolean;
   onClose: () => void;
-  mode?: "checkout" | "select-ref";
+  mode?: BranchPickerMode;
   title?: string;
   placeholder?: string;
   footer?: React.ReactNode;
   onSelectRef?: (ref: string) => void;
 }
+
+export type BranchPickerMode = BranchPickerSourceMode;
 
 export function BranchPicker({
   workspaceId,
@@ -47,6 +53,7 @@ export function BranchPicker({
   const inFlightKind = useGitStore((state) => state.sessions.get(workspaceId)?.inFlightOp?.kind);
   const [deleteRequest, setDeleteRequest] = useState<BranchDeleteRequest | null>(null);
   const [promptRequest, setPromptRequest] = useState<BranchPromptRequest | null>(null);
+  const normalizedMode = normalizeBranchPickerMode(mode);
 
   const source = useMemo(
     () =>
@@ -56,22 +63,23 @@ export function BranchPicker({
         checkout,
         checkoutTracking,
         createBranch,
+        mode: normalizedMode,
         title,
         placeholder,
-        allowCreate: mode !== "select-ref",
+        allowCreate: normalizedMode === "switch",
         acceptRef:
-          mode === "select-ref"
+          normalizedMode === "select-ref"
             ? (ref) => {
                 onSelectRef?.(ref);
               }
             : undefined,
         requestDelete: (item) => {
-          if (mode === "select-ref") return;
+          if (normalizedMode === "select-ref" || normalizedMode === "rename") return;
           const request = branchDeleteRequestFromItem(item);
           if (request) setDeleteRequest(request);
         },
         requestRename: (item) => {
-          if (mode === "select-ref") return;
+          if (normalizedMode === "select-ref" || normalizedMode.startsWith("delete-")) return;
           if (item.action.kind !== "checkout") return;
           setPromptRequest({
             kind: "rename",
@@ -86,7 +94,7 @@ export function BranchPicker({
           });
         },
         requestSetUpstream: (item) => {
-          if (mode === "select-ref") return;
+          if (normalizedMode !== "switch") return;
           if (item.action.kind !== "checkout") return;
           setPromptRequest({
             kind: "upstream",
@@ -110,15 +118,11 @@ export function BranchPicker({
       createBranch,
       title,
       placeholder,
-      mode,
+      normalizedMode,
       onSelectRef,
     ],
   );
-  const footerText =
-    footer ??
-    (mode === "select-ref"
-      ? "Enter view history · Working tree is not changed"
-      : "Enter checkout/create · Cmd/Ctrl+Backspace delete · Cmd/Ctrl+R rename · Cmd/Ctrl+U upstream");
+  const footerText = footer ?? defaultFooterForMode(normalizedMode);
 
   return (
     <>
@@ -131,11 +135,6 @@ export function BranchPicker({
       <BranchDeleteConfirmDialog
         request={deleteRequest}
         busy={inFlightKind === "deleteBranch" || inFlightKind === "deleteRemoteBranch"}
-        onToggleForce={(force) =>
-          setDeleteRequest((current) =>
-            current?.kind === "local" ? { ...current, force } : current,
-          )
-        }
         onCancel={() => setDeleteRequest(null)}
         onConfirm={(request) => {
           void confirmBranchDelete(request, {
@@ -165,13 +164,11 @@ export function BranchPicker({
   );
 }
 
-type BranchDeleteRequest =
+export type BranchDeleteRequest =
   | {
       kind: "local";
       name: string;
       force: boolean;
-      forceAvailable: boolean;
-      errorMessage?: string;
     }
   | {
       kind: "remote";
@@ -183,7 +180,7 @@ type BranchPromptRequest =
   | { kind: "rename"; branch: string; prompt: PromptRequest }
   | { kind: "upstream"; branch: string; prompt: PromptRequest };
 
-interface ConfirmDeleteDeps {
+export interface ConfirmDeleteDeps {
   workspaceId: string;
   deleteBranch: (workspaceId: string, name: string, force?: boolean) => Promise<void>;
   deleteRemoteBranch: (workspaceId: string, remote: string, name: string) => Promise<void>;
@@ -191,12 +188,41 @@ interface ConfirmDeleteDeps {
 }
 
 /**
+ * Keeps the legacy `checkout` spelling as a compatibility alias for the
+ * default switch mode.
+ */
+function normalizeBranchPickerMode(
+  mode: BranchPickerMode | undefined,
+): Exclude<BranchPickerMode, "checkout"> {
+  if (!mode || mode === "checkout") return "switch";
+  return mode;
+}
+
+/**
+ * Describes the shortcut footer for each branch picker mode.
+ */
+function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): string {
+  switch (mode) {
+    case "switch":
+      return "Enter checkout/create · Cmd/Ctrl+Backspace delete · Cmd/Ctrl+R rename · Cmd/Ctrl+U upstream";
+    case "select-ref":
+      return "Enter view history · Working tree is not changed";
+    case "rename":
+      return "Enter rename selected branch";
+    case "delete-local":
+      return "Enter delete selected branch";
+    case "delete-remote":
+      return "Enter delete selected remote branch";
+  }
+}
+
+/**
  * Converts a branch picker row into the correct local or remote delete request.
  */
-function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
+export function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
   if (item.kindLabel === "current") return null;
   if (item.action.kind === "checkout") {
-    return { kind: "local", name: item.action.ref, force: false, forceAvailable: false };
+    return { kind: "local", name: item.action.ref, force: false };
   }
   if (item.action.kind === "checkout-tracking") {
     const parsed = splitRemoteRef(item.action.remoteRef);
@@ -210,7 +236,7 @@ function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest 
  * Runs a local/remote delete request and upgrades unmerged local failures into
  * the explicit force-delete confirmation step.
  */
-async function confirmBranchDelete(
+export async function confirmBranchDelete(
   request: BranchDeleteRequest,
   deps: ConfirmDeleteDeps,
 ): Promise<void> {
@@ -226,8 +252,7 @@ async function confirmBranchDelete(
     if (request.kind === "local" && gitError.kind === "branch-not-fully-merged" && !request.force) {
       deps.setDeleteRequest({
         ...request,
-        forceAvailable: true,
-        errorMessage: gitError.message,
+        force: true,
       });
       return;
     }
@@ -237,32 +262,21 @@ async function confirmBranchDelete(
 
 /**
  * Dialog for local and remote branch deletion. Local unmerged branches get an
- * explicit second step with a force-delete checkbox.
+ * explicit second step before retrying with force.
  */
 function BranchDeleteConfirmDialog({
   request,
   busy,
-  onToggleForce,
   onCancel,
   onConfirm,
 }: {
   request: BranchDeleteRequest | null;
   busy?: boolean;
-  onToggleForce: (force: boolean) => void;
   onCancel: () => void;
   onConfirm: (request: BranchDeleteRequest) => void;
 }) {
-  const isLocal = request?.kind === "local";
-  const forceRequired = isLocal && request.forceAvailable;
-  const confirmDisabled = busy || (forceRequired && !request.force);
-  const title =
-    request?.kind === "remote"
-      ? `Delete remote branch '${request.remote}/${request.name}'?`
-      : `Delete branch '${request?.name ?? ""}'?`;
-  const description =
-    request?.kind === "remote"
-      ? "This affects the remote and cannot be undone locally."
-      : "This deletes the local branch. The commits remain reachable if another ref contains them.";
+  const view = buildBranchDeleteDialogView(request);
+  const confirmDisabled = busy;
 
   return (
     <RadixAlertDialog.Root
@@ -275,32 +289,15 @@ function BranchDeleteConfirmDialog({
         <RadixAlertDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <RadixAlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
           <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
-            {title}
+            {view.title}
           </RadixAlertDialog.Title>
           <RadixAlertDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            {description}
+            {view.description.map((line, index) => (
+              <span key={line} className={index === 0 ? "block" : "mt-2 block"}>
+                {line}
+              </span>
+            ))}
           </RadixAlertDialog.Description>
-          {forceRequired ? (
-            <div className="mt-4 rounded-sm border border-mist-border bg-frosted-veil p-3">
-              <p className="text-app-ui-sm text-muted-foreground">
-                {request.errorMessage ?? "Branch is not fully merged."}
-              </p>
-              <label className="mt-3 flex items-center gap-2 text-app-ui-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={request.force}
-                  onChange={(event) => onToggleForce(event.target.checked)}
-                  disabled={busy}
-                />
-                Force delete
-              </label>
-              {request.force ? (
-                <p className="mt-2 text-app-ui-xs text-muted-foreground">
-                  Commits unique to this branch may become unreachable.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>
@@ -316,13 +313,56 @@ function BranchDeleteConfirmDialog({
                 if (request) onConfirm(request);
               }}
             >
-              {request?.kind === "local" && request.force ? "Force Delete" : "Delete"}
+              {view.confirmLabel}
             </Button>
           </div>
         </RadixAlertDialog.Content>
       </RadixAlertDialog.Portal>
     </RadixAlertDialog.Root>
   );
+}
+
+export interface BranchDeleteDialogView {
+  title: string;
+  description: readonly string[];
+  confirmLabel: string;
+  forceWarning: boolean;
+}
+
+/**
+ * Builds the delete modal copy so the warning step can be unit-tested without
+ * mounting Radix portal internals.
+ */
+export function buildBranchDeleteDialogView(
+  request: BranchDeleteRequest | null,
+): BranchDeleteDialogView {
+  if (request?.kind === "remote") {
+    return {
+      title: `Delete remote branch '${request.remote}/${request.name}'?`,
+      description: ["This affects the remote and cannot be undone locally."],
+      confirmLabel: "Delete",
+      forceWarning: false,
+    };
+  }
+  if (request?.kind === "local" && request.force) {
+    return {
+      title: "Branch is not fully merged",
+      description: [
+        `Branch '${request.name}' is not fully merged.`,
+        "Delete anyway? Unmerged commits may be lost.",
+      ],
+      confirmLabel: "Delete",
+      forceWarning: true,
+    };
+  }
+  return {
+    title: `Delete branch '${request?.name ?? ""}'?`,
+    description: [
+      "This deletes the local branch. The commits remain reachable if another ref contains them.",
+    ],
+    confirmLabel: "Delete",
+    forceWarning: false,
+  };
 }
 
 /**

@@ -30,6 +30,7 @@ import type {
   LogEntry,
   PullResult,
   PushResult,
+  RemoteTag,
   RepoInfo,
   StashEntry,
   Tag,
@@ -52,6 +53,7 @@ export type GitOperationKind =
   | "fetch"
   | "pull"
   | "push"
+  | "pushTags"
   | "stash"
   | "stashPop"
   | "stashApply"
@@ -170,6 +172,7 @@ interface GitState {
   fetchAll: (workspaceId: string) => Promise<GitFetchAllResult | undefined>;
   pull: (workspaceId: string) => Promise<PullResult | undefined>;
   push: (workspaceId: string, options?: GitPushOptions) => Promise<PushResult | undefined>;
+  pushTags: (workspaceId: string, remote?: string) => Promise<void>;
   sync: (workspaceId: string) => Promise<GitSyncResult | undefined>;
   stash: (workspaceId: string, message?: string) => Promise<void>;
   stashPop: (workspaceId: string) => Promise<void>;
@@ -213,6 +216,11 @@ interface GitState {
   removeRemote: (workspaceId: string, name: string) => Promise<boolean>;
   listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   listTags: (workspaceId: string, signal?: AbortSignal) => Promise<Tag[] | undefined>;
+  listRemoteTags: (
+    workspaceId: string,
+    remote: string,
+    signal?: AbortSignal,
+  ) => Promise<RemoteTag[] | undefined>;
   createTag: (
     workspaceId: string,
     name: string,
@@ -712,6 +720,12 @@ export const useGitStore = create<GitState>((set, get) => {
       }
     },
 
+    async pushTags(workspaceId, remote) {
+      await runOperation(workspaceId, "pushTags", (signal) =>
+        ipcCall("git", "pushTags", { workspaceId, remote }, { signal }),
+      );
+    },
+
     async sync(workspaceId) {
       const result = await runOperation(workspaceId, "sync", (signal) =>
         ipcCall("git", "sync", { workspaceId }, { signal }),
@@ -906,6 +920,20 @@ export const useGitStore = create<GitState>((set, get) => {
     async listTags(workspaceId, signal) {
       try {
         return await ipcCall("git", "listTags", { workspaceId }, signal ? { signal } : {});
+      } catch (error) {
+        if (signal?.aborted) return undefined;
+        throw error;
+      }
+    },
+
+    async listRemoteTags(workspaceId, remote, signal) {
+      try {
+        return await ipcCall(
+          "git",
+          "listRemoteTags",
+          { workspaceId, remote },
+          signal ? { signal } : {},
+        );
       } catch (error) {
         if (signal?.aborted) return undefined;
         throw error;

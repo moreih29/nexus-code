@@ -21,6 +21,7 @@ export interface PaletteItem {
   kindLabel?: string;
   ariaLabel?: string;
   tooltip?: string;
+  tone?: "destructive";
 }
 
 export interface PaletteSource<TItem extends PaletteItem = PaletteItem> {

@@ -9,12 +9,18 @@ import { Button } from "../../ui/button";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../ui/form-dialog";
 import { CommandPalette } from "../../ui/palette/command-palette";
 import { RefPicker } from "./RefPicker";
-import { createTagPickerSource, type TagPickItem } from "./tag-picker-source";
+import {
+  createTagPickerSource,
+  type TagDeleteTarget,
+  type TagPickerMode,
+  type TagPickItem,
+} from "./tag-picker-source";
 
 interface TagPickerProps {
   workspaceId: string;
-  remotes: readonly string[];
   open: boolean;
+  mode?: TagPickerMode;
+  selectedRemote?: string | null;
   onClose: () => void;
   onRequestReopen?: () => void;
   onRevealTag?: (tag: Tag) => void;
@@ -24,12 +30,16 @@ interface CreateTagRequest {
   defaultName?: string;
 }
 
-export interface DeleteTagRequest {
-  item: Extract<TagPickItem, { kind: "tag" }>;
-  includeRemote: boolean;
-  remote: string;
-  remoteDisabled: boolean;
-}
+export type DeleteTagRequest =
+  | {
+      kind: "local";
+      item: Extract<TagPickItem, { kind: "tag"; scope: "local" }>;
+    }
+  | {
+      kind: "remote";
+      item: Extract<TagPickItem, { kind: "tag"; scope: "remote" }>;
+      remote: string;
+    };
 
 /**
  * Builds the create-tag FormDialog field model.
@@ -54,13 +64,15 @@ export function buildCreateTagFields(): FormDialogField[] {
 
 export function TagPicker({
   workspaceId,
-  remotes,
   open,
+  mode = "browse",
+  selectedRemote = null,
   onClose,
   onRequestReopen,
   onRevealTag,
 }: TagPickerProps) {
   const listTags = useGitStore((state) => state.listTags);
+  const listRemoteTags = useGitStore((state) => state.listRemoteTags);
   const createTag = useGitStore((state) => state.createTag);
   const deleteTag = useGitStore((state) => state.deleteTag);
   const deleteRemoteTag = useGitStore((state) => state.deleteRemoteTag);
@@ -82,7 +94,10 @@ export function TagPicker({
     () =>
       createTagPickerSource({
         workspaceId,
+        mode,
+        selectedRemote,
         listTags,
+        listRemoteTags,
         revealTag: (item) => {
           onRevealTag?.(item.tag);
         },
@@ -90,17 +105,11 @@ export function TagPicker({
           setCreateRef("HEAD");
           setCreateRequest({ defaultName });
         },
-        requestDelete: (item, includeRemote) => {
-          const remote = chooseTagRemote(remotes);
-          setDeleteRequest({
-            item,
-            remote: remote ?? "origin",
-            remoteDisabled: remote === null,
-            includeRemote: includeRemote && remote !== null,
-          });
+        requestDelete: (item, target) => {
+          setDeleteRequest(deleteRequestFromTarget(item, target));
         },
       }),
-    [workspaceId, listTags, onRevealTag, remotes],
+    [workspaceId, mode, selectedRemote, listTags, listRemoteTags, onRevealTag],
   );
 
   async function submitCreateTag(values: FormDialogValues): Promise<void> {
@@ -113,29 +122,15 @@ export function TagPicker({
     onRequestReopen?.();
   }
 
-  async function confirmDeleteTag(request: DeleteTagRequest): Promise<void> {
-    if (request.includeRemote && !request.remoteDisabled) {
-      const remoteDeleted = await deleteRemoteTag(
-        workspaceId,
-        request.remote,
-        request.item.tag.name,
-      );
-      if (!remoteDeleted) return;
-    }
-
-    const deleted = await deleteTag(workspaceId, request.item.tag.name);
-    if (!deleted) return;
-    setDeleteRequest(null);
-    onRequestReopen?.();
-  }
-
   return (
     <>
       <CommandPalette<TagPickItem>
         open={open}
         source={source}
         onClose={onClose}
-        footer="Enter reveal in History · Cmd/Ctrl+Backspace delete"
+        footer={
+          mode === "browse" ? "Enter reveal in History · Cmd/Ctrl+Backspace delete" : undefined
+        }
       />
       <FormDialog
         open={createRequest !== null}
@@ -170,12 +165,17 @@ export function TagPicker({
       <TagDeleteConfirmDialog
         request={deleteRequest}
         busy={inFlightKind === "deleteTag" || inFlightKind === "deleteRemoteTag"}
-        onToggleRemote={(includeRemote) =>
-          setDeleteRequest((current) => (current ? { ...current, includeRemote } : current))
-        }
         onCancel={() => setDeleteRequest(null)}
         onConfirm={(request) => {
-          void confirmDeleteTag(request);
+          void confirmTagDeleteRequest(request, {
+            workspaceId,
+            deleteTag,
+            deleteRemoteTag,
+            onDeleted: () => {
+              setDeleteRequest(null);
+              onRequestReopen?.();
+            },
+          });
         }}
       />
     </>
@@ -212,18 +212,16 @@ export function CreateTagRefSelector({
 }
 
 /**
- * Dialog for local tag deletion with an optional remote tag deletion checkbox.
+ * Dialog for a single local or remote tag deletion target.
  */
 function TagDeleteConfirmDialog({
   request,
   busy = false,
-  onToggleRemote,
   onCancel,
   onConfirm,
 }: {
   request: DeleteTagRequest | null;
   busy?: boolean;
-  onToggleRemote: (includeRemote: boolean) => void;
   onCancel: () => void;
   onConfirm: (request: DeleteTagRequest) => void;
 }) {
@@ -241,7 +239,6 @@ function TagDeleteConfirmDialog({
             <TagDeleteConfirmContent
               request={request}
               busy={busy}
-              onToggleRemote={onToggleRemote}
               onCancel={onCancel}
               onConfirm={() => onConfirm(request)}
             />
@@ -258,39 +255,29 @@ function TagDeleteConfirmDialog({
 export function TagDeleteConfirmContent({
   request,
   busy = false,
-  onToggleRemote,
   onCancel,
   onConfirm,
 }: {
   request: DeleteTagRequest;
   busy?: boolean;
-  onToggleRemote: (includeRemote: boolean) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const isRemote = request.kind === "remote";
+  const targetLabel = isRemote
+    ? `${request.remote}/${request.item.tag.name}`
+    : request.item.tag.name;
+
   return (
     <>
       <h2 className="text-app-body-emphasis text-foreground">
-        Delete tag '{request.item.tag.name}'?
+        {isRemote ? `Delete remote tag '${targetLabel}'?` : `Delete tag '${targetLabel}'?`}
       </h2>
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        Delete local tag '{request.item.tag.name}' at {request.item.tag.sha.slice(0, 7)}. This
-        cannot be undone locally.
+        {isRemote
+          ? `Delete tag '${request.item.tag.name}' from ${request.remote}. This affects the remote and cannot be undone locally.`
+          : `Delete local tag '${request.item.tag.name}' at ${request.item.tag.sha.slice(0, 7)}. This cannot be undone locally.`}
       </p>
-      <label className="mt-4 flex items-center gap-2 text-app-ui-sm text-foreground">
-        <input
-          type="checkbox"
-          checked={request.includeRemote}
-          disabled={busy || request.remoteDisabled}
-          onChange={(event) => onToggleRemote(event.target.checked)}
-        />
-        Also delete on {request.remote}
-      </label>
-      {request.remoteDisabled ? (
-        <p className="mt-2 text-app-ui-xs text-muted-foreground">
-          No remotes are configured, so remote tag deletion is unavailable.
-        </p>
-      ) : null}
       <div className="mt-5 flex justify-end gap-2">
         <Button
           type="button"
@@ -311,9 +298,37 @@ export function TagDeleteConfirmContent({
 }
 
 /**
- * Chooses the remote used by the "also delete remote tag" checkbox.
+ * Converts a source-level target into dialog state.
  */
-function chooseTagRemote(remotes: readonly string[]): string | null {
-  if (remotes.length === 0) return null;
-  return remotes.includes("origin") ? "origin" : (remotes[0] ?? null);
+function deleteRequestFromTarget(
+  item: Extract<TagPickItem, { kind: "tag" }>,
+  target: TagDeleteTarget,
+): DeleteTagRequest {
+  if (target.kind === "remote" && item.scope === "remote") {
+    return { kind: "remote", item, remote: target.remote };
+  }
+  return { kind: "local", item: item as Extract<TagPickItem, { kind: "tag"; scope: "local" }> };
+}
+
+interface ConfirmTagDeleteDeps {
+  workspaceId: string;
+  deleteTag: (workspaceId: string, name: string) => Promise<boolean>;
+  deleteRemoteTag: (workspaceId: string, remote: string, name: string) => Promise<boolean>;
+  onDeleted: () => void;
+}
+
+/**
+ * Runs exactly one tag deletion API for the selected dialog target.
+ */
+export async function confirmTagDeleteRequest(
+  request: DeleteTagRequest,
+  deps: ConfirmTagDeleteDeps,
+): Promise<boolean> {
+  const deleted =
+    request.kind === "remote"
+      ? await deps.deleteRemoteTag(deps.workspaceId, request.remote, request.item.tag.name)
+      : await deps.deleteTag(deps.workspaceId, request.item.tag.name);
+  if (!deleted) return false;
+  deps.onDeleted();
+  return true;
 }

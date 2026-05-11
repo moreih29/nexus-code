@@ -16,7 +16,7 @@
  * knows what to do next without trial and error.
  */
 import { ChevronRight, MoreHorizontal } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BranchInfo,
   GitAutofetchIntervalMin,
@@ -24,6 +24,7 @@ import type {
 } from "../../../../shared/types/git";
 import { Button } from "../../ui/button";
 import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
+import { useSubmenuPlacement } from "../../ui/use-submenu-placement";
 
 export type GitRemotesMenuSpec =
   | { kind: "remote"; remote: string; label: string }
@@ -35,6 +36,63 @@ export interface GitAutofetchMenuOption {
   readonly label: string;
   readonly selected: boolean;
 }
+
+export type GitSubmenuSeparator = { kind: "separator"; id: string };
+
+export type GitBranchMenuItemId =
+  | "merge"
+  | "rebase"
+  | "create"
+  | "create-from"
+  | "rename"
+  | "delete"
+  | "delete-remote";
+
+export type GitStashMenuItemId = "stash" | "stash-pop" | "open-stashes";
+
+export type GitTagMenuItemId = "create" | "delete" | "delete-remote" | "push-tags";
+
+export type GitTagPickerMenuMode = "create" | "delete-local" | "delete-remote";
+
+export interface GitBranchMenuActionHandlers {
+  onMergeBranch: () => void;
+  onRebaseBranch: () => void;
+  onCreateBranch: () => void;
+  onCreateBranchFrom: () => void;
+  onRenameBranch: () => void;
+  onDeleteBranch: () => void;
+  onDeleteRemoteBranch: () => void;
+}
+
+export interface GitTagMenuActionHandlers {
+  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
+}
+
+export type GitPushTagsMenuAction =
+  | { kind: "disabled"; reason: string }
+  | { kind: "push"; remote: string }
+  | { kind: "choose-remote"; remotes: readonly string[] };
+
+export type GitDeleteRemoteTagMenuAction =
+  | { kind: "disabled"; reason: string }
+  | { kind: "open-picker"; remote: string }
+  | { kind: "choose-remote"; remotes: readonly string[] };
+
+export type GitSubmenuModelItem<TId extends string> =
+  | {
+      kind: "item";
+      id: TId;
+      label: string;
+      disabled?: boolean;
+      title?: string;
+      placeholder?: boolean;
+    }
+  | GitSubmenuSeparator;
+
+export type GitMoreMenuLayoutEntry =
+  | { kind: "item"; label: string; destructive?: boolean }
+  | { kind: "submenu"; label: string }
+  | GitSubmenuSeparator;
 
 interface GitMoreMenuProps {
   disabled?: boolean;
@@ -50,11 +108,16 @@ interface GitMoreMenuProps {
   onStash: () => void;
   onStashPop: () => void;
   onOpenStashes: () => void;
-  onOpenTags: () => void;
+  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onSwitchBranch: () => void;
   onMergeBranch: () => void;
   onRebaseBranch: () => void;
-  onCherryPick: () => void;
+  onCreateBranch: () => void;
+  onCreateBranchFrom: () => void;
+  onRenameBranch: () => void;
+  onDeleteBranch: () => void;
+  onDeleteRemoteBranch: () => void;
+  onPushTags: (remote: string) => void;
   onAddRemote: () => void;
   onRemoveRemote: (remote: string) => void;
   onDiscardAll: () => void;
@@ -64,7 +127,7 @@ interface GitMoreMenuProps {
 }
 
 /**
- * Builds the Remotes submenu model used by the menu renderer and tests.
+ * Builds the Remote submenu model used by the menu renderer and tests.
  */
 export function buildGitRemotesMenuModel(remotes: readonly string[]): GitRemotesMenuSpec[] {
   const currentRemotes: GitRemotesMenuSpec[] =
@@ -105,6 +168,270 @@ export function buildAutofetchMenuModel(
   ];
 }
 
+/** Dispatches the selected Branch submenu entry to its owning panel handler. */
+export function runGitBranchMenuAction(
+  id: GitBranchMenuItemId,
+  handlers: GitBranchMenuActionHandlers,
+): void {
+  switch (id) {
+    case "merge":
+      handlers.onMergeBranch();
+      return;
+    case "rebase":
+      handlers.onRebaseBranch();
+      return;
+    case "create":
+      handlers.onCreateBranch();
+      return;
+    case "create-from":
+      handlers.onCreateBranchFrom();
+      return;
+    case "rename":
+      handlers.onRenameBranch();
+      return;
+    case "delete":
+      handlers.onDeleteBranch();
+      return;
+    case "delete-remote":
+      handlers.onDeleteRemoteBranch();
+      return;
+  }
+}
+
+/** Dispatches Tag picker entries to their mode-specific picker state. */
+export function runGitTagMenuAction(
+  id: Exclude<GitTagMenuItemId, "push-tags">,
+  handlers: GitTagMenuActionHandlers,
+  remote?: string,
+): void {
+  switch (id) {
+    case "create":
+      handlers.onOpenTags("create");
+      return;
+    case "delete":
+      handlers.onOpenTags("delete-local");
+      return;
+    case "delete-remote":
+      handlers.onOpenTags("delete-remote", remote);
+      return;
+  }
+}
+
+/**
+ * Builds the fixed top-level More menu shell. Tests assert this separately
+ * from the click handlers so new git actions land in the decided groups.
+ */
+export function buildGitMoreMenuLayoutModel(canInit = false): GitMoreMenuLayoutEntry[] {
+  return [
+    { kind: "item", label: "Refresh" },
+    ...(canInit ? [{ kind: "item" as const, label: "Initialize Repository" }] : []),
+    { kind: "separator", id: "after-refresh" },
+    { kind: "item", label: "Fetch" },
+    { kind: "item", label: "Pull" },
+    { kind: "item", label: "Push" },
+    { kind: "separator", id: "after-sync" },
+    { kind: "item", label: "Checkout to…" },
+    { kind: "submenu", label: "Branch" },
+    { kind: "submenu", label: "Remote" },
+    { kind: "submenu", label: "Stash" },
+    { kind: "submenu", label: "Tag" },
+    { kind: "separator", id: "after-refs" },
+    { kind: "submenu", label: "Autofetch" },
+    { kind: "separator", id: "after-autofetch" },
+    { kind: "item", label: "Discard All Changes", destructive: true },
+  ];
+}
+
+/**
+ * Builds the Branch submenu shell with all branch workflows routed through
+ * the panel-owned picker/dialog callbacks.
+ */
+export function buildGitBranchMenuModel({
+  disabled = false,
+  hasHead = false,
+}: {
+  disabled?: boolean;
+  hasHead?: boolean;
+}): GitSubmenuModelItem<GitBranchMenuItemId>[] {
+  const workflowDisabled = disabled || !hasHead;
+  const workflowReason = hasHead ? undefined : "Make an initial commit first.";
+  return [
+    {
+      kind: "item",
+      id: "merge",
+      label: "Merge Branch…",
+      disabled: workflowDisabled,
+      title: workflowReason,
+    },
+    {
+      kind: "item",
+      id: "rebase",
+      label: "Rebase Current Branch…",
+      disabled: workflowDisabled,
+      title: workflowReason,
+    },
+    { kind: "separator", id: "after-workflow" },
+    {
+      kind: "item",
+      id: "create",
+      label: "Create New Branch…",
+      disabled,
+    },
+    {
+      kind: "item",
+      id: "create-from",
+      label: "Create New Branch From…",
+      disabled,
+    },
+    { kind: "separator", id: "after-create" },
+    {
+      kind: "item",
+      id: "rename",
+      label: "Rename Branch…",
+      disabled: workflowDisabled,
+      title: workflowReason,
+    },
+    {
+      kind: "item",
+      id: "delete",
+      label: "Delete Branch…",
+      disabled: workflowDisabled,
+      title: workflowReason,
+    },
+    {
+      kind: "item",
+      id: "delete-remote",
+      label: "Delete Remote Branch…",
+      disabled: workflowDisabled,
+      title: workflowReason,
+    },
+  ];
+}
+
+/** Builds the Stash submenu around the existing stash actions. */
+export function buildGitStashMenuModel({
+  disabled = false,
+  hasHead = false,
+  stashCount = 0,
+}: {
+  disabled?: boolean;
+  hasHead?: boolean;
+  stashCount?: number;
+}): GitSubmenuModelItem<GitStashMenuItemId>[] {
+  const stashReason = hasHead ? undefined : "Make an initial commit first.";
+  const stashPopReason =
+    stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : undefined;
+  return [
+    {
+      kind: "item",
+      id: "stash",
+      label: "Stash",
+      disabled: disabled || !hasHead,
+      title: stashReason,
+    },
+    {
+      kind: "item",
+      id: "stash-pop",
+      label: "Stash Pop",
+      disabled: disabled || stashCount === 0 || !hasHead,
+      title: stashPopReason,
+    },
+    {
+      kind: "item",
+      id: "open-stashes",
+      label: "Stashes…",
+      disabled: disabled || !hasHead,
+      title: stashReason,
+    },
+  ];
+}
+
+/** Resolves Push Tags into disabled, immediate-push, or remote-picker flow. */
+export function resolveGitPushTagsAction({
+  disabled = false,
+  hasHead = false,
+  remotes,
+}: {
+  disabled?: boolean;
+  hasHead?: boolean;
+  remotes: readonly string[];
+}): GitPushTagsMenuAction {
+  if (remotes.length === 0) return { kind: "disabled", reason: "No remotes configured" };
+  if (disabled) return { kind: "disabled", reason: "Repository is busy." };
+  if (!hasHead) return { kind: "disabled", reason: "Make an initial commit first." };
+  const [firstRemote] = remotes;
+  if (remotes.length === 1 && firstRemote) return { kind: "push", remote: firstRemote };
+  return { kind: "choose-remote", remotes };
+}
+
+/** Resolves Delete Remote Tag into disabled, direct, or remote-picker flow. */
+export function resolveGitDeleteRemoteTagAction({
+  disabled = false,
+  hasHead = false,
+  remotes,
+}: {
+  disabled?: boolean;
+  hasHead?: boolean;
+  remotes: readonly string[];
+}): GitDeleteRemoteTagMenuAction {
+  if (remotes.length === 0) return { kind: "disabled", reason: "No remotes configured" };
+  if (disabled) return { kind: "disabled", reason: "Repository is busy." };
+  if (!hasHead) return { kind: "disabled", reason: "Make an initial commit first." };
+  const [firstRemote] = remotes;
+  if (remotes.length === 1 && firstRemote) return { kind: "open-picker", remote: firstRemote };
+  return { kind: "choose-remote", remotes };
+}
+
+/**
+ * Builds the Tag submenu shell with mode-specific picker entries plus the
+ * Push Tags bulk action.
+ */
+export function buildGitTagMenuModel({
+  disabled = false,
+  hasHead = false,
+  remotes = [],
+}: {
+  disabled?: boolean;
+  hasHead?: boolean;
+  remotes?: readonly string[];
+}): GitSubmenuModelItem<GitTagMenuItemId>[] {
+  const tagDisabled = disabled || !hasHead;
+  const tagReason = hasHead ? undefined : "Make an initial commit first.";
+  const deleteRemoteAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
+  const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
+  return [
+    {
+      kind: "item",
+      id: "create",
+      label: "Create Tag…",
+      disabled: tagDisabled,
+      title: tagReason,
+    },
+    {
+      kind: "item",
+      id: "delete",
+      label: "Delete Tag…",
+      disabled: tagDisabled,
+      title: tagReason,
+    },
+    {
+      kind: "item",
+      id: "delete-remote",
+      label: "Delete Remote Tag…",
+      disabled: deleteRemoteAction.kind === "disabled",
+      title: deleteRemoteAction.kind === "disabled" ? deleteRemoteAction.reason : undefined,
+    },
+    { kind: "separator", id: "before-push-tags" },
+    {
+      kind: "item",
+      id: "push-tags",
+      label: "Push Tags",
+      disabled: pushTagsAction.kind === "disabled",
+      title: pushTagsAction.kind === "disabled" ? pushTagsAction.reason : undefined,
+    },
+  ];
+}
+
 /** Formats the menu caption from FETCH_HEAD mtime. */
 export function formatLastFetchedCaption(lastFetchedAt: number | null, now = Date.now()): string {
   if (lastFetchedAt === null) return "Last fetched never";
@@ -134,7 +461,12 @@ export function GitMoreMenu({
   onSwitchBranch,
   onMergeBranch,
   onRebaseBranch,
-  onCherryPick,
+  onCreateBranch,
+  onCreateBranchFrom,
+  onRenameBranch,
+  onDeleteBranch,
+  onDeleteRemoteBranch,
+  onPushTags,
   onAddRemote,
   onRemoveRemote,
   onDiscardAll,
@@ -143,14 +475,20 @@ export function GitMoreMenu({
   onSetAutofetchInterval,
 }: GitMoreMenuProps) {
   const [open, setOpen] = useState(false);
+  const [branchOpen, setBranchOpen] = useState(false);
   const [remotesOpen, setRemotesOpen] = useState(false);
   const [removeRemoteOpen, setRemoveRemoteOpen] = useState(false);
+  const [stashOpen, setStashOpen] = useState(false);
+  const [tagOpen, setTagOpen] = useState(false);
   const [autofetchOpen, setAutofetchOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => {
     setOpen(false);
+    setBranchOpen(false);
     setRemotesOpen(false);
     setRemoveRemoteOpen(false);
+    setStashOpen(false);
+    setTagOpen(false);
     setAutofetchOpen(false);
   }, []);
   useDismissOnOutsideClick(wrapperRef, open, close);
@@ -171,11 +509,6 @@ export function GitMoreMenu({
   const fetchReason = hasRemote ? null : "Add a remote first.";
   const pullReason = hasRemote ? null : "Add a remote first.";
   const pushReason = hasRemote ? null : "Add a remote first.";
-  const stashReason = hasHead ? null : "Make an initial commit first.";
-  const tagReason = hasHead ? null : "Make an initial commit first.";
-  const workflowReason = hasHead ? null : "Make an initial commit first.";
-  const stashPopReason =
-    stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : null;
 
   return (
     <div className="relative" ref={wrapperRef}>
@@ -232,37 +565,24 @@ export function GitMoreMenu({
             disabled={repoBusy || !hasRemote}
             title={pushReason ?? undefined}
           />
-          <AutofetchSubmenu
-            open={autofetchOpen}
-            selected={autofetchIntervalMin}
-            lastFetchedAt={lastFetchedAt}
-            disabled={disabled}
-            onOpenChange={setAutofetchOpen}
-            onSelect={(intervalMin) => run(() => onSetAutofetchInterval(intervalMin))}
-          />
           <MenuSeparator />
           <MenuButton
             label="Checkout to…"
             onClick={() => run(onSwitchBranch)}
             disabled={repoBusy}
           />
-          <MenuButton
-            label="Merge Branch…"
-            onClick={() => run(onMergeBranch)}
-            disabled={repoBusy || !hasHead}
-            title={workflowReason ?? undefined}
-          />
-          <MenuButton
-            label="Rebase Current Branch…"
-            onClick={() => run(onRebaseBranch)}
-            disabled={repoBusy || !hasHead}
-            title={workflowReason ?? undefined}
-          />
-          <MenuButton
-            label="Cherry-pick Commit…"
-            onClick={() => run(onCherryPick)}
-            disabled={repoBusy || !hasHead}
-            title={workflowReason ?? undefined}
+          <BranchSubmenu
+            open={branchOpen}
+            disabled={repoBusy}
+            hasHead={hasHead}
+            onOpenChange={setBranchOpen}
+            onMergeBranch={() => run(onMergeBranch)}
+            onRebaseBranch={() => run(onRebaseBranch)}
+            onCreateBranch={() => run(onCreateBranch)}
+            onCreateBranchFrom={() => run(onCreateBranchFrom)}
+            onRenameBranch={() => run(onRenameBranch)}
+            onDeleteBranch={() => run(onDeleteBranch)}
+            onDeleteRemoteBranch={() => run(onDeleteRemoteBranch)}
           />
           <RemotesSubmenu
             open={remotesOpen}
@@ -274,30 +594,33 @@ export function GitMoreMenu({
             onAddRemote={() => run(onAddRemote)}
             onRemoveRemote={(remote) => run(() => onRemoveRemote(remote))}
           />
-          <MenuButton
-            label="Tags…"
-            onClick={() => run(onOpenTags)}
-            disabled={repoBusy || !hasHead}
-            title={tagReason ?? undefined}
+          <StashSubmenu
+            open={stashOpen}
+            disabled={repoBusy}
+            hasHead={hasHead}
+            stashCount={stashCount}
+            onOpenChange={setStashOpen}
+            onStash={() => run(onStash)}
+            onStashPop={() => run(onStashPop)}
+            onOpenStashes={() => run(onOpenStashes)}
+          />
+          <TagSubmenu
+            open={tagOpen}
+            disabled={repoBusy}
+            hasHead={hasHead}
+            remotes={remotes}
+            onOpenChange={setTagOpen}
+            onOpenTags={(mode, remote) => run(() => onOpenTags(mode, remote))}
+            onPushTags={(remote) => run(() => onPushTags(remote))}
           />
           <MenuSeparator />
-          <MenuButton
-            label="Stash"
-            onClick={() => run(onStash)}
-            disabled={repoBusy || !hasHead}
-            title={stashReason ?? undefined}
-          />
-          <MenuButton
-            label="Stash Pop"
-            onClick={() => run(onStashPop)}
-            disabled={repoBusy || stashCount === 0 || !hasHead}
-            title={stashPopReason ?? undefined}
-          />
-          <MenuButton
-            label="Stashes…"
-            onClick={() => run(onOpenStashes)}
-            disabled={repoBusy || !hasHead}
-            title={stashReason ?? undefined}
+          <AutofetchSubmenu
+            open={autofetchOpen}
+            selected={autofetchIntervalMin}
+            lastFetchedAt={lastFetchedAt}
+            disabled={disabled}
+            onOpenChange={setAutofetchOpen}
+            onSelect={(intervalMin) => run(() => onSetAutofetchInterval(intervalMin))}
           />
           <MenuSeparator />
           <MenuButton
@@ -313,7 +636,377 @@ export function GitMoreMenu({
 }
 
 /**
- * Renders the Remotes flyout with read-only current remotes plus add/remove
+ * Renders the Branch flyout with wired workflow/create entries and disabled
+ * gating for actions that require a real HEAD.
+ */
+function BranchSubmenu({
+  open,
+  disabled,
+  hasHead,
+  onOpenChange,
+  onMergeBranch,
+  onRebaseBranch,
+  onCreateBranch,
+  onCreateBranchFrom,
+  onRenameBranch,
+  onDeleteBranch,
+  onDeleteRemoteBranch,
+}: {
+  open: boolean;
+  disabled?: boolean;
+  hasHead: boolean;
+  onOpenChange: (open: boolean) => void;
+  onMergeBranch: () => void;
+  onRebaseBranch: () => void;
+  onCreateBranch: () => void;
+  onCreateBranchFrom: () => void;
+  onRenameBranch: () => void;
+  onDeleteBranch: () => void;
+  onDeleteRemoteBranch: () => void;
+}) {
+  const model = buildGitBranchMenuModel({ disabled, hasHead });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const handlers: GitBranchMenuActionHandlers = {
+    onMergeBranch,
+    onRebaseBranch,
+    onCreateBranch,
+    onCreateBranchFrom,
+    onRenameBranch,
+    onDeleteBranch,
+    onDeleteRemoteBranch,
+  };
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>Branch</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[220px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
+        >
+          {model.map((item) =>
+            item.kind === "separator" ? (
+              <MenuSeparator key={item.id} />
+            ) : (
+              <MenuButton
+                key={item.id}
+                label={item.label}
+                disabled={item.disabled}
+                title={item.title}
+                onClick={() => runGitBranchMenuAction(item.id, handlers)}
+              />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Renders the Stash flyout around the existing stash commands.
+ */
+function StashSubmenu({
+  open,
+  disabled,
+  hasHead,
+  stashCount,
+  onOpenChange,
+  onStash,
+  onStashPop,
+  onOpenStashes,
+}: {
+  open: boolean;
+  disabled?: boolean;
+  hasHead: boolean;
+  stashCount: number;
+  onOpenChange: (open: boolean) => void;
+  onStash: () => void;
+  onStashPop: () => void;
+  onOpenStashes: () => void;
+}) {
+  const model = buildGitStashMenuModel({ disabled, hasHead, stashCount });
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+
+  function select(id: GitStashMenuItemId): void {
+    switch (id) {
+      case "stash":
+        onStash();
+        return;
+      case "stash-pop":
+        onStashPop();
+        return;
+      case "open-stashes":
+        onOpenStashes();
+        return;
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>Stash</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
+        >
+          {model.map((item) =>
+            item.kind === "separator" ? (
+              <MenuSeparator key="stash-separator" />
+            ) : (
+              <MenuButton
+                key={item.id}
+                label={item.label}
+                disabled={item.disabled}
+                title={item.title}
+                onClick={() => select(item.id)}
+              />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Renders the Tag flyout and routes entries into their picker modes. */
+function TagSubmenu({
+  open,
+  disabled,
+  hasHead,
+  remotes,
+  onOpenChange,
+  onOpenTags,
+  onPushTags,
+}: {
+  open: boolean;
+  disabled?: boolean;
+  hasHead: boolean;
+  remotes: readonly string[];
+  onOpenChange: (open: boolean) => void;
+  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
+  onPushTags: (remote: string) => void;
+}) {
+  const model = buildGitTagMenuModel({ disabled, hasHead, remotes });
+  const deleteRemoteTagAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
+  const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
+  const [deleteRemoteTagRemoteOpen, setDeleteRemoteTagRemoteOpen] = useState(false);
+  const [pushTagsRemoteOpen, setPushTagsRemoteOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+  const tagHandlers: GitTagMenuActionHandlers = { onOpenTags };
+
+  useEffect(() => {
+    if (!open) {
+      setDeleteRemoteTagRemoteOpen(false);
+      setPushTagsRemoteOpen(false);
+    }
+  }, [open]);
+
+  function select(id: GitTagMenuItemId): void {
+    if (id === "delete-remote" && deleteRemoteTagAction.kind === "open-picker") {
+      runGitTagMenuAction(id, tagHandlers, deleteRemoteTagAction.remote);
+      return;
+    }
+    if (id === "push-tags" && pushTagsAction.kind === "push") {
+      onPushTags(pushTagsAction.remote);
+      return;
+    }
+    if (id !== "push-tags") runGitTagMenuAction(id, tagHandlers);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>Tag</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
+        >
+          {model.map((item) =>
+            item.kind === "separator" ? (
+              <MenuSeparator key={item.id} />
+            ) : item.id === "delete-remote" && deleteRemoteTagAction.kind === "choose-remote" ? (
+              <DeleteRemoteTagRemoteSubmenu
+                key={item.id}
+                open={deleteRemoteTagRemoteOpen}
+                remotes={deleteRemoteTagAction.remotes}
+                onOpenChange={setDeleteRemoteTagRemoteOpen}
+                onOpenTags={onOpenTags}
+              />
+            ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
+              <PushTagsRemoteSubmenu
+                key={item.id}
+                open={pushTagsRemoteOpen}
+                remotes={pushTagsAction.remotes}
+                onOpenChange={setPushTagsRemoteOpen}
+                onPushTags={onPushTags}
+              />
+            ) : (
+              <MenuButton
+                key={item.id}
+                label={item.label}
+                disabled={item.disabled}
+                title={item.title}
+                onClick={() => select(item.id)}
+              />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Renders the Delete Remote Tag multi-remote chooser nested under Tag.
+ */
+function DeleteRemoteTagRemoteSubmenu({
+  open,
+  remotes,
+  onOpenChange,
+  onOpenTags,
+}: {
+  open: boolean;
+  remotes: readonly string[];
+  onOpenChange: (open: boolean) => void;
+  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>Delete Remote Tag…</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
+        >
+          {remotes.map((remote) => (
+            <MenuButton
+              key={remote}
+              label={remote}
+              onClick={() => onOpenTags("delete-remote", remote)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Renders the Push Tags multi-remote chooser nested under the Tag flyout.
+ */
+function PushTagsRemoteSubmenu({
+  open,
+  remotes,
+  onOpenChange,
+  onPushTags,
+}: {
+  open: boolean;
+  remotes: readonly string[];
+  onOpenChange: (open: boolean) => void;
+  onPushTags: (remote: string) => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>Push Tags</span>
+        <ChevronRight className="size-3.5" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={panelRef}
+          role="menu"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
+        >
+          {remotes.map((remote) => (
+            <MenuButton key={remote} label={remote} onClick={() => onPushTags(remote)} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Renders the Remote flyout with read-only current remotes plus add/remove
  * actions. Removal has its own nested picker so the user explicitly selects
  * which remote to delete before the confirmation dialog appears.
  */
@@ -338,10 +1031,13 @@ function RemotesSubmenu({
 }) {
   const model = buildGitRemotesMenuModel(remotes);
   const currentRemotes = model.filter((item) => item.kind === "remote" || item.kind === "empty");
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
 
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         role="menuitem"
         aria-haspopup="menu"
@@ -350,21 +1046,26 @@ function RemotesSubmenu({
         className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
-        <span>Remotes</span>
+        <span>Remote</span>
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open ? (
         <div
+          ref={panelRef}
           role="menu"
-          className="absolute left-full top-0 z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className={`absolute left-full z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
         >
-          {currentRemotes.map((item) =>
-            item.kind === "remote" ? (
-              <RemoteLabel key={item.remote} label={item.label} />
-            ) : (
-              <RemoteLabel key="empty" label={item.label} muted />
-            ),
-          )}
+          <div className="max-h-[40vh] overflow-y-auto">
+            {currentRemotes.map((item) =>
+              item.kind === "remote" ? (
+                <RemoteLabel key={item.remote} label={item.label} />
+              ) : (
+                <RemoteLabel key="empty" label={item.label} muted />
+              ),
+            )}
+          </div>
           <MenuSeparator />
           <MenuButton label="Add remote…" onClick={onAddRemote} disabled={disabled} />
           <RemoveRemoteSubmenu
@@ -397,9 +1098,13 @@ function AutofetchSubmenu({
   onSelect: (intervalMin: GitAutofetchIntervalMin) => void;
 }) {
   const model = buildAutofetchMenuModel(selected);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         role="menuitem"
         aria-haspopup="menu"
@@ -413,8 +1118,11 @@ function AutofetchSubmenu({
       </button>
       {open ? (
         <div
+          ref={panelRef}
           role="menu"
-          className="absolute left-full top-0 z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
         >
           {model.map((item) => (
             <MenuButton
@@ -466,9 +1174,13 @@ function RemoveRemoteSubmenu({
   onOpenChange: (open: boolean) => void;
   onRemoveRemote: (remote: string) => void;
 }) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { placement, panelRef } = useSubmenuPlacement(open, triggerRef);
+
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         role="menuitem"
         aria-haspopup="menu"
@@ -483,8 +1195,11 @@ function RemoveRemoteSubmenu({
       </button>
       {open ? (
         <div
+          ref={panelRef}
           role="menu"
-          className="absolute left-full top-0 z-50 min-w-[152px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className={`absolute left-full z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm ${
+            placement === "up" ? "bottom-0" : "top-0"
+          }`}
         >
           {remotes.map((remote) => (
             <MenuButton key={remote} label={remote} onClick={() => onRemoveRemote(remote)} />

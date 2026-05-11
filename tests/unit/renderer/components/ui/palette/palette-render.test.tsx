@@ -16,14 +16,33 @@ const resultItems: PaletteItem[] = [
   },
 ];
 
+const destructiveItems: PaletteItem[] = [
+  {
+    id: "delete-tag",
+    label: "origin/v1.0.0",
+    detail: "Remote origin · aaaaaaa",
+    kindLabel: "delete",
+    tone: "destructive",
+  },
+];
+
 function render(status: PaletteViewStatus, dimmed = false, footer?: ReactNode): string {
+  return renderWithItems(status, status === "results" ? resultItems : [], dimmed, footer);
+}
+
+function renderWithItems(
+  status: PaletteViewStatus,
+  items: PaletteItem[],
+  dimmed = false,
+  footer?: ReactNode,
+): string {
   return renderToStaticMarkup(
     <CommandPaletteFrame
       status={status}
       title="Go to Symbol in Workspace"
       placeholder="Search workspace symbols"
       query={status === "idle" || status === "closed" || status === "no-workspace" ? "" : "Gre"}
-      items={status === "results" ? resultItems : []}
+      items={items}
       activeIndex={status === "results" ? 0 : -1}
       dimmed={dimmed}
       emptyQueryMessage="Type a symbol name to search the workspace."
@@ -94,6 +113,14 @@ describe("CommandPaletteFrame render states", () => {
     expect(html).toContain("bg-frosted-veil-strong");
     expect(html).toContain("bg-frosted-veil");
     expect(html).toContain('title="/workspace/src/greet.ts"');
+  });
+
+  it("renders destructive item tone with Git destructive text and selected background", () => {
+    const html = renderWithItems("results", destructiveItems);
+
+    expect(html).toContain("git-destructive-text");
+    expect(html).toContain("bg-destructive/10");
+    expect(html).toContain("origin/v1.0.0");
   });
 
   it("list container has opacity-100 and no aria-busy when not dimmed", () => {

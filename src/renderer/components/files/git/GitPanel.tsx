@@ -1,9 +1,10 @@
 /**
  * GitPanel is the top-level Source Control surface for one workspace.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { validateGitRemoteUrl } from "../../../../shared/git-remote-validation";
 import {
+  type BranchList,
   DEFAULT_GIT_PANEL_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitExpandedGroupKey,
@@ -22,7 +23,12 @@ import { FormDialog, type FormDialogField } from "../../ui/form-dialog";
 import { CommandPalette } from "../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../ui/prompt-dialog";
 import { useLoaderDelay } from "../search/useLoaderDelay";
-import { BranchPicker } from "./BranchPicker";
+import {
+  BranchCreateDialog,
+  type BranchCreateRequest,
+  submitBranchCreate,
+} from "./BranchCreateDialog";
+import { BranchPicker, type BranchPickerMode } from "./BranchPicker";
 import { type CommitPickItem, createCommitPickerSource } from "./commit-picker-source";
 import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./confirmDiscardDialog";
 import { GitBranchBar } from "./GitBranchBar";
@@ -52,13 +58,13 @@ import {
   type MergeTargetPickItem,
 } from "./merge-target-picker-source";
 import { OperationBanner } from "./OperationBanner";
-import { RefPicker } from "./RefPicker";
 import {
   createRebaseTargetPickerSource,
   type RebaseTargetPickItem,
 } from "./rebase-target-picker-source";
 import { StashPicker } from "./StashPicker";
 import { TagPicker } from "./TagPicker";
+import type { TagPickerMode } from "./tag-picker-source";
 import { useGitHelperOccupancy } from "./useGitHelperPrompts";
 import { useGitOpHotkey } from "./useGitOpHotkey";
 import { useGitSession } from "./useGitSession";
@@ -98,6 +104,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const fetchAll = useGitStore((state) => state.fetchAll);
   const pull = useGitStore((state) => state.pull);
   const push = useGitStore((state) => state.push);
+  const pushTags = useGitStore((state) => state.pushTags);
   const sync = useGitStore((state) => state.sync);
   const stash = useGitStore((state) => state.stash);
   const stashPop = useGitStore((state) => state.stashPop);
@@ -126,21 +133,24 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
 
   const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
   const [branchPickerOpen, setBranchPickerOpen] = useState(false);
+  const [branchPickerMode, setBranchPickerMode] = useState<BranchPickerMode>("switch");
   const [mergeTargetPickerOpen, setMergeTargetPickerOpen] = useState(false);
   const [rebaseTargetPickerOpen, setRebaseTargetPickerOpen] = useState(false);
   const [commitPickerOpen, setCommitPickerOpen] = useState(false);
   const [commitBranchPickerOpen, setCommitBranchPickerOpen] = useState(false);
   const [commitPickerRef, setCommitPickerRef] = useState<string | null>(null);
-  const [refPickerOpen, setRefPickerOpen] = useState(false);
+  const [branchCreateFromPickerOpen, setBranchCreateFromPickerOpen] = useState(false);
+  const [branchCreateRequest, setBranchCreateRequest] = useState<BranchCreateRequest | null>(null);
+  const [branchCreateBranchList, setBranchCreateBranchList] = useState<BranchList | null>(null);
+  const [branchCreateBranchListLoading, setBranchCreateBranchListLoading] = useState(false);
+  const branchCreateLoadIdRef = useRef(0);
   const [stashPickerOpen, setStashPickerOpen] = useState(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [tagPickerMode, setTagPickerMode] = useState<TagPickerMode>("browse");
+  const [tagPickerRemote, setTagPickerRemote] = useState<string | null>(null);
   const [mergeOptionsRequest, setMergeOptionsRequest] = useState<MergeOptionsRequest | null>(null);
   const [publishRequest, setPublishRequest] = useState<PromptRequest | null>(null);
   const [emptyCommitRequest, setEmptyCommitRequest] = useState<PromptRequest | null>(null);
-  const [createFromRefRequest, setCreateFromRefRequest] = useState<{
-    ref: string;
-    prompt: PromptRequest;
-  } | null>(null);
   const [stashGroupRequest, setStashGroupRequest] = useState<{
     paths: string[];
     prompt: PromptRequest;
@@ -292,6 +302,58 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       }),
     [currentBranchName, listBranches, workspaceId],
   );
+
+  /**
+   * Opens the create-branch input and refreshes the branch list used for
+   * duplicate-name validation. Stale loads are ignored when the dialog closes.
+   */
+  const openBranchCreateDialog = useCallback(
+    (fromRef?: string) => {
+      const loadId = branchCreateLoadIdRef.current + 1;
+      branchCreateLoadIdRef.current = loadId;
+      setBranchCreateRequest(fromRef ? { fromRef } : {});
+      setBranchCreateBranchList(null);
+      setBranchCreateBranchListLoading(true);
+
+      void listBranches(workspaceId)
+        .then((list) => {
+          if (branchCreateLoadIdRef.current !== loadId) return;
+          setBranchCreateBranchList(list ?? null);
+        })
+        .catch(() => {
+          if (branchCreateLoadIdRef.current !== loadId) return;
+          setBranchCreateBranchList(null);
+        })
+        .finally(() => {
+          if (branchCreateLoadIdRef.current !== loadId) return;
+          setBranchCreateBranchListLoading(false);
+        });
+    },
+    [listBranches, workspaceId],
+  );
+
+  /**
+   * Closes the create-branch dialog and invalidates any in-flight validation
+   * list load that was started for it.
+   */
+  const closeBranchCreateDialog = useCallback(() => {
+    branchCreateLoadIdRef.current += 1;
+    setBranchCreateRequest(null);
+    setBranchCreateBranchListLoading(false);
+  }, []);
+
+  /** Opens the shared branch picker with the menu-selected branch action mode. */
+  function openBranchPicker(mode: BranchPickerMode): void {
+    setBranchPickerMode(mode);
+    setBranchPickerOpen(true);
+  }
+
+  /** Opens the shared tag picker with the menu-selected tag action mode. */
+  function openTagPicker(mode: TagPickerMode, remote?: string): void {
+    setTagPickerMode(mode);
+    setTagPickerRemote(mode === "delete-remote" ? (remote ?? null) : null);
+    setTagPickerOpen(true);
+  }
 
   /**
    * Issues a push, intercepting branches without an upstream so the user
@@ -633,13 +695,17 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           void stashPop(workspaceId);
         }}
         onOpenStashes={() => setStashPickerOpen(true)}
-        onOpenTags={() => setTagPickerOpen(true)}
-        onSwitchBranch={() => setBranchPickerOpen(true)}
+        onOpenTags={(mode, remote) => openTagPicker(mode, remote)}
+        onSwitchBranch={() => openBranchPicker("switch")}
         onMergeBranch={() => setMergeTargetPickerOpen(true)}
         onRebaseBranch={() => setRebaseTargetPickerOpen(true)}
-        onCherryPick={() => {
-          setCommitPickerRef(null);
-          setCommitPickerOpen(true);
+        onCreateBranch={() => openBranchCreateDialog()}
+        onCreateBranchFrom={() => setBranchCreateFromPickerOpen(true)}
+        onRenameBranch={() => openBranchPicker("rename")}
+        onDeleteBranch={() => openBranchPicker("delete-local")}
+        onDeleteRemoteBranch={() => openBranchPicker("delete-remote")}
+        onPushTags={(remote) => {
+          void pushTags(workspaceId, remote);
         }}
         onAddRemote={() => setAddRemoteOpen(true)}
         onRemoveRemote={requestRemoveRemote}
@@ -864,8 +930,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
                 onSetAutofetchInterval={(intervalMin) => {
                   void setAutofetchInterval(workspaceId, intervalMin);
                 }}
-                onSwitchBranch={() => setBranchPickerOpen(true)}
-                onCreateFromRef={() => setRefPickerOpen(true)}
+                onSwitchBranch={() => openBranchPicker("switch")}
+                onCreateFromRef={() => setBranchCreateFromPickerOpen(true)}
               />
             </>
           )}
@@ -916,6 +982,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       <BranchPicker
         workspaceId={workspaceId}
         open={branchPickerOpen}
+        mode={branchPickerMode}
         onClose={() => setBranchPickerOpen(false)}
       />
 
@@ -947,23 +1014,18 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         footer="Enter choose branch · Current branch hidden"
       />
 
-      <RefPicker
+      <BranchPicker
         workspaceId={workspaceId}
-        open={refPickerOpen}
-        onClose={() => setRefPickerOpen(false)}
+        open={branchCreateFromPickerOpen}
+        mode="select-ref"
+        title="Create branch from"
+        placeholder="Select a branch to create from…"
+        onClose={() => setBranchCreateFromPickerOpen(false)}
         onSelectRef={(ref) => {
-          setRefPickerOpen(false);
-          setCreateFromRefRequest({
-            ref,
-            prompt: {
-              title: "Create branch from ref",
-              description: `Create a new branch at '${ref}'.`,
-              label: "Branch name",
-              placeholder: "feature/name",
-              confirmLabel: "Create",
-            },
-          });
+          setBranchCreateFromPickerOpen(false);
+          openBranchCreateDialog(ref);
         }}
+        footer="Enter choose start point · Working tree is not changed"
       />
 
       <StashPicker
@@ -975,8 +1037,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
 
       <TagPicker
         workspaceId={workspaceId}
-        remotes={capabilities.remotes}
         open={tagPickerOpen}
+        mode={tagPickerMode}
+        selectedRemote={tagPickerRemote}
         onClose={() => setTagPickerOpen(false)}
         onRequestReopen={() => setTagPickerOpen(true)}
         onRevealTag={revealTagInHistory}
@@ -1009,15 +1072,22 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           void commitEmpty(workspaceId, value);
         }}
       />
-      <PromptDialog
-        request={createFromRefRequest?.prompt ?? null}
+      <BranchCreateDialog
+        request={branchCreateRequest}
+        branchList={branchCreateBranchList}
+        loadingExistingBranches={branchCreateBranchListLoading}
         busy={session?.inFlightOp?.kind === "createBranch"}
-        onCancel={() => setCreateFromRefRequest(null)}
-        onConfirm={(value) => {
-          const request = createFromRefRequest;
-          setCreateFromRefRequest(null);
+        onCancel={closeBranchCreateDialog}
+        onSubmit={(name) => {
+          const request = branchCreateRequest;
+          closeBranchCreateDialog();
           if (!request) return;
-          void createBranch(workspaceId, value, { fromRef: request.ref, checkout: true });
+          void submitBranchCreate({
+            workspaceId,
+            name,
+            fromRef: request.fromRef,
+            createBranch,
+          });
         }}
       />
       <PromptDialog

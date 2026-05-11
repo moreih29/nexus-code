@@ -3,7 +3,7 @@
  * tags while refreshing RepoCapabilities.tagCount after every mutation.
  */
 import { ipcContract } from "../../../../shared/ipc-contract";
-import type { Tag } from "../../../../shared/types/git";
+import type { RemoteTag, Tag } from "../../../../shared/types/git";
 import { GitError } from "../../../git/git-error";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { CallContext } from "../../router";
@@ -23,6 +23,21 @@ export function listTagsHandler(
     if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
     return repo.listTags(ctx?.signal);
+  };
+}
+
+/**
+ * Builds the selected-remote tag list handler used only by delete-remote flows.
+ */
+export function listRemoteTagsHandler(
+  registry: GitRegistry,
+): (args: unknown, ctx?: CallContext) => Promise<RemoteTag[]> {
+  return async (args: unknown, ctx?: CallContext): Promise<RemoteTag[]> => {
+    const { workspaceId, remote } = validateArgs(c.listRemoteTags.args, args);
+    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+
+    return repo.listRemoteTags(remote, ctx?.signal);
   };
 }
 
@@ -72,6 +87,23 @@ export function deleteRemoteTagHandler(
     if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
     await repo.deleteRemoteTag(remote, name, ctx?.signal);
+    await refreshAfterMutation(registry, workspaceId, ctx?.signal);
+  };
+}
+
+/**
+ * Builds the bulk tag push handler. The repository method owns the exact
+ * `git push [remote] --tags` argv and helper env setup for authentication.
+ */
+export function pushTagsHandler(
+  registry: GitRegistry,
+): (args: unknown, ctx?: CallContext) => Promise<void> {
+  return async (args: unknown, ctx?: CallContext): Promise<void> => {
+    const { workspaceId, remote } = validateArgs(c.pushTags.args, args);
+    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+    if (!repo) throw new GitError("not-repo", "Not a Git repository");
+
+    await repo.pushTags(remote, ctx?.signal);
     await refreshAfterMutation(registry, workspaceId, ctx?.signal);
   };
 }

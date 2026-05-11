@@ -6,7 +6,9 @@ import {
   createTagHandler,
   deleteRemoteTagHandler,
   deleteTagHandler,
+  listRemoteTagsHandler,
   listTagsHandler,
+  pushTagsHandler,
 } from "../../../../../../src/main/ipc/channels/git/tag-handlers";
 import { ipcContract } from "../../../../../../src/shared/ipc-contract";
 
@@ -17,6 +19,12 @@ describe("git tag IPC contract", () => {
     expect(ipcContract.git.call.listTags.args.safeParse({ workspaceId: VALID_UUID }).success).toBe(
       true,
     );
+    expect(
+      ipcContract.git.call.listRemoteTags.args.safeParse({
+        workspaceId: VALID_UUID,
+        remote: "origin",
+      }).success,
+    ).toBe(true);
     expect(
       ipcContract.git.call.createTag.args.safeParse({
         workspaceId: VALID_UUID,
@@ -38,6 +46,15 @@ describe("git tag IPC contract", () => {
         name: "v1.0.0",
       }).success,
     ).toBe(true);
+    expect(
+      ipcContract.git.call.pushTags.args.safeParse({
+        workspaceId: VALID_UUID,
+        remote: "origin",
+      }).success,
+    ).toBe(true);
+    expect(ipcContract.git.call.pushTags.args.safeParse({ workspaceId: VALID_UUID }).success).toBe(
+      true,
+    );
   });
 });
 
@@ -60,6 +77,31 @@ describe("git tag handlers", () => {
     const result = await listTagsHandler(registry as never)({ workspaceId: VALID_UUID });
 
     expect(result).toEqual([tag]);
+    expect(registry.bumpGeneration).not.toHaveBeenCalled();
+    expect(registry.refreshStatus).not.toHaveBeenCalled();
+  });
+
+  it("lists selected-remote tags without forcing a status refresh", async () => {
+    const tag = {
+      remote: "origin",
+      name: "v1.0.0",
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      scope: "remote" as const,
+    };
+    const repo = { listRemoteTags: mock(async () => [tag]) };
+    const registry = {
+      getOrDetect: mock(async () => repo),
+      bumpGeneration: mock(() => {}),
+      refreshStatus: mock(async () => {}),
+    };
+
+    const result = await listRemoteTagsHandler(registry as never)({
+      workspaceId: VALID_UUID,
+      remote: "origin",
+    });
+
+    expect(result).toEqual([tag]);
+    expect(repo.listRemoteTags).toHaveBeenCalledWith("origin", undefined);
     expect(registry.bumpGeneration).not.toHaveBeenCalled();
     expect(registry.refreshStatus).not.toHaveBeenCalled();
   });
@@ -122,6 +164,24 @@ describe("git tag handlers", () => {
       `bump:${VALID_UUID}`,
       `refresh:${VALID_UUID}`,
     ]);
+  });
+
+  it("pushes tags through the repo and refreshes status after success", async () => {
+    const trace: string[] = [];
+    const repo = {
+      pushTags: mock(async (remote?: string) => {
+        trace.push(`push-tags:${remote ?? "default"}`);
+      }),
+    };
+    const registry = registryWithTrace(repo, trace);
+
+    await pushTagsHandler(registry as never)({
+      workspaceId: VALID_UUID,
+      remote: "origin",
+    });
+
+    expect(repo.pushTags).toHaveBeenCalledWith("origin", undefined);
+    expect(trace).toEqual(["push-tags:origin", `bump:${VALID_UUID}`, `refresh:${VALID_UUID}`]);
   });
 });
 

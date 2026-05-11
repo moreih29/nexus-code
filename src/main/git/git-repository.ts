@@ -31,6 +31,7 @@ import type {
   LogEntry,
   PullResult,
   PushResult,
+  RemoteTag,
   RepoCapabilities,
   Tag,
 } from "../../shared/types/git";
@@ -485,6 +486,16 @@ export class GitRepository {
   }
 
   /**
+   * Lists tags from one selected remote without expanding local tag semantics.
+   */
+  listRemoteTags(remote: string, signal?: AbortSignal): Promise<RemoteTag[]> {
+    return this.queue(
+      (queuedSignal) => tagOps.listRemoteTags(this.tagOpsRunner(queuedSignal), remote),
+      signal,
+    );
+  }
+
+  /**
    * Creates a local lightweight or annotated tag.
    */
   createTag(
@@ -516,6 +527,18 @@ export class GitRepository {
       (queuedSignal) => tagOps.deleteRemoteTag(this.tagOpsRunner(queuedSignal), remote, name),
       signal,
     );
+  }
+
+  /**
+   * Pushes every local tag to the configured upstream remote or a named
+   * remote. Tag pushes are separate from current-branch push semantics.
+   */
+  pushTags(remote?: string, signal?: AbortSignal): Promise<void> {
+    return this.queue(async (queuedSignal) => {
+      const trimmed = remote?.trim();
+      const args = trimmed && trimmed.length > 0 ? ["push", trimmed, "--tags"] : ["push", "--tags"];
+      await this.runWithHelpers(args, queuedSignal, { askpass: true });
+    }, signal);
   }
 
   /**

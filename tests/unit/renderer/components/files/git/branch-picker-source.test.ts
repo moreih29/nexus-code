@@ -4,11 +4,10 @@
  * Focus:
  *   (a) Empty query lists current first, then other locals, then de-duplicated
  *       remotes (short name only, hidden when local already exists).
- *   (b) Selecting a remote-only entry calls `checkout(workspaceId, <short>)`,
- *       not the full `origin/<short>` ref. This guards the path that previously
- *       sent `origin/main` straight to git and produced
- *       `pathspec '<short>' did not match` confusion when a local copy
- *       did not exist.
+ *   (b) Selecting a remote-only entry calls
+ *       `checkoutTracking(workspaceId, <full-ref>)`. This guards the path that
+ *       previously sent the wrong ref shape to git when a local copy did not
+ *       exist.
  *   (c) Typed query supports both short-name match (`main`) and full-ref match
  *       (`origin/main`) on remotes.
  *   (d) Create-new entry only appears when the query is non-empty AND no local
@@ -18,6 +17,7 @@
 
 import { describe, expect, it, mock } from "bun:test";
 import {
+  type BranchPickerSourceMode,
   type BranchPickItem,
   createBranchPickerSource,
 } from "../../../../../../src/renderer/components/files/git/branch-picker-source";
@@ -38,7 +38,10 @@ function fixture(overrides: Partial<BranchList> = {}): BranchList {
   };
 }
 
-function buildSource(list: BranchList): {
+function buildSource(
+  list: BranchList,
+  options: { mode?: BranchPickerSourceMode; allowCreate?: boolean } = {},
+): {
   source: ReturnType<typeof createBranchPickerSource>;
   checkout: ReturnType<typeof mock>;
   checkoutTracking: ReturnType<typeof mock>;
@@ -59,6 +62,8 @@ function buildSource(list: BranchList): {
     checkout,
     checkoutTracking,
     createBranch,
+    mode: options.mode,
+    allowCreate: options.allowCreate,
     requestDelete,
     requestRename,
     requestSetUpstream,
@@ -331,6 +336,89 @@ describe("createBranchPickerSource — accept routing", () => {
     expect(checkout).not.toHaveBeenCalled();
     expect(checkoutTracking).not.toHaveBeenCalled();
     expect(createBranch).not.toHaveBeenCalled();
+  });
+});
+
+describe("createBranchPickerSource — branch action modes", () => {
+  it("rename mode shows local branches only and accepts by opening rename", async () => {
+    const { source, checkout, requestRename, requestDelete } = buildSource(
+      fixture({
+        local: ["feat/work", "main", "stable"],
+        remote: ["origin/dev"],
+      }),
+      { mode: "rename" },
+    );
+
+    expect(source.title).toBe("Rename branch");
+    expect(source.placeholder).toBe("Select a branch to rename…");
+
+    const items = await search(source, "");
+    expect(items.map((it) => it.id)).toEqual(["local:feat/work", "local:main", "local:stable"]);
+
+    const createMatches = await search(source, "scratch");
+    expect(createMatches.some((it) => it.id.startsWith("create:"))).toBe(false);
+
+    const main = items.find((it) => it.id === "local:main");
+    if (!main) throw new Error("expected local item");
+
+    source.accept(main, { mode: "default", key: "Backspace", modifiers: metaModifiers() });
+
+    expect(requestRename).toHaveBeenCalledWith(main);
+    expect(requestDelete).not.toHaveBeenCalled();
+    expect(checkout).not.toHaveBeenCalled();
+  });
+
+  it("delete-local mode shows non-current local branches only and accepts by opening delete", async () => {
+    const { source, checkout, requestDelete, requestRename } = buildSource(
+      fixture({
+        local: ["feat/work", "main", "stable"],
+        remote: ["origin/dev"],
+      }),
+      { mode: "delete-local" },
+    );
+
+    expect(source.title).toBe("Delete branch");
+    expect(source.placeholder).toBe("Select a branch to delete…");
+
+    const items = await search(source, "");
+    expect(items.map((it) => it.id)).toEqual(["local:main", "local:stable"]);
+
+    const main = items.find((it) => it.id === "local:main");
+    if (!main) throw new Error("expected local item");
+
+    source.accept(main, { mode: "default" });
+
+    expect(requestDelete).toHaveBeenCalledWith(main);
+    expect(requestRename).not.toHaveBeenCalled();
+    expect(checkout).not.toHaveBeenCalled();
+  });
+
+  it("delete-remote mode shows every remote branch and accepts by opening delete", async () => {
+    const { source, checkoutTracking, requestDelete } = buildSource(
+      fixture({
+        local: ["feat/work", "main"],
+        remote: ["origin/main", "fork/main", "origin/dev"],
+      }),
+      { mode: "delete-remote" },
+    );
+
+    expect(source.title).toBe("Delete remote branch");
+    expect(source.placeholder).toBe("Select a remote branch to delete…");
+
+    const items = await search(source, "");
+    expect(items.map((it) => it.id)).toEqual([
+      "remote:fork/main",
+      "remote:origin/dev",
+      "remote:origin/main",
+    ]);
+
+    const originMain = items.find((it) => it.id === "remote:origin/main");
+    if (!originMain) throw new Error("expected remote item");
+
+    source.accept(originMain, { mode: "default" });
+
+    expect(requestDelete).toHaveBeenCalledWith(originMain);
+    expect(checkoutTracking).not.toHaveBeenCalled();
   });
 });
 
