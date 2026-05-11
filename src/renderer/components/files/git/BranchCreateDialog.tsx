@@ -157,10 +157,13 @@ export function BranchCreateDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
-          aria-label={branchCreateDialogTitle(request)}
-        >
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
+          <RadixDialog.Title className="sr-only">
+            {branchCreateDialogTitle(request)}
+          </RadixDialog.Title>
+          <RadixDialog.Description className="sr-only">
+            {branchCreateDialogDescription(request)}
+          </RadixDialog.Description>
           <FormDialogContent
             title={branchCreateDialogTitle(request)}
             description={branchCreateDialogDescription(request)}

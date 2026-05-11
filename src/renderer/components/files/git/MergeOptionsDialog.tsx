@@ -97,11 +97,13 @@ export function MergeOptionsDialogContent({
 }: MergeOptionsDialogContentProps): React.JSX.Element {
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">Merge {targetRef}</h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
+      <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
+        Merge {targetRef}
+      </div>
+      <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
         Choose how to merge <span className="font-mono text-foreground">{targetRef}</span> into the
         current branch.
-      </p>
+      </div>
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         <fieldset className="flex flex-col gap-2 border-0 p-0">
           <legend className="sr-only">Merge strategy</legend>
@@ -178,10 +180,15 @@ export function MergeOptionsDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
-          aria-label={request ? `Merge ${request.targetRef}` : "Merge options"}
-        >
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
+          <RadixDialog.Title className="sr-only">
+            {request ? `Merge ${request.targetRef}` : "Merge options"}
+          </RadixDialog.Title>
+          <RadixDialog.Description className="sr-only">
+            {request
+              ? `Choose how to merge ${request.targetRef} into the current branch.`
+              : "Choose a merge strategy."}
+          </RadixDialog.Description>
           {request ? (
             <MergeOptionsDialogContent
               targetRef={request.targetRef}

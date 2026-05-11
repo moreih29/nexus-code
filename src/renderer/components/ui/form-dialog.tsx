@@ -145,9 +145,13 @@ export function FormDialogContent({
 
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">{title}</h2>
+      <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
+        {title}
+      </div>
       {description ? (
-        <p className="mt-2 text-app-ui-sm text-muted-foreground">{description}</p>
+        <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
+          {description}
+        </div>
       ) : null}
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         {extraContent}
@@ -264,10 +268,13 @@ export function FormDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
-          aria-label={title}
-        >
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
+          <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
+          {description ? (
+            <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
+          ) : (
+            <RadixDialog.Description className="sr-only" />
+          )}
           <FormDialogContent
             title={title}
             description={description}
