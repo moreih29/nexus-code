@@ -17,32 +17,29 @@ const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
 
 describe("GitRepository.createBranch — preserves source branch", () => {
-  realGitTest(
-    "creating feat/x from main keeps main in listBranches.local",
-    async () => {
-      const root = makeRepoOnMain();
-      try {
-        const repo = new GitRepository(
-          "ws-create-keeps-main",
-          root,
-          path.join(root, ".git"),
-          gitOnPath!,
-        );
+  realGitTest("creating feat/x from main keeps main in listBranches.local", async () => {
+    const root = makeRepoOnMain();
+    try {
+      const repo = new GitRepository(
+        "ws-create-keeps-main",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+      );
 
-        await repo.createBranch("feat/x", true);
+      await repo.createBranch("feat/x", true);
 
-        const head = runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-        expect(head).toBe("feat/x");
+      const head = runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+      expect(head).toBe("feat/x");
 
-        const list = await repo.listBranches();
-        expect(list.local).toContain("main");
-        expect(list.local).toContain("feat/x");
-        expect(list.current?.current).toBe("feat/x");
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
+      const list = await repo.listBranches();
+      expect(list.local).toContain("main");
+      expect(list.local).toContain("feat/x");
+      expect(list.current?.current).toBe("feat/x");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   realGitTest(
     "creating from an unborn HEAD does NOT preserve the unborn branch (documented edge case)",

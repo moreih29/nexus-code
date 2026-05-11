@@ -20,8 +20,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     promise: Promise.resolve({ filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 }),
     onProgress: mock((_cb: unknown) => () => {}),
   })),
-  ipcCall: mock((_ch: string, _m: string, _a: unknown): Promise<unknown> =>
-    Promise.resolve({ viewMode: "list", compactFolders: false }),
+  ipcCall: mock(
+    (_ch: string, _m: string, _a: unknown): Promise<unknown> =>
+      Promise.resolve({ viewMode: "list", compactFolders: false }),
   ),
 }));
 

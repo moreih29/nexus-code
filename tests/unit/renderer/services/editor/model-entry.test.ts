@@ -6,7 +6,9 @@ import { describe, expect, mock, test } from "bun:test";
 const realMonacoSingleton = await import(
   "../../../../../src/renderer/services/editor/runtime/monaco-singleton"
 );
-const realFileLoader = await import("../../../../../src/renderer/services/editor/model/file-loader");
+const realFileLoader = await import(
+  "../../../../../src/renderer/services/editor/model/file-loader"
+);
 const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
 
 mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({

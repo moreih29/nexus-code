@@ -1,39 +1,39 @@
 export {
+  __resetDirtyTrackerForTests,
+  type AttachOptions,
+  attachDirtyTracker,
+  type DirtyEntry,
+  type DirtyTransitionEvent,
+  type DirtyTransitionListener,
+  detachDirtyTracker,
+  getDirtyEntry,
+  isDirty,
+  type MarkSavedOptions,
+  markSaved,
+  subscribeAllDirtyTransitions,
+  subscribeAllSaved,
+  subscribeFileDirty,
+  updateLoadedMetadata,
+} from "./dirty-tracker";
+export { ensureModelWithContent } from "./ensure-model";
+export { relPathForInput, workspaceRootForInput } from "./file-loader";
+export {
   acquireModel,
   cacheUriToFilePath,
+  type EntryMetadata,
   filePathToModelUri,
   forceDisposeExternalsForWorkspace,
   getEntryMetadata,
   getModelSnapshot,
   getResolvedModel,
   initializeModelCache,
+  type ReleasedModelInfo,
+  type ResolvedModelView,
   releaseModel,
+  type SharedModelPhase,
+  type SharedModelState,
   subscribeModel,
   subscribeOnRelease,
   toFileErrorCode,
-  type EntryMetadata,
-  type ReleasedModelInfo,
-  type ResolvedModelView,
-  type SharedModelPhase,
-  type SharedModelState,
 } from "./model-cache";
-export {
-  attachDirtyTracker,
-  detachDirtyTracker,
-  getDirtyEntry,
-  isDirty,
-  markSaved,
-  subscribeAllDirtyTransitions,
-  subscribeAllSaved,
-  subscribeFileDirty,
-  updateLoadedMetadata,
-  __resetDirtyTrackerForTests,
-  type AttachOptions,
-  type DirtyEntry,
-  type DirtyTransitionEvent,
-  type DirtyTransitionListener,
-  type MarkSavedOptions,
-} from "./dirty-tracker";
-export { relPathForInput, workspaceRootForInput } from "./file-loader";
 export { useSharedModel } from "./use-shared-model";
-export { ensureModelWithContent } from "./ensure-model";

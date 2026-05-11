@@ -11,13 +11,13 @@
 import type * as Monaco from "monaco-editor";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCall } from "../../../ipc/client";
+import { notifyDidSave } from "../lsp/lsp-bridge";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
 import { relPathForInput } from "../model/file-loader";
-import { notifyDidSave } from "../lsp/lsp-bridge";
 import { getResolvedModel } from "../model/model-cache";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
-import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
 import type { EditorInput } from "../types";
+import { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
 
 export function installEditorSaveAction(
   editor: Monaco.editor.IStandaloneCodeEditor,

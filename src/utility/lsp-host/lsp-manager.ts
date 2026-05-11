@@ -6,9 +6,9 @@
 
 import type { Registration } from "../../shared/lsp";
 import { AdapterRegistry, type LspAdapterFactory } from "./adapter-registry";
-import type { LspManagerContext, RoutedAdapter } from "./lsp-handlers";
 import { LspCallDispatcher } from "./lsp-call-dispatcher";
-import { LspPortTransport, type IMessagePort, type InboundMsg } from "./lsp-port-transport";
+import type { LspManagerContext, RoutedAdapter } from "./lsp-handlers";
+import { type IMessagePort, type InboundMsg, LspPortTransport } from "./lsp-port-transport";
 import type { ServerHandlerContext } from "./lsp-server-request-handlers";
 import type { LspAdapter } from "./servers/stdio-lsp-adapter";
 import { WatchedFilesRouter } from "./watched-files-router";

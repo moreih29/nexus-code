@@ -1,6 +1,5 @@
 import { Folder, GitBranch, Search } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { EMPTY_TREE } from "../editor/diff-refs";
 import { openDiffTab } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
 import { useGitStore } from "../../state/stores/git";
@@ -13,6 +12,7 @@ import {
   useUIStore,
 } from "../../state/stores/ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { EMPTY_TREE } from "../editor/diff-refs";
 import { Button } from "../ui/button";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";

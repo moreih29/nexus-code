@@ -5,9 +5,9 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 import {
-  applySharedModel,
   type ApplySharedModelEditor,
   type AttachSharedModelTemporaryModel,
+  applySharedModel,
 } from "../../../../../src/renderer/components/workspace/content/use-editor-mount";
 
 function makeEditor(currentModel: object | null = null): ApplySharedModelEditor & {

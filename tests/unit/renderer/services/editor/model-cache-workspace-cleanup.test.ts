@@ -71,7 +71,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 
 const cleanupEntryMock = mock((_entry: unknown) => {});
 
-const realModelEntry = await import("../../../../../src/renderer/services/editor/model/model-entry");
+const realModelEntry = await import(
+  "../../../../../src/renderer/services/editor/model/model-entry"
+);
 
 mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({
   ...realModelEntry,

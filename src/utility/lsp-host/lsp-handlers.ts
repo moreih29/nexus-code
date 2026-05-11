@@ -2,7 +2,6 @@
 // protocol methods, input/output schemas, routing, and result transforms.
 
 import { z } from "zod";
-import { resolveLspPresetLanguageId } from "../../shared/lsp-config";
 import {
   CompletionItemSchema,
   DocumentHighlightSchema,
@@ -19,6 +18,7 @@ import {
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
 } from "../../shared/lsp";
+import { resolveLspPresetLanguageId } from "../../shared/lsp-config";
 import { FsChangeKindSchema } from "../../shared/types/fs";
 import {
   normalizeCompletionResult,

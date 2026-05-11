@@ -47,11 +47,7 @@ describe("GitRepository preflight — checkout", () => {
 
         await repo.checkout("feature");
         const head = runGit(client, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-        const upstream = runGit(client, [
-          "rev-parse",
-          "--abbrev-ref",
-          "feature@{upstream}",
-        ]).trim();
+        const upstream = runGit(client, ["rev-parse", "--abbrev-ref", "feature@{upstream}"]).trim();
         expect(head).toBe("feature");
         expect(upstream).toBe("origin/feature");
       } finally {
@@ -80,27 +76,30 @@ describe("GitRepository preflight — checkout", () => {
 });
 
 describe("GitRepository — stash on unborn repo classifies as no-head", () => {
-  realGitTest("git's 'You do not have the initial commit yet' resolves to kind:no-head", async () => {
-    const root = makeUnbornRepo();
-    try {
-      const repo = new GitRepository(
-        "ws-stash-unborn",
-        root,
-        path.join(root, ".git"),
-        gitOnPath!,
-      );
-
+  realGitTest(
+    "git's 'You do not have the initial commit yet' resolves to kind:no-head",
+    async () => {
+      const root = makeUnbornRepo();
       try {
-        await repo.stash();
-        throw new Error("expected throw");
-      } catch (error) {
-        const gitError = error as GitError;
-        expect(gitError.kind).toBe("no-head");
+        const repo = new GitRepository(
+          "ws-stash-unborn",
+          root,
+          path.join(root, ".git"),
+          gitOnPath!,
+        );
+
+        try {
+          await repo.stash();
+          throw new Error("expected throw");
+        } catch (error) {
+          const gitError = error as GitError;
+          expect(gitError.kind).toBe("no-head");
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
       }
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 });
 
 describe("GitRepository — stashPop on empty stack classifies as empty-stash", () => {

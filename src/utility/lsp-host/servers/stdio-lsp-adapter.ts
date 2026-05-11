@@ -2,36 +2,36 @@
 // Spawns a configured language server process and bridges JSON-RPC over stdio.
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { LspServerSpec } from "../../../shared/lsp-config";
 import {
   type ServerCapabilities,
-  TextDocumentSyncKind,
   type TextDocumentContentChangeEvent,
+  TextDocumentSyncKind,
 } from "../../../shared/lsp";
+import type { LspServerSpec } from "../../../shared/lsp-config";
 import { LSP_DISPOSE_GRACE_MS } from "../../../shared/timing-constants";
 import { resolveBundledBinary } from "../resolve-bundled-binary";
 import {
-  type JsonRpcId,
-  encodeMessage,
-  jsonRpcId,
-  isObjectLike,
   capabilityValueIsSupported,
+  encodeMessage,
+  isObjectLike,
+  type JsonRpcId,
+  jsonRpcId,
 } from "./json-rpc-codec";
 import {
   initializeResultCapabilities,
-  negotiatedTextDocumentSyncKind,
   negotiatedTextDocumentOpenClose,
   negotiatedTextDocumentSave,
+  negotiatedTextDocumentSyncKind,
 } from "./lsp-capability-negotiation";
 import { applyTextDocumentContentChanges } from "./text-document-changes";
 
 export type { LspServerSpec } from "../../../shared/lsp-config";
-export { applyTextDocumentContentChanges } from "./text-document-changes";
 export {
-  negotiatedTextDocumentSyncKind,
   negotiatedTextDocumentOpenClose,
   negotiatedTextDocumentSave,
+  negotiatedTextDocumentSyncKind,
 } from "./lsp-capability-negotiation";
+export { applyTextDocumentContentChanges } from "./text-document-changes";
 
 export interface LspRequestOptions {
   signal?: AbortSignal;

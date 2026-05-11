@@ -2,8 +2,8 @@
 // The main process creates a MessageChannelMain and sends one end to this
 // process via process.parentPort. All LSP traffic flows over that port.
 
-import { LspManager } from "./lsp-manager";
 import { createUtilityProcessEntry } from "../utility-process-entry";
+import { LspManager } from "./lsp-manager";
 
 const manager = new LspManager();
 

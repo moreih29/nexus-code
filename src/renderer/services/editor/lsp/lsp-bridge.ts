@@ -20,7 +20,7 @@ import {
   tokenToAbortSignal,
   type WorkspaceSymbolResult,
 } from "./lsp-monaco-converters";
-import { registerLanguageProviders, type PreAcquireFn } from "./lsp-providers";
+import { type PreAcquireFn, registerLanguageProviders } from "./lsp-providers";
 import { applyWorkspaceEdit } from "./lsp-workspace-edit";
 
 export type { WorkspaceSymbolResult };

@@ -94,13 +94,7 @@ describe("buildPathTree", () => {
   });
 
   it("정렬: 폴더 우선, case-insensitive", () => {
-    const root = buildPathTree([
-      "Zoo.ts",
-      "apple/x.ts",
-      "Mango.ts",
-      "Banana/y.ts",
-      "alpha/z.ts",
-    ]);
+    const root = buildPathTree(["Zoo.ts", "apple/x.ts", "Mango.ts", "Banana/y.ts", "alpha/z.ts"]);
 
     // Top level should have dirs (alpha, apple, Banana) before files (Mango.ts, Zoo.ts).
     const children = root.children!;
@@ -212,11 +206,7 @@ describe("collectDescendantLeafPaths", () => {
   });
 
   it("dir node → all descendant leaf relPaths flat", () => {
-    const root = buildPathTree([
-      "src/utils/helper.ts",
-      "src/index.ts",
-      "README.md",
-    ]);
+    const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
     // src dir has index.ts and utils/helper.ts as descendants.
     const srcNode = root.children!.find((c) => c.relPath === "src")!;
     expect(srcNode.kind).toBe("dir");
@@ -225,11 +215,7 @@ describe("collectDescendantLeafPaths", () => {
   });
 
   it("root node → all file relPaths across entire tree", () => {
-    const root = buildPathTree([
-      "src/utils/helper.ts",
-      "src/index.ts",
-      "README.md",
-    ]);
+    const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
     const paths = collectDescendantLeafPaths(root);
     expect(paths.sort()).toEqual(["README.md", "src/index.ts", "src/utils/helper.ts"]);
   });

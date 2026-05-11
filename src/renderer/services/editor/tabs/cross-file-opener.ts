@@ -1,7 +1,7 @@
+import { isWithinWorkspace } from "../../../utils/path";
 import { cacheUriToFilePath } from "../model/model-cache";
 import { openOrRevealEditor } from "./open-editor";
 import { openExternalEditor } from "./open-external-editor";
-import { isWithinWorkspace } from "../../../utils/path";
 
 export interface ResourceUriLike {
   toString(): string;

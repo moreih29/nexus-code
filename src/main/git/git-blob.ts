@@ -4,7 +4,7 @@
  * The implementation uses `git cat-file --batch` so large blobs stream through
  * stdout without forcing `runGit` to buffer the entire object in memory.
  */
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { type ChildProcessByStdio, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { BINARY_DETECTION_BYTES } from "../../shared/fs-defaults";
 import type { GitBlobChunk, GitOpenFileAtHeadResult } from "../../shared/types/git";
@@ -139,7 +139,10 @@ async function* streamBlobBytes(
   try {
     for await (const rawChunk of child.stdout) {
       if (pendingFailure) break;
-      pending = Buffer.concat([pending, Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk)]);
+      pending = Buffer.concat([
+        pending,
+        Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk),
+      ]);
 
       if (!parsedHeader) {
         const headerEnd = pending.indexOf(0x0a);
@@ -247,7 +250,10 @@ function parseBatchHeader(
 /** Normalizes and validates a repository-relative Git path. */
 function normalizeGitRelPath(relPath: string): string {
   const slashPath = relPath.replaceAll("\\", "/").replace(/^\.\//, "");
-  const normalized = slashPath.split("/").filter((part) => part.length > 0).join("/");
+  const normalized = slashPath
+    .split("/")
+    .filter((part) => part.length > 0)
+    .join("/");
   if (
     normalized.length === 0 ||
     slashPath.startsWith("/") ||

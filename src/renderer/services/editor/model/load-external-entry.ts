@@ -6,9 +6,9 @@
 
 import { absolutePathToFileUri } from "../../../../shared/file-uri";
 import { ipcCall } from "../../../ipc/client";
+import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";
 import { errorCodeFromUnknown, type ModelEntry } from "./model-entry";
-import { requireMonaco } from "../runtime/monaco-singleton";
 
 export async function loadExternalEntry(input: {
   workspaceId: string;

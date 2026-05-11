@@ -8,10 +8,7 @@ import type {
   InferProgress,
   ipcContract,
 } from "../../../../shared/ipc-contract";
-import type {
-  GitCloneEvent,
-  GitCloneStreamProgressEvent,
-} from "../../../../shared/types/git";
+import type { GitCloneEvent, GitCloneStreamProgressEvent } from "../../../../shared/types/git";
 import { runClone } from "../../../git/git-clone";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { StreamContext } from "../../router";

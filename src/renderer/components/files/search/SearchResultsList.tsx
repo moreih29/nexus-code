@@ -20,12 +20,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { revealEditorAt } from "@/services/editor/tabs";
+import type { FileGroup } from "../../../state/stores/search";
+import { ROW_HEIGHT_PX } from "../file-tree/file-tree-metrics";
 import type { PathTreeNode } from "../file-tree/tree-builder";
 import { buildPathTree, compactPathTree } from "../file-tree/tree-builder";
 import type { TreeKeyboardRow } from "../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../file-tree/use-tree-keyboard";
-import type { FileGroup } from "../../../state/stores/search";
-import { ROW_HEIGHT_PX } from "../file-tree/file-tree-metrics";
 import { SearchResultFileRow } from "./SearchResultFileRow";
 import { SearchResultMatchRow } from "./SearchResultMatchRow";
 
@@ -220,14 +220,11 @@ export function SearchResultsList({
     [flatRows, expandedDirs],
   );
 
-  const handleMove = useCallback(
-    (next: number) => {
-      setFocusedIndex(next);
-      // Scroll the virtualizer row into view and shift DOM focus.
-      rowRefs.current.get(next)?.focus();
-    },
-    [],
-  );
+  const handleMove = useCallback((next: number) => {
+    setFocusedIndex(next);
+    // Scroll the virtualizer row into view and shift DOM focus.
+    rowRefs.current.get(next)?.focus();
+  }, []);
 
   const handleToggle = useCallback(
     (relPath: string, expanded: boolean) => {
@@ -259,7 +256,9 @@ export function SearchResultsList({
         if (!group) return;
         const match = group.matches[idx];
         if (!match) return;
-        const absPath = rootPath.endsWith("/") ? `${rootPath}${filePath}` : `${rootPath}/${filePath}`;
+        const absPath = rootPath.endsWith("/")
+          ? `${rootPath}${filePath}`
+          : `${rootPath}/${filePath}`;
         revealEditorAt(
           { workspaceId, filePath: absPath },
           {
@@ -375,7 +374,11 @@ export function SearchResultsList({
                   onClick={() => onToggleDir?.(node.relPath)}
                 >
                   <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <Folder className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+                  <Folder
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    strokeWidth={1.5}
+                    aria-hidden="true"
+                  />
                   <span className="truncate min-w-0 text-app-body flex-1">{node.displayName}</span>
                   <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-frosted-veil-strong rounded px-1">
                     {matchCount}

@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { DiagnosticSchema } from "./diagnostics";
 import { DocumentUriSchema, TextEditSchema } from "./primitives";
 import { VersionedTextDocumentIdentifierSchema } from "./text-document";
-import { DiagnosticSchema } from "./diagnostics";
 
 export const ChangeAnnotationIdentifierSchema = z.string();
 export type ChangeAnnotationIdentifier = z.infer<typeof ChangeAnnotationIdentifierSchema>;

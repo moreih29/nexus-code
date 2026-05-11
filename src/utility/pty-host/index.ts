@@ -2,8 +2,8 @@
 // The main process creates a MessageChannelMain and sends one end to this
 // process via process.parentPort. All PTY traffic flows over that port.
 
-import { PtyManager } from "./pty-manager";
 import { createUtilityProcessEntry } from "../utility-process-entry";
+import { PtyManager } from "./pty-manager";
 
 const manager = new PtyManager();
 

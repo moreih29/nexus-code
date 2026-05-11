@@ -7,7 +7,7 @@
  * IPC so validation, progress parsing, auth helper env, and cancel cleanup are
  * tested as a backend unit.
  */
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { type ChildProcessByStdio, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { Readable } from "node:stream";

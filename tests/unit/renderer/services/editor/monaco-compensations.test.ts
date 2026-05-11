@@ -25,5 +25,4 @@ describe("monaco compensations facade", () => {
 
     expect(events).toEqual(["install:a", "install:b", "dispose:b", "dispose:a"]);
   });
-
 });

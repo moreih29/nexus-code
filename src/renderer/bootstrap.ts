@@ -45,8 +45,7 @@ export async function bootstrapAppState(): Promise<void> {
         for (const t of snap.tabs) {
           const isPreview =
             "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
-          const isPinned =
-            "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
+          const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
           tabsMap[t.id] = { ...t, isPreview, isPinned };
         }
         useTabsStore.setState((s) => ({

@@ -5,7 +5,7 @@ import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
-import { type EditorTab, type Tab } from "../../../state/stores/tabs";
+import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { TabItem } from "./tab-item";
 

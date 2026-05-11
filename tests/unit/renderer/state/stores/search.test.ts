@@ -300,14 +300,14 @@ describe("search store — view-state actions", () => {
 
   it("toggleExpandedDir adds a dir path; toggling again removes it", () => {
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(
-      useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components"),
-    ).toBe(true);
+    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components")).toBe(
+      true,
+    );
 
     useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(
-      useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components"),
-    ).toBe(false);
+    expect(useSearchStore.getState().viewStates.get(WS_A)?.expandedDirs.has("src/components")).toBe(
+      false,
+    );
   });
 
   it("closeAllForWorkspace resets expandedDirs but retains viewMode", () => {

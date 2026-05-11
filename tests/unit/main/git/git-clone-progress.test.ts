@@ -20,7 +20,9 @@ describe("git clone progress parser", () => {
       phase: "compressing",
       pct: 50,
     });
-    expect(parseCloneProgressLine("Receiving objects: 75% (3/4), 12.00 KiB | 1.2 MiB/s")).toMatchObject({
+    expect(
+      parseCloneProgressLine("Receiving objects: 75% (3/4), 12.00 KiB | 1.2 MiB/s"),
+    ).toMatchObject({
       phase: "receiving",
       pct: 75,
     });

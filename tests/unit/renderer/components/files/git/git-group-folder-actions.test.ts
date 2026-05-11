@@ -45,28 +45,16 @@ describe("collectDescendantLeafPaths — single file at root", () => {
 
 describe("collectDescendantLeafPaths — deep nesting", () => {
   it("flattens all leaves from a deeply nested dir", () => {
-    const root = buildPathTree([
-      "a/b/c/d/deep1.ts",
-      "a/b/c/d/deep2.ts",
-      "a/b/shallow.ts",
-    ]);
+    const root = buildPathTree(["a/b/c/d/deep1.ts", "a/b/c/d/deep2.ts", "a/b/shallow.ts"]);
     const aNode = root.children!.find((n) => n.relPath === "a")!;
     const paths = collectDescendantLeafPaths(aNode).sort();
-    expect(paths).toEqual([
-      "a/b/c/d/deep1.ts",
-      "a/b/c/d/deep2.ts",
-      "a/b/shallow.ts",
-    ]);
+    expect(paths).toEqual(["a/b/c/d/deep1.ts", "a/b/c/d/deep2.ts", "a/b/shallow.ts"]);
   });
 });
 
 describe("collectDescendantLeafPaths — after compactPathTree", () => {
   it("still returns correct paths from a compacted chain node", () => {
-    const root = buildPathTree([
-      "x/y/z/file1.ts",
-      "x/y/z/file2.ts",
-      "x/y/z/file3.ts",
-    ]);
+    const root = buildPathTree(["x/y/z/file1.ts", "x/y/z/file2.ts", "x/y/z/file3.ts"]);
     const compacted = compactPathTree(root);
     // After compaction: root → "x/y/z" (dir) → 3 files
     const chainNode = compacted.children![0];
@@ -103,11 +91,7 @@ describe("GitGroup folder action logic — staged group (canUnstage only)", () =
     expect(srcNode.kind).toBe("dir");
 
     const leafPaths = collectDescendantLeafPaths(srcNode).sort();
-    expect(leafPaths).toEqual([
-      "src/components/a.tsx",
-      "src/components/b.tsx",
-      "src/index.ts",
-    ]);
+    expect(leafPaths).toEqual(["src/components/a.tsx", "src/components/b.tsx", "src/index.ts"]);
 
     // In staged group: onUnstagePaths receives leafPaths, onStagePaths is undefined
     const onUnstagePaths = mock((_paths: string[]) => {});
@@ -129,10 +113,7 @@ describe("GitGroup folder action logic — staged group (canUnstage only)", () =
 
 describe("GitGroup folder action logic — unstaged group (canStage only)", () => {
   it("dir node in unstaged group: stage paths contain correct leaf paths", () => {
-    const entries = [
-      { relPath: "lib/utils/format.ts" },
-      { relPath: "lib/utils/parse.ts" },
-    ];
+    const entries = [{ relPath: "lib/utils/format.ts" }, { relPath: "lib/utils/parse.ts" }];
 
     const relPaths = entries.map((e) => e.relPath);
     const root = buildPathTree(relPaths);
@@ -167,11 +148,7 @@ describe("GitGroup folder action logic — discard handler always present", () =
     const pagesNode = root.children!.find((n) => n.relPath === "pages")!;
 
     const leafPaths = collectDescendantLeafPaths(pagesNode).sort();
-    expect(leafPaths).toEqual([
-      "pages/about.tsx",
-      "pages/api/hello.ts",
-      "pages/index.tsx",
-    ]);
+    expect(leafPaths).toEqual(["pages/about.tsx", "pages/api/hello.ts", "pages/index.tsx"]);
 
     const onDiscardPaths = mock((_paths: string[], _desc: string, _src: string) => {});
     onDiscardPaths(leafPaths, "pages", "unstaged");
@@ -197,8 +174,12 @@ describe("GitTreeRow — action container onClick has stopPropagation", () => {
     let toggleCalled = false;
     let actionCalled = false;
 
-    const fakeToggle = () => { toggleCalled = true; };
-    const fakeAction = () => { actionCalled = true; };
+    const fakeToggle = () => {
+      toggleCalled = true;
+    };
+    const fakeAction = () => {
+      actionCalled = true;
+    };
 
     // Simulate the div wrapper with stopPropagation on its onClick,
     // then a button inside it that fires fakeAction.
@@ -215,7 +196,9 @@ describe("GitTreeRow — action container onClick has stopPropagation", () => {
     // With stopPropagation on the container div, toggle is NOT called.
     const fakeEvent = {
       stopPropagationCalled: false,
-      stopPropagation() { this.stopPropagationCalled = true; },
+      stopPropagation() {
+        this.stopPropagationCalled = true;
+      },
     };
 
     // User clicks the button:

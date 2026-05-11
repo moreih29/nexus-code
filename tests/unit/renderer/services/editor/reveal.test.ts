@@ -19,11 +19,11 @@
  */
 
 import { describe, expect, it, mock } from "bun:test";
+import { revealRange } from "../../../../../src/renderer/services/editor/tabs";
 import {
   registerRevealTarget,
   requestEditorReveal,
 } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
-import { revealRange } from "../../../../../src/renderer/services/editor/tabs";
 import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/testing";
 
 interface StubEditor {

@@ -13,8 +13,7 @@ export function ensureModelWithContent(
   uri: Monaco.Uri,
   content: string,
 ): Monaco.editor.ITextModel {
-  const model =
-    monaco.editor.getModel(uri) ?? monaco.editor.createModel(content, undefined, uri);
+  const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(content, undefined, uri);
 
   if (model.getValue() !== content) {
     model.setValue(content);

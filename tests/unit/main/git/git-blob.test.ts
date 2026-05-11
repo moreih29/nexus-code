@@ -5,12 +5,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
 import {
   GIT_OPEN_FILE_AT_HEAD_MAX_BYTES,
   readAtHead,
   streamBlob,
 } from "../../../../src/main/git/git-blob";
+import type { GitError } from "../../../../src/main/git/git-error";
 
 const roots: string[] = [];
 

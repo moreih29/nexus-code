@@ -56,9 +56,7 @@ interface IChannel {
 // createUtilityHost
 // ---------------------------------------------------------------------------
 
-export function createUtilityHost<TInbound>(
-  opts: UtilityHostOptions<TInbound>,
-): UtilityHostHandle {
+export function createUtilityHost<TInbound>(opts: UtilityHostOptions<TInbound>): UtilityHostHandle {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const electron = require("electron") as {
     app: { getAppPath: () => string };
@@ -85,12 +83,7 @@ export function createUtilityHost<TInbound>(
     isDisposed: () => disposed,
   };
 
-  const entryPoint = path.join(
-    electron.app.getAppPath(),
-    "out",
-    "main",
-    opts.entryRelative,
-  );
+  const entryPoint = path.join(electron.app.getAppPath(), "out", "main", opts.entryRelative);
 
   let proc = electron.utilityProcess.fork(entryPoint, [], {
     serviceName: opts.serviceName,

@@ -40,14 +40,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
+import {
+  type DiffSideRequest,
+  readSideContent,
+} from "../../../../../src/renderer/components/editor/diff-content-loader";
 // ---------------------------------------------------------------------------
 // Module under test — imported AFTER mock.module (Rule 1).
 // ---------------------------------------------------------------------------
 import { EMPTY_TREE } from "../../../../../src/renderer/components/editor/diff-refs";
-import {
-  readSideContent,
-  type DiffSideRequest,
-} from "../../../../../src/renderer/components/editor/diff-content-loader";
 
 // ---------------------------------------------------------------------------
 // Helpers

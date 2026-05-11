@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type Range, LocationSchema, RangeSchema } from "./primitives";
+import { LocationSchema, type Range, RangeSchema } from "./primitives";
 
 export const SymbolKindSchema = z.number().int().min(1).max(26);
 export type SymbolKind = z.infer<typeof SymbolKindSchema>;

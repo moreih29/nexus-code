@@ -16,11 +16,7 @@ export interface GitRemoteRunner {
  * Adds one configured remote after validating the local URL pattern. Duplicate
  * names are left to Git so the stderr classifier can surface `remote-exists`.
  */
-export async function addRemote(
-  git: GitRemoteRunner,
-  name: string,
-  url: string,
-): Promise<void> {
+export async function addRemote(git: GitRemoteRunner, name: string, url: string): Promise<void> {
   await git.run(["remote", "add", normalizeRequiredRemoteName(name), normalizeRemoteUrl(url)]);
 }
 

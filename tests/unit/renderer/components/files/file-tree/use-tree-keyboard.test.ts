@@ -26,12 +26,7 @@ interface Callbacks {
   onActivate: (row: TreeKeyboardRow) => void;
 }
 
-function fireKey(
-  key: string,
-  rows: TreeKeyboardRow[],
-  focusedIndex: number,
-  cb: Callbacks,
-): void {
+function fireKey(key: string, rows: TreeKeyboardRow[], focusedIndex: number, cb: Callbacks): void {
   const len = rows.length;
   if (len === 0) return;
   const current = rows[focusedIndex];
@@ -113,7 +108,11 @@ function makeCbs() {
 
 const DIR_EXPANDED: TreeKeyboardRow = { kind: "dir", relPath: "src", isExpanded: true };
 const DIR_COLLAPSED: TreeKeyboardRow = { kind: "dir", relPath: "lib", isExpanded: false };
-const FILE_IN_SRC: TreeKeyboardRow = { kind: "file", relPath: "src/index.ts", parentRelPath: "src" };
+const FILE_IN_SRC: TreeKeyboardRow = {
+  kind: "file",
+  relPath: "src/index.ts",
+  parentRelPath: "src",
+};
 const FILE_ROOT: TreeKeyboardRow = { kind: "file", relPath: "README.md" };
 const LEAF: TreeKeyboardRow = { kind: "leaf", relPath: "src/helper.ts", parentRelPath: "src" };
 

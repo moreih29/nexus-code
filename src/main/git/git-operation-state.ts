@@ -90,7 +90,10 @@ export async function readGitOperationState(
     return {
       kind: "cherry-pick",
       sourceSha: cherryPickHead,
-      ...optionalSubject("sourceSubject", await readFirstMessageLine(path.join(gitDir, "MERGE_MSG"))),
+      ...optionalSubject(
+        "sourceSubject",
+        await readFirstMessageLine(path.join(gitDir, "MERGE_MSG")),
+      ),
       conflictCount,
     };
   }
@@ -100,7 +103,10 @@ export async function readGitOperationState(
     return {
       kind: "revert",
       sourceSha: revertHead,
-      ...optionalSubject("sourceSubject", await readFirstMessageLine(path.join(gitDir, "MERGE_MSG"))),
+      ...optionalSubject(
+        "sourceSubject",
+        await readFirstMessageLine(path.join(gitDir, "MERGE_MSG")),
+      ),
       conflictCount,
     };
   }
@@ -228,11 +234,10 @@ async function readFirstMessageLine(absPath: string): Promise<string | null> {
 /**
  * Adds optional subject fields only when Git wrote a useful message line.
  */
-function optionalSubject<K extends "currentCommitSubject" | "mergeLabel" | "ontoLabel" | "sourceSubject">(
-  key: K,
-  value: string | null,
-): Record<K, string> | Record<string, never> {
-  return value ? { [key]: value } as Record<K, string> : {};
+function optionalSubject<
+  K extends "currentCommitSubject" | "mergeLabel" | "ontoLabel" | "sourceSubject",
+>(key: K, value: string | null): Record<K, string> | Record<string, never> {
+  return value ? ({ [key]: value } as Record<K, string>) : {};
 }
 
 /**

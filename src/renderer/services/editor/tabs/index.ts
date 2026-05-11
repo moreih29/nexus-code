@@ -3,16 +3,16 @@
 // surface here stays free of internals app code shouldn't reach for.
 
 export { closeEditor } from "./close-editor";
-export { openExternalEditor } from "./open-external-editor";
-export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
-export { findEditorTab, findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
-export { revealEditorAt, type RevealEditorAtOptions } from "./reveal-editor-at";
-export { registerRevealTarget, type PendingEditorReveal } from "./pending-reveal";
-export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";
-export { createCrossFileOpenCodeEditorOpener } from "./cross-file-opener";
 export type {
-  CrossFileOpenCodeEditorOpener,
   CreateCrossFileOpenCodeEditorOpenerInput,
+  CrossFileOpenCodeEditorOpener,
   ResourceUriLike,
 } from "./cross-file-opener";
+export { createCrossFileOpenCodeEditorOpener } from "./cross-file-opener";
+export { openOrRevealEditor, PREVIEW_ENABLED } from "./open-editor";
+export { openExternalEditor } from "./open-external-editor";
+export { type PendingEditorReveal, registerRevealTarget } from "./pending-reveal";
+export { promoteAllPreviewTabsForFile, startPromoteOnDirtyPolicy } from "./promote-policy";
 export { revealRange } from "./reveal";
+export { type RevealEditorAtOptions, revealEditorAt } from "./reveal-editor-at";
+export { findEditorTab, findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";

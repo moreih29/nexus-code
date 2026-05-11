@@ -20,8 +20,12 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // file-loader IS mocked: relPathForInput calls useWorkspacesStore which throws
 // WORKSPACE_NOT_FOUND when no workspaces are seeded.
 const realDirty = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
-const realModelCache = await import("../../../../../src/renderer/services/editor/model/model-cache");
-const realFileLoader = await import("../../../../../src/renderer/services/editor/model/file-loader");
+const realModelCache = await import(
+  "../../../../../src/renderer/services/editor/model/model-cache"
+);
+const realFileLoader = await import(
+  "../../../../../src/renderer/services/editor/model/file-loader"
+);
 
 const ipcCallMock = mock((_service: unknown, _method: unknown, _args: unknown) =>
   Promise.resolve({ mtime: "T1", size: 42 }),

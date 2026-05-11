@@ -70,7 +70,14 @@ function buildGitFileContent(content: string): FileReadResult & { kind: "ok" } {
   const mtime = new Date().toISOString();
 
   if (isBinaryProbe(probe)) {
-    return { kind: "ok", content: "", encoding: "utf8", sizeBytes: buf.byteLength, isBinary: true, mtime };
+    return {
+      kind: "ok",
+      content: "",
+      encoding: "utf8",
+      sizeBytes: buf.byteLength,
+      isBinary: true,
+      mtime,
+    };
   }
 
   if (probe.length >= 3 && probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf) {

@@ -1,3 +1,9 @@
+import {
+  gitErrorFromIpcResult,
+  isIpcGitErrorResult,
+  rehydrateGitErrorFromCause,
+} from "../../shared/git-error-ipc";
+import { isIpcAbortSentinel } from "../../shared/ipc-abort-sentinel";
 import type {
   CallArgs,
   CallChannels,
@@ -13,12 +19,6 @@ import type {
   StreamMethods,
   StreamProgress,
 } from "./types";
-import { isIpcAbortSentinel } from "../../shared/ipc-abort-sentinel";
-import {
-  gitErrorFromIpcResult,
-  isIpcGitErrorResult,
-  rehydrateGitErrorFromCause,
-} from "../../shared/git-error-ipc";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;

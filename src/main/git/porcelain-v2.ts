@@ -8,8 +8,8 @@
  */
 import {
   type BranchInfo,
-  DEFAULT_REPO_CAPABILITIES,
   DEFAULT_GIT_OPERATION_STATE,
+  DEFAULT_REPO_CAPABILITIES,
   type GitConflictType,
   type GitStatus,
   type GitStatusEntry,

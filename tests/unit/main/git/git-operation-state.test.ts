@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readGitOperationState } from "../../../../src/main/git/git-operation-state";
 
 const HEAD_SHA = "1111111111111111111111111111111111111111";

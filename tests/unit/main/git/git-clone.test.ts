@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
 import { runClone } from "../../../../src/main/git/git-clone";
+import type { GitError } from "../../../../src/main/git/git-error";
 import type { GitCloneEvent } from "../../../../src/shared/types/git";
 
 const tempRoots: string[] = [];

@@ -11,8 +11,8 @@
  */
 
 import { ChevronDown, List, ListTree } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 import { Tooltip as RadixTooltip } from "radix-ui";
+import { useCallback, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
 import { Button } from "../../ui/button";
@@ -76,11 +76,7 @@ export function ViewModeToggle({
               )}
               onClick={handleToggle}
             >
-              {isTree ? (
-                <ListTree aria-hidden="true" />
-              ) : (
-                <List aria-hidden="true" />
-              )}
+              {isTree ? <ListTree aria-hidden="true" /> : <List aria-hidden="true" />}
               {/* Screen-reader English copy */}
               <span className="sr-only">{toggleLabelEn}</span>
             </Button>

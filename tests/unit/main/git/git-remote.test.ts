@@ -22,11 +22,11 @@ describe("GitRepository remote management", () => {
 
       expect(runGit(root, ["remote"]).trim()).toBe("origin");
       expect((await repo.status()).capabilities.remotes).toEqual(["origin"]);
-      await expect(repo.addRemote("origin", "ssh://example.invalid/repo.git")).rejects.toMatchObject(
-        {
-          kind: "remote-exists",
-        },
-      );
+      await expect(
+        repo.addRemote("origin", "ssh://example.invalid/repo.git"),
+      ).rejects.toMatchObject({
+        kind: "remote-exists",
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -67,27 +67,30 @@ describe("GitRepository remote management", () => {
     }
   });
 
-  realGitTest("removeRemote detaches the current branch upstream after confirmation path", async () => {
-    const { client, remoteUrl } = makeClonePair();
-    try {
-      const repo = new GitRepository(
-        "ws-remove-upstream",
-        client,
-        path.join(client, ".git"),
-        gitOnPath!,
-      );
+  realGitTest(
+    "removeRemote detaches the current branch upstream after confirmation path",
+    async () => {
+      const { client, remoteUrl } = makeClonePair();
+      try {
+        const repo = new GitRepository(
+          "ws-remove-upstream",
+          client,
+          path.join(client, ".git"),
+          gitOnPath!,
+        );
 
-      expect((await repo.status()).branch?.upstream).toBe("origin/main");
+        expect((await repo.status()).branch?.upstream).toBe("origin/main");
 
-      await repo.removeRemote("origin");
+        await repo.removeRemote("origin");
 
-      const status = await repo.status();
-      expect(status.branch?.upstream).toBeNull();
-      expect(status.capabilities.remotes).toEqual([]);
-    } finally {
-      cleanup(client, remoteUrl);
-    }
-  });
+        const status = await repo.status();
+        expect(status.branch?.upstream).toBeNull();
+        expect(status.capabilities.remotes).toEqual([]);
+      } finally {
+        cleanup(client, remoteUrl);
+      }
+    },
+  );
 });
 
 /** Creates a repository with a single committed file on main. */

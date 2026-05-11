@@ -10,11 +10,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { GitError } from "../../../../src/main/git/git-error";
-import {
-  assertHasHead,
-  resolveCheckoutTarget,
-} from "../../../../src/main/git/git-preflight";
+import type { GitError } from "../../../../src/main/git/git-error";
+import { assertHasHead, resolveCheckoutTarget } from "../../../../src/main/git/git-preflight";
 import type { BranchInfo, BranchList } from "../../../../src/shared/types/git";
 
 const headBranch: BranchInfo = {
@@ -75,10 +72,7 @@ describe("resolveCheckoutTarget", () => {
 
   test("rejects ambiguous remote refs with the candidate list", () => {
     try {
-      resolveCheckoutTarget(
-        "main",
-        buildList(["feature"], ["origin/main", "fork/main"]),
-      );
+      resolveCheckoutTarget("main", buildList(["feature"], ["origin/main", "fork/main"]));
       throw new Error("expected throw");
     } catch (error) {
       const gitError = error as GitError;
@@ -102,16 +96,11 @@ describe("resolveCheckoutTarget", () => {
   });
 
   test("rejects empty/whitespace ref with a clear required message", () => {
-    expect(() =>
-      resolveCheckoutTarget("   ", buildList(["main"], [])),
-    ).toThrow(/required/i);
+    expect(() => resolveCheckoutTarget("   ", buildList(["main"], []))).toThrow(/required/i);
   });
 
   test("local match wins over remote even when both exist", () => {
-    const target = resolveCheckoutTarget(
-      "main",
-      buildList(["main"], ["origin/main", "fork/main"]),
-    );
+    const target = resolveCheckoutTarget("main", buildList(["main"], ["origin/main", "fork/main"]));
     expect(target).toEqual({ kind: "local", ref: "main" });
   });
 });

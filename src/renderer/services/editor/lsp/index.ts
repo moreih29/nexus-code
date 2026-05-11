@@ -1,3 +1,4 @@
+export { isLspLanguage, LSP_LANGUAGES, type LspLanguage } from "./language";
 export {
   applyWorkspaceEdit,
   ensureProvidersFor,
@@ -21,11 +22,10 @@ export {
   unregisterKnownModelUri,
   type WorkspaceSymbolResult,
 } from "./lsp-bridge";
-export { isLspLanguage, LSP_LANGUAGES, type LspLanguage } from "./language";
+export type { PreAcquireFn } from "./lsp-providers";
 export {
-  preAcquireLocationModels,
+  type CacheEntryMeta,
   PEEK_PREACQUIRE_HOLD_MS,
   type PreAcquireDeps,
-  type CacheEntryMeta,
+  preAcquireLocationModels,
 } from "./lsp-result-preacquire";
-export type { PreAcquireFn } from "./lsp-providers";

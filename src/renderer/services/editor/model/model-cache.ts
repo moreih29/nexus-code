@@ -7,6 +7,7 @@ import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/file-uri";
 import { registerWorkspaceCleanup } from "../../../state/lifecycle/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
+import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
 import { loadExternalEntry } from "./load-external-entry";
 import {
   cleanupEntry,
@@ -16,10 +17,9 @@ import {
   type SharedModelState,
   snapshot,
 } from "./model-entry";
-import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
 
-export type { SharedModelPhase, SharedModelState } from "./model-entry";
 export { isMonacoReady, onMonacoReady } from "../runtime/monaco-singleton";
+export type { SharedModelPhase, SharedModelState } from "./model-entry";
 
 import type { EditorInput } from "../types";
 

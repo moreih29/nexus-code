@@ -5,17 +5,14 @@
 //   - handlerMetadata catalog (input/output schema samples for key handlers)
 
 import { describe, expect, mock, test } from "bun:test";
-import {
-  FileChangeType,
-  type FileEvent,
-} from "../../../../src/shared/lsp";
-import type { LspAdapter } from "../../../../src/utility/lsp-host/servers/stdio-lsp-adapter";
+import { FileChangeType, type FileEvent } from "../../../../src/shared/lsp";
 import {
   fsChangeKindToLspType,
   handlerMetadata,
   invokeLspHandler,
   parseHandlerOutput,
 } from "../../../../src/utility/lsp-host/lsp-handlers";
+import type { LspAdapter } from "../../../../src/utility/lsp-host/servers/stdio-lsp-adapter";
 
 // ---------------------------------------------------------------------------
 // Minimal fake adapter — only the surfaces invokeLspHandler calls
@@ -327,7 +324,9 @@ describe("parseHandlerOutput — normalizer behavior and schema enforcement", ()
   });
 
   test("documentSymbol: plain object → normalizer warns and returns [] → passes schema", () => {
-    const result = parseHandlerOutput(handlerMetadata.documentSymbol, { notAnArray: true }) as unknown[];
+    const result = parseHandlerOutput(handlerMetadata.documentSymbol, {
+      notAnArray: true,
+    }) as unknown[];
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
   });
@@ -374,7 +373,6 @@ describe("fsChangeKindToLspType", () => {
     const result: FileEvent["type"] = fsChangeKindToLspType("modified");
     expect(result).toBe(FileChangeType.Changed);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -448,4 +446,3 @@ describe("handlerMetadata catalog — inSchema samples", () => {
     expect(result.success).toBe(true);
   });
 });
-

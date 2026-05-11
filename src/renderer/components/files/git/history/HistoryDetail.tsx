@@ -46,7 +46,9 @@ export function HistoryDetail({
       style={narrow ? undefined : { flex: `0 0 ${width > 0 ? `${width}px` : "50%"}` }}
       aria-label="Commit detail"
     >
-      {!narrow ? <HistoryDetailResizeHandle paneRef={paneRef} onWidthChange={onWidthChange} /> : null}
+      {!narrow ? (
+        <HistoryDetailResizeHandle paneRef={paneRef} onWidthChange={onWidthChange} />
+      ) : null}
       <div className="flex items-start justify-between gap-2 border-b border-mist-border p-3">
         <div className="min-w-0">
           <h3 className="truncate text-app-body-emphasis text-foreground">

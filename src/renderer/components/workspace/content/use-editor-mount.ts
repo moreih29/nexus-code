@@ -10,9 +10,9 @@ import { useSharedModelAttach } from "./editor-mount/use-shared-model-attach";
 // pull `applySharedModel` from this module — keeping the re-export here
 // avoids churning unrelated tests during the split.
 export {
-  applySharedModel,
   type ApplySharedModelEditor,
   type AttachSharedModelTemporaryModel,
+  applySharedModel,
 } from "./editor-mount/apply-shared-model";
 
 export interface UseEditorMountOptions {
@@ -59,9 +59,9 @@ export function useEditorMount({
   // registration effect depends on this so it fires once the editor instance
   // is actually live (otherwise its first commit happens before onMount and
   // there's no editor to register).
-  const [mountedEditor, setMountedEditor] = useState<
-    Monaco.editor.IStandaloneCodeEditor | null
-  >(null);
+  const [mountedEditor, setMountedEditor] = useState<Monaco.editor.IStandaloneCodeEditor | null>(
+    null,
+  );
 
   const { attach: attachSharedModel, rememberAsTemporary } = useSharedModelAttach({
     editorRef,

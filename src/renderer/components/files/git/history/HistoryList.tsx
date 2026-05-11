@@ -2,8 +2,9 @@
  * Commit list for the History panel. Paging is explicit via a button so
  * keyboard and screen-reader position stay stable across chunks.
  */
-import type { LogEntry } from "../../../../../shared/types/git";
+
 import type React from "react";
+import type { LogEntry } from "../../../../../shared/types/git";
 import { HistoryRow, type HistoryRowMenuRequest } from "./HistoryRow";
 
 interface HistoryListProps {

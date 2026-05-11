@@ -36,9 +36,7 @@ import { describe, expect, test } from "bun:test";
 // Module imports — AFTER window stub (dynamic import to respect init order).
 // ---------------------------------------------------------------------------
 
-const { EMPTY_TREE } = await import(
-  "../../../../../src/renderer/components/editor/diff-refs"
-);
+const { EMPTY_TREE } = await import("../../../../../src/renderer/components/editor/diff-refs");
 const { refsForGitGroup } = await import(
   "../../../../../src/renderer/components/files/files-panel"
 );

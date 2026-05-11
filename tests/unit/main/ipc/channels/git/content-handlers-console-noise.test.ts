@@ -13,8 +13,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { getFileContentHandler } from "../../../../../../src/main/ipc/channels/git/content-handlers";
 import { GitError } from "../../../../../../src/main/git/git-error";
+import { getFileContentHandler } from "../../../../../../src/main/ipc/channels/git/content-handlers";
 
 // ---------------------------------------------------------------------------
 // Stderr capture helpers
@@ -28,7 +28,10 @@ let originalStderrWrite: typeof process.stderr.write;
 beforeEach(() => {
   stderrLines = [];
   originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = (chunk: WriteArgs[0], ...rest: WriteArgs[1 extends undefined ? never : any[]]) => {
+  process.stderr.write = (
+    chunk: WriteArgs[0],
+    ...rest: WriteArgs[1 extends undefined ? never : any[]]
+  ) => {
     stderrLines.push(String(chunk));
     return true;
   };
@@ -81,8 +84,8 @@ describe("content-handlers console no-noise — INDEX missing", () => {
     await handler({ workspaceId: VALID_UUID, ref: "INDEX", relPath: "src/foo.ts" });
 
     // No error output should appear — the handler swallowed this as a resolve path.
-    const noiseLines = stderrLines.filter((l) =>
-      l.includes("GitError") || l.includes("missing") || l.includes("Unhandled"),
+    const noiseLines = stderrLines.filter(
+      (l) => l.includes("GitError") || l.includes("missing") || l.includes("Unhandled"),
     );
     expect(noiseLines).toHaveLength(0);
   });
@@ -105,9 +108,7 @@ describe("content-handlers console no-noise — INDEX missing", () => {
     if (result.kind !== "missing") return;
     expect(result.reason).toBe("ref");
 
-    const noiseLines = stderrLines.filter((l) =>
-      l.includes("GitError") || l.includes("Unhandled"),
-    );
+    const noiseLines = stderrLines.filter((l) => l.includes("GitError") || l.includes("Unhandled"));
     expect(noiseLines).toHaveLength(0);
   });
 });

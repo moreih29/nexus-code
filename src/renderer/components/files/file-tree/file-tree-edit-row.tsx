@@ -16,9 +16,9 @@
 
 import { useState } from "react";
 import { cn } from "@/utils/cn";
+import { validateNewEntryName } from "../name-validator";
 import type { EntryKind } from "./file-tree-display";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
-import { validateNewEntryName } from "../name-validator";
 
 interface FileTreeEditRowProps {
   kind: EntryKind;

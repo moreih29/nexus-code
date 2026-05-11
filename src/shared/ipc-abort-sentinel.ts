@@ -32,7 +32,9 @@ export const IPC_ABORT_SENTINEL = Object.freeze({
  * is exactly `true` (not merely truthy) so a plain `{ __nexusIpcAborted_5d7e9c2a: false }`
  * does not incorrectly match.
  */
-export function isIpcAbortSentinel(value: unknown): value is { readonly [IPC_ABORT_SENTINEL_TAG]: true } {
+export function isIpcAbortSentinel(
+  value: unknown,
+): value is { readonly [IPC_ABORT_SENTINEL_TAG]: true } {
   return (
     typeof value === "object" &&
     value !== null &&

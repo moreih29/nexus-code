@@ -18,10 +18,7 @@ import type { MonacoRange } from "../../../../shared/monaco-range";
  *                      if it was already visible, mirroring VSCode's
  *                      `revealIfVisible: true`.
  */
-export function revealRange(
-  editor: Monaco.editor.IStandaloneCodeEditor,
-  range: MonacoRange,
-): void {
+export function revealRange(editor: Monaco.editor.IStandaloneCodeEditor, range: MonacoRange): void {
   editor.focus();
   editor.setSelection(range);
   editor.revealRangeInCenter(range);

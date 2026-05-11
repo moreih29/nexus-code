@@ -106,7 +106,7 @@ describe("ViewModeToggle — compact split trigger absent without props", () => 
     const html = renderToStaticMarkup(
       <ViewModeToggle viewMode="list" onViewModeChange={() => {}} />,
     );
-    expect(html).not.toContain("aria-label=\"폴더 압축 옵션\"");
+    expect(html).not.toContain('aria-label="폴더 압축 옵션"');
     expect(html).not.toContain("Compact folders");
   });
 
@@ -115,7 +115,7 @@ describe("ViewModeToggle — compact split trigger absent without props", () => 
       <ViewModeToggle viewMode="list" onViewModeChange={() => {}} compactFolders={false} />,
     );
     // compactFolders provided but onCompactChange missing → no trigger
-    expect(html).not.toContain("aria-label=\"폴더 압축 옵션\"");
+    expect(html).not.toContain('aria-label="폴더 압축 옵션"');
   });
 });
 
@@ -133,8 +133,8 @@ describe("ViewModeToggle — compact split trigger present with both props", () 
         onCompactChange={() => {}}
       />,
     );
-    expect(html).toContain("aria-label=\"폴더 압축 옵션\"");
-    expect(html).toContain("aria-haspopup=\"menu\"");
+    expect(html).toContain('aria-label="폴더 압축 옵션"');
+    expect(html).toContain('aria-haspopup="menu"');
   });
 
   it("TOGGLE_ON_CLASS NOT applied to compact trigger when compactFolders=false", () => {

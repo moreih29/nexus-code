@@ -211,7 +211,13 @@ export async function readSideContent(
   signal: AbortSignal,
 ): Promise<Omit<DiffSideReadyState, "phase" | "request">> {
   if (request.ref === EMPTY_TREE) {
-    return { content: "", encoding: "utf8", sizeBytes: 0, isBinary: false, mtime: new Date().toISOString() };
+    return {
+      content: "",
+      encoding: "utf8",
+      sizeBytes: 0,
+      isBinary: false,
+      mtime: new Date().toISOString(),
+    };
   }
 
   const result =
@@ -230,7 +236,14 @@ export async function readSideContent(
         );
 
   if (result.kind === "missing") {
-    return { content: "", encoding: "utf8", sizeBytes: 0, isBinary: false, mtime: new Date().toISOString(), placeholder: "missing" as const };
+    return {
+      content: "",
+      encoding: "utf8",
+      sizeBytes: 0,
+      isBinary: false,
+      mtime: new Date().toISOString(),
+      placeholder: "missing" as const,
+    };
   }
 
   return {

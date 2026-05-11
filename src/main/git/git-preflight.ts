@@ -37,13 +37,9 @@ import { GitError } from "./git-error";
  */
 export function assertHasHead(branch: BranchInfo | null): void {
   if (branch && !branch.isUnborn) return;
-  throw new GitError(
-    "no-head",
-    "Repository has no commits yet — make an initial commit first.",
-    {
-      hint: { kind: "make-initial-commit" } satisfies GitActionHint,
-    },
-  );
+  throw new GitError("no-head", "Repository has no commits yet — make an initial commit first.", {
+    hint: { kind: "make-initial-commit" } satisfies GitActionHint,
+  });
 }
 
 /**
@@ -66,10 +62,7 @@ export type CheckoutResolution =
  * The function does not match against tags or commit-ish — those still go
  * through `git` directly and surface as `missing` if not resolvable.
  */
-export function resolveCheckoutTarget(
-  ref: string,
-  list: BranchList,
-): CheckoutResolution {
+export function resolveCheckoutTarget(ref: string, list: BranchList): CheckoutResolution {
   const trimmed = ref.trim();
   if (trimmed.length === 0) {
     throw new GitError("no-such-ref", "Checkout ref is required.");
@@ -79,31 +72,22 @@ export function resolveCheckoutTarget(
     return { kind: "local", ref: trimmed };
   }
 
-  const remoteMatches = list.remote.filter(
-    (full) => stripRemotePrefix(full) === trimmed,
-  );
+  const remoteMatches = list.remote.filter((full) => stripRemotePrefix(full) === trimmed);
 
   if (remoteMatches.length === 1) {
     return { kind: "track", remoteRef: remoteMatches[0] };
   }
 
   if (remoteMatches.length > 1) {
-    throw new GitError(
-      "no-such-ref",
-      `'${trimmed}' is ambiguous — multiple remotes provide it.`,
-      {
-        hint: {
-          kind: "ambiguous-remote",
-          candidates: remoteMatches,
-        } satisfies GitActionHint,
-      },
-    );
+    throw new GitError("no-such-ref", `'${trimmed}' is ambiguous — multiple remotes provide it.`, {
+      hint: {
+        kind: "ambiguous-remote",
+        candidates: remoteMatches,
+      } satisfies GitActionHint,
+    });
   }
 
-  throw new GitError(
-    "no-such-ref",
-    `Branch '${trimmed}' does not exist locally or on any remote.`,
-  );
+  throw new GitError("no-such-ref", `Branch '${trimmed}' does not exist locally or on any remote.`);
 }
 
 /**

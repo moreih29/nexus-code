@@ -3,10 +3,10 @@
  * menu actions.
  */
 import {
-  ipcContract,
   type InferArgs,
   type InferComplete,
   type InferProgress,
+  ipcContract,
 } from "../../../../shared/ipc-contract";
 import { GitError } from "../../../git/git-error";
 import type { GitRegistry } from "../../../git/git-registry";

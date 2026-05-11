@@ -10,11 +10,11 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  gitErrorFromIpcResult,
   IPC_CALL_RESULT_MARK,
   IPC_GIT_ERROR_MARK,
   type IpcGitErrorPayload,
   type IpcGitErrorResult,
-  gitErrorFromIpcResult,
   isIpcGitErrorPayload,
   isIpcGitErrorResult,
   rehydrateGitErrorFromCause,

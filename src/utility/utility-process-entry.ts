@@ -21,9 +21,7 @@ interface UtilityProcessEntryOptions {
 export function createUtilityProcessEntry(opts: UtilityProcessEntryOptions): void {
   const { logPrefix, managerFactory } = opts;
 
-  const parentPort = (
-    process as unknown as { parentPort: ParentPort | undefined }
-  ).parentPort;
+  const parentPort = (process as unknown as { parentPort: ParentPort | undefined }).parentPort;
 
   if (!parentPort) {
     console.error(`${logPrefix} no parentPort — must be started as utilityProcess`);

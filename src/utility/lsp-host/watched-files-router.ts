@@ -11,8 +11,8 @@
 
 import path from "node:path";
 import { absolutePathToFileUri } from "../../shared/file-uri";
-import { FsChangedArgsSchema, fsChangeKindToLspType } from "./lsp-handlers";
 import type { AdapterRegistry } from "./adapter-registry";
+import { FsChangedArgsSchema, fsChangeKindToLspType } from "./lsp-handlers";
 
 // ---------------------------------------------------------------------------
 // WatchedFilesRouter

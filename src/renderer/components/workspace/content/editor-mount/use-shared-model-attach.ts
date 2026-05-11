@@ -62,12 +62,9 @@ export function useSharedModelAttach({
     [],
   );
 
-  const rememberAsTemporary = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor): void => {
-      temporaryModelRef.current = editor.getModel();
-    },
-    [],
-  );
+  const rememberAsTemporary = useCallback((editor: Monaco.editor.IStandaloneCodeEditor): void => {
+    temporaryModelRef.current = editor.getModel();
+  }, []);
 
   return { attach, rememberAsTemporary };
 }

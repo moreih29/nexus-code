@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 };
 
 const dirtyMod = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
-const promotePolicyMod = await import("../../../../../src/renderer/services/editor/tabs/promote-policy");
+const promotePolicyMod = await import(
+  "../../../../../src/renderer/services/editor/tabs/promote-policy"
+);
 const tabsStoreMod = await import("../../../../../src/renderer/state/stores/tabs");
 
 const WS = "11111111-1111-4111-1111-111111111111";

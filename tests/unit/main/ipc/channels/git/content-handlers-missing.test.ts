@@ -12,15 +12,19 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { getFileContentHandler } from "../../../../../../src/main/ipc/channels/git/content-handlers";
 import { GitError } from "../../../../../../src/main/git/git-error";
+import { getFileContentHandler } from "../../../../../../src/main/ipc/channels/git/content-handlers";
 
 // ---------------------------------------------------------------------------
 // Minimal stub helpers
 // ---------------------------------------------------------------------------
 
 /** Builds a registry stub where getOrDetect returns a repo stub. */
-function makeRegistry(repo: { getFileContent: (ref: string, relPath: string, signal?: AbortSignal) => Promise<string> } | null) {
+function makeRegistry(
+  repo: {
+    getFileContent: (ref: string, relPath: string, signal?: AbortSignal) => Promise<string>;
+  } | null,
+) {
   return {
     getOrDetect: async (_workspaceId: string, _signal?: AbortSignal) => repo,
   };

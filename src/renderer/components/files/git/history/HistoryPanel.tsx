@@ -4,19 +4,15 @@
  */
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  CommitDetail,
-  CommitSearchResult,
-  LogEntry,
-} from "../../../../../shared/types/git";
+import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/types/git";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
 import { useGitStore } from "../../../../state/stores/git";
 import { GitInlineBanner } from "../GitInlineBanner";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./HistoryCommitMenu";
 import { HistoryDetail } from "./HistoryDetail";
 import { HistoryList } from "./HistoryList";
-import type { HistoryRowMenuRequest } from "./HistoryRow";
 import { HistoryRefSwitcher } from "./HistoryRefSwitcher";
+import type { HistoryRowMenuRequest } from "./HistoryRow";
 import { HistorySearch } from "./HistorySearch";
 
 const HISTORY_PAGE_SIZE = 50;
@@ -59,9 +55,7 @@ export function HistoryPanel({
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [menuTarget, setMenuTarget] = useState<HistoryCommitMenuTarget | null>(null);
-  const [banner, setBanner] = useState<{ variant: "info" | "error"; message: string } | null>(
-    null,
-  );
+  const [banner, setBanner] = useState<{ variant: "info" | "error"; message: string } | null>(null);
   const [loadState, setLoadState] = useState<HistoryLoadState>({
     entries: [],
     hasMore: false,
@@ -75,44 +69,47 @@ export function HistoryPanel({
     [loadState.entries, selectedSha],
   );
 
-  const loadFirstPage = useCallback((signal?: AbortSignal) => {
-    setBanner(null);
-    setDetail(null);
-    setSelectedSha(null);
-    setLoadState({
-      entries: [],
-      hasMore: false,
-      loading: true,
-      loadingMore: false,
-      errorMessage: null,
-    });
-    void loadLogPage({
-      workspaceId,
-      refName,
-      signal,
-      onChunk: (entries) => {
-        setLoadState((state) => ({
-          ...state,
-          entries,
-          loading: false,
-          errorMessage: null,
-        }));
-        setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
-      },
-      onComplete: (hasMore) => {
-        setLoadState((state) => ({ ...state, loading: false, hasMore }));
-      },
-      onError: (message) => {
-        setLoadState({
-          entries: [],
-          hasMore: false,
-          loading: false,
-          loadingMore: false,
-          errorMessage: message,
-        });
-      },
-    });
-  }, [refName, workspaceId]);
+  const loadFirstPage = useCallback(
+    (signal?: AbortSignal) => {
+      setBanner(null);
+      setDetail(null);
+      setSelectedSha(null);
+      setLoadState({
+        entries: [],
+        hasMore: false,
+        loading: true,
+        loadingMore: false,
+        errorMessage: null,
+      });
+      void loadLogPage({
+        workspaceId,
+        refName,
+        signal,
+        onChunk: (entries) => {
+          setLoadState((state) => ({
+            ...state,
+            entries,
+            loading: false,
+            errorMessage: null,
+          }));
+          setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
+        },
+        onComplete: (hasMore) => {
+          setLoadState((state) => ({ ...state, loading: false, hasMore }));
+        },
+        onError: (message) => {
+          setLoadState({
+            entries: [],
+            hasMore: false,
+            loading: false,
+            loadingMore: false,
+            errorMessage: message,
+          });
+        },
+      });
+    },
+    [refName, workspaceId],
+  );
 
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
@@ -128,9 +125,14 @@ export function HistoryPanel({
       });
       setDetail(null);
       setSelectedSha(null);
-      ipcCall("git", "searchCommits", { workspaceId, query: trimmed, limit: HISTORY_PAGE_SIZE }, {
-        signal: controller.signal,
-      })
+      ipcCall(
+        "git",
+        "searchCommits",
+        { workspaceId, query: trimmed, limit: HISTORY_PAGE_SIZE },
+        {
+          signal: controller.signal,
+        },
+      )
         .then((result) => applySearchResult(result, setLoadState, setSelectedSha, setDetail))
         .catch((error) => {
           if (controller.signal.aborted) return;
@@ -304,12 +306,17 @@ async function loadLogPage({
 }): Promise<void> {
   const entries: LogEntry[] = [];
   try {
-    const handle = ipcStream("git", "log", {
-      workspaceId,
-      ref: afterSha ? undefined : refName,
-      afterSha,
-      limit: HISTORY_PAGE_SIZE,
-    }, signal ? { signal } : {});
+    const handle = ipcStream(
+      "git",
+      "log",
+      {
+        workspaceId,
+        ref: afterSha ? undefined : refName,
+        afterSha,
+        limit: HISTORY_PAGE_SIZE,
+      },
+      signal ? { signal } : {},
+    );
     handle.onProgress((chunk) => {
       entries.push(...chunk.entries);
       onChunk([...entries]);

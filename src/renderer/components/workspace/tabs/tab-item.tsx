@@ -7,9 +7,8 @@ import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { filePathToModelUri } from "@/services/editor/model/model-cache";
 import { cn } from "@/utils/cn";
-import { type Tab } from "../../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
-import { useTabsStore } from "../../../state/stores/tabs";
 
 function PinIcon() {
   return (

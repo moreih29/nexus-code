@@ -40,8 +40,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 // Module under test — imported AFTER mock.module.
 // ---------------------------------------------------------------------------
 import {
-  readSideContent,
   type DiffSideRequest,
+  readSideContent,
 } from "../../../../../src/renderer/components/editor/diff-content-loader";
 
 function makeGitRequest(ref: string): DiffSideRequest {

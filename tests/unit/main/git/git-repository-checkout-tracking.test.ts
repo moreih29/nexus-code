@@ -18,38 +18,31 @@ const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
 
 describe("GitRepository.checkoutTracking", () => {
-  realGitTest(
-    "creates and checks out a local branch tracking the given remote ref",
-    async () => {
-      const { client, remoteUrl } = makeClonePair();
-      try {
-        const repo = new GitRepository(
-          "workspace-track-success",
-          client,
-          path.join(client, ".git"),
-          gitOnPath!,
-        );
-        // Disable auto-setup-merge so plain `git checkout main` would fail —
-        // this is the environment shape that produced the user-visible
-        // `pathspec 'main' did not match` regression.
-        runGit(client, ["config", "branch.autoSetupMerge", "false"]);
+  realGitTest("creates and checks out a local branch tracking the given remote ref", async () => {
+    const { client, remoteUrl } = makeClonePair();
+    try {
+      const repo = new GitRepository(
+        "workspace-track-success",
+        client,
+        path.join(client, ".git"),
+        gitOnPath!,
+      );
+      // Disable auto-setup-merge so plain `git checkout main` would fail —
+      // this is the environment shape that produced the user-visible
+      // `pathspec 'main' did not match` regression.
+      runGit(client, ["config", "branch.autoSetupMerge", "false"]);
 
-        await repo.checkoutTracking("origin/feature");
+      await repo.checkoutTracking("origin/feature");
 
-        const head = runGit(client, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-        expect(head).toBe("feature");
+      const head = runGit(client, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+      expect(head).toBe("feature");
 
-        const upstream = runGit(client, [
-          "rev-parse",
-          "--abbrev-ref",
-          "feature@{upstream}",
-        ]).trim();
-        expect(upstream).toBe("origin/feature");
-      } finally {
-        cleanup(client, remoteUrl);
-      }
-    },
-  );
+      const upstream = runGit(client, ["rev-parse", "--abbrev-ref", "feature@{upstream}"]).trim();
+      expect(upstream).toBe("origin/feature");
+    } finally {
+      cleanup(client, remoteUrl);
+    }
+  });
 
   realGitTest("rejects refs that are not in `<remote>/<branch>` form", async () => {
     const { client, remoteUrl } = makeClonePair();
@@ -62,14 +55,10 @@ describe("GitRepository.checkoutTracking", () => {
       );
 
       // Plain `feature` lacks the `<remote>/` segment.
-      await expect(repo.checkoutTracking("feature")).rejects.toThrow(
-        /Tracking ref must be in/i,
-      );
+      await expect(repo.checkoutTracking("feature")).rejects.toThrow(/Tracking ref must be in/i);
 
       // Trailing slash also rejected as malformed.
-      await expect(repo.checkoutTracking("origin/")).rejects.toThrow(
-        /Tracking ref must be in/i,
-      );
+      await expect(repo.checkoutTracking("origin/")).rejects.toThrow(/Tracking ref must be in/i);
 
       // Empty / whitespace rejected with a different message.
       await expect(repo.checkoutTracking("   ")).rejects.toThrow(/Tracking ref is required/i);

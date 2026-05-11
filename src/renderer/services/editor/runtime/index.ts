@@ -1,10 +1,10 @@
 export {
   defaultPreAcquireDeps,
+  type InstallLocationModelPreAcquireOptions,
+  type InstallMonacoCompensationsOptions,
   installEditorOpener,
   installLocationModelPreAcquire,
   installMonacoCompensations,
-  type InstallLocationModelPreAcquireOptions,
-  type InstallMonacoCompensationsOptions,
   type LocationModelPreAcquireInstallation,
   type MonacoCompensationInstaller,
 } from "./monaco-compensations";

@@ -1,21 +1,21 @@
 import * as crypto from "node:crypto";
 import type { z } from "zod";
 import {
+  IPC_CALL_RESULT_MARK,
+  IPC_GIT_ERROR_MARK,
+  type IpcGitErrorPayload,
+  type IpcGitErrorResult,
+} from "../../shared/git-error-ipc";
+import { IPC_ABORT_SENTINEL } from "../../shared/ipc-abort-sentinel";
+import {
   type InferArgs,
   type InferComplete,
   type InferProgress,
   ipcContract,
   type StreamProcedure,
 } from "../../shared/ipc-contract";
-import { IPC_ABORT_SENTINEL } from "../../shared/ipc-abort-sentinel";
 import { PendingRequestMap } from "../../shared/pending-request-map";
 import { GitError } from "../git/git-error";
-import {
-  IPC_CALL_RESULT_MARK,
-  IPC_GIT_ERROR_MARK,
-  type IpcGitErrorPayload,
-  type IpcGitErrorResult,
-} from "../../shared/git-error-ipc";
 
 // ---------------------------------------------------------------------------
 // Types

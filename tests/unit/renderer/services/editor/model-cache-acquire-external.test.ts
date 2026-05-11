@@ -76,7 +76,9 @@ const createEntryMock = mock(
   }),
 );
 
-const realModelEntry = await import("../../../../../src/renderer/services/editor/model/model-entry");
+const realModelEntry = await import(
+  "../../../../../src/renderer/services/editor/model/model-entry"
+);
 const cleanupEntryMock = mock(() => {});
 
 mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({

@@ -29,10 +29,10 @@ mock.module("../../../../../src/renderer/state/lifecycle/workspace-cleanup", () 
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { useGitStore } from "../../../../../src/renderer/state/stores/git";
 import type { GitSession } from "../../../../../src/renderer/state/stores/git";
-import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
+import { useGitStore } from "../../../../../src/renderer/state/stores/git";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../../../src/shared/types/git";
+import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
 
 const WS_A = "00000000-0000-0000-0000-0000000000aa";
 const WS_B = "00000000-0000-0000-0000-0000000000bb";

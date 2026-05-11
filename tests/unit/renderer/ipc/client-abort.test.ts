@@ -17,10 +17,7 @@
  * in `tests/unit/shared/ipc-abort-sentinel.test.ts`.
  */
 import { describe, expect, test } from "bun:test";
-import {
-  IPC_ABORT_SENTINEL,
-  isIpcAbortSentinel,
-} from "../../../../src/shared/ipc-abort-sentinel";
+import { IPC_ABORT_SENTINEL, isIpcAbortSentinel } from "../../../../src/shared/ipc-abort-sentinel";
 
 // ---------------------------------------------------------------------------
 // Inline mirror of the sentinel-unwrap chain in ipcCall's signal branch.

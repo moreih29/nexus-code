@@ -52,7 +52,12 @@ describe("GitRepository history", () => {
       writeAndCommit(root, "a.txt", "a\n", "initial");
       const fixSha = writeAndCommit(root, "popover.txt", "fix\n", "fix popover");
       writeAndCommit(root, "other.txt", "other\n", "other work");
-      const repo = new GitRepository("ws-history-search", root, path.join(root, ".git"), gitOnPath!);
+      const repo = new GitRepository(
+        "ws-history-search",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+      );
 
       const shaResult = await repo.searchCommits(fixSha.slice(0, 7), 50);
       expect(shaResult.kind).toBe("sha");

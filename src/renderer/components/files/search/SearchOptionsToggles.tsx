@@ -7,8 +7,8 @@ import { CaseSensitive, Regex, WholeWord } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { ViewMode } from "../../../../shared/types/panel";
 import type { SearchOptions } from "../../../state/stores/search";
-import { ViewModeToggle } from "../view-mode-toggle";
 import { Button } from "../../ui/button";
+import { ViewModeToggle } from "../view-mode-toggle";
 
 interface SearchOptionsTogglesProps {
   options: SearchOptions;

@@ -1,11 +1,11 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs-defaults";
 import { ipcCall } from "../../../ipc/client";
-import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";
 import { useSharedModel } from "../../../services/editor";
+import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";
 import { fileErrorMessage } from "../../../utils/file-error";
 import { ReadOnlyBanner } from "./read-only-banner";
 import { useEditorMount } from "./use-editor-mount";

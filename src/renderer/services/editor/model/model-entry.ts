@@ -3,12 +3,6 @@
 
 import type * as Monaco from "monaco-editor";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
-import {
-  attachDirtyTracker,
-  detachDirtyTracker,
-  markSaved as markDirtyTrackerSaved,
-} from "./dirty-tracker";
-import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
 import { isLspLanguage } from "../lsp/language";
 import {
   ensureProvidersFor,
@@ -21,10 +15,16 @@ import {
 } from "../lsp/lsp-bridge";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
-import { readAndPlaceContent } from "./read-and-place-content";
 import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
-import { attachLspBridge } from "./attach-lsp-bridge";
 import { attachFsSubscription } from "./attach-fs-subscription";
+import { attachLspBridge } from "./attach-lsp-bridge";
+import {
+  attachDirtyTracker,
+  detachDirtyTracker,
+  markSaved as markDirtyTrackerSaved,
+} from "./dirty-tracker";
+import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
+import { readAndPlaceContent } from "./read-and-place-content";
 
 const defaultModelEntryDeps = {
   attachDirtyTracker,

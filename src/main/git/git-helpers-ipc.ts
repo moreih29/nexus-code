@@ -11,13 +11,13 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import {
+  type AskpassPrompt,
   AskpassPromptSchema,
   AskpassRespondArgsSchema,
+  type GitEditorPrompt,
   GitEditorPromptSchema,
   GitEditorSaveArgsSchema,
   GitHelperPromptIdArgsSchema,
-  type AskpassPrompt,
-  type GitEditorPrompt,
 } from "../../shared/types/git";
 import { register, validateArgs } from "../ipc/router";
 import { type GitHelperConnection, setDefaultGitHelperConnection } from "./helpers-launcher";

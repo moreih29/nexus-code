@@ -7,16 +7,13 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
-import { WorkspaceSymbolPaletteRoot } from "./lsp/workspace-symbol/workspace-symbol-palette";
-import { SaveConfirmDialogRoot } from "./ui/save-confirm-dialog";
-import { ToastRoot } from "./ui/toast";
 import { CloneDialogRoot } from "./files/git/CloneDialog";
 import { CommitMessageDialog } from "./files/git/CommitMessageDialog";
 import { CredentialPromptDialog } from "./files/git/CredentialPromptDialog";
-import {
-  type GitHelperPromptState,
-  useGitHelperPrompts,
-} from "./files/git/useGitHelperPrompts";
+import { type GitHelperPromptState, useGitHelperPrompts } from "./files/git/useGitHelperPrompts";
+import { WorkspaceSymbolPaletteRoot } from "./lsp/workspace-symbol/workspace-symbol-palette";
+import { SaveConfirmDialogRoot } from "./ui/save-confirm-dialog";
+import { ToastRoot } from "./ui/toast";
 import { ViewParkRoot } from "./workspace/content/view-park";
 
 export function GlobalRoots(): React.JSX.Element {

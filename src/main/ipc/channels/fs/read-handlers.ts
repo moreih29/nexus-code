@@ -108,7 +108,14 @@ function buildFileContent(buf: Buffer, stat: fs.Stats): FileReadResult & { kind:
   const mtime = stat.mtime.toISOString();
 
   if (isBinaryProbe(probe)) {
-    return { kind: "ok", content: "", encoding: "utf8", sizeBytes: stat.size, isBinary: true, mtime };
+    return {
+      kind: "ok",
+      content: "",
+      encoding: "utf8",
+      sizeBytes: stat.size,
+      isBinary: true,
+      mtime,
+    };
   }
 
   // UTF-8 BOM detection

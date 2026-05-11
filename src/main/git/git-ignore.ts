@@ -66,7 +66,10 @@ function containsIgnorePattern(content: string, pattern: string): boolean {
 /** Normalizes a new ignore entry to the Git slash-separated path form. */
 function normalizeIgnorePattern(relPath: string): string {
   const slashPath = relPath.replaceAll("\\", "/").replace(/^\.\//, "");
-  const normalized = slashPath.split("/").filter((part) => part.length > 0).join("/");
+  const normalized = slashPath
+    .split("/")
+    .filter((part) => part.length > 0)
+    .join("/");
   if (
     normalized.length === 0 ||
     slashPath.startsWith("/") ||

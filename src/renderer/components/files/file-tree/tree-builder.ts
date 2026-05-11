@@ -184,11 +184,7 @@ export function compactPathTree(root: PathTreeNode): PathTreeNode {
     if (node.relPath === "") return node;
 
     // Compact while: single dir-child.
-    while (
-      node.children &&
-      node.children.length === 1 &&
-      node.children[0].kind === "dir"
-    ) {
+    while (node.children && node.children.length === 1 && node.children[0].kind === "dir") {
       const only = node.children[0];
       node = {
         ...node,

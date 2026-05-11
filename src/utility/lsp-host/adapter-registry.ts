@@ -10,12 +10,17 @@
 
 import { absolutePathToFileUri } from "../../shared/file-uri";
 import { createKeyedDebouncer, type KeyedDebouncer } from "../../shared/keyed-debouncer";
-import { type LspServerSpec, resolveLspPreset, resolveLspPresetLanguageId } from "../../shared/lsp-config";
 import type { Registration } from "../../shared/lsp";
+import {
+  type LspServerSpec,
+  resolveLspPreset,
+  resolveLspPresetLanguageId,
+} from "../../shared/lsp-config";
 import { LSP_DEFAULT_IDLE_MS } from "../../shared/timing-constants";
-import { flattenInitializationOptions } from "./lsp-server-request-handlers";
+import { parsePublishDiagnostics } from "./lsp-result-normalizers";
 import type { ServerHandlerContext } from "./lsp-server-request-handlers";
 import {
+  flattenInitializationOptions,
   forwardServerEvent,
   handleClientRegisterCapability,
   handleShowMessageRequest,
@@ -23,7 +28,6 @@ import {
   handleWorkspaceApplyEdit,
   handleWorkspaceConfiguration,
 } from "./lsp-server-request-handlers";
-import { parsePublishDiagnostics } from "./lsp-result-normalizers";
 import { type LspAdapter, StdioLspAdapter } from "./servers/stdio-lsp-adapter";
 
 // ---------------------------------------------------------------------------
@@ -208,27 +212,55 @@ export class AdapterRegistry {
     });
     adapter.onServerNotification("window/logMessage", (params) => {
       if (this.serverHandlerContext) {
-        forwardServerEvent(this.serverHandlerContext, workspaceId, presetLanguageId, "window/logMessage", params);
+        forwardServerEvent(
+          this.serverHandlerContext,
+          workspaceId,
+          presetLanguageId,
+          "window/logMessage",
+          params,
+        );
       }
     });
     adapter.onServerNotification("window/showMessage", (params) => {
       if (this.serverHandlerContext) {
-        forwardServerEvent(this.serverHandlerContext, workspaceId, presetLanguageId, "window/showMessage", params);
+        forwardServerEvent(
+          this.serverHandlerContext,
+          workspaceId,
+          presetLanguageId,
+          "window/showMessage",
+          params,
+        );
       }
     });
     adapter.onServerNotification("$/progress", (params) => {
       if (this.serverHandlerContext) {
-        forwardServerEvent(this.serverHandlerContext, workspaceId, presetLanguageId, "$/progress", params);
+        forwardServerEvent(
+          this.serverHandlerContext,
+          workspaceId,
+          presetLanguageId,
+          "$/progress",
+          params,
+        );
       }
     });
 
     adapter.onServerRequest("workspace/configuration", (params) => {
       if (!this.serverHandlerContext) return [];
-      return handleWorkspaceConfiguration(this.serverHandlerContext, workspaceId, presetLanguageId, params);
+      return handleWorkspaceConfiguration(
+        this.serverHandlerContext,
+        workspaceId,
+        presetLanguageId,
+        params,
+      );
     });
     adapter.onServerRequest("client/registerCapability", (params) => {
       if (!this.serverHandlerContext) return null;
-      return handleClientRegisterCapability(this.serverHandlerContext, workspaceId, presetLanguageId, params);
+      return handleClientRegisterCapability(
+        this.serverHandlerContext,
+        workspaceId,
+        presetLanguageId,
+        params,
+      );
     });
     adapter.onServerRequest("workspace/applyEdit", (params) => {
       if (!this.serverHandlerContext) return { applied: false, failureReason: "not ready" };
@@ -236,11 +268,21 @@ export class AdapterRegistry {
     });
     adapter.onServerRequest("window/showMessageRequest", (params) => {
       if (!this.serverHandlerContext) return null;
-      return handleShowMessageRequest(this.serverHandlerContext, workspaceId, presetLanguageId, params);
+      return handleShowMessageRequest(
+        this.serverHandlerContext,
+        workspaceId,
+        presetLanguageId,
+        params,
+      );
     });
     adapter.onServerRequest("window/workDoneProgress/create", (params) => {
       if (!this.serverHandlerContext) return null;
-      return handleWorkDoneProgressCreate(this.serverHandlerContext, workspaceId, presetLanguageId, params);
+      return handleWorkDoneProgressCreate(
+        this.serverHandlerContext,
+        workspaceId,
+        presetLanguageId,
+        params,
+      );
     });
   }
 
