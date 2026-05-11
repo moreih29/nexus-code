@@ -5,7 +5,7 @@
  * create row. Focused menu modes keep the same search UX while swapping only
  * the data source, accept handler, and palette copy:
  *
- *   - `browse`        → reveal local tags; Cmd/Ctrl+Backspace deletes locally.
+ *   - `browse`        → reveal local tags.
  *   - `create`        → typed query opens the create dialog; local tags are context.
  *   - `delete-local`  → local tag rows open a local delete confirmation.
  *   - `delete-remote` → selected-remote tag rows open a remote delete confirmation.
@@ -97,7 +97,7 @@ export function createTagPickerSource(
       return tagItems;
     },
 
-    accept(item, context): void {
+    accept(item, _context): void {
       if (item.kind === "create") {
         input.requestCreate(item.defaultName);
         return;
@@ -112,12 +112,6 @@ export function createTagPickerSource(
       }
       if (mode === "delete-remote" && item.scope === "remote") {
         input.requestDelete(item, { kind: "remote", remote: item.remote });
-        return;
-      }
-
-      const metaOrCtrl = context?.modifiers?.meta === true || context?.modifiers?.ctrl === true;
-      if (metaOrCtrl && isDeleteKey(context?.key) && item.scope === "local") {
-        input.requestDelete(item, { kind: "local" });
         return;
       }
 
@@ -376,11 +370,4 @@ function relativeTime(timestamp: number, now: number = Date.now()): string {
   if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
   if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
   return `${Math.floor(diffMs / day)}d ago`;
-}
-
-/**
- * Checks whether an accept came from the destructive tag shortcut.
- */
-function isDeleteKey(key: string | undefined): boolean {
-  return key === "Backspace" || key === "Delete";
 }

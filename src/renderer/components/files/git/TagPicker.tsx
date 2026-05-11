@@ -128,9 +128,7 @@ export function TagPicker({
         open={open}
         source={source}
         onClose={onClose}
-        footer={
-          mode === "browse" ? "Enter reveal in History · Cmd/Ctrl+Backspace delete" : undefined
-        }
+        footer={mode === "browse" ? "Enter reveal in History" : undefined}
       />
       <FormDialog
         open={createRequest !== null}

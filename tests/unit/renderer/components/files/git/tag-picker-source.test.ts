@@ -100,7 +100,7 @@ describe("createTagPickerSource", () => {
     expect(items[0]).toMatchObject({ kind: "create", defaultName: "rel" });
   });
 
-  it("routes browse Enter reveal and Cmd/Ctrl+Backspace delete to local-only deletion", async () => {
+  it("routes browse Enter to reveal and create row to requestCreate", async () => {
     const { source, revealTag, requestDelete, requestCreate } = buildSource([tag()]);
     const items = await search(source, "");
     const createItem = items[0]!;
@@ -113,20 +113,7 @@ describe("createTagPickerSource", () => {
     source.accept(tagItem, { mode: "default", modifiers: noModifiers(), key: "Enter" });
     expect(revealTag).toHaveBeenCalledWith(tagItem);
 
-    source.accept(tagItem, {
-      mode: "default",
-      modifiers: { ...noModifiers(), ctrl: true },
-      key: "Backspace",
-    });
-    expect(requestDelete).toHaveBeenCalledWith(tagItem, { kind: "local" });
-
-    source.accept(tagItem, {
-      mode: "default",
-      modifiers: { ...noModifiers(), meta: true, shift: true },
-      key: "Backspace",
-    });
-    expect(requestDelete).toHaveBeenCalledTimes(2);
-    expect(requestDelete.mock.calls[1]).toEqual([tagItem, { kind: "local" }]);
+    expect(requestDelete).not.toHaveBeenCalled();
   });
 
   it("keeps create mode tags read-only while typed queries enable the create row", async () => {

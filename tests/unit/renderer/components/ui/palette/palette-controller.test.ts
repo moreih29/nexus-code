@@ -172,32 +172,6 @@ describe("PaletteSearchController", () => {
   });
 });
 
-describe("resolvePaletteKeyAction", () => {
-  it("routes Cmd/Ctrl+Backspace to accept so git pickers can use destructive modifiers", () => {
-    expect(resolvePaletteKeyAction({ key: "Backspace", metaKey: true }, 0, 1)).toEqual({
-      kind: "accept",
-      mode: "default",
-    });
-    expect(resolvePaletteKeyAction({ key: "Delete", ctrlKey: true }, 0, 1)).toEqual({
-      kind: "accept",
-      mode: "default",
-    });
-    expect(resolvePaletteKeyAction({ key: "Backspace" }, 0, 1)).toEqual({ kind: "none" });
-  });
-
-  it("routes Cmd/Ctrl+R and Cmd/Ctrl+U to accept for branch picker secondary actions", () => {
-    expect(resolvePaletteKeyAction({ key: "r", metaKey: true }, 0, 1)).toEqual({
-      kind: "accept",
-      mode: "default",
-    });
-    expect(resolvePaletteKeyAction({ key: "U", ctrlKey: true }, 0, 1)).toEqual({
-      kind: "accept",
-      mode: "default",
-    });
-    expect(resolvePaletteKeyAction({ key: "r" }, 0, 1)).toEqual({ kind: "none" });
-  });
-});
-
 describe("stale-list dim behavior", () => {
   it("empty query emits idle with empty items and no dimmed flag", () => {
     const scheduler = new FakeScheduler();

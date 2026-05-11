@@ -236,15 +236,6 @@ export function resolvePaletteKeyAction(
   if (input.key === "Enter") {
     return { kind: "accept", mode: input.metaKey || input.ctrlKey ? "side" : "default" };
   }
-  if ((input.key === "Backspace" || input.key === "Delete") && (input.metaKey || input.ctrlKey)) {
-    return { kind: "accept", mode: "default" };
-  }
-  if ((input.key === "r" || input.key === "R") && (input.metaKey || input.ctrlKey)) {
-    return { kind: "accept", mode: "default" };
-  }
-  if ((input.key === "u" || input.key === "U") && (input.metaKey || input.ctrlKey)) {
-    return { kind: "accept", mode: "default" };
-  }
   if (input.key === "Escape") return { kind: "close" };
   if (input.key === "Tab") return { kind: "trap-tab" };
   return { kind: "none" };

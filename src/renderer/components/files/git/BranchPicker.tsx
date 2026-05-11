@@ -204,7 +204,7 @@ function normalizeBranchPickerMode(
 function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): string {
   switch (mode) {
     case "switch":
-      return "Enter checkout/create · Cmd/Ctrl+Backspace delete · Cmd/Ctrl+R rename · Cmd/Ctrl+U upstream";
+      return "Enter checkout/create";
     case "select-ref":
       return "Enter view history · Working tree is not changed";
     case "rename":

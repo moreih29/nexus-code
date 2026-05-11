@@ -288,24 +288,6 @@ describe("createBranchPickerSource — accept routing", () => {
     expect(checkoutTracking).not.toHaveBeenCalled();
   });
 
-  it("routes Cmd/Ctrl branch shortcuts to delete, rename, and upstream callbacks", async () => {
-    const { source, requestDelete, requestRename, requestSetUpstream, checkout } = buildSource(
-      fixture({ local: ["feat/work", "main"], remote: [] }),
-    );
-    const items = await search(source, "");
-    const local = items.find((it) => it.id === "local:main");
-    if (!local) throw new Error("expected local item");
-
-    source.accept(local, { mode: "default", key: "Backspace", modifiers: metaModifiers() });
-    source.accept(local, { mode: "default", key: "r", modifiers: metaModifiers() });
-    source.accept(local, { mode: "default", key: "u", modifiers: ctrlModifiers() });
-
-    expect(requestDelete).toHaveBeenCalledWith(local);
-    expect(requestRename).toHaveBeenCalledWith(local);
-    expect(requestSetUpstream).toHaveBeenCalledWith(local);
-    expect(checkout).not.toHaveBeenCalled();
-  });
-
   it("can retarget a ref without checkout or create side effects", async () => {
     const list = fixture({ local: ["feat/work", "main"], remote: ["origin/release"] });
     const acceptRef = mock(() => {});
@@ -425,9 +407,4 @@ describe("createBranchPickerSource — branch action modes", () => {
 /** Returns modifier payload for Cmd shortcuts. */
 function metaModifiers() {
   return { meta: true, ctrl: false, alt: false, shift: false };
-}
-
-/** Returns modifier payload for Ctrl shortcuts. */
-function ctrlModifiers() {
-  return { meta: false, ctrl: true, alt: false, shift: false };
 }

@@ -1,5 +1,5 @@
 /**
- * Scenario tests for stash picker layout and modifier action routing.
+ * Scenario tests for stash picker layout and accept routing.
  */
 import { describe, expect, it, mock } from "bun:test";
 import {
@@ -24,16 +24,12 @@ function stash(overrides: Partial<StashEntry> = {}): StashEntry {
 function buildSource(stashes: StashEntry[]) {
   const listStashes = mock(async () => stashes);
   const applyStash = mock(async () => true);
-  const dropStash = mock(async () => true);
-  const confirmDrop = mock(() => {});
   const source = createStashPickerSource({
     workspaceId,
     listStashes,
     applyStash,
-    dropStash,
-    confirmDrop,
   });
-  return { source, listStashes, applyStash, dropStash, confirmDrop };
+  return { source, listStashes, applyStash };
 }
 
 async function search(
@@ -77,23 +73,16 @@ describe("createStashPickerSource", () => {
     expect((await search(source, "abcdefabcdef")).map((item) => item.stash.index)).toEqual([1]);
   });
 
-  it("routes Enter to apply, Cmd/Ctrl+Enter to pop, and Cmd/Ctrl+Backspace to confirm drop", async () => {
-    const { source, applyStash, dropStash, confirmDrop } = buildSource([stash()]);
+  it("routes Enter to apply regardless of modifiers", async () => {
+    const { source, applyStash } = buildSource([stash()]);
     const [item] = await search(source, "");
     if (!item) throw new Error("expected stash item");
 
     source.accept(item, { mode: "default", modifiers: noModifiers() });
     expect(applyStash).toHaveBeenCalledWith(workspaceId, 0);
-    expect(dropStash).not.toHaveBeenCalled();
 
     source.accept(item, { mode: "side", modifiers: { ...noModifiers(), meta: true } });
-    await Promise.resolve();
-    await Promise.resolve();
     expect(applyStash).toHaveBeenCalledTimes(2);
-    expect(dropStash).toHaveBeenCalledWith(workspaceId, 0);
-
-    source.accept(item, { mode: "default", modifiers: { ...noModifiers(), ctrl: true } });
-    expect(confirmDrop).toHaveBeenCalledWith(item);
   });
 });
 

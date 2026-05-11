@@ -1,12 +1,9 @@
 /**
  * StashPickerSource — Quick-pick PaletteSource for stash stack operations.
  *
- * The picker opens with the full stash list (`searchOnEmptyQuery`) and routes
- * modifier accepts to the same actions VS Code exposes in quick-pick footers:
+ * The picker opens with the full stash list (`searchOnEmptyQuery`).
  *
- *   - Enter              → apply selected stash.
- *   - Cmd/Ctrl+Enter     → pop selected stash (apply, then drop on success).
- *   - Cmd/Ctrl+Backspace → ask for confirmation, then drop selected stash.
+ *   - Enter → apply selected stash.
  */
 import type { StashEntry } from "../../../../shared/types/git";
 import type { PaletteItem, PaletteSource } from "../../ui/palette/types";
@@ -19,8 +16,6 @@ export interface CreateStashPickerSourceInput {
   workspaceId: string;
   listStashes: (workspaceId: string, signal?: AbortSignal) => Promise<StashEntry[] | undefined>;
   applyStash: (workspaceId: string, index: number) => Promise<boolean>;
-  dropStash: (workspaceId: string, index: number) => Promise<boolean>;
-  confirmDrop: (item: StashPickItem) => void;
 }
 
 /**
@@ -45,29 +40,10 @@ export function createStashPickerSource(
       return stashes.map(stashToItem).filter((item) => matchesStashQuery(item, lowerQuery));
     },
 
-    accept(item, context): void {
-      const metaOrCtrl = context?.modifiers?.meta === true || context?.modifiers?.ctrl === true;
-      if (metaOrCtrl && context?.mode === "side") {
-        void popStash(input, item.stash.index);
-        return;
-      }
-      if (metaOrCtrl) {
-        input.confirmDrop(item);
-        return;
-      }
+    accept(item): void {
       void input.applyStash(input.workspaceId, item.stash.index);
     },
   };
-}
-
-/**
- * Applies a stash and only drops it if the apply step succeeded.
- */
-async function popStash(input: CreateStashPickerSourceInput, index: number): Promise<void> {
-  const applied = await input.applyStash(input.workspaceId, index);
-  if (applied) {
-    await input.dropStash(input.workspaceId, index);
-  }
 }
 
 /**

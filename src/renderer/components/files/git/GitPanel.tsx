@@ -1032,7 +1032,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         workspaceId={workspaceId}
         open={stashPickerOpen}
         onClose={() => setStashPickerOpen(false)}
-        onRequestReopen={() => setStashPickerOpen(true)}
       />
 
       <TagPicker

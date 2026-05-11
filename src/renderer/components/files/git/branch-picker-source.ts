@@ -190,7 +190,7 @@ export function createBranchPickerSource(
       return items;
     },
 
-    accept(item: BranchPickItem, ctx?: PaletteAcceptContext): void {
+    accept(item: BranchPickItem, _ctx?: PaletteAcceptContext): void {
       if (mode === "select-ref" || input.acceptRef) {
         input.acceptRef?.(refFromBranchPickItem(item), item);
         return;
@@ -202,22 +202,6 @@ export function createBranchPickerSource(
       }
       if (mode === "delete-local" || mode === "delete-remote") {
         input.requestDelete?.(item);
-        return;
-      }
-
-      const modifiers = ctx?.modifiers;
-      const metaOrCtrl = modifiers?.meta === true || modifiers?.ctrl === true;
-
-      if (metaOrCtrl && isDeleteKey(ctx?.key)) {
-        input.requestDelete?.(item);
-        return;
-      }
-      if (metaOrCtrl && isKey(ctx?.key, "r")) {
-        input.requestRename?.(item);
-        return;
-      }
-      if (metaOrCtrl && isKey(ctx?.key, "u")) {
-        input.requestSetUpstream?.(item);
         return;
       }
 
@@ -297,20 +281,6 @@ function refFromBranchPickItem(item: BranchPickItem): string {
     case "create-branch":
       return item.action.name;
   }
-}
-
-/**
- * Checks whether an accept came from the destructive branch shortcut.
- */
-function isDeleteKey(key: string | undefined): boolean {
-  return key === "Backspace" || key === "Delete";
-}
-
-/**
- * Case-insensitive shortcut key matcher.
- */
-function isKey(key: string | undefined, expected: string): boolean {
-  return key?.toLowerCase() === expected;
 }
 
 /**
