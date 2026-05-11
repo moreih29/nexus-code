@@ -32,6 +32,20 @@ function buildSource(stashes: StashEntry[]) {
   return { source, listStashes, applyStash };
 }
 
+function buildDropSource(stashes: StashEntry[]) {
+  const listStashes = mock(async () => stashes);
+  const applyStash = mock(async () => true);
+  const requestDrop = mock((_item: StashPickItem) => {});
+  const source = createStashPickerSource({
+    workspaceId,
+    mode: "drop",
+    listStashes,
+    applyStash,
+    requestDrop,
+  });
+  return { source, listStashes, applyStash, requestDrop };
+}
+
 async function search(
   source: ReturnType<typeof createStashPickerSource>,
   query: string,
@@ -83,6 +97,57 @@ describe("createStashPickerSource", () => {
 
     source.accept(item, { mode: "side", modifiers: { ...noModifiers(), meta: true } });
     expect(applyStash).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createStashPickerSource — drop mode", () => {
+  it("uses drop-specific title and placeholder", () => {
+    const { source } = buildDropSource([stash()]);
+
+    expect(source.title).toBe("Drop Stash");
+    expect(source.placeholder).toBe("Select a stash to drop…");
+  });
+
+  it("routes Enter to requestDrop instead of applyStash in drop mode", async () => {
+    const { source, applyStash, requestDrop } = buildDropSource([stash()]);
+    const [item] = await source.search("", new AbortController().signal);
+    if (!item) throw new Error("expected stash item");
+
+    source.accept(item, { mode: "default", modifiers: noModifiers() });
+
+    expect(requestDrop).toHaveBeenCalledTimes(1);
+    expect(requestDrop).toHaveBeenCalledWith(item);
+    expect(applyStash).not.toHaveBeenCalled();
+  });
+
+  it("does not call requestDrop when it is not provided", async () => {
+    // Safety: if caller forgets requestDrop in drop mode, accept must not throw.
+    const listStashes = mock(async () => [stash()]);
+    const applyStash = mock(async () => true);
+    const source = createStashPickerSource({
+      workspaceId,
+      mode: "drop",
+      listStashes,
+      applyStash,
+      // requestDrop intentionally omitted
+    });
+    const [item] = await source.search("", new AbortController().signal);
+    if (!item) throw new Error("expected stash item");
+
+    // Must not throw
+    expect(() => source.accept(item)).not.toThrow();
+    expect(applyStash).not.toHaveBeenCalled();
+  });
+
+  it("apply mode still routes Enter to applyStash", async () => {
+    const { source, applyStash } = buildSource([stash()]);
+    const [item] = await source.search("", new AbortController().signal);
+    if (!item) throw new Error("expected stash item");
+
+    source.accept(item, { mode: "default", modifiers: noModifiers() });
+
+    expect(applyStash).toHaveBeenCalledTimes(1);
+    expect(applyStash).toHaveBeenCalledWith(workspaceId, 0);
   });
 });
 

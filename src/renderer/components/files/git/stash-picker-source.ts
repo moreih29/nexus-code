@@ -3,10 +3,13 @@
  *
  * The picker opens with the full stash list (`searchOnEmptyQuery`).
  *
- *   - Enter → apply selected stash.
+ *   - "apply" mode (default): Enter → apply selected stash.
+ *   - "drop" mode:            Enter → request drop confirmation for selected stash.
  */
 import type { StashEntry } from "../../../../shared/types/git";
 import type { PaletteItem, PaletteSource } from "../../ui/palette/types";
+
+export type StashPickerMode = "apply" | "drop";
 
 export interface StashPickItem extends PaletteItem {
   stash: StashEntry;
@@ -14,8 +17,11 @@ export interface StashPickItem extends PaletteItem {
 
 export interface CreateStashPickerSourceInput {
   workspaceId: string;
+  mode?: StashPickerMode;
   listStashes: (workspaceId: string, signal?: AbortSignal) => Promise<StashEntry[] | undefined>;
   applyStash: (workspaceId: string, index: number) => Promise<boolean>;
+  /** Called in drop mode when the user selects a stash; caller shows confirm dialog. */
+  requestDrop?: (item: StashPickItem) => void;
 }
 
 /**
@@ -24,10 +30,12 @@ export interface CreateStashPickerSourceInput {
 export function createStashPickerSource(
   input: CreateStashPickerSourceInput,
 ): PaletteSource<StashPickItem> {
+  const mode: StashPickerMode = input.mode ?? "apply";
+
   return {
     id: "git.stash-picker",
-    title: "Stashes",
-    placeholder: "Search stashes…",
+    title: mode === "drop" ? "Drop Stash" : "Stashes",
+    placeholder: mode === "drop" ? "Select a stash to drop…" : "Search stashes…",
     emptyQueryMessage: "Loading stashes…",
     noResultsMessage: "No matching stashes.",
     searchOnEmptyQuery: true,
@@ -41,6 +49,10 @@ export function createStashPickerSource(
     },
 
     accept(item): void {
+      if (mode === "drop") {
+        input.requestDrop?.(item);
+        return;
+      }
       void input.applyStash(input.workspaceId, item.stash.index);
     },
   };

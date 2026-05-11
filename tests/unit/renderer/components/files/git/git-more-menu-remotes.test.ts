@@ -110,11 +110,45 @@ describe("GitMoreMenu Branch/Stash/Tag submenu shells", () => {
   it("moves the three existing stash actions into the Stash submenu with existing gates", () => {
     const model = buildGitStashMenuModel({ hasHead: true, stashCount: 1 });
 
-    expect(labels(model)).toEqual(["Stash", "Stash Pop", "Stashes…"]);
+    expect(labels(model)).toEqual(["Stash", "Stash Pop", "Stashes…", "—", "Drop Stash…"]);
     expect(disabledLabels(model)).toEqual([]);
 
     const empty = buildGitStashMenuModel({ hasHead: true, stashCount: 0 });
-    expect(disabledLabels(empty)).toEqual(["Stash Pop"]);
+    expect(disabledLabels(empty)).toEqual(["Stash Pop", "Drop Stash…"]);
+  });
+
+  it("includes Drop Stash… entry in Stash submenu with correct gating", () => {
+    // Enabled when stash has entries and HEAD exists.
+    const withStash = buildGitStashMenuModel({ hasHead: true, stashCount: 2 });
+    const dropItem = withStash.find((item) => item.kind === "item" && item.id === "drop-stash");
+    expect(dropItem).toMatchObject({
+      kind: "item",
+      id: "drop-stash",
+      label: "Drop Stash…",
+      disabled: false,
+    });
+
+    // Disabled with "Stash is empty." when stash count is 0.
+    const noStash = buildGitStashMenuModel({ hasHead: true, stashCount: 0 });
+    const dropNoStash = noStash.find((item) => item.kind === "item" && item.id === "drop-stash");
+    expect(dropNoStash).toMatchObject({ disabled: true, title: "Stash is empty." });
+
+    // Disabled with "Make an initial commit first." when no HEAD.
+    const noHead = buildGitStashMenuModel({ hasHead: false, stashCount: 0 });
+    const dropNoHead = noHead.find((item) => item.kind === "item" && item.id === "drop-stash");
+    expect(dropNoHead).toMatchObject({ disabled: true, title: "Stash is empty." });
+
+    // Disabled when repo is busy (disabled flag).
+    const busy = buildGitStashMenuModel({ disabled: true, hasHead: true, stashCount: 1 });
+    const dropBusy = busy.find((item) => item.kind === "item" && item.id === "drop-stash");
+    expect(dropBusy).toMatchObject({ disabled: true });
+  });
+
+  it("Drop Stash… entry is separated from read-only stash entries by a separator", () => {
+    const model = buildGitStashMenuModel({ hasHead: true, stashCount: 1 });
+    const dropIndex = model.findIndex((item) => item.kind === "item" && item.id === "drop-stash");
+    const itemBeforeDrop = model[dropIndex - 1];
+    expect(itemBeforeDrop?.kind).toBe("separator");
   });
 
   it("exposes the wired Tag submenu entries and keeps Push Tags enablement from remotes", () => {

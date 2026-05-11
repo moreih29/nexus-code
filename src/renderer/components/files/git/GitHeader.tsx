@@ -29,6 +29,7 @@ interface GitHeaderProps {
   onStash: () => void;
   onStashPop: () => void;
   onOpenStashes: () => void;
+  onDropStash: () => void;
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onSwitchBranch: () => void;
   onMergeBranch: () => void;
@@ -66,6 +67,7 @@ export function GitHeader({
   onStash,
   onStashPop,
   onOpenStashes,
+  onDropStash,
   onOpenTags,
   onSwitchBranch,
   onMergeBranch,
@@ -123,6 +125,7 @@ export function GitHeader({
           onStash={onStash}
           onStashPop={onStashPop}
           onOpenStashes={onOpenStashes}
+          onDropStash={onDropStash}
           onOpenTags={onOpenTags}
           onSwitchBranch={onSwitchBranch}
           onMergeBranch={onMergeBranch}

@@ -63,6 +63,7 @@ import {
   type RebaseTargetPickItem,
 } from "./rebase-target-picker-source";
 import { StashPicker } from "./StashPicker";
+import type { StashPickerMode } from "./stash-picker-source";
 import { TagPicker } from "./TagPicker";
 import type { TagPickerMode } from "./tag-picker-source";
 import { useGitHelperOccupancy } from "./useGitHelperPrompts";
@@ -145,6 +146,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const [branchCreateBranchListLoading, setBranchCreateBranchListLoading] = useState(false);
   const branchCreateLoadIdRef = useRef(0);
   const [stashPickerOpen, setStashPickerOpen] = useState(false);
+  const [stashPickerMode, setStashPickerMode] = useState<StashPickerMode>("apply");
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [tagPickerMode, setTagPickerMode] = useState<TagPickerMode>("browse");
   const [tagPickerRemote, setTagPickerRemote] = useState<string | null>(null);
@@ -694,7 +696,14 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         onStashPop={() => {
           void stashPop(workspaceId);
         }}
-        onOpenStashes={() => setStashPickerOpen(true)}
+        onOpenStashes={() => {
+          setStashPickerMode("apply");
+          setStashPickerOpen(true);
+        }}
+        onDropStash={() => {
+          setStashPickerMode("drop");
+          setStashPickerOpen(true);
+        }}
         onOpenTags={(mode, remote) => openTagPicker(mode, remote)}
         onSwitchBranch={() => openBranchPicker("switch")}
         onMergeBranch={() => setMergeTargetPickerOpen(true)}
@@ -1031,6 +1040,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       <StashPicker
         workspaceId={workspaceId}
         open={stashPickerOpen}
+        mode={stashPickerMode}
         onClose={() => setStashPickerOpen(false)}
       />
 

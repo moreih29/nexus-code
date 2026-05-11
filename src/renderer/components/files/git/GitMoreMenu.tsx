@@ -58,7 +58,7 @@ export type GitBranchMenuItemId =
   | "delete"
   | "delete-remote";
 
-export type GitStashMenuItemId = "stash" | "stash-pop" | "open-stashes";
+export type GitStashMenuItemId = "stash" | "stash-pop" | "open-stashes" | "drop-stash";
 
 export type GitTagMenuItemId = "create" | "delete" | "delete-remote" | "push-tags";
 
@@ -121,6 +121,7 @@ interface GitMoreMenuProps {
   onStash: () => void;
   onStashPop: () => void;
   onOpenStashes: () => void;
+  onDropStash: () => void;
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onSwitchBranch: () => void;
   onMergeBranch: () => void;
@@ -334,6 +335,8 @@ export function buildGitStashMenuModel({
   const stashReason = hasHead ? undefined : "Make an initial commit first.";
   const stashPopReason =
     stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : undefined;
+  const dropStashReason =
+    stashCount === 0 ? "Stash is empty." : !hasHead ? "Make an initial commit first." : undefined;
   return [
     {
       kind: "item",
@@ -355,6 +358,14 @@ export function buildGitStashMenuModel({
       label: "Stashes…",
       disabled: disabled || !hasHead,
       title: stashReason,
+    },
+    { kind: "separator", id: "before-drop-stash" },
+    {
+      kind: "item",
+      id: "drop-stash",
+      label: "Drop Stash…",
+      disabled: disabled || stashCount === 0 || !hasHead,
+      title: dropStashReason,
     },
   ];
 }
@@ -470,6 +481,7 @@ export function GitMoreMenu({
   onStash,
   onStashPop,
   onOpenStashes,
+  onDropStash,
   onOpenTags,
   onSwitchBranch,
   onMergeBranch,
@@ -622,6 +634,7 @@ export function GitMoreMenu({
             onStash={() => run(onStash)}
             onStashPop={() => run(onStashPop)}
             onOpenStashes={() => run(onOpenStashes)}
+            onDropStash={() => run(onDropStash)}
           />
           <TagSubmenu
             open={openL1 === "tag"}
@@ -753,6 +766,7 @@ function StashSubmenu({
   onStash,
   onStashPop,
   onOpenStashes,
+  onDropStash,
 }: {
   open: boolean;
   disabled?: boolean;
@@ -762,6 +776,7 @@ function StashSubmenu({
   onStash: () => void;
   onStashPop: () => void;
   onOpenStashes: () => void;
+  onDropStash: () => void;
 }) {
   const model = buildGitStashMenuModel({ disabled, hasHead, stashCount });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -777,6 +792,9 @@ function StashSubmenu({
         return;
       case "open-stashes":
         onOpenStashes();
+        return;
+      case "drop-stash":
+        onDropStash();
         return;
     }
   }
