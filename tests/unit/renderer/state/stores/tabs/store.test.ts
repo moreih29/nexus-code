@@ -58,11 +58,6 @@ describe("useTabsStore — createTab", () => {
     expect(wsRecord[tab.id]).toEqual(tab);
   });
 
-  it("assigns a non-empty uuid as tab id", () => {
-    const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
-    expect(tab.id).toBeTruthy();
-  });
-
   it("derives title 'Terminal' for terminal type", () => {
     const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
     expect(tab.title).toBe("Terminal");

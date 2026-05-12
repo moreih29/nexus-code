@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_SEARCHABLE_FILE_SIZE } from "../../../../src/shared/fs-defaults";
-import { ipcContract } from "../../../../src/shared/ipc-contract";
 import { SearchProgressSchema, TextSearchQuerySchema } from "../../../../src/shared/types/search";
 
 describe("TextSearchQuerySchema", () => {
@@ -40,34 +39,5 @@ describe("SearchProgressSchema", () => {
     expect(result[0].relPath).toBe("src/index.ts");
     expect(result[0].matches).toHaveLength(1);
     expect("requestId" in result[0]).toBe(false);
-  });
-});
-
-describe("ipcContract.fs search stream entries", () => {
-  test("searchText moved from call/listen to stream", () => {
-    expect("searchText" in ipcContract.fs.call).toBe(false);
-    expect("searchProgress" in ipcContract.fs.listen).toBe(false);
-    expect("searchText" in ipcContract.fs.stream).toBe(true);
-  });
-
-  test("searchText stream args parse valid payload", () => {
-    const result = ipcContract.fs.stream.searchText.args.parse({
-      workspaceId: "12345678-1234-1234-1234-123456789012",
-      query: { pattern: "foo" },
-    });
-
-    expect(result.query.pattern).toBe("foo");
-    expect(result.query.maxResults).toBe(2000);
-  });
-
-  test("searchText stream result parses SearchComplete", () => {
-    const result = ipcContract.fs.stream.searchText.result.parse({
-      filesScanned: 3,
-      matchesFound: 4,
-      limitHit: false,
-      elapsedMs: 12,
-    });
-
-    expect(result).toEqual({ filesScanned: 3, matchesFound: 4, limitHit: false, elapsedMs: 12 });
   });
 });

@@ -1,3 +1,16 @@
+/**
+ * services/lsp/ — Editor-independent LSP consumers.
+ *
+ * Code in this folder operates on LSP server events at the workspace/UX
+ * level: routing window/showMessage and $/progress notifications to the
+ * notification surface, maintaining the workspace-symbol registry, etc.
+ *
+ * Monaco-bound LSP code (providers, document sync, range converters) lives
+ * in `services/editor/lsp/`. If a new file plugs into Monaco's editor
+ * lifecycle, put it there. If it consumes LSP server events without touching
+ * Monaco, put it here.
+ */
+
 import {
   type LspServerEvent,
   type MessageType,

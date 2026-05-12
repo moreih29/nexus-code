@@ -6,7 +6,8 @@ import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../shar
 import type { ViewMode } from "../../../../shared/types/panel";
 import { Button } from "../../ui/button";
 import { ViewModeToggle } from "../view-mode-toggle/ViewModeToggle";
-import { GitMoreMenu, type GitTagPickerMenuMode } from "./GitMoreMenu";
+import { GitMoreMenu } from "./GitMoreMenu";
+import type { GitTagPickerMenuMode } from "./git-more-menu-model";
 
 interface GitHeaderProps {
   disabled?: boolean;

@@ -7,13 +7,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { GitLogArgs } from "../../../../src/main/git/git-repository";
-import {
-  buildLogArgs,
-  GitRepository,
-  parseLogRecord,
-} from "../../../../src/main/git/git-repository";
+import { GitRepository } from "../../../../src/main/git/git-repository";
+import { buildLogArgs, parseLogRecord } from "../../../../src/main/git/git-log-parsing";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
-import { type LogEntry, LogEntrySchema } from "../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../src/shared/types/git";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -141,41 +138,6 @@ describe("GitRepository history", () => {
 });
 
 describe("git log schema and argv", () => {
-  test("defaults legacy LogEntry payload refs to an empty array", () => {
-    const entry = LogEntrySchema.parse({
-      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      parents: [],
-      authorName: "Ada",
-      authoredAt: "2026-05-10T00:00:00.000Z",
-      subject: "legacy payload",
-    });
-
-    expect(entry.refs).toEqual([]);
-  });
-
-  test("validates structured LogEntry refs", () => {
-    const entry = LogEntrySchema.parse({
-      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      parents: [],
-      authorName: "Ada",
-      authoredAt: "2026-05-10T00:00:00.000Z",
-      subject: "tagged payload",
-      refs: [{ name: "v1", kind: "tag", isHead: false }],
-    });
-
-    expect(entry.refs).toEqual([{ name: "v1", kind: "tag", isHead: false }]);
-    expect(() =>
-      LogEntrySchema.parse({
-        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        parents: [],
-        authorName: "Ada",
-        authoredAt: "2026-05-10T00:00:00.000Z",
-        subject: "bad ref",
-        refs: [{ name: "v1", kind: "release", isHead: false }],
-      }),
-    ).toThrow();
-  });
-
   test("accepts git log IPC scope enum while preserving omitted-scope callers", () => {
     const baseArgs = { workspaceId: "22222222-2222-4222-8222-222222222222", limit: 20 };
 

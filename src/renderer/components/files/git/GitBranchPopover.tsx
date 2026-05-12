@@ -14,7 +14,7 @@ import { copyText } from "../../../utils/clipboard";
 import { Button } from "../../ui/button";
 import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
 import { BranchChip } from "./BranchChip";
-import { buildAutofetchMenuModel } from "./GitMoreMenu";
+import { buildAutofetchMenuModel } from "./git-more-menu-model";
 
 interface GitBranchPopoverProps {
   workspaceId: string;

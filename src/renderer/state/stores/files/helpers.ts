@@ -64,6 +64,13 @@ export function parentOf(absPath: string, rootAbsPath: string): string {
   return parent;
 }
 
+/**
+ * Flattens the workspace file tree into the linear list the virtualised
+ * file-explorer renders. Traverses depth-first, descending only into
+ * directories that are expanded *and* have their children loaded — folders
+ * still pending a load contribute their own row but no descendants.
+ * Each item carries its `depth` so the renderer can indent without re-walking.
+ */
 export function selectFlat(state: FilesState, workspaceId: string): FlatItem[] {
   const tree = state.trees.get(workspaceId);
   if (!tree) return [];

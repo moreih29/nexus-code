@@ -1,8 +1,4 @@
 import { create } from "zustand";
-import {
-  GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
-  GIT_STATUS_HINT_DEBOUNCE_MS,
-} from "../../../shared/timing-constants";
 import type {
   BranchInfo,
   BranchList,
@@ -10,7 +6,6 @@ import type {
   GitActionHint,
   GitAutofetchError,
   GitAutofetchIntervalMin,
-  GitAutofetchStateChanged,
   GitCommitOptions,
   GitContinueOpResult,
   GitExpandedGroupKey,
@@ -41,6 +36,24 @@ import type { ViewMode } from "../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcCall, ipcListen, ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import {
+  cancelCommitDraftSave,
+  cancelStatusHintRefresh,
+  flushAllCommitDraftSaves,
+  flushCommitDraftSave,
+  installCommitDraftFlushListeners,
+  scheduleCommitDraftSave,
+} from "./git-draft-persistence";
+import { installGitEventSubscriptions } from "./git-event-subscriptions";
+import { persistPanelState, persistViewOptions } from "./git-panel-state-io";
+import {
+  firstRejectedReason,
+  gitStoreErrorFromUnknown,
+  isAbortError,
+  isPendingNonFFError,
+  normalizePushOptions,
+  pendingRetryFromPushError,
+} from "./git-store-helpers";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -268,9 +281,6 @@ interface GitState {
 // ---------------------------------------------------------------------------
 
 const controllers = new Map<string, AbortController>();
-const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const pendingDraftSaves = new Map<string, string>();
-const statusHintTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // ---------------------------------------------------------------------------
 // Store
@@ -1125,6 +1135,11 @@ installCommitDraftFlushListeners();
 // Selector helper
 // ---------------------------------------------------------------------------
 
+/**
+ * Subscribes to a single workspace's git session slice. Returns `undefined`
+ * before `loadInitial` has run for that workspace — callers should treat the
+ * absence as "git not yet initialised" rather than "no git repo".
+ */
 export function useGitSession(workspaceId: string): GitSession | undefined {
   return useGitStore((s) => s.sessions.get(workspaceId));
 }
@@ -1174,43 +1189,6 @@ function isStatusFetchingOperation(kind: GitOperationKind): boolean {
 }
 
 /**
- * Keep renderer-only side effects from firing in unit tests or non-browser
- * contexts where the preload bridge is not installed.
- */
-function canUseIpcBridge(): boolean {
-  return typeof window !== "undefined" && "ipc" in window;
-}
-
-/**
- * Persist panel-state updates through the git channel. Failures are logged
- * but do not roll back local UI state.
- */
-function persistPanelState(workspaceId: string, update: GitPanelStateUpdate): void {
-  if (!canUseIpcBridge()) return;
-
-  ipcCall("git", "setPanelState", { workspaceId, ...update }).catch((error: unknown) => {
-    console.error("[git] setPanelState failed", error);
-  });
-}
-
-/**
- * Persist panel view-options through the panel channel. Failures are logged
- * but do not roll back local UI state.
- */
-function persistViewOptions(
-  workspaceId: string,
-  partial: { viewMode?: ViewMode; compactFolders?: boolean },
-): void {
-  if (!canUseIpcBridge()) return;
-
-  ipcCall("panel", "setViewOptions", { workspaceId, panelKind: "git", ...partial }).catch(
-    (error: unknown) => {
-      console.error("[git] setViewOptions failed", error);
-    },
-  );
-}
-
-/**
  * Collects a bounded recent commit list from the existing git.log stream so
  * the ref picker can include immutable commit targets without a bespoke IPC.
  */
@@ -1247,323 +1225,4 @@ function resolveCommitOptions(
     signoff: overrides.signoff ?? sticky.signoff,
     noVerify: overrides.noVerify ?? sticky.noVerify,
   };
-}
-
-/**
- * Schedule a per-workspace commit-draft write; repeated keystrokes reset
- * the same timer so only the final value reaches storage.
- */
-function scheduleCommitDraftSave(workspaceId: string, commitDraft: string): void {
-  pendingDraftSaves.set(workspaceId, commitDraft);
-
-  const existing = draftSaveTimers.get(workspaceId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const handle = setTimeout(() => {
-    flushCommitDraftSave(workspaceId);
-  }, GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS);
-  draftSaveTimers.set(workspaceId, handle);
-}
-
-/**
- * Cancel the pending draft persistence for a workspace without writing it.
- */
-function cancelCommitDraftSave(workspaceId: string): void {
-  const existing = draftSaveTimers.get(workspaceId);
-  if (existing) {
-    clearTimeout(existing);
-    draftSaveTimers.delete(workspaceId);
-  }
-  pendingDraftSaves.delete(workspaceId);
-}
-
-/**
- * Flush one workspace's pending draft write immediately.
- */
-function flushCommitDraftSave(workspaceId: string): void {
-  const existing = draftSaveTimers.get(workspaceId);
-  if (existing) {
-    clearTimeout(existing);
-    draftSaveTimers.delete(workspaceId);
-  }
-
-  if (!pendingDraftSaves.has(workspaceId)) return;
-
-  const commitDraft = pendingDraftSaves.get(workspaceId) ?? "";
-  pendingDraftSaves.delete(workspaceId);
-  persistPanelState(workspaceId, { commitDraft });
-}
-
-/**
- * Flush all queued draft writes, used by blur/visibilitychange and exposed
- * on the store for explicit input blur handlers.
- */
-function flushAllCommitDraftSaves(): void {
-  for (const workspaceId of Array.from(pendingDraftSaves.keys())) {
-    flushCommitDraftSave(workspaceId);
-  }
-}
-
-/**
- * Working-tree file changes do not always touch .git metadata. Treat fs.changed
- * as a passive status hint and refresh without claiming the operation spinner.
- */
-function scheduleStatusHintRefresh(workspaceId: string): void {
-  const existing = statusHintTimers.get(workspaceId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const handle = setTimeout(() => {
-    statusHintTimers.delete(workspaceId);
-    void refreshStatusFromHint(workspaceId);
-  }, GIT_STATUS_HINT_DEBOUNCE_MS);
-  statusHintTimers.set(workspaceId, handle);
-}
-
-/**
- * Cancel a queued passive status hint when the workspace session disappears.
- */
-function cancelStatusHintRefresh(workspaceId: string): void {
-  const existing = statusHintTimers.get(workspaceId);
-  if (existing) clearTimeout(existing);
-  statusHintTimers.delete(workspaceId);
-}
-
-/**
- * Pull one status snapshot in response to an fs.changed hint. This intentionally
- * avoids beginOperation() so it cannot abort a user-initiated git operation.
- */
-async function refreshStatusFromHint(workspaceId: string): Promise<void> {
-  const current = useGitStore.getState().sessions.get(workspaceId);
-  if (!current || current.repoInfo.kind !== "repo") return;
-
-  try {
-    const status = await ipcCall("git", "getStatus", { workspaceId });
-    useGitStore.setState((state) => {
-      const session = state.sessions.get(workspaceId);
-      if (!session || session.repoInfo.kind !== "repo") return state;
-
-      const next = new Map(state.sessions);
-      next.set(workspaceId, {
-        ...session,
-        status,
-        branchInfo: status.branch,
-      });
-      return { sessions: next };
-    });
-  } catch (error) {
-    console.warn("[git] passive status refresh failed", error);
-  }
-}
-
-/**
- * Applies background autofetch state from main without overwriting unrelated
- * Git operation errors. The paused banner is edge-triggered by main so it
- * appears once per three-strikes pause.
- */
-function applyAutofetchEvent(event: GitAutofetchStateChanged): void {
-  useGitStore.setState((state) => {
-    const session = state.sessions.get(event.workspaceId);
-    if (!session) return state;
-
-    const next = new Map(state.sessions);
-    next.set(event.workspaceId, {
-      ...session,
-      autofetchFetching: event.fetching,
-      autofetchManualPaused: event.paused,
-      autofetchConsecutiveFailures: event.consecutiveFailures,
-      autofetchLastError: event.lastError,
-      autofetchPausedBannerVisible:
-        event.showPausedBanner || (event.paused ? session.autofetchPausedBannerVisible : false),
-    });
-    return { sessions: next };
-  });
-}
-
-/**
- * Install git broadcast listeners once per renderer module instance.
- */
-function installGitEventSubscriptions(): void {
-  if (!canUseIpcBridge()) return;
-
-  ipcListen("git", "statusChanged", ({ workspaceId, status }) => {
-    useGitStore.setState((state) => {
-      const session = state.sessions.get(workspaceId);
-      if (!session) return state;
-
-      const next = new Map(state.sessions);
-      next.set(workspaceId, {
-        ...session,
-        status,
-        statusFetching: false,
-        branchInfo: status.branch,
-        pendingNonFFRetry:
-          session.pendingNonFFRetry?.branch === status.branch?.current
-            ? session.pendingNonFFRetry
-            : null,
-      });
-      return { sessions: next };
-    });
-  });
-
-  ipcListen("git", "repoInfoChanged", ({ workspaceId, info }) => {
-    useGitStore.setState((state) => {
-      const session = state.sessions.get(workspaceId);
-      if (!session) return state;
-
-      const next = new Map(state.sessions);
-      next.set(workspaceId, {
-        ...session,
-        repoInfo: info,
-        status: info.kind === "repo" ? session.status : null,
-        branchInfo: info.kind === "repo" ? session.branchInfo : null,
-      });
-      return { sessions: next };
-    });
-  });
-
-  ipcListen("autofetch", "stateChanged", (event) => {
-    applyAutofetchEvent(event);
-  });
-
-  ipcListen("fs", "changed", ({ workspaceId, changes }) => {
-    if (changes.length === 0) return;
-    const session = useGitStore.getState().sessions.get(workspaceId);
-    if (!session || session.repoInfo.kind !== "repo") return;
-    scheduleStatusHintRefresh(workspaceId);
-  });
-}
-
-/**
- * Flush pending draft writes before the renderer loses focus or becomes
- * hidden, covering input blur and app-background paths without UI code.
- */
-function installCommitDraftFlushListeners(): void {
-  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
-
-  window.addEventListener("blur", flushAllCommitDraftSaves);
-
-  if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      flushAllCommitDraftSaves();
-    }
-  });
-}
-
-/**
- * Find the first rejected `Promise.allSettled` reason in result order.
- */
-function firstRejectedReason(...results: PromiseSettledResult<unknown>[]): unknown | undefined {
-  for (const result of results) {
-    if (result.status === "rejected") return result.reason;
-  }
-  return undefined;
-}
-
-/**
- * Check whether a thrown value represents an intentional abort.
- */
-function isAbortError(error: unknown): boolean {
-  return isRecord(error) && error.name === "AbortError";
-}
-
-/**
- * Normalize arbitrary thrown values into the store's user-facing error shape.
- *
- * Reads `kind` and `hint` directly off the error instance — the renderer
- * IPC client (src/renderer/ipc/client.ts) rehydrates these fields onto the
- * thrown Error from the cause envelope set by the main router, so they are
- * present here for typed Git errors. Falls back to `name` / message-based
- * inference for non-GitError throws.
- */
-function gitStoreErrorFromUnknown(error: unknown, operation?: GitOperationKind): GitStoreError {
-  if (isRecord(error)) {
-    const message = typeof error.message === "string" ? error.message : "Git operation failed";
-    const kind =
-      typeof error.kind === "string"
-        ? error.kind
-        : typeof error.name === "string"
-          ? error.name
-          : "unknown";
-    const details =
-      typeof error.details === "string"
-        ? error.details
-        : typeof error.stderr === "string"
-          ? error.stderr
-          : undefined;
-    const hint = isGitActionHint(error.hint) ? error.hint : undefined;
-
-    return { kind, message, details, operation, hint };
-  }
-
-  return { kind: "unknown", message: String(error), operation };
-}
-
-/**
- * Copies only defined push options so pending retries reuse the user's
- * original argv intent without storing transient `undefined` fields.
- */
-function normalizePushOptions(options: GitPushOptions): GitPushOptions {
-  return {
-    ...(options.force !== undefined ? { force: options.force } : {}),
-    ...(options.publish !== undefined ? { publish: options.publish } : {}),
-  };
-}
-
-/**
- * Captures enough context to offer a one-click retry after a non-FF push flow.
- */
-function pendingRetryFromPushError(
-  session: GitSession,
-  error: GitStoreError,
-  originalPushOpts: GitPushOptions,
-): PendingNonFFRetry | null {
-  if (error.kind === "force-push-rejected" && session.pendingNonFFRetry) {
-    return session.pendingNonFFRetry;
-  }
-
-  if (error.kind !== "non-fast-forward" && error.kind !== "force-push-rejected") {
-    return null;
-  }
-
-  return {
-    branch: currentBranchName(session),
-    attemptedAt: Date.now(),
-    originalPushOpts,
-  };
-}
-
-/**
- * Finds the current branch label for retry banners; non-FF push failures
- * require a named branch in normal Git flows, so "HEAD" is only a fallback.
- */
-function currentBranchName(session: GitSession): string {
-  return session.branchInfo?.current ?? session.status?.branch?.current ?? "HEAD";
-}
-
-/** Returns true for push guardrail errors that share the pending retry banner. */
-function isPendingNonFFError(error: GitStoreError | null): boolean {
-  return error?.kind === "non-fast-forward" || error?.kind === "force-push-rejected";
-}
-
-/**
- * Narrows a possibly-rehydrated hint payload to a GitActionHint discriminator
- * the panel consumes. The renderer IPC layer copies hint shapes verbatim, so a
- * `kind` string is the only field we need to validate before forwarding.
- */
-function isGitActionHint(value: unknown): value is GitActionHint {
-  if (!isRecord(value)) return false;
-  return typeof value.kind === "string";
-}
-
-/**
- * Narrow unknown values to object records for safe property access.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

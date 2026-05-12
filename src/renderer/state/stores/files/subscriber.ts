@@ -4,6 +4,15 @@ import { loadChildren } from "../../operations/files";
 import { joinPath, parentOf } from "./helpers";
 import { useFilesStore } from "./store";
 
+/**
+ * Reconciles the file tree store with a watcher-driven `fs.changed` event.
+ *
+ * For each changed path the parent directory is invalidated: if the parent is
+ * currently expanded and its children have been loaded, the children are
+ * re-fetched eagerly; otherwise the parent is marked stale so the next
+ * expansion re-loads. The module-level subscription at the bottom of this
+ * file wires it to the IPC bus on the renderer.
+ */
 export function handleFsChanged(event: FsChangedEvent): void {
   const { workspaceId, changes } = event;
   const tree = useFilesStore.getState().trees.get(workspaceId);

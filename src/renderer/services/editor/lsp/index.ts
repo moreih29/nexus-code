@@ -1,3 +1,15 @@
+/**
+ * services/editor/lsp/ — Monaco-bound LSP adapters.
+ *
+ * Code in this folder bridges Monaco editor instances with the LSP transport:
+ * provider registration, document sync, range/marker converters, and the
+ * workspace-edit applier. Anything here assumes a Monaco editor or model is
+ * available.
+ *
+ * For editor-independent LSP consumers (server-event UX routing, workspace
+ * symbol registry, etc.) see `services/lsp/`.
+ */
+
 export { isLspLanguage, LSP_LANGUAGES, type LspLanguage } from "./language";
 export {
   applyWorkspaceEdit,

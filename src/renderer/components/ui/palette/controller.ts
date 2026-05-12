@@ -39,6 +39,21 @@ export function initialPaletteSearchSnapshot<
 
 const GRACE_PERIOD_MS = 100;
 
+/**
+ * Drives query-based palettes (command palette, workspace-symbol search…)
+ * against an external `PaletteSource`. Owns three pieces of state the caller
+ * would otherwise have to wire up by hand:
+ *
+ *  - debounce: queries within `debounceMs` collapse to a single fetch
+ *  - cancellation: a new query aborts the previous in-flight request via
+ *    `AbortController`
+ *  - grace period: when a fast in-flight request finishes within
+ *    `GRACE_PERIOD_MS`, the loading flash is suppressed to avoid spinner
+ *    flicker
+ *
+ * Snapshots are pushed to `onChange` on every status transition so the
+ * subscribing UI can render in a single store read.
+ */
 export class PaletteSearchController<TItem extends PaletteItem> {
   private debounceTimer: unknown | null = null;
   private graceTimer: unknown | null = null;
@@ -115,9 +130,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
    */
   async flush(): Promise<PaletteSearchSnapshot<TItem>> {
     if (this.disposed) {
-      return (
-        this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 }
-      );
+      return this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 };
     }
 
     if (this.pendingQuery !== null) {
@@ -133,9 +146,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
       await this.inFlightPromise;
     }
 
-    return (
-      this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 }
-    );
+    return this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 };
   }
 
   dispose(): void {

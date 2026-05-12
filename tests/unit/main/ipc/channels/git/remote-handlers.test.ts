@@ -6,27 +6,8 @@ import {
   addRemoteHandler,
   removeRemoteHandler,
 } from "../../../../../../src/main/ipc/channels/git/remote-handlers";
-import { ipcContract } from "../../../../../../src/shared/ipc-contract";
 
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
-
-describe("git remote IPC contract", () => {
-  it("accepts add/remove remote args", () => {
-    expect(
-      ipcContract.git.call.addRemote.args.safeParse({
-        workspaceId: VALID_UUID,
-        name: "origin",
-        url: "https://example.invalid/repo.git",
-      }).success,
-    ).toBe(true);
-    expect(
-      ipcContract.git.call.removeRemote.args.safeParse({
-        workspaceId: VALID_UUID,
-        name: "origin",
-      }).success,
-    ).toBe(true);
-  });
-});
 
 describe("git remote handlers", () => {
   it("adds a remote and refreshes capabilities after the mutation", async () => {

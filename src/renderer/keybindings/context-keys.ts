@@ -36,6 +36,12 @@ export type ContextKeyName =
   | "terminalFocus"
   | "commandPaletteFocus";
 
+/**
+ * Resolves a `when`-clause context key (e.g. `editorFocus`, `fileTreeFocus`)
+ * against the currently focused element on a keyboard event. Returns `false`
+ * for unknown keys so unrecognised conditions never accidentally fire a
+ * binding.
+ */
 export function evaluateContextKey(name: string, event: KeyboardEvent): boolean {
   const target = (event.target as HTMLElement | null) ?? null;
   switch (name) {

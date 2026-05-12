@@ -456,6 +456,11 @@ export const useSearchStore = create<SearchState>((set, get) => {
 // Selector helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Subscribes to a single workspace's search session slice. Returns `undefined`
+ * when no search has been performed yet for that workspace; consumers should
+ * fall back to an idle view in that case.
+ */
 export function useSearchSession(workspaceId: string): SearchSession | undefined {
   return useSearchStore((s) => s.sessions.get(workspaceId));
 }

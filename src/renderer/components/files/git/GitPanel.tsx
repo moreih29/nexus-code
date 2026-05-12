@@ -38,7 +38,7 @@ import { GitGroup } from "./GitGroup";
 import { GitHeader } from "./GitHeader";
 import { GitInlineBanner } from "./GitInlineBanner";
 import { GitLoadingSkeleton } from "./GitLoadingSkeleton";
-import { buildRemoteUpstreamWarning } from "./GitMoreMenu";
+import { buildRemoteUpstreamWarning } from "./git-more-menu-model";
 import {
   buildPublishBranchPrompt,
   buildTagHistoryRevealMessage,
@@ -63,9 +63,9 @@ import {
   type RebaseTargetPickItem,
 } from "./rebase-target-picker-source";
 import { StashPicker } from "./StashPicker";
-import type { StashPickerMode } from "./stash-picker-source";
 import { TagPicker } from "./TagPicker";
 import type { TagPickerMode } from "./tag-picker-source";
+import { useGitPanelPickers } from "./use-git-panel-pickers";
 import { useGitHelperOccupancy } from "./useGitHelperPrompts";
 import { useGitOpHotkey } from "./useGitOpHotkey";
 import { useGitSession } from "./useGitSession";
@@ -133,23 +133,38 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const toggleExpandedTreeNode = useGitStore((state) => state.toggleExpandedTreeNode);
 
   const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
-  const [branchPickerOpen, setBranchPickerOpen] = useState(false);
-  const [branchPickerMode, setBranchPickerMode] = useState<BranchPickerMode>("switch");
-  const [mergeTargetPickerOpen, setMergeTargetPickerOpen] = useState(false);
-  const [rebaseTargetPickerOpen, setRebaseTargetPickerOpen] = useState(false);
-  const [commitPickerOpen, setCommitPickerOpen] = useState(false);
-  const [commitBranchPickerOpen, setCommitBranchPickerOpen] = useState(false);
-  const [commitPickerRef, setCommitPickerRef] = useState<string | null>(null);
-  const [branchCreateFromPickerOpen, setBranchCreateFromPickerOpen] = useState(false);
+  const {
+    branchPickerOpen,
+    setBranchPickerOpen,
+    branchPickerMode,
+    setBranchPickerMode,
+    mergeTargetPickerOpen,
+    setMergeTargetPickerOpen,
+    rebaseTargetPickerOpen,
+    setRebaseTargetPickerOpen,
+    commitPickerOpen,
+    setCommitPickerOpen,
+    commitBranchPickerOpen,
+    setCommitBranchPickerOpen,
+    commitPickerRef,
+    setCommitPickerRef,
+    branchCreateFromPickerOpen,
+    setBranchCreateFromPickerOpen,
+    stashPickerOpen,
+    setStashPickerOpen,
+    stashPickerMode,
+    setStashPickerMode,
+    tagPickerOpen,
+    setTagPickerOpen,
+    tagPickerMode,
+    setTagPickerMode,
+    tagPickerRemote,
+    setTagPickerRemote,
+  } = useGitPanelPickers();
   const [branchCreateRequest, setBranchCreateRequest] = useState<BranchCreateRequest | null>(null);
   const [branchCreateBranchList, setBranchCreateBranchList] = useState<BranchList | null>(null);
   const [branchCreateBranchListLoading, setBranchCreateBranchListLoading] = useState(false);
   const branchCreateLoadIdRef = useRef(0);
-  const [stashPickerOpen, setStashPickerOpen] = useState(false);
-  const [stashPickerMode, setStashPickerMode] = useState<StashPickerMode>("apply");
-  const [tagPickerOpen, setTagPickerOpen] = useState(false);
-  const [tagPickerMode, setTagPickerMode] = useState<TagPickerMode>("browse");
-  const [tagPickerRemote, setTagPickerRemote] = useState<string | null>(null);
   const [mergeOptionsRequest, setMergeOptionsRequest] = useState<MergeOptionsRequest | null>(null);
   const [publishRequest, setPublishRequest] = useState<PromptRequest | null>(null);
   const [emptyCommitRequest, setEmptyCommitRequest] = useState<PromptRequest | null>(null);
@@ -287,7 +302,14 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setCommitBranchPickerOpen(true);
         },
       }),
-    [cherryPick, commitPickerRef, currentBranchName, listRecentCommits, workspaceId],
+    [
+      cherryPick,
+      commitPickerRef,
+      currentBranchName,
+      listRecentCommits,
+      workspaceId,
+      setCommitBranchPickerOpen,
+    ],
   );
   const commitBranchSource = useMemo(
     () =>
@@ -302,7 +324,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setCommitPickerOpen(true);
         },
       }),
-    [currentBranchName, listBranches, workspaceId],
+    [currentBranchName, listBranches, workspaceId, setCommitPickerRef, setCommitPickerOpen],
   );
 
   /**

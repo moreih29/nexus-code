@@ -9,10 +9,8 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  GitClonePhase,
   GitCloneStreamProgressEvent,
   GitCloneStreamResultEvent,
-  GitStatus,
 } from "../../../../shared/types/git";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { type IpcStreamHandle, ipcCall, ipcStream } from "../../../ipc/client";
@@ -30,26 +28,27 @@ import {
   isFormDialogSubmitDisabled,
 } from "../../ui/form-dialog";
 import { closeCloneDialog, isCloneDialogOpen, subscribeCloneDialog } from "./clone-dialog-state";
+import {
+  type ClonePostCloneAction,
+  CloneProgressContent,
+  type CloneProgressState,
+  CloneSuccessContent,
+  type CloneSuccessState,
+} from "./clone-dialog-status-views";
+import {
+  createCloneFormFields,
+  deriveFolderNameFromUrl,
+  isGitSessionDirty,
+  parentDirectoryOf,
+  previewClonePath,
+} from "./clone-form-utils";
 import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "./confirmDiscardDialog";
 
-const CLONE_FOLDER_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
-
-export type ClonePostCloneAction = "new-window" | "add-workspace" | "current-window";
+export type { ClonePostCloneAction };
 
 interface CloneDialogProps {
   open: boolean;
   onClose: () => void;
-}
-
-interface CloneProgressState {
-  readonly phase: GitClonePhase | null;
-  readonly pct: number | null;
-  readonly cancelling: boolean;
-}
-
-interface CloneSuccessState {
-  readonly absPath: string;
-  readonly name: string;
 }
 
 interface CloneWorkspaceActionDeps {
@@ -104,40 +103,6 @@ export async function runPostCloneWorkspaceAction(
   }
 
   return meta;
-}
-
-/** Creates the four FormDialog fields used by the clone form. */
-export function createCloneFormFields(): FormDialogField[] {
-  return [
-    {
-      name: "url",
-      label: "Repository URL",
-      type: "text",
-      placeholder: "https://github.com/org/repo.git",
-      autoFocus: true,
-      inputClassName: "font-mono",
-      validate: validateCloneUrl,
-    },
-    {
-      name: "parent",
-      label: "Parent folder",
-      placeholder: "/Users/alice/work",
-      readOnly: true,
-      validate: validateCloneParent,
-    },
-    {
-      name: "name",
-      label: "Folder name",
-      placeholder: "repo",
-      validate: validateCloneFolderName,
-    },
-    {
-      name: "branch",
-      label: "Branch",
-      placeholder: "default branch",
-      required: false,
-    },
-  ];
 }
 
 /**
@@ -489,141 +454,6 @@ export function CloneDialogContent({
   );
 }
 
-/** Renders the progress state once the clone stream starts. */
-function CloneProgressContent({
-  progress,
-  errorMessage,
-  onCancelClone,
-}: {
-  readonly progress: CloneProgressState;
-  readonly errorMessage: string | null;
-  readonly onCancelClone: () => void;
-}): React.JSX.Element {
-  const pct = progress.pct ?? 0;
-  return (
-    <>
-      <h2 className="text-app-body-emphasis text-foreground">Cloning repository…</h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {progress.cancelling ? "Cancelling and cleaning up…" : clonePhaseLabel(progress.phase)}
-      </p>
-      <div
-        className="mt-4 h-2 overflow-hidden rounded-full bg-frosted-veil"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={progress.pct ?? undefined}
-      >
-        <div
-          className={`h-full rounded-full bg-primary transition-all ${progress.pct === null ? "animate-pulse" : ""}`}
-          style={{ width: `${progress.pct === null ? 35 : pct}%` }}
-        />
-      </div>
-      {errorMessage ? (
-        <p className="mt-3 text-app-ui-xs git-destructive-text" role="alert">
-          {errorMessage}
-        </p>
-      ) : null}
-      <div className="mt-5 flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={progress.cancelling}
-          onClick={onCancelClone}
-        >
-          {progress.cancelling ? "Cancelling…" : "Cancel"}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-/** Renders the post-clone CTA state. */
-function CloneSuccessContent({
-  success,
-  errorMessage,
-  ctaDefault,
-  postCloneBusy,
-  currentWindowDirty,
-  onPostCloneAction,
-}: {
-  readonly success: CloneSuccessState;
-  readonly errorMessage: string | null;
-  readonly ctaDefault: ClonePostCloneAction;
-  readonly postCloneBusy: ClonePostCloneAction | null;
-  readonly currentWindowDirty: boolean;
-  readonly onPostCloneAction: (action: ClonePostCloneAction) => void;
-}): React.JSX.Element {
-  return (
-    <>
-      <h2 className="text-app-body-emphasis text-foreground">Clone complete</h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        Repository cloned to <span className="font-mono text-foreground">{success.absPath}</span>.
-      </p>
-      {errorMessage ? (
-        <p className="mt-3 text-app-ui-xs git-destructive-text" role="alert">
-          {errorMessage}
-        </p>
-      ) : null}
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
-        <PostCloneButton
-          action="new-window"
-          label="Open in new window"
-          defaultAction={ctaDefault}
-          busyAction={postCloneBusy}
-          onClick={onPostCloneAction}
-        />
-        <PostCloneButton
-          action="add-workspace"
-          label="Add to workspaces"
-          defaultAction={ctaDefault}
-          busyAction={postCloneBusy}
-          onClick={onPostCloneAction}
-        />
-        <PostCloneButton
-          action="current-window"
-          label={currentWindowDirty ? "Open in current window ⚠" : "Open in current window"}
-          defaultAction={ctaDefault}
-          busyAction={postCloneBusy}
-          onClick={onPostCloneAction}
-          deemphasized
-        />
-      </div>
-    </>
-  );
-}
-
-/** Renders one Clone success CTA with the session-default emphasis. */
-function PostCloneButton({
-  action,
-  label,
-  defaultAction,
-  busyAction,
-  deemphasized = false,
-  onClick,
-}: {
-  readonly action: ClonePostCloneAction;
-  readonly label: string;
-  readonly defaultAction: ClonePostCloneAction;
-  readonly busyAction: ClonePostCloneAction | null;
-  readonly deemphasized?: boolean;
-  readonly onClick: (action: ClonePostCloneAction) => void;
-}): React.JSX.Element {
-  const busy = busyAction !== null;
-  const isDefault = action === defaultAction;
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant={isDefault && !deemphasized ? "default" : deemphasized ? "ghost" : "outline"}
-      disabled={busy}
-      onClick={() => onClick(action)}
-    >
-      {busyAction === action ? "Working…" : label}
-    </Button>
-  );
-}
-
 /** Builds initial Clone form values from the active workspace if available. */
 function initialCloneFormValues(
   workspaces: readonly WorkspaceMeta[],
@@ -635,95 +465,4 @@ function initialCloneFormValues(
   return initialFormDialogValues(createCloneFormFields(), {
     parent: active ? parentDirectoryOf(active.rootPath) : "",
   });
-}
-
-/** Derives a folder name preview from common Git URL syntaxes. */
-export function deriveFolderNameFromUrl(url: string): string {
-  const trimmed = url.trim().replace(/[/?#]+$/, "");
-  const withoutQuery = trimmed.split(/[?#]/, 1)[0] ?? trimmed;
-  const pivot = Math.max(withoutQuery.lastIndexOf("/"), withoutQuery.lastIndexOf(":"));
-  const rawName = pivot >= 0 ? withoutQuery.slice(pivot + 1) : withoutQuery;
-  return rawName.endsWith(".git") ? rawName.slice(0, -4) : rawName;
-}
-
-/** Returns the live filesystem preview for clone destination. */
-export function previewClonePath(parent: string, name: string): string {
-  if (!parent.trim() || !name.trim()) return "";
-  return joinFsPath(parent.trim(), name.trim());
-}
-
-/** Validates a clone URL using intentionally relaxed Git-compatible rules. */
-export function validateCloneUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return "Repository URL is required";
-  if (/\s/.test(trimmed)) return "Repository URL cannot contain spaces";
-  return null;
-}
-
-/** Validates that the parent folder is an absolute path string. */
-export function validateCloneParent(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return "Choose a parent folder";
-  if (!isLikelyAbsolutePath(trimmed)) return "Choose an absolute parent folder";
-  return null;
-}
-
-/** Validates the folder name rule enforced by the main-process clone runner. */
-export function validateCloneFolderName(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return "Folder name is required";
-  if (trimmed.length > 255) return "Folder name is too long";
-  if (trimmed.startsWith(".")) return "Folder name cannot start with a dot";
-  if (!CLONE_FOLDER_NAME_PATTERN.test(trimmed)) {
-    return "Use letters, numbers, dot, underscore, or dash";
-  }
-  return null;
-}
-
-/** Returns a parent directory for POSIX and Windows-style absolute paths. */
-export function parentDirectoryOf(absPath: string): string {
-  const trimmed = absPath.replace(/[\\/]+$/, "");
-  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  if (slash <= 0) return "";
-  if (/^[A-Za-z]:/.test(trimmed) && slash <= 2) return `${trimmed.slice(0, 2)}\\`;
-  return trimmed.slice(0, slash);
-}
-
-/** Joins a parent path and child name using the parent's apparent separator. */
-export function joinFsPath(parent: string, name: string): string {
-  const sep = parent.includes("\\") && !parent.includes("/") ? "\\" : "/";
-  const trimmed = parent.replace(/[\\/]+$/, "");
-  if (trimmed.length === 0 && parent.startsWith("/")) return `/${name}`;
-  return `${trimmed}${sep}${name}`;
-}
-
-/** Checks the path syntaxes the renderer can recognize without Node path. */
-function isLikelyAbsolutePath(value: string): boolean {
-  return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
-}
-
-/** Converts a clone phase into the status line shown under the title. */
-function clonePhaseLabel(phase: GitClonePhase | null): string {
-  switch (phase) {
-    case "counting":
-      return "Counting objects…";
-    case "compressing":
-      return "Compressing objects…";
-    case "receiving":
-      return "Receiving objects…";
-    case "resolving":
-      return "Resolving deltas…";
-    case "checkout":
-      return "Checking out files…";
-    default:
-      return "Preparing clone…";
-  }
-}
-
-/** Returns true when the active source-control session has local changes. */
-function isGitSessionDirty(status: GitStatus | null): boolean {
-  if (!status) return false;
-  return (
-    status.merge.length + status.staged.length + status.working.length + status.untracked.length > 0
-  );
 }

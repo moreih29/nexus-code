@@ -3,8 +3,6 @@
  * toplevel, which may be above the opened workspace when a subdirectory is open.
  */
 
-import fs from "node:fs/promises";
-import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type {
   BranchList,
@@ -24,13 +22,10 @@ import type {
   GitMergeResult,
   GitRebaseResult,
   GitStatus,
-  GitStatusEntry,
-  GitSyncError,
   GitSyncResult,
   LogChunk,
   LogComplete,
   LogEntry,
-  LogEntryRef,
   PullResult,
   PushResult,
   RemoteTag,
@@ -45,10 +40,24 @@ import { type GitConflictRunner, markResolved as markConflictResolved } from "./
 import { streamGitTextChunks } from "./git-diff-stream";
 import { GitError } from "./git-error";
 import { appendIgnoreEntry } from "./git-ignore";
+import { buildLogArgs, LOG_RECORD_SEPARATOR, parseLogRecord } from "./git-log-parsing";
 import { readGitOperationState } from "./git-operation-state";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import { type RunGitResult, runGit, streamGit } from "./git-process";
 import * as remoteOps from "./git-remote";
+import {
+  buildCommitArgs,
+  buildDiffArgs,
+  collectDiscardPathsets,
+  gitSyncErrorFromGitError,
+  isAbortError,
+  noop,
+  parseBranchLines,
+  parsePullResult,
+  parsePushResult,
+  readFetchHeadMtime,
+  throwIfAborted,
+} from "./git-repository-helpers";
 import {
   applyStash,
   dropStash,
@@ -63,11 +72,6 @@ import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
 import { parseV2Porcelain } from "./porcelain-v2";
 
 const LOG_CHUNK_ENTRY_COUNT = 50;
-const LOG_FIELD_SEPARATOR = "\x1f";
-const LOG_RECORD_SEPARATOR = "\x1e";
-const LOG_FIELDS = ["%H", "%h", "%P", "%an", "%ae", "%aI", "%s", "%b", "%D"];
-const LOG_FORMAT = `${LOG_FIELDS.join("%x1f")}%x1e`;
-const LOG_SOURCE_FORMAT = `${["%S", ...LOG_FIELDS].join("%x1f")}%x1e`;
 
 export interface GitLogArgs {
   readonly ref?: string;
@@ -83,11 +87,11 @@ interface QueuedOperation {
   readonly cleanup: () => void;
 }
 
-interface DiscardOptions {
+export interface DiscardOptions {
   readonly source?: GitExpandedGroupKey;
 }
 
-interface CommitCommandOptions {
+export interface CommitCommandOptions {
   readonly amend?: boolean;
   readonly allowEmpty?: boolean;
   readonly edit?: boolean;
@@ -96,7 +100,7 @@ interface CommitCommandOptions {
   readonly noVerify?: boolean;
 }
 
-interface DiscardPathsets {
+export interface DiscardPathsets {
   readonly restoreAllPaths: string[];
   readonly restoreWorktreePaths: string[];
   readonly resetIndexPaths: string[];
@@ -1261,425 +1265,3 @@ export class GitRepository {
     return entries;
   }
 }
-
-/**
- * Builds `git diff` arguments from the shared diff spec union.
- */
-function buildDiffArgs(spec: DiffSpec): string[] {
-  const args = ["diff", "--no-ext-diff"];
-
-  if (spec.kind === "index-vs-head") {
-    args.push("--cached");
-  } else if (spec.kind === "wt-vs-head") {
-    args.push("HEAD");
-  } else if (spec.kind === "ref-vs-ref") {
-    args.push(spec.leftRef, spec.rightRef);
-  }
-
-  const pathspecs = collectDiffPathspecs(spec);
-  if (pathspecs.length > 0) {
-    args.push("--", ...pathspecs);
-  }
-
-  return args;
-}
-
-/**
- * Returns every path needed to show a rename-aware diff.
- */
-function collectDiffPathspecs(spec: DiffSpec): string[] {
-  const paths = new Set<string>();
-  if (spec.oldRelPath) paths.add(spec.oldRelPath);
-  if (spec.relPath) paths.add(spec.relPath);
-  return Array.from(paths);
-}
-
-/**
- * Builds the commit-family argv, keeping option flags before the message so
- * `--amend`, `--allow-empty`, signing, signoff, and hook-skipping compose.
- */
-function buildCommitArgs(message: string | undefined, options: CommitCommandOptions): string[] {
-  const trimmed = message?.trim();
-  if (!options.edit && (!trimmed || trimmed.length === 0)) {
-    throw new GitError("commit-aborted", "Commit message is required.");
-  }
-
-  const args = ["commit"];
-  if (options.amend) args.push("--amend");
-  if (options.allowEmpty) args.push("--allow-empty");
-  if (options.sign) args.push("-S");
-  if (options.signoff) args.push("--signoff");
-  if (options.noVerify) args.push("--no-verify");
-  if (options.edit) {
-    args.push("-e");
-  } else if (trimmed) {
-    args.push("-m", trimmed);
-  }
-  return args;
-}
-
-/**
- * Builds a `git log` command that fetches one extra row when paginating.
- * Non-ref scopes read all matching refs directly, so skip-based pagination is
- * rejected and cursor pages omit Git-side bounds so streamLog can seek past
- * the cursor before enforcing the page limit.
- */
-export function buildLogArgs(args: GitLogArgs): string[] {
-  const scope = args.scope ?? "ref";
-  if (scope !== "ref" && args.skip !== undefined) {
-    throw new GitError("unknown", "`skip` is only supported for ref-scoped git logs.");
-  }
-
-  const afterSha = args.afterSha?.trim();
-  const usesStreamCursorSeek = scope !== "ref" && afterSha !== undefined && afterSha.length > 0;
-  const format = scope === "ref" ? LOG_FORMAT : LOG_SOURCE_FORMAT;
-  const gitArgs = ["log", `--pretty=format:${format}`, "--date=iso-strict"];
-
-  if (args.grep && args.grep.trim().length > 0) gitArgs.push(`--grep=${args.grep.trim()}`);
-  if (scope === "ref" && args.skip && args.skip > 0) gitArgs.push(`--skip=${args.skip}`);
-  if (args.limit && args.limit > 0 && !usesStreamCursorSeek) {
-    gitArgs.push(`--max-count=${args.limit + 1}`);
-  }
-  if (scope === "all") gitArgs.push("--source", "--all");
-  if (scope === "branches") gitArgs.push("--source", "--branches");
-  if (scope === "ref" && afterSha && afterSha.length > 0) {
-    gitArgs.push(`${afterSha}^@`);
-  } else if (scope === "ref" && args.ref && args.ref.trim().length > 0) {
-    gitArgs.push(args.ref);
-  }
-
-  return gitArgs;
-}
-
-interface ParseLogRecordOptions {
-  readonly hasSource?: boolean;
-}
-
-/**
- * Parses one custom-formatted git log record. Source-aware records carry `%S`
- * as the first field; decoration refs always remain the final `%D` field so
- * commit bodies can still contain the field separator without losing text.
- */
-export function parseLogRecord(
-  record: string,
-  options: ParseLogRecordOptions = {},
-): LogEntry | null {
-  const normalized = record.startsWith("\n") ? record.slice(1) : record;
-  if (normalized.trim().length === 0) return null;
-
-  const fields = normalized.split(LOG_FIELD_SEPARATOR);
-  const offset = options.hasSource ? 1 : 0;
-  if (fields.length < offset + LOG_FIELDS.length) return null;
-
-  const sha = fields[offset];
-  const shortSha = fields[offset + 1];
-  const parents = fields[offset + 2];
-  const authorName = fields[offset + 3];
-  const authorEmail = fields[offset + 4];
-  const authoredAt = fields[offset + 5];
-  const subject = fields[offset + 6];
-  const decorations = fields.at(-1) ?? "";
-  const bodyParts = fields.slice(offset + 7, -1);
-  if (!sha) return null;
-  const body = bodyParts.join(LOG_FIELD_SEPARATOR).trim();
-
-  return {
-    sha,
-    shortSha: shortSha || undefined,
-    parents: parents ? parents.split(" ").filter(Boolean) : [],
-    authorName: authorName ?? "",
-    authorEmail: authorEmail || undefined,
-    authoredAt: authoredAt ?? "",
-    subject: subject ?? "",
-    body: body.length > 0 ? body : undefined,
-    refs: parseLogDecorations(decorations),
-  };
-}
-
-/**
- * Parses Git's `%D` decoration list into normalized ref chips. The short
- * format is intentionally accepted because it is Git's default `%D` payload;
- * full `refs/*` names are also normalized when tests or future args use them.
- */
-function parseLogDecorations(decorations: string): LogEntryRef[] {
-  const refs = new Map<string, LogEntryRef>();
-
-  const pushRef = (ref: LogEntryRef | null) => {
-    if (!ref) return;
-    const key = `${ref.kind}:${ref.name}`;
-    const existing = refs.get(key);
-    refs.set(key, existing ? { ...existing, isHead: existing.isHead || ref.isHead } : ref);
-  };
-
-  for (const rawPart of decorations.split(/,\s*/)) {
-    const part = rawPart.trim();
-    if (part.length === 0) continue;
-
-    const arrowIndex = part.indexOf(" -> ");
-    if (arrowIndex >= 0) {
-      const source = part.slice(0, arrowIndex).trim();
-      const target = part.slice(arrowIndex + 4).trim();
-      const sourceRef = parseDecorationRef(source, false);
-      pushRef(sourceRef);
-      pushRef(parseDecorationRef(target, sourceRef?.kind === "head"));
-      continue;
-    }
-
-    pushRef(parseDecorationRef(part, false));
-  }
-
-  return Array.from(refs.values());
-}
-
-/**
- * Converts a single decoration token into the shared ref schema, preserving
- * HEAD as its own chip while tagging the current branch target when Git emits
- * the `HEAD -> branch` symbolic-ref grammar.
- */
-function parseDecorationRef(rawName: string, isHeadTarget: boolean): LogEntryRef | null {
-  if (rawName.length === 0) return null;
-  if (rawName === "HEAD") return { name: "HEAD", kind: "head", isHead: true };
-
-  if (rawName.startsWith("tag: ")) {
-    return {
-      name: normalizeDecoratedRefName(rawName.slice(5), "tag"),
-      kind: "tag",
-      isHead: false,
-    };
-  }
-
-  const name = normalizeDecoratedRefName(rawName);
-  if (name.length === 0) return null;
-  if (name === "HEAD") return { name: "HEAD", kind: "head", isHead: true };
-
-  return {
-    name,
-    kind: isDecoratedRemoteRef(rawName, name) ? "remote" : "branch",
-    isHead: isHeadTarget,
-  };
-}
-
-/**
- * Normalizes full Git refnames to the short names the renderer displays in
- * chips while leaving already-short `%D` names untouched.
- */
-function normalizeDecoratedRefName(name: string, kind?: LogEntryRef["kind"]): string {
-  const trimmed = name.trim();
-  if (kind === "tag" && trimmed.startsWith("refs/tags/")) return trimmed.slice(10);
-  if (trimmed.startsWith("refs/heads/")) return trimmed.slice(11);
-  if (trimmed.startsWith("refs/remotes/")) return trimmed.slice(13);
-  if (trimmed.startsWith("refs/tags/")) return trimmed.slice(10);
-  return trimmed;
-}
-
-/**
- * Classifies remote-tracking decorations. Full refs are exact; short refs need
- * a small heuristic because Git's default `%D` omits `refs/remotes/`.
- */
-function isDecoratedRemoteRef(rawName: string, normalizedName: string): boolean {
-  if (rawName.startsWith("refs/remotes/")) return true;
-  const firstSegment = normalizedName.split("/", 1)[0];
-  return firstSegment === "origin" || firstSegment === "upstream";
-}
-
-/**
- * Converts branch command stdout into non-empty branch names.
- */
-function parseBranchLines(stdout: string): string[] {
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-}
-
-/**
- * Summarizes successful `git pull` output for renderer banners.
- */
-function parsePullResult(result: RunGitResult): PullResult {
-  const summary = summarizeGitOutput(result);
-  const stats = parseDiffStat(summary);
-  return {
-    alreadyUpToDate: /already up[ -]to[ -]date/i.test(summary),
-    fastForward: /fast-forward/i.test(summary) || undefined,
-    ...stats,
-    summary: summary || undefined,
-  };
-}
-
-/**
- * Reads `.git/FETCH_HEAD` mtime so external terminal fetches update the chip.
- */
-async function readFetchHeadMtime(gitDir: string): Promise<number | null> {
-  try {
-    const stat = await fs.stat(path.join(gitDir, "FETCH_HEAD"));
-    return Math.trunc(stat.mtimeMs);
-  } catch (error) {
-    if (isEnoent(error)) return null;
-    throw error;
-  }
-}
-
-/**
- * Identifies a missing FETCH_HEAD without suppressing other filesystem errors.
- */
-function isEnoent(error: unknown): boolean {
-  return (
-    typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT"
-  );
-}
-
-/**
- * Detects the standard AbortError shape emitted by the IPC cancellation path.
- */
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-/**
- * Copies the stable, renderer-facing subset of a pull GitError into the sync
- * envelope. The full Error instance stays main-process-only; sync needs only
- * enough detail to preserve the existing inline banner copy.
- */
-function gitSyncErrorFromGitError(error: GitError): GitSyncError {
-  return {
-    kind: error.kind,
-    message: error.message,
-    ...(error.stderr ? { details: error.stderr } : {}),
-  };
-}
-
-/**
- * Summarizes successful `git push` output for renderer banners.
- */
-function parsePushResult(result: RunGitResult): PushResult {
-  const summary = summarizeGitOutput(result);
-  return {
-    pushed: !/everything up[ -]to[ -]date/i.test(summary),
-    summary: summary || undefined,
-  };
-}
-
-/**
- * Joins stdout and stderr because Git reports network progress on stderr.
- */
-function summarizeGitOutput(result: RunGitResult): string {
-  return [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
-}
-
-/**
- * Extracts the common `N files changed, X insertions, Y deletions` summary.
- */
-function parseDiffStat(
-  summary: string,
-): Pick<PullResult, "filesChanged" | "insertions" | "deletions"> {
-  const stats: Pick<PullResult, "filesChanged" | "insertions" | "deletions"> = {};
-  const files = /(\d+) files? changed/.exec(summary);
-  const insertions = /(\d+) insertions?\(\+\)/.exec(summary);
-  const deletions = /(\d+) deletions?\(-\)/.exec(summary);
-
-  if (files) stats.filesChanged = Number(files[1]);
-  if (insertions) stats.insertions = Number(insertions[1]);
-  if (deletions) stats.deletions = Number(deletions[1]);
-  return stats;
-}
-
-/**
- * Computes the git commands needed to discard selected status entries.
- */
-function collectDiscardPathsets(
-  status: GitStatus,
-  relPaths: readonly string[],
-  options: DiscardOptions,
-): DiscardPathsets {
-  const selected = new Set(relPaths);
-  const restoreAllPaths = new Set<string>();
-  const restoreWorktreePaths = new Set<string>();
-  const resetIndexPaths = new Set<string>();
-  const resetThenCleanPaths = new Set<string>();
-  const cleanPaths = new Set<string>();
-  const source = options.source;
-
-  if (!source || source === "staged") {
-    for (const entry of status.staged) {
-      if (!entryIsSelected(entry, selected)) continue;
-      const stagedCode = entry.xy[0];
-
-      if (source === "staged") {
-        resetIndexPaths.add(entry.relPath);
-        if (entry.oldRelPath) resetIndexPaths.add(entry.oldRelPath);
-        continue;
-      }
-
-      if (stagedCode === "A" || stagedCode === "C") {
-        resetThenCleanPaths.add(entry.relPath);
-        continue;
-      }
-      restoreAllPaths.add(entry.relPath);
-      if (stagedCode === "R" && entry.oldRelPath) restoreAllPaths.add(entry.oldRelPath);
-    }
-  }
-
-  if (!source || source === "working") {
-    for (const entry of status.working) {
-      if (!entryIsSelected(entry, selected)) continue;
-      if (source === "working") {
-        restoreWorktreePaths.add(entry.relPath);
-        if (entry.oldRelPath) restoreWorktreePaths.add(entry.oldRelPath);
-        continue;
-      }
-
-      restoreAllPaths.add(entry.relPath);
-      if (entry.xy[0] === "R" && entry.oldRelPath) restoreAllPaths.add(entry.oldRelPath);
-    }
-  }
-
-  if (!source || source === "merge") {
-    for (const entry of status.merge) {
-      if (!entryIsSelected(entry, selected)) continue;
-      restoreAllPaths.add(entry.relPath);
-    }
-  }
-
-  if (!source || source === "untracked") {
-    for (const entry of status.untracked) {
-      if (selected.has(entry.relPath)) cleanPaths.add(entry.relPath);
-    }
-  }
-
-  return {
-    restoreAllPaths: Array.from(restoreAllPaths),
-    restoreWorktreePaths: Array.from(restoreWorktreePaths),
-    resetIndexPaths: Array.from(resetIndexPaths),
-    resetThenCleanPaths: Array.from(resetThenCleanPaths),
-    cleanPaths: Array.from(cleanPaths).filter((path) => !resetThenCleanPaths.has(path)),
-  };
-}
-
-/**
- * Matches a row by new or old path so rename rows can be selected once.
- */
-function entryIsSelected(entry: GitStatusEntry, selected: Set<string>): boolean {
-  return selected.has(entry.relPath) || (entry.oldRelPath ? selected.has(entry.oldRelPath) : false);
-}
-
-/**
- * Throws the standard abort error shape before spawning or streaming Git.
- */
-function throwIfAborted(signal: AbortSignal): void {
-  if (!signal.aborted) return;
-  throw createAbortError();
-}
-
-/**
- * Creates the standard AbortError shape used across queued repository ops.
- */
-function createAbortError(): Error {
-  const error = new Error("The operation was aborted");
-  error.name = "AbortError";
-  return error;
-}
-
-/**
- * Keeps queue tails non-rejecting without allocating inline callbacks repeatedly.
- */
-function noop(): void {}

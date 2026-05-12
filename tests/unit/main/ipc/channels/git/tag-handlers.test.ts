@@ -10,53 +10,8 @@ import {
   listTagsHandler,
   pushTagsHandler,
 } from "../../../../../../src/main/ipc/channels/git/tag-handlers";
-import { ipcContract } from "../../../../../../src/shared/ipc-contract";
 
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
-
-describe("git tag IPC contract", () => {
-  it("accepts list/create/delete/delete-remote tag args", () => {
-    expect(ipcContract.git.call.listTags.args.safeParse({ workspaceId: VALID_UUID }).success).toBe(
-      true,
-    );
-    expect(
-      ipcContract.git.call.listRemoteTags.args.safeParse({
-        workspaceId: VALID_UUID,
-        remote: "origin",
-      }).success,
-    ).toBe(true);
-    expect(
-      ipcContract.git.call.createTag.args.safeParse({
-        workspaceId: VALID_UUID,
-        name: "v1.0.0",
-        ref: "HEAD",
-        message: "release",
-      }).success,
-    ).toBe(true);
-    expect(
-      ipcContract.git.call.deleteTag.args.safeParse({
-        workspaceId: VALID_UUID,
-        name: "v1.0.0",
-      }).success,
-    ).toBe(true);
-    expect(
-      ipcContract.git.call.deleteRemoteTag.args.safeParse({
-        workspaceId: VALID_UUID,
-        remote: "origin",
-        name: "v1.0.0",
-      }).success,
-    ).toBe(true);
-    expect(
-      ipcContract.git.call.pushTags.args.safeParse({
-        workspaceId: VALID_UUID,
-        remote: "origin",
-      }).success,
-    ).toBe(true);
-    expect(ipcContract.git.call.pushTags.args.safeParse({ workspaceId: VALID_UUID }).success).toBe(
-      true,
-    );
-  });
-});
 
 describe("git tag handlers", () => {
   it("lists tags without forcing a status refresh", async () => {

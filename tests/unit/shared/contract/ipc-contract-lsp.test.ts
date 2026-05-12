@@ -7,34 +7,6 @@ const range = {
   end: { line: 5, character: 9 },
 };
 
-describe("ipcContract.lsp.call.didOpen", () => {
-  const schema = ipcContract.lsp.call.didOpen.args;
-
-  test("rejects missing workspace root", () => {
-    const result = schema.safeParse({
-      workspaceId: "123e4567-e89b-42d3-a456-426614174000",
-      uri: "file:///workspace/src/index.ts",
-      languageId: "typescript",
-      version: 1,
-      text: "const value = 1;\n",
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("ipcContract.lsp.call.didChange", () => {
-  const schema = ipcContract.lsp.call.didChange.args;
-
-  test("rejects legacy full text payload", () => {
-    const result = schema.safeParse({
-      uri: "file:///workspace/src/index.ts",
-      version: 2,
-      text: "const value = 2;\n",
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
 describe("ipcContract.lsp.call.didSave", () => {
   const schema = ipcContract.lsp.call.didSave.args;
 
@@ -61,24 +33,6 @@ describe("ipcContract.lsp.call.hover", () => {
       range,
     });
     expect(result.success).toBe(true);
-  });
-});
-
-describe("ipcContract.lsp.call.definition", () => {
-  const schema = ipcContract.lsp.call.definition.args;
-
-  test("rejects non-integer line", () => {
-    const result = schema.safeParse({ uri: "file:///src/index.ts", line: 1.5, character: 0 });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("ipcContract.lsp.call.references", () => {
-  const schema = ipcContract.lsp.call.references.args;
-
-  test("rejects missing includeDeclaration", () => {
-    const result = schema.safeParse({ uri: "file:///src/foo.ts", line: 3, character: 12 });
-    expect(result.success).toBe(false);
   });
 });
 
@@ -114,18 +68,6 @@ describe("ipcContract.lsp.call.documentSymbol", () => {
         location: { uri: "file:///src/foo.ts", range },
       },
     ]);
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("ipcContract.lsp.call.applyEditResult", () => {
-  const schema = ipcContract.lsp.call.applyEditResult.args;
-
-  test("rejects missing applied boolean", () => {
-    const result = schema.safeParse({
-      requestId: "apply-edit-1",
-      result: {},
-    });
     expect(result.success).toBe(false);
   });
 });

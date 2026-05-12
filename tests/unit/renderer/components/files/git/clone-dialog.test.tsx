@@ -5,17 +5,19 @@ import { describe, expect, it, mock } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   CloneDialogContent,
-  createCloneFormFields,
-  deriveFolderNameFromUrl,
   getCloneCtaDefault,
-  joinFsPath,
-  previewClonePath,
   runPostCloneWorkspaceAction,
   setCloneCtaDefault,
+} from "../../../../../../src/renderer/components/files/git/CloneDialog";
+import {
+  createCloneFormFields,
+  deriveFolderNameFromUrl,
+  joinFsPath,
+  previewClonePath,
   validateCloneFolderName,
   validateCloneParent,
   validateCloneUrl,
-} from "../../../../../../src/renderer/components/files/git/CloneDialog";
+} from "../../../../../../src/renderer/components/files/git/clone-form-utils";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
 describe("CloneDialog form helpers", () => {
