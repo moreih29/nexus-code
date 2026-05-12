@@ -8,6 +8,12 @@ const SshAuthPromptBaseSchema = z.object({
   host: z.string().min(1),
   port: z.number().int().positive().max(65_535).optional(),
   username: z.string().min(1).optional(),
+  /**
+   * `true` when this prompt repeats a previously-failed authentication round
+   * (e.g. `Permission denied, please try again.` from sshd). Used by the
+   * dialog to surface an inline "Authentication failed" hint.
+   */
+  retry: z.boolean().optional(),
 });
 
 /**

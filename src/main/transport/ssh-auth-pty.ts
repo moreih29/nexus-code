@@ -130,6 +130,8 @@ function promptFromBuffer(
 ): SshAuthPrompt | null {
   const passwordMatch = PASSWORD_PROMPT_PATTERN.exec(buffer);
   if (passwordMatch) {
+    const before = passwordMatch.index >= 0 ? buffer.slice(0, passwordMatch.index) : "";
+    const retry = /permission denied|authentication failed|sorry, try again/i.test(before);
     return {
       kind: "password",
       promptId: `${promptIdPrefix}:password`,
@@ -138,6 +140,7 @@ function promptFromBuffer(
       username: options.user,
       prompt: passwordMatch[1]?.trim() ?? "SSH password:",
       field: /passphrase/i.test(passwordMatch[1] ?? "") ? "passphrase" : "password",
+      retry: retry || undefined,
     };
   }
 

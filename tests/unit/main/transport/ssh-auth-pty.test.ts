@@ -132,6 +132,9 @@ describe("authenticateSshControlMaster", () => {
       "prompt-1:password",
       "prompt-1:password",
     ]);
+    expect(prompts[0]).toMatchObject({ kind: "password" });
+    expect((prompts[0] as { retry?: boolean }).retry).toBeUndefined();
+    expect(prompts[1]).toMatchObject({ kind: "password", retry: true });
     expect(pty.writes).toEqual(["secret\r", "secret\r"]);
     await expect(promise).resolves.toMatchObject({ controlPath: "/tmp/nexus-test.sock" });
   });

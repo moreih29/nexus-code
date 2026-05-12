@@ -69,6 +69,63 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).toContain(">Trust<");
   });
 
+  it("shows an inline retry alert when the password prompt is a retry", () => {
+    const prompt = makePasswordPrompt({ promptId: "password-retry", retry: true });
+
+    const html = renderToStaticMarkup(
+      <SshAuthPromptDialogContent
+        prompt={prompt}
+        passwordValue=""
+        pendingMessage={null}
+        onPasswordChange={() => {}}
+        onCancel={() => {}}
+        onCopyFingerprint={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Authentication failed. Try again.");
+    expect(html).toContain('role="alert"');
+  });
+
+  it("omits the retry alert when the password prompt is fresh", () => {
+    const prompt = makePasswordPrompt({ promptId: "password-fresh" });
+
+    const html = renderToStaticMarkup(
+      <SshAuthPromptDialogContent
+        prompt={prompt}
+        passwordValue=""
+        pendingMessage={null}
+        onPasswordChange={() => {}}
+        onCancel={() => {}}
+        onCopyFingerprint={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    expect(html).not.toContain("Authentication failed. Try again.");
+  });
+
+  it("renders host-key safety guidance and session-only scope note", () => {
+    const prompt = makeHostKeyPrompt({ promptId: "host-key-guidance" });
+
+    const html = renderToStaticMarkup(
+      <SshAuthPromptDialogContent
+        prompt={prompt}
+        passwordValue=""
+        pendingMessage={null}
+        onPasswordChange={() => {}}
+        onCancel={() => {}}
+        onCopyFingerprint={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    // apostrophes are HTML-escaped by renderToStaticMarkup, so we match around them.
+    expect(html).toContain("recognize this fingerprint, do not trust the host.");
+    expect(html).toContain("Trust applies for this session only.");
+  });
+
   it("copies the host-key fingerprint through the renderer clipboard helper", () => {
     const copied: string[] = [];
     Object.defineProperty(globalThis, "navigator", {

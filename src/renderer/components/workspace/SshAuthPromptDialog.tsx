@@ -78,6 +78,14 @@ export function SshAuthPromptDialogContent({
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         {isPasswordPrompt ? (
           <>
+            {prompt.retry ? (
+              <p
+                role="alert"
+                className="rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-xs text-destructive"
+              >
+                Authentication failed. Try again.
+              </p>
+            ) : null}
             <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
               {prompt.field === "passphrase" ? "Passphrase" : "Password"}
             </label>
@@ -192,6 +200,10 @@ function HostKeyPromptBody({
         <p className="text-app-ui-xs text-muted-foreground">Fingerprint</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>
+      <p className="text-app-ui-xs text-muted-foreground">
+        If you don't recognize this fingerprint, do not trust the host.
+      </p>
+      <p className="text-app-ui-xs text-muted-foreground">Trust applies for this session only.</p>
       <div>
         <Button
           type="button"
