@@ -123,7 +123,6 @@ const GIT_PANEL_AUTOFETCH_INTERVAL_MIN_KEY = "autofetchIntervalMin";
 const GIT_PANEL_AUTOFETCH_MANUAL_PAUSED_KEY = "autofetchManualPaused";
 const GIT_PANEL_PROTECTED_BRANCHES_KEY = "protectedBranches";
 const GIT_PANEL_PANEL_SEGMENT_KEY = "panelSegment";
-const GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY = "historyDetailWidth";
 const GIT_PANEL_HISTORY_REF_KEY = "historyRef";
 const GIT_PANEL_HISTORY_SCOPE_KEY = "historyScope";
 
@@ -191,7 +190,6 @@ function defaultGitPanelState(): GitPanelState {
     autofetchManualPaused: DEFAULT_GIT_PANEL_STATE.autofetchManualPaused,
     protectedBranches: [...DEFAULT_GIT_PANEL_STATE.protectedBranches],
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
-    historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
     historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
   };
@@ -374,29 +372,6 @@ function parseGitPanelSegment(
       err,
     );
     return DEFAULT_GIT_PANEL_STATE.panelSegment;
-  }
-}
-
-/**
- * Parses the persisted detail width used by the draggable History split view.
- */
-function parseGitHistoryDetailWidth(
-  workspaceId: string,
-  raw: string | undefined,
-): GitPanelState["historyDetailWidth"] {
-  if (raw === undefined) return DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
-
-  try {
-    return GitPanelStateSchema.parse({
-      ...defaultGitPanelState(),
-      historyDetailWidth: Number(raw),
-    }).historyDetailWidth;
-  } catch (err) {
-    console.warn(
-      `[WorkspaceStorage] Invalid git_panel_state historyDetailWidth for workspace ${workspaceId}; using defaults.`,
-      err,
-    );
-    return DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
   }
 }
 
@@ -693,10 +668,6 @@ export class WorkspaceStorage {
         values.get(GIT_PANEL_PROTECTED_BRANCHES_KEY) ?? protectedBranchesRow?.protected_branches,
       ),
       panelSegment: parseGitPanelSegment(workspaceId, values.get(GIT_PANEL_PANEL_SEGMENT_KEY)),
-      historyDetailWidth: parseGitHistoryDetailWidth(
-        workspaceId,
-        values.get(GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY),
-      ),
       historyRef: parseGitHistoryRef(workspaceId, values.get(GIT_PANEL_HISTORY_REF_KEY)),
       historyScope: parseGitHistoryScope(workspaceId, values.get(GIT_PANEL_HISTORY_SCOPE_KEY)),
     };
@@ -770,9 +741,6 @@ export class WorkspaceStorage {
       }
       if (parsed.panelSegment !== undefined) {
         ins.run(GIT_PANEL_PANEL_SEGMENT_KEY, parsed.panelSegment);
-      }
-      if (parsed.historyDetailWidth !== undefined) {
-        ins.run(GIT_PANEL_HISTORY_DETAIL_WIDTH_KEY, String(parsed.historyDetailWidth));
       }
       if (parsed.historyRef !== undefined) {
         ins.run(GIT_PANEL_HISTORY_REF_KEY, parsed.historyRef);

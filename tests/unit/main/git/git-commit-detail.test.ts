@@ -41,7 +41,7 @@ describe("parseCommitDetailOutput", () => {
     });
   });
 
-  test("suppresses file entries for merge commits", () => {
+  test("parses first-parent file entries for merge commits", () => {
     const stdout = [
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb cccccccccccccccccccccccccccccccccccccccc",
@@ -57,7 +57,7 @@ describe("parseCommitDetailOutput", () => {
 
     const detail = parseCommitDetailOutput(stdout);
     expect(detail.parents).toHaveLength(2);
-    expect(detail.files).toEqual([]);
+    expect(detail.files).toEqual([{ status: "M", path: "merged.txt" }]);
   });
 });
 

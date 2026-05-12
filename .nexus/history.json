@@ -10689,6 +10689,259 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-12T02:01:59.263Z",
+      "branch": "feat/git-commit-tab",
+      "plan": {
+        "id": 39,
+        "topic": "Git commit detail을 사이드패널에서 메인 에디터 탭으로 이전 (B안)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Commit tab의 데이터 모델, ID 전략, preview 사용 여부",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "세 축 추천: (1) 데이터 모델 = `type: \"git.commit\"`, payload `{workspaceId, sha}` 최소. `editor.*` 네임스페이스 거짓말 회피, store가 git 캐시를 흉내내지 않게 함. (2) ID 정책 = 항상 새 UUID지만 `(workspaceId, sha)` focus-existing 헬퍼(`findCommitTab`) 사용. editor open-existing과 동형. (3) preview = editor preview와 **별도 commit-preview 슬롯**. group당 commit-preview 최대 1개, history ↑↓ 탐색 시 한 슬롯 갈아끼움, parent SHA jump/double-click 시 promote. WARNING: `replacePreviewTab`이 editor 하드코딩이라 commit-preview는 별도 메서드 권장. `defaultTitle`이 SHA만으로는 의미있는 제목 못만들어 `commit <sha7>` placeholder 후 IPC 응답 시 renameTab으로 subject 반영 필요. 미해결: 키보드 ↑↓도 preview-replace로 볼지 vs explicit open만으로 볼지는 UX 결정.",
+                "recorded_at": "2026-05-12T00:33:32.434Z",
+                "agent_id": "a9bcfd03ca0ba8305"
+              },
+              {
+                "role": "retrospective",
+                "summary": "Cycle-end review found no blockers. Final architecture/testing evidence: sidepanel is list/actions only, commit detail lives in editor-area git.commit tabs; schema/store/bootstrap preserve git.commit isPreview; commit-preview is independent from editor preview; HistoryPanel arrow/page selection does not open tabs while click/Enter does; merge details use first-parent files; root diffs use EMPTY_TREE_SHA; legacy historyDetailWidth/HistoryDetail/useIsNarrowHistoryLayout grep is 0; full tests 1785 pass / 1 skip, typecheck and lint exit 0. Non-blocking follow-ups: dedicated CommitTab component test if component grows, and optional comment cleanup.",
+                "recorded_at": "2026-05-12T02:01:50.700Z"
+              }
+            ],
+            "decision": "새 탭 종류 `type: \"git.commit\"`, payload는 식별자만 `{workspaceId, sha}`. ID는 UUID이되 `(workspaceId, sha)` focus-existing 헬퍼(`findCommitTab`)로 같은 commit 중복 오픈 방지. preview는 editor preview와 **분리된 별도 commit-preview 슬롯**(group당 1개, `replaceCommitPreviewTab` 메서드). 행 선택(키보드 ↑↓ 등)만 변경 시 메인 탭은 그대로 두고, **클릭 / Enter / 더블클릭의 명시적 오픈에서만** commit-preview 슬롯을 갈아끼움 (자동 IPC 호출 폭증 방지). 부수: `defaultTitle`은 `commit <sha7>` placeholder 후 IPC 응답 시 `renameTab`으로 subject 반영."
+          },
+          {
+            "id": 2,
+            "title": "사이드패널 HistoryDetail 제거 범위 (detailWidth/narrow/GitPanelState 등 부수 상태)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "정리 대상 6파일 식별: (1) HistoryDetail.tsx 전체 — 단 CommitDetailContent/formatIso는 새 CommitTab으로 이전, (2) HistoryPanel.tsx — HistoryDetail import 제거, props `detailWidth`/`onDetailWidthChange` 삭제, `useIsNarrowHistoryLayout` 훅 삭제, `detail`/`detailLoading` state 삭제 및 commitDetail IPC fetch useEffect 제거(L238-257). `selectedSha`는 list 하이라이트용으로 유지. (3) GitPanel.tsx L127, L653-654, L811-815 — historyDetailWidth 전달 제거. (4) git store: L135(필드), L253(action 시그), L523-526(복원), L1059-1062(setter), L1169(default 사용). (5) shared/types/git.ts L711(zod), L729(default). (6) main/storage/workspace-storage.ts L126(키 상수), L194/383/696/774(parser, load/save). 결정 포인트: 영속화 필드 처리 방식(clean cut vs forward-compatible) 및 `useIsNarrowHistoryLayout` 훅 처리.",
+                "recorded_at": "2026-05-12T00:35:37.478Z"
+              }
+            ],
+            "decision": "Clean cut. (1) `historyDetailWidth` 영속화 필드를 store/zod/workspace-storage에서 완전 제거 (renderer git.ts L135/L253/L523-526/L1059-1062/L1169, shared/types/git.ts L711/L729, main/storage/workspace-storage.ts L126/L194/L383-399/L696/L774-775). 기존 DB row는 load 시 unknown key로 무시. (2) `useIsNarrowHistoryLayout` 훅 삭제 — RefChipList `visibleCount`는 issue 5에서 컨테이너-쿼리 기반으로 재구현. (3) HistoryDetail.tsx 전체 삭제하되 `CommitDetailContent`와 `formatIso` 함수만 새 CommitTab 컴포넌트로 이전. (4) HistoryPanel.tsx에서 `detail`/`detailLoading` state 및 commitDetail IPC fetch useEffect(L238-257) 삭제, `selectedSha`는 list 하이라이트용으로 유지. (5) GitPanel.tsx에서 historyDetailWidth 전달(L127/L653-654/L811-815) 제거."
+          },
+          {
+            "id": 3,
+            "title": "Commit tab 내부 파일 클릭 → diff 탭 오픈 시그니처 (부모 SHA 결정, 머지 커밋 처리)",
+            "status": "decided",
+            "decision": "파일 클릭 핸들러는 `openDiffTab(workspaceId, file.path, leftRef, detail.sha, file.oldPath)` 호출. (1) **머지 커밋**(parents.length>1): leftRef = `parents[0]` (GitHub PR 머지의 changed files와 동일 멘탈 모델). 파일 리스트 그대로 표시. 부모 선택 토글은 별도 후속 이슈로 분리. (2) **루트 커밋**(parents.length===0): leftRef = git empty tree sentinel `4b825dc642cb6eb9a060e54bf8d69288fbee4904` — 모든 파일이 \"added\"로 자연 표시되고 DiffTab 그대로 재사용. (3) **wiring**: CommitTab이 `state/operations/openDiffTab`을 직접 호출. content-host의 dispatch 분기에 prop drilling 없음. (4) status=\"D\"(deleted)는 DiffTab이 leftRef에만 존재하는 파일을 처리하는 기존 경로 그대로. rename은 `file.oldPath` → `oldRelPath` 매핑. (5) sentinel SHA는 상수로 export (`EMPTY_TREE_SHA`)."
+          },
+          {
+            "id": 4,
+            "title": "탭 영속화에 commit 종류 추가 여부 (TabMetaSchema 확장 vs 메모리 전용)",
+            "status": "decided",
+            "decision": "TabMetaSchema 확장. (1) `src/shared/types/tab.ts`에 `type: \"git.commit\"` variant 추가 — TabBaseSchema(workspaceId 포함)에 `sha: z.string().min(1)` 필드만. (2) `toSnapshot`/bootstrap에 git.commit 분기 추가 — 부팅 시 commit detail IPC 재요청. (3) **무효 SHA 처리**: IPC 결과가 ref-not-found 류 에러면 CommitTab 본문에 \"Commit `<sha7>` not found in repository\" 메시지 + 닫기 버튼 표시. 자동 제거는 하지 않음. (4) `isPreview` 플래그도 함께 직렬화/복원해 다른 탭 종류와 일관 유지."
+          },
+          {
+            "id": 5,
+            "title": "사이드패널 list 컬럼 재배치 (디테일 빠진 후 좁은 폭 최적화)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "lead",
+                "summary": "디테일 제거 후 사이드패널 폭 전체를 list가 차지하지만 좁은 폭에서는 author/sha/refs가 짓눌림. 옵션 A(컨테이너 쿼리 기반 컬럼 가시성 토글) 추천. 3-단 breakpoint: narrow(<320)=graph+subject+time+actions, medium(320~480)=+refs+sha, wide(≥480)=+author. RefChip은 narrow에서 HEAD 아이콘만, medium 이상은 visibleCount=1. ResizeObserver hook으로 list 컨테이너 폭 측정, 디바운스 100ms 권장. 이슈 2에서 삭제한 useIsNarrowHistoryLayout(window 기준)을 컨테이너 폭 기반 새 hook으로 대체. 비교 대상으로 검토된 2-line comfortable 행은 가시 행 수 절반으로 density 손실이 커서 git history 빠른 스캐닝 UX와 맞지 않음.",
+                "recorded_at": "2026-05-12T00:41:07.699Z"
+              }
+            ],
+            "decision": "컨테이너 쿼리 기반 컬럼 가시성 토글. (1) **새 hook**: list scroll container에 ResizeObserver 부착, 디바운스 100ms로 폭 측정. 이슈 2에서 삭제한 `useIsNarrowHistoryLayout` 대체. (2) **breakpoint 상수**: `HISTORY_LIST_BREAKPOINT_NARROW = 320`, `_MEDIUM = 480`. (3) **3-단 컬럼**: narrow(<320px) = `graph · subject(1fr) · time(5ch) · actions(24px)`, medium(320~480) = `+refs +sha(7ch)`, wide(≥480) = `+author(12ch)` (현 7컬럼). (4) **RefChip**: narrow에서는 HEAD 아이콘만 좌측에 표시, medium 이상은 `visibleCount=1` (chip 하나 + N badge). (5) author/sha 등 숨김 컬럼 값은 hover tooltip(title 속성) + commit 탭에서 풀 표시. subject는 모든 폭에서 양보 불가(commit 식별의 핵심)."
+          }
+        ],
+        "research_summary": "\n탭 시스템 (`src/renderer/state/stores/tabs.ts`): Zustand 스토어 `useTabsStore`. `Tab = EditorTab | DiffTab | TerminalTab` 디스크리미네이티드 유니언. `type: \"terminal\" | \"editor\" | \"editor.diff\"`. 신규 탭 종류 추가 비용은 (a) `tabs.ts`의 union + `CreateTabArgs` + `createTab` 분기 + `defaultTitle`, (b) `shared/types/tab.ts`의 `TabMetaSchema`(zod discriminated union) 변형 추가, (c) `state/operations/tabs.ts`에 opener 함수, (d) `components/workspace/content/content-host.tsx`의 dispatch 분기 — 총 4파일 한정적.\n\n레이아웃 (`state/stores/layout/store.ts`): 바이너리 트리. `LayoutLeaf` = 탭 그룹, `LayoutSplit` = 분할자. `openTabRecord`가 `useLayoutStore.attachTab` + `setActiveTabInGroup`을 묶어줌. 새 탭은 `crypto.randomUUID()`로 ID 생성, 같은 SHA 중복 오픈 시 focus-existing 로직은 현재 없음(editor도 동일, preview 슬롯이 그 역할을 일부 수행).\n\nDiff (`state/operations/tabs.ts:80-96`): `openDiffTab(workspaceId, relPath, leftRef, rightRef, oldRelPath?, opts?)` 이미 노출. `DiffTabPayload = {workspaceId, relPath, leftRef, rightRef, oldRelPath?}`. `components/editor/diff-tab.tsx` 가 Monaco DiffEditor 래퍼.\n\n영속화 (`state/persistence.ts`, `App.tsx:34`): `registerStatePersistence`가 layout+tabs를 디바운스하여 `toSnapshot()`으로 직렬화 → IPC `appState.set`. 부팅 시 `bootstrapAppState()`로 복원. Zod 스키마는 `TabMetaSchema`.\n\n현재 HistoryDetail (`components/files/git/history/HistoryDetail.tsx`): `CommitDetailContent`가 author/email/time/body/files-changed UI를 이미 보유 → 재사용 가능. 현재 사이드패널 내부에 absolute 오버레이로 list 위를 덮어 가독성 파괴. narrow 판정이 `window.innerWidth < 720` (`HistoryPanel.tsx:518-529`)이라 사이드패널 폭과 무관하게 wide split 그림 = 현 UI 버그의 직접 원인.\n\n`useGitStore`에 `detailWidth` 영속화. `GitPanel`은 `onOpenDiff?` 콜백 슬롯을 이미 보유 (`GitPanel.tsx:86`) — files-panel에서 git status diff 열 때 쓰이고 있어 같은 경로 재활용 가능.\n\n`HistoryDetail`의 파일 리스트는 현재 클릭 불가(static span). diff 열려면 부모 SHA 필요 — `LogEntry.parents[0]`. 머지 커밋은 `parents.length > 1`이고 현재는 파일 리스트 대신 \"Merge commit (N parents)\" 표시 → 머지에서 diff 열기는 별도 정책 필요.\n\n지식 레이어: 관련 prior decision/history 검색 결과 없음 (nx_history_search empty). conventions.md는 \"한 파일에 너무 많은 기능 담지 않음\", \"책임 분리/모듈화\" 강조 — 새 탭 종류는 `CommitTab` 별도 컴포넌트로 분리해야 함과 정합.\n",
+        "created_at": "2026-05-12T00:31:12.089Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Tab union + 영속화 스키마에 git.commit 추가",
+          "status": "completed",
+          "context": "새 commit 탭 종류를 시스템 전반에 등록. 4개 파일: `src/shared/types/tab.ts`(zod), `src/renderer/state/stores/tabs.ts`(Tab union·CreateTabArgs·createTab·defaultTitle·togglePin 분기), `src/renderer/state/persistence.ts`(toSnapshot reverse 매핑), `src/renderer/components/workspace/content/content-host.tsx`(dispatch 분기). 이 task는 placeholder 렌더까지만 — 실제 CommitTab 컴포넌트는 T2.",
+          "acceptance": "(1) `type: \"git.commit\"`이 컴파일 통과. payload는 TabBase + `sha: z.string().min(1)`. (2) createTab 후 toSnapshot → 부팅 시 bootstrapAppState에서 isPreview 플래그 포함 round-trip 성공. (3) content-host에서 새 type일 때 placeholder 컴포넌트가 `commit <sha7>` 표시. (4) defaultTitle('git.commit')이 `commit <sha7>` 반환. (5) togglePin 3-way ternary에 새 분기 추가.",
+          "approach": "discriminated union 확장 → zod schema 추가 → store branch → persistence 양방향 매핑 → content-host dispatch. 기존 editor.diff 패턴을 동형으로 따라가면 됨.",
+          "risk": "workspace-storage가 unknown tab type을 strict로 거부하면 구버전 DB 로드 실패. 부팅 시 알 수 없는 type variant는 skip하는 정책 확인 필요(같은 정책이 historyDetailWidth 제거 T4에도 영향).",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e19a7-4b53-7280-8e6c-5d798d11fe47",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-12T00:42:51.609Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added git.commit to shared tab schemas, layout persistence schema, renderer tab union/create/defaultTitle/togglePin handling, and content-host placeholder. T1 validation evidence: typecheck/focused tests/smoke passed; note: adjacent IPC tab create schema may need follow-up if still supported.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T00:59:17.390Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "CommitTab 컴포넌트 구현",
+          "status": "completed",
+          "context": "`src/renderer/components/editor/commit-tab.tsx` 신규 (DiffTab 옆에). 기존 `HistoryDetail.tsx`의 `CommitDetailContent`와 `formatIso` 함수를 이 파일로 이전(파일 row는 `<button>`으로 바꿔 onClick 추가). 자체 IPC fetch (현 HistoryPanel.tsx:247 commitDetail 패턴). `EMPTY_TREE_SHA = \"4b825dc642cb6eb9a060e54bf8d69288fbee4904\"` 상수도 같은 파일에서 export. content-host 분기를 placeholder에서 실제 CommitTab으로 교체.",
+          "acceptance": "(1) props `{workspaceId, sha, tabId}` 받아 ipcCall(\"git\",\"commitDetail\",{workspaceId,sha})로 detail fetch. (2) 정상 응답 시 author/email/time/body/files 표시. files row 클릭 시 `openDiffTab(workspaceId, file.path, parents[0] ?? EMPTY_TREE_SHA, sha, file.oldPath)` 호출. (3) 머지 커밋(parents.length>1)도 파일 리스트 표시 — parents[0] 기준 diff. (4) 루트 커밋(parents.length===0)도 파일 리스트 표시 — EMPTY_TREE_SHA 기준 diff. (5) ref-not-found 류 에러 시 \"Commit `<sha7>` not found in repository\" + 닫기 버튼. (6) 마운트 시 tab title을 IPC subject로 renameTab 호출(`commit <sha7>` placeholder → subject).",
+          "approach": "기존 HistoryDetail의 fetch useEffect 패턴 + CommitDetailContent JSX를 그대로 옮기되 file row를 button + onClick으로 변경. tabId는 content-host dispatch에서 prop으로 주입(renameTab 호출용).",
+          "risk": "deleted 파일(status=\"D\")이 rightRef에 없을 때 DiffTab의 fetch 경로가 graceful한지 확인 필요(기존 git status deleted 경로와 동일하면 OK). rename 파일은 file.oldPath 필수 — 누락 시 좌측 false-negative.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e19b2-66f2-7ce3-8171-a0c68c7a2338",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-12T00:43:05.335Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added `CommitTab` with commitDetail IPC fetch, subject rename, commit metadata/body/files rendering, first-parent/EMPTY_TREE diff opening, not-found close flow, and content-host dispatch replacement. Engineer evidence: target biome check, typecheck, lint, diff check, and focused git history tests passed.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:06:59.878Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "commit-preview 슬롯 store API + opener",
+          "status": "completed",
+          "context": "`src/renderer/state/stores/tabs.ts`에 `replaceCommitPreviewTab(workspaceId, tabId, sha, title)` 메서드 추가 — editor 전용 `replacePreviewTab`과 분리. `src/renderer/state/operations/tabs.ts`에 `findCommitTab(workspaceId, sha)`, `openOrRevealCommitTab(workspaceId, sha, opts?)` 신설. openOrReveal은 1) 동일 (workspaceId,sha) 탭 있으면 reveal, 2) 없으면 active group의 commit-preview 슬롯 갈아끼움(없으면 새로 생성, preview=true).",
+          "acceptance": "(1) 같은 (workspaceId, sha) 두 번 호출 → 같은 tabId 반환·reveal. (2) 다른 sha 연속 호출 → commit-preview 슬롯이 group당 1개로 유지(이전 commit-preview는 닫힘). (3) togglePin이나 명시적 promote 호출 시 isPreview=false로 전환, 이후 다른 commit 호출해도 promoted 탭은 안 닫힘. (4) editor preview 슬롯과는 독립 — editor preview가 살아있는 동안 commit-preview도 별개로 존재.",
+          "approach": "기존 `replacePreviewTab`/`promoteFromPreview`(editor) 코드 패턴 차용하되 type='git.commit' 가드로 분리. findCommitTab은 useLayoutStore의 leaf 순회 + useTabsStore lookup 조합.",
+          "risk": "commit-preview 검색이 layout store leaf 구조에 의존 — layout 트리 변경 시 회귀 가능. tabs.ts의 type 분기가 새 type마다 늘어나는 togglePin 3-way 패턴은 헬퍼화 후보(INFO, 후속).",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e19b2-90d9-71d1-801d-c8c321657244",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-12T00:43:17.967Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added commit-preview slot replacement API plus `findCommitTab` and `openOrRevealCommitTab`. The opener dedupes same SHA, replaces only per-group git.commit preview slots, preserves promoted commit tabs, and keeps editor preview independent. Engineer evidence: typecheck, target biome check, focused tests, and smoke scenarios passed.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:07:00.221Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "HistoryDetail/historyDetailWidth/narrow 훅 clean cut + 사이드패널 클릭 wiring",
+          "status": "completed",
+          "context": "사이드패널에서 디테일 전부 제거하고 클릭을 메인 영역 commit-preview 탭 오픈으로 전환. 영향 6파일: (1) `HistoryDetail.tsx` 전체 삭제(CommitDetailContent/formatIso는 이미 T2에서 commit-tab.tsx로 이전됨). (2) `HistoryPanel.tsx` — HistoryDetail import 제거, `detail`/`detailLoading` state 삭제, commitDetail IPC fetch useEffect(L238-257) 삭제, `useIsNarrowHistoryLayout` 훅 삭제, props `detailWidth`/`onDetailWidthChange` 제거, `selectedSha`는 list 하이라이트용으로 유지. 행 클릭 콜백을 `openOrRevealCommitTab(workspaceId, sha)`로 변경. 키보드 ↑↓은 selectedSha만 갱신(IPC X), Enter/더블클릭/명시적 클릭에서만 openOrReveal 호출. (3) `GitPanel.tsx` L127/L653-654/L811-815 — historyDetailWidth 전달 제거. (4) `state/stores/git.ts` L135/L253/L523-526/L1059-1062/L1169 — 필드/액션/복원/setter 전부 제거. (5) `shared/types/git.ts` L711/L729 — zod 필드 제거. (6) `main/storage/workspace-storage.ts` L126/L194/L383-399/L696/L774-775 — 키 상수, parser 함수, load/save 경로 제거. 기존 DB의 historyDetailWidth row는 unknown key drop 정책 적용(strict이면 ignore 추가).",
+          "acceptance": "(1) `grep -rn \"historyDetailWidth\\|HistoryDetail\\|useIsNarrowHistoryLayout\"` 결과 0건. (2) 사이드패널 history 행 단순 클릭 → 메인 영역에 commit-preview 탭 오픈. 같은 commit 재클릭 → 기존 탭 reveal. 다른 commit 클릭 → commit-preview 슬롯 갈아끼움. (3) 키보드 ↑↓로 selectedSha 변경 시 메인 탭은 그대로(IPC 호출 X), 행 하이라이트만 이동. (4) Enter/더블클릭 → openOrReveal + (필요 시 promote). (5) 사이드패널이 commit detail로 가려지지 않음(원래 보고된 UI 버그 해결). (6) 구버전 DB(historyDetailWidth row 보유) 부팅 시 로드 실패 없음.",
+          "approach": "상기 6파일에서 식별된 라인 제거 + 행 클릭 핸들러 교체. workspace-storage 로드가 strict면 `try/catch` 또는 unknown 키 explicit ignore 1줄 추가. 키보드 ↑↓는 HistoryList의 `handleListKeyDown`에서 setFocusedIndex/setSelectedSha만 호출(이미 그 구조 — 호출 흐름만 정리).",
+          "risk": "workspace-storage가 zod strict면 historyDetailWidth row가 잔존한 사용자 부팅 실패 가능 — 명시적 ignore 또는 schema에서 `.passthrough()` 필요. selectedSha와 commit-preview tab의 동기화 — list 행 하이라이트는 selectedSha 기준, 메인 탭은 active tabId 기준. 두 상태가 일치 안 할 수 있는데(사용자가 메인에서 다른 탭으로 전환 후 사이드 행은 그대로) 이는 의도된 분리로 둔다.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e19b9-ea94-7262-a30c-dcf4b8a3551c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-12T00:43:40.303Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Removed legacy sidepanel commit-detail UI/state/storage/schema paths, deleted HistoryDetail and its tests, and wired History row explicit opens to `openOrRevealCommitTab`. Keyboard navigation now updates selection/highlight only. Engineer evidence: legacy grep 0 hits, focused tests, typecheck, lint, and commit-preview smoke passed.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:19:39.518Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "History list 컨테이너 쿼리 + RefChip 폭 적응",
+          "status": "completed",
+          "context": "사이드패널 폭에 따라 list 컬럼 가시성을 토글. T4에서 삭제한 `useIsNarrowHistoryLayout`(window 기준) 대체. 새 hook `useHistoryListBreakpoint(scrollRef)`가 ResizeObserver로 list 컨테이너 폭을 측정하고 'narrow'|'medium'|'wide' 반환. `HISTORY_LIST_BREAKPOINT_NARROW=320`, `_MEDIUM=480` 상수. 변경 파일: `HistoryList.tsx`(hook 부착·상태 전달), `HistoryRow.tsx`(폭별 grid-cols), `RefChip.tsx`(visibleCount 폭 적응).",
+          "acceptance": "(1) list 컨테이너 폭이 <320px → 행이 `graph · subject(1fr) · time(5ch) · actions(24px)` 만 표시. (2) 320~480px → `+refs +sha(7ch)`. (3) ≥480px → `+author(12ch)` (현 7컬럼). (4) 폭 변경 후 100ms 디바운스 안에 컬럼 변동. (5) 숨겨진 author/sha 값은 행 `title` 속성으로 hover tooltip 노출. (6) RefChip: narrow=HEAD 아이콘만, medium=visibleCount 1, wide=visibleCount 2 (+N badge). (7) subject는 모든 폭에서 표시 + truncate.",
+          "approach": "scrollRef에 ResizeObserver 부착, 100ms debounce 후 setState. 초기 측정값 도착 전 기본값 'medium'(깜빡임 방지). HistoryRow의 grid-cols 클래스를 breakpoint→class 매핑 함수로 변환.",
+          "risk": "ResizeObserver가 list가 hidden일 때 0을 반환할 수 있음 — 측정값이 0이면 breakpoint 갱신 스킵(이전 값 유지). 잦은 폭 변경 시 디바운스로 rerender 폭증 방지.",
+          "plan_issue": 5,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e19c4-dcc0-7412-8fda-8d708cc95191",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-12T00:43:54.071Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added HistoryList ResizeObserver breakpoint hook/constants, passed measured breakpoint through HistoryPanel renderRefSlot into RefChipList, adapted HistoryRow narrow/medium/wide columns, and added focused breakpoint/ref-chip tests. Engineer evidence: focused history/ref-chip tests, typecheck, and lint passed with only unrelated existing warnings.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:32:06.150Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "통합 검증 (자동 테스트 + 수동 시나리오)",
+          "status": "completed",
+          "context": "T1~T5 결과를 통합 검증. 자동 테스트: (a) tabs store — `replaceCommitPreviewTab`/`findCommitTab`/`openOrRevealCommitTab` 동작, (b) `TabMetaSchema` git.commit round-trip(직렬화→역직렬화 isPreview 포함), (c) `useHistoryListBreakpoint` breakpoint 경계값(319/320/321/479/480/481). 수동 시나리오는 dev 빌드에서 실행: 1) history 행 단순 클릭 → 메인에 commit-preview 탭. 같은 commit 재클릭=reveal, 다른 commit=슬롯 갈아끼움. 2) 머지 커밋 클릭 시 파일 리스트 표시 + 파일 클릭 → parents[0] 기준 diff 탭. 3) 루트 커밋 파일 클릭 → EMPTY_TREE_SHA 기준 diff. 4) 무효 SHA(존재하지 않는 sha)로 commit 탭 직접 오픈 → 에러 메시지+닫기. 5) 사이드패널 폭을 250→400→600px로 끌어 변경 → 컬럼 가시성이 단계별로 변동. 6) 키보드 ↑↓로 selectedSha 변경 → 메인 commit 탭 그대로(IPC X), Enter → openOrReveal 발동. 7) 앱 재시작 후 commit-preview/promoted 탭 모두 복원(isPreview 플래그 유지).",
+          "acceptance": "(1) 자동 테스트 (a)/(b)/(c) 전부 통과. (2) 수동 시나리오 1~7 OK. (3) `grep -rn \"historyDetailWidth\\|HistoryDetail\\|useIsNarrowHistoryLayout\"` 0건 재확인. (4) 사용자가 원래 보고한 UI 버그(사이드패널에서 디테일이 list를 덮어 정보 누락) 재현 안 됨. (5) typecheck/lint 통과.",
+          "approach": "자동 부분은 bun test (기존 store/schema 테스트 파일 옆에 케이스 추가). 수동은 dev 빌드 실행 후 위 7개 시나리오 체크리스트로 진행하고 결과 보고.",
+          "risk": "Monaco DiffEditor 마운트가 jsdom에서 어려워 자동 테스트는 store/schema/hook까지로 제한 (.nexus/memory/empirical-editor-view-component-test.md 결정 따름). DiffTab 자체 동작은 수동 검증.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e19df-e235-7541-9c99-96fdc9a8df5b",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T00:44:10.329Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Integrated verification rerun passed after T7. Focused tests: 72 pass; full tests: 1785 pass / 1 skip; typecheck and lint exit 0; legacy grep 0 hits; static checks confirmed sidepanel detail removal, CommitTab EMPTY_TREE/not-found paths, and merge --first-parent wiring. Only INFO notes: lint has existing warnings and a few stale comments may mention old behavior.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:55:27.295Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "T6 failure rework: merge commit file entries + permanent tests",
+          "status": "completed",
+          "context": "Final integration verification found two simple failures: (1) `src/main/git/git-commit-detail.ts` intentionally returns `files: []` for merge commits, blocking T2 acceptance that merge commits show file list and file click opens diff against parents[0]. Existing tests assert this old behavior. (2) Permanent tests are missing for commit-preview operations (`replaceCommitPreviewTab`, `findCommitTab`, `openOrRevealCommitTab`) and `git.commit` schema/layout persistence round-trip with `isPreview`; tester only had ad-hoc smokes. Update implementation and tests so T6 can pass. Relevant files likely include `src/main/git/git-commit-detail.ts`, `tests/unit/main/git/git-commit-detail.test.ts`, `tests/unit/main/git/git-repository-history.test.ts`, `tests/integration/layout-persistence.test.ts` or a new schema/store test, and a renderer operations test near existing operations/layout tests.",
+          "acceptance": "(1) Merge commit detail returns file entries using first-parent comparison so CommitTab can render/click files; existing merge tests updated from old empty-files behavior. (2) Committed tests cover commit-preview operations: same SHA reveal, different SHA replaces per-group preview slot, promoted commit tab preserved, editor preview independent. (3) Committed tests cover `git.commit` TabMeta/SerializedTab/layout bootstrap round-trip with `isPreview` preserved. (4) Focused tests for changed areas pass. (5) `bun run typecheck` passes.",
+          "approach": "Fix backend parsing to include merge file entries instead of suppressing them; prefer existing git raw output parser patterns. Add permanent tests based on the tester's ad-hoc smoke scenarios, keeping test scope scenario-based per conventions.",
+          "risk": "Changing merge commit file extraction can alter existing expectations; ensure first-parent semantics match the accepted UX and avoid expensive multi-parent UI changes.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "019e19d8-8607-78e2-9644-6a52e4aaa893"
+          },
+          "created_at": "2026-05-12T01:40:26.566Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Fixed merge commit detail to use first-parent file entries instead of suppressing files, updated merge tests, added permanent commit-preview operations tests, and added git.commit metadata/layout/bootstrap round-trip coverage preserving isPreview. Engineer evidence: focused tests, layout schema test, typecheck, lint, and diff check passed.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T01:48:56.555Z"
+          }
+        }
+      ]
     }
   ]
 }

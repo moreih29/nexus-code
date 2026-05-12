@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { GitHistoryScope } from "../../../../../../src/shared/types/git";
+import type { GitHistoryScope, LogEntry } from "../../../../../../src/shared/types/git";
 
 type LogStreamArgs = {
   workspaceId?: string;
@@ -29,6 +29,8 @@ type IpcCallRecord = {
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000014";
 const logStreamCalls: IpcStreamCall[] = [];
 const ipcCallRecords: IpcCallRecord[] = [];
+const openCommitCalls: Array<{ workspaceId: string; sha: string }> = [];
+let lastHistoryListProps: MockHistoryListProps | null = null;
 
 const ipcCallMock = mock((channel: string, method: string, args: Record<string, unknown>) => {
   ipcCallRecords.push({ channel, method, args });
@@ -55,16 +57,22 @@ mock.module("../../../../../../src/renderer/state/stores/git", () => ({
   useGitStore: (selector: (state: MockGitStoreState) => unknown) => selector(mockGitStoreState),
 }));
 
+mock.module("../../../../../../src/renderer/state/operations/tabs", () => ({
+  openOrRevealCommitTab: mock((workspaceId: string, sha: string) => {
+    openCommitCalls.push({ workspaceId, sha });
+    return { groupId: "group-1", tabId: "tab-1" };
+  }),
+}));
+
 mock.module("../../../../../../src/renderer/components/files/git/BranchPicker", () => ({
   BranchPicker: () => null,
 }));
 
 mock.module("../../../../../../src/renderer/components/files/git/history/HistoryList", () => ({
-  HistoryList: () => React.createElement("section", { "aria-label": "mock history list" }),
-}));
-
-mock.module("../../../../../../src/renderer/components/files/git/history/HistoryDetail", () => ({
-  HistoryDetail: () => null,
+  HistoryList: (props: MockHistoryListProps) => {
+    lastHistoryListProps = props;
+    return React.createElement("section", { "aria-label": "mock history list" });
+  },
 }));
 
 mock.module(
@@ -86,6 +94,12 @@ type MockGitStoreState = {
   cherryPick: () => Promise<boolean>;
   checkoutDetached: () => Promise<void>;
   resetSoft: () => Promise<void>;
+};
+
+type MockHistoryListProps = {
+  selectedSha: string | null;
+  onSelect: (entry: LogEntry) => void;
+  onOpen: (entry: LogEntry) => void;
 };
 
 const mockGitStoreState: MockGitStoreState = {
@@ -289,14 +303,12 @@ class HistoryPanelView {
         workspaceId: WORKSPACE_ID,
         refName: this.refName,
         historyScope: this.historyScope,
-        detailWidth: 320,
         onRefChange: (nextRefName: string) => {
           this.refName = nextRefName;
         },
         onScopeChange: (nextScope: GitHistoryScope) => {
           this.historyScope = nextScope;
         },
-        onDetailWidthChange: () => {},
       }),
     );
     return this.root;
@@ -328,6 +340,8 @@ let activeView: HistoryPanelView | null = null;
 beforeEach(() => {
   logStreamCalls.length = 0;
   ipcCallRecords.length = 0;
+  openCommitCalls.length = 0;
+  lastHistoryListProps = null;
   ipcCallMock.mockClear();
   ipcStreamMock.mockClear();
   installDomGlobals();
@@ -436,6 +450,27 @@ describe("HistoryPanel all-branches matrix", () => {
     expect(toggle.props["aria-pressed"]).toBe(false);
     expect(call.args.scope).toBe("ref");
     expect(call.args.ref).toBe("main");
+  });
+
+  it("keeps selection separate from explicit main-area commit tab opens", () => {
+    activeView = new HistoryPanelView("ref");
+    const firstEntry = makeLogEntry(1);
+    const secondEntry = makeLogEntry(2);
+
+    const firstListProps = currentHistoryListProps();
+    firstListProps.onSelect(firstEntry);
+    activeView.render();
+
+    expect(currentHistoryListProps().selectedSha).toBe(firstEntry.sha);
+    expect(openCommitCalls).toEqual([]);
+    expect(ipcCallRecords.filter((record) => record.method === "commitDetail")).toEqual([]);
+
+    currentHistoryListProps().onOpen(secondEntry);
+    activeView.render();
+
+    expect(currentHistoryListProps().selectedSha).toBe(secondEntry.sha);
+    expect(openCommitCalls).toEqual([{ workspaceId: WORKSPACE_ID, sha: secondEntry.sha }]);
+    expect(ipcCallRecords.filter((record) => record.method === "commitDetail")).toEqual([]);
   });
 });
 
@@ -619,4 +654,25 @@ function lastLogStreamCall(label: string): IpcStreamCall {
     .at(-1);
   if (!call) throw new Error(`Missing git.log stream call for ${label}`);
   return call;
+}
+
+/** Returns the props captured by the HistoryList mock for panel wiring assertions. */
+function currentHistoryListProps(): MockHistoryListProps {
+  if (!lastHistoryListProps) throw new Error("HistoryList was not rendered");
+  return lastHistoryListProps;
+}
+
+/** Builds one deterministic commit entry for selection/open wiring tests. */
+function makeLogEntry(index: number): LogEntry {
+  return {
+    sha: index.toString(16).padStart(40, "0"),
+    shortSha: `s${String(index).padStart(6, "0")}`,
+    parents: [],
+    authorName: `Author ${index}`,
+    authorEmail: `author-${index}@example.invalid`,
+    authoredAt: "2026-05-10T00:00:00.000Z",
+    subject: `Commit ${index}`,
+    body: "",
+    refs: [],
+  };
 }

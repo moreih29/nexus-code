@@ -119,7 +119,7 @@ describe("GitRepository history", () => {
     }
   });
 
-  realGitTest("merge commit detail reports parents and omits files", async () => {
+  realGitTest("merge commit detail reports first-parent file entries", async () => {
     const root = makeRepo("nexus-history-merge-detail-");
     try {
       writeAndCommit(root, "base.txt", "base\n", "base");
@@ -133,7 +133,7 @@ describe("GitRepository history", () => {
 
       const detail = await repo.commitDetail(mergeSha);
       expect(detail.parents).toHaveLength(2);
-      expect(detail.files).toEqual([]);
+      expect(detail.files).toEqual([{ status: "A", path: "feature.txt" }]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

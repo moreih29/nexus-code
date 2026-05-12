@@ -132,7 +132,6 @@ export interface GitSession {
   autofetchLastError: GitAutofetchError | null;
   autofetchPausedBannerVisible: boolean;
   panelSegment: GitPanelSegment;
-  historyDetailWidth: number;
   historyRef: string;
   historyScope: GitHistoryScope;
   viewMode: ViewMode;
@@ -250,7 +249,6 @@ interface GitState {
   pauseAutofetch: (workspaceId: string) => Promise<void>;
   resumeAutofetch: (workspaceId: string) => Promise<void>;
   setPanelSegment: (workspaceId: string, segment: GitPanelSegment) => void;
-  setHistoryDetailWidth: (workspaceId: string, width: number) => void;
   setHistoryRef: (workspaceId: string, ref: string) => void;
   setHistoryScope: (workspaceId: string, scope: GitHistoryScope) => void;
   setExpandedGroup: (workspaceId: string, group: GitExpandedGroupKey, expanded: boolean) => void;
@@ -520,10 +518,6 @@ export const useGitStore = create<GitState>((set, get) => {
             panelStateResult.status === "fulfilled"
               ? panelStateResult.value.panelSegment
               : session.panelSegment,
-          historyDetailWidth:
-            panelStateResult.status === "fulfilled"
-              ? panelStateResult.value.historyDetailWidth
-              : session.historyDetailWidth,
           historyRef:
             panelStateResult.status === "fulfilled"
               ? panelStateResult.value.historyRef
@@ -1056,12 +1050,6 @@ export const useGitStore = create<GitState>((set, get) => {
       persistPanelState(workspaceId, { panelSegment });
     },
 
-    setHistoryDetailWidth(workspaceId, historyDetailWidth) {
-      const width = Math.max(0, Math.round(historyDetailWidth));
-      upsertSession(workspaceId, (session) => ({ ...session, historyDetailWidth: width }));
-      persistPanelState(workspaceId, { historyDetailWidth: width });
-    },
-
     setHistoryRef(workspaceId, historyRef) {
       const ref = historyRef.trim() || DEFAULT_GIT_PANEL_STATE.historyRef;
       upsertSession(workspaceId, (session) => ({ ...session, historyRef: ref }));
@@ -1166,7 +1154,6 @@ function createDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
     autofetchLastError: null,
     autofetchPausedBannerVisible: false,
     panelSegment: DEFAULT_GIT_PANEL_STATE.panelSegment,
-    historyDetailWidth: DEFAULT_GIT_PANEL_STATE.historyDetailWidth,
     historyRef: DEFAULT_GIT_PANEL_STATE.historyRef,
     historyScope: DEFAULT_GIT_PANEL_STATE.historyScope,
     viewMode: DEFAULT_VIEW_OPTIONS_BY_PANEL.git.viewMode,

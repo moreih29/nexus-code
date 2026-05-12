@@ -277,7 +277,6 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
     expect(state.autofetchManualPaused).toBe(false);
     expect(state.protectedBranches).toEqual([]);
     expect(state.panelSegment).toBe("changes");
-    expect(state.historyDetailWidth).toBe(0);
     expect(state.historyRef).toBe("HEAD");
   });
 
@@ -292,7 +291,6 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
       autofetchManualPaused: true,
       protectedBranches: ["main", "release/*"],
       panelSegment: "history",
-      historyDetailWidth: 420,
       historyRef: "origin/main",
     });
 
@@ -309,8 +307,25 @@ describe("WorkspaceStorage getGitPanelState / setGitPanelState — expandedTreeN
     expect(state.autofetchManualPaused).toBe(true);
     expect(state.protectedBranches).toEqual(["main", "release/*"]);
     expect(state.panelSegment).toBe("history");
-    expect(state.historyDetailWidth).toBe(420);
     expect(state.historyRef).toBe("origin/main");
+  });
+
+  it("ignores removed legacy history detail width rows without failing load", () => {
+    const dbPath = path.join(tmpDir, id, "state.db");
+    const db = bunSqliteFactory(dbPath);
+    const removedKey = ["history", "Detail", "Width"].join("");
+
+    try {
+      db.prepare("INSERT OR REPLACE INTO git_panel_state (key, value) VALUES (?, ?)").run(
+        removedKey,
+        "420",
+      );
+
+      expect(() => storage.getGitPanelState(id)).not.toThrow();
+      expect(storage.getGitPanelState(id).historyRef).toBe("HEAD");
+    } finally {
+      db.close();
+    }
   });
 
   it("coerces legacy stored autofetch intervals to 3 while preserving Off", () => {
@@ -472,7 +487,6 @@ describe("WorkspaceStorage schema v5 migration for git panel preferences", () =>
     expect(state.autofetchManualPaused).toBe(false);
     expect(state.protectedBranches).toEqual([]);
     expect(state.panelSegment).toBe("changes");
-    expect(state.historyDetailWidth).toBe(0);
     expect(state.historyRef).toBe("HEAD");
     storage.closeForWorkspace(id);
 

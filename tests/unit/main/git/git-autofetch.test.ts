@@ -41,8 +41,8 @@ function createHarness() {
     autofetchManualPaused: false,
     protectedBranches: [],
     panelSegment: "changes" as const,
-    historyDetailWidth: 0,
     historyRef: "HEAD",
+    historyScope: "ref" as const,
   };
   const repo = {
     fetchAll: mock(async () => {}),

@@ -708,7 +708,6 @@ export const GitPanelStateSchema = z.object({
   autofetchManualPaused: z.boolean().default(false),
   protectedBranches: z.array(z.string()).default([]),
   panelSegment: GitPanelSegmentSchema.default("changes"),
-  historyDetailWidth: z.number().int().nonnegative().default(0),
   historyRef: z.string().default("HEAD"),
   historyScope: GitHistoryScopeSchema.default("ref"),
 });
@@ -726,7 +725,6 @@ export const DEFAULT_GIT_PANEL_STATE: GitPanelState = {
   autofetchManualPaused: false,
   protectedBranches: [],
   panelSegment: "changes",
-  historyDetailWidth: 0,
   historyRef: "HEAD",
   historyScope: "ref",
 };

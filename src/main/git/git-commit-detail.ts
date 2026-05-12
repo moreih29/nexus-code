@@ -12,8 +12,8 @@ const DETAIL_FORMAT = "%H%x00%P%x00%an%x00%ae%x00%cI%x00%s%x00%B%x00";
 
 /**
  * Builds the `git show` argv used to read one commit's metadata and changed
- * files. Merge commits are still read through the same command; the parser
- * intentionally suppresses file entries for multi-parent commits.
+ * files. `--first-parent` makes merge commits emit the file list relative to
+ * `parents[0]`, matching the CommitTab diff target without a parent selector.
  */
 export function buildCommitDetailArgs(sha: string): string[] {
   const trimmed = sha.trim();
@@ -26,6 +26,7 @@ export function buildCommitDetailArgs(sha: string): string[] {
     "--find-renames",
     "--name-status",
     "-z",
+    "--first-parent",
     `--format=${DETAIL_FORMAT}`,
     trimmed,
   ];
@@ -33,8 +34,9 @@ export function buildCommitDetailArgs(sha: string): string[] {
 
 /**
  * Parses `git show --name-status -z` output into the renderer-facing detail
- * shape. Rename and copy entries carry `oldPath`; merge commits return an
- * empty file list because parent-diff semantics are outside the MVP.
+ * shape. Rename and copy entries carry `oldPath`; merge commit output is
+ * parsed like any other commit because the Git argv requests first-parent
+ * diff semantics before this parser sees the name-status tokens.
  */
 export function parseCommitDetailOutput(stdout: string): CommitDetail {
   const fields = stdout.split(DETAIL_FIELD_SEPARATOR);
@@ -61,7 +63,7 @@ export function parseCommitDetailOutput(stdout: string): CommitDetail {
     committerTs: committerTs ?? "",
     message,
     body,
-    files: parents.length > 1 ? [] : parseNameStatusTokens(fileTokens),
+    files: parseNameStatusTokens(fileTokens),
   };
 }
 

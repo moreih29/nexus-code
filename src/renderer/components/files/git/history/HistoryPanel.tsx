@@ -1,9 +1,9 @@
 /**
- * History panel orchestrator — loads paged logs, server-side search, and the
- * commit detail split view for one workspace.
+ * History panel orchestrator — loads paged logs and server-side search for
+ * one workspace while commit details open in editor-area tabs.
  */
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   CommitDetail,
   CommitSearchResult,
@@ -11,11 +11,11 @@ import type {
   LogEntry,
 } from "../../../../../shared/types/git";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
+import { openOrRevealCommitTab } from "../../../../state/operations/tabs";
 import { useGitStore } from "../../../../state/stores/git";
 import { GitInlineBanner } from "../GitInlineBanner";
 import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./HistoryCommitMenu";
-import { HistoryDetail } from "./HistoryDetail";
 import { HistoryList } from "./HistoryList";
 import { HistoryRefSwitcher } from "./HistoryRefSwitcher";
 import type { HistoryRowMenuRequest } from "./HistoryRow";
@@ -24,17 +24,14 @@ import { RefChipList } from "./RefChip";
 
 const HISTORY_PAGE_SIZE = 50;
 const HISTORY_SEARCH_DEBOUNCE_MS = 200;
-const HISTORY_NARROW_WIDTH = 720;
 
 interface HistoryPanelProps {
   workspaceId: string;
   refName: string;
   historyScope: GitHistoryScope;
-  detailWidth: number;
   busy?: boolean;
   onRefChange: (refName: string) => void;
   onScopeChange: (scope: GitHistoryScope) => void;
-  onDetailWidthChange: (width: number) => void;
 }
 
 interface HistoryLoadState {
@@ -50,11 +47,9 @@ export function HistoryPanel({
   workspaceId,
   refName,
   historyScope,
-  detailWidth,
   busy = false,
   onRefChange,
   onScopeChange,
-  onDetailWidthChange,
 }: HistoryPanelProps) {
   const cherryPick = useGitStore((state) => state.cherryPick);
   const checkoutDetached = useGitStore((state) => state.checkoutDetached);
@@ -63,8 +58,6 @@ export function HistoryPanel({
   const [searchNonce, setSearchNonce] = useState(0);
   const debouncedQuery = useDebouncedValue(query, HISTORY_SEARCH_DEBOUNCE_MS);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
-  const [detail, setDetail] = useState<CommitDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [menuTarget, setMenuTarget] = useState<HistoryCommitMenuTarget | null>(null);
   const [banner, setBanner] = useState<{ variant: "info" | "error"; message: string } | null>(null);
   const [loadState, setLoadState] = useState<HistoryLoadState>({
@@ -75,11 +68,6 @@ export function HistoryPanel({
     errorMessage: null,
   });
   const [laneState, setLaneState] = useState(() => initialLaneState());
-  const narrow = useIsNarrowHistoryLayout();
-  const selectedEntry = useMemo(
-    () => loadState.entries.find((entry) => entry.sha === selectedSha) ?? null,
-    [loadState.entries, selectedSha],
-  );
 
   const resetLaneState = useCallback(() => {
     setLaneState(initialLaneState());
@@ -102,7 +90,6 @@ export function HistoryPanel({
   const loadFirstPage = useCallback(
     (signal?: AbortSignal) => {
       setBanner(null);
-      setDetail(null);
       setSelectedSha(null);
       resetLaneState();
       setLoadState({
@@ -157,7 +144,6 @@ export function HistoryPanel({
         loadingMore: false,
         errorMessage: null,
       });
-      setDetail(null);
       setSelectedSha(null);
       if (historyScope === "ref" && isShaPrefixQuery(trimmed)) {
         ipcCall(
@@ -170,7 +156,7 @@ export function HistoryPanel({
         )
           .then((result) => {
             if (controller.signal.aborted) return;
-            const graphEntries = applySearchResult(result, setLoadState, setSelectedSha, setDetail);
+            const graphEntries = applySearchResult(result, setLoadState, setSelectedSha);
             setLaneState(reduceLanes(initialLaneState(), graphEntries));
           })
           .catch((error) => {
@@ -235,27 +221,6 @@ export function HistoryPanel({
     workspaceId,
   ]);
 
-  useEffect(() => {
-    if (!selectedSha) {
-      setDetail(null);
-      return;
-    }
-    if (detail?.sha === selectedSha) return;
-
-    const controller = new AbortController();
-    setDetailLoading(true);
-    ipcCall("git", "commitDetail", { workspaceId, sha: selectedSha }, { signal: controller.signal })
-      .then((nextDetail) => setDetail(nextDetail))
-      .catch((error) => {
-        if (controller.signal.aborted) return;
-        setBanner({ variant: "error", message: messageFromError(error) });
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setDetailLoading(false);
-      });
-    return () => controller.abort();
-  }, [detail?.sha, selectedSha, workspaceId]);
-
   function loadMore(): void {
     if (debouncedQuery.trim().length > 0) return;
     const lastSha = loadState.entries.at(-1)?.sha;
@@ -289,9 +254,14 @@ export function HistoryPanel({
   function openMenu(request: HistoryRowMenuRequest): void {
     setMenuTarget({
       entry: request.entry,
-      detail: detail?.sha === request.entry.sha ? detail : null,
+      detail: null,
       point: request.point,
     });
+  }
+
+  function openCommit(entry: LogEntry): void {
+    setSelectedSha(entry.sha);
+    openOrRevealCommitTab(workspaceId, entry.sha);
   }
 
   return (
@@ -330,11 +300,11 @@ export function HistoryPanel({
             searchQuery={query}
             errorMessage={loadState.errorMessage}
             laneState={laneState}
-            renderRefSlot={(entry) => (
+            renderRefSlot={(entry, _index, breakpoint) => (
               <RefChipList
                 refs={entry.refs}
                 currentRefName={refName}
-                visibleCount={narrow ? 1 : 2}
+                breakpoint={breakpoint}
                 onRefChange={changeHistoryRef}
                 onOpenMenu={(event) => {
                   openMenu({ entry, point: { x: event.clientX, y: event.clientY } });
@@ -342,24 +312,12 @@ export function HistoryPanel({
               />
             )}
             onSelect={(entry) => setSelectedSha(entry.sha)}
+            onOpen={openCommit}
             onLoadMore={loadMore}
             onOpenMenu={openMenu}
             onClearSearch={() => setQuery("")}
           />
         </div>
-        <HistoryDetail
-          detail={detail}
-          loading={detailLoading}
-          width={detailWidth}
-          narrow={narrow}
-          selectedEntry={selectedEntry}
-          onWidthChange={onDetailWidthChange}
-          onClose={() => {
-            setSelectedSha(null);
-            setDetail(null);
-          }}
-          onOpenMenu={openMenu}
-        />
       </div>
       <HistoryCommitMenu
         target={menuTarget}
@@ -434,12 +392,11 @@ async function loadLogPage({
   }
 }
 
-/** Applies a server-side search result to list and detail state. */
+/** Applies a server-side search result to list state. */
 function applySearchResult(
   result: CommitSearchResult,
   setLoadState: React.Dispatch<React.SetStateAction<HistoryLoadState>>,
   setSelectedSha: React.Dispatch<React.SetStateAction<string | null>>,
-  setDetail: React.Dispatch<React.SetStateAction<CommitDetail | null>>,
 ): readonly LogEntry[] {
   if (result.kind === "sha") {
     const entry = logEntryFromDetail(result.detail);
@@ -451,7 +408,6 @@ function applySearchResult(
       errorMessage: null,
     });
     setSelectedSha(result.detail.sha);
-    setDetail(result.detail);
     return [entry];
   }
 
@@ -512,20 +468,6 @@ function useDebouncedValue(value: string, delayMs: number): string {
     return () => window.clearTimeout(timer);
   }, [delayMs, value]);
   return debounced;
-}
-
-/** Tracks whether History detail should switch from split pane to sheet. */
-function useIsNarrowHistoryLayout(): boolean {
-  const [narrow, setNarrow] = useState(() =>
-    typeof window === "undefined" ? false : window.innerWidth < HISTORY_NARROW_WIDTH,
-  );
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const update = () => setNarrow(window.innerWidth < HISTORY_NARROW_WIDTH);
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-  return narrow;
 }
 
 /** Extracts a user-facing message from unknown IPC failures. */

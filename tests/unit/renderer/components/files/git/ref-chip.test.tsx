@@ -321,6 +321,31 @@ describe("RefChipList overflow behavior", () => {
     ]);
   });
 
+  it("adapts visible refs from history list breakpoints", () => {
+    const narrow = renderRefChipList({
+      refs: mixedRefs(),
+      currentRefName: "main",
+      breakpoint: "narrow",
+    });
+    expect(buttonTexts(narrow.root)).toEqual([""]);
+    expect(buttonByLabel(narrow.root, "HEAD ref").props.title).toBe("HEAD");
+    expect(queryButtonByLabel(narrow.root, /Show \d+ more refs/)).toBeNull();
+
+    const medium = renderRefChipList({
+      refs: mixedRefs(),
+      currentRefName: "main",
+      breakpoint: "medium",
+    });
+    expect(buttonTexts(medium.root)).toEqual(["HEAD", "+3"]);
+
+    const wide = renderRefChipList({
+      refs: mixedRefs(),
+      currentRefName: "main",
+      breakpoint: "wide",
+    });
+    expect(buttonTexts(wide.root)).toEqual(["HEAD", "main", "+2"]);
+  });
+
   it("clicking an overflow ref navigates to the full hidden ref and closes the popover", () => {
     const onRefChange = mock((_refName: string) => {});
     const view = renderRefChipList({

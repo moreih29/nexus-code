@@ -833,8 +833,8 @@ export class GitRepository {
   }
 
   /**
-   * Reads one commit's metadata and per-file changes for the History detail
-   * pane. Merge commits intentionally return an empty file list.
+   * Reads one commit's metadata and per-file changes for the editor commit tab.
+   * Merge commit file changes use the first parent as the comparison base.
    */
   commitDetail(sha: string, signal?: AbortSignal): Promise<CommitDetail> {
     return this.queue((queuedSignal) => this.readCommitDetail(sha, queuedSignal), signal);

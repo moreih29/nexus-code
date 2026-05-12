@@ -5,9 +5,14 @@
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
 import type { LogEntry } from "../../../../../shared/types/git";
+import type { HistoryListBreakpoint } from "./HistoryList";
 
-const HISTORY_ROW_GRID_CLASS =
-  "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px] items-center gap-2";
+const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
+  narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_5ch_24px] items-center gap-2",
+  medium:
+    "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_5ch_7ch_24px] items-center gap-2",
+  wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_5ch_7ch_24px] items-center gap-2",
+};
 const HISTORY_ROW_INTERACTION_CLASS =
   "group border-l-2 pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
@@ -22,11 +27,13 @@ interface HistoryRowProps {
   tabIndex: 0 | -1;
   ariaSetSize: number;
   ariaPosInSet: number;
+  breakpoint: HistoryListBreakpoint;
   rowRef?: (element: HTMLDivElement | null) => void;
   graphSlot?: React.ReactNode;
   refSlot?: React.ReactNode;
   onFocus: () => void;
   onSelect: (entry: LogEntry) => void;
+  onOpen: (entry: LogEntry) => void;
   onOpenMenu: (request: HistoryRowMenuRequest) => void;
 }
 
@@ -37,15 +44,21 @@ export function HistoryRow({
   tabIndex,
   ariaSetSize,
   ariaPosInSet,
+  breakpoint,
   rowRef,
   graphSlot,
   refSlot,
   onFocus,
   onSelect,
+  onOpen,
   onOpenMenu,
 }: HistoryRowProps) {
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const subject = entry.subject || "(no subject)";
+  const showRefs = breakpoint !== "narrow";
+  const showAuthor = breakpoint === "wide";
+  const showSha = breakpoint !== "narrow";
+  const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
   /** Opens the commit action menu aligned to the row or action trigger. */
   function openMenuFromElement(element: HTMLElement): void {
@@ -64,16 +77,29 @@ export function HistoryRow({
       aria-setsize={ariaSetSize}
       aria-posinset={ariaPosInSet}
       tabIndex={tabIndex}
+      title={rowTitle}
       className={
         selected
-          ? `${HISTORY_ROW_GRID_CLASS} ${HISTORY_ROW_INTERACTION_CLASS} border-ring bg-frosted-veil-strong`
-          : `${HISTORY_ROW_GRID_CLASS} ${HISTORY_ROW_INTERACTION_CLASS} border-transparent hover:bg-frosted-veil`
+          ? `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-ring bg-frosted-veil-strong`
+          : `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-transparent hover:bg-frosted-veil`
       }
       onFocus={onFocus}
-      onClick={() => onSelect(entry)}
+      onClick={() => {
+        onSelect(entry);
+        onOpen(entry);
+      }}
+      onDoubleClick={() => {
+        onSelect(entry);
+        onOpen(entry);
+      }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter") onSelect(entry);
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect(entry);
+          onOpen(entry);
+        }
         if (event.key === "." && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
           openMenuFromElement(event.currentTarget);
@@ -90,19 +116,27 @@ export function HistoryRow({
       >
         {graphSlot ?? <span className="size-1.5 rounded-full bg-muted-foreground/70" />}
       </span>
-      <span className="min-w-0 overflow-hidden" aria-hidden={refSlot ? undefined : true}>
-        {refSlot}
-      </span>
-      <span className="truncate leading-6" title={subject}>
+      {showRefs ? (
+        <span className="min-w-0 overflow-hidden" aria-hidden={refSlot ? undefined : true}>
+          {refSlot}
+        </span>
+      ) : null}
+      <span className="truncate leading-6" title={rowTitle}>
         {subject}
       </span>
-      <span className="truncate text-muted-foreground" title={entry.authorName}>
-        {entry.authorName}
-      </span>
+      {showAuthor ? (
+        <span className="truncate text-muted-foreground" title={entry.authorName}>
+          {entry.authorName}
+        </span>
+      ) : null}
       <span className="truncate text-right text-muted-foreground" title={entry.authoredAt}>
         {relativeTime(entry.authoredAt)}
       </span>
-      <span className="truncate font-mono text-muted-foreground">{shortSha}</span>
+      {showSha ? (
+        <span className="truncate font-mono text-muted-foreground" title={entry.sha}>
+          {shortSha}
+        </span>
+      ) : null}
       <button
         type="button"
         className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-frosted-veil-strong hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"

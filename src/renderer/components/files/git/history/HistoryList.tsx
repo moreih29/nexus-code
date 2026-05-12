@@ -15,6 +15,12 @@ const HISTORY_ROW_HEIGHT_PX = 24;
 const HISTORY_LIST_OVERSCAN = 10;
 const HISTORY_GRAPH_LANE_WIDTH_PX = 18;
 const DEFAULT_GRAPH_WIDTH_PX = HISTORY_GRAPH_LANE_WIDTH_PX;
+const HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS = 100;
+
+export const HISTORY_LIST_BREAKPOINT_NARROW = 320;
+export const HISTORY_LIST_BREAKPOINT_MEDIUM = 480;
+
+export type HistoryListBreakpoint = "narrow" | "medium" | "wide";
 
 interface HistoryListProps {
   entries: readonly LogEntry[];
@@ -27,8 +33,13 @@ interface HistoryListProps {
   laneState?: LaneState;
   graphWidthPx?: number;
   renderGraphSlot?: (entry: LogEntry, index: number) => React.ReactNode;
-  renderRefSlot?: (entry: LogEntry, index: number) => React.ReactNode;
+  renderRefSlot?: (
+    entry: LogEntry,
+    index: number,
+    breakpoint: HistoryListBreakpoint,
+  ) => React.ReactNode;
   onSelect: (entry: LogEntry) => void;
+  onOpen: (entry: LogEntry) => void;
   onLoadMore: () => void;
   onOpenMenu: (request: HistoryRowMenuRequest) => void;
   onClearSearch: () => void;
@@ -52,6 +63,7 @@ export function HistoryList({
   renderGraphSlot,
   renderRefSlot,
   onSelect,
+  onOpen,
   onLoadMore,
   onOpenMenu,
   onClearSearch,
@@ -62,6 +74,7 @@ export function HistoryList({
   const pendingFocusIndexRef = useRef<number | null>(null);
   const syncedSelectedShaRef = useRef<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const breakpoint = useHistoryListBreakpoint(scrollRef);
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: () => scrollRef.current,
@@ -146,9 +159,11 @@ export function HistoryList({
       event.preventDefault();
       event.stopPropagation();
       setFocusedIndex(nextIndex);
+      const nextEntry = entries[nextIndex];
+      if (nextEntry) onSelect(nextEntry);
       focusHistoryRow(nextIndex);
     },
-    [entries.length, focusHistoryRow, focusedIndex],
+    [entries, focusHistoryRow, focusedIndex, onSelect],
   );
 
   const registerRow = useCallback((index: number, element: HTMLDivElement | null) => {
@@ -237,13 +252,15 @@ export function HistoryList({
                 tabIndex={focusedIndex === virtualRow.index ? 0 : -1}
                 ariaSetSize={entries.length}
                 ariaPosInSet={virtualRow.index + 1}
+                breakpoint={breakpoint}
                 graphSlot={renderGraphSlot?.(entry, virtualRow.index) ?? graphFallback(laneState)}
-                refSlot={renderRefSlot?.(entry, virtualRow.index)}
+                refSlot={renderRefSlot?.(entry, virtualRow.index, breakpoint)}
                 onFocus={() => setFocusedIndex(virtualRow.index)}
                 onSelect={(selectedEntry) => {
                   setFocusedIndex(virtualRow.index);
                   onSelect(selectedEntry);
                 }}
+                onOpen={onOpen}
                 onOpenMenu={onOpenMenu}
               />
             </div>
@@ -264,6 +281,79 @@ export function HistoryList({
       ) : null}
     </div>
   );
+}
+
+/** Observes the scroll container and returns the density breakpoint for history rows. */
+export function useHistoryListBreakpoint(
+  scrollRef: React.RefObject<HTMLElement | null>,
+): HistoryListBreakpoint {
+  const [breakpoint, setBreakpoint] = useState<HistoryListBreakpoint>("medium");
+  const observerStateRef = useRef<HistoryListBreakpointObserver | null>(null);
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (observerStateRef.current?.element === scrollElement) return;
+    observerStateRef.current?.cleanup();
+    observerStateRef.current = null;
+    if (!scrollElement || typeof ResizeObserver === "undefined") return;
+
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    /** Debounces non-zero width measurements so hidden panels keep their last density. */
+    function scheduleBreakpointUpdate(widthPx: number): void {
+      if (widthPx <= 0) return;
+      if (pendingTimer !== null) clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        setBreakpoint(widthToHistoryListBreakpoint(widthPx));
+      }, HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS);
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      scheduleBreakpointUpdate(resizeEntryWidth(entry));
+    });
+
+    observer.observe(scrollElement);
+    observerStateRef.current = {
+      element: scrollElement,
+      cleanup: () => {
+        if (pendingTimer !== null) clearTimeout(pendingTimer);
+        observer.disconnect();
+      },
+    };
+    scheduleBreakpointUpdate(scrollElement.getBoundingClientRect().width);
+  });
+
+  useEffect(() => {
+    return () => {
+      observerStateRef.current?.cleanup();
+      observerStateRef.current = null;
+    };
+  }, []);
+
+  return breakpoint;
+}
+
+interface HistoryListBreakpointObserver {
+  readonly element: HTMLElement | null;
+  readonly cleanup: () => void;
+}
+
+/** Converts a measured container width into the row density bucket. */
+function widthToHistoryListBreakpoint(widthPx: number): HistoryListBreakpoint {
+  if (widthPx < HISTORY_LIST_BREAKPOINT_NARROW) return "narrow";
+  if (widthPx < HISTORY_LIST_BREAKPOINT_MEDIUM) return "medium";
+  return "wide";
+}
+
+/** Reads ResizeObserver width while tolerating older contentRect-only implementations. */
+function resizeEntryWidth(entry: ResizeObserverEntry): number {
+  const borderBoxSize = Array.isArray(entry.borderBoxSize)
+    ? entry.borderBoxSize[0]
+    : entry.borderBoxSize;
+  return borderBoxSize?.inlineSize ?? entry.contentRect.width;
 }
 
 /** Computes the graph column width from every lane currently known by the reducer. */

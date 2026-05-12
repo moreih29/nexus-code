@@ -124,7 +124,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const setAutofetchInterval = useGitStore((state) => state.setAutofetchInterval);
   const resumeAutofetch = useGitStore((state) => state.resumeAutofetch);
   const setPanelSegment = useGitStore((state) => state.setPanelSegment);
-  const setHistoryDetailWidth = useGitStore((state) => state.setHistoryDetailWidth);
   const setHistoryRef = useGitStore((state) => state.setHistoryRef);
   const setHistoryScope = useGitStore((state) => state.setHistoryScope);
   const setExpandedGroup = useGitStore((state) => state.setExpandedGroup);
@@ -650,8 +649,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const panelSegment = session?.panelSegment ?? DEFAULT_GIT_PANEL_STATE.panelSegment;
   const historyRef = session?.historyRef ?? DEFAULT_GIT_PANEL_STATE.historyRef;
   const historyScope = session?.historyScope ?? DEFAULT_GIT_PANEL_STATE.historyScope;
-  const historyDetailWidth =
-    session?.historyDetailWidth ?? DEFAULT_GIT_PANEL_STATE.historyDetailWidth;
   const hasRemote = capabilities.remotes.length > 0;
   const menuEnablement = {
     canCommitStaged: trimmedDraft.length > 0 && hasStagedChanges,
@@ -808,11 +805,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
               workspaceId={workspaceId}
               refName={historyRef}
               historyScope={historyScope}
-              detailWidth={historyDetailWidth}
               busy={isBusy}
               onRefChange={(nextRef) => setHistoryRef(workspaceId, nextRef)}
               onScopeChange={(nextScope) => setHistoryScope(workspaceId, nextScope)}
-              onDetailWidthChange={(width) => setHistoryDetailWidth(workspaceId, width)}
             />
           ) : (
             <>

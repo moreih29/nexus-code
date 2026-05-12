@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
-import type { DiffTabPayload } from "../../../shared/types/tab";
+import type { DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 
 // ---------------------------------------------------------------------------
@@ -11,7 +11,7 @@ import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
 // gives the compiler a typed `props` automatically.
 // ---------------------------------------------------------------------------
 
-export type TabType = "terminal" | "editor" | "editor.diff";
+export type TabType = "terminal" | "editor" | "editor.diff" | "git.commit";
 
 export interface TerminalTabProps {
   cwd: string;
@@ -19,8 +19,9 @@ export interface TerminalTabProps {
 
 export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
+export type GitCommitTabProps = GitCommitTabPayload;
 
-export type TabProps = TerminalTabProps | EditorTabProps | DiffTabProps;
+export type TabProps = TerminalTabProps | EditorTabProps | DiffTabProps | GitCommitTabProps;
 
 interface TabBase {
   id: string;
@@ -44,7 +45,12 @@ export interface TerminalTab extends TabBase {
   props: TerminalTabProps;
 }
 
-export type Tab = EditorTab | DiffTab | TerminalTab;
+export interface GitCommitTab extends TabBase {
+  type: "git.commit";
+  props: GitCommitTabProps;
+}
+
+export type Tab = EditorTab | DiffTab | TerminalTab | GitCommitTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
@@ -59,6 +65,7 @@ export type Tab = EditorTab | DiffTab | TerminalTab;
 export type CreateTabArgs =
   | { type: "editor"; props: EditorTabProps }
   | { type: "editor.diff"; props: DiffTabProps }
+  | { type: "git.commit"; props: GitCommitTabProps }
   | { type: "terminal"; props: TerminalTabProps };
 
 interface TabsState {
@@ -74,6 +81,7 @@ interface TabsState {
     props: EditorTabProps,
     title: string,
   ) => void;
+  replaceCommitPreviewTab: (workspaceId: string, tabId: string, sha: string, title: string) => void;
   togglePin: (workspaceId: string, tabId: string) => void;
 }
 
@@ -91,6 +99,7 @@ export function defaultTitle(args: CreateTabArgs): string {
     if (args.props.oldRelPath) return `${args.props.oldRelPath} → ${args.props.relPath}`;
     return basename(args.props.relPath) || "Diff";
   }
+  if (args.type === "git.commit") return `commit ${args.props.sha.slice(0, 7)}`;
   return basename(args.props.filePath) || "Editor";
 }
 
@@ -121,6 +130,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "editor", props: args.props };
       } else if (args.type === "editor.diff") {
         tab = { ...base, type: "editor.diff", props: args.props };
+      } else if (args.type === "git.commit") {
+        tab = { ...base, type: "git.commit", props: args.props };
       } else {
         tab = { ...base, type: "terminal", props: args.props };
       }
@@ -205,6 +216,32 @@ export const useTabsStore = create<TabsState>((set, get) => {
       });
     },
 
+    replaceCommitPreviewTab(workspaceId, tabId, sha, title) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        if (!wsRecord || !(tabId in wsRecord)) return state;
+        const tab = wsRecord[tabId];
+        // Commit preview has its own slot; editor previews are intentionally
+        // left untouched by this replacement path.
+        if (tab.type !== "git.commit") return state;
+        const next: GitCommitTab = {
+          ...tab,
+          props: { workspaceId, sha },
+          title,
+          isPreview: true,
+        };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: next,
+            },
+          },
+        };
+      });
+    },
+
     togglePin(workspaceId, tabId) {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
@@ -218,7 +255,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
             ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
             : tab.type === "editor.diff"
               ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-              : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
+              : tab.type === "git.commit"
+                ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
+                : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
         return {
           byWorkspace: {
             ...state.byWorkspace,

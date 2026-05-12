@@ -21,7 +21,7 @@
  * Not automated: IPC write (debounce/flush), Electron storage round-trip
  */
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Shim window.ipc so store modules load without DOM / Electron preload.
@@ -35,8 +35,13 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
   },
 };
 
+/** Default IPC mock used by tests that do not exercise bootstrap hydration. */
+const defaultIpcCall = (_channel?: string, _method?: string, _args?: unknown): Promise<unknown> =>
+  Promise.resolve(undefined);
+const mockIpcCall = mock(defaultIpcCall);
+
 mock.module("../../src/renderer/ipc/client", () => ({
-  ipcCall: mock(() => Promise.resolve()),
+  ipcCall: mockIpcCall,
   ipcListen: () => () => {},
 }));
 
@@ -44,26 +49,40 @@ mock.module("../../src/renderer/ipc/client", () => ({
 // Imports AFTER mocks
 // ---------------------------------------------------------------------------
 
+import { bootstrapAppState } from "../../src/renderer/bootstrap";
 import { openOrRevealEditor } from "../../src/renderer/services/editor";
 import { openTab } from "../../src/renderer/state/operations";
+import { openOrRevealCommitTab } from "../../src/renderer/state/operations/tabs";
+import { unregisterStatePersistence } from "../../src/renderer/state/persistence";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { allLeaves, findLeaf, sanitize } from "../../src/renderer/state/stores/layout/helpers";
 import type { LayoutNode } from "../../src/renderer/state/stores/layout/types";
 import type { Tab } from "../../src/renderer/state/stores/tabs";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
+import { AppStateSchema } from "../../src/shared/types/app-state";
 import type { WorkspaceLayoutSnapshot } from "../../src/shared/types/layout";
 import { WorkspaceLayoutSnapshotSchema } from "../../src/shared/types/layout";
+import { TabMetaSchema } from "../../src/shared/types/tab";
+import { WorkspaceMetaSchema } from "../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
 const WS = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
+const COMMIT_SHA = "abcdef1234567890abcdef1234567890abcdef12";
 
 function resetStores() {
+  unregisterStatePersistence();
+  mockIpcCall.mockImplementation(defaultIpcCall);
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
 }
+
+afterEach(() => {
+  unregisterStatePersistence();
+  mockIpcCall.mockImplementation(defaultIpcCall);
+});
 
 function getLayout() {
   const layout = useLayoutStore.getState().byWorkspace[WS];
@@ -369,5 +388,66 @@ describe("Scenario 6: full JSON.stringify → parse → hydrate round-trip", () 
 
     // activeGroupId survives
     expect(layoutAfter.activeGroupId).toBe(snapshotBefore.activeGroupId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — git.commit preview schema + bootstrap round-trip
+// ---------------------------------------------------------------------------
+
+describe("Scenario 7: git.commit preview metadata round-trip", () => {
+  beforeEach(resetStores);
+
+  it("WorkspaceMeta TabMeta JSON round-trip preserves git.commit isPreview", () => {
+    const tabMeta = {
+      id: "99999999-9999-4999-9999-999999999999",
+      workspaceId: WS,
+      type: "git.commit" as const,
+      title: "commit abcdef1",
+      sha: COMMIT_SHA,
+      isPreview: true,
+    };
+
+    const workspace = WorkspaceMetaSchema.parse({
+      id: WS,
+      name: "repo",
+      rootPath: "/repo",
+      colorTone: "default",
+      pinned: false,
+      tabs: [tabMeta],
+    });
+    const reparsedTab = TabMetaSchema.parse(JSON.parse(JSON.stringify(workspace.tabs[0])));
+
+    expect(reparsedTab).toEqual(tabMeta);
+  });
+
+  it("AppState layout JSON round-trip and bootstrap preserve a git.commit preview tab", async () => {
+    const opened = openOrRevealCommitTab(WS, COMMIT_SHA);
+    const snapshot = buildSnapshot(WS)!;
+    const appState = AppStateSchema.parse({
+      layoutByWorkspace: {
+        [WS]: snapshot,
+      },
+    });
+    const reparsedState = AppStateSchema.parse(JSON.parse(JSON.stringify(appState)));
+
+    useTabsStore.setState({ byWorkspace: {} });
+    useLayoutStore.setState({ byWorkspace: {} });
+    mockIpcCall.mockImplementation((channel: string, method: string) => {
+      if (channel === "appState" && method === "get") return Promise.resolve(reparsedState);
+      return Promise.resolve(undefined);
+    });
+
+    await bootstrapAppState();
+
+    const restoredTab = useTabsStore.getState().byWorkspace[WS]?.[opened.tabId];
+    expect(restoredTab).toMatchObject({
+      type: "git.commit",
+      props: { workspaceId: WS, sha: COMMIT_SHA },
+      isPreview: true,
+      isPinned: false,
+    });
+    expect(restoredTab?.title).toBe(`commit ${COMMIT_SHA.slice(0, 7)}`);
+    expect(findLeaf(getLayout().root, opened.groupId)?.tabIds).toContain(opened.tabId);
   });
 });

@@ -16,6 +16,7 @@ const POPOVER_MAX_HEIGHT_PX = 240;
 
 export type RefChipDisplayKind = "head" | "current" | "branch" | "remote" | "tag";
 export type RefChipVisibleCount = 1 | 2;
+export type RefChipListBreakpoint = "narrow" | "medium" | "wide";
 export type RefChipContextMenuHandler = (
   event: React.MouseEvent<HTMLElement>,
   refInfo?: LogEntryRef,
@@ -26,6 +27,7 @@ export interface RefChipProps {
   readonly currentRefName?: string;
   readonly role?: React.AriaRole;
   readonly className?: string;
+  readonly iconOnly?: boolean;
   readonly onRefChange: (refName: string) => void;
   readonly onOpenMenu?: RefChipContextMenuHandler;
 }
@@ -33,6 +35,7 @@ export interface RefChipProps {
 export interface RefChipListProps {
   readonly refs: readonly LogEntryRef[] | undefined;
   readonly currentRefName?: string;
+  readonly breakpoint?: RefChipListBreakpoint;
   readonly visibleCount?: RefChipVisibleCount;
   readonly onRefChange: (refName: string) => void;
   readonly onOpenMenu?: RefChipContextMenuHandler;
@@ -44,10 +47,12 @@ export function RefChip({
   currentRefName,
   role,
   className,
+  iconOnly = false,
   onRefChange,
   onOpenMenu,
 }: RefChipProps) {
   const displayKind = refChipDisplayKind(refInfo, currentRefName);
+  const showIconOnly = iconOnly && displayKind === "head";
 
   /** Navigates to the chip ref without also selecting the commit row. */
   function handleClick(event: React.MouseEvent<HTMLButtonElement>): void {
@@ -67,13 +72,13 @@ export function RefChip({
       type="button"
       role={role}
       title={refInfo.name}
-      className={cn(refChipClassName(displayKind), className)}
+      className={cn(refChipClassName(displayKind, showIconOnly), className)}
       aria-label={refChipAriaLabel(refInfo, displayKind)}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
       <RefChipIcon displayKind={displayKind} />
-      <span className="min-w-0 truncate">{refInfo.name}</span>
+      {showIconOnly ? null : <span className="min-w-0 truncate">{refInfo.name}</span>}
     </button>
   );
 }
@@ -82,6 +87,7 @@ export function RefChip({
 export function RefChipList({
   refs,
   currentRefName,
+  breakpoint,
   visibleCount = DEFAULT_VISIBLE_REF_COUNT,
   onRefChange,
   onOpenMenu,
@@ -94,7 +100,10 @@ export function RefChipList({
     () => sortRefsForDisplay(refs ?? [], currentRefName),
     [currentRefName, refs],
   );
-  const normalizedVisibleCount = normalizeVisibleCount(visibleCount);
+  const normalizedVisibleCount = visibleCountForBreakpoint(breakpoint, visibleCount);
+  const headRef = orderedRefs.find(
+    (refInfo) => refChipDisplayKind(refInfo, currentRefName) === "head",
+  );
   const visibleRefs = orderedRefs.slice(0, normalizedVisibleCount);
   const overflowRefs = orderedRefs.slice(normalizedVisibleCount);
   const popoverOpen = popoverPoint !== null;
@@ -115,6 +124,20 @@ export function RefChipList({
   }, [closePopover, popoverOpen]);
 
   if (orderedRefs.length === 0) return null;
+  if (breakpoint === "narrow") {
+    if (!headRef) return null;
+    return (
+      <span ref={wrapperRef} className="inline-flex min-w-0 items-center">
+        <RefChip
+          refInfo={headRef}
+          currentRefName={currentRefName}
+          iconOnly
+          onRefChange={onRefChange}
+          onOpenMenu={onOpenMenu}
+        />
+      </span>
+    );
+  }
 
   /** Toggles the overflow popover at the overflow trigger location. */
   function handleOverflowClick(event: React.MouseEvent<HTMLButtonElement>): void {
@@ -288,9 +311,11 @@ function RefChipIcon({ displayKind }: { displayKind: RefChipDisplayKind }) {
 }
 
 /** Returns the restrained shape/fill treatment for one visual ref kind. */
-function refChipClassName(displayKind: RefChipDisplayKind): string {
-  const baseClassName =
-    "inline-flex h-5 max-w-[14ch] min-w-0 shrink-0 items-center gap-1 border px-1.5 text-app-ui-xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
+function refChipClassName(displayKind: RefChipDisplayKind, iconOnly = false): string {
+  const baseClassName = cn(
+    "inline-flex h-5 min-w-0 shrink-0 items-center border text-app-ui-xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    iconOnly ? "w-5 justify-center px-0" : "max-w-[14ch] gap-1 px-1.5",
+  );
 
   if (displayKind === "head") {
     return cn(
@@ -357,8 +382,13 @@ function refChipPriority(displayKind: RefChipDisplayKind): number {
   return 4;
 }
 
-/** Keeps the visible chip count inside the supported dense-row range. */
-function normalizeVisibleCount(visibleCount: RefChipVisibleCount): RefChipVisibleCount {
+/** Adapts visible ref density to the measured history list width. */
+function visibleCountForBreakpoint(
+  breakpoint: RefChipListBreakpoint | undefined,
+  visibleCount: RefChipVisibleCount,
+): RefChipVisibleCount {
+  if (breakpoint === "medium") return 1;
+  if (breakpoint === "wide") return DEFAULT_VISIBLE_REF_COUNT;
   return visibleCount === 1 ? 1 : DEFAULT_VISIBLE_REF_COUNT;
 }
 

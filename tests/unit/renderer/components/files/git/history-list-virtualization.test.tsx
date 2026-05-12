@@ -348,6 +348,52 @@ describe("HistoryList keyboard navigation", () => {
     expect(event.propagationStopped).toBe(false);
     expect(activeOptionPosition).toBe(1);
   });
+
+  it("selects rows during keyboard travel without opening until Enter", () => {
+    const selected: string[] = [];
+    const opened: string[] = [];
+    const view = renderHistoryList({
+      entries: makeEntries(4),
+      onSelect: (entry) => selected.push(entry.sha),
+      onOpen: (entry) => opened.push(entry.sha),
+    });
+
+    focusListbox(view);
+    pressListKey(view, "ArrowDown");
+
+    expect(selected).toEqual([shaForIndex(1)]);
+    expect(opened).toEqual([]);
+
+    const focusedOption = optionAtPosition(view.root, 2);
+    const enter = makeRowKeyEvent("Enter", focusedOption);
+    callHandler(focusedOption.props.onKeyDown, enter);
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(enter.propagationStopped).toBe(true);
+    expect(selected).toEqual([shaForIndex(1), shaForIndex(1)]);
+    expect(opened).toEqual([shaForIndex(1)]);
+  });
+
+  it("opens rows from simple click and double-click while preserving selection", () => {
+    const selected: string[] = [];
+    const opened: string[] = [];
+    const view = renderHistoryList({
+      entries: makeEntries(4),
+      onSelect: (entry) => selected.push(entry.sha),
+      onOpen: (entry) => opened.push(entry.sha),
+    });
+    const firstOption = optionAtPosition(view.root, 1);
+    const secondOption = optionAtPosition(view.root, 2);
+
+    callHandler(firstOption.props.onClick, { target: firstOption, currentTarget: firstOption });
+    callHandler(secondOption.props.onDoubleClick, {
+      target: secondOption,
+      currentTarget: secondOption,
+    });
+
+    expect(selected).toEqual([shaForIndex(0), shaForIndex(1)]);
+    expect(opened).toEqual([shaForIndex(0), shaForIndex(1)]);
+  });
 });
 
 /** Re-renders HistoryList and keeps its hook state between synthetic events. */
@@ -375,6 +421,7 @@ function renderHistoryList(overrides: Partial<HistoryListProps>): HistoryListVie
     hasMore: false,
     searchQuery: "",
     onSelect: () => {},
+    onOpen: () => {},
     onLoadMore: () => {},
     onOpenMenu: () => {},
     onClearSearch: () => {},
@@ -486,6 +533,23 @@ function makeKeyEvent(key: string, target: TestDomElement) {
     key,
     target,
     currentTarget: getCurrentTarget(target),
+    defaultPrevented: false,
+    propagationStopped: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.propagationStopped = true;
+    },
+  };
+}
+
+/** Creates a KeyboardEvent subset whose currentTarget is a row option. */
+function makeRowKeyEvent(key: string, currentTarget: TestDomElement) {
+  return {
+    key,
+    target: currentTarget,
+    currentTarget,
     defaultPrevented: false,
     propagationStopped: false,
     preventDefault() {

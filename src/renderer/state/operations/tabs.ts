@@ -9,14 +9,27 @@
  */
 
 import { useLayoutStore } from "../stores/layout";
+import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
   type CreateTabArgs,
   type DiffTabProps,
+  defaultTitle,
   type EditorTabProps,
+  type GitCommitTabProps,
   type Tab,
   type TerminalTabProps,
   useTabsStore,
 } from "../stores/tabs";
+
+export interface TabLocation {
+  groupId: string;
+  tabId: string;
+}
+
+export interface OpenCommitTabOptions {
+  groupId?: string | "active";
+  preview?: boolean;
+}
 
 /**
  * Create a new tab and attach it to a group in the layout.
@@ -93,6 +106,101 @@ export function openDiffTab(
     ...(oldRelPath ? { oldRelPath } : {}),
   };
   return openTabRecord(workspaceId, { type: "editor.diff", props }, opts);
+}
+
+/**
+ * Find an existing commit tab anywhere in the workspace, preferring the
+ * active group so duplicate commit opens reveal the visible local match first.
+ */
+export function findCommitTab(workspaceId: string, sha: string): TabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const matchesCommitSha = (tabId: string) => {
+    const tab = tabsById[tabId];
+    return tab?.type === "git.commit" && tab.props.sha === sha;
+  };
+
+  const activeLeaf = findLeaf(layout.root, layout.activeGroupId);
+  const activeTabId = activeLeaf?.tabIds.find(matchesCommitSha);
+  if (activeLeaf && activeTabId) {
+    return { groupId: activeLeaf.id, tabId: activeTabId };
+  }
+
+  for (const leaf of allLeaves(layout.root)) {
+    const tabId = leaf.tabIds.find(matchesCommitSha);
+    if (tabId) return { groupId: leaf.id, tabId };
+  }
+
+  return null;
+}
+
+/**
+ * Find the reusable commit-preview slot in a single layout group.
+ */
+function findCommitPreviewTabInGroup(workspaceId: string, groupId: string): TabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+
+  const leaf = findLeaf(layout.root, groupId);
+  if (!leaf) return null;
+
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const tabId = leaf.tabIds.find((id) => {
+    const tab = tabsById[id];
+    return tab?.type === "git.commit" && tab.isPreview;
+  });
+
+  if (!tabId) return null;
+  return { groupId: leaf.id, tabId };
+}
+
+/**
+ * Resolve a caller-supplied group target to an existing layout leaf.
+ */
+function resolveTargetGroupId(workspaceId: string, groupId?: string | "active"): string {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) throw new Error(`layout slice not found for ${workspaceId}`);
+  if (!groupId || groupId === "active") return layout.activeGroupId;
+  return findLeaf(layout.root, groupId) ? groupId : layout.activeGroupId;
+}
+
+/**
+ * Open or reveal a git commit tab with a commit-preview slot per group.
+ */
+export function openOrRevealCommitTab(
+  workspaceId: string,
+  sha: string,
+  opts: OpenCommitTabOptions = {},
+): TabLocation {
+  useLayoutStore.getState().ensureLayout(workspaceId);
+
+  const allowPreview = opts.preview !== false;
+  const existing = findCommitTab(workspaceId, sha);
+  if (existing) {
+    revealTab(workspaceId, existing.groupId, existing.tabId);
+    if (!allowPreview) {
+      useTabsStore.getState().promoteFromPreview(workspaceId, existing.tabId);
+    }
+    return existing;
+  }
+
+  const groupId = resolveTargetGroupId(workspaceId, opts.groupId);
+  const props: GitCommitTabProps = { workspaceId, sha };
+
+  if (allowPreview) {
+    const previewSlot = findCommitPreviewTabInGroup(workspaceId, groupId);
+    if (previewSlot) {
+      const title = defaultTitle({ type: "git.commit", props });
+      useTabsStore.getState().replaceCommitPreviewTab(workspaceId, previewSlot.tabId, sha, title);
+      revealTab(workspaceId, previewSlot.groupId, previewSlot.tabId);
+      return previewSlot;
+    }
+  }
+
+  const tab = openTabRecord(workspaceId, { type: "git.commit", props }, { groupId }, allowPreview);
+  return { groupId, tabId: tab.id };
 }
 
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {

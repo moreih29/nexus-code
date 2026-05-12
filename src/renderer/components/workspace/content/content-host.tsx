@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import type { Tab } from "@/state/stores/tabs";
 import { EditorView } from "./editor-view";
@@ -134,9 +135,11 @@ export function ContentHost({
           filePath={tab.props.filePath}
           workspaceId={workspaceId}
         />
-      ) : (
+      ) : tab.type === "editor.diff" ? (
         <DiffTab {...tab.props} />
-      )}
+      ) : tab.type === "git.commit" ? (
+        <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
+      ) : null}
     </div>
   );
 
