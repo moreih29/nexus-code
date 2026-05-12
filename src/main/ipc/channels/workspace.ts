@@ -1,6 +1,11 @@
 import { ipcContract } from "../../../shared/ipc-contract";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/types/ssh-errors";
 import {
+  type EnsureRemoteServerOptions,
+  type EnsureRemoteServerResult,
+  ensureRemoteServer,
+} from "../../transport/ssh-bootstrap";
+import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
@@ -10,21 +15,24 @@ import { type CallContext, register, validateArgs } from "../router";
 
 const c = ipcContract.workspace.call;
 
-interface TestSshArgs {
-  readonly host: string;
-  readonly user?: string;
-  readonly port?: number;
-  readonly identityFile?: string;
-  readonly remotePath: string;
-}
-
 type TestSshResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: SshErrorCode; readonly message: string };
 
 export type TestSshCreateChannel = (options: CreateSshChannelOptions) => SshChannel;
+export type TestSshBootstrap = (
+  options: EnsureRemoteServerOptions,
+) => Promise<EnsureRemoteServerResult>;
 
-export function registerWorkspaceChannel(manager: WorkspaceManager): void {
+interface WorkspaceChannelDependencies {
+  readonly createSshChannel?: TestSshCreateChannel;
+  readonly sshBootstrap?: TestSshBootstrap;
+}
+
+export function registerWorkspaceChannel(
+  manager: WorkspaceManager,
+  dependencies: WorkspaceChannelDependencies = {},
+): void {
   register("workspace", {
     call: {
       list: (_args: unknown) => {
@@ -46,7 +54,7 @@ export function registerWorkspaceChannel(manager: WorkspaceManager): void {
         const { id } = validateArgs(c.activate.args, args);
         return manager.activate(id);
       },
-      testSsh: testSshHandler(),
+      testSsh: testSshHandler(dependencies.createSshChannel, dependencies.sshBootstrap),
     },
     listen: {
       changed: {},
@@ -63,21 +71,35 @@ export function registerWorkspaceChannel(manager: WorkspaceManager): void {
  */
 export function testSshHandler(
   createChannel: TestSshCreateChannel = createSshChannel,
+  sshBootstrap: TestSshBootstrap = ensureRemoteServer,
 ): (args: unknown, ctx?: CallContext) => Promise<TestSshResult> {
   return async (args: unknown, ctx?: CallContext): Promise<TestSshResult> => {
     const testArgs = validateArgs(c.testSsh.args, args);
     const signal = ctx?.signal;
     let channel: SshChannel | null = null;
+    let disposeBootstrap: (() => void) | undefined;
     let onAbort: (() => void) | undefined;
 
     try {
+      throwIfAborted(signal);
+      const bootstrap = await sshBootstrap({
+        host: testArgs.host,
+        user: testArgs.user,
+        port: testArgs.port,
+        identityFile: testArgs.identityFile,
+        authMode: testArgs.authMode,
+        remotePath: testArgs.remotePath,
+      });
+      disposeBootstrap = bootstrap.dispose;
       throwIfAborted(signal);
       channel = createChannel({
         host: testArgs.host,
         user: testArgs.user,
         port: testArgs.port,
         identityFile: testArgs.identityFile,
-        remoteCommand: buildRemoteServerCommand(testArgs),
+        authMode: testArgs.authMode,
+        remoteCommand: bootstrap.remoteCommand,
+        controlPath: bootstrap.controlPath,
       });
 
       onAbort = () => {
@@ -104,17 +126,9 @@ export function testSshHandler(
         signal.removeEventListener("abort", onAbort);
       }
       channel?.dispose();
+      disposeBootstrap?.();
     }
   };
-}
-
-/**
- * Renders the temporary remote server command for OpenSSH.
- */
-function buildRemoteServerCommand(args: TestSshArgs): string {
-  const remotePath = quoteShellArg(args.remotePath);
-  const script = `cd ${remotePath} && exec bun src/server/index.ts ${remotePath}`;
-  return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
 /**
@@ -154,26 +168,11 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "Remote server failed to start";
     case "server.protocol-error":
       return "Remote server protocol error";
+    case "server.protocol-version-mismatch":
+      return "Remote server protocol version mismatch";
     case "ssh.unknown":
       return "SSH workspace validation failed";
   }
-}
-
-/**
- * Quotes a shell argument only when the raw value is not shell-safe.
- */
-function quoteShellArg(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
-    return value;
-  }
-  return singleQuoteShellArg(value);
-}
-
-/**
- * Single-quotes a shell argument while preserving embedded apostrophes.
- */
-function singleQuoteShellArg(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /**

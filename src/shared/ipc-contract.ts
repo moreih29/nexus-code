@@ -79,6 +79,11 @@ import {
   PanelViewOptionsSchema,
 } from "./types/panel";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
+import {
+  SshAuthCancelArgsSchema,
+  SshAuthPromptSchema,
+  SshAuthRespondArgsSchema,
+} from "./types/ssh-auth-prompt";
 import { SshErrorCodeSchema } from "./types/ssh-errors";
 import { TabMetaSchema } from "./types/tab";
 import {
@@ -200,6 +205,7 @@ const WorkspaceTestSshArgsSchema = z.object({
   user: z.string().min(1).optional(),
   port: z.number().int().positive().max(65_535).optional(),
   identityFile: z.string().min(1).optional(),
+  authMode: z.enum(["interactive", "key-only"]).default("interactive"),
   remotePath: z.string().min(1),
 });
 
@@ -412,6 +418,16 @@ export const ipcContract = {
       listConfigHosts: call(z.void(), z.array(SshConfigHostSchema)),
     },
     listen: {},
+  },
+
+  sshAuth: {
+    call: {
+      respond: call(SshAuthRespondArgsSchema, z.void()),
+      cancel: call(SshAuthCancelArgsSchema, z.void()),
+    },
+    listen: {
+      prompt: listen(SshAuthPromptSchema),
+    },
   },
 
   tab: {

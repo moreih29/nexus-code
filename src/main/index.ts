@@ -27,6 +27,9 @@ import { isMac } from "./platform";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
+import { SshAuthPromptHub, registerSshAuthPromptIpcChannels } from "./transport/ssh-auth-prompt";
+import { ensureRemoteServer } from "./transport/ssh-bootstrap";
+import { createSshChannel } from "./transport/ssh-channel";
 import { createMainWindow } from "./window";
 import { WorkspaceManager } from "./workspace/workspace-manager";
 
@@ -58,6 +61,7 @@ function forwardBroadcast(channelName: string, event: string, args: unknown): vo
 }
 
 const fileWatcher = new FileWatcher(forwardBroadcast);
+const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "removed") {
@@ -79,14 +83,32 @@ const workspaceManager = new WorkspaceManager(
   workspaceStorage,
   stateService,
   wrappedBroadcast,
+  (options) =>
+    createSshChannel(options, {
+      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+    }),
+  (options) =>
+    ensureRemoteServer(options, {
+      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+    }),
 );
 
-registerWorkspaceChannel(workspaceManager);
+registerWorkspaceChannel(workspaceManager, {
+  createSshChannel: (options) =>
+    createSshChannel(options, {
+      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+    }),
+  sshBootstrap: (options) =>
+    ensureRemoteServer(options, {
+      promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
+    }),
+});
 registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
+registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: createMainWindow });
 
 app.whenReady().then(async () => {

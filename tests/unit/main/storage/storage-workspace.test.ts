@@ -103,6 +103,23 @@ describe("WorkspaceStorage.getMeta / setMeta", () => {
     expect(retrieved?.name).toBe("my-workspace");
   });
 
+  it("getMeta loads legacy ssh meta without authMode as interactive", () => {
+    const legacyMeta: WorkspaceMeta = {
+      ...makeMeta(id),
+      rootPath: "/srv/legacy",
+      location: { kind: "ssh", host: "legacy", remotePath: "/srv/legacy" },
+    };
+    storage.setMeta(id, legacyMeta);
+
+    const retrieved = storage.getMeta(id);
+    expect(retrieved?.location).toEqual({
+      kind: "ssh",
+      host: "legacy",
+      remotePath: "/srv/legacy",
+      authMode: "interactive",
+    });
+  });
+
   it("setMeta writes workspace.json recovery dump", () => {
     const meta = makeMeta(id);
     storage.setMeta(id, meta);
@@ -110,6 +127,23 @@ describe("WorkspaceStorage.getMeta / setMeta", () => {
     expect(fs.existsSync(jsonPath)).toBe(true);
     const parsed = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as WorkspaceMeta;
     expect(parsed.id).toBe(id);
+  });
+
+  it("setMeta fills authMode in the workspace.json recovery dump", () => {
+    storage.setMeta(id, {
+      ...makeMeta(id),
+      rootPath: "/srv/legacy",
+      location: { kind: "ssh", host: "legacy", remotePath: "/srv/legacy" },
+    });
+
+    const jsonPath = path.join(tmpDir, id, "workspace.json");
+    const parsed = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as WorkspaceMeta;
+    expect(parsed.location).toEqual({
+      kind: "ssh",
+      host: "legacy",
+      remotePath: "/srv/legacy",
+      authMode: "interactive",
+    });
   });
 
   it("setMeta throws when workspace is not open", () => {

@@ -14,7 +14,9 @@ import { type GitHelperPromptState, useGitHelperPrompts } from "./files/git/useG
 import { WorkspaceSymbolPaletteRoot } from "./lsp/workspace-symbol/workspace-symbol-palette";
 import { SaveConfirmDialogRoot } from "./ui/save-confirm-dialog";
 import { ToastRoot } from "./ui/toast";
+import { SshAuthPromptDialog } from "./workspace/SshAuthPromptDialog";
 import { ViewParkRoot } from "./workspace/content/view-park";
+import { useSshAuthPrompts } from "./workspace/useSshAuthPrompts";
 
 export function GlobalRoots(): React.JSX.Element {
   return (
@@ -24,6 +26,7 @@ export function GlobalRoots(): React.JSX.Element {
       <WorkspaceSymbolPaletteRoot />
       <CloneDialogRoot />
       <GitHelperPromptsRoot />
+      <SshAuthPromptsRoot />
       <ToastRoot />
     </>
   );
@@ -37,6 +40,20 @@ export function GlobalRoots(): React.JSX.Element {
 export function GitHelperPromptsRoot(): React.JSX.Element {
   const helperPrompts = useGitHelperPrompts();
   return <GitHelperPromptDialogs {...helperPrompts} />;
+}
+
+/** Mounts remote SSH auth prompts once at App level for all workspaces. */
+export function SshAuthPromptsRoot(): React.JSX.Element {
+  const sshAuthPrompts = useSshAuthPrompts();
+  return (
+    <SshAuthPromptDialog
+      prompt={sshAuthPrompts.currentPrompt}
+      pendingMessage={sshAuthPrompts.pendingMessage}
+      onCancel={sshAuthPrompts.cancelCurrent}
+      onSubmitPassword={sshAuthPrompts.respondPassword}
+      onTrustHostKey={sshAuthPrompts.trustHostKey}
+    />
+  );
 }
 
 /**

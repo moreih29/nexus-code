@@ -11773,6 +11773,354 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-12T14:47:29.925Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 42,
+        "topic": "SSH 원격 워크스페이스 Phase 1 — 인증 + Go 서버 (S3-S9)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "PTY 인증 구현 위치 및 시퀀싱 — Phase 1 PTY 코드가 ssh-auth.ts에 직접 들어갈지 ssh-auth-pty.ts 분리할지, S5(authMode 영속화) 앞/뒤 어느 위치에서 랜딩할지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 결론\n- **권장**: `ssh-auth-pty.ts` 신규 분리 + ControlMaster 관리 모듈 `ssh-control.ts` 추가, S3(IPC `sshAuth` 채널) **뒤**, S5(authMode 영속화) **앞** 단계에서 랜딩\n- **대안**: 현재 `ssh-auth.ts`에 PTY 코드 인라인 + ControlMaster를 `ssh-master.ts`에 내장\n\n## 현재 상태\n- `ssh-auth.ts`(12L): stderr 1줄 분류 함수만 보유, \"Phase 1에서 prompt 상태머신 추가\" 주석 명시\n- `ssh-master.ts`(73L): `spawn(\"ssh\", ...)` + `BatchMode=yes` 인자 빌드, \"Phase 1에서 ControlMaster 추가\" 주석\n- `ssh-channel.ts`(163L): orchestrator만, PTY 의존성 없음\n- node-pty 1.1.0 확보, password+ControlMaster 검증 완료(`/tmp/...sock` 생성 후 `ssh -S sock` 재사용)\n\n## 권장 — PTY 분리 + S3 후 S5 전 랜딩\n**구조 (Phase 1)**\n- `ssh-auth-pty.ts`: PTY 라이프사이클 + prompt 상태머신(`password:`, `passphrase:`, `yes/no` host-key, `Permission denied`) + caller-supplied `PromptHandler` 콜백\n- `ssh-control.ts`: ControlMaster 경로 생성(`/tmp/nexus-ssh-<uuid>.sock`), `-M -S sock` 인자 합성, 소켓 cleanup(`ssh -O exit -S sock` 또는 파일 unlink)\n- `ssh-auth.ts`: stderr 분류 유지(이름 그대로), PTY 모듈과 동급 sibling\n- `ssh-master.ts`: `mode: \"batch\" | \"interactive\"` 분기 추가, interactive면 `-o BatchMode=no -tt`, ControlMaster 인자 옵션 수용\n\n**시퀀싱 (S3 → PTY → S5)**\n- S3에서 `sshAuth` IPC 채널 + `SshAuthPromptHub` 신규 — PromptHandler 인터페이스 정의 가능\n- PTY 단계: hub와 결합한 promptHandler를 `createSshChannel`에 주입, authMode 없이도 fallback=\"interactive\"로 동작 검증\n- S5: PromptHandler 호출 여부를 결정하는 authMode 분기 추가, 영속화는 PTY 코드 무수정\n\n**ssh-master/ssh-channel 인터페이스 변경 범위**\n- `SshMasterOptions`에 `controlSocketPath?: string`, `interactive?: boolean` 추가 (둘 다 optional, 역호환)\n- `CreateSshChannelOptions`에 `promptHandler?: PromptHandler` 추가\n- `createSshChannel`은 PTY 분기 외부에 — interactive 모드시 ssh-master 대신 ssh-auth-pty가 spawn 책임 인계받음(orchestrator는 어느 쪽이든 동일한 stdio interface 받음)\n\n## Trade-offs\n\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A: ssh-auth-pty 분리 + S3 후 S5 전 | PTY/ControlMaster/stderr 각 1축씩 분리(코헤전), PromptHandler 테스트 격리 쉬움, S5는 정책만 추가 | 파일 2개 신규, ssh-master 모드 분기 추가 | 모듈 수 ↔ 단일 책임 | ✓ — 4축 모두 통과, PTY는 prompt 패턴 변화축이 stderr 분류와 다름 |\n| B: ssh-auth.ts 인라인 + master에 ControlMaster | 파일 수 그대로 유지 | ssh-auth가 stderr 분류 + PTY 상태머신 + prompt I/O 3책임 보유(고드오브젝트), ControlMaster cleanup이 spawn 책임과 섞여 dispose 시점 모호 | 파일 수 ↔ 응집도 | ✗ — 변화축이 다른 코드 합쳐짐, Phase 2(소켓 재사용)에서 shotgun surgery 위험 |\n\n## Risks (가시화 + 완화)\n- **CRITICAL** PTY+ControlMaster의 부분 실패(소켓 생성 후 prompt 응답 timeout) — 소켓 파일이 고아로 남으면 다음 연결시 충돌. 완화: `ssh-control.ts`의 dispose가 unlink + `ssh -O exit` 양쪽 시도, ssh-channel dispose 흐름에 hook\n- **WARNING** stderr와 PTY stdout이 서로 다른 채널로 prompt 텍스트 흘러올 수 있음(`-tt`시 OpenSSH는 stderr로 prompt 송출) — PTY 모듈이 stderr/stdout 둘 다 관찰해야 하며, batch 모드용 `classifyAuthLine`과 충돌하지 않게 mode별 라우팅 분리\n- **WARNING** interactive 모드에서 NDJSON stream과 prompt가 같은 PTY로 흐름 — ControlMaster 소켓 생성 직후 PTY는 close하고 batch 채널로 재spawn하는 2-phase가 더 안전. Phase 1에서 결정 필요(spike에서 단일 PTY 유지로 검증되었다면 그대로 진행)\n- **INFO** S3 IPC 채널 형태가 PromptHandler 시그니처를 결정 — S3 결정 전 PTY 코드 시작 금지, 그렇지 않으면 인터페이스 reshuffle 발생\n\n## Verdict\n**approved with conditions**: (a) S3 IPC 채널의 PromptHandler 시그니처 확정 후 PTY 코드 시작, (b) PTY+ControlMaster의 cleanup 책임 분기를 `ssh-control.ts` 단일 모듈로 모음, (c) interactive 모드시 NDJSON 채널을 PTY 위에 직접 흘릴지 socket으로 재spawn할지 spike에서 검증한 결과를 명시",
+                "recorded_at": "2026-05-12T12:35:01.867Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "## 결정\n- **모듈**: `ssh-auth-pty.ts` 신규 (PTY + prompt 상태머신 + PromptHandler 콜백), ControlMaster 책임은 `ssh-master.ts`에 통합(socket path 생성/arg 합성/cleanup) — architect 제안의 `ssh-control.ts` 별도 분리는 **거부**, 이유: ControlMaster의 args 빌드와 socket cleanup이 같은 라이프사이클(spawn↔dispose)에 매여 있어 두 모듈 분리시 dispose hook 책임이 양쪽으로 갈라짐(CRITICAL finding 정면 충돌). 단일 ssh-master.ts에 mode=\"batch\"|\"interactive\" 분기 + ControlMaster 소켓 dispose hook 통합.\n- **시퀀싱**: S3(IPC `sshAuth` 채널) → S4(dialog) → **Sa(PTY 구현)** → S5(authMode 영속화) → S6(Add Workspace UI) → S7(Go server) → S8(배포) → S9(end-to-end). PTY 코드는 S4 다이얼로그 직후 — 둘이 한 묶음으로 검증 가능, S5 authMode 분기는 PTY가 동작 검증된 다음 정책 분기만 얹음.\n- **인터페이스 변경**: `SshMasterOptions`에 `mode?: \"batch\"|\"interactive\"` + `controlSocketPath?: string` 추가(optional, 역호환), `CreateSshChannelOptions`에 `promptHandler?: PromptHandler` 추가. `createSshChannel`은 interactive 모드시 ssh-auth-pty가 spawn 인계받음.\n- **Open question 해소**: interactive 모드에서 NDJSON을 PTY 위에 흘릴지/socket 재spawn할지 → **socket 재spawn(2-phase)** 채택. 이유: PTY는 stderr/stdout 인터리브가 OpenSSH 구현마다 다르고, NDJSON과 prompt 텍스트 충돌 위험. 소켓 생성 직후 PTY close, batch 채널로 재spawn — 픽스처에서 검증된 패턴.\n- **dispose hook 단일화**: ssh-master.ts가 master 인스턴스를 unique-id로 추적, dispose 호출시 `ssh -O exit -S sock` + unlink 양쪽 시도. orchestrator(`ssh-channel.ts`)는 master.dispose() 1회 호출."
+          },
+          {
+            "id": 2,
+            "title": "인증 프롬프트 다이얼로그 UX — 모달 vs 인라인, 동시 다발 프롬프트 큐 전략, 마운트 위치(global-roots vs workspace-scoped), password/host-key 화면 분기",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "\n## 검토 판정\n- 조건부 승인 — 기존 askpass(`CredentialPromptDialog`) 패턴과의 일관성 유지를 전제로, 호스트키 분기·핑거프린트 가독성·큐 컨텍스트 표시 보강 시 통과\n\n## 사용자 관점 (멘탈 모델)\n- 트리거: \"Add Workspace\" 또는 \"Open Workspace\" 직후 발생 — 사용자는 워크스페이스 등록 흐름의 연속으로 인식\n- 기대: 즉시·차단형 응답 요구 (자격증명/신뢰결정 = 보안 결정, 비차단 토스트는 무시 위험)\n- 비교 기준: 기존 git askpass 모달 경험 — 동일한 시각 언어를 기대\n- 호스트키 결정은 \"이 서버를 신뢰할 것인가\"라는 1회성 보안 게이트, 비밀번호는 \"재시도 가능한 자격증명 입력\"으로 멘탈 모델 분리됨\n\n## 권장안 — 전역 Modal + FIFO 큐 + 컴포넌트 내 분기\n\n### 양식\n- Radix Dialog 기반 차단형 모달 (askpass와 동일 시각 언어/위치)\n- `global-roots.tsx`에 단일 인스턴스 마운트 → 어느 화면에서 발생해도 동일 위치(중앙 상단)\n- 폭 460px (호스트키 핑거프린트 폰트가 길어 askpass 420px보다 약간 확장)\n\n### 큐 처리\n- `useGitHelperPrompts`와 동형의 `useSshAuthPrompts` 훅 — FIFO 단일 큐, 순차 처리\n- 큐 깊이 > 1 시 상단에 \"2 / 3 prompts pending\" 카운터 표시 (Load & Flow: 다음에 무엇이 올지 예측 가능성)\n- 각 프롬프트는 `workspaceLabel`(호스트명 또는 사용자가 지정한 라벨) 필수 표시 — 어느 워크스페이스용 프롬프트인지 즉시 식별\n\n### 분기 구조\n- 단일 컴포넌트 `SshAuthPromptDialog` 내부에서 `prompt.kind === \"password\" | \"host-key\"`로 분기 (askpass가 username/password/passphrase를 한 컴포넌트로 처리한 패턴 답습)\n- 공통 chrome (제목, 워크스페이스 라벨, 취소/주 버튼)만 공유, 본문 블록은 분기 — 같은 의미는 같은 형태, 다른 의미는 다른 형태 (Consistency & Mapping)\n\n### password 화면 구성\n- 제목: \"SSH password required\"\n- 컨텍스트 줄: `user@host:port` (대표 식별자, 모노스페이스)\n- 라벨: \"Password\" (placeholder 단독 사용 금지)\n- input: `type=\"password\"`, autofocus, 빈 값일 때 Continue 비활성\n- 보조 줄: stderr에서 추출한 원본 프롬프트(예: \"kih@example.com's password:\") 디버그용 작은 텍스트\n- 버튼: \"Cancel\" (ghost) / \"Continue\" (primary) — askpass와 라벨 통일\n\n### host-key 화면 구성\n- 제목: \"Verify host fingerprint\"\n- 컨텍스트 줄: `host:port` (사용자명 불필요, 서버 식별이 핵심)\n- 핑거프린트 블록:\n  - 알고리즘 배지 (예: \"ED25519 SHA256\")\n  - 핑거프린트 값 모노스페이스, 한 줄 또는 두 줄로 줄바꿈, 14px 이상, 행간 1.6\n  - \"Copy\" 아이콘 버튼 — 외부 검증 도구로 비교 지원\n- 경고 줄 (Load & Flow: 유용한 마찰): \"If you don't recognize this fingerprint, do not trust the host.\"\n- 결정 행:\n  - \"Reject\" (ghost, 좌측 — destructive 색상 아님: 거부가 안전한 기본값)\n  - \"Trust and connect\" (primary, 우측) — CTA는 동작을 명명 (UX writing 원칙)\n- 영속화 안내: 본문 하단 작은 텍스트 \"This host will be added to known_hosts.\" (S5+ 책임이라도 사용자 기대 정렬을 위해 명시; 미구현 시 \"for this session only\"로 정확화)\n\n### 취소/Esc 동작 (success + cancel path)\n- success path: Continue/Trust 클릭 → 응답을 main에 송신 → 모달 닫힘 → busy 상태로 다음 큐 항목 표시 → 연결 성공 시 워크스페이스가 활성화\n- cancel path: Esc 또는 Cancel/Reject 클릭 → 빈 응답(또는 \"no\") 송신 → PTY 종료 → 해당 워크스페이스 add/open 흐름 중단 → 토스트 \"Connection to {host} canceled\" (영구 알림 아님) → 큐의 다음 프롬프트로 진행\n- 동시 다발 시 Esc는 \"현재 표시 중인 프롬프트만 취소\", 큐 전체 취소 아님 — 다른 워크스페이스 연결은 영향 없음\n\n## 대안 — Add Workspace 다이얼로그 내부 임베드 (인라인 스텝)\n\n### 구성\n- \"Add Workspace\" 마법사의 하위 스텝으로 인증 화면 포함\n- \"Open Workspace\"(이미 등록된 워크스페이스 재연결) 시에는 임베드 위치가 없어 전역 모달로 폴백\n\n### 평가\n- 장점: Add Workspace 흐름에서 컨텍스트 단절이 없음, 동일 모달 안에서 단계 진행감\n- 단점:\n  - Open Workspace 경로와 컴포넌트 이원화 → 일관성 ↓\n  - 동시 다발 처리가 모호 (마법사 인스턴스가 동시에 2개 떠야 함)\n  - 호스트키 재확인이 사이드바/명령 팔레트 등 다른 트리거에서 발생할 수 있는 미래 시나리오 차단\n- 채택 조건: Phase 1이 Add Workspace 단일 진입점만 가지고 차후에도 트리거가 늘지 않을 때만\n\n## 트레이드오프\n\n| 옵션 | Pros | Cons | Tradeoff | Recommend |\n|------|------|------|----------|-----------|\n| 권장안: 전역 Modal + FIFO 큐 | askpass와 패턴 일관·다중 트리거 대응·구현 단순 | 마법사 컨텍스트 단절(작은 모달이 마법사 위에 뜸) | 일관성 ↔ 컨텍스트 결합 | ✓ — askpass 선례 활용, 트리거 다변화 대응 |\n| 대안: Add Workspace 임베드 | 마법사 흐름 연속성 | Open 경로 분기·동시 다발 모호 | 컨텍스트 결합 ↔ 다중 진입점 대응 | ✗ — Open Workspace 경로에서 일관성 깨짐 |\n| 비차단 토스트 | 비차단 작업 가능 | 보안 결정 누락·자격증명 입력 불가 | 흐름 자유도 ↔ 보안 결정 강제 | ✗ — 보안 게이트는 차단형이어야 함 |\n| 워크스페이스별 격리(동시 다중 모달) | 병렬 처리 빠름 | 어느 모달이 어느 워크스페이스인지 혼동·키보드 포커스 전쟁 | 처리량 ↔ 인지부담 | ✗ — Hick's Law 위반, 결정 충돌 |\n\n## 리스크 + 완화\n- **핑거프린트 가독성**: 64자 hex가 한 줄 넘침 → 모노스페이스 + 14px + 적절한 줄바꿈 + Copy 버튼으로 외부 비교 가능하게\n- **워크스페이스 식별 혼동**: 큐가 쌓이면 어느 호스트용 입력인지 불명확 → 모달 상단 워크스페이스 라벨 + `user@host:port` 컨텍스트 줄 의무화\n- **취소 의도 오해**: Esc가 워크스페이스 추가 전체를 폐기하는지 인증만 취소하는지 모호 → 취소 후 토스트로 \"Connection to {host} canceled\" 명시, 마법사 자체는 살아 있도록\n- **빈 비밀번호 제출**: 사용자가 Continue를 빈 값으로 누르면 main이 취소로 해석 → Continue 버튼은 value.length === 0일 때 비활성 (askpass와 동일 규칙)\n- **호스트키 거부 시 안전 기본값**: Reject가 primary가 아닌 ghost로 배치되지만 destructive 색상 아님 — 거부가 \"안전한 기본\"이라는 신호. 다만 트래핑된 사용자가 무심코 Trust를 누르지 않도록 Trust 버튼에 0.5s 지연 활성화(생각할 시간) 옵션은 INFO 수준 제안\n- **dark mode 대비**: askpass는 `bg-background`/`border-mist-border` 토큰 사용 — 동일 토큰 재사용으로 대비 자동 충족\n\n## 상태 커버리지 (9 states)\n- Default / Hover / Focus / Active / Disabled / Loading(busy) / Error / Empty(빈 큐 = 닫힘) / Success(닫힘 + 토스트) — 9개 모두 askpass 패턴 답습 시 자동 충족\n- 추가 정의 필요: **Error** — main이 응답 송신 후 PTY가 즉시 종료된 경우 \"Authentication failed. Try again or cancel.\" 인라인 메시지 + 동일 모달 재오픈 (재입력 흐름)\n\n## 접근성 (WCAG AA)\n- 모달 컨테이너: `role=\"dialog\"` + `aria-labelledby`(제목) + `aria-describedby`(컨텍스트 줄)\n- 호스트키 핑거프린트: `<code>` 또는 `aria-label=\"Host fingerprint, ED25519 SHA256, {value}\"` — 스크린리더가 한 글자씩 읽도록\n- Tab 순서: 입력 → 보조 액션(Copy) → Cancel → Continue (자연스러운 좌→우 진행)\n- 포커스 트랩: Radix Dialog 기본 동작 사용 — 모달 외부 포커스 차단\n- 터치 타겟 ≥ 44×44px: 버튼 size=\"sm\"이 44px 미만이면 size=\"md\" 또는 패딩 보강 필요 (WCAG 2.5.5)\n- focus-visible 링: askpass의 `focus-visible:ring-1 focus-visible:ring-mist-border-focus` 토큰 재사용\n\n## 안티패턴 체크\n- 측면 스트라이프/그라디언트 텍스트/글래스모피즘 — 없음 (askpass 패턴 답습 시 자동 회피)\n- 중첩 카드 — 핑거프린트 블록을 카드처럼 만들지 말 것 (배경 톤 차이 정도로만)\n- 모든 섹션 중앙 정렬 — 본문은 좌측 정렬, 버튼만 우측 정렬 (askpass와 동일)\n\n## 사용자 흐름 요약\n- **success (password)**: Add → 모달 표시(워크스페이스 라벨 + user@host:port) → 입력 → Continue → 닫힘 → 워크스페이스 활성\n- **success (host-key)**: 첫 연결 → 모달 표시(host:port + 핑거프린트) → Trust → 닫힘 → 비밀번호 모달로 이어짐(큐 다음 항목) → 비밀번호 입력 → 워크스페이스 활성\n- **cancel**: Esc/Cancel/Reject → 빈응답 또는 \"no\" 송신 → PTY 종료 → 토스트 \"Connection to {host} canceled\" → Add Workspace 마법사 복귀(닫혀 있었다면 사용자가 다시 열어 재시도)\n- **error**: 잘못된 비밀번호 → main이 동일 promptId로 재푸시 → 같은 모달에 \"Authentication failed. Try again.\" 인라인 + 입력 비움 → 재시도 또는 Cancel\n",
+                "recorded_at": "2026-05-12T12:35:02.411Z",
+                "agent_id": "designer"
+              }
+            ],
+            "decision": "## 결정\n- **양식**: Radix Dialog 차단형 모달, `global-roots.tsx`에 단일 인스턴스 마운트(askpass와 동일 위치/시각언어), 폭 460px\n- **큐**: `useSshAuthPrompts` hook — FIFO 단일 큐, 깊이 > 1 시 상단 \"N pending\" 카운터. 워크스페이스별 격리 모달은 **거부**(Hick's Law, 키보드 포커스 충돌).\n- **분기**: 단일 `SshAuthPromptDialog` 컴포넌트 내부에서 `prompt.kind`로 본문 분기, 공통 chrome(제목/워크스페이스 라벨/버튼) 공유. askpass의 username/password/passphrase 한 컴포넌트 패턴 답습.\n- **password 화면**: 제목 \"SSH password required\", 컨텍스트 `user@host:port` 모노스페이스, autofocus password input, 빈 값일 때 Continue 비활성. Cancel/Continue 라벨.\n- **host-key 화면**: 제목 \"Verify host fingerprint\", 컨텍스트 `host:port`, 핑거프린트 블록(알고리즘 배지 + 모노스페이스 14px + Copy 버튼), 경고 줄 \"If you don't recognize this fingerprint, do not trust the host.\", Reject(ghost 좌) / Trust and connect(primary 우). 안내 문구는 known_hosts 영속화 구현 전까지 **\"for this session only\"**로 정확화 — S5+에서 known_hosts 영속화 추가시 문구 변경.\n- **취소/Esc**: 현재 표시 중 프롬프트만 취소, 큐의 다른 항목은 살아 있음. PTY 종료 → 비파괴 토스트 \"Connection to {host} canceled\" → 마법사는 살아있어 사용자가 재시도 가능.\n- **error 상태**: 잘못된 비밀번호 → 동일 promptId로 재푸시 → \"Authentication failed. Try again.\" 인라인 + 입력 비움.\n- **WCAG**: role=dialog, aria-labelledby/describedby, code 태그로 핑거프린트 1글자씩 스크린리더 읽기, 포커스 트랩(Radix 기본), tab 순서 input→Copy→Cancel→Continue.\n- **거부**: Trust 버튼 0.5s 지연 활성화(INFO 수준 옵션) — MVP 단순성 우선, 적용 안 함.\n- **거부**: Add Workspace 마법사 임베드 — Open Workspace 경로 일관성 붕괴, 트리거 다변화 대응 차단."
+          },
+          {
+            "id": 3,
+            "title": "authMode 영속화 및 마이그레이션 — WorkspaceMeta.location.ssh 스키마 필드 배치, 기존 워크스페이스 기본값(key-only vs interactive), 마이그레이션 실행 시점",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 결론\n- **권장**: `WorkspaceSshLocationSchema`에 `authMode: z.enum([\"interactive\",\"key-only\"]).default(\"interactive\")` 추가, 기존 워크스페이스 기본값 = **`\"interactive\"`**, 마이그레이션은 **스토어 로드 시점**(GlobalStorage.listWorkspaces → preprocess)에서 수행\n- **대안**: `authMode` 미설정 상태 허용 + 첫 연결 실패시 `\"interactive\"`로 자동 폴백 + 사용자 확인 다이얼로그\n\n## 현재 상태\n- `src/shared/types/workspace.ts` — `WorkspaceMetaSchema`가 이미 `z.preprocess`로 location/rootPath legacy 마이그레이션 수행, `WorkspaceSshLocationSchema`에 host/user/port/remotePath/identityFile/configAlias 보유\n- `GlobalStorage.addWorkspace/listWorkspaces` — `JSON.stringify(location)` SQLite 컬럼 저장, 읽을 때 `rowToMeta`에서 schema 통한 파싱(추정), 따라서 schema preprocess가 자연스러운 마이그레이션 포인트\n- `WorkspaceManager.init` — 앱 부팅시 `listWorkspaces()` 1회 호출, 컨텍스트 일괄 생성\n\n## 권장 — interactive 기본값 + 스토어 로드 시점 마이그레이션\n**스키마 배치**\n- `WorkspaceSshLocationSchema`에 `authMode: z.enum([\"interactive\",\"key-only\"]).default(\"interactive\")` 추가\n- z의 `.default()`가 파싱 시점에 자동 채움 — 기존 row의 `location.authMode` 없음 → `\"interactive\"`로 마이그레이션\n- `WorkspaceMetaSchema`의 기존 `z.preprocess`는 location 자체 생성이 책임, ssh 내부 필드 default는 inner schema가 담당(책임 분리)\n\n**기본값 결정 근거**\n- `\"interactive\"`는 superset 의미 — key 인증도 시도하므로 key-only 사용자도 동작에 영향 없음, prompt가 실제로 뜨는 경우만 다이얼로그 표시\n- `\"key-only\"`는 BatchMode=yes 강제 → key 실패시 즉시 에러, 기존 prototype 사용자(이미 key 기반으로만 연결되던 워크스페이스)에게 갑작스런 prompt 등장 없이도 **무동작 시 자동 폴백 가능한 모드**가 더 안전\n- VS Code Remote-SSH도 첫 연결시 password/host-key prompt를 기본 흐름으로 처리 — 사용자 의도 추론(key-only) 보다 명시적 fallback이 일반적\n\n**마이그레이션 시점**\n- 스토어 로드(`listWorkspaces` 후 schema parse) 시점에 채움 — 단순, 결정적, 첫 사용 전 모든 row 일관\n- 첫 사용 시점 마이그레이션은 race(여러 워크스페이스 동시 activate)와 partial state(일부 row만 마이그레이션됨) 유발\n\n## Trade-offs\n\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A: interactive 기본값 + 로드 시점 | 결정적 마이그레이션, 모든 row 일관, schema `.default()`로 코드 1줄, 무동작 폴백 안전 | key-only 의도 사용자도 첫 prompt 가능성 1회 노출(실제로는 ssh가 key 우선 시도) | 명시성 ↔ 안전 폴백 | ✓ — 역호환 + 단순 + 테스트 용이 |\n| B: undefined 허용 + 첫 연결 fallback | 사용자 의도 보존 | undefined 상태가 schema에 존재 → optional 분기 어디서나 발생(가시성 저하), 첫 연결 fallback 로직이 사용자 다이얼로그/저장과 결합되어 shotgun surgery | 의도 보존 ↔ 가시성 | ✗ — undefined 상태는 axis 2(예측가능성) 위반 |\n| C: key-only 기본값 | 기존 prototype 동작 100% 보존 | 기존 워크스페이스가 password 서버라면 갑자기 BatchMode=yes로 실패, 사용자가 설정 변경 방법 모름 | 호환성 ↔ 발견성 | ✗ — 무동작 폴백 불가 |\n\n## Findings\n- **CRITICAL** undefined authMode 상태가 영구화되면 코드 곳곳 분기(`authMode === \"interactive\" || authMode === undefined ? ... : ...`) — schema에서 default로 제거 필수\n- **WARNING** SQLite의 location JSON 컬럼은 schema parse 후 다시 stringify 저장하지 않으면 디스크에는 옛 형식이 남음 — 첫 update 시점에 자연 갱신되지만, 명시적 1회 backfill 스크립트는 불요(default가 idempotent)\n- **INFO** authMode UI는 워크스페이스 생성 다이얼로그에 라디오 추가만으로 충분, 추후 워크스페이스 설정 화면에서 토글 가능하게(separate task)\n- **INFO** S5 단계 task 시점에 schema 변경 → migration → manager 사용 순으로 진행, S3에서는 schema에 손대지 않음(코헤전 위반 회피)\n\n## Verdict\n**approved with conditions**: (a) z `.default(\"interactive\")` 사용으로 마이그레이션 코드 0줄 유지, (b) WorkspaceMeta preprocess와 SshLocation default가 서로 다른 책임(location 형태 ↔ ssh 필드 기본값)임을 코드 주석에 명시, (c) S5 PR에서 기존 워크스페이스 1개 이상으로 e2e 마이그레이션 검증",
+                "recorded_at": "2026-05-12T12:35:31.368Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "## 결정\n- **스키마**: `WorkspaceSshLocationSchema`에 `authMode: z.enum([\"interactive\",\"key-only\"]).default(\"interactive\")` 추가. inner schema가 default 책임 보유.\n- **기본값 = \"interactive\"**: superset 의미(key 인증도 시도), 무동작 폴백 안전, VS Code Remote-SSH 선례. key-only 의도 사용자는 ssh가 key 우선 시도하므로 prompt 노출 가능성 낮음. key-only 기본값 거부 — 기존 prototype 사용자가 password 서버일 때 BatchMode=yes로 즉시 실패하는 risk 회피.\n- **마이그레이션 시점**: 스토어 로드(`listWorkspaces` → schema parse) 시점에 z `.default()`가 자동 채움. 별도 1회 backfill 스크립트 불요(idempotent). 첫 update시 디스크 자연 갱신.\n- **거부**: undefined authMode 허용 + 첫 연결 fallback 안 — `authMode === \"interactive\" || authMode === undefined` 분기 곳곳 발생(가시성 저하), 예측가능성 위반.\n- **WorkspaceMeta preprocess vs SshLocation default 책임 분리**: 코드 주석으로 명시 — preprocess는 location 형태 마이그레이션(legacy `rootPath` → `location.local.rootPath`), inner schema default는 ssh 필드 기본값.\n- **검증**: S5 PR에서 기존 워크스페이스 1개 이상으로 e2e 마이그레이션 통과 확인(Docker 픽스처 활용)."
+          },
+          {
+            "id": 4,
+            "title": "Go nexus-server 모듈 구조 — cmd/internal 디렉토리 레이아웃, 듀얼모드(로컬 소켓 + 원격 stdin/stdout) 도입 시점, dispatch 경계",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 결론\n- **권장**: `cmd/nexus-server/` + `internal/{proto,dispatch,fsops}/` 4-패키지 구조, **듀얼모드는 S9 이후로 연기**(원격 stdin/stdout 단일모드 1차 도입), dispatch는 method-name map(TS와 동형 매핑)\n- **대안**: `cmd/nexus-server/`만 단일 패키지(spike 그대로 확장), 듀얼모드는 동일하게 연기\n\n## 현재 상태\n- `spike/agent-go/main.go`(176L) — request/response/dispatch/fs.readdir 한 파일, NDJSON over stdin/stdout 검증 완료\n- TS `src/server/`: `index.ts`(stdio loop) + `dispatch.ts`(method map + envelope parse) + `fs-handlers.ts`(readdir/stat/readFile) — Go에 그대로 매핑 가능한 구조 선례\n- 기존 `references/cmux/daemon/remote/cmd/cmuxd-remote/` 사례: 단일 cmd 디렉토리에 다파일(`main.go`, `cli.go`, `ws_pty.go` 등) 평탄 구조 — 작은 코드베이스에서 일반적\n\n## 권장 — cmd + internal 4-패키지 / 듀얼모드 연기\n**디렉토리 구조**\n- `cmd/nexus-server/main.go` — argv parsing, stdio I/O loop, signal handling (얇은 entry)\n- `internal/proto/` — request/response struct, parse/marshal, error frame, \"ready\" frame (wire-format 격리 = 변경축 1: TS contract 변경)\n- `internal/dispatch/` — method-name map, `Dispatch(rootPath, request) Response`, 핸들러 등록 (변경축 2: 메서드 추가/제거)\n- `internal/fsops/` — `Readdir`, `Stat`, `ReadFile`, path safety guard (변경축 3: fs 셈ャ틱)\n\n**TS 매핑 (axis 1: 변화축 동기화)**\n| TS | Go |\n|---|---|\n| `src/server/index.ts` | `cmd/nexus-server/main.go` |\n| `src/server/dispatch.ts` (envelope) | `internal/proto/` |\n| `src/server/dispatch.ts` (method map) | `internal/dispatch/` |\n| `src/server/fs-handlers.ts` | `internal/fsops/` |\n| `src/main/fs/core/read-core.ts` (shared core) | `internal/fsops/` 내부 함수 |\n\n**듀얼모드 연기 근거**\n- Phase 1 목표는 원격 SSH stdin/stdout 단일 경로 안정화 — 로컬 unix 소켓은 IDE main에서 fs provider factory로 분기되는 별 트랙\n- 듀얼모드는 (a) main 프로세스의 local fs provider도 Go 바이너리로 교체하는 결정과 (b) unix 소켓 listener 추가 두 가지 변경을 묶는데, 이는 Cost & Risk 비대칭(되돌리기 어려움)\n- S9 완료 후 로컬 워크스페이스의 fs 성능/일관성 측정 데이터를 보고 결정 — 지금은 옵션을 닫지 않음\n\n**dispatch 경계**\n- TS와 동일하게 method name string switch — `fs.readdir` / `fs.stat` / `fs.readFile`\n- Go map[string]Handler 형태로 1:1 매핑, 추가 메서드는 dispatch.Register(name, handler) 한 곳에서\n\n## Trade-offs\n\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A: cmd + internal 4-패키지 | TS 모듈 경계와 1:1, proto/dispatch/fsops 독립 테스트, Go 컨벤션 준수, 듀얼모드 추가시 internal/proto만 재사용 | 초기 175L를 4파일로 분산(파일 수 증가) | 모듈 수 ↔ 단일 책임 | ✓ — 변화축이 명확히 다름, 테스트 격리 쉬움 |\n| B: cmd 단일 패키지 다파일 | spike에서 즉시 확장, 작은 코드베이스 일반 패턴 | proto/dispatch/fsops 사이 unexported 함수 노출, 듀얼모드 추가시 internal 추출 리팩토링 발생(shotgun) | 시작 속도 ↔ 장기 유지보수 | ✗ — 듀얼모드 가능성을 닫지 않으려면 internal 분리가 옵션 보존 |\n| C: 듀얼모드 동시 도입 | 1회 PR로 양쪽 경로 정리 | unix 소켓 listener + 로컬 fs provider 분기 동시 변경 = 비가역, 측정 없는 최적화(axis 3 위반) | 통합성 ↔ 가역성 | ✗ — Cost & Risk 비대칭, S9 후 측정 데이터 필요 |\n\n## Findings\n- **CRITICAL** spike의 `path/filepath` 사용 — Windows 분리자 호환성 검증 필요(서버는 linux 전용이라 무관하지만, 향후 macOS/Windows 로컬 듀얼모드시 영향). Phase 1 범위 외, 듀얼모드 결정시 재검토\n- **WARNING** spike의 `agent.protocol-error` 에러 코드 — S1에서 `server.protocol-error`로 리네임됐으므로 Go 코드 이식시 모든 error code 문자열을 TS와 재정렬(`server.*` prefix)\n- **WARNING** `internal/fsops/`의 path-safety guard(workspace 탈출 방지)는 TS `fs-handlers.ts` `resolveServerPath` 의미와 정확히 동일해야 — `path.relative` Go 등가는 `filepath.Rel`, 단 symlink 처리 명세를 별도 테이블로 정리 후 양쪽 일치 검증\n- **INFO** Go 의 graceful shutdown(SIGTERM 후 in-flight 요청 드레인) — TS index.ts의 75ms force-exit 패턴과 동일 정책 채택 권장\n- **INFO** `internal/proto/`에 JSON Schema 자체검증은 두지 않음 — Go에서는 struct unmarshal이 곧 검증, zod 등가물 도입은 과대(axis 2: 단순성)\n\n## Verdict\n**approved with conditions**: (a) `internal/proto`의 wire format은 TS `dispatch.ts`의 ServerRequest/ServerResponse/ServerErrorFrame과 필드명/대소문자 1:1 일치, (b) 듀얼모드 결정 트리거(S9 완료 + 로컬 fs 측정)를 명시적으로 별도 task로 분리, (c) error code 문자열 `server.*` prefix 일관성 PR 단위로 검증",
+                "recorded_at": "2026-05-12T12:36:05.848Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "## 결정\n- **디렉토리**: `cmd/nexus-server/main.go` + `internal/{proto,dispatch,fsops}/` 4-패키지. TS 모듈 경계와 1:1 매핑(`index.ts → cmd/main.go`, `dispatch.ts envelope → internal/proto`, `dispatch.ts method map → internal/dispatch`, `fs-handlers.ts → internal/fsops`).\n- **단일 패키지 거부**: 듀얼모드 가능성을 닫지 않으려면 internal 분리가 옵션 보존 — 후속 shotgun surgery 회피.\n- **듀얼모드 연기**: S9 이후 별도 task로 분리. 트리거 = (a) Phase 1 안정화 + (b) 로컬 fs provider 측정 데이터. 지금은 옵션을 닫지 않을 뿐 활성화하지 않음 — Cost & Risk 비대칭.\n- **dispatch 경계**: method name string switch(TS와 동일), Go `map[string]Handler` 형태로 1:1. 등록은 `dispatch.Register(name, handler)` 한 곳에서.\n- **proto 일치**: wire format은 TS `ServerRequest/ServerResponse/ServerErrorFrame`과 필드명/대소문자 1:1 일치(`id/method/params/result/error`).\n- **error code**: spike의 `agent.protocol-error` → `server.protocol-error`로 모두 정렬(S1 리네임 일관성). PR 단위 검증.\n- **path safety**: TS `resolveServerPath`와 동일 의미, Go `filepath.Rel` 사용. symlink 처리 명세는 별도 테이블로 양쪽 일치 검증.\n- **graceful shutdown**: SIGTERM 후 in-flight 요청 드레인 + 75ms force-exit(TS index.ts 정책 그대로).\n- **proto 자체검증**: Go struct unmarshal로 충분, zod 등가 도입 안 함(단순성)."
+          },
+          {
+            "id": 5,
+            "title": "바이너리 배포 및 버전 협상 — scp 트리거(첫 연결 자동 vs 수동 설치), 네이밍/버전 컨벤션(~/.nexus-code/bin/...), arch 감지, 클라이언트/서버 프로토콜 버전 핸드셰이크",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "## 결론\n- **권장**: scp 트리거 = **첫 연결시 자동 + 무프롬프트**(매니페스트 mismatch만 재배포), 원격 경로 = `~/.nexus-code/bin/nexus-server-<version>-<os>-<arch>` + `~/.nexus-code/manifest.json`(symlink 미사용), arch 감지 = `uname -ms` **1회 캐시**(워크스페이스 meta 영속화), 프로토콜 버전 = 서버 → 클라이언트 **`ready` 프레임에 protocolVersion 포함**\n- **대안**: scp UI 확인 + symlink 기반 latest 포인터 + client→server `hello` 프레임 선전송\n\n## 현재 상태\n- spike 빌드: linux/amd64 static ELF 1.9MB, 빌드 ~3s(M1 → linux/amd64, `-s -w`)\n- 원격 명령: `bash -lc 'cd <path> && exec bun src/server/index.ts <path>'`(workspace-manager.ts:344) — bun 의존 / 향후 단일 바이너리로 교체\n- ready 프레임: 현재 `{type:\"ready\"}`만 송신, version 필드 없음(TS index.ts:24)\n- VS Code Remote-SSH 선례: 사용자 체감 1회 자동 설치, `~/.vscode-server/bin/<commitHash>/` 경로, mismatch시 자동 재설치\n\n## 권장 — 첫 연결 자동 + 버전드 경로 + arch 캐시 + ready 프레임 핸드셰이크\n**scp 트리거 (자동 + 무프롬프트)**\n- 첫 SSH 연결 직전에 `ssh user@host '~/.nexus-code/bin/manifest.json' || true`로 매니페스트 조회\n- 매니페스트 부재 또는 version mismatch → scp 자동 푸시 → 매니페스트 갱신\n- 매니페스트 일치 → scp 스킵, 즉시 server 기동\n- UI 확인은 첫 설치 1회만(progress toast 정도, 차단 모달 아님) — VS Code Remote-SSH 동일 UX\n- 사용자 직접 설치 옵션(수동 scp)은 advanced doc 수준, MVP 범위 외\n\n**원격 경로 컨벤션**\n- `~/.nexus-code/bin/nexus-server-<version>-<os>-<arch>` (예: `nexus-server-0.1.0-linux-amd64`)\n- `~/.nexus-code/manifest.json` = `{ version, os, arch, sha256, installedAt }` (1회 읽기로 결정)\n- **symlink 미사용** — 이유: (a) 클라이언트가 매니페스트로 결정하므로 latest 포인터 불요, (b) symlink는 OpenSSH 일부 sftp/scp 구현에서 race 유발, (c) 옛 버전 cleanup은 별도 정책(N개 유지)으로 분리\n\n**arch 감지 (1회 + 캐시)**\n- 첫 연결시 `uname -ms` 1회 실행 → `<os> <arch>` 문자열 캐시\n- 캐시 저장소: `WorkspaceMeta.location.ssh` 신규 필드 `remoteArch?: { os: string; arch: string; detectedAt: string }`\n- 매번 호출하면 RTT 추가(50-200ms) + ssh connection share 못할 때 비용 큼\n- 호스트 OS/arch 변경(드뭄)시 매니페스트 mismatch로 자동 재감지 트리거\n\n**프로토콜 버전 핸드셰이크 (서버 → 클라이언트 ready 프레임)**\n- 서버: `{type:\"ready\", protocolVersion:\"1\", serverVersion:\"0.1.0\"}`\n- 클라이언트: ready 수신 후 protocolVersion 호환성 체크 — 미지원시 `server.protocol-version-mismatch` 에러 발화, 채널 dispose\n- 이유: 클라이언트 → 서버 hello 선전송은 RTT 1 추가, ready 프레임에 inline이 단순\n- 향후 multi-version 지원시 클라이언트 hello 추가 가능(역호환 — protocolVersion=1은 클라이언트 hello 무시)\n- TS dispatch.ts `parseServerRequest`에 영향 없음, ready 프레임만 확장\n\n## Trade-offs\n\n| Option | Pros | Cons | Tradeoff | Recommend |\n|---|---|---|---|---|\n| A: 자동 첫 연결 + 버전드 경로 + arch 캐시 + ready inline 버전 | UX 매끄러움(VS Code 동등), 결정적 매니페스트 비교, RTT 절감, 향후 hello 프레임 추가 역호환 | 매니페스트 부재시 1회 scp 비용 가시화 필요(progress UI) | UX 단순성 ↔ 자동화 신뢰 | ✓ — 핸드셰이크/배포/감지 3축 모두 가시성+가역성 통과 |\n| B: UI 모달 확인 + symlink latest + 매 연결 arch + client hello | 사용자 명시 동의, symlink로 빠른 latest 전환 | 차단 모달 매번 = 마찰, symlink race, RTT 누적, hello 추가 RTT, 가역성 떨어짐 | 사용자 제어 ↔ 마찰 | ✗ — Cost asymmetry, axis 3 위반 |\n| C: 수동 설치 강제 | 가장 단순, 보안 감사 명확 | MVP UX 불가, 사용자 docs 의존 | 단순성 ↔ 채택 | ✗ — Phase 1 사용자 채택 차단 |\n\n## Findings\n- **CRITICAL** 매니페스트 파일 자체의 위변조/손상 시나리오 — sha256 검증 미포함시 부분 전송된 바이너리 실행 위험. 매니페스트에 `sha256` 필수, 클라이언트가 첫 실행 전 `sha256sum` 확인(원격 명령) 또는 알려진 해시와 매칭하는 단계 필요\n- **CRITICAL** scp는 OpenSSH `scp` 또는 sftp 기반 — `-O` (legacy scp) vs `-T` (allow filename remote) 호환성 매트릭스 확인 필요. 최신 OpenSSH(9.x)는 sftp 기본, 일부 서버는 sftp subsystem 비활성. 대안으로 `cat > path` over ssh stdin 푸시 패턴 검토 권장\n- **WARNING** `~/.nexus-code/` 경로의 사용자별 권한(0755) + 바이너리(0755) 명시 — umask 0027 환경에서 그룹 실행 부재시 후속 SSH 사용자 영향\n- **WARNING** 옛 버전 cleanup 정책 부재시 디스크 누적 — N개 유지(기본 3) 정책을 매니페스트에 함께 기록, scp 직후 prune\n- **WARNING** protocolVersion 문자열 vs semver — 호환성 비교 룰을 ADR로 결정 필요. 권장: major-only 매칭(\"1\" 호환, \"2\" 비호환), serverVersion은 metadata\n- **INFO** Windows 원격 서버 지원 — Phase 1 범위 외이지만, OS/arch 매트릭스에 `linux-amd64`, `linux-arm64`, `darwin-arm64`, `darwin-amd64`만 우선 빌드, Windows는 후일 결정\n- **INFO** scp 진행상황 표시 — 1.9MB는 빠르지만 느린 회선 가시화를 위해 `pv` 같은 외부 도구 없이 ssh stdin push + 바이트 카운터로 진행률 broadcast(workspace connectionChanged 채널 활용)\n\n## Verdict\n**approved with conditions**: (a) 매니페스트에 sha256 필수 + 클라이언트가 실행 전 검증, (b) scp 푸시 메커니즘은 sftp/legacy scp 양쪽 호환되도록 spike 단계에서 검증(별도 task), (c) protocolVersion 비교 룰을 ADR로 문서화, (d) arch 감지 결과는 WorkspaceMeta가 아닌 별도 캐시 테이블도 검토(location 스키마 부풀림 회피)",
+                "recorded_at": "2026-05-12T12:36:46.138Z",
+                "agent_id": "architect"
+              }
+            ],
+            "decision": "## 결정\n- **scp 트리거**: 첫 SSH 연결 직전 자동 매니페스트 조회(`cat ~/.nexus-code/manifest.json || echo missing`) → 부재/mismatch시 자동 scp 푸시 + progress toast(비차단). 첫 설치 1회만 UI 가시화, 이후 매니페스트 일치시 스킵. 수동 설치 옵션은 advanced doc — MVP 범위 외.\n- **원격 경로**: `~/.nexus-code/bin/nexus-server-<version>-<os>-<arch>` + `~/.nexus-code/manifest.json`(`{version, os, arch, sha256, installedAt}`). **symlink 미사용** — sftp/scp race 회피, latest 포인터 불요(매니페스트 결정).\n- **sha256 검증 필수**: 매니페스트에 sha256 필드 의무화, 클라이언트가 scp 직후 원격 명령(`sha256sum <path>`)으로 검증 + ready 프레임 핸드셰이크 시점 재확인. 검증 실패시 즉시 fail, retry 1회.\n- **scp 메커니즘**: OpenSSH 9.x sftp 우선, sftp subsystem 비활성 호스트 대비 fallback으로 `ssh user@host 'cat > path'` stdin push 패턴. 둘 다 S8 task의 spike 단계에서 호환성 검증.\n- **arch 감지**: `uname -ms` 1회 실행 → `WorkspaceMeta.location.ssh.remoteArch?: { os, arch, detectedAt }` 인라인 캐시. 별도 캐시 테이블 거부(스키마 부풀림보다 SSH 단일 location 컨텍스트의 응집도 우선, 매니페스트 mismatch시 자동 재감지).\n- **protocolVersion**: 서버 → 클라이언트 `ready` 프레임에 인라인 (`{type:\"ready\", protocolVersion:\"1\", serverVersion:\"0.1.0\"}`). 클라이언트 hello 선전송 거부 — RTT 1 추가, ready inline이 단순. 향후 multi-version시 hello 추가 역호환.\n- **비교 룰**: **major-only 매칭**(문자열 `\"1\"` 호환, `\"2\"` 비호환). serverVersion은 metadata. ADR 별도 작성(S8 task에 흡수).\n- **cleanup**: 옛 버전 N개 유지(기본 3), scp 직후 prune.\n- **OS/arch 매트릭스**: Phase 1 = linux-amd64, linux-arm64, darwin-arm64, darwin-amd64. Windows 후속.\n- **권한**: `~/.nexus-code/` 0755, 바이너리 0755 명시."
+          }
+        ],
+        "research_summary": "선행 작업: S1(agent→server 리네임, spike 제거), S2(ssh-channel 분해 → master/auth/pipe + orchestrator). 픽스처는 docker/ssh-fixture/에 arm64 Linux 2종(key 2222, password 2223) 준비, 비밀번호 인증은 PTY+ControlMaster로 검증 완료. 기존 IPC 레이어는 register/setupRouter/broadcast 패턴(`src/main/ipc/router.ts`)이며 main→renderer 푸시+renderer→main 응답 선례는 `askpass` 채널(`src/shared/ipc-contract.ts:544`, `src/main/git/git-helpers-ipc.ts`). 트랜스포트 외부 API(createSshChannel/SshChannel)는 S2에서도 무변경 유지. 베이스라인 테스트 1780 pass 0 fail, typecheck/lint 클린.",
+        "created_at": "2026-05-12T12:33:01.386Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "S3 — sshAuth IPC 채널 + SshAuthPromptHub",
+          "status": "completed",
+          "context": "main→renderer 인증 프롬프트 푸시 + renderer→main 응답을 위한 IPC 와이어. PTY 인증(Sa)과 다이얼로그(S4)의 공통 의존성. askpass 채널(src/shared/ipc-contract.ts:544, src/main/git/git-helpers-ipc.ts) 패턴 거울. 신규 sshAuth 채널(call.respond, call.cancel, listen.prompt) + 메인측 Hub(pending Map&lt;promptId, deferred&gt; + broadcast 주입).",
+          "acceptance": "- sshAuth 채널 IPC contract 등록 + 스키마 zod 검증 통과\n- SshAuthPromptHub.request → broadcast 호출 + payload 검증\n- respond → 매칭 request resolve\n- cancel → AuthCancelledError로 reject\n- 중복 respond/cancel → no-op\n- 동시 두 promptId → 독립 resolve\n- 신규 단위 테스트 tests/unit/main/transport/ssh-auth-prompt.test.ts 5+ 케이스 통과\n- bun test 전체 회귀 0 fail\n- bun run typecheck + biome lint 클린",
+          "approach": "- src/shared/types/ssh-auth-prompt.ts 신규: SshAuthPromptSchema(discriminatedUnion password/host-key), SshAuthRespondArgsSchema, SshAuthCancelArgsSchema\n- src/shared/ipc-contract.ts 수정: sshAuth 채널 추가(call: respond/cancel, listen: prompt)\n- src/main/transport/ssh-auth-prompt.ts 신규: SshAuthPromptHub 클래스(request(prompt)→Promise<response>, respond, cancel) + register(\"sshAuth\", ...) + broadcast 주입\n- 렌더러측 listener는 S4에서 useSshAuthPrompts hook으로 추가(S3 범위는 메인 라우터까지)",
+          "risk": "PromptHandler 시그니처가 Sa(PTY 구현)의 의존 인터페이스 — 이 단계에서 확정 후 변경 시 Sa shotgun. SshAuthPromptHub.request의 반환 타입을 discriminatedUnion으로 PromptHandler가 그대로 소비 가능하게 설계.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ses_1e3c52058ffeH6RxeVdJ01K6HN"
+          },
+          "created_at": "2026-05-12T12:39:03.209Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented sshAuth shared schemas, IPC contract entries, main-side SshAuthPromptHub, main registration, and 7 scenario-focused unit tests. Tester verified targeted test, typecheck, changed-file biome lint, and unit/integration regression; full lint has unrelated pre-existing warnings outside changed files.",
+            "artifacts": [
+              "src/shared/types/ssh-auth-prompt.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/transport/ssh-auth-prompt.ts",
+              "src/main/index.ts",
+              "tests/unit/main/transport/ssh-auth-prompt.test.ts"
+            ],
+            "recorded_at": "2026-05-12T12:57:37.828Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "S4 — SshAuthPromptDialog + useSshAuthPrompts hook",
+          "status": "completed",
+          "context": "사용자에게 password 입력 또는 host-key 신뢰 결정을 받는 차단형 모달. 결정사항(Issue 2): Radix Dialog 전역 모달, global-roots.tsx 마운트, FIFO 큐, 단일 컴포넌트 내부 password/host-key 분기, askpass 패턴 답습. S3 sshAuth 채널을 소비.",
+          "acceptance": "- password 프롬프트 표시 → 입력 → Continue → call(\"sshAuth\",\"respond\",{kind:\"password\", value}) 송신\n- host-key 프롬프트 표시 → Trust → call(\"sshAuth\",\"respond\",{kind:\"host-key\",trust:\"yes\"}) 송신\n- Esc/Cancel → call(\"sshAuth\",\"cancel\",{promptId}) 송신\n- 큐 2개 동시 enqueue → 첫 응답 후 두 번째 자동 표시 + 상단 \"1 / 2 pending\" 카운터\n- WCAG: role=dialog, aria-labelledby/describedby, focus trap(Radix 기본), tab 순서 input→Copy→Cancel→Continue\n- 핑거프린트 모노스페이스 14px + Copy 버튼 동작\n- 다크모드 askpass 토큰 재사용으로 대비 충족\n- 신규 렌더러 테스트 tests/unit/renderer/workspace/SshAuthPromptDialog.test.tsx 4+ 케이스 통과\n- 전체 회귀 0 fail, typecheck/lint 클린",
+          "approach": "- src/renderer/components/workspace/useSshAuthPrompts.ts 신규: listen(\"sshAuth\", \"prompt\", ...) 구독, FIFO 큐 모듈 스코프 상태, getSnapshot/subscribe API\n- src/renderer/components/workspace/SshAuthPromptDialog.tsx 신규: Radix Dialog, prompt.kind === \"password\"|\"host-key\" 분기, 폭 460px, Cancel/Continue 또는 Reject/Trust and connect\n- src/renderer/components/global-roots.tsx 수정: SshAuthPromptDialog 단일 인스턴스 마운트(askpass와 같은 위치)\n- 토스트: 취소 시 \"Connection to {host} canceled\" 비파괴 토스트(기존 토스트 시스템 활용)\n- error 상태: 동일 promptId 재푸시 시 \"Authentication failed. Try again.\" 인라인 + input 비움",
+          "risk": "host-key 영속화 문구 — known_hosts 영속화 미구현 시 \"for this session only\"로 정확화 필요(S5+에서 실제 영속화 추가시 문구 갱신). 빈 비밀번호 제출 회피: Continue 버튼 value.length===0일 때 disabled.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ses_1e3bbd571ffeAX2D7uhX9UMStB"
+          },
+          "created_at": "2026-05-12T12:39:18.212Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented singleton SSH auth prompt hook with FIFO queueing, duplicate promptId replacement, typed respond/cancel IPC calls, Radix-mounted dark password/host-key dialog, GlobalRoots mount, and 8 scenario tests. Tester verified password/host-key response, cancel/Esc, FIFO counter, WCAG basics, fingerprint copy/styling, askpass token reuse, typecheck, and changed-file lint.",
+            "artifacts": [
+              "src/renderer/components/workspace/useSshAuthPrompts.ts",
+              "src/renderer/components/workspace/SshAuthPromptDialog.tsx",
+              "src/renderer/components/global-roots.tsx",
+              "tests/unit/renderer/workspace/SshAuthPromptDialog.test.tsx"
+            ],
+            "recorded_at": "2026-05-12T13:09:43.738Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Sa — PTY 인증 구현 (ssh-auth-pty.ts + ssh-master.ts 확장)",
+          "status": "completed",
+          "context": "Phase 1 인증 단계 — node-pty로 ssh 띄움 + prompt 상태머신(`password:`/`passphrase:`/`yes/no` host-key/`Permission denied`) + ControlMaster 소켓 생성 후 Phase 2 batch 채널 재spawn(2-phase). 결정사항(Issue 1): ssh-auth-pty.ts 신규, ControlMaster는 ssh-master.ts에 통합(socket path 생성/args/dispose hook 단일화), socket 재spawn 패턴 채택, S4 다이얼로그 직후 랜딩. S3 PromptHandler 시그니처 의존.",
+          "acceptance": "- linux-password 픽스처(127.0.0.1:2223) 대상 비밀번호 인증 성공 → ready 프레임 수신\n- 잘못된 비밀번호 → 동일 promptId로 PromptHandler 재호출 후 retry 또는 cancel\n- 사용자 cancel → PTY 종료 + ssh.auth-failed 에러\n- host-key prompt 발생(known_hosts 없는 호스트) → Trust 응답 전송 후 인증 계속\n- ControlMaster socket 생성 후 Phase 2 재spawn에서 prompt 없이 즉시 ready\n- 채널 dispose → master.dispose() 1회 호출 → ssh -O exit + unlink 양쪽 실행\n- PTY+ControlMaster 부분 실패 시 socket 고아 파일 없음\n- 신규 단위 테스트(ssh-auth-pty mock node-pty) + 통합 테스트 1+ (실제 docker linux-password) 통과\n- 전체 회귀 0 fail, typecheck/lint 클린",
+          "approach": "- src/main/transport/ssh-master.ts 확장: SshMasterOptions에 mode?: \"batch\"|\"interactive\" + controlSocketPath?: string 추가(optional 역호환), interactive면 `-o BatchMode=no -tt`, master 인스턴스 unique-id 추적, dispose에 `ssh -O exit -S sock` + unlink 양쪽 시도\n- src/main/transport/ssh-auth-pty.ts 신규: node-pty.spawn으로 ssh 띄움, PTY stdout/stderr 모두 관찰, prompt 패턴 상태머신, PromptHandler 콜백 호출 후 응답을 PTY stdin write, ControlMaster 소켓 생성 감지 후 PTY close\n- src/main/transport/ssh-channel.ts: CreateSshChannelOptions에 promptHandler?: PromptHandler + authMode 분기(현재는 promptHandler 존재 시 interactive, 미존재시 batch — S5에서 authMode 정책 분기로 교체)\n- src/main/workspace/workspace-manager.ts: SshAuthPromptHub.request를 PromptHandler로 createSshChannel에 주입\n- 2-phase 흐름: PTY 인증 성공 → socket 생성 확인 → PTY close → ssh-master(mode:\"batch\", controlSocketPath:sock)로 재spawn → 기존 NDJSON pipe 그대로",
+          "risk": "node-pty의 macOS Electron 환경 빌드 호환성(이미 의존성 보유로 위험 낮음). OpenSSH 버전별 prompt 텍스트 미세 차이 — fixture(OpenSSH 10.2)와 실제 사용자 호스트 동작 매트릭스 확인 필요. 2-phase 재spawn 사이 ControlMaster 소켓 만료(60s 유휴) — Phase 2 spawn 직후 stale 검증 + 재인증 폴백.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_1e3b0d62affewiUyoDhsnYj4n0"
+          },
+          "created_at": "2026-05-12T12:39:39.266Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented PTY authentication with ssh-auth-pty, ControlMaster lifecycle support in ssh-master, interactive branch in ssh-channel, workspace-manager promptHandler wiring, unit tests, and an integration test file. Lead reran targeted PTY tests (16 pass), typecheck, and changed-file Biome lint after localized fixes. Full docker/e2e behavior remains part of the requested batched S9 verification.",
+            "artifacts": [
+              "src/main/transport/ssh-auth-pty.ts",
+              "src/main/transport/ssh-master.ts",
+              "src/main/transport/ssh-channel.ts",
+              "src/main/workspace/workspace-manager.ts",
+              "tests/unit/main/transport/ssh-auth-pty.test.ts",
+              "tests/unit/main/transport/ssh-channel.test.ts",
+              "tests/integration/main/transport/ssh-auth-pty.integration.test.ts"
+            ],
+            "recorded_at": "2026-05-12T13:23:37.099Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "S5 — authMode 영속화 + 마이그레이션",
+          "status": "completed",
+          "context": "WorkspaceMeta.location.ssh에 authMode 필드 추가, 기존 워크스페이스 z `.default(\"interactive\")`로 무동작 마이그레이션. Sa의 promptHandler 존재 분기를 authMode 정책 분기로 교체.",
+          "acceptance": "- 신규 워크스페이스 생성 → authMode 기본값 \"interactive\" 저장 확인\n- authMode 없는 legacy row 로드 → schema parse 후 \"interactive\"로 인플레이스 채워짐\n- authMode \"key-only\" 워크스페이스 → BatchMode=yes 강제, prompt 발생 없이 즉시 fail\n- authMode \"interactive\" 워크스페이스 → password/host-key prompt 정상 노출\n- 단위 테스트: 스키마 default 동작 + authMode 분기 동작\n- 전체 회귀 0 fail, typecheck/lint 클린",
+          "approach": "- src/shared/types/workspace.ts: WorkspaceSshLocationSchema에 authMode: z.enum([\"interactive\",\"key-only\"]).default(\"interactive\") 추가\n- 코드 주석: WorkspaceMeta preprocess(location 형태 마이그레이션)와 SshLocation default(필드 기본값)의 책임 분리 명시\n- src/main/transport/ssh-channel.ts / workspace-manager.ts: authMode === \"interactive\"일 때만 promptHandler 주입, \"key-only\"는 BatchMode=yes 강제(현재 batch 동작 유지)\n- 기존 워크스페이스 1개로 e2e 마이그레이션 검증(Docker linux key 픽스처 활용)",
+          "risk": "SQLite location JSON 컬럼은 schema parse 후 stringify 저장 시점까지 디스크에 옛 형식 잔존(첫 update 시 자연 갱신, idempotent 보장 필수). 다중 워크스페이스 동시 로드 race — 스토어 로드 시점이 단일 경로라 부재 가능성 낮으나 회귀 테스트 추가.",
+          "plan_issue": 3,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ses_1e3a42ae4ffeBqS66LAZuMAwIz"
+          },
+          "created_at": "2026-05-12T12:39:53.045Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added SSH authMode defaulting/migration through schema, global storage, workspace storage, workspace creation, and workspace activation policy. Legacy SSH rows load and persist as interactive; key-only bypasses PTY prompts. Lead reran targeted authMode tests (77 pass), typecheck, and changed-file Biome lint. Full SSH integration remains deferred to batched S9 verification.",
+            "artifacts": [
+              "src/shared/types/workspace.ts",
+              "src/main/storage/global-storage.ts",
+              "src/main/storage/workspace-storage.ts",
+              "src/main/workspace/workspace-manager.ts",
+              "src/main/transport/ssh-channel.ts",
+              "tests/unit/main/storage/storage-global.test.ts",
+              "tests/unit/main/storage/storage-workspace.test.ts",
+              "tests/unit/main/workspace/workspace-manager.test.ts",
+              "tests/unit/main/transport/ssh-channel.test.ts"
+            ],
+            "recorded_at": "2026-05-12T13:31:34.530Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "S6 — Add Workspace 다이얼로그 auth method 라디오",
+          "status": "completed",
+          "context": "SSH 워크스페이스 추가 다이얼로그에 authMode 라디오 추가(Interactive / Key only). 기본 \"Interactive\". 사용자가 명시적으로 key-only 의도를 표현할 수 있게.",
+          "acceptance": "- Add Workspace SSH 흐름에서 라디오 노출, 기본값 Interactive\n- 선택값이 location.ssh.authMode로 전달되어 저장\n- Key only 선택 → 생성 후 첫 연결 시 prompt 발생 없이 batch 동작\n- 라디오 시각적 askpass 다이얼로그 토큰 재사용으로 일관성\n- 신규 렌더러 테스트 케이스 추가\n- 전체 회귀 0 fail, typecheck/lint 클린",
+          "approach": "- Add Workspace 다이얼로그 컴포넌트(src/renderer/components/workspace/*) 수정: SSH 경로 분기 내 라디오 그룹 추가\n- 라벨: \"Authentication\" — \"Interactive (password / host key prompt)\" / \"Key only (BatchMode)\"\n- 기본 선택 \"Interactive\"\n- 워크스페이스 생성 IPC 호출 시 location.ssh.authMode 전달\n- Edit Workspace(있다면) 동일 라디오 노출, 변경 시 schema validation",
+          "risk": "Edit Workspace UI 부재 시 변경 경로 닫힘 — Phase 1에서는 Add만으로도 충분, Edit는 후속.",
+          "plan_issue": 3,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "bounded",
+            "agent_id": "ses_1e39cec0bffe9KlK5a2a2DvpIB"
+          },
+          "created_at": "2026-05-12T12:40:04.319Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added SSH Authentication radio options to Add Workspace, defaulting to Interactive and wiring selected authMode through testSsh and workspace.create SSH payloads. Lead reran focused renderer/main IPC tests (10 pass), typecheck, and Tailwind syntax lint. Edit Workspace UI was not added per scope; full SSH behavior remains deferred to S9 batch verification.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace-dialog.tsx",
+              "src/shared/ipc-contract.ts",
+              "src/main/ipc/channels/workspace.ts",
+              "tests/unit/renderer/components/workspace/add-workspace-dialog.test.tsx",
+              "tests/unit/main/ipc/channels/workspace-test-ssh.test.ts"
+            ],
+            "recorded_at": "2026-05-12T13:39:36.894Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "S7 — Go nexus-server: cmd + internal 4-패키지",
+          "status": "completed",
+          "context": "원격 SSH stdin/stdout NDJSON 단일 모드 Go 서버. cmd/nexus-server/main.go(stdio loop) + internal/proto(envelope) + internal/dispatch(method map) + internal/fsops(fs.readdir/stat/readFile + path safety). spike 코드는 참고만 — 신규 구조. TS src/server/와 1:1 매핑.",
+          "acceptance": "- go build ./cmd/nexus-server 성공(linux-amd64, linux-arm64, darwin-arm64, darwin-amd64 4종 cross-compile)\n- 바이너리 크기 5MB 미만(-ldflags=\"-s -w\" 적용)\n- go test ./... 전체 통과(각 internal 패키지)\n- 수동 검증: bun src/server/index.ts와 동일한 NDJSON 응답 형식(`fs.readdir`/`fs.stat`/`fs.readFile`) — TS 단위 테스트 산출 결과와 직접 비교\n- ready 프레임에 protocolVersion + serverVersion 포함\n- SIGTERM → in-flight drain → 75ms force-exit 검증\n- path-safety: relPath=\"../etc/passwd\" 같은 탈출 시도 → unsupported-method 또는 server.request-failed",
+          "approach": "- go.mod: 새 모듈 경로 (예: github.com/nexus-code/nexus-server), Go 1.22+\n- cmd/nexus-server/main.go: argv → rootPath 추출, stdin scanner(bufio.Scanner with 큰 버퍼 4MB), goroutine 풀 없이 sequential dispatch(in-flight Set 추적), SIGTERM handler + 75ms force-exit\n- internal/proto/: Request/Response/ErrorFrame struct(json 태그 id/method/params/result/error), Marshal/Unmarshal helper\n- internal/dispatch/: Dispatcher{handlers map[string]Handler}, Register(name, handler), Dispatch(req) Response\n- internal/fsops/: Readdir/Stat/ReadFile, ResolveServerPath(root, rel) (filepath.Rel + ../뒷걸음 차단), symlink 처리는 TS와 동등 명세\n- ready frame: {\"type\":\"ready\",\"protocolVersion\":\"1\",\"serverVersion\":\"<버전>\"} 송신\n- error code: 모두 server.* prefix (server.protocol-error, server.request-failed, unsupported-method)\n- Go 표준 test: internal/{proto,dispatch,fsops}/_test.go 각각",
+          "risk": "Go 모듈 디렉토리 위치 — nexus-code 리포 내부 cmd/server/(monorepo) vs 별도 리포. 리포 내부 단일이 빌드 매트릭스 단순. .gitignore에 빌드 산출물 추가. symlink 의미체계 양쪽 일치 — TS는 lstat/realpath 어떤가에 따라 Go filepath.EvalSymlinks 사용 여부 결정 필요.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_1e3c5201ffferI7nTZImba957r"
+          },
+          "created_at": "2026-05-12T12:40:22.411Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Go nexus-server stdin/stdout NDJSON mode with cmd/nexus-server and internal proto/dispatch/fsops packages. Tester verified four-target cross-builds, stripped binary size 2,363,576 bytes, go test ./..., ready protocol/server version frame, TS-compatible fs response shapes, SIGTERM 75ms drain behavior, and path traversal rejection.",
+            "artifacts": [
+              "go.mod",
+              "cmd/nexus-server/main.go",
+              "internal/proto",
+              "internal/dispatch",
+              "internal/fsops"
+            ],
+            "recorded_at": "2026-05-12T13:02:38.552Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "S8 — 바이너리 배포 + 매니페스트 + sha256 + 버전 핸드셰이크",
+          "status": "completed",
+          "context": "첫 SSH 연결 시 ~/.nexus-code/manifest.json 조회 → 부재/mismatch 자동 scp + sha256 검증 + ready 프레임 protocolVersion 비교. Phase 1 = linux-amd64/arm64, darwin-amd64/arm64 4종. major-only 매칭. 옛 버전 3개 유지.",
+          "acceptance": "- scripts/build-nexus-server.sh 실행 → 4개 바이너리 + manifest.json 산출\n- 첫 연결 시 자동 scp + 매니페스트 작성 e2e 검증(docker linux-amd64 변형 fixture 또는 arm64로 1차 검증)\n- 매니페스트 일치 시 scp 스킵, ready 도달까지 RTT ≤ 1\n- sha256 변조 시 server.protocol-error로 즉시 fail\n- ready 프레임 protocolVersion 미스매치 시 server.protocol-version-mismatch\n- arch 캐시: 두 번째 연결에서 uname 호출 없음\n- prune: 옛 버전 3개 초과시 삭제 동작 검증\n- sftp/cat 폴백 동작은 코드/테스트로 검증하고 별도 ADR 문서는 작성하지 않음\n- progress toast UX 1회 노출, 이후 연결은 silent\n- 전체 회귀 0 fail, typecheck/lint 클린",
+          "approach": "- src/main/transport/ssh-bootstrap.ts 신규: ensureRemoteServer(channel/master) → manifest 조회 → 비교 → 필요시 push\n- arch 감지: `uname -ms` 1회 → WorkspaceMeta.location.ssh.remoteArch 캐시(인라인). 매니페스트 mismatch 시 무효화\n- 바이너리 푸시: OpenSSH sftp 우선, 실패시 `ssh user@host 'cat > path'` stdin push 폴백. 둘 다 코드/테스트로 검증\n- sha256 검증: 클라이언트 보유 sha256과 원격 `sha256sum <path>` 비교. 실패시 retry 1회\n- 매니페스트 갱신: `{version, os, arch, sha256, installedAt}` JSON 작성\n- prune: ~/.nexus-code/bin/nexus-server-*-<os>-<arch> 정렬 후 N개(기본 3) 초과분 삭제\n- 권한: ~/.nexus-code/ 0755, 바이너리 0755 명시 설정\n- 빌드 매트릭스: scripts/build-nexus-server.sh — 4개 타겟 cross-compile + sha256 manifest 생성\n- progress toast: workspace.connectionChanged 브로드캐스트로 단계별 상태 송신(\"Detecting architecture...\" → \"Uploading server...\" → \"Verifying...\" → \"Connecting...\")\n- ready 프레임 protocolVersion 파싱: ssh-pipe.ts에 verifyProtocolVersion 콜백 hook + 미스매치 시 server.protocol-version-mismatch 에러\n- 별도 docs/adr 문서는 작성하지 않음",
+          "risk": "매니페스트/sha256 손상 시나리오 — 부분 전송된 바이너리 실행 위험. sha256 미검증 절대 금지. sftp subsystem 비활성 호스트 호환성 — 사용자 환경 광범위, cat fallback 필수 검증. ControlMaster socket을 통한 scp 재사용 vs 신규 연결 — Phase 1 socket 통한 재사용으로 비밀번호 재입력 회피.",
+          "plan_issue": 5,
+          "deps": [
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_1e3b74674ffeGoBnubu6uHBLVG"
+          },
+          "created_at": "2026-05-12T12:40:44.841Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented S8 bootstrap/build/version-handshake pieces. Lead spot-checks passed: targeted Task 7 unit tests (33 pass), typecheck, and scripts/build-nexus-server.sh producing 4 binaries plus manifest under dist/nexus-server. Added protocol mismatch/error handling, remoteArch cache wiring, bootstrap tests, and build script. Removed the ADR artifact per user direction; full remote/docker e2e verification is deferred to the requested batched S9/integration verification.",
+            "artifacts": [
+              "scripts/build-nexus-server.sh",
+              "src/main/transport/ssh-bootstrap.ts",
+              "src/main/transport/ssh-pipe.ts",
+              "src/main/workspace/workspace-manager.ts",
+              "src/main/ipc/channels/workspace.ts",
+              "src/shared/types/ssh-errors.ts",
+              "src/shared/types/workspace.ts",
+              "tests/unit/main/transport/ssh-bootstrap.test.ts",
+              "tests/unit/main/transport/ssh-channel.test.ts",
+              "tests/unit/main/workspace/workspace-manager.test.ts",
+              "dist/nexus-server/manifest.json",
+              "dist/nexus-server/nexus-server-0.1.0-linux-amd64",
+              "dist/nexus-server/nexus-server-0.1.0-linux-arm64",
+              "dist/nexus-server/nexus-server-0.1.0-darwin-amd64",
+              "dist/nexus-server/nexus-server-0.1.0-darwin-arm64"
+            ],
+            "recorded_at": "2026-05-12T13:22:31.980Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "S9 — SshFsProvider end-to-end (Go server + 비밀번호 인증)",
+          "status": "completed",
+          "context": "전체 흐름 통합 — Add Workspace(SSH, interactive auth) → bootstrap → PTY 인증 → ControlMaster → batch 채널 → Go nexus-server → SshFsProvider fs ops. linux-password 픽스처에 대해 explorer/open file 시연 검증.",
+          "acceptance": "- linux-password fixture(127.0.0.1:2223) 대상 신규 SSH workspace 생성 시 password prompt 정상 동작\n- bootstrap → Go nexus-server 자동 설치(첫 회) + ready 도달\n- 파일 탐색(fs.readdir) → workspace-seed/ 컨텐츠 정상 출력\n- 파일 열기(fs.readFile) → workspace-seed/src/hello.ts 컨텐츠 표시\n- 매니페스트 일치 후 재연결(앱 재시작 또는 workspace activate 재시도) — scp 스킵 + PTY 재인증 또는 socket 재사용\n- Add Workspace의 workspace.testSsh 검증도 bootstrap + Go nexus-server + interactive promptHandler 경로를 사용\n- 로컬 workspace + 기존 SSH key-only workspace 회귀 0\n- 시연 가능한 매뉴얼 문서는 user direction에 따라 생성하지 않음\n- 전체 회귀 0 fail, typecheck/lint 클린\n- 의도적인 cancel 흐름(prompt 닫기) → workspace 활성화 실패 + 토스트 + 마법사 복귀",
+          "approach": "- src/main/ipc/channels/workspace.ts: workspace.testSsh가 legacy `bun src/server/index.ts` 원격 명령 대신 ensureRemoteServer + Go remoteCommand + createSshChannel 경로 사용\n- src/main/index.ts: SshAuthPromptHub.request를 testSshHandler에도 주입해 Add Workspace validation에서 interactive auth prompt 사용\n- src/main/workspace/workspace-manager.ts 경로와 testSsh 경로의 bootstrap/channel 옵션을 일관화\n- SshFsProvider는 transport API 무변경 유지\n- 통합 테스트(tests/integration/ssh/...): linux-password 픽스처 기동 → Add Workspace IPC/testSsh 또는 동등 main handler 호출 → PTY 인증 → Go server bootstrap → ready 확인\n- 매뉴얼 시연 시나리오 문서는 user direction에 따라 생성하지 않음 unless explicitly requested\n- 회귀: 기존 로컬 workspace fs 동작 무영향, 기존 SSH key-only workspace(legacy) 동작 무영향",
+          "risk": "Bun's node-pty does not emit events in this environment, so fixture tests use a Node-backed PTY adapter through auth.spawnPty. Production Electron runtime still uses node-pty; this may fail if Electron/node-pty exhibits the same event issue, but Node probe worked and Bun-specific issue was evidenced. testSsh now aligns with activation bootstrap path.",
+          "plan_issue": 5,
+          "deps": [
+            2,
+            4,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "persistent",
+            "agent_id": "ses_1e395619fffenpvPaTttQHNHCP"
+          },
+          "created_at": "2026-05-12T12:41:04.533Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Reworked Add Workspace SSH validation to use the Go nexus-server bootstrap path and prompt-capable SSH auth wiring, matching activation behavior instead of legacy remote Bun startup. Verified focused validation tests (42 pass), opt-in SSH fixture E2E (2 pass), typecheck, changed-file Biome lint, full unit/integration regression (1818 pass/1 skip/0 fail), go test ./..., build script, and Tailwind syntax lint.",
+            "artifacts": [
+              "src/main/ipc/channels/workspace.ts",
+              "src/main/index.ts",
+              "tests/unit/main/ipc/channels/workspace-test-ssh.test.ts",
+              "src/main/transport/ssh-auth-pty.ts",
+              "src/main/transport/ssh-bootstrap.ts",
+              "tests/integration/main/transport/node-pty-spawn.ts",
+              "tests/integration/main/transport/ssh-auth-pty.integration.test.ts",
+              "tests/integration/main/transport/ssh-go-server.integration.test.ts"
+            ],
+            "recorded_at": "2026-05-12T14:44:57.388Z"
+          }
+        }
+      ]
     }
   ]
 }

@@ -5,7 +5,9 @@ import type { SshErrorCode } from "../../shared/types/ssh-errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
-const ReadyFrameSchema = z.object({ type: z.literal("ready") }).passthrough();
+const ReadyFrameSchema = z
+  .object({ type: z.literal("ready"), protocolVersion: z.string().optional() })
+  .passthrough();
 const ResponseResultFrameSchema = z.object({ id: z.string(), result: z.unknown() }).passthrough();
 const ResponseErrorFrameSchema = z.object({ id: z.string(), error: z.unknown() }).passthrough();
 const EventFrameSchema = z
@@ -13,7 +15,7 @@ const EventFrameSchema = z
   .passthrough();
 
 type ParsedFrame =
-  | { kind: "ready" }
+  | { kind: "ready"; protocolVersion?: string }
   | { kind: "response"; id: string; result: unknown }
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
@@ -32,6 +34,7 @@ export interface NdjsonPipeDependencies {
   readonly classifyStderr: StderrClassifier;
   readonly onTerminalError: (error: SshError) => void;
   readonly requestTimeoutMs?: number;
+  readonly expectedProtocolMajor?: string;
 }
 
 export interface NdjsonPipe {
@@ -53,6 +56,7 @@ export interface NdjsonPipe {
  */
 export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const expectedProtocolMajor = deps.expectedProtocolMajor ?? "1";
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
@@ -110,6 +114,10 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     }
 
     if (frame.kind === "ready") {
+      if (!protocolMajorMatches(frame.protocolVersion, expectedProtocolMajor)) {
+        selfFail(createSshError("server.protocol-version-mismatch"));
+        return;
+      }
       resolveReady();
       return;
     }
@@ -277,6 +285,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "Remote server failed to start";
     case "server.protocol-error":
       return "Remote server protocol error";
+    case "server.protocol-version-mismatch":
+      return "Remote server protocol version mismatch";
     case "ssh.unknown":
       return "SSH transport failed";
   }
@@ -292,7 +302,7 @@ function parseFrame(line: string): ParsedFrame {
 
   const ready = ReadyFrameSchema.safeParse(parsed);
   if (ready.success) {
-    return { kind: "ready" };
+    return { kind: "ready", protocolVersion: ready.data.protocolVersion };
   }
 
   if (!isRecord(parsed)) {
@@ -364,6 +374,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 function hasOwnKey(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key);
+}
+
+function protocolMajorMatches(actual: string | undefined, expectedMajor: string): boolean {
+  if (actual === undefined) return true;
+  return actual.split(".", 1)[0] === expectedMajor;
 }
 
 /**

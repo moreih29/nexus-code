@@ -20,6 +20,7 @@ type DialogPhase = "idle" | "local-creating" | "connecting" | "creating";
 type SshConfigHost = CallReturn<"ssh", "listConfigHosts">[number];
 type WorkspaceTestSshArgs = CallArgs<"workspace", "testSsh">;
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
+type SshAuthMode = NonNullable<SshWorkspaceLocation["authMode"]>;
 
 interface AddWorkspaceDialogProps {
   readonly open: boolean;
@@ -33,6 +34,7 @@ interface SshWorkspaceDraft {
   readonly remotePath: string;
   readonly port: string;
   readonly identityFile: string;
+  readonly authMode: SshAuthMode;
 }
 
 interface ResolvedSshWorkspace {
@@ -54,6 +56,7 @@ interface AddWorkspaceDialogContentProps {
   readonly name: string;
   readonly port: string;
   readonly identityFile: string;
+  readonly authMode: SshAuthMode;
   readonly advancedOpen: boolean;
   readonly phase: DialogPhase;
   readonly errorMessage: string | null;
@@ -70,6 +73,7 @@ interface AddWorkspaceDialogContentProps {
   readonly onNameChange: (value: string) => void;
   readonly onPortChange: (value: string) => void;
   readonly onIdentityFileChange: (value: string) => void;
+  readonly onAuthModeChange: (value: SshAuthMode) => void;
   readonly onAdvancedOpenChange: () => void;
   readonly onCancel: () => void;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -81,8 +85,25 @@ const REMOTE_PATH_ID = "add-workspace-ssh-remote-path";
 const NAME_ID = "add-workspace-ssh-name";
 const PORT_ID = "add-workspace-ssh-port";
 const IDENTITY_FILE_ID = "add-workspace-ssh-identity-file";
+const AUTH_MODE_GROUP_ID = "add-workspace-ssh-auth-mode";
 const SSH_ERROR_ID = "add-workspace-ssh-error";
 const PORT_ERROR_ID = "add-workspace-ssh-port-error";
+const SSH_AUTH_OPTIONS: readonly {
+  value: SshAuthMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "interactive",
+    label: "Interactive",
+    description: "Password / host key prompt",
+  },
+  {
+    value: "key-only",
+    label: "Key only",
+    description: "BatchMode; fail instead of prompting",
+  },
+];
 
 export function AddWorkspaceDialog({
   open,
@@ -101,6 +122,7 @@ export function AddWorkspaceDialog({
   const [name, setName] = useState("");
   const [port, setPort] = useState("");
   const [identityFile, setIdentityFile] = useState("");
+  const [authMode, setAuthMode] = useState<SshAuthMode>("interactive");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [phase, setPhase] = useState<DialogPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -110,8 +132,8 @@ export function AddWorkspaceDialog({
   const filteredHosts = useMemo(() => filterSshConfigHosts(hosts, hostInput), [hosts, hostInput]);
   const selectedHost = findSshConfigHost(hosts, hostInput, selectedAlias);
   const sshDraft = useMemo<SshWorkspaceDraft>(
-    () => ({ hostInput, selectedAlias, remotePath, port, identityFile }),
-    [hostInput, selectedAlias, remotePath, port, identityFile],
+    () => ({ hostInput, selectedAlias, remotePath, port, identityFile, authMode }),
+    [hostInput, selectedAlias, remotePath, port, identityFile, authMode],
   );
   const resolvedSsh = resolveSshWorkspaceDraft(sshDraft, hosts);
   const portError =
@@ -137,6 +159,7 @@ export function AddWorkspaceDialog({
     setName("");
     setPort("");
     setIdentityFile("");
+    setAuthMode("interactive");
     setAdvancedOpen(false);
     setPhase("idle");
     setErrorMessage(null);
@@ -340,6 +363,7 @@ export function AddWorkspaceDialog({
             name={name}
             port={port}
             identityFile={identityFile}
+            authMode={authMode}
             advancedOpen={advancedOpen}
             phase={phase}
             errorMessage={errorMessage}
@@ -366,6 +390,7 @@ export function AddWorkspaceDialog({
               setStatusMessage(null);
             }}
             onIdentityFileChange={setIdentityFile}
+            onAuthModeChange={setAuthMode}
             onAdvancedOpenChange={() => setAdvancedOpen((current) => !current)}
             onCancel={closeAndAbort}
             onSubmit={submit}
@@ -390,6 +415,7 @@ export function AddWorkspaceDialogContent({
   name,
   port,
   identityFile,
+  authMode,
   advancedOpen,
   phase,
   errorMessage,
@@ -406,6 +432,7 @@ export function AddWorkspaceDialogContent({
   onNameChange,
   onPortChange,
   onIdentityFileChange,
+  onAuthModeChange,
   onAdvancedOpenChange,
   onCancel,
   onSubmit,
@@ -602,6 +629,38 @@ export function AddWorkspaceDialogContent({
               </div>
             </div>
 
+            <fieldset
+              id={AUTH_MODE_GROUP_ID}
+              className="rounded-sm border border-mist-border bg-background/60 px-2 py-2"
+              disabled={busy}
+            >
+              <legend className="px-1 text-app-ui-sm text-foreground">Authentication</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {SSH_AUTH_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-start gap-2 rounded-sm border border-mist-border bg-frosted-veil px-2 py-2 text-left outline-none focus-within:ring-1 focus-within:ring-mist-border-focus"
+                  >
+                    <input
+                      type="radio"
+                      name="ssh-auth-mode"
+                      value={option.value}
+                      checked={authMode === option.value}
+                      disabled={busy}
+                      onChange={() => onAuthModeChange(option.value)}
+                      className="mt-0.5 size-3.5 accent-foreground"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-app-ui-sm text-foreground">{option.label}</span>
+                      <span className="block text-app-ui-xs text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
             <div className="rounded-sm border border-mist-border bg-background/60 px-2 py-2">
               <button
                 type="button"
@@ -776,11 +835,13 @@ export function resolveSshWorkspaceDraft(
   const testArgs: WorkspaceTestSshArgs = {
     host: parsedDestination.host,
     remotePath,
+    authMode: draft.authMode,
   };
   const location: SshWorkspaceLocation = {
     kind: "ssh",
     host: parsedDestination.host,
     remotePath,
+    authMode: draft.authMode,
   };
 
   if (parsedDestination.user) {

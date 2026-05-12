@@ -4,6 +4,7 @@ import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
   type WorkspaceLocation,
+  WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../shared/types/workspace";
 import { createFsProvider } from "../fs/provider/factory";
@@ -16,6 +17,11 @@ import {
   type SshChannel,
   type SshChannelLifecycleEvent,
 } from "../transport/ssh-channel";
+import {
+  type EnsureRemoteServerOptions,
+  type EnsureRemoteServerResult,
+  ensureRemoteServer,
+} from "../transport/ssh-bootstrap";
 import { WorkspaceContext } from "./workspace-context";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +35,9 @@ export type WorkspaceCreateOptions =
   | { rootPath: string; name?: string };
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
 export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => SshChannel;
+export type WorkspaceSshBootstrap = (
+  options: EnsureRemoteServerOptions,
+) => Promise<EnsureRemoteServerResult>;
 
 /**
  * Builds a local workspace location from legacy create/update inputs.
@@ -41,7 +50,9 @@ function localLocation(rootPath: string): WorkspaceLocation {
  * Normalizes create inputs so the manager only constructs metadata from location.
  */
 function normalizeCreateLocation(opts: WorkspaceCreateOptions): WorkspaceLocation {
-  return "location" in opts ? opts.location : localLocation(opts.rootPath);
+  return WorkspaceLocationSchema.parse(
+    "location" in opts ? opts.location : localLocation(opts.rootPath),
+  );
 }
 
 /**
@@ -61,7 +72,8 @@ function normalizeWorkspaceUpdate(
   partial: Partial<Omit<WorkspaceMeta, "id" | "tabs">>,
 ): Partial<Omit<WorkspaceMeta, "id" | "tabs">> {
   if (partial.location) {
-    return { ...partial, rootPath: rootPathFromLocation(partial.location) };
+    const location = WorkspaceLocationSchema.parse(partial.location);
+    return { ...partial, location, rootPath: rootPathFromLocation(location) };
   }
   if (partial.rootPath) {
     return { ...partial, location: localLocation(partial.rootPath) };
@@ -79,6 +91,7 @@ export class WorkspaceManager {
   private readonly stateService: StateService;
   private readonly broadcastFn: BroadcastFn;
   private readonly sshChannelFactory: WorkspaceSshChannelFactory;
+  private readonly sshBootstrap: WorkspaceSshBootstrap;
 
   private readonly contexts = new Map<string, WorkspaceContext>();
   private readonly sshChannels = new Map<string, SshChannel>();
@@ -91,12 +104,14 @@ export class WorkspaceManager {
     stateService: StateService,
     broadcastFn: BroadcastFn,
     sshChannelFactory: WorkspaceSshChannelFactory = createSshChannel,
+    sshBootstrap: WorkspaceSshBootstrap = ensureRemoteServer,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
     this.stateService = stateService;
     this.broadcastFn = broadcastFn;
     this.sshChannelFactory = sshChannelFactory;
+    this.sshBootstrap = sshBootstrap;
   }
 
   // ---------------------------------------------------------------------------
@@ -247,16 +262,41 @@ export class WorkspaceManager {
 
     let channel = this.sshChannels.get(meta.id);
     if (!channel) {
-      const nextChannel = this.sshChannelFactory(sshChannelOptionsFromLocation(meta.location));
+      this.broadcastConnectionStatus(meta.id, "connecting");
+      const bootstrap = await this.sshBootstrap({
+        host: meta.location.host,
+        user: meta.location.user,
+        port: meta.location.port,
+        identityFile: meta.location.identityFile,
+        authMode: meta.location.authMode,
+        remotePath: meta.location.remotePath,
+        cachedRemoteArch: meta.location.remoteArch,
+      });
+      if (!meta.location.remoteArch) {
+        const updatedMeta: WorkspaceMeta = {
+          ...meta,
+          location: { ...meta.location, remoteArch: bootstrap.platform },
+        };
+        this.globalStorage.updateWorkspace(meta.id, { location: updatedMeta.location });
+        ctx.setMeta(updatedMeta);
+        this.broadcastFn("workspace", "changed", updatedMeta);
+      }
+      const nextChannel = this.sshChannelFactory(
+        sshChannelOptionsFromLocation(
+          { ...meta.location, remoteArch: bootstrap.platform },
+          bootstrap.remoteCommand,
+          bootstrap.controlPath,
+        ),
+      );
       channel = nextChannel;
       this.sshChannels.set(meta.id, channel);
-      this.broadcastConnectionStatus(meta.id, "connecting");
       const disposeLifecycleListener = nextChannel.onLifecycle((event) => {
         this.handleSshChannelLifecycle(meta.id, nextChannel, event);
       });
       ctx.setFsProvider(createFsProvider(meta, nextChannel), () => {
         disposeLifecycleListener();
         nextChannel.dispose();
+        bootstrap.dispose?.();
         if (this.sshChannels.get(meta.id) === nextChannel) {
           this.sshChannels.delete(meta.id);
         }
@@ -326,13 +366,19 @@ export class WorkspaceManager {
 /**
  * Builds the SSH channel options used when activating a remote workspace.
  */
-function sshChannelOptionsFromLocation(location: SshWorkspaceLocation): CreateSshChannelOptions {
+function sshChannelOptionsFromLocation(
+  location: SshWorkspaceLocation,
+  remoteCommand = buildRemoteServerCommand(location),
+  controlPath?: string,
+): CreateSshChannelOptions {
   return {
     host: location.host,
     user: location.user,
     port: location.port,
     identityFile: location.identityFile,
-    remoteCommand: buildRemoteServerCommand(location),
+    authMode: location.authMode,
+    remoteCommand,
+    controlPath,
   };
 }
 

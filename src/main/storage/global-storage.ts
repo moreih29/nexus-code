@@ -53,6 +53,10 @@ function rowLocation(row: WorkspaceRow): WorkspaceLocation {
   return parsedLocation.data;
 }
 
+function normalizeLocation(location: WorkspaceLocation): WorkspaceLocation {
+  return WorkspaceLocationSchema.parse(location);
+}
+
 /**
  * Converts a database row into the normalized workspace metadata shape.
  */
@@ -113,7 +117,8 @@ export class GlobalStorage {
 
   addWorkspace(meta: WorkspaceMeta): void {
     const normalized = WorkspaceMetaSchema.parse(meta);
-    const rootPath = rootPathFromLocation(normalized.location);
+    const location = normalizeLocation(normalized.location);
+    const rootPath = rootPathFromLocation(location);
     this.db
       .prepare(
         `INSERT INTO workspaces
@@ -124,7 +129,7 @@ export class GlobalStorage {
         normalized.id,
         normalized.name,
         rootPath,
-        JSON.stringify(normalized.location),
+        JSON.stringify(location),
         normalized.colorTone ?? "default",
         normalized.pinned ? 1 : 0,
         normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
@@ -141,7 +146,8 @@ export class GlobalStorage {
     const location =
       partial.location ??
       (partial.rootPath ? fallbackLocalLocation(partial.rootPath) : rowLocation(row));
-    const rootPath = rootPathFromLocation(location);
+    const normalizedLocation = normalizeLocation(location);
+    const rootPath = rootPathFromLocation(normalizedLocation);
     this.db
       .prepare(
         `UPDATE workspaces
@@ -151,7 +157,7 @@ export class GlobalStorage {
       .run(
         partial.name ?? row.name,
         rootPath,
-        JSON.stringify(location),
+        JSON.stringify(normalizedLocation),
         (partial.colorTone ?? row.color_tone) as string,
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
         partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,

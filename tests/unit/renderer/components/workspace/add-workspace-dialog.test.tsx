@@ -58,6 +58,17 @@ describe("AddWorkspaceDialogContent", () => {
     expect(html).toContain("Port");
     expect(html).toContain("Identity file");
   });
+
+  it("renders Interactive as the default SSH authentication method", () => {
+    const html = renderToStaticMarkup(
+      <AddWorkspaceDialogContent {...contentProps({ tab: "ssh" })} />,
+    );
+
+    expect(html).toContain("Authentication");
+    expect(html).toContain("Interactive");
+    expect(html).toContain("Password / host key prompt");
+    expect(html).toContain('checked="" value="interactive"');
+  });
 });
 
 describe("Add Workspace SSH helpers", () => {
@@ -82,6 +93,7 @@ describe("Add Workspace SSH helpers", () => {
         remotePath: "/srv/app",
         port: "2222",
         identityFile: "~/.ssh/devbox",
+        authMode: "interactive",
       },
       sshHosts,
     );
@@ -94,6 +106,7 @@ describe("Add Workspace SSH helpers", () => {
       port: 2222,
       identityFile: "~/.ssh/devbox",
       remotePath: "/srv/app",
+      authMode: "interactive",
     });
     expect(resolved.workspace.location).toEqual({
       kind: "ssh",
@@ -103,7 +116,27 @@ describe("Add Workspace SSH helpers", () => {
       identityFile: "~/.ssh/devbox",
       remotePath: "/srv/app",
       configAlias: "devbox",
+      authMode: "interactive",
     });
+  });
+
+  it("resolves key-only auth mode into testSsh and workspace.create SSH payloads", () => {
+    const resolved = resolveSshWorkspaceDraft(
+      {
+        hostInput: "ada@dev.example.com",
+        selectedAlias: null,
+        remotePath: "/srv/app",
+        port: "",
+        identityFile: "",
+        authMode: "key-only",
+      },
+      sshHosts,
+    );
+
+    expect(resolved.error).toBeNull();
+    if (!resolved.workspace) throw new Error("expected resolved workspace");
+    expect(resolved.workspace.testArgs).toMatchObject({ authMode: "key-only" });
+    expect(resolved.workspace.location).toMatchObject({ authMode: "key-only" });
   });
 
   it("filters config hosts by alias, hostname, and user", () => {
@@ -130,6 +163,7 @@ function contentProps(
     name: "",
     port: "",
     identityFile: "",
+    authMode: "interactive",
     advancedOpen: false,
     phase: "idle",
     errorMessage: null,
@@ -146,6 +180,7 @@ function contentProps(
     onNameChange: () => {},
     onPortChange: () => {},
     onIdentityFileChange: () => {},
+    onAuthModeChange: () => {},
     onAdvancedOpenChange: () => {},
     onCancel: () => {},
     onSubmit: () => {},

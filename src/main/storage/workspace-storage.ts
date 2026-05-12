@@ -12,7 +12,7 @@ import {
   type PanelViewOptions,
   PanelViewOptionsSchema,
 } from "../../shared/types/panel";
-import type { WorkspaceMeta } from "../../shared/types/workspace";
+import { type WorkspaceMeta, WorkspaceMetaSchema } from "../../shared/types/workspace";
 import type { SqliteDb } from "./migrations";
 import { applyWorkspaceMigrations } from "./workspace-migrations";
 import {
@@ -145,7 +145,7 @@ export class WorkspaceStorage {
     if (!row) {
       return undefined;
     }
-    return JSON.parse(row.value) as WorkspaceMeta;
+    return WorkspaceMetaSchema.parse(JSON.parse(row.value) as unknown);
   }
 
   setMeta(workspaceId: string, meta: WorkspaceMeta): void {
@@ -153,14 +153,15 @@ export class WorkspaceStorage {
     if (!entry) {
       throw new Error(`workspace storage not open: ${workspaceId}`);
     }
-    const serialized = JSON.stringify(meta);
+    const normalized = WorkspaceMetaSchema.parse(meta);
+    const serialized = JSON.stringify(normalized);
     entry.db
       .prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('workspaceMeta', ?)")
       .run(serialized);
 
     // Write recovery dump.
     const jsonPath = path.join(entry.workspaceDir, "workspace.json");
-    fs.writeFileSync(jsonPath, JSON.stringify(meta, null, 2), "utf8");
+    fs.writeFileSync(jsonPath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
   /**

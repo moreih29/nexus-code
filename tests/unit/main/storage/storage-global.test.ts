@@ -175,8 +175,32 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
     storage.addWorkspace(meta);
 
     const row = storage.listWorkspaces()[0];
-    expect(row.location).toEqual(meta.location);
+    expect(row.location).toEqual({ ...meta.location, authMode: "interactive" });
     expect(row.rootPath).toBe("/srv/app");
+  });
+
+  it("loads legacy ssh locations without authMode as interactive", () => {
+    db.prepare(
+      `INSERT INTO workspaces
+         (id, name, root_path, location, color_tone, pinned, last_opened_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "00000000-0000-0000-0000-000000000099",
+      "legacy-ssh",
+      "/srv/legacy",
+      JSON.stringify({ kind: "ssh", host: "legacy", remotePath: "/srv/legacy" }),
+      "default",
+      0,
+      1_700_000_000_000,
+    );
+
+    const row = storage.listWorkspaces()[0];
+    expect(row.location).toEqual({
+      kind: "ssh",
+      host: "legacy",
+      remotePath: "/srv/legacy",
+      authMode: "interactive",
+    });
   });
 
   it("column mapping is accurate — pinned integer round-trips to boolean", () => {
@@ -229,8 +253,32 @@ describe("GlobalStorage.updateWorkspace", () => {
       location: { kind: "ssh", host: "remote", remotePath: "/work/repo" },
     });
     const list = storage.listWorkspaces();
-    expect(list[0].location).toEqual({ kind: "ssh", host: "remote", remotePath: "/work/repo" });
+    expect(list[0].location).toEqual({
+      kind: "ssh",
+      host: "remote",
+      remotePath: "/work/repo",
+      authMode: "interactive",
+    });
     expect(list[0].rootPath).toBe("/work/repo");
+  });
+
+  it("fills legacy ssh authMode when a workspace row is updated", () => {
+    db.prepare("UPDATE workspaces SET location = ? WHERE id = ?").run(
+      JSON.stringify({ kind: "ssh", host: "legacy", remotePath: "/srv/legacy" }),
+      "00000000-0000-0000-0000-000000000001",
+    );
+
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
+
+    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
+      "00000000-0000-0000-0000-000000000001",
+    ) as { location: string };
+    expect(JSON.parse(raw.location)).toEqual({
+      kind: "ssh",
+      host: "legacy",
+      remotePath: "/srv/legacy",
+      authMode: "interactive",
+    });
   });
 
   it("throws when workspace is not found", () => {

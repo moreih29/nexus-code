@@ -44,6 +44,36 @@ class FakeSshChild extends EventEmitter {
   }
 }
 
+class FakePty {
+  readonly writes: string[] = [];
+  private readonly data = new EventEmitter();
+  private readonly exit = new EventEmitter();
+
+  onData(callback: (data: string) => void): { dispose(): void } {
+    this.data.on("data", callback);
+    return { dispose: () => this.data.off("data", callback) };
+  }
+
+  onExit(callback: (event: { exitCode: number }) => void): { dispose(): void } {
+    this.exit.on("exit", callback);
+    return { dispose: () => this.exit.off("exit", callback) };
+  }
+
+  write(data: string): void {
+    this.writes.push(data);
+  }
+
+  kill(): void {}
+
+  emitData(data: string): void {
+    this.data.emit("data", data);
+  }
+
+  emitExit(exitCode: number): void {
+    this.exit.emit("exit", { exitCode });
+  }
+}
+
 function makeChannel() {
   const child = new FakeSshChild();
   const spawnCalls: Array<{
@@ -245,6 +275,17 @@ describe("createSshChannel", () => {
     expect(lifecycleEvents).toEqual([{ type: "exit", code: 0, signal: null }]);
   });
 
+  it("rejects ready frames with mismatched protocol major versions", async () => {
+    const { channel, child } = makeChannel();
+
+    child.stdout.emitData(
+      `${JSON.stringify({ type: "ready", protocolVersion: "2", serverVersion: "0.1.0" })}\n`,
+    );
+
+    await expectErrorCode(channel.ready, "server.protocol-version-mismatch");
+    expect(child.killSignals[0]).toBe("SIGTERM");
+  });
+
   it("sends SIGTERM and then SIGKILL when dispose grace expires", async () => {
     jest.useFakeTimers();
     try {
@@ -264,5 +305,136 @@ describe("createSshChannel", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it("authenticates with a PTY, respawns through ControlMaster, and disposes the master once", async () => {
+    const pty = new FakePty();
+    const phase2 = new FakeSshChild();
+    const disposeChild = new FakeSshChild();
+    const spawnCalls: Array<{ command: string; args: string[] }> = [];
+    const unlinkCalls: string[] = [];
+
+    const channel = createSshChannel(
+      {
+        host: "127.0.0.1",
+        user: "alice",
+        port: 2223,
+        authMode: "interactive",
+        remoteCommand: "printf ready",
+      },
+      {
+        promptHandler: async (prompt) => ({
+          kind: "password",
+          promptId: prompt.promptId,
+          value: "secret",
+        }),
+        auth: {
+          promptIdPrefix: "prompt-1",
+          spawnPty: () => pty as never,
+          unlink: (path) => unlinkCalls.push(path),
+        },
+        spawn(command, args) {
+          spawnCalls.push({ command, args });
+          return (spawnCalls.length === 1
+            ? phase2
+            : disposeChild) as unknown as ChildProcessWithoutNullStreams;
+        },
+      },
+    );
+
+    pty.emitData("alice@127.0.0.1's password:");
+    await flushMicrotasks();
+    pty.emitExit(0);
+    await flushMicrotasks();
+    phase2.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+
+    await expect(channel.ready).resolves.toBeUndefined();
+    expect(pty.writes).toEqual(["secret\r"]);
+    expect(spawnCalls[0]?.args).toEqual(
+      expect.arrayContaining([
+        "-S",
+        expect.stringContaining("control.sock"),
+        "-o",
+        "ControlMaster=no",
+      ]),
+    );
+
+    channel.dispose();
+    channel.dispose();
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining(["-O", "exit"]));
+    expect(unlinkCalls).toHaveLength(1);
+  });
+
+  it("uses key-only batch mode even when a prompt handler is injected", async () => {
+    const child = new FakeSshChild();
+    const pty = new FakePty();
+    const promptHandler = jest.fn(async () => ({ kind: "cancel" as const, promptId: "unused" }));
+    const spawnCalls: Array<{ command: string; args: string[] }> = [];
+
+    const channel = createSshChannel(
+      {
+        host: "dev.example.com",
+        user: "deploy",
+        authMode: "key-only",
+        remoteCommand: "printf ready",
+      },
+      {
+        promptHandler,
+        auth: { spawnPty: () => pty as never },
+        spawn(command, args) {
+          spawnCalls.push({ command, args });
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
+      },
+    );
+
+    child.stderr.emitData("Permission denied (publickey).\n");
+
+    await expectErrorCode(channel.ready, "ssh.auth-failed");
+    expect(promptHandler).not.toHaveBeenCalled();
+    expect(pty.writes).toEqual([]);
+    expect(spawnCalls).toEqual([
+      {
+        command: "ssh",
+        args: ["-o", "BatchMode=yes", "--", "deploy@dev.example.com", "printf ready"],
+      },
+    ]);
+  });
+
+  it("uses an existing ControlMaster without re-prompting for interactive auth", async () => {
+    const child = new FakeSshChild();
+    const pty = new FakePty();
+    const promptHandler = jest.fn(async () => ({ kind: "cancel" as const, promptId: "unused" }));
+    const spawnCalls: Array<{ command: string; args: string[] }> = [];
+
+    const channel = createSshChannel(
+      {
+        host: "127.0.0.1",
+        user: "alice",
+        port: 2223,
+        authMode: "interactive",
+        controlPath: "/tmp/nexus-ssh/control.sock",
+        remoteCommand: "printf ready",
+      },
+      {
+        promptHandler,
+        auth: { spawnPty: () => pty as never },
+        spawn(command, args) {
+          spawnCalls.push({ command, args });
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
+      },
+    );
+
+    child.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
+
+    await expect(channel.ready).resolves.toBeUndefined();
+    expect(promptHandler).not.toHaveBeenCalled();
+    expect(pty.writes).toEqual([]);
+    expect(spawnCalls[0]?.args).toEqual(
+      expect.arrayContaining(["-S", "/tmp/nexus-ssh/control.sock", "-o", "ControlMaster=no"]),
+    );
   });
 });

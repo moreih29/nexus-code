@@ -7,17 +7,32 @@ export const WorkspaceLocalLocationSchema = z.object({
   rootPath: z.string(),
 });
 
-export const WorkspaceSshLocationSchema = z.object({
-  kind: z.literal("ssh"),
-  host: z.string(),
-  user: z.string().optional(),
-  port: z.number().int().positive().max(65_535).optional(),
-  remotePath: z.string(),
-  identityFile: z.string().optional(),
-  configAlias: z.string().optional(),
-});
+export const WorkspaceSshLocationSchema = z.preprocess(
+  (value) => {
+    if (isRecord(value) && value.kind === "ssh" && value.authMode === undefined) {
+      return { ...value, authMode: "interactive" };
+    }
+    return value;
+  },
+  z.object({
+    kind: z.literal("ssh"),
+    host: z.string(),
+    user: z.string().optional(),
+    port: z.number().int().positive().max(65_535).optional(),
+    remotePath: z.string(),
+    identityFile: z.string().optional(),
+    configAlias: z.string().optional(),
+    authMode: z.enum(["interactive", "key-only"]).optional(),
+    remoteArch: z
+      .object({
+        os: z.enum(["linux", "darwin"]),
+        arch: z.enum(["amd64", "arm64"]),
+      })
+      .optional(),
+  }),
+);
 
-export const WorkspaceLocationSchema = z.discriminatedUnion("kind", [
+export const WorkspaceLocationSchema = z.union([
   WorkspaceLocalLocationSchema,
   WorkspaceSshLocationSchema,
 ]);
