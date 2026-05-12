@@ -1,0 +1,63 @@
+# SSH test fixture — Linux remote workspace target.
+#
+# Intentionally omits node/bun/python so the Phase 0/1 hypothesis (Go agent
+# runs with zero host runtime prerequisites) stays honest. Only git + ripgrep
+# are pre-installed because they are real tool dependencies for Phase 4/6.
+FROM ubuntu:22.04
+
+# AUTH_MODE: "key" (default) | "password" | "both"
+ARG AUTH_MODE=key
+ARG SSH_PUBKEY
+ARG USER_PASSWORD=nexus-dev
+
+# Single apt layer — minimal surface.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openssh-server \
+      git \
+      ripgrep \
+      ca-certificates \
+      less \
+ && rm -rf /var/lib/apt/lists/*
+
+# sshd runtime dir + generate host keys at build time.
+RUN mkdir -p /var/run/sshd \
+ && ssh-keygen -A
+
+# Auth policy: switch by AUTH_MODE. password and challenge-response only enabled
+# in "password" / "both" so BatchMode=yes from the client fails fast otherwise.
+RUN set -eux; \
+    case "$AUTH_MODE" in \
+      key)      PW=no;  CR=no  ;; \
+      password) PW=yes; CR=no  ;; \
+      both)     PW=yes; CR=no  ;; \
+      *)        echo "FATAL: AUTH_MODE must be key|password|both, got $AUTH_MODE" >&2; exit 1 ;; \
+    esac; \
+    sed -ri \
+      -e "s/^#?PasswordAuthentication.*/PasswordAuthentication ${PW}/" \
+      -e 's/^#?PermitRootLogin.*/PermitRootLogin no/' \
+      -e "s/^#?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication ${CR}/" \
+      -e 's/^#?UsePAM.*/UsePAM no/' \
+      /etc/ssh/sshd_config
+
+# Non-root developer account. Password set only when AUTH_MODE allows it.
+RUN set -eux; \
+    useradd -m -s /bin/bash nexus-dev; \
+    mkdir -p /home/nexus-dev/.ssh /home/nexus-dev/workspace; \
+    case "$AUTH_MODE" in \
+      key|both) \
+        if [ -z "$SSH_PUBKEY" ]; then echo "FATAL: SSH_PUBKEY required for AUTH_MODE=$AUTH_MODE" >&2; exit 1; fi; \
+        echo "$SSH_PUBKEY" > /home/nexus-dev/.ssh/authorized_keys; \
+        chmod 600 /home/nexus-dev/.ssh/authorized_keys ;; \
+    esac; \
+    case "$AUTH_MODE" in \
+      password|both) \
+        echo "nexus-dev:${USER_PASSWORD}" | chpasswd ;; \
+    esac; \
+    chmod 700 /home/nexus-dev/.ssh; \
+    chown -R nexus-dev:nexus-dev /home/nexus-dev
+
+EXPOSE 22
+
+# -D: foreground (so it is PID 1), -e: log to stderr (visible via `docker logs`).
+CMD ["/usr/sbin/sshd", "-D", "-e"]

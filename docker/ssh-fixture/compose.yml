@@ -1,0 +1,39 @@
+# SSH test fixture — single arm64 Linux container, sshd on 127.0.0.1:2222.
+#
+# Run with:
+#   SSH_PUBKEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d --build
+# or create docker/ssh-fixture/.env from .env.example so the value is reused.
+services:
+  # Key auth only — the production-shaped target.
+  linux:
+    build:
+      context: .
+      args:
+        AUTH_MODE: key
+        SSH_PUBKEY: ${SSH_PUBKEY:?set SSH_PUBKEY (e.g. SSH_PUBKEY="$(cat ~/.ssh/id_ed25519.pub)")}
+    image: nexus-ssh-fixture:linux-arm64
+    container_name: nexus-ssh-linux
+    platform: linux/arm64
+    # Bind to loopback only — never expose this fixture to the LAN.
+    ports:
+      - "127.0.0.1:2222:22"
+    volumes:
+      - ./workspace-seed:/home/nexus-dev/workspace:rw
+    restart: unless-stopped
+
+  # Password auth only — for verifying the PTY + prompt + ControlMaster path.
+  # Default password is "nexus-dev" (override via USER_PASSWORD).
+  linux-password:
+    build:
+      context: .
+      args:
+        AUTH_MODE: password
+        USER_PASSWORD: ${USER_PASSWORD:-nexus-dev}
+    image: nexus-ssh-fixture:linux-arm64-password
+    container_name: nexus-ssh-linux-password
+    platform: linux/arm64
+    ports:
+      - "127.0.0.1:2223:22"
+    volumes:
+      - ./workspace-seed:/home/nexus-dev/workspace:rw
+    restart: unless-stopped
