@@ -7,6 +7,8 @@ out/
 dist/
 *.log
 *.tsbuildinfo
+# spike: Go cross-compiled binaries (source only in repo)
+spike/agent-go/agent-*
 # OS
 .DS_Store
 # environment

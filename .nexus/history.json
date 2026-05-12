@@ -11091,6 +11091,688 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-12T07:28:05.255Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 41,
+        "topic": "SSH 원격 워크스페이스 dev prototype — phase 1·2 (Meta·UI 확장 + fs read-only 라운드트립)",
+        "issues": [
+          {
+            "id": 1,
+            "title": "WorkspaceMeta 스키마 변경: kind discriminated union + ssh 메타 필드",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[fs-provider] WorkspaceMeta.kind 필드 추가는 zod schema + DB migration 동반이므로 별도 PR로 분리 권장(reversibility 확보). Provider 도입 시점에는 항상 LocalFsProvider만 생성하도록 future-proof하게 짜 두고, kind는 이후 PR에서 끼움.",
+                "recorded_at": "2026-05-12T04:44:03.786Z",
+                "agent_id": "a9b67697e5a873566"
+              },
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] WorkspaceLocation discriminated union 제안: {kind:\"local\", rootPath} | {kind:\"ssh\", host, user?, port?, remotePath, identityFile?}. WorkspaceContext가 이를 보고 FsProvider 인스턴스 선택. 사용자가 ~/.ssh/config alias만 host에 넣어도 user/port/identityFile 자동 채움 흐름과 정합.",
+                "recorded_at": "2026-05-12T04:44:10.807Z",
+                "agent_id": "ade0a8814474e148b"
+              }
+            ],
+            "decision": "WorkspaceMeta를 discriminated union으로 확장. location 필드를 신설하고 그 안에 kind를 둠: `location: {kind:\"local\", rootPath} | {kind:\"ssh\", host, user?, port?, remotePath, identityFile?, configAlias?}`. 기존 `rootPath` 평탄 필드는 deprecated로 보존하되, 마이그레이션 후 `location.kind === \"local\"`이면 `rootPath = location.rootPath`로 동기화하는 컴퓨티드 게터 추가(같은 PR 안에서 호출자 점진 이전). 채택 이유: discriminated union이 TypeScript narrowing과 잘 맞고 zod의 `z.discriminatedUnion(\"kind\", [...])`로 검증 가능. 기각: (a) kind만 평탄 추가하고 호스트 필드를 메타에 직접 부착 — 검증 분기가 코드 곳곳에 흩어짐, 추후 다른 kind(예: container) 추가 시 동일 함정. (b) 별도 SshWorkspace 테이블/타입 분리 — 워크스페이스 추상이 깨지고 list/activate 흐름이 두 갈래. 가정: kind 필드 도입과 storage 마이그레이션은 별도 task로 분리하되 같은 phase 내(Provider 추상화보다 먼저). 적용 위치: src/shared/types/workspace.ts, src/shared/ipc-contract.ts의 WorkspaceCreateArgsSchema, src/main/storage/global-storage.ts(스키마 + 마이그레이션), src/main/workspace/workspace-manager.ts(create 시 location 분기)."
+          },
+          {
+            "id": 2,
+            "title": "FsReadProvider 추상화 도입(인터페이스 + 모듈 경계 + WorkspaceContext 통합)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[fs-provider] FsReadProvider {readdir(relPath), stat(relPath), readFile(relPath)} 인터페이스, relPath만 받고 workspaceId는 인스턴스 binding으로 흡수. 멤버십 가드는 Provider 책임. 모듈 경계: src/main/fs/provider/{types,local/local-fs-provider,ssh/ssh-fs-provider,factory}. WorkspaceContext에 fs 필드 + manager.requireContext(id) helper 신설. readExternal은 워크스페이스 밖이라 Provider 미포함, src/main/fs/external-reader.ts로 별도 분리. 반환 타입은 기존 DirEntry/FsStat/FileReadResult 그대로 재사용.",
+                "recorded_at": "2026-05-12T04:44:29.093Z",
+                "agent_id": "a9b67697e5a873566"
+              },
+              {
+                "role": "failure-note",
+                "summary": "Second end-of-cycle architecture review found two remaining SSH scope blockers after Tasks 18-19: renderer can set an SSH workspace active before workspace.activate resolves, allowing fs.readdir to hit an unwired SshFsProvider; WorkspacePanel auto-seeds a local PTY using SSH remotePath as local cwd. Verified by Lead against App.tsx/bootstrap.ts/files.ts/ssh-fs-provider.ts and workspace-panel.tsx/pty.ts/pty-manager.ts. Task 17 environment positive smoke remains non-blocking.",
+                "recorded_at": "2026-05-12T06:43:56.200Z",
+                "agent_id": "019e1ae4-75e8-7ea2-8d13-8a705639e75b"
+              }
+            ],
+            "decision": "FsReadProvider 인터페이스 도입을 architect 권고대로 채택. 시그니처: readdir(relPath):Promise<DirEntry[]>, stat(relPath):Promise<FsStat>, readFile(relPath):Promise<FileReadResult>. relPath만 받고 워크스페이스 멤버십 가드는 Provider 책임. 모듈 경계 src/main/fs/provider/{types.ts, local/local-fs-provider.ts, ssh/ssh-fs-provider.ts, factory.ts}. WorkspaceContext에 readonly fs:FsReadProvider 필드 추가 + WorkspaceManager에 requireContext(id) helper 신설. SshFsProvider는 이번 phase에선 channel.call로 위임만 하고 channel 미설정 시 throw. 채택 이유: VSCode IFileSystemProvider 패턴 정합, locality of behavior(인스턴스가 워크스페이스에 바인딩되어 인터페이스만으로 의미 자명), backend별 traversal/normalization 정책을 한 곳에 캡슐화. 기각: (a) 핸들러가 가드 후 abs를 provider에 전달 — abs로 ssh provider가 무엇을 해야 할지 모호, leaky abstraction. (b) provider가 workspaceId를 인자로 받음 — identity 모순. 미해결: hidden filter(isHiddenName) 정책의 ssh provider 적용 여부는 다음 phase로. 가정: write/watch/move/search는 이번 phase 밖이므로 path-safety.ts는 in-place 유지하고 LocalFsProvider 내부에서 같은 resolveSafe 호출. 적용 위치: 신규 src/main/fs/provider/* 및 src/main/fs/external-reader.ts, 기존 src/main/workspace/workspace-{context,manager}.ts 확장."
+          },
+          {
+            "id": 3,
+            "title": "fs-core 추출(main/agent 공용 helper — readdirCore/statCore/readFileCore)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] main 측 read-handlers와 agent 측 핸들러가 같은 의미를 두 번 구현하면 회귀의 원천이 됨. src/shared/fs-core/read-core.ts에 readdirCore(absDir):DirEntry[], statCore(abs):FsStat, readFileCore(abs):FileReadResult를 추출하고 LocalFsProvider와 agent dispatcher가 모두 이 core를 호출. Tidy First — refactor 먼저 후 ssh path 추가. hidden filter, binary detection, MAX_READABLE_FILE_SIZE 가드도 core에 흡수.",
+                "recorded_at": "2026-05-12T04:44:45.599Z",
+                "agent_id": "ade0a8814474e148b"
+              }
+            ],
+            "decision": "fs-core 추출 채택. 위치는 `src/shared/fs-core/` 대신 **`src/main/fs/core/`로 조정**(이유: shared 디렉토리는 main↔renderer 양쪽이 import하는 zod 스키마·타입 중심. 실제 node:fs 호출이 들어가는 코드는 main과 utility-host에서만 import되므로 main 트리에 두는 게 의존성 그림에 맞음). 노출 시그니처: readdirCore(absDir)→DirEntry[], statCore(abs)→FsStat, readFileCore(abs)→FileReadResult, 그리고 buildFileContent helper도 함께 이동. hidden filter(isHiddenName)와 BINARY_DETECTION_BYTES/MAX_READABLE_FILE_SIZE 가드는 core 내부에서 그대로 적용. LocalFsProvider는 resolveSafe→core 호출, agent dispatcher는 path.resolve(rootPath, relPath)→core 호출 → main과 agent가 동일 의미 보장. 채택 이유: single source of truth, 회귀 시 한 곳 수정. 기각: (a) core 추출 없이 agent가 read-handlers를 직접 import — read-handlers가 WorkspaceManager 의존이라 분리 비용이 더 큼. (b) shared 디렉토리에 두기 — renderer가 node:fs 코드를 transitively 끌어오는 위험. 적용 위치: 신규 src/main/fs/core/read-core.ts, 기존 src/main/filesystem/binary-detect.ts는 그대로 import. 선행: Issue 9(read-handlers.ts 사전 분할)와 함께 진행하되 core 추출이 먼저."
+          },
+          {
+            "id": 4,
+            "title": "SSH transport 구현: spawn ssh + NDJSON + line splitter + 1 채널 eager handshake",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "researcher",
+                "summary": "ssh2 v1.17.0 pure JS/MIT exec stream로 가능하나, macOS dev prototype 한정이면 child_process.spawn('ssh',...)가 ssh-agent(SSH_AUTH_SOCK 자동), ~/.ssh/config, ProxyJump, ControlMaster를 zero-config로 활용 가능. 키 머티리얼이 우리 프로세스에 들어오지 않는 보안 이점. 단점: PATH·바이너리 의존, stderr 혼입 위험. keepalive 패턴 ssh2 기준 keepaliveInterval 15s + exponential backoff. JSONL은 LSP의 Content-Length framing 대비 단순·tail-friendly. binary 데이터는 base64 인라인 또는 별도 SFTP 채널.",
+                "recorded_at": "2026-05-12T04:45:03.834Z",
+                "agent_id": "ae865e239ca16fa47"
+              },
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] spawn ssh 채택 + NDJSON(\\n 구분) + base64 인라인 + abort 없음(phase 0). Request frame {id, method, params}, Response frame {id, ok, result|error{code,message}}. Stdout=프레임 전용, stderr=로그·분류 소스. line splitter buffer 필수(chunk≠line). 워크스페이스당 1 ssh-channel eager handshake(activate 시) — handshake 비용 0.2~2s를 첫 클릭에 못 싣음. ControlMaster 활용은 사용자 ssh config에 위임. src/shared/pending-request-map.ts 재사용. 회귀 위험: stdout 오염, child 좀비, chunk 경계 버그.",
+                "recorded_at": "2026-05-12T04:45:11.466Z",
+                "agent_id": "ade0a8814474e148b"
+              }
+            ],
+            "decision": "SSH transport는 `child_process.spawn('ssh', [...])` + NDJSON 채택. 위치 src/main/transport/ssh-channel.ts. 인터페이스: createSshChannel(opts:{host,user?,port?,identityFile?,remoteCommand}): {call(method,params):Promise, on(event,cb), dispose()}. 내부: spawn 후 stdout을 line splitter 버퍼(`buffer + indexOf('\\n')` loop)에 흘리고 PendingRequestMap(src/shared/pending-request-map.ts)으로 id-correlation. 프레임 스키마는 zod로 검증. abort/cancel 미지원(이번 phase). 워크스페이스당 1 채널 eager handshake(activate 시 ssh handshake 선행). dispose 시 SIGTERM→100ms→SIGKILL grace. 채택 이유: (1) macOS dev 한정 prototype에서 ssh-agent·~/.ssh/config·ProxyJump·ControlMaster 무료, (2) npm dep 0개 추가, (3) 키 머티리얼 프로세스 외부 보관(보안). 기각: (a) ssh2 라이브러리 — UI/passphrase 책임이 우리에게 옴, agent socket 호환 이슈, prototype 과잉. (b) ssh2-promise/node-ssh — 패키지 비활성. (c) length-prefix binary frame — 디버깅 어려움, dev 가시성 ↓, phase 1 이후로 미룸. 가정: macOS 사용자가 openssh client 보유(시스템 기본), `ssh -o BatchMode=yes` 또는 ssh-agent로 비밀번호 프롬프트 없는 환경. 회귀 방지: stdout 격리(Issue 5에서 강제), line splitter 회귀 테스트(Issue 10), child 좀비 방지(SIGTERM/SIGKILL grace + detached:false). 다음 phase로 미룸: keepalive·heartbeat·재연결(Issue 8 카테고리만 정의), binary frame, multiplex."
+          },
+          {
+            "id": 5,
+            "title": "Agent entry 설계: src/agent/index.ts + stdout 격리 + 기동 명령 형태",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] 신규 src/agent/{index.ts, agent-fs-handlers.ts, agent-dispatch.ts}. 엔트리 첫 줄에서 console.log=console.error redirect로 stdout 격리(CRITICAL). 기동 명령: `ssh user@host -- bash -lc 'cd /remote/repo && exec bun src/agent/index.ts <rootPath>'`. exec로 셸 wrapper 떼서 신호 전달 정상화. rootPath는 인자로 명시(cwd 의존 금지). dev에선 호스트의 bun/node로 직접 소스 실행, electron-vite 번들 불필요. phase 1에서 단일 JS 빌드 + scp push로 진화.",
+                "recorded_at": "2026-05-12T04:45:38.677Z",
+                "agent_id": "ade0a8814474e148b"
+              }
+            ],
+            "decision": "Agent entry는 architect 권고대로. 신규 src/agent/{index.ts(stdin NDJSON 루프 + dispatch + stdout writer), agent-fs-handlers.ts(readdir/stat/readFile — src/main/fs/core import), agent-dispatch.ts(method→handler 매핑)}. 첫 줄에서 stdout 격리 강제: `console.log = console.error; console.info = console.error; console.warn = console.error;` + `process.stdout`은 frame writer 헬퍼를 통해서만 사용(lint rule 또는 module-level 검사). 기동 명령: `ssh <opts> <user@host> -- bash -lc 'cd <remotePath> && exec bun src/agent/index.ts <remotePath>'`(exec로 wrapper 셸 제거하여 SIGTERM 정상 전달). rootPath는 인자로 명시. 호스트 측 전제: 사용자가 git clone + bun install을 수행하고 PATH에 bun 또는 node가 있어야 함. dev에서 electron-vite 번들 불필요. 채택 이유: stdout 격리는 NDJSON invariant 보호 (CRITICAL finding 직접 대응), exec/bash -lc 조합은 zsh/bash 환경 호환·신호 전달 모두 만족. 기각: (a) 단일 JS 파일을 SFTP push 후 `node ~/.nexus-agent/index.js` — 매번 변경 시 push 필요, dev iteration 느림. (b) cwd 의존 — 사용자 ssh config에 `RemoteCommand`나 다른 wrapper가 끼면 cwd 보장 안 됨. 미해결: bun이 호스트에 없을 때 node fallback 명령 — Issue 8 에러 카테고리에서 \"command not found\" 분류로 처리. 가정: 호스트는 Linux 또는 macOS, bash 호환 셸. 적용 위치: 신규 src/agent/*."
+          },
+          {
+            "id": 6,
+            "title": "Add Workspace 다이얼로그: Local/SSH 탭 + alias dropdown + Connecting flow",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "단일 Radix Dialog + 상단 Local/SSH 세그먼트(탭) — 사이드바 \"+\" 한 개 유지. Local 탭은 큰 \"Choose folder…\" 버튼 한 개로 native dialog 호출. SSH 탭은 (1) Combobox로 ~/.ssh/config alias 선택 또는 user@host 직접 입력, (2) Remote path, (3) Name(optional, 비우면 alias:basename 자동), Advanced disclosure 안에 port·identityFile. \"Add\" 누르면 dialog는 닫히지 않고 footer가 spinner + \"Connecting to {host}…\"로 변환. 성공 시 dialog 닫힘+사이드바 추가+activate. 실패 시 인라인 카드(인증/unreachable/agent 미설치 3종) + Retry. AbortController로 cancel.",
+                "recorded_at": "2026-05-12T04:45:58.901Z",
+                "agent_id": "a7d773c98935cc534"
+              }
+            ],
+            "decision": "Add Workspace 다이얼로그를 designer 권고대로. 단일 Radix Dialog + 상단 Tabs(Local/SSH)로 진입 통합. 사이드바·Welcome의 onAddWorkspace 진입점 유지(현 src/renderer/App.tsx:92). Local 탭: \"Choose folder…\" 버튼 → 기존 dialog.showOpenDirectory 흐름 그대로(추가 1 클릭 비용 수용). SSH 탭 필드 순서: (1) SSH host Combobox — ~/.ssh/config alias 후보 자동완성 + user@host 직접 입력 허용, (2) Remote path, (3) Name(비우면 alias:basename 자동), (4) Advanced disclosure(port, identityFile). ~/.ssh/config 파서는 main process에 두고 새 IPC `ssh.listConfigHosts(): Promise<{alias, host?, user?, port?, identityFile?}[]>` 추가(top-level Host 디렉티브만, Include 재귀는 다음 phase). Connecting flow: Add 클릭 시 dialog 유지·footer를 spinner+\"Connecting to {host}…\"로 전환, AbortController로 cancel 가능, 성공 시 dialog 닫기·사이드바 commit·activate, 실패 시 인라인 카드(인증실패/unreachable/agent 미설치 3종) + Retry. 이 흐름은 workspace.create를 \"검증 후 commit\" 패턴으로 바꾸는 것을 동반 — 신규 IPC `workspace.testSsh({host,user,port,identityFile,remotePath,signal})`를 검증용으로 추가하고, 성공 시에만 기존 `workspace.create({location: {...}})` 호출. 채택 이유: dev에서 가장 자주 부딪힐 실패 사유를 입력 컨텍스트 옆에서 노출, 유령 워크스페이스 방지(CRITICAL). 기각: (a) 두 개 별도 진입(Add local/Add SSH) — sidebar 폭·Welcome에서 시각 위계 균열. (b) Picker 먼저 후 분기 — 모달 중첩 거슬림. (c) 즉시 commit 후 마운트 시 에러 — 디버깅 어려움, dev 가치 ↓. 가정: passphrase/password 인라인 프롬프트 없음(ssh-agent 또는 unlocked identity). 적용 위치: 신규 src/renderer/components/workspace/add-workspace-dialog.tsx, src/main/ipc/channels/ssh.ts(listConfigHosts, testSsh), src/main/ssh-config.ts(파서), 기존 App.tsx handleAddWorkspace를 dialog 열기로 교체."
+          },
+          {
+            "id": 7,
+            "title": "사이드바 표시 차별화: 아이콘 + status dot + aria 상태 라벨",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "사이드바 워크스페이스 행에 16px lucide 아이콘 prefix(Local=Folder, SSH=Server — Cloud는 SaaS 의미 충돌). 우하단 4×4 status dot: 녹색=connected, 회색=idle, 앰버=reconnecting, 빨강=error. WCAG 1.4.1 — 색만 의존 금지, aria-label에 상태 텍스트 동반. SSH 행 두 번째 줄은 pathTail 대신 alias 또는 user@host(path는 tooltip). dark mode contrast ≥3:1 확인 필요(현 토큰 미확인).",
+                "recorded_at": "2026-05-12T04:46:21.145Z",
+                "agent_id": "a7d773c98935cc534"
+              }
+            ],
+            "decision": "사이드바 표시는 designer 권고대로. lucide-react 아이콘 prefix(Folder/Server, 16px, muted-foreground), 우하단 status dot(녹/회/앰버/빨강, 4×4) + aria-label에 상태 텍스트(\"SSH workspace, connected\"). SSH 행 보조 텍스트는 alias 또는 user@host(remotePath는 hover tooltip). status는 workspace store에 connection 상태 필드 신설(idle|connecting|connected|reconnecting|error) — local 워크스페이스는 항상 idle(점 미표시 또는 회색). 색 토큰은 OKLCH L≈0.7 부근, dark mode 대비 ≥3:1 확보 — 구현 시 측정 후 토큰 조정. 채택 이유: 좁은 사이드바에서 종류·상태를 동시에 전달하면서도 정보 과부하 회피. 기각: (a) 좌측 색 스트립 — 활성 상태 표시(border-l-mist-border)와 시각 충돌. (b) Cloud 아이콘 — SaaS 동기화 의미 오용 위험. (c) 텍스트 prefix(\"SSH:\") — i18n 부담, 폭 낭비. 가정: 상태 점 polling은 ssh-channel의 lifecycle 이벤트 기반(connecting/connected/exit). 적용 위치: src/renderer/components/workbench/sidebar.tsx 행 렌더링, src/renderer/state/stores 또는 workspace lifecycle에 connection status, 신규 listen 이벤트 workspace.connectionChanged."
+          },
+          {
+            "id": 8,
+            "title": "에러 카테고리 + ssh stderr 분류 + renderer 표시 흐름",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] 5종 에러 카테고리: ssh.connect-failed(ssh exit before handshake / connect refused), ssh.auth-failed(stderr \"Permission denied\"|\"Host key verification failed\"), agent.spawn-failed(ssh OK but agent exits, stderr \"command not found\"|\"bun not found\"), agent.protocol-error(NDJSON parse 실패·schema 위반), fs.*(도메인 에러는 그대로 통과). 분류 위치: ssh-channel.ts가 stderr 패턴 매칭으로 connect/auth/spawn 구분. 카테고리는 코드(string enum) + 메시지(원문)로 renderer 전달.",
+                "recorded_at": "2026-05-12T04:46:39.460Z",
+                "agent_id": "ade0a8814474e148b"
+              },
+              {
+                "role": "designer",
+                "summary": "UX 매핑(3종, 다이얼로그 인라인 카드): (1) \"Authentication failed (key rejected)\" + \"ssh-agent 등록 또는 identityFile 권한 0600 확인\" 안내, (2) \"Host unreachable (timeout/DNS)\", (3) \"Remote agent not installed\" + \"How to bootstrap remote runtime →\" 도움말 링크. fs 도메인 에러는 기존 FS_ERROR 흐름 그대로 통과. agent.protocol-error는 \"원격 agent 버전 불일치\" 메시지로 별도 표시.",
+                "recorded_at": "2026-05-12T04:46:45.973Z",
+                "agent_id": "a7d773c98935cc534"
+              }
+            ],
+            "decision": "SSH 에러 분류 + 표시 흐름 채택. shared 타입: `SshErrorCode = \"ssh.connect-failed\" | \"ssh.auth-failed\" | \"agent.spawn-failed\" | \"agent.protocol-error\" | \"ssh.unknown\"`. fs 도메인 에러(FS_ERROR.*)는 카테고리화 대상이 아니라 그대로 통과. 분류 로직은 ssh-channel.ts 내부에 patterns 모듈로 분리(src/main/transport/ssh-stderr-patterns.ts) — git-stderr-patterns.ts(src/main/git/) 패턴을 그대로 모방. stderr는 항상 line-buffer 후 분류, raw 출력은 사용자 비밀번호 프롬프트로 오해 위험이라 로그 외 노출 금지. 분류 결과는 throw로 표현하되 Error 객체에 `code:SshErrorCode` 속성 부착. renderer 측 표시(UX): (1) auth-failed → \"Authentication failed (key rejected) — ssh-agent 등록 또는 identityFile 권한 0600 확인\" + Retry, (2) connect-failed → \"Host unreachable (timeout/DNS)\" + Retry, (3) agent.spawn-failed → \"Remote agent not installed\" + \"How to bootstrap remote runtime →\" 도움말 링크, (4) agent.protocol-error → \"원격 agent 버전 불일치\" 단독 메시지. workspace.testSsh IPC가 이 코드를 그대로 renderer로 전달. 채택 이유: 카테고리화가 dev에서 실패 사유 빠른 진단의 핵심, git-stderr-patterns 선례로 유지보수 패턴 일관. 기각: (a) 단일 \"SSH connection failed\" 메시지 — dev 디버깅 가치 ↓. (b) raw stderr 그대로 노출 — 비밀번호/agent 프롬프트 혼선 위험. 가정: Permission denied|Host key verification|connection refused|command not found 패턴이 OpenSSH 메시지의 안정 표면. 미해결: i18n 적용 시점(이번 phase는 영문 고정). 적용 위치: src/main/transport/{ssh-channel,ssh-stderr-patterns}.ts, src/shared/types/ssh-errors.ts, src/main/ipc/channels/ssh.ts."
+          },
+          {
+            "id": 9,
+            "title": "read-handlers.ts 사전 분할: read / watch / expanded 모듈 분리",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[fs-provider] WARNING — read-handlers.ts가 readdir/stat/readFile/readExternal(이번 phase 마이그레이션) + watch/unwatch + getExpanded/setExpanded(SQLite 메타) 세 가지 책임이 섞임. Provider 마이그레이션 시 watch 4줄을 실수로 함께 옮길 위험. 권장: 사전 분할로 read-handlers.ts(readdir/stat/readFile/readExternal) + watch-handlers.ts(watch/unwatch) + expanded-handlers.ts(get/setExpanded). 분할 후 마이그레이션 diff가 깔끔.",
+                "recorded_at": "2026-05-12T04:47:07.566Z",
+                "agent_id": "a9b67697e5a873566"
+              }
+            ],
+            "decision": "read-handlers.ts 사전 분할 채택. Provider 추상화/도입 전에 분할을 선행하여 Tidy First를 따른다. 분할 결과: (a) src/main/ipc/channels/fs/read-handlers.ts — readdir/stat/readFile/readExternal만 잔존(이번 phase에서 Provider로 위임), (b) src/main/ipc/channels/fs/watch-handlers.ts — watch/unwatch + FileWatcher 의존(이번 phase 미변경), (c) src/main/ipc/channels/fs/expanded-handlers.ts — getExpanded/setExpanded + WorkspaceStorage 의존(이번 phase 미변경). src/main/ipc/channels/fs/index.ts의 등록 코드도 세 모듈로 분기 import. 채택 이유: 책임 분리 원칙(.nexus/context/mission.md) 준수, Provider 마이그레이션 시 watch/expanded를 실수로 함께 옮길 위험 차단, 후속 phase에서 watch/move/search Provider 확장 시 진입점이 명확. 기각: (a) 분할 없이 진행 — 마이그레이션 diff가 크고 시각적 회귀 위험. (b) 한꺼번에 fs/provider/로 모든 핸들러 이동 — 이번 phase 범위 초과(write/watch/expanded는 미마이그레이션). 가정: 분할은 함수 이동만이고 핸들러 시그니처/동작은 1:1 보존. 적용 위치: src/main/ipc/channels/fs/{read,watch,expanded}-handlers.ts + index.ts."
+          },
+          {
+            "id": 10,
+            "title": "테스트 전략: LocalFsProvider 단위 + 핸들러 위임 + ssh stub + transport line buffer 회귀",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "[fs-provider] 우선순위 1 — LocalFsProvider 단위 테스트(실제 tmp 디렉토리, manager 없이). traversal/symlink/hidden filter 회귀 검출 지점. 핸들러 테스트(fs-channel.test.ts)는 mock provider 주입 형태로 얇은 위임 검증(arg pass-through + error propagation)으로 축소. 기존 resolveSafe 단위 테스트는 LocalFsProvider로 이전. SshFsProvider는 \"throws not-implemented\"만 검증. tests/integration/files-panel·file-watcher 변경 없으면 동작 회귀 신호.",
+                "recorded_at": "2026-05-12T04:47:31.710Z",
+                "agent_id": "a9b67697e5a873566"
+              },
+              {
+                "role": "architect",
+                "summary": "[ssh-transport] transport line splitter 회귀 테스트 필수: \"1024B chunk 4개에 걸쳐 1 line message\" round-trip이 깨지면 무한 hang. agent dispatcher는 mock stdin/stdout으로 단위 검증. ssh-channel 통합은 spawn 모킹 + 가짜 child(EventEmitter)로 connect/auth/spawn/protocol/fs 5종 stderr 패턴 매칭 검증. .nexus/context/conventions.md 테스트 룰: \"zod 검증 재진술 금지, 시나리오 기반만\".",
+                "recorded_at": "2026-05-12T04:47:38.636Z",
+                "agent_id": "ade0a8814474e148b"
+              }
+            ],
+            "decision": "테스트 전략 채택. 핵심 5종: (1) fs-core 단위(tmp 디렉토리 직접) — readdirCore/statCore/readFileCore의 hidden filter·binary detection·MAX_READABLE_FILE_SIZE 가드·ENOENT→missing 분기. 기존 resolveSafe 시나리오 테스트(scenarios 3~6)는 LocalFsProvider로 이전. (2) LocalFsProvider 단위(workspace 멤버십 가드 포함, manager 없이 root 주입) — traversal \"../etc\"·심볼릭링크·hidden filter 회귀. 우선순위 1. (3) IPC 핸들러 위임 테스트 축소 — mock FsReadProvider 주입으로 arg pass-through + error propagation만. 기존 fs-channel.test.ts의 makeManager 헬퍼에 requireContext(id) 추가 필요. (4) SshFsProvider — \"channel 미설정 시 throws not-implemented\" 단일 케이스. (5) ssh-channel transport — line splitter 회귀 테스트(1024B chunk 4개에 걸친 1 line 메시지의 round-trip, multi-line in single chunk) + stderr 패턴 매칭 5종(connect/auth/spawn/protocol/fs)을 fake child(EventEmitter mock) 기반으로. ssh-config 파서는 단위 테스트(Host alias 파싱 + Include 무시). 채택 이유: traversal/protocol 회귀가 dev에서 가장 비싸고 silent하게 깨지는 지점, conventions.md \"zod 자체 검증 재진술 금지\" 규칙 준수. 기각: (a) provider+handler 두 층에서 같은 tmp round-trip 반복 — 중복, 가치 ↓. (b) 실제 ssh 호스트로 E2E — dev 환경 의존, CI 불안정. (c) 모든 분할(Issue 9) diff에 대한 별도 회귀 테스트 — 동작 보존 분할이므로 기존 integration 통과가 회귀 신호. 가정: tests/integration/files-panel.test.ts 및 file-watcher.test.ts는 동작 변화 없이 통과해야 함(회귀 신호). 적용 위치: tests/unit/main/fs/{core,local-fs-provider}.test.ts, tests/unit/main/ipc/fs-channel.test.ts 갱신, tests/unit/main/transport/ssh-channel.test.ts(신규), tests/unit/main/ssh-config.test.ts(신규)."
+          }
+        ],
+        "research_summary": "[Researcher] ssh2 v1.17.0 pure JS/MIT; LSP는 Content-Length framing 채택이나 NDJSON이 더 단순; macOS dev에선 child_process.spawn('ssh',…)이 ssh-agent·~/.ssh/config·ProxyJump 자동 활용으로 가장 가벼움; keepaliveInterval 15s + exponential backoff 권고. [Architect#1 FS provider] read-only로 좁힌 FsReadProvider{readdir,stat,readFile} + WorkspaceContext.fs 필드 + factory 주입; path-safety는 in-place 유지(write/move/search는 다음 phase); WARNING — fs-channel.test mock 깨짐, read-handlers.ts 사전 분할 권고. [Architect#2 SSH transport] spawn ssh 채택; NDJSON+base64; agent entry src/agent/index.ts + src/shared/fs-core/ 추출(main/agent 공용 SoT); 워크스페이스당 1 ssh-channel eager handshake; CRITICAL — agent stdout 격리(console.log→stderr redirect), 좀비 방지, line splitter buffer; 에러 카테고리 5종(connect/auth/spawn/protocol/fs). [Designer] 한 다이얼로그 + 상단 Local/SSH 탭; ~/.ssh/config alias dropdown 우선 + 단축 입력 + Advanced disclosure; Connecting 상태 후 commit; 사이드바 Folder/Server lucide 아이콘 + status dot + aria-label. VSCode IFileSystemProvider 1차 사료 확인.",
+        "created_at": "2026-05-12T04:43:49.580Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "read-handlers.ts 사전 분할 (read · watch · expanded)",
+          "status": "completed",
+          "context": "현 src/main/ipc/channels/fs/read-handlers.ts에 readdir/stat/readFile/readExternal + watch/unwatch + getExpanded/setExpanded 세 책임이 섞여 있어, 후속 Provider 마이그레이션 시 watch 4줄을 함께 옮길 회귀 위험. Issue 9 decision: Tidy First로 분할 선행. 동작 변화 없는 순수 함수 이동.",
+          "acceptance": "- src/main/ipc/channels/fs/read-handlers.ts: readdir/stat/readFile/readExternal handler만 잔존.\n- src/main/ipc/channels/fs/watch-handlers.ts: watch/unwatch + FileWatcher 의존 코드 이동.\n- src/main/ipc/channels/fs/expanded-handlers.ts: get/setExpanded + WorkspaceStorage 의존 코드 이동.\n- src/main/ipc/channels/fs/index.ts에서 세 모듈로 분기 import + 등록 순서 보존.\n- bun run typecheck / bun run lint / bun run test 모두 그린.\n- tests/integration/files-panel.test.ts, tests/integration/file-watcher.test.ts 회귀 없음.",
+          "approach": "함수 이동 only — 시그니처/내용 보존. import 경로만 갱신. read-handlers의 buildFileContent helper는 read-handlers.ts에 남겨두고 (다음 task의 fs-core 추출에서 이동).",
+          "risk": "handler 등록 순서가 바뀌면 listen 이벤트 dispatch 회귀 가능 — index.ts에서 등록 순서를 분할 전과 동일하게 유지.",
+          "plan_issue": 9,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a89-4490-77c2-a1f7-5f7b60778682",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:48:30.009Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Split fs read, watch, and expanded handler responsibilities into separate modules with registration order preserved. Tester verified targeted unit/integration coverage, typecheck, diff check, and import boundaries pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:02:15.097Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "fs-core 추출 (main/agent 공용 helper)",
+          "status": "completed",
+          "context": "main 측 read-handlers와 향후 agent 측 핸들러가 동일 fs 의미를 두 번 구현하면 회귀의 원천. Issue 3 decision: src/main/fs/core/read-core.ts에 readdirCore/statCore/readFileCore + buildFileContent 추출, LocalFsProvider와 agent dispatcher가 모두 이 core 호출. hidden filter, binary detection, MAX_READABLE_FILE_SIZE 가드 core 내부 흡수.",
+          "acceptance": "- src/main/fs/core/read-core.ts: readdirCore(absDir)→DirEntry[], statCore(abs)→FsStat, readFileCore(abs)→FileReadResult export.\n- buildFileContent helper도 core로 이동.\n- src/main/ipc/channels/fs/read-handlers.ts의 readdir/stat/readFile handler 본문이 resolveSafe → core 호출 한 줄로 단축.\n- isHiddenName/BINARY_DETECTION_BYTES/MAX_READABLE_FILE_SIZE는 core 안에서만 적용(handler에서 중복 제거).\n- bun run typecheck/lint/test 그린.",
+          "approach": "위치는 src/main/fs/core/(shared 아님 — renderer가 node:fs 코드를 transitively 끌어오는 위험 회피). 기존 src/main/filesystem/binary-detect.ts는 그대로 import. core 함수는 absolute path만 받음(workspace 개념 없음).",
+          "risk": "readFileCore의 ENOENT→missing 분기 누락 시 throw로 회귀(현 FileReadResult.missing 시맨틱). 회귀 테스트(다음 task)에서 즉시 잡힘.",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a90-da2a-7aa1-8d2f-263bcb417960",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:48:41.550Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extracted read fs behavior to src/main/fs/core/read-core.ts and simplified IPC read handlers to validate/resolve then delegate to core. Task 3 tester verified Task 2 acceptance and no hidden/binary/size guard duplication remains in handlers.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:13:02.947Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "fs-core 단위 테스트",
+          "status": "completed",
+          "context": "Issue 10 decision (1): fs-core가 main/agent 공용 SoT이므로 hidden filter·binary detection·MAX_READABLE_FILE_SIZE 가드·ENOENT→missing 분기 회귀를 단위에서 잡아야 함.",
+          "acceptance": "- tests/unit/main/fs/read-core.test.ts 신규.\n- readdirCore: 일반 디렉토리 entries 반환, hidden name(.git, .DS_Store) 필터 검증.\n- statCore: file/dir/symlink 타입 분기 + mtime ISO 문자열.\n- readFileCore: utf8 텍스트 정상 ok, ENOENT → kind:\"missing\" 반환(throw 안 함), MAX_READABLE_FILE_SIZE 초과 시 적절한 에러, 바이너리 감지(BINARY_DETECTION_BYTES) 시 isBinary:true.\n- tmp 디렉토리는 bun:test의 beforeEach/afterEach에서 생성/정리.\n- bun run test:unit 그린.",
+          "approach": "실제 tmp 디렉토리(fs.mkdtemp)를 만들어 직접 호출. mock 없이 시나리오 기반. conventions.md \"zod 자체 검증 재진술 금지\" 준수 — DirEntry/FsStat 스키마 자체는 검증하지 않고 동작만.",
+          "risk": "테스트가 CI/macOS만 검증 — 호스트 fs(NFS 등)별 mtime 정밀도 차이는 다음 phase에서 ssh 환경과 함께 다룸.",
+          "plan_issue": 10,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1a94-a8cc-78b3-ab98-4b3fa91157a7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:48:52.511Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added scenario-based fs-core unit tests covering hidden filtering, stat type/mtime behavior, UTF-8 read, ENOENT missing result, too-large error, and binary detection. Tester ran targeted test, Biome check, and full unit suite successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:13:03.243Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "WorkspaceMeta location discriminated union + 마이그레이션",
+          "status": "completed",
+          "context": "Issue 1 decision: WorkspaceMeta에 location: {kind:\"local\", rootPath} | {kind:\"ssh\", host, user?, port?, remotePath, identityFile?, configAlias?} 도입. 기존 rootPath 필드는 deprecated getter로 보존하여 점진 이전.",
+          "acceptance": "- src/shared/types/workspace.ts: WorkspaceLocationSchema = z.discriminatedUnion(\"kind\", [local, ssh]). WorkspaceMetaSchema에 location 필드.\n- src/shared/ipc-contract.ts: WorkspaceCreateArgsSchema가 {location, name?}로 변경 또는 기존 {rootPath, name?}와 함께 union 허용. {rootPath, name?}를 받으면 내부에서 {kind:\"local\", rootPath}로 정규화.\n- src/main/storage/global-storage.ts: 영속 스키마에 location 컬럼/필드 추가 + 기존 rootPath만 있는 레코드를 location:{kind:\"local\", rootPath:...}로 마이그레이션. 마이그레이션은 idempotent(재실행 안전).\n- src/main/workspace/workspace-manager.ts: create()가 location 인자를 받아 분기, name 기본값은 local은 basename, ssh는 alias|host.\n- 기존 호출자(rootPath 직접 참조)는 컴퓨티드 getter로 동작 보존.\n- bun run typecheck/lint/test 그린, 기존 워크스페이스 DB 자동 마이그레이션 후 정상 로드.",
+          "approach": "먼저 schema/types 추가 → storage 마이그레이션 → manager 분기 순. WorkspaceCreateArgs는 union으로 받아 호환성 유지(외부 호출 변경 최소화).",
+          "risk": "DB 마이그레이션이 실패하면 기존 워크스페이스 목록 손실 가능. 마이그레이션 코드에 backup or rollback path 권장. 사용자 dev DB로 직접 테스트.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a89-446c-70e3-8a8c-7d371ed77319",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:49:05.617Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added WorkspaceLocation union, legacy rootPath normalization, idempotent location migration/persistence, and create/default-name handling for local and SSH workspaces. Tester verified focused storage, manager, contract, migration, integration, schema probes, and typecheck pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:11:05.138Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "FsReadProvider + LocalFsProvider + WorkspaceContext 통합",
+          "status": "completed",
+          "context": "Issue 2 decision: src/main/fs/provider/{types,local/local-fs-provider,ssh/ssh-fs-provider,factory}.ts 도입. WorkspaceContext에 readonly fs:FsReadProvider 필드. WorkspaceManager에 requireContext(id) helper. read 핸들러 본문은 ctx.fs.X(relPath) 한 줄 위임.",
+          "acceptance": "- src/main/fs/provider/types.ts: FsReadProvider 인터페이스(readdir/stat/readFile) + readonly kind:\"local\"|\"ssh\".\n- src/main/fs/provider/local/local-fs-provider.ts: rootPath 보유, 멤버십 가드(기존 resolveSafe 재사용 또는 동등 로직) → core 함수 호출.\n- src/main/fs/provider/ssh/ssh-fs-provider.ts: 모든 메서드 throw new Error(\"ssh fs provider: channel not yet wired\") (이번 task에선 stub).\n- src/main/fs/provider/factory.ts: createFsProvider(meta) 분기.\n- src/main/fs/external-reader.ts: readExternalHandler 본문 이동 (워크스페이스 밖이라 Provider 미포함).\n- src/main/workspace/workspace-context.ts: 생성자에 fs:FsReadProvider 받음.\n- src/main/workspace/workspace-manager.ts: requireContext(id) 추가, init/create에서 factory 주입.\n- src/main/ipc/channels/fs/read-handlers.ts: 4개 handler 본문 → manager.requireContext(id).fs.X(relPath).\n- path-safety.ts는 그대로(write/move/search가 import 중) — LocalFsProvider가 내부에서 동일 호출.\n- bun run typecheck/lint/test 그린.",
+          "approach": "types → local provider → factory → context/manager 통합 → handler 위임 순. SshFsProvider는 stub. readExternalHandler는 Provider 밖이라 별도 파일로 이전.",
+          "risk": "기존 fs-channel.test.ts의 makeManager mock이 requireContext 미구현이라 깨짐 — 테스트 갱신 task에서 처리. handler import path 변경으로 전후 일관성 깨질 위험 → typecheck로 잡음.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a9a-8d02-7690-bd2d-dfd0fe5f8aa8",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:49:18.469Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Integrated FsReadProvider, LocalFsProvider, SSH stub provider, provider factory, WorkspaceContext provider ownership, WorkspaceManager requireContext/provider injection, external reader extraction, and read handler provider delegation. Task 6 tester verified code paths and full suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:30:23.289Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "LocalFsProvider 단위 + fs-channel 핸들러 위임 테스트 갱신",
+          "status": "completed",
+          "context": "Issue 10 decision (2)(3): traversal/symlink/hidden filter 회귀 검출은 LocalFsProvider 단위에서, IPC 핸들러는 mock provider 주입한 위임 검증으로 축소.",
+          "acceptance": "- tests/unit/main/fs/local-fs-provider.test.ts 신규: rootPath 주입, ../etc traversal throw, 심볼릭링크 처리, hidden filter 동작, readFile ok/missing 분기.\n- tests/unit/main/ipc/fs-channel.test.ts 갱신: makeManager 헬퍼에 requireContext(id) 추가, mock FsReadProvider 주입 후 arg pass-through + error propagation만 검증. 기존 traversal 시나리오 테스트는 LocalFsProvider 테스트로 이전.\n- tests/integration/files-panel.test.ts 회귀 없음(동작 보존 신호).\n- bun run test 그린.",
+          "approach": "기존 resolveSafe 시나리오 3~6을 LocalFsProvider 호출 형태로 옮기고, 핸들러 테스트는 \"위임만 한다\"를 증명하는 얇은 형태로 축소.",
+          "risk": "위임 테스트가 너무 얇으면 회귀 신호가 약함 — LocalFsProvider 단위에서 시나리오 커버리지를 충분히 가져가야 함.",
+          "plan_issue": 10,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1aa3-4595-7832-8abe-78e6183717f9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:49:31.804Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added LocalFsProvider unit coverage for traversal, symlink, hidden filter, and readFile ok/missing behavior; reduced fs-channel tests to provider delegation/error propagation; files-panel integration, typecheck, targeted Biome, and full suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:30:23.630Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "SSH transport: ssh-channel.ts + ssh-stderr-patterns.ts",
+          "status": "completed",
+          "context": "Issue 4·8 decision: child_process.spawn('ssh', ...) + NDJSON + line splitter + 1 채널 eager handshake. 에러 분류 5종(connect-failed / auth-failed / agent.spawn-failed / agent.protocol-error / unknown)은 stderr 패턴 매칭으로 ssh-stderr-patterns.ts에 분리. ssh2 라이브러리 미사용(dep 0).",
+          "acceptance": "- src/shared/types/ssh-errors.ts: SshErrorCode 유니언 + zod 스키마.\n- src/main/transport/ssh-stderr-patterns.ts: classifyStderrLine(line)→SshErrorCode|null. Permission denied|Host key verification|connection refused|command not found 등 OpenSSH 표면 패턴.\n- src/main/transport/ssh-channel.ts: createSshChannel({host,user?,port?,identityFile?,remoteCommand}) → {call(method,params), on(event,cb), dispose()}. 내부: spawn → stdout line splitter(buffer + indexOf '\\n') → PendingRequestMap(src/shared/pending-request-map.ts 재사용). dispose 시 SIGTERM → 100ms 후 SIGKILL grace.\n- stdout은 JSON line 프레임 전용, stderr는 항상 line-buffer 후 patterns 매칭, 실패 시 raw 노출 금지(로그만).\n- 첫 fs.readdir 호출 시 handshake 비용이 응답에 묶이지 않도록 createSshChannel 자체에서 handshake 대기(ready promise) — caller가 await 가능.\n- bun run typecheck/lint 그린(테스트는 별도 task).",
+          "approach": "spawn 옵션: stdio:['pipe','pipe','pipe'], detached:false. ssh args: 'ssh', user@host or alias, ['-p', port?], ['-i', identityFile?], ['-o', 'BatchMode=yes'], '--', remoteCommand. ready promise는 첫 응답 또는 stderr 분류된 에러 중 먼저 도착하는 쪽으로 resolve/reject.",
+          "risk": "stdout chunk 경계 버그 → 무한 hang. line splitter 회귀 테스트(다음 task) 필수. ssh가 PATH에 없거나 OpenSSH 메시지 포맷이 OS별로 다른 경우 분류 실패.",
+          "plan_issue": 4,
+          "deps": [
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a95-d55e-7c92-9012-e70caa23f44f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:49:45.642Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added SSH error code schema/types, OpenSSH stderr classification, and spawn-based NDJSON SSH channel with explicit ready promise, PendingRequestMap correlation, line buffering, classified stderr, and SIGTERM/SIGKILL disposal. Task 8 tests exposed and fixed response frame discrimination; transport unit and full unit suite now pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:23:52.186Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "SSH transport 단위 테스트 (line splitter + stderr 분류)",
+          "status": "completed",
+          "context": "Issue 10 decision (5): line splitter 회귀와 stderr 분류 5종이 dev에서 가장 자주·silent하게 깨지는 지점.",
+          "acceptance": "- tests/unit/main/transport/ssh-channel.test.ts 신규.\n- line splitter 회귀: stdout에 \"1024B chunk 4개에 걸친 1줄 message\"와 \"1 chunk에 multi-line\" 양 케이스 모두 round-trip 정합.\n- stderr 분류 5종: Permission denied → ssh.auth-failed, Host key verification failed → ssh.auth-failed, connection refused → ssh.connect-failed, command not found → agent.spawn-failed, NDJSON parse 실패 → agent.protocol-error.\n- dispose 시 SIGTERM 전송, 100ms 안에 exit 안 하면 SIGKILL.\n- spawn은 모킹(fake child EventEmitter)로 격리 — 실제 ssh 명령 호출 없이.\n- bun run test:unit 그린.",
+          "approach": "child_process.spawn을 bun:test의 mock 또는 dependency injection 형태로 격리. fake child에서 stdout/stderr emit으로 시나리오 driving.",
+          "risk": "SIGTERM/SIGKILL 동작은 OS 의존 — Mock 단위에선 호출만 확인하고 실제 동작은 후속 phase의 통합 테스트에서.",
+          "plan_issue": 10,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1a9d-394c-79a2-a8e3-79aaed1742a5"
+          },
+          "created_at": "2026-05-12T04:49:56.414Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added DI-based SSH transport unit tests for split-line and multi-line stdout frames, stderr/protocol classification, error response rejection, and SIGTERM-to-SIGKILL disposal. Fixed frame parsing so result and error frames discriminate by own-key presence. Transport test, full unit suite, and Biome check pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:23:52.843Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "Agent entry: src/agent/* (stdout 격리 + dispatch)",
+          "status": "completed",
+          "context": "Issue 5 decision: 신규 src/agent/{index.ts, agent-fs-handlers.ts, agent-dispatch.ts}. stdout 격리(NDJSON invariant 보호, CRITICAL). 기동 명령은 `bash -lc 'cd <path> && exec bun src/agent/index.ts <path>'`. fs-core 직접 import로 main과 SoT 공유.",
+          "acceptance": "- src/agent/index.ts: 엔트리 첫 줄에서 console.log/info/warn을 console.error로 redirect. process.stdout은 frame writer helper(writeFrame(obj))를 통해서만 사용.\n- stdin은 readline 또는 chunk buffer로 NDJSON 파싱(line splitter), 잘못된 JSON → agent.protocol-error 응답 후 계속 처리.\n- src/agent/agent-fs-handlers.ts: handleReaddir/handleStat/handleReadFile — params {relPath} 받아 path.resolve(rootPath, relPath) 후 src/main/fs/core 호출.\n- src/agent/agent-dispatch.ts: { \"fs.readdir\", \"fs.stat\", \"fs.readFile\" } → handler 매핑. 미지원 method → \"method not supported\" 에러 응답.\n- 인자 1번이 rootPath. 미지정 시 stderr에 사용법 출력 후 exit code 2.\n- 프로세스가 SIGTERM 받으면 in-flight 응답을 best-effort 마무리 후 정상 종료.\n- bun run typecheck/lint 그린(테스트는 별도 task).",
+          "approach": "stdout 격리는 첫 줄에 명시적 redirect 코드. frame writer는 JSON.stringify + '\\n'을 process.stdout.write로. fs-core를 직접 import해 dispatcher가 얇은 위임만.",
+          "risk": "transitive lib(예: pyright/lsp 등)의 console.log 출력이 끼면 NDJSON 깨짐 — agent는 fs-core 외에 의존성 최소화. 호스트의 bun/node 버전 차이 시 ES 문법 호환성 — 호스트 셋업 README에 최소 버전 명시.",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a9b-1a72-7880-9cac-17762254e762",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:50:09.976Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added remote agent entrypoint, fs handlers, and dispatcher with stdout isolation, NDJSON handling, protocol-error responses, unsupported-method errors, rootPath validation, and SIGTERM drain behavior. Task 10 tester rechecked Task 9 acceptance and full unit suite passes.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:25:48.279Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "Agent dispatch 단위 테스트",
+          "status": "completed",
+          "context": "Issue 10: agent dispatcher가 stdin/stdout으로 정상 round-trip하는지 단위에서 확인. fs-core는 실제 tmp 디렉토리에 호출.",
+          "acceptance": "- tests/unit/agent/agent-dispatch.test.ts 신규: tmp rootPath에 dispatch 함수를 직접 호출하여 readdir/stat/readFile 정상 응답.\n- 잘못된 JSON 요청 → agent.protocol-error 응답.\n- 미지원 method → \"method not supported\" 에러.\n- bun run test:unit 그린.",
+          "approach": "dispatch 핵심 함수를 노출하여 mock stdin/stdout 없이 함수 단위 테스트(NDJSON 직접 다루지 않음, 객체 round-trip만).",
+          "risk": "stdin/stdout 격리 자체는 단위 테스트로 검증 어려움 — 별도 manual smoke task에서 처리.",
+          "plan_issue": 10,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1aa1-c038-7dc2-b579-3a696693ba6d"
+          },
+          "created_at": "2026-05-12T04:50:17.647Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added agent dispatch tests covering fs.readdir/stat/readFile against a temp root, malformed JSON protocol-error helper behavior, unsupported method errors, and full unit suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:25:48.580Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "SshFsProvider 본 구현 (channel 위임)",
+          "status": "completed",
+          "context": "Issue 2·4·5: SshFsProvider가 ssh-channel을 통해 agent에 \"fs.readdir\"/\"fs.stat\"/\"fs.readFile\" 호출. WorkspaceManager는 ssh 워크스페이스 활성화 시 ssh-channel을 eager 생성하여 Provider에 주입.",
+          "acceptance": "- src/main/fs/provider/ssh/ssh-fs-provider.ts: 생성자에 channel 주입, 3개 메서드가 channel.call(method, {relPath})로 위임 + 응답 zod 검증(기존 DirEntry/FsStat/FileReadResult 스키마 재사용).\n- src/main/workspace/workspace-manager.ts: activate(id) 시 location.kind === \"ssh\"면 ssh-channel 생성 + ready 대기, 실패 시 SshErrorCode 그대로 throw. dispose 시 channel.dispose.\n- src/main/fs/provider/factory.ts: ssh location이면 channel을 넘겨 SshFsProvider 생성.\n- 다중 워크스페이스: 워크스페이스당 1 채널.\n- 첫 fs.readdir 호출이 실제 ssh agent → 응답 round-trip 동작(수동 smoke).\n- bun run typecheck/lint/test 그린.",
+          "approach": "stub을 본 구현으로 교체. WorkspaceManager가 channel을 만들고 factory에 전달. activate가 throw하면 caller(workspace.testSsh)가 카테고리화된 에러를 renderer로 전달.",
+          "risk": "channel.call 응답의 schema mismatch → agent.protocol-error로 분류돼야 함. 채널 생애주기와 워크스페이스 생애주기 불일치 시 좀비 ssh 프로세스 — dispose 경로 확실히.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            7,
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1aaa-7daa-70d0-9724-c0c18bb2970f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:50:29.607Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented channel-backed SshFsProvider with response schema validation, lazy one-channel-per-SSH-workspace activation, classified failure preservation, and channel disposal through WorkspaceContext lifecycle. Typecheck, lint, and full test suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:40:52.928Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "~/.ssh/config 파서 + ssh.listConfigHosts IPC",
+          "status": "completed",
+          "context": "Issue 6 decision: Add Workspace SSH 탭에서 alias dropdown 1차 경로. main에 ~/.ssh/config 파서 + IPC 채널 추가. top-level Host 디렉티브만(Include 재귀는 다음 phase).",
+          "acceptance": "- src/main/ssh-config.ts: parseSshConfig(text)→Array<{alias, host?, user?, port?, identityFile?}>. Host 와일드카드 제외, \"Host *\" 무시.\n- src/main/ipc/channels/ssh.ts: register(\"ssh\", { call: { listConfigHosts: ... , testSsh: ... } }). listConfigHosts는 파일 미존재/권한 에러 시 빈 배열 반환.\n- src/shared/ipc-contract.ts에 ssh 채널 contract 추가.\n- bun run typecheck/lint/test 그린.",
+          "approach": "파일 읽기 → 줄 단위 파싱 → 현재 Host 컨텍스트 유지 → 필드 누적. Include는 의도적으로 무시(로그만).",
+          "risk": "사용자 ~/.ssh/config가 비표준 형식이면 부분 파싱 → null 필드. 단위 테스트로 표준 예제 cover.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1a95-d59a-7113-aa7b-fd3fa3f373a6",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:50:40.651Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added ssh-config parser, ssh.listConfigHosts IPC channel, shared contract entry, and main registration. Tester verified parser behavior, wildcard/multi-alias handling, missing/permission config fallback, contract presence, main registration, and unit suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:17:20.331Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "workspace.testSsh IPC — 검증 후 commit",
+          "status": "completed",
+          "context": "Issue 6 decision: 사용자가 \"Add\" 누르면 즉시 commit하지 않고 ssh handshake + agent 기동까지 검증 후 성공 시에만 workspace.create. AbortSignal로 dialog cancel 시 끊을 수 있어야 함.",
+          "acceptance": "- src/shared/ipc-contract.ts에 workspace.testSsh: call({host,user?,port?,identityFile?,remotePath}, void) → {ok:true} | {ok:false, code:SshErrorCode, message:string}.\n- main 측 핸들러: ssh-channel을 임시 생성(handshake + ready promise 대기 + fs.readdir(\".\")까지 한 번) → 결과 반환 후 channel.dispose. 어떤 단계든 throw 시 SshErrorCode로 분류 후 응답.\n- renderer에서 AbortController로 cancel 가능 — ipcStream이 아닌 일반 call이지만 abort 시 main이 channel.dispose하도록 ipcRouter abort signal 지원 확인(없으면 별도 cancel call 추가).\n- workspace.testSsh가 ok이어야 다이얼로그가 workspace.create를 호출.\n- bun run typecheck/lint/test 그린.",
+          "approach": "testSsh는 본 채널과 무관한 임시 채널을 만들어 검증만 함. 실제 워크스페이스 활성화는 별도 흐름(activate). 검증 단계에서 fs.readdir(\".\") 한 번을 호출해 agent까지 도달했는지 확인 — connect/auth/spawn 모두 한 번에 차별 가능.",
+          "risk": "main의 ipc 라우터가 caller abort를 핸들러로 전달하는 API가 없으면 별도 cancel IPC가 필요 — 코드 확인 후 결정.",
+          "plan_issue": 6,
+          "deps": [
+            7,
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1aa4-9394-7730-a63b-d7562e188c6c",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:50:54.106Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added workspace.testSsh contract and main handler with temporary SSH channel validation, ready wait, fs.readdir probe, sanitized SshErrorCode failures, abort-triggered disposal, and focused lifecycle/failure/cancel tests. Typecheck, full test suite, lint, and touched-file Biome pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:32:57.604Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "ssh-config 파서 단위 테스트",
+          "status": "completed",
+          "context": "Issue 10 decision: ssh-config 파서는 단위 테스트(Host alias 파싱 + Include 무시).",
+          "acceptance": "- tests/unit/main/ssh-config.test.ts 신규.\n- 표준 예제: 여러 Host 블록, HostName/User/Port/IdentityFile 인식.\n- Host * 와일드카드, \"Host x y\" multi-alias 처리.\n- Include 디렉티브 무시(에러 없이 skip).\n- 잘못된 들여쓰기/대소문자 변형 견딤.\n- bun run test:unit 그린.",
+          "approach": "파서 함수를 직접 호출. 파일 시스템 접근 없이 문자열 입력만.",
+          "risk": "사용자 환경의 비표준 config는 다음 phase에서 다룸.",
+          "plan_issue": 10,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e1a9b-e011-7171-93a4-5dec12ed8417",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:51:02.236Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extended ssh-config parser unit tests to cover mixed-case keywords and irregular indentation/formatting. After Task 8 repair, full unit suite passes.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:23:52.517Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "Add Workspace 다이얼로그 UI (Local/SSH 탭 + Connecting flow)",
+          "status": "completed",
+          "context": "Issue 6·8 decision: 단일 Dialog + Local/SSH Tabs + alias Combobox + Advanced disclosure + Connecting 상태 후 commit + 인라인 에러 카드 + Retry. designer mockup 준수.",
+          "acceptance": "- src/renderer/components/workspace/add-workspace-dialog.tsx 신규: Radix Dialog + Tabs(Local/SSH) + footer 액션.\n- Local 탭: \"Choose folder…\" 버튼 → ipcCall(\"dialog\",\"showOpenDirectory\") 후 workspace.create({location:{kind:\"local\",rootPath}}).\n- SSH 탭: Combobox(alias dropdown — ssh.listConfigHosts 결과로 채움 + 직접 입력 user@host 허용) + Remote path + Name(optional) + Advanced disclosure(port, identityFile).\n- Add 클릭 → footer를 spinner + \"Connecting to {host}…\"로 전환, workspace.testSsh 호출. 성공 → workspace.create({location:{kind:\"ssh\",...}}) + dialog 닫기 + sidebar activate. 실패 → 인라인 에러 카드(SshErrorCode 별 메시지) + Retry.\n- Cancel 또는 ESC: AbortController로 testSsh 중단 + dialog 닫기.\n- 기존 App.tsx handleAddWorkspace는 dialog 열기로 교체.\n- accessibility: Combobox에 role/aria-expanded/aria-activedescendant. 색만 의존하지 않는 상태 표시.\n- bun run typecheck/lint/test 그린.",
+          "approach": "Radix Dialog/Tabs는 우리 src/renderer/components/ui에 이미 패턴 있음 — 그대로 사용. Combobox는 Radix에 없으므로 Popover + 키보드 핸들링 직접 구현. SshErrorCode → user-facing 메시지 매핑은 작은 helper.",
+          "risk": "Combobox 키보드 동작 회귀 — 기존 keybindings dispatcher와 충돌 가능. Dialog open 동안 글로벌 단축키 차단 확인.",
+          "plan_issue": 6,
+          "deps": [
+            4,
+            12,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1aac-c68d-7203-94dd-5a04e93096ad",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:51:15.154Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added Radix Dialog/Tabs Add Workspace UI with local folder creation, SSH alias/direct host entry, advanced SSH fields, abortable workspace.testSsh connecting flow, retry/error handling, and App activation wiring. Typecheck, focused component test, and lint pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T05:45:19.713Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "사이드바 표시 차별화 + connection status",
+          "status": "completed",
+          "context": "Issue 7 decision: lucide Folder/Server 아이콘 + 우하단 status dot(녹/회/앰버/빨강) + aria-label. SSH 행 보조 텍스트는 alias|user@host(remotePath는 tooltip). connection status를 store에 도입.",
+          "acceptance": "- src/renderer/components/workbench/sidebar.tsx: 각 워크스페이스 행에 아이콘(local=Folder, ssh=Server, 16px muted) + status dot.\n- src/renderer/state/stores에 connection status slice 신설(워크스페이스별 idle|connecting|connected|reconnecting|error). local은 항상 idle.\n- 신규 listen 이벤트 workspace.connectionChanged({workspaceId, status}). main 측 ssh-channel lifecycle(handshake start/ready/exit)을 이 이벤트로 broadcast.\n- status dot 색 토큰을 색만으로 의존하지 않게 aria-label에 텍스트 동반(\"SSH workspace, connected\").\n- dark mode 대비 ≥3:1 확보(구현 시 측정 후 토큰 조정).\n- bun run typecheck/lint/test 그린.",
+          "approach": "store slice는 zustand 패턴. main 측 broadcast는 기존 BroadcastFn 경로 재사용. 토큰은 globals.css에 OKLCH 변수 추가.",
+          "risk": "connectionChanged 이벤트의 폭주 — handshake start/ready 2건 이상은 발생 안 함 보장. 빨강 색이 기존 error 토큰과 시각 충돌 가능.",
+          "plan_issue": 7,
+          "deps": [
+            4,
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e1ab4-0ff8-7761-b792-5bd9efac3366",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T04:51:26.594Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added workspace.connectionChanged contract/event handling, SSH lifecycle broadcasts, renderer connection status state with injected-test seam, sidebar Folder/Server icons, accessible SSH status dot, remote path tooltip, and status colors with >3:1 dark contrast. Fixed test isolation and verified typecheck, lint, targeted sidebar/store tests, and full test suite pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-12T06:06:52.000Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "End-to-end smoke: 실제 호스트로 fs read 라운드트립 검증",
+          "status": "completed",
+          "context": "phase 1·2 deliverable의 진짜 가치 측정. 사용자가 직접 셋업한 테스트 호스트에 add-workspace → 파일 트리 → 파일 열기까지 동작 확인.",
+          "acceptance": "- 사용자가 테스트 호스트(예: localhost via ssh, VM, 다른 머신)에 git clone + bun install 사전 셋업.\n- Add Workspace → SSH 탭 → host 입력 → Connect 성공 → 사이드바에 추가 + 녹색 status dot.\n- 파일 트리 패널에서 원격 디렉토리 expand → readdir 응답 정상.\n- 파일 클릭 → editor에 utf-8 텍스트 열림(readFile 동작).\n- 인증 실패 시나리오: identity 잘못 → 인라인 에러 \"Authentication failed\" + Retry.\n- 호스트 unreachable 시나리오(존재하지 않는 host): \"Host unreachable\" 에러.\n- agent 미설치 시나리오(rootPath 잘못): \"Remote agent not installed\" 에러.\n- 5분 이내 dispose 후 ssh 자식 프로세스 잔존 안 함(`ps aux | grep ssh`).\n- 결과를 .nexus/memory/empirical-ssh-prototype-smoke.md에 기록(성공/실패 케이스, 막힌 부분).",
+          "approach": "사용자 환경에서 bun run dev로 실행. 위 시나리오를 순차 수행. 막힌 지점은 임시 fix 또는 backlog로 분리.",
+          "risk": "macOS firewall, ssh BatchMode 등 환경 변수로 막힐 수 있음. 첫 실패 시 ssh -vvv 출력으로 진단.",
+          "plan_issue": 6,
+          "deps": [
+            6,
+            8,
+            10,
+            11,
+            14,
+            15,
+            16
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-12T04:51:38.606Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Ran final smoke checks against the available SSH environment. Positive UI/file-tree round trip is blocked because localhost SSH is unavailable and reachable aliases monolith/monolith2 lack bun and the repo checkout. Verified real backend negative paths: unreachable host maps to ssh.connect-failed; reachable host without remote agent runtime maps to agent.spawn-failed; no temporary SSH child leak detected after failed validation. Recorded details in .nexus/memory/empirical-ssh-prototype-smoke.md.",
+            "artifacts": [
+              ".nexus/memory/empirical-ssh-prototype-smoke.md"
+            ],
+            "recorded_at": "2026-05-12T06:09:13.482Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "SSH workspace local-only operation guards",
+          "status": "completed",
+          "context": "End-of-cycle architecture review found SSH WorkspaceMeta.rootPath compatibility mirrors remotePath, while remaining local-only surfaces still use workspace.rootPath. This can accidentally operate on a local path with the same string for write/watch/search/git instead of refusing unsupported SSH operations. Scope: main-process guards only.",
+          "acceptance": "- Local-only fs write/move/search/watch handlers do not operate on SSH workspaces as local paths. Reads remain routed through FsReadProvider.\n- Git repository resolution/autofetch/status paths do not operate on SSH workspace rootPath as a local repo; they fail/skip with a clear unsupported SSH workspace error.\n- Remote file tree read flow is not broken by watch guards; watch/unwatch should be no-op or controlled unsupported without local fs access.\n- Focused tests cover SSH workspace guards for fs write/search/watch and git repo resolution where practical.\n- bun run typecheck/lint/test pass.",
+          "approach": "Add a helper near path-safety/workspace-manager to identify local-only roots. Use it from write/move/search/watch and git registry entry points before resolving rootPath. Prefer no-op for watch/unwatch to keep remote file tree reads usable; throw clear unsupported errors for write/move/search/git.",
+          "risk": "Too broad throwing could break file tree hydration because ensureRoot attempts fs.watch. Keep watch/unwatch non-local and harmless for SSH rather than local path access.",
+          "plan_issue": 2,
+          "deps": [
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1ad8-9b61-7671-824f-047023ee0169"
+          },
+          "created_at": "2026-05-12T06:18:16.312Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added main-process SSH workspace guards for local-only fs write/move/search/watch and Git registry/autofetch paths. SSH write/search/git now stop before local path resolution; watch/unwatch validate workspace and no-op for SSH to preserve remote read/tree hydration. Full typecheck, lint, test, and diff check pass; lint exits 0 with existing warnings.",
+            "artifacts": [
+              "src/main/workspace/workspace-guards.ts",
+              "src/main/ipc/channels/fs/path-safety.ts",
+              "src/main/ipc/channels/fs/write-handlers.ts",
+              "src/main/ipc/channels/fs/move-handlers.ts",
+              "src/main/ipc/channels/fs/search-handlers.ts",
+              "src/main/ipc/channels/fs/watch-handlers.ts",
+              "src/main/git/git-registry.ts",
+              "src/main/git/git-autofetch.ts",
+              "tests/unit/main/ipc/channels/fs/local-only-guards.test.ts",
+              "tests/unit/main/git/git-registry.test.ts",
+              "tests/unit/main/git/git-autofetch.test.ts"
+            ],
+            "recorded_at": "2026-05-12T06:33:28.100Z"
+          }
+        },
+        {
+          "id": 19,
+          "title": "SSH editor read-only enforcement",
+          "status": "completed",
+          "context": "End-of-cycle architecture review found opened SSH files are not marked read-only. createEntry defaults readOnly=false, so save can reach local fs.writeFile path. Scope: renderer editor/model/save path only.",
+          "acceptance": "- Editor inputs opened from SSH workspaces are marked readOnly or otherwise cannot invoke save/write against fs.writeFile.\n- UI exposes existing read-only behavior for SSH editor models without adding explanatory text.\n- Focused tests cover SSH workspace editor input/model read-only and save guard where existing seams allow.\n- bun run typecheck/lint/test pass.",
+          "approach": "Use WorkspaceMeta.location.kind in renderer editor/open path to set readOnly on EditorInput or make save-service refuse saves for SSH workspace inputs before IPC write. Follow existing read-only model conventions; avoid broad editor refactors.",
+          "risk": "The editor stack may not have WorkspaceMeta at model creation. If so, add a small lookup helper from workspaces store and test through existing editor service seams.",
+          "plan_issue": 2,
+          "deps": [
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "resume_tier": "ephemeral",
+            "agent_id": "019e1ad8-9b88-77c0-8288-ad004ee33eb9"
+          },
+          "created_at": "2026-05-12T06:18:16.647Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented renderer-side SSH editor read-only enforcement: SSH editor opens carry readOnly metadata, model entries independently resolve SSH workspaces as read-only, and focused editor/model/save tests prove saveModel returns read-only without fs.writeFile. Full typecheck, lint, test, and diff check pass; lint exits 0 with existing warnings.",
+            "artifacts": [
+              "src/renderer/services/editor/workspace-readonly.ts",
+              "src/renderer/services/editor/model/model-entry.ts",
+              "src/renderer/services/editor/tabs/open-editor.ts",
+              "tests/unit/renderer/services/editor/open-editor.test.ts",
+              "tests/unit/renderer/services/editor-services.test.ts"
+            ],
+            "recorded_at": "2026-05-12T06:34:00.543Z"
+          }
+        }
+      ]
     }
   ]
 }
