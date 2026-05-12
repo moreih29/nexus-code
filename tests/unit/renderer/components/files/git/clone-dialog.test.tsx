@@ -171,6 +171,7 @@ function workspaceMeta(): WorkspaceMeta {
     id: "00000000-0000-4000-8000-000000000001",
     name: "repo",
     rootPath: "/Users/alice/work/repo",
+    location: { kind: "local", rootPath: "/Users/alice/work/repo" },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date(0).toISOString(),

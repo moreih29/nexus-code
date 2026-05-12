@@ -262,6 +262,7 @@ function makeManager(workspaces: { id: string; rootPath: string }[]) {
       workspaces.map(({ id, rootPath }) => ({
         id,
         rootPath,
+        location: { kind: "local", rootPath },
         name: path.basename(rootPath),
         colorTone: "default",
         pinned: false,

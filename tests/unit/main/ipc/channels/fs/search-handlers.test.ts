@@ -42,6 +42,7 @@ function makeWorkspace(rootPath: string, id = VALID_UUID): WorkspaceMeta {
     id,
     name: "test-workspace",
     rootPath,
+    location: { kind: "local", rootPath },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),

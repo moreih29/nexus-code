@@ -4,12 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
+import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/HistoryList";
 import {
   HISTORY_LIST_BREAKPOINT_MEDIUM,
   HISTORY_LIST_BREAKPOINT_NARROW,
   useHistoryListBreakpoint,
 } from "../../../../../../src/renderer/components/files/git/history/HistoryList";
-import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/HistoryList";
 
 type DependencyList = readonly unknown[] | undefined;
 type EffectCallback = () => undefined | (() => void);

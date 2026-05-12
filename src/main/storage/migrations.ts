@@ -24,6 +24,32 @@ export interface Migration {
   up: (db: SqliteDb) => void;
 }
 
+/**
+ * Returns true when the named table already has the requested column.
+ */
+function hasColumn(db: SqliteDb, tableName: string, columnName: string): boolean {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
+  return columns.some((column) => column.name === columnName);
+}
+
+/**
+ * Adds and backfills the workspace location JSON column from legacy root_path.
+ */
+function migrateWorkspaceLocations(db: SqliteDb): void {
+  if (!hasColumn(db, "workspaces", "location")) {
+    db.exec("ALTER TABLE workspaces ADD COLUMN location TEXT;");
+  }
+
+  const rows = db
+    .prepare("SELECT id, root_path FROM workspaces WHERE location IS NULL OR location = ''")
+    .all() as { id: string; root_path: string }[];
+  const update = db.prepare("UPDATE workspaces SET location = ? WHERE id = ?");
+
+  for (const row of rows) {
+    update.run(JSON.stringify({ kind: "local", rootPath: row.root_path }), row.id);
+  }
+}
+
 // Migration history.
 //
 // Once a version has shipped, do NOT edit it — add a follow-up version instead.
@@ -59,6 +85,11 @@ export const MIGRATIONS: Migration[] = [
     up: (db) => {
       db.exec(`ALTER TABLE workspaces DROP COLUMN category;`);
     },
+  },
+  // Add discriminated workspace locations while preserving legacy root_path.
+  {
+    version: 3,
+    up: migrateWorkspaceLocations,
   },
 ];
 

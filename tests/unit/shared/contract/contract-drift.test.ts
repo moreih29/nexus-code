@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { LocalFsProvider } from "../../../../src/main/fs/provider/local/local-fs-provider";
 import {
   readdirHandler,
   readFileHandler,
@@ -45,19 +46,30 @@ function makeTmpRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-contract-drift-"));
 }
 
-function makeFsManagerStub(rootPath: string): { list: () => WorkspaceMeta[] } {
+function makeFsManagerStub(rootPath: string): {
+  list: () => WorkspaceMeta[];
+  requireContext: (id: string) => { fs: LocalFsProvider };
+} {
+  const fsProvider = new LocalFsProvider(rootPath);
   return {
     list: () => [
       {
         id: VALID_UUID,
         name: "drift-ws",
         rootPath,
+        location: { kind: "local", rootPath },
         colorTone: "default",
         pinned: false,
         lastOpenedAt: new Date().toISOString(),
         tabs: [],
       },
     ],
+    requireContext: (id: string) => {
+      if (id !== VALID_UUID) {
+        throw new Error(`workspace not found: ${id}`);
+      }
+      return { fs: fsProvider };
+    },
   };
 }
 
@@ -148,6 +160,26 @@ describe("ipcContract drift — fs handlers", () => {
 // ---------------------------------------------------------------------------
 // workspace channel — handler outputs vs ipcContract.workspace.call.*.result
 // ---------------------------------------------------------------------------
+
+describe("ipcContract drift — workspace create args", () => {
+  it("accepts legacy rootPath create args", () => {
+    const parsed = ipcContract.workspace.call.create.args.safeParse({
+      rootPath: "/tmp/project",
+      name: "project",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts location create args", () => {
+    const parsed = ipcContract.workspace.call.create.args.safeParse({
+      location: { kind: "ssh", host: "devbox", remotePath: "/srv/project" },
+      name: "project",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+});
 
 describe("ipcContract drift — workspace handlers", () => {
   let tmpRoot: string;

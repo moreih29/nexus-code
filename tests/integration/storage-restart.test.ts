@@ -40,6 +40,7 @@ function makeMeta(id: string, rootPath: string): WorkspaceMeta {
     id,
     name: path.basename(rootPath),
     rootPath,
+    location: { kind: "local", rootPath },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),

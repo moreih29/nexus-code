@@ -30,7 +30,18 @@ function makeStatus(lastFetchedAt = 12_345) {
   };
 }
 
-function createHarness() {
+function createHarness(
+  options: {
+    workspaces?: Array<{
+      id: string;
+      name: string;
+      rootPath: string;
+      location:
+        | { kind: "local"; rootPath: string }
+        | { kind: "ssh"; host: string; remotePath: string };
+    }>;
+  } = {},
+) {
   let now = 0;
   const panelState = {
     commitDraft: "",
@@ -60,7 +71,17 @@ function createHarness() {
     }),
   };
   const workspaceManager = {
-    list: mock(() => [{ id: workspaceId, name: "repo", rootPath: "/repo" }]),
+    list: mock(
+      () =>
+        options.workspaces ?? [
+          {
+            id: workspaceId,
+            name: "repo",
+            rootPath: "/repo",
+            location: { kind: "local", rootPath: "/repo" },
+          },
+        ],
+    ),
   };
   const events: unknown[] = [];
   const scheduler = new GitAutofetchScheduler({
@@ -146,6 +167,26 @@ describe("GitAutofetchScheduler", () => {
     expect(h.panelState.autofetchIntervalMin).toBe(0);
     expect(h.panelState.autofetchManualPaused).toBe(false);
     expect(h.repo.fetchAll).toHaveBeenCalledTimes(0);
+  });
+
+  it("skips SSH workspaces during background autofetch ticks", async () => {
+    const h = createHarness({
+      workspaces: [
+        {
+          id: workspaceId,
+          name: "remote",
+          rootPath: "/srv/repo",
+          location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" },
+        },
+      ],
+    });
+
+    await h.scheduler.tick();
+    h.setNow(180_000);
+    await h.scheduler.tick();
+
+    expect(h.registry.getOrDetect).not.toHaveBeenCalled();
+    expect(h.repo.fetchAll).not.toHaveBeenCalled();
   });
 
   it("normalizes legacy schedule inputs to the Off/3-minute matrix without throwing", () => {

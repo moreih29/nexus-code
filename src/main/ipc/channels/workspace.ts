@@ -1,8 +1,28 @@
 import { ipcContract } from "../../../shared/ipc-contract";
+import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/types/ssh-errors";
+import {
+  type CreateSshChannelOptions,
+  createSshChannel,
+  type SshChannel,
+} from "../../transport/ssh-channel";
 import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { register, validateArgs } from "../router";
+import { type CallContext, register, validateArgs } from "../router";
 
 const c = ipcContract.workspace.call;
+
+interface TestSshArgs {
+  readonly host: string;
+  readonly user?: string;
+  readonly port?: number;
+  readonly identityFile?: string;
+  readonly remotePath: string;
+}
+
+type TestSshResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: SshErrorCode; readonly message: string };
+
+export type TestSshCreateChannel = (options: CreateSshChannelOptions) => SshChannel;
 
 export function registerWorkspaceChannel(manager: WorkspaceManager): void {
   register("workspace", {
@@ -11,8 +31,8 @@ export function registerWorkspaceChannel(manager: WorkspaceManager): void {
         return manager.list();
       },
       create: (args: unknown) => {
-        const { rootPath, name } = validateArgs(c.create.args, args);
-        return manager.create({ rootPath, name });
+        const createArgs = validateArgs(c.create.args, args);
+        return manager.create(createArgs);
       },
       update: (args: unknown) => {
         const { id, ...partial } = validateArgs(c.update.args, args);
@@ -24,13 +44,160 @@ export function registerWorkspaceChannel(manager: WorkspaceManager): void {
       },
       activate: (args: unknown) => {
         const { id } = validateArgs(c.activate.args, args);
-        manager.activate(id);
+        return manager.activate(id);
       },
+      testSsh: testSshHandler(),
     },
     listen: {
       changed: {},
       removed: {},
       attention: {},
+      connectionChanged: {},
     },
   });
+}
+
+/**
+ * Builds the SSH workspace validation handler with an injectable channel
+ * factory so unit tests can exercise lifecycle behavior without OpenSSH.
+ */
+export function testSshHandler(
+  createChannel: TestSshCreateChannel = createSshChannel,
+): (args: unknown, ctx?: CallContext) => Promise<TestSshResult> {
+  return async (args: unknown, ctx?: CallContext): Promise<TestSshResult> => {
+    const testArgs = validateArgs(c.testSsh.args, args);
+    const signal = ctx?.signal;
+    let channel: SshChannel | null = null;
+    let onAbort: (() => void) | undefined;
+
+    try {
+      throwIfAborted(signal);
+      channel = createChannel({
+        host: testArgs.host,
+        user: testArgs.user,
+        port: testArgs.port,
+        identityFile: testArgs.identityFile,
+        remoteCommand: buildRemoteAgentCommand(testArgs),
+      });
+
+      onAbort = () => {
+        channel?.dispose();
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        channel.dispose();
+        throw createAbortError();
+      }
+
+      await channel.ready;
+      throwIfAborted(signal);
+      await channel.call("fs.readdir", { relPath: "." });
+      throwIfAborted(signal);
+      return { ok: true };
+    } catch (error) {
+      if (signal?.aborted) {
+        throw isAbortError(error) ? error : createAbortError();
+      }
+      return sshFailureResult(error);
+    } finally {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+      channel?.dispose();
+    }
+  };
+}
+
+/**
+ * Renders the temporary remote agent command for OpenSSH.
+ */
+function buildRemoteAgentCommand(args: TestSshArgs): string {
+  const remotePath = quoteShellArg(args.remotePath);
+  const script = `cd ${remotePath} && exec bun src/agent/index.ts ${remotePath}`;
+  return `bash -lc ${singleQuoteShellArg(script)}`;
+}
+
+/**
+ * Converts SSH transport and agent failures to the public testSsh result.
+ */
+function sshFailureResult(error: unknown): TestSshResult {
+  const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
+  return {
+    ok: false,
+    code,
+    message: messageForSshErrorCode(code),
+  };
+}
+
+/**
+ * Reads a stable SshErrorCode from errors without trusting arbitrary strings.
+ */
+function sshErrorCodeFromError(error: unknown): SshErrorCode | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+
+  const parsed = SshErrorCodeSchema.safeParse((error as { code?: unknown }).code);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Maps SshErrorCode values to sanitized messages that never include stderr.
+ */
+function messageForSshErrorCode(code: SshErrorCode): string {
+  switch (code) {
+    case "ssh.connect-failed":
+      return "SSH connection failed";
+    case "ssh.auth-failed":
+      return "SSH authentication failed";
+    case "agent.spawn-failed":
+      return "Remote agent failed to start";
+    case "agent.protocol-error":
+      return "Remote agent protocol error";
+    case "ssh.unknown":
+      return "SSH workspace validation failed";
+  }
+}
+
+/**
+ * Quotes a shell argument only when the raw value is not shell-safe.
+ */
+function quoteShellArg(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
+    return value;
+  }
+  return singleQuoteShellArg(value);
+}
+
+/**
+ * Single-quotes a shell argument while preserving embedded apostrophes.
+ */
+function singleQuoteShellArg(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Throws the router-compatible AbortError when a call signal is canceled.
+ */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw createAbortError();
+}
+
+/**
+ * Creates the cancellation error shape consumed by the IPC router.
+ */
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * Detects the standard AbortError shape.
+ */
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
 }

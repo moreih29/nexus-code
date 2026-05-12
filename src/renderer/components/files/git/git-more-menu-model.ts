@@ -8,10 +8,7 @@
  * one inspectable, test-only file. Every function here is side-effect free.
  */
 
-import type {
-  BranchInfo,
-  GitAutofetchIntervalMin,
-} from "../../../../shared/types/git";
+import type { BranchInfo, GitAutofetchIntervalMin } from "../../../../shared/types/git";
 
 export type GitRemotesMenuSpec =
   | { kind: "remote"; remote: string; label: string }
@@ -83,7 +80,6 @@ export type GitMoreMenuLayoutEntry =
   | { kind: "item"; label: string; destructive?: boolean }
   | { kind: "submenu"; label: string }
   | GitSubmenuSeparator;
-
 
 /**
  * Builds the Remote submenu model used by the menu renderer and tests.

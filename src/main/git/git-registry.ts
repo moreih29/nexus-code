@@ -8,6 +8,7 @@ import {
   type GitStatus,
   type RepoInfo,
 } from "../../shared/types/git";
+import { requireLocalWorkspace } from "../workspace/workspace-guards";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import type { GitBinary } from "./git-binary";
 import { detectRepository } from "./git-detect";
@@ -56,6 +57,7 @@ export class GitRegistry {
    * their `{ kind: "non-repo" }` result and return null.
    */
   async getOrDetect(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
+    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
     this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"]);
 
     const cachedRepo = this.repositories.get(workspaceId);
@@ -76,7 +78,7 @@ export class GitRegistry {
    * Returns the current cached info without importing renderer-side state.
    */
   getRepoInfo(workspaceId: string): RepoInfo {
-    this.resolveWorkspaceRoot(workspaceId);
+    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository info");
 
     if (!this.bin || this.gitUnavailable) return { kind: "non-repo" };
     const cachedInfo = this.repoInfos.get(workspaceId);
@@ -90,8 +92,8 @@ export class GitRegistry {
    * Initializes a repository at the workspace root, then re-runs detection.
    */
   async reinit(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
+    const workspaceRoot = this.resolveLocalWorkspaceRoot(workspaceId, "Git initialization");
     const bin = this.requireGitBinary(["init"]);
-    const workspaceRoot = this.resolveWorkspaceRoot(workspaceId);
 
     await runGit({ bin: bin.path, cwd: workspaceRoot, args: ["init"], signal });
     return this.refreshDetection(workspaceId, signal);
@@ -101,6 +103,7 @@ export class GitRegistry {
    * Forces repository detection to run again and updates the cached state.
    */
   async refreshDetection(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
+    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
     this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"]);
     this.bumpGeneration(workspaceId);
     this.disposeRepository(workspaceId);
@@ -192,7 +195,7 @@ export class GitRegistry {
     generation: number,
     signal?: AbortSignal,
   ): Promise<GitRepository | null> {
-    const workspaceRoot = this.resolveWorkspaceRoot(workspaceId);
+    const workspaceRoot = this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
 
     try {
       const info = await detectRepository(workspaceRoot, bin, signal);
@@ -261,14 +264,11 @@ export class GitRegistry {
   }
 
   /**
-   * Looks up a workspace root through WorkspaceManager's public list().
+   * Looks up a local workspace root through WorkspaceManager's public list().
    */
-  private resolveWorkspaceRoot(workspaceId: string): string {
-    const workspace = this.workspaceManager
-      .list()
-      .find((candidate) => candidate.id === workspaceId);
-    if (!workspace) throw new Error(`workspace not found: ${workspaceId}`);
-    return workspace.rootPath;
+  private resolveLocalWorkspaceRoot(workspaceId: string, operation: string): string {
+    const workspace = requireLocalWorkspace(this.workspaceManager, workspaceId, operation);
+    return workspace.location.rootPath;
   }
 
   /**

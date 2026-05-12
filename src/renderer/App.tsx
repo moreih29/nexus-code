@@ -1,5 +1,6 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
+import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
@@ -7,6 +8,7 @@ import { GlobalRoots } from "./components/global-roots";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
+import { AddWorkspaceDialog } from "./components/workspace/add-workspace-dialog";
 import { WorkspacePanel } from "./components/workspace/workspace-panel";
 import { ipcCall } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
@@ -23,6 +25,7 @@ export function App() {
   // Their <WorkspacePanel> stays mounted (CSS-hidden when inactive) so PTYs
   // survive workspace switches. Pruned when the workspace itself disappears.
   const [mountedIds, setMountedIds] = useState<Set<string>>(() => new Set());
+  const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false);
 
   useEffect(() => {
     if (!monaco) return;
@@ -89,17 +92,22 @@ export function App() {
     [setActiveWorkspaceId],
   );
 
-  const handleAddWorkspace = useCallback(async () => {
-    const { canceled, filePaths } = await ipcCall("dialog", "showOpenDirectory", {
-      title: "Select workspace folder",
-    });
-    if (canceled || filePaths.length === 0) return;
-    const rootPath = filePaths[0];
-    const meta = await ipcCall("workspace", "create", { rootPath });
-    setActiveWorkspaceId(meta.id);
-    await ipcCall("workspace", "activate", { id: meta.id }).catch(() => {});
-    // Tab seeding is handled by <WorkspacePanel> on first mount.
-  }, [setActiveWorkspaceId]);
+  const handleAddWorkspace = useCallback(() => {
+    setAddWorkspaceOpen(true);
+  }, []);
+
+  const handleWorkspaceCreated = useCallback(
+    async (meta: WorkspaceMeta) => {
+      setActiveWorkspaceId(meta.id);
+      await ipcCall("workspace", "activate", { id: meta.id }).catch(() => {});
+      // Tab seeding is handled by <WorkspacePanel> on first mount.
+    },
+    [setActiveWorkspaceId],
+  );
+
+  const handleCloseAddWorkspace = useCallback(() => {
+    setAddWorkspaceOpen(false);
+  }, []);
 
   const handleRemoveWorkspace = useCallback(
     (id: string) => {
@@ -132,6 +140,11 @@ export function App() {
     <div className="flex flex-col h-full overflow-hidden">
       <TitleBar />
       <GlobalRoots />
+      <AddWorkspaceDialog
+        open={addWorkspaceOpen}
+        onClose={handleCloseAddWorkspace}
+        onWorkspaceCreated={handleWorkspaceCreated}
+      />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           workspaces={workspaces}

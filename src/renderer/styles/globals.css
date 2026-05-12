@@ -24,6 +24,10 @@
   --color-git-chip-border: rgba(226, 226, 226, 0.35);
   --color-git-chip-border-strong: rgba(226, 226, 226, 0.6);
   --color-git-chip-hover-bg: rgba(255, 255, 255, 0.1);
+  --color-workspace-connection-idle: oklch(0.68 0.003 84);
+  --color-workspace-connection-connected: oklch(0.72 0.14 145);
+  --color-workspace-connection-connecting: oklch(0.76 0.12 82);
+  --color-workspace-connection-error: oklch(0.68 0.19 27);
 }
 
 [data-theme="light"],
@@ -41,6 +45,10 @@
   --color-git-chip-border: rgba(26, 25, 23, 0.24);
   --color-git-chip-border-strong: rgba(26, 25, 23, 0.42);
   --color-git-chip-hover-bg: rgba(26, 25, 23, 0.06);
+  --color-workspace-connection-idle: oklch(0.48 0.003 84);
+  --color-workspace-connection-connected: oklch(0.48 0.12 145);
+  --color-workspace-connection-connecting: oklch(0.52 0.12 82);
+  --color-workspace-connection-error: oklch(0.52 0.17 27);
 }
 
 /* ---------------------------------------------------------------------------

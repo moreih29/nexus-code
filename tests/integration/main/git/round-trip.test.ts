@@ -126,6 +126,7 @@ async function registerRealGit(root: string, gitPath: string): Promise<void> {
     id: WORKSPACE_ID,
     name: "round-trip",
     rootPath: root,
+    location: { kind: "local", rootPath: root },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),

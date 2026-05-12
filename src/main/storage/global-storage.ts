@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { WorkspaceMeta } from "../../shared/types/workspace";
+import {
+  rootPathFromLocation,
+  type WorkspaceLocation,
+  WorkspaceLocationSchema,
+  type WorkspaceMeta,
+  WorkspaceMetaSchema,
+} from "../../shared/types/workspace";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
@@ -11,21 +17,57 @@ interface WorkspaceRow {
   id: string;
   name: string;
   root_path: string;
+  location: string | null;
   color_tone: string;
   pinned: number;
   last_opened_at: number;
 }
 
+/**
+ * Builds the local location fallback used for legacy or invalid stored rows.
+ */
+function fallbackLocalLocation(rootPath: string): WorkspaceLocation {
+  return { kind: "local", rootPath };
+}
+
+/**
+ * Parses a stored location JSON blob, falling back to root_path for old rows.
+ */
+function rowLocation(row: WorkspaceRow): WorkspaceLocation {
+  if (!row.location) {
+    return fallbackLocalLocation(row.root_path);
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(row.location);
+  } catch {
+    return fallbackLocalLocation(row.root_path);
+  }
+
+  const parsedLocation = WorkspaceLocationSchema.safeParse(parsedJson);
+  if (!parsedLocation.success) {
+    return fallbackLocalLocation(row.root_path);
+  }
+
+  return parsedLocation.data;
+}
+
+/**
+ * Converts a database row into the normalized workspace metadata shape.
+ */
 function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
-  return {
+  const location = rowLocation(row);
+  return WorkspaceMetaSchema.parse({
     id: row.id,
     name: row.name,
-    rootPath: row.root_path,
+    location,
+    rootPath: rootPathFromLocation(location),
     colorTone: row.color_tone as WorkspaceMeta["colorTone"],
     pinned: row.pinned === 1,
     lastOpenedAt: new Date(row.last_opened_at).toISOString(),
     tabs: [],
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -70,19 +112,22 @@ export class GlobalStorage {
   }
 
   addWorkspace(meta: WorkspaceMeta): void {
+    const normalized = WorkspaceMetaSchema.parse(meta);
+    const rootPath = rootPathFromLocation(normalized.location);
     this.db
       .prepare(
         `INSERT INTO workspaces
-           (id, name, root_path, color_tone, pinned, last_opened_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           (id, name, root_path, location, color_tone, pinned, last_opened_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        meta.id,
-        meta.name,
-        meta.rootPath,
-        meta.colorTone ?? "default",
-        meta.pinned ? 1 : 0,
-        meta.lastOpenedAt ? new Date(meta.lastOpenedAt).getTime() : Date.now(),
+        normalized.id,
+        normalized.name,
+        rootPath,
+        JSON.stringify(normalized.location),
+        normalized.colorTone ?? "default",
+        normalized.pinned ? 1 : 0,
+        normalized.lastOpenedAt ? new Date(normalized.lastOpenedAt).getTime() : Date.now(),
       );
   }
 
@@ -93,15 +138,20 @@ export class GlobalStorage {
     if (!row) {
       throw new Error(`workspace not found: ${id}`);
     }
+    const location =
+      partial.location ??
+      (partial.rootPath ? fallbackLocalLocation(partial.rootPath) : rowLocation(row));
+    const rootPath = rootPathFromLocation(location);
     this.db
       .prepare(
         `UPDATE workspaces
-         SET name = ?, root_path = ?, color_tone = ?, pinned = ?, last_opened_at = ?
+         SET name = ?, root_path = ?, location = ?, color_tone = ?, pinned = ?, last_opened_at = ?
          WHERE id = ?`,
       )
       .run(
         partial.name ?? row.name,
-        partial.rootPath ?? row.root_path,
+        rootPath,
+        JSON.stringify(location),
         (partial.colorTone ?? row.color_tone) as string,
         partial.pinned !== undefined ? (partial.pinned ? 1 : 0) : row.pinned,
         partial.lastOpenedAt ? new Date(partial.lastOpenedAt).getTime() : row.last_opened_at,

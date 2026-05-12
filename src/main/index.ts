@@ -18,6 +18,7 @@ import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPanelChannel } from "./ipc/channels/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
+import { registerSshChannel } from "./ipc/channels/ssh";
 import { registerSystemChannel } from "./ipc/channels/system";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
@@ -85,6 +86,7 @@ registerDialogChannel();
 registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
+registerSshChannel();
 registerSystemChannel({ openNewWindow: createMainWindow });
 
 app.whenReady().then(async () => {

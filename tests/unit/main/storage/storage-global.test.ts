@@ -19,6 +19,7 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
     id: "00000000-0000-0000-0000-000000000001",
     name: "test-workspace",
     rootPath: path.join(os.tmpdir(), "test"),
+    location: { kind: "local", rootPath: path.join(os.tmpdir(), "test") },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date(1_700_000_000_000).toISOString(),
@@ -52,7 +53,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("2");
+    expect(row?.value).toBe("3");
     db.close();
   });
 
@@ -64,7 +65,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("2");
+    expect(row?.value).toBe("3");
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -79,6 +80,58 @@ describe("applyMigrations", () => {
 
     const cols = db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[];
     expect(cols.map((c) => c.name)).not.toContain("category");
+    db.close();
+  });
+
+  it("v3 adds the workspace location column", () => {
+    const db = makeDb();
+    applyMigrations(db);
+
+    const cols = db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[];
+    expect(cols.map((c) => c.name)).toContain("location");
+    db.close();
+  });
+
+  it("v3 backfills legacy rows with local locations", () => {
+    const db = makeDb();
+    db.exec(`
+      CREATE TABLE _meta (
+        key   TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE workspaces (
+        id             TEXT NOT NULL PRIMARY KEY,
+        name           TEXT NOT NULL,
+        root_path      TEXT NOT NULL,
+        color_tone     TEXT NOT NULL DEFAULT 'default',
+        pinned         INTEGER NOT NULL DEFAULT 0,
+        last_opened_at INTEGER NOT NULL
+      );
+    `);
+    db.prepare("INSERT INTO _meta (key, value) VALUES ('schemaVersion', '2')").run();
+    db.prepare(
+      `INSERT INTO workspaces
+         (id, name, root_path, color_tone, pinned, last_opened_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "00000000-0000-0000-0000-000000000099",
+      "legacy",
+      "/legacy/root",
+      "default",
+      0,
+      1_700_000_000_000,
+    );
+
+    applyMigrations(db);
+    applyMigrations(db);
+
+    const row = db.prepare("SELECT root_path, location FROM workspaces").get() as {
+      root_path: string;
+      location: string;
+    };
+    expect(row.root_path).toBe("/legacy/root");
+    expect(JSON.parse(row.location)).toEqual({ kind: "local", rootPath: "/legacy/root" });
     db.close();
   });
 });
@@ -109,8 +162,21 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
     expect(row.id).toBe(meta.id);
     expect(row.name).toBe(meta.name);
     expect(row.rootPath).toBe(meta.rootPath);
+    expect(row.location).toEqual(meta.location);
     expect(row.colorTone).toBe(meta.colorTone);
     expect(row.pinned).toBe(false);
+  });
+
+  it("addWorkspace persists ssh location and remotePath compatibility rootPath", () => {
+    const meta = makeMeta({
+      rootPath: "/srv/app",
+      location: { kind: "ssh", host: "devbox", remotePath: "/srv/app", configAlias: "dev" },
+    });
+    storage.addWorkspace(meta);
+
+    const row = storage.listWorkspaces()[0];
+    expect(row.location).toEqual(meta.location);
+    expect(row.rootPath).toBe("/srv/app");
   });
 
   it("column mapping is accurate — pinned integer round-trips to boolean", () => {
@@ -156,6 +222,15 @@ describe("GlobalStorage.updateWorkspace", () => {
     });
     const list = storage.listWorkspaces();
     expect(list[0].name).toBe("renamed");
+  });
+
+  it("updates location and keeps rootPath compatibility in sync", () => {
+    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", {
+      location: { kind: "ssh", host: "remote", remotePath: "/work/repo" },
+    });
+    const list = storage.listWorkspaces();
+    expect(list[0].location).toEqual({ kind: "ssh", host: "remote", remotePath: "/work/repo" });
+    expect(list[0].rootPath).toBe("/work/repo");
   });
 
   it("throws when workspace is not found", () => {

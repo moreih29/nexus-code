@@ -93,6 +93,7 @@ mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
           id: "ws-1",
           name: "Workspace",
           rootPath: "/workspace",
+          location: { kind: "local", rootPath: "/workspace" },
           colorTone: "sand",
           pinned: false,
           tabs: [],

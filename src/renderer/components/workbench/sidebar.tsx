@@ -1,6 +1,9 @@
+import { Folder, Server } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useUIStore } from "../../state/stores/ui";
+import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +30,7 @@ export function Sidebar({
   onRemoveWorkspace,
 }: SidebarProps) {
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
 
   return (
     <aside className="relative shrink-0 bg-muted flex flex-col" style={{ width: sidebarWidth }}>
@@ -41,7 +45,13 @@ export function Sidebar({
 
         {workspaces.map((ws) => {
           const isActive = ws.id === activeWorkspaceId;
-          const pathTail = ws.rootPath.split("/").filter(Boolean).slice(-2).join("/");
+          const isSsh = ws.location.kind === "ssh";
+          const Icon = isSsh ? Server : Folder;
+          const connectionStatus: WorkspaceConnectionStatus = isSsh
+            ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+            : "idle";
+          const secondaryText = secondaryWorkspaceText(ws);
+          const secondaryTitle = ws.location.kind === "ssh" ? ws.location.remotePath : ws.rootPath;
 
           return (
             <div key={ws.id} className="relative group mx-2 my-0.5">
@@ -62,20 +72,30 @@ export function Sidebar({
                   isActive && "bg-frosted-veil border-l-mist-border",
                 )}
               >
-                {/* Workspace name — 14px body, truncate for long names */}
-                <span
-                  className={cn(
-                    "block text-app-body-emphasis truncate min-w-0",
-                    isActive ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {ws.name}
-                </span>
-                {/* Path tail — micro: 11px, truncate */}
-                <span className="block text-micro text-muted-foreground mt-[2px] truncate min-w-0">
-                  {pathTail}
+                <span className="grid grid-cols-[16px_minmax(0,1fr)] items-center gap-2">
+                  <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="min-w-0">
+                    {/* Workspace name — 14px body, truncate for long names */}
+                    <span
+                      className={cn(
+                        "block text-app-body-emphasis truncate min-w-0",
+                        isActive ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      {ws.name}
+                    </span>
+                    {/* Location hint — micro: 11px, truncate */}
+                    <span
+                      className="block text-micro text-muted-foreground mt-[2px] truncate min-w-0"
+                      title={secondaryTitle}
+                    >
+                      {secondaryText}
+                    </span>
+                  </span>
                 </span>
               </button>
+
+              {isSsh && <ConnectionStatusDot status={connectionStatus} />}
 
               {/* Remove button — appears on hover, sibling (not nested) so HTML stays valid */}
               <button
@@ -120,4 +140,55 @@ export function Sidebar({
       <SidebarResizeHandle />
     </aside>
   );
+}
+
+/**
+ * Renders the compact SSH connection indicator with text for assistive tech.
+ */
+function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) {
+  const label = `SSH workspace, ${status}`;
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "absolute bottom-2 right-2 size-2 rounded-full ring-1 ring-background",
+        connectionStatusClassName(status),
+      )}
+    />
+  );
+}
+
+/**
+ * Maps sidebar display statuses to measured OKLCH token colors.
+ */
+function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
+  switch (status) {
+    case "connected":
+      return "bg-[var(--color-workspace-connection-connected)]";
+    case "connecting":
+    case "reconnecting":
+      return "bg-[var(--color-workspace-connection-connecting)]";
+    case "error":
+      return "bg-[var(--color-workspace-connection-error)]";
+    case "idle":
+      return "bg-[var(--color-workspace-connection-idle)]";
+  }
+}
+
+/**
+ * Chooses the compact secondary line for local and SSH workspace rows.
+ */
+function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
+  if (workspace.location.kind === "ssh") {
+    if (workspace.location.configAlias) {
+      return workspace.location.configAlias;
+    }
+    return workspace.location.user
+      ? `${workspace.location.user}@${workspace.location.host}`
+      : workspace.location.host;
+  }
+
+  return workspace.rootPath.split("/").filter(Boolean).slice(-2).join("/");
 }

@@ -7,19 +7,18 @@
  * but not a path inside it (getExpanded / setExpanded).
  */
 import path from "node:path";
+import { requireLocalWorkspace, requireWorkspace } from "../../../workspace/workspace-guards";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 
 export function resolveSafe(
   manager: WorkspaceManager,
   workspaceId: string,
   relPath: string,
+  operation = "local filesystem access",
 ): string {
-  const workspace = manager.list().find((w) => w.id === workspaceId);
-  if (!workspace) {
-    throw new Error(`workspace not found: ${workspaceId}`);
-  }
+  const workspace = requireLocalWorkspace(manager, workspaceId, operation);
 
-  const rootPath = workspace.rootPath;
+  const rootPath = workspace.location.rootPath;
   const abs = path.resolve(rootPath, relPath || ".");
   const rel = path.relative(rootPath, abs);
 
@@ -34,7 +33,5 @@ export function resolveSafe(
 }
 
 export function assertWorkspaceExists(manager: WorkspaceManager, workspaceId: string): void {
-  if (!manager.list().some((w) => w.id === workspaceId)) {
-    throw new Error(`workspace not found: ${workspaceId}`);
-  }
+  requireWorkspace(manager, workspaceId);
 }

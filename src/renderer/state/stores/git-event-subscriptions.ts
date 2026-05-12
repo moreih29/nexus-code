@@ -11,8 +11,8 @@
 
 import type { GitAutofetchStateChanged } from "../../../shared/types/git";
 import { ipcListen } from "../../ipc/client";
-import { scheduleStatusHintRefresh } from "./git-draft-persistence";
 import { useGitStore } from "./git";
+import { scheduleStatusHintRefresh } from "./git-draft-persistence";
 import { canUseIpcBridge } from "./git-store-helpers";
 
 /**

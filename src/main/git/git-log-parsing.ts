@@ -12,8 +12,8 @@
  */
 
 import type { LogEntry, LogEntryRef } from "../../shared/types/git";
-import type { GitLogArgs } from "./git-repository";
 import { GitError } from "./git-error";
+import type { GitLogArgs } from "./git-repository";
 
 export const LOG_FIELD_SEPARATOR = "\x1f";
 export const LOG_RECORD_SEPARATOR = "\x1e";

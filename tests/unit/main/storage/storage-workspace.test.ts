@@ -16,10 +16,12 @@ function makeTmpDir(): string {
 }
 
 function makeMeta(id: string): WorkspaceMeta {
+  const rootPath = path.join(os.tmpdir(), "ws");
   return {
     id,
     name: "my-workspace",
-    rootPath: path.join(os.tmpdir(), "ws"),
+    rootPath,
+    location: { kind: "local", rootPath },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date(1_700_000_000_000).toISOString(),

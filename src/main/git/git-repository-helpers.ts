@@ -20,11 +20,7 @@ import type {
 } from "../../shared/types/git";
 import { GitError } from "./git-error";
 import type { RunGitResult } from "./git-process";
-import type {
-  CommitCommandOptions,
-  DiscardOptions,
-  DiscardPathsets,
-} from "./git-repository";
+import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./git-repository";
 
 /**
  * Builds `git diff` arguments from the shared diff spec union.

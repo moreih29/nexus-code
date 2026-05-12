@@ -6,8 +6,16 @@ import path from "node:path";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
-import type { BroadcastFn } from "../../../../src/main/workspace/workspace-manager";
+import type {
+  SshChannel,
+  SshChannelLifecycleEvent,
+} from "../../../../src/main/transport/ssh-channel";
+import type {
+  BroadcastFn,
+  WorkspaceSshChannelFactory,
+} from "../../../../src/main/workspace/workspace-manager";
 import { WorkspaceManager } from "../../../../src/main/workspace/workspace-manager";
+import type { SshErrorCode } from "../../../../src/shared/types/ssh-errors";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,13 +50,153 @@ function makeManager(
   workspaceStorage: WorkspaceStorage,
   stateService: StateService,
   broadcastFn: BroadcastFn,
+  sshChannelFactory?: WorkspaceSshChannelFactory,
 ): WorkspaceManager {
-  return new WorkspaceManager(globalStorage, workspaceStorage, stateService, broadcastFn);
+  return new WorkspaceManager(
+    globalStorage,
+    workspaceStorage,
+    stateService,
+    broadcastFn,
+    sshChannelFactory,
+  );
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function connectionStatuses(
+  broadcastMock: ReturnType<typeof mock>,
+): Array<{ workspaceId: string; status: string }> {
+  return broadcastMock.mock.calls
+    .filter(([channel, event]) => channel === "workspace" && event === "connectionChanged")
+    .map(([, , args]) => args as { workspaceId: string; status: string });
+}
+
+function makeLifecycleChannel(ready: Promise<void> = Promise.resolve()): {
+  channel: SshChannel;
+  emitLifecycle: (event: SshChannelLifecycleEvent) => void;
+} {
+  let lifecycleCallback: ((event: SshChannelLifecycleEvent) => void) | null = null;
+  const channel: SshChannel = {
+    ready,
+    call: mock(async () => []),
+    on: mock(() => () => {}),
+    onLifecycle: mock((callback: (event: SshChannelLifecycleEvent) => void) => {
+      lifecycleCallback = callback;
+      return () => {
+        if (lifecycleCallback === callback) {
+          lifecycleCallback = null;
+        }
+      };
+    }),
+    dispose: mock(() => {}),
+  };
+
+  return {
+    channel,
+    emitLifecycle(event) {
+      lifecycleCallback?.(event);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("WorkspaceManager — create location metadata", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("normalizes legacy rootPath create args into a local location", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+    const rootPath = path.join(tmpDir, "project");
+
+    manager.init();
+    const created = manager.create({ rootPath });
+
+    expect(created.location).toEqual({ kind: "local", rootPath });
+    expect(created.rootPath).toBe(rootPath);
+    expect(created.name).toBe("project");
+
+    manager.close();
+  });
+
+  it("creates ssh workspaces with alias-based default names", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const created = manager.create({
+      location: {
+        kind: "ssh",
+        host: "dev.example.com",
+        remotePath: "/srv/repo",
+        configAlias: "devbox",
+      },
+    });
+
+    expect(created.name).toBe("devbox");
+    expect(created.rootPath).toBe("/srv/repo");
+    expect(created.location).toEqual({
+      kind: "ssh",
+      host: "dev.example.com",
+      remotePath: "/srv/repo",
+      configAlias: "devbox",
+    });
+
+    manager.close();
+  });
+
+  it("creates ssh workspaces with host default names when no alias is present", () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+    );
+
+    manager.init();
+    const created = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" },
+    });
+
+    expect(created.name).toBe("dev.example.com");
+    expect(created.rootPath).toBe("/srv/repo");
+
+    manager.close();
+  });
+});
 
 describe("WorkspaceManager — restart simulation (persistence round-trip)", () => {
   let tmpDir: string;
@@ -61,7 +209,7 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("restores the same workspace on second init", () => {
+  it("restores the same workspace on second init", async () => {
     const wsBaseDir = path.join(tmpDir, "workspaces");
     fs.mkdirSync(wsBaseDir, { recursive: true });
     const statePath = path.join(tmpDir, "state.json");
@@ -82,7 +230,7 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
     const mgr1 = new WorkspaceManager(globalStorage1, ws1, ss1, bcast1 as BroadcastFn);
     mgr1.init();
     const created = mgr1.create({ rootPath: path.join(tmpDir, "fixture-root"), name: "fixture" });
-    mgr1.activate(created.id);
+    await mgr1.activate(created.id);
 
     expect(mgr1.list().length).toBe(1);
     expect(mgr1.getActiveId()).toBe(created.id);
@@ -137,7 +285,7 @@ describe("WorkspaceManager — broadcast events", () => {
     expect(ch).toBe("workspace");
     expect(ev).toBe("changed");
 
-    globalStorage.close();
+    manager.close();
   });
 
   it("broadcasts 'changed' event when update is called", () => {
@@ -166,7 +314,7 @@ describe("WorkspaceManager — broadcast events", () => {
     expect(args.id).toBe(ws.id);
     expect(args.name).toBe("renamed");
 
-    globalStorage.close();
+    manager.close();
   });
 
   it("broadcasts 'removed' event with {id} payload when remove is called", () => {
@@ -190,6 +338,280 @@ describe("WorkspaceManager — broadcast events", () => {
     expect(ev).toBe("removed");
     expect(args.id).toBe(ws.id);
 
+    manager.close();
+  });
+});
+
+describe("WorkspaceManager — ssh activation lifecycle", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("waits for the ssh channel before marking the workspace active", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const ready = deferred<void>();
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const channel: SshChannel = {
+      ready: ready.promise,
+      call: mock(async (method: string, params?: unknown) => {
+        calls.push({ method, params });
+        return [{ name: "src", type: "dir" }];
+      }),
+      on: mock(() => () => {}),
+      onLifecycle: mock(() => () => {}),
+      dispose: mock(() => {}),
+    };
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws = manager.create({
+      location: {
+        kind: "ssh",
+        host: "dev.example.com",
+        user: "deploy",
+        port: 2222,
+        identityFile: "/tmp/key",
+        remotePath: "/srv/project",
+      },
+      name: "remote",
+    });
+
+    const activation = manager.activate(ws.id);
+    await Promise.resolve();
+
+    expect(manager.getActiveId()).toBeNull();
+    expect(createChannel).toHaveBeenCalledWith({
+      host: "dev.example.com",
+      user: "deploy",
+      port: 2222,
+      identityFile: "/tmp/key",
+      remoteCommand: "bash -lc 'cd /srv/project && exec bun src/agent/index.ts /srv/project'",
+    });
+
+    ready.resolve();
+    await activation;
+
+    expect(manager.getActiveId()).toBe(ws.id);
+    await expect(manager.requireContext(ws.id).fs.readdir(".")).resolves.toEqual([
+      { name: "src", type: "dir" },
+    ]);
+    expect(calls).toEqual([{ method: "fs.readdir", params: { relPath: "." } }]);
+
+    manager.remove(ws.id);
+    expect(channel.dispose).toHaveBeenCalledTimes(1);
+
+    globalStorage.close();
+  });
+
+  it("broadcasts connecting and connected around ssh activation", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const ready = deferred<void>();
+    const { channel } = makeLifecycleChannel(ready.promise);
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+    });
+    broadcastMock.mockClear();
+
+    const activation = manager.activate(ws.id);
+    await Promise.resolve();
+
+    expect(connectionStatuses(broadcastMock)).toEqual([
+      { workspaceId: ws.id, status: "connecting" },
+    ]);
+
+    ready.resolve();
+    await activation;
+
+    expect(connectionStatuses(broadcastMock)).toEqual([
+      { workspaceId: ws.id, status: "connecting" },
+      { workspaceId: ws.id, status: "connected" },
+    ]);
+
+    manager.close();
+  });
+
+  it("broadcasts disconnected when an active ssh channel exits", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const { channel, emitLifecycle } = makeLifecycleChannel();
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+    });
+    broadcastMock.mockClear();
+
+    await manager.activate(ws.id);
+    emitLifecycle({ type: "exit", code: 0, signal: null });
+
+    expect(connectionStatuses(broadcastMock)).toEqual([
+      { workspaceId: ws.id, status: "connecting" },
+      { workspaceId: ws.id, status: "connected" },
+      { workspaceId: ws.id, status: "disconnected" },
+    ]);
+    await expect(manager.requireContext(ws.id).fs.readdir(".")).rejects.toThrow(
+      "ssh fs provider: channel not yet wired",
+    );
+
+    manager.close();
+  });
+
+  it("broadcasts error for ssh activation failure without overwriting it on disposal", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const failure = new Error("SSH authentication failed") as Error & { code: SshErrorCode };
+    failure.name = "SshError";
+    failure.code = "ssh.auth-failed";
+    const channel: SshChannel = {
+      ready: Promise.reject(failure),
+      call: mock(async () => []),
+      on: mock(() => () => {}),
+      onLifecycle: mock(() => () => {}),
+      dispose: mock(() => {}),
+    };
+    channel.ready.catch(() => {});
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+    });
+    broadcastMock.mockClear();
+
+    await expect(manager.activate(ws.id)).rejects.toBe(failure);
+
+    expect(connectionStatuses(broadcastMock)).toEqual([
+      { workspaceId: ws.id, status: "connecting" },
+      { workspaceId: ws.id, status: "error" },
+    ]);
+    expect(channel.dispose).toHaveBeenCalledTimes(1);
+
+    manager.close();
+  });
+
+  it("reuses one ssh channel per workspace and disposes all channels on close", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const firstDispose = mock(() => {});
+    const secondDispose = mock(() => {});
+    const channels: SshChannel[] = [
+      {
+        ready: Promise.resolve(),
+        call: mock(async () => []),
+        on: mock(() => () => {}),
+        onLifecycle: mock(() => () => {}),
+        dispose: firstDispose,
+      },
+      {
+        ready: Promise.resolve(),
+        call: mock(async () => []),
+        on: mock(() => () => {}),
+        onLifecycle: mock(() => () => {}),
+        dispose: secondDispose,
+      },
+    ];
+    const createChannel = mock((() => {
+      const channel = channels.shift();
+      if (!channel) {
+        throw new Error("unexpected ssh channel creation");
+      }
+      return channel;
+    }) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws1 = manager.create({
+      location: { kind: "ssh", host: "one.example.com", remotePath: "/srv/one" },
+    });
+    const ws2 = manager.create({
+      location: { kind: "ssh", host: "two.example.com", remotePath: "/srv/two" },
+    });
+
+    await manager.activate(ws1.id);
+    await manager.activate(ws1.id);
+    await manager.activate(ws2.id);
+
+    expect(createChannel).toHaveBeenCalledTimes(2);
+    manager.close();
+    expect(firstDispose).toHaveBeenCalledTimes(1);
+    expect(secondDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws classified ssh activation failures unchanged and resets to the not-wired provider", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const failure = new Error("SSH authentication failed") as Error & { code: SshErrorCode };
+    failure.name = "SshError";
+    failure.code = "ssh.auth-failed";
+    const channel: SshChannel = {
+      ready: Promise.reject(failure),
+      call: mock(async () => []),
+      on: mock(() => () => {}),
+      onLifecycle: mock(() => () => {}),
+      dispose: mock(() => {}),
+    };
+    channel.ready.catch(() => {});
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+
+    manager.init();
+    const ws = manager.create({
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+    });
+
+    await expect(manager.activate(ws.id)).rejects.toBe(failure);
+    expect(manager.getActiveId()).toBeNull();
+    expect(channel.dispose).toHaveBeenCalledTimes(1);
+    await expect(manager.requireContext(ws.id).fs.readdir(".")).rejects.toThrow(
+      "ssh fs provider: channel not yet wired",
+    );
+
     globalStorage.close();
   });
 });
@@ -205,7 +627,7 @@ describe("WorkspaceManager — activate", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("activate updates getActiveId and persists to stateService", () => {
+  it("activate updates getActiveId and persists to stateService", async () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const manager = makeManager(
       globalStorage,
@@ -218,18 +640,18 @@ describe("WorkspaceManager — activate", () => {
     const ws1 = manager.create({ rootPath: path.join(os.tmpdir(), "ws1"), name: "ws1" });
     const ws2 = manager.create({ rootPath: path.join(os.tmpdir(), "ws2"), name: "ws2" });
 
-    manager.activate(ws1.id);
+    await manager.activate(ws1.id);
     expect(manager.getActiveId()).toBe(ws1.id);
     expect(stateService.getState().lastActiveWorkspaceId).toBe(ws1.id);
 
-    manager.activate(ws2.id);
+    await manager.activate(ws2.id);
     expect(manager.getActiveId()).toBe(ws2.id);
     expect(stateService.getState().lastActiveWorkspaceId).toBe(ws2.id);
 
     globalStorage.close();
   });
 
-  it("activate throws for unknown workspace id", () => {
+  it("activate throws for unknown workspace id", async () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const manager = makeManager(
       globalStorage,
@@ -240,7 +662,7 @@ describe("WorkspaceManager — activate", () => {
 
     manager.init();
 
-    expect(() => manager.activate("00000000-0000-0000-0000-000000000099")).toThrow(
+    await expect(manager.activate("00000000-0000-0000-0000-000000000099")).rejects.toThrow(
       "workspace not found",
     );
 
@@ -259,7 +681,7 @@ describe("WorkspaceManager — remove + active workspace fallback", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("clears active id when the only workspace is removed", () => {
+  it("clears active id when the only workspace is removed", async () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const manager = makeManager(
       globalStorage,
@@ -270,7 +692,7 @@ describe("WorkspaceManager — remove + active workspace fallback", () => {
 
     manager.init();
     const ws = manager.create({ rootPath: path.join(tmpDir, "ws"), name: "ws" });
-    manager.activate(ws.id);
+    await manager.activate(ws.id);
 
     manager.remove(ws.id);
 
@@ -280,7 +702,7 @@ describe("WorkspaceManager — remove + active workspace fallback", () => {
     globalStorage.close();
   });
 
-  it("falls back to a remaining workspace when the active one is removed", () => {
+  it("falls back to a remaining workspace when the active one is removed", async () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const manager = makeManager(
       globalStorage,
@@ -292,7 +714,7 @@ describe("WorkspaceManager — remove + active workspace fallback", () => {
     manager.init();
     const ws1 = manager.create({ rootPath: path.join(tmpDir, "ws1"), name: "ws1" });
     const ws2 = manager.create({ rootPath: path.join(tmpDir, "ws2"), name: "ws2" });
-    manager.activate(ws1.id);
+    await manager.activate(ws1.id);
 
     manager.remove(ws1.id);
 

@@ -28,7 +28,7 @@ export function writeFileHandler(
 ): (args: unknown) => Promise<WriteFileResult> {
   return async (args: unknown): Promise<WriteFileResult> => {
     const { workspaceId, relPath, content, expected } = validateArgs(c.writeFile.args, args);
-    const abs = resolveSafe(manager, workspaceId, relPath);
+    const abs = resolveSafe(manager, workspaceId, relPath, "write files");
 
     // Refuse oversized writes — same threshold as readFile so we don't
     // create files we couldn't reload. Cheap guard against pathological
@@ -45,7 +45,7 @@ export function writeFileHandler(
 export function createFileHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, relPath } = validateArgs(c.createFile.args, args);
-    const abs = resolveSafe(manager, workspaceId, relPath);
+    const abs = resolveSafe(manager, workspaceId, relPath, "create files");
 
     try {
       // `wx` = O_CREAT | O_EXCL — fails with EEXIST when the path is
@@ -64,7 +64,7 @@ export function createFileHandler(manager: WorkspaceManager): (args: unknown) =>
 export function mkdirHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, relPath } = validateArgs(c.mkdir.args, args);
-    const abs = resolveSafe(manager, workspaceId, relPath);
+    const abs = resolveSafe(manager, workspaceId, relPath, "create directories");
 
     try {
       await fs.promises.mkdir(abs, { recursive: false });

@@ -8,8 +8,8 @@
  * runner enforces so the dialog rejects bad names before the IPC round-trip.
  */
 
-import type { FormDialogField } from "../../ui/form-dialog";
 import type { GitClonePhase, GitStatus } from "../../../../shared/types/git";
+import type { FormDialogField } from "../../ui/form-dialog";
 
 export const CLONE_FOLDER_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 

@@ -1,26 +1,17 @@
 /**
  * fs channel — registers the per-handler implementations defined in the
- * sibling files. `read-handlers.ts`, `write-handlers.ts`, and
- * `move-handlers.ts` each own one responsibility; this module only
- * wires them into the router so the channel itself stays a thin
- * map without growing.
+ * sibling files. This module only wires them into the router so the
+ * channel itself stays a thin map without growing.
  */
 import type { FileWatcher } from "../../../filesystem/file-watcher";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import { register } from "../../router";
+import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import { revealInFinderHandler, showItemInFolderHandler } from "./move-handlers";
-import {
-  getExpandedHandler,
-  readdirHandler,
-  readExternalHandler,
-  readFileHandler,
-  setExpandedHandler,
-  statHandler,
-  unwatchHandler,
-  watchHandler,
-} from "./read-handlers";
+import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
 import { searchTextStream } from "./search-handlers";
+import { unwatchHandler, watchHandler } from "./watch-handlers";
 import { createFileHandler, mkdirHandler, writeFileHandler } from "./write-handlers";
 
 // NOTE: do not re-export individual handler factories here — `move-handlers`

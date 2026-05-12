@@ -79,8 +79,13 @@ import {
   PanelViewOptionsSchema,
 } from "./types/panel";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
+import { SshErrorCodeSchema } from "./types/ssh-errors";
 import { TabMetaSchema } from "./types/tab";
-import { WorkspaceMetaSchema } from "./types/workspace";
+import {
+  WorkspaceConnectionChangedEventSchema,
+  WorkspaceLocationSchema,
+  WorkspaceMetaSchema,
+} from "./types/workspace";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors
@@ -166,10 +171,20 @@ export type InferComplete<T> =
 // Shared sub-schemas (used across channels)
 // ---------------------------------------------------------------------------
 
-const WorkspaceCreateArgsSchema = z.object({
+const WorkspaceCreateLegacyArgsSchema = z.object({
   rootPath: z.string(),
   name: z.string().optional(),
 });
+
+const WorkspaceCreateLocationArgsSchema = z.object({
+  location: WorkspaceLocationSchema,
+  name: z.string().optional(),
+});
+
+const WorkspaceCreateArgsSchema = z.union([
+  WorkspaceCreateLocationArgsSchema,
+  WorkspaceCreateLegacyArgsSchema,
+]);
 
 const WorkspaceUpdateArgsSchema = z.object({
   id: z.string().uuid(),
@@ -179,6 +194,23 @@ const WorkspaceUpdateArgsSchema = z.object({
 });
 
 const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
+
+const WorkspaceTestSshArgsSchema = z.object({
+  host: z.string().min(1),
+  user: z.string().min(1).optional(),
+  port: z.number().int().positive().max(65_535).optional(),
+  identityFile: z.string().min(1).optional(),
+  remotePath: z.string().min(1),
+});
+
+const WorkspaceTestSshResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }),
+  z.object({
+    ok: z.literal(false),
+    code: SshErrorCodeSchema,
+    message: z.string(),
+  }),
+]);
 
 const LspDidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceId: z.string().uuid(),
@@ -345,6 +377,14 @@ const SystemPathResultSchema = z.discriminatedUnion("ok", [
   }),
 ]);
 
+const SshConfigHostSchema = z.object({
+  alias: z.string().min(1),
+  host: z.string().optional(),
+  user: z.string().optional(),
+  port: z.number().int().positive().max(65_535).optional(),
+  identityFile: z.string().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // IPC contract map
 // ---------------------------------------------------------------------------
@@ -357,12 +397,21 @@ export const ipcContract = {
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
       activate: call(WorkspaceIdSchema, z.void()),
+      testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },
     listen: {
       changed: listen(WorkspaceMetaSchema),
       removed: listen(WorkspaceIdSchema),
       attention: listen(WorkspaceIdSchema),
+      connectionChanged: listen(WorkspaceConnectionChangedEventSchema),
     },
+  },
+
+  ssh: {
+    call: {
+      listConfigHosts: call(z.void(), z.array(SshConfigHostSchema)),
+    },
+    listen: {},
   },
 
   tab: {

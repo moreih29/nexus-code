@@ -15,6 +15,7 @@ import {
 } from "../lsp/lsp-bridge";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
+import { isEditorInputReadOnly } from "../workspace-readonly";
 import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
 import { attachFsSubscription } from "./attach-fs-subscription";
 import { attachLspBridge } from "./attach-lsp-bridge";
@@ -142,9 +143,10 @@ export function createEntry(
   const monaco = deps.requireMonaco();
   const monacoUri = monaco.Uri.parse(cacheUri);
   const origin: "workspace" | "external" = input.origin ?? "workspace";
-  const readOnly: boolean = input.readOnly ?? false;
+  const readOnly = isEditorInputReadOnly(input);
+  const entryInput = readOnly && input.readOnly !== true ? { ...input, readOnly: true } : input;
   const entry: ModelEntry = {
-    input,
+    input: entryInput,
     cacheUri,
     lspUri: monacoUri.toString(),
     monacoUri,
@@ -163,7 +165,7 @@ export function createEntry(
     origin,
     readOnly,
     deps,
-    originatingWorkspaceId: input.origin === "external" ? input.workspaceId : undefined,
+    originatingWorkspaceId: entryInput.origin === "external" ? entryInput.workspaceId : undefined,
   };
 
   entry.loadPromise = loadEntry(entry);

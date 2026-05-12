@@ -5,6 +5,11 @@ import type {
   ipcContract,
 } from "../../../../shared/ipc-contract";
 import { walkAndSearchIter } from "../../../search/walker";
+import {
+  findWorkspace,
+  isLocalWorkspace,
+  UnsupportedSshWorkspaceError,
+} from "../../../workspace/workspace-guards";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import type { StreamContext } from "../../router";
 
@@ -29,12 +34,15 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
     { workspaceId, query }: SearchTextArgs,
     ctx: StreamContext,
   ): AsyncGenerator<SearchTextProgress, SearchTextComplete, unknown> {
-    const workspace = manager.list().find((w) => w.id === workspaceId);
+    const workspace = findWorkspace(manager, workspaceId);
     if (!workspace) {
       throw new WorkspaceNotFoundError(workspaceId);
     }
+    if (!isLocalWorkspace(workspace)) {
+      throw new UnsupportedSshWorkspaceError(workspaceId, "search workspace files");
+    }
 
-    const rootAbs = workspace.rootPath;
+    const rootAbs = workspace.location.rootPath;
     const startMs = Date.now();
     const search = walkAndSearchIter(rootAbs, query, ctx.signal);
     let next = await search.next();

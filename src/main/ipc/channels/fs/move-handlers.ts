@@ -30,7 +30,7 @@ export function showItemInFolderHandler(
 ): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, relPath } = validateArgs(c.showItemInFolder.args, args);
-    const abs = resolveSafe(manager, workspaceId, relPath);
+    const abs = resolveSafe(manager, workspaceId, relPath, "reveal workspace files");
 
     // Confirm the path still exists. Electron's showItemInFolder is a
     // best-effort no-op when the path is gone — surfacing a clear error

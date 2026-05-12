@@ -249,6 +249,23 @@ function resetWorkspaceStore(): void {
         id: WS_ID,
         name: "Workspace",
         rootPath: "/workspace",
+        location: { kind: "local", rootPath: "/workspace" },
+        colorTone: "default",
+        pinned: false,
+        tabs: [],
+      },
+    ],
+  });
+}
+
+function setSshWorkspaceStore(): void {
+  useWorkspacesStore.setState({
+    workspaces: [
+      {
+        id: WS_ID,
+        name: "Remote",
+        rootPath: "/remote",
+        location: { kind: "ssh", host: "devbox", remotePath: "/remote" },
         colorTone: "default",
         pinned: false,
         tabs: [],
@@ -380,6 +397,29 @@ describe("services/editor model cache", () => {
         },
       },
     ]);
+
+    releaseModel(input);
+  });
+
+  test("SSH workspace models are read-only and saveModel does not call writeFile", async () => {
+    setSshWorkspaceStore();
+    const input = { workspaceId: WS_ID, filePath: "/remote/src/ssh.ts" };
+    fileContents.set("src/ssh.ts", "before");
+
+    const acquired = await acquireModel(input);
+    expect(acquired.readOnly).toBe(true);
+    const model = acquired.model;
+    if (!model) throw new Error("expected ready model");
+
+    model.setValue("after");
+    ipcCalls.length = 0;
+
+    const result = await saveModel(input);
+
+    expect(result.kind).toBe("read-only");
+    expect(ipcCalls.some((call) => call.channel === "fs" && call.method === "writeFile")).toBe(
+      false,
+    );
 
     releaseModel(input);
   });

@@ -10,6 +10,7 @@ import { openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/
 import { useLayoutStore } from "@/state/stores/layout";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "../types";
+import { withWorkspaceReadOnly } from "../workspace-readonly";
 import { findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
 
 // When true, single-click file opens use a shared preview slot per group
@@ -20,7 +21,8 @@ export function openOrRevealEditor(
   input: EditorInput,
   opts: OpenEditorOptions = {},
 ): EditorTabLocation {
-  useLayoutStore.getState().ensureLayout(input.workspaceId);
+  const editorInput = withWorkspaceReadOnly(input);
+  useLayoutStore.getState().ensureLayout(editorInput.workspaceId);
 
   // VSCode parity: callers can opt out of the preview slot entirely
   // (e.g. file-tree double-click). When `preview === false`, we
@@ -33,8 +35,8 @@ export function openOrRevealEditor(
   if (opts.newSplit) {
     const { orientation, side, isPreview = false } = opts.newSplit;
     const { newLeafId, tabId } = openTabInNewSplit(
-      input.workspaceId,
-      { type: "editor", props: input },
+      editorInput.workspaceId,
+      { type: "editor", props: editorInput },
       orientation,
       side,
       isPreview,
@@ -43,42 +45,42 @@ export function openOrRevealEditor(
   }
 
   if (opts.revealIfOpened ?? true) {
-    const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
+    const layout = useLayoutStore.getState().byWorkspace[editorInput.workspaceId];
     if (layout) {
       const existing = findEditorTabInGroup(
-        input.workspaceId,
+        editorInput.workspaceId,
         layout.activeGroupId,
-        input.filePath,
+        editorInput.filePath,
       );
       if (existing) {
-        revealTab(input.workspaceId, existing.groupId, existing.tabId);
+        revealTab(editorInput.workspaceId, existing.groupId, existing.tabId);
         // Re-selecting an existing tab promotes it from preview (if it was one).
-        useTabsStore.getState().promoteFromPreview(input.workspaceId, existing.tabId);
+        useTabsStore.getState().promoteFromPreview(editorInput.workspaceId, existing.tabId);
         return existing;
       }
     }
   }
 
   if (allowPreview) {
-    const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
+    const layout = useLayoutStore.getState().byWorkspace[editorInput.workspaceId];
     if (layout) {
-      const previewSlot = findPreviewTabInGroup(input.workspaceId, layout.activeGroupId);
+      const previewSlot = findPreviewTabInGroup(editorInput.workspaceId, layout.activeGroupId);
       if (previewSlot) {
         // Reuse the existing preview slot: swap filePath/title, keep isPreview=true.
-        const newTitle = defaultTitle({ type: "editor", props: input });
+        const newTitle = defaultTitle({ type: "editor", props: editorInput });
         useTabsStore
           .getState()
-          .replacePreviewTab(input.workspaceId, previewSlot.tabId, input, newTitle);
-        revealTab(input.workspaceId, previewSlot.groupId, previewSlot.tabId);
+          .replacePreviewTab(editorInput.workspaceId, previewSlot.tabId, editorInput, newTitle);
+        revealTab(editorInput.workspaceId, previewSlot.groupId, previewSlot.tabId);
         return previewSlot;
       }
     }
   }
 
   const isPreview = allowPreview;
-  const tab = openEditorTab(input.workspaceId, input, undefined, isPreview);
-  const layout = useLayoutStore.getState().byWorkspace[input.workspaceId];
-  if (!layout) throw new Error(`layout slice not found for ${input.workspaceId}`);
+  const tab = openEditorTab(editorInput.workspaceId, editorInput, undefined, isPreview);
+  const layout = useLayoutStore.getState().byWorkspace[editorInput.workspaceId];
+  if (!layout) throw new Error(`layout slice not found for ${editorInput.workspaceId}`);
   const groupId = layout.activeGroupId;
   return { groupId, tabId: tab.id };
 }

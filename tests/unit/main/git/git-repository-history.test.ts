@@ -6,9 +6,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { buildLogArgs, parseLogRecord } from "../../../../src/main/git/git-log-parsing";
 import type { GitLogArgs } from "../../../../src/main/git/git-repository";
 import { GitRepository } from "../../../../src/main/git/git-repository";
-import { buildLogArgs, parseLogRecord } from "../../../../src/main/git/git-log-parsing";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 import type { LogEntry } from "../../../../src/shared/types/git";
 
