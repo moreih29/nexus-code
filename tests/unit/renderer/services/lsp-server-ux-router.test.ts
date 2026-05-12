@@ -38,19 +38,25 @@ describe("LSP server UX router", () => {
     console.log = originalConsole.log;
   });
 
-  test("routes window/logMessage severity 1/2/3/4 to console error/warn/info/log", () => {
+  test("drops window/logMessage so the debug channel does not flood devtools", () => {
+    // `window/logMessage` is the LSP spec's debug channel. Servers like
+    // tsserver emit info/log entries on every analysis cycle, so routing
+    // them to the console would make devtools unusable. Verify all four
+    // severity levels are silently dropped.
     routeLspServerEvent(serverEvent("window/logMessage", { type: 1, message: "error" }));
     routeLspServerEvent(serverEvent("window/logMessage", { type: 2, message: "warning" }));
     routeLspServerEvent(serverEvent("window/logMessage", { type: 3, message: "info" }));
     routeLspServerEvent(serverEvent("window/logMessage", { type: 4, message: "log" }));
 
-    expect(console.error).toHaveBeenCalledWith("[lsp:typescript:ws-1] error");
-    expect(console.warn).toHaveBeenCalledWith("[lsp:typescript:ws-1] warning");
-    expect(console.info).toHaveBeenCalledWith("[lsp:typescript:ws-1] info");
-    expect(console.log).toHaveBeenCalledWith("[lsp:typescript:ws-1] log");
+    expect(console.error).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.info).not.toHaveBeenCalled();
+    expect(console.log).not.toHaveBeenCalled();
   });
 
-  test("routes window/showMessage through the same severity logging stub", () => {
+  test("routes window/showMessage through the severity logging stub", () => {
+    // The user-facing channel is still surfaced to console until an
+    // in-app notification panel exists.
     routeLspServerEvent(serverEvent("window/showMessage", { type: 2, message: "Heads up" }));
 
     expect(console.warn).toHaveBeenCalledWith("[lsp:typescript:ws-1] Heads up");

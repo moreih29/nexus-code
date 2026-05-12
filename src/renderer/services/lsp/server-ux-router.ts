@@ -145,7 +145,19 @@ function updateWorkDoneProgress(event: LspServerEvent): void {
 export function routeLspServerEvent(event: LspServerEvent): void {
   const prefix = sourcePrefix(event);
 
-  if (event.method === "window/logMessage" || event.method === "window/showMessage") {
+  // LSP spec separates the two channels:
+  //   - `window/logMessage`: debug log channel, not meant for user surfaces.
+  //     Major servers (tsserver, rust-analyzer, …) emit info/log entries on
+  //     every analysis cycle, which floods devtools when piped to console.
+  //     Drop it here; surface it through a dedicated LSP Output panel if/when
+  //     one exists.
+  //   - `window/showMessage`: user-facing notification. Still routed to
+  //     console for visibility until an in-app notification surface lands.
+  if (event.method === "window/logMessage") {
+    return;
+  }
+
+  if (event.method === "window/showMessage") {
     writeMessage(event.params, prefix);
     return;
   }

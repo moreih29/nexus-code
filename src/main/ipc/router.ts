@@ -179,7 +179,20 @@ export function setupRouter(): void {
       try {
         return await handler(args, callContext.ctx);
       } catch (error) {
-        if (callContext.ctx?.signal?.aborted) return IPC_ABORT_SENTINEL;
+        // Cancellation envelope path:
+        //   1. Direct ipc:cancel from the renderer → ctx.signal.aborted=true.
+        //   2. AbortError propagated from an internal source (e.g.
+        //      `GitRepository.dispose()` aborting a queued op's controller
+        //      without touching the renderer's signal) — the ctx signal is
+        //      still clean but the call cannot complete. Treat both as the
+        //      same renderer-visible cancellation when the caller supplied
+        //      a signal so we can return the sentinel instead of rejecting,
+        //      which is what suppresses Electron's
+        //      `Error occurred in handler for 'ipc:call'` console log.
+        const isAbortError = error instanceof Error && error.name === "AbortError";
+        if (callContext.ctx?.signal && (callContext.ctx.signal.aborted || isAbortError)) {
+          return IPC_ABORT_SENTINEL;
+        }
         // Typed Git failures are an expected outcome of mutating ops (no
         // upstream, missing ref, empty stash, …). Returning them as data
         // keeps Electron's `Error occurred in handler for 'ipc:call'`
