@@ -3,7 +3,7 @@ import { readdirCore, readFileCore, statCore } from "../main/fs/core/read-core";
 import { FS_ERROR, fsErrorMessage } from "../shared/fs-errors";
 import type { DirEntry, FileReadResult, FsStat } from "../shared/types/fs";
 
-export interface AgentFsParams {
+export interface ServerFsParams {
   readonly relPath: string;
 }
 
@@ -11,27 +11,27 @@ export interface AgentFsParams {
  * Reads a workspace-relative directory through the shared fs core helpers.
  */
 export async function handleReaddir(rootPath: string, params: unknown): Promise<DirEntry[]> {
-  return readdirCore(resolveAgentPath(rootPath, readRelPathParam(params)));
+  return readdirCore(resolveServerPath(rootPath, readRelPathParam(params)));
 }
 
 /**
  * Reads workspace-relative metadata through the shared fs core helpers.
  */
 export async function handleStat(rootPath: string, params: unknown): Promise<FsStat> {
-  return statCore(resolveAgentPath(rootPath, readRelPathParam(params)));
+  return statCore(resolveServerPath(rootPath, readRelPathParam(params)));
 }
 
 /**
  * Reads workspace-relative file content through the shared fs core helpers.
  */
 export async function handleReadFile(rootPath: string, params: unknown): Promise<FileReadResult> {
-  return readFileCore(resolveAgentPath(rootPath, readRelPathParam(params)));
+  return readFileCore(resolveServerPath(rootPath, readRelPathParam(params)));
 }
 
 /**
- * Resolves a remote request path relative to the agent root and rejects escapes.
+ * Resolves a remote request path relative to the server root and rejects escapes.
  */
-function resolveAgentPath(rootPath: string, relPath: string): string {
+function resolveServerPath(rootPath: string, relPath: string): string {
   const abs = path.resolve(rootPath, relPath || ".");
   const rel = path.relative(rootPath, abs);
 
@@ -46,11 +46,11 @@ function resolveAgentPath(rootPath: string, relPath: string): string {
 }
 
 /**
- * Extracts the relPath argument used by all read-only agent fs methods.
+ * Extracts the relPath argument used by all read-only server fs methods.
  */
 function readRelPathParam(params: unknown): string {
   if (!isRecord(params) || typeof params.relPath !== "string") {
-    throw new AgentProtocolError("fs method params must include relPath");
+    throw new ServerProtocolError("fs method params must include relPath");
   }
 
   return params.relPath;
@@ -64,8 +64,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Error type used when fs params violate the agent request protocol.
+ * Error type used when fs params violate the server request protocol.
  */
-export class AgentProtocolError extends Error {
-  readonly code = "agent.protocol-error";
+export class ServerProtocolError extends Error {
+  readonly code = "server.protocol-error";
 }

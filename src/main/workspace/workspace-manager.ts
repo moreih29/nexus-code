@@ -332,16 +332,16 @@ function sshChannelOptionsFromLocation(location: SshWorkspaceLocation): CreateSs
     user: location.user,
     port: location.port,
     identityFile: location.identityFile,
-    remoteCommand: buildRemoteAgentCommand(location),
+    remoteCommand: buildRemoteServerCommand(location),
   };
 }
 
 /**
- * Renders the remote agent command with shell-safe remote path arguments.
+ * Renders the remote server command with shell-safe remote path arguments.
  */
-function buildRemoteAgentCommand(location: SshWorkspaceLocation): string {
+function buildRemoteServerCommand(location: SshWorkspaceLocation): string {
   const remotePath = quoteShellArg(location.remotePath);
-  const script = `cd ${remotePath} && exec bun src/agent/index.ts ${remotePath}`;
+  const script = `cd ${remotePath} && exec bun src/server/index.ts ${remotePath}`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 

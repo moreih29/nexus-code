@@ -139,7 +139,7 @@ export function createSshChannel(
     try {
       frame = parseFrame(line);
     } catch (error) {
-      failChannel(createSshError("agent.protocol-error", error), true);
+      failChannel(createSshError("server.protocol-error", error), true);
       return;
     }
 
@@ -151,7 +151,7 @@ export function createSshChannel(
     resolveReady();
     if (frame.kind === "response") {
       if (!activeRequestIds.has(frame.id)) {
-        failChannel(createSshError("agent.protocol-error"), true);
+        failChannel(createSshError("server.protocol-error"), true);
         return;
       }
       pendingRequests.resolve(frame.id, frame.result);
@@ -160,10 +160,10 @@ export function createSshChannel(
 
     if (frame.kind === "error-response") {
       if (!activeRequestIds.has(frame.id)) {
-        failChannel(createSshError("agent.protocol-error"), true);
+        failChannel(createSshError("server.protocol-error"), true);
         return;
       }
-      pendingRequests.reject(frame.id, errorFromAgentFrame(frame.error));
+      pendingRequests.reject(frame.id, errorFromServerFrame(frame.error));
       return;
     }
 
@@ -212,7 +212,7 @@ export function createSshChannel(
   });
 
   child.on("error", (error) => {
-    failChannel(createSshError("agent.spawn-failed", error), false);
+    failChannel(createSshError("server.spawn-failed", error), false);
   });
 
   child.on("close", (code, signal) => {
@@ -248,7 +248,7 @@ export function createSshChannel(
       try {
         line = `${JSON.stringify({ id: requestId, method, params })}\n`;
       } catch (error) {
-        return Promise.reject(createSshError("agent.protocol-error", error));
+        return Promise.reject(createSshError("server.protocol-error", error));
       }
 
       activeRequestIds.add(requestId);
@@ -376,13 +376,13 @@ function parseFrame(line: string): ParsedFrame {
   }
 
   if (!isRecord(parsed)) {
-    throw createSshError("agent.protocol-error");
+    throw createSshError("server.protocol-error");
   }
 
   const hasResult = hasOwnKey(parsed, "result");
   const hasError = hasOwnKey(parsed, "error");
   if (hasResult && hasError) {
-    throw createSshError("agent.protocol-error");
+    throw createSshError("server.protocol-error");
   }
 
   const response = hasResult ? ResponseResultFrameSchema.safeParse(parsed) : null;
@@ -412,18 +412,18 @@ function parseFrame(line: string): ParsedFrame {
     };
   }
 
-  throw createSshError("agent.protocol-error");
+  throw createSshError("server.protocol-error");
 }
 
 /**
- * Converts a remote agent error frame to an Error while preserving its code.
+ * Converts a remote server error frame to an Error while preserving its code.
  */
-function errorFromAgentFrame(value: unknown): Error {
+function errorFromServerFrame(value: unknown): Error {
   if (!isRecord(value)) {
-    return new Error("Remote agent request failed");
+    return new Error("Remote server request failed");
   }
 
-  const message = typeof value.message === "string" ? value.message : "Remote agent request failed";
+  const message = typeof value.message === "string" ? value.message : "Remote server request failed";
   const error = new Error(message);
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;
@@ -459,10 +459,10 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH connection failed";
     case "ssh.auth-failed":
       return "SSH authentication failed";
-    case "agent.spawn-failed":
-      return "Remote agent failed to start";
-    case "agent.protocol-error":
-      return "Remote agent protocol error";
+    case "server.spawn-failed":
+      return "Remote server failed to start";
+    case "server.protocol-error":
+      return "Remote server protocol error";
     case "ssh.unknown":
       return "SSH transport failed";
   }

@@ -77,7 +77,7 @@ export function testSshHandler(
         user: testArgs.user,
         port: testArgs.port,
         identityFile: testArgs.identityFile,
-        remoteCommand: buildRemoteAgentCommand(testArgs),
+        remoteCommand: buildRemoteServerCommand(testArgs),
       });
 
       onAbort = () => {
@@ -109,16 +109,16 @@ export function testSshHandler(
 }
 
 /**
- * Renders the temporary remote agent command for OpenSSH.
+ * Renders the temporary remote server command for OpenSSH.
  */
-function buildRemoteAgentCommand(args: TestSshArgs): string {
+function buildRemoteServerCommand(args: TestSshArgs): string {
   const remotePath = quoteShellArg(args.remotePath);
-  const script = `cd ${remotePath} && exec bun src/agent/index.ts ${remotePath}`;
+  const script = `cd ${remotePath} && exec bun src/server/index.ts ${remotePath}`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
 /**
- * Converts SSH transport and agent failures to the public testSsh result.
+ * Converts SSH transport and server failures to the public testSsh result.
  */
 function sshFailureResult(error: unknown): TestSshResult {
   const code = sshErrorCodeFromError(error) ?? "ssh.unknown";
@@ -150,10 +150,10 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH connection failed";
     case "ssh.auth-failed":
       return "SSH authentication failed";
-    case "agent.spawn-failed":
-      return "Remote agent failed to start";
-    case "agent.protocol-error":
-      return "Remote agent protocol error";
+    case "server.spawn-failed":
+      return "Remote server failed to start";
+    case "server.protocol-error":
+      return "Remote server protocol error";
     case "ssh.unknown":
       return "SSH workspace validation failed";
   }

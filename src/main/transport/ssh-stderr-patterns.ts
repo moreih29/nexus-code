@@ -24,7 +24,7 @@ const CONNECT_FAILED_PATTERNS = [
   /banner exchange:.*connection/i,
 ];
 
-const AGENT_SPAWN_FAILED_PATTERNS = [
+const SERVER_SPAWN_FAILED_PATTERNS = [
   /\bcommand not found\b/i,
   /\b(?:bash|sh|zsh): .*: not found\b/i,
   /\b(?:bash|sh|zsh): .*: no such file or directory\b/i,
@@ -45,8 +45,8 @@ export function classifyStderrLine(line: string): SshErrorCode | null {
   if (CONNECT_FAILED_PATTERNS.some((pattern) => pattern.test(line))) {
     return "ssh.connect-failed";
   }
-  if (AGENT_SPAWN_FAILED_PATTERNS.some((pattern) => pattern.test(line))) {
-    return "agent.spawn-failed";
+  if (SERVER_SPAWN_FAILED_PATTERNS.some((pattern) => pattern.test(line))) {
+    return "server.spawn-failed";
   }
   return null;
 }

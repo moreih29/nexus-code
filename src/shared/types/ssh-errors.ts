@@ -3,8 +3,8 @@ import { z } from "zod";
 export const SshErrorCodeSchema = z.enum([
   "ssh.connect-failed",
   "ssh.auth-failed",
-  "agent.spawn-failed",
-  "agent.protocol-error",
+  "server.spawn-failed",
+  "server.protocol-error",
   "ssh.unknown",
 ]);
 

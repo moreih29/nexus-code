@@ -398,7 +398,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       user: "deploy",
       port: 2222,
       identityFile: "/tmp/key",
-      remoteCommand: "bash -lc 'cd /srv/project && exec bun src/agent/index.ts /srv/project'",
+      remoteCommand: "bash -lc 'cd /srv/project && exec bun src/server/index.ts /srv/project'",
     });
 
     ready.resolve();

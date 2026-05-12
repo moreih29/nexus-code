@@ -3,15 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  createAgentDispatcher,
   createProtocolErrorResponse,
+  createServerDispatcher,
   idFromMalformedLine,
-} from "../../../src/agent/agent-dispatch";
+} from "../../../src/server/dispatch";
 
 let tmpRoot: string;
 
 beforeEach(async () => {
-  tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nexus-agent-dispatch-"));
+  tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nexus-server-dispatch-"));
 });
 
 afterEach(async () => {
@@ -23,12 +23,12 @@ function expectIsoDate(value: string) {
   expect(Number.isNaN(Date.parse(value))).toBe(false);
 }
 
-describe("agent dispatch", () => {
+describe("server dispatch", () => {
   it("dispatches fs.readdir against the root path", async () => {
     await fs.promises.writeFile(path.join(tmpRoot, "alpha.txt"), "alpha", "utf8");
     await fs.promises.mkdir(path.join(tmpRoot, "src"));
 
-    const dispatch = createAgentDispatcher(tmpRoot);
+    const dispatch = createServerDispatcher(tmpRoot);
     const response = await dispatch({
       id: "readdir-1",
       method: "fs.readdir",
@@ -48,7 +48,7 @@ describe("agent dispatch", () => {
     const filePath = path.join(tmpRoot, "note.txt");
     await fs.promises.writeFile(filePath, "hello", "utf8");
 
-    const dispatch = createAgentDispatcher(tmpRoot);
+    const dispatch = createServerDispatcher(tmpRoot);
     const response = await dispatch({
       id: "stat-1",
       method: "fs.stat",
@@ -73,7 +73,7 @@ describe("agent dispatch", () => {
     const content = "export const value = 42;\n";
     await fs.promises.writeFile(path.join(tmpRoot, "entry.ts"), content, "utf8");
 
-    const dispatch = createAgentDispatcher(tmpRoot);
+    const dispatch = createServerDispatcher(tmpRoot);
     const response = await dispatch({
       id: "read-1",
       method: "fs.readFile",
@@ -96,18 +96,18 @@ describe("agent dispatch", () => {
     expectIsoDate((response.result as { mtime: string }).mtime);
   });
 
-  it("builds an agent.protocol-error response for malformed JSON requests", () => {
+  it("builds a server.protocol-error response for malformed JSON requests", () => {
     const malformedLine = '{"id":"bad-json","method":"fs.readdir","params":';
-    const id = idFromMalformedLine(malformedLine) ?? "agent-protocol-error";
+    const id = idFromMalformedLine(malformedLine) ?? "server-protocol-error";
 
     expect(createProtocolErrorResponse(id, "malformed JSON")).toEqual({
       id: "bad-json",
-      error: { code: "agent.protocol-error", message: "malformed JSON" },
+      error: { code: "server.protocol-error", message: "malformed JSON" },
     });
   });
 
   it("returns a method not supported error for unsupported methods", async () => {
-    const dispatch = createAgentDispatcher(tmpRoot);
+    const dispatch = createServerDispatcher(tmpRoot);
 
     const response = await dispatch({
       id: "unsupported-1",

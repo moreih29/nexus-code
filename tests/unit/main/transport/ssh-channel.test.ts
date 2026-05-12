@@ -66,7 +66,7 @@ function makeChannel() {
       user: "deploy",
       port: 2222,
       identityFile: "/tmp/key",
-      remoteCommand: "bun src/agent/index.ts /repo",
+      remoteCommand: "bun src/server/index.ts /repo",
     },
     { spawn, requestTimeoutMs: 10_000 },
   );
@@ -108,7 +108,7 @@ describe("createSshChannel", () => {
           "/tmp/key",
           "--",
           "deploy@dev.example.com",
-          "bun src/agent/index.ts /repo",
+          "bun src/server/index.ts /repo",
         ],
         options: { detached: false, stdio: ["pipe", "pipe", "pipe"] },
       },
@@ -214,20 +214,20 @@ describe("createSshChannel", () => {
     await expectErrorCode(unreachable.channel.ready, "ssh.connect-failed");
   });
 
-  it("classifies command not found stderr as agent.spawn-failed", async () => {
+  it("classifies command not found stderr as server.spawn-failed", async () => {
     const { channel, child } = makeChannel();
 
     child.stderr.emitData("bash: bun: command not found\n");
 
-    await expectErrorCode(channel.ready, "agent.spawn-failed");
+    await expectErrorCode(channel.ready, "server.spawn-failed");
   });
 
-  it("classifies malformed stdout NDJSON as agent.protocol-error", async () => {
+  it("classifies malformed stdout NDJSON as server.protocol-error", async () => {
     const { channel, child } = makeChannel();
 
     child.stdout.emitData("{not json}\n");
 
-    await expectErrorCode(channel.ready, "agent.protocol-error");
+    await expectErrorCode(channel.ready, "server.protocol-error");
     expect(child.killSignals[0]).toBe("SIGTERM");
   });
 

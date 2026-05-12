@@ -1,47 +1,47 @@
 import { FS_ERROR } from "../shared/fs-errors";
-import { handleReaddir, handleReadFile, handleStat } from "./agent-fs-handlers";
+import { handleReaddir, handleReadFile, handleStat } from "./fs-handlers";
 
-export interface AgentRequest {
+export interface ServerRequest {
   readonly id: string;
   readonly method: string;
   readonly params?: unknown;
 }
 
-export interface AgentErrorFrame {
+export interface ServerErrorFrame {
   readonly code: string;
   readonly message: string;
 }
 
-export type AgentResponse =
+export type ServerResponse =
   | { readonly id: string; readonly result: unknown }
-  | { readonly id: string; readonly error: AgentErrorFrame };
+  | { readonly id: string; readonly error: ServerErrorFrame };
 
-type AgentMethodHandler = (rootPath: string, params: unknown) => Promise<unknown>;
+type ServerMethodHandler = (rootPath: string, params: unknown) => Promise<unknown>;
 
-export const agentMethodHandlers = {
+export const serverMethodHandlers = {
   "fs.readdir": handleReaddir,
   "fs.stat": handleStat,
   "fs.readFile": handleReadFile,
-} satisfies Record<string, AgentMethodHandler>;
+} satisfies Record<string, ServerMethodHandler>;
 
 /**
  * Builds a root-bound dispatcher that Task 10 can exercise without stdio.
  */
-export function createAgentDispatcher(
+export function createServerDispatcher(
   rootPath: string,
-  handlers: Readonly<Record<string, AgentMethodHandler>> = agentMethodHandlers,
-): (request: AgentRequest) => Promise<AgentResponse> {
-  return (request) => dispatchAgentRequest(rootPath, request, handlers);
+  handlers: Readonly<Record<string, ServerMethodHandler>> = serverMethodHandlers,
+): (request: ServerRequest) => Promise<ServerResponse> {
+  return (request) => dispatchServerRequest(rootPath, request, handlers);
 }
 
 /**
- * Dispatches one validated agent request to the matching method handler.
+ * Dispatches one validated server request to the matching method handler.
  */
-export async function dispatchAgentRequest(
+export async function dispatchServerRequest(
   rootPath: string,
-  request: AgentRequest,
-  handlers: Readonly<Record<string, AgentMethodHandler>> = agentMethodHandlers,
-): Promise<AgentResponse> {
+  request: ServerRequest,
+  handlers: Readonly<Record<string, ServerMethodHandler>> = serverMethodHandlers,
+): Promise<ServerResponse> {
   const handler = handlers[request.method];
   if (!handler) {
     return {
@@ -61,7 +61,7 @@ export async function dispatchAgentRequest(
 /**
  * Validates the protocol-level request envelope after JSON parsing.
  */
-export function parseAgentRequest(value: unknown): AgentRequest {
+export function parseServerRequest(value: unknown): ServerRequest {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.method !== "string") {
     throw createProtocolError("request must include string id and method");
   }
@@ -76,10 +76,10 @@ export function parseAgentRequest(value: unknown): AgentRequest {
 /**
  * Creates a protocol-error response for malformed request frames.
  */
-export function createProtocolErrorResponse(id: string, message: string): AgentResponse {
+export function createProtocolErrorResponse(id: string, message: string): ServerResponse {
   return {
     id,
-    error: { code: "agent.protocol-error", message },
+    error: { code: "server.protocol-error", message },
   };
 }
 
@@ -119,7 +119,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Normalizes thrown domain and protocol errors into remote error frames.
  */
-function errorToFrame(error: unknown): AgentErrorFrame {
+function errorToFrame(error: unknown): ServerErrorFrame {
   const code = codeFromError(error);
   const message = error instanceof Error ? error.message : String(error);
   return { code, message };
@@ -140,7 +140,7 @@ function codeFromError(error: unknown): string {
     }
   }
 
-  return "agent.request-failed";
+  return "server.request-failed";
 }
 
 /**
@@ -148,6 +148,6 @@ function codeFromError(error: unknown): string {
  */
 function createProtocolError(message: string): Error & { code: string } {
   const error = new Error(message) as Error & { code: string };
-  error.code = "agent.protocol-error";
+  error.code = "server.protocol-error";
   return error;
 }

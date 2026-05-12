@@ -4,19 +4,19 @@ console.warn = console.error;
 
 const rootPath = rootPathFromArgv(process.argv);
 if (!rootPath) {
-  console.error("Usage: bun src/agent/index.ts <rootPath>");
+  console.error("Usage: bun src/server/index.ts <rootPath>");
   process.exit(2);
 }
 
 const {
-  createAgentDispatcher,
+  createServerDispatcher,
   createProtocolErrorResponse,
   idFromMalformedLine,
   idFromParsedFrame,
-  parseAgentRequest,
-} = await import("./agent-dispatch");
+  parseServerRequest,
+} = await import("./dispatch");
 
-const dispatch = createAgentDispatcher(rootPath);
+const dispatch = createServerDispatcher(rootPath);
 const inFlight = new Set<Promise<void>>();
 let terminating = false;
 
@@ -82,17 +82,17 @@ async function handleLine(line: string): Promise<void> {
   try {
     parsed = JSON.parse(line);
   } catch {
-    const id = idFromMalformedLine(line) ?? "agent-protocol-error";
+    const id = idFromMalformedLine(line) ?? "server-protocol-error";
     await writeFrame(createProtocolErrorResponse(id, "malformed JSON"));
     return;
   }
 
   try {
-    const request = parseAgentRequest(parsed);
+    const request = parseServerRequest(parsed);
     await writeFrame(await dispatch(request));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const id = idFromParsedFrame(parsed) ?? "agent-protocol-error";
+    const id = idFromParsedFrame(parsed) ?? "server-protocol-error";
     await writeFrame(createProtocolErrorResponse(id, message));
   }
 }
@@ -136,7 +136,7 @@ function rootPathFromArgv(argv: readonly string[]): string | null {
 
   for (let i = 1; i < argv.length; i++) {
     const value = argv[i];
-    if (isRuntimeArg(value) || isAgentScriptArg(value)) {
+    if (isRuntimeArg(value) || isServerScriptArg(value)) {
       continue;
     }
     return value;
@@ -156,9 +156,9 @@ function isRuntimeArg(value: string): boolean {
 /**
  * Identifies the source entry script when argv[2] is not available.
  */
-function isAgentScriptArg(value: string): boolean {
+function isServerScriptArg(value: string): boolean {
   const normalized = value.replace(/\\/g, "/");
-  return normalized === "src/agent/index.ts" || normalized.endsWith("/src/agent/index.ts");
+  return normalized === "src/server/index.ts" || normalized.endsWith("/src/server/index.ts");
 }
 
 /**
