@@ -78,7 +78,7 @@ export async function closeTabById(
     const outcome = await closeEditorWithConfirm(workspaceId, tabId);
     return outcome === "cancelled" ? "cancelled" : "closed";
   }
-  if (tab.type === "editor.diff") {
+  if (tab.type === "editor.diff" || tab.type === "git.commit") {
     closeTab(workspaceId, tabId);
   }
   return "closed";

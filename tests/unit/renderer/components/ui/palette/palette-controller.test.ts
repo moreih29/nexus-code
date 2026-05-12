@@ -356,6 +356,101 @@ describe("dispose after setQuery during debounce", () => {
   });
 });
 
+describe("flush()", () => {
+  it("cancels the debounce timer and runs search immediately, returning the fresh snapshot", async () => {
+    const scheduler = new FakeScheduler();
+    const createItem = item("create:feat/new-x");
+    const search = mock(async (_query: string) => [createItem]);
+    const snapshots: PaletteSearchSnapshot[] = [];
+    const controller = new PaletteSearchController(
+      source(search),
+      (snapshot) => snapshots.push(snapshot),
+      scheduler,
+    );
+
+    // Simulate fast typing — debounce has NOT fired yet
+    controller.setQuery("feat/new-x");
+    expect(search).not.toHaveBeenCalled();
+
+    // flush() must cancel the timer and run search immediately
+    const result = await controller.flush();
+
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("results");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.id).toBe("create:feat/new-x");
+    // The debounce timer should NOT fire a second search afterward
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits an already in-flight search (status=loading) and returns its result", async () => {
+    const scheduler = new FakeScheduler();
+    let resolveSearch: (items: PaletteItem[]) => void = () => {};
+    const search = mock(
+      (_query: string, _signal: AbortSignal) =>
+        new Promise<PaletteItem[]>((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+    const snapshots: PaletteSearchSnapshot[] = [];
+    const controller = new PaletteSearchController(
+      source(search),
+      (snapshot) => snapshots.push(snapshot),
+      scheduler,
+    );
+
+    // Let the debounce fire so we enter "loading" status
+    controller.setQuery("main");
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    expect(snapshots.at(-1)?.status).toBe("loading");
+
+    // flush() while loading: must await the running search
+    const flushPromise = controller.flush();
+    resolveSearch([item("main")]);
+    const result = await flushPromise;
+
+    expect(result.status).toBe("results");
+    expect(result.items[0]?.id).toBe("main");
+  });
+
+  it("returns the current lastSnapshot if neither debounce nor in-flight is active", async () => {
+    const scheduler = new FakeScheduler();
+    const search = mock(async () => [item("Alpha")]);
+    const snapshots: PaletteSearchSnapshot[] = [];
+    const controller = new PaletteSearchController(
+      source(search),
+      (snapshot) => snapshots.push(snapshot),
+      scheduler,
+    );
+
+    controller.setQuery("al");
+    scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    // Search has completed; no pending timers
+    const result = await controller.flush();
+    expect(result.status).toBe("results");
+    expect(result.items[0]?.id).toBe("Alpha");
+    // search should not have been called again
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an idle fallback snapshot when called on a disposed controller", async () => {
+    const scheduler = new FakeScheduler();
+    const controller = new PaletteSearchController(
+      source(async () => [item("Z")]),
+      () => {},
+      scheduler,
+    );
+
+    controller.dispose();
+    const result = await controller.flush();
+    expect(result.status).toBe("idle");
+    expect(result.items).toHaveLength(0);
+  });
+});
+
 describe("palette keyboard behavior", () => {
   it("wraps ArrowDown and ArrowUp", () => {
     expect(nextPaletteIndex(2, 3, 1)).toBe(0);

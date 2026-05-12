@@ -1,5 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import { lazy, type ReactNode, Suspense } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useRef } from "react";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { NEXUS_DARK_THEME_NAME } from "../../services/editor/runtime/monaco-theme";
@@ -35,6 +35,19 @@ export function DiffTab(payload: DiffTabPayload) {
   const rightContent = readyContentFor(right);
   const blockingMessage = blockingPlaceholder(left, right, leftContent, rightContent);
 
+  // Workaround for suren-atoyan/monaco-react#647 — mirrors microsoft/vscode#222197 fix order.
+  // On unmount, reset the DiffEditorWidget model to null before the wrapper disposes the
+  // TextModels; without this the widget still holds a reference and triggers
+  // "TextModel got disposed before DiffEditorWidget model got reset".
+  const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
+
+  useEffect(() => {
+    return () => {
+      editorRef.current?.setModel(null);
+      editorRef.current = null;
+    };
+  }, []);
+
   if (blockingMessage) {
     return (
       <DiffShell left={left} right={right} status={status} onReload={reload}>
@@ -65,6 +78,9 @@ export function DiffTab(payload: DiffTabPayload) {
             modifiedModelPath={modelPathFor(rightContent)}
             theme={NEXUS_DARK_THEME_NAME}
             options={diffEditorOptions}
+            onMount={(editor) => {
+              editorRef.current = editor;
+            }}
           />
         </Suspense>
       </div>

@@ -109,9 +109,17 @@ export function CommandPalette<TItem extends PaletteItem>({
 
   const status: PaletteViewStatus = source ? snapshot.status : "no-workspace";
 
-  function accept(context: PaletteAcceptContext): void {
-    if (!source || snapshot.activeIndex < 0) return;
-    const item = snapshot.items[snapshot.activeIndex];
+  async function accept(context: PaletteAcceptContext): Promise<void> {
+    if (!source) return;
+    let activeSnapshot = snapshot;
+    if (
+      (snapshot.status === "debouncing" || snapshot.status === "loading") &&
+      controllerRef.current !== null
+    ) {
+      activeSnapshot = await controllerRef.current.flush();
+    }
+    if (activeSnapshot.activeIndex < 0) return;
+    const item = activeSnapshot.items[activeSnapshot.activeIndex];
     if (!item) return;
     onClose();
     source.accept(item, context);
@@ -136,7 +144,7 @@ export function CommandPalette<TItem extends PaletteItem>({
     if (action.kind === "move") {
       setSnapshot((current) => ({ ...current, activeIndex: action.activeIndex }));
     } else if (action.kind === "accept") {
-      accept(paletteAcceptContextFromInput(e, action.mode));
+      void accept(paletteAcceptContextFromInput(e, action.mode));
     } else if (action.kind === "close") {
       onClose();
     } else if (action.kind === "trap-tab") {

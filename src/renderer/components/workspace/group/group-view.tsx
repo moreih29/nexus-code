@@ -83,7 +83,7 @@ export function GroupView({
       void closeEditorWithConfirm(workspaceId, tabId);
       return;
     }
-    if (tab?.type === "editor.diff") {
+    if (tab?.type === "editor.diff" || tab?.type === "git.commit") {
       closeTab(workspaceId, tabId);
     }
   }

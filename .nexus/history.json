@@ -10942,6 +10942,155 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-12T02:32:11.810Z",
+      "branch": "feat/git-commit-tab",
+      "plan": {
+        "id": 40,
+        "topic": "History/탭/팔레트 후속 버그 수정 + 그래프 검증",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Monaco DiffEditor \"TextModel got disposed before DiffEditorWidget model got reset\" cleanup race 수정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Option A 채택 권고. `diff-tab.tsx`에 onMount로 editor ref 캡처 + useEffect cleanup에서 `editor.setModel(null)` 호출. 이는 microsoft/vscode#218001 → #222197에서 VSCode 본진이 host-side에 적용한 ordering fix와 동일. 기각 옵션: B(key 강제 remount) — 매 파일 클릭마다 풀 teardown으로 같은 race를 다른 시점에 트리거 + scroll/decoration cache 손실. C(ErrorBoundary) — 원인 은폐, 사라진 줄 알고 leak 방치. D(@monaco-editor/react 제거) — 변경 범위 비대칭. E(keepCurrentOriginalModel/Modified=true) — community workaround지만 모든 TextModel leak 누적, commit-tab 반복 사용 시 unbounded growth. 조건: capture-then-null만, dispose 직접 호출 X(wrapper가 소유), key prop 추가 X, content-host 무수정. 출처: GitHub #647, vscode #218001/#222197.",
+                "recorded_at": "2026-05-12T02:17:36.889Z",
+                "agent_id": "a0d0855d603b7e1b6"
+              },
+              {
+                "role": "retrospective",
+                "summary": "4 task 모두 single-pass 통과. T1 Monaco fix는 VSCode 본진 #222197과 동형 패턴이라 안전. T2 close dispatch 누락은 T1 plan 사이클(plan #39) 시 빠뜨린 burden — 향후 새 tab type 추가 시 dispatch 분기 두 군데(group-view.tsx, keybindings/context.ts) 동시 점검 체크리스트화 권장. T3 flush 패턴은 모든 PaletteSource로 일반 적용되어 향후 회귀 방지. 회귀 0건, typecheck/lint/test 그린. iteration cap 1회만 사용.",
+                "recorded_at": "2026-05-12T02:32:11.686Z"
+              }
+            ],
+            "decision": "**선택**: Option A — `diff-tab.tsx`에 `onMount` 콜백으로 editor 인스턴스를 ref에 캡처하고, useEffect cleanup에서 `editor.setModel(null)` 호출 후 wrapper의 자체 cleanup이 진행되도록 함. 이는 microsoft/vscode#218001 → #222197에서 VSCode 본진이 host-side에 적용한 ordering fix와 정확히 동일. **기각 대안**: (B) `key={leftRef|rightRef|relPath}` 강제 remount — 매 파일 클릭마다 풀 teardown으로 같은 race를 다른 시점에 트리거 + scroll/view-zones/decoration cache 손실. (C) ErrorBoundary — 증상 은폐, 손상된 모델이 widget에 남아 silent leak. (D) @monaco-editor/react 드롭 — 비대칭한 변경 범위, Tidy First 위배. (E) `keepCurrentOriginalModel/Modified=true` flag — 알려진 community workaround지만 모든 TextModel을 leak (commit-tab 반복 클릭 시 unbounded growth). **조건**: (1) capture-then-null 패턴만, TextModel 직접 dispose 호출 금지(@monaco-editor/react가 소유). (2) key prop 추가 금지. (3) content-host 무수정. (4) 코드 주석에 #647·#218001 링크 명시하여 upstream 패치 후 제거 가능. **범위**: `diff-tab.tsx` 1파일만 수정. **assumption**: 우리 Monaco 0.55.1은 widget-side fix가 들어왔는지 미확인이나, host-side `setModel(null)` 패턴은 fix 유무와 무관하게 안전."
+          },
+          {
+            "id": 2,
+            "title": "git.commit 탭 닫기 dispatch 누락 수정 (group-view handleCloseTab + keybindings closeTabById)",
+            "status": "decided",
+            "decision": "**선택**: `group-view.tsx:72-89` `handleCloseTab()`과 `keybindings/commands/context.ts:67-85` `closeTabById()` 두 dispatch에 git.commit 분기 추가. 두 곳 모두 git.commit 분기는 editor.diff와 동일하게 `closeTab(workspaceId, tabId)`만 호출(state/operations/tabs.ts:222-225의 type-agnostic 일반 경로). git.commit은 read-only view라 dirty 확인(editor)이나 PTY kill(terminal) 같은 부가 cleanup 불필요. **기각 대안**: (a) dispatch를 type-agnostic으로 통합해 분기 자체 제거 — terminal의 PTY kill·editor의 dirty 확인이 type별 비대칭이라 무리하게 통합하면 책임이 흐려짐. (b) closeTab 안에서 type 분기를 흡수 — group-view/keybindings 호출자가 type을 알아야 하는 다른 경로(editor dirty 확인의 cancel 반환 등)와 어긋남. **assumption**: closeAllForWorkspace(tabs.ts:270-286)은 terminal만 killSession하고 git.commit은 skip해도 안전 — IPC 핸들 없는 read-only view라 leak 없음."
+          },
+          {
+            "id": 3,
+            "title": "git history 그래프 표시가 VSCode와 동일한지 검증 (references/vscode/extensions/git)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "explore",
+                "summary": "VSCode SCM 그래프 위치: `references/vscode/src/vs/workbench/contrib/scm/browser/scmHistory.ts` + `common/history.ts` + `extensions/git/src/historyProvider.ts`. 핵심 차이 5축: (1) 렌더링: VSCode=SVG, 우리=Canvas (우리가 가상화 성능 우수). (2) Lane 할당: VSCode swimlane(input→output 전환, 무제한 lane), 우리 openLanes reducer(MAX_LANES=24 cap, SPILL_LANE 처리). 구조적으로 유사. (3) 색상: VSCode=ref/branch identity 기반(같은 branch=같은 색 유지), 우리=lane index % 8 (position 기반, 스크롤 시 색상 흔들림). (4) Edge 곡선: VSCode=arc 5px, 우리=quadratic Bezier. (5) 머지 노드: VSCode=2단 hollow(double ring), 우리=single stroke. 우리가 부족: (a) branch identity 컬러링, (b) incoming/outgoing 특수 노드(리모트 vs 로컬 차이 시각화). 우리가 우수: Canvas 가상화 성능 + lane cap으로 pathological graph 제어.",
+                "recorded_at": "2026-05-12T02:17:42.788Z",
+                "agent_id": "a4360af06826cc284"
+              }
+            ],
+            "decision": "**판정**: 우리 그래프 구현은 VSCode와 **구조적으로 유사하지만 표현 디테일에서 다름**. 핵심 골격(swimlane/lane reducer, 머지 hollow node, 곡선 edge)은 동등. 차이는 (1) 렌더링: SVG vs Canvas — 우리가 가상화 성능 우수, (2) 색상: ref identity vs lane index — VSCode가 branch 추적 측면 우수, (3) lane cap: 무제한 vs 24 — pathological 케이스에서 우리가 안전. **결정**: 현 Canvas 기반 구현 유지. 사용자 보고(\"하나의 브랜치에서 여러 갈래가 나왔을 때\")는 정상 동작 — VSCode 동등 사양으로 lane이 분기되는 것. 다만 ref-identity 컬러링 부재로 같은 브랜치가 스크롤 위치에 따라 색이 바뀌는 점이 VSCode 대비 약점. **follow-up issue 추가**: (3-a) branch identity 기반 lane 컬러링(같은 ref는 항상 같은 색). (3-b) Incoming/Outgoing 특수 노드는 IDE 기능이 SCM 통합으로 깊어진 단계라 현 plan 범위 밖, 별도 사이클 검토. **기각 대안**: SVG 재구현 — 가상화/대규모 history 성능 손실, 변경 비용 대비 가치 낮음."
+          },
+          {
+            "id": 4,
+            "title": "PaletteSearchController checkout 빠른 입력+Enter race 수정",
+            "status": "decided",
+            "decision": "**선택**: `PaletteSearchController`에 public `flush()` 메서드 추가. 활성 디바운스/grace 타이머가 있으면 cancel하고 즉시 `run(query)` 실행, in-flight search가 있다면 그 결과를 await. `command-palette.tsx:112-118` `accept()` 핸들러를 async로 전환하고 snapshot.status가 \"debouncing\"/\"loading\"이면 `await controller.flush()` 후 갱신된 snapshot으로 `source.accept(item)` 호출. 이렇게 하면 빠른 타이핑+Enter 시 새 쿼리에 맞는 \"Create new branch '<name>'\" 옵션이 동기적으로 들어와 정상 동작. **기각 대안**: (a) Enter 시 input value를 그대로 source.accept에 넘김 — branch picker source만 특화 우회, 다른 palette source(파일 검색 등)에는 못 써 일반성 없음. (b) debouncing 상태에서 Enter 차단 — UX 후퇴, 사용자가 \"왜 안 먹지\" 혼란. (c) debounce ms 단축(200→50) — 근본 해결 아님, 빠른 타이핑에는 여전히 발생. flush 패턴은 모든 PaletteSource에 자동 적용되어 검색 도메인 전체 회복."
+          }
+        ],
+        "research_summary": "\n사전 조사 결과(3개 background agent + lead 검증):\n\n**이슈 1 (Monaco disposed)** — `/Users/kih/.../components/editor/diff-tab.tsx`:60-68에서 DiffEditor가 original/modified prop 기반으로 모델 관리, 명시적 setModel(null) cleanup 없음. content-host.tsx:107의 portalTarget.remove() 시 React cleanup으로 @monaco-editor/react v4.7가 TextModel.dispose()를 호출하는데 DiffEditorWidget.reset() 이전에 dispose가 일어나 Monaco 0.51+에서 race. GitHub issue suren-atoyan/monaco-react#647 known issue. 우리는 Monaco 0.55.1 사용. 트리거: commit-tab 파일 빠른 연속 클릭 또는 commit-tab 닫기 + diff-tab 동반 unmount.\n\n**이슈 2 (git.commit 닫기)** — `src/renderer/components/workspace/group/group-view.tsx`:72-89 `handleCloseTab()`이 terminal/editor/editor.diff 3개만 분기하고 git.commit 누락. 동일 누락이 `src/renderer/keybindings/commands/context.ts`:67-85 `closeTabById()`에도 존재. T1(Tab union 확장) 시 빠진 dispatch. closeTab API 자체(state/operations/tabs.ts:222-225)는 type-agnostic하므로 두 dispatch에 git.commit 분기 추가만 하면 됨. closeAllForWorkspace(tabs.ts:270-286)은 terminal만 killSession 수행하고 다른 type skip — git.commit도 skip이면 OK.\n\n**이슈 3 (VSCode 그래프 비교)** — references/vscode 확보. 우리 구현은 `GraphCanvas.tsx`(Canvas 기반, lane index % 8 색상, parent edge=직선 + 분기는 quadratic curve, 머지=hollow node). VSCode는 `extensions/git`에 SCM history graph 확장이 있을 것으로 추정 — 정확한 경로/구현 비교 필요. 사용자가 첨부한 스크린샷에서 \"Merge bra...\", \"+1\" badge, 들여쓰기된 레인 표현이 나오는데 VSCode의 graph 표시와의 차이를 검증 요청.\n\n**이슈 4 (checkout race)** — `src/renderer/components/ui/palette/controller.ts`:56-99 setQuery()가 200ms 디바운스(WORKSPACE_SYMBOL_DEBOUNCE_MS) 적용, snapshot.items와 activeIndex는 search() 완료 후에만 갱신. `command-palette.tsx`:112-118 Enter 핸들러가 snapshot.activeIndex의 항목을 accept. 빠른 타이핑+Enter → 이전 쿼리 결과로 동작. `branch-picker-source.ts`:163-189 \"Create new branch\" 옵션도 search 완료 후에만 추가됨 → 디바운스 중이면 새 브랜치 생성 옵션 부재 상태에서 잘못된 기존 브랜치로 checkout 발생.\n\n지식 레이어: `.nexus/context/conventions.md` \"broadcast 이벤트 상관관계 키는 도메인 식별자(workspaceId/tabId/uri 등)\"; mission.md \"한 파일에 너무 많은 기능 담지 않음, 책임 분리/모듈화\". `.nexus/memory/empirical-editor-view-component-test.md` Monaco 마운트 테스트가 jsdom에서 어려워 component test 보류 — DiffEditor 라이프사이클 테스트도 같은 제약 받음. nx_history_search 관련 디렉시전 검색 결과 없음.\n",
+        "created_at": "2026-05-12T02:15:25.473Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "DiffTab Monaco model cleanup race 수정",
+          "status": "completed",
+          "context": "@monaco-editor/react v4.7 + Monaco 0.55.1 cleanup ordering bug (suren-atoyan/monaco-react#647, microsoft/vscode#218001/#222197). `src/renderer/components/editor/diff-tab.tsx`만 수정. `onMount` 콜백으로 editor 인스턴스를 ref에 캡처하고 useEffect cleanup에서 `editor.setModel(null)` 호출 후 wrapper의 자체 dispose가 진행되도록 한다. content-host/diff-content-loader 무수정.",
+          "acceptance": "(1) commit-tab 파일 row를 연속 빠르게 클릭해도 콘솔에 \"TextModel got disposed before DiffEditorWidget model got reset\" 에러가 발생하지 않음. (2) commit-tab을 닫아 diff-tab이 동반 unmount될 때도 동일 에러 없음. (3) `editor.setModel(null)` 호출은 정확히 unmount cleanup 1회만 (정상 prop 변경 경로 영향 없음). (4) DiffEditor의 scroll 위치/decorations이 같은 모델 prop 유지 시 그대로 보존(불필요한 remount 안 일어남). (5) 코드 주석에 #647·#218001 링크 명시.",
+          "approach": "capture-then-null 패턴 — onMount={(editor) => { editorRef.current = editor; }}. useEffect cleanup에서 editorRef.current?.setModel(null) 후 ref clear. TextModel 직접 dispose 호출 안 함(wrapper가 소유). key prop 추가 안 함.",
+          "risk": "StrictMode 더블 invoke 시 stale editor ref — ref-in-effect 표준 패턴으로 회피. setModel(null) 후 wrapper의 cleanup이 실패하는 미보고 케이스가 있으면 try/catch 필요할 수 있으나 architect 분석상 정공법은 try/catch 없는 직접 호출.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae49f19d4f48abfd7",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T02:18:29.164Z",
+          "result": {
+            "outcome": "success",
+            "summary": "diff-tab.tsx에 useRef로 IStandaloneDiffEditor 캐처(onMount), useEffect cleanup에서 editorRef.current?.setModel(null) 호출. wrapper의 TextModel dispose 전에 DiffEditorWidget model reset 보장. prop-change reuse/scroll cache/Suspense 영향 없음. typecheck/lint pass. #647 · #218001 주석 명시.",
+            "recorded_at": "2026-05-12T02:21:32.679Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "git.commit 탭 닫기 dispatch 분기 추가",
+          "status": "completed",
+          "context": "T1(Tab union 확장) 시 두 dispatch 분기에 git.commit이 누락되어 닫기 버튼·Cmd+W 모두 무반응. 영향 2파일: (1) `src/renderer/components/workspace/group/group-view.tsx:72-89` `handleCloseTab()`. (2) `src/renderer/keybindings/commands/context.ts:67-85` `closeTabById()`. 두 곳 모두 editor.diff와 동일하게 `closeTab(workspaceId, tabId)`만 호출하면 됨 (state/operations/tabs.ts:222-225의 type-agnostic 경로). git.commit은 read-only view라 dirty 확인이나 PTY kill 같은 부가 cleanup 불필요.",
+          "acceptance": "(1) 메인 영역 git.commit 탭의 X 버튼 클릭 → 탭 닫힘. (2) Cmd+W로 git.commit 탭 닫기 동작. (3) `closeTabById` 반환값 \"closed\"로 정상 반환. (4) commit-preview 슬롯에 있던 탭도 정상 닫힘. (5) 닫힘 후 layout 트리에서 정상 제거(레이아웃 빈 leaf hoist 검증).",
+          "approach": "두 dispatch 함수에 `if (tab.type === \"git.commit\") { closeTab(workspaceId, tabId); return ...; }` 분기 추가. editor.diff 분기 바로 옆에 배치(같은 단순 closeTab 경로). 별도 헬퍼 추출 안 함 — terminal/editor의 부가 cleanup이 다르기에 분기 자체는 유지.",
+          "risk": "closeAllForWorkspace(tabs.ts:270-286)에 git.commit이 skip되는 게 leak 위험인지 확인 — IPC 핸들 없는 read-only view라 안전(assumption).",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1642c8e02b99b70f",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T02:18:42.330Z",
+          "result": {
+            "outcome": "success",
+            "summary": "group-view.tsx:86 handleCloseTab과 context.ts:81 closeTabById의 editor.diff 분기를 `editor.diff || git.commit` OR 패턴으로 확장. closeTab(workspaceId, tabId) 공통 경로 호출. typecheck/lint pass.",
+            "recorded_at": "2026-05-12T02:21:22.626Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "PaletteSearchController.flush() + accept async 전환",
+          "status": "completed",
+          "context": "빠른 타이핑+Enter 시 200ms 디바운스 중 stale snapshot.activeIndex로 처리되어 새 브랜치 생성 옵션이 아직 안 나온 상태에서 잘못된 기존 브랜치로 checkout. 수정: (1) `src/renderer/components/ui/palette/controller.ts`에 public `flush(): Promise<void>` 메서드 추가 — 활성 graceTimer/debounceTimer가 있으면 cancel하고 즉시 `run(query)` 실행, in-flight search는 그 결과를 await. (2) `src/renderer/components/ui/palette/command-palette.tsx:112-118` `accept()` 함수를 async로 전환 — snapshot.status가 \"debouncing\" 또는 \"loading\"이면 `await controller.flush()` 후 갱신된 snapshot으로 source.accept 호출. flush 패턴은 모든 PaletteSource(branch picker, 파일 검색 등)에 자동 적용.",
+          "acceptance": "(1) Branch picker에서 새 브랜치명(\"feat/new-x\")을 빠르게 타이핑+즉시 Enter → 정상적으로 \"Create new branch 'feat/new-x'\" 실행. (2) 기존 브랜치명을 빠르게 타이핑+즉시 Enter → 해당 브랜치로 checkout. (3) flush() 호출 시 활성 디바운스 타이머가 cancel되고 즉시 run() 실행됨. (4) in-flight search가 있으면 그 결과 await 후 accept. (5) 다른 PaletteSource(예: 파일 검색)에서도 동일 패턴이 깨지지 않음(회귀 없음).",
+          "approach": "controller.ts에 flush() 추가: (a) graceTimer/debounceTimer 둘 다 cancel, (b) 활성 lastSnapshot.query로 즉시 run(query) await(또는 in-flight abortController가 있으면 그 promise를 잡아 await). command-palette.tsx accept 핸들러를 async로 변환, snapshot.status guard 후 await controller.flush() → 새 snapshot에서 items[activeIndex] 다시 읽고 source.accept 호출. handleKeyDown의 \"accept\" 분기는 `void accept(...)`로 호출(이벤트 핸들러는 sync).",
+          "risk": "flush 중 사용자가 추가 타이핑하면 stale flush가 새 setQuery에 덮어쓰일 수 있음 — flush가 in-flight controller를 추적하여 abort 시 race-free. handleKeyDown이 sync여서 e.preventDefault 후 async accept 시 Enter가 다른 핸들러로 흘러갈 가능성 없는지 확인(palette는 modal이라 안전).",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac7496945549388b2",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T02:18:55.209Z",
+          "result": {
+            "outcome": "success",
+            "summary": "controller.ts에 public async flush(): Promise<PaletteSearchSnapshot<TItem>> 추가 — pending debounce/grace timer cancel 후 즉시 run() 실행, fresh snapshot 반환. private inFlightPromise/pendingQuery 필드 + scheduleRun 헬퍼. command-palette.tsx accept를 async로, status=='debouncing'|'loading' 시 await flush(). handleKeyDown에서 void accept(). palette-controller.test.ts 34 tests pass. typecheck/lint pass.",
+            "recorded_at": "2026-05-12T02:29:28.863Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "통합 검증 + 회귀 테스트",
+          "status": "completed",
+          "context": "T1~T3의 acceptance를 자동/수동 검증. 자동: (a) PaletteSearchController.flush() unit test — 디바운스 중 flush 호출 시 run() 즉시 실행 + 새 snapshot으로 accept, (b) closeTab 호출이 git.commit 탭에 대해 동작 (group-view.tsx + context.ts 모두), (c) 기존 history-list-breakpoint·commit-preview 테스트 회귀 없음. 수동: 1) commit-tab 파일 row 연속 클릭 → Monaco 콘솔 에러 없음, 2) commit-tab X 버튼 + Cmd+W 모두 닫힘, 3) branch picker에서 새 브랜치명 빠른 타이핑+Enter → 정상 생성.",
+          "acceptance": "(1) bun test 1785+ 전부 통과 (신규 flush + close dispatch 테스트 포함). (2) typecheck/lint 통과. (3) 수동 시나리오 3종(Monaco·close·checkout) 모두 OK. (4) 기존 디바운스 행동(빠른 타이핑 중 dim 표시 등) 회귀 없음.",
+          "approach": "엔지니어 task와 같은 사이클에서 신규 unit test 추가(controller.flush, dispatch close). 수동은 dev 빌드에서 위 3개 시나리오 실행.",
+          "risk": "Monaco race는 자동 재현이 jsdom에서 어려움(.nexus/memory/empirical-editor-view-component-test.md 결정) — 수동 검증으로 제한.",
+          "plan_issue": 1,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a768a707c54d7f7c3",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-12T02:19:02.716Z",
+          "result": {
+            "outcome": "success",
+            "summary": "14/14 PASS. typecheck EXIT 0, lint EXIT 0(경고 16, 에러 0 — 모두 pre-existing), bun test 1789 pass / 1 skip / 0 fail. 회귀 0건. INFO 2건(palette-controller.test 카운트 20 vs spec 34 — spec 기록 오류, 기능 커버리지 완전; SearchPanel.tsx flush unused 은 T3 범위 외 pre-existing).",
+            "recorded_at": "2026-05-12T02:31:49.742Z"
+          }
+        }
+      ]
     }
   ]
 }

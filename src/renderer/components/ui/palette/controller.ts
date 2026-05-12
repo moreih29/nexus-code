@@ -43,6 +43,8 @@ export class PaletteSearchController<TItem extends PaletteItem> {
   private debounceTimer: unknown | null = null;
   private graceTimer: unknown | null = null;
   private abortController: AbortController | null = null;
+  private inFlightPromise: Promise<void> | null = null;
+  private pendingQuery: string | null = null;
   private lastSnapshot: PaletteSearchSnapshot<TItem> | null = null;
   private disposed = false;
 
@@ -57,6 +59,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
     if (this.disposed) return;
     this.cancelTimers();
     this.abortInFlight();
+    this.pendingQuery = null;
 
     if (query.trim().length < 1) {
       // Sources that enumerate a small bounded set (branch picker, etc.) opt
@@ -64,13 +67,14 @@ export class PaletteSearchController<TItem extends PaletteItem> {
       // the picker opens. The debounce path is skipped because there is no
       // typing to coalesce.
       if (this.source.searchOnEmptyQuery === true) {
-        void this.run(query);
+        this.scheduleRun(query);
         return;
       }
       this.emit({ status: "idle", query, items: [], activeIndex: -1 });
       return;
     }
 
+    this.pendingQuery = query;
     const previousItems = this.lastSnapshot?.items ?? [];
     const previousActiveIndex = this.lastSnapshot?.activeIndex ?? -1;
     this.emit({
@@ -95,15 +99,56 @@ export class PaletteSearchController<TItem extends PaletteItem> {
 
     this.debounceTimer = this.scheduler.setTimeout(() => {
       this.debounceTimer = null;
-      void this.run(query);
+      this.pendingQuery = null;
+      this.scheduleRun(query);
     }, this.debounceMs);
+  }
+
+  /**
+   * Cancels any pending debounce timer and immediately executes the search for
+   * the current pending query (or awaits the already-running search if one is
+   * in-flight). Returns the snapshot that results from the completed search.
+   *
+   * This is used by the command-palette accept handler so that pressing Enter
+   * during a debounce delay does not read a stale snapshot — the latest search
+   * result is available synchronously after the returned promise resolves.
+   */
+  async flush(): Promise<PaletteSearchSnapshot<TItem>> {
+    if (this.disposed) {
+      return (
+        this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 }
+      );
+    }
+
+    if (this.pendingQuery !== null) {
+      // A debounce is in progress: cancel the timers and run immediately.
+      const query = this.pendingQuery;
+      this.cancelTimers();
+      this.pendingQuery = null;
+      this.scheduleRun(query);
+    }
+
+    // Await the in-flight search (either pre-existing or just started above).
+    if (this.inFlightPromise !== null) {
+      await this.inFlightPromise;
+    }
+
+    return (
+      this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 }
+    );
   }
 
   dispose(): void {
     this.disposed = true;
+    this.pendingQuery = null;
     this.cancelTimers();
     this.abortInFlight();
     this.lastSnapshot = null;
+  }
+
+  /** Starts run() and stores the promise in inFlightPromise so flush() can await it. */
+  private scheduleRun(query: string): void {
+    this.inFlightPromise = this.run(query);
   }
 
   private async run(query: string): Promise<void> {
@@ -135,6 +180,7 @@ export class PaletteSearchController<TItem extends PaletteItem> {
       this.emit({ status: "error", query, items: [], activeIndex: -1, error });
     } finally {
       if (this.abortController === abortController) this.abortController = null;
+      this.inFlightPromise = null;
     }
   }
 
