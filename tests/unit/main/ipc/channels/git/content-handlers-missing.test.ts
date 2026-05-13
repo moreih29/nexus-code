@@ -37,6 +37,12 @@ function callHandler(registry: ReturnType<typeof makeRegistry>, args: unknown) {
   return handler(args);
 }
 
+function makeManager(provider: unknown) {
+  return {
+    requireContext: () => ({ fs: provider }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // (a) GitError(kind:"missing") → resolves {kind:"missing"}, does NOT throw
 // ---------------------------------------------------------------------------
@@ -237,5 +243,43 @@ describe("content-handlers — happy path: utf-8 content → {kind:'ok'}", () =>
     expect(result.isBinary).toBe(false);
     expect(result.sizeBytes).toBeGreaterThan(0);
     expect(typeof result.mtime).toBe("string");
+  });
+});
+
+describe("content-handlers — agent-backed production path", () => {
+  it("uses git.getFileContent on the workspace agent when a manager is supplied", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const provider = {
+      kind: "local" as const,
+      callAgentMethod: async (method: string, params?: unknown) => {
+        calls.push({ method, params });
+        return {
+          kind: "ok",
+          content: "agent content",
+          encoding: "utf8",
+          sizeBytes: 13,
+          isBinary: false,
+          mtime: "2026-01-01T00:00:00.000Z",
+        };
+      },
+      onAgentEvent: () => () => {},
+    };
+    const registry = makeRegistry({
+      getFileContent: async () => {
+        throw new Error("registry fallback should not run");
+      },
+    });
+    const handler = getFileContentHandler(registry as never, makeManager(provider) as never);
+
+    const result = await handler({
+      workspaceId: VALID_UUID,
+      ref: "HEAD",
+      relPath: "src/x.ts",
+    });
+
+    expect(result).toMatchObject({ kind: "ok", content: "agent content" });
+    expect(calls).toEqual([
+      { method: "git.getFileContent", params: { ref: "HEAD", relPath: "src/x.ts" } },
+    ]);
   });
 });

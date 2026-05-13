@@ -1,13 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, expect, test } from "bun:test";
 import {
+  InvalidSearchPatternError,
   searchTextStream,
   WorkspaceNotFoundError,
-} from "../../../../../../src/main/ipc/channels/fs/search-handlers";
+} from "../../../../../../src/main/bridge/search/search-handlers";
 import type { StreamContext } from "../../../../../../src/main/ipc/router";
-import { InvalidSearchPatternError } from "../../../../../../src/main/search/matcher";
 import type {
   FileMatch,
   SearchComplete,
@@ -31,22 +28,75 @@ function baseQuery(overrides: Partial<TextSearchQuery> & { pattern: string }): T
   };
 }
 
-function makeManager(rootPath: string, workspaces: WorkspaceMeta[] = [makeWorkspace(rootPath)]) {
+type AgentEventCallback = (payload: unknown) => void;
+
+interface FakeAgentProvider {
+  kind: "local" | "ssh";
+  callAgentMethod: (method: string, params?: unknown) => Promise<unknown>;
+  onAgentEvent: (event: string, callback: AgentEventCallback) => () => void;
+}
+
+function makeManager(provider: FakeAgentProvider, workspaces: WorkspaceMeta[] = [makeWorkspace()]) {
   return {
     list: (): WorkspaceMeta[] => workspaces,
+    requireContext: (workspaceId: string) => {
+      if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+        throw new Error(`workspace not found: ${workspaceId}`);
+      }
+      return { fs: provider };
+    },
   };
 }
 
-function makeWorkspace(rootPath: string, id = VALID_UUID): WorkspaceMeta {
+function makeWorkspace(id = VALID_UUID): WorkspaceMeta {
   return {
     id,
     name: "test-workspace",
-    rootPath,
-    location: { kind: "local", rootPath },
+    rootPath: "/workspace",
+    location: { kind: "local", rootPath: "/workspace" },
     colorTone: "default",
     pinned: false,
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
+  };
+}
+
+function makeAgentProvider(options: {
+  batches?: FileMatch[][];
+  complete?: SearchComplete;
+  reject?: Error;
+}): FakeAgentProvider {
+  const listeners = new Map<string, Set<AgentEventCallback>>();
+  return {
+    kind: "local",
+    async callAgentMethod(method, params) {
+      if (method === "search.cancel") return {};
+      if (method !== "search.text") throw new Error(`unexpected method: ${method}`);
+      if (options.reject) throw options.reject;
+      const searchId = (params as { searchId: string }).searchId;
+      for (const batch of options.batches ?? []) {
+        for (const callback of listeners.get("search.progress") ?? []) {
+          callback({ searchId, batch });
+        }
+      }
+      return (
+        options.complete ?? {
+          filesScanned: 0,
+          matchesFound: 0,
+          limitHit: false,
+          elapsedMs: 1,
+        }
+      );
+    },
+    onAgentEvent(event, callback) {
+      let callbacks = listeners.get(event);
+      if (!callbacks) {
+        callbacks = new Set();
+        listeners.set(event, callbacks);
+      }
+      callbacks.add(callback);
+      return () => callbacks?.delete(callback);
+    },
   };
 }
 
@@ -68,21 +118,15 @@ async function consumeSearch(
   }
 }
 
-let tmpRoot: string;
-
-beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-search-handler-test-"));
-});
-
-afterEach(() => {
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-});
-
 describe("searchTextStream", () => {
   test("returns an empty completion and yields no progress when there are no matches", async () => {
-    fs.writeFileSync(path.join(tmpRoot, "readme.md"), "No matching text here.\n");
-
-    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const handler = searchTextStream(
+      makeManager(
+        makeAgentProvider({
+          complete: { filesScanned: 1, matchesFound: 0, limitHit: false, elapsedMs: 1 },
+        }),
+      ) as never,
+    );
     const { progress, complete } = await consumeSearch(
       handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
     );
@@ -95,11 +139,20 @@ describe("searchTextStream", () => {
   });
 
   test("yields FileMatch[] batches and returns final search counts", async () => {
-    for (let i = 0; i < 60; i++) {
-      fs.writeFileSync(path.join(tmpRoot, `file-${i}.ts`), "needle\n");
-    }
-
-    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const batches = Array.from({ length: 2 }, (_, batchIndex) =>
+      Array.from({ length: 30 }, (_, i) => ({
+        relPath: `file-${batchIndex * 30 + i}.ts`,
+        matches: [{ range: { line: 0, startCol: 0, endCol: 6 }, preview: "needle" }],
+      })),
+    );
+    const handler = searchTextStream(
+      makeManager(
+        makeAgentProvider({
+          batches,
+          complete: { filesScanned: 60, matchesFound: 60, limitHit: false, elapsedMs: 2 },
+        }),
+      ) as never,
+    );
     const { progress, complete } = await consumeSearch(
       handler({ workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) }, context()),
     );
@@ -107,7 +160,7 @@ describe("searchTextStream", () => {
     const allMatches = progress.flat();
     const totalMatches = allMatches.reduce((sum, file) => sum + file.matches.length, 0);
 
-    expect(progress.length).toBeGreaterThanOrEqual(2);
+    expect(progress).toHaveLength(2);
     expect(allMatches).toHaveLength(60);
     expect(totalMatches).toBe(60);
     expect(complete.filesScanned).toBe(60);
@@ -117,11 +170,10 @@ describe("searchTextStream", () => {
   });
 
   test("throws AbortError when the stream signal is already aborted", async () => {
-    fs.writeFileSync(path.join(tmpRoot, "a.ts"), "needle\n");
     const ctrl = new AbortController();
     ctrl.abort();
 
-    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const handler = searchTextStream(makeManager(makeAgentProvider({})) as never);
     const generator = handler(
       { workspaceId: VALID_UUID, query: baseQuery({ pattern: "needle" }) },
       context(ctrl.signal),
@@ -131,7 +183,13 @@ describe("searchTextStream", () => {
   });
 
   test("throws InvalidSearchPatternError for an invalid regex", async () => {
-    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const handler = searchTextStream(
+      makeManager(
+        makeAgentProvider({
+          reject: new Error('Invalid search pattern "[invalid": missing closing ]'),
+        }),
+      ) as never,
+    );
     const generator = handler(
       {
         workspaceId: VALID_UUID,
@@ -144,7 +202,7 @@ describe("searchTextStream", () => {
   });
 
   test("throws WorkspaceNotFoundError for an unknown workspace", async () => {
-    const handler = searchTextStream(makeManager(tmpRoot) as never);
+    const handler = searchTextStream(makeManager(makeAgentProvider({})) as never);
     const generator = handler(
       { workspaceId: UNKNOWN_UUID, query: baseQuery({ pattern: "needle" }) },
       context(),

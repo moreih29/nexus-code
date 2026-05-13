@@ -8,14 +8,16 @@ import { type ChildProcessByStdio, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { BINARY_DETECTION_BYTES } from "../../shared/fs-defaults";
 import type { GitBlobChunk, GitOpenFileAtHeadResult } from "../../shared/types/git";
-import { isBinaryProbe } from "../filesystem/binary-detect";
+import { isBinaryProbe } from "./binary-detect";
 import { GitError, gitErrorFromExit, gitMissingError, unknownGitError } from "./git-error";
+import { type GitProcessExecutor, streamGit } from "./git-process";
 
 export const GIT_OPEN_FILE_AT_HEAD_MAX_BYTES = 1024 * 1024;
 
 interface GitBlobCommandContext {
   readonly bin: string;
   readonly cwd: string;
+  readonly executor?: GitProcessExecutor;
 }
 
 interface BatchHeader {
@@ -101,6 +103,9 @@ async function* streamBlobBytes(
   const normalizedRelPath = normalizeGitRelPath(relPath);
   const normalizedRef = normalizeGitRef(ref);
   const objectSpec = `${normalizedRef}:${normalizedRelPath}`;
+  if (repo.executor) {
+    return yield* streamBlobBytesViaExecutor(repo, objectSpec, signal, options);
+  }
   const args = ["cat-file", "--batch"];
   const child = spawnCatFile(repo, args, signal);
   const stderrChunks: Buffer[] = [];
@@ -199,6 +204,35 @@ async function* streamBlobBytes(
       await exit.catch(() => {});
     }
   }
+}
+
+async function* streamBlobBytesViaExecutor(
+  repo: GitBlobCommandContext,
+  objectSpec: string,
+  signal?: AbortSignal,
+  options: BatchStreamOptions = {},
+): AsyncGenerator<Buffer, number, unknown> {
+  const args = ["show", "--no-ext-diff", objectSpec];
+  let emittedBytes = 0;
+  for await (const chunk of streamGit({
+    bin: repo.bin,
+    cwd: repo.cwd,
+    args,
+    signal,
+    interactive: false,
+    executor: repo.executor,
+  })) {
+    emittedBytes += chunk.byteLength;
+    if (options.maxBytes !== undefined && emittedBytes > options.maxBytes) {
+      throw new GitError(
+        "binary-too-large",
+        `Git blob ${objectSpec} exceeds ${options.maxBytes} byte read limit`,
+        { argv: args },
+      );
+    }
+    yield chunk;
+  }
+  return emittedBytes;
 }
 
 /** Starts a non-interactive `git cat-file --batch` process. */

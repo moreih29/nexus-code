@@ -1,25 +1,25 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
-import { FileWatcher } from "./filesystem/file-watcher";
 import { GitAutofetchScheduler } from "./git/git-autofetch";
 import { resolveGitBinary } from "./git/git-binary";
 import { GitHelpersIpcManager, registerGitHelperIpcChannels } from "./git/git-helpers-ipc";
 import { GitRegistry } from "./git/git-registry";
-import { GitWatcher } from "./git/git-watcher";
 import { createStatusCoalescer, type StatusCoalescer } from "./git/status-coalescer";
 import { type LspHostHandle, startLspHost } from "./hosts/lsp-host";
 import { type PtyHostHandle, startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerAutofetchChannel } from "./ipc/channels/autofetch";
 import { registerDialogChannel } from "./ipc/channels/dialog";
-import { registerFsChannel } from "./ipc/channels/fs";
+import { AgentFsWatcher } from "./bridge/fs/agent-watch";
+import { registerFsChannel } from "./bridge/fs/ipc";
+import { AgentGitWatcher } from "./bridge/git/agent-watch";
 import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPanelChannel } from "./ipc/channels/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerSshChannel } from "./ipc/channels/ssh";
-import { registerSystemChannel } from "./ipc/channels/system";
+import { registerSystemChannel } from "./shell/ipc";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
 import { installAppMenu } from "./menu";
@@ -48,10 +48,11 @@ const stateService = new StateService(path.join(userData, "state.json"));
 let lspHost: LspHostHandle | null = null;
 let ptyHost: PtyHostHandle | null = null;
 let gitRegistry: GitRegistry | null = null;
-let gitWatcher: GitWatcher | null = null;
+let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
 let gitHelpersIpc: GitHelpersIpcManager | null = null;
 let gitAutofetch: GitAutofetchScheduler | null = null;
+let agentFsWatcher: AgentFsWatcher | null = null;
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "fs" && event === "changed") {
@@ -60,7 +61,6 @@ function forwardBroadcast(channelName: string, event: string, args: unknown): vo
   broadcast(channelName, event, args);
 }
 
-const fileWatcher = new FileWatcher(forwardBroadcast);
 const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
@@ -69,7 +69,7 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     // workspace-scoped state should add their dispose call here rather
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
-    fileWatcher.disposeWorkspace(removedWorkspaceId);
+    agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
     gitAutofetch?.disposeWorkspace(removedWorkspaceId);
@@ -93,6 +93,8 @@ const workspaceManager = new WorkspaceManager(
     }),
 );
 
+agentFsWatcher = new AgentFsWatcher(workspaceManager, forwardBroadcast);
+
 registerWorkspaceChannel(workspaceManager, {
   createSshChannel: (options) =>
     createSshChannel(options, {
@@ -105,7 +107,7 @@ registerWorkspaceChannel(workspaceManager, {
 });
 registerDialogChannel();
 registerAppStateChannel(stateService);
-registerFsChannel(workspaceManager, fileWatcher, workspaceStorage);
+registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
@@ -126,7 +128,7 @@ app.whenReady().then(async () => {
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });
   await gitHelpersIpc.start();
   registerGitHelperIpcChannels(gitHelpersIpc);
-  gitWatcher = new GitWatcher((workspaceId) => {
+  gitWatcher = new AgentGitWatcher(workspaceManager, (workspaceId) => {
     gitStatusCoalescer?.schedule(workspaceId, async () => {
       await gitRegistry?.refreshStatus(workspaceId);
     });
@@ -135,7 +137,9 @@ app.whenReady().then(async () => {
     coalescer: gitStatusCoalescer ?? undefined,
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
-        gitWatcher?.watch(workspaceId, info.gitDir);
+        void gitWatcher?.watch(workspaceId, info.gitDir).catch((error) => {
+          console.warn("[git] agent watcher failed", error);
+        });
       } else {
         gitWatcher?.disposeWorkspace(workspaceId);
         gitStatusCoalescer?.cancel(workspaceId);
@@ -150,7 +154,7 @@ app.whenReady().then(async () => {
   });
   gitAutofetch.start();
   registerAutofetchChannel(gitAutofetch);
-  registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch);
+  registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch, workspaceManager);
 
   ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
@@ -180,7 +184,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   ptyHost?.dispose();
   lspHost?.dispose();
-  fileWatcher.dispose();
+  agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();
   gitWatcher?.dispose();
   gitAutofetch?.dispose();

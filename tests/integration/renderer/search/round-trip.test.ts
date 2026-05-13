@@ -220,12 +220,78 @@ describe("renderer search round-trip", () => {
 
 async function registerRealSearch(workspaces: { id: string; rootPath: string }[]): Promise<void> {
   const router = await setupInMemoryRouter();
-  const { searchTextStream } = await import("../../../../src/main/ipc/channels/fs/search-handlers");
+  const { searchTextStream } = await import("../../../../src/main/bridge/search/search-handlers");
+  const providers = new Map(
+    workspaces.map(({ id, rootPath }) => [id, makeTestSearchProvider(rootPath)] as const),
+  );
   router.register("fs", {
     call: {},
     listen: { changed: {} },
-    stream: { searchText: searchTextStream(makeManager(workspaces)) },
+    stream: { searchText: searchTextStream(makeManager(workspaces, providers)) },
   } as never);
+}
+
+function makeTestSearchProvider(rootPath: string) {
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  return {
+    kind: "local" as const,
+    async callAgentMethod(method: string, params?: unknown) {
+      if (method === "search.cancel") return {};
+      if (method !== "search.text") throw new Error(`unexpected method: ${method}`);
+
+      const { searchId, query } = params as { searchId: string; query: { pattern: string } };
+      const batch: FileMatch[] = [];
+      let matchesFound = 0;
+      for (const relPath of listFiles(rootPath)) {
+        const content = fs.readFileSync(path.join(rootPath, relPath), "utf8");
+        const matches = content
+          .split(/\r\n|\n|\r/)
+          .flatMap((line, lineIndex) => {
+            const out: FileMatch["matches"] = [];
+            let start = line.indexOf(query.pattern);
+            while (start >= 0) {
+              out.push({
+                range: { line: lineIndex, startCol: start, endCol: start + query.pattern.length },
+                preview: line,
+              });
+              start = line.indexOf(query.pattern, start + query.pattern.length);
+            }
+            return out;
+          });
+        if (matches.length > 0) {
+          matchesFound += matches.length;
+          batch.push({ relPath, matches });
+        }
+      }
+      for (const callback of listeners.get("search.progress") ?? []) {
+        callback({ searchId, batch });
+      }
+      return { filesScanned: batch.length, matchesFound, limitHit: false, elapsedMs: 1 };
+    },
+    onAgentEvent(event: string, callback: (payload: unknown) => void) {
+      let callbacks = listeners.get(event);
+      if (!callbacks) {
+        callbacks = new Set();
+        listeners.set(event, callbacks);
+      }
+      callbacks.add(callback);
+      return () => callbacks?.delete(callback);
+    },
+  };
+}
+
+function listFiles(rootPath: string, relDir = "."): string[] {
+  const absDir = path.join(rootPath, relDir);
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
+    const relPath = relDir === "." ? entry.name : path.join(relDir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listFiles(rootPath, relPath));
+    } else if (entry.isFile()) {
+      out.push(relPath);
+    }
+  }
+  return out;
 }
 
 async function registerControlledSearch(runs: ControlledSearchRun[]): Promise<void> {
@@ -256,7 +322,7 @@ async function registerControlledSearch(runs: ControlledSearchRun[]): Promise<vo
   } as never);
 }
 
-function makeManager(workspaces: { id: string; rootPath: string }[]) {
+function makeManager(workspaces: { id: string; rootPath: string }[], providers?: Map<string, unknown>) {
   return {
     list: (): WorkspaceMeta[] =>
       workspaces.map(({ id, rootPath }) => ({
@@ -269,6 +335,11 @@ function makeManager(workspaces: { id: string; rootPath: string }[]) {
         lastOpenedAt: new Date().toISOString(),
         tabs: [],
       })),
+    requireContext: (workspaceId: string) => {
+      const provider = providers?.get(workspaceId);
+      if (!provider) throw new Error(`workspace not found: ${workspaceId}`);
+      return { fs: provider };
+    },
   };
 }
 

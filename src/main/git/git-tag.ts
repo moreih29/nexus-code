@@ -7,12 +7,13 @@
  */
 import type { RemoteTag, Tag } from "../../shared/types/git";
 import { GitError } from "./git-error";
-import { type RunGitResult, runGit } from "./git-process";
+import { type GitProcessExecutor, type RunGitResult, runGit } from "./git-process";
 import type { BuildHelperEnvOptions } from "./helpers-launcher";
 
 export interface GitTagCommandContext {
   readonly bin: string;
   readonly cwd: string;
+  readonly executor?: GitProcessExecutor;
 }
 
 export interface GitTagMutationRunner {
@@ -51,6 +52,7 @@ export async function listTags(git: GitTagCommandContext, signal?: AbortSignal):
     args: ["for-each-ref", `--format=${TAG_FORMAT}${TAG_RECORD_SEPARATOR}`, "refs/tags"],
     interactive: false,
     signal,
+    executor: git.executor,
   });
   return parseTagList(stdout);
 }

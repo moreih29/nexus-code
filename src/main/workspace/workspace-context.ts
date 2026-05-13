@@ -1,5 +1,5 @@
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import type { FsReadProvider } from "../fs/provider/types";
+import type { FsProvider } from "../bridge/fs/provider";
 import type { WorkspaceStorage } from "../storage/workspace-storage";
 
 // ---------------------------------------------------------------------------
@@ -11,16 +11,16 @@ import type { WorkspaceStorage } from "../storage/workspace-storage";
 export class WorkspaceContext {
   private meta: WorkspaceMeta;
   private readonly storage: WorkspaceStorage;
-  private fsProvider: FsReadProvider;
+  private fsProvider: FsProvider;
   private disposeFsProvider: (() => void) | undefined;
 
-  constructor(meta: WorkspaceMeta, storage: WorkspaceStorage, fs: FsReadProvider) {
+  constructor(meta: WorkspaceMeta, storage: WorkspaceStorage, fs: FsProvider) {
     this.meta = meta;
     this.storage = storage;
     this.fsProvider = fs;
   }
 
-  get fs(): FsReadProvider {
+  get fs(): FsProvider {
     return this.fsProvider;
   }
 
@@ -36,15 +36,22 @@ export class WorkspaceContext {
   /**
    * Replaces the active filesystem provider and disposes provider-owned state.
    */
-  setFsProvider(fs: FsReadProvider, dispose?: () => void): void {
-    this.disposeFsProvider?.();
+  setFsProvider(fs: FsProvider, dispose?: () => void): void {
+    this.disposeCurrentFsProvider();
     this.fsProvider = fs;
     this.disposeFsProvider = dispose;
   }
 
   close(): void {
-    this.disposeFsProvider?.();
+    this.disposeCurrentFsProvider();
     this.disposeFsProvider = undefined;
     this.storage.closeForWorkspace(this.meta.id);
+  }
+
+  private disposeCurrentFsProvider(): void {
+    this.disposeFsProvider?.();
+    if (!this.disposeFsProvider) {
+      this.fsProvider.dispose?.();
+    }
   }
 }

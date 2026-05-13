@@ -23,17 +23,18 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { LocalFsProvider } from "../../../../src/main/fs/provider/local/local-fs-provider";
+import type { FsProvider } from "../../../../src/main/bridge/fs/provider";
 import {
   readdirHandler,
   readFileHandler,
   statHandler,
-} from "../../../../src/main/ipc/channels/fs/read-handlers";
+} from "../../../../src/main/bridge/fs/read-handlers";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
 import { WorkspaceManager } from "../../../../src/main/workspace/workspace-manager";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
+import type { DirEntry, FileReadResult, FsStat } from "../../../../src/shared/types/fs";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -46,11 +47,54 @@ function makeTmpRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-contract-drift-"));
 }
 
+async function readdirForContract(absDir: string): Promise<DirEntry[]> {
+  const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
+  return entries.map((entry) => ({
+    name: entry.name,
+    type: entry.isDirectory() ? "dir" : entry.isSymbolicLink() ? "symlink" : "file",
+  }));
+}
+
+async function statForContract(abs: string): Promise<FsStat> {
+  const stat = await fs.promises.lstat(abs);
+  return {
+    type: stat.isDirectory() ? "dir" : stat.isSymbolicLink() ? "symlink" : "file",
+    size: stat.size,
+    mtime: stat.mtime.toISOString(),
+    isSymlink: stat.isSymbolicLink(),
+  };
+}
+
+async function readFileForContract(abs: string): Promise<FileReadResult> {
+  const stat = await fs.promises.lstat(abs);
+  const buf = await fs.promises.readFile(abs);
+  const probe = buf.subarray(0, 512);
+  const isBinary = probe.includes(0x00);
+  const hasBom = probe.length >= 3 && probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf;
+  return {
+    kind: "ok",
+    content: isBinary ? "" : hasBom ? buf.subarray(3).toString("utf8") : buf.toString("utf8"),
+    encoding: hasBom ? "utf8-bom" : "utf8",
+    sizeBytes: stat.size,
+    isBinary,
+    mtime: stat.mtime.toISOString(),
+  };
+}
+
 function makeFsManagerStub(rootPath: string): {
   list: () => WorkspaceMeta[];
-  requireContext: (id: string) => { fs: LocalFsProvider };
+  requireContext: (id: string) => { fs: FsProvider };
 } {
-  const fsProvider = new LocalFsProvider(rootPath);
+  const fsProvider: FsProvider = {
+    kind: "local",
+    readdir: (relPath) => readdirForContract(path.join(rootPath, relPath || ".")),
+    stat: (relPath) => statForContract(path.join(rootPath, relPath || ".")),
+    readFile: (relPath) => readFileForContract(path.join(rootPath, relPath || ".")),
+    readAbsolute: (absolutePath) => readFileForContract(absolutePath),
+    writeFile: async () => ({ kind: "ok", mtime: new Date().toISOString(), size: 0 }),
+    createFile: async () => {},
+    mkdir: async () => {},
+  };
   return {
     list: () => [
       {

@@ -33,6 +33,7 @@ export interface GitProcessOptions {
   /** True lets caller-provided askpass helpers handle prompts; false injects echo. */
   readonly interactive?: boolean;
   readonly signal?: AbortSignal;
+  readonly executor?: GitProcessExecutor;
 }
 
 export interface RunGitOptions extends GitProcessOptions {
@@ -43,6 +44,11 @@ export interface RunGitResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly code: number;
+}
+
+export interface GitProcessExecutor {
+  run(options: RunGitOptions): Promise<RunGitResult>;
+  stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
 }
 
 /**
@@ -70,7 +76,10 @@ export interface WithLockRetryOptions {
  * see a single deterministic failure.
  */
 export function runGit(options: RunGitOptions): Promise<RunGitResult> {
-  return withLockRetry(() => runGitOnce(options), { signal: options.signal });
+  return withLockRetry(
+    () => (options.executor ? runGitViaExecutor(options) : runGitOnce(options)),
+    { signal: options.signal },
+  );
 }
 
 /**
@@ -237,12 +246,30 @@ function runGitOnce(options: RunGitOptions): Promise<RunGitResult> {
   });
 }
 
+async function runGitViaExecutor(options: RunGitOptions): Promise<RunGitResult> {
+  if (options.signal?.aborted) throw createAbortError();
+  const result = await options.executor!.run(options);
+  if (result.code === 0) {
+    return result;
+  }
+  throw gitErrorFromExit({
+    args: options.args,
+    stderr: result.stderr,
+    stdout: result.stdout,
+    exitCode: result.code,
+    signal: null,
+  });
+}
+
 /**
  * Streams git stdout chunks and kills the child when the consumer stops early.
  */
 export async function* streamGit(
   options: GitProcessOptions,
 ): AsyncGenerator<Buffer, void, unknown> {
+  if (options.executor) {
+    return yield* options.executor.stream(options);
+  }
   if (options.signal?.aborted) throw createAbortError();
 
   const child = spawnGit(options);

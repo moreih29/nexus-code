@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import net from "node:net";
-import { SshFsProvider } from "../../../../src/main/fs/provider/ssh/ssh-fs-provider";
+import { SshFsProvider } from "../../../../src/main/bridge/fs/ssh-provider";
 import {
   LOCAL_AGENT_DIST_DIR,
   ensureRemoteAgent,

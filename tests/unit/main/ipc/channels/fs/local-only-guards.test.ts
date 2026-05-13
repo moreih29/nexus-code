@@ -1,15 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { searchTextStream } from "../../../../../../src/main/ipc/channels/fs/search-handlers";
+import { describe, expect, it, mock } from "bun:test";
+import { searchTextStream } from "../../../../../../src/main/bridge/search/search-handlers";
 import {
   unwatchHandler,
   watchHandler,
-} from "../../../../../../src/main/ipc/channels/fs/watch-handlers";
-import { writeFileHandler } from "../../../../../../src/main/ipc/channels/fs/write-handlers";
+} from "../../../../../../src/main/bridge/fs/watch-handlers";
 import type { StreamContext } from "../../../../../../src/main/ipc/router";
-import { UnsupportedSshWorkspaceError } from "../../../../../../src/main/workspace/workspace-guards";
 import type { TextSearchQuery } from "../../../../../../src/shared/types/search";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
@@ -28,9 +23,15 @@ function baseQuery(overrides: Partial<TextSearchQuery> & { pattern: string }): T
   };
 }
 
-function makeManager(workspaces: WorkspaceMeta[]) {
+function makeManager(workspaces: WorkspaceMeta[], provider: unknown) {
   return {
     list: (): WorkspaceMeta[] => workspaces,
+    requireContext: (workspaceId: string) => {
+      if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+        throw new Error(`workspace not found: ${workspaceId}`);
+      }
+      return { fs: provider };
+    },
   };
 }
 
@@ -51,74 +52,72 @@ function context(signal: AbortSignal = new AbortController().signal): StreamCont
   return { signal };
 }
 
-let tmpRoot: string;
-
-beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-ssh-local-only-"));
-});
-
-afterEach(() => {
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-});
-
-describe("fs local-only SSH workspace guards", () => {
-  it("rejects writeFile before touching a matching local path", async () => {
-    const workspace = makeSshWorkspace(tmpRoot);
-    const target = path.join(tmpRoot, "should-not-write.txt");
-    const handler = writeFileHandler(makeManager([workspace]) as never);
-
-    await expect(
-      handler({
-        workspaceId: WORKSPACE_ID,
-        relPath: "should-not-write.txt",
-        content: "local write should not happen",
-        expected: { exists: false },
+describe("fs agent-backed SSH workspace delegation", () => {
+  it("runs search through the workspace agent provider", async () => {
+    const workspace = makeSshWorkspace("/srv/repo");
+    const listeners = new Map<string, Set<(payload: unknown) => void>>();
+    const provider = {
+      kind: "ssh" as const,
+      callAgentMethod: mock(async (method: string, params?: unknown) => {
+        if (method !== "search.text") return {};
+        const searchId = (params as { searchId: string }).searchId;
+        for (const callback of listeners.get("search.progress") ?? []) {
+          callback({
+            searchId,
+            batch: [
+              {
+                relPath: "remote.ts",
+                matches: [{ range: { line: 0, startCol: 0, endCol: 6 }, preview: "needle" }],
+              },
+            ],
+          });
+        }
+        return { filesScanned: 1, matchesFound: 1, limitHit: false, elapsedMs: 1 };
       }),
-    ).rejects.toBeInstanceOf(UnsupportedSshWorkspaceError);
-
-    expect(fs.existsSync(target)).toBe(false);
-  });
-
-  it("rejects search before walking a matching local path", async () => {
-    fs.writeFileSync(path.join(tmpRoot, "local-only.txt"), "needle\n");
-    const workspace = makeSshWorkspace(tmpRoot);
-    const handler = searchTextStream(makeManager([workspace]) as never);
+      onAgentEvent: (event: string, callback: (payload: unknown) => void) => {
+        let callbacks = listeners.get(event);
+        if (!callbacks) {
+          callbacks = new Set();
+          listeners.set(event, callbacks);
+        }
+        callbacks.add(callback);
+        return () => callbacks?.delete(callback);
+      },
+    };
+    const handler = searchTextStream(makeManager([workspace], provider) as never);
     const generator = handler(
       { workspaceId: WORKSPACE_ID, query: baseQuery({ pattern: "needle" }) },
       context(),
     );
 
-    const err = await generator.next().catch((error: unknown) => error);
-    expect(err).toBeInstanceOf(UnsupportedSshWorkspaceError);
-    expect((err as Error).message).toContain(
-      "SSH workspaces do not support search workspace files",
+    const progress = await generator.next();
+    expect(progress.done).toBe(false);
+    expect(progress.value?.[0]?.relPath).toBe("remote.ts");
+    const complete = await generator.next();
+    expect(complete.done).toBe(true);
+    expect(complete.value.matchesFound).toBe(1);
+    expect(provider.callAgentMethod).toHaveBeenCalledWith(
+      "search.text",
+      expect.objectContaining({ query: expect.objectContaining({ pattern: "needle" }) }),
     );
   });
 
-  it("no-ops watch and unwatch for SSH workspaces", async () => {
-    const workspace = makeSshWorkspace(tmpRoot);
-    const manager = makeManager([workspace]);
+  it("delegates watch and unwatch to the agent watcher", async () => {
     const watcher = {
-      watch: mock((_workspaceId: string, _workspaceRoot: string, _absDir: string) => {}),
-      unwatch: mock((_workspaceId: string, _absDir: string) => {}),
+      watch: mock(async (_workspaceId: string, _relPath: string) => {}),
+      unwatch: mock(async (_workspaceId: string, _relPath: string) => {}),
     };
 
-    await watchHandler(
-      manager as never,
-      watcher as never,
-    )({
+    await watchHandler(watcher as never)({
       workspaceId: WORKSPACE_ID,
       relPath: ".",
     });
-    await unwatchHandler(
-      manager as never,
-      watcher as never,
-    )({
+    await unwatchHandler(watcher as never)({
       workspaceId: WORKSPACE_ID,
       relPath: ".",
     });
 
-    expect(watcher.watch).not.toHaveBeenCalled();
-    expect(watcher.unwatch).not.toHaveBeenCalled();
+    expect(watcher.watch).toHaveBeenCalledWith(WORKSPACE_ID, ".");
+    expect(watcher.unwatch).toHaveBeenCalledWith(WORKSPACE_ID, ".");
   });
 });

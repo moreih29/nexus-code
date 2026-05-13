@@ -8,7 +8,9 @@ import {
   type GitStatus,
   type RepoInfo,
 } from "../../shared/types/git";
-import { requireLocalWorkspace } from "../workspace/workspace-guards";
+import { AgentGitExecutor } from "../bridge/git/agent-executor";
+import { isAgentBackedProvider } from "../bridge/fs/provider";
+import { requireLocalWorkspace, requireWorkspace } from "../workspace/workspace-guards";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import type { GitBinary } from "./git-binary";
 import { detectRepository } from "./git-detect";
@@ -57,8 +59,9 @@ export class GitRegistry {
    * their `{ kind: "non-repo" }` result and return null.
    */
   async getOrDetect(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
-    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
-    this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"]);
+    const executor = this.getAgentExecutor(workspaceId);
+    this.resolveWorkspaceRoot(workspaceId, "Git repository detection", executor);
+    this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
 
     const cachedRepo = this.repositories.get(workspaceId);
     if (cachedRepo && this.repoInfos.get(workspaceId)?.kind === "repo") {
@@ -78,9 +81,10 @@ export class GitRegistry {
    * Returns the current cached info without importing renderer-side state.
    */
   getRepoInfo(workspaceId: string): RepoInfo {
-    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository info");
+    const executor = this.getAgentExecutor(workspaceId);
+    this.resolveWorkspaceRoot(workspaceId, "Git repository info", executor);
 
-    if (!this.bin || this.gitUnavailable) return { kind: "non-repo" };
+    if ((!this.bin && !executor) || this.gitUnavailable) return { kind: "non-repo" };
     const cachedInfo = this.repoInfos.get(workspaceId);
     if (cachedInfo) return cachedInfo;
     // Both an in-flight detection and a never-started workspace report as
@@ -92,10 +96,11 @@ export class GitRegistry {
    * Initializes a repository at the workspace root, then re-runs detection.
    */
   async reinit(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
-    const workspaceRoot = this.resolveLocalWorkspaceRoot(workspaceId, "Git initialization");
-    const bin = this.requireGitBinary(["init"]);
+    const executor = this.getAgentExecutor(workspaceId);
+    const workspaceRoot = this.resolveWorkspaceRoot(workspaceId, "Git initialization", executor);
+    const bin = this.requireGitBinary(["init"], executor);
 
-    await runGit({ bin: bin.path, cwd: workspaceRoot, args: ["init"], signal });
+    await runGit({ bin: bin.path, cwd: workspaceRoot, args: ["init"], signal, executor });
     return this.refreshDetection(workspaceId, signal);
   }
 
@@ -103,8 +108,9 @@ export class GitRegistry {
    * Forces repository detection to run again and updates the cached state.
    */
   async refreshDetection(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
-    this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
-    this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"]);
+    const executor = this.getAgentExecutor(workspaceId);
+    this.resolveWorkspaceRoot(workspaceId, "Git repository detection", executor);
+    this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
     this.bumpGeneration(workspaceId);
     this.disposeRepository(workspaceId);
     this.repoInfos.delete(workspaceId);
@@ -170,12 +176,19 @@ export class GitRegistry {
    * Starts the one in-flight detection promise allowed per workspaceId.
    */
   private startDetection(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
-    const bin = this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"]);
+    const executor = this.getAgentExecutor(workspaceId);
+    const bin = this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
     const generation = this.currentGeneration(workspaceId);
 
     this.setDetecting(workspaceId);
 
-    const detection = this.detectWorkspace(workspaceId, bin, generation, signal).finally(() => {
+    const detection = this.detectWorkspace(
+      workspaceId,
+      bin,
+      executor,
+      generation,
+      signal,
+    ).finally(() => {
       if (this.detections.get(workspaceId) === detection) {
         this.detections.delete(workspaceId);
       }
@@ -192,17 +205,22 @@ export class GitRegistry {
   private async detectWorkspace(
     workspaceId: string,
     bin: GitBinary,
+    executor: AgentGitExecutor | undefined,
     generation: number,
     signal?: AbortSignal,
   ): Promise<GitRepository | null> {
-    const workspaceRoot = this.resolveLocalWorkspaceRoot(workspaceId, "Git repository detection");
+    const workspaceRoot = this.resolveWorkspaceRoot(
+      workspaceId,
+      "Git repository detection",
+      executor,
+    );
 
     try {
-      const info = await detectRepository(workspaceRoot, bin, signal);
+      const info = await detectRepository(workspaceRoot, bin, signal, executor);
       if (this.currentGeneration(workspaceId) !== generation) return null;
 
       if (info.kind === "repo") {
-        return this.cacheRepository(workspaceId, info, bin);
+        return this.cacheRepository(workspaceId, info, bin, executor);
       }
 
       this.disposeRepository(workspaceId);
@@ -221,7 +239,12 @@ export class GitRegistry {
   /**
    * Installs or replaces the repository instance for a detected repo.
    */
-  private cacheRepository(workspaceId: string, info: RepoInfo & { kind: "repo" }, bin: GitBinary) {
+  private cacheRepository(
+    workspaceId: string,
+    info: RepoInfo & { kind: "repo" },
+    bin: GitBinary,
+    executor: AgentGitExecutor | undefined,
+  ) {
     const existing = this.repositories.get(workspaceId);
     if (existing && existing.topLevel === info.topLevel && existing.gitDir === info.gitDir) {
       this.setRepoInfo(workspaceId, info);
@@ -229,7 +252,14 @@ export class GitRegistry {
     }
 
     this.disposeRepository(workspaceId);
-    const repo = new GitRepository(workspaceId, info.topLevel, info.gitDir, bin);
+    const repo = new GitRepository(
+      workspaceId,
+      info.topLevel,
+      info.gitDir,
+      bin,
+      executor,
+      executor,
+    );
     this.repositories.set(workspaceId, repo);
     this.setRepoInfo(workspaceId, info);
     return repo;
@@ -266,7 +296,14 @@ export class GitRegistry {
   /**
    * Looks up a local workspace root through WorkspaceManager's public list().
    */
-  private resolveLocalWorkspaceRoot(workspaceId: string, operation: string): string {
+  private resolveWorkspaceRoot(
+    workspaceId: string,
+    operation: string,
+    executor?: AgentGitExecutor,
+  ): string {
+    if (executor) {
+      return requireWorkspace(this.workspaceManager, workspaceId).rootPath;
+    }
     const workspace = requireLocalWorkspace(this.workspaceManager, workspaceId, operation);
     return workspace.location.rootPath;
   }
@@ -274,9 +311,28 @@ export class GitRegistry {
   /**
    * Returns the process Git binary or throws the typed missing-Git error.
    */
-  private requireGitBinary(argv: readonly string[]): GitBinary {
+  private requireGitBinary(argv: readonly string[], executor?: AgentGitExecutor): GitBinary {
+    if (executor) return this.bin ?? { path: "git", version: "agent" };
     if (this.bin && !this.gitUnavailable) return this.bin;
     throw new GitError("git-missing", "Git executable not found", { argv });
+  }
+
+  private getAgentExecutor(workspaceId: string): AgentGitExecutor | undefined {
+    try {
+      const provider = this.workspaceManager.requireContext(workspaceId).fs;
+      if (!isAgentBackedProvider(provider) || provider.isAgentAvailable?.() === false) {
+        return undefined;
+      }
+      return new AgentGitExecutor(() => {
+        const current = this.workspaceManager.requireContext(workspaceId).fs;
+        if (!isAgentBackedProvider(current) || current.isAgentAvailable?.() === false) {
+          throw new Error("workspace agent provider is not available");
+        }
+        return current;
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   /**

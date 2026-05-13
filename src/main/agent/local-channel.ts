@@ -22,12 +22,7 @@ import type {
   ChannelLifecycleEvent,
   AgentChannel,
 } from "./channel";
-import {
-  createNdjsonPipe,
-  createSshError,
-  type NdjsonPipe,
-  type SshError,
-} from "./pipe";
+import { createNdjsonPipe, createSshError, type NdjsonPipe, type SshError } from "./pipe";
 
 const DISPOSE_KILL_GRACE_MS = 100;
 
@@ -36,6 +31,10 @@ export interface CreateLocalChannelOptions {
   readonly binaryPath: string;
   /** Workspace root passed as the binary's first positional argument. */
   readonly rootPath: string;
+  /** Optional command arguments placed before rootPath, used by dev fallbacks. */
+  readonly argsPrefix?: readonly string[];
+  /** Optional working directory for dev command fallbacks. */
+  readonly cwd?: string;
   /** Optional env overlay; merged on top of `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
   /** Per-request timeout override; defaults to the pipe's 30s setting. */
@@ -49,7 +48,7 @@ export interface CreateLocalChannelOptions {
 export type SpawnLocalProcess = (
   binaryPath: string,
   args: readonly string[],
-  options: { env?: NodeJS.ProcessEnv },
+  options: { cwd?: string; env?: NodeJS.ProcessEnv },
 ) => ChildProcessWithoutNullStreams;
 
 export interface LocalChannelDependencies {
@@ -68,7 +67,10 @@ export function createLocalChannel(
   const spawnImpl = dependencies.spawn ?? defaultSpawn;
   const env = options.env ? { ...process.env, ...options.env } : undefined;
 
-  const child = spawnImpl(options.binaryPath, [options.rootPath], { env });
+  const child = spawnImpl(options.binaryPath, [...(options.argsPrefix ?? []), options.rootPath], {
+    cwd: options.cwd,
+    env,
+  });
 
   let disposed = false;
   let closed = false;
@@ -192,9 +194,10 @@ export function createLocalChannel(
 function defaultSpawn(
   binaryPath: string,
   args: readonly string[],
-  options: { env?: NodeJS.ProcessEnv },
+  options: { cwd?: string; env?: NodeJS.ProcessEnv },
 ): ChildProcessWithoutNullStreams {
   return spawn(binaryPath, args, {
+    cwd: options.cwd,
     env: options.env,
     stdio: ["pipe", "pipe", "pipe"],
   }) as ChildProcessWithoutNullStreams;

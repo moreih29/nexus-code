@@ -6,7 +6,7 @@ import path from "node:path";
 import type { RepoInfo } from "../../shared/types/git";
 import type { GitBinary } from "./git-binary";
 import { GitError } from "./git-error";
-import { runGit } from "./git-process";
+import { type GitProcessExecutor, runGit } from "./git-process";
 
 const REV_PARSE_ARGS = ["rev-parse", "--show-toplevel", "--git-dir"] as const;
 
@@ -21,6 +21,7 @@ export async function detectRepository(
   root: string,
   bin: GitBinary | string | null,
   signal?: AbortSignal,
+  executor?: GitProcessExecutor,
 ): Promise<RepoInfo> {
   const binPath = typeof bin === "string" ? bin : bin?.path;
   if (!binPath) return { kind: "non-repo" };
@@ -31,6 +32,7 @@ export async function detectRepository(
       cwd: root,
       args: REV_PARSE_ARGS,
       signal,
+      executor,
     });
     return parseRevParseOutput(root, stdout);
   } catch (error) {

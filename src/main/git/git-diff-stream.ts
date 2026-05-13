@@ -8,7 +8,7 @@
  */
 import { StringDecoder } from "node:string_decoder";
 import type { DiffChunk, DiffComplete } from "../../shared/types/git";
-import { streamGit } from "./git-process";
+import { type GitProcessExecutor, streamGit } from "./git-process";
 
 export const GIT_DIFF_CHUNK_MAX_BYTES = 1024 * 1024;
 
@@ -18,6 +18,7 @@ export interface GitTextStreamOptions {
   readonly args: readonly string[];
   readonly signal?: AbortSignal;
   readonly maxChunkBytes?: number;
+  readonly executor?: GitProcessExecutor;
 }
 
 export interface ChunkGitTextStreamOptions {
@@ -34,11 +35,15 @@ export async function* streamGitTextChunks({
   args,
   signal,
   maxChunkBytes = GIT_DIFF_CHUNK_MAX_BYTES,
+  executor,
 }: GitTextStreamOptions): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
-  return yield* chunkGitTextStream(streamGit({ bin, cwd, args, interactive: false, signal }), {
-    signal,
-    maxChunkBytes,
-  });
+  return yield* chunkGitTextStream(
+    streamGit({ bin, cwd, args, interactive: false, signal, executor }),
+    {
+      signal,
+      maxChunkBytes,
+    },
+  );
 }
 
 /**

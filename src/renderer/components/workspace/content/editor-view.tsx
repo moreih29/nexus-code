@@ -67,7 +67,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
         <ReadOnlyBanner
           filePath={filePath}
           onRevealInFinder={() => {
-            ipcCall("fs", "revealInFinder", { absolutePath: filePath }).catch(() => {});
+            ipcCall("system", "revealInOS", { absPath: filePath }).catch(() => {});
           }}
         />
       )}

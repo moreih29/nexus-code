@@ -6,7 +6,7 @@
  *   before idle Y?". Previously these were scattered across modules
  *   with names like `DEFAULT_TIMEOUT_MS` whose meaning was only legible
  *   from the call site.
- * - Magic numbers (e.g. `setTimeout(..., 300)` in file-watcher) are
+ * - Magic numbers (e.g. `setTimeout(..., 300)` in watcher bridges) are
  *   eliminated — every timing value has a name and a comment.
  * - Tests can override per-module by injecting different values where
  *   the call site accepts an option (e.g. `LspManagerOpts.idleTimeoutMs`).

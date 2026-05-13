@@ -44,7 +44,10 @@ export async function loadExternalEntry(input: {
   };
 
   try {
-    const result = await ipcCall("fs", "readExternal", { absolutePath: input.filePath });
+    const result = await ipcCall("fs", "readExternal", {
+      workspaceId: input.workspaceId,
+      absolutePath: input.filePath,
+    });
 
     if (result.kind === "missing") {
       entry.phase = "error";

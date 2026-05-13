@@ -13,7 +13,7 @@ import path from "node:path";
 import {
   openPathExternalHandler,
   revealInOSHandler,
-} from "../../../../src/main/ipc/channels/system/open-path-handler";
+} from "../../../../src/main/shell/open-path";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 
 function makeTmpDir(): string {

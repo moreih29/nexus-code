@@ -3,10 +3,16 @@
  */
 import { BINARY_DETECTION_BYTES } from "../../../../shared/fs-defaults";
 import { ipcContract } from "../../../../shared/ipc-contract";
+import {
+  AgentGitGetFileContentResultSchema,
+  GIT_GET_FILE_CONTENT_METHOD,
+} from "../../../../shared/protocol/agent/git";
 import type { FileReadResult } from "../../../../shared/types/fs";
-import { isBinaryProbe } from "../../../filesystem/binary-detect";
+import { isAgentBackedProvider } from "../../../bridge/fs/provider";
+import { isBinaryProbe } from "../../../git/binary-detect";
 import { GitError } from "../../../git/git-error";
 import type { GitRegistry } from "../../../git/git-registry";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import type { CallContext } from "../../router";
 import { validateArgs } from "../../router";
 
@@ -32,6 +38,7 @@ function missingReasonForRef(ref: string): "index" | "ref" | "path" | "not-found
  */
 export function getFileContentHandler(
   registry: GitRegistry,
+  manager?: WorkspaceManager,
 ): (args: unknown, ctx?: CallContext) => Promise<FileReadResult> {
   return async (args: unknown, ctx?: CallContext): Promise<FileReadResult> => {
     const { workspaceId, ref, relPath } = validateArgs(c.getFileContent.args, args);
@@ -41,6 +48,14 @@ export function getFileContentHandler(
         "unknown",
         "git.getFileContent does not support WORKING refs; use fs.readFile for working-tree content",
       );
+    }
+
+    if (manager) {
+      const provider = manager.requireContext(workspaceId).fs;
+      if (isAgentBackedProvider(provider)) {
+        const result = await provider.callAgentMethod(GIT_GET_FILE_CONTENT_METHOD, { ref, relPath });
+        return AgentGitGetFileContentResultSchema.parse(result);
+      }
     }
 
     const repo = await registry.getOrDetect(workspaceId, ctx?.signal);

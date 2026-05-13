@@ -1,148 +1,95 @@
 /**
  * Unit tests for readExternalHandler.
- *
- * Imports come directly from read-handlers.ts to avoid loading move-handlers.ts,
- * which depends on Electron's shell module (fails under Bun's test runtime).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { readExternalHandler } from "../../../../src/main/ipc/channels/fs/read-handlers";
+import { describe, expect, it, mock } from "bun:test";
+import { readExternalHandler } from "../../../../src/main/bridge/fs/read-handlers";
+import type { FsProvider } from "../../../../src/main/bridge/fs/provider";
+import type { FileReadResult } from "../../../../src/shared/types/fs";
 
-let tmpRoot: string;
+const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 
-beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-read-external-"));
-});
-
-afterEach(() => {
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-});
-
-function callReadExternal(absolutePath: string) {
-  const handler = readExternalHandler();
-  return handler({ absolutePath });
+function makeProvider(readAbsolute: FsProvider["readAbsolute"]): FsProvider {
+  return {
+    kind: "local",
+    readdir: async () => [],
+    stat: async () => ({
+      type: "file",
+      size: 0,
+      mtime: "2026-01-01T00:00:00.000Z",
+      isSymlink: false,
+    }),
+    readFile: async () => ({ kind: "missing", reason: "not-found" }),
+    readAbsolute,
+    writeFile: async () => ({ kind: "ok", mtime: "2026-01-01T00:00:00.000Z", size: 0 }),
+    createFile: async () => {},
+    mkdir: async () => {},
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Scenario 1: utf-8 plain text
-// ---------------------------------------------------------------------------
+function makeManager(provider: FsProvider) {
+  const requireContext = mock((workspaceId: string) => ({ id: workspaceId, fs: provider }));
+  return { manager: { requireContext }, requireContext };
+}
 
-describe("readExternalHandler — utf-8 plain text", () => {
-  it("returns ok result with content, encoding=utf8, correct sizeBytes, isBinary=false, and a valid mtime", async () => {
-    const filePath = path.join(tmpRoot, "hello.ts");
-    const text = "export const x = 42;\n";
-    await fs.promises.writeFile(filePath, text, "utf8");
+describe("readExternalHandler", () => {
+  it("delegates absolute reads to the workspace provider", async () => {
+    const fileResult: FileReadResult = {
+      kind: "ok",
+      content: "export const x = 1;\n",
+      encoding: "utf8",
+      sizeBytes: 20,
+      isBinary: false,
+      mtime: "2026-01-01T00:00:00.000Z",
+    };
+    const readAbsolute = mock(async () => fileResult);
+    const { manager, requireContext } = makeManager(makeProvider(readAbsolute));
 
-    const result = await callReadExternal(filePath);
+    const result = await readExternalHandler(manager as never)({
+      workspaceId: WORKSPACE_ID,
+      absolutePath: "/external/src/lib.ts",
+    });
 
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.content).toBe(text);
-    expect(result.encoding).toBe("utf8");
-    expect(result.sizeBytes).toBe(Buffer.byteLength(text, "utf8"));
-    expect(result.isBinary).toBe(false);
-    expect(new Date(result.mtime).getTime()).toBeGreaterThan(0);
+    expect(result).toBe(fileResult);
+    expect(requireContext.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(readAbsolute.mock.calls).toEqual([["/external/src/lib.ts"]]);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Scenario 2: nonexistent path
-// ---------------------------------------------------------------------------
+  it("returns provider missing results without wrapping them", async () => {
+    const missing: FileReadResult = { kind: "missing", reason: "not-found" };
+    const { manager } = makeManager(makeProvider(mock(async () => missing)));
 
-describe("readExternalHandler — nonexistent path", () => {
-  it("returns missing result with reason=not-found (no throw)", async () => {
-    const missing = path.join(tmpRoot, "does-not-exist.ts");
-    const result = await callReadExternal(missing);
-    expect(result.kind).toBe("missing");
-    if (result.kind !== "missing") return;
-    expect(result.reason).toBe("not-found");
+    await expect(
+      readExternalHandler(manager as never)({
+        workspaceId: WORKSPACE_ID,
+        absolutePath: "/external/missing.ts",
+      }),
+    ).resolves.toBe(missing);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Scenario 3: binary file
-// ---------------------------------------------------------------------------
-
-describe("readExternalHandler — binary file (null bytes)", () => {
-  it("returns ok result with isBinary=true and content=''", async () => {
-    const filePath = path.join(tmpRoot, "binary.bin");
-    const buf = Buffer.alloc(64, 0x00);
-    await fs.promises.writeFile(filePath, buf);
-
-    const result = await callReadExternal(filePath);
-
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.isBinary).toBe(true);
-    expect(result.content).toBe("");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 4: workspace-internal path also works (path-safety bypass is intentional)
-// ---------------------------------------------------------------------------
-
-describe("readExternalHandler — workspace-internal absolute path", () => {
-  it("reads successfully without a workspace manager (no path-safety check)", async () => {
-    const filePath = path.join(tmpRoot, "internal.ts");
-    const text = "// workspace internal file\n";
-    await fs.promises.writeFile(filePath, text, "utf8");
-
-    const result = await callReadExternal(filePath);
-
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.content).toBe(text);
-    expect(result.isBinary).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 5: relative path throws
-// ---------------------------------------------------------------------------
-
-describe("readExternalHandler — relative path", () => {
-  it("throws when absolutePath is not absolute", async () => {
-    await expect(callReadExternal("relative/path/file.ts")).rejects.toThrow(
-      /path must be absolute/,
+  it("propagates provider errors", async () => {
+    const error = new Error("NOT_FOUND: path must be absolute: relative.ts");
+    const { manager } = makeManager(
+      makeProvider(
+        mock(async (): Promise<FileReadResult> => {
+          throw error;
+        }),
+      ),
     );
+
+    await expect(
+      readExternalHandler(manager as never)({
+        workspaceId: WORKSPACE_ID,
+        absolutePath: "relative.ts",
+      }),
+    ).rejects.toBe(error);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Scenario 6: EACCES throws PERMISSION_DENIED
-// ---------------------------------------------------------------------------
+  it("rejects calls without a workspace id", async () => {
+    const { manager } = makeManager(makeProvider(mock(async () => ({ kind: "missing", reason: "not-found" }))));
 
-describe("readExternalHandler — EACCES (permission denied)", () => {
-  it("throws with PERMISSION_DENIED prefix", async () => {
-    if (process.getuid?.() === 0) {
-      return;
-    }
-    const filePath = path.join(tmpRoot, "secret.ts");
-    await fs.promises.writeFile(filePath, "secret");
-    await fs.promises.chmod(filePath, 0o000);
-
-    try {
-      await expect(callReadExternal(filePath)).rejects.toThrow(/^PERMISSION_DENIED:/);
-    } finally {
-      await fs.promises.chmod(filePath, 0o644);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 7: file too large
-// ---------------------------------------------------------------------------
-
-describe("readExternalHandler — file exceeds MAX_READABLE_FILE_SIZE", () => {
-  it("throws with TOO_LARGE prefix", async () => {
-    const filePath = path.join(tmpRoot, "big.bin");
-    const buf = Buffer.alloc(6 * 1024 * 1024 + 1, "x".charCodeAt(0));
-    await fs.promises.writeFile(filePath, buf);
-
-    await expect(callReadExternal(filePath)).rejects.toThrow(/^TOO_LARGE:/);
+    await expect(
+      readExternalHandler(manager as never)({ absolutePath: "/external/src/lib.ts" }),
+    ).rejects.toThrow();
   });
 });

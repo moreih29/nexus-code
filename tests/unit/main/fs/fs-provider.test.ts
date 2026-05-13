@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createFsProvider } from "../../../../src/main/fs/provider/factory";
-import { LocalFsProvider } from "../../../../src/main/fs/provider/local/local-fs-provider";
+import { createFsProvider } from "../../../../src/main/bridge/fs/create-provider";
 import type { SshChannel } from "../../../../src/main/agent/ssh-channel";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
@@ -33,27 +32,6 @@ function makeMeta(location: WorkspaceMeta["location"]): WorkspaceMeta {
   };
 }
 
-describe("LocalFsProvider", () => {
-  it("reads workspace-relative files through the read core", async () => {
-    const provider = new LocalFsProvider(tmpRoot);
-    const content = "export const x = 1;\n";
-    await fs.promises.writeFile(path.join(tmpRoot, "index.ts"), content, "utf8");
-
-    const result = await provider.readFile("index.ts");
-
-    expect(provider.kind).toBe("local");
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.content).toBe(content);
-  });
-
-  it("rejects traversal outside the workspace root", async () => {
-    const provider = new LocalFsProvider(tmpRoot);
-
-    await expect(provider.stat("../outside.txt")).rejects.toThrow("path escapes workspace root");
-  });
-});
-
 describe("createFsProvider", () => {
   it("creates a local provider for local workspace metadata", () => {
     const provider = createFsProvider(makeMeta({ kind: "local", rootPath: tmpRoot }));
@@ -77,7 +55,7 @@ describe("createFsProvider", () => {
     await expect(provider.readdir("")).rejects.toThrow("ssh fs provider: channel not yet wired");
   });
 
-  it("creates an ssh provider that delegates reads through the supplied channel", async () => {
+  it("creates an ssh provider that delegates fs calls through the supplied channel", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const channel: SshChannel = {
       ready: Promise.resolve(),
@@ -88,6 +66,12 @@ describe("createFsProvider", () => {
         }
         if (method === "fs.stat") {
           return { type: "file", size: 7, mtime: "2026-01-01T00:00:00.000Z", isSymlink: false };
+        }
+        if (method === "fs.writeFile") {
+          return { kind: "ok", mtime: "2026-01-01T00:00:00.000Z", size: 6 };
+        }
+        if (method === "fs.createFile" || method === "fs.mkdir") {
+          return {};
         }
         return {
           kind: "ok",
@@ -110,10 +94,27 @@ describe("createFsProvider", () => {
     await expect(provider.readdir(".")).resolves.toEqual([{ name: "src", type: "dir" }]);
     await expect(provider.stat("README.md")).resolves.toMatchObject({ size: 7 });
     await expect(provider.readFile("README.md")).resolves.toMatchObject({ content: "hello\n" });
+    await expect(provider.readAbsolute("/external/lib.ts")).resolves.toMatchObject({
+      content: "hello\n",
+    });
+    await expect(provider.writeFile("README.md", "hello\n", { exists: false })).resolves.toEqual({
+      kind: "ok",
+      mtime: "2026-01-01T00:00:00.000Z",
+      size: 6,
+    });
+    await expect(provider.createFile("new.txt")).resolves.toBeUndefined();
+    await expect(provider.mkdir("src/new")).resolves.toBeUndefined();
     expect(calls).toEqual([
       { method: "fs.readdir", params: { relPath: "." } },
       { method: "fs.stat", params: { relPath: "README.md" } },
       { method: "fs.readFile", params: { relPath: "README.md" } },
+      { method: "fs.readAbsolute", params: { absolutePath: "/external/lib.ts" } },
+      {
+        method: "fs.writeFile",
+        params: { relPath: "README.md", content: "hello\n", expected: { exists: false } },
+      },
+      { method: "fs.createFile", params: { relPath: "new.txt" } },
+      { method: "fs.mkdir", params: { relPath: "src/new" } },
     ]);
   });
 

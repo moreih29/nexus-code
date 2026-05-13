@@ -7,7 +7,7 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../shared/types/workspace";
-import { createFsProvider } from "../fs/provider/factory";
+import { createFsProvider } from "../bridge/fs/create-provider";
 import type { GlobalStorage } from "../storage/global-storage";
 import type { StateService } from "../storage/state-service";
 import type { WorkspaceStorage } from "../storage/workspace-storage";

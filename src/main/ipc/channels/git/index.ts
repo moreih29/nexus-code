@@ -5,6 +5,7 @@
 import type { GitAutofetchScheduler } from "../../../git/git-autofetch";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import { register } from "../../router";
 import { checkoutHandler, checkoutTrackingHandler, listBranchesHandler } from "./branch-handlers";
 import {
@@ -79,6 +80,7 @@ export function registerGitChannel(
   registry: GitRegistry,
   storage: WorkspaceStorage,
   autofetch?: GitAutofetchScheduler,
+  workspaceManager?: WorkspaceManager,
 ): void {
   register("git", {
     call: {
@@ -113,7 +115,7 @@ export function registerGitChannel(
       markResolved: markResolvedHandler(registry),
       addRemote: addRemoteHandler(registry),
       removeRemote: removeRemoteHandler(registry),
-      getFileContent: getFileContentHandler(registry),
+      getFileContent: getFileContentHandler(registry, workspaceManager),
       openFileAtHead: openFileAtHeadHandler(registry),
       addToGitignore: addToGitignoreHandler(registry),
       listBranches: listBranchesHandler(registry),

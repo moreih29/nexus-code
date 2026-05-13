@@ -123,7 +123,7 @@ describe("loadExternalEntry — success", () => {
     expect(entry.input.readOnly).toBe(true);
   });
 
-  test("calls ipcCall with fs / readExternal / absolutePath", async () => {
+  test("calls ipcCall with fs / readExternal / workspaceId and absolutePath", async () => {
     ipcCallMock.mockImplementation(() => Promise.resolve(makeFileContent()));
 
     await loadExternalEntry(INPUT);
@@ -132,10 +132,11 @@ describe("loadExternalEntry — success", () => {
     const [channel, method, args] = ipcCallMock.mock.calls[0] as [
       string,
       string,
-      { absolutePath: string },
+      { workspaceId: string; absolutePath: string },
     ];
     expect(channel).toBe("fs");
     expect(method).toBe("readExternal");
+    expect(args.workspaceId).toBe(INPUT.workspaceId);
     expect(args.absolutePath).toBe(INPUT.filePath);
   });
 

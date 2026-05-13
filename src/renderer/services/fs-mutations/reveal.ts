@@ -26,7 +26,7 @@ export interface RevealInput {
 export async function revealInFinder(input: RevealInput): Promise<void> {
   const rel = relPath(input.absPath, input.workspaceRootPath);
   // Reject if the target doesn't sit inside the workspace root — the
-  // IPC's resolveSafe would error anyway, but checking here lets us
+  // IPC's local workspace path guard would error anyway, but checking here lets us
   // produce a clearer toast.
   if (rel === input.absPath) {
     showToast({

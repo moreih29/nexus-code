@@ -23,6 +23,7 @@ import type {
   GitRebaseResult,
   GitStatus,
   GitSyncResult,
+  GitIgnoreAppendResult,
   LogChunk,
   LogComplete,
   LogEntry,
@@ -43,7 +44,7 @@ import { appendIgnoreEntry } from "./git-ignore";
 import { buildLogArgs, LOG_RECORD_SEPARATOR, parseLogRecord } from "./git-log-parsing";
 import { readGitOperationState } from "./git-operation-state";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
-import { type RunGitResult, runGit, streamGit } from "./git-process";
+import { type GitProcessExecutor, type RunGitResult, runGit, streamGit } from "./git-process";
 import * as remoteOps from "./git-remote";
 import {
   buildCommitArgs,
@@ -108,6 +109,22 @@ export interface DiscardPathsets {
   readonly cleanPaths: string[];
 }
 
+export interface GitMetadataReader {
+  metadata(
+    gitDir: string,
+    conflictCount: number,
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly operationState: GitStatus["operationState"];
+    readonly lastFetchedAt: number | null;
+  }>;
+  addToGitignore(
+    repoRoot: string,
+    relPath: string,
+    signal?: AbortSignal,
+  ): Promise<GitIgnoreAppendResult>;
+}
+
 /**
  * Serializes all Git subprocesses for one repository and exposes typed SCM ops.
  */
@@ -122,7 +139,14 @@ export class GitRepository {
   private queueTail: Promise<void> = Promise.resolve();
   private disposed = false;
 
-  constructor(workspaceId: string, topLevel: string, gitDir: string, bin: GitBinary | string) {
+  constructor(
+    workspaceId: string,
+    topLevel: string,
+    gitDir: string,
+    bin: GitBinary | string,
+    private readonly executor?: GitProcessExecutor,
+    private readonly metadataReader?: GitMetadataReader,
+  ) {
     this.workspaceId = workspaceId;
     this.topLevel = topLevel;
     this.gitDir = gitDir;
@@ -491,7 +515,10 @@ export class GitRepository {
    * Lists local tags for ref picker and tag picker search.
    */
   listTags(signal?: AbortSignal): Promise<Tag[]> {
-    return tagOps.listTags({ bin: this.binPath, cwd: this.topLevel }, signal);
+    return tagOps.listTags(
+      { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+      signal,
+    );
   }
 
   /**
@@ -717,7 +744,10 @@ export class GitRepository {
    */
   stashPop(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      await popLatestStash({ bin: this.binPath, cwd: this.topLevel }, queuedSignal);
+      await popLatestStash(
+        { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+        queuedSignal,
+      );
     }, signal);
   }
 
@@ -726,7 +756,11 @@ export class GitRepository {
    */
   listStashes(signal?: AbortSignal) {
     return this.queue(
-      (queuedSignal) => listStashes({ bin: this.binPath, cwd: this.topLevel }, queuedSignal),
+      (queuedSignal) =>
+        listStashes(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -736,7 +770,12 @@ export class GitRepository {
    */
   applyStash(index: number, signal?: AbortSignal): Promise<void> {
     return this.queue(
-      (queuedSignal) => applyStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      (queuedSignal) =>
+        applyStash(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          index,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -746,7 +785,12 @@ export class GitRepository {
    */
   dropStash(index: number, signal?: AbortSignal): Promise<void> {
     return this.queue(
-      (queuedSignal) => dropStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      (queuedSignal) =>
+        dropStash(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          index,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -756,7 +800,12 @@ export class GitRepository {
    */
   async *showStash(index: number, signal?: AbortSignal) {
     return yield* this.queueStream(
-      (queuedSignal) => showStash({ bin: this.binPath, cwd: this.topLevel }, index, queuedSignal),
+      (queuedSignal) =>
+        showStash(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          index,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -767,7 +816,12 @@ export class GitRepository {
   stashGroup(paths: readonly string[], message?: string, signal?: AbortSignal): Promise<void> {
     return this.queue(
       (queuedSignal) =>
-        stashGroup({ bin: this.binPath, cwd: this.topLevel }, paths, message, queuedSignal),
+        stashGroup(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          paths,
+          message,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -794,7 +848,11 @@ export class GitRepository {
   openFileAtHead(relPath: string, signal?: AbortSignal) {
     return this.queue(
       (queuedSignal) =>
-        readAtHead({ bin: this.binPath, cwd: this.topLevel }, relPath, queuedSignal),
+        readAtHead(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          relPath,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -806,7 +864,12 @@ export class GitRepository {
   async *getFileBlob(ref: string, relPath: string, signal?: AbortSignal) {
     return yield* this.queueStream(
       (queuedSignal) =>
-        streamBlob({ bin: this.binPath, cwd: this.topLevel }, ref, relPath, queuedSignal),
+        streamBlob(
+          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
+          ref,
+          relPath,
+          queuedSignal,
+        ),
       signal,
     );
   }
@@ -816,7 +879,12 @@ export class GitRepository {
    * dedupe semantics.
    */
   addToGitignore(relPath: string, signal?: AbortSignal) {
-    return this.queue(() => appendIgnoreEntry(this.topLevel, relPath), signal);
+    return this.queue((queuedSignal) => {
+      if (this.metadataReader) {
+        return this.metadataReader.addToGitignore(this.topLevel, relPath, queuedSignal);
+      }
+      return appendIgnoreEntry(this.topLevel, relPath);
+    }, signal);
   }
 
   /**
@@ -959,7 +1027,14 @@ export class GitRepository {
    */
   private run(args: readonly string[], signal: AbortSignal): Promise<RunGitResult> {
     throwIfAborted(signal);
-    return runGit({ bin: this.binPath, cwd: this.topLevel, args, interactive: false, signal });
+    return runGit({
+      bin: this.binPath,
+      cwd: this.topLevel,
+      args,
+      interactive: false,
+      signal,
+      executor: this.executor,
+    });
   }
 
   /**
@@ -979,6 +1054,7 @@ export class GitRepository {
       env: buildHelperEnv({ ...helpers, workspaceId: this.workspaceId }),
       interactive: true,
       signal,
+      executor: this.executor,
     });
   }
 
@@ -1076,12 +1152,11 @@ export class GitRepository {
       signal,
     );
     const status = parseV2Porcelain(stdout);
-    const [remotes, stashCount, tagCount, operationState, lastFetchedAt] = await Promise.all([
+    const [remotes, stashCount, tagCount, metadata] = await Promise.all([
       this.readRemotes(signal),
       this.readStashCount(signal),
       this.readTagCount(signal),
-      readGitOperationState(this.gitDir, { conflictCount: status.merge.length }),
-      readFetchHeadMtime(this.gitDir),
+      this.readMetadata(status.merge.length, signal),
     ]);
     const capabilities: RepoCapabilities = {
       hasHEAD: status.branch !== null && !status.branch.isUnborn,
@@ -1089,7 +1164,29 @@ export class GitRepository {
       stashCount,
       tagCount,
     };
-    return { ...status, capabilities, operationState, lastFetchedAt };
+    return {
+      ...status,
+      capabilities,
+      operationState: metadata.operationState,
+      lastFetchedAt: metadata.lastFetchedAt,
+    };
+  }
+
+  private async readMetadata(
+    conflictCount: number,
+    signal: AbortSignal,
+  ): Promise<{
+    readonly operationState: GitStatus["operationState"];
+    readonly lastFetchedAt: number | null;
+  }> {
+    if (this.metadataReader) {
+      return this.metadataReader.metadata(this.gitDir, conflictCount, signal);
+    }
+    const [operationState, lastFetchedAt] = await Promise.all([
+      readGitOperationState(this.gitDir, { conflictCount }),
+      readFetchHeadMtime(this.gitDir),
+    ]);
+    return { operationState, lastFetchedAt };
   }
 
   /**
@@ -1150,6 +1247,7 @@ export class GitRepository {
       cwd: this.topLevel,
       args: buildDiffArgs(spec),
       signal,
+      executor: this.executor,
     });
   }
 
@@ -1203,7 +1301,13 @@ export class GitRepository {
       }
     };
 
-    for await (const chunk of streamGit({ bin: this.binPath, cwd: this.topLevel, args, signal })) {
+    for await (const chunk of streamGit({
+      bin: this.binPath,
+      cwd: this.topLevel,
+      args,
+      signal,
+      executor: this.executor,
+    })) {
       pendingText += decoder.write(chunk);
       const records = pendingText.split(LOG_RECORD_SEPARATOR);
       pendingText = records.pop() ?? "";

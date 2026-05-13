@@ -1,113 +1,97 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { LocalFsProvider } from "../../../../src/main/fs/provider/local/local-fs-provider";
+import { describe, expect, it, mock } from "bun:test";
+import { LocalFsProvider } from "../../../../src/main/bridge/fs/local-provider";
+import type { AgentChannel } from "../../../../src/main/agent/channel";
 
-let tmpRoot: string;
-let originalCwd: string;
-
-beforeEach(async () => {
-  originalCwd = process.cwd();
-  tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nexus-local-fs-provider-"));
-});
-
-afterEach(async () => {
-  process.chdir(originalCwd);
-  await fs.promises.rm(tmpRoot, { recursive: true, force: true });
-});
-
-async function makeWorkspaceRoot(): Promise<string> {
-  const workspaceRoot = path.join(tmpRoot, "workspace");
-  await fs.promises.mkdir(workspaceRoot);
-  return workspaceRoot;
-}
-
-function names(entries: { name: string }[]): string[] {
-  return entries.map((entry) => entry.name);
+function makeChannel(resultFor: (method: string, params?: unknown) => unknown): AgentChannel {
+  return {
+    ready: Promise.resolve(),
+    call: mock(async (method: string, params?: unknown) => resultFor(method, params)),
+    on: mock(() => () => {}),
+    onLifecycle: mock(() => () => {}),
+    dispose: mock(() => {}),
+  };
 }
 
 describe("LocalFsProvider", () => {
-  it("resolves relative reads from its injected workspace root instead of the process cwd", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-    const cwdRoot = path.join(tmpRoot, "cwd-root");
-    await fs.promises.mkdir(path.join(workspaceRoot, "src"), { recursive: true });
-    await fs.promises.mkdir(path.join(cwdRoot, "src"), { recursive: true });
-    await fs.promises.writeFile(path.join(workspaceRoot, "src", "index.ts"), "workspace");
-    await fs.promises.writeFile(path.join(cwdRoot, "src", "index.ts"), "cwd");
-    process.chdir(cwdRoot);
+  it("starts one local agent lazily and delegates workspace fs calls to it", async () => {
+    const channel = makeChannel((method) => {
+      if (method === "fs.readdir") return [{ name: "src", type: "dir" }];
+      if (method === "fs.stat") {
+        return { type: "file", size: 7, mtime: "2026-01-01T00:00:00.000Z", isSymlink: false };
+      }
+      return {
+        kind: "ok",
+        content: "hello\n",
+        encoding: "utf8",
+        sizeBytes: 6,
+        isBinary: false,
+        mtime: "2026-01-01T00:00:00.000Z",
+      };
+    });
+    const createChannel = mock(() => channel);
+    const provider = new LocalFsProvider("/workspace", {
+      createChannel,
+      resolveCommand: () => ({ binaryPath: "/bin/agent" }),
+    });
 
-    const result = await new LocalFsProvider(workspaceRoot).readFile("src/index.ts");
+    await expect(provider.readdir(".")).resolves.toEqual([{ name: "src", type: "dir" }]);
+    await expect(provider.stat("README.md")).resolves.toMatchObject({ size: 7 });
+    await expect(provider.readFile("README.md")).resolves.toMatchObject({ content: "hello\n" });
+    await expect(provider.readAbsolute("/external/lib.ts")).resolves.toMatchObject({
+      content: "hello\n",
+    });
 
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.content).toBe("workspace");
+    expect(createChannel).toHaveBeenCalledTimes(1);
+    expect(createChannel).toHaveBeenCalledWith({
+      binaryPath: "/bin/agent",
+      rootPath: "/workspace",
+    });
+    expect(channel.call).toHaveBeenCalledWith("fs.readdir", { relPath: "." });
+    expect(channel.call).toHaveBeenCalledWith("fs.stat", { relPath: "README.md" });
+    expect(channel.call).toHaveBeenCalledWith("fs.readFile", { relPath: "README.md" });
+    expect(channel.call).toHaveBeenCalledWith("fs.readAbsolute", {
+      absolutePath: "/external/lib.ts",
+    });
   });
 
-  it("rejects traversal outside the workspace root before disk access", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-    await fs.promises.writeFile(path.join(tmpRoot, "outside.txt"), "outside");
+  it("delegates mutations through the same local agent channel", async () => {
+    const channel = makeChannel((method) => {
+      if (method === "fs.writeFile") {
+        return { kind: "ok", mtime: "2026-01-01T00:00:00.000Z", size: 5 };
+      }
+      return {};
+    });
+    const provider = new LocalFsProvider("/workspace", {
+      createChannel: () => channel,
+      resolveCommand: () => ({ binaryPath: "/bin/agent" }),
+    });
 
-    await expect(new LocalFsProvider(workspaceRoot).readFile("../outside.txt")).rejects.toThrow(
-      "path escapes workspace root",
-    );
+    await expect(provider.writeFile("a.txt", "hello", { exists: false })).resolves.toMatchObject({
+      kind: "ok",
+      size: 5,
+    });
+    await expect(provider.createFile("b.txt")).resolves.toBeUndefined();
+    await expect(provider.mkdir("src")).resolves.toBeUndefined();
+
+    expect(channel.call).toHaveBeenCalledWith("fs.writeFile", {
+      relPath: "a.txt",
+      content: "hello",
+      expected: { exists: false },
+    });
+    expect(channel.call).toHaveBeenCalledWith("fs.createFile", { relPath: "b.txt" });
+    expect(channel.call).toHaveBeenCalledWith("fs.mkdir", { relPath: "src" });
   });
 
-  it("reports symlinks as symlinks without following their targets for listings or stat", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-    const outsideRoot = path.join(tmpRoot, "outside");
-    await fs.promises.mkdir(outsideRoot);
-    await fs.promises.writeFile(path.join(outsideRoot, "secret.txt"), "secret");
-    await fs.promises.symlink(outsideRoot, path.join(workspaceRoot, "outside-link"), "dir");
+  it("disposes the owned local agent channel", async () => {
+    const channel = makeChannel(() => []);
+    const provider = new LocalFsProvider("/workspace", {
+      createChannel: () => channel,
+      resolveCommand: () => ({ binaryPath: "/bin/agent" }),
+    });
 
-    const provider = new LocalFsProvider(workspaceRoot);
-    const entries = await provider.readdir("");
-    const linkEntry = entries.find((entry) => entry.name === "outside-link");
-    const linkStat = await provider.stat("outside-link");
+    await provider.readdir(".");
+    provider.dispose();
 
-    expect(linkEntry).toEqual({ name: "outside-link", type: "symlink" });
-    expect(linkStat.type).toBe("symlink");
-    expect(linkStat.isSymlink).toBe(true);
-  });
-
-  it("filters configured hidden names while leaving ordinary dotfiles visible", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-    await fs.promises.mkdir(path.join(workspaceRoot, ".git"));
-    await fs.promises.mkdir(path.join(workspaceRoot, "node_modules"));
-    await fs.promises.mkdir(path.join(workspaceRoot, "src"));
-    await fs.promises.writeFile(path.join(workspaceRoot, ".env"), "SECRET=value");
-    await fs.promises.writeFile(path.join(workspaceRoot, "README.md"), "# readme");
-
-    const entries = await new LocalFsProvider(workspaceRoot).readdir("");
-    const entryNames = names(entries);
-
-    expect(entryNames).toContain("src");
-    expect(entryNames).toContain(".env");
-    expect(entryNames).toContain("README.md");
-    expect(entryNames).not.toContain(".git");
-    expect(entryNames).not.toContain("node_modules");
-  });
-
-  it("returns ok file content for existing files", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-    const content = "export const answer = 42;\n";
-    await fs.promises.writeFile(path.join(workspaceRoot, "answer.ts"), content, "utf8");
-
-    const result = await new LocalFsProvider(workspaceRoot).readFile("answer.ts");
-
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.content).toBe(content);
-    expect(result.encoding).toBe("utf8");
-    expect(result.sizeBytes).toBe(Buffer.byteLength(content, "utf8"));
-    expect(result.isBinary).toBe(false);
-  });
-
-  it("returns missing for files that do not exist inside the workspace root", async () => {
-    const workspaceRoot = await makeWorkspaceRoot();
-
-    const result = await new LocalFsProvider(workspaceRoot).readFile("missing.ts");
-
-    expect(result).toEqual({ kind: "missing", reason: "not-found" });
+    expect(channel.dispose).toHaveBeenCalledTimes(1);
   });
 });

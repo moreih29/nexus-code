@@ -8,11 +8,12 @@
 import type { DiffChunk, DiffComplete, StashEntry } from "../../shared/types/git";
 import { streamGitTextChunks } from "./git-diff-stream";
 import { GitError } from "./git-error";
-import { runGit } from "./git-process";
+import { type GitProcessExecutor, runGit } from "./git-process";
 
 interface GitCommandContext {
   readonly bin: string;
   readonly cwd: string;
+  readonly executor?: GitProcessExecutor;
 }
 
 const STASH_REF_RE = /^stash@\{(\d+)\}$/;
@@ -32,6 +33,7 @@ export async function listStashes(
     args: ["stash", "list", "--format=%gd%x00%H%x00%gs%x00%ct%x00"],
     interactive: false,
     signal,
+    executor: git.executor,
   });
   return parseStashList(stdout);
 }
@@ -52,6 +54,7 @@ export async function applyStash(
       args: ["stash", "apply", stashRef(index)],
       interactive: false,
       signal,
+      executor: git.executor,
     });
   } catch (error) {
     throw normalizeStashApplyError(error);
@@ -72,6 +75,7 @@ export async function dropStash(
     args: ["stash", "drop", stashRef(index)],
     interactive: false,
     signal,
+    executor: git.executor,
   });
 }
 
@@ -87,6 +91,7 @@ export async function popLatestStash(git: GitCommandContext, signal?: AbortSigna
       args: ["stash", "pop"],
       interactive: false,
       signal,
+      executor: git.executor,
     });
   } catch (error) {
     throw normalizeStashApplyError(error);
@@ -106,6 +111,7 @@ export async function* showStash(
     cwd: git.cwd,
     args: ["stash", "show", "--patch", "--no-ext-diff", stashRef(index)],
     signal,
+    executor: git.executor,
   });
 }
 
@@ -128,7 +134,14 @@ export async function stashGroup(
   if (trimmedMessage) args.push("-m", trimmedMessage);
   args.push("--", ...uniquePaths);
 
-  await runGit({ bin: git.bin, cwd: git.cwd, args, interactive: false, signal });
+  await runGit({
+    bin: git.bin,
+    cwd: git.cwd,
+    args,
+    interactive: false,
+    signal,
+    executor: git.executor,
+  });
 }
 
 /**
