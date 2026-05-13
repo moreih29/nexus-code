@@ -10,7 +10,7 @@
 //   - Ready    (server → client, one-shot boot frame)
 //
 // Server-push events (no id, used for fs.changed / search progress)
-// are reserved for a later round and not modeled here yet.
+// share the same stdout stream as responses and are routed by `event`.
 package proto
 
 import (
@@ -87,9 +87,21 @@ type ReadyFrame struct {
 	ServerVersion   string `json:"serverVersion"`
 }
 
+// EventFrame is a server → client broadcast frame. It deliberately has no id:
+// events are not request responses and are routed by event name on the client.
+type EventFrame struct {
+	Event   string `json:"event"`
+	Payload any    `json:"payload,omitempty"`
+}
+
 // Ready builds the canonical boot frame.
 func Ready() ReadyFrame {
 	return ReadyFrame{Type: "ready", ProtocolVersion: ProtocolVersion, ServerVersion: ServerVersion}
+}
+
+// Event builds the canonical server-push frame.
+func Event(event string, payload any) EventFrame {
+	return EventFrame{Event: event, Payload: payload}
 }
 
 // ParseRequest decodes one NDJSON line into a Request. id and method
@@ -123,7 +135,7 @@ func Success(id string, result any) Response {
 
 // Failure constructs an error-variant Response with an explicit code
 // and message. Used by handlers that have a domain-specific error code
-// to surface (e.g. fsops returning OUT_OF_WORKSPACE).
+// to surface (e.g. fs returning OUT_OF_WORKSPACE).
 func Failure(id, code, message string) Response {
 	return Response{ID: id, Error: &ErrorFrame{Code: code, Message: message}}
 }
@@ -149,7 +161,7 @@ func MarshalFrame(frame any) ([]byte, error) {
 // CodedError is the in-process error type that lets domain handlers
 // attach a stable error code without depending on the proto package's
 // concrete frame shape. Implementations of the small `ErrorCode()`
-// interface (e.g. fsops.FSError) are preferred over wrapping this
+// interface (e.g. fs.FSError) are preferred over wrapping this
 // type directly — it exists mainly to carry parser failures.
 type CodedError struct {
 	Code string

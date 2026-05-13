@@ -1,4 +1,4 @@
-package fsops
+package fs
 
 import (
 	"context"
@@ -56,8 +56,8 @@ func TestWriteFile_ExistingMatch_OK(t *testing.T) {
 }
 
 // TestWriteFile_NoExpectation_OverwriteOK — when expected is omitted, the
-// server overwrites unconditionally (matches TS atomicWriteFile when the
-// caller chooses to bypass the concurrency check).
+// server overwrites unconditionally when the caller chooses to bypass the
+// concurrency check.
 func TestWriteFile_NoExpectation_OverwriteOK(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("v1"), 0o644))
@@ -142,7 +142,7 @@ func TestWriteFile_Directory_Refused(t *testing.T) {
 }
 
 // TestWriteFile_OutOfWorkspace_Refused — paths escaping the root must
-// be rejected by Resolve before any FS work happens.
+// be rejected by Resolve before any filesystem work happens.
 func TestWriteFile_OutOfWorkspace_Refused(t *testing.T) {
 	root := t.TempDir()
 	_, err := mustFS(t, root).WriteFile(context.Background(), mustJSON(t, map[string]any{
@@ -181,9 +181,45 @@ func TestWriteFile_AtomicNoTmpResidue(t *testing.T) {
 	}
 }
 
+func TestCreateFileAndMkdir(t *testing.T) {
+	root := t.TempDir()
+	fsys := mustFS(t, root)
+
+	_, err := fsys.CreateFile(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "empty.txt",
+	}))
+	must(t, err)
+	if got, err := os.ReadFile(filepath.Join(root, "empty.txt")); err != nil || len(got) != 0 {
+		t.Fatalf("created file mismatch: bytes=%q err=%v", got, err)
+	}
+
+	_, err = fsys.Mkdir(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "src",
+	}))
+	must(t, err)
+	if info, err := os.Lstat(filepath.Join(root, "src")); err != nil || !info.IsDir() {
+		t.Fatalf("created dir mismatch: info=%v err=%v", info, err)
+	}
+}
+
+func TestCreateFileAlreadyExists(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "taken.txt"), []byte("x"), 0o644))
+
+	_, err := mustFS(t, root).CreateFile(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "taken.txt",
+	}))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if fsErr, ok := err.(FSError); !ok || fsErr.Code != CodeAlreadyExists {
+		t.Fatalf("expected ALREADY_EXISTS, got %v", err)
+	}
+}
+
 // --- helpers -----------------------------------------------------------
 
-func mustFS(t *testing.T, root string) *FS {
+func mustFS(t *testing.T, root string) *Service {
 	t.Helper()
 	fsys, err := New(root)
 	must(t, err)
@@ -197,7 +233,7 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-func callWrite(t *testing.T, fsys *FS, payload map[string]any) WriteFileResult {
+func callWrite(t *testing.T, fsys *Service, payload map[string]any) WriteFileResult {
 	t.Helper()
 	res, err := fsys.WriteFile(context.Background(), mustJSON(t, payload))
 	must(t, err)

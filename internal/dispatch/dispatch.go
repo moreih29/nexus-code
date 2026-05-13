@@ -1,6 +1,6 @@
 // Package dispatch maps NDJSON request method names to handler
 // functions. It is intentionally tiny — a name → fn map with success /
-// error envelope wrapping — so domain packages (fsops today, git
+// error envelope wrapping — so domain packages (fs today, git
 // tomorrow) own their own method registration and the wire format
 // stays the only shared contract between them and the channel.
 package dispatch

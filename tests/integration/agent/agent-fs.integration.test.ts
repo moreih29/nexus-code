@@ -3,9 +3,9 @@
  *
  * The purpose is drift detection between the TS protocol schemas
  * (`src/shared/protocol/agent/*.ts`) and the Go implementation
- * (`internal/fsops/*.go`). The test spawns the real agent binary via
+ * (`internal/fs/*.go`). The test spawns the real agent binary via
  * the production `createLocalChannel` factory — so any regression in that
- * factory also surfaces here. Three response paths are exercised on the same
+ * factory also surfaces here. The main response paths are exercised on the same
  * channel so the envelope's result/error variants both round-trip cleanly:
  *   1. Ready frame on boot
  *   2. Success result variant (kind="ok")
@@ -25,15 +25,38 @@ import { createLocalChannel } from "../../../src/main/agent/local-channel";
 import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/protocol/agent/envelope";
 import { AgentFsErrorCodeSchema } from "../../../src/shared/protocol/agent/errors";
 import {
+  FsReadAbsoluteResultSchema,
   type FsWriteFileParams,
   FsWriteFileResultSchema,
 } from "../../../src/shared/protocol/agent/fs";
+import {
+  AgentGitChangedPayloadSchema,
+  AgentGitGetFileContentResultSchema,
+  AgentGitMetadataResultSchema,
+  AgentGitRunResultSchema,
+  AgentGitStreamChunkPayloadSchema,
+  GIT_CHANGED_EVENT,
+  GIT_GET_FILE_CONTENT_METHOD,
+  GIT_METADATA_METHOD,
+  GIT_RUN_METHOD,
+  GIT_STREAM_CHUNK_EVENT,
+  GIT_STREAM_METHOD,
+  GIT_UNWATCH_METHOD,
+  GIT_WATCH_METHOD,
+} from "../../../src/shared/protocol/agent/git";
+import {
+  AgentSearchCompleteSchema,
+  AgentSearchProgressPayloadSchema,
+  SEARCH_PROGRESS_EVENT,
+  SEARCH_TEXT_METHOD,
+} from "../../../src/shared/protocol/agent/search";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
 const goAvailable = spawnSync("go", ["version"]).status === 0;
+const gitAvailable = spawnSync("git", ["--version"]).status === 0;
 
-describe("agent fs.writeFile round-trip", () => {
+describe("agent fs round-trip", () => {
   if (!goAvailable) {
     it("skips when go is unavailable", () => {});
     return;
@@ -75,12 +98,122 @@ describe("agent fs.writeFile round-trip", () => {
         content: "world",
         expected: { exists: false },
       };
-      const okResult = FsWriteFileResultSchema.parse(
-        await channel.call("fs.writeFile", okParams),
-      );
+      const okResult = FsWriteFileResultSchema.parse(await channel.call("fs.writeFile", okParams));
       expect(okResult.kind).toBe("ok");
       const written = await fs.readFile(path.join(root, "hello.txt"), "utf8");
       expect(written).toBe("world");
+
+      await channel.call("fs.createFile", { relPath: "empty.txt" });
+      await expect(fs.readFile(path.join(root, "empty.txt"), "utf8")).resolves.toBe("");
+
+      await channel.call("fs.mkdir", { relPath: "src" });
+      const srcStat = await fs.stat(path.join(root, "src"));
+      expect(srcStat.isDirectory()).toBe(true);
+
+      const searchProgress: unknown[] = [];
+      const unsubscribeSearch = channel.on(SEARCH_PROGRESS_EVENT, (payload) => {
+        searchProgress.push(payload);
+      });
+      const searchComplete = AgentSearchCompleteSchema.parse(
+        await channel.call(SEARCH_TEXT_METHOD, {
+          searchId: "search-1",
+          query: {
+            pattern: "world",
+            isRegExp: false,
+            isCaseSensitive: false,
+            isWordMatch: false,
+            includes: [],
+            excludes: [],
+            maxResults: 2000,
+            maxFileSize: 5 * 1024 * 1024,
+          },
+        }),
+      );
+      unsubscribeSearch();
+      const searchBatches = searchProgress.map((payload) =>
+        AgentSearchProgressPayloadSchema.parse(payload),
+      );
+      expect(searchComplete.matchesFound).toBe(1);
+      expect(searchBatches.flatMap((payload) => payload.batch).map((file) => file.relPath)).toEqual([
+        "hello.txt",
+      ]);
+
+      if (gitAvailable) {
+        expect(spawnSync("git", ["init"], { cwd: root }).status).toBe(0);
+        expect(spawnSync("git", ["add", "hello.txt"], { cwd: root }).status).toBe(0);
+        const gitRun = AgentGitRunResultSchema.parse(
+          await channel.call(GIT_RUN_METHOD, {
+            cwd: root,
+            args: ["status", "--porcelain=v1"],
+          }),
+        );
+        expect(gitRun.code).toBe(0);
+        expect(gitRun.stdout).toContain("A  hello.txt");
+
+        const gitStreamPayloads: unknown[] = [];
+        const unsubscribeGitStream = channel.on(GIT_STREAM_CHUNK_EVENT, (payload) => {
+          gitStreamPayloads.push(payload);
+        });
+        const gitStreamComplete = AgentGitRunResultSchema.parse(
+          await channel.call(GIT_STREAM_METHOD, {
+            streamId: "git-stream-1",
+            cwd: root,
+            args: ["show", ":hello.txt"],
+          }),
+        );
+        unsubscribeGitStream();
+        expect(gitStreamComplete.code).toBe(0);
+        const gitStreamText = gitStreamPayloads
+          .map((payload) => AgentGitStreamChunkPayloadSchema.parse(payload))
+          .filter((payload) => payload.streamId === "git-stream-1")
+          .map((payload) => Buffer.from(payload.chunk, "base64").toString("utf8"))
+          .join("");
+        expect(gitStreamText).toBe("world");
+
+        const gitMetadata = AgentGitMetadataResultSchema.parse(
+          await channel.call(GIT_METADATA_METHOD, {
+            gitDir: path.join(root, ".git"),
+            conflictCount: 0,
+          }),
+        );
+        expect(gitMetadata.operationState).toEqual({ kind: "none" });
+        expect(gitMetadata.lastFetchedAt).toBeNull();
+
+        const gitChanged = waitForAgentEvent(channel, GIT_CHANGED_EVENT);
+        await channel.call(GIT_WATCH_METHOD, { gitDir: path.join(root, ".git") });
+        await fs.writeFile(path.join(root, ".git", "NEXUS_TEST_MARKER"), "change");
+        const gitChangedPayload = AgentGitChangedPayloadSchema.parse(await gitChanged);
+        expect(gitChangedPayload.gitDir).toBe(path.join(root, ".git"));
+        await channel.call(GIT_UNWATCH_METHOD, { gitDir: path.join(root, ".git") });
+
+        const gitContent = AgentGitGetFileContentResultSchema.parse(
+          await channel.call(GIT_GET_FILE_CONTENT_METHOD, {
+            ref: "INDEX",
+            relPath: "hello.txt",
+          }),
+        );
+        expect(gitContent.kind).toBe("ok");
+        if (gitContent.kind === "ok") {
+          expect(gitContent.content).toBe("world");
+        }
+      }
+
+      const changed = waitForAgentEvent(channel, "fs.changed");
+      await channel.call("fs.watch", { relPath: "." });
+      await fs.writeFile(path.join(root, "watched.txt"), "change");
+      const changedPayload = (await changed) as { changes?: Array<{ relPath: string }> };
+      expect(changedPayload.changes?.some((change) => change.relPath === "watched.txt")).toBe(true);
+      await channel.call("fs.unwatch", { relPath: "." });
+
+      const externalPath = path.join(await fs.mkdtemp(path.join(tmpdir(), "agent-external-")), "lib.ts");
+      await fs.writeFile(externalPath, "external");
+      const externalResult = FsReadAbsoluteResultSchema.parse(
+        await channel.call("fs.readAbsolute", { absolutePath: externalPath }),
+      );
+      expect(externalResult.kind).toBe("ok");
+      if (externalResult.kind === "ok") {
+        expect(externalResult.content).toBe("external");
+      }
 
       // 3. Conflict variant — expected:false but the file now exists. The
       // server returns this as a success-shaped frame (channel resolves) with
@@ -116,6 +249,24 @@ describe("agent fs.writeFile round-trip", () => {
   }, 30_000);
 });
 
+function waitForAgentEvent(
+  channel: ReturnType<typeof createLocalChannel>,
+  event: string,
+  timeoutMs = 2_000,
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(new Error(`timed out waiting for ${event}`));
+    }, timeoutMs);
+    const unsubscribe = channel.on(event, (payload) => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(payload);
+    });
+  });
+}
+
 /**
  * Wraps `channel.call` to assert the rejection path and surface the wire
  * `code` attached to the thrown Error. The pipe attaches `code` whenever the
@@ -128,9 +279,7 @@ async function callExpectErrorCode(
 ): Promise<string> {
   try {
     const result = await channel.call(method, params);
-    throw new Error(
-      `expected error for ${method}, got result: ${JSON.stringify(result)}`,
-    );
+    throw new Error(`expected error for ${method}, got result: ${JSON.stringify(result)}`);
   } catch (error) {
     const code = (error as Error & { code?: string }).code;
     if (typeof code !== "string") {

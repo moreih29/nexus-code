@@ -1,6 +1,6 @@
 // Package stdioserver runs the NDJSON request/response loop that the
 // agent binary exposes over its stdin/stdout. Boot wiring (argv
-// parsing, fsops registration, ready frame) belongs to the calling
+// parsing, fs registration, ready frame) belongs to the calling
 // `cmd/agent/main.go`; everything past that — request scanning,
 // goroutine dispatch, response serialization, signal handling, drain —
 // lives here so the binary's entry point stays a thin assembler.
@@ -77,6 +77,12 @@ func (h *Host) WriteFrame(frame any) error {
 	defer h.outMu.Unlock()
 	_, err = h.out.Write(data)
 	return err
+}
+
+// EmitEvent writes one server-push event frame. Domain services use this for
+// workspace notifications that are not direct responses to one request.
+func (h *Host) EmitEvent(event string, payload any) error {
+	return h.WriteFrame(proto.Event(event, payload))
 }
 
 // Run consumes NDJSON request lines from `in` until EOF or a fatal

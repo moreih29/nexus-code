@@ -1,4 +1,4 @@
-package fsops
+package fs
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -22,8 +22,8 @@ const tmpPrefix = ".nexus-tmp-"
 // plain files; writes through the link target on symlinks so the link
 // itself survives the save. When `expected` is supplied and the on-disk
 // state has diverged, returns kind="conflict" with the actual state
-// instead of overwriting — matches the existing TS atomicWriteFile.
-func (f *FS) WriteFile(ctx context.Context, raw json.RawMessage) (any, error) {
+// instead of overwriting.
+func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WriteFileParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, proto.ProtocolError("fs.writeFile params must include relPath and content")
@@ -31,8 +31,11 @@ func (f *FS) WriteFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	if p.RelPath == "" {
 		return nil, proto.ProtocolError("fs.writeFile relPath is required")
 	}
+	if len([]byte(p.Content)) > MaxReadableFileSize {
+		return nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", p.RelPath, len([]byte(p.Content)))}
+	}
 
-	abs, err := f.Resolve(p.RelPath)
+	abs, err := s.Resolve(p.RelPath)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +44,7 @@ func (f *FS) WriteFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	info, statErr := os.Lstat(abs)
-	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+	if statErr != nil && !errors.Is(statErr, iofs.ErrNotExist) {
 		return nil, mapWriteError(statErr, abs)
 	}
 
@@ -76,6 +79,60 @@ func (f *FS) WriteFile(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, mapWriteError(err, abs)
 	}
 	return successResult(stat), nil
+}
+
+// CreateFile implements fs.createFile with O_EXCL semantics.
+func (s *Service) CreateFile(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p CreateFileParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.createFile params must include relPath")
+	}
+	if p.RelPath == "" {
+		return nil, proto.ProtocolError("fs.createFile relPath is required")
+	}
+	abs, err := s.Resolve(p.RelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if err := file.Close(); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return struct{}{}, nil
+}
+
+// Mkdir implements fs.mkdir. Recursive creation is explicit so the renderer can
+// distinguish "missing parent" mistakes from intentional multi-level creates.
+func (s *Service) Mkdir(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p MkdirParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.mkdir params must include relPath")
+	}
+	if p.RelPath == "" {
+		return nil, proto.ProtocolError("fs.mkdir relPath is required")
+	}
+	abs, err := s.Resolve(p.RelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if p.Recursive {
+		err = os.MkdirAll(abs, 0o755)
+	} else {
+		err = os.Mkdir(abs, 0o755)
+	}
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return struct{}{}, nil
 }
 
 // expectedConflict compares the caller's expectation against the actual
@@ -177,6 +234,9 @@ func mapWriteError(err error, abs string) error {
 	}
 	if errors.Is(err, syscall.EXDEV) {
 		return FSError{Code: CodeCrossDevice, Path: abs}
+	}
+	if errors.Is(err, syscall.ENOTEMPTY) {
+		return FSError{Code: CodeNotEmpty, Path: abs}
 	}
 	return mapPathError(err, abs)
 }

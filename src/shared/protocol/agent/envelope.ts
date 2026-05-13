@@ -50,7 +50,7 @@ export type AgentResponse = z.infer<typeof AgentResponseSchema>;
 
 /**
  * Broadcast frame, server → client only. No `id` — events do not correlate
- * to a pending request. Reserved for Round 3 (fs.changed, search progress).
+ * to a pending request.
  */
 export const AgentEventSchema = z.object({
   event: z.string(),

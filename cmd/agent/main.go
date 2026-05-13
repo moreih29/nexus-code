@@ -3,7 +3,7 @@
 // (stdin/stdout in production; SSH-tunneled stdio for remote workspaces).
 //
 // This entry file is intentionally thin: it parses the workspace root
-// from argv, builds the fsops registry, hands off to stdioserver, and
+// from argv, builds the fs registry, hands off to stdioserver, and
 // emits the boot Ready frame. Everything past that — request scanning,
 // goroutine dispatch, response serialization, signal handling — lives
 // in internal/stdioserver so this file stays at a glance-readable size.
@@ -14,8 +14,10 @@ import (
 	"os"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/fsops"
+	agentfs "github.com/nexus-code/nexus-code/internal/fs"
+	agentgit "github.com/nexus-code/nexus-code/internal/git"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	agentsearch "github.com/nexus-code/nexus-code/internal/search"
 	"github.com/nexus-code/nexus-code/internal/stdioserver"
 )
 
@@ -26,16 +28,29 @@ func main() {
 		os.Exit(2)
 	}
 
-	fsys, err := fsops.New(root)
+	fsys, err := agentfs.New(root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	git := agentgit.New(root)
+	search, err := agentsearch.New(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 
 	d := dispatch.New()
-	fsops.Register(d, fsys)
+	agentfs.Register(d, fsys)
+	agentgit.Register(d, git)
+	agentsearch.Register(d, search)
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout)
+	fsys.SetEventSink(host.EmitEvent)
+	git.SetEventSink(host.EmitEvent)
+	search.SetEventSink(host.EmitEvent)
+	defer fsys.Close()
+	defer git.Close()
 	host.InstallSigtermHandler()
 
 	// Ready frame must reach the client before any other output so the

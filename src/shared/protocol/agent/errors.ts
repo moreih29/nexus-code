@@ -12,7 +12,7 @@ import { z } from "zod";
  *   CROSS_DEVICE — fs.rename across filesystems (EXDEV)
  *   NO_SPACE     — write failed because the volume is full (ENOSPC)
  *
- * The Go mirror lives in `internal/fsops/errors.go`. Drift is caught by
+ * The Go mirror lives in `internal/fs/errors.go`. Drift is caught by
  * round-trip integration tests rather than a static comparator.
  */
 export const AgentFsErrorCodeSchema = z.enum([

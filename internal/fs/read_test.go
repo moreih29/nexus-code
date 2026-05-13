@@ -1,4 +1,4 @@
-package fsops
+package fs
 
 import (
 	"context"
@@ -93,6 +93,31 @@ func TestStatReadFileMissingBinaryAndBOM(t *testing.T) {
 	}
 }
 
+func TestReadAbsoluteUsesAgentHostPath(t *testing.T) {
+	root := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "external.ts")
+	must(t, os.WriteFile(outsidePath, []byte("external"), 0o644))
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readAny, err := fsys.ReadAbsolute(context.Background(), json.RawMessage(`{"absolutePath":`+strconvQuote(outsidePath)+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := readAny.(ReadFileResult)
+	if read.Kind != "ok" || read.Content != "external" {
+		t.Fatalf("absolute read mismatch: %#v", read)
+	}
+
+	_, err = fsys.ReadAbsolute(context.Background(), json.RawMessage(`{"absolutePath":"relative.ts"}`))
+	if err == nil || proto.ErrorCode(err) != CodeNotFound || err.Error() != "NOT_FOUND: path must be absolute: relative.ts" {
+		t.Fatalf("relative absolute read error mismatch: %v", err)
+	}
+}
+
 func TestPathTraversalReturnsErrorFrame(t *testing.T) {
 	fsys, err := New(t.TempDir())
 	if err != nil {
@@ -144,4 +169,12 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func strconvQuote(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
 }

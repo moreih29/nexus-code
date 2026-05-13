@@ -1,23 +1,36 @@
 import { z } from "zod";
-import { ExpectedFileStateSchema, WriteFileResultSchema } from "../../types/fs";
+import {
+  ExpectedFileStateSchema,
+  FileReadResultSchema,
+  WriteFileResultSchema,
+} from "../../types/fs";
 
 /**
- * NDJSON method signatures for fs.* write operations on the agent.
+ * NDJSON method signatures for fs.* operations on the agent.
  *
- * Read methods (fs.readdir / fs.stat / fs.readFile) are already in
- * production at `internal/fsops/fsops.go` and use the result shapes
- * defined in `src/shared/types/fs.ts` — they will move into this file
- * later when their migration touches new behavior. This Round 1 module
- * covers only the six write methods that are net-new on the protocol:
- *   fs.writeFile · fs.createFile · fs.mkdir · fs.unlink · fs.rmdir · fs.rename
- *
- * The Electron main process binds one agent child per workspace,
- * so workspace identity is NOT part of any params here — the server's
- * working root is fixed at process start.
+ * The Electron main process binds one agent child per workspace, so workspace
+ * identity is NOT part of any params here — the server's working root is fixed
+ * at process start.
  */
 
 /** Workspace-relative path. Empty strings are rejected. */
 const RelPathSchema = z.string().min(1);
+
+/** Agent-host absolute path used for read-only external references. */
+const AbsolutePathSchema = z.string().min(1);
+
+// ---------------------------------------------------------------------------
+// fs.readAbsolute — read an absolute path on the agent host.
+// Used for LSP/external references outside the workspace root.
+// ---------------------------------------------------------------------------
+
+export const FS_READ_ABSOLUTE_METHOD = "fs.readAbsolute" as const;
+
+export const FsReadAbsoluteParamsSchema = z.object({ absolutePath: AbsolutePathSchema });
+export type FsReadAbsoluteParams = z.infer<typeof FsReadAbsoluteParamsSchema>;
+
+export const FsReadAbsoluteResultSchema = FileReadResultSchema;
+export type FsReadAbsoluteResult = z.infer<typeof FsReadAbsoluteResultSchema>;
 
 // ---------------------------------------------------------------------------
 // fs.writeFile — atomic overwrite with optional optimistic-concurrency check.
