@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${ROOT_DIR}/dist/nexus-server"
+OUT_DIR="${ROOT_DIR}/dist/agent"
 VERSION="0.1.0"
 PROTOCOL_VERSION="1"
 
@@ -19,8 +19,8 @@ entries=()
 for target in "${targets[@]}"; do
   os="${target%% *}"
   arch="${target##* }"
-  name="nexus-server-${VERSION}-${os}-${arch}"
-  GOOS="${os}" GOARCH="${arch}" go build -ldflags="-s -w" -o "${OUT_DIR}/${name}" "${ROOT_DIR}/cmd/nexus-server"
+  name="agent-${VERSION}-${os}-${arch}"
+  GOOS="${os}" GOARCH="${arch}" go build -ldflags="-s -w" -o "${OUT_DIR}/${name}" "${ROOT_DIR}/cmd/agent"
   sha="$(shasum -a 256 "${OUT_DIR}/${name}" | cut -d' ' -f1)"
   entries+=("{\"os\":\"${os}\",\"arch\":\"${arch}\",\"path\":\"${name}\",\"sha256\":\"${sha}\"}")
 done
@@ -37,4 +37,4 @@ done
   printf '  ]\n}\n'
 ) > "${OUT_DIR}/manifest.json"
 
-printf 'Built nexus-server distribution in %s\n' "${OUT_DIR}"
+printf 'Built agent distribution in %s\n' "${OUT_DIR}"

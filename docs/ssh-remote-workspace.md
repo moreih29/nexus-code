@@ -12,8 +12,8 @@ sha256 verification round-trip against a real sshd.
 - `~/.ssh/id_ed25519.pub` (or another key) — used by the key fixture, not by
   this smoke test, but `docker compose up` may refuse to start the `linux`
   service without it. The `linux-password` service does not need a key.
-- The Go nexus-server build (`bash scripts/build-nexus-server.sh`) finished
-  and produced `dist/nexus-server/manifest.json` plus the 4-arch binaries.
+- The Go agent build (`bash scripts/build-agent.sh`) finished
+  and produced `dist/agent/manifest.json` plus the 4-arch binaries.
 
 ## 1. Bring up the password fixture
 
@@ -86,7 +86,7 @@ ssh -p 2223 nexus-dev@127.0.0.1 'ls -la ~/.nexus-code/bin ~/.nexus-code/manifest
 ```
 
 Expected:
-- `~/.nexus-code/bin/nexus-server-0.1.0-linux-arm64` (or `-amd64` depending on
+- `~/.nexus-code/bin/agent-0.1.0-linux-arm64` (or `-amd64` depending on
   your host arch) with mode `0755`.
 - `~/.nexus-code/manifest.json` containing matching `version`, `os`, `arch`,
   `sha256`, `installedAt`.
@@ -94,9 +94,9 @@ Expected:
 Compare the remote sha256 with the local manifest:
 
 ```sh
-ssh -p 2223 nexus-dev@127.0.0.1 'sha256sum ~/.nexus-code/bin/nexus-server-*' | cut -d' ' -f1
+ssh -p 2223 nexus-dev@127.0.0.1 'sha256sum ~/.nexus-code/bin/agent-*' | cut -d' ' -f1
 jq -r '.binaries[] | select(.os=="linux" and .arch=="arm64") | .sha256' \
-    dist/nexus-server/manifest.json
+    dist/agent/manifest.json
 # the two hashes must match
 ```
 
@@ -141,7 +141,7 @@ In Electron:
 - **Wrong password 3+ times**: dialog keeps re-opening with the retry alert
   until you cancel; cancelling returns control to the workspace wizard.
 - **Manifest mismatch / sha256 mismatch**: corrupt the remote binary
-  (`ssh ... 'echo broken > ~/.nexus-code/bin/nexus-server-*'`) then re-connect.
+  (`ssh ... 'echo broken > ~/.nexus-code/bin/agent-*'`) then re-connect.
   Expected: bootstrap detects mismatch, re-uploads, sha256 verifies, manifest
   rewritten. If the local manifest is tampered with, expect
   `server.protocol-error` and a connection failure.

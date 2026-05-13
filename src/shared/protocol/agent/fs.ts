@@ -1,0 +1,111 @@
+import { z } from "zod";
+import { ExpectedFileStateSchema, WriteFileResultSchema } from "../../types/fs";
+
+/**
+ * NDJSON method signatures for fs.* write operations on the agent.
+ *
+ * Read methods (fs.readdir / fs.stat / fs.readFile) are already in
+ * production at `internal/fsops/fsops.go` and use the result shapes
+ * defined in `src/shared/types/fs.ts` — they will move into this file
+ * later when their migration touches new behavior. This Round 1 module
+ * covers only the six write methods that are net-new on the protocol:
+ *   fs.writeFile · fs.createFile · fs.mkdir · fs.unlink · fs.rmdir · fs.rename
+ *
+ * The Electron main process binds one agent child per workspace,
+ * so workspace identity is NOT part of any params here — the server's
+ * working root is fixed at process start.
+ */
+
+/** Workspace-relative path. Empty strings are rejected. */
+const RelPathSchema = z.string().min(1);
+
+// ---------------------------------------------------------------------------
+// fs.writeFile — atomic overwrite with optional optimistic-concurrency check.
+// ---------------------------------------------------------------------------
+
+export const FS_WRITE_FILE_METHOD = "fs.writeFile" as const;
+
+/**
+ * `expected` carries the file state the writer last observed. When the
+ * actual state diverges, the server returns `{ kind: "conflict", actual }`
+ * instead of overwriting.
+ */
+export const FsWriteFileParamsSchema = z.object({
+  relPath: RelPathSchema,
+  content: z.string(),
+  expected: ExpectedFileStateSchema.optional(),
+});
+export type FsWriteFileParams = z.infer<typeof FsWriteFileParamsSchema>;
+
+export const FsWriteFileResultSchema = WriteFileResultSchema;
+export type FsWriteFileResult = z.infer<typeof FsWriteFileResultSchema>;
+
+// ---------------------------------------------------------------------------
+// fs.createFile — create empty file with O_EXCL semantics.
+// Fails with ALREADY_EXISTS when the path is taken; the renderer relies
+// on that to avoid silently overwriting hidden/filtered-out files.
+// ---------------------------------------------------------------------------
+
+export const FS_CREATE_FILE_METHOD = "fs.createFile" as const;
+
+export const FsCreateFileParamsSchema = z.object({ relPath: RelPathSchema });
+export type FsCreateFileParams = z.infer<typeof FsCreateFileParamsSchema>;
+
+export const FsCreateFileResultSchema = z.void();
+
+// ---------------------------------------------------------------------------
+// fs.mkdir — create a directory. Recursive is opt-in; when false (default),
+// a missing parent surfaces as NOT_FOUND so the renderer can surface the
+// real problem instead of silently materializing several segments.
+// ---------------------------------------------------------------------------
+
+export const FS_MKDIR_METHOD = "fs.mkdir" as const;
+
+export const FsMkdirParamsSchema = z.object({
+  relPath: RelPathSchema,
+  recursive: z.boolean().optional(),
+});
+export type FsMkdirParams = z.infer<typeof FsMkdirParamsSchema>;
+
+export const FsMkdirResultSchema = z.void();
+
+// ---------------------------------------------------------------------------
+// fs.unlink — remove a file or symlink. Directories are refused with
+// IS_DIRECTORY so callers explicitly choose rmdir for empty dirs or a
+// higher-level recursive-delete flow.
+// ---------------------------------------------------------------------------
+
+export const FS_UNLINK_METHOD = "fs.unlink" as const;
+
+export const FsUnlinkParamsSchema = z.object({ relPath: RelPathSchema });
+export type FsUnlinkParams = z.infer<typeof FsUnlinkParamsSchema>;
+
+export const FsUnlinkResultSchema = z.void();
+
+// ---------------------------------------------------------------------------
+// fs.rmdir — remove an empty directory. Non-empty dirs fail with NOT_EMPTY
+// so the renderer can confirm before any destructive recursive operation.
+// ---------------------------------------------------------------------------
+
+export const FS_RMDIR_METHOD = "fs.rmdir" as const;
+
+export const FsRmdirParamsSchema = z.object({ relPath: RelPathSchema });
+export type FsRmdirParams = z.infer<typeof FsRmdirParamsSchema>;
+
+export const FsRmdirResultSchema = z.void();
+
+// ---------------------------------------------------------------------------
+// fs.rename — move/rename within the bound workspace. Cross-workspace
+// moves are not supported here; the channel is per-workspace, and any
+// cross-workspace flow belongs to higher-level orchestration.
+// ---------------------------------------------------------------------------
+
+export const FS_RENAME_METHOD = "fs.rename" as const;
+
+export const FsRenameParamsSchema = z.object({
+  fromRelPath: RelPathSchema,
+  toRelPath: RelPathSchema,
+});
+export type FsRenameParams = z.infer<typeof FsRenameParamsSchema>;
+
+export const FsRenameResultSchema = z.void();

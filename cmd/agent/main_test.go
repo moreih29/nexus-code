@@ -22,7 +22,7 @@ func TestServerNDJSONAndSIGTERM(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bin := filepath.Join(t.TempDir(), "nexus-server")
+	bin := filepath.Join(t.TempDir(), "agent")
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build failed: %v\n%s", err, output)
