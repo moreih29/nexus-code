@@ -27,9 +27,9 @@ import { isMac } from "./platform";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
-import { SshAuthPromptHub, registerSshAuthPromptIpcChannels } from "./transport/ssh-auth-prompt";
-import { ensureRemoteServer } from "./transport/ssh-bootstrap";
-import { createSshChannel } from "./transport/ssh-channel";
+import { SshAuthPromptHub, registerSshAuthPromptIpcChannels } from "./agent/ssh-auth-prompt";
+import { ensureRemoteAgent } from "./agent/ssh-bootstrap";
+import { createSshChannel } from "./agent/ssh-channel";
 import { createMainWindow } from "./window";
 import { WorkspaceManager } from "./workspace/workspace-manager";
 
@@ -88,7 +88,7 @@ const workspaceManager = new WorkspaceManager(
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
   (options) =>
-    ensureRemoteServer(options, {
+    ensureRemoteAgent(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
 );
@@ -99,7 +99,7 @@ registerWorkspaceChannel(workspaceManager, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
   sshBootstrap: (options) =>
-    ensureRemoteServer(options, {
+    ensureRemoteAgent(options, {
       promptHandler: (prompt) => sshAuthPromptHub.request(prompt),
     }),
 });

@@ -9,13 +9,13 @@ import {
   type SshAuthPromptHandler,
 } from "./ssh-auth-pty";
 import type { SshMasterOptions } from "./ssh-master";
-import { createSshError } from "./ssh-pipe";
+import { createSshError } from "./pipe";
 
-export const REMOTE_SERVER_PROTOCOL_MAJOR = "1";
-export const REMOTE_SERVER_VERSION = "0.1.0";
-export const REMOTE_SERVER_ROOT = "~/.nexus-code";
-export const REMOTE_SERVER_MANIFEST = `${REMOTE_SERVER_ROOT}/manifest.json`;
-export const LOCAL_SERVER_DIST_DIR = path.join(process.cwd(), "dist", "nexus-server");
+export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";
+export const REMOTE_AGENT_VERSION = "0.1.0";
+export const REMOTE_AGENT_ROOT = "~/.nexus-code";
+export const REMOTE_AGENT_MANIFEST = `${REMOTE_AGENT_ROOT}/manifest.json`;
+export const LOCAL_AGENT_DIST_DIR = path.join(process.cwd(), "dist", "agent");
 
 const KEEP_REMOTE_VERSIONS = 3;
 
@@ -40,22 +40,22 @@ const RemoteManifestSchema = z.object({
   installedAt: z.string(),
 });
 
-export type RemoteServerPlatform =
+export type RemoteAgentPlatform =
   z.infer<typeof LocalBinarySchema> extends infer T
     ? T extends { os: infer Os; arch: infer Arch }
       ? { os: Os; arch: Arch }
       : never
     : never;
 
-export interface EnsureRemoteServerOptions extends Omit<SshMasterOptions, "remoteCommand"> {
+export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remoteCommand"> {
   readonly remotePath: string;
-  readonly cachedRemoteArch?: RemoteServerPlatform;
+  readonly cachedRemoteArch?: RemoteAgentPlatform;
   readonly authMode?: "interactive" | "key-only";
 }
 
-export interface EnsureRemoteServerResult {
+export interface EnsureRemoteAgentResult {
   readonly remoteCommand: string;
-  readonly platform: RemoteServerPlatform;
+  readonly platform: RemoteAgentPlatform;
   readonly uploaded: boolean;
   readonly controlPath?: string;
   readonly dispose?: () => void;
@@ -80,12 +80,12 @@ export interface SshBootstrapDependencies {
   readonly auth?: AuthenticateSshControlMasterDependencies;
 }
 
-export async function ensureRemoteServer(
-  options: EnsureRemoteServerOptions,
+export async function ensureRemoteAgent(
+  options: EnsureRemoteAgentOptions,
   dependencies: SshBootstrapDependencies = {},
-): Promise<EnsureRemoteServerResult> {
+): Promise<EnsureRemoteAgentResult> {
   const runner = dependencies.runner ?? defaultRunner;
-  const distDir = dependencies.distDir ?? LOCAL_SERVER_DIST_DIR;
+  const distDir = dependencies.distDir ?? LOCAL_AGENT_DIST_DIR;
   const now = dependencies.now ?? (() => new Date());
   const authenticatedMaster =
     options.authMode === "interactive" && dependencies.promptHandler
@@ -109,7 +109,7 @@ export async function ensureRemoteServer(
         new Error(`unsupported remote platform ${platform.os}-${platform.arch}`),
       );
     }
-    const remoteBinaryPath = remoteServerBinaryPath(localManifest.version, platform);
+    const remoteBinaryPath = remoteAgentBinaryPath(localManifest.version, platform);
     const remoteManifest = await readRemoteManifest(sshOptions, runner);
     const matches =
       remoteManifest?.version === localManifest.version &&
@@ -136,7 +136,7 @@ export async function ensureRemoteServer(
     }
 
     return {
-      remoteCommand: buildRemoteServerCommand(remoteBinaryPath, options.remotePath),
+      remoteCommand: buildRemoteAgentCommand(remoteBinaryPath, options.remotePath),
       platform,
       uploaded: !matches,
       controlPath: authenticatedMaster?.controlPath,
@@ -148,7 +148,7 @@ export async function ensureRemoteServer(
   }
 }
 
-export function parseUname(value: string): RemoteServerPlatform {
+export function parseUname(value: string): RemoteAgentPlatform {
   const normalized = value.trim().toLowerCase();
   const osName = normalized.includes("darwin")
     ? "darwin"
@@ -166,35 +166,35 @@ export function parseUname(value: string): RemoteServerPlatform {
   return { os: osName, arch };
 }
 
-export function remoteServerBinaryPath(version: string, platform: RemoteServerPlatform): string {
-  return `${REMOTE_SERVER_ROOT}/bin/nexus-server-${version}-${platform.os}-${platform.arch}`;
+export function remoteAgentBinaryPath(version: string, platform: RemoteAgentPlatform): string {
+  return `${REMOTE_AGENT_ROOT}/bin/agent-${version}-${platform.os}-${platform.arch}`;
 }
 
-export function buildRemoteServerCommand(binaryPath: string, remotePath: string): string {
+export function buildRemoteAgentCommand(binaryPath: string, remotePath: string): string {
   const script = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
 async function detectRemotePlatform(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
-): Promise<RemoteServerPlatform> {
+): Promise<RemoteAgentPlatform> {
   const result = await runSsh(options, runner, "uname -ms");
   return parseUname(result.stdout);
 }
 
 async function readRemoteManifest(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
 ): Promise<z.infer<typeof RemoteManifestSchema> | null> {
-  const result = await runSsh(options, runner, `cat ${REMOTE_SERVER_MANIFEST} 2>/dev/null || true`);
+  const result = await runSsh(options, runner, `cat ${REMOTE_AGENT_MANIFEST} 2>/dev/null || true`);
   if (result.stdout.trim().length === 0) return null;
   const parsed = RemoteManifestSchema.safeParse(JSON.parse(result.stdout));
   return parsed.success ? parsed.data : null;
 }
 
 async function uploadAndVerify(args: {
-  readonly options: EnsureRemoteServerOptions;
+  readonly options: EnsureRemoteAgentOptions;
   readonly runner: SshBootstrapRunner;
   readonly localPath: string;
   readonly remoteBinaryPath: string;
@@ -203,11 +203,11 @@ async function uploadAndVerify(args: {
   await runSsh(
     args.options,
     args.runner,
-    `mkdir -p ${REMOTE_SERVER_ROOT}/bin && chmod 755 ${REMOTE_SERVER_ROOT} ${REMOTE_SERVER_ROOT}/bin`,
+    `mkdir -p ${REMOTE_AGENT_ROOT}/bin && chmod 755 ${REMOTE_AGENT_ROOT} ${REMOTE_AGENT_ROOT}/bin`,
   );
   const payload = await fs.readFile(args.localPath);
   if (sha256(payload) !== args.sha256) {
-    throw createSshError("server.protocol-error", new Error("local nexus-server sha256 mismatch"));
+    throw createSshError("server.protocol-error", new Error("local agent sha256 mismatch"));
   }
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -215,11 +215,11 @@ async function uploadAndVerify(args: {
     const remoteSha = await remoteSha256(args.options, args.runner, args.remoteBinaryPath);
     if (remoteSha === args.sha256) return;
   }
-  throw createSshError("server.protocol-error", new Error("remote nexus-server sha256 mismatch"));
+  throw createSshError("server.protocol-error", new Error("remote agent sha256 mismatch"));
 }
 
 async function uploadBinary(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   localPath: string,
   remotePath: string,
@@ -242,7 +242,7 @@ async function uploadBinary(
 }
 
 async function remoteSha256(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   remotePath: string,
 ): Promise<string> {
@@ -255,19 +255,19 @@ async function remoteSha256(
 }
 
 async function writeRemoteManifest(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   manifest: z.infer<typeof RemoteManifestSchema>,
 ): Promise<void> {
-  await runSsh(options, runner, `cat > ${REMOTE_SERVER_MANIFEST}`, `${JSON.stringify(manifest)}\n`);
+  await runSsh(options, runner, `cat > ${REMOTE_AGENT_MANIFEST}`, `${JSON.stringify(manifest)}\n`);
 }
 
 async function pruneRemoteVersions(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
-  platform: RemoteServerPlatform,
+  platform: RemoteAgentPlatform,
 ): Promise<void> {
-  const pattern = `${REMOTE_SERVER_ROOT}/bin/nexus-server-*-${platform.os}-${platform.arch}`;
+  const pattern = `${REMOTE_AGENT_ROOT}/bin/agent-*-${platform.os}-${platform.arch}`;
   await runSsh(
     options,
     runner,
@@ -276,7 +276,7 @@ async function pruneRemoteVersions(
 }
 
 async function runSsh(
-  options: EnsureRemoteServerOptions,
+  options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   remoteCommand: string,
   input?: Buffer | string,
@@ -288,7 +288,7 @@ async function runSsh(
   );
 }
 
-function buildSftpArgs(options: EnsureRemoteServerOptions): string[] {
+function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
   const args: string[] = [];
   if (options.port !== undefined) args.push("-P", String(options.port));
   if (options.identityFile) args.push("-i", options.identityFile);
@@ -297,7 +297,7 @@ function buildSftpArgs(options: EnsureRemoteServerOptions): string[] {
   return args;
 }
 
-function buildSshTransportArgs(options: EnsureRemoteServerOptions): string[] {
+function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string[] {
   const args = ["-o", "BatchMode=yes"];
   if (options.controlPath) args.push("-S", options.controlPath, "-o", "ControlMaster=no");
   if (options.port !== undefined) args.push("-p", String(options.port));
@@ -305,7 +305,7 @@ function buildSshTransportArgs(options: EnsureRemoteServerOptions): string[] {
   return args;
 }
 
-function destinationForOptions(options: EnsureRemoteServerOptions): string {
+function destinationForOptions(options: EnsureRemoteAgentOptions): string {
   return options.user ? `${options.user}@${options.host}` : options.host;
 }
 

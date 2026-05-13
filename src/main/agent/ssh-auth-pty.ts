@@ -7,7 +7,7 @@ import {
   type SshControlMaster,
   type SshMasterOptions,
 } from "./ssh-master";
-import { createSshError } from "./ssh-pipe";
+import { createSshError } from "./pipe";
 
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;
 const HOST_KEY_PROMPT_PATTERN =

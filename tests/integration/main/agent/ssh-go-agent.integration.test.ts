@@ -3,10 +3,10 @@ import fs from "node:fs";
 import net from "node:net";
 import { SshFsProvider } from "../../../../src/main/fs/provider/ssh/ssh-fs-provider";
 import {
-  LOCAL_SERVER_DIST_DIR,
-  ensureRemoteServer,
-} from "../../../../src/main/transport/ssh-bootstrap";
-import { createSshChannel } from "../../../../src/main/transport/ssh-channel";
+  LOCAL_AGENT_DIST_DIR,
+  ensureRemoteAgent,
+} from "../../../../src/main/agent/ssh-bootstrap";
+import { createSshChannel } from "../../../../src/main/agent/ssh-channel";
 import { spawnNodeBackedPty } from "./node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";
@@ -15,24 +15,24 @@ const FIXTURE_USER = process.env.NEXUS_SSH_FIXTURE_USER ?? "nexus";
 const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "password";
 const FIXTURE_REMOTE_PATH = process.env.NEXUS_SSH_FIXTURE_REMOTE_PATH ?? "/workspace-seed";
 
-describe("ssh Go server linux-password fixture", () => {
-  it("bootstraps nexus-server and serves fs operations through SshFsProvider", async () => {
+describe("ssh Go agent linux-password fixture", () => {
+  it("bootstraps agent and serves fs operations through SshFsProvider", async () => {
     if (process.env.NEXUS_RUN_SSH_GO_FIXTURE !== "1") {
-      console.warn("Skipping ssh Go server fixture test: set NEXUS_RUN_SSH_GO_FIXTURE=1 to opt in");
+      console.warn("Skipping ssh Go agent fixture test: set NEXUS_RUN_SSH_GO_FIXTURE=1 to opt in");
       return;
     }
     if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
-      console.warn("Skipping ssh Go server fixture test: 127.0.0.1:2223 is unavailable");
+      console.warn("Skipping ssh Go agent fixture test: 127.0.0.1:2223 is unavailable");
       return;
     }
-    if (!fs.existsSync(`${LOCAL_SERVER_DIST_DIR}/manifest.json`)) {
+    if (!fs.existsSync(`${LOCAL_AGENT_DIST_DIR}/manifest.json`)) {
       console.warn(
-        `Skipping ssh Go server fixture test: ${LOCAL_SERVER_DIST_DIR}/manifest.json is unavailable`,
+        `Skipping ssh Go agent fixture test: ${LOCAL_AGENT_DIST_DIR}/manifest.json is unavailable`,
       );
       return;
     }
 
-    const bootstrap = await ensureRemoteServer(
+    const bootstrap = await ensureRemoteAgent(
       {
         host: FIXTURE_HOST,
         user: FIXTURE_USER,

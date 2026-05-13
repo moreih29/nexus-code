@@ -16,12 +16,12 @@ import {
   createSshChannel,
   type SshChannel,
   type SshChannelLifecycleEvent,
-} from "../transport/ssh-channel";
+} from "../agent/ssh-channel";
 import {
-  type EnsureRemoteServerOptions,
-  type EnsureRemoteServerResult,
-  ensureRemoteServer,
-} from "../transport/ssh-bootstrap";
+  type EnsureRemoteAgentOptions,
+  type EnsureRemoteAgentResult,
+  ensureRemoteAgent,
+} from "../agent/ssh-bootstrap";
 import { WorkspaceContext } from "./workspace-context";
 
 // ---------------------------------------------------------------------------
@@ -36,8 +36,8 @@ export type WorkspaceCreateOptions =
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
 export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => SshChannel;
 export type WorkspaceSshBootstrap = (
-  options: EnsureRemoteServerOptions,
-) => Promise<EnsureRemoteServerResult>;
+  options: EnsureRemoteAgentOptions,
+) => Promise<EnsureRemoteAgentResult>;
 
 /**
  * Builds a local workspace location from legacy create/update inputs.
@@ -104,7 +104,7 @@ export class WorkspaceManager {
     stateService: StateService,
     broadcastFn: BroadcastFn,
     sshChannelFactory: WorkspaceSshChannelFactory = createSshChannel,
-    sshBootstrap: WorkspaceSshBootstrap = ensureRemoteServer,
+    sshBootstrap: WorkspaceSshBootstrap = ensureRemoteAgent,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
@@ -368,7 +368,7 @@ export class WorkspaceManager {
  */
 function sshChannelOptionsFromLocation(
   location: SshWorkspaceLocation,
-  remoteCommand = buildRemoteServerCommand(location),
+  remoteCommand: string,
   controlPath?: string,
 ): CreateSshChannelOptions {
   return {
@@ -380,32 +380,6 @@ function sshChannelOptionsFromLocation(
     remoteCommand,
     controlPath,
   };
-}
-
-/**
- * Renders the remote server command with shell-safe remote path arguments.
- */
-function buildRemoteServerCommand(location: SshWorkspaceLocation): string {
-  const remotePath = quoteShellArg(location.remotePath);
-  const script = `cd ${remotePath} && exec bun src/server/index.ts ${remotePath}`;
-  return `bash -lc ${singleQuoteShellArg(script)}`;
-}
-
-/**
- * Quotes a shell argument only when the raw value is not shell-safe.
- */
-function quoteShellArg(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) {
-    return value;
-  }
-  return singleQuoteShellArg(value);
-}
-
-/**
- * Single-quotes a shell argument while preserving embedded apostrophes.
- */
-function singleQuoteShellArg(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /**

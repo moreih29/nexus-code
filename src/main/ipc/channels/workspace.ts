@@ -1,15 +1,15 @@
 import { ipcContract } from "../../../shared/ipc-contract";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/types/ssh-errors";
 import {
-  type EnsureRemoteServerOptions,
-  type EnsureRemoteServerResult,
-  ensureRemoteServer,
-} from "../../transport/ssh-bootstrap";
+  type EnsureRemoteAgentOptions,
+  type EnsureRemoteAgentResult,
+  ensureRemoteAgent,
+} from "../../agent/ssh-bootstrap";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
-} from "../../transport/ssh-channel";
+} from "../../agent/ssh-channel";
 import type { WorkspaceManager } from "../../workspace/workspace-manager";
 import { type CallContext, register, validateArgs } from "../router";
 
@@ -21,8 +21,8 @@ type TestSshResult =
 
 export type TestSshCreateChannel = (options: CreateSshChannelOptions) => SshChannel;
 export type TestSshBootstrap = (
-  options: EnsureRemoteServerOptions,
-) => Promise<EnsureRemoteServerResult>;
+  options: EnsureRemoteAgentOptions,
+) => Promise<EnsureRemoteAgentResult>;
 
 interface WorkspaceChannelDependencies {
   readonly createSshChannel?: TestSshCreateChannel;
@@ -71,7 +71,7 @@ export function registerWorkspaceChannel(
  */
 export function testSshHandler(
   createChannel: TestSshCreateChannel = createSshChannel,
-  sshBootstrap: TestSshBootstrap = ensureRemoteServer,
+  sshBootstrap: TestSshBootstrap = ensureRemoteAgent,
 ): (args: unknown, ctx?: CallContext) => Promise<TestSshResult> {
   return async (args: unknown, ctx?: CallContext): Promise<TestSshResult> => {
     const testArgs = validateArgs(c.testSsh.args, args);
@@ -165,11 +165,11 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "ssh.auth-failed":
       return "SSH authentication failed";
     case "server.spawn-failed":
-      return "Remote server failed to start";
+      return "Remote agent failed to start";
     case "server.protocol-error":
-      return "Remote server protocol error";
+      return "Remote agent protocol error";
     case "server.protocol-version-mismatch":
-      return "Remote server protocol version mismatch";
+      return "Remote agent protocol version mismatch";
     case "ssh.unknown":
       return "SSH workspace validation failed";
   }

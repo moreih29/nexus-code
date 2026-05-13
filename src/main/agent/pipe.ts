@@ -1,3 +1,15 @@
+/**
+ * NDJSON request/response/event state machine over an arbitrary stdio triple
+ * (stdin / stdout / stderr). Used by both `ssh-channel` (over an SSH-tunneled
+ * child) and `local-channel` (over a locally spawned agent child) — the
+ * channel layer above owns process lifecycle and supplies a stderr classifier.
+ *
+ * The error code currency on this file is still `SshErrorCode` for historical
+ * reasons; the `server.*` codes apply equally to local and the SSH-specific
+ * codes (`ssh.connect-failed`, `ssh.auth-failed`) are simply never produced by
+ * a local classifier. A future refactor may split the enum, but the channel
+ * layer can already translate at its boundary today.
+ */
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 import { PendingRequestMap } from "../../shared/pending-request-map";
@@ -181,7 +193,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         return Promise.reject(terminalError);
       }
 
-      const requestId = `ssh-${nextRequestId++}`;
+      const requestId = `r-${nextRequestId++}`;
       let line: string;
       try {
         line = `${JSON.stringify({ id: requestId, method, params })}\n`;
@@ -282,11 +294,11 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "ssh.auth-failed":
       return "SSH authentication failed";
     case "server.spawn-failed":
-      return "Remote server failed to start";
+      return "Remote agent failed to start";
     case "server.protocol-error":
-      return "Remote server protocol error";
+      return "Remote agent protocol error";
     case "server.protocol-version-mismatch":
-      return "Remote server protocol version mismatch";
+      return "Remote agent protocol version mismatch";
     case "ssh.unknown":
       return "SSH transport failed";
   }
@@ -346,15 +358,15 @@ function parseFrame(line: string): ParsedFrame {
 }
 
 /**
- * Converts a remote server error frame to an Error while preserving its code.
+ * Converts a remote agent error frame to an Error while preserving its code.
  */
 function errorFromServerFrame(value: unknown): Error {
   if (!isRecord(value)) {
-    return new Error("Remote server request failed");
+    return new Error("Remote agent request failed");
   }
 
   const message =
-    typeof value.message === "string" ? value.message : "Remote server request failed";
+    typeof value.message === "string" ? value.message : "Remote agent request failed";
   const error = new Error(message);
   if (typeof value.code === "string") {
     (error as Error & { code: string }).code = value.code;

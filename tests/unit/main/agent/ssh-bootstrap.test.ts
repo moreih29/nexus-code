@@ -5,12 +5,12 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import {
-  buildRemoteServerCommand,
-  ensureRemoteServer,
+  buildRemoteAgentCommand,
+  ensureRemoteAgent,
   parseUname,
-  remoteServerBinaryPath,
+  remoteAgentBinaryPath,
   type SshBootstrapRunner,
-} from "../../../../src/main/transport/ssh-bootstrap";
+} from "../../../../src/main/agent/ssh-bootstrap";
 
 let tmpDir: string;
 
@@ -57,13 +57,13 @@ function writeDist(): { distDir: string; sha256: string } {
   fs.mkdirSync(distDir, { recursive: true });
   const payload = Buffer.from("fake-linux-amd64-server");
   const sha256 = createHash("sha256").update(payload).digest("hex");
-  fs.writeFileSync(path.join(distDir, "nexus-server-0.1.0-linux-amd64"), payload);
+  fs.writeFileSync(path.join(distDir, "agent-0.1.0-linux-amd64"), payload);
   fs.writeFileSync(
     path.join(distDir, "manifest.json"),
     JSON.stringify({
       version: "0.1.0",
       protocolVersion: "1",
-      binaries: [{ os: "linux", arch: "amd64", path: "nexus-server-0.1.0-linux-amd64", sha256 }],
+      binaries: [{ os: "linux", arch: "amd64", path: "agent-0.1.0-linux-amd64", sha256 }],
     }),
   );
   return { distDir, sha256 };
@@ -99,7 +99,7 @@ describe("ssh-bootstrap", () => {
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
-    const result = await ensureRemoteServer(
+    const result = await ensureRemoteAgent(
       { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
       { distDir, runner },
     );
@@ -107,7 +107,7 @@ describe("ssh-bootstrap", () => {
     expect(result.uploaded).toBe(false);
     expect(result.platform).toEqual({ os: "linux", arch: "amd64" });
     expect(result.remoteCommand).toBe(
-      buildRemoteServerCommand(remoteServerBinaryPath("0.1.0", result.platform), "/repo"),
+      buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
     );
     expect(runner).toHaveBeenCalledTimes(2);
   });
@@ -145,7 +145,7 @@ describe("ssh-bootstrap", () => {
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
-    const result = await ensureRemoteServer(
+    const result = await ensureRemoteAgent(
       { host: "dev.example.com", remotePath: "/repo" },
       { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
     );
@@ -153,7 +153,7 @@ describe("ssh-bootstrap", () => {
     expect(result.uploaded).toBe(true);
     expect(verifyCount).toBe(2);
     expect(calls.filter((call) => call.startsWith("sftp"))).toHaveLength(2);
-    expect(sftpInputs[0]).toContain(".nexus-code/bin/nexus-server-0.1.0-linux-amd64");
+    expect(sftpInputs[0]).toContain(".nexus-code/bin/agent-0.1.0-linux-amd64");
     expect(sftpInputs[0]).not.toContain("~/.nexus-code");
     expect(calls.some((call) => call.includes("tail -n +4"))).toBe(true);
   });
@@ -181,7 +181,7 @@ describe("ssh-bootstrap", () => {
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
-    const resultPromise = ensureRemoteServer(
+    const resultPromise = ensureRemoteAgent(
       {
         host: "127.0.0.1",
         user: "alice",

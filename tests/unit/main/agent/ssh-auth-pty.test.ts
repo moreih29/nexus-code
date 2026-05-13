@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
-import { authenticateSshControlMaster } from "../../../../src/main/transport/ssh-auth-pty";
+import { authenticateSshControlMaster } from "../../../../src/main/agent/ssh-auth-pty";
 import type { SshAuthPrompt } from "../../../../src/shared/types/ssh-auth-prompt";
 
 class FakePty {

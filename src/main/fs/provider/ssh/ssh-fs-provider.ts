@@ -9,7 +9,7 @@ import {
 } from "../../../../shared/types/fs";
 import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
 import type { WorkspaceLocation } from "../../../../shared/types/workspace";
-import type { SshChannel } from "../../../transport/ssh-channel";
+import type { SshChannel } from "../../../agent/ssh-channel";
 import type { FsReadProvider } from "../types";
 
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;
@@ -71,7 +71,7 @@ function parseAgentResult<T>(schema: z.ZodType<T>, result: unknown): T {
  * Creates the same classified error shape used by the SSH transport layer.
  */
 function createProtocolError(cause: unknown): Error & { code: SshErrorCode } {
-  const error = new Error("Remote server protocol error", { cause }) as Error & {
+  const error = new Error("Remote agent protocol error", { cause }) as Error & {
     code: SshErrorCode;
   };
   error.name = "SshError";

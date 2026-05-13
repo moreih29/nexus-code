@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createFsProvider } from "../../../../src/main/fs/provider/factory";
 import { LocalFsProvider } from "../../../../src/main/fs/provider/local/local-fs-provider";
-import type { SshChannel } from "../../../../src/main/transport/ssh-channel";
+import type { SshChannel } from "../../../../src/main/agent/ssh-channel";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 let tmpRoot: string;
@@ -135,7 +135,7 @@ describe("createFsProvider", () => {
       throw new Error("expected provider.stat to reject");
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe("Remote server protocol error");
+      expect((error as Error).message).toBe("Remote agent protocol error");
       expect((error as { code?: string }).code).toBe("server.protocol-error");
     }
   });

@@ -9,7 +9,7 @@ import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage
 import type {
   SshChannel,
   SshChannelLifecycleEvent,
-} from "../../../../src/main/transport/ssh-channel";
+} from "../../../../src/main/agent/ssh-channel";
 import type {
   BroadcastFn,
   WorkspaceSshBootstrap,
@@ -65,7 +65,7 @@ function makeManager(
 }
 
 const fakeSshBootstrap = mock(async (options) => ({
-  remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 ${options.remotePath}'`,
+  remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 ${options.remotePath}'`,
   platform: { os: "linux" as const, arch: "amd64" as const },
   uploaded: false,
 }));
@@ -410,7 +410,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       identityFile: "/tmp/key",
       authMode: "interactive",
       remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 /srv/project'",
+        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
     });
 
     ready.resolve();
@@ -428,13 +428,13 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
     globalStorage.close();
   });
 
-  it("passes interactive authMode into bootstrap and reuses bootstrap ControlMaster for the Go server channel", async () => {
+  it("passes interactive authMode into bootstrap and reuses bootstrap ControlMaster for the Go agent channel", async () => {
     const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
     const bootstrapDispose = mock(() => {});
     const { channel } = makeLifecycleChannel();
     const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
     const sshBootstrap = mock(async (options) => ({
-      remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 ${options.remotePath}'`,
+      remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 ${options.remotePath}'`,
       platform: { os: "linux" as const, arch: "amd64" as const },
       uploaded: true,
       controlPath: "/tmp/nexus-ssh/control.sock",
@@ -470,7 +470,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       expect.objectContaining({
         authMode: "interactive",
         remoteCommand:
-          "bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 /workspace-seed'",
+          "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /workspace-seed'",
         controlPath: "/tmp/nexus-ssh/control.sock",
       }),
     );
@@ -490,7 +490,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       return channel;
     }) as WorkspaceSshChannelFactory);
     const sshBootstrap = mock(async (options) => ({
-      remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-arm64 ${options.remotePath}'`,
+      remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-arm64 ${options.remotePath}'`,
       platform: options.cachedRemoteArch ?? { os: "linux" as const, arch: "arm64" as const },
       uploaded: false,
     }));

@@ -1,4 +1,10 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type {
+  ChannelEventCallback,
+  ChannelLifecycleCallback,
+  ChannelLifecycleEvent,
+  AgentChannel,
+} from "./channel";
 import { classifyAuthLine } from "./ssh-auth";
 import {
   authenticateSshControlMaster,
@@ -12,35 +18,23 @@ import {
   createSshError,
   type NdjsonPipe,
   type SshError,
-} from "./ssh-pipe";
-import { REMOTE_SERVER_PROTOCOL_MAJOR } from "./ssh-bootstrap";
+} from "./pipe";
+import { REMOTE_AGENT_PROTOCOL_MAJOR } from "./ssh-bootstrap";
 
 const DISPOSE_KILL_GRACE_MS = 100;
 
-type SshEventCallback = (payload: unknown) => void;
-type SshLifecycleCallback = (event: SshChannelLifecycleEvent) => void;
+/**
+ * Back-compat aliases. The SSH channel was the original concrete channel
+ * implementation, and existing callers (workspace-manager, fs provider, IPC)
+ * import these names. They now resolve to the unified `AgentChannel`
+ * shape defined in `channel.ts`.
+ */
+export type SshChannel = AgentChannel;
+export type SshChannelLifecycleEvent = ChannelLifecycleEvent;
 
 export type CreateSshChannelOptions = SshMasterOptions & {
   readonly authMode?: "interactive" | "key-only";
 };
-
-export interface SshChannel {
-  /**
-   * Resolves when the remote server emits its startup ready frame. If a caller
-   * sends a request before awaiting this promise, the first valid response or
-   * event also marks the channel ready for compatibility with older servers.
-   */
-  readonly ready: Promise<void>;
-  call<TResult = unknown>(method: string, params?: unknown): Promise<TResult>;
-  on(event: string, callback: SshEventCallback): () => void;
-  onLifecycle(callback: SshLifecycleCallback): () => void;
-  dispose(): void;
-}
-
-export type SshChannelLifecycleEvent =
-  | { readonly type: "exit"; readonly code: number | null; readonly signal: NodeJS.Signals | null }
-  | { readonly type: "failure"; readonly error: Error }
-  | { readonly type: "disposed" };
 
 export interface SshChannelDependencies {
   readonly spawn?: SpawnSshProcess;
@@ -50,9 +44,9 @@ export interface SshChannelDependencies {
 }
 
 /**
- * Opens an SSH-backed NDJSON request channel to the remote server. The
+ * Opens an SSH-backed NDJSON request channel to the remote agent. The
  * orchestrator spawns the SSH client (via ssh-master) and composes an NDJSON
- * pipe (ssh-pipe) over its stdio, classifying stderr through ssh-auth.
+ * pipe (pipe) over its stdio, classifying stderr through ssh-auth.
  */
 export function createSshChannel(
   options: CreateSshChannelOptions,
@@ -63,7 +57,7 @@ export function createSshChannel(
     return createAuthenticatedSshChannel(options, dependencies, promptHandler);
   }
 
-  const lifecycleListeners = new Set<SshLifecycleCallback>();
+  const lifecycleListeners = new Set<ChannelLifecycleCallback>();
   const child: ChildProcessWithoutNullStreams = spawnSshMaster(options, {
     spawn: dependencies.spawn,
   });
@@ -80,7 +74,7 @@ export function createSshChannel(
     classifyStderr: classifyAuthLine,
     onTerminalError: handlePipeFailure,
     requestTimeoutMs: dependencies.requestTimeoutMs,
-    expectedProtocolMajor: REMOTE_SERVER_PROTOCOL_MAJOR,
+    expectedProtocolMajor: REMOTE_AGENT_PROTOCOL_MAJOR,
   });
 
   child.on("error", (error) => {
@@ -105,10 +99,10 @@ export function createSshChannel(
     call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
       return pipe.call<TResult>(method, params);
     },
-    on(event: string, callback: SshEventCallback): () => void {
+    on(event: string, callback: ChannelEventCallback): () => void {
       return pipe.on(event, callback);
     },
-    onLifecycle(callback: SshLifecycleCallback): () => void {
+    onLifecycle(callback: ChannelLifecycleCallback): () => void {
       lifecycleListeners.add(callback);
       return () => {
         lifecycleListeners.delete(callback);
@@ -193,8 +187,8 @@ function createAuthenticatedSshChannel(
   dependencies: SshChannelDependencies,
   promptHandler: SshAuthPromptHandler,
 ): SshChannel {
-  const lifecycleListeners = new Set<SshLifecycleCallback>();
-  const eventListeners = new Map<string, Set<SshEventCallback>>();
+  const lifecycleListeners = new Set<ChannelLifecycleCallback>();
+  const eventListeners = new Map<string, Set<ChannelEventCallback>>();
   const pendingCalls: Array<{
     readonly method: string;
     readonly params: unknown;
@@ -251,10 +245,10 @@ function createAuthenticatedSshChannel(
         pendingCalls.push({ method, params, resolve: resolve as (value: unknown) => void, reject });
       });
     },
-    on(event: string, callback: SshEventCallback): () => void {
+    on(event: string, callback: ChannelEventCallback): () => void {
       let callbacks = eventListeners.get(event);
       if (!callbacks) {
-        callbacks = new Set<SshEventCallback>();
+        callbacks = new Set<ChannelEventCallback>();
         eventListeners.set(event, callbacks);
       }
       callbacks.add(callback);
@@ -264,7 +258,7 @@ function createAuthenticatedSshChannel(
         disposeInnerEvent?.();
       };
     },
-    onLifecycle(callback: SshLifecycleCallback): () => void {
+    onLifecycle(callback: ChannelLifecycleCallback): () => void {
       lifecycleListeners.add(callback);
       return () => {
         lifecycleListeners.delete(callback);

@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import {
   createSshChannel,
   type SshChannelLifecycleEvent,
-} from "../../../../src/main/transport/ssh-channel";
+} from "../../../../src/main/agent/ssh-channel";
 import type { SshErrorCode } from "../../../../src/shared/types/ssh-errors";
 
 class FakeStream extends EventEmitter {
@@ -96,7 +96,7 @@ function makeChannel() {
       user: "deploy",
       port: 2222,
       identityFile: "/tmp/key",
-      remoteCommand: "bun src/server/index.ts /repo",
+      remoteCommand: "agent /repo",
     },
     { spawn, requestTimeoutMs: 10_000 },
   );
@@ -138,7 +138,7 @@ describe("createSshChannel", () => {
           "/tmp/key",
           "--",
           "deploy@dev.example.com",
-          "bun src/server/index.ts /repo",
+          "agent /repo",
         ],
         options: { detached: false, stdio: ["pipe", "pipe", "pipe"] },
       },

@@ -10,7 +10,7 @@ import {
 import type {
   CreateSshChannelOptions,
   SshChannel,
-} from "../../../../../src/main/transport/ssh-channel";
+} from "../../../../../src/main/agent/ssh-channel";
 
 /**
  * Creates a manually controlled promise for channel readiness assertions.
@@ -39,7 +39,7 @@ function createAbortError(): Error {
 }
 
 const fakeBootstrap = mock(async (options) => ({
-  remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 ${options.remotePath}'`,
+  remoteCommand: `bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 ${options.remotePath}'`,
   platform: { os: "linux" as const, arch: "amd64" as const },
   uploaded: false,
 })) as TestSshBootstrap;
@@ -94,7 +94,7 @@ describe("workspace.testSsh handler", () => {
       identityFile: "/tmp/key",
       authMode: "key-only",
       remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 /srv/project'",
+        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
     });
     expect(calls).toEqual([{ method: "fs.readdir", params: { relPath: "." } }]);
     expect(channel.dispose).toHaveBeenCalledTimes(1);
@@ -160,7 +160,7 @@ describe("workspace.testSsh handler", () => {
     const bootstrapDispose = mock(() => {});
     const sshBootstrap = mock(async () => ({
       remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 /srv/project'",
+        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
       platform: { os: "linux" as const, arch: "amd64" as const },
       uploaded: true,
       controlPath: "/tmp/nexus-ssh/control.sock",
@@ -195,7 +195,7 @@ describe("workspace.testSsh handler", () => {
       expect.objectContaining({
         authMode: "interactive",
         remoteCommand:
-          "bash -lc 'exec ~/.nexus-code/bin/nexus-server-0.1.0-linux-amd64 /srv/project'",
+          "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
         controlPath: "/tmp/nexus-ssh/control.sock",
       }),
     );
