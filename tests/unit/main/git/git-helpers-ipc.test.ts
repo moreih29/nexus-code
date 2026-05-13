@@ -3,11 +3,10 @@
  * helpers plus pure launcher/path security seams.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { classifyGitStderr } from "../../../../src/main/git/git-error";
 import {
   buildGitHelpersEndpoint,
   GitHelpersIpcManager,
@@ -46,74 +45,35 @@ describe("helpers-launcher", () => {
     expect(env.NEXUS_HELPERS_SOCKET).toBe("/tmp/nexus.sock");
     expect(env.NEXUS_HELPERS_TOKEN).toBe("token-123");
     expect(env.ELECTRON_RUN_AS_NODE).toBe("1");
-    expect(env.GIT_ASKPASS).toBe(path.join(wrapperDir, "nexus-git-askpass-helper"));
-    expect(env.SSH_ASKPASS).toBe(env.GIT_ASKPASS);
+    expect(env.GIT_ASKPASS).toBeUndefined();
+    expect(env.SSH_ASKPASS).toBeUndefined();
     expect(env.SSH_ASKPASS_REQUIRE).toBe("force");
     expect(env.GIT_EDITOR).toBe(path.join(wrapperDir, "nexus-git-editor-helper"));
     expect(env.DISPLAY).toBe(":0");
 
-    expect(modeOf(env.GIT_ASKPASS ?? "")).toBe(0o700);
     expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
-    expect(fs.readFileSync(env.GIT_ASKPASS ?? "", "utf8")).toContain("askpass-helper.cjs");
     expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("git-editor-helper.cjs");
-    expect(env.GIT_ASKPASS).not.toMatch(/^'.*' '.*'$/);
     expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
   });
 
-  it("uses a Git-executable askpass wrapper instead of a quoted compound command", () => {
-    if (!hasGit()) return;
-
-    const root = makeTmpDir("nexus-helper-git-credential-");
-    const helperDir = path.join(root, "helpers");
-    const wrapperDir = path.join(root, "wrappers");
-    const homeDir = path.join(root, "home");
-    const configDir = path.join(root, "config");
-    const tracePath = path.join(root, "askpass-prompts.log");
-    fs.mkdirSync(helperDir, { recursive: true });
-    fs.mkdirSync(homeDir, { recursive: true });
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(helperDir, "askpass-helper.cjs"),
-      [
-        "const fs = require('node:fs');",
-        "const prompt = process.argv.slice(2).join(' ');",
-        "fs.appendFileSync(process.env.NEXUS_HELPERS_TRACE, prompt + '\\n');",
-        "process.stdout.write(/Username/i.test(prompt) ? 'alice' : 's3cr3t');",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-
+  it("does not create an Electron-host askpass wrapper", () => {
+    const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
     const env = buildHelperEnv(
       { askpass: true },
       {
         connection: { socketPath: "/tmp/nexus.sock", token: "token-123" },
         electronPath: process.execPath,
-        helperDir,
+        helperDir: "/app/helpers",
         wrapperDir,
         baseEnv: {},
         platform: process.platform,
       },
     );
 
-    const result = spawnSync("git", ["-c", "credential.helper=", "credential", "fill"], {
-      input: "protocol=https\nhost=example.test\n\n",
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ...env,
-        HOME: homeDir,
-        XDG_CONFIG_HOME: configDir,
-        GIT_CONFIG_NOSYSTEM: "1",
-        NEXUS_HELPERS_TRACE: tracePath,
-      },
-    });
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).not.toContain("cannot exec");
-    expect(result.stdout).toContain("username=alice");
-    expect(result.stdout).toContain("password=s3cr3t");
-    expect(fs.readFileSync(tracePath, "utf8")).toContain("Username for 'https://example.test'");
+    expect(env.GIT_ASKPASS).toBeUndefined();
+    expect(env.SSH_ASKPASS).toBeUndefined();
+    expect(fs.existsSync(path.join(wrapperDir, "nexus-git-askpass-helper"))).toBe(false);
+    expect(env.SSH_ASKPASS_REQUIRE).toBe("force");
   });
 });
 
@@ -206,7 +166,7 @@ describe("Git helper socket flows", () => {
     }
   });
 
-  it("credential cancel exits helper 1 and auth-required classification remains stable", async () => {
+  it("credential cancel exits helper 1", async () => {
     const userDataDir = makeTmpDir("nexus-helper-cancel-");
     const manager = new GitHelpersIpcManager({
       userDataDir,
@@ -226,11 +186,6 @@ describe("Git helper socket flows", () => {
       });
 
       expect(result.code).toBe(1);
-      expect(
-        classifyGitStderr(
-          "fatal: could not read Username for 'https://example.com': No such device or address\n",
-        ),
-      ).toBe("auth-required");
     } finally {
       await manager.dispose();
     }
@@ -274,11 +229,6 @@ describe("Git helper socket flows", () => {
       const cancelled = await runNodeHelper(EDITOR_HELPER, [commitFile], env);
       expect(cancelled.code).toBe(1);
       expect(fs.readFileSync(commitFile, "utf8")).toBe("");
-      expect(
-        classifyGitStderr(
-          "error: There was a problem with the editor 'nexus-editor'.\nPlease supply the message using either -m or -F option.\n",
-        ),
-      ).toBe("commit-aborted");
     } finally {
       await manager.dispose();
     }
@@ -299,14 +249,6 @@ function makeTmpDir(prefix: string): string {
  */
 function modeOf(targetPath: string): number {
   return fs.statSync(targetPath).mode & 0o777;
-}
-
-/**
- * Detects whether the local test host can run empirical Git helper checks.
- */
-function hasGit(): boolean {
-  const result = spawnSync("git", ["--version"], { stdio: "ignore" });
-  return result.status === 0;
 }
 
 /**

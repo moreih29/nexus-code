@@ -1,0 +1,4 @@
+{
+  "kind": "local-changes-overwritten",
+  "message": "error: Your local changes to the following files would be overwritten by checkout:\n\tREADME.md\nPlease commit your changes or stash them before you switch branches.\nAborting"
+}

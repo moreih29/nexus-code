@@ -26,6 +26,10 @@ export interface PendingCreate {
   kind: EntryKind;
 }
 
+export interface PendingRename {
+  absPath: string;
+}
+
 export interface PendingFlatItem {
   kind: "pending";
   parentAbsPath: string;
@@ -33,10 +37,33 @@ export interface PendingFlatItem {
   depth: number;
 }
 
-export type DisplayItem = ({ kind: "real" } & FlatItem) | PendingFlatItem;
+export interface RenameFlatItem {
+  kind: "rename";
+  absPath: string;
+  entryKind: EntryKind;
+  depth: number;
+  initialName: string;
+}
 
-export function getDisplayFlat(flat: FlatItem[], pending: PendingCreate | null): DisplayItem[] {
-  const real: DisplayItem[] = flat.map((item) => ({ kind: "real", ...item }));
+export type DisplayItem = ({ kind: "real" } & FlatItem) | PendingFlatItem | RenameFlatItem;
+
+export function getDisplayFlat(
+  flat: FlatItem[],
+  pending: PendingCreate | null,
+  pendingRename: PendingRename | null = null,
+): DisplayItem[] {
+  const real: DisplayItem[] = flat.map((item) => {
+    if (pendingRename?.absPath === item.absPath) {
+      return {
+        kind: "rename",
+        absPath: item.absPath,
+        entryKind: item.node.type === "dir" ? "folder" : "file",
+        depth: item.depth,
+        initialName: item.node.name,
+      };
+    }
+    return { kind: "real", ...item };
+  });
   if (!pending) return real;
 
   const parentIdx = flat.findIndex((it) => it.absPath === pending.parentAbsPath);

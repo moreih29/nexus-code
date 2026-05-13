@@ -1,0 +1,4 @@
+{
+  "kind": "branch-checked-out",
+  "message": "error: cannot delete branch 'feature' checked out at '/tmp/repo-linked-worktree'"
+}

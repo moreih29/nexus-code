@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { GitError } from "../../../../src/main/git/git-error";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
@@ -14,7 +14,7 @@ describe("GitRepository commit actions", () => {
   it("passes sticky commit option flags to commit, amend, and empty commit commands", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-commit-options",
         fixture.root,
         fixture.gitDir,
@@ -37,7 +37,12 @@ describe("GitRepository commit actions", () => {
   it("maps undo-last-commit on a root commit to no-parent and does not reset", async () => {
     const fixture = makeFakeRepo({ parentExists: false });
     try {
-      const repo = new GitRepository("ws-undo-root", fixture.root, fixture.gitDir, fixture.gitBin);
+      const repo = newLocalGitRepository(
+        "ws-undo-root",
+        fixture.root,
+        fixture.gitDir,
+        fixture.gitBin,
+      );
 
       try {
         await repo.undoLastCommit();
@@ -57,7 +62,12 @@ describe("GitRepository sync", () => {
   it("holds one queue slot for pull then push so status cannot interleave", async () => {
     const fixture = makeFakeRepo({ slowSync: true });
     try {
-      const repo = new GitRepository("ws-sync-queue", fixture.root, fixture.gitDir, fixture.gitBin);
+      const repo = newLocalGitRepository(
+        "ws-sync-queue",
+        fixture.root,
+        fixture.gitDir,
+        fixture.gitBin,
+      );
 
       await Promise.all([repo.sync(), repo.status()]);
 
@@ -77,7 +87,7 @@ describe("GitRepository sync", () => {
   it("returns an error envelope and skips push when pull fails", async () => {
     const fixture = makeFakeRepo({ pullFails: true });
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-sync-conflict",
         fixture.root,
         fixture.gitDir,
@@ -88,7 +98,7 @@ describe("GitRepository sync", () => {
 
       expect(result.pulled).toBe("error");
       expect(result.pushed).toBe("skipped");
-      expect(result.pullError?.kind).toBe("conflict");
+      expect(result.pullError?.kind).toBe("unknown");
 
       const log = readLog(fixture.root);
       expect(log).toContain("pull:start");

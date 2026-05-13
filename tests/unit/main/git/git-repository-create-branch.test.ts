@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -20,7 +20,7 @@ describe("GitRepository.createBranch — preserves source branch", () => {
   realGitTest("creating feat/x from main keeps main in listBranches.local", async () => {
     const root = makeRepoOnMain();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-create-keeps-main",
         root,
         path.join(root, ".git"),
@@ -52,7 +52,7 @@ describe("GitRepository.createBranch — preserves source branch", () => {
       // changes do not silently mutate behavior.
       const root = makeUnbornRepo();
       try {
-        const repo = new GitRepository(
+        const repo = newLocalGitRepository(
           "ws-create-unborn",
           root,
           path.join(root, ".git"),
@@ -85,7 +85,7 @@ describe("GitRepository.createBranch — preserves source branch", () => {
       // Enter checkout fired against a ref that did not exist yet.
       const root = makeUnbornRepo();
       try {
-        const repo = new GitRepository(
+        const repo = newLocalGitRepository(
           "ws-unborn-create-dev",
           root,
           path.join(root, ".git"),
@@ -117,7 +117,7 @@ describe("GitRepository.createBranch — preserves source branch", () => {
   realGitTest("createBranch checkout=false leaves HEAD on the source branch", async () => {
     const root = makeRepoOnMain();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-create-no-checkout",
         root,
         path.join(root, ".git"),

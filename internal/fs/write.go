@@ -135,6 +135,104 @@ func (s *Service) Mkdir(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
+// Unlink implements fs.unlink. It removes files and symlink entries only;
+// directories are refused so callers must opt into fs.rmdir or a higher-level
+// recursive delete flow.
+func (s *Service) Unlink(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p UnlinkParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.unlink params must include relPath")
+	}
+	if p.RelPath == "" {
+		return nil, proto.ProtocolError("fs.unlink relPath is required")
+	}
+	abs, err := s.Resolve(p.RelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if info.IsDir() {
+		return nil, FSError{Code: CodeIsDirectory, Path: abs}
+	}
+	if err := os.Remove(abs); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return struct{}{}, nil
+}
+
+// Rmdir implements fs.rmdir. It removes empty directories only; files and
+// symlink entries are refused so a stale caller cannot delete a file by routing
+// it through the directory removal method.
+func (s *Service) Rmdir(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p RmdirParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.rmdir params must include relPath")
+	}
+	if p.RelPath == "" {
+		return nil, proto.ProtocolError("fs.rmdir relPath is required")
+	}
+	abs, err := s.Resolve(p.RelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	if !info.IsDir() {
+		return nil, FSError{Code: CodeNotDirectory, Path: abs}
+	}
+	if err := os.Remove(abs); err != nil {
+		return nil, mapWriteError(err, abs)
+	}
+	return struct{}{}, nil
+}
+
+// renamePath is a narrow test seam for exercising platform-specific rename
+// failures such as EXDEV without requiring a second mounted filesystem.
+var renamePath = os.Rename
+
+// Rename implements fs.rename within the workspace. It refuses silent
+// replacement by checking the target before calling os.Rename.
+func (s *Service) Rename(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p RenameParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, proto.ProtocolError("fs.rename params must include fromRelPath and toRelPath")
+	}
+	if p.FromRelPath == "" || p.ToRelPath == "" {
+		return nil, proto.ProtocolError("fs.rename fromRelPath and toRelPath are required")
+	}
+	fromAbs, err := s.Resolve(p.FromRelPath)
+	if err != nil {
+		return nil, err
+	}
+	toAbs, err := s.Resolve(p.ToRelPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(toAbs); err == nil {
+		return nil, FSError{Code: CodeAlreadyExists, Path: toAbs}
+	} else if !errors.Is(err, iofs.ErrNotExist) {
+		return nil, mapWriteError(err, toAbs)
+	}
+	if err := renamePath(fromAbs, toAbs); err != nil {
+		return nil, mapWriteError(err, fromAbs)
+	}
+	return struct{}{}, nil
+}
+
 // expectedConflict compares the caller's expectation against the actual
 // on-disk state. Returns (actualState, true) when the wire shape must
 // carry the divergent state back; (nil, false) when the write may proceed.

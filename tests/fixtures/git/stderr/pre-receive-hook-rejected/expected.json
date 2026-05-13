@@ -1,0 +1,4 @@
+{
+  "kind": "pre-receive-hook-rejected",
+  "message": "remote: error: pre-receive hook declined\nTo github.com:example/repo.git\n ! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs to 'github.com:example/repo.git'"
+}

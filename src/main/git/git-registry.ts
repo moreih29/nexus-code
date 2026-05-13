@@ -2,26 +2,41 @@
  * Per-workspace registry for lazy Git repository detection. It owns cached
  * RepoInfo state and the GitRepository instance for each workspaceId.
  */
+import path from "node:path";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
   type RepoInfo,
 } from "../../shared/types/git";
-import { AgentGitExecutor } from "../bridge/git/agent-executor";
+import { LocalFsProvider } from "../bridge/fs/local-provider";
 import { isAgentBackedProvider } from "../bridge/fs/provider";
-import { requireLocalWorkspace, requireWorkspace } from "../workspace/workspace-guards";
+import { AgentGitExecutor } from "../bridge/git/agent-executor";
+import {
+  isLocalWorkspace,
+  requireLocalWorkspace,
+  requireWorkspace,
+} from "../workspace/workspace-guards";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
 import type { GitBinary } from "./git-binary";
 import { detectRepository } from "./git-detect";
 import { GitError } from "./git-error";
-import { runGit } from "./git-process";
+import type { GitHelpersIpcManager } from "./git-helpers-ipc";
 import { GitRepository } from "./git-repository";
 import type { StatusCoalescer } from "./status-coalescer";
 
 export interface GitRegistryOptions {
   readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
   readonly coalescer?: StatusCoalescer;
+  readonly askpassManager?: GitHelpersIpcManager;
+}
+
+export interface GitCloneExecutionContext {
+  readonly workspaceId: string;
+  readonly bin: GitBinary;
+  readonly cwd: string;
+  readonly executor: AgentGitExecutor;
+  readonly dispose?: () => void;
 }
 
 /**
@@ -40,6 +55,7 @@ export class GitRegistry {
   private gitUnavailable = false;
   private readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
   private readonly coalescer?: StatusCoalescer;
+  private readonly askpassManager?: GitHelpersIpcManager;
 
   constructor(
     workspaceManager: WorkspaceManager,
@@ -52,6 +68,7 @@ export class GitRegistry {
     this.bin = bin;
     this.onRepoInfoChanged = options.onRepoInfoChanged;
     this.coalescer = options.coalescer;
+    this.askpassManager = options.askpassManager;
   }
 
   /**
@@ -100,7 +117,13 @@ export class GitRegistry {
     const workspaceRoot = this.resolveWorkspaceRoot(workspaceId, "Git initialization", executor);
     const bin = this.requireGitBinary(["init"], executor);
 
-    await runGit({ bin: bin.path, cwd: workspaceRoot, args: ["init"], signal, executor });
+    await executor.run({
+      bin: bin.path,
+      cwd: workspaceRoot,
+      args: ["init"],
+      interactive: false,
+      signal,
+    });
     return this.refreshDetection(workspaceId, signal);
   }
 
@@ -137,6 +160,59 @@ export class GitRegistry {
    */
   getGitBinaryPath(argv: readonly string[]): string {
     return this.requireGitBinary(argv).path;
+  }
+
+  /**
+   * Returns the active/requested local workspace executor used for clone.
+   *
+   * Clone still validates and cleans up the destination via Electron's local
+   * filesystem APIs, so routing an SSH workspace here would risk cloning on one
+   * host and cleaning another. Keep that blocked until remote destination
+   * selection and recursive agent-host cleanup exist.
+   */
+  getCloneExecutionContext(workspaceId?: string, destination?: string): GitCloneExecutionContext {
+    if (workspaceId) return this.getWorkspaceCloneExecutionContext(workspaceId);
+
+    const activeWorkspaceId = this.workspaceManager.getActiveId();
+    const activeWorkspace = activeWorkspaceId
+      ? this.workspaceManager.list().find((workspace) => workspace.id === activeWorkspaceId)
+      : undefined;
+    if (activeWorkspaceId && activeWorkspace && isLocalWorkspace(activeWorkspace)) {
+      return this.getWorkspaceCloneExecutionContext(activeWorkspaceId);
+    }
+
+    if (!destination || !path.isAbsolute(destination)) {
+      throw new GitError("clone-destination-invalid", "Clone destination must be absolute", {
+        argv: ["clone", destination ?? ""],
+      });
+    }
+
+    const cwd = path.resolve(destination);
+    const provider = new LocalFsProvider(cwd);
+    const executor = new AgentGitExecutor(provider, { askpassManager: this.askpassManager });
+    return {
+      workspaceId: "local-clone",
+      bin: this.requireGitBinary(["clone"], executor),
+      cwd,
+      executor,
+      dispose: () => provider.dispose(),
+    };
+  }
+
+  private getWorkspaceCloneExecutionContext(workspaceId: string): GitCloneExecutionContext {
+    const resolvedWorkspaceId = workspaceId;
+    const workspace = requireLocalWorkspace(
+      this.workspaceManager,
+      resolvedWorkspaceId,
+      "Git clone",
+    );
+    const executor = this.getAgentExecutor(resolvedWorkspaceId);
+    return {
+      workspaceId: resolvedWorkspaceId,
+      bin: this.requireGitBinary(["clone"], executor),
+      cwd: workspace.location.rootPath,
+      executor,
+    };
   }
 
   /**
@@ -182,17 +258,13 @@ export class GitRegistry {
 
     this.setDetecting(workspaceId);
 
-    const detection = this.detectWorkspace(
-      workspaceId,
-      bin,
-      executor,
-      generation,
-      signal,
-    ).finally(() => {
-      if (this.detections.get(workspaceId) === detection) {
-        this.detections.delete(workspaceId);
-      }
-    });
+    const detection = this.detectWorkspace(workspaceId, bin, executor, generation, signal).finally(
+      () => {
+        if (this.detections.get(workspaceId) === detection) {
+          this.detections.delete(workspaceId);
+        }
+      },
+    );
 
     this.detections.set(workspaceId, detection);
     return detection;
@@ -205,7 +277,7 @@ export class GitRegistry {
   private async detectWorkspace(
     workspaceId: string,
     bin: GitBinary,
-    executor: AgentGitExecutor | undefined,
+    executor: AgentGitExecutor,
     generation: number,
     signal?: AbortSignal,
   ): Promise<GitRepository | null> {
@@ -243,7 +315,7 @@ export class GitRegistry {
     workspaceId: string,
     info: RepoInfo & { kind: "repo" },
     bin: GitBinary,
-    executor: AgentGitExecutor | undefined,
+    executor: AgentGitExecutor,
   ) {
     const existing = this.repositories.get(workspaceId);
     if (existing && existing.topLevel === info.topLevel && existing.gitDir === info.gitDir) {
@@ -317,22 +389,21 @@ export class GitRegistry {
     throw new GitError("git-missing", "Git executable not found", { argv });
   }
 
-  private getAgentExecutor(workspaceId: string): AgentGitExecutor | undefined {
-    try {
-      const provider = this.workspaceManager.requireContext(workspaceId).fs;
-      if (!isAgentBackedProvider(provider) || provider.isAgentAvailable?.() === false) {
-        return undefined;
-      }
-      return new AgentGitExecutor(() => {
+  private getAgentExecutor(workspaceId: string): AgentGitExecutor {
+    const provider = this.workspaceManager.requireContext(workspaceId).fs;
+    if (!isAgentBackedProvider(provider) || provider.isAgentAvailable?.() === false) {
+      throw new Error("workspace agent provider is not available");
+    }
+    return new AgentGitExecutor(
+      () => {
         const current = this.workspaceManager.requireContext(workspaceId).fs;
         if (!isAgentBackedProvider(current) || current.isAgentAvailable?.() === false) {
           throw new Error("workspace agent provider is not available");
         }
         return current;
-      });
-    } catch {
-      return undefined;
-    }
+      },
+      { askpassManager: this.askpassManager, workspaceId },
+    );
   }
 
   /**

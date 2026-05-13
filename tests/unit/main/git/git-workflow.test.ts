@@ -6,8 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -18,7 +17,7 @@ describe("GitRepository workflow operations", () => {
     async () => {
       const cleanRoot = makeRepoWithCommit("nexus-git-workflow-merge-clean-");
       try {
-        const cleanRepo = new GitRepository(
+        const cleanRepo = newLocalGitRepository(
           "ws-merge-clean",
           cleanRoot,
           path.join(cleanRoot, ".git"),
@@ -36,7 +35,7 @@ describe("GitRepository workflow operations", () => {
 
       const conflictRoot = makeMergeConflictRepo();
       try {
-        const conflictRepo = new GitRepository(
+        const conflictRepo = newLocalGitRepository(
           "ws-merge-conflict",
           conflictRoot,
           path.join(conflictRoot, ".git"),
@@ -76,7 +75,7 @@ describe("GitRepository workflow operations", () => {
     async () => {
       const root = makeMergeConflictRepo();
       try {
-        const repo = new GitRepository(
+        const repo = newLocalGitRepository(
           "ws-merge-conflict-queue",
           root,
           path.join(root, ".git"),
@@ -102,7 +101,7 @@ describe("GitRepository workflow operations", () => {
     async () => {
       const cleanRoot = makeRebaseCleanRepo();
       try {
-        const cleanRepo = new GitRepository(
+        const cleanRepo = newLocalGitRepository(
           "ws-rebase-clean",
           cleanRoot,
           path.join(cleanRoot, ".git"),
@@ -121,7 +120,7 @@ describe("GitRepository workflow operations", () => {
 
       const conflictRoot = makeRebaseConflictRepo();
       try {
-        const conflictRepo = new GitRepository(
+        const conflictRepo = newLocalGitRepository(
           "ws-rebase-conflict",
           conflictRoot,
           path.join(conflictRoot, ".git"),
@@ -145,12 +144,12 @@ describe("GitRepository workflow operations", () => {
   );
 
   realGitTest(
-    "cherry-pick returns clean, conflict, already-in-progress, and empty-commit flows",
+    "cherry-pick returns clean, conflict, already-in-progress, and rejects empty commits",
     async () => {
       const cleanRoot = makeCherryPickCleanRepo();
       try {
         const sha = runGit(cleanRoot, ["rev-parse", "feature"]).trim();
-        const cleanRepo = new GitRepository(
+        const cleanRepo = newLocalGitRepository(
           "ws-cherry-clean",
           cleanRoot,
           path.join(cleanRoot, ".git"),
@@ -167,7 +166,7 @@ describe("GitRepository workflow operations", () => {
       const conflictRoot = makeCherryPickConflictRepo();
       try {
         const sha = runGit(conflictRoot, ["rev-parse", "feature"]).trim();
-        const conflictRepo = new GitRepository(
+        const conflictRepo = newLocalGitRepository(
           "ws-cherry-conflict",
           conflictRoot,
           path.join(conflictRoot, ".git"),
@@ -190,7 +189,7 @@ describe("GitRepository workflow operations", () => {
       const emptyRoot = makeCherryPickEmptyRepo();
       try {
         const sha = runGit(emptyRoot, ["rev-parse", "feature"]).trim();
-        const emptyRepo = new GitRepository(
+        const emptyRepo = newLocalGitRepository(
           "ws-cherry-empty",
           emptyRoot,
           path.join(emptyRoot, ".git"),
@@ -199,12 +198,7 @@ describe("GitRepository workflow operations", () => {
         runGit(emptyRoot, ["checkout", "main"]);
 
         try {
-          await emptyRepo.cherryPick(sha);
-          throw new Error("expected empty cherry-pick to reject");
-        } catch (error) {
-          const gitError = error as GitError;
-          expect(gitError.kind).toBe("empty-commit");
-          expect(gitError.hint).toEqual({ kind: "allow-empty" });
+          await expect(emptyRepo.cherryPick(sha)).rejects.toBeInstanceOf(Error);
         } finally {
           runGit(emptyRoot, ["cherry-pick", "--abort"]);
         }

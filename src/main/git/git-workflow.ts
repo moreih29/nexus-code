@@ -15,8 +15,8 @@ import type {
   GitRebaseResult,
   GitStatus,
 } from "../../shared/types/git";
-import { GitError, isConflictStderr } from "./git-error";
-import type { RunGitResult } from "./git-process";
+import { GitError } from "./git-error";
+import type { RunGitResult } from "../bridge/git/types";
 
 export interface GitWorkflowRunner {
   readonly run: (args: readonly string[]) => Promise<RunGitResult>;
@@ -203,7 +203,7 @@ async function handleMergeConflictExit(
   git: GitWorkflowRunner,
   error: unknown,
 ): Promise<GitMergeResult> {
-  if (!isWorkflowConflictError(error)) throw error;
+  if (!(error instanceof GitError)) throw error;
   const status = await git.readStatus();
   if (status.merge.length === 0) throw error;
   return { result: "conflicts", conflictCount: status.merge.length };
@@ -216,7 +216,7 @@ async function handleRebaseConflictExit(
   git: GitWorkflowRunner,
   error: unknown,
 ): Promise<GitRebaseResult> {
-  if (!isWorkflowConflictError(error)) throw error;
+  if (!(error instanceof GitError)) throw error;
   const state = await git.readOperationState();
   if (state.kind === "rebase" && state.conflictCount > 0) {
     return {
@@ -236,7 +236,7 @@ async function handleCherryPickConflictExit(
   git: GitWorkflowRunner,
   error: unknown,
 ): Promise<GitCherryPickResult> {
-  if (!isWorkflowConflictError(error)) throw error;
+  if (!(error instanceof GitError)) throw error;
   const status = await git.readStatus();
   if (status.merge.length === 0) throw error;
   return { result: "conflicts", conflictCount: status.merge.length };
@@ -249,7 +249,7 @@ async function handleContinueConflictExit(
   git: GitWorkflowRunner,
   error: unknown,
 ): Promise<GitContinueOpResult> {
-  if (!isWorkflowConflictError(error)) throw error;
+  if (!(error instanceof GitError)) throw error;
   const state = await git.readOperationState();
   if (state.kind !== "none" && state.conflictCount > 0) {
     return { result: "conflicts", conflictCount: state.conflictCount };
@@ -273,16 +273,6 @@ async function countRebaseCommits(git: GitWorkflowRunner, onto: string): Promise
   } catch {
     return 0;
   }
-}
-
-/**
- * Identifies Git failures that mean "operation paused for conflict" rather
- * than "operation failed".
- */
-function isWorkflowConflictError(error: unknown): boolean {
-  if (!(error instanceof GitError)) return false;
-  if (error.kind === "conflict" || error.kind === "unresolved-conflicts") return true;
-  return isConflictStderr([error.stderr, error.stdout].filter(Boolean).join("\n"));
 }
 
 /**

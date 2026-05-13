@@ -22,6 +22,10 @@ import (
 )
 
 func main() {
+	if code, ok := askpassExitFromArgv(os.Args); ok {
+		os.Exit(code)
+	}
+
 	root := rootPathFromArgv(os.Args)
 	if root == "" {
 		fmt.Fprintln(os.Stderr, "Usage: agent <rootPath>")
@@ -72,4 +76,17 @@ func rootPathFromArgv(argv []string) string {
 		return argv[1]
 	}
 	return ""
+}
+
+// askpassExitFromArgv detects both the explicit `agent --askpass <socket>`
+// helper mode and the Git-compatible env mode used when GIT_ASKPASS can only
+// name an executable path.
+func askpassExitFromArgv(argv []string) (int, bool) {
+	if len(argv) >= 3 && argv[1] == "--askpass" {
+		return agentgit.RunAskpassHelper(argv[2], argv[3:], os.Stdout, os.Stderr), true
+	}
+	if socketPath, ok := agentgit.AskpassSocketFromEnv(); ok {
+		return agentgit.RunAskpassHelper(socketPath, argv[1:], os.Stdout, os.Stderr), true
+	}
+	return 0, false
 }

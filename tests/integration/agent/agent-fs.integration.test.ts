@@ -21,10 +21,14 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { createLocalChannel } from "../../../src/main/agent/local-channel";
 import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/protocol/agent/envelope";
 import { AgentFsErrorCodeSchema } from "../../../src/shared/protocol/agent/errors";
 import {
+  FS_RENAME_METHOD,
+  FS_RMDIR_METHOD,
+  FS_UNLINK_METHOD,
   FsReadAbsoluteResultSchema,
   type FsWriteFileParams,
   FsWriteFileResultSchema,
@@ -50,8 +54,10 @@ import {
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
 } from "../../../src/shared/protocol/agent/search";
+import { FsChangeSchema, type FsChange } from "../../../src/shared/types/fs";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+const AgentFsChangedPayloadSchema = z.object({ changes: z.array(FsChangeSchema) });
 
 const goAvailable = spawnSync("go", ["version"]).status === 0;
 const gitAvailable = spawnSync("git", ["--version"]).status === 0;
@@ -247,6 +253,100 @@ describe("agent fs round-trip", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("round-trips unlink, rmdir, and rename through the real agent channel", async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), "agent-root-"));
+    const channel = createLocalChannel({ binaryPath: binPath, rootPath: root });
+
+    try {
+      await channel.ready;
+
+      const unlinkTarget = "delete-me.txt";
+      const unlinkDir = "unlink-refuses-dir";
+      const emptyDir = "empty-dir";
+      const nonEmptyDir = "non-empty-dir";
+      const renameSource = "rename-source.txt";
+      const renameTarget = "rename-target.txt";
+      const renameConflictSource = "rename-conflict-source.txt";
+      const renameConflictTarget = "rename-conflict-target.txt";
+
+      await fs.writeFile(path.join(root, unlinkTarget), "remove me");
+      await fs.mkdir(path.join(root, unlinkDir));
+      await fs.mkdir(path.join(root, emptyDir));
+      await fs.mkdir(path.join(root, nonEmptyDir));
+      await fs.writeFile(path.join(root, nonEmptyDir, "child.txt"), "child");
+      await fs.writeFile(path.join(root, renameSource), "move me");
+      await fs.writeFile(path.join(root, renameConflictSource), "source");
+      await fs.writeFile(path.join(root, renameConflictTarget), "target");
+
+      await channel.call("fs.watch", { relPath: "." });
+      try {
+        const unlinkChanged = waitForFsChange(
+          channel,
+          `${unlinkTarget} deleted`,
+          (changes) => hasFsChange(changes, unlinkTarget, "deleted"),
+        );
+        expect(await channel.call(FS_UNLINK_METHOD, { relPath: unlinkTarget })).toEqual({});
+        expect(await unlinkChanged).toContainEqual({ relPath: unlinkTarget, kind: "deleted" });
+        await expect(fs.stat(path.join(root, unlinkTarget))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+
+        const unlinkDirCode = await callExpectErrorCode(channel, FS_UNLINK_METHOD, {
+          relPath: unlinkDir,
+        });
+        expect(AgentFsErrorCodeSchema.parse(unlinkDirCode)).toBe("IS_DIRECTORY");
+
+        const rmdirChanged = waitForFsChange(
+          channel,
+          `${emptyDir} deleted`,
+          (changes) => hasFsChange(changes, emptyDir, "deleted"),
+        );
+        expect(await channel.call(FS_RMDIR_METHOD, { relPath: emptyDir })).toEqual({});
+        expect(await rmdirChanged).toContainEqual({ relPath: emptyDir, kind: "deleted" });
+        await expect(fs.stat(path.join(root, emptyDir))).rejects.toMatchObject({ code: "ENOENT" });
+
+        const rmdirCode = await callExpectErrorCode(channel, FS_RMDIR_METHOD, {
+          relPath: nonEmptyDir,
+        });
+        expect(AgentFsErrorCodeSchema.parse(rmdirCode)).toBe("NOT_EMPTY");
+
+        const renameChanged = waitForFsChange(
+          channel,
+          `${renameSource} deleted or ${renameTarget} added`,
+          (changes) =>
+            hasFsChange(changes, renameSource, "deleted") ||
+            hasFsChange(changes, renameTarget, "added"),
+        );
+        expect(
+          await channel.call(FS_RENAME_METHOD, {
+            fromRelPath: renameSource,
+            toRelPath: renameTarget,
+          }),
+        ).toEqual({});
+        const renameChanges = await renameChanged;
+        expect(
+          hasFsChange(renameChanges, renameSource, "deleted") ||
+            hasFsChange(renameChanges, renameTarget, "added"),
+        ).toBe(true);
+        await expect(fs.stat(path.join(root, renameSource))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        await expect(fs.readFile(path.join(root, renameTarget), "utf8")).resolves.toBe("move me");
+
+        const renameCode = await callExpectErrorCode(channel, FS_RENAME_METHOD, {
+          fromRelPath: renameConflictSource,
+          toRelPath: renameConflictTarget,
+        });
+        expect(AgentFsErrorCodeSchema.parse(renameCode)).toBe("ALREADY_EXISTS");
+      } finally {
+        await channel.call("fs.unwatch", { relPath: "." }).catch(() => {});
+      }
+    } finally {
+      channel.dispose();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 function waitForAgentEvent(
@@ -265,6 +365,54 @@ function waitForAgentEvent(
       resolve(payload);
     });
   });
+}
+
+/**
+ * Waits for fs.changed batches until one satisfies the caller's predicate.
+ * This keeps watcher assertions event-driven instead of sleeping around the
+ * agent's fsnotify debounce window.
+ */
+function waitForFsChange(
+  channel: ReturnType<typeof createLocalChannel>,
+  label: string,
+  predicate: (changes: readonly FsChange[]) => boolean,
+  timeoutMs = 3_000,
+): Promise<FsChange[]> {
+  return new Promise((resolve, reject) => {
+    let unsubscribe = () => {};
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timed out waiting for fs.changed: ${label}`));
+    }, timeoutMs);
+
+    unsubscribe = channel.on("fs.changed", (payload) => {
+      let changes: FsChange[];
+      try {
+        changes = AgentFsChangedPayloadSchema.parse(payload).changes;
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+      if (!predicate(changes)) return;
+      cleanup();
+      resolve(changes);
+    });
+  });
+}
+
+/** Returns whether a watcher batch contains the expected path/kind pair. */
+function hasFsChange(
+  changes: readonly FsChange[],
+  relPath: string,
+  kind: FsChange["kind"],
+): boolean {
+  return changes.some((change) => change.relPath === relPath && change.kind === kind);
 }
 
 /**

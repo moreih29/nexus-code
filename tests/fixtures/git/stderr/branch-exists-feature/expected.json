@@ -1,0 +1,4 @@
+{
+  "kind": "branch-exists",
+  "message": "fatal: A branch named 'feature' already exists."
+}

@@ -1,0 +1,4 @@
+remote: error: pre-receive hook rejected
+To github.com:example/repo.git
+ ! [remote rejected] main -> main (pre-receive hook rejected)
+error: failed to push some refs to 'github.com:example/repo.git'

@@ -9,7 +9,7 @@
 import type { BranchList, GitActionHint, GitFastForwardResult } from "../../shared/types/git";
 import { GitError } from "./git-error";
 import { resolveCheckoutTarget } from "./git-preflight";
-import type { RunGitResult } from "./git-process";
+import type { RunGitResult } from "../bridge/git/types";
 import type { BuildHelperEnvOptions } from "./helpers-launcher";
 
 export interface GitBranchOpsRunner {

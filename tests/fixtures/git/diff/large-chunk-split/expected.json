@@ -1,0 +1,64 @@
+{
+  "method": "git.diff",
+  "case": "large-chunk-split",
+  "params": {
+    "kind": "ref-vs-ref",
+    "from": "main",
+    "to": "feature/large",
+    "maxChunkBytes": 40
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "+large line 01 abcdefghijklmnop\n+large l"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "ine 02 abcdefghijklmnop\n+large line 03 a"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "bcdefghijklmnop\n+large line 04 abcdefghi"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "jklmnop\n+large line 05 abcdefghijklmnop\n"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "+large line 06 abcdefghijklmnop\n+large l"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "ine 07 abcdefghijklmnop\n+large line 08 a"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "bcdefghijklmnop\n+large line 09 abcdefghi"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "jklmnop\n+large line 10 abcdefghijklmnop\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 320,
+    "truncated": false
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "method": "git.diff",
+  "case": "no-newline-marker",
+  "params": {
+    "kind": "wt-vs-head",
+    "relPath": "no-newline.txt",
+    "maxChunkBytes": 1048576
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/no-newline.txt b/no-newline.txt\nindex 1212121..3434343 100644\n--- a/no-newline.txt\n+++ b/no-newline.txt\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 195,
+    "truncated": false
+  }
+}

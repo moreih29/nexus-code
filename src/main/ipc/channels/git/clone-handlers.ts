@@ -33,10 +33,13 @@ export function cloneStream(registry: GitRegistry): CloneStreamHandler {
   ): AsyncGenerator<CloneStreamProgress, CloneStreamComplete, unknown> {
     const events = new AsyncCloneEventQueue<GitCloneStreamProgressEvent>();
     let terminal: CloneStreamComplete | null = null;
+    const cloneContext = registry.getCloneExecutionContext(args.workspaceId, args.destination);
 
     const task = runClone(
       {
-        bin: registry.getGitBinaryPath(["clone"]),
+        executor: cloneContext.executor,
+        bin: cloneContext.bin.path,
+        executorCwd: cloneContext.cwd,
         url: args.url,
         destination: args.destination,
         name: args.name,
@@ -66,6 +69,7 @@ export function cloneStream(registry: GitRegistry): CloneStreamHandler {
       return terminal;
     } finally {
       await task.catch(() => {});
+      cloneContext.dispose?.();
     }
   };
 }

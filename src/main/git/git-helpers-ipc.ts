@@ -55,6 +55,14 @@ export interface HelperWireResponse {
   readonly error?: string;
 }
 
+export interface AgentAskpassPromptPayload {
+  readonly requestId: string;
+  readonly prompt: string;
+  readonly workspaceId?: string;
+}
+
+export type AgentAskpassResponder = (secret: string) => Promise<void>;
+
 type PendingPrompt =
   | {
       readonly kind: "askpass";
@@ -191,6 +199,34 @@ export class GitHelpersIpcManager {
     const pending = this.requirePending(parsed.promptId, "askpass");
     this.pending.delete(parsed.promptId);
     pending.resolve({ ok: false, error: "Credential prompt cancelled." });
+  }
+
+  /**
+   * Reuses the renderer askpass UI for prompts that originate from the Go
+   * agent-host helper instead of the legacy Electron-host helper socket.
+   */
+  openAgentAskpassPrompt(payload: AgentAskpassPromptPayload, respond: AgentAskpassResponder): void {
+    if (this.pending.has(payload.requestId)) {
+      throw new Error(`Inactive Git helper prompt id: ${payload.requestId}`);
+    }
+
+    const event = AskpassPromptSchema.parse({
+      promptId: payload.requestId,
+      workspaceId: payload.workspaceId || undefined,
+      prompt: payload.prompt,
+      field: classifyAskpassField(payload.prompt),
+      service: extractPromptService(payload.prompt),
+    }) satisfies AskpassPrompt;
+
+    this.pending.set(payload.requestId, {
+      kind: "askpass",
+      promptId: payload.requestId,
+      resolve: (response) => {
+        const secret = response.ok ? (response.value ?? "") : "";
+        void respond(secret).catch(() => {});
+      },
+    });
+    this.broadcast("askpass", "prompt", event);
   }
 
   /**

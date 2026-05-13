@@ -1,0 +1,17 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": [
+    "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+    "# branch.head main",
+    "2 R. N... 100644 100644 100644 0123456789abcdef0123456789abcdef01234567 89abcdef012345670123456789abcdef01234567 R100 src/new name.ts",
+    "src/old name.ts"
+  ],
+  "notes": [
+    "NUL-delimited rename stores old path as the record immediately after the rename record."
+  ]
+}

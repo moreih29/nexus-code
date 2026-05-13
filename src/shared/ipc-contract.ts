@@ -200,6 +200,14 @@ const WorkspaceUpdateArgsSchema = z.object({
 
 const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
 
+const FsMutationRelPathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (path) => !path.startsWith("/") && !path.startsWith("\\\\") && !/^[A-Za-z]:[\\/]/.test(path),
+    "path must be workspace-relative",
+  );
+
 const WorkspaceTestSshArgsSchema = z.object({
   host: z.string().min(1),
   user: z.string().min(1).optional(),
@@ -791,6 +799,22 @@ export const ipcContract = {
       ),
       createFile: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
       mkdir: call(z.object({ workspaceId: z.string().uuid(), relPath: z.string() }), z.void()),
+      unlink: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
+        z.void(),
+      ),
+      rmdir: call(
+        z.object({ workspaceId: z.string().uuid(), relPath: FsMutationRelPathSchema }),
+        z.void(),
+      ),
+      rename: call(
+        z.object({
+          workspaceId: z.string().uuid(),
+          fromRelPath: FsMutationRelPathSchema,
+          toRelPath: FsMutationRelPathSchema,
+        }),
+        z.void(),
+      ),
       readExternal: call(
         z.object({ workspaceId: z.string().uuid(), absolutePath: z.string() }),
         FileReadResultSchema,

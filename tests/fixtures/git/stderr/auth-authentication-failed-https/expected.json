@@ -1,0 +1,4 @@
+{
+  "kind": "auth",
+  "message": "remote: Invalid username or password.\nfatal: Authentication failed for 'https://example.com/repo.git/'"
+}

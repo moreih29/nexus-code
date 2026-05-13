@@ -5,19 +5,20 @@
  * and stash-specific error normalization isolated from the broader
  * GitRepository surface.
  */
+import { StringDecoder } from "node:string_decoder";
 import type { DiffChunk, DiffComplete, StashEntry } from "../../shared/types/git";
-import { streamGitTextChunks } from "./git-diff-stream";
+import type { GitExecutor } from "../bridge/git/types";
 import { GitError } from "./git-error";
-import { type GitProcessExecutor, runGit } from "./git-process";
 
 interface GitCommandContext {
   readonly bin: string;
   readonly cwd: string;
-  readonly executor?: GitProcessExecutor;
+  readonly executor: GitExecutor;
 }
 
 const STASH_REF_RE = /^stash@\{(\d+)\}$/;
 const STASH_MESSAGE_PATTERNS = [/^On ([^:]+):\s*(.*)$/i, /^WIP on ([^:]+):\s*(.*)$/i];
+const GIT_STASH_PATCH_CHUNK_MAX_BYTES = 1024 * 1024;
 
 /**
  * Lists stash entries using NUL-delimited fields so stash subjects containing
@@ -27,13 +28,12 @@ export async function listStashes(
   git: GitCommandContext,
   signal?: AbortSignal,
 ): Promise<StashEntry[]> {
-  const { stdout } = await runGit({
+  const { stdout } = await git.executor.run({
     bin: git.bin,
     cwd: git.cwd,
     args: ["stash", "list", "--format=%gd%x00%H%x00%gs%x00%ct%x00"],
     interactive: false,
     signal,
-    executor: git.executor,
   });
   return parseStashList(stdout);
 }
@@ -48,13 +48,12 @@ export async function applyStash(
   signal?: AbortSignal,
 ): Promise<void> {
   try {
-    await runGit({
+    await git.executor.run({
       bin: git.bin,
       cwd: git.cwd,
       args: ["stash", "apply", stashRef(index)],
       interactive: false,
       signal,
-      executor: git.executor,
     });
   } catch (error) {
     throw normalizeStashApplyError(error);
@@ -69,13 +68,12 @@ export async function dropStash(
   index: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  await runGit({
+  await git.executor.run({
     bin: git.bin,
     cwd: git.cwd,
     args: ["stash", "drop", stashRef(index)],
     interactive: false,
     signal,
-    executor: git.executor,
   });
 }
 
@@ -85,13 +83,12 @@ export async function dropStash(
  */
 export async function popLatestStash(git: GitCommandContext, signal?: AbortSignal): Promise<void> {
   try {
-    await runGit({
+    await git.executor.run({
       bin: git.bin,
       cwd: git.cwd,
       args: ["stash", "pop"],
       interactive: false,
       signal,
-      executor: git.executor,
     });
   } catch (error) {
     throw normalizeStashApplyError(error);
@@ -134,13 +131,12 @@ export async function stashGroup(
   if (trimmedMessage) args.push("-m", trimmedMessage);
   args.push("--", ...uniquePaths);
 
-  await runGit({
+  await git.executor.run({
     bin: git.bin,
     cwd: git.cwd,
     args,
     interactive: false,
     signal,
-    executor: git.executor,
   });
 }
 
@@ -245,4 +241,85 @@ function normalizeStashApplyError(error: unknown): unknown {
  */
 function isStashConflictOutput(stdout: string): boolean {
   return /CONFLICT \([^)]+\):|Merge conflict in|Unmerged paths:/i.test(stdout);
+}
+
+/**
+ * Runs a stash patch command and yields bounded UTF-8 text chunks.
+ */
+async function* streamGitTextChunks({
+  bin,
+  cwd,
+  args,
+  signal,
+  executor,
+}: GitCommandContext & {
+  readonly args: readonly string[];
+  readonly signal?: AbortSignal;
+}): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
+  return yield* chunkGitTextStream(
+    executor.stream({ bin, cwd, args, interactive: false, signal }),
+    signal,
+  );
+}
+
+/**
+ * Preserves UTF-8 decoder state while bounding stash patch text chunks.
+ */
+async function* chunkGitTextStream(
+  chunks: AsyncIterable<Buffer>,
+  signal?: AbortSignal,
+): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
+  const decoder = new StringDecoder("utf8");
+  const buffers: Buffer[] = [];
+  let bufferedBytes = 0;
+  let totalBytes = 0;
+
+  const flush = (): DiffChunk | null => {
+    if (bufferedBytes === 0) return null;
+    const text = decoder.write(Buffer.concat(buffers, bufferedBytes));
+    buffers.length = 0;
+    bufferedBytes = 0;
+    return text.length > 0 ? { text } : null;
+  };
+
+  throwIfAborted(signal);
+  for await (const chunk of chunks) {
+    throwIfAborted(signal);
+    totalBytes += chunk.byteLength;
+    let offset = 0;
+
+    while (offset < chunk.byteLength) {
+      throwIfAborted(signal);
+      const take = Math.min(
+        GIT_STASH_PATCH_CHUNK_MAX_BYTES - bufferedBytes,
+        chunk.byteLength - offset,
+      );
+      buffers.push(chunk.subarray(offset, offset + take));
+      bufferedBytes += take;
+      offset += take;
+
+      if (bufferedBytes >= GIT_STASH_PATCH_CHUNK_MAX_BYTES) {
+        const flushed = flush();
+        if (flushed) yield flushed;
+      }
+    }
+  }
+
+  throwIfAborted(signal);
+  const flushed = flush();
+  if (flushed) yield flushed;
+  const trailing = decoder.end();
+  if (trailing.length > 0) yield { text: trailing };
+
+  return { bytes: totalBytes, truncated: false };
+}
+
+/**
+ * Throws the standard AbortError shape used by Git stream callers.
+ */
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  throw error;
 }

@@ -1,10 +1,8 @@
 /**
  * Git helper launcher environment builder.
  *
- * The helpers run as Node scripts through Electron's executable
- * (`ELECTRON_RUN_AS_NODE=1`) behind generated executable wrappers because
- * Git askpass/editor variables must point to a command path it can exec
- * directly, not a quoted executable-plus-script compound command.
+ * Askpass now runs on the Go agent host. This module only keeps the
+ * Electron-host editor helper environment used by commit-message editing.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -34,7 +32,7 @@ export interface BuildHelperEnvRuntime {
 let defaultConnection: GitHelperConnection | null = null;
 let fallbackConnection: GitHelperConnection | null = null;
 
-type GitHelperKind = "askpass" | "editor";
+type GitHelperKind = "editor";
 
 /**
  * Records the active helper socket/token pair created by
@@ -46,9 +44,9 @@ export function setDefaultGitHelperConnection(connection: GitHelperConnection | 
 }
 
 /**
- * Builds the environment variables Git needs to invoke askpass and editor
- * helpers. Required prompt-disabling variables are always present; helper
- * command variables are included only for the helper families requested.
+ * Builds the environment variables Git needs for prompt-capable commands.
+ * Askpass is handled by the Go agent host; editor still uses the Electron
+ * helper wrapper when requested.
  */
 export function buildHelperEnv(
   options: BuildHelperEnvOptions,
@@ -56,16 +54,12 @@ export function buildHelperEnv(
 ): NodeJS.ProcessEnv {
   const baseEnv = runtime.baseEnv ?? process.env;
   const platform = runtime.platform ?? process.platform;
-  const connection = runtime.connection ?? defaultConnection ?? getFallbackConnection();
   const electronPath = runtime.electronPath ?? process.execPath;
   const helperDir = runtime.helperDir ?? resolveDefaultHelperDir();
   const wrapperDir = runtime.wrapperDir ?? resolveDefaultWrapperDir(platform);
 
   const env: NodeJS.ProcessEnv = {
     GIT_TERMINAL_PROMPT: "0",
-    NEXUS_HELPERS_SOCKET: connection.socketPath,
-    NEXUS_HELPERS_TOKEN: connection.token,
-    ELECTRON_RUN_AS_NODE: "1",
   };
 
   if (options.workspaceId) {
@@ -73,15 +67,6 @@ export function buildHelperEnv(
   }
 
   if (options.askpass) {
-    const askpassExecutable = ensureHelperWrapper({
-      kind: "askpass",
-      electronPath,
-      helperPath: path.join(helperDir, "askpass-helper.cjs"),
-      wrapperDir,
-      platform,
-    });
-    env.GIT_ASKPASS = askpassExecutable;
-    env.SSH_ASKPASS = askpassExecutable;
     env.SSH_ASKPASS_REQUIRE = "force";
     if (platform !== "win32") {
       env.DISPLAY = baseEnv.DISPLAY && baseEnv.DISPLAY.length > 0 ? baseEnv.DISPLAY : ":0";
@@ -89,6 +74,10 @@ export function buildHelperEnv(
   }
 
   if (options.editor) {
+    const connection = runtime.connection ?? defaultConnection ?? getFallbackConnection();
+    env.NEXUS_HELPERS_SOCKET = connection.socketPath;
+    env.NEXUS_HELPERS_TOKEN = connection.token;
+    env.ELECTRON_RUN_AS_NODE = "1";
     env.GIT_EDITOR = ensureHelperWrapper({
       kind: "editor",
       electronPath,
@@ -102,10 +91,9 @@ export function buildHelperEnv(
 }
 
 /**
- * Creates or refreshes the executable wrapper Git will launch as askpass or
- * editor. The wrapper carries the Electron executable and helper script paths
- * internally, so Git receives a single executable path instead of a command
- * string that askpass cannot parse.
+ * Creates or refreshes the executable wrapper Git will launch as the editor.
+ * The wrapper carries the Electron executable and helper script paths
+ * internally, so Git receives a single executable path.
  */
 export function ensureHelperWrapper(options: {
   readonly kind: GitHelperKind;
@@ -159,7 +147,7 @@ function buildPosixHelperWrapper(electronPath: string, helperPath: string): stri
 
 /**
  * Writes a Windows command wrapper for Git for Windows. The helper protocols
- * only use Git's first appended argument: askpass prompt text or editor file.
+ * only uses Git's first appended argument: the editor file.
  */
 function buildWindowsHelperWrapper(electronPath: string, helperPath: string): string {
   return [
@@ -180,18 +168,18 @@ function quoteCmdPath(value: string): string {
 }
 
 /**
- * Locates the helper scripts in development and in the bundled main output.
- * Tests may override this through `runtime.helperDir`.
+ * Locates the editor helper script in development and in the bundled main
+ * output. Tests may override this through `runtime.helperDir`.
  */
 function resolveDefaultHelperDir(): string {
   const bundledDir = path.join(__dirname, "git");
-  if (fs.existsSync(path.join(bundledDir, "askpass-helper.cjs"))) return bundledDir;
+  if (fs.existsSync(path.join(bundledDir, "git-editor-helper.cjs"))) return bundledDir;
 
   const siblingDir = __dirname;
-  if (fs.existsSync(path.join(siblingDir, "askpass-helper.cjs"))) return siblingDir;
+  if (fs.existsSync(path.join(siblingDir, "git-editor-helper.cjs"))) return siblingDir;
 
   const sourceDir = path.join(process.cwd(), "src", "main", "git");
-  if (fs.existsSync(path.join(sourceDir, "askpass-helper.cjs"))) return sourceDir;
+  if (fs.existsSync(path.join(sourceDir, "git-editor-helper.cjs"))) return sourceDir;
 
   return siblingDir;
 }

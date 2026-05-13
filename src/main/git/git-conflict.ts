@@ -8,7 +8,7 @@
 import path from "node:path";
 import type { GitMarkResolvedResult, GitStatus } from "../../shared/types/git";
 import { GitError } from "./git-error";
-import type { RunGitResult } from "./git-process";
+import type { RunGitResult } from "../bridge/git/types";
 
 export interface GitConflictRunner {
   readonly topLevel: string;

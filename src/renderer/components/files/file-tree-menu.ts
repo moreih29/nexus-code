@@ -50,6 +50,21 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
+  if (!isRoot) {
+    items.push({
+      kind: "item",
+      label: "Rename",
+      shortcut: "F2",
+      onSelect: actions.rename,
+    });
+    items.push({
+      kind: "item",
+      label: "Delete",
+      onSelect: actions.delete,
+    });
+    items.push({ kind: "separator" });
+  }
+
   // Reveal + Copy Path apply to every target. ContextMenuItems collapses
   // any orphaned separators automatically.
   items.push({

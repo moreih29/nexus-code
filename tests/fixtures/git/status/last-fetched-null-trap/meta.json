@@ -1,0 +1,17 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": [
+    "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+    "# branch.head main",
+    "# branch.upstream origin/main",
+    "# branch.ab +0 -0"
+  ],
+  "notes": [
+    "Trap: remote exists but no FETCH_HEAD mtime is known, so lastFetchedAt is null, not 0."
+  ]
+}

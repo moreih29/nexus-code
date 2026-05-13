@@ -1,0 +1,16 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": [
+    "# branch.oid (initial)",
+    "# branch.head main",
+    "1 A. N... 100644 100644 100644 0000000000000000000000000000000000000000 89abcdef012345670123456789abcdef01234567 README.md"
+  ],
+  "notes": [
+    "Unborn branch keeps the branch name and sets isUnborn=true; capabilities.hasHEAD=false."
+  ]
+}

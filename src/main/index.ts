@@ -1,6 +1,12 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
+import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./agent/ssh-auth-prompt";
+import { ensureRemoteAgent } from "./agent/ssh-bootstrap";
+import { createSshChannel } from "./agent/ssh-channel";
+import { AgentFsWatcher } from "./bridge/fs/agent-watch";
+import { registerFsChannel } from "./bridge/fs/ipc";
+import { AgentGitWatcher } from "./bridge/git/agent-watch";
 import { GitAutofetchScheduler } from "./git/git-autofetch";
 import { resolveGitBinary } from "./git/git-binary";
 import { GitHelpersIpcManager, registerGitHelperIpcChannels } from "./git/git-helpers-ipc";
@@ -11,25 +17,19 @@ import { type PtyHostHandle, startPtyHost } from "./hosts/pty-host";
 import { registerAppStateChannel } from "./ipc/channels/app-state";
 import { registerAutofetchChannel } from "./ipc/channels/autofetch";
 import { registerDialogChannel } from "./ipc/channels/dialog";
-import { AgentFsWatcher } from "./bridge/fs/agent-watch";
-import { registerFsChannel } from "./bridge/fs/ipc";
-import { AgentGitWatcher } from "./bridge/git/agent-watch";
 import { registerGitChannel } from "./ipc/channels/git";
 import { registerLspChannel } from "./ipc/channels/lsp";
 import { registerPanelChannel } from "./ipc/channels/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerSshChannel } from "./ipc/channels/ssh";
-import { registerSystemChannel } from "./shell/ipc";
 import { registerWorkspaceChannel } from "./ipc/channels/workspace";
 import { broadcast, setupRouter } from "./ipc/router";
 import { installAppMenu } from "./menu";
 import { isMac } from "./platform";
+import { registerSystemChannel } from "./shell/ipc";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
-import { SshAuthPromptHub, registerSshAuthPromptIpcChannels } from "./agent/ssh-auth-prompt";
-import { ensureRemoteAgent } from "./agent/ssh-bootstrap";
-import { createSshChannel } from "./agent/ssh-channel";
 import { createMainWindow } from "./window";
 import { WorkspaceManager } from "./workspace/workspace-manager";
 
@@ -121,7 +121,7 @@ app.whenReady().then(async () => {
   // during boot.
   installAppMenu();
 
-  workspaceManager.init();
+  await workspaceManager.init();
 
   const gitBinary = await resolveGitBinary();
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
@@ -135,6 +135,7 @@ app.whenReady().then(async () => {
   });
   gitRegistry = new GitRegistry(workspaceManager, forwardBroadcast, gitBinary, {
     coalescer: gitStatusCoalescer ?? undefined,
+    askpassManager: gitHelpersIpc,
     onRepoInfoChanged(workspaceId, info) {
       if (info.kind === "repo") {
         void gitWatcher?.watch(workspaceId, info.gitDir).catch((error) => {

@@ -1,0 +1,4 @@
+{
+  "kind": "branch-name-invalid",
+  "message": "fatal: 'bad name' is not a valid branch name"
+}

@@ -1,0 +1,4 @@
+{
+  "kind": "protected-branch",
+  "message": "remote: error: GH006: Protected branch update failed for refs/heads/main.\nremote: error: Cannot force-push to this protected branch\nTo github.com:example/repo.git\n ! [remote rejected] main -> main (protected branch hook declined)\nerror: failed to push some refs to 'github.com:example/repo.git'"
+}

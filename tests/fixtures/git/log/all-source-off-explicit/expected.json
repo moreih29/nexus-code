@@ -1,0 +1,39 @@
+{
+  "method": "git.log",
+  "case": "all-source-off-explicit",
+  "params": {
+    "scope": "all",
+    "source": false
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "8888888888888888888888888888888888888888",
+            "shortSha": "8888888",
+            "parents": [
+              "7777777777777777777777777777777777777777"
+            ],
+            "authorName": "No Source",
+            "authorEmail": "nosource@example.test",
+            "authoredAt": "2026-05-08T08:00:00+00:00",
+            "subject": "All scope without source",
+            "refs": [
+              {
+                "name": "main",
+                "kind": "branch",
+                "isHead": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 1,
+    "hasMore": false
+  }
+}

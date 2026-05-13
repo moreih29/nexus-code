@@ -3,16 +3,23 @@
  * sibling files. This module only wires them into the router so the
  * channel itself stays a thin map without growing.
  */
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
 import { register } from "../../ipc/router";
 import { showItemInFolderHandler } from "../../shell/workspace-reveal";
+import type { WorkspaceStorage } from "../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../workspace/workspace-manager";
+import { searchTextStream } from "../search/search-handlers";
 import type { AgentFsWatcher } from "./agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
-import { searchTextStream } from "../search/search-handlers";
 import { unwatchHandler, watchHandler } from "./watch-handlers";
-import { createFileHandler, mkdirHandler, writeFileHandler } from "./write-handlers";
+import {
+  createFileHandler,
+  mkdirHandler,
+  renameHandler,
+  rmdirHandler,
+  unlinkHandler,
+  writeFileHandler,
+} from "./write-handlers";
 
 // NOTE: production code only needs `registerFsChannel` from this barrel.
 
@@ -34,6 +41,9 @@ export function registerFsChannel(
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),
       mkdir: mkdirHandler(manager),
+      unlink: unlinkHandler(manager),
+      rmdir: rmdirHandler(manager),
+      rename: renameHandler(manager),
       showItemInFolder: showItemInFolderHandler(manager),
     },
     listen: {

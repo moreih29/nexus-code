@@ -1,0 +1,26 @@
+{
+  "method": "git.commitDetail",
+  "case": "rename-file",
+  "params": {
+    "sha": "ffffffffffffffffffffffffffffffffffffffff"
+  },
+  "result": {
+    "sha": "ffffffffffffffffffffffffffffffffffffffff",
+    "parents": [
+      "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    ],
+    "subject": "Rename workspace panel",
+    "author": "Katherine Johnson",
+    "authorEmail": "katherine@example.test",
+    "committerTs": "2026-05-06T08:30:00+00:00",
+    "message": "Rename workspace panel\n\nKeep route history stable.",
+    "body": "Keep route history stable.",
+    "files": [
+      {
+        "status": "R100",
+        "oldPath": "src/old-panel.tsx",
+        "path": "src/workspace-panel.tsx"
+      }
+    ]
+  }
+}

@@ -7,7 +7,14 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../shared/types/workspace";
+import type { AgentChannel } from "../agent/channel";
+import {
+  type LocalAgentCommand,
+  resolveLocalAgentCommand,
+} from "../agent/local-agent-resolver";
+import { type CreateLocalChannelOptions, createLocalChannel } from "../agent/local-channel";
 import { createFsProvider } from "../bridge/fs/create-provider";
+import { AgentFsProvider } from "../bridge/fs/agent-provider";
 import type { GlobalStorage } from "../storage/global-storage";
 import type { StateService } from "../storage/state-service";
 import type { WorkspaceStorage } from "../storage/workspace-storage";
@@ -38,6 +45,8 @@ export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => S
 export type WorkspaceSshBootstrap = (
   options: EnsureRemoteAgentOptions,
 ) => Promise<EnsureRemoteAgentResult>;
+export type WorkspaceLocalChannelFactory = (options: CreateLocalChannelOptions) => AgentChannel;
+export type WorkspaceLocalAgentCommandResolver = () => LocalAgentCommand;
 
 /**
  * Builds a local workspace location from legacy create/update inputs.
@@ -92,9 +101,14 @@ export class WorkspaceManager {
   private readonly broadcastFn: BroadcastFn;
   private readonly sshChannelFactory: WorkspaceSshChannelFactory;
   private readonly sshBootstrap: WorkspaceSshBootstrap;
+  private readonly localChannelFactory: WorkspaceLocalChannelFactory;
+  private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver;
 
   private readonly contexts = new Map<string, WorkspaceContext>();
+  private readonly localChannels = new Map<string, AgentChannel>();
+  private readonly localProviderReady = new Map<string, Promise<void>>();
   private readonly sshChannels = new Map<string, SshChannel>();
+  private readonly sshProviderReady = new Map<string, Promise<void>>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   private activeId: string | null = null;
 
@@ -105,6 +119,8 @@ export class WorkspaceManager {
     broadcastFn: BroadcastFn,
     sshChannelFactory: WorkspaceSshChannelFactory = createSshChannel,
     sshBootstrap: WorkspaceSshBootstrap = ensureRemoteAgent,
+    localChannelFactory: WorkspaceLocalChannelFactory = createLocalChannel,
+    localAgentCommandResolver: WorkspaceLocalAgentCommandResolver = resolveLocalAgentCommand,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
@@ -112,6 +128,8 @@ export class WorkspaceManager {
     this.broadcastFn = broadcastFn;
     this.sshChannelFactory = sshChannelFactory;
     this.sshBootstrap = sshBootstrap;
+    this.localChannelFactory = localChannelFactory;
+    this.localAgentCommandResolver = localAgentCommandResolver;
   }
 
   // ---------------------------------------------------------------------------
@@ -122,20 +140,31 @@ export class WorkspaceManager {
    * Load all persisted workspaces into memory and restore the active workspace.
    * Call once after app.whenReady().
    */
-  init(): void {
+  async init(): Promise<void> {
     const metas = this.globalStorage.listWorkspaces();
     for (const meta of metas) {
       this.workspaceStorage.openForWorkspace(meta.id);
-      const ctx = new WorkspaceContext(meta, this.workspaceStorage, createFsProvider(meta));
+      const ctx = new WorkspaceContext(meta, this.workspaceStorage, createInitialFsProvider(meta));
       this.contexts.set(meta.id, ctx);
     }
 
     const savedId = this.stateService.getState().lastActiveWorkspaceId;
+    let nextActiveId: string | null = null;
     if (savedId && this.contexts.has(savedId)) {
-      this.activeId = savedId;
+      nextActiveId = savedId;
     } else if (metas.length > 0) {
-      this.activeId = metas[0].id;
-      this.stateService.setState({ lastActiveWorkspaceId: this.activeId });
+      nextActiveId = metas[0].id;
+    }
+
+    if (!nextActiveId) {
+      return;
+    }
+
+    const ctx = this.requireContext(nextActiveId);
+    await this.ensureProviderReady(ctx);
+    this.activeId = nextActiveId;
+    if (savedId !== nextActiveId) {
+      this.stateService.setState({ lastActiveWorkspaceId: nextActiveId });
     }
   }
 
@@ -149,6 +178,16 @@ export class WorkspaceManager {
       this.contexts.delete(id);
       this.connectionStatuses.delete(id);
     }
+    for (const channel of this.localChannels.values()) {
+      channel.dispose();
+    }
+    this.localChannels.clear();
+    this.localProviderReady.clear();
+    for (const channel of this.sshChannels.values()) {
+      channel.dispose();
+    }
+    this.sshChannels.clear();
+    this.sshProviderReady.clear();
     this.globalStorage.close();
   }
 
@@ -197,7 +236,7 @@ export class WorkspaceManager {
 
     this.globalStorage.addWorkspace(meta);
     this.workspaceStorage.openForWorkspace(id);
-    const ctx = new WorkspaceContext(meta, this.workspaceStorage, createFsProvider(meta));
+    const ctx = new WorkspaceContext(meta, this.workspaceStorage, createInitialFsProvider(meta));
     ctx.setMeta(meta);
     this.contexts.set(id, ctx);
 
@@ -226,6 +265,12 @@ export class WorkspaceManager {
     }
     ctx.close();
     this.contexts.delete(id);
+    this.localChannels.get(id)?.dispose();
+    this.localChannels.delete(id);
+    this.localProviderReady.delete(id);
+    this.sshChannels.get(id)?.dispose();
+    this.sshChannels.delete(id);
+    this.sshProviderReady.delete(id);
     this.globalStorage.removeWorkspace(id);
 
     if (this.activeId === id) {
@@ -244,11 +289,86 @@ export class WorkspaceManager {
       throw new Error(`workspace not found: ${id}`);
     }
 
-    if (ctx.getMeta().location.kind === "ssh") {
-      await this.ensureSshProviderReady(ctx);
-    }
+    await this.ensureProviderReady(ctx);
     this.activeId = id;
     this.stateService.setState({ lastActiveWorkspaceId: id });
+  }
+
+  /**
+   * Boots the workspace-scoped agent channel before exposing the workspace as active.
+   */
+  private async ensureProviderReady(ctx: WorkspaceContext): Promise<void> {
+    const meta = ctx.getMeta();
+    if (meta.location.kind === "local") {
+      await this.ensureLocalProviderReady(ctx);
+      return;
+    }
+    await this.ensureSshProviderReady(ctx);
+  }
+
+  /**
+   * Starts the local agent and wires the context only after the ready handshake.
+   */
+  private async ensureLocalProviderReady(ctx: WorkspaceContext): Promise<void> {
+    const meta = ctx.getMeta();
+    if (meta.location.kind !== "local") {
+      return;
+    }
+
+    const pending = this.localProviderReady.get(meta.id);
+    if (pending) {
+      await pending;
+      return;
+    }
+
+    const ready = this.startLocalProvider(ctx, meta);
+    this.localProviderReady.set(meta.id, ready);
+    try {
+      await ready;
+    } catch (error) {
+      if (this.localProviderReady.get(meta.id) === ready) {
+        this.localProviderReady.delete(meta.id);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Owns the explicit local boot sequence: spawn → ready → context provider.
+   */
+  private async startLocalProvider(ctx: WorkspaceContext, meta: WorkspaceMeta): Promise<void> {
+    if (meta.location.kind !== "local") {
+      return;
+    }
+
+    const command = this.localAgentCommandResolver();
+    const channel = this.localChannelFactory({ ...command, rootPath: meta.location.rootPath });
+    this.localChannels.set(meta.id, channel);
+    const disposeLifecycleListener = channel.onLifecycle((event) => {
+      this.handleLocalChannelLifecycle(meta.id, channel, event);
+    });
+
+    try {
+      await channel.ready;
+    } catch (error) {
+      disposeLifecycleListener();
+      if (this.localChannels.get(meta.id) === channel) {
+        this.localChannels.delete(meta.id);
+      }
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(meta));
+      throw error;
+    }
+
+    const provider = new AgentFsProvider("local", channel, { disposeChannel: true });
+    ctx.setFsProvider(provider, () => {
+      disposeLifecycleListener();
+      provider.dispose();
+      if (this.localChannels.get(meta.id) === channel) {
+        this.localChannels.delete(meta.id);
+      }
+      this.localProviderReady.delete(meta.id);
+    });
   }
 
   /**
@@ -260,66 +380,94 @@ export class WorkspaceManager {
       return;
     }
 
-    let channel = this.sshChannels.get(meta.id);
-    if (!channel) {
-      this.broadcastConnectionStatus(meta.id, "connecting");
-      const bootstrap = await this.sshBootstrap({
-        host: meta.location.host,
-        user: meta.location.user,
-        port: meta.location.port,
-        identityFile: meta.location.identityFile,
-        authMode: meta.location.authMode,
-        remotePath: meta.location.remotePath,
-        cachedRemoteArch: meta.location.remoteArch,
-      });
-      if (!meta.location.remoteArch) {
-        const updatedMeta: WorkspaceMeta = {
-          ...meta,
-          location: { ...meta.location, remoteArch: bootstrap.platform },
-        };
-        this.globalStorage.updateWorkspace(meta.id, { location: updatedMeta.location });
-        ctx.setMeta(updatedMeta);
-        this.broadcastFn("workspace", "changed", updatedMeta);
-      }
-      const nextChannel = this.sshChannelFactory(
-        sshChannelOptionsFromLocation(
-          { ...meta.location, remoteArch: bootstrap.platform },
-          bootstrap.remoteCommand,
-          bootstrap.controlPath,
-        ),
-      );
-      channel = nextChannel;
-      this.sshChannels.set(meta.id, channel);
-      const disposeLifecycleListener = nextChannel.onLifecycle((event) => {
-        this.handleSshChannelLifecycle(meta.id, nextChannel, event);
-      });
-      ctx.setFsProvider(createFsProvider(meta, nextChannel), () => {
-        disposeLifecycleListener();
-        nextChannel.dispose();
-        bootstrap.dispose?.();
-        if (this.sshChannels.get(meta.id) === nextChannel) {
-          this.sshChannels.delete(meta.id);
-        }
-        if (this.connectionStatuses.get(meta.id) !== "error") {
-          this.broadcastConnectionStatus(meta.id, "disconnected");
-        }
-      });
+    const pending = this.sshProviderReady.get(meta.id);
+    if (pending) {
+      await pending;
+      return;
     }
 
+    const ready = this.startSshProvider(ctx, meta);
+    this.sshProviderReady.set(meta.id, ready);
     try {
-      await channel.ready;
-      this.broadcastConnectionStatus(meta.id, "connected");
+      await ready;
     } catch (error) {
-      if (isAbortError(error) && this.sshChannels.get(meta.id) !== channel) {
-        throw error;
-      }
-      this.broadcastConnectionStatus(meta.id, "error");
-      if (this.sshChannels.get(meta.id) === channel) {
-        this.sshChannels.delete(meta.id);
-        ctx.setFsProvider(createFsProvider(meta));
+      if (this.sshProviderReady.get(meta.id) === ready) {
+        this.sshProviderReady.delete(meta.id);
       }
       throw error;
     }
+  }
+
+  /**
+   * Owns the explicit SSH boot sequence: bootstrap → spawn → ready → context provider.
+   */
+  private async startSshProvider(ctx: WorkspaceContext, meta: WorkspaceMeta): Promise<void> {
+    if (meta.location.kind !== "ssh") {
+      return;
+    }
+
+    this.broadcastConnectionStatus(meta.id, "connecting");
+    const bootstrap = await this.sshBootstrap({
+      host: meta.location.host,
+      user: meta.location.user,
+      port: meta.location.port,
+      identityFile: meta.location.identityFile,
+      authMode: meta.location.authMode,
+      remotePath: meta.location.remotePath,
+      cachedRemoteArch: meta.location.remoteArch,
+    });
+    let providerMeta = meta;
+    if (!meta.location.remoteArch) {
+      providerMeta = {
+        ...meta,
+        location: { ...meta.location, remoteArch: bootstrap.platform },
+      };
+      this.globalStorage.updateWorkspace(meta.id, { location: providerMeta.location });
+      ctx.setMeta(providerMeta);
+      this.broadcastFn("workspace", "changed", providerMeta);
+    }
+    const channel = this.sshChannelFactory(
+      sshChannelOptionsFromLocation(
+        { ...meta.location, remoteArch: bootstrap.platform },
+        bootstrap.remoteCommand,
+        bootstrap.controlPath,
+      ),
+    );
+    this.sshChannels.set(meta.id, channel);
+    const disposeLifecycleListener = channel.onLifecycle((event) => {
+      this.handleSshChannelLifecycle(meta.id, channel, event);
+    });
+
+    try {
+      await channel.ready;
+    } catch (error) {
+      disposeLifecycleListener();
+      this.broadcastConnectionStatus(meta.id, "error");
+      if (this.sshChannels.get(meta.id) === channel) {
+        this.sshChannels.delete(meta.id);
+      }
+      bootstrap.dispose?.();
+      channel.dispose();
+      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+      if (isAbortError(error) && this.sshChannels.get(meta.id) !== channel) {
+        throw error;
+      }
+      throw error;
+    }
+
+    ctx.setFsProvider(createFsProvider(providerMeta, channel), () => {
+      disposeLifecycleListener();
+      channel.dispose();
+      bootstrap.dispose?.();
+      if (this.sshChannels.get(meta.id) === channel) {
+        this.sshChannels.delete(meta.id);
+      }
+      this.sshProviderReady.delete(meta.id);
+      if (this.connectionStatuses.get(meta.id) !== "error") {
+        this.broadcastConnectionStatus(meta.id, "disconnected");
+      }
+    });
+    this.broadcastConnectionStatus(meta.id, "connected");
   }
 
   /**
@@ -359,8 +507,46 @@ export class WorkspaceManager {
     }
 
     this.sshChannels.delete(workspaceId);
-    ctx.setFsProvider(createFsProvider(ctx.getMeta()));
+    this.sshProviderReady.delete(workspaceId);
+    ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
   }
+
+  /**
+   * Handles terminal local channel lifecycle events and restores the inert provider.
+   */
+  private handleLocalChannelLifecycle(
+    workspaceId: string,
+    channel: AgentChannel,
+    event: SshChannelLifecycleEvent,
+  ): void {
+    if (this.localChannels.get(workspaceId) !== channel) {
+      return;
+    }
+
+    const ctx = this.contexts.get(workspaceId);
+    if (!ctx) {
+      this.localChannels.delete(workspaceId);
+      this.localProviderReady.delete(workspaceId);
+      return;
+    }
+
+    if (event.type !== "disposed") {
+      this.localChannels.delete(workspaceId);
+      this.localProviderReady.delete(workspaceId);
+      ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
+    }
+  }
+}
+
+/**
+ * Builds an inert provider for unopened workspaces. Activation replaces it
+ * only after the workspace agent has completed its ready handshake.
+ */
+function createInitialFsProvider(meta: WorkspaceMeta): AgentFsProvider {
+  if (meta.location.kind === "local") {
+    return new AgentFsProvider("local");
+  }
+  return createFsProvider(meta) as AgentFsProvider;
 }
 
 /**

@@ -1,0 +1,7 @@
+diff --git a/src/app.ts b/src/app.ts
+index 1111111..2222222 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ export const app = true;
++export const remote = false;

@@ -12121,6 +12121,892 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-13T15:59:21.141Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 43,
+        "topic": "git 도메인 Go agent 이전 + fs 누락 기능(unlink/rmdir/rename) 보강",
+        "issues": [
+          {
+            "id": 1,
+            "title": "API 경계 설계 · 단계 순서 · 패리티 테스트 방법론 · TS 잔존 책임",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "하이브리드 API 채택 권고: read 경로(status/log/diff/blob)는 의미 메서드, write 경로(commit/push/checkout/merge/branch/tag/stash/rebase/clone)는 args 패스스루 영구 유지. 의미 메서드 4조건: (a) 파서가 shared type과 1:1, (b) stderr 분류 책임 포함, (c) git-repository.ts 단일 호출자, (d) 옵션 표면 닫힘. 순서: (c) stderr → (a) status → (b) log/diff/blob → (d) write 명령. (c)를 먼저 옮겨야 (a)/(b)에서 catalog 중복 안 생김. TS 잔존 동의: git-autofetch, status-coalescer, git-helpers-ipc, helpers-launcher, git-registry. 추가 권고: GitErrorKind enum을 shared로 승격하고 분류 로직만 Go로. git-process.ts spawn 경로는 (d) 완료 후 제거. 공존 운영: GitProcessExecutor 인터페이스에 status/log 등 옵셔널 메서드 추가, git-repository.ts가 있으면 의미 메서드 없으면 args 패스스루로 분기. 호출 사이트 분산(shotgun surgery) 금지. CRITICAL 차단요인: SSH remote에서 interactive git(commit -e, push prompt)의 askpass 경로 미결정 — (d) 직전 별도 ADR 필요. (a)/(b) streaming은 pattern-ipc-stream.md 규약(main 단독 streamId, AbortError throw) 그대로 따르고 공용 헬퍼로 추출.",
+                "recorded_at": "2026-05-13T13:12:47.073Z",
+                "agent_id": "aa66915e45755f4e2"
+              },
+              {
+                "role": "postdoc",
+                "summary": "패리티 테스트 방법론: 골든 파일(수동 작성·리뷰) + 양쪽 파서가 같은 골든 fixture를 canonical JSON으로 직렬화 후 바이트 비교. Fixture는 `tests/fixtures/git/<case>/{cmd, stdout.bin, stderr.bin, meta.json}`에 바이너리 보존. 범위: clean/dirty/detached HEAD, rename -z NUL 경계, conflict XY 7종, ahead/behind, untracked, submodule placeholder, CRLF, UTF-8 파일명. Canonical JSON: 키 정렬, undefined 키 제거, null 유지, 빈 배열 보존, 숫자 정수형. TS undefined vs Go zero-value, Date vs RFC3339, Buffer vs base64가 주 함정 — 스키마 먼저 고정. 테스트 위치: 매 PR 전수 비교(수십~수백 ms로 비용 무시), NDJSON 경로는 별도 integration 1~2건만. Phase 종료 후 TS 파서·harness는 제거하되 골든+Go 패리티 테스트는 영구 보존. stderr 특수성: git po/en@*.po 영문 원문 + LANG=C 고정 캡처 + 과거 버그 리포트 stderr. 미지원 locale은 passthrough. 잡는 실패: 분기 누락, XY 매트릭스 회귀, rename -z 경계, ahead/behind 파싱. 못 잡는 실패: 신규 git 버전 출력 포맷, locale 변형, race, fixture 자체 오류 — smoke integration + 정기 refresh 필요. CRITICAL 0, WARNING 2(골든 자동생성 시 공통 버그, git --version·locale 메타 누락 시 불안정).",
+                "recorded_at": "2026-05-13T13:12:53.837Z",
+                "agent_id": "a9e714a7362fa0fdb"
+              }
+            ],
+            "decision": "**채택: 하이브리드 API 경계 + 4단계 순서(c→a→b→d-cleanup) + 골든 파일 패리티 + GitProcessExecutor 인터페이스 확장으로 공존 운영.**\n\n## 1. API 형태 — 하이브리드 (read=의미, write=passthrough)\n\n- **의미 메서드**: `git.status`, `git.log`, `git.diff`, `git.blob` 4개만 신설. 4조건(파서가 shared type과 1:1 / stderr 분류 포함 / git-repository.ts 단일 호출자 / 옵션 표면 닫힘) 모두 만족.\n- **args 패스스루 영구 유지**: `git.run` / `git.stream` / `git.cancel`. write 명령(commit/push/checkout/merge/branch/tag/stash/rebase)은 옵션 폭발(`--amend`/`--signoff`/`--gpg-sign`/`--trailer` 등) + 호출자 다중(`git-branch-ops`/`git-stash`/`git-tag`/`git-workflow`/`git-remote`) + 부분 적용 의미론 폭발 때문에 의미 메서드화하지 않음.\n- **합의 기록**: 사용자가 표명한 \"Go가 두뇌, Electron이 호출만\"이라는 의도는 **읽기 경로에서는 충분히 충족**된다. 쓰기 경로는 argv 조립이 trivial이라 어디에 두든 코드량 차이가 없고, *진짜 지능*인 orchestration(stash-pull-pop, conflict state machine)은 어차피 UI 결합으로 TS 잔존 필수. 따라서 쓰기 의미 메서드는 ROI 낮음.\n\n**기각된 옵션**:\n- *All-semantic (write 포함)*: agent 옵션 표면 폭발, shotgun surgery, 큐잉/conflict orchestration이 둘로 갈라짐. 비용 회수 안 됨.\n- *Pure args-passthrough (현 상태)*: 대규모 `git log`/`status` stdout이 NDJSON으로 통째 왕복. SSH workspace 비용 큼.\n\n## 2. 순서 — (c) stderr 분류 → (a) status → (b) log/diff/blob → (d) cleanup\n\n각 단계가 직전 단계의 invariant에 의존:\n- **(c) 먼저**: `GitErrorKind` shared enum과 분류 catalog가 다른 모든 의미 메서드 응답의 공유 어휘. 안 옮기면 (a)·(b)에서 catalog 중복.\n- **(a) 다음**: 가장 좁은 파서 surface + 단일 호출자(`readStatus`). ROI 최대.\n- **(b) 그 다음**: streaming 메서드 패턴이 (a)에서 정착한 뒤. `pattern-ipc-stream.md` 규약을 공용 헬퍼로 추출.\n- **(d) cleanup**: write 의미 메서드 신설하지 않음. 대신 (a)~(c) 완료 후 `git-process.ts` 424줄의 로컬 spawn 폴백, TS 파서, stderr-patterns 등 dead code 제거. `git-clone.ts`의 progress parsing은 (b)에 포함 검토.\n\n**기각된 옵션**: stderr를 마지막에 — (a)·(b) 의미 메서드가 stderr→error 변환을 자체 구현해야 해서 두 번 짜게 됨.\n\n## 3. TS 잔존 책임 (확정)\n\n- `git-autofetch.ts`(313): window focus 결합 → TS ✓\n- `status-coalescer.ts`(146): renderer IPC debounce → TS ✓\n- `git-helpers-ipc.ts`(432) + `helpers-launcher.ts`(221) + `*-helper.cjs`: askpass/editor가 Electron dialog 호출 + helper wrapper가 Electron 실행 파일 경로 exec → TS ✓\n- `git-registry.ts`(360): 워크스페이스 lifetime → TS ✓\n- **신규**: `GitErrorKind` enum은 shared 타입으로 승격, 분류 *로직*은 Go, *표현*은 TS.\n\n## 4. 공존 운영 규칙\n\n- **호출 사이트 분산 금지**: `git-repository.ts`가 의미 메서드와 args-passthrough를 직접 둘 다 호출하지 않음.\n- **`GitProcessExecutor` 인터페이스 확장**: `status(opts)?`, `log(opts)?`, `diff(opts)?`, `blob(opts)?`을 옵셔널로 추가. `AgentGitExecutor`가 구현. 호출자는 `if (executor.status) return executor.status(opts) else return parsePorcelainV2(await runGit(...))`.\n- **이점**: Locality of Behavior 유지, phase별 flip이 한 곳에서, rollback이 reversible.\n- **streamId 발급**: `agent-executor.ts:56`처럼 main에서 단독 `randomUUID()` 발급 유지(`pattern-ipc-stream.md` 부합).\n- **AbortError 일관성**: agent의 `context.Canceled` → `name==='AbortError'` 변환을 공용 헬퍼로 (c) 단계에서 추출.\n\n## 5. 패리티 테스트 방법론 (postdoc 권고)\n\n- **골든 파일 + 양쪽 동일 입력 + canonical JSON 바이트 비교**.\n- Fixture 위치: `tests/fixtures/git/<case>/{cmd, stdout.bin, stderr.bin, meta.json}`. meta.json에 git --version, LANG=C 기록 필수.\n- Canonical JSON: 키 정렬, undefined 키 제거, null 유지, 빈 배열 보존, 숫자 정수형 강제.\n- Fixture 범위: clean/dirty/detached HEAD, rename -z NUL 경계, conflict XY 7종(DD/AU/UD/UA/DU/AA/UU), ahead/behind 0·n·n m, untracked, submodule placeholder, CRLF, UTF-8 파일명.\n- 골든 파일은 **수동 작성·리뷰** — 한쪽 구현으로 자동 생성하면 양쪽 버그가 함께 통과.\n- 매 PR 전수 비교(수십~수백 ms). Phase 종료 후 TS 파서·harness는 제거하되 골든+Go 패리티 테스트는 영구 보존.\n- stderr는 git po/en@*.po 원문 + LANG=C 캡처. 미지원 locale은 passthrough로 분류.\n- **잡는 실패**: 분기 누락, XY 매트릭스 회귀, rename -z 경계, ahead/behind 파싱.\n- **못 잡는 실패**: 신규 git 버전 출력 포맷 변경, locale 변형, race, fixture 자체 오류 — smoke integration + 정기 refresh로 보강.\n\n## 6. 알려진 차단요인(blocker)와 비차단\n\n- **CRITICAL (Phase 4 직전)**: SSH remote에서 interactive write 명령(commit -e, push prompt)의 askpass 경로 미결정. `helpers-launcher.ts:108`이 만든 wrapper는 Electron host fs에 있고 SSH agent host에는 없음. 현재 상태에서도 미해결. Phase 1~3 진행은 차단 안 함. **Phase 4(cleanup) 직전에 별도 ADR**.\n- **Assumption**: 사용자 의도 \"Go가 두뇌\"는 *읽기 경로 의미 메서드 + 쓰기 경로 args passthrough*로 충족된다고 판단. 사용자가 *쓰기도 의미 메서드*를 명시적으로 요구할 경우 issue 5(Phase 4)에서 재논의."
+          },
+          {
+            "id": 2,
+            "title": "Phase 1: stderr 오류 분류 Go 이전 (GitErrorKind shared enum + 분류 catalog)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Phase 1 stderr 이전 권고: Go 4파일 분리(`errors.go` enum+struct ~120, `patterns.go` regex catalog ~340, `classify.go` 순수 함수 ~140, `run.go` 확장으로 exit code !=0 시 Classify→envelope 채움). Shared `GitErrorKindSchema` zod enum 50종을 `src/shared/types/git.ts`에 단일 정의, Go는 수기 mirror, CI 스크립트가 fixture의 kind가 양쪽 enum에 존재함을 검증(codegen 회피, 비용 대비 ROI 낮음). Envelope은 `AgentGitRunResultSchema`에 optional `errorKind`/`errorHint`/`errorMessage` 3필드 *추가* — code=0은 그대로 0, exit code !=0일 때만 채움. backward-compat 불필요(내부 wire). `proto.CodedError`는 transport 실패만, git exit code 실패는 데이터로. TS 측 ~870줄 삭제 가능: `git-stderr-patterns.ts` 전체, `git-error.ts`의 `classifyGitStderr`/`messageFromGitFailure`/`hintForGitErrorKind`/`gitErrorFromExit`. 잔존 ~70줄: `GitError` 클래스 shell(마커로 보존 — 5+ catch 분기 shotgun surgery 회피), `gitErrorFromAgent` 팩토리, `outputTooLargeGitError`, preflight 측 `no-head`/`no-such-ref` 생성기. 호출자 변경 단일 지점: `agent-executor.ts:95`의 `gitErrorFromExit` → `gitErrorFromAgent`. `git-workflow.ts:285`의 `isConflictStderr`는 `kind === \"conflict\"`로 치환. `git-process.ts` 호출자 5곳은 본 단계에서 건드리지 않음(Phase 4 cleanup으로 보류). CRITICAL 차단: (1) parity fixture·CI 검증 *선행* (`tests/fixtures/git/stderr/<case>/{stderr.bin, expected.json, meta.json}` 50+ 케이스), (2) 우선순위 충돌 케이스 명시(local-changes-overwritten vs conflict 등). WARNING: locale drift는 `kind: \"unknown\"` fall-through(의도 동작), `errorKind == \"unknown\"` 비율 모니터링 권고. 미해결: `output-too-large`를 `proto.CodedError`(transport) vs 데이터로 통일할지 — 데이터(`errorKind=\"output-too-large\"`)로 통일 권고. 코드 변동 추정: TS −870 / Go +600 / shared +60.",
+                "recorded_at": "2026-05-13T13:16:25.810Z",
+                "agent_id": "aa66915e45755f4e2"
+              }
+            ],
+            "decision": "**채택: architect 권고 그대로(4파일 분리 + envelope 선택 필드 확장 + `GitError` 클래스 마커 보존 + parity fixture 선행). 한 가지 수정: `output-too-large`를 데이터(`errorKind`)로 통일.**\n\n## 1. Go 모듈 구조 (4파일 분리)\n\n- `internal/git/errors.go` (신규, ~120줄): `Kind` string type 50종 상수 + `ClassifiedError struct{Kind, Message, Hint?, Argv}` + JSON 직렬화 헬퍼. 패키지의 *유일한* 외부 surface.\n- `internal/git/patterns.go` (신규, ~340줄): `*StderrPatterns []regexp.Regexp` 50종, `var _ = regexp.MustCompile` 패키지 init. **결정 로직 금지** — regex 컴파일만.\n- `internal/git/classify.go` (신규, ~140줄): `Classify(stderr) Kind`(현 TS 우선순위 그대로), `HintForKind(kind) *Hint`, `MessageForKind(kind, ctx) string`. 순수 함수, I/O 없음.\n- `internal/git/run.go` (확장): exit code !=0일 때 `classify.Classify(stderr)` 호출 후 `RunResult.ErrorKind`/`ErrorHint`/`ErrorMessage` 채움.\n- `metadata.go`/`watch.go`/`ignore.go`: import만 추가, 행동 변경 없음.\n\n## 2. Shared enum 형태\n\n- `src/shared/types/git.ts`에 `GitErrorKindSchema = z.enum([...50종...])` 추가, 모든 string 리터럴의 단일 출처.\n- Go는 `errors.go`에 같은 string 상수를 *수기 mirror*. 50종 mirror가 codegen 도입 비용보다 저렴.\n- `scripts/check-git-error-kind-parity.ts`: 두 enum의 set 동등성 + fixture의 `kind` 값이 양쪽에 존재함을 CI에서 검증.\n- Wire 형태 고정: `ClassifiedError = { kind: GitErrorKind, message: string, hint?: GitActionHint, argv?: string[] }`.\n\n## 3. Envelope 변경 (additive)\n\n```ts\nAgentGitRunResultSchema = {\n  stdout, stderr, code,                  // 기존\n  errorKind?: GitErrorKindSchema,        // 신규 (code !=0일 때만)\n  errorHint?: GitActionHintSchema,       // 신규\n  errorMessage?: string,                 // 신규\n}\n```\n\n- 내부 wire뿐이라 backward-compat 불필요. Go·TS 같은 PR로 동시 변경.\n- **`proto.CodedError`(transport 실패)와 git exit code(데이터)는 명확히 분리.**\n- **수정 적용**: `output-too-large`는 데이터로 통일 — `code=0, errorKind=\"output-too-large\"`로 반환. 현재 `run.go:80`이 `proto.CodedError`로 던지는 분기를 수정. 호출자가 transport-vs-classified를 두 갈래로 분기할 필요 없게.\n\n## 4. TS 정리 (~870줄 삭제, ~70줄 잔존)\n\n**즉시 제거**(같은 PR):\n- `git-stderr-patterns.ts` 전체 333줄\n- `git-error.ts`의 `classifyGitStderr`/`messageFromGitFailure`/`hintForGitErrorKind`/`gitErrorFromExit` 총 ~351줄\n\n**잔존**(의도적):\n- `GitError` 클래스 shell ~25줄 — *런타임 마커*로 보존. `git-repository.ts`/`git-workflow.ts`/`git-clone.ts`/`git-blob.ts` 등에 산재한 `catch (err) { if (err instanceof GitError) ... }` 분기 보호. 클래스 폐기는 shotgun surgery라 회피.\n- `gitErrorFromAgent(result, args)` 팩토리 ~30줄 — agent 응답을 `GitError`로 재래핑.\n- `gitMissingError`/`unknownGitError`/`outputTooLargeGitError` ~17줄.\n- preflight 측 `no-head`/`no-such-ref` 생성기 ~수십 줄 — Git을 부르지 않는 분기, agent와 무관해 유지.\n\n## 5. 호출자 변경 (단일 진입점)\n\n- `src/main/bridge/git/agent-executor.ts:95`: `gitErrorFromExit({...})` → `gitErrorFromAgent(result, args)`. agent가 이미 분류한 `errorKind`를 신뢰, **재분류 금지**(double classification 제거 + SSH RTT 분류 부하 0).\n- `src/main/git/git-workflow.ts:285`: `isConflictStderr(stderr)` → `err.kind === \"conflict\"`. stderr 재검사보다 `kind` 기반이 안전.\n- `git-process.ts` 호출자 5곳(`:235/:255/:326`, `git-clone.ts:200`, `git-blob.ts:191`): **이 단계에서 건드리지 않음**. `AgentGitExecutor`가 이미 `GitProcessExecutor`를 위임하므로 결과는 자동으로 새 envelope을 통과. `git-process.ts` 자체 제거는 Phase 4 cleanup으로 보류.\n\n## 6. Parity fixture (선행 작업, CRITICAL)\n\n본 phase 작업 시작 전 `tests/fixtures/git/stderr/<case>/{stderr.bin, expected.json, meta.json}` 50+ 케이스 작성 필수.\n- 우선순위 충돌 케이스 *명시 포함*: `local-changes-overwritten` vs `conflict`, `auth-required` vs `auth`, `non-fast-forward` vs `force-push-rejected` 등 git-error.ts:239–360의 우선순위가 결정적이라 fixture로 박제.\n- `meta.json`에 `git --version`, `LANG=C` 기록. stderr는 `LANG=C` 캡처.\n- 골든 파일은 **수동 작성·리뷰**(autoplan issue 1 결정과 일관).\n- CI: `bun test tests/unit/main/git/git-error-parity.test.ts`(TS enum 검증) + `go test ./internal/git -run TestClassifyParity`(Go 검증) + `scripts/check-git-error-kind-parity.ts`(enum set 동등성).\n\n## 7. 모니터링 권고\n\n- agent 응답에 `errorKind == \"unknown\"` 비율 metric 추가(silent locale drift 감지). 본 phase 범위 밖이지만 dashboard follow-up으로 등록.\n\n## 8. 기각된 옵션\n\n- *codegen으로 Go enum 자동 생성*: 빌드 의존 추가 비용 > 50 string mirror 비용. fixture parity test로 충분.\n- *별개 메서드 `git.runClassified`*: API 표면 2배, 내부 wire는 동시 배포 가능하므로 의미 없음.\n- *`GitError` 클래스 완전 폐기*: catch 분기 5+ 파일 shotgun surgery, 위험 대비 ROI 낮음.\n- *`git-process.ts` 정리를 이번에 함께*: Phase 4 cleanup으로 보류(Issue 1 결정과 일관).\n\n## 9. 코드 변동 추정\n\n- TS −870줄 (git-stderr-patterns 전체 + git-error의 분류 로직)\n- Go +600줄 (errors/patterns/classify/run 확장)\n- shared +60줄 (`GitErrorKindSchema` + parity check script)\n- 잔존 TS git-error surface ~70줄"
+          },
+          {
+            "id": 3,
+            "title": "Phase 2: git.status (porcelain v2) Go 이전",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Phase 2 권고: `git.status({untracked,renames,ignored})` 단일 묶음 메서드 채택. agent 내부에서 errgroup으로 status -z + remote + stash list + tag --list + readGitOperationState + readFetchHeadMtime 6개를 host-local fan-out, 응답은 GitStatus 전체. RTT 5→1 (SSH ~250ms 단축). capabilities sub-method 별도 노출 안 함(statusChanged invariant와 같이 묶여있음, use-case 없음). Forward-compat: Phase 3 의미 메서드(log/diff/blob)는 전부 독립, capabilities-only 필요 시 git.status({omit:[\"entries\"]}) 축소 옵션으로 처리. Go 구조: status.go(서비스 ~180) + porcelain.go(순수 파서 ~280, splitPorcelainRecords NUL-aware/parseBranchHeader/conflict XY 매핑/rename old-path 짝) + status_test.go. metadata.go 그대로 재사용(`git.metadata` 별도 노출 유지, `agent-executor.ts:122` 사용자 보호). Wire: `GitStatusSchema` 그대로 사용, 5함정 명시 — branch.upstream/oldRelPath/conflictType은 *string + omitempty, branch는 *BranchInfo nullable, lastFetchedAt *int64 + omitempty, operationState discriminated union은 kind!=\"none\" 시 다른 필드만 직렬화. 검증 2축: stdout→GitStatus 동형 + Go JSON output→zod parse 동형. TS 호출자: `GitProcessExecutor.status?(opts)` 옵셔널 추가, `AgentGitExecutor.status` 구현, `git-repository.ts:1149`에 분기 ~10줄 추가, else 가지에 기존 readRemotes/readStashCount/readTagCount/readMetadata 보존(폴백). `parseV2Porcelain` Phase 4까지 유지(SSH 미연결/`getAgentExecutor` undefined 시나리오 폴백). 코드 변동: Go +540 / TS +15 / shared 0. Phase 4 제거 예약 305줄. CRITICAL: nullable 필드 zero-value 누출 fixture 명시, parseV2Porcelain 즉시 삭제 금지. WARNING: rename NUL-mode index advance fixture 필수, sub-call partial failure 정책(degrade vs propagate) 결정 필요 — 현 TS는 propagate, atomic snapshot 의미 유지 위해 propagate 권고. 미해결: untracked=\"all\" large-repo 성능 baseline.",
+                "recorded_at": "2026-05-13T13:19:14.086Z",
+                "agent_id": "aa66915e45755f4e2"
+              }
+            ],
+            "decision": "**채택: architect 권고 그대로(단일 묶음 메서드 + Go 3파일 + GitStatusSchema 재사용 + 폴백 보존). Sub-call partial failure 정책은 propagate(현 TS 의미 유지).**\n\n## 1. Agent 메서드 표면 — `git.status(opts)` 단일 묶음\n\n```ts\ngit.status({ untracked: \"all\" | \"normal\" | \"no\" = \"all\",\n             renames: boolean = true,\n             ignored: boolean = false })\n  → GitStatus (전체: branch/merge/staged/working/untracked/capabilities/operationState/lastFetchedAt)\n```\n\n- agent 내부에서 `errgroup`으로 6개 sub-call(status -z, remote, stash list, tag --list, readGitOperationState, readFetchHeadMtime) host-local fan-out → Electron→agent 1 RTT만 발생.\n- SSH 워크스페이스에서 RTT 5→1 즉시 감소.\n- `capabilities` sub-method 별도 노출 안 함 — `statusChanged` invariant와 동일하게 묶여있음(`shared/types/git.ts:53`), capabilities-only use-case 부재.\n- **Forward-compat**: Phase 3 의미 메서드(`git.log`/`git.diff`/`git.blob`)는 전부 독립. capabilities-only 단독 필요 발생 시 `git.status({omit:[\"entries\"]})` 식 축소 옵션으로 같은 메서드 안에서 처리(메서드 표면 폭발 회피).\n\n## 2. Go 모듈 구조 (3파일)\n\n- `internal/git/status.go` (신규, ~180줄): `Status(ctx, params)` 서비스 메서드, `errgroup`으로 6 sub-call fan-out, 결과 조립.\n- `internal/git/porcelain.go` (신규, ~280줄): `ParsePorcelainV2(bytes) (Status, error)` 순수 함수. `splitPorcelainRecords`(NUL-aware), `parseBranchHeader`, conflict XY 7종 매핑, rename old-path 짝 처리. **I/O 금지**(test-friendly seam, TS의 `parseV2Porcelain`과 동형).\n- `internal/git/porcelain_test.go` (신규): fixture 12+ 케이스 로드.\n\n**책임 경계**:\n- `metadata.go` 재사용 — service 내부 함수 호출. `git.metadata` 별도 메서드는 `agent-executor.ts:122` 사용자 보호 위해 노출 유지.\n- exit code !=0 시 Phase 1 산출물(`classify.Classify`)로 `errorKind` 채우고 *데이터*로 반환, throw 금지.\n\n## 3. Wire 타입 (GitStatusSchema 그대로 + 5 함정 명시)\n\n| 함정 | Go 처리 |\n|---|---|\n| `oldRelPath` (rename 아닐 때) | `*string` + `omitempty` |\n| `branch == null` (detached/unborn) | `*BranchInfo`, null 명시 |\n| `branch.upstream` (upstream 없음) | `*string` — `\"\"` 누출 절대 금지 (CRITICAL) |\n| `branch.ahead/behind == 0` | int (no pointer) — upstream null이면 0이 N/A 의미, 호출자가 이미 알고 있음 |\n| `conflictType` (non-conflict) | `*string` 또는 명시적 `null` 직렬화 |\n| `operationState.kind` discriminated union | `Kind string` + 나머지 `omitempty`; `kind==\"none\"`일 때 다른 필드 직렬화 금지 |\n| `lastFetchedAt` (`number \\| null`) | `*int64` + `omitempty` — `int64 zero`가 epoch 0으로 누출 방지 |\n\n**검증 2축**:\n1. stdout → GitStatus 파싱 동형 (TS `parseV2Porcelain` vs Go `ParsePorcelainV2` fixture 12+ 케이스).\n2. Go JSON output → `GitStatusSchema.parse` 동형 (NDJSON wire 검증).\n\n**Fixture 필수 케이스**: clean / staged-only / working-only / conflict XY 7종(DD/AU/UD/UA/DU/AA/UU) / rename NUL-mode / rename non-NUL / untracked / detached HEAD / unborn / ahead+behind / submodule placeholder / upstream null / `branch.ab +0 -0`.\n\n## 4. TS 호출자 변경\n\n- `src/main/git/git-process.ts`의 `GitProcessExecutor` 인터페이스에 `status?(opts): Promise<GitStatus>` 옵셔널 추가.\n- `src/main/bridge/git/agent-executor.ts`에 `status(opts)` 메서드 구현 — `git.status` agent 호출 + `GitStatusSchema.parse`.\n- `src/main/git/git-repository.ts:1149 readStatus` 분기:\n  ```ts\n  if (this.executor.status) return this.executor.status({});\n  else { ...기존 5-RTT 코드 그대로... }\n  ```\n  분기는 *이 한 곳만*. capabilities/operationState 후처리 코드(`:1155–1172`)는 else 가지로 이동.\n- `readMetadata`/`readRemotes`/`readStashCount`/`readTagCount`(`:1175,1196,1209,1217`)는 **삭제 안 함**, else 가지 폴백으로 유지.\n- 자동 이득: `git-repository.ts:161,195,245,666`(`readStatus` 경유) + `:1228`(`readBranchList`가 readStatus 사용).\n\n## 5. `parseV2Porcelain` 처리 — Phase 4까지 보존\n\n- **즉시 삭제 금지**(CRITICAL). 이유: (1) feature flag rollback path, (2) `git-registry.ts:320 getAgentExecutor`가 `undefined` 반환하는 시나리오(workspace executor 부재) 폴백 필수.\n- `porcelain-v2.ts:1–255` 전체 보존. 호출 사이트는 1곳(`git-repository.ts:1154` else 가지).\n- Phase 4 cleanup 시 폴백 경로 통째 제거와 함께 삭제 예약.\n\n## 6. Partial Failure 정책 결정 (architect 미결 항목)\n\n**채택: propagate (현 TS 의미 그대로).** sub-call 중 하나라도 실패하면 status 전체 실패. 근거:\n- 현 TS `Promise.all`이 propagate. 의미 변경 없음.\n- *atomic snapshot* 의미 유지 — `remotes` 일부만 채워진 status는 renderer가 \"remotes 0개\"로 잘못 해석할 위험.\n- `remote`/`stash list`/`tag --list`은 거의 절대 실패하지 않음(git이 살아있다면 sub-ms 성공). 실패는 진짜 문제 신호.\n- 본 phase에선 의미 변경 없는 게 가장 안전. degrade 정책 필요 시 별도 사이클.\n\n## 7. 코드 변동 추정 (이번 phase)\n\n- Go: `status.go`(180) + `porcelain.go`(280) + `porcelain_test.go`(~80) = **+540줄**\n- TS: 분기 추가 ~15줄, 제거 0줄\n- shared: 0(GitStatusSchema 재사용)\n- **Phase 4 제거 예약**: `porcelain-v2.ts` 255 + 폴백 read* 4메서드 ~50 = ~305줄\n\n## 8. 기각된 옵션\n\n- *Per-call 의미 메서드 6개*: agent 표면 6배, 5 RTT 누적, atomic snapshot 깨짐.\n- *묶음 + capabilities 별도 노출*: 일관성 깨짐, use-case 없음.\n- *`parseV2Porcelain` 즉시 삭제*: executor 미존재 시 깨짐, rollback path 잃음.\n- *partial failure degrade*: 의미 변경 + silent inconsistency 위험.\n\n## 9. 후속 모니터링 (별 사이클)\n\n- `untracked: \"all\"` 대형 repo baseline 측정 — `empirical-git-log-source-cost.md` 패턴으로 fixture repo(vscode 174k commits) 측정 후 memory 추가."
+          },
+          {
+            "id": 4,
+            "title": "Phase 3: git.log · git.diff · git.blob streaming Go 이전",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Phase 3 권고: 의미 메서드 4종(log/diff/blob/commitDetail) + 공용 streaming.go. Wire는 Phase 1 streamId 메커니즘 재사용, event name은 메서드별 분리(`git.log.batch`/`git.diff.chunk`/`git.blob.chunk`), `git.cancel({streamId})`은 통합. **git.log**: `{scope:\"ref\"|\"all\"|\"branches\", ref?, grep?, limit?, afterSha?, paths?, source?}` → `git.log.batch{entries:LogEntry[]}` + result `{count, hasMore}`. scope!==\"ref\"면 source 기본 ON(empirical-git-log-source-cost.md 1.06% 채택). **Go에서 limit reach 시 즉시 process kill** — TS는 break만 가능했던 한계 해결. **git.diff**: `{from?, to?, paths?, context?, unified?, maxChunkBytes?}` → `git.diff.chunk{text}`. raw text chunk 유지(parsed hunk 거절 — viewer 다양성·payload 팽창). **UTF-8 boundary-safe chunker 필수** (`unicode/utf8.DecodeRune`, StringDecoder 동치). **git.blob**: `{ref, relPath, maxBytes?}` → `git.blob.chunk{chunk:base64, headerProbe?}` + result `{size, isBinary, encoding, mtime, truncated}`. **binary detect: first chunk만 probe하고 result envelope에 실음** (streaming 중 분기 회피). `cat-file --batch` 단일 채택(show 경로 폐기). **git.commitDetail**: single-shot `{sha} → CommitDetail`. **본 phase에 포함**(같은 commit 도메인·같은 사람·같은 fixture, drift 0). Go 구조: `streaming.go`(140 — streamId 관리/Cancel/EmitBatch/EmitChunk, run.go:297 registerStream 추출), `log.go`(260), `diff.go`(120), `blob.go`(200), `commit_detail.go`(100). **streaming.go 추출 필수**(cancel이 메서드 무관 + abort 동치성). Clone은 **본 phase 제외** — write-ish + askpass + clone 자체가 sub-system. (d) phase에서 args 패스스루 + TS receiver(`git-clone-progress.ts`) 보존 패턴. TS 측 변경: GitProcessExecutor 4 옵셔널 메서드(`log?/diff?/blob?/commitDetail?`), AgentGitExecutor 4 구현 + event 구독, `git-repository.ts` 호출 사이트 4곳에 `if (executor.X) yield* executor.X(...) else 폴백`. Issue 3과 같이 fallback 유지 → TS 즉시 제거 0. Phase 4 cleanup 예약: `git-log-parsing.ts`(186) + `git-commit-detail.ts`(137) + `git-diff-stream.ts`(114) + `git-blob.ts`(341) + `git-repository.ts` 폴백 ~100 = **~880줄**. 코드 변동: Go +1,140 / TS +90 / shared +120. CRITICAL: UTF-8 rune boundary chunker, log limit-reach process kill 타이밍(`cmd.Cancel = func() error { return cmd.Process.Kill() }`). WARNING: blob single-channel(cat-file --batch만), decorations(`%D`) locale 독립 fixture, log batch size 상수 동일 유지. 미해결: `LOG_CHUNK_ENTRY_COUNT` 노출 여부, blob batch 헤더 파싱이 interactive 필요 여부.",
+                "recorded_at": "2026-05-13T13:22:41.328Z",
+                "agent_id": "aa66915e45755f4e2"
+              }
+            ],
+            "decision": "**채택: architect 권고 그대로(의미 메서드 4종 + streaming.go 공용 + Phase 1 streamId 재사용 + event name 분리 + clone 제외 + commitDetail 포함 + fallback 보존). `LOG_CHUNK_ENTRY_COUNT` 동일 상수 유지, blob batch 헤더 파싱은 dispatcher 경유(non-interactive)로 확정.**\n\n## 1. 의미 메서드 4종 시그니처\n\n### `git.log(opts)`\n```ts\nopts: {\n  scope: \"ref\" | \"all\" | \"branches\",\n  ref?: string,                        // scope===\"ref\"일 때만\n  grep?: string,\n  limit?: number,                      // Go가 limit+1 가져와 hasMore 판정\n  afterSha?: string,                   // cursor seek\n  paths?: string[],\n  source?: boolean,                    // 기본 scope!==\"ref\"면 true (empirical: +1.06%)\n}\nevent: git.log.batch { streamId, entries: LogEntry[] }\nresult: { count, hasMore, totalScanned? }\n```\n- **Go 측 limit reach 시 process kill** — `cmd.Cancel = func() error { return cmd.Process.Kill() }`. SSH 대용량 repo log 비용 절감.\n- batch 크기는 현 `LOG_CHUNK_ENTRY_COUNT` 상수를 그대로 Go에 mirror — `internal/git/log.go`에 `const LogBatchSize` 동일 값. drift 시 renderer paging jitter 방지.\n\n### `git.diff(opts)`\n```ts\nopts: { from?: string, to?: string, paths?: string[], context?: number, unified?: boolean, maxChunkBytes?: number }\nevent: git.diff.chunk { streamId, text }\nresult: { bytes, truncated }\n```\n- raw text chunk 유지. parsed hunk는 거절(viewer 다양성·payload 팽창).\n- **UTF-8 rune boundary chunker 필수** — Go `unicode/utf8.DecodeRune`로 chunk 경계가 multi-byte rune 중간을 자르지 않도록 보장. `git-diff-stream.ts:62 StringDecoder` 동치 동작.\n\n### `git.blob(opts)`\n```ts\nopts: { ref: string, relPath: string, maxBytes?: number }\nevent: git.blob.chunk { streamId, chunk: base64, headerProbe?: BinaryProbe }\nresult: { size, isBinary, encoding: \"utf8\"|\"utf8-bom\"|\"binary\", mtime, truncated }\n```\n- **binary detect는 first chunk만 probe** → result envelope에 실음. streaming 중 분기 회피.\n- **`cat-file --batch` 단일 채택**, `show --no-ext-diff` 경로 폐기. dispatcher 경유 non-interactive 모드.\n- worktree fallback은 service에서 거절(`service.go:104` 패턴 그대로).\n\n### `git.commitDetail({sha})` — single-shot, **본 phase 포함**\n- log와 같은 commit 도메인. 같은 사람·같은 fixture로 옮겨야 drift 0.\n- streaming.go 비의존(single-shot).\n- 별도 mini-phase 분리는 PR 비용 > cohesion 이득.\n\n## 2. Streaming wire 프로토콜 — Phase 1 메커니즘 재사용 + event name 분리\n\n| 메서드 | event name | payload | 단위 |\n|---|---|---|---|\n| `git.log` | `git.log.batch` | `{ streamId, entries: LogEntry[] }` | record batch |\n| `git.diff` | `git.diff.chunk` | `{ streamId, text: string }` | UTF-8 text |\n| `git.blob` | `git.blob.chunk` | `{ streamId, chunk: base64, headerProbe? }` | raw bytes |\n| `git.stream` | `git.streamChunk` (기존) | `{ streamId, chunk: base64 }` | passthrough |\n\n- **streamId 발급**: main router 단독(`pattern-ipc-stream.md` 그대로).\n- **`git.cancel({streamId})`** 단일 메서드로 4 stream 모두 cancel — Locality 유지.\n- **AbortError 일관성**: `streaming.go`가 `context.Canceled` → `AbortError` 직렬화 책임. 4 메서드가 같은 형태.\n- 통합 vs 분리: cancel/abort 메커니즘 통합, event name + payload schema 메서드별 분리.\n\n## 3. Go 모듈 구조 — 5파일\n\n| 파일 | LOC | 책임 |\n|---|---|---|\n| `internal/git/streaming.go` | ~140 | StreamID 관리, Cancel, EmitBatch/EmitChunk wrapper. `run.go:297 registerStream`을 Tidy First refactor로 이관(behavior 변경 없음) |\n| `internal/git/log.go` | ~260 | `Log(ctx, params)` 서비스 + custom format 빌더(`buildLogArgs` 동치) + record split(`\\x1e`) + `parseLogRecord`(decoration 포함) + batch emit + limit-reach kill |\n| `internal/git/diff.go` | ~120 | `Diff(ctx, params)` 서비스 + rune-boundary-safe chunker + byte cap |\n| `internal/git/blob.go` | ~200 | `Blob(ctx, params)` 서비스 + `cat-file --batch` 헤더 파싱 + binary probe first chunk + missing→`errorKind:'missing'` |\n| `internal/git/commit_detail.go` | ~100 | `CommitDetail(ctx, params)` single-shot + `git show <sha>` 파싱(별 grammar — log helper 공유 없이 시작) |\n\n**Tidy First**: `streaming.go`로 `registerStream`/`unregisterStream` 추출은 **별도 선행 PR**. behavior 변경 0이라 검토 가볍게.\n\n## 4. TS 호출자 변경 — 분기 추가만 (fallback 보존)\n\n- `GitProcessExecutor` 인터페이스에 `log?`, `diff?`, `blob?`, `commitDetail?` 4 옵셔널 추가.\n- `AgentGitExecutor`에 4 메서드 + event 구독 구현.\n- `git-repository.ts` 4곳 분기:\n  - `:1259 streamLog` → `if (executor.log) yield* executor.log(args) else 기존 로직`\n  - `:1245 streamDiff` → `if (executor.diff) yield* executor.diff(spec) else streamGitTextChunks(...)`\n  - `:1334 readCommitDetail` → `if (executor.commitDetail) await executor.commitDetail(sha) else 기존 로직`\n  - blob 호출 경로 → `executor.blob` 분기\n\n**TS 즉시 제거 0줄**. Phase 4 cleanup 예약:\n| 파일 | 라인 |\n|---|---|\n| `git-log-parsing.ts` | 186 |\n| `git-commit-detail.ts` | 137 |\n| `git-diff-stream.ts` | 114 |\n| `git-blob.ts` | 341 |\n| `git-repository.ts` 폴백 메서드들 | ~100 |\n| **합계** | **~880** |\n\n## 5. Clone 본 phase 제외\n\n- write-ish + interactive(askpass) + clone 자체가 sub-system(`CLONE_DESTINATION_*` 5종 stderr kind).\n- Phase 4(d) cleanup에서 처리: `git.run({args:[\"clone\",...], interactive:true})` args 패스스루 + stderr를 chunk event로 흘려 TS `git-clone-progress.ts`가 받아 파싱. Phase 1의 \"TS receiver 보존, Go transport\" 패턴과 동치.\n- 본 phase는 read streaming 4종만, PR 크기·rollback granularity 보호.\n\n## 6. 코드 변동 추정\n\n| 분류 | 라인 |\n|---|---|\n| Go 신규 (`streaming.go` + `log.go` + `diff.go` + `blob.go` + `commit_detail.go` + tests) | **+1,140** |\n| TS 추가 (executor 4 메서드 + 분기 4곳) | **+90** |\n| Wire schema 추가 (`AgentGitLogParamsSchema` 등) | **+120** |\n| TS 즉시 제거 | **0** |\n| **Phase 4 제거 예약** | **~880** |\n\n## 7. 기각된 옵션\n\n- *args 패스스루 유지*: SSH 대용량 log/blob 비용 누적, limit reach 시 낭비. Phase 3 의의 사라짐.\n- *diff parsed hunk 의미화*: viewer 다양성(side-by-side/inline) 깨짐, payload 팽창.\n- *clone 본 phase 포함*: 도메인 cohesion 약함, PR 1.3x↑, rollback granularity↓.\n- *commitDetail 별 phase*: 같은 grammar 두 번 옮김(drift 위험), PR 비용 > cohesion.\n- *부분 즉시 제거*: executor 미존재 시나리오 깨짐. Issue 3와 일관 fallback 보존.\n\n## 8. CRITICAL invariants (구현 시 반드시)\n\n1. **UTF-8 rune boundary chunker** — diff에서 4-byte 이모지가 chunk 경계 걸치는 fixture 필수.\n2. **log limit-reach process kill** — `cmd.Cancel`로 명시. fixture: limit=1, 1000 commit repo.\n3. **AbortError 동치성** — `streaming.go`에서 4 메서드 동일 직렬화.\n4. **batch size mirror** — `LOG_CHUNK_ENTRY_COUNT` ↔ Go `LogBatchSize` 같은 값.\n\n## 9. WARNING\n\n- `decorations`(`%D`) locale 독립 fixture에 `HEAD -> branch` 동치 케이스 포함.\n- `cat-file --batch` 단일 경로 — show 폐기로 인한 회귀 가능성 → fixture에 missing blob, large blob 케이스 포함.\n\n## 10. 미결 → 본 결정에서 종결\n\n- `LOG_CHUNK_ENTRY_COUNT` 노출 여부: **shared constant로 노출**(`src/shared/timing-constants.ts` 또는 `src/shared/types/git.ts`), Go가 mirror.\n- blob batch 헤더 파싱 interactive 필요 여부: **non-interactive** — dispatcher 경유, `interactive` 플래그 미설정. 현 `git-blob.ts:209`는 spawn 직접이지만 Go agent는 dispatcher가 입출력 관리."
+          },
+          {
+            "id": 5,
+            "title": "Phase 4: TS write-side cleanup + dead code 제거 (write 의미 메서드는 추가 안 함)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Phase 4 권고: agent always-on 3 invariant 확정 후 시작 — (1) executor-ready barrier(workspaceManager.init이 executor wire 완료까지 await, local-channel도 SSH ensureRemoteAgent 동치 패턴), (2) reconnect queueing(crash 후 git 호출은 bounded queue 적재 → reconnect 시 flush, timeout 시 retryable error; 폴백 spawn으로 desperately retry 금지), (3) boot race 차단(cold boot fixture test). 제거 순서 7-PR: (1)`getAgentExecutor` non-optional signature ~5줄 keystone PR → (2)git-repository.ts fallback 분기 4종 ~150 → (3-7)`porcelain-v2`/`git-log-parsing`/`git-commit-detail`/`git-diff-stream`/`git-blob` 전체 ~1033. rollback granularity 위해 각 단독 PR. **git-process.ts 처리**: spawn 경로(~270) + helpers(~110) 삭제, 인터페이스(~50)는 `src/main/bridge/git/types.ts` 신규로 추출(`agent-executor.ts` 흡수 안 함 — abstract↔concrete 분리, test double cycle 회피). `GitProcessExecutor` → `GitExecutor` rename. **Write/clone**: args 패스스루 유지. `git-clone.ts`(406) + `git-clone-progress.ts`(135 → `git-stderr-progress-receiver.ts` rename) 유지. Go `run.go:Stream`에 `streamStderr: boolean` 옵션 추가(clone/push에만 활성). **Push 등 다른 progress 일반화는 2번째 use-case까지 보류**(premature generalization 회피). pattern memory 명문화도 같은 시점. **Askpass ADR (b) agent host helper 채택**: agent에 `git.askpass.request` 이벤트 추가, Go가 git에 `GIT_ASKPASS=<agent-helper>` 주입, helper가 dispatcher에 prompt event 발행, Electron이 받아 dialog → respond, agent helper가 stdout으로 git에 전달. `helpers-launcher.ts` socket/wrapper(~120줄) 제거 가능. Agent helper는 `agent --askpass <socket>` subcommand로 배포 단위 1개 유지. (a) reverse-tunnel(fragile)·(c) unsupported(clone alone deal-breaker) 거절. **시작 조건**: Phase 3 land + 4 invariant 확정 + 1~2 sprint production telemetry. 코드 변동(Phase 4 단독): TS −1,627 / Go +300. 전 phase 누적: TS git surface 2,493→~700줄(72% 축소), Go +2,580, shared +180. CRITICAL: 부팅 race로 첫 readStatus panic 가능 / askpass (b) ADR land 전 시작 금지. WARNING: GitProcessExecutor rename은 test mock 마이그레이션 포함 단독 PR, helpers-launcher socket 코드 제거 동반. 미해결: agent reconnect 동안 autofetch 정책(skip/queue/backoff) — `git-autofetch.ts:142` 별 ADR.",
+                "recorded_at": "2026-05-13T13:26:01.057Z",
+                "agent_id": "aa66915e45755f4e2"
+              }
+            ],
+            "decision": "**채택: architect 권고 그대로(3 invariant 선행 + 7-PR 순차 cleanup + types.ts 분리 + askpass (b) agent helper + clone receiver 유지). \"1~2 sprint production telemetry\" 전제는 본 프로젝트 현실(메인라인 안정성 확인 가능 시점)로 적응 해석.**\n\n## 1. Phase 4 시작 조건 — 4 invariant + 안정화 기간\n\nPhase 3 land 후 다음 4가지 확정 시 Phase 4 시작:\n\n1. **Executor-ready barrier**: `src/main/workspace/workspace-manager.ts:107`이 SSH `ensureRemoteAgent`와 동치 패턴으로 *local-channel boot까지 await*. workspace ready event 발화 시점 = executor wired 시점. 결과로 `git-registry.ts:320 getAgentExecutor`가 *영영* undefined 반환 안 함.\n2. **Reconnect queueing**: agent crash 후 reconnect 동안 git 호출은 bounded queue 적재 → reconnect 성공 시 flush, timeout 시 `{errorKind:\"unknown\", retryable:true}` 반환. **폴백 spawn 절대 금지**(두 경로 공존이 더 위험).\n3. **Boot race 차단**: cold boot 시 첫 `readStatus` 호출 시점에 executor 존재함을 contract test로 검증.\n4. **Askpass ADR (b) land**: 아래 5절 형태 구현 + test pass.\n\n**안정화 기간**: 본 프로젝트는 production telemetry가 별도로 없으므로 \"Phase 3 메인라인 land 후 1~2주간 dogfooding(개발자 본인 사용) 회귀 부재 확인\"으로 대체. SSH workspace + local workspace 양쪽 일상 사용에서 fallback 분기 호출 0 telemetry log로 검증.\n\n## 2. TS dead code 제거 — 7개 순차 PR\n\n각 PR 독립 reversibility 유지 (이전 PR revert로 단독 rollback 가능):\n\n| # | 제거 대상 | 라인 | 메모 |\n|---|---|---|---|\n| 1 | `getAgentExecutor` 반환 타입을 non-optional `AgentGitExecutor`로 좁힘 | ~5 | **keystone PR**. 이후 모든 cleanup의 전제 |\n| 2 | `git-repository.ts` 5개 fallback 분기 제거(`readStatus`/`streamLog`/`streamDiff`/`readCommitDetail`/`blob`) + 폴백 helper들(`readRemotes`/`readStashCount`/`readTagCount` 등) | ~150 | 1 후 unconditional executor 호출로 단순화 |\n| 3 | `porcelain-v2.ts` 전체 | 255 | 호출자 0 |\n| 4 | `git-log-parsing.ts` 전체 | 186 | `buildLogArgs`도 함께 제거 (Go가 빌드) |\n| 5 | `git-commit-detail.ts` 전체 | 137 | |\n| 6 | `git-diff-stream.ts` 전체 | 114 | |\n| 7 | `git-blob.ts` 전체 | 341 | `spawnCatFile` 포함 — 로컬 spawn 마지막 잔존 |\n\n**소계: ~1,188줄 제거.**\n\n## 3. `git-process.ts` 처리\n\n- `runGit`/`streamGit` 함수(~270): **삭제**.\n- `spawnGit`/`buildGitEnv`/`scheduleForceKill`(~110): **삭제**.\n- `GitProcessExecutor`/`GitProcessOptions`/`RunGitOptions`/`RunGitResult` 타입(~50): **`src/main/bridge/git/types.ts`로 이동**(신규). `agent-executor.ts`에 흡수하지 않음 — abstract↔concrete 분리, test double cycle 회피.\n- 이름 변경: `GitProcessExecutor` → `GitExecutor` (spawn 시절 유산 정리). file move + rename은 한 PR.\n- `WithLockRetryOptions`(~15): **삭제** — lock-busy 재시도 정책은 Go 측 책임으로 이관.\n\n**소계: 424 → 50줄 = ~374줄 순감.**\n\n## 4. Write 명령 / clone progress\n\n- **Args 패스스루 영구 유지**(Issue 1 결정 일관).\n- `git-clone.ts`(406): **유지**. URL 검증/destination preflight/progress receiver 결합은 Electron 책임.\n- `git-clone-progress.ts`(135): **유지 + rename → `git-stderr-progress-receiver.ts`**. push counting/fetch progress 일반화 대비.\n- Go `internal/git/run.go Stream`에 `streamStderr: boolean` 옵션 추가 — clone/push 호출 시만 활성, 기본 동작(누적+final) 보존.\n- **Receiver mini-framework 추출 보류**: clone 단일 use-case에서 implicit. 2번째 use-case(push counting objects) 등장 시 `pattern-git-stderr-progress.md` memory 신설 + 추출 검토. 현 시점 premature generalization 회피.\n\n## 5. Askpass ADR — (b) Agent host helper 채택\n\n**구체 형태**:\n1. `internal/git/`에 askpass helper 추가 — Go가 git에 `GIT_ASKPASS=<agent-helper>` 환경 주입.\n2. Helper는 `agent --askpass <socket>` subcommand로 *같은 Go binary*(배포 단위 1개 유지). prompt를 받으면 unix socket을 통해 agent dispatcher에 `git.askpass.request{prompt, requestId}` 이벤트 발행.\n3. Electron이 event 받아 `git-helpers-ipc.ts`의 기존 BrowserWindow dialog UI 그대로 띄움. credential 입력 후 `git.askpass.respond{requestId, secret}` 메서드 호출.\n4. Agent helper가 stdout으로 git에 전달, git 명령 정상 진행.\n5. `helpers-launcher.ts`의 unix socket/wrapper 생성 코드(~120줄) **제거**. Electron 측 prompt UI 로직(~210줄)은 보존.\n\n**전제 검증**: agent dispatcher의 bidirectional flow — server→client event는 이미 있음. `git.askpass.respond`는 client→server method call로 처리 가능. 새 메커니즘 도입 불필요.\n\n**기각된 옵션**:\n- (a) Electron host reverse-tunnel: unix socket reverse forwarding 설정 fragile, firewall, double network hop.\n- (c) Interactive 명령 unsupported: clone over auth-https/push prompting/commit -e 모두 불가 → workspace feature regression. clone 하나만으로도 deal-breaker.\n\n## 6. 최종 코드 변동 추정\n\n**Phase 4 단독**:\n| 분류 | 라인 |\n|---|---|\n| TS 제거 | **−1,677** (cleanup 7 PR + git-process + helpers-launcher socket) |\n| TS 신규 (`bridge/git/types.ts`) | +50 |\n| Go 추가 (askpass helper + stream stderr 옵션) | +300 |\n| **순 TS 변동** | **−1,627** |\n\n**전 phase 누적 (Phase 1+2+3+4)**:\n| 분류 | 라인 |\n|---|---|\n| Go 추가 | +2,580 |\n| TS 순감 | −2,392 |\n| Shared schema | +180 |\n| **TS git surface 최종** | **2,493 → ~700** (72% 축소) |\n\n잔존 ~700줄 내역: `git-registry.ts`(360 큐잉/lifetime), `git-autofetch.ts`(313 window focus), `status-coalescer.ts`(146 IPC debounce), `git-helpers-ipc.ts`(전부 보존 ~432 → askpass dispatch 경로 적응 후 ~310), `bridge/git/types.ts`(신규 50), `git-error.ts`(잔존 70 마커 + preflight), `git-clone.ts`(보존 406, write-side 유지), `git-clone-progress.ts`(보존 135 → 일반화 시 rename), `git-binary.ts`/`git-detect.ts`/기타 helper.\n\n## 7. 미결 항목 → follow-up 사이클\n\n- **Agent reconnect 시 autofetch 정책**(skip vs queue vs backoff) — `git-autofetch.ts:142`. 별 ADR 사이클.\n- **Receiver 패턴 명문화**: push counting objects 등 2번째 use-case 등장 시.\n- **Lock-busy retry 정책**: Go 측 책임으로 이관 후 구체 backoff curve 결정.\n\n## 8. 기각된 옵션\n\n- *Fallback 영구 유지*: dead code 영구 부채, drift 위험. Phase 3까지의 결정과 모순.\n- *인터페이스를 `agent-executor.ts`에 흡수*: abstract↔concrete 결합. test cycle 위험.\n- *Receiver mini-framework 즉시 추출*: premature generalization.\n- *(a) Electron host reverse-tunnel*: fragile.\n- *(c) interactive 명령 unsupported*: deal-breaker."
+          },
+          {
+            "id": 6,
+            "title": "fs 누락 기능 보강: unlink · rmdir · rename Go 구현 + IPC contract + 렌더러 UI",
+            "status": "decided",
+            "decision": "**채택: 프로토콜 스키마가 이미 정의되어 있으므로 mechanical wiring으로 진행. Trash 정책·복구 가능성·재귀 삭제는 본 이슈 범위 밖(별도 follow-up).**\n\n## 1. 작업 범위 (mechanical)\n\n**Go 측** (`internal/fs/`):\n- `write.go`에 `(s *Service) Unlink/Rmdir/Rename` 추가\n  - `Unlink`: 디렉토리는 `IS_DIRECTORY`로 거부, regular file/symlink만 `os.Remove`. 심볼릭 링크는 *링크만* 제거(대상 파일은 보존).\n  - `Rmdir`: `os.Remove` 사용, ENOTEMPTY → `NOT_EMPTY`. 빈 디렉토리 외에는 거부.\n  - `Rename`: `os.Rename` 사용, 양쪽 모두 `path.Resolve`로 워크스페이스 경계 검증, EXDEV → `CROSS_DEVICE`, 타겟 존재 시 → `ALREADY_EXISTS`(silent replace 거부, 호출자가 명시적 삭제 후 rename).\n- `service.go` Register 블록에 `fs.unlink`, `fs.rmdir`, `fs.rename` 등록.\n- 기존 `fsnotify` watch가 Remove/Rename 이벤트를 자연스럽게 emit하므로 watch.go 추가 변경 없음.\n\n**TS 측**:\n- `src/main/bridge/fs/provider.ts`의 `AgentBackedProvider` 인터페이스에 `unlink(relPath)`, `rmdir(relPath)`, `rename(from, to)` 추가.\n- `src/main/bridge/fs/agent-provider.ts`에 `callAgent(\"fs.unlink\", ...)` 등 3개 구현.\n- `src/main/bridge/fs/write-handlers.ts`에 `unlinkHandler`, `rmdirHandler`, `renameHandler` 추가.\n- `src/main/bridge/fs/ipc.ts` Register에 3개 wire.\n- `src/shared/ipc-contract.ts` `fs.call`에 `unlink`/`rmdir`/`rename` 추가(워크스페이스 경계는 IPC 레벨 zod schema에 `workspaceId` 포함).\n\n**Renderer 측**:\n- `src/renderer/services/fs-mutations/`에 `unlink.ts`, `rmdir.ts`, `rename.ts` 추가(이미 있는 `new-file.ts` 패턴 그대로).\n- `src/renderer/components/files/file-tree-menu.ts`에 Rename(F2)·Delete 메뉴 항목 추가. 디렉토리 비어있지 않을 때 Delete는 disabled로 두거나 confirm 다이얼로그 후 `rmdir` 시도→`NOT_EMPTY` 응답 시 안내.\n- `src/renderer/components/files/hooks/use-file-tree-actions.ts`에 `rename`/`delete` action 핸들러 추가.\n- Rename은 inline-rename 입력 row(`startCreate`와 유사한 패턴) 도입.\n\n**테스트**:\n- Go `internal/fs/write_test.go`에 unlink/rmdir/rename happy + error path 케이스.\n- TS `tests/unit/main/ipc/fs-channel.test.ts`에 핸들러 round-trip.\n- `tests/unit/shared/contract/contract-drift.test.ts`가 자동으로 contract 추가 감지.\n- Integration: `tests/integration/agent/agent-fs.integration.test.ts`에 3개 메서드 round-trip 추가.\n\n## 2. 정책 결정 (이번 PR 한정)\n\n- **재귀 삭제 금지**: `fs.unlink`/`fs.rmdir`은 단일 entry만. 비어있지 않은 폴더 삭제는 의도적으로 미지원 → 안전.\n- **Trash(휴지통) 이동 미지원**: 즉시 영구 삭제. UX 보호는 confirm 다이얼로그로. 휴지통 정책은 follow-up 이슈로 분리.\n- **Rename이 cross-device(EXDEV)일 때**: 에이전트가 `CROSS_DEVICE` 반환하면 TS bridge는 그대로 표면화. 자동 copy+delete fallback은 미지원(돌이킬 수 없는 작업 + 부분 실패 시 데이터 손실 위험). 사용자가 안내 받고 별도 작업으로 처리.\n- **Rename target 충돌**: `ALREADY_EXISTS` 반환. 호출자는 confirm + 명시적 unlink 후 재시도.\n- **Open editor 처리**: rename된 파일이 에디터에 열려있으면 renderer가 editor model의 URI 갱신. delete된 파일이 열려있으면 닫기 + 미저장 변경은 confirm.\n\n## 3. 산출 follow-up 이슈 (이번 사이클 범위 밖, 별도 사이클)\n\n- **재귀 삭제**: `fs.deleteRecursive` 또는 renderer 측 `walk + unlink + rmdir` 합성 함수. 권고: renderer 합성(go agent 단일 책임 유지).\n- **Trash 이동**: Electron `shell.trashItem`은 main에만 있음. SSH workspace에선 trash 개념 없음 → 정책 결정 필요(local만 trash, ssh는 즉시 삭제 + 강한 confirm).\n- **Drag & drop move**: rename의 UI 변형. 별도 사이클.\n\n## 4. 기각된 옵션\n\n- *Trash 정책을 이번에 같이 결정*: 휴지통은 Electron-only / cross-platform 차이 / SSH host 의미론 등 따로 검토할 게 많아 본 mechanical wiring을 늦춤. 분리.\n- *재귀 삭제 같이 구현*: 단일 unlink/rmdir의 NOT_EMPTY 응답이 의도적 safety net 역할. 재귀 삭제는 사용자 confirm UX 설계가 더 무거워 분리.\n- *Cross-device auto-fallback*: copy+delete 중 실패 시 데이터 손실. 명시적으로 미지원.\n\n## 5. HOW spawn 생략 사유\n\n프로토콜 zod schema(`src/shared/protocol/agent/fs.ts:85-124`)와 Go 타입(`internal/fs/types.go:124-138`)이 이미 작성되어 있고, 기존 createFile/mkdir 패턴이 그대로 적용된다. 설계 자유도가 낮은 mechanical 작업이라 architect spawn ROI 낮음."
+          }
+        ],
+        "research_summary": "검증 완료: (1) Go 측 등록 메서드는 fs 9개·search 2개·git 8개. git은 모두 args-passthrough 형태로 의미 없음. (2) TS 잔존 git 코드 ~3,500줄 분포: porcelain-v2(255), git-log-parsing(186), git-commit-detail(137), git-error(607), git-stderr-patterns(333), git-process(424), git-diff-stream(114), git-blob(341), git-clone(406), git-clone-progress(135). UI 결합부(`git-autofetch` 313, `status-coalescer` 146, `git-helpers-ipc` 432, `helpers-launcher` 221)는 Electron 의존(window focus, dialog, unix socket)이라 잔존 필수. (3) fs unlink/rmdir/rename은 프로토콜 상수·zod 스키마가 `src/shared/protocol/agent/fs.ts:91-124`에 이미 정의됨. Go 측 types.go에도 `RmdirParams`/`RenameParams` 선언만 있고 service.go Register는 미연결. IPC contract·렌더러 fs-mutations 모두 없음. (4) 기존 메모리: `pattern-ipc-stream.md`(streamId 발급은 main router 단독 권한, abort는 AbortError throw, progress는 도메인 payload만), `empirical-git-log-source-cost.md`(`--source --all` 50k에서 +1.06% 오버헤드로 채택). (5) 의도된 분업(`38d71c7` 커밋 메시지): \"Electron keeps parsing, queueing, and UI orchestration in TS, while all real git process execution happens inside the Go agent\" — 이 단서를 B 방향으로 깨는 결정임.",
+        "created_at": "2026-05-13T13:10:32.062Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Go: fs.unlink/rmdir/rename 구현 + service.go Register",
+          "status": "completed",
+          "context": "Issue 6 결정. 프로토콜 zod schema와 Go types.go의 RmdirParams/RenameParams는 이미 정의되어 있으나 service.go Register와 실제 구현이 없음. write.go의 createFile/mkdir 패턴을 그대로 적용.",
+          "acceptance": "internal/fs/write_test.go에 9 happy + error 케이스(unlink 파일/심볼릭/디렉토리 거부, rmdir 빈/non-empty 거부, rename happy/cross-device/target-exists/out-of-workspace) 추가하고 모두 통과. `go test ./internal/fs/...` 그린. fs.unlink/rmdir/rename이 service.go Register 블록에 등록되어 dispatcher.go가 호출 가능.",
+          "approach": "internal/fs/write.go에 (*Service).Unlink/Rmdir/Rename 메서드 추가. Unlink: lstat로 디렉토리 거부(IS_DIRECTORY), regular file/symlink는 os.Remove(symlink는 링크만). Rmdir: os.Remove + ENOTEMPTY→NOT_EMPTY. Rename: 양쪽 path.Resolve로 워크스페이스 경계 검증, os.Rename, EXDEV→CROSS_DEVICE, 타겟 존재 시 ALREADY_EXISTS(silent replace 거부). service.go Register 블록에 3개 등록. fsnotify Remove/Rename 이벤트는 기존 watch.go가 자연스럽게 처리.",
+          "risk": "심볼릭 링크 처리(os.Remove vs os.RemoveAll), Rename 타겟이 디렉토리일 때 OS별 동작 차이 — 단위 테스트로 확정.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e218d-9ff9-7272-bddb-d39fa2ef9801",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:27:41.334Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Go fs.unlink/rmdir/rename in internal/fs/write.go, registered methods in service.go, added write_test coverage including dispatcher round trips. Worker ran `go test ./internal/fs/...` successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:40:16.503Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "TS bridge + IPC contract + provider interface for unlink/rmdir/rename",
+          "status": "completed",
+          "context": "Issue 6 결정. Go 측 fs.unlink/rmdir/rename이 등록되면 TS bridge가 호출하도록 wire. createFile/mkdir 핸들러 패턴 그대로.",
+          "acceptance": "tests/unit/main/ipc/fs-channel.test.ts에 3개 핸들러 round-trip 케이스 추가하고 통과. tests/unit/shared/contract/contract-drift.test.ts가 새 contract 변경 인식. `bun run typecheck` 그린.",
+          "approach": "(1) src/main/bridge/fs/provider.ts의 AgentBackedProvider 인터페이스에 unlink/rmdir/rename 메서드 추가. (2) src/main/bridge/fs/agent-provider.ts에 callAgent(\"fs.unlink\"/\"fs.rmdir\"/\"fs.rename\") 구현. (3) src/main/bridge/fs/write-handlers.ts에 unlinkHandler/rmdirHandler/renameHandler 추가, workspaceId/relPath/zod 검증. (4) src/main/bridge/fs/ipc.ts Register에 3개 wire. (5) src/shared/ipc-contract.ts의 fs.call에 unlink/rmdir/rename 추가(workspaceId 포함 zod schema).",
+          "risk": "workspaceId scoping 누락 시 다른 워크스페이스 파일 삭제 가능 — path-safety 검증 양쪽 확인.",
+          "plan_issue": 6,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2191-8ed4-7eb1-a022-9d92e2b7e58c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:27:47.388Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Wired fs.unlink/rmdir/rename through FsProvider, AgentFsProvider, IPC handlers/registration, and shared IPC contract. Added handler round-trip tests and contract drift coverage. Worker ran biome, focused tests, and `bun run typecheck` successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:46:21.650Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Renderer fs-mutations 추가 + file-tree 메뉴(Rename/Delete)",
+          "status": "completed",
+          "context": "Issue 6 결정. Bridge가 wire되면 renderer에서 사용자가 Rename/Delete 가능한 UX 표면 만든다. 기존 new-file.ts 패턴과 file-tree-menu.ts 구조 그대로 활용.",
+          "acceptance": "tests/unit/renderer/components/files/ 또는 tests/integration/renderer/에 컨텍스트 메뉴 라운드트립 테스트. Delete 후 fsnotify 이벤트로 file tree에서 항목 제거 확인. Rename 후 동일. NOT_EMPTY/ALREADY_EXISTS/CROSS_DEVICE 에러 코드별 사용자 안내.",
+          "approach": "(1) src/renderer/services/fs-mutations/{unlink.ts, rmdir.ts, rename.ts} 추가. new-file.ts와 같은 형태로 ipcCall + 에러 매핑. rename은 inline-rename 입력 row 패턴(file-tree-row의 startCreate와 유사). (2) src/renderer/components/files/file-tree-menu.ts에 Rename(F2)·Delete 항목 추가. Delete는 file면 unlink, dir면 rmdir 분기. (3) src/renderer/components/files/hooks/use-file-tree-actions.ts에 rename/delete action 핸들러 추가. (4) 정책: NOT_EMPTY 응답 시 안내, ALREADY_EXISTS 응답 시 confirm dialog. 열린 에디터의 rename/delete 후 model URI 갱신 또는 close.",
+          "risk": "파일이 열려있는 상태에서 rename/delete 시 에디터 모델 정리 누락 → unsaved 변경 손실 위험. confirm dialog로 가드.",
+          "plan_issue": 6,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2197-cf1b-7052-acc1-cd35dc3e0052",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:04.173Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added renderer unlink/rmdir/rename services, Delete/Rename non-root context menu entries, file/symlink vs dir delete routing, inline rename row, fs error mappings for NOT_EMPTY/ALREADY_EXISTS/CROSS_DEVICE, and parent refresh after mutations. Focused renderer service/component tests and typecheck passed. Caveat: broad open-editor tab/model URI retargeting after rename/delete intentionally deferred.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:56:40.299Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Integration test: agent-fs round-trip에 unlink/rmdir/rename 추가",
+          "status": "completed",
+          "context": "Issue 6 결정. Go 측 + bridge + renderer까지 통합 라운드트립 검증.",
+          "acceptance": "`bun test tests/integration/agent/` 그린. unlink/rmdir/rename 라운드트립 3 케이스 모두 통과. fs.changed 이벤트가 적절히 발화되어 watcher 측에서 deleted/renamed 인식.",
+          "approach": "tests/integration/agent/agent-fs.integration.test.ts에 unlink/rmdir/rename 라운드트립 3개 케이스 추가. agent 실 spawn → 워크스페이스 임시 파일·디렉토리 생성 → 3 메서드 호출 → 결과·에러 코드 검증 → cleanup. tests/integration/renderer/search/round-trip.test.ts 패턴 참조.",
+          "risk": "CI 환경 fsnotify 타이밍 의존성 — 적절한 await/poll로 처리.",
+          "plan_issue": 6,
+          "deps": [
+            1,
+            2,
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e21a0-7684-7101-b2b3-184bef108ed4",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:08.874Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extended real-agent fs integration test with fs.unlink/rmdir/rename round trips, fs.changed watcher assertions for delete/rename, and representative error-code checks for IS_DIRECTORY/NOT_EMPTY/ALREADY_EXISTS. Tester ran the focused agent-fs integration test and full `bun test tests/integration/agent/` successfully. Caveat: rename watcher assertion accepts old-path deleted or new-path added due OS fsnotify variance.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:02:41.774Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "shared/types/git.ts에 GitErrorKindSchema + parity check script",
+          "status": "completed",
+          "context": "Issue 1·2 결정. Phase 1 stderr 분류 이전의 전제. 50종 GitErrorKind를 zod enum으로 shared 승격, Go가 수기 mirror, CI script가 두 enum 동등성 검증.",
+          "acceptance": "GitErrorKindSchema가 shared로 노출되고 `bun run typecheck` 그린. parity check script가 Go 상수 누락/추가/오타를 정확히 감지(unit test로 의도된 mismatch 케이스 통과 검증).",
+          "approach": "(1) src/shared/types/git.ts에 GitErrorKindSchema = z.enum([...50종...]) 추가. 기존 src/main/git/git-error.ts:81-141의 GitErrorKind union을 export 형태로 shared 이관. GitActionHintSchema는 이미 존재(`shared/types/git.ts:576`). ClassifiedErrorSchema = z.object({kind, message, hint?, argv?}) 신설. (2) scripts/check-git-error-kind-parity.ts: zod enum 값 set ↔ Go internal/git/errors.go의 Kind 상수 set ↔ fixture의 kind 값 set 3-way 동등성. bun test에서 호출 가능하도록 별 테스트 파일도 추가.",
+          "risk": "기존 GitErrorKind union을 ts에서 shared로 옮길 때 import path 변경이 git-error.ts와 catch 분기 산재 코드에 영향 — 점진 마이그레이션, 한 PR 안에 import 일괄 변경.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e218d-a597-7960-a95a-10b5105068e1",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:17.894Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Shared GitErrorKind schema and ClassifiedErrorSchema added; git-error.ts now imports/re-exports shared kind; minimal Go kind mirror and parity script/test added. Worker verified parity script, unit tests, typecheck, focused git tests, Go git tests, and biome. Enum count is 60, not the older 50 estimate.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:41:15.540Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "stderr parity fixture 50+ 케이스 수동 작성·리뷰",
+          "status": "completed",
+          "context": "Issue 1·2 결정. Phase 1 회귀 방지의 기반. 골든 파일은 한쪽 구현으로 자동생성 시 양쪽 버그가 같이 통과하므로 수동 작성·리뷰 필수. git po/en@*.po + LANG=C 캡처 + 과거 버그 리포트 stderr 출처.",
+          "acceptance": "50+ 케이스 디렉토리 생성. 각 expected.json이 GitErrorKindSchema·GitActionHintSchema와 zod parse 통과. 우선순위 충돌 케이스 최소 5개 포함. 리뷰어 sign-off.",
+          "approach": "tests/fixtures/git/stderr/<case>/{stderr.bin, expected.json, meta.json} 디렉토리 구조로 50+ 케이스 작성. 각 case: meta.json에 git --version, LANG=C, 출처(po/bug-report/synthetic) 기록. expected.json은 ClassifiedError 형태(kind/message/hint?). 필수 케이스: 50 stderr 패턴 종별 1개 + 우선순위 충돌 (local-changes-overwritten vs conflict, auth-required vs auth, non-fast-forward vs force-push-rejected) + locale-drift unknown 케이스 1개. 작성 후 리뷰어가 git-error.ts:239-360의 우선순위 표와 1:1 매핑 확인.",
+          "risk": "자동생성 유혹 — 양쪽 구현이 같은 버그로 통과할 위험. 강제로 수동 + 리뷰.",
+          "plan_issue": 2,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2192-594a-7550-86c4-5970ea16a3de",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:25.876Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added 62 manually authored stderr parity fixtures under tests/fixtures/git/stderr plus validation test. Coverage spans 55 distinct kinds, 6 priority collision cases, and unknown locale-drift sentinel. Worker ran fixture validation, parity tests/script, typecheck, and biome; Lead/Reviewer sign-off still required before fixtures are canonical.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:47:39.262Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Go: internal/git/{errors,patterns,classify}.go + run.go envelope 확장",
+          "status": "completed",
+          "context": "Issue 2 결정. Phase 1 핵심 Go 구현. TS 측 git-error.ts(607) + git-stderr-patterns.ts(333) 합 940줄을 Go로 이전.",
+          "acceptance": "internal/git/classify_test.go가 task #6의 50+ fixture를 모두 로드해 classify 결과 일치 검증. parity script 통과. `go test ./internal/git/...` 그린. output-too-large는 더 이상 transport error로 던지지 않음.",
+          "approach": "(1) internal/git/errors.go: Kind string type + 50 상수 + ClassifiedError struct{Kind, Message, Hint*, Argv[]} + JSON 직렬화 헬퍼. 외부에서 임포트되는 유일한 surface. (2) internal/git/patterns.go: *StderrPatterns []regexp.Regexp 50종, var _ = regexp.MustCompile 패키지 init. 결정 로직 금지. (3) internal/git/classify.go: Classify(stderr) Kind + HintForKind(kind) *Hint + MessageForKind(kind, ctx) string. 순수 함수, I/O 없음. 우선순위는 git-error.ts:239-360 그대로. (4) internal/git/run.go 확장: exit code !=0일 때 classify.Classify(stderr) 호출 후 RunResult.ErrorKind/ErrorHint/ErrorMessage 채움. **output-too-large 데이터화**: 현 proto.CodedError 분기를 RunResult{Code:0, ErrorKind:\"output-too-large\"}로 변경.",
+          "risk": "우선순위 순서 위반 시 silent miscategorization — fixture에 충돌 케이스가 핵심 가드.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2198-63fe-7d72-b64b-8fc843cc4eb8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:37.182Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Go stderr classification catalog and priority classifier with fixture-backed tests; extended RunResult with errorKind/errorHint/errorMessage and changed stdout overflow to output-too-large data envelope. Worker preserved askpass additions and ran Go git tests plus parity script successfully; 62 stderr fixtures loaded.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:55:20.188Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "TS: gitErrorFromAgent 팩토리 + agent-executor 호출 변경 + 분류 로직 제거",
+          "status": "completed",
+          "context": "Issue 2 결정. Go가 분류 결과를 envelope에 실어 보내므로 TS는 재분류 대신 결과 신뢰. ~870줄 삭제, GitError 클래스는 마커로 보존.",
+          "acceptance": "`bun run typecheck` + `bun run lint` 그린. tests/unit/main/ipc/channels/git/* 통과. 기존 GitError catch 분기 산재 코드(5+ 파일)의 instanceof GitError 정상 동작. agent envelope→GitError 변환 round-trip 단위 테스트 1+ 케이스.",
+          "approach": "(1) src/shared/protocol/agent/git.ts의 AgentGitRunResultSchema에 errorKind?/errorHint?/errorMessage? 옵셔널 3필드 추가. (2) src/main/git/git-error.ts에서 classifyGitStderr/messageFromGitFailure/hintForGitErrorKind/gitErrorFromExit 제거(~351줄). gitErrorFromAgent(result, args) 신설(~30줄, agent envelope을 GitError로 재래핑). gitMissingError/unknownGitError/outputTooLargeGitError 보존. GitError 클래스 shell(~25줄)·preflight 생성기 보존. (3) src/main/git/git-stderr-patterns.ts 전체 삭제(333줄). (4) src/main/bridge/git/agent-executor.ts:95의 gitErrorFromExit({...}) → gitErrorFromAgent(result, args). 재분류 절대 금지. (5) src/main/git/git-workflow.ts:285의 isConflictStderr(stderr) → err.kind === \"conflict\". (6) git-process.ts 호출자 5곳은 **건드리지 않음**(Phase 4 cleanup으로 보류).",
+          "risk": "GitError 클래스 필드(`cause`)가 envelope에 없음 — transport error만 cause 보존, agent error는 cause undefined. 분기 검증.",
+          "plan_issue": 2,
+          "deps": [
+            5,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e219f-e757-7482-be77-5cc616941cfe",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:46.864Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added AgentGitRunResult errorKind/errorHint/errorMessage schema fields, implemented gitErrorFromAgent, switched AgentGitExecutor run/stream to trust agent envelopes, removed TS stderr classifier and git-stderr-patterns.ts, and updated workflow conflict checks to use GitError.kind. Focused typecheck/lint/git channel tests passed. Caveat: broad legacy tests/unit/main/git still has failures expecting removed TS local-spawn classification, pending cleanup/migration.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:03:23.847Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "Phase 1 round-trip 테스트: agent stderr → TS GitError 라운드트립",
+          "status": "completed",
+          "context": "Issue 2 결정. Go + TS 통합 검증. 50+ fixture가 양쪽 unit에서는 통과해도, 실 agent를 통한 wire round-trip에서 깨질 수 있음.",
+          "acceptance": "10+ 통합 케이스 그린. CI에서 일관 통과. parity check script도 CI 통과.",
+          "approach": "tests/integration/agent/git-error-classification.integration.test.ts 신규. 의도된 실패를 유도하는 git args(auth 실패는 mock SSH, conflict는 임시 repo에 conflict 상태 만들기, lock-busy는 .git/index.lock 직접 생성 등) 또는 stderr fixture를 agent에 직접 inject. 결과 envelope의 errorKind/errorHint/errorMessage 검증 + TS GitError로 변환 후 instance·kind·hint 일치. 우선순위 충돌 케이스 4종, locale-drift unknown 1종 포함.",
+          "risk": "실 git 명령 의존 케이스는 환경별 stderr 차이 — agent에 직접 stderr inject 가능한 testing hook 활용 또는 docker fixture.",
+          "plan_issue": 2,
+          "deps": [
+            7,
+            8
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e21a6-da5f-7ad1-b842-abbd2056c799",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:28:54.329Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added integration coverage for Go agent git.run stderr classification through TS GitError conversion. Tests cover 19 stable real LANG=C git failures, 7 fixture-injected priority/unknown cases via fake PATH git, assert errorKind/errorHint/errorMessage, gitErrorFromAgent instanceof GitError, and AgentGitExecutor classified rethrow. Tester ran focused integration test and parity script successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:13:01.523Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "status parity fixture 12+ 케이스 수동 작성·리뷰",
+          "status": "completed",
+          "context": "Issue 3 결정. Phase 2의 회귀 가드. porcelain v2 stdout → GitStatus 동형성을 양쪽 파서에서 검증할 골든 파일.",
+          "acceptance": "12+ 케이스 디렉토리 생성. 각 expected.json이 GitStatusSchema zod parse 통과. 함정 5종 모두 별 케이스로 존재. 리뷰어 sign-off.",
+          "approach": "tests/fixtures/git/status/<case>/{stdout.bin, expected.json, meta.json} 12+ 케이스. 필수: clean / staged-only / working-only / conflict XY 7종(DD/AU/UD/UA/DU/AA/UU) / rename NUL-mode / rename non-NUL / untracked / detached HEAD / unborn / ahead+behind / submodule placeholder / upstream null / `branch.ab +0 -0`. 각 expected.json은 GitStatusSchema와 일치 — 특히 5 함정(branch.upstream null vs \"\"/oldRelPath omit vs \"\"/conflictType null vs \"\"/lastFetchedAt null vs 0/operationState.kind!=none 시 다른 필드 직렬화)을 명시 케이스로 분리. meta.json에 git --version, LANG=C, 출처(real-repo capture/synthetic) 기록.",
+          "risk": "자동생성 유혹 — 양쪽 같은 버그로 통과 위험. 수동 + 리뷰 강제.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e218d-aafb-7a00-b699-6674d64c61a5",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:01.718Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added 24 manually authored status parity fixtures and validation test. Reviewer initially found last-fetched-null-trap upstream drift; Lead corrected expected upstream to origin/main, and re-review APPROVED with status fixture test passing.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:53:02.576Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "Go: internal/git/{porcelain,status}.go + porcelain_test.go",
+          "status": "completed",
+          "context": "Issue 3 결정. Phase 2 핵심 Go 구현. 단일 묶음 git.status({}) 메서드로 5개 sub-call(status -z, remote, stash list, tag --list, readGitOperationState, readFetchHeadMtime)을 host-local fan-out → 응답 1회.",
+          "acceptance": "`go test ./internal/git/...` 그린. fixture 12 케이스 모두 ParsePorcelainV2 일치. status integration test: 임시 repo에서 git.status 호출 시 GitStatusSchema zod parse 통과 + 5 함정 케이스 검증.",
+          "approach": "(1) internal/git/porcelain.go (~280줄): ParsePorcelainV2(bytes) (Status, error) 순수 함수. splitPorcelainRecords NUL-aware, parseBranchHeader, conflict XY 7종 매핑, rename old-path 짝(NUL/non-NUL 모두). I/O 금지. (2) internal/git/status.go (~180줄): Status(ctx, params) 서비스 메서드 — errgroup으로 6 sub-call fan-out, partial failure propagate(atomic snapshot 의미 유지), 결과 조립. metadata.go의 함수 *내부 재사용*(git.metadata 별도 노출 메서드는 그대로 유지). exit code !=0 시 classify.Classify로 errorKind 채우고 데이터 반환(throw 금지). (3) internal/git/porcelain_test.go: task #10 fixture 12+ 케이스 로드, ParsePorcelainV2 결과 일치. (4) service.go Register에 \"git.status\" 등록. (5) src/shared/types/git.ts의 GitStatusSchema에 GO 측 직렬화 invariant 명시(branch.upstream/oldRelPath/conflictType는 *pointer omitempty/lastFetchedAt *int64 omitempty/operationState kind 분기).",
+          "risk": "errgroup 한 sub-call 실패 시 전체 실패 정책 — TS Promise.all과 의미 일치. rename NUL-mode index advance 버그 — fixture로 박제.",
+          "plan_issue": 3,
+          "deps": [
+            7,
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e219f-ec8e-7321-a1aa-080b90749bbe",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:15.847Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented pure NUL-aware porcelain v2 parser, git.status service with host-local subcalls/metadata/FETCH_HEAD reuse and partial failure propagation, registered git.status, and added fixture/temp-repo tests. Worker ran `go test ./internal/git/...` successfully; 24 status fixtures loaded. Caveat: parser tests normalize service-owned fields not derivable from porcelain stdout alone.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:02:00.308Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "TS: GitProcessExecutor.status? + AgentGitExecutor.status + readStatus 분기",
+          "status": "completed",
+          "context": "Issue 3 결정. Go가 git.status 등록되면 TS git-repository.ts:1149 readStatus가 의미 메서드 분기를 타도록 wire. fallback은 보존(Phase 4까지).",
+          "acceptance": "`bun run typecheck` 그린. tests/unit/main/git/git-repository.test.ts 또는 신규 테스트에서 mock executor.status가 호출되는지 분기 검증. existing tests/integration/main/git/round-trip.test.ts 그대로 통과(폴백 경로 보존 확인).",
+          "approach": "(1) src/main/git/git-process.ts의 GitProcessExecutor 인터페이스에 status?(opts): Promise<GitStatus> 옵셔널 추가. (2) src/main/bridge/git/agent-executor.ts에 status(opts) 메서드 구현 — provider.callAgentMethod(\"git.status\", opts) + GitStatusSchema.parse. (3) src/main/git/git-repository.ts:1149 readStatus 분기 ~10줄: if (this.executor.status) return this.executor.status({}); else { ...기존 5-RTT 코드 그대로... }. capabilities/operationState 후처리 코드(:1155-1172)는 else 가지로 이동. (4) src/shared/protocol/agent/git.ts에 AgentGitStatusParamsSchema/AgentGitStatusResultSchema 추가(또는 GitStatusSchema 재사용). (5) readMetadata/readRemotes/readStashCount/readTagCount는 **삭제 안 함**, else 폴백 유지.",
+          "risk": "분기 위치를 한 곳만 두는 invariant 깨지면 shotgun surgery — git-repository.ts:1149만 분기, 그 외 호출자(:161/:195/:245/:666 등)는 readStatus 경유로 자동 이득.",
+          "plan_issue": 3,
+          "deps": [
+            11
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21a5-506b-7943-b58a-d76893242cc8",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:25.164Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added git.status protocol schema, optional GitProcessExecutor.status, AgentGitExecutor.status, readStatus semantic branch with fallback preserved, and unit coverage for semantic branch/fallback/AgentGitExecutor status parsing. Worker ran typecheck and focused unit test successfully. Caveat: existing integration round-trip mock lacks workspaceManager.requireContext after GitRegistry non-optional executor change; outside status wire itself.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:08:44.194Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "Phase 2 round-trip 테스트: agent git.status 실행 + GitStatusSchema 검증",
+          "status": "completed",
+          "context": "Issue 3 결정. 실 agent + 실 git binary로 git.status 라운드트립 검증.",
+          "acceptance": "8+ 통합 케이스 그린. CI 일관 통과.",
+          "approach": "tests/integration/agent/git-status.integration.test.ts 신규. 임시 디렉토리에 다양한 상태 repo 생성(clean/dirty/conflict/detached/unborn) → agent.callAgentMethod(\"git.status\", {}) → 응답이 GitStatusSchema parse + 기대 필드 값 검증. 함정 5종 케이스(branch.upstream null/conflictType null/lastFetchedAt null/operationState kind=\"none\"·\"merge\"·\"rebase\") 각각 통과 검증. partial failure 시뮬레이션: 임시로 .git/HEAD 망가뜨려서 sub-call 실패 propagate 검증.",
+          "risk": "git 버전별 출력 차이 — agent rebuild + bun test 환경에서 git binary 버전 메타로 기록.",
+          "plan_issue": 3,
+          "deps": [
+            11,
+            12
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-13T13:29:30.978Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added real-agent git.status integration suite covering 8 cases: clean, dirty staged/working/untracked, merge conflict, detached HEAD, unborn branch, rebase conflict, FETCH_HEAD mtime, and corrupted repo rejection. Traps include upstream null, non-conflict conflictType null, lastFetchedAt null, operationState none/merge/rebase. Tester ran focused integration test and biome successfully. Caveat: no true single sub-call partial-failure simulation; corrupted HEAD used for stable rejection path.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:17:14.937Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "Tidy First: run.go의 registerStream을 internal/git/streaming.go로 추출",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 streaming 의미 메서드 4종이 같은 streamId 관리·cancel·abort 메커니즘을 공유해야 함. behavior 변경 없는 구조 추출을 별 PR로 분리.",
+          "acceptance": "`go test ./internal/git/...` 기존 모든 테스트 그린(behavior 변경 0). git.stream 호출이 여전히 정상. PR 변경 라인 ~140줄 신규 + run.go에서 ~수십 줄 이관.",
+          "approach": "internal/git/streaming.go 신규 ~140줄: StreamID 관리(맵), Cancel(streamId) 메서드, EmitBatch(eventName, payload)/EmitChunk(eventName, payload) wrapper, context.Canceled → AbortError 직렬화 헬퍼. run.go:297 registerStream/unregisterStream 호출 사이트는 streaming.go의 새 함수로 *교체* — behavior 변경 0(Tidy First). git.cancel 메서드는 streaming.go가 책임.",
+          "risk": "Tidy First refactor가 behavior 변경 섞이지 않게 — diff 리뷰어 sign-off.",
+          "plan_issue": 4,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e219f-f1c4-7f50-83d2-2cc993f8d6ab",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:37.382Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Extracted git.stream/git.cancel stream params, stream registry, cancel handling, and chunk emission helpers from run.go into internal/git/streaming.go with no intended behavior change. Preserved classifier and askpass run.go changes. Worker ran `go test ./internal/git/...` successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:58:12.714Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "shared LOG_CHUNK_ENTRY_COUNT 상수 노출 + Go mirror",
+          "status": "completed",
+          "context": "Issue 4 결정. log batch 크기 drift 방지(renderer paging jitter 회피). TS·Go 동일 상수.",
+          "acceptance": "두 상수가 같은 값이고 `bun run typecheck` 그린. shared 위치에서 export. 기존 TS 호출자가 shared 경로 import.",
+          "approach": "src/shared/types/git.ts 또는 src/shared/timing-constants.ts에 LOG_CHUNK_ENTRY_COUNT export. 기존 TS 측 정의 위치(`git-repository.ts` 또는 `git-log-parsing.ts` 내부 const) 찾아 shared로 이관. internal/git/log.go에 const LogBatchSize = <같은 값> mirror.",
+          "risk": "drift 시 silent — comment로 양쪽 cross-reference 표기.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2192-5e51-79a1-b487-3daf2f0e38b2",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:46.361Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Exported shared LOG_CHUNK_ENTRY_COUNT=50 from src/shared/types/git.ts, updated git-repository.ts to import it, and added Go mirror LogBatchSize=50 in internal/git/log.go. Worker ran gofmt and `bun run typecheck` successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:42:47.358Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "streaming parity fixtures (log/diff/blob/commitDetail) 수동 작성·리뷰",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 회귀 가드. 4 메서드의 입력 stdout/stderr → 기대 출력 골든 파일.",
+          "acceptance": "각 도메인 6~10 케이스 = 총 25+ 디렉토리. zod schema parse 통과. UTF-8 boundary fixture에 4-byte 이모지가 chunk 경계 명시. 리뷰어 sign-off.",
+          "approach": "tests/fixtures/git/{log,diff,blob,commit-detail}/<case>/{stdout.bin, expected.json, meta.json} 각 도메인 케이스. log: scope=ref/all/branches 각각 + grep + limit-reach + afterSha cursor + decoration `HEAD -> branch` + source=ON/OFF. diff: from/to 다양 + UTF-8 boundary(4-byte 이모지) + 큰 chunk + binary cap. blob: utf8/utf8-bom/binary/missing/large. commitDetail: merge commit / signed-commit / amended / empty body. 각 expected.json은 의미 메서드 result envelope shape으로 작성. meta.json에 git --version, LANG=C 기록.",
+          "risk": "자동생성 함정. UTF-8 boundary 정확한 바이트 위치 명시.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e218d-b108-7943-9020-90867e6f9c5b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:29:53.684Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added 28 manually authored streaming parity fixtures across log/diff/blob/commit-detail plus README. Reviewer spot-check APPROVED counts/domain coverage and UTF-8 emoji boundary metadata; note remains that Task #16 has no automated validation test yet.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:53:02.885Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "Go: internal/git/log.go — Log 서비스 + 파서 + limit-reach kill + batch emit",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 의미 메서드 1/4. log 도메인. record-delimited parse + cursor seek + limit.",
+          "acceptance": "internal/git/log_test.go가 fixture(task #16) 로드해 entries 일치 검증. limit=1, 1000-commit repo에서 즉시 kill 확인. decoration locale 독립. `go test ./internal/git/...` 그린.",
+          "approach": "internal/git/log.go (~260줄): Log(ctx, params) 서비스 메서드. opts: scope(ref/all/branches)/ref?/grep?/limit?/afterSha?/paths?/source?. custom format builder(buildLogArgs 동치), \\\\x1e record split, parseLogRecord(decoration `%D` 포함), batch(LogBatchSize)로 git.log.batch event 발행, limit reach 시 cmd.Cancel = func() error { return cmd.Process.Kill() }로 즉시 종료. result: {count, hasMore, totalScanned?}. service.go Register에 \"git.log\" 등록.",
+          "risk": "limit-reach 시 SIGPIPE로 exit code 비결정 — cmd.Cancel 명시 필수.",
+          "plan_issue": 4,
+          "deps": [
+            14,
+            15,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21a6-df7d-72a0-abfd-95b89c9a11db",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:00.190Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented git.log service with params/arg builder, record parser, decoration parsing, batching, streamId payloads, cursor/limit handling and limit lookahead kill; registered git.log and added fixture/batching/arg-builder/kill/dispatcher/1000-commit tests. Worker ran Go git tests and fixture-specific test successfully; 8 log fixtures loaded.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:11:44.060Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "Go: internal/git/diff.go — Diff 서비스 + UTF-8 rune-boundary 안전 chunker",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 의미 메서드 2/4. diff 도메인. raw text chunk(parsed hunk 아님), UTF-8 rune-boundary 안전.",
+          "acceptance": "internal/git/diff_test.go: 4-byte 이모지가 chunk 경계에 걸치는 fixture에서 깨진 character 발생 0. large diff(>1MB) chunking 정상. `go test ./internal/git/...` 그린.",
+          "approach": "internal/git/diff.go (~120줄): Diff(ctx, params) 서비스. opts: from?/to?/paths?/context?/unified?/maxChunkBytes(default 1MB). git diff stdout을 maxChunkBytes 단위 chunk. **unicode/utf8.DecodeRune로 rune boundary 보장** — chunk 경계가 multi-byte rune 중간을 자르지 않게(StringDecoder 동치). git.diff.chunk event 발행. result: {bytes, truncated}. service.go Register에 \"git.diff\" 등록.",
+          "risk": "rune boundary 누락 시 renderer가 broken UTF-8 표시 — fixture로 가드.",
+          "plan_issue": 4,
+          "deps": [
+            14,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21a6-e4a7-70b2-8f5e-23eb55029f98",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:05.816Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented git.diff service emitting raw UTF-8-safe text chunks, returning bytes/truncated, registered method, and added fixture-driven tests including emoji boundary and >1MiB chunking. Worker ran `go test ./internal/git/...` successfully. Caveat: kept maxBytes truncation support because approved fixtures include it.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:08:50.759Z"
+          }
+        },
+        {
+          "id": 19,
+          "title": "Go: internal/git/blob.go — cat-file --batch + binary probe + missing handling",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 의미 메서드 3/4. blob 도메인. cat-file --batch 단일 채택(show 경로 폐기), binary detect는 first chunk만.",
+          "acceptance": "internal/git/blob_test.go: utf8/utf8-bom/binary/missing/large fixture 모두 일치. `go test ./internal/git/...` 그린.",
+          "approach": "internal/git/blob.go (~200줄): Blob(ctx, params) 서비스. opts: ref/relPath/maxBytes?. `git cat-file --batch` 헤더 파싱(`<sha> blob <size>\\\\n<bytes>` 동치), missing ref→errorKind:\"missing\". First chunk에 content/binary.go의 BinaryProbeBytes로 probe → headerProbe payload. 이후 chunk는 raw byte(base64). worktree fallback은 service에서 거절(`service.go:104` 패턴). result: {size, isBinary, encoding: \"utf8\"|\"utf8-bom\"|\"binary\", mtime, truncated}.",
+          "risk": "cat-file --batch 헤더가 정확히 parse — 빈 라인·EOF 경계 fixture로 검증.",
+          "plan_issue": 4,
+          "deps": [
+            14,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21a6-e9ba-7b12-b359-0df7b9c94e1b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:11.349Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented git.blob service using cat-file --batch, header/missing parsing, first-chunk binary/BOM probing, base64 chunk events, size/isBinary/encoding/mtime/truncated result, WORKING ref rejection, and registration. Added fixture coverage for utf8/utf8-bom/binary/missing/large/truncated plus dispatcher/WORKING tests. Worker ran `go test ./internal/git/...` successfully.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:09:09.683Z"
+          }
+        },
+        {
+          "id": 20,
+          "title": "Go: internal/git/commit_detail.go — git show 파서 (single-shot)",
+          "status": "completed",
+          "context": "Issue 4 결정. Phase 3 의미 메서드 4/4. commit detail. streaming 아닌 single-shot. log와 같은 commit 도메인이지만 grammar 다름.",
+          "acceptance": "internal/git/commit_detail_test.go: merge commit / signed / amended / empty body 케이스 일치. `go test ./internal/git/...` 그린.",
+          "approach": "internal/git/commit_detail.go (~100줄): CommitDetail(ctx, params) 서비스. opts: sha. `git show <sha>` stdout 파싱(`git-commit-detail.ts:137` 동치). 결과: CommitDetail shape. service.go Register에 \"git.commitDetail\" 등록. log 파서 helper 공유 없이 시작(grammar 다르므로).",
+          "risk": "merge commit parent 다중 케이스 fixture 필수.",
+          "plan_issue": 4,
+          "deps": [
+            7,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21a5-559f-77c2-b282-129bfe32152b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:15.749Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented git.commitDetail single-shot service/parser using NUL-separated git show format, registered method, added fixture parser tests, temp repo service shape test, and dispatcher registration test. Worker ran `go test ./internal/git/...` successfully; 7 commit-detail fixtures loaded. Caveat: parser supports copy tokens but service mirrors TS --find-renames and does not force copy detection.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:05:54.312Z"
+          }
+        },
+        {
+          "id": 21,
+          "title": "TS: AgentGitExecutor에 log/diff/blob/commitDetail 4 메서드 + git-repository 4분기",
+          "status": "completed",
+          "context": "Issue 4 결정. Go 측 4 의미 메서드 등록되면 TS 호출자가 분기. fallback 보존(Phase 4까지).",
+          "acceptance": "`bun run typecheck` + `bun run lint` 그린. tests/unit/main/git/* 분기 mock 테스트 통과. existing tests/integration/main/git/round-trip.test.ts 그대로 통과(폴백 경로 보존).",
+          "approach": "(1) src/main/git/git-process.ts의 GitProcessExecutor 인터페이스에 log?, diff?, blob?, commitDetail? 4 옵셔널 추가. (2) src/main/bridge/git/agent-executor.ts에 4 메서드 구현 + 신규 event 구독(git.log.batch/git.diff.chunk/git.blob.chunk). streamId 발급 main router 단독, AbortError 공용 헬퍼. (3) src/main/git/git-repository.ts 4곳 분기: :1259 streamLog → executor.log/폴백, :1245 streamDiff → executor.diff/폴백, :1334 readCommitDetail → executor.commitDetail/폴백, blob 호출 경로 → executor.blob/폴백. (4) src/shared/protocol/agent/git.ts에 AgentGitLogParamsSchema/AgentGitLogBatchPayloadSchema/AgentGitDiffParamsSchema/AgentGitDiffChunkPayloadSchema/AgentGitBlobParamsSchema/AgentGitBlobChunkPayloadSchema/AgentGitCommitDetailParamsSchema/AgentGitCommitDetailResultSchema 추가.",
+          "risk": "event name 4종 분리 구독에서 streamId 매칭 실수 — 각 메서드 streamId 고유성 단위 테스트.",
+          "plan_issue": 4,
+          "deps": [
+            17,
+            18,
+            19,
+            20
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21af-75d1-7cb3-8536-f5dbcddd55c3",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:23.715Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added agent protocol schemas and AgentGitExecutor/GitRepository semantic branches for log/diff/blob/commitDetail with streamId-filtered events and fallback preservation. Worker ran typecheck, lint/focused biome, and semantic branch unit tests. Lead fixed the reported Go diff streamId mismatch by adding streamId/cancel/cwd support to diff plus cwd/cancel support for blob/log/commitDetail and verified `go test ./internal/git/...`. Broader legacy git unit/integration suites still have known mock/local-spawn expectations pending cleanup.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:24:34.281Z"
+          }
+        },
+        {
+          "id": 22,
+          "title": "Phase 3 통합 테스트: streaming round-trip + UTF-8 boundary + limit-kill",
+          "status": "completed",
+          "context": "Issue 4 결정. Go agent + bridge + git-repository를 통한 4 메서드 통합 round-trip.",
+          "acceptance": "15+ 통합 케이스 그린. limit-kill에서 process leak 0. UTF-8 chunk boundary 정상.",
+          "approach": "tests/integration/agent/git-streaming.integration.test.ts 신규. 임시 repo에 다양한 시나리오 만들고 4 의미 메서드 호출 → progress batch/chunk 수집 → result envelope 검증. 케이스: log limit=1 시 즉시 kill(stderr 누수 0) + UTF-8 boundary diff(4-byte 이모지가 chunk 경계 걸친 fixture) + blob binary detect + commitDetail merge commit + abort 시 AbortError throw 일관.",
+          "risk": "process kill 타이밍에 따른 race — `cmd.Wait()` 보장 후 검증.",
+          "plan_issue": 4,
+          "deps": [
+            17,
+            18,
+            19,
+            20,
+            21
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e21bb-87b7-7770-9e21-539777f5930b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:29.372Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added Phase 3 semantic streaming integration suite with 18 passing cases in tests/integration/agent/git-streaming.integration.test.ts. Covers git.log, git.diff, git.blob, git.commitDetail; includes limit=1 prompt return/hasMore/no agent stderr/follow-up usability, UTF-8 diff chunk-boundary preservation, binary/BOM/truncated blob wire metadata, merge commit detail, and AbortError behavior. Focused test, biome check, and typecheck passed. Limitation: exact child git leak count is not exposed by the local-channel harness, so coverage uses timeout/no-stderr/follow-up-call practical assertions.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:38:33.656Z"
+          }
+        },
+        {
+          "id": 23,
+          "title": "Phase 4 prereq: Executor-ready barrier (local-channel boot await wire)",
+          "status": "completed",
+          "context": "Issue 5 결정. Phase 4 cleanup의 3 invariant 중 첫 번째. workspaceManager.init이 executor wire 완료까지 await해야 getAgentExecutor가 영영 undefined 반환 안 함.",
+          "acceptance": "tests/unit/main/workspace/workspace-manager.test.ts에 cold boot contract test 추가 — workspace:ready 이전에 git 호출 가능 시점 없음. 모든 워크스페이스 종류(local·SSH)에서 executor wire 완료 검증.",
+          "approach": "src/main/workspace/workspace-manager.ts:107 SSH 경로처럼 *local-channel*도 동치 패턴으로 await. local-channel.ts:59의 agent spawn → ready 동기화 → workspaceContext.executor 설정 → workspace:ready event 발화 순서 확정. boot race 차단을 위해 cold boot 시 첫 readStatus 호출 시점에 executor 존재함을 contract test로 검증.",
+          "risk": "async race — boot 시퀀스 보장 위해 명시적 Promise sequencing.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2191-93ff-7410-bfaa-d97be4138d9d",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:38.099Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented executor-ready barrier in WorkspaceManager for local and SSH boot sequencing; init now awaits restored active workspace readiness before active exposure. Added cold boot contract tests for local and SSH with fake local channel seams. Worker ran focused workspace-manager tests, typecheck, and diff check successfully. Caveat: production callers needing boot completion should await init().",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:48:40.523Z"
+          }
+        },
+        {
+          "id": 24,
+          "title": "Phase 4 prereq: Agent reconnect queueing + chaos test",
+          "status": "completed",
+          "context": "Issue 5 결정. 3 invariant 중 두 번째. agent crash 후 reconnect 동안 git 호출은 bounded queue 적재 → reconnect 시 flush, timeout 시 retryable error. 폴백 spawn 절대 금지.",
+          "acceptance": "tests/integration/agent/reconnect-chaos.integration.test.ts 신규. kill -9 직후 git.status 호출이 reconnect 후 결과 받음. queue overflow(>max pending) 시 즉시 reject. autofetch 같은 정기 호출이 reconnect 동안 backoff하는지 검증.",
+          "approach": "(1) src/main/agent/local-channel.ts와 src/main/agent/ssh-channel.ts에 reconnect 로직 추가 — channel 끊김 감지 시 bounded queue(예: max 32 pending) 활성화, 새 channel ready 시 flush. timeout(예: 30s) 후엔 {errorKind:\"unknown\", retryable:true} reject. (2) AgentGitExecutor와 AgentFsProvider가 channel 끊김 동안의 호출도 queue를 통과해 ready 후 결과 받게 wire. (3) chaos test: 임시 agent process를 kill하고 reconnect 동안 git/fs 호출이 queue를 통과해 결과 받는지 확인. timeout 시 retryable error throw.",
+          "risk": "queue overflow vs deadlock — bounded size + timeout 둘 다 필수.",
+          "plan_issue": 5,
+          "deps": [
+            23
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2198-fe3f-76e0-81fc-a8d1c90d6f55",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:46.618Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented shared reconnecting process-channel wrapper for local and SSH channels with bounded queue, timeout retryable marker, overflow rejection, and capped reconnect backoff. Deterministic unit tests cover queued reconnect resolution, overflow, timeout, SSH shared path, and no per-call fallback spawn. Caveats: used git.run because git.status not yet implemented; no named integration chaos file; no autofetch refactor beyond channel-level timeout/guard.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:55:45.679Z"
+          }
+        },
+        {
+          "id": 25,
+          "title": "Phase 4 prereq: Askpass ADR (b) — Go agent helper + bidirectional dispatch",
+          "status": "completed",
+          "context": "Issue 5 결정. 4 invariant 중 마지막. SSH workspace에서 interactive git(commit -e/push prompt/clone over auth)가 동작하도록 agent host에서 askpass helper 띄움. 현 helpers-launcher.ts의 unix socket 경로는 Electron host fs 의존이라 SSH agent host에서 실행 불가.",
+          "acceptance": "tests/integration/agent/askpass.integration.test.ts: SSH workspace에서 `git clone https://...` 시뮬레이션 → prompt event 발화 → 응답 후 clone 진행. local workspace에서도 동작. helpers-launcher.ts의 socket/wrapper 코드 ~120줄 삭제됨.",
+          "approach": "(1) Go binary에 `agent --askpass <socket>` subcommand 추가 — 같은 배포 단위, 별 binary 안 만듦. (2) Go run.go에서 git 실행 시 GIT_ASKPASS=<agent-helper-path> 환경 주입. helper는 unix socket으로 agent dispatcher에 `git.askpass.request{prompt, requestId}` event 발행. (3) Electron이 event 받아 git-helpers-ipc.ts의 기존 BrowserWindow dialog UI 그대로 호출(prompt 표시 → credential 입력). (4) `git.askpass.respond{requestId, secret}` method를 agent에 호출. helper가 stdout으로 git에 전달. (5) helpers-launcher.ts의 unix socket/wrapper 생성 코드 ~120줄 제거. Electron 측 prompt UI 로직(~210줄)은 보존.",
+          "risk": "bidirectional dispatch는 새 패턴 — agent dispatcher가 client→server method call로 git.askpass.respond를 처리 가능한지 미리 prototype 검증.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2193-0473-70e3-98b5-4aa7efe8c07b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:30:55.791Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented agent-host askpass helper/server flow, registered git.askpass.respond, routed agent askpass events through existing Electron prompt UI, injected helper env for interactive Git commands, and removed Electron-host askpass wrapper generation while preserving editor helper behavior. Worker ran focused Go/Bun tests, integration agent tests, typecheck, and biome. Caveat: real SSH host unavailable; covered by local agent-host simulation and env-mode because Git askpass accepts executable path only.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:55:29.518Z"
+          }
+        },
+        {
+          "id": 26,
+          "title": "Phase 4 PR 1 (keystone): getAgentExecutor non-optional signature",
+          "status": "completed",
+          "context": "Issue 5 결정. Phase 4 cleanup 7-PR 시리즈의 첫 번째. 이후 모든 cleanup의 전제. invariant 3개 확정 후만 진행.",
+          "acceptance": "`bun run typecheck` 그린(타입 좁힘으로 호출자 null check가 redundant 표시). 단독 PR로 revertible. invariant 1·2 통과 확인 후만 land.",
+          "approach": "src/main/git/git-registry.ts:320 getAgentExecutor의 반환 타입을 AgentGitExecutor | undefined → AgentGitExecutor로 좁힘. undefined 반환 분기 제거 — invariant 1(executor-ready barrier) 보장 후 영영 undefined가 안 됨. signature 변경만, 호출자 분기 코드는 다음 PR(#26)에서 정리.",
+          "risk": "invariant 1·2 깨진 상태에서 land 시 cold boot 시 panic — 선행 task 23/24 통과 필수.",
+          "plan_issue": 5,
+          "deps": [
+            23,
+            24,
+            25
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e219f-f6fd-7b93-ad7d-53e00d8baef6",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:31:01.663Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Narrowed GitRegistry.getAgentExecutor to return AgentGitExecutor, removed undefined fallback/catch branch, and preserved later git-repository fallback cleanup for Task #27. Worker ran `bun run typecheck` successfully. Caveat: unwired/non-agent provider now throws workspace agent provider unavailable per invariant.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T13:57:51.247Z"
+          }
+        },
+        {
+          "id": 27,
+          "title": "Phase 4 PR 2: git-repository.ts fallback 분기 제거",
+          "status": "completed",
+          "context": "Issue 5 결정. keystone PR 후 unconditional executor 호출로 단순화.",
+          "acceptance": "`bun run typecheck` + `bun test tests/unit/main/git/` 그린. `tests/integration/main/git/round-trip.test.ts`가 의미 메서드 경로로만 통과.",
+          "approach": "src/main/git/git-repository.ts의 5 fallback 분기 제거: readStatus(:1149)/streamLog(:1259)/streamDiff(:1245)/readCommitDetail(:1334)/blob 호출. `if (executor.X) await executor.X() else 폴백` → `await executor.X()`. 폴백 helper들(readRemotes/readStashCount/readTagCount/readMetadata 내부 호출) 제거. 약 150줄 순감.",
+          "risk": "분기 제거 후 readStatus 호출자(:161/:195/:245/:666 등) 자동 이득 확인.",
+          "plan_issue": 5,
+          "deps": [
+            26
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21bb-bba5-7961-9411-50e647e23fd9",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:31:06.364Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Removed read-side fallback branches in src/main/git/git-repository.ts for status/log/diff/blob/commitDetail and routed those paths unconditionally through semantic executor methods. Added minimal semantic support needed to preserve behavior: cached/index-vs-head diff through Agent protocol/Go `--cached`, and ref-scope log skip. Updated unit/integration mocks and local semantic test helper without deleting parser files. Verified by worker with `bun run typecheck`, `go test ./internal/git/...`, focused GitRepository semantic test, and `tests/integration/main/git/round-trip.test.ts`. Broad `bun test tests/unit/main/git/` still had 19 failures classified by the worker as matching the pre-cleanup baseline; this remains to be resolved/removed by downstream cleanup tasks #28/#29 before cycle close.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:44:17.329Z"
+          }
+        },
+        {
+          "id": 28,
+          "title": "Phase 4 PR 3: 5 파서 파일 제거 (porcelain-v2/log-parsing/commit-detail/diff-stream/blob)",
+          "status": "completed",
+          "context": "Issue 5 결정. fallback 분기 제거 후 호출자 0인 파서 파일들 통째 삭제.",
+          "acceptance": "`bun run typecheck` + `bun run lint` + `bun test tests/unit tests/integration` 그린. 약 1,033줄 순감.",
+          "approach": "다음 5개 파일 통째 삭제, 호출자 0 확인 후: (1) src/main/git/porcelain-v2.ts 255줄, (2) src/main/git/git-log-parsing.ts 186줄(buildLogArgs 포함), (3) src/main/git/git-commit-detail.ts 137줄, (4) src/main/git/git-diff-stream.ts 114줄, (5) src/main/git/git-blob.ts 341줄(spawnCatFile 포함). 관련 unit test들(`tests/unit/main/git/porcelain-v2.test.ts` 등)도 함께 삭제 — Go 측 fixture 기반 test가 대체.",
+          "risk": "사라진 export가 다른 곳에서 import되는지 typecheck로 자동 발견.",
+          "plan_issue": 5,
+          "deps": [
+            27
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21cb-fe82-7542-b38f-4d357a7887e7",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:31:12.107Z",
+          "result": {
+            "outcome": "partial",
+            "summary": "Deleted the five obsolete TS Git parser files and parser-specific unit tests, then cleaned production/test imports so removed modules have zero module imports. Moved remaining behavior to semantic executor paths, kept stash patch chunking local to git-stash.ts, and reworked the local semantic test helper without importing deleted parser modules. Worker verified typecheck, lint (exit 0 with existing warnings), focused history/status/stash tests, main git round-trip, and streaming integration. Broad `bun test tests/unit/main/git/` still has 19 failures classified as legacy local git-process classification expectations plus GitRegistry mocks lacking requireContext; those are now assigned to Task #29 git-process/type-interface cleanup.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T14:56:54.760Z"
+          }
+        },
+        {
+          "id": 29,
+          "title": "Phase 4 PR 4: git-process.ts 해체 → bridge/git/types.ts + GitExecutor rename",
+          "status": "completed",
+          "context": "Issue 5 결정. spawn 경로 제거 + 인터페이스를 별 모듈로 추출(agent-executor.ts 흡수 안 함).",
+          "acceptance": "`bun run typecheck` + `bun run lint` + `bun test` 전체 그린. ~374줄 순감.",
+          "approach": "(1) src/main/bridge/git/types.ts 신규 ~50줄 — GitProcessExecutor/GitProcessOptions/RunGitOptions/RunGitResult 이관 + 이름 GitExecutor로 변경(spawn 시절 유산 정리). (2) src/main/git/git-process.ts 전체 삭제 ~424줄 — runGit/streamGit/spawnGit/buildGitEnv/scheduleForceKill 모두 dead. (3) AgentGitExecutor와 호출자가 types.ts 새 경로로 import. (4) WithLockRetryOptions ~15줄 삭제 — Go 측 책임 이관. (5) test mock(`tests/unit/main/git/` 등)도 새 인터페이스로 마이그레이션.",
+          "risk": "test mock 마이그레이션 누락 시 typecheck 실패 — PR 한 번에 처리.",
+          "plan_issue": 5,
+          "deps": [
+            28
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21d7-9d10-7d20-8d65-39f60133fffa",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:31:17.847Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Moved executor contracts into new src/main/bridge/git/types.ts and renamed the main interface to GitExecutor. Deleted src/main/git/git-process.ts plus local-spawn retry/interactive tests, migrated production write/read callers and tests to injected GitExecutor run/stream/semantic methods, and fixed GitRegistry/test mocks for the non-optional agent-provider contract. Verification from worker: no git-process/GitProcessExecutor/WithLockRetry/LOCK_RETRY refs, no production runGit/streamGit calls; `bun run typecheck`, `bun run lint` (exit 0 with existing warnings), `bun test tests/unit/main/git/`, and full `bun test` all passed (1747 pass, 1 skip).",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T15:21:59.976Z"
+          }
+        },
+        {
+          "id": 30,
+          "title": "Phase 4 PR 5: helpers-launcher socket 코드 제거 + clone-progress rename",
+          "status": "completed",
+          "context": "Issue 5 결정. 마지막 cleanup. askpass (b) 채택 후 unix socket 경로 dead. clone progress receiver는 push generalization 대비 rename.",
+          "acceptance": "`bun run typecheck` + `bun run lint` + 모든 테스트 그린. helpers-launcher.ts ~120줄 감소. rename은 git mv로 history 보존.",
+          "approach": "(1) src/main/git/helpers-launcher.ts의 socket/wrapper 생성 코드 ~120줄 제거. 보존: Electron 측 prompt UI 로직 ~210줄. (2) src/main/git/git-clone-progress.ts → src/main/git/git-stderr-progress-receiver.ts 파일 이름 변경. 안의 클래스명도 GitStderrProgressReceiver로 변경. 호출자(`git-clone.ts:200`) import 업데이트.",
+          "risk": "rename 시 vscode/editor의 import path 자동 업데이트 확인.",
+          "plan_issue": 5,
+          "deps": [
+            25,
+            29
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21ee-8091-7630-87bf-0d6f9394ed4c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T13:31:22.800Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Removed the legacy Electron-host askpass wrapper surface from helpers-launcher while preserving editor helper wrapper/socket env because commit-message editing still launches git-editor-helper.cjs via GIT_EDITOR. Renamed src/main/git/git-clone-progress.ts to git-stderr-progress-receiver.ts, renamed the parser class to GitStderrProgressReceiver, and updated clone imports/tests. Worker verified focused git stderr receiver/clone/helper tests, typecheck, lint (exit 0 with existing warnings), and full `bun test` (1747 pass, 1 skip).",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T15:28:17.846Z"
+          }
+        },
+        {
+          "id": 31,
+          "title": "Review fix: fs.rmdir must reject files and symlinks",
+          "status": "completed",
+          "context": "Cycle-end architecture review found internal/fs/write.go Rmdir resolves the path then calls os.Remove without verifying it is an empty directory. This can delete a regular file if a stale UI or wrong caller routes a file to fs.rmdir, violating the decided empty-directory-only safety boundary.",
+          "acceptance": "internal/fs/write_test.go covers rmdir on regular file and symlink-to-dir/symlink-to-file refusal. internal/fs/write.go verifies Lstat target is a directory before os.Remove. `go test ./internal/fs/...` passes.",
+          "approach": "In (*Service).Rmdir, Lstat the resolved path first; map ENOENT to NOT_FOUND/PERMISSION consistently via fsErrorFromPath if possible; if mode is symlink or not dir, return an fs coded error (IS_NOT_DIRECTORY or equivalent existing code). Then call os.Remove only for directories and preserve existing ENOTEMPTY handling.",
+          "risk": "Need use existing fs error code vocabulary; do not invent a code that TS schemas do not understand unless shared schema already has it.",
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-13T15:35:42.770Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Fixed fs.rmdir to Lstat and require a real directory before os.Remove, returning new NOT_DIRECTORY code for files/symlinks. Added Go tests for regular-file and symlink refusal/preservation, mirrored NOT_DIRECTORY in agent/shared fs error vocab and renderer mappings. Verified `go test ./internal/fs/...` and focused fs mutation/file-error/agent-fs tests pass.",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T15:37:32.132Z"
+          }
+        },
+        {
+          "id": 32,
+          "title": "Review fix: route clone through GitExecutor/agent stream with stderr progress",
+          "status": "completed",
+          "context": "Cycle-end architecture review found src/main/git/git-clone.ts still spawns local git clone and uses Electron-host helper env after askpass cleanup. This contradicts the Phase 4 write-side args-passthrough/agent-host askpass contract and can regress prompt-based clone. Clone is workspace-agnostic but registry can provide an agent executor/context for the active/request workspace.",
+          "acceptance": "git.stream clone no longer imports/spawns node child_process in src/main/git/git-clone.ts. Clone execution uses GitExecutor.stream with interactive=true and streamStderr/progress support so Go agent owns process/classification/askpass. Progress events still parse stderr clone progress. Cancellation cleans owned destination. `bun run typecheck`, clone/helper focused tests, agent integration as applicable, and full `bun test` pass. Go stream support tests pass if protocol changes.",
+          "approach": "Add a streamStderr option to GitProcessOptions / AgentGitStream schema / Go StreamParams so git.stream can emit stderr chunks to existing git.streamChunk while still returning classified stderr. Update AgentGitExecutor.stream to pass it. Change runClone to accept a GitExecutor (and bin path/cwd parent), call executor.stream({args: clone args,cwd: parentDir,interactive:true,streamStderr:true,...}) instead of local spawn, parse yielded chunks as stderr progress, and map terminal success/errors via executor. Update clone handler to obtain a suitable executor from GitRegistry (likely active/request workspace context) or add a registry helper for workspace-agnostic agent executor. Update tests to assert no local spawn and no Electron-host askpass env.",
+          "risk": "Clone currently has no workspaceId in IPC contract; need choose an existing workspace context or extend contract carefully. If impossible without UX/API decision, report instead of silently using the wrong workspace host.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e21fb-1ef8-7342-a9f2-e262ff7b64e6",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-13T15:35:43.051Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Clone now executes through GitExecutor.stream with interactive askpass and streamStderr; Go git.stream emits stderr chunks when requested while retaining classified stderr. I amended the returned patch to preserve no-active/local clone by using a disposable transient local-agent context rooted at the destination parent, and to avoid passing SSH active workspace IDs from the renderer. Full validation passed: go test ./internal/..., bun run typecheck, bun run lint (existing 16 warnings), bun test (1755 pass, 1 skip).",
+            "artifacts": [],
+            "recorded_at": "2026-05-13T15:59:04.628Z"
+          }
+        }
+      ]
     }
   ]
 }

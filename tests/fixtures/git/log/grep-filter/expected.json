@@ -1,0 +1,36 @@
+{
+  "method": "git.log",
+  "case": "grep-filter",
+  "params": {
+    "scope": "ref",
+    "ref": "HEAD",
+    "grep": "UI-42",
+    "source": false
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "1111111111111111111111111111111111111111",
+            "shortSha": "1111111",
+            "parents": [
+              "ffffffffffffffffffffffffffffffffffffffff"
+            ],
+            "authorName": "Barbara Liskov",
+            "authorEmail": "barbara@example.test",
+            "authoredAt": "2026-05-05T07:30:00+00:00",
+            "subject": "Fix UI-42 search result",
+            "refs": [],
+            "body": "Fixes: UI-42"
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 1,
+    "hasMore": false
+  }
+}

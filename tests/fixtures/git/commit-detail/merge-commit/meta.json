@@ -1,0 +1,8 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Merge commit has two parents; name-status is first-parent diff semantics."
+  ]
+}

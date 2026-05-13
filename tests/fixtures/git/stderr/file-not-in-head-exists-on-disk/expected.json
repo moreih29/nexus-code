@@ -1,0 +1,4 @@
+{
+  "kind": "file-not-in-head",
+  "message": "fatal: path 'src/new-file.ts' exists on disk, but not in 'HEAD'"
+}

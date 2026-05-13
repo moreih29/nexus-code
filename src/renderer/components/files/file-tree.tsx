@@ -19,6 +19,7 @@ import { FileTreeVirtualBody } from "./file-tree/file-tree-virtual-body";
 import { buildFileTreeMenuItems } from "./file-tree-menu";
 import { type FileTreeActionTarget, useFileTreeActions } from "./hooks/use-file-tree-actions";
 import { useFileTreePendingCreate } from "./hooks/use-file-tree-pending-create";
+import { useFileTreePendingRename } from "./hooks/use-file-tree-pending-rename";
 import { createFileTreeKeydownHandler } from "./keys";
 
 interface FileTreeProps {
@@ -69,6 +70,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   const [contextTarget, setContextTarget] = useState<FileTreeActionTarget | null>(null);
 
   const pendingCreate = useFileTreePendingCreate({ workspaceId, rootAbsPath });
+  const pendingRename = useFileTreePendingRename({ workspaceId, rootAbsPath });
 
   // New-File / New-Folder need their inline-edit row mounted *after* the
   // ContextMenu's FocusScope releases — see useContextMenuHandoff for
@@ -83,14 +85,17 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     startCreate: (parentAbsPath, kind) => {
       menuHandoff.defer(() => pendingCreate.startCreate(parentAbsPath, kind));
     },
+    startRename: (absPath) => {
+      menuHandoff.defer(() => pendingRename.startRename(absPath));
+    },
   });
 
   // Inject the pending-create sentinel row into the flat list at the
   // right child position. Recomputed on every render — cheap pure
   // function over an already-cheap flat array.
   const displayFlat = useMemo(
-    () => getDisplayFlat(flat, pendingCreate.pending),
-    [flat, pendingCreate.pending],
+    () => getDisplayFlat(flat, pendingCreate.pending, pendingRename.pending),
+    [flat, pendingCreate.pending, pendingRename.pending],
   );
 
   const virtualizer = useVirtualizer({
@@ -189,6 +194,10 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
               await pendingCreate.commit(name);
             }}
             onPendingCancel={pendingCreate.cancel}
+            onPendingRenameCommit={async (name) => {
+              await pendingRename.commit(name);
+            }}
+            onPendingRenameCancel={pendingRename.cancel}
           />
         </div>
       </ContextMenuTrigger>

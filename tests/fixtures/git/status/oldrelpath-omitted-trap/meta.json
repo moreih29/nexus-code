@@ -1,0 +1,16 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": [
+    "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+    "# branch.head main",
+    "1 A. N... 100644 100644 100644 0000000000000000000000000000000000000000 89abcdef012345670123456789abcdef01234567 src/not-a-rename.ts"
+  ],
+  "notes": [
+    "Trap: non-rename entries omit oldRelPath entirely; they do not serialize oldRelPath=\"\"."
+  ]
+}

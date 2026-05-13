@@ -4,29 +4,27 @@
  * Clone is the queue exception for this cycle: the repository has not been
  * registered as a workspace yet, so there is no GitRepository instance or
  * per-repo serial queue to enter. This module still keeps clone isolated from
- * IPC so validation, progress parsing, auth helper env, and cancel cleanup are
+ * IPC so validation, progress parsing, executor routing, and cancel cleanup are
  * tested as a backend unit.
  */
-import { type ChildProcessByStdio, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { Readable } from "node:stream";
+import type { GitExecutor } from "../bridge/git/types";
 import type {
   GitCloneEvent,
   GitCloneStreamProgressEvent,
   GitCloneStreamResultEvent,
 } from "../../shared/types/git";
-import { GitCloneProgressParser } from "./git-clone-progress";
-import { GitError, gitErrorFromExit, gitMissingError, unknownGitError } from "./git-error";
-import { buildHelperEnv } from "./helpers-launcher";
+import { GitError } from "./git-error";
+import { GitStderrProgressReceiver } from "./git-stderr-progress-receiver";
 
 const CLONE_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
-const ABORT_KILL_GRACE_MS = 1_000;
-
-type GitCloneChild = ChildProcessByStdio<null, Readable, Readable>;
 
 export interface RunCloneOptions {
+  readonly executor: GitExecutor;
   readonly bin: string;
+  /** Executor working directory; defaults to the clone parent when safe. */
+  readonly executorCwd?: string;
   readonly url: string;
   /** Absolute parent directory that will receive the cloned folder. */
   readonly destination: string;
@@ -139,7 +137,9 @@ async function createOwnedDestination(absPath: string): Promise<void> {
 }
 
 /**
- * Launches the child process and maps stderr progress plus terminal state.
+ * Runs clone through the Git executor and maps streamed stderr progress plus
+ * terminal state. The agent owns the real process, askpass, and stderr
+ * classification; Electron only parses progress rows from the streamed stderr.
  */
 async function runCloneProcess(
   options: RunCloneOptions,
@@ -148,62 +148,39 @@ async function runCloneProcess(
   signal?: AbortSignal,
 ): Promise<GitCloneStreamResultEvent> {
   const args = buildCloneArgs(prepared);
-  const child = spawnClone(options.bin, prepared.parentDir, args, options.env);
-  const parser = new GitCloneProgressParser();
-  const stderrChunks: Buffer[] = [];
-  const stdoutChunks: Buffer[] = [];
+  const cwd = options.executorCwd ?? prepared.parentDir;
+  const progressReceiver = new GitStderrProgressReceiver();
   let pendingProgressText = "";
-  let cancelled = false;
-  let abortTimer: NodeJS.Timeout | null = null;
-  let pendingFailure: Error | null = null;
 
-  /** Removes process listeners that should not outlive the clone. */
-  const cleanup = (): void => {
-    signal?.removeEventListener("abort", onAbort);
-    if (abortTimer) clearTimeout(abortTimer);
-  };
+  try {
+    for await (const chunk of options.executor.stream({
+      bin: options.bin,
+      cwd,
+      args,
+      env: options.env,
+      interactive: true,
+      streamStderr: true,
+      signal,
+    })) {
+      pendingProgressText = consumeCloneProgressText(
+        pendingProgressText + chunk.toString("utf8"),
+        progressReceiver,
+        onEvent,
+      );
+    }
+    consumeCloneProgressText(pendingProgressText, progressReceiver, onEvent, true);
 
-  /** Requests clone cancellation and schedules a hard kill if Git ignores it. */
-  const onAbort = (): void => {
-    cancelled = true;
-    killChild(child, "SIGTERM");
-    abortTimer = setTimeout(() => killChild(child, "SIGKILL"), ABORT_KILL_GRACE_MS);
-  };
-
-  signal?.addEventListener("abort", onAbort, { once: true });
-
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdoutChunks.push(chunk);
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderrChunks.push(chunk);
-    pendingProgressText = consumeCloneProgressText(
-      pendingProgressText + chunk.toString("utf8"),
-      parser,
-      onEvent,
-    );
-  });
-
-  const exit = await waitForChild(child, options.bin, args, (error) => {
-    pendingFailure = error;
-  });
-  cleanup();
-  consumeCloneProgressText(pendingProgressText, parser, onEvent, true);
-
-  if (cancelled || signal?.aborted) {
-    return emitCancelled(prepared.absPath);
+    if (signal?.aborted) {
+      return emitCancelled(prepared.absPath);
+    }
+    return { kind: "complete", absPath: prepared.absPath };
+  } catch (error) {
+    consumeCloneProgressText(pendingProgressText, progressReceiver, onEvent, true);
+    if (signal?.aborted || isAbortError(error)) {
+      return emitCancelled(prepared.absPath);
+    }
+    throw error;
   }
-
-  if (pendingFailure) throw pendingFailure;
-  if (exit.code === 0) return { kind: "complete", absPath: prepared.absPath };
-
-  throw gitErrorFromExit({
-    args,
-    stderr: Buffer.concat(stderrChunks).toString("utf8"),
-    stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-    exitCode: exit.code,
-    signal: exit.signal,
-  });
 }
 
 /**
@@ -218,65 +195,11 @@ function buildCloneArgs(prepared: PreparedClone): string[] {
 }
 
 /**
- * Spawns git with the interactive helper environment used for HTTPS and SSH
- * credential/passphrase prompts.
- */
-function spawnClone(
-  bin: string,
-  cwd: string,
-  args: readonly string[],
-  env: NodeJS.ProcessEnv | undefined,
-): GitCloneChild {
-  return spawn(bin, [...args], {
-    cwd,
-    env: {
-      ...process.env,
-      ...env,
-      ...buildHelperEnv({ askpass: true }),
-      GIT_FLUSH: "1",
-    },
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
-/**
- * Resolves when the child exits or fails to spawn.
- */
-function waitForChild(
-  child: GitCloneChild,
-  bin: string,
-  args: readonly string[],
-  onError: (error: Error) => void,
-): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (result: { code: number | null; signal: NodeJS.Signals | null }): void => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    child.on("error", (error) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        onError(gitMissingError(bin, args, error));
-      } else {
-        onError(unknownGitError(error.message, args, error));
-      }
-      settle({ code: null, signal: null });
-    });
-    child.on("close", (code, signal) => {
-      settle({ code, signal });
-    });
-  });
-}
-
-/**
- * Emits parser events for every complete carriage-return/newline progress row.
+ * Emits receiver events for every complete carriage-return/newline progress row.
  */
 function consumeCloneProgressText(
   text: string,
-  parser: GitCloneProgressParser,
+  receiver: GitStderrProgressReceiver,
   onEvent: (event: GitCloneStreamProgressEvent) => void,
   flush = false,
 ): string {
@@ -285,7 +208,7 @@ function consumeCloneProgressText(
   const complete = parts;
   for (const line of complete) {
     if (line.trim().length === 0) continue;
-    for (const event of parser.parseLine(line)) {
+    for (const event of receiver.parseLine(line)) {
       onEvent(event);
     }
   }
@@ -388,14 +311,6 @@ async function pathExists(absPath: string): Promise<boolean> {
 }
 
 /**
- * Requests child termination with a signal supported by Node's child API.
- */
-function killChild(child: GitCloneChild, signal: NodeJS.Signals): void {
-  if (child.killed) return;
-  child.kill(signal);
-}
-
-/**
  * Throws the standard AbortError shape before a clone owns a destination.
  */
 function throwIfAborted(signal?: AbortSignal): void {
@@ -403,4 +318,11 @@ function throwIfAborted(signal?: AbortSignal): void {
   const error = new Error("The operation was aborted");
   error.name = "AbortError";
   throw error;
+}
+
+/**
+ * Detects the standard AbortError shape produced by the Git executor.
+ */
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
 }

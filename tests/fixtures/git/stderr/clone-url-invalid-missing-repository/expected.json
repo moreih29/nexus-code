@@ -1,0 +1,4 @@
+{
+  "kind": "clone-url-invalid",
+  "message": "fatal: repository 'https://example.com/missing.git/' does not exist"
+}

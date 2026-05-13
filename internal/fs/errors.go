@@ -15,6 +15,7 @@ const (
 	CodePermissionDenied = "PERMISSION_DENIED"
 	CodeAlreadyExists    = "ALREADY_EXISTS"
 	CodeIsDirectory      = "IS_DIRECTORY"
+	CodeNotDirectory     = "NOT_DIRECTORY"
 	CodeTooLarge         = "TOO_LARGE"
 	CodeOutOfWorkspace   = "OUT_OF_WORKSPACE"
 

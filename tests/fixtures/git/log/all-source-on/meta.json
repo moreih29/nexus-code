@@ -1,0 +1,9 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "All-ref log includes a leading %S field in stdout.",
+    "Source refs are consumed for parsing offset and are not part of LogEntry."
+  ]
+}

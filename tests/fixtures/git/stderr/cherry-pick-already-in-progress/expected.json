@@ -1,0 +1,4 @@
+{
+  "kind": "cherry-pick-already-in-progress",
+  "message": "error: cherry-pick is already in progress\nhint: try \"git cherry-pick (--continue | --abort | --quit)\"\nfatal: cherry-pick failed"
+}

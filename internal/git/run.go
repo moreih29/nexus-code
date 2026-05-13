@@ -3,14 +3,12 @@ package git
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
@@ -18,7 +16,6 @@ import (
 
 const (
 	defaultStdoutCapBytes = 10 * 1024 * 1024
-	streamChunkBytes      = 64 * 1024
 )
 
 type RunParams struct {
@@ -30,31 +27,16 @@ type RunParams struct {
 }
 
 type RunResult struct {
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
-	Code   int    `json:"code"`
-}
-
-type StreamParams struct {
-	StreamID    string            `json:"streamId"`
-	Args        []string          `json:"args"`
-	Cwd         string            `json:"cwd,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Interactive bool              `json:"interactive,omitempty"`
-}
-
-type StreamChunkPayload struct {
-	StreamID string `json:"streamId"`
-	Chunk    string `json:"chunk"`
-}
-
-type CancelParams struct {
-	StreamID string `json:"streamId"`
+	Stdout       string      `json:"stdout"`
+	Stderr       string      `json:"stderr"`
+	Code         int         `json:"code"`
+	ErrorKind    Kind        `json:"errorKind,omitempty"`
+	ErrorHint    *ActionHint `json:"errorHint,omitempty"`
+	ErrorMessage string      `json:"errorMessage,omitempty"`
 }
 
 // Run executes one git command and returns stdout/stderr plus Git's exit code.
-// Non-zero Git exits are data, not transport failures; Electron classifies
-// them into GitError kinds using its existing stderr catalog.
+// Non-zero Git exits are classified data, not transport failures.
 func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseRunParams(raw)
 	if err != nil {
@@ -77,7 +59,14 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	err = cmd.Run()
 	if stdout.overflow {
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: fmt.Sprintf("git stdout exceeded %d bytes", stdoutCap)}
+		return RunResult{
+			Stdout:       "",
+			Stderr:       stderr.String(),
+			Code:         0,
+			ErrorKind:    KindOutputTooLarge,
+			ErrorHint:    HintForKind(KindOutputTooLarge),
+			ErrorMessage: MessageForKind(KindOutputTooLarge, MessageContext{Args: params.Args, LimitBytes: stdoutCap}),
+		}, nil
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
@@ -86,80 +75,24 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	if fatal != nil {
 		return nil, fatal
 	}
-	return RunResult{Stdout: stdout.String(), Stderr: stderr.String(), Code: code}, nil
+	return buildRunResult(stdout.String(), stderr.String(), code, params.Args), nil
 }
 
-// Stream executes one git command and emits stdout chunks as git.streamChunk
-// events. The final response carries stderr and the exit code.
-func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) {
-	var params StreamParams
-	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil {
-		return nil, proto.ProtocolError("git.stream params must include streamId and args")
+// buildRunResult attaches classification fields when Git exits unsuccessfully.
+func buildRunResult(stdout string, stderr string, code int, args []string) RunResult {
+	result := RunResult{Stdout: stdout, Stderr: stderr, Code: code}
+	if code == 0 {
+		return result
 	}
-	if strings.TrimSpace(params.StreamID) == "" {
-		return nil, proto.ProtocolError("git.stream streamId is required")
-	}
-	if err := validateGitArgs(params.Args); err != nil {
-		return nil, err
-	}
-
-	streamCtx, cancel := context.WithCancel(ctx)
-	if err := s.registerStream(params.StreamID, cancel); err != nil {
-		cancel()
-		return nil, err
-	}
-	defer s.unregisterStream(params.StreamID)
-
-	cmd, err := s.command(streamCtx, params.Args, params.Cwd, params.Env, params.Interactive)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, mapGitStartError(err, params.Args)
-	}
-
-	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout)
-	waitErr := cmd.Wait()
-	if readErr != nil && !errors.Is(readErr, context.Canceled) {
-		cancel()
-		return nil, readErr
-	}
-	if ctxErr := streamCtx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	code, fatal := gitExitCode(waitErr)
-	if fatal != nil {
-		return nil, fatal
-	}
-	return RunResult{Stdout: "", Stderr: stderr.String(), Code: code}, nil
-}
-
-// Cancel stops an in-flight git.stream request.
-func (s *Service) Cancel(ctx context.Context, raw json.RawMessage) (any, error) {
-	var params CancelParams
-	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil {
-		return nil, proto.ProtocolError("git.cancel params must include streamId")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	s.mu.Lock()
-	cancel := s.streams[params.StreamID]
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	return struct{}{}, nil
+	kind := Classify(stderr)
+	result.ErrorKind = kind
+	result.ErrorHint = HintForKind(kind)
+	result.ErrorMessage = MessageForKind(kind, MessageContext{
+		Stderr:   stderr,
+		Args:     args,
+		ExitCode: &code,
+	})
+	return result
 }
 
 func parseRunParams(raw json.RawMessage) (RunParams, error) {
@@ -193,9 +126,16 @@ func (s *Service) command(ctx context.Context, args []string, cwd string, env ma
 	if err != nil {
 		return nil, err
 	}
+	var askpass commandAskpass
+	if interactive {
+		askpass, err = s.commandAskpass()
+		if err != nil {
+			return nil, err
+		}
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = resolvedCwd
-	cmd.Env = gitEnv(env, interactive)
+	cmd.Env = gitEnv(env, interactive, askpass)
 	return cmd, nil
 }
 
@@ -227,7 +167,7 @@ func (s *Service) resolveCwd(ctx context.Context, cwd string) (string, error) {
 func gitTopLevel(ctx context.Context, root string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
 	cmd.Dir = root
-	cmd.Env = gitEnv(nil, false)
+	cmd.Env = gitEnv(nil, false, commandAskpass{})
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -247,22 +187,58 @@ func samePath(a string, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func gitEnv(overrides map[string]string, interactive bool) []string {
+type commandAskpass struct {
+	helperPath string
+	socketPath string
+}
+
+func (s *Service) commandAskpass() (commandAskpass, error) {
+	socketPath, err := s.ensureAskpassServer()
+	if err != nil {
+		return commandAskpass{}, err
+	}
+	helperPath, err := os.Executable()
+	if err != nil {
+		return commandAskpass{}, proto.CodedError{Code: proto.CodeRequestFailed, Msg: "git askpass helper unavailable"}
+	}
+	return commandAskpass{helperPath: helperPath, socketPath: socketPath}, nil
+}
+
+func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpass) []string {
 	env := os.Environ()
 	env = appendOrReplaceEnv(env, "GIT_TERMINAL_PROMPT", "0")
 	env = appendOrReplaceEnv(env, "GIT_FLUSH", "1")
-	if !interactive {
-		env = appendOrReplaceEnv(env, "GIT_ASKPASS", "echo")
-		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
-		env = appendOrReplaceEnv(env, "SSH_ASKPASS", "echo")
-	}
 	for key, value := range overrides {
 		if strings.Contains(key, "\x00") || strings.Contains(value, "\x00") || strings.Contains(key, "=") || key == "" {
 			continue
 		}
 		env = appendOrReplaceEnv(env, key, value)
 	}
+	if interactive {
+		env = appendOrReplaceEnv(env, askpassSocketEnv, askpass.socketPath)
+		env = appendOrReplaceEnv(env, askpassModeEnv, "1")
+		env = appendOrReplaceEnv(env, "GIT_ASKPASS", askpass.helperPath)
+		env = appendOrReplaceEnv(env, "SSH_ASKPASS", askpass.helperPath)
+		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
+		if runtime.GOOS != "windows" && envValue(env, "DISPLAY") == "" {
+			env = appendOrReplaceEnv(env, "DISPLAY", ":0")
+		}
+	} else {
+		env = appendOrReplaceEnv(env, "GIT_ASKPASS", "echo")
+		env = appendOrReplaceEnv(env, "SSH_ASKPASS_REQUIRE", "force")
+		env = appendOrReplaceEnv(env, "SSH_ASKPASS", "echo")
+	}
 	return env
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 func appendOrReplaceEnv(env []string, key string, value string) []string {
@@ -294,74 +270,31 @@ func mapGitStartError(err error, args []string) error {
 	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
 }
 
-func (s *Service) registerStream(streamID string, cancel context.CancelFunc) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.streams[streamID]; exists {
-		return proto.ProtocolError("git.stream streamId is already active")
-	}
-	s.streams[streamID] = cancel
-	return nil
-}
-
-func (s *Service) unregisterStream(streamID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.streams, streamID)
-}
-
-func (s *Service) emitStreamChunks(ctx context.Context, streamID string, stdout io.Reader) error {
-	buf := make([]byte, streamChunkBytes)
-	for {
-		n, err := stdout.Read(buf)
-		if n > 0 {
-			payload := StreamChunkPayload{
-				StreamID: streamID,
-				Chunk:    base64.StdEncoding.EncodeToString(buf[:n]),
-			}
-			s.mu.Lock()
-			sink := s.sink
-			s.mu.Unlock()
-			if sink != nil {
-				if emitErr := sink("git.streamChunk", payload); emitErr != nil {
-					return emitErr
-				}
-			}
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
-			}
-			return err
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-	}
-}
-
 type cappedBuffer struct {
-	bytes.Buffer
+	buf      bytes.Buffer
 	cap      int64
 	overflow bool
 }
 
+// String returns the captured stdout prefix.
+func (b *cappedBuffer) String() string {
+	return b.buf.String()
+}
+
+// Write records stdout until the configured cap and detects overflow.
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.cap <= 0 {
-		return b.Buffer.Write(p)
+		return b.buf.Write(p)
 	}
-	remaining := b.cap - int64(b.Buffer.Len())
+	remaining := b.cap - int64(b.buf.Len())
 	if remaining <= 0 {
 		b.overflow = true
 		return len(p), nil
 	}
 	if int64(len(p)) > remaining {
 		b.overflow = true
-		_, _ = b.Buffer.Write(p[:remaining])
+		_, _ = b.buf.Write(p[:remaining])
 		return len(p), nil
 	}
-	return b.Buffer.Write(p)
+	return b.buf.Write(p)
 }

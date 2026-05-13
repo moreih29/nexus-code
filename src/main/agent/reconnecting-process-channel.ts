@@ -1,0 +1,417 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type {
+  AgentChannel,
+  ChannelEventCallback,
+  ChannelLifecycleCallback,
+  ChannelLifecycleEvent,
+} from "./channel";
+import type { StderrClassifier } from "./pipe";
+import { createNdjsonPipe, type NdjsonPipe, type SshError } from "./pipe";
+
+const DISPOSE_KILL_GRACE_MS = 100;
+const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;
+const DEFAULT_RECONNECT_DELAY_MS = 100;
+const DEFAULT_MAX_RECONNECT_DELAY_MS = 1_000;
+const DEFAULT_RECONNECT_CALL_TIMEOUT_MS = 30_000;
+
+export interface AgentReconnectOptions {
+  readonly maxPendingCalls?: number;
+  readonly callTimeoutMs?: number;
+  readonly initialDelayMs?: number;
+  readonly maxDelayMs?: number;
+}
+
+export interface ReconnectingProcessChannelOptions {
+  readonly spawn: () => ChildProcessWithoutNullStreams;
+  readonly classifyStderr: StderrClassifier;
+  readonly closeError: (wasReady: boolean) => Error;
+  readonly requestTimeoutMs?: number;
+  readonly expectedProtocolMajor?: string;
+  readonly reconnect?: AgentReconnectOptions;
+}
+
+interface ActiveProcess {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly pipe: NdjsonPipe;
+  closed: boolean;
+  ready: boolean;
+  forceKillTimer: NodeJS.Timeout | null;
+}
+
+interface QueuedCall {
+  readonly method: string;
+  readonly params: unknown;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (reason?: unknown) => void;
+  readonly timer: NodeJS.Timeout;
+}
+
+type ChannelState = "connecting" | "ready" | "reconnecting" | "terminal" | "disposed";
+
+/**
+ * Creates an agent channel whose process can be transparently respawned after
+ * a post-ready crash. Calls made during the reconnect window are kept in a
+ * bounded queue and replayed once the replacement agent completes handshake.
+ */
+export function createReconnectingProcessChannel(
+  options: ReconnectingProcessChannelOptions,
+): AgentChannel {
+  const lifecycleListeners = new Set<ChannelLifecycleCallback>();
+  const eventListeners = new Map<string, Set<ChannelEventCallback>>();
+  const queue: QueuedCall[] = [];
+  const reconnect = normalizeReconnectOptions(options.reconnect, options.requestTimeoutMs);
+
+  let active: ActiveProcess | null = null;
+  let state: ChannelState = "connecting";
+  let terminalError: Error | null = null;
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  let nextReconnectDelayMs = reconnect.initialDelayMs;
+
+  const first = spawnAttempt("connecting");
+  const ready = first.pipe.ready;
+  ready.catch(() => {});
+
+  return {
+    ready,
+    call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+      if (state === "disposed") return Promise.reject(createDisposedErrorForChannel());
+      if (terminalError) return Promise.reject(terminalError);
+      if (state === "reconnecting") return enqueueCall<TResult>(method, params);
+      if (!active) return Promise.reject(createAgentReconnectError("agent.reconnect-unavailable"));
+      return active.pipe.call<TResult>(method, params);
+    },
+    on(event: string, callback: ChannelEventCallback): () => void {
+      let callbacks = eventListeners.get(event);
+      if (!callbacks) {
+        callbacks = new Set<ChannelEventCallback>();
+        eventListeners.set(event, callbacks);
+        attachEvent(active?.pipe ?? null, event);
+      }
+      callbacks.add(callback);
+      return () => {
+        const current = eventListeners.get(event);
+        if (!current) return;
+        current.delete(callback);
+        if (current.size === 0) eventListeners.delete(event);
+      };
+    },
+    onLifecycle(callback: ChannelLifecycleCallback): () => void {
+      lifecycleListeners.add(callback);
+      return () => {
+        lifecycleListeners.delete(callback);
+      };
+    },
+    dispose(): void {
+      if (state === "disposed") return;
+      state = "disposed";
+      clearReconnectTimer();
+      rejectQueuedCalls(createDisposedErrorForChannel());
+      active?.pipe.dispose();
+      if (active && !active.child.stdin.destroyed) active.child.stdin.end();
+      if (!terminalError) emitLifecycle({ type: "disposed" });
+      if (active) terminateChild(active);
+    },
+  };
+
+  /** Starts one process attempt and wires pipe/process lifecycle handlers. */
+  function spawnAttempt(phase: "connecting" | "reconnecting"): ActiveProcess {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = options.spawn();
+    } catch (error) {
+      const wrapped = createAgentReconnectError("agent.reconnect-unavailable", error);
+      if (phase === "connecting") {
+        state = "terminal";
+        terminalError = wrapped;
+      } else {
+        scheduleReconnect();
+      }
+      throw wrapped;
+    }
+
+    let attempt!: ActiveProcess;
+    const pipe = createNdjsonPipe({
+      stdout: child.stdout,
+      stderr: child.stderr,
+      stdin: child.stdin,
+      classifyStderr: options.classifyStderr,
+      onTerminalError: (error) => handlePipeFailure(attempt, error, phase),
+      requestTimeoutMs: options.requestTimeoutMs,
+      expectedProtocolMajor: options.expectedProtocolMajor,
+    });
+    attempt = {
+      child,
+      pipe,
+      closed: false,
+      ready: false,
+      forceKillTimer: null,
+    };
+    active = attempt;
+    attachAllEvents(attempt.pipe);
+
+    attempt.pipe.ready
+      .then(() => {
+        if (state === "disposed" || active !== attempt) return;
+        attempt.ready = true;
+        state = "ready";
+        nextReconnectDelayMs = reconnect.initialDelayMs;
+        flushQueuedCalls();
+      })
+      .catch((error) => {
+        if (state === "disposed" || active !== attempt) return;
+        if (phase === "reconnecting") {
+          scheduleReconnect();
+          return;
+        }
+        state = "terminal";
+        terminalError = error instanceof Error ? error : options.closeError(false);
+      });
+
+    child.on("error", (error) => handleSpawnError(attempt, error, phase));
+    child.on("close", (code, signal) => handleClose(attempt, code, signal, phase));
+    return attempt;
+  }
+
+  /** Handles a pipe-classified fatal error such as bad protocol or auth stderr. */
+  function handlePipeFailure(
+    attempt: ActiveProcess,
+    error: SshError,
+    phase: "connecting" | "reconnecting",
+  ): void {
+    if (state === "disposed" || active !== attempt) return;
+    if (phase === "reconnecting") {
+      terminateChild(attempt);
+      scheduleReconnect();
+      return;
+    }
+    state = "terminal";
+    terminalError = error;
+    emitLifecycle({ type: "failure", error });
+    terminateChild(attempt);
+  }
+
+  /** Handles process spawn errors; reconnect attempts are retried silently. */
+  function handleSpawnError(
+    attempt: ActiveProcess,
+    error: unknown,
+    phase: "connecting" | "reconnecting",
+  ): void {
+    if (state === "disposed" || active !== attempt) return;
+    const wrapped =
+      phase === "connecting"
+        ? options.closeError(false)
+        : createAgentReconnectError("agent.reconnect-unavailable", error);
+    attempt.pipe.fail(wrapped);
+    if (phase === "reconnecting") {
+      scheduleReconnect();
+      return;
+    }
+    state = "terminal";
+    terminalError = wrapped;
+    emitLifecycle({ type: "failure", error: wrapped });
+  }
+
+  /** Handles process close, reconnecting only for non-clean post-ready exits. */
+  function handleClose(
+    attempt: ActiveProcess,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+    phase: "connecting" | "reconnecting",
+  ): void {
+    if (active !== attempt) return;
+    attempt.closed = true;
+    clearForceKillTimer(attempt);
+    const { wasReady } = attempt.pipe.notifyClose();
+
+    if (state === "disposed" || terminalError) return;
+    if (code === 0 && wasReady) {
+      state = "terminal";
+      terminalError = options.closeError(true);
+      emitLifecycle({ type: "exit", code, signal });
+      return;
+    }
+
+    if (wasReady || phase === "reconnecting") {
+      attempt.pipe.fail(createAgentReconnectError("agent.reconnect-in-progress"));
+      state = "reconnecting";
+      scheduleReconnect();
+      return;
+    }
+
+    const error = options.closeError(wasReady);
+    attempt.pipe.fail(error);
+    state = "terminal";
+    terminalError = error;
+    emitLifecycle({ type: "failure", error });
+  }
+
+  /** Adds one reconnect-window call to the bounded queue. */
+  function enqueueCall<TResult>(method: string, params: unknown): Promise<TResult> {
+    if (queue.length >= reconnect.maxPendingCalls) {
+      return Promise.reject(createAgentReconnectError("agent.reconnect-queue-overflow"));
+    }
+
+    return new Promise<TResult>((resolve, reject) => {
+      const queued: QueuedCall = {
+        method,
+        params,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timer: setTimeout(() => {
+          removeQueuedCall(queued);
+          reject(createAgentReconnectError("agent.reconnect-timeout"));
+        }, reconnect.callTimeoutMs),
+      };
+      queued.timer.unref?.();
+      queue.push(queued);
+    });
+  }
+
+  /** Replays queued calls through the active ready pipe. */
+  function flushQueuedCalls(): void {
+    const pipe = active?.pipe;
+    if (!pipe) return;
+    for (const call of queue.splice(0)) {
+      clearTimeout(call.timer);
+      pipe.call(call.method, call.params).then(call.resolve, call.reject);
+    }
+  }
+
+  /** Rejects every queued call and clears its timeout. */
+  function rejectQueuedCalls(error: Error): void {
+    for (const call of queue.splice(0)) {
+      clearTimeout(call.timer);
+      call.reject(error);
+    }
+  }
+
+  /** Removes a timed-out call without disturbing the rest of the queue. */
+  function removeQueuedCall(call: QueuedCall): void {
+    const index = queue.indexOf(call);
+    if (index >= 0) queue.splice(index, 1);
+  }
+
+  /** Schedules the next reconnect attempt with capped exponential backoff. */
+  function scheduleReconnect(): void {
+    if (state === "disposed" || reconnectTimer) return;
+    state = "reconnecting";
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (state === "disposed") return;
+      try {
+        spawnAttempt("reconnecting");
+      } catch {
+        // spawnAttempt already scheduled the next retry for reconnect phases.
+      }
+    }, nextReconnectDelayMs);
+    reconnectTimer.unref?.();
+    nextReconnectDelayMs = Math.min(nextReconnectDelayMs * 2, reconnect.maxDelayMs);
+  }
+
+  /** Attaches stored event subscriptions to one fresh pipe. */
+  function attachAllEvents(pipe: NdjsonPipe): void {
+    for (const event of eventListeners.keys()) attachEvent(pipe, event);
+  }
+
+  /** Routes pipe events through the mutable callback registry. */
+  function attachEvent(pipe: NdjsonPipe | null, event: string): void {
+    if (!pipe) return;
+    pipe.on(event, (payload) => {
+      const callbacks = eventListeners.get(event);
+      if (!callbacks) return;
+      for (const callback of Array.from(callbacks)) callback(payload);
+    });
+  }
+
+  /** Sends SIGTERM now and schedules the 100ms SIGKILL fallback. */
+  function terminateChild(attempt: ActiveProcess): void {
+    if (attempt.closed || attempt.child.killed) return;
+    attempt.child.kill("SIGTERM");
+    scheduleForceKill(attempt);
+  }
+
+  /** Starts the hard-kill timer used when the child ignores disposal. */
+  function scheduleForceKill(attempt: ActiveProcess): void {
+    if (attempt.forceKillTimer) return;
+    attempt.forceKillTimer = setTimeout(() => {
+      attempt.child.kill("SIGKILL");
+    }, DISPOSE_KILL_GRACE_MS);
+    attempt.forceKillTimer.unref?.();
+  }
+
+  /** Clears the hard-kill timer after the child exits. */
+  function clearForceKillTimer(attempt: ActiveProcess): void {
+    if (!attempt.forceKillTimer) return;
+    clearTimeout(attempt.forceKillTimer);
+    attempt.forceKillTimer = null;
+  }
+
+  /** Cancels any pending reconnect timer. */
+  function clearReconnectTimer(): void {
+    if (!reconnectTimer) return;
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  /** Delivers one lifecycle event to currently subscribed callbacks. */
+  function emitLifecycle(event: ChannelLifecycleEvent): void {
+    for (const callback of Array.from(lifecycleListeners)) callback(event);
+  }
+}
+
+/** Normalizes reconnect queue/backoff knobs while preserving production defaults. */
+function normalizeReconnectOptions(
+  options: AgentReconnectOptions | undefined,
+  requestTimeoutMs: number | undefined,
+): Required<AgentReconnectOptions> {
+  return {
+    maxPendingCalls: options?.maxPendingCalls ?? DEFAULT_MAX_PENDING_RECONNECT_CALLS,
+    callTimeoutMs: options?.callTimeoutMs ?? requestTimeoutMs ?? DEFAULT_RECONNECT_CALL_TIMEOUT_MS,
+    initialDelayMs: options?.initialDelayMs ?? DEFAULT_RECONNECT_DELAY_MS,
+    maxDelayMs: options?.maxDelayMs ?? DEFAULT_MAX_RECONNECT_DELAY_MS,
+  };
+}
+
+export type AgentReconnectErrorCode =
+  | "agent.reconnect-in-progress"
+  | "agent.reconnect-queue-overflow"
+  | "agent.reconnect-timeout"
+  | "agent.reconnect-unavailable";
+
+export interface AgentReconnectError extends Error {
+  readonly code: AgentReconnectErrorCode;
+  readonly retryable: true;
+}
+
+/** Builds retryable errors for reconnect queue and transient process gaps. */
+export function createAgentReconnectError(
+  code: AgentReconnectErrorCode,
+  cause?: unknown,
+): AgentReconnectError {
+  const error = new Error(messageForReconnectCode(code), { cause }) as AgentReconnectError;
+  error.name = "AgentReconnectError";
+  (error as Error & { code: AgentReconnectErrorCode }).code = code;
+  (error as Error & { retryable: true }).retryable = true;
+  return error;
+}
+
+/** Creates the local disposal error used for abandoned reconnect waiters. */
+function createDisposedErrorForChannel(): Error {
+  const error = new Error("SSH channel disposed");
+  error.name = "AbortError";
+  return error;
+}
+
+/** Maps reconnect error codes to caller-facing messages. */
+function messageForReconnectCode(code: AgentReconnectErrorCode): string {
+  switch (code) {
+    case "agent.reconnect-in-progress":
+      return "Agent reconnect in progress";
+    case "agent.reconnect-queue-overflow":
+      return "Agent reconnect queue is full";
+    case "agent.reconnect-timeout":
+      return "Agent reconnect timed out";
+    case "agent.reconnect-unavailable":
+      return "Agent reconnect unavailable";
+  }
+}

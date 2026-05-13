@@ -1,0 +1,33 @@
+{
+  "merge": [
+    {
+      "relPath": "src/merge-conflict.ts",
+      "xy": "UU",
+      "conflictType": "both-modified"
+    }
+  ],
+  "staged": [],
+  "working": [],
+  "untracked": [],
+  "branch": {
+    "current": "main",
+    "upstream": null,
+    "ahead": 0,
+    "behind": 0,
+    "isUnborn": false
+  },
+  "capabilities": {
+    "hasHEAD": true,
+    "remotes": [],
+    "stashCount": 0,
+    "tagCount": 0
+  },
+  "operationState": {
+    "kind": "merge",
+    "headRef": "main",
+    "mergeRef": "feature/status-conflict",
+    "mergeLabel": "feature/status-conflict",
+    "conflictCount": 1
+  },
+  "lastFetchedAt": null
+}

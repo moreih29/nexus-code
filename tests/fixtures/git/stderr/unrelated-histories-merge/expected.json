@@ -1,0 +1,7 @@
+{
+  "kind": "unrelated-histories",
+  "message": "fatal: refusing to merge unrelated histories",
+  "hint": {
+    "kind": "allow-unrelated-histories"
+  }
+}

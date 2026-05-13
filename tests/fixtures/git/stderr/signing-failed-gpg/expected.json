@@ -1,0 +1,4 @@
+{
+  "kind": "signing-failed",
+  "message": "error: gpg failed to sign the data\nfatal: failed to write commit object"
+}

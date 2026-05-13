@@ -20,6 +20,12 @@ export interface FsToastMessages {
   notFound?: string;
   /** Override for PERMISSION_DENIED. */
   permissionDenied?: string;
+  /** Override for NOT_EMPTY. */
+  notEmpty?: string;
+  /** Override for NOT_DIRECTORY. */
+  notDirectory?: string;
+  /** Override for CROSS_DEVICE. */
+  crossDevice?: string;
 }
 
 export function toFsToast(error: unknown, msgs: FsToastMessages): void {
@@ -33,6 +39,18 @@ export function toFsToast(error: unknown, msgs: FsToastMessages): void {
   }
   if (hasFsErrorCode(error, FS_ERROR.PERMISSION_DENIED)) {
     showToast({ kind: "error", message: msgs.permissionDenied ?? "Permission denied." });
+    return;
+  }
+  if (hasFsErrorCode(error, FS_ERROR.NOT_EMPTY)) {
+    showToast({ kind: "error", message: msgs.notEmpty ?? "Folder is not empty." });
+    return;
+  }
+  if (hasFsErrorCode(error, FS_ERROR.NOT_DIRECTORY)) {
+    showToast({ kind: "error", message: msgs.notDirectory ?? "Path is not a folder." });
+    return;
+  }
+  if (hasFsErrorCode(error, FS_ERROR.CROSS_DEVICE)) {
+    showToast({ kind: "error", message: msgs.crossDevice ?? "Can't move across filesystems." });
     return;
   }
   showToast({ kind: "error", message: msgs.fallback });

@@ -1,0 +1,16 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": [
+    "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+    "# branch.head main",
+    "u UU N... 100644 100644 100644 100644 0123456789abcdef0123456789abcdef01234567 89abcdef012345670123456789abcdef01234567 fedcba9876543210fedcba9876543210fedcba98 src/merge-conflict.ts"
+  ],
+  "notes": [
+    "Trap: operationState.kind=merge includes merge-specific fields and does not use the none shape."
+  ]
+}

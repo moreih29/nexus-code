@@ -1,0 +1,26 @@
+{
+  "method": "git.commitDetail",
+  "case": "merge-commit",
+  "params": {
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "result": {
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "parents": [
+      "1111111111111111111111111111111111111111",
+      "2222222222222222222222222222222222222222"
+    ],
+    "subject": "Merge feature/login into main",
+    "author": "Grace Hopper",
+    "authorEmail": "grace@example.test",
+    "committerTs": "2026-05-02T11:15:00+00:00",
+    "message": "Merge feature/login into main\n\nResolve package version.",
+    "body": "Resolve package version.",
+    "files": [
+      {
+        "status": "M",
+        "path": "package.json"
+      }
+    ]
+  }
+}

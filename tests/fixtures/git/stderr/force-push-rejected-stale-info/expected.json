@@ -1,0 +1,7 @@
+{
+  "kind": "force-push-rejected",
+  "message": "To github.com:example/repo.git\n ! [rejected]        main -> main (stale info)\nerror: failed to push some refs to 'github.com:example/repo.git'",
+  "hint": {
+    "kind": "fetch-then-force"
+  }
+}

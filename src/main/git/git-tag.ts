@@ -6,14 +6,14 @@
  * parsing so tag management stays separate from branch and remote helpers.
  */
 import type { RemoteTag, Tag } from "../../shared/types/git";
+import type { GitExecutor, RunGitResult } from "../bridge/git/types";
 import { GitError } from "./git-error";
-import { type GitProcessExecutor, type RunGitResult, runGit } from "./git-process";
 import type { BuildHelperEnvOptions } from "./helpers-launcher";
 
 export interface GitTagCommandContext {
   readonly bin: string;
   readonly cwd: string;
-  readonly executor?: GitProcessExecutor;
+  readonly executor: GitExecutor;
 }
 
 export interface GitTagMutationRunner {
@@ -46,13 +46,12 @@ const TAG_FORMAT = [
  * field boundaries.
  */
 export async function listTags(git: GitTagCommandContext, signal?: AbortSignal): Promise<Tag[]> {
-  const { stdout } = await runGit({
+  const { stdout } = await git.executor.run({
     bin: git.bin,
     cwd: git.cwd,
     args: ["for-each-ref", `--format=${TAG_FORMAT}${TAG_RECORD_SEPARATOR}`, "refs/tags"],
     interactive: false,
     signal,
-    executor: git.executor,
   });
   return parseTagList(stdout);
 }

@@ -14,6 +14,7 @@ import {
   parseStashList,
   stashGroup,
 } from "../../../../src/main/git/git-stash";
+import { localSemanticExecutor } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -106,9 +107,13 @@ describe("git stash helpers", () => {
 });
 
 /** Returns the Git command context for a fixture repository. */
-function git(root: string): { bin: string; cwd: string } {
+function git(root: string) {
   if (!gitOnPath) throw new Error("git missing");
-  return { bin: gitOnPath, cwd: root };
+  return {
+    bin: gitOnPath,
+    cwd: root,
+    executor: localSemanticExecutor(gitOnPath, path.join(root, ".git")),
+  };
 }
 
 /** Creates a committed repository with two tracked files. */

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -12,7 +12,7 @@ describe("GitRepository discard source scoping", () => {
   realGitTest("working discard on an MM file preserves staged content", async () => {
     const root = makeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "workspace-mm-working",
         root,
         path.join(root, ".git"),
@@ -33,7 +33,7 @@ describe("GitRepository discard source scoping", () => {
   realGitTest("staged discard on an MM file preserves unstaged working content", async () => {
     const root = makeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "workspace-mm-staged",
         root,
         path.join(root, ".git"),

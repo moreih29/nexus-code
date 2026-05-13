@@ -1,0 +1,4 @@
+{
+  "kind": "clone-name-invalid",
+  "message": "fatal: clone name '../repo' invalid"
+}

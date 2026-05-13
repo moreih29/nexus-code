@@ -1,0 +1,25 @@
+{
+  "method": "git.diff",
+  "case": "ref-vs-ref-rename",
+  "params": {
+    "kind": "ref-vs-ref",
+    "from": "main",
+    "to": "feature/rename",
+    "paths": [
+      "src/new.ts"
+    ],
+    "maxChunkBytes": 1048576
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 91%\nrename from src/old.ts\nrename to src/new.ts\nindex abcdef0..abcdef1 100644\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-export const name = \"old\";\n+export const name = \"new\";\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 234,
+    "truncated": false
+  }
+}

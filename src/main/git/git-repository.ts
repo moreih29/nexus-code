@@ -3,7 +3,7 @@
  * toplevel, which may be above the opened workspace when a subdirectory is open.
  */
 
-import { StringDecoder } from "node:string_decoder";
+import { Buffer } from "node:buffer";
 import type {
   BranchList,
   CommitDetail,
@@ -16,39 +16,35 @@ import type {
   GitContinueOpResult,
   GitExpandedGroupKey,
   GitFastForwardResult,
+  GitIgnoreAppendResult,
   GitLogScope,
   GitMarkResolvedResult,
   GitMergeMode,
   GitMergeResult,
+  GitOpenFileAtHeadResult,
   GitRebaseResult,
   GitStatus,
   GitSyncResult,
-  GitIgnoreAppendResult,
   LogChunk,
   LogComplete,
   LogEntry,
   PullResult,
   PushResult,
   RemoteTag,
-  RepoCapabilities,
   Tag,
 } from "../../shared/types/git";
+import { BINARY_DETECTION_BYTES } from "../../shared/fs-defaults";
+import type { GitExecutor, RunGitResult } from "../bridge/git/types";
+import { isBinaryProbe } from "./binary-detect";
 import type { GitBinary } from "./git-binary";
-import { readAtHead, streamBlob } from "./git-blob";
 import * as branchOps from "./git-branch-ops";
-import { buildCommitDetailArgs, parseCommitDetailOutput } from "./git-commit-detail";
 import { type GitConflictRunner, markResolved as markConflictResolved } from "./git-conflict";
-import { streamGitTextChunks } from "./git-diff-stream";
 import { GitError } from "./git-error";
 import { appendIgnoreEntry } from "./git-ignore";
-import { buildLogArgs, LOG_RECORD_SEPARATOR, parseLogRecord } from "./git-log-parsing";
-import { readGitOperationState } from "./git-operation-state";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
-import { type GitProcessExecutor, type RunGitResult, runGit, streamGit } from "./git-process";
 import * as remoteOps from "./git-remote";
 import {
   buildCommitArgs,
-  buildDiffArgs,
   collectDiscardPathsets,
   gitSyncErrorFromGitError,
   isAbortError,
@@ -56,7 +52,6 @@ import {
   parseBranchLines,
   parsePullResult,
   parsePushResult,
-  readFetchHeadMtime,
   throwIfAborted,
 } from "./git-repository-helpers";
 import {
@@ -70,9 +65,8 @@ import {
 import * as tagOps from "./git-tag";
 import * as workflow from "./git-workflow";
 import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
-import { parseV2Porcelain } from "./porcelain-v2";
 
-const LOG_CHUNK_ENTRY_COUNT = 50;
+const GIT_OPEN_FILE_AT_HEAD_MAX_BYTES = 1024 * 1024;
 
 export interface GitLogArgs {
   readonly ref?: string;
@@ -144,7 +138,7 @@ export class GitRepository {
     topLevel: string,
     gitDir: string,
     bin: GitBinary | string,
-    private readonly executor?: GitProcessExecutor,
+    private readonly executor: GitExecutor,
     private readonly metadataReader?: GitMetadataReader,
   ) {
     this.workspaceId = workspaceId;
@@ -845,16 +839,8 @@ export class GitRepository {
    * Reads a HEAD blob as bounded UTF-8 text for the file context menu's
    * historical-content seam.
    */
-  openFileAtHead(relPath: string, signal?: AbortSignal) {
-    return this.queue(
-      (queuedSignal) =>
-        readAtHead(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          relPath,
-          queuedSignal,
-        ),
-      signal,
-    );
+  openFileAtHead(relPath: string, signal?: AbortSignal): Promise<GitOpenFileAtHeadResult> {
+    return this.queue((queuedSignal) => this.readHeadBlobAsText(relPath, queuedSignal), signal);
   }
 
   /**
@@ -862,16 +848,16 @@ export class GitRepository {
    * not interleave with mutating Git operations.
    */
   async *getFileBlob(ref: string, relPath: string, signal?: AbortSignal) {
-    return yield* this.queueStream(
-      (queuedSignal) =>
-        streamBlob(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          ref,
-          relPath,
-          queuedSignal,
-        ),
-      signal,
-    );
+    return yield* this.queueStream((queuedSignal) => {
+      const blob = this.executor.blob;
+      if (!blob) throw missingExecutorMethodError("blob");
+      return blob.call(this.executor, {
+        cwd: this.topLevel,
+        ref,
+        relPath,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
@@ -1027,13 +1013,12 @@ export class GitRepository {
    */
   private run(args: readonly string[], signal: AbortSignal): Promise<RunGitResult> {
     throwIfAborted(signal);
-    return runGit({
+    return this.executor.run({
       bin: this.binPath,
       cwd: this.topLevel,
       args,
       interactive: false,
       signal,
-      executor: this.executor,
     });
   }
 
@@ -1047,14 +1032,13 @@ export class GitRepository {
     helpers: BuildHelperEnvOptions,
   ): Promise<RunGitResult> {
     throwIfAborted(signal);
-    return runGit({
+    return this.executor.run({
       bin: this.binPath,
       cwd: this.topLevel,
       args,
       env: buildHelperEnv({ ...helpers, workspaceId: this.workspaceId }),
       interactive: true,
       signal,
-      executor: this.executor,
     });
   }
 
@@ -1137,86 +1121,77 @@ export class GitRepository {
   }
 
   /**
-   * Parses `git status --porcelain=v2 -z -b` output for this repository and
-   * enriches it with the repo-level capability flags the renderer uses to
-   * gate Source Control panel actions.
-   *
-   * The two extra git calls (`remote`, `stash list`) are cheap (sub-ms even
-   * on large repos) and broadcast through the same `statusChanged` event,
-   * so the renderer never disagrees about Push/Stash/Stash-Pop enablement
-   * after a refresh.
+   * Reads the agent-computed repository snapshot and capability flags.
    */
   private async readStatus(signal: AbortSignal): Promise<GitStatus> {
-    const { stdout } = await this.run(
-      ["status", "--porcelain=v2", "-z", "-b", "--untracked-files=all", "--renames"],
+    const status = this.executor.status;
+    if (!status) throw missingExecutorMethodError("status");
+    return status.call(this.executor, {
+      cwd: this.topLevel,
+      untracked: "all",
+      renames: true,
       signal,
-    );
-    const status = parseV2Porcelain(stdout);
-    const [remotes, stashCount, tagCount, metadata] = await Promise.all([
-      this.readRemotes(signal),
-      this.readStashCount(signal),
-      this.readTagCount(signal),
-      this.readMetadata(status.merge.length, signal),
-    ]);
-    const capabilities: RepoCapabilities = {
-      hasHEAD: status.branch !== null && !status.branch.isUnborn,
-      remotes,
-      stashCount,
-      tagCount,
-    };
-    return {
-      ...status,
-      capabilities,
-      operationState: metadata.operationState,
-      lastFetchedAt: metadata.lastFetchedAt,
-    };
+    });
   }
 
-  private async readMetadata(
-    conflictCount: number,
+  /**
+   * Reads a bounded HEAD blob through the semantic blob executor and decodes it
+   * only after binary and size guards pass.
+   */
+  private async readHeadBlobAsText(
+    relPath: string,
     signal: AbortSignal,
-  ): Promise<{
-    readonly operationState: GitStatus["operationState"];
-    readonly lastFetchedAt: number | null;
-  }> {
-    if (this.metadataReader) {
-      return this.metadataReader.metadata(this.gitDir, conflictCount, signal);
+  ): Promise<GitOpenFileAtHeadResult> {
+    if (relPath.trim().length === 0) throw new GitError("unknown", "File path is required");
+
+    if (!this.executor.blob) {
+      throw new GitError("unknown", "Git blob executor is unavailable");
     }
-    const [operationState, lastFetchedAt] = await Promise.all([
-      readGitOperationState(this.gitDir, { conflictCount }),
-      readFetchHeadMtime(this.gitDir),
-    ]);
-    return { operationState, lastFetchedAt };
-  }
 
-  /**
-   * Lists configured remote names (one per line). Empty stdout (no remotes
-   * configured) maps to an empty array.
-   */
-  private async readRemotes(signal: AbortSignal): Promise<string[]> {
-    const { stdout } = await this.run(["remote"], signal);
-    return stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  }
+    const stream = this.executor.blob({
+      cwd: this.topLevel,
+      ref: "HEAD",
+      relPath,
+      maxBytes: GIT_OPEN_FILE_AT_HEAD_MAX_BYTES,
+      signal,
+    });
+    const chunks: Buffer[] = [];
+    let sizeBytes = 0;
 
-  /**
-   * Counts stash entries by listing the stash log and counting non-empty
-   * lines. Returns 0 when the stash is empty (`git stash list` exits
-   * cleanly with no output) or when stash storage does not exist yet.
-   */
-  private async readStashCount(signal: AbortSignal): Promise<number> {
-    const { stdout } = await this.run(["stash", "list"], signal);
-    return stdout.split(/\r?\n/).filter((line) => line.length > 0).length;
-  }
+    for (;;) {
+      const next = await stream.next();
+      if (next.done) {
+        if (next.value.bytes > GIT_OPEN_FILE_AT_HEAD_MAX_BYTES) {
+          throw blobTooLargeError(relPath);
+        }
+        break;
+      }
 
-  /**
-   * Counts local tags so menus can avoid opening an empty tag picker later.
-   */
-  private async readTagCount(signal: AbortSignal): Promise<number> {
-    const { stdout } = await this.run(["tag", "--list"], signal);
-    return stdout.split(/\r?\n/).filter((line) => line.length > 0).length;
+      const chunk = Buffer.from(next.value.chunk);
+      sizeBytes += chunk.byteLength;
+      if (sizeBytes > GIT_OPEN_FILE_AT_HEAD_MAX_BYTES) {
+        await stream.return({ bytes: sizeBytes }).catch(noop);
+        throw blobTooLargeError(relPath);
+      }
+      chunks.push(chunk);
+    }
+
+    const buffer = Buffer.concat(chunks, sizeBytes);
+    if (isBinaryProbe(buffer.subarray(0, BINARY_DETECTION_BYTES))) {
+      throw new GitError("binary-too-large", `Binary file ${relPath} cannot be opened as text`, {
+        argv: ["blob", "HEAD", relPath],
+      });
+    }
+
+    if (hasUtf8Bom(buffer)) {
+      return {
+        content: buffer.subarray(3).toString("utf8"),
+        encoding: "utf8-bom",
+        sizeBytes,
+      };
+    }
+
+    return { content: buffer.toString("utf8"), encoding: "utf8", sizeBytes };
   }
 
   /**
@@ -1242,12 +1217,12 @@ export class GitRepository {
     spec: DiffSpec,
     signal: AbortSignal,
   ): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
-    return yield* streamGitTextChunks({
-      bin: this.binPath,
+    const diff = this.executor.diff;
+    if (!diff) throw missingExecutorMethodError("diff");
+    return yield* diff.call(this.executor, {
       cwd: this.topLevel,
-      args: buildDiffArgs(spec),
+      spec,
       signal,
-      executor: this.executor,
     });
   }
 
@@ -1260,71 +1235,18 @@ export class GitRepository {
     logArgs: GitLogArgs,
     signal: AbortSignal,
   ): AsyncGenerator<LogChunk, LogComplete> {
-    const args = buildLogArgs(logArgs);
-    const scope = logArgs.scope ?? "ref";
-    const hasSource = scope !== "ref";
-    const cursorSha = hasSource ? logArgs.afterSha?.trim() : undefined;
-    const decoder = new StringDecoder("utf8");
-    let pendingText = "";
-    let count = 0;
-    let hasMore = false;
-    let cursorReached = !cursorSha;
-    let stopReading = false;
-    let entries: LogEntry[] = [];
-    const limit = logArgs.limit;
-
-    const emitReadyEntries = function* (): Generator<LogChunk> {
-      if (entries.length === 0) return;
-      yield { entries };
-      entries = [];
-    };
-
-    const handleRecord = function* (record: string): Generator<LogChunk> {
-      const entry = parseLogRecord(record, { hasSource });
-      if (!entry) return;
-
-      if (!cursorReached) {
-        cursorReached = entry.sha === cursorSha;
-        return;
-      }
-
-      if (limit !== undefined && count >= limit) {
-        hasMore = true;
-        stopReading = true;
-        return;
-      }
-
-      entries.push(entry);
-      count += 1;
-      if (entries.length >= LOG_CHUNK_ENTRY_COUNT) {
-        yield* emitReadyEntries();
-      }
-    };
-
-    for await (const chunk of streamGit({
-      bin: this.binPath,
+    const log = this.executor.log;
+    if (!log) throw missingExecutorMethodError("log");
+    return yield* log.call(this.executor, {
       cwd: this.topLevel,
-      args,
+      ref: logArgs.ref,
+      scope: logArgs.scope,
+      afterSha: logArgs.afterSha,
+      grep: logArgs.grep,
+      skip: logArgs.skip,
+      limit: logArgs.limit,
       signal,
-      executor: this.executor,
-    })) {
-      pendingText += decoder.write(chunk);
-      const records = pendingText.split(LOG_RECORD_SEPARATOR);
-      pendingText = records.pop() ?? "";
-      for (const record of records) {
-        yield* handleRecord(record);
-        if (stopReading) break;
-      }
-      if (stopReading) break;
-    }
-
-    pendingText += stopReading ? "" : decoder.end();
-    if (!stopReading && pendingText.length > 0) {
-      yield* handleRecord(pendingText);
-    }
-    yield* emitReadyEntries();
-
-    return { count, hasMore };
+    });
   }
 
   /**
@@ -1332,8 +1254,9 @@ export class GitRepository {
    * held by the public caller.
    */
   private async readCommitDetail(sha: string, signal: AbortSignal): Promise<CommitDetail> {
-    const { stdout } = await this.run(buildCommitDetailArgs(sha), signal);
-    return parseCommitDetailOutput(stdout);
+    const commitDetail = this.executor.commitDetail;
+    if (!commitDetail) throw missingExecutorMethodError("commitDetail");
+    return commitDetail.call(this.executor, { cwd: this.topLevel, sha, signal });
   }
 
   /**
@@ -1368,4 +1291,28 @@ export class GitRepository {
     }
     return entries;
   }
+}
+
+/**
+ * Creates the user-facing error for HEAD blob reads that exceed text limits.
+ */
+function blobTooLargeError(relPath: string): GitError {
+  return new GitError("binary-too-large", `Git blob ${relPath} exceeds text read limit`, {
+    argv: ["blob", "HEAD", relPath],
+  });
+}
+
+/**
+ * Creates the stable error used when a repository method needs an agent
+ * semantic executor that is absent from the injected implementation.
+ */
+function missingExecutorMethodError(method: string): GitError {
+  return new GitError("unknown", `Git ${method} executor is unavailable`);
+}
+
+/**
+ * Detects a UTF-8 byte-order mark without converting the whole buffer first.
+ */
+function hasUtf8Bom(buffer: Buffer): boolean {
+  return buffer.byteLength >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
 }

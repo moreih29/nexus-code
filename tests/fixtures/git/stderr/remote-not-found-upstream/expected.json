@@ -1,0 +1,4 @@
+{
+  "kind": "remote-not-found",
+  "message": "error: No such remote: 'upstream'"
+}

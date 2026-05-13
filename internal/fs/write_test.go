@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // TestWriteFile_NewFile_OK — first write of a path that does not exist
@@ -217,6 +222,180 @@ func TestCreateFileAlreadyExists(t *testing.T) {
 	}
 }
 
+func TestUnlinkFileViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "gone.txt"), []byte("x"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.unlink", map[string]any{"relPath": "gone.txt"})
+	if _, err := os.Lstat(filepath.Join(root, "gone.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected file to be unlinked, got err=%v", err)
+	}
+}
+
+func TestUnlinkSymlinkRemovesLinkOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	link := filepath.Join(root, "link.txt")
+	must(t, os.WriteFile(target, []byte("target"), 0o644))
+	must(t, os.Symlink(target, link))
+
+	_, err := mustFS(t, root).Unlink(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "link.txt",
+	}))
+	must(t, err)
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("expected symlink entry removed, got err=%v", err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "target" {
+		t.Fatalf("symlink target changed: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestUnlinkDirectoryRejects(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "dir")
+	must(t, os.Mkdir(dir, 0o755))
+
+	_, err := mustFS(t, root).Unlink(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "dir",
+	}))
+	assertFSError(t, err, CodeIsDirectory)
+	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
+		t.Fatalf("directory should remain after rejected unlink: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestRmdirEmptyViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.Mkdir(filepath.Join(root, "empty"), 0o755))
+
+	dispatchOK(t, mustFS(t, root), "fs.rmdir", map[string]any{"relPath": "empty"})
+	if _, err := os.Lstat(filepath.Join(root, "empty")); !os.IsNotExist(err) {
+		t.Fatalf("expected directory removed, got err=%v", err)
+	}
+}
+
+func TestRmdirNonEmptyRejects(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "full")
+	must(t, os.Mkdir(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "child.txt"), []byte("x"), 0o644))
+
+	_, err := mustFS(t, root).Rmdir(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "full",
+	}))
+	assertFSError(t, err, CodeNotEmpty)
+	if _, statErr := os.Lstat(filepath.Join(dir, "child.txt")); statErr != nil {
+		t.Fatalf("non-empty directory contents should remain: %v", statErr)
+	}
+}
+
+func TestRmdirFileRejects(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "file.txt")
+	must(t, os.WriteFile(file, []byte("payload"), 0o644))
+
+	_, err := mustFS(t, root).Rmdir(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "file.txt",
+	}))
+	assertFSError(t, err, CodeNotDirectory)
+	if got, readErr := os.ReadFile(file); readErr != nil || string(got) != "payload" {
+		t.Fatalf("file should remain after rejected rmdir: bytes=%q err=%v", got, readErr)
+	}
+}
+
+func TestRmdirSymlinkRejectsAndPreservesTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink permissions vary on Windows")
+	}
+	root := t.TempDir()
+	targetDir := filepath.Join(root, "target-dir")
+	linkDir := filepath.Join(root, "link-dir")
+	must(t, os.Mkdir(targetDir, 0o755))
+	must(t, os.Symlink(targetDir, linkDir))
+
+	_, err := mustFS(t, root).Rmdir(context.Background(), mustJSON(t, map[string]any{
+		"relPath": "link-dir",
+	}))
+	assertFSError(t, err, CodeNotDirectory)
+	if info, statErr := os.Lstat(linkDir); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink should remain after rejected rmdir: info=%v err=%v", info, statErr)
+	}
+	if info, statErr := os.Lstat(targetDir); statErr != nil || !info.IsDir() {
+		t.Fatalf("symlink target dir should remain after rejected rmdir: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestRenameHappyViaDispatcher(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("payload"), 0o644))
+
+	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
+		"fromRelPath": "old.txt",
+		"toRelPath":   "new.txt",
+	})
+	if _, err := os.Lstat(filepath.Join(root, "old.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected old path removed, got err=%v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "new.txt")); err != nil || string(got) != "payload" {
+		t.Fatalf("renamed file mismatch: bytes=%q err=%v", got, err)
+	}
+}
+
+func TestRenameCrossDeviceMapsEXDEV(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("payload"), 0o644))
+	orig := renamePath
+	renamePath = func(oldpath, newpath string) error {
+		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EXDEV}
+	}
+	t.Cleanup(func() { renamePath = orig })
+
+	_, err := mustFS(t, root).Rename(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "old.txt",
+		"toRelPath":   "new.txt",
+	}))
+	assertFSError(t, err, CodeCrossDevice)
+}
+
+func TestRenameTargetExistsRejects(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("old"), 0o644))
+	must(t, os.WriteFile(filepath.Join(root, "taken.txt"), []byte("taken"), 0o644))
+	orig := renamePath
+	renamePath = func(oldpath, newpath string) error {
+		t.Fatalf("renamePath should not be called when target exists: %s -> %s", oldpath, newpath)
+		return nil
+	}
+	t.Cleanup(func() { renamePath = orig })
+
+	_, err := mustFS(t, root).Rename(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "old.txt",
+		"toRelPath":   "taken.txt",
+	}))
+	assertFSError(t, err, CodeAlreadyExists)
+	if got, readErr := os.ReadFile(filepath.Join(root, "taken.txt")); readErr != nil || string(got) != "taken" {
+		t.Fatalf("target should remain unchanged: bytes=%q err=%v", got, readErr)
+	}
+}
+
+func TestRenameOutOfWorkspaceRejects(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("old"), 0o644))
+
+	_, err := mustFS(t, root).Rename(context.Background(), mustJSON(t, map[string]any{
+		"fromRelPath": "old.txt",
+		"toRelPath":   "../escape.txt",
+	}))
+	assertFSError(t, err, CodeOutOfWorkspace)
+	if _, statErr := os.Lstat(filepath.Join(root, "old.txt")); statErr != nil {
+		t.Fatalf("source should remain after rejected rename: %v", statErr)
+	}
+}
+
 // --- helpers -----------------------------------------------------------
 
 func mustFS(t *testing.T, root string) *Service {
@@ -242,4 +421,28 @@ func callWrite(t *testing.T, fsys *Service, payload map[string]any) WriteFileRes
 		t.Fatalf("unexpected result type %T", res)
 	}
 	return wr
+}
+
+func dispatchOK(t *testing.T, fsys *Service, method string, payload map[string]any) {
+	t.Helper()
+	d := dispatch.New()
+	Register(d, fsys)
+	res := d.Dispatch(context.Background(), proto.Request{
+		ID:     method,
+		Method: method,
+		Params: mustJSON(t, payload),
+	})
+	if res.Error != nil {
+		t.Fatalf("%s returned error: %#v", method, res.Error)
+	}
+}
+
+func assertFSError(t *testing.T, err error, code string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected %s error", code)
+	}
+	if fsErr, ok := err.(FSError); !ok || fsErr.Code != code {
+		t.Fatalf("expected %s, got %v", code, err)
+	}
 }

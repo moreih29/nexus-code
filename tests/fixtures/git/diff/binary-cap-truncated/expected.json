@@ -1,0 +1,26 @@
+{
+  "method": "git.diff",
+  "case": "binary-cap-truncated",
+  "params": {
+    "kind": "ref-vs-ref",
+    "from": "main",
+    "to": "feature/binary",
+    "paths": [
+      "image.bin"
+    ],
+    "maxBytes": 80,
+    "maxChunkBytes": 80
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/image.bin b/image.bin\nnew file mode 100644\nindex 0000000..9999999\nG"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 134,
+    "truncated": true
+  }
+}

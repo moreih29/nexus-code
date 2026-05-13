@@ -1,0 +1,48 @@
+{
+  "method": "git.log",
+  "case": "limit-reach-lookahead",
+  "params": {
+    "scope": "ref",
+    "ref": "HEAD",
+    "limit": 2,
+    "source": false
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "2222222222222222222222222222222222222222",
+            "shortSha": "2222222",
+            "parents": [
+              "1111111111111111111111111111111111111111"
+            ],
+            "authorName": "Ken Thompson",
+            "authorEmail": "ken@example.test",
+            "authoredAt": "2026-05-06T10:00:00+00:00",
+            "subject": "Page item one",
+            "refs": []
+          },
+          {
+            "sha": "3333333333333333333333333333333333333333",
+            "shortSha": "3333333",
+            "parents": [
+              "2222222222222222222222222222222222222222"
+            ],
+            "authorName": "Dennis Ritchie",
+            "authorEmail": "dennis@example.test",
+            "authoredAt": "2026-05-06T09:00:00+00:00",
+            "subject": "Page item two",
+            "refs": []
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 2,
+    "hasMore": true,
+    "totalScanned": 3
+  }
+}

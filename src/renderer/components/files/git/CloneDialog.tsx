@@ -113,6 +113,11 @@ export function CloneDialog({ open, onClose }: CloneDialogProps): React.JSX.Elem
   const activeWorkspaceId = useActiveStore((state) => state.activeWorkspaceId);
   const setActiveWorkspaceId = useActiveStore((state) => state.setActiveWorkspaceId);
   const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const activeWorkspace = activeWorkspaceId
+    ? workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    : undefined;
+  const cloneWorkspaceId =
+    activeWorkspace?.location.kind === "local" ? activeWorkspace.id : undefined;
   const upsertWorkspace = useWorkspacesStore((state) => state.upsert);
   const activeGitSession = useGitStore((state) =>
     activeWorkspaceId ? state.sessions.get(activeWorkspaceId) : null,
@@ -191,6 +196,7 @@ export function CloneDialog({ open, onClose }: CloneDialogProps): React.JSX.Elem
     setProgress({ phase: null, pct: null, cancelling: false });
 
     const handle = ipcStream("git", "clone", {
+      workspaceId: cloneWorkspaceId,
       url: values.url.trim(),
       destination: values.parent.trim(),
       name: values.name.trim(),

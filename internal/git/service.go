@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -29,6 +30,11 @@ type Service struct {
 	watches  map[string]*watchEntry
 	gitDirty map[string]struct{}
 	timer    *time.Timer
+
+	askpassListener   net.Listener
+	askpassSocketPath string
+	askpassSocketDir  string
+	askpassPending    map[string]chan askpassResolution
 }
 
 type FileContentParams struct {
@@ -45,10 +51,11 @@ func New(root string) *Service {
 		abs = root
 	}
 	return &Service{
-		root:     filepath.Clean(abs),
-		streams:  make(map[string]context.CancelFunc),
-		watches:  make(map[string]*watchEntry),
-		gitDirty: make(map[string]struct{}),
+		root:           filepath.Clean(abs),
+		streams:        make(map[string]context.CancelFunc),
+		watches:        make(map[string]*watchEntry),
+		gitDirty:       make(map[string]struct{}),
+		askpassPending: make(map[string]chan askpassResolution),
 	}
 }
 
@@ -56,11 +63,17 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.run", service.Run)
 	d.Register("git.stream", service.Stream)
 	d.Register("git.cancel", service.Cancel)
+	d.Register("git.askpass.respond", service.RespondAskpass)
 	d.Register("git.metadata", service.Metadata)
+	d.Register("git.status", service.Status)
+	d.Register("git.log", service.Log)
+	d.Register("git.diff", service.Diff)
+	d.Register("git.commitDetail", service.CommitDetail)
 	d.Register("git.watch", service.Watch)
 	d.Register("git.unwatch", service.Unwatch)
 	d.Register("git.addToGitignore", service.AddToGitignore)
 	d.Register("git.getFileContent", service.GetFileContent)
+	d.Register("git.blob", service.Blob)
 }
 
 func (s *Service) SetEventSink(sink EventSink) {
@@ -83,6 +96,7 @@ func (s *Service) Close() {
 		entry.close()
 		delete(s.watches, dir)
 	}
+	s.closeAskpassServerLocked()
 	clear(s.gitDirty)
 	s.mu.Unlock()
 }

@@ -10,8 +10,9 @@
  * rendering / virtualization code.
  */
 import { openOrRevealEditor } from "@/services/editor";
-import { createPathActions } from "@/services/fs-mutations";
+import { createPathActions, rmdirPath, unlinkPath } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
+import { basename } from "@/utils/path";
 import type { EntryKind } from "../file-tree/file-tree-display";
 
 export interface FileTreeActionTarget {
@@ -37,6 +38,8 @@ interface UseFileTreeActionsOptions {
    * target → workspace root) so menu callsites stay simple.
    */
   startCreate: (parentAbsPath: string, kind: EntryKind) => void;
+  /** Begin inline rename for the resolved target. */
+  startRename: (absPath: string) => void;
 }
 
 export function useFileTreeActions({
@@ -44,6 +47,7 @@ export function useFileTreeActions({
   rootAbsPath,
   getTarget,
   startCreate,
+  startRename,
 }: UseFileTreeActionsOptions) {
   const pathActions = createPathActions({
     workspaceId,
@@ -80,6 +84,28 @@ export function useFileTreeActions({
     startCreate(resolveCreateParent(), "folder");
   }
 
+  function rename() {
+    const t = getTarget();
+    if (!t || t.isRoot) return;
+    startRename(t.absPath);
+  }
+
+  function confirmDelete(t: FileTreeActionTarget): boolean {
+    const confirmFn = globalThis.window?.confirm ?? globalThis.confirm;
+    if (typeof confirmFn !== "function") return true;
+    const kindLabel = t.type === "dir" ? "folder" : "file";
+    return confirmFn(`Delete ${kindLabel} "${basename(t.absPath)}"?`);
+  }
+
+  async function deleteTarget(): Promise<boolean> {
+    const t = getTarget();
+    if (!t || t.isRoot || !confirmDelete(t)) return false;
+    if (t.type === "dir") {
+      return rmdirPath({ workspaceId, workspaceRootPath: rootAbsPath, absPath: t.absPath });
+    }
+    return unlinkPath({ workspaceId, workspaceRootPath: rootAbsPath, absPath: t.absPath });
+  }
+
   return {
     open,
     openToSide,
@@ -88,5 +114,7 @@ export function useFileTreeActions({
     reveal: pathActions.revealInFinder,
     newFile,
     newFolder,
+    rename,
+    delete: deleteTarget,
   };
 }

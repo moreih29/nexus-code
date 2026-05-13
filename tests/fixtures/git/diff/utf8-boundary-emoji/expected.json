@@ -1,0 +1,31 @@
+{
+  "method": "git.diff",
+  "case": "utf8-boundary-emoji",
+  "params": {
+    "kind": "ref-vs-ref",
+    "from": "HEAD~1",
+    "to": "HEAD",
+    "paths": [
+      "emoji.txt"
+    ],
+    "maxChunkBytes": 64
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/emoji.txt b/emoji.txt\n@@ -1 +1 @@\n+xxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "🙂 crosses boundary\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 85,
+    "truncated": false
+  }
+}

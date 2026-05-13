@@ -6,17 +6,18 @@ import path from "node:path";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
-import type {
-  SshChannel,
-  SshChannelLifecycleEvent,
-} from "../../../../src/main/agent/ssh-channel";
+import { GitRegistry } from "../../../../src/main/git/git-registry";
+import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/agent/ssh-channel";
 import type {
   BroadcastFn,
+  WorkspaceLocalAgentCommandResolver,
+  WorkspaceLocalChannelFactory,
   WorkspaceSshBootstrap,
   WorkspaceSshChannelFactory,
 } from "../../../../src/main/workspace/workspace-manager";
 import { WorkspaceManager } from "../../../../src/main/workspace/workspace-manager";
 import type { SshErrorCode } from "../../../../src/shared/types/ssh-errors";
+import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,6 +54,8 @@ function makeManager(
   broadcastFn: BroadcastFn,
   sshChannelFactory?: WorkspaceSshChannelFactory,
   sshBootstrap: WorkspaceSshBootstrap = fakeSshBootstrap,
+  localChannelFactory: WorkspaceLocalChannelFactory = fakeReadyLocalChannelFactory(),
+  localAgentCommandResolver: WorkspaceLocalAgentCommandResolver = fakeLocalAgentCommandResolver,
 ): WorkspaceManager {
   return new WorkspaceManager(
     globalStorage,
@@ -61,6 +64,8 @@ function makeManager(
     broadcastFn,
     sshChannelFactory,
     sshBootstrap,
+    localChannelFactory,
+    localAgentCommandResolver,
   );
 }
 
@@ -69,6 +74,29 @@ const fakeSshBootstrap = mock(async (options) => ({
   platform: { os: "linux" as const, arch: "amd64" as const },
   uploaded: false,
 }));
+
+const fakeLocalAgentCommandResolver: WorkspaceLocalAgentCommandResolver = () => ({
+  binaryPath: "/tmp/fake-agent",
+});
+
+function fakeReadyLocalChannelFactory(): WorkspaceLocalChannelFactory {
+  return (() => makeLifecycleChannel().channel) as WorkspaceLocalChannelFactory;
+}
+
+function workspaceMeta(
+  meta: Pick<WorkspaceMeta, "id" | "name" | "location" | "rootPath">,
+): WorkspaceMeta {
+  return {
+    id: meta.id,
+    name: meta.name,
+    location: meta.location,
+    rootPath: meta.rootPath,
+    colorTone: "default",
+    pinned: false,
+    lastOpenedAt: new Date().toISOString(),
+    tabs: [],
+  };
+}
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -237,8 +265,8 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
     const ss1 = new StateService(statePath);
     const bcast1 = mock((_c: string, _e: string, _a: unknown) => {});
 
-    const mgr1 = new WorkspaceManager(globalStorage1, ws1, ss1, bcast1 as BroadcastFn);
-    mgr1.init();
+    const mgr1 = makeManager(globalStorage1, ws1, ss1, bcast1 as BroadcastFn);
+    await mgr1.init();
     const created = mgr1.create({ rootPath: path.join(tmpDir, "fixture-root"), name: "fixture" });
     await mgr1.activate(created.id);
 
@@ -254,8 +282,8 @@ describe("WorkspaceManager — restart simulation (persistence round-trip)", () 
     const ss2 = new StateService(statePath);
     const bcast2 = mock((_c: string, _e: string, _a: unknown) => {});
 
-    const mgr2 = new WorkspaceManager(globalStorage2, ws2, ss2, bcast2 as BroadcastFn);
-    mgr2.init();
+    const mgr2 = makeManager(globalStorage2, ws2, ss2, bcast2 as BroadcastFn);
+    await mgr2.init();
 
     expect(mgr2.list().length).toBe(1);
     expect(mgr2.list()[0].id).toBe(created.id);
@@ -352,6 +380,107 @@ describe("WorkspaceManager — broadcast events", () => {
   });
 });
 
+describe("WorkspaceManager — executor-ready cold boot barrier", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not expose a local workspace as ready until its agent executor is wired", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const rootPath = path.join(tmpDir, "local-project");
+    const meta = workspaceMeta({
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "local",
+      location: { kind: "local", rootPath },
+      rootPath,
+    });
+    globalStorage.addWorkspace(meta);
+    stateService.setState({ lastActiveWorkspaceId: meta.id });
+
+    const ready = deferred<void>();
+    const { channel } = makeLifecycleChannel(ready.promise);
+    const createLocalChannel = mock((() => channel) as WorkspaceLocalChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      undefined,
+      fakeSshBootstrap,
+      createLocalChannel,
+    );
+    const registry = new GitRegistry(manager, broadcastMock as BroadcastFn, null);
+
+    const boot = manager.init();
+    await Promise.resolve();
+
+    expect(manager.getActiveId()).toBeNull();
+    expect(createLocalChannel).toHaveBeenCalledTimes(1);
+    await expect(registry.refreshDetection(meta.id)).rejects.toThrow(
+      "workspace agent provider is not available",
+    );
+    expect(() => registry.getRepoInfo(meta.id)).toThrow(
+      "workspace agent provider is not available",
+    );
+
+    ready.resolve();
+    await boot;
+
+    expect(manager.getActiveId()).toBe(meta.id);
+    expect(registry.getRepoInfo(meta.id)).toEqual({ kind: "detecting" });
+
+    manager.close();
+  });
+
+  it("does not expose an ssh workspace as ready until its agent executor is wired", async () => {
+    const { globalStorage, workspaceStorage, stateService, broadcastMock } = makeFixtures(tmpDir);
+    const meta = workspaceMeta({
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "remote",
+      location: { kind: "ssh", host: "dev.example.com", remotePath: "/srv/project" },
+      rootPath: "/srv/project",
+    });
+    globalStorage.addWorkspace(meta);
+    stateService.setState({ lastActiveWorkspaceId: meta.id });
+
+    const ready = deferred<void>();
+    const { channel } = makeLifecycleChannel(ready.promise);
+    const createChannel = mock((() => channel) as WorkspaceSshChannelFactory);
+    const manager = makeManager(
+      globalStorage,
+      workspaceStorage,
+      stateService,
+      broadcastMock as BroadcastFn,
+      createChannel,
+    );
+    const registry = new GitRegistry(manager, broadcastMock as BroadcastFn, null);
+
+    const boot = manager.init();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(manager.getActiveId()).toBeNull();
+    expect(createChannel).toHaveBeenCalledTimes(1);
+    expect(() => registry.getRepoInfo(meta.id)).toThrow(
+      "workspace agent provider is not available",
+    );
+
+    ready.resolve();
+    await boot;
+
+    expect(manager.getActiveId()).toBe(meta.id);
+    expect(registry.getRepoInfo(meta.id)).toEqual({ kind: "detecting" });
+
+    manager.close();
+  });
+});
+
 describe("WorkspaceManager — ssh activation lifecycle", () => {
   let tmpDir: string;
 
@@ -409,8 +538,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
       port: 2222,
       identityFile: "/tmp/key",
       authMode: "interactive",
-      remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
+      remoteCommand: "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
     });
 
     ready.resolve();
@@ -469,8 +597,7 @@ describe("WorkspaceManager — ssh activation lifecycle", () => {
     expect(createChannel).toHaveBeenCalledWith(
       expect.objectContaining({
         authMode: "interactive",
-        remoteCommand:
-          "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /workspace-seed'",
+        remoteCommand: "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /workspace-seed'",
         controlPath: "/tmp/nexus-ssh/control.sock",
       }),
     );

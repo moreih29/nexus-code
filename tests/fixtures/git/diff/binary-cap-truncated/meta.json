@@ -1,0 +1,9 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Binary patch fixture caps emitted raw text while preserving full byte count.",
+    "Expected chunk is the first maxBytes bytes only."
+  ]
+}

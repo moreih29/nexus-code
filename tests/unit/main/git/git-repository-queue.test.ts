@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const QUEUE_TRIALS = 5;
 
@@ -12,7 +12,7 @@ describe("GitRepository operation queue", () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-queue-"));
       try {
         const gitBin = writeFakeGit(root);
-        const repo = new GitRepository(`workspace-${trial}`, root, path.join(root, ".git"), gitBin);
+        const repo = newLocalGitRepository(`workspace-${trial}`, root, path.join(root, ".git"), gitBin);
 
         const slowRead = repo.status();
         const fastWrite = repo.stage(["queued.txt"]);
@@ -31,9 +31,8 @@ describe("GitRepository operation queue", () => {
 function writeFakeGit(root: string): string {
   const gitBin = path.join(root, "fake-git.sh");
   const logPath = path.join(root, "git-queue.log");
-  // GitRepository.readStatus issues an additional `git remote` and
-  // `git stash list` and `git tag --list` to enrich GitStatus.capabilities; the fake handles
-  // both with empty output so the queue ordering test sees only the
+  // The test semantic status executor issues capability subcalls. The fake
+  // handles them with empty output so the queue ordering test sees only the
   // user-relevant status:* / add:* trace events.
   const script = `#!/usr/bin/env bash
 set -euo pipefail

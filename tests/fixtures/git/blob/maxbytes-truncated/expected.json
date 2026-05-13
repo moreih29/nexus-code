@@ -1,0 +1,31 @@
+{
+  "method": "git.blob",
+  "case": "maxbytes-truncated",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "huge.txt",
+    "maxBytes": 32,
+    "maxChunkBytes": 32
+  },
+  "events": [
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",
+        "headerProbe": {
+          "isBinary": false,
+          "encoding": "utf8",
+          "probeBytes": 32,
+          "probeBase64": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg="
+        }
+      }
+    }
+  ],
+  "result": {
+    "size": 100,
+    "isBinary": false,
+    "encoding": "utf8",
+    "mtime": null,
+    "truncated": true
+  }
+}

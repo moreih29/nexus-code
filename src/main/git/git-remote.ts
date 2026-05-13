@@ -6,7 +6,7 @@
  */
 import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";
 import { GitError } from "./git-error";
-import type { RunGitResult } from "./git-process";
+import type { RunGitResult } from "../bridge/git/types";
 
 export interface GitRemoteRunner {
   readonly run: (args: readonly string[]) => Promise<RunGitResult>;

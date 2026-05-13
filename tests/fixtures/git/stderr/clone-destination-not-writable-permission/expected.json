@@ -1,0 +1,4 @@
+{
+  "kind": "clone-destination-not-writable",
+  "message": "fatal: could not create work tree dir 'repo': Permission denied"
+}

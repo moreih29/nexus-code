@@ -1,0 +1,4 @@
+{
+  "kind": "upstream-invalid",
+  "message": "fatal: requested upstream branch 'origin/missing' does not exist"
+}

@@ -1,0 +1,30 @@
+{
+  "method": "git.blob",
+  "case": "utf8-bom",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "bom.txt",
+    "maxChunkBytes": 65536
+  },
+  "events": [
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "77u/Y2Fmw6kK",
+        "headerProbe": {
+          "isBinary": false,
+          "encoding": "utf8-bom",
+          "probeBytes": 9,
+          "probeBase64": "77u/Y2Fmw6kK"
+        }
+      }
+    }
+  ],
+  "result": {
+    "size": 9,
+    "isBinary": false,
+    "encoding": "utf8-bom",
+    "mtime": null,
+    "truncated": false
+  }
+}

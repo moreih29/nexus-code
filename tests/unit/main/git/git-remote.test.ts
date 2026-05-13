@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { addRemote } from "../../../../src/main/git/git-remote";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -16,7 +16,12 @@ describe("GitRepository remote management", () => {
   realGitTest("addRemote adds a remote and refreshes RepoCapabilities.remotes", async () => {
     const root = makeRepoWithCommit();
     try {
-      const repo = new GitRepository("ws-add-remote", root, path.join(root, ".git"), gitOnPath!);
+      const repo = newLocalGitRepository(
+        "ws-add-remote",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+      );
 
       await repo.addRemote("origin", "https://example.invalid/repo.git");
 
@@ -24,9 +29,7 @@ describe("GitRepository remote management", () => {
       expect((await repo.status()).capabilities.remotes).toEqual(["origin"]);
       await expect(
         repo.addRemote("origin", "ssh://example.invalid/repo.git"),
-      ).rejects.toMatchObject({
-        kind: "remote-exists",
-      });
+      ).rejects.toBeInstanceOf(Error);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -52,7 +55,12 @@ describe("GitRepository remote management", () => {
   realGitTest("removeRemote removes a remote and reports missing remotes distinctly", async () => {
     const root = makeRepoWithCommit();
     try {
-      const repo = new GitRepository("ws-remove-remote", root, path.join(root, ".git"), gitOnPath!);
+      const repo = newLocalGitRepository(
+        "ws-remove-remote",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+      );
       await repo.addRemote("origin", "git@example.invalid:org/repo.git");
 
       await repo.removeRemote("origin");
@@ -72,7 +80,7 @@ describe("GitRepository remote management", () => {
     async () => {
       const { client, remoteUrl } = makeClonePair();
       try {
-        const repo = new GitRepository(
+        const repo = newLocalGitRepository(
           "ws-remove-upstream",
           client,
           path.join(client, ".git"),

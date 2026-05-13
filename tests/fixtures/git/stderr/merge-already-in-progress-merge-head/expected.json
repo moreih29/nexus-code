@@ -1,0 +1,4 @@
+{
+  "kind": "merge-already-in-progress",
+  "message": "fatal: You have not concluded your merge (MERGE_HEAD exists).\nPlease, commit your changes before you merge."
+}

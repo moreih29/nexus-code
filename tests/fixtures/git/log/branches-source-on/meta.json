@@ -1,0 +1,9 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Branches scope includes --source/--branches output shape.",
+    "Both records have short branch decorations."
+  ]
+}

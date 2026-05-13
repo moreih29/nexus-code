@@ -6,9 +6,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildLogArgs, parseLogRecord } from "../../../../src/main/git/git-log-parsing";
 import type { GitLogArgs } from "../../../../src/main/git/git-repository";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import type { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 import type { LogEntry } from "../../../../src/shared/types/git";
 
@@ -22,7 +22,7 @@ describe("GitRepository history", () => {
       for (let i = 1; i <= 55; i += 1) {
         writeAndCommit(root, "file.txt", `value ${i}\n`, `commit ${i}`);
       }
-      const repo = new GitRepository("ws-history-page", root, path.join(root, ".git"), gitOnPath!);
+      const repo = newLocalGitRepository("ws-history-page", root, path.join(root, ".git"), gitOnPath!);
 
       const firstPage = await collectLog(repo, { ref: "HEAD", limit: 50 });
       expect(firstPage.entries).toHaveLength(50);
@@ -54,7 +54,7 @@ describe("GitRepository history", () => {
       for (let i = 1; i <= 55; i += 1) {
         writeAndCommit(root, "file.txt", `value ${i}\n`, `commit ${i}`);
       }
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-history-all-page",
         root,
         path.join(root, ".git"),
@@ -93,7 +93,7 @@ describe("GitRepository history", () => {
       writeAndCommit(root, "a.txt", "a\n", "initial");
       const fixSha = writeAndCommit(root, "popover.txt", "fix\n", "fix popover");
       writeAndCommit(root, "other.txt", "other\n", "other work");
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-history-search",
         root,
         path.join(root, ".git"),
@@ -126,7 +126,7 @@ describe("GitRepository history", () => {
       writeAndCommit(root, "main.txt", "main\n", "main");
       runGit(root, ["merge", "--no-ff", "feature", "-m", "Merge feature"]);
       const mergeSha = runGit(root, ["rev-parse", "HEAD"]).trim();
-      const repo = new GitRepository("ws-history-merge", root, path.join(root, ".git"), gitOnPath!);
+      const repo = newLocalGitRepository("ws-history-merge", root, path.join(root, ".git"), gitOnPath!);
 
       const detail = await repo.commitDetail(mergeSha);
       expect(detail.parents).toHaveLength(2);
@@ -137,7 +137,7 @@ describe("GitRepository history", () => {
   });
 });
 
-describe("git log schema and argv", () => {
+describe("git log schema", () => {
   test("accepts git log IPC scope enum while preserving omitted-scope callers", () => {
     const baseArgs = { workspaceId: "22222222-2222-4222-8222-222222222222", limit: 20 };
 
@@ -153,120 +153,6 @@ describe("git log schema and argv", () => {
     ).toBe(true);
     expect(ipcContract.git.stream.log.args.safeParse({ ...baseArgs, scope: "tags" }).success).toBe(
       false,
-    );
-  });
-
-  test.each([
-    ["default ref scope", {}, ["log", prettyLogFormatArg(), "--date=iso-strict"]],
-    [
-      "explicit ref scope with named ref",
-      { scope: "ref", ref: "main", limit: 2 },
-      ["log", prettyLogFormatArg(), "--date=iso-strict", "--max-count=3", "main"],
-    ],
-    [
-      "ref scope with grep, skip, and limit",
-      { scope: "ref", ref: "main", grep: " fix ", skip: 10, limit: 50 },
-      [
-        "log",
-        prettyLogFormatArg(),
-        "--date=iso-strict",
-        "--grep=fix",
-        "--skip=10",
-        "--max-count=51",
-        "main",
-      ],
-    ],
-    [
-      "ref scope afterSha cursor overrides named ref",
-      { scope: "ref", ref: "main", afterSha: " abc123 ", limit: 5 },
-      ["log", prettyLogFormatArg(), "--date=iso-strict", "--max-count=6", "abc123^@"],
-    ],
-    [
-      "all scope uses source-aware all-ref traversal",
-      { scope: "all", limit: 20 },
-      [
-        "log",
-        prettyLogFormatArg({ hasSource: true }),
-        "--date=iso-strict",
-        "--max-count=21",
-        "--source",
-        "--all",
-      ],
-    ],
-    [
-      "all scope cursor omits revision and max-count so streamLog can seek",
-      { scope: "all", afterSha: " abc123 ", limit: 20 },
-      ["log", prettyLogFormatArg({ hasSource: true }), "--date=iso-strict", "--source", "--all"],
-    ],
-    [
-      "branches scope uses source-aware branch traversal",
-      { scope: "branches", ref: "main", limit: 20 },
-      [
-        "log",
-        prettyLogFormatArg({ hasSource: true }),
-        "--date=iso-strict",
-        "--max-count=21",
-        "--source",
-        "--branches",
-      ],
-    ],
-  ] satisfies Array<
-    readonly [string, GitLogArgs, string[]]
-  >)("builds %s argv", (_label, args, expected) => {
-    expect(buildLogArgs(args)).toEqual(expected);
-  });
-
-  test("rejects skip pagination outside ref scope", () => {
-    expect(() => buildLogArgs({ scope: "all", skip: 0 })).toThrow(
-      "`skip` is only supported for ref-scoped git logs.",
-    );
-    expect(() => buildLogArgs({ scope: "branches", skip: 1 })).toThrow(
-      "`skip` is only supported for ref-scoped git logs.",
-    );
-  });
-});
-
-describe("git log decoration parsing", () => {
-  test.each([
-    ["empty", "", []],
-    ["HEAD-only", "HEAD", [{ name: "HEAD", kind: "head", isHead: true }]],
-    [
-      "branch+remote",
-      "main, origin/main",
-      [
-        { name: "main", kind: "branch", isHead: false },
-        { name: "origin/main", kind: "remote", isHead: false },
-      ],
-    ],
-    ["tag", "tag: v1", [{ name: "v1", kind: "tag", isHead: false }]],
-    [
-      "multi-tag",
-      "tag: v1, tag: v2",
-      [
-        { name: "v1", kind: "tag", isHead: false },
-        { name: "v2", kind: "tag", isHead: false },
-      ],
-    ],
-    [
-      "mixed",
-      "HEAD -> main, origin/main, tag: v1",
-      [
-        { name: "HEAD", kind: "head", isHead: true },
-        { name: "main", kind: "branch", isHead: true },
-        { name: "origin/main", kind: "remote", isHead: false },
-        { name: "v1", kind: "tag", isHead: false },
-      ],
-    ],
-  ])("parses %s decorations", (_label, decorations, refs) => {
-    expect(parseLogRecord(logRecord(decorations))?.refs).toEqual(refs);
-  });
-
-  test("parses source-aware records without treating %S as a ref", () => {
-    expect(parseLogRecord(logRecord("tag: v1", { source: "main" }), { hasSource: true })).toEqual(
-      expect.objectContaining({
-        sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        refs: [{ name: "v1", kind: "tag", isHead: false }],
-      }),
     );
   });
 });
@@ -314,28 +200,4 @@ function findGitOnPath(): string | null {
   } catch {
     return null;
   }
-}
-
-/** Builds one formatted log record matching the repository parser format. */
-function logRecord(decorations: string, options: { source?: string } = {}): string {
-  const fields = [
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "aaaaaaa",
-    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "Ada",
-    "ada@example.invalid",
-    "2026-05-10T00:00:00.000Z",
-    "subject",
-    "body",
-    decorations,
-  ];
-  if (options.source) fields.unshift(options.source);
-  return fields.join("\x1f");
-}
-
-/** Builds the exact `--pretty` argv expected by History log scenarios. */
-function prettyLogFormatArg(options: { hasSource?: boolean } = {}): string {
-  const fields = ["%H", "%h", "%P", "%an", "%ae", "%aI", "%s", "%b", "%D"];
-  if (options.hasSource) fields.unshift("%S");
-  return `--pretty=format:${fields.join("%x1f")}%x1e`;
 }

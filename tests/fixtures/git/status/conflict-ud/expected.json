@@ -1,0 +1,29 @@
+{
+  "merge": [
+    {
+      "relPath": "conflicts/deleted-by-them.txt",
+      "xy": "UD",
+      "conflictType": "deleted-by-them"
+    }
+  ],
+  "staged": [],
+  "working": [],
+  "untracked": [],
+  "branch": {
+    "current": "main",
+    "upstream": null,
+    "ahead": 0,
+    "behind": 0,
+    "isUnborn": false
+  },
+  "capabilities": {
+    "hasHEAD": true,
+    "remotes": [],
+    "stashCount": 0,
+    "tagCount": 0
+  },
+  "operationState": {
+    "kind": "none"
+  },
+  "lastFetchedAt": null
+}

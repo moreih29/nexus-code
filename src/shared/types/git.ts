@@ -1,5 +1,71 @@
 import { z } from "zod";
 
+export const GIT_ERROR_KINDS = [
+  "auth",
+  "auth-required",
+  "conflict",
+  "not-repo",
+  "missing",
+  "output-too-large",
+  "git-missing",
+  "no-head",
+  "no-upstream",
+  "no-remote",
+  "no-such-ref",
+  "empty-stash",
+  "dirty-tree",
+  "lock-busy",
+  "local-changes-overwritten",
+  "nothing-to-commit",
+  "no-parent",
+  "signing-failed",
+  "binary-too-large",
+  "file-not-in-head",
+  "path-not-in-repo",
+  "gitignore-write-failed",
+  "stash-conflict",
+  "stash-not-found",
+  "commit-aborted",
+  "branch-not-fully-merged",
+  "branch-checked-out",
+  "branch-name-invalid",
+  "branch-exists",
+  "remote-exists",
+  "remote-name-invalid",
+  "remote-url-invalid",
+  "remote-not-found",
+  "tag-exists",
+  "tag-not-found",
+  "tag-name-invalid",
+  "ref-not-found",
+  "upstream-invalid",
+  "merge-already-in-progress",
+  "rebase-already-in-progress",
+  "cherry-pick-already-in-progress",
+  "no-operation-in-progress",
+  "unresolved-conflicts",
+  "unrelated-histories",
+  "no-merge-base",
+  "empty-commit",
+  "path-not-conflicted",
+  "clone-destination-invalid",
+  "clone-destination-not-writable",
+  "clone-destination-exists",
+  "clone-name-invalid",
+  "clone-url-invalid",
+  "non-fast-forward",
+  "protected-branch",
+  "pre-receive-hook-rejected",
+  "push-rejected",
+  "force-push-rejected",
+  "no-local-changes",
+  "branch-not-merged",
+  "unknown",
+] as const;
+
+export const GitErrorKindSchema = z.enum(GIT_ERROR_KINDS);
+export type GitErrorKind = z.infer<typeof GitErrorKindSchema>;
+
 export const RepoInfoSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("detecting") }),
   z.object({ kind: z.literal("non-repo") }),
@@ -287,6 +353,7 @@ export const GitClonePhaseSchema = z.enum([
 export type GitClonePhase = z.infer<typeof GitClonePhaseSchema>;
 
 export const GitCloneArgsSchema = z.object({
+  workspaceId: z.string().uuid().optional(),
   url: z.string(),
   destination: z.string(),
   name: z.string().optional(),
@@ -447,6 +514,11 @@ export type DiffSpec = z.infer<typeof DiffSpecSchema>;
 export const GitLogScopeSchema = z.enum(["ref", "all", "branches"]);
 export type GitLogScope = z.infer<typeof GitLogScopeSchema>;
 
+/**
+ * Number of parsed git log entries emitted in each streaming chunk.
+ */
+export const LOG_CHUNK_ENTRY_COUNT = 50;
+
 export const GitHistoryScopeSchema = z.enum(["ref", "all"]);
 export type GitHistoryScope = z.infer<typeof GitHistoryScopeSchema>;
 
@@ -600,6 +672,14 @@ export const GitActionHintSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("allow-empty") }),
 ]);
 export type GitActionHint = z.infer<typeof GitActionHintSchema>;
+
+export const ClassifiedErrorSchema = z.object({
+  kind: GitErrorKindSchema,
+  message: z.string(),
+  hint: GitActionHintSchema.optional(),
+  argv: z.array(z.string()).optional(),
+});
+export type ClassifiedError = z.infer<typeof ClassifiedErrorSchema>;
 
 export const GitExpandedGroupKeySchema = z.enum(["merge", "staged", "working", "untracked"]);
 export type GitExpandedGroupKey = z.infer<typeof GitExpandedGroupKeySchema>;

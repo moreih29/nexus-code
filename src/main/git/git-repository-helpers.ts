@@ -5,7 +5,7 @@
  * already-captured stdout/stderr, and the discard planner produces sets the
  * caller turns into Git commands.
  *
- * Anything that needs to await `runGit` or stream stdout lives on the class.
+ * Anything that needs to await the git executor or stream stdout lives on the class.
  */
 
 import fs from "node:fs/promises";
@@ -19,7 +19,7 @@ import type {
   PushResult,
 } from "../../shared/types/git";
 import { GitError } from "./git-error";
-import type { RunGitResult } from "./git-process";
+import type { RunGitResult } from "../bridge/git/types";
 import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./git-repository";
 
 /**

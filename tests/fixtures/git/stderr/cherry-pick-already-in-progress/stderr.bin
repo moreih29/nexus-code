@@ -1,0 +1,3 @@
+error: cherry-pick is already in progress
+hint: try "git cherry-pick (--continue | --abort | --quit)"
+fatal: cherry-pick failed

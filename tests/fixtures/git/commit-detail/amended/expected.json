@@ -1,0 +1,25 @@
+{
+  "method": "git.commitDetail",
+  "case": "amended",
+  "params": {
+    "sha": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "result": {
+    "sha": "dddddddddddddddddddddddddddddddddddddddd",
+    "parents": [
+      "cccccccccccccccccccccccccccccccccccccccc"
+    ],
+    "subject": "Amend config",
+    "author": "Margaret Hamilton",
+    "authorEmail": "margaret@example.test",
+    "committerTs": "2026-05-04T12:00:00+00:00",
+    "message": "Amend config\n\nAmended to include remote workspace defaults.",
+    "body": "Amended to include remote workspace defaults.",
+    "files": [
+      {
+        "status": "M",
+        "path": "config/workspace.json"
+      }
+    ]
+  }
+}

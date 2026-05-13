@@ -1,0 +1,62 @@
+{
+  "method": "git.log",
+  "case": "all-source-on",
+  "params": {
+    "scope": "all",
+    "source": true
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "cccccccccccccccccccccccccccccccccccccccc",
+            "shortSha": "ccccccc",
+            "parents": [
+              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ],
+            "authorName": "Linus Torvalds",
+            "authorEmail": "linus@example.test",
+            "authoredAt": "2026-05-03T09:00:00+00:00",
+            "subject": "Merge remote changes",
+            "refs": [
+              {
+                "name": "main",
+                "kind": "branch",
+                "isHead": false
+              },
+              {
+                "name": "origin/main",
+                "kind": "remote",
+                "isHead": false
+              }
+            ]
+          },
+          {
+            "sha": "dddddddddddddddddddddddddddddddddddddddd",
+            "shortSha": "ddddddd",
+            "parents": [
+              "cccccccccccccccccccccccccccccccccccccccc"
+            ],
+            "authorName": "Margaret Hamilton",
+            "authorEmail": "margaret@example.test",
+            "authoredAt": "2026-05-03T08:00:00+00:00",
+            "subject": "Prepare release",
+            "refs": [
+              {
+                "name": "v2.0.0",
+                "kind": "tag",
+                "isHead": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 2,
+    "hasMore": false
+  }
+}

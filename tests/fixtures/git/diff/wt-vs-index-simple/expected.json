@@ -1,0 +1,21 @@
+{
+  "method": "git.diff",
+  "case": "wt-vs-index-simple",
+  "params": {
+    "kind": "wt-vs-index",
+    "relPath": "src/app.ts",
+    "maxChunkBytes": 1048576
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/src/app.ts b/src/app.ts\nindex 1111111..2222222 100644\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1,2 @@\n export const app = true;\n+export const remote = false;\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 171,
+    "truncated": false
+  }
+}

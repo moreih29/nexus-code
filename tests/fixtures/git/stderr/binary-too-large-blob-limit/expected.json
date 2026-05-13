@@ -1,0 +1,4 @@
+{
+  "kind": "binary-too-large",
+  "message": "fatal: blob 9fceb02 exceeds 1048576 byte limit"
+}

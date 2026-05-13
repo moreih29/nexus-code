@@ -231,8 +231,8 @@ describe("workspace-lifecycle — remove keeps directory on disk", () => {
     expect(args.id).toBe(wsId);
   });
 
-  it("remove clears active workspace ID when the active workspace is removed", () => {
-    fixtures.manager.activate(wsId);
+  it("remove clears active workspace ID when the active workspace is removed", async () => {
+    await fixtures.manager.activate(wsId);
     fixtures.manager.remove(wsId);
     expect(fixtures.manager.getActiveId()).toBeNull();
   });
@@ -253,12 +253,12 @@ describe("workspace-lifecycle — full scenario (create → update → remove)",
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("end-to-end: single workspace goes through create → update → remove with all invariants", () => {
+  it("end-to-end: single workspace goes through create → update → remove with all invariants", async () => {
     const { manager, globalStorage, stateService, wsBaseDir, broadcastMock } = makeFixtures(tmpDir);
 
-    manager.init();
+    await manager.init();
     const ws = manager.create({ rootPath: seedRootPath(tmpDir), name: "fixture" });
-    manager.activate(ws.id);
+    await manager.activate(ws.id);
 
     expect(manager.list().length).toBe(1);
     expect(stateService.getState().lastActiveWorkspaceId).toBe(ws.id);

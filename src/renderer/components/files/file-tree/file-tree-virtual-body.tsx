@@ -27,6 +27,8 @@ interface FileTreeVirtualBodyProps {
   onRowContextMenu: (idx: number, item: FlatItem) => void;
   onPendingCommit: (name: string) => Promise<void> | void;
   onPendingCancel: () => void;
+  onPendingRenameCommit: (name: string) => Promise<void> | void;
+  onPendingRenameCancel: () => void;
 }
 
 export function FileTreeVirtualBody({
@@ -41,6 +43,8 @@ export function FileTreeVirtualBody({
   onRowContextMenu,
   onPendingCommit,
   onPendingCancel,
+  onPendingRenameCommit,
+  onPendingRenameCancel,
 }: FileTreeVirtualBodyProps): React.JSX.Element {
   return (
     <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
@@ -64,6 +68,20 @@ export function FileTreeVirtualBody({
                 depth={item.depth}
                 onCommit={onPendingCommit}
                 onCancel={onPendingCancel}
+              />
+            </div>
+          );
+        }
+
+        if (item.kind === "rename") {
+          return (
+            <div key={`rename-${item.absPath}`} style={wrapperStyle}>
+              <FileTreeEditRow
+                kind={item.entryKind}
+                depth={item.depth}
+                initialValue={item.initialName}
+                onCommit={onPendingRenameCommit}
+                onCancel={onPendingRenameCancel}
               />
             </div>
           );

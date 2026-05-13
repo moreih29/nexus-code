@@ -1,0 +1,30 @@
+{
+  "method": "git.blob",
+  "case": "utf8-small",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "README.md",
+    "maxChunkBytes": 65536
+  },
+  "events": [
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "aGVsbG8gZnJvbSBIRUFECg==",
+        "headerProbe": {
+          "isBinary": false,
+          "encoding": "utf8",
+          "probeBytes": 16,
+          "probeBase64": "aGVsbG8gZnJvbSBIRUFECg=="
+        }
+      }
+    }
+  ],
+  "result": {
+    "size": 16,
+    "isBinary": false,
+    "encoding": "utf8",
+    "mtime": null,
+    "truncated": false
+  }
+}

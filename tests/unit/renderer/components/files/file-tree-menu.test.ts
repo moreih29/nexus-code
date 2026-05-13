@@ -23,6 +23,8 @@ const noopActions: Actions = {
   reveal: () => {},
   newFile: () => {},
   newFolder: () => {},
+  rename: () => {},
+  delete: async () => true,
 };
 
 function labelsOf(items: ReturnType<typeof buildFileTreeMenuItems>): string[] {
@@ -43,6 +45,8 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "Open",
       "Open to the Side",
+      "Rename",
+      "Delete",
       "Reveal in Finder",
       "Copy Path",
       "Copy Relative Path",
@@ -54,6 +58,8 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "New File",
       "New Folder",
+      "Rename",
+      "Delete",
       "Reveal in Finder",
       "Copy Path",
       "Copy Relative Path",
@@ -65,6 +71,8 @@ describe("buildFileTreeMenuItems", () => {
     expect(labelsOf(items)).toEqual([
       "Open",
       "Open to the Side",
+      "Rename",
+      "Delete",
       "Reveal in Finder",
       "Copy Path",
       "Copy Relative Path",
@@ -80,5 +88,14 @@ describe("buildFileTreeMenuItems", () => {
       noopActions,
     );
     expect(labelsOf(items)).toEqual(["New File", "New Folder", "Reveal in Finder", "Copy Path"]);
+  });
+
+  it("shows Rename with the F2 shortcut for non-root targets", () => {
+    const items = buildFileTreeMenuItems({ absPath: "/repo/a.ts", type: "file" }, noopActions);
+    const rename = items.find(
+      (it): it is Extract<typeof it, { kind: "item" }> =>
+        it.kind === "item" && it.label === "Rename",
+    );
+    expect(rename?.shortcut).toBe("F2");
   });
 });

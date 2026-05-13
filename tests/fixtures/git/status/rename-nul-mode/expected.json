@@ -1,0 +1,30 @@
+{
+  "merge": [],
+  "staged": [
+    {
+      "relPath": "src/new name.ts",
+      "xy": "R.",
+      "conflictType": null,
+      "oldRelPath": "src/old name.ts"
+    }
+  ],
+  "working": [],
+  "untracked": [],
+  "branch": {
+    "current": "main",
+    "upstream": null,
+    "ahead": 0,
+    "behind": 0,
+    "isUnborn": false
+  },
+  "capabilities": {
+    "hasHEAD": true,
+    "remotes": [],
+    "stashCount": 0,
+    "tagCount": 0
+  },
+  "operationState": {
+    "kind": "none"
+  },
+  "lastFetchedAt": null
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "force-push-rejected",
+  "message": "To github.com:example/repo.git\n ! [rejected]        main -> main (stale info)\nerror: failed to push some refs to 'github.com:example/repo.git'\nhint: Updates were rejected because the tip of your current branch is behind its remote counterpart.",
+  "hint": {
+    "kind": "fetch-then-force"
+  }
+}

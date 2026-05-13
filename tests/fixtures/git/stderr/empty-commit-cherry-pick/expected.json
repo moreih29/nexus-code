@@ -1,0 +1,7 @@
+{
+  "kind": "empty-commit",
+  "message": "The previous cherry-pick is now empty, possibly due to conflict resolution.\nIf you wish to commit it anyway, use:\n\n    git commit --allow-empty\n\nOtherwise, please use 'git cherry-pick --skip'",
+  "hint": {
+    "kind": "allow-empty"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "method": "git.log",
+  "case": "ref-basic-source-off",
+  "params": {
+    "scope": "ref",
+    "ref": "HEAD",
+    "source": false
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "shortSha": "aaaaaaa",
+            "parents": [],
+            "authorName": "Ada Lovelace",
+            "authorEmail": "ada@example.test",
+            "authoredAt": "2026-05-01T10:00:00+00:00",
+            "subject": "Initial commit",
+            "refs": []
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 1,
+    "hasMore": false
+  }
+}

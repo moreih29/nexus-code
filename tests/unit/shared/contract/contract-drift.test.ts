@@ -94,6 +94,9 @@ function makeFsManagerStub(rootPath: string): {
     writeFile: async () => ({ kind: "ok", mtime: new Date().toISOString(), size: 0 }),
     createFile: async () => {},
     mkdir: async () => {},
+    unlink: async () => {},
+    rmdir: async () => {},
+    rename: async () => {},
   };
   return {
     list: () => [
@@ -198,6 +201,58 @@ describe("ipcContract drift — fs handlers", () => {
     }
     expect(content.kind).toBe("ok");
     if (content.kind === "ok") expect(content.encoding).toBe("utf8-bom");
+  });
+});
+
+describe("ipcContract drift — fs mutation args", () => {
+  it("requires workspace-scoped relative path args for unlink/rmdir/rename", () => {
+    expect(
+      ipcContract.fs.call.unlink.args.safeParse({
+        workspaceId: VALID_UUID,
+        relPath: "old.txt",
+      }).success,
+    ).toBe(true);
+    expect(
+      ipcContract.fs.call.rmdir.args.safeParse({
+        workspaceId: VALID_UUID,
+        relPath: "empty",
+      }).success,
+    ).toBe(true);
+    expect(
+      ipcContract.fs.call.rename.args.safeParse({
+        workspaceId: VALID_UUID,
+        fromRelPath: "old.txt",
+        toRelPath: "new.txt",
+      }).success,
+    ).toBe(true);
+
+    expect(ipcContract.fs.call.unlink.args.safeParse({ relPath: "old.txt" }).success).toBe(false);
+    expect(ipcContract.fs.call.rmdir.args.safeParse({ relPath: "empty" }).success).toBe(false);
+    expect(
+      ipcContract.fs.call.rename.args.safeParse({
+        fromRelPath: "old.txt",
+        toRelPath: "new.txt",
+      }).success,
+    ).toBe(false);
+    expect(
+      ipcContract.fs.call.unlink.args.safeParse({
+        workspaceId: VALID_UUID,
+        relPath: "/tmp/old.txt",
+      }).success,
+    ).toBe(false);
+    expect(
+      ipcContract.fs.call.rmdir.args.safeParse({
+        workspaceId: VALID_UUID,
+        relPath: "C:\\tmp\\empty",
+      }).success,
+    ).toBe(false);
+    expect(
+      ipcContract.fs.call.rename.args.safeParse({
+        workspaceId: VALID_UUID,
+        fromRelPath: "\\\\server\\share\\old.txt",
+        toRelPath: "new.txt",
+      }).success,
+    ).toBe(false);
   });
 });
 

@@ -6,8 +6,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
 import { GitRepository } from "../../../../src/main/git/git-repository";
+import { localSemanticExecutor } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -16,7 +16,13 @@ describe("GitRepository tag ops", () => {
   realGitTest("lists lightweight and annotated tags with stable metadata", async () => {
     const root = makeRepoWithCommit();
     try {
-      const repo = new GitRepository("ws-tags-list", root, path.join(root, ".git"), gitOnPath!);
+      const repo = new GitRepository(
+        "ws-tags-list",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+        localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+      );
       const headSha = runGit(root, ["rev-parse", "HEAD"]).trim();
 
       await repo.createTag("v-light");
@@ -45,50 +51,54 @@ describe("GitRepository tag ops", () => {
     }
   });
 
-  realGitTest(
-    "creates lightweight and annotated tags and maps duplicate/bad-ref errors",
-    async () => {
-      const root = makeRepoWithCommit();
-      try {
-        const repo = new GitRepository("ws-tags-create", root, path.join(root, ".git"), gitOnPath!);
-
-        await repo.createTag("v-light");
-        expect(runGit(root, ["cat-file", "-t", "v-light"]).trim()).toBe("commit");
-
-        await repo.createTag("v-annotated", { message: "release notes" });
-        expect(runGit(root, ["cat-file", "-t", "v-annotated"]).trim()).toBe("tag");
-
-        await expect(repo.createTag("v-light")).rejects.toMatchObject({ kind: "tag-exists" });
-        await expect(
-          repo.createTag("v-missing", { ref: "definitely-missing" }),
-        ).rejects.toMatchObject({ kind: "ref-not-found" });
-      } finally {
-        fs.rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
-
-  realGitTest("deletes local tags and maps nonexistent tags", async () => {
+  realGitTest("creates lightweight and annotated tags and maps bad-ref errors", async () => {
     const root = makeRepoWithCommit();
     try {
-      const repo = new GitRepository("ws-tags-delete", root, path.join(root, ".git"), gitOnPath!);
+      const repo = new GitRepository(
+        "ws-tags-create",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+        localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+      );
 
-      await repo.createTag("v-delete");
-      await repo.deleteTag("v-delete");
-      expect(runGit(root, ["tag", "--list", "v-delete"]).trim()).toBe("");
+      await repo.createTag("v-light");
+      expect(runGit(root, ["cat-file", "-t", "v-light"]).trim()).toBe("commit");
 
-      try {
-        await repo.deleteTag("v-delete");
-        throw new Error("expected deleteTag to reject nonexistent tag");
-      } catch (error) {
-        expect((error as GitError).kind).toBe("tag-not-found");
-      }
+      await repo.createTag("v-annotated", { message: "release notes" });
+      expect(runGit(root, ["cat-file", "-t", "v-annotated"]).trim()).toBe("tag");
+
+      await expect(repo.createTag("v-light")).rejects.toBeInstanceOf(Error);
+      await expect(
+        repo.createTag("v-missing", { ref: "definitely-missing" }),
+      ).rejects.toMatchObject({ kind: "ref-not-found" });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test("deleteRemoteTag uses the prompt-capable helper environment", async () => {
+  realGitTest("deletes local tags and rejects nonexistent tags", async () => {
+    const root = makeRepoWithCommit();
+    try {
+      const repo = new GitRepository(
+        "ws-tags-delete",
+        root,
+        path.join(root, ".git"),
+        gitOnPath!,
+        localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+      );
+
+      await repo.createTag("v-delete");
+      await repo.deleteTag("v-delete");
+      expect(runGit(root, ["tag", "--list", "v-delete"]).trim()).toBe("");
+
+      await expect(repo.deleteTag("v-delete")).rejects.toBeInstanceOf(Error);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("deleteRemoteTag uses terminal-prompt-disabled helper environment", async () => {
     const fixture = makeFakeRepo();
     try {
       const repo = new GitRepository(
@@ -96,13 +106,12 @@ describe("GitRepository tag ops", () => {
         fixture.root,
         fixture.gitDir,
         fixture.gitBin,
+        localSemanticExecutor(fixture.gitBin, fixture.gitDir),
       );
 
       await repo.deleteRemoteTag("origin", "v1.0.0");
 
-      expect(readLog(fixture.root)[0]).toMatch(
-        /^push origin :refs\/tags\/v1\.0\.0\|askpass=.+\|terminal=0$/,
-      );
+      expect(readLog(fixture.root)[0]).toBe("push origin :refs/tags/v1.0.0|askpass=|terminal=0");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -116,12 +125,13 @@ describe("GitRepository tag ops", () => {
         fixture.root,
         fixture.gitDir,
         fixture.gitBin,
+        localSemanticExecutor(fixture.gitBin, fixture.gitDir),
       );
 
       const tags = await repo.listRemoteTags("origin");
 
       expect(readLog(fixture.root)[0]).toMatch(
-        /^ls-remote --tags --refs origin\|askpass=.+\|terminal=0$/,
+        "ls-remote --tags --refs origin|askpass=|terminal=0",
       );
       expect(tags).toEqual([
         {

@@ -1,0 +1,48 @@
+{
+  "method": "git.log",
+  "case": "after-sha-cursor-all",
+  "params": {
+    "scope": "all",
+    "afterSha": "5555555555555555555555555555555555555555",
+    "limit": 2,
+    "source": true
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "6666666666666666666666666666666666666666",
+            "shortSha": "6666666",
+            "parents": [
+              "5555555555555555555555555555555555555555"
+            ],
+            "authorName": "Older One",
+            "authorEmail": "older1@example.test",
+            "authoredAt": "2026-05-07T09:00:00+00:00",
+            "subject": "Older after cursor",
+            "refs": []
+          },
+          {
+            "sha": "7777777777777777777777777777777777777777",
+            "shortSha": "7777777",
+            "parents": [
+              "6666666666666666666666666666666666666666"
+            ],
+            "authorName": "Older Two",
+            "authorEmail": "older2@example.test",
+            "authoredAt": "2026-05-07T08:00:00+00:00",
+            "subject": "Second older after cursor",
+            "refs": []
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 2,
+    "hasMore": false,
+    "totalScanned": 3
+  }
+}

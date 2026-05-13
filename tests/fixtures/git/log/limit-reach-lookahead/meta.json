@@ -1,0 +1,9 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Stdout contains limit+1 records; expected emits only the requested limit.",
+    "This fixture guards hasMore=true and the planned Go process-kill path after lookahead."
+  ]
+}

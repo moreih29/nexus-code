@@ -23,6 +23,9 @@ export interface FsProvider {
   ): Promise<WriteFileResult>;
   createFile(relPath: string): Promise<void>;
   mkdir(relPath: string): Promise<void>;
+  unlink(relPath: string): Promise<void>;
+  rmdir(relPath: string): Promise<void>;
+  rename(fromRelPath: string, toRelPath: string): Promise<void>;
   dispose?(): void;
 }
 

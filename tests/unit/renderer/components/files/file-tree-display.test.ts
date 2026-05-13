@@ -124,4 +124,20 @@ describe("getDisplayFlat", () => {
       expect(out[1].entryKind).toBe("folder");
     }
   });
+
+  it("replaces the target row with a rename edit item", () => {
+    const f = flat([
+      ["/r", dirNode("r"), 0],
+      ["/r/a.ts", fileNode("a.ts"), 1],
+    ]);
+    const out = getDisplayFlat(f, null, { absPath: "/r/a.ts" });
+
+    expect(out.map((it) => it.kind)).toEqual(["real", "rename"]);
+    const rename = out[1];
+    if (rename.kind !== "rename") throw new Error("expected rename row");
+    expect(rename.absPath).toBe("/r/a.ts");
+    expect(rename.initialName).toBe("a.ts");
+    expect(rename.entryKind).toBe("file");
+    expect(rename.depth).toBe(1);
+  });
 });

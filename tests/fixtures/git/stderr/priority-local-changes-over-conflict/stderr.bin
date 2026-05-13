@@ -1,0 +1,5 @@
+error: Your local changes to the following files would be overwritten by merge:
+	src/app.ts
+Please commit your changes or stash them before you merge.
+CONFLICT (content): Merge conflict in src/app.ts
+Aborting

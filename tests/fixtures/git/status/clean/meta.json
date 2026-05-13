@@ -1,0 +1,10 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "synthetic",
+  "command": "git status --porcelain=v2 -z -b --untracked-files=all --renames",
+  "stdoutEncoding": "utf-8",
+  "delimiter": "NUL",
+  "records": ["# branch.oid 0123456789abcdef0123456789abcdef01234567", "# branch.head main"],
+  "notes": ["Clean worktree: all status arrays are empty and operationState.kind is none."]
+}

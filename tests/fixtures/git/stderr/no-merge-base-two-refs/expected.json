@@ -1,0 +1,4 @@
+{
+  "kind": "no-merge-base",
+  "message": "fatal: no merge base for 'main' and 'feature/no-common-base'"
+}

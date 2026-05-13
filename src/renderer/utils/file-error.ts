@@ -17,6 +17,9 @@ export function parseFileErrorCode(message: string): FileErrorCode {
     FS_ERROR.TOO_LARGE,
     FS_ERROR.ALREADY_EXISTS,
     FS_ERROR.OUT_OF_WORKSPACE,
+    FS_ERROR.NOT_EMPTY,
+    FS_ERROR.NOT_DIRECTORY,
+    FS_ERROR.CROSS_DEVICE,
   ];
   for (const code of candidates) {
     if (hasFsErrorCode(message, code)) return code;
@@ -41,6 +44,12 @@ export function fileErrorMessage(
       return "Already exists.";
     case FS_ERROR.OUT_OF_WORKSPACE:
       return "This path is outside the workspace.";
+    case FS_ERROR.NOT_EMPTY:
+      return "Folder is not empty.";
+    case FS_ERROR.NOT_DIRECTORY:
+      return "Path is not a folder.";
+    case FS_ERROR.CROSS_DEVICE:
+      return "Can't move across filesystems.";
     case "OTHER":
       return "Failed to open file.";
   }

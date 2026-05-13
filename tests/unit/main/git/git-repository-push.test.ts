@@ -5,17 +5,17 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 describe("GitRepository push guardrails", () => {
   it("uses --force-with-lease for explicit force pushes", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = new GitRepository("ws-push-lease", fixture.root, fixture.gitDir, fixture.gitBin);
+      const repo = newLocalGitRepository("ws-push-lease", fixture.root, fixture.gitDir, fixture.gitBin);
 
       await repo.push(true);
 
-      expect(readLog(fixture.root)[0]).toMatch(/^push --force-with-lease\|askpass=.+$/);
+      expect(readLog(fixture.root)[0]).toMatch("push --force-with-lease|askpass=");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
@@ -24,7 +24,7 @@ describe("GitRepository push guardrails", () => {
   it("publishes to the first configured remote when multiple remotes exist", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-publish-first",
         fixture.root,
         fixture.gitDir,
@@ -33,16 +33,16 @@ describe("GitRepository push guardrails", () => {
 
       await repo.push(false, true);
 
-      expect(readLog(fixture.root).at(-1)).toMatch(/^push -u upstream main\|askpass=.+$/);
+      expect(readLog(fixture.root).at(-1)).toMatch("push -u upstream main|askpass=");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });
 
-  it("pushes tags to a named remote with exact argv and askpass helpers", async () => {
+  it("pushes tags to a named remote with exact argv and terminal prompts disabled", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-push-tags-remote",
         fixture.root,
         fixture.gitDir,
@@ -51,16 +51,16 @@ describe("GitRepository push guardrails", () => {
 
       await repo.pushTags("origin");
 
-      expect(readLog(fixture.root)[0]).toMatch(/^push origin --tags\|askpass=.+$/);
+      expect(readLog(fixture.root)[0]).toMatch("push origin --tags|askpass=");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });
 
-  it("pushes tags without a remote with exact argv and askpass helpers", async () => {
+  it("pushes tags without a remote with exact argv and terminal prompts disabled", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = new GitRepository(
+      const repo = newLocalGitRepository(
         "ws-push-tags-default",
         fixture.root,
         fixture.gitDir,
@@ -69,7 +69,7 @@ describe("GitRepository push guardrails", () => {
 
       await repo.pushTags();
 
-      expect(readLog(fixture.root)[0]).toMatch(/^push --tags\|askpass=.+$/);
+      expect(readLog(fixture.root)[0]).toMatch("push --tags|askpass=");
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }

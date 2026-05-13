@@ -1,0 +1,4 @@
+{
+  "kind": "branch-not-fully-merged",
+  "message": "error: The branch 'feature' is not fully merged.\nIf you are sure you want to delete it, run 'git branch -D feature'."
+}

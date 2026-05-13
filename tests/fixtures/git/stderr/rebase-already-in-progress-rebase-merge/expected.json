@@ -1,0 +1,4 @@
+{
+  "kind": "rebase-already-in-progress",
+  "message": "fatal: It seems that there is already a rebase-merge directory, and\nI wonder if you are in the middle of another rebase.  If that is the\ncase, please try\n\tgit rebase (--continue | --abort | --skip)"
+}

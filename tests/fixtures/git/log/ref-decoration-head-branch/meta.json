@@ -1,0 +1,9 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Decoration includes Git default `HEAD -> branch` grammar.",
+    "Expected branch target carries isHead=true while HEAD remains its own chip."
+  ]
+}

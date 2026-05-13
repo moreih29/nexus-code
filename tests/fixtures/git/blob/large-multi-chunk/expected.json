@@ -1,0 +1,42 @@
+{
+  "method": "git.blob",
+  "case": "large-multi-chunk",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "large.txt",
+    "maxChunkBytes": 64
+  },
+  "events": [
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg==",
+        "headerProbe": {
+          "isBinary": false,
+          "encoding": "utf8",
+          "probeBytes": 64,
+          "probeBase64": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg=="
+        }
+      }
+    },
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg=="
+      }
+    },
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      }
+    }
+  ],
+  "result": {
+    "size": 160,
+    "isBinary": false,
+    "encoding": "utf8",
+    "mtime": null,
+    "truncated": false
+  }
+}

@@ -1,0 +1,10 @@
+diff --git a/src/old.ts b/src/new.ts
+similarity index 91%
+rename from src/old.ts
+rename to src/new.ts
+index abcdef0..abcdef1 100644
+--- a/src/old.ts
++++ b/src/new.ts
+@@ -1 +1 @@
+-export const name = "old";
++export const name = "new";

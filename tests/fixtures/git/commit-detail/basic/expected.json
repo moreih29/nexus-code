@@ -1,0 +1,27 @@
+{
+  "method": "git.commitDetail",
+  "case": "basic",
+  "params": {
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "result": {
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "parents": [],
+    "subject": "Add app shell",
+    "author": "Ada Lovelace",
+    "authorEmail": "ada@example.test",
+    "committerTs": "2026-05-01T10:00:00+00:00",
+    "message": "Add app shell\n\nCreates the initial app shell.",
+    "body": "Creates the initial app shell.",
+    "files": [
+      {
+        "status": "M",
+        "path": "src/app.ts"
+      },
+      {
+        "status": "A",
+        "path": "README.md"
+      }
+    ]
+  }
+}

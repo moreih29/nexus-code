@@ -1,0 +1,13 @@
+{
+  "method": "git.blob",
+  "case": "missing",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "missing.txt"
+  },
+  "events": [],
+  "error": {
+    "kind": "missing",
+    "message": "Path missing.txt does not exist in HEAD"
+  }
+}

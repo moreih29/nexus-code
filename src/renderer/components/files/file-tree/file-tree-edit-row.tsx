@@ -1,6 +1,6 @@
 /**
- * Inline editable row used by the file tree when a "New File" /
- * "New Folder" gesture is in progress.
+ * Inline editable row used by the file tree when a "New File",
+ * "New Folder", or "Rename" gesture is in progress.
  *
  * UX:
  *   - Auto-focuses on mount.
@@ -23,6 +23,7 @@ import { indentPaddingLeft, ROW_HEIGHT_PX } from "./file-tree-metrics";
 interface FileTreeEditRowProps {
   kind: EntryKind;
   depth: number;
+  initialValue?: string;
   onCommit: (name: string) => void | Promise<void>;
   onCancel: () => void;
 }
@@ -33,8 +34,14 @@ interface FileTreeEditRowProps {
 // the menu trigger after close and immediately blur the input below,
 // firing onBlur on an empty value and unmounting the row before the
 // user can type.
-export function FileTreeEditRow({ kind, depth, onCommit, onCancel }: FileTreeEditRowProps) {
-  const [value, setValue] = useState("");
+export function FileTreeEditRow({
+  kind,
+  depth,
+  initialValue = "",
+  onCommit,
+  onCancel,
+}: FileTreeEditRowProps) {
+  const [value, setValue] = useState(initialValue);
   const validationError = value.length > 0 ? validateNewEntryName(value) : null;
   const canCommit = value.trim().length > 0 && validationError === null;
 
@@ -66,7 +73,15 @@ export function FileTreeEditRow({ kind, depth, onCommit, onCancel }: FileTreeEdi
         <input
           // biome-ignore lint/a11y/noAutofocus: inline-create row should grab focus on mount; cancellable via Esc/blur
           autoFocus
-          aria-label={kind === "file" ? "New file name" : "New folder name"}
+          aria-label={
+            initialValue
+              ? kind === "file"
+                ? "Rename file"
+                : "Rename folder"
+              : kind === "file"
+                ? "New file name"
+                : "New folder name"
+          }
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}

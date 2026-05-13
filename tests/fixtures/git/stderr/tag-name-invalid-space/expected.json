@@ -1,0 +1,4 @@
+{
+  "kind": "tag-name-invalid",
+  "message": "fatal: 'bad tag' is not a valid tag name"
+}

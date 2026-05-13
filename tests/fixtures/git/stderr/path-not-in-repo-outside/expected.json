@@ -1,0 +1,4 @@
+{
+  "kind": "path-not-in-repo",
+  "message": "fatal: ../outside.txt: '../outside.txt' is outside repository at '/repo'"
+}

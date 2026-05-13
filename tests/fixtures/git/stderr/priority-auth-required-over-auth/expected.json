@@ -1,0 +1,4 @@
+{
+  "kind": "auth-required",
+  "message": "fatal: could not read Username for 'https://github.com': terminal prompts disabled\nfatal: Authentication failed for 'https://github.com/example/private.git/'"
+}

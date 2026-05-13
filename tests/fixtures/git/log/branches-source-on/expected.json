@@ -1,0 +1,57 @@
+{
+  "method": "git.log",
+  "case": "branches-source-on",
+  "params": {
+    "scope": "branches",
+    "source": true
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "shortSha": "eeeeeee",
+            "parents": [
+              "dddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "authorName": "Alan Turing",
+            "authorEmail": "alan@example.test",
+            "authoredAt": "2026-05-04T12:00:00+00:00",
+            "subject": "Branch-only work",
+            "refs": [
+              {
+                "name": "topic/agent",
+                "kind": "branch",
+                "isHead": false
+              }
+            ]
+          },
+          {
+            "sha": "ffffffffffffffffffffffffffffffffffffffff",
+            "shortSha": "fffffff",
+            "parents": [
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            ],
+            "authorName": "Katherine Johnson",
+            "authorEmail": "katherine@example.test",
+            "authoredAt": "2026-05-04T11:00:00+00:00",
+            "subject": "Branch cleanup",
+            "refs": [
+              {
+                "name": "feature/cleanup",
+                "kind": "branch",
+                "isHead": false
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 2,
+    "hasMore": false
+  }
+}

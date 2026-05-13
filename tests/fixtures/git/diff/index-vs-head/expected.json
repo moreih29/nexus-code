@@ -1,0 +1,21 @@
+{
+  "method": "git.diff",
+  "case": "index-vs-head",
+  "params": {
+    "kind": "index-vs-head",
+    "relPath": "README.md",
+    "maxChunkBytes": 1048576
+  },
+  "events": [
+    {
+      "name": "git.diff.chunk",
+      "payload": {
+        "text": "diff --git a/README.md b/README.md\nindex 3333333..4444444 100644\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,2 @@\n-Old title\n+New title\n Stable body\n"
+      }
+    }
+  ],
+  "result": {
+    "bytes": 148,
+    "truncated": false
+  }
+}

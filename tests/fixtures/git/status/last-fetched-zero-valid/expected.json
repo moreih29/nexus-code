@@ -1,0 +1,23 @@
+{
+  "merge": [],
+  "staged": [],
+  "working": [],
+  "untracked": [],
+  "branch": {
+    "current": "main",
+    "upstream": "origin/main",
+    "ahead": 0,
+    "behind": 0,
+    "isUnborn": false
+  },
+  "capabilities": {
+    "hasHEAD": true,
+    "remotes": ["origin"],
+    "stashCount": 0,
+    "tagCount": 0
+  },
+  "operationState": {
+    "kind": "none"
+  },
+  "lastFetchedAt": 0
+}

@@ -9,6 +9,9 @@ import {
 import {
   createFileHandler,
   mkdirHandler,
+  renameHandler,
+  rmdirHandler,
+  unlinkHandler,
   writeFileHandler,
 } from "../../../../src/main/bridge/fs/write-handlers";
 import type {
@@ -59,6 +62,9 @@ function makeProvider(overrides: Partial<FsProvider> = {}) {
   );
   const createFile = mock(async (): Promise<void> => {});
   const mkdir = mock(async (): Promise<void> => {});
+  const unlink = mock(async (): Promise<void> => {});
+  const rmdir = mock(async (): Promise<void> => {});
+  const rename = mock(async (): Promise<void> => {});
   const provider: FsProvider = {
     kind: "local",
     readdir,
@@ -68,10 +74,25 @@ function makeProvider(overrides: Partial<FsProvider> = {}) {
     writeFile,
     createFile,
     mkdir,
+    unlink,
+    rmdir,
+    rename,
     ...overrides,
   };
 
-  return { provider, readdir, stat, readFile, readAbsolute, writeFile, createFile, mkdir };
+  return {
+    provider,
+    readdir,
+    stat,
+    readFile,
+    readAbsolute,
+    writeFile,
+    createFile,
+    mkdir,
+    unlink,
+    rmdir,
+    rename,
+  };
 }
 
 function makeManager(provider: FsProvider) {
@@ -198,5 +219,42 @@ describe("fs write handlers — provider delegation", () => {
 
     expect(createFile.mock.calls).toEqual([["new.txt"]]);
     expect(mkdir.mock.calls).toEqual([["src"]]);
+  });
+
+  it("unlinkHandler delegates workspace-relative paths to the workspace provider", async () => {
+    const unlink = mock(async () => {});
+    const { provider } = makeProvider({ unlink });
+    const { manager, requireContext } = makeManager(provider);
+
+    await unlinkHandler(manager as never)({ workspaceId: WORKSPACE_ID, relPath: "old.txt" });
+
+    expect(requireContext.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(unlink.mock.calls).toEqual([["old.txt"]]);
+  });
+
+  it("rmdirHandler delegates workspace-relative paths to the workspace provider", async () => {
+    const rmdir = mock(async () => {});
+    const { provider } = makeProvider({ rmdir });
+    const { manager, requireContext } = makeManager(provider);
+
+    await rmdirHandler(manager as never)({ workspaceId: WORKSPACE_ID, relPath: "empty" });
+
+    expect(requireContext.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(rmdir.mock.calls).toEqual([["empty"]]);
+  });
+
+  it("renameHandler delegates workspace-relative source and target paths to the provider", async () => {
+    const rename = mock(async () => {});
+    const { provider } = makeProvider({ rename });
+    const { manager, requireContext } = makeManager(provider);
+
+    await renameHandler(manager as never)({
+      workspaceId: WORKSPACE_ID,
+      fromRelPath: "old.txt",
+      toRelPath: "new.txt",
+    });
+
+    expect(requireContext.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(rename.mock.calls).toEqual([["old.txt", "new.txt"]]);
   });
 });

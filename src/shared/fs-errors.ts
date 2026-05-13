@@ -13,8 +13,11 @@ export const FS_ERROR = {
   PERMISSION_DENIED: "PERMISSION_DENIED",
   ALREADY_EXISTS: "ALREADY_EXISTS",
   IS_DIRECTORY: "IS_DIRECTORY",
+  NOT_DIRECTORY: "NOT_DIRECTORY",
   TOO_LARGE: "TOO_LARGE",
   OUT_OF_WORKSPACE: "OUT_OF_WORKSPACE",
+  NOT_EMPTY: "NOT_EMPTY",
+  CROSS_DEVICE: "CROSS_DEVICE",
 } as const;
 
 export type FsErrorCode = (typeof FS_ERROR)[keyof typeof FS_ERROR];
@@ -37,6 +40,12 @@ export function fsCodeFromErrno(errno: string | undefined): FsErrorCode | null {
       return FS_ERROR.PERMISSION_DENIED;
     case "EEXIST":
       return FS_ERROR.ALREADY_EXISTS;
+    case "ENOTDIR":
+      return FS_ERROR.NOT_DIRECTORY;
+    case "ENOTEMPTY":
+      return FS_ERROR.NOT_EMPTY;
+    case "EXDEV":
+      return FS_ERROR.CROSS_DEVICE;
     default:
       return null;
   }

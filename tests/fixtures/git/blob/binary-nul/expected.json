@@ -1,0 +1,30 @@
+{
+  "method": "git.blob",
+  "case": "binary-nul",
+  "params": {
+    "ref": "HEAD",
+    "relPath": "image.png",
+    "maxChunkBytes": 65536
+  },
+  "events": [
+    {
+      "name": "git.blob.chunk",
+      "payload": {
+        "chunk": "iVBORw0KGgoAAAANSUhEUg==",
+        "headerProbe": {
+          "isBinary": true,
+          "encoding": "binary",
+          "probeBytes": 16,
+          "probeBase64": "iVBORw0KGgoAAAANSUhEUg=="
+        }
+      }
+    }
+  ],
+  "result": {
+    "size": 16,
+    "isBinary": true,
+    "encoding": "binary",
+    "mtime": null,
+    "truncated": false
+  }
+}

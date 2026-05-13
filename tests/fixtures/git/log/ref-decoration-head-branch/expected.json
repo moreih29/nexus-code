@@ -1,0 +1,56 @@
+{
+  "method": "git.log",
+  "case": "ref-decoration-head-branch",
+  "params": {
+    "scope": "ref",
+    "ref": "feature/login",
+    "source": false
+  },
+  "events": [
+    {
+      "name": "git.log.batch",
+      "payload": {
+        "entries": [
+          {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "shortSha": "bbbbbbb",
+            "parents": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ],
+            "authorName": "Grace Hopper",
+            "authorEmail": "grace@example.test",
+            "authoredAt": "2026-05-02T11:15:00+00:00",
+            "subject": "Add login flow",
+            "refs": [
+              {
+                "name": "HEAD",
+                "kind": "head",
+                "isHead": true
+              },
+              {
+                "name": "feature/login",
+                "kind": "branch",
+                "isHead": true
+              },
+              {
+                "name": "origin/feature/login",
+                "kind": "remote",
+                "isHead": false
+              },
+              {
+                "name": "v1.2.0",
+                "kind": "tag",
+                "isHead": false
+              }
+            ],
+            "body": "Render login form.\n\nRefs: UI-42"
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "count": 1,
+    "hasMore": false
+  }
+}

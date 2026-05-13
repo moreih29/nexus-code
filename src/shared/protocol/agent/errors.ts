@@ -20,6 +20,7 @@ export const AgentFsErrorCodeSchema = z.enum([
   "PERMISSION_DENIED",
   "ALREADY_EXISTS",
   "IS_DIRECTORY",
+  "NOT_DIRECTORY",
   "TOO_LARGE",
   "OUT_OF_WORKSPACE",
   "STALE",

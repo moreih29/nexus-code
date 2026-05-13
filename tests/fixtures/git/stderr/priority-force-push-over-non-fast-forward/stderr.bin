@@ -1,0 +1,4 @@
+To github.com:example/repo.git
+ ! [rejected]        main -> main (stale info)
+error: failed to push some refs to 'github.com:example/repo.git'
+hint: Updates were rejected because the tip of your current branch is behind its remote counterpart.

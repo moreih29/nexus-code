@@ -1,0 +1,1 @@
+fatal: ../outside.txt: '../outside.txt' is outside repository at '/repo'

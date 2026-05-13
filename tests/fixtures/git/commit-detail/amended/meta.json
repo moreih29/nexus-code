@@ -1,0 +1,8 @@
+{
+  "gitVersion": "git version 2.50.1 (Apple Git-155)",
+  "LANG": "C",
+  "source": "manual synthetic fixture; authored from documented Git stdout formats, not generated from TS or Go parser output",
+  "notes": [
+    "Amended commit shape: normal one-parent commit with replacement subject/body."
+  ]
+}

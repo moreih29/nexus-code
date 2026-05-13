@@ -75,6 +75,18 @@ export class AgentFsProvider implements AgentBackedProvider {
     await this.callAgent("fs.mkdir", { relPath });
   }
 
+  async unlink(relPath: string): Promise<void> {
+    await this.callAgent("fs.unlink", { relPath });
+  }
+
+  async rmdir(relPath: string): Promise<void> {
+    await this.callAgent("fs.rmdir", { relPath });
+  }
+
+  async rename(fromRelPath: string, toRelPath: string): Promise<void> {
+    await this.callAgent("fs.rename", { fromRelPath, toRelPath });
+  }
+
   async callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     return this.callAgent(method, params) as Promise<TResult>;
   }

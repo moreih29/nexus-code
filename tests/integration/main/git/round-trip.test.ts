@@ -3,8 +3,18 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
 import { GitRegistry } from "../../../../src/main/git/git-registry";
 import { registerGitChannel } from "../../../../src/main/ipc/channels/git";
+import {
+  GIT_CANCEL_METHOD,
+  GIT_COMMIT_DETAIL_METHOD,
+  GIT_DIFF_METHOD,
+  GIT_LOG_METHOD,
+  GIT_RUN_METHOD,
+  GIT_STATUS_METHOD,
+  GIT_STREAM_METHOD,
+} from "../../../../src/shared/protocol/agent/git";
 import { DEFAULT_GIT_PANEL_STATE, type GitStatus } from "../../../../src/shared/types/git";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
@@ -14,6 +24,7 @@ import {
   setupInMemoryRouter,
   waitFor,
 } from "../../../helpers/ipc-pair";
+import { localSemanticExecutor } from "../../../unit/main/git/helpers/local-semantic-executor";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174022";
 const gitOnPath = findGitOnPath();
@@ -41,7 +52,7 @@ describe("git channel round-trip", () => {
     installWindowForPair(pair);
     await registerRealGit(root, gitPath);
 
-    const initialInfo = (await pair.window.ipc.call("git", "getRepoInfo", {
+    const initialInfo = (await pair.window.ipc.call("git", "refreshDetection", {
       workspaceId: WORKSPACE_ID,
     })) as { kind: string };
     expect(initialInfo.kind).toBe("non-repo");
@@ -132,15 +143,109 @@ async function registerRealGit(root: string, gitPath: string): Promise<void> {
     lastOpenedAt: new Date().toISOString(),
     tabs: [],
   };
-  const registry = new GitRegistry({ list: () => [workspace] } as never, router.broadcast, {
+  const provider = makeAgentBackedGitProvider(root, gitPath);
+  const registry = new GitRegistry(
+    {
+      list: () => [workspace],
+      requireContext: (workspaceId: string) => {
+        if (workspaceId !== WORKSPACE_ID) throw new Error(`Unknown workspace ${workspaceId}`);
+        return { id: workspaceId, fs: provider };
+      },
+    } as never,
+    router.broadcast,
+    {
     path: gitPath,
     version: gitVersion(gitPath),
-  });
+    },
+  );
 
   registerGitChannel(registry, {
     getGitPanelState: () => DEFAULT_GIT_PANEL_STATE,
     setGitPanelState: () => {},
   } as never);
+}
+
+/** Provides the agent-backed Git method surface expected by GitRegistry tests. */
+function makeAgentBackedGitProvider(root: string, gitPath: string): AgentBackedProvider {
+  const executor = localSemanticExecutor(gitPath, path.join(root, ".git"));
+  const fail = async (): Promise<never> => {
+    throw new Error("unexpected filesystem provider call");
+  };
+  return {
+    kind: "local",
+    readdir: fail,
+    stat: fail,
+    readFile: fail,
+    readAbsolute: fail,
+    writeFile: fail,
+    createFile: fail,
+    mkdir: fail,
+    unlink: fail,
+    rmdir: fail,
+    rename: fail,
+    isAgentAvailable: () => true,
+    onAgentEvent: () => () => {},
+    async callAgentMethod(method: string, params?: unknown): Promise<unknown> {
+      const cwd = readCwd(params, root);
+      if (method === GIT_RUN_METHOD) {
+        const parsed = params as {
+          readonly args: readonly string[];
+          readonly env?: NodeJS.ProcessEnv;
+          readonly interactive?: boolean;
+          readonly stdoutCapBytes?: number;
+        };
+        try {
+          return await executor.run({
+            bin: gitPath,
+            cwd,
+            args: parsed.args,
+            env: parsed.env,
+            interactive: parsed.interactive,
+            stdoutCapBytes: parsed.stdoutCapBytes,
+          });
+        } catch (error) {
+          if (isRevParseDetection(parsed.args)) {
+            return {
+              stdout: "",
+              stderr: error instanceof Error ? error.message : String(error),
+              code: 128,
+              errorKind: "not-repo",
+              errorMessage: "Not a Git repository",
+            };
+          }
+          throw error;
+        }
+      }
+      if (method === GIT_STREAM_METHOD) {
+        throw new Error("git.stream is not used by this round-trip test");
+      }
+      if (method === GIT_STATUS_METHOD) {
+        return executor.status!({ cwd });
+      }
+      if (method === GIT_LOG_METHOD || method === GIT_DIFF_METHOD || method === GIT_COMMIT_DETAIL_METHOD) {
+        throw new Error(`${method} is not used by this round-trip test`);
+      }
+      if (method === GIT_CANCEL_METHOD) return {};
+      throw new Error(`unexpected agent method ${method}`);
+    },
+  } as AgentBackedProvider;
+}
+
+/** Identifies the repository detection command so the fake agent can classify non-repos. */
+function isRevParseDetection(args: readonly string[]): boolean {
+  return args.join("\0") === "rev-parse\0--show-toplevel\0--git-dir";
+}
+
+/** Extracts an optional cwd field from agent params for the fake provider. */
+function readCwd(params: unknown, fallback: string): string {
+  if (
+    typeof params === "object" &&
+    params !== null &&
+    typeof (params as { cwd?: unknown }).cwd === "string"
+  ) {
+    return (params as { cwd: string }).cwd;
+  }
+  return fallback;
 }
 
 /** Creates and tracks a temp directory for this round-trip scenario. */
