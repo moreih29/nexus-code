@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { GitError } from "../../../../src/main/git/git-error";
-import { assertHasHead, resolveCheckoutTarget } from "../../../../src/main/git/git-preflight";
+import { assertHasHead, resolveCheckoutTarget } from "../../../../src/main/git/git-repository-helpers";
 import type { BranchInfo, BranchList } from "../../../../src/shared/types/git";
 
 const headBranch: BranchInfo = {

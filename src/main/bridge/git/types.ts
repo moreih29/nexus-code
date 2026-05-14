@@ -12,6 +12,7 @@ import type {
   GitBlobComplete,
   GitCherryPickResult,
   GitContinueOpResult,
+  GitFastForwardResult,
   GitLogScope,
   GitMarkResolvedResult,
   GitMergeMode,
@@ -215,6 +216,55 @@ export interface GitConflictMarkResolvedOptions {
   readonly signal?: AbortSignal;
 }
 
+// ---------------------------------------------------------------------------
+// Branch operation option interfaces
+// ---------------------------------------------------------------------------
+
+export interface GitBranchCreateOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly checkout?: boolean;
+  readonly startRef?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitBranchDeleteOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly force?: boolean;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitBranchDeleteRemoteOptions {
+  readonly cwd: string;
+  readonly remote: string;
+  readonly name: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitBranchRenameOptions {
+  readonly cwd: string;
+  readonly from: string;
+  readonly to: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitBranchSetUpstreamOptions {
+  readonly cwd: string;
+  readonly branch: string;
+  /** null unsets the upstream; a string sets it to the given remote/ref. */
+  readonly upstream: string | null;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitBranchFastForwardOptions {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly remote: string;
+  readonly remoteRef: string;
+  readonly signal?: AbortSignal;
+}
+
 export interface GitExecutor {
   run(options: RunGitOptions): Promise<RunGitResult>;
   stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
@@ -243,4 +293,10 @@ export interface GitExecutor {
   workflowAbort?(options: GitWorkflowAbortOptions): Promise<void>;
   workflowContinue?(options: GitWorkflowContinueOptions): Promise<GitContinueOpResult>;
   conflictMarkResolved?(options: GitConflictMarkResolvedOptions): Promise<GitMarkResolvedResult>;
+  branchCreate?(options: GitBranchCreateOptions): Promise<void>;
+  branchDelete?(options: GitBranchDeleteOptions): Promise<void>;
+  branchDeleteRemote?(options: GitBranchDeleteRemoteOptions): Promise<void>;
+  branchRename?(options: GitBranchRenameOptions): Promise<void>;
+  branchSetUpstream?(options: GitBranchSetUpstreamOptions): Promise<void>;
+  branchFastForward?(options: GitBranchFastForwardOptions): Promise<GitFastForwardResult>;
 }

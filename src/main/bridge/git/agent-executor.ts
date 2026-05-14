@@ -93,6 +93,20 @@ import {
   GIT_WORKFLOW_ABORT_METHOD,
   GIT_WORKFLOW_CONTINUE_METHOD,
   GIT_CONFLICT_MARK_RESOLVED_METHOD,
+  AgentGitBranchCreateParamsSchema,
+  AgentGitBranchDeleteParamsSchema,
+  AgentGitBranchDeleteResultSchema,
+  AgentGitBranchDeleteRemoteParamsSchema,
+  AgentGitBranchRenameParamsSchema,
+  AgentGitBranchSetUpstreamParamsSchema,
+  AgentGitBranchFastForwardParamsSchema,
+  AgentGitBranchFastForwardResultSchema,
+  GIT_BRANCH_CREATE_METHOD,
+  GIT_BRANCH_DELETE_METHOD,
+  GIT_BRANCH_DELETE_REMOTE_METHOD,
+  GIT_BRANCH_RENAME_METHOD,
+  GIT_BRANCH_SET_UPSTREAM_METHOD,
+  GIT_BRANCH_FAST_FORWARD_METHOD,
 } from "../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
@@ -103,6 +117,7 @@ import type {
   GitBlobComplete,
   GitCherryPickResult,
   GitContinueOpResult,
+  GitFastForwardResult,
   GitIgnoreAppendResult,
   GitMarkResolvedResult,
   GitMergeResult,
@@ -119,6 +134,12 @@ import { GitError, gitErrorFromAgent, gitMissingError, unknownGitError } from ".
 import type { GitHelpersIpcManager } from "../../git/git-helpers-ipc";
 import type {
   GitBlobOptions,
+  GitBranchCreateOptions,
+  GitBranchDeleteOptions,
+  GitBranchDeleteRemoteOptions,
+  GitBranchFastForwardOptions,
+  GitBranchRenameOptions,
+  GitBranchSetUpstreamOptions,
   GitCommitDetailOptions,
   GitConflictMarkResolvedOptions,
   GitDiffOptions,
@@ -603,6 +624,100 @@ export class AgentGitExecutor implements GitExecutor {
     );
     throwIfAborted(options.signal);
     return parseAgentResult(AgentGitConflictMarkResolvedResultSchema, result);
+  }
+
+  async branchCreate(options: GitBranchCreateOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_BRANCH_CREATE_METHOD,
+      AgentGitBranchCreateParamsSchema.parse({
+        cwd: options.cwd,
+        name: options.name,
+        checkout: options.checkout,
+        startRef: options.startRef,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async branchDelete(options: GitBranchDeleteOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_BRANCH_DELETE_METHOD,
+      AgentGitBranchDeleteParamsSchema.parse({
+        cwd: options.cwd,
+        name: options.name,
+        force: options.force,
+      }),
+    );
+    throwIfAborted(options.signal);
+    const parsed = parseAgentResult(AgentGitBranchDeleteResultSchema, result);
+    if (parsed.errorKind) {
+      throw new GitError(
+        parsed.errorKind,
+        parsed.errorMessage ?? `git branch --delete ${options.name} failed`,
+        { argv: ["branch", "--delete", options.name], hint: parsed.errorHint },
+      );
+    }
+  }
+
+  async branchDeleteRemote(options: GitBranchDeleteRemoteOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_BRANCH_DELETE_REMOTE_METHOD,
+      AgentGitBranchDeleteRemoteParamsSchema.parse({
+        cwd: options.cwd,
+        remote: options.remote,
+        name: options.name,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async branchRename(options: GitBranchRenameOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_BRANCH_RENAME_METHOD,
+      AgentGitBranchRenameParamsSchema.parse({
+        cwd: options.cwd,
+        from: options.from,
+        to: options.to,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async branchSetUpstream(options: GitBranchSetUpstreamOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_BRANCH_SET_UPSTREAM_METHOD,
+      AgentGitBranchSetUpstreamParamsSchema.parse({
+        cwd: options.cwd,
+        branch: options.branch,
+        upstream: options.upstream,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async branchFastForward(options: GitBranchFastForwardOptions): Promise<GitFastForwardResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_BRANCH_FAST_FORWARD_METHOD,
+      AgentGitBranchFastForwardParamsSchema.parse({
+        cwd: options.cwd,
+        branch: options.branch,
+        remote: options.remote,
+        remoteRef: options.remoteRef,
+      }),
+    );
+    throwIfAborted(options.signal);
+    const parsed = parseAgentResult(AgentGitBranchFastForwardResultSchema, result);
+    return {
+      advanced: parsed.advanced,
+      fromSha: parsed.fromSha,
+      toSha: parsed.toSha,
+    };
   }
 
   private async callAgentRun(

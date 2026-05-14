@@ -460,3 +460,82 @@ export const AgentGitConflictMarkResolvedResultSchema = GitMarkResolvedResultSch
 export type AgentGitConflictMarkResolvedResult = z.infer<
   typeof AgentGitConflictMarkResolvedResultSchema
 >;
+
+// ---------------------------------------------------------------------------
+// git.branch.* — typed RPC wrappers for branch management operations
+// ---------------------------------------------------------------------------
+
+export const GIT_BRANCH_CREATE_METHOD = "git.branch.create";
+export const GIT_BRANCH_DELETE_METHOD = "git.branch.delete";
+export const GIT_BRANCH_DELETE_REMOTE_METHOD = "git.branch.deleteRemote";
+export const GIT_BRANCH_RENAME_METHOD = "git.branch.rename";
+export const GIT_BRANCH_SET_UPSTREAM_METHOD = "git.branch.setUpstream";
+export const GIT_BRANCH_FAST_FORWARD_METHOD = "git.branch.fastForward";
+
+export const AgentGitBranchCreateParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+  checkout: z.boolean().optional(),
+  startRef: z.string().min(1).optional(),
+});
+export type AgentGitBranchCreateParams = z.infer<typeof AgentGitBranchCreateParamsSchema>;
+
+export const AgentGitBranchDeleteParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+  force: z.boolean().optional(),
+});
+export type AgentGitBranchDeleteParams = z.infer<typeof AgentGitBranchDeleteParamsSchema>;
+
+/** Go returns errorKind in the result body (not as a thrown error) for branch delete. */
+export const AgentGitBranchDeleteResultSchema = z.object({
+  errorKind: GitErrorKindSchema.optional(),
+  errorMessage: z.string().optional(),
+  errorHint: GitActionHintSchema.optional(),
+});
+export type AgentGitBranchDeleteResult = z.infer<typeof AgentGitBranchDeleteResultSchema>;
+
+export const AgentGitBranchDeleteRemoteParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  remote: z.string().min(1),
+  name: z.string().min(1),
+});
+export type AgentGitBranchDeleteRemoteParams = z.infer<
+  typeof AgentGitBranchDeleteRemoteParamsSchema
+>;
+
+export const AgentGitBranchRenameParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  from: z.string().min(1),
+  to: z.string().min(1),
+});
+export type AgentGitBranchRenameParams = z.infer<typeof AgentGitBranchRenameParamsSchema>;
+
+export const AgentGitBranchSetUpstreamParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  branch: z.string().min(1),
+  /** null unsets the upstream; a string sets it to the given remote/ref. */
+  upstream: z.string().min(1).nullable(),
+});
+export type AgentGitBranchSetUpstreamParams = z.infer<
+  typeof AgentGitBranchSetUpstreamParamsSchema
+>;
+
+export const AgentGitBranchFastForwardParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  branch: z.string().min(1),
+  remote: z.string().min(1),
+  remoteRef: z.string().min(1),
+});
+export type AgentGitBranchFastForwardParams = z.infer<
+  typeof AgentGitBranchFastForwardParamsSchema
+>;
+
+export const AgentGitBranchFastForwardResultSchema = z.object({
+  advanced: z.boolean(),
+  fromSha: z.string(),
+  toSha: z.string(),
+});
+export type AgentGitBranchFastForwardResult = z.infer<
+  typeof AgentGitBranchFastForwardResultSchema
+>;

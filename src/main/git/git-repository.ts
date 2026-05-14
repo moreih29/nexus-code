@@ -34,14 +34,22 @@ import type {
   Tag,
 } from "../../shared/types/git";
 import { BINARY_DETECTION_BYTES } from "../../shared/fs-defaults";
-import type { GitExecutor, RunGitResult } from "../bridge/git/types";
+import type {
+  GitBranchCreateOptions,
+  GitBranchDeleteOptions,
+  GitBranchDeleteRemoteOptions,
+  GitBranchFastForwardOptions,
+  GitBranchRenameOptions,
+  GitBranchSetUpstreamOptions,
+  GitExecutor,
+  RunGitResult,
+} from "../bridge/git/types";
 import { isBinaryProbe } from "./binary-detect";
 import type { GitBinary } from "./git-binary";
-import * as branchOps from "./git-branch-ops";
 import { GitError } from "./git-error";
-import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";
 import {
+  assertHasHead,
   buildCommitArgs,
   collectDiscardPathsets,
   gitSyncErrorFromGitError,
@@ -50,6 +58,7 @@ import {
   parseBranchLines,
   parsePullResult,
   parsePushResult,
+  resolveCheckoutTarget,
   throwIfAborted,
 } from "./git-repository-helpers";
 import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
@@ -81,6 +90,11 @@ export interface CommitCommandOptions {
   readonly sign?: boolean;
   readonly signoff?: boolean;
   readonly noVerify?: boolean;
+}
+
+export interface CreateBranchOptions {
+  readonly checkout?: boolean;
+  readonly startRef?: string;
 }
 
 export interface DiscardPathsets {
@@ -351,15 +365,23 @@ export class GitRepository {
    */
   createBranch(
     name: string,
-    checkoutOrOptions: boolean | branchOps.CreateBranchOptions = false,
+    checkoutOrOptions: boolean | CreateBranchOptions = false,
     signal?: AbortSignal,
   ): Promise<void> {
-    return this.queue(async (queuedSignal) => {
-      const options =
+    return this.queue((queuedSignal) => {
+      const opts =
         typeof checkoutOrOptions === "boolean"
           ? { checkout: checkoutOrOptions }
           : checkoutOrOptions;
-      await branchOps.createBranch(this.branchOpsRunner(queuedSignal), name, options);
+      const branchCreate = this.executor.branchCreate;
+      if (!branchCreate) throw missingExecutorMethodError("branchCreate");
+      return branchCreate.call(this.executor, {
+        cwd: this.topLevel,
+        name,
+        checkout: opts.checkout,
+        startRef: opts.startRef,
+        signal: queuedSignal,
+      } satisfies GitBranchCreateOptions);
     }, signal);
   }
 
@@ -368,41 +390,64 @@ export class GitRepository {
    * confirmation after an unmerged delete failure.
    */
   deleteBranch(name: string, force = false, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => branchOps.deleteBranch(this.branchOpsRunner(queuedSignal), name, force),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const branchDelete = this.executor.branchDelete;
+      if (!branchDelete) throw missingExecutorMethodError("branchDelete");
+      return branchDelete.call(this.executor, {
+        cwd: this.topLevel,
+        name,
+        force,
+        signal: queuedSignal,
+      } satisfies GitBranchDeleteOptions);
+    }, signal);
   }
 
   /**
    * Deletes one remote branch through a prompt-capable push operation.
    */
   deleteRemoteBranch(remote: string, name: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) =>
-        branchOps.deleteRemoteBranch(this.branchOpsRunner(queuedSignal), remote, name),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const branchDeleteRemote = this.executor.branchDeleteRemote;
+      if (!branchDeleteRemote) throw missingExecutorMethodError("branchDeleteRemote");
+      return branchDeleteRemote.call(this.executor, {
+        cwd: this.topLevel,
+        remote,
+        name,
+        signal: queuedSignal,
+      } satisfies GitBranchDeleteRemoteOptions);
+    }, signal);
   }
 
   /**
    * Renames a local branch.
    */
   renameBranch(from: string, to: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => branchOps.renameBranch(this.branchOpsRunner(queuedSignal), from, to),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const branchRename = this.executor.branchRename;
+      if (!branchRename) throw missingExecutorMethodError("branchRename");
+      return branchRename.call(this.executor, {
+        cwd: this.topLevel,
+        from,
+        to,
+        signal: queuedSignal,
+      } satisfies GitBranchRenameOptions);
+    }, signal);
   }
 
   /**
    * Sets or unsets a local branch upstream.
    */
   setUpstream(branch: string, upstream: string | null, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => branchOps.setUpstream(this.branchOpsRunner(queuedSignal), branch, upstream),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const branchSetUpstream = this.executor.branchSetUpstream;
+      if (!branchSetUpstream) throw missingExecutorMethodError("branchSetUpstream");
+      return branchSetUpstream.call(this.executor, {
+        cwd: this.topLevel,
+        branch,
+        upstream,
+        signal: queuedSignal,
+      } satisfies GitBranchSetUpstreamOptions);
+    }, signal);
   }
 
   /**
@@ -414,11 +459,17 @@ export class GitRepository {
     remoteRef: string,
     signal?: AbortSignal,
   ): Promise<GitFastForwardResult> {
-    return this.queue(
-      (queuedSignal) =>
-        branchOps.fastForwardBranch(this.branchOpsRunner(queuedSignal), branch, remote, remoteRef),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const branchFastForward = this.executor.branchFastForward;
+      if (!branchFastForward) throw missingExecutorMethodError("branchFastForward");
+      return branchFastForward.call(this.executor, {
+        cwd: this.topLevel,
+        branch,
+        remote,
+        remoteRef,
+        signal: queuedSignal,
+      } satisfies GitBranchFastForwardOptions);
+    }, signal);
   }
 
   /**
@@ -1081,17 +1132,6 @@ export class GitRepository {
       interactive: true,
       signal,
     });
-  }
-
-  /**
-   * Adapts private queue-bound runners to the branch-ops helper module.
-   */
-  private branchOpsRunner(signal: AbortSignal): branchOps.GitBranchOpsRunner {
-    return {
-      run: (args) => this.run(args, signal),
-      runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
-      listBranches: () => this.readBranchList(signal),
-    };
   }
 
   /**
