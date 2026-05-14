@@ -24,9 +24,13 @@ export function deadTerminalTabs(tabs: Record<string, Tab>): TerminalTab[] {
 }
 
 /**
- * Chooses whether the workspace-level dead-terminal affordance should be
- * visible for aggregate deaths or for an offline workspace hiding per-tab
- * banners.
+ * Chooses whether the workspace-level dead-terminal aggregate affordance should
+ * be visible. Requires at least two concurrently-dead terminals within the same
+ * aggregate window.
+ *
+ * When the workspace itself is offline, this banner is suppressed — the
+ * workspace's own offline UI is responsible for recovery in that state, and
+ * surfacing this banner alongside it would be redundant.
  */
 export function shouldShowWorkspaceTerminalStatusBanner({
   aggregate,
@@ -34,7 +38,9 @@ export function shouldShowWorkspaceTerminalStatusBanner({
   workspaceOnline,
 }: WorkspaceTerminalBannerVisibilityInput): boolean {
   if (deadTerminalCount === 0) return false;
-  if (!workspaceOnline) return true;
+  // Offline state is handled by the workspace's own offline component; this
+  // banner must not compete with that affordance.
+  if (!workspaceOnline) return false;
   return deadTerminalCount >= 2 && (aggregate?.tabIds.length ?? 0) >= 2;
 }
 

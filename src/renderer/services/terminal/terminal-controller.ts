@@ -136,7 +136,9 @@ class XtermTerminalController implements TerminalController {
 
     const dimensions = this.currentDimensions();
     const result = await ptyClient.spawn(dimensions);
-    if (result === null) throw new Error("terminal already live");
+    // null means the session is already live — treat as a no-op so the caller
+    // does not surface a spurious "Reopen failed." message to the user.
+    if (result === null) return;
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
 

@@ -182,11 +182,21 @@ export function TerminalView({
     }
   }, [reopenState, workspaceId, tabId]);
 
+  // Keep a stable ref to the latest handler so the subscription below does not
+  // need to re-subscribe every time reopenState changes. Without this, a state
+  // transition (idle → reopening) would momentarily leave no subscriber, and
+  // any external "Reopen all" that arrives during that gap would be silently
+  // dropped.
+  const handleReopenRef = useRef(handleReopen);
+  useEffect(() => {
+    handleReopenRef.current = handleReopen;
+  });
+
   useEffect(() => {
     return subscribeTerminalReopenRequest(workspaceId, tabId, () => {
-      void handleReopen();
+      void handleReopenRef.current();
     });
-  }, [workspaceId, tabId, handleReopen]);
+  }, [workspaceId, tabId]);
 
   // Refresh xterm whenever the DOM was reparented or visibility flipped
   // back to true. `ownerLeafId` is read by the effect indirectly: when the
