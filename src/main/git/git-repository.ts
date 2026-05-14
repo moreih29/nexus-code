@@ -38,7 +38,6 @@ import type { GitExecutor, RunGitResult } from "../bridge/git/types";
 import { isBinaryProbe } from "./binary-detect";
 import type { GitBinary } from "./git-binary";
 import * as branchOps from "./git-branch-ops";
-import { type GitConflictRunner, markResolved as markConflictResolved } from "./git-conflict";
 import { GitError } from "./git-error";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";
@@ -53,7 +52,6 @@ import {
   parsePushResult,
   throwIfAborted,
 } from "./git-repository-helpers";
-import * as workflow from "./git-workflow";
 import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
 
 const GIT_OPEN_FILE_AT_HEAD_MAX_BYTES = 1024 * 1024;
@@ -431,50 +429,64 @@ export class GitRepository {
     mode: GitMergeMode = "default",
     signal?: AbortSignal,
   ): Promise<GitMergeResult> {
-    return this.queue(
-      (queuedSignal) => workflow.merge(this.workflowRunner(queuedSignal), branch, mode),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const workflowMerge = this.executor.workflowMerge;
+      if (!workflowMerge) throw missingExecutorMethodError("workflowMerge");
+      return workflowMerge.call(this.executor, {
+        cwd: this.topLevel,
+        branch,
+        mode,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Starts a non-interactive rebase workflow.
    */
   rebase(onto: string, signal?: AbortSignal): Promise<GitRebaseResult> {
-    return this.queue(
-      (queuedSignal) => workflow.rebase(this.workflowRunner(queuedSignal), onto),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const workflowRebase = this.executor.workflowRebase;
+      if (!workflowRebase) throw missingExecutorMethodError("workflowRebase");
+      return workflowRebase.call(this.executor, { cwd: this.topLevel, onto, signal: queuedSignal });
+    }, signal);
   }
 
   /**
    * Cherry-picks one commit and surfaces conflicts as a result envelope.
    */
   cherryPick(sha: string, signal?: AbortSignal): Promise<GitCherryPickResult> {
-    return this.queue(
-      (queuedSignal) => workflow.cherryPick(this.workflowRunner(queuedSignal), sha),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const workflowCherryPick = this.executor.workflowCherryPick;
+      if (!workflowCherryPick) throw missingExecutorMethodError("workflowCherryPick");
+      return workflowCherryPick.call(this.executor, {
+        cwd: this.topLevel,
+        sha,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Aborts the active workflow operation by reading Git's marker files.
    */
   abortOp(signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => workflow.abortOp(this.workflowRunner(queuedSignal)),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const workflowAbort = this.executor.workflowAbort;
+      if (!workflowAbort) throw missingExecutorMethodError("workflowAbort");
+      return workflowAbort.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
+    }, signal);
   }
 
   /**
    * Continues the active workflow operation by reading Git's marker files.
    */
   continueOp(signal?: AbortSignal): Promise<GitContinueOpResult> {
-    return this.queue(
-      (queuedSignal) => workflow.continueOp(this.workflowRunner(queuedSignal)),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const workflowContinue = this.executor.workflowContinue;
+      if (!workflowContinue) throw missingExecutorMethodError("workflowContinue");
+      return workflowContinue.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
+    }, signal);
   }
 
   /**
@@ -482,10 +494,15 @@ export class GitRepository {
    * validation.
    */
   markResolved(relPaths: readonly string[], signal?: AbortSignal): Promise<GitMarkResolvedResult> {
-    return this.queue(
-      (queuedSignal) => markConflictResolved(this.conflictRunner(queuedSignal), relPaths),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const conflictMarkResolved = this.executor.conflictMarkResolved;
+      if (!conflictMarkResolved) throw missingExecutorMethodError("conflictMarkResolved");
+      return conflictMarkResolved.call(this.executor, {
+        cwd: this.topLevel,
+        relPaths,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
@@ -1074,31 +1091,6 @@ export class GitRepository {
       run: (args) => this.run(args, signal),
       runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
       listBranches: () => this.readBranchList(signal),
-    };
-  }
-
-  /**
-   * Adapts private queue-bound runners to the workflow helper module.
-   */
-  private workflowRunner(signal: AbortSignal): workflow.GitWorkflowRunner {
-    return {
-      run: (args) => this.run(args, signal),
-      readStatus: () => this.readStatus(signal),
-      readOperationState: async () => {
-        const status = await this.readStatus(signal);
-        return status.operationState;
-      },
-    };
-  }
-
-  /**
-   * Adapts private queue-bound runners to the conflict helper module.
-   */
-  private conflictRunner(signal: AbortSignal): GitConflictRunner {
-    return {
-      topLevel: this.topLevel,
-      run: (args) => this.run(args, signal),
-      readStatus: () => this.readStatus(signal),
     };
   }
 

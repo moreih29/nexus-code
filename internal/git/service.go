@@ -88,6 +88,12 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.tag.push", service.TagPush)
 	d.Register("git.remote.add", service.RemoteAdd)
 	d.Register("git.remote.remove", service.RemoteRemove)
+	d.Register("git.workflow.merge", service.WorkflowMerge)
+	d.Register("git.workflow.rebase", service.WorkflowRebase)
+	d.Register("git.workflow.cherryPick", service.WorkflowCherryPick)
+	d.Register("git.workflow.abort", service.WorkflowAbort)
+	d.Register("git.workflow.continue", service.WorkflowContinue)
+	d.Register("git.conflict.markResolved", service.ConflictMarkResolved)
 }
 
 func (s *Service) SetEventSink(sink EventSink) {

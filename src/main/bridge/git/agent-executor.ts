@@ -76,6 +76,23 @@ import {
   GIT_TAG_PUSH_METHOD,
   GIT_REMOTE_ADD_METHOD,
   GIT_REMOTE_REMOVE_METHOD,
+  AgentGitWorkflowMergeParamsSchema,
+  AgentGitWorkflowMergeResultSchema,
+  AgentGitWorkflowRebaseParamsSchema,
+  AgentGitWorkflowRebaseResultSchema,
+  AgentGitWorkflowCherryPickParamsSchema,
+  AgentGitWorkflowCherryPickResultSchema,
+  AgentGitWorkflowAbortParamsSchema,
+  AgentGitWorkflowContinueParamsSchema,
+  AgentGitWorkflowContinueResultSchema,
+  AgentGitConflictMarkResolvedParamsSchema,
+  AgentGitConflictMarkResolvedResultSchema,
+  GIT_WORKFLOW_MERGE_METHOD,
+  GIT_WORKFLOW_REBASE_METHOD,
+  GIT_WORKFLOW_CHERRY_PICK_METHOD,
+  GIT_WORKFLOW_ABORT_METHOD,
+  GIT_WORKFLOW_CONTINUE_METHOD,
+  GIT_CONFLICT_MARK_RESOLVED_METHOD,
 } from "../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
@@ -84,8 +101,13 @@ import type {
   DiffSpec,
   GitBlobChunk,
   GitBlobComplete,
+  GitCherryPickResult,
+  GitContinueOpResult,
   GitIgnoreAppendResult,
+  GitMarkResolvedResult,
+  GitMergeResult,
   GitOperationState,
+  GitRebaseResult,
   GitStatus,
   LogChunk,
   LogComplete,
@@ -98,6 +120,7 @@ import type { GitHelpersIpcManager } from "../../git/git-helpers-ipc";
 import type {
   GitBlobOptions,
   GitCommitDetailOptions,
+  GitConflictMarkResolvedOptions,
   GitDiffOptions,
   GitExecutor,
   GitLogOptions,
@@ -117,6 +140,11 @@ import type {
   GitTagListOptions,
   GitTagListRemoteOptions,
   GitTagPushOptions,
+  GitWorkflowAbortOptions,
+  GitWorkflowCherryPickOptions,
+  GitWorkflowContinueOptions,
+  GitWorkflowMergeOptions,
+  GitWorkflowRebaseOptions,
   RunGitOptions,
   RunGitResult,
 } from "./types";
@@ -507,6 +535,74 @@ export class AgentGitExecutor implements GitExecutor {
       AgentGitRemoteRemoveParamsSchema.parse({ cwd: options.cwd, name: options.name }),
     );
     throwIfAborted(options.signal);
+  }
+
+  async workflowMerge(options: GitWorkflowMergeOptions): Promise<GitMergeResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_WORKFLOW_MERGE_METHOD,
+      AgentGitWorkflowMergeParamsSchema.parse({
+        cwd: options.cwd,
+        branch: options.branch,
+        mode: options.mode,
+      }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitWorkflowMergeResultSchema, result);
+  }
+
+  async workflowRebase(options: GitWorkflowRebaseOptions): Promise<GitRebaseResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_WORKFLOW_REBASE_METHOD,
+      AgentGitWorkflowRebaseParamsSchema.parse({ cwd: options.cwd, onto: options.onto }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitWorkflowRebaseResultSchema, result);
+  }
+
+  async workflowCherryPick(options: GitWorkflowCherryPickOptions): Promise<GitCherryPickResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_WORKFLOW_CHERRY_PICK_METHOD,
+      AgentGitWorkflowCherryPickParamsSchema.parse({ cwd: options.cwd, sha: options.sha }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitWorkflowCherryPickResultSchema, result);
+  }
+
+  async workflowAbort(options: GitWorkflowAbortOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_WORKFLOW_ABORT_METHOD,
+      AgentGitWorkflowAbortParamsSchema.parse({ cwd: options.cwd }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async workflowContinue(options: GitWorkflowContinueOptions): Promise<GitContinueOpResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_WORKFLOW_CONTINUE_METHOD,
+      AgentGitWorkflowContinueParamsSchema.parse({ cwd: options.cwd }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitWorkflowContinueResultSchema, result);
+  }
+
+  async conflictMarkResolved(
+    options: GitConflictMarkResolvedOptions,
+  ): Promise<GitMarkResolvedResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_CONFLICT_MARK_RESOLVED_METHOD,
+      AgentGitConflictMarkResolvedParamsSchema.parse({
+        cwd: options.cwd,
+        relPaths: [...options.relPaths],
+      }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitConflictMarkResolvedResultSchema, result);
   }
 
   private async callAgentRun(

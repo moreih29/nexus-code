@@ -10,7 +10,13 @@ import type {
   DiffSpec,
   GitBlobChunk,
   GitBlobComplete,
+  GitCherryPickResult,
+  GitContinueOpResult,
   GitLogScope,
+  GitMarkResolvedResult,
+  GitMergeMode,
+  GitMergeResult,
+  GitRebaseResult,
   GitStatus,
   LogChunk,
   LogComplete,
@@ -174,6 +180,41 @@ export interface GitRemoteRemoveOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface GitWorkflowMergeOptions {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly mode?: GitMergeMode;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitWorkflowRebaseOptions {
+  readonly cwd: string;
+  readonly onto: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitWorkflowCherryPickOptions {
+  readonly cwd: string;
+  readonly sha: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitWorkflowAbortOptions {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitWorkflowContinueOptions {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitConflictMarkResolvedOptions {
+  readonly cwd: string;
+  readonly relPaths: readonly string[];
+  readonly signal?: AbortSignal;
+}
+
 export interface GitExecutor {
   run(options: RunGitOptions): Promise<RunGitResult>;
   stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
@@ -196,4 +237,10 @@ export interface GitExecutor {
   tagPush?(options: GitTagPushOptions): Promise<void>;
   remoteAdd?(options: GitRemoteAddOptions): Promise<void>;
   remoteRemove?(options: GitRemoteRemoveOptions): Promise<void>;
+  workflowMerge?(options: GitWorkflowMergeOptions): Promise<GitMergeResult>;
+  workflowRebase?(options: GitWorkflowRebaseOptions): Promise<GitRebaseResult>;
+  workflowCherryPick?(options: GitWorkflowCherryPickOptions): Promise<GitCherryPickResult>;
+  workflowAbort?(options: GitWorkflowAbortOptions): Promise<void>;
+  workflowContinue?(options: GitWorkflowContinueOptions): Promise<GitContinueOpResult>;
+  conflictMarkResolved?(options: GitConflictMarkResolvedOptions): Promise<GitMarkResolvedResult>;
 }

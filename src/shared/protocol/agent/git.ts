@@ -12,10 +12,16 @@ import {
   GitBlobChunkSchema,
   type GitBlobComplete,
   GitBlobCompleteSchema,
+  GitCherryPickResultSchema,
+  GitContinueOpResultSchema,
   GitErrorKindSchema,
   GitIgnoreAppendResultSchema,
   GitLogScopeSchema,
+  GitMarkResolvedResultSchema,
+  GitMergeModeSchema,
+  GitMergeResultSchema,
   GitOperationStateSchema,
+  GitRebaseResultSchema,
   type GitStatus,
   GitStatusSchema,
   type LogChunk,
@@ -386,3 +392,71 @@ export const AgentGitRemoteRemoveParamsSchema = z.object({
   name: z.string().min(1),
 });
 export type AgentGitRemoteRemoveParams = z.infer<typeof AgentGitRemoteRemoveParamsSchema>;
+
+// git.workflow.* + git.conflict.* — typed RPC wrappers
+// ---------------------------------------------------------------------------
+
+export const GIT_WORKFLOW_MERGE_METHOD = "git.workflow.merge";
+export const GIT_WORKFLOW_REBASE_METHOD = "git.workflow.rebase";
+export const GIT_WORKFLOW_CHERRY_PICK_METHOD = "git.workflow.cherryPick";
+export const GIT_WORKFLOW_ABORT_METHOD = "git.workflow.abort";
+export const GIT_WORKFLOW_CONTINUE_METHOD = "git.workflow.continue";
+export const GIT_CONFLICT_MARK_RESOLVED_METHOD = "git.conflict.markResolved";
+
+export const AgentGitWorkflowMergeParamsSchema = z.object({
+  cwd: z.string().min(1),
+  branch: z.string().min(1),
+  mode: GitMergeModeSchema.optional(),
+});
+export type AgentGitWorkflowMergeParams = z.infer<typeof AgentGitWorkflowMergeParamsSchema>;
+
+export const AgentGitWorkflowMergeResultSchema = GitMergeResultSchema;
+export type AgentGitWorkflowMergeResult = z.infer<typeof AgentGitWorkflowMergeResultSchema>;
+
+export const AgentGitWorkflowRebaseParamsSchema = z.object({
+  cwd: z.string().min(1),
+  onto: z.string().min(1),
+});
+export type AgentGitWorkflowRebaseParams = z.infer<typeof AgentGitWorkflowRebaseParamsSchema>;
+
+export const AgentGitWorkflowRebaseResultSchema = GitRebaseResultSchema;
+export type AgentGitWorkflowRebaseResult = z.infer<typeof AgentGitWorkflowRebaseResultSchema>;
+
+export const AgentGitWorkflowCherryPickParamsSchema = z.object({
+  cwd: z.string().min(1),
+  sha: z.string().min(1),
+});
+export type AgentGitWorkflowCherryPickParams = z.infer<
+  typeof AgentGitWorkflowCherryPickParamsSchema
+>;
+
+export const AgentGitWorkflowCherryPickResultSchema = GitCherryPickResultSchema;
+export type AgentGitWorkflowCherryPickResult = z.infer<
+  typeof AgentGitWorkflowCherryPickResultSchema
+>;
+
+export const AgentGitWorkflowAbortParamsSchema = z.object({
+  cwd: z.string().min(1),
+});
+export type AgentGitWorkflowAbortParams = z.infer<typeof AgentGitWorkflowAbortParamsSchema>;
+
+export const AgentGitWorkflowContinueParamsSchema = z.object({
+  cwd: z.string().min(1),
+});
+export type AgentGitWorkflowContinueParams = z.infer<typeof AgentGitWorkflowContinueParamsSchema>;
+
+export const AgentGitWorkflowContinueResultSchema = GitContinueOpResultSchema;
+export type AgentGitWorkflowContinueResult = z.infer<typeof AgentGitWorkflowContinueResultSchema>;
+
+export const AgentGitConflictMarkResolvedParamsSchema = z.object({
+  cwd: z.string().min(1),
+  relPaths: z.array(z.string().min(1)).min(1),
+});
+export type AgentGitConflictMarkResolvedParams = z.infer<
+  typeof AgentGitConflictMarkResolvedParamsSchema
+>;
+
+export const AgentGitConflictMarkResolvedResultSchema = GitMarkResolvedResultSchema;
+export type AgentGitConflictMarkResolvedResult = z.infer<
+  typeof AgentGitConflictMarkResolvedResultSchema
+>;
