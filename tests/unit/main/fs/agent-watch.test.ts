@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { AgentFsWatcher } from "../../../../src/main/bridge/fs/agent-watch";
+import { AgentFsWatcher } from "../../../../src/main/features/fs/bridge/agent-watch";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
 

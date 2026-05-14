@@ -1,5 +1,5 @@
 import type { WorkspaceMeta } from "../../shared/types/workspace";
-import type { FsProvider } from "../bridge/fs/provider";
+import type { FsProvider } from "../features/fs/bridge/provider";
 import type { WorkspaceStorage } from "../storage/workspace-storage";
 
 // ---------------------------------------------------------------------------

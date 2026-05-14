@@ -9,9 +9,9 @@ import {
   FsStatSchema,
   type WriteFileResult,
   WriteFileResultSchema,
-} from "../../../shared/types/fs";
-import type { SshErrorCode } from "../../../shared/types/ssh-errors";
-import type { AgentChannel } from "../../agent/channel";
+} from "../../../../shared/types/fs";
+import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
+import type { AgentChannel } from "../../../agent/channel";
 import type { AgentBackedProvider } from "./provider";
 
 type ChannelSource = AgentChannel | (() => AgentChannel);

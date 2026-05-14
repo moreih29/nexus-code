@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createFsProvider } from "../../../../src/main/bridge/fs/create-provider";
+import { createFsProvider } from "../../../../src/main/features/fs/bridge/create-provider";
 import type { SshChannel } from "../../../../src/main/agent/ssh-channel";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 

@@ -195,8 +195,8 @@ import type {
   RunGitOptions,
   RunGitResult,
 } from "./types";
-import { parseAgentResult } from "../../../bridge/fs/agent-provider";
-import type { AgentBackedProvider } from "../../../bridge/fs/provider";
+import { parseAgentResult } from "../../fs/bridge/agent-provider";
+import type { AgentBackedProvider } from "../../fs/bridge/provider";
 
 type ProviderSource = AgentBackedProvider | (() => AgentBackedProvider);
 

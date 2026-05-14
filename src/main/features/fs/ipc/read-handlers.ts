@@ -1,10 +1,10 @@
 /**
  * Read-only fs handlers — readdir / stat / readFile / readExternal.
  */
-import { ipcContract } from "../../../shared/ipc-contract";
-import type { DirEntry, FileReadResult, FsStat } from "../../../shared/types/fs";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { validateArgs } from "../../ipc/router";
+import { ipcContract } from "../../../../shared/ipc-contract";
+import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/types/fs";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import { validateArgs } from "../../../ipc/router";
 
 const c = ipcContract.fs.call;
 

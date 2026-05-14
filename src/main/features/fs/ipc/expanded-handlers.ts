@@ -1,11 +1,11 @@
 /**
  * fs expanded-folder handlers — renderer tree state persisted per workspace.
  */
-import { ipcContract } from "../../../shared/ipc-contract";
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { validateArgs } from "../../ipc/router";
-import { assertWorkspaceExists } from "../../workspace/path-safety";
+import { ipcContract } from "../../../../shared/ipc-contract";
+import type { WorkspaceStorage } from "../../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import { validateArgs } from "../../../ipc/router";
+import { assertWorkspaceExists } from "../../../workspace/path-safety";
 
 const c = ipcContract.fs.call;
 

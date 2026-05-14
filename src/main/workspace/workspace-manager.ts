@@ -13,8 +13,8 @@ import {
   resolveLocalAgentCommand,
 } from "../agent/local-agent-resolver";
 import { type CreateLocalChannelOptions, createLocalChannel } from "../agent/local-channel";
-import { createFsProvider } from "../bridge/fs/create-provider";
-import { AgentFsProvider } from "../bridge/fs/agent-provider";
+import { createFsProvider } from "../features/fs/bridge/create-provider";
+import { AgentFsProvider } from "../features/fs/bridge/agent-provider";
 import type { GlobalStorage } from "../storage/global-storage";
 import type { StateService } from "../storage/state-service";
 import type { WorkspaceStorage } from "../storage/workspace-storage";

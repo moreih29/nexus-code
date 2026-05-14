@@ -3,12 +3,12 @@
  * sibling files. This module only wires them into the router so the
  * channel itself stays a thin map without growing.
  */
-import { register } from "../../ipc/router";
-import { showItemInFolderHandler } from "../../shell/workspace-reveal";
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { searchTextStream } from "../search/search-handlers";
-import type { AgentFsWatcher } from "./agent-watch";
+import { register } from "../../../ipc/router";
+import { showItemInFolderHandler } from "../../../shell/workspace-reveal";
+import type { WorkspaceStorage } from "../../../storage/workspace-storage";
+import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import { searchTextStream } from "../../search/search-handlers";
+import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import { readdirHandler, readExternalHandler, readFileHandler, statHandler } from "./read-handlers";
 import { unwatchHandler, watchHandler } from "./watch-handlers";

@@ -23,12 +23,12 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { FsProvider } from "../../../../src/main/bridge/fs/provider";
+import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
   readdirHandler,
   readFileHandler,
   statHandler,
-} from "../../../../src/main/bridge/fs/read-handlers";
+} from "../../../../src/main/features/fs/ipc/read-handlers";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";

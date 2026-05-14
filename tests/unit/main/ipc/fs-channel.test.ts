@@ -1,11 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { FsProvider } from "../../../../src/main/bridge/fs/provider";
+import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
   readdirHandler,
   readExternalHandler,
   readFileHandler,
   statHandler,
-} from "../../../../src/main/bridge/fs/read-handlers";
+} from "../../../../src/main/features/fs/ipc/read-handlers";
 import {
   createFileHandler,
   mkdirHandler,
@@ -13,7 +13,7 @@ import {
   rmdirHandler,
   unlinkHandler,
   writeFileHandler,
-} from "../../../../src/main/bridge/fs/write-handlers";
+} from "../../../../src/main/features/fs/ipc/write-handlers";
 import type {
   DirEntry,
   FileReadResult,

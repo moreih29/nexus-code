@@ -3,7 +3,7 @@ import {
   InvalidSearchPatternError,
   searchTextStream,
   WorkspaceNotFoundError,
-} from "../../../../../../src/main/bridge/search/search-handlers";
+} from "../../../../../../src/main/features/search/search-handlers";
 import type { StreamContext } from "../../../../../../src/main/ipc/router";
 import type {
   FileMatch,

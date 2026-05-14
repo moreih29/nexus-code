@@ -9,7 +9,7 @@ import {
 import type { FileReadResult } from "../../../../shared/types/fs";
 import { GitError } from "../domain/git-error";
 import type { GitRegistry } from "../domain/git-registry";
-import { isAgentBackedProvider } from "../../../bridge/fs/provider";
+import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import type { CallContext } from "../../../ipc/router";
 import { validateArgs } from "../../../ipc/router";

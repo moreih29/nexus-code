@@ -220,7 +220,7 @@ describe("renderer search round-trip", () => {
 
 async function registerRealSearch(workspaces: { id: string; rootPath: string }[]): Promise<void> {
   const router = await setupInMemoryRouter();
-  const { searchTextStream } = await import("../../../../src/main/bridge/search/search-handlers");
+  const { searchTextStream } = await import("../../../../src/main/features/search/search-handlers");
   const providers = new Map(
     workspaces.map(({ id, rootPath }) => [id, makeTestSearchProvider(rootPath)] as const),
   );

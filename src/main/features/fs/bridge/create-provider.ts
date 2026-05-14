@@ -1,5 +1,5 @@
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import type { SshChannel } from "../../agent/ssh-channel";
+import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import type { SshChannel } from "../../../agent/ssh-channel";
 import { LocalFsProvider } from "./local-provider";
 import { SshFsProvider } from "./ssh-provider";
 import type { FsProvider } from "./provider";

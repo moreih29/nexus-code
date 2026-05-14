@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
+import type { AgentBackedProvider } from "../../../../src/main/features/fs/bridge/provider";
 import { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
 import { registerGitChannel } from "../../../../src/main/features/git/ipc";
 import {

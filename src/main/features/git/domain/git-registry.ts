@@ -9,8 +9,8 @@ import {
   type GitStatus,
   type RepoInfo,
 } from "../../../../shared/types/git";
-import { LocalFsProvider } from "../../../bridge/fs/local-provider";
-import { isAgentBackedProvider } from "../../../bridge/fs/provider";
+import { LocalFsProvider } from "../../fs/bridge/local-provider";
+import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentGitExecutor } from "../bridge/agent-executor";
 import {
   isLocalWorkspace,

@@ -1,5 +1,5 @@
-import type { WorkspaceLocation } from "../../../shared/types/workspace";
-import type { SshChannel } from "../../agent/ssh-channel";
+import type { WorkspaceLocation } from "../../../../shared/types/workspace";
+import type { SshChannel } from "../../../agent/ssh-channel";
 import { AgentFsProvider } from "./agent-provider";
 
 type SshWorkspaceLocation = Extract<WorkspaceLocation, { kind: "ssh" }>;

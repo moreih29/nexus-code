@@ -13,7 +13,7 @@ import {
   SEARCH_TEXT_METHOD,
 } from "../../../shared/protocol/agent/search";
 import type { FileMatch } from "../../../shared/types/search";
-import { isAgentBackedProvider } from "../fs/provider";
+import { isAgentBackedProvider } from "../fs/bridge/provider";
 import {
   findWorkspace,
 } from "../../workspace/workspace-guards";

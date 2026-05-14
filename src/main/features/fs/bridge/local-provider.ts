@@ -1,9 +1,9 @@
-import { createLocalChannel, type CreateLocalChannelOptions } from "../../agent/local-channel";
+import { createLocalChannel, type CreateLocalChannelOptions } from "../../../agent/local-channel";
 import {
   resolveLocalAgentCommand,
   type LocalAgentCommand,
-} from "../../agent/local-agent-resolver";
-import type { AgentChannel } from "../../agent/channel";
+} from "../../../agent/local-agent-resolver";
+import type { AgentChannel } from "../../../agent/channel";
 import { AgentFsProvider } from "./agent-provider";
 
 export type CreateLocalFsChannel = (options: CreateLocalChannelOptions) => AgentChannel;

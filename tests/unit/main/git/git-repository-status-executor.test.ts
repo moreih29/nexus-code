@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
+import type { AgentBackedProvider } from "../../../../src/main/features/fs/bridge/provider";
 import { AgentGitExecutor } from "../../../../src/main/features/git/bridge/agent-executor";
 import type {
   GitBlobOptions,
