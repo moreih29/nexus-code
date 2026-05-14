@@ -53,14 +53,6 @@ import {
   parsePushResult,
   throwIfAborted,
 } from "./git-repository-helpers";
-import {
-  applyStash,
-  dropStash,
-  listStashes,
-  popLatestStash,
-  showStash,
-  stashGroup,
-} from "./git-stash";
 import * as tagOps from "./git-tag";
 import * as workflow from "./git-workflow";
 import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
@@ -737,10 +729,9 @@ export class GitRepository {
    */
   stashPop(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
-      await popLatestStash(
-        { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-        queuedSignal,
-      );
+      const stashPop = this.executor.stashPop;
+      if (!stashPop) throw missingExecutorMethodError("stashPop");
+      await stashPop.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
     }, signal);
   }
 
@@ -748,75 +739,72 @@ export class GitRepository {
    * Lists stash entries with parsed stack index, source branch, and timestamp.
    */
   listStashes(signal?: AbortSignal) {
-    return this.queue(
-      (queuedSignal) =>
-        listStashes(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          queuedSignal,
-        ),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const stashList = this.executor.stashList;
+      if (!stashList) throw missingExecutorMethodError("stashList");
+      return stashList.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
+    }, signal);
   }
 
   /**
    * Applies one stash entry without dropping it from the stash stack.
    */
   applyStash(index: number, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) =>
-        applyStash(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          index,
-          queuedSignal,
-        ),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const stashApply = this.executor.stashApply;
+      if (!stashApply) throw missingExecutorMethodError("stashApply");
+      return stashApply.call(this.executor, {
+        cwd: this.topLevel,
+        index,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Drops one stash entry from the stash stack.
    */
   dropStash(index: number, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) =>
-        dropStash(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          index,
-          queuedSignal,
-        ),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const stashDrop = this.executor.stashDrop;
+      if (!stashDrop) throw missingExecutorMethodError("stashDrop");
+      return stashDrop.call(this.executor, {
+        cwd: this.topLevel,
+        index,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Streams the patch for one stash entry as bounded text chunks.
    */
   async *showStash(index: number, signal?: AbortSignal) {
-    return yield* this.queueStream(
-      (queuedSignal) =>
-        showStash(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          index,
-          queuedSignal,
-        ),
-      signal,
-    );
+    return yield* this.queueStream((queuedSignal) => {
+      const stashShow = this.executor.stashShow;
+      if (!stashShow) throw missingExecutorMethodError("stashShow");
+      return stashShow.call(this.executor, {
+        cwd: this.topLevel,
+        index,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Stashes only the selected repository-relative paths.
    */
   stashGroup(paths: readonly string[], message?: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) =>
-        stashGroup(
-          { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-          paths,
-          message,
-          queuedSignal,
-        ),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const stashGroup = this.executor.stashGroup;
+      if (!stashGroup) throw missingExecutorMethodError("stashGroup");
+      return stashGroup.call(this.executor, {
+        cwd: this.topLevel,
+        paths,
+        message,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**

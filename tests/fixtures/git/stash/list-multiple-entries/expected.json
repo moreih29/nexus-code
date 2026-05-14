@@ -1,0 +1,28 @@
+{
+  "method": "git.stash.list",
+  "case": "list-multiple-entries",
+  "params": {},
+  "result": [
+    {
+      "index": 0,
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "message": "grouped work",
+      "branch": "main",
+      "createdAt": 1700000000000
+    },
+    {
+      "index": 1,
+      "sha": "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "message": "1234567 base subject",
+      "branch": "feature/x",
+      "createdAt": 1699999900000
+    },
+    {
+      "index": 2,
+      "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "message": "custom message only",
+      "branch": "",
+      "createdAt": 1699000000000
+    }
+  ]
+}

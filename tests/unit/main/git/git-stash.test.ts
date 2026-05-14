@@ -1,150 +1,240 @@
 /**
- * Scenario tests for stash list parsing, indexed apply, and path-scoped group
- * stash behavior.
+ * GitRepository stash method tests.
+ *
+ * parseStashList / argv verification moved to Go fixture tests in
+ * internal/git/stash_test.go. These tests verify that GitRepository routes
+ * each stash operation through the queue and delegates to the typed executor
+ * methods — not to git-stash.ts helpers.
  */
-import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
-import {
-  applyStash,
-  listStashes,
-  parseStashList,
-  stashGroup,
-} from "../../../../src/main/git/git-stash";
-import { localSemanticExecutor } from "./helpers/local-semantic-executor";
+import { describe, expect, mock, test } from "bun:test";
+import type {
+  DiffChunk,
+  DiffComplete,
+  StashEntry,
+} from "../../../../src/shared/types/git";
+import { GitError } from "../../../../src/main/git/git-error";
+import type {
+  GitExecutor,
+  GitStashApplyOptions,
+  GitStashDropOptions,
+  GitStashGroupOptions,
+  GitStashListOptions,
+  GitStashPopOptions,
+  GitStashShowOptions,
+  RunGitOptions,
+  RunGitResult,
+  GitProcessOptions,
+} from "../../../../src/main/bridge/git/types";
+import { GitRepository } from "../../../../src/main/git/git-repository";
 
-const gitOnPath = findGitOnPath();
-const realGitTest = gitOnPath ? test : test.skip;
+// ---------------------------------------------------------------------------
+// Minimal stubs
+// ---------------------------------------------------------------------------
 
-describe("parseStashList", () => {
-  test("returns index, sha, cleaned message, branch, and millisecond timestamp", () => {
-    const stdout =
-      "stash@{0}\x000123456789abcdef0123456789abcdef01234567\x00On main: grouped work\x001700000000\x00\n" +
-      "stash@{1}\x00abcdefabcdefabcdefabcdefabcdefabcdefabcd\x00WIP on feature/x: 1234567 base subject\x001699999900\x00\n";
+const fakeEntry: StashEntry = {
+  index: 0,
+  sha: "0123456789abcdef0123456789abcdef01234567",
+  message: "save work",
+  branch: "main",
+  createdAt: 1_700_000_000_000,
+};
 
-    expect(parseStashList(stdout)).toEqual([
-      {
-        index: 0,
-        sha: "0123456789abcdef0123456789abcdef01234567",
-        message: "grouped work",
-        branch: "main",
-        createdAt: 1_700_000_000_000,
-      },
-      {
-        index: 1,
-        sha: "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
-        message: "1234567 base subject",
-        branch: "feature/x",
-        createdAt: 1_699_999_900_000,
-      },
-    ]);
-  });
-});
-
-describe("git stash helpers", () => {
-  realGitTest("listStashes returns parsed entries created by real git", async () => {
-    const root = makeRepo();
-    try {
-      fs.writeFileSync(path.join(root, "tracked.txt"), "changed\n", "utf8");
-      await stashGroup(git(root), ["tracked.txt"], "stash list message");
-
-      const entries = await listStashes(git(root));
-      expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatchObject({
-        index: 0,
-        message: "stash list message",
-        branch: currentBranch(root),
-      });
-      expect(entries[0]?.sha).toMatch(/^[0-9a-f]{40}$/);
-      expect(entries[0]?.createdAt).toBeGreaterThan(0);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  realGitTest("stashGroup stashes only selected tracked and untracked paths", async () => {
-    const root = makeRepo();
-    try {
-      fs.writeFileSync(path.join(root, "tracked.txt"), "selected change\n", "utf8");
-      fs.writeFileSync(path.join(root, "other.txt"), "other change\n", "utf8");
-      fs.writeFileSync(path.join(root, "selected-untracked.txt"), "selected\n", "utf8");
-      fs.writeFileSync(path.join(root, "other-untracked.txt"), "other\n", "utf8");
-
-      await stashGroup(git(root), ["tracked.txt", "selected-untracked.txt"], "group only");
-
-      expect(fs.readFileSync(path.join(root, "tracked.txt"), "utf8")).toBe("base\n");
-      expect(fs.readFileSync(path.join(root, "other.txt"), "utf8")).toBe("other change\n");
-      expect(fs.existsSync(path.join(root, "selected-untracked.txt"))).toBe(false);
-      expect(fs.existsSync(path.join(root, "other-untracked.txt"))).toBe(true);
-      expect((await listStashes(git(root)))[0]?.message).toBe("group only");
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  realGitTest("applyStash maps content merge failures to stash-conflict", async () => {
-    const root = makeRepo();
-    try {
-      fs.writeFileSync(path.join(root, "tracked.txt"), "stashed line\n", "utf8");
-      await stashGroup(git(root), ["tracked.txt"], "conflicting stash");
-      fs.writeFileSync(path.join(root, "tracked.txt"), "head line\n", "utf8");
-      runGit(root, ["add", "tracked.txt"]);
-      runGit(root, ["commit", "-m", "conflicting head"]);
-
-      try {
-        await applyStash(git(root), 0);
-        throw new Error("expected stash apply to conflict");
-      } catch (error) {
-        expect((error as GitError).kind).toBe("stash-conflict");
-      }
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-});
-
-/** Returns the Git command context for a fixture repository. */
-function git(root: string) {
-  if (!gitOnPath) throw new Error("git missing");
+function makeExecutor(overrides: Partial<GitExecutor> = {}): GitExecutor {
   return {
-    bin: gitOnPath,
-    cwd: root,
-    executor: localSemanticExecutor(gitOnPath, path.join(root, ".git")),
+    run(_options: RunGitOptions): Promise<RunGitResult> {
+      return Promise.resolve({ stdout: "", stderr: "", code: 0 });
+    },
+    async *stream(_options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown> {
+      // no-op
+    },
+    ...overrides,
   };
 }
 
-/** Creates a committed repository with two tracked files. */
-function makeRepo(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-stash-"));
-  runGit(root, ["init"]);
-  runGit(root, ["config", "user.email", "test@example.com"]);
-  runGit(root, ["config", "user.name", "Test User"]);
-  fs.writeFileSync(path.join(root, "tracked.txt"), "base\n", "utf8");
-  fs.writeFileSync(path.join(root, "other.txt"), "other base\n", "utf8");
-  runGit(root, ["add", "."]);
-  runGit(root, ["commit", "-m", "init"]);
-  return root;
+const stubMetadataReader = {
+  metadata: (): never => {
+    throw new Error("not implemented");
+  },
+  addToGitignore: (): never => {
+    throw new Error("not implemented");
+  },
+};
+
+function makeRepo(executor: GitExecutor): GitRepository {
+  return new GitRepository(
+    "ws-test",
+    "/repo",
+    "/repo/.git",
+    "/usr/bin/git",
+    executor,
+    stubMetadataReader,
+  );
 }
 
-/** Reads the current branch name from a fixture repository. */
-function currentBranch(root: string): string {
-  return runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-}
+// ---------------------------------------------------------------------------
+// stashList
+// ---------------------------------------------------------------------------
 
-/** Runs real git in the fixture repository. */
-function runGit(cwd: string, args: string[]): string {
-  if (!gitOnPath) throw new Error("git missing");
-  return execFileSync(gitOnPath, args, { cwd, encoding: "utf8" });
-}
+describe("GitRepository.listStashes", () => {
+  test("delegates to executor.stashList and returns entries", async () => {
+    const stashList = mock(
+      (_options: GitStashListOptions): Promise<StashEntry[]> =>
+        Promise.resolve([fakeEntry]),
+    );
+    const repo = makeRepo(makeExecutor({ stashList }));
+    const result = await repo.listStashes();
+    expect(result).toEqual([fakeEntry]);
+    expect(stashList).toHaveBeenCalledTimes(1);
+  });
 
-/** Finds git on PATH for real-git scenario tests. */
-function findGitOnPath(): string | null {
-  try {
-    return execFileSync("which", ["git"], { encoding: "utf8" }).trim() || null;
-  } catch {
-    return null;
-  }
-}
+  test("throws missingExecutorMethodError when stashList is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    await expect(repo.listStashes()).rejects.toThrow("stashList");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stashApply
+// ---------------------------------------------------------------------------
+
+describe("GitRepository.applyStash", () => {
+  test("delegates to executor.stashApply with correct index", async () => {
+    const stashApply = mock(
+      (_options: GitStashApplyOptions): Promise<void> => Promise.resolve(),
+    );
+    const repo = makeRepo(makeExecutor({ stashApply }));
+    await repo.applyStash(3);
+    expect(stashApply).toHaveBeenCalledTimes(1);
+    const call = stashApply.mock.calls[0]?.[0];
+    expect(call?.index).toBe(3);
+  });
+
+  test("propagates stash-conflict GitError from executor", async () => {
+    const stashApply = mock(
+      (_options: GitStashApplyOptions): Promise<void> =>
+        Promise.reject(new GitError("stash-conflict", "conflict", {})),
+    );
+    const repo = makeRepo(makeExecutor({ stashApply }));
+    await expect(repo.applyStash(0)).rejects.toMatchObject({ kind: "stash-conflict" });
+  });
+
+  test("throws missingExecutorMethodError when stashApply is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    await expect(repo.applyStash(0)).rejects.toThrow("stashApply");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stashDrop
+// ---------------------------------------------------------------------------
+
+describe("GitRepository.dropStash", () => {
+  test("delegates to executor.stashDrop with correct index", async () => {
+    const stashDrop = mock(
+      (_options: GitStashDropOptions): Promise<void> => Promise.resolve(),
+    );
+    const repo = makeRepo(makeExecutor({ stashDrop }));
+    await repo.dropStash(1);
+    expect(stashDrop).toHaveBeenCalledTimes(1);
+    const call = stashDrop.mock.calls[0]?.[0];
+    expect(call?.index).toBe(1);
+  });
+
+  test("throws missingExecutorMethodError when stashDrop is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    await expect(repo.dropStash(0)).rejects.toThrow("stashDrop");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stashPop
+// ---------------------------------------------------------------------------
+
+describe("GitRepository.stashPop", () => {
+  test("delegates to executor.stashPop", async () => {
+    const stashPop = mock(
+      (_options: GitStashPopOptions): Promise<void> => Promise.resolve(),
+    );
+    const repo = makeRepo(makeExecutor({ stashPop }));
+    await repo.stashPop();
+    expect(stashPop).toHaveBeenCalledTimes(1);
+  });
+
+  test("propagates stash-conflict GitError from executor", async () => {
+    const stashPop = mock(
+      (_options: GitStashPopOptions): Promise<void> =>
+        Promise.reject(new GitError("stash-conflict", "conflict", {})),
+    );
+    const repo = makeRepo(makeExecutor({ stashPop }));
+    await expect(repo.stashPop()).rejects.toMatchObject({ kind: "stash-conflict" });
+  });
+
+  test("throws missingExecutorMethodError when stashPop is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    await expect(repo.stashPop()).rejects.toThrow("stashPop");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stashShow
+// ---------------------------------------------------------------------------
+
+describe("GitRepository.showStash", () => {
+  test("yields chunks and returns complete from executor.stashShow", async () => {
+    const chunk: DiffChunk = { text: "diff --git a/f b/f\n" };
+    const complete: DiffComplete = { bytes: 100, truncated: false };
+
+    async function* fakeStashShow(
+      _options: GitStashShowOptions,
+    ): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
+      yield chunk;
+      return complete;
+    }
+
+    const repo = makeRepo(makeExecutor({ stashShow: fakeStashShow }));
+    const chunks: DiffChunk[] = [];
+    let returnValue: DiffComplete | undefined;
+
+    const gen = repo.showStash(0);
+    for (;;) {
+      const next = await gen.next();
+      if (next.done) {
+        returnValue = next.value as DiffComplete;
+        break;
+      }
+      chunks.push(next.value);
+    }
+
+    expect(chunks).toEqual([chunk]);
+    expect(returnValue).toEqual(complete);
+  });
+
+  test("throws missingExecutorMethodError when stashShow is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    const gen = repo.showStash(0);
+    await expect(gen.next()).rejects.toThrow("stashShow");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stashGroup
+// ---------------------------------------------------------------------------
+
+describe("GitRepository.stashGroup", () => {
+  test("delegates to executor.stashGroup with paths and message", async () => {
+    const stashGroup = mock(
+      (_options: GitStashGroupOptions): Promise<void> => Promise.resolve(),
+    );
+    const repo = makeRepo(makeExecutor({ stashGroup }));
+    await repo.stashGroup(["a.ts", "b.ts"], "my stash");
+    expect(stashGroup).toHaveBeenCalledTimes(1);
+    const call = stashGroup.mock.calls[0]?.[0];
+    expect(call?.paths).toEqual(["a.ts", "b.ts"]);
+    expect(call?.message).toBe("my stash");
+  });
+
+  test("throws missingExecutorMethodError when stashGroup is absent", async () => {
+    const repo = makeRepo(makeExecutor());
+    await expect(repo.stashGroup(["a.ts"])).rejects.toThrow("stashGroup");
+  });
+});

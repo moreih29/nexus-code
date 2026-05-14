@@ -1,0 +1,6 @@
+{
+  "method": "git.stash.list",
+  "case": "list-empty",
+  "params": {},
+  "result": []
+}

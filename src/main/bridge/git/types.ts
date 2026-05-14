@@ -14,6 +14,7 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  StashEntry,
 } from "../../../shared/types/git";
 
 export interface GitProcessOptions {
@@ -84,6 +85,42 @@ export interface GitCommitDetailOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface GitStashListOptions {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitStashApplyOptions {
+  readonly cwd: string;
+  readonly index: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitStashDropOptions {
+  readonly cwd: string;
+  readonly index: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitStashPopOptions {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitStashShowOptions {
+  readonly cwd: string;
+  readonly index: number;
+  readonly maxChunkBytes?: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitStashGroupOptions {
+  readonly cwd: string;
+  readonly paths: readonly string[];
+  readonly message?: string;
+  readonly signal?: AbortSignal;
+}
+
 export interface GitExecutor {
   run(options: RunGitOptions): Promise<RunGitResult>;
   stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
@@ -92,4 +129,10 @@ export interface GitExecutor {
   diff?(options: GitDiffOptions): AsyncGenerator<DiffChunk, DiffComplete, unknown>;
   blob?(options: GitBlobOptions): AsyncGenerator<GitBlobChunk, GitBlobComplete, unknown>;
   commitDetail?(options: GitCommitDetailOptions): Promise<CommitDetail>;
+  stashList?(options: GitStashListOptions): Promise<StashEntry[]>;
+  stashApply?(options: GitStashApplyOptions): Promise<void>;
+  stashDrop?(options: GitStashDropOptions): Promise<void>;
+  stashPop?(options: GitStashPopOptions): Promise<void>;
+  stashShow?(options: GitStashShowOptions): AsyncGenerator<DiffChunk, DiffComplete, unknown>;
+  stashGroup?(options: GitStashGroupOptions): Promise<void>;
 }

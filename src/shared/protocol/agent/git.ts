@@ -22,6 +22,8 @@ import {
   LogChunkSchema,
   type LogComplete,
   LogCompleteSchema,
+  type StashEntry,
+  StashEntrySchema,
 } from "../../types/git";
 
 export const GIT_RUN_METHOD = "git.run";
@@ -238,3 +240,72 @@ export type AgentGitCommitDetailParams = z.infer<typeof AgentGitCommitDetailPara
 
 export const AgentGitCommitDetailResultSchema = CommitDetailSchema as z.ZodType<CommitDetail>;
 export type AgentGitCommitDetailResult = CommitDetail;
+
+// ---------------------------------------------------------------------------
+// git.stash.* — typed RPC wrappers (reference pattern for tag/remote/branch-ops)
+// ---------------------------------------------------------------------------
+
+export const GIT_STASH_LIST_METHOD = "git.stash.list";
+export const GIT_STASH_APPLY_METHOD = "git.stash.apply";
+export const GIT_STASH_DROP_METHOD = "git.stash.drop";
+export const GIT_STASH_POP_METHOD = "git.stash.pop";
+export const GIT_STASH_SHOW_METHOD = "git.stash.show";
+export const GIT_STASH_SHOW_CHUNK_EVENT = "git.stash.show.chunk";
+export const GIT_STASH_GROUP_METHOD = "git.stash.group";
+
+export const AgentGitStashListParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+});
+export type AgentGitStashListParams = z.infer<typeof AgentGitStashListParamsSchema>;
+
+export const AgentGitStashListResultSchema = z.array(
+  StashEntrySchema as z.ZodType<StashEntry>,
+);
+export type AgentGitStashListResult = StashEntry[];
+
+export const AgentGitStashApplyParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  index: z.number().int().nonnegative(),
+});
+export type AgentGitStashApplyParams = z.infer<typeof AgentGitStashApplyParamsSchema>;
+
+/** Go returns errorKind in the result body (not as a thrown error) for apply/pop. */
+export const AgentGitStashApplyResultSchema = z.object({
+  errorKind: GitErrorKindSchema.optional(),
+  errorMessage: z.string().optional(),
+});
+export type AgentGitStashApplyResult = z.infer<typeof AgentGitStashApplyResultSchema>;
+
+export const AgentGitStashDropParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  index: z.number().int().nonnegative(),
+});
+export type AgentGitStashDropParams = z.infer<typeof AgentGitStashDropParamsSchema>;
+
+export const AgentGitStashPopParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+});
+export type AgentGitStashPopParams = z.infer<typeof AgentGitStashPopParamsSchema>;
+
+export const AgentGitStashShowParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  streamId: z.string().min(1),
+  index: z.number().int().nonnegative(),
+  maxChunkBytes: z.number().int().positive().optional(),
+});
+export type AgentGitStashShowParams = z.infer<typeof AgentGitStashShowParamsSchema>;
+
+export const AgentGitStashShowChunkPayloadSchema = DiffChunkSchema.extend({
+  streamId: z.string().min(1),
+});
+export type AgentGitStashShowChunkPayload = DiffChunk & { readonly streamId: string };
+
+export const AgentGitStashShowResultSchema = DiffCompleteSchema as z.ZodType<DiffComplete>;
+export type AgentGitStashShowResult = DiffComplete;
+
+export const AgentGitStashGroupParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  message: z.string().optional(),
+  paths: z.array(z.string().min(1)).min(1),
+});
+export type AgentGitStashGroupParams = z.infer<typeof AgentGitStashGroupParamsSchema>;

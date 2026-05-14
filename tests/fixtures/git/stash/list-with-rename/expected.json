@@ -1,0 +1,14 @@
+{
+  "method": "git.stash.list",
+  "case": "list-with-rename",
+  "params": {},
+  "result": [
+    {
+      "index": 0,
+      "sha": "aabbccddeeff00112233445566778899aabbccdd",
+      "message": "wip rename work",
+      "branch": "feat/my-feature",
+      "createdAt": 1700010000000
+    }
+  ]
+}

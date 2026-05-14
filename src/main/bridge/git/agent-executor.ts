@@ -25,6 +25,16 @@ import {
   AgentGitStatusParamsSchema,
   AgentGitStatusResultSchema,
   AgentGitStreamChunkPayloadSchema,
+  AgentGitStashApplyParamsSchema,
+  AgentGitStashApplyResultSchema,
+  AgentGitStashDropParamsSchema,
+  AgentGitStashGroupParamsSchema,
+  AgentGitStashListParamsSchema,
+  AgentGitStashListResultSchema,
+  AgentGitStashPopParamsSchema,
+  AgentGitStashShowChunkPayloadSchema,
+  AgentGitStashShowParamsSchema,
+  AgentGitStashShowResultSchema,
   GIT_ADD_TO_GITIGNORE_METHOD,
   GIT_ASKPASS_REQUEST_EVENT,
   GIT_ASKPASS_RESPOND_METHOD,
@@ -38,6 +48,13 @@ import {
   GIT_LOG_METHOD,
   GIT_METADATA_METHOD,
   GIT_RUN_METHOD,
+  GIT_STASH_APPLY_METHOD,
+  GIT_STASH_DROP_METHOD,
+  GIT_STASH_GROUP_METHOD,
+  GIT_STASH_LIST_METHOD,
+  GIT_STASH_POP_METHOD,
+  GIT_STASH_SHOW_CHUNK_EVENT,
+  GIT_STASH_SHOW_METHOD,
   GIT_STATUS_METHOD,
   GIT_STREAM_CHUNK_EVENT,
   GIT_STREAM_METHOD,
@@ -54,8 +71,9 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  StashEntry,
 } from "../../../shared/types/git";
-import { gitErrorFromAgent, gitMissingError, unknownGitError } from "../../git/git-error";
+import { GitError, gitErrorFromAgent, gitMissingError, unknownGitError } from "../../git/git-error";
 import type { GitHelpersIpcManager } from "../../git/git-helpers-ipc";
 import type {
   GitBlobOptions,
@@ -64,6 +82,12 @@ import type {
   GitExecutor,
   GitLogOptions,
   GitProcessOptions,
+  GitStashApplyOptions,
+  GitStashDropOptions,
+  GitStashGroupOptions,
+  GitStashListOptions,
+  GitStashPopOptions,
+  GitStashShowOptions,
   GitStatusOptions,
   RunGitOptions,
   RunGitResult,
@@ -248,6 +272,98 @@ export class AgentGitExecutor implements GitExecutor {
     );
     throwIfAborted(options.signal);
     return parseAgentResult(AgentGitCommitDetailResultSchema, result);
+  }
+
+  async stashList(options: GitStashListOptions): Promise<StashEntry[]> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_STASH_LIST_METHOD,
+      AgentGitStashListParamsSchema.parse({ cwd: options.cwd }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitStashListResultSchema, result);
+  }
+
+  async stashApply(options: GitStashApplyOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_STASH_APPLY_METHOD,
+      AgentGitStashApplyParamsSchema.parse({ cwd: options.cwd, index: options.index }),
+    );
+    throwIfAborted(options.signal);
+    const parsed = parseAgentResult(AgentGitStashApplyResultSchema, result);
+    if (parsed.errorKind) {
+      throw new GitError(
+        parsed.errorKind,
+        parsed.errorMessage ?? `git stash apply stash@{${options.index}} failed`,
+        { argv: ["stash", "apply", `stash@{${options.index}}`] },
+      );
+    }
+  }
+
+  async stashDrop(options: GitStashDropOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_STASH_DROP_METHOD,
+      AgentGitStashDropParamsSchema.parse({ cwd: options.cwd, index: options.index }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async stashPop(options: GitStashPopOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_STASH_POP_METHOD,
+      AgentGitStashPopParamsSchema.parse({ cwd: options.cwd }),
+    );
+    throwIfAborted(options.signal);
+    const parsed = parseAgentResult(AgentGitStashApplyResultSchema, result);
+    if (parsed.errorKind) {
+      throw new GitError(
+        parsed.errorKind,
+        parsed.errorMessage ?? "git stash pop failed",
+        { argv: ["stash", "pop"] },
+      );
+    }
+  }
+
+  async *stashShow(
+    options: GitStashShowOptions,
+  ): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
+    const streamId = randomUUID();
+    const provider = this.provider();
+    return yield* this.streamAgentEvents<DiffChunk, DiffComplete>({
+      signal: options.signal,
+      provider,
+      streamId,
+      eventName: GIT_STASH_SHOW_CHUNK_EVENT,
+      methodName: GIT_STASH_SHOW_METHOD,
+      params: AgentGitStashShowParamsSchema.parse({
+        cwd: options.cwd,
+        streamId,
+        index: options.index,
+        maxChunkBytes: options.maxChunkBytes,
+      }),
+      parseEvent: (payload) => {
+        const parsed = AgentGitStashShowChunkPayloadSchema.safeParse(payload);
+        if (!parsed.success || parsed.data.streamId !== streamId) return null;
+        return { text: parsed.data.text };
+      },
+      parseComplete: (result) => parseAgentResult(AgentGitStashShowResultSchema, result),
+    });
+  }
+
+  async stashGroup(options: GitStashGroupOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_STASH_GROUP_METHOD,
+      AgentGitStashGroupParamsSchema.parse({
+        cwd: options.cwd,
+        message: options.message,
+        paths: [...options.paths],
+      }),
+    );
+    throwIfAborted(options.signal);
   }
 
   async metadata(

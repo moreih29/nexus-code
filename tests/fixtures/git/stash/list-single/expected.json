@@ -1,0 +1,14 @@
+{
+  "method": "git.stash.list",
+  "case": "list-single",
+  "params": {},
+  "result": [
+    {
+      "index": 0,
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "message": "save work",
+      "branch": "main",
+      "createdAt": 1700000000000
+    }
+  ]
+}
