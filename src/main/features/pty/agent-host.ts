@@ -81,6 +81,12 @@ class AgentPtyHostHandle implements PtyHostHandle {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // Emit pty.exit for every active session before tearing down, so renderers
+    // can enter a dead state rather than waiting indefinitely.
+    const activeSessions = Array.from(this.sessions.values());
+    for (const session of activeSessions) {
+      this.emitExit(session.workspaceId, session.tabId, null);
+    }
     for (const subscription of this.subscriptions.values()) {
       for (const dispose of subscription.disposers) dispose();
     }

@@ -412,3 +412,131 @@ describe("registerPtyChannel recorder routing", () => {
     expect(recorder.stops).toEqual([{ workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID }]);
   });
 });
+
+describe("registerPtyChannel kill cleanup (W1)", () => {
+  test("removes workspaceIdByTabId and routeBySession entries immediately on kill", async () => {
+    // After kill, a follow-up utility exit event must not route — the session
+    // maps must already be empty.
+    const { handler, utilityHost } = makeFixture(false);
+    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
+    mockSend.mockClear();
+
+    await handler({}, "pty", "kill", { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID });
+
+    // Emit a utility exit after kill — should be dropped because the tab is
+    // no longer in workspaceIdByTabId.
+    utilityHost.emit("exit", { tabId: TAB_ID, code: 0 });
+
+    // broadcast should NOT have been called for this stale exit.
+    expect(
+      mockSend.mock.calls.some(
+        (call) =>
+          call[1] === "pty" &&
+          call[2] === "exit" &&
+          (call[3] as { tabId?: string })?.tabId === TAB_ID,
+      ),
+    ).toBe(false);
+  });
+
+  test("removes routeBySession entry for agent session immediately on kill", async () => {
+    // Spawn an agent session, kill it, then confirm a subsequent exit event
+    // on the agent channel does not broadcast a second exit.
+    const { handler, agentChannel } = makeFixture(false);
+    await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
+    mockSend.mockClear();
+
+    await handler({}, "pty", "kill", { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID });
+
+    // Emit an agent exit after kill — should be dropped (route entry gone).
+    agentChannel.emit("pty.exit", {
+      workspaceId: SSH_WORKSPACE_ID,
+      tabId: TAB_ID,
+      code: null,
+    });
+
+    expect(
+      mockSend.mock.calls.some(
+        (call) =>
+          call[1] === "pty" &&
+          call[2] === "exit" &&
+          (call[3] as { tabId?: string })?.tabId === TAB_ID,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("agentPtyHost dispose broadcasts pty.exit (W2)", () => {
+  test("dispose emits pty.exit code=null for each active session", async () => {
+    const agentChannel = new FakeAgentChannel();
+    const agentHost = startAgentPtyHost({ getAgentChannel: async () => agentChannel });
+
+    const exits: Array<unknown> = [];
+    agentHost.on("exit", (args) => exits.push(args));
+
+    const tabA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const tabB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const workspaceId = LOCAL_WORKSPACE_ID;
+
+    await agentHost.call("spawn", {
+      workspaceId,
+      tabId: tabA,
+      cwd: "/repo",
+      shell: "/bin/sh",
+      cols: 80,
+      rows: 24,
+    });
+    await agentHost.call("spawn", {
+      workspaceId,
+      tabId: tabB,
+      cwd: "/repo",
+      shell: "/bin/sh",
+      cols: 80,
+      rows: 24,
+    });
+
+    agentHost.dispose();
+
+    expect(exits).toHaveLength(2);
+    expect(exits).toContainEqual({ workspaceId, tabId: tabA, code: null });
+    expect(exits).toContainEqual({ workspaceId, tabId: tabB, code: null });
+  });
+
+  test("dispose emits no pty.exit when there are no active sessions", () => {
+    const agentChannel = new FakeAgentChannel();
+    const agentHost = startAgentPtyHost({ getAgentChannel: async () => agentChannel });
+    const exits: Array<unknown> = [];
+    agentHost.on("exit", (args) => exits.push(args));
+
+    agentHost.dispose();
+
+    expect(exits).toHaveLength(0);
+  });
+});
+
+describe("routeForNewSession SSH without agentHost throws (W3)", () => {
+  test("SSH workspace with agentHost=undefined throws on spawn", async () => {
+    const utilityHost = new FakePtyHost();
+    const agentChannel = new FakeAgentChannel();
+    const workspaceManager: PtyWorkspaceManager = {
+      requireContext: (workspaceId: string) => ({
+        getMeta: () => workspaceMeta(workspaceId === SSH_WORKSPACE_ID ? "ssh" : "local"),
+      }),
+    };
+    // Intentionally omit agentHost to exercise the guard.
+    const options: PtyRouteOptions = {
+      agentHost: undefined,
+      workspaceManager,
+      stateService: { getState: () => ({ experimental: { ptyViaAgent: false } }) },
+    };
+    registerPtyChannel(utilityHost, options);
+    const handler = getIpcCallHandler();
+
+    // Suppress the unused variable warning; agentChannel is only used by
+    // other fixtures and is referenced here to prevent tree-shaking.
+    void agentChannel;
+
+    await expect(handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID))).rejects.toThrow(
+      "SSH workspace requires the agent PTY host but it is not configured",
+    );
+  });
+});

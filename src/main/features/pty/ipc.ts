@@ -79,7 +79,7 @@ export function registerPtyChannel(ptyHost: PtyHostHandle, options: PtyRouteOpti
       tabId: string;
       chunk: string;
     };
-    if (routeBySession.get(sessionKey(workspaceId, tabId)) === "utility") return;
+    if (routeBySession.get(sessionKey(workspaceId, tabId)) !== "agent") return;
     recorder.appendData(workspaceId, tabId, chunk);
     broadcast("pty", "data", { workspaceId, tabId, chunk });
   });
@@ -90,7 +90,7 @@ export function registerPtyChannel(ptyHost: PtyHostHandle, options: PtyRouteOpti
       tabId: string;
       code: number | null;
     };
-    if (routeBySession.get(sessionKey(workspaceId, tabId)) === "utility") return;
+    if (routeBySession.get(sessionKey(workspaceId, tabId)) !== "agent") return;
     broadcast("pty", "exit", { workspaceId, tabId, code });
     recorder.stop(workspaceId, tabId);
     routeBySession.delete(sessionKey(workspaceId, tabId));
@@ -169,10 +169,18 @@ export function registerPtyChannel(ptyHost: PtyHostHandle, options: PtyRouteOpti
         return ptyHost.call("ack", { workspaceId, tabId, charCount: bytesConsumed });
       },
 
-      kill: (args: unknown) => {
+      kill: async (args: unknown) => {
         const { workspaceId, tabId } = validateArgs(c.kill.args, args);
         const route = routeForSession(workspaceId, tabId, options, routeBySession);
-        return hostForRoute(route, ptyHost, options.agentHost).call("kill", { workspaceId, tabId });
+        try {
+          return await hostForRoute(route, ptyHost, options.agentHost).call("kill", {
+            workspaceId,
+            tabId,
+          });
+        } finally {
+          workspaceIdByTabId.delete(tabId);
+          routeBySession.delete(sessionKey(workspaceId, tabId));
+        }
       },
     },
     listen: {
@@ -187,11 +195,20 @@ export function registerPtyChannel(ptyHost: PtyHostHandle, options: PtyRouteOpti
  */
 function routeForNewSession(workspaceId: string, options: PtyRouteOptions): PtyRoute {
   const meta = options.workspaceManager?.requireContext(workspaceId).getMeta();
-  if (!meta || !options.agentHost) {
+  if (!meta) {
+    // No workspace context (test/headless path) — fall back to utility.
     return "utility";
   }
   if (meta.location.kind === "ssh") {
+    if (!options.agentHost) {
+      throw new Error(
+        "SSH workspace requires the agent PTY host but it is not configured",
+      );
+    }
     return "agent";
+  }
+  if (!options.agentHost) {
+    return "utility";
   }
   return options.stateService?.getState().experimental?.ptyViaAgent === true ? "agent" : "utility";
 }
