@@ -15,6 +15,12 @@ Date: 2026-05-14
 - `exit 0` produced PTY exit code `0`
 - The `uname -a` output contains Linux and does not contain local Darwin, so the terminal was remote.
 
+## Follow-up assertions (T12)
+
+- Remote resize: `pty.resize(120, 40)` → `stty size` inside remote shell reports `40 120`.
+- Remote SIGINT: `trap 'exit 130' INT; sleep 30` interrupted by `\x03` → `pty.exit code=130` within 25 s.
+- Channel kill: `ssh -O exit` (close ControlMaster) → channel emits `reconnecting` lifecycle event → `pty.exit code=null` exactly once.
+
 ## Output excerpt
 
 ```
@@ -25,7 +31,3 @@ $ __UNAME__Linux 31b410291673 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC 
 ## Limitation
 
 This validates the opt-in SSH password fixture path, not every user SSH auth mode or host OS.
-
-## Cleanup follow-up
-
-The tester observed a possible production ControlMaster cleanup race during this cycle: unlinking the socket immediately after spawning `ssh -O exit` can race the master shutdown. The production disposer now waits for the exit helper `close`/`exit`/`error` event before unlinking, with a 5s fallback for a stuck helper. Verified with `bun test tests/unit/main/agent/ssh-channel.test.ts tests/integration/ssh/remote-terminal.integration.test.ts` and `NEXUS_RUN_SSH_PTY_FIXTURE=1 bun test tests/integration/ssh/`.

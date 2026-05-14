@@ -167,24 +167,34 @@ describe("ssh remote terminal round-trip", () => {
       );
       terminal = new RemoteTerminalFixture(channel);
       await channel.ready;
-      // Spawn with initial 80×24; SIGWINCH handler prints "SIZE <rows> <cols>".
+      // Verify that pty.resize updates the actual PTY geometry by querying
+      // `stty size` after the resize call. We deliberately avoid trapping
+      // SIGWINCH because /bin/sh trap timing during a blocking `sleep` is
+      // implementation-dependent across dash/bash; the assertion below tests
+      // what we actually care about — that the kernel-visible PTY size
+      // reflects the resize RPC.
       await terminal.spawn("/bin/sh");
       await terminal.write("stty -echo\n");
       await sleep(150);
-      await terminal.write("echo READY\ntrap 'printf \"__SIZE__\"; stty size' WINCH\nwhile :; do sleep 1; done\n");
+      await terminal.write("echo READY\n");
       await terminal.waitForTranscript("READY");
 
-      // Resize to 120×40 and wait for the child to report the new size.
       await terminal.resize(120, 40);
-      await terminal.waitForTranscript("__SIZE__");
+      // Give the kernel a moment to propagate the TIOCSWINSZ before querying.
+      await sleep(150);
+      // Use command substitution so the full "rows cols" payload arrives in
+      // one atomic write between the marker pair — avoids racing the test
+      // assertion against the next prompt redraw.
+      await terminal.write("echo __SIZE__$(stty size)__END__\n");
+      await terminal.waitForTranscript("__END__");
       const sizeOutput = extractMarkedLine(
         terminal.transcript(),
         "__SIZE__",
-        (value) => value.trim().length > 0,
+        (value) => value.includes("__END__"),
       );
 
       // stty size prints "<rows> <cols>" — expect "40 120".
-      expect(sizeOutput.trim()).toBe("40 120");
+      expect(sizeOutput.replace("__END__", "").trim()).toBe("40 120");
     } finally {
       terminal?.dispose();
       channel?.dispose();
@@ -237,19 +247,23 @@ describe("ssh remote terminal round-trip", () => {
       );
       terminal = new RemoteTerminalFixture(channel);
       await channel.ready;
+      // Verify Ctrl-C delivery: install a SIGINT trap in the remote shell
+      // that exits with code 130 (the conventional signal-killed code), start
+      // a long sleep, then write raw 0x03 and assert the shell exits via the
+      // trap. An interactive shell only exits on Ctrl-C if it has an INT
+      // trap that exits — the default behavior is to kill the foreground
+      // child (sleep) and return to the prompt.
       await terminal.spawn("/bin/sh");
       await terminal.write("stty -echo\n");
       await sleep(150);
-      // Start a long-running command; send Ctrl-C to interrupt it.
-      await terminal.write("sleep 30\n");
+      await terminal.write("trap 'exit 130' INT\nsleep 30\n");
       await sleep(200);
 
-      // Send raw Ctrl-C byte.
+      // Send raw Ctrl-C byte; the trap should fire and the shell should exit.
       await terminal.write("\x03");
 
-      // The session should exit well before 30 s; code=null (signal) is expected.
       const exit = await terminal.waitForExit(25_000);
-      expect(exit.code).toBeNull();
+      expect(exit.code).toBe(130);
     } finally {
       terminal?.dispose();
       channel?.dispose();
@@ -597,8 +611,8 @@ Date: 2026-05-14
 ## Follow-up assertions (T12)
 
 - Remote resize: \`pty.resize(120, 40)\` → \`stty size\` inside remote shell reports \`40 120\`.
-- Remote SIGINT: \`sleep 30\` interrupted by \`\\x03\` → \`pty.exit code=null\` within 30 s.
-- Channel kill: \`ssh -O exit\` (close ControlMaster) → \`pty.exit code=null\` exactly once.
+- Remote SIGINT: \`trap 'exit 130' INT; sleep 30\` interrupted by \`\\x03\` → \`pty.exit code=130\` within 25 s.
+- Channel kill: \`ssh -O exit\` (close ControlMaster) → channel emits \`reconnecting\` lifecycle event → \`pty.exit code=null\` exactly once.
 
 ## Output excerpt
 
