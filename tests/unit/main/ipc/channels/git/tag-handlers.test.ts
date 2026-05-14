@@ -9,7 +9,7 @@ import {
   listRemoteTagsHandler,
   listTagsHandler,
   pushTagsHandler,
-} from "../../../../../../src/main/ipc/channels/git/tag-handlers";
+} from "../../../../../../src/main/features/git/ipc/tag-handlers";
 
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
 

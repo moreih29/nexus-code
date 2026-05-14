@@ -4,8 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
-import { GitRegistry } from "../../../../src/main/git/git-registry";
-import { registerGitChannel } from "../../../../src/main/ipc/channels/git";
+import { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
+import { registerGitChannel } from "../../../../src/main/features/git/ipc";
 import {
   GIT_CANCEL_METHOD,
   GIT_COMMIT_DETAIL_METHOD,

@@ -15,7 +15,7 @@ import {
   type StreamProcedure,
 } from "../../shared/ipc-contract";
 import { PendingRequestMap } from "../../shared/pending-request-map";
-import { GitError } from "../git/git-error";
+import { GitError } from "../features/git/domain/git-error";
 
 // ---------------------------------------------------------------------------
 // Types

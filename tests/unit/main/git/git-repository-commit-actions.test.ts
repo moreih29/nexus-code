@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { GitError } from "../../../../src/main/git/git-error";
+import type { GitError } from "../../../../src/main/features/git/domain/git-error";
 import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";

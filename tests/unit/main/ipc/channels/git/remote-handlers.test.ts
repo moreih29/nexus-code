@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   addRemoteHandler,
   removeRemoteHandler,
-} from "../../../../../../src/main/ipc/channels/git/remote-handlers";
+} from "../../../../../../src/main/features/git/ipc/remote-handlers";
 
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
 

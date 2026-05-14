@@ -12,7 +12,7 @@ import type {
   DiffComplete,
   StashEntry,
 } from "../../../../src/shared/types/git";
-import { GitError } from "../../../../src/main/git/git-error";
+import { GitError } from "../../../../src/main/features/git/domain/git-error";
 import type {
   GitExecutor,
   GitStashApplyOptions,
@@ -24,8 +24,8 @@ import type {
   RunGitOptions,
   RunGitResult,
   GitProcessOptions,
-} from "../../../../src/main/bridge/git/types";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+} from "../../../../src/main/features/git/bridge/types";
+import { GitRepository } from "../../../../src/main/features/git/domain/git-repository";
 
 // ---------------------------------------------------------------------------
 // Minimal stubs

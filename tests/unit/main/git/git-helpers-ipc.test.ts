@@ -11,11 +11,11 @@ import {
   buildGitHelpersEndpoint,
   GitHelpersIpcManager,
   prepareGitHelpersEndpoint,
-} from "../../../../src/main/git/git-helpers-ipc";
-import { buildHelperEnv } from "../../../../src/main/git/helpers-launcher";
+} from "../../../../src/main/features/git/domain/helpers/git-helpers-ipc";
+import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/helpers-launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/types/git";
 
-const EDITOR_HELPER = path.join(process.cwd(), "src/main/git/git-editor-helper.cjs");
+const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/git-editor-helper.cjs");
 
 const tmpRoots: string[] = [];
 

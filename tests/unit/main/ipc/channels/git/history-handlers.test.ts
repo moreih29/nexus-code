@@ -2,14 +2,14 @@
  * Scenario tests for History IPC handlers.
  */
 import { describe, expect, test } from "bun:test";
-import type { GitError } from "../../../../../../src/main/git/git-error";
-import type { GitRegistry } from "../../../../../../src/main/git/git-registry";
+import type { GitError } from "../../../../../../src/main/features/git/domain/git-error";
+import type { GitRegistry } from "../../../../../../src/main/features/git/domain/git-registry";
 import {
   checkoutDetachedHandler,
   commitDetailHandler,
   resetSoftHandler,
   searchCommitsHandler,
-} from "../../../../../../src/main/ipc/channels/git/history-handlers";
+} from "../../../../../../src/main/features/git/ipc/history-handlers";
 
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 

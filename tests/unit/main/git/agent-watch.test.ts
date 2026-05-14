@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { AgentGitWatcher } from "../../../../src/main/bridge/git/agent-watch";
+import { AgentGitWatcher } from "../../../../src/main/features/git/bridge/agent-watch";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
 

@@ -2,8 +2,8 @@
  * Scenario tests for workflow IPC handlers' mutation refresh contract.
  */
 import { describe, expect, test } from "bun:test";
-import { GitError } from "../../../../src/main/git/git-error";
-import type { GitRegistry } from "../../../../src/main/git/git-registry";
+import { GitError } from "../../../../src/main/features/git/domain/git-error";
+import type { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
 import {
   abortOpHandler,
   cherryPickHandler,
@@ -11,7 +11,7 @@ import {
   markResolvedHandler,
   mergeHandler,
   rebaseHandler,
-} from "../../../../src/main/ipc/channels/git/workflow-handlers";
+} from "../../../../src/main/features/git/ipc/workflow-handlers";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 

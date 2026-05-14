@@ -19,8 +19,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createLocalChannel } from "../../../src/main/agent/local-channel";
 import { AgentFsProvider } from "../../../src/main/bridge/fs/agent-provider";
-import { AgentGitExecutor } from "../../../src/main/bridge/git/agent-executor";
-import { GitRepository } from "../../../src/main/git/git-repository";
+import { AgentGitExecutor } from "../../../src/main/features/git/bridge/agent-executor";
+import { GitRepository } from "../../../src/main/features/git/domain/git-repository";
 import {
   AgentGitBlobChunkPayloadSchema,
   AgentGitBlobResultSchema,

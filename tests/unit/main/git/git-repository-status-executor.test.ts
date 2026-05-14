@@ -3,15 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
-import { AgentGitExecutor } from "../../../../src/main/bridge/git/agent-executor";
+import { AgentGitExecutor } from "../../../../src/main/features/git/bridge/agent-executor";
 import type {
   GitBlobOptions,
   GitCommitDetailOptions,
   GitDiffOptions,
   GitLogOptions,
   GitProcessOptions,
-} from "../../../../src/main/bridge/git/types";
-import { GitRepository } from "../../../../src/main/git/git-repository";
+} from "../../../../src/main/features/git/bridge/types";
+import { GitRepository } from "../../../../src/main/features/git/domain/git-repository";
 import { stubMetadataReader } from "./helpers/local-semantic-executor";
 import {
   GIT_BLOB_CHUNK_EVENT,

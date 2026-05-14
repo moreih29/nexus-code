@@ -2,8 +2,8 @@
  * Scenario tests for the Git autofetch scheduler.
  */
 import { describe, expect, it, mock } from "bun:test";
-import { GitAutofetchScheduler } from "../../../../src/main/git/git-autofetch";
-import { GitError } from "../../../../src/main/git/git-error";
+import { GitAutofetchScheduler } from "../../../../src/main/features/git/domain/git-autofetch";
+import { GitError } from "../../../../src/main/features/git/domain/git-error";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,

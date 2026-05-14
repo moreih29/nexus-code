@@ -6,7 +6,7 @@ import path from "node:path";
 import { GlobalStorage } from "../../../../src/main/storage/global-storage";
 import { StateService } from "../../../../src/main/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
-import { GitRegistry } from "../../../../src/main/git/git-registry";
+import { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
 import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/agent/ssh-channel";
 import type {
   BroadcastFn,

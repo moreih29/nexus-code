@@ -33,13 +33,13 @@ import type {
   GitStatusOptions,
   RunGitOptions,
   RunGitResult,
-} from "../../../../../src/main/bridge/git/types";
-import { GitError } from "../../../../../src/main/git/git-error";
-import { type GitMetadataReader, GitRepository } from "../../../../../src/main/git/git-repository";
+} from "../../../../../src/main/features/git/bridge/types";
+import { GitError } from "../../../../../src/main/features/git/domain/git-error";
+import { type GitMetadataReader, GitRepository } from "../../../../../src/main/features/git/domain/git-repository";
 import {
   buildDiffArgs,
   readFetchHeadMtime,
-} from "../../../../../src/main/git/git-repository-helpers";
+} from "../../../../../src/main/features/git/domain/git-repository-helpers";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";

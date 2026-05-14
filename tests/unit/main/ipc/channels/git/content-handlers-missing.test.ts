@@ -12,8 +12,8 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { GitError } from "../../../../../../src/main/git/git-error";
-import { getFileContentHandler } from "../../../../../../src/main/ipc/channels/git/content-handlers";
+import { GitError } from "../../../../../../src/main/features/git/domain/git-error";
+import { getFileContentHandler } from "../../../../../../src/main/features/git/ipc/content-handlers";
 
 // ---------------------------------------------------------------------------
 // Minimal stub helpers
