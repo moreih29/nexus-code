@@ -44,7 +44,7 @@ import type {
   GitExecutor,
   RunGitResult,
 } from "../bridge/git/types";
-import { isBinaryProbe } from "./binary-detect";
+import { isBinaryProbe } from "../../shared/binary-detect";
 import type { GitBinary } from "./git-binary";
 import { GitError } from "./git-error";
 import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";

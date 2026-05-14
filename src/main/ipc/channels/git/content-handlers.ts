@@ -9,7 +9,7 @@ import {
 } from "../../../../shared/protocol/agent/git";
 import type { FileReadResult } from "../../../../shared/types/fs";
 import { isAgentBackedProvider } from "../../../bridge/fs/provider";
-import { isBinaryProbe } from "../../../git/binary-detect";
+import { isBinaryProbe } from "../../../../shared/binary-detect";
 import { GitError } from "../../../git/git-error";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { WorkspaceManager } from "../../../workspace/workspace-manager";
