@@ -414,7 +414,19 @@ describe("ssh-bootstrap", () => {
       sshArgs.every((args) => args.includes("-S") && args.includes(result.controlPath ?? "")),
     ).toBe(true);
 
+    // Dispose schedules the socket unlink to run after the `ssh -O exit`
+    // helper closes (or after a fallback timer); wait until either fires.
+    const unlinkSeen = new Promise<void>((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        if (unlinkCalls.length > 0) return resolve();
+        if (Date.now() - start > 6_000) return resolve();
+        setTimeout(tick, 25);
+      };
+      tick();
+    });
     result.dispose?.();
+    await unlinkSeen;
     expect(unlinkCalls).toEqual([result.controlPath]);
   });
 });
