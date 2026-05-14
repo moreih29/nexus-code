@@ -13,13 +13,19 @@ export type ChannelEventCallback = (payload: unknown) => void;
 export type ChannelLifecycleCallback = (event: ChannelLifecycleEvent) => void;
 
 /**
- * Lifecycle events emitted to `onLifecycle` subscribers. Implementations must
- * emit at most one terminal event per channel — `exit` for a clean drain,
- * `failure` for an error path, or `disposed` when the owner called `dispose`.
+ * Lifecycle events emitted to `onLifecycle` subscribers. The terminal events
+ * (`exit` / `failure` / `disposed`) fire at most once per channel. The
+ * transient `reconnecting` event may fire when the channel detects it has
+ * lost its current process and is about to retry; it does NOT imply the
+ * channel is dead — a subsequent successful reconnect leaves the channel
+ * ready again. Subscribers that own session-style state (e.g. PTY shells,
+ * which cannot be transparently respawned) should treat `reconnecting` as a
+ * session-death signal even though the channel itself may recover.
  */
 export type ChannelLifecycleEvent =
   | { readonly type: "exit"; readonly code: number | null; readonly signal: NodeJS.Signals | null }
   | { readonly type: "failure"; readonly error: Error }
+  | { readonly type: "reconnecting"; readonly cause: Error | null }
   | { readonly type: "disposed" };
 
 /**

@@ -537,7 +537,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const offServerExited = channel.on("lsp.serverExited", (payload) => {
       this.handleServerExited(payload);
     });
-    const offLifecycle = channel.onLifecycle(() => {
+    const offLifecycle = channel.onLifecycle((event) => {
+      // `reconnecting` is transient and the channel may yet recover. Leave
+      // server records intact so queued LSP calls replay onto the new agent
+      // once the channel completes its reconnect handshake.
+      if (event.type === "reconnecting") return;
       this.disposeChannelServers(channel);
     });
     this.channelDisposers.set(channel, [

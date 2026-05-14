@@ -179,11 +179,15 @@ class AgentPtyHostHandle implements PtyHostHandle {
   }
 
   /**
-   * Converts terminal channel failure/exit into PTY exits for all sessions
-   * known to belong to the workspace.
+   * Converts terminal channel failure/exit/reconnecting into PTY exits for all
+   * sessions known to belong to the workspace. Shell processes cannot survive
+   * a channel reconnect, so even though the transport may recover the local
+   * PTY sessions are gone — surface that to the renderer immediately so the
+   * dead-terminal banner can fire without waiting for an indefinite retry
+   * window. `disposed` (host-driven teardown) only clears local bookkeeping.
    */
   private handleLifecycle(workspaceId: string, event: ChannelLifecycleEvent): void {
-    if (event.type === "failure" || event.type === "exit") {
+    if (event.type === "failure" || event.type === "exit" || event.type === "reconnecting") {
       const tabIds = Array.from(this.sessionsByWorkspace.get(workspaceId) ?? []);
       for (const tabId of tabIds) {
         this.emitExit(workspaceId, tabId, null);

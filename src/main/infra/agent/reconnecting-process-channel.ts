@@ -233,8 +233,17 @@ export function createReconnectingProcessChannel(
 
     if (wasReady || phase === "reconnecting") {
       attempt.pipe.fail(createAgentReconnectError("agent.reconnect-in-progress"));
+      const wasAlreadyReconnecting = state === "reconnecting";
       state = "reconnecting";
       scheduleReconnect();
+      // Notify session-style consumers (e.g. PTY) only on the ready→reconnecting
+      // transition. Repeated retry attempts must not re-fire the event.
+      if (!wasAlreadyReconnecting) {
+        emitLifecycle({
+          type: "reconnecting",
+          cause: code === null ? null : new Error(`agent process exited with code ${code}`),
+        });
+      }
       return;
     }
 

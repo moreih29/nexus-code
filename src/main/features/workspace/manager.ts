@@ -578,6 +578,12 @@ export class WorkspaceManager {
       return;
     }
 
+    // `reconnecting` is transient — the channel may yet recover, so do not
+    // drop our reference. Only terminal events trigger tear-down here.
+    if (event.type === "reconnecting") {
+      return;
+    }
+
     if (event.type === "failure") {
       this.broadcastConnectionStatus(workspaceId, "error");
     }
@@ -604,6 +610,12 @@ export class WorkspaceManager {
     if (!ctx) {
       this.localChannels.delete(workspaceId);
       this.localProviderReady.delete(workspaceId);
+      return;
+    }
+
+    // `reconnecting` is transient — keep the channel reference so the
+    // internal reconnect path can recover transparently.
+    if (event.type === "reconnecting") {
       return;
     }
 
