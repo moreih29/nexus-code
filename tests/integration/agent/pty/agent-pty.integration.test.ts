@@ -204,6 +204,26 @@ exit 42
       await fixture.dispose();
     }
   }, 30_000);
+
+  it("leaves no orphan processes after dispose", async () => {
+    const fixture = await PtyAgentFixture.create(binPath);
+    const tabId = "zombie-check";
+    await fixture.spawnScript(
+      tabId,
+      `
+stty -echo
+echo READY
+exec cat
+`,
+    );
+    await fixture.waitForTranscript(tabId, "READY");
+
+    await fixture.dispose();
+
+    // pgrep exit code 1 means no matching processes — the agent binary is gone.
+    const result = spawnSync("pgrep", ["-f", binPath]);
+    expect(result.status).toBe(1);
+  }, 30_000);
 });
 
 interface PtyExitEvent {

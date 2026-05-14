@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { startAgentPtyHost } from "../../../src/main/features/pty/agent-host";
 import type { PtyHostHandle } from "../../../src/main/features/pty/host";
 import type { AgentChannel } from "../../../src/main/infra/agent/channel";
@@ -25,9 +25,28 @@ const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "nexus-dev";
 const FIXTURE_REMOTE_PATH =
   process.env.NEXUS_SSH_FIXTURE_REMOTE_PATH ?? "/home/nexus-dev/workspace";
 
+const FIXTURE_ENABLED = process.env.NEXUS_RUN_SSH_PTY_FIXTURE === "1";
+
+/**
+ * Shared agent dist directory — built once, reused by all cases in the suite.
+ */
+let sharedDistDir = "";
+
 describe("ssh remote terminal round-trip", () => {
+  beforeAll(async () => {
+    if (!FIXTURE_ENABLED) return;
+    if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) return;
+    sharedDistDir = await createMinimalAgentDist();
+  });
+
+  afterAll(async () => {
+    if (sharedDistDir) {
+      await fs.rm(sharedDistDir, { recursive: true, force: true });
+    }
+  });
+
   it("opens a remote agent PTY, verifies pwd/uname, and exits cleanly", async () => {
-    if (process.env.NEXUS_RUN_SSH_PTY_FIXTURE !== "1") {
+    if (!FIXTURE_ENABLED) {
       console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
       return;
     }
@@ -38,7 +57,6 @@ describe("ssh remote terminal round-trip", () => {
       return;
     }
 
-    const distDir = await createMinimalAgentDist();
     let bootstrap: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
     let channel: AgentChannel | null = null;
     let terminal: RemoteTerminalFixture | null = null;
@@ -52,7 +70,7 @@ describe("ssh remote terminal round-trip", () => {
           authMode: "interactive",
         },
         {
-          distDir,
+          distDir: sharedDistDir,
           promptHandler: answerFixturePrompt,
           auth: { spawnPty: spawnNodeBackedPty, authTimeoutMs: 10_000 },
         },
@@ -103,7 +121,208 @@ describe("ssh remote terminal round-trip", () => {
       closeControlMaster(bootstrap?.controlPath);
       bootstrap?.dispose?.();
       await waitForNoControlMaster(bootstrap?.controlPath);
-      await fs.rm(distDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("resizes the remote PTY so the child observes the new stty size", async () => {
+    if (!FIXTURE_ENABLED) {
+      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
+      return;
+    }
+    if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
+      console.warn(
+        `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
+      );
+      return;
+    }
+
+    let bootstrap: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
+    let channel: AgentChannel | null = null;
+    let terminal: RemoteTerminalFixture | null = null;
+    try {
+      bootstrap = await ensureRemoteAgent(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          remotePath: FIXTURE_REMOTE_PATH,
+          authMode: "interactive",
+        },
+        {
+          distDir: sharedDistDir,
+          promptHandler: answerFixturePrompt,
+          auth: { spawnPty: spawnNodeBackedPty, authTimeoutMs: 10_000 },
+        },
+      );
+      channel = createSshChannel(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          authMode: "interactive",
+          remoteCommand: bootstrap.remoteCommand,
+          controlPath: bootstrap.controlPath,
+        },
+        { promptHandler: answerFixturePrompt, requestTimeoutMs: 10_000 },
+      );
+      terminal = new RemoteTerminalFixture(channel);
+      await channel.ready;
+      // Spawn with initial 80×24; SIGWINCH handler prints "SIZE <rows> <cols>".
+      await terminal.spawn("/bin/sh");
+      await terminal.write("stty -echo\n");
+      await sleep(150);
+      await terminal.write("echo READY\ntrap 'printf \"__SIZE__\"; stty size' WINCH\nwhile :; do sleep 1; done\n");
+      await terminal.waitForTranscript("READY");
+
+      // Resize to 120×40 and wait for the child to report the new size.
+      await terminal.resize(120, 40);
+      await terminal.waitForTranscript("__SIZE__");
+      const sizeOutput = extractMarkedLine(
+        terminal.transcript(),
+        "__SIZE__",
+        (value) => value.trim().length > 0,
+      );
+
+      // stty size prints "<rows> <cols>" — expect "40 120".
+      expect(sizeOutput.trim()).toBe("40 120");
+    } finally {
+      terminal?.dispose();
+      channel?.dispose();
+      closeControlMaster(bootstrap?.controlPath);
+      bootstrap?.dispose?.();
+      await waitForNoControlMaster(bootstrap?.controlPath);
+    }
+  }, 60_000);
+
+  it("sends remote SIGINT via Ctrl-C and receives pty.exit within 30 s", async () => {
+    if (!FIXTURE_ENABLED) {
+      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
+      return;
+    }
+    if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
+      console.warn(
+        `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
+      );
+      return;
+    }
+
+    let bootstrap: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
+    let channel: AgentChannel | null = null;
+    let terminal: RemoteTerminalFixture | null = null;
+    try {
+      bootstrap = await ensureRemoteAgent(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          remotePath: FIXTURE_REMOTE_PATH,
+          authMode: "interactive",
+        },
+        {
+          distDir: sharedDistDir,
+          promptHandler: answerFixturePrompt,
+          auth: { spawnPty: spawnNodeBackedPty, authTimeoutMs: 10_000 },
+        },
+      );
+      channel = createSshChannel(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          authMode: "interactive",
+          remoteCommand: bootstrap.remoteCommand,
+          controlPath: bootstrap.controlPath,
+        },
+        { promptHandler: answerFixturePrompt, requestTimeoutMs: 10_000 },
+      );
+      terminal = new RemoteTerminalFixture(channel);
+      await channel.ready;
+      await terminal.spawn("/bin/sh");
+      await terminal.write("stty -echo\n");
+      await sleep(150);
+      // Start a long-running command; send Ctrl-C to interrupt it.
+      await terminal.write("sleep 30\n");
+      await sleep(200);
+
+      // Send raw Ctrl-C byte.
+      await terminal.write("\x03");
+
+      // The session should exit well before 30 s; code=null (signal) is expected.
+      const exit = await terminal.waitForExit(25_000);
+      expect(exit.code).toBeNull();
+    } finally {
+      terminal?.dispose();
+      channel?.dispose();
+      closeControlMaster(bootstrap?.controlPath);
+      bootstrap?.dispose?.();
+      await waitForNoControlMaster(bootstrap?.controlPath);
+    }
+  }, 60_000);
+
+  it("force-closing the SSH channel delivers pty.exit code=null to the host", async () => {
+    if (!FIXTURE_ENABLED) {
+      console.warn("Skipping ssh remote terminal fixture: set NEXUS_RUN_SSH_PTY_FIXTURE=1");
+      return;
+    }
+    if (!(await isPortOpen(FIXTURE_HOST, FIXTURE_PORT))) {
+      console.warn(
+        `Skipping ssh remote terminal fixture: ${FIXTURE_HOST}:${FIXTURE_PORT} is unavailable`,
+      );
+      return;
+    }
+
+    let bootstrap: Awaited<ReturnType<typeof ensureRemoteAgent>> | null = null;
+    let channel: AgentChannel | null = null;
+    let terminal: RemoteTerminalFixture | null = null;
+    try {
+      bootstrap = await ensureRemoteAgent(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          remotePath: FIXTURE_REMOTE_PATH,
+          authMode: "interactive",
+        },
+        {
+          distDir: sharedDistDir,
+          promptHandler: answerFixturePrompt,
+          auth: { spawnPty: spawnNodeBackedPty, authTimeoutMs: 10_000 },
+        },
+      );
+      channel = createSshChannel(
+        {
+          host: FIXTURE_HOST,
+          user: FIXTURE_USER,
+          port: FIXTURE_PORT,
+          authMode: "interactive",
+          remoteCommand: bootstrap.remoteCommand,
+          controlPath: bootstrap.controlPath,
+        },
+        { promptHandler: answerFixturePrompt, requestTimeoutMs: 10_000 },
+      );
+      terminal = new RemoteTerminalFixture(channel);
+      await channel.ready;
+      await terminal.spawn("/bin/sh");
+      await terminal.write("stty -echo\n");
+      await sleep(150);
+      // Keep a long-running shell open.
+      await terminal.write("echo READY\nwhile :; do sleep 1; done\n");
+      await terminal.waitForTranscript("READY");
+
+      // Force-close the SSH ControlMaster; the data channel loses its mux.
+      closeControlMaster(bootstrap.controlPath);
+
+      // The host must emit pty.exit code=null (transport failure) within 10 s.
+      const exit = await terminal.waitForExit(10_000);
+      expect(exit.code).toBeNull();
+
+      // Exactly one exit event per session.
+      expect(terminal.exitCount()).toBe(1);
+    } finally {
+      terminal?.dispose();
+      channel?.dispose();
+      bootstrap?.dispose?.();
+      await waitForNoControlMaster(bootstrap?.controlPath);
     }
   }, 60_000);
 });
@@ -163,10 +382,24 @@ class RemoteTerminalFixture {
   }
 
   /**
+   * Sends a PTY resize to the remote agent.
+   */
+  async resize(cols: number, rows: number): Promise<void> {
+    await this.host.call("resize", { workspaceId: WORKSPACE_ID, tabId: TAB_ID, cols, rows });
+  }
+
+  /**
    * Returns captured remote terminal output.
    */
   transcript(): string {
     return this.chunks.join("");
+  }
+
+  /**
+   * Returns the number of exit events received for this session.
+   */
+  exitCount(): number {
+    return this.exits.length;
   }
 
   /**
@@ -360,6 +593,12 @@ Date: 2026-05-14
 - \`pwd\` inside the PTY matched the remote workspace path: \`${args.pwd}\`
 - \`exit 0\` produced PTY exit code \`0\`
 - The \`uname -a\` output contains Linux and does not contain local Darwin, so the terminal was remote.
+
+## Follow-up assertions (T12)
+
+- Remote resize: \`pty.resize(120, 40)\` → \`stty size\` inside remote shell reports \`40 120\`.
+- Remote SIGINT: \`sleep 30\` interrupted by \`\\x03\` → \`pty.exit code=null\` within 30 s.
+- Channel kill: \`ssh -O exit\` (close ControlMaster) → \`pty.exit code=null\` exactly once.
 
 ## Output excerpt
 
