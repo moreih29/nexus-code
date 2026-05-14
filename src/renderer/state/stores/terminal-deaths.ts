@@ -149,7 +149,8 @@ function createTerminalDeathStore() {
 }
 
 /**
- * Starts or extends the 100ms aggregate window for one terminal death.
+ * Starts a new 100ms aggregate window if none is pending; otherwise appends
+ * to the open window without resetting its timer.
  */
 export function recordTerminalDeathForAggregate(
   workspaceId: string,
