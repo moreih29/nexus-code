@@ -184,7 +184,7 @@ describe("workspace terminal aggregate banner", () => {
     expect((perTabHtml.match(/Terminal ended\./g) ?? []).length).toBe(3);
   });
 
-  test("suppresses per-tab banners while offline workspace UI keeps the recovery affordance", () => {
+  test("suppresses per-tab banners while offline and workspace banner is also hidden (offline affordance handles recovery)", () => {
     const tabs = [createTerminal("/srv/a"), createTerminal("/srv/b"), createTerminal("/srv/c")];
     useWorkspacesStore.getState().setConnectionStatus(WS, "idle");
 
@@ -195,13 +195,16 @@ describe("workspace terminal aggregate banner", () => {
 
     const aggregate = useTerminalDeathStore.getState().aggregateByWorkspaceId[WS] ?? null;
     expect(selectIsWorkspaceOnline(useWorkspacesStore.getState(), WS)).toBe(false);
+
+    // H: workspace offline → our banner is suppressed regardless of dead count.
+    // The workspace's own offline component is responsible for recovery.
     expect(
       shouldShowWorkspaceTerminalStatusBanner({
         aggregate,
         deadTerminalCount: 3,
         workspaceOnline: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     const offlineTabHtml = renderToStaticMarkup(
       <TerminalViewLayout
@@ -218,11 +221,37 @@ describe("workspace terminal aggregate banner", () => {
       />,
     );
     expect(offlineTabHtml).not.toContain("Terminal ended.");
+  });
 
-    const bannerHtml = renderToStaticMarkup(
-      <WorkspaceTerminalStatusBanner deadTerminalCount={3} onReopenAll={() => {}} />,
-    );
-    expect(bannerHtml).toContain("Reopen all");
+  // H: offline state suppresses our banner for every dead-count value
+  test("workspace offline: banner hidden for 1 dead terminal", () => {
+    expect(
+      shouldShowWorkspaceTerminalStatusBanner({
+        aggregate: null,
+        deadTerminalCount: 1,
+        workspaceOnline: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("workspace offline: banner hidden for 2 dead terminals", () => {
+    expect(
+      shouldShowWorkspaceTerminalStatusBanner({
+        aggregate: { tabIds: ["t1", "t2"] },
+        deadTerminalCount: 2,
+        workspaceOnline: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("workspace offline: banner hidden for 3 dead terminals", () => {
+    expect(
+      shouldShowWorkspaceTerminalStatusBanner({
+        aggregate: { tabIds: ["t1", "t2", "t3"] },
+        deadTerminalCount: 3,
+        workspaceOnline: false,
+      }),
+    ).toBe(false);
   });
 
   test("Reopen all requests every dead terminal without changing tab id or cwd", () => {
@@ -255,5 +284,17 @@ describe("workspace terminal aggregate banner", () => {
       id: second.id,
       props: { cwd: "/srv/second", dead: true },
     });
+  });
+
+  // K: contrast regression guard for WorkspaceTerminalStatusBanner
+  // app-status-banner-text must be present; text-muted-foreground must not
+  // re-appear (it breaks contrast on the frosted-veil background).
+  test("WorkspaceTerminalStatusBanner uses app-status-banner-text and does not use text-muted-foreground", () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTerminalStatusBanner deadTerminalCount={2} onReopenAll={() => {}} />,
+    );
+
+    expect(html).toContain("app-status-banner-text");
+    expect(html).not.toContain("text-muted-foreground");
   });
 });

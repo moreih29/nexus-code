@@ -515,4 +515,28 @@ describe("services/terminal controller reopen", () => {
 
     controller.dispose();
   });
+
+  it("treats spawn=null (already live) as a no-op so the view does not show failed copy", async () => {
+    // spawn returning null signals the session is already live; the controller
+    // must not throw so the caller never sets reopenState to "failed".
+    const harness = makeTerminalControllerDeps(() => Promise.resolve(null));
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-reopen-already-live",
+        cwd: "/workspace/original",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+
+    // Must resolve without throwing — no failed state propagated to the view.
+    await expect(controller.reopen()).resolves.toBeUndefined();
+    // No separator written when the session was already live.
+    expect(harness.writes).toEqual([]);
+
+    controller.dispose();
+  });
 });
