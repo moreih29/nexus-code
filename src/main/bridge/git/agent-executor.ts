@@ -107,6 +107,11 @@ import {
   GIT_BRANCH_RENAME_METHOD,
   GIT_BRANCH_SET_UPSTREAM_METHOD,
   GIT_BRANCH_FAST_FORWARD_METHOD,
+  AgentGitCloneParamsSchema,
+  AgentGitCloneProgressPayloadSchema,
+  AgentGitCloneResultSchema,
+  GIT_CLONE_METHOD,
+  GIT_CLONE_PROGRESS_EVENT,
 } from "../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
@@ -117,6 +122,9 @@ import type {
   GitBlobComplete,
   GitCherryPickResult,
   GitContinueOpResult,
+  GitClonePhase,
+  GitCloneStreamProgressEvent,
+  GitCloneStreamResultEvent,
   GitFastForwardResult,
   GitIgnoreAppendResult,
   GitMarkResolvedResult,
@@ -140,6 +148,7 @@ import type {
   GitBranchFastForwardOptions,
   GitBranchRenameOptions,
   GitBranchSetUpstreamOptions,
+  GitCloneOptions,
   GitCommitDetailOptions,
   GitConflictMarkResolvedOptions,
   GitDiffOptions,
@@ -718,6 +727,56 @@ export class AgentGitExecutor implements GitExecutor {
       fromSha: parsed.fromSha,
       toSha: parsed.toSha,
     };
+  }
+
+  async *clone(
+    options: GitCloneOptions,
+  ): AsyncGenerator<GitCloneStreamProgressEvent, GitCloneStreamResultEvent, unknown> {
+    const streamId = randomUUID();
+    const provider = this.provider();
+    const params = AgentGitCloneParamsSchema.parse({
+      streamId,
+      url: options.url,
+      parentDir: options.parentDir,
+      name: options.name,
+      branch: options.branch,
+      recurseSubmodules: options.recurseSubmodules,
+      env: normalizeEnv(options.env),
+    });
+
+    return yield* this.streamAgentEvents<
+      GitCloneStreamProgressEvent,
+      GitCloneStreamResultEvent
+    >({
+      signal: options.signal,
+      provider,
+      streamId,
+      eventName: GIT_CLONE_PROGRESS_EVENT,
+      methodName: GIT_CLONE_METHOD,
+      params,
+      parseEvent: (payload): GitCloneStreamProgressEvent | null => {
+        const parsed = AgentGitCloneProgressPayloadSchema.safeParse(payload);
+        if (!parsed.success || parsed.data.streamId !== streamId) return null;
+        const { phase, pct, received, total } = parsed.data;
+        if (pct === -1) {
+          return { kind: "phase", phase: phase as GitClonePhase };
+        }
+        return {
+          kind: "progress",
+          phase: phase as GitClonePhase,
+          pct,
+          ...(received !== undefined ? { received } : {}),
+          ...(total !== undefined ? { total } : {}),
+        };
+      },
+      parseComplete: (result): GitCloneStreamResultEvent => {
+        const parsed = AgentGitCloneResultSchema.safeParse(result);
+        if (!parsed.success) {
+          throw new Error("git.clone returned unexpected result shape");
+        }
+        return { kind: "complete", absPath: parsed.data.absPath };
+      },
+    });
   }
 
   private async callAgentRun(

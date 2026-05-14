@@ -5,7 +5,6 @@
 import type { GitAutofetchScheduler } from "../../../git/git-autofetch";
 import type { GitRegistry } from "../../../git/git-registry";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../../workspace/workspace-manager";
 import { register } from "../../router";
 import { checkoutHandler, checkoutTrackingHandler, listBranchesHandler } from "./branch-handlers";
 import {
@@ -16,7 +15,7 @@ import {
   renameBranchHandler,
   setUpstreamHandler,
 } from "./branch-ops-handlers";
-import { cloneStream } from "./clone-handlers";
+import { cloneStream, type CloneExecutorFactory } from "./clone-handlers";
 import {
   commitAmendHandler,
   commitEmptyHandler,
@@ -75,12 +74,16 @@ import {
 /**
  * Register the Git IPC channel's call handlers, broadcast event placeholders,
  * and cancellable stream handlers.
+ *
+ * `cloneExecutorFactory` creates a temporary AgentGitExecutor bound to the
+ * target parentDir for each clone call. Required for agent-backed clone.
  */
 export function registerGitChannel(
   registry: GitRegistry,
   storage: WorkspaceStorage,
   autofetch?: GitAutofetchScheduler,
-  workspaceManager?: WorkspaceManager,
+  workspaceManager?: import("../../../workspace/workspace-manager").WorkspaceManager,
+  cloneExecutorFactory?: CloneExecutorFactory,
 ): void {
   register("git", {
     call: {
@@ -148,7 +151,12 @@ export function registerGitChannel(
       diff: diffStream(registry),
       getFileBlob: getFileBlobStream(registry),
       stashShow: stashShowStream(registry),
-      clone: cloneStream(registry),
+      clone: cloneStream(
+        cloneExecutorFactory ??
+          (() => {
+            throw new Error("clone executor factory not provided");
+          }),
+      ),
     },
   });
 }

@@ -2,10 +2,14 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./agent/ssh-auth-prompt";
+import { createLocalChannel } from "./agent/local-channel";
+import { resolveLocalAgentCommand } from "./agent/local-agent-resolver";
 import { ensureRemoteAgent } from "./agent/ssh-bootstrap";
 import { createSshChannel } from "./agent/ssh-channel";
 import { AgentFsWatcher } from "./bridge/fs/agent-watch";
 import { registerFsChannel } from "./bridge/fs/ipc";
+import { AgentFsProvider } from "./bridge/fs/agent-provider";
+import { AgentGitExecutor } from "./bridge/git/agent-executor";
 import { AgentGitWatcher } from "./bridge/git/agent-watch";
 import { GitAutofetchScheduler } from "./git/git-autofetch";
 import { resolveGitBinary } from "./git/git-binary";
@@ -155,7 +159,14 @@ app.whenReady().then(async () => {
   });
   gitAutofetch.start();
   registerAutofetchChannel(gitAutofetch);
-  registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch, workspaceManager);
+  const agentCommand = resolveLocalAgentCommand();
+  registerGitChannel(gitRegistry, workspaceStorage, gitAutofetch, workspaceManager, (parentDir) => {
+    const provider = new AgentFsProvider("local", () =>
+      createLocalChannel({ ...agentCommand, rootPath: parentDir }),
+    );
+    const executor = new AgentGitExecutor(provider);
+    return { executor, dispose: () => provider.dispose() };
+  });
 
   ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);

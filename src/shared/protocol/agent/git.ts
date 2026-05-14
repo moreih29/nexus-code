@@ -13,6 +13,7 @@ import {
   type GitBlobComplete,
   GitBlobCompleteSchema,
   GitCherryPickResultSchema,
+  GitClonePhaseSchema,
   GitContinueOpResultSchema,
   GitErrorKindSchema,
   GitIgnoreAppendResultSchema,
@@ -539,3 +540,38 @@ export const AgentGitBranchFastForwardResultSchema = z.object({
 export type AgentGitBranchFastForwardResult = z.infer<
   typeof AgentGitBranchFastForwardResultSchema
 >;
+
+// ---------------------------------------------------------------------------
+// git.clone — streaming clone with progress events
+// ---------------------------------------------------------------------------
+
+export const GIT_CLONE_METHOD = "git.clone";
+export const GIT_CLONE_PROGRESS_EVENT = "git.clone.progress";
+
+export const AgentGitCloneParamsSchema = z.object({
+  streamId: z.string().min(1),
+  url: z.string().min(1),
+  parentDir: z.string().min(1),
+  name: z.string().optional(),
+  branch: z.string().optional(),
+  recurseSubmodules: z.boolean().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+export type AgentGitCloneParams = z.infer<typeof AgentGitCloneParamsSchema>;
+
+export const AgentGitCloneProgressPayloadSchema = z.object({
+  streamId: z.string().min(1),
+  phase: GitClonePhaseSchema,
+  /** -1 when only a phase transition is signalled (no progress counts). */
+  pct: z.number().int().min(-1).max(100),
+  received: z.number().int().nonnegative().optional(),
+  total: z.number().int().nonnegative().optional(),
+});
+export type AgentGitCloneProgressPayload = z.infer<typeof AgentGitCloneProgressPayloadSchema>;
+
+export const AgentGitCloneResultSchema = z.object({
+  absPath: z.string().min(1),
+  errorKind: GitErrorKindSchema.optional(),
+  errorMessage: z.string().optional(),
+});
+export type AgentGitCloneResult = z.infer<typeof AgentGitCloneResultSchema>;
