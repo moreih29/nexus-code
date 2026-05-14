@@ -1,34 +1,25 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   ApplyWorkspaceEditParamsSchema,
-  CompletionItemSchema,
   ConfigurationParamsSchema,
-  DiagnosticSchema,
-  DocumentHighlightSchema,
-  DocumentSymbolSchema,
-  HoverResultSchema,
-  LocationLinkSchema,
-  LocationSchema,
   type LspServerEventMethod,
-  MarkupContentSchema,
-  RangeSchema,
-  ReferencesArgsSchema,
-  type ServerCapabilities,
-  ServerCapabilitiesSchema,
-  ShowMessageRequestParamsSchema,
-  SymbolInformationSchema,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
-  TextDocumentSyncKind,
-  type TextDocumentContentChangeEvent,
-  type TextDocumentSyncKind as TextDocumentSyncKindValue,
-  WorkDoneProgressCreateParamsSchema,
-  type Location,
+  ReferencesArgsSchema,
+  HoverResultSchema,
+  LocationSchema,
+  CompletionItemSchema,
+  DocumentHighlightSchema,
+  DocumentSymbolSchema,
+  SymbolInformationSchema,
 } from "../../../shared/lsp";
+import { AgentManifestSchema, findLspBinary } from "../../../shared/agent-manifest";
+import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh-bootstrap";
 import {
   type LspServerSpec,
   resolveLspPreset,
@@ -41,16 +32,35 @@ import {
   type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh-bootstrap";
 import type { LspHostCallOptions, LspHostHandle } from "./host";
+import { AgentLspServer } from "./agent-lsp-server";
+import { asRecord } from "./lsp-utils";
+import { flattenInitializationOptions, lookupFlattenedConfig } from "./lsp-config-store";
+import {
+  normalizeCompletionResult,
+  normalizeDefinitionResult,
+  normalizeDocumentHighlightResult,
+  normalizeDocumentSymbolResult,
+  normalizeHoverResult,
+  normalizeWorkspaceSymbolResult,
+  parsePublishDiagnostics,
+} from "./lsp-result-normalizers";
+import {
+  firstShowMessageAction,
+  parseAgentMessagePayload,
+  parseAgentServerRequestPayload,
+  parseServerAssignedPayload,
+  parseServerCapabilities,
+  parseServerExitedPayload,
+  parseSpawnResult,
+  parseWorkDoneProgressCreateParams,
+  serverExitError,
+} from "./lsp-payloads";
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
 
 type EventCallback = (args: unknown) => void;
-type JsonRpcId = string | number | null;
-type PendingRequestId = string | number;
-
-interface PendingClientRequest {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  cleanup: () => void;
-}
 
 interface PendingServerRequest {
   channel: AgentChannel;
@@ -62,6 +72,7 @@ interface PendingSpawn {
   channel: AgentChannel;
   workspaceId: string;
   languageId: string;
+  correlationId: string;
 }
 
 interface ServerContext {
@@ -86,6 +97,11 @@ export interface AgentLspWorkspaceManager {
     onProgress?: (event: LspBootstrapProgressEvent) => void,
   ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] } | null>;
 }
+
+// ---------------------------------------------------------------------------
+// Per-method argument schemas (close to the host class so the call() switch
+// stays self-contained).
+// ---------------------------------------------------------------------------
 
 const DidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceId: z.string(),
@@ -116,6 +132,10 @@ const SERVER_EVENT_METHODS = new Set<string>([
   "$/progress",
 ]);
 
+// ---------------------------------------------------------------------------
+// Host
+// ---------------------------------------------------------------------------
+
 export function startAgentLspHost(workspaceManager: AgentLspWorkspaceManager): LspHostHandle {
   return new AgentLspHostHandleImpl(workspaceManager);
 }
@@ -129,7 +149,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly configurationStore = new Map<string, Map<string, Map<string, unknown>>>();
   private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
   private readonly channelDisposers = new Map<AgentChannel, Array<() => void>>();
-  private readonly pendingSpawnsByChannel = new Map<AgentChannel, PendingSpawn[]>();
+  // correlationId is assigned client-side before lsp.spawn so the agent can
+  // echo it back via the lsp.serverAssigned event before initialize finishes.
+  // Both maps are populated up front and dropped once the spawn round-trip
+  // completes (or fails).
+  private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
   private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
   private nextServerRequestId = 1;
   private disposed = false;
@@ -261,7 +285,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.serverPromises.clear();
     this.uriIndex.clear();
     this.pendingServerRequests.clear();
-    this.pendingSpawnsByChannel.clear();
+    this.pendingSpawnByCorrelation.clear();
     this.pendingSpawnByServerId.clear();
     for (const disposers of this.channelDisposers.values()) {
       for (const dispose of disposers) dispose();
@@ -410,12 +434,14 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.subscribeChannel(channel);
     this.storeInitializationOptions(workspaceId, presetLanguageId, preset.initializationOptions);
 
+    const correlationId = randomUUID();
     const pendingSpawn: PendingSpawn = {
       channel,
       workspaceId,
       languageId: presetLanguageId,
+      correlationId,
     };
-    this.addPendingSpawn(pendingSpawn);
+    this.pendingSpawnByCorrelation.set(correlationId, pendingSpawn);
 
     let serverId: string | null = null;
     try {
@@ -427,6 +453,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         args: [...command.args],
         workspaceRoot,
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
+        correlationId,
       });
       serverId = parseSpawnResult(result).serverId;
       const capabilities = parseServerCapabilities(result.capabilities);
@@ -440,7 +467,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.rememberServer(server);
       return server;
     } finally {
-      this.removePendingSpawn(pendingSpawn);
+      this.pendingSpawnByCorrelation.delete(correlationId);
       if (serverId) {
         this.pendingSpawnByServerId.delete(serverId);
       }
@@ -468,7 +495,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       },
     );
     if (remote) return remote;
-    return { binaryPath: resolveBundledBinary(preset.binary), args: preset.args };
+    return resolveLocalLspCommand(preset);
   }
 
   private rememberServer(server: AgentLspServer): void {
@@ -502,10 +529,62 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const offServerRequest = channel.on("lsp.serverRequest", (payload) => {
       this.handleAgentServerRequest(channel, payload);
     });
+    const offServerAssigned = channel.on("lsp.serverAssigned", (payload) => {
+      this.handleServerAssigned(payload);
+    });
+    const offServerExited = channel.on("lsp.serverExited", (payload) => {
+      this.handleServerExited(payload);
+    });
     const offLifecycle = channel.onLifecycle(() => {
       this.disposeChannelServers(channel);
     });
-    this.channelDisposers.set(channel, [offMessage, offServerRequest, offLifecycle]);
+    this.channelDisposers.set(channel, [
+      offMessage,
+      offServerRequest,
+      offServerAssigned,
+      offServerExited,
+      offLifecycle,
+    ]);
+  }
+
+  private handleServerAssigned(payload: unknown): void {
+    const parsed = parseServerAssignedPayload(payload);
+    if (!parsed?.correlationId) return;
+
+    const pending = this.pendingSpawnByCorrelation.get(parsed.correlationId);
+    if (!pending) return;
+    this.pendingSpawnByServerId.set(parsed.serverId, pending);
+  }
+
+  private handleServerExited(payload: unknown): void {
+    const parsed = parseServerExitedPayload(payload);
+    if (!parsed) return;
+
+    const server = this.serversById.get(parsed.serverId);
+    if (server) {
+      // Reject in-flight client requests with a server-exit error so the
+      // renderer's promise chain unwinds rather than waiting on a now-dead
+      // process. Channel listeners are intentionally left in place — the
+      // channel itself is still alive and may carry other servers.
+      server.disposePending(serverExitError(parsed));
+      this.serversById.delete(parsed.serverId);
+      this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
+      this.removeUriIndexEntriesWhere(
+        (entry) =>
+          entry.workspaceId === server.workspaceId && entry.presetLanguageId === server.languageId,
+      );
+    }
+
+    // applyEdit-style server requests held in pendingServerRequests are
+    // orphaned when the LSP exits mid-request; the renderer-side promise
+    // would otherwise sit until APPLY_EDIT_RESPONSE_TIMEOUT_MS. Drop them
+    // explicitly here so the timeout path is reserved for actual hangs.
+    for (const [id, pending] of this.pendingServerRequests) {
+      if (pending.serverId === parsed.serverId) {
+        this.pendingServerRequests.delete(id);
+      }
+    }
+    this.pendingSpawnByServerId.delete(parsed.serverId);
   }
 
   private disposeChannelServers(channel: AgentChannel): void {
@@ -695,36 +774,18 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceConfig.set(languageId, flattenInitializationOptions(initializationOptions));
   }
 
-  private serverContextFor(channel: AgentChannel, serverId: string): ServerContext | null {
+  private serverContextFor(_channel: AgentChannel, serverId: string): ServerContext | null {
+    // Resolution path is now deterministic: serversById carries the server
+    // once spawn returns, and pendingSpawnByServerId is populated by the
+    // lsp.serverAssigned event before initialize finishes. No fallback to
+    // "first pending spawn on channel" — that heuristic mis-attributed
+    // pre-spawn-resolution events when two languages spawned concurrently.
     const server = this.serversById.get(serverId);
     if (server) {
       return { workspaceId: server.workspaceId, languageId: server.languageId };
     }
-
-    let pending = this.pendingSpawnByServerId.get(serverId);
-    if (!pending) {
-      pending = this.pendingSpawnsByChannel.get(channel)?.[0];
-      if (pending) {
-        this.pendingSpawnByServerId.set(serverId, pending);
-      }
-    }
+    const pending = this.pendingSpawnByServerId.get(serverId);
     return pending ? { workspaceId: pending.workspaceId, languageId: pending.languageId } : null;
-  }
-
-  private addPendingSpawn(pending: PendingSpawn): void {
-    const spawns = this.pendingSpawnsByChannel.get(pending.channel) ?? [];
-    spawns.push(pending);
-    this.pendingSpawnsByChannel.set(pending.channel, spawns);
-  }
-
-  private removePendingSpawn(pending: PendingSpawn): void {
-    const spawns = this.pendingSpawnsByChannel.get(pending.channel);
-    if (!spawns) return;
-    const index = spawns.indexOf(pending);
-    if (index >= 0) spawns.splice(index, 1);
-    if (spawns.length === 0) {
-      this.pendingSpawnsByChannel.delete(pending.channel);
-    }
   }
 
   private removeUriIndexEntriesWhere(
@@ -754,200 +815,54 @@ interface RequestSpec<A> {
   transform?: (raw: unknown) => unknown;
 }
 
-class AgentLspServer {
-  private readonly pending = new Map<PendingRequestId, PendingClientRequest>();
-  private readonly textDocumentCache = new Map<string, string>();
-  private nextRequestId = 1;
-  private disposed = false;
+// ---------------------------------------------------------------------------
+// Local LSP command resolution
+// ---------------------------------------------------------------------------
 
-  readonly channel: AgentChannel;
-  readonly serverId: string;
-  readonly workspaceId: string;
-  readonly languageId: string;
-  private readonly capabilities: ServerCapabilities;
+// resolveLocalLspCommand returns the binary the local agent should spawn for
+// the requested LSP preset. Production-style runs read the dist/agent
+// manifest emitted by scripts/build-agent.ts and launch the extracted Node
+// entry directly via the user's `node` (matching the SSH launcher script
+// format, but without bundling Node for local). Dev runs without a built
+// dist fall back to node_modules/.bin so `bun run dev` keeps working.
+function resolveLocalLspCommand(preset: LspServerSpec): {
+  readonly binaryPath: string;
+  readonly args: readonly string[];
+} {
+  const fromManifest = resolveLspCommandFromManifest(preset);
+  if (fromManifest) return fromManifest;
+  return { binaryPath: resolveDevBundledBinary(preset.binary), args: preset.args };
+}
 
-  constructor(options: {
-    channel: AgentChannel;
-    serverId: string;
-    workspaceId: string;
-    languageId: string;
-    capabilities: ServerCapabilities;
-  }) {
-    this.channel = options.channel;
-    this.serverId = options.serverId;
-    this.workspaceId = options.workspaceId;
-    this.languageId = options.languageId;
-    this.capabilities = options.capabilities;
-  }
-
-  request(method: string, params: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
-    if (this.disposed) {
-      return Promise.reject(new Error("server disposed"));
-    }
-
-    const id = this.nextRequestId++;
-    return new Promise((resolve, reject) => {
-      const signal = opts.signal;
-      const onAbort = () => {
-        const pending = this.pending.get(id);
-        if (!pending) return;
-        this.pending.delete(id);
-        pending.cleanup();
-        void this.channel.call("lsp.cancel", { serverId: this.serverId, requestId: id });
-        pending.reject(abortError());
-      };
-      const cleanup = () => {
-        signal?.removeEventListener("abort", onAbort);
-      };
-
-      if (signal && !signal.aborted) {
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
-
-      this.pending.set(id, { resolve, reject, cleanup });
-      this.sendMessage({ jsonrpc: "2.0", id, method, params }).catch((error: unknown) => {
-        const pending = this.pending.get(id);
-        if (!pending) return;
-        this.pending.delete(id);
-        pending.cleanup();
-        pending.reject(error instanceof Error ? error : new Error(String(error)));
-      });
-      if (signal?.aborted) {
-        onAbort();
-      }
-    });
-  }
-
-  async notify(method: string, params: unknown): Promise<void> {
-    if (this.disposed) return;
-    await this.sendMessage({ jsonrpc: "2.0", method, params });
-  }
-
-  async notifyTextDocumentDidOpen(params: {
-    textDocument: { uri: string; languageId: string; version: number; text: string };
-  }): Promise<void> {
-    this.textDocumentCache.set(params.textDocument.uri, params.textDocument.text);
-    if (!negotiatedTextDocumentOpenClose(this.capabilities)) return;
-    await this.notify("textDocument/didOpen", params);
-  }
-
-  async notifyTextDocumentDidChange(params: {
-    textDocument: { uri: string; version: number | null };
-    contentChanges: TextDocumentContentChangeEvent[];
-  }): Promise<void> {
-    const kind = negotiatedTextDocumentSyncKind(this.capabilities);
-    if (kind === TextDocumentSyncKind.None) return;
-
-    const uri = params.textDocument.uri;
-    const existingText = this.textDocumentCache.get(uri);
-    const nextText =
-      existingText === undefined
-        ? reconstructMissingCache(params.contentChanges)
-        : applyTextDocumentContentChanges(existingText, params.contentChanges);
-
-    if (nextText !== undefined) {
-      this.textDocumentCache.set(uri, nextText);
-    }
-
-    if (kind === TextDocumentSyncKind.Incremental) {
-      await this.notify("textDocument/didChange", params);
-      return;
-    }
-
-    if (nextText === undefined) return;
-    await this.notify("textDocument/didChange", {
-      textDocument: params.textDocument,
-      contentChanges: [{ text: nextText }],
-    });
-  }
-
-  async notifyTextDocumentDidClose(params: { textDocument: { uri: string } }): Promise<void> {
-    this.textDocumentCache.delete(params.textDocument.uri);
-    if (!negotiatedTextDocumentOpenClose(this.capabilities)) return;
-    await this.notify("textDocument/didClose", params);
-  }
-
-  async notifyTextDocumentDidSave(params: {
-    textDocument: { uri: string };
-    text?: string;
-  }): Promise<void> {
-    const save = negotiatedTextDocumentSave(this.capabilities);
-    if (!save.supported) return;
-
-    await this.notify("textDocument/didSave", {
-      textDocument: params.textDocument,
-      ...(save.includeText && params.text !== undefined ? { text: params.text } : {}),
-    });
-  }
-
-  hasCapability(key: string, sub?: string): boolean {
-    const value = this.capabilities[key];
-    if (sub === undefined) return capabilityValueIsSupported(value);
-    if (value === true) return true;
-    if (!isObjectLike(value)) return false;
-    return capabilityValueIsSupported(value[sub]);
-  }
-
-  handleMessage(message: unknown): boolean {
-    const msg = asRecord(message);
-    if (!msg || !("id" in msg) || (!("result" in msg) && !("error" in msg))) {
-      return false;
-    }
-
-    const id = jsonRpcId(msg.id);
-    if (typeof id !== "number" && typeof id !== "string") return false;
-    const pending = this.pending.get(id);
-    if (!pending) return false;
-
-    this.pending.delete(id);
-    pending.cleanup();
-    if (msg.error) {
-      pending.reject(lspError(msg.error));
-    } else {
-      pending.resolve(msg.result ?? null);
-    }
-    return true;
-  }
-
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.textDocumentCache.clear();
-    for (const [, pending] of this.pending) {
-      pending.cleanup();
-      pending.reject(new Error("server disposed"));
-    }
-    this.pending.clear();
-    void this.channel.call("lsp.shutdown", { serverId: this.serverId }).catch(() => {});
-  }
-
-  private async sendMessage(message: unknown): Promise<void> {
-    await this.channel.call("lsp.send", { serverId: this.serverId, message });
+function resolveLspCommandFromManifest(preset: LspServerSpec): {
+  readonly binaryPath: string;
+  readonly args: readonly string[];
+} | null {
+  const manifestPath = path.join(LOCAL_AGENT_DIST_DIR, "manifest.json");
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+    const lsp = findLspBinary(manifest, { name: preset.binary });
+    if (!lsp) return null;
+    const extractedDir = path.join(LOCAL_AGENT_DIST_DIR, "lsp", `${lsp.name}-${lsp.version}`);
+    const entry = path.join(extractedDir, lsp.entry);
+    if (!fs.existsSync(entry)) return null;
+    return { binaryPath: "node", args: [entry, ...preset.args] };
+  } catch {
+    return null;
   }
 }
 
-function parseSpawnResult(result: unknown): AgentSpawnResult {
-  const parsed = z
-    .object({
-      serverId: z.string().min(1),
-      capabilities: z.unknown().optional(),
-    })
-    .parse(result);
-  return parsed;
-}
-
-function parseServerCapabilities(capabilities: unknown): ServerCapabilities {
-  const parsed = ServerCapabilitiesSchema.safeParse(capabilities);
-  return parsed.success ? parsed.data : {};
-}
-
-function resolveBundledBinary(binary: string): string {
+function resolveDevBundledBinary(binary: string): string {
   const bundledPath = path.resolve(__dirname, "../../../node_modules/.bin", binary);
-  if (fs.existsSync(bundledPath)) {
-    return bundledPath;
-  }
+  if (fs.existsSync(bundledPath)) return bundledPath;
   return path.resolve(process.cwd(), "node_modules/.bin", binary);
 }
+
+// ---------------------------------------------------------------------------
+// LSP request param shapers (kept here because they shape the args the
+// host's call() switch already validated against the per-method schema).
+// ---------------------------------------------------------------------------
 
 function textDocumentPositionParams(args: { uri: string; line: number; character: number }) {
   return {
@@ -970,354 +885,4 @@ function referencesParams(args: {
 
 function documentSymbolParams(args: { uri: string }) {
   return { textDocument: { uri: args.uri } };
-}
-
-function isObjectLike(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return isObjectLike(value) ? value : null;
-}
-
-function jsonRpcId(value: unknown): JsonRpcId {
-  if (typeof value === "string" || typeof value === "number" || value === null) return value;
-  return null;
-}
-
-function capabilityValueIsSupported(value: unknown): boolean {
-  if (value === false || value === null || value === undefined) return false;
-  if (typeof value === "number") return value !== 0;
-  return Boolean(value);
-}
-
-function textDocumentSyncCapability(
-  capabilities: ServerCapabilities,
-): number | Record<string, unknown> | undefined {
-  const value = capabilities.textDocumentSync;
-  if (typeof value === "number" || isObjectLike(value)) return value;
-  return undefined;
-}
-
-function validTextDocumentSyncKind(value: unknown): TextDocumentSyncKindValue | null {
-  if (
-    value === TextDocumentSyncKind.None ||
-    value === TextDocumentSyncKind.Full ||
-    value === TextDocumentSyncKind.Incremental
-  ) {
-    return value;
-  }
-  return null;
-}
-
-function negotiatedTextDocumentSyncKind(
-  capabilities: ServerCapabilities,
-): TextDocumentSyncKindValue {
-  const sync = textDocumentSyncCapability(capabilities);
-  const numeric = validTextDocumentSyncKind(sync);
-  if (numeric !== null) return numeric;
-  if (isObjectLike(sync)) {
-    return validTextDocumentSyncKind(sync.change) ?? TextDocumentSyncKind.None;
-  }
-  return TextDocumentSyncKind.None;
-}
-
-function negotiatedTextDocumentOpenClose(capabilities: ServerCapabilities): boolean {
-  const sync = textDocumentSyncCapability(capabilities);
-  const numeric = validTextDocumentSyncKind(sync);
-  if (numeric !== null) return numeric !== TextDocumentSyncKind.None;
-  return isObjectLike(sync) && sync.openClose === true;
-}
-
-function negotiatedTextDocumentSave(capabilities: ServerCapabilities): {
-  supported: boolean;
-  includeText: boolean;
-} {
-  const sync = textDocumentSyncCapability(capabilities);
-  if (!isObjectLike(sync)) return { supported: false, includeText: false };
-
-  const save = sync.save;
-  if (save === true) return { supported: true, includeText: false };
-  if (isObjectLike(save)) {
-    return { supported: true, includeText: save.includeText === true };
-  }
-  return { supported: false, includeText: false };
-}
-
-function reconstructMissingCache(
-  contentChanges: readonly TextDocumentContentChangeEvent[],
-): string | undefined {
-  for (const change of contentChanges) {
-    if (!("range" in change)) return change.text;
-  }
-  return undefined;
-}
-
-function applyTextDocumentContentChanges(
-  text: string,
-  contentChanges: readonly TextDocumentContentChangeEvent[],
-): string {
-  let nextText = text;
-  for (const change of contentChanges) {
-    if (!("range" in change)) {
-      nextText = change.text;
-      continue;
-    }
-
-    const start = offsetAt(nextText, change.range.start);
-    const end = offsetAt(nextText, change.range.end);
-    nextText = `${nextText.slice(0, start)}${change.text}${nextText.slice(end)}`;
-  }
-  return nextText;
-}
-
-function offsetAt(text: string, position: { line: number; character: number }): number {
-  let index = 0;
-  let line = 0;
-
-  while (line < position.line && index < text.length) {
-    const code = text.charCodeAt(index);
-    index += 1;
-    if (code === 13) {
-      if (text.charCodeAt(index) === 10) index += 1;
-      line += 1;
-    } else if (code === 10) {
-      line += 1;
-    }
-  }
-
-  return Math.min(index + position.character, lineEndOffset(text, index));
-}
-
-function lineEndOffset(text: string, lineStart: number): number {
-  let index = lineStart;
-  while (index < text.length) {
-    const code = text.charCodeAt(index);
-    if (code === 10 || code === 13) break;
-    index += 1;
-  }
-  return index;
-}
-
-function markedStringToMarkdown(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (!isObjectLike(raw) || !("value" in raw)) return "";
-
-  const value = raw.value;
-  if (typeof value !== "string") return "";
-
-  const language = raw.language;
-  if (typeof language === "string" && language.length > 0) {
-    return `\`\`\`${language}\n${value}\n\`\`\``;
-  }
-  return value;
-}
-
-function normalizeHoverContents(raw: unknown): unknown {
-  const markup = MarkupContentSchema.safeParse(raw);
-  if (markup.success) return markup.data;
-
-  if (Array.isArray(raw)) {
-    const text = raw.map(markedStringToMarkdown).filter(Boolean).join("\n\n");
-    return text.length > 0 ? text : null;
-  }
-
-  if (typeof raw === "string") return raw;
-
-  const marked = markedStringToMarkdown(raw);
-  return marked.length > 0 ? marked : null;
-}
-
-function normalizeHoverResult(raw: unknown): unknown {
-  if (!isObjectLike(raw)) return null;
-  const contents = normalizeHoverContents(raw.contents);
-  if (contents === null) return null;
-
-  const range = RangeSchema.safeParse(raw.range);
-  return range.success ? { contents, range: range.data } : { contents };
-}
-
-function normalizeDefinitionItem(raw: unknown): Location | null {
-  const location = LocationSchema.safeParse(raw);
-  if (location.success) return location.data;
-
-  const locationLink = LocationLinkSchema.safeParse(raw);
-  if (locationLink.success) {
-    return {
-      uri: locationLink.data.targetUri,
-      range: locationLink.data.targetSelectionRange,
-    };
-  }
-
-  return null;
-}
-
-function normalizeDefinitionResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const items = Array.isArray(raw) ? raw : [raw];
-  return items.flatMap((item) => {
-    const normalized = normalizeDefinitionItem(item);
-    return normalized ? [normalized] : [];
-  });
-}
-
-function normalizeDocumentHighlightResult(raw: unknown): unknown {
-  return raw ?? [];
-}
-
-function normalizeDocumentSymbolResult(raw: unknown): unknown {
-  const parsed = z.array(DocumentSymbolSchema).safeParse(raw);
-  if (parsed.success) return parsed.data;
-
-  console.warn("[lsp-agent] textDocument/documentSymbol returned non-hierarchical symbols", {
-    issues: parsed.error.issues,
-  });
-  return [];
-}
-
-function normalizeWorkspaceSymbolResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const items = Array.isArray(raw) ? raw : [];
-  return items.flatMap((item) => {
-    const parsed = SymbolInformationSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function normalizeCompletionResult(raw: unknown): unknown {
-  if (!raw) return [];
-  const rawItems =
-    Array.isArray(raw) || !isObjectLike(raw) ? raw : (raw as { items?: unknown }).items;
-  const items = Array.isArray(rawItems) ? rawItems : [];
-  return items.flatMap((item) => {
-    const parsed = CompletionItemSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
-function parsePublishDiagnostics(
-  params: unknown,
-): { uri: string; diagnostics: z.infer<typeof DiagnosticSchema>[] } | null {
-  const parsed = z
-    .object({
-      uri: TextDocumentIdentifierSchema.shape.uri,
-      diagnostics: z.array(z.unknown()).optional(),
-    })
-    .safeParse(params);
-  if (!parsed.success) return null;
-
-  return {
-    uri: parsed.data.uri,
-    diagnostics: (parsed.data.diagnostics ?? []).flatMap((diagnostic) => {
-      const item = DiagnosticSchema.safeParse(diagnostic);
-      return item.success ? [item.data] : [];
-    }),
-  };
-}
-
-function parseAgentMessagePayload(payload: unknown): { serverId: string; message: unknown } | null {
-  const record = asRecord(payload);
-  if (!record || typeof record.serverId !== "string" || !("message" in record)) {
-    return null;
-  }
-  return { serverId: record.serverId, message: record.message };
-}
-
-function parseAgentServerRequestPayload(
-  payload: unknown,
-): { serverId: string; agentRequestId: string; method: string; params: unknown } | null {
-  const parsed = z
-    .object({
-      serverId: z.string(),
-      agentRequestId: z.string(),
-      method: z.string(),
-      params: z.unknown().optional(),
-    })
-    .safeParse(payload);
-  return parsed.success
-    ? { ...parsed.data, params: parsed.data.params === undefined ? null : parsed.data.params }
-    : null;
-}
-
-function firstShowMessageAction(params: unknown): unknown {
-  const parsed = ShowMessageRequestParamsSchema.safeParse(params);
-  if (!parsed.success) return null;
-  return parsed.data.actions?.[0] ?? null;
-}
-
-function parseWorkDoneProgressCreateParams(params: unknown): unknown {
-  const parsed = WorkDoneProgressCreateParamsSchema.safeParse(params);
-  return parsed.success ? parsed.data : params;
-}
-
-function isPlainConfigObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function flattenInitializationOptions(
-  value: unknown,
-  prefix = "",
-  output = new Map<string, unknown>(),
-): Map<string, unknown> {
-  if (!isPlainConfigObject(value)) {
-    if (prefix.length > 0) output.set(prefix, value);
-    return output;
-  }
-
-  for (const [key, child] of Object.entries(value)) {
-    const childKey = prefix.length > 0 ? `${prefix}.${key}` : key;
-    if (isPlainConfigObject(child)) {
-      flattenInitializationOptions(child, childKey, output);
-    } else {
-      output.set(childKey, child);
-    }
-  }
-  return output;
-}
-
-function lookupFlattenedConfig(flatConfig: Map<string, unknown>, section: string): unknown {
-  if (flatConfig.has(section)) return flatConfig.get(section);
-
-  const prefix = `${section}.`;
-  const sectionValue: Record<string, unknown> = {};
-  let found = false;
-  for (const [key, value] of flatConfig) {
-    if (!key.startsWith(prefix)) continue;
-    found = true;
-    setNestedConfigValue(sectionValue, key.slice(prefix.length).split("."), value);
-  }
-  return found ? sectionValue : null;
-}
-
-function setNestedConfigValue(
-  target: Record<string, unknown>,
-  pathParts: string[],
-  value: unknown,
-) {
-  let cursor = target;
-  for (let index = 0; index < pathParts.length - 1; index += 1) {
-    const part = pathParts[index];
-    const existing = cursor[part];
-    if (!isPlainConfigObject(existing)) {
-      cursor[part] = {};
-    }
-    cursor = cursor[part] as Record<string, unknown>;
-  }
-  const leaf = pathParts.at(-1);
-  if (leaf !== undefined) {
-    cursor[leaf] = value;
-  }
-}
-
-function lspError(raw: unknown): Error {
-  if (isObjectLike(raw) && typeof raw.message === "string") {
-    return new Error(raw.message);
-  }
-  return new Error("LSP error");
-}
-
-function abortError(): Error {
-  const err = new Error("Request cancelled");
-  err.name = "AbortError";
-  return err;
 }

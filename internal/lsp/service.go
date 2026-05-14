@@ -114,6 +114,15 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 
+	// Announce the serverId before initialize runs so the client can
+	// route any pre-spawn-resolution server messages (configuration,
+	// publishDiagnostics on a workspace open, etc.) by serverId rather
+	// than guessing from the order spawns were issued.
+	_ = s.emit(EventServerAssigned, ServerAssignedPayload{
+		ServerID:      serverID,
+		CorrelationID: p.CorrelationID,
+	})
+
 	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
 	capabilities, err := server.initialize(initCtx)
 	cancel()

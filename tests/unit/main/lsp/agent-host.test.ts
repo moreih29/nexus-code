@@ -33,6 +33,14 @@ class FakeAgentChannel implements AgentChannel {
     this.calls.push({ method, params });
 
     if (method === "lsp.spawn") {
+      // Mirror the real agent: serverAssigned is emitted before any
+      // server-pushed request so the host can resolve serverId context
+      // while initialize is still in flight.
+      const correlationId = (params as { correlationId?: string } | undefined)?.correlationId;
+      this.emit("lsp.serverAssigned", {
+        serverId: this.serverId,
+        ...(correlationId ? { correlationId } : {}),
+      });
       if (this.emitConfigurationRequest) {
         this.emit("lsp.serverRequest", {
           serverId: this.serverId,
@@ -116,6 +124,83 @@ class FakeAgentChannel implements AgentChannel {
       }
     }
 
+    return {} as TResult;
+  }
+
+  on(event: string, callback: ChannelEventCallback): () => void {
+    let listeners = this.eventListeners.get(event);
+    if (!listeners) {
+      listeners = new Set();
+      this.eventListeners.set(event, listeners);
+    }
+    listeners.add(callback);
+    return () => listeners?.delete(callback);
+  }
+
+  onLifecycle(callback: ChannelLifecycleCallback): () => void {
+    this.lifecycleListeners.add(callback);
+    return () => this.lifecycleListeners.delete(callback);
+  }
+
+  emit(event: string, payload: unknown): void {
+    for (const listener of this.eventListeners.get(event) ?? []) {
+      listener(payload);
+    }
+  }
+
+  dispose(): void {}
+}
+
+// SharedAgentChannel models a single workspace channel that hosts multiple
+// LSP servers concurrently — the case where the original
+// pendingSpawnsByChannel heuristic mis-attributed pre-spawn-resolution
+// events. Each lsp.spawn assigns a fresh serverId, emits lsp.serverAssigned
+// with the caller's correlationId, then pushes a window/logMessage event
+// that the test asserts gets attributed to the matching languageId.
+class SharedAgentChannel implements AgentChannel {
+  readonly ready = Promise.resolve();
+  readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
+  readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
+  private nextServerSeq = 0;
+  // Hold spawn responses until both calls have arrived so the assignment
+  // race is realistic — both serverId emissions fire before either spawn
+  // promise resolves, so any heuristic that picks "first pending" cannot
+  // hide the bug.
+  private pendingResolvers: Array<() => void> = [];
+
+  async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+    if (method === "lsp.spawn") {
+      this.nextServerSeq += 1;
+      const serverId = `srv-shared-${this.nextServerSeq}`;
+      const correlationId = (params as { correlationId?: string } | undefined)?.correlationId;
+      this.emit("lsp.serverAssigned", {
+        serverId,
+        ...(correlationId ? { correlationId } : {}),
+      });
+      this.emit("lsp.message", {
+        serverId,
+        message: {
+          jsonrpc: "2.0",
+          method: "window/logMessage",
+          params: { type: 4, message: `boot ${serverId}` },
+        },
+      });
+      return new Promise<TResult>((resolve) => {
+        this.pendingResolvers.push(() =>
+          resolve({
+            serverId,
+            capabilities: {
+              textDocumentSync: { openClose: true, change: 2 },
+              hoverProvider: true,
+            },
+          } as TResult),
+        );
+        if (this.pendingResolvers.length === 2) {
+          for (const r of this.pendingResolvers) r();
+          this.pendingResolvers = [];
+        }
+      });
+    }
     return {} as TResult;
   }
 
@@ -402,6 +487,73 @@ describe("AgentLspHostHandle", () => {
 
     const hoverAfterDispose = await host.call("hover", { uri: URI, line: 0, character: 1 });
     expect(hoverAfterDispose).toBeNull();
+  });
+
+  test("routes concurrent spawn server requests to the originating language", async () => {
+    // Without correlation, two same-channel spawns of different languages
+    // could attribute pre-spawn-resolution server requests to whichever
+    // spawn registered first. With lsp.serverAssigned each request is
+    // tagged with its spawn's serverId before initialize finishes.
+    const channel = new SharedAgentChannel();
+    const host = startAgentLspHost({
+      getAgentChannel: async () => channel,
+    });
+    const serverEvents: Array<{ languageId: string; method: string }> = [];
+    host.on("serverEvent", (args) => {
+      const event = args as { languageId: string; method: string };
+      serverEvents.push({ languageId: event.languageId, method: event.method });
+    });
+
+    await Promise.all([
+      host.call("didOpen", {
+        workspaceId: WORKSPACE_ID,
+        workspaceRoot: "/tmp/ws",
+        uri: "file:///tmp/ws/main.ts",
+        languageId: "typescript",
+        version: 1,
+        text: "export const x = 1\n",
+      }),
+      host.call("didOpen", {
+        workspaceId: WORKSPACE_ID,
+        workspaceRoot: "/tmp/ws",
+        uri: "file:///tmp/ws/app.py",
+        languageId: "python",
+        version: 1,
+        text: "print(1)\n",
+      }),
+    ]);
+
+    expect(serverEvents).toHaveLength(2);
+    expect(serverEvents).toContainEqual({
+      languageId: "typescript",
+      method: "window/logMessage",
+    });
+    expect(serverEvents).toContainEqual({ languageId: "python", method: "window/logMessage" });
+  });
+
+  test("rejects pending requests and forgets the server when lsp.serverExited fires", async () => {
+    const channel = new FakeAgentChannel();
+    const host = startAgentLspHost({
+      getAgentChannel: async () => channel,
+    });
+
+    await host.call("didOpen", {
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/ws",
+      uri: URI,
+      languageId: "python",
+      version: 1,
+      text: "print(1)\n",
+    });
+
+    channel.emit("lsp.serverExited", {
+      serverId: channel.serverId,
+      reason: "lsp server exited: signal: killed",
+      stderrTail: "panic: out of memory",
+    });
+
+    const hoverAfterExit = await host.call("hover", { uri: URI, line: 0, character: 1 });
+    expect(hoverAfterExit).toBeNull();
   });
 });
 

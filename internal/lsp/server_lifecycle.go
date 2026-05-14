@@ -99,6 +99,19 @@ func (p *serverProcess) markExited(err error) {
 		}
 		close(p.done)
 		p.service.removeServer(p.id, p)
+
+		// Always notify the client so it can drop its mirror of the
+		// server (uri index, pending applyEdit promises). emit() is a
+		// no-op when no sink is wired (e.g. unit tests without one).
+		reason := ""
+		if err != nil {
+			reason = err.Error()
+		}
+		_ = p.service.emit(EventServerExited, ServerExitedPayload{
+			ServerID:   p.id,
+			Reason:     reason,
+			StderrTail: p.snapshotStderr(),
+		})
 	})
 }
 

@@ -132,6 +132,79 @@ func TestServerRequestCorrelationCleansManyRequests(t *testing.T) {
 	}
 }
 
+func TestSpawnEmitsServerAssignedBeforeReturning(t *testing.T) {
+	// The host needs to bind serverId↔correlationId before initialize
+	// completes so server-pushed events arriving during initialize can be
+	// routed without falling back to a "first pending spawn" heuristic.
+	service, events := newTestService(t)
+	correlationID := "corr-abc"
+
+	t.Setenv("NEXUS_LSP_FAKE_SERVER", "1")
+	params := SpawnParams{
+		WorkspaceID:   "workspace",
+		LanguageID:    "fake",
+		BinaryPath:    os.Args[0],
+		Args:          []string{"-test.run=TestFakeLSPServerHelper", "--", "roundtrip"},
+		WorkspaceRoot: t.TempDir(),
+		CorrelationID: correlationID,
+	}
+	result, err := service.Spawn(context.Background(), mustJSON(t, params))
+	if err != nil {
+		t.Fatalf("Spawn() error = %v", err)
+	}
+	spawnResult := result.(SpawnResult)
+
+	event := waitEvent(t, events, EventServerAssigned)
+	payload := event.payload.(ServerAssignedPayload)
+	if payload.ServerID != spawnResult.ServerID {
+		t.Fatalf("serverAssigned serverId = %q, want %q", payload.ServerID, spawnResult.ServerID)
+	}
+	if payload.CorrelationID != correlationID {
+		t.Fatalf("serverAssigned correlationId = %q, want %q", payload.CorrelationID, correlationID)
+	}
+
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: spawnResult.ServerID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+func TestShutdownEmitsServerExited(t *testing.T) {
+	// serverExited is the signal the TS host uses to drop in-flight
+	// requests and forget the server; verify it fires for a clean
+	// shutdown path (idle timer test already covers the kill path).
+	service, events := newTestService(t)
+	result := spawnFakeServer(t, service, "roundtrip", nil, "")
+
+	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	event := waitEvent(t, events, EventServerExited)
+	payload := event.payload.(ServerExitedPayload)
+	if payload.ServerID != result.ServerID {
+		t.Fatalf("serverExited serverId = %q, want %q", payload.ServerID, result.ServerID)
+	}
+}
+
+func TestJSONRPCIDKeyRejectsNullID(t *testing.T) {
+	// null id was previously accepted as a valid key, which let a buggy
+	// or malicious server pollute the pending-internal map under a
+	// literal "null" key. Reject it explicitly; string and numeric ids
+	// remain valid.
+	if _, ok := jsonRPCIDKey(json.RawMessage("null")); ok {
+		t.Fatal("jsonRPCIDKey should reject null id")
+	}
+	if _, ok := jsonRPCIDKey(json.RawMessage("")); ok {
+		t.Fatal("jsonRPCIDKey should reject empty raw id")
+	}
+	if _, ok := jsonRPCIDKey(json.RawMessage(`"abc"`)); !ok {
+		t.Fatal("jsonRPCIDKey should accept string id")
+	}
+	if _, ok := jsonRPCIDKey(json.RawMessage("42")); !ok {
+		t.Fatal("jsonRPCIDKey should accept number id")
+	}
+}
+
 func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	service, events := newTestService(t)
 	recordPath := filepath.Join(t.TempDir(), "watched-files.jsonl")

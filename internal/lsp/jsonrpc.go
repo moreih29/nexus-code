@@ -16,12 +16,12 @@ func stringField(raw json.RawMessage) (string, bool) {
 }
 
 func jsonRPCIDKey(raw json.RawMessage) (string, bool) {
+	// JSON-RPC 2.0 forbids a null id on requests, and treating it as a
+	// valid key would let any server-sent null collide with the literal
+	// "null" string id we never use ourselves. Reject it outright.
 	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
+	if trimmed == "" || trimmed == "null" {
 		return "", false
-	}
-	if trimmed == "null" {
-		return "null", true
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {

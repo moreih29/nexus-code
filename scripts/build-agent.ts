@@ -217,15 +217,19 @@ async function buildLspBundles(args: {
   readonly run: Runner;
 }): Promise<LspArtifactInput[]> {
   const lspOutDir = path.join(args.outDir, "lsp");
-  const stagingRoot = path.join(args.outDir, ".staging", "lsp");
   await fs.mkdir(lspOutDir, { recursive: true });
-  await fs.rm(stagingRoot, { recursive: true, force: true });
 
   const artifacts: LspArtifactInput[] = [];
   for (const bundle of LSP_BUNDLES) {
     const version = await installedPackageVersion(args.rootDir, bundle.packageName);
-    const stagingDir = path.join(stagingRoot, bundle.name);
-    await fs.mkdir(stagingDir, { recursive: true });
+    // Install once into the published extracted directory so local agent
+    // launches reuse it as a node module tree, then tar from that same
+    // tree for SSH uploads. Avoids the previous pattern of installing
+    // into a throwaway staging dir and only shipping the archive — local
+    // mode could not consume the archive directly.
+    const extractedDir = path.join(lspOutDir, `${bundle.name}-${version}`);
+    await fs.rm(extractedDir, { recursive: true, force: true });
+    await fs.mkdir(extractedDir, { recursive: true });
     const dependencies: Record<string, string> = {
       [bundle.packageName]: version,
     };
@@ -233,17 +237,17 @@ async function buildLspBundles(args: {
       dependencies[dependency] = await installedPackageVersion(args.rootDir, dependency);
     }
     await fs.writeFile(
-      path.join(stagingDir, "package.json"),
+      path.join(extractedDir, "package.json"),
       `${JSON.stringify({ private: true, dependencies }, null, 2)}\n`,
     );
     await args.run(
       "npm",
       ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
-      { cwd: stagingDir },
+      { cwd: extractedDir },
     );
 
     const archiveName = `${bundle.name}-${version}.tar.gz`;
-    await args.run("tar", ["-czf", path.join(lspOutDir, archiveName), "-C", stagingDir, "."], {
+    await args.run("tar", ["-czf", path.join(lspOutDir, archiveName), "-C", extractedDir, "."], {
       cwd: args.rootDir,
     });
     artifacts.push({
@@ -258,7 +262,6 @@ async function buildLspBundles(args: {
     });
   }
 
-  await fs.rm(stagingRoot, { recursive: true, force: true });
   return artifacts;
 }
 

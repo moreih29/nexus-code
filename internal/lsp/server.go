@@ -39,6 +39,7 @@ type serverProcess struct {
 	idleTimer                       *time.Timer
 	exited                          bool
 	exitErr                         error
+	stderrBuf                       []byte
 
 	done         chan struct{}
 	exitOnce     sync.Once
@@ -100,9 +101,43 @@ func (p *serverProcess) start(ctx context.Context) error {
 	p.stderr = stderr
 
 	go p.readLoop()
-	go func() { _, _ = io.Copy(io.Discard, stderr) }()
+	go p.captureStderr()
 	go p.waitLoop()
 	return nil
+}
+
+// captureStderr drains the language server's stderr into a bounded ring
+// buffer so the last few KB survive even when the server crashes silently.
+// The buffer is then flushed onto the serverExited event payload.
+func (p *serverProcess) captureStderr() {
+	buf := make([]byte, 4*1024)
+	for {
+		n, err := p.stderr.Read(buf)
+		if n > 0 {
+			p.appendStderr(buf[:n])
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (p *serverProcess) appendStderr(chunk []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.stderrBuf = append(p.stderrBuf, chunk...)
+	if overflow := len(p.stderrBuf) - stderrTailBytes; overflow > 0 {
+		p.stderrBuf = append(p.stderrBuf[:0], p.stderrBuf[overflow:]...)
+	}
+}
+
+func (p *serverProcess) snapshotStderr() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.stderrBuf) == 0 {
+		return ""
+	}
+	return string(p.stderrBuf)
 }
 
 func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, error) {
@@ -146,6 +181,11 @@ func (p *serverProcess) initializeParams() map[string]any {
 			"workspace": map[string]any{
 				"didChangeWatchedFiles": map[string]any{
 					"dynamicRegistration": true,
+				},
+			},
+			"textDocument": map[string]any{
+				"documentSymbol": map[string]any{
+					"hierarchicalDocumentSymbolSupport": true,
 				},
 			},
 		},
