@@ -8,11 +8,11 @@ import type {
   PullResult,
   PushResult,
 } from "../../../../shared/types/git";
-import type { GitAutofetchScheduler } from "../domain/git-autofetch";
-import { GitError } from "../domain/git-error";
-import type { GitRegistry } from "../domain/git-registry";
-import type { CallContext } from "../../../ipc/router";
-import { validateArgs } from "../../../ipc/router";
+import type { GitAutofetchScheduler } from "../domain/autofetch";
+import { GitError } from "../domain/error";
+import type { GitRegistry } from "../domain/registry";
+import type { CallContext } from "../../../infra/ipc/router";
+import { validateArgs } from "../../../infra/ipc/router";
 
 const c = ipcContract.git.call;
 

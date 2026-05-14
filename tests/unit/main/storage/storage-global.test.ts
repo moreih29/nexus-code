@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import os from "node:os";
 import path from "node:path";
-import { GlobalStorage } from "../../../../src/main/storage/global-storage";
-import { applyMigrations } from "../../../../src/main/storage/migrations";
+import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
+import { applyMigrations } from "../../../../src/main/infra/storage/migrations";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------

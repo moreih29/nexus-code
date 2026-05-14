@@ -14,11 +14,11 @@ import type {
   GitFetchAllResult,
 } from "../../../../shared/types/git";
 import { normalizeGitAutofetchIntervalMin } from "../../../../shared/types/git";
-import type { WorkspaceStorage } from "../../../storage/workspace-storage";
+import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import { isSshWorkspace } from "../../workspace/guards";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
-import { GitError } from "./git-error";
-import type { GitRegistry } from "./git-registry";
+import { GitError } from "./error";
+import type { GitRegistry } from "./registry";
 
 const AUTOFETCH_TICK_MS = 1_000;
 const FAILURE_PAUSE_THRESHOLD = 3;

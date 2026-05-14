@@ -2,8 +2,8 @@
  * Scenario tests for workflow IPC handlers' mutation refresh contract.
  */
 import { describe, expect, test } from "bun:test";
-import { GitError } from "../../../../src/main/features/git/domain/git-error";
-import type { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
+import { GitError } from "../../../../src/main/features/git/domain/error";
+import type { GitRegistry } from "../../../../src/main/features/git/domain/registry";
 import {
   abortOpHandler,
   cherryPickHandler,

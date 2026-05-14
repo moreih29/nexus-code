@@ -2,7 +2,7 @@
 // Forks out/main/lsp-host.js as an Electron utilityProcess and establishes
 // a bidirectional MessagePort channel for LSP traffic.
 
-import { createUtilityHost } from "../../hosts/utility-host";
+import { createUtilityHost } from "../../infra/hosts/utility-host";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -11,7 +11,7 @@ import type {
   GitLogOptions,
   GitProcessOptions,
 } from "../../../../src/main/features/git/bridge/types";
-import { GitRepository } from "../../../../src/main/features/git/domain/git-repository";
+import { GitRepository } from "../../../../src/main/features/git/domain/repository";
 import { stubMetadataReader } from "./helpers/local-semantic-executor";
 import {
   GIT_BLOB_CHUNK_EVENT,

@@ -18,9 +18,9 @@ import {
   requireWorkspace,
 } from "../../workspace/guards";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
-import { GitError } from "./git-error";
-import type { GitHelpersIpcManager } from "./helpers/git-helpers-ipc";
-import { GitRepository } from "./git-repository";
+import { GitError } from "./error";
+import type { GitHelpersIpcManager } from "./helpers/ipc";
+import { GitRepository } from "./repository";
 import type { StatusCoalescer } from "./status-coalescer";
 
 /** Minimal binary descriptor — path + version carried from agent info. */

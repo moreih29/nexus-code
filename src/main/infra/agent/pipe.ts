@@ -12,8 +12,8 @@
  */
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
-import { PendingRequestMap } from "../../shared/pending-request-map";
-import type { SshErrorCode } from "../../shared/types/ssh-errors";
+import { PendingRequestMap } from "../../../shared/pending-request-map";
+import type { SshErrorCode } from "../../../shared/types/ssh-errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 

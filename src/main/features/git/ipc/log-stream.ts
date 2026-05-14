@@ -7,9 +7,9 @@ import type {
   InferProgress,
   ipcContract,
 } from "../../../../shared/ipc-contract";
-import { GitError } from "../domain/git-error";
-import type { GitRegistry } from "../domain/git-registry";
-import type { StreamContext } from "../../../ipc/router";
+import { GitError } from "../domain/error";
+import type { GitRegistry } from "../domain/registry";
+import type { StreamContext } from "../../../infra/ipc/router";
 
 type LogStreamProcedure = (typeof ipcContract)["git"]["stream"]["log"];
 type LogStreamArgs = InferArgs<LogStreamProcedure>;

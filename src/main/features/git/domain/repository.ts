@@ -45,7 +45,7 @@ import type {
   RunGitResult,
 } from "../bridge/types";
 import { isBinaryProbe } from "../../../../shared/binary-detect";
-import { GitError } from "./git-error";
+import { GitError } from "./error";
 import { isAllowedGitRemoteUrl } from "../../../../shared/git-remote-validation";
 import {
   assertHasHead,
@@ -57,8 +57,8 @@ import {
   parseBranchLines,
   resolveCheckoutTarget,
   throwIfAborted,
-} from "./git-repository-helpers";
-import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers/helpers-launcher";
+} from "./repository-helpers";
+import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers/launcher";
 
 const GIT_OPEN_FILE_AT_HEAD_MAX_BYTES = 1024 * 1024;
 

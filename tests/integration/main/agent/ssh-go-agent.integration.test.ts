@@ -5,8 +5,8 @@ import { SshFsProvider } from "../../../../src/main/features/fs/bridge/ssh-provi
 import {
   LOCAL_AGENT_DIST_DIR,
   ensureRemoteAgent,
-} from "../../../../src/main/agent/ssh-bootstrap";
-import { createSshChannel } from "../../../../src/main/agent/ssh-channel";
+} from "../../../../src/main/infra/agent/ssh-bootstrap";
+import { createSshChannel } from "../../../../src/main/infra/agent/ssh-channel";
 import { spawnNodeBackedPty } from "./node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";

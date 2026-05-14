@@ -6,7 +6,7 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
   WorkspaceMetaSchema,
-} from "../../shared/types/workspace";
+} from "../../../shared/types/workspace";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------

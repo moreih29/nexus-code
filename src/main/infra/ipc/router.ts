@@ -5,17 +5,17 @@ import {
   IPC_GIT_ERROR_MARK,
   type IpcGitErrorPayload,
   type IpcGitErrorResult,
-} from "../../shared/git-error-ipc";
-import { IPC_ABORT_SENTINEL } from "../../shared/ipc-abort-sentinel";
+} from "../../../shared/git-error-ipc";
+import { IPC_ABORT_SENTINEL } from "../../../shared/ipc-abort-sentinel";
 import {
   type InferArgs,
   type InferComplete,
   type InferProgress,
   ipcContract,
   type StreamProcedure,
-} from "../../shared/ipc-contract";
-import { PendingRequestMap } from "../../shared/pending-request-map";
-import { GitError } from "../features/git/domain/git-error";
+} from "../../../shared/ipc-contract";
+import { PendingRequestMap } from "../../../shared/pending-request-map";
+import { GitError } from "../../features/git/domain/error";
 
 // ---------------------------------------------------------------------------
 // Types

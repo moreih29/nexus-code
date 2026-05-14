@@ -4,7 +4,7 @@ import {
   gitErrorFromAgent,
   gitErrorFromExit,
   outputTooLargeGitError,
-} from "../../../../src/main/features/git/domain/git-error";
+} from "../../../../src/main/features/git/domain/error";
 
 describe("gitErrorFromAgent", () => {
   test("wraps an agent-classified envelope as a GitError marker", () => {

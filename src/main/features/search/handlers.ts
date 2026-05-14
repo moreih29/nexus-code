@@ -18,7 +18,7 @@ import {
   findWorkspace,
 } from "../workspace/guards";
 import type { WorkspaceManager } from "../workspace/manager";
-import type { StreamContext } from "../../ipc/router";
+import type { StreamContext } from "../../infra/ipc/router";
 
 type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
 type SearchTextArgs = InferArgs<SearchTextStreamProcedure>;

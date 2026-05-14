@@ -11,7 +11,7 @@ import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createLocalChannel } from "../../../src/main/agent/local-channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/local-channel";
 import {
   AgentGitAskpassRequestPayloadSchema,
   AgentGitRunResultSchema,

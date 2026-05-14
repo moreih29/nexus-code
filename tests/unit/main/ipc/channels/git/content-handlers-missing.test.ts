@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { GitError } from "../../../../../../src/main/features/git/domain/git-error";
+import { GitError } from "../../../../../../src/main/features/git/domain/error";
 import { getFileContentHandler } from "../../../../../../src/main/features/git/ipc/content-handlers";
 
 // ---------------------------------------------------------------------------

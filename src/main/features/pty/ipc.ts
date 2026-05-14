@@ -4,8 +4,8 @@
 
 import { ipcContract } from "../../../shared/ipc-contract";
 import type { PtyHostHandle } from "./host";
-import { getDefaultShell } from "../../platform/shell";
-import { broadcast, register, validateArgs } from "../../ipc/router";
+import { getDefaultShell } from "../../infra/platform/shell";
+import { broadcast, register, validateArgs } from "../../infra/ipc/router";
 
 const c = ipcContract.pty.call;
 

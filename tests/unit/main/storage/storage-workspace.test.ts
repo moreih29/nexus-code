@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
+import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../../src/shared/types/git";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 

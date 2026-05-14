@@ -22,7 +22,7 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import { createLocalChannel } from "../../../src/main/agent/local-channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/local-channel";
 import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/protocol/agent/envelope";
 import { AgentFsErrorCodeSchema } from "../../../src/shared/protocol/agent/errors";
 import {

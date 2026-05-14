@@ -7,28 +7,28 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../../shared/types/workspace";
-import type { AgentChannel } from "../../agent/channel";
+import type { AgentChannel } from "../../infra/agent/channel";
 import {
   type LocalAgentCommand,
   resolveLocalAgentCommand,
-} from "../../agent/local-agent-resolver";
-import { type CreateLocalChannelOptions, createLocalChannel } from "../../agent/local-channel";
+} from "../../infra/agent/local-agent-resolver";
+import { type CreateLocalChannelOptions, createLocalChannel } from "../../infra/agent/local-channel";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
-import type { GlobalStorage } from "../../storage/global-storage";
-import type { StateService } from "../../storage/state-service";
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
+import type { GlobalStorage } from "../../infra/storage/global-storage";
+import type { StateService } from "../../infra/storage/state-service";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
   type SshChannelLifecycleEvent,
-} from "../../agent/ssh-channel";
+} from "../../infra/agent/ssh-channel";
 import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
   ensureRemoteAgent,
-} from "../../agent/ssh-bootstrap";
+} from "../../infra/agent/ssh-bootstrap";
 import { WorkspaceContext } from "./context";
 
 // ---------------------------------------------------------------------------

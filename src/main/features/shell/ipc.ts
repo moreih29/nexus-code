@@ -2,7 +2,7 @@
  * system channel — registers workspace-agnostic shell/window handlers.
  */
 
-import { register } from "../../ipc/router";
+import { register } from "../../infra/ipc/router";
 import { openNewWindowHandler } from "../window/ipc";
 import { openPathExternalHandler, revealInOSHandler } from "./open-path";
 

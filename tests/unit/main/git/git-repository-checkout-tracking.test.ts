@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GitRepository } from "../../../../src/main/features/git/domain/git-repository";
+import { GitRepository } from "../../../../src/main/features/git/domain/repository";
 import { localSemanticExecutor, stubMetadataReader } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();

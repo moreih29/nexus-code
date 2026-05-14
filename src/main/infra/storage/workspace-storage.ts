@@ -5,14 +5,14 @@ import {
   type GitPanelState,
   GitPanelStateSchema,
   type GitPanelStateUpdate,
-} from "../../shared/types/git";
+} from "../../../shared/types/git";
 import {
   DEFAULT_VIEW_OPTIONS_BY_PANEL,
   type PanelKind,
   type PanelViewOptions,
   PanelViewOptionsSchema,
-} from "../../shared/types/panel";
-import { type WorkspaceMeta, WorkspaceMetaSchema } from "../../shared/types/workspace";
+} from "../../../shared/types/panel";
+import { type WorkspaceMeta, WorkspaceMetaSchema } from "../../../shared/types/workspace";
 import type { SqliteDb } from "./migrations";
 import { applyWorkspaceMigrations } from "./workspace-migrations";
 import {

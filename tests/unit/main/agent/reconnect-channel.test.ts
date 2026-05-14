@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from "bun:test";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { createLocalChannel } from "../../../../src/main/agent/local-channel";
-import { createSshChannel } from "../../../../src/main/agent/ssh-channel";
+import { createLocalChannel } from "../../../../src/main/infra/agent/local-channel";
+import { createSshChannel } from "../../../../src/main/infra/agent/ssh-channel";
 
 class FakeStream extends EventEmitter {
   emitData(chunk: string): void {

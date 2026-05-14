@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { AgentBackedProvider } from "../../../../src/main/features/fs/bridge/provider";
-import { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
+import { GitRegistry } from "../../../../src/main/features/git/domain/registry";
 import {
   GIT_DETECT_METHOD,
   GIT_RUN_METHOD,

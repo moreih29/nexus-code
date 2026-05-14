@@ -14,7 +14,7 @@ import type {
 } from "../../../../shared/ipc-contract";
 import type { GitCloneStreamProgressEvent } from "../../../../shared/types/git";
 import type { AgentGitExecutor } from "../bridge/agent-executor";
-import type { StreamContext } from "../../../ipc/router";
+import type { StreamContext } from "../../../infra/ipc/router";
 
 type CloneStreamProcedure = (typeof ipcContract)["git"]["stream"]["clone"];
 type CloneStreamArgs = InferArgs<CloneStreamProcedure>;

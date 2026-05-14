@@ -13,7 +13,7 @@ mock.module("electron", () => ({
 }));
 
 // Import the function under test after the module mock is in place.
-import { getDefaultShell } from "../../../../src/main/platform/shell";
+import { getDefaultShell } from "../../../../src/main/infra/platform/shell";
 
 describe("getDefaultShell", () => {
   let originalPlatform: PropertyDescriptor | undefined;

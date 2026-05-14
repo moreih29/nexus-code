@@ -10,7 +10,7 @@ import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createLocalChannel } from "../../../src/main/agent/local-channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/local-channel";
 import { GIT_STATUS_METHOD } from "../../../src/shared/protocol/agent/git";
 import { type GitStatus, GitStatusSchema } from "../../../src/shared/types/git";
 

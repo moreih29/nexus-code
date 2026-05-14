@@ -3,9 +3,9 @@
  */
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { RepoInfo } from "../../../../shared/types/git";
-import type { GitRegistry } from "../domain/git-registry";
-import type { CallContext } from "../../../ipc/router";
-import { validateArgs } from "../../../ipc/router";
+import type { GitRegistry } from "../domain/registry";
+import type { CallContext } from "../../../infra/ipc/router";
+import { validateArgs } from "../../../infra/ipc/router";
 
 const c = ipcContract.git.call;
 

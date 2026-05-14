@@ -1,8 +1,8 @@
 /**
  * panel channel — registers panel view-options call handlers.
  */
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import { register } from "../../ipc/router";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { register } from "../../infra/ipc/router";
 import { getViewOptionsHandler, setViewOptionsHandler } from "./state-handlers";
 
 /**

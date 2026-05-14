@@ -210,8 +210,8 @@ export function installWindowForPair(pair: InMemoryIpcPair): void {
   });
 }
 
-export async function setupInMemoryRouter(): Promise<typeof import("../../src/main/ipc/router")> {
-  const router = await import("../../src/main/ipc/router");
+export async function setupInMemoryRouter(): Promise<typeof import("../../src/main/infra/ipc/router")> {
+  const router = await import("../../src/main/infra/ipc/router");
   router.setupRouter();
   return router;
 }

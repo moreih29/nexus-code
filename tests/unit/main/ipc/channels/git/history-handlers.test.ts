@@ -2,8 +2,8 @@
  * Scenario tests for History IPC handlers.
  */
 import { describe, expect, test } from "bun:test";
-import type { GitError } from "../../../../../../src/main/features/git/domain/git-error";
-import type { GitRegistry } from "../../../../../../src/main/features/git/domain/git-registry";
+import type { GitError } from "../../../../../../src/main/features/git/domain/error";
+import type { GitRegistry } from "../../../../../../src/main/features/git/domain/registry";
 import {
   checkoutDetachedHandler,
   commitDetailHandler,

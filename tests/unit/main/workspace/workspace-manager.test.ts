@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { GlobalStorage } from "../../../../src/main/storage/global-storage";
-import { StateService } from "../../../../src/main/storage/state-service";
-import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
-import { GitRegistry } from "../../../../src/main/features/git/domain/git-registry";
-import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/agent/ssh-channel";
+import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
+import { StateService } from "../../../../src/main/infra/storage/state-service";
+import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
+import { GitRegistry } from "../../../../src/main/features/git/domain/registry";
+import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/infra/agent/ssh-channel";
 import type {
   BroadcastFn,
   WorkspaceLocalAgentCommandResolver,

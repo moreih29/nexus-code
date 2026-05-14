@@ -34,12 +34,12 @@ import type {
   RunGitOptions,
   RunGitResult,
 } from "../../../../../src/main/features/git/bridge/types";
-import { GitError } from "../../../../../src/main/features/git/domain/git-error";
-import { type GitMetadataReader, GitRepository } from "../../../../../src/main/features/git/domain/git-repository";
+import { GitError } from "../../../../../src/main/features/git/domain/error";
+import { type GitMetadataReader, GitRepository } from "../../../../../src/main/features/git/domain/repository";
 import {
   buildDiffArgs,
   readFetchHeadMtime,
-} from "../../../../../src/main/features/git/domain/git-repository-helpers";
+} from "../../../../../src/main/features/git/domain/repository-helpers";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";

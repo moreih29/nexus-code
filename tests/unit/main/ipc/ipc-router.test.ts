@@ -19,7 +19,7 @@ mock.module("electron", () => ({
 }));
 
 import { z } from "zod";
-import { broadcast, register, setupRouter, validateArgs } from "../../../../src/main/ipc/router";
+import { broadcast, register, setupRouter, validateArgs } from "../../../../src/main/infra/ipc/router";
 
 // Wire up the handler by calling setupRouter() once
 setupRouter();

@@ -81,7 +81,7 @@ export function buildHelperEnv(
     env.GIT_EDITOR = ensureHelperWrapper({
       kind: "editor",
       electronPath,
-      helperPath: path.join(helperDir, "git-editor-helper.cjs"),
+      helperPath: path.join(helperDir, "editor-helper.cjs"),
       wrapperDir,
       platform,
     });
@@ -173,13 +173,13 @@ function quoteCmdPath(value: string): string {
  */
 function resolveDefaultHelperDir(): string {
   const bundledDir = path.join(__dirname, "git");
-  if (fs.existsSync(path.join(bundledDir, "git-editor-helper.cjs"))) return bundledDir;
+  if (fs.existsSync(path.join(bundledDir, "editor-helper.cjs"))) return bundledDir;
 
   const siblingDir = __dirname;
-  if (fs.existsSync(path.join(siblingDir, "git-editor-helper.cjs"))) return siblingDir;
+  if (fs.existsSync(path.join(siblingDir, "editor-helper.cjs"))) return siblingDir;
 
   const sourceDir = path.join(process.cwd(), "src", "main", "features", "git", "domain", "helpers");
-  if (fs.existsSync(path.join(sourceDir, "git-editor-helper.cjs"))) return sourceDir;
+  if (fs.existsSync(path.join(sourceDir, "editor-helper.cjs"))) return sourceDir;
 
   return siblingDir;
 }

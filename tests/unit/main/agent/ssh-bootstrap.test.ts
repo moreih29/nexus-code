@@ -10,7 +10,7 @@ import {
   parseUname,
   remoteAgentBinaryPath,
   type SshBootstrapRunner,
-} from "../../../../src/main/agent/ssh-bootstrap";
+} from "../../../../src/main/infra/agent/ssh-bootstrap";
 
 let tmpDir: string;
 

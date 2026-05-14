@@ -29,9 +29,9 @@ import {
   readFileHandler,
   statHandler,
 } from "../../../../src/main/features/fs/ipc/read-handlers";
-import { GlobalStorage } from "../../../../src/main/storage/global-storage";
-import { StateService } from "../../../../src/main/storage/state-service";
-import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
+import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
+import { StateService } from "../../../../src/main/infra/storage/state-service";
+import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 import { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
 import { ipcContract } from "../../../../src/shared/ipc-contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../src/shared/types/fs";

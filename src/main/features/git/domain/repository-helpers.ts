@@ -19,8 +19,8 @@ import type {
   GitStatusEntry,
   GitSyncError,
 } from "../../../../shared/types/git";
-import { GitError } from "./git-error";
-import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./git-repository";
+import { GitError } from "./error";
+import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./repository";
 
 /**
  * Builds `git diff` arguments from the shared diff spec union.

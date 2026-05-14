@@ -152,8 +152,8 @@ import type {
   StashEntry,
   Tag,
 } from "../../../../shared/types/git";
-import { GitError, gitErrorFromAgent, gitMissingError, unknownGitError } from "../domain/git-error";
-import type { GitHelpersIpcManager } from "../domain/helpers/git-helpers-ipc";
+import { GitError, gitErrorFromAgent, gitMissingError, unknownGitError } from "../domain/error";
+import type { GitHelpersIpcManager } from "../domain/helpers/ipc";
 import type {
   GitBlobOptions,
   GitBranchCreateOptions,

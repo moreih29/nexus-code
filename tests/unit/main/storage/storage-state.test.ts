@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { StateService } from "../../../../src/main/storage/state-service";
+import { StateService } from "../../../../src/main/infra/storage/state-service";
 
 // ---------------------------------------------------------------------------
 // Helpers

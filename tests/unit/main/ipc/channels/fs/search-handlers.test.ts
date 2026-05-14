@@ -3,8 +3,8 @@ import {
   InvalidSearchPatternError,
   searchTextStream,
   WorkspaceNotFoundError,
-} from "../../../../../../src/main/features/search/search-handlers";
-import type { StreamContext } from "../../../../../../src/main/ipc/router";
+} from "../../../../../../src/main/features/search/handlers";
+import type { StreamContext } from "../../../../../../src/main/infra/ipc/router";
 import type {
   FileMatch,
   SearchComplete,

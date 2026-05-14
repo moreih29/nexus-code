@@ -3,8 +3,8 @@
  */
 import { ipcContract } from "../../../shared/ipc-contract";
 import type { PanelViewOptions } from "../../../shared/types/panel";
-import type { WorkspaceStorage } from "../../storage/workspace-storage";
-import { validateArgs } from "../../ipc/router";
+import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { validateArgs } from "../../infra/ipc/router";
 
 const c = ipcContract.panel.call;
 

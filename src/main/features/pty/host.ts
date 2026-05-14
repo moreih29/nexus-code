@@ -2,7 +2,7 @@
 // Forks out/main/pty-host.js as an Electron utilityProcess and establishes
 // a bidirectional MessagePort channel for PTY traffic.
 
-import { createUtilityHost } from "../../hosts/utility-host";
+import { createUtilityHost } from "../../infra/hosts/utility-host";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -4,14 +4,14 @@ import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
   ensureRemoteAgent,
-} from "../../agent/ssh-bootstrap";
+} from "../../infra/agent/ssh-bootstrap";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
-} from "../../agent/ssh-channel";
+} from "../../infra/agent/ssh-channel";
 import type { WorkspaceManager } from "./manager";
-import { type CallContext, register, validateArgs } from "../../ipc/router";
+import { type CallContext, register, validateArgs } from "../../infra/ipc/router";
 
 const c = ipcContract.workspace.call;
 

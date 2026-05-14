@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { WorkspaceStorage } from "../../../../src/main/storage/workspace-storage";
+import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 
 // ---------------------------------------------------------------------------
 // Helpers

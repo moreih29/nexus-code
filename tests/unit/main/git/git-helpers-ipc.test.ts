@@ -11,11 +11,11 @@ import {
   buildGitHelpersEndpoint,
   GitHelpersIpcManager,
   prepareGitHelpersEndpoint,
-} from "../../../../src/main/features/git/domain/helpers/git-helpers-ipc";
-import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/helpers-launcher";
+} from "../../../../src/main/features/git/domain/helpers/ipc";
+import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/types/git";
 
-const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/git-editor-helper.cjs");
+const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/editor-helper.cjs");
 
 const tmpRoots: string[] = [];
 
@@ -51,7 +51,7 @@ describe("helpers-launcher", () => {
     expect(env.DISPLAY).toBe(":0");
 
     expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
-    expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("git-editor-helper.cjs");
+    expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("editor-helper.cjs");
     expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
   });
 
