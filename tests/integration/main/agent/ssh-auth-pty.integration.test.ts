@@ -5,8 +5,8 @@ import { spawnNodeBackedPty } from "./node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";
 const FIXTURE_PORT = 2223;
-const FIXTURE_USER = process.env.NEXUS_SSH_FIXTURE_USER ?? "nexus";
-const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "password";
+const FIXTURE_USER = process.env.NEXUS_SSH_FIXTURE_USER ?? "nexus-dev";
+const FIXTURE_PASSWORD = process.env.NEXUS_SSH_FIXTURE_PASSWORD ?? "nexus-dev";
 
 describe("ssh PTY auth linux-password fixture", () => {
   it("authenticates once and reaches ready over a reused ControlMaster socket", async () => {
