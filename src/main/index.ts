@@ -12,10 +12,16 @@ import { AgentFsProvider } from "./features/fs/bridge/agent-provider";
 import { AgentGitExecutor } from "./features/git/bridge/agent-executor";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
-import { GitHelpersIpcManager, registerGitHelperIpcChannels } from "./features/git/domain/helpers/ipc";
+import {
+  GitHelpersIpcManager,
+  registerGitHelperIpcChannels,
+} from "./features/git/domain/helpers/ipc";
 import { GitRegistry } from "./features/git/domain/registry";
-import { createStatusCoalescer, type StatusCoalescer } from "./features/git/domain/status-coalescer";
-import { type LspHostHandle, startLspHost } from "./features/lsp/host";
+import {
+  createStatusCoalescer,
+  type StatusCoalescer,
+} from "./features/git/domain/status-coalescer";
+import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { type PtyHostHandle, startPtyHost } from "./features/pty/host";
 import { registerAppStateChannel } from "./features/app-state/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
@@ -58,9 +64,6 @@ let gitAutofetch: GitAutofetchScheduler | null = null;
 let agentFsWatcher: AgentFsWatcher | null = null;
 
 function forwardBroadcast(channelName: string, event: string, args: unknown): void {
-  if (channelName === "fs" && event === "changed") {
-    lspHost?.notify("fsChanged", args);
-  }
   broadcast(channelName, event, args);
 }
 
@@ -169,7 +172,9 @@ app.whenReady().then(async () => {
   ptyHost = startPtyHost();
   registerPtyChannel(ptyHost);
 
-  lspHost = startLspHost();
+  lspHost = startConfiguredLspHost({
+    workspaceManager,
+  });
   registerLspChannel(lspHost);
 
   wireAutofetchWindowFocus(createMainWindow());

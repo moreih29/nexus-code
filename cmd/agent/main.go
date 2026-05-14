@@ -16,6 +16,7 @@ import (
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
+	agentlsp "github.com/nexus-code/nexus-code/internal/lsp"
 	"github.com/nexus-code/nexus-code/internal/proto"
 	agentsearch "github.com/nexus-code/nexus-code/internal/search"
 	"github.com/nexus-code/nexus-code/internal/stdioserver"
@@ -38,6 +39,7 @@ func main() {
 		os.Exit(2)
 	}
 	git := agentgit.New(root)
+	lsp := agentlsp.New()
 	search, err := agentsearch.New(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -47,14 +49,27 @@ func main() {
 	d := dispatch.New()
 	agentfs.Register(d, fsys)
 	agentgit.Register(d, git)
+	agentlsp.Register(d, lsp)
 	agentsearch.Register(d, search)
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout)
-	fsys.SetEventSink(host.EmitEvent)
+	fsys.SetEventSink(func(event string, payload any) error {
+		err := host.EmitEvent(event, payload)
+		if event == "fs.changed" {
+			if changed, ok := payload.(agentfs.FsChangedPayload); ok {
+				if routeErr := lsp.HandleFSChanged(changed); err == nil {
+					err = routeErr
+				}
+			}
+		}
+		return err
+	})
 	git.SetEventSink(host.EmitEvent)
+	lsp.SetEventSink(host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	defer fsys.Close()
 	defer git.Close()
+	defer lsp.Close()
 	host.InstallSigtermHandler()
 
 	// Ready frame must reach the client before any other output so the

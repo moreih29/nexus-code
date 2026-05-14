@@ -8,7 +8,7 @@ type ParentPort = {
 };
 
 interface UtilityProcessEntryOptions {
-  /** Short tag used in error log lines, e.g. "[lsp-host]". */
+  /** Short tag used in error log lines, e.g. "[pty-host]". */
   logPrefix: string;
   /**
    * Called with the transferred MessagePort once the main process sends the

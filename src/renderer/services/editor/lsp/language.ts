@@ -10,7 +10,7 @@
 // What this module owns is the *LSP routing* decision — which Monaco
 // language ids should the renderer push didOpen/didChange for. That's
 // project policy (driven by which language servers we actually run in
-// the lsp-host), not something Monaco can decide for us.
+// the workspace agent), not something Monaco can decide for us.
 
 import {
   BUILTIN_LSP_PRESETS,

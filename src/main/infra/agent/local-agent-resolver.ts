@@ -1,17 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { z } from "zod";
+import { AgentManifestSchema, findAgentBinary } from "../../../shared/agent-manifest";
 import { LOCAL_AGENT_DIST_DIR } from "./ssh-bootstrap";
-
-const LocalBinarySchema = z.object({
-  os: z.enum(["linux", "darwin"]),
-  arch: z.enum(["amd64", "arm64"]),
-  path: z.string(),
-});
-
-const LocalManifestSchema = z.object({
-  binaries: z.array(LocalBinarySchema),
-});
 
 export interface LocalAgentCommand {
   readonly binaryPath: string;
@@ -22,13 +12,15 @@ export interface LocalAgentCommand {
 export function resolveLocalAgentCommand(distDir = LOCAL_AGENT_DIST_DIR): LocalAgentCommand {
   const manifestPath = path.join(distDir, "manifest.json");
   if (fs.existsSync(manifestPath)) {
-    const manifest = LocalManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
-    const platform = localPlatform();
-    const binary = manifest.binaries.find(
-      (candidate) => candidate.os === platform.os && candidate.arch === platform.arch,
-    );
-    if (binary) {
-      return { binaryPath: path.resolve(distDir, binary.path) };
+    try {
+      const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+      const platform = localPlatform();
+      const binary = findAgentBinary(manifest, platform);
+      if (binary) {
+        return { binaryPath: path.resolve(distDir, binary.path) };
+      }
+    } catch {
+      // Old dist manifests do not include the runtime/LSP sections. Fall through to go run.
     }
   }
 

@@ -138,3 +138,25 @@ export const LspServerEventSchema = z.object({
   params: z.unknown(),
 });
 export type LspServerEvent = z.infer<typeof LspServerEventSchema>;
+
+export const LspBootstrapProgressPhaseSchema = z.enum([
+  "checking",
+  "skipped",
+  "uploading",
+  "verifying",
+  "extracting",
+  "linking",
+  "pruning",
+  "ready",
+]);
+export type LspBootstrapProgressPhase = z.infer<typeof LspBootstrapProgressPhaseSchema>;
+
+export const LspBootstrapProgressEventSchema = z.object({
+  workspaceId: z.string(),
+  languageId: z.string(),
+  name: z.string(),
+  phase: LspBootstrapProgressPhaseSchema,
+  bytesDone: z.number().int().nonnegative().optional(),
+  bytesTotal: z.number().int().nonnegative().optional(),
+});
+export type LspBootstrapProgressEvent = z.infer<typeof LspBootstrapProgressEventSchema>;

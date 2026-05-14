@@ -9,6 +9,7 @@ import {
   DocumentSymbolSchema,
   HoverResultSchema,
   LocationSchema,
+  LspBootstrapProgressEventSchema,
   LspServerEventSchema,
   ReferencesArgsSchema,
   SymbolInformationSchema,
@@ -505,6 +506,7 @@ export const ipcContract = {
       diagnostics: listen(LspDiagnosticsEventSchema),
       applyEdit: listen(LspApplyEditEventSchema),
       serverEvent: listen(LspServerEventSchema),
+      "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
     },
   },
 

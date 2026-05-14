@@ -1,6 +1,6 @@
-// LSP IPC channel — bridges renderer ↔ main ↔ utility(lsp-host).
-// Renderer calls are forwarded to the lsp host via the LspHostHandle.
-// Utility diagnostics events are broadcast to all renderers.
+// LSP IPC channel — bridges renderer ↔ main ↔ agent-backed LspHostHandle.
+// Renderer calls are forwarded to the LSP host, and diagnostics events are
+// broadcast to all renderers.
 
 import { ipcContract } from "../../../shared/ipc-contract";
 import type {
@@ -14,6 +14,7 @@ import type {
   SymbolInformation,
 } from "../../../shared/lsp";
 import { PendingRequestMap } from "../../../shared/pending-request-map";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh-bootstrap";
 import type { LspHostHandle } from "./host";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc/router";
 
@@ -100,11 +101,11 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
  * Wire the LSP IPC channel: register every method the renderer can call
  * (call surface) and forward main-side LSP host events (diagnostics,
  * serverRequest, serverStatus, ...) onto the channel as broadcasts.
- * Single entry point so `main/index` can hand the lsp-host handle over
- * once during startup and not maintain it per-event.
+ * Single entry point so `main/index` can hand the LSP host handle over once
+ * during startup and not maintain it per-event.
  */
 export function registerLspChannel(lspHost: LspHostHandle): void {
-  // Forward utility→main diagnostics events to renderers
+  // Forward host diagnostics events to renderers.
   lspHost.on("diagnostics", (args) => {
     const { uri, diagnostics } = args as { uri: string; diagnostics: unknown[] };
     broadcast("lsp", "diagnostics", { uri, diagnostics });
@@ -118,6 +119,10 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
 
   lspHost.on("serverEvent", (args) => {
     broadcast("lsp", "serverEvent", args);
+  });
+
+  lspHost.on(LSP_BOOTSTRAP_PROGRESS_EVENT, (args) => {
+    broadcast("lsp", "bootstrap.progress", args);
   });
 
   register("lsp", {
@@ -228,6 +233,7 @@ export function registerLspChannel(lspHost: LspHostHandle): void {
       diagnostics: {},
       applyEdit: {},
       serverEvent: {},
+      "bootstrap.progress": {},
     },
   });
 }

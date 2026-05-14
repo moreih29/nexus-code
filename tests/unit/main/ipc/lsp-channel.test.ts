@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { LspHostHandle } from "../../../../src/main/features/lsp/host";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh-bootstrap";
 
 const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);
@@ -51,7 +52,7 @@ class FakeLspHost implements LspHostHandle {
 }
 
 describe("registerLspChannel", () => {
-  test("forwards utility serverEvent messages over lsp.serverEvent", () => {
+  test("forwards host serverEvent messages over lsp.serverEvent", () => {
     const host = new FakeLspHost();
     registerLspChannel(host);
 
@@ -64,5 +65,22 @@ describe("registerLspChannel", () => {
     host.emit("serverEvent", event);
 
     expect(mockSend).toHaveBeenCalledWith("ipc:event", "lsp", "serverEvent", event);
+  });
+
+  test("forwards agent bootstrap progress over lsp.bootstrap.progress", () => {
+    const host = new FakeLspHost();
+    registerLspChannel(host);
+
+    const event = {
+      workspaceId: "ws-1",
+      languageId: "python",
+      name: "pyright-langserver",
+      phase: "uploading",
+      bytesDone: 4,
+      bytesTotal: 8,
+    };
+    host.emit(LSP_BOOTSTRAP_PROGRESS_EVENT, event);
+
+    expect(mockSend).toHaveBeenCalledWith("ipc:event", "lsp", "bootstrap.progress", event);
   });
 });

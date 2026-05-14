@@ -12,7 +12,10 @@ import {
   type LocalAgentCommand,
   resolveLocalAgentCommand,
 } from "../../infra/agent/local-agent-resolver";
-import { type CreateLocalChannelOptions, createLocalChannel } from "../../infra/agent/local-channel";
+import {
+  type CreateLocalChannelOptions,
+  createLocalChannel,
+} from "../../infra/agent/local-channel";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
@@ -27,7 +30,12 @@ import {
 import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
+  type EnsureRemoteLspServerOptions,
+  type EnsureRemoteLspServerResult,
+  type LspBootstrapProgressEvent,
   ensureRemoteAgent,
+  ensureRemoteLspServer as defaultEnsureRemoteLspServer,
+  type SshBootstrapDependencies,
 } from "../../infra/agent/ssh-bootstrap";
 import { WorkspaceContext } from "./context";
 
@@ -45,6 +53,10 @@ export type WorkspaceSshChannelFactory = (options: CreateSshChannelOptions) => S
 export type WorkspaceSshBootstrap = (
   options: EnsureRemoteAgentOptions,
 ) => Promise<EnsureRemoteAgentResult>;
+export type WorkspaceSshLspBootstrap = (
+  options: EnsureRemoteLspServerOptions,
+  dependencies?: Pick<SshBootstrapDependencies, "onProgress">,
+) => Promise<EnsureRemoteLspServerResult>;
 export type WorkspaceLocalChannelFactory = (options: CreateLocalChannelOptions) => AgentChannel;
 export type WorkspaceLocalAgentCommandResolver = () => LocalAgentCommand;
 
@@ -101,6 +113,7 @@ export class WorkspaceManager {
   private readonly broadcastFn: BroadcastFn;
   private readonly sshChannelFactory: WorkspaceSshChannelFactory;
   private readonly sshBootstrap: WorkspaceSshBootstrap;
+  private readonly sshLspBootstrap: WorkspaceSshLspBootstrap;
   private readonly localChannelFactory: WorkspaceLocalChannelFactory;
   private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver;
 
@@ -108,6 +121,7 @@ export class WorkspaceManager {
   private readonly localChannels = new Map<string, AgentChannel>();
   private readonly localProviderReady = new Map<string, Promise<void>>();
   private readonly sshChannels = new Map<string, SshChannel>();
+  private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
   private activeId: string | null = null;
@@ -121,6 +135,7 @@ export class WorkspaceManager {
     sshBootstrap: WorkspaceSshBootstrap = ensureRemoteAgent,
     localChannelFactory: WorkspaceLocalChannelFactory = createLocalChannel,
     localAgentCommandResolver: WorkspaceLocalAgentCommandResolver = resolveLocalAgentCommand,
+    sshLspBootstrap: WorkspaceSshLspBootstrap = defaultEnsureRemoteLspServer,
   ) {
     this.globalStorage = globalStorage;
     this.workspaceStorage = workspaceStorage;
@@ -128,6 +143,7 @@ export class WorkspaceManager {
     this.broadcastFn = broadcastFn;
     this.sshChannelFactory = sshChannelFactory;
     this.sshBootstrap = sshBootstrap;
+    this.sshLspBootstrap = sshLspBootstrap;
     this.localChannelFactory = localChannelFactory;
     this.localAgentCommandResolver = localAgentCommandResolver;
   }
@@ -187,6 +203,7 @@ export class WorkspaceManager {
       channel.dispose();
     }
     this.sshChannels.clear();
+    this.sshBootstraps.clear();
     this.sshProviderReady.clear();
     this.globalStorage.close();
   }
@@ -201,6 +218,19 @@ export class WorkspaceManager {
 
   getActiveId(): string | null {
     return this.activeId;
+  }
+
+  /**
+   * Returns the ready workspace-scoped agent channel, booting it if needed.
+   */
+  async getAgentChannel(id: string): Promise<AgentChannel> {
+    const ctx = this.requireContext(id);
+    await this.ensureProviderReady(ctx);
+    const channel = this.localChannels.get(id) ?? this.sshChannels.get(id);
+    if (!channel) {
+      throw new Error(`agent channel not available for workspace: ${id}`);
+    }
+    return channel;
   }
 
   /**
@@ -270,6 +300,7 @@ export class WorkspaceManager {
     this.localProviderReady.delete(id);
     this.sshChannels.get(id)?.dispose();
     this.sshChannels.delete(id);
+    this.sshBootstraps.delete(id);
     this.sshProviderReady.delete(id);
     this.globalStorage.removeWorkspace(id);
 
@@ -292,6 +323,47 @@ export class WorkspaceManager {
     await this.ensureProviderReady(ctx);
     this.activeId = id;
     this.stateService.setState({ lastActiveWorkspaceId: id });
+  }
+
+  async ensureRemoteLspServer(
+    workspaceId: string,
+    request: {
+      readonly binaryName: string;
+      readonly languageId: string;
+      readonly args: readonly string[];
+    },
+    onProgress?: (event: LspBootstrapProgressEvent) => void,
+  ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] } | null> {
+    const ctx = this.requireContext(workspaceId);
+    const meta = ctx.getMeta();
+    if (meta.location.kind !== "ssh") {
+      return null;
+    }
+
+    await this.ensureProviderReady(ctx);
+    const refreshedMeta = ctx.getMeta();
+    if (refreshedMeta.location.kind !== "ssh") {
+      return null;
+    }
+
+    const bootstrap = this.sshBootstraps.get(workspaceId);
+    const result = await this.sshLspBootstrap(
+      {
+        host: refreshedMeta.location.host,
+        user: refreshedMeta.location.user,
+        port: refreshedMeta.location.port,
+        identityFile: refreshedMeta.location.identityFile,
+        authMode: refreshedMeta.location.authMode,
+        remotePath: refreshedMeta.location.remotePath,
+        cachedRemoteArch: refreshedMeta.location.remoteArch,
+        controlPath: bootstrap?.controlPath,
+        binaryName: request.binaryName,
+        languageId: request.languageId,
+      },
+      { onProgress },
+    );
+    result.dispose?.();
+    return { binaryPath: result.binaryPath, args: result.args };
   }
 
   /**
@@ -416,6 +488,7 @@ export class WorkspaceManager {
       remotePath: meta.location.remotePath,
       cachedRemoteArch: meta.location.remoteArch,
     });
+    this.sshBootstraps.set(meta.id, bootstrap);
     let providerMeta = meta;
     if (!meta.location.remoteArch) {
       providerMeta = {
@@ -446,6 +519,7 @@ export class WorkspaceManager {
       if (this.sshChannels.get(meta.id) === channel) {
         this.sshChannels.delete(meta.id);
       }
+      this.sshBootstraps.delete(meta.id);
       bootstrap.dispose?.();
       channel.dispose();
       ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
@@ -462,6 +536,7 @@ export class WorkspaceManager {
       if (this.sshChannels.get(meta.id) === channel) {
         this.sshChannels.delete(meta.id);
       }
+      this.sshBootstraps.delete(meta.id);
       this.sshProviderReady.delete(meta.id);
       if (this.connectionStatuses.get(meta.id) !== "error") {
         this.broadcastConnectionStatus(meta.id, "disconnected");
@@ -499,6 +574,7 @@ export class WorkspaceManager {
     const ctx = this.contexts.get(workspaceId);
     if (!ctx) {
       this.sshChannels.delete(workspaceId);
+      this.sshBootstraps.delete(workspaceId);
       return;
     }
 
@@ -507,6 +583,7 @@ export class WorkspaceManager {
     }
 
     this.sshChannels.delete(workspaceId);
+    this.sshBootstraps.delete(workspaceId);
     this.sshProviderReady.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
   }

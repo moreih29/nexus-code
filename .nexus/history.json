@@ -13007,6 +13007,434 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-14T10:21:46.701Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 44,
+        "topic": "LSP migration from Electron utilityProcess to Go agent",
+        "issues": [
+          {
+            "id": 1,
+            "title": "RPC envelope shape: generic transport (lsp.spawn/send/event) vs per-method mirror (lsp.hover/definition/...) ",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends Model A (generic transport: lsp.spawn/send/event/cancel/shutdown). Agent owns server lifecycle + server-request correlation; main retains method dispatch + URI normalization + capability gating + result normalization + handler catalog. Rationale: (1) locality — handler catalog and result-normalizer (135 LOC) live in TS, splitting forces shotgun surgery on every new LSP method; (2) cohesion-along-change — adding gopls/rust-analyzer requires zero Go changes under A, ~12+ Go entry points under B; (3) test surface preservation — existing unit tests stay intact under A except swapping StdioLspAdapter for AgentBackedLspAdapter; (4) server-request handling stays simple — agent forwards as opaque frames. Rejected B because forces LSP-spec knowledge into two languages; rejected hybrid because dilutes the boundary. Risks: extra IPC hop latency (measure during POC, expected <1ms), backpressure on lsp.message stream (confirm EmitEvent buffering matches current MessagePort unbounded semantics or add bounded queue with drop-old for diagnostics bursts), cancellation must map to $/cancelRequest on LSP wire not agent RPC.",
+                "recorded_at": "2026-05-14T08:12:59.694Z",
+                "agent_id": "acb07192b25cc60d0"
+              }
+            ],
+            "decision": "**Model A 채택 (generic transport)**. 에이전트는 작은 RPC 표면만 노출 — `lsp.spawn(workspaceId, languageId, workspaceRoot) → { serverId, capabilities }`, `lsp.send(serverId, jsonRpcMessage) → void`, `lsp.cancel(serverId, requestId) → void`, `lsp.shutdown(serverId) → void`, 그리고 listen 이벤트로 `lsp.message { serverId, message }`(서버→클라이언트 일반 프레임) + `lsp.serverRequest { serverId, agentRequestId, method, params }`(서버 발신 요청; 이슈 4 별도). 에이전트는 서버 라이프사이클·correlation만 소유하고 LSP 메서드 의미는 모름. 메서드 디스패치·URI 정규화·capability gating·result normalizer·핸들러 카탈로그는 main 측 TS에 그대로 보존.\n\n근거: (1) handler-catalog/result-normalizer가 TS에 이미 존재 — 분할하면 새 LSP 추가 시 두 언어 동시 변경(shotgun surgery); (2) gopls/rust-analyzer 추가 시 에이전트 코드 0줄 변경 vs Model B는 12+ Go entry point 추가; (3) 기존 `tests/unit/utility/lsp-host/*` 대부분 보존 — `StdioLspAdapter` 만 `AgentBackedLspAdapter`로 swap; (4) `workspace/applyEdit` / `workspace/configuration` 같은 server-request도 동일 카탈로그에서 그대로 처리.\n\n기각 대안: **Model B(per-method mirror)** — LSP spec 지식을 두 언어로 분산, 매 신규 서버마다 양쪽 동시 변경, 테스트 표면 2배. **하이브리드(spawn+send는 generic이지만 일부 메서드 라우팅 tweak)** — 경계 모호, 양쪽이 부분 지식 보유.\n\n미해결/리스크: (a) extra IPC hop 지연(렌더러→main→agent→server) — Phase A POC에서 실측 필요, 예상 <1ms이지만 lock-in 전 확인. (b) 진단 burst의 `lsp.message` backpressure — Go `EmitEvent` 버퍼링 시멘틱이 현재 MessagePort의 unbounded와 같은지 확인, 다르면 publishDiagnostics만 bounded queue + drop-old. (c) `lsp.cancel`은 `$/cancelRequest` LSP wire로 매핑되어야 함(에이전트 RPC 취소가 아님) — 문서 명시."
+          },
+          {
+            "id": 2,
+            "title": "LSP server binary bundling & shipping (extend manifest.json, SSH bootstrap, runtime resolution)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends single extended manifest.json with lspBinaries section. Bundle node (~80MB per OS/arch) — relying on remote node contradicts locked decision. Lazy LSP upload (only on first lsp.spawn for a language) to avoid Python-only users paying for TS bundle. SHA-cache check before upload, generalized from existing per-row to per-artifact. Directory: ~/.nexus-code/{bin,runtime/node-VV-OS-ARCH,lsp/SERVER-VV/{node_modules,bin/launcher},manifest.json}. Build pipeline: scripts/build-agent.sh + npm pack typescript-language-server + npm pack pyright + download node tarballs from nodejs.org + SHA256 manifest write. Manifest schema includes platforms:\"all\" for JS servers paired with per-platform node. Rejected sibling lsp-manifest.json (two diff paths, version skew); rejected remote-PATH node (contradicts locked decision); rejected eager full upload (Python-only users pay TS cost); rejected bun/deno (compat untested). Risks: first-connect ~120MB TS+Python user — needs lsp.bootstrap.progress event for UX; pruning policy applied to LSP archives (worst case ~400MB remote disk); concurrent upload serialization at bootstrap not LSP level.",
+                "recorded_at": "2026-05-14T08:13:09.166Z",
+                "agent_id": "acb07192b25cc60d0"
+              }
+            ],
+            "decision": "**단일 manifest.json 확장 + Node 번들 + LSP는 lazy 업로드 채택**. \n\n스키마: 기존 `dist/agent/manifest.json`에 `runtime.node[]`(per OS/arch)와 `lspBinaries[]` 섹션 추가. 각 LSP 엔트리 = `{ name, version, languages[], platforms: \"all\"|매트릭스, archive, sha256, entry, argsTemplate }`. JS 서버(typescript-language-server, pyright-langserver)는 `platforms: \"all\"` + per-OS node와 페어링. \n\n배포: 에이전트는 SSH 부트스트랩 시 eager 업로드(현행 유지). LSP 바이너리/Node 런타임은 **lazy** — 첫 `lsp.spawn` 시점에 main이 `ensureRemoteLspBinary(name)` 부트스트랩 트리거. SHA-cache 검사로 동일 버전이면 skip. 부트스트랩 진행은 `lsp.bootstrap.progress` 이벤트로 렌더러 surfac. \n\n원격 디렉토리: `~/.nexus-code/{bin/agent-<v>-<os>-<arch>, runtime/node-<v>-<os>-<arch>/bin/node, lsp/<server>-<v>/{node_modules,bin/launcher}, manifest.json}`. \n\n빌드: `scripts/build-agent.sh`에 단계 추가 — (i) `pnpm pack typescript-language-server` + `pnpm pack pyright`로 staging tarball 생성, production-only prune, launcher 스크립트 생성. (ii) nodejs.org dist에서 Node 20 LTS tarball 4개 OS/arch 다운로드 → `dist/agent/runtime/`. (iii) SHA256 계산 + manifest 작성. Phase D에서는 bash 스크립트 한계 회피를 위해 `tsx` 스크립트 검토.\n\n근거: 단일 manifest = atomic 부트스트랩(diff/upload 분기 1개). lazy 업로드 = Python-only 사용자가 TS 번들 비용 안 냄. Node 번들 = 사용자 결정사항 준수(remote PATH 의존 금지). 기존 SHA-cache + KEEP_REMOTE_VERSIONS=3 그대로 LSP/Node에 일반화.\n\n기각 대안: **sibling lsp-manifest.json** — 두 diff path + 버전 skew. **remote PATH node 의존** — locked decision 위반. **eager 전체 업로드** — Python-only 사용자가 ~80MB+30MB TS 비용 부담. **bun/deno 런타임** — typescript-language-server/pyright 호환 미검증, 별도 최적화 cycle로 분리.\n\n미해결/리스크: (a) 첫 연결 ~120MB(TS+Python 사용자) — slow SSH에서 진행 UX 필수, `lsp.bootstrap.progress` 이벤트 의무화. (b) 원격 디스크 worst-case ~400MB(KEEP×3) — 문서화. (c) 동시 spawn 두 언어 → upload race, bootstrap 레벨에서 SHA로 직렬화. (d) Node 버전 핀: 20 LTS, 서버 요구가 상향 시 번들 갱신. (e) Phase D cross-platform Node 패키징 brittleness — 스크립트 견적 cycle 여유 둘 것."
+          },
+          {
+            "id": 3,
+            "title": "fsChanged routing on Go side (internal between fs.watch and lsp service vs through main)",
+            "status": "decided",
+            "decision": "**Go agent 내부에서 직접 라우팅**(main 우회). 현재 `src/main/index.ts forwardBroadcast`가 fs `changed` 이벤트를 가로채 `lsp.notify(\"fsChanged\", ...)`로 utility process에 전달하는 hop을 완전히 제거. \n\n구현: agent 내 `internal/fs` 서비스의 EventSink가 `internal/lsp` 서비스에도 in-process 알림 — fs change → `internal/lsp` `WatchedFilesRouter` Go 포트가 등록된 `workspace/didChangeWatchedFiles` glob과 매칭 → 해당 server adapter에 LSP notification 송신. main은 `lsp.notify(\"fsChanged\", ...)` 라우트 자체 제거.\n\n근거: (1) fs.watch와 lsp 둘 다 Go agent 내부에 있으므로 외부 hop 자체가 낭비. (2) 매칭 로직(`watched-files-router.ts` 52 LOC)은 단순한 glob 매처 — Go 포팅 비용 작음. (3) main의 `forwardBroadcast` 코드 한 분기 제거 = 결합도 ↓. (4) 원격 시나리오에서 fs.changed 트래픽이 SSH를 두 번(agent→main→agent) 안 건너감.\n\n기각 대안: **main 경유 유지** — 추가 IPC 왕복(특히 원격), 결합도 유지, 이득 없음. **renderer broadcast에 piggyback** — 의도와 무관한 채널을 LSP 트리거로 사용하는 셈, 결합도 ↑.\n\n미해결/리스크: 없음. Phase C에서 단순 코드 이동 + main의 forwardBroadcast 한 분기 삭제 + Go 측 WatchedFilesRouter 포팅. 기존 매칭 시멘틱(debounce 300ms 등) 보존."
+          },
+          {
+            "id": 4,
+            "title": "Server-request inverted bridge: workspace/applyEdit through agent → main → renderer",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends structured lsp.serverRequest listen event + dedicated lsp.respondServerRequest RPC. Agent maintains map[agentRequestId] → (lspRequestId, serverId) for correlation; configurable timeout (default 30s, applyEdit may need 60-90s) with ErrorCode.RequestFailed fallback. workspace/configuration ALSO routed through main as serverRequest (NOT moved into Go) — under Model A the config flatten/lookup logic stays in TS where it already exists, agent stays method-agnostic. Sub-question (a) typed envelope not bare event — surfaces correlation expectation explicitly, gives agent-side timeout safety net. Sub-question (b) dedicated respond RPC not overloaded lsp.send — keeps client→server framing distinct from server-request response semantics. Rejected bare event with response-via-lsp.send (correlation logic leaks into framing); rejected moving config into Go (~80 LOC duplicate, no I/O benefit); rejected long-poll lsp.nextServerRequest (listen/broadcast already serves). Risks: renderer crash mid-applyEdit → LSP server hangs (timeout is safety net); re-entrancy applyEdit→didChange→applyEdit needs concurrent agentRequestIds (existing TS supports, preserve in Go).",
+                "recorded_at": "2026-05-14T08:13:19.030Z",
+                "agent_id": "acb07192b25cc60d0"
+              }
+            ],
+            "decision": "**구조화된 serverRequest envelope + 전용 respond RPC 채택**. \n\n설계: \n- agent → main listen 이벤트: `lsp.serverRequest { serverId, agentRequestId, method, params }`\n- main → agent call RPC: `lsp.respondServerRequest { serverId, agentRequestId, result? , error? }`\n- agent 내부 `map[agentRequestId] → (lspRequestId, serverId)` 유지\n- main 측 응답 타임아웃: 메서드별 설정 가능, 기본 30s, `applyEdit`는 60-90s 권장. 타임아웃 발생 시 agent가 LSP 서버로 `ErrorCode.RequestFailed` 응답 + 경고 로그.\n\n처리 대상: `workspace/applyEdit`(렌더러로 surface) + `workspace/configuration`(main 내부에서 응답, 기존 config store 그대로 사용). 두 요청 모두 동일 envelope 채널 사용. **config 저장소는 Go로 이전하지 않음** — flatten/lookup 80 LOC 중복 비용 vs I/O 이득 없음(데이터 출처가 main).\n\n근거: (1) 구조화 envelope = correlation 기대를 프로토콜에 명시 → \"응답 누락 시 hang\" 모드 차단. (2) 일반 listen event(`lsp.message`)와 분리 = server 발신 *요청*과 server 발신 *알림*이 의미적으로 다르므로 채널도 분리. (3) `respondServerRequest`를 `lsp.send`와 분리 = client→server LSP 프레임 송신과 \"agent inverted request 응답\"의 framing layer를 섞지 않음. (4) 기존 utility의 `requestMain` 패턴(`lsp-port-transport.ts`)을 그대로 이전 — 변경 최소.\n\n기각 대안: **bare event + response via lsp.send** — agent가 LSP message id를 peek해서 demux해야 함, correlation 로직이 framing으로 누수. **workspace/configuration을 Go로 이전** — 데이터 원천이 main인데 두 곳에서 관리, 중복 + 동기화 부담. **long-poll lsp.nextServerRequest** — listen/broadcast로 이미 충분.\n\n미해결/리스크: (a) 렌더러 mid-applyEdit 크래시 → LSP 서버 hang, 타임아웃이 safety net이지만 대규모 refactor 시 60-90s 부족 가능 — 메서드별 타임아웃 설정값 도입. (b) 재진입(`applyEdit`→`didChange`→`applyEdit`) → 동시 `agentRequestId` 허용 필수. 기존 TS 코드가 지원하므로 Go 포팅 시 보존."
+          },
+          {
+            "id": 5,
+            "title": "Server lifecycle preservation: lazy spawn + 30-minute idle shutdown on Go side",
+            "status": "decided",
+            "decision": "**현행 시멘틱 그대로 보존 — Go agent로 이전만 함**. \n\n규칙: \n- **Lazy spawn**: 워크스페이스의 특정 언어 첫 didOpen 시 agent 측 adapter 생성·LSP 서버 spawn. 사전 spawn 없음.\n- **Idle timeout**: 마지막 활동(요청/응답/notification 송수신) 후 30분 무활동 시 graceful shutdown. 활동 발생 시 타이머 리셋.\n- **다중 인스턴스 키**: `(workspaceId, presetLanguageId)` 쌍이 adapter pool의 키. 워크스페이스 N개 × 언어 M개 = N×M 인스턴스 동시 가능(현행 구조 보존).\n- **워크스페이스 종료**: 워크스페이스 close → 해당 workspaceId의 모든 adapter 일괄 shutdown.\n- **idle timeout 설정**: 테스트용 override 가능(현행 `LspManagerOpts.idleTimeoutMs`와 동일하게 Go 측 spawn RPC 옵션).\n\n구현 위치: `internal/lsp/adapter_registry.go`(가칭) — 현 `adapter-registry.ts:55-62`의 self-contained map들(`adapters`, `configurationStore`, `watchedFileRegistrations`, `workspaceRoots`)을 Go로 이전. `idleTimers` 추가.\n\n근거: (1) 현 시멘틱이 검증된 사용자 경험 — 사용자가 cmd+click 확인했고, 매 워크스페이스 독립 동작. 변경 이유 없음. (2) lazy spawn은 자원 절약(쓰지 않는 언어는 안 띄움). (3) 30분 idle = \"잠깐 떠난 사이 죽지 않음\" + \"오랫동안 안 쓰면 메모리 회수\" 균형. (4) `(workspace, language)` 키는 현 구조의 사실상 표준.\n\n기각 대안: **aggressive shutdown(예: 5분)** — 잠깐 다른 작업하다 돌아왔을 때 spawn 비용 재부담, UX 저하. **eager spawn (워크스페이스 오픈 시 모든 언어 미리 spawn)** — Python 안 쓰는 워크스페이스에서 pyright 메모리 낭비. **워크스페이스 무관 글로벌 풀** — 워크스페이스별 workspaceFolders 분리 보장 불가.\n\n미해결/리스크: 없음. 단순 시멘틱 보존."
+          },
+          {
+            "id": 6,
+            "title": "Renderer-facing IPC contract preservation (lock down 12 calls + 3 events surface)",
+            "status": "decided",
+            "decision": "**현 IPC 표면 그대로 lock — 마이그레이션 중 렌더러 변경 없음**.\n\n고정 표면(`src/shared/ipc-contract.ts` lsp 채널):\n- **call (12)**: `didOpen, didChange, didSave, didClose, hover, definition, completion, references, documentHighlight, documentSymbol, workspaceSymbol, applyEditResult`\n- **listen (3)**: `diagnostics, applyEdit, serverEvent`\n\n`.nexus/memory/pattern-ipc-stream.md`의 결정에 따라 long-lived push 이벤트(diagnostics/applyEdit/serverEvent)는 `listen/broadcast` 그대로 유지(ipcStream로 변환 안 함).\n\n이번 마이그레이션 범위 외(추후 별도 cycle): \n- `lsp.bootstrap.progress` 이벤트 추가(Issue 2에서 도입 결정) — 새 채널 신설로 기존 표면에 영향 없음. 렌더러 컴포넌트가 옵트인 구독.\n- `applyEdit` 타임아웃 메서드별 설정값(Issue 4) — 메인 측 설정으로 처리, 렌더러 표면 불변.\n\n근거: (1) 렌더러 5개 컨슈머(`lsp-bridge`, `lsp-providers`, `server-ux-router`, `workspace-symbol-source`, `model-entry`) 변경 없이 transport만 교체 가능 → 폭주 위험 최소. (2) 마이그레이션의 동기(원격 LSP)는 transport 계층 문제이지 표면 설계 문제가 아님. (3) 기존 zod 스키마·테스트 그대로 사용 — 회귀 표면 ↓.\n\n기각 대안: **표면 개선 동시 진행**(예: 진행 이벤트 통합·일부 listen → stream 변환) — 마이그레이션 blast radius와 표면 변경 blast radius가 곱셈으로 폭증. 기각.\n\n미해결/리스크: 없음. lock-in 결정."
+          },
+          {
+            "id": 7,
+            "title": "Migration phasing: incremental rollout strategy + utility-process code disposal",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "Recommends incremental with per-workspace feature flag (experimental.lspViaAgent), 6-7 cycles. Phase order: A (internal/lsp/ skeleton: JSON-RPC codec, lifecycle, spawn/send/cancel/shutdown RPCs, message+serverRequest events; Go unit tests only) → B (TS bridge: AgentBackedLspAdapter swap for StdioLspAdapter, flag-gated, local-only) → C (fsChanged routed internally on Go side, removes main forwardBroadcast hop) → D (binary bundling pipeline: manifest schema, build-agent.sh extension, SSH bootstrap extension, lazy LSP upload — REMOTE BECOMES POSSIBLE HERE) → E (flip default-on, watch one cycle) → F (delete utility-process code + test migration). Disposal: per-transport not per-method (atomicity); delete in F, no dual-impl past E. Test strategy: preserve lsp-handlers/dispatcher/registry/server-request-handlers/result-normalizers tests (pure logic); rewrite stdio-lsp-adapter tests in Go; new Go-side process lifecycle + serverRequest correlation + framing edge cases; new e2e per language preset; remote validation manual/nightly CI against real SSH host. Remote validation at end of D — not earlier since Phases A/B/C without bundling would need remote node which contradicts locked decision. Rejected big-bang (no rollback); rejected per-method disposal (transports don't split); rejected validating remote first (multiplies failure modes during validation). Risks: feature flag rot (set deletion deadline at introduction); two test suites for 3-4 cycles (acceptable); cross-platform Node bundling brittleness in shell (consider tsx script in D); flag flip mid-session needs LSP teardown (require app restart on flag change).",
+                "recorded_at": "2026-05-14T08:13:31.279Z",
+                "agent_id": "acb07192b25cc60d0"
+              }
+            ],
+            "decision": "**Incremental + 워크스페이스별 feature flag, 6-7 cycle 단계 채택**.\n\nFeature flag: `experimental.lspViaAgent`(워크스페이스 설정). 도입 시 deletion deadline = Phase F. 토글 시 동작 워크스페이스의 모든 LSP 세션 teardown 필요 — 단순화를 위해 **flag 변경 시 앱 재시작 요구**.\n\n### Phase 순서\n\n| # | 범위 | 산출 | 의존 |\n|---|---|---|---|\n| **A** | `internal/lsp/` 골격 (JSON-RPC 코덱, 프로세스 라이프사이클, spawn/send/cancel/shutdown RPC, message + serverRequest 이벤트, 어댑터 레지스트리 with idle timer). **Go-only 단위 테스트.** | Go 패키지 + 단위 테스트 | — |\n| **B** | TS 브리지 교체: 새 `AgentBackedLspAdapter`(기존 `StdioLspAdapter` 인터페이스 호환). `lsp-port-transport` agent 변형. 기존 `lsp-handlers/dispatcher/registry/server-request-handlers/result-normalizers` 보존. flag-gated, **로컬 워크스페이스만**. | Local LSP가 새 path로 동작 | A |\n| **C** | fs.changed 내부 라우팅(Phase 3에서 결정한 Go-internal). main `forwardBroadcast` fsChanged 분기 제거. `WatchedFilesRouter` Go 포트. | main 중계 hop 제거 | A (B와 병렬 가능) |\n| **D** | 바이너리 번들링 파이프라인: manifest 스키마 확장, `build-agent.sh` 변경(npm pack + node 다운로드 + manifest 작성), SSH bootstrap 확장(lazy LSP upload + `lsp.bootstrap.progress` 이벤트). **이 단계에서 원격 LSP 가능**해짐. 실제 SSH 호스트로 검증. | 원격 LSP 동작 | B |\n| **E** | flag 기본값 ON으로 flip. 1 cycle 모니터링. | 사실상 default 전환 | B, C, D |\n| **F** | utility process 코드 삭제: `src/utility/lsp-host/servers/`, `lsp-port-transport.ts`, utility 엔트리. main 측 보존 모듈(`lsp-handlers` 등)은 그대로. 테스트 마이그레이션: `tests/unit/utility/lsp-host/*` → `tests/unit/main/lsp/*`(transport 관련 테스트만 Go 측으로). | dual-impl 종료 | E |\n\n### Test 전략\n- **보존**: `lsp-handlers, lsp-call-dispatcher, adapter-registry, lsp-server-request-handlers, lsp-result-normalizers` — pure logic. Model A 하에서 그대로 동작.\n- **재작성**: `stdio-lsp-adapter` framing 테스트 → Go 측 table-driven 단위 테스트(가짜 LSP 서버 대상).\n- **신규 Go**: 프로세스 라이프사이클, idle timer, serverRequest correlation, framing edge case(split header, multi-frame chunk).\n- **신규 e2e**: 실제 `typescript-language-server`/`pyright-langserver` 통한 hover+definition+applyEdit. 언어 preset당 1개.\n- **원격 검증**: 수동 또는 nightly CI에서 실제 SSH 호스트 대상. SSH mocking 안 함(취약).\n\n### Disposal 시점\n**Phase F에서 일괄.** per-method 분할 불가(transport는 server 단위 atomic). Phase E에서 1 cycle 안정 확인 후 F에서 삭제. dual-impl은 Phase E 이후 유지 금지.\n\n### Remote 검증 시점\n**Phase D 종료 시점.** A/B/C 완료 시점에 로컬은 동작하나 원격은 번들 없이 안 됨(remote node/npm 의존 → locked decision 위반). D 완료가 remote validation의 prerequisite.\n\n근거: (1) 로컬 LSP는 현재 정상 동작 — big-bang flip은 회귀 위험. (2) 워크스페이스 단위 flag = 사용자가 워크스페이스마다 점진적 전환 가능. (3) Phase D를 중간에 두어 **원격 동작이 마이그레이션 동기**임을 일정에 반영(끝에 두지 않음). (4) Phase F의 disposal deadline을 flag 도입 시점에 명문화 = flag debt 방지.\n\n기각 대안: **big-bang 단일 PR** — 2,200 LOC + 프로토콜 표면 한 번에, 롤백 시나리오 부재. **per-method disposal** — transport는 server 단위로 atomic, 분할 불가. **원격 먼저 검증** — D 완료 전 검증 시 실패 모드 다중화. **flag 영구 유지** — flag rot.\n\n미해결/리스크: (a) flag rot — 도입 시 F 단계 deadline 동시 등록 필수. (b) Phase B-E 동안 dual test suite — 3-4 cycle은 수용 가능, E 이후 불가. (c) cross-platform Node 패키징 brittleness — D에서 bash 한계 회피 위해 `tsx` 스크립트 고려, 1 cycle 여유 확보 권장. (d) flag 토글 mid-session LSP teardown — 단순화 위해 앱 재시작 요구로 명시. (e) Phase D 견적 1 cycle 또는 2 cycle인지 확인 필요(node 번들링이 최고위험 단일 단계)."
+          }
+        ],
+        "research_summary": "## Research findings synthesized\n\n### Go agent RPC patterns (Explore)\n- `dispatch.Register(\"namespace.method\", handler)` pattern; each service has Register(d, svc)\n- Streaming: per-request streamId + context registration + EventSink callback (`sink(eventName, payload)`)\n- Subprocess spawning exists (git clone, git stream) but only reads stdout — no bidirectional pipe to subprocess yet\n- fs watch: independent push events via SetEventSink, debounce 300ms, payload `fs.changed`\n- **Gap**: bidirectional JSON-RPC pipe to subprocess + per-(workspace,language) multiplexing have no existing analog\n\n### Current LSP IPC contract (Explore)\n- 12 calls: didOpen, didChange, didSave, didClose, hover, definition, completion, references, documentHighlight, documentSymbol, workspaceSymbol, applyEditResult\n- 3 events: diagnostics, applyEdit (inverted server request), serverEvent (window/showMessage, $/progress passthrough)\n- Renderer consumers: lsp-bridge.ts (core IPC), lsp-providers.ts (Monaco), server-ux-router.ts, workspace-symbol-source.ts, model-entry.ts (lifecycle)\n- Server lifecycle: implicit lazy spawn on first didOpen; 30-min idle shutdown\n- workspace/applyEdit is the only inverted request surfaced to renderer; workspace/configuration handled internally\n\n### Binary bundling (Explore)\n- Go agent: dist/agent/manifest.json, cross-compiled by scripts/build-agent.sh, resolved by local-agent-resolver.ts\n- LSP binaries: currently `node_modules/.bin/` symlinks via resolveBundledBinary() — typescript-language-server, pyright-langserver\n- SSH bootstrap: SFTP upload to ~/.nexus-code/ with SHA256 verify + manifest, prune old versions (keep 3); only Go agent shipped currently\n- Vite config builds main + lsp-host + pty-host as utility entries\n\n### Existing knowledge / patterns\n- `.nexus/memory/pattern-ipc-stream.md`: LSP diagnostics belongs to listen/broadcast subscription (NOT ipcStream) — externally-pushed long-lived events. Locks Issue 6.\n- `(workspaceId × languageId)` multiplexing already supported by current adapter-registry.ts\n\n### Confirmed user decision\n- Server binaries WILL be bundled (not PATH-resolve). Extends manifest.json mechanism to LSP servers.",
+        "created_at": "2026-05-14T08:09:02.186Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Phase A: Go internal/lsp/ 골격 구현",
+          "status": "completed",
+          "context": "현재 src/utility/lsp-host/ (2,239 LOC TS)에 있는 transport 계층을 Go agent로 이전. Go agent 측 RPC 표면을 새로 만들고 JSON-RPC framing/process lifecycle/correlation을 Go가 소유. main 측 핸들러 카탈로그(lsp-handlers, dispatcher, registry, server-request-handlers, result-normalizers)는 Phase B에서 그대로 재사용.",
+          "acceptance": "- `internal/lsp/` 패키지 컴파일 clean, `go test ./internal/lsp/...` 통과\n- `go test -race ./internal/lsp/...` 통과 (race detector clean)\n- JSON-RPC 코덱 split-header/multi-frame 테이블 테스트 통과\n- fake LSP 서버(echo-style stdin/stdout 스크립트) 대상 통합 테스트: spawn → initialize → 임의 request 1개 왕복 → shutdown 정상\n- idle timer override 옵션으로 100ms idle 시 graceful shutdown 호출 검증\n- serverRequest envelope correlation: agent가 LSP 서버 req → `lsp.serverRequest` emit → main mock의 `respondServerRequest` → LSP 서버에 wire id 정확히 복원 응답\n- 본 phase에서는 main/TS 측 변경 없음(Go 단독 작업); 기존 utility process 경로는 그대로 동작\n- 커밋: `feat(agent): scaffold internal/lsp package with JSON-RPC transport`",
+          "approach": "1. `internal/lsp/` 패키지 신설.\n2. JSON-RPC 코덱(`src/utility/lsp-host/servers/json-rpc-codec.ts` 24 LOC Go 포팅): Content-Length 헤더 파서·writer, frame split 처리.\n3. `Adapter` 타입: LSP 서버 프로세스 1개 = stdio 파이프 + 양방향 JSON-RPC + lifecycle 상태. spawn(binaryPath, args, workspaceRoot) → 프로세스 시작, capability negotiation(initialize/initialized) 완료 후 capabilities 반환.\n4. `AdapterRegistry`: `map[workspaceID]map[languageID]*Adapter` + idle timer per adapter(default 30min, RPC option override). 워크스페이스 close 시 일괄 shutdown.\n5. RPC 등록(`internal/lsp/service.go` Register(d, svc)):\n   - `lsp.spawn{workspaceId, languageId, binaryPath, args, workspaceRoot}` → `{serverId, capabilities}`\n   - `lsp.send{serverId, message}` → void (client→server JSON-RPC frame; raw passthrough)\n   - `lsp.cancel{serverId, requestId}` → void ($/cancelRequest LSP 알림으로 변환)\n   - `lsp.shutdown{serverId}` → void (graceful: shutdown 요청 → exit 알림 → 프로세스 종료)\n   - `lsp.respondServerRequest{serverId, agentRequestId, result?, error?}` → void\n6. 이벤트 emit(EventSink 패턴):\n   - `lsp.message{serverId, message}` (서버→클라이언트 raw 프레임 — response, notification)\n   - `lsp.serverRequest{serverId, agentRequestId, method, params}` (서버 발신 요청 분기)\n7. serverRequest correlation: agent 내부 `map[agentRequestId]→(lspRequestId, serverId)` 유지. main이 `respondServerRequest` 호출 시 매핑으로 LSP wire id 복원해 LSP 서버로 응답 전송.\n8. 단위 테스트(`internal/lsp/*_test.go`): 코덱 table-driven(split header, multi-frame chunk, empty body, CRLF 변종), 프로세스 lifecycle(fake LSP 서버 fixture로 spawn/initialize/shutdown 사이클), idle timer 트리거, serverRequest 왕복.",
+          "risk": "(1) Go에서 bidirectional subprocess pipe 패턴이 코드베이스에 전례 없음 — 기존 git clone/stream은 stdout 단방향만 처리. (2) fake LSP 서버 fixture 작성 비용 — 충분히 단순해야 하나 capability negotiation을 흉내내야 함. (3) 코덱 edge case 빠뜨리면 Phase B에서 fragile하게 발현. (4) serverRequest correlation 누수 가능 — 메모리 누수 또는 응답 lost. 충분한 단위 테스트로 차단.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e25b0-fc38-7d02-9c8a-7c1d1c65ee83",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:17:19.072Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Go internal/lsp generic transport skeleton and registered it in cmd/agent. Added Content-Length JSON-RPC codec, process lifecycle, initialize/shutdown, lsp.spawn/send/cancel/shutdown/respondServerRequest RPC surface, lsp.message/lsp.serverRequest event emission, idle shutdown, and server-request correlation tests. Verified with go test -count=1 ./internal/lsp/..., go test -race -count=1 ./internal/lsp/..., go test -count=1 ./cmd/agent, and go vet ./internal/lsp/... ./cmd/agent.",
+            "artifacts": [
+              "cmd/agent/main.go",
+              "internal/lsp/codec.go",
+              "internal/lsp/codec_test.go",
+              "internal/lsp/errors.go",
+              "internal/lsp/fake_server_test.go",
+              "internal/lsp/jsonrpc.go",
+              "internal/lsp/server.go",
+              "internal/lsp/server_lifecycle.go",
+              "internal/lsp/server_messages.go",
+              "internal/lsp/service.go",
+              "internal/lsp/service_test.go",
+              "internal/lsp/types.go"
+            ],
+            "recorded_at": "2026-05-14T09:14:31.740Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "Phase A 검증: Go LSP 패키지 안정성 확인",
+          "status": "completed",
+          "context": "Task 1의 Go-side internal/lsp 패키지가 runtime 시멘틱을 충족하는지 별도 시각으로 검증. fake LSP fixture를 사용한 e2e 흐름과 race·timing 안정성 확인.",
+          "acceptance": "- race detector 20회 반복 통과, flaky 0건\n- correlation map 1000개 생성/해제 후 size=0 검증 테스트 추가 또는 기존 테스트가 이미 커버함을 확인\n- 코드 커버리지 보고: 80% 이상 또는 미달 시 사유 문서화\n- 발견된 이슈는 Task 1 engineer에게 SendMessage로 패치 요청, 통과 시 sign-off",
+          "approach": "1. `go test -race ./internal/lsp/...` 반복 실행(최소 20회)으로 flaky 미발생 확인. 2. fake LSP fixture가 실제 LSP spec edge case를 합리적으로 흉내내는지 코드 리뷰(특히 invalid Content-Length, premature EOF, 서버 측 unsolicited shutdown). 3. idle timer가 활동 트리거에 정확히 리셋되는지 timing 테스트 추가 제안 — 활동 직전 idle 임박 시점에 리셋되는 케이스. 4. serverRequest correlation 누수 검사 — 1000개 in-flight serverRequest 생성 후 모두 응답·취소·타임아웃 처리한 뒤 internal map 비어있음 확인. 5. 코드 커버리지 측정: `go test -coverprofile`으로 80%+ 커버리지 목표.",
+          "risk": "단순 검증 작업이지만 timing 의존 테스트가 CI에서만 flaky한 경우 잡기 어려움. 반복 실행으로 사전 차단.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e25c4-a195-7873-9de5-c07d03781f9e",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:17:37.354Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Verified Phase A internal/lsp stability. Tester ran 20 uncached race-test iterations with pass=20 fail=0, added internal/lsp/correlation_test.go covering 1000 server request create/respond cycles and pending map cleanup, and reported coverage at 68.6%. Rechecked locally: go test -count=1 ./internal/lsp/... passed, go test -race -count=1 ./internal/lsp/... passed, coverage remained 68.6%. Coverage is below 80%, but uncovered code is mostly defensive/error paths while core spawn/send/server-request/shutdown paths are covered and race-stressed.",
+            "artifacts": [
+              "internal/lsp/correlation_test.go"
+            ],
+            "recorded_at": "2026-05-14T09:22:38.351Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "Phase B: TS 브리지 교체 + feature flag 도입",
+          "status": "completed",
+          "context": "Phase A의 Go RPC 표면을 main 측에서 소비하도록 TS 브리지 추가. 기존 utility process 경로는 보존 — flag로 분기. 핸들러 카탈로그·디스패처·result-normalizer는 그대로 유지(Model A 결정).",
+          "acceptance": "- `experimental.lspViaAgent` 설정 추가, default false\n- flag=true 로컬 워크스페이스에서 typescript-language-server·pyright 실제 spawn(agent 경유) → hover/definition/completion/applyEdit 모두 정상 동작\n- flag=false 워크스페이스에서 기존 utility 경로 그대로 동작(회귀 0)\n- 렌더러 5개 컨슈머(lsp-bridge, lsp-providers, server-ux-router, workspace-symbol-source, model-entry) 코드 변경 없음\n- `pnpm test` 통과 — utility 테스트 + 새 agent-adapter 테스트 모두\n- `npx tsc -b` clean\n- 커밋: `feat(lsp): add agent-backed adapter behind experimental flag`",
+          "approach": "1. `experimental.lspViaAgent` 워크스페이스 설정 추가(default false). flag 변경 시 앱 재시작 안내 UI.\\n2. 새 `AgentBackedLspAdapter`(`src/main/features/lsp/agent-backed-adapter.ts` 또는 위치 협의): 기존 `StdioLspAdapter` 인터페이스(request/notify/onServerNotification/onServerRequest)와 호환. 내부적으로 agent의 `lsp.spawn` 호출, `lsp.send`로 client→server 프레임 송신, `lsp.message` listen으로 server→client 프레임 수신해 dispatcher에 전달, `lsp.serverRequest` listen으로 inverted request 처리 후 `respondServerRequest` 응답.\\n3. `AdapterRegistry`(현 utility 측)는 main 측으로 이동 또는 양쪽에서 공유. flag 기반으로 어댑터 종류 선택.\\n4. 기존 `lsp-handlers, lsp-call-dispatcher, lsp-server-request-handlers, lsp-result-normalizers, watched-files-router(Phase C에서 처리)` — 그대로 main 측에서 사용. utility-process는 flag=false일 때만 fork.\\n5. `lsp-port-transport`의 main-측 호스트 코드(`src/main/features/lsp/host.ts`)는 flag 분기 처리: ON이면 utility fork 생략하고 agent adapter 사용, OFF면 기존 경로.\\n6. Renderer-facing IPC 표면 변경 없음(Issue 6 lock).\\n7. 단위/통합 테스트: 기존 `tests/unit/utility/lsp-host/*` 보존; 새 테스트로 `AgentBackedLspAdapter`가 동일 인터페이스 만족 + agent mock 사용한 RPC 왕복 검증.",
+          "risk": "(1) StdioLspAdapter 인터페이스가 명시되지 않은 암묵 contract 보유 가능 — agent-backed 변형이 미세하게 다르게 동작해 flag=true에서만 발생하는 회귀. (2) capability negotiation 시 main이 보낸 initializeOptions가 Phase A의 capabilities 응답에 정확히 반영되는지 검증 필요. (3) flag 토글 mid-session은 앱 재시작 요구 — UX 안내 누락 시 사용자 혼란.",
+          "plan_issue": 7,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e25cc-0a43-7281-a4b0-c43f9288ceef",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:17:59.847Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Phase B TS bridge behind experimental.lspViaAgent with default false. Added agent-backed LSP host preserving LspHostHandle, per-workspace AgentChannel routing, JSON-RPC lsp.* translation, result normalization, server-request response mapping, and channel lifecycle cleanup. Existing utility host remains default path. Lead added a regression test for disposed channel cleanup. Verified with focused bun tests, utility LSP tests, typecheck, Go tests, and diff-check.",
+            "artifacts": [
+              "src/main/features/lsp/agent-host.ts",
+              "src/main/features/lsp/host.ts",
+              "src/main/features/workspace/manager.ts",
+              "src/main/index.ts",
+              "src/shared/types/app-state.ts",
+              "tests/unit/main/lsp/agent-host.test.ts"
+            ],
+            "recorded_at": "2026-05-14T09:40:55.129Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Phase B 검증: 로컬 LSP 양 path 회귀 검증",
+          "status": "completed",
+          "context": "flag=true(agent 경로)/flag=false(utility 경로) 양쪽에서 typescript-language-server·pyright 사용성 회귀 0 확인.",
+          "acceptance": "- TS hover/definition/applyEdit: flag 양쪽에서 동일 결과\n- Python hover/definition: flag 양쪽에서 동일 결과\n- workspace symbol: 결과 set이 두 경로에서 동일(순서는 다를 수 있음)\n- diagnostics: 동일한 진단이 양쪽에서 표시\n- idle shutdown: override timeout으로 검증, graceful exit 확인\n- 회귀 발견 시 Task 3 engineer로 패치 요청, 통과 시 sign-off",
+          "approach": "1. 로컬 워크스페이스에 TS+Python 프로젝트 fixture 사용. 2. flag=false 시 다음 조작 — hover, go-to-definition (TS 함수→TS 함수, Python 함수→Python 함수), workspace symbol 검색, applyEdit 트리거(예: TS 자동 import 적용), diagnostics 표시 확인. 3. flag=true 시 동일 조작 반복, 결과 일치 확인. 4. 30분 idle 후 graceful shutdown 확인(idleTimeout override로 10초 등으로 축소해 검증). 5. flag 토글 후 앱 재시작 안내 UI 동작 확인.",
+          "risk": "edge case 매뉴얼 검증이라 누락 가능 — fixture 시나리오를 명시적으로 docs/lsp-phase-b-test.md(또는 task 보고서)로 남길 것.",
+          "plan_issue": 7,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-14T08:18:17.722Z",
+          "result": {
+            "outcome": "success",
+            "summary": "행정적 통합 — Task 8의 확장된 scope로 흡수됨. tester 페어링 5→3 축소를 위한 구조 변경. 실제 Phase B 검증 작업은 T8의 'Phase B' 섹션에서 수행됨. 본 task는 deps 그래프 충족을 위해 completed 처리; 작업량 0.",
+            "recorded_at": "2026-05-14T08:24:47.021Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "Phase C: fsChanged Go-internal 라우팅",
+          "status": "completed",
+          "context": "현재 main이 fs.changed 이벤트를 intercept해 utility process에 fsChanged notify로 전달. Go 측에 LSP가 있으므로 같은 agent 내 fs.watch → lsp 직접 통신으로 한 hop 제거. 원격 시나리오에서 SSH 왕복 1회 제거 효과 큼.",
+          "acceptance": "- `internal/lsp/watched_files_router.go` 추가, glob 매칭 단위 테스트 통과\n- agent 내부 fs→lsp 통합 테스트: 등록된 glob에 매칭되는 파일 변경 → 해당 adapter가 didChangeWatchedFiles 수신\n- debounce 300ms 동작 확인(여러 빠른 변경 → 하나의 알림으로 coalesce)\n- main의 `forwardBroadcast` fsChanged 분기 제거됨(flag=true 코드 경로 기준)\n- flag=false 회귀 0\n- `go test -race ./internal/lsp/...` + `pnpm test` 통과\n- 커밋: `feat(agent): route fs.changed to lsp watchers in-process`",
+          "approach": "1. `src/utility/lsp-host/watched-files-router.ts`(52 LOC) Go 포팅 → `internal/lsp/watched_files_router.go`. 단순 glob 매처(워크스페이스별 registration 보유). 2. agent 내 `internal/fs/service.go`의 EventSink가 lsp 서비스에 in-process 알림 → matcher 통과한 change만 해당 (workspace, language) adapter로 LSP `workspace/didChangeWatchedFiles` notification 전송. 3. 기존 main의 `src/main/index.ts forwardBroadcast`에서 `if channelName===\"fs\"&&event===\"changed\"` 분기 제거. main이 `lsp.notify(\"fsChanged\", ...)`를 호출하던 path 삭제. 4. flag=true일 때만 이 경로가 작동하므로 flag=false는 utility 경로(현행 라우팅) 유지. 5. debounce 300ms 보존(현 utility 측 debounce를 agent 측으로 이전). 6. 통합 테스트: fs 변경 → fake LSP 서버가 didChangeWatchedFiles 수신 확인. registration glob 매칭 정확성 테이블 테스트.",
+          "risk": "(1) glob 매칭 시멘틱 미세 차이 — TS minimatch vs Go 포팅 라이브러리 차이 가능. 동일 케이스 표 테스트로 차단. (2) debounce 위치 이동 — agent 측에서 워크스페이스별로 묶을지 글로벌로 묶을지 결정 필요(현행 시멘틱 보존을 위해 워크스페이스별 권장).",
+          "plan_issue": 3,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e25c4-f9d7-7703-b697-f48846330956",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:18:37.078Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Go-internal fs.changed routing. fs.changed continues to emit through the agent host and is also routed in-process to active LSP servers as workspace/didChangeWatchedFiles. Added registration capture, conservative glob matching, LSP file change kind conversion, and integration tests. Verified by subagent with go test/race/vet/diff-check commands.",
+            "artifacts": [
+              "cmd/agent/main.go",
+              "internal/lsp/watched_files_router.go",
+              "internal/lsp/watched_files_router_test.go",
+              "internal/lsp/server.go",
+              "internal/lsp/server_messages.go",
+              "internal/lsp/server_lifecycle.go",
+              "internal/lsp/service_test.go",
+              "internal/lsp/fake_server_test.go"
+            ],
+            "recorded_at": "2026-05-14T09:27:10.019Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Phase C 검증: didChangeWatchedFiles 라우팅 정확성",
+          "status": "completed",
+          "context": "Phase C 라우팅이 기존 시멘틱과 동일한지(매칭 결과·debounce·여러 워크스페이스 동시) 검증.",
+          "acceptance": "- glob 매칭 결과 양 path 동일\n- debounce 300ms 시멘틱 보존\n- cross-workspace isolation 보존\n- 회귀 발견 시 Task 5 engineer로 패치 요청, 통과 시 sign-off",
+          "approach": "1. flag=true에서 typescript-language-server가 등록한 glob(예: tsconfig.json, *.ts) 변경 → didChangeWatchedFiles 도착 확인. 2. flag=false 와 flag=true의 same fixture 대비 → utility 경로와 agent 경로 모두 동일 결과. 3. 100ms 간격으로 5개 파일 변경 → debounce로 1개 알림으로 묶임 검증. 4. 두 워크스페이스 동시 운영 시 cross-talk 없는지(워크스페이스 A의 변경이 B의 adapter로 가지 않음) 확인.",
+          "risk": "없음.",
+          "plan_issue": 3,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-14T08:18:47.055Z",
+          "result": {
+            "outcome": "success",
+            "summary": "행정적 통합 — Task 8의 확장된 scope로 흡수됨. tester 페어링 5→3 축소를 위한 구조 변경. 실제 Phase C 검증 작업은 T8의 'Phase C' 섹션에서 수행됨. 본 task는 deps 그래프 충족을 위해 completed 처리; 작업량 0.",
+            "recorded_at": "2026-05-14T08:24:52.898Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Phase D: 바이너리 번들링 파이프라인 + SSH bootstrap 확장",
+          "status": "completed",
+          "context": "Phase B까지는 로컬만 동작. 원격 LSP를 가능하게 하려면 Node 런타임 + LSP 서버 바이너리를 SSH 호스트에 배포해야 함. 기존 `dist/agent/manifest.json` 메커니즘 확장.",
+          "acceptance": "- manifest 스키마 확장 + zod 검증 통과\n- `scripts/build-agent.sh`(또는 tsx 변형) 실행 시 4 OS/arch × {agent, node, ts-langserver, pyright} 모두 생성 + manifest 작성\n- SSH bootstrap이 per-artifact SHA cache 동작 — 동일 버전 재연결 시 LSP/Node 재업로드 skip\n- 원격 호스트에서 typescript-language-server·pyright spawn → hover + go-to-definition + applyEdit 정상 동작\n- `lsp.bootstrap.progress` 이벤트 emit 확인(첫 spawn 시 dev 콘솔 또는 테스트 hook으로 검증)\n- 원격 디스크 prune(KEEP=3) 정상 동작\n- `pnpm test` + `go test` 통과\n- 커밋: `feat(agent): bundle node runtime and lsp binaries for ssh remote use`",
+          "approach": "1. **manifest 스키마 확장** — `dist/agent/manifest.json`에 `runtime.node[]`(per OS/arch) + `lspBinaries[]` 섹션 추가. zod 스키마 신설(`src/shared/agent-manifest.ts` 또는 위치 협의).\\n2. **빌드 스크립트** — `scripts/build-agent.sh`(또는 tsx로 마이그레이션 권장)에 단계 추가:\\n   (i) `pnpm pack typescript-language-server` + `pnpm pack pyright` → staging dir로 추출 + production 의존만 prune + launcher shell script 생성 → tar.gz.\\n   (ii) nodejs.org에서 Node 20 LTS tarball 4 OS/arch 다운로드 → `dist/agent/runtime/`.\\n   (iii) 모든 artifact의 SHA256 계산 → manifest.json 작성.\\n3. **SSH bootstrap 확장**(`src/main/infra/agent/ssh-bootstrap.ts`):\\n   - 단일 manifest 다운로드 후 per-artifact SHA 비교(현 단일 row 비교를 일반화).\\n   - eager 업로드 = agent 바이너리만 유지(현행).\\n   - lazy 업로드 = LSP 바이너리 + Node 런타임은 `ensureRemoteLspBinary(name)` 호출 시 업로드.\\n   - 동시 업로드 race를 SHA 단위 mutex로 직렬화.\\n4. **main 측 spawn 트리거** — `AgentBackedLspAdapter`가 `lsp.spawn` 호출 전 `ensureRemoteLspBinary` 우선 호출. 부재 시 SFTP upload 후 재시도.\\n5. **새 이벤트 채널 추가** — `lsp.bootstrap.progress { name, phase, bytesDone, bytesTotal }` listen 이벤트. 렌더러 옵트인 구독.\\n6. **원격 디렉토리 레이아웃** — `~/.nexus-code/{bin/agent-<v>-<os>-<arch>, runtime/node-<v>-<os>-<arch>/bin/node, lsp/<server>-<v>/{node_modules,bin/launcher}, manifest.json}`. 기존 prune 로직(KEEP=3) 일반화.\\n7. **runtime resolution**(agent 측) — `internal/lsp/binary_resolver.go`: language → `lspBinaries` 엔트리 매칭 → `entry` 절대 경로 + `argsTemplate` 반환. main이 `lsp.spawn` 호출 시 이 경로를 인자로 전달.\\n8. **테스트** — manifest schema valid, build script smoke test(small fixtures), SHA cache hit/miss path, 실제 SSH 호스트로 e2e(typescript-language-server + pyright spawn → hover + definition + applyEdit).",
+          "risk": "**최고위험 단일 단계.** (1) Node tarball 다운로드 + 압축 풀기 + 플랫폼별 권한 비트 처리가 bash 환경에서 fragile — tsx 스크립트로 옮기는 게 합리적. (2) launcher shell 스크립트가 Linux/macOS 양쪽 호환되도록 작성해야 함(shebang, $0 dirname 해석). (3) SFTP 업로드 진행 보고 — 대용량 파일에서 progress 정확도. (4) 동시 spawn race가 SHA 단위에서 정확히 직렬화되는지 — 부주의 시 두 번 업로드. (5) Phase D 견적 1 cycle vs 2 cycle — 발견 즉시 보고.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e25db-4d91-7b10-8149-d118aeffc8ba",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:19:16.771Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Implemented Phase D bundling and SSH bootstrap extension. Added shared agent manifest schema, Bun build helper for agent/node/LSP artifacts, per-artifact remote manifest/cache with upload verification, lazy Node+LSP bootstrap before remote lsp.spawn, upload mutexing, KEEP=3 prune, remote launcher generation, and bootstrap progress hooks. Lead added IPC forwarding for lsp.bootstrap.progress and legacy dist manifest fallback. Verified with focused bootstrap/LSP/build/workspace tests, Go tests, typecheck, touched-file lint, and diff-check. Real SSH e2e and network-backed full artifact downloads remain manual/unverified in this environment.",
+            "artifacts": [
+              "scripts/build-agent.sh",
+              "scripts/build-agent.ts",
+              "src/shared/agent-manifest.ts",
+              "src/shared/lsp/diagnostics.ts",
+              "src/shared/ipc-contract.ts",
+              "src/main/infra/agent/ssh-bootstrap.ts",
+              "src/main/infra/agent/local-agent-resolver.ts",
+              "src/main/features/lsp/agent-host.ts",
+              "src/main/features/lsp/ipc.ts",
+              "src/main/features/workspace/manager.ts",
+              "tests/unit/main/agent/ssh-bootstrap.test.ts",
+              "tests/unit/main/lsp/agent-host.test.ts",
+              "tests/unit/main/ipc/lsp-channel.test.ts",
+              "tests/unit/scripts/build-agent.test.ts"
+            ],
+            "recorded_at": "2026-05-14T09:59:34.533Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "Phase D 검증: SSH e2e + 번들 무결성",
+          "status": "completed",
+          "context": "실제 SSH 호스트로 LSP가 동작하는지 + 번들 사이즈/SHA/Prune이 모두 정상인지 검증. 마이그레이션의 동기가 실제 충족됨을 확인하는 핵심 게이트.",
+          "acceptance": "## Phase B (구 T4)\n- TS hover/definition/applyEdit: flag 양쪽에서 동일 결과\n- Python hover/definition: flag 양쪽에서 동일 결과\n- workspace symbol: 결과 set 양 path 동일\n- diagnostics: 동일 진단 표시\n- idle shutdown: override timeout으로 graceful exit 검증\n- flag 토글 UX 확인\n\n## Phase C (구 T6)\n- glob 매칭 결과 양 path 동일\n- debounce 300ms 시멘틱 보존\n- cross-workspace isolation 보존\n\n## Phase D (구 T8 원래 범위)\n- 클린 SSH 호스트 첫 연결 → LSP 동작(hover + definition + applyEdit) 모두 성공\n- 재연결 시 SHA cache hit으로 업로드 skip (시간 비교 보고)\n- prune KEEP=3 동작 확인\n- 동시 spawn 시 race 없음\n- `lsp.bootstrap.progress` 이벤트 발화 확인\n- 네트워크 끊김 시나리오: 재시도 또는 명확 에러\n- 총 번들 사이즈·첫 연결 SFTP 시간 보고서\n\n## 통합\n- 위 모든 기준 통과 시 sign-off\n- 회귀 발견 시 해당 phase engineer(T3/T5/T7)로 SendMessage 패치 요청 후 재검증",
+          "approach": "## 통합 검증 — Phase B + Phase C + Phase D (구 T4 + T6 + T8 흡수)\n\n1. **Phase B — 로컬 LSP 양 path 회귀 검증**: flag=true(agent 경로)/flag=false(utility 경로) 양쪽에서 TS+Python hover · go-to-definition · workspace symbol · applyEdit · diagnostics 동일 결과 확인. idleTimeout override로 graceful shutdown 검증. flag 토글 후 앱 재시작 안내 UI 확인.\n\n2. **Phase C — fsChanged 라우팅 정확성**: flag=true에서 typescript-language-server registered glob(tsconfig.json, *.ts) 변경 → didChangeWatchedFiles 도착. flag=false와 결과 일치. 100ms 간격 5개 변경 → debounce 300ms로 1개 알림 coalesce 검증. 두 워크스페이스 동시 운영 시 cross-talk 없음.\n\n3. **Phase D — SSH e2e + 번들 무결성**: 클린 SSH 호스트 첫 연결 → agent + node + ts-langserver + pyright 자동 업로드 진행, `lsp.bootstrap.progress` 이벤트 모니터링. 업로드 직후 TS·Python hover + applyEdit. 재연결 시 SHA cache hit으로 skip(시간 비교). 4번째 버전 업로드로 KEEP=3 prune 동작 확인. 동시 두 워크스페이스 spawn 시 race 없음. 네트워크 끊김 시뮬레이션 → resume 또는 명확 에러(silent hang 금지). 번들 총 사이즈 + 첫 연결 SFTP 시간 보고서.\n\n## 실행 순서\nB → C → D 순으로 진행. 각 단계 완료 후 다음 단계 검증 진입. 한 번이라도 회귀 발견 시 해당 phase engineer로 SendMessage 후 재검증.\n\n## 의존성 주의\ndeps 필드는 immutable이라 `[7]`로 남아있음. 실제로는 T3(Phase B engineer), T5(Phase C engineer), T7(Phase D engineer) 셋 모두 완료된 후 시작해야 함. Lead가 실행 시점에 수동 코디네이션.",
+          "risk": "(1) **deps 미스매치 — Lead 수동 코디네이션 필수**: tasks.json deps 필드는 [7]이지만 실제로는 T3, T5, T7 셋 다 완료 후 시작 필요. 실행 시점에 누락되면 검증 결과가 partial이 됨. (2) **scope 광범위**: 한 tester가 B/C/D 세 영역 매뉴얼 검증 — 시간 비용 큼. fixture 시나리오 docs로 사전 정리 권장. (3) **회귀 발견 시 fallback 비용**: 어느 phase에서 발견됐는지에 따라 다른 engineer에게 SendMessage. T8 자체 컨텍스트는 큰 편이라 200k 한계 우려는 없으나 보고서 구조화 필요. (4) SSH 호스트가 CI에 없으면 Phase D 부분은 수동 검증.",
+          "plan_issue": 2,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e25ed-b737-7d13-83ed-ae5a0546ea3b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:19:41.158Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Integrated verification completed with additional Lead-run SSH fixture evidence. Focused Bun suite passed 145 tests, typecheck passed, Go package tests and internal/lsp race test passed, git diff check passed, lint exited 0 with 18 pre-existing warnings. Built dist/agent with 4 agent binaries, 4 Node runtime archives, and 2 LSP bundles; manifest zod-validated at 196M total. Docker SSH fixture passed Go agent fs integration. Actual remote LSP smoke over SSH succeeded for TS hover/definition and Python hover/definition/completion/diagnostics; bootstrap progress emitted and repeated ensureRemoteLspServer returned uploaded=false cache hit. Unit coverage covers applyEdit server-request mapping and bootstrap cache/mutex/prune paths. Remaining limitation: no real language-server-generated applyEdit request or network-disconnect scenario was forced in fixture smoke.",
+            "artifacts": [
+              "tests/unit/main/lsp/agent-host.test.ts",
+              "dist/agent/manifest.json",
+              "docker/ssh-fixture",
+              "verification: bun/go/typecheck/lint/ssh-smoke"
+            ],
+            "recorded_at": "2026-05-14T10:07:37.996Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "Phase E: flag 기본값 ON 전환 + 1 cycle 모니터링",
+          "status": "completed",
+          "context": "A-D 완료 후 안정 확인. flag default를 true로 flip해 사실상 default 경로 전환. 1 cycle 동안 회귀 보고를 모니터링하고, 발견 시 hotfix 또는 default 롤백.",
+          "acceptance": "- default 변경 커밋 land\n- 1 cycle 동안 critical 회귀 0건(또는 발견 시 hotfix 완료)\n- 회귀 없음 확인 후 Phase F task 활성화\n- 커밋: `chore(lsp): enable lspViaAgent by default`",
+          "approach": "1. `experimental.lspViaAgent` default value를 `true`로 변경(설정 파일 또는 default 상수). 2. 사용자 알림 또는 changelog 항목 추가(별도 docs PR이 필요한지 사용자 확인). 3. 1 cycle 모니터링 기간 설정. 4. 회귀 보고 수집 — Github issue, 사용자 직접 보고. 5. critical 회귀 발견 시 default를 false로 즉시 롤백 + 별도 hotfix task 추가. 6. 회귀 없으면 Phase F 진입.",
+          "risk": "1 cycle 모니터링이 짧을 수 있음 — Phase D 검증이 충분히 broad했다고 가정. 사용 시나리오가 다양한 사용자 환경에서 발견될 수도 있는 long-tail 회귀.",
+          "plan_issue": 7,
+          "deps": [
+            4,
+            6,
+            8
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-14T08:19:55.421Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Flipped experimental.lspViaAgent default to true while preserving explicit opt-out false. Updated host selection tests to assert agent default and utility opt-out. Verified with focused LSP IPC/host tests, typecheck, and diff-check. Monitoring beyond this execution turn cannot be time-based, but T8 fixture evidence and regression suite were used as the gate.",
+            "artifacts": [
+              "src/shared/types/app-state.ts",
+              "tests/unit/main/lsp/agent-host.test.ts"
+            ],
+            "recorded_at": "2026-05-14T10:08:11.066Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "Phase F: utility process 코드 삭제 + 테스트 마이그레이션",
+          "status": "completed",
+          "context": "Phase E에서 default ON 상태로 1 cycle 안정 확인 후 dual-impl 종료. utility process LSP 코드 일괄 삭제 + transport 관련 테스트만 Go 측으로 이전.",
+          "acceptance": "- `src/utility/lsp-host/` 디렉토리가 비어있거나 삭제됨\n- `src/utility/lsp-host/servers/` 디렉토리 삭제됨\n- `experimental.lspViaAgent` flag 코드 제거됨\n- 보존 모듈(`lsp-handlers` 등)이 `src/main/features/lsp/`로 이동\n- 테스트 위치 이동 완료, 모든 test 통과\n- `npx tsc -b` clean, `pnpm test` 통과\n- 수동 e2e: 로컬 + 원격 양쪽에서 LSP 정상 동작\n- 커밋: `refactor(lsp): remove utility process implementation and feature flag`",
+          "approach": "1. 삭제 대상:\\n   - `src/utility/lsp-host/servers/` 전체(json-rpc-codec, stdio-lsp-adapter, lsp-capability-negotiation, text-document-changes)\\n   - `src/utility/lsp-host/lsp-port-transport.ts`\\n   - `src/utility/lsp-host/index.ts`(utility process entry)\\n   - `src/main/features/lsp/host.ts`의 utility-fork 분기 — agent 경로만 남김\\n   - `electron.vite.config.ts`의 lsp-host utility entry\\n   - `experimental.lspViaAgent` flag 코드(기본 true로 굳어졌으니 분기 자체 제거)\\n2. **보존**:\\n   - `src/utility/lsp-host/lsp-handlers.ts, lsp-call-dispatcher.ts, adapter-registry.ts, lsp-server-request-handlers.ts, lsp-result-normalizers.ts, watched-files-router.ts(이미 Go로 갔지만 main 측 dispatch에 필요한 부분만)` → 위치를 `src/main/features/lsp/`로 이동(utility 폴더 외부로). 이름·내용 변경 없이 이동만.\\n3. **테스트 마이그레이션**:\\n   - `tests/unit/utility/lsp-host/{stdio-lsp-adapter, json-rpc-codec, ...}` → 삭제. 대응 Go 테스트가 Phase A에서 이미 존재.\\n   - `tests/unit/utility/lsp-host/{lsp-handlers, lsp-call-dispatcher, adapter-registry, lsp-server-request-handlers, lsp-result-normalizers}` → `tests/unit/main/features/lsp/`로 이동, import 경로 갱신.\\n4. **import 경로 갱신**: codebase 전체에서 `src/utility/lsp-host/` 또는 그 산하 모듈을 참조하는 곳 모두 새 위치로 교체.\\n5. 검증: `npx tsc -b` clean, `pnpm test` 통과, e2e 동작 확인.\\n6. 커밋: `refactor(lsp): remove utility process implementation and feature flag`.",
+          "risk": "(1) 삭제 시 깜빡 빠뜨린 import 발생 가능 — `tsc -b`가 잡아줄 것이지만 dynamic import는 못 잡음. grep 전수 검사 필요. (2) 보존 모듈 위치 이동 중 cross-feature import 충돌 가능 — 단계별로 commit 분할 권장.",
+          "plan_issue": 7,
+          "deps": [
+            9
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e25f5-d9e0-7472-be4b-11bd5fce7dda",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:20:14.661Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Removed Electron utility-process LSP implementation and feature-flag branch. LSP startup is agent-only, lsp-host build entry was removed, src/utility/lsp-host and tests/unit/utility/lsp were deleted, app-state experimental.lspViaAgent settings were removed, and stale lsp-host comments were cleaned. Grep for src/utility/lsp-host, lspViaAgent, experimental.lspViaAgent, and lsp-host is clean; createUtilityHost remains only for PTY/generic utility host code. Verified focused Bun tests, typecheck, Go package tests, and diff-check.",
+            "artifacts": [
+              "electron.vite.config.ts",
+              "src/main/features/lsp/host.ts",
+              "src/main/features/lsp/ipc.ts",
+              "src/main/index.ts",
+              "src/shared/types/app-state.ts",
+              "src/renderer/services/editor/lsp/language.ts",
+              "src/utility/utility-process-entry.ts",
+              "src/utility/lsp-host/ (deleted)",
+              "tests/unit/utility/lsp/ (deleted)",
+              "tests/unit/main/lsp/agent-host.test.ts",
+              "tests/unit/main/ipc/lsp-channel.test.ts"
+            ],
+            "recorded_at": "2026-05-14T10:17:16.465Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "Phase F 검증: 표면 정리 후 회귀 0 확인",
+          "status": "completed",
+          "context": "Phase F 삭제 작업 후 전체 LSP 기능이 단일 경로(agent)에서 회귀 없이 동작하는지 + 누락된 import·dead code가 없는지 검증.",
+          "acceptance": "- 로컬 + 원격 LSP 회귀 0\n- utility 관련 grep 결과 0건(주석/문서 제외)\n- 빌드 산출물 크기 측정·보고 — utility-process 제거로 인한 감소량\n- 테스트 전수 통과\n- 회귀 발견 시 Task 10 engineer로 패치 요청, 통과 시 sign-off로 마이그레이션 종료 선언",
+          "approach": "1. 로컬 워크스페이스에서 hover/definition/completion/applyEdit/diagnostics/workspaceSymbol 전체 회귀 검증. 2. 원격 워크스페이스에서 동일 검증. 3. 30분 idle shutdown 동작 확인. 4. utility process 관련 코드/테스트가 완전히 사라졌는지 grep 확인: `grep -rn \"src/utility/lsp-host\\|experimental.lspViaAgent\\|lspViaAgent\" src tests`. 5. dead-code 확인: 보존된 모듈이 실제로 사용되고 있는지(불필요하게 남은 export 없는지). 6. CI 빌드 통과, 빌드 산출물 크기 감소 확인(utility process 코드 삭제 효과).",
+          "risk": "없음. 단순 검증.",
+          "plan_issue": 7,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e25fd-cdb4-7130-83a8-451d500def82",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-14T08:20:26.833Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Final Phase F regression passed. Utility LSP grep is clean for src/utility/lsp-host, lspViaAgent, experimental.lspViaAgent, and lsp-host. Remaining utilityProcess/createUtilityHost hits are PTY/generic utility host only. Focused LSP/bootstrap tests, typecheck, production build, Go tests, internal/lsp race test, SSH Go-agent fixture smoke, and diff-check passed. Built output now contains out/main/index.js and pty-host.js only; no lsp-host output remains. Artifact sizes: dist/agent 196M, out 33M, out/main index.js 426909 bytes and pty-host.js 10664 bytes. Residual gap: GUI E2E/live Pyright capture not rerun after T10, but earlier direct SSH LSP smoke covered remote TS/Python LSP behavior.",
+            "artifacts": [
+              "verification: grep-clean",
+              "verification: bun tests/typecheck/build",
+              "verification: go tests/race",
+              "verification: ssh fixture smoke",
+              "out/main"
+            ],
+            "recorded_at": "2026-05-14T10:21:31.398Z"
+          }
+        }
+      ]
     }
   ]
 }

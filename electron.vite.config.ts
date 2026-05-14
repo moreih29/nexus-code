@@ -6,8 +6,8 @@ import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 
 // electron-vite 5.x supports three targets: main, preload, renderer.
-// Utility processes (pty-host, lsp-host) run in Electron's utilityProcess
-// (Node.js context) so they are bundled as extra entries under the main build.
+// Utility processes (pty-host) run in Electron's utilityProcess (Node.js
+// context) so they are bundled as extra entries under the main build.
 // See: https://electron-vite.org/guide/build
 //
 // Native modules (node-pty, better-sqlite3) must not be bundled by Vite.
@@ -45,7 +45,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
           "pty-host": resolve(__dirname, "src/utility/pty-host/index.ts"),
-          "lsp-host": resolve(__dirname, "src/utility/lsp-host/index.ts"),
         },
         external: NATIVE_EXTERNALS,
       },
