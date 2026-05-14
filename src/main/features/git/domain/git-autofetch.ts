@@ -15,8 +15,8 @@ import type {
 } from "../../../../shared/types/git";
 import { normalizeGitAutofetchIntervalMin } from "../../../../shared/types/git";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
-import { isSshWorkspace } from "../../../workspace/workspace-guards";
-import type { BroadcastFn, WorkspaceManager } from "../../../workspace/workspace-manager";
+import { isSshWorkspace } from "../../workspace/guards";
+import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { GitError } from "./git-error";
 import type { GitRegistry } from "./git-registry";
 

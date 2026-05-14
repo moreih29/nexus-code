@@ -3,7 +3,7 @@
  */
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/types/fs";
-import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import type { WorkspaceManager } from "../../workspace/manager";
 import { validateArgs } from "../../../ipc/router";
 
 const c = ipcContract.fs.call;

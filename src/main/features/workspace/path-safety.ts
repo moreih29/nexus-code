@@ -7,8 +7,8 @@
  * the temporary TypeScript watcher.
  */
 import path from "node:path";
-import { requireLocalWorkspace, requireWorkspace } from "./workspace-guards";
-import type { WorkspaceManager } from "./workspace-manager";
+import { requireLocalWorkspace, requireWorkspace } from "./guards";
+import type { WorkspaceManager } from "./manager";
 
 export function resolveLocalWorkspacePath(
   manager: WorkspaceManager,

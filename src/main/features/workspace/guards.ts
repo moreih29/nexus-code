@@ -1,5 +1,5 @@
-import type { WorkspaceLocation, WorkspaceMeta } from "../../shared/types/workspace";
-import type { WorkspaceManager } from "./workspace-manager";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceManager } from "./manager";
 
 type LocalWorkspace = WorkspaceMeta & {
   location: Extract<WorkspaceLocation, { kind: "local" }>;

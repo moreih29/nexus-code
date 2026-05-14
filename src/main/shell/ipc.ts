@@ -3,7 +3,7 @@
  */
 
 import { register } from "../ipc/router";
-import { openNewWindowHandler } from "../window-ipc";
+import { openNewWindowHandler } from "../features/window/ipc";
 import { openPathExternalHandler, revealInOSHandler } from "./open-path";
 
 export interface RegisterSystemChannelOptions {

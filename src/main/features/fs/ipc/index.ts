@@ -6,7 +6,7 @@
 import { register } from "../../../ipc/router";
 import { showItemInFolderHandler } from "../../../shell/workspace-reveal";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
-import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import type { WorkspaceManager } from "../../workspace/manager";
 import { searchTextStream } from "../../search/search-handlers";
 import type { AgentFsWatcher } from "../bridge/agent-watch";
 import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";

@@ -82,7 +82,7 @@ export function registerGitChannel(
   registry: GitRegistry,
   storage: WorkspaceStorage,
   autofetch?: GitAutofetchScheduler,
-  workspaceManager?: import("../../../workspace/workspace-manager").WorkspaceManager,
+  workspaceManager?: import("../../workspace/manager").WorkspaceManager,
   cloneExecutorFactory?: CloneExecutorFactory,
 ): void {
   register("git", {

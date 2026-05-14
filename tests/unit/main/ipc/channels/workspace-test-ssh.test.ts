@@ -6,7 +6,7 @@ import {
   type TestSshBootstrap,
   type TestSshCreateChannel,
   testSshHandler,
-} from "../../../../../src/main/ipc/channels/workspace";
+} from "../../../../../src/main/features/workspace/ipc";
 import type {
   CreateSshChannelOptions,
   SshChannel,

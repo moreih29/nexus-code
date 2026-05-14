@@ -1,6 +1,6 @@
-import type { WorkspaceMeta } from "../../shared/types/workspace";
-import type { FsProvider } from "../features/fs/bridge/provider";
-import type { WorkspaceStorage } from "../storage/workspace-storage";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { FsProvider } from "../fs/bridge/provider";
+import type { WorkspaceStorage } from "../../storage/workspace-storage";
 
 // ---------------------------------------------------------------------------
 // WorkspaceContext — one instance per open workspace.

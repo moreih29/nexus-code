@@ -5,7 +5,7 @@
 import { ipcContract } from "../../../../shared/ipc-contract";
 import type { WriteFileResult } from "../../../../shared/types/fs";
 import { validateArgs } from "../../../ipc/router";
-import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import type { WorkspaceManager } from "../../workspace/manager";
 
 const c = ipcContract.fs.call;
 

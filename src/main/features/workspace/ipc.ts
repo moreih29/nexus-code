@@ -10,8 +10,8 @@ import {
   createSshChannel,
   type SshChannel,
 } from "../../agent/ssh-channel";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
-import { type CallContext, register, validateArgs } from "../router";
+import type { WorkspaceManager } from "./manager";
+import { type CallContext, register, validateArgs } from "../../ipc/router";
 
 const c = ipcContract.workspace.call;
 

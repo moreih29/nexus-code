@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FsChangeSchema } from "../../../../shared/types/fs";
-import type { BroadcastFn, WorkspaceManager } from "../../../workspace/workspace-manager";
+import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "./provider";
 
 const AgentFsChangedPayloadSchema = z.object({

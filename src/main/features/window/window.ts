@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { BrowserWindow, shell } from "electron";
-import { color } from "../shared/design-tokens";
-import { isMac } from "./platform";
+import { color } from "../../../shared/design-tokens";
+import { isMac } from "../../platform";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.

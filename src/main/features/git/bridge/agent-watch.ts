@@ -4,7 +4,7 @@ import {
   GIT_UNWATCH_METHOD,
   GIT_WATCH_METHOD,
 } from "../../../../shared/protocol/agent/git";
-import type { WorkspaceManager } from "../../../workspace/workspace-manager";
+import type { WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "../../fs/bridge/provider";
 
 export type GitDirtyCallback = (workspaceId: string) => void;

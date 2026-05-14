@@ -22,10 +22,10 @@ import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers"
 import { registerDialogChannel } from "./ipc/channels/dialog";
 import { registerGitChannel } from "./features/git/ipc";
 import { registerLspChannel } from "./ipc/channels/lsp";
-import { registerPanelChannel } from "./ipc/channels/panel";
+import { registerPanelChannel } from "./features/panel";
 import { registerPtyChannel } from "./ipc/channels/pty";
 import { registerSshChannel } from "./ipc/channels/ssh";
-import { registerWorkspaceChannel } from "./ipc/channels/workspace";
+import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { broadcast, setupRouter } from "./ipc/router";
 import { installAppMenu } from "./menu";
 import { isMac } from "./platform";
@@ -33,8 +33,8 @@ import { registerSystemChannel } from "./shell/ipc";
 import { GlobalStorage } from "./storage/global-storage";
 import { StateService } from "./storage/state-service";
 import { WorkspaceStorage } from "./storage/workspace-storage";
-import { createMainWindow } from "./window";
-import { WorkspaceManager } from "./workspace/workspace-manager";
+import { createMainWindow } from "./features/window/window";
+import { WorkspaceManager } from "./features/workspace/manager";
 
 setupRouter();
 

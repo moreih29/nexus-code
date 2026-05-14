@@ -16,8 +16,8 @@ import type { FileMatch } from "../../../shared/types/search";
 import { isAgentBackedProvider } from "../fs/bridge/provider";
 import {
   findWorkspace,
-} from "../../workspace/workspace-guards";
-import type { WorkspaceManager } from "../../workspace/workspace-manager";
+} from "../workspace/guards";
+import type { WorkspaceManager } from "../workspace/manager";
 import type { StreamContext } from "../../ipc/router";
 
 type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
