@@ -13,9 +13,8 @@ import {
   prepareGitHelpersEndpoint,
 } from "../../../../src/main/git/git-helpers-ipc";
 import { buildHelperEnv } from "../../../../src/main/git/helpers-launcher";
-import type { AskpassPrompt, GitEditorPrompt } from "../../../../src/shared/types/git";
+import type { GitEditorPrompt } from "../../../../src/shared/types/git";
 
-const ASKPASS_HELPER = path.join(process.cwd(), "src/main/git/askpass-helper.cjs");
 const EDITOR_HELPER = path.join(process.cwd(), "src/main/git/git-editor-helper.cjs");
 
 const tmpRoots: string[] = [];
@@ -120,77 +119,6 @@ describe("Git helper endpoint security", () => {
 });
 
 describe("Git helper socket flows", () => {
-  it("round-trips HTTPS username then password prompts through helper stdout", async () => {
-    const userDataDir = makeTmpDir("nexus-helper-flow-");
-    const values = ["alice", "s3cr3t"];
-    const prompts: AskpassPrompt[] = [];
-    const manager = new GitHelpersIpcManager({
-      userDataDir,
-      broadcast(channel, event, args) {
-        expect(`${channel}.${event}`).toBe("askpass.prompt");
-        const prompt = args as AskpassPrompt;
-        prompts.push(prompt);
-        setTimeout(
-          () => manager.respondAskpass({ promptId: prompt.promptId, value: values.shift() }),
-          0,
-        );
-      },
-      token: "flow-token",
-    });
-    await manager.start();
-
-    try {
-      const connection = manager.connection();
-      const username = await runNodeHelper(
-        ASKPASS_HELPER,
-        ["Username for 'https://example.com':"],
-        {
-          NEXUS_HELPERS_SOCKET: connection.socketPath,
-          NEXUS_HELPERS_TOKEN: connection.token,
-        },
-      );
-      const password = await runNodeHelper(
-        ASKPASS_HELPER,
-        ["Password for 'https://example.com':"],
-        {
-          NEXUS_HELPERS_SOCKET: connection.socketPath,
-          NEXUS_HELPERS_TOKEN: connection.token,
-        },
-      );
-
-      expect(username).toMatchObject({ code: 0, stdout: "alice" });
-      expect(password).toMatchObject({ code: 0, stdout: "s3cr3t" });
-      expect(prompts.map((prompt) => prompt.field)).toEqual(["username", "password"]);
-    } finally {
-      await manager.dispose();
-    }
-  });
-
-  it("credential cancel exits helper 1", async () => {
-    const userDataDir = makeTmpDir("nexus-helper-cancel-");
-    const manager = new GitHelpersIpcManager({
-      userDataDir,
-      broadcast(_channel, _event, args) {
-        const prompt = args as AskpassPrompt;
-        setTimeout(() => manager.cancelAskpass({ promptId: prompt.promptId }), 0);
-      },
-      token: "cancel-token",
-    });
-    await manager.start();
-
-    try {
-      const connection = manager.connection();
-      const result = await runNodeHelper(ASKPASS_HELPER, ["Username for 'https://example.com':"], {
-        NEXUS_HELPERS_SOCKET: connection.socketPath,
-        NEXUS_HELPERS_TOKEN: connection.token,
-      });
-
-      expect(result.code).toBe(1);
-    } finally {
-      await manager.dispose();
-    }
-  });
-
   it("commit editor save writes the file and cancel truncates before helper exit 1", async () => {
     const userDataDir = makeTmpDir("nexus-helper-editor-");
     const commitFile = path.join(userDataDir, "COMMIT_EDITMSG");

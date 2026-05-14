@@ -12,6 +12,7 @@ import type {
   GitProcessOptions,
 } from "../../../../src/main/bridge/git/types";
 import { GitRepository } from "../../../../src/main/git/git-repository";
+import { stubMetadataReader } from "./helpers/local-semantic-executor";
 import {
   GIT_BLOB_CHUNK_EVENT,
   GIT_BLOB_METHOD,
@@ -59,11 +60,14 @@ describe("GitRepository.readStatus executor branch", () => {
         expect(options.cwd).toBe(root);
         return expected;
       });
-      const repo = new GitRepository("ws-status-agent", root, path.join(root, ".git"), "git", {
-        run,
-        stream: unusedStream,
-        status,
-      });
+      const repo = new GitRepository(
+        "ws-status-agent",
+        root,
+        path.join(root, ".git"),
+        "git",
+        { run, stream: unusedStream, status },
+        stubMetadataReader,
+      );
 
       const actual = await repo.status();
 
@@ -148,15 +152,14 @@ describe("GitRepository semantic executor branches", () => {
         expect(options.sha).toBe("abc123");
         return expectedDetail;
       });
-      const repo = new GitRepository("ws-semantic", root, path.join(root, ".git"), "git", {
-        run,
-        stream,
-        status: async () => cleanStatus(),
-        log,
-        diff,
-        blob,
-        commitDetail: commitDetailMock,
-      });
+      const repo = new GitRepository(
+        "ws-semantic",
+        root,
+        path.join(root, ".git"),
+        "git",
+        { run, stream, status: async () => cleanStatus(), log, diff, blob, commitDetail: commitDetailMock },
+        stubMetadataReader,
+      );
 
       const logResult = await drain(repo.log({ limit: 1 }));
       const diffResult = await drain(repo.diff({ kind: "wt-vs-index" }));

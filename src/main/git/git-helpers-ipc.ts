@@ -24,7 +24,7 @@ import { type GitHelperConnection, setDefaultGitHelperConnection } from "./helpe
 
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 
-type HelperRoute = "askpass.prompt" | "editor.open";
+type HelperRoute = "editor.open";
 
 interface GitHelpersIpcManagerOptions {
   readonly userDataDir: string;
@@ -171,8 +171,6 @@ export class GitHelpersIpcManager {
     this.assertAuthorizedPayload(payload);
 
     switch (payload.route as HelperRoute) {
-      case "askpass.prompt":
-        return this.openAskpassPrompt(payload);
       case "editor.open":
         return this.openEditorPrompt(payload);
       default:
@@ -309,27 +307,6 @@ export class GitHelpersIpcManager {
     if (payload.promptId && !this.pending.has(payload.promptId)) {
       throw new Error("Git helper request rejected: inactive prompt id.");
     }
-  }
-
-  /**
-   * Broadcasts an askpass prompt and waits without a timeout until the renderer
-   * responds or cancels.
-   */
-  private openAskpassPrompt(payload: HelperRequestPayload): Promise<HelperWireResponse> {
-    const prompt = payload.prompt ?? "";
-    const promptId = crypto.randomUUID();
-    const event = AskpassPromptSchema.parse({
-      promptId,
-      workspaceId: payload.workspaceId || undefined,
-      prompt,
-      field: classifyAskpassField(prompt),
-      service: extractPromptService(prompt),
-    }) satisfies AskpassPrompt;
-
-    return new Promise((resolve) => {
-      this.pending.set(promptId, { kind: "askpass", promptId, resolve });
-      this.broadcast("askpass", "prompt", event);
-    });
   }
 
   /**

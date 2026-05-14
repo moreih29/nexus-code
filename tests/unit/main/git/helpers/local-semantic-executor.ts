@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import {
@@ -10,6 +11,7 @@ import {
   type GitBlobChunk,
   type GitBlobComplete,
   type GitConflictType,
+  type GitOperationState,
   type GitStatus,
   type GitStatusEntry,
   type LogChunk,
@@ -29,8 +31,7 @@ import type {
   RunGitResult,
 } from "../../../../../src/main/bridge/git/types";
 import { GitError } from "../../../../../src/main/git/git-error";
-import { readGitOperationState } from "../../../../../src/main/git/git-operation-state";
-import { GitRepository } from "../../../../../src/main/git/git-repository";
+import { type GitMetadataReader, GitRepository } from "../../../../../src/main/git/git-repository";
 import {
   buildDiffArgs,
   readFetchHeadMtime,
@@ -56,6 +57,19 @@ const CONFLICT_TYPES: Record<string, GitConflictType> = {
 };
 
 /**
+ * Stub metadata reader for tests that do not exercise addToGitignore.
+ * Tests that need real metadata behavior should supply their own mock.
+ */
+const stubMetadataReader: GitMetadataReader = {
+  metadata: () => {
+    throw new Error("stubMetadataReader.metadata not implemented in this test");
+  },
+  addToGitignore: () => {
+    throw new Error("stubMetadataReader.addToGitignore not implemented in this test");
+  },
+};
+
+/**
  * Creates a GitRepository whose read-side operations use semantic executor
  * methods while write commands still execute through the local test git binary.
  */
@@ -65,8 +79,18 @@ export function newLocalGitRepository(
   gitDir: string,
   bin: string,
 ): GitRepository {
-  return new GitRepository(workspaceId, topLevel, gitDir, bin, localSemanticExecutor(bin, gitDir));
+  return new GitRepository(
+    workspaceId,
+    topLevel,
+    gitDir,
+    bin,
+    localSemanticExecutor(bin, gitDir),
+    stubMetadataReader,
+  );
 }
+
+/** Exported for tests that directly instantiate GitRepository and need a stub. */
+export { stubMetadataReader };
 
 /** Test-only semantic executor backed by the local git binary. */
 export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExecutor {
@@ -102,7 +126,7 @@ export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExec
       const status = parseLocalPorcelainStatus(stdout);
       const gitDir = await resolveGitDir(runLocal, options.cwd, gitDirHint, options.signal);
       const [operationState, lastFetchedAt] = await Promise.all([
-        readGitOperationState(gitDir, { conflictCount: status.merge.length }),
+        readLocalGitOperationState(gitDir, status.merge.length),
         readFetchHeadMtime(gitDir),
       ]);
       return {
@@ -861,4 +885,91 @@ function createAbortError(): Error {
   const error = new Error("The operation was aborted");
   error.name = "AbortError";
   return error;
+}
+
+/**
+ * Reads `.git` marker files to determine the current operation state.
+ * Inlined here because git-operation-state.ts is production-only (Go-backed)
+ * and has been removed; this test helper needs the real state for workflow tests.
+ */
+async function readLocalGitOperationState(
+  gitDir: string,
+  conflictCount: number,
+): Promise<GitOperationState> {
+  const readTrimmed = async (absPath: string): Promise<string | null> => {
+    try {
+      const value = (await fs.readFile(absPath, "utf8")).trim();
+      return value.length > 0 ? value : null;
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        (error as { code?: string }).code === "ENOENT"
+      )
+        return null;
+      throw error;
+    }
+  };
+  const pathExists = async (absPath: string): Promise<boolean> => {
+    try {
+      await fs.access(absPath);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const readProgressInt = async (absPath: string): Promise<number> => {
+    const text = await readTrimmed(absPath);
+    if (text === null) return 0;
+    const n = Number.parseInt(text, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
+  const mergeHead = await readTrimmed(path.join(gitDir, "MERGE_HEAD"));
+  if (mergeHead !== null) {
+    return { kind: "merge", headRef: null, mergeRef: mergeHead, conflictCount };
+  }
+
+  const rebaseMergeDir = path.join(gitDir, "rebase-merge");
+  if (await pathExists(rebaseMergeDir)) {
+    const isInteractive = await pathExists(path.join(rebaseMergeDir, "interactive"));
+    const doneCount = await readProgressInt(path.join(rebaseMergeDir, "msgnum"));
+    const totalCount = await readProgressInt(path.join(rebaseMergeDir, "end"));
+    return {
+      kind: "rebase",
+      variant: isInteractive ? "interactive" : "merge",
+      headRef: null,
+      ontoRef: null,
+      doneCount,
+      totalCount,
+      conflictCount,
+    };
+  }
+
+  const rebaseApplyDir = path.join(gitDir, "rebase-apply");
+  if (await pathExists(rebaseApplyDir)) {
+    const doneCount = await readProgressInt(path.join(rebaseApplyDir, "next"));
+    const totalCount = await readProgressInt(path.join(rebaseApplyDir, "last"));
+    return {
+      kind: "rebase",
+      variant: "apply",
+      headRef: null,
+      ontoRef: null,
+      doneCount,
+      totalCount,
+      conflictCount,
+    };
+  }
+
+  const cherryPickHead = await readTrimmed(path.join(gitDir, "CHERRY_PICK_HEAD"));
+  if (cherryPickHead !== null) {
+    return { kind: "cherry-pick", sourceSha: cherryPickHead, conflictCount };
+  }
+
+  const revertHead = await readTrimmed(path.join(gitDir, "REVERT_HEAD"));
+  if (revertHead !== null) {
+    return { kind: "revert", sourceSha: revertHead, conflictCount };
+  }
+
+  return { kind: "none" };
 }

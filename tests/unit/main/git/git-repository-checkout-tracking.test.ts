@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GitRepository } from "../../../../src/main/git/git-repository";
-import { localSemanticExecutor } from "./helpers/local-semantic-executor";
+import { localSemanticExecutor, stubMetadataReader } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -28,6 +28,7 @@ describe("GitRepository.checkoutTracking", () => {
         path.join(client, ".git"),
         gitOnPath!,
         localSemanticExecutor(gitOnPath!, path.join(client, ".git")),
+        stubMetadataReader,
       );
       // Disable auto-setup-merge so plain `git checkout main` would fail —
       // this is the environment shape that produced the user-visible
@@ -55,6 +56,7 @@ describe("GitRepository.checkoutTracking", () => {
         path.join(client, ".git"),
         gitOnPath!,
         localSemanticExecutor(gitOnPath!, path.join(client, ".git")),
+        stubMetadataReader,
       );
 
       // Plain `feature` lacks the `<remote>/` segment.

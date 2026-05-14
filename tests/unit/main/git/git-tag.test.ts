@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { GitRepository } from "../../../../src/main/git/git-repository";
-import { localSemanticExecutor } from "./helpers/local-semantic-executor";
+import { localSemanticExecutor, stubMetadataReader } from "./helpers/local-semantic-executor";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;
@@ -22,6 +22,7 @@ describe("GitRepository tag ops", () => {
         path.join(root, ".git"),
         gitOnPath!,
         localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+        stubMetadataReader,
       );
       const headSha = runGit(root, ["rev-parse", "HEAD"]).trim();
 
@@ -60,6 +61,7 @@ describe("GitRepository tag ops", () => {
         path.join(root, ".git"),
         gitOnPath!,
         localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+        stubMetadataReader,
       );
 
       await repo.createTag("v-light");
@@ -86,6 +88,7 @@ describe("GitRepository tag ops", () => {
         path.join(root, ".git"),
         gitOnPath!,
         localSemanticExecutor(gitOnPath!, path.join(root, ".git")),
+        stubMetadataReader,
       );
 
       await repo.createTag("v-delete");
@@ -107,6 +110,7 @@ describe("GitRepository tag ops", () => {
         fixture.gitDir,
         fixture.gitBin,
         localSemanticExecutor(fixture.gitBin, fixture.gitDir),
+        stubMetadataReader,
       );
 
       await repo.deleteRemoteTag("origin", "v1.0.0");
@@ -126,6 +130,7 @@ describe("GitRepository tag ops", () => {
         fixture.gitDir,
         fixture.gitBin,
         localSemanticExecutor(fixture.gitBin, fixture.gitDir),
+        stubMetadataReader,
       );
 
       const tags = await repo.listRemoteTags("origin");

@@ -40,7 +40,6 @@ import type { GitBinary } from "./git-binary";
 import * as branchOps from "./git-branch-ops";
 import { type GitConflictRunner, markResolved as markConflictResolved } from "./git-conflict";
 import { GitError } from "./git-error";
-import { appendIgnoreEntry } from "./git-ignore";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
 import * as remoteOps from "./git-remote";
 import {
@@ -139,7 +138,7 @@ export class GitRepository {
     gitDir: string,
     bin: GitBinary | string,
     private readonly executor: GitExecutor,
-    private readonly metadataReader?: GitMetadataReader,
+    private readonly metadataReader: GitMetadataReader,
   ) {
     this.workspaceId = workspaceId;
     this.topLevel = topLevel;
@@ -865,12 +864,10 @@ export class GitRepository {
    * dedupe semantics.
    */
   addToGitignore(relPath: string, signal?: AbortSignal) {
-    return this.queue((queuedSignal) => {
-      if (this.metadataReader) {
-        return this.metadataReader.addToGitignore(this.topLevel, relPath, queuedSignal);
-      }
-      return appendIgnoreEntry(this.topLevel, relPath);
-    }, signal);
+    return this.queue(
+      (queuedSignal) => this.metadataReader.addToGitignore(this.topLevel, relPath, queuedSignal),
+      signal,
+    );
   }
 
   /**
