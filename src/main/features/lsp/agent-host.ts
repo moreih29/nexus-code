@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ApplyWorkspaceEditParamsSchema,
   ConfigurationParamsSchema,
+  LSP_CLIENT_CAPABILITIES,
   type LspServerEventMethod,
   TextDocumentContentChangeEventSchema,
   TextDocumentIdentifierSchema,
@@ -454,6 +455,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         workspaceRoot,
         idleTimeoutMs: LSP_DEFAULT_IDLE_MS,
         correlationId,
+        capabilities: LSP_CLIENT_CAPABILITIES,
       });
       serverId = parseSpawnResult(result).serverId;
       const capabilities = parseServerCapabilities(result.capabilities);

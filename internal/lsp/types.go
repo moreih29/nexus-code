@@ -38,6 +38,15 @@ type SpawnParams struct {
 	// initialize is still in flight) can be attributed to the requesting
 	// workspace+language pair before serverId is known.
 	CorrelationID string `json:"correlationId,omitempty"`
+
+	// Capabilities is the LSP client capabilities object the client wants
+	// embedded into the `initialize` request. The agent does not interpret
+	// any of its fields — it is forwarded verbatim under the `capabilities`
+	// key. When empty, the agent sends an empty object so the LSP server
+	// still sees a valid initialize message. Defining client capabilities
+	// is method-specific knowledge owned by the Electron side; see
+	// `src/shared/lsp/client-capabilities.ts`.
+	Capabilities json.RawMessage `json:"capabilities,omitempty"`
 }
 
 type SpawnResult struct {

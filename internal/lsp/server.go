@@ -21,6 +21,7 @@ type serverProcess struct {
 	binaryPath    string
 	args          []string
 	workspaceRoot string
+	capabilities  json.RawMessage
 	idleTimeout   time.Duration
 
 	cmd    *exec.Cmd
@@ -63,6 +64,7 @@ func newServerProcess(service *Service, id string, p SpawnParams, idleTimeout ti
 		binaryPath:                      p.BinaryPath,
 		args:                            p.Args,
 		workspaceRoot:                   p.WorkspaceRoot,
+		capabilities:                    p.Capabilities,
 		idleTimeout:                     idleTimeout,
 		pendingInternal:                 make(map[string]chan rpcResponse),
 		pendingServerRequests:           make(map[string]json.RawMessage),
@@ -167,6 +169,15 @@ func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, error)
 
 func (p *serverProcess) initializeParams() map[string]any {
 	rootURI := fileURI(p.workspaceRoot)
+	// Capabilities is supplied by the TS client (see
+	// `src/shared/lsp/client-capabilities.ts`). The agent is intentionally
+	// shape-blind here — it embeds the raw JSON verbatim. Falls back to an
+	// empty object so an LSP server that hard-requires the field still gets
+	// a valid initialize message when the caller forgot to send one.
+	capabilities := p.capabilities
+	if len(capabilities) == 0 {
+		capabilities = json.RawMessage(`{}`)
+	}
 	return map[string]any{
 		"processId": os.Getpid(),
 		"rootPath":  p.workspaceRoot,
@@ -177,18 +188,7 @@ func (p *serverProcess) initializeParams() map[string]any {
 				"name": p.workspaceID,
 			},
 		},
-		"capabilities": map[string]any{
-			"workspace": map[string]any{
-				"didChangeWatchedFiles": map[string]any{
-					"dynamicRegistration": true,
-				},
-			},
-			"textDocument": map[string]any{
-				"documentSymbol": map[string]any{
-					"hierarchicalDocumentSymbolSupport": true,
-				},
-			},
-		},
+		"capabilities": capabilities,
 		"clientInfo": map[string]string{
 			"name": "nexus-code-agent",
 		},
