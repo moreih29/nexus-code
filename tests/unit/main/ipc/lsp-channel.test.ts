@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { LspHostHandle } from "../../../../src/main/hosts/lsp-host";
+import type { LspHostHandle } from "../../../../src/main/features/lsp/host";
 
 const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);
@@ -10,7 +10,7 @@ mock.module("electron", () => ({
   },
 }));
 
-const { registerLspChannel } = await import("../../../../src/main/ipc/channels/lsp");
+const { registerLspChannel } = await import("../../../../src/main/features/lsp/ipc");
 
 type EventCallback = (args: unknown) => void;
 

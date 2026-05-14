@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ipcContract } from "../../../shared/ipc-contract";
-import { parseSshConfig, type SshConfigHost } from "../../ssh-config";
-import { register, validateArgs } from "../router";
+import { parseSshConfig, type SshConfigHost } from "./config";
+import { register, validateArgs } from "../../ipc/router";
 
 const c = ipcContract.ssh.call;
 

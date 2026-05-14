@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { showItemInFolderHandler } from "../../../../src/main/shell/workspace-reveal";
+import { showItemInFolderHandler } from "../../../../src/main/features/shell/workspace-reveal";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";

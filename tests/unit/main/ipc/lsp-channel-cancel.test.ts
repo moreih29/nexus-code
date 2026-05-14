@@ -6,7 +6,7 @@ mock.module("electron", () => ({
   },
 }));
 
-const { withCancelDefault } = await import("../../../../src/main/ipc/channels/lsp");
+const { withCancelDefault } = await import("../../../../src/main/features/lsp/ipc");
 
 describe("withCancelDefault", () => {
   test("returns the resolved value when the call succeeds", async () => {

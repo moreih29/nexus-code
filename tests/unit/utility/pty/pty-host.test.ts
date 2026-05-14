@@ -95,7 +95,7 @@ mock.module("electron", () => ({
   },
 }));
 
-import { startPtyHost } from "../../../../src/main/hosts/pty-host";
+import { startPtyHost } from "../../../../src/main/features/pty/host";
 
 // ---------------------------------------------------------------------------
 // Tests

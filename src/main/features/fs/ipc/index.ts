@@ -4,7 +4,7 @@
  * channel itself stays a thin map without growing.
  */
 import { register } from "../../../ipc/router";
-import { showItemInFolderHandler } from "../../../shell/workspace-reveal";
+import { showItemInFolderHandler } from "../../shell/workspace-reveal";
 import type { WorkspaceStorage } from "../../../storage/workspace-storage";
 import type { WorkspaceManager } from "../../workspace/manager";
 import { searchTextStream } from "../../search/search-handlers";

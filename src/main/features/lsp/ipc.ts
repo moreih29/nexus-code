@@ -14,8 +14,8 @@ import type {
   SymbolInformation,
 } from "../../../shared/lsp";
 import { PendingRequestMap } from "../../../shared/pending-request-map";
-import type { LspHostHandle } from "../../hosts/lsp-host";
-import { broadcast, type CallContext, register, validateArgs } from "../router";
+import type { LspHostHandle } from "./host";
+import { broadcast, type CallContext, register, validateArgs } from "../../ipc/router";
 
 const c = ipcContract.lsp.call;
 const APPLY_EDIT_RESPONSE_TIMEOUT_MS = 10_000;

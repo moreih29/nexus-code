@@ -1,6 +1,6 @@
 import { dialog } from "electron";
 import { ipcContract } from "../../../shared/ipc-contract";
-import { register, validateArgs } from "../router";
+import { register, validateArgs } from "../../ipc/router";
 
 const c = ipcContract.dialog.call;
 

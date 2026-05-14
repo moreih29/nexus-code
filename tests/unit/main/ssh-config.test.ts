@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listConfigHostsHandler } from "../../../src/main/ipc/channels/ssh";
-import { parseSshConfig } from "../../../src/main/ssh-config";
+import { listConfigHostsHandler } from "../../../src/main/features/ssh/ipc";
+import { parseSshConfig } from "../../../src/main/features/ssh/config";
 
 describe("parseSshConfig", () => {
   it("returns concrete Host aliases with supported options", () => {
