@@ -4,6 +4,11 @@ import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import {
+  recordTerminalDeathForAggregate,
+  releaseTerminalDeathFromAggregate,
+  useTerminalDeathStore,
+} from "./terminal-deaths";
 
 // ---------------------------------------------------------------------------
 // Types — Tab is a discriminated union, narrowed by `type`. Callers no longer
@@ -15,6 +20,7 @@ export type TabType = "terminal" | "editor" | "editor.diff" | "git.commit";
 
 export interface TerminalTabProps {
   cwd: string;
+  dead?: boolean;
 }
 
 export type EditorTabProps = EditorInput;
@@ -73,6 +79,7 @@ interface TabsState {
   createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
+  setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
   promoteFromPreview: (workspaceId: string, tabId: string) => void;
   replacePreviewTab: (
@@ -83,6 +90,20 @@ interface TabsState {
   ) => void;
   replaceCommitPreviewTab: (workspaceId: string, tabId: string, sha: string, title: string) => void;
   togglePin: (workspaceId: string, tabId: string) => void;
+}
+
+/**
+ * Returns the ids of terminal tabs currently marked dead in one workspace.
+ */
+function deadTerminalIdsForWorkspace(workspaceId: string): Set<string> {
+  const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const ids = new Set<string>();
+  for (const tab of Object.values(tabs)) {
+    if (tab.type === "terminal" && tab.props.dead) {
+      ids.add(tab.id);
+    }
+  }
+  return ids;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +169,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     removeTab(workspaceId, tabId) {
+      const tab = get().byWorkspace[workspaceId]?.[tabId];
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
         if (!wsRecord || !(tabId in wsRecord)) return state;
@@ -160,6 +182,13 @@ export const useTabsStore = create<TabsState>((set, get) => {
           },
         };
       });
+      if (tab?.type === "terminal" && tab.props.dead) {
+        releaseTerminalDeathFromAggregate(
+          workspaceId,
+          tabId,
+          deadTerminalIdsForWorkspace(workspaceId),
+        );
+      }
     },
 
     renameTab(workspaceId, tabId, title) {
@@ -176,6 +205,42 @@ export const useTabsStore = create<TabsState>((set, get) => {
           },
         };
       });
+    },
+
+    setTerminalDead(workspaceId, tabId, dead) {
+      const existingTab = get().byWorkspace[workspaceId]?.[tabId];
+      const shouldRecordDeath = existingTab?.type === "terminal" && !existingTab.props.dead && dead;
+      const shouldReleaseDeath =
+        existingTab?.type === "terminal" && Boolean(existingTab.props.dead) && !dead;
+
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "terminal" || Boolean(tab.props.dead) === dead) {
+          return state;
+        }
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: {
+              ...wsRecord,
+              [tabId]: { ...tab, props: { ...tab.props, dead } },
+            },
+          },
+        };
+      });
+
+      if (shouldRecordDeath) {
+        recordTerminalDeathForAggregate(workspaceId, tabId, () =>
+          deadTerminalIdsForWorkspace(workspaceId),
+        );
+      } else if (shouldReleaseDeath) {
+        releaseTerminalDeathFromAggregate(
+          workspaceId,
+          tabId,
+          deadTerminalIdsForWorkspace(workspaceId),
+        );
+      }
     },
 
     promoteFromPreview(workspaceId, tabId) {
@@ -273,7 +338,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
 
       for (const tab of Object.values(wsRecord)) {
         if (tab.type === "terminal") {
-          killSession(tab.id);
+          killSession(workspaceId, tab.id);
         }
       }
 
@@ -283,6 +348,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         delete next[workspaceId];
         return { byWorkspace: next };
       });
+      useTerminalDeathStore.getState().clearWorkspace(workspaceId);
     },
   };
 });

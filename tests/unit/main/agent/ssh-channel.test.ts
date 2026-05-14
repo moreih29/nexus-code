@@ -364,6 +364,12 @@ describe("createSshChannel", () => {
 
     expect(spawnCalls).toHaveLength(2);
     expect(spawnCalls[1]?.args).toEqual(expect.arrayContaining(["-O", "exit"]));
+    expect(unlinkCalls).toHaveLength(0);
+
+    disposeChild.emit("close", 0, null);
+    expect(unlinkCalls).toHaveLength(1);
+
+    disposeChild.emit("close", 0, null);
     expect(unlinkCalls).toHaveLength(1);
   });
 

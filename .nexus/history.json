@@ -13435,6 +13435,554 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-14T14:32:09.666Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 45,
+        "topic": "PTY 처리를 Electron utility process(node-pty)에서 Go agent로 이주 — SSH 원격 워크스페이스 터미널 안정성 및 실제 동작 통합",
+        "issues": [
+          {
+            "id": 1,
+            "title": "[1] 이주 형태: 전면 교체(Go가 local+remote 모두 소유) vs 하이브리드(remote만 Go, local은 node-pty 유지)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: Full Go replacement.** Hybrid 유지 시 두 PTY-spawn 경로, 두 flow-control 구현(chars vs bytes), 두 env-wrapper 소스, 두 recorder 경로가 영구화 — LSP 사이클이 의도적으로 collapse한 분기를 다시 도입함. ZDOTDIR 셋업(~150 lines, `src/utility/pty-host/zsh-init-dir.ts`)은 main에서 ZDOTDIR 경로를 계산해 spawn RPC env로 전달하면 Go 측 재구현 불필요. **Risk:** creack/pty가 macOS에서 TIOCSWINSZ/Setctty/SIGWINCH·SIGINT 전달을 node-pty 수준으로 처리하는지 commit 전 확인 필수. 한 동작이라도 매핑 안 되면 hybrid 재고.",
+                "recorded_at": "2026-05-14T12:52:37.497Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**Full Go replacement** — Go agent가 local·SSH 양쪽 모두에서 PTY를 소유. utility process는 폐기 경로로 진입.\n\n**근거:**\n- LSP 사이클은 의도적으로 분기를 collapse했고 그 패턴이 안정화됨. Hybrid는 그 학습을 거꾸로 돌려 두 PTY-spawn 경로, 두 flow-control(chars vs bytes), 두 env-wrapper 소스, 두 recorder 경로를 영구화.\n- ZDOTDIR 등 zsh-init-dir 처리는 main이 ZDOTDIR 경로를 계산해 `pty.spawn` RPC의 env 필드로 전달 → Go 측 재구현 불요. 환경 합성은 TS, 적용은 OS exec — 분리 깨끗.\n\n**Phase 1.0 게이트 (architect risk 흡수):** 본 작업 commit 전 creack/pty가 macOS에서 (1) `pty.Setsize` via TIOCSWINSZ, (2) Setctty/ctty 처리, (3) SIGWINCH 전파, (4) SIGINT raw-byte 0x03 → line discipline → child SIGINT, (5) exit code+signal 둘 다 — 5개 동작 모두 node-pty 패리티임을 spike task로 검증. 1개라도 결손이면 issue를 재오픈하고 hybrid로 회귀.\n\n**기각:**\n- **Hybrid (remote만 Go, local은 node-pty 유지):** 비대칭 코드 트리가 영구화. issue 6에서 비대칭 *기본값*은 채택하지만 두 *구현체*를 영구 유지하는 것과는 다름. 구현은 단일."
+          },
+          {
+            "id": 2,
+            "title": "[2] Wire protocol 설계: agent channel(NDJSON) 위에서 PTY 바이트 프레이밍·메서드 표면·취소 의미",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: (a) Mirror LSP** — `channel.call(\"pty.spawn\"|\"pty.write\"|\"pty.resize\"|\"pty.ack\"|\"pty.kill\")` + Go push events(\"pty.data\",\"pty.exit\"). 1-byte keystroke가 base64로 ~80바이트 frame이 되어도 로컬 stdio pipe 마이크로초 단위 — 15-20ms 인지 임계 대비 무시 가능. 64KB 버스트는 envelope 0.1% 오버헤드. LSP 사이클에서 검증된 모양. (b) 스트리밍 sub-channel은 reconnecting layer/SSH transport 모두 새 framing 학습, half-open 실패 모드 신설 — 측정 없이는 speculative optimization. **Risk:** Go agent가 tabId T의 `pty.data` 이벤트를 spawn-순서대로 동일 채널에 emit하는지 보장 필요. `reconnecting-process-channel.ts` replay가 raw event 순서를 보존하는지 검증.",
+                "recorded_at": "2026-05-14T12:52:43.727Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**LSP 패턴 그대로 mirror** — discrete RPC calls + Go push events.\n\n**Wire 표면:**\n- 렌더러→main→Go (request/response via `channel.call`):\n  - `pty.spawn(workspaceId, tabId, cwd, cols, rows, env)` → `{pid}`\n  - `pty.write(workspaceId, tabId, data)` → ack\n  - `pty.resize(workspaceId, tabId, cols, rows)` → ack\n  - `pty.ack(workspaceId, tabId, bytesConsumed)` → ack\n  - `pty.kill(workspaceId, tabId)` → ack\n- Go→main→렌더러 (push notify frames, LSP serverEvent 패턴 동일):\n  - `pty.data(workspaceId, tabId, chunk_b64)`\n  - `pty.exit(workspaceId, tabId, code, signal?)`\n- 바이너리 인코딩: `data` 필드는 base64. JSON 안에서 raw bytes 운반 불가. ~33% 인플레는 로컬 stdio 마이크로초 단위 → issue 7의 +5ms 예산 내 흡수 가능.\n\n**Frame ordering 요구사항 (architect risk 흡수):**\n- Go 측은 한 tabId의 `pty.data` 이벤트를 emit 순서대로 동일 채널에 보내야 함. 멀티 goroutine read 시 single emitter goroutine으로 직렬화. Test fixture로 검증.\n- `reconnecting-process-channel.ts`는 disconnect 시 in-flight 이벤트를 버림 (replay 안 함) — 재연결 후 PTY는 어쨌든 죽음. 그래서 raw event 순서 복원 문제는 발생하지 않음. issue 5의 dead-terminal UX가 이 동작을 정당화.\n\n**기각:**\n- **(b) 스트리밍 sub-channel:** AgentChannel/reconnecting/SSH 모두 새 framing 학습 필요, half-open 실패 모드 신설. 측정 없이 추정 최적화에 불과. 1-byte keystroke ~80바이트 frame이 로컬 stdio에서 마이크로초 단위 — 인지 임계와 무관.\n- **(c) Hybrid control/data plane:** 두 framing이 같은 채널에 공존 → resize call과 pending data event 사이 순서 보장이 별도 설계. 단일 framing 대비 명확한 이득 없음."
+          },
+          {
+            "id": 3,
+            "title": "[3] Backpressure 보존: 현재 100K/5K/5K char watermark + ack 구조를 agent channel 너머로 어떻게 매핑할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: renderer-only ack 유지 + main→agent는 free push, 단위는 chars→bytes 전환.** 렌더러 ack가 user-visible bound(100k chars 유지, byte 환산)를 강제하면, 렌더러 stall 시 main이 agent stdout 읽기 pause → OS pipe buffer를 통해 Go writer까지 자연 backpressure 전파(GoTTY 동일 모델). 이중 credit window는 양측 symmetric state 필요로 과한 복잡도. Bytes 단위 통일: Go가 native byte count, node-pty의 char-count는 multibyte UTF-8 하에 늘 근사값이었음. **Risk:** `reconnecting-process-channel.ts`의 stdout read-loop가 consumer pace 무관하게 unbounded JS buffer로 drain하지 않는지 확인 필요 — drain하면 natural backpressure 가정 무너짐.",
+                "recorded_at": "2026-05-14T12:52:50.037Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              },
+              {
+                "role": "failure-note",
+                "summary": "T2 found `reconnecting-process-channel` / `NdjsonPipe` drains stdout in flowing mode without awaiting event consumers. Reproducer produced 20,000 frames, channel received all in ~204ms, while a slow consumer had consumed only 18 after close+100ms. This invalidates any interpretation of Issue 3 as unbounded/free Go→main PTY push; PTY producer must be bounded by renderer ack or an explicit main↔agent credit/window.",
+                "recorded_at": "2026-05-14T13:15:46.589Z",
+                "agent_id": "019e2697-11de-7360-851d-42eb49ef4867"
+              },
+              {
+                "role": "architect",
+                "summary": "After T2 evidence, correct Issue 3 by preserving renderer ack as the only semantic credit but propagating it end-to-end: Go must gate PTY master reads/NDJSON emission by per-(workspaceId,tabId) unacknowledged raw bytes (HIGH=100_000, LOW=5_000, bounded chunk overshoot). Main is only a relay; it must not ack on receipt/broadcast/recorder append. No streaming subchannel is needed unless latency/throughput tests fail.",
+                "recorded_at": "2026-05-14T13:19:35.483Z",
+                "agent_id": "019e26a1-2f44-7e73-aa8f-cafeeb6a5f47"
+              }
+            ],
+            "decision": "**Corrigendum after T2 evidence: renderer ack remains the only semantic credit, but it must be propagated end-to-end and enforced in Go before NDJSON emission. Main↔Go PTY data is not free push.**\n\nT2 verified that `reconnecting-process-channel` / `NdjsonPipe` drains stdout in flowing mode without consumer pacing: 20,000 frames were received in ~204ms while a slow consumer had consumed only 18. Therefore the prior wording \"main↔Go free push\" is unsafe for high-output PTY sessions.\n\n**Corrected model:**\n- Renderer is still the consumption authority. It sends `pty.ack(workspaceId, tabId, bytesConsumed)` only after terminal consumption logic accepts data. Units are raw UTF-8 bytes, not base64 length or JS string code units.\n- Main is only a relay. It forwards Go `pty.data` to renderer and forwards renderer ack to the correct workspace agent via `channel.call(\"pty.ack\", {workspaceId, tabId, bytesConsumed})`. Main must not synthesize ack when it receives data, broadcasts to renderer, or appends recorder output.\n- Go is the producer gate. Per `(workspaceId, tabId)`, Go counts raw PTY bytes emitted as `pty.data`; it may emit at most HIGH=100_000 unacknowledged bytes plus one bounded chunk overshoot. At HIGH it stops reading/enqueueing PTY output before NDJSON/stdout emission; when ack lowers outstanding bytes to LOW=5_000 or below, it resumes. This bounds the unpaced reconnecting-channel drain.\n\n**Unchanged:** LSP-like discrete RPC/push wire protocol remains. No streaming sub-channel is introduced unless T11/T10 later show latency or throughput failure.\n\n**Task deltas:** T4 must test the Go emission bound and resume behavior with raw bytes; T5 must test ack forwarding and no main-side synthetic ack; T10 must include a full main↔agent regression withholding renderer ack and proving output is bounded, then resumes after ack."
+          },
+          {
+            "id": 4,
+            "title": "[4] WorkspaceId 라우팅: 렌더러 PTY IPC가 tabId만 들고 있는 상태에서 main이 올바른 AgentChannel을 어떻게 찾는가 (IPC 컨트랙트 변경 vs main-side 매핑)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: (a) 모든 PTY IPC call에 workspaceId 포함.** 렌더러는 이미 `openTerminal({workspaceId,cwd})`에서 workspaceId 보유 → terminal manager에서 전파 비용 사실상 0(타입 churn + typecheck). (b) main이 tabId→workspaceId 매핑 보유 시 workspace deactivate/tab close/crash 모두 cleanup lifecycle을 다시 만들어야 하는 implicit-state 패턴 — call site만 보고 동작 추론 불가(red flag). (c) main-side tab store는 현재 존재하지 않는 cross-cut 신설. **Risk:** tabId가 워크스페이스 간 unique(UUID)임은 today 확인 — (workspaceId,tabId)는 redundant-but-safe. 결정적 tabId 도입 시에도 미리 namespacing 안전망 제공.",
+                "recorded_at": "2026-05-14T12:52:55.871Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**모든 PTY IPC call에 workspaceId 포함 (breaking contract change).**\n\n**구체:**\n- `src/shared/ipc-contract.ts`의 `pty.call.{spawn,write,resize,ack,kill}` 모든 args 스키마에 `workspaceId: uuid` 추가.\n- `pty.listen.{data,exit}` 이벤트에도 `workspaceId` 추가 — 렌더러가 자기 워크스페이스 이벤트 필터 가능. 도메인 식별자(workspaceId, tabId)만 사용 → broadcast correlation bug 패턴(memory) 준수.\n- 렌더러 측: `createPtyClient`/`spawnSession`이 이미 인접한 tab 컨텍스트에서 호출됨. `openTerminal({workspaceId, cwd})`에서 들어온 workspaceId가 tab 레코드에 보존되어 있으므로 전파 비용 사실상 0.\n- main 측: `ipc.ts`가 workspaceId로 `workspaceManager.getAgentChannel(workspaceId)` 호출 → 채널 위에서 `channel.call(\"pty.spawn\",{...})` 위임. LSP `agent-host.ts`와 동일 형태.\n\n**기각:**\n- **(b) main-side tabId→workspaceId 매핑:** workspace deactivate / tab close / 비정상 crash 모두 cleanup lifecycle을 별도로 관리해야 하는 implicit-state 패턴. call site만 보고 동작 추론 불가 → 향후 회귀 magnet.\n- **(c) main-side tab store 조회:** main은 현재 renderer tab state를 소유하지 않음. cross-cut 신설 비용이 (a)의 contract churn보다 큼.\n\n**보조 안전망:** tabId는 오늘 UUID로 워크스페이스 간 unique지만, `(workspaceId, tabId)` 키로 라우팅하면 결정적 tabId 도입 시에도 안전."
+          },
+          {
+            "id": 5,
+            "title": "[5] Session lifecycle on channel disconnect: terminal이 죽었음을 사용자에 알리고 끝낼 것인지, mosh류 상태 복원을 노릴 것인지",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "**Recommendation: Option A \"Honest replacement\" — Phase 1.** Option B(silent respawn)는 scrollback이 같은 shell처럼 보이지만 env/venv/nvm은 fresh → `npm publish`류 footgun (CRITICAL). Option C(mosh류 session daemon)는 Phase 4+ 범위.\n\n**UI 표면:**\n- Dead-terminal banner: `ReadOnlyBanner`와 동일 `h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs`. Local: `Terminal ended — agent stopped [Reopen]`. SSH: `Terminal ended — connection to {host} lost [Reopen]`.\n- Scrollback opacity-60 dim, selection 가능 (마지막 명령 copy 후 reopen 가능).\n- Tab 제목: `zsh` → `zsh ·` muted dot (strikethrough/red 아님, 죽음이 아닌 상태 변화).\n- ≥2 동시 사망 시 workspace-level aggregate banner: `Disconnected from {host} — 3 terminals ended. [Reopen all]`.\n- Reopen: original cwd, single click, no confirm. 스크롤백에 `───── reopened ─────` muted hr 삽입(Option B의 유일한 차용 — 명시적 경계로 footgun 차단).\n- **절대 auto-reopen 금지** (side-effect 위험).\n- Reopen 진행 중: 버튼 `Reopening…` 비활성. 실패 시: `Reopen failed — agent unavailable. [Retry]`, auto-retry 금지.\n\n**Phase 4 affordance:**\n- 죽음↔reopen 사이 tabId stable (미래 reattach 시 동일 identity).\n- \"reopened\" hr이 reattach anchor 후보.\n\n**Banner copy 정확성:** `Terminal ended`(local view fact)만 단정. `Build cancelled`처럼 remote process 상태 추정 금지.\n\n**Open Qs for Lead:**\n1. workspace-online state single source of truth (per-tab banner와 workspace-level offline UI 중복 해결)\n2. `frosted-veil`+`muted-foreground` WCAG AA 4.5:1 측정 (light/dark 모두)\n3. disconnect 이벤트 텔레메트리 — 두 릴리즈 후 C(session survival) 투자 정당화 데이터",
+                "recorded_at": "2026-05-14T12:53:09.118Z",
+                "agent_id": "a79a6a8256005ee32"
+              }
+            ],
+            "decision": "**Option A \"Honest replacement\" 채택 — Phase 1 범위.** Designer가 제시한 6개 affordance 전체 채택.\n\n**구체:**\n- **Dead-terminal banner (per-tab):** `ReadOnlyBanner`와 동일 토큰(`h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs`).\n  - Local agent 사망: `Terminal ended — agent stopped` + `[Reopen]`\n  - SSH 채널 사망: `Terminal ended — connection to {host} lost` + `[Reopen]`\n- **Scrollback:** `opacity-60` dim, selection 유지(사용자 마지막 명령 copy 후 reopen 가능).\n- **Tab 제목:** `zsh` → `zsh ·` muted dot. strikethrough/red 금지(error 아니라 상태 변화).\n- **Aggregate banner (workspace-level):** 한 채널에서 ≥2 tab 동시 사망 시 `Disconnected from {host} — N terminals ended. [Reopen all]`. Per-tab banner는 유지.\n- **Reopen:** original cwd로 fresh shell. 단일 클릭, 확인 dialog 없음. 스크롤백 끝에 `─────────────  reopened  ─────────────` muted hr 삽입(Option B의 유일한 차용; 명시적 경계로 footgun 차단).\n- **Reopen 진행/실패 상태:** in-flight 시 버튼 `Reopening…` disabled. 실패 시 banner copy를 `Reopen failed — agent unavailable. [Retry]`로 교체, auto-retry 절대 금지.\n- **절대 금지:** auto-reopen(side-effect 위험), Option B식 silent respawn(env/venv/nvm footgun).\n- **Banner copy 정확성 규칙:** \"Terminal ended\"(local view 사실)만 단정. \"Build cancelled\"처럼 remote process 상태 추정 금지.\n\n**Phase 4 affordance 보존:**\n- 죽음 ↔ reopen 사이 tabId stable 유지 → 미래 mosh류 reattach 시 동일 identity 재사용.\n- \"reopened\" hr이 reattach anchor 후보로 그대로 사용 가능.\n\n**기각:**\n- **Option B (silent auto-respawn):** scrollback이 같은 shell처럼 보이지만 env/venv/nvm은 fresh. `npm publish`류 footgun (CRITICAL). 명시적 경계 hr 추가로도 사용자가 동일성을 가정할 위험 잔존.\n- **Option C (mosh류 session daemon):** Phase 4+ 범위. daemonized session manager, attach/detach 프로토콜, daemon 자체의 restart-survival 의미론 — 본 사이클 refactor 범위 초과.\n\n**Lead 후속 ownership:**\n- Issue 9에서 workspace-online state 통합(per-tab banner와 workspace-level offline UI 중복 해결 — Designer open Q1)을 Phase 1 task로 처리.\n- WCAG AA 4.5:1 contrast 검증(Designer open Q2): reviewer auto-pair task로 검증.\n- Disconnect 텔레메트리(Designer open Q3): 본 사이클 비포함, Phase 4 결정에 필요한 데이터라 별 트랙."
+          },
+          {
+            "id": 6,
+            "title": "[6] Phased rollout / feature flag 전략: 기존 utility process 경로와의 병존·전환·롤백 경로",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: 비대칭 flag — SSH는 항상 Go path(현재 깨져있으므로 회귀 불가), local은 `experimental.ptyViaAgent` 1릴리즈 off → 1릴리즈 default-on → flag 제거.** 로컬은 모든 사용자에게 회귀 위험, SSH는 현재 무기능 → 비대칭 blast radius가 비대칭 default를 정당화. LSP 사이클 history(task[10]/[11])의 flag-then-cleanup 패턴 검증된 경로. Hard cutover는 escape valve 없음, global flag는 비대칭성 무시. **Risk:** flag 제거 exit criterion을 구체화(\"두 릴리즈 무사고\" 등) 안 하면 flag가 영구화 — LSP 사이클이 회복해야 했던 실패 모드 재발.",
+                "recorded_at": "2026-05-14T12:53:14.628Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**비대칭 flag** — SSH 워크스페이스는 항상 Go path, 로컬 워크스페이스는 `experimental.ptyViaAgent` flag 뒤.\n\n**Rollout 단계:**\n1. **본 사이클 (M1 release):** flag 도입, 기본값 `false`. 로컬은 utility 경로 유지. SSH는 무조건 Go 경로(현재 깨져 있으므로 회귀 없음, 오히려 신기능).\n2. **M2 release:** flag 기본값 `true`로 flip. 로컬도 Go 경로가 기본. flag는 유지(off로 set한 사용자 escape valve).\n3. **M3 release:** flag 제거 + utility 코드 삭제 (issue 8의 cleanup).\n\n**Exit criterion 명시 (architect risk 흡수, LSP 사이클 회귀 방지):**\n- M1 → M2 진행 조건: M1 한 릴리즈 동안 SSH 경로 사용자 telemetry에서 PTY-관련 crash/regression 보고 임계값 미만 (구체값은 본 사이클 비포함 — telemetry hook은 별 트랙).\n- M2 → M3 진행 조건: M2 한 릴리즈 동안 local 경로 사용자가 자발적으로 flag를 `false`로 되돌리는 비율 < 임계값. 측정 수단이 없다면 PR 리뷰에서 한 사람 이상이 \"두 릴리즈 사용했고 회귀 못 봤음\" 명시.\n- Cleanup task(issue 8)는 M3 시점에 자동 활성화되는 follow-up issue로 등록.\n\n**기각:**\n- **Hard cutover:** escape valve 없음. 한 버그 = 전 사용자 터미널 사망.\n- **Global flag (LSP 사이클의 `experimental.lspViaAgent` 대칭):** 비대칭 blast radius(로컬 회귀=전 사용자 / SSH 회귀=SSH 사용자만, 그것도 현재 무기능에서 회귀할 게 없음)를 무시."
+          },
+          {
+            "id": 7,
+            "title": "[7] Local terminal latency 회귀 수용 기준 및 측정 방법",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: comparative threshold — p50는 utility baseline +5ms 이내, p99는 +10ms 이내, key-to-echo timestamping in renderer.** 인지 임계 15-20ms 대비 절대값 <10ms 무감, +5ms는 그 밴드 내 유지. Baseline은 utility 삭제(issue 8) 이전 1회 캡처해 anchor 보존. Subjective only는 unfalsifiable, hard absolute는 하드웨어 분산 미반영, skip은 미지의 회귀 수용. **Risk:** 측정 harness가 debug-build 상시 vs one-off pre-merge benchmark 중 선택 — 전자는 지속적 회귀 탐지, 후자는 작성 비용 낮음. Lead 결정 필요.",
+                "recorded_at": "2026-05-14T12:53:20.463Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**Comparative threshold + one-off pre-merge benchmark.**\n\n**기준:**\n- p50 key-to-echo latency 회귀 ≤ +5 ms vs utility baseline\n- p99 key-to-echo latency 회귀 ≤ +10 ms vs utility baseline\n\n**측정 방법:**\n- 렌더러 측 timestamping: PTY write 호출 직전 `performance.now()` 기록 → 해당 keystroke의 echo가 `pty.data`로 돌아와 xterm.js에 commit된 직후 delta 계산.\n- Fixture: `bash -c \"while read c; do echo -n \\\"$c\\\"; done\"` 같은 echo-only shell 대신 실제 zsh 인터랙티브 프롬프트(현실적 가까이) — 100 keystroke 시퀀스, warmup 20개 제외, p50/p99 추출.\n- 같은 머신에서 utility 경로 baseline 1회 → Go 경로 1회, 둘 다 5회 평균.\n\n**적용 시점:**\n- Issue 8의 utility 삭제 *이전* baseline 캡처 필수 (anchor 보존).\n- One-off pre-merge benchmark만 작성. 상시 debug-build 인스트루멘테이션은 본 사이클 비포함(작성·유지비 vs Phase 1 이득 균형).\n\n**미충족 시:** issue 2의 wire protocol(envelope 오버헤드)을 재검토. 후퇴 옵션은 sub-channel(issue 2의 (b))을 협의로 재오픈.\n\n**기각:**\n- **Subjective only:** unfalsifiable, 회귀가 PR 머지 후 발현.\n- **Hard absolute (e.g., p50 ≤ 8ms):** 하드웨어 분산 미반영, 빠른 머신/느린 머신에서 다른 gate.\n- **Skip:** 인지 임계 15-20ms 영역의 hot path를 측정 없이 변경하는 것은 일반 사용자 hit.\n- **상시 debug-build harness:** 작성 비용 vs Phase 1 ROI 균형 미흡, 추후 회귀 탐지 가치는 Phase 4 telemetry와 함께 재평가."
+          },
+          {
+            "id": 8,
+            "title": "[8] Cleanup 범위: 이번 사이클에서 utility process와 node-pty 의존을 제거할 것인가, 후속 사이클로 분리할 것인가",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "**Recommendation: (b) 이번 사이클은 utility를 flag 뒤에 유지, (a)는 다음 사이클로 scheduled.** Issue 6의 soak window 동안 utility 경로가 reachable 해야 flag가 의미를 가짐. 또한 `ssh-auth-pty.ts`가 독립적으로 node-pty 의존 → 이번 사이클에 dep 자체 제거는 불가, 오직 utility 프로세스 boot/scaffold만 제거 대상이며 이도 local default-flip과 동일 gate. **Risk:** Cleanup을 follow-up 이슈로 추적·exit criterion 명시 안 하면 (b)가 영구화 — LSP 사이클이 회복해야 했던 실패 모드. 추적 follow-up 이슈 등록 필수.",
+                "recorded_at": "2026-05-14T12:53:24.948Z",
+                "agent_id": "ae5a6b3d6fbb8d879"
+              }
+            ],
+            "decision": "**본 사이클은 utility 경로 유지(flag 뒤), 삭제는 M3 follow-up cycle.**\n\n**본 사이클 범위:**\n- `src/utility/pty-host/` 디렉토리 *유지*. flag=false일 때 정확히 현재와 동일 동작.\n- Go 측 PTY service 신설 + main의 `pty/ipc.ts`에 flag 분기 추가(true면 agent channel 경유, false면 기존 utility 경유). LSP `experimental.lspViaAgent` 시기의 이중 경로 패턴 답습.\n- `node-pty` npm 의존 자체는 *제거 불가* — `src/main/infra/agent/ssh-auth-pty.ts`(SSH 인증 핸드셰이크용)가 독립적으로 사용 중. 이 의존 제거는 본 사이클 비공식적 non-goal (SSH 클라이언트 Go화 별 트랙).\n\n**M3 cleanup follow-up issue 등록 항목 (본 사이클 종료 시 nexus history에 명시):**\n- `src/utility/pty-host/` 디렉토리 통째 삭제\n- `src/main/features/pty/host.ts`의 utility process 부트 코드 제거, ipc.ts의 flag 분기 제거\n- Utility process entry point 제거 가능 여부 재확인(다른 소비자 없음 — explore 검증됨, but M3 시점 재확인)\n- `experimental.ptyViaAgent` flag 자체 제거\n- 트리거: issue 6의 M2 → M3 게이트 통과 시\n\n**기각:**\n- **(a) 본 사이클에서 utility 즉시 삭제:** issue 6의 soak window가 무효화됨. flag=false 경로가 reachable 하지 않으면 escape valve가 없는 hard cutover와 동일.\n- **(c) utility 부트만 제거하고 node-pty는 dev util로 유지:** dead code 표류, ssh-auth-pty가 어차피 의존 → 의미 없음.\n\n**Architect risk 흡수:** Cleanup이 follow-up으로 추적 안 되면 flag가 영구화 — LSP 사이클이 회복해야 했던 실패. M3 follow-up 등록은 본 사이클 종료 시점에 nx_task_add 또는 별 plan 이슈로 명시적 처리."
+          },
+          {
+            "id": 9,
+            "title": "[9] terminal-recorder.ts(97 lines) 배치: main-side(pty.data 구독)로 유지 vs agent-side로 이동 vs Phase 1 비고려",
+            "status": "decided",
+            "decision": "**Recorder는 main-side 유지** — Phase 1 추가 작업 없음.\n\n**근거 (no-spawn 자율 판단):**\n- `src/utility/pty-host/terminal-recorder.ts` (97 lines)는 PTY 출력을 디스크에 기록. 현재 utility process 내부에서 `proc.onData` 콜백으로 호출되며 사용자의 로컬 머신에 기록.\n- 이주 후 데이터 경로는 Go → main → 렌더러 broadcast (`pty.data`). recorder는 main이 이 push event를 구독해 디스크에 쓰면 동일 동작.\n- agent-side 이동 검토: recording이 main restart에 살아남아야 한다면 가치 있음. 그러나 main restart는 곧 Electron 앱 재시작이고, 그 시점 모든 터미널이 어차피 사망(issue 5의 dead-terminal). 사망한 터미널의 추가 기록은 의미 없음. 또한 SSH 워크스페이스에서 recording을 *원격* 디스크에 두면 사용자가 원격 호스트의 디스크 quota/cleanup 책임을 짊어짐 — 사용자 의도 위반.\n\n**구체 배치 (본 사이클 범위):**\n- `src/utility/pty-host/terminal-recorder.ts`를 `src/main/features/pty/recorder.ts`로 이동.\n- main의 PTY IPC 모듈이 `pty.data` 이벤트 수신 시 recorder.append(workspaceId, tabId, chunk) 호출. flag=false 경로는 기존 utility recorder 사용 — 이중 구현이 잠시 공존하지만 M3에서 utility 삭제 시 자연 정리.\n\n**기각:**\n- **agent-side로 이동:** 위 근거. 원격 디스크 사용 + main restart 비대응성과 가치 불일치.\n- **Phase 1 비고려:** recording은 현재 사용자에게 노출된 기능 — 이주 후 동작 보존 못 하면 회귀. 검증 task 필요.\n\n**파급:** Issue 5의 dead-terminal scrollback 보존(opacity-60 dim, selection 가능)은 xterm.js 내부 버퍼이고 recorder와 무관. 두 경로 독립."
+          }
+        ],
+        "research_summary": "## 직전 사이클 컨텍스트 (history.json + memory)\n- 2026-05-14 LSP→Go agent 이주 사이클 완료. 패턴: `internal/lsp/service.go`가 Go쪽 spawn/lifecycle 소유, `src/main/features/lsp/agent-host.ts`가 workspace별 AgentChannel을 받아 `channel.call(\"lsp.spawn\"|\"lsp.send\"|\"lsp.cancel\"|\"lsp.shutdown\", ...)`로 위임. 동일 인터페이스로 local/SSH 모두 처리.\n- pattern-ipc-stream.md: 외부 push이고 multi-renderer 구독 가능한 long-lived 이벤트(파일 watcher, PTY, LSP diagnostics)는 `listen`/`broadcast` 구독 모델. ipcStream은 unit-of-work에 한정.\n- empirical-broadcast-correlation-bug.md: 도메인 progress schema에 transport 키(requestId/streamId) 넣지 않음. PTY는 tabId 같은 도메인 식별자 사용 중 (유지).\n- empirical-lsp-env-inheritance.md: agent 측 spawn은 `os.Environ()` 그대로 상속. SSH bootstrap의 PATH 빈약 경계 케이스 인지.\n- ssh-auth-pty 작업(2026-05-12) 결과: `src/main/infra/agent/ssh-auth-pty.ts`는 SSH 인증 핸드셰이크 전용 — 이번 작업과 분리. node-pty 의존이 거기에도 있음.\n\n## 현재 PTY 표면 (verified by explore)\n- 7개 파일 / utility process가 PTY 전용 소비자. 다른 utilityProcess 사용자 없음 → 이주 후 utility/ 디렉토리 통째 제거 가능.\n- 렌더러→main IPC: pty.spawn(tabId, cwd, cols, rows) / write / resize / ack(bytesConsumed) / kill. **workspaceId 없음**.\n- main→utility: MessagePort + JSON. utility는 `node-pty`로 spawn(shell=\"/bin/zsh\"등, env=process.env+ZDOTDIR wrapper).\n- main→렌더러 broadcast: data{tabId,chunk}, exit{tabId,code}.\n- Flow control: `src/shared/terminal-flow-control.ts` (HIGH=100k, LOW=5k, ACK=5k chars). utility의 flow-control.ts가 unacknowledged 누적 → HIGH 도달시 `proc.pause()`, ack로 LOW 이하 떨어지면 `proc.resume()`. 단위가 **char**(node-pty 특성)임을 주의.\n- 환경: `ZDOTDIR` wrapper로 zsh init 자동 주입.\n- TabId는 renderer-generated UUID, workspace 스코프 아님. cleanup은 명시적 kill 호출만 (zombie reaper 없음).\n\n## 원격 터미널 UX 진위 (verified)\n- 사용자 주장: 원격 터미널 UX 존재. — UI 진입 경로는 존재함: `workspace-panel.tsx:37` 등 모든 openTerminal 호출이 workspaceId/location 분기 없이 `cwd: workspace.rootPath` 전달.\n- 그러나 현재 실제 동작: SSH 워크스페이스의 rootPath는 remote 경로 → 로컬 utility의 node-pty가 존재하지 않는 cwd로 spawn → 실패 또는 $HOME 폴백. **UX 약속은 있고 실제 동작은 없는 상태**. 이번 이주의 정당성을 강화.\n\n## LSP 이주 재사용 가능 자산\n- `src/main/infra/agent/channel.ts` — AgentChannel 통일 인터페이스\n- `src/main/infra/agent/reconnecting-process-channel.ts` (417 lines) — exponential backoff 재연결, pending call queue, replay. **단 세션 상태는 보존하지 않음** — 재연결 시 LSP 서버 모두 재spawn 필요. PTY 적용 시 critical implication.\n- `src/main/infra/agent/ssh-channel.ts` — SSH client wrapping\n- `workspaceManager.getAgentChannel(workspaceId)` — local/SSH 통합 acquisition. 동일 API로 PTY가 라우팅 가능.\n\n## 외부 연구 결과 (researcher)\n- Go 라이브러리: `github.com/creack/pty` v1.1.24 (Oct 2024) — de-facto 표준. macOS 함정: ≥3KB 마스터 쓰기 행, ptmx.Read 블록, CPU spin, multibyte 변이. 모두 chunked write + 동시 drain으로 완화. Windows 제외라 ConPTY 우회.\n- JSON-RPC 위 PTY: GoTTY 레퍼런스 — type-prefix + base64 (~33% 오버헤드). 인터랙티브에서는 read마다 즉시 flush, 코얼레스 금지. 백프레셔는 OS PTY 버퍼 차단(producer block)에 위임이 일반적.\n- 지연 예산: Dan Luu/Fatin — 15-20ms 미만 무감, 50ms 초과 체감. 로컬 agent RTT 목표 <5ms, 처리 오버헤드 <2ms.\n- 신호 전달: RFC 4254 모델 — 데이터 스트림은 raw 바이트(line discipline이 Ctrl-C 0x03→SIGINT 변환), resize/signal은 별도 프레임. PTY-over-RPC 표준 접근.\n- 프로세스 사망 보장: Linux `SysProcAttr.Pdeathsig=SIGKILL`. macOS는 `Setpgid:true` + 채널 닫힘 시 `kill(-pgid, SIGKILL)`. 하트비트 불요.\n\n## 식별된 위험 (재확인)\n1. Local terminal 키 echo latency 회귀 — MessagePort에서 NDJSON로 바뀌면서 측정 필요\n2. 대량 출력 시 backpressure semantics 유지 (char 단위 → byte 단위 전환 검토)\n3. resize/SIGINT/exit code 의미론 RFC 4254 모델로 명시\n4. ssh-auth-pty.ts는 별도 — node-pty 의존이 이 곳에 남음, 이번 사이클 비고려\n5. node-pty 제거 후 utility process 통째 제거 가능 (다른 소비자 없음 확인됨)\n6. AgentChannel 재연결은 세션 상태 보존 안 함 → 터미널 죽음 처리 정책 필요\n\n## 미해결 가정\n- 외부 ssh-auth-pty의 node-pty 제거는 별 트랙(SSH 클라이언트 Go화)으로 가정하고 이번 사이클에선 손대지 않음.",
+        "created_at": "2026-05-14T12:49:41.463Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "[T1] creack/pty macOS parity spike — go/no-go gate",
+          "status": "completed",
+          "context": "Issue 1 결정의 Phase 1.0 게이트. node-pty와 creack/pty가 macOS에서 패리티가 아니면 hybrid로 회귀해야 함. 5개 동작 검증.",
+          "acceptance": "macOS에서 `go test ./internal/pty/...` 그린. 5개 시나리오 각각 한 testcase로 명시적 PASS. 한 개라도 FAIL이면 Lead가 nx_plan_update로 issue 1을 reopen하고 hybrid로 회귀 결정. PASS시 결과 노트를 `.nexus/memory/empirical-creack-pty-parity.md`에 1페이지 기록.",
+          "approach": "신규 `internal/pty/spike/` 임시 디렉토리에 minimum 검증 코드 작성. 5개 표(table-driven)로 (1) `pty.Setsize` via TIOCSWINSZ ioctl 동작 확인 (resize 후 SIGWINCH 도착), (2) 자식 프로세스가 controlling terminal로 처리되는지 (Setctty/sid leader), (3) SIGWINCH 핸들러 등록 후 resize 시 자식 코드에 도달, (4) 마스터에 raw 0x03 write 시 line discipline이 자식에게 SIGINT 전달, (5) 자식 정상 종료의 exit code와 signal 종료의 signal 둘 다 회수. 모두 PASS시 spike 디렉토리는 PR 머지 전 제거 또는 internal/pty/integration_test.go로 흡수.",
+          "risk": "FAIL 시 Issue 1 ~ Issue 8 전체 재설계. macOS 버전 의존(Sequoia 이상 PTY 동작 변화 보고됨, researcher 노트) — spike는 개발자 머신 한 대에서만 검증되므로 별도 macOS 버전 매트릭스는 본 사이클 비포함.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2697-0cb6-7c62-a68c-0c217da75d65",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:57:35.794Z",
+          "result": {
+            "outcome": "success",
+            "summary": "creack/pty macOS gate passed. Added darwin parity tests covering resize/SIGWINCH, controlling terminal/session behavior, child SIGWINCH handler, raw ^C→SIGINT, and normal/signal exit recovery. `go test -count=1 ./internal/pty/...` and `go test ./internal/...` passed.",
+            "artifacts": [
+              "internal/pty/creack_parity_darwin_test.go",
+              "internal/pty/doc.go",
+              ".nexus/memory/empirical-creack-pty-parity.md",
+              "go.mod",
+              "go.sum"
+            ],
+            "recorded_at": "2026-05-14T13:15:46.026Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "[T2] reconnecting-channel backpressure spike + utility 경로 latency baseline 캡처",
+          "status": "completed",
+          "context": "Issue 3·Issue 7 결정의 anchor 작업. (a) `src/main/infra/agent/reconnecting-process-channel.ts`의 stdout read-loop가 consumer pace와 무관하게 unbounded JS buffer drain하는지 확인. Drain 시 main↔agent 별도 backpressure 추가 필요. (b) Issue 8에서 utility 코드를 보존하지만 Issue 7의 비교 baseline은 *현재 main에 한 번* 캡처해 향후 anchor로 동결. utility 삭제 후 재측정 불가.",
+          "acceptance": "(a) `.nexus/memory/empirical-reconnecting-channel-backpressure.md`에 read-loop 동작 1-페이지 분석. drain하면 Issue 3 결정 보정(이중 backpressure 추가) 필요 표시. (b) `.nexus/memory/empirical-pty-utility-baseline.md`에 utility 경로 p50/p99 latency 기록 — 측정 조건(머신 모델, OS, zsh 버전), 5회 raw 데이터, 평균. T11이 이 anchor에 비교.",
+          "approach": "(a) `reconnecting-process-channel.ts` 417 줄 정독, stdout 처리 부분(NDJSON line reader/buffer)이 backpressure 신호를 받는지 코드 리뷰. 의심 시 small reproducer로 검증(producer가 빠르게, consumer를 인위적 지연). (b) 별도 작은 vitest/bun benchmark: utility 경로로 zsh 인터랙티브 PTY를 띄우고 100개 keystroke 시퀀스(`printf \"a\"` 반복) 자동 송신, 각 keystroke의 echo가 xterm.js buffer에 도착한 시점까지 `performance.now()` delta. warmup 20개 제외, p50/p99 계산. 5회 평균. 결과를 memory에 기록.",
+          "risk": "benchmark fixture가 실제 사용자 인터랙션과 거리가 크면 anchor 신뢰성 저하. zsh 프롬프트 출력 안정화 시간 확보 필요(첫 프롬프트 출력 후 warmup 시작). Drain 발견 시 Issue 3 결정 변경 + T4/T5 범위 확대.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2697-11de-7360-851d-42eb49ef4867",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:57:50.591Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Backpressure spike and utility latency baseline recorded. Evidence shows reconnecting-process-channel/NdjsonPipe drains stdout into JS event delivery without consumer pacing, so Issue 3 requires correction before relying on a free main↔agent push assumption. Utility host-level baseline average: p50 0.138ms, p99 0.274ms over five runs on MacBookPro18,4 macOS 26.3 zsh 5.9.",
+            "artifacts": [
+              ".nexus/memory/empirical-reconnecting-channel-backpressure.md",
+              ".nexus/memory/empirical-pty-utility-baseline.md"
+            ],
+            "recorded_at": "2026-05-14T13:15:46.303Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "[T3] IPC contract bump — workspaceId를 PTY 메서드·이벤트에 추가",
+          "status": "completed",
+          "context": "Issue 4 결정. 모든 PTY IPC call이 workspaceId를 들고 다녀야 main이 `workspaceManager.getAgentChannel(workspaceId)`로 라우팅 가능. 도메인 식별자만 쓰는 broadcast correlation 규칙(memory pattern-ipc-stream + empirical-broadcast-correlation-bug) 준수.",
+          "acceptance": "`bun test` 그린, `bun run typecheck` 그린. PTY 관련 기존 테스트(`tests/unit/renderer/services/terminal-services.test.ts` 등) 모두 workspaceId 시그니처에 맞춰 갱신 후 PASS. 신규 메서드 시그니처는 LSP IPC contract와 형태 일치 확인.",
+          "approach": "(1) `src/shared/ipc-contract.ts` pty.call.{spawn,write,resize,ack,kill} 5 메서드의 args zod schema에 `workspaceId: z.string().uuid()` 추가. (2) pty.listen.{data,exit} 이벤트 schema에도 동일. (3) 렌더러 측 전파: `src/renderer/services/terminal/pty-client.ts`의 `createPtyClient`·`spawnSession`이 workspaceId 인자 수신. `terminal-controller.ts`·`terminal-view.tsx`가 tab 레코드의 workspaceId 전달. `openTerminal`는 이미 workspaceId 보유. (4) `src/main/features/pty/ipc.ts`는 args에서 workspaceId 추출만 — 이번 task에선 utility 경로로 그대로 위임(현재 utility는 workspaceId 무시). (5) `.listen.data/exit` broadcast 시점에 workspaceId 포함하여 발행. 렌더러 ipcListen 콜백이 자신의 workspaceId 필터링.",
+          "risk": "Renderer-side에서 workspaceId가 늦게 도착하는 corner case 없는지 확인. broadcast 이벤트의 workspaceId가 잘못된 워크스페이스에 라우팅되지 않도록 ipcListen 콜백 필터 분명히.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e2697-174d-7671-8c28-128a0ca123d0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:58:03.073Z",
+          "result": {
+            "outcome": "success",
+            "summary": "PTY IPC contract now carries workspaceId on spawn/write/resize/ack/kill and on data/exit events. Renderer propagates workspaceId, scopes live sessions and ack counters by workspaceId+tabId, filters events by both fields, and counts ack consumption in UTF-8 bytes. Main utility bridge validates workspaceId and broadcasts workspace-scoped data/exit. Targeted PTY tests, typecheck, and full `bun test` pass after updating an unrelated Git round-trip fake provider for the already-existing git.detect RPC.",
+            "artifacts": [
+              "src/shared/ipc-contract.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/renderer/services/terminal/pty-client.ts",
+              "src/renderer/services/terminal/types.ts",
+              "src/renderer/services/terminal/terminal-controller.ts",
+              "src/renderer/services/terminal/open-terminal.ts",
+              "src/renderer/components/workspace/content/terminal-view.tsx",
+              "src/renderer/components/workspace/content/content-host.tsx",
+              "src/renderer/state/operations/groups.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "tests/unit/renderer/services/terminal-services.test.ts",
+              "tests/integration/main/git/round-trip.test.ts"
+            ],
+            "recorded_at": "2026-05-14T13:19:34.816Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "[T4] Go agent PTY service — internal/pty + dispatcher 등록",
+          "status": "completed",
+          "context": "Issue 1·2·3 결정. Go 측에 LSP service.go와 평행한 PTY service 신설. spawn/write/resize/ack/kill RPC 메서드 + data/exit push event. `creack/pty` 사용, byte 단위 backpressure.",
+          "acceptance": "`go test ./internal/pty/...` 그린. 단위 테스트 항목: (a) spawn 후 write→echo 라운드트립, (b) burst write 시 frame ordering 보존(여러 chunk 순서 검증), (c) backpressure: renderer ack credit을 Go가 NDJSON emit 전에 강제하여 ack 없이는 HIGH=100_000 + maxChunkSize raw bytes 이상 `pty.data`를 emit하지 않음, ack로 outstanding이 LOW=5_000 이하가 될 때만 재개, (d) resize 시 자식이 `tput cols/lines` 변경 확인, (e) raw 0x03 write 시 자식 프로세스가 SIGINT로 종료(코드+signal 검증), (f) 자식이 `exit 42` 시 exit notify에 code=42 도착. macOS·Linux 둘 다 통과.",
+          "approach": "(1) `internal/pty/service.go`: `Service{sessions map[tabKey]*Session}` 구조. tabKey=(workspaceID, tabID). Spawn 시 `creack/pty.Start(exec.Cmd)` + process group 설정. Linux는 `Pdeathsig=SIGKILL` 별도 추가. 각 session에 read goroutine (PTY master → bounded outbound path) + write 메서드. (2) Outbound: PTY bytes를 chunk(예: 4KB 단위)로 읽고 single emitter goroutine에서 순서대로 dispatch.Notify(`pty.data`, {workspaceID,tabID,chunk_b64})로 push. (3) Backpressure corrigendum: Go가 renderer-credit source-of-truth을 직접 강제한다. emitted raw byte 수를 per-session outstanding으로 카운트하고 HIGH=100_000 도달 시 PTY master read/enqueue를 NDJSON emit 전에 멈춘다. `pty.ack(bytesConsumed)`로 outstanding 감소, LOW=5_000 이하에서만 재개. Main이 ack를 합성하지 않는 전제라 Go가 유일 producer gate. Queue/buffer 크기는 bounded여야 하며 unbounded Go queue에 쌓은 뒤 block하면 불합격. (4) Resize: `pty.Setsize(f, &Winsize{Rows,Cols})`. (5) Kill: process group kill. (6) Exit: read/process wait가 emitter로 `pty.exit` notify {code, signal}. (7) `cmd/agent/main.go`에 등록: `pty := agentpty.New(); d.Register(\"pty.spawn\", pty.Spawn); ...`. LSP 등록 패턴 평행.",
+          "risk": "researcher 노트의 macOS 함정: ≥3KB 마스터 write hang. 본 service는 *write* 측이 keystroke 위주(작음), *read* 측이 대량 — 영향 적음. 하지만 large `pty.write`(붙여넣기) 처리를 위해 입력 chunk를 ≤1024 바이트로 분할 송신 필요. emitter goroutine이 single-threaded라 high-throughput 시 병목 가능 — channel buffer 크기 측정 후 조정.",
+          "plan_issue": 2,
+          "deps": [
+            1,
+            3
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e26a5-6961-7512-a863-1a65fd546876",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:58:21.403Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added creack/pty-backed Go PTY service with spawn/write/resize/ack/kill RPCs, base64 `pty.data`, `pty.exit`, per-(workspaceId, tabId) sessions, process-group termination, and Go-side HIGH/LOW raw-byte backpressure before event emission. Registered in agent dispatcher. Verified with `go test ./internal/pty/...`, `go test ./internal/...`, `go test ./cmd/agent`, `go test ./...`, plus repeated focused PTY tests.",
+            "artifacts": [
+              "cmd/agent/main.go",
+              "internal/pty/doc.go",
+              "internal/pty/errors.go",
+              "internal/pty/process_unix.go",
+              "internal/pty/service.go",
+              "internal/pty/service_test.go",
+              "internal/pty/sysproc_linux.go",
+              "internal/pty/sysproc_other.go",
+              "internal/pty/types.go"
+            ],
+            "recorded_at": "2026-05-14T13:33:49.425Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "[T5] main agent-pty-host + flag 분기 + experimental.ptyViaAgent",
+          "status": "completed",
+          "context": "Issue 4·6·8 결정. main 측에 LSP `agent-host.ts` 평행한 `agent-pty-host.ts`를 신설하고, `pty/ipc.ts`가 flag 또는 workspace.location.kind 기준으로 utility 경로(현행)와 agent 경로(신규) 사이를 분기. 본 사이클 출하 시 flag default=false.",
+          "acceptance": "flag=false + 로컬 워크스페이스 → 현행 utility 동작 그대로(기존 PTY 테스트 전부 그린). flag=false + SSH 워크스페이스 → agent 경로로 진입(SSH 워크스페이스 단위 테스트). flag=true + 로컬 워크스페이스 → agent 경로로 진입(단위 테스트). renderer `pty.ack(workspaceId,tabId,bytesConsumed)`는 올바른 workspace AgentChannel의 `pty.ack`으로 전달되고, main은 data receipt/broadcast/recorder append 시 synthetic ack를 만들지 않음. 채널 lifecycle \"failure\" 시 해당 워크스페이스의 모든 PTY tab이 dead로 broadcast(`pty.exit`, code=null) 단위 테스트.",
+          "approach": "(1) `src/main/features/pty/agent-pty-host.ts` 신설 — LSP `agent-host.ts`와 동일 구조: workspaceId → `workspaceManager.getAgentChannel(workspaceId)`로 channel 획득 → `channel.call(\"pty.spawn\",{...})` 등 RPC. (workspaceId, tabId)로 sessions 추적. channel lifecycle 구독: `event.type===\"exit\"|\"failure\"` 시 해당 채널의 모든 session을 dead 처리 + `broadcast(\"pty\",\"exit\",{workspaceId,tabId,code:null})` 발행 → 렌더러가 Issue 5의 dead-terminal banner 표시. (2) Channel의 `pty.data`·`pty.exit` notify를 구독해 `broadcast(\"pty\",\"data\"|\"exit\",...)`로 렌더러에 전달. (3) Backpressure corrigendum: `pty/ipc.ts`의 ack handler는 renderer ack를 선택된 host로 전달한다. Agent host는 반드시 `channel.call(\"pty.ack\", {workspaceId, tabId, bytesConsumed})`; utility host는 기존 `charCount` 호환. Main은 Go data 수신, renderer broadcast, recorder append 어느 시점에도 ack를 합성하지 않는다. (4) `src/main/features/pty/ipc.ts`: 라우팅 헬퍼 `pickHost(workspaceId)` 추가. workspace.location.kind===\"ssh\"면 무조건 agent host; \"local\"이면 `userPrefs.experimental.ptyViaAgent` 값으로 분기(true→agent, false→utility). 5 메서드 모두 동일 분기. (5) `src/main/infra/settings`에 `experimental.ptyViaAgent: boolean` 추가, default false. 사용자가 settings.json에서 켤 수 있도록. (6) 두 host 인스턴스 공존: utility ptyHost(기존)는 startConfiguredPtyHost에서 항상 띄움, agent host는 workspace activation 시 lazy.",
+          "risk": "두 host가 같은 broadcast 채널을 공유 — 동시 발행 시 stale 이벤트가 다른 host의 tab으로 흘러가지 않도록 workspaceId 필터 정확성 필수. flag 토글이 런타임에 일어나면 기존 PTY 세션의 거취가 모호 → flag 변경은 next-spawn부터 적용으로 명시(기존 세션은 시작 시 host 결정 유지).",
+          "plan_issue": 6,
+          "deps": [
+            3,
+            4
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e26b2-a330-78c3-aade-846f6521c3f0",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:58:38.796Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added main-process agent PTY host and route selection: SSH always agent, local uses `experimental.ptyViaAgent` from AppState. Implemented agent ack relay, base64-to-streaming-UTF-8 decoding, and channel lifecycle exit fanout. Utility path remains compatible for local flag=false. Verified with typecheck, focused PTY/utility/storage/renderer terminal tests, full `bun test` (1629 pass, 1 skip), lint, and diff check.",
+            "artifacts": [
+              "src/main/features/pty/agent-host.ts",
+              "src/main/features/pty/ipc.ts",
+              "src/main/index.ts",
+              "src/shared/types/app-state.ts",
+              "tests/unit/main/pty/pty-channel.test.ts"
+            ],
+            "recorded_at": "2026-05-14T13:44:05.092Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "[T6] terminal-recorder를 main으로 이동 + pty.data 구독으로 호출",
+          "status": "completed",
+          "context": "Issue 9 결정. 이주 후 recorder는 main이 broadcast event를 받는 시점에 호출. 출력 포맷 byte-for-byte 보존.",
+          "acceptance": "Recorder 단위 테스트 그린 + byte-for-byte fixture diff PASS. 이중 기록 방지 확인(같은 tab에서 두 경로 동시 호출 시 한 곳만 기록). reviewer가 fixture diff 한 번 확인하고 OK.",
+          "approach": "(1) `src/utility/pty-host/terminal-recorder.ts` → `src/main/features/pty/recorder.ts`로 이동. `import(\"node-pty\")` 없이 순수 byte/string 처리 모듈로 분리(기존도 그렇게 작성된 것으로 보임). (2) main `pty/ipc.ts`가 ptyHost.on(\"data\",...) 핸들러 안에서 recorder.append(workspaceId, tabId, chunk) 호출 — agent host도 동일 시그니처로 emit하므로 한 핸들러로 통합. (3) flag=false 경로의 기존 utility 내부 recorder 호출은 *유지*(파급 최소화) — main 측 recorder가 broadcast event를 잡으면 이중 기록이 되지 않도록, utility 경로일 때만 utility recorder가 동작/main recorder는 idle, agent 경로일 때만 main recorder가 동작. flag 또는 host 출처 식별로 분기. M3에서 utility 삭제 시 자연 정리. (4) 출력 포맷 회귀 방지: 기존 recording 파일을 fixture로 두고 새 코드 경로로 동일 입력 시퀀스 처리 시 byte-for-byte 일치 unit test.",
+          "risk": "Recorder가 의존하는 환경(filesystem path, lock 등)이 utility process와 main process에서 다를 수 있음 — main으로 옮길 때 path 해결 로직 재검토.",
+          "plan_issue": 9,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e26bc-28c2-7261-b0a2-fd2cfa62aef1",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:58:51.901Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added main-side terminal recorder/registry for agent PTY data only, preserving existing utility recorder behavior and replay output shape. Agent decoded data and resizes append in main; utility sessions are excluded from main recording to avoid double records. Relevant recorder, utility recorder, and PTY channel tests pass; typecheck and diff/lint checks pass. Current recorder remains in-memory with no persistent dump consumer.",
+            "artifacts": [
+              "src/main/features/pty/ipc.ts",
+              "src/main/features/pty/recorder.ts",
+              "tests/unit/main/pty/pty-channel.test.ts",
+              "tests/unit/main/pty/terminal-recorder.test.ts",
+              "tests/unit/main/pty/fixtures/terminal-recorder-replay.json"
+            ],
+            "recorded_at": "2026-05-14T13:58:29.472Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "[T7] Dead-terminal UX — per-tab banner + reopen + tab title",
+          "status": "completed",
+          "context": "Issue 5 결정. terminal 사망 시 사용자에게 명시적으로 표시하고 fresh shell 재시작 액션 제공. Option A 6 affordance 중 per-tab 부분.",
+          "acceptance": "렌더러 unit test: dead 상태 진입 시 banner 렌더링, Reopen 클릭 시 fresh spawn, scrollback selection 가능 확인, tab title 적용. Reopen 실패 시 Retry copy 노출. 통합 테스트: PTY exit broadcast → 1초 내 banner 표시. Phase 4 affordance 검증: dead → reopen 사이클에서 tabId 동일.",
+          "approach": "(1) `src/renderer/components/workspace/content/terminal-view.tsx`: PTY exit event 수신 시 `dead` 상태 추가 — banner는 `ReadOnlyBanner`와 동일 토큰(`h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs`)로 신규 컴포넌트 또는 ReadOnlyBanner 재사용. copy: local 경우 `Terminal ended — agent stopped` / SSH 경우 `Terminal ended — connection to {host} lost`. 둘 다 `[Reopen]` action 버튼. (2) Scrollback dim: xterm container를 `opacity-60` + `pointer-events-auto`(selection 유지). (3) Reopen: 원래 cwd로 fresh PTY spawn — 단일 클릭, no confirm. 새 PTY가 ready되면 xterm.write로 `\\r\\n─────────────  reopened  ─────────────\\r\\n` 삽입(muted style). tabId는 stable 유지(Phase 4 reattach affordance). (4) Reopen 진행 중: 버튼 텍스트 `Reopening…` disabled. 실패 시 banner copy를 `Reopen failed — agent unavailable. [Retry]`로 swap, auto-retry 없음. (5) Tab title: dead 상태에서 제목 옆 muted-foreground 토큰의 `·` 추가. tab 레코드의 `meta.dead: boolean` 추가 또는 PTY exit 이벤트를 tab store가 구독. (6) aria-label: 죽은 탭에 `aria-label=\"{title}, terminal ended\"`.",
+          "risk": "xterm.js scrollback의 selection 동작이 opacity 변경 후에도 정상인지 확인 필요. Reopen 시 기존 scrollback이 보존된 채 새 prompt 시작되는지(xterm.write로 hr 추가만, clear 없음).",
+          "plan_issue": 5,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e26bc-2e58-71c3-aad5-4a7eb5f4abff",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:59:07.528Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added per-tab dead-terminal UX: renderer dead state from pty.exit, honest local/SSH banner copy, manual Reopen/Retry with stable tabId and original cwd, reopened separator insertion without clearing scrollback, pointer-enabled dimmed scrollback, and tab title muted dot/aria marker. Targeted renderer/service/tab tests, typecheck, lint:tw, and diff check pass.",
+            "artifacts": [
+              "src/renderer/components/workspace/content/terminal-view.tsx",
+              "src/renderer/components/workspace/tabs/tab-item.tsx",
+              "src/renderer/services/terminal/terminal-controller.ts",
+              "src/renderer/services/terminal/types.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "tests/unit/renderer/components/workspace/content/terminal-view-dead.test.tsx",
+              "tests/unit/renderer/components/workspace/tabs/tab-bar.test.tsx",
+              "tests/unit/renderer/services/terminal-services.test.ts"
+            ],
+            "recorded_at": "2026-05-14T13:58:29.765Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "[T8] Workspace-level aggregate banner + workspace-online state 통합",
+          "status": "completed",
+          "context": "Issue 5 결정의 aggregate 부분 + Designer open Q1(workspace-online single source of truth). 같은 채널 disconnect로 ≥2 tab 동시 사망 시 workspace-level banner 표시. 워크스페이스 자체가 offline 상태면 per-tab banner 억제, workspace-level UI만.",
+          "acceptance": "시뮬레이션 단위 테스트: 한 채널에서 3 tab의 exit broadcast → aggregate banner 1개 + per-tab banner 3개 동시 노출. workspace offline 상태로 변경 시 per-tab banner 사라지고 workspace-level만. `[Reopen all]` 클릭 시 모든 dead tab의 reopen 흐름 시작. 기존 workspace UI와의 시각적 충돌 없음 확인.",
+          "approach": "(1) `src/renderer/components/workspace/workspace-panel.tsx` 또는 인접 layer에 workspace-online state 단일 selector 신설/통합 — 기존 selector가 있다면 식별 후 그것으로 통합. (2) 한 채널에서 받은 `pty.exit` 이벤트들이 같은 frame(예: <100ms 윈도우) 내 ≥2건이면 aggregate banner 카운터 증가. copy: `Disconnected from {host} — N terminals ended. [Reopen all]`. (3) `[Reopen all]` 클릭 시 해당 workspace의 dead tab 전부에 대해 T7의 reopen 시퀀스를 병렬 트리거(각 tab은 원래 cwd 유지). (4) Workspace 자체 offline 상태인지를 동일 selector로 판별 — offline이면 per-tab banner suppress(redundant 정보 회피). (5) `role=\"status\"` 추가(screen reader 알림).",
+          "risk": "\"같은 frame 윈도우\"의 임계값 결정 — 너무 짧으면 aggregate 안 뜸, 너무 길면 무관한 사망까지 묶임. 100ms이 reasonable 시작점. workspace-online state가 통합 selector로 정리되지 않으면 본 task가 추가 리팩토링으로 확장될 수 있음.",
+          "plan_issue": 5,
+          "deps": [
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "019e26c8-ce87-7bb1-8e57-cc1c499601cc",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:59:21.209Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Added 100ms workspace-level terminal-death aggregation, workspace-online selector integration, offline suppression for per-tab dead banners, and explicit Reopen all routing to mounted terminal views. Targeted renderer tests verify aggregate banner, offline suppression, static collision guard, and Reopen all targeting stable dead terminal tabs; typecheck, targeted lint, Tailwind lint, and diff check pass.",
+            "artifacts": [
+              "src/renderer/components/workspace/content/terminal-view.tsx",
+              "src/renderer/components/workspace/workspace-panel.tsx",
+              "src/renderer/components/workspace/workspace-terminal-status-banner.tsx",
+              "src/renderer/services/terminal/index.ts",
+              "src/renderer/services/terminal/reopen-requests.ts",
+              "src/renderer/state/stores/tabs.ts",
+              "src/renderer/state/stores/terminal-deaths.ts",
+              "src/renderer/state/stores/workspaces.ts",
+              "tests/unit/renderer/components/workspace/workspace-terminal-status-banner.test.tsx"
+            ],
+            "recorded_at": "2026-05-14T14:12:56.217Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "[T9] reviewer: dead-terminal banner WCAG contrast + copy 정확성 검증",
+          "status": "completed",
+          "context": "Issue 5 결정의 Designer open Q2. `frosted-veil` + `muted-foreground` 토큰 조합이 light/dark 둘 다 WCAG AA 4.5:1 달성하는지 + banner copy가 remote process 상태를 단정하지 않는지 검토.",
+          "acceptance": "Contrast 결과(light/dark 각 ratio)를 `.nexus/memory/empirical-banner-contrast.md`에 기록. AA 4.5:1 충족 또는 미충족 명시. 미충족 시 `ReadOnlyBanner` 전반에 영향 — finding 등록. Copy 검토 통과 또는 수정 권고 1-2건.",
+          "approach": "(1) Design token resolution 확인 — `src/renderer/styles/` 또는 tokens 위치에서 두 토큰의 OKLCH/HEX 값 추출. light·dark 두 모드. (2) WebAIM contrast checker 또는 culori/chroma-js로 contrast ratio 계산. AA 4.5:1 표준 적용. (3) Copy 검토: T7에서 구현된 banner 문구가 \"Terminal ended\"(view 사실)만 단정하는지, \"Build cancelled\"/\"Connection failed\"처럼 remote 상태를 단정하는 표현이 끼어들지 않았는지 확인. Reopen failed 시 copy도 동일 기준으로 검토. (4) 통과 시 reviewer 결과를 PR 리뷰 comment로 기록. 미통과 시 별 finding으로 plan_update + Lead에 보고.",
+          "risk": "Token resolver가 build-time이라 정적 추출이 어려울 수 있음 — 그 경우 dev server에서 computed style 측정으로 우회.",
+          "plan_issue": 5,
+          "deps": [
+            7,
+            8
+          ],
+          "owner": {
+            "role": "reviewer",
+            "agent_id": "019e26d5-914e-78d0-b12e-288e43b416c9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:59:31.968Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Reviewer initially found shared `bg-frosted-veil + text-muted-foreground` banner text below WCAG AA and copy that inferred untyped causes. Revised the shared banner treatment with `app-status-banner-text` theme-aware foregrounds (dark/current 15.10:1, light/future 11.66:1), applied it to DeadTerminalBanner, WorkspaceTerminalStatusBanner, and ReadOnlyBanner, and changed copy to neutral `Terminal ended.`, `Reopen failed.`, and `{N} terminal(s) ended.` Focused renderer tests, targeted Biome check, typecheck, and Tailwind syntax check pass.",
+            "artifacts": [
+              ".nexus/memory/empirical-banner-contrast.md",
+              "src/renderer/styles/globals.css",
+              "src/renderer/components/workspace/content/terminal-view.tsx",
+              "src/renderer/components/workspace/workspace-terminal-status-banner.tsx",
+              "src/renderer/components/workspace/content/read-only-banner.tsx",
+              "tests/unit/renderer/components/workspace/content/terminal-view-dead.test.tsx",
+              "tests/unit/renderer/components/workspace/workspace-terminal-status-banner.test.tsx"
+            ],
+            "recorded_at": "2026-05-14T14:26:14.349Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "[T10] PTY agent 라운드트립 통합 테스트 — frame ordering·backpressure·signals",
+          "status": "completed",
+          "context": "Issue 1·2·3 결정의 회귀 가드. main↔agent↔shell 풀패스가 LSP 사이클의 integration test와 동일 수준 커버리지.",
+          "acceptance": "`bun test tests/integration/agent/pty/` 전체 그린. (a)-(f) 모두 명시적 case. 추가 backpressure regression: renderer ack를 withheld하면 main↔agent full path에서 수신 data가 HIGH=100_000 + maxChunkSize raw bytes로 bounded되고, ack 전송 후 출력이 재개됨. 이 regression은 reconnecting-process-channel/NdjsonPipe 경로를 포함해야 함. main+agent 둘 다 클린 종료(잔여 프로세스 없음 — `ps aux | grep agent` 검증 또는 cleanup hook).",
+          "approach": "`tests/integration/agent/pty/` 신설. fixture: 실제 Go agent binary를 띄우고 main의 `agent-pty-host` 인스턴스 직접 호출. 시나리오: (a) spawn(bash -c \"echo ready; cat\") → write \"hello\\n\" → data event로 \"hello\" 수신 → kill → exit code 0. (b) burst write 1000 chunks(각 64B) → data events 순서가 송신 순서와 일치(checksum chain). (c) 자식이 `yes`로 무한 출력 시 unacknowledged가 HIGH 도달 후 ack 안 보내면 추가 data 없음. ack 보내면 LOW까지 감소 후 재개. (d) write \"\\x03\" → exit signal=SIGINT 수신. (e) resize(80,24)→(120,40) → `stty size` 결과 변경. (f) child exit 42 → exit code=42.",
+          "risk": "CI 머신과 개발자 머신의 PTY 동작 차이(특히 macOS 버전). bun test의 PTY 마스터 access 가능성 확인 — Bun이 안 되면 Node 하위 프로세스로 escape. ssh-auth-pty 사이클 history에서 동일 이슈(\"Bun's node-pty does not emit events\") 발생한 적 있음 — fixture에서 Node-backed PTY adapter 활용 가능.",
+          "plan_issue": 2,
+          "deps": [
+            4,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e26c8-d3c8-73d1-a894-845f3c7e3c9d",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-14T12:59:45.174Z",
+          "result": {
+            "outcome": "success",
+            "summary": "PTY agent full-path integration passed. `bun test tests/integration/agent/pty/` covers echo round-trip, burst ordering, full-path backpressure with withheld ack and resume, Ctrl-C/SIGINT, resize via `stty size`, and exit code 42. Final process cleanup check found no leaked temp agent/root/script processes.",
+            "artifacts": [
+              "tests/integration/agent/pty/agent-pty.integration.test.ts"
+            ],
+            "recorded_at": "2026-05-14T14:12:56.495Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "[T11] Latency benchmark — Go 경로 vs T2 utility baseline",
+          "status": "completed",
+          "context": "Issue 7 결정. Δp50 ≤ +5ms, Δp99 ≤ +10ms 미달 시 wire protocol 재검토 트리거.",
+          "acceptance": "`.nexus/memory/empirical-pty-go-latency.md`에 Go 경로 p50/p99 raw 5회 + 평균 + baseline 대비 Δ. Δp50 ≤ +5ms AND Δp99 ≤ +10ms → PASS. 미충족 시 Lead가 nx_plan_update로 issue 2/7 reopen, sub-channel 후퇴 옵션 협의.",
+          "approach": "T2의 utility baseline 측정 코드를 그대로 재사용, host만 agent로 변경(flag=true 또는 SSH 분기). 동일 머신·동일 zsh fixture·100 keystroke·warmup 20개·5회 평균. 결과를 baseline과 정렬하여 Δp50/Δp99 계산.",
+          "risk": "측정 noise — 5회 평균으로 reasonable이나 머신 background load가 변동 야기. baseline과 Go 측정을 같은 세션에서 인터리브로 수행해 environmental drift 최소화 권장.",
+          "plan_issue": 7,
+          "deps": [
+            2,
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e26bc-33f7-7a93-9463-5de5542f417e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-14T12:59:52.726Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Go-path latency benchmark recorded and passed Issue 7 threshold. Go average p50 0.083ms, p99 0.175ms vs T2 utility baseline p50 0.138ms, p99 0.274ms; deltas p50 -0.055ms, p99 -0.099ms. Measurement is host-level, not renderer/xterm visual commit, matching T2's limitation.",
+            "artifacts": [
+              ".nexus/memory/empirical-pty-go-latency.md"
+            ],
+            "recorded_at": "2026-05-14T13:58:30.052Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "[T12] SSH 원격 터미널 round-trip 검증 (사용자 약속의 실현 확인)",
+          "status": "completed",
+          "context": "Issue 1·6 결정의 SSH-always-Go 분기가 실제로 원격 호스트에서 shell을 띄우는지 — 이번 사이클의 핵심 사용자 가치(현재 깨진 UX가 동작하게 됨)를 직접 검증.",
+          "acceptance": "`NEXUS_RUN_SSH_PTY_FIXTURE=1 bun test tests/integration/ssh/...` 또는 동등 매뉴얼 시나리오 PASS. `uname -a` 출력이 원격 호스트임을 명시 검증. 결과를 `.nexus/memory/empirical-ssh-remote-terminal.md`에 기록(픽스처 호스트, 원격 OS, 출력 발췌).",
+          "approach": "기존 `tests/integration/ssh/...` 픽스처 활용(linux-password 픽스처 또는 실제 reachable 호스트). 시나리오: (1) SSH 워크스페이스 activate, (2) PTY tab open(`workspace.rootPath`를 cwd로), (3) `pwd` 입력 → workspace.remotePath와 일치 출력, (4) `uname -a` → 원격 호스트의 hostname/Linux 출력(로컬 Darwin이 아님 확인), (5) `exit 0` → exit code 0. SSH 채널이 죽는 케이스(서버 강제 종료) → dead-terminal banner 발현 매뉴얼 검증 또는 시뮬레이션. memory empirical-ssh-prototype-smoke에 기록된 환경 제약(localhost:22 미사용, monolith/monolith2 픽스처) 고려.",
+          "risk": "SSH 픽스처 환경 부재 시 검증 부분 완료에 그칠 수 있음(empirical-ssh-prototype-smoke 사이클과 동일 제약). 그 경우 매뉴얼 시연으로 대체 + 한계 명시.",
+          "plan_issue": 1,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "019e26c8-d3c8-73d1-a894-845f3c7e3c9d",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-14T13:00:05.114Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SSH remote terminal round-trip passed with opt-in Docker password fixture. `NEXUS_RUN_SSH_PTY_FIXTURE=1 bun test tests/integration/ssh/` verified remote `pwd` `/home/nexus-dev/workspace`, `uname -a` as Linux/aarch64 not local Darwin, and exit code 0. Memory note recorded fixture details and limitations. Follow-up production cleanup warning was addressed by waiting for `ssh -O exit` close/exit before unlinking the ControlMaster socket; targeted SSH unit and fixture tests pass. Remaining warning: some older SSH fixture defaults still reference stale `nexus/password` + `/workspace-seed` values outside this PTY path.",
+            "artifacts": [
+              "tests/integration/ssh/remote-terminal.integration.test.ts",
+              ".nexus/memory/empirical-ssh-remote-terminal.md",
+              "src/main/infra/agent/ssh-master.ts",
+              "tests/unit/main/agent/ssh-channel.test.ts"
+            ],
+            "recorded_at": "2026-05-14T14:31:53.517Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "[T13] M3 cleanup follow-up 등록 (flag 제거 + utility 디렉토리 삭제)",
+          "status": "completed",
+          "context": "Issue 6·8 결정. 본 사이클 종료 시 명시적 follow-up trigger와 작업 항목을 기록해 flag 영구화 방지(LSP 사이클이 회복해야 했던 실패 모드).",
+          "acceptance": "follow-up spec 1페이지 markdown으로 기록. 본 cycle close 시 Lead가 history 검색 가능한 명시적 anchor 보유. M3 사이클 시작 시 `nx_history_search \"pty m3 cleanup\"`으로 발견 가능.",
+          "approach": "`.nexus/memory/pattern-pty-m3-cleanup.md` 또는 `.nexus/state/`에 follow-up spec 기록. 항목: (a) trigger 조건 — M2 한 릴리즈 동안 사용자가 `experimental.ptyViaAgent=false` 회귀 비율 < 임계 또는 명시적 OK; (b) 삭제 대상 — `src/utility/pty-host/` 전체, `src/main/features/pty/host.ts`의 utility process boot, `src/main/features/pty/ipc.ts`의 flag 분기, `experimental.ptyViaAgent` 설정 schema; (c) 비대상 — `node-pty` npm 의존(ssh-auth-pty.ts가 사용 중, 별 트랙); (d) 재확인 항목 — M3 시점 utility process 다른 소비자 부재 재검증.",
+          "risk": "follow-up이 본 사이클 외 발화되지 않으면 flag가 그대로 잔존. cycle close 시 user에게 명시적으로 환기.",
+          "plan_issue": 8,
+          "deps": [
+            11,
+            12,
+            9
+          ],
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-14T13:00:15.106Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Registered the M3 cleanup anchor in `.nexus/memory/pattern-pty-m3-cleanup.md` with discoverable `pty m3 cleanup` wording. The spec captures trigger criteria after M2 soak, deletion/simplification targets for utility PTY and `experimental.ptyViaAgent`, explicit non-targets including the `node-pty` dependency used by SSH auth, reconfirmation greps, and expected post-cleanup verification.",
+            "artifacts": [
+              ".nexus/memory/pattern-pty-m3-cleanup.md"
+            ],
+            "recorded_at": "2026-05-14T14:26:59.178Z"
+          }
+        }
+      ]
     }
   ]
 }

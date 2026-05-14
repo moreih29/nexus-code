@@ -2,84 +2,104 @@ import { TERMINAL_FLOW_CONTROL } from "../../../shared/terminal-flow-control";
 import { ipcCall, ipcListen } from "../../ipc/client";
 import type { PtyClient, PtyClientOptions, TerminalDimensions } from "./types";
 
-const pendingAckCharsByTabId = new Map<string, number>();
+const pendingAckBytesBySessionKey = new Map<string, number>();
 const liveSessions = new Set<string>();
-const spawnPromisesByTabId = new Map<string, Promise<{ pid: number }>>();
+const spawnPromisesBySessionKey = new Map<string, Promise<{ pid: number }>>();
+const textEncoder = new TextEncoder();
 
-function ackData(tabId: string, chunk: string): void {
-  const pending = (pendingAckCharsByTabId.get(tabId) ?? 0) + chunk.length;
+function sessionKey(workspaceId: string, tabId: string): string {
+  return `${workspaceId}:${tabId}`;
+}
+
+function ackData(workspaceId: string, tabId: string, chunk: string): void {
+  const key = sessionKey(workspaceId, tabId);
+  const pending = (pendingAckBytesBySessionKey.get(key) ?? 0) + textEncoder.encode(chunk).byteLength;
   if (pending < TERMINAL_FLOW_CONTROL.ACK_SIZE) {
-    pendingAckCharsByTabId.set(tabId, pending);
+    pendingAckBytesBySessionKey.set(key, pending);
     return;
   }
 
-  pendingAckCharsByTabId.set(tabId, 0);
-  ipcCall("pty", "ack", { tabId, bytesConsumed: pending }).catch(() => {});
+  pendingAckBytesBySessionKey.set(key, 0);
+  ipcCall("pty", "ack", { workspaceId, tabId, bytesConsumed: pending }).catch(() => {});
 }
 
 export function spawnSession(
+  workspaceId: string,
   tabId: string,
   cwd: string,
   { cols, rows }: TerminalDimensions,
 ): Promise<{ pid: number } | null> {
-  if (liveSessions.has(tabId)) return Promise.resolve(null);
+  const key = sessionKey(workspaceId, tabId);
+  if (liveSessions.has(key)) return Promise.resolve(null);
 
-  const existing = spawnPromisesByTabId.get(tabId);
+  const existing = spawnPromisesBySessionKey.get(key);
   if (existing) return existing;
 
-  const promise = ipcCall("pty", "spawn", { tabId, cwd, cols, rows })
+  const promise = ipcCall("pty", "spawn", { workspaceId, tabId, cwd, cols, rows })
     .then((result) => {
-      if (spawnPromisesByTabId.get(tabId) === promise) {
-        liveSessions.add(tabId);
+      if (spawnPromisesBySessionKey.get(key) === promise) {
+        liveSessions.add(key);
       }
       return result;
     })
     .catch((error: unknown) => {
-      liveSessions.delete(tabId);
+      liveSessions.delete(key);
       throw error;
     })
     .finally(() => {
-      spawnPromisesByTabId.delete(tabId);
+      spawnPromisesBySessionKey.delete(key);
     });
 
-  spawnPromisesByTabId.set(tabId, promise);
+  spawnPromisesBySessionKey.set(key, promise);
   return promise;
 }
 
-export function writeSession(tabId: string, data: string): void {
-  ipcCall("pty", "write", { tabId, data }).catch(() => {});
+export function writeSession(workspaceId: string, tabId: string, data: string): void {
+  ipcCall("pty", "write", { workspaceId, tabId, data }).catch(() => {});
 }
 
-export function resizeSession(tabId: string, { cols, rows }: TerminalDimensions): void {
-  ipcCall("pty", "resize", { tabId, cols, rows }).catch(() => {});
+export function resizeSession(
+  workspaceId: string,
+  tabId: string,
+  { cols, rows }: TerminalDimensions,
+): void {
+  ipcCall("pty", "resize", { workspaceId, tabId, cols, rows }).catch(() => {});
 }
 
-export function killSession(tabId: string): void {
-  liveSessions.delete(tabId);
-  spawnPromisesByTabId.delete(tabId);
-  pendingAckCharsByTabId.delete(tabId);
-  ipcCall("pty", "kill", { tabId }).catch(() => {});
+export function killSession(workspaceId: string, tabId: string): void {
+  const key = sessionKey(workspaceId, tabId);
+  liveSessions.delete(key);
+  spawnPromisesBySessionKey.delete(key);
+  pendingAckBytesBySessionKey.delete(key);
+  ipcCall("pty", "kill", { workspaceId, tabId }).catch(() => {});
 }
 
-export function createPtyClient({ tabId, cwd, onData, onExit }: PtyClientOptions): PtyClient {
+export function createPtyClient({
+  workspaceId,
+  tabId,
+  cwd,
+  onData,
+  onExit,
+}: PtyClientOptions): PtyClient {
   const unlistenData = ipcListen("pty", "data", (args) => {
-    if (args.tabId !== tabId) return;
+    if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
     onData(args.chunk);
-    ackData(tabId, args.chunk);
+    ackData(workspaceId, tabId, args.chunk);
   });
 
   const unlistenExit = ipcListen("pty", "exit", (args) => {
-    if (args.tabId !== tabId) return;
-    liveSessions.delete(tabId);
-    spawnPromisesByTabId.delete(tabId);
-    pendingAckCharsByTabId.delete(tabId);
+    if (args.workspaceId !== workspaceId || args.tabId !== tabId) return;
+    const key = sessionKey(workspaceId, tabId);
+    liveSessions.delete(key);
+    spawnPromisesBySessionKey.delete(key);
+    pendingAckBytesBySessionKey.delete(key);
     onExit({ code: args.code });
   });
 
   return {
-    spawn: (dimensions) => spawnSession(tabId, cwd, dimensions),
-    write: (data) => writeSession(tabId, data),
-    resize: (dimensions) => resizeSession(tabId, dimensions),
+    spawn: (dimensions) => spawnSession(workspaceId, tabId, cwd, dimensions),
+    write: (data) => writeSession(workspaceId, tabId, data),
+    resize: (dimensions) => resizeSession(workspaceId, tabId, dimensions),
     dispose() {
       unlistenData();
       unlistenExit();

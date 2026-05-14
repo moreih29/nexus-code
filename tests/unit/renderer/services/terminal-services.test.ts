@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
+import type {
+  PtyClientOptions,
+  TerminalDimensions,
+} from "../../../../src/renderer/services/terminal/types";
+import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/terminal-controller";
 
 type IpcCallRecord = { channel: string; method: string; args: unknown };
 type ListenerRecord = { channel: string; event: string; callback: (args: unknown) => void };
@@ -33,6 +38,9 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 const { closeTerminal, createTerminalController, openTerminal } = await import(
   "../../../../src/renderer/services/terminal"
 );
+const { TERMINAL_REOPENED_SEPARATOR } = await import(
+  "../../../../src/renderer/services/terminal/terminal-controller"
+);
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
@@ -40,6 +48,7 @@ const { findLeaf } = await import("../../../../src/renderer/state/stores/layout/
 const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+const OTHER_WS = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
 
 function resetStores(): void {
   useTabsStore.setState({ byWorkspace: {} });
@@ -63,6 +72,60 @@ function emit(channel: string, event: string, args: unknown): void {
 
 function killCalls(): IpcCallRecord[] {
   return ipcCalls.filter((call) => call.channel === "pty" && call.method === "kill");
+}
+
+async function flushTerminalInit(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function makeTerminalControllerDeps(
+  spawnImpl: (dimensions: TerminalDimensions) => Promise<{ pid: number } | null> = () =>
+    Promise.resolve({ pid: 4321 }),
+) {
+  const writes: string[] = [];
+  const spawnCalls: TerminalDimensions[] = [];
+  let ptyOptions: PtyClientOptions | null = null;
+  const deps: TerminalControllerDeps = {
+    waitForTerminalFonts: () => Promise.resolve(),
+    createTerminal: () => ({
+      element: undefined,
+      rows: 24,
+      dispose: () => {},
+      loadAddon: () => {},
+      onData: () => ({ dispose: () => {} }),
+      open: () => {},
+      refresh: () => {},
+      write: (data) => {
+        writes.push(data);
+      },
+    }),
+    createFitAddon: () => ({
+      dispose: () => {},
+      fit: () => {},
+      proposeDimensions: () => ({ cols: 100, rows: 40 }),
+    }),
+    createWebglAddon: () => {
+      throw new Error("webgl disabled in unit test");
+    },
+    createCanvasAddon: () => ({ dispose: () => {} }) as never,
+    createPtyClient: (options) => {
+      ptyOptions = options;
+      return {
+        spawn: (dimensions) => {
+          spawnCalls.push({ ...dimensions });
+          return spawnImpl(dimensions);
+        },
+        write: () => {},
+        resize: () => {},
+        dispose: () => {},
+      };
+    },
+    createResizeObserver: () => ({ observe: () => {}, disconnect: () => {} }),
+    requestAnimationFrame: () => 1,
+    cancelAnimationFrame: () => {},
+  };
+  return { deps, spawnCalls, writes, getPtyOptions: () => ptyOptions };
 }
 
 describe("services/terminal open and close", () => {
@@ -120,7 +183,7 @@ describe("services/terminal open and close", () => {
     closeTerminal(terminal.tabId);
 
     expect(killCalls()).toEqual([
-      { channel: "pty", method: "kill", args: { tabId: terminal.tabId } },
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: terminal.tabId } },
     ]);
     expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeUndefined();
     const layout = useLayoutStore.getState().byWorkspace[WS];
@@ -139,8 +202,8 @@ describe("services/terminal open and close", () => {
     useTabsStore.getState().closeAllForWorkspace(WS);
 
     expect(killCalls()).toEqual([
-      { channel: "pty", method: "kill", args: { tabId: first.tabId } },
-      { channel: "pty", method: "kill", args: { tabId: second.tabId } },
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: first.tabId } },
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: second.tabId } },
     ]);
     expect(useTabsStore.getState().byWorkspace[WS]).toBeUndefined();
   });
@@ -162,7 +225,9 @@ describe("services/terminal open and close", () => {
 
     closeGroup(WS, rightGroupId);
 
-    expect(killCalls()).toEqual([{ channel: "pty", method: "kill", args: { tabId: right.tabId } }]);
+    expect(killCalls()).toEqual([
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: right.tabId } },
+    ]);
     const wsTabs = useTabsStore.getState().byWorkspace[WS];
     expect(wsTabs?.[left.tabId]).toBeDefined();
     expect(wsTabs?.[right.tabId]).toBeUndefined();
@@ -171,6 +236,7 @@ describe("services/terminal open and close", () => {
 
   it("terminal controller dispose does not kill the PTY session", async () => {
     const controller = createTerminalController({
+      workspaceId: WS,
       tabId: "controller-no-kill",
       cwd: "/workspace",
       container: {} as HTMLElement,
@@ -189,22 +255,23 @@ describe("services/terminal pty-client flow control", () => {
   it("acks PTY data each time a tab reaches the 5000-char threshold", () => {
     const received: string[] = [];
     const client = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-flow-a",
       cwd: "/workspace",
       onData: (chunk) => received.push(chunk),
       onExit: () => {},
     });
 
-    emit("pty", "data", { tabId: "tab-flow-a", chunk: "a".repeat(4999) });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-flow-a", chunk: "a".repeat(4999) });
     expect(ipcCalls.filter((call) => call.method === "ack")).toHaveLength(0);
 
-    emit("pty", "data", { tabId: "tab-flow-a", chunk: "b" });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-flow-a", chunk: "b" });
 
     expect(received.join("").length).toBe(5000);
     expect(ipcCalls).toContainEqual({
       channel: "pty",
       method: "ack",
-      args: { tabId: "tab-flow-a", bytesConsumed: 5000 },
+      args: { workspaceId: WS, tabId: "tab-flow-a", bytesConsumed: 5000 },
     });
 
     client.dispose();
@@ -212,27 +279,29 @@ describe("services/terminal pty-client flow control", () => {
 
   it("keeps ACK counters module-private and isolated by tabId", () => {
     const clientA = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-flow-b-a",
       cwd: "/workspace",
       onData: () => {},
       onExit: () => {},
     });
     const clientB = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-flow-b-b",
       cwd: "/workspace",
       onData: () => {},
       onExit: () => {},
     });
 
-    emit("pty", "data", { tabId: "tab-flow-b-a", chunk: "a".repeat(3000) });
-    emit("pty", "data", { tabId: "tab-flow-b-b", chunk: "b".repeat(3000) });
-    emit("pty", "data", { tabId: "tab-flow-b-a", chunk: "a".repeat(2000) });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-flow-b-a", chunk: "a".repeat(3000) });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-flow-b-b", chunk: "b".repeat(3000) });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-flow-b-a", chunk: "a".repeat(2000) });
 
     expect(ipcCalls.filter((call) => call.method === "ack")).toEqual([
       {
         channel: "pty",
         method: "ack",
-        args: { tabId: "tab-flow-b-a", bytesConsumed: 5000 },
+        args: { workspaceId: WS, tabId: "tab-flow-b-a", bytesConsumed: 5000 },
       },
     ]);
 
@@ -243,6 +312,7 @@ describe("services/terminal pty-client flow control", () => {
   it("disposing a PTY client removes listeners without killing the session", () => {
     let received = 0;
     const client = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-dispose-no-kill",
       cwd: "/workspace",
       onData: () => {
@@ -252,7 +322,11 @@ describe("services/terminal pty-client flow control", () => {
     });
 
     client.dispose();
-    emit("pty", "data", { tabId: "tab-dispose-no-kill", chunk: "after dispose" });
+    emit("pty", "data", {
+      workspaceId: WS,
+      tabId: "tab-dispose-no-kill",
+      chunk: "after dispose",
+    });
 
     expect(received).toBe(0);
     expect(ipcCalls.some((call) => call.channel === "pty" && call.method === "kill")).toBe(false);
@@ -274,6 +348,7 @@ describe("services/terminal pty-client exit lifecycle", () => {
     let received = "";
     const exits: Array<{ code: number | null }> = [];
     const client = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-exit",
       cwd: "/workspace",
       onData: (chunk) => {
@@ -284,24 +359,25 @@ describe("services/terminal pty-client exit lifecycle", () => {
       },
     });
 
-    emit("pty", "data", { tabId: "tab-exit", chunk: "alive" });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-exit", chunk: "alive" });
     expect(received).toBe("alive");
 
-    emit("pty", "exit", { tabId: "tab-exit", code: 0 });
+    emit("pty", "exit", { workspaceId: WS, tabId: "tab-exit", code: 0 });
     expect(exits).toEqual([{ code: 0 }]);
 
     // Late-arriving data after exit should still flow through onData (the listener
     // is removed by dispose, not by exit) — but a subsequent dispose must not double-fire onExit.
-    emit("pty", "data", { tabId: "tab-exit", chunk: "ghost" });
+    emit("pty", "data", { workspaceId: WS, tabId: "tab-exit", chunk: "ghost" });
     expect(received).toBe("aliveghost");
 
     client.dispose();
-    emit("pty", "exit", { tabId: "tab-exit", code: 0 });
+    emit("pty", "exit", { workspaceId: WS, tabId: "tab-exit", code: 0 });
     expect(exits).toEqual([{ code: 0 }]);
   });
 
   it("after pty:exit, the next spawnSession for the same tabId is not short-circuited as already-live", async () => {
     const client = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-respawn",
       cwd: "/workspace",
       onData: () => {},
@@ -312,7 +388,7 @@ describe("services/terminal pty-client exit lifecycle", () => {
     expect(first).toEqual({ pid: 1234 });
 
     // Exit echo from main process — should clear the live-session marker.
-    emit("pty", "exit", { tabId: "tab-respawn", code: 0 });
+    emit("pty", "exit", { workspaceId: WS, tabId: "tab-respawn", code: 0 });
 
     // Next spawn must hit the IPC again (not be deduped as already-live).
     const beforeCount = ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
@@ -328,6 +404,7 @@ describe("services/terminal pty-client exit lifecycle", () => {
   it("ignores pty:exit destined for a different tabId", () => {
     let exitFired = false;
     const client = createPtyClient({
+      workspaceId: WS,
       tabId: "tab-self",
       cwd: "/workspace",
       onData: () => {},
@@ -336,9 +413,106 @@ describe("services/terminal pty-client exit lifecycle", () => {
       },
     });
 
-    emit("pty", "exit", { tabId: "tab-other", code: 1 });
+    emit("pty", "exit", { workspaceId: WS, tabId: "tab-other", code: 1 });
     expect(exitFired).toBe(false);
 
     client.dispose();
+  });
+
+  it("ignores PTY data and exits destined for a different workspaceId", () => {
+    let received = "";
+    let exitFired = false;
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: "tab-same-id",
+      cwd: "/workspace",
+      onData: (chunk) => {
+        received += chunk;
+      },
+      onExit: () => {
+        exitFired = true;
+      },
+    });
+
+    emit("pty", "data", { workspaceId: OTHER_WS, tabId: "tab-same-id", chunk: "wrong" });
+    emit("pty", "exit", { workspaceId: OTHER_WS, tabId: "tab-same-id", code: 1 });
+
+    expect(received).toBe("");
+    expect(exitFired).toBe(false);
+
+    client.dispose();
+  });
+
+  it("lets pty:exit mark the matching terminal tab dead synchronously", () => {
+    resetStores();
+    const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: terminal.tabId,
+      cwd: "/workspace",
+      onData: () => {},
+      onExit: () => {
+        useTabsStore.getState().setTerminalDead(WS, terminal.tabId, true);
+      },
+    });
+
+    emit("pty", "exit", { workspaceId: WS, tabId: terminal.tabId, code: null });
+
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId];
+    expect(tab?.type).toBe("terminal");
+    if (tab?.type === "terminal") expect(tab.props.dead).toBe(true);
+
+    client.dispose();
+  });
+});
+
+describe("services/terminal controller reopen", () => {
+  beforeEach(resetIpc);
+
+  it("reopens with the same tab identity and original cwd without clearing scrollback", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-reopen",
+        cwd: "/workspace/original",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+
+    await controller.reopen();
+
+    expect(harness.getPtyOptions()).toMatchObject({
+      workspaceId: WS,
+      tabId: "tab-reopen",
+      cwd: "/workspace/original",
+    });
+    expect(harness.spawnCalls).toEqual([{ cols: 100, rows: 40 }]);
+    expect(harness.writes).toEqual([`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`]);
+
+    controller.dispose();
+  });
+
+  it("surfaces reopen spawn failure so the view can swap to retry copy", async () => {
+    const harness = makeTerminalControllerDeps(() => Promise.reject(new Error("agent down")));
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-reopen-fails",
+        cwd: "/workspace/original",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+
+    await expect(controller.reopen()).rejects.toThrow("agent down");
+    expect(harness.writes).toEqual([]);
+
+    controller.dispose();
   });
 });

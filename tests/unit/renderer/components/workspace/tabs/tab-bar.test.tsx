@@ -152,6 +152,25 @@ describe("TabBar — Lock icon for readOnly tabs", () => {
   });
 });
 
+describe("TabBar — terminal ended marker", () => {
+  test("dead terminal tab renders a muted dot and accessible ended label", () => {
+    const tab: Tab = {
+      id: "term-a",
+      title: "zsh",
+      isPreview: false,
+      isPinned: false,
+      type: "terminal",
+      props: { cwd: "/workspace", dead: true },
+    };
+
+    const html = renderBar([tab], "term-a");
+
+    expect(html).toContain("zsh");
+    expect(html).toContain("·");
+    expect(html).toContain('aria-label="zsh, terminal ended"');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Basename disambig tests
 // ---------------------------------------------------------------------------

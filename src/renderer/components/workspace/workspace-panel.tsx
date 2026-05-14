@@ -4,7 +4,15 @@ import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
+import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
+import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { ContentPool, LayoutTree } from ".";
+import {
+  deadTerminalTabs,
+  requestReopenForDeadTerminalTabs,
+  shouldShowWorkspaceTerminalStatusBanner,
+  WorkspaceTerminalStatusBanner,
+} from "./workspace-terminal-status-banner";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -22,6 +30,15 @@ interface WorkspacePanelProps {
 
 export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
+  const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? {});
+  const aggregate = useTerminalDeathStore((s) => s.aggregateByWorkspaceId[workspace.id] ?? null);
+  const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspace.id));
+  const deadTerminalCount = deadTerminalTabs(tabs).length;
+  const showTerminalStatusBanner = shouldShowWorkspaceTerminalStatusBanner({
+    aggregate,
+    deadTerminalCount,
+    workspaceOnline,
+  });
 
   // Auto-seed: ensure layout exists and seed a terminal the first time this
   // panel mounts with an empty tab slice. Guards against double-seeding by
@@ -51,6 +68,17 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
       aria-hidden={!isActive || undefined}
       inert={!isActive || undefined}
     >
+      {showTerminalStatusBanner && (
+        <WorkspaceTerminalStatusBanner
+          deadTerminalCount={deadTerminalCount}
+          onReopenAll={() => {
+            requestReopenForDeadTerminalTabs(
+              workspace.id,
+              useTabsStore.getState().byWorkspace[workspace.id] ?? {},
+            );
+          }}
+        />
+      )}
       <LayoutTree
         workspaceId={workspace.id}
         root={layout.root}

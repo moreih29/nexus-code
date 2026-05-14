@@ -117,6 +117,7 @@ export function ContentHost({
     <div className="absolute inset-0">
       {tab.type === "terminal" ? (
         <TerminalView
+          workspaceId={workspaceId}
           tabId={tab.id}
           cwd={tab.props.cwd}
           ownerLeafId={ownerLeafId}

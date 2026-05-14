@@ -41,6 +41,37 @@ function statusFromConnectionEvent(
 }
 
 /**
+ * Returns the sidebar/workspace display status for a workspace id.
+ */
+export function selectWorkspaceConnectionStatus(
+  state: WorkspacesState,
+  workspaceId: string,
+): WorkspaceConnectionStatus {
+  return state.connectionStatusByWorkspaceId[workspaceId] ?? "idle";
+}
+
+/**
+ * Treats the workspace connection store as the single source of truth for
+ * renderer affordances that need to know whether a workspace is online.
+ */
+export function workspaceIsOnline(
+  workspace: WorkspaceMeta | undefined,
+  status: WorkspaceConnectionStatus,
+): boolean {
+  if (!workspace) return true;
+  if (workspace.location.kind === "local") return true;
+  return status === "connected";
+}
+
+/**
+ * Selects whether a workspace should expose online-only per-tab status UI.
+ */
+export function selectIsWorkspaceOnline(state: WorkspacesState, workspaceId: string): boolean {
+  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
+  return workspaceIsOnline(workspace, selectWorkspaceConnectionStatus(state, workspaceId));
+}
+
+/**
  * Removes connection state for workspaces that no longer exist in the list.
  */
 function pruneConnectionStatuses(

@@ -22,6 +22,7 @@ import {
   type StatusCoalescer,
 } from "./features/git/domain/status-coalescer";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
+import { startAgentPtyHost } from "./features/pty/agent-host";
 import { type PtyHostHandle, startPtyHost } from "./features/pty/host";
 import { registerAppStateChannel } from "./features/app-state/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
@@ -56,6 +57,7 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
 let ptyHost: PtyHostHandle | null = null;
+let agentPtyHost: PtyHostHandle | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -170,7 +172,8 @@ app.whenReady().then(async () => {
   });
 
   ptyHost = startPtyHost();
-  registerPtyChannel(ptyHost);
+  agentPtyHost = startAgentPtyHost(workspaceManager);
+  registerPtyChannel(ptyHost, { agentHost: agentPtyHost, workspaceManager, stateService });
 
   lspHost = startConfiguredLspHost({
     workspaceManager,
@@ -198,6 +201,7 @@ app.on("window-all-closed", () => {
 // safe regardless of how far whenReady() progressed.
 app.on("before-quit", () => {
   ptyHost?.dispose();
+  agentPtyHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();

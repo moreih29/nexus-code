@@ -1,7 +1,7 @@
 import {
   type ChildProcessWithoutNullStreams,
-  type SpawnOptionsWithoutStdio,
   spawn as defaultSpawn,
+  type SpawnOptionsWithoutStdio,
 } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,6 +35,8 @@ export interface SshControlMaster {
   readonly identityFile?: string;
   dispose(): void;
 }
+
+const CONTROL_EXIT_UNLINK_FALLBACK_MS = 5_000;
 
 /**
  * Spawns the SSH client for direct stdin/stdout NDJSON exchange. Today this is
@@ -96,13 +98,44 @@ export function createSshControlMaster(
           detached: false,
           stdio: ["pipe", "pipe", "pipe"],
         });
+        unlinkAfterControlExit(child, controlPath, dependencies.unlink);
         child.stdin.end();
+        return;
       } catch {
         // Cleanup below is still attempted if OpenSSH is unavailable or fails.
       }
       tryUnlink(controlPath, dependencies.unlink);
     },
   };
+}
+
+/**
+ * Removes the ControlMaster socket after OpenSSH has processed `-O exit`.
+ * Immediate unlink can race the master shutdown and leave a ControlPersist
+ * process alive until its timeout, so the normal path waits for close/exit and
+ * the fallback handles a stuck exit helper.
+ */
+function unlinkAfterControlExit(
+  child: ChildProcessWithoutNullStreams,
+  controlPath: string,
+  unlink?: (path: string) => void,
+): void {
+  let cleaned = false;
+  const timer = setTimeout(cleanup, CONTROL_EXIT_UNLINK_FALLBACK_MS);
+  timer.unref?.();
+  child.once("close", cleanup);
+  child.once("exit", cleanup);
+  child.once("error", cleanup);
+
+  function cleanup(): void {
+    if (cleaned) return;
+    cleaned = true;
+    clearTimeout(timer);
+    child.off("close", cleanup);
+    child.off("exit", cleanup);
+    child.off("error", cleanup);
+    tryUnlink(controlPath, unlink);
+  }
 }
 
 /** Builds the interactive auth command that backgrounds a persistent master. */

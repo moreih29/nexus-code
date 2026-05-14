@@ -1,4 +1,5 @@
 export { closeTerminal, findTerminalTab, openTerminal } from "./open-terminal";
+export { requestTerminalReopen, subscribeTerminalReopenRequest } from "./reopen-requests";
 export { createTerminalController } from "./terminal-controller";
 export type {
   OpenTerminalOptions,

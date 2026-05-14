@@ -22,6 +22,7 @@ export interface TerminalDimensions {
 }
 
 export interface PtyClientOptions {
+  workspaceId: string;
   tabId: string;
   cwd: string;
   onData: (chunk: string) => void;
@@ -36,9 +37,12 @@ export interface PtyClient {
 }
 
 export interface TerminalControllerOptions {
+  workspaceId: string;
   tabId: string;
   cwd: string;
   container: HTMLElement;
+  autoSpawn?: boolean;
+  onExit?: (args: { code: number | null }) => void;
 }
 
 export interface TerminalController {
@@ -50,5 +54,6 @@ export interface TerminalController {
    * a black viewport until the next data arrives.
    */
   refresh: () => void;
+  reopen: () => Promise<void>;
   dispose: () => void;
 }

@@ -71,6 +71,7 @@ export function TabItem({
   );
 
   const dirty = useTabDirty(tab);
+  const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
   // VSCode anchors the drag image at (0, 0) of the tab DOM so the cursor sits
   // at the top-left corner, leaving room for drop-border feedback.
@@ -100,6 +101,7 @@ export function TabItem({
     >
       <RadixTabs.Trigger
         value={tab.id}
+        aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}
         className={cn(
           // base layout — pr-7 reserves space for the absolute × / dirty-dot
           "flex items-center gap-1.5 pl-3 pr-7 h-full",
@@ -129,6 +131,12 @@ export function TabItem({
         )}
         <span className={tab.isPreview ? "italic" : undefined}>
           {displayTitle}
+          {terminalEnded && (
+            <span aria-hidden className="text-muted-foreground/60">
+              {" "}
+              ·
+            </span>
+          )}
           {parentDirSuffix && (
             <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
           )}

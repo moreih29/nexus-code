@@ -32,7 +32,7 @@ export function closeGroup(workspaceId: string, leafId: string): void {
     // Temporary layer trade-off: group close is still a state transaction, but
     // terminal PTY records must die before terminal tab records are removed.
     if (tabsById[tabId]?.type === "terminal") {
-      killSession(tabId);
+      killSession(workspaceId, tabId);
     }
   }
 

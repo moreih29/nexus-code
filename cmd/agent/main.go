@@ -18,6 +18,7 @@ import (
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
 	agentlsp "github.com/nexus-code/nexus-code/internal/lsp"
 	"github.com/nexus-code/nexus-code/internal/proto"
+	agentpty "github.com/nexus-code/nexus-code/internal/pty"
 	agentsearch "github.com/nexus-code/nexus-code/internal/search"
 	"github.com/nexus-code/nexus-code/internal/stdioserver"
 )
@@ -40,6 +41,7 @@ func main() {
 	}
 	git := agentgit.New(root)
 	lsp := agentlsp.New()
+	pty := agentpty.New()
 	search, err := agentsearch.New(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -50,6 +52,7 @@ func main() {
 	agentfs.Register(d, fsys)
 	agentgit.Register(d, git)
 	agentlsp.Register(d, lsp)
+	agentpty.Register(d, pty)
 	agentsearch.Register(d, search)
 
 	host := stdioserver.New(d, os.Stdin, os.Stdout)
@@ -66,10 +69,12 @@ func main() {
 	})
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
+	pty.SetEventSink(host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	defer fsys.Close()
 	defer git.Close()
 	defer lsp.Close()
+	defer pty.Close()
 	host.InstallSigtermHandler()
 
 	// Ready frame must reach the client before any other output so the

@@ -1,0 +1,19 @@
+{
+  "events": [
+    {
+      "cols": 80,
+      "rows": 24,
+      "data": "hello\r\nworld"
+    },
+    {
+      "cols": 100,
+      "rows": 30,
+      "data": "\u001b[31mred\u001b[0m"
+    },
+    {
+      "cols": 132,
+      "rows": 43,
+      "data": "tail"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import { registerGitChannel } from "../../../../src/main/features/git/ipc";
 import {
   GIT_CANCEL_METHOD,
   GIT_COMMIT_DETAIL_METHOD,
+  GIT_DETECT_METHOD,
   GIT_DIFF_METHOD,
   GIT_LOG_METHOD,
   GIT_RUN_METHOD,
@@ -222,6 +223,9 @@ function makeAgentBackedGitProvider(root: string, gitPath: string): AgentBackedP
       if (method === GIT_STATUS_METHOD) {
         return executor.status!({ cwd });
       }
+      if (method === GIT_DETECT_METHOD) {
+        return detectRepository(gitPath, cwd);
+      }
       if (method === GIT_LOG_METHOD || method === GIT_DIFF_METHOD || method === GIT_COMMIT_DETAIL_METHOD) {
         throw new Error(`${method} is not used by this round-trip test`);
       }
@@ -246,6 +250,22 @@ function readCwd(params: unknown, fallback: string): string {
     return (params as { cwd: string }).cwd;
   }
   return fallback;
+}
+
+/** Mirrors the agent git.detect RPC for this in-memory round-trip provider. */
+function detectRepository(gitPath: string, cwd: string): { kind: "repo"; topLevel: string; gitDir: string } | { kind: "non-repo" } {
+  try {
+    const stdout = runGit(gitPath, cwd, ["rev-parse", "--show-toplevel", "--git-dir"]);
+    const [topLevel, gitDir] = stdout.trim().split(/\r?\n/);
+    if (!topLevel || !gitDir) return { kind: "non-repo" };
+    return {
+      kind: "repo",
+      topLevel: fs.realpathSync(topLevel),
+      gitDir: path.isAbsolute(gitDir) ? fs.realpathSync(gitDir) : fs.realpathSync(path.join(cwd, gitDir)),
+    };
+  } catch {
+    return { kind: "non-repo" };
+  }
 }
 
 /** Creates and tracks a temp directory for this round-trip scenario. */

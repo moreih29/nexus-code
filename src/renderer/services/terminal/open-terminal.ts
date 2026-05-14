@@ -48,10 +48,9 @@ export function openTerminal(
 }
 
 export function closeTerminal(tabId: string): void {
-  killSession(tabId);
-
   const workspaceId = findTabWorkspace(tabId);
   if (!workspaceId) return;
+  killSession(workspaceId, tabId);
   closeTab(workspaceId, tabId);
 }
 

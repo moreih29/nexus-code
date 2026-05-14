@@ -200,6 +200,10 @@ const WorkspaceUpdateArgsSchema = z.object({
 });
 
 const WorkspaceIdSchema = z.object({ id: z.string().uuid() });
+const PtyWorkspaceTabSchema = z.object({
+  workspaceId: z.string().uuid(),
+  tabId: z.string().uuid(),
+});
 
 const FsMutationRelPathSchema = z
   .string()
@@ -459,8 +463,7 @@ export const ipcContract = {
   pty: {
     call: {
       spawn: call(
-        z.object({
-          tabId: z.string().uuid(),
+        PtyWorkspaceTabSchema.extend({
           cwd: z.string(),
           cols: z.number().int().positive(),
           rows: z.number().int().positive(),
@@ -468,22 +471,21 @@ export const ipcContract = {
         }),
         z.object({ pid: z.number().int() }),
       ),
-      write: call(z.object({ tabId: z.string().uuid(), data: z.string() }), z.void()),
+      write: call(PtyWorkspaceTabSchema.extend({ data: z.string() }), z.void()),
       resize: call(
-        z.object({
-          tabId: z.string().uuid(),
+        PtyWorkspaceTabSchema.extend({
           cols: z.number().int().positive(),
           rows: z.number().int().positive(),
         }),
         z.void(),
       ),
-      ack: call(z.object({ tabId: z.string().uuid(), bytesConsumed: z.number().int() }), z.void()),
-      kill: call(z.object({ tabId: z.string().uuid() }), z.void()),
+      ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: z.number().int() }), z.void()),
+      kill: call(PtyWorkspaceTabSchema, z.void()),
     },
     listen: {
       // data: args is string chunk — validation skipped on hot path
-      data: listen(z.object({ tabId: z.string().uuid(), chunk: z.string() })),
-      exit: listen(z.object({ tabId: z.string().uuid(), code: z.number().int().nullable() })),
+      data: listen(PtyWorkspaceTabSchema.extend({ chunk: z.string() })),
+      exit: listen(PtyWorkspaceTabSchema.extend({ code: z.number().int().nullable() })),
     },
   },
 

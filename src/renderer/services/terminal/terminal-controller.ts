@@ -6,6 +6,7 @@ import { color, fontFamily, typeScale } from "../../../shared/design-tokens";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
+  PtyClientOptions,
   TerminalController,
   TerminalControllerOptions,
   TerminalDimensions,
@@ -14,6 +15,32 @@ import type {
 type Disposable = { dispose: () => void };
 
 type RendererAddon = CanvasAddon | WebglAddon;
+interface TerminalLike {
+  readonly element?: HTMLElement;
+  readonly rows: number;
+  dispose: () => void;
+  loadAddon: (addon: Disposable) => void;
+  onData: (callback: (data: string) => void) => Disposable;
+  open: (parent: HTMLElement) => void;
+  refresh: (start: number, end: number) => void;
+  write: (data: string) => void;
+}
+type FitAddonLike = Pick<FitAddon, "dispose" | "fit" | "proposeDimensions">;
+type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
+
+export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
+
+export interface TerminalControllerDeps {
+  waitForTerminalFonts: (fontSize: number) => Promise<void>;
+  createTerminal: (options: ConstructorParameters<typeof Terminal>[0]) => TerminalLike;
+  createFitAddon: () => FitAddonLike;
+  createWebglAddon: () => WebglAddon;
+  createCanvasAddon: () => CanvasAddon;
+  createPtyClient: (options: PtyClientOptions) => PtyClient;
+  createResizeObserver: (callback: ResizeObserverCallback) => ResizeObserverLike;
+  requestAnimationFrame: (callback: FrameRequestCallback) => number;
+  cancelAnimationFrame: (handle: number) => void;
+}
 
 async function waitForTerminalFonts(fontSize: number): Promise<void> {
   try {
@@ -26,18 +53,33 @@ async function waitForTerminalFonts(fontSize: number): Promise<void> {
   }
 }
 
+const defaultTerminalControllerDeps: TerminalControllerDeps = {
+  waitForTerminalFonts,
+  createTerminal: (options) => new Terminal(options) as unknown as TerminalLike,
+  createFitAddon: () => new FitAddon(),
+  createWebglAddon: () => new WebglAddon(),
+  createCanvasAddon: () => new CanvasAddon(),
+  createPtyClient,
+  createResizeObserver: (callback) => new ResizeObserver(callback),
+  requestAnimationFrame: (callback) => requestAnimationFrame(callback),
+  cancelAnimationFrame: (handle) => cancelAnimationFrame(handle),
+};
+
 class XtermTerminalController implements TerminalController {
   private disposed = false;
-  private term: Terminal | null = null;
-  private fitAddon: FitAddon | null = null;
+  private term: TerminalLike | null = null;
+  private fitAddon: FitAddonLike | null = null;
   private rendererAddon: RendererAddon | null = null;
   private dataDisposable: Disposable | null = null;
-  private resizeObserver: ResizeObserver | null = null;
+  private resizeObserver: ResizeObserverLike | null = null;
   private pendingRaf: number | null = null;
   private lastDims: TerminalDimensions | null = null;
   private ptyClient: PtyClient | null = null;
 
-  constructor(private readonly options: TerminalControllerOptions) {
+  constructor(
+    private readonly options: TerminalControllerOptions,
+    private readonly deps: TerminalControllerDeps,
+  ) {
     this.initialize().catch((error: unknown) => {
       if (!this.disposed) {
         this.term?.write(`\r\n[terminal initialization failed: ${String(error)}]\r\n`);
@@ -68,7 +110,7 @@ class XtermTerminalController implements TerminalController {
     this.disposed = true;
 
     if (this.pendingRaf != null) {
-      cancelAnimationFrame(this.pendingRaf);
+      this.deps.cancelAnimationFrame(this.pendingRaf);
       this.pendingRaf = null;
     }
 
@@ -86,12 +128,24 @@ class XtermTerminalController implements TerminalController {
     this.term = null;
   }
 
+  async reopen(): Promise<void> {
+    if (this.disposed) throw new Error("terminal disposed");
+    const term = this.term;
+    const ptyClient = this.ptyClient;
+    if (!term || !ptyClient) throw new Error("terminal unavailable");
+
+    const dimensions = this.currentDimensions();
+    const result = await ptyClient.spawn(dimensions);
+    if (result === null) throw new Error("terminal already live");
+    term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
+  }
+
   private async initialize(): Promise<void> {
     const fontSize = typeScale.codeUi.fontSize;
-    await waitForTerminalFonts(fontSize);
+    await this.deps.waitForTerminalFonts(fontSize);
     if (this.disposed) return;
 
-    const term = new Terminal({
+    const term = this.deps.createTerminal({
       cursorBlink: true,
       fontFamily: fontFamily.monoDisplay,
       fontSize,
@@ -99,7 +153,7 @@ class XtermTerminalController implements TerminalController {
     });
     this.term = term;
 
-    const fitAddon = new FitAddon();
+    const fitAddon = this.deps.createFitAddon();
     this.fitAddon = fitAddon;
     term.loadAddon(fitAddon);
     this.loadRendererAddon(term);
@@ -108,24 +162,27 @@ class XtermTerminalController implements TerminalController {
     const initialDimensions = this.fitToContainer() ?? { cols: 80, rows: 24 };
     this.lastDims = initialDimensions;
 
-    const ptyClient = createPtyClient({
+    const ptyClient = this.deps.createPtyClient({
+      workspaceId: this.options.workspaceId,
       tabId: this.options.tabId,
       cwd: this.options.cwd,
       onData: (chunk) => term.write(chunk),
-      onExit: () => term.write("\r\n[Process exited]\r\n"),
+      onExit: (args) => this.options.onExit?.(args),
     });
     this.ptyClient = ptyClient;
 
     this.dataDisposable = term.onData((data) => ptyClient.write(data));
-    ptyClient.spawn(initialDimensions).catch((error: unknown) => {
-      if (!this.disposed) {
-        term.write(`\r\n[spawn failed: ${String(error)}]\r\n`);
-      }
-    });
+    if (this.options.autoSpawn !== false) {
+      ptyClient.spawn(initialDimensions).catch((error: unknown) => {
+        if (!this.disposed) {
+          term.write(`\r\n[spawn failed: ${String(error)}]\r\n`);
+        }
+      });
+    }
 
-    this.resizeObserver = new ResizeObserver(() => {
+    this.resizeObserver = this.deps.createResizeObserver(() => {
       if (this.pendingRaf != null) return;
-      this.pendingRaf = requestAnimationFrame(() => {
+      this.pendingRaf = this.deps.requestAnimationFrame(() => {
         this.pendingRaf = null;
         this.runFit();
       });
@@ -135,13 +192,13 @@ class XtermTerminalController implements TerminalController {
     if (this.disposed) this.dispose();
   }
 
-  private loadRendererAddon(term: Terminal): void {
+  private loadRendererAddon(term: TerminalLike): void {
     try {
-      const webgl = new WebglAddon();
+      const webgl = this.deps.createWebglAddon();
       webgl.onContextLoss(() => {
         webgl.dispose();
         if (this.disposed || this.term !== term) return;
-        const canvas = new CanvasAddon();
+        const canvas = this.deps.createCanvasAddon();
         term.loadAddon(canvas);
         this.rendererAddon = canvas;
       });
@@ -149,7 +206,7 @@ class XtermTerminalController implements TerminalController {
       this.rendererAddon = webgl;
     } catch {
       try {
-        const canvas = new CanvasAddon();
+        const canvas = this.deps.createCanvasAddon();
         term.loadAddon(canvas);
         this.rendererAddon = canvas;
       } catch {
@@ -170,6 +227,12 @@ class XtermTerminalController implements TerminalController {
     return { cols: dimensions.cols, rows: dimensions.rows };
   }
 
+  private currentDimensions(): TerminalDimensions {
+    const dimensions = this.fitToContainer() ?? this.lastDims ?? { cols: 80, rows: 24 };
+    this.lastDims = dimensions;
+    return dimensions;
+  }
+
   private runFit(): void {
     const dimensions = this.fitToContainer();
     if (!dimensions) return;
@@ -179,6 +242,9 @@ class XtermTerminalController implements TerminalController {
   }
 }
 
-export function createTerminalController(options: TerminalControllerOptions): TerminalController {
-  return new XtermTerminalController(options);
+export function createTerminalController(
+  options: TerminalControllerOptions,
+  deps: TerminalControllerDeps = defaultTerminalControllerDeps,
+): TerminalController {
+  return new XtermTerminalController(options, deps);
 }
