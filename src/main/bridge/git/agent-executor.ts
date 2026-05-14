@@ -112,6 +112,17 @@ import {
   AgentGitCloneResultSchema,
   GIT_CLONE_METHOD,
   GIT_CLONE_PROGRESS_EVENT,
+  AgentGitPullParamsSchema,
+  AgentGitPullResultSchema,
+  AgentGitPushParamsSchema,
+  AgentGitPushResultSchema,
+  GIT_PULL_METHOD,
+  GIT_PUSH_METHOD,
+  AgentGitInfoResultSchema,
+  AgentGitDetectParamsSchema,
+  AgentGitDetectResultSchema,
+  GIT_INFO_METHOD,
+  GIT_DETECT_METHOD,
 } from "../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
@@ -134,7 +145,10 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  PullResult,
+  PushResult,
   RemoteTag,
+  RepoInfo,
   StashEntry,
   Tag,
 } from "../../../shared/types/git";
@@ -175,6 +189,9 @@ import type {
   GitWorkflowContinueOptions,
   GitWorkflowMergeOptions,
   GitWorkflowRebaseOptions,
+  GitPullOptions,
+  GitPushOptions,
+  GitDetectOptions,
   RunGitOptions,
   RunGitResult,
 } from "./types";
@@ -777,6 +794,47 @@ export class AgentGitExecutor implements GitExecutor {
         return { kind: "complete", absPath: parsed.data.absPath };
       },
     });
+  }
+
+  async pull(options: GitPullOptions): Promise<PullResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_PULL_METHOD,
+      AgentGitPullParamsSchema.parse({
+        cwd: options.cwd,
+        args: options.args ? [...options.args] : undefined,
+      }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitPullResultSchema, result);
+  }
+
+  async push(options: GitPushOptions): Promise<PushResult> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_PUSH_METHOD,
+      AgentGitPushParamsSchema.parse({
+        cwd: options.cwd,
+        force: options.force,
+        publish: options.publish,
+        args: options.args ? [...options.args] : undefined,
+      }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitPushResultSchema, result);
+  }
+
+  async info(): Promise<{ binaryPath: string; binaryVersion: string } | null> {
+    const result = await this.provider().callAgentMethod(GIT_INFO_METHOD, {});
+    return parseAgentResult(AgentGitInfoResultSchema, result);
+  }
+
+  async detect(options: GitDetectOptions): Promise<RepoInfo> {
+    const result = await this.provider().callAgentMethod(
+      GIT_DETECT_METHOD,
+      AgentGitDetectParamsSchema.parse({ cwd: options.cwd }),
+    );
+    return parseAgentResult(AgentGitDetectResultSchema, result);
   }
 
   private async callAgentRun(

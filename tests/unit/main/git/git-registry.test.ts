@@ -1,7 +1,11 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { AgentBackedProvider } from "../../../../src/main/bridge/fs/provider";
 import { GitRegistry } from "../../../../src/main/git/git-registry";
-import { GIT_RUN_METHOD, GIT_STATUS_METHOD } from "../../../../src/shared/protocol/agent/git";
+import {
+  GIT_DETECT_METHOD,
+  GIT_RUN_METHOD,
+  GIT_STATUS_METHOD,
+} from "../../../../src/shared/protocol/agent/git";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
@@ -168,6 +172,10 @@ function fakeAgentProvider(kind: "local" | "ssh" = "ssh"): AgentBackedProvider {
     rmdir: fail,
     rename: fail,
     callAgentMethod: async (method: string, params?: unknown) => {
+      if (method === GIT_DETECT_METHOD) {
+        const cwd = readCwd(params);
+        return { kind: "repo", topLevel: cwd, gitDir: `${cwd}/.git` };
+      }
       if (method === GIT_RUN_METHOD) {
         const cwd = readCwd(params);
         return { stdout: `${cwd}\n${cwd}/.git\n`, stderr: "", code: 0 };

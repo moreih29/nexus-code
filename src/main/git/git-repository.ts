@@ -45,7 +45,6 @@ import type {
   RunGitResult,
 } from "../bridge/git/types";
 import { isBinaryProbe } from "../../shared/binary-detect";
-import type { GitBinary } from "./git-binary";
 import { GitError } from "./git-error";
 import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";
 import {
@@ -56,8 +55,6 @@ import {
   isAbortError,
   noop,
   parseBranchLines,
-  parsePullResult,
-  parsePushResult,
   resolveCheckoutTarget,
   throwIfAborted,
 } from "./git-repository-helpers";
@@ -139,15 +136,15 @@ export class GitRepository {
     workspaceId: string,
     topLevel: string,
     gitDir: string,
-    bin: GitBinary | string,
+    bin: { readonly path: string; readonly version?: string | null } | string | null,
     private readonly executor: GitExecutor,
     private readonly metadataReader: GitMetadataReader,
   ) {
     this.workspaceId = workspaceId;
     this.topLevel = topLevel;
     this.gitDir = gitDir;
-    this.binPath = typeof bin === "string" ? bin : bin.path;
-    this.gitVersion = typeof bin === "string" ? null : bin.version;
+    this.binPath = typeof bin === "string" ? bin : (bin?.path ?? "git");
+    this.gitVersion = typeof bin === "string" ? null : (bin?.version ?? null);
   }
 
   /**
@@ -729,10 +726,9 @@ export class GitRepository {
    */
   pull(signal?: AbortSignal): Promise<PullResult> {
     return this.queue(async (queuedSignal) => {
-      const result = await this.runWithHelpers(["pull", "--no-edit"], queuedSignal, {
-        askpass: true,
-      });
-      return parsePullResult(result);
+      const executorPull = this.executor.pull;
+      if (!executorPull) throw missingExecutorMethodError("pull");
+      return executorPull.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
     }, signal);
   }
 
@@ -754,6 +750,9 @@ export class GitRepository {
    */
   push(force = false, publish = false, signal?: AbortSignal): Promise<PushResult> {
     return this.queue(async (queuedSignal) => {
+      const executorPush = this.executor.push;
+      if (!executorPush) throw missingExecutorMethodError("push");
+
       if (publish) {
         const status = await this.readStatus(queuedSignal);
         assertHasHead(status.branch);
@@ -762,10 +761,6 @@ export class GitRepository {
 
         const remote = status.capabilities.remotes[0];
         if (!remote) {
-          // No remotes configured — git would reject downstream too, but a
-          // typed throw here lets the renderer render the publish prompt's
-          // "no remote configured" path uniformly with the no-remote stderr
-          // classification.
           throw new GitError("no-remote", "No git remote configured.", {
             hint: { kind: "add-remote" },
           });
@@ -774,16 +769,14 @@ export class GitRepository {
         const args = force
           ? ["push", "--force-with-lease", "-u", remote, branch.current]
           : ["push", "-u", remote, branch.current];
-        const result = await this.runWithHelpers(args, queuedSignal, { askpass: true });
-        return parsePushResult(result);
+        return executorPush.call(this.executor, { cwd: this.topLevel, args, signal: queuedSignal });
       }
 
-      const result = await this.runWithHelpers(
-        force ? ["push", "--force-with-lease"] : ["push"],
-        queuedSignal,
-        { askpass: true },
-      );
-      return parsePushResult(result);
+      return executorPush.call(this.executor, {
+        cwd: this.topLevel,
+        force,
+        signal: queuedSignal,
+      });
     }, signal);
   }
 
@@ -796,8 +789,13 @@ export class GitRepository {
    */
   sync(signal?: AbortSignal): Promise<GitSyncResult> {
     return this.queue(async (queuedSignal) => {
+      const executorPull = this.executor.pull;
+      if (!executorPull) throw missingExecutorMethodError("pull");
+      const executorPush = this.executor.push;
+      if (!executorPush) throw missingExecutorMethodError("push");
+
       try {
-        await this.runWithHelpers(["pull", "--no-edit"], queuedSignal, { askpass: true });
+        await executorPull.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
       } catch (error) {
         if (isAbortError(error)) return { pulled: "cancelled", pushed: "skipped" };
         if (error instanceof GitError) {
@@ -810,7 +808,7 @@ export class GitRepository {
         throw error;
       }
 
-      await this.runWithHelpers(["push"], queuedSignal, { askpass: true });
+      await executorPush.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
       return { pulled: "ok", pushed: "ok" };
     }, signal);
   }

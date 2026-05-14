@@ -18,11 +18,8 @@ import type {
   GitStatus,
   GitStatusEntry,
   GitSyncError,
-  PullResult,
-  PushResult,
 } from "../../shared/types/git";
 import { GitError } from "./git-error";
-import type { RunGitResult } from "../bridge/git/types";
 import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./git-repository";
 
 /**
@@ -95,20 +92,6 @@ export function parseBranchLines(stdout: string): string[] {
 }
 
 /**
- * Summarizes successful `git pull` output for renderer banners.
- */
-export function parsePullResult(result: RunGitResult): PullResult {
-  const summary = summarizeGitOutput(result);
-  const stats = parseDiffStat(summary);
-  return {
-    alreadyUpToDate: /already up[ -]to[ -]date/i.test(summary),
-    fastForward: /fast-forward/i.test(summary) || undefined,
-    ...stats,
-    summary: summary || undefined,
-  };
-}
-
-/**
  * Reads `.git/FETCH_HEAD` mtime so external terminal fetches update the chip.
  */
 export async function readFetchHeadMtime(gitDir: string): Promise<number | null> {
@@ -150,40 +133,6 @@ export function gitSyncErrorFromGitError(error: GitError): GitSyncError {
   };
 }
 
-/**
- * Summarizes successful `git push` output for renderer banners.
- */
-export function parsePushResult(result: RunGitResult): PushResult {
-  const summary = summarizeGitOutput(result);
-  return {
-    pushed: !/everything up[ -]to[ -]date/i.test(summary),
-    summary: summary || undefined,
-  };
-}
-
-/**
- * Joins stdout and stderr because Git reports network progress on stderr.
- */
-function summarizeGitOutput(result: RunGitResult): string {
-  return [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
-}
-
-/**
- * Extracts the common `N files changed, X insertions, Y deletions` summary.
- */
-function parseDiffStat(
-  summary: string,
-): Pick<PullResult, "filesChanged" | "insertions" | "deletions"> {
-  const stats: Pick<PullResult, "filesChanged" | "insertions" | "deletions"> = {};
-  const files = /(\d+) files? changed/.exec(summary);
-  const insertions = /(\d+) insertions?\(\+\)/.exec(summary);
-  const deletions = /(\d+) deletions?\(-\)/.exec(summary);
-
-  if (files) stats.filesChanged = Number(files[1]);
-  if (insertions) stats.insertions = Number(insertions[1]);
-  if (deletions) stats.deletions = Number(deletions[1]);
-  return stats;
-}
 
 /**
  * Computes the git commands needed to discard selected status entries.

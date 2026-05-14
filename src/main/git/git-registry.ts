@@ -18,12 +18,16 @@ import {
   requireWorkspace,
 } from "../workspace/workspace-guards";
 import type { BroadcastFn, WorkspaceManager } from "../workspace/workspace-manager";
-import type { GitBinary } from "./git-binary";
-import { detectRepository } from "./git-detect";
 import { GitError } from "./git-error";
 import type { GitHelpersIpcManager } from "./git-helpers-ipc";
 import { GitRepository } from "./git-repository";
 import type { StatusCoalescer } from "./status-coalescer";
+
+/** Minimal binary descriptor — path + version carried from agent info. */
+export interface GitBinaryInfo {
+  readonly path: string;
+  readonly version: string;
+}
 
 export interface GitRegistryOptions {
   readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
@@ -33,7 +37,7 @@ export interface GitRegistryOptions {
 
 export interface GitCloneExecutionContext {
   readonly workspaceId: string;
-  readonly bin: GitBinary;
+  readonly bin: GitBinaryInfo;
   readonly cwd: string;
   readonly executor: AgentGitExecutor;
   readonly dispose?: () => void;
@@ -47,7 +51,7 @@ export interface GitCloneExecutionContext {
 export class GitRegistry {
   private readonly workspaceManager: WorkspaceManager;
   private readonly broadcast: BroadcastFn;
-  private readonly bin: GitBinary | null;
+  private readonly bin: GitBinaryInfo | null;
   private readonly repoInfos = new Map<string, RepoInfo>();
   private readonly repositories = new Map<string, GitRepository>();
   private readonly detections = new Map<string, Promise<GitRepository | null>>();
@@ -60,7 +64,7 @@ export class GitRegistry {
   constructor(
     workspaceManager: WorkspaceManager,
     broadcast: BroadcastFn,
-    bin: GitBinary | null,
+    bin: GitBinaryInfo | null,
     options: GitRegistryOptions = {},
   ) {
     this.workspaceManager = workspaceManager;
@@ -276,7 +280,7 @@ export class GitRegistry {
    */
   private async detectWorkspace(
     workspaceId: string,
-    bin: GitBinary,
+    bin: GitBinaryInfo,
     executor: AgentGitExecutor,
     generation: number,
     signal?: AbortSignal,
@@ -288,7 +292,8 @@ export class GitRegistry {
     );
 
     try {
-      const info = await detectRepository(workspaceRoot, bin, signal, executor);
+      const info = await executor.detect({ cwd: workspaceRoot });
+      if (signal?.aborted) return null;
       if (this.currentGeneration(workspaceId) !== generation) return null;
 
       if (info.kind === "repo") {
@@ -314,7 +319,7 @@ export class GitRegistry {
   private cacheRepository(
     workspaceId: string,
     info: RepoInfo & { kind: "repo" },
-    bin: GitBinary,
+    bin: GitBinaryInfo,
     executor: AgentGitExecutor,
   ) {
     const existing = this.repositories.get(workspaceId);
@@ -383,7 +388,7 @@ export class GitRegistry {
   /**
    * Returns the process Git binary or throws the typed missing-Git error.
    */
-  private requireGitBinary(argv: readonly string[], executor?: AgentGitExecutor): GitBinary {
+  private requireGitBinary(argv: readonly string[], executor?: AgentGitExecutor): GitBinaryInfo {
     if (executor) return this.bin ?? { path: "git", version: "agent" };
     if (this.bin && !this.gitUnavailable) return this.bin;
     throw new GitError("git-missing", "Git executable not found", { argv });

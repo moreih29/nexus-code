@@ -101,6 +101,10 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.branch.setUpstream", service.BranchSetUpstream)
 	d.Register("git.branch.fastForward", service.BranchFastForward)
 	d.Register("git.clone", service.Clone)
+	d.Register("git.pull", service.Pull)
+	d.Register("git.push", service.Push)
+	d.Register("git.info", service.Info)
+	d.Register("git.detect", service.Detect)
 }
 
 func (s *Service) SetEventSink(sink EventSink) {

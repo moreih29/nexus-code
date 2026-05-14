@@ -12,7 +12,6 @@ import { AgentFsProvider } from "./bridge/fs/agent-provider";
 import { AgentGitExecutor } from "./bridge/git/agent-executor";
 import { AgentGitWatcher } from "./bridge/git/agent-watch";
 import { GitAutofetchScheduler } from "./git/git-autofetch";
-import { resolveGitBinary } from "./git/git-binary";
 import { GitHelpersIpcManager, registerGitHelperIpcChannels } from "./git/git-helpers-ipc";
 import { GitRegistry } from "./git/git-registry";
 import { createStatusCoalescer, type StatusCoalescer } from "./git/status-coalescer";
@@ -127,7 +126,6 @@ app.whenReady().then(async () => {
 
   await workspaceManager.init();
 
-  const gitBinary = await resolveGitBinary();
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });
   await gitHelpersIpc.start();
@@ -137,7 +135,7 @@ app.whenReady().then(async () => {
       await gitRegistry?.refreshStatus(workspaceId);
     });
   });
-  gitRegistry = new GitRegistry(workspaceManager, forwardBroadcast, gitBinary, {
+  gitRegistry = new GitRegistry(workspaceManager, forwardBroadcast, null, {
     coalescer: gitStatusCoalescer ?? undefined,
     askpassManager: gitHelpersIpc,
     onRepoInfoChanged(workspaceId, info) {

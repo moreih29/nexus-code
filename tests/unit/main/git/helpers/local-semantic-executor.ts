@@ -18,6 +18,8 @@ import {
   type LogComplete,
   type LogEntry,
   type LogEntryRef,
+  type PullResult,
+  type PushResult,
 } from "../../../../../src/shared/types/git";
 import type {
   GitBlobOptions,
@@ -26,6 +28,8 @@ import type {
   GitExecutor,
   GitLogOptions,
   GitProcessOptions,
+  GitPullOptions,
+  GitPushOptions,
   GitStatusOptions,
   RunGitOptions,
   RunGitResult,
@@ -182,6 +186,24 @@ export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExec
         signal: options.signal,
       });
       return parseCommitDetailOutput(stdout);
+    },
+
+    async pull(options: GitPullOptions): Promise<PullResult> {
+      const args = options.args ? [...options.args] : ["pull"];
+      const { stdout } = await runLocal({ cwd: options.cwd, args, signal: options.signal });
+      return {
+        alreadyUpToDate: stdout.includes("Already up to date"),
+      };
+    },
+
+    async push(options: GitPushOptions): Promise<PushResult> {
+      const args = options.args
+        ? [...options.args]
+        : options.force
+          ? ["push", "--force-with-lease"]
+          : ["push"];
+      await runLocal({ cwd: options.cwd, args, signal: options.signal });
+      return { pushed: true };
     },
   };
 }

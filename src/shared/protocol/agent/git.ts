@@ -35,6 +35,8 @@ import {
   TagSchema,
   type RemoteTag,
   RemoteTagSchema,
+  type RepoInfo,
+  RepoInfoSchema,
 } from "../../types/git";
 
 export const GIT_RUN_METHOD = "git.run";
@@ -575,3 +577,68 @@ export const AgentGitCloneResultSchema = z.object({
   errorMessage: z.string().optional(),
 });
 export type AgentGitCloneResult = z.infer<typeof AgentGitCloneResultSchema>;
+
+// ---------------------------------------------------------------------------
+// git.pull / git.push — typed RPC wrappers
+// ---------------------------------------------------------------------------
+
+export const GIT_PULL_METHOD = "git.pull";
+export const GIT_PUSH_METHOD = "git.push";
+
+export const AgentGitPullParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  args: z.array(z.string()).optional(),
+});
+export type AgentGitPullParams = z.infer<typeof AgentGitPullParamsSchema>;
+
+export const AgentGitPullResultSchema = z.object({
+  alreadyUpToDate: z.boolean(),
+  fastForward: z.boolean().optional(),
+  filesChanged: z.number().int().nonnegative().optional(),
+  insertions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  summary: z.string().optional(),
+});
+export type AgentGitPullResult = z.infer<typeof AgentGitPullResultSchema>;
+
+export const AgentGitPushParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  force: z.boolean().optional(),
+  publish: z.boolean().optional(),
+  args: z.array(z.string()).optional(),
+});
+export type AgentGitPushParams = z.infer<typeof AgentGitPushParamsSchema>;
+
+export const AgentGitPushResultSchema = z.object({
+  pushed: z.boolean(),
+  remote: z.string().optional(),
+  branch: z.string().optional(),
+  commitsPushed: z.number().int().nonnegative().optional(),
+  summary: z.string().optional(),
+});
+export type AgentGitPushResult = z.infer<typeof AgentGitPushResultSchema>;
+
+// ---------------------------------------------------------------------------
+// git.info / git.detect — binary info and repository detection typed RPCs
+// ---------------------------------------------------------------------------
+
+export const GIT_INFO_METHOD = "git.info";
+export const GIT_DETECT_METHOD = "git.detect";
+
+/** Schema for the git.info RPC result. Null when git is unavailable. */
+export const AgentGitInfoResultSchema = z
+  .object({
+    binaryPath: z.string().min(1),
+    binaryVersion: z.string(),
+  })
+  .nullable();
+export type AgentGitInfoResult = z.infer<typeof AgentGitInfoResultSchema>;
+
+export const AgentGitDetectParamsSchema = z.object({
+  cwd: z.string().min(1),
+});
+export type AgentGitDetectParams = z.infer<typeof AgentGitDetectParamsSchema>;
+
+/** Schema for the git.detect RPC result. Mirrors RepoInfoSchema (repo | non-repo). */
+export const AgentGitDetectResultSchema = RepoInfoSchema as z.ZodType<RepoInfo>;
+export type AgentGitDetectResult = RepoInfo;

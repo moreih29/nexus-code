@@ -23,7 +23,10 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  PullResult,
+  PushResult,
   RemoteTag,
+  RepoInfo,
   StashEntry,
   Tag,
 } from "../../../shared/types/git";
@@ -277,6 +280,20 @@ export interface GitCloneOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface GitPullOptions {
+  readonly cwd: string;
+  readonly args?: readonly string[];
+  readonly signal?: AbortSignal;
+}
+
+export interface GitPushOptions {
+  readonly cwd: string;
+  readonly force?: boolean;
+  readonly publish?: boolean;
+  readonly args?: readonly string[];
+  readonly signal?: AbortSignal;
+}
+
 export interface GitExecutor {
   run(options: RunGitOptions): Promise<RunGitResult>;
   stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
@@ -314,4 +331,12 @@ export interface GitExecutor {
   clone?(
     options: GitCloneOptions,
   ): AsyncGenerator<GitCloneStreamProgressEvent, GitCloneStreamResultEvent, unknown>;
+  pull?(options: GitPullOptions): Promise<PullResult>;
+  push?(options: GitPushOptions): Promise<PushResult>;
+  info?(): Promise<{ binaryPath: string; binaryVersion: string } | null>;
+  detect?(options: GitDetectOptions): Promise<RepoInfo>;
+}
+
+export interface GitDetectOptions {
+  readonly cwd: string;
 }
