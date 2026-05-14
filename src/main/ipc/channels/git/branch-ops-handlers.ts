@@ -24,7 +24,7 @@ export function createBranchHandler(
     const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
     if (!repo) throw new GitError("not-repo", "Not a Git repository");
 
-    await repo.createBranch(name, { fromRef, checkout: checkout ?? false }, ctx?.signal);
+    await repo.createBranch(name, { startRef: fromRef, checkout: checkout ?? false }, ctx?.signal);
     await refreshAfterMutation(registry, workspaceId, ctx?.signal);
   };
 }
