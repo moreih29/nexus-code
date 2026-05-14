@@ -24,6 +24,10 @@ import {
   LogCompleteSchema,
   type StashEntry,
   StashEntrySchema,
+  type Tag,
+  TagSchema,
+  type RemoteTag,
+  RemoteTagSchema,
 } from "../../types/git";
 
 export const GIT_RUN_METHOD = "git.run";
@@ -309,3 +313,76 @@ export const AgentGitStashGroupParamsSchema = z.object({
   paths: z.array(z.string().min(1)).min(1),
 });
 export type AgentGitStashGroupParams = z.infer<typeof AgentGitStashGroupParamsSchema>;
+
+// git.tag.* — typed RPC wrappers
+// ---------------------------------------------------------------------------
+
+export const GIT_TAG_LIST_METHOD = "git.tag.list";
+export const GIT_TAG_LIST_REMOTE_METHOD = "git.tag.listRemote";
+export const GIT_TAG_CREATE_METHOD = "git.tag.create";
+export const GIT_TAG_DELETE_METHOD = "git.tag.delete";
+export const GIT_TAG_DELETE_REMOTE_METHOD = "git.tag.deleteRemote";
+export const GIT_TAG_PUSH_METHOD = "git.tag.push";
+
+export const AgentGitTagListParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+});
+export type AgentGitTagListParams = z.infer<typeof AgentGitTagListParamsSchema>;
+
+export const AgentGitTagListResultSchema = z.array(TagSchema as z.ZodType<Tag>);
+export type AgentGitTagListResult = Tag[];
+
+export const AgentGitTagListRemoteParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  remote: z.string().min(1),
+});
+export type AgentGitTagListRemoteParams = z.infer<typeof AgentGitTagListRemoteParamsSchema>;
+
+export const AgentGitTagListRemoteResultSchema = z.array(RemoteTagSchema as z.ZodType<RemoteTag>);
+export type AgentGitTagListRemoteResult = RemoteTag[];
+
+export const AgentGitTagCreateParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+  ref: z.string().min(1).optional(),
+  message: z.string().optional(),
+});
+export type AgentGitTagCreateParams = z.infer<typeof AgentGitTagCreateParamsSchema>;
+
+export const AgentGitTagDeleteParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+});
+export type AgentGitTagDeleteParams = z.infer<typeof AgentGitTagDeleteParamsSchema>;
+
+export const AgentGitTagDeleteRemoteParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  remote: z.string().min(1),
+  name: z.string().min(1),
+});
+export type AgentGitTagDeleteRemoteParams = z.infer<typeof AgentGitTagDeleteRemoteParamsSchema>;
+
+export const AgentGitTagPushParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  remote: z.string().min(1).optional(),
+});
+export type AgentGitTagPushParams = z.infer<typeof AgentGitTagPushParamsSchema>;
+
+// git.remote.* — typed RPC wrappers
+// ---------------------------------------------------------------------------
+
+export const GIT_REMOTE_ADD_METHOD = "git.remote.add";
+export const GIT_REMOTE_REMOVE_METHOD = "git.remote.remove";
+
+export const AgentGitRemoteAddParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+  url: z.string().min(1),
+});
+export type AgentGitRemoteAddParams = z.infer<typeof AgentGitRemoteAddParamsSchema>;
+
+export const AgentGitRemoteRemoveParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  name: z.string().min(1),
+});
+export type AgentGitRemoteRemoveParams = z.infer<typeof AgentGitRemoteRemoveParamsSchema>;

@@ -1,0 +1,14 @@
+{
+  "method": "git.tag.list",
+  "case": "list-annotated",
+  "params": {},
+  "result": [
+    {
+      "name": "v2.0.0",
+      "sha": "cccccccccccccccccccccccccccccccccccccccccc",
+      "message": "release notes",
+      "type": "annotated",
+      "taggerDate": 1700000000000
+    }
+  ]
+}

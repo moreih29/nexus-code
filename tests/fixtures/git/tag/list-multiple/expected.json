@@ -1,0 +1,21 @@
+{
+  "method": "git.tag.list",
+  "case": "list-multiple",
+  "params": {},
+  "result": [
+    {
+      "name": "v1.0.0",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "message": null,
+      "type": "lightweight",
+      "taggerDate": null
+    },
+    {
+      "name": "v2.0.0",
+      "sha": "cccccccccccccccccccccccccccccccccccccccccc",
+      "message": "release v2",
+      "type": "annotated",
+      "taggerDate": 1700000000000
+    }
+  ]
+}

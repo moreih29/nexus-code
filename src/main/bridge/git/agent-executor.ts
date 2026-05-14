@@ -58,6 +58,24 @@ import {
   GIT_STATUS_METHOD,
   GIT_STREAM_CHUNK_EVENT,
   GIT_STREAM_METHOD,
+  AgentGitTagListParamsSchema,
+  AgentGitTagListResultSchema,
+  AgentGitTagListRemoteParamsSchema,
+  AgentGitTagListRemoteResultSchema,
+  AgentGitTagCreateParamsSchema,
+  AgentGitTagDeleteParamsSchema,
+  AgentGitTagDeleteRemoteParamsSchema,
+  AgentGitTagPushParamsSchema,
+  AgentGitRemoteAddParamsSchema,
+  AgentGitRemoteRemoveParamsSchema,
+  GIT_TAG_LIST_METHOD,
+  GIT_TAG_LIST_REMOTE_METHOD,
+  GIT_TAG_CREATE_METHOD,
+  GIT_TAG_DELETE_METHOD,
+  GIT_TAG_DELETE_REMOTE_METHOD,
+  GIT_TAG_PUSH_METHOD,
+  GIT_REMOTE_ADD_METHOD,
+  GIT_REMOTE_REMOVE_METHOD,
 } from "../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
@@ -71,7 +89,9 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  RemoteTag,
   StashEntry,
+  Tag,
 } from "../../../shared/types/git";
 import { GitError, gitErrorFromAgent, gitMissingError, unknownGitError } from "../../git/git-error";
 import type { GitHelpersIpcManager } from "../../git/git-helpers-ipc";
@@ -82,6 +102,8 @@ import type {
   GitExecutor,
   GitLogOptions,
   GitProcessOptions,
+  GitRemoteAddOptions,
+  GitRemoteRemoveOptions,
   GitStashApplyOptions,
   GitStashDropOptions,
   GitStashGroupOptions,
@@ -89,6 +111,12 @@ import type {
   GitStashPopOptions,
   GitStashShowOptions,
   GitStatusOptions,
+  GitTagCreateOptions,
+  GitTagDeleteOptions,
+  GitTagDeleteRemoteOptions,
+  GitTagListOptions,
+  GitTagListRemoteOptions,
+  GitTagPushOptions,
   RunGitOptions,
   RunGitResult,
 } from "./types";
@@ -392,6 +420,93 @@ export class AgentGitExecutor implements GitExecutor {
     });
     throwIfAborted(signal);
     return parseAgentResult(AgentGitAddToGitignoreResultSchema, result);
+  }
+
+  async tagList(options: GitTagListOptions): Promise<Tag[]> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_TAG_LIST_METHOD,
+      AgentGitTagListParamsSchema.parse({ cwd: options.cwd }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitTagListResultSchema, result);
+  }
+
+  async tagListRemote(options: GitTagListRemoteOptions): Promise<RemoteTag[]> {
+    throwIfAborted(options.signal);
+    const result = await this.provider().callAgentMethod(
+      GIT_TAG_LIST_REMOTE_METHOD,
+      AgentGitTagListRemoteParamsSchema.parse({ cwd: options.cwd, remote: options.remote }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitTagListRemoteResultSchema, result);
+  }
+
+  async tagCreate(options: GitTagCreateOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_TAG_CREATE_METHOD,
+      AgentGitTagCreateParamsSchema.parse({
+        cwd: options.cwd,
+        name: options.name,
+        ref: options.ref,
+        message: options.message,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async tagDelete(options: GitTagDeleteOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_TAG_DELETE_METHOD,
+      AgentGitTagDeleteParamsSchema.parse({ cwd: options.cwd, name: options.name }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async tagDeleteRemote(options: GitTagDeleteRemoteOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_TAG_DELETE_REMOTE_METHOD,
+      AgentGitTagDeleteRemoteParamsSchema.parse({
+        cwd: options.cwd,
+        remote: options.remote,
+        name: options.name,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async tagPush(options: GitTagPushOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_TAG_PUSH_METHOD,
+      AgentGitTagPushParamsSchema.parse({ cwd: options.cwd, remote: options.remote }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async remoteAdd(options: GitRemoteAddOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_REMOTE_ADD_METHOD,
+      AgentGitRemoteAddParamsSchema.parse({
+        cwd: options.cwd,
+        name: options.name,
+        url: options.url,
+      }),
+    );
+    throwIfAborted(options.signal);
+  }
+
+  async remoteRemove(options: GitRemoteRemoveOptions): Promise<void> {
+    throwIfAborted(options.signal);
+    await this.provider().callAgentMethod(
+      GIT_REMOTE_REMOVE_METHOD,
+      AgentGitRemoteRemoveParamsSchema.parse({ cwd: options.cwd, name: options.name }),
+    );
+    throwIfAborted(options.signal);
   }
 
   private async callAgentRun(

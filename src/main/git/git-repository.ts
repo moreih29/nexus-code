@@ -41,7 +41,7 @@ import * as branchOps from "./git-branch-ops";
 import { type GitConflictRunner, markResolved as markConflictResolved } from "./git-conflict";
 import { GitError } from "./git-error";
 import { assertHasHead, resolveCheckoutTarget } from "./git-preflight";
-import * as remoteOps from "./git-remote";
+import { isAllowedGitRemoteUrl } from "../../shared/git-remote-validation";
 import {
   buildCommitArgs,
   collectDiscardPathsets,
@@ -53,7 +53,6 @@ import {
   parsePushResult,
   throwIfAborted,
 } from "./git-repository-helpers";
-import * as tagOps from "./git-tag";
 import * as workflow from "./git-workflow";
 import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers-launcher";
 
@@ -500,20 +499,26 @@ export class GitRepository {
    * Lists local tags for ref picker and tag picker search.
    */
   listTags(signal?: AbortSignal): Promise<Tag[]> {
-    return tagOps.listTags(
-      { bin: this.binPath, cwd: this.topLevel, executor: this.executor },
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const tagList = this.executor.tagList;
+      if (!tagList) throw missingExecutorMethodError("tagList");
+      return tagList.call(this.executor, { cwd: this.topLevel, signal: queuedSignal });
+    }, signal);
   }
 
   /**
    * Lists tags from one selected remote without expanding local tag semantics.
    */
   listRemoteTags(remote: string, signal?: AbortSignal): Promise<RemoteTag[]> {
-    return this.queue(
-      (queuedSignal) => tagOps.listRemoteTags(this.tagOpsRunner(queuedSignal), remote),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const tagListRemote = this.executor.tagListRemote;
+      if (!tagListRemote) throw missingExecutorMethodError("tagListRemote");
+      return tagListRemote.call(this.executor, {
+        cwd: this.topLevel,
+        remote,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
@@ -521,33 +526,47 @@ export class GitRepository {
    */
   createTag(
     name: string,
-    options: tagOps.CreateTagOptions = {},
+    options: { readonly ref?: string; readonly message?: string } = {},
     signal?: AbortSignal,
   ): Promise<void> {
-    return this.queue(
-      (queuedSignal) => tagOps.createTag(this.tagOpsRunner(queuedSignal), name, options),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const tagCreate = this.executor.tagCreate;
+      if (!tagCreate) throw missingExecutorMethodError("tagCreate");
+      return tagCreate.call(this.executor, {
+        cwd: this.topLevel,
+        name,
+        ref: options.ref,
+        message: options.message,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
    * Deletes one local tag.
    */
   deleteTag(name: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => tagOps.deleteTag(this.tagOpsRunner(queuedSignal), name),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const tagDelete = this.executor.tagDelete;
+      if (!tagDelete) throw missingExecutorMethodError("tagDelete");
+      return tagDelete.call(this.executor, { cwd: this.topLevel, name, signal: queuedSignal });
+    }, signal);
   }
 
   /**
    * Deletes one tag from a remote with askpass helpers enabled.
    */
   deleteRemoteTag(remote: string, name: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => tagOps.deleteRemoteTag(this.tagOpsRunner(queuedSignal), remote, name),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const tagDeleteRemote = this.executor.tagDeleteRemote;
+      if (!tagDeleteRemote) throw missingExecutorMethodError("tagDeleteRemote");
+      return tagDeleteRemote.call(this.executor, {
+        cwd: this.topLevel,
+        remote,
+        name,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
@@ -555,21 +574,40 @@ export class GitRepository {
    * remote. Tag pushes are separate from current-branch push semantics.
    */
   pushTags(remote?: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(async (queuedSignal) => {
-      const trimmed = remote?.trim();
-      const args = trimmed && trimmed.length > 0 ? ["push", trimmed, "--tags"] : ["push", "--tags"];
-      await this.runWithHelpers(args, queuedSignal, { askpass: true });
+    return this.queue((queuedSignal) => {
+      const tagPush = this.executor.tagPush;
+      if (!tagPush) throw missingExecutorMethodError("tagPush");
+      return tagPush.call(this.executor, {
+        cwd: this.topLevel,
+        remote: remote?.trim() || undefined,
+        signal: queuedSignal,
+      });
     }, signal);
   }
 
   /**
-   * Adds one configured remote using local URL-pattern validation only.
+   * Adds one configured remote. URL is validated client-side before the RPC;
+   * Go passes the URL to git directly.
    */
   addRemote(name: string, url: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => remoteOps.addRemote(this.remoteOpsRunner(queuedSignal), name, url),
-      signal,
-    );
+    if (!isAllowedGitRemoteUrl(url)) {
+      return Promise.reject(
+        new GitError(
+          "remote-url-invalid",
+          "Remote URL must start with https://, git@, ssh://, or file://.",
+        ),
+      );
+    }
+    return this.queue((queuedSignal) => {
+      const remoteAdd = this.executor.remoteAdd;
+      if (!remoteAdd) throw missingExecutorMethodError("remoteAdd");
+      return remoteAdd.call(this.executor, {
+        cwd: this.topLevel,
+        name,
+        url,
+        signal: queuedSignal,
+      });
+    }, signal);
   }
 
   /**
@@ -577,10 +615,11 @@ export class GitRepository {
    * the next status refresh naturally reports branch.upstream=null.
    */
   removeRemote(name: string, signal?: AbortSignal): Promise<void> {
-    return this.queue(
-      (queuedSignal) => remoteOps.removeRemote(this.remoteOpsRunner(queuedSignal), name),
-      signal,
-    );
+    return this.queue((queuedSignal) => {
+      const remoteRemove = this.executor.remoteRemove;
+      if (!remoteRemove) throw missingExecutorMethodError("remoteRemove");
+      return remoteRemove.call(this.executor, { cwd: this.topLevel, name, signal: queuedSignal });
+    }, signal);
   }
 
   /**
@@ -1035,25 +1074,6 @@ export class GitRepository {
       run: (args) => this.run(args, signal),
       runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
       listBranches: () => this.readBranchList(signal),
-    };
-  }
-
-  /**
-   * Adapts private queue-bound runners to the remote helper module.
-   */
-  private remoteOpsRunner(signal: AbortSignal): remoteOps.GitRemoteRunner {
-    return {
-      run: (args) => this.run(args, signal),
-    };
-  }
-
-  /**
-   * Adapts private queue-bound runners to the tag helper module.
-   */
-  private tagOpsRunner(signal: AbortSignal): tagOps.GitTagMutationRunner {
-    return {
-      run: (args) => this.run(args, signal),
-      runWithHelpers: (args, helpers) => this.runWithHelpers(args, signal, helpers),
     };
   }
 

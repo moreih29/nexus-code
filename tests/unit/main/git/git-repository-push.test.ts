@@ -39,41 +39,6 @@ describe("GitRepository push guardrails", () => {
     }
   });
 
-  it("pushes tags to a named remote with exact argv and terminal prompts disabled", async () => {
-    const fixture = makeFakeRepo();
-    try {
-      const repo = newLocalGitRepository(
-        "ws-push-tags-remote",
-        fixture.root,
-        fixture.gitDir,
-        fixture.gitBin,
-      );
-
-      await repo.pushTags("origin");
-
-      expect(readLog(fixture.root)[0]).toMatch("push origin --tags|askpass=");
-    } finally {
-      fs.rmSync(fixture.root, { recursive: true, force: true });
-    }
-  });
-
-  it("pushes tags without a remote with exact argv and terminal prompts disabled", async () => {
-    const fixture = makeFakeRepo();
-    try {
-      const repo = newLocalGitRepository(
-        "ws-push-tags-default",
-        fixture.root,
-        fixture.gitDir,
-        fixture.gitBin,
-      );
-
-      await repo.pushTags();
-
-      expect(readLog(fixture.root)[0]).toMatch("push --tags|askpass=");
-    } finally {
-      fs.rmSync(fixture.root, { recursive: true, force: true });
-    }
-  });
 });
 
 /** Creates a temp repository root with a push-logging git executable. */

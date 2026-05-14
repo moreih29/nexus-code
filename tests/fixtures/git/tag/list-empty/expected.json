@@ -1,0 +1,6 @@
+{
+  "method": "git.tag.list",
+  "case": "list-empty",
+  "params": {},
+  "result": []
+}

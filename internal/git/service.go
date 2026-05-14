@@ -80,6 +80,14 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.stash.pop", service.StashPop)
 	d.Register("git.stash.show", service.StashShow)
 	d.Register("git.stash.group", service.StashGroup)
+	d.Register("git.tag.list", service.TagList)
+	d.Register("git.tag.listRemote", service.TagListRemote)
+	d.Register("git.tag.create", service.TagCreate)
+	d.Register("git.tag.delete", service.TagDelete)
+	d.Register("git.tag.deleteRemote", service.TagDeleteRemote)
+	d.Register("git.tag.push", service.TagPush)
+	d.Register("git.remote.add", service.RemoteAdd)
+	d.Register("git.remote.remove", service.RemoteRemove)
 }
 
 func (s *Service) SetEventSink(sink EventSink) {

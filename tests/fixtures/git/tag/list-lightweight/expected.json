@@ -1,0 +1,14 @@
+{
+  "method": "git.tag.list",
+  "case": "list-lightweight",
+  "params": {},
+  "result": [
+    {
+      "name": "v1.0.0",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "message": null,
+      "type": "lightweight",
+      "taggerDate": null
+    }
+  ]
+}

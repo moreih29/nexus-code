@@ -14,7 +14,9 @@ import type {
   GitStatus,
   LogChunk,
   LogComplete,
+  RemoteTag,
   StashEntry,
+  Tag,
 } from "../../../shared/types/git";
 
 export interface GitProcessOptions {
@@ -121,6 +123,57 @@ export interface GitStashGroupOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface GitTagListOptions {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitTagListRemoteOptions {
+  readonly cwd: string;
+  readonly remote: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitTagCreateOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly ref?: string;
+  readonly message?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitTagDeleteOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitTagDeleteRemoteOptions {
+  readonly cwd: string;
+  readonly remote: string;
+  readonly name: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitTagPushOptions {
+  readonly cwd: string;
+  readonly remote?: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitRemoteAddOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly url: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitRemoteRemoveOptions {
+  readonly cwd: string;
+  readonly name: string;
+  readonly signal?: AbortSignal;
+}
+
 export interface GitExecutor {
   run(options: RunGitOptions): Promise<RunGitResult>;
   stream(options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown>;
@@ -135,4 +188,12 @@ export interface GitExecutor {
   stashPop?(options: GitStashPopOptions): Promise<void>;
   stashShow?(options: GitStashShowOptions): AsyncGenerator<DiffChunk, DiffComplete, unknown>;
   stashGroup?(options: GitStashGroupOptions): Promise<void>;
+  tagList?(options: GitTagListOptions): Promise<Tag[]>;
+  tagListRemote?(options: GitTagListRemoteOptions): Promise<RemoteTag[]>;
+  tagCreate?(options: GitTagCreateOptions): Promise<void>;
+  tagDelete?(options: GitTagDeleteOptions): Promise<void>;
+  tagDeleteRemote?(options: GitTagDeleteRemoteOptions): Promise<void>;
+  tagPush?(options: GitTagPushOptions): Promise<void>;
+  remoteAdd?(options: GitRemoteAddOptions): Promise<void>;
+  remoteRemove?(options: GitRemoteRemoveOptions): Promise<void>;
 }
