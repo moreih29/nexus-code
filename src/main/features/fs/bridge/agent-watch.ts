@@ -27,14 +27,14 @@ export class AgentFsWatcher {
   ) {}
 
   async watch(workspaceId: string, relPath: string): Promise<void> {
-    const provider = this.requireAgentProvider(workspaceId);
+    const provider = await this.requireReadyAgentProvider(workspaceId);
     const subscription = this.ensureSubscription(workspaceId, provider);
     await provider.callAgentMethod("fs.watch", { relPath });
     subscription.watchedRelPaths.add(relPath);
   }
 
   async unwatch(workspaceId: string, relPath: string): Promise<void> {
-    const provider = this.requireAgentProvider(workspaceId);
+    const provider = await this.requireReadyAgentProvider(workspaceId);
     await provider.callAgentMethod("fs.unwatch", { relPath });
 
     const subscription = this.subscriptions.get(workspaceId);
@@ -80,8 +80,15 @@ export class AgentFsWatcher {
     return subscription;
   }
 
-  private requireAgentProvider(workspaceId: string): AgentBackedProvider {
-    const provider = this.manager.requireContext(workspaceId).fs;
+  /**
+   * Resolves the workspace's agent-backed fs provider only after the
+   * underlying channel is ready. Without this gate, fs.watch IPC that
+   * arrives before SSH bootstrap or local channel boot completes would
+   * subscribe against the inert provider returned by createInitialFsProvider
+   * and throw `channel not yet wired` from the channel accessor.
+   */
+  private async requireReadyAgentProvider(workspaceId: string): Promise<AgentBackedProvider> {
+    const provider = await this.manager.getFs(workspaceId);
     if (!isAgentBackedProvider(provider)) {
       throw new Error("workspace agent provider is not available");
     }

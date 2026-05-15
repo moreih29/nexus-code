@@ -18,6 +18,7 @@ import {
 } from "../../infra/agent/local-channel";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
+import type { FsProvider } from "../fs/bridge/provider";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
@@ -218,6 +219,19 @@ export class WorkspaceManager {
 
   getActiveId(): string | null {
     return this.activeId;
+  }
+
+  /**
+   * Returns the workspace's filesystem provider after the underlying agent
+   * channel is ready. Callers (fs IPC handlers, fs.changed subscribers) must
+   * await this instead of `requireContext(id).fs` so they never receive the
+   * inert provider produced by `createInitialFsProvider` before the SSH
+   * bootstrap or local channel boot completes.
+   */
+  async getFs(id: string): Promise<FsProvider> {
+    const ctx = this.requireContext(id);
+    await this.ensureProviderReady(ctx);
+    return ctx.fs;
   }
 
   /**

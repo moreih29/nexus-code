@@ -11,14 +11,16 @@ const c = ipcContract.fs.call;
 export function readdirHandler(manager: WorkspaceManager): (args: unknown) => Promise<DirEntry[]> {
   return async (args: unknown): Promise<DirEntry[]> => {
     const { workspaceId, relPath } = validateArgs(c.readdir.args, args);
-    return manager.requireContext(workspaceId).fs.readdir(relPath);
+    const fs = await manager.getFs(workspaceId);
+    return fs.readdir(relPath);
   };
 }
 
 export function statHandler(manager: WorkspaceManager): (args: unknown) => Promise<FsStat> {
   return async (args: unknown): Promise<FsStat> => {
     const { workspaceId, relPath } = validateArgs(c.stat.args, args);
-    return manager.requireContext(workspaceId).fs.stat(relPath);
+    const fs = await manager.getFs(workspaceId);
+    return fs.stat(relPath);
   };
 }
 
@@ -27,7 +29,8 @@ export function readFileHandler(
 ): (args: unknown) => Promise<FileReadResult> {
   return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, relPath } = validateArgs(c.readFile.args, args);
-    return manager.requireContext(workspaceId).fs.readFile(relPath);
+    const fs = await manager.getFs(workspaceId);
+    return fs.readFile(relPath);
   };
 }
 
@@ -36,6 +39,7 @@ export function readExternalHandler(
 ): (args: unknown) => Promise<FileReadResult> {
   return async (args: unknown): Promise<FileReadResult> => {
     const { workspaceId, absolutePath } = validateArgs(c.readExternal.args, args);
-    return manager.requireContext(workspaceId).fs.readAbsolute(absolutePath);
+    const fs = await manager.getFs(workspaceId);
+    return fs.readAbsolute(absolutePath);
   };
 }

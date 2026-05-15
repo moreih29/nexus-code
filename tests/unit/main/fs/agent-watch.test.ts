@@ -19,7 +19,7 @@ function makeFixture() {
     },
   };
   const manager = {
-    requireContext: () => ({ fs: provider }),
+    getFs: mock(async (_workspaceId: string) => provider),
   };
   const broadcasts: Array<{ channel: string; event: string; args: unknown }> = [];
   const watcher = new AgentFsWatcher(manager as never, (channel, event, args) => {

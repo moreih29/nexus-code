@@ -111,11 +111,11 @@ function makeFsManagerStub(rootPath: string): {
         tabs: [],
       },
     ],
-    requireContext: (id: string) => {
+    getFs: async (id: string) => {
       if (id !== VALID_UUID) {
         throw new Error(`workspace not found: ${id}`);
       }
-      return { fs: fsProvider };
+      return fsProvider;
     },
   };
 }

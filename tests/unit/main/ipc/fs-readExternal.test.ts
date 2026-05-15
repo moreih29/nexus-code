@@ -28,8 +28,8 @@ function makeProvider(readAbsolute: FsProvider["readAbsolute"]): FsProvider {
 }
 
 function makeManager(provider: FsProvider) {
-  const requireContext = mock((workspaceId: string) => ({ id: workspaceId, fs: provider }));
-  return { manager: { requireContext }, requireContext };
+  const getFs = mock(async (_workspaceId: string) => provider);
+  return { manager: { getFs }, getFs };
 }
 
 describe("readExternalHandler", () => {
@@ -43,7 +43,7 @@ describe("readExternalHandler", () => {
       mtime: "2026-01-01T00:00:00.000Z",
     };
     const readAbsolute = mock(async () => fileResult);
-    const { manager, requireContext } = makeManager(makeProvider(readAbsolute));
+    const { manager, getFs } = makeManager(makeProvider(readAbsolute));
 
     const result = await readExternalHandler(manager as never)({
       workspaceId: WORKSPACE_ID,
@@ -51,7 +51,7 @@ describe("readExternalHandler", () => {
     });
 
     expect(result).toBe(fileResult);
-    expect(requireContext.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(getFs.mock.calls).toEqual([[WORKSPACE_ID]]);
     expect(readAbsolute.mock.calls).toEqual([["/external/src/lib.ts"]]);
   });
 
