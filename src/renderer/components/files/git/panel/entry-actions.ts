@@ -10,6 +10,7 @@
  */
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
 import { ipcCall } from "../../../../ipc/client";
+import { openOrRevealEditor } from "../../../../services/editor";
 import { copyText } from "../../../../utils/clipboard";
 import type { GitPanelOpenDiffInput } from "./git-panel";
 
@@ -48,6 +49,20 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   }
 
   function openChanges(entry: GitStatusEntry, groupKey: GitExpandedGroupKey): void {
+    // Conflict entries (unmerged) contain conflict markers in the working tree.
+    // Opening them as a diff would hit INDEX stage-0 which does not exist for
+    // unmerged files. Instead, open the working-tree file in the in-app editor
+    // so the user can edit conflict markers directly.
+    if (entry.conflictType !== null) {
+      const absPath = absolutePathForEntry(entry);
+      if (!absPath) {
+        ctx.setBanner({ variant: "error", message: "Working tree path is unavailable." });
+        return;
+      }
+      openOrRevealEditor({ workspaceId: ctx.workspaceId, filePath: absPath });
+      return;
+    }
+
     if (ctx.onOpenDiff) {
       ctx.onOpenDiff({ workspaceId: ctx.workspaceId, groupKey, entry });
       return;

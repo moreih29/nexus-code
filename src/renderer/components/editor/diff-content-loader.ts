@@ -236,6 +236,9 @@ export async function readSideContent(
         );
 
   if (result.kind === "missing") {
+    // "missing" covers both absent-at-ref files and unmerged (conflict) files
+    // whose stage-0 index entry does not exist. In both cases render an empty
+    // placeholder so the diff tab stays alive without IPC console errors.
     return {
       content: "",
       encoding: "utf8",

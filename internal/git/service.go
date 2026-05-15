@@ -159,6 +159,13 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 		if isMissing(stderr) {
 			return map[string]any{"kind": "missing", "reason": missingReasonForRef(ref)}, nil
 		}
+		if ref == "INDEX" && isUnmergedIndexEntry(stderr) {
+			// The file is in the index at stages 1/2/3 (merge conflict) but
+			// stage 0 does not exist. Return a typed "missing" result with
+			// reason "index" so the renderer shows an empty placeholder without
+			// propagating a raw fatal error that spams the IPC console.
+			return map[string]any{"kind": "missing", "reason": "index"}, nil
+		}
 		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: strings.TrimSpace(stderr)}
 	}
 	if len(stdout) > maxGitFileContentBytes {
@@ -268,6 +275,13 @@ func isMissing(stderr string) bool {
 		strings.Contains(lower, "exists on disk, but not in") ||
 		strings.Contains(lower, "invalid object name") ||
 		strings.Contains(lower, "pathspec") && strings.Contains(lower, "did not match")
+}
+
+// isUnmergedIndexEntry reports whether a git-show failure is caused by a
+// merge-conflict (unmerged) file whose stage-0 entry is absent. Git emits
+// "is in the index, but not at stage 0" for such paths.
+func isUnmergedIndexEntry(stderr string) bool {
+	return strings.Contains(stderr, "is in the index, but not at stage 0")
 }
 
 func missingReasonForRef(ref string) string {
