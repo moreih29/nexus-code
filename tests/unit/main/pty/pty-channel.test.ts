@@ -5,10 +5,8 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
-import type { PtyHostHandle } from "../../../../src/main/features/pty/host";
-import type { PtyRouteOptions, PtyWorkspaceManager } from "../../../../src/main/features/pty/ipc";
+import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
 import type { PtyRecorderSink } from "../../../../src/main/features/pty/recorder";
-import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
 const mockOn = mock((_channel: string, _handler: unknown) => {});
@@ -42,41 +40,6 @@ type IpcHandler = (
   args: unknown,
   requestId?: unknown,
 ) => Promise<unknown>;
-
-/**
- * FakePtyHost records calls and allows tests to emit utility-host events.
- */
-class FakePtyHost implements PtyHostHandle {
-  readonly calls: Array<{ method: string; args: unknown }> = [];
-  private readonly listeners = new Map<string, Set<(args: unknown) => void>>();
-
-  async call(method: string, args: unknown): Promise<unknown> {
-    this.calls.push({ method, args });
-    return method === "spawn" ? { pid: 101 } : undefined;
-  }
-
-  on(event: string, cb: (args: unknown) => void): () => void {
-    let listeners = this.listeners.get(event);
-    if (!listeners) {
-      listeners = new Set();
-      this.listeners.set(event, listeners);
-    }
-    listeners.add(cb);
-    return () => listeners?.delete(cb);
-  }
-
-  emit(event: string, args: unknown): void {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(args);
-    }
-  }
-
-  isAlive(): boolean {
-    return true;
-  }
-
-  dispose(): void {}
-}
 
 /**
  * FakeAgentChannel models the workspace-scoped Go agent channel.
@@ -123,7 +86,7 @@ class FakeAgentChannel implements AgentChannel {
 }
 
 /**
- * FakeRecorder captures main-side recorder calls without touching utility behavior.
+ * FakeRecorder captures main-side recorder calls for assertion.
  */
 class FakeRecorder implements PtyRecorderSink {
   readonly starts: Array<{ workspaceId: string; tabId: string; cols: number; rows: number }> = [];
@@ -159,53 +122,21 @@ function getIpcCallHandler(): IpcHandler {
 }
 
 /**
- * Creates a registered PTY channel with controllable workspace kind and flag.
+ * Creates a registered PTY channel backed by the agent host.
  */
-function makeFixture(ptyViaAgent: boolean): {
+function makeFixture(): {
   handler: IpcHandler;
-  utilityHost: FakePtyHost;
   agentChannel: FakeAgentChannel;
   recorder: FakeRecorder;
 } {
-  const utilityHost = new FakePtyHost();
   const agentChannel = new FakeAgentChannel();
   const recorder = new FakeRecorder();
   const agentHost = startAgentPtyHost({
     getAgentChannel: async () => agentChannel,
   });
-  const workspaceManager: PtyWorkspaceManager = {
-    requireContext: (workspaceId: string) => ({
-      getMeta: () => workspaceMeta(workspaceId === SSH_WORKSPACE_ID ? "ssh" : "local"),
-    }),
-  };
-  const options: PtyRouteOptions = {
-    agentHost,
-    workspaceManager,
-    stateService: {
-      getState: () => ({ experimental: { ptyViaAgent } }),
-    },
-    recorder,
-  };
-  registerPtyChannel(utilityHost, options);
-  return { handler: getIpcCallHandler(), utilityHost, agentChannel, recorder };
-}
-
-/**
- * Builds the minimal workspace metadata needed by PTY route selection.
- */
-function workspaceMeta(kind: "local" | "ssh"): WorkspaceMeta {
-  return {
-    id: kind === "ssh" ? SSH_WORKSPACE_ID : LOCAL_WORKSPACE_ID,
-    name: kind,
-    location:
-      kind === "ssh"
-        ? { kind: "ssh", host: "example.test", remotePath: "/repo" }
-        : { kind: "local", rootPath: "/repo" },
-    rootPath: "/repo",
-    colorTone: "default",
-    pinned: false,
-    tabs: [],
-  };
+  const options: PtyChannelOptions = { agentHost, recorder };
+  registerPtyChannel(options);
+  return { handler: getIpcCallHandler(), agentChannel, recorder };
 }
 
 /**
@@ -215,41 +146,54 @@ function spawnArgs(workspaceId: string, tabId = TAB_ID): unknown {
   return { workspaceId, tabId, cwd: "/repo", cols: 80, rows: 24 };
 }
 
-describe("registerPtyChannel route selection", () => {
-  test("flag=false local workspace routes to utility host", async () => {
-    const { handler, utilityHost, agentChannel } = makeFixture(false);
-
-    const result = await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-
-    expect(result).toEqual({ pid: 101 });
-    expect(utilityHost.calls.map((call) => call.method)).toContain("spawn");
-    expect(agentChannel.calls).toHaveLength(0);
-  });
-
-  test("flag=false SSH workspace routes to agent host", async () => {
-    const { handler, utilityHost, agentChannel } = makeFixture(false);
-
-    const result = await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
-
-    expect(result).toEqual({ pid: 202 });
-    expect(utilityHost.calls).toHaveLength(0);
-    expect(agentChannel.calls[0]).toMatchObject({ method: "pty.spawn" });
-  });
-
-  test("flag=true local workspace routes to agent host", async () => {
-    const { handler, utilityHost, agentChannel } = makeFixture(true);
+describe("registerPtyChannel agent lifecycle", () => {
+  test("spawn routes to agent host and returns pid", async () => {
+    const { handler, agentChannel } = makeFixture();
 
     const result = await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
 
     expect(result).toEqual({ pid: 202 });
-    expect(utilityHost.calls).toHaveLength(0);
     expect(agentChannel.calls[0]).toMatchObject({ method: "pty.spawn" });
   });
-});
 
-describe("registerPtyChannel PTY ack routing", () => {
-  test("agent sessions forward bytesConsumed to pty.ack", async () => {
-    const { handler, agentChannel } = makeFixture(true);
+  test("write forwards to agent host", async () => {
+    const { handler, agentChannel } = makeFixture();
+    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
+    agentChannel.calls.length = 0;
+
+    await handler({}, "pty", "write", {
+      workspaceId: LOCAL_WORKSPACE_ID,
+      tabId: TAB_ID,
+      data: "hello",
+    });
+
+    expect(agentChannel.calls).toEqual([
+      { method: "pty.write", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, data: "hello" } },
+    ]);
+  });
+
+  test("resize forwards to agent host and records resize", async () => {
+    const { handler, agentChannel, recorder } = makeFixture();
+    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
+    agentChannel.calls.length = 0;
+
+    await handler({}, "pty", "resize", {
+      workspaceId: LOCAL_WORKSPACE_ID,
+      tabId: TAB_ID,
+      cols: 100,
+      rows: 30,
+    });
+
+    expect(agentChannel.calls).toEqual([
+      { method: "pty.resize", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 100, rows: 30 } },
+    ]);
+    expect(recorder.resizes).toEqual([
+      { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 100, rows: 30 },
+    ]);
+  });
+
+  test("ack sends bytesConsumed to agent host", async () => {
+    const { handler, agentChannel } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
     agentChannel.calls.length = 0;
 
@@ -267,29 +211,31 @@ describe("registerPtyChannel PTY ack routing", () => {
     ]);
   });
 
-  test("utility sessions preserve legacy charCount ack payload", async () => {
-    const { handler, utilityHost } = makeFixture(false);
+  test("kill forwards to agent host", async () => {
+    const { handler, agentChannel } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    utilityHost.calls.length = 0;
+    agentChannel.calls.length = 0;
 
-    await handler({}, "pty", "ack", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      bytesConsumed: 17,
-    });
+    await handler({}, "pty", "kill", { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID });
 
-    expect(utilityHost.calls).toEqual([
-      {
-        method: "ack",
-        args: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, charCount: 17 },
-      },
+    expect(agentChannel.calls).toEqual([
+      { method: "pty.kill", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID } },
     ]);
+  });
+
+  test("SSH workspace also routes to agent host", async () => {
+    const { handler, agentChannel } = makeFixture();
+
+    const result = await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
+
+    expect(result).toEqual({ pid: 202 });
+    expect(agentChannel.calls[0]).toMatchObject({ method: "pty.spawn" });
   });
 });
 
 describe("registerPtyChannel agent events", () => {
-  test("forwards agent data without synthesizing ack", async () => {
-    const { handler, agentChannel, recorder } = makeFixture(true);
+  test("forwards agent data to renderer and recorder", async () => {
+    const { handler, agentChannel, recorder } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
     agentChannel.calls.length = 0;
     mockSend.mockClear();
@@ -312,7 +258,7 @@ describe("registerPtyChannel agent events", () => {
   });
 
   test("streams UTF-8 decoding across split base64 PTY chunks", async () => {
-    const { handler, agentChannel } = makeFixture(true);
+    const { handler, agentChannel } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
     mockSend.mockClear();
 
@@ -340,7 +286,7 @@ describe("registerPtyChannel agent events", () => {
     { type: "exit", code: 0, signal: null } as const,
   ]) {
     test(`broadcasts code=null exits for known sessions on channel ${lifecycle.type}`, async () => {
-      const { handler, agentChannel } = makeFixture(true);
+      const { handler, agentChannel } = makeFixture();
       const tabA = "44444444-4444-4444-8444-444444444444";
       const tabB = "55555555-5555-4555-8555-555555555555";
       await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID, tabA));
@@ -363,45 +309,15 @@ describe("registerPtyChannel agent events", () => {
   }
 });
 
-describe("registerPtyChannel recorder routing", () => {
-  test("starts and resizes the main recorder for agent sessions", async () => {
-    const { handler, recorder } = makeFixture(true);
+describe("registerPtyChannel recorder", () => {
+  test("starts recorder on spawn and stops on exit", async () => {
+    const { handler, agentChannel, recorder } = makeFixture();
 
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    await handler({}, "pty", "resize", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      cols: 100,
-      rows: 30,
-    });
 
     expect(recorder.starts).toEqual([
       { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 80, rows: 24 },
     ]);
-    expect(recorder.resizes).toEqual([
-      { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 100, rows: 30 },
-    ]);
-  });
-
-  test("does not start or append the main recorder for utility sessions", async () => {
-    const { handler, utilityHost, recorder } = makeFixture(false);
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    mockSend.mockClear();
-
-    utilityHost.emit("data", { tabId: TAB_ID, chunk: "utility-owned" });
-
-    expect(mockSend).toHaveBeenCalledWith("ipc:event", "pty", "data", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      chunk: "utility-owned",
-    });
-    expect(recorder.starts).toHaveLength(0);
-    expect(recorder.data).toHaveLength(0);
-  });
-
-  test("stops the main recorder when an agent session exits", async () => {
-    const { handler, agentChannel, recorder } = makeFixture(true);
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
 
     agentChannel.emit("pty.exit", {
       workspaceId: LOCAL_WORKSPACE_ID,
@@ -411,57 +327,24 @@ describe("registerPtyChannel recorder routing", () => {
 
     expect(recorder.stops).toEqual([{ workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID }]);
   });
-});
 
-describe("registerPtyChannel kill cleanup (W1)", () => {
-  test("removes workspaceIdByTabId and routeBySession entries immediately on kill", async () => {
-    // After kill, a follow-up utility exit event must not route — the session
-    // maps must already be empty.
-    const { handler, utilityHost } = makeFixture(false);
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    mockSend.mockClear();
+  test("stops recorder when spawn call throws", async () => {
+    const agentChannel = new FakeAgentChannel();
+    const recorder = new FakeRecorder();
+    // Override call so spawn always rejects.
+    agentChannel.call = async (method: string) => {
+      if (method === "pty.spawn") throw new Error("agent error");
+      return {};
+    };
+    const agentHost = startAgentPtyHost({ getAgentChannel: async () => agentChannel });
+    registerPtyChannel({ agentHost, recorder });
+    const handler = getIpcCallHandler();
 
-    await handler({}, "pty", "kill", { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID });
+    await expect(handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID))).rejects.toThrow(
+      "agent error",
+    );
 
-    // Emit a utility exit after kill — should be dropped because the tab is
-    // no longer in workspaceIdByTabId.
-    utilityHost.emit("exit", { tabId: TAB_ID, code: 0 });
-
-    // broadcast should NOT have been called for this stale exit.
-    expect(
-      mockSend.mock.calls.some(
-        (call) =>
-          call[1] === "pty" &&
-          call[2] === "exit" &&
-          (call[3] as { tabId?: string })?.tabId === TAB_ID,
-      ),
-    ).toBe(false);
-  });
-
-  test("removes routeBySession entry for agent session immediately on kill", async () => {
-    // Spawn an agent session, kill it, then confirm a subsequent exit event
-    // on the agent channel does not broadcast a second exit.
-    const { handler, agentChannel } = makeFixture(false);
-    await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
-    mockSend.mockClear();
-
-    await handler({}, "pty", "kill", { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID });
-
-    // Emit an agent exit after kill — should be dropped (route entry gone).
-    agentChannel.emit("pty.exit", {
-      workspaceId: SSH_WORKSPACE_ID,
-      tabId: TAB_ID,
-      code: null,
-    });
-
-    expect(
-      mockSend.mock.calls.some(
-        (call) =>
-          call[1] === "pty" &&
-          call[2] === "exit" &&
-          (call[3] as { tabId?: string })?.tabId === TAB_ID,
-      ),
-    ).toBe(false);
+    expect(recorder.stops).toEqual([{ workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID }]);
   });
 });
 
@@ -510,33 +393,5 @@ describe("agentPtyHost dispose broadcasts pty.exit (W2)", () => {
     agentHost.dispose();
 
     expect(exits).toHaveLength(0);
-  });
-});
-
-describe("routeForNewSession SSH without agentHost throws (W3)", () => {
-  test("SSH workspace with agentHost=undefined throws on spawn", async () => {
-    const utilityHost = new FakePtyHost();
-    const agentChannel = new FakeAgentChannel();
-    const workspaceManager: PtyWorkspaceManager = {
-      requireContext: (workspaceId: string) => ({
-        getMeta: () => workspaceMeta(workspaceId === SSH_WORKSPACE_ID ? "ssh" : "local"),
-      }),
-    };
-    // Intentionally omit agentHost to exercise the guard.
-    const options: PtyRouteOptions = {
-      agentHost: undefined,
-      workspaceManager,
-      stateService: { getState: () => ({ experimental: { ptyViaAgent: false } }) },
-    };
-    registerPtyChannel(utilityHost, options);
-    const handler = getIpcCallHandler();
-
-    // Suppress the unused variable warning; agentChannel is only used by
-    // other fixtures and is referenced here to prevent tree-shaking.
-    void agentChannel;
-
-    await expect(handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID))).rejects.toThrow(
-      "SSH workspace requires the agent PTY host but it is not configured",
-    );
   });
 });

@@ -190,10 +190,7 @@ func (s *Service) Ack(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	bytesConsumed := p.BytesConsumed
-	if bytesConsumed == 0 && p.LegacyCharCount > 0 {
-		bytesConsumed = p.LegacyCharCount
-	}
-	if bytesConsumed < 0 || p.LegacyCharCount < 0 {
+	if bytesConsumed < 0 {
 		return nil, protocolError("pty.ack bytesConsumed must be non-negative")
 	}
 	session := s.lookup(key)

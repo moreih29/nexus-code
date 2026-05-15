@@ -301,6 +301,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "Remote agent protocol version mismatch";
     case "ssh.unknown":
       return "SSH transport failed";
+    case "transport.unknown":
+      return "Agent transport failed";
   }
 }
 

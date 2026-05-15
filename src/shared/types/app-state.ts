@@ -14,11 +14,6 @@ export const AppStateSchema = z.object({
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
-  experimental: z
-    .object({
-      ptyViaAgent: z.boolean().optional(),
-    })
-    .optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

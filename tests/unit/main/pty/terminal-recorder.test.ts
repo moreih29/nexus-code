@@ -5,7 +5,6 @@ import {
   TerminalRecorder,
   TerminalRecorderRegistry,
 } from "../../../../src/main/features/pty/recorder";
-import { TerminalRecorder as UtilityTerminalRecorder } from "../../../../src/utility/pty-host/terminal-recorder";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const TAB_ID = "33333333-3333-4333-8333-333333333333";
@@ -42,14 +41,6 @@ describe("main TerminalRecorder", () => {
     expect(replayJson(recorder)).toBe(readFileSync(fixturePath, "utf8"));
   });
 
-  test("preserves utility recorder output shape for identical input and resize sequence", () => {
-    const mainRecorder = new TerminalRecorder(80, 24);
-    const utilityRecorder = new UtilityTerminalRecorder(80, 24);
-    applyFixtureSequence(mainRecorder);
-    applyFixtureSequence(utilityRecorder);
-
-    expect(replayJson(mainRecorder)).toBe(replayJson(utilityRecorder));
-  });
 });
 
 describe("TerminalRecorderRegistry", () => {

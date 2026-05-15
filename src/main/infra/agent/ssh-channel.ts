@@ -89,6 +89,8 @@ function createAuthenticatedSshChannel(
   let disposeInnerLifecycle: (() => void) | null = null;
   let disposeMaster: (() => void) | null = null;
 
+  // Reached only when no controlPath was provided by the caller — i.e. the
+  // bootstrap path was not used and we must authenticate our own ControlMaster.
   const ready = authenticateSshControlMaster(options, promptHandler, {
     ...dependencies.auth,
     spawn: dependencies.auth?.spawn ?? dependencies.spawn,

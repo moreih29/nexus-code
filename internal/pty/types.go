@@ -56,10 +56,9 @@ type ResizeParams struct {
 
 // AckParams is the wire shape for pty.ack.
 type AckParams struct {
-	WorkspaceID     string `json:"workspaceId"`
-	TabID           string `json:"tabId"`
-	BytesConsumed   int    `json:"bytesConsumed"`
-	LegacyCharCount int    `json:"charCount,omitempty"`
+	WorkspaceID   string `json:"workspaceId"`
+	TabID         string `json:"tabId"`
+	BytesConsumed int    `json:"bytesConsumed"`
 }
 
 // KillParams is the wire shape for pty.kill.

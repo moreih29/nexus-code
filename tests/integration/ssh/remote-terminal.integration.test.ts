@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { startAgentPtyHost } from "../../../src/main/features/pty/agent-host";
-import type { PtyHostHandle } from "../../../src/main/features/pty/host";
+import type { PtyHostHandle } from "../../../src/main/features/pty/types";
 import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 import { createSshChannel } from "../../../src/main/infra/agent/ssh-channel";
 import { ensureRemoteAgent } from "../../../src/main/infra/agent/ssh-bootstrap";

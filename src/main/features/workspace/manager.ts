@@ -514,6 +514,9 @@ export class WorkspaceManager {
     try {
       await channel.ready;
     } catch (error) {
+      // channel.ready failed: bootstrap already succeeded and transferred
+      // ownership of the ControlMaster to us, so we must dispose both
+      // bootstrap (ControlMaster) and channel here before re-throwing.
       disposeLifecycleListener();
       this.broadcastConnectionStatus(meta.id, "error");
       if (this.sshChannels.get(meta.id) === channel) {

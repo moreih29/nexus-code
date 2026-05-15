@@ -197,6 +197,8 @@ export async function ensureRemoteAgent(
       dependencies.onProgress,
     );
 
+    // On success, ownership of the ControlMaster passes to the caller via the
+    // returned `dispose` callback. The caller is responsible for calling it.
     return {
       remoteCommand: buildRemoteAgentCommand(remoteBinaryPath, options.remotePath),
       platform,
@@ -205,6 +207,8 @@ export async function ensureRemoteAgent(
       dispose: authenticatedMaster ? () => authenticatedMaster.dispose() : undefined,
     };
   } catch (error) {
+    // This function never returned, so the caller has no dispose handle.
+    // Dispose the ControlMaster here before propagating the error.
     authenticatedMaster?.dispose();
     throw error;
   }
