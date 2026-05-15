@@ -26,7 +26,15 @@ export interface IpcCallOptions {
 
 export interface IpcStreamHandle<TProgress, TComplete> {
   promise: Promise<TComplete>;
-  onProgress(callback: (data: TProgress) => void): () => void;
+  /**
+   * Subscribe a progress callback for the lifetime of this stream. Callbacks
+   * are cleared automatically when the stream settles (success, error, or
+   * abort) via `cleanup()`, so callers do not manage individual unsubscribes.
+   * If selective mid-stream removal is ever needed, return an unsubscribe
+   * handle here — until then, the void return prevents discard-shaped
+   * regressions where a returned handle would silently leak.
+   */
+  onProgress(callback: (data: TProgress) => void): void;
   cancel(): void;
 }
 
@@ -248,9 +256,6 @@ export function ipcStream<C extends StreamChannels, M extends StreamMethods<C>>(
     promise,
     onProgress(callback) {
       progressCallbacks.add(callback);
-      return () => {
-        progressCallbacks.delete(callback);
-      };
     },
     cancel() {
       abortRequested = true;

@@ -183,21 +183,6 @@ describe("renderer ipcStream primitive", () => {
     expect(error.message).toBe("The operation was aborted");
   });
 
-  test("onProgress unregister prevents later callback invocation", async () => {
-    const stream = startTestStream();
-    const progress = mock((_payload: ProgressPayload) => {});
-    const unregister = stream.onProgress(progress);
-    await waitForRegistration();
-
-    unregister();
-    dispatchFromBridge({ streamId: "stream-1", kind: "progress", data: { step: 1 } });
-
-    expect(progress).not.toHaveBeenCalled();
-
-    dispatchFromBridge({ streamId: "stream-1", kind: "complete", data: { done: true } });
-    await stream.promise;
-  });
-
   test("wrong streamId is ignored by the bridge registration map", async () => {
     const stream = startTestStream();
     const progress = mock((_payload: ProgressPayload) => {});
