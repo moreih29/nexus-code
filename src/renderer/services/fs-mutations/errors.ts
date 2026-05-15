@@ -9,7 +9,7 @@
  */
 
 import { showToast } from "@/components/ui/toast";
-import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs-errors";
+import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/fs-errors";
 
 export interface FsToastMessages {
   /** Generic fallback when no code matches. */

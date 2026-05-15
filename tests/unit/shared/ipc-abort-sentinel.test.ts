@@ -3,7 +3,7 @@ import {
   IPC_ABORT_SENTINEL,
   IPC_ABORT_SENTINEL_TAG,
   isIpcAbortSentinel,
-} from "../../../src/shared/ipc-abort-sentinel";
+} from "../../../src/shared/ipc/ipc-abort-sentinel";
 
 describe("isIpcAbortSentinel", () => {
   test("returns true for IPC_ABORT_SENTINEL", () => {

@@ -1,7 +1,7 @@
 /**
  * Content handlers — Git object reads used by diff tabs.
  */
-import { ipcContract } from "../../../../shared/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import {
   AgentGitGetFileContentResultSchema,
   GIT_GET_FILE_CONTENT_METHOD,

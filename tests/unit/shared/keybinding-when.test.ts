@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateWhen, parseWhen } from "../../../src/shared/keybinding-when";
+import { evaluateWhen, parseWhen } from "../../../src/shared/keybindings/keybinding-when";
 
 function ev(expr: string, ctx: Record<string, boolean>): boolean {
   return evaluateWhen(parseWhen(expr), (name) => ctx[name] === true);

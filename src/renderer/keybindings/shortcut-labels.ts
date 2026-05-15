@@ -13,8 +13,8 @@
  */
 
 import { COMMANDS, type CommandId } from "../../shared/commands";
-import { acceleratorToLabel, chordToLabel } from "../../shared/keybinding-parse";
-import { findChordBinding, findPrimaryBinding } from "../../shared/keybindings";
+import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
+import { findChordBinding, findPrimaryBinding } from "../../shared/keybindings/index";
 
 // `window.host` is provided by the preload bridge in production; in unit
 // tests there is no window — fall back to a node-y `process.platform`

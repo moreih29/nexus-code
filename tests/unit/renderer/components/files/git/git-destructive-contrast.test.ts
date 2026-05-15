@@ -6,7 +6,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { converter } from "culori";
-import { color } from "../../../../../../src/shared/design-tokens";
+import { color } from "../../../../../../src/shared/design-tokens/design-tokens";
 
 const MIN_SMALL_TEXT_CONTRAST = 4.5;
 const GIT_DESTRUCTIVE_CLASS = "git-destructive-text";

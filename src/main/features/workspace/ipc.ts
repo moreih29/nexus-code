@@ -1,4 +1,4 @@
-import { ipcContract } from "../../../shared/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/types/ssh-errors";
 import {
   type EnsureRemoteAgentOptions,

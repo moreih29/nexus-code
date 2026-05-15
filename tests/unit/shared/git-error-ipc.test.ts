@@ -18,7 +18,7 @@ import {
   isIpcGitErrorPayload,
   isIpcGitErrorResult,
   rehydrateGitErrorFromCause,
-} from "../../../src/shared/git-error-ipc";
+} from "../../../src/shared/git/git-error-ipc";
 
 describe("isIpcGitErrorPayload", () => {
   test("accepts a payload with the sentinel mark", () => {

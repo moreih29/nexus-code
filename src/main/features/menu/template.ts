@@ -20,8 +20,8 @@
  * handle them uniformly.
  */
 import { COMMANDS, type CommandId } from "../../../shared/commands";
-import { chordToLabel } from "../../../shared/keybinding-parse";
-import { findChordBinding, findPrimaryBinding } from "../../../shared/keybindings";
+import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
+import { findChordBinding, findPrimaryBinding } from "../../../shared/keybindings/index";
 
 export type MenuItemSpec =
   | { type: "separator" }

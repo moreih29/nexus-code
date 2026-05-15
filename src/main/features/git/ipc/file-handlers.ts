@@ -7,7 +7,7 @@ import {
   type InferComplete,
   type InferProgress,
   ipcContract,
-} from "../../../../shared/ipc-contract";
+} from "../../../../shared/ipc/ipc-contract";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext, StreamContext } from "../../../infra/ipc/router";

@@ -1,7 +1,7 @@
 /**
  * Workflow handlers — merge/rebase/cherry-pick and conflict resolution calls.
  */
-import { ipcContract } from "../../../../shared/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type {
   GitCherryPickResult,
   GitContinueOpResult,

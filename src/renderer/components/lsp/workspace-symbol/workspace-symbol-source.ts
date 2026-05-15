@@ -1,4 +1,4 @@
-import { fileUriToAbsolutePath } from "../../../../shared/file-uri";
+import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import type { OpenEditorOptions } from "../../../services/editor";
 import { revealEditorAt } from "../../../services/editor/tabs";
 import {

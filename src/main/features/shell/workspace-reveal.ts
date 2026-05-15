@@ -6,8 +6,8 @@
  * and local paths need to be checked before Electron's best-effort API runs.
  */
 import fs from "node:fs";
-import { fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs-errors";
-import { ipcContract } from "../../../shared/ipc-contract";
+import { fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/fs-errors";
+import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import { validateArgs } from "../../infra/ipc/router";
 import { resolveLocalWorkspacePath } from "../workspace/path-safety";
 import type { WorkspaceManager } from "../workspace/manager";

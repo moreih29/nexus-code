@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
-import { appTypeScale, typeScale } from "../../shared/design-tokens";
+import { appTypeScale, typeScale } from "../../shared/design-tokens/design-tokens";
 
 // ---------------------------------------------------------------------------
 // tailwind-merge — register custom typography utilities

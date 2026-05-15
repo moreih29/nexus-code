@@ -2,7 +2,7 @@
  * GitPanel is the top-level Source Control surface for one workspace.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { validateGitRemoteUrl } from "../../../../../shared/git-remote-validation";
+import { validateGitRemoteUrl } from "../../../../../shared/git/git-remote-validation";
 import {
   type BranchList,
   DEFAULT_GIT_PANEL_STATE,

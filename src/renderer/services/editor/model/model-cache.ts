@@ -4,7 +4,7 @@
 // React binding lives in `./use-shared-model.ts`.
 
 import type * as Monaco from "monaco-editor";
-import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/file-uri";
+import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { registerWorkspaceCleanup } from "../../../state/lifecycle/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { initializeMonacoSingleton } from "../runtime/monaco-singleton";

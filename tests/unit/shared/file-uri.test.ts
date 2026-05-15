@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../src/shared/file-uri";
+import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../src/shared/fs/file-uri";
 
 describe("file URI helpers", () => {
   test("keeps plain absolute POSIX paths readable", () => {

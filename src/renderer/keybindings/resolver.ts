@@ -20,9 +20,9 @@ import {
   matchesEvent,
   type ParsedKeystroke,
   parseAccelerator,
-} from "../../shared/keybinding-parse";
-import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybinding-when";
-import { KEYBINDINGS, type KeybindingDecl } from "../../shared/keybindings";
+} from "../../shared/keybindings/keybinding-parse";
+import { evaluateWhen, parseWhen, type WhenExpr } from "../../shared/keybindings/keybinding-when";
+import { KEYBINDINGS, type KeybindingDecl } from "../../shared/keybindings/index";
 import { evaluateContextKey } from "./context-keys";
 
 interface CompiledPrimary {

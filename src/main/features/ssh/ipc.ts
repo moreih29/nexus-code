@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ipcContract } from "../../../shared/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import { parseSshConfig, type SshConfigHost } from "./config";
 import { register, validateArgs } from "../../infra/ipc/router";
 

@@ -2,7 +2,7 @@ import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import { color, fontFamily, typeScale } from "../../../shared/design-tokens";
+import { color, fontFamily, typeScale } from "../../../shared/design-tokens/design-tokens";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,

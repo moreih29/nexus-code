@@ -2,7 +2,7 @@
 // Renderer calls are forwarded to the LSP host, and diagnostics events are
 // broadcast to all renderers.
 
-import { ipcContract } from "../../../shared/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,
@@ -13,7 +13,7 @@ import type {
   Location,
   SymbolInformation,
 } from "../../../shared/lsp";
-import { PendingRequestMap } from "../../../shared/pending-request-map";
+import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import type { LspHostHandle } from "./host";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc/router";

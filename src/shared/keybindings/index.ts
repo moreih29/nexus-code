@@ -21,7 +21,7 @@
  * `Shift`, `Alt`/`Option`. Single-letter tokens map to KeyA…KeyZ.
  */
 
-import { COMMANDS, type CommandId } from "./commands";
+import { COMMANDS, type CommandId } from "../commands";
 
 /** Same shape Electron's `MenuItemConstructorOptions.accelerator` accepts. */
 export type AcceleratorString = string;

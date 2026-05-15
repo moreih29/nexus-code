@@ -45,7 +45,7 @@ import type {
 } from "../bridge/types";
 import { readHeadBlobAsText } from "./blob-text-decode";
 import { GitError } from "./error";
-import { isAllowedGitRemoteUrl } from "../../../../shared/git-remote-validation";
+import { isAllowedGitRemoteUrl } from "../../../../shared/git/git-remote-validation";
 import {
   assertHasHead,
   buildCommitArgs,

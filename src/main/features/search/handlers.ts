@@ -4,7 +4,7 @@ import type {
   InferComplete,
   InferProgress,
   ipcContract,
-} from "../../../shared/ipc-contract";
+} from "../../../shared/ipc/ipc-contract";
 import {
   AgentSearchCompleteSchema,
   AgentSearchProgressPayloadSchema,

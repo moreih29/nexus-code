@@ -1,7 +1,7 @@
 // File content loading and external-change reconciliation.
 // Owns readFile via fs IPC, encoding detection, and fs.changed event-driven reload.
 
-import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs-errors";
+import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs/fs-errors";
 import type { FileContent, FsChangedEvent } from "../../../../shared/types/fs";
 import { ipcCall, ipcListen } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";

@@ -14,7 +14,7 @@ import {
   openPathExternalHandler,
   revealInOSHandler,
 } from "../../../../src/main/features/shell/open-path";
-import { ipcContract } from "../../../../src/shared/ipc-contract";
+import { ipcContract } from "../../../../src/shared/ipc/ipc-contract";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-system-ipc-"));

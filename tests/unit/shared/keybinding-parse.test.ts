@@ -8,7 +8,7 @@ import {
   chordToLabel,
   matchesEvent,
   parseAccelerator,
-} from "../../../src/shared/keybinding-parse";
+} from "../../../src/shared/keybindings/keybinding-parse";
 
 interface MockKE {
   metaKey: boolean;

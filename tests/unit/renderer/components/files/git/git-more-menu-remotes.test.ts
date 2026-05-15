@@ -16,7 +16,7 @@ import {
   runGitBranchMenuAction,
   runGitTagMenuAction,
 } from "../../../../../../src/renderer/components/files/git/utils/git-more-menu-model";
-import { validateGitRemoteUrl } from "../../../../../../src/shared/git-remote-validation";
+import { validateGitRemoteUrl } from "../../../../../../src/shared/git/git-remote-validation";
 import type { BranchInfo } from "../../../../../../src/shared/types/git";
 
 const branch: BranchInfo = {

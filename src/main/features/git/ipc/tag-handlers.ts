@@ -2,7 +2,7 @@
  * Tag management handlers — list, create, delete local, and delete remote
  * tags while refreshing RepoCapabilities.tagCount after every mutation.
  */
-import { ipcContract } from "../../../../shared/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { RemoteTag, Tag } from "../../../../shared/types/git";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";

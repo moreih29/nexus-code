@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PendingRequestMap } from "../../../src/shared/pending-request-map";
+import { PendingRequestMap } from "../../../src/shared/ipc/pending-request-map";
 
 describe("PendingRequestMap", () => {
   test("register returns a promise that resolves when resolve() is called", async () => {

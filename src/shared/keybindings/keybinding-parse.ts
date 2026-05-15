@@ -13,7 +13,7 @@
  * cheap to unit-test and reuse on either side of the IPC boundary.
  */
 
-import type { AcceleratorString } from "./keybindings";
+import type { AcceleratorString } from "./index";
 
 export interface ParsedKeystroke {
   /**

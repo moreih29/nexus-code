@@ -2,8 +2,8 @@
  * Stash handlers — save, list, inspect, and restore dirty worktree state.
  */
 
-import type { InferArgs, InferComplete, InferProgress } from "../../../../shared/ipc-contract";
-import { ipcContract } from "../../../../shared/ipc-contract";
+import type { InferArgs, InferComplete, InferProgress } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext, StreamContext } from "../../../infra/ipc/router";

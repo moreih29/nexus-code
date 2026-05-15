@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CommandIdSchema } from "./commands";
+import { CommandIdSchema } from "../commands";
 import {
   ApplyWorkspaceEditParamsSchema,
   ApplyWorkspaceEditResultSchema,
@@ -18,9 +18,9 @@ import {
   TextDocumentItemSchema,
   TextDocumentPositionArgsSchema,
   WorkspaceSymbolArgsSchema,
-} from "./lsp";
-import { AppStateSchema } from "./types/app-state";
-import { ColorToneSchema } from "./types/color-tone";
+} from "../lsp";
+import { AppStateSchema } from "../types/app-state";
+import { ColorToneSchema } from "../types/color-tone";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -28,7 +28,7 @@ import {
   FsChangedEventSchema,
   FsStatSchema,
   WriteFileResultSchema,
-} from "./types/fs";
+} from "../types/fs";
 import {
   AskpassPromptSchema,
   AskpassRespondArgsSchema,
@@ -73,25 +73,25 @@ import {
   RepoInfoSchema,
   StashEntrySchema,
   TagSchema,
-} from "./types/git";
+} from "../types/git";
 import {
   PanelGetViewOptionsArgsSchema,
   PanelSetViewOptionsArgsSchema,
   PanelViewOptionsSchema,
-} from "./types/panel";
-import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types/search";
+} from "../types/panel";
+import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../types/search";
 import {
   SshAuthCancelArgsSchema,
   SshAuthPromptSchema,
   SshAuthRespondArgsSchema,
-} from "./types/ssh-auth-prompt";
-import { SshErrorCodeSchema } from "./types/ssh-errors";
-import { TabMetaSchema } from "./types/tab";
+} from "../types/ssh-auth-prompt";
+import { SshErrorCodeSchema } from "../types/ssh-errors";
+import { TabMetaSchema } from "../types/tab";
 import {
   WorkspaceConnectionChangedEventSchema,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
-} from "./types/workspace";
+} from "../types/workspace";
 
 // ---------------------------------------------------------------------------
 // Primitive procedure descriptors

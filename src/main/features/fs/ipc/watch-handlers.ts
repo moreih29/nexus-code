@@ -1,7 +1,7 @@
 /**
  * fs watch handlers — watch / unwatch lifecycle.
  */
-import { ipcContract } from "../../../../shared/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import { validateArgs } from "../../../infra/ipc/router";
 import type { AgentFsWatcher } from "../bridge/agent-watch";
 

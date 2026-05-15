@@ -4,7 +4,7 @@
 // edit lifecycle to track, and routing LSP traffic for an unrelated workspace would
 // confuse server roots.
 
-import { absolutePathToFileUri } from "../../../../shared/file-uri";
+import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { ipcCall } from "../../../ipc/client";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";

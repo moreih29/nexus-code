@@ -9,7 +9,7 @@ import path from "node:path";
 import type { GitLogArgs } from "../../../../src/main/features/git/domain/repository";
 import type { GitRepository } from "../../../../src/main/features/git/domain/repository";
 import { newLocalGitRepository } from "./helpers/local-semantic-executor";
-import { ipcContract } from "../../../../src/shared/ipc-contract";
+import { ipcContract } from "../../../../src/shared/ipc/ipc-contract";
 import type { LogEntry } from "../../../../src/shared/types/git";
 
 const gitOnPath = findGitOnPath();

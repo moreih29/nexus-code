@@ -1,7 +1,7 @@
 /**
  * Commit handlers — create commits and refresh Source Control status.
  */
-import { ipcContract } from "../../../../shared/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { CommitResult } from "../../../../shared/types/git";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";

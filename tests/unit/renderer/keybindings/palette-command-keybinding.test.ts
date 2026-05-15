@@ -15,7 +15,7 @@ import {
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
 import { COMMANDS } from "../../../../src/shared/commands";
-import { findPrimaryBinding } from "../../../../src/shared/keybindings";
+import { findPrimaryBinding } from "../../../../src/shared/keybindings/index";
 
 interface MockEvent {
   metaKey: boolean;
