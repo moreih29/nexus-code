@@ -1047,6 +1047,12 @@ export class GitRepository {
 
   /**
    * Adds one streaming operation to the serial chain and holds it until return.
+   *
+   * Cleanup is guarded by an idempotent gate so that an abort raised while a
+   * consumer is parked at `yield` — and the IPC router skips `.return()` on
+   * the generator — still releases the queue slot. Without that, `release()`
+   * would never fire and every subsequent queued operation on this repository
+   * would block forever (same regression shape as 53781ae).
    */
   private async *queueStream<T, R>(
     run: (signal: AbortSignal) => AsyncGenerator<T, R, unknown>,
@@ -1064,13 +1070,22 @@ export class GitRepository {
       () => completion,
     );
 
+    let tornDown = false;
+    const tearDown = (): void => {
+      if (tornDown) return;
+      tornDown = true;
+      signal?.removeEventListener("abort", tearDown);
+      operation.cleanup();
+      release();
+    };
+    signal?.addEventListener("abort", tearDown, { once: true });
+
     try {
       await previous;
       throwIfAborted(operation.controller.signal);
       return yield* run(operation.controller.signal);
     } finally {
-      operation.cleanup();
-      release();
+      tearDown();
     }
   }
 

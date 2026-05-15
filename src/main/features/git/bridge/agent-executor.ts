@@ -253,6 +253,23 @@ export class AgentGitExecutor implements GitExecutor {
       queue.push(Buffer.from(parsed.data.chunk, "base64"));
     });
 
+    // Idempotent gate so the abort handler (when the consumer is parked at
+    // `yield`) and the natural `finally` path converge on the same teardown
+    // exactly once — without it, an aborted-and-skipped `.return()` leaves
+    // `unsubscribe` permanently attached to the channel, the same shape that
+    // 53781ae fixed in `streamAgentEvents`.
+    let tornDown = false;
+    const tearDown = (): void => {
+      if (tornDown) return;
+      tornDown = true;
+      options.signal?.removeEventListener("abort", abort);
+      unsubscribe();
+      unwireAskpass();
+      void provider
+        .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId }))
+        .catch(() => {});
+    };
+
     const complete = provider
       .callAgentMethod(GIT_STREAM_METHOD, {
         streamId,
@@ -272,9 +289,8 @@ export class AgentGitExecutor implements GitExecutor {
     complete.catch(() => {});
 
     const abort = (): void => {
-      const params = AgentGitCancelParamsSchema.parse({ streamId });
-      void provider.callAgentMethod(GIT_CANCEL_METHOD, params).catch(() => {});
       queue.fail(createAbortError());
+      tearDown();
     };
     options.signal?.addEventListener("abort", abort, { once: true });
 
@@ -291,12 +307,7 @@ export class AgentGitExecutor implements GitExecutor {
         yield next.value;
       }
     } finally {
-      options.signal?.removeEventListener("abort", abort);
-      unsubscribe();
-      unwireAskpass();
-      void provider
-        .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId }))
-        .catch(() => {});
+      tearDown();
     }
   }
 

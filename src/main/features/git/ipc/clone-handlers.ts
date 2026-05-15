@@ -49,6 +49,20 @@ export function cloneStream(executorFactory: CloneExecutorFactory): CloneStreamH
   ): AsyncGenerator<CloneStreamProgress, CloneStreamComplete, unknown> {
     const handle = executorFactory(args.destination);
 
+    // Idempotent dispose so the abort path (the IPC router may skip
+    // `.return()` on an aborted generator, leaving the outer `finally`
+    // dormant) and the natural completion path converge on the same
+    // teardown exactly once. Without it, an abort while parked on
+    // `yield event` would leak the temporary executor and its channel.
+    let disposed = false;
+    const dispose = (): void => {
+      if (disposed) return;
+      disposed = true;
+      handle.dispose();
+    };
+    const onAbort = (): void => dispose();
+    ctx.signal?.addEventListener("abort", onAbort, { once: true });
+
     try {
       if (!handle.executor.clone) {
         throw new Error("AgentGitExecutor.clone is not available");
@@ -77,7 +91,8 @@ export function cloneStream(executorFactory: CloneExecutorFactory): CloneStreamH
       }
       return terminal.value as CloneStreamComplete;
     } finally {
-      handle.dispose();
+      ctx.signal?.removeEventListener("abort", onAbort);
+      dispose();
     }
   };
 }
