@@ -142,6 +142,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     try {
       frame = parseFrame(line);
     } catch (error) {
+      // Surface the offending line once so the operator can tell what kind of
+      // noise broke NDJSON (login-shell profile output, ANSI, partial frame,
+      // binary chunk, etc.). The channel is terminal after selfFail so this
+      // logs at most once per pipe.
+      logMalformedStdoutLine(line, readySettled, error);
       selfFail(createSshError("server.protocol-error", error));
       return;
     }
@@ -338,6 +343,50 @@ function messageForSshErrorCode(code: SshErrorCode): string {
   }
 }
 
+// === diagnostics ===
+
+/** Max chars of the offending line to surface in the diagnostic warning. */
+const MALFORMED_LINE_PREVIEW_CHARS = 256;
+
+/**
+ * Logs one diagnostic line when stdout NDJSON parsing fails. Truncates the
+ * offending content and escapes control characters so login-shell motd, ANSI
+ * sequences, or binary leakage become visible without dumping the full line
+ * (which can be megabytes for legitimate-but-malformed frames). Includes the
+ * ready state so callers can distinguish boot-time pollution (ready=false,
+ * usually shell profile output) from mid-session corruption (ready=true).
+ */
+function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): void {
+  const preview = escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS));
+  const truncated = line.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
+  const reason = error instanceof Error ? error.message : String(error);
+  console.warn(
+    `[agent-pipe] stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
+  );
+}
+
+/**
+ * Replaces ASCII control characters and the DEL byte with `\xNN` escapes so
+ * shell motd output, ANSI escape sequences, and binary chunks are readable in
+ * console output.
+ */
+function escapeControlChars(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 0x09 || code === 0x0a || code === 0x0d) {
+      out += `\\x${code.toString(16).padStart(2, "0")}`;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) {
+      out += `\\x${code.toString(16).padStart(2, "0")}`;
+      continue;
+    }
+    out += value[i];
+  }
+  return out;
+}
+
 // === frame parsing ===
 
 /**
@@ -357,8 +406,18 @@ function parseFrame(line: string): ParsedFrame {
 
   const hasResult = hasOwnKey(parsed, "result");
   const hasError = hasOwnKey(parsed, "error");
+  const hasEvent = hasOwnKey(parsed, "event");
   if (hasResult && hasError) {
     throw createSshError("server.protocol-error");
+  }
+
+  // Void response shim: an agent that emits `{"id":"x"}` with neither result
+  // nor error nor event (the shape produced when a Go handler returns
+  // (nil, nil) and `omitempty` drops the result key) is treated as a successful
+  // void response with null result. Newer agents emit explicit `"result":null`
+  // for the same case; the shim keeps older agents from killing the channel.
+  if (!hasResult && !hasError && !hasEvent && typeof parsed.id === "string") {
+    return { kind: "response", id: parsed.id, result: null };
   }
 
   const response = hasResult ? ResponseResultFrameSchema.safeParse(parsed) : null;

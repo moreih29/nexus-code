@@ -31,6 +31,21 @@ func TestParseRequestAndMarshalShapes(t *testing.T) {
 	}
 }
 
+func TestSuccessCoercesNilResultToExplicitNull(t *testing.T) {
+	// Handlers that return (nil, nil) must still produce a frame the client
+	// can route. Without coercion `omitempty` drops the result key and the
+	// TS pipe's parseFrame rejects the resulting `{"id":"x"}` as malformed,
+	// tearing the channel down. The coercion in Success keeps the wire
+	// frame as `{"id":"x","result":null}`.
+	line, err := MarshalFrame(Success("r-46", nil))
+	if err != nil {
+		t.Fatalf("MarshalFrame() error = %v", err)
+	}
+	if string(line) != `{"id":"r-46","result":null}`+"\n" {
+		t.Fatalf("nil-result frame = %s, want {\"id\":\"r-46\",\"result\":null}", line)
+	}
+}
+
 func TestReadyFrameIncludesVersions(t *testing.T) {
 	data, err := json.Marshal(Ready())
 	if err != nil {

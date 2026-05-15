@@ -70,8 +70,11 @@ type ErrorFrame struct {
 
 // Response carries either Result or Error, never both. `omitempty`
 // drops the unset field so the wire JSON cleanly tells the client
-// which variant arrived. A void-returning handler emits Result=nil,
-// which serializes to a frame with neither field (just `{"id":"x"}`).
+// which variant arrived. Void-returning handlers route through
+// proto.Success which coerces a nil result to explicit JSON null
+// (`{"id":"x","result":null}`) — emitting `{"id":"x"}` with neither
+// field on the wire trips the client's frame-shape check and tears
+// the channel down.
 type Response struct {
 	ID     string      `json:"id"`
 	Result any         `json:"result,omitempty"`
@@ -129,7 +132,18 @@ func ParseRequest(line []byte) (Request, error) {
 
 // Success constructs a success-variant Response. The result is wired
 // through Go's json package, so any type with stable JSON tags works.
+//
+// A nil result is coerced to explicit JSON null so the wire frame
+// becomes `{"id":"x","result":null}` rather than `{"id":"x"}`. The
+// `omitempty` tag on Result would otherwise drop the key entirely,
+// producing a frame that has neither `result` nor `error` and that
+// the client cannot route — it falls through to a protocol-error and
+// tears the channel down. Handlers that genuinely want a void return
+// (e.g. fire-and-forget acks) get the same null-result frame.
 func Success(id string, result any) Response {
+	if result == nil {
+		result = json.RawMessage("null")
+	}
 	return Response{ID: id, Result: result}
 }
 
