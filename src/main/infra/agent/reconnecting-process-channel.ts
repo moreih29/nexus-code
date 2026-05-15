@@ -5,6 +5,7 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "./channel";
+import { ChannelEventRegistry } from "./channel-event-registry";
 import type { StderrClassifier } from "./pipe";
 import { createNdjsonPipe, type NdjsonPipe, type SshError } from "./pipe";
 
@@ -46,21 +47,6 @@ interface QueuedCall {
   readonly timer: NodeJS.Timeout;
 }
 
-/**
- * Per-event subscription bucket. Holds the channel-level callback fan-out set
- * AND the single unsubscribe handle returned by `pipe.on()` for the wrapper
- * that bridges pipe events into the channel's callbacks. Storing the pipe-side
- * handle is what closes the listener-lifecycle loop: when the last channel
- * callback for an event is unsubscribed, the channel must also release its
- * subscription on the underlying pipe — otherwise repeated subscribe/
- * unsubscribe cycles on the channel leave one fan-out wrapper per cycle
- * attached to the pipe, accumulating linearly on every stream restart.
- */
-interface EventBucket {
-  readonly callbacks: Set<ChannelEventCallback>;
-  unsubFromPipe: (() => void) | null;
-}
-
 type ChannelState = "connecting" | "ready" | "reconnecting" | "terminal" | "disposed";
 
 /**
@@ -72,7 +58,7 @@ export function createReconnectingProcessChannel(
   options: ReconnectingProcessChannelOptions,
 ): AgentChannel {
   const lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  const eventListeners = new Map<string, EventBucket>();
+  const events = new ChannelEventRegistry();
   const queue: QueuedCall[] = [];
   const reconnect = normalizeReconnectOptions(options.reconnect, options.requestTimeoutMs);
 
@@ -96,26 +82,7 @@ export function createReconnectingProcessChannel(
       return active.pipe.call<TResult>(method, params);
     },
     on(event: string, callback: ChannelEventCallback): () => void {
-      let bucket = eventListeners.get(event);
-      if (!bucket) {
-        bucket = { callbacks: new Set<ChannelEventCallback>(), unsubFromPipe: null };
-        eventListeners.set(event, bucket);
-        bucket.unsubFromPipe = attachEvent(active?.pipe ?? null, event);
-      }
-      bucket.callbacks.add(callback);
-      return () => {
-        const current = eventListeners.get(event);
-        if (!current) return;
-        current.callbacks.delete(callback);
-        if (current.callbacks.size === 0) {
-          // Release the channel→pipe fan-out wrapper when the last consumer
-          // unsubscribes. Without this, every subscribe/unsubscribe cycle on
-          // this channel leaves an orphan wrapper on the pipe's listener Set.
-          current.unsubFromPipe?.();
-          current.unsubFromPipe = null;
-          eventListeners.delete(event);
-        }
-      };
+      return events.subscribe(event, callback, (e) => attachPipeEvent(active?.pipe ?? null, e));
     },
     onLifecycle(callback: ChannelLifecycleCallback): () => void {
       lifecycleListeners.add(callback);
@@ -340,29 +307,24 @@ export function createReconnectingProcessChannel(
   }
 
   /**
-   * Attaches stored event subscriptions to one fresh pipe. The previous pipe
-   * (if any) has been disposed by the caller, so its listener Set has been
-   * cleared — old `unsubFromPipe` handles are dead and safely overwritten.
+   * Re-attaches every live event subscription to one fresh pipe. The
+   * previous pipe (if any) has been disposed by the caller, so its
+   * listener Set has been cleared — the registry's old upstream-dispose
+   * handles are dead and safely overwritten by `rebind`.
    */
   function attachAllEvents(pipe: NdjsonPipe): void {
-    for (const [event, bucket] of eventListeners) {
-      bucket.unsubFromPipe = attachEvent(pipe, event);
-    }
+    events.rebind((event) => attachPipeEvent(pipe, event));
   }
 
   /**
-   * Routes pipe events through the mutable callback registry. Returns the
-   * pipe-side unsubscribe so the channel can release the wrapper when its
-   * last consumer goes away. Returns null only when there is no active pipe
-   * yet — the next `attachAllEvents` will install one.
+   * Routes one pipe event into the registry's fan-out. Returns the
+   * pipe-side unsubscribe so the registry can release the wrapper when the
+   * last consumer goes away. Returns null only when there is no active
+   * pipe yet — the next `attachAllEvents` will install one.
    */
-  function attachEvent(pipe: NdjsonPipe | null, event: string): (() => void) | null {
+  function attachPipeEvent(pipe: NdjsonPipe | null, event: string): (() => void) | null {
     if (!pipe) return null;
-    return pipe.on(event, (payload) => {
-      const bucket = eventListeners.get(event);
-      if (!bucket) return;
-      for (const callback of Array.from(bucket.callbacks)) callback(payload);
-    });
+    return pipe.on(event, (payload) => events.emit(event, payload));
   }
 
   /** Sends SIGTERM now and schedules the 100ms SIGKILL fallback. */

@@ -4,6 +4,7 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "./channel";
+import { ChannelEventRegistry } from "./channel-event-registry";
 import { createDisposedError, createSshError } from "./pipe";
 import {
   type AgentReconnectOptions,
@@ -70,25 +71,16 @@ export function createSshChannel(
  * Performs the two-phase interactive auth flow, then delegates all NDJSON work
  * to a normal batch-mode channel connected through the created ControlMaster.
  */
-/**
- * Per-subscription record holding the inner-channel unsubscribe once the
- * authenticated channel has been wired. Stored mutably so a subscription
- * registered before auth completes can still release the inner-side
- * forwarding wrapper later — without this handle the wrapper would stay
- * attached to the inner channel for the rest of its life. Same shape as
- * the EventBucket fix in `reconnecting-process-channel`.
- */
-interface InnerEventBinding {
-  innerDispose: (() => void) | null;
-}
-
 function createAuthenticatedSshChannel(
   options: CreateSshChannelOptions,
   dependencies: SshChannelDependencies,
   promptHandler: SshAuthPromptHandler,
 ): SshChannel {
   const lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  const eventListeners = new Map<string, Map<ChannelEventCallback, InnerEventBinding>>();
+  // Subscriptions registered before auth completes hold a `null` upstream
+  // dispose; when the inner channel arrives, `events.rebind` swaps in the
+  // inner-side handle so the channel-level unsubscribe can release it.
+  const events = new ChannelEventRegistry();
   const pendingCalls: Array<{
     readonly method: string;
     readonly params: unknown;
@@ -122,11 +114,10 @@ function createAuthenticatedSshChannel(
         },
       );
       disposeInnerLifecycle = inner.onLifecycle((event) => emitLifecycle(event));
-      for (const [event, bindings] of eventListeners) {
-        for (const [callback, binding] of bindings) {
-          binding.innerDispose = inner.on(event, callback);
-        }
-      }
+      const liveInner = inner;
+      events.rebind((event) =>
+        liveInner.on(event, (payload) => events.emit(event, payload)),
+      );
       for (const call of pendingCalls.splice(0)) {
         inner.call(call.method, call.params).then(call.resolve, call.reject);
       }
@@ -154,23 +145,11 @@ function createAuthenticatedSshChannel(
       });
     },
     on(event: string, callback: ChannelEventCallback): () => void {
-      let bindings = eventListeners.get(event);
-      if (!bindings) {
-        bindings = new Map<ChannelEventCallback, InnerEventBinding>();
-        eventListeners.set(event, bindings);
-      }
-      const binding: InnerEventBinding = {
-        innerDispose: inner?.on(event, callback) ?? null,
-      };
-      bindings.set(callback, binding);
-      return () => {
-        binding.innerDispose?.();
-        binding.innerDispose = null;
-        const current = eventListeners.get(event);
-        if (!current) return;
-        current.delete(callback);
-        if (current.size === 0) eventListeners.delete(event);
-      };
+      return events.subscribe(event, callback, (e) => {
+        const liveInner = inner;
+        if (!liveInner) return null;
+        return liveInner.on(e, (payload) => events.emit(e, payload));
+      });
     },
     onLifecycle(callback: ChannelLifecycleCallback): () => void {
       lifecycleListeners.add(callback);
