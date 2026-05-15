@@ -55,6 +55,12 @@ export class GitRegistry {
   private readonly repoInfos = new Map<string, RepoInfo>();
   private readonly repositories = new Map<string, GitRepository>();
   private readonly detections = new Map<string, Promise<GitRepository | null>>();
+  /**
+   * Cancellation handle for the in-flight detection per workspace. dispose()
+   * aborts this so the agent-side `detect` request stops early instead of
+   * running to completion against a workspace that no longer exists.
+   */
+  private readonly detectionAborts = new Map<string, AbortController>();
   private readonly generations = new Map<string, number>();
   private gitUnavailable = false;
   private readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
@@ -169,10 +175,10 @@ export class GitRegistry {
   /**
    * Returns the active/requested local workspace executor used for clone.
    *
-   * Clone still validates and cleans up the destination via Electron's local
-   * filesystem APIs, so routing an SSH workspace here would risk cloning on one
-   * host and cleaning another. Keep that blocked until remote destination
-   * selection and recursive agent-host cleanup exist.
+   * Clone validates and cleans up the destination via Electron's local
+   * filesystem APIs, so SSH workspaces are not routed here — doing so would
+   * risk cloning on the remote host while cleaning the local one. Remote
+   * clone is handled out-of-band.
    */
   getCloneExecutionContext(workspaceId?: string, destination?: string): GitCloneExecutionContext {
     if (workspaceId) return this.getWorkspaceCloneExecutionContext(workspaceId);
@@ -226,6 +232,11 @@ export class GitRegistry {
     this.bumpGeneration(workspaceId);
     this.disposeRepository(workspaceId);
     this.repoInfos.delete(workspaceId);
+    const pendingAbort = this.detectionAborts.get(workspaceId);
+    if (pendingAbort) {
+      pendingAbort.abort();
+      this.detectionAborts.delete(workspaceId);
+    }
     this.detections.delete(workspaceId);
   }
 
@@ -254,6 +265,10 @@ export class GitRegistry {
 
   /**
    * Starts the one in-flight detection promise allowed per workspaceId.
+   *
+   * A workspace-scoped AbortController is created and chained with the
+   * caller's signal so dispose() can abort the underlying agent call rather
+   * than just dropping the result on the floor.
    */
   private startDetection(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
     const executor = this.getAgentExecutor(workspaceId);
@@ -262,13 +277,31 @@ export class GitRegistry {
 
     this.setDetecting(workspaceId);
 
-    const detection = this.detectWorkspace(workspaceId, bin, executor, generation, signal).finally(
-      () => {
-        if (this.detections.get(workspaceId) === detection) {
-          this.detections.delete(workspaceId);
-        }
-      },
-    );
+    const controller = new AbortController();
+    this.detectionAborts.set(workspaceId, controller);
+
+    const forwardAbort = (): void => controller.abort();
+    if (signal?.aborted) {
+      controller.abort();
+    } else {
+      signal?.addEventListener("abort", forwardAbort, { once: true });
+    }
+
+    const detection = this.detectWorkspace(
+      workspaceId,
+      bin,
+      executor,
+      generation,
+      controller.signal,
+    ).finally(() => {
+      signal?.removeEventListener("abort", forwardAbort);
+      if (this.detectionAborts.get(workspaceId) === controller) {
+        this.detectionAborts.delete(workspaceId);
+      }
+      if (this.detections.get(workspaceId) === detection) {
+        this.detections.delete(workspaceId);
+      }
+    });
 
     this.detections.set(workspaceId, detection);
     return detection;
