@@ -63,10 +63,9 @@ export function gitErrorFromAgent(
 }
 
 /**
- * Builds a minimal typed error for legacy local-process exits.
- *
- * This intentionally does not classify stderr; agent envelopes are the source
- * of git error kinds. The local spawn fallback remains only until cleanup.
+ * Builds a minimal typed error for the local-process fallback that fires
+ * when the agent envelope is unavailable. Stderr classification belongs to
+ * the agent path; this helper carries the raw stream verbatim.
  */
 export function gitErrorFromExit(options: {
   readonly args: readonly string[];

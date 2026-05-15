@@ -9,8 +9,6 @@ import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { TabItem } from "./tab-item";
 
-// TODO: when Find/Replace is implemented, exclude readOnly tabs from search target enumeration
-
 interface TabBarProps {
   workspaceId: string;
   leafId: string;

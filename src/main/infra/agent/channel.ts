@@ -33,7 +33,7 @@ export type ChannelLifecycleEvent =
  * server emits its boot frame (or, for older servers, when the first valid
  * response/event arrives). `call` rejects with an Error whose `code` is the
  * server's wire code on remote failures, or a transport `SshErrorCode` on
- * pipe-level failures. `on` subscribes to server-pushed events (Round 3).
+ * pipe-level failures. `on` subscribes to server-pushed events.
  * `onLifecycle` reports exit / failure / dispose transitions. `dispose`
  * tears the channel down — idempotent and synchronous from the caller's view.
  */

@@ -80,8 +80,9 @@ interface GitPanelProps {
   workspaceId: string;
   workspaceRootPath?: string;
   /**
-   * Isolated integration seam for task 20. When openDiffTab lands, FilesPanel
-   * can pass a handler without changing row rendering or git operations.
+   * Integration seam for opening a diff view from the panel. When a parent
+   * provides a handler the row's "open changes" action delegates to it,
+   * keeping row rendering and git operations decoupled from the diff host.
    */
   onOpenDiff?: (input: GitPanelOpenDiffInput) => void;
 }
@@ -535,7 +536,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       onOpenDiff({ workspaceId, groupKey, entry });
       return;
     }
-    setContextBanner({ variant: "info", message: "Diff view 곧 추가 예정" });
+    setContextBanner({ variant: "info", message: "Diff view를 사용할 수 없습니다" });
   }
 
   function absolutePathForEntry(entry: GitStatusEntry): string | null {

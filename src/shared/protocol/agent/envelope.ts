@@ -6,7 +6,7 @@ import { z } from "zod";
  * One JSON object per line. Three frame kinds share the channel:
  *   - Request: client → server, expects a matching Response
  *   - Response: server → client, correlated by `id`
- *   - Event: server → client broadcast, no `id` (e.g. fs.changed; Round 3)
+ *   - Event: server → client broadcast, no `id` (e.g. fs.changed)
  * Plus a one-shot Ready frame the server emits on startup to advertise
  * its protocol version.
  *

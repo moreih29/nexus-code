@@ -39,10 +39,10 @@ export interface SshControlMaster {
 const CONTROL_EXIT_UNLINK_FALLBACK_MS = 5_000;
 
 /**
- * Spawns the SSH client for direct stdin/stdout NDJSON exchange. Today this is
- * a single-connection invocation; once Phase 1 (PTY-based interactive auth)
- * lands, this module is where ControlMaster (`-M -S /tmp/...sock`) will be
- * added so Phase 2 traffic can reuse the authenticated socket.
+ * Spawns the SSH client for direct stdin/stdout NDJSON exchange. Interactive
+ * ControlMaster authentication and socket reuse live in `ssh-master`'s
+ * controlMaster helpers and in `ssh-auth-pty`; this function builds the
+ * batch-mode client over the resulting socket.
  */
 export function spawnSshMaster(
   options: SshMasterOptions,
