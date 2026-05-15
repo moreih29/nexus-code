@@ -90,11 +90,37 @@ const { HistoryPanel } = await import(
   "../../../../../../src/renderer/components/files/git/history/HistoryPanel"
 );
 
+type MockBranchInfo = {
+  current: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  isUnborn: boolean;
+};
+
+type MockGitSession = {
+  branchInfo: MockBranchInfo | null;
+};
+
 type MockGitStoreState = {
   cherryPick: () => Promise<boolean>;
   checkoutDetached: () => Promise<void>;
   resetSoft: () => Promise<void>;
+  // HistoryPanel subscribes to branchInfo via state.sessions.get(workspaceId)
+  // to auto-refresh after branch transitions; tests mutate the map to
+  // simulate `git checkout`-like transitions across renders.
+  sessions: Map<string, MockGitSession>;
 };
+
+function branchInfoFor(current: string): MockBranchInfo {
+  return {
+    current,
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    isUnborn: false,
+  };
+}
 
 type MockHistoryListProps = {
   selectedSha: string | null;
@@ -106,6 +132,7 @@ const mockGitStoreState: MockGitStoreState = {
   cherryPick: async () => true,
   checkoutDetached: async () => {},
   resetSoft: async () => {},
+  sessions: new Map(),
 };
 
 type EffectCallback = () => undefined | (() => void);
@@ -471,6 +498,57 @@ describe("HistoryPanel all-branches matrix", () => {
     expect(currentHistoryListProps().selectedSha).toBe(secondEntry.sha);
     expect(openCommitCalls).toEqual([{ workspaceId: WORKSPACE_ID, sha: secondEntry.sha }]);
     expect(ipcCallRecords.filter((record) => record.method === "commitDetail")).toEqual([]);
+  });
+
+  it("re-streams the first page when the workspace branch transitions", () => {
+    // Seed branch state before mount so the first observation is "main".
+    mockGitStoreState.sessions.set(WORKSPACE_ID, {
+      branchInfo: branchInfoFor("main"),
+    });
+    activeView = new HistoryPanelView("ref");
+    // The mount triggers the initial first-page stream. Clear the recorded
+    // calls so we only assert the auto-refresh-driven re-stream below.
+    expect(lastLogStreamCall("mount streams first page").args.ref).toBe("main");
+    logStreamCalls.length = 0;
+
+    // Simulate `git checkout dev`: the store now reports dev as current.
+    mockGitStoreState.sessions.set(WORKSPACE_ID, {
+      branchInfo: branchInfoFor("dev"),
+    });
+    activeView.render();
+
+    const call = lastLogStreamCall("branch change re-streams first page");
+    expect(call.channel).toBe("git");
+    expect(call.method).toBe("log");
+    expect(call.args.workspaceId).toBe(WORKSPACE_ID);
+    expect(call.args.scope).toBe("ref");
+    // refName prop is still "main" (user's explicit selection is unchanged);
+    // auto-refresh re-streams the current view rather than overriding it.
+    expect(call.args.ref).toBe("main");
+
+    // Re-rendering with the same signature must not enqueue another stream.
+    logStreamCalls.length = 0;
+    activeView.render();
+    expect(logStreamCalls).toHaveLength(0);
+  });
+
+  it("does not auto-refresh while a search query is active", () => {
+    mockGitStoreState.sessions.set(WORKSPACE_ID, {
+      branchInfo: branchInfoFor("main"),
+    });
+    activeView = new HistoryPanelView("ref");
+    activeView.typeSearch("fix popover");
+    activeView.drainDebounceTimers();
+    logStreamCalls.length = 0;
+
+    // Branch transition mid-search: keep the search intact rather than
+    // snapping back to head history.
+    mockGitStoreState.sessions.set(WORKSPACE_ID, {
+      branchInfo: branchInfoFor("dev"),
+    });
+    activeView.render();
+
+    expect(logStreamCalls).toHaveLength(0);
   });
 });
 
