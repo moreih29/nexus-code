@@ -70,13 +70,25 @@ export function createSshChannel(
  * Performs the two-phase interactive auth flow, then delegates all NDJSON work
  * to a normal batch-mode channel connected through the created ControlMaster.
  */
+/**
+ * Per-subscription record holding the inner-channel unsubscribe once the
+ * authenticated channel has been wired. Stored mutably so a subscription
+ * registered before auth completes can still release the inner-side
+ * forwarding wrapper later — without this handle the wrapper would stay
+ * attached to the inner channel for the rest of its life. Same shape as
+ * the EventBucket fix in `reconnecting-process-channel`.
+ */
+interface InnerEventBinding {
+  innerDispose: (() => void) | null;
+}
+
 function createAuthenticatedSshChannel(
   options: CreateSshChannelOptions,
   dependencies: SshChannelDependencies,
   promptHandler: SshAuthPromptHandler,
 ): SshChannel {
   const lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  const eventListeners = new Map<string, Set<ChannelEventCallback>>();
+  const eventListeners = new Map<string, Map<ChannelEventCallback, InnerEventBinding>>();
   const pendingCalls: Array<{
     readonly method: string;
     readonly params: unknown;
@@ -110,8 +122,10 @@ function createAuthenticatedSshChannel(
         },
       );
       disposeInnerLifecycle = inner.onLifecycle((event) => emitLifecycle(event));
-      for (const [event, callbacks] of eventListeners) {
-        for (const callback of callbacks) inner.on(event, callback);
+      for (const [event, bindings] of eventListeners) {
+        for (const [callback, binding] of bindings) {
+          binding.innerDispose = inner.on(event, callback);
+        }
       }
       for (const call of pendingCalls.splice(0)) {
         inner.call(call.method, call.params).then(call.resolve, call.reject);
@@ -140,16 +154,22 @@ function createAuthenticatedSshChannel(
       });
     },
     on(event: string, callback: ChannelEventCallback): () => void {
-      let callbacks = eventListeners.get(event);
-      if (!callbacks) {
-        callbacks = new Set<ChannelEventCallback>();
-        eventListeners.set(event, callbacks);
+      let bindings = eventListeners.get(event);
+      if (!bindings) {
+        bindings = new Map<ChannelEventCallback, InnerEventBinding>();
+        eventListeners.set(event, bindings);
       }
-      callbacks.add(callback);
-      const disposeInnerEvent = inner?.on(event, callback) ?? null;
+      const binding: InnerEventBinding = {
+        innerDispose: inner?.on(event, callback) ?? null,
+      };
+      bindings.set(callback, binding);
       return () => {
-        callbacks?.delete(callback);
-        disposeInnerEvent?.();
+        binding.innerDispose?.();
+        binding.innerDispose = null;
+        const current = eventListeners.get(event);
+        if (!current) return;
+        current.delete(callback);
+        if (current.size === 0) eventListeners.delete(event);
       };
     },
     onLifecycle(callback: ChannelLifecycleCallback): () => void {
