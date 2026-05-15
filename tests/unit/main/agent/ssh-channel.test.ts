@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import {
   createSshChannel,
   type SshChannelLifecycleEvent,
-} from "../../../../src/main/infra/agent/ssh-channel";
+} from "../../../../src/main/infra/agent/ssh/ssh-channel";
 import type { SshErrorCode } from "../../../../src/shared/types/ssh-errors";
 
 class FakeStream extends EventEmitter {

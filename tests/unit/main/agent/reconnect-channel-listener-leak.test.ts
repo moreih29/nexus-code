@@ -20,7 +20,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { createLocalChannel } from "../../../../src/main/infra/agent/local-channel";
+import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
 
 class FakeStream extends EventEmitter {
   emitData(chunk: string): void {

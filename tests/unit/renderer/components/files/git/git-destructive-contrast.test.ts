@@ -11,19 +11,19 @@ import { color } from "../../../../../../src/shared/design-tokens/design-tokens"
 const MIN_SMALL_TEXT_CONTRAST = 4.5;
 const GIT_DESTRUCTIVE_CLASS = "git-destructive-text";
 const GIT_SURFACE_FILES = [
-  "src/renderer/components/files/git/GitCommitButton.tsx",
-  "src/renderer/components/files/git/GitFileContextMenu.tsx",
-  "src/renderer/components/files/git/GitFileRow.tsx",
-  "src/renderer/components/files/git/GitGroupHeader.tsx",
-  "src/renderer/components/files/git/GitInlineBanner.tsx",
+  "src/renderer/components/files/git/commit/GitCommitButton.tsx",
+  "src/renderer/components/files/git/file-row/GitFileContextMenu.tsx",
+  "src/renderer/components/files/git/file-row/GitFileRow.tsx",
+  "src/renderer/components/files/git/file-row/GitGroupHeader.tsx",
+  "src/renderer/components/files/git/panel/GitInlineBanner.tsx",
   "src/renderer/components/files/git/GitMoreMenu.tsx",
-  "src/renderer/components/files/git/GitStatusBadge.tsx",
-  "src/renderer/components/files/git/GitTreeRow.tsx",
-  "src/renderer/components/files/git/OperationBanner.tsx",
+  "src/renderer/components/files/git/file-row/GitStatusBadge.tsx",
+  "src/renderer/components/files/git/file-row/GitTreeRow.tsx",
+  "src/renderer/components/files/git/panel/OperationBanner.tsx",
   "src/renderer/components/files/git/history/HistoryCommitMenu.tsx",
-  "src/renderer/components/files/git/CloneDialog.tsx",
-  "src/renderer/components/files/git/GitPanel.tsx",
-  "src/renderer/components/files/git/TagPicker.tsx",
+  "src/renderer/components/files/git/clone/CloneDialog.tsx",
+  "src/renderer/components/files/git/panel/GitPanel.tsx",
+  "src/renderer/components/files/git/pickers/TagPicker.tsx",
 ] as const;
 
 describe("Git destructive text contrast", () => {

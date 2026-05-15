@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { LspHostHandle } from "../../../../src/main/features/lsp/host";
-import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh-bootstrap";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 
 const mockSend = mock((..._args: unknown[]) => {});
 const mockGetAllWebContents = mock(() => [{ isDestroyed: () => false, send: mockSend }]);

@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { LocalFsProvider } from "../../../../src/main/features/fs/bridge/local-provider";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel/channel";
 
 function makeChannel(resultFor: (method: string, params?: unknown) => unknown): AgentChannel {
   return {

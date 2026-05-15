@@ -3,8 +3,8 @@ import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
-} from "../../../../src/main/infra/agent/channel";
-import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh-bootstrap";
+} from "../../../../src/main/infra/agent/channel/channel";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 import { startConfiguredLspHost, type LspHostHandle } from "../../../../src/main/features/lsp/host";
 

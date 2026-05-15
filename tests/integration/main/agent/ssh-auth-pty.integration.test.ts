@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import net from "node:net";
-import { createSshChannel } from "../../../../src/main/infra/agent/ssh-channel";
+import { createSshChannel } from "../../../../src/main/infra/agent/ssh/ssh-channel";
 import { spawnNodeBackedPty } from "./node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";

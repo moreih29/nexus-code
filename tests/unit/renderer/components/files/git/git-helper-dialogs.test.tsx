@@ -159,7 +159,7 @@ describe("Global Git helper prompt mounting contract", () => {
 
   it("keeps dialogs/listeners globally mounted rather than GitPanel-owned", async () => {
     const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
-    const gitPanel = await Bun.file("src/renderer/components/files/git/GitPanel.tsx").text();
+    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/GitPanel.tsx").text();
 
     expect(globalRoots).toContain("<GitHelperPromptsRoot />");
     expect(globalRoots).toContain("useGitHelperPrompts");

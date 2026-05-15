@@ -11,7 +11,7 @@ import {
   parseUname,
   remoteAgentBinaryPath,
   type SshBootstrapRunner,
-} from "../../../../src/main/infra/agent/ssh-bootstrap";
+} from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 
 let tmpDir: string;
 

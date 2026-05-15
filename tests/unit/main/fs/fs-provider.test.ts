@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createFsProvider } from "../../../../src/main/features/fs/bridge/create-provider";
-import type { SshChannel } from "../../../../src/main/infra/agent/ssh-channel";
+import type { SshChannel } from "../../../../src/main/infra/agent/ssh/ssh-channel";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 let tmpRoot: string;

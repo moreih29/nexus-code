@@ -64,7 +64,7 @@ mock.module("../../../../../../src/renderer/state/operations/tabs", () => ({
   }),
 }));
 
-mock.module("../../../../../../src/renderer/components/files/git/BranchPicker", () => ({
+mock.module("../../../../../../src/renderer/components/files/git/branch/BranchPicker", () => ({
   BranchPicker: () => null,
 }));
 

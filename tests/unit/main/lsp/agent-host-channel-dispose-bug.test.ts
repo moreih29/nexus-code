@@ -16,7 +16,7 @@ import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
-} from "../../../../src/main/infra/agent/channel";
+} from "../../../../src/main/infra/agent/channel/channel";
 import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 
 const WORKSPACE_ID = "33333333-3333-4333-8333-333333333333";

@@ -7,9 +7,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { startAgentPtyHost } from "../../../src/main/features/pty/agent-host";
 import type { PtyHostHandle } from "../../../src/main/features/pty/types";
-import type { AgentChannel } from "../../../src/main/infra/agent/channel";
-import { createSshChannel } from "../../../src/main/infra/agent/ssh-channel";
-import { ensureRemoteAgent } from "../../../src/main/infra/agent/ssh-bootstrap";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel/channel";
+import { createSshChannel } from "../../../src/main/infra/agent/ssh/ssh-channel";
+import { ensureRemoteAgent } from "../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import { AgentManifestSchema } from "../../../src/shared/agent-manifest";
 import { spawnNodeBackedPty } from "../main/agent/node-pty-spawn";
 

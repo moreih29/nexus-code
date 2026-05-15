@@ -17,7 +17,7 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { createLocalChannel } from "../../../../src/main/infra/agent/local-channel";
+import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
 import {
   AgentSearchCompleteSchema,
   AgentSearchProgressPayloadSchema,
@@ -25,7 +25,7 @@ import {
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
 } from "../../../../src/shared/protocol/search";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel/channel";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 

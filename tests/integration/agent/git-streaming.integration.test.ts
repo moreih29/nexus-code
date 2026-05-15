@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createLocalChannel } from "../../../src/main/infra/agent/local-channel";
+import { createLocalChannel } from "../../../src/main/infra/agent/channel/local-channel";
 import { AgentFsProvider } from "../../../src/main/features/fs/bridge/agent-provider";
 import { AgentGitExecutor } from "../../../src/main/features/git/bridge/agent-executor";
 import { GitRepository } from "../../../src/main/features/git/domain/repository";

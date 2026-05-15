@@ -33,8 +33,8 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createLocalChannel } from "../../../../src/main/infra/agent/local-channel";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
+import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel/channel";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 
