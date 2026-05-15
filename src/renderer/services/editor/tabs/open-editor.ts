@@ -10,7 +10,6 @@ import { openEditorTab, openTabInNewSplit, revealTab } from "@/state/operations/
 import { useLayoutStore } from "@/state/stores/layout";
 import { defaultTitle, useTabsStore } from "@/state/stores/tabs";
 import type { EditorInput, EditorTabLocation, OpenEditorOptions } from "../types";
-import { withWorkspaceReadOnly } from "../workspace-readonly";
 import { findEditorTabInGroup, findPreviewTabInGroup } from "./tab-lookup";
 
 // When true, single-click file opens use a shared preview slot per group
@@ -21,7 +20,7 @@ export function openOrRevealEditor(
   input: EditorInput,
   opts: OpenEditorOptions = {},
 ): EditorTabLocation {
-  const editorInput = withWorkspaceReadOnly(input);
+  const editorInput = input;
   useLayoutStore.getState().ensureLayout(editorInput.workspaceId);
 
   // VSCode parity: callers can opt out of the preview slot entirely

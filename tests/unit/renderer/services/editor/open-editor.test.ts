@@ -190,7 +190,7 @@ describe("openOrRevealEditor cross-group new tab", () => {
 describe("openOrRevealEditor read-only metadata", () => {
   beforeEach(resetStores);
 
-  it("marks editor inputs from SSH workspaces as read-only", () => {
+  it("does not force SSH workspace inputs to read-only (renderer gate removed)", () => {
     useWorkspacesStore.setState({
       workspaces: [
         {
@@ -210,7 +210,9 @@ describe("openOrRevealEditor read-only metadata", () => {
 
     expect(tab?.type).toBe("editor");
     if (tab?.type === "editor") {
-      expect(tab.props.readOnly).toBe(true);
+      // Callers who want read-only still pass it explicitly; the workspace
+      // location no longer overrides their input.
+      expect(tab.props.readOnly).toBeUndefined();
     }
   });
 });

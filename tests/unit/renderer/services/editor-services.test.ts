@@ -401,13 +401,16 @@ describe("services/editor model cache", () => {
     releaseModel(input);
   });
 
-  test("SSH workspace models are read-only and saveModel does not call writeFile", async () => {
+  test("SSH workspace models are writable and saveModel issues fs.writeFile", async () => {
+    // The renderer-side SSH-readonly gate was removed; SSH workspaces now follow
+    // the same write path as local workspaces. saveModel should call fs.writeFile
+    // and the acquired model should not advertise readOnly.
     setSshWorkspaceStore();
     const input = { workspaceId: WS_ID, filePath: "/remote/src/ssh.ts" };
     fileContents.set("src/ssh.ts", "before");
 
     const acquired = await acquireModel(input);
-    expect(acquired.readOnly).toBe(true);
+    expect(acquired.readOnly).toBe(false);
     const model = acquired.model;
     if (!model) throw new Error("expected ready model");
 
@@ -416,9 +419,9 @@ describe("services/editor model cache", () => {
 
     const result = await saveModel(input);
 
-    expect(result.kind).toBe("read-only");
+    expect(result.kind).toBe("saved");
     expect(ipcCalls.some((call) => call.channel === "fs" && call.method === "writeFile")).toBe(
-      false,
+      true,
     );
 
     releaseModel(input);
