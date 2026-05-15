@@ -68,6 +68,15 @@ func New(d *dispatch.Dispatcher, in io.Reader, out io.Writer) *Host {
 // WriteFrame serializes one frame as NDJSON onto `out`. Used by the
 // caller to emit the boot Ready frame before Run begins; internal
 // response writes use the same path.
+//
+// The Write call is intentionally blocking: if the transport consumer
+// (the main process reading the agent's stdout) is paused for
+// backpressure, the goroutine calling WriteFrame will block on the OS
+// pipe write. This is the designed transport-level backpressure signal —
+// a backed-up pipe propagates naturally into handler goroutine
+// concurrency, which is bounded by the client request rate. SIGTERM
+// triggers a 75 ms force-exit ceiling so no stuck goroutine can prevent
+// orderly shutdown.
 func (h *Host) WriteFrame(frame any) error {
 	data, err := proto.MarshalFrame(frame)
 	if err != nil {

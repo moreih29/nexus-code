@@ -18,5 +18,12 @@ export const LSP_CLIENT_CAPABILITIES = {
     documentSymbol: {
       hierarchicalDocumentSymbolSupport: true,
     },
+    // Servers (e.g. typescript-language-server 5.x) only emit
+    // textDocument/publishDiagnostics when the client advertises support
+    // here, so this entry is required for the per-URI debounce in
+    // src/main/features/lsp/agent-host.ts to receive any traffic at all.
+    publishDiagnostics: {
+      relatedInformation: true,
+    },
   },
 } as const;

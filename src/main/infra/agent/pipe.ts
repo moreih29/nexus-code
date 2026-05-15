@@ -17,6 +17,22 @@ import type { SshErrorCode } from "../../../shared/types/ssh-errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * Byte threshold above which the stdout source is paused to prevent
+ * unbounded accumulation when downstream event callbacks are slow.
+ * Accounting is based on completed NDJSON line lengths, not raw chunk
+ * bytes, so partial-line buffering in the splitter does not skew the
+ * decision.
+ */
+const STDOUT_BACKPRESSURE_HWM = 1 * 1024 * 1024; // 1 MiB
+
+/**
+ * Byte threshold below which the stdout source is resumed after a
+ * prior pause. The gap between LWM and HWM keeps the source from
+ * oscillating on/off on every frame.
+ */
+const STDOUT_BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
+
 const ReadyFrameSchema = z
   .object({ type: z.literal("ready"), protocolVersion: z.string().optional() })
   .passthrough();
@@ -72,7 +88,12 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
-  const stdoutLines = createLineSplitter(handleStdoutLine);
+  const stdoutLines = createLineSplitter(handleStdoutLine, {
+    hwm: STDOUT_BACKPRESSURE_HWM,
+    lwm: STDOUT_BACKPRESSURE_LWM,
+    pause: () => deps.stdout.pause(),
+    resume: () => deps.stdout.resume(),
+  });
   const stderrLines = createLineSplitter(handleStderrLine);
 
   let nextRequestId = 1;
@@ -166,7 +187,18 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     }
   }
 
-  /** Delivers one remote event to currently subscribed callbacks. */
+  /**
+   * Delivers one remote event to currently subscribed callbacks.
+   *
+   * All callbacks are invoked synchronously on the same tick as the
+   * line-splitter's onLine handler. A slow callback therefore blocks the
+   * splitter from processing further data, which is intentional: the
+   * resulting latency in the data handler causes OS-level backpressure
+   * to accumulate in the stdout stream's internal buffer, eventually
+   * triggering a pause() from the byte-accounting gate in createLineSplitter.
+   * Callbacks that cannot tolerate this synchronous tax should yield via
+   * queueMicrotask or a similar mechanism.
+   */
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
@@ -395,14 +427,108 @@ function protocolMajorMatches(actual: string | undefined, expectedMajor: string)
   return actual.split(".", 1)[0] === expectedMajor;
 }
 
+interface LineSplitterBackpressure {
+  /** Byte threshold above which the upstream source is paused. */
+  hwm: number;
+  /** Byte threshold below which a previously paused source is resumed. */
+  lwm: number;
+  /** Called once when accumulated line bytes cross hwm from below. */
+  pause(): void;
+  /** Called once when accumulated line bytes drop to lwm or below. */
+  resume(): void;
+}
+
 /**
  * Builds a reusable line splitter for stdout/stderr chunk streams.
+ *
+ * When backpressure options are supplied the splitter maintains a running
+ * tally of bytes from completed NDJSON lines dispatched since the last gate
+ * transition. Partial-line bytes held in the internal string buffer are
+ * excluded from the tally so gate decisions are based only on fully parsed
+ * lines.
+ *
+ * Gate semantics (per-push burst bounding):
+ *  - tally += line.length before each onLine() call.
+ *  - After onLine() returns (synchronous listener tax complete):
+ *      * If not paused and tally > hwm: pause(), tally resets to zero.
+ *        The reset lets lines that slip through before the OS honors the
+ *        pause be measured fresh against lwm.
+ *      * If paused and tally <= lwm: resume(), tally resets to zero.
+ *  - After every push() or flush() call, if the gate is still paused and
+ *    tally is at or below lwm, resume() is called unconditionally. This
+ *    "post-burst resume" prevents a self-deadlock where the stream honors
+ *    pause() and no further data events arrive to trigger the per-line
+ *    resume branch. Concretely: pause() resets tally to zero; if the
+ *    current push() chunk contained only the line that triggered the
+ *    pause, tally stays at zero after the while-loop exits, satisfying
+ *    tally <= lwm, so the stream is immediately resumed and can deliver
+ *    the next chunk.
+ *
+ * The tally accumulates across consecutive push() calls so that a rapid
+ * sequence of small chunks still triggers a pause once cumulative volume
+ * exceeds hwm. This bounds worst-case buffering to hwm + maxSingleLineBytes.
  */
-function createLineSplitter(onLine: (line: string) => void): {
+function createLineSplitter(
+  onLine: (line: string) => void,
+  backpressure?: LineSplitterBackpressure,
+): {
   push(chunk: Buffer): void;
   flush(): void;
 } {
   let buffer = "";
+  // Running tally of bytes from completed lines dispatched since the last
+  // gate transition. Resets to zero after each pause() or resume() call
+  // so each measurement window starts fresh.
+  let tally = 0;
+  let paused = false;
+
+  /**
+   * Dispatches one completed line to the onLine handler and evaluates the
+   * per-line pause/resume gate. Errors thrown by onLine are re-thrown after
+   * the gate check so that gate accounting is never skipped by a throwing
+   * listener.
+   */
+  function dispatchLine(line: string): void {
+    if (!backpressure) {
+      onLine(line);
+      return;
+    }
+    tally += line.length;
+    let listenerError: unknown = undefined;
+    try {
+      onLine(line);
+    } catch (err) {
+      listenerError = err;
+    }
+    // Evaluate gate state after listener work completes (or throws).
+    if (!paused && tally > backpressure.hwm) {
+      paused = true;
+      tally = 0;
+      backpressure.pause();
+    } else if (paused && tally <= backpressure.lwm) {
+      paused = false;
+      tally = 0;
+      backpressure.resume();
+    }
+    if (listenerError !== undefined) {
+      throw listenerError;
+    }
+  }
+
+  /**
+   * Resumes the source after a push() or flush() call if the gate is paused
+   * and no tally accumulated since the last transition. Without this check a
+   * stream that honors pause() would never receive the next chunk and the gate
+   * would deadlock: the resume branch inside dispatchLine requires a new line,
+   * but no new lines arrive while the stream is paused.
+   */
+  function postBurstResumeCheck(): void {
+    if (backpressure && paused && tally <= backpressure.lwm) {
+      paused = false;
+      tally = 0;
+      backpressure.resume();
+    }
+  }
 
   return {
     push(chunk) {
@@ -411,15 +537,20 @@ function createLineSplitter(onLine: (line: string) => void): {
       while (newlineIndex !== -1) {
         const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
         buffer = buffer.slice(newlineIndex + 1);
-        onLine(line);
+        dispatchLine(line);
         newlineIndex = buffer.indexOf("\n");
       }
+      postBurstResumeCheck();
     },
     flush() {
-      if (buffer.length === 0) return;
+      if (buffer.length === 0) {
+        postBurstResumeCheck();
+        return;
+      }
       const line = buffer.replace(/\r$/, "");
       buffer = "";
-      onLine(line);
+      dispatchLine(line);
+      postBurstResumeCheck();
     },
   };
 }

@@ -86,6 +86,19 @@ interface AgentSpawnResult {
   capabilities?: unknown;
 }
 
+// State tracked per URI for publishDiagnostics debouncing.
+interface DiagnosticsDebounceState {
+  // Pending trailing-edge timer. null when no timer is scheduled.
+  timer: ReturnType<typeof setTimeout> | null;
+  // Most recent payload — replaces previous on each inbound notification.
+  latestPayload: { uri: string; diagnostics: unknown[] };
+  // Timestamp of the last emit (leading or trailing). 0 = never emitted.
+  lastEmittedAt: number;
+}
+
+const DIAGNOSTICS_DEBOUNCE_MS = 100;
+const DIAGNOSTICS_LEADING_IDLE_MS = 500;
+
 export interface AgentLspWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
   ensureRemoteLspServer?(
@@ -156,6 +169,8 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   // completes (or fails).
   private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
   private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
+  // Per-URI state for textDocument/publishDiagnostics debouncing.
+  private readonly diagnosticsDebounce = new Map<string, DiagnosticsDebounceState>();
   private nextServerRequestId = 1;
   private disposed = false;
 
@@ -278,6 +293,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearAllDiagnosticsTimers();
     for (const [, server] of this.serversById) {
       server.dispose();
     }
@@ -354,6 +370,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     await routed.server.notifyTextDocumentDidClose({
       textDocument: { uri: parsed.uri },
     });
+    // Flush any pending diagnostics for this URI before it is removed from the
+    // index — the renderer expects a final consistent state on close.
+    this.flushDiagnosticsForUri(parsed.uri);
     this.uriIndex.delete(parsed.uri);
     return null;
   }
@@ -568,6 +587,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
     const server = this.serversById.get(parsed.serverId);
     if (server) {
+      // Clear diagnostics timers for all URIs owned by the dead server before
+      // any further cleanup. Firing stale trailing-edge timers after the server
+      // has exited would push obsolete squiggle data to the renderer.
+      this.clearDiagnosticsTimersForServer(server.workspaceId, server.languageId);
+
       // Reject in-flight client requests with a server-exit error so the
       // renderer's promise chain unwinds rather than waiting on a now-dead
       // process. Channel listeners are intentionally left in place — the
@@ -596,6 +620,10 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private disposeChannelServers(channel: AgentChannel): void {
     for (const server of Array.from(this.serversById.values())) {
       if (server.channel !== channel) continue;
+      // Clear diagnostics timers before removing the URI index entries so the
+      // predicate in clearDiagnosticsTimersForServer can still resolve the URI
+      // → server mapping. Mirrors the ordering used in handleServerExited.
+      this.clearDiagnosticsTimersForServer(server.workspaceId, server.languageId);
       server.dispose();
       this.serversById.delete(server.serverId);
       this.workspaceServers.get(server.workspaceId)?.delete(server.languageId);
@@ -735,7 +763,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (msg.method === "textDocument/publishDiagnostics") {
       const parsed = parsePublishDiagnostics(msg.params);
       if (parsed) {
-        this.emit("diagnostics", parsed);
+        this.scheduleDiagnosticsEmit(parsed);
       }
       return;
     }
@@ -743,6 +771,101 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (SERVER_EVENT_METHODS.has(msg.method)) {
       this.emitServerEvent(context, msg.method as LspServerEventMethod, msg.params);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // publishDiagnostics debounce helpers
+  // ---------------------------------------------------------------------------
+
+  // Per-URI trailing-edge debounce with leading-edge bypass for idle URIs.
+  // LSP spec 3.17 §3.18: each publishDiagnostics for a URI fully replaces the
+  // previous set, so only the most recent payload matters — earlier ones during
+  // a burst can be discarded safely.
+  private scheduleDiagnosticsEmit(payload: { uri: string; diagnostics: unknown[] }): void {
+    const { uri } = payload;
+    const state = this.diagnosticsDebounce.get(uri);
+    const now = Date.now();
+
+    // Leading-edge: emit immediately when the URI has been quiet for at least
+    // DIAGNOSTICS_LEADING_IDLE_MS. This keeps squiggles responsive during
+    // normal, steady-state editing where notifications are spaced out.
+    if (state === undefined || state.lastEmittedAt + DIAGNOSTICS_LEADING_IDLE_MS < now) {
+      // Cancel any stale timer from a previous burst before overwriting state.
+      if (state?.timer !== null && state?.timer !== undefined) {
+        clearTimeout(state.timer);
+      }
+      this.emit("diagnostics", payload);
+      this.diagnosticsDebounce.set(uri, {
+        timer: null,
+        latestPayload: payload,
+        lastEmittedAt: now,
+      });
+      return;
+    }
+
+    // Trailing-edge: a burst is in progress. Replace the stored payload with
+    // the latest one and reschedule the timer from zero.
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+    }
+    const timer = setTimeout(() => {
+      const current = this.diagnosticsDebounce.get(uri);
+      if (!current) return;
+      this.emit("diagnostics", current.latestPayload);
+      this.diagnosticsDebounce.set(uri, {
+        timer: null,
+        latestPayload: current.latestPayload,
+        lastEmittedAt: Date.now(),
+      });
+    }, DIAGNOSTICS_DEBOUNCE_MS);
+    this.diagnosticsDebounce.set(uri, {
+      timer,
+      latestPayload: payload,
+      lastEmittedAt: state.lastEmittedAt,
+    });
+  }
+
+  // Flush: emit the pending payload for uri immediately and cancel the timer.
+  // Used by didClose to ensure the renderer sees a final consistent state.
+  //
+  // When timer is null the leading-edge path already emitted the payload
+  // synchronously, so there is nothing left to flush — skip the duplicate emit.
+  private flushDiagnosticsForUri(uri: string): void {
+    const state = this.diagnosticsDebounce.get(uri);
+    if (!state) return;
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+      this.emit("diagnostics", state.latestPayload);
+    }
+    this.diagnosticsDebounce.delete(uri);
+  }
+
+  // Clear (without emitting): cancel all pending timers for URIs owned by the
+  // given server. Used by handleServerExited to prevent stale emit after crash.
+  private clearDiagnosticsTimersForServer(workspaceId: string, languageId: string): void {
+    for (const [uri, state] of this.diagnosticsDebounce) {
+      const entry = this.uriIndex.get(uri);
+      if (
+        entry &&
+        entry.workspaceId === workspaceId &&
+        entry.presetLanguageId === languageId
+      ) {
+        if (state.timer !== null) {
+          clearTimeout(state.timer);
+        }
+        this.diagnosticsDebounce.delete(uri);
+      }
+    }
+  }
+
+  // Clear all pending timers across all URIs. Used by dispose.
+  private clearAllDiagnosticsTimers(): void {
+    for (const state of this.diagnosticsDebounce.values()) {
+      if (state.timer !== null) {
+        clearTimeout(state.timer);
+      }
+    }
+    this.diagnosticsDebounce.clear();
   }
 
   private emitServerEvent(context: ServerContext, method: LspServerEventMethod, params: unknown) {

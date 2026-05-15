@@ -13983,6 +13983,257 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-15T02:52:02.969Z",
+      "branch": "feat/ssh-remote-workspace",
+      "plan": {
+        "id": 46,
+        "topic": "감사 후속 Group C — PTY/LSP 백프레셔 + 통합 테스트 보강",
+        "issues": [
+          {
+            "id": 1,
+            "title": "main↔agent PTY 백프레셔: pipe.ts stdout drain 차단 방법 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권장: Option A (pipe.ts에 OS-level pause/resume). Deadlock invariant 확인 완료 — internal/stdioserver/host.go:93-111의 stdin scanner는 outMu와 독립이고, internal/pty/service.go:200의 session.ack()는 response frame write 이전에 cond broadcast로 reader 깨우므로 main이 stdout 일시 정지해도 ack 흐름은 막히지 않는다.\n\n핵심 수정: src/main/infra/agent/pipe.ts:178-180의 flowing-mode stdout 핸들러에 parse-time byte accounting 기반 high-watermark 게이트 추가. 임계값 HWM 1 MiB / LWM 64 KiB 권장 (Go session 100 KiB의 10배로 5-10 concurrent burst 흡수, LWM은 Linux kernel pipe buffer 크기와 정렬해 진동 방지). 단일 파일 변경, wire protocol 변경 없음.\n\nAcceptance: 20,000-frame 재현 실험에서 main 측 max backlog ≤ HWM + MaxChunkSize. internal/pty/service_test.go:72-84 패턴의 결정론적 회귀 테스트(PassThrough mock + pause/resume 호출 어설션).\n\nCONCERN 2건 + INFO 2건:\n- WARNING pipe.ts:170-176 — emitEvent 동기 호출, 느린 listener가 splitter 정지시킴. Option A는 pipe만 bound, splitter 루프는 별개. 100ms 초과 콜백 발견 시 queueMicrotask 도입 고려.\n- WARNING host.go:84-86 — pause 시 모든 이벤트 스트림이 outMu 공유로 동시 stall. 의도된 transport-level backpressure이나 host.go:71-80 WriteFrame에 주석 명시 필요.\n- INFO ack-response goroutine pile-up: pause 지속 시 응답 write 블록되어 dispatcher waitgroup slot 누적. 클라이언트 request rate가 자체 제약이고 SIGTERM 75ms force-exit가 있어 deadlock은 아니나 stress test로 검증 권장.\n\n옵션 비교 결과:\n- A (OS pause): ✓ 추천 — 단일 파일, 프로토콜 무변, Go per-session watermark 활용\n- B (Credit RPC): ✗ premature — fs/lsp/git priority inversion이 실제 관측되기 전엔 보류\n- C (Hybrid A+B): ✗ speculative — A로 측정 후 재평가\n- D (Bounded queue + drop): ✗ pty.data/pty.ack 회계 무결성 위반\n- E (Await callback): ✗ 모든 listener async 전환 비용 + 전역 결합 악화\n\n미해결 risk: 비-PTY 트래픽 우선순위 역전 시나리오는 production 데이터 없음 — A 도입 후 모니터링 필요.",
+                "recorded_at": "2026-05-15T01:53:42.589Z",
+                "agent_id": "a95126fa8ff080f08"
+              },
+              {
+                "role": "failure-note",
+                "summary": "1차 구현(engineer)이 tester 검증에서 FAIL. CRITICAL design flaw 발견: createLineSplitter의 gate가 self-deadlock 가능 — pause()를 honor하는 stream(PassThrough, real OS pipe)에서 async writes로 frame이 1개씩 도착할 때 HWM 초과로 pause() 호출되면 다음 line이 도래하지 않아 resume() 평가 기회가 영원히 없음. 결과: 후속 NDJSON 이벤트 영구 drop. PassThrough+setImmediate로 재현 확정 (993/1100 PTY + 0/20 fs.changed 전달).\n\n원인 분석: 1차 architect의 deadlock invariant 분석은 stdin↔stdout 독립성만 cover. gate 자체의 liveness invariant(pause 후 resume 회복)는 다루지 않음. engineer 회귀 테스트도 FakeReadable(pause 무시)를 사용해 deadlock invisible.\n\nProduction 보호 메커니즘 (tester 분석): Go 측 per-session PTY ack gate(100 KiB)가 NDJSON pipe gate(1 MiB)보다 먼저 fire, 비-PTY 트래픽 low-volume, OS pipe 큰 chunk 묶음. 잠재 위험으로 남음.\n\narchitect 2차 결정: Option (b) — dispatchLine 직후 paused && tally === 0이면 unconditional resume() 호출. (a) queueMicrotask watchdog은 invariant 가림 + 정상 데이터와 race 가능성으로 기각. 추가 적용 4건: flush() 경로 동일 post-dispatch check, re-entrancy 안전 확인(single-threaded JS이라 OK), pause 후 in-flight chunk 1개 자연 처리, PassThrough variant 회귀 테스트 추가.\n\n추가 발견 WARNING 2건(tester): pipe.ts:430-450 LineSplitterBackpressure interface 중복 정의 (TS declaration merging으로 silent merge), throwing listener가 gate accounting 우회. lead 판단으로 fix 같이 처리.",
+                "recorded_at": "2026-05-15T02:37:50.486Z",
+                "agent_id": "ab665ed7c50a438c5"
+              }
+            ],
+            "decision": "Option A — `src/main/infra/agent/pipe.ts`에 OS-level stdout pause/resume 게이트 추가. 조건 4건: (1) parse-time byte accounting (raw chunk 아님), (2) HWM 1 MiB / LWM 64 KiB, (3) PassThrough mock 기반 결정론적 회귀 테스트 (20,000-frame burst에서 maxBacklog ≤ HWM + MaxChunkSize 어설션), (4) `internal/stdioserver/host.go` `WriteFrame`에 \"block은 transport-level backpressure 신호\" 주석. 부수 작업 2건도 같은 task에 포함 — `pipe.ts:170-176` `emitEvent` 동기 listener tax 동작 주석, `host.go:84-86` `outMu` 공유 stall 의도 주석. Option B (Credit RPC)는 fs/lsp/git/search 스트림 priority inversion이 production에서 실측될 때 재고."
+          },
+          {
+            "id": 2,
+            "title": "LSP diagnostics flow control: publishDiagnostics burst 흡수 방법 결정",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권장: Option B (main-side per-URI debounce, publishDiagnostics 한정). 100ms trailing window + URI가 500ms 이상 조용했을 때 leading-edge bypass (steady-state edit 시 첫 진단은 즉시 표시).\n\n코드 경로 확인 완료:\n- internal/lsp/server_messages.go:57-60 — Go가 LSP 알림을 1:1 lsp.message 이벤트로 raw emit (transport-shaped, LSP 의미 모름)\n- src/main/features/lsp/agent-host.ts:609-627 → handleServerNotification:731-746 — publishDiagnostics fast path가 동기 this.emit(\"diagnostics\", ...) 호출 (807-811)\n- src/main/features/lsp/ipc.ts:108-112 — broadcast로 모든 윈도우에 fan-out (멀티 윈도우 시 비용 증폭)\n\nLSP spec 검증:\n- textDocument/publishDiagnostics: last-wins per URI (spec 3.17 §3.18) — 안전하게 coalesce 가능\n- $/progress: token-keyed sequence (begin → report* → end), 마지막 한 개만 의미 있는 게 아님 — coalesce 불가\n- window/showMessage, window/logMessage: append-only, 각각 독립 — coalesce 불가\n- workspace/applyEdit, window/showMessageRequest: response 필요한 request — coalesce 불가\n\n변경 위치는 agent-host.ts:735-741 한 점. per-URI 타이머 맵 (Map<uri, {timer, latest}>) 추가. Flush 훅 3곳 필수: didClose:349-359, handleServerExited:565-594, dispose:278-296.\n\nAcceptance:\n- 동일 URI에 100ms 안에 N개 publishDiagnostics 들어와도 renderer emit은 1번 (correlation_test.go:19-79 패턴 응용)\n- URI가 500ms 조용한 뒤 첫 진단은 즉시 emit\n- 서버 exit / 워크스페이스 close / dispose 시 pending timer 모두 flush 또는 clear\n- 멀티 윈도우 broadcast 시 coalesce가 broadcast 상류에 위치 (이미 ipc.ts:109-112 상류라 OK)\n\n옵션 비교:\n- A (아무것도 안 함): ✗ Option A transport pause로 OOM은 막혔으나 N stale parse + Monaco 데코 thrash 비용 잔존\n- B (main debounce, publishDiagnostics 한정): ✓ — last-wins 의미에 surgical fit, 1점 변경, 프로토콜 무변\n- C (Go agent coalesce): ✗ Go가 LSP 의미를 알게 되면 transport-shaped 원칙 깨짐, 양쪽 파싱 중복, cross-process 테스트 어려움\n- D (Credit RPC): ✗ last-wins 의미를 모름 — wrong primitive, stale frame skip하지 않음, M3 직후 protocol 표면 또 확장\n- E (emit pacing): ✗ latency만 추가하고 효율 절감 없음\n\n미해결 risk 3건:\n- Steady-state typing latency 회귀 (mitigation: leading-edge bypass, 실측 후 윈도우 조정)\n- per-URI 타이머 맵 누수 (mitigation: didClose / disposeChannelServers / handleServerExited에서 정리)\n- 서버 재시작 경계에서 stale diagnostic 발사 (mitigation: handleServerExited에서 pending state dispose 전 timer clear)\n\nWARNING 1건 + INFO 3건 식별:\n- WARNING agent-host.ts:735-741 sync emit, 멀티 윈도우 broadcast로 amplified\n- INFO Go 측은 transport-shaped 유지가 옳음 (현재 1:1 emit이 default)\n- INFO ipc.ts:109-112 broadcast 비용 — coalesce는 broadcast 상류 위치라 OK\n- INFO correlation_test.go:19-79가 회귀 테스트 패턴 템플릿",
+                "recorded_at": "2026-05-15T01:59:11.682Z",
+                "agent_id": "a95126fa8ff080f08"
+              },
+              {
+                "role": "retrospective",
+                "summary": "Cycle 종료 회고. plan 46 Group C 7 task 모두 PASS 완료.\n\n성과:\n- Issue 1: pipe.ts에 OS pause/resume 백프레셔 게이트(HWM 1 MiB / LWM 64 KiB) 도입, 2차 fix로 post-dispatch unconditional resume check 추가하여 deadlock invariant 해소\n- Issue 2: agent-host.ts에 publishDiagnostics per-URI debounce(100ms trailing + 500ms idle leading-edge bypass) + 4 lifecycle hook\n- Issue 3: tests/integration/agent/{search,lsp}/ 통합 테스트 추가\n- Issue 4: tests/integration/ssh/{search,git-clone,lsp}/ 통합 테스트 + workspace-seed bare repo\n- Follow-up: LSP_CLIENT_CAPABILITIES에 publishDiagnostics advertise 추가 (Task 4 발견)\n\n검증 사이클 양상:\n- Task 1 → Task 2 검증으로 CRITICAL design flaw 발견 (gate self-deadlock with pause-honoring stream). Architect 2차 분석으로 Option (b) post-dispatch resume check 결정 후 engineer fix → 재검증 PASS\n- Task 3 → Task 6 검증으로 CRITICAL bug 발견 (disposeChannelServers에서 timer clear 누락 — 4번째 lifecycle hook 경로). Engineer fix → 재검증 PASS\n- Task 4의 발견(production capabilities에 publishDiagnostics 누락)이 Task 3 효과의 실효성에 직접 영향 → Task 7로 follow-up\n\n학습:\n1. 백프레셔 게이트의 liveness invariant는 deadlock invariant와 별개 — pause/resume 토글 자체의 회복 경로를 architect 1차 분석이 다루지 않아 2차 사이클 필요\n2. Lifecycle hook은 4개 경로(dispose, didClose, handleServerExited, disposeChannelServers)를 모두 cover해야 함 — 3개로 충분하다는 가정이 1개 누락 야기\n3. FakeReadable로만 회귀 테스트하면 pause-honoring 동작이 invisible — PassThrough 기반 variant 필수\n4. LSP capabilities advertise는 server 동작에 결정적 — debounce 로직만으로는 production 효과 보장 안 됨 (typescript-language-server는 advertise 없으면 알림 안 보냄)\n\n남은 risk:\n- Issue 1 INFO: 단일 push에 HWM 초과 + LWM 초과 따라오는 프레임 조합 시 paused 잔존 — PTY ack gate(100 KiB)가 대쇄 cover, regression 아님\n- Issue 2 운영적 효과는 production 모니터링 필요 (cold-open 시 emit 감소율 50% 이상 시뮬레이션 검증, 실측 따로)\n\n다음 사이클 후보:\n- LSP capabilities에 tagSupport(Unnecessary/Deprecated) 추가 + Monaco marker tags 통합\n- SSH LSP fixture 실행을 위한 NEXUS_SSH_LSP_DIST_DIR 운영 가이드 문서화\n- main↔agent transport priority inversion 실측 (Option B Credit RPC 재고 트리거)",
+                "recorded_at": "2026-05-15T02:51:49.216Z"
+              }
+            ],
+            "decision": "Option B — `src/main/features/lsp/agent-host.ts:handleServerNotification:731-746`에 `textDocument/publishDiagnostics` 한정 per-URI debounce 추가. 조건 4건: (1) 100ms trailing-edge debounce, URI 기준 coalesce; (2) 500ms idle 후 첫 진단은 leading-edge bypass (steady-state edit squiggle 즉시 표시); (3) flush hooks 3곳 — `didClose:349-359`, `handleServerExited:565-594`, `dispose:278-296`에서 pending timer 정리 또는 flush; (4) `internal/lsp/correlation_test.go:19-79` 패턴 응용한 결정론적 회귀 테스트(동일 URI에 빠른 N개 publishDiagnostics → renderer emit 1회). Go 측은 transport-shaped 유지(`internal/lsp/server_messages.go:57-60` 변경 없음). `$/progress`, `window/showMessage`, `window/logMessage`, `workspace/applyEdit` 등 last-wins 아닌 메시지는 기존 switch에서 자연 bypass."
+          },
+          {
+            "id": 3,
+            "title": "agent-binary 통합 테스트 보강: lsp/search 라운드트립 추가 범위 결정",
+            "status": "decided",
+            "decision": "Option B — agent-binary 통합 테스트 보강을 PTY fixture 패턴(go build → createLocalChannel → host → multi-it) 그대로 응용해 도메인당 2-3 시나리오 추가. 신규 파일 2건:\n\n`tests/integration/agent/search/agent-search.integration.test.ts` (3 시나리오)\n- happy: workspace에 testfile 다수 + `search.text` → progress + complete 수신, 매치 카운트 검증\n- large result: 100+ 매치 → `internal/search/service.go:23-28`의 batchByCount/batchByMatchCount/30ms 로직에 따라 progress가 분할되는지 검증\n- cancel: search 시작 후 `search.cancel` → cancelled complete 수신\n\n`tests/integration/agent/lsp/agent-lsp.integration.test.ts` (3 시나리오)\n- happy: `lsp.spawn` typescript-language-server → initialize → `lsp.send` didOpen → `lsp.message` publishDiagnostics 수신 → `lsp.shutdown`\n- hover: didOpen 후 hover request → `lsp.message`로 응답 라우팅 검증\n- dispose 무 zombie: 호스트 dispose 후 `pgrep -f typescript-language-server` 0개 (PTY zombie-check 패턴)\n\n가드: `goAvailable` 외에 `nodeModulesLspAvailable` (npm dep 설치 여부) 가드 추가. 운영 코드 변경 없음."
+          },
+          {
+            "id": 4,
+            "title": "SSH 워크스페이스 통합 테스트 보강: lsp/search/git-clone fixture 확장 범위 결정",
+            "status": "decided",
+            "decision": "Option A — search / git clone / lsp 3개 도메인 SSH 통합 테스트 추가, 기존 fixture 유지. \"Go agent + zero host runtime\" 가설은 `ensureRemoteLspServer`(`src/main/infra/agent/ssh-bootstrap.ts:217-292`)가 origin dist에서 Node runtime + LSP archive를 업로드하므로 LSP에서도 유지됨.\n\n신규 파일:\n- `tests/integration/ssh/remote-search.integration.test.ts` (2 시나리오): happy(workspace-seed 검색 + 매치 카운트), cancel\n- `tests/integration/ssh/remote-git-clone.integration.test.ts` (1-2 시나리오): happy(`file://` 로컬 bare repo clone + progress + complete), 선택적 askpass 시나리오\n- `tests/integration/ssh/remote-lsp.integration.test.ts` (1-2 시나리오): happy(`ensureRemoteAgent` + `ensureRemoteLspServer` + `lsp.spawn` + initialize + didOpen + publishDiagnostics + shutdown), 선택적 dispose-zombie\n\nfixture 변경 최소:\n- `docker/ssh-fixture/workspace-seed/bare-repo/`에 mini bare repo 1개 추가 (git data만이므로 가설 위반 없음)\n- Docker image 자체 변경 없음\n\nSetup helper: `scripts/build-agent.ts`로 origin dist 사전 빌드, 기존 PTY SSH 테스트의 `createMinimalAgentDist` 패턴 재사용하되 Node runtime + LSP archive 포함.\n\nenv 가드: 도메인별 분리 — `NEXUS_RUN_SSH_SEARCH_FIXTURE=1`, `NEXUS_RUN_SSH_GIT_FIXTURE=1`, `NEXUS_RUN_SSH_LSP_FIXTURE=1`. 기존 `NEXUS_RUN_SSH_PTY_FIXTURE`와 패턴 일관성 유지, CI에서 도메인별 격리 실행 가능. 운영 코드 변경 없음."
+          }
+        ],
+        "research_summary": "컨텍스트: 직전 사이클(c05d193)에서 PTY M3 cleanup 완료. 그 이전 fs/git/search/lsp/pty 도메인 감사에서 Group C 4개 항목이 미해결로 분리됨.\n\n핵심 evidence 확인:\n- `src/main/infra/agent/pipe.ts:178-184` — `deps.stdout.on(\"data\", chunk => stdoutLines.push(chunk))`로 flowing mode. pause()/resume()/credit/high-watermark 모두 부재. 라인 splitter는 NDJSON 단위만 보장.\n- `.nexus/memory/empirical-reconnecting-channel-backpressure.md` 재현: 20,000 frames maxBacklog, 204ms에 main이 다 받음, slow consumer는 18개만 처리. 메인 힙 unbounded 확정.\n- `internal/pty/service.go:268-302` — Go agent 측은 HighWatermarkBytes paused/LowWatermarkBytes resume + renderer ack로 정확히 동작.\n- `internal/lsp/service.go` — LSP 서버 → 클라이언트 메시지 emit이 `serverProcess`에 위임. publishDiagnostics throttle 코드 없음. server_messages.go에서 raw forward일 가능성 큼.\n- `.nexus/memory/empirical-pty-go-latency.md` — Go PTY 측 latency p50 0.083ms, 백프레셔 추가로 인한 latency 증가 허용 임계는 utility baseline 대비 +5ms/+10ms.\n- `tests/integration/agent/pty/agent-pty.integration.test.ts`만 있고 lsp/search agent 통합 테스트 부재. `tests/integration/ssh/`는 remote-terminal만.\n- `docker/ssh-fixture/` 존재 — SSH integration 베이스. LSP/search/git clone 추가 시 어떤 사전 설치 필요한지 확인 미실시.\n\nprior decisions: `nx_history_search`로 pty backpressure / lsp flow control / ssh integration test 3종 모두 검색 — total_cycles 0. 첫 plan 사이클.\n\n분석 전략: C1·C2는 architect HOW 필수 (protocol/algorithm 설계). C3·C4는 procedural — lead 단독 + 필요시 explore로 docker fixture/기존 test 패턴 확인. C1 권장도(audit 단계 architect 의견) = 우선순위 가장 높음.",
+        "created_at": "2026-05-15T01:50:36.885Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "PTY 백프레셔 — pipe.ts에 OS pause/resume 게이트 추가",
+          "status": "completed",
+          "context": "감사에서 검출: `src/main/infra/agent/pipe.ts:178-180`이 agent stdout을 flowing mode로 무한 drain. `.nexus/memory/empirical-reconnecting-channel-backpressure.md`의 재현에서 20,000 frames maxBacklog, main heap unbounded. Go 측 PTY는 `internal/pty/service.go:230-302`에서 per-session HighWatermark/LowWatermark + renderer ack로 backpressure 동작, 그러나 main↔agent 사이에 brake 없음. Deadlock invariant는 architect가 확인 완료 — `internal/stdioserver/host.go:93-111` stdin scanner는 `outMu`와 독립, `internal/pty/service.go:200` session.ack가 response write 전 reader 깨움.",
+          "acceptance": "1. `src/main/infra/agent/pipe.ts`의 stdout 핸들러가 parse-time byte 누적이 HWM(1 MiB) 도달 시 `deps.stdout.pause()` 호출, LWM(64 KiB) 이하로 떨어지면 `deps.stdout.resume()` 호출.\n2. Byte 누적은 raw chunk 크기가 아닌 splitter가 처리한 NDJSON line 길이 기반(parse-time accounting).\n3. `internal/stdioserver/host.go`의 `WriteFrame` 함수 근처에 \"blocking write은 transport-level backpressure 신호\"라는 의도 주석 추가.\n4. `src/main/infra/agent/pipe.ts:170-176` emitEvent 동기 호출에 \"동기 listener tax — 느린 콜백은 splitter 정지\" 동작 주석 추가.\n5. PassThrough mock 기반 결정론적 회귀 테스트: 20,000-frame burst 주입 시 main 측 maxBacklog가 HWM + MaxChunkSize 이하임을 어설션. `internal/pty/service_test.go:72-84` 패턴 응용.\n6. `go test ./internal/... ./cmd/...` exit 0, `bun run typecheck` exit 0, 새 회귀 테스트 + 기존 `tests/integration/agent/pty/agent-pty.integration.test.ts` 모두 통과.",
+          "risk": "1. 지속 pause 시 ack-response 고루틴 누적 — bounded by client request rate, SIGTERM 75ms force-exit가 안전장치. stress test로 검증 권장. 2. 느린 sync listener가 splitter 자체를 정지시키는 tax — 100ms 초과 콜백 발견 시 `queueMicrotask` yield 도입 필요. 3. pause 시 fs/lsp/git/search 모든 이벤트 스트림이 `outMu` 공유로 함께 stall — 의도된 transport-level fairness이나 priority inversion 실측 시 Option B 재고.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a15860f93769039df",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:07:13.079Z",
+          "approach": "단일 파일 변경(`src/main/infra/agent/pipe.ts`) + Go 측 주석 추가. `createLineSplitter`에 byte 누적 변수 추가, `push()` 안에서 임계 확인하고 `stdout.pause/resume` 토글. `emitEvent` 동기 호출은 그대로 유지 — backpressure는 pipe-level에서 처리되므로 listener 비동기화 불필요. Option B(Credit RPC)는 fs/lsp/git priority inversion 실측 시 재고하기로 결정됨.",
+          "result": {
+            "outcome": "success",
+            "summary": "1차 구현 + 1차 fix + 2차 fix 완료. 1차: createLineSplitter에 OS-level pause/resume 게이트 (HWM 1 MiB / LWM 64 KiB), host.go WriteFrame과 emitEvent 주서, 6 결정론적 회귀 테스트. Tester(Task 2)가 CRITICAL self-deadlock 발견 (pause()를 honor하는 stream + async writes 시 resume 존안 안 트리거). Architect 결정: Option (b) post-dispatch unconditional resume check. 2차 fix: postBurstResumeCheck 신규 함수를 push/flush 끝에 호출—paused && tally <= LWM 이면 resume() 동기 호출. 부수 처리로 WARNING 2건: LineSplitterBackpressure interface 중복 제거, listener try/catch wrap. 검증: bun test 52/52 pass, typecheck exit 0, go test exit 0. pipe-risk3-non-pty-stall.test.ts 5/5 PASS 전환. PassThrough variant 테스트 2개 추가.",
+            "artifacts": [
+              "src/main/infra/agent/pipe.ts",
+              "internal/stdioserver/host.go",
+              "tests/unit/main/agent/pipe-backpressure.test.ts"
+            ],
+            "recorded_at": "2026-05-15T02:42:42.486Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "PTY 백프레셔 검증 — backlog bound + 회귀 + 비-PTY 스트림 영향",
+          "status": "completed",
+          "context": "Task 1의 pipe.ts pause/resume 게이트 도입 후 동작 검증. architect 분석에서 도출된 잠재 risk 3건(ack 고루틴 누적, sync listener tax, 비-PTY 스트림 stall)을 운영적으로 확인.",
+          "acceptance": "1. Task 1의 새 회귀 테스트(`pipe.ts` PassThrough 기반)가 결정론적으로 통과하고 maxBacklog ≤ HWM + MaxChunkSize.\n2. 기존 `tests/integration/agent/pty/agent-pty.integration.test.ts`의 7 시나리오 모두 통과(특히 `bounds full-path PTY output while renderer ack is withheld` 케이스 — Task 1 변경으로 Go 측 watermark 동작이 깨지지 않음).\n3. 스트레스 시나리오: 1,000개 동시 PTY tab burst write가 main heap에서 HWM × 2 미만 유지 (heap snapshot 또는 RSS 측정으로 확인).\n4. SIGTERM 시 force-exit가 ack 고루틴 누적 상태에서도 75ms 내 종료(`internal/stdioserver/host.go:164-184`).\n5. 비-PTY 이벤트 스트림(fs.changed, lsp.message) 정상 흐름 — pause 해제 시점에 stall된 이벤트들이 재개됨.",
+          "approach": "Task 1 엔지니어가 작성한 테스트를 먼저 reproducer로 돌려보고, 그 다음 architect risk 3건에 대한 추가 시나리오 작성. 스트레스 테스트는 기존 PtyAgentFixture 확장.",
+          "risk": "스트레스 테스트가 환경(macOS vs Linux pipe buffer) 차이로 flaky 가능 — kernel pipe buffer 가정을 명시하고 환경별 임계 조정.",
+          "plan_issue": 1,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "ab665ed7c50a438c5",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:08:15.760Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Re-verify PASS. 새 deadlock/oscillation 도입 없으며 모든 acceptance 충족. 1차 검증에서 CRITICAL design flaw 발견 → architect Option (b) 결정 → engineer postBurstResumeCheck fix → 재검증 PASS. 23 tests pass (8 pipe-backpressure + 3 risk2 + 5 risk3 + 7 pty integration), 5회 연속 0 flaky. WARNING 2건 처리 확인(LineSplitterBackpressure 중복 제거, throwing listener try/catch). 잔여 INFO 1건: 단일 push에 HWM 초과 프레임 + LWM 초과 따라오는 프레임 조합 시 paused 잔존 — 기존 동작과 동일, PTY ack gate(100 KiB)가 대쇄 cover, regression 아님.",
+            "artifacts": [
+              "tests/unit/main/agent/pipe-risk2-slow-listener.test.ts",
+              "tests/unit/main/agent/pipe-risk3-non-pty-stall.test.ts",
+              "internal/stdioserver/host_stress_test.go"
+            ],
+            "recorded_at": "2026-05-15T02:49:45.171Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "LSP diagnostics debounce — publishDiagnostics per-URI coalesce",
+          "status": "completed",
+          "context": "감사에서 검출: `internal/lsp/server_messages.go:57-60`이 LSP 서버 알림을 1:1 raw forward, `src/main/features/lsp/agent-host.ts:735-741`이 `textDocument/publishDiagnostics`를 동기 emit, `src/main/features/lsp/ipc.ts:108-112`가 모든 윈도우로 broadcast. 큰 워크스페이스 cold-open 시 동일 URI에 N번 update가 전부 흐름 — last-wins 의미상 wasted CPU + Monaco squiggle thrash. LSP spec 3.17 §3.18: publishDiagnostics는 URI별 last-wins 확인. `$/progress`, `window/showMessage`, `window/logMessage`, `workspace/applyEdit`는 coalesce 불가 — 기존 switch에서 자연 bypass.",
+          "acceptance": "1. `src/main/features/lsp/agent-host.ts`의 `handleServerNotification`에서 `textDocument/publishDiagnostics` 케이스에 per-URI 트레일링 디바운스(100ms) 추가, URI별 마지막 payload만 renderer로 emit.\n2. URI가 500ms 이상 조용했을 때 다음 publishDiagnostics는 leading-edge로 즉시 emit(steady-state edit squiggle 즉시 표시).\n3. Flush hooks 3곳: `didClose:349-359`, `handleServerExited:565-594`, `dispose:278-296`에서 pending URI 타이머를 모두 flush(마지막 payload emit) 또는 clear(서버 죽음 시 stale 발사 방지). 서버 재시작 경계에서 stale diagnostic이 새 서버로 흘러가지 않음.\n4. Go 측 변경 없음 — `internal/lsp/server_messages.go:57-60`는 transport-shaped 유지.\n5. `$/progress`, `window/showMessage`, `window/logMessage`, `workspace/applyEdit`, `window/showMessageRequest` 모두 디바운스 없이 즉시 emit.\n6. 결정론적 회귀 테스트(`internal/lsp/correlation_test.go:19-79` 패턴): 동일 URI에 100ms 안에 N개 publishDiagnostics 주입 시 renderer 측 emit 1회만 발생. 500ms idle 후 첫 진단은 즉시 emit.\n7. `bun run typecheck` exit 0, 새 테스트 통과.",
+          "approach": "`agent-host.ts:handleServerNotification`의 `textDocument/publishDiagnostics` 케이스 직전에 per-URI 타이머 맵(`Map<uri, {timer, latestPayload, lastEmittedAt}>`) 운용. 100ms 트레일링 + 500ms idle leading-edge bypass 결합. flush 헬퍼 `flushPendingDiagnostics(server)` 추가하여 3곳 lifecycle hook에서 호출. lifecycle 훅에서는 서버 dispose 전에 timer clear 먼저, 그 뒤 dispose하여 stale 발사 방지.",
+          "risk": "1. Steady-state typing latency +100ms 회귀 — leading-edge bypass로 완화. 실측 후 윈도우 조정 가능. 2. URI churn 시 타이머 맵 누수 — didClose / disposeChannelServers / handleServerExited 모두 flush hook 필수. 3. 서버 재시작 경계에서 새 서버로 stale 진단 누출 — handleServerExited에서 dispose 전 clear.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "adfb64d92f9c8ae98",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:08:36.078Z",
+          "result": {
+            "outcome": "success",
+            "summary": "1차 구현 + fix 내역: agent-host.ts에 per-URI 100ms trailing debounce + 500ms idle leading-edge bypass, 4 lifecycle hook(dispose/didClose/handleServerExited/handleServerNotification). Task 6 검증으로 발견된 CRITICAL bug(disposeChannelServers에서 timer clear 누락) fix 완료 — disposeChannelServers에 clearDiagnosticsTimersForServer 호출 추가, handleServerExited와 동일 순서. flushDiagnosticsForUri timer=null 분기 doc comment 추가(INFO). 검증: typecheck exit 0, 30 LSP unit tests pass (3 files, 0 fail), agent-host-channel-dispose-bug.test.ts PASS 전환.",
+            "artifacts": [
+              "src/main/features/lsp/agent-host.ts",
+              "tests/unit/main/lsp/agent-host.test.ts",
+              "tests/unit/main/lsp/agent-host-debounce-extra.test.ts",
+              "tests/unit/main/lsp/agent-host-channel-dispose-bug.test.ts"
+            ],
+            "recorded_at": "2026-05-15T02:31:06.321Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "agent-binary 통합 테스트 추가 — search/lsp 라운드트립",
+          "status": "completed",
+          "context": "PTY는 `tests/integration/agent/pty/agent-pty.integration.test.ts`로 go build → createLocalChannel → host → 시나리오별 RPC 라운드트립을 검증하지만 search, lsp는 unit/mock만 — Go↔TS wire 회귀 자동감지 부재. 운영 코드 변경 없이 PTY fixture 패턴을 응용해 두 도메인에 동등한 안전망 추가.",
+          "acceptance": "1. `tests/integration/agent/search/agent-search.integration.test.ts` 신규 파일 — 3 시나리오: (a) happy: workspace에 testfile 다수 생성 + `search.text` → `search.progress` events + complete + 매치 카운트 검증; (b) large result: 100+ 매치 → progress가 `internal/search/service.go:23-28`의 batchByCount/batchByMatchCount/30ms 규칙에 따라 분할; (c) cancel: search 시작 후 `search.cancel` → cancelled complete.\n2. `tests/integration/agent/lsp/agent-lsp.integration.test.ts` 신규 파일 — 3 시나리오: (a) happy: `lsp.spawn` typescript-language-server → initialize → `lsp.send` didOpen → `lsp.message` publishDiagnostics 수신 → `lsp.shutdown`; (b) hover: didOpen 후 hover request → `lsp.message`로 응답 라우팅; (c) dispose 무 zombie: 호스트 dispose 후 `pgrep -f typescript-language-server` 결과 0개.\n3. PTY 통합 테스트의 fixture 패턴 재사용 — `goAvailable` 가드 + `nodeModulesLspAvailable` 가드(LSP만) + sharedBinPath beforeAll/afterAll.\n4. CI 시간 증가 30-60s 이내. flaky 없이 5회 연속 통과.\n5. 운영 코드 변경 없음.",
+          "approach": "기존 `PtyAgentFixture` 클래스 구조를 참고로 `SearchAgentFixture`와 `LspAgentFixture` 별도 helper 작성 또는 공통 helper로 추출. typescript-language-server는 `node_modules/.bin/`에서 resolve. workspace-seed 디렉터리에 검색용 testfile을 fixture 안에서 동적 생성.",
+          "risk": "typescript-language-server initialize가 환경(Node 버전, 캐시) 변동성으로 timeout 가능 — 충분한 timeout(예: 15s)과 명확한 skip 가드 필요. LSP 테스트가 CI에서 노드 캐시 누적으로 느려지는 경우 monitoring.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a73f787a7156ae52e",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:08:52.210Z",
+          "result": {
+            "outcome": "success",
+            "summary": "agent-binary 통합 테스트 신규 2파일 추가. agent-search.integration.test.ts(3 시나리오: happy/large/cancel), agent-lsp.integration.test.ts(3 시나리오: happy/hover/zombie). 공용 helper 추출 안 함 — fixture class self-contained (조기 추상화 회피, PTY 패턴과 일관). 테스트용 TEST_LSP_CAPABILITIES 상수 도입 + tsconfig.json 테스트 워크스페이스에 기록.\n\n다음-사이클 follow-up 후보 1건: production LSP_CLIENT_CAPABILITIES(src/shared/lsp/client-capabilities.ts)에 textDocument.publishDiagnostics 필드 누락 — typescript-language-server 5.1.3은 이게 없으면 진단을 안 보낼. Task 3의 디바운스가 효과 보려면 production capabilities fix 필요. Cycle-end review에서 결정.\n\n추가 알아낼 것: lsp.send 의 message 필드는 JS object(문자열 아님) — Go 측 EncodeRawMessage가 body[0]=='{' 검증.",
+            "artifacts": [
+              "tests/integration/agent/search/agent-search.integration.test.ts",
+              "tests/integration/agent/lsp/agent-lsp.integration.test.ts"
+            ],
+            "recorded_at": "2026-05-15T02:34:11.100Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "SSH 워크스페이스 통합 테스트 추가 — search/git-clone/lsp + workspace-seed bare repo",
+          "status": "completed",
+          "context": "현재 `tests/integration/ssh/`에는 `remote-terminal.integration.test.ts` 1개만. search/git clone/lsp의 SSH 경로(`ssh-bootstrap.ts:217-292 ensureRemoteLspServer`의 Node+LSP archive 업로드 포함)가 통합 테스트 미커버. 운영 코드 변경 없이 fixture 변경 최소(workspace-seed에 bare repo 1개)로 추가.",
+          "acceptance": "1. `tests/integration/ssh/remote-search.integration.test.ts` 신규 — 2 시나리오: (a) happy: `ensureRemoteAgent` → workspace-seed 시드 파일에 `search.text` → progress + complete + 매치 검증; (b) cancel: 시작 후 `search.cancel` → cancelled complete. env 가드 `NEXUS_RUN_SSH_SEARCH_FIXTURE=1`.\n2. `tests/integration/ssh/remote-git-clone.integration.test.ts` 신규 — 1-2 시나리오: (a) happy: workspace-seed 안에 추가한 mini bare repo를 `file://` URL로 `git.clone` → progress + complete + 클론 디렉터리 검증; (b) 선택 askpass: invalid auth/URL clone → `git.askpass.request` event 발생 검증. env 가드 `NEXUS_RUN_SSH_GIT_FIXTURE=1`.\n3. `tests/integration/ssh/remote-lsp.integration.test.ts` 신규 — 1-2 시나리오: (a) happy: `ensureRemoteAgent` + `ensureRemoteLspServer` → `lsp.spawn` → initialize → didOpen → publishDiagnostics 수신 → `lsp.shutdown`; (b) 선택 dispose 무 zombie. env 가드 `NEXUS_RUN_SSH_LSP_FIXTURE=1`.\n4. `docker/ssh-fixture/workspace-seed/bare-repo/`에 mini bare repo 추가(`git init --bare` + 1 commit 시드). git data만이므로 Docker image Dockerfile 변경 없음.\n5. Setup helper: `scripts/build-agent.ts`를 호출해 origin dist 사전 빌드 — 기존 `createMinimalAgentDist` 패턴 재사용하되 Node runtime + LSP archive까지 포함하는 변형.\n6. 운영 코드 변경 없음. 모든 env 가드가 unset일 때 기존 unit/integration 스위트 영향 0.",
+          "approach": "`remote-terminal.integration.test.ts`의 `RemoteTerminalFixture` 패턴 따라 search/git-clone/lsp 각각의 fixture 클래스 작성. SSH bootstrap + channel + 도메인 host(또는 직접 channel.call) 조합. workspace-seed에 bare repo는 `scripts/`나 fixture beforeAll에서 동적 git init 또는 사전 commit된 bare-repo 디렉터리 추가. LSP는 sharedDistDir에 origin Node + LSP archive 빌드 후 `ensureRemoteLspServer`가 업로드하도록.",
+          "risk": "1. SSH 환경 변동성으로 flaky — 충분한 timeout과 환경 가드 명시. 2. LSP archive 업로드가 환경 따라 수 초 소요 — 첫 실행 / 캐시 후 실행 분리. 3. workspace-seed에 bare repo 추가가 image 빌드 캐시 invalidate — Dockerfile은 변경 안 함으로 영향 최소화.",
+          "plan_issue": 4,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a5194c0e209b02495",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:09:11.005Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SSH 워크스페이스 통합 테스트 3개 도메인 신규 추가. 공용 helper tests/integration/ssh/_helpers/ssh-fixture.ts(247 lines)로 PTY 테스트 패턴 추출. remote-search(209), remote-git-clone(124), remote-lsp(342) 시나리오. workspace-seed에 bare-repo 디렉터리 추가, Dockerfile 변경 없음 (compose.yml bind-mount 로 바로 사용 가능). env 가드 도메인별 분리 (NEXUS_RUN_SSH_{SEARCH,GIT,LSP}_FIXTURE). 모든 가드 unset 시 4 suite 전부 skip 메시지로 통과. 주의: LSP 실제 실행은 NEXUS_SSH_LSP_DIST_DIR 필요 (production dist 디렉터리, minimal dist로는 안 됨).",
+            "artifacts": [
+              "tests/integration/ssh/_helpers/ssh-fixture.ts",
+              "tests/integration/ssh/remote-search.integration.test.ts",
+              "tests/integration/ssh/remote-git-clone.integration.test.ts",
+              "tests/integration/ssh/remote-lsp.integration.test.ts",
+              "docker/ssh-fixture/workspace-seed/bare-repo/"
+            ],
+            "recorded_at": "2026-05-15T02:33:19.112Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "LSP debounce 검증 — coalesce 동작 + lifecycle flush + steady-state latency",
+          "status": "completed",
+          "context": "Task 3의 publishDiagnostics per-URI 디바운스 도입 후 검증. architect risk 3건(steady-state typing latency 회귀, URI churn 누수, 서버 재시작 stale 발사) 운영 확인. 실제 typescript-language-server를 large fixture에서 부팅하는 시나리오로 효율 측정.",
+          "acceptance": "1. Task 3의 결정론적 회귀 테스트가 통과 — 동일 URI에 100ms 안 N개 publishDiagnostics 주입 시 renderer emit 1회, 500ms idle 후 첫 진단 즉시 emit.\n2. Lifecycle 시나리오 3건 모두 검증: (a) `didClose` 직후 pending 진단이 새 서버로 누출 안 됨; (b) `handleServerExited` 직후 pending 타이머 모두 clear, stale 발사 0; (c) `dispose` 직후 타이머 맵 비어 있음.\n3. Steady-state typing latency 측정 — 500ms idle 상태에서 1글자 typing → publishDiagnostics 도달 시간이 직전(디바운스 없음) 대비 +50ms 이내(leading-edge bypass 효과 확인).\n4. Large fixture 시나리오: 100+ 파일 워크스페이스 cold-open 시 renderer 측 emit 횟수가 직전 대비 50% 이상 감소.\n5. `bun run typecheck` exit 0, 새 테스트 + 기존 LSP 통합 테스트 모두 통과, 5회 연속 flaky 0.\n6. 다른 LSP 알림(`$/progress`, `window/showMessage` 등)이 디바운스에 영향 받지 않고 즉시 emit 확인.",
+          "approach": "Task 3 엔지니어가 작성한 회귀 테스트를 reproducer로 먼저 돌리고, lifecycle 시나리오는 fake LSP 서버 또는 mock을 활용해 결정론적 검증. steady-state latency와 large-fixture coalesce 비율은 `tests/integration/lsp-pyright.test.ts` 또는 새 fixture로 실측. 측정값을 `.nexus/memory/empirical-lsp-debounce.md`에 기록 가능.",
+          "risk": "실제 LSP 서버 기반 측정이 환경 변동성으로 flaky 가능 — fake LSP 서버 패턴(`internal/lsp/fake_server_test.go`)을 TS 측에서 모사하거나 충분한 측정 횟수로 안정화.",
+          "plan_issue": 2,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "aed7503b7bb7de7b9",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-15T02:09:32.652Z",
+          "result": {
+            "outcome": "success",
+            "summary": "Re-verify PASS. agent-host-channel-dispose-bug.test.ts PASS 전환 확인, 5회 연속 30 LSP tests 통과 0 flaky. AC 2a/2b/2c, AC 3/4/5 전부 회귀 없음, typecheck exit 0. 일차 처음 FAIL에서 CRITICAL 1건 발견→engineer fix → 재검증 PASS 완료. 남은 INFO 1건: flushDiagnosticsForUri doc comment 중복 삽입(828-831) — lead가 직접 cleanup함.",
+            "artifacts": [
+              "tests/unit/main/lsp/agent-host-debounce-extra.test.ts",
+              "tests/unit/main/lsp/agent-host-channel-dispose-bug.test.ts"
+            ],
+            "recorded_at": "2026-05-15T02:32:38.451Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "LSP_CLIENT_CAPABILITIES에 publishDiagnostics 추가 — Task 3 debounce의 production 실효성 확보",
+          "status": "completed",
+          "context": "Task 4(agent-binary 통합 테스트)가 발견한 follow-up: production `src/shared/lsp/client-capabilities.ts`의 `LSP_CLIENT_CAPABILITIES`에 `textDocument.publishDiagnostics` 필드가 없음. typescript-language-server 5.1.3(과 LSP spec 3.17 §3.18)은 client가 이 필드를 advertise하지 않으면 publishDiagnostics 알림을 보내지 않음. 따라서 Task 3가 도입한 per-URI debounce 로직이 production에서 실제 효과를 보려면 capabilities advertise가 필수. plan 46 issue 2 결정의 직접 후속.",
+          "acceptance": "1. `src/shared/lsp/client-capabilities.ts`의 `LSP_CLIENT_CAPABILITIES.textDocument`에 `publishDiagnostics: { relatedInformation: true }` 추가. tagSupport 같은 추가 옵션은 Monaco 통합 별도 cycle로 미룸.\n2. `bun run typecheck` exit 0.\n3. 기존 30 LSP unit tests + Task 4의 agent-lsp 통합 테스트(go + node_modules LSP 가용 시) 영향 없음 확인.\n4. 운영 코드 변경은 capabilities 파일 한 곳만.",
+          "approach": "단일 파일 edit. relatedInformation: true 한 줄 추가. tagSupport는 valueSet=[1, 2](Unnecessary/Deprecated) Monaco marker tags 통합 필요로 별도 cycle 권장.",
+          "risk": "capabilities advertise 변경으로 LSP server가 다른 결정을 내릴 가능성 — 그러나 publishDiagnostics는 기본 알림이라 server가 추가로 advertise를 보고 결정하는 다른 동작은 거의 없음(server-side support). relatedInformation은 server가 진단에 추가 location을 첨부하는 옵션으로, 정보가 추가될 뿐 기존 진단 형식과 호환.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "lead"
+          },
+          "created_at": "2026-05-15T02:50:47.742Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/shared/lsp/client-capabilities.ts의 LSP_CLIENT_CAPABILITIES.textDocument에 publishDiagnostics: {relatedInformation: true} 추가. 의도 주서 포함. typecheck exit 0, 30 LSP unit tests pass (3 files). tagSupport 같은 올션은 Monaco marker tags 통합이 필요해 별도 cycle로 미루률 이유로 보류. Task 3의 debounce가 이제 production에서도 publishDiagnostics를 받으면서 효과 발휘.",
+            "artifacts": [
+              "src/shared/lsp/client-capabilities.ts"
+            ],
+            "recorded_at": "2026-05-15T02:51:28.251Z"
+          }
+        }
+      ]
     }
   ]
 }
