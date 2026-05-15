@@ -5,11 +5,11 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   createMergeTargetPickerSource,
   type MergeTargetPickItem,
-} from "../../../../../../src/renderer/components/files/git/merge-target-picker-source";
+} from "../../../../../../src/renderer/components/files/git/pickers/merge-target-picker-source";
 import {
   createRebaseTargetPickerSource,
   type RebaseTargetPickItem,
-} from "../../../../../../src/renderer/components/files/git/rebase-target-picker-source";
+} from "../../../../../../src/renderer/components/files/git/pickers/rebase-target-picker-source";
 import type { BranchList } from "../../../../../../src/shared/types/git";
 
 const branches: BranchList = {

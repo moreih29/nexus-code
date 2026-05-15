@@ -11,7 +11,7 @@ import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import {
   buildAutofetchMenuModel,
   formatLastFetchedCaption,
-} from "../git-more-menu-model";
+} from "../utils/git-more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function AutofetchSubmenu({

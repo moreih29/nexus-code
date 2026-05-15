@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   type CommitPickItem,
   createCommitPickerSource,
-} from "../../../../../../src/renderer/components/files/git/commit-picker-source";
+} from "../../../../../../src/renderer/components/files/git/commit/commit-picker-source";
 import type { LogEntry } from "../../../../../../src/shared/types/git";
 
 const commit: LogEntry = {

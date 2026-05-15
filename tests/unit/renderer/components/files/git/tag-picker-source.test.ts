@@ -6,7 +6,7 @@ import {
   createTagPickerSource,
   type TagPickerMode,
   type TagPickItem,
-} from "../../../../../../src/renderer/components/files/git/tag-picker-source";
+} from "../../../../../../src/renderer/components/files/git/pickers/tag-picker-source";
 import type { RemoteTag, Tag } from "../../../../../../src/shared/types/git";
 
 const workspaceId = "ws-tags";

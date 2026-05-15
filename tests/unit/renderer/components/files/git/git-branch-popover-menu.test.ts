@@ -7,13 +7,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   BranchChip,
   branchChipGlyph,
-} from "../../../../../../src/renderer/components/files/git/BranchChip";
-import { GitBranchBar } from "../../../../../../src/renderer/components/files/git/GitBranchBar";
+} from "../../../../../../src/renderer/components/files/git/branch/BranchChip";
+import { GitBranchBar } from "../../../../../../src/renderer/components/files/git/branch/GitBranchBar";
 import {
   buildGitBranchContextMenuModel,
   GitBranchPopoverContent,
   getGitBranchPrimaryAction,
-} from "../../../../../../src/renderer/components/files/git/GitBranchPopover";
+} from "../../../../../../src/renderer/components/files/git/branch/GitBranchPopover";
 import type { BranchInfo, RepoCapabilities } from "../../../../../../src/shared/types/git";
 
 const capabilities: RepoCapabilities = {

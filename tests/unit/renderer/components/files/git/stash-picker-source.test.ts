@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   createStashPickerSource,
   type StashPickItem,
-} from "../../../../../../src/renderer/components/files/git/stash-picker-source";
+} from "../../../../../../src/renderer/components/files/git/pickers/stash-picker-source";
 import type { StashEntry } from "../../../../../../src/shared/types/git";
 
 const workspaceId = "ws-stash";

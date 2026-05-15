@@ -9,7 +9,7 @@ import {
   confirmTagDeleteRequest,
   type DeleteTagRequest,
   TagDeleteConfirmContent,
-} from "../../../../../../src/renderer/components/files/git/TagPicker";
+} from "../../../../../../src/renderer/components/files/git/pickers/TagPicker";
 import { FormDialogContent } from "../../../../../../src/renderer/components/ui/form-dialog";
 import type { RemoteTag, Tag } from "../../../../../../src/shared/types/git";
 

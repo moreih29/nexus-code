@@ -11,7 +11,7 @@ import {
   buildGitBranchMenuModel,
   type GitBranchMenuActionHandlers,
   runGitBranchMenuAction,
-} from "../git-more-menu-model";
+} from "../utils/git-more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function BranchSubmenu({

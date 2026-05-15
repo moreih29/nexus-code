@@ -8,7 +8,7 @@ import {
   MergeOptionsDialogContent,
   mergeModeFromOption,
   mergeOptionsSubmitLabel,
-} from "../../../../../../src/renderer/components/files/git/MergeOptionsDialog";
+} from "../../../../../../src/renderer/components/files/git/pickers/MergeOptionsDialog";
 import type { LogEntry } from "../../../../../../src/shared/types/git";
 
 describe("MergeOptionsDialogContent", () => {

@@ -10,7 +10,7 @@ import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import {
   buildGitStashMenuModel,
   type GitStashMenuItemId,
-} from "../git-more-menu-model";
+} from "../utils/git-more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function StashSubmenu({

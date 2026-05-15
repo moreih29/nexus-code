@@ -36,7 +36,7 @@ import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./git-more-menu/menu-p
 import { RemotesSubmenu } from "./git-more-menu/RemotesSubmenu";
 import { StashSubmenu } from "./git-more-menu/StashSubmenu";
 import { TagSubmenu } from "./git-more-menu/TagSubmenu";
-import type { GitMoreL1Submenu, GitTagPickerMenuMode } from "./git-more-menu-model";
+import type { GitMoreL1Submenu, GitTagPickerMenuMode } from "./utils/git-more-menu-model";
 
 interface GitMoreMenuProps {
   disabled?: boolean;

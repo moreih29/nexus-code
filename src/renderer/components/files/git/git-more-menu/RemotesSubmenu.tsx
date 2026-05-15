@@ -8,7 +8,7 @@ import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
-import { buildGitRemotesMenuModel } from "../git-more-menu-model";
+import { buildGitRemotesMenuModel } from "../utils/git-more-menu-model";
 import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function RemotesSubmenu({

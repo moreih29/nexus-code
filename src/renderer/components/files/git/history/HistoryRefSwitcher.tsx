@@ -7,7 +7,7 @@ import { useState } from "react";
 import type { GitHistoryScope } from "../../../../../shared/types/git";
 import { cn } from "../../../../utils/cn";
 import { Button } from "../../../ui/button";
-import { BranchPicker } from "../BranchPicker";
+import { BranchPicker } from "../branch/BranchPicker";
 
 const HISTORY_SCOPE_TOGGLE_ON_CLASS =
   "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";

@@ -13,7 +13,7 @@ import type {
 import { ipcCall, ipcStream } from "../../../../ipc/client";
 import { openOrRevealCommitTab } from "../../../../state/operations/tabs";
 import { useGitStore } from "../../../../state/stores/git";
-import { GitInlineBanner } from "../GitInlineBanner";
+import { GitInlineBanner } from "../panel/GitInlineBanner";
 import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import { HistoryCommitMenu, type HistoryCommitMenuTarget } from "./HistoryCommitMenu";
 import { HistoryList } from "./HistoryList";

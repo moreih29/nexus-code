@@ -7,11 +7,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   CommitMessageDialogContent,
   hasCommitMessageBody,
-} from "../../../../../../src/renderer/components/files/git/CommitMessageDialog";
+} from "../../../../../../src/renderer/components/files/git/commit/CommitMessageDialog";
 import {
   CredentialPromptDialogContent,
   credentialPromptInputType,
-} from "../../../../../../src/renderer/components/files/git/CredentialPromptDialog";
+} from "../../../../../../src/renderer/components/files/git/clone/CredentialPromptDialog";
 import {
   __resetGitHelperPromptsForTests,
   type GitHelperPromptState,
@@ -21,7 +21,7 @@ import {
   installGitHelperPromptListeners,
   isPromptForWorkspace,
   useGitHelperPrompts,
-} from "../../../../../../src/renderer/components/files/git/useGitHelperPrompts";
+} from "../../../../../../src/renderer/components/files/git/hooks/use-git-helper-prompts";
 import type { ipcCall, ipcListen } from "../../../../../../src/renderer/ipc/client";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/types/git";
 
