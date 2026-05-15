@@ -51,6 +51,21 @@ export function HistoryPanel({
   onRefChange,
   onScopeChange,
 }: HistoryPanelProps) {
+  // DIAGNOSTIC: assign a per-instance id and log mount/unmount so we can tell
+  // whether the visible duplication comes from multiple panel instances
+  // co-rendering or from a single instance whose state is doubled.
+  const instanceIdRef = useRef<string | undefined>(undefined);
+  if (instanceIdRef.current === undefined) {
+    instanceIdRef.current = Math.random().toString(36).slice(2, 8);
+    console.warn(`[history] mount instance=${instanceIdRef.current} ws=${workspaceId} ref=${refName} scope=${historyScope}`);
+  }
+  const instanceId = instanceIdRef.current;
+  useEffect(() => {
+    return () => {
+      console.warn(`[history] unmount instance=${instanceId}`);
+    };
+  }, [instanceId]);
+
   const cherryPick = useGitStore((state) => state.cherryPick);
   const checkoutDetached = useGitStore((state) => state.checkoutDetached);
   const resetSoft = useGitStore((state) => state.resetSoft);
@@ -82,6 +97,13 @@ export function HistoryPanel({
     return loadTokenRef.current === token;
   }, []);
 
+  // DIAGNOSTIC: log every render with current entries shape so we can spot a
+  // doubled state (entries.length === 21 with sha[0] === sha[7] === sha[14])
+  // versus a duplicated render of a 7-entry state.
+  console.warn(
+    `[history] render instance=${instanceId} ws=${workspaceId} ref=${refName} entries=${loadState.entries.length} first=${loadState.entries[0]?.shortSha ?? "-"} last=${loadState.entries.at(-1)?.shortSha ?? "-"} loading=${loadState.loading} hasMore=${loadState.hasMore} token=${loadTokenRef.current}`,
+  );
+
   const resetLaneState = useCallback(() => {
     setLaneState(initialLaneState());
   }, []);
@@ -103,6 +125,9 @@ export function HistoryPanel({
   const loadFirstPage = useCallback(
     (signal?: AbortSignal) => {
       const token = nextLoadToken();
+      console.warn(
+        `[history] loadFirstPage instance=${instanceId} token=${token} ws=${workspaceId} ref=${refName} scope=${historyScope}`,
+      );
       setBanner(null);
       setSelectedSha(null);
       resetLaneState();
@@ -119,7 +144,15 @@ export function HistoryPanel({
         scope: historyScope,
         signal,
         onChunk: (entries, chunk) => {
-          if (!isCurrentLoad(token)) return;
+          if (!isCurrentLoad(token)) {
+            console.warn(
+              `[history] onChunk SKIPPED stale token=${token} current=${loadTokenRef.current} instance=${instanceId} chunk=${chunk.length} totalSoFar=${entries.length}`,
+            );
+            return;
+          }
+          console.warn(
+            `[history] onChunk apply token=${token} instance=${instanceId} chunk=${chunk.length} totalSoFar=${entries.length} firstSha=${entries[0]?.shortSha ?? "-"}`,
+          );
           appendLaneChunk(chunk);
           setLoadState((state) => ({
             ...state,
@@ -130,11 +163,20 @@ export function HistoryPanel({
           setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
         },
         onComplete: (hasMore) => {
-          if (!isCurrentLoad(token)) return;
+          if (!isCurrentLoad(token)) {
+            console.warn(
+              `[history] onComplete SKIPPED stale token=${token} current=${loadTokenRef.current} instance=${instanceId}`,
+            );
+            return;
+          }
+          console.warn(
+            `[history] onComplete token=${token} instance=${instanceId} hasMore=${hasMore}`,
+          );
           setLoadState((state) => ({ ...state, loading: false, hasMore }));
         },
         onError: (message) => {
           if (!isCurrentLoad(token)) return;
+          console.warn(`[history] onError token=${token} instance=${instanceId} msg=${message}`);
           setLoadState({
             entries: [],
             hasMore: false,
@@ -148,6 +190,7 @@ export function HistoryPanel({
     [
       appendLaneChunk,
       historyScope,
+      instanceId,
       isCurrentLoad,
       nextLoadToken,
       refName,
@@ -162,6 +205,9 @@ export function HistoryPanel({
     if (trimmed.length > 0) {
       const controller = new AbortController();
       const token = nextLoadToken();
+      console.warn(
+        `[history] effect search-start instance=${instanceId} token=${token} ws=${workspaceId} ref=${refName} q=${JSON.stringify(trimmed)}`,
+      );
       resetLaneState();
       setLoadState({
         entries: [],
@@ -236,13 +282,22 @@ export function HistoryPanel({
     if (refreshToken < 0) return;
 
     const controller = new AbortController();
+    console.warn(
+      `[history] effect first-page-start instance=${instanceId} ws=${workspaceId} ref=${refName} scope=${historyScope}`,
+    );
     setLoadState((state) => ({ ...state, loading: true, entries: [], errorMessage: null }));
     loadFirstPage(controller.signal);
-    return () => controller.abort();
+    return () => {
+      console.warn(
+        `[history] effect cleanup (abort) instance=${instanceId} ws=${workspaceId} ref=${refName}`,
+      );
+      controller.abort();
+    };
   }, [
     appendLaneChunk,
     debouncedQuery,
     historyScope,
+    instanceId,
     isCurrentLoad,
     loadFirstPage,
     nextLoadToken,
