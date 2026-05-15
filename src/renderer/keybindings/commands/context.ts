@@ -7,7 +7,7 @@
  * focused on the commands it owns.
  */
 
-import { Grid } from "../../engine/split";
+import { Grid } from "../../engine/split-engine";
 import { closeEditorWithConfirm } from "../../services/editor";
 import { createPathActions } from "../../services/fs-mutations";
 import { closeTerminal } from "../../services/terminal";

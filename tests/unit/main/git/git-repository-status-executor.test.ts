@@ -25,7 +25,7 @@ import {
   GIT_STATUS_METHOD,
   GIT_STREAM_CHUNK_EVENT,
   GIT_STREAM_METHOD,
-} from "../../../../src/shared/protocol/agent/git";
+} from "../../../../src/shared/protocol/git";
 import {
   type CommitDetail,
   DEFAULT_GIT_OPERATION_STATE,

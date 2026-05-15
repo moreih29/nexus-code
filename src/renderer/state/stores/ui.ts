@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipcCall } from "../../ipc/client";
-import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // Constants

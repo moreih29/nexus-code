@@ -2,7 +2,7 @@
  * Round-trip test for the agent NDJSON channel.
  *
  * The purpose is drift detection between the TS protocol schemas
- * (`src/shared/protocol/agent/*.ts`) and the Go implementation
+ * (`src/shared/protocol/*.ts`) and the Go implementation
  * (`internal/fs/*.go`). The test spawns the real agent binary via
  * the production `createLocalChannel` factory — so any regression in that
  * factory also surfaces here. The main response paths are exercised on the same
@@ -23,8 +23,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createLocalChannel } from "../../../src/main/infra/agent/local-channel";
-import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/protocol/agent/envelope";
-import { AgentFsErrorCodeSchema } from "../../../src/shared/protocol/agent/errors";
+import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/protocol/envelope";
+import { AgentFsErrorCodeSchema } from "../../../src/shared/protocol/errors";
 import {
   FS_RENAME_METHOD,
   FS_RMDIR_METHOD,
@@ -32,7 +32,7 @@ import {
   FsReadAbsoluteResultSchema,
   type FsWriteFileParams,
   FsWriteFileResultSchema,
-} from "../../../src/shared/protocol/agent/fs";
+} from "../../../src/shared/protocol/fs";
 import {
   AgentGitChangedPayloadSchema,
   AgentGitGetFileContentResultSchema,
@@ -47,13 +47,13 @@ import {
   GIT_STREAM_METHOD,
   GIT_UNWATCH_METHOD,
   GIT_WATCH_METHOD,
-} from "../../../src/shared/protocol/agent/git";
+} from "../../../src/shared/protocol/git";
 import {
   AgentSearchCompleteSchema,
   AgentSearchProgressPayloadSchema,
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
-} from "../../../src/shared/protocol/agent/search";
+} from "../../../src/shared/protocol/search";
 import { FsChangeSchema, type FsChange } from "../../../src/shared/types/fs";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");

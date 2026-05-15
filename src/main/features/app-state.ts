@@ -1,6 +1,6 @@
-import { ipcContract } from "../../../shared/ipc/ipc-contract";
-import type { StateService } from "../../infra/storage/state-service";
-import { register, validateArgs } from "../../infra/ipc/router";
+import { ipcContract } from "../../shared/ipc/ipc-contract";
+import type { StateService } from "../infra/storage/state-service";
+import { register, validateArgs } from "../infra/ipc-router";
 
 const c = ipcContract.appState.call;
 

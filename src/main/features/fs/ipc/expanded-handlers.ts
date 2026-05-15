@@ -4,7 +4,7 @@
 import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import type { WorkspaceManager } from "../../workspace/manager";
-import { validateArgs } from "../../../infra/ipc/router";
+import { validateArgs } from "../../../infra/ipc-router";
 import { assertWorkspaceExists } from "../../workspace/path-safety";
 
 const c = ipcContract.fs.call;

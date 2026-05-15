@@ -1,4 +1,4 @@
-import { registerWorkspaceCleanup } from "../../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../../workspace-cleanup";
 import { useLayoutStore } from "./store";
 
 // Module-level workspace cleanup registration. Runs once when this module

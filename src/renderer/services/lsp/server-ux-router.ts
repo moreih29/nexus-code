@@ -22,7 +22,7 @@ import {
   WorkDoneProgressValueSchema,
 } from "../../../shared/lsp";
 import { ipcListen } from "../../ipc/client";
-import { registerWorkspaceCleanup } from "../../state/lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../../state/workspace-cleanup";
 
 type ConsoleWriter = (message?: unknown, ...optionalParams: unknown[]) => void;
 

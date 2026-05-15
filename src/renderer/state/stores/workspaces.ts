@@ -4,7 +4,7 @@ import type {
   WorkspaceMeta,
 } from "../../../shared/types/workspace";
 import { ipcListen } from "../../ipc/client";
-import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // State shape

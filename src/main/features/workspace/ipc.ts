@@ -11,7 +11,7 @@ import {
   type SshChannel,
 } from "../../infra/agent/ssh/ssh-channel";
 import type { WorkspaceManager } from "./manager";
-import { type CallContext, register, validateArgs } from "../../infra/ipc/router";
+import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
 
 const c = ipcContract.workspace.call;
 

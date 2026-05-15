@@ -16,7 +16,7 @@ import {
   type AgentGitRunResult,
   AgentGitRunResultSchema,
   GIT_RUN_METHOD,
-} from "../../../src/shared/protocol/agent/git";
+} from "../../../src/shared/protocol/git";
 import {
   ClassifiedErrorSchema,
   type GitActionHint,

@@ -3,7 +3,7 @@ import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
-import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
   releaseTerminalDeathFromAggregate,

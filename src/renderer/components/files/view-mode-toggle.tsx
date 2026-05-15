@@ -14,9 +14,9 @@ import { ChevronDown, List, ListTree } from "lucide-react";
 import { Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
-import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/timing-constants";
-import { Button } from "../../ui/button";
-import { useDismissOnOutsideClick } from "../../ui/use-dismiss-on-outside-click";
+import { UI_TOOLTIP_DELAY_MS } from "../../../shared/timing-constants";
+import { Button } from "../ui/button";
+import { useDismissOnOutsideClick } from "../ui/use-dismiss-on-outside-click";
 
 export interface ViewModeToggleProps {
   viewMode: "list" | "tree";

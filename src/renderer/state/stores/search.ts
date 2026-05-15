@@ -9,7 +9,7 @@ import type {
   TextSearchQuery,
 } from "../../../shared/types/search";
 import { ipcCall, ipcStream } from "../../ipc/client";
-import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 // ---------------------------------------------------------------------------
 // Public types

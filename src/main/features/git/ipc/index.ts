@@ -5,7 +5,7 @@
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 import type { GitRegistry } from "../domain/registry";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
-import { register } from "../../../infra/ipc/router";
+import { register } from "../../../infra/ipc-router";
 import { checkoutHandler, checkoutTrackingHandler, listBranchesHandler } from "./branch-handlers";
 import {
   createBranchHandler,

@@ -4,7 +4,7 @@
 import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import type { PtyHostHandle } from "./types";
 import { getDefaultShell } from "../../infra/platform/shell";
-import { broadcast, register, validateArgs } from "../../infra/ipc/router";
+import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 
 const c = ipcContract.pty.call;

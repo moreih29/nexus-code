@@ -5,14 +5,14 @@ import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import {
   AgentGitGetFileContentResultSchema,
   GIT_GET_FILE_CONTENT_METHOD,
-} from "../../../../shared/protocol/agent/git";
+} from "../../../../shared/protocol/git";
 import type { FileReadResult } from "../../../../shared/types/fs";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import type { WorkspaceManager } from "../../workspace/manager";
-import type { CallContext } from "../../../infra/ipc/router";
-import { validateArgs } from "../../../infra/ipc/router";
+import type { CallContext } from "../../../infra/ipc-router";
+import { validateArgs } from "../../../infra/ipc-router";
 
 const c = ipcContract.git.call;
 

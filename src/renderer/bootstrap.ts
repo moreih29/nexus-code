@@ -7,7 +7,7 @@
 
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCall } from "./ipc/client";
-import { initializeWorkspaceLifecycle } from "./state/lifecycle/workspace-cleanup";
+import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 import { registerStatePersistence } from "./state/persistence";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";

@@ -5,7 +5,7 @@
  */
 import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
-import { register, validateArgs } from "../../../infra/ipc/router";
+import { register, validateArgs } from "../../../infra/ipc-router";
 
 const c = ipcContract.autofetch.call;
 

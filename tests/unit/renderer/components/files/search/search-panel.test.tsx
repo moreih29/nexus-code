@@ -127,7 +127,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 }));
 
 // workspace-cleanup stub
-mock.module("../../../../../../src/renderer/state/lifecycle/workspace-cleanup", () => ({
+mock.module("../../../../../../src/renderer/state/workspace-cleanup", () => ({
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
 

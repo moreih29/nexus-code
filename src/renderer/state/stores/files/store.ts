@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { registerWorkspaceCleanup } from "../../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../../workspace-cleanup";
 import { cloneTree, setTree, sortEntries } from "./helpers";
 import type { FilesState, TreeNode, WorkspaceTree } from "./types";
 

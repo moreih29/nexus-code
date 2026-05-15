@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
   ipc: { call: () => Promise.resolve(null), listen: () => {}, off: () => {} },
 };
 
-import { ViewModeToggle } from "../../../../../../src/renderer/components/files/view-mode-toggle/ViewModeToggle";
+import { ViewModeToggle } from "../../../../../../src/renderer/components/files/view-mode-toggle";
 
 // ---------------------------------------------------------------------------
 // (a-1) aria-pressed reflects viewMode correctly

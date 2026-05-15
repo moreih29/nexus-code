@@ -1,10 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
-import { searchTextStream } from "../../../../../../src/main/features/search/handlers";
+import { searchTextStream } from "../../../../../../src/main/features/search";
 import {
   unwatchHandler,
   watchHandler,
 } from "../../../../../../src/main/features/fs/ipc/watch-handlers";
-import type { StreamContext } from "../../../../../../src/main/infra/ipc/router";
+import type { StreamContext } from "../../../../../../src/main/infra/ipc-router";
 import type { TextSearchQuery } from "../../../../../../src/shared/types/search";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 

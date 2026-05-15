@@ -1,14 +1,14 @@
-import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
-import type { OpenEditorOptions } from "../../../services/editor";
-import { revealEditorAt } from "../../../services/editor/tabs";
+import { fileUriToAbsolutePath } from "../../../shared/fs/file-uri";
+import type { OpenEditorOptions } from "../../services/editor";
+import { revealEditorAt } from "../../services/editor/tabs";
 import {
   searchWorkspaceSymbols,
   symbolUriToString,
   type WorkspaceSymbolEntry,
   workspaceSymbolDedupeKey,
-} from "../../../services/lsp/workspace-symbol-registry";
-import { relPath } from "../../../utils/path";
-import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../ui/palette/types";
+} from "../../services/lsp/workspace-symbol-registry";
+import { relPath } from "../../utils/path";
+import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../ui/palette/types";
 
 export interface WorkspaceSymbolPaletteItem extends PaletteItem {
   symbol: WorkspaceSymbolEntry;

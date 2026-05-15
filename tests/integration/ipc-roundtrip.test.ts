@@ -46,7 +46,7 @@ mock.module("electron", () => ({
   },
 }));
 
-import { broadcast, register, setupRouter, validateArgs } from "../../src/main/infra/ipc/router";
+import { broadcast, register, setupRouter, validateArgs } from "../../src/main/infra/ipc-router";
 
 // ---------------------------------------------------------------------------
 // Wire up router once — registers the ipcMain.handle('ipc:call') handler.

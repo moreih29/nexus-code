@@ -4,21 +4,21 @@ import type {
   InferComplete,
   InferProgress,
   ipcContract,
-} from "../../../shared/ipc/ipc-contract";
+} from "../../shared/ipc/ipc-contract";
 import {
   AgentSearchCompleteSchema,
   AgentSearchProgressPayloadSchema,
   SEARCH_CANCEL_METHOD,
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
-} from "../../../shared/protocol/agent/search";
-import type { FileMatch } from "../../../shared/types/search";
-import { isAgentBackedProvider } from "../fs/bridge/provider";
+} from "../../shared/protocol/search";
+import type { FileMatch } from "../../shared/types/search";
+import { isAgentBackedProvider } from "./fs/bridge/provider";
 import {
   findWorkspace,
-} from "../workspace/guards";
-import type { WorkspaceManager } from "../workspace/manager";
-import type { StreamContext } from "../../infra/ipc/router";
+} from "./workspace/guards";
+import type { WorkspaceManager } from "./workspace/manager";
+import type { StreamContext } from "../infra/ipc-router";
 
 type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
 type SearchTextArgs = InferArgs<SearchTextStreamProcedure>;

@@ -23,7 +23,7 @@ mock.module("electron", () => ({
   },
 }));
 
-const { setupRouter } = await import("../../../../src/main/infra/ipc/router");
+const { setupRouter } = await import("../../../../src/main/infra/ipc-router");
 const { startAgentPtyHost } = await import("../../../../src/main/features/pty/agent-host");
 const { registerPtyChannel } = await import("../../../../src/main/features/pty/ipc");
 

@@ -5,7 +5,7 @@ import { RefreshCw } from "lucide-react";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/types/git";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { Button } from "../../../ui/button";
-import { ViewModeToggle } from "../../view-mode-toggle/ViewModeToggle";
+import { ViewModeToggle } from "../../view-mode-toggle";
 import { GitMoreMenu } from "../GitMoreMenu";
 import type { GitTagPickerMenuMode } from "../utils/git-more-menu-model";
 

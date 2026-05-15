@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Grid } from "@/engine/split";
+import { Grid } from "@/engine/split-engine";
 import type { LayoutSplit } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
 

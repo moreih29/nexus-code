@@ -4,7 +4,7 @@
 
 import { COMMANDS } from "../../../shared/commands";
 import { registerCommand } from "../../commands/registry";
-import { Grid } from "../../engine/split";
+import { Grid } from "../../engine/split-engine";
 import { openOrRevealEditor } from "../../services/editor";
 import { openTerminal } from "../../services/terminal";
 import { closeGroup } from "../../state/operations";

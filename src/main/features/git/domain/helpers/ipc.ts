@@ -19,7 +19,7 @@ import {
   GitEditorSaveArgsSchema,
   GitHelperPromptIdArgsSchema,
 } from "../../../../../shared/types/git";
-import { register, validateArgs } from "../../../../infra/ipc/router";
+import { register, validateArgs } from "../../../../infra/ipc-router";
 import { type GitHelperConnection, setDefaultGitHelperConnection } from "./launcher";
 
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;

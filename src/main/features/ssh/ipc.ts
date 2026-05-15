@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { ipcContract } from "../../../shared/ipc/ipc-contract";
 import { parseSshConfig, type SshConfigHost } from "./config";
-import { register, validateArgs } from "../../infra/ipc/router";
+import { register, validateArgs } from "../../infra/ipc-router";
 
 const c = ipcContract.ssh.call;
 

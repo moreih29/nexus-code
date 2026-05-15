@@ -33,7 +33,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcStream: mock(() => ({ promise: Promise.resolve(undefined), onProgress: mock(() => {}) })),
 }));
 
-mock.module("../../../../../src/renderer/state/lifecycle/workspace-cleanup", () => ({
+mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
 

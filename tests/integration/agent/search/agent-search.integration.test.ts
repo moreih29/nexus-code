@@ -24,7 +24,7 @@ import {
   SEARCH_CANCEL_METHOD,
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
-} from "../../../../src/shared/protocol/agent/search";
+} from "../../../../src/shared/protocol/search";
 import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");

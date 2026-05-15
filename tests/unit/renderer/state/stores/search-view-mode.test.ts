@@ -26,7 +26,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ),
 }));
 
-mock.module("../../../../../src/renderer/state/lifecycle/workspace-cleanup", () => ({
+mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
 

@@ -123,7 +123,7 @@ import {
   AgentGitDetectResultSchema,
   GIT_INFO_METHOD,
   GIT_DETECT_METHOD,
-} from "../../../../../shared/protocol/agent/git";
+} from "../../../../../shared/protocol/git";
 import type {
   CommitDetail,
   DiffChunk,

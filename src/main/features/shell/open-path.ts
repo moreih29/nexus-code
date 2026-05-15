@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ipcContract } from "../../../shared/ipc/ipc-contract";
-import { validateArgs } from "../../infra/ipc/router";
+import { validateArgs } from "../../infra/ipc-router";
 
 const openPathExternalArgsSchema = ipcContract.system.call.openPathExternal.args;
 const revealInOSArgsSchema = ipcContract.system.call.revealInOS.args;

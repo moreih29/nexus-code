@@ -5,8 +5,8 @@
 import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
-import type { CallContext } from "../../../infra/ipc/router";
-import { validateArgs } from "../../../infra/ipc/router";
+import type { CallContext } from "../../../infra/ipc-router";
+import { validateArgs } from "../../../infra/ipc-router";
 
 const c = ipcContract.git.call;
 

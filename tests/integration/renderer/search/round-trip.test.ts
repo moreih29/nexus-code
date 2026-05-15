@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { StreamContext } from "../../../../src/main/infra/ipc/router";
+import type { StreamContext } from "../../../../src/main/infra/ipc-router";
 import {
   EMPTY_SEARCH_OPTIONS,
   type SearchOptions,
@@ -220,7 +220,7 @@ describe("renderer search round-trip", () => {
 
 async function registerRealSearch(workspaces: { id: string; rootPath: string }[]): Promise<void> {
   const router = await setupInMemoryRouter();
-  const { searchTextStream } = await import("../../../../src/main/features/search/handlers");
+  const { searchTextStream } = await import("../../../../src/main/features/search");
   const providers = new Map(
     workspaces.map(({ id, rootPath }) => [id, makeTestSearchProvider(rootPath)] as const),
   );

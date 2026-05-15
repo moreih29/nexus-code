@@ -3,7 +3,7 @@ import {
   GIT_CHANGED_EVENT,
   GIT_UNWATCH_METHOD,
   GIT_WATCH_METHOD,
-} from "../../../../shared/protocol/agent/git";
+} from "../../../../shared/protocol/git";
 import type { WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "../../fs/bridge/provider";
 

@@ -14,7 +14,7 @@
 // central handler logs broken handlers rather than letting one failure
 // silently swallow the rest.
 
-import { ipcListen } from "../../ipc/client";
+import { ipcListen } from "../ipc/client";
 
 export type WorkspaceCleanupFn = (workspaceId: string) => void;
 

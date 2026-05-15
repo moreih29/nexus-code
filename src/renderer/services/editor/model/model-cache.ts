@@ -5,7 +5,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri, fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
-import { registerWorkspaceCleanup } from "../../../state/lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
 import { initializeMonacoSingleton } from "../runtime/monaco-singleton";
 import { loadExternalEntry } from "./load-external-entry";

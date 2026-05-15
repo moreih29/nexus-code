@@ -9,7 +9,7 @@ import type {
 } from "../../../../shared/ipc/ipc-contract";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
-import type { StreamContext } from "../../../infra/ipc/router";
+import type { StreamContext } from "../../../infra/ipc-router";
 
 type LogStreamProcedure = (typeof ipcContract)["git"]["stream"]["log"];
 type LogStreamArgs = InferArgs<LogStreamProcedure>;

@@ -4,7 +4,7 @@
 import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/types/fs";
 import type { WorkspaceManager } from "../../workspace/manager";
-import { validateArgs } from "../../../infra/ipc/router";
+import { validateArgs } from "../../../infra/ipc-router";
 
 const c = ipcContract.fs.call;
 

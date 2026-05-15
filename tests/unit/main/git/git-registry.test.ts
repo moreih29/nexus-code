@@ -5,7 +5,7 @@ import {
   GIT_DETECT_METHOD,
   GIT_RUN_METHOD,
   GIT_STATUS_METHOD,
-} from "../../../../src/shared/protocol/agent/git";
+} from "../../../../src/shared/protocol/git";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,

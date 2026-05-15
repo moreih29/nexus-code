@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import { fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/fs-errors";
 import { ipcContract } from "../../../shared/ipc/ipc-contract";
-import { validateArgs } from "../../infra/ipc/router";
+import { validateArgs } from "../../infra/ipc-router";
 import { resolveLocalWorkspacePath } from "../workspace/path-safety";
 import type { WorkspaceManager } from "../workspace/manager";
 import { getElectronSystemShell, type SystemShell } from "./open-path";

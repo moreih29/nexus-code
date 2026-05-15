@@ -35,7 +35,7 @@ import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
 import type { ViewMode } from "../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcCall, ipcListen, ipcStream } from "../../ipc/client";
-import { registerWorkspaceCleanup } from "../lifecycle/workspace-cleanup";
+import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   cancelCommitDraftSave,
   cancelStatusHintRefresh,

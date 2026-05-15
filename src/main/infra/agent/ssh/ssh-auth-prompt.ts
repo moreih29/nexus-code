@@ -5,7 +5,7 @@ import {
   SshAuthCancelArgsSchema,
   SshAuthRespondArgsSchema,
 } from "../../../../shared/types/ssh-auth-prompt";
-import { register, validateArgs } from "../../ipc/router";
+import { register, validateArgs } from "../../ipc-router";
 
 type BroadcastFn = (channelName: string, event: string, args: unknown) => void;
 

@@ -4,7 +4,7 @@
 import { ipcContract } from "../../../../shared/ipc/ipc-contract";
 import type { GitPanelState } from "../../../../shared/types/git";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
-import { validateArgs } from "../../../infra/ipc/router";
+import { validateArgs } from "../../../infra/ipc-router";
 
 const c = ipcContract.git.call;
 

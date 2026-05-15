@@ -15,7 +15,7 @@
  * event for clean closes that happened after `ready` settled.
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { AGENT_PROTOCOL_VERSION } from "../../../../shared/protocol/agent/envelope";
+import { AGENT_PROTOCOL_VERSION } from "../../../../shared/protocol/envelope";
 import type { AgentChannel } from "./channel";
 import { createSshError } from "../pipe";
 import {

@@ -70,7 +70,7 @@ mock.module("electron", () => ({
   },
 }));
 
-const { register, setupRouter } = await import("../../../../src/main/infra/ipc/router");
+const { register, setupRouter } = await import("../../../../src/main/infra/ipc-router");
 
 setupRouter();
 
