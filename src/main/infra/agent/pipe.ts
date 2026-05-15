@@ -77,6 +77,10 @@ export interface NdjsonPipe {
   notifyClose(): { wasReady: boolean };
 }
 
+// DIAGNOSTIC: module-scoped sequence counter so the per-emit log line is
+// unique even when DevTools collapses identical-looking consecutive entries.
+let pipeEmitGitLogBatchSeq = 0;
+
 /**
  * Creates the NDJSON request/response/event state machine over a stdio triple.
  * Owns frame parsing, pending-request matching, and stderr classification —
@@ -216,12 +220,16 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
-    // DIAGNOSTIC: log fan-out size for git.log.batch so listener-leak
-    // hypothesis (N listeners alive for one channel) is observable. If size
-    // grows over a session, listeners are leaking; if size stays at 1 yet
-    // the renderer still sees ~35 chunks, amplification is elsewhere.
+    // DIAGNOSTIC: per-emit sequence number + payload streamId so DevTools'
+    // identical-line coalescing cannot hide a repeated fire pattern, and
+    // we can match agent-log-emit #N against pipe-emit-event #N exactly.
     if (event === "git.log.batch") {
-      console.warn(`[pipe-emit-event] event=${event} listenerCount=${callbacks.size}`);
+      const emitSeq = ++pipeEmitGitLogBatchSeq;
+      const payloadStreamId =
+        (payload as { streamId?: unknown })?.streamId ?? "?";
+      console.warn(
+        `[pipe-emit-event] #${emitSeq} event=${event} listenerCount=${callbacks.size} payloadStreamId=${String(payloadStreamId)}`,
+      );
     }
     for (const callback of Array.from(callbacks)) {
       callback(payload);
