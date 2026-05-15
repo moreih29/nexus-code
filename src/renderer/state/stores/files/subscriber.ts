@@ -44,7 +44,14 @@ export function handleFsChanged(event: FsChangedEvent): void {
   }
 }
 
-const _unsubscribeFsChanged =
-  typeof window !== "undefined" ? ipcListen("fs", "changed", handleFsChanged) : undefined;
-
-void _unsubscribeFsChanged;
+/**
+ * Module-lifetime subscription. The unsubscribe is intentionally not
+ * tracked — `fs.changed` must flow into the file tree for the full life of
+ * the renderer. The guard avoids double-binding under HMR module re-exec
+ * and repeated test imports.
+ */
+let fsChangedSubscriptionInstalled = false;
+if (typeof window !== "undefined" && !fsChangedSubscriptionInstalled) {
+  fsChangedSubscriptionInstalled = true;
+  ipcListen("fs", "changed", handleFsChanged);
+}

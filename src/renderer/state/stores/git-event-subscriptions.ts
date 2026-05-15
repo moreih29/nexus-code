@@ -40,10 +40,16 @@ function applyAutofetchEvent(event: GitAutofetchStateChanged): void {
 }
 
 /**
- * Install git broadcast listeners once per renderer module instance.
+ * Install git broadcast listeners once per renderer module instance. The
+ * guard makes the call idempotent so HMR module re-execution and repeated
+ * test imports do not double-bind the listeners (each `ipcListen` discards
+ * its unsubscribe by design — these are process-lifetime subscriptions).
  */
+let gitEventSubscriptionsInstalled = false;
 export function installGitEventSubscriptions(): void {
+  if (gitEventSubscriptionsInstalled) return;
   if (!canUseIpcBridge()) return;
+  gitEventSubscriptionsInstalled = true;
 
   ipcListen("git", "statusChanged", ({ workspaceId, status }) => {
     useGitStore.setState((state) => {
