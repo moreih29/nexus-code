@@ -339,6 +339,12 @@ async function runStream(
 
       const data = validateStreamValue(descriptor.progress, result.value, "progress");
       if (!shouldStopStream(key, pendingStream)) {
+        // DIAGNOSTIC: count progress events dispatched per (channel, method,
+        // streamId). When the renderer reports N chunks for one ipcStream call,
+        // this counter shows whether the multiplication happens before main
+        // (counter matches N) or somewhere after main (counter is 1, N is
+        // produced downstream).
+        recordSendProgressCounter(pendingStream.streamId);
         sendStreamEvent(pendingStream, {
           streamId: pendingStream.streamId,
           kind: "progress",
@@ -397,6 +403,15 @@ function sendStreamEvent(pendingStream: PendingStream, payload: StreamEventPaylo
   if (!pendingStream.sender.isDestroyed()) {
     pendingStream.sender.send("ipc:streamEvent", payload);
   }
+}
+
+// DIAGNOSTIC: per-streamId progress counter so we can correlate counts with
+// what the agent emitted and what the renderer ultimately received.
+const sendProgressCounters = new Map<string, number>();
+function recordSendProgressCounter(streamId: string): void {
+  const next = (sendProgressCounters.get(streamId) ?? 0) + 1;
+  sendProgressCounters.set(streamId, next);
+  console.warn(`[main-send-progress] streamId=${streamId} count=${next}`);
 }
 
 function sendStreamError(pendingStream: PendingStream, error: unknown): void {

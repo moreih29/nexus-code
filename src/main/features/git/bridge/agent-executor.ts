@@ -900,9 +900,24 @@ export class AgentGitExecutor implements GitExecutor {
     throwIfAborted(signal);
 
     const queue = new AsyncQueue<TChunk>();
+    // DIAGNOSTIC: count parseEvent matches per stream so we can tell whether
+    // the upstream "git.log.batch" amplification (~35× observed) happens at
+    // the agent event-dispatch layer (one onAgentEvent invocation per
+    // backend frame) or further down. Logs to main process stderr.
+    let matchCount = 0;
+    let totalCallbackInvocations = 0;
     const unsubscribe = provider.onAgentEvent(eventName, (payload) => {
+      totalCallbackInvocations += 1;
       const chunk = parseEvent(payload);
-      if (chunk) queue.push(chunk);
+      if (chunk) {
+        matchCount += 1;
+        if (eventName === "git.log.batch") {
+          console.warn(
+            `[main-stream-event] eventName=${eventName} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
+          );
+        }
+        queue.push(chunk);
+      }
     });
     const complete = provider
       .callAgentMethod(methodName, params)

@@ -189,6 +189,15 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     const code = deps.classifyStderr(line);
     if (code) {
       selfFail(createSshError(code));
+      return;
+    }
+    // DIAGNOSTIC: forward unclassified agent stderr to the main process
+    // console so the agent's own diagnostic prefixes (e.g. [agent-log-emit])
+    // are visible during reproduction. Lines longer than a sane bound are
+    // truncated to keep one bad goroutine from flooding the console.
+    if (line.startsWith("[agent-")) {
+      const preview = line.length > 256 ? `${line.slice(0, 256)}…` : line;
+      console.warn(`[agent-stderr] ${preview}`);
     }
   }
 
@@ -207,6 +216,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
+    // DIAGNOSTIC: log fan-out size for git.log.batch so listener-leak
+    // hypothesis (N listeners alive for one channel) is observable. If size
+    // grows over a session, listeners are leaking; if size stays at 1 yet
+    // the renderer still sees ~35 chunks, amplification is elsewhere.
+    if (event === "git.log.batch") {
+      console.warn(`[pipe-emit-event] event=${event} listenerCount=${callbacks.size}`);
+    }
     for (const callback of Array.from(callbacks)) {
       callback(payload);
     }
