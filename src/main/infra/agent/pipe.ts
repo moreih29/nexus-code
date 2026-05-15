@@ -284,7 +284,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         callbacks = new Set<NdjsonEventCallback>();
         listeners.set(event, callbacks);
       }
+      const sizeBefore = callbacks.size;
       callbacks.add(callback);
+      const sizeAfter = callbacks.size;
+      if (event === "git.log.batch") {
+        console.warn(
+          `[pipe-on] event=${event} sizeBefore=${sizeBefore} sizeAfter=${sizeAfter} grew=${sizeAfter !== sizeBefore} alreadyHadRef=${sizeAfter === sizeBefore}`,
+        );
+      }
       return () => {
         const current = listeners.get(event);
         if (!current) return;

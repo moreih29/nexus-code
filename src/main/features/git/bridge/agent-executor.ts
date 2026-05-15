@@ -900,11 +900,6 @@ export class AgentGitExecutor implements GitExecutor {
     throwIfAborted(signal);
 
     const queue = new AsyncQueue<TChunk>();
-    // DIAGNOSTIC: instance id distinguishes separate streamAgentEvents bodies
-    // from the same closure variables being shared across multiple listener
-    // registrations. Sequential match counters with the same instance id
-    // mean ONE closure scope is registering its listener multiple times;
-    // independent counters per instance mean each was created cleanly.
     const instanceId = Math.random().toString(36).slice(2, 8);
     let matchCount = 0;
     let totalCallbackInvocations = 0;
@@ -913,19 +908,31 @@ export class AgentGitExecutor implements GitExecutor {
         `[main-stream-event] body-start instance=${instanceId} streamId=${streamId}`,
       );
     }
-    const unsubscribe = provider.onAgentEvent(eventName, (payload) => {
+    // DIAGNOSTIC: assign a stable callback id so we can tell if the SAME
+    // function reference is being invoked N times (Set bug / iterator bug)
+    // versus DIFFERENT callback refs sharing the same closure scope (hidden
+    // duplicate registration). Logs each registration call and includes the
+    // callback id in every invocation log.
+    const callbackId = Math.random().toString(36).slice(2, 8);
+    const callback = (payload: unknown) => {
       totalCallbackInvocations += 1;
       const chunk = parseEvent(payload);
       if (chunk) {
         matchCount += 1;
         if (eventName === "git.log.batch") {
           console.warn(
-            `[main-stream-event] instance=${instanceId} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
+            `[main-stream-event] instance=${instanceId} cbId=${callbackId} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
           );
         }
         queue.push(chunk);
       }
-    });
+    };
+    if (eventName === "git.log.batch") {
+      console.warn(
+        `[main-stream-event] register-listener instance=${instanceId} cbId=${callbackId}`,
+      );
+    }
+    const unsubscribe = provider.onAgentEvent(eventName, callback);
     const complete = provider
       .callAgentMethod(methodName, params)
       .then(parseComplete)
