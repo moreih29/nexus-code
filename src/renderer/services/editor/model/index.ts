@@ -20,6 +20,7 @@ export { relPathForInput, workspaceRootForInput } from "./file-loader";
 export {
   acquireModel,
   cacheUriToFilePath,
+  clearDiskDiverged,
   type EntryMetadata,
   filePathToModelUri,
   forceDisposeExternalsForWorkspace,
@@ -28,6 +29,7 @@ export {
   getResolvedModel,
   initializeModelCache,
   type ReleasedModelInfo,
+  reloadModelFromDisk,
   type ResolvedModelView,
   releaseModel,
   type SharedModelPhase,

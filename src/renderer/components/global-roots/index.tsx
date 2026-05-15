@@ -12,6 +12,7 @@ import { CommitMessageDialog } from "../files/git/commit/message-dialog";
 import { CredentialPromptDialog } from "../files/git/clone/credential-prompt-dialog";
 import { type GitHelperPromptState, useGitHelperPrompts } from "../files/git/hooks/use-git-helper-prompts";
 import { WorkspaceSymbolPaletteRoot } from "../lsp/workspace-symbol-palette";
+import { ConflictResolutionDialogRoot } from "../ui/conflict-dialog";
 import { SaveConfirmDialogRoot } from "../ui/save-confirm-dialog";
 import { ToastRoot } from "../ui/toast";
 import { SshAuthPromptDialog } from "../workspace/ssh-auth-prompt-dialog";
@@ -23,6 +24,7 @@ export function GlobalRoots(): React.JSX.Element {
     <>
       <ViewParkRoot />
       <SaveConfirmDialogRoot />
+      <ConflictResolutionDialogRoot />
       <WorkspaceSymbolPaletteRoot />
       <CloneDialogRoot />
       <GitHelperPromptsRoot />

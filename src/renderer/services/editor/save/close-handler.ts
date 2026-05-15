@@ -17,7 +17,7 @@ import { basename } from "@/utils/path";
 import { isDirty } from "../model/dirty-tracker";
 import { filePathToModelUri } from "../model/cache";
 import { closeEditor } from "../tabs";
-import { reportSaveFailure, saveModel } from "./service";
+import { reportSaveFailure, saveModelInteractive } from "./service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";
 
@@ -51,12 +51,12 @@ export async function closeEditorWithConfirm(
   if (choice === "cancel") return "cancelled";
 
   if (choice === "save") {
-    const result = await saveModel({ workspaceId, filePath });
+    const result = await saveModelInteractive({ workspaceId, filePath });
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
-      // conflict / error / superseded / no-model — keep the tab open so the
-      // user can react. Surface the failure here (reportSaveFailure toasts on
-      // error/conflict, stays silent for superseded/no-model) so it never
-      // vanishes regardless of whether the caller inspects the outcome.
+      // conflict (user cancelled resolution) / error / superseded / no-model —
+      // keep the tab open so the user can react. reportSaveFailure toasts on
+      // error; conflict after a cancel is intentionally silent here since the
+      // user already saw the dialog.
       reportSaveFailure(result);
       return "save-failed";
     }

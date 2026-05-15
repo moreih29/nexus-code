@@ -4,6 +4,7 @@ export {
   installEditorSaveAction,
   reportSaveFailure,
   runSaveAndReport,
-  type SaveResult,
   saveModel,
+  saveModelInteractive,
+  type SaveResult,
 } from "./service";

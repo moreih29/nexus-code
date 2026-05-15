@@ -53,6 +53,8 @@ export interface SharedModelState {
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
   readOnly: boolean;
+  /** Present when the on-disk file has changed while the buffer has unsaved edits. */
+  diskDiverged?: { mtime: string; size: number };
 }
 
 export interface ModelEntry {
@@ -80,6 +82,12 @@ export interface ModelEntry {
   deps?: ModelEntryDeps;
   /** Set only when origin === "external"; identifies the workspace the opener came from. */
   originatingWorkspaceId?: string;
+  /**
+   * Set when the on-disk file has changed while the buffer has unsaved edits.
+   * Holds the mtime/size that the disk currently has. Cleared when the entry
+   * is re-synced with disk (non-dirty reload, explicit reload, or successful save).
+   */
+  diskDiverged?: { mtime: string; size: number };
 }
 
 /**
@@ -107,6 +115,7 @@ export function snapshot(entry: ModelEntry): SharedModelState {
     model: entry.phase === "ready" ? entry.model : null,
     errorCode: entry.errorCode,
     readOnly: entry.readOnly,
+    diskDiverged: entry.diskDiverged,
   };
 }
 
@@ -252,12 +261,70 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     if (!model || model.isDisposed()) return;
 
     if (model.getValue() !== entry.lastLoadedValue) {
+      // Buffer has unsaved edits — do not overwrite the user's work.
+      // Record the current disk state so the save layer can detect and
+      // surface a conflict to the user.
+      entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
+      notifySubscribers(entry);
       return;
     }
 
     entry.lastLoadedValue = result.content;
     entry.phase = "ready";
     entry.errorCode = undefined;
+    entry.diskDiverged = undefined;
+    if (model.getValue() !== result.content) {
+      model.setValue(result.content);
+    }
+
+    deps.markDirtyTrackerSaved({
+      cacheUri: entry.cacheUri,
+      model,
+      savedAlternativeVersionId: model.getAlternativeVersionId(),
+      loadedMtime: result.mtime,
+      loadedSize: result.sizeBytes,
+    });
+
+    notifySubscribers(entry);
+  } catch (error) {
+    if (entry.disposed) return;
+    entry.phase = "error";
+    entry.errorCode = errorCodeFromUnknown(error);
+    notifySubscribers(entry);
+  }
+}
+
+/**
+ * Force-reload the entry's buffer from disk, discarding any unsaved edits.
+ * Used by the conflict-resolution "reload" path where the user has explicitly
+ * chosen to accept the on-disk version. Unlike `reconcileExternalChange`, this
+ * runs without a dirty guard and always replaces the buffer.
+ *
+ * On success: model content = disk content, dirty tracker re-baselined,
+ * `diskDiverged` cleared, subscribers notified.
+ */
+export async function reloadEntryFromDisk(entry: ModelEntry): Promise<void> {
+  if (entry.disposed) return;
+  const deps = depsFor(entry);
+
+  try {
+    const result = await deps.readFileForModel(entry.input);
+    if (entry.disposed) return;
+
+    if (result.isBinary) {
+      entry.phase = "binary";
+      entry.diskDiverged = undefined;
+      notifySubscribers(entry);
+      return;
+    }
+
+    const model = entry.model;
+    if (!model || model.isDisposed()) return;
+
+    entry.lastLoadedValue = result.content;
+    entry.phase = "ready";
+    entry.errorCode = undefined;
+    entry.diskDiverged = undefined;
     if (model.getValue() !== result.content) {
       model.setValue(result.content);
     }

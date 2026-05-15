@@ -14,6 +14,8 @@ import {
   createEntry,
   errorCodeFromUnknown,
   type ModelEntry,
+  notifySubscribers,
+  reloadEntryFromDisk,
   type SharedModelState,
   snapshot,
 } from "./entry";
@@ -210,6 +212,31 @@ export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
     origin: entry.origin,
     readOnly: entry.readOnly,
   };
+}
+
+/**
+ * Reload the model entry for `input` from disk, replacing the buffer with
+ * the on-disk content. Used by the conflict-resolution "reload" path.
+ * Returns false when no tracked entry exists for the input.
+ */
+export async function reloadModelFromDisk(input: EditorInput): Promise<boolean> {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry) return false;
+  await reloadEntryFromDisk(entry);
+  return true;
+}
+
+/**
+ * Clear the `diskDiverged` marker after a successful save so subsequent
+ * saves (and the UI) see a clean state. Called by the save service after a
+ * write that was preceded by an overwrite conflict-resolution.
+ */
+export function clearDiskDiverged(input: EditorInput): void {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry) return;
+  if (entry.diskDiverged === undefined) return;
+  entry.diskDiverged = undefined;
+  notifySubscribers(entry);
 }
 
 /**

@@ -9,12 +9,14 @@
 // Public functions: saveModel(input), installEditorSaveAction(editor, monaco, input).
 
 import type * as Monaco from "monaco-editor";
+import { showConflictResolution } from "../../../components/ui/conflict-dialog";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCall } from "../../../ipc/client";
 import { notifyDidSave } from "../lsp/bridge";
-import { getDirtyEntry, markSaved as markDirtyTrackerSaved } from "../model/dirty-tracker";
+import { getDirtyEntry, markSaved as markDirtyTrackerSaved, updateLoadedMetadata } from "../model/dirty-tracker";
 import { relPathForInput } from "../model/file-loader";
-import { getResolvedModel } from "../model/cache";
+import { clearDiskDiverged, getResolvedModel, reloadModelFromDisk } from "../model/cache";
+import { basename } from "../../../utils/path";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
 import { SaveSequentializer, SaveSupersededError } from "./sequentializer";
@@ -63,13 +65,69 @@ export function reportSaveFailure(result: SaveResult): void {
 }
 
 /**
+ * Interactive save entry point. Calls `saveModel` and, on conflict, shows the
+ * conflict-resolution dialog to the user:
+ *
+ * - **overwrite**: syncs the dirty-tracker's loaded metadata to the actual
+ *   disk state (`conflict.actual`) so the stale-write guard will pass, then
+ *   retries `saveModel`. On disk-deleted (`exists: false`) the loaded mtime is
+ *   cleared to `""` which causes `saveModel` to build `{exists:false}` as the
+ *   expected value — matching the writeFile IPC guard.
+ * - **reload**: replaces the buffer with the on-disk content via
+ *   `reloadModelFromDisk`, discarding unsaved edits. Returns `{kind:"not-dirty"}`
+ *   (the buffer is now clean).
+ * - **cancel**: returns the original conflict result unchanged so callers can
+ *   decide whether to keep the tab open.
+ *
+ * Errors and other non-conflict outcomes are returned directly.
+ */
+export async function saveModelInteractive(input: EditorInput): Promise<SaveResult> {
+  const result = await saveModel(input);
+
+  if (result.kind !== "conflict") {
+    return result;
+  }
+
+  const resolved = getResolvedModel(input);
+  const filename = resolved ? basename(resolved.filePath) : basename(input.filePath);
+  const choice = await showConflictResolution(filename);
+
+  if (choice === "cancel") {
+    return result;
+  }
+
+  if (choice === "reload") {
+    await reloadModelFromDisk(input);
+    return { kind: "not-dirty" };
+  }
+
+  // choice === "overwrite": sync dirty-tracker metadata to the actual disk
+  // state so the next saveModel's stale-write guard passes.
+  const cacheUri = resolved?.cacheUri ?? "";
+  const actual = result.actual;
+  if (actual.exists) {
+    updateLoadedMetadata(cacheUri, actual.mtime, actual.size);
+  } else {
+    // Disk file was deleted — setting mtime to "" causes saveModel to build
+    // { exists: false } as the expected value, matching the guard.
+    updateLoadedMetadata(cacheUri, "", 0);
+  }
+
+  const retryResult = await saveModel(input);
+  if (retryResult.kind === "saved") {
+    clearDiskDiverged(input);
+  }
+  return retryResult;
+}
+
+/**
  * Safe entry point for fire-and-forget save gestures (Cmd+S, the Save
- * command). Routes every outcome to the user: a failed SaveResult becomes a
- * toast, and an unexpected promise rejection (a programming error, since
- * saveModel reports via SaveResult) is surfaced rather than swallowed.
+ * command). Routes every outcome to the user via the interactive conflict
+ * dialog (on conflict) or a toast (on error). An unexpected promise rejection
+ * is surfaced rather than swallowed.
  */
 export function runSaveAndReport(input: EditorInput): void {
-  saveModel(input).then(reportSaveFailure, (error: unknown) => {
+  saveModelInteractive(input).then(reportSaveFailure, (error: unknown) => {
     showToast({
       kind: "error",
       message: `Save failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -154,6 +212,10 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
         loadedMtime: ipcResult.mtime,
         loadedSize: ipcResult.size,
       });
+
+      // A successful save re-syncs the buffer with disk — any prior
+      // disk-diverged marker is now stale.
+      clearDiskDiverged(input);
 
       notifyDidSave(resolved.cacheUri, content).catch(() => {});
 

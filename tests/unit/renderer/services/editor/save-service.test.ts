@@ -57,10 +57,14 @@ mock.module("../../../../../src/renderer/services/editor/model/dirty-tracker", (
 }));
 
 const getResolvedModelMock = mock((_input: unknown) => null as unknown);
+const reloadModelFromDiskMock = mock((_input: unknown) => Promise.resolve(true));
+const clearDiskDivergedMock = mock((_input: unknown) => {});
 
 mock.module("../../../../../src/renderer/services/editor/model/cache", () => ({
   ...realModelCache,
   getResolvedModel: getResolvedModelMock,
+  reloadModelFromDisk: reloadModelFromDiskMock,
+  clearDiskDiverged: clearDiskDivergedMock,
 }));
 
 mock.module("../../../../../src/renderer/services/editor/model/file-loader", () => ({
@@ -68,7 +72,21 @@ mock.module("../../../../../src/renderer/services/editor/model/file-loader", () 
   relPathForInput: mock((_input: unknown) => "src/a.ts"),
 }));
 
-const { saveModel } = await import("../../../../../src/renderer/services/editor/save/service");
+// Conflict resolution dialog — mocked to avoid DOM dependency.
+// Default: cancel (no-op). Individual tests override as needed.
+const showConflictResolutionMock = mock((_filename: string) =>
+  Promise.resolve("cancel" as "overwrite" | "reload" | "cancel"),
+);
+
+mock.module("../../../../../src/renderer/components/ui/conflict-dialog", () => ({
+  showConflictResolution: showConflictResolutionMock,
+  ConflictResolutionDialogRoot: () => null,
+  __resetConflictDialogForTests: () => {},
+}));
+
+const { saveModel, saveModelInteractive } = await import(
+  "../../../../../src/renderer/services/editor/save/service"
+);
 
 const INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };
 const CACHE_URI = "file:///workspace/src/a.ts";
@@ -98,6 +116,19 @@ afterEach(() => {
   getResolvedModelMock.mockClear();
   ipcCallMock.mockClear();
   markSavedMock.mockClear();
+  reloadModelFromDiskMock.mockClear();
+  clearDiskDivergedMock.mockClear();
+  showConflictResolutionMock.mockClear();
+  // Reset all mocks to safe default implementations so tests that don't
+  // configure a specific mock see predictable defaults.
+  getDirtyEntryMock.mockImplementation(() => ({
+    isDirty: true,
+    loadedMtime: "T0",
+    loadedSize: 10,
+  }));
+  getResolvedModelMock.mockImplementation(() => null);
+  ipcCallMock.mockImplementation(() => Promise.resolve({ mtime: "T1", size: 42 }));
+  showConflictResolutionMock.mockImplementation(() => Promise.resolve("cancel"));
 });
 
 describe("saveModel read-only guard", () => {
@@ -244,5 +275,131 @@ describe("saveModel race — dirty=false re-check inside gate", () => {
     expect(ipcCallMock).not.toHaveBeenCalled();
     // No baseline update.
     expect(markSavedMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveModelInteractive — conflict-resolution dialog integration
+// ---------------------------------------------------------------------------
+
+describe("saveModelInteractive — no conflict", () => {
+  test("returns saved result directly without showing dialog", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    ipcCallMock.mockImplementation(() => Promise.resolve({ mtime: "T1", size: 42 }));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("saved");
+    expect(showConflictResolutionMock).not.toHaveBeenCalled();
+  });
+
+  test("does not show dialog when saveModel returns not-dirty", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    getDirtyEntryMock.mockImplementation(() => ({
+      isDirty: false,
+      loadedMtime: "T0",
+      loadedSize: 10,
+    }));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("not-dirty");
+    expect(showConflictResolutionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveModelInteractive — conflict, user cancels", () => {
+  test("returns original conflict result and shows no retry when user cancels", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({
+        kind: "conflict",
+        actual: { exists: true, mtime: "T2", size: 99 },
+      }),
+    );
+    showConflictResolutionMock.mockImplementation(() => Promise.resolve("cancel"));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("conflict");
+    expect(reloadModelFromDiskMock).not.toHaveBeenCalled();
+    // Only the initial conflicting fs.writeFile — no retry
+    expect(ipcCallMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("saveModelInteractive — conflict, user chooses reload", () => {
+  test("reloads model from disk and returns not-dirty", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+    ipcCallMock.mockImplementation(() =>
+      Promise.resolve({
+        kind: "conflict",
+        actual: { exists: true, mtime: "T2", size: 99 },
+      }),
+    );
+    showConflictResolutionMock.mockImplementation(() => Promise.resolve("reload"));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("not-dirty");
+    expect(reloadModelFromDiskMock).toHaveBeenCalledWith(INPUT);
+    // Only the initial conflicting write — no retry
+    expect(ipcCallMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("saveModelInteractive — conflict, user chooses overwrite", () => {
+  test("retries save and returns saved when disk file exists", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+
+    let ipcCallCount = 0;
+    ipcCallMock.mockImplementation(() => {
+      ipcCallCount += 1;
+      if (ipcCallCount === 1) {
+        // Initial fs.writeFile → conflict
+        return Promise.resolve({
+          kind: "conflict",
+          actual: { exists: true, mtime: "T2", size: 99 },
+        });
+      }
+      // Retry fs.writeFile or notifyDidSave → success
+      return Promise.resolve({ mtime: "T3", size: 42 });
+    });
+
+    showConflictResolutionMock.mockImplementation(() => Promise.resolve("overwrite"));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("saved");
+    expect(showConflictResolutionMock).toHaveBeenCalledTimes(1);
+    // diskDiverged is cleared after successful retry
+    expect(clearDiskDivergedMock).toHaveBeenCalledWith(INPUT);
+    // At minimum: the initial conflicting write + the retry write.
+    // notifyDidSave may or may not call ipcCall depending on which lsp/bridge
+    // mock is active (model-entry.test.ts replaces it process-globally).
+    expect(ipcCallMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("retries save and returns saved when disk file was deleted (exists:false)", async () => {
+    getResolvedModelMock.mockImplementation(() => makeResolvedModel());
+
+    let ipcCallCount = 0;
+    ipcCallMock.mockImplementation(() => {
+      ipcCallCount += 1;
+      if (ipcCallCount === 1) {
+        return Promise.resolve({
+          kind: "conflict",
+          actual: { exists: false },
+        });
+      }
+      return Promise.resolve({ mtime: "T-new", size: 30 });
+    });
+
+    showConflictResolutionMock.mockImplementation(() => Promise.resolve("overwrite"));
+
+    const result = await saveModelInteractive(INPUT);
+
+    expect(result.kind).toBe("saved");
+    expect(clearDiskDivergedMock).toHaveBeenCalledWith(INPUT);
   });
 });

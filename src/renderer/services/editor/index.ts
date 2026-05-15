@@ -8,7 +8,7 @@ import { startPromoteOnDirtyPolicy } from "./tabs/promote-policy";
 
 export { useSharedModel } from "./model/use-shared-model";
 export { closeEditorWithConfirm } from "./save/close-handler";
-export { reportSaveFailure, runSaveAndReport, saveModel } from "./save/service";
+export { reportSaveFailure, runSaveAndReport, saveModel, saveModelInteractive } from "./save/service";
 export { openOrRevealEditor } from "./tabs/open-editor";
 export type { EditorInput, EditorTabLocation, OpenEditorOptions } from "./types";
 
