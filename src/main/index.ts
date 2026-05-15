@@ -3,7 +3,10 @@ import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh-auth-prompt";
 import { createLocalChannel } from "./infra/agent/local-channel";
-import { resolveLocalAgentCommand } from "./infra/agent/local-agent-resolver";
+import {
+  NEXUS_AGENT_MODE_ENV,
+  resolveLocalAgentCommand,
+} from "./infra/agent/local-agent-resolver";
 import { ensureRemoteAgent } from "./infra/agent/ssh-bootstrap";
 import { createSshChannel } from "./infra/agent/ssh-channel";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -44,6 +47,17 @@ import { createMainWindow } from "./features/window/window";
 import { WorkspaceManager } from "./features/workspace/manager";
 
 setupRouter();
+
+// Dev runs must execute the agent from Go sources so an out-of-date
+// `dist/agent` cannot silently route requests to an outdated dispatcher.
+// `app.isPackaged === false` is the canonical signal Electron provides for
+// dev mode; we promote it into NEXUS_AGENT_MODE so every resolver call
+// (workspace manager, fs bridge, this entry) sees the same decision without
+// any of them having to import `electron`. `??=` preserves an explicit
+// override the user may have set before launch.
+if (!app.isPackaged) {
+  process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
+}
 
 const userData = app.getPath("userData");
 
