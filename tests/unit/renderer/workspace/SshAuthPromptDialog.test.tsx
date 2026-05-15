@@ -7,7 +7,7 @@ import {
   SshAuthPromptDialogContent,
   copySshHostKeyFingerprint,
   sshAuthPromptInputType,
-} from "../../../../src/renderer/components/workspace/SshAuthPromptDialog";
+} from "../../../../src/renderer/components/workspace/ssh-auth-prompt-dialog";
 import {
   __resetSshAuthPromptsForTests,
   type SshAuthPromptState,
@@ -218,7 +218,7 @@ describe("Ssh auth prompt FIFO controller", () => {
 
 describe("Global SSH auth prompt mount", () => {
   it("keeps the SSH auth dialog/listener in global roots", async () => {
-    const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
+    const globalRoots = await Bun.file("src/renderer/components/global-roots/index.tsx").text();
 
     expect(globalRoots).toContain("<SshAuthPromptsRoot />");
     expect(globalRoots).toContain("useSshAuthPrompts");

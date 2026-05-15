@@ -64,11 +64,11 @@ mock.module("../../../../../../src/renderer/state/operations/tabs", () => ({
   }),
 }));
 
-mock.module("../../../../../../src/renderer/components/files/git/branch/BranchPicker", () => ({
+mock.module("../../../../../../src/renderer/components/files/git/branch/picker", () => ({
   BranchPicker: () => null,
 }));
 
-mock.module("../../../../../../src/renderer/components/files/git/history/HistoryList", () => ({
+mock.module("../../../../../../src/renderer/components/files/git/history/list", () => ({
   HistoryList: (props: MockHistoryListProps) => {
     lastHistoryListProps = props;
     return React.createElement("section", { "aria-label": "mock history list" });
@@ -76,18 +76,18 @@ mock.module("../../../../../../src/renderer/components/files/git/history/History
 }));
 
 mock.module(
-  "../../../../../../src/renderer/components/files/git/history/HistoryCommitMenu",
+  "../../../../../../src/renderer/components/files/git/history/commit-menu",
   () => ({
     HistoryCommitMenu: () => null,
   }),
 );
 
-mock.module("../../../../../../src/renderer/components/files/git/history/RefChip", () => ({
+mock.module("../../../../../../src/renderer/components/files/git/history/ref-chip", () => ({
   RefChipList: () => null,
 }));
 
 const { HistoryPanel } = await import(
-  "../../../../../../src/renderer/components/files/git/history/HistoryPanel"
+  "../../../../../../src/renderer/components/files/git/history/panel"
 );
 
 type MockBranchInfo = {

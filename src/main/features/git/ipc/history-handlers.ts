@@ -2,7 +2,7 @@
  * History handlers — commit detail/search plus commit-scoped mutations from
  * the History panel context menu.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CommitDetail, CommitSearchResult } from "../../../../shared/types/git";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";

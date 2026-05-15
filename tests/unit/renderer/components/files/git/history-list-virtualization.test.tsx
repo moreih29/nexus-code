@@ -73,7 +73,7 @@ mock.module("@tanstack/react-virtual", () => ({
 }));
 
 const { HistoryList } = await import(
-  "../../../../../../src/renderer/components/files/git/history/HistoryList"
+  "../../../../../../src/renderer/components/files/git/history/list"
 );
 
 type HistoryListProps = Parameters<typeof HistoryList>[0];

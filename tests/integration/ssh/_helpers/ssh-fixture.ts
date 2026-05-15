@@ -12,10 +12,10 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureRemoteAgent } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "../../../../src/main/infra/agent/ssh/ssh-channel";
+import { createSshChannel } from "../../../../src/main/infra/agent/ssh/channel";
 import { AgentManifestSchema } from "../../../../src/shared/agent-manifest";
 import { spawnNodeBackedPty } from "../../main/agent/node-pty-spawn";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel/channel";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 

@@ -4,11 +4,11 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/HistoryList";
+import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/list";
 import type { LogEntry } from "../../../../../../src/shared/types/git";
 
 const { HistoryRow } = await import(
-  "../../../../../../src/renderer/components/files/git/history/HistoryRow"
+  "../../../../../../src/renderer/components/files/git/history/row"
 );
 
 type TestNode = TestDomElement | TestTextNode;

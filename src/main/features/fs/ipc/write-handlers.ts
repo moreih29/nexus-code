@@ -2,7 +2,7 @@
  * Write fs handlers — thin IPC adapters over the workspace's agent-backed
  * filesystem provider.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { WriteFileResult } from "../../../../shared/types/fs";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";

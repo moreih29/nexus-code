@@ -4,7 +4,7 @@ import type {
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
-} from "../../../../src/main/infra/agent/channel/channel";
+} from "../../../../src/main/infra/agent/channel";
 import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
 import type { PtyRecorderSink } from "../../../../src/main/features/pty/recorder";
 

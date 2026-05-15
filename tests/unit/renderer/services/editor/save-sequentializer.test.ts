@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   SaveSequentializer,
   SaveSupersededError,
-} from "../../../../../src/renderer/services/editor/save/save-sequentializer";
+} from "../../../../../src/renderer/services/editor/save/sequentializer";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

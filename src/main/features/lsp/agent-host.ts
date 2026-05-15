@@ -27,7 +27,7 @@ import {
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp-config";
 import { LSP_DEFAULT_IDLE_MS } from "../../../shared/timing-constants";
-import type { AgentChannel } from "../../infra/agent/channel/channel";
+import type { AgentChannel } from "../../infra/agent/channel";
 import {
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
@@ -35,8 +35,8 @@ import {
 import type { LspHostCallOptions, LspHostHandle } from "./host";
 import { AgentLspServer } from "./agent-lsp-server";
 import { DiagnosticsDebouncer } from "./diagnostics-debouncer";
-import { asRecord } from "./lsp-utils";
-import { flattenInitializationOptions, lookupFlattenedConfig } from "./lsp-config-store";
+import { asRecord } from "./utils";
+import { flattenInitializationOptions, lookupFlattenedConfig } from "./config-store";
 import {
   normalizeCompletionResult,
   normalizeDefinitionResult,
@@ -45,7 +45,7 @@ import {
   normalizeHoverResult,
   normalizeWorkspaceSymbolResult,
   parsePublishDiagnostics,
-} from "./lsp-result-normalizers";
+} from "./result-normalizers";
 import {
   firstShowMessageAction,
   parseAgentMessagePayload,
@@ -56,7 +56,7 @@ import {
   parseSpawnResult,
   parseWorkDoneProgressCreateParams,
   serverExitError,
-} from "./lsp-payloads";
+} from "./payloads";
 
 // ---------------------------------------------------------------------------
 // Public types

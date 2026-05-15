@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { App } from "./app";
 import { installRejectionSink } from "./services/editor/runtime/rejection-sink";
 
 const root = document.getElementById("root");

@@ -1,4 +1,4 @@
-import { ipcContract } from "../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/contract";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/types/ssh-errors";
 import {
   type EnsureRemoteAgentOptions,
@@ -9,7 +9,7 @@ import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
-} from "../../infra/agent/ssh/ssh-channel";
+} from "../../infra/agent/ssh/channel";
 import type { WorkspaceManager } from "./manager";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
 

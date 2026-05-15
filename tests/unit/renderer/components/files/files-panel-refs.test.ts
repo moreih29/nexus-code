@@ -38,7 +38,7 @@ import { describe, expect, test } from "bun:test";
 
 const { EMPTY_TREE } = await import("../../../../../src/renderer/components/editor/diff-refs");
 const { refsForGitGroup } = await import(
-  "../../../../../src/renderer/components/files/files-panel"
+  "../../../../../src/renderer/components/files/panel"
 );
 
 // ---------------------------------------------------------------------------

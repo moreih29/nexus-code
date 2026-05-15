@@ -25,7 +25,7 @@ import {
   authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,
   type SshAuthPromptHandler,
-} from "../ssh-auth-pty";
+} from "../auth-pty";
 import { createSshError } from "../../pipe";
 import {
   absoluteRemotePath,

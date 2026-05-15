@@ -3,7 +3,7 @@
  * fetch scheduler. Actual user-triggered fetch work is exposed as
  * `git.fetchAll` so Source Control actions stay grouped under the git channel.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 import { register, validateArgs } from "../../../infra/ipc-router";
 

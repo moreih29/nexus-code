@@ -1,7 +1,7 @@
 /** Sends LSP didOpen and wires the model's content-change listener to forward didChange notifications. */
 
 import type * as Monaco from "monaco-editor";
-import type { ModelEntry, ModelEntryDeps } from "./model-entry";
+import type { ModelEntry, ModelEntryDeps } from "./entry";
 
 export interface AttachLspBridgeResult {
   contentDisposable: Monaco.IDisposable;

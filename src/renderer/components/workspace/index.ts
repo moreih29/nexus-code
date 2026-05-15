@@ -1,3 +1,3 @@
-export { ContentPool } from "./content/content-pool";
-export { GroupView } from "./group/group-view";
-export { LayoutTree } from "./layout/layout-tree";
+export { ContentPool } from "./content/pool";
+export { GroupView } from "./group/view";
+export { LayoutTree } from "./layout/tree";

@@ -1,7 +1,7 @@
 /**
  * Empty-workbench welcome affordances.
  */
-import { openCloneDialog } from "../files/git/clone/clone-dialog-state";
+import { openCloneDialog } from "../files/git/clone/dialog-state";
 import { Button } from "../ui/button";
 
 interface WelcomeScreenProps {

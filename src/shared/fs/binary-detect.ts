@@ -1,4 +1,4 @@
-import { BINARY_DETECTION_BYTES } from "./fs-defaults";
+import { BINARY_DETECTION_BYTES } from "./defaults";
 
 /**
  * Returns true if `buf` looks like binary content.

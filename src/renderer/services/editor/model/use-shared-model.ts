@@ -22,7 +22,7 @@ import {
   type SharedModelState,
   subscribeModel,
   toFileErrorCode,
-} from "./model-cache";
+} from "./cache";
 
 export function useSharedModel(input: EditorInput): SharedModelState {
   const { workspaceId, filePath } = input;

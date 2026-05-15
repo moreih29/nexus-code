@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type { PtyHostHandle } from "../../../../src/main/features/pty/types";
-import type { AgentChannel } from "../../../../src/main/infra/agent/channel/channel";
+import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
 import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");

@@ -33,11 +33,11 @@ export {
   tokenToAbortSignal,
   unregisterKnownModelUri,
   type WorkspaceSymbolResult,
-} from "./lsp-bridge";
-export type { PreAcquireFn } from "./lsp-providers";
+} from "./bridge";
+export type { PreAcquireFn } from "./providers";
 export {
   type CacheEntryMeta,
   PEEK_PREACQUIRE_HOLD_MS,
   type PreAcquireDeps,
   preAcquireLocationModels,
-} from "./lsp-result-preacquire";
+} from "./result-preacquire";

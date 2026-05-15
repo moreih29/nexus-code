@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildGroupTabBarMenuItems,
   type TabContextInfo,
-} from "../../../../../../src/renderer/components/workspace/group/group-tab-bar-menu";
+} from "../../../../../../src/renderer/components/workspace/group/tab-bar-menu";
 import type { useGroupActions } from "../../../../../../src/renderer/components/workspace/group/use-group-actions";
 
 type Actions = ReturnType<typeof useGroupActions>;

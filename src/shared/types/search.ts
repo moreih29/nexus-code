@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_SEARCHABLE_FILE_SIZE } from "../fs/fs-defaults";
+import { MAX_SEARCHABLE_FILE_SIZE } from "../fs/defaults";
 
 export const TextSearchQuerySchema = z.object({
   pattern: z.string().min(1),

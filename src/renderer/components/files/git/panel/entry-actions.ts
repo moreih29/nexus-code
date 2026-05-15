@@ -11,7 +11,7 @@
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
 import { ipcCall } from "../../../../ipc/client";
 import { copyText } from "../../../../utils/clipboard";
-import type { GitPanelOpenDiffInput } from "./GitPanel";
+import type { GitPanelOpenDiffInput } from "./git-panel";
 
 export type EntryActionBanner = { variant: "info" | "error"; message: string };
 

@@ -2,7 +2,7 @@
  * Remote management handlers — add/remove configured remotes and refresh
  * repository capabilities so renderer action state transitions immediately.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

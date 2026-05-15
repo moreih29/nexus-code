@@ -182,8 +182,8 @@ describe("readSideContent — legacy throw: isMissingContentError fallback still
   test("ipcCall rejection with NOT_FOUND-coded error resolves with placeholder:missing in useDiffContent error handler", async () => {
     // readSideContent itself will throw (old path), but useDiffContent's error handler
     // catches it via isMissingContentError. We verify readSideContent throws.
-    const { FS_ERROR } = await import("../../../../../src/shared/fs/fs-errors");
-    const fsErrorMessage = (await import("../../../../../src/shared/fs/fs-errors")).fsErrorMessage;
+    const { FS_ERROR } = await import("../../../../../src/shared/fs/errors");
+    const fsErrorMessage = (await import("../../../../../src/shared/fs/errors")).fsErrorMessage;
 
     ipcCallMock.mockImplementationOnce(async () => {
       throw new Error(fsErrorMessage(FS_ERROR.NOT_FOUND, "/workspace/file.ts"));

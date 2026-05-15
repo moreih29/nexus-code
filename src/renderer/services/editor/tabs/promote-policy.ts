@@ -13,7 +13,7 @@
 
 import { useTabsStore } from "@/state/stores/tabs";
 import { subscribeAllDirtyTransitions } from "../model/dirty-tracker";
-import { cacheUriToFilePath } from "../model/model-cache";
+import { cacheUriToFilePath } from "../model/cache";
 
 /**
  * Promote every preview editor tab pointing at `filePath` to permanent

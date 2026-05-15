@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import type { BranchPickerMode } from "../branch/BranchPicker";
+import type { BranchPickerMode } from "../branch/picker";
 import type { StashPickerMode } from "./stash-picker-source";
 import type { TagPickerMode } from "./tag-picker-source";
 

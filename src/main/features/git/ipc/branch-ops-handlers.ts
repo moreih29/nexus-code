@@ -2,7 +2,7 @@
  * Branch operation handlers — local/remote delete, rename, upstream,
  * fast-forward, and create-from-ref.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { GitFastForwardResult } from "../../../../shared/types/git";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";

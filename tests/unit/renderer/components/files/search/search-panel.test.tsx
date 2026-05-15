@@ -135,13 +135,13 @@ mock.module("../../../../../../src/renderer/state/workspace-cleanup", () => ({
 // Imports — after all mocks
 // ---------------------------------------------------------------------------
 
-import { SearchInput } from "../../../../../../src/renderer/components/files/search/SearchInput";
-import { SearchOptionsToggles } from "../../../../../../src/renderer/components/files/search/SearchOptionsToggles";
-import { SearchPanel } from "../../../../../../src/renderer/components/files/search/SearchPanel";
-import { SearchResultFileRow } from "../../../../../../src/renderer/components/files/search/SearchResultFileRow";
-import { SearchResultMatchRow } from "../../../../../../src/renderer/components/files/search/SearchResultMatchRow";
-import { SearchResultsList } from "../../../../../../src/renderer/components/files/search/SearchResultsList";
-import { SearchStatusHeader } from "../../../../../../src/renderer/components/files/search/SearchStatusHeader";
+import { SearchInput } from "../../../../../../src/renderer/components/files/search/input";
+import { SearchOptionsToggles } from "../../../../../../src/renderer/components/files/search/options-toggles";
+import { SearchPanel } from "../../../../../../src/renderer/components/files/search/panel";
+import { SearchResultFileRow } from "../../../../../../src/renderer/components/files/search/result-file-row";
+import { SearchResultMatchRow } from "../../../../../../src/renderer/components/files/search/result-match-row";
+import { SearchResultsList } from "../../../../../../src/renderer/components/files/search/results-list";
+import { SearchStatusHeader } from "../../../../../../src/renderer/components/files/search/status-header";
 import type {
   FileGroup,
   SearchOptions,

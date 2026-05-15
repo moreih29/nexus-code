@@ -1,5 +1,5 @@
 import type { LayoutLeaf, LayoutNode } from "@/state/stores/layout";
-import { GroupView } from "../group/group-view";
+import { GroupView } from "../group/view";
 
 interface LeafPaneProps {
   workspaceId: string;

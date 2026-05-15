@@ -24,7 +24,7 @@ import {
   sleep,
   waitForNoControlMaster,
 } from "./_helpers/ssh-fixture";
-import type { AgentChannel } from "../../../src/main/infra/agent/channel/channel";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 import type { BootstrapResult } from "./_helpers/ssh-fixture";
 import fs from "node:fs/promises";
 

@@ -6,7 +6,7 @@ import {
   LOCAL_AGENT_DIST_DIR,
   ensureRemoteAgent,
 } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "../../../../src/main/infra/agent/ssh/ssh-channel";
+import { createSshChannel } from "../../../../src/main/infra/agent/ssh/channel";
 import { spawnNodeBackedPty } from "./node-pty-spawn";
 
 const FIXTURE_HOST = "127.0.0.1";

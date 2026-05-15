@@ -1,4 +1,4 @@
-import type { InferArgs, InferReturn, ipcContract } from "../../../../src/shared/ipc/ipc-contract";
+import type { InferArgs, InferReturn, ipcContract } from "../../../../src/shared/ipc/contract";
 import type { WorkspaceLocation } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------

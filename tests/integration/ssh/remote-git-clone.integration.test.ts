@@ -28,7 +28,7 @@ import {
   openRemoteChannel,
   waitForNoControlMaster,
 } from "./_helpers/ssh-fixture";
-import type { AgentChannel } from "../../../src/main/infra/agent/channel/channel";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 import type { BootstrapResult } from "./_helpers/ssh-fixture";
 
 const FIXTURE_ENABLED = process.env.NEXUS_RUN_SSH_GIT_FIXTURE === "1";

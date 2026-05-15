@@ -1,7 +1,7 @@
 import type * as Monaco from "monaco-editor";
 import type { EditorInput } from "../../../../services/editor";
 import { installEditorOpener } from "../../../../services/editor/runtime/monaco-compensations";
-import { installEditorSaveAction } from "../../../../services/editor/save/save-service";
+import { installEditorSaveAction } from "../../../../services/editor/save/service";
 import { createCrossFileOpenCodeEditorOpener } from "../../../../services/editor/tabs/cross-file-opener";
 
 /**

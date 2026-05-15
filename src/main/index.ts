@@ -1,14 +1,14 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
-import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/ssh-auth-prompt";
+import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createLocalChannel } from "./infra/agent/channel/local-channel";
 import {
   NEXUS_AGENT_MODE_ENV,
   resolveLocalAgentCommand,
 } from "./infra/agent/local-agent-resolver";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "./infra/agent/ssh/ssh-channel";
+import { createSshChannel } from "./infra/agent/ssh/channel";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { registerFsChannel } from "./features/fs/ipc";
 import { AgentFsProvider } from "./features/fs/bridge/agent-provider";
@@ -43,7 +43,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
-import { createMainWindow } from "./features/window/window";
+import { createMainWindow } from "./features/window";
 import { WorkspaceManager } from "./features/workspace/manager";
 
 setupRouter();

@@ -7,7 +7,7 @@ import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage
 import { StateService } from "../../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 import { GitRegistry } from "../../../../src/main/features/git/domain/registry";
-import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/infra/agent/ssh/ssh-channel";
+import type { SshChannel, SshChannelLifecycleEvent } from "../../../../src/main/infra/agent/ssh/channel";
 import type {
   BroadcastFn,
   WorkspaceLocalAgentCommandResolver,

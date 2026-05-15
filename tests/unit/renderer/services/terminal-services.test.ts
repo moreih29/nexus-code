@@ -3,7 +3,7 @@ import type {
   PtyClientOptions,
   TerminalDimensions,
 } from "../../../../src/renderer/services/terminal/types";
-import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/terminal-controller";
+import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 
 type IpcCallRecord = { channel: string; method: string; args: unknown };
 type ListenerRecord = { channel: string; event: string; callback: (args: unknown) => void };
@@ -39,7 +39,7 @@ const { closeTerminal, createTerminalController, openTerminal } = await import(
   "../../../../src/renderer/services/terminal"
 );
 const { TERMINAL_REOPENED_SEPARATOR } = await import(
-  "../../../../src/renderer/services/terminal/terminal-controller"
+  "../../../../src/renderer/services/terminal/controller"
 );
 const { createPtyClient } = await import("../../../../src/renderer/services/terminal/pty-client");
 const { closeGroup } = await import("../../../../src/renderer/state/operations");

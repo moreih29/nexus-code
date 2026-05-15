@@ -1,7 +1,7 @@
 // PTY IPC channel — bridges renderer ↔ main ↔ Go agent host.
 // All PTY sessions are routed to the agent host unconditionally.
 
-import { ipcContract } from "../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/contract";
 import type { PtyHostHandle } from "./types";
 import { getDefaultShell } from "../../infra/platform/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";

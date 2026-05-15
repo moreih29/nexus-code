@@ -7,7 +7,7 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../../shared/types/workspace";
-import type { AgentChannel } from "../../infra/agent/channel/channel";
+import type { AgentChannel } from "../../infra/agent/channel";
 import {
   type LocalAgentCommand,
   resolveLocalAgentCommand,
@@ -27,7 +27,7 @@ import {
   createSshChannel,
   type SshChannel,
   type SshChannelLifecycleEvent,
-} from "../../infra/agent/ssh/ssh-channel";
+} from "../../infra/agent/ssh/channel";
 import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,

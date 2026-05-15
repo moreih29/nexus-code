@@ -1,5 +1,5 @@
 import { TextDecoder } from "node:util";
-import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel/channel";
+import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { PtyHostHandle } from "./types";
 
 type EventCallback = (args: unknown) => void;

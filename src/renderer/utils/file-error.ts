@@ -1,5 +1,5 @@
-import { MAX_READABLE_FILE_SIZE } from "../../shared/fs/fs-defaults";
-import { FS_ERROR, type FsErrorCode, hasFsErrorCode } from "../../shared/fs/fs-errors";
+import { MAX_READABLE_FILE_SIZE } from "../../shared/fs/defaults";
+import { FS_ERROR, type FsErrorCode, hasFsErrorCode } from "../../shared/fs/errors";
 
 /**
  * Reader-side error mapping for the editor's "Open" path. Re-exports

@@ -1,6 +1,6 @@
 export { closeTerminal, findTerminalTab, openTerminal } from "./open-terminal";
 export { requestTerminalReopen, subscribeTerminalReopenRequest } from "./reopen-requests";
-export { createTerminalController } from "./terminal-controller";
+export { createTerminalController } from "./controller";
 export type {
   OpenTerminalOptions,
   PtyClient,

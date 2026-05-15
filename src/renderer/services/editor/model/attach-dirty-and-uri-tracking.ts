@@ -1,7 +1,7 @@
 /** Attaches the dirty tracker to the model and registers both URIs in the LSP known-model map. */
 
 import type * as Monaco from "monaco-editor";
-import type { ModelEntryDeps } from "./model-entry";
+import type { ModelEntryDeps } from "./entry";
 
 export interface AttachDirtyAndUriTrackingOptions {
   cacheUri: string;

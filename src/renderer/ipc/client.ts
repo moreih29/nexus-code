@@ -2,8 +2,8 @@ import {
   gitErrorFromIpcResult,
   isIpcGitErrorResult,
   rehydrateGitErrorFromCause,
-} from "../../shared/git/git-error-ipc";
-import { isIpcAbortSentinel } from "../../shared/ipc/ipc-abort-sentinel";
+} from "../../shared/git/error-ipc";
+import { isIpcAbortSentinel } from "../../shared/ipc/abort-sentinel";
 import type {
   CallArgs,
   CallChannels,

@@ -10,7 +10,7 @@ import {
 import type {
   CreateSshChannelOptions,
   SshChannel,
-} from "../../../../../src/main/infra/agent/ssh/ssh-channel";
+} from "../../../../../src/main/infra/agent/ssh/channel";
 
 /**
  * Creates a manually controlled promise for channel readiness assertions.

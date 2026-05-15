@@ -1,6 +1,6 @@
 /** Contract: ipcContract.lsp */
 import { describe, expect, test } from "bun:test";
-import { ipcContract } from "../../../../src/shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../src/shared/ipc/contract";
 
 const range = {
   start: { line: 5, character: 2 },

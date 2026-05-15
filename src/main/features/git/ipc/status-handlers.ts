@@ -1,7 +1,7 @@
 /**
  * Status handlers — one-shot Git status snapshots for the Source Control panel.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,

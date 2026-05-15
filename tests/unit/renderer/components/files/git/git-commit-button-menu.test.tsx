@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildGitCommitMenuModel,
   type GitCommitMenuEnablement,
-} from "../../../../../../src/renderer/components/files/git/commit/GitCommitButton";
+} from "../../../../../../src/renderer/components/files/git/commit/git-commit-button";
 import type { GitCommitOptions } from "../../../../../../src/shared/types/git";
 
 const enabled: GitCommitMenuEnablement = {

@@ -1,7 +1,7 @@
 /**
  * Sync handlers — fetch, pull, and push through the queued GitRepository.
  */
-import { ipcContract } from "../../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type {
   GitFetchAllResult,
   GitSyncResult,

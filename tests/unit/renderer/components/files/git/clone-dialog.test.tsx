@@ -8,7 +8,7 @@ import {
   getCloneCtaDefault,
   runPostCloneWorkspaceAction,
   setCloneCtaDefault,
-} from "../../../../../../src/renderer/components/files/git/clone/CloneDialog";
+} from "../../../../../../src/renderer/components/files/git/clone/dialog";
 import {
   createCloneFormFields,
   deriveFolderNameFromUrl,
@@ -17,7 +17,7 @@ import {
   validateCloneFolderName,
   validateCloneParent,
   validateCloneUrl,
-} from "../../../../../../src/renderer/components/files/git/clone/clone-form-utils";
+} from "../../../../../../src/renderer/components/files/git/clone/form-utils";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
 describe("CloneDialog form helpers", () => {

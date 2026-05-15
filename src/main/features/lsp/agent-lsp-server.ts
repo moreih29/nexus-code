@@ -6,19 +6,19 @@
 
 import { type ServerCapabilities, TextDocumentSyncKind } from "../../../shared/lsp";
 import type { TextDocumentContentChangeEvent } from "../../../shared/lsp";
-import type { AgentChannel } from "../../infra/agent/channel/channel";
+import type { AgentChannel } from "../../infra/agent/channel";
 import type { LspHostCallOptions } from "./host";
 import {
   capabilityValueIsSupported,
   negotiatedTextDocumentOpenClose,
   negotiatedTextDocumentSave,
   negotiatedTextDocumentSyncKind,
-} from "./lsp-capability-negotiation";
+} from "./capability-negotiation";
 import {
   applyTextDocumentContentChanges,
   reconstructMissingCache,
-} from "./lsp-content-change";
-import { abortError, asRecord, isObjectLike, jsonRpcId, lspError } from "./lsp-utils";
+} from "./content-change";
+import { abortError, asRecord, isObjectLike, jsonRpcId, lspError } from "./utils";
 
 type PendingRequestId = string | number;
 

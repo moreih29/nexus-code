@@ -7,7 +7,7 @@ import type {
   InferProgress,
   InferReturn,
   ipcContract,
-} from "../../shared/ipc/ipc-contract";
+} from "../../shared/ipc/contract";
 
 export type Contract = typeof ipcContract;
 

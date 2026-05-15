@@ -1,3 +1,3 @@
 export { type CloseTabOutcome, closeEditorWithConfirm } from "./close-handler";
-export { SaveSequentializer, SaveSupersededError } from "./save-sequentializer";
-export { installEditorSaveAction, type SaveResult, saveModel } from "./save-service";
+export { SaveSequentializer, SaveSupersededError } from "./sequentializer";
+export { installEditorSaveAction, type SaveResult, saveModel } from "./service";

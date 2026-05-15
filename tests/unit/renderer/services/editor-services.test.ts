@@ -63,12 +63,12 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
 }));
 
 const { ensureProvidersFor, initializeLspBridge } = await import(
-  "../../../../src/renderer/services/editor/lsp/lsp-bridge"
+  "../../../../src/renderer/services/editor/lsp/bridge"
 );
 const { acquireModel, initializeModelCache, releaseModel } = await import(
-  "../../../../src/renderer/services/editor/model/model-cache"
+  "../../../../src/renderer/services/editor/model/cache"
 );
-const { saveModel } = await import("../../../../src/renderer/services/editor/save/save-service");
+const { saveModel } = await import("../../../../src/renderer/services/editor/save/service");
 const { useWorkspacesStore } = await import("../../../../src/renderer/state/stores/workspaces");
 
 interface FakeUri {

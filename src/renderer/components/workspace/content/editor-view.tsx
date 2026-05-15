@@ -1,8 +1,8 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import type { ReactNode } from "react";
-import { fontFamily, typeScale } from "../../../../shared/design-tokens/design-tokens";
-import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/fs-defaults";
+import { fontFamily, typeScale } from "../../../../shared/design-tokens";
+import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCall } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";

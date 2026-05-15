@@ -16,7 +16,7 @@
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { AGENT_PROTOCOL_VERSION } from "../../../../shared/protocol/envelope";
-import type { AgentChannel } from "./channel";
+import type { AgentChannel } from "./index";
 import { createSshError } from "../pipe";
 import {
   type AgentReconnectOptions,

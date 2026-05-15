@@ -21,7 +21,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // WORKSPACE_NOT_FOUND when no workspaces are seeded.
 const realDirty = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
 const realModelCache = await import(
-  "../../../../../src/renderer/services/editor/model/model-cache"
+  "../../../../../src/renderer/services/editor/model/cache"
 );
 const realFileLoader = await import(
   "../../../../../src/renderer/services/editor/model/file-loader"
@@ -58,7 +58,7 @@ mock.module("../../../../../src/renderer/services/editor/model/dirty-tracker", (
 
 const getResolvedModelMock = mock((_input: unknown) => null as unknown);
 
-mock.module("../../../../../src/renderer/services/editor/model/model-cache", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/cache", () => ({
   ...realModelCache,
   getResolvedModel: getResolvedModelMock,
 }));
@@ -68,7 +68,7 @@ mock.module("../../../../../src/renderer/services/editor/model/file-loader", () 
   relPathForInput: mock((_input: unknown) => "src/a.ts"),
 }));
 
-const { saveModel } = await import("../../../../../src/renderer/services/editor/save/save-service");
+const { saveModel } = await import("../../../../../src/renderer/services/editor/save/service");
 
 const INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };
 const CACHE_URI = "file:///workspace/src/a.ts";

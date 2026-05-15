@@ -33,7 +33,7 @@ import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage
 import { StateService } from "../../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../../src/main/infra/storage/workspace-storage";
 import { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
-import { ipcContract } from "../../../../src/shared/ipc/ipc-contract";
+import { ipcContract } from "../../../../src/shared/ipc/contract";
 import type { DirEntry, FileReadResult, FsStat } from "../../../../src/shared/types/fs";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 

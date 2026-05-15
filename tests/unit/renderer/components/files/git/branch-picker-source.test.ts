@@ -20,7 +20,7 @@ import {
   type BranchPickerSourceMode,
   type BranchPickItem,
   createBranchPickerSource,
-} from "../../../../../../src/renderer/components/files/git/branch/branch-picker-source";
+} from "../../../../../../src/renderer/components/files/git/branch/picker-source";
 import type { BranchList } from "../../../../../../src/shared/types/git";
 
 function fixture(overrides: Partial<BranchList> = {}): BranchList {

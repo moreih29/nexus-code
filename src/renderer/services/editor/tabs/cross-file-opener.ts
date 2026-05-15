@@ -1,5 +1,5 @@
 import { isWithinWorkspace } from "../../../utils/path";
-import { cacheUriToFilePath } from "../model/model-cache";
+import { cacheUriToFilePath } from "../model/cache";
 import { openOrRevealEditor } from "./open-editor";
 import { openExternalEditor } from "./open-external-editor";
 

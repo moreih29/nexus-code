@@ -27,7 +27,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureRemoteLspServer } from "../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
-import { createSshChannel } from "../../../src/main/infra/agent/ssh/ssh-channel";
+import { createSshChannel } from "../../../src/main/infra/agent/ssh/channel";
 import { spawnNodeBackedPty } from "../main/agent/node-pty-spawn";
 import {
   FIXTURE_HOST,
@@ -41,7 +41,7 @@ import {
   sleep,
   waitForNoControlMaster,
 } from "./_helpers/ssh-fixture";
-import type { AgentChannel } from "../../../src/main/infra/agent/channel/channel";
+import type { AgentChannel } from "../../../src/main/infra/agent/channel";
 import type { BootstrapResult } from "./_helpers/ssh-fixture";
 
 const FIXTURE_ENABLED = process.env.NEXUS_RUN_SSH_LSP_FIXTURE === "1";

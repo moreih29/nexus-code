@@ -36,7 +36,7 @@ mock.module("../../../../../src/renderer/services/editor/model/load-external-ent
 }));
 
 const { acquireModel, getModelSnapshot, releaseModel } = await import(
-  "../../../../../src/renderer/services/editor/model/model-cache"
+  "../../../../../src/renderer/services/editor/model/cache"
 );
 
 beforeEach(() => {

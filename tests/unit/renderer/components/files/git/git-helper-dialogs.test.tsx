@@ -7,11 +7,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   CommitMessageDialogContent,
   hasCommitMessageBody,
-} from "../../../../../../src/renderer/components/files/git/commit/CommitMessageDialog";
+} from "../../../../../../src/renderer/components/files/git/commit/message-dialog";
 import {
   CredentialPromptDialogContent,
   credentialPromptInputType,
-} from "../../../../../../src/renderer/components/files/git/clone/CredentialPromptDialog";
+} from "../../../../../../src/renderer/components/files/git/clone/credential-prompt-dialog";
 import {
   __resetGitHelperPromptsForTests,
   type GitHelperPromptState,
@@ -158,8 +158,8 @@ describe("Global Git helper prompt mounting contract", () => {
   });
 
   it("keeps dialogs/listeners globally mounted rather than GitPanel-owned", async () => {
-    const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
-    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/GitPanel.tsx").text();
+    const globalRoots = await Bun.file("src/renderer/components/global-roots/index.tsx").text();
+    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/git-panel.tsx").text();
 
     expect(globalRoots).toContain("<GitHelperPromptsRoot />");
     expect(globalRoots).toContain("useGitHelperPrompts");

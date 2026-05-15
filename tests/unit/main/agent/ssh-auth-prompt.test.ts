@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   AuthCancelledError,
   SshAuthPromptHub,
-} from "../../../../src/main/infra/agent/ssh/ssh-auth-prompt";
-import { ipcContract } from "../../../../src/shared/ipc/ipc-contract";
+} from "../../../../src/main/infra/agent/ssh/auth-prompt";
+import { ipcContract } from "../../../../src/shared/ipc/contract";
 import type { SshAuthPrompt } from "../../../../src/shared/types/ssh-auth-prompt";
 
 interface BroadcastEvent {

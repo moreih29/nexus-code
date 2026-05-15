@@ -9,7 +9,7 @@ const realMonacoSingleton = await import(
 const realFileLoader = await import(
   "../../../../../src/renderer/services/editor/model/file-loader"
 );
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/bridge");
 
 mock.module("../../../../../src/renderer/services/editor/runtime/monaco-singleton", () => ({
   ...realMonacoSingleton,
@@ -31,7 +31,7 @@ mock.module("../../../../../src/renderer/services/editor/model/file-loader", () 
   readFileForModel: () => new Promise(() => {}),
 }));
 
-mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
@@ -41,7 +41,7 @@ mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => 
 }));
 
 const { createEntry, snapshot } = await import(
-  "../../../../../src/renderer/services/editor/model/model-entry"
+  "../../../../../src/renderer/services/editor/model/entry"
 );
 
 const WORKSPACE_INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };

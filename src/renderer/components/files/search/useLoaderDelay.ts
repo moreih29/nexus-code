@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchStatus } from "../../../state/stores/search";
-import { LOADER_DELAY_MS } from "./SearchStatusHeader";
+import { LOADER_DELAY_MS } from "./status-header";
 
 export function useLoaderDelay(status: SearchStatus | undefined): boolean {
   const [showLoader, setShowLoader] = useState(false);

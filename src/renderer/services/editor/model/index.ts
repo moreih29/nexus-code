@@ -35,5 +35,5 @@ export {
   subscribeModel,
   subscribeOnRelease,
   toFileErrorCode,
-} from "./model-cache";
+} from "./cache";
 export { useSharedModel } from "./use-shared-model";

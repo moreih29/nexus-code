@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildOperationBannerView,
   OperationBanner,
-} from "../../../../../../src/renderer/components/files/git/panel/OperationBanner";
+} from "../../../../../../src/renderer/components/files/git/panel/operation-banner";
 import type { GitOperationState } from "../../../../../../src/shared/types/git";
 
 describe("buildOperationBannerView", () => {

@@ -6,24 +6,24 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { converter } from "culori";
-import { color } from "../../../../../../src/shared/design-tokens/design-tokens";
+import { color } from "../../../../../../src/shared/design-tokens";
 
 const MIN_SMALL_TEXT_CONTRAST = 4.5;
 const GIT_DESTRUCTIVE_CLASS = "git-destructive-text";
 const GIT_SURFACE_FILES = [
-  "src/renderer/components/files/git/commit/GitCommitButton.tsx",
-  "src/renderer/components/files/git/file-row/GitFileContextMenu.tsx",
-  "src/renderer/components/files/git/file-row/GitFileRow.tsx",
-  "src/renderer/components/files/git/file-row/GitGroupHeader.tsx",
-  "src/renderer/components/files/git/panel/GitInlineBanner.tsx",
-  "src/renderer/components/files/git/GitMoreMenu.tsx",
-  "src/renderer/components/files/git/file-row/GitStatusBadge.tsx",
-  "src/renderer/components/files/git/file-row/GitTreeRow.tsx",
-  "src/renderer/components/files/git/panel/OperationBanner.tsx",
-  "src/renderer/components/files/git/history/HistoryCommitMenu.tsx",
-  "src/renderer/components/files/git/clone/CloneDialog.tsx",
-  "src/renderer/components/files/git/panel/GitPanel.tsx",
-  "src/renderer/components/files/git/pickers/TagPicker.tsx",
+  "src/renderer/components/files/git/commit/git-commit-button.tsx",
+  "src/renderer/components/files/git/file-row/git-file-context-menu.tsx",
+  "src/renderer/components/files/git/file-row/git-file-row.tsx",
+  "src/renderer/components/files/git/file-row/git-group-header.tsx",
+  "src/renderer/components/files/git/panel/git-inline-banner.tsx",
+  "src/renderer/components/files/git/more-menu.tsx",
+  "src/renderer/components/files/git/file-row/git-status-badge.tsx",
+  "src/renderer/components/files/git/file-row/git-tree-row.tsx",
+  "src/renderer/components/files/git/panel/operation-banner.tsx",
+  "src/renderer/components/files/git/history/commit-menu.tsx",
+  "src/renderer/components/files/git/clone/dialog.tsx",
+  "src/renderer/components/files/git/panel/git-panel.tsx",
+  "src/renderer/components/files/git/pickers/tag-picker.tsx",
 ] as const;
 
 describe("Git destructive text contrast", () => {

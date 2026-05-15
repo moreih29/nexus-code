@@ -6,7 +6,7 @@ import {
   drawGraphCanvas,
   type GraphCanvasVisibleRow,
   type GraphDrawInputs,
-} from "../../../../../../../src/renderer/components/files/git/history/graph/GraphCanvas";
+} from "../../../../../../../src/renderer/components/files/git/history/graph/canvas";
 import {
   initialLaneState,
   type LaneCommit,

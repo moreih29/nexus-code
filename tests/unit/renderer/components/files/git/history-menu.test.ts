@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from "bun:test";
 import {
   buildHistoryCommitMenuItems,
   type HistoryCommitMenuActions,
-} from "../../../../../../src/renderer/components/files/git/history/HistoryCommitMenu";
+} from "../../../../../../src/renderer/components/files/git/history/commit-menu";
 import type { LogEntry } from "../../../../../../src/shared/types/git";
 
 const entry: LogEntry = {

@@ -7,8 +7,8 @@ import path from "node:path";
 import type {
   AuthenticateSshControlMasterDependencies,
   SshAuthPromptHandler,
-} from "../ssh-auth-pty";
-import type { SshMasterOptions } from "../ssh-master";
+} from "../auth-pty";
+import type { SshMasterOptions } from "../master";
 import type { AgentArtifactPlatform } from "../../../../../shared/agent-manifest";
 
 export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";

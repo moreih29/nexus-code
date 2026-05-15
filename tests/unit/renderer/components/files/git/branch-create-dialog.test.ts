@@ -6,7 +6,7 @@ import {
   branchCreateDialogDescription,
   buildBranchCreateFields,
   submitBranchCreate,
-} from "../../../../../../src/renderer/components/files/git/branch/BranchCreateDialog";
+} from "../../../../../../src/renderer/components/files/git/branch/create-dialog";
 import { getFormDialogFieldStates } from "../../../../../../src/renderer/components/ui/form-dialog";
 import type { BranchList } from "../../../../../../src/shared/types/git";
 

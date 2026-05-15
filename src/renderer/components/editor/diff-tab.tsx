@@ -1,6 +1,6 @@
 import type * as Monaco from "monaco-editor";
 import { lazy, type ReactNode, Suspense, useEffect, useRef } from "react";
-import { fontFamily, typeScale } from "../../../shared/design-tokens/design-tokens";
+import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { NEXUS_DARK_THEME_NAME } from "../../services/editor/runtime/monaco-theme";
 import {

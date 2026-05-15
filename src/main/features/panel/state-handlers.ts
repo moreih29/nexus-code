@@ -1,7 +1,7 @@
 /**
  * Panel view-options handlers — thin wrappers around per-workspace persistence.
  */
-import { ipcContract } from "../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/contract";
 import type { PanelViewOptions } from "../../../shared/types/panel";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { validateArgs } from "../../infra/ipc-router";

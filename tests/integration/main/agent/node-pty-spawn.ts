@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { IPty } from "node-pty";
-import type { SpawnPty } from "../../../../src/main/infra/agent/ssh/ssh-auth-pty";
+import type { SpawnPty } from "../../../../src/main/infra/agent/ssh/auth-pty";
 
 type PtyExitEvent = Parameters<Parameters<IPty["onExit"]>[0]>[0];
 

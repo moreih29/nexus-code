@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 
-const realIpcContract = await import("../../../../src/shared/ipc/ipc-contract");
+const realIpcContract = await import("../../../../src/shared/ipc/contract");
 
 const StreamArgsSchema = z.object({ token: z.string() });
 const StreamProgressSchema = z.object({ step: z.number() });
 const StreamCompleteSchema = z.object({ done: z.boolean() });
 
-mock.module("../../../../src/shared/ipc/ipc-contract", () => ({
+mock.module("../../../../src/shared/ipc/contract", () => ({
   ...realIpcContract,
   ipcContract: {
     ...realIpcContract.ipcContract,

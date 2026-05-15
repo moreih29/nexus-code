@@ -11,7 +11,7 @@ mock.module("react-dom", () => ({
 }));
 
 const { RefChip, RefChipList, refChipDisplayKind, sortRefsForDisplay } = await import(
-  "../../../../../../src/renderer/components/files/git/history/RefChip"
+  "../../../../../../src/renderer/components/files/git/history/ref-chip"
 );
 
 type EffectCallback = () => undefined | (() => void);

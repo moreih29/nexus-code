@@ -11,7 +11,7 @@ import {
   requestReopenForDeadTerminalTabs,
   shouldShowWorkspaceTerminalStatusBanner,
   WorkspaceTerminalStatusBanner,
-} from "../../../../../src/renderer/components/workspace/workspace-terminal-status-banner";
+} from "../../../../../src/renderer/components/workspace/terminal-status-banner";
 import {
   resetTerminalReopenRequestsForTests,
   subscribeTerminalReopenRequest,

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
-import { filePathToModelUri } from "@/services/editor/model/model-cache";
+import { filePathToModelUri } from "@/services/editor/model/cache";
 import { cn } from "@/utils/cn";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";

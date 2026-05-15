@@ -2,7 +2,7 @@
 
 import { loadChildren } from "@/state/operations/files";
 import { relPath } from "@/utils/path";
-import { FS_ERROR } from "../../../shared/fs/fs-errors";
+import { FS_ERROR } from "../../../shared/fs/errors";
 import type { FsToastMessages } from "./errors";
 import { toFsToast } from "./errors";
 

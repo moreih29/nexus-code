@@ -9,12 +9,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Bun mock.module is process-global. Spread real exports so other editor/*
 // test files see the full module surface after this file runs.
-const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/lsp-bridge");
+const realLspBridge = await import("../../../../../src/renderer/services/editor/lsp/bridge");
 const realMonacoSingleton = await import(
   "../../../../../src/renderer/services/editor/runtime/monaco-singleton"
 );
 
-mock.module("../../../../../src/renderer/services/editor/lsp/lsp-bridge", () => ({
+mock.module("../../../../../src/renderer/services/editor/lsp/bridge", () => ({
   ...realLspBridge,
   ensureProvidersFor: () => {},
   notifyDidChange: () => Promise.resolve(),
@@ -77,11 +77,11 @@ const createEntryMock = mock(
 );
 
 const realModelEntry = await import(
-  "../../../../../src/renderer/services/editor/model/model-entry"
+  "../../../../../src/renderer/services/editor/model/entry"
 );
 const cleanupEntryMock = mock(() => {});
 
-mock.module("../../../../../src/renderer/services/editor/model/model-entry", () => ({
+mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
   ...realModelEntry,
   createEntry: createEntryMock,
   cleanupEntry: cleanupEntryMock,
@@ -118,7 +118,7 @@ mock.module("../../../../../src/renderer/services/editor/model/load-external-ent
 }));
 
 const { acquireModel, getModelSnapshot, releaseModel } = await import(
-  "../../../../../src/renderer/services/editor/model/model-cache"
+  "../../../../../src/renderer/services/editor/model/cache"
 );
 
 const WS_INPUT = { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" };

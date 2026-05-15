@@ -3,7 +3,7 @@ import {
   resolveLocalAgentCommand,
   type LocalAgentCommand,
 } from "../../../infra/agent/local-agent-resolver";
-import type { AgentChannel } from "../../../infra/agent/channel/channel";
+import type { AgentChannel } from "../../../infra/agent/channel";
 import { AgentFsProvider } from "./agent-provider";
 
 export type CreateLocalFsChannel = (options: CreateLocalChannelOptions) => AgentChannel;

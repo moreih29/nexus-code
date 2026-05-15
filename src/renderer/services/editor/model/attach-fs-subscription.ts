@@ -1,6 +1,6 @@
 /** Subscribes to fs.changed events for the entry's file and triggers external-change reconciliation. */
 
-import type { ModelEntry, ModelEntryDeps } from "./model-entry";
+import type { ModelEntry, ModelEntryDeps } from "./entry";
 
 export function attachFsSubscription(
   entry: ModelEntry,

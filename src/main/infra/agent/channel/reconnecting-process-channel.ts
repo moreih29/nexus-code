@@ -4,8 +4,8 @@ import type {
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
-} from "./channel";
-import { ChannelEventRegistry } from "./channel-event-registry";
+} from "./index";
+import { ChannelEventRegistry } from "./event-registry";
 import type { StderrClassifier } from "../pipe";
 import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
 

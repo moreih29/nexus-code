@@ -2,7 +2,7 @@
 // Renderer calls are forwarded to the LSP host, and diagnostics events are
 // broadcast to all renderers.
 
-import { ipcContract } from "../../../shared/ipc/ipc-contract";
+import { ipcContract } from "../../../shared/ipc/contract";
 import type {
   ApplyWorkspaceEditParams,
   ApplyWorkspaceEditResult,

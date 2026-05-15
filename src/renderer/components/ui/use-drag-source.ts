@@ -12,7 +12,7 @@
  * VSCode's pattern of removing it on the next macrotask (setTimeout 0).
  */
 import { useCallback } from "react";
-import { color } from "../../../shared/design-tokens/design-tokens";
+import { color } from "../../../shared/design-tokens";
 
 export type DragImageSpec =
   | { kind: "self" }
