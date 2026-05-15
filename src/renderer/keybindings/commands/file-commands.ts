@@ -8,7 +8,7 @@
 import { COMMANDS } from "../../../shared/commands";
 import { registerCommand } from "../../commands/registry";
 import { ipcCall } from "../../ipc/client";
-import { openOrRevealEditor, saveModel } from "../../services/editor";
+import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";
 import { refresh } from "../../state/operations/files";
 import { useActiveStore } from "../../state/stores/active";
 import { useFilesStore } from "../../state/stores/files";
@@ -62,7 +62,7 @@ export function registerFileCommands(): Array<() => void> {
       if (!ctx) return;
       const tab = useTabsStore.getState().byWorkspace[ctx.wsId]?.[ctx.tabId];
       if (tab?.type !== "editor") return;
-      saveModel({ workspaceId: ctx.wsId, filePath: tab.props.filePath }).catch(() => {});
+      runSaveAndReport({ workspaceId: ctx.wsId, filePath: tab.props.filePath });
     }),
   ];
 }

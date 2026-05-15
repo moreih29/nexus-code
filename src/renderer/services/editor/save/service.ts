@@ -29,11 +29,7 @@ export function installEditorSaveAction(
     label: "Save File",
     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
     run: () => {
-      saveModel(input).catch(() => {
-        // Errors are reported via SaveResult — promise rejection here
-        // would be a programming error. Swallow to keep the command
-        // from logging unhandled rejection noise.
-      });
+      runSaveAndReport(input);
     },
   });
 }
@@ -46,6 +42,40 @@ export type SaveResult =
   | { kind: "conflict"; actual: { exists: false } | { exists: true; mtime: string; size: number } }
   | { kind: "superseded" }
   | { kind: "error"; message: string };
+
+/**
+ * Surfaces save outcomes the user must act on. `saveModel` signals failure by
+ * *resolving* with a non-"saved" SaveResult (it never rejects), so every
+ * callsite that fires a save must route the result here — otherwise the
+ * failure vanishes with no toast and no log. Normal outcomes (saved,
+ * not-dirty, superseded, no-model) are intentionally silent; read-only
+ * already toasts inside saveModel.
+ */
+export function reportSaveFailure(result: SaveResult): void {
+  if (result.kind === "error") {
+    showToast({ kind: "error", message: `Save failed: ${result.message}` });
+  } else if (result.kind === "conflict") {
+    showToast({
+      kind: "error",
+      message: "Save aborted — the file changed on disk. Reload to get the latest version.",
+    });
+  }
+}
+
+/**
+ * Safe entry point for fire-and-forget save gestures (Cmd+S, the Save
+ * command). Routes every outcome to the user: a failed SaveResult becomes a
+ * toast, and an unexpected promise rejection (a programming error, since
+ * saveModel reports via SaveResult) is surfaced rather than swallowed.
+ */
+export function runSaveAndReport(input: EditorInput): void {
+  saveModel(input).then(reportSaveFailure, (error: unknown) => {
+    showToast({
+      kind: "error",
+      message: `Save failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  });
+}
 
 const sequentializer = new SaveSequentializer();
 

@@ -17,7 +17,7 @@ import { basename } from "@/utils/path";
 import { isDirty } from "../model/dirty-tracker";
 import { filePathToModelUri } from "../model/cache";
 import { closeEditor } from "../tabs";
-import { saveModel } from "./service";
+import { reportSaveFailure, saveModel } from "./service";
 
 export type CloseTabOutcome = "closed" | "cancelled" | "save-failed";
 
@@ -54,8 +54,10 @@ export async function closeEditorWithConfirm(
     const result = await saveModel({ workspaceId, filePath });
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
       // conflict / error / superseded / no-model — keep the tab open so the
-      // user can react. Surfacing the failure (toast, conflict modal) is the
-      // caller's job; we just signal the outcome and leave the buffer alive.
+      // user can react. Surface the failure here (reportSaveFailure toasts on
+      // error/conflict, stays silent for superseded/no-model) so it never
+      // vanishes regardless of whether the caller inspects the outcome.
+      reportSaveFailure(result);
       return "save-failed";
     }
   }
