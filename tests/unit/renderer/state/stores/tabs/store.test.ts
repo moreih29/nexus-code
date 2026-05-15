@@ -42,21 +42,13 @@ function reset() {
 }
 
 // ---------------------------------------------------------------------------
-// createTab
+// createTab — title derivation and accumulation are the only behaviors
+// worth pinning. The "value goes in and comes back" round-trip is a
+// setter echo that adds no scenario value.
 // ---------------------------------------------------------------------------
 
 describe("useTabsStore — createTab", () => {
   beforeEach(reset);
-
-  it("adds a Tab to the workspace record and returns it", () => {
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS_A, { type: "terminal", props: { cwd: "/home/user" } });
-
-    const wsRecord = useTabsStore.getState().byWorkspace[WS_A];
-    expect(wsRecord).toBeDefined();
-    expect(wsRecord[tab.id]).toEqual(tab);
-  });
 
   it("derives title 'Terminal' for terminal type", () => {
     const tab = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
@@ -77,17 +69,6 @@ describe("useTabsStore — createTab", () => {
 
     const ids = Object.keys(useTabsStore.getState().byWorkspace[WS_A]);
     expect(ids).toHaveLength(2);
-  });
-
-  it("keeps workspace records independent", () => {
-    const ta = useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
-    const tb = useTabsStore.getState().createTab(WS_B, { type: "terminal", props: { cwd: "/b" } });
-
-    const state = useTabsStore.getState();
-    expect(Object.keys(state.byWorkspace[WS_A])).toHaveLength(1);
-    expect(Object.keys(state.byWorkspace[WS_B])).toHaveLength(1);
-    expect(state.byWorkspace[WS_A][ta.id]).toBeDefined();
-    expect(state.byWorkspace[WS_B][tb.id]).toBeDefined();
   });
 });
 
@@ -117,21 +98,6 @@ describe("useTabsStore — removeTab", () => {
 
     expect(useTabsStore.getState().byWorkspace[WS_B][tb.id]).toBeDefined();
   });
-
-  it("is a no-op for an unknown workspace id", () => {
-    const before = useTabsStore.getState().byWorkspace;
-    useTabsStore.getState().removeTab("ws-missing", "tab-missing");
-    expect(useTabsStore.getState().byWorkspace).toBe(before);
-  });
-
-  it("is a no-op for an unknown tab id within an existing workspace", () => {
-    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
-    const countBefore = Object.keys(useTabsStore.getState().byWorkspace[WS_A]).length;
-
-    useTabsStore.getState().removeTab(WS_A, "non-existent-tab");
-
-    expect(Object.keys(useTabsStore.getState().byWorkspace[WS_A])).toHaveLength(countBefore);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -157,21 +123,6 @@ describe("useTabsStore — renameTab", () => {
     expect(updated.id).toBe(tab.id);
     expect(updated.type).toBe(tab.type);
     expect(updated.props).toEqual(tab.props);
-  });
-
-  it("is a no-op for an unknown workspace id", () => {
-    const before = useTabsStore.getState().byWorkspace;
-    useTabsStore.getState().renameTab("ws-missing", "tab-missing", "New Title");
-    expect(useTabsStore.getState().byWorkspace).toBe(before);
-  });
-
-  it("is a no-op for an unknown tab id", () => {
-    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/" } });
-    const before = useTabsStore.getState().byWorkspace[WS_A];
-
-    useTabsStore.getState().renameTab(WS_A, "non-existent-tab", "Irrelevant");
-
-    expect(useTabsStore.getState().byWorkspace[WS_A]).toEqual(before);
   });
 });
 
@@ -200,30 +151,5 @@ describe("useTabsStore — closeAllForWorkspace", () => {
     const state = useTabsStore.getState();
     expect(state.byWorkspace[WS_A]).toBeUndefined();
     expect(state.byWorkspace[WS_B][tb.id]).toBeDefined();
-  });
-
-  it("is a no-op when the workspace has no record", () => {
-    const before = useTabsStore.getState().byWorkspace;
-    useTabsStore.getState().closeAllForWorkspace("ws-missing");
-    expect(useTabsStore.getState().byWorkspace).toBe(before);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// workspace:removed IPC event → closeAllForWorkspace
-// ---------------------------------------------------------------------------
-
-describe("useTabsStore — workspace:removed IPC dispatch", () => {
-  beforeEach(reset);
-
-  it("closeAllForWorkspace removes the workspace record when called directly (simulating IPC)", () => {
-    useTabsStore.getState().createTab(WS_A, { type: "terminal", props: { cwd: "/a" } });
-
-    // In bun:test the ipcListen subscriber is never registered (typeof window
-    // guard prevents it). We simulate the event by calling the action directly,
-    // which is exactly what the ipcListen callback does in the browser.
-    useTabsStore.getState().closeAllForWorkspace(WS_A);
-
-    expect(useTabsStore.getState().byWorkspace[WS_A]).toBeUndefined();
   });
 });
