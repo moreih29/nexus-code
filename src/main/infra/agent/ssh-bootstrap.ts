@@ -1,15 +1,23 @@
-import { createHash } from "node:crypto";
+/**
+ * Bootstrap orchestrator for the remote agent and LSP servers.
+ *
+ * Responsibility: drive the install/upgrade workflow on the remote host so
+ * by the time the caller spawns its NDJSON channel, the agent binary (and
+ * any required Node runtime + LSP archive) are present and verified.
+ *
+ * The actual transport (ssh/sftp shelling, uploads, sha256 verification) and
+ * the persisted manifest format live in `./ssh-bootstrap/transport.ts` and
+ * `./ssh-bootstrap/manifest.ts` respectively. This file owns the
+ * orchestration and the public surface — type and constant re-exports stay
+ * here so existing callers keep their import paths.
+ */
 import fs from "node:fs/promises";
 import path from "node:path";
-import { type SpawnOptionsWithoutStdio, spawn as defaultSpawn } from "node:child_process";
-import { z } from "zod";
 import {
-  AgentArtifactPlatformSchema,
   AgentManifestSchema,
   findAgentBinary,
   findLspBinary,
   findNodeRuntime,
-  type AgentArtifactPlatform,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
 } from "../../../shared/agent-manifest";
@@ -18,117 +26,78 @@ import {
   type AuthenticateSshControlMasterDependencies,
   type SshAuthPromptHandler,
 } from "./ssh-auth-pty";
-import type { SshMasterOptions } from "./ssh-master";
 import { createSshError } from "./pipe";
+import {
+  absoluteRemotePath,
+  agentArtifactKey,
+  artifactLockKey,
+  lspArtifactKey,
+  nodeArtifactKey,
+  parseUname,
+  pruneRemoteVersions,
+  readRemoteManifest,
+  remoteAgentBinaryPath,
+  remoteLspBinaryDir,
+  remoteNodeRuntimeDir,
+  writeRemoteManifest,
+} from "./ssh-bootstrap/manifest";
+import {
+  defaultRunner,
+  quoteShellArg,
+  runSsh,
+  singleQuoteShellArg,
+  uploadAndVerifyFile,
+} from "./ssh-bootstrap/transport";
+import {
+  LOCAL_AGENT_DIST_DIR,
+  LSP_BOOTSTRAP_PROGRESS_EVENT,
+  REMOTE_AGENT_MANIFEST,
+  REMOTE_AGENT_PROTOCOL_MAJOR,
+  REMOTE_AGENT_ROOT,
+  REMOTE_AGENT_VERSION,
+  type EnsureRemoteAgentOptions,
+  type EnsureRemoteAgentResult,
+  type EnsureRemoteLspServerOptions,
+  type EnsureRemoteLspServerResult,
+  type LspBootstrapProgressEvent,
+  type LspBootstrapProgressPhase,
+  type RemoteAgentPlatform,
+  type SshBootstrapDependencies,
+  type SshBootstrapRunner,
+  type SshBootstrapRunnerResult,
+} from "./ssh-bootstrap/types";
 
-export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";
-export const REMOTE_AGENT_VERSION = "0.1.0";
-export const REMOTE_AGENT_ROOT = "~/.nexus-code";
-export const REMOTE_AGENT_MANIFEST = `${REMOTE_AGENT_ROOT}/manifest.json`;
-export const LOCAL_AGENT_DIST_DIR = path.join(process.cwd(), "dist", "agent");
-export const LSP_BOOTSTRAP_PROGRESS_EVENT = "lsp.bootstrap.progress";
-
-const KEEP_REMOTE_VERSIONS = 3;
-
-const RemoteArtifactRecordSchema = z.object({
-  kind: z.enum(["agent", "node", "lsp"]),
-  name: z.string(),
-  version: z.string(),
-  os: AgentArtifactPlatformSchema.shape.os.optional(),
-  arch: AgentArtifactPlatformSchema.shape.arch.optional(),
-  path: z.string(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  size: z.number().int().nonnegative().optional(),
-  installedAt: z.string(),
-});
-
-const RemoteArtifactManifestSchema = z.object({
-  version: z.string().optional(),
-  protocolVersion: z.string().optional(),
-  artifacts: z.record(RemoteArtifactRecordSchema),
-});
-
-const LegacyRemoteManifestSchema = z.object({
-  version: z.string(),
-  os: AgentArtifactPlatformSchema.shape.os,
-  arch: AgentArtifactPlatformSchema.shape.arch,
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  installedAt: z.string(),
-});
-
-type RemoteArtifactManifest = z.infer<typeof RemoteArtifactManifestSchema>;
-type RemoteArtifactRecord = z.infer<typeof RemoteArtifactRecordSchema>;
-
-export type RemoteAgentPlatform = AgentArtifactPlatform;
-
-export type LspBootstrapProgressPhase =
-  | "checking"
-  | "skipped"
-  | "uploading"
-  | "verifying"
-  | "extracting"
-  | "linking"
-  | "pruning"
-  | "ready";
-
-export interface LspBootstrapProgressEvent {
-  readonly name: string;
-  readonly phase: LspBootstrapProgressPhase;
-  readonly bytesDone?: number;
-  readonly bytesTotal?: number;
-}
-
-export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remoteCommand"> {
-  readonly remotePath: string;
-  readonly cachedRemoteArch?: RemoteAgentPlatform;
-  readonly authMode?: "interactive" | "key-only";
-}
-
-export interface EnsureRemoteAgentResult {
-  readonly remoteCommand: string;
-  readonly platform: RemoteAgentPlatform;
-  readonly uploaded: boolean;
-  readonly controlPath?: string;
-  readonly dispose?: () => void;
-}
-
-export interface EnsureRemoteLspServerOptions extends EnsureRemoteAgentOptions {
-  readonly binaryName: string;
-  readonly languageId?: string;
-}
-
-export interface EnsureRemoteLspServerResult {
-  readonly binaryPath: string;
-  readonly args: readonly string[];
-  readonly platform: RemoteAgentPlatform;
-  readonly uploaded: boolean;
-  readonly controlPath?: string;
-  readonly dispose?: () => void;
-}
-
-export interface SshBootstrapRunnerResult {
-  readonly stdout: string;
-  readonly stderr?: string;
-}
-
-export type SshBootstrapRunner = (
-  command: string,
-  args: string[],
-  input?: Buffer | string,
-) => Promise<SshBootstrapRunnerResult>;
-
-export interface SshBootstrapDependencies {
-  readonly runner?: SshBootstrapRunner;
-  readonly distDir?: string;
-  readonly now?: () => Date;
-  readonly promptHandler?: SshAuthPromptHandler;
-  readonly auth?: AuthenticateSshControlMasterDependencies;
-  readonly onProgress?: (event: LspBootstrapProgressEvent) => void;
-}
+// Re-export the stable public surface so existing callers keep their import
+// paths (`"./ssh-bootstrap"`) unchanged.
+export {
+  LOCAL_AGENT_DIST_DIR,
+  LSP_BOOTSTRAP_PROGRESS_EVENT,
+  REMOTE_AGENT_MANIFEST,
+  REMOTE_AGENT_PROTOCOL_MAJOR,
+  REMOTE_AGENT_ROOT,
+  REMOTE_AGENT_VERSION,
+  parseUname,
+  remoteAgentBinaryPath,
+};
+export type {
+  EnsureRemoteAgentOptions,
+  EnsureRemoteAgentResult,
+  EnsureRemoteLspServerOptions,
+  EnsureRemoteLspServerResult,
+  LspBootstrapProgressEvent,
+  LspBootstrapProgressPhase,
+  RemoteAgentPlatform,
+  SshBootstrapDependencies,
+  SshBootstrapRunner,
+  SshBootstrapRunnerResult,
+};
 
 interface ArtifactInstallRequest {
   readonly key: string;
-  readonly record: Omit<RemoteArtifactRecord, "installedAt">;
+  readonly record: Omit<
+    Awaited<ReturnType<typeof readRemoteManifest>>["artifacts"][string],
+    "installedAt"
+  >;
   readonly install: () => Promise<void>;
   readonly prune: () => Promise<void>;
   readonly progressName: string;
@@ -138,8 +107,17 @@ interface ArtifactEnsureResult {
   readonly uploaded: boolean;
 }
 
+// Process-wide deduplication of concurrent ensure() calls for the same
+// artifact on the same remote. Each key resolves to the in-flight promise
+// so multiple workspaces booting against the same host upload once.
 const artifactLocks = new Map<string, Promise<ArtifactEnsureResult>>();
 
+/**
+ * Ensures the agent binary is present at the canonical path on the remote.
+ * The returned `remoteCommand` is the exact command line to spawn over the
+ * NDJSON channel; on auth failure or sha mismatch the ControlMaster is
+ * disposed before the error propagates.
+ */
 export async function ensureRemoteAgent(
   options: EnsureRemoteAgentOptions,
   dependencies: SshBootstrapDependencies = {},
@@ -186,6 +164,7 @@ export async function ensureRemoteAgent(
             remotePath: remoteBinaryPath,
             sha256: binary.sha256,
             executable: true,
+            remoteAgentRoot: REMOTE_AGENT_ROOT,
           }),
         prune: () =>
           pruneRemoteVersions(
@@ -214,6 +193,11 @@ export async function ensureRemoteAgent(
   }
 }
 
+/**
+ * Ensures both the Node runtime and the requested LSP archive are present
+ * on the remote, then writes the per-language launcher that wires them
+ * together. Returns the launcher path so the caller can spawn it directly.
+ */
 export async function ensureRemoteLspServer(
   options: EnsureRemoteLspServerOptions,
   dependencies: SshBootstrapDependencies = {},
@@ -269,13 +253,13 @@ export async function ensureRemoteLspServer(
       dependencies.onProgress,
     );
 
-    emitProgress(dependencies.onProgress, { name: lsp.name, phase: "linking" });
+    dependencies.onProgress?.({ name: lsp.name, phase: "linking" });
     await writeRemoteLspLauncher(sshOptions, runner, {
       launcherPath: lspLauncherPath,
       nodePath,
       entryPath: lspEntryPath,
     });
-    emitProgress(dependencies.onProgress, { name: lsp.name, phase: "ready" });
+    dependencies.onProgress?.({ name: lsp.name, phase: "ready" });
 
     return {
       binaryPath: absoluteRemotePath(remoteHome, lspLauncherPath),
@@ -291,33 +275,17 @@ export async function ensureRemoteLspServer(
   }
 }
 
-export function parseUname(value: string): RemoteAgentPlatform {
-  const normalized = value.trim().toLowerCase();
-  const osName = normalized.includes("darwin")
-    ? "darwin"
-    : normalized.includes("linux")
-      ? "linux"
-      : null;
-  const arch = /x86_64|amd64/.test(normalized)
-    ? "amd64"
-    : /aarch64|arm64/.test(normalized)
-      ? "arm64"
-      : null;
-  if (!osName || !arch) {
-    throw createSshError("server.protocol-error", new Error(`unsupported uname: ${value.trim()}`));
-  }
-  return { os: osName, arch };
-}
-
-export function remoteAgentBinaryPath(version: string, platform: RemoteAgentPlatform): string {
-  return `${REMOTE_AGENT_ROOT}/bin/agent-${version}-${platform.os}-${platform.arch}`;
-}
-
+/** Composes the `bash -lc 'exec ...'` line used to spawn the agent. */
 export function buildRemoteAgentCommand(binaryPath: string, remotePath: string): string {
   const script = `exec ${quoteShellArg(binaryPath)} ${quoteShellArg(remotePath)}`;
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
+/**
+ * Resolves the dependency defaults and, when this is the first call against
+ * this remote in interactive mode, opens the ControlMaster up front so every
+ * subsequent ssh/sftp invocation rides the same socket.
+ */
 async function createBootstrapContext(
   options: EnsureRemoteAgentOptions,
   dependencies: SshBootstrapDependencies,
@@ -334,7 +302,11 @@ async function createBootstrapContext(
   const shouldAuthenticate =
     options.authMode === "interactive" && dependencies.promptHandler && !options.controlPath;
   const authenticatedMaster = shouldAuthenticate
-    ? await authenticateSshControlMaster(options, dependencies.promptHandler, dependencies.auth)
+    ? await authenticateSshControlMaster(
+        options,
+        dependencies.promptHandler as SshAuthPromptHandler,
+        dependencies.auth as AuthenticateSshControlMasterDependencies | undefined,
+      )
     : null;
   const sshOptions = authenticatedMaster
     ? { ...options, controlPath: authenticatedMaster.controlPath }
@@ -342,6 +314,7 @@ async function createBootstrapContext(
   return { runner, distDir, now, sshOptions, authenticatedMaster };
 }
 
+/** Runs `uname -ms` on the remote and parses it into the platform tuple. */
 async function detectRemotePlatform(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -350,6 +323,7 @@ async function detectRemotePlatform(
   return parseUname(result.stdout);
 }
 
+/** Reads the remote $HOME so `~/`-prefixed paths can be resolved client-side. */
 async function detectRemoteHome(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -362,52 +336,11 @@ async function detectRemoteHome(
   return home;
 }
 
-async function readRemoteManifest(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-): Promise<RemoteArtifactManifest> {
-  const result = await runSsh(options, runner, `cat ${REMOTE_AGENT_MANIFEST} 2>/dev/null || true`);
-  if (result.stdout.trim().length === 0) return { artifacts: {} };
-
-  const raw = JSON.parse(result.stdout);
-  const parsed = RemoteArtifactManifestSchema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-
-  const legacy = LegacyRemoteManifestSchema.safeParse(raw);
-  if (legacy.success) {
-    return {
-      version: legacy.data.version,
-      artifacts: {
-        [agentArtifactKey(legacy.data)]: {
-          kind: "agent",
-          name: "agent",
-          version: legacy.data.version,
-          os: legacy.data.os,
-          arch: legacy.data.arch,
-          path: remoteAgentBinaryPath(legacy.data.version, legacy.data),
-          sha256: legacy.data.sha256,
-          installedAt: legacy.data.installedAt,
-        },
-      },
-    };
-  }
-
-  return { artifacts: {} };
-}
-
-async function writeRemoteManifest(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-  manifest: RemoteArtifactManifest,
-): Promise<void> {
-  await runSsh(
-    options,
-    runner,
-    `mkdir -p ${REMOTE_AGENT_ROOT} && cat > ${REMOTE_AGENT_MANIFEST}`,
-    `${JSON.stringify(manifest, null, 2)}\n`,
-  );
-}
-
+/**
+ * Deduplicating ensure() entry point. The lock map coalesces concurrent
+ * calls into one upload, so two workspaces racing to boot share one
+ * verify/install pass.
+ */
 async function ensureRemoteArtifact(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -419,8 +352,13 @@ async function ensureRemoteArtifact(
   const existing = artifactLocks.get(lockKey);
   if (existing) return existing;
 
-  let pending: Promise<ArtifactEnsureResult>;
-  pending = ensureRemoteArtifactUnlocked(options, runner, now, request, onProgress).finally(() => {
+  const pending = ensureRemoteArtifactUnlocked(
+    options,
+    runner,
+    now,
+    request,
+    onProgress,
+  ).finally(() => {
     if (artifactLocks.get(lockKey) === pending) {
       artifactLocks.delete(lockKey);
     }
@@ -429,6 +367,10 @@ async function ensureRemoteArtifact(
   return pending;
 }
 
+/**
+ * Runs one ensure() pass without the dedupe lock. Reads the remote manifest,
+ * compares sha256, installs if needed, updates the manifest, then prunes.
+ */
 async function ensureRemoteArtifactUnlocked(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -436,12 +378,12 @@ async function ensureRemoteArtifactUnlocked(
   request: ArtifactInstallRequest,
   onProgress?: (event: LspBootstrapProgressEvent) => void,
 ): Promise<ArtifactEnsureResult> {
-  emitProgress(onProgress, { name: request.progressName, phase: "checking" });
+  onProgress?.({ name: request.progressName, phase: "checking" });
   const currentManifest = await readRemoteManifest(options, runner);
   const cached = currentManifest.artifacts[request.key];
   if (cached?.sha256 === request.record.sha256) {
-    emitProgress(onProgress, { name: request.progressName, phase: "skipped" });
-    emitProgress(onProgress, { name: request.progressName, phase: "ready" });
+    onProgress?.({ name: request.progressName, phase: "skipped" });
+    onProgress?.({ name: request.progressName, phase: "ready" });
     return { uploaded: false };
   }
 
@@ -452,12 +394,13 @@ async function ensureRemoteArtifactUnlocked(
     installedAt: now().toISOString(),
   };
   await writeRemoteManifest(options, runner, nextManifest);
-  emitProgress(onProgress, { name: request.progressName, phase: "pruning" });
+  onProgress?.({ name: request.progressName, phase: "pruning" });
   await request.prune();
-  emitProgress(onProgress, { name: request.progressName, phase: "ready" });
+  onProgress?.({ name: request.progressName, phase: "ready" });
   return { uploaded: true };
 }
 
+/** Uploads the Node runtime archive and extracts it into its versioned dir. */
 async function ensureRemoteNodeRuntime(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -496,8 +439,9 @@ async function ensureRemoteNodeRuntime(
           executable: false,
           onProgress,
           progressName: `node-${platform.os}-${platform.arch}`,
+          remoteAgentRoot: REMOTE_AGENT_ROOT,
         });
-        emitProgress(onProgress, {
+        onProgress?.({
           name: `node-${platform.os}-${platform.arch}`,
           phase: "extracting",
         });
@@ -518,6 +462,7 @@ async function ensureRemoteNodeRuntime(
   );
 }
 
+/** Uploads an LSP archive and extracts it into its versioned dir. */
 async function ensureRemoteLspArchive(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -553,8 +498,9 @@ async function ensureRemoteLspArchive(
           executable: false,
           onProgress,
           progressName: lsp.name,
+          remoteAgentRoot: REMOTE_AGENT_ROOT,
         });
-        emitProgress(onProgress, { name: lsp.name, phase: "extracting" });
+        onProgress?.({ name: lsp.name, phase: "extracting" });
         await runSsh(
           options,
           runner,
@@ -567,90 +513,7 @@ async function ensureRemoteLspArchive(
   );
 }
 
-async function uploadAndVerifyFile(args: {
-  readonly options: EnsureRemoteAgentOptions;
-  readonly runner: SshBootstrapRunner;
-  readonly localPath: string;
-  readonly remotePath: string;
-  readonly sha256: string;
-  readonly executable: boolean;
-  readonly progressName?: string;
-  readonly onProgress?: (event: LspBootstrapProgressEvent) => void;
-}): Promise<void> {
-  const remoteDir = path.posix.dirname(args.remotePath);
-  await runSsh(
-    args.options,
-    args.runner,
-    `mkdir -p ${quoteShellArg(remoteDir)} && chmod 755 ${REMOTE_AGENT_ROOT} ${quoteShellArg(remoteDir)}`,
-  );
-  const payload = await fs.readFile(args.localPath);
-  if (sha256(payload) !== args.sha256) {
-    throw createSshError("server.protocol-error", new Error("local artifact sha256 mismatch"));
-  }
-
-  const progressName = args.progressName ?? path.basename(args.remotePath);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    emitProgress(args.onProgress, {
-      name: progressName,
-      phase: "uploading",
-      bytesDone: 0,
-      bytesTotal: payload.byteLength,
-    });
-    await uploadFile(args.options, args.runner, args.localPath, args.remotePath, payload, {
-      executable: args.executable,
-    });
-    emitProgress(args.onProgress, {
-      name: progressName,
-      phase: "uploading",
-      bytesDone: payload.byteLength,
-      bytesTotal: payload.byteLength,
-    });
-    emitProgress(args.onProgress, { name: progressName, phase: "verifying" });
-    const remoteSha = await remoteSha256(args.options, args.runner, args.remotePath);
-    if (remoteSha === args.sha256) return;
-  }
-  throw createSshError("server.protocol-error", new Error("remote artifact sha256 mismatch"));
-}
-
-async function uploadFile(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-  localPath: string,
-  remotePath: string,
-  payload: Buffer,
-  opts: { readonly executable: boolean },
-): Promise<void> {
-  const chmod = opts.executable ? `chmod 755 ${sftpRemotePath(remotePath)}\n` : "";
-  try {
-    await runner(
-      "sftp",
-      buildSftpArgs(options),
-      `put ${localPath} ${sftpRemotePath(remotePath)}\n${chmod}`,
-    );
-  } catch {
-    const mode = opts.executable ? "755" : "644";
-    await runSsh(
-      options,
-      runner,
-      `cat > ${quoteShellArg(remotePath)} && chmod ${mode} ${quoteShellArg(remotePath)}`,
-      payload,
-    );
-  }
-}
-
-async function remoteSha256(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-  remotePath: string,
-): Promise<string> {
-  const result = await runSsh(
-    options,
-    runner,
-    `if command -v sha256sum >/dev/null 2>&1; then sha256sum ${quoteShellArg(remotePath)} | cut -d' ' -f1; else shasum -a 256 ${quoteShellArg(remotePath)} | cut -d' ' -f1; fi`,
-  );
-  return result.stdout.trim();
-}
-
+/** Writes a bash launcher that execs node with the LSP entry path. */
 async function writeRemoteLspLauncher(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -673,139 +536,4 @@ async function writeRemoteLspLauncher(
     `mkdir -p ${quoteShellArg(launcherDir)} && cat > ${quoteShellArg(args.launcherPath)} && chmod 755 ${quoteShellArg(args.launcherPath)}`,
     launcher,
   );
-}
-
-async function pruneRemoteVersions(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-  pattern: string,
-): Promise<void> {
-  await runSsh(
-    options,
-    runner,
-    `index=0; for item in $(ls -1dt ${pattern} 2>/dev/null); do index=$((index + 1)); if [ "$index" -gt ${KEEP_REMOTE_VERSIONS} ]; then rm -rf "$item"; fi; done`,
-  );
-}
-
-async function runSsh(
-  options: EnsureRemoteAgentOptions,
-  runner: SshBootstrapRunner,
-  remoteCommand: string,
-  input?: Buffer | string,
-): Promise<SshBootstrapRunnerResult> {
-  return runner(
-    "ssh",
-    [...buildSshTransportArgs(options), "--", destinationForOptions(options), remoteCommand],
-    input,
-  );
-}
-
-function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
-  const args: string[] = [];
-  if (options.port !== undefined) args.push("-P", String(options.port));
-  if (options.identityFile) args.push("-i", options.identityFile);
-  if (options.controlPath) args.push("-o", `ControlPath=${options.controlPath}`);
-  args.push(destinationForOptions(options));
-  return args;
-}
-
-function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string[] {
-  const args = ["-o", "BatchMode=yes"];
-  if (options.controlPath) args.push("-S", options.controlPath, "-o", "ControlMaster=no");
-  if (options.port !== undefined) args.push("-p", String(options.port));
-  if (options.identityFile) args.push("-i", options.identityFile);
-  return args;
-}
-
-function destinationForOptions(options: EnsureRemoteAgentOptions): string {
-  return options.user ? `${options.user}@${options.host}` : options.host;
-}
-
-function sha256(payload: Buffer): string {
-  return createHash("sha256").update(payload).digest("hex");
-}
-
-function agentArtifactKey(platform: RemoteAgentPlatform): string {
-  return `agent:${platform.os}:${platform.arch}`;
-}
-
-function nodeArtifactKey(platform: RemoteAgentPlatform): string {
-  return `node:${platform.os}:${platform.arch}`;
-}
-
-function lspArtifactKey(name: string): string {
-  return `lsp:${name}`;
-}
-
-function artifactLockKey(options: EnsureRemoteAgentOptions, key: string, sha: string): string {
-  return [
-    destinationForOptions(options),
-    options.port ?? "",
-    options.identityFile ?? "",
-    options.controlPath ?? "",
-    key,
-    sha,
-  ].join("|");
-}
-
-function remoteNodeRuntimeDir(
-  node: NodeRuntimeManifestEntry,
-  platform: RemoteAgentPlatform,
-): string {
-  return `${REMOTE_AGENT_ROOT}/runtime/node-${node.version}-${platform.os}-${platform.arch}`;
-}
-
-function remoteLspBinaryDir(lsp: LspBinaryManifestEntry): string {
-  return `${REMOTE_AGENT_ROOT}/lsp/${lsp.name}-${lsp.version}`;
-}
-
-function absoluteRemotePath(remoteHome: string, remotePath: string): string {
-  if (remotePath.startsWith("~/")) return `${remoteHome}/${remotePath.slice(2)}`;
-  return remotePath;
-}
-
-function emitProgress(
-  onProgress: ((event: LspBootstrapProgressEvent) => void) | undefined,
-  event: LspBootstrapProgressEvent,
-): void {
-  onProgress?.(event);
-}
-
-function quoteShellArg(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,./~*-]+$/.test(value)) return value;
-  return singleQuoteShellArg(value);
-}
-
-function sftpRemotePath(value: string): string {
-  return value.startsWith("~/") ? value.slice(2) : value;
-}
-
-function singleQuoteShellArg(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-async function defaultRunner(
-  command: string,
-  args: string[],
-  input?: Buffer | string,
-): Promise<SshBootstrapRunnerResult> {
-  return new Promise((resolve, reject) => {
-    const child = defaultSpawn(command, args, {
-      detached: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    } satisfies SpawnOptionsWithoutStdio);
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      const out = Buffer.concat(stdout).toString("utf8");
-      const err = Buffer.concat(stderr).toString("utf8");
-      if (code === 0) resolve({ stdout: out, stderr: err });
-      else reject(createSshError("ssh.unknown", new Error(err || `${command} exited ${code}`)));
-    });
-    if (input !== undefined) child.stdin.end(input);
-    else child.stdin.end();
-  });
 }
