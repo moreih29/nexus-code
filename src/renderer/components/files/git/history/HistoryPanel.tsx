@@ -455,7 +455,12 @@ async function loadLogPage({
   onComplete: (hasMore: boolean) => void;
   onError: (message: string) => void;
 }): Promise<void> {
+  // Per-load dedup. A single page must never contain the same sha twice —
+  // any duplicate received from a chunk is dropped before being accumulated
+  // or forwarded so React's reconciler never sees duplicate keys.
   const entries: LogEntry[] = [];
+  const seenShas = new Set<string>();
+  let chunkSeq = 0;
   try {
     const trimmedGrep = grep?.trim();
     const handle = ipcStream(
@@ -473,8 +478,31 @@ async function loadLogPage({
     );
     handle.onProgress((chunk) => {
       if (signal?.aborted) return;
-      entries.push(...chunk.entries);
-      onChunk([...entries], chunk.entries);
+      chunkSeq += 1;
+      const incoming = chunk.entries.length;
+      const uniqueChunk: LogEntry[] = [];
+      let duplicatesInPage = 0;
+      let duplicatesInChunk = 0;
+      const chunkSeen = new Set<string>();
+      for (const entry of chunk.entries) {
+        if (chunkSeen.has(entry.sha)) {
+          duplicatesInChunk += 1;
+          continue;
+        }
+        chunkSeen.add(entry.sha);
+        if (seenShas.has(entry.sha)) {
+          duplicatesInPage += 1;
+          continue;
+        }
+        seenShas.add(entry.sha);
+        uniqueChunk.push(entry);
+      }
+      console.warn(
+        `[history] loadLogPage chunk#${chunkSeq} ws=${workspaceId} scope=${scope} ref=${refName ?? "-"} afterSha=${afterSha ?? "-"} incoming=${incoming} dupInChunk=${duplicatesInChunk} dupAcrossPage=${duplicatesInPage} unique=${uniqueChunk.length} totalUniqueSoFar=${entries.length + uniqueChunk.length}`,
+      );
+      if (uniqueChunk.length === 0) return;
+      entries.push(...uniqueChunk);
+      onChunk([...entries], uniqueChunk);
     });
     const complete = await handle.promise;
     if (signal?.aborted) return;
