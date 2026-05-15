@@ -42,7 +42,16 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
   async call(method: string, args: unknown): Promise<unknown> {
     if (this.disposed) {
-      throw new Error("PTY agent host disposed");
+      // Shutdown race: the renderer's xterm ResizeObserver (and similar
+      // fire-and-forget paths) can still dispatch pty IPC after dispose()
+      // runs during before-quit. The renderer already ignores rejections for
+      // write/resize/kill/ack, so silently no-op those to avoid noisy
+      // "Error occurred in handler for 'ipc:call'" logs at shutdown. spawn
+      // returns a typed { pid } that callers depend on, so keep its throw.
+      if (method === "spawn") {
+        throw new Error("PTY agent host disposed");
+      }
+      return undefined;
     }
 
     const { workspaceId, tabId } = workspaceTabFromArgs(args, method);
