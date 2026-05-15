@@ -900,12 +900,19 @@ export class AgentGitExecutor implements GitExecutor {
     throwIfAborted(signal);
 
     const queue = new AsyncQueue<TChunk>();
-    // DIAGNOSTIC: count parseEvent matches per stream so we can tell whether
-    // the upstream "git.log.batch" amplification (~35× observed) happens at
-    // the agent event-dispatch layer (one onAgentEvent invocation per
-    // backend frame) or further down. Logs to main process stderr.
+    // DIAGNOSTIC: instance id distinguishes separate streamAgentEvents bodies
+    // from the same closure variables being shared across multiple listener
+    // registrations. Sequential match counters with the same instance id
+    // mean ONE closure scope is registering its listener multiple times;
+    // independent counters per instance mean each was created cleanly.
+    const instanceId = Math.random().toString(36).slice(2, 8);
     let matchCount = 0;
     let totalCallbackInvocations = 0;
+    if (eventName === "git.log.batch") {
+      console.warn(
+        `[main-stream-event] body-start instance=${instanceId} streamId=${streamId}`,
+      );
+    }
     const unsubscribe = provider.onAgentEvent(eventName, (payload) => {
       totalCallbackInvocations += 1;
       const chunk = parseEvent(payload);
@@ -913,7 +920,7 @@ export class AgentGitExecutor implements GitExecutor {
         matchCount += 1;
         if (eventName === "git.log.batch") {
           console.warn(
-            `[main-stream-event] eventName=${eventName} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
+            `[main-stream-event] instance=${instanceId} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
           );
         }
         queue.push(chunk);
