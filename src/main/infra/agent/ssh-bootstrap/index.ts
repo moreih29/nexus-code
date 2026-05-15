@@ -20,13 +20,13 @@ import {
   findNodeRuntime,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
-} from "../../../shared/agent-manifest";
+} from "../../../../shared/agent-manifest";
 import {
   authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,
   type SshAuthPromptHandler,
-} from "./ssh-auth-pty";
-import { createSshError } from "./pipe";
+} from "../ssh-auth-pty";
+import { createSshError } from "../pipe";
 import {
   absoluteRemotePath,
   agentArtifactKey,
@@ -40,14 +40,14 @@ import {
   remoteLspBinaryDir,
   remoteNodeRuntimeDir,
   writeRemoteManifest,
-} from "./ssh-bootstrap/manifest";
+} from "./manifest";
 import {
   defaultRunner,
   quoteShellArg,
   runSsh,
   singleQuoteShellArg,
   uploadAndVerifyFile,
-} from "./ssh-bootstrap/transport";
+} from "./transport";
 import {
   LOCAL_AGENT_DIST_DIR,
   LSP_BOOTSTRAP_PROGRESS_EVENT,
@@ -65,7 +65,7 @@ import {
   type SshBootstrapDependencies,
   type SshBootstrapRunner,
   type SshBootstrapRunnerResult,
-} from "./ssh-bootstrap/types";
+} from "./types";
 
 // Re-export the stable public surface so existing callers keep their import
 // paths (`"./ssh-bootstrap"`) unchanged.

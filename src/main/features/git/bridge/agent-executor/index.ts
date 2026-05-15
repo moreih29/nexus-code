@@ -123,7 +123,7 @@ import {
   AgentGitDetectResultSchema,
   GIT_INFO_METHOD,
   GIT_DETECT_METHOD,
-} from "../../../../shared/protocol/agent/git";
+} from "../../../../../shared/protocol/agent/git";
 import type {
   CommitDetail,
   DiffChunk,
@@ -151,15 +151,15 @@ import type {
   RepoInfo,
   StashEntry,
   Tag,
-} from "../../../../shared/types/git";
-import { GitError, gitErrorFromAgent } from "../domain/error";
+} from "../../../../../shared/types/git";
+import { GitError, gitErrorFromAgent } from "../../domain/error";
 import {
   AsyncQueue,
   createAbortError,
   normalizeAgentGitError,
   throwIfAborted,
-} from "./agent-executor/queue";
-import type { GitHelpersIpcManager } from "../domain/helpers/ipc";
+} from "./queue";
+import type { GitHelpersIpcManager } from "../../domain/helpers/ipc";
 import type {
   GitBlobOptions,
   GitBranchCreateOptions,
@@ -200,9 +200,9 @@ import type {
   GitDetectOptions,
   RunGitOptions,
   RunGitResult,
-} from "./types";
-import { parseAgentResult } from "../../fs/bridge/agent-provider";
-import type { AgentBackedProvider } from "../../fs/bridge/provider";
+} from "../types";
+import { parseAgentResult } from "../../../fs/bridge/agent-provider";
+import type { AgentBackedProvider } from "../../../fs/bridge/provider";
 
 type ProviderSource = AgentBackedProvider | (() => AgentBackedProvider);
 

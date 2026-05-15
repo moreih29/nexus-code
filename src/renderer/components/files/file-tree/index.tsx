@@ -8,19 +8,19 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useContextMenuHandoff } from "@/components/ui/use-context-menu-handoff";
-import { useDelayedLoading } from "../../hooks/use-delayed-loading";
-import { openOrRevealEditor } from "../../services/editor";
-import { ensureRoot, toggleExpand } from "../../state/operations/files";
-import { selectFlat, useFilesStore } from "../../state/stores/files";
-import { getDisplayFlat } from "./file-tree/file-tree-display";
-import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree/file-tree-metrics";
-import { FileTreeStatusView } from "./file-tree/file-tree-status-view";
-import { FileTreeVirtualBody } from "./file-tree/file-tree-virtual-body";
-import { buildFileTreeMenuItems } from "./file-tree-menu";
-import { type FileTreeActionTarget, useFileTreeActions } from "./hooks/use-file-tree-actions";
-import { useFileTreePendingCreate } from "./hooks/use-file-tree-pending-create";
-import { useFileTreePendingRename } from "./hooks/use-file-tree-pending-rename";
-import { createFileTreeKeydownHandler } from "./keys";
+import { useDelayedLoading } from "../../../hooks/use-delayed-loading";
+import { openOrRevealEditor } from "../../../services/editor";
+import { ensureRoot, toggleExpand } from "../../../state/operations/files";
+import { selectFlat, useFilesStore } from "../../../state/stores/files";
+import { getDisplayFlat } from "./file-tree-display";
+import { LOADING_FLASH_DELAY_MS, ROW_HEIGHT_PX } from "./file-tree-metrics";
+import { FileTreeStatusView } from "./file-tree-status-view";
+import { FileTreeVirtualBody } from "./file-tree-virtual-body";
+import { buildFileTreeMenuItems } from "../file-tree-menu";
+import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
+import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
+import { useFileTreePendingRename } from "../hooks/use-file-tree-pending-rename";
+import { createFileTreeKeydownHandler } from "../keys";
 
 interface FileTreeProps {
   workspaceId: string;
