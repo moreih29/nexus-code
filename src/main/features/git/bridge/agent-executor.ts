@@ -900,39 +900,26 @@ export class AgentGitExecutor implements GitExecutor {
     throwIfAborted(signal);
 
     const queue = new AsyncQueue<TChunk>();
-    const instanceId = Math.random().toString(36).slice(2, 8);
-    let matchCount = 0;
-    let totalCallbackInvocations = 0;
-    if (eventName === "git.log.batch") {
-      console.warn(
-        `[main-stream-event] body-start instance=${instanceId} streamId=${streamId}`,
-      );
-    }
-    // DIAGNOSTIC: assign a stable callback id so we can tell if the SAME
-    // function reference is being invoked N times (Set bug / iterator bug)
-    // versus DIFFERENT callback refs sharing the same closure scope (hidden
-    // duplicate registration). Logs each registration call and includes the
-    // callback id in every invocation log.
-    const callbackId = Math.random().toString(36).slice(2, 8);
-    const callback = (payload: unknown) => {
-      totalCallbackInvocations += 1;
+    const unsubscribe = provider.onAgentEvent(eventName, (payload) => {
       const chunk = parseEvent(payload);
-      if (chunk) {
-        matchCount += 1;
-        if (eventName === "git.log.batch") {
-          console.warn(
-            `[main-stream-event] instance=${instanceId} cbId=${callbackId} streamId=${streamId} match=${matchCount} totalCallback=${totalCallbackInvocations} method=${methodName}`,
-          );
-        }
-        queue.push(chunk);
-      }
+      if (chunk) queue.push(chunk);
+    });
+    // Idempotent teardown — runs on EITHER abort or the generator's normal
+    // finally, whichever fires first. Without this gate, an aborted stream
+    // whose generator never gets .return()'d by the consumer leaves its
+    // onAgentEvent listener attached to the workspace channel, accumulating
+    // listeners across workspace switches / auto-refresh cycles and turning
+    // every subsequent batch emit into an N-fold fan-out.
+    let tornDown = false;
+    const tearDown = (): void => {
+      if (tornDown) return;
+      tornDown = true;
+      signal?.removeEventListener("abort", abort);
+      unsubscribe();
+      void provider
+        .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId }))
+        .catch(() => {});
     };
-    if (eventName === "git.log.batch") {
-      console.warn(
-        `[main-stream-event] register-listener instance=${instanceId} cbId=${callbackId}`,
-      );
-    }
-    const unsubscribe = provider.onAgentEvent(eventName, callback);
     const complete = provider
       .callAgentMethod(methodName, params)
       .then(parseComplete)
@@ -942,9 +929,11 @@ export class AgentGitExecutor implements GitExecutor {
     complete.catch(() => {});
 
     const abort = (): void => {
-      const cancelParams = AgentGitCancelParamsSchema.parse({ streamId });
-      void provider.callAgentMethod(GIT_CANCEL_METHOD, cancelParams).catch(() => {});
+      // Cancel the in-flight RPC first so the agent can stop work, then
+      // tear down the listener so a stream the consumer never resumes does
+      // not leak its subscription.
       queue.fail(createAbortError());
+      tearDown();
     };
     signal?.addEventListener("abort", abort, { once: true });
 
@@ -955,11 +944,7 @@ export class AgentGitExecutor implements GitExecutor {
         yield next.value;
       }
     } finally {
-      signal?.removeEventListener("abort", abort);
-      unsubscribe();
-      void provider
-        .callAgentMethod(GIT_CANCEL_METHOD, AgentGitCancelParamsSchema.parse({ streamId }))
-        .catch(() => {});
+      tearDown();
     }
   }
 

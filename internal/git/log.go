@@ -5,19 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"os"
 	"strings"
-	"sync/atomic"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
-
-// DIAGNOSTIC: process-wide counter so every emitLogBatch invocation can be
-// timestamped and ordered across concurrent streams. Logs to stderr (NEVER
-// stdout — the agent's stdout IS the NDJSON channel).
-var emitLogBatchSeq int64
 
 // LogBatchSize mirrors LOG_CHUNK_ENTRY_COUNT in src/shared/types/git.ts.
 const LogBatchSize = 50
@@ -332,20 +324,6 @@ func (s *Service) emitLogBatch(streamID string, entries []LogEntry) error {
 	if sink == nil {
 		return nil
 	}
-	seq := atomic.AddInt64(&emitLogBatchSeq, 1)
-	firstSha := ""
-	lastSha := ""
-	if len(entries) > 0 {
-		firstSha = entries[0].SHA
-		if n := len(firstSha); n > 7 {
-			firstSha = firstSha[:7]
-		}
-		lastSha = entries[len(entries)-1].SHA
-		if n := len(lastSha); n > 7 {
-			lastSha = lastSha[:7]
-		}
-	}
-	fmt.Fprintf(os.Stderr, "[agent-log-emit] #%d streamId=%s entries=%d first=%s last=%s\n", seq, streamID, len(entries), firstSha, lastSha)
 	return sink("git.log.batch", LogBatchPayload{StreamID: streamID, Entries: entries})
 }
 

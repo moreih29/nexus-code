@@ -77,10 +77,6 @@ export interface NdjsonPipe {
   notifyClose(): { wasReady: boolean };
 }
 
-// DIAGNOSTIC: module-scoped sequence counter so the per-emit log line is
-// unique even when DevTools collapses identical-looking consecutive entries.
-let pipeEmitGitLogBatchSeq = 0;
-
 /**
  * Creates the NDJSON request/response/event state machine over a stdio triple.
  * Owns frame parsing, pending-request matching, and stderr classification —
@@ -193,15 +189,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     const code = deps.classifyStderr(line);
     if (code) {
       selfFail(createSshError(code));
-      return;
-    }
-    // DIAGNOSTIC: forward unclassified agent stderr to the main process
-    // console so the agent's own diagnostic prefixes (e.g. [agent-log-emit])
-    // are visible during reproduction. Lines longer than a sane bound are
-    // truncated to keep one bad goroutine from flooding the console.
-    if (line.startsWith("[agent-")) {
-      const preview = line.length > 256 ? `${line.slice(0, 256)}…` : line;
-      console.warn(`[agent-stderr] ${preview}`);
     }
   }
 
@@ -220,17 +207,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
-    // DIAGNOSTIC: per-emit sequence number + payload streamId so DevTools'
-    // identical-line coalescing cannot hide a repeated fire pattern, and
-    // we can match agent-log-emit #N against pipe-emit-event #N exactly.
-    if (event === "git.log.batch") {
-      const emitSeq = ++pipeEmitGitLogBatchSeq;
-      const payloadStreamId =
-        (payload as { streamId?: unknown })?.streamId ?? "?";
-      console.warn(
-        `[pipe-emit-event] #${emitSeq} event=${event} listenerCount=${callbacks.size} payloadStreamId=${String(payloadStreamId)}`,
-      );
-    }
     for (const callback of Array.from(callbacks)) {
       callback(payload);
     }
@@ -292,14 +268,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         callbacks = new Set<NdjsonEventCallback>();
         listeners.set(event, callbacks);
       }
-      const sizeBefore = callbacks.size;
       callbacks.add(callback);
-      const sizeAfter = callbacks.size;
-      if (event === "git.log.batch") {
-        console.warn(
-          `[pipe-on] event=${event} sizeBefore=${sizeBefore} sizeAfter=${sizeAfter} grew=${sizeAfter !== sizeBefore} alreadyHadRef=${sizeAfter === sizeBefore}`,
-        );
-      }
       return () => {
         const current = listeners.get(event);
         if (!current) return;
