@@ -20,13 +20,13 @@ import {
   findNodeRuntime,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
-} from "../../../../shared/agent-manifest";
+} from "../../../../../shared/agent-manifest";
 import {
   authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,
   type SshAuthPromptHandler,
 } from "../ssh-auth-pty";
-import { createSshError } from "../pipe";
+import { createSshError } from "../../pipe";
 import {
   absoluteRemotePath,
   agentArtifactKey,

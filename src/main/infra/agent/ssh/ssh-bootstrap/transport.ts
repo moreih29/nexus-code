@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { type SpawnOptionsWithoutStdio, spawn as defaultSpawn } from "node:child_process";
-import { createSshError } from "../pipe";
+import { createSshError } from "../../pipe";
 import type {
   EnsureRemoteAgentOptions,
   LspBootstrapProgressEvent,

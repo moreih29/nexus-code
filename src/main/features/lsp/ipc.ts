@@ -14,7 +14,7 @@ import type {
   SymbolInformation,
 } from "../../../shared/lsp";
 import { PendingRequestMap } from "../../../shared/pending-request-map";
-import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh-bootstrap";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import type { LspHostHandle } from "./host";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc/router";
 

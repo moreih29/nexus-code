@@ -11,7 +11,7 @@ import {
   WriteFileResultSchema,
 } from "../../../../shared/types/fs";
 import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
-import type { AgentChannel } from "../../../infra/agent/channel";
+import type { AgentChannel } from "../../../infra/agent/channel/channel";
 import type { AgentBackedProvider } from "./provider";
 
 type ChannelSource = AgentChannel | (() => AgentChannel);

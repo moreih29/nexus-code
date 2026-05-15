@@ -6,7 +6,7 @@
 
 import { type ServerCapabilities, TextDocumentSyncKind } from "../../../shared/lsp";
 import type { TextDocumentContentChangeEvent } from "../../../shared/lsp";
-import type { AgentChannel } from "../../infra/agent/channel";
+import type { AgentChannel } from "../../infra/agent/channel/channel";
 import type { LspHostCallOptions } from "./host";
 import {
   capabilityValueIsSupported,

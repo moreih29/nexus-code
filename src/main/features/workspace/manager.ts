@@ -7,7 +7,7 @@ import {
   WorkspaceLocationSchema,
   type WorkspaceMeta,
 } from "../../../shared/types/workspace";
-import type { AgentChannel } from "../../infra/agent/channel";
+import type { AgentChannel } from "../../infra/agent/channel/channel";
 import {
   type LocalAgentCommand,
   resolveLocalAgentCommand,
@@ -15,7 +15,7 @@ import {
 import {
   type CreateLocalChannelOptions,
   createLocalChannel,
-} from "../../infra/agent/local-channel";
+} from "../../infra/agent/channel/local-channel";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -27,7 +27,7 @@ import {
   createSshChannel,
   type SshChannel,
   type SshChannelLifecycleEvent,
-} from "../../infra/agent/ssh-channel";
+} from "../../infra/agent/ssh/ssh-channel";
 import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
@@ -37,7 +37,7 @@ import {
   ensureRemoteAgent,
   ensureRemoteLspServer as defaultEnsureRemoteLspServer,
   type SshBootstrapDependencies,
-} from "../../infra/agent/ssh-bootstrap";
+} from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { WorkspaceContext } from "./context";
 
 // ---------------------------------------------------------------------------

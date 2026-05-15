@@ -20,18 +20,18 @@ import {
   SymbolInformationSchema,
 } from "../../../shared/lsp";
 import { AgentManifestSchema, findLspBinary } from "../../../shared/agent-manifest";
-import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh-bootstrap";
+import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
   type LspServerSpec,
   resolveLspPreset,
   resolveLspPresetLanguageId,
 } from "../../../shared/lsp-config";
 import { LSP_DEFAULT_IDLE_MS } from "../../../shared/timing-constants";
-import type { AgentChannel } from "../../infra/agent/channel";
+import type { AgentChannel } from "../../infra/agent/channel/channel";
 import {
   LSP_BOOTSTRAP_PROGRESS_EVENT,
   type LspBootstrapProgressEvent,
-} from "../../infra/agent/ssh-bootstrap";
+} from "../../infra/agent/ssh/ssh-bootstrap/index";
 import type { LspHostCallOptions, LspHostHandle } from "./host";
 import { AgentLspServer } from "./agent-lsp-server";
 import { DiagnosticsDebouncer } from "./diagnostics-debouncer";

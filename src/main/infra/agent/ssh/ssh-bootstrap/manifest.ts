@@ -8,8 +8,8 @@ import {
   AgentArtifactPlatformSchema,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
-} from "../../../../shared/agent-manifest";
-import { createSshError } from "../pipe";
+} from "../../../../../shared/agent-manifest";
+import { createSshError } from "../../pipe";
 import { runSsh, quoteShellArg } from "./transport";
 import {
   KEEP_REMOTE_VERSIONS,

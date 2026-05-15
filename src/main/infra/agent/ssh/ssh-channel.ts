@@ -3,20 +3,20 @@ import type {
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
-} from "./channel";
-import { ChannelEventRegistry } from "./channel-event-registry";
-import { createDisposedError, createSshError } from "./pipe";
+} from "../channel/channel";
+import { ChannelEventRegistry } from "../channel/channel-event-registry";
+import { createDisposedError, createSshError } from "../pipe";
 import {
   type AgentReconnectOptions,
   createReconnectingProcessChannel,
-} from "./reconnecting-process-channel";
+} from "../channel/reconnecting-process-channel";
 import { classifyAuthLine } from "./ssh-auth";
 import {
   type AuthenticateSshControlMasterDependencies,
   authenticateSshControlMaster,
   type SshAuthPromptHandler,
 } from "./ssh-auth-pty";
-import { REMOTE_AGENT_PROTOCOL_MAJOR } from "./ssh-bootstrap";
+import { REMOTE_AGENT_PROTOCOL_MAJOR } from "./ssh-bootstrap/index";
 import { type SpawnSshProcess, type SshMasterOptions, spawnSshMaster } from "./ssh-master";
 
 /**

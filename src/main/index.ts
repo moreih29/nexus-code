@@ -1,14 +1,14 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
-import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh-auth-prompt";
-import { createLocalChannel } from "./infra/agent/local-channel";
+import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/ssh-auth-prompt";
+import { createLocalChannel } from "./infra/agent/channel/local-channel";
 import {
   NEXUS_AGENT_MODE_ENV,
   resolveLocalAgentCommand,
 } from "./infra/agent/local-agent-resolver";
-import { ensureRemoteAgent } from "./infra/agent/ssh-bootstrap";
-import { createSshChannel } from "./infra/agent/ssh-channel";
+import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
+import { createSshChannel } from "./infra/agent/ssh/ssh-channel";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { registerFsChannel } from "./features/fs/ipc";
 import { AgentFsProvider } from "./features/fs/bridge/agent-provider";

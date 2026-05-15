@@ -4,12 +4,12 @@ import {
   type EnsureRemoteAgentOptions,
   type EnsureRemoteAgentResult,
   ensureRemoteAgent,
-} from "../../infra/agent/ssh-bootstrap";
+} from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
-} from "../../infra/agent/ssh-channel";
+} from "../../infra/agent/ssh/ssh-channel";
 import type { WorkspaceManager } from "./manager";
 import { type CallContext, register, validateArgs } from "../../infra/ipc/router";
 

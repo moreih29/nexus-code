@@ -6,8 +6,8 @@ import type {
   ChannelLifecycleEvent,
 } from "./channel";
 import { ChannelEventRegistry } from "./channel-event-registry";
-import type { StderrClassifier } from "./pipe";
-import { createNdjsonPipe, type NdjsonPipe, type SshError } from "./pipe";
+import type { StderrClassifier } from "../pipe";
+import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
 
 const DISPOSE_KILL_GRACE_MS = 100;
 const DEFAULT_MAX_PENDING_RECONNECT_CALLS = 32;

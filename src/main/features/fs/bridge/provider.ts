@@ -5,7 +5,7 @@ import type {
   FsStat,
   WriteFileResult,
 } from "../../../../shared/types/fs";
-import type { ChannelEventCallback } from "../../../infra/agent/channel";
+import type { ChannelEventCallback } from "../../../infra/agent/channel/channel";
 
 /**
  * Filesystem provider bound to one workspace-scoped agent.
