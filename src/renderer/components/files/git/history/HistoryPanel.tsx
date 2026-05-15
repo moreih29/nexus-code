@@ -3,7 +3,7 @@
  * one workspace while commit details open in editor-area tabs.
  */
 import type React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CommitDetail,
   CommitSearchResult,
@@ -68,6 +68,19 @@ export function HistoryPanel({
     errorMessage: null,
   });
   const [laneState, setLaneState] = useState(() => initialLaneState());
+  // Monotonic load token. Every new first-page / search / load-more run
+  // increments the counter; the in-flight callbacks only commit state when
+  // their captured token still matches. This blocks chunks from a load that
+  // was logically superseded (e.g. workspace switch or rapid refresh) from
+  // appending to a fresh entries list and producing a duplicated history.
+  const loadTokenRef = useRef(0);
+  const nextLoadToken = useCallback((): number => {
+    loadTokenRef.current += 1;
+    return loadTokenRef.current;
+  }, []);
+  const isCurrentLoad = useCallback((token: number): boolean => {
+    return loadTokenRef.current === token;
+  }, []);
 
   const resetLaneState = useCallback(() => {
     setLaneState(initialLaneState());
@@ -89,6 +102,7 @@ export function HistoryPanel({
 
   const loadFirstPage = useCallback(
     (signal?: AbortSignal) => {
+      const token = nextLoadToken();
       setBanner(null);
       setSelectedSha(null);
       resetLaneState();
@@ -105,6 +119,7 @@ export function HistoryPanel({
         scope: historyScope,
         signal,
         onChunk: (entries, chunk) => {
+          if (!isCurrentLoad(token)) return;
           appendLaneChunk(chunk);
           setLoadState((state) => ({
             ...state,
@@ -115,9 +130,11 @@ export function HistoryPanel({
           setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
         },
         onComplete: (hasMore) => {
+          if (!isCurrentLoad(token)) return;
           setLoadState((state) => ({ ...state, loading: false, hasMore }));
         },
         onError: (message) => {
+          if (!isCurrentLoad(token)) return;
           setLoadState({
             entries: [],
             hasMore: false,
@@ -128,7 +145,15 @@ export function HistoryPanel({
         },
       });
     },
-    [appendLaneChunk, historyScope, refName, resetLaneState, workspaceId],
+    [
+      appendLaneChunk,
+      historyScope,
+      isCurrentLoad,
+      nextLoadToken,
+      refName,
+      resetLaneState,
+      workspaceId,
+    ],
   );
 
   useEffect(() => {
@@ -136,6 +161,7 @@ export function HistoryPanel({
     const refreshToken = searchNonce;
     if (trimmed.length > 0) {
       const controller = new AbortController();
+      const token = nextLoadToken();
       resetLaneState();
       setLoadState({
         entries: [],
@@ -155,12 +181,12 @@ export function HistoryPanel({
           },
         )
           .then((result) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || !isCurrentLoad(token)) return;
             const graphEntries = applySearchResult(result, setLoadState, setSelectedSha);
             setLaneState(reduceLanes(initialLaneState(), graphEntries));
           })
           .catch((error) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || !isCurrentLoad(token)) return;
             const message =
               gitErrorKind(error) === "ref-not-found" ? null : messageFromError(error);
             setLoadState({
@@ -179,6 +205,7 @@ export function HistoryPanel({
           grep: trimmed,
           signal: controller.signal,
           onChunk: (entries, chunk) => {
+            if (!isCurrentLoad(token)) return;
             appendLaneChunk(chunk);
             setLoadState((state) => ({
               ...state,
@@ -189,9 +216,11 @@ export function HistoryPanel({
             setSelectedSha((current) => current ?? entries[0]?.sha ?? null);
           },
           onComplete: (hasMore) => {
+            if (!isCurrentLoad(token)) return;
             setLoadState((state) => ({ ...state, loading: false, hasMore }));
           },
           onError: (message) => {
+            if (!isCurrentLoad(token)) return;
             setLoadState({
               entries: [],
               hasMore: false,
@@ -214,7 +243,9 @@ export function HistoryPanel({
     appendLaneChunk,
     debouncedQuery,
     historyScope,
+    isCurrentLoad,
     loadFirstPage,
+    nextLoadToken,
     refName,
     resetLaneState,
     searchNonce,
@@ -226,6 +257,10 @@ export function HistoryPanel({
     const lastSha = loadState.entries.at(-1)?.sha;
     if (!lastSha || loadState.loadingMore) return;
     const laneSeenShas = new Set(loadState.entries.map((entry) => entry.sha));
+    // load-more shares the load token space with first-page loads so a
+    // workspace switch or refresh invalidates any pagination callbacks still
+    // in flight, preventing them from appending stale entries to the new list.
+    const token = nextLoadToken();
     setLoadState((state) => ({ ...state, loadingMore: true }));
     void loadLogPage({
       workspaceId,
@@ -234,6 +269,7 @@ export function HistoryPanel({
       afterSha: lastSha,
       signal: undefined,
       onChunk: (entries, chunk) => {
+        if (!isCurrentLoad(token)) return;
         appendLaneChunk(collectNewLaneEntries(laneSeenShas, chunk));
         setLoadState((state) => ({
           ...state,
@@ -243,9 +279,11 @@ export function HistoryPanel({
         }));
       },
       onComplete: (hasMore) => {
+        if (!isCurrentLoad(token)) return;
         setLoadState((state) => ({ ...state, loadingMore: false, hasMore }));
       },
       onError: (message) => {
+        if (!isCurrentLoad(token)) return;
         setLoadState((state) => ({ ...state, loadingMore: false, errorMessage: message }));
       },
     });
