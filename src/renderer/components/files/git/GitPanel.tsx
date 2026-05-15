@@ -13,12 +13,10 @@ import {
   type RepoCapabilities,
   type Tag,
 } from "../../../../shared/types/git";
-import { ipcCall } from "../../../ipc/client";
 import { openTerminal } from "../../../services/terminal";
 import { selectGitActionButton } from "../../../state/selectors/git-action-button";
 import type { GitPushOptions, GitStoreError } from "../../../state/stores/git";
 import { useGitStore } from "../../../state/stores/git";
-import { copyText } from "../../../utils/clipboard";
 import { FormDialog, type FormDialogField } from "../../ui/form-dialog";
 import { CommandPalette } from "../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../ui/prompt-dialog";
@@ -44,6 +42,7 @@ import {
   buildTagHistoryRevealMessage,
   tagHistoryRef,
 } from "./git-panel-actions";
+import { createEntryActions } from "./git-panel/entry-actions";
 import { buildPushGuardBannerView, type PushGuardActionKind } from "./git-push-guard-banner";
 import { buildGitGroups, collectGitEntryPaths } from "./git-status-utils";
 import { HistoryPanel } from "./history/HistoryPanel";
@@ -531,51 +530,26 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     }
   }
 
-  function openChanges(entry: GitStatusEntry, groupKey: GitExpandedGroupKey): void {
-    if (onOpenDiff) {
-      onOpenDiff({ workspaceId, groupKey, entry });
-      return;
-    }
-    setContextBanner({ variant: "info", message: "Diff view를 사용할 수 없습니다" });
-  }
-
-  function absolutePathForEntry(entry: GitStatusEntry): string | null {
-    const root = repoPath ?? workspaceRootPath;
-    if (!root) return null;
-    return joinRootAndGitRelPath(root, entry.relPath);
-  }
-
-  function openWorkingTreeFile(entry: GitStatusEntry): void {
-    const absPath = absolutePathForEntry(entry);
-    if (!absPath) {
-      setContextBanner({ variant: "error", message: "Working tree path is unavailable." });
-      return;
-    }
-    void runSystemPathAction("openPathExternal", absPath, setContextBanner);
-  }
-
-  function revealEntryInOS(entry: GitStatusEntry): void {
-    const absPath = absolutePathForEntry(entry);
-    if (!absPath) {
-      setContextBanner({ variant: "error", message: "Working tree path is unavailable." });
-      return;
-    }
-    void runSystemPathAction("revealInOS", absPath, setContextBanner);
-  }
-
-  function copyEntryPath(entry: GitStatusEntry): void {
-    const absPath = absolutePathForEntry(entry);
-    if (!absPath) return;
-    copyText(absPath);
-  }
-
-  function copyEntryRelativePath(entry: GitStatusEntry): void {
-    copyText(entry.relPath);
-  }
-
-  function addEntryToGitignore(entry: GitStatusEntry): void {
-    void addPathsToGitignore([entry.relPath]);
-  }
+  const entryActions = useMemo(
+    () =>
+      createEntryActions({
+        workspaceId,
+        repoPath,
+        workspaceRootPath,
+        onOpenDiff,
+        setBanner: setContextBanner,
+      }),
+    [workspaceId, repoPath, workspaceRootPath, onOpenDiff],
+  );
+  const {
+    openChanges,
+    openWorkingTreeFile,
+    revealEntryInOS,
+    copyEntryPath,
+    copyEntryRelativePath,
+    addEntryToGitignore,
+    addPathsToGitignore,
+  } = entryActions;
 
   /** Dispatches the selector-chosen primary Source Control action. */
   function runPrimaryAction(): void {
@@ -604,31 +578,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       case "no-remote":
       case "up-to-date":
         break;
-    }
-  }
-
-  async function addPathsToGitignore(paths: string[]): Promise<void> {
-    const uniquePaths = Array.from(new Set(paths));
-    if (uniquePaths.length === 0) return;
-
-    try {
-      const results = [];
-      for (const relPath of uniquePaths) {
-        results.push(await ipcCall("git", "addToGitignore", { workspaceId, relPath }));
-      }
-      const addedCount = results.filter((result) => result.added).length;
-      setContextBanner({
-        variant: "info",
-        message:
-          addedCount > 0
-            ? `Added ${addedCount} path${addedCount === 1 ? "" : "s"} to .gitignore.`
-            : "Already in .gitignore.",
-      });
-    } catch (error) {
-      setContextBanner({
-        variant: "error",
-        message: error instanceof Error ? error.message : "Could not update .gitignore.",
-      });
     }
   }
 
@@ -1184,35 +1133,3 @@ function isAuthGitError(error: GitStoreError): boolean {
   );
 }
 
-/**
- * Joins a repository/workspace root with Git's slash-separated relPath while
- * preserving the host path separator for copied absolute paths.
- */
-function joinRootAndGitRelPath(rootPath: string, relPath: string): string {
-  const separator = rootPath.includes("\\") && !rootPath.includes("/") ? "\\" : "/";
-  const normalizedRoot = rootPath.replace(/[\\/]+$/, "");
-  const normalizedRelPath = relPath.split("/").join(separator);
-  return `${normalizedRoot}${separator}${normalizedRelPath}`;
-}
-
-/**
- * Runs one of the task-3 system path calls and maps typed failures into the
- * inline Git banner instead of throwing from a fire-and-forget menu action.
- */
-async function runSystemPathAction(
-  method: "openPathExternal" | "revealInOS",
-  absPath: string,
-  setBanner: (banner: { variant: "info" | "error"; message: string }) => void,
-): Promise<void> {
-  try {
-    const result = await ipcCall("system", method, { absPath });
-    if (!result.ok) {
-      setBanner({ variant: "error", message: result.error.message });
-    }
-  } catch (error) {
-    setBanner({
-      variant: "error",
-      message: error instanceof Error ? error.message : "System path action failed.",
-    });
-  }
-}
