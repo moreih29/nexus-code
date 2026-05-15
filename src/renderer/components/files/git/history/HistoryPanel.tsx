@@ -428,14 +428,7 @@ async function loadLogPage({
   onComplete: (hasMore: boolean) => void;
   onError: (message: string) => void;
 }): Promise<void> {
-  // Per-load dedup. A single page must never contain the same sha twice —
-  // any duplicate received from a chunk is dropped before being accumulated
-  // or forwarded so React's reconciler never sees duplicate keys. This also
-  // shields the renderer from a backend-side amplification bug that emits
-  // the same batch many times for the same streamId; without dedup, the
-  // observed history was rendered N× (tracked separately from this fix).
   const entries: LogEntry[] = [];
-  const seenShas = new Set<string>();
   try {
     const trimmedGrep = grep?.trim();
     const handle = ipcStream(
@@ -453,18 +446,8 @@ async function loadLogPage({
     );
     handle.onProgress((chunk) => {
       if (signal?.aborted) return;
-      const uniqueChunk: LogEntry[] = [];
-      const chunkSeen = new Set<string>();
-      for (const entry of chunk.entries) {
-        if (chunkSeen.has(entry.sha)) continue;
-        chunkSeen.add(entry.sha);
-        if (seenShas.has(entry.sha)) continue;
-        seenShas.add(entry.sha);
-        uniqueChunk.push(entry);
-      }
-      if (uniqueChunk.length === 0) return;
-      entries.push(...uniqueChunk);
-      onChunk([...entries], uniqueChunk);
+      entries.push(...chunk.entries);
+      onChunk([...entries], chunk.entries);
     });
     const complete = await handle.promise;
     if (signal?.aborted) return;
