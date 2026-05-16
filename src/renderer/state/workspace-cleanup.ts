@@ -56,13 +56,3 @@ export function initializeWorkspaceLifecycle(): void {
     }
   });
 }
-
-/**
- * Tear down the listener and clear all registrations. Intended for tests
- * that need a clean slate; production code does not call this.
- */
-export function disposeWorkspaceLifecycle(): void {
-  unlisten?.();
-  unlisten = null;
-  cleanupFns.clear();
-}

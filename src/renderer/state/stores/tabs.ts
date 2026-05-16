@@ -16,8 +16,6 @@ import {
 // gives the compiler a typed `props` automatically.
 // ---------------------------------------------------------------------------
 
-export type TabType = "terminal" | "editor" | "editor.diff" | "git.commit";
-
 export interface TerminalTabProps {
   cwd: string;
   dead?: boolean;

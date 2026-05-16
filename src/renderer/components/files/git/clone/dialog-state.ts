@@ -31,9 +31,3 @@ export function isCloneDialogOpen(): boolean {
 export function subscribeCloneDialog(listener: () => void): () => void {
   return bus.subscribe(listener);
 }
-
-/** Resets singleton state for renderer unit tests. */
-export function __resetCloneDialogStateForTests(): void {
-  open = false;
-  bus.clear();
-}

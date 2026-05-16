@@ -9,7 +9,3 @@ export function pxToRatio(px: number, totalSize: number): number {
   if (totalSize === 0) return 0.5;
   return clampRatio(px / totalSize);
 }
-
-export function ratioToPx(ratio: number, totalSize: number): number {
-  return clampRatio(ratio) * totalSize;
-}

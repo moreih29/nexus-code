@@ -386,12 +386,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 }));
 
-// Standalone helper for use outside the store (e.g. in tests that import helpers)
-export function buildInitialLayout(): WorkspaceLayout {
-  const root = makeEmptyLeaf();
-  return { root, activeGroupId: root.id };
-}
-
 // Re-export LayoutNode type for subscriber
 export type { LayoutNode };
 // Export makeEmptyLeaf for subscriber / hydration utilities

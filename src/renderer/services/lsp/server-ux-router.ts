@@ -214,7 +214,3 @@ export function getWorkDoneProgressState(
   const state = workDoneProgressByKey.get(progressKey(workspaceId, languageId, token));
   return state ? { ...state } : undefined;
 }
-
-export function getWorkDoneProgressSnapshot(): WorkDoneProgressState[] {
-  return Array.from(workDoneProgressByKey.values(), (state) => ({ ...state }));
-}

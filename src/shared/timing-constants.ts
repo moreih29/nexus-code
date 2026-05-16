@@ -28,13 +28,6 @@
 // ---------------------------------------------------------------------------
 
 /**
- * How long after the last fs change event before flushing the buffered
- * change set to renderers. Coalesces a burst of editor saves / git
- * checkouts into one broadcast.
- */
-export const FS_WATCHER_DEBOUNCE_MS = 300;
-
-/**
  * How long after the last expand/collapse before persisting the
  * expanded-set to appState. Coalesces a rapid succession of toggles
  * (e.g. keyboard-collapsing several rows) into a single IPC write.
@@ -52,13 +45,6 @@ export const FS_EXPANDED_SAVE_DEBOUNCE_MS = 200;
  * enough that abandoned workspaces don't leak processes.
  */
 export const LSP_DEFAULT_IDLE_MS = 30 * 60 * 1000;
-
-/**
- * Grace period between SIGTERM and SIGKILL when disposing a stdio LSP
- * adapter. 5s gives well-behaved servers time to flush state; ill-
- * behaved ones get force-killed.
- */
-export const LSP_DISPOSE_GRACE_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // State persistence

@@ -115,8 +115,3 @@ export function findPrimaryBinding(command: CommandId): KeybindingDecl | undefin
 export function findChordBinding(command: CommandId): KeybindingDecl | undefined {
   return KEYBINDINGS.find((k) => k.command === command && k.chord !== undefined);
 }
-
-/** All declarations for a command (an array is rare but valid). */
-export function findAllBindings(command: CommandId): KeybindingDecl[] {
-  return KEYBINDINGS.filter((k) => k.command === command);
-}

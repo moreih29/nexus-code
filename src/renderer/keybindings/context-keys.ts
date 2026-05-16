@@ -29,13 +29,6 @@
  * binding fail-safe (it just won't match) rather than fail-loud.
  */
 
-export type ContextKeyName =
-  | "editorFocus"
-  | "inputFocus"
-  | "fileTreeFocus"
-  | "terminalFocus"
-  | "commandPaletteFocus";
-
 /**
  * Resolves a `when`-clause context key (e.g. `editorFocus`, `fileTreeFocus`)
  * against the currently focused element on a keyboard event. Returns `false`

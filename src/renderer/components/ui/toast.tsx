@@ -85,13 +85,6 @@ function dismiss(id: number): void {
   bus.notify();
 }
 
-// Test helper — clears the queue between tests.
-export function __resetToastsForTests(): void {
-  active = [];
-  bus.notify();
-  bus.clear();
-}
-
 /**
  * Mount once at App level. Renders the active toast stack and runs the
  * auto-dismiss timer.

@@ -210,8 +210,6 @@ export const appTypeScale = {
 
 export const spacing = [1, 4, 5, 8, 10, 12, 14, 15, 16, 18, 24, 26, 30, 32, 36] as const;
 
-export type SpacingValue = (typeof spacing)[number];
-
 // ---------------------------------------------------------------------------
 // Border radius scale (px)
 // ---------------------------------------------------------------------------
