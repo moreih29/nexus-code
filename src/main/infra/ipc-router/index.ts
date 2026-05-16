@@ -493,16 +493,27 @@ function extractIpcGitErrorPayload(error: Error): IpcGitErrorPayload | undefined
 /**
  * Push a channel event to every live renderer. Used by main-side
  * subscriptions (fs.changed, lsp.serverStatus, …) that need fan-out
- * to all open windows. Skips destroyed webContents to avoid the EPIPE
- * Electron throws on send-after-close.
+ * to all open windows.
+ *
+ * `isDestroyed()` only reports a fully-torn-down webContents; it does not
+ * catch the transient state — common during dev HMR reloads and after
+ * sleep/wake — where the webContents is alive but its render frame has
+ * been disposed. `send()` then throws "Render frame was disposed before
+ * WebFrameMain could be accessed". There is no synchronous API to detect
+ * that race, so each send is wrapped: a failure to one dead frame must
+ * not abort the fan-out to the others, and is benign (the renderer is
+ * gone, so the dropped event has no consumer).
  */
 export function broadcast(channelName: string, event: string, args: unknown): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { webContents } = require("electron") as typeof import("electron");
   const all = webContents.getAllWebContents();
   for (const wc of all) {
-    if (!wc.isDestroyed()) {
+    if (wc.isDestroyed()) continue;
+    try {
       wc.send("ipc:event", channelName, event, args);
+    } catch {
+      // Render frame disposed mid-flight — skip this renderer and continue.
     }
   }
 }
