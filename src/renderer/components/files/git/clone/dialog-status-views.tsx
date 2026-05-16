@@ -43,7 +43,7 @@ export function CloneProgressContent({
         {progress.cancelling ? "Cancelling and cleaning up…" : clonePhaseLabel(progress.phase)}
       </p>
       <div
-        className="mt-4 h-2 overflow-hidden rounded-full bg-frosted-veil"
+        className="mt-4 h-2 overflow-hidden rounded-full bg-muted"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}

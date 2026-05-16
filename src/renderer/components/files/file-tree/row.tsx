@@ -110,9 +110,9 @@ export function FileTreeRow({
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",
         "border-l-2 border-l-transparent",
-        "hover:bg-frosted-veil-strong",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset",
-        isSelected && "bg-frosted-veil border-l-mist-border text-foreground",
+        "hover:bg-[var(--state-hover-bg)]",
+        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+        isSelected && "bg-[var(--state-hover-bg)] border-l-border text-foreground",
       )}
     >
       {isDir ? (

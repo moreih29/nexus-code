@@ -165,7 +165,7 @@ export function GroupView({
     // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
       ref={wrapperRef}
-      className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-frosted-veil")}
+      className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-[var(--tab-active-bg)]")}
       onClick={handleGroupClick}
     >
       <GroupTabBar

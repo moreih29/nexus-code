@@ -49,12 +49,12 @@ export function FilesPanel() {
 
   return (
     <aside
-      className="relative shrink-0 bg-muted border-r border-r-mist-border flex flex-col"
+      className="relative shrink-0 bg-muted border-r border-r-border flex flex-col"
       style={{ width: filesPanelWidth }}
     >
       {activeWorkspace ? (
         <>
-          <div className="flex items-center gap-1 px-2 pt-2 pb-1.5 border-b border-mist-border/50">
+          <div className="flex items-center gap-1 px-2 pt-2 pb-1.5 border-b border-border/50">
             {MODE_BUTTONS.map(({ mode, label, Icon }) => {
               const isActive = filesPanelMode === mode;
               return (
@@ -65,7 +65,7 @@ export function FilesPanel() {
                   aria-label={label}
                   aria-pressed={isActive}
                   title={label}
-                  className={cn(isActive && "bg-frosted-veil-strong text-foreground")}
+                  className={cn(isActive && "bg-[var(--state-active-bg)] text-foreground")}
                   onClick={() => setFilesPanelMode(activeWorkspace.id, mode)}
                 >
                   <Icon />

@@ -370,7 +370,7 @@ export function SearchResultsList({
                   {...rowProps}
                   aria-expanded={isExpanded}
                   style={{ height: ROW_HEIGHT_PX, paddingLeft: depthPad + 8 }}
-                  className="flex items-center w-full pr-2 gap-1 text-left cursor-pointer select-none hover:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset"
+                  className="flex items-center w-full pr-2 gap-1 text-left cursor-pointer select-none hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                   onClick={() => onToggleDir?.(node.relPath)}
                 >
                   <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -380,7 +380,7 @@ export function SearchResultsList({
                     aria-hidden="true"
                   />
                   <span className="truncate min-w-0 text-app-body flex-1">{node.displayName}</span>
-                  <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-frosted-veil-strong rounded px-1">
+                  <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-muted rounded px-1">
                     {matchCount}
                   </span>
                 </button>

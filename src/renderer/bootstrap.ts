@@ -11,6 +11,7 @@ import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 import { registerStatePersistence } from "./state/persistence";
 import { useLayoutStore } from "./state/stores/layout";
 import { useTabsStore } from "./state/stores/tabs";
+import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 
 /**
@@ -34,6 +35,10 @@ export async function bootstrapAppState(): Promise<void> {
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,
   });
+
+  // Hydrate theme from appState (authoritative store).
+  // This overwrites the localStorage-based initial value so the two stay in sync.
+  useThemeStore.getState().hydrate(state.themePreference);
 
   if (state.layoutByWorkspace) {
     for (const [wsId, snap] of Object.entries(state.layoutByWorkspace)) {

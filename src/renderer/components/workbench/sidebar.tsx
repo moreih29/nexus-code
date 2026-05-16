@@ -129,7 +129,7 @@ export function Sidebar({
             "block w-[calc(100%-16px)] mx-2 px-4 py-2 rounded-[--radius-container]",
             "text-left cursor-pointer select-none font-sans transition-colors",
             "text-app-body text-muted-foreground bg-transparent",
-            "hover:bg-earth-gray hover:text-foreground",
+            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
           )}
           aria-label="Add workspace"
         >

@@ -263,7 +263,7 @@ function RefChipOverflowPopover({
       id={id}
       role="menu"
       aria-label="More refs"
-      className="fixed z-50 flex max-w-[240px] flex-col gap-1 overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+      className="fixed z-50 flex max-w-[240px] flex-col gap-1 overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
       style={popoverPositionStyle(point)}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}

@@ -272,7 +272,7 @@ export function HistoryList({
           <button
             type="button"
             disabled={loadingMore}
-            className="w-full rounded border border-mist-border px-3 py-1.5 text-app-ui-sm text-muted-foreground hover:bg-frosted-veil hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="w-full rounded border border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
             onClick={onLoadMore}
           >
             {loadingMore ? "Loading…" : "Load 50 more"}

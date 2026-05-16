@@ -14234,6 +14234,590 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-16T08:13:16.148Z",
+      "branch": "design/philosophy-refactor",
+      "plan": {
+        "id": 47,
+        "topic": "디자인 철학 수립 및 멀티테마 UI/UX 리팩토링",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Issue 1: 핵심 디자인 철학 — 모든 테마가 공유하는 불변(invariant) 철학을 무엇으로 잡을 것인가 (공간 모델/톤/밀도/형태 언어)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "5개 축 분석. (1) 공간모델: 현 flat 모델은 멀티워크스페이스 경계를 톤(=색)에만 의존 → 라이트 테마에서 붕괴, 멀티테마와 구조 충돌. 옵션 A(Flat 유지)✗ / B(Full Islands)conditional / C(Bounded Zones — 미세 라디우스+서피스레벨+1px hairline로 경계, 섬 사이 도랑 최소화)✓추천. (2) 밀도: 현 spacing 15단계는 마케팅 역산 잔재(5/14/15/26/30 등 비-4pt). 순수 4pt 8단계 [2,4,8,12,16,24,32,48] 재정의 권고, 마케팅 18-role 타입스케일 제거. (3) 형태: 라디우스 10단계 과잉, IDE는 4단계로 충분 — none:0/control:4/container:8/full. --radius:0 봉인 폐기. (4) 인터랙션: 현 상태신호 거의 전부 rgba 흰색 오버레이(테마 가변·취약, 라이트테마서 소실). 불변원칙 \"상태는 색 단독 신호 금지, 형태·굵기·서피스로 redundant encoding 필수\". (5) warmth: 핵심판단 — warmth는 불변 아님, \"Warm Dark\" 기본/플래그십 테마의 색 선택으로 강등. 불변으로 승격하는 것은 추상뿐 — near-monochromatic 저채도, 뉴트럴은 브랜드 hue로 틴트, 순수 #000/#fff 금지, 엘리베이션은 그림자보다 톤/보더 우선. 핵심산출물=불변/테마가변 경계선 표(서피스레벨 모델·스페이싱·라디우스·지오메트리·타이포·상태신호방식·채도정책=불변 / warmth구체값·accent·semantic색=가변). 리스크: radius:0/shadow:none 봉인 의도 미확인, frosted-veil 대비 WCAG 1.4.11 미달 가능성(실측필요), Loading/Success 상태 컴포넌트 미설계.",
+                "recorded_at": "2026-05-16T05:39:21.905Z",
+                "agent_id": "a6b2037dbeb37e937"
+              }
+            ],
+            "decision": "핵심 디자인 철학 = Option C (Bounded Zones) 채택. 불변(invariant) 철학으로 다음을 확정: (1) 공간모델 — 4단계 서피스 레벨(L0 에디터 캔버스 / L1 chrome / L2 패널·탭 / L3 floating)을 불변 구조로 정의, 존 경계는 미세 라디우스+서피스레벨차+1px hairline 등 '형태'로 표현(색 비의존). (2) 밀도 — 순수 4pt 그리드, 컴팩트 IDE 밀도 원칙, 마케팅 18-role 타입스케일 제거하고 in-app 스케일만 정식 소스화. (3) 형태 — 라디우스 4단계(none:0 / control:4 / container:8 / full)로 축소. (4) 인터랙션 — '상태는 색 단독 신호 금지, 형태·굵기·서피스로 redundant encoding 필수' 원칙. (5) 톤 — warmth는 불변에서 제외하고 'Warm Dark' 기본·플래그십 테마의 색 선택으로 강등(사용자 승인). 불변으로 승격하는 것은 추상뿐: near-monochromatic 저채도, 뉴트럴은 브랜드 hue로 틴트, 순수 #000/#fff 금지, 엘리베이션은 그림자보다 톤/보더 우선. 봉인 처리: design-tokens/index.ts의 '--radius:0 봉인'은 LLM이 넣은 flat-design 산물로 깊은 제약 아님 — Option C가 컨테이너 라디우스를 요구하므로 해제(Issue 3 토큰 리팩토링에서 control/container 값으로 재정의). '--shadow-*:none'은 봉인이라는 모호한 표현 대신 '그림자 없는 엘리베이션(톤/보더 우선)'이라는 의도적 철학 원칙으로 재표현하여 유지."
+          },
+          {
+            "id": 2,
+            "title": "Issue 2: design.md 재작성 — 문서 구조와 토큰 티어링 모델 (primitive→semantic→component, invariant/theme-variant 분리)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "design.md 문서구조·토큰티어링 분석. (a) 포맷: F1 풀YAML(VoltAgent식, design.md가 토큰값 소스)✗ — .ts가 이미 머신리더블 소스라 값 이중화→드리프트 보장(현 index.ts 주석이 marketing.ts를 design-tokens-marketing.ts로 오참조하는 게 증거). F2 Contract Doc✓ — front matter는 메타·라우팅만, 본문은 철학+토큰 이름/역할표, 색값은 .ts 참조. F3 순수MD✗(LLM 라우팅 정보 없음). (b) 12섹션 스켈레톤: 0.Preamble/1.Philosophy/2.Spatial Model(4서피스레벨)/3.Density(4pt)/4.Shape/5.Typography/6.Motion/7.Interaction(9-state+redundant encoding)/8.Token Tiering(3-tier)/9.Region Semantics(editor/sidebar/tab/panel/terminal/diff/git/status)/10.Theme Authoring Rules(WCAG 대비게이트)/11.Anti-patterns/12.Agent Guide. 마케팅 전용섹션 전부 삭제. (c) 분리구조: S1(design.md가 Warm Dark 색값 내장)✗ — 불변문서에 가변데이터 혼입 자기모순, Issue1 warmth강등에 역행. S2✓ — design.md 1개(불변, 색값0) + themes/*.ts N개(Warm Dark 포함 전부 동격), front matter default_theme:warm-dark 한줄로 기본명시. 파일구조: primitive.ts(원시값)→semantic.ts(빈 키 계약, 타입강제)→themes/*.ts(전 키 충족)→component.ts(조립). (d) semantic 명명: region.element.role 3세그먼트(shadcn flat은 IDE 리전 표현 불가). editor/sidebar/tab/panel/terminal/diff/git/status 리전별 vocabulary 초안 제시. surface.canvas/chrome/panel/floating이 4서피스레벨 직결. (e) 추천: F2+S2+region.element.role. 리스크: shadcn 어댑터 레이어(semantic→shadcn CSS변수) 필수 — 누락 시 기존 Radix 컴포넌트 회귀, buildSemanticTokens()가 현 그 역할이며 재작성 대상. vocabulary표↔semantic.ts 키 1:1 동기화 강제수단(lint) 필요=Architect 영역. diff/git 레인은 색-구분이 본질이라 redundant-encoding 원칙의 통제된 예외로 명시 필요(노드 형태 commit=원/merge=마름모로 보조인코딩).",
+                "recorded_at": "2026-05-16T05:46:19.030Z",
+                "agent_id": "a6b2037dbeb37e937"
+              }
+            ],
+            "decision": "design.md 아키텍처 = F2 (Contract Doc) 채택(사용자 승인). design.md는 토큰 '값'의 소스가 아니라 '구조·규칙·철학'의 계약서 — 색값을 일절 담지 않는다. YAML front matter는 메타·라우팅만(doc/version/status/token_source/theme_source/default_theme/supersedes), 본문은 Markdown 철학+토큰 이름·역할표. 함께 확정: (1) 분리구조 S2 — design.md 1개(불변) + src/shared/design-tokens/themes/*.ts N개. 'Warm Dark'도 themes/warm-dark.ts로 다른 테마와 동격, front matter default_theme:warm-dark로 기본 명시. 파일 티어: primitive.ts(원시값·불변) → semantic.ts(역할명 빈 키 계약, TS 타입으로 전 키 충족 강제) → themes/*.ts(전 키 채움) → component.ts(조립). (2) 토큰 명명 = region.element.role 3세그먼트(editor/sidebar/tab/panel/terminal/diff/git/status 리전 + surface.canvas/chrome/panel/floating 전역). 기존 Radix/shadcn 컴포넌트 호환용 어댑터 레이어(semantic→shadcn CSS변수, 현 buildSemanticTokens() 재작성)는 Issue 3에서 설계. (3) 섹션 스켈레톤 12개: 0.Preamble/1.Philosophy/2.Spatial Model/3.Density/4.Shape/5.Typography/6.Motion/7.Interaction/8.Token Tiering/9.Region Semantics/10.Theme Authoring Rules/11.Anti-patterns/12.Agent Guide. 마케팅 전용 섹션 전부 삭제. design.md §0에 경로 참조 실재 검증 정책 명문화(현 index.ts 주석의 marketing.ts 오참조 드리프트 재발 방지). diff/git 레인은 색-구분이 본질이라 redundant-encoding 원칙의 통제된 예외로 §7에 명시(노드 형태로 보조 인코딩)."
+          },
+          {
+            "id": 3,
+            "title": "Issue 3: 멀티테마 시스템 아키텍처 — 초기 테마 셋, 테마 전환 인프라, design-tokens 코드 리팩토링, Monaco 동기화",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "테마 시스템 아키텍처. (1) 토큰 4파일 분해: primitive.ts(원시값·불변)/semantic.ts(SemanticKey 타입+빈 키 계약)/themes/{index,warm-dark,...}.ts/component.ts(조립+shadcn어댑터). index.ts는 배럴 재export만. region.element.role 키는 flat 문자열 권장(중첩객체는 전 키 강제·생성기 평탄화 비용 큼) — Record<SemanticKey,string>이 키 누락을 TS2741로 컴파일타임 강제. 봉인(--radius:0/--shadow:none)은 SEALED 상수로 semantic 레이어 고정, SemanticKey에서 제외 → 테마가 못 건드림. warmth는 SemanticKey 포함=가변. (2) shadcn 어댑터: buildSemanticTokens() 삭제→buildShadcnVars(tokens) — shadcn 변수명→SemanticKey 키매핑 함수, component.ts에 격리. (3) 빌드vs런타임 핵심결정: 옵션A(빌드타임 전 테마 CSS 생성+data-theme 전환)✓추천 — 무FOUC, Tailwind v4 @theme 파이프라인 보존, 전환 즉시·동기, OKLCH→hex 변환 빌드타임. 옵션B(런타임 JS 주입)✗ — FOUC 위험, @theme 정적활용 불가, 유일강점(사용자정의테마)은 현 요구에 없음. generate-theme-css.ts를 :root 단일→테마별 스코프 루프로. (4) 전환 인프라: state/stores/theme.ts 신설(ui.ts에 안 넣음, 응집축 다름), 영속화는 electron appState(localStorage✗ — main이 titleBarOverlay 색 위해 알아야 함), useThemeEffect() 훅, OS prefers-color-scheme는 preference=system일 때만 구독, FOUC는 index.html 인라인 부트스크립트. (5) Monaco: palette.ts를 Record<ThemeId,EditorPalette>로, monaco-theme이 전 테마 defineTheme 사전등록+setTheme 전환, culori로 OKLCH→hex 빌드타임 변환(alpha tier만 수동). (6) xterm: terminal-palette.ts 신설 Record<ThemeId,ITheme> ANSI16색, controller.applyTheme(id). (7) 마이그레이션 7단계: 1~3 구조변경(출력CSS diff=0 게이트)→4 2번째테마(첫 시각회귀점)→5 전환인프라(첫 동작회귀점,단독PR)→6 Monaco→7 xterm. 미검증 리스크 R2(FOUC 부트타이밍)·R5(Tailwind v4 @theme 내 var() 유틸처리) — researcher 검증 필요. Verdict: approved with conditions.",
+                "recorded_at": "2026-05-16T06:10:55.757Z",
+                "agent_id": "a84f509cac46167a5"
+              },
+              {
+                "role": "designer",
+                "summary": "초기 테마 셋. 차별화 격자=명도(다크/라이트)×hue(웜/뉴트럴/쿨). 옵션 T1(2개)conditional/T2(3개)✓/T3(4개)conditional. 추천 T2 = Warm Dark(플래그십·기본) + Cool Dark + Warm Light. 이유: 다크 우선+hue선택(Cool Dark가 의미있는 분기), 라이트 필수 충족(Warm Light), 페어링 깨끗(전부 웜/쿨 명확), 검증 3회 감당가능. T3은 라이트 2개 차별화 이득 대비 검증 4배 과함 → Neutral Light는 2차 확장슬롯. 각 테마 정체성: 셋 모두 4서피스레벨 동일간격·라디우스 동일·그림자없는엘리베이션·순수흑백금지·채도 C≤0.012, 차이는 hue와 명도뿐. Warm Dark h≈90-110/L0≈0.18, Cool Dark h≈230-260/L0≈0.18(웜다크와 동일명도, hue만 반전), Warm Light h≈90-110(웜다크와 동일 hue패밀리)/L0≈0.96. 대비게이트(WCAG2.2, design.md §10 명문화): 본문/보조텍스트 ≥4.5:1, 대형텍스트 ≥3:1, UI컴포넌트경계·상태 ≥3:1(§1.4.11), 포커스링 ≥3:1+2px, 색단독금지. 다크↔라이트 취약점 6개: text.muted 11-13px(최고위험), frosted-veil 오버레이(라이트는 어두운 오버레이로 방향반전 필수), hairline 존경계, diff 배경위 텍스트, 터미널 ANSI(배경맞춤 재튜닝), selection. OS연동: Auto페어=Warm Dark⇄Warm Light(동일 hue패밀리, hue점프 없음), Cool Dark는 P1(명시선택 시 OS추종 해제·고정) — 설정모델 Auto/명시 3상태. 리스크: 다크/라이트 비율 가정 미검증(텔레메트리 권고), Cool Dark 채도 유혹 통제, 라이트 오버레이 방향반전 미반영 시 hover 불가시, terminal.ansi.* 16키 vocabulary 누락 위험, 대비 자동검증 인프라 권고. Verdict: approved.",
+                "recorded_at": "2026-05-16T06:11:12.680Z",
+                "agent_id": "a6b2037dbeb37e937"
+              }
+            ],
+            "decision": "멀티테마 시스템 아키텍처 확정(사용자 승인). (1) 초기 테마 셋 = T2 3개: Warm Dark(기본·플래그십, h≈90-110/L0≈0.18) · Cool Dark(h≈230-260/L0≈0.18, 웜다크와 동일 명도·hue만 반전) · Warm Light(웜다크와 동일 hue패밀리/L0≈0.96). 셋 다 채도 C≤0.012, 4서피스레벨·라디우스 동일, 차이는 hue·명도뿐. Neutral Light는 2차 확장슬롯. (2) 테마 적용 = 빌드타임 A: 모든 테마 CSS를 빌드 시 생성, 런타임은 documentElement data-theme 속성만 변경. Tailwind v4 @theme inline으로 --color-*를 var(--원시변수) 참조 등록 → [data-theme] 스코프 cascade를 유틸리티가 탐(Researcher 공식문서 검증). generate-theme-css.ts를 :root 단일→테마별 스코프 루프로. (3) 토큰 4파일 분해: primitive.ts(원시값·불변)→semantic.ts(SemanticKey 타입+Record<SemanticKey,string> 빈 키 계약, 누락 시 컴파일에러)→themes/{index,warm-dark,cool-dark,warm-light}.ts→component.ts(buildShadcnVars 어댑터). index.ts는 배럴 재export만. 봉인(--radius:0/--shadow none)은 SEALED 상수로 SemanticKey에서 제외해 테마가 못 건드림. region.element.role은 flat 문자열 키. (4) 전환 인프라: state/stores/theme.ts 신설(preference: ThemeId|system, resolved), useThemeEffect() 훅, OS prefers-color-scheme는 preference=system일 때만 구독. OS Auto 페어=Warm Dark⇄Warm Light, Cool Dark는 명시선택 시 OS추종 해제(P1). (5) 영속화 = 이중 쓰기(Lead 조정): FOUC 부트는 index.html <head> 인라인 스크립트가 localStorage를 동기 읽기(IPC 비동기라 늦음), main 프로세스 titleBarOverlay 색 동기화는 appState 필요 → 테마 변경 시 localStorage(부트캐시)+appState(정본) 둘 다 기록. CSP는 인라인 스크립트 SHA-256 해시 허용. AppStateSchema에 themePreference 추가하되 ThemeId를 shared 단일소스로 참조. (6) Monaco: palette.ts를 Record<ThemeId,EditorPalette>로, monaco-theme이 전 테마 defineTheme 사전등록+setTheme 전환. xterm: terminal-palette.ts 신설 Record<ThemeId,ITheme> ANSI16색, controller.applyTheme(id). OKLCH→hex는 culori로 빌드타임 변환(alpha tier만 수동). semantic vocabulary에 terminal.ansi.* 16키 포함. 라이트 테마는 hover/active 오버레이를 어두운 방향으로 반전. (7) 마이그레이션 7단계: 1~3 구조변경(출력CSS diff=0 게이트)→4 2번째테마(첫 시각회귀점)→5 전환인프라(단독PR)→6 Monaco→7 xterm. 대비 게이트 자동측정 인프라 권고."
+          },
+          {
+            "id": 4,
+            "title": "Issue 4: UI/UX 리팩토링 범위와 순서 — 어떤 표면을 어떻게 바꿀지, 작업 시퀀싱",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "UI/UX 리팩토링 범위·순서. 인벤토리 보정: Loading/Empty/Success 패턴이 이미 산재 존재(git-loading-skeleton/git-empty-state/toast/*-banner 다수) — 신규설계 아니라 통합·정본화가 핵심. git-status-badge는 redundant-encoding 모범사례라 비대상. (a) 표면별 명세: 24개 표면군을 L0(에디터·터미널 콘텐츠)/L1(titlebar+sidebar chrome)/L2(파일트리·git·검색 패널·탭바)/L3(다이얼로그·메뉴·팝오버·툴팁·토스트)로 매핑. (b) 우선순위 — 1차 필수 P1~P5(멀티테마 견고성 직결): P1 흰색오버레이frosted-veil→semantic state.* 전면치환(라이트테마 소실 방지, 최우선), P2 button.tsx 마케팅잔재(pill/frostedTag/text-black) 제거+Loading상태, P3 존경계 hairline 도입(titlebar↔sidebar·split-pane), P4 diff/terminal-ANSI/git-lane 색 semantic화, P5 4서피스레벨 surface.* 매핑. 후순위(테마무관 정돈): 비-4pt 매직넘버 정렬, 라디우스 4단계 정렬, banner통합, 타입스케일 잔재정리. (c) 시퀀싱 S0~S7: S0 기준스냅샷→S1 button.tsx(전역, 먼저 안정화)→S2 L1 chrome→S3 L2 패널(file-tree→search→git→tab)→S4 L0 콘텐츠(에디터diff/터미널/git-lane)→S5 L3 floating→S6 후순위 일괄→S7 3테마 검증. 레벨순서 L1→L2→L0→L3은 격리도순(L0는 Monaco/xterm 외부의존 회귀위험 커서 패턴성숙 후). 의존게이트: 컴포넌트 치환은 Architect semantic.ts 키 freeze 후에만 시작 — S0 전 합의 필수. (d) 스코프경계 10항목 제외: 레이아웃구조·지오메트리(버튼높이·titlebar 36px·탭구조) 불변, DnD로직, git-status-badge 로직, zustand/IPC/서비스, 신규기능(테마에디터·커스텀테마·미리보기), 신규 a11y, Monaco/xterm 동작·키바인딩, welcome 콘텐츠, 반응형, 모션추가 — 전부 손대지 않음. 색·표면토큰만 교체. (e) 신규/통합 8패턴: 진짜신규 3(버튼 Loading 인라인상태, Bounded Zone 경계신호 유틸, redundant-encoding 상태유틸), 통합 5(skeleton 제네릭승격, EmptyState 정본화, Success=toast 수렴, banner 5종→1개 Banner variant 통합[최대항목], Error 패턴). Trade-off 권고: banner통합은 1.5차 분리(견고성과 회귀격리), 4pt/라디우스는 S6 일괄(회귀진단 명확), L0는 L1→L2 후. 리스크: semantic 키 미동결 시 치환 되돌이표, 시각회귀 스냅샷 인프라 부재, banner통합 기능회귀, editor-palette.ts 실재미확인. Verdict: approved with conditions.",
+                "recorded_at": "2026-05-16T06:20:12.993Z",
+                "agent_id": "a6b2037dbeb37e937"
+              },
+              {
+                "role": "retrospective",
+                "summary": "사이클 완료 — 멀티테마 디자인 리팩토링. task 10~21 전부 success. design.md v2.0(F2 Contract Doc, reviewer APPROVED), 토큰 3-tier 분해(SemanticKey 122키), 테마 3개(warm-dark/cool-dark/warm-light), 빌드타임+data-theme 전환 인프라, Monaco/xterm 동기화, UI 90+파일 리팩토링(흰색 오버레이 전면 semantic 치환, banner 5종→단일 통합, Skeleton/EmptyState 제네릭). tester 검증 2회차(1차 FAIL 25건 대비미달→task13 L값 재튜닝→2차 PASS), designer 교차일관성 검토 통과. 5대 불변 철학(Bounded Zones 4서피스레벨/4pt 그리드/라디우스 4단계/redundant encoding/warmth 테마강등)이 토큰·테마·컴포넌트 3레이어에 일관 실현. 배운 점: (1) 병렬 엔지니어 실행 시 typecheck 결과가 일시적으로 불일치할 수 있음 — 전체 검증은 병렬 작업 완료 후 Lead가 직접 재실행해 확정. (2) WCAG 대비 게이트는 색 정의 직후 culori로 프로그램 측정해야 함 — 초기 테마 작성이 직관적 L값을 썼다가 25건 미달, 재튜닝 1라운드 소요. 향후 테마 작성 task에 'culori 대비 자가검증'을 acceptance에 포함 권장. 후속 권고 4건(R1 feedback.info/success 예약 vocabulary 문서명시, R2 inverted zone 오버레이 규칙 단서, R3 primitive.ts 레거시 스케일 제거, R4 warm-light 연결점 비텍스트 대비 실측)은 별도 사이클로 분리 — 이번 사이클 스코프 밖.",
+                "recorded_at": "2026-05-16T08:13:10.519Z"
+              }
+            ],
+            "decision": "UI/UX 리팩토링 범위 = '넓게'(이번 단계 일괄) 채택(사용자 선택, Lead 추천은 '좁게'였으나 사용자가 정보를 듣고 명시 선택). 이번 리팩토링 단계에 P1~P5 견고성 + 후순위 정돈(비-4pt 매직넘버 정렬·라디우스 4단계 정렬) + banner 5종 통합을 모두 포함한다. 단 Lead 조정: '넓게'의 단점(견고성 작업과 통합 리팩토링 회귀 혼재로 진단 흐려짐)은 S0~S7 시퀀싱과 표면/패턴 단위 독립 커밋을 유지해 완화 — S6(후순위 정돈+banner 통합)은 P1~P5와 커밋 단계를 분리한다. 1차 필수 P1~P5: P1 흰색오버레이(frosted-veil)→semantic state.* 전면치환(라이트테마 hover/active 소실 방지, 최우선), P2 button.tsx 마케팅잔재(pill/frostedTag variant·text-black 하드코딩) 제거+Loading 인라인상태 추가, P3 존경계 hairline 도입(title-bar↔sidebar·split-pane), P4 diff/터미널 ANSI/git-lane 색 semantic 토큰화, P5 4서피스레벨 surface.* 매핑(L0 에디터·터미널 콘텐츠/L1 chrome/L2 패널·탭/L3 floating). 작업순서 S0 기준 스냅샷(리팩토링 전 Warm Dark 수동 스크린샷, 신규 자동화 인프라는 만들지 않음)→S1 button.tsx→S2 L1 chrome→S3 L2 패널(file-tree→search→git→tab)→S4 L0 콘텐츠→S5 L3 floating→S6 후순위+banner 통합→S7 3테마 검증. 레벨순서 L1→L2→L0→L3은 격리도순. 신규/통합 패턴: 진짜신규 3(버튼 Loading 상태, Bounded Zone 경계신호 유틸, redundant-encoding 상태유틸), 통합 5(skeleton 제네릭승격·EmptyState 정본화·Success는 toast로 수렴·banner 5종→1개 Banner variant 통합·Error 패턴). 스코프 경계(손대지 않음): 레이아웃 구조·컴포넌트 지오메트리(버튼높이·titlebar 36px·탭구조 불변, 색·표면토큰만 교체), DnD 로직, git-status-badge 로직(이미 redundant-encoding 모범), zustand/IPC/서비스 레이어, 신규 기능(테마 에디터·커스텀 테마·미리보기), redundant-encoding 요구분 외 신규 a11y 작업, Monaco/xterm 동작·키바인딩, welcome 콘텐츠·카피, 반응형, 신규 모션 — 발견된 문제는 기록만 하고 별 이슈로 분리. 의존성: 컴포넌트 치환은 Architect의 semantic.ts 키 freeze 후에만 시작."
+          }
+        ],
+        "research_summary": "현 상태(Explore): Electron + React19 + Tailwind v4 + Radix UI. 단일 다크 테마(nexus-dark)만 활성. design-tokens/index.ts → generate-theme-css.ts → theme.generated.css → Tailwind @theme 파이프라인. 토큰이 단층 구조(색/스페이싱/라디우스/타입스케일이 평면적으로 혼재), semantic 티어·테마분리 없음. 라이트 테마 CSS 스코프는 미리 선언돼 있으나 store/toggle/hook 미연결. 현 design.md는 Warp 마케팅 사이트 분석본으로 IDE에 안 쓰이는 내용(자연사진, 80px 히어로 타입) 다수. Monaco는 별도 hex 팔레트. 일부 토큰 봉인됨(--primary, --accent, --shadow none, --radius 0). 폰트는 design.md상 Matter지만 실제는 Pretendard.\n\n연구(Researcher): design.md 권장 구조 = YAML front matter(머신리더블 토큰) + Markdown 본문(철학/근거). 3-tier 토큰 모델: primitive(원시값) → semantic(역할명, 테마별 스왑 지점) → component(조립). invariant 레이어 = 스페이싱/라디우스/타이포/엘리베이션 모델/컴포넌트 지오메트리/리전 토폴로지/인터랙션 철학. variant 레이어 = semantic 컬러 토큰(서피스 스택, 포그라운드 위계, 액센트, 신택스)만. VS Code/Zed/JetBrains 모두 구조(스페이싱·라디우스·타이포)는 테마 불변, 색만 테마 가변. JetBrains Islands 철학 = 공간적 '섬' 모델 — 에디터/툴윈도우/패널 각 리전을 둥근 모서리·구분된 서피스 레벨로 경계 지어진 존으로; 라이트/다크 변형은 동일 지오메트리 공유, 색만 교체.",
+        "created_at": "2026-05-16T05:32:43.272Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "파일명 정합화: kebab 통일 + 중복 prefix 제거 + 단일파일 폴더화",
+          "status": "completed",
+          "context": "직전 폴더 구조 리팩토링(c2e7597~ea66697) 검토 결과 파일명 규칙 불일치 발견. 사용자 지시로 3개 정합화 작업을 단일 패스로 수행: (A) PascalCase .tsx 51개 → kebab-case, (B) 폴더명이 prefix로 중복되는 파일 55개 → prefix 제거 + 파일명==폴더명 3개(window.ts/channel.ts/design-tokens.ts) → index.ts, (C) 모듈 폴더들 사이에 낀 단일파일 6개(main/features/{app-state,dialog,search}, main/infra/{ipc-router,utility-host}, renderer/components/global-roots) → 폴더+index. import 재작성이 한 번에 끝나도록 동시 수행. prefix-strip 충돌 없음 확인됨.",
+          "acceptance": "bun run typecheck 클린 통과. bun test tests/unit 에서 변경 전 baseline 대비 신규 결정적(non-flaky) 실패 없음. 폴더명은 변경하지 않음. 규칙에 해당하지 않는 파일/코드는 손대지 않음.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T10:52:31.147Z",
+          "result": {
+            "outcome": "success",
+            "summary": "114개 파일 정합화(A:kebab 51, B:prefix제거 54, C:index 3, D:폴더화 6) + import 재작성 217파일 + 런타임 경로 문자열 4파일. typecheck 클린 통과, unit 테스트 1422 pass/11 fail로 baseline 동일(신규 회귀 없음). lint 에러 1개도 변경 전과 동일(pipe.ts pre-existing). 커밋 미수행, 워킹트리에만 변경.",
+            "recorded_at": "2026-05-15T11:15:46.032Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "저장 충돌 해소: 디스크 변경 감지 + 충돌 해소 다이얼로그",
+          "status": "completed",
+          "context": "dirty 버퍼 상태에서 git 브랜치 체크아웃으로 디스크 파일이 바뀌면 reconcileExternalChange가 bail하고 loadedMtime이 stale로 남아 저장 시 writeFile mtime 가드가 conflict를 반환, 충돌 루프 발생. 1단계=디스크 변경 기록, 2단계=충돌 해소 UI.",
+          "acceptance": "1단계 reconcileExternalChange dirty-bail이 디스크 mtime/size를 entry.diskDiverged에 기록하고 snapshot 노출, reload/save 시 클리어. 2단계 writeFile conflict 시 Overwrite/Reload/Cancel 다이얼로그, Cmd+S/Save커맨드/closeEditorWithConfirm 경유. typecheck 클린, 테스트 통과.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T11:54:47.447Z",
+          "result": {
+            "outcome": "success",
+            "summary": "1단계: ModelEntry/SharedModelState에 diskDiverged 추가, reconcileExternalChange dirty-bail이 디스크 mtime/size 기록+notifySubscribers, reload/save 시 클리어, reloadEntryFromDisk 추가. 2단계: conflict-dialog.tsx(imperative Overwrite/Reload/Cancel, GlobalRoots에 root 마운트), saveModelInteractive가 conflict 가로채 다이얼로그 경유, Cmd+S/Save커맨드/closeEditorWithConfirm 모두 연결. Compare는 DiffTabPayload가 git-ref 전용 구조라 범위상 후속으로 보류. typecheck 클린, 에디터 서비스 테스트 205 pass(+13 신규), lint 클린.",
+            "recorded_at": "2026-05-15T12:11:11.935Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "머지 충돌 파일 처리: 워킹트리 인앱 오픈 + agent stage-0 fatal 제거",
+          "status": "completed",
+          "context": "머지 충돌 파일 클릭 시 git.getFileContent(INDEX)가 stage 0(:path)을 요청하는데 충돌 파일은 stage 0이 없어(stage 1/2/3만 존재) git이 fatal. 핸들러가 raw로 던져 IPC 콘솔 스팸. 버그 위치: Go agent internal/git/service.go:152-154. 사용자 결정(Option A): 충돌 파일은 diff 대신 워킹트리 파일(충돌 마커 포함)을 인앱 에디터로 연다.",
+          "acceptance": "A: git 패널에서 conflictType 있는 entry 클릭/Open Diff 시 diff 탭이 아니라 워킹트리 파일이 인앱 에디터(openOrRevealEditor)로 열림, 비충돌 파일은 기존 diff 유지. B: Go agent GetFileContent가 unmerged+INDEX에 raw fatal 대신 coded error 반환, 렌더러 소비자가 graceful 처리해 콘솔 스팸 없음. go build/go test/typecheck/관련 테스트 통과.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T12:20:42.972Z",
+          "result": {
+            "outcome": "success",
+            "summary": "A: entry-actions.ts openChanges가 conflictType!==null이면 onOpenDiff 대신 openOrRevealEditor로 워킹트리 파일을 인앱 에디터로 오픈. B: Go internal/git/service.go GetFileContent가 INDEX+unmerged stderr 패턴('not at stage 0')을 감지해 raw fatal 대신 {kind:'missing',reason:'index'} 반환, diff-content-loader가 graceful 처리. blob.go는 cat-file이 이미 missing 처리해 무변경. repository.ts:922는 프로덕션 dead path라 무변경. go build/go test/typecheck 통과, 신규 테스트 14개(Go 3+렌더러 11), git-destructive-contrast 1건은 기존 무관 실패.",
+            "recorded_at": "2026-05-15T12:30:13.533Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "Diff 뷰 좌우 분할(side-by-side) 강제 표시",
+          "status": "completed",
+          "context": "src/renderer/components/editor/diff-tab.tsx 의 Monaco DiffEditor는 이미 renderSideBySide:true 이지만, 패널 폭이 좁으면 Monaco가 자동으로 inline 뷰로 접음(useInlineViewWhenSpaceIsLimited 기본 true / renderSideBySideInlineBreakpoint 기본 900px). 헤더 라벨은 \"Left → Right\"인데 본문은 한 칸으로 나오는 증상.",
+          "acceptance": "Source Control 패널 옆 좁은 폭에서도 diff가 항상 좌우 2열로 표시된다. typecheck/lint 통과. Monaco 옵션 변경(useInlineViewWhenSpaceIsLimited:false 등)이 의도대로 동작함을 런타임에서 확인.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T12:49:12.468Z",
+          "result": {
+            "outcome": "success",
+            "summary": "diff-tab.tsx diffEditorOptions에 useInlineViewWhenSpaceIsLimited:false 추가. Monaco가 좁은 폭에서 inline으로 접던 동작을 막아 항상 좌우 2열 유지. typecheck 통과. 실제 GUI 좌우 분할은 사용자 시각 확인 필요.",
+            "recorded_at": "2026-05-15T13:03:59.554Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "인앱 머지 충돌 해결 UI (인라인 CodeLens 방식)",
+          "status": "completed",
+          "context": "현재 충돌 파일을 클릭하면 entry-actions.ts openChanges가 working-tree 파일을 인앱 에디터로 염(이미 구현됨). 하지만 사용자는 raw <<<<<<< ======= >>>>>>> 마커를 수동 편집해야 함. VSCode 초기 방식처럼 충돌 블록 위에 액션을 띄워야 함. 에디터는 Monaco(@monaco-editor/react). conventions: 클래스/함수에 의미 주석 필수, 폴더는 계층화. 충돌 파서는 데이터 손실 위험이 있어 단위 테스트 필수(tests/unit).",
+          "acceptance": "충돌 마커가 있는 파일을 인앱 에디터로 열면 각 충돌 블록 위에 \"Accept Current Change / Accept Incoming Change / Accept Both / Compare\" 액션(Monaco CodeLens)이 표시되고, current/incoming 영역이 데코레이션으로 구분된다. 액션 선택 시 해당 블록의 마커가 올바르게 치환된다. 충돌 마커 파서에 단위 테스트가 있고 통과. typecheck/lint/test 통과.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "af7d0f9559a7dc93a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-15T12:49:21.679Z",
+          "result": {
+            "outcome": "success",
+            "summary": "conflict-parser.ts(diff3 포함) + conflict-codelens.ts + install-conflict-codelens.ts 신규. 충돌 블록마다 Accept Current/Incoming/Both CodeLens + 영역 데코레이션. no-op이던 Compare Changes는 제거. 파서 단위테스트 추가(멀티블록/diff3/개행없음/accept 각 액션). Lead 코드 리뷰로 라인범위 연산·멀티블록 전진 정확성 확인. typecheck/lint/test green. CodeLens 렌더·데코레이션은 GUI 수동 확인 필요.",
+            "recorded_at": "2026-05-15T13:06:40.277Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "충돌 행의 \"외부 에디터로 열기\" 버튼 제거",
+          "status": "completed",
+          "context": "git-file-row.tsx 의 isConflictRow 분기(라인 107-119)에 ExternalLink 버튼이 있어 shell.openExternal로 외부 에디터를 염. 인앱 충돌 해결 UI(task 2)가 생기면 불필요. 버튼 제거 후 orphaned 코드(onOpenFile prop, openWorkingTreeFile, 컨텍스트 메뉴 openFile 항목)가 충돌 행 전용으로만 쓰였는지 확인하고 정리. 단, openWorkingTreeFile/openFile이 다른 그룹에서도 쓰이면 보존.",
+          "acceptance": "충돌 파일 행에 외부 에디터 버튼이 더 이상 없다. 충돌 파일 클릭 시 인앱 에디터로 열려 task 2의 충돌 UI가 동작한다. 제거로 orphaned 된 import/prop/핸들러만 정리하고 그 외 코드는 손대지 않는다. typecheck/lint 통과.",
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "af7d0f9559a7dc93a",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-15T12:49:28.685Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-file-row.tsx의 충돌 행 외부에디터 버튼 제거 + git-file-context-menu.tsx merge 그룹 컨텍스트메뉴의 'Open in External Editor' 항목 제거. 비충돌 그룹의 openFile/openWorkingTreeFile는 유지(정당한 일반 기능). typecheck/lint green.",
+            "recorded_at": "2026-05-15T13:06:48.815Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "머지 충돌 시 이미 열린 파일의 충돌 UI가 라이브로 표시되도록 수정",
+          "status": "completed",
+          "context": "에디터 모델 엔트리(src/renderer/services/editor/model/entry.ts)는 fs.changed에만 구독(file-loader.ts subscribeFsChanged). git merge/rebase/cherry-pick로 디스크 파일이 바뀌어도 열린 Monaco 모델이 갱신 안 됨 → 충돌 마커 없음 → 충돌 CodeLens UI 안 뜸. 닫았다 열어야 보임. reconcileExternalChange는 정상(클린 버퍼면 model.setValue, dirty면 보존). 메인: src/main/features/git/ipc/workflow-handlers.ts, registry.ts refreshStatus가 git.statusChanged broadcast. diff 뷰는 git.statusChanged를 구독해 갱신되지만 에디터 탭은 fs.changed만 봄.",
+          "acceptance": "앱에서 git merge 실행 시, 이미 에디터에 열려 있던 충돌 파일의 내용이 자동으로 디스크 버전(충돌 마커 포함)으로 갱신되고 충돌 CodeLens UI가 즉시 나타난다. 닫았다 열 필요 없음. 미저장 편집이 있는 버퍼는 덮어쓰지 않고 기존 diskDiverged 동작 유지. typecheck/lint/test 통과. 먼저 근본 원인(fs.changed 발화 여부)을 추적 확인하고 최소·견고한 수정 적용.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T13:28:31.657Z",
+          "result": {
+            "outcome": "success",
+            "summary": "근본원인: fs.changed는 파일트리에서 펼쳐진 디렉터리만 감시되므로, 접힌 디렉터리의 파일을 merge가 재작성해도 에디터 모델이 reconcile되지 않음. 수정: attach-git-subscription.ts 신규 — workspace-origin 모델 엔트리가 git.statusChanged를 구독해 120ms 디바운스 후 reconcileExternalChange 호출. dirty 버퍼는 기존 diskDiverged 가드로 보존. cleanupEntry에서 구독 해제. 단위테스트 추가. typecheck/lint green.",
+            "recorded_at": "2026-05-15T13:38:42.988Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "diff 뷰 \"Refreshing…\" 상시 깜빡임 제거",
+          "status": "completed",
+          "context": "src/renderer/components/editor/diff-content-loader.ts: git.statusChanged broadcast마다 scheduleReload(\"left\")가 호출됨(leftRef !== WORKING이므로 항상). git status broadcast가 자주 발화 → left(HEAD 등 git ref) 콘텐츠를 끊임없이 재요청 → computeStatus가 \"refreshing\" 반환 → diff-tab.tsx의 'Refreshing…' 라벨이 상시 깜빡임. HEAD ref 콘텐츠는 커밋 전엔 안 바뀌므로 대부분 헛 재요청.",
+          "acceptance": "정상 상태에서 diff 뷰의 'Refreshing…' 라벨이 깜빡이지 않는다. 빠른 새로고침(짧은 재요청)에는 라벨이 아예 뜨지 않도록 지연 임계값을 두거나, 불필요한 재요청 자체를 줄인다(예: 콘텐츠/ref 변화 없으면 skip). 실제 diff 내용 갱신 정확성은 유지(머지·커밋 후 left/right가 올바르게 갱신됨). typecheck/lint/test 통과.",
+          "owner": {
+            "role": "engineer"
+          },
+          "created_at": "2026-05-15T13:28:37.489Z",
+          "result": {
+            "outcome": "success",
+            "summary": "diff-tab.tsx에 useDelayedRefreshing 훅 추가 — status가 'refreshing'으로 400ms 이상 지속될 때만 'Refreshing…' 라벨 표시. 빠른 백그라운드 재요청은 무음·무점멸. 과다 재요청 자체는 기존 120ms 디바운스가 coalesce하며, left ref 불변 감지는 추가 IPC 없이 신뢰하기 어려워 의도적 보류(주석 문서화). computeStatus 단위테스트 추가. typecheck/lint green.",
+            "recorded_at": "2026-05-15T13:38:56.420Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "충돌 전부 해결 시 \"해결로 표시\" 에디터 배너",
+          "status": "completed",
+          "context": "VSCode 머지 에디터의 'Complete Merge' 동등 기능. 현재 충돌 파일의 \\\"!\\\"(GitStatusBadge, conflictType!==null)는 markResolved(git store) 호출로만 사라지고, 저장은 git 충돌 상태에 무관. 사용자가 CodeLens로 충돌을 다 풀어도 체크 버튼을 따로 눌러야 해서 혼란. 충돌 파서/마커 감지: src/renderer/services/editor/conflict/conflict-parser.ts hasConflictMarkers. git 충돌 상태: src/renderer/state/stores/git.ts (markResolved, 충돌 엔트리/merge 그룹). 에디터 마운트: src/renderer/components/workspace/content/editor-mount/. 기존 배너 패턴: src/renderer/components/files/git/panel/operation-banner.tsx, .nexus/memory/empirical-banner-contrast.md.",
+          "acceptance": "에디터에 연 파일이 (a) git이 여전히 충돌(conflictType!==null)로 보고 && (b) 버퍼에 충돌 마커가 하나도 없을 때, 에디터 상단에 \\\"✓ 모든 충돌 해결됨 [해결로 표시]\\\" 배너가 표시된다. [해결로 표시] 클릭 시 markResolved(workspaceId,[relPath]) 실행 → git status 갱신 → conflictType null → 배너와 \\\"!\\\" 모두 사라짐. 마커가 아직 남아 있으면(부분 해결) 배너는 안 뜸(CodeLens가 담당). 정상/비충돌 파일엔 영향 없음. 기존 배너 스타일/대비 규칙 준수. 감지 술어(predicate)에 단위 테스트. typecheck/lint/test 통과.",
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ab777bc5ab36e034b",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-15T14:30:59.620Z",
+          "result": {
+            "outcome": "success",
+            "summary": "ConflictResolvedBanner 구현: git이 충돌로 보고(conflictType!==null) && 버퍼에 마커 없으면 에디터 상단에 '✓ 모든 충돌 해결됨 [해결로 표시]' 배너 표시, 클릭 시 markResolved 실행. 최종적으로 배너는 순수 컴포넌트(props: isConflicted/hasMarkers/onMarkResolved), git store 의존 로직은 editor-view.tsx private hooks로 이동 — Bun mock 전역 캐싱 오염 회피. shouldShowConflictResolvedBanner predicate 단위테스트. typecheck/lint clean, workspace 테스트 94 pass/0 fail, 전체 baseline(11 fail) 유지 — 신규 실패 없음.",
+            "recorded_at": "2026-05-15T14:57:20.056Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "design.md 재작성 — 디자인 철학·토큰 계약 문서",
+          "status": "completed",
+          "context": "현 .nexus/context/design.md는 Warp 마케팅 사이트 분석본(임시용)으로 폐기 대상. Issue 1·2 결정에 따라 처음부터 재작성한다. F2 Contract Doc 포맷: design.md는 토큰 '값'이 아니라 '구조·규칙·철학'의 계약서 — 색값을 일절 담지 않는다. 위치는 .nexus/context/design.md 유지.",
+          "acceptance": "design.md가 12섹션으로 작성됨. 색값(hex/oklch) 0개. region.element.role semantic vocabulary 표가 §9에 존재하고 surface.canvas/chrome/panel/floating + 8개 IDE 리전 + terminal.ansi.* 16키를 포함. invariant/theme-variant 경계선 표 존재. WCAG 대비 게이트 수치(본문 4.5:1, UI/포커스 3:1 등) §10에 명시. front matter에 default_theme:warm-dark. 기존 Warp 마케팅 내용 미포함.",
+          "approach": "Issue 1·2 plan analysis(designer 기록)를 1차 소스로 사용. YAML front matter는 메타·라우팅만(doc/version/status/token_source/theme_source/default_theme:warm-dark/supersedes). 본문 12섹션: 0.Preamble(경로 참조 실재 검증 정책 포함) 1.Philosophy(불변 5축+invariant/theme-variant 경계선 표) 2.Spatial Model(4서피스레벨 L0~L3, Bounded Zones) 3.Density(4pt 그리드) 4.Shape(라디우스 4단계) 5.Typography(in-app 스케일) 6.Motion 7.Interaction(9-state+redundant encoding, diff/git 레인 색 예외 명시) 8.Token Tiering(primitive→semantic→component) 9.Region Semantics(editor/sidebar/tab/panel/terminal/diff/git/status, region.element.role vocabulary 표 — terminal.ansi.* 16키 포함) 10.Theme Authoring Rules(WCAG 대비 게이트 수치) 11.Anti-patterns 12.Agent Guide. 마케팅 전용 섹션 전부 삭제.",
+          "risk": "§9 vocabulary 표가 후속 semantic.ts 키와 1:1 정합해야 함 — 불일치 시 토큰 리팩토링이 흔들림. 이 표가 사실상 semantic 키의 freeze 기준점.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "writer",
+            "agent_id": "a77f0ab1b1134e185",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:23:35.797Z",
+          "result": {
+            "outcome": "success",
+            "summary": "design.md v2.0 재작성 완료 — F2 Contract Doc, 12섹션, 색값 0. §9 region.element.role vocabulary 표(surface 4종+전역 state 15키+전역 feedback 6키+IDE 8리전+terminal.ansi 16키+git.lane 0~7) 확정. reviewer APPROVED.",
+            "artifacts": [
+              ".nexus/context/design.md"
+            ],
+            "recorded_at": "2026-05-16T06:42:52.740Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "design.md 검증 — 계약 문서 정합성 리뷰",
+          "status": "completed",
+          "context": "재작성된 design.md(task 10)가 Issue 1~4 결정과 정합하는지, F2 Contract Doc 규칙을 지키는지 검증한다.",
+          "acceptance": "12섹션 완비·색값 0개·vocabulary 표 키 누락 0건 확인됨. Issue 1~4 plan 결정과 불일치 항목 0건. 발견 이슈는 task 10으로 반려 또는 수정 지시.",
+          "approach": "12섹션 구조·누락 확인. 색값 0개 여부 grep 검증. §9 vocabulary 표가 8개 리전 + surface 4종 + terminal.ansi 16키를 빠짐없이 포함하는지 대조. invariant/theme-variant 경계선 표가 Issue 1 결정과 일치하는지. WCAG 수치 정확성. front matter 메타 필드 완비. 한국어/용어 일관성.",
+          "plan_issue": 2,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "reviewer"
+          },
+          "created_at": "2026-05-16T06:23:54.131Z",
+          "result": {
+            "outcome": "success",
+            "summary": "design.md 검증 2회차. 1차 REVISION_REQUIRED(WARNING 5) → writer 보정 → 2차 APPROVED(WARNING 0). §7↔§9 토큰 freeze 완전성 교차검증 통과. 비블로킹 INFO 1건(feedback.info 사용 지침 부재).",
+            "recorded_at": "2026-05-16T06:42:55.246Z"
+          }
+        },
+        {
+          "id": 12,
+          "title": "토큰 4파일 분해 — primitive/semantic/component 3-tier",
+          "status": "completed",
+          "context": "현 src/shared/design-tokens/index.ts는 단층 god file(color+buildSemanticTokens+spacing+borderRadius+typeScale 혼재). Issue 3 결정에 따라 primitive→semantic→component 3-tier로 분해. design.md §9 vocabulary가 semantic 키의 freeze 기준.",
+          "acceptance": "primitive/semantic/component 4파일 분해 완료, index.ts는 배럴. tsc 타입체크 통과. theme.generated.css 출력이 분해 전과 diff=0(구조변경 무회귀 게이트). bun run lint·typecheck 통과. SemanticKey 키 집합이 design.md §9 vocabulary 표와 1:1 일치.",
+          "approach": "Architect 마이그레이션 1~3단계(구조변경, 무행위변경). primitive.ts(원시 OKLCH/hex 스케일·spacing·radius, 불변) / semantic.ts(SemanticKey flat 문자열 타입 + Record<SemanticKey,string> 빈 키 계약, SEALED 상수로 --radius·--shadow를 SemanticKey에서 제외) / component.ts(buildShadcnVars 어댑터 — shadcn 변수명→SemanticKey 키매핑, 기존 buildSemanticTokens 대체) 분해. index.ts는 배럴 재export만으로 축소해 기존 소비처 import 경로 불변. 라디우스 4단계(none/control/container/full)로 재정의, --radius:0 봉인 해제하여 control 기본값. 마케팅 18-role 타입스케일 제거(cn.ts·generator·소비처 영향 정리). generate-theme-css.ts를 테마별 스코프 루프 구조로 준비(테마 1개라 출력 동일). index.ts 주석의 marketing.ts 경로 드리프트 수정.",
+          "risk": "SemanticKey 전수 열거가 design.md §9에 의존 — task 10 미완 시 키가 흔들림. 마케팅 타입스케일 제거가 cn.ts/EditorView/TerminalView 등 소비처에 파급.",
+          "plan_issue": 3,
+          "deps": [
+            10
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:24:08.584Z",
+          "result": {
+            "outcome": "success",
+            "summary": "design-tokens 단층 god file을 primitive/semantic/component/index 4파일 + themes/warm-dark.ts로 분해. SemanticKey 122키 union이 design.md §9 vocabulary와 1:1, warmDark가 Record<SemanticKey,string> 충족(TS2741 가드). buildShadcnVars 어댑터가 buildSemanticTokens 대체. typecheck clean. theme.generated.css는 shadcn 변수 값 동일, 유일한 비가산 변경은 --radius 0→4px(Issue1 봉인해제 결정). 마케팅 타입스케일 cn.ts 머지그룹에서 제거(코드 롤 미영향). 프리익스팅 lint 1 error는 기존 사항.",
+            "artifacts": [
+              "src/shared/design-tokens/primitive.ts",
+              "src/shared/design-tokens/semantic.ts",
+              "src/shared/design-tokens/component.ts",
+              "src/shared/design-tokens/themes/warm-dark.ts",
+              "src/shared/design-tokens/index.ts",
+              "scripts/generate-theme-css.ts"
+            ],
+            "recorded_at": "2026-05-16T06:51:07.648Z"
+          }
+        },
+        {
+          "id": 13,
+          "title": "테마 3파일 작성 — Warm Dark · Cool Dark · Warm Light",
+          "status": "completed",
+          "context": "Issue 3 결정: 초기 테마 3개. 각 테마는 semantic.ts의 SemanticTokenSet 전 키를 채운다. themes/{index,warm-dark,cool-dark,warm-light}.ts.",
+          "acceptance": "3개 테마 파일이 SemanticTokenSet 전 키를 충족(tsc 통과, 키 누락 0). 각 테마가 design.md §10 WCAG 대비 게이트(본문 4.5:1, UI 컴포넌트·포커스 3:1)를 통과 — task 21에서 검증. 채도 C≤0.012 준수. Cool Dark·Warm Dark 명도·서피스레벨 간격 동일(hue만 차이).",
+          "approach": "themes/index.ts에 테마 레지스트리(ThemeId 타입, THEMES 맵, DEFAULT_THEME=warm-dark). Warm Dark는 현 nexus-dark 값을 SemanticTokenSet로 이전(designer Issue 3 분석: hue≈90-110, L0≈0.18, C≤0.012). Cool Dark는 Warm Dark와 동일 명도·서피스레벨 간격, hue만 230-260으로 반전. Warm Light는 Warm Dark와 동일 hue 패밀리, 명도 반전(L0≈0.96, 순수 흑백 금지). 라이트 테마의 hover/active 오버레이는 어두운 방향으로 반전. 모든 테마 채도 C≤0.012. designer가 제시한 h/L/C 범위는 방향성이며 정밀값은 대비 게이트 통과하도록 튜닝. TS 타입(Record<SemanticKey,string>)이 키 누락을 컴파일타임에 강제.",
+          "risk": "Cool Dark 채도를 올리고 싶은 유혹 → near-monochromatic 위반. 대비 게이트 미달 시 색 재튜닝 반복.",
+          "plan_issue": 3,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:24:20.758Z",
+          "result": {
+            "outcome": "success",
+            "summary": "3테마 작성 후 task 21 FAIL로 대비 게이트 25건 재튜닝 — L(명도)값만 조정(C·H 불변)해 전항목 통과. editor.gutter.fg·muted UI 토큰·state.disabled.fg·state.error.fg·diff.unchanged.fg·diff.deleted.fg·terminal.ansi.brightBlack 등. tester 재검증 PASS(C·H 불변 확인, near-monochromatic 유지). 3테마 122키 계약 충족, typecheck clean.",
+            "artifacts": [
+              "src/shared/design-tokens/themes/warm-dark.ts",
+              "src/shared/design-tokens/themes/cool-dark.ts",
+              "src/shared/design-tokens/themes/warm-light.ts",
+              "src/shared/design-tokens/themes/index.ts"
+            ],
+            "recorded_at": "2026-05-16T08:08:40.585Z"
+          }
+        },
+        {
+          "id": 14,
+          "title": "테마 전환 인프라 — 스토어·훅·영속화·빌드 생성기",
+          "status": "completed",
+          "context": "Issue 3 결정: 빌드타임 A 방식(전 테마 CSS 생성 + data-theme 런타임 전환). 전환 인프라와 FOUC 방지 부트를 구축한다.",
+          "acceptance": "3개 테마 전환이 data-theme 속성 변경으로 즉시 동작(FOUC 없음). 앱 재시작 후 선택 테마 복원. OS 다크/라이트 변경 시 preference=system이면 Warm Dark⇄Warm Light 자동 전환. titlebar 색이 테마와 일치. lint·typecheck 통과. theme-switch UI 토글 1개 포함(설정 위치는 최소 구현).",
+          "approach": "generate-theme-css.ts를 테마별 [data-theme] 스코프 루프로 emit, @theme inline으로 --color-*를 var(--원시변수) 참조 등록(Researcher 검증 패턴). state/stores/theme.ts 신설(preference: ThemeId|\"system\", resolved, setPreference). useThemeEffect() 훅 — resolved 변경 시 documentElement data-theme 적용 + Monaco/xterm 동기화 트리거. OS prefers-color-scheme는 preference==\"system\"일 때만 matchMedia 구독(Auto 페어=Warm Dark⇄Warm Light, Cool Dark 명시선택 시 추종 해제). 영속화 이중 쓰기: index.html <head>에 인라인 부트 스크립트(localStorage 동기 읽어 첫 페인트 전 data-theme 적용) + CSP meta에 SHA-256 해시; appState(AppStateSchema에 themePreference 추가, ThemeId는 shared 단일소스 참조)에도 기록 — main이 BrowserWindow titleBarOverlay 색 동기화에 사용. globals.css의 수동 [data-theme=light] git 토큰 블록은 생성 루프로 흡수.",
+          "risk": "인라인 부트 스크립트의 첫 페인트 전 실행은 Electron 로딩서 실측 검증 필요(Researcher: 표준상 보장되나 버전별 확인 권장). CSP 해시는 스크립트 변경 시 갱신 필요.",
+          "plan_issue": 3,
+          "deps": [
+            12,
+            13
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:24:34.992Z",
+          "result": {
+            "outcome": "success",
+            "summary": "테마 전환 인프라 전체 구축. @theme inline로 Tailwind 유틸리티 [data-theme] cascade, theme.ts 스토어(preference/resolved 이중쓰기 localStorage+appState), useThemeEffect 훅(data-theme 적용 + nexus:theme-changed CustomEvent 확장점), index.html FOUC 부트 스크립(첫 페인트 전 동기 적용, HTML 속성 fallback), AppStateSchema themePreference, titleBarOverlay 테마 연동, theme-switch 토글. typecheck clean, 신규 12파일 lint 0. CSP는 기존 정책 부재로 SHA-256 해시를 주석 문서화. titleBarOverlay hex는 근사값 — task 21에서 정밀화.",
+            "artifacts": [
+              "src/renderer/state/stores/theme.ts",
+              "src/renderer/hooks/use-theme-effect.ts",
+              "src/renderer/bootstrap.ts",
+              "src/renderer/index.html",
+              "src/shared/types/app-state.ts",
+              "src/main/features/window/index.ts",
+              "scripts/generate-theme-css.ts"
+            ],
+            "recorded_at": "2026-05-16T07:03:02.664Z"
+          }
+        },
+        {
+          "id": 15,
+          "title": "Monaco 에디터 테마 동기화",
+          "status": "completed",
+          "context": "Issue 3 결정: 현 단일 nexusDarkPalette를 테마별 팔레트로. Monaco는 OKLCH 미지원 → hex 필요.",
+          "acceptance": "3개 테마 각각에서 Monaco 에디터 색이 일치. 테마 전환 시 열린 에디터가 즉시 갱신. diff/conflict-codelens 색이 다크·라이트 양쪽에서 대비 게이트 통과(task 21 검증). typecheck 통과.",
+          "approach": "src/shared/editor/palette.ts를 Record<ThemeId, EditorPalette>로 확장. monaco-theme.ts가 전 테마를 defineTheme으로 사전 등록하고 전환은 monaco.editor.setTheme(name). useThemeEffect가 resolved 변경 시 setTheme 호출 → 모든 인스턴스 즉시 반영. OKLCH→hex는 culori(이미 deps)로 빌드타임 변환; alpha 합성 tier(예 #faf9f60f)는 의미 보존 위해 테마별 명시 입력으로 남김(반자동). 변환 가능분과 수동 alpha tier의 경계를 코드 주석으로 명확히.",
+          "risk": "Monaco/xterm hex와 semantic OKLCH 이중 소스 드리프트 — culori 자동 변환으로 완화하되 alpha tier는 수동이라 누락 위험.",
+          "plan_issue": 3,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:24:44.741Z",
+          "result": {
+            "outcome": "success",
+            "summary": "palette.ts를 3테마 EDITOR_PALETTES(Record<ThemeId,EditorPalette>)로 확장, monaco-theme이 3테마 defineTheme 사전등록 + nexus:theme-changed 구독으로 setTheme 전역 전환. culori 자동변환/수동 alpha 경계 주석 명시. warmLight는 어두운 방향 오버레이 + 진단색 재튜닝. typecheck clean. 하위호환 export 유지.",
+            "artifacts": [
+              "src/shared/editor/palette.ts",
+              "src/renderer/services/editor/runtime/monaco-theme.ts"
+            ],
+            "recorded_at": "2026-05-16T07:10:41.059Z"
+          }
+        },
+        {
+          "id": 16,
+          "title": "xterm 터미널 테마 동기화",
+          "status": "completed",
+          "context": "Issue 3 결정: 현재 controller가 bgCanvas 1색만 주입하고 ANSI 16색 미설정. 테마별 터미널 팔레트 필요.",
+          "acceptance": "3개 테마 각각에서 터미널 bg/fg/ANSI 16색 일치. 테마 전환 시 열린 터미널 즉시 갱신. 라이트 테마에서 ANSI blue/red가 3:1 이상(task 21 검증). typecheck 통과.",
+          "approach": "src/shared/editor/terminal-palette.ts 신설 — Record<ThemeId, ITheme>로 background/foreground/cursor/selection + ANSI 16색(black..brightWhite). Monaco와 동일 culori 빌드타임 변환 경로 공유. 각 테마의 ANSI 색은 자기 배경에 맞춰 재튜닝(표준 ANSI 복붙 금지, 특히 라이트 배경의 blue/red 대비). controller에 applyTheme(id) 메서드 추가, useThemeEffect가 활성 controller 전체에 브로드캐스트, 전환 시 term.options.theme 재대입. ANSI 16키는 design.md §9 terminal.ansi.* vocabulary와 정합.",
+          "risk": "xterm 6.x 런타임 theme 재대입 API 동작 확인 필요. ANSI 16색이 semantic vocabulary에서 누락되면 테마별 누락 사고.",
+          "plan_issue": 3,
+          "deps": [
+            14
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a578206577f4af322",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:24:53.521Z",
+          "result": {
+            "outcome": "success",
+            "summary": "terminal-palette.ts 신설 — 3테마 ITheme(bg/fg/cursor/selection + ANSI 16색) culori 변환. controller가 생성 시 현 테마 주입, applyTheme + nexus:theme-changed 구독으로 전환 시 즉시 갱신. xterm 6.x term.options.theme 런타임 재대입 확인. 전체 typecheck clean(병렬 편집 중 보고된 오류 3건은 일시적 상태, 해소됨). warm-light 터미널은 다크 bg 유지(design.md §10 inverted zone) — warm-dark ANSI 재사용. selectionBackground는 solid hex 근사합성(task 21 검증 대상).",
+            "artifacts": [
+              "src/shared/editor/terminal-palette.ts",
+              "src/renderer/services/terminal/controller.ts"
+            ],
+            "recorded_at": "2026-05-16T07:10:54.633Z"
+          }
+        },
+        {
+          "id": 17,
+          "title": "UI 리팩토링 S1 — button.tsx 마케팅 잔재 제거 + Loading 상태",
+          "status": "completed",
+          "context": "Issue 4 결정: button.tsx를 먼저 안정화(전 화면에 박혀 있어 이후 표면 작업의 변수 제거). S0 기준 스냅샷(Warm Dark 수동 스크린샷)을 이 작업 전에 확보.",
+          "acceptance": "pill·frostedTag variant 제거됨, 하드코딩 색(text-black 등) 0. hover/active/focus/disabled/loading 상태가 semantic 토큰 기반. 버튼 높이·패딩 등 지오메트리 분해 전과 동일. 3개 테마에서 버튼 가시. typecheck·lint 통과. S0 스냅샷 확보됨.",
+          "approach": "S0: 리팩토링 전 Warm Dark 주요 화면 수동 스크린샷 보관(신규 자동화 인프라는 만들지 않음). button.tsx CVA에서 pill·frostedTag variant 제거(마케팅 잔재, frostedTag의 text-black 하드코딩 포함). hover의 bg-primary/90 밝기시프트를 semantic state.hover 토큰으로 치환. focus ring은 이미 양호 — 유지. Loading 인라인 상태 추가(스피너 아닌 형태 신호: 텍스트+인디케이터, redundant encoding). 버튼 높이·지오메트리 불변.",
+          "risk": "제거한 variant를 쓰는 호출처가 있으면 회귀 — 사용처 먼저 grep 확인.",
+          "plan_issue": 4,
+          "deps": [
+            12
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:25:04.785Z",
+          "result": {
+            "outcome": "success",
+            "summary": "button.tsx 리팩토링 — pill·frostedTag variant 제거(pill 사용처 git-empty-state 1건 default로 마이그레이션, frostedTag 0건), hover bg-primary/90·frosted-veil 오퍌시트를 semantic state.hover/active 치환, Loading prop 추가(redundant encoding: 스피너+라벨+disable), radius-control(4px) base 적용. buildShadcnVars·generate-theme-css에 state.* CSS 변수 노출. S0 baseline 지오메트리 표 확보. typecheck/lint 통과. 잔여(task 20 이월): destructive text-white 하드코딩, primitive.ts frostedTag 색.",
+            "artifacts": [
+              "src/renderer/components/ui/button.tsx",
+              "src/renderer/components/files/git/panel/git-empty-state.tsx",
+              "src/shared/design-tokens/component.ts"
+            ],
+            "recorded_at": "2026-05-16T07:13:54.427Z"
+          }
+        },
+        {
+          "id": 18,
+          "title": "UI 리팩토링 S2~S3 — L1 chrome + L2 패널 표면",
+          "status": "completed",
+          "context": "Issue 4 결정: 격리도 순 L1→L2. P1(흰색 오버레이 전면 치환)·P3(존 경계 hairline)·P5(서피스레벨 매핑)의 핵심 적용 구간.",
+          "acceptance": "L1·L2 표면에서 frosted-veil rgba 흰색 직접 사용 0(전부 semantic state.*). 존 경계 hairline 적용(title-bar↔sidebar·split-pane). 모든 표면이 surface.* 레벨 토큰 사용. 3개 테마 모두에서 hover/active/selected 가시(라이트 포함). 레이아웃 지오메트리 S0 스냅샷과 동일. 표면별 커밋 분리.",
+          "approach": "S2 L1 chrome: title-bar·sidebar·resize-handle. title-bar↔sidebar 존 경계를 hairline으로 명시(현재 톤만 의존). sidebar의 frosted-veil hover/active를 semantic state.* 치환(라이트 테마 대응 — 오버레이 방향 테마별). 좌측 액센트바 active는 모범이라 유지. surface.chrome 레벨 매핑. S3 L2 패널: file-tree→search→git panel→tab-bar 순. 각 표면 hover/selected를 semantic state.*로, surface.panel 레벨 매핑. tab active는 하단 border 두께/색을 형태 신호로 승격(색 외 채널 redundant). split-pane 경계 hairline. git-status-badge는 색만 semantic화하고 로직 불변. 표면 단위 독립 커밋. 지오메트리 불변 — 색·표면 토큰만 교체.",
+          "risk": "스코프 크리프 — 표면을 열면 무관한 정렬·a11y 손대고 싶은 유혹. 발견 사항은 기록만, 별 이슈로.",
+          "plan_issue": 4,
+          "deps": [
+            17
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:25:17.587Z",
+          "result": {
+            "outcome": "success",
+            "summary": "L1 chrome + L2 패널 26개 파일 리팩토링. 흔색 오버레이 46건(frosted-veil 28→state.hover/active, mist-border 18→border/ring) semantic 치환. P3 존 경계 hairline — title-bar 하단·sidebar 우측. 탭 surface 토큰 3개 추가, 탭 active는 하단 hairline+서피스레벨 하강(redundant). typecheck/lint clean. L3 다이얼로그·메뉴와 git history 심층 서브패널의 잔여 frosted-veil은 task 19로 이월.",
+            "artifacts": [
+              "src/renderer/components/workbench/title-bar.tsx",
+              "src/renderer/components/workbench/sidebar.tsx",
+              "src/renderer/components/workspace/tabs/tab-item.tsx",
+              "src/renderer/components/files/file-tree/",
+              "src/renderer/components/files/search/",
+              "src/renderer/components/files/git/",
+              "src/shared/design-tokens/component.ts"
+            ],
+            "recorded_at": "2026-05-16T07:21:33.448Z"
+          }
+        },
+        {
+          "id": 19,
+          "title": "UI 리팩토링 S4~S5 — L0 콘텐츠 + L3 floating",
+          "status": "completed",
+          "context": "Issue 4 결정: L0(에디터·터미널 콘텐츠)는 Monaco/xterm 외부 의존이라 패턴 성숙 후 진입. L3(다이얼로그·메뉴·팝오버·툴팁·토스트)는 결합도 낮아 마지막.",
+          "acceptance": "diff·터미널·git-lane 색이 semantic 토큰 기반, 3개 테마에서 대비 게이트 통과(task 21 검증). L3 표면이 surface.floating 레벨 적용. 흰색 오버레이 직접 사용 0. Monaco/xterm 동작·키바인딩 불변. typecheck·lint 통과.",
+          "approach": "S4 L0: editor diff-tab·conflict-codelens·git-lane·terminal-view. diff added/removed/conflict 색을 semantic diff.*로, git 그래프 lane을 git.lane.*로(redundant-encoding 예외 — 노드 형태 commit/merge로 보조 인코딩). 터미널 ANSI는 task 16과 정합. P4 적용 구간. S5 L3: dialogs(form/prompt/save-confirm/conflict 등)·context-menu·command-palette·toast·lsp hover/completions를 surface.floating 레벨 + container 라디우스로 정렬, 흰색 오버레이 semantic 치환. 표면 단위 독립 커밋. 지오메트리·동작 불변.",
+          "risk": "L0는 Monaco/xterm 테마 어댑터(task 15·16)에 의존 — 그 작업 미완 시 색 정렬 불가. editor-palette.ts 실재 여부 확인 필요.",
+          "plan_issue": 4,
+          "deps": [
+            18,
+            15,
+            16
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:25:28.890Z",
+          "result": {
+            "outcome": "success",
+            "summary": "L0 콘텐츠 + L3 floating 41개 파일 리팩토링. frosted-veil/mist-border 흔색 오버레이 전면 제거(grep 0 확인, 주석 2줄만 잔존). diff.* / git.lane.* semantic 치환, L3 floating surface.floating 레벨 + container 라디우스 + shadow-none, --floating-scrim CSS 변수 추가(커맨드팔레트 백드롭). task 18 이월분(L3 메뉴·git history 서브패널) 포함. typecheck clean. git.ts lint는 세션 미변경 기존부채.",
+            "artifacts": [
+              "src/renderer/components/ui/context-menu.tsx",
+              "src/renderer/components/ui/toast.tsx",
+              "src/renderer/components/ui/palette/command-palette-frame.tsx",
+              "src/renderer/components/ui/form-dialog.tsx",
+              "src/renderer/components/ui/prompt-dialog.tsx",
+              "src/renderer/components/editor/diff-tab.tsx",
+              "src/renderer/components/files/git/",
+              "src/shared/design-tokens/component.ts"
+            ],
+            "recorded_at": "2026-05-16T07:37:07.752Z"
+          }
+        },
+        {
+          "id": 20,
+          "title": "UI 리팩토링 S6 — 후순위 정돈 + banner 5종 통합",
+          "status": "completed",
+          "context": "Issue 4 결정('넓게'): 정돈·통합도 이번 단계 포함하되 P1~P5와 커밋 단계 분리(회귀 격리).",
+          "acceptance": "비-4pt 매직넘버·산재 라디우스 정렬 완료. banner 5종이 단일 Banner로 통합되고 기존 호출처 전부 마이그레이션, 동작 회귀 0. skeleton·EmptyState 제네릭화. 정돈/통합 커밋 분리. typecheck·lint 통과.",
+          "approach": "비-4pt 매직넘버(my-0.5·gap-1.5·pr-7 등) 일괄 4pt 그리드 정렬. 산재 라디우스(rounded-[3px]/[4px]/[6px])를 4단계로 정렬. banner 5종(git-inline-banner·operation-banner·terminal-status-banner·read-only-banner·conflict-resolved-banner) → 단일 Banner 컴포넌트 + variant(info/warning/error/success)로 통합 — 통합 전 5종의 호출처·동작 차이 인벤토리 필수. skeleton을 git 전용에서 제네릭 프리미티브로 승격, EmptyState 정본화, Success는 toast로 수렴. 정돈 커밋과 통합 커밋을 분리.",
+          "risk": "banner 5종은 호출처·동작이 제각각 — 통합 시 동작 차이 놓치면 기능 회귀. 통합 전 동작 인벤토리로 완화.",
+          "plan_issue": 4,
+          "deps": [
+            19
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7ff14662ded8010c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T06:25:38.958Z",
+          "result": {
+            "outcome": "success",
+            "summary": "S6 정돈 + banner 통합. 4pt 매직넘버·라디우스 정렬, frostedTag 제거, destructive-foreground 토큰화. banner 5종→단일 Banner 프리미티브 + variant, Skeleton·EmptyState 제네릭 신설. 호출처 전수 마이그레이션. 그루밍 커밋(c7c0bd5)·banner 통합 커밋(6bf3da2) 분리. typecheck 통과, lint 세션 도입 오류 0(기존 부채 1 error/45 warning 유지). 신규 UI 프리미티브 3개: Banner/Skeleton/EmptyState.",
+            "artifacts": [
+              "src/renderer/components/ui/banner.tsx",
+              "src/renderer/components/ui/skeleton.tsx",
+              "src/renderer/components/ui/empty-state.tsx",
+              "src/renderer/components/ui/button.tsx",
+              "src/shared/design-tokens/primitive.ts"
+            ],
+            "recorded_at": "2026-05-16T07:47:31.098Z"
+          }
+        },
+        {
+          "id": 21,
+          "title": "멀티테마 검증 S7 — 3테마 회귀·대비 게이트",
+          "status": "completed",
+          "context": "Issue 3·4 결정: 리팩토링 전체의 수용 게이트. 3개 테마 × 표면으로 시각 회귀와 WCAG 대비를 검증.",
+          "acceptance": "3개 테마 모두 대비 게이트 전 항목 통과(미달 0). 6개 취약 지점 측정값 기록. 지오메트리 회귀 0. 테마 전환·복원·OS 연동 정상. 색 단독 의존 상태 신호 0건. 미달·회귀 발견 시 해당 task로 반려.",
+          "approach": "3개 테마(Warm Dark·Cool Dark·Warm Light) 각각에서: (1) 지오메트리 회귀 — S0 스냅샷 대비 레이아웃·크기·위치 불변 확인. (2) 대비 게이트 — design.md §10 수치로 실제 렌더 sRGB 측정: 본문 4.5:1, 대형텍스트 3:1, UI 컴포넌트·상태·포커스링 3:1. designer가 지목한 6개 취약 지점 집중 — text.muted 11-13px, hover/active 표면 차, hairline 존 경계, diff 배경 위 텍스트, 터미널 ANSI, selection. (3) 테마 전환 런타임 — data-theme 전환 즉시성·FOUC 없음·Monaco/xterm 동기 갱신·재시작 복원·OS 자동전환. (4) redundant-encoding — 그레이스케일에서 상태 신호 식별 가능 확인.",
+          "risk": "대비 게이트가 수동 측정이면 누락 위험 — 측정 항목을 체크리스트로 명시. 미달 시 테마 색 재튜닝(task 13) 반복 발생 가능.",
+          "plan_issue": 4,
+          "deps": [
+            20
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-16T06:25:50.896Z",
+          "result": {
+            "outcome": "success",
+            "summary": "멀티테마 검증 2회차. 1차 FAIL(WCAG 대비 25건) → task 13 재튜닝 → 2차 PASS. 3테마 대비 게이트 전항목 통과(culori 실측), 지오메트리 회귀 0, redundant encoding 확인, 테마 전환 배선 검증. typecheck clean. 비블로킹 INFO 1건(error+selected 가상 쌍, 실 렌더 경로 없음).",
+            "artifacts": [],
+            "recorded_at": "2026-05-16T08:08:48.789Z"
+          }
+        }
+      ]
     }
   ]
 }

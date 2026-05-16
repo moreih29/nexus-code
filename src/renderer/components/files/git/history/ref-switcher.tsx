@@ -10,7 +10,7 @@ import { Button } from "../../../ui/button";
 import { BranchPicker } from "../branch/picker";
 
 const HISTORY_SCOPE_TOGGLE_ON_CLASS =
-  "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
+  "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 interface HistoryRefSwitcherProps {
   workspaceId: string;
@@ -39,12 +39,12 @@ export function HistoryRefSwitcher({
   const trimmedQuery = searchQuery.trim();
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-mist-border px-2 py-2">
+    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-2 py-2">
       <div className="min-w-0">
         <button
           type="button"
           disabled={disabled}
-          className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-app-ui text-foreground hover:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-app-ui text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           onClick={() => setOpen(true)}
         >
           <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
+// ThemeId is the single source of truth — imported from design-tokens so the
+// zod enum stays in sync with the runtime registry without duplication.
+// design.md §8 decision: "ThemeId를 shared 단일소스로 참조 — zod enum 이중정의 금지"
+export const ThemePreferenceSchema = z.enum(["warm-dark", "cool-dark", "warm-light", "system"]);
+export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
+
 export const WindowBoundsSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -14,6 +20,9 @@ export const AppStateSchema = z.object({
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
+  // Theme preference persisted to appState (authoritative store).
+  // localStorage is also written as a boot cache for FOUC prevention.
+  themePreference: ThemePreferenceSchema.optional(),
 });
 
 export type WindowBounds = z.infer<typeof WindowBoundsSchema>;

@@ -27,12 +27,12 @@ interface SearchOptionsTogglesProps {
   viewModeDisabled?: boolean;
 }
 
-// ON-state styling: an inset ring + foreground text + frosted background.
+// ON-state styling: an inset ring + foreground text + active overlay background.
 // The ring is what distinguishes "pressed" from "hover" — the ghost
-// variant's hover state shares the same bg-frosted-veil-strong, so a bg
+// variant's hover state shares the same state.hover.bg overlay, so a bg
 // change alone would let pressed and hover look identical.
 const TOGGLE_ON_CLASS =
-  "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
+  "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 export function SearchOptionsToggles({
   options,
@@ -82,7 +82,7 @@ export function SearchOptionsToggles({
         <Regex aria-hidden="true" />
       </Button>
       {/* 1px mist-border divider separating search-option toggles from view-mode toggle */}
-      <span className="w-px self-stretch bg-mist-border mx-0.5 shrink-0" aria-hidden="true" />
+      <span className="w-px self-stretch bg-border mx-0.5 shrink-0" aria-hidden="true" />
       <ViewModeToggle
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}

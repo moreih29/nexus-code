@@ -132,7 +132,7 @@ registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
-registerSystemChannel({ openNewWindow: createMainWindow });
+registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 
 app.whenReady().then(async () => {
   // Replace Electron's default menu (which still binds Cmd+W to "Close
@@ -192,11 +192,12 @@ app.whenReady().then(async () => {
   });
   registerLspChannel(lspHost);
 
-  wireAutofetchWindowFocus(createMainWindow());
+  // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
+  wireAutofetchWindowFocus(createMainWindow(stateService.getState()));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      wireAutofetchWindowFocus(createMainWindow());
+      wireAutofetchWindowFocus(createMainWindow(stateService.getState()));
     }
   });
 });

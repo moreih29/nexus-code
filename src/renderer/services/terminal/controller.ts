@@ -2,7 +2,10 @@ import { CanvasAddon } from "@xterm/addon-canvas";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import { color, fontFamily, typeScale } from "../../../shared/design-tokens";
+import type { ITheme } from "@xterm/xterm";
+import { fontFamily, typeScale } from "../../../shared/design-tokens";
+import type { ThemeId } from "../../../shared/design-tokens/themes";
+import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -18,6 +21,7 @@ type RendererAddon = CanvasAddon | WebglAddon;
 interface TerminalLike {
   readonly element?: HTMLElement;
   readonly rows: number;
+  options: { theme: ITheme | undefined };
   dispose: () => void;
   loadAddon: (addon: Disposable) => void;
   onData: (callback: (data: string) => void) => Disposable;
@@ -75,6 +79,7 @@ class XtermTerminalController implements TerminalController {
   private pendingRaf: number | null = null;
   private lastDims: TerminalDimensions | null = null;
   private ptyClient: PtyClient | null = null;
+  private themeListener: ((e: Event) => void) | null = null;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -114,6 +119,11 @@ class XtermTerminalController implements TerminalController {
       this.pendingRaf = null;
     }
 
+    if (this.themeListener) {
+      document.documentElement.removeEventListener("nexus:theme-changed", this.themeListener);
+      this.themeListener = null;
+    }
+
     this.dataDisposable?.dispose();
     this.dataDisposable = null;
     this.ptyClient?.dispose();
@@ -142,18 +152,42 @@ class XtermTerminalController implements TerminalController {
     term.write(`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`);
   }
 
+  private resolveCurrentThemeId(): ThemeId {
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "warm-dark" || attr === "cool-dark" || attr === "warm-light") {
+      return attr;
+    }
+    return "warm-dark";
+  }
+
+  applyTheme(themeId: ThemeId): void {
+    if (this.disposed) return;
+    const term = this.term;
+    if (!term) return;
+    term.options.theme = TERMINAL_PALETTES[themeId];
+  }
+
   private async initialize(): Promise<void> {
     const fontSize = typeScale.codeUi.fontSize;
     await this.deps.waitForTerminalFonts(fontSize);
     if (this.disposed) return;
 
+    const initialThemeId = this.resolveCurrentThemeId();
+
     const term = this.deps.createTerminal({
       cursorBlink: true,
       fontFamily: fontFamily.monoDisplay,
       fontSize,
-      theme: { background: color.bgCanvas },
+      theme: TERMINAL_PALETTES[initialThemeId],
     });
     this.term = term;
+
+    // Subscribe to theme changes dispatched by use-theme-effect.ts.
+    this.themeListener = (e: Event) => {
+      const themeId = (e as CustomEvent<{ themeId: ThemeId }>).detail?.themeId;
+      if (themeId) this.applyTheme(themeId);
+    };
+    document.documentElement.addEventListener("nexus:theme-changed", this.themeListener);
 
     const fitAddon = this.deps.createFitAddon();
     this.fitAddon = fitAddon;

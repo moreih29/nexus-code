@@ -77,7 +77,7 @@ export function DeadTerminalBanner({
   return (
     <div
       role="status"
-      className="flex items-center justify-between shrink-0 h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs app-status-banner-text"
+      className="flex items-center justify-between shrink-0 h-6 px-3 bg-muted border-b border-border text-app-ui-xs app-status-banner-text"
     >
       <span>{message}</span>
       <button

@@ -80,8 +80,8 @@ export function HistoryRow({
       title={rowTitle}
       className={
         selected
-          ? `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-ring bg-frosted-veil-strong`
-          : `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-transparent hover:bg-frosted-veil`
+          ? `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-ring bg-[var(--state-active-bg)]`
+          : `${HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT[breakpoint]} ${HISTORY_ROW_INTERACTION_CLASS} border-transparent hover:bg-[var(--state-hover-bg)]`
       }
       onFocus={onFocus}
       onClick={() => {
@@ -139,7 +139,7 @@ export function HistoryRow({
       ) : null}
       <button
         type="button"
-        className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-frosted-veil-strong hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
+        className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
         aria-label={`Open commit actions for ${shortSha}`}
         onClick={(event) => {
           event.stopPropagation();

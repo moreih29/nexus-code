@@ -62,12 +62,12 @@ export function GitFileRow({
 
   return (
     <div
-      className="group flex w-full items-center pr-1 hover:bg-frosted-veil-strong focus-within:bg-frosted-veil-strong"
+      className="group flex w-full items-center pr-1 hover:bg-[var(--state-hover-bg)] focus-within:bg-[var(--state-hover-bg)]"
       style={{ height: ROW_HEIGHT_PX }}
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset"
+        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ height: ROW_HEIGHT_PX }}
         title={pathLabel}
         aria-label={`Open diff for ${pathLabel}`}

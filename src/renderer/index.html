@@ -1,8 +1,25 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="warm-dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy: the inline boot script below requires an explicit
+      SHA-256 hash allowance. If a CSP header is added to the Electron session
+      (e.g. via session.defaultSession.webRequest.onHeadersReceived), include:
+        'sha256-jrNJoCjPP76oHCde3gH54WkVftN7jtI9/xwYyrj38ew='
+      in the script-src directive.
+      The meta CSP is intentionally omitted here because Electron's sandbox
+      enforces its own policy; a meta tag would be a second, potentially
+      conflicting policy.
+    -->
+    <!--
+      Theme boot script — runs synchronously before first paint (FOUC prevention).
+      Reads localStorage["themePreference"] (written by theme store on change),
+      falls back to OS prefers-color-scheme → warm-dark / warm-light pair.
+      SHA-256: jrNJoCjPP76oHCde3gH54WkVftN7jtI9/xwYyrj38ew=
+    -->
+    <script>(function(){var t=localStorage.getItem("themePreference");var v=["warm-dark","cool-dark","warm-light"];if(t&&v.includes(t)){document.documentElement.setAttribute("data-theme",t);return;}var d=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",d?"warm-dark":"warm-light");})()</script>
     <title>nexus-code</title>
     <link
       rel="preload"

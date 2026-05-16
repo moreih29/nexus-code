@@ -48,7 +48,7 @@ export function SearchStatusHeader({ session, showLoader, onCancel }: SearchStat
       {limitHit && (
         <div
           className={cn(
-            "rounded px-2 py-0.5 text-app-ui-sm text-muted-foreground bg-frosted-veil-strong",
+            "rounded px-2 py-0.5 text-app-ui-sm text-muted-foreground bg-muted",
           )}
           role="status"
         >

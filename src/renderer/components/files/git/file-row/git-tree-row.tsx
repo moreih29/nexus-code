@@ -86,7 +86,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
         {...treeItemProps}
         role="treeitem"
         aria-expanded={isExpanded}
-        className="group flex h-6 w-full cursor-pointer items-center gap-1 pr-1 text-app-body text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-mist-border"
+        className="group flex h-6 w-full cursor-pointer items-center gap-1 pr-1 text-app-body text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         style={{ paddingLeft: indentLeft }}
         onClick={onToggle}
         onFocus={onFocus}
@@ -152,7 +152,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
             </Button>
           ) : null}
         </div>
-        <span className="shrink-0 rounded bg-frosted-veil-strong px-1 text-app-ui-sm text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm text-muted-foreground">
           {childCount}
         </span>
       </div>

@@ -31,7 +31,7 @@ export function SearchResultFileRow({
       onClick={onToggle}
       title={relPath}
       style={{ height: ROW_HEIGHT_PX }}
-      className="flex items-center w-full px-2 gap-1 text-left cursor-pointer select-none hover:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset"
+      className="flex items-center w-full px-2 gap-1 text-left cursor-pointer select-none hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <Chevron className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <FileIcon
@@ -43,7 +43,7 @@ export function SearchResultFileRow({
         {fileName}
         {dir && <span className="ml-1.5 text-muted-foreground text-app-ui-sm">{dir}</span>}
       </span>
-      <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-frosted-veil-strong rounded px-1">
+      <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-muted rounded px-1">
         {matchCount}
       </span>
     </button>

@@ -1,6 +1,8 @@
 import { cn } from "@/utils/cn";
 import { useActiveStore } from "../../state/stores/active";
+import { useThemeStore } from "../../state/stores/theme";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import type { ThemePreference } from "../../../shared/types/app-state";
 
 // ---------------------------------------------------------------------------
 // TitleBar — custom frameless titlebar
@@ -20,6 +22,23 @@ const TITLEBAR_HEIGHT_CLASS = "h-9"; // 36px — matches main/window.ts TITLEBAR
 const MAC_TRAFFIC_LIGHTS_INSET = 78; // px — clears the three traffic-light buttons
 const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control overlay
 
+// Cycle order for the theme toggle button.
+const THEME_CYCLE: ThemePreference[] = ["warm-dark", "cool-dark", "warm-light", "system"];
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  "warm-dark": "WD",
+  "cool-dark": "CD",
+  "warm-light": "WL",
+  system: "OS",
+};
+
+const THEME_TITLES: Record<ThemePreference, string> = {
+  "warm-dark": "Theme: Warm Dark",
+  "cool-dark": "Theme: Cool Dark",
+  "warm-light": "Theme: Warm Light",
+  system: "Theme: Follow OS",
+};
+
 export function TitleBar() {
   const isMac = window.host.platform === "darwin";
 
@@ -28,14 +47,23 @@ export function TitleBar() {
     activeWorkspaceId ? s.workspaces.find((w) => w.id === activeWorkspaceId) : null,
   );
 
+  const { preference, setPreference } = useThemeStore();
+
+  function handleThemeCycle() {
+    const idx = THEME_CYCLE.indexOf(preference);
+    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
+    if (next !== undefined) setPreference(next);
+  }
+
   return (
     <div
       role="presentation"
       className={cn(
-        // bg-muted matches the sidebar so chrome reads as one continuous
-        // L-shape against the canvas; no border — depth via tone shift only
-        // (per design.md "depth comes from opacity shifts, not heavy lines").
-        "relative flex shrink-0 items-center bg-muted select-none app-drag",
+        // bg-muted = surface.chrome.bg (L1) — same tone as sidebar so chrome
+        // reads as one continuous L-shape.
+        // border-b = surface.chrome.border hairline: P3 zone boundary signal
+        // between titlebar (L1) and the canvas/panel row below (design.md §2).
+        "relative flex shrink-0 items-center bg-muted border-b border-border select-none app-drag",
         TITLEBAR_HEIGHT_CLASS,
       )}
       style={{
@@ -57,6 +85,24 @@ export function TitleBar() {
           {activeWorkspace.name}
         </span>
       )}
+
+      {/* Theme toggle — right-aligned, app-no-drag so click lands */}
+      <button
+        type="button"
+        onClick={handleThemeCycle}
+        title={THEME_TITLES[preference]}
+        className={cn(
+          "app-no-drag ml-auto",
+          "flex items-center justify-center",
+          "w-7 h-6 rounded",
+          "text-app-ui-xs text-muted-foreground",
+          "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+          "transition-colors duration-150",
+        )}
+        aria-label={THEME_TITLES[preference]}
+      >
+        {THEME_LABELS[preference]}
+      </button>
     </div>
   );
 }

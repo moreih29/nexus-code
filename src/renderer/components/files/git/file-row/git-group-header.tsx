@@ -47,10 +47,10 @@ export function GitGroupHeader({
   const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
-    <div className="group flex h-7 items-center gap-1 px-2 text-app-ui-sm text-muted-foreground hover:bg-frosted-veil focus-within:bg-frosted-veil">
+    <div className="group flex h-7 items-center gap-1 px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] focus-within:bg-[var(--state-hover-bg)]">
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mist-border focus-visible:ring-inset"
+        className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={onToggle}
         onContextMenu={(event) => {
@@ -60,7 +60,7 @@ export function GitGroupHeader({
       >
         <Chevron className="size-3.5 shrink-0" aria-hidden="true" />
         <span className="truncate uppercase tracking-[0.08em]">{label}</span>
-        <span className="shrink-0 rounded bg-frosted-veil-strong px-1 text-app-ui-sm">{count}</span>
+        <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm">{count}</span>
       </button>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {onStageAll && stageActionLabel ? (

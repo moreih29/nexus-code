@@ -70,7 +70,7 @@ export function SearchInput({
           "flex items-center gap-0.5 rounded border bg-background transition-colors",
           regexError
             ? "border-destructive focus-within:border-destructive"
-            : "border-mist-border focus-within:border-mist-border-focus",
+            : "border-border focus-within:border-ring",
         )}
       >
         <input

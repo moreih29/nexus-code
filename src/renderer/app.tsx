@@ -2,6 +2,7 @@ import { useMonaco } from "@monaco-editor/react";
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapWorkspaces } from "./bootstrap";
+import { useThemeEffect } from "./hooks/use-theme-effect";
 import { useCommandBridge } from "./commands/use-command-bridge";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
@@ -124,6 +125,10 @@ export function App() {
     },
     [workspaces],
   );
+
+  // Apply resolved theme to documentElement (data-theme attribute).
+  // Also subscribes to OS prefers-color-scheme when preference === "system".
+  useThemeEffect();
 
   // Wire the keyboard dispatcher and the Application Menu IPC bridge to
   // the same command registry. Both surfaces resolve to one

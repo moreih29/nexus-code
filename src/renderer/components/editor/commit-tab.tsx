@@ -102,12 +102,12 @@ function CommitDetailContent({
         <dd className="min-w-0 truncate text-foreground">{formatIso(detail.committerTs)}</dd>
       </dl>
       {detail.body.length > 0 ? (
-        <pre className="whitespace-pre-wrap rounded border border-mist-border bg-frosted-veil p-2 font-sans text-app-ui-sm text-foreground">
+        <pre className="whitespace-pre-wrap rounded border border-border bg-muted p-2 font-sans text-app-ui-sm text-foreground">
           {detail.body}
         </pre>
       ) : null}
       {isMerge ? (
-        <div className="rounded border border-mist-border bg-frosted-veil p-2 text-muted-foreground">
+        <div className="rounded border border-border bg-muted p-2 text-muted-foreground">
           Merge commit ({detail.parents.length} parents)
         </div>
       ) : null}
@@ -123,7 +123,7 @@ function CommitDetailContent({
               <li key={`${file.status}:${file.oldPath ?? ""}:${file.path}`}>
                 <button
                   type="button"
-                  className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-2 rounded bg-frosted-veil px-2 py-1 text-left hover:bg-frosted-veil-strong focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
+                  className="grid w-full grid-cols-[52px_minmax(0,1fr)] gap-2 rounded bg-muted px-2 py-1 text-left hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
                   onClick={() => onFileClick(file)}
                 >
                   <span className="font-mono text-muted-foreground">{file.status}</span>
