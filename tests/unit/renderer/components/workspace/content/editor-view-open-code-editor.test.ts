@@ -1,5 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createCrossFileOpenCodeEditorOpener } from "../../../../../../src/renderer/components/workspace/content/editor-view";
+// Import directly from the originating module so editor-view.tsx (and its
+// transitive React/git-store dependencies) are never loaded in this test.
+import { createCrossFileOpenCodeEditorOpener } from "../../../../../../src/renderer/services/editor/tabs/cross-file-opener";
 
 interface FakeResource {
   toString(): string;

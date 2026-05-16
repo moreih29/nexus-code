@@ -1,12 +1,14 @@
 import type * as Monaco from "monaco-editor";
-import { lazy, type ReactNode, Suspense, useEffect, useRef } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { NEXUS_DARK_THEME_NAME } from "../../services/editor/runtime/monaco-theme";
 import {
+  type DiffContentStatus,
   type DiffSideReadyState,
   type DiffSideState,
   readyContentFor,
+  REFRESHING_INDICATOR_DELAY_MS,
   useDiffContent,
 } from "./diff-content-loader";
 
@@ -19,6 +21,12 @@ const diffEditorOptions = {
   readOnly: true,
   originalEditable: false,
   renderSideBySide: true,
+  // Monaco collapses the side-by-side diff into a single inline column once the
+  // editor is narrower than `renderSideBySideInlineBreakpoint` (900px by
+  // default). The Source Control diff often opens in a panel below that width,
+  // which made the "Left → Right" header lie about a one-column body. Pin the
+  // two-column layout regardless of available width.
+  useInlineViewWhenSpaceIsLimited: false,
   minimap: { enabled: false },
   fontSize: typeScale.codeBody.fontSize,
   fontFamily: fontFamily.monoBody,
@@ -27,10 +35,33 @@ const diffEditorOptions = {
 } satisfies Monaco.editor.IDiffEditorConstructionOptions;
 
 /**
+ * Returns true only after `status` has been "refreshing" for longer than
+ * REFRESHING_INDICATOR_DELAY_MS.  This prevents a visible flicker for fast
+ * background reloads (e.g. every git.statusChanged) that complete well within
+ * the threshold.  The timer is cancelled and the indicator hidden immediately
+ * when the status leaves "refreshing".
+ */
+function useDelayedRefreshing(status: DiffContentStatus): boolean {
+  const [showRefreshing, setShowRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (status !== "refreshing") {
+      setShowRefreshing(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowRefreshing(true), REFRESHING_INDICATOR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  return showRefreshing;
+}
+
+/**
  * Monaco-backed tab body for Source Control file diffs.
  */
 export function DiffTab(payload: DiffTabPayload) {
   const { left, right, status, reload } = useDiffContent(payload);
+  const showRefreshing = useDelayedRefreshing(status);
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);
   const blockingMessage = blockingPlaceholder(left, right, leftContent, rightContent);
@@ -50,7 +81,7 @@ export function DiffTab(payload: DiffTabPayload) {
 
   if (blockingMessage) {
     return (
-      <DiffShell left={left} right={right} status={status} onReload={reload}>
+      <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
         <Centered>{blockingMessage}</Centered>
       </DiffShell>
     );
@@ -58,14 +89,14 @@ export function DiffTab(payload: DiffTabPayload) {
 
   if (!leftContent || !rightContent) {
     return (
-      <DiffShell left={left} right={right} status={status} onReload={reload}>
+      <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
         <Centered>Loading diff...</Centered>
       </DiffShell>
     );
   }
 
   return (
-    <DiffShell left={left} right={right} status={status} onReload={reload}>
+    <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
       <MissingContentNotice side="left" content={leftContent} />
       <MissingContentNotice side="right" content={rightContent} />
       <div className="min-h-0 flex-1">
@@ -91,7 +122,8 @@ export function DiffTab(payload: DiffTabPayload) {
 interface DiffShellProps {
   left: DiffSideState;
   right: DiffSideState;
-  status: "loading" | "refreshing" | "ready" | "error";
+  /** True only after the refreshing state has persisted past the indicator delay threshold. */
+  showRefreshing: boolean;
   onReload: () => void;
   children: ReactNode;
 }
@@ -99,7 +131,7 @@ interface DiffShellProps {
 /**
  * Provides the common header and body frame for the diff editor states.
  */
-function DiffShell({ left, right, status, onReload, children }: DiffShellProps) {
+function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShellProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted px-3 text-app-ui-sm">
@@ -109,7 +141,7 @@ function DiffShell({ left, right, status, onReload, children }: DiffShellProps) 
           <SideLabel label="Right" state={right} />
         </div>
         <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
-          {status === "refreshing" && <span>Refreshing…</span>}
+          {showRefreshing && <span>Refreshing…</span>}
           <button
             type="button"
             className="rounded-[4px] px-2 py-1 text-app-ui-sm hover:bg-frosted-veil-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"

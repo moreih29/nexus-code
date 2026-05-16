@@ -3,6 +3,7 @@ import type { EditorInput } from "../../../../services/editor";
 import { installEditorOpener } from "../../../../services/editor/runtime/monaco-compensations";
 import { installEditorSaveAction } from "../../../../services/editor/save/service";
 import { createCrossFileOpenCodeEditorOpener } from "../../../../services/editor/tabs/cross-file-opener";
+import { installConflictCodelensForEditor } from "./install-conflict-codelens";
 
 /**
  * Installs the Monaco-side integrations that turn a bare editor instance
@@ -52,5 +53,15 @@ export function installEditorIntegrations({
 
   installEditorSaveAction(editor, monaco, input);
 
-  return openerDisposable;
+  // Install the conflict-resolution CodeLens + decoration provider. Activates
+  // only when the current model contains Git conflict markers; disposal is
+  // managed by the returned compositeDisposable so it tears down on unmount.
+  const conflictCodelensDisposable = installConflictCodelensForEditor(editor, monaco);
+
+  return {
+    dispose() {
+      openerDisposable.dispose();
+      conflictCodelensDisposable.dispose();
+    },
+  };
 }

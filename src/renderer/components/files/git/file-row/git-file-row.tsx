@@ -1,7 +1,7 @@
 /**
  * GitFileRow renders a changed file with RTL front-truncation and inline actions.
  */
-import { Check, ExternalLink, Minus, Plus, Trash2 } from "lucide-react";
+import { Check, Minus, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
 import { Button } from "../../../ui/button";
@@ -90,34 +90,19 @@ export function GitFileRow({
       </button>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {isConflictRow ? (
-          <>
-            {onMarkResolved ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-6"
-                aria-label={`Mark ${entry.relPath} resolved`}
-                title={`Mark ${entry.relPath} resolved`}
-                onClick={onMarkResolved}
-              >
-                <Check className="size-3.5" aria-hidden="true" />
-              </Button>
-            ) : null}
-            {onOpenFile ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-6"
-                aria-label={`Open ${entry.relPath} in external editor`}
-                title="Open in External Editor"
-                onClick={onOpenFile}
-              >
-                <ExternalLink className="size-3.5" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </>
+          onMarkResolved ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              aria-label={`Mark ${entry.relPath} resolved`}
+              title={`Mark ${entry.relPath} resolved`}
+              onClick={onMarkResolved}
+            >
+              <Check className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null
         ) : toggleStage ? (
           <Button
             type="button"

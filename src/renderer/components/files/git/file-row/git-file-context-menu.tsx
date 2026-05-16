@@ -103,9 +103,10 @@ export function buildGitFileContextMenuItems(
   actions: GitFileContextMenuActions,
 ): GitMenuSpec[] {
   if (groupKey === "merge") {
+    // Conflict rows open the in-app editor with the conflict-resolution
+    // CodeLens UI — there is no external-editor escape hatch for this group.
     return collapseGitMenuSeparators([
       { kind: "item", label: "Open Diff", onSelect: actions.openChanges },
-      { kind: "item", label: "Open in External Editor", onSelect: actions.openFile },
       {
         kind: "item",
         label: "Mark Resolved",

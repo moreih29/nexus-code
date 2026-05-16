@@ -22,9 +22,10 @@ describe("Git file context menu rules", () => {
 
     expect(stagedLabels).not.toContain("Discard");
     expect(untrackedLabels).not.toContain("Open Changes");
+    // Conflict rows have no external-editor escape hatch — the in-app editor
+    // with the conflict-resolution CodeLens UI is the only editing surface.
     expect(mergeLabels).toEqual([
       "Open Diff",
-      "Open in External Editor",
       "Mark Resolved",
       "Discard",
     ]);
@@ -76,7 +77,9 @@ describe("Git file context menu rules", () => {
     );
 
     expect(html).toContain('aria-label="Mark src/app.ts resolved"');
-    expect(html).toContain('title="Open in External Editor"');
+    // The "Open in External Editor" inline button has been removed; conflict
+    // files now open the in-app editor with the conflict-resolution CodeLens UI.
+    expect(html).not.toContain('title="Open in External Editor"');
     expect(html).not.toContain("Stage changes");
   });
 });

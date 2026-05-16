@@ -18,6 +18,24 @@ import { renderToStaticMarkup } from "react-dom/server";
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock(() => Promise.resolve()),
   ipcListen: mock(() => () => {}),
+  ipcStream: mock(() => () => {}),
+}));
+
+// Mock the git store so EditorView's conflict-banner hooks do not trigger real
+// IPC subscriptions. useGitSession returns undefined (no session) so
+// useIsFileConflicted returns false and ConflictResolvedBanner never shows.
+mock.module("../../../../../../src/renderer/state/stores/git", () => ({
+  useGitStore: mock((selector: (s: unknown) => unknown) =>
+    selector({ sessions: new Map(), markResolved: mock(() => Promise.resolve()) }),
+  ),
+  useGitSession: mock(() => undefined),
+}));
+
+// Mock the workspaces store to avoid its IPC bridge setup.
+mock.module("../../../../../../src/renderer/state/stores/workspaces", () => ({
+  useWorkspacesStore: Object.assign(mock(() => ({ workspaces: [] })), {
+    getState: mock(() => ({ workspaces: [] })),
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -56,9 +74,18 @@ function realFilePathToModelUri(path: string): string {
   return `file://${encoded}`;
 }
 
+// Minimal Monaco ITextModel stub — getValue for conflict-marker check,
+// onDidChangeContent for the subscription in useModelHasMarkers.
+// Returns empty content so no conflict markers are detected and the
+// ConflictResolvedBanner never shows.
+const fakeModel = {
+  getValue: () => "",
+  onDidChangeContent: () => ({ dispose: () => {} }),
+};
+
 mock.module("../../../../../../src/renderer/services/editor", () => ({
   useSharedModel: () => ({
-    model: mockPhase === "ready" ? {} : null,
+    model: mockPhase === "ready" ? fakeModel : null,
     phase: mockPhase,
     readOnly: mockReadOnly,
     errorCode: undefined,

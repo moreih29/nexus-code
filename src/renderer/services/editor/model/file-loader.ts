@@ -57,3 +57,18 @@ export function subscribeFsChanged(
     onChange({ event, relPath });
   });
 }
+
+/**
+ * Subscribes to `git.statusChanged` broadcasts for the entry's workspace.
+ * Called after a workflow mutation (merge/rebase/cherry-pick) completes and
+ * the main process has re-broadcast git status. Returns an unsubscribe fn.
+ */
+export function subscribeGitStatusChanged(
+  input: EditorInput,
+  onChanged: () => void,
+): () => void {
+  return ipcListen("git", "statusChanged", (event) => {
+    if (event.workspaceId !== input.workspaceId) return;
+    onChanged();
+  });
+}

@@ -36,7 +36,11 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Editor services — subscribeFileDirty / isDirty / filePathToModelUri used by
 // useTabDirty. Provide a comprehensive stub to avoid process-global pollution
 // when this module is loaded before other tests that need additional exports.
+// useSharedModel is included so later tests that mock this module and depend on
+// useSharedModel (e.g. editor-view-banner.test.tsx) still find it in the initial
+// cached namespace regardless of execution order.
 mock.module("../../../../../../src/renderer/services/editor", () => ({
+  useSharedModel: () => ({ model: null, phase: "loading", readOnly: false, errorCode: undefined }),
   filePathToModelUri: (p: string) => `file://${p}`,
   isDirty: () => false,
   subscribeFileDirty: () => () => {},

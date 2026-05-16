@@ -7,6 +7,14 @@ import { EMPTY_TREE } from "./diff-refs";
 
 const RELOAD_DEBOUNCE_MS = 120;
 
+/**
+ * Minimum duration (ms) a "refreshing" status must persist before the UI
+ * indicator becomes visible.  Fast background reloads complete well under this
+ * threshold and are therefore silent.  Exposed for the component and for unit
+ * tests.
+ */
+export const REFRESHING_INDICATOR_DELAY_MS = 400;
+
 type DiffSideName = "left" | "right";
 type DiffContentSource = "git" | "fs";
 
@@ -279,8 +287,9 @@ export function readyContentFor(state: DiffSideState): DiffSideReadyState | unde
 
 /**
  * Computes the aggregate loading state for the diff view shell.
+ * Exported so tests can verify the transition logic directly.
  */
-function computeStatus(left: DiffSideState, right: DiffSideState): DiffContentStatus {
+export function computeStatus(left: DiffSideState, right: DiffSideState): DiffContentStatus {
   if (left.phase === "error" || right.phase === "error") return "error";
   if (left.phase === "loading" || right.phase === "loading") {
     return readyContentFor(left) && readyContentFor(right) ? "refreshing" : "loading";

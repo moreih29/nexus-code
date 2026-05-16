@@ -17,13 +17,19 @@ import { requireMonaco } from "../runtime/monaco-singleton";
 import type { EditorInput } from "../types";
 import { attachDirtyAndUriTracking } from "./attach-dirty-and-uri-tracking";
 import { attachFsSubscription } from "./attach-fs-subscription";
+import { attachGitSubscription } from "./attach-git-subscription";
 import { attachLspBridge } from "./attach-lsp-bridge";
 import {
   attachDirtyTracker,
   detachDirtyTracker,
   markSaved as markDirtyTrackerSaved,
 } from "./dirty-tracker";
-import { readFileForModel, subscribeFsChanged, workspaceRootForInput } from "./file-loader";
+import {
+  readFileForModel,
+  subscribeFsChanged,
+  subscribeGitStatusChanged,
+  workspaceRootForInput,
+} from "./file-loader";
 import { readAndPlaceContent } from "./read-and-place-content";
 
 const defaultModelEntryDeps = {
@@ -32,6 +38,8 @@ const defaultModelEntryDeps = {
   markDirtyTrackerSaved,
   readFileForModel,
   subscribeFsChanged,
+  subscribeGitStatusChanged,
+  attachGitSubscription,
   workspaceRootForInput,
   isLspLanguage,
   ensureProvidersFor,
@@ -72,6 +80,7 @@ export interface ModelEntry {
   loadPromise: Promise<void>;
   contentDisposable?: Monaco.IDisposable;
   fsUnsubscribe?: () => void;
+  gitUnsubscribe?: () => void;
   lspOpened: boolean;
   didOpenPromise?: Promise<void>;
   lspDegraded?: boolean;
@@ -224,6 +233,16 @@ export async function loadEntry(entry: ModelEntry): Promise<void> {
       reconcileExternalChange(entry).catch(() => {});
     });
 
+    // Subscribe to git.statusChanged so that app-initiated workflow mutations
+    // (merge, rebase, cherry-pick) trigger reconciliation even when the file's
+    // parent directory is not watched by the file-tree watcher and no fs.changed
+    // event arrives. Only workspace-origin entries track working-tree files.
+    if (entry.origin === "workspace") {
+      entry.gitUnsubscribe = deps.attachGitSubscription(entry, deps, () => {
+        reconcileExternalChange(entry).catch(() => {});
+      });
+    }
+
     notifySubscribers(entry);
   } catch (error) {
     if (entry.disposed) return;
@@ -370,6 +389,7 @@ export function cleanupEntry(entry: ModelEntry): void {
   entry.disposed = true;
   const deps = depsFor(entry);
   entry.fsUnsubscribe?.();
+  entry.gitUnsubscribe?.();
   entry.contentDisposable?.dispose();
   deps.detachDirtyTracker(entry.cacheUri);
   deps.unregisterKnownModelUri(entry.cacheUri);

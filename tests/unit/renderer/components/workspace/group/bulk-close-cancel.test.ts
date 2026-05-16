@@ -30,6 +30,11 @@ const closeCalls: string[] = [];
 const closeOutcomeByTabId = new Map<string, "closed" | "cancelled" | "save-failed">();
 
 mock.module("../../../../../../src/renderer/services/editor", () => ({
+  // useSharedModel is included so editor-view-banner.test.tsx (which also mocks
+  // this module) still finds it in the namespace when Bun evaluates editor-view
+  // after this mock has been established — prevents "Export not found" errors
+  // caused by execution-order-dependent namespace caching.
+  useSharedModel: () => ({ model: null, phase: "loading", readOnly: false, errorCode: undefined }),
   closeEditor: () => {},
   closeEditorWithConfirm: async (_workspaceId: string, tabId: string) => {
     closeCalls.push(tabId);

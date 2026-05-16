@@ -1,12 +1,17 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCall } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
+import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
 import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";
+import { useGitSession, useGitStore } from "../../../state/stores/git";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { relPath } from "../../../utils/path";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { ConflictResolvedBanner } from "./conflict-resolved-banner";
 import { ReadOnlyBanner } from "./read-only-banner";
 import { useEditorMount } from "./use-editor-mount";
 
@@ -34,6 +39,54 @@ function Centered({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Returns whether the current file is listed as conflicted in the git merge
+ * group for this workspace. Uses `repoInfo.topLevel` to compute the
+ * git-relative path that matches `GitStatusEntry.relPath`.
+ */
+function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
+  const session = useGitSession(workspaceId);
+  if (!session?.status) return false;
+
+  const repoRoot =
+    session.repoInfo.kind === "repo"
+      ? session.repoInfo.topLevel
+      : useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
+        null;
+
+  if (!repoRoot) return false;
+
+  const gitRelPath = relPath(filePath, repoRoot);
+  return session.status.merge.some(
+    (entry) => entry.relPath === gitRelPath && entry.conflictType !== null,
+  );
+}
+
+/**
+ * Tracks whether the Monaco model's current text contains conflict markers.
+ * Subscribes to `onDidChangeContent` so the value updates in real time as the
+ * user accepts conflict blocks.
+ */
+function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
+  const [hasMarkers, setHasMarkers] = useState<boolean>(() =>
+    model ? hasConflictMarkers(model.getValue()) : false,
+  );
+
+  useEffect(() => {
+    if (!model) {
+      setHasMarkers(false);
+      return;
+    }
+    setHasMarkers(hasConflictMarkers(model.getValue()));
+    const disposable = model.onDidChangeContent(() => {
+      setHasMarkers(hasConflictMarkers(model.getValue()));
+    });
+    return () => disposable.dispose();
+  }, [model]);
+
+  return hasMarkers;
+}
+
 export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
 
@@ -44,6 +97,11 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     readOnly,
     phase,
   });
+
+  // Conflict-resolved banner state — only computed when the file is writable.
+  const isConflicted = useIsFileConflicted(filePath, workspaceId);
+  const hasMarkers = useModelHasMarkers(!readOnly ? (model ?? null) : null);
+  const markResolved = useGitStore((s) => s.markResolved);
 
   if (phase === "loading" || (phase === "ready" && !model)) {
     return <Centered>Loading...</Centered>;
@@ -61,6 +119,18 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
     );
   }
 
+  function handleMarkResolved(): void {
+    const session = useGitStore.getState().sessions.get(workspaceId);
+    if (!session) return;
+    const repoRoot =
+      session.repoInfo.kind === "repo"
+        ? session.repoInfo.topLevel
+        : useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
+          null;
+    if (!repoRoot) return;
+    void markResolved(workspaceId, [relPath(filePath, repoRoot)]);
+  }
+
   return (
     <div className="flex flex-col h-full">
       {readOnly && (
@@ -69,6 +139,13 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
           onRevealInFinder={() => {
             ipcCall("system", "revealInOS", { absPath: filePath }).catch(() => {});
           }}
+        />
+      )}
+      {!readOnly && (
+        <ConflictResolvedBanner
+          isConflicted={isConflicted}
+          hasMarkers={hasMarkers}
+          onMarkResolved={handleMarkResolved}
         />
       )}
       <Editor
