@@ -55,7 +55,7 @@ export function CloneProgressContent({
         />
       </div>
       {errorMessage ? (
-        <p className="mt-3 text-app-ui-xs git-destructive-text" role="alert">
+        <p className="mt-3 text-app-ui-sm git-destructive-text" role="alert">
           {errorMessage}
         </p>
       ) : null}
@@ -97,7 +97,7 @@ export function CloneSuccessContent({
         Repository cloned to <span className="font-mono text-foreground">{success.absPath}</span>.
       </p>
       {errorMessage ? (
-        <p className="mt-3 text-app-ui-xs git-destructive-text" role="alert">
+        <p className="mt-3 text-app-ui-sm git-destructive-text" role="alert">
           {errorMessage}
         </p>
       ) : null}

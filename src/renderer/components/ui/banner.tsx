@@ -119,7 +119,7 @@ function BarBanner({
       role={role ?? (variant === "error" ? "alert" : "status")}
       aria-live={ariaLive}
       className={cn(
-        "flex shrink-0 h-6 items-center justify-between px-3 bg-muted border-b border-border text-app-ui-xs app-status-banner-text",
+        "flex shrink-0 h-6 items-center justify-between px-3 bg-muted border-b border-border text-app-ui-sm app-status-banner-text",
         variant === "error" && "bg-destructive/10 border-destructive/60 text-destructive",
         className,
       )}
@@ -131,7 +131,7 @@ function BarBanner({
             <button
               key={action.label}
               type="button"
-              className="text-app-ui-xs app-status-banner-text hover:opacity-80 cursor-pointer bg-transparent border-0 p-0"
+              className="text-app-ui-sm app-status-banner-text hover:opacity-80 cursor-pointer bg-transparent border-0 p-0"
               onClick={action.onAction}
             >
               {action.label}

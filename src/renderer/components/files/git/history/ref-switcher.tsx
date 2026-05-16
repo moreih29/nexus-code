@@ -34,7 +34,7 @@ export function HistoryRefSwitcher({
         <button
           type="button"
           disabled={disabled}
-          className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-app-ui text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
           onClick={() => setOpen(true)}
         >
           <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />

@@ -46,7 +46,7 @@ export function GitBranchBar({
   return (
     <div className="flex shrink-0 flex-col border-t border-border bg-muted">
       {branch?.isUnborn ? (
-        <p className="px-3 pt-1 text-app-ui-xs text-muted-foreground">
+        <p className="px-3 pt-1 text-app-ui-sm text-muted-foreground">
           {`'${branch.current}' has no commits yet — it will be created on your first commit.`}
         </p>
       ) : null}

@@ -25,7 +25,6 @@ import {
   fontFamily,
   spacing,
 } from "../src/shared/design-tokens";
-import { marketingTypeScale } from "../src/shared/design-tokens/marketing";
 import { DEFAULT_THEME, THEMES } from "../src/shared/design-tokens/themes";
 import type { ThemeId } from "../src/shared/design-tokens";
 
@@ -143,13 +142,13 @@ export function generateThemeCss(): string {
   }
 
   // Type scale (static — same across themes)
-  // Emission order: marketing (CSS compat) → code (Monaco/xterm) → app UI
+  // Emission order: code (Monaco/xterm) → app UI
+  // Marketing 18-role type scale is NOT emitted here (design.md §5 prohibition).
   const codeTypeScaleEntries = [
     ["codeUi", { fontSize: 16, lineHeight: 1.0, letterSpacing: 0, fontWeight: 400 }],
     ["codeBody", { fontSize: 16, lineHeight: 1.0, letterSpacing: -0.2, fontWeight: 400 }],
   ] as const;
   const allTypeScaleEntries = [
-    ...Object.entries(marketingTypeScale),
     ...codeTypeScaleEntries,
     ...Object.entries(appTypeScale),
   ];

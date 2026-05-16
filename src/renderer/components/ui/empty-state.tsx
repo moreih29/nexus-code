@@ -49,7 +49,7 @@ export function EmptyState({
           className={cn(
             "text-muted-foreground",
             tone === "label"
-              ? "text-small-label uppercase"
+              ? "text-app-label uppercase"
               : "text-app-ui-sm",
           )}
         >

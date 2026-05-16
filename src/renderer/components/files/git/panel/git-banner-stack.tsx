@@ -119,7 +119,7 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
       type="button"
       className={cn(
         "flex h-6 w-full shrink-0 items-center gap-1 border-b border-border bg-muted px-3",
-        "text-app-ui-xs text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+        "text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
       aria-expanded={expanded}

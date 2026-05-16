@@ -118,7 +118,12 @@ export const appTypeScale = {
     lineHeight: 1.5,
     letterSpacing: 0,
   },
-  appUiXs: {
+  // appLabel — uppercase label variant (2.4px letter-spacing is intentional for
+  // ALL-CAPS labels). This role MUST only be used on text that is rendered in
+  // uppercase (via the `uppercase` Tailwind utility or text-transform: uppercase
+  // in CSS). Using it on sentence-case body copy produces over-tracked,
+  // illegible text. For sentence-case small text use appUiSm instead.
+  appLabel: {
     fontFamily: fontFamily.display,
     fontSize: 12,
     fontWeight: 400,

@@ -424,7 +424,7 @@ export function CloneDialogContent({
         ) : null
       }
     >
-      <p className="rounded-[--radius-control] border border-border bg-muted px-2 py-1 text-app-ui-xs text-muted-foreground">
+      <p className="rounded-[--radius-control] border border-border bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground">
         Will clone to: <span className="font-mono text-foreground">{preview || "—"}</span>
       </p>
       <div className="rounded-[--radius-control] border border-border bg-background/60 px-2 py-2">
@@ -449,7 +449,7 @@ export function CloneDialogContent({
         ) : null}
       </div>
       {errorMessage ? (
-        <p className="text-app-ui-xs git-destructive-text" role="alert">
+        <p className="text-app-ui-sm git-destructive-text" role="alert">
           {errorMessage}
         </p>
       ) : null}

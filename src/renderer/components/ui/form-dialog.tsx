@@ -199,11 +199,11 @@ export function FormDialogContent({
                 {renderFieldAccessory?.({ field, value, error })}
               </div>
               {error ? (
-                <p id={helpId} className={`text-app-ui-xs ${errorClassName}`}>
+                <p id={helpId} className={`text-app-ui-sm ${errorClassName}`}>
                   {error}
                 </p>
               ) : field.helperText ? (
-                <p id={helpId} className="text-app-ui-xs text-muted-foreground">
+                <p id={helpId} className="text-app-ui-sm text-muted-foreground">
                   {field.helperText}
                 </p>
               ) : null}

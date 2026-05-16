@@ -510,7 +510,7 @@ export function AddWorkspaceDialogContent({
               <FolderOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="text-app-ui-sm text-foreground">Workspace folder</div>
-                <div className="truncate text-app-ui-xs text-muted-foreground">
+                <div className="truncate text-app-ui-sm text-muted-foreground">
                   Selected with the native folder picker.
                 </div>
               </div>
@@ -573,13 +573,13 @@ export function AddWorkspaceDialogContent({
                           onClick={() => onSelectHost(host)}
                         >
                           <span className="truncate text-foreground">{host.alias}</span>
-                          <span className="truncate text-app-ui-xs text-muted-foreground">
+                          <span className="truncate text-app-ui-sm text-muted-foreground">
                             {formatSshHostSummary(host)}
                           </span>
                         </button>
                       ))
                     ) : (
-                      <div className="px-2 py-2 text-app-ui-xs text-muted-foreground">
+                      <div className="px-2 py-2 text-app-ui-sm text-muted-foreground">
                         {hostsLoading
                           ? "Loading SSH config hosts..."
                           : "No matching SSH config hosts."}
@@ -589,12 +589,12 @@ export function AddWorkspaceDialogContent({
                 ) : null}
               </div>
               {selectedSummary ? (
-                <p className="text-app-ui-xs text-muted-foreground">
+                <p className="text-app-ui-sm text-muted-foreground">
                   <CheckCircle2 className="mr-1 inline size-3" aria-hidden="true" />
                   {selectedSummary}
                 </p>
               ) : hostsError ? (
-                <p className="text-app-ui-xs text-muted-foreground">{hostsError}</p>
+                <p className="text-app-ui-sm text-muted-foreground">{hostsError}</p>
               ) : null}
             </div>
 
@@ -652,7 +652,7 @@ export function AddWorkspaceDialogContent({
                     />
                     <span className="min-w-0">
                       <span className="block text-app-ui-sm text-foreground">{option.label}</span>
-                      <span className="block text-app-ui-xs text-muted-foreground">
+                      <span className="block text-app-ui-sm text-muted-foreground">
                         {option.description}
                       </span>
                     </span>
@@ -695,7 +695,7 @@ export function AddWorkspaceDialogContent({
                       className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive"
                     />
                     {portError ? (
-                      <p id={PORT_ERROR_ID} className="text-app-ui-xs text-destructive">
+                      <p id={PORT_ERROR_ID} className="text-app-ui-sm text-destructive">
                         {portError}
                       </p>
                     ) : null}
@@ -721,20 +721,20 @@ export function AddWorkspaceDialogContent({
       </RadixTabs.Root>
 
       {sshValidationError ? (
-        <p id={SSH_ERROR_ID} className="text-app-ui-xs text-destructive" role="alert">
+        <p id={SSH_ERROR_ID} className="text-app-ui-sm text-destructive" role="alert">
           {sshValidationError}
         </p>
       ) : null}
 
       {statusMessage ? (
-        <p className="text-app-ui-xs text-muted-foreground" role="status" aria-live="polite">
+        <p className="text-app-ui-sm text-muted-foreground" role="status" aria-live="polite">
           {statusMessage}
         </p>
       ) : null}
 
       {errorMessage ? (
         <div
-          className="flex items-start gap-2 rounded-[--radius-control] border border-destructive/60 bg-destructive/10 px-2 py-2 text-app-ui-xs text-destructive"
+          className="flex items-start gap-2 rounded-[--radius-control] border border-destructive/60 bg-destructive/10 px-2 py-2 text-app-ui-sm text-destructive"
           role="alert"
         >
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

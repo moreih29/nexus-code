@@ -90,7 +90,7 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
           className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] max-w-[90vw] rounded-md border border-border bg-background p-5 shadow-lg outline-none"
           aria-describedby={undefined}
         >
-          <RadixDialog.Title className="text-app-ui-md font-medium text-foreground">
+          <RadixDialog.Title className="text-app-body-emphasis font-medium text-foreground">
             Save conflict — <span className="font-mono">{active?.filename}</span> changed on disk
           </RadixDialog.Title>
           <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">

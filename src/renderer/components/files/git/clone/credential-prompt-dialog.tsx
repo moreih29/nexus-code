@@ -71,7 +71,7 @@ export function CredentialPromptDialogContent({
           className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={busy}
         />
-        <p className="text-app-ui-xs text-muted-foreground">{prompt.prompt}</p>
+        <p className="text-app-ui-sm text-muted-foreground">{prompt.prompt}</p>
         <div className="mt-3 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
             Cancel

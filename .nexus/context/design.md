@@ -168,10 +168,12 @@ Bounded Zones가 container 라디우스를 요구하므로 해제하고 4단계 
 |---|---|---|---|---|---|
 | appBody | 13px | 400 | 1.4 | 0 | 기본 UI 텍스트 |
 | appBodyEmphasis | 14px | 400 | 1.3 | 0 | 강조 본문 |
-| appUiSm | 12px | 400 | 1.5 | 0 | 소형 레이블 |
-| appUiXs | 12px | 400 | 1.35 | 2.4px | 대문자 카테고리 레이블 |
+| appUiSm | 12px | 400 | 1.5 | 0 | 소형 sentence-case 텍스트 — 캡션·힌트·상태·에러 문구. 작은 문장형 텍스트의 기본값 |
+| appLabel | 12px | 400 | 1.35 | 2.4px | 대문자 카테고리 레이블 **전용** — 반드시 uppercase 텍스트에만. 문장형에 쓰면 자간이 벌어져 보인다 |
 
 실제 값 정본: `→ src/shared/design-tokens/index.ts` (`appTypeScale`)
+
+In-app 텍스트 역할은 위 4개(`app*`) + 코드 2개(`code*`)가 전부다. 이 외의 `text-*` 폰트 역할이 in-app 파일에 있으면 규약 위반이다(닫힌 집합). 크기 단계가 아니라 **의도**로 명명한다 — `appUiSm`(작은 문장형)과 `appLabel`(대문자 라벨)은 크기가 같고 이름으로만 구분된다.
 
 ### 코드 타입스케일 (Monaco / xterm 전용)
 
@@ -183,8 +185,9 @@ Bounded Zones가 container 라디우스를 요구하므로 해제하고 4단계 
 실제 값 정본: `→ src/shared/design-tokens/index.ts` (`codeTypeScale`)
 
 규칙:
-- 마케팅 18-role 타입스케일(80px display hero 등)은 in-app UI에 사용할 수 없다.
-- in-app 스케일에 없는 크기는 신규 역할 추가로 해결하며 매직넘버를 직접 사용하지 않는다.
+- 마케팅 18-role 타입스케일(80px display hero 등)은 in-app UI에 사용할 수 없다. `generate-theme-css.ts`는 마케팅 스케일을 in-app CSS(`--text-*`)로 방출하지 않는다 — 파이프라인에서 강제한다.
+- in-app 스케일에 없는 크기는 신규 역할 추가로 해결하며 매직넘버(`text-[Npx]`)를 직접 사용하지 않는다.
+- `appLabel`의 letterSpacing 2.4px는 역할의 일부다. 호출처가 `tracking-[…]`로 임의 재지정하지 않는다. 작은 sentence-case 텍스트는 `appLabel`이 아니라 `appUiSm`을 쓴다.
 
 ---
 
@@ -512,7 +515,7 @@ Record<ThemeId, ITheme>는 `src/shared/design-tokens/themes/terminal-palette.ts`
 | 포커스 링 (focus ring) | 3:1 이상 + 최소 2px | WCAG 2.2 §2.4.11 |
 | 색 단독 정보 전달 | 금지 | WCAG 2.2 §1.4.1 |
 
-muted 텍스트(11~13px) 구간이 최고 위험 구간이다. appUiSm / appUiXs 는 배경 대비 4.5:1 이상을 유지해야 한다.
+muted 텍스트(11~13px) 구간이 최고 위험 구간이다. appUiSm / appLabel 은 배경 대비 4.5:1 이상을 유지해야 한다.
 
 ### 라이트 테마 추가 규칙
 

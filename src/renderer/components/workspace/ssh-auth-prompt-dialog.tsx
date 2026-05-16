@@ -73,7 +73,7 @@ export function SshAuthPromptDialogContent({
         {hostLine}
       </p>
       {pendingMessage ? (
-        <p className="mt-2 text-app-ui-xs text-muted-foreground">{pendingMessage}</p>
+        <p className="mt-2 text-app-ui-sm text-muted-foreground">{pendingMessage}</p>
       ) : null}
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         {isPasswordPrompt ? (
@@ -81,7 +81,7 @@ export function SshAuthPromptDialogContent({
             {prompt.retry ? (
               <p
                 role="alert"
-                className="rounded-[--radius-control] border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-xs text-destructive"
+                className="rounded-[--radius-control] border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-sm text-destructive"
               >
                 Authentication failed. Try again.
               </p>
@@ -98,7 +98,7 @@ export function SshAuthPromptDialogContent({
               className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={busy}
             />
-            <p className="text-app-ui-xs text-muted-foreground">{prompt.prompt}</p>
+            <p className="text-app-ui-sm text-muted-foreground">{prompt.prompt}</p>
           </>
         ) : (
           <HostKeyPromptBody prompt={prompt} busy={busy} onCopyFingerprint={onCopyFingerprint} />
@@ -194,16 +194,16 @@ function HostKeyPromptBody({
         {prompt.message ?? "The server's host key is not yet trusted for this workspace."}
       </p>
       {prompt.keyType ? (
-        <p className="text-app-ui-xs text-muted-foreground">Key type: {prompt.keyType}</p>
+        <p className="text-app-ui-sm text-muted-foreground">Key type: {prompt.keyType}</p>
       ) : null}
       <div className="rounded-[--radius-control] border border-border bg-muted/30 p-3">
-        <p className="text-app-ui-xs text-muted-foreground">Fingerprint</p>
+        <p className="text-app-ui-sm text-muted-foreground">Fingerprint</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>
-      <p className="text-app-ui-xs text-muted-foreground">
+      <p className="text-app-ui-sm text-muted-foreground">
         If you don't recognize this fingerprint, do not trust the host.
       </p>
-      <p className="text-app-ui-xs text-muted-foreground">Trust applies for this session only.</p>
+      <p className="text-app-ui-sm text-muted-foreground">Trust applies for this session only.</p>
       <div>
         <Button
           type="button"

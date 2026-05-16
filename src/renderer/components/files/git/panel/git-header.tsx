@@ -88,7 +88,7 @@ export function GitHeader({
 }: GitHeaderProps) {
   return (
     <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
-      <span className="min-w-0 truncate text-small-label uppercase text-muted-foreground">
+      <span className="min-w-0 truncate text-app-label uppercase text-muted-foreground">
         Source Control
       </span>
       <div className="flex shrink-0 items-center gap-0.5">

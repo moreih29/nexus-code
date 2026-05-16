@@ -153,7 +153,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                     {item.kindLabel ? (
                       <div
                         className={cn(
-                          "self-start text-app-ui-xs uppercase tracking-[1.4px]",
+                          "self-start text-app-label uppercase tracking-[1.4px]",
                           destructive ? "git-destructive-text" : "text-stone-gray",
                         )}
                       >
@@ -174,7 +174,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
           )}
         </div>
         {footer ? (
-          <div className="border-t border-border/70 px-3 py-2 text-app-ui-xs text-stone-gray">
+          <div className="border-t border-border/70 px-3 py-2 text-app-ui-sm text-stone-gray">
             {footer}
           </div>
         ) : null}

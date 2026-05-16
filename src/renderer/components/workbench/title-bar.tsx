@@ -72,7 +72,7 @@ export function TitleBar() {
       }}
     >
       {/* Brand — uppercase small-label per the warm design system */}
-      <span className="text-small-label text-muted-foreground uppercase">Nexus Code</span>
+      <span className="text-app-label text-muted-foreground uppercase">Nexus Code</span>
 
       {/* Active workspace name — centered, editorial caption tone */}
       {activeWorkspace && (
@@ -95,7 +95,7 @@ export function TitleBar() {
           "app-no-drag ml-auto",
           "flex items-center justify-center",
           "w-7 h-6 rounded",
-          "text-app-ui-xs text-muted-foreground",
+          "text-app-ui-sm text-muted-foreground",
           "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
           "transition-colors duration-150",
         )}
