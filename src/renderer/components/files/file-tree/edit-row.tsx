@@ -95,7 +95,7 @@ export function FileTreeEditRow({
         />
       </div>
       {validationError ? (
-        <span className="text-micro text-destructive ml-5 mt-0.5">{validationError}</span>
+        <span className="text-app-micro text-destructive ml-5 mt-0.5">{validationError}</span>
       ) : null}
     </div>
   );

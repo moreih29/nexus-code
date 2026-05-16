@@ -83,7 +83,7 @@ export function ViewModeToggle({
           </RadixTooltip.Trigger>
           <RadixTooltip.Portal>
             <RadixTooltip.Content
-              className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
+              className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
               sideOffset={4}
             >
               {toggleLabel}
@@ -117,7 +117,7 @@ export function ViewModeToggle({
               </RadixTooltip.Trigger>
               <RadixTooltip.Portal>
                 <RadixTooltip.Content
-                  className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
+                  className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
                   sideOffset={4}
                 >
                   폴더 압축

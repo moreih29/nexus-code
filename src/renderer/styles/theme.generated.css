@@ -46,6 +46,10 @@
   --text-app-ui-sm--line-height: 1.5;
   --text-app-ui-sm--letter-spacing: 0px;
   --text-app-ui-sm--font-weight: 400;
+  --text-app-micro: 11px;
+  --text-app-micro--line-height: 1.2;
+  --text-app-micro--letter-spacing: 0px;
+  --text-app-micro--font-weight: 400;
   --text-app-label: 12px;
   --text-app-label--line-height: 1.35;
   --text-app-label--letter-spacing: 2.4px;

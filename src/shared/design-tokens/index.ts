@@ -118,6 +118,15 @@ export const appTypeScale = {
     lineHeight: 1.5,
     letterSpacing: 0,
   },
+  // appMicro — smallest in-app text (11px) for tooltips, secondary path/metadata
+  // hints, and inline validation captions. Sentence-case, 0 tracking.
+  appMicro: {
+    fontFamily: fontFamily.display,
+    fontSize: 11,
+    fontWeight: 400,
+    lineHeight: 1.2,
+    letterSpacing: 0,
+  },
   // appLabel — uppercase label variant (2.4px letter-spacing is intentional for
   // ALL-CAPS labels). This role MUST only be used on text that is rendered in
   // uppercase (via the `uppercase` Tailwind utility or text-transform: uppercase

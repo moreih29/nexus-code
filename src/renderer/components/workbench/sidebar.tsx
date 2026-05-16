@@ -91,7 +91,7 @@ export function Sidebar({
                     </span>
                     {/* Location hint — micro: 11px, truncate */}
                     <span
-                      className="block text-micro text-muted-foreground mt-0.5 truncate min-w-0"
+                      className="block text-app-micro text-muted-foreground mt-0.5 truncate min-w-0"
                       title={secondaryTitle}
                     >
                       {secondaryText}

@@ -29,7 +29,7 @@ export function FileTreeStatusView({
     return (
       <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
         Couldn't read this folder.
-        <div className="mt-1 text-micro text-stone-gray">{toUserMessage(rootError)}</div>
+        <div className="mt-1 text-app-micro text-stone-gray">{toUserMessage(rootError)}</div>
         <button
           type="button"
           onClick={() => refresh(workspaceId)}
