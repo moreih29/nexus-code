@@ -97,11 +97,26 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     // hardcoding rgba literals that break on the light theme (design.md §7).
     "--state-hover-bg": tokens["state.hover.bg"],
     "--state-active-bg": tokens["state.active.bg"],
+    "--state-selected-bg": tokens["state.selected.bg"],
+    "--state-selected-indicator": tokens["state.selected.indicator"],
     "--state-loading-indicator": tokens["state.loading.indicator"],
+    // Sidebar-region selected background — sidebar.item.selected.bg is scoped to the
+    // sidebar surface level and differs from state.selected.bg (design.md §9).
+    // The indicator color uses the shared --state-selected-indicator token (C-1 unification).
+    "--sidebar-item-selected-bg": tokens["sidebar.item.selected.bg"],
     // Tab surface tokens — exposed so tab-bar components use semantic values
     // rather than static frosted-veil primitives (design.md §9 tab region).
     "--tab-active-bg": tokens["tab.active.bg"],
     "--tab-active-border": tokens["tab.active.border"],
     "--tab-hover-bg": tokens["tab.hover.bg"],
+    "--tab-modified-dot": tokens["tab.modified.dot"],
+    // Status bar tokens — L1 chrome bar region (design.md §9 status bar region).
+    "--status-bar-bg": tokens["status.bar.bg"],
+    "--status-bar-fg": tokens["status.bar.fg"],
+    "--status-bar-item-hover-bg": tokens["status.bar.item.hover.bg"],
+    "--status-bar-error-bg": tokens["status.bar.error.bg"],
+    "--status-bar-error-fg": tokens["status.bar.error.fg"],
+    "--status-bar-warning-bg": tokens["status.bar.warning.bg"],
+    "--status-bar-warning-fg": tokens["status.bar.warning.fg"],
   };
 }

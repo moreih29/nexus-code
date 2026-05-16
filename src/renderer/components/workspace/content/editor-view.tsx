@@ -1,16 +1,17 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCall } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
-import { NEXUS_DARK_THEME_NAME } from "../../../services/editor/runtime/monaco-theme";
+import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
 import { fileErrorMessage } from "../../../utils/file-error";
+import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
 import { ReadOnlyBanner } from "./read-only-banner";
 import { useEditorMount } from "./use-editor-mount";
@@ -30,14 +31,6 @@ const editorOptions = {
   scrollBeyondLastLine: false,
   automaticLayout: true,
 } satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-1 min-h-0 items-center justify-center text-app-ui-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
 
 /**
  * Returns whether the current file is listed as conflicted in the git merge
@@ -89,6 +82,7 @@ function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
 
 export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   const { model, phase, errorCode, readOnly } = useSharedModel({ workspaceId, filePath });
+  const monacoTheme = useMonacoThemeName();
 
   const { onMount } = useEditorMount({
     filePath,
@@ -104,18 +98,20 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
   const markResolved = useGitStore((s) => s.markResolved);
 
   if (phase === "loading" || (phase === "ready" && !model)) {
-    return <Centered>Loading...</Centered>;
+    return <EmptyState title="Loading…" tone="status" className="min-h-0" />;
   }
 
   if (phase === "binary") {
-    return <Centered>Cannot display binary file.</Centered>;
+    return <EmptyState title="Cannot display binary file." tone="status" className="min-h-0" />;
   }
 
   if (phase === "error") {
     return (
-      <Centered>
-        {fileErrorMessage(errorCode ?? "OTHER", MAX_READABLE_FILE_SIZE / (1024 * 1024))}
-      </Centered>
+      <EmptyState
+        title={fileErrorMessage(errorCode ?? "OTHER", MAX_READABLE_FILE_SIZE / (1024 * 1024))}
+        tone="status"
+        className="min-h-0"
+      />
     );
   }
 
@@ -153,7 +149,7 @@ export function EditorView({ filePath, workspaceId }: EditorViewProps) {
         keepCurrentModel
         saveViewState={false}
         onMount={onMount}
-        theme={NEXUS_DARK_THEME_NAME}
+        theme={monacoTheme}
         options={editorOptions}
       />
     </div>

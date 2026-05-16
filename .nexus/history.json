@@ -14818,6 +14818,365 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-16T11:54:13.310Z",
+      "branch": "design/philosophy-refactor",
+      "plan": {
+        "id": 48,
+        "topic": "UI/UX 화면별 재설계 — 멀티테마 IDE의 design.md 철학을 실제 레이아웃·위계·인터랙션에 적용",
+        "issues": [
+          {
+            "id": 1,
+            "title": "에디터/Diff 캔버스 테마 연동 (NEXUS_DARK 하드코딩 → 테마 스토어 연동)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "반응형 테마 파이프라인은 이미 존재·동작: use-theme-effect.ts가 nexus:theme-changed CustomEvent 발행 → monaco-theme.ts subscribeMonacoThemeChanges가 monaco.editor.setTheme 전역 호출(재마운트 없음). 결함은 editor-view.tsx:156/diff-tab.tsx:110이 theme prop을 NEXUS_DARK_THEME_NAME 하드코딩 → 비기본 테마에서 첫 마운트만 색 틀어짐(FOUC급). 추천 Option A: 공용 훅 useMonacoThemeName()이 NEXUS_THEME_NAMES[useThemeStore(s=>s.resolved)] 반환, 두 컴포넌트 초기 prop으로 사용(~5줄). 컴포넌트별 setTheme effect 추가는 전역 리스너와 중복되므로 금지. NEXUS_DARK_THEME_NAME 별칭은 이번 사이클에 제거.",
+                "recorded_at": "2026-05-16T10:46:29.256Z",
+                "agent_id": "a1ea0e397d32703c4"
+              }
+            ],
+            "decision": "공용 훅 useMonacoThemeName()을 신설해 NEXUS_THEME_NAMES[useThemeStore(s=>s.resolved)]를 반환하고, editor-view.tsx·diff-tab.tsx의 Monaco theme 초기 prop으로 사용한다. 기존 nexus:theme-changed 전역 리스너(subscribeMonacoThemeChanges)는 라이브 변경 처리용으로 유지 — 컴포넌트별 setTheme effect는 중복이므로 추가 금지. NEXUS_DARK_THEME_NAME 별칭은 제거한다. (architect Option A)"
+          },
+          {
+            "id": 2,
+            "title": "사이드바 선택 상태 인코딩 (선택≡호버 충돌 해소, state.selected.* 채택)",
+            "status": "decided",
+            "decision": "이미 정의돼 있으나 미사용인 state.selected.* 토큰을 사이드바 활성 행에 적용해 선택 상태를 호버 상태와 분리한다(선택 배경 + state.selected.indicator 액센트). 부수 정리: × 텍스트 글리프를 lucide 아이콘으로 교체, 워크스페이스 제거 확인을 native window.confirm 대신 L3 다이얼로그로 라우팅."
+          },
+          {
+            "id": 3,
+            "title": "GitPanel 1135줄 컴포넌트 분해 전략",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "git-panel.tsx 1135줄 = store바인딩(42 셀렉터) + 다이얼로그 상태(useGitPanelPickers로 14개 추출됨 + 11개 useState 잔존) + 액션 오케스트레이션(~15 콜백) + 렌더(헤더/배너스택6/세그먼트/커밋입력/파일리스트/브랜치바 + 12다이얼로그 꼬리). 추천: design.md §2 Bounded Zones 따라 수직 기능축 분해 — <GitDialogHost>(12다이얼로그+11상태, useGitDialogs() 훅으로 노출, useGitPanelPickers 패턴 미러), <GitBannerStack>(buildGitBannerModel 셀렉터+map), <GitPanelBody>, thin container. 다이얼로그 상태는 훅(Context·store 아님 — 패널 로컬·ephemeral). 회귀 최소화 5단계 순서: ①순수 헬퍼(buildErrorAction/isAuthGitError) git-panel-actions.ts로 이동 ②useGitDialogs+GitDialogHost ③GitBannerStack ④GitPanelBody ⑤그 다음 시각 재설계. 구조변경 먼저, 행위변경 나중. 위험: confirmMergeOption(setCommitDraft 접근)·branchCreateLoadIdRef 경쟁가드는 오케스트레이션 콜백과 함께 container에 유지.",
+                "recorded_at": "2026-05-16T10:46:40.123Z",
+                "agent_id": "a1ea0e397d32703c4"
+              }
+            ],
+            "decision": "git-panel.tsx(1135줄)를 design.md §2 Bounded Zones 수직 기능축으로 분해한다: useGitDialogs() 훅 + <GitDialogHost>(12 다이얼로그 + 11 useState), <GitBannerStack>(buildGitBannerModel 셀렉터 + map), <GitPanelBody>, thin container. 다이얼로그 상태는 훅에 둔다(Context·store 아님). 5단계 순서 엄수 — ①순수 헬퍼 이동 ②useGitDialogs/GitDialogHost ③GitBannerStack ④GitPanelBody ⑤시각 재설계. 구조 변경 단계(①~④)는 행위 변경 없는 순수 리팩터로, 시각 재설계 전에 완료. confirmMergeOption·branchCreateLoadIdRef 등 교차 상태 결합 콜백은 container에 유지. (architect 승인)"
+          },
+          {
+            "id": 4,
+            "title": "Git 배너 우선순위/접힘 모델 (최대 5개 동시 스택 해소)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "git-panel.tsx:703-754 배너 6종 동시 스택. 심각도 분류: High=lastError·pushGuard, Med=autofetch-paused, Low=unborn·helper·context. 옵션 A(단일슬롯 완전숨김) ✗ 설명배너 손실, B(1슬롯+24px 접힘카운터) ✓, C(2슬롯 컨텍스트점수) ✗ 예측불가. 추천 B: 최고심각도 1개 노출, High는 슬롯 무조건 차지(불변식으로 인코딩 — render 순서 운에 맡기지 말 것), 나머지 카운터+펼침으로 보존(파괴 아님). 우선순위는 고정 심각도 랭크(컨텍스트 점수 아님 — §Consistency). 동일 클래스 내 최신 우선. 부수: unborn HEAD는 영구 설명이므로 배너 슬롯에서 빼 브랜치 정체성 캡션으로 재분류.",
+                "recorded_at": "2026-05-16T10:46:48.346Z",
+                "agent_id": "ad2445a815601e27d"
+              }
+            ],
+            "decision": "옵션 B 채택 — 우선순위 슬롯 1개 + 24px 접힘 카운터 행. buildGitBannerModel 셀렉터가 6종 배너를 고정 심각도 랭크(High: lastError·pushGuard > Med: autofetch-paused > Low: helper·context)로 정렬, 최고 1개만 슬롯 노출, 나머지는 '+N개' 카운터로 보존·펼침. High 클래스 배너는 슬롯을 무조건 차지하도록 불변식으로 인코딩. unborn HEAD는 배너 스택에서 제외하고 브랜치 정체성 영역의 영구 캡션으로 재분류한다."
+          },
+          {
+            "id": 5,
+            "title": "off-grid 간격 정규화 (6/10px → 4pt 그리드) + lint 가드",
+            "status": "decided",
+            "decision": "off-grid 간격(Tailwind 1.5=6px, 2.5=10px 등 43곳)을 design.md §3 4pt 그리드 스케일(2/4/8/12/16/24/32/48)로 정규화하는 sweep를 수행하고, 6/10px류 재유입을 막는 lint 가드를 추가한다. 10px는 §3 금지 목록 명시값."
+          },
+          {
+            "id": 6,
+            "title": "bespoke 상태 컴포넌트 → Banner/EmptyState/Skeleton 프리미티브 통합",
+            "status": "decided",
+            "decision": "terminal·editor·git 영역의 bespoke 상태 컴포넌트(DeadTerminalBanner, ReadOnly/ConflictResolved 바 배너, git-empty-state, git-loading-skeleton, git-inline-banner, operation-banner 등)를 신설 프리미티브 Banner(display=bar/inline)·EmptyState·Skeleton으로 수렴한다. 의도적으로 별도 유지할 항목은 사유를 명시."
+          },
+          {
+            "id": 7,
+            "title": "탭 위계 재설계 (활성탭 깊이 역전·dirty-dot 교체·닫기 타깃 크기)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "tab-item.tsx:114 활성탭=tab.active.bg(L0 캔버스, 가장 깊음)+1px 하단 border, 비활성탭=L2 → 깊이 역전(선택된 것이 가라앉음). 옵션 A(VSCode 패리티: 활성탭=캔버스 연속, 비활성탭을 L0 미만으로 낮춤) ✗ §2 4단계 모델에 L0미만 표면 필요·순수검정 금지 근접·§2 개정 필요. 옵션 B(깊이 정상화: 활성탭 L2+로 전진) ✓ 4단계 모델 그대로·매핑 정상. 추천 B를 C로 실행: 전진 신호를 사이드바 선택상태와 동일한 state.selected.indicator 토큰(2px 액센트)으로 → 사이드바·탭·향후 패널탭 단일 선택 언어. 자명한 수정(옵션 불요): dirty-dot↔닫기버튼 교체 → dirty 점 상시 유지+닫기 별도 배치, 16px 닫기 타깃 → ≥24px.",
+                "recorded_at": "2026-05-16T10:46:56.539Z",
+                "agent_id": "ad2445a815601e27d"
+              },
+              {
+                "role": "retrospective",
+                "summary": "plan #48 UI/UX 화면별 재설계 사이클 종료. 11개 task(엔지니어 9 + tester 1 + cross-task 보정 1) 전부 완료. 직전 사이클이 색상 토큰 치환까지였던 것을 이번 사이클이 design.md 철학을 실제 레이아웃·위계·인터랙션에 적용: 에디터/Diff 멀티테마 연동, 사이드바 선택≠호버, GitPanel 1135→881줄 분해(5단계 순수 리팩터), Git 배너 1슬롯+접힘 모델, off-grid 간격 4pt 정규화+lint 가드, 배너 프리미티브 통합, 탭 깊이 정상화, status bar 신규 빌드(마커 집계 store). designer cross-review로 원 진단 High/Med 전부 해소 확인. 핵심 교훈: (1) GitPanel 같은 거대 컴포넌트는 구조 분해(행위 불변)를 시각 재설계의 선행 task로 분리해야 회귀 위험이 통제됨 — architect 5단계 순서가 유효했음. (2) \"단일 선택 언어\" 같은 cross-region 결정은 토큰 키 1개로 강제해야 함 — T2/T8이 값만 같은 별개 키(sidebar.item.indicator vs state.selected.indicator)를 써 드리프트 위험 발생, cross-task 검토에서 잡아 T11로 통합. 결정문이 토큰 키 수준까지 명시했어야 했음. (3) tester 코드레벨 검증은 유효했으나 런타임 E2E는 Playwright 부재로 UNVERIFIABLE — 멀티테마 전환·탭·배너 시각 동작은 미검증으로 남음. 후속 권고: R1 banner.tsx BarBanner error variant가 저대비 text-destructive 사용(git 표면 아니라 기존 테스트 미포착) — 별도 수정. R2 git-destructive-contrast.test.ts가 more-menu.tsx 누락으로 main부터 red인 pre-existing 실패 — 정리 필요. R3 커서 위치·파일 언어·줄끝 status bar 항목은 데이터 소스 인프라 신설이 필요해 이번 사이클 제외, 차기 사이클 후보.",
+                "recorded_at": "2026-05-16T11:54:08.131Z"
+              }
+            ],
+            "decision": "옵션 B(깊이 정상화) 채택 — 활성 탭을 비활성 탭 위 표면 레벨(L2+)로 올려 '선택=전진' 매핑을 회복한다. 전진 신호는 사이드바 선택 상태와 동일한 state.selected.indicator 토큰(2px 액센트)으로 구현해 사이드바·탭·향후 패널 탭이 단일 선택 언어를 공유한다(design.md §2 개정 불요). 자명한 수정 동반: dirty 점을 호버 시에도 상시 유지하고 닫기 버튼을 교체가 아닌 별도 배치, 닫기 히트 타깃을 ≥24px로 확대."
+          },
+          {
+            "id": 8,
+            "title": "status bar 신규 빌드 (구성 항목·배치·데이터 소스)",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "status.bar.* 토큰 어휘 존재, 컴포넌트 없음. 마운트: app.tsx 외곽 flex 컬럼 최하단(flex flex-1 행 다음 형제), 전폭 — WorkspacePanel 내부 아님(per-workspace, 비활성 시 CSS hidden). 데이터 소스 store 조사 결과: ✅가용=git 브랜치/ahead·behind(git.ts session.branchInfo, types.ts:109-112), 워크스페이스 연결상태(workspaces.ts selectIsWorkspaceOnline). ⚠️부분=백그라운드작업(git.ts inFlightOp, git 한정). ❌소스없음=커서위치(onDidChangeCursorPosition 미구독, EditorTab에 필드없음)·파일언어(Monaco URI 추론만)·에러/경고 카운트(lsp/bridge.ts:70이 진단을 Monaco setModelMarkers로 직행, 집계 store 없음). 추천: 가용 항목만으로 빌드하거나 새 인프라 구축은 별도 task. status bar는 기존 store의 read-only 투영(§2). 세그먼트 레이아웃을 확장 가능한 리스트로 설계해 향후 항목 append 시 재구조화 불요.",
+                "recorded_at": "2026-05-16T10:47:06.253Z",
+                "agent_id": "a1ea0e397d32703c4"
+              },
+              {
+                "role": "designer",
+                "summary": "status bar는 §1 axis-4가 함의하는 누락된 전역 영구 피드백 레이어 — 집계 건강상태(에러/경고 카운트·작업활동·연결) 소유, 배너는 과도적·실행가능 알림 담당. 구성: 좌클러스터=ambient/프로젝트 전역(연결상태·git브랜치+ahead/behind·에러/경고 카운트), 우클러스터=활성에디터 로컬(커서위치·언어·줄끝·작업인디케이터). 단 architect 충돌조정: 커서/언어/줄끝/진단카운트는 데이터소스 없음 → 채택된 사용자 결정은 옵션 B(가용 항목 + 진단집계 store 신설로 에러/경고 카운트). 커서/언어/줄끝은 이번 사이클 제외. 크롬높이: 현재 4종(타이틀바36/탭바36/git헤더32/git브랜치바44 off-grid) — status bar는 h-6(24px on-grid, bar-banner 높이와 일치)으로 두고 git 헤더·브랜치바를 이 토큰으로 수렴. 빈 항목 가짜채우기 금지(가시성 원칙). 에러/경고 카운트는 숫자+글리프 중복인코딩(색만 의존 금지).",
+                "recorded_at": "2026-05-16T10:47:16.446Z",
+                "agent_id": "ad2445a815601e27d"
+              }
+            ],
+            "decision": "옵션 B 채택 — app.tsx 외곽 flex 컬럼 최하단에 전폭 L1 status bar를 신규 빌드한다. 표시 항목: git 브랜치 + ahead/behind, 워크스페이스 연결 상태, git 작업 인디케이터(기존 store 투영), + 에러/경고 카운트(Monaco onDidChangeMarkers를 구독·집계하는 신설 store). 커서 위치·파일 언어·줄끝은 데이터 소스 부재로 이번 사이클 제외(향후 추가 대비해 세그먼트 레이아웃은 확장 가능한 리스트로 설계). 높이는 h-6(24px on-grid) 공용 크롬 높이 토큰으로 두고, git 헤더(32px)·git 브랜치바(44px off-grid)를 이 토큰으로 수렴시킨다. 에러/경고 카운트는 숫자+글리프 중복 인코딩."
+          }
+        ],
+        "research_summary": "designer HOW가 design.md §9의 8개 IDE region을 화면별 진단. 직전 사이클은 색상 토큰 치환까지만 수행, 레이아웃·위계·인터랙션은 미반영. 핵심 발견: (1) 에디터/Diff 캔버스가 NEXUS_DARK_THEME_NAME 하드코딩 — warm-light 선택 시 캔버스만 다크로 남아 Bounded Zones 붕괴; EDITOR_PALETTES는 이미 Record<ThemeId,EditorPalette>로 존재해 배선만 필요. (2) sidebar.tsx:74 선택 배경이 state.hover.bg와 동일 토큰 — 선택≡호버, §7 redundant-encoding 위반; state.selected.* 토큰은 정의돼 있으나 미사용. (3) git-panel.tsx:703-754 배너 6종 동시 렌더 가능 — 작업 영역이 화면 밖으로 밀림. (4) 6px/10px off-grid 간격 43곳, 10px는 design.md §3 금지 목록 명시값. (5) Banner/EmptyState/Skeleton 프리미티브 신설됐으나 git·terminal에 옛 bespoke 상태 컴포넌트 7~8개 잔존. (6) GitPanel 1135줄 단일 컴포넌트 — git 트랙 전체의 재설계 비용을 부풀리는 선행 블로커. (7) 탭: 활성탭이 캔버스 레벨로 가라앉아 비활성탭보다 낮게 보임(깊이 역전 의심), 호버 시 dirty 점이 닫기 버튼으로 교체돼 더티 신호 소실, 닫기 타깃 16px. designer 오진 1건 정정: tab-bar 컴포넌트는 중복 아님 — group/tab-bar가 tabs/tab-bar의 dumb TabBar를 재사용하는 smart 래퍼(의도된 dumb/smart 분리). 사용자 범위 결정: 존재 화면 #1~6 전체 재설계(Med 세부 포함), status bar 신규 빌드 확정, bottom panel은 panel.* 어휘 로드맵 보류.",
+        "created_at": "2026-05-16T10:12:22.293Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "에디터/Diff 캔버스 테마 연동 + 상태 패리티",
+          "status": "completed",
+          "context": "현재 editor-view.tsx:156·diff-tab.tsx:110이 Monaco theme prop을 NEXUS_DARK_THEME_NAME으로 하드코딩 → warm-light/cool-dark 선택 시 캔버스만 다크로 남음(Bounded Zones 붕괴). 반응형 파이프라인(use-theme-effect.ts의 nexus:theme-changed 이벤트 → monaco-theme.ts subscribeMonacoThemeChanges 전역 setTheme)은 이미 동작 — 첫 마운트 prop만 결함. 추가로 editor-view.tsx의 Centered 헬퍼가 empty/loading/error를 bare 텍스트로 렌더(EmptyState 프리미티브 미사용), diff-tab.tsx SideLabel 헤더는 ref와 파일명이 동일 위계(파일명 강조 없음).",
+          "acceptance": "warm-light/cool-dark 선택 후 새 에디터·diff 탭을 열면 첫 페인트부터 해당 테마 팔레트로 렌더된다. NEXUS_DARK_THEME_NAME 참조가 코드베이스에서 사라진다. 에디터/diff의 empty·loading·error 상태가 EmptyState 프리미티브로 렌더된다. typecheck·lint 통과.",
+          "approach": "공용 훅 useMonacoThemeName() 신설 — NEXUS_THEME_NAMES[useThemeStore(s=>s.resolved)] 반환. editor-view.tsx·diff-tab.tsx의 Monaco theme 초기 prop에 사용. 컴포넌트별 setTheme effect는 추가 금지(전역 리스너와 중복). NEXUS_DARK_THEME_NAME 별칭 제거. editor-view.tsx Centered → ui/empty-state.tsx EmptyState로 교체(아이콘+구조화 카피). diff-tab.tsx 헤더는 파일명에 위계 부여(ref hash 약화). diff binary/missing notice도 EmptyState 경유. Reload 인라인 텍스트 버튼 → Button variant=ghost size=sm.",
+          "risk": "useMonacoThemeName 훅이 테마 변경 시 theme prop 재전달 → @monaco-editor/react는 이를 setTheme로 처리(재마운트 아님), 전역 리스너와 중복이나 무해. theme를 key로 쓰는 prop이 없는지 확인 필요.",
+          "plan_issue": 1,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1a0705eee5af8d19",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T10:48:58.809Z",
+          "result": {
+            "outcome": "success",
+            "summary": "useMonacoThemeName() 훅 신설 — editor-view·diff-tab의 Monaco theme 초기 prop을 테마 스토어에 연동. NEXUS_DARK_THEME_NAME 별칭 제거. 에디터/diff empty·loading·error를 EmptyState 프리미티브로 교체, diff 헤더 파일명 위계 부여. 변경: use-monaco-theme-name.ts(신규), editor-view.tsx, diff-tab.tsx, monaco-theme.ts, runtime/index.ts.",
+            "recorded_at": "2026-05-16T11:06:33.091Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "사이드바 선택 상태 인코딩 + 제거 다이얼로그",
+          "status": "completed",
+          "context": "sidebar.tsx:74 워크스페이스 활성 행이 선택 배경으로 state.hover.bg(호버와 동일 토큰)를, 좌측 액센트로 surface.chrome.border(범용 hairline)를 사용 → 선택 행과 호버된 비활성 행이 시각적으로 구분 불가(§7 redundant-encoding 위반). state.selected.bg·state.selected.indicator 토큰은 design.md §9에 정의돼 있으나 미사용. 부수: 제거 버튼 ×가 lucide 아이콘이 아닌 텍스트 글리프(앱 전반은 lucide 사용), 워크스페이스 제거 확인이 app.tsx:118 native window.confirm(OS 다이얼로그 — Bounded Zones L3 surface 모델 위반).",
+          "acceptance": "사이드바에서 선택된 워크스페이스와 마우스 호버된 워크스페이스가 색·액센트로 명확히 구분된다. 제거 버튼이 lucide 아이콘으로 렌더된다. 워크스페이스 제거가 인앱 L3 다이얼로그로 확인된다(native confirm 미사용). typecheck·lint 통과.",
+          "approach": "사이드바 활성 행에 state.selected.bg 배경 + state.selected.indicator 2px 좌측 액센트 적용 → 선택≠호버 분리. × 텍스트 글리프를 lucide 아이콘(X 또는 Trash2, git-file-row.tsx 관례 참조)으로 교체. window.confirm 제거 확인을 기존 prompt-dialog.tsx/conflict-dialog.tsx 류 L3 다이얼로그로 라우팅.",
+          "risk": "state.selected.indicator 토큰을 탭 위계 재설계(task 8)도 공유 — 두 태스크가 같은 선택 언어를 쓰도록 토큰 의미 일관성 유지.",
+          "plan_issue": 2,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9c0a158f9caa9aff",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T10:49:23.693Z",
+          "result": {
+            "outcome": "success",
+            "summary": "사이드바 활성 행에 sidebar.item.selected.bg + indicator 2px accent 적용 — 선택≠호버 분리. × 글리프를 lucide X로 교체. remove-workspace-dialog.tsx(신규) L3 다이얼로그로 window.confirm 대체. state.selected.* 토큰은 기존 정의 소비(신규 추가 없음). 변경: sidebar.tsx, app.tsx, global-roots/index.tsx, component.ts, remove-workspace-dialog.tsx(신규).",
+            "recorded_at": "2026-05-16T11:06:36.425Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "off-grid 간격 정규화 + lint 가드",
+          "status": "completed",
+          "context": "design.md §3은 8단계 간격 스케일(2/4/8/12/16/24/32/48px)을 정의하고 §1 axis 2는 5/10/14/15/18/26/30px를 명시 금지. 그러나 Tailwind의 1.5(6px)·2.5(10px) 스텝이 컴포넌트 전반 43곳에 산재(tab-item.tsx:107 gap-1.5, git-file-row.tsx:70 gap-1.5, button.tsx:33 px-2.5, files/panel.tsx:57 pt-2 pb-1.5, sidebar.tsx:91 mt-[2px], form-dialog.tsx·add-workspace-dialog.tsx 등). 10px는 §3 금지 목록 명시값.",
+          "acceptance": "6px/10px off-grid 간격이 코드베이스에서 제거되고 4pt 그리드 값으로 대체된다. off-grid 간격 재유입 시 lint가 실패한다. typecheck·lint·빌드 통과.",
+          "approach": "6px/10px 등 off-grid 간격 클래스를 4pt 그리드 스케일로 일괄 정규화(6→4 또는 8 문맥 판단, 10→8 또는 12). 임의값 mt-[2px]류는 spacing 토큰으로. 6/10px류 Tailwind 스텝·임의 px 재유입을 막는 lint 규칙 추가(eslint 또는 tailwind 설정). 다른 재설계 태스크와 파일 겹침이 크므로 nx-run에서 컴포넌트 편집 태스크들 이후 실행하도록 직렬화 권장.",
+          "risk": "다른 컴포넌트 재설계 태스크와 동일 파일을 편집 → 병합 충돌 위험. nx-run이 파일 겹침 태스크를 직렬화하고, 이 sweep는 가급적 후반에 배치.",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ae532b5b65ff1ed16",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-16T10:49:34.971Z",
+          "result": {
+            "outcome": "success",
+            "summary": "src/renderer/ 14개 파일의 off-grid 간격 22개를 4pt 그리드로 정규화(6px→8, 10px→8, mt-[2px]→mt-0.5). scripts/check-off-grid-spacing.ts(신규) lint 가드 — lint:tw에 연결돼 bun run lint·check:ci에서 강제. typecheck·build·scoped lint 통과. radius 관련 84건 pre-existing으로 범위 외.",
+            "recorded_at": "2026-05-16T11:26:11.430Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "terminal·editor bespoke 상태 컴포넌트 → Banner 프리미티브 통합",
+          "status": "completed",
+          "context": "신설 프리미티브 Banner(display=bar/inline)·EmptyState·Skeleton이 있으나 bespoke 상태 컴포넌트가 잔존. terminal-view.tsx:71-93 DeadTerminalBanner는 Banner display=bar 모드를 중복(banner.tsx 주석이 TerminalStatusBanner 기하 미러를 명시). editor의 ReadOnly·ConflictResolved 바 배너 3종이 Banner 프리미티브 대신 개별 구현. (git 영역 bespoke 통합은 GitPanel 분해 의존이라 task 7에서 별도 처리.)",
+          "acceptance": "terminal·editor의 bar 배너가 Banner 프리미티브로 렌더된다. 중복 bespoke 배너 컴포넌트가 제거된다. 배너 표시 동작(dead terminal, read-only, conflict resolved)이 회귀 없이 유지된다. typecheck·lint 통과.",
+          "approach": "DeadTerminalBanner, ReadOnly/ConflictResolved 바 배너를 Banner display=bar 프리미티브로 수렴. terminal SSH-connecting 초기 상태가 필요하면 경량 추가. 의도적으로 별도 유지하는 컴포넌트가 있으면 사유를 코드 주석에 명시.",
+          "plan_issue": 6,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a1a0705eee5af8d19",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T10:49:42.878Z",
+          "result": {
+            "outcome": "success",
+            "summary": "DeadTerminalBanner를 Banner display=bar 프리미티브 래퍼로 전환 — ReadOnly/ConflictResolved/WorkspaceTerminalStatus는 이미 수렴 완료 상태였음. actionDisabled 시 액션 버튼 자체를 생략. 변경: terminal-view.tsx, banner.tsx, terminal-view-dead.test.tsx.",
+            "recorded_at": "2026-05-16T11:10:35.013Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "GitPanel 1135줄 컴포넌트 구조 분해 (순수 리팩터)",
+          "status": "completed",
+          "context": "git-panel.tsx(1135줄)가 레이아웃 + 42개 store 셀렉터 + 12개 다이얼로그 상태(useGitPanelPickers로 14개는 추출됨, 11개 useState 잔존: discardRequest·branchCreateRequest+2 loading+ref·mergeOptionsRequest·publishRequest·emptyCommitRequest·stashGroupRequest·addRemoteOpen·removeRemoteRequest·forcePushRequest·contextBanner) + ~15 액션 콜백 + 렌더(헤더/배너스택6/세그먼트/커밋입력/파일리스트/브랜치바 + 12다이얼로그 꼬리 lines 922-1098)를 한 컴포넌트가 처리. git 트랙 전체 재설계의 선행 블로커. 팀은 이미 useGitPanelPickers·useGitSession·git-panel-actions.ts로 \"훅/팩토리 추출\" 패턴 사용 중.",
+          "acceptance": "git-panel.tsx가 useGitDialogs/GitDialogHost/GitBannerStack/GitPanelBody + thin container로 분해된다. 분해는 행위 변경 없는 순수 리팩터 — 다이얼로그 12종 열림/닫힘, 배너 표시, 커밋/푸시/머지 등 모든 git 동작이 회귀 없이 동일 동작한다. 각 단계가 독립 revert 가능한 구조. typecheck·lint·빌드 통과.",
+          "approach": "design.md §2 Bounded Zones 수직 기능축 분해. 5단계 순서 엄수: ①순수 헬퍼 buildErrorAction·isAuthGitError를 git-panel-actions.ts로 이동 ②useGitDialogs() 훅(useGitPanelPickers 패턴 미러, 11개 다이얼로그 상태 + imperative opener 노출) + <GitDialogHost>(12 다이얼로그 렌더) ③<GitBannerStack>(현재 6-way 조건부를 buildGitBannerModel 셀렉터 + map으로) ④<GitPanelBody>(세그먼트+커밋입력+파일리스트+브랜치바) ⑤thin container. 다이얼로그 상태는 훅에 둠(Context·store 아님). ①~④는 행위 변경 없는 순수 구조 리팩터 — 시각 재설계는 별도 태스크. confirmMergeOption(setCommitDraft 접근)·branchCreateLoadIdRef 경쟁가드는 오케스트레이션 콜백과 함께 container에 유지.",
+          "risk": "패널 회귀 테스트 부재 → 구조 단계는 diff로 검증 가능한 순수 리팩터로 유지. confirmMergeOption·branchCreateLoadIdRef를 오케스트레이션 콜백에서 분리하면 머지 후 커밋 draft 시딩·stale-load 가드가 깨짐.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac239abc0ded388f0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-16T10:50:04.089Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git-panel.tsx(1135줄)를 5단계 순수 구조 리팩터로 분해 → thin container(881줄). 신규: use-git-dialogs.ts, git-dialog-host.tsx, git-banner-stack.tsx, git-panel-body.tsx. 행위 변경 없음, typecheck·lint·build 통과. GitBannerStack은 5개 prop 그룹 — T6가 buildGitBannerModel 셀렉터로 통합할 확장 지점.",
+            "recorded_at": "2026-05-16T11:06:39.483Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "Git 배너 우선순위/접힘 모델",
+          "status": "completed",
+          "context": "git-panel.tsx:703-754에서 unborn / push-guard / lastError / helper-prompt / autofetch-paused / contextBanner 6종 배너가 동시 스택 가능 → 헤더와 커밋 입력창 사이에 배너 다수가 쌓이면 파일 리스트·커밋 박스가 화면 밖으로 밀림. §1 axis-4: High 신호(에러)는 절대 가려지면 안 됨. task 5에서 <GitBannerStack> + buildGitBannerModel 골격이 추출된 상태를 전제로 한다.",
+          "acceptance": "git 패널 배너 영역 최대 높이가 배너 1개 + 24px 카운터 행으로 한정된다. 에러·push-guard(High) 배너는 다른 배너와 공존 시 항상 슬롯을 차지한다. 접힌 배너는 카운터로 보존되고 펼칠 수 있다. unborn HEAD가 배너가 아닌 브랜치 캡션으로 표시된다. typecheck·lint·빌드 통과.",
+          "approach": "buildGitBannerModel 셀렉터가 6종 배너를 고정 심각도 랭크로 분류·정렬: High(lastError·pushGuard) > Med(autofetch-paused) > Low(helper-prompt·contextBanner), 동일 클래스 내 최신 우선. 우선순위 슬롯에 최고 1개만 노출, 나머지는 '+N개 알림' 24px(h-6) 접힘 카운터 행으로 — 클릭 시 인플레이스 펼침, 키보드 포커스 가능. High 클래스 배너는 슬롯을 무조건 차지하도록 불변식으로 인코딩(render 순서 운에 의존 금지). 카운터 행은 카운트+chevron 중복 인코딩. unborn HEAD는 배너 스택에서 제외하고 브랜치 정체성 영역의 영구 캡션으로 재분류.",
+          "risk": "High 불변식이 render 순서가 아닌 명시적 우선순위 산정에 인코딩되지 않으면 에러 배너가 가려질 수 있음.",
+          "plan_issue": 4,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac239abc0ded388f0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-16T10:50:21.895Z",
+          "result": {
+            "outcome": "success",
+            "summary": "buildGitBannerModel() 순수 셀렉터가 6종 배너를 High/Med/Low 고정 랭크로 정렬 → 슬롯 1개 + collapsedItems. GitBannerStack은 최고 1개만 렌더, 나머지 h-6 카운터 행으로 접음. High 랭크는 RANK 상수 테이블 불변식. unborn HEAD는 GitBranchBar 캐션으로 재분류. 신규: git-banner-model.ts. 변경: git-banner-stack.tsx, git-panel.tsx, git-branch-bar.tsx.",
+            "recorded_at": "2026-05-16T11:12:58.837Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "Git 영역 일관성·크롬 정리",
+          "status": "completed",
+          "context": "GitPanel 분해(task 5) 이후 git 영역의 잔여 일관성 결함을 정리. git-empty-state.tsx·git-loading-skeleton.tsx·git-inline-banner.tsx·operation-banner.tsx 등 bespoke 상태 컴포넌트가 신설 프리미티브 Banner/EmptyState/Skeleton을 그림자처럼 중복. git-panel.tsx:634 루트가 <fieldset>(폼 컨트롤 그룹 — git 패널은 폼이 아님, disabled 캐스케이드 편의용, 접근성 시맨틱 오용). 크롬 스트립 높이 4종 불일치: 타이틀바 h-9(36) / 탭바 h-9(36) / git-header.tsx:90 h-8(32) / git 브랜치바 h-11(44, off-grid). git-file-row.tsx:91-133 인라인 액션이 size-6이고 destructive(discard)가 stage와 동일 시각 무게(useful friction 부재).",
+          "acceptance": "git bespoke 상태 컴포넌트가 프리미티브로 수렴된다. git 패널 루트가 fieldset이 아니다. git 헤더·브랜치바가 공용 크롬 높이 토큰을 사용한다. git 파일행의 destructive 액션이 비파괴 액션과 시각적으로 구별된다. typecheck·lint·빌드 통과.",
+          "approach": "git bespoke 상태 컴포넌트를 Banner/EmptyState/Skeleton 프리미티브로 수렴. <fieldset> 루트를 div + 적절한 disabled 처리로 교체. 공용 크롬 높이 토큰(h-6=24px 권장, status bar와 일치)을 두고 git 헤더(32)·git 브랜치바(44)를 이 토큰으로 수렴. git-file-row destructive 액션에 useful friction 부여(시각 무게 차등 또는 확인 단계).",
+          "risk": "fieldset 제거 시 disabled 캐스케이드(inFlightOp 중 입력 비활성)가 깨지지 않도록 대체 메커니즘 확인 필요.",
+          "plan_issue": 6,
+          "deps": [
+            5
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac239abc0ded388f0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-16T10:50:34.521Z",
+          "result": {
+            "outcome": "success",
+            "summary": "git bespoke shim 2개(git-empty-state, git-loading-skeleton) 제거·프리미티브 직접 사용. fieldset→section(aria-label) 교체. 크롬 높이 git-header h-8·git-branch-bar/BranchChip h-11 → h-9(36px) 통일, off-grid 44px 제거. discard 버튼 opacity 차등으로 useful friction. git-inline-banner·operation-banner는 사유 명시해 유지. 11개 파일 변경, 2개 삭제.",
+            "recorded_at": "2026-05-16T11:18:30.074Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "탭 위계 재설계 (깊이 정상화)",
+          "status": "completed",
+          "context": "tab-item.tsx:114 활성 탭이 tab.active.bg(L0 캔버스 = 가장 깊은 표면)로 렌더돼 비활성 탭(tab.inactive.bg, L2)보다 시각적으로 가라앉음 → '선택=전진' 매핑과 역전(비활성 탭이 활성 탭보다 위에 떠 보임). 전진 신호가 1px 하단 border뿐. 추가로 tab-item.tsx:151-178에서 호버 시 dirty 점이 닫기 ×로 교체돼 더티 신호 소실 + 클릭 의미가 rest/hover에서 무언 변경, 닫기 버튼 size-4(16px)로 타깃 과소. tab-bar.tsx:127 + 버튼도 텍스트 글리프(lucide 아님). group/tab-bar.tsx는 tabs/tab-bar.tsx의 dumb TabBar를 재사용하는 smart 래퍼 — 중복 아님, 의도된 dumb/smart 분리이므로 통합 대상 아님.",
+          "acceptance": "활성 탭이 비활성 탭보다 시각적으로 전진(위)으로 읽히고 state.selected.indicator 액센트로 표시된다. dirty 탭에서 호버해도 더티 신호가 유지되며 닫기 버튼은 별도 위치에 나타난다. 닫기 히트 타깃이 ≥24px. + 버튼이 lucide 아이콘. typecheck·lint·빌드 통과.",
+          "approach": "활성 탭을 비활성 탭 위 표면 레벨(L2+)로 올려 깊이 역전 해소. 전진 신호를 사이드바 선택 상태(task 2)와 동일한 state.selected.indicator 토큰(2px 액센트)으로 구현 → 사이드바·탭이 단일 선택 언어 공유. dirty 점을 호버 시에도 상시 유지하고 닫기 버튼을 점 교체가 아닌 별도 배치, 닫기 히트 타깃 ≥24px로 확대. + 버튼 텍스트 글리프를 lucide 아이콘으로 교체.",
+          "risk": "state.selected.indicator 토큰을 task 2와 공유 — 의미·값 일관성 유지. 활성 탭 표면을 올리면 탭-캔버스 시각 연속성(VSCode \"용접\")이 사라지나, 이는 의도된 트레이드오프(매핑 정상성 우선).",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a8ddc10c83d87296a",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-16T10:50:55.399Z",
+          "result": {
+            "outcome": "success",
+            "summary": "활성 탭의 L0 배경+하단 border 제거, 2px top border state.selected.indicator 액센트로 전진 신호 구현 — 깊이 역전 해소. dirty 점 인라인 상시 표시, 닫기 버튼 별도 absolute 분리(32px 타깃, lucide X). + 버튼 lucide Plus. 변경: tab-item.tsx, tab-bar.tsx, component.ts.",
+            "recorded_at": "2026-05-16T11:06:42.260Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "status bar 신규 빌드 (마커 집계 store + L1 스트립)",
+          "status": "completed",
+          "context": "design.md §9에 status.bar.* 토큰 어휘는 있으나 컴포넌트가 없음 — IDE의 전역 영구 피드백 레이어(§1 axis-4)가 통째로 부재. architect store 조사 결과 가용 데이터: git 브랜치·ahead/behind(git.ts session.branchInfo, 워크스페이스별 sessions Map), 워크스페이스 연결 상태(workspaces.ts selectIsWorkspaceOnline), git 작업(git.ts inFlightOp). 에러/경고 카운트는 현재 소스 없음 — lsp/bridge.ts:70이 진단을 monaco.editor.setModelMarkers로 직행, 집계 store 부재. 커서 위치·언어·줄끝은 데이터 소스 부재로 이번 사이클 제외.",
+          "acceptance": "앱 하단에 전폭 L1 status bar가 렌더된다. git 브랜치+ahead/behind, 워크스페이스 연결 상태, 에러/경고 카운트, git 작업 인디케이터가 활성 워크스페이스 기준으로 표시된다. 워크스페이스 미선택/비-repo 시 중립 상태로 렌더(stale 값·가짜 값 없음). 에러/경고 카운트가 색 외 글리프로도 인코딩된다. 높이가 h-6 크롬 토큰. typecheck·lint·빌드 통과.",
+          "approach": "① Monaco 마커 집계 store 신설 — monaco.editor.onDidChangeMarkers 구독, severity별 에러/경고 카운트 집계. ② app.tsx 외곽 flex 컬럼 최하단(flex flex-1 행 다음 형제, 전폭)에 status bar 컴포넌트 마운트 — WorkspacePanel 내부 아님. 표시: 좌측=워크스페이스 연결 상태·git 브랜치+ahead/behind·에러/경고 카운트, 우측=git 작업 인디케이터. activeWorkspaceId(active.ts) 구독해 해당 git 세션을 reactive하게 select(sessions.get), 비활성/비-repo 시 중립 렌더. 높이 h-6(24px) 공용 크롬 높이 토큰. 에러/경고 카운트는 숫자+글리프 중복 인코딩, 작업 인디케이터는 스피너+라벨. 세그먼트 레이아웃을 확장 가능한 리스트로 설계(향후 커서/언어 항목 append 대비). status.bar.* 토큰 사용.",
+          "risk": "git.ts는 워크스페이스별 sessions Map — status bar가 activeWorkspaceId 변경에 reactive하게 select해야 함(스냅샷 금지). Monaco 마커 구독이 모델 dispose 시 누수되지 않도록 정리 필요.",
+          "plan_issue": 8,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9c0a158f9caa9aff",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T10:51:13.107Z",
+          "result": {
+            "outcome": "success",
+            "summary": "diagnostics.ts(신규) Monaco onDidChangeMarkers 구독 집계 store + status-bar.tsx(신규) h-6 전폭 L1 스트립. 좌: SSH 연결·git 브랜치+ahead/behind·에러/경고 카운터(글리프+색 중복 인코딩). 우: git 작업 스피너. activeWorkspaceId null 시 중립 렌더. app.tsx 루트 flex 최하단 마운트. 변경: component.ts, editor/index.ts, app.tsx.",
+            "recorded_at": "2026-05-16T11:13:08.339Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "UI/UX 재설계 통합 런타임 검증·회귀",
+          "status": "completed",
+          "context": "8개 재설계 태스크(에디터/Diff 테마·상태 패리티, 사이드바 선택 상태, off-grid sweep, 배너 프리미티브 통합, GitPanel 분해, Git 배너 모델, Git 일관성 정리, 탭 위계, status bar)의 통합 검증. 직전 사이클은 색상 토큰 치환까지였고, 이번 사이클의 핵심 위험은 (a) GitPanel 분해의 행위 회귀, (b) 멀티테마 런타임 전환, (c) 신규 status bar의 reactive 데이터 바인딩.",
+          "acceptance": "전 항목 PASS — 멀티테마 런타임 전환 정상, GitPanel 분해 행위 회귀 없음, 배너 모델 불변식 충족, 탭 위계·status bar 동작 정상. typecheck·lint·빌드 통과. 발견된 회귀는 분류(설계결함/단순실패/환경)와 함께 보고.",
+          "approach": "테마 검증: warm-dark/cool-dark/warm-light 각각에서 에디터·diff 캔버스가 첫 페인트부터 일치 렌더되는지, 런타임 전환 시 캔버스·크롬 동시 반영되는지. GitPanel 검증: 분해 전후 다이얼로그 12종 열림/닫힘, 배너 표시, 커밋/푸시/머지/discard 동작 회귀 없음. 배너 모델: 6종 배너 다양한 조합에서 슬롯 1개 + 카운터 유지, High 배너 항상 노출. 탭: 활성/비활성 깊이, dirty 점 + 닫기 공존, 닫기 타깃 크기. status bar: 워크스페이스 전환 시 git 브랜치·연결·에러 카운트 갱신, 미선택/비-repo 중립 렌더. 전역: typecheck·lint·빌드·기존 테스트 스위트 통과, WCAG 대비 회귀 없음.",
+          "plan_issue": 3,
+          "deps": [
+            1,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "owner": {
+            "role": "tester"
+          },
+          "created_at": "2026-05-16T10:51:31.153Z",
+          "result": {
+            "outcome": "success",
+            "summary": "tester 검증: typecheck·build PASS, GitPanel 분해 행위 보존·배너 불변식·status bar reactive 바인딩 코드 레벨 PASS. net-new 테스트 실패 2건(terminal-view-dead 함수컴포넌트 트래버설 갑, git-branch-popover h-11→h-9 단언) Lead가 직접 수정 → 18 pass. 전체 스위트 1765 pass / 18 fail = main baseline과 동일, net-new 회귀 0. git-destructive-contrast 실패는 more-menu.tsx 원인으로 main에서도 실패하는 pre-existing. 런타임 E2E(멀티테마 전환·탭·배너)는 Playwright 부재로 UNVERIFIABLE — 정적 검증으로 대체.",
+            "artifacts": [
+              "tests/unit/renderer/components/workspace/content/terminal-view-dead.test.tsx",
+              "tests/unit/renderer/components/files/git/git-branch-popover-menu.test.ts"
+            ],
+            "recorded_at": "2026-05-16T11:45:41.388Z"
+          }
+        },
+        {
+          "id": 11,
+          "title": "재설계 cross-task 일관성 보정 (C-1·C-2·C-3)",
+          "status": "completed",
+          "context": "designer cross-task 검토에서 재설계가 새로 만든 불일치 3건 발견. C-1(Med): 사이드바 선택 인디케이터가 sidebar.item.indicator 키를, 탭이 state.selected.indicator 키를 사용 — plan issue 7 결정문은 '동일 state.selected.indicator 토큰 공유, 단일 선택 언어'를 명시했으나 두 키로 분리됨(값은 3개 테마 모두 동일하나 컴파일 가드 없어 드리프트 위험). C-2(Low): empty-state.tsx:39가 title을 text-small-label uppercase로 렌더 → T1이 EmptyState를 재사용한 editor-view.tsx:101 'Loading…'·diff-tab.tsx blocking title이 대문자로 강제됨(범주 라벨용 대문자가 과도적 상태 메시지에 부적절, §5 위반). C-3(Low): status-bar.tsx StatusBarItem(:270)이 hover:bg affordance를 갖는데 BranchSegment·DiagnosticSegment 등 세그먼트에 onClick이 없음 — 거짓 시그니파이어.",
+          "acceptance": "C-1: 사이드바·탭이 단일 state.selected.indicator 키를 공유하고 sidebar.item.indicator 키·테마 값·CSS 변수가 제거된다. C-2: editor/diff의 loading·error 메시지가 대문자로 강제되지 않는다. C-3: status bar의 비인터랙티브 세그먼트에 거짓 hover affordance가 없다. typecheck·build·변경 파일 scoped lint 통과.",
+          "approach": "C-1: sidebar.tsx의 선택 인디케이터를 --state-selected-indicator(state.selected.indicator 키)로 통일. 잉여가 된 sidebar.item.indicator SemanticKey + 3개 테마 값 + component.ts의 --sidebar-item-indicator CSS 변수를 제거. sidebar.item.selected.bg(배경)는 표면 레벨별 차등이 정당하므로 유지. C-2: EmptyState에 비대문자 tone(예: tone='status') 변형을 추가하거나, editor/diff의 loading·error 상태를 범주 라벨 EmptyState 대신 sentence-case 중앙 텍스트 처리로 — title이 과도적 메시지일 때 대문자가 적용되지 않도록. C-3: status bar 세그먼트에서 onClick 없는 항목의 hover affordance를 제거(또는 액션이 자명하면 wire) — 거짓 affordance 해소.",
+          "risk": "C-1 토큰 키 제거 시 sidebar.item.indicator를 참조하는 다른 소비처가 없는지 확인 필요.",
+          "plan_issue": 7,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a9c0a158f9caa9aff",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-16T11:49:12.871Z",
+          "result": {
+            "outcome": "success",
+            "summary": "C-1: 사이드바 인디케이터를 state.selected.indicator로 통일, sidebar.item.indicator 키·3개 테마 값·CSS 변수 제거 — 사이드바·탭 단일 선택 토큰 공유. C-2: EmptyState에 tone='label'|'status' prop 추가, editor/diff loading·error 6곳은 tone='status'(sentence-case)로 — 대문자 강제 해소, 범주 라벨 기본 동작 보존. C-3: StatusBarItem에 interactive prop 추가, hover affordance를 interactive에만 조건부로 — 비인터랙티브 세그먼트 거짓 affordance 제거. typecheck·build·test 통과.",
+            "recorded_at": "2026-05-16T11:53:49.467Z"
+          }
+        }
+      ]
     }
   ]
 }

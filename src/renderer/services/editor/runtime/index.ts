@@ -17,6 +17,6 @@ export {
 export {
   buildEditorColors,
   initializeMonacoTheme,
-  NEXUS_DARK_THEME_NAME,
+  NEXUS_THEME_NAMES,
 } from "./monaco-theme";
 export { installRejectionSink } from "./rejection-sink";

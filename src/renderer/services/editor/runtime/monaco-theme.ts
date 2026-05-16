@@ -15,10 +15,6 @@ export const NEXUS_THEME_NAMES: Record<ThemeId, string> = {
   "warm-light": "nexus-warm-light",
 };
 
-// Backward-compat export — existing consumers that import NEXUS_DARK_THEME_NAME
-// continue to work; they get the warm-dark name which was the only theme before.
-export const NEXUS_DARK_THEME_NAME = NEXUS_THEME_NAMES["warm-dark"];
-
 // ---------------------------------------------------------------------------
 // buildEditorColors — maps EditorPalette → Monaco IColors
 // Unchanged from the original; all callers still go through this.

@@ -93,7 +93,6 @@ export const coolDark: SemanticTokenSet = {
   "sidebar.item.hover.bg": "rgba(200, 210, 255, 0.05)",
   "sidebar.item.selected.bg": "rgba(200, 210, 255, 0.11)",
   "sidebar.item.selected.fg": "oklch(0.96 0.004 240)",
-  "sidebar.item.indicator": "oklch(0.72 0.006 245)",
   "sidebar.icon.fg": "oklch(0.61 0.006 245)",
   "sidebar.badge.bg": "oklch(0.32 0.008 245)",
   "sidebar.badge.fg": "oklch(0.96 0.004 240)",

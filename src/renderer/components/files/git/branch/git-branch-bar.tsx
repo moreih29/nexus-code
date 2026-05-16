@@ -44,23 +44,30 @@ export function GitBranchBar({
   onSetAutofetchInterval,
 }: GitBranchBarProps) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-t border-border bg-muted px-1 text-app-ui-sm text-muted-foreground">
-      <GitBranchPopover
-        workspaceId={workspaceId}
-        branch={branch}
-        repoPath={repoPath}
-        disabled={disabled}
-        capabilities={capabilities}
-        autofetchIntervalMin={autofetchIntervalMin}
-        autofetchFetching={autofetchFetching}
-        autofetchFailed={autofetchFailed}
-        onSync={onSync}
-        onFetch={onFetch}
-        onPull={onPull}
-        onPush={onPush}
-        onPublish={onPublish}
-        onSetAutofetchInterval={onSetAutofetchInterval}
-      />
+    <div className="flex shrink-0 flex-col border-t border-border bg-muted">
+      {branch?.isUnborn ? (
+        <p className="px-3 pt-1 text-app-ui-xs text-muted-foreground">
+          {`'${branch.current}' has no commits yet — it will be created on your first commit.`}
+        </p>
+      ) : null}
+      <div className="flex h-9 items-center gap-1 px-1 text-app-ui-sm text-muted-foreground">
+        <GitBranchPopover
+          workspaceId={workspaceId}
+          branch={branch}
+          repoPath={repoPath}
+          disabled={disabled}
+          capabilities={capabilities}
+          autofetchIntervalMin={autofetchIntervalMin}
+          autofetchFetching={autofetchFetching}
+          autofetchFailed={autofetchFailed}
+          onSync={onSync}
+          onFetch={onFetch}
+          onPull={onPull}
+          onPush={onPush}
+          onPublish={onPublish}
+          onSetAutofetchInterval={onSetAutofetchInterval}
+        />
+      </div>
     </div>
   );
 }

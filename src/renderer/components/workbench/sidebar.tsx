@@ -1,4 +1,4 @@
-import { Folder, Server } from "lucide-react";
+import { Folder, Server, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useUIStore } from "../../state/stores/ui";
@@ -64,14 +64,17 @@ export function Sidebar({
                 className={cn(
                   // base layout — left accent bar reserved (border-l-2 transparent) so width is stable across states
                   "block w-full px-4 py-2 rounded-[--radius-container] border-l-2 border-l-transparent",
-                  // reserve right space so the × button never overlaps text
+                  // reserve right space so the remove button never overlaps text
                   "pr-8",
                   // text + interaction
                   "text-left cursor-pointer select-none font-sans transition-colors",
-                  // rest state: state.hover.bg overlay (light-theme safe, design.md §7)
-                  "text-foreground bg-transparent hover:bg-[var(--state-hover-bg)]",
-                  // active state: state.hover.bg bg + surface.chrome.border left accent hairline
-                  isActive && "bg-[var(--state-hover-bg)] border-l-border",
+                  "text-foreground",
+                  // selected state: sidebar.item.selected.bg bg + state.selected.indicator 2px left accent
+                  // Shared single-language token with tab selection (plan #48 C-1, design.md §7).
+                  isActive
+                    ? "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)]"
+                    // rest/hover state: transparent bg + state.hover.bg on hover (light-theme safe, design.md §7)
+                    : "bg-transparent hover:bg-[var(--state-hover-bg)]",
                 )}
               >
                 <span className="grid grid-cols-[16px_minmax(0,1fr)] items-center gap-2">
@@ -88,7 +91,7 @@ export function Sidebar({
                     </span>
                     {/* Location hint — micro: 11px, truncate */}
                     <span
-                      className="block text-micro text-muted-foreground mt-[2px] truncate min-w-0"
+                      className="block text-micro text-muted-foreground mt-0.5 truncate min-w-0"
                       title={secondaryTitle}
                     >
                       {secondaryText}
@@ -109,12 +112,12 @@ export function Sidebar({
                 aria-label={`Remove workspace ${ws.name}`}
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-                  "size-5 rounded-[--radius-control] text-app-body-emphasis leading-none",
+                  "size-5 rounded-[--radius-control]",
                   "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
                   "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
                 )}
               >
-                ×
+                <X className="size-3" aria-hidden="true" />
               </button>
             </div>
           );

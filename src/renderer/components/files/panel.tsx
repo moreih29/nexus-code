@@ -54,7 +54,7 @@ export function FilesPanel() {
     >
       {activeWorkspace ? (
         <>
-          <div className="flex items-center gap-1 px-2 pt-2 pb-1.5 border-b border-border/50">
+          <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
             {MODE_BUTTONS.map(({ mode, label, Icon }) => {
               const isActive = filesPanelMode === mode;
               return (

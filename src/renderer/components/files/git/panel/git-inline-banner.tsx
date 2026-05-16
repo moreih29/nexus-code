@@ -1,9 +1,12 @@
 /**
- * GitInlineBanner — re-export shim over the generic Banner primitive.
+ * GitInlineBanner — thin shim over the generic Banner primitive.
  *
- * Callers (git-panel.tsx, history/panel.tsx) continue to import GitInlineBanner
- * unchanged. The implementation now delegates to Banner so the visual contract
- * stays consistent with other inline notices across the app.
+ * Intentionally kept separate (not collapsed to direct Banner calls) because
+ * it resolves the actionLabel/onAction → actions[] impedance mismatch for the
+ * many git-panel call sites that use the single-action shorthand. Eliminating
+ * the shim would require spreading actions arrays across git-banner-stack.tsx,
+ * git-banner-model.ts, and history/panel.tsx — more churn than the shim
+ * justifies. (T7 consistency review, 2026-05.)
  */
 import { Banner, type BannerAction, type BannerVariant } from "../../../ui/banner";
 

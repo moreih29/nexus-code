@@ -94,7 +94,7 @@ export function GitGroupHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-6 git-destructive-text"
+            className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
             aria-label={discardActionLabel}
             title={discardActionLabel}
             onClick={onDiscardAll}

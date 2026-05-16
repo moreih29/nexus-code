@@ -12,6 +12,8 @@ import { WelcomeScreen } from "./components/workbench/welcome-screen";
 import { AddWorkspaceDialog } from "./components/workspace/add-workspace-dialog";
 import { WorkspacePanel } from "./components/workspace/panel";
 import { ipcCall } from "./ipc/client";
+import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";
+import { StatusBar } from "./components/workbench/status-bar";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
@@ -111,14 +113,11 @@ export function App() {
   }, []);
 
   const handleRemoveWorkspace = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const target = workspaces.find((w) => w.id === id);
-      const label = target ? `"${target.name}"` : "this workspace";
-      // Native confirm is sufficient — only the registration is removed; on-disk folder is untouched.
-      const ok = window.confirm(
-        `Remove ${label} from Nexus?\n\nThe folder on disk is not touched.`,
-      );
-      if (!ok) return;
+      const name = target?.name ?? "this workspace";
+      const confirmed = await showRemoveWorkspaceConfirm(name);
+      if (!confirmed) return;
       // tabs store subscribes to `workspace:removed` and clears its slice;
       // that tab-record cleanup kills PTYs before panel unmount disposes views.
       ipcCall("workspace", "remove", { id }).catch(() => {});
@@ -166,6 +165,7 @@ export function App() {
           ))}
         </div>
       </div>
+      <StatusBar />
     </div>
   );
 }

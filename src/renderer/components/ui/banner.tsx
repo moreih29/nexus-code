@@ -103,7 +103,8 @@ function InlineBanner({
 
 /**
  * Bar display — fixed h-6 full-width status strip, border-b, horizontal layout.
- * Geometry mirrors ReadOnlyBanner / ConflictResolvedBanner / TerminalStatusBanner.
+ * Used by ReadOnlyBanner, ConflictResolvedBanner, DeadTerminalBanner, and
+ * WorkspaceTerminalStatusBanner as the shared editor/terminal status bar geometry.
  */
 function BarBanner({
   variant = "info",

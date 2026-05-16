@@ -321,7 +321,7 @@ function GitBranchFetchStatus({
     return (
       <div
         role="status"
-        className="mt-2 flex items-center gap-1.5 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
+        className="mt-2 flex items-center gap-2 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
       >
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
         <span>Fetching…</span>

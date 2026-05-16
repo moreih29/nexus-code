@@ -87,7 +87,7 @@ export function GitHeader({
   onSetAutofetchInterval,
 }: GitHeaderProps) {
   return (
-    <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
+    <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
       <span className="min-w-0 truncate text-small-label uppercase text-muted-foreground">
         Source Control
       </span>

@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Children, type ReactElement } from "react";
+import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   DeadTerminalBanner,
@@ -17,9 +17,23 @@ function renderEndedTerminal(message: string): string {
   );
 }
 
+// Resolves hook-free function components (e.g. <Banner>) so the inner host
+// <button> is reachable after DeadTerminalBanner delegates to the Banner primitive.
+function findButton(node: ReactNode): ReactElement | undefined {
+  if (!isValidElement(node)) return undefined;
+  if (typeof node.type === "function") {
+    return findButton(node.type(node.props));
+  }
+  if (node.type === "button") return node;
+  for (const kid of Children.toArray(node.props.children)) {
+    const found = findButton(kid);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function clickBannerAction(element: ReactElement): void {
-  const children = Children.toArray(element.props.children) as ReactElement[];
-  const button = children.find((child) => child.type === "button");
+  const button = findButton(element);
   if (!button) throw new Error("banner action button not found");
   (button.props.onClick as () => void)();
 }

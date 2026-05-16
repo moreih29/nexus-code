@@ -3,6 +3,8 @@
  * retargeting testable without rendering the full GitPanel.
  */
 import type { Tag } from "../../../../../shared/git/types";
+import { openTerminal } from "../../../../services/terminal";
+import type { GitStoreError } from "../../../../state/stores/git";
 import type { PromptRequest } from "../../../ui/prompt-dialog";
 
 /**
@@ -45,4 +47,37 @@ export function tagHistoryRef(tag: Pick<Tag, "name">): string {
  */
 export function buildTagHistoryRevealMessage(tag: Pick<Tag, "name" | "sha">): string {
   return `Showing History for tag '${tag.name}' at ${tag.sha.slice(0, 7)}.`;
+}
+
+/**
+ * Authentication failures keep a terminal escape hatch for credential helpers
+ * that cannot be represented by the askpass dialog. Other failures keep the
+ * local retry affordance.
+ */
+export function buildErrorAction(
+  error: GitStoreError | null | undefined,
+  opts: { workspaceId: string; cwd?: string; onRetry: () => void },
+): { label: string; onAction: () => void } {
+  const cwd = opts.cwd;
+  if (error && isAuthGitError(error) && cwd) {
+    return {
+      label: "Open Terminal",
+      onAction: () => {
+        openTerminal({ workspaceId: opts.workspaceId, cwd });
+      },
+    };
+  }
+
+  return { label: "Retry", onAction: opts.onRetry };
+}
+
+/**
+ * Branches on stable GitError.kind when available, with message fallback for
+ * Electron IPC error serialization that can strip custom Error properties.
+ */
+export function isAuthGitError(error: GitStoreError): boolean {
+  if (error.kind === "auth" || error.kind === "auth-required") return true;
+  return /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled/i.test(
+    `${error.message}\n${error.details ?? ""}`,
+  );
 }

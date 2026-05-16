@@ -60,7 +60,7 @@ export function GitCommitInput({
   }
 
   return (
-    <div className="flex flex-col gap-1 border-b border-border px-2 pb-2 pt-1.5">
+    <div className="flex flex-col gap-1 border-b border-border px-2 pb-2 pt-2">
       <textarea
         value={value}
         rows={3}

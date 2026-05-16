@@ -46,13 +46,13 @@ describe("BranchChip glyph model", () => {
 });
 
 describe("BranchChip rendering", () => {
-  it("keeps the trigger and footer bar at the 44px touch-target height", () => {
+  it("keeps the trigger and footer bar at the unified h-9 chrome height", () => {
     const chipHtml = renderBranchChip(branch());
     const barHtml = renderBranchBar();
 
-    expect(chipHtml).toContain("h-11");
+    expect(chipHtml).toContain("h-9");
     expect(chipHtml).not.toContain("h-7");
-    expect(barHtml).toContain('class="flex h-11');
+    expect(barHtml).toContain('class="flex h-9');
     expect(barHtml).not.toContain('class="flex h-7');
   });
 

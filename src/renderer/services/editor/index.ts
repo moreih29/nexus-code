@@ -1,4 +1,5 @@
 import type * as Monaco from "monaco-editor";
+import { initializeDiagnosticsStore } from "../../state/stores/diagnostics";
 import { initializeLspServerUxRouter } from "../lsp/server-ux-router";
 import { initializeLspBridge } from "./lsp/bridge";
 import { initializeModelCache } from "./model/cache";
@@ -19,4 +20,5 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   installMonacoCompensations(monaco);
   initializeLspServerUxRouter();
   startPromoteOnDirtyPolicy();
+  initializeDiagnosticsStore(monaco);
 }

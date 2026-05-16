@@ -73,7 +73,6 @@ export type SemanticKey =
   | "sidebar.item.hover.bg"
   | "sidebar.item.selected.bg"
   | "sidebar.item.selected.fg"
-  | "sidebar.item.indicator"
   | "sidebar.icon.fg"
   | "sidebar.badge.bg"
   | "sidebar.badge.fg"

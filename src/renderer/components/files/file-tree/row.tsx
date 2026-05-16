@@ -134,7 +134,7 @@ export function FileTreeRow({
         strokeWidth={1.5}
         aria-hidden="true"
       />
-      <span className="ml-1.5 truncate min-w-0 text-app-body">{node.name}</span>
+      <span className="ml-2 truncate min-w-0 text-app-body">{node.name}</span>
     </button>
   );
 }

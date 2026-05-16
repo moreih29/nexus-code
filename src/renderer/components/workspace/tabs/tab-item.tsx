@@ -1,4 +1,4 @@
-import { Lock } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -103,15 +103,16 @@ export function TabItem({
         value={tab.id}
         aria-label={terminalEnded ? `${displayTitle}, terminal ended` : undefined}
         className={cn(
-          // base layout — pr-7 reserves space for the absolute × / dirty-dot
-          "flex items-center gap-1.5 pl-3 pr-7 h-full",
+          // base layout — pr-7 reserves space for the absolute close button
+          "flex items-center gap-2 pl-3 pr-7 h-full",
           // text
           "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
           // rest state: tab.hover.bg overlay (light-theme safe, design.md §7)
           "text-muted-foreground hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-          // active state: tab.active.bg (L0 canvas = deepest surface, matches Monaco bg)
-          // + tab.active.border bottom hairline — redundant encoding: surface level + colour signal
-          "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[var(--tab-active-border)]",
+          // active state: no background change (avoids L0 depth reversal, design.md §2).
+          // Forward signal: 2px top indicator (state.selected.indicator) + text colour —
+          // redundant encoding: accent line + foreground colour change (design.md §7).
+          "data-[state=active]:text-foreground data-[state=active]:border-t-2 data-[state=active]:border-t-[var(--state-selected-indicator)]",
           // focus
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
           // reset button defaults
@@ -142,39 +143,31 @@ export function TabItem({
             <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
           )}
         </span>
+        {/* Dirty indicator — inline after label so it never overlaps the close button.
+            Always visible when dirty (including on hover), per design.md §7 redundant encoding. */}
+        {dirty && (
+          <span aria-hidden className="flex items-center justify-center size-2 shrink-0">
+            <span className="size-2 rounded-full bg-[var(--tab-modified-dot)]" />
+          </span>
+        )}
       </RadixTabs.Trigger>
 
-      {/* Dirty indicator — same outer box as the close button below
-          (size-4 + same inset) so the visual centers line up; the inner
-          8×8 circle is flex-centered. Hover swaps to close ×.
-          Aria-hidden because the close button already labels the action. */}
-      {dirty && (
-        <span
-          aria-hidden
-          className="absolute right-1 top-1/2 -translate-y-1/2 size-4 flex items-center justify-center group-hover:hidden"
-        >
-          <span className="size-2 rounded-full bg-foreground/70" />
-        </span>
-      )}
-
-      {/* Close button with Tooltip — sibling of trigger.
-          When dirty, hidden at rest and shown on hover (replacing the dot). */}
+      {/* Close button with Tooltip — sibling of trigger (never nested inside trigger).
+          Always positioned separately from the dirty dot (no replacement).
+          Hit target is min-w-6 min-h-6 (24px) per design requirement. */}
       <RadixTooltip.Root>
         <RadixTooltip.Trigger asChild>
           <Button
             variant="ghost"
             size="icon-sm"
-            className={cn(
-              "absolute right-1 top-1/2 -translate-y-1/2 size-4 hover:bg-[var(--state-hover-bg)] shrink-0",
-              dirty ? "hidden group-hover:flex opacity-100" : "flex opacity-50 hover:opacity-100",
-            )}
+            className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation();
               onCloseTab(tab.id);
             }}
             aria-label="Close tab"
           >
-            ×
+            <X aria-hidden width={12} height={12} strokeWidth={2} />
           </Button>
         </RadixTooltip.Trigger>
         <RadixTooltip.Portal>

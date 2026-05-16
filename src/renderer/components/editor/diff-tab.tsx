@@ -2,7 +2,7 @@ import type * as Monaco from "monaco-editor";
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
-import { NEXUS_DARK_THEME_NAME } from "../../services/editor/runtime/monaco-theme";
+import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import {
   type DiffContentStatus,
   type DiffSideReadyState,
@@ -11,6 +11,8 @@ import {
   REFRESHING_INDICATOR_DELAY_MS,
   useDiffContent,
 } from "./diff-content-loader";
+import { Button } from "../ui/button";
+import { EmptyState } from "../ui/empty-state";
 
 const LazyDiffEditor = lazy(async () => {
   const module = await import("@monaco-editor/react");
@@ -62,9 +64,10 @@ function useDelayedRefreshing(status: DiffContentStatus): boolean {
 export function DiffTab(payload: DiffTabPayload) {
   const { left, right, status, reload } = useDiffContent(payload);
   const showRefreshing = useDelayedRefreshing(status);
+  const monacoTheme = useMonacoThemeName();
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);
-  const blockingMessage = blockingPlaceholder(left, right, leftContent, rightContent);
+  const blocking = blockingPlaceholder(left, right, leftContent, rightContent);
 
   // Workaround for suren-atoyan/monaco-react#647 — mirrors microsoft/vscode#222197 fix order.
   // On unmount, reset the DiffEditorWidget model to null before the wrapper disposes the
@@ -79,10 +82,10 @@ export function DiffTab(payload: DiffTabPayload) {
     };
   }, []);
 
-  if (blockingMessage) {
+  if (blocking) {
     return (
       <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
-        <Centered>{blockingMessage}</Centered>
+        <EmptyState title={blocking.title} description={blocking.description} tone="status" className="min-h-0" />
       </DiffShell>
     );
   }
@@ -90,7 +93,7 @@ export function DiffTab(payload: DiffTabPayload) {
   if (!leftContent || !rightContent) {
     return (
       <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
-        <Centered>Loading diff...</Centered>
+        <EmptyState title="Loading diff…" tone="status" className="min-h-0" />
       </DiffShell>
     );
   }
@@ -100,14 +103,14 @@ export function DiffTab(payload: DiffTabPayload) {
       <MissingContentNotice side="left" content={leftContent} />
       <MissingContentNotice side="right" content={rightContent} />
       <div className="min-h-0 flex-1">
-        <Suspense fallback={<Centered>Loading Monaco diff editor...</Centered>}>
+        <Suspense fallback={<EmptyState title="Loading Monaco diff editor…" tone="status" className="min-h-0" />}>
           <LazyDiffEditor
             height="100%"
             original={leftContent.content}
             modified={rightContent.content}
             originalModelPath={modelPathFor(leftContent)}
             modifiedModelPath={modelPathFor(rightContent)}
-            theme={NEXUS_DARK_THEME_NAME}
+            theme={monacoTheme}
             options={diffEditorOptions}
             onMount={(editor) => {
               editorRef.current = editor;
@@ -142,13 +145,9 @@ function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShel
         </div>
         <div className="flex shrink-0 items-center gap-2 text-muted-foreground">
           {showRefreshing && <span>Refreshing…</span>}
-          <button
-            type="button"
-            className="rounded-[--radius-control] px-2 py-1 text-app-ui-sm hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
-            onClick={onReload}
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={onReload}>
             Reload
-          </button>
+          </Button>
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">{children}</div>
@@ -158,27 +157,16 @@ function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShel
 
 /**
  * Renders the side identity in the diff header.
+ * The filename is the primary identifier; the ref hash is secondary context.
  */
 function SideLabel({ label, state }: { label: string; state: DiffSideState }) {
   return (
     <div className="min-w-0 truncate">
       <span className="text-muted-foreground">{label}</span>{" "}
-      <span className="text-foreground">{state.request.ref}</span>{" "}
-      <span className="text-muted-foreground">·</span>{" "}
-      <span className="text-muted-foreground" title={state.request.relPath}>
+      <span className="text-foreground" title={state.request.relPath}>
         {state.request.relPath}
-      </span>
-    </div>
-  );
-}
-
-/**
- * Centered empty/loading/error message used instead of mounting Monaco.
- */
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-app-ui-sm text-muted-foreground">
-      {children}
+      </span>{" "}
+      <span className="text-muted-foreground text-[0.75em]">({state.request.ref})</span>
     </div>
   );
 }
@@ -202,6 +190,11 @@ function MissingContentNotice({
   );
 }
 
+interface BlockingPlaceholder {
+  title: string;
+  description?: string;
+}
+
 /**
  * Returns a message that should block Monaco from mounting, if any side cannot
  * be represented as plain text.
@@ -211,26 +204,23 @@ function blockingPlaceholder(
   right: DiffSideState,
   leftContent: DiffSideReadyState | undefined,
   rightContent: DiffSideReadyState | undefined,
-): ReactNode | null {
+): BlockingPlaceholder | null {
   const errorState = left.phase === "error" ? left : right.phase === "error" ? right : null;
-  if (errorState) return errorState.message;
+  if (errorState) return { title: errorState.message };
 
   const binarySides = [leftContent, rightContent].filter(
     (side): side is DiffSideReadyState => !!side?.isBinary,
   );
   if (binarySides.length === 0) return null;
 
-  return (
-    <div className="space-y-2">
-      <div>Cannot display binary file in diff.</div>
-      {binarySides.map((side) => (
-        <div key={`${side.request.side}:${side.request.relPath}`} className="text-muted-foreground">
-          {side.request.side === "left" ? "Left" : "Right"}: {side.request.relPath} (
-          {formatBytes(side.sizeBytes)})
-        </div>
-      ))}
-    </div>
-  );
+  const description = binarySides
+    .map(
+      (side) =>
+        `${side.request.side === "left" ? "Left" : "Right"}: ${side.request.relPath} (${formatBytes(side.sizeBytes)})`,
+    )
+    .join("\n");
+
+  return { title: "Cannot display binary file in diff.", description };
 }
 
 /**

@@ -520,7 +520,7 @@ export function AddWorkspaceDialogContent({
 
         <RadixTabs.Content value="ssh" className="mt-4 outline-none">
           <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
               <label htmlFor={HOST_INPUT_ID} className="text-app-ui-sm text-foreground">
                 Host
               </label>
@@ -569,7 +569,7 @@ export function AddWorkspaceDialogContent({
                           type="button"
                           role="option"
                           aria-selected={index === activeHostIndex}
-                          className="flex w-full min-w-0 flex-col rounded-[--radius-control] px-2 py-1.5 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none aria-selected:bg-[var(--state-active-bg)]"
+                          className="flex w-full min-w-0 flex-col rounded-[--radius-control] px-2 py-2 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none aria-selected:bg-[var(--state-active-bg)]"
                           onClick={() => onSelectHost(host)}
                         >
                           <span className="truncate text-foreground">{host.alias}</span>
@@ -579,7 +579,7 @@ export function AddWorkspaceDialogContent({
                         </button>
                       ))
                     ) : (
-                      <div className="px-2 py-1.5 text-app-ui-xs text-muted-foreground">
+                      <div className="px-2 py-2 text-app-ui-xs text-muted-foreground">
                         {hostsLoading
                           ? "Loading SSH config hosts..."
                           : "No matching SSH config hosts."}
@@ -599,7 +599,7 @@ export function AddWorkspaceDialogContent({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)]">
-              <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-2">
                 <label htmlFor={REMOTE_PATH_ID} className="text-app-ui-sm text-foreground">
                   Remote path
                 </label>
@@ -614,7 +614,7 @@ export function AddWorkspaceDialogContent({
                   className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive"
                 />
               </div>
-              <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-2">
                 <label htmlFor={NAME_ID} className="text-app-ui-sm text-foreground">
                   Name
                 </label>
@@ -678,7 +678,7 @@ export function AddWorkspaceDialogContent({
               </button>
               {advancedOpen ? (
                 <div className="mt-3 grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
-                  <div className="flex min-w-0 flex-col gap-1.5">
+                  <div className="flex min-w-0 flex-col gap-2">
                     <label htmlFor={PORT_ID} className="text-app-ui-sm text-foreground">
                       Port
                     </label>
@@ -700,7 +700,7 @@ export function AddWorkspaceDialogContent({
                       </p>
                     ) : null}
                   </div>
-                  <div className="flex min-w-0 flex-col gap-1.5">
+                  <div className="flex min-w-0 flex-col gap-2">
                     <label htmlFor={IDENTITY_FILE_ID} className="text-app-ui-sm text-foreground">
                       Identity file
                     </label>
@@ -734,7 +734,7 @@ export function AddWorkspaceDialogContent({
 
       {errorMessage ? (
         <div
-          className="flex items-start gap-2 rounded-[--radius-control] border border-destructive/60 bg-destructive/10 px-2 py-1.5 text-app-ui-xs text-destructive"
+          className="flex items-start gap-2 rounded-[--radius-control] border border-destructive/60 bg-destructive/10 px-2 py-2 text-app-ui-xs text-destructive"
           role="alert"
         >
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

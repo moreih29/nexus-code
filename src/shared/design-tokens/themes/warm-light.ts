@@ -109,7 +109,6 @@ export const warmLight: SemanticTokenSet = {
   "sidebar.item.hover.bg": "rgba(26, 25, 15, 0.06)",
   "sidebar.item.selected.bg": "rgba(26, 25, 15, 0.12)",
   "sidebar.item.selected.fg": "oklch(0.22 0.008 100)",
-  "sidebar.item.indicator": "oklch(0.42 0.008 100)",
   "sidebar.icon.fg": "oklch(0.48 0.006 95)",
   "sidebar.badge.bg": "oklch(0.3286 0.0017 106.49)",
   "sidebar.badge.fg": "oklch(0.965 0.005 95)",

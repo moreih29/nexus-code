@@ -7,6 +7,7 @@ import type { TerminalController } from "@/services/terminal/types";
 import { useTabsStore } from "@/state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import { Banner } from "../../ui/banner";
 
 interface TerminalViewProps {
   workspaceId: string;
@@ -42,7 +43,7 @@ interface TerminalViewProps {
 
 type ReopenState = "idle" | "reopening" | "failed";
 
-interface DeadTerminalBannerProps {
+export interface DeadTerminalBannerProps {
   message: string;
   actionLabel: string;
   actionDisabled?: boolean;
@@ -67,6 +68,15 @@ export function terminalEndedMessage(reopenState: ReopenState): string {
 /**
  * Displays the per-tab terminal-ended state while leaving xterm scrollback
  * below the banner available for selection.
+ *
+ * Delegates to Banner display="bar" for visual consistency with other bar
+ * banners (ReadOnlyBanner, ConflictResolvedBanner). Kept as a named export
+ * because unit tests import it directly and because actionDisabled cannot be
+ * expressed through BannerAction (Banner has no per-action disabled prop).
+ *
+ * Note: when actionDisabled is true the action is omitted entirely so that
+ * Banner's action list carries no disabled-state button — the "Reopening…"
+ * label makes the in-progress state self-evident without an interactive control.
  */
 export function DeadTerminalBanner({
   message,
@@ -75,20 +85,13 @@ export function DeadTerminalBanner({
   onReopen,
 }: DeadTerminalBannerProps) {
   return (
-    <div
+    <Banner
+      display="bar"
+      variant="info"
+      message={message}
+      actions={actionDisabled ? [] : [{ label: actionLabel, onAction: onReopen }]}
       role="status"
-      className="flex items-center justify-between shrink-0 h-6 px-3 bg-muted border-b border-border text-app-ui-xs app-status-banner-text"
-    >
-      <span>{message}</span>
-      <button
-        type="button"
-        className="text-app-ui-xs app-status-banner-text hover:opacity-80 cursor-pointer bg-transparent border-0 p-0 disabled:cursor-default disabled:opacity-60"
-        disabled={actionDisabled}
-        onClick={onReopen}
-      >
-        {actionLabel}
-      </button>
-    </div>
+    />
   );
 }
 

@@ -170,7 +170,7 @@ export function RefChipList({
       {overflowRefs.length > 0 ? (
         <button
           type="button"
-          className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--color-git-chip-border)] px-1.5 text-app-ui-xs text-muted-foreground hover:bg-[var(--color-git-chip-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--color-git-chip-border)] px-2 text-app-ui-xs text-muted-foreground hover:bg-[var(--color-git-chip-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label={`Show ${overflowRefs.length} more refs`}
           aria-haspopup="menu"
           aria-expanded={popoverOpen}
@@ -314,7 +314,7 @@ function RefChipIcon({ displayKind }: { displayKind: RefChipDisplayKind }) {
 function refChipClassName(displayKind: RefChipDisplayKind, iconOnly = false): string {
   const baseClassName = cn(
     "inline-flex h-5 min-w-0 shrink-0 items-center border text-app-ui-xs leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-    iconOnly ? "w-5 justify-center px-0" : "max-w-[14ch] gap-1 px-1.5",
+    iconOnly ? "w-5 justify-center px-0" : "max-w-[14ch] gap-1 px-2",
   );
 
   if (displayKind === "head") {

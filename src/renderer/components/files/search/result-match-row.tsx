@@ -26,7 +26,7 @@ export function SearchResultMatchRow({ range, preview, onClick }: SearchResultMa
       type="button"
       onClick={onClick}
       style={{ height: ROW_HEIGHT_PX, paddingLeft: MATCH_INDENT_PX }}
-      className="flex items-center w-full pr-2 gap-1.5 text-left cursor-pointer select-none hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+      className="flex items-center w-full pr-2 gap-2 text-left cursor-pointer select-none hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <span className="shrink-0 font-mono text-app-ui-sm text-muted-foreground w-8 text-right">
         {line + 1}

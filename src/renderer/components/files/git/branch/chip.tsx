@@ -48,7 +48,7 @@ export function BranchChip({
       type="button"
       variant="ghost"
       size="sm"
-      className="h-11 max-w-full justify-start gap-1 px-2 text-app-ui-sm"
+      className="h-9 max-w-full justify-start gap-1 px-2 text-app-ui-sm"
       aria-label={`Current branch ${branchName}`}
       aria-haspopup="dialog"
       aria-expanded={open}

@@ -140,7 +140,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-6 git-destructive-text"
+              className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
               aria-label={`Discard changes in folder ${displayName}`}
               title={`Discard changes in folder ${displayName}`}
               onClick={(event) => {

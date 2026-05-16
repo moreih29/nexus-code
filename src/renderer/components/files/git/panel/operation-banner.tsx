@@ -2,8 +2,11 @@
  * OperationBanner owns the Source Control continue/abort affordance for
  * in-progress merge, rebase, and cherry-pick workflows.
  *
- * Delegates color logic to bannerColorClass from the shared Banner primitive;
- * keeps its unique 2-row layout (message row + action row below).
+ * Intentionally not collapsed into the generic Banner primitive: it has a
+ * unique two-row layout (message row + continue/abort action row below) and
+ * loading-spinner states that Banner's single-row actions[] API cannot express
+ * without significant prop proliferation. It does reuse bannerColorClass for
+ * color consistency. (T7 consistency review, 2026-05.)
  */
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
 import type { GitOperationState } from "../../../../../shared/git/types";

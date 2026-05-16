@@ -67,7 +67,7 @@ export function GitFileRow({
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+        className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         style={{ height: ROW_HEIGHT_PX }}
         title={pathLabel}
         aria-label={`Open diff for ${pathLabel}`}
@@ -124,7 +124,7 @@ export function GitFileRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="size-6 git-destructive-text"
+          className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
           aria-label="Discard changes"
           title="Discard changes"
           onClick={onDiscard}

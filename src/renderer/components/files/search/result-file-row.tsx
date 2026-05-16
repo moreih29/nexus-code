@@ -41,7 +41,7 @@ export function SearchResultFileRow({
       />
       <span className="truncate min-w-0 text-app-body flex-1">
         {fileName}
-        {dir && <span className="ml-1.5 text-muted-foreground text-app-ui-sm">{dir}</span>}
+        {dir && <span className="ml-2 text-muted-foreground text-app-ui-sm">{dir}</span>}
       </span>
       <span className="shrink-0 text-app-ui-sm text-muted-foreground bg-muted rounded px-1">
         {matchCount}

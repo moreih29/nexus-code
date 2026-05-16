@@ -159,7 +159,7 @@ export function FormDialogContent({
           const inputId = `form-dialog-${field.name}`;
           const helpId = `${inputId}-help`;
           return (
-            <div key={field.name} className="flex flex-col gap-1.5">
+            <div key={field.name} className="flex flex-col gap-2">
               <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
                 {field.label}
               </label>

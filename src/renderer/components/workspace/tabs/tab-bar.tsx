@@ -1,8 +1,8 @@
+import { Plus } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
-import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
@@ -124,7 +124,7 @@ export function TabBar({
             onClick={onNewTerminalTab}
             aria-label="New terminal tab"
           >
-            +
+            <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
           </Button>
         </RadixTabs.Root>
       </div>

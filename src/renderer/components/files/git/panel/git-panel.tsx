@@ -1,10 +1,16 @@
 /**
  * GitPanel is the top-level Source Control surface for one workspace.
+ *
+ * Thin container — orchestrates store selectors, derived state, and
+ * inter-dialog callbacks, then delegates rendering to:
+ *   GitHeader       — title + toolbar
+ *   GitBannerStack  — inline banner row (unborn / push-guard / error / etc.)
+ *   GitPanelBody    — segment toggle + commit input + file list + branch bar
+ *   GitDialogHost   — all modal dialogs
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { validateGitRemoteUrl } from "../../../../../shared/git/remote-validation";
 import {
-  type BranchList,
   DEFAULT_GIT_PANEL_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitExpandedGroupKey,
@@ -13,61 +19,40 @@ import {
   type RepoCapabilities,
   type Tag,
 } from "../../../../../shared/git/types";
-import { openTerminal } from "../../../../services/terminal";
 import { selectGitActionButton } from "../../../../state/selectors/git-action-button";
-import type { GitPushOptions, GitStoreError } from "../../../../state/stores/git";
+import type { GitPushOptions } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
-import { FormDialog, type FormDialogField } from "../../../ui/form-dialog";
-import { CommandPalette } from "../../../ui/palette/command-palette";
-import { PromptDialog, type PromptRequest } from "../../../ui/prompt-dialog";
-import { useLoaderDelay } from "../../search/useLoaderDelay";
-import {
-  BranchCreateDialog,
-  type BranchCreateRequest,
-  submitBranchCreate,
-} from "../branch/create-dialog";
-import { BranchPicker, type BranchPickerMode } from "../branch/picker";
-import { type CommitPickItem, createCommitPickerSource } from "../commit/picker-source";
-import { ConfirmDiscardDialog, type DiscardConfirmRequest } from "../clone/confirm-discard-dialog";
-import { GitBranchBar } from "../branch/git-branch-bar";
-import { GitCommitInput } from "../commit/git-commit-input";
-import { GitEmptyState } from "./git-empty-state";
-import { GitGroup } from "../file-row/git-group";
-import { GitHeader } from "./git-header";
-import { GitInlineBanner } from "./git-inline-banner";
-import { GitLoadingSkeleton } from "./git-loading-skeleton";
+import type { FormDialogField } from "../../../ui/form-dialog";
+import { submitBranchCreate } from "../branch/create-dialog";
+import type { BranchPickerMode } from "../branch/picker";
+import { createCommitPickerSource } from "../commit/picker-source";
 import { buildRemoteUpstreamWarning } from "../utils/git-more-menu-model";
 import {
+  buildErrorAction,
   buildPublishBranchPrompt,
   buildTagHistoryRevealMessage,
   tagHistoryRef,
 } from "./git-panel-actions";
 import { createEntryActions } from "./entry-actions";
 import { buildPushGuardBannerView, type PushGuardActionKind } from "../utils/git-push-guard-banner";
+import { buildGitBannerModel } from "./git-banner-model";
 import { buildGitGroups, collectGitEntryPaths } from "../utils/git-status-utils";
-import { HistoryPanel } from "../history/panel";
-import { HistorySegmentToggle } from "../history/segment-toggle";
-import {
-  buildSquashCommitDraft,
-  MergeOptionsDialog,
-  type MergeOptionsRequest,
-} from "../pickers/merge-options-dialog";
-import {
-  createMergeTargetPickerSource,
-  type MergeTargetPickItem,
-} from "../pickers/merge-target-picker-source";
-import { OperationBanner } from "./operation-banner";
-import {
-  createRebaseTargetPickerSource,
-  type RebaseTargetPickItem,
-} from "../pickers/rebase-target-picker-source";
-import { StashPicker } from "../pickers/stash-picker";
-import { TagPicker } from "../pickers/tag-picker";
+import { buildSquashCommitDraft } from "../pickers/merge-options-dialog";
+import { createMergeTargetPickerSource } from "../pickers/merge-target-picker-source";
+import { createRebaseTargetPickerSource } from "../pickers/rebase-target-picker-source";
 import type { TagPickerMode } from "../pickers/tag-picker-source";
 import { useGitPanelPickers } from "../pickers/use-git-panel-pickers";
 import { useGitHelperOccupancy } from "../hooks/use-git-helper-prompts";
 import { useGitOpHotkey } from "../hooks/use-git-op-hotkey";
 import { useGitSession } from "../hooks/use-git-session";
+import { useGitDialogs } from "./use-git-dialogs";
+import { EmptyState } from "../../../ui/empty-state";
+import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
+import { GitBannerStack } from "./git-banner-stack";
+import { GitDialogHost } from "./git-dialog-host";
+import { GitHeader } from "./git-header";
+import { GitPanelBody } from "./git-panel-body";
+import { useLoaderDelay } from "../../search/useLoaderDelay";
 
 export interface GitPanelOpenDiffInput {
   workspaceId: string;
@@ -132,56 +117,44 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const clearPendingNonFFRetry = useGitStore((state) => state.clearPendingNonFFRetry);
   const toggleExpandedTreeNode = useGitStore((state) => state.toggleExpandedTreeNode);
 
-  const [discardRequest, setDiscardRequest] = useState<DiscardConfirmRequest | null>(null);
+  const dialogs = useGitDialogs();
   const {
-    branchPickerOpen,
-    setBranchPickerOpen,
-    branchPickerMode,
+    setDiscardRequest,
+    setBranchCreateRequest,
+    setBranchCreateBranchList,
+    setBranchCreateBranchListLoading,
+    mergeOptionsRequest,
+    setMergeOptionsRequest,
+    setPublishRequest,
+    setEmptyCommitRequest,
+    setStashGroupRequest,
+    setAddRemoteOpen,
+    setRemoveRemoteRequest,
+    setForcePushRequest,
+    contextBanner,
+    setContextBanner,
+  } = dialogs;
+
+  const pickers = useGitPanelPickers();
+  const {
     setBranchPickerMode,
-    mergeTargetPickerOpen,
+    setBranchPickerOpen,
     setMergeTargetPickerOpen,
-    rebaseTargetPickerOpen,
     setRebaseTargetPickerOpen,
-    commitPickerOpen,
-    setCommitPickerOpen,
-    commitBranchPickerOpen,
-    setCommitBranchPickerOpen,
     commitPickerRef,
     setCommitPickerRef,
-    branchCreateFromPickerOpen,
+    setCommitPickerOpen,
+    setCommitBranchPickerOpen,
     setBranchCreateFromPickerOpen,
-    stashPickerOpen,
-    setStashPickerOpen,
-    stashPickerMode,
     setStashPickerMode,
-    tagPickerOpen,
-    setTagPickerOpen,
-    tagPickerMode,
+    setStashPickerOpen,
     setTagPickerMode,
-    tagPickerRemote,
     setTagPickerRemote,
-  } = useGitPanelPickers();
-  const [branchCreateRequest, setBranchCreateRequest] = useState<BranchCreateRequest | null>(null);
-  const [branchCreateBranchList, setBranchCreateBranchList] = useState<BranchList | null>(null);
-  const [branchCreateBranchListLoading, setBranchCreateBranchListLoading] = useState(false);
+    setTagPickerOpen,
+  } = pickers;
+
+  // branchCreateLoadIdRef stays in the container (race guard — per constraint)
   const branchCreateLoadIdRef = useRef(0);
-  const [mergeOptionsRequest, setMergeOptionsRequest] = useState<MergeOptionsRequest | null>(null);
-  const [publishRequest, setPublishRequest] = useState<PromptRequest | null>(null);
-  const [emptyCommitRequest, setEmptyCommitRequest] = useState<PromptRequest | null>(null);
-  const [stashGroupRequest, setStashGroupRequest] = useState<{
-    paths: string[];
-    prompt: PromptRequest;
-  } | null>(null);
-  const [addRemoteOpen, setAddRemoteOpen] = useState(false);
-  const [removeRemoteRequest, setRemoveRemoteRequest] = useState<{
-    remote: string;
-    confirm: DiscardConfirmRequest;
-  } | null>(null);
-  const [forcePushRequest, setForcePushRequest] = useState<GitPushOptions | null>(null);
-  const [contextBanner, setContextBanner] = useState<{
-    variant: "info" | "error";
-    message: string;
-  } | null>(null);
 
   useEffect(() => {
     void loadInitial(workspaceId);
@@ -274,7 +247,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setMergeOptionsRequest({ targetRef });
         },
       }),
-    [currentBranchName, listBranches, workspaceId],
+    [currentBranchName, listBranches, setMergeOptionsRequest, workspaceId],
   );
   const rebaseTargetSource = useMemo(
     () =>
@@ -353,7 +326,13 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           setBranchCreateBranchListLoading(false);
         });
     },
-    [listBranches, workspaceId],
+    [
+      listBranches,
+      setBranchCreateBranchList,
+      setBranchCreateBranchListLoading,
+      setBranchCreateRequest,
+      workspaceId,
+    ],
   );
 
   /**
@@ -364,7 +343,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     branchCreateLoadIdRef.current += 1;
     setBranchCreateRequest(null);
     setBranchCreateBranchListLoading(false);
-  }, []);
+  }, [setBranchCreateBranchListLoading, setBranchCreateRequest]);
 
   /** Opens the shared branch picker with the menu-selected branch action mode. */
   function openBranchPicker(mode: BranchPickerMode): void {
@@ -411,6 +390,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       capabilities.remotes,
       hasUpstream,
       push,
+      setForcePushRequest,
+      setPublishRequest,
       workspaceId,
     ],
   );
@@ -418,6 +399,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   /**
    * Runs the selected merge mode. Successful squash merges leave staged
    * changes without MERGE_HEAD, so seed the regular commit draft immediately.
+   * Stays in thin container — accesses setCommitDraft (per constraint).
    */
   async function confirmMergeOption(mode: GitMergeMode): Promise<void> {
     const request = mergeOptionsRequest;
@@ -539,7 +521,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         onOpenDiff,
         setBanner: setContextBanner,
       }),
-    [workspaceId, repoPath, workspaceRootPath, onOpenDiff],
+    [workspaceId, repoPath, workspaceRootPath, onOpenDiff, setContextBanner],
   );
   const {
     openChanges,
@@ -631,8 +613,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   };
 
   return (
-    <fieldset
-      className="flex h-full min-h-0 min-w-0 flex-col border-0"
+    <section
+      className="flex h-full min-h-0 min-w-0 flex-col"
       aria-label="Source Control"
       onKeyDown={handlePanelKeyDown}
     >
@@ -700,63 +682,43 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
         }}
       />
 
-      {branchInfo?.isUnborn ? (
-        // Unborn HEAD: `git init` planted a symbolic ref but no commit has
-        // landed yet. Without this banner, users perceive `git checkout -b`
-        // as deleting their branch when in fact the unborn ref simply gets
-        // re-pointed (see git-repository-create-branch.test.ts).
-        <GitInlineBanner
-          variant="info"
-          message={`'${branchInfo.current}' has no commits yet — it will be created on your first commit.`}
-        />
-      ) : null}
-      {pushGuardBanner ? (
-        <GitInlineBanner
-          variant={pushGuardBanner.variant}
-          message={pushGuardBanner.message}
-          details={pushGuardBanner.details}
-          actions={pushGuardBanner.actions.map((action) => ({
-            label: action.label,
-            variant:
-              action.destructive === true
-                ? "destructive"
-                : action.kind === "cancel"
-                  ? "ghost"
-                  : "default",
-            onAction: () => runPushGuardAction(action.kind),
-          }))}
-        />
-      ) : session?.lastError ? (
-        <GitInlineBanner
-          variant="error"
-          message={session.lastError.message}
-          details={session.lastError.details}
-          actionLabel={errorAction.label}
-          onAction={errorAction.onAction}
-        />
-      ) : null}
-      {helperPromptOccupancyMessage ? (
-        <GitInlineBanner variant="info" message={helperPromptOccupancyMessage} />
-      ) : null}
-      {session?.autofetchPausedBannerVisible ? (
-        <GitInlineBanner
-          variant="warning"
-          message="Autofetch paused after repeated failures."
-          details={session.autofetchLastError?.message}
-          actionLabel="Resume"
-          onAction={() => {
+      <GitBannerStack
+        model={buildGitBannerModel({
+          pushGuardBanner,
+          onPushGuardAction: runPushGuardAction,
+          lastError: session?.lastError ?? null,
+          errorAction,
+          autofetchPaused: session?.autofetchPausedBannerVisible ?? false,
+          autofetchLastErrorMessage: session?.autofetchLastError?.message,
+          onResumeAutofetch: () => {
             void resumeAutofetch(workspaceId);
-          }}
-        />
-      ) : null}
-      {contextBanner ? (
-        <GitInlineBanner variant={contextBanner.variant} message={contextBanner.message} />
-      ) : null}
+          },
+          helperPromptOccupancyMessage: helperPromptOccupancyMessage ?? null,
+          contextBanner,
+        })}
+      />
 
       {isLoading ? (
-        <div className="min-h-0 flex-1">{showSkeleton ? <GitLoadingSkeleton /> : null}</div>
+        <div className="min-h-0 flex-1">
+          {showSkeleton ? (
+            <Skeleton label="Loading source control">
+              <SkeletonLine className="h-[82px] rounded-[--radius-container] border border-border" />
+              <div className="flex flex-col gap-1">
+                <SkeletonLine className="h-7" />
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <SkeletonLine
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row count.
+                    key={index}
+                    className="h-6"
+                    style={{ opacity: 1 - index * 0.12 }}
+                  />
+                ))}
+              </div>
+            </Skeleton>
+          ) : null}
+        </div>
       ) : session?.repoInfo.kind === "non-repo" ? (
-        <GitEmptyState
+        <EmptyState
           title="Not a Git Repository"
           description="Initialize this workspace to start tracking changes."
           actionLabel={actionState.label}
@@ -766,370 +728,173 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           }}
         />
       ) : (
-        <>
-          <HistorySegmentToggle
-            segment={panelSegment}
-            disabled={isBusy}
-            onChange={(segment) => setPanelSegment(workspaceId, segment)}
-          />
-          {panelSegment === "history" ? (
-            <HistoryPanel
-              workspaceId={workspaceId}
-              refName={historyRef}
-              historyScope={historyScope}
-              busy={isBusy}
-              onRefChange={(nextRef) => setHistoryRef(workspaceId, nextRef)}
-              onScopeChange={(nextScope) => setHistoryScope(workspaceId, nextScope)}
-            />
-          ) : (
-            <>
-              {activeOperation ? (
-                <OperationBanner
-                  state={activeOperation}
-                  error={session.lastError}
-                  inFlightKind={session.inFlightOp?.kind}
-                  onContinue={() => {
-                    void continueOp(workspaceId);
-                  }}
-                  onAbort={() => {
-                    void abortOp(workspaceId);
-                  }}
-                />
-              ) : (
-                <GitCommitInput
-                  value={draft}
-                  disabled={isBusy}
-                  busy={isBusy}
-                  hint={actionState.hint}
-                  action={actionState}
-                  commitOptions={commitOptions}
-                  menuEnablement={menuEnablement}
-                  onChange={(value) => setCommitDraft(workspaceId, value)}
-                  onBlur={() => flushCommitDraft(workspaceId)}
-                  onPrimaryAction={runPrimaryAction}
-                  onCommitStaged={() => void handleCommitStaged()}
-                  onCommitAll={() => void handleCommitAll()}
-                  onAmend={() => void handleAmend()}
-                  onCommitAndPush={() => void handleCommitAndPush()}
-                  onCommitEmpty={() => {
-                    setEmptyCommitRequest({
-                      title: "Commit empty changes?",
-                      description: "Create an empty commit without changing the working tree.",
-                      label: "Message",
-                      placeholder: "Empty commit message",
-                      defaultValue: trimmedDraft,
-                      confirmLabel: "Commit Empty",
-                    });
-                  }}
-                  onUndoLastCommit={() => {
-                    void undoLastCommit(workspaceId);
-                  }}
-                  onToggleCommitOption={(option, value) =>
-                    setCommitOption(workspaceId, option, value)
-                  }
-                  onPushOnly={() => {
-                    void requestPush();
-                  }}
-                  onPullOnly={() => {
-                    void pull(workspaceId);
-                  }}
-                />
-              )}
-              <div className="min-h-0 flex-1 overflow-auto app-scrollbar py-1">
-                {groups.length === 0 ? (
-                  <GitEmptyState
-                    title="No Changes"
-                    description="Your working tree has no pending source control changes."
-                  />
-                ) : (
-                  groups.map((group) => (
-                    <GitGroup
-                      key={group.key}
-                      groupKey={group.key}
-                      label={group.label}
-                      entries={group.entries}
-                      expanded={session.expandedGroups[group.key]}
-                      viewMode={viewMode}
-                      compactFolders={compactFolders}
-                      expandedTreeNodes={session.expandedTreeNodes[group.key]}
-                      onToggle={() =>
-                        setExpandedGroup(workspaceId, group.key, !session.expandedGroups[group.key])
-                      }
-                      onToggleTreeNode={(relPath) =>
-                        toggleExpandedTreeNode(workspaceId, group.key, relPath)
-                      }
-                      onStagePaths={(paths) => {
-                        void stage(workspaceId, paths);
-                      }}
-                      onUnstagePaths={(paths) => {
-                        void unstage(workspaceId, paths);
-                      }}
-                      onDiscardPaths={requestDiscard}
-                      onMarkResolved={(entry) => {
-                        void markResolved(workspaceId, [entry.relPath]);
-                      }}
-                      onOpenDiff={(entry, groupKey) => {
-                        openChanges(entry, groupKey);
-                      }}
-                      onOpenFile={openWorkingTreeFile}
-                      onRevealInOS={revealEntryInOS}
-                      onCopyPath={copyEntryPath}
-                      onCopyRelativePath={copyEntryRelativePath}
-                      onAddToGitignore={addEntryToGitignore}
-                      onAddPathsToGitignore={(paths) => {
-                        void addPathsToGitignore(paths);
-                      }}
-                      onStashGroup={requestStashGroup}
-                    />
-                  ))
-                )}
-              </div>
-              <GitBranchBar
-                workspaceId={workspaceId}
-                branch={session.branchInfo}
-                repoPath={repoPath}
-                disabled={isBusy}
-                capabilities={capabilities}
-                autofetchIntervalMin={session.autofetchIntervalMin}
-                autofetchFetching={session.autofetchFetching}
-                autofetchFailed={session.autofetchLastError !== null}
-                onSync={() => {
-                  void handleSync();
-                }}
-                onFetch={() => {
-                  void fetchAll(workspaceId);
-                }}
-                onPull={() => {
-                  void pull(workspaceId);
-                }}
-                onPush={() => {
-                  void requestPush();
-                }}
-                onPublish={() => {
-                  void requestPush();
-                }}
-                onSetAutofetchInterval={(intervalMin) => {
-                  void setAutofetchInterval(workspaceId, intervalMin);
-                }}
-                onSwitchBranch={() => openBranchPicker("switch")}
-                onCreateFromRef={() => setBranchCreateFromPickerOpen(true)}
-              />
-            </>
-          )}
-        </>
+        <GitPanelBody
+          workspaceId={workspaceId}
+          panelSegment={panelSegment}
+          isBusy={isBusy}
+          onSegmentChange={(segment) => setPanelSegment(workspaceId, segment)}
+          historyRef={historyRef}
+          historyScope={historyScope}
+          onHistoryRefChange={(nextRef) => setHistoryRef(workspaceId, nextRef)}
+          onHistoryScopeChange={(nextScope) => setHistoryScope(workspaceId, nextScope)}
+          activeOperation={activeOperation}
+          lastError={session?.lastError}
+          inFlightKind={session?.inFlightOp?.kind}
+          onContinueOp={() => {
+            void continueOp(workspaceId);
+          }}
+          onAbortOp={() => {
+            void abortOp(workspaceId);
+          }}
+          draft={draft}
+          actionState={actionState}
+          commitOptions={commitOptions}
+          menuEnablement={menuEnablement}
+          onDraftChange={(value) => setCommitDraft(workspaceId, value)}
+          onDraftBlur={() => flushCommitDraft(workspaceId)}
+          onPrimaryAction={runPrimaryAction}
+          onCommitStaged={() => void handleCommitStaged()}
+          onCommitAll={() => void handleCommitAll()}
+          onAmend={() => void handleAmend()}
+          onCommitAndPush={() => void handleCommitAndPush()}
+          onCommitEmpty={() => {
+            setEmptyCommitRequest({
+              title: "Commit empty changes?",
+              description: "Create an empty commit without changing the working tree.",
+              label: "Message",
+              placeholder: "Empty commit message",
+              defaultValue: trimmedDraft,
+              confirmLabel: "Commit Empty",
+            });
+          }}
+          onUndoLastCommit={() => {
+            void undoLastCommit(workspaceId);
+          }}
+          onToggleCommitOption={(option, value) =>
+            setCommitOption(workspaceId, option, value)
+          }
+          onPushOnly={() => {
+            void requestPush();
+          }}
+          onPullOnly={() => {
+            void pull(workspaceId);
+          }}
+          groups={groups}
+          viewMode={viewMode}
+          compactFolders={compactFolders}
+          expandedGroups={session?.expandedGroups ?? {}}
+          expandedTreeNodes={session?.expandedTreeNodes ?? {}}
+          onToggleGroup={(key) =>
+            setExpandedGroup(workspaceId, key, !(session?.expandedGroups[key] ?? false))
+          }
+          onToggleTreeNode={(key, relPath) => toggleExpandedTreeNode(workspaceId, key, relPath)}
+          onStagePaths={(paths) => {
+            void stage(workspaceId, paths);
+          }}
+          onUnstagePaths={(paths) => {
+            void unstage(workspaceId, paths);
+          }}
+          onDiscardPaths={requestDiscard}
+          onMarkResolved={(entry) => {
+            void markResolved(workspaceId, [entry.relPath]);
+          }}
+          onOpenDiff={(entry, groupKey) => {
+            openChanges(entry, groupKey);
+          }}
+          onOpenFile={openWorkingTreeFile}
+          onRevealInOS={revealEntryInOS}
+          onCopyPath={copyEntryPath}
+          onCopyRelativePath={copyEntryRelativePath}
+          onAddToGitignore={addEntryToGitignore}
+          onAddPathsToGitignore={(paths) => {
+            void addPathsToGitignore(paths);
+          }}
+          onStashGroup={requestStashGroup}
+          branchInfo={branchInfo}
+          repoPath={repoPath}
+          capabilities={capabilities}
+          autofetchIntervalMin={session?.autofetchIntervalMin ?? DEFAULT_GIT_PANEL_STATE.autofetchIntervalMin}
+          autofetchFetching={session?.autofetchFetching ?? false}
+          autofetchFailed={session?.autofetchLastError !== null && session?.autofetchLastError !== undefined}
+          onSync={() => {
+            void handleSync();
+          }}
+          onFetch={() => {
+            void fetchAll(workspaceId);
+          }}
+          onPull={() => {
+            void pull(workspaceId);
+          }}
+          onPush={() => {
+            void requestPush();
+          }}
+          onPublish={() => {
+            void requestPush();
+          }}
+          onSetAutofetchInterval={(intervalMin) => {
+            void setAutofetchInterval(workspaceId, intervalMin);
+          }}
+          onSwitchBranch={() => openBranchPicker("switch")}
+          onCreateFromRef={() => setBranchCreateFromPickerOpen(true)}
+        />
       )}
 
-      <ConfirmDiscardDialog
-        request={discardRequest}
-        busy={session?.inFlightOp?.kind === "discard"}
-        onCancel={() => setDiscardRequest(null)}
-        onConfirm={(request) => {
-          setDiscardRequest(null);
-          void discard(workspaceId, request.relPaths, request.source);
+      <GitDialogHost
+        dialogs={dialogs}
+        pickers={pickers}
+        callbacks={{
+          workspaceId,
+          onDiscard: (relPaths, source) => {
+            void discard(workspaceId, relPaths, source);
+          },
+          onRemoveRemote: (remote) => {
+            void removeRemote(workspaceId, remote);
+          },
+          onForcePush: (options) => {
+            void push(workspaceId, options);
+          },
+          onOpenBranchCreateDialog: openBranchCreateDialog,
+          onCloseBranchCreateDialog: closeBranchCreateDialog,
+          onCreateBranch: async (_wid, name, fromRef) => {
+            await submitBranchCreate({
+              workspaceId,
+              name,
+              fromRef,
+              createBranch,
+            });
+          },
+          onConfirmMergeOption: (mode) => {
+            void confirmMergeOption(mode);
+          },
+          onConfirmPublish: () => {
+            void push(workspaceId, { publish: true });
+          },
+          onConfirmEmptyCommit: (value) => {
+            void commitEmpty(workspaceId, value);
+          },
+          onConfirmStashGroup: (paths, message) => {
+            void stashGroup(workspaceId, paths, message);
+          },
+          onConfirmAddRemote: (name, url) => {
+            void addRemote(workspaceId, name, url);
+          },
+          onRevealTagInHistory: revealTagInHistory,
+          mergeTargetSource,
+          rebaseTargetSource,
+          commitPickerSource,
+          commitBranchSource,
+          addRemoteFields,
+          discardBusy: session?.inFlightOp?.kind === "discard",
+          removeRemoteBusy: session?.inFlightOp?.kind === "removeRemote",
+          forcePushBusy: session?.inFlightOp?.kind === "push",
+          branchCreateBusy: session?.inFlightOp?.kind === "createBranch",
+          mergeBusy: session?.inFlightOp?.kind === "merge",
+          publishBusy: session?.inFlightOp?.kind === "push",
+          emptyCommitBusy: session?.inFlightOp?.kind === "commit",
+          stashGroupBusy: session?.inFlightOp?.kind === "stashGroup",
+          addRemoteBusy: session?.inFlightOp?.kind === "addRemote",
         }}
       />
-      <ConfirmDiscardDialog
-        request={removeRemoteRequest?.confirm ?? null}
-        busy={session?.inFlightOp?.kind === "removeRemote"}
-        onCancel={() => setRemoveRemoteRequest(null)}
-        onConfirm={() => {
-          const remote = removeRemoteRequest?.remote;
-          setRemoveRemoteRequest(null);
-          if (!remote) return;
-          void removeRemote(workspaceId, remote);
-        }}
-      />
-      <ConfirmDiscardDialog
-        request={
-          forcePushRequest
-            ? {
-                title: "Force push will overwrite remote. Are you sure?",
-                description: "Uses --force-with-lease and stops if the remote changed again.",
-                relPaths: [],
-                confirmLabel: "Force Push",
-              }
-            : null
-        }
-        busy={session?.inFlightOp?.kind === "push"}
-        onCancel={() => setForcePushRequest(null)}
-        onConfirm={() => {
-          const options = forcePushRequest;
-          setForcePushRequest(null);
-          if (!options) return;
-          void push(workspaceId, options);
-        }}
-      />
-
-      <BranchPicker
-        workspaceId={workspaceId}
-        open={branchPickerOpen}
-        mode={branchPickerMode}
-        onClose={() => setBranchPickerOpen(false)}
-      />
-
-      <CommandPalette<MergeTargetPickItem>
-        open={mergeTargetPickerOpen}
-        source={mergeTargetSource}
-        onClose={() => setMergeTargetPickerOpen(false)}
-        footer="Enter choose merge target · Current branch hidden"
-      />
-
-      <CommandPalette<RebaseTargetPickItem>
-        open={rebaseTargetPickerOpen}
-        source={rebaseTargetSource}
-        onClose={() => setRebaseTargetPickerOpen(false)}
-        footer="Enter choose rebase target · Current branch hidden"
-      />
-
-      <CommandPalette<CommitPickItem>
-        open={commitPickerOpen}
-        source={commitPickerSource}
-        onClose={() => setCommitPickerOpen(false)}
-        footer="Enter cherry-pick one commit · Multi-pick is not enabled"
-      />
-
-      <CommandPalette<MergeTargetPickItem>
-        open={commitBranchPickerOpen}
-        source={commitBranchSource}
-        onClose={() => setCommitBranchPickerOpen(false)}
-        footer="Enter choose branch · Current branch hidden"
-      />
-
-      <BranchPicker
-        workspaceId={workspaceId}
-        open={branchCreateFromPickerOpen}
-        mode="select-ref"
-        title="Create branch from"
-        placeholder="Select a branch to create from…"
-        onClose={() => setBranchCreateFromPickerOpen(false)}
-        onSelectRef={(ref) => {
-          setBranchCreateFromPickerOpen(false);
-          openBranchCreateDialog(ref);
-        }}
-        footer="Enter choose start point · Working tree is not changed"
-      />
-
-      <StashPicker
-        workspaceId={workspaceId}
-        open={stashPickerOpen}
-        mode={stashPickerMode}
-        onClose={() => setStashPickerOpen(false)}
-      />
-
-      <TagPicker
-        workspaceId={workspaceId}
-        open={tagPickerOpen}
-        mode={tagPickerMode}
-        selectedRemote={tagPickerRemote}
-        onClose={() => setTagPickerOpen(false)}
-        onRequestReopen={() => setTagPickerOpen(true)}
-        onRevealTag={revealTagInHistory}
-      />
-
-      <MergeOptionsDialog
-        request={mergeOptionsRequest}
-        busy={session?.inFlightOp?.kind === "merge"}
-        onCancel={() => setMergeOptionsRequest(null)}
-        onConfirm={(_option, mode) => {
-          void confirmMergeOption(mode);
-        }}
-      />
-
-      <PromptDialog
-        request={publishRequest}
-        busy={session?.inFlightOp?.kind === "push"}
-        onCancel={() => setPublishRequest(null)}
-        onConfirm={() => {
-          setPublishRequest(null);
-          void push(workspaceId, { publish: true });
-        }}
-      />
-      <PromptDialog
-        request={emptyCommitRequest}
-        busy={session?.inFlightOp?.kind === "commit"}
-        onCancel={() => setEmptyCommitRequest(null)}
-        onConfirm={(value) => {
-          setEmptyCommitRequest(null);
-          void commitEmpty(workspaceId, value);
-        }}
-      />
-      <BranchCreateDialog
-        request={branchCreateRequest}
-        branchList={branchCreateBranchList}
-        loadingExistingBranches={branchCreateBranchListLoading}
-        busy={session?.inFlightOp?.kind === "createBranch"}
-        onCancel={closeBranchCreateDialog}
-        onSubmit={(name) => {
-          const request = branchCreateRequest;
-          closeBranchCreateDialog();
-          if (!request) return;
-          void submitBranchCreate({
-            workspaceId,
-            name,
-            fromRef: request.fromRef,
-            createBranch,
-          });
-        }}
-      />
-      <PromptDialog
-        request={stashGroupRequest?.prompt ?? null}
-        busy={session?.inFlightOp?.kind === "stashGroup"}
-        onCancel={() => setStashGroupRequest(null)}
-        onConfirm={(value) => {
-          const request = stashGroupRequest;
-          setStashGroupRequest(null);
-          if (!request) return;
-          void stashGroup(workspaceId, request.paths, value);
-        }}
-      />
-      <FormDialog
-        open={addRemoteOpen}
-        title="Add remote"
-        description="Configure a local Git remote. The URL pattern is checked locally without a network probe."
-        fields={addRemoteFields}
-        submitLabel="Add Remote"
-        errorClassName="git-destructive-text"
-        busy={session?.inFlightOp?.kind === "addRemote"}
-        onCancel={() => setAddRemoteOpen(false)}
-        onSubmit={({ values }) => {
-          setAddRemoteOpen(false);
-          void addRemote(workspaceId, values.name ?? "", values.url ?? "");
-        }}
-      />
-    </fieldset>
+    </section>
   );
 }
-
-/**
- * Authentication failures keep a terminal escape hatch for credential helpers
- * that cannot be represented by the askpass dialog. Other failures keep the
- * local retry affordance.
- */
-function buildErrorAction(
-  error: GitStoreError | null | undefined,
-  opts: { workspaceId: string; cwd?: string; onRetry: () => void },
-): { label: string; onAction: () => void } {
-  const cwd = opts.cwd;
-  if (error && isAuthGitError(error) && cwd) {
-    return {
-      label: "Open Terminal",
-      onAction: () => {
-        openTerminal({ workspaceId: opts.workspaceId, cwd });
-      },
-    };
-  }
-
-  return { label: "Retry", onAction: opts.onRetry };
-}
-
-/**
- * Branches on stable GitError.kind when available, with message fallback for
- * Electron IPC error serialization that can strip custom Error properties.
- */
-function isAuthGitError(error: GitStoreError): boolean {
-  if (error.kind === "auth" || error.kind === "auth-required") return true;
-  return /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled/i.test(
-    `${error.message}\n${error.details ?? ""}`,
-  );
-}
-
