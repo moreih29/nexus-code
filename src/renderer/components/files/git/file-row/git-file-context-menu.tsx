@@ -248,7 +248,7 @@ function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverP
     <div
       ref={wrapperRef}
       role="menu"
-      className="fixed z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-sm"
+      className="fixed z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
       style={popoverPositionStyle(point)}
       onContextMenu={(event) => event.preventDefault()}
     >

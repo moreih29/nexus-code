@@ -1,8 +1,9 @@
 /**
  * GitEmptyState renders centered onboarding or clean-working-tree states.
+ * Delegates to the generic EmptyState primitive from ui/empty-state.
  */
 import { GitBranchPlus } from "lucide-react";
-import { Button } from "../../../ui/button";
+import { EmptyState } from "../../../ui/empty-state";
 
 interface GitEmptyStateProps {
   title: string;
@@ -20,21 +21,13 @@ export function GitEmptyState({
   disabled = false,
 }: GitEmptyStateProps) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 py-8 text-center">
-      <GitBranchPlus
-        className="size-7 text-muted-foreground"
-        strokeWidth={1.5}
-        aria-hidden="true"
-      />
-      <div className="flex flex-col gap-1">
-        <p className="text-small-label uppercase text-muted-foreground">{title}</p>
-        <p className="max-w-[260px] text-app-ui-sm text-muted-foreground">{description}</p>
-      </div>
-      {actionLabel && onAction ? (
-        <Button type="button" variant="pill" size="sm" onClick={onAction} disabled={disabled}>
-          {actionLabel}
-        </Button>
-      ) : null}
-    </div>
+    <EmptyState
+      icon={<GitBranchPlus className="size-7" strokeWidth={1.5} />}
+      title={title}
+      description={description}
+      actionLabel={actionLabel}
+      onAction={onAction}
+      disabled={disabled}
+    />
   );
 }

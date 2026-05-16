@@ -1,26 +1,25 @@
 /**
  * GitLoadingSkeleton is the delayed placeholder shown while git status loads.
+ * Built from the generic Skeleton/SkeletonLine primitives from ui/skeleton.
  */
+import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
+
 export function GitLoadingSkeleton() {
   return (
-    <div
-      className="flex flex-col gap-3 px-2 py-2"
-      aria-label="Loading source control"
-      role="status"
-    >
-      <div className="h-[82px] animate-pulse rounded-[--radius-container] border border-border bg-muted" />
+    <Skeleton label="Loading source control">
+      <SkeletonLine className="h-[82px] rounded-[--radius-container] border border-border" />
       <div className="flex flex-col gap-1">
-        <div className="h-7 animate-pulse rounded bg-muted" />
+        <SkeletonLine className="h-7" />
         {Array.from({ length: 5 }).map((_, index) => (
-          <div
+          <SkeletonLine
             // Skeleton rows are positional placeholders only.
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row count.
             key={index}
-            className="h-6 animate-pulse rounded bg-muted"
+            className="h-6"
             style={{ opacity: 1 - index * 0.12 }}
           />
         ))}
       </div>
-    </div>
+    </Skeleton>
   );
 }

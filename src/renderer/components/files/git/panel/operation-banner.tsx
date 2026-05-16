@@ -1,11 +1,15 @@
 /**
  * OperationBanner owns the Source Control continue/abort affordance for
  * in-progress merge, rebase, and cherry-pick workflows.
+ *
+ * Delegates color logic to bannerColorClass from the shared Banner primitive;
+ * keeps its unique 2-row layout (message row + action row below).
  */
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
 import type { GitOperationState } from "../../../../../shared/git/types";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { cn } from "../../../../utils/cn";
+import { bannerColorClass } from "../../../ui/banner";
 import { Button } from "../../../ui/button";
 
 export type ActiveGitOperationState = Exclude<GitOperationState, { kind: "none" }>;
@@ -133,9 +137,7 @@ export function OperationBanner({
     <div
       className={cn(
         "mx-2 my-1 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
-        view.variant === "error"
-          ? "border-destructive/60 bg-destructive/10 git-destructive-text"
-          : "border-border bg-muted text-foreground",
+        bannerColorClass(view.variant),
       )}
       role={view.role}
       aria-live={view.role === "alert" ? "assertive" : "polite"}

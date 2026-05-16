@@ -1,6 +1,7 @@
 import { requestTerminalReopen } from "../../services/terminal/reopen-requests";
 import type { Tab, TerminalTab } from "../../state/stores/tabs";
 import type { TerminalDeathAggregate } from "../../state/stores/terminal-deaths";
+import { Banner } from "../ui/banner";
 
 interface WorkspaceTerminalStatusBannerProps {
   deadTerminalCount: number;
@@ -74,18 +75,12 @@ export function WorkspaceTerminalStatusBanner({
   onReopenAll,
 }: WorkspaceTerminalStatusBannerProps) {
   return (
-    <div
+    <Banner
+      display="bar"
+      variant="info"
+      message={workspaceTerminalStatusMessage(deadTerminalCount)}
+      actions={[{ label: "Reopen all", onAction: onReopenAll }]}
       role="status"
-      className="flex items-center justify-between shrink-0 h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs app-status-banner-text"
-    >
-      <span>{workspaceTerminalStatusMessage(deadTerminalCount)}</span>
-      <button
-        type="button"
-        className="text-app-ui-xs app-status-banner-text hover:opacity-80 cursor-pointer bg-transparent border-0 p-0"
-        onClick={onReopenAll}
-      >
-        Reopen all
-      </button>
-    </div>
+    />
   );
 }

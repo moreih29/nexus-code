@@ -13,6 +13,7 @@
  * can be imported in tests that do not stub those subsystems. All external
  * state is passed in by the caller (EditorView) as props.
  */
+import { Banner } from "../../ui/banner";
 
 // ---------------------------------------------------------------------------
 // Visibility predicate — pure, testable
@@ -53,9 +54,7 @@ interface ConflictResolvedBannerProps {
  * Renders the "all conflicts resolved" affordance above the Monaco editor.
  *
  * Visibility is derived from the predicate — the caller is responsible for
- * providing up-to-date `isConflicted` and `hasMarkers` values. Visual tokens
- * mirror the existing `ReadOnlyBanner` class tuple so contrast is consistent
- * with the documented empirical audit.
+ * providing up-to-date `isConflicted` and `hasMarkers` values.
  */
 export function ConflictResolvedBanner({
   isConflicted,
@@ -65,19 +64,13 @@ export function ConflictResolvedBanner({
   if (!shouldShowConflictResolvedBanner(isConflicted, hasMarkers)) return null;
 
   return (
-    <div
-      className="flex items-center justify-between shrink-0 h-6 px-3 bg-frosted-veil border-b border-mist-border text-app-ui-xs app-status-banner-text"
+    <Banner
+      display="bar"
+      variant="success"
+      message="✓ 모든 충돌 해결됨"
+      actions={[{ label: "해결로 표시", onAction: onMarkResolved }]}
       role="status"
       aria-live="polite"
-    >
-      <span>✓ 모든 충돌 해결됨</span>
-      <button
-        type="button"
-        className="text-app-ui-xs app-status-banner-text hover:opacity-80 cursor-pointer bg-transparent border-0 p-0"
-        onClick={onMarkResolved}
-      >
-        해결로 표시
-      </button>
-    </div>
+    />
   );
 }
