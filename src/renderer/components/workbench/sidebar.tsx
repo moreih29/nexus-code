@@ -33,7 +33,9 @@ export function Sidebar({
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
 
   return (
-    <aside className="relative shrink-0 bg-muted flex flex-col" style={{ width: sidebarWidth }}>
+    // bg-muted = surface.chrome.bg (L1). border-r = surface.chrome.border hairline:
+    // P3 zone boundary between sidebar (L1) and FilesPanel/canvas (L2/L0).
+    <aside className="relative shrink-0 bg-muted border-r border-border flex flex-col" style={{ width: sidebarWidth }}>
       <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
         {workspaces.length === 0 && (
           <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
@@ -61,15 +63,15 @@ export function Sidebar({
                 onClick={() => onSelectWorkspace(ws.id)}
                 className={cn(
                   // base layout — left accent bar reserved (border-l-2 transparent) so width is stable across states
-                  "block w-full px-4 py-2 rounded-[6px] border-l-2 border-l-transparent",
+                  "block w-full px-4 py-2 rounded-[--radius-container] border-l-2 border-l-transparent",
                   // reserve right space so the × button never overlaps text
                   "pr-8",
                   // text + interaction
                   "text-left cursor-pointer select-none font-sans transition-colors",
-                  // rest state
-                  "text-foreground bg-transparent hover:bg-frosted-veil-strong",
-                  // active state: frosted veil bg + left accent bar (mist-border tone)
-                  isActive && "bg-frosted-veil border-l-mist-border",
+                  // rest state: state.hover.bg overlay (light-theme safe, design.md §7)
+                  "text-foreground bg-transparent hover:bg-[var(--state-hover-bg)]",
+                  // active state: state.hover.bg bg + surface.chrome.border left accent hairline
+                  isActive && "bg-[var(--state-hover-bg)] border-l-border",
                 )}
               >
                 <span className="grid grid-cols-[16px_minmax(0,1fr)] items-center gap-2">
@@ -107,8 +109,8 @@ export function Sidebar({
                 aria-label={`Remove workspace ${ws.name}`}
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-                  "size-5 rounded-[4px] text-app-body-emphasis leading-none",
-                  "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
+                  "size-5 rounded-[--radius-control] text-app-body-emphasis leading-none",
+                  "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
                   "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
                 )}
               >
@@ -124,7 +126,7 @@ export function Sidebar({
           type="button"
           onClick={onAddWorkspace}
           className={cn(
-            "block w-[calc(100%-16px)] mx-2 px-4 py-2 rounded-[6px]",
+            "block w-[calc(100%-16px)] mx-2 px-4 py-2 rounded-[--radius-container]",
             "text-left cursor-pointer select-none font-sans transition-colors",
             "text-app-body text-muted-foreground bg-transparent",
             "hover:bg-earth-gray hover:text-foreground",

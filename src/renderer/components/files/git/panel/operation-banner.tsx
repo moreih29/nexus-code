@@ -132,10 +132,10 @@ export function OperationBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 rounded-md border px-2 py-2 text-app-ui-sm",
+        "mx-2 my-1 rounded-[--radius-container] border px-2 py-2 text-app-ui-sm",
         view.variant === "error"
           ? "border-destructive/60 bg-destructive/10 git-destructive-text"
-          : "border-mist-border bg-frosted-veil text-foreground",
+          : "border-border bg-muted text-foreground",
       )}
       role={view.role}
       aria-live={view.role === "alert" ? "assertive" : "polite"}

@@ -76,7 +76,7 @@ export function TagSubmenu({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
         <span>Tag</span>
@@ -89,7 +89,7 @@ export function TagSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+              className="z-50 max-h-[40vh] min-w-[188px] overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
             >
               {model.map((item) =>
                 item.kind === "separator" ? (
@@ -154,7 +154,7 @@ function DeleteRemoteTagRemoteSubmenu({
         role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
         <span>Delete Remote Tag…</span>
@@ -167,7 +167,7 @@ function DeleteRemoteTagRemoteSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
             >
               {remotes.map((remote) => (
                 <MenuButton
@@ -209,7 +209,7 @@ function PushTagsRemoteSubmenu({
         role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onOpenChange(!open)}
       >
         <span>Push Tags</span>
@@ -222,7 +222,7 @@ function PushTagsRemoteSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+              className="z-50 max-h-[40vh] min-w-[152px] overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
             >
               {remotes.map((remote) => (
                 <MenuButton key={remote} label={remote} onClick={() => onPushTags(remote)} />

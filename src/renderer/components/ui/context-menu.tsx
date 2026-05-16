@@ -7,12 +7,12 @@
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 
 const CONTENT_CLASS =
-  "bg-popover text-popover-foreground border border-mist-border rounded-[4px] shadow-sm py-1 min-w-[180px] z-50";
+  "bg-popover text-popover-foreground border border-border rounded-[--radius-control] shadow-none py-1 min-w-[180px] z-50";
 
 const ITEM_CLASS =
-  "flex items-center justify-between px-2 py-1 rounded-[3px] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-frosted-veil-strong data-[disabled]:opacity-50 data-[disabled]:pointer-events-none";
+  "flex items-center justify-between px-2 py-1 rounded-[--radius-control] cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-[var(--state-hover-bg)] data-[disabled]:opacity-50 data-[disabled]:pointer-events-none";
 
-const SEPARATOR_CLASS = "h-px bg-mist-border my-1";
+const SEPARATOR_CLASS = "h-px bg-border my-1";
 
 interface ContextMenuRootProps {
   children: React.ReactNode;

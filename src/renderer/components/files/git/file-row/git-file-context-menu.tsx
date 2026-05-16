@@ -248,7 +248,7 @@ function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverP
     <div
       ref={wrapperRef}
       role="menu"
-      className="fixed z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+      className="fixed z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-sm"
       style={popoverPositionStyle(point)}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -305,8 +305,8 @@ function MenuButton({
       title={title}
       className={
         destructive
-          ? "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-          : "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          ? "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          : "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       }
       onClick={onClick}
     >
@@ -317,7 +317,7 @@ function MenuButton({
 
 /** Renders the separator shared by file and group context menus. */
 function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-mist-border" />;
+  return <hr className="my-1 h-px border-0 bg-border" />;
 }
 
 /** Removes leading/trailing/consecutive separators from generated menus. */

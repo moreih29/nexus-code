@@ -81,7 +81,7 @@ export function SshAuthPromptDialogContent({
             {prompt.retry ? (
               <p
                 role="alert"
-                className="rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-xs text-destructive"
+                className="rounded-[--radius-control] border border-destructive/40 bg-destructive/10 px-2 py-1 text-app-ui-xs text-destructive"
               >
                 Authentication failed. Try again.
               </p>
@@ -95,7 +95,7 @@ export function SshAuthPromptDialogContent({
               value={passwordValue}
               autoComplete="off"
               onChange={(event) => onPasswordChange(event.target.value)}
-              className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-mist-border-focus"
+              className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={busy}
             />
             <p className="text-app-ui-xs text-muted-foreground">{prompt.prompt}</p>
@@ -156,7 +156,7 @@ export function SshAuthPromptDialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none"
           aria-labelledby={prompt ? `ssh-auth-title-${prompt.promptId}` : undefined}
           aria-describedby={prompt ? `ssh-auth-description-${prompt.promptId}` : undefined}
         >
@@ -196,7 +196,7 @@ function HostKeyPromptBody({
       {prompt.keyType ? (
         <p className="text-app-ui-xs text-muted-foreground">Key type: {prompt.keyType}</p>
       ) : null}
-      <div className="rounded-sm border border-mist-border bg-muted/30 p-3">
+      <div className="rounded-[--radius-control] border border-border bg-muted/30 p-3">
         <p className="text-app-ui-xs text-muted-foreground">Fingerprint</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>

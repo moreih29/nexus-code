@@ -144,7 +144,7 @@ function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShel
           {showRefreshing && <span>Refreshing…</span>}
           <button
             type="button"
-            className="rounded-[4px] px-2 py-1 text-app-ui-sm hover:bg-frosted-veil-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
+            className="rounded-[--radius-control] px-2 py-1 text-app-ui-sm hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50"
             onClick={onReload}
           >
             Reload
@@ -196,7 +196,7 @@ function MissingContentNotice({
   if (content.placeholder !== "missing") return null;
   const label = side === "left" ? "Left side is missing" : "Right side is missing";
   return (
-    <div className="shrink-0 border-b border-border bg-frosted-veil px-3 py-1 text-app-ui-sm text-muted-foreground">
+    <div className="shrink-0 border-b border-border bg-muted px-3 py-1 text-app-ui-sm text-muted-foreground">
       {label}; showing it as an empty file.
     </div>
   );

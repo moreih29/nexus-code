@@ -34,8 +34,8 @@ export function MenuButton({
       title={title}
       className={
         destructive
-          ? "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-          : "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          ? "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          : "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       }
       onClick={onClick}
     >
@@ -46,5 +46,5 @@ export function MenuButton({
 
 /** Renders a 1px horizontal rule used between logical groups in the menu. */
 export function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-mist-border" />;
+  return <hr className="my-1 h-px border-0 bg-border" />;
 }

@@ -68,7 +68,7 @@ export function CredentialPromptDialogContent({
           type={credentialPromptInputType(prompt.field)}
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
-          className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-mist-border-focus"
+          className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={busy}
         />
         <p className="text-app-ui-xs text-muted-foreground">{prompt.prompt}</p>
@@ -117,7 +117,7 @@ export function CredentialPromptDialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
         <RadixDialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
+          className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none"
           aria-label="Git credentials"
         >
           {prompt ? (

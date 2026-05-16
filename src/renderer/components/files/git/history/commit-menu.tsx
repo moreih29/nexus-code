@@ -71,7 +71,7 @@ export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMen
         <div
           ref={wrapperRef}
           role="menu"
-          className="fixed z-50 min-w-[212px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className="fixed z-50 min-w-[212px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
           style={popoverPositionStyle(target.point)}
           onContextMenu={(event) => event.preventDefault()}
         >
@@ -173,8 +173,8 @@ function MenuButton({
       role="menuitem"
       className={
         destructive
-          ? "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
-          : "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+          ? "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
+          : "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
       }
       onClick={onClick}
     >
@@ -185,7 +185,7 @@ function MenuButton({
 
 /** Renders the separator shared by commit menu sections. */
 function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-mist-border" />;
+  return <hr className="my-1 h-px border-0 bg-border" />;
 }
 
 /** Builds a stable separator key from neighboring labels. */
@@ -237,7 +237,7 @@ function HistoryCommitConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixAlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
+        <RadixAlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none">
           <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
             {title}
           </RadixAlertDialog.Title>

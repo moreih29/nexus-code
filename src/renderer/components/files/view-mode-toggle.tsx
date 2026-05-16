@@ -29,7 +29,7 @@ export interface ViewModeToggleProps {
 // ON-state styling mirrors SearchOptionsToggles: inset ring distinguishes
 // "pressed" from "hover" because ghost hover bg matches pressed bg alone.
 const TOGGLE_ON_CLASS =
-  "bg-frosted-veil-strong text-foreground ring-1 ring-inset ring-mist-border-focus";
+  "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 export function ViewModeToggle({
   viewMode,
@@ -83,7 +83,7 @@ export function ViewModeToggle({
           </RadixTooltip.Trigger>
           <RadixTooltip.Portal>
             <RadixTooltip.Content
-              className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[4px] shadow-none"
+              className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
               sideOffset={4}
             >
               {toggleLabel}
@@ -117,7 +117,7 @@ export function ViewModeToggle({
               </RadixTooltip.Trigger>
               <RadixTooltip.Portal>
                 <RadixTooltip.Content
-                  className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[4px] shadow-none"
+                  className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
                   sideOffset={4}
                 >
                   폴더 압축
@@ -130,7 +130,7 @@ export function ViewModeToggle({
               <div
                 role="menu"
                 aria-label="보기 옵션"
-                className="absolute right-0 top-9 z-40 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+                className="absolute right-0 top-9 z-40 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
                 onKeyDown={(event) => {
                   if (event.key === "Escape") setPopoverOpen(false);
                 }}
@@ -164,7 +164,7 @@ function CompactMenuItem({ checked, onToggle }: CompactMenuItemProps) {
       type="button"
       role="menuitemcheckbox"
       aria-checked={checked}
-      className="flex w-full items-center gap-2 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-full items-center gap-2 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       onClick={onToggle}
     >
       {/* Checkmark placeholder — always present in layout to avoid text jump */}

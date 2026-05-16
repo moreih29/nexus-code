@@ -57,7 +57,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   const activeDescendant = activeItem ? optionId(listboxId, activeItem.id) : undefined;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-frosted-veil-strong">
+    <div className="fixed inset-0 z-[70] bg-[var(--floating-scrim)]">
       <button
         type="button"
         aria-label="Close command palette"
@@ -78,12 +78,12 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
         aria-labelledby={titleId}
         data-command-palette-root="true"
         onKeyDown={onKeyDown}
-        className="pointer-events-auto fixed left-1/2 top-[18vh] z-[1] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-[12px] border border-mist-border bg-popover text-popover-foreground shadow-none"
+        className="pointer-events-auto fixed left-1/2 top-[18vh] z-[1] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-[12px] border border-border bg-popover text-popover-foreground shadow-none"
       >
         <h2 id={titleId} className="sr-only">
           {title}
         </h2>
-        <div className="border-b border-mist-border/70 px-3 py-2">
+        <div className="border-b border-border/70 px-3 py-2">
           <input
             ref={inputRef}
             id={inputId}
@@ -129,11 +129,11 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                     }}
                     tabIndex={selected ? 0 : -1}
                     className={cn(
-                      "grid min-h-[52px] cursor-default grid-cols-[1fr_auto] gap-x-3 rounded-[6px] px-3 py-2 text-app-ui-sm",
+                      "grid min-h-[52px] cursor-default grid-cols-[1fr_auto] gap-x-3 rounded-[--radius-container] px-3 py-2 text-app-ui-sm",
                       selected
                         ? destructive
                           ? "bg-destructive/10"
-                          : "bg-frosted-veil"
+                          : "bg-[var(--state-hover-bg)]"
                         : "bg-transparent",
                     )}
                   >
@@ -174,7 +174,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
           )}
         </div>
         {footer ? (
-          <div className="border-t border-mist-border/70 px-3 py-2 text-app-ui-xs text-stone-gray">
+          <div className="border-t border-border/70 px-3 py-2 text-app-ui-xs text-stone-gray">
             {footer}
           </div>
         ) : null}

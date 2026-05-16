@@ -28,7 +28,7 @@ interface GitInlineBannerProps {
 // frosted-veil chrome; the icon (CircleAlert vs Info) carries severity.
 function bannerClass(variant: GitInlineBannerVariant): string {
   if (variant === "error") return "border-destructive/60 bg-destructive/10 git-destructive-text";
-  return "border-mist-border bg-frosted-veil text-foreground";
+  return "border-border bg-muted text-foreground";
 }
 
 export function GitInlineBanner({
@@ -46,7 +46,7 @@ export function GitInlineBanner({
   return (
     <div
       className={cn(
-        "mx-2 my-1 flex items-start gap-2 rounded-md border px-2 py-1.5 text-app-ui-sm",
+        "mx-2 my-1 flex items-start gap-2 rounded-[--radius-container] border px-2 py-1.5 text-app-ui-sm",
         bannerClass(variant),
       )}
       role={variant === "error" ? "alert" : "status"}

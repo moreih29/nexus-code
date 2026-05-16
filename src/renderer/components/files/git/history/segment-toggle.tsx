@@ -16,11 +16,11 @@ export function HistorySegmentToggle({
   onChange,
 }: HistorySegmentToggleProps) {
   return (
-    <div className="flex shrink-0 border-b border-mist-border px-2 py-1">
+    <div className="flex shrink-0 border-b border-border px-2 py-1">
       <div
         role="tablist"
         aria-label="Source Control section"
-        className="inline-flex rounded border border-mist-border bg-frosted-veil p-0.5"
+        className="inline-flex rounded border border-border bg-muted p-0.5"
       >
         <SegmentButton
           label="Changes"
@@ -59,8 +59,8 @@ function SegmentButton({
       disabled={disabled}
       className={
         selected
-          ? "rounded-[3px] bg-frosted-veil-strong px-3 py-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          : "rounded-[3px] px-3 py-1 text-app-ui-sm text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+          ? "rounded-[--radius-control] bg-[var(--state-active-bg)] px-3 py-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          : "rounded-[--radius-control] px-3 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
       }
       onClick={onClick}
     >

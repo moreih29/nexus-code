@@ -107,10 +107,11 @@ export function TabItem({
           "flex items-center gap-1.5 pl-3 pr-7 h-full",
           // text
           "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
-          // rest state
-          "text-muted-foreground hover:bg-frosted-veil-strong hover:text-foreground",
-          // active state: frosted veil bg + mist-border bottom indicator (1px, mist-border token)
-          "data-[state=active]:bg-frosted-veil data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-mist-border",
+          // rest state: tab.hover.bg overlay (light-theme safe, design.md §7)
+          "text-muted-foreground hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
+          // active state: tab.active.bg (L0 canvas = deepest surface, matches Monaco bg)
+          // + tab.active.border bottom hairline — redundant encoding: surface level + colour signal
+          "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground data-[state=active]:border-b data-[state=active]:border-b-[var(--tab-active-border)]",
           // focus
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
           // reset button defaults
@@ -164,7 +165,7 @@ export function TabItem({
             variant="ghost"
             size="icon-sm"
             className={cn(
-              "absolute right-1 top-1/2 -translate-y-1/2 size-4 hover:bg-frosted-veil-strong shrink-0",
+              "absolute right-1 top-1/2 -translate-y-1/2 size-4 hover:bg-[var(--state-hover-bg)] shrink-0",
               dirty ? "hidden group-hover:flex opacity-100" : "flex opacity-50 hover:opacity-100",
             )}
             onClick={(e) => {
@@ -178,7 +179,7 @@ export function TabItem({
         </RadixTooltip.Trigger>
         <RadixTooltip.Portal>
           <RadixTooltip.Content
-            className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[4px] shadow-none"
+            className="px-2 py-1 text-micro bg-muted text-foreground border border-border rounded-[--radius-control] shadow-none"
             sideOffset={4}
           >
             Close tab

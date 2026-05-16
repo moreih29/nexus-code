@@ -8,15 +8,15 @@ export function GitLoadingSkeleton() {
       aria-label="Loading source control"
       role="status"
     >
-      <div className="h-[82px] animate-pulse rounded-md border border-mist-border bg-frosted-veil" />
+      <div className="h-[82px] animate-pulse rounded-[--radius-container] border border-border bg-muted" />
       <div className="flex flex-col gap-1">
-        <div className="h-7 animate-pulse rounded bg-frosted-veil" />
+        <div className="h-7 animate-pulse rounded bg-muted" />
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             // Skeleton rows are positional placeholders only.
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton row count.
             key={index}
-            className="h-6 animate-pulse rounded bg-frosted-veil"
+            className="h-6 animate-pulse rounded bg-muted"
             style={{ opacity: 1 - index * 0.12 }}
           />
         ))}

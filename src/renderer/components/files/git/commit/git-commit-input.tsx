@@ -60,7 +60,7 @@ export function GitCommitInput({
   }
 
   return (
-    <div className="flex flex-col gap-1 border-b border-mist-border px-2 pb-2 pt-1.5">
+    <div className="flex flex-col gap-1 border-b border-border px-2 pb-2 pt-1.5">
       <textarea
         value={value}
         rows={3}
@@ -70,7 +70,7 @@ export function GitCommitInput({
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
-        className="min-h-[64px] resize-none rounded border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus:border-mist-border-focus disabled:opacity-50"
+        className="min-h-[64px] resize-none rounded border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus:border-ring disabled:opacity-50"
         aria-label="Commit message"
       />
       <GitCommitButton

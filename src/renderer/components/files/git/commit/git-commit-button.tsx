@@ -182,7 +182,7 @@ export function GitCommitButton({
         type="button"
         variant="default"
         size="icon-sm"
-        className="h-7 w-8 rounded-l-none border-l border-mist-border/50"
+        className="h-7 w-8 rounded-l-none border-l border-border/50"
         aria-label="Show source control action menu"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -194,7 +194,7 @@ export function GitCommitButton({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-8 z-40 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className="absolute right-0 top-8 z-40 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
           onKeyDown={(event) => {
             if (event.key === "Escape") close();
           }}
@@ -250,8 +250,8 @@ function MenuButton({
       disabled={disabled}
       className={
         destructive
-          ? "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-          : "flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          ? "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+          : "flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       }
       onClick={onClick}
     >
@@ -281,7 +281,7 @@ function CommitOptionsSubmenu({
         role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={() => onOpenChange(!open)}
       >
         <span>{label}</span>
@@ -290,7 +290,7 @@ function CommitOptionsSubmenu({
       {open ? (
         <div
           role="menu"
-          className="absolute left-full top-0 z-50 min-w-[152px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className="absolute left-full top-0 z-50 min-w-[152px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
         >
           {items.map((item) => (
             <button
@@ -298,7 +298,7 @@ function CommitOptionsSubmenu({
               type="button"
               role="menuitemcheckbox"
               aria-checked={item.checked}
-              className="flex w-full items-center gap-2 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+              className="flex w-full items-center gap-2 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
               onClick={() => onToggle(item.id, !item.checked)}
             >
               <span className="flex size-3.5 items-center justify-center">
@@ -315,7 +315,7 @@ function CommitOptionsSubmenu({
 
 /** Renders the separator shared by commit and sync menus. */
 function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-mist-border" />;
+  return <hr className="my-1 h-px border-0 bg-border" />;
 }
 
 /** Finds the nearest previous concrete menu id to key a separator. */

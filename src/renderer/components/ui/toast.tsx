@@ -121,10 +121,10 @@ export function ToastRoot(): React.JSX.Element | null {
           key={t.id}
           role="status"
           className={cn(
-            "flex items-start gap-2 rounded-md border px-3 py-2 shadow-md text-app-ui-sm",
+            "flex items-start gap-2 rounded-[--radius-container] border px-3 py-2 shadow-none text-app-ui-sm",
             t.kind === "error"
               ? "bg-destructive text-destructive-foreground border-destructive"
-              : "bg-popover text-popover-foreground border-mist-border",
+              : "bg-popover text-popover-foreground border-border",
           )}
         >
           <span className="flex-1 break-words">{t.message}</span>

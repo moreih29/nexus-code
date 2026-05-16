@@ -209,7 +209,7 @@ export function GitBranchPopover({
         <div
           role="dialog"
           aria-label="Branch details"
-          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] rounded border border-mist-border bg-popover p-2 text-popover-foreground shadow-sm"
+          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] rounded border border-border bg-popover p-2 text-popover-foreground shadow-none"
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
           }}
@@ -321,7 +321,7 @@ function GitBranchFetchStatus({
     return (
       <div
         role="status"
-        className="mt-2 flex items-center gap-1.5 rounded-sm bg-frosted-veil px-2 py-1 text-app-ui-sm text-muted-foreground"
+        className="mt-2 flex items-center gap-1.5 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
       >
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
         <span>Fetching…</span>
@@ -334,12 +334,12 @@ function GitBranchFetchStatus({
   return (
     <div
       role="alert"
-      className="mt-2 flex items-center justify-between gap-2 rounded-sm bg-frosted-veil px-2 py-1 text-app-ui-sm text-muted-foreground"
+      className="mt-2 flex items-center justify-between gap-2 rounded-[--radius-control] bg-muted px-2 py-1 text-app-ui-sm text-muted-foreground"
     >
       <span>Fetch failed</span>
       <button
         type="button"
-        className="rounded-[3px] px-1 text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+        className="rounded-[--radius-control] px-1 text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={onRetry}
       >
         Retry
@@ -375,7 +375,7 @@ function BranchContextMenu({
   return (
     <div
       role="menu"
-      className="fixed z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+      className="fixed z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
       style={contextMenuStyle(point)}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
@@ -426,7 +426,7 @@ function BranchAutofetchSubmenu({
         role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none"
+        className="flex w-full items-center justify-between gap-3 rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
         onClick={() => onOpenChange(!open)}
       >
         <span>Autofetch</span>
@@ -435,7 +435,7 @@ function BranchAutofetchSubmenu({
       {open ? (
         <div
           role="menu"
-          className="absolute left-full top-0 z-50 min-w-[188px] rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+          className="absolute left-full top-0 z-50 min-w-[188px] rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
         >
           {buildAutofetchMenuModel(selected).map((item) => (
             <ContextMenuButton
@@ -468,7 +468,7 @@ function ContextMenuButton({
       role="menuitem"
       disabled={disabled}
       title={title}
-      className="flex w-full rounded-[3px] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-full rounded-[--radius-control] px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
       onClick={onClick}
     >
       {label}

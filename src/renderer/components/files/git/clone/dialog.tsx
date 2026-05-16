@@ -296,7 +296,7 @@ export function CloneDialog({ open, onClose }: CloneDialogProps): React.JSX.Elem
         <RadixDialog.Portal>
           <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
           <RadixDialog.Content
-            className="fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none"
+            className="fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-none outline-none"
             aria-label="Clone Repository"
           >
             <CloneDialogContent
@@ -424,10 +424,10 @@ export function CloneDialogContent({
         ) : null
       }
     >
-      <p className="rounded-sm border border-mist-border bg-frosted-veil px-2 py-1 text-app-ui-xs text-muted-foreground">
+      <p className="rounded-[--radius-control] border border-border bg-muted px-2 py-1 text-app-ui-xs text-muted-foreground">
         Will clone to: <span className="font-mono text-foreground">{preview || "—"}</span>
       </p>
-      <div className="rounded-sm border border-mist-border bg-background/60 px-2 py-2">
+      <div className="rounded-[--radius-control] border border-border bg-background/60 px-2 py-2">
         <button
           type="button"
           className="flex w-full items-center justify-between text-left text-app-ui-sm text-foreground"

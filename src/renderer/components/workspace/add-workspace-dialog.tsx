@@ -344,7 +344,7 @@ export function AddWorkspaceDialog({
     >
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-md border border-mist-border bg-background p-5 text-foreground shadow-lg outline-none">
+        <RadixDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-[--radius-container] border border-border bg-background p-5 text-foreground shadow-lg outline-none">
           <RadixDialog.Title className="sr-only">Add Workspace</RadixDialog.Title>
           <RadixDialog.Description className="sr-only">
             Add a local or SSH workspace.
@@ -482,13 +482,13 @@ export function AddWorkspaceDialogContent({
       >
         <RadixTabs.List
           aria-label="Workspace location"
-          className="inline-flex rounded border border-mist-border bg-frosted-veil p-0.5"
+          className="inline-flex rounded border border-border bg-muted p-0.5"
         >
           <RadixTabs.Trigger
             type="button"
             value="local"
             disabled={busy}
-            className="inline-flex h-8 items-center gap-2 rounded-[4px] px-3 text-app-ui-sm text-muted-foreground outline-none data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-2 rounded-[--radius-control] px-3 text-app-ui-sm text-muted-foreground outline-none data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           >
             <FolderOpen className="size-4" aria-hidden="true" />
             Local
@@ -497,7 +497,7 @@ export function AddWorkspaceDialogContent({
             type="button"
             value="ssh"
             disabled={busy}
-            className="inline-flex h-8 items-center gap-2 rounded-[4px] px-3 text-app-ui-sm text-muted-foreground outline-none data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-2 rounded-[--radius-control] px-3 text-app-ui-sm text-muted-foreground outline-none data-[state=active]:bg-background data-[state=active]:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           >
             <Server className="size-4" aria-hidden="true" />
             SSH
@@ -505,7 +505,7 @@ export function AddWorkspaceDialogContent({
         </RadixTabs.List>
 
         <RadixTabs.Content value="local" className="mt-4 outline-none">
-          <div className="rounded-sm border border-mist-border bg-frosted-veil px-3 py-3">
+          <div className="rounded-[--radius-control] border border-border bg-muted px-3 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <FolderOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <div className="min-w-0">
@@ -541,7 +541,7 @@ export function AddWorkspaceDialogContent({
                     onKeyDown={onHostKeyDown}
                     disabled={busy}
                     placeholder="user@host or SSH config alias"
-                    className="min-w-0 flex-1 rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50 aria-invalid:border-destructive"
+                    className="min-w-0 flex-1 rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive"
                   />
                   <Button
                     type="button"
@@ -559,7 +559,7 @@ export function AddWorkspaceDialogContent({
                   <div
                     id={HOST_OPTIONS_ID}
                     role="listbox"
-                    className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto rounded border border-mist-border bg-popover p-1 text-popover-foreground shadow-sm"
+                    className="absolute left-0 right-10 top-[calc(100%+4px)] z-10 max-h-44 overflow-y-auto rounded border border-border bg-popover p-1 text-popover-foreground shadow-none"
                   >
                     {filteredHosts.length > 0 ? (
                       filteredHosts.map((host, index) => (
@@ -569,7 +569,7 @@ export function AddWorkspaceDialogContent({
                           type="button"
                           role="option"
                           aria-selected={index === activeHostIndex}
-                          className="flex w-full min-w-0 flex-col rounded-[3px] px-2 py-1.5 text-left text-app-ui-sm hover:bg-frosted-veil-strong focus-visible:bg-frosted-veil-strong focus-visible:outline-none aria-selected:bg-frosted-veil-strong"
+                          className="flex w-full min-w-0 flex-col rounded-[--radius-control] px-2 py-1.5 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none aria-selected:bg-[var(--state-active-bg)]"
                           onClick={() => onSelectHost(host)}
                         >
                           <span className="truncate text-foreground">{host.alias}</span>
@@ -611,7 +611,7 @@ export function AddWorkspaceDialogContent({
                   aria-invalid={sshValidationError ? true : undefined}
                   aria-describedby={sshValidationError ? SSH_ERROR_ID : undefined}
                   placeholder="/srv/project"
-                  className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50 aria-invalid:border-destructive"
+                  className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive"
                 />
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
@@ -624,14 +624,14 @@ export function AddWorkspaceDialogContent({
                   onChange={(event) => onNameChange(event.currentTarget.value)}
                   disabled={busy}
                   placeholder="Optional"
-                  className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50"
+                  className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                 />
               </div>
             </div>
 
             <fieldset
               id={AUTH_MODE_GROUP_ID}
-              className="rounded-sm border border-mist-border bg-background/60 px-2 py-2"
+              className="rounded-[--radius-control] border border-border bg-background/60 px-2 py-2"
               disabled={busy}
             >
               <legend className="px-1 text-app-ui-sm text-foreground">Authentication</legend>
@@ -639,7 +639,7 @@ export function AddWorkspaceDialogContent({
                 {SSH_AUTH_OPTIONS.map((option) => (
                   <label
                     key={option.value}
-                    className="flex cursor-pointer items-start gap-2 rounded-sm border border-mist-border bg-frosted-veil px-2 py-2 text-left outline-none focus-within:ring-1 focus-within:ring-mist-border-focus"
+                    className="flex cursor-pointer items-start gap-2 rounded-[--radius-control] border border-border bg-muted px-2 py-2 text-left outline-none focus-within:ring-1 focus-within:ring-ring"
                   >
                     <input
                       type="radio"
@@ -661,10 +661,10 @@ export function AddWorkspaceDialogContent({
               </div>
             </fieldset>
 
-            <div className="rounded-sm border border-mist-border bg-background/60 px-2 py-2">
+            <div className="rounded-[--radius-control] border border-border bg-background/60 px-2 py-2">
               <button
                 type="button"
-                className="flex w-full items-center justify-between text-left text-app-ui-sm text-foreground outline-none focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50"
+                className="flex w-full items-center justify-between text-left text-app-ui-sm text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                 aria-expanded={advancedOpen}
                 disabled={busy}
                 onClick={onAdvancedOpenChange}
@@ -692,7 +692,7 @@ export function AddWorkspaceDialogContent({
                       aria-invalid={portError ? true : undefined}
                       aria-describedby={portError ? PORT_ERROR_ID : undefined}
                       placeholder="22"
-                      className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50 aria-invalid:border-destructive"
+                      className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 aria-invalid:border-destructive"
                     />
                     {portError ? (
                       <p id={PORT_ERROR_ID} className="text-app-ui-xs text-destructive">
@@ -710,7 +710,7 @@ export function AddWorkspaceDialogContent({
                       onChange={(event) => onIdentityFileChange(event.currentTarget.value)}
                       disabled={busy}
                       placeholder="~/.ssh/id_ed25519"
-                      className="w-full rounded-sm border border-mist-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-mist-border-focus disabled:opacity-50"
+                      className="w-full rounded-[--radius-control] border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                     />
                   </div>
                 </div>
@@ -734,7 +734,7 @@ export function AddWorkspaceDialogContent({
 
       {errorMessage ? (
         <div
-          className="flex items-start gap-2 rounded-sm border border-destructive/60 bg-destructive/10 px-2 py-1.5 text-app-ui-xs text-destructive"
+          className="flex items-start gap-2 rounded-[--radius-control] border border-destructive/60 bg-destructive/10 px-2 py-1.5 text-app-ui-xs text-destructive"
           role="alert"
         >
           <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
