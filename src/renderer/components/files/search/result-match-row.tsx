@@ -4,7 +4,7 @@
  * Indent: 20px from left.
  */
 
-import type { SearchRange } from "../../../../shared/types/search";
+import type { SearchRange } from "../../../../shared/search/types";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";
 
 const MATCH_INDENT_PX = 20;

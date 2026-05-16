@@ -7,7 +7,7 @@
  * `git.ts` itself or in a dedicated subscription module — not here.
  */
 
-import type { GitActionHint } from "../../../shared/types/git";
+import type { GitActionHint } from "../../../shared/git/types";
 import type {
   GitOperationKind,
   GitPushOptions,

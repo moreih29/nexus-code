@@ -12,8 +12,8 @@ import type {
   GitAutofetchIntervalMin,
   GitAutofetchStateChanged,
   GitFetchAllResult,
-} from "../../../../shared/types/git";
-import { normalizeGitAutofetchIntervalMin } from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
+import { normalizeGitAutofetchIntervalMin } from "../../../../shared/git/types";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import { isSshWorkspace } from "../../workspace/guards";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";

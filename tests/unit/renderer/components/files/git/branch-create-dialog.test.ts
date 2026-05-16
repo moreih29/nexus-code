@@ -8,7 +8,7 @@ import {
   submitBranchCreate,
 } from "../../../../../../src/renderer/components/files/git/branch/create-dialog";
 import { getFormDialogFieldStates } from "../../../../../../src/renderer/components/ui/form-dialog";
-import type { BranchList } from "../../../../../../src/shared/types/git";
+import type { BranchList } from "../../../../../../src/shared/git/types";
 
 const branchList: BranchList = {
   current: {

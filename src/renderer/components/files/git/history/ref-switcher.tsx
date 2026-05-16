@@ -4,7 +4,7 @@
  */
 import { GitBranch, Network, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import type { GitHistoryScope } from "../../../../../shared/types/git";
+import type { GitHistoryScope } from "../../../../../shared/git/types";
 import { cn } from "../../../../utils/cn";
 import { Button } from "../../../ui/button";
 import { BranchPicker } from "../branch/picker";

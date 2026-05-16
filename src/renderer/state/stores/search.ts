@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { STATE_PERSIST_DEBOUNCE_MS } from "../../../shared/timing-constants";
+import { STATE_PERSIST_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import type { ViewMode } from "../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import type {
@@ -7,7 +7,7 @@ import type {
   SearchComplete,
   SearchRange,
   TextSearchQuery,
-} from "../../../shared/types/search";
+} from "../../../shared/search/types";
 import { ipcCall, ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 

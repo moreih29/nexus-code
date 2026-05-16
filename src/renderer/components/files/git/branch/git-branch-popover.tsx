@@ -9,7 +9,7 @@ import type {
   BranchInfo,
   GitAutofetchIntervalMin,
   RepoCapabilities,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";

@@ -13,7 +13,7 @@
  * surfaces the miss so it doesn't disappear silently in production.
  */
 
-import type { CommandId } from "../../shared/commands";
+import type { CommandId } from "../../shared/keybindings/commands";
 
 export type CommandHandler = () => void | Promise<void>;
 

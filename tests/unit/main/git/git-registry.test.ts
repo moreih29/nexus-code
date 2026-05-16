@@ -5,12 +5,12 @@ import {
   GIT_DETECT_METHOD,
   GIT_RUN_METHOD,
   GIT_STATUS_METHOD,
-} from "../../../../src/shared/protocol/git";
+} from "../../../../src/shared/git/protocol";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
-} from "../../../../src/shared/types/git";
+} from "../../../../src/shared/git/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";

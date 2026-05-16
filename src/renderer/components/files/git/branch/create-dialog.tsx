@@ -5,7 +5,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { BranchList } from "../../../../../shared/types/git";
+import type { BranchList } from "../../../../../shared/git/types";
 import type { CreateBranchOptions } from "../../../../state/stores/git";
 import {
   FormDialogContent,

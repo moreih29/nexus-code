@@ -18,7 +18,7 @@ import {
   GitEditorPromptSchema,
   GitEditorSaveArgsSchema,
   GitHelperPromptIdArgsSchema,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { register, validateArgs } from "../../../../infra/ipc-router";
 import { type GitHelperConnection, setDefaultGitHelperConnection } from "./launcher";
 

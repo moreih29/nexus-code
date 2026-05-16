@@ -1,4 +1,4 @@
-import { COMMANDS } from "../../../shared/commands";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { openCloneDialog } from "../../components/files/git/clone/dialog-state";
 import { openWorkspaceSymbolPalette } from "../../components/lsp/workspace-symbol-palette-state";

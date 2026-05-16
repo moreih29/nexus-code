@@ -3,7 +3,7 @@
  * fast-forward, and create-from-ref.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { GitFastForwardResult } from "../../../../shared/types/git";
+import type { GitFastForwardResult } from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

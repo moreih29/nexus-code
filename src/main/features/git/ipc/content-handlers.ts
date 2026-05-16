@@ -5,8 +5,8 @@ import { ipcContract } from "../../../../shared/ipc/contract";
 import {
   AgentGitGetFileContentResultSchema,
   GIT_GET_FILE_CONTENT_METHOD,
-} from "../../../../shared/protocol/git";
-import type { FileReadResult } from "../../../../shared/types/fs";
+} from "../../../../shared/git/protocol";
+import type { FileReadResult } from "../../../../shared/fs/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";

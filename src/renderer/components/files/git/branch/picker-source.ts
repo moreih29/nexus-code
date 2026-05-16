@@ -28,7 +28,7 @@
  * appears without typing.
  */
 
-import type { BranchList } from "../../../../../shared/types/git";
+import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type BranchPickAction =

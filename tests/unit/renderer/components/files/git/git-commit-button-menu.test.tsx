@@ -6,7 +6,7 @@ import {
   buildGitCommitMenuModel,
   type GitCommitMenuEnablement,
 } from "../../../../../../src/renderer/components/files/git/commit/git-commit-button";
-import type { GitCommitOptions } from "../../../../../../src/shared/types/git";
+import type { GitCommitOptions } from "../../../../../../src/shared/git/types";
 
 const enabled: GitCommitMenuEnablement = {
   canCommitStaged: true,

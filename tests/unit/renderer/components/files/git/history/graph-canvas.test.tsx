@@ -12,7 +12,7 @@ import {
   type LaneCommit,
   reduceLanes,
 } from "../../../../../../../src/renderer/components/files/git/history/graph/lane-assign";
-import type { LogEntry } from "../../../../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../../../../src/shared/git/types";
 
 const ROW_HEIGHT_PX = 24;
 const LANE_WIDTH_PX = 18;

@@ -6,7 +6,7 @@ import {
   createStashPickerSource,
   type StashPickItem,
 } from "../../../../../../src/renderer/components/files/git/pickers/stash-picker-source";
-import type { StashEntry } from "../../../../../../src/shared/types/git";
+import type { StashEntry } from "../../../../../../src/shared/git/types";
 
 const workspaceId = "ws-stash";
 

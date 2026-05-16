@@ -4,7 +4,7 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { LogEntry } from "../../../../../../shared/types/git";
+import type { LogEntry } from "../../../../../../shared/git/types";
 import type { LaneState } from "./lane-assign";
 
 const DEFAULT_ROW_HEIGHT_PX = 24;

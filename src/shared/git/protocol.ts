@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FileReadResultSchema } from "../types/fs";
+import { FileReadResultSchema } from "../fs/types";
 import {
   type CommitDetail,
   CommitDetailSchema,
@@ -37,7 +37,7 @@ import {
   RemoteTagSchema,
   type RepoInfo,
   RepoInfoSchema,
-} from "../types/git";
+} from "./types";
 
 export const GIT_RUN_METHOD = "git.run";
 export const GIT_STREAM_METHOD = "git.stream";

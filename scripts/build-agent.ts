@@ -10,7 +10,7 @@ import {
   type AgentBinaryManifestEntry,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
-} from "../src/shared/agent-manifest";
+} from "../src/shared/agent/manifest";
 
 const DEFAULT_VERSION = "0.1.0";
 const DEFAULT_PROTOCOL_VERSION = "1";

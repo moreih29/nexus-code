@@ -11,8 +11,8 @@ import {
   SEARCH_CANCEL_METHOD,
   SEARCH_PROGRESS_EVENT,
   SEARCH_TEXT_METHOD,
-} from "../../../shared/protocol/search";
-import type { FileMatch } from "../../../shared/types/search";
+} from "../../../shared/search/protocol";
+import type { FileMatch } from "../../../shared/search/types";
 import { isAgentBackedProvider } from "../fs/bridge/provider";
 import {
   findWorkspace,

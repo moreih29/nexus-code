@@ -5,7 +5,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import { readExternalHandler } from "../../../../src/main/features/fs/ipc/read-handlers";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
-import type { FileReadResult } from "../../../../src/shared/types/fs";
+import type { FileReadResult } from "../../../../src/shared/fs/types";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 

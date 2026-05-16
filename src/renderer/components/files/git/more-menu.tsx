@@ -27,7 +27,7 @@
  */
 import { MoreHorizontal } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../shared/types/git";
+import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../shared/git/types";
 import { Button } from "../../ui/button";
 import { useDismissOnOutsideClickWithMarker } from "../../ui/use-dismiss-on-outside-click";
 import { AutofetchSubmenu } from "./git-more-menu/autofetch-submenu";

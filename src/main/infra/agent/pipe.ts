@@ -13,7 +13,7 @@
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
-import type { SshErrorCode } from "../../../shared/types/ssh-errors";
+import type { SshErrorCode } from "../../../shared/ssh/errors";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 

@@ -6,7 +6,7 @@
 import { ChevronRight } from "lucide-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
-import type { GitAutofetchIntervalMin } from "../../../../../shared/types/git";
+import type { GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
 import {
   buildAutofetchMenuModel,

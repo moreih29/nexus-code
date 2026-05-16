@@ -19,7 +19,7 @@
  * Cmd+Alt+I) keep their Electron-built `role`s so Chromium and macOS
  * handle them uniformly.
  */
-import { COMMANDS, type CommandId } from "../../../shared/commands";
+import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
 import { chordToLabel } from "../../../shared/keybindings/keybinding-parse";
 import { findChordBinding, findPrimaryBinding } from "../../../shared/keybindings/index";
 

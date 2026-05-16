@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../types/search";
+import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "./types";
 
 export const SEARCH_TEXT_METHOD = "search.text";
 export const SEARCH_CANCEL_METHOD = "search.cancel";

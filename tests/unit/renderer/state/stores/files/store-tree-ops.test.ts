@@ -37,7 +37,7 @@ import {
   toggleExpand,
 } from "../../../../../../src/renderer/state/operations/files";
 import { selectFlat, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
-import type { DirEntry } from "../../../../../../src/shared/types/fs";
+import type { DirEntry } from "../../../../../../src/shared/fs/types";
 
 // ---------------------------------------------------------------------------
 // Constants

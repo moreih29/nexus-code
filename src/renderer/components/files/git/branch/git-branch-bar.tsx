@@ -5,7 +5,7 @@ import type {
   BranchInfo,
   GitAutofetchIntervalMin,
   RepoCapabilities,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { GitBranchPopover } from "./git-branch-popover";
 
 interface GitBranchBarProps {

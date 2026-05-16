@@ -3,7 +3,7 @@
  */
 import { Check, Minus, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { ROW_HEIGHT_PX } from "../../file-tree/metrics";
 import {

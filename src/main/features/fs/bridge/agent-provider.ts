@@ -9,7 +9,7 @@ import {
   FsStatSchema,
   type WriteFileResult,
   WriteFileResultSchema,
-} from "../../../../shared/types/fs";
+} from "../../../../shared/fs/types";
 import {
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
@@ -25,8 +25,8 @@ import {
   type FsRmdirParams,
   type FsUnlinkParams,
   type FsWriteFileParams,
-} from "../../../../shared/protocol/fs";
-import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
+} from "../../../../shared/fs/protocol";
+import type { SshErrorCode } from "../../../../shared/ssh/errors";
 import type { AgentChannel } from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
 

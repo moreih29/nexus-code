@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
-import { nexusDarkPalette } from "../../../../src/shared/editor-palette";
+import { nexusDarkPalette } from "../../../../src/shared/editor/palette";
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {

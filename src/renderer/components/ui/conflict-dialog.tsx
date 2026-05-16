@@ -12,7 +12,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { createListenerBus } from "../../../shared/listener-bus";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export type ConflictResolutionChoice = "overwrite" | "reload" | "cancel";
 

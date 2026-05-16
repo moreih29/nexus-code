@@ -123,7 +123,7 @@ import {
   AgentGitDetectResultSchema,
   GIT_INFO_METHOD,
   GIT_DETECT_METHOD,
-} from "../../../../../shared/protocol/git";
+} from "../../../../../shared/git/protocol";
 import type {
   CommitDetail,
   DiffChunk,
@@ -151,7 +151,7 @@ import type {
   RepoInfo,
   StashEntry,
   Tag,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { GitError, gitErrorFromAgent } from "../../domain/error";
 import {
   AsyncQueue,

@@ -3,7 +3,7 @@
  */
 
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
-import type { GitExpandedGroupKey } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
 export interface DiscardConfirmRequest {

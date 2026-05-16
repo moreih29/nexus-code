@@ -2,7 +2,7 @@
  * Repository metadata handlers — detection and initialization for the Git panel.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { RepoInfo } from "../../../../shared/types/git";
+import type { RepoInfo } from "../../../../shared/git/types";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";

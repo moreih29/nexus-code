@@ -4,7 +4,7 @@
  * The ordering mirrors the task-plan state machine: first match wins, so more
  * specific commit/dirty states are evaluated before clean remote-sync states.
  */
-import type { BranchInfo, RepoCapabilities, RepoInfo } from "../../../shared/types/git";
+import type { BranchInfo, RepoCapabilities, RepoInfo } from "../../../shared/git/types";
 
 export type GitActionButtonKind =
   | "initialize-repository"

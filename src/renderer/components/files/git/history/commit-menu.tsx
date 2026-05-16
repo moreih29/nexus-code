@@ -5,7 +5,7 @@
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CommitDetail, LogEntry } from "../../../../../shared/types/git";
+import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";

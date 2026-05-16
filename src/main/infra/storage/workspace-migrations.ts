@@ -12,7 +12,7 @@
  * storage module can reuse them where helpful.
  */
 
-import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
+import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/git/types";
 import type { SqliteDb } from "./migrations";
 
 export interface WorkspaceMigration {

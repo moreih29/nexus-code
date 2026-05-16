@@ -19,7 +19,7 @@ import type {
   FileReadResult,
   FsStat,
   WriteFileResult,
-} from "../../../../src/shared/types/fs";
+} from "../../../../src/shared/fs/types";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 

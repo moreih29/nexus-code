@@ -77,7 +77,7 @@ import { ensureRoot, refresh, toggleExpand } from "../../src/renderer/state/oper
 import { useFilesStore } from "../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../src/renderer/state/stores/tabs";
-import type { DirEntry } from "../../src/shared/types/fs";
+import type { DirEntry } from "../../src/shared/fs/types";
 
 // ---------------------------------------------------------------------------
 // Test fixtures

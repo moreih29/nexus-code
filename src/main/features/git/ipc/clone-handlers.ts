@@ -12,7 +12,7 @@ import type {
   InferProgress,
   ipcContract,
 } from "../../../../shared/ipc/contract";
-import type { GitCloneStreamProgressEvent } from "../../../../shared/types/git";
+import type { GitCloneStreamProgressEvent } from "../../../../shared/git/types";
 import type { AgentGitExecutor } from "../bridge/agent-executor";
 import type { StreamContext } from "../../../infra/ipc-router";
 

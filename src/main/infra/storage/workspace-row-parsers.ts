@@ -17,7 +17,7 @@ import {
   type GitExpandedTreeNodes,
   type GitPanelState,
   GitPanelStateSchema,
-} from "../../../shared/types/git";
+} from "../../../shared/git/types";
 
 export const GIT_PANEL_COMMIT_DRAFT_KEY = "commitDraft";
 export const GIT_PANEL_EXPANDED_GROUPS_KEY = "expandedGroups";

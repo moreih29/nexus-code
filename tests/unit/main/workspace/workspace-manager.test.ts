@@ -16,7 +16,7 @@ import type {
   WorkspaceSshChannelFactory,
 } from "../../../../src/main/features/workspace/manager";
 import { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
-import type { SshErrorCode } from "../../../../src/shared/types/ssh-errors";
+import type { SshErrorCode } from "../../../../src/shared/ssh/errors";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------

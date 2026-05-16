@@ -2,7 +2,7 @@
  * Group-domain commands: split right / down, close, focus left / right / up / down.
  */
 
-import { COMMANDS } from "../../../shared/commands";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { Grid } from "../../engine/split-engine";
 import { openOrRevealEditor } from "../../services/editor";

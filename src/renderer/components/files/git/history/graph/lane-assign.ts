@@ -1,7 +1,7 @@
 /**
  * Pure git history lane assignment for the History graph canvas.
  */
-import type { LogEntry } from "../../../../../../shared/types/git";
+import type { LogEntry } from "../../../../../../shared/git/types";
 
 export const MAX_LANES = 24;
 const SPILL_LANE = MAX_LANES - 1;

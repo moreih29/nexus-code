@@ -12,7 +12,7 @@ import {
   type GitStatusEntry,
   type RepoCapabilities,
   type Tag,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { openTerminal } from "../../../../services/terminal";
 import { selectGitActionButton } from "../../../../state/selectors/git-action-button";
 import type { GitPushOptions, GitStoreError } from "../../../../state/stores/git";

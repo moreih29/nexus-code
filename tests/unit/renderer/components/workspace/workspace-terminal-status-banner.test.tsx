@@ -25,7 +25,7 @@ import {
   selectIsWorkspaceOnline,
   useWorkspacesStore,
 } from "../../../../../src/renderer/state/stores/workspaces";
-import type { TimerScheduler } from "../../../../../src/shared/timer-scheduler";
+import type { TimerScheduler } from "../../../../../src/shared/util/timer-scheduler";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";

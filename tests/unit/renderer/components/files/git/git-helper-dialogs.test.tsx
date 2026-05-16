@@ -23,7 +23,7 @@ import {
   useGitHelperPrompts,
 } from "../../../../../../src/renderer/components/files/git/hooks/use-git-helper-prompts";
 import type { ipcCall, ipcListen } from "../../../../../../src/renderer/ipc/client";
-import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/types/git";
+import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/git/types";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 const OTHER_WORKSPACE_ID = "223e4567-e89b-12d3-a456-426614174000";

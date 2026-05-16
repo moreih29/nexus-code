@@ -3,7 +3,7 @@
  * tags while refreshing RepoCapabilities.tagCount after every mutation.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { RemoteTag, Tag } from "../../../../shared/types/git";
+import type { RemoteTag, Tag } from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

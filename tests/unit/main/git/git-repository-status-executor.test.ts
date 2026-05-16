@@ -25,7 +25,7 @@ import {
   GIT_STATUS_METHOD,
   GIT_STREAM_CHUNK_EVENT,
   GIT_STREAM_METHOD,
-} from "../../../../src/shared/protocol/git";
+} from "../../../../src/shared/git/protocol";
 import {
   type CommitDetail,
   DEFAULT_GIT_OPERATION_STATE,
@@ -37,7 +37,7 @@ import {
   type GitStatus,
   type LogChunk,
   type LogComplete,
-} from "../../../../src/shared/types/git";
+} from "../../../../src/shared/git/types";
 
 describe("GitRepository.readStatus executor branch", () => {
   test("uses executor.status without falling back to git.run", async () => {

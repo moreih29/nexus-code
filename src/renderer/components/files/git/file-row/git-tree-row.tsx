@@ -10,7 +10,7 @@
  * so this component stays focused on visual rendering only.
  */
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Minus, Plus, Trash2 } from "lucide-react";
-import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { INDENT_STEP_PX } from "../../file-tree/metrics";
 import { GitFileRow } from "./git-file-row";

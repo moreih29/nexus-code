@@ -7,7 +7,7 @@ import { GitError } from "../../../../src/main/features/git/domain/error";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
-} from "../../../../src/shared/types/git";
+} from "../../../../src/shared/git/types";
 
 const workspaceId = "00000000-0000-4000-8000-000000000010";
 

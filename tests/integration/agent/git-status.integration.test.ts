@@ -11,8 +11,8 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createLocalChannel } from "../../../src/main/infra/agent/channel/local-channel";
-import { GIT_STATUS_METHOD } from "../../../src/shared/protocol/git";
-import { type GitStatus, GitStatusSchema } from "../../../src/shared/types/git";
+import { GIT_STATUS_METHOD } from "../../../src/shared/git/protocol";
+import { type GitStatus, GitStatusSchema } from "../../../src/shared/git/types";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const goAvailable = spawnSync("go", ["version"]).status === 0;

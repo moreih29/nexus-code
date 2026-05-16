@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
 import type { HistoryListBreakpoint } from "../../../../../../src/renderer/components/files/git/history/list";
-import type { LogEntry } from "../../../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../../../src/shared/git/types";
 
 const { HistoryRow } = await import(
   "../../../../../../src/renderer/components/files/git/history/row"

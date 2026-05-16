@@ -3,7 +3,7 @@
  * flows. It intentionally combines moving labels (branches/tags) with recent
  * immutable commits while returning only the selected ref string to callers.
  */
-import type { BranchList, LogEntry, Tag } from "../../../../../shared/types/git";
+import type { BranchList, LogEntry, Tag } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type RefPickKind = "branch" | "remote" | "tag" | "commit";

@@ -6,7 +6,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
-import type { SshAuthPrompt } from "../../../shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { copyText } from "../../utils/clipboard";
 import { Button } from "../ui/button";
 

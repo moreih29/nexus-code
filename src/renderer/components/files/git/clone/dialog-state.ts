@@ -3,7 +3,7 @@
  * menus, and welcome-screen affordances all route through this tiny bus so the
  * dialog root can stay mounted once in GlobalRoots.
  */
-import { createListenerBus } from "../../../../../shared/listener-bus";
+import { createListenerBus } from "../../../../../shared/util/listener-bus";
 
 let open = false;
 const bus = createListenerBus();

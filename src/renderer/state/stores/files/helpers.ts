@@ -1,4 +1,4 @@
-import type { DirEntry } from "../../../../shared/types/fs";
+import type { DirEntry } from "../../../../shared/fs/types";
 import { relPath } from "../../../utils/path";
 import type { FilesState, FlatItem, WorkspaceTree } from "./types";
 

@@ -9,7 +9,7 @@ import type {
   CommitSearchResult,
   GitHistoryScope,
   LogEntry,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
 import { openOrRevealCommitTab } from "../../../../state/operations/tabs";
 import { useGitStore } from "../../../../state/stores/git";

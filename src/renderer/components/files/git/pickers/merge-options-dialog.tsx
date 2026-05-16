@@ -7,7 +7,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
-import type { GitMergeMode, LogEntry } from "../../../../../shared/types/git";
+import type { GitMergeMode, LogEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
 export type MergeOption = "merge-commit" | "fast-forward" | "squash";

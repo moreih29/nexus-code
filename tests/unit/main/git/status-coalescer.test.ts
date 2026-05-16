@@ -1,6 +1,6 @@
 import { describe, expect, jest, mock, test } from "bun:test";
 import { createStatusCoalescer } from "../../../../src/main/features/git/domain/status-coalescer";
-import type { TimerScheduler } from "../../../../src/shared/timer-scheduler";
+import type { TimerScheduler } from "../../../../src/shared/util/timer-scheduler";
 
 interface FakeScheduler extends TimerScheduler {
   tick(): void;

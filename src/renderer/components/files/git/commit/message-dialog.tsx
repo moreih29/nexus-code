@@ -6,7 +6,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
-import type { GitEditorPrompt } from "../../../../../shared/types/git";
+import type { GitEditorPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
 interface CommitMessageDialogProps {

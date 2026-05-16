@@ -9,7 +9,7 @@ import type {
   SshAuthPromptHandler,
 } from "../auth-pty";
 import type { SshMasterOptions } from "../master";
-import type { AgentArtifactPlatform } from "../../../../../shared/agent-manifest";
+import type { AgentArtifactPlatform } from "../../../../../shared/agent/manifest";
 
 export const REMOTE_AGENT_PROTOCOL_MAJOR = "1";
 export const REMOTE_AGENT_VERSION = "0.1.0";

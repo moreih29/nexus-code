@@ -1,5 +1,5 @@
-import type { AgentGitRunResult } from "../../../../shared/protocol/git";
-import type { GitActionHint, GitErrorKind } from "../../../../shared/types/git";
+import type { AgentGitRunResult } from "../../../../shared/git/protocol";
+import type { GitActionHint, GitErrorKind } from "../../../../shared/git/types";
 
 export type { GitErrorKind };
 

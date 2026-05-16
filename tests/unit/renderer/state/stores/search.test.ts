@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { FileMatch, SearchComplete } from "../../../../../src/shared/types/search";
+import type { FileMatch, SearchComplete } from "../../../../../src/shared/search/types";
 
 interface ControlledStream {
   promise: Promise<SearchComplete>;

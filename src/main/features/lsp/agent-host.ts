@@ -19,14 +19,14 @@ import {
   DocumentSymbolSchema,
   SymbolInformationSchema,
 } from "../../../shared/lsp";
-import { AgentManifestSchema, findLspBinary } from "../../../shared/agent-manifest";
+import { AgentManifestSchema, findLspBinary } from "../../../shared/agent/manifest";
 import { LOCAL_AGENT_DIST_DIR } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
   type LspServerSpec,
   resolveLspPreset,
   resolveLspPresetLanguageId,
-} from "../../../shared/lsp-config";
-import { LSP_DEFAULT_IDLE_MS } from "../../../shared/timing-constants";
+} from "../../../shared/lsp/config";
+import { LSP_DEFAULT_IDLE_MS } from "../../../shared/util/timing-constants";
 import type { AgentChannel } from "../../infra/agent/channel";
 import {
   LSP_BOOTSTRAP_PROGRESS_EVENT,

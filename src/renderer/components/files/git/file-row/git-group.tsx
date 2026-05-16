@@ -6,7 +6,7 @@
  *   recursively with WAI-ARIA tree role and roving tabindex.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import {
   buildPathTree,

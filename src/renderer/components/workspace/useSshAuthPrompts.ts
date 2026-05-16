@@ -5,7 +5,7 @@
  * order, and sends typed responses/cancellations back to main.
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { SshAuthPrompt } from "../../../shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { ipcCall, ipcListen } from "../../ipc/client";
 
 export interface SshAuthPromptSnapshot {

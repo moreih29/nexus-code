@@ -3,7 +3,7 @@
  */
 import { ChevronDown, ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { GitExpandedGroupKey } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
   type GitContextMenuPoint,

@@ -1,4 +1,4 @@
-import type { MonacoRange } from "../../../shared/monaco-range";
+import type { MonacoRange } from "../../../shared/editor/monaco-range";
 
 export interface WorkspaceSymbolEntry {
   name: string;

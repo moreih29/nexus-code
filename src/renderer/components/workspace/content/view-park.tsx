@@ -25,7 +25,7 @@
 // ---------------------------------------------------------------------------
 
 import { useCallback, useSyncExternalStore } from "react";
-import { createListenerBus } from "../../../../shared/listener-bus";
+import { createListenerBus } from "../../../../shared/util/listener-bus";
 
 let parkEl: HTMLElement | null = null;
 const bus = createListenerBus();

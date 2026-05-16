@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { MonacoRange } from "../../../src/shared/monaco-range";
+import type { MonacoRange } from "../../../src/shared/editor/monaco-range";
 
 describe("MonacoRange", () => {
   test("is assignable as an interface with all four fields", () => {

@@ -1,5 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import { type EditorPalette, nexusDarkPalette } from "../../../../shared/editor-palette";
+import { type EditorPalette, nexusDarkPalette } from "../../../../shared/editor/palette";
 
 export const NEXUS_DARK_THEME_NAME = "nexus-dark";
 

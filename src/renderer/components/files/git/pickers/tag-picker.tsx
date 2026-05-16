@@ -3,7 +3,7 @@
  */
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
-import type { Tag } from "../../../../../shared/types/git";
+import type { Tag } from "../../../../../shared/git/types";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../../ui/form-dialog";

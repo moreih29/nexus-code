@@ -8,7 +8,7 @@ import {
   type SearchOptions,
   useSearchStore,
 } from "../../../../src/renderer/state/stores/search";
-import type { FileMatch, SearchComplete } from "../../../../src/shared/types/search";
+import type { FileMatch, SearchComplete } from "../../../../src/shared/search/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
   createIpcPair,

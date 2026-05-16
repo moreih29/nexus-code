@@ -4,7 +4,7 @@
 
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
-import type { LogEntry } from "../../../../../shared/types/git";
+import type { LogEntry } from "../../../../../shared/git/types";
 import type { HistoryListBreakpoint } from "./list";
 
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {

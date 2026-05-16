@@ -6,7 +6,7 @@
  * data-driven item builders that tests can assert without a DOM menu library.
  */
 import { useCallback, useEffect, useRef } from "react";
-import type { GitExpandedGroupKey } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
 
 export interface GitContextMenuPoint {

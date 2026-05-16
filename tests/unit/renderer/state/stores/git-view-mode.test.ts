@@ -31,7 +31,7 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
 
 import type { GitSession } from "../../../../../src/renderer/state/stores/git";
 import { useGitStore } from "../../../../../src/renderer/state/stores/git";
-import { DEFAULT_GIT_PANEL_STATE } from "../../../../../src/shared/types/git";
+import { DEFAULT_GIT_PANEL_STATE } from "../../../../../src/shared/git/types";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
 
 const WS_A = "00000000-0000-0000-0000-0000000000aa";

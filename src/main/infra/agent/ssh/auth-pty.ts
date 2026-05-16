@@ -1,5 +1,5 @@
 import type { IPty } from "node-pty";
-import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/ssh/auth-prompt";
 import {
   buildSshControlMasterArgs,
   createSshControlMaster,

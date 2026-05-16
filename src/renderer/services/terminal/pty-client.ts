@@ -1,4 +1,4 @@
-import { TERMINAL_FLOW_CONTROL } from "../../../shared/terminal-flow-control";
+import { TERMINAL_FLOW_CONTROL } from "../../../shared/pty/flow-control";
 import { ipcCall, ipcListen } from "../../ipc/client";
 import type { PtyClient, PtyClientOptions, TerminalDimensions } from "./types";
 

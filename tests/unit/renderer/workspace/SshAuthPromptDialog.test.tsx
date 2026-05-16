@@ -17,7 +17,7 @@ import {
   useSshAuthPrompts,
 } from "../../../../src/renderer/components/workspace/useSshAuthPrompts";
 import type { ipcCall, ipcListen } from "../../../../src/renderer/ipc/client";
-import type { SshAuthPrompt } from "../../../../src/shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 

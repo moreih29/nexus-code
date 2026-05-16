@@ -13,7 +13,7 @@
 import {
   GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS,
   GIT_STATUS_HINT_DEBOUNCE_MS,
-} from "../../../shared/timing-constants";
+} from "../../../shared/util/timing-constants";
 import { ipcCall } from "../../ipc/client";
 import { useGitStore } from "./git";
 import { persistPanelState } from "./git-panel-state-io";

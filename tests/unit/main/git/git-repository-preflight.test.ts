@@ -17,7 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { newLocalGitRepository } from "./helpers/local-semantic-executor";
-import { GitStatusSchema } from "../../../../src/shared/types/git";
+import { GitStatusSchema } from "../../../../src/shared/git/types";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;

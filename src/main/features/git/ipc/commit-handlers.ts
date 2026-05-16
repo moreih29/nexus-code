@@ -2,7 +2,7 @@
  * Commit handlers — create commits and refresh Source Control status.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { CommitResult } from "../../../../shared/types/git";
+import type { CommitResult } from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

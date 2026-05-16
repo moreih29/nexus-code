@@ -8,7 +8,7 @@ import {
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
   type RepoInfo,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import { LocalFsProvider } from "../../fs/bridge/local-provider";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentGitExecutor } from "../bridge/agent-executor";

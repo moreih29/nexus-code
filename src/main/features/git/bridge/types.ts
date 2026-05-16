@@ -29,7 +29,7 @@ import type {
   RepoInfo,
   StashEntry,
   Tag,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 
 export interface GitProcessOptions {
   readonly bin: string;

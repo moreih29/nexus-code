@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CommandIdSchema } from "../commands";
+import { CommandIdSchema } from "../keybindings/commands";
 import {
   ApplyWorkspaceEditParamsSchema,
   ApplyWorkspaceEditResultSchema,
@@ -28,7 +28,7 @@ import {
   FsChangedEventSchema,
   FsStatSchema,
   WriteFileResultSchema,
-} from "../types/fs";
+} from "../fs/types";
 import {
   AskpassPromptSchema,
   AskpassRespondArgsSchema,
@@ -73,19 +73,19 @@ import {
   RepoInfoSchema,
   StashEntrySchema,
   TagSchema,
-} from "../types/git";
+} from "../git/types";
 import {
   PanelGetViewOptionsArgsSchema,
   PanelSetViewOptionsArgsSchema,
   PanelViewOptionsSchema,
 } from "../types/panel";
-import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../types/search";
+import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import {
   SshAuthCancelArgsSchema,
   SshAuthPromptSchema,
   SshAuthRespondArgsSchema,
-} from "../types/ssh-auth-prompt";
-import { SshErrorCodeSchema } from "../types/ssh-errors";
+} from "../ssh/auth-prompt";
+import { SshErrorCodeSchema } from "../ssh/errors";
 import { TabMetaSchema } from "../types/tab";
 import {
   WorkspaceConnectionChangedEventSchema,

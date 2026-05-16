@@ -5,7 +5,7 @@ import {
   watchHandler,
 } from "../../../../../../src/main/features/fs/ipc/watch-handlers";
 import type { StreamContext } from "../../../../../../src/main/infra/ipc-router";
-import type { TextSearchQuery } from "../../../../../../src/shared/types/search";
+import type { TextSearchQuery } from "../../../../../../src/shared/search/types";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174010";

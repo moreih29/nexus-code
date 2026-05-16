@@ -3,7 +3,7 @@
  * in-progress merge, rebase, and cherry-pick workflows.
  */
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
-import type { GitOperationState } from "../../../../../shared/types/git";
+import type { GitOperationState } from "../../../../../shared/git/types";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { cn } from "../../../../utils/cn";
 import { Button } from "../../../ui/button";

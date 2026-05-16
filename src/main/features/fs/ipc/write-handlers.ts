@@ -3,7 +3,7 @@
  * filesystem provider.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { WriteFileResult } from "../../../../shared/types/fs";
+import type { WriteFileResult } from "../../../../shared/fs/types";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";
 

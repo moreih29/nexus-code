@@ -9,7 +9,7 @@
  * operation spinner away from a user-initiated git command.
  */
 
-import type { GitAutofetchStateChanged } from "../../../shared/types/git";
+import type { GitAutofetchStateChanged } from "../../../shared/git/types";
 import { ipcListen } from "../../ipc/client";
 import { useGitStore } from "./git";
 import { scheduleStatusHintRefresh } from "./git-draft-persistence";

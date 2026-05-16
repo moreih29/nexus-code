@@ -7,7 +7,7 @@
  */
 import { BINARY_DETECTION_BYTES } from "../../../../shared/fs/defaults";
 import { isBinaryProbe } from "../../../../shared/fs/binary-detect";
-import type { GitOpenFileAtHeadResult } from "../../../../shared/types/git";
+import type { GitOpenFileAtHeadResult } from "../../../../shared/git/types";
 import type { GitExecutor } from "../bridge/types";
 import { GitError } from "./error";
 

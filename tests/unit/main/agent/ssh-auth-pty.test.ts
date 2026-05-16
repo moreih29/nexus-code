@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import { authenticateSshControlMaster } from "../../../../src/main/infra/agent/ssh/auth-pty";
-import type { SshAuthPrompt } from "../../../../src/shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
 class FakePty {
   readonly writes: string[] = [];

@@ -16,12 +16,12 @@ import {
   type AgentGitRunResult,
   AgentGitRunResultSchema,
   GIT_RUN_METHOD,
-} from "../../../src/shared/protocol/git";
+} from "../../../src/shared/git/protocol";
 import {
   ClassifiedErrorSchema,
   type GitActionHint,
   type GitErrorKind,
-} from "../../../src/shared/types/git";
+} from "../../../src/shared/git/types";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const FIXTURE_ROOT = path.join(REPO_ROOT, "tests/fixtures/git/stderr");

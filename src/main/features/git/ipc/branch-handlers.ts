@@ -2,7 +2,7 @@
  * Branch handlers — list branches and mutate the current checkout.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { BranchList } from "../../../../shared/types/git";
+import type { BranchList } from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

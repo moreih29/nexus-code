@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { LogEntryRef } from "../../../../../../src/shared/types/git";
+import type { LogEntryRef } from "../../../../../../src/shared/git/types";
 
 mock.module("react-dom", () => ({
   createPortal: (children: ReactNode) => children,

@@ -6,7 +6,7 @@ import { GitBranch, Tag } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { LogEntryRef } from "../../../../../shared/types/git";
+import type { LogEntryRef } from "../../../../../shared/git/types";
 import { cn } from "../../../../utils/cn";
 import { useDismissOnOutsideClickMulti } from "../../../ui/use-dismiss-on-outside-click";
 

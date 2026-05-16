@@ -6,7 +6,7 @@
  * "Create new branch" row are both omitted before acceptance dispatches the
  * selected ref to the merge-options dialog.
  */
-import type { BranchList } from "../../../../../shared/types/git";
+import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type MergeTargetPickKind = "local" | "remote";

@@ -6,7 +6,7 @@ import {
   buildHistoryCommitMenuItems,
   type HistoryCommitMenuActions,
 } from "../../../../../../src/renderer/components/files/git/history/commit-menu";
-import type { LogEntry } from "../../../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../../../src/shared/git/types";
 
 const entry: LogEntry = {
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

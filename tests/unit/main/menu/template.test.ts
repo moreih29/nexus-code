@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { buildMenuTemplate, type MenuItemSpec } from "../../../../src/main/features/menu/template";
-import { COMMANDS } from "../../../../src/shared/commands";
+import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 function flatten(specs: MenuItemSpec[]): MenuItemSpec[] {
   const out: MenuItemSpec[] = [];

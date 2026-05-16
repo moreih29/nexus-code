@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createKeyedListenerBus, createListenerBus } from "../../../src/shared/listener-bus";
+import { createKeyedListenerBus, createListenerBus } from "../../../src/shared/util/listener-bus";
 
 describe("createListenerBus", () => {
   test("notifies subscribed listener", () => {

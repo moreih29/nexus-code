@@ -30,8 +30,8 @@ import type {
   RepoInfo,
   StashEntry,
   Tag,
-} from "../../../shared/types/git";
-import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
+} from "../../../shared/git/types";
+import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/git/types";
 import type { ViewMode } from "../../../shared/types/panel";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcCall, ipcListen, ipcStream } from "../../ipc/client";

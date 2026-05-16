@@ -3,7 +3,7 @@ import {
   BUILTIN_LSP_PRESETS,
   isSupportedLspLanguage,
   resolveLspPreset,
-} from "../../../src/shared/lsp-config";
+} from "../../../src/shared/lsp/config";
 
 describe("built-in LSP presets", () => {
   test("includes Pyright for Python", () => {

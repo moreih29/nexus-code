@@ -4,7 +4,7 @@ import type {
   FileReadResult,
   FsStat,
   WriteFileResult,
-} from "../../../../shared/types/fs";
+} from "../../../../shared/fs/types";
 import type { ChannelEventCallback } from "../../../infra/agent/channel";
 
 /**

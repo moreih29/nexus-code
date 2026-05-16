@@ -4,7 +4,7 @@
  * live in GitBranchPopover so the same glyph model can be unit-tested.
  */
 import { GitBranch } from "lucide-react";
-import type { BranchInfo } from "../../../../../shared/types/git";
+import type { BranchInfo } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
 export interface BranchChipGlyphInput {

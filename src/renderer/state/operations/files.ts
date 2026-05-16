@@ -6,8 +6,8 @@
  * and dispatch the resulting state changes through the store's reducers.
  */
 
-import { createKeyedDebouncer } from "../../../shared/keyed-debouncer";
-import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/timing-constants";
+import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
+import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCall } from "../../ipc/client";
 import { relPath } from "../../utils/path";
 import { getAncestors } from "../stores/files/helpers";

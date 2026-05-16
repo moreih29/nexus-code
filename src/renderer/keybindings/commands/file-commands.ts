@@ -5,7 +5,7 @@
  * that mounts the global listener can compose them with the others.
  */
 
-import { COMMANDS } from "../../../shared/commands";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { ipcCall } from "../../ipc/client";
 import { openOrRevealEditor, runSaveAndReport } from "../../services/editor";

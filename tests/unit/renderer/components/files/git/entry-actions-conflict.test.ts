@@ -37,7 +37,7 @@ import {
   createEntryActions,
   type EntryActionContext,
 } from "../../../../../../src/renderer/components/files/git/panel/entry-actions";
-import type { GitConflictType, GitStatusEntry } from "../../../../../../src/shared/types/git";
+import type { GitConflictType, GitStatusEntry } from "../../../../../../src/shared/git/types";
 
 // ---------------------------------------------------------------------------
 // Helpers

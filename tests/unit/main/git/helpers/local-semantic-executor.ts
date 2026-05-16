@@ -20,7 +20,7 @@ import {
   type LogEntryRef,
   type PullResult,
   type PushResult,
-} from "../../../../../src/shared/types/git";
+} from "../../../../../src/shared/git/types";
 import type {
   GitBlobOptions,
   GitCommitDetailOptions,

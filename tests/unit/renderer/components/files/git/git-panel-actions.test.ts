@@ -8,7 +8,7 @@ import {
   buildTagHistoryRevealMessage,
   tagHistoryRef,
 } from "../../../../../../src/renderer/components/files/git/panel/git-panel-actions";
-import type { Tag } from "../../../../../../src/shared/types/git";
+import type { Tag } from "../../../../../../src/shared/git/types";
 
 describe("buildPublishBranchPrompt", () => {
   it("renders multi-remote publish as confirm-only copy for the first configured remote", () => {

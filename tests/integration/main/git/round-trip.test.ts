@@ -15,8 +15,8 @@ import {
   GIT_RUN_METHOD,
   GIT_STATUS_METHOD,
   GIT_STREAM_METHOD,
-} from "../../../../src/shared/protocol/git";
-import { DEFAULT_GIT_PANEL_STATE, type GitStatus } from "../../../../src/shared/types/git";
+} from "../../../../src/shared/git/protocol";
+import { DEFAULT_GIT_PANEL_STATE, type GitStatus } from "../../../../src/shared/git/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
   createIpcPair,

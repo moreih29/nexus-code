@@ -8,7 +8,7 @@
  * one inspectable, test-only file. Every function here is side-effect free.
  */
 
-import type { BranchInfo, GitAutofetchIntervalMin } from "../../../../../shared/types/git";
+import type { BranchInfo, GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 
 export type GitRemotesMenuSpec =
   | { kind: "remote"; remote: string; label: string }

@@ -18,7 +18,7 @@ import type {
   GitStatus,
   GitStatusEntry,
   GitSyncError,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import { GitError } from "./error";
 import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./repository";
 

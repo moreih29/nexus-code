@@ -5,7 +5,7 @@
  * {@link getActiveEditorPathActions}.
  */
 
-import { COMMANDS } from "../../../shared/commands";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { getActiveEditorPathActions } from "./context";
 

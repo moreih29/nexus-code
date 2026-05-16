@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AgentManifestSchema, findAgentBinary } from "../../../shared/agent-manifest";
+import { AgentManifestSchema, findAgentBinary } from "../../../shared/agent/manifest";
 import { LOCAL_AGENT_DIST_DIR } from "./ssh/ssh-bootstrap/index";
 
 export interface LocalAgentCommand {

@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { GitHistoryScope, LogEntry } from "../../../../../../src/shared/types/git";
+import type { GitHistoryScope, LogEntry } from "../../../../../../src/shared/git/types";
 
 type LogStreamArgs = {
   workspaceId?: string;

@@ -2,7 +2,7 @@
  * GitHeader renders the Source Control title and top-level action buttons.
  */
 import { RefreshCw } from "lucide-react";
-import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/types/git";
+import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { Button } from "../../../ui/button";
 import { ViewModeToggle } from "../../view-mode-toggle";

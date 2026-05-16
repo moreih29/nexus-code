@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createKeyedDebouncer } from "../../../src/shared/keyed-debouncer";
-import type { TimerScheduler } from "../../../src/shared/timer-scheduler";
+import { createKeyedDebouncer } from "../../../src/shared/util/keyed-debouncer";
+import type { TimerScheduler } from "../../../src/shared/util/timer-scheduler";
 
 function makeFakeScheduler(): TimerScheduler & {
   tick(): void;

@@ -12,7 +12,7 @@
  */
 
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from "electron";
-import type { CommandId } from "../../../shared/commands";
+import type { CommandId } from "../../../shared/keybindings/commands";
 import { isMac } from "../../infra/platform";
 import { buildMenuTemplate, type MenuItemSpec } from "./template";
 

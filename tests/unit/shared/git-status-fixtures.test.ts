@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { GitStatusSchema } from "../../../src/shared/types/git";
+import { GitStatusSchema } from "../../../src/shared/git/types";
 
 const fixtureRoot = join(import.meta.dir, "../../fixtures/git/status");
 const requiredFixtureFiles = ["stdout.bin", "expected.json", "meta.json"] as const;

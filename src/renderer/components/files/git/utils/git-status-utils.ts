@@ -1,4 +1,4 @@
-import type { GitExpandedGroupKey, GitStatus, GitStatusEntry } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey, GitStatus, GitStatusEntry } from "../../../../../shared/git/types";
 
 export interface GitGroupDescriptor {
   key: GitExpandedGroupKey;

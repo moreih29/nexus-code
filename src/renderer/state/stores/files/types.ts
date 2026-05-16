@@ -1,4 +1,4 @@
-import type { DirEntry } from "../../../../shared/types/fs";
+import type { DirEntry } from "../../../../shared/fs/types";
 
 export interface TreeNode {
   absPath: string;

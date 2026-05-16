@@ -1,4 +1,4 @@
-import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
+import type { SshErrorCode } from "../../../../shared/ssh/errors";
 import { classifyStderrLine } from "./stderr-patterns";
 
 /**

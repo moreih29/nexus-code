@@ -2,7 +2,7 @@
  * Pure Source Control panel action helpers that keep prompt copy and history
  * retargeting testable without rendering the full GitPanel.
  */
-import type { Tag } from "../../../../../shared/types/git";
+import type { Tag } from "../../../../../shared/git/types";
 import type { PromptRequest } from "../../../ui/prompt-dialog";
 
 /**

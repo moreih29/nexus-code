@@ -1,6 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/timing-constants";
+import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./infra/agent/ssh/auth-prompt";
 import { createLocalChannel } from "./infra/agent/channel/local-channel";
 import {

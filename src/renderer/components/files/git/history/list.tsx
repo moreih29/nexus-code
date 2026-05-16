@@ -6,7 +6,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LogEntry } from "../../../../../shared/types/git";
+import type { LogEntry } from "../../../../../shared/git/types";
 import { GraphCanvas } from "./graph/canvas";
 import type { LaneState } from "./graph/lane-assign";
 import { HistoryRow, type HistoryRowMenuRequest } from "./row";

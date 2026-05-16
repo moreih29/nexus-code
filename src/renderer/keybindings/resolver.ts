@@ -15,7 +15,7 @@
  *     decides what to do with the resolution.
  */
 
-import type { CommandId } from "../../shared/commands";
+import type { CommandId } from "../../shared/keybindings/commands";
 import {
   matchesEvent,
   type ParsedKeystroke,

@@ -10,7 +10,7 @@ import {
 } from "../../../../../../src/renderer/components/files/git/file-row/git-file-context-menu";
 import { GitFileRow } from "../../../../../../src/renderer/components/files/git/file-row/git-file-row";
 import { GitGroup } from "../../../../../../src/renderer/components/files/git/file-row/git-group";
-import type { GitStatusEntry } from "../../../../../../src/shared/types/git";
+import type { GitStatusEntry } from "../../../../../../src/shared/git/types";
 
 const entry: GitStatusEntry = { relPath: "src/app.ts", xy: ".M", conflictType: null };
 

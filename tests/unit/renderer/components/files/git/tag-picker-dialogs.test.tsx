@@ -11,7 +11,7 @@ import {
   TagDeleteConfirmContent,
 } from "../../../../../../src/renderer/components/files/git/pickers/tag-picker";
 import { FormDialogContent } from "../../../../../../src/renderer/components/ui/form-dialog";
-import type { RemoteTag, Tag } from "../../../../../../src/shared/types/git";
+import type { RemoteTag, Tag } from "../../../../../../src/shared/git/types";
 
 const workspaceId = "ws-tags";
 

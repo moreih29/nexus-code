@@ -1,4 +1,4 @@
-import { createListenerBus } from "../../../shared/listener-bus";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 
 let open = false;
 const bus = createListenerBus();

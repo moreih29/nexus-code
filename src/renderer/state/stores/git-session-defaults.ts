@@ -8,8 +8,8 @@
  * `LogEntry[]` shape that callers use to seed pickers — the surrounding
  * store does not own that shape and shouldn't grow a dedicated method.
  */
-import type { GitCommitOptions, LogEntry } from "../../../shared/types/git";
-import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/types/git";
+import type { GitCommitOptions, LogEntry } from "../../../shared/git/types";
+import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/git/types";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../shared/types/panel";
 import { ipcStream } from "../../ipc/client";
 import type { GitOperationKind, GitSession } from "./git";

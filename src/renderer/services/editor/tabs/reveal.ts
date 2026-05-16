@@ -1,5 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import type { MonacoRange } from "../../../../shared/monaco-range";
+import type { MonacoRange } from "../../../../shared/editor/monaco-range";
 
 /**
  * Move the editor's selection/cursor to `range` and bring it into view.

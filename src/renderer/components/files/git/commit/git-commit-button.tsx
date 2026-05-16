@@ -3,7 +3,7 @@
  */
 import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { GitCommitOptions } from "../../../../../shared/types/git";
+import type { GitCommitOptions } from "../../../../../shared/git/types";
 import type {
   GitActionButtonState,
   GitActionMenuMode,

@@ -3,8 +3,8 @@
  * debounce, while triggers received during an active run collapse into one
  * follow-up run after the active run settles.
  */
-import { createKeyedDebouncer, type KeyedDebouncer } from "../../../../shared/keyed-debouncer";
-import type { TimerScheduler } from "../../../../shared/timer-scheduler";
+import { createKeyedDebouncer, type KeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
+import type { TimerScheduler } from "../../../../shared/util/timer-scheduler";
 
 export type StatusRunFn = () => Promise<void> | void;
 

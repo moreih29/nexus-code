@@ -18,7 +18,7 @@ import {
   GIT_ASKPASS_REQUEST_EVENT,
   GIT_ASKPASS_RESPOND_METHOD,
   GIT_RUN_METHOD,
-} from "../../../src/shared/protocol/git";
+} from "../../../src/shared/git/protocol";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const goAvailable = spawnSync("go", ["version"]).status === 0;

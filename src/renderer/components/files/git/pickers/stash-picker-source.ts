@@ -6,7 +6,7 @@
  *   - "apply" mode (default): Enter → apply selected stash.
  *   - "drop" mode:            Enter → request drop confirmation for selected stash.
  */
-import type { StashEntry } from "../../../../../shared/types/git";
+import type { StashEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type StashPickerMode = "apply" | "drop";

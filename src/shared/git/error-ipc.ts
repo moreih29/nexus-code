@@ -21,7 +21,7 @@
  * other's process boundary.
  */
 
-import type { GitActionHint } from "../types/git";
+import type { GitActionHint } from "./types";
 
 /** Sentinel placed on the cause object so the renderer can identify the envelope. */
 export const IPC_GIT_ERROR_MARK = "__ipcGitError";

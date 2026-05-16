@@ -4,7 +4,7 @@ import {
   SshAuthPromptHub,
 } from "../../../../src/main/infra/agent/ssh/auth-prompt";
 import { ipcContract } from "../../../../src/shared/ipc/contract";
-import type { SshAuthPrompt } from "../../../../src/shared/types/ssh-auth-prompt";
+import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
 interface BroadcastEvent {
   readonly channelName: string;

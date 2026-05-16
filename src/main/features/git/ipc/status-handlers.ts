@@ -6,7 +6,7 @@ import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";

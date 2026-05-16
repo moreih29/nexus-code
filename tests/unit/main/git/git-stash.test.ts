@@ -11,7 +11,7 @@ import type {
   DiffChunk,
   DiffComplete,
   StashEntry,
-} from "../../../../src/shared/types/git";
+} from "../../../../src/shared/git/types";
 import { GitError } from "../../../../src/main/features/git/domain/error";
 import type {
   GitExecutor,

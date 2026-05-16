@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ClassifiedErrorSchema } from "../../../src/shared/types/git";
+import { ClassifiedErrorSchema } from "../../../src/shared/git/types";
 
 const fixtureRoot = join(import.meta.dir, "../../fixtures/git/stderr");
 const requiredFixtureFiles = ["stderr.bin", "expected.json", "meta.json"] as const;

@@ -3,7 +3,7 @@
  * the History panel context menu.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { CommitDetail, CommitSearchResult } from "../../../../shared/types/git";
+import type { CommitDetail, CommitSearchResult } from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

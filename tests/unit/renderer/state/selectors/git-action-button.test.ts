@@ -6,7 +6,7 @@ import {
   type GitActionButtonInput,
   selectGitActionButton,
 } from "../../../../../src/renderer/state/selectors/git-action-button";
-import type { BranchInfo, RepoCapabilities } from "../../../../../src/shared/types/git";
+import type { BranchInfo, RepoCapabilities } from "../../../../../src/shared/git/types";
 
 const capabilities: RepoCapabilities = {
   hasHEAD: true,

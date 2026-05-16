@@ -6,7 +6,7 @@
  * when the persistence write loses.
  */
 
-import type { GitPanelStateUpdate } from "../../../shared/types/git";
+import type { GitPanelStateUpdate } from "../../../shared/git/types";
 import type { ViewMode } from "../../../shared/types/panel";
 import { ipcCall } from "../../ipc/client";
 import { canUseIpcBridge } from "./git-store-helpers";

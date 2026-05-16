@@ -14,7 +14,7 @@ import {
   __resetChordStateForTests,
   handleGlobalKeyDown,
 } from "../../../../src/renderer/keybindings/dispatcher";
-import { COMMANDS } from "../../../../src/shared/commands";
+import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 import { findPrimaryBinding } from "../../../../src/shared/keybindings/index";
 
 interface MockEvent {

@@ -8,7 +8,7 @@
  */
 
 import type React from "react";
-import type { GitClonePhase } from "../../../../../shared/types/git";
+import type { GitClonePhase } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { clonePhaseLabel } from "./form-utils";
 

@@ -1,7 +1,7 @@
 /**
  * GitCommitInput owns the commit-message editing surface above status groups.
  */
-import type { GitCommitOptions } from "../../../../../shared/types/git";
+import type { GitCommitOptions } from "../../../../../shared/git/types";
 import type { GitActionButtonState } from "../../../../state/selectors/git-action-button";
 import { GitCommitButton, type GitCommitMenuEnablement } from "./git-commit-button";
 

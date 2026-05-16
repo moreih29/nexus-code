@@ -7,7 +7,7 @@ import type {
   GitSyncResult,
   PullResult,
   PushResult,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";

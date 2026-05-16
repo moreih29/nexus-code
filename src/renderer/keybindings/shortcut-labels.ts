@@ -12,7 +12,7 @@
  * labels.
  */
 
-import { COMMANDS, type CommandId } from "../../shared/commands";
+import { COMMANDS, type CommandId } from "../../shared/keybindings/commands";
 import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
 import { findChordBinding, findPrimaryBinding } from "../../shared/keybindings/index";
 

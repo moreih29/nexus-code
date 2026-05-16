@@ -2,7 +2,7 @@
  * Read-only fs handlers — readdir / stat / readFile / readExternal.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/types/fs";
+import type { DirEntry, FileReadResult, FsStat } from "../../../../shared/fs/types";
 import type { WorkspaceManager } from "../../workspace/manager";
 import { validateArgs } from "../../../infra/ipc-router";
 

@@ -10,7 +10,7 @@ import type { GitLogArgs } from "../../../../src/main/features/git/domain/reposi
 import type { GitRepository } from "../../../../src/main/features/git/domain/repository";
 import { newLocalGitRepository } from "./helpers/local-semantic-executor";
 import { ipcContract } from "../../../../src/shared/ipc/contract";
-import type { LogEntry } from "../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../src/shared/git/types";
 
 const gitOnPath = findGitOnPath();
 const realGitTest = gitOnPath ? test : test.skip;

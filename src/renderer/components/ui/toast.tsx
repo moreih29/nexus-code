@@ -19,12 +19,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
-import { createListenerBus } from "../../../shared/listener-bus";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 import {
   UI_TOAST_ERROR_MS,
   UI_TOAST_INFO_MS,
   UI_TOAST_SWEEP_INTERVAL_MS,
-} from "../../../shared/timing-constants";
+} from "../../../shared/util/timing-constants";
 
 export type ToastKind = "info" | "error";
 
@@ -40,12 +40,12 @@ export interface ToastInput {
  * still read the toast after switching focus to investigate.
  *
  * Re-exported under toast-local names so existing callers stay unchanged.
- * See `shared/timing-constants.ts` for the canonical definitions.
+ * See `shared/util/timing-constants.ts` for the canonical definitions.
  */
 export const TOAST_INFO_MS = UI_TOAST_INFO_MS;
 export const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
 
-/** Sweep interval for the dismissal timer (see canonical doc in shared/timing-constants). */
+/** Sweep interval for the dismissal timer (see canonical doc in shared/util/timing-constants). */
 const TOAST_SWEEP_INTERVAL_MS = UI_TOAST_SWEEP_INTERVAL_MS;
 
 interface ActiveToast {

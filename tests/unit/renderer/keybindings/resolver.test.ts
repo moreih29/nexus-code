@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { resolveEvent } from "../../../../src/renderer/keybindings/resolver";
-import { COMMANDS } from "../../../../src/shared/commands";
+import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 interface MockKE {
   metaKey: boolean;

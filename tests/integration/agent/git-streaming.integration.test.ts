@@ -30,8 +30,8 @@ import {
   GIT_BLOB_METHOD,
   GIT_LOG_BATCH_EVENT,
   GIT_LOG_METHOD,
-} from "../../../src/shared/protocol/git";
-import type { DiffChunk, DiffComplete } from "../../../src/shared/types/git";
+} from "../../../src/shared/git/protocol";
+import type { DiffChunk, DiffComplete } from "../../../src/shared/git/types";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const goAvailable = spawnSync("go", ["version"]).status === 0;

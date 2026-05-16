@@ -6,7 +6,7 @@
  */
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
-import type { AskpassPrompt } from "../../../../../shared/types/git";
+import type { AskpassPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 
 interface CredentialPromptDialogProps {

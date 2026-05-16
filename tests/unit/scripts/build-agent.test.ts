@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { AgentManifestSchema } from "../../../src/shared/agent-manifest";
+import { AgentManifestSchema } from "../../../src/shared/agent/manifest";
 import { AGENT_BUILD_TARGETS, writeAgentManifest } from "../../../scripts/build-agent";
 
 let tmpDir: string;

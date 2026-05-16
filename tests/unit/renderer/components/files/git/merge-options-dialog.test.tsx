@@ -9,7 +9,7 @@ import {
   mergeModeFromOption,
   mergeOptionsSubmitLabel,
 } from "../../../../../../src/renderer/components/files/git/pickers/merge-options-dialog";
-import type { LogEntry } from "../../../../../../src/shared/types/git";
+import type { LogEntry } from "../../../../../../src/shared/git/types";
 
 describe("MergeOptionsDialogContent", () => {
   it("renders three merge radio choices with merge as the default CTA", () => {

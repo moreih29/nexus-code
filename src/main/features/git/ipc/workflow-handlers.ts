@@ -8,7 +8,7 @@ import type {
   GitMarkResolvedResult,
   GitMergeResult,
   GitRebaseResult,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
 import type { CallContext } from "../../../infra/ipc-router";

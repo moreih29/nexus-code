@@ -1,4 +1,4 @@
-import { defaultTimerScheduler, type TimerScheduler } from "../../../../shared/timer-scheduler";
+import { defaultTimerScheduler, type TimerScheduler } from "../../../../shared/util/timer-scheduler";
 import type {
   PaletteAcceptContext,
   PaletteAcceptModifiers,

@@ -10,7 +10,7 @@ import {
   createRebaseTargetPickerSource,
   type RebaseTargetPickItem,
 } from "../../../../../../src/renderer/components/files/git/pickers/rebase-target-picker-source";
-import type { BranchList } from "../../../../../../src/shared/types/git";
+import type { BranchList } from "../../../../../../src/shared/git/types";
 
 const branches: BranchList = {
   current: {

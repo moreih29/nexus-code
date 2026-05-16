@@ -14,7 +14,7 @@ import {
   GitBranchPopoverContent,
   getGitBranchPrimaryAction,
 } from "../../../../../../src/renderer/components/files/git/branch/git-branch-popover";
-import type { BranchInfo, RepoCapabilities } from "../../../../../../src/shared/types/git";
+import type { BranchInfo, RepoCapabilities } from "../../../../../../src/shared/git/types";
 
 const capabilities: RepoCapabilities = {
   hasHEAD: true,

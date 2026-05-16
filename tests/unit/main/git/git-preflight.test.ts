@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import type { GitError } from "../../../../src/main/features/git/domain/error";
 import { assertHasHead, resolveCheckoutTarget } from "../../../../src/main/features/git/domain/repository-helpers";
-import type { BranchInfo, BranchList } from "../../../../src/shared/types/git";
+import type { BranchInfo, BranchList } from "../../../../src/shared/git/types";
 
 const headBranch: BranchInfo = {
   current: "main",

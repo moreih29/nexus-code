@@ -6,7 +6,7 @@
  * "Pick from another branch…" row that lets the panel retarget the commit
  * list without enabling multi-pick or checkout side effects.
  */
-import type { LogEntry } from "../../../../../shared/types/git";
+import type { LogEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type CommitPickAction = { kind: "commit"; sha: string } | { kind: "pick-from-branch" };

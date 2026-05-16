@@ -5,7 +5,7 @@
  * prompts, and sends renderer responses back through the typed IPC contract.
  */
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/types/git";
+import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/git/types";
 import { ipcCall, ipcListen } from "../../../../ipc/client";
 
 export interface GitHelperPromptSnapshot {

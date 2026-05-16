@@ -20,7 +20,7 @@ import {
   findNodeRuntime,
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
-} from "../../../../../shared/agent-manifest";
+} from "../../../../../shared/agent/manifest";
 import {
   authenticateSshControlMaster,
   type AuthenticateSshControlMasterDependencies,

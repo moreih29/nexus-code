@@ -3,7 +3,7 @@ import {
   ExpectedFileStateSchema,
   FileReadResultSchema,
   WriteFileResultSchema,
-} from "../types/fs";
+} from "./types";
 
 /**
  * NDJSON method signatures for fs.* operations on the agent.

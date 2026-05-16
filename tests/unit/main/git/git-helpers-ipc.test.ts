@@ -13,7 +13,7 @@ import {
   prepareGitHelpersEndpoint,
 } from "../../../../src/main/features/git/domain/helpers/ipc";
 import { buildHelperEnv } from "../../../../src/main/features/git/domain/helpers/launcher";
-import type { GitEditorPrompt } from "../../../../src/shared/types/git";
+import type { GitEditorPrompt } from "../../../../src/shared/git/types";
 
 const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/editor-helper.cjs");
 

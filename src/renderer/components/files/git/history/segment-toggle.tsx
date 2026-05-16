@@ -1,7 +1,7 @@
 /**
  * Segment toggle for the Source Control panel's Changes and History siblings.
  */
-import type { GitPanelSegment } from "../../../../../shared/types/git";
+import type { GitPanelSegment } from "../../../../../shared/git/types";
 
 interface HistorySegmentToggleProps {
   segment: GitPanelSegment;

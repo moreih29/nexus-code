@@ -2,7 +2,7 @@
  * Panel-state handlers — thin wrappers around per-workspace persistence.
  */
 import { ipcContract } from "../../../../shared/ipc/contract";
-import type { GitPanelState } from "../../../../shared/types/git";
+import type { GitPanelState } from "../../../../shared/git/types";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import { validateArgs } from "../../../infra/ipc-router";
 

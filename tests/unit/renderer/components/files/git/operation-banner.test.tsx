@@ -7,7 +7,7 @@ import {
   buildOperationBannerView,
   OperationBanner,
 } from "../../../../../../src/renderer/components/files/git/panel/operation-banner";
-import type { GitOperationState } from "../../../../../../src/shared/types/git";
+import type { GitOperationState } from "../../../../../../src/shared/git/types";
 
 describe("buildOperationBannerView", () => {
   it("covers merge conflict and resolved states", () => {

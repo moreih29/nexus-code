@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
-import type { FileContent } from "../../../shared/types/fs";
+import type { FileContent } from "../../../shared/fs/types";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCall, ipcListen } from "../../ipc/client";
 import { EMPTY_TREE } from "./diff-refs";

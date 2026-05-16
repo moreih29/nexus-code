@@ -6,7 +6,7 @@
  * workflow picker and guarantees the current branch is not offered as the
  * branch to rebase onto.
  */
-import type { BranchList } from "../../../../../shared/types/git";
+import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type RebaseTargetPickKind = "local" | "remote";

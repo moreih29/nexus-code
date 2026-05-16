@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GitErrorKindSchema } from "../src/shared/types/git";
+import { GitErrorKindSchema } from "../src/shared/git/types";
 
 export interface GitErrorKindParityOptions {
   readonly tsKinds?: readonly string[];

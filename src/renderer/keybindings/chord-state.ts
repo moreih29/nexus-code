@@ -18,7 +18,7 @@
  *     behaviour and would otherwise tear down the chord.
  */
 
-import { CHORD_DEFAULT_TIMEOUT_MS } from "../../shared/timing-constants";
+import { CHORD_DEFAULT_TIMEOUT_MS } from "../../shared/util/timing-constants";
 
 interface PendingChord {
   /** The leader's accelerator string (used to filter chord secondaries). */

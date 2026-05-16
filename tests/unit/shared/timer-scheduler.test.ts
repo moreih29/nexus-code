@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultTimerScheduler } from "../../../src/shared/timer-scheduler";
+import { defaultTimerScheduler } from "../../../src/shared/util/timer-scheduler";
 
 describe("defaultTimerScheduler", () => {
   test("delegates setTimeout to global setTimeout", () => {

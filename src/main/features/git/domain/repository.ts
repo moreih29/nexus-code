@@ -32,7 +32,7 @@ import type {
   PushResult,
   RemoteTag,
   Tag,
-} from "../../../../shared/types/git";
+} from "../../../../shared/git/types";
 import type {
   GitBranchCreateOptions,
   GitBranchDeleteOptions,

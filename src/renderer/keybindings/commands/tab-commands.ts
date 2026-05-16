@@ -2,7 +2,7 @@
  * Tab-domain commands: close (one / others / saved / all), pin toggle.
  */
 
-import { COMMANDS } from "../../../shared/commands";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { isDirty } from "../../services/editor/model/dirty-tracker";
 import { filePathToModelUri } from "../../services/editor/model/cache";

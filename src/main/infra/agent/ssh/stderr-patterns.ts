@@ -1,4 +1,4 @@
-import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
+import type { SshErrorCode } from "../../../../shared/ssh/errors";
 
 const AUTH_FAILED_PATTERNS = [
   /permission denied/i,

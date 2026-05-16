@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
-import type { CommitDetail, CommitFileChange } from "../../../shared/types/git";
+import type { CommitDetail, CommitFileChange } from "../../../shared/git/types";
 import { ipcCall } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";

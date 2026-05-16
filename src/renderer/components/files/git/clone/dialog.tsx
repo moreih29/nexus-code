@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   GitCloneStreamProgressEvent,
   GitCloneStreamResultEvent,
-} from "../../../../../shared/types/git";
+} from "../../../../../shared/git/types";
 import type { WorkspaceMeta } from "../../../../../shared/types/workspace";
 import { type IpcStreamHandle, ipcCall, ipcStream } from "../../../../ipc/client";
 import { useActiveStore } from "../../../../state/stores/active";

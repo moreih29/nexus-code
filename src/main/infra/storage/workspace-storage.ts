@@ -5,7 +5,7 @@ import {
   type GitPanelState,
   GitPanelStateSchema,
   type GitPanelStateUpdate,
-} from "../../../shared/types/git";
+} from "../../../shared/git/types";
 import {
   DEFAULT_VIEW_OPTIONS_BY_PANEL,
   type PanelKind,

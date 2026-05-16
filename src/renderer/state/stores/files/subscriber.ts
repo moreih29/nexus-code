@@ -1,4 +1,4 @@
-import type { FsChangedEvent } from "../../../../shared/types/fs";
+import type { FsChangedEvent } from "../../../../shared/fs/types";
 import { ipcListen } from "../../../ipc/client";
 import { loadChildren } from "../../operations/files";
 import { joinPath, parentOf } from "./helpers";

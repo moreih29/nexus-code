@@ -10,7 +10,7 @@
  *   - `delete-local`  → local tag rows open a local delete confirmation.
  *   - `delete-remote` → selected-remote tag rows open a remote delete confirmation.
  */
-import type { RemoteTag, Tag } from "../../../../../shared/types/git";
+import type { RemoteTag, Tag } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
 
 export type TagPickerMode = "browse" | "create" | "delete-local" | "delete-remote";

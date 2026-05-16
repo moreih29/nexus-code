@@ -8,7 +8,7 @@
  * orchestration while these utilities live next to the helper modules
  * they delegate into.
  */
-import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/types/git";
+import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { ipcCall } from "../../../../ipc/client";
 import { openOrRevealEditor } from "../../../../services/editor";
 import { copyText } from "../../../../utils/clipboard";

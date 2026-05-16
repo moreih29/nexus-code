@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FsChangeSchema } from "../../../../shared/types/fs";
+import { FsChangeSchema } from "../../../../shared/fs/types";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
 import { isAgentBackedProvider, type AgentBackedProvider } from "./provider";
 

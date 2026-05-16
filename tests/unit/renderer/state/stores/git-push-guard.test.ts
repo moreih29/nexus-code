@@ -43,7 +43,7 @@ import {
   DEFAULT_REPO_CAPABILITIES,
   type GitActionHint,
   type GitStatus,
-} from "../../../../../src/shared/types/git";
+} from "../../../../../src/shared/git/types";
 import { DEFAULT_VIEW_OPTIONS_BY_PANEL } from "../../../../../src/shared/types/panel";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-000000000015";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_SEARCHABLE_FILE_SIZE } from "../../../../src/shared/fs/defaults";
-import { SearchProgressSchema, TextSearchQuerySchema } from "../../../../src/shared/types/search";
+import { SearchProgressSchema, TextSearchQuerySchema } from "../../../../src/shared/search/types";
 
 describe("TextSearchQuerySchema", () => {
   test("parses minimal {pattern: 'x'} and fills defaults", () => {
