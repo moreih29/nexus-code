@@ -10,7 +10,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b tsconfig.json",
     "lint": "biome lint . && bun run lint:tw",
-    "lint:tw": "bun run scripts/check-tailwind-syntax.ts && bun run scripts/check-off-grid-spacing.ts",
+    "lint:tw": "bun run scripts/check-tailwind-syntax.ts && bun run scripts/check-off-grid-spacing.ts && bun run scripts/check-typography-roles.ts",
     "format": "biome format --write .",
     "check": "biome check --write .",
     "check:ci": "biome check . && bun run lint:tw",
