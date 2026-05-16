@@ -13,7 +13,6 @@ import { AddWorkspaceDialog } from "./components/workspace/add-workspace-dialog"
 import { WorkspacePanel } from "./components/workspace/panel";
 import { ipcCall } from "./ipc/client";
 import { showRemoveWorkspaceConfirm } from "./components/ui/remove-workspace-dialog";
-import { StatusBar } from "./components/workbench/status-bar";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
 import { initializeEditorServices } from "./services/editor";
 import { useActiveStore } from "./state/stores/active";
@@ -165,7 +164,6 @@ export function App() {
           ))}
         </div>
       </div>
-      <StatusBar />
     </div>
   );
 }

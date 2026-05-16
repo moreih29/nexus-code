@@ -1,27 +1,26 @@
-// status-bar.tsx — App-wide L1 chrome status bar.
+// status-bar.tsx — Per-workspace status bar.
 //
-// Full-width horizontal bar mounted at the bottom of the App layout (sibling
-// to the main content row, not inside WorkspacePanel). Height h-6 (24px).
+// Mounted at the bottom of each WorkspacePanel (not as a global app-wide bar).
+// Height h-6 (24px). Receives the workspaceId of the panel it lives in.
 //
 // Segment layout — extendable list (future: cursor position, language, line ending):
 //   LEFT:  connection status · git branch + ahead/behind · error count · warning count
 //   RIGHT: git in-flight operation indicator
 //
 // Data sources (all reactive, never stale):
-//   - activeWorkspaceId       → useActiveStore
-//   - git session             → useGitSession(activeWorkspaceId)
+//   - workspaceId             → prop (required)
+//   - git session             → useGitSession(workspaceId)
 //   - workspace connection    → useWorkspacesStore
-//   - Monaco diagnostics      → useDiagnosticsStore
+//   - Monaco diagnostics      → useDiagnosticsStore (per-workspace via selector)
 //
 // Design:
 //   - status.bar.* tokens via CSS custom properties (design.md §9)
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
-//   - neutral / empty render when no workspace is selected or repo absent
+//   - neutral / empty render when repo absent
 
 import { AlertTriangle, GitBranch, Loader2, Server, XCircle } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { useActiveStore } from "../../state/stores/active";
-import { useDiagnosticsStore } from "../../state/stores/diagnostics";
+import { selectWorkspaceDiagnostics, useDiagnosticsStore } from "../../state/stores/diagnostics";
 import { useGitSession } from "../../state/stores/git";
 import type { GitInFlightOp } from "../../state/stores/git";
 import {
@@ -32,30 +31,37 @@ import {
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 
 // ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
+interface StatusBarProps {
+  workspaceId: string;
+}
+
+// ---------------------------------------------------------------------------
 // StatusBar root
 // ---------------------------------------------------------------------------
 
-export function StatusBar(): React.JSX.Element {
-  const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
-
-  const activeWorkspace = useWorkspacesStore((s) =>
-    activeWorkspaceId ? s.workspaces.find((w) => w.id === activeWorkspaceId) : undefined,
+export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
+  const workspace = useWorkspacesStore((s) =>
+    s.workspaces.find((w) => w.id === workspaceId),
   );
   const connectionStatus = useWorkspacesStore((s) =>
-    activeWorkspaceId ? selectWorkspaceConnectionStatus(s, activeWorkspaceId) : "idle",
+    selectWorkspaceConnectionStatus(s, workspaceId),
   );
 
-  // Git session for the active workspace — undefined when git not yet loaded
+  // Git session for this workspace — undefined when git not yet loaded
   // or workspace has no git repo.
-  const gitSession = useGitSession(activeWorkspaceId ?? "");
+  const gitSession = useGitSession(workspaceId);
 
-  const errorCount = useDiagnosticsStore((s) => s.errorCount);
-  const warningCount = useDiagnosticsStore((s) => s.warningCount);
+  const { errorCount, warningCount } = useDiagnosticsStore((s) =>
+    selectWorkspaceDiagnostics(s, workspaceId),
+  );
 
   const branchInfo = gitSession?.branchInfo ?? null;
   const isRepo = gitSession?.repoInfo.kind === "repo";
   const inFlightOp = gitSession?.inFlightOp ?? null;
-  const isSsh = activeWorkspace?.location.kind === "ssh";
+  const isSsh = workspace?.location.kind === "ssh";
 
   return (
     <div
@@ -70,8 +76,8 @@ export function StatusBar(): React.JSX.Element {
       {/* LEFT segments */}
       <div className="flex items-center flex-1 min-w-0">
         {/* Connection status — SSH workspaces only */}
-        {isSsh && activeWorkspace && (
-          <ConnectionSegment workspace={activeWorkspace} status={connectionStatus} />
+        {isSsh && workspace && (
+          <ConnectionSegment workspace={workspace} status={connectionStatus} />
         )}
 
         {/* Git branch + ahead/behind — when repo is active */}
@@ -84,11 +90,11 @@ export function StatusBar(): React.JSX.Element {
           />
         )}
 
-        {/* Error count — always shown once a workspace is active (count may be 0) */}
-        {activeWorkspaceId && <DiagnosticSegment kind="error" count={errorCount} />}
+        {/* Error count — always shown (count may be 0) */}
+        <DiagnosticSegment kind="error" count={errorCount} />
 
-        {/* Warning count */}
-        {activeWorkspaceId && <DiagnosticSegment kind="warning" count={warningCount} />}
+        {/* Warning count — always shown (count may be 0) */}
+        <DiagnosticSegment kind="warning" count={warningCount} />
       </div>
 
       {/* RIGHT segments */}

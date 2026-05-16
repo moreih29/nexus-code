@@ -95,7 +95,10 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.groupFocusDown, primary: "CmdOrCtrl+Alt+Down" },
 
   // Workspace navigation
-  { command: COMMANDS.workspaceSymbolSearch, primary: "CmdOrCtrl+T" },
+  { command: COMMANDS.workspaceSymbolSearch, primary: "CmdOrCtrl+Shift+O" },
+
+  // Terminal
+  { command: COMMANDS.terminalNew, primary: "CmdOrCtrl+T" },
 
   // Path actions on the active editor
   { command: COMMANDS.pathReveal, primary: "CmdOrCtrl+Alt+R" },

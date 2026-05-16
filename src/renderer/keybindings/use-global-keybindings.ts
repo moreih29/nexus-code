@@ -18,6 +18,7 @@ import { registerGroupCommands } from "./commands/group-commands";
 import { registerPaletteCommands } from "./commands/palette-commands";
 import { registerPathCommands } from "./commands/path-commands";
 import { registerTabCommands } from "./commands/tab-commands";
+import { registerTerminalCommands } from "./commands/terminal-commands";
 import { handleGlobalKeyDown } from "./dispatcher";
 
 export function useGlobalKeybindings(): void {
@@ -28,6 +29,7 @@ export function useGlobalKeybindings(): void {
       ...registerGroupCommands(),
       ...registerPathCommands(),
       ...registerPaletteCommands(),
+      ...registerTerminalCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

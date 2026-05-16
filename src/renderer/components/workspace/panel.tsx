@@ -6,6 +6,7 @@ import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import { StatusBar } from "../workbench/status-bar";
 import { ContentPool, LayoutTree } from ".";
 import {
   deadTerminalTabs,
@@ -86,6 +87,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
         workspaceRootPath={workspace.rootPath}
       />
       <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
+      <StatusBar workspaceId={workspace.id} />
     </div>
   );
 }

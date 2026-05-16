@@ -1,8 +1,10 @@
-// diagnostics.ts — Monaco marker aggregate store.
+// diagnostics.ts — Monaco marker per-workspace store.
 //
 // Subscribes to monaco.editor.onDidChangeMarkers (fired whenever any model's
-// markers change) and maintains a process-wide aggregate of error and warning
-// counts across ALL open models.
+// markers change) and maintains per-workspace error/warning counts. Each
+// marker is attributed to a workspace by resolving its URI through
+// getEntryMetadata — markers for URIs not present in the model cache are
+// skipped.
 //
 // Initialization: call initializeDiagnosticsStore(monaco) once inside
 // initializeEditorServices(). The subscription is process-scoped — it is not
@@ -15,18 +17,22 @@
 
 import type * as Monaco from "monaco-editor";
 import { create } from "zustand";
+import { getEntryMetadata } from "@/services/editor/model";
 
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
 
-export interface DiagnosticsState {
-  /** Total error-severity marker count across all open models. */
+export interface WorkspaceDiagnostics {
   errorCount: number;
-  /** Total warning-severity marker count across all open models. */
   warningCount: number;
+}
+
+export interface DiagnosticsState {
+  /** Per-workspace error/warning counts keyed by workspaceId. */
+  byWorkspace: Record<string, WorkspaceDiagnostics>;
   /** Internal setter — only called by the Monaco subscription. */
-  _setCount: (errorCount: number, warningCount: number) => void;
+  _setByWorkspace: (byWorkspace: Record<string, WorkspaceDiagnostics>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,12 +40,34 @@ export interface DiagnosticsState {
 // ---------------------------------------------------------------------------
 
 export const useDiagnosticsStore = create<DiagnosticsState>((set) => ({
-  errorCount: 0,
-  warningCount: 0,
-  _setCount(errorCount, warningCount) {
-    set({ errorCount, warningCount });
+  byWorkspace: {},
+  _setByWorkspace(byWorkspace) {
+    set({ byWorkspace });
   },
 }));
+
+// ---------------------------------------------------------------------------
+// Selector
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable empty result. Returned by reference (never a fresh object) so the
+ * selector's snapshot is referentially stable across renders — required by
+ * useSyncExternalStore to avoid an infinite render loop.
+ */
+const EMPTY_DIAGNOSTICS: WorkspaceDiagnostics = { errorCount: 0, warningCount: 0 };
+
+/**
+ * Select error/warning counts for a specific workspace.
+ * Returns a shared zero-count object when no diagnostics are recorded for
+ * that workspace.
+ */
+export function selectWorkspaceDiagnostics(
+  state: DiagnosticsState,
+  workspaceId: string,
+): WorkspaceDiagnostics {
+  return state.byWorkspace[workspaceId] ?? EMPTY_DIAGNOSTICS;
+}
 
 // ---------------------------------------------------------------------------
 // Initialization — attach the Monaco marker subscription.
@@ -50,7 +78,7 @@ export const useDiagnosticsStore = create<DiagnosticsState>((set) => ({
 // ---------------------------------------------------------------------------
 
 /**
- * Recount error/warning markers across all models and update the store.
+ * Recount error/warning markers per workspace and update the store.
  * Called on every onDidChangeMarkers event.
  */
 function recount(monaco: typeof Monaco): void {
@@ -58,16 +86,25 @@ function recount(monaco: typeof Monaco): void {
   // Filtering to Error and Warning severity satisfies the spec; Info and Hint
   // are not surfaced in the status bar.
   const all = monaco.editor.getModelMarkers({});
-  let errors = 0;
-  let warnings = 0;
+  const tally: Record<string, WorkspaceDiagnostics> = {};
   for (const marker of all) {
-    if (marker.severity === monaco.MarkerSeverity.Error) {
-      errors += 1;
-    } else if (marker.severity === monaco.MarkerSeverity.Warning) {
-      warnings += 1;
+    if (
+      marker.severity !== monaco.MarkerSeverity.Error &&
+      marker.severity !== monaco.MarkerSeverity.Warning
+    ) {
+      continue;
     }
+    const meta = getEntryMetadata(marker.resource.toString());
+    if (!meta) continue;
+    const bucket = tally[meta.workspaceId] ?? { errorCount: 0, warningCount: 0 };
+    if (marker.severity === monaco.MarkerSeverity.Error) {
+      bucket.errorCount += 1;
+    } else {
+      bucket.warningCount += 1;
+    }
+    tally[meta.workspaceId] = bucket;
   }
-  useDiagnosticsStore.getState()._setCount(errors, warnings);
+  useDiagnosticsStore.getState()._setByWorkspace(tally);
 }
 
 /**
