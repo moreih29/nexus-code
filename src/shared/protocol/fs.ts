@@ -64,8 +64,6 @@ export const FS_CREATE_FILE_METHOD = "fs.createFile" as const;
 export const FsCreateFileParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsCreateFileParams = z.infer<typeof FsCreateFileParamsSchema>;
 
-export const FsCreateFileResultSchema = z.void();
-
 // ---------------------------------------------------------------------------
 // fs.mkdir — create a directory. Recursive is opt-in; when false (default),
 // a missing parent surfaces as NOT_FOUND so the renderer can surface the
@@ -80,8 +78,6 @@ export const FsMkdirParamsSchema = z.object({
 });
 export type FsMkdirParams = z.infer<typeof FsMkdirParamsSchema>;
 
-export const FsMkdirResultSchema = z.void();
-
 // ---------------------------------------------------------------------------
 // fs.unlink — remove a file or symlink. Directories are refused with
 // IS_DIRECTORY so callers explicitly choose rmdir for empty dirs or a
@@ -93,8 +89,6 @@ export const FS_UNLINK_METHOD = "fs.unlink" as const;
 export const FsUnlinkParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsUnlinkParams = z.infer<typeof FsUnlinkParamsSchema>;
 
-export const FsUnlinkResultSchema = z.void();
-
 // ---------------------------------------------------------------------------
 // fs.rmdir — remove an empty directory. Non-empty dirs fail with NOT_EMPTY
 // so the renderer can confirm before any destructive recursive operation.
@@ -104,8 +98,6 @@ export const FS_RMDIR_METHOD = "fs.rmdir" as const;
 
 export const FsRmdirParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsRmdirParams = z.infer<typeof FsRmdirParamsSchema>;
-
-export const FsRmdirResultSchema = z.void();
 
 // ---------------------------------------------------------------------------
 // fs.rename — move/rename within the bound workspace. Cross-workspace
@@ -120,5 +112,3 @@ export const FsRenameParamsSchema = z.object({
   toRelPath: RelPathSchema,
 });
 export type FsRenameParams = z.infer<typeof FsRenameParamsSchema>;
-
-export const FsRenameResultSchema = z.void();

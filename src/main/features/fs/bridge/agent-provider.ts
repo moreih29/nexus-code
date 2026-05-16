@@ -10,6 +10,22 @@ import {
   type WriteFileResult,
   WriteFileResultSchema,
 } from "../../../../shared/types/fs";
+import {
+  FS_CREATE_FILE_METHOD,
+  FS_MKDIR_METHOD,
+  FS_READ_ABSOLUTE_METHOD,
+  FS_RENAME_METHOD,
+  FS_RMDIR_METHOD,
+  FS_UNLINK_METHOD,
+  FS_WRITE_FILE_METHOD,
+  type FsCreateFileParams,
+  type FsMkdirParams,
+  type FsReadAbsoluteParams,
+  type FsRenameParams,
+  type FsRmdirParams,
+  type FsUnlinkParams,
+  type FsWriteFileParams,
+} from "../../../../shared/protocol/fs";
 import type { SshErrorCode } from "../../../../shared/types/ssh-errors";
 import type { AgentChannel } from "../../../infra/agent/channel";
 import type { AgentBackedProvider } from "./provider";
@@ -54,7 +70,9 @@ export class AgentFsProvider implements AgentBackedProvider {
   }
 
   async readAbsolute(absolutePath: string): Promise<FileReadResult> {
-    const result = await this.callAgent("fs.readAbsolute", { absolutePath });
+    const result = await this.callAgent(FS_READ_ABSOLUTE_METHOD, {
+      absolutePath,
+    } satisfies FsReadAbsoluteParams);
     return parseAgentResult(FileReadResultSchema, result);
   }
 
@@ -63,28 +81,35 @@ export class AgentFsProvider implements AgentBackedProvider {
     content: string,
     expected?: ExpectedFileStateContract,
   ): Promise<WriteFileResult> {
-    const result = await this.callAgent("fs.writeFile", { relPath, content, expected });
+    const result = await this.callAgent(FS_WRITE_FILE_METHOD, {
+      relPath,
+      content,
+      expected,
+    } satisfies FsWriteFileParams);
     return parseAgentResult(WriteFileResultSchema, result);
   }
 
   async createFile(relPath: string): Promise<void> {
-    await this.callAgent("fs.createFile", { relPath });
+    await this.callAgent(FS_CREATE_FILE_METHOD, { relPath } satisfies FsCreateFileParams);
   }
 
   async mkdir(relPath: string): Promise<void> {
-    await this.callAgent("fs.mkdir", { relPath });
+    await this.callAgent(FS_MKDIR_METHOD, { relPath } satisfies FsMkdirParams);
   }
 
   async unlink(relPath: string): Promise<void> {
-    await this.callAgent("fs.unlink", { relPath });
+    await this.callAgent(FS_UNLINK_METHOD, { relPath } satisfies FsUnlinkParams);
   }
 
   async rmdir(relPath: string): Promise<void> {
-    await this.callAgent("fs.rmdir", { relPath });
+    await this.callAgent(FS_RMDIR_METHOD, { relPath } satisfies FsRmdirParams);
   }
 
   async rename(fromRelPath: string, toRelPath: string): Promise<void> {
-    await this.callAgent("fs.rename", { fromRelPath, toRelPath });
+    await this.callAgent(FS_RENAME_METHOD, {
+      fromRelPath,
+      toRelPath,
+    } satisfies FsRenameParams);
   }
 
   async callAgentMethod<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
