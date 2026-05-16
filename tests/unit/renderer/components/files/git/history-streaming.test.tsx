@@ -1,10 +1,10 @@
 /**
- * Scenario verification for History all-branches scope, grep wiring, and toolbar semantics.
+ * Scenario verification for History streaming, selection wiring, and auto-refresh.
  */
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
-import type { GitHistoryScope, LogEntry } from "../../../../../../src/shared/git/types";
+import type { LogEntry } from "../../../../../../src/shared/git/types";
 
 type LogStreamArgs = {
   workspaceId?: string;
@@ -314,13 +314,13 @@ class HookHarness {
   }
 }
 
-/** Controlled wrapper that plays the parent GitPanel role for scope/ref props. */
+/** Controlled wrapper that plays the parent GitPanel role for ref props. */
 class HistoryPanelView {
   private readonly harness = new HookHarness();
   refName = "main";
   root: TestDomElement;
 
-  constructor(private historyScope: GitHistoryScope) {
+  constructor() {
     this.root = this.render();
   }
 
@@ -329,12 +329,8 @@ class HistoryPanelView {
       React.createElement(HistoryPanel, {
         workspaceId: WORKSPACE_ID,
         refName: this.refName,
-        historyScope: this.historyScope,
         onRefChange: (nextRefName: string) => {
           this.refName = nextRefName;
-        },
-        onScopeChange: (nextScope: GitHistoryScope) => {
-          this.historyScope = nextScope;
         },
       }),
     );
@@ -380,107 +376,9 @@ afterEach(() => {
   restoreDomGlobals();
 });
 
-describe("HistoryPanel all-branches matrix", () => {
-  it("streams the four ref/all × search/no-search combinations and announces each subtitle", () => {
-    const scenarios: Array<{
-      label: string;
-      scope: GitHistoryScope;
-      query: string;
-      expected: { scope: GitHistoryScope; ref?: string; grep?: string };
-      subtitle: string;
-    }> = [
-      {
-        label: "single ref without search",
-        scope: "ref",
-        query: "",
-        expected: { scope: "ref", ref: "main" },
-        subtitle: "Viewing history of main",
-      },
-      {
-        label: "single ref grep search",
-        scope: "ref",
-        query: "fix popover",
-        expected: { scope: "ref", ref: "main", grep: "fix popover" },
-        subtitle: "Viewing history of main · filtered by 'fix popover'",
-      },
-      {
-        label: "all branches without search",
-        scope: "all",
-        query: "",
-        expected: { scope: "all" },
-        subtitle: "Viewing all branches · was: main",
-      },
-      {
-        label: "all branches grep search",
-        scope: "all",
-        query: "fix popover",
-        expected: { scope: "all", grep: "fix popover" },
-        subtitle: "Viewing all branches · filtered by 'fix popover'",
-      },
-    ];
-
-    for (const scenario of scenarios) {
-      activeView?.cleanup();
-      activeView = new HistoryPanelView(scenario.scope);
-
-      if (scenario.query.length > 0) {
-        logStreamCalls.length = 0;
-        ipcCallRecords.length = 0;
-        activeView.typeSearch(scenario.query);
-        activeView.drainDebounceTimers();
-      }
-
-      const call = lastLogStreamCall(scenario.label);
-      expect(call.channel).toBe("git");
-      expect(call.method).toBe("log");
-      expect(call.args.workspaceId).toBe(WORKSPACE_ID);
-      expect(call.args.limit).toBe(50);
-      expect(call.args.scope).toBe(scenario.expected.scope);
-      expect(call.args.ref).toBe(scenario.expected.ref);
-      expect(call.args.grep).toBe(scenario.expected.grep);
-      expect(liveRegion(activeView.root).textContent).toBe(scenario.subtitle);
-      expect(liveRegion(activeView.root).props["aria-live"]).toBe("polite");
-      expect(liveRegion(activeView.root).props["aria-atomic"]).toBe("true");
-      expect(ipcCallRecords.filter((record) => record.method === "searchCommits")).toHaveLength(0);
-    }
-  });
-
-  it("keeps toolbar tab order as ref switcher, all-branches toggle, then refresh", () => {
-    activeView = new HistoryPanelView("ref");
-
-    const buttons = getAllByTag(activeView.root, "button").slice(0, 3);
-    expect(buttons.map(accessibleName)).toEqual(["main", "Show all branches", "Refresh history"]);
-    expect(buttons.map((button) => button.props.tabIndex)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-    expect(buttons[1]?.textContent).toBe("");
-    expect(buttons[1]?.props.title).toBe("Show all branches");
-  });
-
-  it("uses native button semantics for Space/Enter toggle and streams the ON/OFF scope", () => {
-    activeView = new HistoryPanelView("ref");
-
-    logStreamCalls.length = 0;
-    nativeActivateToolbarButton(activeView, "Show all branches", " ");
-    let toggle = buttonByName(activeView.root, "Show all branches");
-    let call = lastLogStreamCall("Space toggles all branches on");
-    expect(toggle.props["aria-pressed"]).toBe(true);
-    expect(call.args.scope).toBe("all");
-    expect(call.args.ref).toBeUndefined();
-
-    logStreamCalls.length = 0;
-    nativeActivateToolbarButton(activeView, "Show all branches", "Enter");
-    toggle = buttonByName(activeView.root, "Show all branches");
-    call = lastLogStreamCall("Enter toggles all branches off");
-    expect(toggle.props["aria-pressed"]).toBe(false);
-    expect(call.args.scope).toBe("ref");
-    expect(call.args.ref).toBe("main");
-  });
-
+describe("HistoryPanel streaming", () => {
   it("keeps selection separate from explicit main-area commit tab opens", () => {
-    activeView = new HistoryPanelView("ref");
+    activeView = new HistoryPanelView();
     const firstEntry = makeLogEntry(1);
     const secondEntry = makeLogEntry(2);
 
@@ -505,7 +403,7 @@ describe("HistoryPanel all-branches matrix", () => {
     mockGitStoreState.sessions.set(WORKSPACE_ID, {
       branchInfo: branchInfoFor("main"),
     });
-    activeView = new HistoryPanelView("ref");
+    activeView = new HistoryPanelView();
     // The mount triggers the initial first-page stream. Clear the recorded
     // calls so we only assert the auto-refresh-driven re-stream below.
     expect(lastLogStreamCall("mount streams first page").args.ref).toBe("main");
@@ -536,7 +434,7 @@ describe("HistoryPanel all-branches matrix", () => {
     mockGitStoreState.sessions.set(WORKSPACE_ID, {
       branchInfo: branchInfoFor("main"),
     });
-    activeView = new HistoryPanelView("ref");
+    activeView = new HistoryPanelView();
     activeView.typeSearch("fix popover");
     activeView.drainDebounceTimers();
     logStreamCalls.length = 0;
@@ -661,24 +559,10 @@ function dependenciesChanged(previous: DependencyList, next: DependencyList): bo
   return previous.some((value, index) => !Object.is(value, next[index]));
 }
 
-/** Finds the live subtitle node. */
-function liveRegion(root: TestDomElement): TestDomElement {
-  const match = getAllByTag(root, "p").find((node) => node.props["aria-live"] === "polite");
-  if (!match) throw new Error("Missing polite live-region subtitle");
-  return match;
-}
-
 /** Finds the History search input. */
 function searchInput(root: TestDomElement): TestDomElement {
   const match = getAllByTag(root, "input").find((node) => node.props.type === "search");
   if (!match) throw new Error("Missing history search input");
-  return match;
-}
-
-/** Finds a button by accessible name. */
-function buttonByName(root: TestDomElement, name: string): TestDomElement {
-  const match = getAllByTag(root, "button").find((button) => accessibleName(button) === name);
-  if (!match) throw new Error(`Missing button ${name}`);
   return match;
 }
 
@@ -697,26 +581,6 @@ function visit(root: TestDomElement, visitor: (node: TestDomElement) => void): v
   for (const child of root.children) {
     if (child instanceof TestDomElement) visit(child, visitor);
   }
-}
-
-/** Returns the accessible name subset used by the toolbar buttons. */
-function accessibleName(button: TestDomElement): string {
-  return String(button.props["aria-label"] ?? button.textContent).trim();
-}
-
-/** Uses the native button activation path that browsers bind to Space and Enter. */
-function nativeActivateToolbarButton(
-  view: HistoryPanelView,
-  name: string,
-  key: " " | "Enter",
-): void {
-  const button = buttonByName(view.root, name);
-  expect(button.type).toBe("button");
-  expect(button.props.type).toBe("button");
-  expect(button.props.onKeyDown).toBeUndefined();
-  expect(key === " " || key === "Enter").toBe(true);
-  callHandler(button.props.onClick, { currentTarget: button, target: button });
-  view.render();
 }
 
 /** Invokes a captured React handler with a deliberately small event object. */

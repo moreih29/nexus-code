@@ -13,7 +13,6 @@ import type {
   GitAutofetchIntervalMin,
   GitCommitOptions,
   GitExpandedGroupKey,
-  GitHistoryScope,
   GitPanelSegment,
   GitStatusEntry,
   RepoCapabilities,
@@ -42,9 +41,7 @@ export interface GitPanelBodyProps {
 
   // History panel (shown when panelSegment === "history")
   historyRef: string;
-  historyScope: GitHistoryScope;
   onHistoryRefChange: (ref: string) => void;
-  onHistoryScopeChange: (scope: GitHistoryScope) => void;
 
   // Operation banner / commit input (shown when panelSegment === "changes")
   activeOperation: ActiveGitOperationState | null;
@@ -118,9 +115,7 @@ export function GitPanelBody({
   isBusy,
   onSegmentChange,
   historyRef,
-  historyScope,
   onHistoryRefChange,
-  onHistoryScopeChange,
   activeOperation,
   lastError,
   inFlightKind,
@@ -187,10 +182,8 @@ export function GitPanelBody({
         <HistoryPanel
           workspaceId={workspaceId}
           refName={historyRef}
-          historyScope={historyScope}
           busy={isBusy}
           onRefChange={onHistoryRefChange}
-          onScopeChange={onHistoryScopeChange}
         />
       ) : (
         <>

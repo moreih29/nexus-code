@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CommitDetail,
   CommitSearchResult,
-  GitHistoryScope,
   LogEntry,
 } from "../../../../../shared/git/types";
 import { ipcCall, ipcStream } from "../../../../ipc/client";
@@ -28,10 +27,8 @@ const HISTORY_SEARCH_DEBOUNCE_MS = 200;
 interface HistoryPanelProps {
   workspaceId: string;
   refName: string;
-  historyScope: GitHistoryScope;
   busy?: boolean;
   onRefChange: (refName: string) => void;
-  onScopeChange: (scope: GitHistoryScope) => void;
 }
 
 interface HistoryLoadState {
@@ -46,10 +43,8 @@ interface HistoryLoadState {
 export function HistoryPanel({
   workspaceId,
   refName,
-  historyScope,
   busy = false,
   onRefChange,
-  onScopeChange,
 }: HistoryPanelProps) {
   const cherryPick = useGitStore((state) => state.cherryPick);
   const checkoutDetached = useGitStore((state) => state.checkoutDetached);
@@ -104,10 +99,9 @@ export function HistoryPanel({
   const changeHistoryRef = useCallback(
     (nextRefName: string) => {
       onRefChange(nextRefName);
-      onScopeChange("ref");
       setQuery("");
     },
-    [onRefChange, onScopeChange],
+    [onRefChange],
   );
 
   const loadFirstPage = useCallback(
@@ -126,7 +120,7 @@ export function HistoryPanel({
       void loadLogPage({
         workspaceId,
         refName,
-        scope: historyScope,
+        scope: "ref",
         signal,
         onChunk: (entries, chunk) => {
           if (!isCurrentLoad(token)) return;
@@ -157,7 +151,6 @@ export function HistoryPanel({
     },
     [
       appendLaneChunk,
-      historyScope,
       isCurrentLoad,
       nextLoadToken,
       refName,
@@ -181,7 +174,7 @@ export function HistoryPanel({
         errorMessage: null,
       });
       setSelectedSha(null);
-      if (historyScope === "ref" && isShaPrefixQuery(trimmed)) {
+      if (isShaPrefixQuery(trimmed)) {
         ipcCall(
           "git",
           "searchCommits",
@@ -211,7 +204,7 @@ export function HistoryPanel({
         void loadLogPage({
           workspaceId,
           refName,
-          scope: historyScope,
+          scope: "ref",
           grep: trimmed,
           signal: controller.signal,
           onChunk: (entries, chunk) => {
@@ -252,7 +245,6 @@ export function HistoryPanel({
   }, [
     appendLaneChunk,
     debouncedQuery,
-    historyScope,
     isCurrentLoad,
     loadFirstPage,
     nextLoadToken,
@@ -293,7 +285,7 @@ export function HistoryPanel({
     void loadLogPage({
       workspaceId,
       refName,
-      scope: historyScope,
+      scope: "ref",
       afterSha: lastSha,
       signal: undefined,
       onChunk: (entries, chunk) => {
@@ -335,11 +327,9 @@ export function HistoryPanel({
       <HistoryRefSwitcher
         workspaceId={workspaceId}
         refName={refName}
-        historyScope={historyScope}
         searchQuery={query}
         disabled={busy}
         onRefChange={changeHistoryRef}
-        onScopeChange={onScopeChange}
         onRefresh={() => {
           if (debouncedQuery.trim().length > 0) {
             setSearchNonce((value) => value + 1);
@@ -420,7 +410,7 @@ async function loadLogPage({
 }: {
   workspaceId: string;
   refName: string;
-  scope: GitHistoryScope;
+  scope: "ref";
   afterSha?: string;
   grep?: string;
   signal?: AbortSignal;

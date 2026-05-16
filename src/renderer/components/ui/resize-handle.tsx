@@ -124,14 +124,19 @@ export function ResizeHandle({
       ? POSITION_CLASS.horizontal
       : POSITION_CLASS[placement ?? "rightCentered"];
 
+  // For rightInside, the hit-area is shifted 4px left via -translate-x-1/2.
+  // The indicator must sit at the panel's actual right edge, so we push it
+  // 4px further right (right-0 within the shifted container = panel right - 4px;
+  // right-[-4px] brings it flush with the panel right edge).
+  const indicatorRight = placement === "rightInside" ? "right-[-4px]" : "right-[4px]";
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
         ? "absolute left-0 bottom-[4px] w-full h-0.5 bg-[var(--splitter-hover)]"
         : "absolute left-0 bottom-[4px] w-full h-px bg-[var(--splitter)] group-hover:h-0.5 group-hover:bg-[var(--splitter-hover)]"
       : isDragging
-        ? "absolute right-[4px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
-        : "absolute right-[4px] top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]";
+        ? `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)]`
+        : `absolute ${indicatorRight} top-0 h-full w-px bg-[var(--splitter)] group-hover:w-0.5 group-hover:bg-[var(--splitter-hover)]`;
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: separator/handle is not a button

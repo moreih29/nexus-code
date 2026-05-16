@@ -110,7 +110,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const resumeAutofetch = useGitStore((state) => state.resumeAutofetch);
   const setPanelSegment = useGitStore((state) => state.setPanelSegment);
   const setHistoryRef = useGitStore((state) => state.setHistoryRef);
-  const setHistoryScope = useGitStore((state) => state.setHistoryScope);
   const setExpandedGroup = useGitStore((state) => state.setExpandedGroup);
   const setViewMode = useGitStore((state) => state.setViewMode);
   const setCompactFolders = useGitStore((state) => state.setCompactFolders);
@@ -587,7 +586,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   function revealTagInHistory(tag: Tag): void {
     const ref = tagHistoryRef(tag);
     setHistoryRef(workspaceId, ref);
-    setHistoryScope(workspaceId, "ref");
     setPanelSegment(workspaceId, "history");
     setTagPickerOpen(false);
     setContextBanner({
@@ -602,7 +600,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const compactFolders = session?.compactFolders ?? false;
   const panelSegment = session?.panelSegment ?? DEFAULT_GIT_PANEL_STATE.panelSegment;
   const historyRef = session?.historyRef ?? DEFAULT_GIT_PANEL_STATE.historyRef;
-  const historyScope = session?.historyScope ?? DEFAULT_GIT_PANEL_STATE.historyScope;
   const hasRemote = capabilities.remotes.length > 0;
   const menuEnablement = {
     canCommitStaged: trimmedDraft.length > 0 && hasStagedChanges,
@@ -734,9 +731,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           isBusy={isBusy}
           onSegmentChange={(segment) => setPanelSegment(workspaceId, segment)}
           historyRef={historyRef}
-          historyScope={historyScope}
           onHistoryRefChange={(nextRef) => setHistoryRef(workspaceId, nextRef)}
-          onHistoryScopeChange={(nextScope) => setHistoryScope(workspaceId, nextScope)}
           activeOperation={activeOperation}
           lastError={session?.lastError}
           inFlightKind={session?.inFlightOp?.kind}
