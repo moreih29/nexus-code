@@ -54,24 +54,15 @@ function installWindowIpcStub(streamId = "stream-1"): void {
     },
   };
 
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    writable: true,
-    value: windowStub,
-  });
+  // Use the setter so the matchMedia-injecting window accessor in tests/setup.ts
+  // remains intact (Object.defineProperty would overwrite the non-configurable accessor).
+  (globalThis as Record<string, unknown>).window = windowStub;
 }
 
 function restoreWindow(): void {
-  if (previousWindow) {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      writable: true,
-      value: previousWindow,
-    });
-    return;
-  }
-
-  delete (globalThis as { window?: Window }).window;
+  // Use the setter to restore window; the accessor installed by tests/setup.ts
+  // handles injecting matchMedia when needed.
+  (globalThis as Record<string, unknown>).window = previousWindow ?? undefined;
 }
 
 function startTestStream(

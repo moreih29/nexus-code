@@ -236,11 +236,9 @@ function restoreDomGlobals(): void {
     (globalThis as { HTMLElement?: unknown }).HTMLElement = originalHTMLElement;
   }
 
-  if (originalWindow === undefined) {
-    delete (globalThis as { window?: unknown }).window;
-  } else {
-    (globalThis as { window?: unknown }).window = originalWindow;
-  }
+  // Use the setter (not delete) so the matchMedia-injecting window accessor
+  // installed by tests/setup.ts is not removed from globalThis.
+  (globalThis as Record<string, unknown>).window = originalWindow;
 }
 
 describe("HistoryList virtualization and ARIA", () => {

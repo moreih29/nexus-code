@@ -421,11 +421,9 @@ function restoreDomGlobals(): void {
     (globalThis as { document?: unknown }).document = originalDocument;
   }
 
-  if (originalWindow === undefined) {
-    delete (globalThis as { window?: unknown }).window;
-  } else {
-    (globalThis as { window?: unknown }).window = originalWindow;
-  }
+  // Use the setter (not delete) so the matchMedia-injecting window accessor
+  // installed by tests/setup.ts is not removed from globalThis.
+  (globalThis as Record<string, unknown>).window = originalWindow;
 
   if (originalNode === undefined) {
     delete (globalThis as { Node?: unknown }).Node;

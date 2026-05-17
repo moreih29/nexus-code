@@ -155,7 +155,10 @@ export function resetInMemoryIpc(): void {
   mockIpcMain.on.mockClear();
   mockGetAllWebContents.mockClear();
   nextWebContentsId = 1;
-  delete (globalThis as { window?: unknown }).window;
+  // Assign undefined rather than `delete` — tests/setup.ts installs a
+  // non-configurable `window` accessor (matchMedia injection point) that
+  // cannot be deleted.
+  (globalThis as { window?: unknown }).window = undefined;
 }
 
 export function createIpcPair(): InMemoryIpcPair {
@@ -203,11 +206,9 @@ export function createIpcPair(): InMemoryIpcPair {
 }
 
 export function installWindowForPair(pair: InMemoryIpcPair): void {
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    writable: true,
-    value: pair.window,
-  });
+  // Assign through the non-configurable `window` accessor installed by
+  // tests/setup.ts rather than redefining the property (which would throw).
+  (globalThis as { window?: unknown }).window = pair.window;
 }
 
 export async function setupInMemoryRouter(): Promise<typeof import("../../src/main/infra/ipc-router")> {

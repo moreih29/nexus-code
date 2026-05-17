@@ -347,6 +347,10 @@ function localGitEnv(env: NodeJS.ProcessEnv | undefined, interactive: boolean): 
     merged.GIT_ASKPASS = env?.GIT_ASKPASS ?? "echo";
     merged.SSH_ASKPASS_REQUIRE = env?.SSH_ASKPASS_REQUIRE ?? "force";
     merged.SSH_ASKPASS = env?.SSH_ASKPASS ?? "echo";
+    // Prevent dev-shell overrides (e.g. GIT_EDITOR=true) from leaking into
+    // fake-git fixtures that log the editor value and assert it is empty.
+    delete merged.GIT_EDITOR;
+    delete merged.EDITOR;
   }
   return merged;
 }

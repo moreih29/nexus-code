@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Children, type ReactElement } from "react";
+import { type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   DeadTerminalBanner,
@@ -108,12 +108,17 @@ function createTerminal(cwd: string): TerminalTab {
 
 /**
  * Invokes the banner's `Reopen all` button in a static React element.
+ *
+ * WorkspaceTerminalStatusBanner renders a <Banner display="bar"> which passes
+ * the action callback via the `actions` prop rather than a child <button>.
+ * We find the action by label and call its handler directly.
  */
 function clickReopenAll(element: ReactElement): void {
-  const children = Children.toArray(element.props.children) as ReactElement[];
-  const button = children.find((child) => child.type === "button");
-  if (!button) throw new Error("Reopen all button not found");
-  (button.props.onClick as () => void)();
+  type BannerAction = { label: string; onAction: () => void };
+  const actions = (element.props as { actions?: BannerAction[] }).actions ?? [];
+  const action = actions.find((a) => a.label === "Reopen all");
+  if (!action) throw new Error("Reopen all button not found");
+  action.onAction();
 }
 
 describe("workspace terminal aggregate banner", () => {

@@ -141,6 +141,8 @@ type DependencyList = readonly unknown[] | undefined;
 type ReactDispatcher = {
   useCallback: <T extends (...args: never[]) => unknown>(callback: T, deps?: DependencyList) => T;
   useEffect: (callback: EffectCallback, deps?: DependencyList) => void;
+  useId: () => string;
+  useInsertionEffect: (callback: EffectCallback, deps?: DependencyList) => void;
   useLayoutEffect: (callback: EffectCallback, deps?: DependencyList) => void;
   useMemo: <T>(factory: () => T, deps?: DependencyList) => T;
   useRef: <T>(initialValue: T) => { current: T };
@@ -221,6 +223,13 @@ class HookHarness {
   readonly dispatcher: ReactDispatcher = {
     useCallback: (callback, deps) => this.useMemoValue(() => callback, deps),
     useEffect: (callback, deps) => this.queueEffect(callback, deps),
+    useId: () => {
+      const slot = this.cursor;
+      this.cursor += 1;
+      if (!(slot in this.hookValues)) this.hookValues[slot] = `:r${slot}:`;
+      return this.hookValues[slot] as string;
+    },
+    useInsertionEffect: (callback, deps) => this.queueEffect(callback, deps),
     useLayoutEffect: (callback, deps) => this.queueEffect(callback, deps),
     useMemo: (factory, deps) => this.useMemoValue(factory, deps),
     useRef: (initialValue) => {
@@ -476,11 +485,9 @@ function installDomGlobals(): void {
 
 /** Restores globals to avoid leaking the fake DOM to nearby component tests. */
 function restoreDomGlobals(): void {
-  if (originalWindow === undefined) {
-    delete (globalThis as { window?: unknown }).window;
-  } else {
-    (globalThis as { window?: unknown }).window = originalWindow;
-  }
+  // Use the setter (not delete) so the matchMedia-injecting window accessor
+  // installed by tests/setup.ts is not removed from globalThis.
+  (globalThis as Record<string, unknown>).window = originalWindow;
   if (originalDocument === undefined) {
     delete (globalThis as { document?: unknown }).document;
   } else {

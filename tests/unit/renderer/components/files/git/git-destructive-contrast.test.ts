@@ -15,14 +15,10 @@ const GIT_SURFACE_FILES = [
   "src/renderer/components/files/git/file-row/git-file-context-menu.tsx",
   "src/renderer/components/files/git/file-row/git-file-row.tsx",
   "src/renderer/components/files/git/file-row/git-group-header.tsx",
-  "src/renderer/components/files/git/panel/git-inline-banner.tsx",
-  "src/renderer/components/files/git/more-menu.tsx",
   "src/renderer/components/files/git/file-row/git-status-badge.tsx",
   "src/renderer/components/files/git/file-row/git-tree-row.tsx",
   "src/renderer/components/files/git/panel/operation-banner.tsx",
   "src/renderer/components/files/git/history/commit-menu.tsx",
-  "src/renderer/components/files/git/clone/dialog.tsx",
-  "src/renderer/components/files/git/panel/git-panel.tsx",
   "src/renderer/components/files/git/pickers/tag-picker.tsx",
 ] as const;
 

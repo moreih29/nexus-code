@@ -276,7 +276,10 @@ class PtyAgentFixture {
       requestTimeoutMs: 10_000,
       reconnect: { initialDelayMs: 25, maxDelayMs: 50 },
     });
-    const host = startAgentPtyHost({ getAgentChannel: async () => channel });
+    const host = startAgentPtyHost({
+      getAgentChannel: async () => channel,
+      tryGetAgentChannel: async () => channel,
+    });
     await channel.ready;
     return new PtyAgentFixture(root, channel, host);
   }

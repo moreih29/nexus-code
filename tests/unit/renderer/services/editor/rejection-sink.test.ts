@@ -20,7 +20,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete (globalThis as any).window;
+  // Use the setter (not delete) so the matchMedia-injecting window accessor
+  // installed by tests/setup.ts is not removed from globalThis.
+  (globalThis as Record<string, unknown>).window = undefined;
   listener = null;
 });
 function dispatch(reason: unknown): boolean {

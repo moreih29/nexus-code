@@ -124,6 +124,7 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
     Promise.resolve({ filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 }),
   ),
   ipcListen: mock(() => () => {}),
+  ipcStream: mock(() => ({ cancel: () => {} })),
 }));
 
 // workspace-cleanup stub
@@ -364,7 +365,7 @@ describe("Test 5 — toggle CaseSensitive aria-pressed", () => {
     expect(html).toContain('aria-pressed="true"');
   });
 
-  it("active toggle gets bg-frosted-veil-strong class", () => {
+  it("active toggle gets bg-[var(--state-active-bg)] class", () => {
     const html = renderToStaticMarkup(
       <SearchOptionsToggles
         options={{ ...BASE_OPTIONS, isCaseSensitive: true }}
@@ -372,7 +373,7 @@ describe("Test 5 — toggle CaseSensitive aria-pressed", () => {
         {...VIEW_PROPS}
       />,
     );
-    expect(html).toContain("bg-frosted-veil-strong");
+    expect(html).toContain("bg-[var(--state-active-bg)]");
   });
 });
 

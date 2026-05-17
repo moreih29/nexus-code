@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { authenticateSshControlMaster } from "../../../../src/main/infra/agent/ssh/auth-pty";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 
@@ -36,12 +37,30 @@ class FakePty {
   }
 }
 
+/**
+ * Minimal EventEmitter-based child stub for the dispose-master spawn path.
+ * The production `unlinkAfterControlExit` registers `.once` and then calls
+ * `.off` on close/exit/error events — the fake must be a full EventEmitter so
+ * those calls do not throw and the cleanup timer fires synchronously instead
+ * of after its 5-second fallback, preventing leaks into subsequent tests.
+ */
+class FakeDisposeChild extends EventEmitter {
+  readonly stdin = { end() {} };
+
+  // Immediately emit "close" so unlinkAfterControlExit runs cleanup
+  // synchronously rather than waiting for the 5-second fallback timer.
+  emitClose(): void {
+    this.emit("close", 0, null);
+  }
+}
+
 function authHarness() {
   const pty = new FakePty();
   const prompts: SshAuthPrompt[] = [];
   const spawnCalls: Array<{ command: string; args: string[] }> = [];
   const unlinkCalls: string[] = [];
   const disposeSpawnCalls: Array<{ command: string; args: string[] }> = [];
+  const disposeChildren: FakeDisposeChild[] = [];
   const promise = authenticateSshControlMaster(
     { host: "127.0.0.1", user: "alice", port: 2223, controlPath: "/tmp/nexus-test.sock" },
     async (prompt) => {
@@ -58,13 +77,15 @@ function authHarness() {
       },
       spawn(command, args) {
         disposeSpawnCalls.push({ command, args });
-        return { stdin: { end() {} } } as never;
+        const child = new FakeDisposeChild();
+        disposeChildren.push(child);
+        return child as unknown as ChildProcessWithoutNullStreams;
       },
       unlink: (path) => unlinkCalls.push(path),
     },
   );
 
-  return { pty, prompts, spawnCalls, disposeSpawnCalls, unlinkCalls, promise };
+  return { pty, prompts, spawnCalls, disposeSpawnCalls, disposeChildren, unlinkCalls, promise };
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -153,7 +174,11 @@ describe("authenticateSshControlMaster", () => {
         spawnPty: () => pty as never,
         spawn: (_command, args) => {
           disposeSpawnCalls.push(args);
-          return { stdin: { end() {} } } as never;
+          const child = new FakeDisposeChild();
+          // Immediately settle the child so the cleanup callback fires before
+          // the fallback timer, preventing async leaks into subsequent tests.
+          queueMicrotask(() => child.emitClose());
+          return child as unknown as ChildProcessWithoutNullStreams;
         },
         unlink: (path) => unlinkCalls.push(path),
       },
@@ -175,7 +200,13 @@ describe("authenticateSshControlMaster", () => {
       async () => ({ kind: "password", promptId: "unused", value: "secret" }),
       {
         spawnPty: () => pty as never,
-        spawn: () => ({ stdin: { end() {} } }) as never,
+        spawn: () => {
+          const child = new FakeDisposeChild();
+          // Immediately settle so unlinkAfterControlExit's cleanup runs before
+          // the 5-second fallback timer can leak into subsequent tests.
+          queueMicrotask(() => child.emitClose());
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
         unlink: (path) => unlinkCalls.push(path),
         authTimeoutMs: 5,
       },

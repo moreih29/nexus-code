@@ -142,7 +142,7 @@ describe("ViewModeToggle — compact split trigger present with both props", () 
     // The toggle button gets the ON class, but the compact trigger should not
     // (compactFolders=false). We check the compact trigger aria-label is present
     // and the ring class appears only once (for the main toggle, not the compact trigger).
-    expect(html).toContain("ring-mist-border-focus");
+    expect(html).toContain("ring-inset ring-ring");
   });
 
   it("TOGGLE_ON_CLASS applied to compact trigger when compactFolders=true", () => {
@@ -155,7 +155,7 @@ describe("ViewModeToggle — compact split trigger present with both props", () 
       />,
     );
     // compactFolders=true means the trigger has the ON class; tree toggle is OFF
-    expect(html).toContain("ring-mist-border-focus");
+    expect(html).toContain("ring-inset ring-ring");
     expect(html).toContain("폴더 압축 옵션");
   });
 });

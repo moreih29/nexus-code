@@ -1,12 +1,39 @@
-import { describe, expect, jest, mock, test, afterEach, beforeEach } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, jest, mock, test, afterEach, beforeEach, beforeAll, afterAll } from "bun:test";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../../src/main/infra/agent/channel";
+
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 import { startConfiguredLspHost, type LspHostHandle } from "../../../../src/main/features/lsp/host";
+
+// ---------------------------------------------------------------------------
+// Manifest neutralization
+// ---------------------------------------------------------------------------
+// resolveLspCommandFromManifest() in agent-host.ts reads
+// path.join(process.cwd(), "dist", "agent", "manifest.json").  If a built
+// manifest exists on disk the production path wins and the dev-fallback
+// pyright assertion below fails.  We rename the file for the duration of
+// this test file and restore it in afterAll, keeping the approach
+// non-polluting (no process-global mock.module).
+const MANIFEST_PATH = path.join(process.cwd(), "dist", "agent", "manifest.json");
+const MANIFEST_BAK_PATH = `${MANIFEST_PATH}.test-bak`;
+
+beforeAll(() => {
+  if (fs.existsSync(MANIFEST_PATH)) {
+    fs.renameSync(MANIFEST_PATH, MANIFEST_BAK_PATH);
+  }
+});
+
+afterAll(() => {
+  if (fs.existsSync(MANIFEST_BAK_PATH)) {
+    fs.renameSync(MANIFEST_BAK_PATH, MANIFEST_PATH);
+  }
+});
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const URI = "file:///tmp/ws/main.py";

@@ -4,7 +4,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { absolutePathToFileUri } from "../src/shared/file-uri";
+import { absolutePathToFileUri } from "../src/shared/fs/file-uri";
 import {
   CompletionItemSchema,
   DocumentHighlightSchema,

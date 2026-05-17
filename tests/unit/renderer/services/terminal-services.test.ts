@@ -17,6 +17,34 @@ const listeners: ListenerRecord[] = [];
     listen: () => {},
     off: () => {},
   },
+  // matchMedia stub: theme.ts calls window.matchMedia at module-init time.
+  // Without this, any test file that loads theme.ts after this file replaces
+  // globalThis.window would crash with "window.matchMedia is not a function".
+  matchMedia: (_query: string) => ({
+    matches: false,
+    media: _query,
+    onchange: null,
+    addEventListener(): void {},
+    removeEventListener(): void {},
+    addListener(): void {},
+    removeListener(): void {},
+    dispatchEvent(): boolean { return false; },
+  }),
+};
+
+// document stub: the terminal controller's resolveCurrentThemeId() accesses
+// document.documentElement.getAttribute("data-theme") at init time. In bun's
+// test environment, `document` is undefined when window is replaced with a
+// plain stub. Providing a minimal document stub lets initialize() proceed so
+// this.term and this.ptyClient are set before tests call reopen().
+(globalThis as Record<string, unknown>).document = {
+  documentElement: {
+    getAttribute: (_name: string): string | null => null,
+    addEventListener: (_type: string, _listener: EventListenerOrEventListenerObject): void => {},
+    removeEventListener: (_type: string, _listener: EventListenerOrEventListenerObject): void => {},
+    setAttribute: (_name: string, _value: string): void => {},
+  },
+  fonts: { load: () => Promise.resolve([]) },
 };
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
@@ -33,6 +61,13 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
       if (index >= 0) listeners.splice(index, 1);
     };
   }),
+  // ipcStream is unused by terminal-services tests but must be present in the mock
+  // so that modules with a static `import { ipcStream }` binding (e.g. history/panel)
+  // can link successfully when they are evaluated later in the same Bun process.
+  // Bun's module cache freezes the export-list of the first mock registered for a
+  // given path; any subsequent mock.module call on the same path cannot add new
+  // named exports that were absent from the original registration.
+  ipcStream: mock(() => ({ promise: new Promise(() => {}), onProgress: () => () => {} })),
 }));
 
 const { closeTerminal, createTerminalController, openTerminal } = await import(

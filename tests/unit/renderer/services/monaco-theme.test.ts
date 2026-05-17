@@ -2,6 +2,26 @@ import { describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
 import { nexusDarkPalette } from "../../../../src/shared/editor/palette";
 
+// Stub document.documentElement before importing the monaco-theme module.
+// subscribeMonacoThemeChanges (called by initializeMonacoTheme) attaches a
+// listener to document.documentElement; without the stub the module throws
+// ReferenceError: document is not defined in a bun test environment.
+const listeners: Record<string, EventListenerOrEventListenerObject[]> = {};
+const fakeDocumentElement = {
+  addEventListener: (type: string, handler: EventListenerOrEventListenerObject) => {
+    if (!listeners[type]) listeners[type] = [];
+    listeners[type].push(handler);
+  },
+  removeEventListener: (type: string, handler: EventListenerOrEventListenerObject) => {
+    if (listeners[type]) {
+      listeners[type] = listeners[type].filter((h) => h !== handler);
+    }
+  },
+};
+(globalThis as Record<string, unknown>).document = {
+  documentElement: fakeDocumentElement,
+};
+
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -13,10 +33,11 @@ import { nexusDarkPalette } from "../../../../src/shared/editor/palette";
 mock.module("../../../../src/renderer/ipc/client", () => ({
   ipcCall: mock(() => Promise.resolve(undefined)),
   ipcListen: mock(() => () => {}),
+  ipcStream: mock(() => ({ cancel: () => {} })),
 }));
 
 const { initializeEditorServices } = await import("../../../../src/renderer/services/editor");
-const { initializeMonacoTheme, NEXUS_DARK_THEME_NAME, buildEditorColors } = await import(
+const { initializeMonacoTheme, NEXUS_THEME_NAMES, buildEditorColors } = await import(
   "../../../../src/renderer/services/editor/runtime/monaco-theme"
 );
 
@@ -42,8 +63,11 @@ function createFakeMonaco(): typeof Monaco & {
     MarkerTag: { Unnecessary: 1, Deprecated: 2 },
     editor: {
       defineTheme,
+      setTheme: mock(() => {}),
       getModel: () => null,
+      getModelMarkers: () => [],
       setModelMarkers: () => {},
+      onDidChangeMarkers: () => ({ dispose: () => {} }),
     },
     languages: {
       CompletionItemKind: { Text: 1 },
@@ -63,19 +87,20 @@ function createFakeMonaco(): typeof Monaco & {
 }
 
 describe("nexus-dark Monaco theme — two distinct instances are tracked independently", () => {
-  test("each instance gets defineTheme called exactly once, regardless of the other", () => {
+  test("each instance gets defineTheme called once per theme (3 themes), regardless of the other", () => {
     const monacoA = createFakeMonaco();
     const monacoB = createFakeMonaco();
 
-    // First instance: two calls → only first registers
+    // First instance: two calls → only first registers (WeakSet guard)
     initializeMonacoTheme(monacoA);
     initializeMonacoTheme(monacoA);
 
     // Second instance: first call should register (not share WeakSet entry with A)
     initializeMonacoTheme(monacoB);
 
-    expect(monacoA.__defineTheme).toHaveBeenCalledTimes(1);
-    expect(monacoB.__defineTheme).toHaveBeenCalledTimes(1);
+    // initializeMonacoTheme now registers all 3 ThemeId themes per instance
+    expect(monacoA.__defineTheme).toHaveBeenCalledTimes(3);
+    expect(monacoB.__defineTheme).toHaveBeenCalledTimes(3);
   });
 
   test("buildEditorColors reference values match editor palette exactly", () => {
@@ -91,35 +116,45 @@ describe("nexus-dark Monaco theme — two distinct instances are tracked indepen
 });
 
 describe("nexus-dark Monaco theme", () => {
-  test("defines warm word-highlight colors once per Monaco instance", () => {
+  test("defines warm-dark word-highlight colors once per Monaco instance (3 themes total)", () => {
     const monaco = createFakeMonaco();
 
     initializeMonacoTheme(monaco);
     initializeMonacoTheme(monaco);
 
-    expect(monaco.__defineTheme).toHaveBeenCalledTimes(1);
-    expect(monaco.__themeCalls).toHaveLength(1);
-    expect(monaco.__themeCalls[0]?.name).toBe(NEXUS_DARK_THEME_NAME);
-    expect(monaco.__themeCalls[0]?.theme).toMatchObject({
+    // 3 themes registered (warm-dark, cool-dark, warm-light); second call is no-op
+    expect(monaco.__defineTheme).toHaveBeenCalledTimes(3);
+    expect(monaco.__themeCalls).toHaveLength(3);
+
+    // warm-dark is the first theme registered; verify its name and colors
+    const warmDarkCall = monaco.__themeCalls.find(
+      (c) => c.name === NEXUS_THEME_NAMES["warm-dark"],
+    );
+    expect(warmDarkCall).toBeDefined();
+    expect(warmDarkCall?.theme).toMatchObject({
       base: "vs-dark",
       inherit: true,
       rules: [],
     });
-    expect(monaco.__themeCalls[0]?.theme.colors).toMatchObject({
+    expect(warmDarkCall?.theme.colors).toMatchObject({
       "editor.wordHighlightBackground": nexusDarkPalette.wordHighlightBackground,
       "editor.wordHighlightStrongBackground": nexusDarkPalette.wordHighlightStrongBackground,
       "editor.wordHighlightTextBackground": nexusDarkPalette.wordHighlightTextBackground,
     });
   });
 
-  test("initializeEditorServices initializes the theme once", () => {
+  test("initializeEditorServices initializes all themes once (3 themes, no duplicates)", () => {
     const monaco = createFakeMonaco();
 
     initializeEditorServices(monaco);
     initializeEditorServices(monaco);
 
-    expect(monaco.__defineTheme).toHaveBeenCalledTimes(1);
-    expect(monaco.__themeCalls.map((call) => call.name)).toEqual([NEXUS_DARK_THEME_NAME]);
+    // 3 themes registered; second initializeEditorServices call is no-op
+    expect(monaco.__defineTheme).toHaveBeenCalledTimes(3);
+    const registeredNames = monaco.__themeCalls.map((call) => call.name);
+    expect(registeredNames).toContain(NEXUS_THEME_NAMES["warm-dark"]);
+    expect(registeredNames).toContain(NEXUS_THEME_NAMES["cool-dark"]);
+    expect(registeredNames).toContain(NEXUS_THEME_NAMES["warm-light"]);
   });
 });
 

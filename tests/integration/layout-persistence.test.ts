@@ -33,6 +33,18 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
     listen: () => {},
     off: () => {},
   },
+  matchMedia: () => ({
+    matches: false,
+    media: "",
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent() {
+      return false;
+    },
+  }),
 };
 
 /** Default IPC mock used by tests that do not exercise bootstrap hydration. */

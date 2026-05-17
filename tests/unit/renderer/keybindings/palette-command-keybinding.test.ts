@@ -77,7 +77,7 @@ afterEach(() => {
 
 describe("workspace symbol palette command/keybinding", () => {
   it("binds Cmd+T to the workspace symbol search command", () => {
-    expect(findPrimaryBinding(COMMANDS.workspaceSymbolSearch)?.primary).toBe("CmdOrCtrl+T");
+    expect(findPrimaryBinding(COMMANDS.workspaceSymbolSearch)?.primary).toBe("CmdOrCtrl+Shift+O");
   });
 
   it("command registration opens the palette", () => {
@@ -91,7 +91,22 @@ describe("workspace symbol palette command/keybinding", () => {
 
   it("Cmd+T dispatch opens the palette", () => {
     const unregister = registerPaletteCommands();
-    const e = makeEvent("t", { metaKey: true, code: "KeyT" });
+    let prevented = false;
+    const e = {
+      key: "O",
+      code: "KeyO",
+      metaKey: true,
+      shiftKey: true,
+      altKey: false,
+      ctrlKey: false,
+      target: null,
+      get defaultPrevented() {
+        return prevented;
+      },
+      preventDefault() {
+        prevented = true;
+      },
+    };
 
     handleGlobalKeyDown(e as unknown as KeyboardEvent);
 

@@ -110,8 +110,8 @@ describe("CommandPaletteFrame render states", () => {
   it("uses the design backdrop, subtle selected row, and row tooltip", () => {
     const html = render("results");
 
-    expect(html).toContain("bg-frosted-veil-strong");
-    expect(html).toContain("bg-frosted-veil");
+    expect(html).toContain("bg-[var(--floating-scrim)]");
+    expect(html).toContain("bg-[var(--state-hover-bg)]");
     expect(html).toContain('title="/workspace/src/greet.ts"');
   });
 
