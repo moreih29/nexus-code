@@ -5,9 +5,13 @@
 
 import { Grid } from "@/engine/split-engine";
 import { useLayoutStore } from "../../../state/stores/layout";
-import { useTabsStore } from "../../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { ContentHost } from "./host";
 import { ownerLeafIdOf } from "./selectors";
+
+// Stable empty fallback — returning a fresh `{}` from the selector would change
+// identity on every render and trip useSyncExternalStore's infinite-loop guard.
+const EMPTY_TABS: Record<string, Tab> = {};
 
 export function ContentPool({
   workspaceId,
@@ -16,7 +20,7 @@ export function ContentPool({
   workspaceId: string;
   isWorkspaceActive: boolean;
 }) {
-  const tabRecord = useTabsStore((s) => s.byWorkspace[workspaceId] ?? {});
+  const tabRecord = useTabsStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
   const layout = useLayoutStore((s) => s.byWorkspace[workspaceId]);
 
   // Derive activeTabId for each leaf once so ContentHost can get isActiveTab.

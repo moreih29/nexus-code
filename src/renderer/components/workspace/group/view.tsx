@@ -4,7 +4,7 @@ import { closeTerminal, openTerminal } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
-import { useTabsStore } from "@/state/stores/tabs";
+import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { cn } from "@/utils/cn";
 import { slotRegistry } from "../content/slot-registry";
 import { DropIndicator } from "../dnd/drop-indicator";
@@ -33,6 +33,10 @@ interface GroupViewProps {
 // Component
 // ---------------------------------------------------------------------------
 
+// Stable empty fallback — returning a fresh `{}` from the selector would change
+// identity on every render and trip useSyncExternalStore's infinite-loop guard.
+const EMPTY_TABS: Record<string, Tab> = {};
+
 export function GroupView({
   workspaceId,
   leaf,
@@ -41,7 +45,7 @@ export function GroupView({
   workspaceRootPath,
 }: GroupViewProps) {
   const activeGroupId = useLayoutStore((s) => s.byWorkspace[workspaceId]?.activeGroupId ?? null);
-  const tabsMap = useTabsStore((s) => s.byWorkspace[workspaceId] ?? {});
+  const tabsMap = useTabsStore((s) => s.byWorkspace[workspaceId] ?? EMPTY_TABS);
 
   const layoutStore = useLayoutStore();
 
@@ -165,7 +169,10 @@ export function GroupView({
     // biome-ignore lint/a11y/noStaticElementInteractions: click activates group; keyboard handled by focusable children
     <div
       ref={wrapperRef}
-      className={cn("flex flex-col min-h-0 min-w-0 flex-1", isActive && "bg-[var(--tab-active-bg)]")}
+      className={cn(
+        "flex flex-col min-h-0 min-w-0 flex-1",
+        isActive && "bg-[var(--tab-active-bg)]",
+      )}
       onClick={handleGroupClick}
     >
       <GroupTabBar

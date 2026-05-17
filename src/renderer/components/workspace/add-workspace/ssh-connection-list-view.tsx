@@ -1,12 +1,4 @@
-import {
-  AlertCircle,
-  ChevronRight,
-  LoaderCircle,
-  Plus,
-  Server,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { AlertCircle, ChevronRight, LoaderCircle, Plus, Server, Star, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
 import { ipcCall, ipcCallResult } from "../../../ipc/client";
@@ -128,10 +120,7 @@ export function SshConnectionListView({
     }
   }
 
-  async function removeProfile(
-    profile: ConnectionProfile,
-    event: React.MouseEvent,
-  ): Promise<void> {
+  async function removeProfile(profile: ConnectionProfile, event: React.MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
       await ipcCall("connectionProfile", "remove", { id: profile.id });
@@ -262,42 +251,54 @@ function ConnectionProfileRow({
 
   return (
     <li>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onConnect}
+      {/* Row: primary connect-button + sibling action slot. The favorite/remove
+          buttons are siblings (not descendants) of the row button — nesting a
+          <button> inside a <button> is invalid HTML. */}
+      <div
         className={[
-          "group flex w-full items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none",
-          "hover:bg-[var(--state-hover-bg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-          "disabled:pointer-events-none disabled:opacity-50",
+          "group flex items-center rounded-[--radius-control] hover:bg-[var(--state-hover-bg)]",
+          disabled ? "pointer-events-none opacity-50" : "",
           // Error state: left border as redundant visual channel
-          hasError ? "border-l-2 border-[var(--state-error-border)] pl-[calc(0.5rem-2px)]" : "",
+          hasError ? "border-l-2 border-[var(--state-error-border)]" : "",
         ]
           .filter(Boolean)
           .join(" ")}
       >
-        {/* Leading icon: Server or connecting spinner */}
-        {connecting ? (
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            <LoaderCircle
-              className="size-4 animate-spin text-[var(--state-loading-indicator)]"
-              aria-hidden="true"
-            />
-          </span>
-        ) : (
-          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onConnect}
+          className={[
+            "flex min-w-0 flex-1 items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none",
+            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+            hasError ? "pl-[calc(0.5rem-2px)]" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {/* Leading icon: Server or connecting spinner */}
+          {connecting ? (
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              <LoaderCircle
+                className="size-4 animate-spin text-[var(--state-loading-indicator)]"
+                aria-hidden="true"
+              />
+            </span>
+          ) : (
+            <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
 
-        {/* Name + connection info */}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
-          <span className="block truncate text-app-ui-sm text-muted-foreground">
-            {connecting ? "Connecting…" : subtitle}
+          {/* Name + connection info */}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
+            <span className="block truncate text-app-ui-sm text-muted-foreground">
+              {connecting ? "Connecting…" : subtitle}
+            </span>
           </span>
-        </span>
+        </button>
 
-        {/* Chevron + action buttons */}
-        <span className="flex shrink-0 items-center gap-0.5">
+        {/* Chevron + action buttons — siblings of the row button (see comment above) */}
+        <span className="flex shrink-0 items-center gap-0.5 pr-2">
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
@@ -322,7 +323,7 @@ function ConnectionProfileRow({
           </span>
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </span>
-      </button>
+      </div>
 
       {/* Per-row error strip — below the row button, redundant encoding: icon + border + color */}
       {hasError ? (
@@ -334,9 +335,7 @@ function ConnectionProfileRow({
             className="mt-0.5 size-3.5 shrink-0 text-[var(--state-error-fg)]"
             aria-hidden="true"
           />
-          <span className="min-w-0 text-app-micro text-[var(--state-error-fg)]">
-            {errorHuman}
-          </span>
+          <span className="min-w-0 text-app-micro text-[var(--state-error-fg)]">{errorHuman}</span>
         </div>
       ) : null}
     </li>

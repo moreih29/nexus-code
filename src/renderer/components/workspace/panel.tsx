@@ -3,7 +3,7 @@ import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useLayoutStore } from "../../state/stores/layout";
-import { useTabsStore } from "../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { StatusBar } from "../workbench/status-bar";
@@ -24,6 +24,10 @@ interface WorkspacePanelProps {
   isActive: boolean;
 }
 
+// Stable empty fallback — returning a fresh `{}` from the selector would change
+// identity on every render and trip useSyncExternalStore's infinite-loop guard.
+const EMPTY_TABS: Record<string, Tab> = {};
+
 // ---------------------------------------------------------------------------
 // Component — owns one workspace's layout; mounted once and kept alive
 // (via CSS hide) so PTYs survive across workspace switches.
@@ -31,7 +35,7 @@ interface WorkspacePanelProps {
 
 export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
   const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
-  const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? {});
+  const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? EMPTY_TABS);
   const aggregate = useTerminalDeathStore((s) => s.aggregateByWorkspaceId[workspace.id] ?? null);
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspace.id));
   const deadTerminalCount = deadTerminalTabs(tabs).length;

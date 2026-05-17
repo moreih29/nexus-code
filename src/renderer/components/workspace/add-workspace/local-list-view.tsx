@@ -14,7 +14,12 @@ import { ipcCall, ipcCallResult } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
-import { folderName, formatSshSecondaryLine, formatSshTooltip, humanizeSshError } from "./ssh-helpers";
+import {
+  folderName,
+  formatSshSecondaryLine,
+  formatSshTooltip,
+  humanizeSshError,
+} from "./ssh-helpers";
 import type { LocalListViewProps } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -222,11 +227,7 @@ export function LocalListView({
 
   // ── Error helpers ─────────────────────────────────────────────────────────
 
-  function setError(
-    bookmarkId: string | null,
-    error: unknown,
-    profileId: string | null,
-  ): void {
+  function setError(bookmarkId: string | null, error: unknown, profileId: string | null): void {
     setErrorBookmarkId(bookmarkId);
     // SSH reconnect failures (profileId set) are humanised so raw SshErrorCode
     // strings never reach the UI; local failures keep a generic message.
@@ -379,9 +380,7 @@ export function LocalListView({
                 onClick={() => setShowAllRecent((prev) => !prev)}
                 className="mt-1 w-full rounded-[--radius-control] px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               >
-                {showAllRecent
-                  ? "Show less"
-                  : `Show ${recents.length - RECENT_MAX_DEFAULT} more`}
+                {showAllRecent ? "Show less" : `Show ${recents.length - RECENT_MAX_DEFAULT} more`}
               </button>
             ) : null}
           </section>
@@ -531,37 +530,47 @@ function BookmarkRow({
 
   return (
     <li>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onOpen}
-        title={titleTooltip}
-        className="group flex w-full items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
+      {/* Row: primary open-button + sibling action slot. The favorite/remove
+          buttons are siblings (not descendants) of the row button — nesting a
+          <button> inside a <button> is invalid HTML. */}
+      <div
+        className={`group flex items-center rounded-[--radius-control] hover:bg-[var(--state-hover-bg)]${
+          disabled ? " pointer-events-none opacity-50" : ""
+        }`}
       >
-        {/* Leading icon: Folder (local) or Server (ssh) */}
-        {reconnecting ? (
-          <LoaderCircle
-            className="size-4 shrink-0 animate-spin text-muted-foreground"
-            aria-hidden="true"
-          />
-        ) : isLocal ? (
-          <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        ) : (
-          <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        )}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onOpen}
+          title={titleTooltip}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-[--radius-control] px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        >
+          {/* Leading icon: Folder (local) or Server (ssh) */}
+          {reconnecting ? (
+            <LoaderCircle
+              className="size-4 shrink-0 animate-spin text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : isLocal ? (
+            <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
 
-        {/* Name + path lines */}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
-          <span className="block min-w-0 truncate text-app-micro text-[var(--editor-text-muted)]">
-            {pathDisplay}
+          {/* Name + path lines */}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
+            <span className="block min-w-0 truncate text-app-micro text-[var(--editor-text-muted)]">
+              {pathDisplay}
+            </span>
           </span>
-        </span>
+        </button>
 
-        {/* Trailing action slot — always occupies fixed width to prevent layout shift on hover.
-            At rest: only the star indicator icon is visible (opacity-100 on indicator,
+        {/* Trailing action slot — sibling of the row button (see comment above).
+            Always occupies fixed width to prevent layout shift on hover. At rest:
+            only the star indicator icon is visible (opacity-100 on indicator,
             opacity-0 on buttons). On hover/focus: buttons fade in, indicator fades out. */}
-        <span className="flex shrink-0 items-center">
+        <span className="flex shrink-0 items-center pr-2">
           {/* At-rest star indicator — fades out on row hover/focus */}
           <span
             className="flex size-8 shrink-0 items-center justify-center text-muted-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
@@ -579,7 +588,11 @@ function BookmarkRow({
               tabIndex={-1}
               className="inline-flex size-8 items-center justify-center rounded-[--radius-control] text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
-              <Star className="size-4" fill={isFavorite ? "currentColor" : "none"} aria-hidden="true" />
+              <Star
+                className="size-4"
+                fill={isFavorite ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
             </button>
             <button
               type="button"
@@ -592,7 +605,7 @@ function BookmarkRow({
             </button>
           </span>
         </span>
-      </button>
+      </div>
 
       {/* Per-bookmark inline error */}
       {error ? (
