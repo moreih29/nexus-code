@@ -6,8 +6,9 @@
  * runtime handler that is registered in the renderer command registry.
  *
  * Adding a new shortcut means: declare an ID here → register a handler
- * in the renderer (`use-global-commands.ts`) → optionally surface it in
- * the menu template and/or the keyboard dispatcher.
+ * in the renderer (a `keybindings/commands/<domain>-commands.ts` module,
+ * composed by `use-global-keybindings.ts`) → optionally surface it in the
+ * menu template and/or the keyboard dispatcher.
  *
  * IDs are namespaced by surface (`file.*`, `tab.*`, `group.*`,
  * `path.*`) so the catalog stays scannable as the app grows.
@@ -26,7 +27,7 @@ export const COMMANDS = {
   // Tabs
   tabClose: "tab.close",
   tabCloseOthers: "tab.closeOthers",
-  // Chord-only commands (⌘K …) — see keybindings/global.ts.
+  // Chord-only commands (⌘K …) — see the KEYBINDINGS table in ./index.ts.
   tabCloseSaved: "tab.closeSaved",
   tabCloseAll: "tab.closeAll",
   tabPinToggle: "tab.pinToggle",

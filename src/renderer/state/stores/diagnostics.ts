@@ -79,7 +79,7 @@ export function selectWorkspaceDiagnostics(
 
 /**
  * Recount error/warning markers per workspace and update the store.
- * Called on every onDidChangeMarkers event.
+ * Called (trailing-debounced) after marker changes.
  */
 function recount(monaco: typeof Monaco): void {
   // monaco.editor.getModelMarkers({}) returns all markers for all owners/URIs.
@@ -104,8 +104,35 @@ function recount(monaco: typeof Monaco): void {
     }
     tally[meta.workspaceId] = bucket;
   }
+
+  // Identity preservation: reuse the prior object for any workspace whose
+  // counts are unchanged, and skip the store update entirely when nothing
+  // changed. This stops a marker event in workspace A from re-rendering the
+  // StatusBars of every other mounted workspace (each panel stays mounted).
+  const prev = useDiagnosticsStore.getState().byWorkspace;
+  let changed = Object.keys(prev).length !== Object.keys(tally).length;
+  for (const [workspaceId, next] of Object.entries(tally)) {
+    const before = prev[workspaceId];
+    if (
+      before &&
+      before.errorCount === next.errorCount &&
+      before.warningCount === next.warningCount
+    ) {
+      tally[workspaceId] = before;
+    } else {
+      changed = true;
+    }
+  }
+  if (!changed) return;
   useDiagnosticsStore.getState()._setByWorkspace(tally);
 }
+
+/**
+ * Trailing-debounce window for marker recounts. onDidChangeMarkers can fire
+ * many times per second while an LSP streams diagnostics during typing; the
+ * status-bar counts do not need sub-frame freshness.
+ */
+const RECOUNT_DEBOUNCE_MS = 120;
 
 /**
  * Wire Monaco's marker change subscription to the diagnostics store.
@@ -115,9 +142,15 @@ function recount(monaco: typeof Monaco): void {
 export function initializeDiagnosticsStore(monaco: typeof Monaco): void {
   // Recount immediately in case markers exist before subscription.
   recount(monaco);
-  // onDidChangeMarkers fires with a list of changed URIs — we ignore them
-  // and always do a full recount (simpler, no URI-level bookkeeping needed).
+  // onDidChangeMarkers fires with a list of changed URIs — we ignore them and
+  // always do a full recount. A trailing debounce coalesces the burst of
+  // events an LSP emits while the user types into a single recount.
+  let timer: ReturnType<typeof setTimeout> | null = null;
   monaco.editor.onDidChangeMarkers(() => {
-    recount(monaco);
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      recount(monaco);
+    }, RECOUNT_DEBOUNCE_MS);
   });
 }

@@ -25,8 +25,6 @@ export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
 export type GitCommitTabProps = GitCommitTabPayload;
 
-export type TabProps = TerminalTabProps | EditorTabProps | DiffTabProps | GitCommitTabProps;
-
 interface TabBase {
   id: string;
   title: string;

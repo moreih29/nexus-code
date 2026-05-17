@@ -12,8 +12,8 @@
  *
  * Adding a shortcut is a one-line addition here. There are no parallel
  * tables to keep in sync — this is the architectural fix for what was
- * previously scattered across `keybindings/global.ts`,
- * `main/menu-template.ts`, and `keybindings/shortcut-labels.ts`.
+ * previously scattered across `keybindings/global.ts` and
+ * `main/menu-template.ts`.
  *
  * Accelerator strings follow Electron's format (`"CmdOrCtrl+W"`,
  * `"CmdOrCtrl+Shift+\\"`). `CmdOrCtrl` resolves to ⌘ on Mac and Ctrl

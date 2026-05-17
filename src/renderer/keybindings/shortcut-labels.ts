@@ -1,7 +1,7 @@
 /**
  * Platform-aware shortcut label resolution for context menus.
  *
- * Reads from `shared/keybindings.ts`, which is the single source of
+ * Reads from `shared/keybindings/index.ts`, which is the single source of
  * truth. This module's only job is to format an accelerator for the
  * current platform — the underlying binding lives next to the command
  * declaration.

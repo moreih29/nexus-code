@@ -5,7 +5,7 @@
  * installer (`menu.ts`) maps to `MenuItemConstructorOptions`.
  *
  * Single source of truth for keybindings: every command-typed item
- * looks up its accelerator in `shared/keybindings.ts`. Single-key
+ * looks up its accelerator in `shared/keybindings/index.ts`. Single-key
  * bindings come back through Electron's normal `accelerator` field;
  * chord bindings (`⌘K …`) cannot be Electron-registered, so we
  * suffix the menu label with `[⌘K ⌘W]` exactly as VSCode does.
