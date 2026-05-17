@@ -330,6 +330,8 @@ function messageForSshErrorCode(code: SshErrorCode): string {
       return "SSH connection failed";
     case "ssh.auth-failed":
       return "SSH authentication failed";
+    case "ssh.session-expired":
+      return "SSH browse session expired";
     case "server.spawn-failed":
       return "Remote agent failed to start";
     case "server.protocol-error":

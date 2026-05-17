@@ -20,6 +20,16 @@ import {
   WorkspaceSymbolArgsSchema,
 } from "../lsp";
 import { AppStateSchema } from "../types/app-state";
+import {
+  ConnectionProfileFavoriteArgsSchema,
+  ConnectionProfileIdArgsSchema,
+  ConnectionProfileSaveArgsSchema,
+  ConnectionProfileSchema,
+  FolderBookmarkFavoriteArgsSchema,
+  FolderBookmarkIdArgsSchema,
+  FolderBookmarkRecordArgsSchema,
+  FolderBookmarkSchema,
+} from "../types/entry-points";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   DirEntrySchema,
@@ -220,6 +230,22 @@ const WorkspaceTestSshArgsSchema = z.object({
   identityFile: z.string().min(1).optional(),
   authMode: z.enum(["interactive", "key-only"]).default("interactive"),
   remotePath: z.string().min(1),
+});
+
+// Browse-session connection params — WorkspaceTestSshArgsSchema minus remotePath.
+const SshBrowseConnParamsSchema = z.object({
+  host: z.string().min(1),
+  user: z.string().min(1).optional(),
+  port: z.number().int().positive().max(65_535).optional(),
+  identityFile: z.string().min(1).optional(),
+  authMode: z.enum(["interactive", "key-only"]).default("interactive"),
+});
+
+const SshBrowseSessionIdSchema = z.object({ sessionId: z.string().uuid() });
+
+const SshBrowseResultSchema = z.object({
+  entries: z.array(DirEntrySchema),
+  truncated: z.boolean(),
 });
 
 const WorkspaceTestSshResultSchema = z.discriminatedUnion("ok", [
@@ -429,6 +455,15 @@ export const ipcContract = {
   ssh: {
     call: {
       listConfigHosts: call(z.void(), z.array(SshConfigHostSchema)),
+      openBrowseSession: call(
+        SshBrowseConnParamsSchema,
+        z.object({ sessionId: z.string().uuid(), initialPath: z.string() }),
+      ),
+      browseSession: call(
+        SshBrowseSessionIdSchema.extend({ path: z.string() }),
+        SshBrowseResultSchema,
+      ),
+      closeBrowseSession: call(SshBrowseSessionIdSchema, z.void()),
     },
     listen: {},
   },
@@ -841,6 +876,26 @@ export const ipcContract = {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
+    },
+    listen: {},
+  },
+
+  folderBookmark: {
+    call: {
+      list: call(z.void(), z.array(FolderBookmarkSchema)),
+      record: call(FolderBookmarkRecordArgsSchema, z.void()),
+      setFavorite: call(FolderBookmarkFavoriteArgsSchema, z.void()),
+      remove: call(FolderBookmarkIdArgsSchema, z.void()),
+    },
+    listen: {},
+  },
+
+  connectionProfile: {
+    call: {
+      list: call(z.void(), z.array(ConnectionProfileSchema)),
+      save: call(ConnectionProfileSaveArgsSchema, z.void()),
+      setFavorite: call(ConnectionProfileFavoriteArgsSchema, z.void()),
+      remove: call(ConnectionProfileIdArgsSchema, z.void()),
     },
     listen: {},
   },

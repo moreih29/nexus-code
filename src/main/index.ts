@@ -34,7 +34,9 @@ import { registerGitChannel } from "./features/git/ipc";
 import { registerLspChannel } from "./features/lsp/ipc";
 import { registerPanelChannel } from "./features/panel";
 import { registerPtyChannel } from "./features/pty/ipc";
-import { registerSshChannel } from "./features/ssh/ipc";
+import { registerEntryPointsChannels } from "./features/entry-points/ipc";
+import { registerSshChannel, registerSshBrowseHandlers } from "./features/ssh/ipc";
+import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { installAppMenu } from "./features/menu";
@@ -116,6 +118,7 @@ const workspaceManager = new WorkspaceManager(
 
 agentFsWatcher = new AgentFsWatcher(workspaceManager, forwardBroadcast);
 
+registerEntryPointsChannels(globalStorage);
 registerWorkspaceChannel(workspaceManager, {
   createSshChannel: (options) =>
     createSshChannel(options, {
@@ -131,6 +134,8 @@ registerAppStateChannel(stateService);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
 registerSshChannel();
+const sshBrowseRegistry = new SshBrowseSessionRegistry();
+registerSshBrowseHandlers(sshBrowseRegistry, (prompt) => sshAuthPromptHub.request(prompt));
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
 
@@ -203,6 +208,8 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  // All renderers are gone — no consumer can use browse sessions any more.
+  sshBrowseRegistry.dispose();
   if (!isMac()) {
     app.quit();
   }
@@ -213,6 +220,7 @@ app.on("window-all-closed", () => {
 // queues, then storage close. Each disposer must be idempotent so this stays
 // safe regardless of how far whenReady() progressed.
 app.on("before-quit", () => {
+  sshBrowseRegistry.dispose();
   agentPtyHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();

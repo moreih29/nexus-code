@@ -91,6 +91,49 @@ export const MIGRATIONS: Migration[] = [
     version: 3,
     up: migrateWorkspaceLocations,
   },
+  // Add entry-point persistence tables — folder_bookmarks and connection_profiles.
+  // These tables are intentionally decoupled from the workspaces table (no FK)
+  // so that hard-deleting a workspace never cascades into entry-point history.
+  {
+    version: 4,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS folder_bookmarks (
+          id          TEXT    NOT NULL PRIMARY KEY,
+          abs_path    TEXT    NOT NULL,
+          label       TEXT,
+          favorite    INTEGER NOT NULL DEFAULT 0,
+          last_used_at INTEGER NOT NULL,
+          created_at   INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_bookmarks_abs_path
+          ON folder_bookmarks (abs_path);
+
+        CREATE INDEX IF NOT EXISTS idx_folder_bookmarks_recency
+          ON folder_bookmarks (favorite, last_used_at DESC);
+
+        CREATE TABLE IF NOT EXISTS connection_profiles (
+          id           TEXT    NOT NULL PRIMARY KEY,
+          label        TEXT,
+          host         TEXT    NOT NULL,
+          user         TEXT,
+          port         INTEGER,
+          identity_file TEXT,
+          auth_mode    TEXT    NOT NULL DEFAULT 'interactive',
+          favorite     INTEGER NOT NULL DEFAULT 0,
+          last_used_at  INTEGER NOT NULL,
+          created_at    INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_connection_profiles_natural_key
+          ON connection_profiles (host, user, port);
+
+        CREATE INDEX IF NOT EXISTS idx_connection_profiles_recency
+          ON connection_profiles (favorite, last_used_at DESC);
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: SqliteDb): void {

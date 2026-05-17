@@ -15177,6 +15177,376 @@
           }
         }
       ]
+    },
+    {
+      "schema_version": "1.0",
+      "completed_at": "2026-05-17T04:33:46.610Z",
+      "branch": "feat/add-workspace-modal-redesign",
+      "plan": {
+        "id": 49,
+        "topic": "Add Workspace 모달 UI/UX 재설계 — 로컬/SSH 워크스페이스 추가 흐름",
+        "issues": [
+          {
+            "id": 1,
+            "title": "Local 탭 어포던스: 'Workspace folder' 카드가 클릭 대상으로 오인됨 — 실제 동작은 'Choose Folder' 버튼",
+            "status": "decided",
+            "decision": "Local 탭을 SSH 탭과 대칭인 목록 뷰로 재편. 진입 시 Recent + Favorites 폴더 목록을 보여준다. 'Workspace folder' 비인터랙티브 안내 카드는 제거. 동작: recents 행 클릭 → 해당 워크스페이스 즉시 열림 / '+ Choose folder' → 네이티브 폴더 피커 → Open 시 워크스페이스 즉시 생성·열림(푸터 'Add Workspace' 확정 단계 없음 — 네이티브 다이얼로그의 Open 버튼이 이미 확정 단계라 이중 확인 제거). recents 행의 ★ 버튼으로 Favorites 승격, 🗑로 목록에서 삭제. 근거: OS 폴더 피커의 전역 Recents/즐겨찾기와 '이 앱에서 워크스페이스로 연 폴더' 목록은 범위·의도가 다른 별개 개념이며, 워크스페이스 종료/제거가 가능하므로 최근 폴더가 현재 워크스페이스 목록에 없을 수 있어 별도 목록이 정당하다. 파생 문제: removeWorkspace가 hard-delete이므로 Local recents는 워크스페이스와 독립된 영속 저장소가 필요 — 이슈 5에서 SSH connection_profiles와 통합한 단일 '워크스페이스 진입점' 저장소로 설계한다. 열린 워크스페이스와의 중복 처리(클릭 시 기존 포커스 vs 신규 생성)는 이번 범위 밖 follow-up."
+          },
+          {
+            "id": 2,
+            "title": "SSH 연결 목록 모델: ~/.ssh/config 자동 파싱 유지 vs 사용자 등록 즐겨찾기 + 최근 접속 기록(삭제 가능) 도입 vs 병행",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "권고: Option C 하이브리드 — SSH 탭을 2-뷰(연결목록 / 새연결폼)로 재편, ~/.ssh/config 자동파싱은 New 폼 자동완성으로 보존, 내부 Recents/Favorites 목록 추가. config 전면 폐기(Option B)는 개발자 IDE에서 자산 손실로 반려. CRITICAL 2건: SSH탭 Empty상태·히스토리 부재 / 재접속이 매번 빈 폼. WARNING 2건: config후보와 내부SSH워크스페이스 분리표시 / 삭제기능 부재. 미해결 리스크(디자이너가 Architect/Lead로 위임): (1)목록 행 클릭 의미 — 기존 워크스페이스 Open vs 동일타깃 신규생성, (2)삭제 의미 — 목록숨김 vs 워크스페이스 영구삭제, (3)SSH워크스페이스용 pinned 토글 IPC 존재여부 미확인. Lead 평가: 디자이너의 '워크스페이스 목록 재사용=무백엔드' 주장은 삭제 시맨틱에서 깨짐 — 진짜 삭제 가능한 목록은 워크스페이스 파생뷰가 아니라 IDE 소유 엔티티 필요. 사이드바와 개념 중복 문제도 있음.",
+                "recorded_at": "2026-05-17T01:05:50.309Z",
+                "agent_id": "a7398690d0428583f"
+              }
+            ],
+            "decision": "Option D — 연결 프로파일(connection profile) 엔티티 도입. 워크스페이스와 분리된 IDE 소유 목록을 신설한다: connection_profiles 저장소(테이블 1개) + IPC 3개(list/save/delete). SSH 연결 성공 시 프로파일이 Recents에 자동 적재되고, 별 토글로 Saved/Favorites 승격, 삭제는 프로파일만 제거(워크스페이스에 영향 없음). ~/.ssh/config 자동 파싱은 폐기하지 않고 '새 연결' 폼의 Host 자동완성 후보로 유지 — config 후보는 보조 라벨로 내부 프로파일과 시각 구분. SSH 탭은 2-뷰(연결 목록 / 새 연결 폼)로 재편. 프로파일에 인증 정보까지 저장할지는 이슈 4에서 결정."
+          },
+          {
+            "id": 3,
+            "title": "SSH 연결 흐름 순서: 원격 경로 사전 입력 vs 연결 먼저 → 원격 디렉터리 브라우징으로 경로 선택",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "권고: Option B — 모달 범위 SSH 브라우즈 세션(ephemeral sessionId + 메인 프로세스 SshBrowseSessionRegistry). ensureRemoteAgent/ControlMaster/에이전트 채널을 그대로 재사용 — 'Connect' 시 1회 부트스트랩, 이후 디렉터리 단계마다 warm-channel readdir RPC. 신규 IPC 3개: ssh.openBrowseSession(connParams)→{sessionId,initialPath}, ssh.browseSession(sessionId,path)→DirEntry[], ssh.closeBrowseSession(sessionId). 인증: 기존 SshAuthPromptHub 재사용(interactive 프롬프트 처리에 다이얼로그별 코드 불필요). 조건부 승인: (1) SshBrowseSessionRegistry는 idle-TTL reaper + 렌더러 disconnect 시 dispose 필수 — 안 그러면 리소스 누수, (2) browseSession은 스트리밍 금지·bounded 엔트리 목록 반환(empirical-reconnecting-channel-backpressure의 무크레딧 드레인 회피), (3) 신규 에러는 SshErrorCode sanitized 매핑 경유. 지연 평가: warm RPC는 SSH RTT 1회로 제한 — 수용 가능. 미해결(Lead 결정): testSsh 중복 — connect-first면 openBrowseSession이 이미 연결성 증명, testSsh는 '경로 직접 붙여넣기' 탈출구로만 남기거나 브라우즈 흐름에서 제거.",
+                "recorded_at": "2026-05-17T01:11:07.609Z",
+                "agent_id": "adfb6fd942d167a3e"
+              },
+              {
+                "role": "designer",
+                "summary": "권고: Option B — 단일 컬럼 드릴다운 피커(브레드크럼 + 현재 디렉터리 목록). 트리 탐색기(A)는 디렉터리마다 readdir 왕복→산발적 스피너, 들여쓰기가 560px 폭과 충돌로 반려. 듀얼페인(D)은 폭 초과·과설계로 반려. CRITICAL 3건: 자유텍스트 경로=recall 강요 / 경로 유효성 in-flow 피드백 없음 / readdir 지연 Loading 상태 미설계. 지연 흡수 전략: 스켈레톤 행(스피너 금지), 낙관적 브레드크럼+비관적 목록, hover 150ms 프리페치 + 연결시 초기 cwd 프리페치, AbortController로 in-flight readdir 취소. 파워유저 탈출구: 상단 경로바를 항상 편집가능 텍스트 입력으로 — 타이핑+Enter로 점프, 브라우징과 동등한 1급 모드(Advanced로 강등 금지). Connect 단계 명시화: 새연결폼/목록뷰의 주 버튼은 'Connect', 피커뷰에서 'Add Workspace'로 전환(선택 시에만 활성). 9상태 전부 설계 — Empty(하위폴더 없음→'Use this folder' 허용), Error는 '디렉터리 권한거부'와 '연결 끊김' 구분. 미해결: 인라인 스텝 vs 뷰스왑 — designer는 뷰스왑+고정 240px 목록 영역 권고.",
+                "recorded_at": "2026-05-17T01:11:18.636Z",
+                "agent_id": "a3073bb82d357d31b"
+              }
+            ],
+            "decision": "Option C — 연결 먼저 → 단일 컬럼 드릴다운 원격 디렉터리 피커 + 항상 편집가능한 상단 경로바. 흐름: 연결 정의 → [Connect] → 연결 성공 시 원격 디렉터리 피커 뷰로 전환 → 폴더 드릴다운 또는 경로바 직접 입력 → [Add Workspace]. 기존 'Add' 버튼의 연결+생성 결합을 Connect / Add Workspace 2단계로 분리. 백엔드는 모달 범위 브라우즈 세션(SshBrowseSessionRegistry + openBrowseSession/browseSession/closeBrowseSession IPC 3개)으로 ControlMaster 1회 수립·재사용; 레지스트리는 idle-TTL reaper + 렌더러 disconnect dispose 필수; browseSession은 bounded 엔트리 반환(스트리밍 금지). 기존 testSsh는 connect-first 흐름에서 제거하고 연결성 검증은 openBrowseSession이 대신함. 지연 흡수: 스켈레톤 행 + hover 150ms 프리페치 + 연결시 초기 cwd 프리페치 + AbortController 취소. 피커는 뷰스왑 + 고정 240px 목록 영역. Loading/Empty/Error 9상태 전부 설계, Error는 '디렉터리 권한거부'와 '연결 끊김' 구분."
+          },
+          {
+            "id": 4,
+            "title": "SSH 인증 UI/용어: 'interactive'/'key-only' 라벨이 비전문가에게 불명확 — 소비자 친화 라벨 + 'system default' 기본값 재설계",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "designer",
+                "summary": "권고: Option B — enum 2개(\"interactive\"|\"key-only\") 유지, UI 라벨만 교체 + Advanced로 이동 + 기본값 interactive 유지. 핵심 통찰: 현재 'Interactive'/'Key only'는 인증 '방식'(키 vs 비밀번호) 선택처럼 보이지만 실제로는 '프롬프트 허용 여부 토글'(ask vs don't ask) — ssh-agent·config·기본키는 두 모드 모두에서 시도됨. CRITICAL 2건: 라벨이 control→result 매핑 위반 / 컨트롤을 숨기면 key-only 실패 시 복구경로 없는 dead end. 새 UI 문자열: legend 'If a password or host key is needed', helper 'SSH always tries your SSH agent and default keys first.', interactive→'Ask me'/'Prompt for a password or to confirm a new host.', key-only→\\\"Don't ask — fail instead\\\"/'Use only keys and the SSH agent. No prompts.', 실패복구문구 'Connection needs a password — open Advanced to allow prompts, or load your SSH key.'. 배치: 폼 본문에서 제거하고 기존 Advanced 섹션(Port·Identity file과 함께)으로 — progressive disclosure. 프로파일 저장: authMode·identityFile(비시크릿) 저장, 비밀번호/패스프레이즈는 저장 금지(키체인 범위 밖, interactive 모드가 재접속 시 재프롬프트). enum 확장안(D: System/Password/Key file 3옵션)은 백엔드 변경 + SSH 인증 실제 동작을 호도하므로 반려.",
+                "recorded_at": "2026-05-17T01:17:00.996Z",
+                "agent_id": "adf790b1516a9e372"
+              }
+            ],
+            "decision": "Option E — SSH 인증 토글을 Add Workspace 모달 UI에서 완전 제거. 모달은 항상 authMode='interactive'로 연결한다(사람이 직접 추가하는 GUI 흐름에서 'don't ask'(BatchMode)는 실효 가치 낮음, SshAuthPromptHub가 프롬프트를 인앱 처리하므로 매달림 문제 없음). 백엔드 authMode enum('interactive'|'key-only') 자체는 유지 — ~/.ssh/config의 BatchMode 존중 등에 계속 쓰임. key-only를 강제하려는 파워유저는 ~/.ssh/config에 'BatchMode yes'를 직접 설정하면 ssh가 그대로 존중함. 결과: Advanced 섹션에는 Port·Identity file만 남고, 현재의 'Authentication' fieldset(SSH_AUTH_OPTIONS 라디오 2개)은 add-workspace-dialog.tsx에서 삭제. 연결 프로파일에는 authMode를 'interactive'로 고정 저장(또는 생략하고 백엔드 기본값에 위임), identityFile은 비시크릿이라 저장, 비밀번호는 저장 안 함."
+          },
+          {
+            "id": 5,
+            "title": "전체 모달 IA/레이아웃: 탭 구조 vs 통합 목록, 단일 폼 vs 위저드, progressive disclosure 종합",
+            "status": "decided",
+            "analysis": [
+              {
+                "role": "architect",
+                "summary": "진입점 영속 계층 권고: Option B — 2테이블(folder_bookmarks + connection_profiles), 워크스페이스 테이블과 FK 없음(removeWorkspace가 hard-delete이므로 FK 시 cascade-삭제/고아 발생). 단일 통합 테이블(A)은 local 1필드 vs SSH 5필드 차이로 nullable sprawl·leaky schema 발생해 반려. recent/favorite은 별도 레코드가 아닌 행 상태로 모델링: favorite INTEGER(0/1) + last_used_at. Recent cap=비즐겨찾기 20행/테이블, 쓰기 시 같은 트랜잭션 내 evict, 즐겨찾기는 cap 면제·evict 면제. 마이그레이션 v4: CREATE TABLE IF NOT EXISTS 2개 + 인덱스(natural key UNIQUE로 upsert 디듀프, (favorite,last_used_at DESC) 복합). 신규 IPC 2채널(folderBookmark, connectionProfile, 각 list/record/setFavorite/remove). connection_profiles엔 remote_path 컬럼 없음(경로는 워크스페이스 단위). 시크릿 영속 금지(identity_file는 경로라 OK). 워크스페이스↔진입점 링크는 FK 아닌 read-time 값 매칭. 마이그레이션은 additive·저위험·백필 없음. 미해결(Lead): (1)SSH 디듀프 시 null user/port 정규화 규칙, (2)기존 workspaces를 Recents로 1회 백필할지, (3)신규 스토리지 메서드를 GlobalStorage에 둘지 sibling 클래스로 둘지.",
+                "recorded_at": "2026-05-17T01:42:11.417Z",
+                "agent_id": "a8ef6907b08cf5db5"
+              },
+              {
+                "role": "designer",
+                "summary": "IA 권고: 구성안 B — 탭 유지(Local/SSH 최상위) + 뷰 컨테이너(SSH 탭 내부만 3-뷰 스택: 연결목록→새연결폼→디렉터리피커). 통합 단일 목록(A)은 생성 플로우가 SSH 전용이라 목록만 통합 시 IA 절름발이로 반려, 분기 카드 시작화면(C)은 이슈1 '안내카드 제거·목록 즉시진입' 결정과 충돌로 반려. 가변 푸터 4규칙: R1 푸터는 뷰가 소유, R2 [secondary][primary] 2슬롯 우측정렬 높이고정, R3 secondary=항상 Cancel·primary=전진 가능할 때만(목록뷰는 primary 없음, 전진은 행 클릭), R4 primary 라벨은 결과 명명(Connect→/Add Workspace). 모달 높이: min-h(~480px) 잠금 + 본문만 스크롤(chrome·푸터 고정) + 디렉터리피커 240px 3상태(기본/스켈레톤/에러) 불변. 9뷰 ASCII 목업 산출. SSH 항목에 › chevron으로 '드릴다운 예고' 신호(Local 즉시성과 비대칭 시각화). CRITICAL 3: 행 내 ★/🗑/› 터치타겟 ≥44×44 확보 / muted-foreground 경로텍스트 대비 ≥4.5:1 실측검증 미완 / V1·V2 목록 데이터 로딩 스켈레톤 추가 필요. 미해결: 토큰 실측 대비값, V4 Back 시 연결 유지정책(Architect), 미저장 V3폼 탭전환 확인 다이얼로그(Lead). 권고: last-used 탭 복원.",
+                "recorded_at": "2026-05-17T01:42:23.144Z",
+                "agent_id": "a6c5e2cdb026e6663"
+              },
+              {
+                "role": "retrospective",
+                "summary": "Add Workspace 모달 재설계 사이클 완료 — 10태스크 전원 completed, 검증(T4·T5·T10) 전원 PASS. 산출: 진입점 영속 계층(migration v4 + folder_bookmarks·connection_profiles 2테이블, workspaces와 FK 없음), 진입점 IPC 2채널 + entry-points.ts 스키마, SSH 브라우즈 세션(SshBrowseSessionRegistry + IPC 3콜, idle-TTL reaper), 재설계 모달(탭+뷰 컨테이너, Local 목록 뷰, SSH 연결목록/새연결폼/디렉터리피커 3-뷰, 가변 푸터 4규칙, 인증 토글·Remote path 입력칸 제거). 검증 과정 2회 FAIL→수정: (1)T3 빌드 차단(pipe.ts exhaustiveness)·channel 누수·migration 테스트 회귀, (2)T10 가변 푸터 미준수(버튼이 본문에 있음)·터치타겟 미달·a11y — 전부 단순 수정으로 해소. 잔존 비블로킹 INFO: 동일-ms evict 타이브레이크 부재(병렬 테스트 플래키 가능), 비활성 탭 aria-controls 미완전, 인라인 콜백 재렌더, handleConnectProfile dead code. 범위 밖 follow-up: 진입점 클릭 시 이미 열린 워크스페이스 중복 처리, parseSshDestination 기존 버그(user 공백·이중 @). 교훈: contract enum 확장 시 동반 switch 갱신 누락이 빌드 차단을 유발 — SshErrorCode 같은 exhaustive 분기는 확장 시 전 소비처 점검 필요.",
+                "recorded_at": "2026-05-17T04:33:43.984Z"
+              }
+            ],
+            "decision": "IA 구성안 B 확정 — 탭 유지(Local/SSH 최상위) + 뷰 컨테이너(SSH 탭 내부만 3-뷰 스택: 연결목록→새연결폼→디렉터리피커, Local 탭은 단일 목록 뷰). 가변 푸터 4규칙: 푸터는 현재 뷰가 소유 / [secondary][primary] 2슬롯 우측정렬 높이고정 / secondary=항상 Cancel·primary=전진 가능할 때만(목록 뷰엔 primary 없음) / primary 라벨은 결과 명명(Connect→ / Add Workspace). 모달 높이: min-h(~480px) 잠금 + 본문만 스크롤(헤더·탭·푸터 고정) + 디렉터리 피커 240px 3상태 불변. SSH 행에 › chevron으로 드릴다운 예고(Local 즉시성과 비대칭 시각화). last-used 탭 복원. 저장 계층: architect 권고 Option B 채택 — folder_bookmarks + connection_profiles 2테이블, workspaces와 FK 없음(hard-delete 독립성 구조적 보장), recent/favorite은 행 상태(favorite INTEGER + last_used_at), Recent cap=비즐겨찾기 20/테이블 evict-on-write, 마이그레이션 v4 additive. 백필 결정: 하지 않음 — Recents는 빈 상태로 시작하고 사용하면서 차오른다(기존 워크스페이스 1회 백필 안 함). 잔여 기술 결정(Lead): SSH 디듀프 시 null user/port는 쓰기 시점 정규화(port→22, user→resolved login), V4 Back 시 브라우즈 세션 유지, 미저장 새연결폼 상태에서 탭 전환 시 확인. 범위 밖 follow-up: 진입점 클릭 시 이미 열린 워크스페이스와의 중복 처리(기존 포커스 vs 신규 생성)."
+          }
+        ],
+        "research_summary": "[코드 조사 — Explore] add-workspace-dialog.tsx: Radix Dialog + 2탭(Local/SSH). Local 탭은 안내 카드 1개 + 하단 'Choose Folder...' 버튼이 실제 트리거(네이티브 디렉터리 피커). SSH 탭은 Host combobox(자동완성), Remote path 자유 텍스트 입력, Name, Authentication 라디오 2종, Advanced(Port/Identity file). 백엔드: ssh.listConfigHosts는 ~/.ssh/config를 파싱(alias/host/user/port/identityFile). 워크스페이스는 SQLite global-storage에 영속(last_opened_at DESC 정렬) — 별도의 '최근/즐겨찾기' 개념 없음, 워크스페이스 목록 자체가 히스토리. workspace.testSsh는 연결 검증(원격 '.' readdir). fs.readdir/fs.stat는 SSH 워크스페이스에서 동작하나 워크스페이스 생성 이후에만 — 생성 전 stateless 원격 디렉터리 브라우징 IPC는 없음(신규 ssh.browseRemote 필요). authMode: interactive(PTY 비밀번호/호스트키 프롬프트) / key-only(BatchMode=yes, 프롬프트 없이 실패).\\n\\n[외부 조사 — Researcher] Termius/VS Code/JetBrains Gateway/WinSCP/Cyberduck/Transmit/MobaXterm 등 11개 앱 분석. 공통 패턴: (1) Recent→Saved→New 3계층 연결 목록, (2) ~/.ssh/config 자동 읽기는 VS Code·Cyberduck만, 다수는 수동 등록, (3) 'use system defaults/SSH agent'를 기본 인증 옵션으로 — keyboard-interactive/publickey/GSSAPI 같은 기술 용어 노출 회피, (4) WinSCP식 단일 폼 + Advanced 버튼 progressive disclosure가 표준, (5) IDE류(VS Code·JetBrains)는 connect-first-then-browse — 경로 사전 입력은 안티패턴, JetBrains Gateway는 연결→테스트→원격 디렉터리 선택을 한 위저드에 통합. 피해야 할 패턴: keyboard-interactive를 명명된 인증 옵션으로 노출, 인증을 완전히 숨겨 override 불가, 경로 맹목 사전 입력, 모든 세션 무조건 자동 저장.",
+        "created_at": "2026-05-17T00:59:58.647Z"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "진입점 영속 계층 — folder_bookmarks · connection_profiles 2테이블 + 마이그레이션 v4",
+          "status": "completed",
+          "context": "대상: src/main/infra/storage/migrations.ts, global-storage.ts. 현 영속 계층은 SQLite(state.db) + 버전드 마이그레이션 리스트(현 v3까지), 도메인 테이블은 workspaces 하나. removeWorkspace는 hard-delete(DELETE FROM workspaces). architect 분석(plan #49 이슈5)이 스키마 초안 제공. 진입점 목록은 워크스페이스 hard-delete와 독립이어야 하므로 FK 금지.",
+          "acceptance": "v4 마이그레이션이 신규/기존 DB 양쪽에서 에러 없이 적용되고 두 테이블·인덱스가 생성된다. record 호출 시 동일 natural key는 새 행 대신 last_used_at만 갱신(upsert). 비즐겨찾기 행이 21번째부터 가장 오래된 것이 evict되고 즐겨찾기는 cap 무관하게 보존된다. removeWorkspace 호출이 두 신규 테이블에 영향을 주지 않는다. 기존 workspaces 데이터는 불변.",
+          "approach": "migrations.ts에 v4 추가(기존 v1~3 불변): CREATE TABLE IF NOT EXISTS folder_bookmarks(id TEXT PK, abs_path TEXT NOT NULL, label TEXT, favorite INTEGER NOT NULL DEFAULT 0, last_used_at INTEGER NOT NULL, created_at INTEGER NOT NULL) + UNIQUE INDEX(abs_path) + INDEX(favorite,last_used_at DESC). connection_profiles(id TEXT PK, label TEXT, host TEXT NOT NULL, user TEXT, port INTEGER, identity_file TEXT, auth_mode TEXT NOT NULL DEFAULT 'interactive', favorite INTEGER NOT NULL DEFAULT 0, last_used_at INTEGER NOT NULL, created_at INTEGER NOT NULL) + UNIQUE INDEX(host,user,port) + INDEX(favorite,last_used_at DESC). remote_path 컬럼 없음. global-storage.ts에 storage 메서드: list/record(upsert by natural key+last_used_at bump+evict)/setFavorite/remove를 folder_bookmark·connection_profile 각각. record는 upsert+evict를 단일 db.transaction()으로. evict=비즐겨찾기 20행 초과분 last_used_at DESC 기준 삭제, 즐겨찾기 면제. SSH 디듀프는 쓰기 시점 정규화(port→22, user→resolved login)로 null 키 회피. 시크릿 컬럼 없음.",
+          "risk": "SSH UNIQUE INDEX(host,user,port)에서 null user/port는 SQLite상 distinct 취급 — 쓰기 시점 정규화를 누락하면 중복 행 발생. evict가 record와 같은 트랜잭션 밖이면 경쟁 조건(better-sqlite3 동기라 저위험이나 트랜잭션으로 보장).",
+          "plan_issue": 5,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "ac07d41577b16f934",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T03:05:13.780Z",
+          "result": {
+            "outcome": "success",
+            "summary": "migration v4 + 2테이블 + storage 메서드 구현 완료. 후속 수정: schemaVersion 회귀로 storage-global.test.ts 기대값 3→4 갱신, storage 테스트 18 pass 0 fail.",
+            "artifacts": [
+              "src/main/infra/storage/migrations.ts",
+              "src/main/infra/storage/global-storage.ts",
+              "tests/unit/main/storage/storage-global.test.ts"
+            ],
+            "recorded_at": "2026-05-17T03:36:03.161Z"
+          }
+        },
+        {
+          "id": 2,
+          "title": "진입점 IPC 2채널 + shared zod 스키마",
+          "status": "completed",
+          "context": "대상: src/shared/ipc/contract.ts, 신규 src/shared/types/entry-points.ts, src/main IPC 핸들러. contract.ts는 기존 ChannelDefinition/call(zod) 패턴 사용. T1의 storage 메서드를 IPC로 노출.",
+          "acceptance": "렌더러에서 ipcCall로 두 채널의 모든 메서드 호출 가능. zod 스키마가 인자/반환 검증. record 호출이 T1 upsert+evict 동작과 일치. 시크릿 필드는 스키마에 없음. 기존 ssh.listConfigHosts 경로 불변.",
+          "approach": "신규 src/shared/types/entry-points.ts에 FolderBookmarkSchema, ConnectionProfileSchema, ConnectionProfileSaveArgsSchema(WorkspaceTestSshArgsSchema의 host/user/port/identityFile/authMode 필드 형태 재사용, remotePath 제외) 정의. contract.ts에 2채널 추가: folderBookmark{list, record, setFavorite, remove}, connectionProfile{list, save, record, setFavorite, remove}. main 프로세스에 핸들러를 T1의 storage 메서드에 연결. ~/.ssh/config는 기존 ssh.listConfigHosts로 별도 유지(통합 안 함).",
+          "risk": "ConnectionProfileSaveArgs에 remotePath가 섞이면 프로파일이 워크스페이스화됨 — 스키마에서 명시적 제외 필요.",
+          "plan_issue": 2,
+          "deps": [
+            1
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a3e6e9c6e1730851c",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T03:05:41.009Z",
+          "result": {
+            "outcome": "success",
+            "summary": "entry-points.ts 신규 zod 스키마(FolderBookmark·ConnectionProfile + mutation args, 시크릿 필드 없음, ConnectionProfileSaveArgs에 remotePath 없음). contract.ts에 folderBookmark·connectionProfile 채널 추가. main/features/entry-points/ipc.ts 신규 핸들러가 T1의 8개 storage 메서드에 직접 위임. main/index.ts에 채널 등록. 타입체크·린트 통과.",
+            "artifacts": [
+              "src/shared/types/entry-points.ts",
+              "src/shared/ipc/contract.ts",
+              "src/main/features/entry-points/ipc.ts",
+              "src/main/index.ts"
+            ],
+            "recorded_at": "2026-05-17T03:28:47.012Z"
+          }
+        },
+        {
+          "id": 3,
+          "title": "SSH 브라우즈 세션 — SshBrowseSessionRegistry + openBrowseSession/browseSession/closeBrowseSession IPC",
+          "status": "completed",
+          "context": "대상: src/main/features/ssh/(신규 registry + IPC 핸들러), src/shared/ipc/contract.ts. 연결 먼저→원격 디렉터리 브라우징(이슈3)을 위해 워크스페이스 생성 전 stateless하지 않은 모달 범위 SSH 세션이 필요. 기존 ensureRemoteAgent/ControlMaster/에이전트 채널·SshAuthPromptHub 재사용. 기존 testSsh는 connect-first 흐름에서 제거.",
+          "acceptance": "openBrowseSession이 ControlMaster를 1회 수립하고 sessionId 반환. browseSession이 같은 warm 채널로 디렉터리를 나열(부트스트랩 재수행 없음). interactive 인증이 필요한 호스트에서 SshAuthPromptHub 프롬프트가 렌더러로 정상 전달. closeBrowseSession·모달 종료·idle-TTL·렌더러 disconnect 어느 경로로든 ControlMaster가 누수 없이 정리됨. 거대 디렉터리에서도 단일 bounded 응답.",
+          "approach": "SshBrowseSessionRegistry(메인): openBrowseSession(connParams)이 ensureRemoteAgent로 ControlMaster 1회 부트스트랩(promptHandler=SshAuthPromptHub), 에이전트 채널 등록 후 {sessionId,initialPath} 반환(testSsh와 달리 dispose 안 함). browseSession(sessionId,path)은 등록된 warm 채널로 fs.readdir RPC, bounded 엔트리 반환(스트리밍 금지). closeBrowseSession(sessionId)이 채널+master dispose. 레지스트리는 idle-TTL reaper + 렌더러 disconnect 시 dispose 필수. 신규 IPC 에러는 SshErrorCode sanitized 매핑 경유(raw stderr 금지), 'ssh.session-expired' 코드 추가. contract.ts에 ssh 채널 3콜 추가(zod). 인증 PTY 타임아웃은 기존 authTimeoutMs 패턴 적용.",
+          "risk": "렌더러 크래시 시 세션 누수 — reaper와 disconnect dispose가 없으면 ControlMaster 잔존. 디렉터리 엔트리를 스트리밍하면 empirical-reconnecting-channel-backpressure의 무크레딧 드레인 경로 재현.",
+          "plan_issue": 3,
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a708cb0c8ed9d0515",
+            "resume_tier": "bounded"
+          },
+          "created_at": "2026-05-17T03:05:56.352Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SshBrowseSessionRegistry + IPC 3콜 구현 완료. 후속 수정: pipe.ts messageForSshErrorCode()에 ssh.session-expired 케이스 추가(빌드 차단 해소), openBrowseSessionHandler catch 경로에서 channel dispose(누수 수정). 타입체크 통과.",
+            "artifacts": [
+              "src/main/features/ssh/browse-session-registry.ts",
+              "src/main/features/ssh/ipc.ts",
+              "src/shared/ipc/contract.ts",
+              "src/shared/ssh/errors.ts",
+              "src/main/features/workspace/ipc.ts",
+              "src/main/index.ts",
+              "src/main/infra/agent/pipe.ts"
+            ],
+            "recorded_at": "2026-05-17T03:36:07.019Z"
+          }
+        },
+        {
+          "id": 4,
+          "title": "[검증] 진입점 영속 계층 + IPC — 마이그레이션·upsert·evict 런타임 테스트",
+          "status": "completed",
+          "context": "T1·T2 산출물의 런타임 동작 검증. 기존 storage 테스트 패턴(pattern-bun-mock-conventions, empirical-editor-view-component-test 참조 가능) 따름.",
+          "acceptance": "위 시나리오 전부 자동 테스트로 통과. evict 경계(20/21행)와 즐겨찾기 면제가 명확히 검증됨. 마이그레이션이 기존 데이터를 훼손하지 않음이 확인됨.",
+          "approach": "v4 마이그레이션을 신규 DB와 v3 기존 DB 양쪽에 적용해 테이블·인덱스 생성 확인. record 반복 호출로 upsert(동일 natural key 행 미증가, last_used_at 갱신) 검증. 비즐겨찾기 21행 삽입해 evict가 1행 제거·즐겨찾기 보존 확인. removeWorkspace 후 두 신규 테이블 무영향 확인. SSH null user/port 정규화로 중복 행 미발생 확인. IPC 채널 라운드트립 스모크.",
+          "plan_issue": 5,
+          "deps": [
+            1,
+            2
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "acc45eca6083e36fd",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-17T03:06:04.469Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T1+T2 검증 PASS. 신규 테스트 51건(storage-entry-points.test.ts) 작성·통과. v4 마이그레이션(신규·v3 위), upsert, evict 경계(20/21)·즐겨찾기 면제, removeWorkspace 비침투, SSH null 정규화, IPC 라운드트립·zod·시크릿 부재 전부 통과. 타입체크 0. INFO 3건(동일 ms evict 타이브레이크 부재, label upsert 미갱신, list 핸들러 validateArgs 미사용) — 비블로킹.",
+            "artifacts": [
+              "tests/unit/main/storage/storage-entry-points.test.ts"
+            ],
+            "recorded_at": "2026-05-17T03:44:42.104Z"
+          }
+        },
+        {
+          "id": 5,
+          "title": "[검증] SSH 브라우즈 세션 — 수명주기·누수·인증 검증",
+          "status": "completed",
+          "context": "T3 산출물 검증. SSH 관련 메모리(empirical-ssh-prototype-smoke, empirical-ssh-remote-terminal, empirical-reconnecting-channel-backpressure) 참조.",
+          "acceptance": "4가지 정리 경로 모두에서 ControlMaster 누수 0. 부트스트랩 재수행 없이 warm 채널 재사용 확인. 인증 프롬프트 라운드트립 정상. 에러 메시지에 raw stderr 미노출.",
+          "approach": "openBrowseSession→browseSession 다단계 호출 시 ControlMaster가 1회만 수립되는지 확인. closeBrowseSession/모달 종료/idle-TTL/렌더러 disconnect 각 경로로 master·채널이 정리되어 누수 없는지 확인. interactive 인증 호스트에서 프롬프트 전달·응답 경로 검증. session-expired 에러 시 폴백 동작 확인. 거대 디렉터리에서 단일 bounded 응답(스트리밍 아님) 확인.",
+          "plan_issue": 3,
+          "deps": [
+            3
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a30d8b7fe9a99e287",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-17T03:06:10.828Z",
+          "result": {
+            "outcome": "success",
+            "summary": "T3 재검증 PASS. 1차 FAIL 3건(빌드 차단·channel 누수·migration 테스트 회귀) 수정 후 전부 통과. SSH 단위테스트 79 pass, IPC contract+router 92 pass, 회귀 없음. 잔여 실패는 pre-existing 17건(Monaco/Radix env 등)만. Flagged: storage record* 2건이 전체 병렬 suite에서만 플래키 — T4 INFO의 동일-ms evict 타이브레이크 부재와 연관 가능, cycle 리뷰에서 판단.",
+            "artifacts": [],
+            "recorded_at": "2026-05-17T03:44:54.139Z"
+          }
+        },
+        {
+          "id": 6,
+          "title": "프론트엔드 — 모달 IA 셸 재구성(탭 + 뷰 컨테이너 + 가변 푸터 + 높이 잠금)",
+          "status": "completed",
+          "context": "대상: src/renderer/components/workspace/add-workspace-dialog.tsx. IA 구성안 B. 이후 Local/SSH 뷰 태스크의 골격. 디자인 시스템 계약(4pt, 라디우스 4단계, 그림자 없는 엘리베이션, app* 타입스케일, 색값 하드코딩 금지) 준수.",
+          "acceptance": "탭·뷰 전환이 동작하고 헤더·탭·푸터가 모든 뷰에서 고정. 푸터 4규칙대로 뷰별 버튼 구성이 바뀌어도 슬롯 위치·정렬·높이 불변. 빈 목록·긴 목록·디렉터리 피커 사이 모달 높이가 min-h~max-h 범위에서만 변하고 점프 없음. last-used 탭이 복원됨.",
+          "approach": "탭 바(Local/SSH) 최상위 고정. SSH 탭은 내부 3-뷰 스택(연결목록/새연결폼/디렉터리피커) 상태 머신, Local 탭은 단일 목록 뷰. 가변 푸터 4규칙 구현: 푸터는 현재 뷰가 소유, [secondary][primary] 2슬롯 우측정렬 높이고정, secondary=항상 Cancel, primary=전진 가능 시에만. 모달 콘텐츠 min-h(~480px) + max-h(min(640px,90vh)) + 본문만 overflow-y-auto(헤더·탭·푸터 sticky). 뷰 전환 200~500ms opacity/height 트랜지션, prefers-reduced-motion 존중. last-used 탭 복원(open 시 setTab 하드코딩 제거). 뷰 헤더의 ‹ Back 처리.",
+          "risk": "add-workspace-dialog.tsx를 T7·T8·T9가 순차 편집 — 동시 편집 금지, deps 체인으로 직렬화.",
+          "plan_issue": 5,
+          "deps": [
+            2
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7892345288ed7bd0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T03:06:25.016Z",
+          "result": {
+            "outcome": "success",
+            "summary": "add-workspace-dialog.tsx를 고정 헤더+탭+푸터 / 스크롤 본문 레이아웃으로 재구성. SSH 3-뷰 상태머신, 가변 푸터 4규칙([Cancel][Primary] 고정 슬롯, 목록 뷰엔 primary 없음), min-h 480/max-h 640 높이 잠금, 200ms opacity 전이(prefers-reduced-motion 존중), last-used 탭 sessionStorage 복원. T7/T8/T9용 뷰 컴포넌트 props 경계(LocalListViewProps/SshConnectionListViewProps/SshNewConnectionViewProps/SshDirectoryPickerViewProps) 정의. 주의: AddWorkspaceDialogContent export 제거됨 — 직접 import한 호출처 갱신 필요.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace-dialog.tsx"
+            ],
+            "recorded_at": "2026-05-17T03:36:12.060Z"
+          }
+        },
+        {
+          "id": 7,
+          "title": "프론트엔드 — Local 탭 목록 뷰(Recent/Favorites 폴더 북마크 + 즉시 열림)",
+          "status": "completed",
+          "context": "대상: src/renderer/components/workspace/add-workspace-dialog.tsx Local 탭. 기존 'Workspace folder' 안내 카드 제거. folderBookmark IPC(T2) 사용.",
+          "acceptance": "Local 탭 진입 시 Recent+Favorites 폴더 목록 표시. 행 클릭으로 즉시 워크스페이스 열림. 폴더 선택이 즉시 생성·열림 + Recents 적재. ★/🗑 동작. 빈 상태·로딩 상태가 빈 화면 없이 설계대로. 안내 카드 제거됨.",
+          "approach": "Favorites/Recent 섹션 + 'Open folder…' 액션 행. 행 클릭 → workspace.create 즉시 실행 후 모달 닫힘(푸터 확정 없음). 'Open folder…' → 네이티브 디렉터리 다이얼로그 → 선택 시 즉시 생성·열림 + folderBookmark.record. 행 우측 ★(승격, 형태 차이로 redundant encoding)·🗑(삭제) 아이콘 버튼(stopPropagation, ≥44×44 hit-area, aria-label). Recent 최대 5행 + 'Show all'. 빈 상태: 아이콘+안내+중앙 primary 'Open folder…'. 목록 데이터 로딩은 스켈레톤 행. 푸터는 Cancel만.",
+          "risk": "행 클릭과 ★/🗑 클릭 이벤트 충돌 — stopPropagation 필수.",
+          "plan_issue": 1,
+          "deps": [
+            2,
+            6
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7892345288ed7bd0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T03:06:35.707Z",
+          "result": {
+            "outcome": "success",
+            "summary": "LocalListViewPlaceholder를 실제 LocalListView로 교체. folderBookmark.list로 Favorites/Recent 2섹션, 행 클릭 시 workspace.create 즉시 실행+닫기, 'Open folder…' 행은 네이티브 다이얼로그→workspace.create+folderBookmark.record, ★/🗑 버튼 setFavorite/remove + 낙관적 업데이트, Recent 5행+Show all, 로딩 스켈레톤, 빈 상태 구현. 가변 푸터 R3(목록 뷰 primary 없음) 적용. AddWorkspaceDialogContent 외부 호출처 0건 확인. 타입체크 0, 린트 신규 에러 0.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace-dialog.tsx"
+            ],
+            "recorded_at": "2026-05-17T03:46:34.132Z"
+          }
+        },
+        {
+          "id": 8,
+          "title": "프론트엔드 — SSH 연결 목록 뷰 + 새 연결 폼(인증 토글·remote path 제거)",
+          "status": "completed",
+          "context": "대상: src/renderer/components/workspace/add-workspace-dialog.tsx SSH 탭의 연결목록·새연결폼 2뷰. connectionProfile IPC(T2)·ssh.listConfigHosts 사용. 기존 Authentication fieldset과 Remote path 입력칸 삭제.",
+          "acceptance": "SSH 탭 진입 시 연결 프로파일 목록 표시, 행 클릭으로 Connect 진입. 새 연결 폼에 인증 영역·Remote path 입력칸이 없음. config 후보가 보조 라벨로 구분됨. Connect 흐름의 idle/connecting/error 상태 처리. 미저장 폼 상태에서 탭 전환 시 확인.",
+          "approach": "연결 목록 뷰: Favorites/Recent 프로파일 섹션 + 행 우측 ★/🗑 + › chevron(드릴다운 예고) + '+ New connection…' 행. 행 클릭 → Connect 시작 → T9 디렉터리 피커. 빈 상태 동형. 푸터 Cancel만. 새 연결 폼: Host combobox(기존 자동완성 유지, ~/.ssh/config 후보는 'from ~/.ssh/config' 보조 라벨로 내부 프로파일과 구분) + Name + Advanced(Port·Identity file만). Authentication fieldset·SSH_AUTH_OPTIONS·Remote path 입력칸 완전 삭제. 폼은 카드 중첩 없이 평탄화(Advanced collapsible만 컨테이너). 푸터 [Cancel][Connect →], Connect는 host 미입력 시 disabled, connecting 시 스피너 라벨, 에러 시 Retry. Connect 성공 시 connectionProfile.record 후 T9 피커로 전이.",
+          "risk": "add-workspace-dialog.tsx 동일 파일을 T6→T7에 이어 편집 — deps로 직렬화. 기존 SSH 탭의 카드 남발을 그대로 답습하지 않도록 평탄화 주의.",
+          "plan_issue": 2,
+          "deps": [
+            2,
+            7
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7892345288ed7bd0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T03:06:47.283Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SSH 연결 목록 뷰(connectionProfile.list 기반 Favorites/Recent, 스켈레톤·빈상태·★/🗑·New connection 행) + 재설계 새 연결 폼(Remote path·Authentication fieldset 완전 삭제, Host combobox+Name+Advanced만, authMode 항상 interactive) 구현. Connect 액션은 openBrowseSession→connectionProfile.save→directory-picker 뷰 전이. 미저장 폼 탭전환 가드. 미사용 유틸(resolveSshWorkspaceDraft 등) 제거. 타입체크 0.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace-dialog.tsx"
+            ],
+            "recorded_at": "2026-05-17T03:52:06.410Z"
+          }
+        },
+        {
+          "id": 9,
+          "title": "프론트엔드 — SSH 원격 디렉터리 피커 뷰(드릴다운 + 경로바 + 스켈레톤/에러)",
+          "status": "completed",
+          "context": "대상: src/renderer/components/workspace/add-workspace-dialog.tsx SSH 탭 디렉터리 피커 뷰. T3의 브라우즈 세션 IPC 사용. Connect 성공 후 진입하는 V4.",
+          "acceptance": "Connect 성공 후 피커 뷰로 전이, 초기 cwd 표시. 드릴다운·경로바 직접입력 양쪽으로 경로 선택 가능. 로딩이 스켈레톤 행, 240px 영역이 기본/로딩/에러 3상태 모두 불변. 에러가 권한거부/연결끊김으로 구분 처리. Add Workspace가 선택 경로로 워크스페이스 생성 후 세션 정리.",
+          "approach": "상단 항상 편집가능 경로바(Path 라벨, 진입 시 포커스, 타이핑+Enter로 점프). 그 아래 고정 240px 단일 컬럼 드릴다운 목록(디렉터리 행 클릭=드릴다운, browseSession RPC). 지연 흡수: 드릴다운 시 스켈레톤 5~6행(generic 스피너 금지), 낙관적 경로바·비관적 목록, hover 150ms 프리페치(최대 1 동시, abort on hover-out, 세션 캐시), 연결 시 초기 cwd 프리페치, AbortController로 in-flight readdir 취소. 에러 240px 영역 내 인라인 카드로 목록 대체(높이 불변), '디렉터리 권한거부'(경로바 수정+Retry)와 '연결 끊김'(연결 뷰 복귀+재연결)을 구분. Empty(하위폴더 없음)는 'Use this folder' 허용. ‹ Back은 브라우즈 세션 유지. 푸터 [Cancel][Add Workspace], Add Workspace는 경로바가 유효 디렉터리일 때 활성 → workspace.create(ssh location = 프로파일+경로) 후 closeBrowseSession.",
+          "risk": "프리페치 폭주(빠른 마우스 스윕) — 150ms dwell + 최대 1 동시 + abort로 제한. 동일 파일 T8 이후 편집 — deps 직렬화.",
+          "plan_issue": 3,
+          "deps": [
+            3,
+            8
+          ],
+          "owner": {
+            "role": "engineer",
+            "agent_id": "a7892345288ed7bd0",
+            "resume_tier": "persistent"
+          },
+          "created_at": "2026-05-17T03:07:02.217Z",
+          "result": {
+            "outcome": "success",
+            "summary": "SshDirectoryPickerView 구현 — 편집가능 경로바+상위디렉터리 버튼, 고정 240px 목록 드릴다운, hover 프리페치(150ms+AbortController+세션캐시), 스켈레톤 로딩, session-expired vs 재시도 가능 에러 구분 인라인 처리, Add Workspace 액션, 언마운트 시 closeBrowseSession 정리. lint 위반 4건 자체 수정. 타입체크 클린. 참고: Back 시 브라우즈 세션 유지(설계대로) — Back 후 다른 연결 시 구 세션은 idle-TTL reaper(2분)가 정리.",
+            "artifacts": [
+              "src/renderer/components/workspace/add-workspace-dialog.tsx"
+            ],
+            "recorded_at": "2026-05-17T03:59:37.903Z"
+          }
+        },
+        {
+          "id": 10,
+          "title": "[검증] Add Workspace 모달 통합 — 전체 흐름·9상태·접근성",
+          "status": "completed",
+          "context": "T6~T9 프론트엔드 산출물의 통합 검증. designer 분석(plan #49 이슈5)의 CRITICAL 3건 포함.",
+          "acceptance": "양 탭 전체 흐름이 회귀 없이 동작. Empty/Loading/Error 상태가 모든 뷰에서 빈 화면·generic 스피너 없이 처리. 터치타겟·대비비 WCAG 기준 충족(대비는 실측값으로 보고). 푸터 규칙·높이 안정성 확인. 미충족 항목은 심각도와 함께 보고.",
+          "approach": "Local 흐름(목록→폴더선택→즉시열림)과 SSH 흐름(연결목록/새연결폼→Connect→디렉터리피커→Add Workspace) 전 경로 검증. 9개 인터랙션 상태 — 특히 Empty/Loading/Error를 양 탭에서 확인. 접근성: 행 내 ★/🗑/› 터치타겟 ≥44×44, ★/☆ 형태 기반 redundant encoding, muted-foreground 경로 텍스트의 본문 대비 ≥4.5:1을 실제 토큰 값으로 측정(라이트·다크 양 테마), 포커스 순서·aria-label·라이브 리전. 가변 푸터 4규칙 준수, 모달 높이 점프 없음. anti-pattern(카드 중첩) 점검. Playwright 활용 가능.",
+          "plan_issue": 5,
+          "deps": [
+            7,
+            8,
+            9
+          ],
+          "owner": {
+            "role": "tester",
+            "agent_id": "a304a8f8d1fb8f861",
+            "resume_tier": "ephemeral"
+          },
+          "created_at": "2026-05-17T03:07:11.755Z",
+          "result": {
+            "outcome": "success",
+            "summary": "통합 검증 재검증 PASS. 1차 FAIL 2건(가변 푸터 미준수·터치타겟 미달) + a11y 3건 수정 후 전면 통과. 가변 푸터 4규칙 준수, 터치타겟 ≥44, ARIA tabs/Advanced aria-controls 연결, 9상태, 높이 잠금, 대비비(3테마 ≥4.5:1) 검증. 타입체크 0, dialog 파일 lint 0, 테스트 44 pass, 전체 1629 pass/25 fail(25=pre-existing baseline, 회귀 없음). INFO 3건(비활성 탭 aria-controls, 인라인 콜백 재렌더, handleConnectProfile dead code) — 비블로킹.",
+            "artifacts": [
+              "tests/unit/renderer/components/workspace/add-workspace-dialog.test.tsx"
+            ],
+            "recorded_at": "2026-05-17T04:33:02.549Z"
+          }
+        }
+      ]
     }
   ]
 }

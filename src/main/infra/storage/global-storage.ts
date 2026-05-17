@@ -10,6 +10,85 @@ import {
 import { applyMigrations, type SqliteDb } from "./migrations";
 
 // ---------------------------------------------------------------------------
+// Entry-point persistence — folder_bookmarks + connection_profiles
+// ---------------------------------------------------------------------------
+
+/** Non-secret cap for recent (non-favorite) rows in each entry-point table. */
+const ENTRY_POINT_RECENT_CAP = 20;
+
+export interface FolderBookmark {
+  id: string;
+  absPath: string;
+  label: string | null;
+  favorite: boolean;
+  lastUsedAt: number;
+  createdAt: number;
+}
+
+export interface ConnectionProfile {
+  id: string;
+  label: string | null;
+  host: string;
+  /** Normalized: never null/undefined — defaults to the resolved login at write time. */
+  user: string;
+  /** Normalized: never null/undefined — defaults to 22 at write time. */
+  port: number;
+  identityFile: string | null;
+  authMode: string;
+  favorite: boolean;
+  lastUsedAt: number;
+  createdAt: number;
+}
+
+interface FolderBookmarkRow {
+  id: string;
+  abs_path: string;
+  label: string | null;
+  favorite: number;
+  last_used_at: number;
+  created_at: number;
+}
+
+interface ConnectionProfileRow {
+  id: string;
+  label: string | null;
+  host: string;
+  user: string;
+  port: number;
+  identity_file: string | null;
+  auth_mode: string;
+  favorite: number;
+  last_used_at: number;
+  created_at: number;
+}
+
+function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark {
+  return {
+    id: row.id,
+    absPath: row.abs_path,
+    label: row.label,
+    favorite: row.favorite === 1,
+    lastUsedAt: row.last_used_at,
+    createdAt: row.created_at,
+  };
+}
+
+function rowToConnectionProfile(row: ConnectionProfileRow): ConnectionProfile {
+  return {
+    id: row.id,
+    label: row.label,
+    host: row.host,
+    user: row.user,
+    port: row.port,
+    identityFile: row.identity_file,
+    authMode: row.auth_mode,
+    favorite: row.favorite === 1,
+    lastUsedAt: row.last_used_at,
+    createdAt: row.created_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Row type — mirrors workspaces table columns 1:1
 // ---------------------------------------------------------------------------
 
@@ -167,5 +246,150 @@ export class GlobalStorage {
 
   removeWorkspace(id: string): void {
     this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // folder_bookmarks
+  // -------------------------------------------------------------------------
+
+  listFolderBookmarks(): FolderBookmark[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM folder_bookmarks ORDER BY favorite DESC, last_used_at DESC`,
+      )
+      .all() as FolderBookmarkRow[];
+    return rows.map(rowToFolderBookmark);
+  }
+
+  /**
+   * Upsert a folder bookmark by its natural key (abs_path).
+   * Updates last_used_at on conflict. Evicts oldest non-favorite rows beyond
+   * ENTRY_POINT_RECENT_CAP in the same transaction.
+   */
+  recordFolderBookmark(params: {
+    id: string;
+    absPath: string;
+    label?: string | null;
+  }): void {
+    const now = Date.now();
+    const db = this.db;
+
+    // better-sqlite3 exposes .transaction(); the SqliteDb interface used in
+    // tests (bun:sqlite Database) also exposes .transaction() with the same
+    // synchronous semantics, so this cast is safe in both runtimes.
+    const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
+      () => {
+        db.prepare(
+          `INSERT INTO folder_bookmarks (id, abs_path, label, favorite, last_used_at, created_at)
+           VALUES (?, ?, ?, 0, ?, ?)
+           ON CONFLICT (abs_path) DO UPDATE SET last_used_at = excluded.last_used_at`,
+        ).run(params.id, params.absPath, params.label ?? null, now, now);
+
+        // Evict non-favorite rows beyond the cap (oldest first).
+        db.prepare(
+          `DELETE FROM folder_bookmarks
+           WHERE favorite = 0
+             AND id NOT IN (
+               SELECT id FROM folder_bookmarks
+               WHERE favorite = 0
+               ORDER BY last_used_at DESC
+               LIMIT ?
+             )`,
+        ).run(ENTRY_POINT_RECENT_CAP);
+      },
+    );
+    txn();
+  }
+
+  setFolderBookmarkFavorite(id: string, favorite: boolean): void {
+    this.db
+      .prepare(`UPDATE folder_bookmarks SET favorite = ? WHERE id = ?`)
+      .run(favorite ? 1 : 0, id);
+  }
+
+  removeFolderBookmark(id: string): void {
+    this.db.prepare(`DELETE FROM folder_bookmarks WHERE id = ?`).run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // connection_profiles
+  // -------------------------------------------------------------------------
+
+  listConnectionProfiles(): ConnectionProfile[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM connection_profiles ORDER BY favorite DESC, last_used_at DESC`,
+      )
+      .all() as ConnectionProfileRow[];
+    return rows.map(rowToConnectionProfile);
+  }
+
+  /**
+   * Upsert a connection profile by its natural key (host, user, port).
+   * Port defaults to 22 and user must be provided as a resolved login so the
+   * UNIQUE INDEX never sees null-distinct collisions.
+   * Updates last_used_at on conflict. Evicts oldest non-favorite rows beyond
+   * ENTRY_POINT_RECENT_CAP in the same transaction.
+   */
+  recordConnectionProfile(params: {
+    id: string;
+    label?: string | null;
+    host: string;
+    user: string;
+    port?: number | null;
+    identityFile?: string | null;
+    authMode?: string;
+  }): void {
+    const now = Date.now();
+    const db = this.db;
+
+    // Normalize to prevent null-distinct issues on the UNIQUE INDEX.
+    const normalizedPort = params.port ?? 22;
+    const normalizedUser = params.user;
+    const normalizedAuthMode = params.authMode ?? "interactive";
+
+    const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
+      () => {
+        db.prepare(
+          `INSERT INTO connection_profiles
+             (id, label, host, user, port, identity_file, auth_mode, favorite, last_used_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+           ON CONFLICT (host, user, port) DO UPDATE SET last_used_at = excluded.last_used_at`,
+        ).run(
+          params.id,
+          params.label ?? null,
+          params.host,
+          normalizedUser,
+          normalizedPort,
+          params.identityFile ?? null,
+          normalizedAuthMode,
+          now,
+          now,
+        );
+
+        // Evict non-favorite rows beyond the cap (oldest first).
+        db.prepare(
+          `DELETE FROM connection_profiles
+           WHERE favorite = 0
+             AND id NOT IN (
+               SELECT id FROM connection_profiles
+               WHERE favorite = 0
+               ORDER BY last_used_at DESC
+               LIMIT ?
+             )`,
+        ).run(ENTRY_POINT_RECENT_CAP);
+      },
+    );
+    txn();
+  }
+
+  setConnectionProfileFavorite(id: string, favorite: boolean): void {
+    this.db
+      .prepare(`UPDATE connection_profiles SET favorite = ? WHERE id = ?`)
+      .run(favorite ? 1 : 0, id);
+  }
+
+  removeConnectionProfile(id: string): void {
+    this.db.prepare(`DELETE FROM connection_profiles WHERE id = ?`).run(id);
   }
 }

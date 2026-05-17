@@ -53,7 +53,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("3");
+    expect(row?.value).toBe("4");
     db.close();
   });
 
@@ -65,7 +65,7 @@ describe("applyMigrations", () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
-    expect(row?.value).toBe("3");
+    expect(row?.value).toBe("4");
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
