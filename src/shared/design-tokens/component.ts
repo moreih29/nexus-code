@@ -82,6 +82,8 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-error-fg": tokens["state.error.fg"],
     "--state-error-border": tokens["state.error.border"],
     "--state-error-bg": tokens["state.error.bg"],
+    // Warning state (e.g. Caps Lock hint on the SSH password field)
+    "--state-warning-fg": tokens["state.warning.fg"],
     // Border / input / ring
     "--border": tokens["surface.chrome.border"],
     "--input": tokens["surface.chrome.border"],

@@ -366,7 +366,7 @@
   --state-error-fg: oklch(0.47 0.22 27);
   --state-error-border: oklch(0.47 0.22 27);
   --state-error-bg: rgba(160, 30, 20, 0.09);
-  --state-warning-fg: oklch(0.55 0.13 82);
+  --state-warning-fg: oklch(0.52 0.14 82);
   --border: rgba(50, 45, 30, 0.18);
   --input: rgba(50, 45, 30, 0.18);
   --ring: oklch(0.42 0.008 100);
